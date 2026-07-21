@@ -1,0 +1,32 @@
+/*
+ * [INPUT]: 依赖 web/app/layout.tsx 引入的全局样式入口
+ * [OUTPUT]: 对外提供 Recut 本地工作台的颜色、排版和响应式布局
+ * [POS]: web/app 的视觉基础层，服务于密集、重复使用的创作工作台
+ * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+ */
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-xs: 0.125rem;
+  --font-sans: Arial, "Noto Sans SC", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+:root { --background: oklch(0.985 0 0); --foreground: oklch(0.141 0.005 285.823); --card: oklch(1 0 0); --card-foreground: oklch(0.141 0.005 285.823); --primary: oklch(0.21 0.006 285.885); --primary-foreground: oklch(0.985 0 0); --muted: oklch(0.967 0.001 286.375); --muted-foreground: oklch(0.552 0.016 285.938); --border: oklch(0.92 0.004 286.32); --input: oklch(0.92 0.004 286.32); --ring: oklch(0.705 0.015 286.067); }
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body { @apply min-h-screen bg-background font-sans text-foreground antialiased; }
+}
