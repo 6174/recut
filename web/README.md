@@ -3,7 +3,7 @@
 > L2 | 父级: /README.md
 
 成员清单
-package.json: Next.js 工作台的独立依赖与开发命令。
+package.json: Next.js 工作台的独立依赖与开发命令，开发时以 polling 避免本机 watcher 耗尽。
 package-lock.json: 锁定前端依赖的可复现版本。
 next.config.ts: 前端构建配置。
 next-env.d.ts: Next.js 自动生成的 TypeScript 环境声明。

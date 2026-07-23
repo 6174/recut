@@ -5,6 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 @import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
 @import "tw-animate-css";
 
 @theme inline {

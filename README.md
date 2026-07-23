@@ -14,9 +14,9 @@ web/                       独立 Next.js 本地工作台，仅经 HTTP 调用 D
 Makefile                   根级开发、构建与验证命令入口
 ```
 
-运行 `cd service && go run .` 启动本机服务。当前 API 包括 `GET /health`、`GET /v1/apps`、`GET /v1/projects`、`POST /v1/projects` 与 `GET /v1/projects/{id}`。例如以 `recut.starter` 创建项目：`curl -X POST http://127.0.0.1:17373/v1/projects -H 'Content-Type: application/json' -d '{"name":"My project","appId":"recut.starter"}'`。
+运行 `cd service && go run .` 启动本机服务。当前 API 包括 `GET /health`、`GET /v1/apps`、项目 CRUD、`GET /v1/agents`（探测 Codex / Claude Code），以及通用终端会话的创建、输入、输出流、尺寸调整和终止；例如以 `recut.starter` 创建项目：`curl -X POST http://127.0.0.1:17373/v1/projects -H 'Content-Type: application/json' -d '{"name":"My project","appId":"recut.starter"}'`。
 
-开发时使用 `make help` 查看命令；`make dev` 同时启动本地 service 和 Web 工作台，`make check` 执行完整验证。
+开发时使用 `make help` 查看命令；`make dev` 同时启动本地 service 和 Web 工作台，`make service-dev` 会自动停止占用 17373 的旧 Recut Daemon（拒绝停止其他程序），`make check` 执行完整验证。
 
 ## 产品原则
 
@@ -45,16 +45,16 @@ Browser: local Recut workspace
   │ loopback HTTP / local session token
   ▼
 Web Workspace (Next.js)
-  ├─ App catalog and project launcher
+  ├─ Left workspace: project list and project detail
+  ├─ Right workspace: Daemon guidance, CLI detection and terminal sessions
   ├─ Workflow UI / timeline / asset browser
-  ├─ Terminal-style agent conversation
   └─ Local connection status and task progress
   │ localhost HTTP or WebSocket, capability-scoped token
   ▼
 Recut Daemon (single local binary)
   ├─ Project service: manifests, assets, snapshots, repair
   ├─ Job service: durable task queue and event stream
-  ├─ Agent gateway: Codex / Claude Code / Kimi adapters
+  ├─ Terminal gateway: 通用 PTY 包装层，承载 Codex / Claude Code / Kimi CLI
   ├─ Tool host: media, timeline, render, ASR, filesystem
   ├─ Local API: browser-facing HTTP/WebSocket server
   └─ Runtime manager: model binaries and optional workers
@@ -100,7 +100,7 @@ CLI 使用 **Go**。原因不是语言偏好，而是单文件分发、跨平台
 │   ├── data/                 validated App-specific source of truth
 │   ├── derived/              regenerable previews, indexes and intermediate media
 │   └── exports/              App-specific deliverables before promotion to core/
-├── sessions/                 agent conversations and tool-call traces
+├── sessions/                 项目内 agent conversations、terminal sessions 和 tool-call traces
 ├── state/events.jsonl        append-only task and mutation event log
 ├── snapshots/                point-in-time manifests and state snapshots
 └── logs/                     diagnostic logs, safe to delete after support export

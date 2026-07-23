@@ -137,6 +137,12 @@ func (s *Store) initialize(root string, project Project, app App) error {
 
 func (s *Store) projectsDir() string         { return filepath.Join(s.root, "projects") }
 func (s *Store) projectDir(id string) string { return filepath.Join(s.projectsDir(), id) }
+func (s *Store) terminalSessionsDir(id string) string {
+	return filepath.Join(s.projectDir(id), "sessions", "terminals")
+}
+func (s *Store) workspaceTerminalSessionsDir() string {
+	return filepath.Join(s.root, "sessions", "terminals")
+}
 
 func newID() (string, error) {
 	bytes := make([]byte, 12)

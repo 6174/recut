@@ -1,21 +1,28 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev service-dev service-test service-vet web-install web-dev web-build check
+.PHONY: help dev service-dev stop-stale-service service-test service-vet web-install web-dev web-build check
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 
 help: ## Show available development commands.
 	@awk 'BEGIN { FS = ":.*##"; printf "\nRecut development commands:\n" } /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-dev: ## Start the local service and web workspace together.
+dev: stop-stale-service ## Start the local service and web workspace together.
 	@set -e; \
 	GOCACHE=$(GOCACHE) go -C service run . & service_pid=$$!; \
 	( cd web && npm run dev ) & web_pid=$$!; \
 	trap 'kill $$service_pid $$web_pid 2>/dev/null || true' EXIT INT TERM; \
 	wait $$service_pid $$web_pid
 
-service-dev: ## Start only the loopback Go service on port 17373.
+stop-stale-service: ## Stop the stale Recut daemon on port 17373, never another application.
+	@port_pid="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
+	if [ -z "$$port_pid" ]; then exit 0; fi; \
+	recut_pid="$$(lsof -a -tiTCP:17373 -sTCP:LISTEN -c recut-service 2>/dev/null || true)"; \
+	if [ "$$port_pid" != "$$recut_pid" ]; then echo "Port 17373 is occupied by a non-Recut process (PID $$port_pid); refusing to stop it."; exit 1; fi; \
+	echo "Stopping stale Recut daemon (PID $$port_pid)."; kill "$$port_pid"
+
+service-dev: stop-stale-service ## Start only the loopback Go service on port 17373.
 	GOCACHE=$(GOCACHE) go -C service run .
 
 service-test: ## Run the service test suite.
