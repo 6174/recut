@@ -8,7 +8,7 @@ main.go: 解析运行参数并启动本机 Daemon。
 catalog.go: 加载和校验声明式 App 包及其 Project Layout Descriptor。
 project.go: 创建、列举和读取本地项目包，落实 core 与 App namespace 的边界。
 server.go: 提供仅限 loopback 的 App、项目、CLI 探测、终端 HTTP API 与本地工作台 CORS 边界。
-terminal.go: 通用 PTY 会话包装层，提供 CLI 启动、输入、尺寸调整、输出订阅、终止及项目内 transcript 持久化。
+terminal.go: 通用 PTY 会话包装层，提供 CLI 启动、输入、尺寸调整、输出订阅、终止、项目内 transcript 持久化与最新可读输出摘要。
 project_test.go: 验证项目创建时的平台核心与 App 私有文件结构。
 terminal_test.go: 验证终端会话的 append-only transcript 可在管理器重建后恢复。
 

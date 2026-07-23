@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的项目会话目录、creack/pty 的伪终端和标准库进程管理能力
- * [OUTPUT]: 对外提供 TerminalManager 及会话的启动、输入、尺寸、输出订阅、持久化和终止能力
+ * [OUTPUT]: 对外提供 TerminalManager 及会话的启动、输入、尺寸、输出订阅、最新消息摘要、持久化和终止能力
  * [POS]: service 的通用终端包装层；不理解 Codex、Claude 或任何具体 CLI 语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -30,14 +31,16 @@ type TerminalStart struct {
 }
 
 type TerminalSession struct {
-	ID        string     `json:"id"`
-	ProjectID string     `json:"projectId"`
-	Command   string     `json:"command"`
-	Args      []string   `json:"args"`
-	CWD       string     `json:"cwd"`
-	Running   bool       `json:"running"`
-	StartedAt time.Time  `json:"startedAt"`
-	ExitedAt  *time.Time `json:"exitedAt,omitempty"`
+	ID             string     `json:"id"`
+	ProjectID      string     `json:"projectId"`
+	Command        string     `json:"command"`
+	Args           []string   `json:"args"`
+	CWD            string     `json:"cwd"`
+	Running        bool       `json:"running"`
+	StartedAt      time.Time  `json:"startedAt"`
+	LastActivityAt *time.Time `json:"lastActivityAt,omitempty"`
+	LastMessage    string     `json:"lastMessage,omitempty"`
+	ExitedAt       *time.Time `json:"exitedAt,omitempty"`
 }
 
 type terminal struct {
@@ -45,6 +48,7 @@ type terminal struct {
 	pty            *os.File
 	sessionDir     string
 	transcriptPath string
+	previewBuffer  string
 	subscribers    map[uint64]chan string
 	nextSubID      uint64
 }
@@ -197,6 +201,9 @@ func (m *TerminalManager) recordOutput(current *terminal, chunk string) {
 		_, _ = file.WriteString(chunk)
 		_ = file.Close()
 	}
+	if m.recordPreview(current, chunk) {
+		_ = m.persist(current)
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, output := range current.subscribers {
@@ -207,11 +214,38 @@ func (m *TerminalManager) recordOutput(current *terminal, chunk string) {
 	}
 }
 
+func (m *TerminalManager) recordPreview(current *terminal, chunk string) bool {
+	lines, tail := terminalLines(current.previewBuffer + stripTerminalControlCodes(chunk))
+	current.previewBuffer = tail
+	if len(current.previewBuffer) > 512 {
+		current.previewBuffer = current.previewBuffer[len(current.previewBuffer)-512:]
+	}
+	if tail != "" {
+		lines = append(lines, tail)
+	}
+	message := latestMessage(lines)
+	if message == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if current.LastMessage == message {
+		return false
+	}
+	now := time.Now().UTC()
+	current.LastMessage = message
+	current.LastActivityAt = &now
+	return true
+}
+
 func (m *TerminalManager) persist(current *terminal) error {
-	if err := os.MkdirAll(current.sessionDir, 0o755); err != nil {
+	m.mu.RLock()
+	session, sessionDir := current.TerminalSession, current.sessionDir
+	m.mu.RUnlock()
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		return err
 	}
-	return writeProjectJSON(filepath.Join(current.sessionDir, "session.json"), current.TerminalSession)
+	return writeProjectJSON(filepath.Join(sessionDir, "session.json"), session)
 }
 
 func (m *TerminalManager) load() error {
@@ -248,9 +282,54 @@ func (m *TerminalManager) loadSessions(root string) error {
 		}
 		current.Running = false
 		current.transcriptPath = filepath.Join(current.sessionDir, "transcript.log")
+		if current.LastMessage == "" {
+			if transcript, err := os.ReadFile(current.transcriptPath); err == nil {
+				lines, tail := terminalLines(stripTerminalControlCodes(string(transcript)))
+				if tail != "" {
+					lines = append(lines, tail)
+				}
+				current.LastMessage = latestMessage(lines)
+			}
+		}
 		m.terminals[current.ID] = current
 	}
 	return nil
+}
+
+var ansiSequence = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\a]*(?:\a|\x1b\\))`)
+
+func stripTerminalControlCodes(value string) string {
+	value = ansiSequence.ReplaceAllString(value, "")
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || r >= 32 {
+			return r
+		}
+		return -1
+	}, value)
+}
+
+func terminalLines(value string) ([]string, string) {
+	parts := strings.Split(value, "\n")
+	if len(parts) == 1 {
+		return nil, parts[0]
+	}
+	return parts[:len(parts)-1], parts[len(parts)-1]
+}
+
+func latestMessage(lines []string) string {
+	for index := len(lines) - 1; index >= 0; index-- {
+		line := strings.Join(strings.Fields(strings.TrimSpace(lines[index])), " ")
+		if len([]rune(line)) < 3 || strings.HasPrefix(line, ">") || strings.HasPrefix(line, "$") || line == "[terminal exited]" || strings.Contains(strings.ToLower(line), "esc to interrupt") {
+			continue
+		}
+		if len([]rune(line)) > 180 {
+			return string([]rune(line)[:177]) + "..."
+		}
+		return line
+	}
+	return ""
 }
 
 func terminalSize(cols, rows uint16) (uint16, uint16) {

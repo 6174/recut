@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 TerminalManager 的通用 PTY 生命周期与临时文件系统
- * [OUTPUT]: 验证终端 transcript 在管理器重建后仍可恢复
+ * [OUTPUT]: 验证终端 transcript 与最新消息摘要在管理器重建后仍可恢复
  * [POS]: service 的终端会话持久化回归测试，保护浏览器重连与 Daemon 重启语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -54,5 +54,18 @@ func TestTerminalTranscriptSurvivesManagerRestart(t *testing.T) {
 	unsubscribe()
 	if !strings.Contains(history, "terminal-history") {
 		t.Fatalf("history = %q", history)
+	}
+	var restoredSession *TerminalSession
+	for _, candidate := range restored.List() {
+		if candidate.ID == session.ID {
+			restoredSession = &candidate
+			break
+		}
+	}
+	if restoredSession == nil {
+		t.Fatal("restored session not found")
+	}
+	if restoredSession.LastMessage != "terminal-history" {
+		t.Fatalf("last message = %q", restoredSession.LastMessage)
 	}
 }
