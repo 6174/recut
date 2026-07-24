@@ -4,6 +4,7 @@
 
 成员清单
 manifest.json: 唯一运行时配置，声明 B-roll 的 JS 入口、权限、App API 和 MCP 工具。
+AGENTS.md: Agent 操作契约，定义 Brief 与资源的调用顺序、持久化边界和跨 App 协作规则。
 background.js: 自行创建 briefs SQLite 表，并发布 `recut.vox.brief@1` Artifact；brief 不写入文件系统。
 ui/index.html: React/Vite 开发入口。
 ui/src/: B-roll 的 React UI 源码、宿主事件订阅与样式。
