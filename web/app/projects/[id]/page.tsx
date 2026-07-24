@@ -12,6 +12,7 @@ import { useParams } from "next/navigation";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
+import { SettingsPanel } from "@/components/settings-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 
 const apiBase = process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
@@ -93,7 +94,7 @@ export default function ProjectDetail() {
         <div aria-hidden="true" className="h-5 w-px bg-border" />
         <div className="min-w-0"><p className="truncate text-sm font-medium">{project?.name ?? "加载项目…"}</p><p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{project ? `${app?.manifest.name ?? project.appId} · v${project.appVersion} · ${project.id}` : "正在读取项目元信息"}</p></div>
       </div>
-      <div className="ml-4 flex shrink-0 items-center gap-2"><Badge>{app?.manifest.id ?? project?.appId ?? "APP"}</Badge><Badge>{online ? "LOCAL" : "OFFLINE"}</Badge></div>
+      <div className="ml-4 flex shrink-0 items-center gap-2"><Badge>{app?.manifest.id ?? project?.appId ?? "APP"}</Badge><Badge>{online ? "LOCAL" : "OFFLINE"}</Badge><SettingsPanel /></div>
     </header>
     <div className="relative grid min-h-0 flex-1 overflow-hidden [grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}>
       <section className="min-h-0 min-w-0 overflow-hidden border-r bg-card">
