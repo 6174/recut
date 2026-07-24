@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 React ref、effect 与浏览器 Pointer Event、localStorage API
- * [OUTPUT]: 对外提供 useResizableSidePanel hook，生成无重渲染拖动和持久化侧栏宽度的能力
+ * [OUTPUT]: 对外提供 useResizableSidePanel hook，生成无重渲染拖动、iframe 蒙层状态和持久化侧栏宽度的能力
  * [POS]: components 的工作台布局交互原语，被首页和项目详情页复用，不承载任何业务 UI
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -15,6 +15,7 @@ export function useResizableSidePanel({ storageKey, defaultWidth = 400, minWidth
   const widthRef = useRef(defaultWidth);
   const frameRef = useRef<number | null>(null);
   const [panelWidth, setPanelWidth] = useState(defaultWidth);
+  const [isDragging, setIsDragging] = useState(false);
 
   const clamp = (width: number) => Math.min(Math.max(minWidth, window.innerWidth - minMainWidth), Math.max(minWidth, width));
   const paint = (width: number) => { layoutRef.current?.style.setProperty("--side-panel-width", `${width}px`); };
@@ -36,6 +37,7 @@ export function useResizableSidePanel({ storageKey, defaultWidth = 400, minWidth
     const startWidth = widthRef.current;
     const previousUserSelect = document.body.style.userSelect;
     document.body.style.userSelect = "none";
+    setIsDragging(true);
     const move = (moveEvent: PointerEvent) => {
       const nextWidth = clamp(startWidth - (moveEvent.clientX - startX));
       widthRef.current = nextWidth;
@@ -46,6 +48,7 @@ export function useResizableSidePanel({ storageKey, defaultWidth = 400, minWidth
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
       document.body.style.userSelect = previousUserSelect;
+      setIsDragging(false);
       if (frameRef.current !== null) { window.cancelAnimationFrame(frameRef.current); frameRef.current = null; paint(widthRef.current); }
       setPanelWidth(widthRef.current);
       window.localStorage.setItem(storageKey, String(widthRef.current));
@@ -54,5 +57,5 @@ export function useResizableSidePanel({ storageKey, defaultWidth = 400, minWidth
     window.addEventListener("pointerup", stop, { once: true });
   };
 
-  return { handlePointerDown, layoutRef, panelWidth };
+  return { handlePointerDown, isDragging, layoutRef, panelWidth };
 }

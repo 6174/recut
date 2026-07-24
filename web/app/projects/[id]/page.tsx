@@ -24,7 +24,7 @@ export default function ProjectDetail() {
   const [app, setApp] = useState<App | null>(null);
   const [online, setOnline] = useState(false);
   const appFrame = useRef<HTMLIFrameElement>(null);
-  const { handlePointerDown, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.project-agent-panel-width" });
+  const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.project-agent-panel-width" });
 
   useEffect(() => {
     void (async () => {
@@ -99,6 +99,7 @@ export default function ProjectDetail() {
       <section className="min-h-0 min-w-0 overflow-hidden border-r bg-card">
         {uiURL ? <iframe className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={`${project?.name ?? "Recut"} App`} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">这个 App 没有声明项目 UI。</div>}
       </section>
+      {isDragging && <div aria-hidden="true" className="absolute inset-0 z-[5] cursor-col-resize" />}
       <button aria-label="拖动调整 Agent 面板宽度" className="group absolute inset-y-0 z-10 w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button>
       <ProjectAgentPanel apiBase={apiBase} online={online} projectID={project?.id ?? null} />
     </div>
