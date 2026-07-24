@@ -3,8 +3,8 @@
 > L2 | 父级: /web/README.md
 
 成员清单
-project-agent-panel.tsx: 项目工作台中的固定高度 Agent 对话侧栏；连续消息流承载工具状态与反馈操作，底部固定 Composer 发送后续请求。
-settings-panel.tsx: Header 右侧的设置入口与左右分栏面板，集中展示应用、CLI、Agent 和多模态配置的扩展位。
+project-agent-panel.tsx: 项目与素材库共用的固定高度 Agent 对话侧栏；用户消息、assistant 消息和去重后的工具调用按真实时间统一排序，形成交错的执行叙事；工具详情 hover 可见，反馈操作只属于完整 assistant 回复。
+settings-panel.tsx: Header 右侧的全局设置面板；管理多 Provider BYOK 凭据，并按图片、视频、语音用途选择已连接 Provider 下的模型。
 use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧直接更新 DOM，暴露拖动状态以遮蔽 iframe，松手后才持久化宽度，避免渲染拥塞或跨文档丢失指针事件。
 terminal-panel.tsx: 基于 xterm.js 的可恢复 CLI 终端面板，负责 Daemon 引导、CLI 探测、一键启动、失败反馈，以及展示最新输出摘要、只读历史与原生 Agent 恢复入口的会话浮层。
 vox-broll-workflow.tsx: Vox B-roll 纵向资源管理器，展示创作方向的 AI 候选版本，并在创建资源时以弹窗选择依赖和补充意图。

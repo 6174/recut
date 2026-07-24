@@ -28,10 +28,14 @@ func main() {
 	if err := store.Ensure(); err != nil {
 		log.Fatal(err)
 	}
+	if _, err := store.EnsureMediaSystemProject(); err != nil {
+		log.Fatal(err)
+	}
 	bridge := NewAgentBridge(store)
 	host := NewAppHost(apps, store)
+	media := NewMediaService(store)
 	if *mcpStdio {
-		if err := RunMCPStdio(bridge, host, os.Stdin, os.Stdout); err != nil {
+		if err := RunMCPStdio(bridge, host, media, os.Stdin, os.Stdout); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -42,7 +46,7 @@ func main() {
 	}
 	agents := NewAgentManager(store, bridge)
 	log.Printf("Recut local API listening on http://%s", *address)
-	log.Fatal(NewServer(apps, store, terminals, bridge, agents, host).ListenAndServe(*address))
+	log.Fatal(NewServer(apps, store, terminals, bridge, agents, host, media).ListenAndServe(*address))
 }
 
 func defaultDataDir() string {

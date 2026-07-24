@@ -1,90 +1,41 @@
 /*
- * [INPUT]: 依赖 React 状态/键盘事件能力、lucide-react 图标和 Badge 信息原子
- * [OUTPUT]: 对外提供 SettingsPanel，在 Header 中打开带分类导航的本地设置面板
- * [POS]: web/components 的工作台级设置入口；集中承载应用、CLI、Agent 与多模态配置的后续扩展
+ * [INPUT]: 依赖 Media Platform 的 Provider、Credential、Route HTTP API 与工作台 UI 原子组件
+ * [OUTPUT]: 对外提供全局设置面板，并在其中管理多 Provider BYOK 与用途模型配置
+ * [POS]: web/components 的工作台级设置入口；Provider 和模型选择的唯一用户配置界面
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, Bot, Image, Settings, TerminalSquare, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AppWindow, Bot, Image, Plus, Settings, TerminalSquare, X } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
+const apiBase = process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
 type SettingSection = "apps" | "cli" | "agents" | "multimodal";
-
-const sections: { id: SettingSection; label: string; icon: typeof AppWindow }[] = [
-  { id: "apps", label: "应用管理", icon: AppWindow },
-  { id: "cli", label: "本地 CLI", icon: TerminalSquare },
-  { id: "agents", label: "本地 Agent", icon: Bot },
-  { id: "multimodal", label: "多模态配置", icon: Image },
-];
-
-const details: Record<SettingSection, { title: string; description: string; items: { label: string; value: string; state?: string }[] }> = {
-  apps: {
-    title: "应用管理",
-    description: "管理安装到本地工作台的创作应用。",
-    items: [
-      { label: "已安装应用", value: "将在这里查看、启用和管理本地 App" },
-      { label: "应用来源", value: "本地 App 目录" },
-    ],
-  },
-  cli: {
-    title: "本地 CLI 程序",
-    description: "查看本机命令行工具版本；升级能力将在后续版本开放。",
-    items: [
-      { label: "Recut CLI", value: "版本检测将在后续版本接入", state: "即将推出" },
-      { label: "升级", value: "将支持检查与安装最新版本", state: "即将推出" },
-    ],
-  },
-  agents: {
-    title: "本地 Agent 配置",
-    description: "集中查看可用 Agent 的连接和运行状态。",
-    items: [
-      { label: "Codex", value: "状态检测将在后续版本接入", state: "待检测" },
-      { label: "Claude Code", value: "状态检测将在后续版本接入", state: "待检测" },
-      { label: "Gemini", value: "状态检测将在后续版本接入", state: "待检测" },
-    ],
-  },
-  multimodal: {
-    title: "多模态配置",
-    description: "为图像生成、音频和图片处理预留统一的设置入口。",
-    items: [
-      { label: "图像生成", value: "模型、尺寸和质量设置", state: "即将推出" },
-      { label: "音频", value: "配音、音乐和音效设置", state: "即将推出" },
-      { label: "图片", value: "导入与处理偏好设置", state: "即将推出" },
-    ],
-  },
-};
+type Model = { id: string; provider: string; name: string; capability: string; available: boolean };
+type Provider = { id: string; name: string; defaultApiBase: string; models: Model[] };
+type Credential = { id: string; name: string; provider: string };
+type Route = { id: string; capability: string; modelId: string; credentialId: string; enabled: boolean };
+const sections: { id: SettingSection; label: string; icon: typeof AppWindow }[] = [{ id: "apps", label: "应用管理", icon: AppWindow }, { id: "cli", label: "本地 CLI", icon: TerminalSquare }, { id: "agents", label: "本地 Agent", icon: Bot }, { id: "multimodal", label: "AI 服务商", icon: Image }];
+const capabilities = [{ id: "image.generate", label: "图片生成" }, { id: "video.generate", label: "视频生成" }, { id: "speech.generate", label: "文本转语音" }];
 
 export function SettingsPanel() {
-  const [open, setOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState<SettingSection>("apps");
-  const detail = details[activeSection];
+  const [open, setOpen] = useState(false); const [activeSection, setActiveSection] = useState<SettingSection>("apps");
+  useEffect(() => { if (!open) return; const close = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [open]);
+  return <><button aria-expanded={open} aria-haspopup="dialog" aria-label="打开设置" className="grid size-8 place-items-center rounded-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={() => setOpen(true)} title="设置" type="button"><Settings className="size-4" /></button>{open && <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/20 p-6 backdrop-blur-[1px]" onMouseDown={() => setOpen(false)} role="dialog"><section className="grid h-[min(680px,calc(100vh-3rem))] w-full max-w-5xl overflow-hidden rounded-sm border bg-card shadow-2xl [grid-template-columns:216px_minmax(0,1fr)]" onMouseDown={(event) => event.stopPropagation()}><nav aria-label="设置分类" className="border-r bg-muted/40 p-4"><div className="mb-7 px-2 pt-1"><p className="font-mono text-[10px] tracking-wide text-muted-foreground">RECUT</p><p className="mt-1.5 text-sm font-semibold">设置</p></div><div className="space-y-1">{sections.map((section) => { const Icon = section.icon; return <button className={`flex h-9 w-full items-center gap-2.5 rounded-xs px-3 text-left text-xs ${activeSection === section.id ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`} key={section.id} onClick={() => setActiveSection(section.id)} type="button"><Icon className="size-3.5" />{section.label}</button>; })}</div></nav><div className="min-w-0 overflow-y-auto p-8"><div className="flex items-start justify-between border-b pb-6"><div><h2 className="text-lg font-semibold">{activeSection === "multimodal" ? "AI 服务商" : sections.find((section) => section.id === activeSection)?.label}</h2><p className="mt-1.5 text-sm text-muted-foreground">{activeSection === "multimodal" ? "连接多个 Provider，用其模型配置各项生成用途。密钥只在本机加密保存。" : "此设置将在后续版本开放。"}</p></div><button aria-label="关闭设置" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={() => setOpen(false)} type="button"><X className="size-4" /></button></div>{activeSection === "multimodal" ? <ProviderSettings /> : <div className="grid min-h-80 place-items-center text-xs text-muted-foreground">即将推出</div>}</div></section></div>}</>;
+}
 
-  useEffect(() => {
-    if (!open) return;
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [open]);
-
-  return <>
-    <button aria-expanded={open} aria-haspopup="dialog" aria-label="打开设置" className="grid size-8 place-items-center rounded-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" onClick={() => setOpen(true)} title="设置" type="button"><Settings className="size-4" /></button>
-    {open && <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/20 p-6 backdrop-blur-[1px]" onMouseDown={() => setOpen(false)} role="dialog">
-      <section aria-labelledby="settings-title" className="grid h-[min(620px,calc(100vh-3rem))] w-full max-w-4xl overflow-hidden rounded-sm border bg-card shadow-2xl [grid-template-columns:216px_minmax(0,1fr)]" onMouseDown={(event) => event.stopPropagation()}>
-        <nav aria-label="设置分类" className="border-r bg-muted/40 p-4">
-          <div className="mb-7 px-2 pt-1"><p className="font-mono text-[10px] tracking-wide text-muted-foreground">RECUT</p><p className="mt-1.5 text-sm font-semibold">设置</p></div>
-          <div className="space-y-1">{sections.map((section) => {
-            const Icon = section.icon;
-            return <button className={`flex h-9 w-full items-center gap-2.5 rounded-xs px-3 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 ${activeSection === section.id ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`} key={section.id} onClick={() => setActiveSection(section.id)} type="button"><Icon className="size-3.5" />{section.label}</button>;
-          })}</div>
-        </nav>
-        <div className="min-w-0 overflow-y-auto p-8">
-          <div className="flex items-start justify-between gap-4 border-b pb-6"><div><h2 className="text-lg font-semibold" id="settings-title">{detail.title}</h2><p className="mt-1.5 text-sm leading-6 text-muted-foreground">{detail.description}</p></div><button aria-label="关闭设置" className="-mr-2 -mt-2 grid size-8 place-items-center rounded-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" onClick={() => setOpen(false)} type="button"><X className="size-4" /></button></div>
-          <div className="divide-y">{detail.items.map((item) => <div className="flex min-h-20 items-center justify-between gap-5 py-5" key={item.label}><div><p className="text-sm font-medium">{item.label}</p><p className="mt-1.5 text-xs text-muted-foreground">{item.value}</p></div>{item.state && <Badge className="shrink-0">{item.state}</Badge>}</div>)}</div>
-        </div>
-      </section>
-    </div>}
-  </>;
+function ProviderSettings() {
+  const [providers, setProviders] = useState<Provider[]>([]); const [credentials, setCredentials] = useState<Credential[]>([]); const [routes, setRoutes] = useState<Route[]>([]); const [adding, setAdding] = useState(false); const [providerID, setProviderID] = useState("atlas-cloud"); const [name, setName] = useState(""); const [apiBaseValue, setAPIBaseValue] = useState(""); const [apiKey, setAPIKey] = useState(""); const [message, setMessage] = useState("");
+  async function load() { const [providerResponse, credentialResponse, routeResponse] = await Promise.all([fetch(`${apiBase}/v1/media/providers`), fetch(`${apiBase}/v1/media/credentials`), fetch(`${apiBase}/v1/media/routes`)]); if (providerResponse.ok) setProviders(await providerResponse.json()); if (credentialResponse.ok) setCredentials(await credentialResponse.json()); if (routeResponse.ok) setRoutes(await routeResponse.json()); }
+  useEffect(() => { void load(); }, []);
+  const provider = providers.find((item) => item.id === providerID);
+  function selectProvider(id: string) { const next = providers.find((item) => item.id === id); setProviderID(id); setAPIBaseValue(next?.defaultApiBase ?? ""); }
+  async function addProvider(event: FormEvent) { event.preventDefault(); const response = await fetch(`${apiBase}/v1/media/credentials`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: providerID, name: name || provider?.name || providerID, apiBase: apiBaseValue, apiKey }) }); if (!response.ok) { setMessage("无法连接 Provider，请检查密钥与地址。"); return; } setAdding(false); setName(""); setAPIKey(""); setMessage("Provider 已连接。"); await load(); }
+  async function chooseModel(capability: string, modelID: string) { const model = providers.flatMap((item) => item.models).find((item) => item.id === modelID); const credential = credentials.find((item) => item.provider === model?.provider); if (!model || !credential) { setMessage("先连接这个模型所属的 Provider。"); return; } const response = await fetch(`${apiBase}/v1/media/routes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: `${capability}.default`, capability, modelId: modelID, credentialId: credential.id, enabled: true }) }); if (!response.ok) { setMessage("无法保存用途模型。"); return; } setMessage("用途模型已更新。"); await load(); }
+  const connectedProviders = new Set(credentials.map((credential) => credential.provider));
+  return <div className="pt-6"><section><div className="flex items-center justify-between"><div><p className="text-sm font-medium">已连接服务商</p><p className="mt-1 text-xs text-muted-foreground">一个 Provider 可以保存多把独立的 BYOK Key。</p></div><Button className="size-8 px-0" onClick={() => setAdding((value) => !value)} title="添加服务商" type="button" variant="outline"><Plus className="size-4" /></Button></div>{credentials.length ? <div className="mt-4 grid gap-2 sm:grid-cols-2">{credentials.map((credential) => <div className="flex items-center justify-between rounded-xs border p-3" key={credential.id}><div><p className="text-xs font-medium">{credential.name}</p><p className="mt-1 font-mono text-[10px] text-muted-foreground">{providers.find((item) => item.id === credential.provider)?.name ?? credential.provider}</p></div><Badge>CONNECTED</Badge></div>)}</div> : <div className="mt-4 grid min-h-24 place-items-center rounded-xs border border-dashed text-xs text-muted-foreground">添加服务商后，可以使用自己的凭证，并为不同用途选择模型。</div>}{adding && <form className="mt-4 grid gap-3 rounded-xs border bg-muted/30 p-4 sm:grid-cols-2" onSubmit={addProvider}><select className="h-9 rounded-xs border bg-background px-2 text-xs" onChange={(event) => selectProvider(event.target.value)} value={providerID}>{providers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><Input onChange={(event) => setName(event.target.value)} placeholder="凭据名称" value={name} /><Input onChange={(event) => setAPIBaseValue(event.target.value)} placeholder="API Base URL" value={apiBaseValue} /><Input onChange={(event) => setAPIKey(event.target.value)} placeholder="API Key" type="password" value={apiKey} /><Button className="sm:col-span-2" disabled={!apiKey.trim()} type="submit">连接 Provider</Button></form>}</section><section className="mt-8"><p className="text-sm font-medium">模型用途配置</p><p className="mt-1 text-xs text-muted-foreground">Agent 会根据此处选择的模型与参数契约生成内容；未指定用途时不允许猜测模型。</p><div className="mt-4 overflow-hidden rounded-xs border"><div className="grid grid-cols-[150px_1fr] border-b bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground"><span>用途</span><span>模型</span></div>{capabilities.map((capability) => { const route = routes.find((item) => item.capability === capability.id); const available = providers.filter((item) => connectedProviders.has(item.id)).flatMap((item) => item.models).filter((model) => model.capability === capability.id); return <div className="grid grid-cols-[150px_1fr] items-center border-b px-3 py-3 last:border-b-0" key={capability.id}><span className="text-xs font-medium">{capability.label}</span><select className="h-9 min-w-0 rounded-xs border bg-background px-2 text-xs" onChange={(event) => void chooseModel(capability.id, event.target.value)} value={route?.modelId ?? ""}><option value="">选择模型</option>{available.map((model) => <option disabled={!model.available} key={model.id} value={model.id}>{model.name}{model.available ? "" : " · 即将接入"}</option>)}</select></div>; })}</div></section>{message && <p className="mt-4 text-xs text-muted-foreground">{message}</p>}</div>;
 }

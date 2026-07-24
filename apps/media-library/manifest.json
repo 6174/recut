@@ -1,0 +1,10 @@
+{
+  "manifestVersion": 1,
+  "id": "recut.media-library",
+  "name": "素材库",
+  "version": "1.0.0",
+  "type": "project",
+  "background": "background.js",
+  "ui": { "projectView": "ui/index.html" },
+  "permissions": []
+}

@@ -468,12 +468,64 @@ func isCodexTool(kind string) bool {
 }
 
 func codexToolPayload(item map[string]any, kind string) map[string]any {
-	label := map[string]string{"command_execution": "运行命令", "file_change": "修改文件", "mcp_tool_call": "调用 Recut 工具", "web_search": "搜索网络"}[kind]
 	id, _ := item["id"].(string)
 	if id == "" {
 		id = kind
 	}
-	return map[string]any{"toolCallId": id, "tool": kind, "label": label}
+	name, detail := codexToolSummary(item, kind)
+	label := toolLabel(kind, name, item)
+	return map[string]any{"toolCallId": id, "tool": kind, "label": label, "toolName": name, "detail": detail}
+}
+
+func toolLabel(kind, name string, item map[string]any) string {
+	if kind != "mcp_tool_call" || name == "" {
+		return map[string]string{"command_execution": "运行命令", "file_change": "修改文件", "mcp_tool_call": "MCP 工具调用", "web_search": "搜索网络"}[kind] + toolLabelSuffix(name)
+	}
+	labels := map[string]string{
+		"recut.project_context":     "读取 Recut 项目上下文",
+		"recut.media.configuration": "读取媒体模型配置",
+		"recut.media.generate":      "提交媒体生成任务",
+		"recut.media.get_job":       "查询媒体生成进度",
+		"recut.media.list_assets":   "读取素材库",
+		"recut.media.attach":        "将素材关联到项目",
+	}
+	if label, ok := labels[name]; ok {
+		return label
+	}
+	return "调用 " + name
+}
+func toolLabelSuffix(name string) string {
+	if name == "" {
+		return ""
+	}
+	return " · " + name
+}
+
+func codexToolSummary(item map[string]any, kind string) (string, string) {
+	keys := map[string][]string{
+		"mcp_tool_call":     {"server", "tool", "tool_name", "name", "arguments", "input", "result", "output", "error"},
+		"command_execution": {"command", "cmd", "exit_code", "aggregated_output"},
+		"file_change":       {"path", "changes", "summary"},
+		"web_search":        {"query", "search_query", "results"},
+	}[kind]
+	values := map[string]any{}
+	name := ""
+	for _, key := range keys {
+		value, ok := item[key]
+		if !ok {
+			continue
+		}
+		values[key] = value
+		if name == "" && (key == "tool" || key == "tool_name" || key == "name" || key == "command" || key == "cmd" || key == "query") {
+			name = fmt.Sprint(value)
+		}
+	}
+	data, _ := json.Marshal(values)
+	detail := string(data)
+	if len(detail) > 800 {
+		detail = detail[:800] + "…"
+	}
+	return name, detail
 }
 
 func (m *AgentManager) addAssistantTurn(sessionID, text string) {

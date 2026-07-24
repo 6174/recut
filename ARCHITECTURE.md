@@ -14,7 +14,8 @@ Recut Daemon / Capability Host
 ├── file sandbox        ctx.files
 ├── Artifact registry   ctx.artifacts.publish
 ├── App API broker      recut.apps（下一步）
-└── MCP Host            manifest.mcp → background.js
+├── Media Platform      asset registry / encrypted BYOK / routes / jobs
+└── MCP Host            recut.media.* + manifest.mcp → background.js
         │
         ▼
 Agent Session Host
@@ -41,6 +42,10 @@ App package
 ```
 
 `AGENTS.md` 是当前已实现的自动注入层。`references/` 与 `scripts/` 的目标是支持类似 vox-director 的复杂制作 App：参考材料有可追溯 ID，脚本有参数 schema、产物和执行记录；Agent 不获得“随便运行包内脚本”的模糊权限。
+
+## Media Platform
+
+媒体资源是工作区级 Asset，不属于任一 App 的私有文件夹。`MediaService` 的 Provider Registry 声明每个平台的协议、默认 API Base 和模型目录；BYOK 凭据属于 Provider，Route 必须选择同一 Provider 下的具体模型。全局 SettingsPanel 负责“连接 Provider → 选择用途模型”，素材库不重复配置。`workspace.sqlite` 保存 Asset 元数据、项目引用、生成任务、能力 Route 和加密后的 BYOK 凭据；内容文件以哈希落入受控媒体根。素材库内部有一个不可见的系统项目，仅为复用现有 Agent/MCP 会话边界；左侧浏览资产，右侧 Agent 先读取 `recut.media.configuration` 获得已选模型的必需输入与可选参数，再调用 `recut.media.generate`。App 仅消费稳定的 `assetId`，可在自身 Artifact 中保存该引用。Atlas Cloud 作为 OpenAI-compatible 聚合 Provider，模型目录含 GPT Image、Seedream、Seedance、Grok 和 xAI TTS；首个执行适配器覆盖其图片模型，视频与语音会复用相同任务与 Asset 契约。
 
 ## B-roll 案例
 

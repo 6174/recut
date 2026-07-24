@@ -25,10 +25,11 @@ type Server struct {
 	bridge    *AgentBridge
 	agents    *AgentManager
 	host      *AppHost
+	media     *MediaService
 }
 
-func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, agents *AgentManager, host *AppHost) *Server {
-	return &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host}
+func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, agents *AgentManager, host *AppHost, media *MediaService) *Server {
+	return &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host, media: media}
 }
 
 func (s *Server) ListenAndServe(address string) error {
@@ -46,6 +47,20 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/projects", s.createProject)
 	mux.HandleFunc("GET /v1/projects/{id}", s.getProject)
 	mux.HandleFunc("GET /v1/projects/{id}/artifacts", s.listArtifacts)
+	mux.HandleFunc("GET /v1/media/models", s.listMediaModels)
+	mux.HandleFunc("GET /v1/media/system-project", s.getMediaSystemProject)
+	mux.HandleFunc("GET /v1/media/providers", s.listMediaProviders)
+	mux.HandleFunc("GET /v1/media/configuration", s.listMediaConfiguration)
+	mux.HandleFunc("GET /v1/media/credentials", s.listMediaCredentials)
+	mux.HandleFunc("POST /v1/media/credentials", s.saveMediaCredential)
+	mux.HandleFunc("GET /v1/media/routes", s.listMediaRoutes)
+	mux.HandleFunc("POST /v1/media/routes", s.saveMediaRoute)
+	mux.HandleFunc("GET /v1/media/assets", s.listMediaAssets)
+	mux.HandleFunc("GET /v1/media/assets/{id}", s.getMediaAsset)
+	mux.HandleFunc("GET /v1/media/assets/{id}/content", s.getMediaAssetContent)
+	mux.HandleFunc("POST /v1/media/assets/{id}/attach", s.attachMediaAsset)
+	mux.HandleFunc("POST /v1/media/jobs", s.createMediaJob)
+	mux.HandleFunc("GET /v1/media/jobs/{id}", s.getMediaJob)
 	mux.HandleFunc("POST /v1/projects/{id}/apps/{appID}/api/{name}", s.invokeAppAPI)
 	mux.HandleFunc("GET /v1/events", s.projectEventsWS)
 	mux.HandleFunc("POST /v1/projects/{id}/agent-tasks", s.startAgentTask)

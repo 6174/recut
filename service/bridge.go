@@ -148,7 +148,7 @@ You are working inside a Recut project through its MCP Host.
 ## Required turn protocol
 
 1. Call recut.project_context before reasoning about project state.
-2. Call tools/list before selecting an App tool.
+2. Call tools/list before selecting an App tool. Before generating media, call recut.media.configuration and use only its configured model contract.
 3. Use only Recut MCP tools for project data; do not inspect or edit project files directly.
 4. State what you learned from the tool result. Report Artifact IDs after creation.
 

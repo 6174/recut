@@ -5,7 +5,8 @@
 成员清单
 layout.tsx: 工作台 HTML 外壳与全局元数据。
 page.tsx: 固定桌面双栏本地工作台；Header 右侧提供设置入口，左侧项目管理可独立滚动，右侧 Agent 对话栏可拖拽调宽并持久化宽度。
+media/: 平台级素材库系统应用；左侧按类型管理跨项目媒体资产，右侧复用标准 Agent 会话；Provider 和用途模型仅在全局设置中配置。
 projects/[id]/page.tsx: 固定桌面项目详情路由；Header 展示项目元信息与设置入口，左侧全高 iframe 承载 App UI，右侧为独立滚动且可拖拽调宽、持久化宽度的 Agent 对话栏。
-globals.css: 工作台的全局设计 token：暖纸白表面、石墨内容、墨蓝操作，以及状态色、圆角、阴影与基础排版。
+globals.css: 工作台的全局设计 token：白色画布、黑色内容、明亮品牌绿操作，以及状态色、圆角、阴影与基础排版。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

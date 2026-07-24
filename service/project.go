@@ -23,6 +23,8 @@ import (
 )
 
 const formatVersion = 2
+const mediaSystemProjectID = "media-library"
+const mediaSystemAppID = "recut.media-library"
 
 type Project struct {
 	ID            string    `json:"id"`
@@ -86,6 +88,27 @@ func (s *Store) Create(input CreateInput) (Project, error) {
 	return project, nil
 }
 
+// EnsureMediaSystemProject creates the hidden project scope used by the
+// workspace-level Media Library. It reuses the regular Agent/MCP boundary
+// without making a system app look like user-created work.
+func (s *Store) EnsureMediaSystemProject() (Project, error) {
+	if project, err := s.Get(mediaSystemProjectID); err == nil {
+		return project, nil
+	}
+	app, ok := s.catalog.Get(mediaSystemAppID)
+	if !ok {
+		return Project{}, fmt.Errorf("media system app is unavailable")
+	}
+	project := Project{ID: mediaSystemProjectID, Name: "素材库", AppID: app.Manifest.ID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: time.Now().UTC()}
+	if err := os.MkdirAll(s.projectDir(project.ID), 0o755); err != nil {
+		return Project{}, err
+	}
+	if err := s.initialize(s.projectDir(project.ID), project); err != nil {
+		return Project{}, err
+	}
+	return project, nil
+}
+
 func (s *Store) List() ([]Project, error) {
 	entries, err := os.ReadDir(s.projectsDir())
 	if err != nil {
@@ -94,6 +117,9 @@ func (s *Store) List() ([]Project, error) {
 	projects := []Project{}
 	for _, entry := range entries {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		if entry.Name() == mediaSystemProjectID {
 			continue
 		}
 		if project, err := s.Get(entry.Name()); err == nil {
@@ -152,6 +178,10 @@ func (s *Store) WorkspaceDatabase() (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, err := db.Exec("pragma busy_timeout = 5000"); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := os.Chmod(path, 0o600); err != nil && !os.IsNotExist(err) {
 		_ = db.Close()
 		return nil, err
@@ -173,6 +203,32 @@ create table if not exists agent_events (
 create index if not exists agent_sessions_updated on agent_sessions(profile_id, updated_at desc);
 create index if not exists agent_turns_session on agent_turns(session_id, created_at);
 create index if not exists agent_events_session on agent_events(session_id, id);
+create table if not exists media_credentials (
+  id text primary key, provider text not null, name text not null, api_base text not null,
+  secret_ciphertext text not null, created_at text not null, updated_at text not null
+);
+create table if not exists media_routes (
+  id text primary key, capability text not null unique, model_id text not null,
+  credential_id text not null, enabled integer not null, updated_at text not null
+);
+create table if not exists media_assets (
+  id text primary key, kind text not null, name text not null, mime_type text not null,
+  size_bytes integer not null, content_hash text not null, origin text not null,
+  parent_id text not null, metadata_json text not null, created_at text not null
+);
+create table if not exists media_asset_projects (
+  asset_id text not null, project_id text not null, created_at text not null,
+  primary key (asset_id, project_id)
+);
+create table if not exists media_jobs (
+  id text primary key, idempotency_key text not null unique, capability text not null,
+  status text not null, prompt text not null, model_id text not null, credential_id text not null,
+  project_id text not null, reference_ids_json text not null, output_json text not null,
+  asset_ids_json text not null, error text not null, created_at text not null, updated_at text not null
+);
+create index if not exists media_assets_created on media_assets(created_at desc);
+create index if not exists media_asset_projects_project on media_asset_projects(project_id, created_at desc);
+create index if not exists media_jobs_updated on media_jobs(updated_at desc);
 `)
 	if err != nil {
 		_ = db.Close()

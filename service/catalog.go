@@ -99,6 +99,9 @@ func (c *Catalog) Get(id string) (App, bool) { app, ok := c.apps[id]; return app
 func (c *Catalog) List() []App {
 	apps := make([]App, 0, len(c.apps))
 	for _, app := range c.apps {
+		if app.Manifest.ID == mediaSystemAppID {
+			continue
+		}
 		apps = append(apps, app)
 	}
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Manifest.ID < apps[j].Manifest.ID })
