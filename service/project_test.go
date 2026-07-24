@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖本目录 Catalog 加载能力和 Store 的本地项目创建能力
- * [OUTPUT]: 验证平台核心状态与 App 私有状态按 Project Layout Descriptor 初始化
- * [POS]: service 的项目格式回归测试，防止 App 状态越过 namespace 边界
+ * [INPUT]: 依赖 Store 的项目创建、App SQLite 与文件 sandbox capability
+ * [OUTPUT]: 验证平台只提供资源，不规定 App 的数据布局
+ * [POS]: service 的项目存储回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -12,14 +12,13 @@ import (
 	"testing"
 )
 
-func TestCreateBuildsCoreAndAppNamespaces(t *testing.T) {
+func TestProjectProvidesAppStorageWithoutProjectLayout(t *testing.T) {
 	root := t.TempDir()
-	appsDir := filepath.Join(root, "apps", "example")
-	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, filepath.Join(appsDir, "manifest.json"), `{"id":"example.app","name":"Example","version":"1.0.0"}`)
-	writeTestFile(t, filepath.Join(appsDir, "project-layout.json"), `{"version":1,"files":[{"path":"data/model.json","schema":"schemas/model.json","kind":"source"},{"path":"derived/preview.json","kind":"derived"}]}`)
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"permissions":["sqlite","files"]}`)
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
 	if err != nil {
 		t.Fatal(err)
@@ -28,25 +27,42 @@ func TestCreateBuildsCoreAndAppNamespaces(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	created, err := store.Create(CreateInput{Name: "Test", AppID: "example.app"})
+	project, err := store.Create(CreateInput{Name: "Test", AppID: "example.app"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectRoot := filepath.Join(root, "data", "projects", created.ID)
-	for _, path := range []string{"recut.json", "core/assets.json", "core/exports.json", "state/events.jsonl", "apps/example.app/app.json", "apps/example.app/data/model.json"} {
-		if _, err := os.Stat(filepath.Join(projectRoot, path)); err != nil {
-			t.Fatalf("expected %s: %v", path, err)
-		}
-	}
-	state, err := store.ReadAppSourceState(created.ID, "data/model.json")
+	db, err := store.AppDatabase(project.ID, "example.app")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := state.(map[string]any); !ok {
-		t.Fatalf("source state = %#v", state)
+	defer db.Close()
+	if _, err := db.Exec("create table notes (value text)"); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := store.ReadAppSourceState(created.ID, "data/private.json"); err == nil {
-		t.Fatal("undeclared source state was readable")
+	files, err := store.AppFilesRoot(project.ID, "example.app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(files); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(store.projectDir(project.ID), "apps", "example.app", "data")); !os.IsNotExist(err) {
+		t.Fatalf("legacy App data directory exists: %v", err)
+	}
+}
+
+func TestStandaloneAppCannotCreateProject(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "standalone")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.standalone","name":"Standalone","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"}}`)
+	apps, _ := LoadCatalog(filepath.Join(root, "apps"))
+	store := NewStore(filepath.Join(root, "data"), apps)
+	_ = store.Ensure()
+	if _, err := store.Create(CreateInput{Name: "No", AppID: "example.standalone"}); err == nil {
+		t.Fatal("standalone App created a project")
 	}
 }
 

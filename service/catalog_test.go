@@ -1,0 +1,34 @@
+/*
+ * [INPUT]: 依赖 Catalog 的 manifest-only 注册规则
+ * [OUTPUT]: 验证项目型与独立型 App 不需要 project-layout 配置
+ * [POS]: service 的扩展注册表回归测试
+ * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+ */
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestCatalogLoadsManifestOnlyApps(t *testing.T) {
+	root := t.TempDir()
+	for name, manifest := range map[string]string{
+		"project":    `{"manifestVersion":1,"id":"example.project","name":"Project","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`,
+		"standalone": `{"manifestVersion":1,"id":"example.standalone","name":"Standalone","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"}}`,
+	} {
+		dir := filepath.Join(root, "apps", name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeTestFile(t, filepath.Join(dir, "manifest.json"), manifest)
+	}
+	catalog, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app, ok := catalog.Get("example.standalone"); !ok || app.Manifest.Kind != StandaloneApp {
+		t.Fatalf("standalone app = %#v, found = %v", app, ok)
+	}
+}

@@ -1,13 +1,15 @@
 /*
- * [INPUT]: 依赖本目录 Catalog 的已校验 App 格式和标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、CreateInput 及本地项目持久化操作
- * [POS]: service 的唯一项目写入边界，保障平台核心和 App 私有状态分层
+ * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
+ * [OUTPUT]: 对外提供 Store、Project、Artifact 和 App 隔离数据库/文件 capability
+ * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,9 +18,11 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
-const formatVersion = 1
+const formatVersion = 2
 
 type Project struct {
 	ID            string    `json:"id"`
@@ -34,18 +38,23 @@ type CreateInput struct {
 	AppID string `json:"appId"`
 }
 
+type Artifact struct {
+	ID          string    `json:"id"`
+	Type        string    `json:"type"`
+	ProjectID   string    `json:"projectId"`
+	ProducerApp string    `json:"producerApp"`
+	ContentHash string    `json:"contentHash"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Value       any       `json:"value"`
+}
+
 type Store struct {
 	root    string
 	catalog *Catalog
 }
 
-func NewStore(root string, apps *Catalog) *Store {
-	return &Store{root: root, catalog: apps}
-}
-
-func (s *Store) Ensure() error {
-	return os.MkdirAll(s.projectsDir(), 0o755)
-}
+func NewStore(root string, apps *Catalog) *Store { return &Store{root: root, catalog: apps} }
+func (s *Store) Ensure() error                   { return os.MkdirAll(s.projectsDir(), 0o755) }
 
 func (s *Store) Create(input CreateInput) (Project, error) {
 	if strings.TrimSpace(input.Name) == "" {
@@ -54,6 +63,9 @@ func (s *Store) Create(input CreateInput) (Project, error) {
 	app, ok := s.catalog.Get(input.AppID)
 	if !ok {
 		return Project{}, fmt.Errorf("unknown app %q", input.AppID)
+	}
+	if app.Manifest.Kind != ProjectApp {
+		return Project{}, fmt.Errorf("app %q is standalone and cannot create a project", input.AppID)
 	}
 	id, err := newID()
 	if err != nil {
@@ -65,7 +77,7 @@ func (s *Store) Create(input CreateInput) (Project, error) {
 		return Project{}, err
 	}
 	defer os.RemoveAll(temporary)
-	if err := s.initialize(temporary, project, app); err != nil {
+	if err := s.initialize(temporary, project); err != nil {
 		return Project{}, err
 	}
 	if err := os.Rename(temporary, s.projectDir(id)); err != nil {
@@ -79,13 +91,12 @@ func (s *Store) List() ([]Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	projects := make([]Project, 0, len(entries))
+	projects := []Project{}
 	for _, entry := range entries {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
-		project, err := s.Get(entry.Name())
-		if err == nil {
+		if project, err := s.Get(entry.Name()); err == nil {
 			projects = append(projects, project)
 		}
 	}
@@ -95,32 +106,89 @@ func (s *Store) List() ([]Project, error) {
 
 func (s *Store) Get(id string) (Project, error) {
 	project := Project{}
-	err := readProjectJSON(filepath.Join(s.projectDir(id), "recut.json"), &project)
-	return project, err
+	return project, readProjectJSON(filepath.Join(s.projectDir(id), "recut.json"), &project)
 }
 
-func (s *Store) ReadAppSourceState(projectID, path string) (any, error) {
-	project, err := s.Get(projectID)
+func (s *Store) AppDatabase(projectID, appID string) (*sql.DB, error) {
+	if err := s.checkAppScope(projectID, appID); err != nil {
+		return nil, err
+	}
+	path := s.appDatabasePath(projectID, appID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
-	app, ok := s.catalog.Get(project.AppID)
-	if !ok {
-		return nil, fmt.Errorf("project app is unavailable")
-	}
-	for _, file := range app.Layout.Files {
-		if file.Kind == "source" && file.Path == path {
-			var value any
-			err := readProjectJSON(filepath.Join(s.projectDir(projectID), "apps", project.AppID, path), &value)
-			return value, err
-		}
-	}
-	return nil, fmt.Errorf("state path is not a declared source state")
+	return db, db.Ping()
 }
 
-func (s *Store) initialize(root string, project Project, app App) error {
-	paths := []string{"core", "assets", "sessions", "state", "snapshots", "logs", filepath.Join("apps", app.Manifest.ID, "data"), filepath.Join("apps", app.Manifest.ID, "derived")}
-	for _, path := range paths {
+func (s *Store) AppFilesRoot(projectID, appID string) (string, error) {
+	if err := s.checkAppScope(projectID, appID); err != nil {
+		return "", err
+	}
+	root := filepath.Join(s.projectDir(projectID), "apps", appID, "files")
+	return root, os.MkdirAll(root, 0o755)
+}
+
+func (s *Store) PublishArtifact(projectID, appID, artifactType string, value any) (Artifact, error) {
+	if err := s.checkAppScope(projectID, appID); err != nil {
+		return Artifact{}, err
+	}
+	if strings.TrimSpace(artifactType) == "" {
+		return Artifact{}, fmt.Errorf("artifact type is required")
+	}
+	content, err := json.Marshal(value)
+	if err != nil {
+		return Artifact{}, err
+	}
+	id, err := newID()
+	if err != nil {
+		return Artifact{}, err
+	}
+	hash := sha256.Sum256(content)
+	artifact := Artifact{ID: id, Type: artifactType, ProjectID: projectID, ProducerApp: appID, ContentHash: hex.EncodeToString(hash[:]), CreatedAt: time.Now().UTC(), Value: value}
+	artifacts, err := s.ListArtifacts(projectID)
+	if err != nil {
+		return Artifact{}, err
+	}
+	artifacts = append(artifacts, artifact)
+	if err := writeProjectJSON(filepath.Join(s.projectDir(projectID), "core", "artifacts.json"), artifacts); err != nil {
+		return Artifact{}, err
+	}
+	return artifact, nil
+}
+
+func (s *Store) ListArtifacts(projectID string) ([]Artifact, error) {
+	if _, err := s.Get(projectID); err != nil {
+		return nil, err
+	}
+	artifacts := []Artifact{}
+	if err := readProjectJSON(filepath.Join(s.projectDir(projectID), "core", "artifacts.json"), &artifacts); err != nil {
+		return nil, err
+	}
+	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].CreatedAt.After(artifacts[j].CreatedAt) })
+	return artifacts, nil
+}
+
+func (s *Store) checkAppScope(projectID, appID string) error {
+	project, err := s.Get(projectID)
+	if err != nil {
+		return err
+	}
+	if project.AppID != appID {
+		return fmt.Errorf("app %q is not attached to project", appID)
+	}
+	app, ok := s.catalog.Get(appID)
+	if !ok || app.Manifest.Kind != ProjectApp {
+		return fmt.Errorf("project app is unavailable")
+	}
+	return nil
+}
+
+func (s *Store) initialize(root string, project Project) error {
+	for _, path := range []string{"core", "assets", "sessions", "state", "snapshots", "logs", filepath.Join("apps", project.AppID, "files")} {
 		if err := os.MkdirAll(filepath.Join(root, path), 0o755); err != nil {
 			return err
 		}
@@ -128,34 +196,19 @@ func (s *Store) initialize(root string, project Project, app App) error {
 	if err := writeProjectJSON(filepath.Join(root, "recut.json"), project); err != nil {
 		return err
 	}
-	for _, file := range []string{"assets.json", "exports.json"} {
+	for _, file := range []string{"assets.json", "artifacts.json", "exports.json"} {
 		if err := writeProjectJSON(filepath.Join(root, "core", file), []any{}); err != nil {
 			return err
 		}
 	}
-	if err := os.WriteFile(filepath.Join(root, "state", "events.jsonl"), nil, 0o644); err != nil {
-		return err
-	}
-	appState := map[string]any{"appId": app.Manifest.ID, "layoutVersion": app.Layout.Version}
-	if err := writeProjectJSON(filepath.Join(root, "apps", app.Manifest.ID, "app.json"), appState); err != nil {
-		return err
-	}
-	for _, file := range app.Layout.Files {
-		path := filepath.Join(root, "apps", app.Manifest.ID, file.Path)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		if file.Kind == "source" {
-			if err := writeProjectJSON(path, map[string]any{}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return os.WriteFile(filepath.Join(root, "state", "events.jsonl"), nil, 0o644)
 }
 
 func (s *Store) projectsDir() string         { return filepath.Join(s.root, "projects") }
 func (s *Store) projectDir(id string) string { return filepath.Join(s.projectsDir(), id) }
+func (s *Store) appDatabasePath(projectID, appID string) string {
+	return filepath.Join(s.projectDir(projectID), "apps", appID, "storage.sqlite")
+}
 func (s *Store) terminalSessionsDir(id string) string {
 	return filepath.Join(s.projectDir(id), "sessions", "terminals")
 }
@@ -170,7 +223,6 @@ func newID() (string, error) {
 	}
 	return hex.EncodeToString(bytes), nil
 }
-
 func writeProjectJSON(path string, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -178,7 +230,6 @@ func writeProjectJSON(path string, value any) error {
 	}
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
-
 func readProjectJSON(path string, target any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {

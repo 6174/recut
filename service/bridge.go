@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 Store 的项目格式、Catalog 的 App Layout 与标准库文件系统能力
- * [OUTPUT]: 对外提供 AgentBridge、AgentSession 与通用应用状态投影、提案和提交事务
- * [POS]: service 的 Agent 状态边界；为 Codex、Claude Code 等 MCP 客户端提供同一套受控能力
+ * [INPUT]: 依赖 Store 的项目身份与标准库文件系统能力
+ * [OUTPUT]: 对外提供 AgentBridge、AgentSession 与本地 Agent CLI 会话凭据
+ * [POS]: service 的 Agent 会话边界；App 业务能力由 MCP Host 转发给 background.js
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -15,17 +15,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
 
-const bridgeInstructions = `You are connected to Recut through the App Agent Bridge.
+const bridgeInstructions = `You are connected to Recut through the MCP Host.
 
-- Begin by calling app.describe_capabilities and app.get_context; launch context is only a snapshot.
-- Do not mutate files or infer hidden application state. Use app.propose_command before app.commit_command.
-- Every mutation must use the latest expectedRevision. On a conflict, read context again.
-- Report the committed transaction ID and its undo availability when you finish.`
+- Call tools/list first and use only tools declared by the current App manifest.
+- App tools execute through the App background runtime; do not read or mutate project files directly.
+- Report returned Artifact IDs when a tool creates reusable output.`
 
 type AgentSession struct {
 	ID        string    `json:"id"`
@@ -191,43 +189,18 @@ func (b *AgentBridge) Context(session AgentSession) (ContextSnapshot, error) {
 	if err != nil {
 		return ContextSnapshot{}, err
 	}
-	appState := map[string]any{}
-	if err := readProjectJSON(filepath.Join(b.store.projectDir(project.ID), "apps", project.AppID, "app.json"), &appState); err != nil {
-		return ContextSnapshot{}, err
-	}
-	app, ok := b.store.catalog.Get(project.AppID)
-	if !ok {
-		return ContextSnapshot{}, errors.New("project app is unavailable")
-	}
-	sources := make([]string, 0)
-	for _, file := range app.Layout.Files {
-		if file.Kind == "source" {
-			sources = append(sources, file.Path)
-		}
-	}
 	return ContextSnapshot{
 		ResourceRef:           "app://projects/" + project.ID,
 		Revision:              b.revision(project.ID),
 		Project:               project,
-		AppState:              appState,
-		AvailableSourceStates: sources,
+		AppState:              map[string]any{"appId": project.AppID},
+		AvailableSourceStates: nil,
 		Instructions:          bridgeInstructions,
 	}, nil
 }
 
 func (b *AgentBridge) ReadSourceState(session AgentSession, path string) (map[string]any, error) {
-	if !b.isDeclaredSource(session.ProjectID, path) {
-		return nil, errors.New("state path is not a declared source state")
-	}
-	project, err := b.store.Get(session.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	state := map[string]any{}
-	if err := readProjectJSON(filepath.Join(b.store.projectDir(project.ID), "apps", project.AppID, path), &state); err != nil {
-		return nil, err
-	}
-	return map[string]any{"resourceRef": "app://projects/" + project.ID + "/" + path, "revision": b.revision(project.ID), "value": state}, nil
+	return nil, errors.New("source-state access was replaced by App capabilities")
 }
 
 func (b *AgentBridge) Propose(session AgentSession, name, path, expectedRevision string, value any) (CommandProposal, error) {
@@ -261,38 +234,7 @@ func (b *AgentBridge) Propose(session AgentSession, name, path, expectedRevision
 }
 
 func (b *AgentBridge) Commit(session AgentSession, proposalID, expectedRevision string) (map[string]any, error) {
-	proposal := CommandProposal{}
-	if err := readProjectJSON(filepath.Join(b.sessionDir(session.ID), "proposals", proposalID+".json"), &proposal); err != nil {
-		return nil, errors.New("proposal not found")
-	}
-	if proposal.ProjectID != session.ProjectID || expectedRevision != b.revision(session.ProjectID) || proposal.ExpectedRevision != expectedRevision {
-		return nil, errors.New("state revision conflict")
-	}
-	project, err := b.store.Get(session.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	target := filepath.Join(b.store.projectDir(project.ID), "apps", project.AppID, proposal.Path)
-	previous, err := os.ReadFile(target)
-	if err != nil {
-		return nil, err
-	}
-	if err := writeProjectJSON(target, proposal.Value); err != nil {
-		return nil, err
-	}
-	transactionID, err := newID()
-	if err != nil {
-		return nil, err
-	}
-	transaction := CommandTransaction{ID: transactionID, ProjectID: project.ID, ProposalID: proposal.ID, Path: proposal.Path, Previous: previous, CreatedAt: time.Now().UTC()}
-	if err := os.MkdirAll(filepath.Join(b.sessionDir(session.ID), "transactions"), 0o700); err != nil {
-		return nil, err
-	}
-	if err := writeProjectJSON(filepath.Join(b.sessionDir(session.ID), "transactions", transactionID+".json"), transaction); err != nil {
-		return nil, err
-	}
-	b.appendEvent(project.ID, map[string]any{"type": "agent.command.committed", "transactionId": transactionID, "proposalId": proposal.ID, "path": proposal.Path, "at": time.Now().UTC()})
-	return map[string]any{"transactionId": transactionID, "revision": b.revision(project.ID), "undoAvailable": true}, nil
+	return nil, errors.New("generic source-state commits were replaced by App capabilities")
 }
 
 func (b *AgentBridge) ApproveProposal(sessionID, proposalID string) (map[string]any, error) {
@@ -386,19 +328,6 @@ func (b *AgentBridge) revision(projectID string) string {
 }
 
 func (b *AgentBridge) isDeclaredSource(projectID, path string) bool {
-	project, err := b.store.Get(projectID)
-	if err != nil || strings.Contains(path, "..") || filepath.IsAbs(path) {
-		return false
-	}
-	app, ok := b.store.catalog.Get(project.AppID)
-	if !ok {
-		return false
-	}
-	for _, file := range app.Layout.Files {
-		if file.Kind == "source" && file.Path == path {
-			return true
-		}
-	}
 	return false
 }
 

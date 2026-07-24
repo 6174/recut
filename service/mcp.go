@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 AgentBridge 的会话鉴权、状态投影与命令事务，以及标准输入输出 JSON-RPC 流
- * [OUTPUT]: 对外提供 RunMCPStdio，暴露通用 App Agent Bridge MCP 工具集
- * [POS]: service 的 MCP 传输适配器；不包含任何 App 的业务语义
+ * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost JavaScript runtime 与标准输入输出 JSON-RPC 流
+ * [OUTPUT]: 对外提供 RunMCPStdio，将 manifest.mcp.tools 映射为受控 MCP 工具
+ * [POS]: service 的 MCP Host；App 不自行启动 MCP server，所有调用经平台权限与会话边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -21,7 +21,7 @@ type mcpRequest struct {
 	Params  json.RawMessage `json:"params"`
 }
 
-func RunMCPStdio(bridge *AgentBridge, input io.Reader, output io.Writer) error {
+func RunMCPStdio(bridge *AgentBridge, host *AppHost, input io.Reader, output io.Writer) error {
 	session, err := bridge.Authenticate(os.Getenv("RECUT_AGENT_SESSION"), os.Getenv("RECUT_AGENT_TOKEN"))
 	if err != nil {
 		return err
@@ -30,13 +30,10 @@ func RunMCPStdio(bridge *AgentBridge, input io.Reader, output io.Writer) error {
 	scanner.Buffer(make([]byte, 4096), 2<<20)
 	for scanner.Scan() {
 		request := mcpRequest{}
-		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
+		if json.Unmarshal(scanner.Bytes(), &request) != nil || len(request.ID) == 0 {
 			continue
 		}
-		if len(request.ID) == 0 {
-			continue
-		}
-		result, callErr := handleMCP(bridge, session, request)
+		result, callErr := handleMCP(bridge, host, session, request)
 		response := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(request.ID)}
 		if callErr != nil {
 			response["error"] = map[string]any{"code": -32000, "message": callErr.Error()}
@@ -51,25 +48,24 @@ func RunMCPStdio(bridge *AgentBridge, input io.Reader, output io.Writer) error {
 	return scanner.Err()
 }
 
-func handleMCP(bridge *AgentBridge, session AgentSession, request mcpRequest) (any, error) {
+func handleMCP(bridge *AgentBridge, host *AppHost, session AgentSession, request mcpRequest) (any, error) {
+	project, err := bridge.store.Get(session.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	app, ok := bridge.store.catalog.Get(project.AppID)
+	if !ok {
+		return nil, fmt.Errorf("project App is unavailable")
+	}
 	switch request.Method {
 	case "initialize":
-		return map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]string{"name": "recut-agent-bridge", "version": "0.1.0"}, "capabilities": map[string]any{"tools": map[string]any{}, "resources": map[string]any{}}}, nil
-	case "resources/list":
-		context, err := bridge.Context(session)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"resources": []map[string]any{{"uri": context.ResourceRef + "/context", "name": "Recut project context", "mimeType": "application/json"}}}, nil
+		return map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]string{"name": "recut-mcp-host", "version": "0.2.0"}, "capabilities": map[string]any{"tools": map[string]any{}}}, nil
 	case "tools/list":
-		return map[string]any{"tools": []map[string]any{
-			{"name": "app.describe_capabilities", "description": "Describe the generic App Agent Bridge contract.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
-			{"name": "app.get_context", "description": "Read the current project summary, available state resources, and revision.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
-			{"name": "app.read_source_state", "description": "Read one declared App source-state resource by its relative path.", "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string"}}}},
-			{"name": "app.propose_command", "description": "Validate a replace_source_state command without changing application state.", "inputSchema": map[string]any{"type": "object", "required": []string{"name", "path", "value", "expectedRevision"}, "properties": map[string]any{"name": map[string]string{"type": "string"}, "path": map[string]string{"type": "string"}, "value": map[string]string{}, "expectedRevision": map[string]string{"type": "string"}}}},
-			{"name": "app.commit_command", "description": "Commit a previously proposed command if the revision is still current.", "inputSchema": map[string]any{"type": "object", "required": []string{"proposalId", "expectedRevision"}, "properties": map[string]any{"proposalId": map[string]string{"type": "string"}, "expectedRevision": map[string]string{"type": "string"}}}},
-			{"name": "app.undo_transaction", "description": "Undo one transaction from this agent session if the revision is still current.", "inputSchema": map[string]any{"type": "object", "required": []string{"transactionId", "expectedRevision"}, "properties": map[string]any{"transactionId": map[string]string{"type": "string"}, "expectedRevision": map[string]string{"type": "string"}}}},
-		}}, nil
+		tools := make([]map[string]any, 0, len(app.Manifest.MCP.Tools))
+		for _, tool := range app.Manifest.MCP.Tools {
+			tools = append(tools, map[string]any{"name": app.Manifest.ID + "." + tool.Name, "description": tool.Description, "inputSchema": tool.InputSchema})
+		}
+		return map[string]any{"tools": tools}, nil
 	case "tools/call":
 		input := struct {
 			Name      string         `json:"name"`
@@ -78,24 +74,11 @@ func handleMCP(bridge *AgentBridge, session AgentSession, request mcpRequest) (a
 		if err := json.Unmarshal(request.Params, &input); err != nil {
 			return nil, err
 		}
-		var result any
-		var err error
-		switch input.Name {
-		case "app.describe_capabilities":
-			result = map[string]any{"resources": []string{"project", "declared-source-state"}, "commands": []string{"replace_source_state"}, "workflow": []string{"get_context", "read_source_state", "propose_command", "commit_command", "undo_transaction"}, "instructions": bridgeInstructions}
-		case "app.get_context":
-			result, err = bridge.Context(session)
-		case "app.read_source_state":
-			result, err = bridge.ReadSourceState(session, stringArgument(input.Arguments, "path"))
-		case "app.propose_command":
-			result, err = bridge.Propose(session, stringArgument(input.Arguments, "name"), stringArgument(input.Arguments, "path"), stringArgument(input.Arguments, "expectedRevision"), input.Arguments["value"])
-		case "app.commit_command":
-			result, err = bridge.Commit(session, stringArgument(input.Arguments, "proposalId"), stringArgument(input.Arguments, "expectedRevision"))
-		case "app.undo_transaction":
-			result, err = bridge.Undo(session, stringArgument(input.Arguments, "transactionId"), stringArgument(input.Arguments, "expectedRevision"))
-		default:
-			err = fmt.Errorf("unknown tool %q", input.Name)
+		prefix := app.Manifest.ID + "."
+		if len(input.Name) <= len(prefix) || input.Name[:len(prefix)] != prefix {
+			return nil, fmt.Errorf("tool %q is outside the current App", input.Name)
 		}
+		result, err := host.InvokeMCP(project.ID, app.Manifest.ID, input.Name[len(prefix):], input.Arguments)
 		if err != nil {
 			return nil, err
 		}
@@ -104,9 +87,4 @@ func handleMCP(bridge *AgentBridge, session AgentSession, request mcpRequest) (a
 	default:
 		return nil, fmt.Errorf("unsupported MCP method %q", request.Method)
 	}
-}
-
-func stringArgument(values map[string]any, name string) string {
-	value, _ := values[name].(string)
-	return value
 }

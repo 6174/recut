@@ -1,0 +1,9 @@
+{
+  "name": "@recut-app/vox-broll-ui",
+  "private": true,
+  "type": "module",
+  "version": "0.2.0",
+  "scripts": { "build": "vite build" },
+  "dependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" },
+  "devDependencies": { "@vitejs/plugin-react": "^5.0.4", "typescript": "^5.9.3", "vite": "^6.1.0" }
+}

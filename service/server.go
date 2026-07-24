@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store 与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供 Server 及项目、终端会话 HTTP API 启动能力
- * [POS]: service 的传输层，负责把受信任项目目录映射为浏览器可消费的 API
+ * [OUTPUT]: 对外提供 Server 及 App 能力、项目产物、终端会话 HTTP API 启动能力
+ * [POS]: service 的传输层，负责把受信任项目与扩展注册表映射为浏览器可消费的 API
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -22,10 +23,11 @@ type Server struct {
 	store     *Store
 	terminals *TerminalManager
 	bridge    *AgentBridge
+	host      *AppHost
 }
 
-func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge) *Server {
-	return &Server{apps: apps, store: store, terminals: terminals, bridge: bridge}
+func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, host *AppHost) *Server {
+	return &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, host: host}
 }
 
 func (s *Server) ListenAndServe(address string) error {
@@ -38,11 +40,12 @@ func (s *Server) routes() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /v1/apps", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.apps.List()) })
+	mux.HandleFunc("GET /v1/apps/{appID}/ui/{path...}", s.appUI)
 	mux.HandleFunc("GET /v1/projects", s.listProjects)
 	mux.HandleFunc("POST /v1/projects", s.createProject)
 	mux.HandleFunc("GET /v1/projects/{id}", s.getProject)
-	mux.HandleFunc("GET /v1/projects/{id}/state/{path...}", s.getProjectState)
-	mux.HandleFunc("GET /v1/projects/{id}/workflow", s.getWorkflow)
+	mux.HandleFunc("GET /v1/projects/{id}/artifacts", s.listArtifacts)
+	mux.HandleFunc("POST /v1/projects/{id}/apps/{appID}/api/{name}", s.invokeAppAPI)
 	mux.HandleFunc("GET /v1/events", s.projectEventsWS)
 	mux.HandleFunc("POST /v1/projects/{id}/agent-tasks", s.startAgentTask)
 	mux.HandleFunc("POST /v1/projects/{id}/proposals/{proposalID}/approve", s.approveProposal)
@@ -120,33 +123,46 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, project)
 }
 
-func (s *Server) getProjectState(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.PathValue("path"), "/")
-	value, err := s.store.ReadAppSourceState(r.PathValue("id"), path)
+func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
+	artifacts, err := s.store.ListArtifacts(r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"path": path, "value": value})
+	writeJSON(w, http.StatusOK, artifacts)
 }
 
-func (s *Server) getWorkflow(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("id")
-	if _, err := s.store.Get(projectID); err != nil {
-		writeError(w, http.StatusNotFound, errors.New("project not found"))
+func (s *Server) invokeAppAPI(w http.ResponseWriter, r *http.Request) {
+	input := map[string]any{}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
 		return
 	}
-	brief, err := s.store.ReadAppSourceState(projectID, "data/brief.json")
+	result, err := s.host.InvokeAPI(r.PathValue("id"), r.PathValue("appID"), r.PathValue("name"), input)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	proposal, err := s.bridge.LatestProposal(projectID, "data/brief.json")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) appUI(w http.ResponseWriter, r *http.Request) {
+	app, ok := s.apps.Get(r.PathValue("appID"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("App not found"))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"brief": brief, "proposal": proposal})
+	requested := filepath.Clean(strings.TrimPrefix(r.PathValue("path"), "/"))
+	if requested == "." || strings.HasPrefix(requested, "..") || filepath.IsAbs(requested) {
+		writeError(w, http.StatusBadRequest, errors.New("invalid UI path"))
+		return
+	}
+	path := filepath.Join(app.Root, requested)
+	if _, err := os.Stat(path); err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	http.ServeFile(w, r, path)
 }
 
 func (s *Server) startAgentTask(w http.ResponseWriter, r *http.Request) {

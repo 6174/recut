@@ -3,11 +3,14 @@
 > L2 | 父级: /apps/README.md
 
 成员清单
-manifest.json: 声明 Vox B-roll Explainer App 身份与项目布局入口。
-project-layout.json: 定义从 Brief 到 Delivery 的七个可编辑 source state。
-schemas/: 约束 Brief、Beat map、视觉、关键帧、动态、音频和交付方案。
+manifest.json: 唯一运行时配置，声明 B-roll 的 JS 入口、权限、App API 和 MCP 工具。
+background.js: 自行创建 briefs SQLite 表、写入 App 文件并发布 `recut.vox.brief@1` Artifact。
+ui/index.html: React/Vite 开发入口。
+ui/src/: B-roll 的 React UI 源码与样式。
+ui/package.json: UI 独立构建依赖与 Vite 命令。
+ui/dist/: Vite 构建产物，manifest 的项目 UI 入口。
 
 服务边界
-此 App 只覆盖 B-roll：主题到 Vox 风格纸质拼贴解说片。每一步由 Agent 通过 Bridge 提案写入其 source state，UI 提供当前步骤的可复制 prompt；媒体生成、渲染和导出随后接入 Job service。
+此 App 只覆盖 B-roll：主题到 Vox 风格纸质拼贴解说片。平台不理解 Brief 数据结构；`background.js` 通过 SQLite/files/Artifact capability 自行实现。Agent 的 `generate_brief` MCP 工具和其他 App 的 `brief.create` API 共用同一业务函数。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

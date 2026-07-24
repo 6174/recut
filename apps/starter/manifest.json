@@ -1,6 +1,10 @@
 {
+  "manifestVersion": 1,
   "id": "recut.starter",
   "name": "Starter",
-  "version": "0.1.0",
-  "projectLayout": "project-layout.json"
+  "version": "0.2.0",
+  "type": "project",
+  "background": "background.js",
+  "ui": { "projectView": "ui/index.html" },
+  "permissions": []
 }

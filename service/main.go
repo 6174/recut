@@ -29,8 +29,9 @@ func main() {
 		log.Fatal(err)
 	}
 	bridge := NewAgentBridge(store)
+	host := NewAppHost(apps, store)
 	if *mcpStdio {
-		if err := RunMCPStdio(bridge, os.Stdin, os.Stdout); err != nil {
+		if err := RunMCPStdio(bridge, host, os.Stdin, os.Stdout); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -40,7 +41,7 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Printf("Recut local API listening on http://%s", *address)
-	log.Fatal(NewServer(apps, store, terminals, bridge).ListenAndServe(*address))
+	log.Fatal(NewServer(apps, store, terminals, bridge, host).ListenAndServe(*address))
 }
 
 func defaultDataDir() string {
