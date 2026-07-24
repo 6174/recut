@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -20,10 +21,11 @@ type Server struct {
 	apps      *Catalog
 	store     *Store
 	terminals *TerminalManager
+	bridge    *AgentBridge
 }
 
-func NewServer(apps *Catalog, store *Store, terminals *TerminalManager) *Server {
-	return &Server{apps: apps, store: store, terminals: terminals}
+func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge) *Server {
+	return &Server{apps: apps, store: store, terminals: terminals, bridge: bridge}
 }
 
 func (s *Server) ListenAndServe(address string) error {
@@ -39,6 +41,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/projects", s.listProjects)
 	mux.HandleFunc("POST /v1/projects", s.createProject)
 	mux.HandleFunc("GET /v1/projects/{id}", s.getProject)
+	mux.HandleFunc("GET /v1/projects/{id}/state/{path...}", s.getProjectState)
+	mux.HandleFunc("GET /v1/projects/{id}/workflow", s.getWorkflow)
+	mux.HandleFunc("GET /v1/events", s.projectEventsWS)
+	mux.HandleFunc("POST /v1/projects/{id}/agent-tasks", s.startAgentTask)
+	mux.HandleFunc("POST /v1/projects/{id}/proposals/{proposalID}/approve", s.approveProposal)
 	mux.HandleFunc("GET /v1/agents", s.listAgents)
 	mux.HandleFunc("GET /v1/terminals", s.listTerminals)
 	mux.HandleFunc("POST /v1/terminals", s.startTerminal)
@@ -113,6 +120,98 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, project)
 }
 
+func (s *Server) getProjectState(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.PathValue("path"), "/")
+	value, err := s.store.ReadAppSourceState(r.PathValue("id"), path)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"path": path, "value": value})
+}
+
+func (s *Server) getWorkflow(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	if _, err := s.store.Get(projectID); err != nil {
+		writeError(w, http.StatusNotFound, errors.New("project not found"))
+		return
+	}
+	brief, err := s.store.ReadAppSourceState(projectID, "data/brief.json")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	proposal, err := s.bridge.LatestProposal(projectID, "data/brief.json")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"brief": brief, "proposal": proposal})
+}
+
+func (s *Server) startAgentTask(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		Instruction string `json:"instruction"`
+	}{}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || strings.TrimSpace(input.Instruction) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("task instruction is required"))
+		return
+	}
+	projectID := r.PathValue("id")
+	if _, err := s.store.Get(projectID); err != nil {
+		writeError(w, http.StatusNotFound, errors.New("project not found"))
+		return
+	}
+	for _, candidate := range s.terminals.List() {
+		if candidate.ProjectID == projectID && candidate.Command == "codex" && candidate.Running && candidate.ManagedBy == "recut-bridge" {
+			if err := s.terminals.Write(candidate.ID, input.Instruction+"\n"); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			writeJSON(w, http.StatusAccepted, map[string]any{"terminalId": candidate.ID, "status": "running", "reused": true})
+			return
+		}
+	}
+	agentSession, token, err := s.bridge.CreateSession(projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	executable, err = s.bridge.MaterializeCodexProject(agentSession, token, executable)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	projectRoot := s.store.projectDir(projectID)
+	session, err := s.terminals.Start(TerminalStart{ProjectID: projectID, Command: "codex", Args: codexProjectArgs(projectRoot, executable, s.store.root, s.apps.Directory(), agentSession, token), CWD: projectRoot, SessionDir: s.store.terminalSessionsDir(projectID), InitialInput: launchPrompt(agentSession) + "\n" + input.Instruction + "\n", ManagedBy: "recut-bridge"})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"terminalId": session.ID, "status": "running", "reused": false})
+}
+
+func (s *Server) approveProposal(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		SessionID string `json:"sessionId"`
+	}{}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.SessionID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("agent session is required"))
+		return
+	}
+	result, err := s.bridge.ApproveProposal(input.SessionID, r.PathValue("proposalID"))
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 type startTerminalInput struct {
 	ProjectID string   `json:"projectId"`
 	Command   string   `json:"command"`
@@ -143,23 +242,62 @@ func (s *Server) startTerminal(w http.ResponseWriter, r *http.Request) {
 		cwd, sessionDir = s.store.projectDir(projectID), s.store.terminalSessionsDir(projectID)
 	}
 	args := input.Args
-	if input.Command == "codex" && len(args) == 0 {
-		args = []string{"--dangerously-bypass-approvals-and-sandbox"}
+	start := TerminalStart{ProjectID: projectID, Command: input.Command, Args: args, CWD: cwd, SessionDir: sessionDir, Cols: input.Cols, Rows: input.Rows}
+	if projectID != "" && (input.Command == "codex" || input.Command == "claude") && len(args) == 0 {
+		agentSession, token, err := s.bridge.CreateSession(projectID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		start.Env = []string{"RECUT_AGENT_SESSION=" + agentSession.ID, "RECUT_AGENT_TOKEN=" + token}
+		start.ManagedBy = "recut-bridge"
+		start.InitialInput = launchPrompt(agentSession) + "\n"
+		executable, err := os.Executable()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if input.Command == "codex" {
+			executable, err = s.bridge.MaterializeCodexProject(agentSession, token, executable)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+			start.Env = nil
+			start.Args = codexProjectArgs(cwd, executable, s.store.root, s.apps.Directory(), agentSession, token)
+		} else {
+			profile, err := s.bridge.WriteClientProfile(agentSession, executable)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+			start.Args = []string{"--mcp-config", profile}
+		}
 	}
 	session, err := s.terminals.Start(TerminalStart{
-		ProjectID:  projectID,
-		Command:    input.Command,
-		Args:       args,
-		CWD:        cwd,
-		SessionDir: sessionDir,
-		Cols:       input.Cols,
-		Rows:       input.Rows,
+		ProjectID: start.ProjectID, Command: start.Command, Args: start.Args, CWD: start.CWD, SessionDir: start.SessionDir, Cols: start.Cols, Rows: start.Rows, Env: start.Env, InitialInput: start.InitialInput, ManagedBy: start.ManagedBy,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, session)
+}
+
+func launchPrompt(session AgentSession) string {
+	return fmt.Sprintf("You are attached to Recut App Agent Bridge session %s. %s", session.ID, bridgeInstructions)
+}
+
+func tomlStringArray(values []string) string {
+	quoted := make([]string, len(values))
+	for index, value := range values {
+		quoted[index] = fmt.Sprintf("%q", value)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+func codexProjectArgs(projectRoot, executable, dataDir, appsDir string, session AgentSession, token string) []string {
+	return []string{"--dangerously-bypass-approvals-and-sandbox", "-C", projectRoot, "--config", fmt.Sprintf("projects.%q.trust_level=\"trusted\"", projectRoot), "--config", fmt.Sprintf("mcp_servers.recut.command=%q", executable), "--config", "mcp_servers.recut.args=" + tomlStringArray([]string{"--mcp-stdio", "--data-dir", dataDir, "--apps-dir", appsDir}), "--config", fmt.Sprintf("mcp_servers.recut.env={ RECUT_AGENT_SESSION = %q, RECUT_AGENT_TOKEN = %q }", session.ID, token)}
 }
 
 func (s *Server) writeTerminal(w http.ResponseWriter, r *http.Request) {

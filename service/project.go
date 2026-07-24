@@ -99,6 +99,25 @@ func (s *Store) Get(id string) (Project, error) {
 	return project, err
 }
 
+func (s *Store) ReadAppSourceState(projectID, path string) (any, error) {
+	project, err := s.Get(projectID)
+	if err != nil {
+		return nil, err
+	}
+	app, ok := s.catalog.Get(project.AppID)
+	if !ok {
+		return nil, fmt.Errorf("project app is unavailable")
+	}
+	for _, file := range app.Layout.Files {
+		if file.Kind == "source" && file.Path == path {
+			var value any
+			err := readProjectJSON(filepath.Join(s.projectDir(projectID), "apps", project.AppID, path), &value)
+			return value, err
+		}
+	}
+	return nil, fmt.Errorf("state path is not a declared source state")
+}
+
 func (s *Store) initialize(root string, project Project, app App) error {
 	paths := []string{"core", "assets", "sessions", "state", "snapshots", "logs", filepath.Join("apps", app.Manifest.ID, "data"), filepath.Join("apps", app.Manifest.ID, "derived")}
 	for _, path := range paths {

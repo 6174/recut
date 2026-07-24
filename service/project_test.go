@@ -38,6 +38,16 @@ func TestCreateBuildsCoreAndAppNamespaces(t *testing.T) {
 			t.Fatalf("expected %s: %v", path, err)
 		}
 	}
+	state, err := store.ReadAppSourceState(created.ID, "data/model.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.(map[string]any); !ok {
+		t.Fatalf("source state = %#v", state)
+	}
+	if _, err := store.ReadAppSourceState(created.ID, "data/private.json"); err == nil {
+		t.Fatal("undeclared source state was readable")
+	}
 }
 
 func writeTestFile(t *testing.T, path, data string) {

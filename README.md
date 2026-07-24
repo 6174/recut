@@ -7,8 +7,9 @@
 ## 当前骨架
 
 ```text
-service/                   完整本地 shell service：Go module、Daemon、项目存储、App 注册表与 loopback API
+service/                   完整本地 shell service：Go module、Daemon、项目存储、App 注册表、Agent Bridge/MCP 与 loopback API
 apps/starter/              无业务语义的声明式 App 格式样例
+apps/vox-broll/            首个 Vox 风格 B-roll 解说片工作流 App
 web/                       独立 Next.js 本地工作台，仅经 HTTP 调用 Daemon
 .gitignore                 排除本地构建产物与操作系统元数据
 Makefile                   根级开发、构建与验证命令入口
@@ -55,6 +56,7 @@ Recut Daemon (single local binary)
   ├─ Project service: manifests, assets, snapshots, repair
   ├─ Job service: durable task queue and event stream
   ├─ Terminal gateway: 通用 PTY 包装层，承载 Codex / Claude Code / Kimi CLI
+  ├─ App Agent Bridge: session token、状态投影、版本化命令事务与 MCP stdio host
   ├─ Tool host: media, timeline, render, ASR, filesystem
   ├─ Local API: browser-facing HTTP/WebSocket server
   └─ Runtime manager: model binaries and optional workers
@@ -152,7 +154,7 @@ App 只能通过以下边界与项目交互：读取 `core` 公开对象、注�
 - `media.transcribe` / `media.render` / `media.generate`：启动可追踪媒体任务。
 - `task.status` / `task.cancel`：查询与取消持久化任务。
 
-适配器将 Codex、Claude Code 与 Kimi 的启动方式和权限模型归一化为 `AgentSession`。上层只关心能力声明，例如是否支持 MCP、流式输出、图像生成或长任务恢复；不依赖厂商特有消息格式。每次任务记录输入版本、调用的工具、模型标识和输出版本，从而支持重放、审计和“从这里再试一次”。
+适配器将 Codex、Claude Code 与 Kimi 的启动方式和权限模型归一化为 `AgentSession`。项目关联的 Codex / Claude Code 启动前，Daemon 创建短期 Bridge session，将 token 仅通过环境变量传给 CLI 的 MCP 子进程，并生成对应客户端的 MCP 配置；启动提示只携带 session 身份和协议，不携带完整 App state。MCP 暴露 `app.describe_capabilities`、`app.get_context`、`app.read_source_state`、`app.propose_command`、`app.commit_command`、`app.undo_transaction`：状态按投影读取，变更先提案、再以 `expectedRevision` 提交，并写入审计事件和可撤销 transaction。上层只关心能力声明，例如是否支持 MCP、流式输出、图像生成或长任务恢复；不依赖厂商特有消息格式。
 
 ## App 架构
 

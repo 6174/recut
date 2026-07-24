@@ -39,6 +39,8 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
     void loadManager();
   }, [online, projectID]);
 
+  useEffect(() => { const refresh = () => void loadManager(); window.addEventListener("recut-terminal-started", refresh); return () => window.removeEventListener("recut-terminal-started", refresh); }, [online, projectID]);
+
   useEffect(() => {
     function closeHistory(event: MouseEvent) {
       if (!historyRef.current?.contains(event.target as Node)) setHistoryOpen(false);

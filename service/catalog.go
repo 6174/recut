@@ -41,14 +41,20 @@ type App struct {
 
 type Catalog struct {
 	apps map[string]App
+	dir  string
 }
 
 func LoadCatalog(dir string) (*Catalog, error) {
+	absolute, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve apps directory: %w", err)
+	}
+	dir = absolute
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read apps directory: %w", err)
 	}
-	catalog := &Catalog{apps: make(map[string]App)}
+	catalog := &Catalog{apps: make(map[string]App), dir: dir}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -64,6 +70,8 @@ func LoadCatalog(dir string) (*Catalog, error) {
 	}
 	return catalog, nil
 }
+
+func (c *Catalog) Directory() string { return c.dir }
 
 func (c *Catalog) Get(id string) (App, bool) {
 	app, ok := c.apps[id]

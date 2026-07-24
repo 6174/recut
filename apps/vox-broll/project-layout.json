@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "files": [
+    { "path": "data/brief.json", "schema": "schemas/brief.v1.json", "kind": "source" },
+    { "path": "data/beats.json", "schema": "schemas/beats.v1.json", "kind": "source" },
+    { "path": "data/look.json", "schema": "schemas/look.v1.json", "kind": "source" },
+    { "path": "data/keyframes.json", "schema": "schemas/keyframes.v1.json", "kind": "source" },
+    { "path": "data/motion.json", "schema": "schemas/motion.v1.json", "kind": "source" },
+    { "path": "data/audio.json", "schema": "schemas/audio.v1.json", "kind": "source" },
+    { "path": "data/delivery.json", "schema": "schemas/delivery.v1.json", "kind": "source" },
+    { "path": "derived/", "kind": "derived" }
+  ]
+}

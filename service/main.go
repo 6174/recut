@@ -17,6 +17,7 @@ func main() {
 	dataDir := flag.String("data-dir", defaultDataDir(), "local Recut data directory")
 	appsDir := flag.String("apps-dir", "../apps", "directory containing App packages")
 	address := flag.String("address", "127.0.0.1:17373", "loopback API address")
+	mcpStdio := flag.Bool("mcp-stdio", false, "serve the App Agent Bridge over stdio")
 	flag.Parse()
 
 	apps, err := LoadCatalog(*appsDir)
@@ -27,12 +28,19 @@ func main() {
 	if err := store.Ensure(); err != nil {
 		log.Fatal(err)
 	}
+	bridge := NewAgentBridge(store)
+	if *mcpStdio {
+		if err := RunMCPStdio(bridge, os.Stdin, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	terminals, err := NewTerminalManager(store)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("Recut local API listening on http://%s", *address)
-	log.Fatal(NewServer(apps, store, terminals).ListenAndServe(*address))
+	log.Fatal(NewServer(apps, store, terminals, bridge).ListenAndServe(*address))
 }
 
 func defaultDataDir() string {

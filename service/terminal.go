@@ -21,13 +21,16 @@ import (
 )
 
 type TerminalStart struct {
-	ProjectID  string
-	Command    string
-	Args       []string
-	CWD        string
-	SessionDir string
-	Cols       uint16
-	Rows       uint16
+	ProjectID    string
+	Command      string
+	Args         []string
+	CWD          string
+	SessionDir   string
+	Cols         uint16
+	Rows         uint16
+	Env          []string
+	InitialInput string
+	ManagedBy    string
 }
 
 type TerminalSession struct {
@@ -41,6 +44,7 @@ type TerminalSession struct {
 	LastActivityAt *time.Time `json:"lastActivityAt,omitempty"`
 	LastMessage    string     `json:"lastMessage,omitempty"`
 	ExitedAt       *time.Time `json:"exitedAt,omitempty"`
+	ManagedBy      string     `json:"managedBy,omitempty"`
 }
 
 type terminal struct {
@@ -82,12 +86,15 @@ func (m *TerminalManager) Start(input TerminalStart) (TerminalSession, error) {
 	cols, rows := terminalSize(input.Cols, input.Rows)
 	command := exec.Command(input.Command, input.Args...)
 	command.Dir = input.CWD
+	if len(input.Env) > 0 {
+		command.Env = append(os.Environ(), input.Env...)
+	}
 	file, err := pty.StartWithSize(command, &pty.Winsize{Cols: cols, Rows: rows})
 	if err != nil {
 		return TerminalSession{}, fmt.Errorf("start terminal: %w", err)
 	}
 	current := &terminal{
-		TerminalSession: TerminalSession{ID: id, ProjectID: input.ProjectID, Command: input.Command, Args: input.Args, CWD: input.CWD, Running: true, StartedAt: time.Now().UTC()},
+		TerminalSession: TerminalSession{ID: id, ProjectID: input.ProjectID, Command: input.Command, Args: input.Args, CWD: input.CWD, Running: true, StartedAt: time.Now().UTC(), ManagedBy: input.ManagedBy},
 		pty:             file,
 		sessionDir:      sessionDir,
 		transcriptPath:  filepath.Join(sessionDir, "transcript.log"),
@@ -100,6 +107,9 @@ func (m *TerminalManager) Start(input TerminalStart) (TerminalSession, error) {
 	m.mu.Lock()
 	m.terminals[current.ID] = current
 	m.mu.Unlock()
+	if input.InitialInput != "" {
+		_, _ = file.WriteString(input.InitialInput)
+	}
 	go m.read(current, command)
 	return current.TerminalSession, nil
 }

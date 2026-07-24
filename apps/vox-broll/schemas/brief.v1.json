@@ -1,0 +1,1 @@
+{"type":"object","properties":{"topic":{"type":"string"},"language":{"type":"string"},"durationSeconds":{"type":"number"},"aspect":{"type":"string"}},"required":["topic"]}
