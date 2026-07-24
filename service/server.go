@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store 与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供 Server 及 App 能力、项目产物、终端会话 HTTP API 启动能力
- * [POS]: service 的传输层，负责把受信任项目与扩展注册表映射为浏览器可消费的 API
+ * [OUTPUT]: 对外提供 Server 及 App 能力、项目产物、结构化 Agent 会话与终端 HTTP API
+ * [POS]: service 的传输层，负责把受信任项目与扩展注册表映射为浏览器可消费的 API；对话和 PTY 协议并存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -23,11 +23,12 @@ type Server struct {
 	store     *Store
 	terminals *TerminalManager
 	bridge    *AgentBridge
+	agents    *AgentManager
 	host      *AppHost
 }
 
-func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, host *AppHost) *Server {
-	return &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, host: host}
+func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, agents *AgentManager, host *AppHost) *Server {
+	return &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host}
 }
 
 func (s *Server) ListenAndServe(address string) error {
@@ -49,6 +50,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/events", s.projectEventsWS)
 	mux.HandleFunc("POST /v1/projects/{id}/agent-tasks", s.startAgentTask)
 	mux.HandleFunc("POST /v1/projects/{id}/proposals/{proposalID}/approve", s.approveProposal)
+	mux.HandleFunc("GET /v1/agent-sessions", s.listAgentSessions)
+	mux.HandleFunc("POST /v1/agent-sessions", s.createAgentSession)
+	mux.HandleFunc("GET /v1/agent-sessions/{id}", s.getAgentSession)
+	mux.HandleFunc("POST /v1/agent-sessions/{id}/turns", s.startAgentTurn)
+	mux.HandleFunc("POST /v1/agent-sessions/{id}/stop", s.stopAgentTurn)
+	mux.HandleFunc("GET /v1/agent-sessions/{id}/events", s.streamAgentEvents)
 	mux.HandleFunc("GET /v1/agents", s.listAgents)
 	mux.HandleFunc("GET /v1/terminals", s.listTerminals)
 	mux.HandleFunc("POST /v1/terminals", s.startTerminal)

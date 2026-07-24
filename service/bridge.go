@@ -21,7 +21,8 @@ import (
 
 const bridgeInstructions = `You are connected to Recut through the MCP Host.
 
-- Call tools/list first and use only tools declared by the current App manifest.
+- First call recut.project_context, then tools/list. Do not infer project state from the filesystem.
+- Use only recut.project_context and tools declared by the current App manifest.
 - App tools execute through the App background runtime; do not read or mutate project files directly.
 - Report returned Artifact IDs when a tool creates reusable output.`
 
@@ -128,15 +129,34 @@ func (b *AgentBridge) MaterializeCodexProject(session AgentSession, token, execu
 	if err := os.MkdirAll(filepath.Join(root, ".codex"), 0o700); err != nil {
 		return "", err
 	}
+	project, err := b.store.Get(session.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	app, ok := b.store.catalog.Get(project.AppID)
+	if !ok {
+		return "", errors.New("project App is unavailable")
+	}
+	appGuide, err := os.ReadFile(filepath.Join(app.Root, "AGENTS.md"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
 	agents := `# Recut Project Agent Guide
 
-This is a Recut Vox B-roll Explainer project.
+You are working inside a Recut project through its MCP Host.
 
-- Use the recut MCP tools as the only project-state interface.
-- Do not use ChatCut or generic video-editing skills.
-- The current workflow begins with data/brief.json; do not create media or edit files directly.
-- Read project context, propose a state update, then wait for user approval before commit.
+## Required turn protocol
+
+1. Call recut.project_context before reasoning about project state.
+2. Call tools/list before selecting an App tool.
+3. Use only Recut MCP tools for project data; do not inspect or edit project files directly.
+4. State what you learned from the tool result. Report Artifact IDs after creation.
+
+The CLI runs non-interactively with approvals bypassed inside the local Recut host. This authorizes tool execution only; it does not authorize guessing, destructive work, or actions outside the current project.
 `
+	if len(appGuide) > 0 {
+		agents += "\n## Current App Guide\n\nThe following guide is supplied by the installed App package and is authoritative for its workflow, reference usage, decision gates, and tool contracts.\n\n" + string(appGuide)
+	}
 	config := fmt.Sprintf(`[mcp_servers.recut]
 command = %q
 args = ["--mcp-stdio", "--data-dir", %q, "--apps-dir", %q]

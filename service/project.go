@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、Artifact 和 App 隔离数据库/文件 capability
- * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根
+ * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力与用户级 workspace SQLite
+ * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根，Agent 会话使用独立工作区库
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -134,6 +134,47 @@ func (s *Store) ProjectDatabase(projectID string) (*sql.DB, error) {
 		return nil, err
 	}
 	if _, err := db.Exec(`create table if not exists artifacts (id text primary key, type text not null, producer_app text not null, content_hash text not null, created_at text not null, value_json text not null); create table if not exists events (id integer primary key autoincrement, payload_json text not null, created_at text not null)`); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+// WorkspaceDatabase owns local-user data that must survive independently of a
+// project: agent conversations, runtime session pointers, and their event log.
+// Project SQLite remains reserved for project state and App-owned artifacts.
+func (s *Store) WorkspaceDatabase() (*sql.DB, error) {
+	if err := os.MkdirAll(s.root, 0o700); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(s.root, "workspace.sqlite")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil && !os.IsNotExist(err) {
+		_ = db.Close()
+		return nil, err
+	}
+	_, err = db.Exec(`
+create table if not exists agent_sessions (
+  id text primary key, profile_id text not null, project_id text, runtime text not null,
+  native_session_id text, title text not null, status text not null,
+  created_at text not null, updated_at text not null
+);
+create table if not exists agent_turns (
+  id text primary key, session_id text not null, role text not null, content text not null,
+  status text not null, created_at text not null, completed_at text
+);
+create table if not exists agent_events (
+  id integer primary key autoincrement, session_id text not null, turn_id text,
+  type text not null, payload_json text not null, created_at text not null
+);
+create index if not exists agent_sessions_updated on agent_sessions(profile_id, updated_at desc);
+create index if not exists agent_turns_session on agent_turns(session_id, created_at);
+create index if not exists agent_events_session on agent_events(session_id, id);
+`)
+	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}

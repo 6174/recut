@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录的 Catalog、Store、TerminalManager、Server 和标准库运行时能力
- * [OUTPUT]: 对外提供 recut 本地 shell service 可执行程序入口
+ * [OUTPUT]: 对外提供 recut 本地 shell service 可执行程序入口与 Agent Session Host 组合
  * [POS]: service 的组合根，负责运行时配置而不承载领域逻辑
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -40,8 +40,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	agents := NewAgentManager(store, bridge)
 	log.Printf("Recut local API listening on http://%s", *address)
-	log.Fatal(NewServer(apps, store, terminals, bridge, host).ListenAndServe(*address))
+	log.Fatal(NewServer(apps, store, terminals, bridge, agents, host).ListenAndServe(*address))
 }
 
 func defaultDataDir() string {

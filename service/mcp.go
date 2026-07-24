@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost JavaScript runtime 与标准输入输出 JSON-RPC 流
- * [OUTPUT]: 对外提供 RunMCPStdio，将 manifest.mcp.tools 映射为受控 MCP 工具
+ * [OUTPUT]: 对外提供 RunMCPStdio，将平台上下文与 manifest.mcp.tools 映射为受控 MCP 工具
  * [POS]: service 的 MCP Host；App 不自行启动 MCP server，所有调用经平台权限与会话边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -61,7 +61,12 @@ func handleMCP(bridge *AgentBridge, host *AppHost, session AgentSession, request
 	case "initialize":
 		return map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]string{"name": "recut-mcp-host", "version": "0.2.0"}, "capabilities": map[string]any{"tools": map[string]any{}}}, nil
 	case "tools/list":
-		tools := make([]map[string]any, 0, len(app.Manifest.MCP.Tools))
+		tools := make([]map[string]any, 0, len(app.Manifest.MCP.Tools)+1)
+		tools = append(tools, map[string]any{
+			"name":        "recut.project_context",
+			"description": "读取当前 Recut 项目的身份、版本、App、可用 Artifact 与 Agent 约束。任何项目任务开始时先调用此工具。",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		})
 		for _, tool := range app.Manifest.MCP.Tools {
 			tools = append(tools, map[string]any{"name": app.Manifest.ID + "." + tool.Name, "description": tool.Description, "inputSchema": tool.InputSchema})
 		}
@@ -73,6 +78,9 @@ func handleMCP(bridge *AgentBridge, host *AppHost, session AgentSession, request
 		}{}
 		if err := json.Unmarshal(request.Params, &input); err != nil {
 			return nil, err
+		}
+		if input.Name == "recut.project_context" {
+			return projectContextTool(bridge, session)
 		}
 		prefix := app.Manifest.ID + "."
 		if len(input.Name) <= len(prefix) || input.Name[:len(prefix)] != prefix {
@@ -87,4 +95,25 @@ func handleMCP(bridge *AgentBridge, host *AppHost, session AgentSession, request
 	default:
 		return nil, fmt.Errorf("unsupported MCP method %q", request.Method)
 	}
+}
+
+func projectContextTool(bridge *AgentBridge, session AgentSession) (any, error) {
+	context, err := bridge.Context(session)
+	if err != nil {
+		return nil, err
+	}
+	artifacts, err := bridge.store.ListArtifacts(session.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{
+		"project":      context.Project,
+		"resourceRef":  context.ResourceRef,
+		"revision":     context.Revision,
+		"appState":     context.AppState,
+		"instructions": context.Instructions,
+		"artifacts":    artifacts,
+	}
+	data, _ := json.Marshal(result)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": result}, nil
 }

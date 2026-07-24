@@ -11,10 +11,10 @@ postcss.config.mjs: Tailwind v4 的 PostCSS 编译入口。
 components.json: shadcn/Mira 组件生成与路径别名配置。
 tsconfig.json: TypeScript 编译约束与 `@/*` 路径别名。
 app/: 本地 Recut 工作台的 App Router 页面与样式。
-components/: shadcn 风格的可复用 UI 原子组件。
+components/: Chat UI、保留的终端诊断面板与 shadcn 风格 UI 原子组件。
 lib/: 前端共享工具函数。
 
 依赖边界
-web 仅通过 `NEXT_PUBLIC_RECUT_API_URL` 调用 Daemon HTTP API；不得导入 `cmd/`、`internal/` 或直接读写本地项目目录。
+web 仅通过 `NEXT_PUBLIC_RECUT_API_URL` 调用 Daemon HTTP/SSE API；对话以 Agent Session 事件为真相，PTY 输出只可用于终端诊断，不得导入 `cmd/`、`internal/` 或直接读写本地项目目录。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
