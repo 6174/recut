@@ -42,14 +42,16 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
   useEffect(() => { const refresh = () => void loadManager(); window.addEventListener("recut-terminal-started", refresh); return () => window.removeEventListener("recut-terminal-started", refresh); }, [online, projectID]);
 
   useEffect(() => {
-    const sendPrompt = (event: Event) => {
-      const prompt = (event as CustomEvent<string>).detail;
-      if (!projectID || !prompt) return;
-      void fetch(`${apiBase}/v1/projects/${projectID}/agent-tasks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction: prompt }) }).then(() => loadManager());
+    const sendToCodex = (event: Event) => {
+      const prompt = (event as CustomEvent<{ prompt: string }>).detail?.prompt;
+      const session = sessions.find((candidate) => candidate.id === sessionID && candidate.command === "codex" && candidate.running);
+      if (!prompt || !session) { setError("请先在右侧启动一个运行中的 Codex 会话"); return; }
+      void fetch(`${apiBase}/v1/terminals/${session.id}/input`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: `${prompt}\n` }) });
     };
-    window.addEventListener("recut-agent-prompt", sendPrompt);
-    return () => window.removeEventListener("recut-agent-prompt", sendPrompt);
-  }, [apiBase, projectID]);
+    window.addEventListener("recut-terminal-input", sendToCodex);
+    return () => window.removeEventListener("recut-terminal-input", sendToCodex);
+  }, [apiBase, sessionID, sessions]);
+
 
   useEffect(() => {
     function closeHistory(event: MouseEvent) {

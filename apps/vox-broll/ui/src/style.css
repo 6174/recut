@@ -1,17 +1,44 @@
-:root { color: #f5f1e8; background: #111; font-family: Inter, ui-sans-serif, system-ui; }
-body { margin: 0; }
-main { max-width: 720px; padding: 36px; }
-.eyebrow { color: #e4b84b; font: 11px ui-monospace, monospace; letter-spacing: .08em; }
-h1 { font-size: 34px; margin: 14px 0; }
-.copy { color: #bcb6aa; line-height: 1.7; }
-label { display: grid; gap: 8px; margin-top: 32px; }
-textarea { min-height: 120px; padding: 12px; color: inherit; background: #1c1c1c; border: 1px solid #444; }
-.hint { margin: 14px 0 8px; color: #8d877e; font-size: 12px; }
-.examples { display: flex; flex-wrap: wrap; gap: 8px; }
-button { cursor: pointer; font: inherit; }
-.example { border: 1px solid #494641; padding: 7px 10px; color: #d7d0c5; background: #1c1c1c; text-align: left; }
-.primary { margin-top: 16px; padding: 10px 14px; border: 0; background: #e4b84b; color: #111; font-weight: 700; }
-button:disabled { cursor: not-allowed; opacity: .4; }
-.error { color: #ff9a91; }
-article { margin-top: 36px; max-width: 620px; border-top: 1px solid #494641; padding-top: 22px; }
-article h2 { font-size: 24px; } article p { display: grid; gap: 6px; color: #c6c0b6; } article strong { color: #f5f1e8; font-size: 12px; }
+/**
+ * [INPUT]: 依赖 Tailwind CSS v4 编译器与 App 的 React 挂载入口
+ * [OUTPUT]: 对外提供 Vox B-roll 资源管理器的设计令牌与基础样式
+ * [POS]: ui/src 的视觉基础层；所有页面和 shadcn 风格组件共享此主题
+ * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+ */
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-xs: 0.125rem;
+  --font-sans: Arial, "Noto Sans SC", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+:root {
+  --background: oklch(0.985 0.003 85);
+  --foreground: oklch(0.18 0.012 75);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.012 75);
+  --primary: oklch(0.69 0.15 78);
+  --primary-foreground: oklch(0.17 0.01 75);
+  --muted: oklch(0.955 0.008 85);
+  --muted-foreground: oklch(0.49 0.02 75);
+  --border: oklch(0.89 0.012 80);
+  --input: oklch(0.84 0.012 80);
+  --ring: oklch(0.7 0.13 78);
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply min-h-screen bg-background font-sans text-foreground antialiased; }
+  button, input, textarea { font: inherit; }
+}

@@ -6,7 +6,7 @@
 manifest.json: 唯一运行时配置，声明 B-roll 的 JS 入口、权限、App API 和 MCP 工具。
 background.js: 自行创建 briefs SQLite 表，并发布 `recut.vox.brief@1` Artifact；brief 不写入文件系统。
 ui/index.html: React/Vite 开发入口。
-ui/src/: B-roll 的 React UI 源码与样式。
+ui/src/: B-roll 的 React UI 源码、宿主事件订阅与样式。
 ui/package.json: UI 独立构建依赖与 Vite 命令。
 ui/dist/: Vite 构建产物，manifest 的项目 UI 入口。
 

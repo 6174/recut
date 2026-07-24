@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖项目/App manifest API 与 Next.js 路由参数
- * [OUTPUT]: 对外提供通用项目 App UI 容器与项目范围终端
- * [POS]: web 的 Extension Host 页面；不包含任何具体 App UI 或业务逻辑
+ * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发与项目范围终端
+ * [POS]: web 的 Extension Host 页面；将平台事件转发给 iframe，不包含任何具体 App UI 业务逻辑
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -36,6 +36,20 @@ export default function ProjectDetail() {
     })();
   }, [id]);
 
+  useEffect(() => {
+    if (!project) return;
+    const eventsURL = new URL("/v1/events", apiBase);
+    eventsURL.protocol = eventsURL.protocol === "https:" ? "wss:" : "ws:";
+    const events = new WebSocket(eventsURL);
+    events.addEventListener("open", () => events.send(JSON.stringify({ type: "subscribe", projectId: project.id })));
+    events.addEventListener("message", (message) => {
+      const payload = JSON.parse(message.data);
+      if (payload.type !== "project.event") return;
+      appFrame.current?.contentWindow?.postMessage({ type: "recut.project.event", event: payload.event }, apiBase);
+    });
+    return () => events.close();
+  }, [project]);
+
   const connectUI = () => {
     if (!appFrame.current || !project) return;
     const channel = new MessageChannel();
@@ -49,10 +63,8 @@ export default function ProjectDetail() {
           const { name, ...input } = request.input; const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
           reply(await response.json(), response.ok ? undefined : "后台调用失败");
         } else if (request.type === "agent.send") {
-          const response = await fetch(`${apiBase}/v1/projects/${project.id}/agent-tasks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.input) });
-          const result = await response.json();
-          if (response.ok) window.dispatchEvent(new Event("recut-terminal-started"));
-          reply(result, response.ok ? undefined : "无法启动 Codex");
+          window.dispatchEvent(new CustomEvent("recut-terminal-input", { detail: { prompt: request.input.prompt } }));
+          reply({ delivery: "terminal" });
         }
       } catch { reply(undefined, "Recut Host 通信失败"); }
     };
