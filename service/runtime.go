@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/dop251/goja"
 )
@@ -99,7 +100,9 @@ func (h *AppHost) invoke(projectID string, app App, group, name string, input ma
 	if err != nil {
 		return nil, fmt.Errorf("run App handler: %w", err)
 	}
-	return result.Export(), nil
+	exported := result.Export()
+	h.store.AppendEvent(projectID, map[string]any{"type": "app.capability.completed", "appId": app.Manifest.ID, "kind": group, "name": name, "at": time.Now().UTC()})
+	return exported, nil
 }
 
 func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*goja.Object, error) {

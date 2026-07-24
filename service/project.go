@@ -124,6 +124,22 @@ func (s *Store) AppDatabase(projectID, appID string) (*sql.DB, error) {
 	return db, db.Ping()
 }
 
+func (s *Store) ProjectDatabase(projectID string) (*sql.DB, error) {
+	if _, err := s.Get(projectID); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(s.projectDir(projectID), "project.sqlite")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec(`create table if not exists artifacts (id text primary key, type text not null, producer_app text not null, content_hash text not null, created_at text not null, value_json text not null); create table if not exists events (id integer primary key autoincrement, payload_json text not null, created_at text not null)`); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
 func (s *Store) AppFilesRoot(projectID, appID string) (string, error) {
 	if err := s.checkAppScope(projectID, appID); err != nil {
 		return "", err
@@ -149,12 +165,16 @@ func (s *Store) PublishArtifact(projectID, appID, artifactType string, value any
 	}
 	hash := sha256.Sum256(content)
 	artifact := Artifact{ID: id, Type: artifactType, ProjectID: projectID, ProducerApp: appID, ContentHash: hex.EncodeToString(hash[:]), CreatedAt: time.Now().UTC(), Value: value}
-	artifacts, err := s.ListArtifacts(projectID)
+	db, err := s.ProjectDatabase(projectID)
 	if err != nil {
 		return Artifact{}, err
 	}
-	artifacts = append(artifacts, artifact)
-	if err := writeProjectJSON(filepath.Join(s.projectDir(projectID), "core", "artifacts.json"), artifacts); err != nil {
+	defer db.Close()
+	valueJSON, err := json.Marshal(value)
+	if err != nil {
+		return Artifact{}, err
+	}
+	if _, err := db.Exec("insert into artifacts (id, type, producer_app, content_hash, created_at, value_json) values (?, ?, ?, ?, ?, ?)", artifact.ID, artifact.Type, artifact.ProducerApp, artifact.ContentHash, artifact.CreatedAt.Format(time.RFC3339Nano), string(valueJSON)); err != nil {
 		return Artifact{}, err
 	}
 	return artifact, nil
@@ -164,12 +184,48 @@ func (s *Store) ListArtifacts(projectID string) ([]Artifact, error) {
 	if _, err := s.Get(projectID); err != nil {
 		return nil, err
 	}
-	artifacts := []Artifact{}
-	if err := readProjectJSON(filepath.Join(s.projectDir(projectID), "core", "artifacts.json"), &artifacts); err != nil {
+	db, err := s.ProjectDatabase(projectID)
+	if err != nil {
 		return nil, err
 	}
-	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].CreatedAt.After(artifacts[j].CreatedAt) })
+	defer db.Close()
+	rows, err := db.Query("select id, type, producer_app, content_hash, created_at, value_json from artifacts order by created_at desc")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	artifacts := []Artifact{}
+	for rows.Next() {
+		artifact := Artifact{ProjectID: projectID}
+		var createdAt, valueJSON string
+		if err := rows.Scan(&artifact.ID, &artifact.Type, &artifact.ProducerApp, &artifact.ContentHash, &createdAt, &valueJSON); err != nil {
+			return nil, err
+		}
+		if artifact.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(valueJSON), &artifact.Value); err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return artifacts, nil
+}
+
+func (s *Store) AppendEvent(projectID string, event any) {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	db, err := s.ProjectDatabase(projectID)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	_, _ = db.Exec("insert into events (payload_json, created_at) values (?, ?)", string(data), time.Now().UTC().Format(time.RFC3339Nano))
 }
 
 func (s *Store) checkAppScope(projectID, appID string) error {
@@ -188,7 +244,7 @@ func (s *Store) checkAppScope(projectID, appID string) error {
 }
 
 func (s *Store) initialize(root string, project Project) error {
-	for _, path := range []string{"core", "assets", "sessions", "state", "snapshots", "logs", filepath.Join("apps", project.AppID, "files")} {
+	for _, path := range []string{"files", "sessions", "snapshots", "logs", filepath.Join("apps", project.AppID)} {
 		if err := os.MkdirAll(filepath.Join(root, path), 0o755); err != nil {
 			return err
 		}
@@ -196,12 +252,7 @@ func (s *Store) initialize(root string, project Project) error {
 	if err := writeProjectJSON(filepath.Join(root, "recut.json"), project); err != nil {
 		return err
 	}
-	for _, file := range []string{"assets.json", "artifacts.json", "exports.json"} {
-		if err := writeProjectJSON(filepath.Join(root, "core", file), []any{}); err != nil {
-			return err
-		}
-	}
-	return os.WriteFile(filepath.Join(root, "state", "events.jsonl"), nil, 0o644)
+	return nil
 }
 
 func (s *Store) projectsDir() string         { return filepath.Join(s.root, "projects") }

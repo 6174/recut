@@ -42,6 +42,16 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
   useEffect(() => { const refresh = () => void loadManager(); window.addEventListener("recut-terminal-started", refresh); return () => window.removeEventListener("recut-terminal-started", refresh); }, [online, projectID]);
 
   useEffect(() => {
+    const sendPrompt = (event: Event) => {
+      const prompt = (event as CustomEvent<string>).detail;
+      if (!projectID || !prompt) return;
+      void fetch(`${apiBase}/v1/projects/${projectID}/agent-tasks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction: prompt }) }).then(() => loadManager());
+    };
+    window.addEventListener("recut-agent-prompt", sendPrompt);
+    return () => window.removeEventListener("recut-agent-prompt", sendPrompt);
+  }, [apiBase, projectID]);
+
+  useEffect(() => {
     function closeHistory(event: MouseEvent) {
       if (!historyRef.current?.contains(event.target as Node)) setHistoryOpen(false);
     }

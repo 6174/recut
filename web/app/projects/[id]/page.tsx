@@ -9,19 +9,20 @@
 import { ArrowLeft, Clapperboard } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { TerminalPanel } from "@/components/terminal-panel";
 
 const apiBase = process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
 type Project = { id: string; name: string; appId: string };
-type App = { manifest: { id: string; ui: { projectView?: string } } };
+type App = { manifest: { id: string; version: string; ui: { projectView?: string } } };
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const [project, setProject] = useState<Project | null>(null);
   const [app, setApp] = useState<App | null>(null);
   const [online, setOnline] = useState(false);
+  const appFrame = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     void (async () => {
@@ -35,8 +36,31 @@ export default function ProjectDetail() {
     })();
   }, [id]);
 
-  const view = app?.manifest.ui.projectView;
-  const uiURL = project && view ? `${apiBase}/v1/apps/${encodeURIComponent(project.appId)}/ui/${view}` : null;
+  const connectUI = () => {
+    if (!appFrame.current || !project) return;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = async (event) => {
+      const request = event.data; const reply = (result?: unknown, error?: string) => channel.port1.postMessage({ id: request.id, result, error });
+      try {
+        if (request.type === "state.query") {
+          const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${request.input.name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          reply(await response.json(), response.ok ? undefined : "状态读取失败");
+        } else if (request.type === "background.call") {
+          const { name, ...input } = request.input; const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+          reply(await response.json(), response.ok ? undefined : "后台调用失败");
+        } else if (request.type === "agent.send") {
+          const response = await fetch(`${apiBase}/v1/projects/${project.id}/agent-tasks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.input) });
+          const result = await response.json();
+          if (response.ok) window.dispatchEvent(new Event("recut-terminal-started"));
+          reply(result, response.ok ? undefined : "无法启动 Codex");
+        }
+      } catch { reply(undefined, "Recut Host 通信失败"); }
+    };
+    appFrame.current.contentWindow?.postMessage({ type: "recut.ui.connect" }, apiBase, [channel.port2]);
+  };
 
-  return <main className="min-h-screen bg-background"><header className="flex h-12 items-center justify-between border-b bg-card px-4"><Link className="flex items-center gap-2" href="/"><ArrowLeft className="size-4" /><Clapperboard className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link><Badge>LOCAL</Badge></header><div className="grid min-h-[calc(100vh-3rem)] lg:grid-cols-[minmax(0,1fr)_380px]"><section className="p-5 sm:p-8">{uiURL ? <iframe className="min-h-[calc(100vh-7rem)] w-full rounded-xs border bg-card" src={uiURL} title={`${project?.name ?? "Recut"} App`} /> : <p className="text-sm text-muted-foreground">这个 App 没有声明项目 UI。</p>}</section><TerminalPanel apiBase={apiBase} online={online} projectID={project?.id ?? null} /></div></main>;
+  const view = app?.manifest.ui.projectView;
+  const uiURL = project && view ? `${apiBase}/v1/apps/${encodeURIComponent(project.appId)}/ui/${view}?projectId=${encodeURIComponent(project.id)}&appVersion=${encodeURIComponent(app?.manifest.version ?? "")}` : null;
+
+  return <main className="min-h-screen bg-background"><header className="flex h-12 items-center justify-between border-b bg-card px-4"><Link className="flex items-center gap-2" href="/"><ArrowLeft className="size-4" /><Clapperboard className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link><Badge>LOCAL</Badge></header><div className="grid min-h-[calc(100vh-3rem)] lg:grid-cols-[minmax(0,1fr)_380px]"><section className="p-5 sm:p-8">{uiURL ? <iframe className="min-h-[calc(100vh-7rem)] w-full rounded-xs border bg-card" onLoad={connectUI} ref={appFrame} src={uiURL} title={`${project?.name ?? "Recut"} App`} /> : <p className="text-sm text-muted-foreground">这个 App 没有声明项目 UI。</p>}</section><TerminalPanel apiBase={apiBase} online={online} projectID={project?.id ?? null} /></div></main>;
 }

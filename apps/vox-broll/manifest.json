@@ -2,11 +2,11 @@
   "manifestVersion": 1,
   "id": "recut.vox-broll",
   "name": "Vox B-roll Explainer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "project",
   "background": "background.js",
   "ui": { "projectView": "ui/dist/index.html" },
-  "permissions": ["sqlite", "files", "artifacts.publish"],
+  "permissions": ["sqlite", "artifacts.publish"],
   "apis": [
     {
       "name": "brief.create",
@@ -19,6 +19,18 @@
       "description": "读取当前项目最新的创作方向。",
       "kind": "query",
       "inputSchema": { "type": "object" }
+    },
+    {
+      "name": "resource.prepare",
+      "description": "依据已选资源构造交给 Codex 的资源创建请求。",
+      "kind": "command",
+      "inputSchema": { "type": "object", "required": ["kind"] }
+    },
+    {
+      "name": "resource.list",
+      "description": "读取项目中由 B-roll 产生的资源。",
+      "kind": "query",
+      "inputSchema": { "type": "object" }
     }
   ],
   "mcp": {
@@ -27,6 +39,11 @@
         "name": "generate_brief",
         "description": "根据主题创建 B-roll 解说视频的创作方向，并返回可消费的 Artifact。",
         "inputSchema": { "type": "object", "required": ["topic"], "properties": { "topic": { "type": "string" } } }
+      },
+      {
+        "name": "create_resource",
+        "description": "提交一个 B-roll 资源及其依赖关系。",
+        "inputSchema": { "type": "object", "required": ["kind", "title", "content"], "properties": { "kind": { "type": "string" }, "title": { "type": "string" }, "content": {} } }
       }
     ]
   }

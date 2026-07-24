@@ -7,11 +7,8 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -41,27 +38,36 @@ func (s *Server) projectEventsWS(w http.ResponseWriter, r *http.Request) {
 		_ = connection.WriteJSON(map[string]any{"type": "error", "message": "project not found"})
 		return
 	}
-	path := filepath.Join(s.store.projectDir(request.ProjectID), "state", "events.jsonl")
-	var offset int64
+	var lastID int64
 	ticker := time.NewTicker(300 * time.Millisecond)
 	defer ticker.Stop()
 	for range ticker.C {
-		file, err := os.Open(path)
+		db, err := s.store.ProjectDatabase(request.ProjectID)
 		if err != nil {
 			continue
 		}
-		_, _ = file.Seek(offset, 0)
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
+		rows, err := db.Query("select id, payload_json from events where id > ? order by id", lastID)
+		if err != nil {
+			_ = db.Close()
+			continue
+		}
+		for rows.Next() {
+			var id int64
+			var payload string
+			if rows.Scan(&id, &payload) != nil {
+				continue
+			}
 			var event any
-			if json.Unmarshal(scanner.Bytes(), &event) == nil {
+			if json.Unmarshal([]byte(payload), &event) == nil {
 				if connection.WriteJSON(map[string]any{"type": "project.event", "projectId": request.ProjectID, "event": event}) != nil {
-					_ = file.Close()
+					_ = rows.Close()
+					_ = db.Close()
 					return
 				}
 			}
+			lastID = id
 		}
-		offset, _ = file.Seek(0, 1)
-		_ = file.Close()
+		_ = rows.Close()
+		_ = db.Close()
 	}
 }
