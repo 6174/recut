@@ -9,6 +9,7 @@ apps/             App 包：每个包只有 manifest.json 与自己的 JS/UI 代
 service/          Daemon：Extension Registry、JS runtime、Media Platform、storage/MCP/HTTP capability
 web/              平台工作台：项目、素材库系统应用与 App UI 容器
 ARCHITECTURE.md   Extension Host 契约与 B-roll 案例
+Makefile          本地开发入口；启动前会安全清理本项目残留的后端与前端进程
 ```
 
 ## 核心法则

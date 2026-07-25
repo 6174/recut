@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、AgentBridge 的 MCP 授权与 Codex JSONL CLI
- * [OUTPUT]: 对外提供 AgentManager、持久化一对一会话、Turn、规范化事件与 Codex adapter
- * [POS]: service 的结构化 Agent 协议层；TerminalManager 保持独立，作为兼容和诊断通道
+ * [OUTPUT]: 对外提供 AgentManager、持久化一对一会话、按序待发送 Turn、规范化事件与 Codex adapter
+ * [POS]: service 的结构化 Agent 协议层；单会话串行消费待发送消息，TerminalManager 保持独立，作为兼容和诊断通道
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -178,35 +178,24 @@ func (m *AgentManager) StartTurn(sessionID, text string) (ChatTurn, error) {
 	if text == "" {
 		return ChatTurn{}, errors.New("message is required")
 	}
-	m.mu.Lock()
-	if _, exists := m.running[sessionID]; exists {
-		m.mu.Unlock()
-		return ChatTurn{}, errors.New("this session is already running")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	m.running[sessionID] = cancel
-	m.mu.Unlock()
 
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
-		m.finish(sessionID)
 		return ChatTurn{}, err
 	}
 	session, err := getChatSession(db, sessionID)
 	if err != nil {
 		_ = db.Close()
-		m.finish(sessionID)
 		return ChatTurn{}, err
 	}
 	turnID, err := newID()
 	if err != nil {
 		_ = db.Close()
-		m.finish(sessionID)
 		return ChatTurn{}, err
 	}
 	now := time.Now().UTC()
-	turn := ChatTurn{ID: turnID, SessionID: sessionID, Role: "user", Content: text, Status: "completed", CreatedAt: now, CompletedAt: &now}
-	_, err = db.Exec("insert into agent_turns (id, session_id, role, content, status, created_at, completed_at) values (?, ?, ?, ?, ?, ?, ?)", turn.ID, turn.SessionID, turn.Role, turn.Content, turn.Status, iso(now), iso(now))
+	turn := ChatTurn{ID: turnID, SessionID: sessionID, Role: "user", Content: text, Status: "queued", CreatedAt: now}
+	_, err = db.Exec("insert into agent_turns (id, session_id, role, content, status, created_at) values (?, ?, ?, ?, ?, ?)", turn.ID, turn.SessionID, turn.Role, turn.Content, turn.Status, iso(now))
 	if err == nil {
 		title := session.Title
 		if title == "新对话" {
@@ -217,11 +206,10 @@ func (m *AgentManager) StartTurn(sessionID, text string) (ChatTurn, error) {
 	}
 	_ = db.Close()
 	if err != nil {
-		m.finish(sessionID)
 		return ChatTurn{}, err
 	}
-	m.emit(sessionID, turnID, "turn.started", map[string]any{"label": "正在思考"})
-	go m.run(ctx, session, turn)
+	m.emit(sessionID, turnID, "turn.queued", map[string]any{"label": "已加入待发送消息"})
+	m.startRunner(sessionID)
 	return turn, nil
 }
 
@@ -232,19 +220,102 @@ func (m *AgentManager) Stop(sessionID string) error {
 	if !exists {
 		return errors.New("this session is not running")
 	}
+	m.emit(sessionID, "", "turn.stopping", map[string]any{"label": "正在停止"})
+	m.setSessionStatus(sessionID, "stopping")
 	cancel()
 	return nil
 }
 
-func (m *AgentManager) run(ctx context.Context, session ChatSession, userTurn ChatTurn) {
-	defer m.finish(session.ID)
-	if err := m.runRuntime(ctx, session, userTurn); err != nil {
-		m.emit(session.ID, userTurn.ID, "turn.failed", map[string]any{"message": err.Error()})
-		m.setSessionStatus(session.ID, "idle")
+func (m *AgentManager) startRunner(sessionID string) {
+	m.mu.Lock()
+	if _, running := m.running[sessionID]; running {
+		m.mu.Unlock()
 		return
 	}
-	m.emit(session.ID, userTurn.ID, "turn.completed", map[string]any{})
-	m.setSessionStatus(session.ID, "idle")
+	ctx, cancel := context.WithCancel(context.Background())
+	m.running[sessionID] = cancel
+	m.mu.Unlock()
+	m.setSessionStatus(sessionID, "running")
+	go m.run(ctx, sessionID)
+}
+
+func (m *AgentManager) run(ctx context.Context, sessionID string) {
+	for {
+		session, turn, ok := m.nextQueuedTurn(sessionID)
+		if !ok {
+			m.setSessionStatus(sessionID, "idle")
+			m.emit(sessionID, "", "session.updated", map[string]any{"label": "等待下一条消息"})
+			m.finishAndRestart(sessionID)
+			return
+		}
+		m.emit(sessionID, turn.ID, "turn.started", map[string]any{"label": "正在思考"})
+		if err := m.runRuntime(ctx, session, turn); err != nil {
+			if ctx.Err() != nil {
+				m.completeTurn(turn.ID, "cancelled")
+				m.emit(sessionID, turn.ID, "turn.cancelled", map[string]any{"label": "已停止"})
+				m.finishAndRestart(sessionID)
+				m.emit(sessionID, "", "session.updated", map[string]any{"label": "会话状态已更新"})
+				return
+			}
+			m.completeTurn(turn.ID, "failed")
+			m.emit(sessionID, turn.ID, "turn.failed", map[string]any{"message": err.Error()})
+			continue
+		}
+		m.completeTurn(turn.ID, "completed")
+		m.emit(sessionID, turn.ID, "turn.completed", map[string]any{})
+	}
+}
+
+// finishAndRestart closes the race between checking an empty queue and a new
+// message being committed. A concurrent sender either observes this runner or
+// starts the replacement runner; pending messages therefore never stall.
+func (m *AgentManager) finishAndRestart(sessionID string) {
+	m.finish(sessionID)
+	if m.hasQueuedTurn(sessionID) {
+		m.startRunner(sessionID)
+	}
+}
+
+func (m *AgentManager) hasQueuedTurn(sessionID string) bool {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	var count int
+	err = db.QueryRow("select count(*) from agent_turns where session_id = ? and role = ? and status = ?", sessionID, "user", "queued").Scan(&count)
+	return err == nil && count > 0
+}
+
+func (m *AgentManager) nextQueuedTurn(sessionID string) (ChatSession, ChatTurn, bool) {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return ChatSession{}, ChatTurn{}, false
+	}
+	defer db.Close()
+	session, err := getChatSession(db, sessionID)
+	if err != nil {
+		return ChatSession{}, ChatTurn{}, false
+	}
+	row := db.QueryRow("select id, session_id, role, content, status, created_at, completed_at from agent_turns where session_id = ? and role = ? and status = ? order by created_at, id limit 1", sessionID, "user", "queued")
+	turn, err := scanChatTurn(row)
+	if err != nil {
+		return ChatSession{}, ChatTurn{}, false
+	}
+	if _, err := db.Exec("update agent_turns set status = ?, completed_at = null where id = ?", "running", turn.ID); err != nil {
+		return ChatSession{}, ChatTurn{}, false
+	}
+	turn.Status, turn.CompletedAt = "running", nil
+	return session, turn, true
+}
+
+func (m *AgentManager) completeTurn(turnID, status string) {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	_, _ = db.Exec("update agent_turns set status = ?, completed_at = ? where id = ?", status, iso(time.Now().UTC()), turnID)
 }
 
 func (m *AgentManager) runRuntime(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
@@ -600,26 +671,35 @@ func listChatTurns(db *sql.DB, sessionID string) ([]ChatTurn, error) {
 	defer rows.Close()
 	result := []ChatTurn{}
 	for rows.Next() {
-		var turn ChatTurn
-		var created string
-		var completed sql.NullString
-		if err := rows.Scan(&turn.ID, &turn.SessionID, &turn.Role, &turn.Content, &turn.Status, &created, &completed); err != nil {
-			return nil, err
-		}
-		turn.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		turn, err := scanChatTurn(rows)
 		if err != nil {
 			return nil, err
-		}
-		if completed.Valid {
-			at, e := time.Parse(time.RFC3339Nano, completed.String)
-			if e != nil {
-				return nil, e
-			}
-			turn.CompletedAt = &at
 		}
 		result = append(result, turn)
 	}
 	return result, rows.Err()
+}
+
+func scanChatTurn(row scanner) (ChatTurn, error) {
+	var turn ChatTurn
+	var created string
+	var completed sql.NullString
+	if err := row.Scan(&turn.ID, &turn.SessionID, &turn.Role, &turn.Content, &turn.Status, &created, &completed); err != nil {
+		return ChatTurn{}, err
+	}
+	var err error
+	turn.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return ChatTurn{}, err
+	}
+	if completed.Valid {
+		at, err := time.Parse(time.RFC3339Nano, completed.String)
+		if err != nil {
+			return ChatTurn{}, err
+		}
+		turn.CompletedAt = &at
+	}
+	return turn, nil
 }
 func listChatEvents(db *sql.DB, sessionID string, after int64) ([]ChatEvent, error) {
 	rows, err := db.Query("select id, session_id, turn_id, type, payload_json, created_at from agent_events where session_id = ? and id > ? order by id", sessionID, after)

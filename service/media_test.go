@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService、Store 与测试目录中的临时工作区
- * [OUTPUT]: 验证媒体凭据加密保存、能力路由和幂等生成任务的持久化契约
+ * [OUTPUT]: 验证媒体凭据加密保存、能力路由、受校验的模型/凭据直连、图片导入和幂等生成任务的持久化契约
  * [POS]: service 的 Media Platform 回归测试；不调用真实模型提供商
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -54,6 +54,13 @@ func TestMediaRouteAndJobUseOpaqueCredential(t *testing.T) {
 	if err != nil || duplicate.ID != job.ID {
 		t.Fatalf("idempotency failed: %#v, %v", duplicate, err)
 	}
+	direct, _, err := media.resolveRoute(GenerateMediaInput{Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID})
+	if err != nil || direct.ModelID != "openai-compatible/image" {
+		t.Fatalf("direct model route = %#v, %v", direct, err)
+	}
+	if _, _, err := media.resolveRoute(GenerateMediaInput{Capability: ImageGenerate, ModelID: "openai/gpt-image-2", CredentialID: credential.ID}); err == nil {
+		t.Fatal("direct generation accepted a credential from a different provider")
+	}
 }
 
 func TestMediaProvidersOwnTheirModelLists(t *testing.T) {
@@ -74,6 +81,22 @@ func TestOpenAICompatibleDefaultsToWorkingGPTImage2(t *testing.T) {
 	model, ok := modelByID("openai-compatible/image")
 	if !ok || model.APIModelID != "gpt-image-2" {
 		t.Fatalf("OpenAI-compatible model = %#v", model)
+	}
+}
+
+func TestMediaReferenceKindsFollowCreationCapability(t *testing.T) {
+	if !referenceKindsFor(ImageGenerate)["image"] || referenceKindsFor(ImageGenerate)["audio"] {
+		t.Fatal("image creation must accept images only")
+	}
+	if !referenceKindsFor(VideoGenerate)["image"] || !referenceKindsFor(VideoGenerate)["audio"] {
+		t.Fatal("video creation must accept image and audio context")
+	}
+}
+
+func TestImportedImageRejectsNonImageContent(t *testing.T) {
+	media := &MediaService{}
+	if _, err := media.ImportImage("note.txt", "text/plain", []byte("not an image")); err == nil {
+		t.Fatal("non-image import was accepted")
 	}
 }
 

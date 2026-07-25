@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService 的平台级媒体边界与标准 HTTP JSON 协议
- * [OUTPUT]: 对外提供素材库、模型路由、BYOK 凭据和生成任务的本地 HTTP API
+ * [OUTPUT]: 对外提供素材库、图片导入、模型路由、BYOK 凭据和生成任务（默认路由或受校验的模型/凭据直连）的本地 HTTP API
  * [POS]: service 的 Media Platform 传输层；工作台和系统 MCP 使用同一业务服务
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -9,6 +9,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -63,6 +64,35 @@ func (s *Server) listMediaAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) importMediaImage(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
+	if err := r.ParseMultipartForm(20 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("image upload must be 20 MB or smaller"))
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("image file is required"))
+		return
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, 20<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	mimeType := header.Header.Get("Content-Type")
+	if !strings.HasPrefix(mimeType, "image/") {
+		mimeType = http.DetectContentType(content)
+	}
+	asset, err := s.media.ImportImage(header.Filename, mimeType, content)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, asset)
 }
 
 func (s *Server) saveMediaCredential(w http.ResponseWriter, r *http.Request) {

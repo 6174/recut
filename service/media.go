@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的工作区 SQLite、受控本地文件根和标准 HTTP 客户端
- * [OUTPUT]: 对外提供媒体资产、提供商凭据、能力路由及异步生成任务的统一平台服务
+ * [OUTPUT]: 对外提供媒体资产、提供商凭据、能力路由、受类型校验的素材上下文及异步生成任务的统一平台服务
  * [POS]: service 的 Media Platform 核心；普通 App 只通过 assetId 和 MCP/HTTP 使用，不持有供应商密钥
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -132,6 +133,8 @@ type MediaJob struct {
 type GenerateMediaInput struct {
 	Capability     MediaCapability `json:"capability"`
 	Route          string          `json:"route"`
+	ModelID        string          `json:"modelId"`
+	CredentialID   string          `json:"credentialId"`
 	Prompt         string          `json:"prompt"`
 	ReferenceIDs   []string        `json:"referenceIds"`
 	Output         map[string]any  `json:"output"`
@@ -397,6 +400,9 @@ func (m *MediaService) Generate(input GenerateMediaInput) (MediaJob, error) {
 	if err != nil {
 		return MediaJob{}, err
 	}
+	if err := m.validateReferences(input); err != nil {
+		return MediaJob{}, err
+	}
 	db, err := m.database()
 	if err != nil {
 		return MediaJob{}, err
@@ -432,6 +438,20 @@ func (m *MediaService) GetJob(id string) (MediaJob, error) {
 }
 
 func (m *MediaService) resolveRoute(input GenerateMediaInput) (MediaRoute, MediaCredential, error) {
+	if input.ModelID != "" || input.CredentialID != "" {
+		if input.ModelID == "" || input.CredentialID == "" {
+			return MediaRoute{}, MediaCredential{}, errors.New("modelId and credentialId must be supplied together")
+		}
+		model, ok := modelByID(input.ModelID)
+		if !ok || model.Capability != input.Capability {
+			return MediaRoute{}, MediaCredential{}, errors.New("media model is unavailable for this capability")
+		}
+		credential, err := m.credential(input.CredentialID)
+		if err != nil || credential.Provider != model.Provider {
+			return MediaRoute{}, MediaCredential{}, errors.New("media model and credential provider do not match")
+		}
+		return MediaRoute{ID: "direct", Capability: input.Capability, ModelID: model.ID, CredentialID: credential.ID, Enabled: true}, credential, nil
+	}
 	routes, err := m.ListRoutes()
 	if err != nil {
 		return MediaRoute{}, MediaCredential{}, err
@@ -458,6 +478,30 @@ func (m *MediaService) resolveRoute(input GenerateMediaInput) (MediaRoute, Media
 		return route, credential, nil
 	}
 	return MediaRoute{}, MediaCredential{}, fmt.Errorf("no route configured for %s", input.Capability)
+}
+
+func (m *MediaService) validateReferences(input GenerateMediaInput) error {
+	allowed := referenceKindsFor(input.Capability)
+	for _, id := range input.ReferenceIDs {
+		asset, err := m.GetAsset(id)
+		if err != nil {
+			return fmt.Errorf("reference asset %q is unavailable", id)
+		}
+		if !allowed[asset.Kind] {
+			return fmt.Errorf("%s cannot use %s as reference context", input.Capability, asset.Kind)
+		}
+	}
+	return nil
+}
+
+func referenceKindsFor(capability MediaCapability) map[string]bool {
+	if capability == ImageGenerate {
+		return map[string]bool{"image": true}
+	}
+	if capability == VideoGenerate {
+		return map[string]bool{"image": true, "audio": true}
+	}
+	return map[string]bool{}
 }
 
 func (m *MediaService) execute(job MediaJob, credential MediaCredential) {
@@ -489,19 +533,16 @@ func (m *MediaService) generateOpenAIImage(job MediaJob, credential MediaCredent
 	if base == "" {
 		base = "https://api.openai.com/v1"
 	}
-	payload := map[string]any{"model": model.APIModelID, "prompt": job.Prompt, "n": 1, "response_format": "b64_json"}
-	for _, key := range []string{"size", "quality", "background"} {
-		if value, ok := job.Output[key]; ok {
-			payload[key] = value
-		}
+	body, contentType, endpoint, err := m.openAIImageBody(job, model)
+	if err != nil {
+		return MediaAsset{}, err
 	}
-	body, _ := json.Marshal(payload)
-	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, strings.TrimRight(base, "/")+"/images/generations", bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, strings.TrimRight(base, "/")+endpoint, body)
 	if err != nil {
 		return MediaAsset{}, err
 	}
 	request.Header.Set("Authorization", "Bearer "+secret)
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", contentType)
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return MediaAsset{}, err
@@ -535,6 +576,52 @@ func (m *MediaService) generateOpenAIImage(job MediaJob, credential MediaCredent
 	return m.saveGeneratedAsset(job, content, "image/png", map[string]any{"prompt": job.Prompt, "modelId": job.ModelID, "provider": credential.Provider})
 }
 
+func (m *MediaService) openAIImageBody(job MediaJob, model MediaModel) (io.Reader, string, string, error) {
+	payload := map[string]any{"model": model.APIModelID, "prompt": job.Prompt, "n": 1, "response_format": "b64_json"}
+	for _, key := range []string{"size", "quality", "background"} {
+		if value, ok := job.Output[key]; ok {
+			payload[key] = value
+		}
+	}
+	if len(job.ReferenceIDs) == 0 {
+		body, _ := json.Marshal(payload)
+		return bytes.NewReader(body), "application/json", "/images/generations", nil
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for key, value := range payload {
+		if err := writer.WriteField(key, fmt.Sprint(value)); err != nil {
+			return nil, "", "", err
+		}
+	}
+	for _, id := range job.ReferenceIDs {
+		asset, err := m.GetAsset(id)
+		if err != nil {
+			return nil, "", "", err
+		}
+		path, _ := asset.Metadata["path"].(string)
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("reference asset %q cannot be read", id)
+		}
+		part, err := writer.CreateFormFile("image[]", asset.Name)
+		if err == nil {
+			_, err = io.Copy(part, file)
+		}
+		closeErr := file.Close()
+		if err != nil {
+			return nil, "", "", err
+		}
+		if closeErr != nil {
+			return nil, "", "", closeErr
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", "", err
+	}
+	return &body, writer.FormDataContentType(), "/images/edits", nil
+}
+
 func fetchMedia(url string) ([]byte, error) {
 	response, err := http.Get(url)
 	if err != nil {
@@ -548,14 +635,34 @@ func fetchMedia(url string) ([]byte, error) {
 }
 
 func (m *MediaService) saveGeneratedAsset(job MediaJob, content []byte, mimeType string, metadata map[string]any) (MediaAsset, error) {
-	hash := sha256.Sum256(content)
-	contentHash := hex.EncodeToString(hash[:])
 	id, err := newID()
 	if err != nil {
 		return MediaAsset{}, err
 	}
+	return m.saveAsset(content, "image", mimeType, "generated-"+id+extensionFor(mimeType), "generated", job.ProjectID, metadata, id)
+}
+
+func (m *MediaService) ImportImage(name, mimeType string, content []byte) (MediaAsset, error) {
+	if !strings.HasPrefix(mimeType, "image/") || len(content) == 0 || len(content) > 20<<20 {
+		return MediaAsset{}, errors.New("only images up to 20 MB can be imported")
+	}
+	if strings.TrimSpace(name) == "" {
+		name = "reference" + extensionFor(mimeType)
+	}
+	return m.saveAsset(content, "image", mimeType, name, "imported", "", map[string]any{}, "")
+}
+
+func (m *MediaService) saveAsset(content []byte, kind, mimeType, name, origin, projectID string, metadata map[string]any, id string) (MediaAsset, error) {
+	hash := sha256.Sum256(content)
+	contentHash := hex.EncodeToString(hash[:])
+	if id == "" {
+		var err error
+		id, err = newID()
+		if err != nil {
+			return MediaAsset{}, err
+		}
+	}
 	ext := extensionFor(mimeType)
-	name := "generated-" + id + ext
 	path := filepath.Join(m.store.root, "media", "assets", contentHash[:2], contentHash+ext)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return MediaAsset{}, err
@@ -565,7 +672,7 @@ func (m *MediaService) saveGeneratedAsset(job MediaJob, content []byte, mimeType
 	}
 	now := time.Now().UTC()
 	metadata["path"] = path
-	asset := MediaAsset{ID: id, Kind: "image", Name: name, MimeType: mimeType, SizeBytes: int64(len(content)), ContentHash: contentHash, Origin: "generated", Metadata: metadata, CreatedAt: now}
+	asset := MediaAsset{ID: id, Kind: kind, Name: name, MimeType: mimeType, SizeBytes: int64(len(content)), ContentHash: contentHash, Origin: origin, Metadata: metadata, CreatedAt: now}
 	db, err := m.database()
 	if err != nil {
 		return MediaAsset{}, err
@@ -576,8 +683,8 @@ func (m *MediaService) saveGeneratedAsset(job MediaJob, content []byte, mimeType
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	if job.ProjectID != "" {
-		err = m.Attach(asset.ID, job.ProjectID)
+	if projectID != "" {
+		err = m.Attach(asset.ID, projectID)
 	}
 	return asset, err
 }
