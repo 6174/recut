@@ -573,7 +573,13 @@ func (m *MediaService) generateOpenAIImage(job MediaJob, credential MediaCredent
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	return m.saveGeneratedAsset(job, content, "image/png", map[string]any{"prompt": job.Prompt, "modelId": job.ModelID, "provider": credential.Provider})
+	return m.saveGeneratedAsset(job, content, "image/png", map[string]any{
+		"prompt":       job.Prompt,
+		"modelId":      job.ModelID,
+		"provider":     credential.Provider,
+		"capability":   job.Capability,
+		"referenceIds": job.ReferenceIDs,
+	})
 }
 
 func (m *MediaService) openAIImageBody(job MediaJob, model MediaModel) (io.Reader, string, string, error) {

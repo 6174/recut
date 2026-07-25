@@ -1,11 +1,10 @@
 /*
  * [INPUT]: 依赖 Media Platform 的资产、Provider、Credential 与生成任务 API，以及系统项目 Agent Session
- * [OUTPUT]: 对外提供素材浏览、按资源类型直接创建、Provider 模型选择、参考图上传/粘贴和未连接 Provider 引导的工作区级素材库
+ * [OUTPUT]: 对外提供素材浏览、生成详情中的提示词与参考图展示、生成参数回填再次创建、生成中任务卡片、紧凑 Provider 模型选择及可预览、移除的参考图选择的工作区级素材库
  * [POS]: web/app/media 的系统应用入口；将素材创建收敛为独立弹框，右侧 Agent 仍用于复杂协作
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
-
 import {
   ArrowLeft,
   ChevronDown,
@@ -26,40 +25,34 @@ import {
   useRef,
   useState,
 } from "react";
-
 import { Badge } from "@/components/ui/badge";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
-
+import { AssetPreview } from "./asset-preview";
+import type {
+  Asset,
+  AssetKind,
+  Capability,
+  Credential,
+  Filter,
+  MediaJob,
+  Model,
+  Provider,
+} from "./media-types";
 const apiBase =
   process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
-type AssetKind = "image" | "video" | "audio";
-type Capability = "image.generate" | "video.generate" | "speech.generate";
-type Asset = {
-  id: string;
-  kind: AssetKind;
-  name: string;
-  origin: string;
-  createdAt: string;
-  metadata: { prompt?: string };
-};
-type Model = {
-  id: string;
-  provider: string;
-  name: string;
-  capability: Capability;
-  available: boolean;
-};
-type Provider = { id: string; name: string; models: Model[] };
-type Credential = { id: string; name: string; provider: string };
-type Filter = "all" | AssetKind;
 type CreateKind = {
   kind: AssetKind;
   capability: Capability;
   label: string;
   icon: typeof ImageIcon;
   prompt: string;
+};
+type CreateDraft = {
+  modelID?: string;
+  prompt: string;
+  referenceIDs: string[];
 };
 const filters: { id: Filter; label: string; icon: typeof ImageIcon }[] = [
   { id: "all", label: "全部", icon: ImageIcon },
@@ -90,14 +83,15 @@ const createKinds: CreateKind[] = [
     prompt: "输入需要生成的语音内容或音频描述…",
   },
 ];
-
 export default function MediaLibrary() {
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [jobs, setJobs] = useState<MediaJob[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [online, setOnline] = useState(false);
   const [projectID, setProjectID] = useState<string | null>(null);
   const [preview, setPreview] = useState<Asset | null>(null);
   const [createKind, setCreateKind] = useState<CreateKind | null>(null);
+  const [createDraft, setCreateDraft] = useState<CreateDraft | null>(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [providerSettings, setProviderSettings] = useState(false);
@@ -125,8 +119,47 @@ export default function MediaLibrary() {
     const interval = window.setInterval(() => void load(), 3000);
     return () => window.clearInterval(interval);
   }, []);
+  useEffect(() => {
+    const activeJobs = jobs.filter(
+      (job) => job.status === "queued" || job.status === "running",
+    );
+    if (!activeJobs.length) return;
+    const poll = async () => {
+      const updates = await Promise.all(
+        activeJobs.map(async (job) => {
+          const response = await fetch(`${apiBase}/v1/media/jobs/${job.id}`);
+          return response.ok ? ((await response.json()) as MediaJob) : job;
+        }),
+      );
+      setJobs((current) => {
+        const next = current
+          .map((job) => {
+            const update = updates.find((item) => item.id === job.id);
+            return update &&
+              (update.status !== job.status || update.error !== job.error)
+              ? update
+              : job;
+          })
+          .filter((job) => job.status !== "completed");
+        return next.length === current.length &&
+          next.every((job, index) => job === current[index])
+          ? current
+          : next;
+      });
+      if (updates.some((job) => job.status === "completed")) void load();
+    };
+    void poll();
+    const interval = window.setInterval(() => void poll(), 1500);
+    return () => window.clearInterval(interval);
+  }, [jobs]);
   const visibleAssets =
     filter === "all" ? assets : assets.filter((asset) => asset.kind === filter);
+  const visibleJobs = jobs.filter(
+    (job) =>
+      filter === "all" ||
+      job.capability ===
+        createKinds.find((item) => item.kind === filter)?.capability,
+  );
   function openProviderSettings() {
     setCreateKind(null);
     setProviderSettings(true);
@@ -135,6 +168,33 @@ export default function MediaLibrary() {
   function changeSettingsOpen(open: boolean) {
     setSettingsOpen(open);
     if (!open) setProviderSettings(false);
+  }
+  function openRegeneration(asset: Asset) {
+    const capability =
+      typeof asset.metadata.capability === "string"
+        ? asset.metadata.capability
+        : asset.kind === "audio"
+          ? "speech.generate"
+          : `${asset.kind}.generate`;
+    const kind = createKinds.find((item) => item.capability === capability);
+    if (!kind || !asset.metadata.prompt) {
+      setNotice("该素材没有可复用的生成参数。");
+      return;
+    }
+    setPreview(null);
+    setCreateDraft({
+      modelID:
+        typeof asset.metadata.modelId === "string"
+          ? asset.metadata.modelId
+          : undefined,
+      prompt: asset.metadata.prompt,
+      referenceIDs: Array.isArray(asset.metadata.referenceIds)
+        ? asset.metadata.referenceIds.filter(
+            (id): id is string => typeof id === "string",
+          )
+        : [],
+    });
+    setCreateKind(kind);
   }
   return (
     <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
@@ -177,7 +237,9 @@ export default function MediaLibrary() {
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <Badge>{visibleAssets.length} ASSETS</Badge>
+                <Badge>
+                  {visibleAssets.length + visibleJobs.length} ASSETS
+                </Badge>
                 <div className="relative">
                   <button
                     aria-expanded={createMenuOpen}
@@ -237,7 +299,11 @@ export default function MediaLibrary() {
                 );
               })}
             </nav>
-            <AssetGrid assets={visibleAssets} onPreview={setPreview} />
+            <AssetGrid
+              assets={visibleAssets}
+              jobs={visibleJobs}
+              onPreview={setPreview}
+            />
           </div>
         </section>
         <button
@@ -255,18 +321,27 @@ export default function MediaLibrary() {
         />
       </div>
       {preview && (
-        <AssetPreview asset={preview} onClose={() => setPreview(null)} />
+        <AssetPreview
+          asset={preview}
+          assets={assets}
+          onClose={() => setPreview(null)}
+          onRegenerate={openRegeneration}
+        />
       )}
       {createKind && (
         <CreateAssetDialog
           assets={assets}
+          draft={createDraft ?? undefined}
           kind={createKind}
           onAssetImported={(asset) => setAssets((items) => [asset, ...items])}
-          onClose={() => setCreateKind(null)}
+          onClose={() => {
+            setCreateKind(null);
+            setCreateDraft(null);
+          }}
           onOpenProviderSettings={openProviderSettings}
-          onSubmitted={(message) => {
-            setNotice(message);
-            void load();
+          onSubmitted={(job) => {
+            setJobs((items) => [job, ...items]);
+            setNotice(`${createKind.label}任务已提交，正在生成。`);
           }}
         />
       )}
@@ -276,6 +351,7 @@ export default function MediaLibrary() {
 
 function CreateAssetDialog({
   assets,
+  draft,
   kind,
   onAssetImported,
   onClose,
@@ -283,18 +359,22 @@ function CreateAssetDialog({
   onSubmitted,
 }: {
   assets: Asset[];
+  draft?: CreateDraft;
   kind: CreateKind;
   onAssetImported: (asset: Asset) => void;
   onClose: () => void;
   onOpenProviderSettings: () => void;
-  onSubmitted: (message: string) => void;
+  onSubmitted: (job: MediaJob) => void;
 }) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
-  const [modelID, setModelID] = useState("");
+  const [modelID, setModelID] = useState(draft?.modelID ?? "");
   const [credentialID, setCredentialID] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [referenceIDs, setReferenceIDs] = useState<string[]>([]);
+  const [prompt, setPrompt] = useState(draft?.prompt ?? "");
+  const [referenceIDs, setReferenceIDs] = useState<string[]>(
+    draft?.referenceIDs ?? [],
+  );
+  const [referencePickerOpen, setReferencePickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -332,6 +412,9 @@ function CreateAssetDialog({
   const referenceAssets = assets.filter((asset) =>
     referenceKinds.includes(asset.kind),
   );
+  const selectedReferenceAssets = assets.filter((asset) =>
+    referenceIDs.includes(asset.id),
+  );
   useEffect(() => {
     if (!modelID && connected[0]) setModelID(connected[0].id);
   }, [modelID, connected]);
@@ -363,7 +446,7 @@ function CreateAssetDialog({
       setError(body?.error ?? "创建任务失败，请检查 Provider 配置。");
       return;
     }
-    onSubmitted(`${kind.label}任务已提交，完成后会自动出现在素材库。`);
+    onSubmitted((await response.json()) as MediaJob);
     onClose();
   }
   async function importImage(file: File) {
@@ -432,27 +515,27 @@ function CreateAssetDialog({
         </header>
         <div className="max-h-[70vh] space-y-5 overflow-y-auto p-5">
           <section>
-            <label className="text-xs font-medium">可用模型</label>
+            <label className="text-xs font-medium" htmlFor="model">
+              模型
+            </label>
             {connected.length ? (
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <select
+                className="mt-2 h-9 w-full rounded-xs border bg-background px-2 text-xs"
+                id="model"
+                onChange={(event) => setModelID(event.target.value)}
+                value={modelID}
+              >
                 {connected.map((model) => (
-                  <button
-                    className={`rounded-xs border p-3 text-left ${model.id === modelID ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
-                    key={model.id}
-                    onClick={() => setModelID(model.id)}
-                    type="button"
-                  >
-                    <p className="text-xs font-medium">{model.name}</p>
-                    <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-                      {
-                        providers.find(
-                          (provider) => provider.id === model.provider,
-                        )?.name
-                      }
-                    </p>
-                  </button>
+                  <option key={model.id} value={model.id}>
+                    {
+                      providers.find(
+                        (provider) => provider.id === model.provider,
+                      )?.name
+                    }{" "}
+                    · {model.name}
+                  </option>
                 ))}
-              </div>
+              </select>
             ) : (
               <div className="mt-2 rounded-xs border border-dashed p-4 text-xs text-muted-foreground">
                 还没有可直接使用的模型。连接一个 Provider 后即可创建。
@@ -463,9 +546,9 @@ function CreateAssetDialog({
             <section>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium">更多模型</p>
+                  <p className="text-xs font-medium">还可连接更多模型</p>
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    这些模型需要先添加对应的 Provider。
+                    添加对应的 Provider 后，它们会出现在上方下拉框。
                   </p>
                 </div>
                 <button
@@ -475,26 +558,6 @@ function CreateAssetDialog({
                 >
                   添加 Provider
                 </button>
-              </div>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                {unavailable.map((model) => (
-                  <button
-                    className="rounded-xs border border-dashed p-3 text-left text-muted-foreground hover:bg-muted/50"
-                    key={model.id}
-                    onClick={onOpenProviderSettings}
-                    type="button"
-                  >
-                    <p className="text-xs font-medium">{model.name}</p>
-                    <p className="mt-1 font-mono text-[10px]">
-                      {
-                        providers.find(
-                          (provider) => provider.id === model.provider,
-                        )?.name
-                      }{" "}
-                      · 未连接
-                    </p>
-                  </button>
-                ))}
               </div>
             </section>
           )}
@@ -535,56 +598,50 @@ function CreateAssetDialog({
                   />
                   <button
                     className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted"
-                    onClick={() => fileInput.current?.click()}
+                    onClick={() => setReferencePickerOpen(true)}
                     type="button"
                   >
-                    <Upload className="size-3" />
-                    上传图片
+                    <Plus className="size-3" />
+                    添加参考图
                   </button>
                   <span className="font-mono text-[10px] text-muted-foreground">
                     {referenceIDs.length} SELECTED
                   </span>
                 </div>
               </div>
-              {referenceAssets.length ? (
-                <div className="mt-2 grid max-h-36 gap-2 overflow-y-auto sm:grid-cols-2">
-                  {referenceAssets.map((asset) => (
-                    <button
-                      className={`flex items-center gap-2 rounded-xs border p-2 text-left ${referenceIDs.includes(asset.id) ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
+              {referenceIDs.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedReferenceAssets.map((asset) => (
+                    <div
+                      className="group relative size-16 overflow-hidden rounded-xs border bg-muted"
                       key={asset.id}
-                      onClick={() =>
-                        setReferenceIDs((ids) =>
-                          ids.includes(asset.id)
-                            ? ids.filter((id) => id !== asset.id)
-                            : [...ids, asset.id],
-                        )
-                      }
-                      type="button"
                     >
                       {asset.kind === "image" ? (
                         <img
-                          alt=""
-                          className="size-10 rounded-xs object-cover"
+                          alt={asset.name}
+                          className="h-full w-full object-cover"
                           src={`${apiBase}/v1/media/assets/${asset.id}/content`}
                         />
                       ) : (
-                        <Music2 className="size-4 text-muted-foreground" />
+                        <div className="grid h-full place-items-center">
+                          <Music2 className="size-4 text-muted-foreground" />
+                        </div>
                       )}
-                      <span className="min-w-0">
-                        <span className="block truncate text-xs font-medium">
-                          {asset.name}
-                        </span>
-                        <span className="mt-1 block font-mono text-[10px] text-muted-foreground">
-                          {asset.kind.toUpperCase()}
-                        </span>
-                      </span>
-                    </button>
+                      <button
+                        aria-label={`移除参考素材 ${asset.name}`}
+                        className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-foreground/75 text-background hover:bg-foreground"
+                        onClick={() =>
+                          setReferenceIDs((ids) =>
+                            ids.filter((id) => id !== asset.id),
+                          )
+                        }
+                        type="button"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
                   ))}
                 </div>
-              ) : (
-                <p className="mt-2 rounded-xs border border-dashed p-3 text-xs text-muted-foreground">
-                  素材库中还没有可用的参考素材。
-                </p>
               )}
             </section>
           )}
@@ -635,6 +692,104 @@ function CreateAssetDialog({
             {submitting ? "提交中…" : "创建资源"}
           </button>
         </footer>
+        {referencePickerOpen && (
+          <div
+            aria-modal="true"
+            className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]"
+            onMouseDown={() => setReferencePickerOpen(false)}
+            role="dialog"
+          >
+            <section
+              className="w-full max-w-2xl overflow-hidden rounded-sm border bg-card shadow-2xl"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <header className="flex items-start justify-between border-b px-5 py-4">
+                <div>
+                  <p className="text-sm font-semibold">选择参考素材</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    点击图片即可添加或移除参考图。
+                  </p>
+                </div>
+                <button
+                  aria-label="关闭参考素材选择"
+                  className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted"
+                  onClick={() => setReferencePickerOpen(false)}
+                  type="button"
+                >
+                  <X className="size-4" />
+                </button>
+              </header>
+              <div className="max-h-[60vh] overflow-y-auto p-5">
+                <button
+                  className="mb-4 flex h-9 items-center gap-2 rounded-xs border px-3 text-xs hover:bg-muted"
+                  onClick={() => fileInput.current?.click()}
+                  type="button"
+                >
+                  <Upload className="size-3.5" />
+                  上传图片
+                </button>
+                {referenceAssets.length ? (
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {referenceAssets.map((asset) => {
+                      const selected = referenceIDs.includes(asset.id);
+                      return (
+                        <button
+                          aria-pressed={selected}
+                          className={`overflow-hidden rounded-xs border text-left transition-colors ${selected ? "border-primary ring-1 ring-primary" : "hover:border-foreground/40"}`}
+                          key={asset.id}
+                          onClick={() =>
+                            setReferenceIDs((ids) =>
+                              ids.includes(asset.id)
+                                ? ids.filter((id) => id !== asset.id)
+                                : [...ids, asset.id],
+                            )
+                          }
+                          type="button"
+                        >
+                          <div className="grid aspect-square place-items-center bg-muted">
+                            {asset.kind === "image" ? (
+                              <img
+                                alt={asset.name}
+                                className="h-full w-full object-cover"
+                                src={`${apiBase}/v1/media/assets/${asset.id}/content`}
+                              />
+                            ) : (
+                              <Music2 className="size-5 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between gap-2 p-2">
+                            <span className="truncate text-[11px] font-medium">
+                              {asset.name}
+                            </span>
+                            {selected && (
+                              <span className="text-[10px] text-primary">已选</span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="rounded-xs border border-dashed p-4 text-xs text-muted-foreground">
+                    暂无可用参考素材，可先上传图片。
+                  </p>
+                )}
+              </div>
+              <footer className="flex items-center justify-between border-t px-5 py-4">
+                <span className="text-xs text-muted-foreground">
+                  已选 {referenceIDs.length} 个素材
+                </span>
+                <button
+                  className="h-8 rounded-xs bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/85"
+                  onClick={() => setReferencePickerOpen(false)}
+                  type="button"
+                >
+                  完成选择
+                </button>
+              </footer>
+            </section>
+          </div>
+        )}
       </form>
     </div>
   );
@@ -642,12 +797,14 @@ function CreateAssetDialog({
 
 function AssetGrid({
   assets,
+  jobs,
   onPreview,
 }: {
   assets: Asset[];
+  jobs: MediaJob[];
   onPreview: (asset: Asset) => void;
 }) {
-  if (!assets.length)
+  if (!assets.length && !jobs.length)
     return (
       <div className="grid min-h-72 place-items-center rounded-xs border border-dashed bg-card text-center">
         <div>
@@ -661,6 +818,32 @@ function AssetGrid({
     );
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {jobs.map((job) => (
+        <div
+          className="overflow-hidden rounded-xs border border-primary/40 bg-primary/5 text-left"
+          key={job.id}
+        >
+          <div className="grid aspect-[4/3] place-items-center bg-primary/10">
+            <span className="text-xs font-medium text-primary">
+              {job.status === "failed" ? "生成失败" : "生成中…"}
+            </span>
+          </div>
+          <div className="p-3">
+            <p className="truncate text-xs font-medium">{job.prompt}</p>
+            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+              {job.status === "failed"
+                ? (job.error ?? "任务未完成")
+                : "正在请求模型并生成素材。"}
+            </p>
+            <div className="mt-3 flex justify-between font-mono text-[10px] text-muted-foreground">
+              <span>
+                {job.capability.replace(".generate", "").toUpperCase()}
+              </span>
+              <span>{job.status.toUpperCase()}</span>
+            </div>
+          </div>
+        </div>
+      ))}
       {assets.map((asset) => (
         <button
           className="overflow-hidden rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20"
@@ -695,77 +878,6 @@ function AssetGrid({
           </div>
         </button>
       ))}
-    </div>
-  );
-}
-
-function AssetPreview({
-  asset,
-  onClose,
-}: {
-  asset: Asset;
-  onClose: () => void;
-}) {
-  return (
-    <div
-      aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-8 backdrop-blur-[1px]"
-      onMouseDown={onClose}
-      role="dialog"
-    >
-      <section
-        className="w-full max-w-4xl overflow-hidden rounded-sm border bg-card shadow-2xl"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="flex items-center justify-between border-b px-5 py-3">
-          <div>
-            <p className="text-sm font-medium">{asset.name}</p>
-            <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-              {asset.kind.toUpperCase()} · {asset.origin.toUpperCase()}
-            </p>
-          </div>
-          <button
-            aria-label="关闭预览"
-            className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted"
-            onClick={onClose}
-            type="button"
-          >
-            <X className="size-4" />
-          </button>
-        </header>
-        <div className="grid max-h-[78vh] overflow-y-auto md:grid-cols-[minmax(0,1fr)_260px]">
-          <div className="grid min-h-80 place-items-center bg-muted/30 p-5">
-            {asset.kind === "image" ? (
-              <img
-                alt={asset.name}
-                className="max-h-[65vh] max-w-full object-contain"
-                src={`${apiBase}/v1/media/assets/${asset.id}/content`}
-              />
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {asset.kind.toUpperCase()} 预览将在此显示。
-              </p>
-            )}
-          </div>
-          <aside className="border-l p-5">
-            <p className="text-xs font-medium">生成信息</p>
-            <dl className="mt-4 space-y-4 text-xs">
-              <div>
-                <dt className="text-muted-foreground">提示词</dt>
-                <dd className="mt-1 leading-5">
-                  {asset.metadata.prompt ?? "无"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">创建时间</dt>
-                <dd className="mt-1">
-                  {new Date(asset.createdAt).toLocaleString()}
-                </dd>
-              </div>
-            </dl>
-          </aside>
-        </div>
-      </section>
     </div>
   );
 }
