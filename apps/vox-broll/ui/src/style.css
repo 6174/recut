@@ -24,18 +24,18 @@
 }
 
 :root {
-  /* Keep the embedded App visually continuous with the Recut host. */
-  --background: oklch(0.995 0.001 150);
-  --foreground: oklch(0.19 0.008 150);
+  /* A restrained editorial workspace: clear hierarchy, quiet surfaces, vivid actions. */
+  --background: oklch(0.978 0.003 150);
+  --foreground: oklch(0.18 0.009 150);
   --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
-  --primary: oklch(0.73 0.19 151);
+  --primary: oklch(0.69 0.18 151);
   --primary-foreground: oklch(0.18 0.01 150);
-  --muted: oklch(0.965 0.005 150);
-  --muted-foreground: oklch(0.52 0.012 150);
-  --border: oklch(0.9 0.007 150);
-  --input: oklch(0.88 0.008 150);
-  --ring: oklch(0.69 0.17 151);
+  --muted: oklch(0.948 0.005 150);
+  --muted-foreground: oklch(0.48 0.012 150);
+  --border: oklch(0.875 0.007 150);
+  --input: oklch(0.85 0.008 150);
+  --ring: oklch(0.65 0.16 151);
 }
 
 @layer base {

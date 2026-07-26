@@ -1,10 +1,11 @@
 /**
- * [INPUT]: 依赖 React、Radix Dialog、Tailwind CSS 与 lucide 图标
- * [OUTPUT]: 对外提供 Button、Card、Dialog、Tabs、Badge、Textarea 和 EmptyState 等 shadcn 风格原子
+ * [INPUT]: 依赖 React、Radix Dialog / Dropdown Menu、Tailwind CSS 与 lucide 图标
+ * [OUTPUT]: 对外提供 Button、Dialog、Dropdown Menu、Badge、Textarea 等 shadcn 风格原子
  * [POS]: vox-broll 的本地 UI 原子层；供资源卡片、弹窗和根视图复用
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import * as DialogPrimitive from "@radix-ui/react-dialog";
+import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { FolderPlus, X } from "lucide-react";
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
 
@@ -31,5 +32,10 @@ export const DialogHeader = ({ children }: { children: ReactNode }) => <div clas
 export const DialogTitle = (props: DialogPrimitive.DialogTitleProps) => <DialogPrimitive.Title className="text-lg font-semibold tracking-tight" {...props} />;
 export const DialogDescription = (props: DialogPrimitive.DialogDescriptionProps) => <DialogPrimitive.Description className="text-sm leading-6 text-muted-foreground" {...props} />;
 export const DialogFooter = ({ children }: { children: ReactNode }) => <div className="flex justify-end gap-2 pt-1">{children}</div>;
-export function DialogContent({ children }: { children: ReactNode }) { return <DialogPrimitive.Portal><DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[1px]" /><DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 gap-5 rounded-xl border bg-card p-5 shadow-2xl outline-none"><DialogPrimitive.Close aria-label="关闭" className="absolute right-4 top-4 rounded-sm text-muted-foreground hover:text-foreground"><X className="size-4" /></DialogPrimitive.Close>{children}</DialogPrimitive.Content></DialogPrimitive.Portal>; }
+export function DialogContent({ children, className, ...props }: DialogPrimitive.DialogContentProps) { return <DialogPrimitive.Portal><DialogPrimitive.Overlay className="fixed inset-0 z-[90] bg-black/30 backdrop-blur-[1px]" /><DialogPrimitive.Content className={join("fixed left-1/2 top-1/2 z-[100] grid max-h-[88vh] w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 gap-5 overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl outline-none", className)} {...props}><DialogPrimitive.Close aria-label="关闭" className="absolute right-4 top-4 rounded-sm text-muted-foreground hover:text-foreground"><X className="size-4" /></DialogPrimitive.Close>{children}</DialogPrimitive.Content></DialogPrimitive.Portal>; }
+
+export const DropdownMenu = DropdownMenuPrimitive.Root;
+export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
+export function DropdownMenuContent({ children, className, ...props }: DropdownMenuPrimitive.DropdownMenuContentProps) { return <DropdownMenuPrimitive.Portal><DropdownMenuPrimitive.Content className={join("z-[150] grid min-w-32 rounded-md border bg-card p-1 shadow-lg", className)} sideOffset={6} {...props}>{children}</DropdownMenuPrimitive.Content></DropdownMenuPrimitive.Portal>; }
+export function DropdownMenuItem({ className, ...props }: DropdownMenuPrimitive.DropdownMenuItemProps) { return <DropdownMenuPrimitive.Item className={join("flex cursor-pointer items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs outline-none transition hover:bg-muted focus:bg-muted", className)} {...props} />; }
 export function EmptyState({ action, label }: { action: () => void; label: string }) { return <div className="grid min-h-64 place-items-center rounded-xl border border-dashed bg-card p-8 text-center"><div><div className="mx-auto grid size-10 place-items-center rounded-full bg-muted"><FolderPlus className="size-5 text-muted-foreground" /></div><h3 className="mt-4 text-sm font-semibold">此阶段还没有资源</h3><p className="mt-1 max-w-xs text-sm leading-6 text-muted-foreground">从一个明确的创作意图开始，完成后会自动出现在这里。</p><Button className="mt-4" onClick={action}><FolderPlus className="size-4" />{label}</Button></div></div>; }

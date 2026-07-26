@@ -92,7 +92,7 @@ export default function ProjectDetail() {
       <div className="flex min-w-0 items-center gap-4">
         <Link aria-label="返回项目列表" className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><Clapperboard className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link>
         <div aria-hidden="true" className="h-5 w-px bg-border" />
-        <div className="min-w-0"><p className="truncate text-sm font-medium">{project?.name ?? "加载项目…"}</p><p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{project ? `${app?.manifest.name ?? project.appId} · v${project.appVersion} · ${project.id}` : "正在读取项目元信息"}</p></div>
+        <div className="min-w-0"><p className="truncate text-sm font-medium">{project?.name ?? "加载项目…"}</p><p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{project ? `${app?.manifest.name ?? project.appId} · v${app?.manifest.version ?? project.appVersion} · ${project.id}` : "正在读取项目元信息"}</p></div>
       </div>
       <div className="ml-4 flex shrink-0 items-center gap-2"><Link className="rounded-xs px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground" href="/media">素材库</Link><Badge>{app?.manifest.id ?? project?.appId ?? "APP"}</Badge><Badge>{online ? "LOCAL" : "OFFLINE"}</Badge><SettingsPanel /></div>
     </header>

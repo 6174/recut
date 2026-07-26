@@ -1,29 +1,34 @@
 /**
  * [INPUT]: 依赖 React、recut UI SDK、资源卡片与资源弹窗
- * [OUTPUT]: 对外提供 B-roll 资源管理器根视图与项目事件驱动的资源刷新
- * [POS]: vox-broll 的项目 UI 编排层；不直接访问 HTTP、终端或 SQLite
+ * [OUTPUT]: 对外提供 B-roll 多面板工作台根视图与项目事件驱动的资源刷新
+ * [POS]: vox-broll 的项目 UI 编排层；同时展示全部创作阶段，不直接访问 HTTP、终端或 SQLite
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { Plus } from "lucide-react";
 import { createRoot } from "react-dom/client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { CreateResourceDialog, ResourcePreviewDialog } from "./resource-dialogs";
-import { ResourceCard } from "./resource-card";
 import { recut } from "./recut-sdk";
-import { Button, EmptyState, Tabs, TabsList, TabsTrigger } from "./ui";
+import { StagePanel, type Stage } from "./stage-panel";
 import "./style.css";
 
 export type Resource = { id: string; kind: string; title: string; content: unknown; dependencies: string[]; createdAt?: string };
 type CapabilityEvent = { type?: string; appId?: string; kind?: string; name?: string };
 
-const stages = ["Brief", "Beats", "Look", "Keyframes", "Motion", "Audio", "Delivery"];
+const stages: Stage[] = [
+  { kind: "Brief", eyebrow: "第一步", label: "选题与方向", summary: "想讲什么、想让观众记住什么", action: "写创作方向", empty: "点击写下这条视频想讲什么" },
+  { kind: "Beats", eyebrow: "第二步", label: "内容结构", summary: "开头怎么讲，每一段讲什么", action: "规划内容", empty: "点击规划这条视频的内容结构" },
+  { kind: "Look", eyebrow: "第三步", label: "视觉参考", summary: "配图、配色和整体感觉", action: "生成参考图", empty: "点击生成视觉参考图" },
+  { kind: "Keyframes", eyebrow: "第四步", label: "分镜画面", summary: "每个镜头应该长什么样", action: "添加分镜", empty: "点击添加第一张分镜画面" },
+  { kind: "Motion", eyebrow: "第五步", label: "动画与转场", summary: "镜头怎么动，画面怎么切换", action: "设置动画", empty: "点击设置动画与转场" },
+  { kind: "Audio", eyebrow: "第六步", label: "配音与音乐", summary: "旁白、配乐和字幕怎么配合", action: "添加声音", empty: "点击添加配音或音乐" },
+  { kind: "Delivery", eyebrow: "最后一步", label: "导出设置", summary: "尺寸、格式和导出前检查", action: "设置导出", empty: "点击设置导出格式" },
+];
 const examples = ["做口播短视频你最应该关注的三件事", "为什么 AI 视频工作流总是卡在最后一步？", "一条 Vox 风格视频如何让复杂概念变简单？"];
 
 function App() {
-  const [selected, setSelected] = useState("Brief");
   const [resources, setResources] = useState<Resource[]>([]);
   const [preview, setPreview] = useState<Resource | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creatingStage, setCreatingStage] = useState<Stage | null>(null);
   const [status, setStatus] = useState("");
   const refresh = async () => { try { setResources(await recut.state.query("resource.list")); } catch { /* SDK 尚未连接 */ } };
 
@@ -36,27 +41,44 @@ function App() {
     return () => { window.removeEventListener("recut-sdk-ready", refresh); unsubscribe(); };
   }, []);
 
-  const tabResources = useMemo(() => resources.filter((resource) => resource.kind.toLowerCase() === selected.toLowerCase()), [resources, selected]);
-  const create = async (instruction: string, dependencies: string[]) => {
+  const resourcesFor = (stage: Stage) => resources.filter((resource) => resource.kind.toLowerCase() === stage.kind.toLowerCase());
+  const create = async (stage: Stage, instruction: string, dependencies: string[]) => {
     const selectedResources = resources.filter((resource) => dependencies.includes(resource.id));
-    const prepared = await recut.background.call("resource.prepare", { kind: selected, dependencies: selectedResources.map((item) => `${item.kind}:${item.id}`), instruction });
+    const prepared = await recut.background.call("resource.prepare", { kind: stage.kind, dependencies: selectedResources.map((item) => `${item.kind}:${item.id}`), instruction });
     await recut.agent.send({ prompt: prepared.prompt });
     setStatus("创作请求已发给 Codex；资源完成后会自动出现。 ");
   };
+  const retire = async (resource: Resource) => {
+    if (!window.confirm(`将“${resource.title}”移出当前方案？历史记录会保留。`)) return;
+    await recut.background.call("resource.retire", { id: resource.id });
+    await refresh();
+    setStatus("旧格式资源已移出当前方案；请新建视觉风格以生成正确的参考图。");
+  };
+  const remove = async (resource: Resource) => {
+    if (!window.confirm(`永久删除“${resource.title}”？此操作无法撤销。`)) return;
+    try {
+      await recut.background.call("resource.delete", { id: resource.id });
+      setPreview(null);
+      await refresh();
+      setStatus("资源已删除。");
+    } catch (cause) { setStatus(cause instanceof Error ? cause.message : "删除资源失败"); }
+  };
 
-  return <main className="min-h-screen p-5 sm:p-8"><div className="mx-auto max-w-6xl">
-    <header className="mb-8 flex flex-col gap-5 border-b pb-6 sm:flex-row sm:items-end sm:justify-between">
-      <div><p className="font-mono text-[11px] font-semibold tracking-[0.16em] text-primary">RECUT APP / VOX B-ROLL</p><h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">资源管理器</h1><p className="mt-2 text-sm text-muted-foreground">按创作阶段管理素材与结构化产物。</p></div>
-      <Button onClick={() => setCreating(true)}><Plus className="size-4" />新建 {selected}</Button>
-    </header>
-    <Tabs><TabsList>{stages.map((stage) => <TabsTrigger active={selected === stage} count={resources.filter((resource) => resource.kind.toLowerCase() === stage.toLowerCase()).length} key={stage} onClick={() => setSelected(stage)}>{stage}</TabsTrigger>)}</TabsList></Tabs>
-    <section className="mt-7"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">{selected}</h2><p className="mt-1 text-xs text-muted-foreground">{tabResources.length ? `${tabResources.length} 个已创建资源` : "尚未创建资源"}</p></div></div>
-      {tabResources.length ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{tabResources.map((resource) => <ResourceCard key={resource.id} onClick={() => setPreview(resource)} resource={resource} />)}</div> : <EmptyState action={() => setCreating(true)} label={`新建 ${selected}`} />}
-    </section>
+  return <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,oklch(0.99_0.012_151),transparent_30rem)] p-4 sm:p-6"><div className="mx-auto max-w-[1440px]">
+    <header className="mb-4 flex items-end justify-between gap-6 border-b border-border/80 pb-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.18em] text-primary">RECUT APP / VOX B-ROLL</p><h1 className="mt-1.5 text-2xl font-semibold tracking-tight sm:text-3xl">视频创作台</h1><p className="mt-1 text-sm text-muted-foreground">从选题到导出，所有素材和创作决定都集中在这里。</p></div></header>
+    <div className="grid gap-x-6 gap-y-5 xl:grid-cols-12">
+      <div className="xl:col-span-4"><StagePanel onCreate={() => setCreatingStage(stages[0])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[0])} stage={stages[0]} /></div>
+      <div className="xl:col-span-8"><StagePanel onCreate={() => setCreatingStage(stages[1])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[1])} stage={stages[1]} /></div>
+      <div className="xl:col-span-7"><StagePanel onCreate={() => setCreatingStage(stages[2])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[2])} stage={stages[2]} /></div>
+      <div className="xl:col-span-5"><StagePanel onCreate={() => setCreatingStage(stages[3])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[3])} stage={stages[3]} /></div>
+      <div className="xl:col-span-4"><StagePanel onCreate={() => setCreatingStage(stages[4])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[4])} stage={stages[4]} /></div>
+      <div className="xl:col-span-4"><StagePanel onCreate={() => setCreatingStage(stages[5])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[5])} stage={stages[5]} /></div>
+      <div className="xl:col-span-4"><StagePanel onCreate={() => setCreatingStage(stages[6])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[6])} stage={stages[6]} /></div>
+    </div>
     {status && <p className="mt-5 text-sm text-muted-foreground" role="status">{status}</p>}
   </div>
-  <ResourcePreviewDialog onOpenChange={(open) => !open && setPreview(null)} resource={preview} />
-  <CreateResourceDialog examples={selected === "Brief" ? examples : []} onCreate={create} onOpenChange={setCreating} open={creating} resources={resources} stage={selected} />
+  <ResourcePreviewDialog onDelete={(resource) => void remove(resource)} onOpenChange={(open) => !open && setPreview(null)} resource={preview} />
+  <CreateResourceDialog examples={creatingStage?.kind === "Brief" ? examples : []} isLook={creatingStage?.kind === "Look"} onCreate={(instruction, dependencies) => creatingStage ? create(creatingStage, instruction, dependencies) : Promise.resolve()} onOpenChange={(open) => !open && setCreatingStage(null)} open={Boolean(creatingStage)} resources={resources} stage={creatingStage?.label || "资源"} />
   </main>;
 }
 

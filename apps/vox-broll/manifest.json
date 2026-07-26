@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "recut.vox-broll",
   "name": "Vox B-roll Explainer",
-  "version": "0.3.0",
+  "version": "0.10.6",
   "type": "project",
   "background": "background.js",
   "ui": { "projectView": "ui/dist/index.html" },
@@ -31,6 +31,18 @@
       "description": "读取项目中由 B-roll 产生的资源。",
       "kind": "query",
       "inputSchema": { "type": "object" }
+    },
+    {
+      "name": "resource.retire",
+      "description": "将错误或废弃的资源移出当前创作方案，保留历史记录。",
+      "kind": "command",
+      "inputSchema": { "type": "object", "required": ["id"] }
+    },
+    {
+      "name": "resource.delete",
+      "description": "永久删除未被下游资源引用的 B-roll 资源。",
+      "kind": "command",
+      "inputSchema": { "type": "object", "required": ["id"] }
     }
   ],
   "mcp": {
@@ -44,6 +56,16 @@
         "name": "create_resource",
         "description": "提交一个 B-roll 资源及其依赖关系。",
         "inputSchema": { "type": "object", "required": ["kind", "title", "content"], "properties": { "kind": { "type": "string" }, "title": { "type": "string" }, "content": {} } }
+      },
+      {
+        "name": "retire_resource",
+        "description": "将错误或废弃的 B-roll 资源移出当前创作方案，但保留历史记录。",
+        "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
+      },
+      {
+        "name": "delete_resource",
+        "description": "永久删除未被下游资源引用的 B-roll 资源。",
+        "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
       }
     ]
   }
