@@ -38,6 +38,16 @@ func TestSeedancePayloadMapsImagesVideosAndAudio(t *testing.T) {
 	}
 }
 
+func TestSeedancePayloadEnablesSynchronizedAudioByDefault(t *testing.T) {
+	payload, err := payloadFor(GenerateInput{Model: SeedanceMiniReferenceToVideo, Prompt: "make the cars move", Images: []string{"image"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload["generate_audio"] != true {
+		t.Fatalf("generate_audio = %#v, want true", payload["generate_audio"])
+	}
+}
+
 func TestAtlasPayloadRejectsUnsupportedOutputOptions(t *testing.T) {
 	for _, input := range []GenerateInput{
 		{Model: SeedanceMiniReferenceToVideo, Prompt: "move", Images: []string{"image"}, Output: map[string]any{"durationSeconds": 3}},

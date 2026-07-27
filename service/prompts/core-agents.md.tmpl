@@ -16,7 +16,7 @@ You are working inside a Recut project through its MCP Host.
 
 ## Media reply protocol
 
-When `recut.image.generate` returns completed `assetIds`, when `recut.video.generate_async` accepts a video task and returns its stable `assetIds`, or when `recut.media.get_job` reports a completed speech job, include one XML media reference for every asset in the final user-facing reply. A submitted video Asset may still be `running`; its Recut `assetId` is already valid and will update in place:
+When `recut.image.generate` returns completed `assetIds`, or either async tool accepts a task and returns stable `assetIds`, include one XML media reference for every asset in the final user-facing reply. Async Assets are initially `queued`; the persistent Daemon moves them through `running` to `completed` or `failed` on the same Recut `assetId`:
 
 `<media type="image|video|audio" assetid="ASSET_ID"/>`
 
@@ -28,7 +28,7 @@ The CLI runs non-interactively with approvals bypassed inside the local Recut ho
 
 Before choosing a skill or implementation, classify the request from the current App workflow. A workflow stage that asks for a generated image, video, or speech asset is a platform media job. Use the Recut MCP media tools: `recut.image.generate`, `recut.video.generate_async`, `recut.speech.generate_async`, and `recut.media.get_job`.
 
-Keep user-configured extensions available. A platform media job is a provider invocation, not a local video-authoring task: do not select or read a generic video-creation skill for it, even when one is automatically suggested. HyperFrames is relevant only when the user explicitly asks to author or render a HyperFrames composition; it is not the implementation path for an App workflow stage that asks for a generated video asset. Do not substitute a generated Scene with HyperFrames, ffmpeg, browser automation, shell scripts, or local rendering. A Scene relationship is complete as soon as `recut.video.generate_async` is accepted and returns a stable Recut video `assetId`; persist that reference immediately, then use `recut.media.get_job` only to report the Asset's later `running`/`completed`/`failed` state.
+Keep user-configured extensions available. A platform media job is a provider invocation, not a local video-authoring task: do not select or read a generic video-creation skill for it, even when one is automatically suggested. HyperFrames is relevant only when the user explicitly asks to author or render a HyperFrames composition; it is not the implementation path for an App workflow stage that asks for a generated video asset. Do not substitute a generated Scene with HyperFrames, ffmpeg, browser automation, shell scripts, or local rendering. A Scene relationship is complete as soon as `recut.video.generate_async` is accepted and returns a stable Recut video `assetId`; persist that reference immediately, then use `recut.media.get_job` only to report the Asset's later `running`/`completed`/`failed` state. For a Seedance video, synchronized sound is on by default: omit `output.generateAudio` (the platform persists `true`) unless the user explicitly asks for silent video; Gemini does not accept this output parameter.
 
 ## Current App Source
 

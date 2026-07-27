@@ -18,7 +18,7 @@ Makefile          本地开发入口；启动前会安全清理本项目残留�
 - `manifest.json` 是 App 唯一运行时配置：身份、类型、入口、权限和一次定义的 `operations`。每个 operation 以 `surfaces` 声明供 UI API、Agent MCP 或两者使用，避免同一业务契约重复。
 - `type: project` 绑定项目；`type: standalone` 绑定工作区。它们使用同一运行时和 capability API。
 - App 数据模型属于 App 的 JavaScript。平台不解析 `project-layout.json`，不规定表、JSON 文件或工作流步骤。
-- SQLite 是资源真相：App state、Artifact、事件、引用与版本均存表中；媒体平台在 `workspace.sqlite` 管理跨项目 Asset、Provider BYOK 凭据、用途模型 Route 与任务，文件根只保存内容寻址的大二进制，数据库保存其哈希引用。所有媒体依赖以全局 `assetId` 表达；用户上传也先成为带 `origin: user-upload` 的 Asset，再绑定项目与 Agent turn。用户 Agent 对话同样位于根目录 `workspace.sqlite`，与项目数据库解耦。
+- SQLite 是资源真相：App state、Artifact、事件、引用与版本均存表中；媒体平台在 `workspace.sqlite` 管理跨项目 Asset、Provider BYOK 凭据、用途模型 Route 与任务，文件根只保存内容寻址的大二进制，数据库保存其哈希引用。异步媒体先原子持久化稳定的 queued Asset 与 Job；常驻 Daemon 用 SQLite lease 和外部调用 checkpoint 提交 prediction、原位推进 Asset，并周期回收终态。只有已持久化的 prediction 可安全重试，未知外部提交保留原 Asset 并明确失败，避免重复收费；前端只读本地状态。所有媒体依赖以全局 `assetId` 表达；用户上传也先成为带 `origin: user-upload` 的 Asset，再绑定项目与 Agent turn。用户 Agent 对话同样位于根目录 `workspace.sqlite`，与项目数据库解耦。
 - App 之间通过公开 API 和不可变 Artifact 引用协作，绝不读取彼此数据库或文件目录。
 - Agent 只连平台 MCP Host。Host 以按媒介类型划分的 `recut.image.generate`、`recut.video.generate_async`、`recut.speech.generate_async` 暴露生成能力，另以 `recut.media.*` 提供配置、任务和素材管理；`recut.project_context` 直接携带用户配置的默认媒体路由、模型契约和可选参数。图片同步返回资产或终态错误，视频与语音显式返回异步 Job。当前 App 的业务工具仍由 manifest 约束。
 - Chat UI 消费结构化 Agent Session 事件；Codex/Claude 等 native session id 只用于续聊，终端 PTY 保留为兼容与诊断通道。

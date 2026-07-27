@@ -1,13 +1,15 @@
 /*
- * [INPUT]: 依赖素材资产状态、元数据、素材内容 API、VideoFrame 与 lucide-react 图标
- * [OUTPUT]: 对外提供 AssetPreviewDialog 统一素材详情模态框，展示生成中/失败状态并预览完成的图片、视频首帧/播放器和音频
- * [POS]: web 的跨页面素材查看入口；素材库与 Agent 对话通过同一视图查看资产
+ * [INPUT]: 依赖共享 Asset SSE 缓存、素材元数据/内容 API、GenerationDuration、VideoFrame 与 lucide-react 图标
+ * [OUTPUT]: 对外提供 AssetPreviewDialog 统一素材详情模态框；运行中素材按 assetId 从共享缓存原位更新并显示实时/最终生成耗时，同时预览完成的图片、视频首帧/播放器和音频
+ * [POS]: web 的跨页面素材查看入口；素材库与 Agent 对话通过同一视图查看资产，不轮询单个 Asset 或依赖父视图刷新
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { Check, Copy, LoaderCircle, Music2, RotateCcw, Video, X } from "lucide-react";
 import { useState } from "react";
+import { GenerationDuration } from "@/components/generation-duration";
+import { useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { VideoFrame } from "@/components/video-frame";
 
 export type PreviewAsset = {
@@ -21,11 +23,13 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; referenceIds?: unknown };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; referenceIds?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown };
 };
 
 export function mediaContext(asset: PreviewAsset) {
-  const prompt = typeof asset.metadata.prompt === "string" && asset.metadata.prompt.trim();
+  // 历史导入素材没有 generation metadata；复制上下文也必须和预览一样可用。
+  const metadata = asset.metadata ?? {};
+  const prompt = typeof metadata.prompt === "string" && metadata.prompt.trim();
   return [
     `<media type="${asset.kind}" assetid="${asset.id}"/>`,
     `素材名称：${asset.name}`,
@@ -36,8 +40,10 @@ export function mediaContext(asset: PreviewAsset) {
   ].join("\n");
 }
 
-export function AssetPreviewDialog({ apiBase, asset, assets = [], onClose, onRegenerate }: { apiBase: string; asset: PreviewAsset; assets?: PreviewAsset[]; onClose: () => void; onRegenerate?: (asset: PreviewAsset) => void }) {
+export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], onClose, onRegenerate }: { apiBase: string; asset: PreviewAsset; assets?: PreviewAsset[]; onClose: () => void; onRegenerate?: (asset: PreviewAsset) => void }) {
   const [copied, setCopied] = useState(false);
+  const { assetByID, assets: liveAssets } = useMediaAssetEvents();
+  const asset = (assetByID[initialAsset.id] as unknown as PreviewAsset | undefined) ?? initialAsset;
   // Older workspaces predate Asset lifecycle fields. Keep their records
   // previewable instead of trusting an upgraded UI type at runtime.
   const status = asset.status || "completed";
@@ -45,8 +51,11 @@ export function AssetPreviewDialog({ apiBase, asset, assets = [], onClose, onReg
   const metadata = asset.metadata || {};
   const ready = status === "completed";
   const referenceIDs = Array.isArray(metadata.referenceIds) ? metadata.referenceIds.filter((id): id is string => typeof id === "string") : [];
-  const references = referenceIDs.map((id) => assets.find((item) => item.id === id)).filter((item): item is PreviewAsset => Boolean(item));
-  const statusLabel = status === "failed" ? "生成失败" : ready ? "已完成" : "生成中";
+  const knownAssets = new Map(assets.map((item) => [item.id, item]));
+  liveAssets.forEach((item) => knownAssets.set(item.id, item as unknown as PreviewAsset));
+  const references = referenceIDs.map((id) => knownAssets.get(id)).filter((item): item is PreviewAsset => Boolean(item));
+  const statusText = status === "failed" ? "生成失败" : ready ? "已完成" : "生成中";
+  const statusLabel = <><span>{statusText}</span><GenerationDuration className="font-mono text-[10px] text-muted-foreground" item={asset} /></>;
   async function copyContext() {
     await navigator.clipboard.writeText(mediaContext(asset));
     setCopied(true);
@@ -56,17 +65,21 @@ export function AssetPreviewDialog({ apiBase, asset, assets = [], onClose, onReg
 }
 
 function AssetContent({ apiBase, asset, status }: { apiBase: string; asset: PreviewAsset; status: string }) {
-  if (status !== "completed") return <div className="grid max-w-sm gap-3 text-center text-muted-foreground"><LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} /><div><p className="text-sm font-medium text-foreground">{status === "failed" ? "生成失败" : "生成中"}</p><p className="mt-1 text-xs leading-5">素材引用已经建立；完成后会在这里原位可预览。</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}</div></div>;
+  if (status !== "completed") return <PendingAssetContent asset={asset} status={status} />;
   const source = mediaContentURL(apiBase, asset.id);
   if (asset.kind === "image") return <img alt={asset.name} className="max-h-[65vh] max-w-full object-contain" src={source} />;
   if (asset.kind === "audio") return <div className="w-full max-w-lg"><Music2 className="mx-auto mb-4 size-8 text-muted-foreground" /><audio className="w-full" controls preload="metadata" src={source}>你的浏览器不支持音频播放。</audio></div>;
   return <VideoFrame alt={asset.name || "视频素材"} className="w-full max-w-4xl rounded-xs bg-black" controls src={source} videoClassName="max-h-[65vh] object-contain" />;
 }
 
+function PendingAssetContent({ asset, status }: { asset: PreviewAsset; status: string }) {
+  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground"><LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} /><div><p className="text-sm font-medium text-foreground">{status === "failed" ? "生成失败" : "生成中"}</p><GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} /><p className="mt-1 text-xs leading-5">素材引用已经建立；完成后会在这里原位可预览。</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}</div></div>;
+}
+
 function ReferencePreview({ apiBase, reference }: { apiBase: string; reference: PreviewAsset }) {
   const ready = (reference.status || "completed") === "completed";
   const source = mediaContentURL(apiBase, reference.id);
-  return <div className="min-w-0">{reference.kind === "image" && ready ? <img alt={reference.name} className="aspect-square w-full rounded-xs border object-cover" src={source} /> : reference.kind === "video" && ready ? <VideoFrame alt={reference.name || "参考视频"} className="aspect-square w-full rounded-xs border" src={source} /> : <div className="grid aspect-square place-items-center rounded-xs border bg-muted text-muted-foreground"><Music2 className="size-4" /></div>}<p className="mt-1 truncate text-[10px]" title={reference.name}>{reference.name}</p></div>;
+  return <div className="min-w-0">{reference.kind === "image" && ready ? <img alt={reference.name} className="aspect-square w-full rounded-xs border object-cover" src={source} /> : reference.kind === "video" && ready ? <VideoFrame alt={reference.name || "参考视频"} className="aspect-square w-full rounded-xs border" src={source} /> : <div className="grid aspect-square place-items-center rounded-xs border bg-muted text-muted-foreground"><Music2 className="size-4" /></div>}<p className="mt-1 truncate text-[10px]" title={reference.name}>{reference.name}</p><GenerationDuration className="block truncate font-mono text-[9px] text-muted-foreground" item={reference} /></div>;
 }
 
 export function mediaContentURL(apiBase: string, assetID: string) {

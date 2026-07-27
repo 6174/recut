@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 MediaService 的平台级媒体边界与标准 HTTP JSON 协议
- * [OUTPUT]: 对外提供素材库、图片/视频/音频导入、模型路由、BYOK 凭据、动态音色和生成任务（默认路由或受校验的模型/凭据直连）的本地 HTTP API
- * [POS]: service 的 Media Platform 传输层；工作台和系统 MCP 使用同一业务服务
+ * [OUTPUT]: 对外提供素材库、图片/视频/音频导入、模型路由、BYOK 凭据、动态音色、生成任务及 durable Asset SSE 的本地 HTTP API
+ * [POS]: service 的 Media Platform 传输层；工作台和系统 MCP 使用同一业务服务，SSE 只传播本地 Asset 真相
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -9,11 +9,26 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
+
+const mediaAssetEventPollInterval = 250 * time.Millisecond
+
+type mediaAssetSnapshot struct {
+	Cursor int64        `json:"cursor"`
+	Assets []MediaAsset `json:"assets"`
+}
+
+type mediaAssetUpdate struct {
+	ID    int64      `json:"id"`
+	Asset MediaAsset `json:"asset"`
+}
 
 func (s *Server) listMediaModels(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.media.Models())
@@ -73,6 +88,109 @@ func (s *Server) listMediaAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+// streamMediaAssetEvents exposes the durable Asset event ledger. An initial
+// subscriber receives a full snapshot; a reconnect that supplies a cursor
+// receives every committed update after that cursor. No provider state is
+// queried here, so the browser always observes the same local truth as MCP
+// submitters and the daemon.
+func (s *Server) streamMediaAssetEvents(w http.ResponseWriter, r *http.Request) {
+	after, hasCursor, err := mediaAssetEventCursor(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	latest, err := s.media.LatestAssetEventID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	// A cursor from a prior workspace cannot be replayed. A snapshot is the
+	// only safe recovery because it replaces stale browser state atomically.
+	if after > latest {
+		hasCursor = false
+	}
+	var snapshot mediaAssetSnapshot
+	if !hasCursor {
+		assets, err := s.media.ListAssets("")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		snapshot = mediaAssetSnapshot{Cursor: latest, Assets: assets}
+		after = latest
+	}
+
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, errors.New("streaming is unavailable"))
+		return
+	}
+	if !hasCursor && !writeMediaSSE(w, "", "media.snapshot", snapshot) {
+		return
+	}
+	flusher.Flush()
+
+	ticker := time.NewTicker(mediaAssetEventPollInterval)
+	defer ticker.Stop()
+	for {
+		events, err := s.media.AssetEvents(after)
+		if err != nil {
+			return
+		}
+		for _, event := range events {
+			after = event.ID
+			asset, err := s.media.GetAsset(event.AssetID)
+			if err != nil {
+				// Asset deletion is not currently exposed, but advancing the
+				// durable cursor keeps a future deletion API from wedging SSE.
+				continue
+			}
+			if !writeMediaSSE(w, strconv.FormatInt(event.ID, 10), "asset.updated", mediaAssetUpdate{ID: event.ID, Asset: asset}) {
+				return
+			}
+		}
+		flusher.Flush()
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func mediaAssetEventCursor(r *http.Request) (int64, bool, error) {
+	value := strings.TrimSpace(r.URL.Query().Get("after"))
+	if value == "" {
+		value = strings.TrimSpace(r.Header.Get("Last-Event-ID"))
+	}
+	if value == "" {
+		return 0, false, nil
+	}
+	cursor, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || cursor < 0 {
+		return 0, false, errors.New("media event cursor must be a non-negative integer")
+	}
+	return cursor, true, nil
+}
+
+func writeMediaSSE(w io.Writer, id, event string, value any) bool {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return false
+	}
+	if id != "" {
+		_, err = fmt.Fprintf(w, "id: %s\n", id)
+	}
+	if err == nil {
+		_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	}
+	return err == nil
 }
 
 func (s *Server) importMediaAsset(w http.ResponseWriter, r *http.Request) {

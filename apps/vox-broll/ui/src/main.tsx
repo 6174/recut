@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 React、recut UI SDK、资源卡片与资源弹窗
+ * [INPUT]: 依赖 React、recut UI SDK、共享 Asset SSE 缓存、资源卡片与资源弹窗
  * [OUTPUT]: 对外提供 B-roll 多面板工作台根视图与创建、原位更新后的项目事件驱动资源刷新
- * [POS]: vox-broll 的项目 UI 编排层；同时展示全部创作阶段，不直接访问 HTTP、终端或 SQLite
+ * [POS]: vox-broll 的项目 UI 编排层；同时展示全部创作阶段，为所有资源预览建立唯一 Asset SSE 缓存，不直接访问 HTTP、终端或 SQLite
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { createRoot } from "react-dom/client";
@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { CreateResourceDialog, ResourcePreviewDialog } from "./resource-dialogs";
 import { recut } from "./recut-sdk";
 import { StagePanel, type Stage } from "./stage-panel";
+import { MediaAssetEventsProvider } from "./use-media-asset-events";
 import "./style.css";
 
 export type Resource = { id: string; kind: string; title: string; content: unknown; dependencies: string[]; createdAt?: string };
@@ -82,4 +83,4 @@ function App() {
   </main>;
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(<MediaAssetEventsProvider><App /></MediaAssetEventsProvider>);

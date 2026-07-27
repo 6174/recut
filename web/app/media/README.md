@@ -3,10 +3,11 @@
 > L2 | 父级: /web/app/README.md
 
 成员清单
-page.tsx: 工作区级素材库系统应用；左侧按类型浏览、预览媒体资产，完成的视频卡片解码展示真实首帧而非类型文字，顶部可主动批量上传图片、视频或音频，并通过“创建”菜单选择图片、视频或音频；音频创建按当前凭据动态读取 MiniMax/ElevenLabs 音色并提交 voiceId；重复导入命中已有 assetId 时保持本地列表唯一；提交后立即显示并轮询生成中任务卡片，完成时刷新真实资产；弹框以紧凑下拉框选择已连接模型，并严格按模型 `inputModes` 选择、上传和展示兼容参考素材（Seedance 可用多图、视频和音频，Gemini Omni 仅参考图）；详情可将已保存的提示词、模型和引用回填以再次生成，右侧承载标准 Agent 会话。
+page.tsx: 工作区级素材库系统应用；左侧按类型浏览、预览媒体资产，完成的视频卡片解码展示真实首帧而非类型文字，顶部可主动批量上传图片、视频或音频，并通过“创建”菜单选择图片、视频或音频；音频创建按当前凭据动态读取 MiniMax/ElevenLabs 音色并提交 voiceId；所有 Asset 从单条 Recut SSE 快照/增量流消费，提交后一次 hydrate 用于即时呈现，运行态实时显示用时、终态只显示持久化耗时，任务卡不自行猜测时钟；弹框以紧凑下拉框选择已连接模型，并严格按模型 `inputModes` 选择、上传和展示兼容参考素材（Seedance 可用多图、视频和音频，且按 `outputModes` 展示默认开启的同步音频开关；Gemini Omni 仅参考图且不展示无效开关）；详情可将已保存的提示词、模型和引用回填以再次生成，右侧承载标准 Agent 会话。
+asset-grid.tsx: 素材和尚未可见 Asset 的任务卡片；完成视频解码真实首帧，运行态显示实时用时，终态读取 Asset 已持久化的生成耗时。
 reference-assets-field.tsx: 创建弹框的模型约束参考素材字段；负责图片/视频/音频的选择、上传、缩略预览和局部选择弹框，视频缩略图显示真实首帧，不持有 Provider 或任务状态。
-asset-preview.tsx: 素材详情弹框的兼容入口；实际视图复用 components/asset-preview-dialog.tsx，展示生成提示词、参考素材缩略图和再次生成入口。
-media-types.ts: 素材、任务和 Provider HTTP 数据的共享 TypeScript 契约；将缺少生命周期字段或远端任务绑定的历史 Asset 归一为 `completed`，不把旧素材误显示为生成中。
+asset-preview.tsx: 素材详情弹框的兼容入口；实际视图复用 components/asset-preview-dialog.tsx，从共享 Asset 缓存原位更新运行/终态并显示用时，展示生成提示词、参考素材缩略图和再次生成入口。
+media-types.ts: 素材、任务和 Provider HTTP 数据的共享 TypeScript 契约；将缺少生命周期字段或 durable `jobId` 绑定的历史 Asset 归一为 `completed`，保留有 jobId 的 Atlas 视频与通用异步语音 `queued/running` 状态，不把旧素材误显示为生成中。
 
 依赖边界
 

@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖配置、资产与 Provider 适配器
- * [OUTPUT]: 生成任务创建、执行、状态恢复和结果持久化
- * [POS]: media 的任务编排层；不持有配置或资产存储实现
+ * [OUTPUT]: 生成任务创建、同步执行、结果持久化与通用 Provider 调度
+ * [POS]: media 的任务编排层；scheduler 位于 jobs_scheduler，由其接管持久化异步任务
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media
@@ -21,24 +21,27 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"recut-service/media/providers/atlas"
 )
 
 const jobColumns = `id, capability, status, prompt, model_id, project_id, reference_ids_json, output_json, asset_ids_json, remote_id, error, created_at, updated_at`
-
-var errAtlasVideoOutputMissing = errors.New("Atlas Cloud completed without a video output")
 
 func (m *MediaService) Generate(input GenerateMediaInput) (MediaJob, error) {
 	job, credential, created, err := m.createJob(input)
 	if err != nil || !created {
 		return job, err
 	}
-	if isAtlasVideoJob(job, credential) {
-		return m.submitAtlasVideo(job, credential)
+	// Async callers only publish durable work. Provider calls belong to the
+	// long-lived daemon: a short-lived MCP/HTTP process can disappear at any
+	// point, but the queued Asset keeps the project reference intact.
+	kind, mimeType := queuedAssetSpec(job)
+	if _, err := m.createQueuedAsset(job, credential.Provider, kind, mimeType); err != nil {
+		m.setJobStatus(job.ID, "failed", nil, err.Error())
+		if failed, getErr := m.getJob(job.ID); getErr == nil {
+			return failed, err
+		}
+		return job, err
 	}
-	go m.execute(job, credential)
-	return job, nil
+	return m.getJob(job.ID)
 }
 
 // GenerateSync is for short, stage-critical media operations. It waits for the
@@ -51,7 +54,7 @@ func (m *MediaService) GenerateSync(input GenerateMediaInput) (MediaJob, error) 
 	}
 	if created {
 		if isAtlasVideoJob(job, credential) {
-			if job, err = m.submitAtlasVideo(job, credential); err != nil {
+			if job, err = m.submitAtlasVideo(job, credential, true); err != nil {
 				return job, err
 			}
 		} else {
@@ -61,14 +64,10 @@ func (m *MediaService) GenerateSync(input GenerateMediaInput) (MediaJob, error) 
 	return m.waitForJob(job.ID, mediaRequestTimeout)
 }
 
-func isAtlasVideoJob(job MediaJob, credential MediaCredential) bool {
-	return job.Capability == VideoGenerate && credential.Provider == "atlas-cloud"
-}
-
 func (m *MediaService) waitForJob(id string, timeout time.Duration) (MediaJob, error) {
 	deadline := time.Now().Add(timeout)
 	for {
-		job, err := m.GetJob(id)
+		job, err := m.getJob(id)
 		if err != nil {
 			return MediaJob{}, err
 		}
@@ -86,6 +85,43 @@ func (m *MediaService) waitForJob(id string, timeout time.Duration) (MediaJob, e
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+}
+
+func queuedAssetSpec(job MediaJob) (string, string) {
+	switch job.Capability {
+	case ImageGenerate:
+		return "image", "image/png"
+	case SpeechGenerate:
+		return "audio", mimeTypeForAudioFormat(outputString(job.Output, "format", "mp3"))
+	default:
+		return "video", "video/mp4"
+	}
+}
+
+// normalizedGenerationOutput makes provider defaults explicit at task creation
+// time. The saved Job and its Asset metadata therefore preserve the user-visible
+// intent even if a provider later changes its own undocumented defaults.
+func normalizedGenerationOutput(capability MediaCapability, modelID string, output map[string]any) map[string]any {
+	normalized := make(map[string]any, len(output)+1)
+	for key, value := range output {
+		normalized[key] = value
+	}
+	model, ok := modelByID(modelID)
+	if capability == VideoGenerate && ok && containsOutputMode(model, "generateAudio") {
+		if _, present := normalized["generateAudio"]; !present {
+			normalized["generateAudio"] = true
+		}
+	}
+	return normalized
+}
+
+func containsOutputMode(model MediaModel, mode string) bool {
+	for _, supported := range modelOutputFields(model) {
+		if supported == mode {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCredential, bool, error) {
@@ -108,6 +144,7 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 		return MediaJob{}, MediaCredential{}, false, err
 	}
 	input.ModelID = route.ModelID
+	input.Output = normalizedGenerationOutput(input.Capability, input.ModelID, input.Output)
 	if err := m.validateReferences(input); err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
 	}
@@ -136,54 +173,16 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 }
 
 func (m *MediaService) GetJob(id string) (MediaJob, error) {
+	return m.getJob(id)
+}
+
+func (m *MediaService) getJob(id string) (MediaJob, error) {
 	db, err := m.database()
 	if err != nil {
 		return MediaJob{}, err
 	}
 	defer db.Close()
 	return scanJob(db.QueryRow("select "+jobColumns+" from media_jobs where id = ?", id))
-}
-
-// RecoverInterruptedJobs resumes jobs that already have a durable remote task
-// handle. Jobs that never reached provider submission still fail safely rather
-// than causing an unexpected second provider request after restart.
-func (m *MediaService) RecoverInterruptedJobs() (int64, error) {
-	db, err := m.database()
-	if err != nil {
-		return 0, err
-	}
-	rows, err := db.Query(`select j.id from media_jobs j join media_assets a on a.job_id = j.id join media_credentials c on c.id = j.credential_id where j.status = 'running' and j.remote_id != '' and a.status = 'running' and c.provider = 'atlas-cloud'`)
-	if err != nil {
-		_ = db.Close()
-		return 0, err
-	}
-	resumeIDs := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			_ = db.Close()
-			return 0, err
-		}
-		resumeIDs = append(resumeIDs, id)
-	}
-	if err := rows.Close(); err != nil {
-		_ = db.Close()
-		return 0, err
-	}
-	result, err := db.Exec("update media_jobs set status = ?, error = ?, updated_at = ? where status = 'queued' or (status = 'running' and (remote_id = '' or not exists (select 1 from media_assets a where a.job_id = media_jobs.id and a.status = 'running')))", "failed", InterruptedMediaJobMessage, time.Now().UTC().Format(time.RFC3339Nano))
-	_ = db.Close()
-	if err != nil {
-		return 0, err
-	}
-	for _, id := range resumeIDs {
-		m.startAtlasPolling(id)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	return affected + int64(len(resumeIDs)), nil
 }
 
 func (m *MediaService) resolveRoute(input GenerateMediaInput) (MediaRoute, MediaCredential, error) {
@@ -230,38 +229,55 @@ func (m *MediaService) resolveRoute(input GenerateMediaInput) (MediaRoute, Media
 }
 
 func (m *MediaService) execute(job MediaJob, credential MediaCredential) {
-	m.setJobStatus(job.ID, "running", nil, "")
+	if len(job.AssetIDs) == 0 {
+		m.setJobStatus(job.ID, "running", nil, "")
+	}
 	model, ok := modelByID(job.ModelID)
 	if !ok || !model.Available {
-		m.setJobStatus(job.ID, "failed", nil, "this provider model adapter is not available yet")
+		m.failExecution(job, errors.New("this provider model adapter is not available yet"))
 		return
 	}
 	if job.Capability == ImageGenerate && providerUsesOpenAIProtocol(credential.Provider) {
 		secret, err := m.secret(credential.ID)
 		if err != nil {
-			m.setJobStatus(job.ID, "failed", nil, err.Error())
+			m.failExecution(job, err)
 			return
 		}
 		asset, err := m.generateOpenAIImage(job, credential, model, secret)
 		if err != nil {
-			m.setJobStatus(job.ID, "failed", nil, err.Error())
+			m.failExecution(job, err)
 			return
 		}
-		m.setJobStatus(job.ID, "completed", []string{asset.ID}, "")
+		m.completeExecution(job, asset)
 		return
 	}
 	if job.Capability != SpeechGenerate || (credential.Provider != "minimax" && credential.Provider != "elevenlabs") {
-		m.setJobStatus(job.ID, "failed", nil, "this provider capability adapter is not available yet")
+		m.failExecution(job, errors.New("this provider capability adapter is not available yet"))
 		return
 	}
 	secret, err := m.secret(credential.ID)
 	if err != nil {
-		m.setJobStatus(job.ID, "failed", nil, err.Error())
+		m.failExecution(job, err)
 		return
 	}
 	asset, err := m.generateSpeech(job, credential, model, secret)
 	if err != nil {
-		m.setJobStatus(job.ID, "failed", nil, err.Error())
+		m.failExecution(job, err)
+		return
+	}
+	m.completeExecution(job, asset)
+}
+
+func (m *MediaService) failExecution(job MediaJob, cause error) {
+	if len(job.AssetIDs) == 1 {
+		m.failRemoteAsset(job.ID, job.AssetIDs[0], cause.Error())
+		return
+	}
+	m.setJobStatus(job.ID, "failed", nil, cause.Error())
+}
+
+func (m *MediaService) completeExecution(job MediaJob, asset MediaAsset) {
+	if len(job.AssetIDs) == 1 && job.AssetIDs[0] == asset.ID {
 		return
 	}
 	m.setJobStatus(job.ID, "completed", []string{asset.ID}, "")
@@ -321,222 +337,6 @@ func (m *MediaService) generateOpenAIImage(job MediaJob, credential MediaCredent
 		"capability":   job.Capability,
 		"referenceIds": job.ReferenceIDs,
 	})
-}
-
-// submitAtlasVideo performs the only synchronous part of an asynchronous
-// provider flow: obtain the durable Atlas prediction ID, then atomically bind
-// it to a stable running Asset before returning the Recut job to the caller.
-func (m *MediaService) submitAtlasVideo(job MediaJob, credential MediaCredential) (MediaJob, error) {
-	model, ok := modelByID(job.ModelID)
-	if !ok || !model.Available {
-		return m.failSubmittedJob(job, errors.New("this provider model adapter is not available yet"))
-	}
-	secret, err := m.secret(credential.ID)
-	if err != nil {
-		return m.failSubmittedJob(job, err)
-	}
-	references, err := m.atlasReferenceData(job)
-	if err != nil {
-		return m.failSubmittedJob(job, err)
-	}
-	baseURL := apiBaseFor(credential)
-	videos, err := uploadAtlasVideos(baseURL, secret, references.Videos)
-	if err != nil {
-		return m.failSubmittedJob(job, err)
-	}
-	prediction, err := atlas.Submit(mediaHTTPClient, baseURL, secret, atlas.GenerateInput{Model: model.APIModelID, Prompt: job.Prompt, Images: references.Images, Videos: videos, Audios: references.Audios, Output: job.Output})
-	if err != nil {
-		return m.failSubmittedJob(job, err)
-	}
-	if prediction.ID == "" {
-		return m.failSubmittedJob(job, errors.New("Atlas Cloud returned a prediction without an ID"))
-	}
-	asset, err := m.createRemoteAsset(job, credential.Provider, prediction.ID, prediction.PollURL)
-	if err != nil {
-		return MediaJob{}, err
-	}
-	job, err = m.GetJob(job.ID)
-	if err != nil {
-		return MediaJob{}, err
-	}
-	if len(job.AssetIDs) == 0 || job.AssetIDs[0] != asset.ID {
-		return MediaJob{}, errors.New("running Atlas asset was not linked to its media job")
-	}
-	m.startAtlasPolling(job.ID)
-	return job, nil
-}
-
-func (m *MediaService) failSubmittedJob(job MediaJob, cause error) (MediaJob, error) {
-	m.setJobStatus(job.ID, "failed", nil, cause.Error())
-	if failed, err := m.GetJob(job.ID); err == nil {
-		return failed, cause
-	}
-	return job, cause
-}
-
-func (m *MediaService) startAtlasPolling(jobID string) {
-	if _, loaded := m.pollers.LoadOrStore(jobID, struct{}{}); loaded {
-		return
-	}
-	go func() {
-		defer m.pollers.Delete(jobID)
-		m.pollAtlasJob(jobID)
-	}()
-}
-
-func (m *MediaService) pollAtlasJob(jobID string) {
-	for {
-		task, active := m.atlasTask(jobID)
-		if !active {
-			return
-		}
-		prediction, err := atlas.Poll(mediaHTTPClient, apiBaseFor(task.credential), task.secret, atlas.Prediction{ID: task.asset.RemoteID, PollURL: task.pollURL})
-		if err != nil {
-			time.Sleep(atlasPollInterval)
-			continue
-		}
-		if prediction.Failed() {
-			m.failRemoteAsset(task.job.ID, task.asset.ID, prediction.FailureMessage())
-			return
-		}
-		if !prediction.Completed() {
-			time.Sleep(atlasPollInterval)
-			continue
-		}
-		err = m.collectAtlasOutput(task, prediction)
-		if err == nil {
-			return
-		}
-		if errors.Is(err, errAtlasVideoOutputMissing) {
-			m.failRemoteAsset(task.job.ID, task.asset.ID, err.Error())
-			return
-		}
-		time.Sleep(atlasPollInterval)
-	}
-}
-
-type atlasTask struct {
-	job        MediaJob
-	asset      MediaAsset
-	credential MediaCredential
-	secret     string
-	pollURL    string
-}
-
-func (m *MediaService) atlasTask(jobID string) (atlasTask, bool) {
-	job, err := m.GetJob(jobID)
-	if err != nil || job.Status != "running" || job.RemoteID == "" {
-		return atlasTask{}, false
-	}
-	db, err := m.database()
-	if err != nil {
-		return atlasTask{}, false
-	}
-	defer db.Close()
-	var credentialID, pollURL string
-	if err := db.QueryRow("select credential_id, remote_poll_url from media_jobs where id = ?", job.ID).Scan(&credentialID, &pollURL); err != nil {
-		return atlasTask{}, false
-	}
-	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where job_id = ?", job.ID))
-	if err != nil || asset.Status != "running" || asset.RemoteID == "" {
-		return atlasTask{}, false
-	}
-	credential, err := m.credential(credentialID)
-	if err != nil {
-		return atlasTask{}, false
-	}
-	secret, err := m.secret(credential.ID)
-	if err != nil {
-		return atlasTask{}, false
-	}
-	return atlasTask{job: job, asset: asset, credential: credential, secret: secret, pollURL: pollURL}, true
-}
-
-func (m *MediaService) collectAtlasOutput(task atlasTask, prediction atlas.Prediction) error {
-	url := prediction.VideoURL()
-	if url == "" {
-		return errAtlasVideoOutputMissing
-	}
-	content, err := fetchMedia(url)
-	if err != nil {
-		return err
-	}
-	_, err = m.completeRemoteAsset(task.job.ID, task.asset.ID, content, "video/mp4")
-	return err
-}
-
-type atlasReferences struct {
-	Images []string
-	Videos []atlas.MediaUpload
-	Audios []string
-}
-
-func (m *MediaService) atlasReferenceData(job MediaJob) (atlasReferences, error) {
-	references := atlasReferences{}
-	for _, id := range job.ReferenceIDs {
-		asset, err := m.GetAsset(id)
-		if err != nil {
-			return atlasReferences{}, err
-		}
-		switch asset.Kind {
-		case "image":
-			encoded, err := encodeAtlasReference(asset)
-			if err != nil {
-				return atlasReferences{}, err
-			}
-			references.Images = append(references.Images, encoded)
-		case "video":
-			upload, err := atlasUploadReference(asset)
-			if err != nil {
-				return atlasReferences{}, err
-			}
-			references.Videos = append(references.Videos, upload)
-		case "audio":
-			encoded, err := encodeAtlasReference(asset)
-			if err != nil {
-				return atlasReferences{}, err
-			}
-			references.Audios = append(references.Audios, encoded)
-		}
-	}
-	return references, nil
-}
-
-func encodeAtlasReference(asset MediaAsset) (string, error) {
-	content, err := atlasReferenceContent(asset)
-	if err != nil {
-		return "", err
-	}
-	return "data:" + asset.MimeType + ";base64," + base64.StdEncoding.EncodeToString(content), nil
-}
-
-func atlasUploadReference(asset MediaAsset) (atlas.MediaUpload, error) {
-	content, err := atlasReferenceContent(asset)
-	if err != nil {
-		return atlas.MediaUpload{}, err
-	}
-	return atlas.MediaUpload{Name: asset.Name, ContentType: asset.MimeType, Content: content}, nil
-}
-
-func atlasReferenceContent(asset MediaAsset) ([]byte, error) {
-	path, _ := asset.Metadata["path"].(string)
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reference asset %q cannot be read", asset.ID)
-	}
-	return content, nil
-}
-
-func uploadAtlasVideos(baseURL, secret string, uploads []atlas.MediaUpload) ([]string, error) {
-	urls := make([]string, 0, len(uploads))
-	for _, upload := range uploads {
-		url, err := atlas.UploadMedia(mediaHTTPClient, baseURL, secret, upload)
-		if err != nil {
-			return nil, err
-		}
-		urls = append(urls, url)
-	}
-	return urls, nil
 }
 
 func (m *MediaService) generateSpeech(job MediaJob, credential MediaCredential, model MediaModel, secret string) (MediaAsset, error) {
@@ -673,7 +473,18 @@ func (m *MediaService) providerRequest(method string, credential MediaCredential
 		cancel()
 		return nil, err
 	}
+	response.Body = cancelOnClose{ReadCloser: response.Body, cancel: cancel}
 	return response, nil
+}
+
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (body cancelOnClose) Close() error {
+	defer body.cancel()
+	return body.ReadCloser.Close()
 }
 
 func speechVoiceID(job MediaJob) string { return outputString(job.Output, "voiceId", "") }

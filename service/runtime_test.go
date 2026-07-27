@@ -165,7 +165,7 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 	}
 	execution := workflow.(map[string]any)["mediaExecution"].(map[string]any)
 	scenes := execution["scenes"].(map[string]any)
-	if scenes["kind"] != "platform-media-generation" || scenes["generate"] != "recut.video.generate_async" || scenes["complete"] != "accepted -> assetIds[0] -> resource.create; get_job only reports Asset status" {
+	if scenes["kind"] != "platform-media-generation" || scenes["generate"] != "recut.video.generate_async" || scenes["complete"] != "accepted -> queued assetIds[0] -> resource.create; Daemon updates Asset status; for Seedance use output.generateAudio=true unless the user explicitly requests silent video" {
 		t.Fatalf("scene media route = %#v", scenes)
 	}
 	prepared, err := NewAppHost(apps, store).InvokeAPI(project.ID, "recut.vox-broll", "resource.prepare", map[string]any{"kind": "scenes"})

@@ -14,8 +14,8 @@ import (
 )
 
 func TestAttachmentPromptPreservesAssetIdentity(t *testing.T) {
-	prompt := attachmentPrompt([]attachmentContext{{AssetID: "asset-1", Name: "reference.png", Origin: "user-upload", Path: "/media/asset-1.png"}})
-	for _, expected := range []string{"assetId=asset-1", "origin=user-upload", "path=/media/asset-1.png", "必须引用 assetId"} {
+	prompt := attachmentPrompt([]attachmentContext{{AssetID: "asset-1", Name: "reference.png", Kind: "image", Origin: "user-upload", Path: "/media/asset-1.png"}})
+	for _, expected := range []string{"assetId=asset-1", "kind=image", "origin=user-upload", "path=/media/asset-1.png", "必须引用 assetId"} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("attachment prompt missing %q: %s", expected, prompt)
 		}

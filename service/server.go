@@ -56,6 +56,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/media/credentials/{id}/voices", s.listMediaVoices)
 	mux.HandleFunc("GET /v1/media/routes", s.listMediaRoutes)
 	mux.HandleFunc("POST /v1/media/routes", s.saveMediaRoute)
+	mux.HandleFunc("GET /v1/media/events", s.streamMediaAssetEvents)
 	mux.HandleFunc("GET /v1/media/assets", s.listMediaAssets)
 	mux.HandleFunc("POST /v1/media/assets", s.importMediaAsset)
 	mux.HandleFunc("GET /v1/media/assets/{id}", s.getMediaAsset)
@@ -105,7 +106,7 @@ func withLocalCORS(next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 		if origin == "http://localhost:3000" || origin == "http://127.0.0.1:3000" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
 		}
 		if r.Method == http.MethodOptions {

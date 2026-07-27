@@ -1,16 +1,16 @@
 /**
- * [INPUT]: 依赖 Resource 类型与 React 图文展示原语
- * [OUTPUT]: 对外提供按 B-roll 创作阶段渲染的人类可读资源摘要、缩略文本、真实视频缩略预览、图片与音视频播放器详情
- * [POS]: vox-broll 的资源展示语义层；将内部 content JSON 翻译为图、文、视频画面和清单，不承担数据读写
+ * [INPUT]: 依赖 Resource 类型、共享 Asset SSE 缓存与 React 图文展示原语
+ * [OUTPUT]: 对外提供按 B-roll 创作阶段渲染的人类可读资源摘要、缩略文本、带生成耗时的真实视频预览、图片与音视频播放器详情；兼容顶层和历史嵌套视频引用
+ * [POS]: vox-broll 的资源展示语义层；将内部 content JSON 翻译为图、文、视频画面和清单，所有异步 Asset 由共享缓存驱动并在真实生成态显示计时，终态只读取后端 generation metadata，优先单段 Scene 的顶层视频并兼容旧多项 Scene
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useEffect, useState } from "react";
 import type { Resource } from "./main";
+import { type AssetState, useMediaAssetEvents } from "./use-media-asset-events";
 
 type RecordValue = Record<string, unknown>;
 type MediaSnapshot = { assetId?: string; text?: string; imageAssetIds?: string[] };
 type LookContent = { media?: MediaSnapshot; definition?: string };
-type AssetState = { status?: "queued" | "running" | "completed" | "failed"; error?: string };
 
 const labels: Record<string, string> = {
   topic: "主题", premise: "核心观点", direction: "创作方向", summary: "摘要", definition: "风格定义", prompt: "生成提示词",
@@ -21,55 +21,81 @@ const labels: Record<string, string> = {
 };
 
 const mediaURL = (assetId: string) => `/v1/media/assets/${encodeURIComponent(assetId)}/content`;
-const assetURL = (assetId: string) => `/v1/media/assets/${encodeURIComponent(assetId)}`;
 const videoPreviewURL = (assetId: string) => `${mediaURL(assetId)}#t=0.001`;
 const record = (value: unknown): RecordValue => value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
 const text = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean).join("、") : typeof value === "string" || typeof value === "number" ? String(value) : "";
 const title = (key: string) => labels[key] || key.replace(/([A-Z])/g, " $1").trim();
 const isLook = (resource: Resource) => resource.kind.toLowerCase() === "look";
+const isGenerating = (asset: AssetState | null) => asset?.status === "queued" || asset?.status === "running";
+
+function timestamp(value: unknown) {
+  if (typeof value !== "string") return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function generationStartedAt(asset: AssetState | null) {
+  return timestamp(asset?.metadata?.generationStartedAt) ?? timestamp(asset?.createdAt);
+}
+
+function finalGenerationDuration(asset: AssetState | null) {
+  const value = asset?.metadata?.generationDurationMs;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function formatGenerationDuration(milliseconds: number) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds / 60) % 60;
+  const remainder = seconds % 60;
+  return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}` : `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function useGenerationElapsedMs(asset: AssetState | null) {
+  const startedAt = generationStartedAt(asset);
+  const generating = isGenerating(asset);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!generating || startedAt === null) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [generating, startedAt]);
+  if (generating) return startedAt === null ? null : Math.max(0, now - startedAt);
+  const finalDuration = finalGenerationDuration(asset);
+  return finalDuration;
+}
+
+function GenerationDuration({ asset, overlay = false }: { asset: AssetState | null; overlay?: boolean }) {
+  const elapsed = useGenerationElapsedMs(asset);
+  if (elapsed === null) return null;
+  const label = isGenerating(asset) ? `${asset?.status === "queued" ? "等待生成" : "生成中"} · ${formatGenerationDuration(elapsed)}` : `生成耗时 · ${formatGenerationDuration(elapsed)}`;
+  return <p className={overlay ? "absolute bottom-1.5 right-1.5 rounded bg-background/90 px-1.5 py-0.5 font-mono text-[10px] text-foreground shadow-sm backdrop-blur" : "mt-1 font-mono text-[11px] text-muted-foreground"}>{label}</p>;
+}
 
 export function useAssetState(assetId: string) {
-  const [asset, setAsset] = useState<AssetState | null>(null);
-  useEffect(() => {
-    let active = true;
-    let timer = 0;
-    const schedule = () => { timer = window.setTimeout(() => void load(), 2500); };
-    async function load() {
-      try {
-        const response = await fetch(assetURL(assetId), { cache: "no-store" });
-        if (!response.ok) throw new Error(response.status === 404 ? "素材不存在或已被删除" : "无法读取素材状态");
-        const current = await response.json() as AssetState;
-        const next = { ...current, status: current.status || "completed" };
-        if (!active) return;
-        setAsset(next);
-        if (next.status !== "completed" && next.status !== "failed") schedule();
-      } catch (cause) {
-        if (active) setAsset({ status: "failed", error: cause instanceof Error ? cause.message : "无法读取素材状态" });
-      }
-    }
-    setAsset(null);
-    void load();
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [assetId]);
-  return asset;
+  const { assetByID, ready } = useMediaAssetEvents();
+  return assetByID[assetId] ?? (ready ? { id: assetId, kind: "image" as const, status: "failed" as const, error: "素材不存在或已被删除" } : null);
 }
 
 function PendingMedia({ asset, compact = false }: { asset: AssetState | null; compact?: boolean }) {
   const failed = asset?.status === "failed";
   const loading = !asset;
-  return <div className={`grid place-items-center border border-dashed bg-muted/40 px-3 text-center text-xs text-muted-foreground ${compact ? "size-full border-0" : "min-h-20 rounded"}`}><div><p className={failed ? "font-medium text-destructive" : "font-medium text-primary"}>{failed ? "生成失败" : loading ? "正在读取素材…" : "生成中…"}</p><p className="mt-1 text-[11px] leading-4">{asset?.error || "素材引用已建立，完成后会原位可播放。"}</p></div></div>;
+  const pendingLabel = asset?.status === "queued" ? "等待生成…" : "生成中…";
+  return <div className={`grid place-items-center border border-dashed bg-muted/40 px-3 text-center text-xs text-muted-foreground ${compact ? "size-full border-0" : "min-h-20 rounded"}`}><div><p className={failed ? "font-medium text-destructive" : "font-medium text-primary"}>{failed ? "生成失败" : loading ? "正在读取素材…" : pendingLabel}</p><GenerationDuration asset={asset} /><p className="mt-1 text-[11px] leading-4">{asset?.error || "素材引用已建立，完成后会原位可播放。"}</p></div></div>;
 }
 
-function AssetImage({ alt, assetId, className }: { alt: string; assetId: string; className: string }) {
+export function AssetImagePreview({ alt, assetId, className, compact = false }: { alt: string; assetId: string; className: string; compact?: boolean }) {
   const asset = useAssetState(assetId);
-  if (!asset || asset.status !== "completed") return <PendingMedia asset={asset} />;
-  return <img alt={alt} className={className} src={mediaURL(assetId)} />;
+  if (!asset || asset.status !== "completed") return <PendingMedia asset={asset} compact={compact} />;
+  return <div className={`relative overflow-hidden ${className}`}><img alt={alt} className="size-full object-cover" src={mediaURL(assetId)} /><GenerationDuration asset={asset} overlay /></div>;
 }
 
 function AssetPlayer({ assetId, kind }: { assetId: string; kind: "video" | "audio" }) {
   const asset = useAssetState(assetId);
   if (!asset || asset.status !== "completed") return <PendingMedia asset={asset} />;
-  return kind === "video" ? <video aria-label="场景视频" className="aspect-video w-full rounded-md border bg-muted" controls playsInline preload="metadata" src={mediaURL(assetId)} /> : <audio className="w-full" controls src={mediaURL(assetId)} />;
+  const player = kind === "video" ? <video aria-label="场景视频" className="aspect-video w-full rounded-md border bg-muted" controls playsInline preload="metadata" src={mediaURL(assetId)} /> : <audio className="w-full" controls src={mediaURL(assetId)} />;
+  return <div className="grid gap-1">{player}<GenerationDuration asset={asset} /></div>;
 }
 
 export function AssetVideoPreview({ assetId, title }: { assetId: string; title: string }) {
@@ -77,8 +103,8 @@ export function AssetVideoPreview({ assetId, title }: { assetId: string; title: 
   const [contentError, setContentError] = useState(false);
   useEffect(() => setContentError(false), [assetId]);
   if (!asset || asset.status !== "completed") return <PendingMedia asset={asset} compact />;
-  if (contentError) return <PendingMedia asset={{ status: "failed", error: "视频内容不可读取" }} compact />;
-  return <video aria-label={`${title} 视频预览`} autoPlay className="size-full object-cover" loop muted onError={() => setContentError(true)} playsInline preload="auto" src={videoPreviewURL(assetId)} />;
+  if (contentError) return <PendingMedia asset={{ ...asset, status: "failed", error: "视频内容不可读取" }} compact />;
+  return <div className="relative size-full"><video aria-label={`${title} 视频预览`} autoPlay className="size-full object-cover" loop muted onError={() => setContentError(true)} playsInline preload="auto" src={videoPreviewURL(assetId)} /><GenerationDuration asset={asset} overlay /></div>;
 }
 
 export function isLegacyLook(resource: Resource) {
@@ -102,7 +128,12 @@ function snapshotAssetID(value: unknown) {
 }
 
 function videoAssetIDs(content: RecordValue) {
-  return [...new Set([snapshotAssetID(content.video), ...ids(content, "videoAssetId", "videoAssetIds")].filter(Boolean))];
+  const items = [...(Array.isArray(content.scenes) ? content.scenes : []), ...(Array.isArray(content.shots) ? content.shots : [])];
+  const nested = items.flatMap((item) => {
+    const value = record(item);
+    return [snapshotAssetID(value.video), ...ids(value, "videoAssetId", "videoAssetIds")];
+  });
+  return [...new Set([snapshotAssetID(content.video), ...ids(content, "videoAssetId", "videoAssetIds"), ...nested].filter(Boolean))];
 }
 
 export function resourceVideoAssetIDs(resource: Resource) {
@@ -127,14 +158,17 @@ function itemDetails(value: RecordValue) {
     .filter(Boolean);
 }
 
-export function resourceImageURLs(resource: Resource) {
+export function resourceImageAssetIDs(resource: Resource) {
   const content = record(resource.content);
   const lookAssetID = isLook(resource) ? text(record(content.media).assetId) : "";
   const keyframeImages = resource.kind.toLowerCase() === "keyframes" && Array.isArray(content.keyframes)
     ? content.keyframes.map((item) => snapshotAssetID(record(item).image))
     : [];
-  const assetIDs = [...new Set([lookAssetID, ...imageIDs(content), ...keyframeImages].filter(Boolean))];
-  return assetIDs.map(mediaURL);
+  return [...new Set([lookAssetID, ...imageIDs(content), ...keyframeImages].filter(Boolean))];
+}
+
+export function resourceImageURLs(resource: Resource) {
+  return resourceImageAssetIDs(resource).map(mediaURL);
 }
 
 export function resourcePreviewLines(resource: Resource) {
@@ -153,7 +187,7 @@ export function resourcePreviewLines(resource: Resource) {
 function AssetImages({ content, compact = false }: { content: RecordValue; compact?: boolean }) {
   const assetIDs = imageIDs(content);
   if (!assetIDs.length) return null;
-  return <div className={compact ? "aspect-video overflow-hidden rounded-md bg-muted" : "grid gap-3 sm:grid-cols-2"}>{assetIDs.map((id) => <AssetImage alt="创作参考图" assetId={id} className={compact ? "size-full object-cover" : "aspect-video w-full rounded-md border object-cover"} key={id} />)}</div>;
+  return <div className={compact ? "aspect-video overflow-hidden rounded-md bg-muted" : "grid gap-3 sm:grid-cols-2"}>{assetIDs.map((id) => <AssetImagePreview alt="创作参考图" assetId={id} className={compact ? "size-full" : "aspect-video w-full rounded-md border"} compact={compact} key={id} />)}</div>;
 }
 
 function MediaPlayers({ content, compact }: { content: RecordValue; compact: boolean }) {
@@ -178,7 +212,7 @@ function ItemList({ items, titleKey }: { items: unknown; titleKey: string }) {
     const image = snapshotAssetID(value.image) || text(value.imageAssetId);
     const video = snapshotAssetID(value.video) || text(value.videoAssetId);
     const audio = audioSnapshotID(value);
-    return <li className="grid gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm" key={`${heading}-${index}`}><p className="font-medium">{index + 1}. {heading}</p>{detail && detail !== heading && <p className="leading-5 text-muted-foreground">{detail}</p>}{image && <AssetImage alt={`${heading} 参考图`} assetId={image} className="aspect-video w-full rounded border object-cover" />}{video && <AssetPlayer assetId={video} kind="video" />}{audio && <AssetPlayer assetId={audio} kind="audio" />}</li>;
+    return <li className="grid gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm" key={`${heading}-${index}`}><p className="font-medium">{index + 1}. {heading}</p>{detail && detail !== heading && <p className="leading-5 text-muted-foreground">{detail}</p>}{image && <AssetImagePreview alt={`${heading} 参考图`} assetId={image} className="aspect-video w-full rounded border" />}{video && <AssetPlayer assetId={video} kind="video" />}{audio && <AssetPlayer assetId={audio} kind="audio" />}</li>;
   })}</ol></div>;
 }
 

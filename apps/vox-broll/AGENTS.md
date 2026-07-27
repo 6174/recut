@@ -8,7 +8,7 @@
 
 ## 媒体执行边界
 
-本 App 的图片、旁白和场景视频必须通过 Recut MCP 媒体 API 生成。场景视频的唯一执行路径是 `recut.video.generate_async → resource.create`：Atlas 接受远端任务后会立刻返回稳定的 Recut `assetId`，该 Asset 先处于 `running`，随后在同一 ID 上变为 `completed` 或 `failed`。`recut.media.get_job` 只用于读取和汇报状态，不能阻塞 Scene 引用的创建；关键画面使用 `recut.image.generate`，旁白使用 `recut.speech.generate_async`。
+本 App 的图片、旁白和场景视频必须通过 Recut MCP 媒体 API 生成。场景视频的唯一执行路径是 `recut.video.generate_async → resource.create`：提交会立刻返回稳定的 Recut `assetId`，该 Asset 先处于 `queued`；常驻 Daemon 将其提交给 Atlas 后，同一 ID 原位变为 `running`，最终为 `completed` 或 `failed`。`recut.media.get_job` 只用于读取和汇报状态，不能阻塞 Scene 引用的创建；关键画面使用 `recut.image.generate`，旁白使用 `recut.speech.generate_async`。
 
 这是 Provider 调用，不是本地视频创作任务。禁止以 HyperFrames、ffmpeg、浏览器自动化、终端脚本或本地渲染替代上述生成调用；即使通用视频 Skill 被自动建议，也不得选择或读取它。除非用户明确要求制作 HyperFrames 合成，否则不要读取、安装、调用或解释 HyperFrames；它不是 Scenes 阶段的实现方式。
 
@@ -52,7 +52,7 @@
 
 请求目标：把已确认的 Keyframes 组织成可以制作的声音时间轴，不把“背景音乐”写成空泛占位。每个场景要对应一个 Beat 和关键画面，交付旁白、时长、音乐节奏、必要音效、字幕文本和切点意图；旁白只说画面不能独立表达的新信息。完成标准：每一段时长能支撑对应旁白，音乐与音效不遮挡信息，Scenes 可据此决定视频长度和转场时机。未确认 Audio 不得生成 Scenes。
 
-真实旁白是 Audio 阶段的必需产物，不是可选装饰。先从 `recut.project_context` 的 `media.defaultRoutes` 找到语音 Route 的 `credentialId`，调用 `recut.media.list_voices` 选择一个可用 `voiceId`；对每段旁白调用 `recut.speech.generate_async`，轮询 `recut.media.get_job` 直到返回音频 `assetId`。仅当每个场景都有成功生成的音频，才调用 `resource.create` 保存 Audio：每个 `scenes[].audio` 必须是完整 MediaSnapshot，`assetId` 指向该段音频、`text` 为旁白原文、两个素材引用数组为空、`sourceResourceIds` 关联 Beat 与 Keyframe。生成失败就报告失败，绝不能保存“只有声音设计文字”的空 Audio 容器。
+真实旁白是 Audio 阶段的必需产物，不是可选装饰。先从 `recut.project_context` 的 `media.defaultRoutes` 找到语音 Route 的 `credentialId`，调用 `recut.media.list_voices` 选择一个可用 `voiceId`；对每段旁白调用 `recut.speech.generate_async` 后立刻取得稳定 `assetId` 并保存 Audio 引用。每个 `scenes[].audio` 必须是完整 MediaSnapshot，`assetId` 指向该段音频、`text` 为旁白原文、两个素材引用数组为空、`sourceResourceIds` 关联 Beat 与 Keyframe。Daemon 会在同一 Asset 上更新状态；仅当该音频已完成时才能把它作为场景视频的供应商参考，`recut.media.get_job` 只用于读取和汇报这个状态。生成失败就报告失败，绝不能保存“只有声音设计文字”的空 Audio 容器。
 
 **Scenes｜场景视频**
 
@@ -60,7 +60,7 @@
 
 请求目标：将一张 Keyframe 与一段 Audio 合成为可播放的短视频，而不是复述分镜。每个场景先使用对应关键画面 `assetId` 和音频 `assetId` 作为生成输入；一旦远端接受任务，就保存返回的新视频 `assetId`、时长、视觉动作和切点。一个场景只表达一个信息变化；Asset 状态本身是视频完成与失败的唯一事实来源。完成标准：所有视频镜头按 Beats 顺序覆盖，首尾与声音切点相接，且视频中的材料、色彩和标题安全区延续已选 Look。
 
-视频昂贵，默认一次只生成当前待完成的第一段 Scene，并立即停下等待用户确认。每一段视频必须调用 `recut.video.generate_async`；收到成功提交的 `assetIds[0]` 后立刻调用 `resource.create` 保存一个独立的 `scenes` Resource，不能等待轮询完成。顶层只有该段的 `beatId`、`title`、`durationSec`、`visualAction`、`cutPoint` 和 `video` MediaSnapshot；`video.assetId` 指向这个稳定 Asset，UI 会把 `running` 显示为生成中预览。禁止把多段视频塞进同一个 Resource。只有用户明确说“全部生成”“生成所有剩余场景”或同等意思时，才可以连续生成多段，但每段仍必须独立保存。局部修复只更新对应 Scene resource，绝不触及其他段。
+视频昂贵，默认一次只生成当前待完成的第一段 Scene，并立即停下等待用户确认。每一段视频必须调用 `recut.video.generate_async`；收到成功提交的 `assetIds[0]` 后立刻调用 `resource.create` 保存一个独立的 `scenes` Resource，不能等待轮询完成。顶层只有该段的 `beatId`、`title`、`durationSec`、`visualAction`、`cutPoint` 和 `video` MediaSnapshot；`video.assetId` 指向这个稳定 Asset，UI 会把 `queued` 与 `running` 都显示为生成中预览。Seedance 场景视频默认传 `output.generateAudio: true`，除非用户明确要求无声视频；Gemini 不传此字段。禁止把多段视频塞进同一个 Resource。只有用户明确说“全部生成”“生成所有剩余场景”或同等意思时，才可以连续生成多段，但每段仍必须独立保存。局部修复只更新对应 Scene resource，绝不触及其他段。
 
 **Delivery｜交付**
 

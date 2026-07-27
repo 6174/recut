@@ -179,8 +179,8 @@ function workflowContext(_, ctx) {
    pendingSceneTargets,
     mediaExecution: {
       keyframes: { kind: "platform-media-generation", generate: "recut.image.generate", complete: "assetId" },
-      audio: { kind: "platform-media-generation", generate: "recut.speech.generate_async", complete: "recut.media.get_job -> assetId" },
-      scenes: { kind: "platform-media-generation", generate: "recut.video.generate_async", complete: "accepted -> assetIds[0] -> resource.create; get_job only reports Asset status", alternatives: "Use a composition extension only when the user explicitly requests that composition; do not substitute it for generated video." },
+      audio: { kind: "platform-media-generation", generate: "recut.speech.generate_async", complete: "accepted -> queued assetIds[0] -> resource.create; Daemon updates Asset status" },
+      scenes: { kind: "platform-media-generation", generate: "recut.video.generate_async", complete: "accepted -> queued assetIds[0] -> resource.create; Daemon updates Asset status; for Seedance use output.generateAudio=true unless the user explicitly requests silent video", alternatives: "Use a composition extension only when the user explicitly requests that composition; do not substitute it for generated video." },
     },
    inFlight: null,
   };
@@ -205,15 +205,15 @@ function prepareResource(input, ctx) {
     beats: "一个可审阅的叙事弧：三秒钩子、逐段节拍、每段的观众理解与画面证据。",
     look: "3 个明显不同的视觉方向。每个方向都需要一张 16:9 风格参考图和原始画面描述；图里不要有可读正文、Logo 或水印。完成后停下，等待选择。",
     keyframes: "每个节拍一张关键画面：先用 recut.image.generate 逐张生成并拿到完成的图片 assetId，再保存。每个 keyframes[] 项的 image 必须是完整 MediaSnapshot，image.assetId 指向该节拍的新图；text 是该图的原始提示词；imageAssetIds 引用选定 Look 的参考图；audioAssetIds 为空数组；sourceResourceIds 记录对应 Beat 和 Look。绝不把文字画面描述当成关键画面保存。",
-    audio: "每个场景都必须先生成真实可播放的旁白：从 recut.project_context.media.defaultRoutes 找到 speech.generate 的 credentialId，调用 recut.media.list_voices 取得 voiceId；逐段调用 recut.speech.generate_async，轮询 recut.media.get_job 至 completed 并取得 assetId。仅在每一段都有 assetId 后，保存 scenes[]；每项 audio 必须是完整 MediaSnapshot：assetId 为刚生成的音频，text 为旁白原文，imageAssetIds/audioAssetIds 为空数组，sourceResourceIds 记录对应 Beat 与 Keyframe。音乐和音效可以是编辑指令，但不能替代旁白音频。生成失败时不得保存空 Audio 资源，应如实报告。",
-    scenes: `视频生成昂贵，默认只生成第一段并停下等待用户确认。${batch ? "用户已明确要求一次生成全部剩余段；逐段生成，但每段必须独立调用 resource.create，绝不能合并为一个含多段的 Scene resource。" : "不要循环生成其余段，不要合并为一个含多段的 Scene resource。"} 执行顺序不可替换：先调用 recut.video.generate_async，传入该段 keyframe.assetId 与 audio.assetId；Atlas 接受后响应会带稳定 assetIds[0]，立刻调用 resource.create 保存独立 Scene resource，不能等待轮询完成。recut.media.get_job 只用于读取并报告该 Asset 的 running/completed/failed 状态。禁止使用 HyperFrames、ffmpeg、浏览器自动化、终端脚本或本地渲染替代该 API 调用。顶层字段为 beatId、title、durationSec、visualAction、cutPoint、video；video 必须是完整 MediaSnapshot 且 assetId 指向刚提交的视频。`,
+    audio: "每个场景都必须先生成真实可播放的旁白：从 recut.project_context.media.defaultRoutes 找到 speech.generate 的 credentialId，调用 recut.media.list_voices 取得 voiceId；逐段调用 recut.speech.generate_async 后立即取得稳定 assetId 并保存 scenes[]。每项 audio 必须是完整 MediaSnapshot：assetId 为刚提交的音频，text 为旁白原文，imageAssetIds/audioAssetIds 为空数组，sourceResourceIds 记录对应 Beat 与 Keyframe。Daemon 会原位更新状态；只有音频已完成时才可将它作为场景视频输入。音乐和音效可以是编辑指令，但不能替代旁白音频。生成失败时不得保存空 Audio 资源，应如实报告。",
+    scenes: `视频生成昂贵，默认只生成第一段并停下等待用户确认。${batch ? "用户已明确要求一次生成全部剩余段；逐段生成，但每段必须独立调用 resource.create，绝不能合并为一个含多段的 Scene resource。" : "不要循环生成其余段，不要合并为一个含多段的 Scene resource。"} 执行顺序不可替换：先调用 recut.video.generate_async，传入该段 keyframe.assetId 与已完成 audio.assetId；若 Route 使用 Seedance，output.generateAudio 默认为 true，只有用户明确要求无声视频才传 false；Gemini 不传此字段。提交响应会带稳定 assetIds[0]，立刻调用 resource.create 保存独立 Scene resource，不能等待轮询完成。recut.media.get_job 只用于读取并报告该 Asset 的 queued/running/completed/failed 状态。禁止使用 HyperFrames、ffmpeg、浏览器自动化、终端脚本或本地渲染替代该 API 调用。顶层字段为 beatId、title、durationSec、visualAction、cutPoint、video；video 必须是完整 MediaSnapshot 且 assetId 指向刚提交的视频。`,
     delivery: "最终时间线、画幅、时长、格式和可执行的导出前检查表。",
   }[kind.toLowerCase()] || "一份面向审阅的清晰创作产出。";
   const contract = resourceContracts[kind.toLowerCase()];
   const outputFields = contract ? Object.entries(contract.output).map(([field, type]) => `${field}: ${type}`).join("；") : "一份可审阅的阶段资源";
   const itemFields = contract?.item ? `\n数组项：${contract.item.field}[] 每项为 { ${Object.entries(contract.item.types || {}).map(([field, type]) => `${field}: ${type}`).join("；")} }${contract.item.optional?.length ? `；可选 ${contract.item.optional.join("、")}` : ""}` : "";
  const interfaceText = contract ? `输入：${contract.inputs.join("；")}\n输出对象：${outputFields}${itemFields}` : "输出：一份可审阅的阶段资源。";
-  const executionMethod = kind.toLowerCase() === "scenes" ? "这是平台视频生成任务：recut.video.generate_async 成功提交后立刻用返回的 assetIds[0] 调用 resource.create；recut.media.get_job 只读取状态。除非用户明确要求 HyperFrames，否则不要把它解释为 HyperFrames 合成任务。" : kind.toLowerCase() === "keyframes" ? "这是平台图片生成任务：调用 recut.image.generate。" : kind.toLowerCase() === "audio" ? "这是平台语音生成任务：调用 recut.speech.generate_async 后轮询。" : "遵循当前阶段契约。";
+  const executionMethod = kind.toLowerCase() === "scenes" ? "这是平台视频生成任务：recut.video.generate_async 成功提交后立刻用返回的 queued assetIds[0] 调用 resource.create；常驻 Daemon 原位更新状态。除非用户明确要求 HyperFrames，否则不要把它解释为 HyperFrames 合成任务。" : kind.toLowerCase() === "keyframes" ? "这是平台图片生成任务：调用 recut.image.generate。" : kind.toLowerCase() === "audio" ? "这是平台语音生成任务：调用 recut.speech.generate_async 后立刻保存返回的稳定 assetId；Daemon 原位更新状态。" : "遵循当前阶段契约。";
  return {
     intent: "resource.create",
     prompt: `创作阶段：${kind}\n执行方式：${executionMethod}\n已有输入：${dependencies.join("、") || "由当前创作上下文决定"}\n用户要求：${instruction}\n${sceneTargets.length ? `待生成场景（默认只取第一项）：${JSON.stringify(batch ? sceneTargets : sceneTargets.slice(0, 1))}\n` : ""}本阶段交付：${stageWorkflow}\n资源接口：\n${interfaceText}\n只完成这个阶段；产出必须可供下一阶段使用。`,

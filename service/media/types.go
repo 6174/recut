@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 无运行时依赖
- * [OUTPUT]: 媒体能力、模型、配置、资产、任务和生成请求的 JSON 契约
+ * [OUTPUT]: 媒体能力、含输入/输出参数能力的模型、配置、资产、任务和生成请求 JSON 契约
  * [POS]: media 的稳定 DTO 边界；被服务、HTTP/MCP 和 Provider 共同消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -23,6 +23,7 @@ type MediaModel struct {
 	Capability   MediaCapability `json:"capability"`
 	APIModelID   string          `json:"apiModelId"`
 	InputModes   []string        `json:"inputModes"`
+	OutputModes  []string        `json:"outputModes"`
 	Available    bool            `json:"available"`
 	Configurable bool            `json:"configurable"`
 }

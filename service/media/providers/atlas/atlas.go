@@ -245,7 +245,6 @@ func payloadFor(input GenerateInput) (map[string]any, error) {
 	default:
 		return nil, fmt.Errorf("Atlas Cloud video adapter does not support %s", input.Model)
 	}
-	return payload, nil
 }
 
 func seedancePayload(payload map[string]any, input GenerateInput) (map[string]any, error) {

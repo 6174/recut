@@ -1,22 +1,29 @@
 /**
- * [INPUT]: 依赖 Resource 类型、recut UI SDK、lucide 图标与 shadcn 风格弹窗组件
- * [OUTPUT]: 对外提供 iframe 内受控资源详情模态框、删除确认入口与带缩略预览的新建资源弹窗
- * [POS]: vox-broll 的短暂交互层；引用项展示真实图片或摘要，不承载资源列表或项目事件状态
+ * [INPUT]: 依赖 Resource 类型、recut UI SDK、状态感知视频/图片资源预览、lucide 图标与 shadcn 风格弹窗组件
+ * [OUTPUT]: 对外提供 iframe 内受控资源详情模态框、删除确认入口与带真实媒体缩略图的新建资源弹窗
+ * [POS]: vox-broll 的短暂交互层；引用项展示真实图片、视频画面、实时/终态耗时或摘要，不承载资源列表或项目事件状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { LoaderCircle, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Resource } from "./main";
-import { ResourcePresentation, resourceImageURLs, resourceKindLabel, resourceSummary } from "./resource-view";
+import { AssetImagePreview, AssetVideoPreview, ResourcePresentation, resourceImageAssetIDs, resourceKindLabel, resourceSummary, resourceVideoAssetIDs } from "./resource-view";
 import { Badge, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Textarea } from "./ui";
 
 export function ResourcePreviewDialog({ onDelete, onOpenChange, resource }: { onDelete: (resource: Resource) => void; onOpenChange: (open: boolean) => void; resource: Resource | null }) {
   return <Dialog onOpenChange={onOpenChange} open={Boolean(resource)}>{resource && <DialogContent><DialogHeader><div className="flex items-center gap-2"><Badge>{resourceKindLabel(resource.kind)}</Badge><span className="text-xs text-muted-foreground">资源详情</span></div><DialogTitle>{resource.title}</DialogTitle><DialogDescription className="sr-only">{resource.title} 的完整内容</DialogDescription></DialogHeader><ResourcePresentation resource={resource} /><DialogFooter><Button onClick={() => onDelete(resource)} type="button" variant="outline"><Trash2 className="size-4" />删除资源</Button></DialogFooter></DialogContent>}</Dialog>;
 }
 
+function ReferenceThumbnail({ resource }: { resource: Resource }) {
+  const image = resourceImageAssetIDs(resource)[0];
+  const video = resourceVideoAssetIDs(resource)[0];
+  if (image) return <AssetImagePreview alt={`${resource.title} 缩略图`} assetId={image} className="aspect-video w-[68px] rounded border bg-muted" compact />;
+  if (video) return <div className="aspect-video w-[68px] overflow-hidden rounded border bg-muted"><AssetVideoPreview assetId={video} title={resource.title} /></div>;
+  return <div className="grid aspect-video w-[68px] place-items-center rounded border bg-muted px-1 text-center font-mono text-[10px] text-muted-foreground">{resourceKindLabel(resource.kind)}</div>;
+}
+
 function ReferenceOption({ checked, onChange, resource }: { checked: boolean; onChange: () => void; resource: Resource }) {
-  const image = resourceImageURLs(resource)[0];
-  return <label className="grid cursor-pointer grid-cols-[auto_68px_minmax(0,1fr)] items-center gap-3 rounded-md px-2 py-2 hover:bg-muted"><input checked={checked} className="size-4 accent-primary" onChange={onChange} type="checkbox" />{image ? <img alt={`${resource.title} 缩略图`} className="aspect-video w-[68px] rounded border bg-muted object-cover" src={image} /> : <div className="grid aspect-video w-[68px] place-items-center rounded border bg-muted px-1 text-center font-mono text-[10px] text-muted-foreground">{resourceKindLabel(resource.kind)}</div>}<span className="min-w-0"><span className="block truncate text-sm text-foreground">{resource.title}</span><span className="mt-0.5 block line-clamp-2 text-xs leading-4 text-muted-foreground">{resourceSummary(resource)}</span></span></label>;
+  return <label className="grid cursor-pointer grid-cols-[auto_68px_minmax(0,1fr)] items-center gap-3 rounded-md px-2 py-2 hover:bg-muted"><input checked={checked} className="size-4 accent-primary" onChange={onChange} type="checkbox" /><ReferenceThumbnail resource={resource} /><span className="min-w-0"><span className="block truncate text-sm text-foreground">{resource.title}</span><span className="mt-0.5 block line-clamp-2 text-xs leading-4 text-muted-foreground">{resourceSummary(resource)}</span></span></label>;
 }
 
 export function CreateResourceDialog({ examples, isLook, onCreate, onOpenChange, open, resources, stage }: { examples: string[]; isLook: boolean; onCreate: (instruction: string, dependencies: string[]) => Promise<void>; onOpenChange: (open: boolean) => void; open: boolean; resources: Resource[]; stage: string }) {

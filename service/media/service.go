@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -22,19 +23,25 @@ type Workspace interface {
 }
 
 type MediaService struct {
-	store   Workspace
-	mu      sync.Mutex
-	pollers sync.Map
+	store       Workspace
+	mu          sync.Mutex
+	pollers     sync.Map
+	schedulerID string
 }
 
 const mediaRequestTimeout = 2 * time.Minute
-const atlasPollInterval = 2 * time.Second
-
+const atlasPollInterval = 5 * time.Second
 const InterruptedMediaJobMessage = "本地服务重启前任务未完成，请重新生成。"
 
 var mediaHTTPClient = &http.Client{Timeout: mediaRequestTimeout}
 
-func NewMediaService(store Workspace) *MediaService { return &MediaService{store: store} }
+func NewMediaService(store Workspace) *MediaService {
+	id, err := newID()
+	if err != nil {
+		id = fmt.Sprintf("fallback-%d", time.Now().UTC().UnixNano())
+	}
+	return &MediaService{store: store, schedulerID: "media-reconciler-" + id}
+}
 
 func projectExists(store Workspace, id string) (struct{}, error) {
 	return struct{}{}, store.ProjectExists(id)

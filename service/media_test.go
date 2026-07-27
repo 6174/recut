@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService、Store 与测试目录中的临时工作区
- * [OUTPUT]: 验证媒体凭据加密保存、能力路由、受校验的模型/凭据直连、图片导入、幂等任务与 Atlas 异步及历史 Asset 状态恢复契约
+ * [OUTPUT]: 验证媒体凭据加密保存、能力路由、受校验的模型/凭据直连、图片导入、幂等任务及 Atlas 异步 Asset 状态、生成耗时、常驻协调器和历史状态恢复契约
  * [POS]: service 的 Media Platform 回归测试；不调用真实模型提供商
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -59,6 +59,12 @@ func TestMediaRouteAndJobUseOpaqueCredential(t *testing.T) {
 	duplicate, err := media.Generate(GenerateMediaInput{Capability: ImageGenerate, Prompt: "test", ProjectID: project.ID, IdempotencyKey: "idempotent"})
 	if err != nil || duplicate.ID != job.ID {
 		t.Fatalf("idempotency failed: %#v, %v", duplicate, err)
+	}
+	if _, err := media.ReconcilePendingJobs(); err != nil {
+		t.Fatal(err)
+	}
+	if failed := waitForMediaJobStatus(t, media, job.ID, "failed"); failed.Error == "" {
+		t.Fatalf("unavailable async image job lost its terminal error: %#v", failed)
 	}
 	direct, _, err := media.ResolveRoute(GenerateMediaInput{Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID})
 	if err != nil || direct.ModelID != "openai-compatible/image" {
@@ -171,7 +177,8 @@ func TestAtlasReferenceModelsEnforceTheirInputContracts(t *testing.T) {
 	}
 }
 
-func TestAtlasAsyncVideoPublishesRunningAssetThenCompletesInPlace(t *testing.T) {
+func TestAtlasAsyncVideoPublishesQueuedAssetThenCompletesInPlace(t *testing.T) {
+	submissionStarted := make(chan struct{}, 1)
 	pollStarted := make(chan struct{}, 1)
 	releasePoll := make(chan struct{})
 	var releaseOnce sync.Once
@@ -181,6 +188,10 @@ func TestAtlasAsyncVideoPublishesRunningAssetThenCompletesInPlace(t *testing.T) 
 	atlas = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/model/generateVideo":
+			select {
+			case submissionStarted <- struct{}{}:
+			default:
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
 				"id":     "prediction-running",
 				"status": "processing",
@@ -212,45 +223,58 @@ func TestAtlasAsyncVideoPublishesRunningAssetThenCompletesInPlace(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	type generated struct {
-		job MediaJob
-		err error
-	}
-	returned := make(chan generated, 1)
-	go func() {
-		job, err := media.Generate(GenerateMediaInput{Capability: VideoGenerate, Prompt: "move", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credentialID, ReferenceIDs: []string{image.ID}, IdempotencyKey: "atlas-async-running"})
-		returned <- generated{job: job, err: err}
-	}()
-
-	var job MediaJob
-	select {
-	case result := <-returned:
-		if result.err != nil {
-			t.Fatal(result.err)
-		}
-		job = result.job
-	case <-time.After(time.Second):
-		t.Fatal("Atlas generation waited for remote completion instead of publishing a running asset")
-	}
-	if job.Status != "running" || job.RemoteID != "prediction-running" || len(job.AssetIDs) != 1 {
-		t.Fatalf("submitted Atlas job = %#v", job)
+	job, err := media.Generate(GenerateMediaInput{Capability: VideoGenerate, Prompt: "move", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credentialID, ReferenceIDs: []string{image.ID}, IdempotencyKey: "atlas-async-running"})
+	if err != nil || job.Status != "queued" || job.RemoteID != "" || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued Atlas job = %#v, %v", job, err)
 	}
 	assetID := job.AssetIDs[0]
 	asset, err := media.GetAsset(assetID)
-	if err != nil || asset.ID != assetID || asset.JobID != job.ID || asset.Status != "running" || asset.RemoteID != job.RemoteID {
-		t.Fatalf("published running Atlas asset = %#v, %v", asset, err)
+	if err != nil || asset.ID != assetID || asset.JobID != job.ID || asset.Status != "queued" || asset.RemoteID != "" {
+		t.Fatalf("published queued Atlas asset = %#v, %v", asset, err)
+	}
+	startedAt := assertRunningAssetGenerationTiming(t, asset)
+	select {
+	case <-submissionStarted:
+		t.Fatal("short-lived async submitter called Atlas before the daemon claimed the task")
+	default:
+	}
+
+	stop := media.StartReconciler(10 * time.Millisecond)
+	defer stop()
+	select {
+	case <-submissionStarted:
+	case <-time.After(time.Second):
+		t.Fatal("daemon did not submit queued Atlas task")
 	}
 	waitForAtlasPoll(t, pollStarted)
+	running := waitForMediaJobStatus(t, media, job.ID, "running")
+	if running.RemoteID != "prediction-running" || len(running.AssetIDs) != 1 || running.AssetIDs[0] != assetID {
+		t.Fatalf("daemon did not bind the stable Atlas Asset: %#v", running)
+	}
+	asset, err = media.GetAsset(assetID)
+	if err != nil || asset.Status != "running" || asset.RemoteID != running.RemoteID {
+		t.Fatalf("running Atlas asset was not updated in place: %#v, %v", asset, err)
+	}
 
 	release()
 	completed := waitForMediaJobStatus(t, media, job.ID, "completed")
-	if completed.ID != job.ID || len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != assetID || completed.RemoteID != job.RemoteID {
-		t.Fatalf("completed Atlas job lost its stable identity: before=%#v after=%#v", job, completed)
+	if completed.ID != job.ID || len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != assetID || completed.RemoteID != running.RemoteID {
+		t.Fatalf("completed Atlas job lost its stable identity: queued=%#v after=%#v", job, completed)
 	}
 	asset, err = media.GetAsset(assetID)
-	if err != nil || asset.Status != "completed" || asset.ID != assetID || asset.JobID != job.ID || asset.RemoteID != job.RemoteID || asset.SizeBytes == 0 {
+	if err != nil || asset.Status != "completed" || asset.ID != assetID || asset.JobID != job.ID || asset.RemoteID != running.RemoteID || asset.SizeBytes == 0 {
 		t.Fatalf("completed Atlas asset was not updated in place: %#v, %v", asset, err)
 	}
+	assertCompletedAssetGenerationTiming(t, asset, startedAt)
+	assets, err := media.ListAssets("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, ok := mediaAssetByID(assets, assetID)
+	if !ok {
+		t.Fatalf("completed Atlas asset %q missing from list: %#v", assetID, assets)
+	}
+	assertCompletedAssetGenerationTiming(t, listed, startedAt)
 }
 
 func TestAtlasAsyncVideoMarksPublishedAssetFailed(t *testing.T) {
@@ -284,11 +308,22 @@ func TestAtlasAsyncVideoMarksPublishedAssetFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 	job, err := media.Generate(GenerateMediaInput{Capability: VideoGenerate, Prompt: "move", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credentialID, ReferenceIDs: []string{image.ID}, IdempotencyKey: "atlas-async-failed"})
-	if err != nil || job.Status != "running" || len(job.AssetIDs) != 1 {
-		t.Fatalf("submitted Atlas job = %#v, %v", job, err)
+	if err != nil || job.Status != "queued" || job.RemoteID != "" || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued Atlas job = %#v, %v", job, err)
 	}
 	assetID := job.AssetIDs[0]
+	queuedAsset, err := media.GetAsset(assetID)
+	if err != nil || queuedAsset.Status != "queued" || queuedAsset.RemoteID != "" {
+		t.Fatalf("published queued Atlas asset = %#v, %v", queuedAsset, err)
+	}
+	startedAt := assertRunningAssetGenerationTiming(t, queuedAsset)
+	stop := media.StartReconciler(10 * time.Millisecond)
+	defer stop()
 	waitForAtlasPoll(t, pollStarted)
+	running := waitForMediaJobStatus(t, media, job.ID, "running")
+	if running.RemoteID != "prediction-failed" || len(running.AssetIDs) != 1 || running.AssetIDs[0] != assetID {
+		t.Fatalf("daemon did not bind failed prediction to stable Asset: %#v", running)
+	}
 
 	release()
 	failed := waitForMediaJobStatus(t, media, job.ID, "failed")
@@ -296,9 +331,10 @@ func TestAtlasAsyncVideoMarksPublishedAssetFailed(t *testing.T) {
 		t.Fatalf("failed Atlas job = %#v", failed)
 	}
 	asset, err := media.GetAsset(assetID)
-	if err != nil || asset.ID != assetID || asset.Status != "failed" || asset.JobID != job.ID || asset.RemoteID != job.RemoteID || !strings.Contains(asset.Error, "credits exhausted") {
+	if err != nil || asset.ID != assetID || asset.Status != "failed" || asset.JobID != job.ID || asset.RemoteID != running.RemoteID || !strings.Contains(asset.Error, "credits exhausted") {
 		t.Fatalf("failed Atlas asset = %#v, %v", asset, err)
 	}
+	assertCompletedAssetGenerationTiming(t, asset, startedAt)
 }
 
 func TestAtlasAsyncRecoveryResumesPersistedPrediction(t *testing.T) {
@@ -324,10 +360,6 @@ func TestAtlasAsyncRecoveryResumesPersistedPrediction(t *testing.T) {
 			poll := polls
 			pollMu.Unlock()
 			pollRequests <- poll
-			if poll == 1 {
-				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "prediction-recover", "status": "processing"}})
-				return
-			}
 			<-allowRecoveredPoll
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
 				"id":      "prediction-recover",
@@ -355,24 +387,28 @@ func TestAtlasAsyncRecoveryResumesPersistedPrediction(t *testing.T) {
 		t.Fatal(err)
 	}
 	job, err := media.Generate(GenerateMediaInput{Capability: VideoGenerate, Prompt: "move", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credential.ID, ReferenceIDs: []string{image.ID}, IdempotencyKey: "atlas-async-recover"})
-	if err != nil || job.Status != "running" || job.RemoteID != "prediction-recover" || len(job.AssetIDs) != 1 {
-		t.Fatalf("submitted Atlas job = %#v, %v", job, err)
+	if err != nil || job.Status != "queued" || job.RemoteID != "" || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued Atlas job = %#v, %v", job, err)
 	}
 	assetID := job.AssetIDs[0]
-	if asset, err := media.GetAsset(assetID); err != nil || asset.Status != "running" || asset.RemoteID != job.RemoteID {
-		t.Fatalf("durable running Atlas asset = %#v, %v", asset, err)
+	if asset, err := media.GetAsset(assetID); err != nil || asset.Status != "queued" || asset.RemoteID != "" {
+		t.Fatalf("durable queued Atlas asset = %#v, %v", asset, err)
 	}
-	if poll := waitForAtlasPollNumber(t, pollRequests); poll != 1 {
-		t.Fatalf("first Atlas poll = %d, want 1", poll)
+	daemon := NewMediaService(store)
+	if _, err := daemon.ReconcilePendingJobs(); err != nil {
+		t.Fatal(err)
 	}
-
+	running := waitForMediaJobStatus(t, daemon, job.ID, "running")
+	if running.RemoteID != "prediction-recover" || len(running.AssetIDs) != 1 || running.AssetIDs[0] != assetID {
+		t.Fatalf("daemon did not bind durable Atlas prediction: %#v", running)
+	}
 	restarted := NewMediaService(store)
 	recovered, err := restarted.RecoverInterruptedJobs()
 	if err != nil || recovered != 1 {
 		t.Fatalf("RecoverInterruptedJobs() = %d, %v", recovered, err)
 	}
-	if poll := waitForAtlasPollNumber(t, pollRequests); poll != 2 {
-		t.Fatalf("recovered Atlas poll = %d, want 2", poll)
+	if poll := waitForAtlasPollNumber(t, pollRequests); poll != 1 {
+		t.Fatalf("recovered Atlas poll = %d, want 1", poll)
 	}
 
 	release()
@@ -383,6 +419,82 @@ func TestAtlasAsyncRecoveryResumesPersistedPrediction(t *testing.T) {
 	asset, err := restarted.GetAsset(assetID)
 	if err != nil || asset.Status != "completed" || asset.ID != assetID || asset.RemoteID != "prediction-recover" || asset.JobID != job.ID {
 		t.Fatalf("recovered Atlas asset = %#v, %v", asset, err)
+	}
+}
+
+func TestStartReconcilerDiscoversAtlasSubmissionAfterStartup(t *testing.T) {
+	initialPoll := make(chan struct{}, 1)
+	completedPoll := make(chan struct{}, 1)
+	releaseInitialPoll := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseInitialPoll) }) }
+	var pollMu sync.Mutex
+	polls := 0
+
+	var atlas *httptest.Server
+	atlas = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/model/generateVideo":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "prediction-daemon", "status": "processing"}})
+		case "/api/v1/model/prediction/prediction-daemon":
+			pollMu.Lock()
+			polls++
+			poll := polls
+			pollMu.Unlock()
+			if poll == 1 {
+				initialPoll <- struct{}{}
+				<-releaseInitialPoll
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "prediction-daemon", "status": "completed", "outputs": []string{atlas.URL + "/daemon.mp4"}}})
+				select {
+				case completedPoll <- struct{}{}:
+				default:
+				}
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "prediction-daemon", "status": "completed", "outputs": []string{atlas.URL + "/daemon.mp4"}}})
+			select {
+			case completedPoll <- struct{}{}:
+			default:
+			}
+		case "/daemon.mp4":
+			_, _ = w.Write([]byte("daemon video"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer atlas.Close()
+	defer release()
+
+	store := NewStore(t.TempDir(), nil)
+	daemon := NewMediaService(store)
+	credential, err := daemon.SaveCredential(MediaCredential{Provider: "atlas-cloud", Name: "Atlas", APIBase: atlas.URL}, "atlas-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := daemon.ImportImage("reference.png", "image/png", []byte("reference"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitter := NewMediaService(store)
+	job, err := submitter.Generate(GenerateMediaInput{Capability: VideoGenerate, Prompt: "move", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credential.ID, ReferenceIDs: []string{image.ID}, IdempotencyKey: "atlas-daemon-reconcile"})
+	if err != nil || job.Status != "queued" || job.RemoteID != "" || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued Atlas job = %#v, %v", job, err)
+	}
+	if asset, err := submitter.GetAsset(job.AssetIDs[0]); err != nil || asset.Status != "queued" || asset.RemoteID != "" {
+		t.Fatalf("queued Atlas asset = %#v, %v", asset, err)
+	}
+	stop := daemon.StartReconciler(100 * time.Millisecond)
+	defer stop()
+	waitForAtlasPoll(t, initialPoll)
+	release()
+	select {
+	case <-completedPoll:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("periodic reconciliation did not start a durable Atlas poller")
+	}
+	completed := waitForMediaJobStatus(t, daemon, job.ID, "completed")
+	if len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != job.AssetIDs[0] {
+		t.Fatalf("daemon reconciliation lost asset reference: %#v", completed)
 	}
 }
 
@@ -437,6 +549,54 @@ func waitForMediaJobStatus(t *testing.T, media *MediaService, jobID, want string
 	return MediaJob{}
 }
 
+func assertRunningAssetGenerationTiming(t *testing.T, asset MediaAsset) time.Time {
+	t.Helper()
+	value, ok := asset.Metadata["generationStartedAt"].(string)
+	if !ok || value == "" {
+		t.Fatalf("running Asset has no generationStartedAt: %#v", asset.Metadata)
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		t.Fatalf("invalid generationStartedAt %q: %v", value, err)
+	}
+	for _, key := range []string{"generationCompletedAt", "generationDurationMs"} {
+		if _, exists := asset.Metadata[key]; exists {
+			t.Fatalf("running Asset unexpectedly has %s: %#v", key, asset.Metadata)
+		}
+	}
+	return startedAt
+}
+
+func assertCompletedAssetGenerationTiming(t *testing.T, asset MediaAsset, startedAt time.Time) {
+	t.Helper()
+	started, ok := asset.Metadata["generationStartedAt"].(string)
+	if !ok || started != startedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("generation start changed: want=%s metadata=%#v", startedAt.Format(time.RFC3339Nano), asset.Metadata)
+	}
+	completed, ok := asset.Metadata["generationCompletedAt"].(string)
+	if !ok {
+		t.Fatalf("terminal Asset has no generationCompletedAt: %#v", asset.Metadata)
+	}
+	completedAt, err := time.Parse(time.RFC3339Nano, completed)
+	if err != nil || completedAt.Before(startedAt) {
+		t.Fatalf("invalid generation completion %q after %s: %v", completed, startedAt, err)
+	}
+	duration, ok := asset.Metadata["generationDurationMs"].(float64)
+	want := float64(completedAt.Sub(startedAt).Milliseconds())
+	if !ok || duration != want || duration < 0 {
+		t.Fatalf("generationDurationMs = %#v, want %.0f in %#v", asset.Metadata["generationDurationMs"], want, asset.Metadata)
+	}
+}
+
+func mediaAssetByID(assets []MediaAsset, id string) (MediaAsset, bool) {
+	for _, asset := range assets {
+		if asset.ID == id {
+			return asset, true
+		}
+	}
+	return MediaAsset{}, false
+}
+
 func TestAtlasVideoAdapterSubmitsAndPollsPrediction(t *testing.T) {
 	var submitted map[string]any
 	var atlas *httptest.Server
@@ -481,6 +641,17 @@ func TestAtlasVideoAdapterSubmitsAndPollsPrediction(t *testing.T) {
 	}
 	if submitted["model"] != "bytedance/seedance-2.0-mini/reference-to-video" || len(submitted["reference_images"].([]any)) != 2 || len(submitted["reference_audios"].([]any)) != 1 || submitted["duration"] != float64(4) {
 		t.Fatalf("unexpected Seedance payload: %#v", submitted)
+	}
+	if submitted["generate_audio"] != true || job.Output["generateAudio"] != true {
+		t.Fatalf("Seedance synchronized audio default was not persisted: payload=%#v job=%#v", submitted, job.Output)
+	}
+	asset, err := media.GetAsset(job.AssetIDs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, _ := asset.Metadata["output"].(map[string]any)
+	if output["generateAudio"] != true {
+		t.Fatalf("generated asset lost synchronized audio intent: %#v", asset.Metadata)
 	}
 }
 
@@ -566,171 +737,5 @@ func TestAtlasVideoReferenceUploadsBeforeGeneration(t *testing.T) {
 	job, err := media.GenerateSync(GenerateMediaInput{Capability: VideoGenerate, Prompt: "continue the shot", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credential.ID, ReferenceIDs: []string{image.ID, video.ID}, IdempotencyKey: "atlas-video-reference"})
 	if err != nil || len(job.AssetIDs) != 1 {
 		t.Fatalf("Atlas video reference job = %#v, %v", job, err)
-	}
-}
-
-func TestOpenAICompatibleDefaultsToWorkingGPTImage2(t *testing.T) {
-	model, ok := modelByID("openai-compatible/image")
-	if !ok || model.APIModelID != "gpt-image-2" {
-		t.Fatalf("OpenAI-compatible model = %#v", model)
-	}
-}
-
-func TestMediaReferenceKindsFollowCreationCapability(t *testing.T) {
-	if !referenceKindsFor(ImageGenerate)["image"] || referenceKindsFor(ImageGenerate)["audio"] {
-		t.Fatal("image creation must accept images only")
-	}
-	if !referenceKindsFor(VideoGenerate)["image"] || !referenceKindsFor(VideoGenerate)["video"] || !referenceKindsFor(VideoGenerate)["audio"] {
-		t.Fatal("video creation must accept image, video, and audio context")
-	}
-}
-
-func TestGenerateSyncReturnsTerminalFailure(t *testing.T) {
-	store := NewStore(t.TempDir(), nil)
-	media := NewMediaService(store)
-	credential, err := media.SaveCredential(MediaCredential{Provider: "openai-compatible", Name: "Unavailable", APIBase: "http://127.0.0.1:1"}, "secret-value")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := media.SaveRoute(MediaRoute{Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID, Enabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	job, err := media.GenerateSync(GenerateMediaInput{Capability: ImageGenerate, Prompt: "test", IdempotencyKey: "sync-terminal"})
-	if err == nil || job.Status != "failed" || job.Error == "" {
-		t.Fatalf("synchronous generation must return a terminal failure, got %#v, %v", job, err)
-	}
-}
-
-func TestImportedImageRejectsNonImageContent(t *testing.T) {
-	media := NewMediaService(nil)
-	if _, err := media.ImportImage("note.txt", "text/plain", []byte("not an image")); err == nil {
-		t.Fatal("non-image import was accepted")
-	}
-}
-
-func TestImportedMediaPreservesReferenceKinds(t *testing.T) {
-	media := NewMediaService(NewStore(t.TempDir(), nil))
-	for _, input := range []struct {
-		name, mimeType, wantKind string
-	}{{"reference.png", "image/png", "image"}, {"reference.mp3", "audio/mpeg", "audio"}, {"reference.mp4", "video/mp4", "video"}} {
-		asset, err := media.ImportMedia(input.name, input.mimeType, []byte(input.wantKind))
-		if err != nil || asset.Kind != input.wantKind {
-			t.Fatalf("ImportMedia(%s) = %#v, %v", input.mimeType, asset, err)
-		}
-	}
-	if _, err := media.ImportMedia("reference.txt", "text/plain", []byte("text")); err == nil {
-		t.Fatal("non-media content was accepted")
-	}
-}
-
-func TestImportImageReusesAssetWithMatchingContentHash(t *testing.T) {
-	media := NewMediaService(NewStore(t.TempDir(), nil))
-	content := []byte("same image bytes")
-	first, err := media.ImportImage("first.png", "image/png", content)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := media.ImportImage("renamed-copy.png", "image/png", content)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.ID != first.ID || second.ContentHash != first.ContentHash {
-		t.Fatalf("duplicate import created a new asset: first=%#v second=%#v", first, second)
-	}
-	assets, err := media.ListAssets("")
-	if err != nil || len(assets) != 1 {
-		t.Fatalf("assets = %#v, %v", assets, err)
-	}
-}
-
-func TestLegacyUnboundMediaAssetStatusReadsCompleted(t *testing.T) {
-	media := NewMediaService(NewStore(t.TempDir(), nil))
-	asset, err := media.ImportImage("legacy.png", "image/png", []byte("legacy image"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := media.Database()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, legacyStatus := range []string{"", "running"} {
-		if _, err := db.Exec("update media_assets set status = ?, job_id = '', remote_id = '' where id = ?", legacyStatus, asset.ID); err != nil {
-			_ = db.Close()
-			t.Fatal(err)
-		}
-		legacy, err := media.GetAsset(asset.ID)
-		if err != nil || legacy.Status != "completed" {
-			t.Fatalf("legacy %q asset = %#v, %v", legacyStatus, legacy, err)
-		}
-		assets, err := media.ListAssets("")
-		if err != nil || len(assets) != 1 || assets[0].ID != asset.ID || assets[0].Status != "completed" {
-			t.Fatalf("media library legacy %q asset = %#v, %v", legacyStatus, assets, err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestMediaRecoversInterruptedJobs(t *testing.T) {
-	store := NewStore(t.TempDir(), nil)
-	media := NewMediaService(store)
-	db, err := media.Database()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	for _, status := range []string{"queued", "running", "completed"} {
-		if _, err := db.Exec(`insert into media_jobs (id, idempotency_key, capability, status, prompt, model_id, credential_id, project_id, reference_ids_json, output_json, asset_ids_json, error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, status, "key-"+status, "image.generate", status, "test", "openai-compatible/image", "credential", "", "[]", "{}", "[]", "", now, now); err != nil {
-			t.Fatal(err)
-		}
-	}
-	recovered, err := media.RecoverInterruptedJobs()
-	if err != nil || recovered != 2 {
-		t.Fatalf("recovered = %d, %v", recovered, err)
-	}
-	rows, err := db.Query("select id, status, error from media_jobs order by id")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	got := map[string]string{}
-	for rows.Next() {
-		var id, status, message string
-		if err := rows.Scan(&id, &status, &message); err != nil {
-			t.Fatal(err)
-		}
-		got[id] = status + ":" + message
-	}
-	if got["queued"] != "failed:"+interruptedMediaJobMessage || got["running"] != "failed:"+interruptedMediaJobMessage || got["completed"] != "completed:" {
-		t.Fatalf("recovered job states = %#v", got)
-	}
-}
-
-func TestMediaSystemProjectIsHiddenFromUserProjects(t *testing.T) {
-	root := t.TempDir()
-	appsDir := filepath.Join(root, "apps")
-	for _, app := range []struct{ dir, manifest string }{{"example", `{"manifestVersion":1,"id":"example.app","name":"Example","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`}, {"media", `{"manifestVersion":1,"id":"recut.media-library","name":"Media","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`}} {
-		if err := os.MkdirAll(filepath.Join(appsDir, app.dir), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		writeTestFile(t, filepath.Join(appsDir, app.dir, "manifest.json"), app.manifest)
-	}
-	apps, err := LoadCatalog(appsDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := NewStore(filepath.Join(root, "data"), apps)
-	if err := store.Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	project, err := store.EnsureMediaSystemProject()
-	if err != nil || project.ID != mediaSystemProjectID {
-		t.Fatalf("system project = %#v, %v", project, err)
-	}
-	projects, err := store.List()
-	if err != nil || len(projects) != 0 {
-		t.Fatalf("visible projects = %#v, %v", projects, err)
 	}
 }

@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 无运行时依赖；定义素材库 API 的 JSON 契约
- * [OUTPUT]: 对外提供素材、任务、Provider、Credential、能力与筛选类型，以及历史 Asset 的展示归一化
- * [POS]: web/app/media 的共享类型边界；由页面、详情和创建流程共同使用
+ * [OUTPUT]: 对外提供素材、任务、含输入/输出参数能力的 Provider 模型、Credential、筛选类型，以及按 durable jobId 保留异步生成状态的历史 Asset 展示归一化
+ * [POS]: web/app/media 的共享类型边界；由页面、详情和创建流程共同使用，Provider 专属 remoteId 不是生命周期依据
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
@@ -23,7 +23,11 @@ export type Asset = {
   metadata: {
     prompt?: string;
     capability?: unknown;
+    generationCompletedAt?: unknown;
+    generationDurationMs?: unknown;
+    generationStartedAt?: unknown;
     modelId?: unknown;
+    output?: Record<string, unknown>;
     referenceIds?: unknown;
   };
 };
@@ -44,6 +48,7 @@ export type Model = {
   capability: Capability;
   available: boolean;
   inputModes: ModelInputMode[];
+  outputModes?: string[];
 };
 export type Provider = { id: string; name: string; models: Model[] };
 export type Credential = { id: string; name: string; provider: string };
@@ -53,14 +58,14 @@ export type Filter = "all" | AssetKind;
 const assetStatuses: AssetStatus[] = ["queued", "running", "completed", "failed"];
 
 // Asset lifecycle fields were added after early workspaces already contained
-// imported and generated files. Missing or malformed historical status must
-// mean "completed", never a false running task.
+// imported and generated files. A durable jobId is the platform-wide async
+// binding; remoteId is optional because generic providers such as speech omit it.
 export function normalizeAsset(value: Partial<Asset> & { id?: string }): Asset {
   const reportedStatus = assetStatuses.includes(value.status as AssetStatus)
     ? (value.status as AssetStatus)
     : "completed";
-  const hasRemoteTask = Boolean(value.jobId && value.remoteId);
-  const status = (reportedStatus === "queued" || reportedStatus === "running") && !hasRemoteTask
+  const hasJob = typeof value.jobId === "string" && value.jobId.trim() !== "";
+  const status = (reportedStatus === "queued" || reportedStatus === "running") && !hasJob
     ? "completed"
     : reportedStatus;
   return {

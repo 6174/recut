@@ -1,12 +1,12 @@
 /**
- * [INPUT]: 依赖 Resource 类型、图片与视频资产预览、真实资源缩略文本与基础按钮
- * [OUTPUT]: 对外提供素材库式缩略图项目、真实画面预览、悬停操作与更多菜单
- * [POS]: vox-broll 的资源浏览单元；图片用图片、已完成 Scene 用视频画面、未完成素材显示状态兜底，详情交由模态框承载
+ * [INPUT]: 依赖 Resource 类型、状态感知的图片/视频资产预览、真实资源缩略文本与基础按钮
+ * [OUTPUT]: 对外提供素材库式缩略图项目、真实画面预览、运行/终态生成耗时、悬停操作与更多菜单
+ * [POS]: vox-broll 的资源浏览单元；图片和已完成 Scene 用真实画面，未完成素材显示状态和实时计时，详情交由模态框承载
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { Trash2 } from "lucide-react";
 import type { Resource } from "./main";
-import { AssetVideoPreview, isLegacyLook, ResourcePresentation, resourceImageURLs, resourcePreviewLines, resourceVideoAssetIDs } from "./resource-view";
+import { AssetImagePreview, AssetVideoPreview, isLegacyLook, ResourcePresentation, resourceImageAssetIDs, resourcePreviewLines, resourceVideoAssetIDs } from "./resource-view";
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui";
 
 function TextPreview({ resource }: { resource: Resource }) {
@@ -16,9 +16,9 @@ function TextPreview({ resource }: { resource: Resource }) {
 
 function Preview({ resource }: { resource: Resource }) {
   const video = resource.kind.toLowerCase() === "scenes" ? resourceVideoAssetIDs(resource)[0] : "";
-  const image = resourceImageURLs(resource)[0];
+  const image = resourceImageAssetIDs(resource)[0];
   if (video) return <AssetVideoPreview assetId={video} title={resource.title} />;
-  if (image) return <img alt={`${resource.title} 缩略图`} className="size-full object-cover" src={image} />;
+  if (image) return <AssetImagePreview alt={`${resource.title} 缩略图`} assetId={image} className="size-full" compact />;
   if (resource.kind.toLowerCase() === "look") return <div className="h-full overflow-hidden"><ResourcePresentation compact resource={resource} /></div>;
   return <TextPreview resource={resource} />;
 }

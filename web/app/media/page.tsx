@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 Media Platform 的资产、Provider、Credential 与生成任务 API，以及系统项目 Agent Session
- * [OUTPUT]: 对外提供素材浏览、完成视频的真实首帧卡片、按 assetId 合并重复导入结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、生成中任务卡片、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
- * [POS]: web/app/media 的系统应用入口；将素材创建收敛为独立弹框，右侧 Agent 仍用于复杂协作
+ * [INPUT]: 依赖 Media Platform 的资产 SSE、Provider、Credential 与生成任务 API，以及系统项目 Agent Session
+ * [OUTPUT]: 对外提供素材浏览、完成视频的真实首帧卡片、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
+ * [POS]: web/app/media 的系统应用入口；Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态而不轮询任务或 Provider
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -9,7 +9,6 @@ import {
   ArrowLeft,
   ChevronDown,
   ImageIcon,
-  LoaderCircle,
   Music2,
   Plus,
   Upload,
@@ -22,6 +21,7 @@ import {
   CSSProperties,
   ChangeEvent,
   FormEvent,
+  useMemo,
   useEffect,
   useRef,
   useState,
@@ -30,7 +30,8 @@ import { Badge } from "@/components/ui/badge";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
-import { VideoFrame } from "@/components/video-frame";
+import { MediaAssetEventsProvider, useMediaAssetEvents } from "@/components/use-media-asset-events";
+import { AssetGrid } from "./asset-grid";
 import { AssetPreview } from "./asset-preview";
 import { ReferenceAssetsField } from "./reference-assets-field";
 import { normalizeAsset } from "./media-types";
@@ -59,6 +60,7 @@ type CreateDraft = {
   modelID?: string;
   prompt: string;
   referenceIDs: string[];
+  output?: Record<string, unknown>;
 };
 const filters: { id: Filter; label: string; icon: typeof ImageIcon }[] = [
   { id: "all", label: "全部", icon: ImageIcon },
@@ -96,7 +98,12 @@ function isReferenceKind(mode: ModelInputMode): mode is AssetKind {
 }
 
 export default function MediaLibrary() {
-  const [assets, setAssets] = useState<Asset[]>([]);
+  return <MediaAssetEventsProvider apiBase={apiBase}><MediaLibraryContent /></MediaAssetEventsProvider>;
+}
+
+function MediaLibraryContent() {
+  const { assetByID, assets: eventAssets, upsertAsset } = useMediaAssetEvents();
+  const assets = useMemo(() => eventAssets.map((asset) => normalizeAsset(asset as Asset)), [eventAssets]);
   const [jobs, setJobs] = useState<MediaJob[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [online, setOnline] = useState(false);
@@ -113,64 +120,27 @@ export default function MediaLibrary() {
   const { handlePointerDown, layoutRef, panelWidth } = useResizableSidePanel({
     storageKey: "recut.media-agent-panel-width",
   });
-  async function load() {
+  async function initialize() {
     try {
-      const [health, project, assetResponse] = await Promise.all([
+      const [health, project] = await Promise.all([
         fetch(`${apiBase}/health`),
         fetch(`${apiBase}/v1/media/system-project`),
-        fetch(`${apiBase}/v1/media/assets`),
       ]);
-      if (!health.ok || !project.ok || !assetResponse.ok) throw new Error();
+      if (!health.ok || !project.ok) throw new Error();
       setProjectID((await project.json()).id);
-      setAssets(((await assetResponse.json()) as Asset[]).map(normalizeAsset));
       setOnline(true);
     } catch {
       setOnline(false);
     }
   }
   useEffect(() => {
-    void load();
-    const interval = window.setInterval(() => void load(), 3000);
-    return () => window.clearInterval(interval);
+    void initialize();
   }, []);
-  useEffect(() => {
-    const activeJobs = jobs.filter(
-      (job) => job.status === "queued" || job.status === "running",
-    );
-    if (!activeJobs.length) return;
-    const poll = async () => {
-      const updates = await Promise.all(
-        activeJobs.map(async (job) => {
-          const response = await fetch(`${apiBase}/v1/media/jobs/${job.id}`);
-          return response.ok ? ((await response.json()) as MediaJob) : job;
-        }),
-      );
-      setJobs((current) => {
-        const next = current
-          .map((job) => {
-            const update = updates.find((item) => item.id === job.id);
-            return update &&
-              (update.status !== job.status || update.error !== job.error)
-              ? update
-              : job;
-          })
-          .filter((job) => job.status !== "completed");
-        return next.length === current.length &&
-          next.every((job, index) => job === current[index])
-          ? current
-          : next;
-      });
-      if (updates.some((job) => job.status === "completed")) void load();
-    };
-    void poll();
-    const interval = window.setInterval(() => void poll(), 1500);
-    return () => window.clearInterval(interval);
-  }, [jobs]);
   const visibleAssets =
     filter === "all" ? assets : assets.filter((asset) => asset.kind === filter);
   const visibleJobs = jobs.filter(
     (job) =>
-      job.assetIds.length === 0 &&
+      !job.assetIds.some((assetID) => Boolean(assetByID[assetID])) &&
       (filter === "all" ||
         job.capability ===
           createKinds.find((item) => item.kind === filter)?.capability),
@@ -208,8 +178,15 @@ export default function MediaLibrary() {
             (id): id is string => typeof id === "string",
           )
         : [],
+      output: asset.metadata.output,
     });
     setCreateKind(kind);
+  }
+  async function hydrateSubmittedAssets(job: MediaJob) {
+    await Promise.all(job.assetIds.map(async (assetID) => {
+      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(assetID)}`, { cache: "no-store" });
+      if (response.ok) upsertAsset(await response.json());
+    }));
   }
   async function uploadAssets(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -232,14 +209,10 @@ export default function MediaLibrary() {
         }
         imported.push(normalizeAsset((await response.json()) as Asset));
       }
-      setAssets((current) => [
-        ...imported.filter((asset) => !current.some((item) => item.id === asset.id)),
-        ...current,
-      ]);
+      imported.forEach(upsertAsset);
       setNotice(`已上传 ${imported.length} 个素材。`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "素材上传失败，请重试。");
-      void load();
     } finally {
       setUploading(false);
     }
@@ -365,6 +338,7 @@ export default function MediaLibrary() {
               })}
             </nav>
             <AssetGrid
+              apiBase={apiBase}
               assets={visibleAssets}
               jobs={visibleJobs}
               onPreview={setPreview}
@@ -398,12 +372,7 @@ export default function MediaLibrary() {
           assets={assets}
           draft={createDraft ?? undefined}
           kind={createKind}
-          onAssetImported={(asset) =>
-            setAssets((items) => {
-              const normalized = normalizeAsset(asset);
-              return items.some((item) => item.id === normalized.id) ? items : [normalized, ...items];
-            })
-          }
+          onAssetImported={upsertAsset}
           onClose={() => {
             setCreateKind(null);
             setCreateDraft(null);
@@ -411,8 +380,8 @@ export default function MediaLibrary() {
           onOpenProviderSettings={openProviderSettings}
           onSubmitted={(job) => {
             setJobs((items) => [job, ...items]);
-            void load();
-            setNotice(`${createKind.label}任务已提交，正在生成。`);
+            void hydrateSubmittedAssets(job);
+            setNotice(`${createKind.label}任务已提交，素材卡会显示实时用时。`);
           }}
         />
       )}
@@ -444,6 +413,9 @@ function CreateAssetDialog({
   const [voices, setVoices] = useState<Voice[]>([]);
   const [voiceID, setVoiceID] = useState("");
   const [prompt, setPrompt] = useState(draft?.prompt ?? "");
+  const [generateAudio, setGenerateAudio] = useState(
+    draft?.output?.generateAudio !== false,
+  );
   const [referenceIDs, setReferenceIDs] = useState<string[]>(
     draft?.referenceIDs ?? [],
   );
@@ -477,6 +449,9 @@ function CreateAssetDialog({
   const referenceKinds: AssetKind[] = selectedModel
     ? selectedModel.inputModes.filter(isReferenceKind)
     : [];
+  const supportsGeneratedAudio =
+    kind.kind === "video" &&
+    Boolean(selectedModel?.outputModes?.includes("generateAudio"));
   const referenceKindKey = referenceKinds.join(",");
   const referenceLabel = referenceKinds.map((item) => referenceLabels[item]).join("、");
   const referenceAssets = assets.filter((asset) =>
@@ -526,10 +501,13 @@ function CreateAssetDialog({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!selectedModel || !credentialID || !prompt.trim() || (kind.kind === "audio" && !voiceID)) return;
-	if (selectedReferenceAssets.some((asset) => !referenceKinds.includes(asset.kind))) {
-		setError("当前模型不支持已选的参考素材类型，请移除后重试。");
-		return;
-	}
+    if (selectedReferenceAssets.some((asset) => !referenceKinds.includes(asset.kind))) {
+      setError("当前模型不支持已选的参考素材类型，请移除后重试。");
+      return;
+    }
+    const output = { ...draft?.output };
+    if (kind.kind === "audio") output.voiceId = voiceID;
+    if (supportsGeneratedAudio) output.generateAudio = generateAudio;
     setSubmitting(true);
     setError("");
     const response = await fetch(`${apiBase}/v1/media/jobs`, {
@@ -541,7 +519,7 @@ function CreateAssetDialog({
         credentialId: credentialID,
         prompt: prompt.trim(),
         referenceIds: referenceIDs,
-        output: kind.kind === "audio" ? { voiceId: voiceID } : undefined,
+        output: Object.keys(output).length ? output : undefined,
       }),
     });
     setSubmitting(false);
@@ -682,6 +660,25 @@ function CreateAssetDialog({
               {referenceKinds.includes("image") ? "可直接粘贴剪贴板中的图片作为参考素材。" : "当前模型不支持图片参考素材。"}
             </p>
           </section>
+          {supportsGeneratedAudio && (
+            <section className="flex items-center justify-between gap-4 rounded-xs border bg-muted/30 px-3 py-2.5">
+              <div>
+                <label className="text-xs font-medium" htmlFor="generate-audio">
+                  生成同步音频
+                </label>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Seedance 会根据画面和提示词一并生成声音；默认开启。
+                </p>
+              </div>
+              <input
+                checked={generateAudio}
+                className="size-4 shrink-0 accent-primary"
+                id="generate-audio"
+                onChange={(event) => setGenerateAudio(event.target.checked)}
+                type="checkbox"
+              />
+            </section>
+          )}
           {referenceKinds.length > 0 && (
             <ReferenceAssetsField
               apiBase={apiBase}
@@ -768,107 +765,6 @@ function CreateAssetDialog({
           </button>
         </footer>
       </form>
-    </div>
-  );
-}
-
-function AssetGrid({
-  assets,
-  jobs,
-  onPreview,
-}: {
-  assets: Asset[];
-  jobs: MediaJob[];
-  onPreview: (asset: Asset) => void;
-}) {
-  if (!assets.length && !jobs.length)
-    return (
-      <div className="grid min-h-72 place-items-center rounded-xs border border-dashed bg-card text-center">
-        <div>
-          <ImageIcon className="mx-auto size-5 text-muted-foreground" />
-          <p className="mt-3 text-sm font-medium">还没有素材</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            点击“创建”选择资源类型和模型，或让右侧 Agent 协作创作。
-          </p>
-        </div>
-      </div>
-    );
-  return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {jobs.map((job) => (
-        <div
-          className="overflow-hidden rounded-xs border border-primary/40 bg-primary/5 text-left"
-          key={job.id}
-        >
-          <div className="grid aspect-[4/3] place-items-center bg-primary/10">
-            <span className="text-xs font-medium text-primary">
-              {job.status === "failed" ? "生成失败" : "生成中…"}
-            </span>
-          </div>
-          <div className="p-3">
-            <p className="truncate text-xs font-medium">{job.prompt}</p>
-            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-              {job.status === "failed"
-                ? (job.error ?? "任务未完成")
-                : "正在请求模型并生成素材。"}
-            </p>
-            <div className="mt-3 flex justify-between font-mono text-[10px] text-muted-foreground">
-              <span>
-                {job.capability.replace(".generate", "").toUpperCase()}
-              </span>
-              <span>{job.status.toUpperCase()}</span>
-            </div>
-          </div>
-        </div>
-      ))}
-      {assets.map((asset) => (
-        <button
-          className="overflow-hidden rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20"
-          key={asset.id}
-          onClick={() => onPreview(asset)}
-          type="button"
-        >
-          {asset.status !== "completed" ? (
-            <div className="grid aspect-[4/3] place-items-center bg-primary/10 px-4 text-center">
-              <div>
-                {asset.status === "failed" ? <span className="text-xs font-medium text-destructive">生成失败</span> : <LoaderCircle className="mx-auto size-5 animate-spin text-primary" />}
-                <p className="mt-2 text-xs font-medium text-foreground">{asset.status === "failed" ? asset.error ?? "任务未完成" : "生成中…"}</p>
-                {asset.status !== "failed" && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">素材引用已建立，完成后会原位显示。</p>}
-              </div>
-            </div>
-          ) : asset.kind === "image" ? (
-            <div className="aspect-[4/3] bg-muted">
-              <img
-                alt={asset.name}
-                className="h-full w-full object-cover"
-                src={`${apiBase}/v1/media/assets/${asset.id}/content`}
-              />
-            </div>
-          ) : asset.kind === "video" ? (
-            <VideoFrame
-              alt={asset.name || "视频素材"}
-              className="aspect-[4/3]"
-              src={`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`}
-            />
-          ) : (
-            <div className="grid aspect-[4/3] place-items-center bg-muted">
-              <span className="text-xs text-muted-foreground">
-                {asset.kind.toUpperCase()}
-              </span>
-            </div>
-          )}
-          <div className="p-3">
-            <p className="truncate text-xs font-medium">{asset.name}</p>
-            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-              {asset.metadata.prompt ?? "导入素材"}
-            </p>
-            <div className="mt-3 flex justify-between font-mono text-[10px] text-muted-foreground">
-              <span>{asset.origin.toUpperCase()}</span>
-              <span>{new Date(asset.createdAt).toLocaleDateString()}</span>
-            </div>
-          </div>
-        </button>
-      ))}
     </div>
   );
 }

@@ -19,8 +19,8 @@ var mediaProviders = []MediaProvider{
 		{ID: "atlas-cloud/openai/gpt-image-2", Provider: "atlas-cloud", Name: "GPT Image 2 · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true},
 		{ID: "atlas-cloud/bytedance/seedream-v5.0-pro", Provider: "atlas-cloud", Name: "Seedream 5.0 Pro · 文生图", Capability: ImageGenerate, APIModelID: "bytedance/seedream-v5.0-pro", InputModes: []string{"text", "image"}, Available: true, Configurable: true},
 		{ID: "atlas-cloud/xai/grok-imagine-image", Provider: "atlas-cloud", Name: "Grok Imagine · 文生图", Capability: ImageGenerate, APIModelID: "xai/grok-imagine-image", InputModes: []string{"text"}, Available: true, Configurable: true},
-		{ID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", Provider: "atlas-cloud", Name: "Seedance 2.0 Mini · 多参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0-mini/reference-to-video", InputModes: []string{"text", "image", "video", "audio"}, Available: true, Configurable: true},
-		{ID: "atlas-cloud/google/gemini-omni-flash-reference-to-video", Provider: "atlas-cloud", Name: "Gemini Omni Flash · 参考图视频", Capability: VideoGenerate, APIModelID: "google/gemini-omni-flash/reference-to-video", InputModes: []string{"text", "image"}, Available: true, Configurable: true},
+		{ID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", Provider: "atlas-cloud", Name: "Seedance 2.0 Mini · 多参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0-mini/reference-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "bitrateMode", "generateAudio", "seed", "watermark", "returnLastFrame"}, Available: true, Configurable: true},
+		{ID: "atlas-cloud/google/gemini-omni-flash-reference-to-video", Provider: "atlas-cloud", Name: "Gemini Omni Flash · 参考图视频", Capability: VideoGenerate, APIModelID: "google/gemini-omni-flash/reference-to-video", InputModes: []string{"text", "image"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "thinkingLevel", "seed"}, Available: true, Configurable: true},
 		{ID: "atlas-cloud/xai/tts-v1", Provider: "atlas-cloud", Name: "xAI TTS v1", Capability: SpeechGenerate, APIModelID: "xai/tts-v1", InputModes: []string{"text"}, Configurable: true},
 	}},
 	{ID: "openai", Name: "OpenAI", Protocol: "openai", DefaultAPIBase: "https://api.openai.com/v1", Models: []MediaModel{{ID: "openai/gpt-image-2", Provider: "openai", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true}}},
@@ -209,14 +209,10 @@ func outputFields(capability MediaCapability) []string {
 }
 
 func modelOutputFields(model MediaModel) []string {
-	switch model.ID {
-	case "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video":
-		return []string{"durationSeconds", "resolution", "aspectRatio", "bitrateMode", "generateAudio", "seed", "watermark", "returnLastFrame"}
-	case "atlas-cloud/google/gemini-omni-flash-reference-to-video":
-		return []string{"durationSeconds", "aspectRatio", "resolution", "thinkingLevel", "seed"}
-	default:
-		return outputFields(model.Capability)
+	if len(model.OutputModes) > 0 {
+		return append([]string(nil), model.OutputModes...)
 	}
+	return outputFields(model.Capability)
 }
 
 func modelInputFields(modes []string) []string {

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力与用户级 workspace SQLite
+ * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力与含媒体任务 lease/checkpoint 的用户级 workspace SQLite
  * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根，Agent 会话使用独立工作区库
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -238,16 +238,25 @@ create table if not exists media_asset_projects (
   asset_id text not null, project_id text not null, created_at text not null,
   primary key (asset_id, project_id)
 );
+create table if not exists media_asset_events (
+  id integer primary key autoincrement, asset_id text not null, created_at text not null
+);
+create table if not exists media_task_leases (
+  job_id text primary key, owner_id text not null, expires_at_ms integer not null, updated_at text not null
+);
 create table if not exists media_jobs (
   id text primary key, idempotency_key text not null unique, capability text not null,
   status text not null, prompt text not null, model_id text not null, credential_id text not null,
   project_id text not null, reference_ids_json text not null, output_json text not null,
   asset_ids_json text not null, remote_id text not null default '', remote_poll_url text not null default '',
+  submission_started_at text not null default '',
   error text not null, created_at text not null, updated_at text not null
 );
 create index if not exists media_assets_created on media_assets(created_at desc);
 create index if not exists media_asset_projects_project on media_asset_projects(project_id, created_at desc);
+create index if not exists media_asset_events_asset on media_asset_events(asset_id, id);
 create index if not exists media_jobs_updated on media_jobs(updated_at desc);
+create index if not exists media_task_leases_expiry on media_task_leases(expires_at_ms);
 `)
 	if err != nil {
 		_ = db.Close()
@@ -266,6 +275,7 @@ create index if not exists media_jobs_updated on media_jobs(updated_at desc);
 		"alter table media_assets add column updated_at text not null default ''",
 		"alter table media_jobs add column remote_id text not null default ''",
 		"alter table media_jobs add column remote_poll_url text not null default ''",
+		"alter table media_jobs add column submission_started_at text not null default ''",
 	} {
 		if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			_ = db.Close()
@@ -277,9 +287,9 @@ create index if not exists media_jobs_updated on media_jobs(updated_at desc);
 		return nil, err
 	}
 	// Before asynchronous Assets existed, every persisted file was already
-	// usable. A pending Asset must carry both the local job and remote handle;
-	// unbound legacy pending values are completed files, not recoverable tasks.
-	if _, err := db.Exec("update media_assets set status = 'completed' where coalesce(trim(status), '') = '' or (status in ('queued', 'running') and (job_id = '' or remote_id = ''))"); err != nil {
+	// usable. A pending Asset must carry a durable local job; local providers
+	// deliberately have no remote prediction ID, so remote_id is not a test.
+	if _, err := db.Exec("update media_assets set status = 'completed' where coalesce(trim(status), '') = '' or (status in ('queued', 'running') and job_id = '')"); err != nil {
 		_ = db.Close()
 		return nil, err
 	}

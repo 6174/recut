@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖本目录的 Catalog、Store、TerminalManager、Server 和标准库运行时能力
- * [OUTPUT]: 对外提供 recut 本地 shell service 可执行程序入口与 Agent Session Host 组合
- * [POS]: service 的组合根，负责运行时配置而不承载领域逻辑
+ * [OUTPUT]: 对外提供 recut 本地 shell service 可执行程序入口、Agent Session Host 与常驻媒体任务调度组合
+ * [POS]: service 的组合根；只负责运行时配置和长生命周期媒体回收启动，不承载领域逻辑
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func main() {
@@ -40,17 +41,22 @@ func main() {
 	bridge := NewAgentBridge(store)
 	host := NewAppHost(apps, store)
 	media := NewMediaService(store)
-	if recovered, err := media.RecoverInterruptedJobs(); err != nil {
-		log.Fatal(err)
-	} else if recovered > 0 {
-		log.Printf("Reconciled %d interrupted media job(s)", recovered)
-	}
 	if *mcpStdio {
 		if err := RunMCPStdio(bridge, host, media, os.Stdin, os.Stdout); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
+	if recovered, err := media.RecoverInterruptedJobs(); err != nil {
+		log.Fatal(err)
+	} else if recovered > 0 {
+		log.Printf("Reconciled %d interrupted media job(s)", recovered)
+	}
+	// The daemon, not a short-lived MCP child or browser, owns remote task
+	// recovery. It discovers newly submitted durable jobs and keeps their
+	// Asset state current until each provider reaches a terminal result.
+	stopMediaReconciler := media.StartReconciler(5 * time.Second)
+	defer stopMediaReconciler()
 	terminals, err := NewTerminalManager(store)
 	if err != nil {
 		log.Fatal(err)

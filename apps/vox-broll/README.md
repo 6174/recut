@@ -12,6 +12,6 @@ ui/package.json: UI 独立构建依赖与 Vite 命令。
 ui/dist/: Vite 构建产物，manifest 的项目 UI 入口。
 
 服务边界
-此 App 只覆盖 B-roll：主题到 Vox 风格纸质拼贴解说片。平台不理解 Brief/Look 数据结构；`background.js` 通过 SQLite/Artifact capability 自行实现。Agent 通过 MCP 的 `tools/list` 获得 operation 的名称、说明和 input schema；`workflow.context` 再返回当前有效资源、阶段准入、下一步动作、逐类资源契约、媒体快照结构和 `mediaExecution` 意图路由，是创作时的唯一真相。媒体资产始终由全局素材库 `assetId` 标识；图片生产输入为 `text + imageAssetIds`，语音先由 `list_voices → speech.generate_async → get_job` 取得真实 `assetId`，视频生产输入为 `text + imageAssetIds + audioAssetIds`。视频每段独立保存为一个 Scene resource，默认只生成下一段；用户明确要求全部生成时才连续处理剩余段。HyperFrames 等扩展只在用户明确选择其合成能力时使用，不能替代平台媒体生成。局部修订通过 `resource.read → resource.update.itemPatch` 保持资源 ID 与依赖不变。领域 AGENTS.md 不重复接口字段。
+此 App 只覆盖 B-roll：主题到 Vox 风格纸质拼贴解说片。平台不理解 Brief/Look 数据结构；`background.js` 通过 SQLite/Artifact capability 自行实现。Agent 通过 MCP 的 `tools/list` 获得 operation 的名称、说明和 input schema；`workflow.context` 再返回当前有效资源、阶段准入、下一步动作、逐类资源契约、媒体快照结构和 `mediaExecution` 意图路由，是创作时的唯一真相。媒体资产始终由全局素材库 `assetId` 标识；图片生产输入为 `text + imageAssetIds`，异步语音和视频在提交时取得稳定的 queued `assetId`，常驻 Daemon 在同一 ID 上更新状态；视频生产输入为 `text + imageAssetIds + audioAssetIds`，其中音频必须已完成。视频每段独立保存为一个 Scene resource，默认只生成下一段；用户明确要求全部生成时才连续处理剩余段。HyperFrames 等扩展只在用户明确选择其合成能力时使用，不能替代平台媒体生成。局部修订通过 `resource.read → resource.update.itemPatch` 保持资源 ID 与依赖不变。领域 AGENTS.md 不重复接口字段。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

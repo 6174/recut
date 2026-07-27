@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 Store 的本地工作区 SQLite、MediaService 的项目图片资产、AgentBridge 的 MCP 授权与 Codex JSONL CLI
- * [OUTPUT]: 对外提供 AgentManager、含图片资产引用和 Codex 模型/推理配置的持久化 Turn、按序待发送队列、保留工具输入/输出/失败态及时间戳的规范化事件与 Codex adapter
- * [POS]: service 的结构化 Agent 协议层；图片二进制始终留在媒体库，Turn 只持久化受验证的资产身份
+ * [INPUT]: 依赖 Store 的本地工作区 SQLite、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权与 Codex JSONL CLI
+ * [OUTPUT]: 对外提供 AgentManager、含项目媒体引用和 Codex 模型/推理配置的持久化 Turn、按序待发送队列、保留工具输入/输出/失败态及时间戳的规范化事件与 Codex adapter
+ * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -52,6 +52,7 @@ type ChatTurn struct {
 type ChatAttachment struct {
 	AssetID  string `json:"assetId"`
 	Name     string `json:"name"`
+	Kind     string `json:"kind"`
 	MimeType string `json:"mimeType"`
 	Origin   string `json:"origin"`
 }
@@ -259,10 +260,10 @@ func (m *AgentManager) turnAttachments(projectID string, assetIDs []string) ([]C
 		}
 		seen[id] = true
 		asset, err := m.media.GetAsset(id)
-		if err != nil || asset.Kind != "image" || !containsString(asset.ProjectIDs, projectID) {
-			return nil, errors.New("image attachment is unavailable in this project")
+		if err != nil || !containsString(asset.ProjectIDs, projectID) {
+			return nil, errors.New("media attachment is unavailable in this project")
 		}
-		attachments = append(attachments, ChatAttachment{AssetID: asset.ID, Name: asset.Name, MimeType: asset.MimeType, Origin: asset.Origin})
+		attachments = append(attachments, ChatAttachment{AssetID: asset.ID, Name: asset.Name, Kind: asset.Kind, MimeType: asset.MimeType, Origin: asset.Origin})
 	}
 	return attachments, nil
 }
@@ -501,7 +502,9 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	args = append(args, "--model", model, "--config", fmt.Sprintf("model_reasoning_effort=%q", effort))
 	attachments := m.attachmentContexts(userTurn.Attachments)
 	for _, attachment := range attachments {
-		args = append(args, "--image", attachment.Path)
+		if attachment.Kind == "image" {
+			args = append(args, "--image", attachment.Path)
+		}
 	}
 	args = append(args, "--json", "--", userTurn.runtimePrompt()+attachmentPrompt(attachments))
 	cmd := exec.CommandContext(ctx, command, args...)
@@ -625,6 +628,7 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 type attachmentContext struct {
 	AssetID string
 	Name    string
+	Kind    string
 	Origin  string
 	Path    string
 }
@@ -637,7 +641,7 @@ func (m *AgentManager) attachmentContexts(attachments []ChatAttachment) []attach
 			continue
 		}
 		if path, _ := asset.Metadata["path"].(string); path != "" {
-			contexts = append(contexts, attachmentContext{AssetID: asset.ID, Name: asset.Name, Origin: asset.Origin, Path: path})
+			contexts = append(contexts, attachmentContext{AssetID: asset.ID, Name: asset.Name, Kind: asset.Kind, Origin: asset.Origin, Path: path})
 		}
 	}
 	return contexts
@@ -650,7 +654,7 @@ func attachmentPrompt(attachments []attachmentContext) string {
 	lines := make([]string, 0, len(attachments)+1)
 	lines = append(lines, "\n\n本条消息附带的素材已导入全局素材库。后续媒体工具必须引用 assetId；path 仅供本次 Agent 读取：")
 	for _, attachment := range attachments {
-		lines = append(lines, fmt.Sprintf("- assetId=%s；name=%s；origin=%s；path=%s", attachment.AssetID, attachment.Name, attachment.Origin, attachment.Path))
+		lines = append(lines, fmt.Sprintf("- assetId=%s；name=%s；kind=%s；origin=%s；path=%s", attachment.AssetID, attachment.Name, attachment.Kind, attachment.Origin, attachment.Path))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -952,7 +956,7 @@ func listChatTurns(db *sql.DB, sessionID string) ([]ChatTurn, error) {
 }
 
 func listChatAttachments(db *sql.DB, turnID string) ([]ChatAttachment, error) {
-	rows, err := db.Query(`select a.id, a.name, a.mime_type, a.origin from agent_turn_attachments t join media_assets a on a.id = t.asset_id where t.turn_id = ? order by a.created_at, a.id`, turnID)
+	rows, err := db.Query(`select a.id, a.name, a.kind, a.mime_type, a.origin from agent_turn_attachments t join media_assets a on a.id = t.asset_id where t.turn_id = ? order by a.created_at, a.id`, turnID)
 	if err != nil {
 		return nil, err
 	}
@@ -960,7 +964,7 @@ func listChatAttachments(db *sql.DB, turnID string) ([]ChatAttachment, error) {
 	attachments := []ChatAttachment{}
 	for rows.Next() {
 		var attachment ChatAttachment
-		if err := rows.Scan(&attachment.AssetID, &attachment.Name, &attachment.MimeType, &attachment.Origin); err != nil {
+		if err := rows.Scan(&attachment.AssetID, &attachment.Name, &attachment.Kind, &attachment.MimeType, &attachment.Origin); err != nil {
 			return nil, err
 		}
 		attachments = append(attachments, attachment)
