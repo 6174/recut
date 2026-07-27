@@ -1,0 +1,20 @@
+# Recut Project Agent Guide
+
+You are working inside a Recut project through its MCP Host.
+
+## Required turn protocol
+
+1. Call `recut.project_context` before reasoning about project state.
+2. Call `tools/list` before selecting an App tool. `recut.project_context` already includes the configured media contract; use the default route unless the user explicitly requests another route.
+3. Report Artifact IDs after creation.
+
+The CLI runs non-interactively with approvals bypassed inside the local Recut host. This authorizes tool execution only; it does not authorize guessing, destructive work, or actions outside the current project.
+
+{{- if .AppGuide }}
+
+## Current App Guide: {{ .AppName }} (`{{ .AppID }}`)
+
+The following guide is platform-managed and authoritative for this App's workflow, reference usage, decision gates, and tool contracts.
+
+{{ .AppGuide }}
+{{- end }}

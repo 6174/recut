@@ -51,6 +51,7 @@ type ChatAttachment struct {
 	AssetID  string `json:"assetId"`
 	Name     string `json:"name"`
 	MimeType string `json:"mimeType"`
+	Origin   string `json:"origin"`
 }
 
 type ChatEvent struct {
@@ -250,7 +251,7 @@ func (m *AgentManager) turnAttachments(projectID string, assetIDs []string) ([]C
 		if err != nil || asset.Kind != "image" || !containsString(asset.ProjectIDs, projectID) {
 			return nil, errors.New("image attachment is unavailable in this project")
 		}
-		attachments = append(attachments, ChatAttachment{AssetID: asset.ID, Name: asset.Name, MimeType: asset.MimeType})
+		attachments = append(attachments, ChatAttachment{AssetID: asset.ID, Name: asset.Name, MimeType: asset.MimeType, Origin: asset.Origin})
 	}
 	return attachments, nil
 }
@@ -403,10 +404,11 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		args = append(args, "resume", session.NativeSessionID)
 	}
 	args = append(args, withoutCodexCD(codexProjectArgs(projectRoot, executable, m.store.root, m.store.catalog.Directory(), bridgeSession, token))...)
-	for _, path := range m.attachmentPaths(userTurn.Attachments) {
-		args = append(args, "--image", path)
+	attachments := m.attachmentContexts(userTurn.Attachments)
+	for _, attachment := range attachments {
+		args = append(args, "--image", attachment.Path)
 	}
-	args = append(args, "--json", "--", userTurn.runtimePrompt())
+	args = append(args, "--json", "--", userTurn.runtimePrompt()+attachmentPrompt(attachments))
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = projectRoot
 	stdout, err := cmd.StdoutPipe()
@@ -474,10 +476,7 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	if err != nil {
 		return err
 	}
-	prompt := userTurn.runtimePrompt()
-	if paths := m.attachmentPaths(userTurn.Attachments); len(paths) > 0 {
-		prompt += "\n\n图片附件已保存在本地，请作为本条消息的上下文读取：\n" + strings.Join(paths, "\n")
-	}
+	prompt := userTurn.runtimePrompt() + attachmentPrompt(m.attachmentContexts(userTurn.Attachments))
 	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--mcp-config", profile}
 	if session.NativeSessionID != "" {
 		args = append(args, "--resume", session.NativeSessionID)
@@ -528,18 +527,37 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	return nil
 }
 
-func (m *AgentManager) attachmentPaths(attachments []ChatAttachment) []string {
-	paths := make([]string, 0, len(attachments))
+type attachmentContext struct {
+	AssetID string
+	Name    string
+	Origin  string
+	Path    string
+}
+
+func (m *AgentManager) attachmentContexts(attachments []ChatAttachment) []attachmentContext {
+	contexts := make([]attachmentContext, 0, len(attachments))
 	for _, attachment := range attachments {
 		asset, err := m.media.GetAsset(attachment.AssetID)
 		if err != nil {
 			continue
 		}
 		if path, _ := asset.Metadata["path"].(string); path != "" {
-			paths = append(paths, path)
+			contexts = append(contexts, attachmentContext{AssetID: asset.ID, Name: asset.Name, Origin: asset.Origin, Path: path})
 		}
 	}
-	return paths
+	return contexts
+}
+
+func attachmentPrompt(attachments []attachmentContext) string {
+	if len(attachments) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(attachments)+1)
+	lines = append(lines, "\n\n本条消息附带的素材已导入全局素材库。后续媒体工具必须引用 assetId；path 仅供本次 Agent 读取：")
+	for _, attachment := range attachments {
+		lines = append(lines, fmt.Sprintf("- assetId=%s；name=%s；origin=%s；path=%s", attachment.AssetID, attachment.Name, attachment.Origin, attachment.Path))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (t ChatTurn) runtimePrompt() string {
@@ -765,7 +783,7 @@ func listChatTurns(db *sql.DB, sessionID string) ([]ChatTurn, error) {
 }
 
 func listChatAttachments(db *sql.DB, turnID string) ([]ChatAttachment, error) {
-	rows, err := db.Query(`select a.id, a.name, a.mime_type from agent_turn_attachments t join media_assets a on a.id = t.asset_id where t.turn_id = ? order by a.created_at, a.id`, turnID)
+	rows, err := db.Query(`select a.id, a.name, a.mime_type, a.origin from agent_turn_attachments t join media_assets a on a.id = t.asset_id where t.turn_id = ? order by a.created_at, a.id`, turnID)
 	if err != nil {
 		return nil, err
 	}
@@ -773,7 +791,7 @@ func listChatAttachments(db *sql.DB, turnID string) ([]ChatAttachment, error) {
 	attachments := []ChatAttachment{}
 	for rows.Next() {
 		var attachment ChatAttachment
-		if err := rows.Scan(&attachment.AssetID, &attachment.Name, &attachment.MimeType); err != nil {
+		if err := rows.Scan(&attachment.AssetID, &attachment.Name, &attachment.MimeType, &attachment.Origin); err != nil {
 			return nil, err
 		}
 		attachments = append(attachments, attachment)

@@ -19,8 +19,8 @@ const stages: Stage[] = [
   { kind: "Beats", eyebrow: "第二步", label: "内容结构", summary: "开头怎么讲，每一段讲什么", action: "规划内容", empty: "点击规划这条视频的内容结构" },
   { kind: "Look", eyebrow: "第三步", label: "视觉参考", summary: "配图、配色和整体感觉", action: "生成参考图", empty: "点击生成视觉参考图" },
   { kind: "Keyframes", eyebrow: "第四步", label: "分镜画面", summary: "每个镜头应该长什么样", action: "添加分镜", empty: "点击添加第一张分镜画面" },
-  { kind: "Motion", eyebrow: "第五步", label: "动画与转场", summary: "镜头怎么动，画面怎么切换", action: "设置动画", empty: "点击设置动画与转场" },
-  { kind: "Audio", eyebrow: "第六步", label: "配音与音乐", summary: "旁白、配乐和字幕怎么配合", action: "添加声音", empty: "点击添加配音或音乐" },
+  { kind: "Audio", eyebrow: "第五步", label: "配音与音乐", summary: "先确定每段声音如何推动理解", action: "添加声音", empty: "点击添加配音或音乐" },
+  { kind: "Scenes", eyebrow: "第六步", label: "场景视频", summary: "让声音和关键画面成为连续短场景", action: "生成场景视频", empty: "点击生成第一个场景视频" },
   { kind: "Delivery", eyebrow: "最后一步", label: "导出设置", summary: "尺寸、格式和导出前检查", action: "设置导出", empty: "点击设置导出格式" },
 ];
 const examples = ["做口播短视频你最应该关注的三件事", "为什么 AI 视频工作流总是卡在最后一步？", "一条 Vox 风格视频如何让复杂概念变简单？"];
@@ -36,7 +36,7 @@ function App() {
     window.addEventListener("recut-sdk-ready", refresh);
     const unsubscribe = recut.events.subscribe((event) => {
       const capability = event as CapabilityEvent;
-      if (capability.type === "app.capability.completed" && capability.appId === "recut.vox-broll" && capability.kind === "mcp" && capability.name === "create_resource") void refresh();
+      if (capability.type === "app.capability.completed" && capability.appId === "recut.vox-broll" && capability.kind === "operation" && capability.name === "resource.create") void refresh();
     });
     return () => { window.removeEventListener("recut-sdk-ready", refresh); unsubscribe(); };
   }, []);

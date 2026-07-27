@@ -20,7 +20,8 @@ function purgeLegacyLooks(ctx) {
   const rows = ctx.sqlite.query("select id, kind, content_json from resources where retired_at is null");
   rows.forEach((row) => {
     const content = JSON.parse(row.content_json);
-    const invalid = String(row.kind).toLowerCase() === "look" && (!content || !content.assetId || !content.prompt);
+    const media = content?.media;
+    const invalid = String(row.kind).toLowerCase() === "look" && (!media || !media.assetId || !media.text);
     if (invalid) ctx.sqlite.execute("delete from resources where id = ?", [row.id]);
   });
   ctx.sqlite.execute("insert into app_meta (key, value) values (?, ?)", ["legacy-look-purge-v1", new Date().toISOString()]);
@@ -53,7 +54,96 @@ function latestBrief(_, ctx) {
   return rows.length ? JSON.parse(rows[0].body) : null;
 }
 
-const stageOrder = ["brief", "beats", "look", "keyframes", "motion", "audio", "delivery"];
+const stageOrder = ["brief", "beats", "look", "keyframes", "audio", "scenes", "delivery"];
+const mediaSnapshotContract = {
+  assetId: "string",
+  text: "string",
+  imageAssetIds: "string[]",
+  audioAssetIds: "string[]",
+  sourceResourceIds: "string[]",
+};
+
+const resourceContracts = {
+  brief: {
+    inputs: ["topic"],
+    output: { topic: "string", premise: "string", direction: "string" },
+  },
+  beats: {
+    inputs: ["approved brief"],
+    output: { hook: "string", narrative: "string", beats: "Beat[]" },
+    item: { field: "beats", required: ["id", "title", "narration", "visual", "purpose", "durationSec"], types: { id: "string", title: "string", narration: "string", visual: "string", purpose: "string", durationSec: "number" } },
+  },
+  look: {
+    inputs: ["approved brief", "approved beats"],
+    output: { media: "MediaSnapshot", definition: "string", palette: "string", paperTechnique: "string", typeTreatment: "string", texture: "string", mood: "string" },
+    media: { field: "media", requiredAsset: true },
+  },
+  keyframes: {
+    inputs: ["approved beats", "selected look"],
+    output: { keyframes: "Keyframe[]" },
+    item: { field: "keyframes", required: ["beatId", "title", "composition", "headline", "layers"], optional: ["image"], types: { beatId: "string", title: "string", composition: "string", headline: "string", layers: "string[]" }, media: { field: "image", requiredAsset: false } },
+  },
+  audio: {
+    inputs: ["approved beats", "keyframes"],
+    output: { scenes: "AudioScene[]" },
+    item: { field: "scenes", required: ["beatId", "narration", "music", "soundEffects", "captions", "durationSec"], optional: ["audio"], types: { beatId: "string", narration: "string", music: "string", soundEffects: "string", captions: "string", durationSec: "number" }, media: { field: "audio", requiredAsset: false } },
+  },
+  scenes: {
+    inputs: ["selected look", "keyframes", "approved audio"],
+    output: { scenes: "Scene[]" },
+    item: { field: "scenes", required: ["beatId", "title", "durationSec", "visualAction", "cutPoint"], optional: ["video"], types: { beatId: "string", title: "string", durationSec: "number", visualAction: "string", cutPoint: "string" }, media: { field: "video", requiredAsset: false } },
+  },
+  delivery: {
+    inputs: ["approved scenes"],
+    output: { aspectRatio: "string", duration: "number", format: "string", export: "string", checklist: "string[]" },
+  },
+};
+
+function requiredFields(contract) {
+  return Object.keys(contract.output);
+}
+
+function hasValue(value) {
+  return value !== undefined && value !== null && value !== "" && (!Array.isArray(value) || value.length > 0);
+}
+
+function hasExpectedType(value, type) {
+  if (type === "string") return typeof value === "string";
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
+  if (type === "string[]") return Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim());
+  if (type.endsWith("[]")) return Array.isArray(value);
+  return true;
+}
+
+function validateMediaSnapshot(label, snapshot, requiredAsset) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw new Error(`${label} must be a MediaSnapshot object`);
+  const missing = Object.entries(mediaSnapshotContract).filter(([field]) => field !== "assetId" && (snapshot[field] === undefined || snapshot[field] === null || snapshot[field] === "")).map(([field]) => field);
+  if (requiredAsset && !hasValue(snapshot.assetId)) missing.push("assetId");
+  if (missing.length) throw new Error(`${label} is missing required fields: ${missing.join(", ")}`);
+  const invalid = Object.entries(mediaSnapshotContract).filter(([field, type]) => snapshot[field] !== undefined && !hasExpectedType(snapshot[field], type)).map(([field]) => field);
+  if (invalid.length) throw new Error(`${label} has invalid field types: ${invalid.join(", ")}`);
+}
+
+function validateResourceContent(kind, content) {
+  const contract = resourceContracts[kind];
+  const missing = requiredFields(contract).filter((field) => !hasValue(content[field]));
+  if (missing.length) throw new Error(`${kind} is missing required fields: ${missing.join(", ")}`);
+  const invalid = Object.entries(contract.output).filter(([field, type]) => !hasExpectedType(content[field], type)).map(([field]) => field);
+  if (invalid.length) throw new Error(`${kind} has invalid field types: ${invalid.join(", ")}`);
+  if (contract.media) validateMediaSnapshot(`${kind}.${contract.media.field}`, content[contract.media.field], contract.media.requiredAsset);
+  if (!contract.item) return;
+
+  const items = content[contract.item.field];
+  if (!Array.isArray(items)) throw new Error(`${kind}.${contract.item.field} must be an array`);
+  items.forEach((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`${kind}.${contract.item.field}[${index}] must be an object`);
+    const itemMissing = contract.item.required.filter((field) => !hasValue(item[field]));
+    if (itemMissing.length) throw new Error(`${kind}.${contract.item.field}[${index}] is missing required fields: ${itemMissing.join(", ")}`);
+    const itemInvalid = Object.entries(contract.item.types || {}).filter(([field, type]) => !hasExpectedType(item[field], type)).map(([field]) => field);
+    if (itemInvalid.length) throw new Error(`${kind}.${contract.item.field}[${index}] has invalid field types: ${itemInvalid.join(", ")}`);
+    if (item[contract.item.media?.field] !== undefined) validateMediaSnapshot(`${kind}.${contract.item.field}[${index}].${contract.item.media.field}`, item[contract.item.media.field], contract.item.media.requiredAsset);
+  });
+}
 
 function workflowContext(_, ctx) {
   ensureSchema(ctx);
@@ -73,6 +163,8 @@ function workflowContext(_, ctx) {
     nextAction: nextStage ? `create_${nextStage}` : "review_delivery",
     gates: { beatsReady: Boolean(beats), lookReady: Boolean(look) },
     inputs: { brief, beats, look },
+    resourceContracts,
+    mediaSnapshotContract,
     resources: Object.fromEntries(stageOrder.map((kind) => [kind, byKind[kind].map((item) => ({ id: item.id, title: item.title, createdAt: item.createdAt }))])),
     allowedActions: nextStage ? [`create_${nextStage}`] : ["review_delivery"],
     inFlight: null,
@@ -85,17 +177,21 @@ function prepareResource(input, ctx) {
   const dependencies = Array.isArray(input.dependencies) ? input.dependencies : [];
   const instruction = String(input.instruction || "无额外要求");
   const stageWorkflow = {
-    brief: "content 使用 { topic, premise, direction }，这是供人审阅的短文本简报。",
-    beats: "content 使用 { hook, narrative, beats: [{ title, description, duration }] }，每个 beat 是一张可读的叙事卡。",
-    look: "先调用 recut.vox-broll.workflow_context，只使用其批准的 Brief 和 Beats。创建 3 个可区分的 16:9 风格候选；每个候选调用同步的 recut.media.generate（capability: image.generate），成功后立即调用 create_resource。content 必须有 { assetId, prompt, definition, palette, paperTechnique, typeTreatment, texture, mood }。超时或失败时如实报告且不要创建该候选。完成后停下，等待用户选择；不要创建 Keyframes。",
-    keyframes: "content 使用 { keyframes: [{ title, composition, headline, layers, imageAssetId? }] }。镜头有参考图时保存 imageAssetId；没有图时只保存可读的构图、标题和层次，不要把 JSON 作为用户输出。",
-    motion: "content 使用 { camera, motion, shots: [{ title, motion, duration, videoAssetId? }] }。有预览视频时保存 videoAssetId，否则以镜头动效卡表达。",
-    audio: "content 使用 { narration, music, captions, mix, audioAssetId? }。有已生成的声音时保存 audioAssetId，文本只描述听觉方案。",
-    delivery: "content 使用 { aspectRatio, duration, format, export, checklist: [{ title, description }] }，以交付字段与核对清单表达。",
-  }[kind.toLowerCase()] || "content 必须是面向审阅的短字段或条目，不要把内部 JSON 作为用户输出。";
+    brief: "一份短而明确的创作简报：主题、受众、论点、核心张力与编辑方向。",
+    beats: "一个可审阅的叙事弧：三秒钩子、逐段节拍、每段的观众理解与画面证据。",
+    look: "3 个明显不同的视觉方向。每个方向都需要一张 16:9 风格参考图和原始画面描述；图里不要有可读正文、Logo 或水印。完成后停下，等待选择。",
+    keyframes: "每个节拍一张关键画面：主体、构图、标题区域、纸层和叙事证据；与已选 Look 保持一致。",
+    audio: "每个场景的旁白、音乐与音效关系；声音必须帮助观众理解，而不是填满空白。",
+    scenes: "基于已确认声音和关键画面的一组短场景视频；每段声音对应一个清楚的信息变化、镜头动作与切点。",
+    delivery: "最终时间线、画幅、时长、格式和可执行的导出前检查表。",
+  }[kind.toLowerCase()] || "一份面向审阅的清晰创作产出。";
+  const contract = resourceContracts[kind.toLowerCase()];
+  const outputFields = contract ? Object.entries(contract.output).map(([field, type]) => `${field}: ${type}`).join("；") : "一份可审阅的阶段资源";
+  const itemFields = contract?.item ? `\n数组项：${contract.item.field}[] 每项为 { ${Object.entries(contract.item.types || {}).map(([field, type]) => `${field}: ${type}`).join("；")} }${contract.item.optional?.length ? `；可选 ${contract.item.optional.join("、")}` : ""}` : "";
+  const interfaceText = contract ? `输入：${contract.inputs.join("；")}\n输出对象：${outputFields}${itemFields}` : "输出：一份可审阅的阶段资源。";
   return {
     intent: "resource.create",
-    prompt: `Action: create_${kind.toLowerCase()}\n先调用 recut.vox-broll.workflow_context；它是当前项目状态的唯一真相。\n用户选择的依赖资源：${dependencies.join("、") || "无"}。\n用户要求：${instruction}。\n验收：${stageWorkflow}\n完成创作后调用 recut.vox-broll.create_resource，传入 kind、title、content、dependencies。不要直接写文件。`,
+    prompt: `创作阶段：${kind}\n已有输入：${dependencies.join("、") || "由当前创作上下文决定"}\n用户要求：${instruction}\n本阶段交付：${stageWorkflow}\n资源接口：\n${interfaceText}\n只完成这个阶段；产出必须可供下一阶段使用。`,
   };
 }
 
@@ -103,7 +199,10 @@ function createResource(input, ctx) {
   ensureSchema(ctx);
   const kind = String(input.kind || "").toLowerCase();
   if (!kind) throw new Error("resource kind is required");
-  if (kind === "look" && (!input.content || !input.content.assetId || !input.content.prompt)) throw new Error("Look requires a generated assetId and its exact prompt");
+  const contract = resourceContracts[kind];
+  if (!contract) throw new Error(`unknown resource kind ${kind}`);
+  if (!input.content || typeof input.content !== "object") throw new Error(`${kind} requires structured content`);
+  validateResourceContent(kind, input.content);
   const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const resource = { id, kind, title: String(input.title), content: input.content, dependencies: Array.isArray(input.dependencies) ? input.dependencies : [], createdAt: new Date().toISOString() };
   ctx.sqlite.execute("insert into resources (id, kind, title, content_json, dependencies_json, created_at, retired_at) values (?, ?, ?, ?, ?, ?, null)", [resource.id, resource.kind, resource.title, JSON.stringify(resource.content), JSON.stringify(resource.dependencies), resource.createdAt]);
@@ -134,15 +233,11 @@ function deleteResource(input, ctx) {
   return { id, deleted: true };
 }
 
-recut.api.register("brief.create", createBrief);
-recut.api.register("brief.latest", latestBrief);
-recut.api.register("workflow.context", workflowContext);
-recut.api.register("resource.prepare", prepareResource);
-recut.api.register("resource.list", listResources);
-recut.api.register("resource.retire", retireResource);
-recut.api.register("resource.delete", deleteResource);
-recut.mcp.register("generate_brief", createBrief);
-recut.mcp.register("workflow_context", workflowContext);
-recut.mcp.register("create_resource", createResource);
-recut.mcp.register("retire_resource", retireResource);
-recut.mcp.register("delete_resource", deleteResource);
+recut.operation.register("brief.create", createBrief);
+recut.operation.register("brief.latest", latestBrief);
+recut.operation.register("workflow.context", workflowContext);
+recut.operation.register("resource.prepare", prepareResource);
+recut.operation.register("resource.create", createResource);
+recut.operation.register("resource.list", listResources);
+recut.operation.register("resource.retire", retireResource);
+recut.operation.register("resource.delete", deleteResource);

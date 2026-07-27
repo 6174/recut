@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖标准库 JSON 与文件系统能力
- * [OUTPUT]: 对外提供 manifest 驱动的 Catalog、App 与 MCP/API 公开契约
+ * [OUTPUT]: 对外提供 manifest 驱动的 Catalog、App 与统一 operation 公开契约
  * [POS]: service 的扩展注册表；只理解 App 身份、入口、权限和扩展点，不理解业务数据布局
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -32,8 +32,7 @@ type Manifest struct {
 	Background      string        `json:"background"`
 	UI              UIEntrypoints `json:"ui"`
 	Permissions     []string      `json:"permissions"`
-	APIs            []Capability  `json:"apis"`
-	MCP             MCPManifest   `json:"mcp"`
+	Operations      []Operation   `json:"operations"`
 }
 
 type UIEntrypoints struct {
@@ -41,20 +40,10 @@ type UIEntrypoints struct {
 	StandaloneView string `json:"standaloneView"`
 }
 
-type Capability struct {
+type Operation struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
-	Kind        string         `json:"kind"`
-	InputSchema map[string]any `json:"inputSchema"`
-}
-
-type MCPManifest struct {
-	Tools []MCPTool `json:"tools"`
-}
-
-type MCPTool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
+	Surfaces    []string       `json:"surfaces"`
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
@@ -147,17 +136,18 @@ func validateManifest(manifest Manifest) error {
 		return errors.New("standalone App requires ui.standaloneView")
 	}
 	names := map[string]bool{}
-	for _, capability := range manifest.APIs {
-		if capability.Name == "" || (capability.Kind != "query" && capability.Kind != "command" && capability.Kind != "job") || names[capability.Name] {
-			return fmt.Errorf("invalid API %q", capability.Name)
+	for _, operation := range manifest.Operations {
+		if operation.Name == "" || operation.Description == "" || names[operation.Name] || len(operation.Surfaces) == 0 {
+			return fmt.Errorf("invalid operation %q", operation.Name)
 		}
-		names[capability.Name] = true
-	}
-	for _, tool := range manifest.MCP.Tools {
-		if tool.Name == "" || names["mcp:"+tool.Name] {
-			return fmt.Errorf("invalid MCP tool %q", tool.Name)
+		names[operation.Name] = true
+		surfaces := map[string]bool{}
+		for _, surface := range operation.Surfaces {
+			if (surface != "api" && surface != "mcp") || surfaces[surface] {
+				return fmt.Errorf("invalid operation surface %q", surface)
+			}
+			surfaces[surface] = true
 		}
-		names["mcp:"+tool.Name] = true
 	}
 	return nil
 }

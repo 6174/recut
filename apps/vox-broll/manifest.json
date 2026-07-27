@@ -2,82 +2,59 @@
   "manifestVersion": 1,
   "id": "recut.vox-broll",
   "name": "Vox B-roll Explainer",
-  "version": "0.10.7",
+  "version": "0.11.0",
   "type": "project",
   "background": "background.js",
   "ui": { "projectView": "ui/dist/index.html" },
   "permissions": ["sqlite", "artifacts.publish"],
-  "apis": [
+  "operations": [
     {
       "name": "brief.create",
-      "description": "创建并保存一份 Vox 视频创作方向。",
-      "kind": "command",
-      "inputSchema": { "type": "object", "required": ["topic"] }
+      "surfaces": ["api", "mcp"],
+      "description": "根据 topic 创建并保存 Brief，返回 id、topic、premise 与 direction。仅在尚未有 Brief，或用户明确要求重做时调用。",
+      "inputSchema": { "type": "object", "required": ["topic"], "properties": { "topic": { "type": "string", "minLength": 1, "description": "视频要解释的主题或问题。" } } }
     },
     {
       "name": "brief.latest",
-      "description": "读取当前项目最新的创作方向。",
-      "kind": "query",
-      "inputSchema": { "type": "object" }
+      "surfaces": ["api"],
+      "description": "读取项目最新的 Brief，供界面展示；Agent 应使用 workflow.context 获得完整当前状态。",
+      "inputSchema": { "type": "object", "properties": {} }
     },
     {
       "name": "workflow.context",
-      "description": "读取当前有效资源、阶段准入和唯一允许的下一步动作。",
-      "kind": "query",
-      "inputSchema": { "type": "object" }
+      "surfaces": ["api", "mcp"],
+      "description": "任何 B-roll 创作动作之前先调用。返回当前阶段、唯一允许的下一步、已确认资源，以及每种资源的 inputs/output/数组项字段契约；返回值覆盖聊天记忆。",
+      "inputSchema": { "type": "object", "properties": {} }
     },
     {
       "name": "resource.prepare",
-      "description": "依据已选资源构造交给 Codex 的资源创建请求。",
-      "kind": "command",
-      "inputSchema": { "type": "object", "required": ["kind"] }
+      "surfaces": ["api"],
+      "description": "把 UI 选择的创作意图与资源引用整理为一份交给 Agent 的阶段任务书；不会创建资源。",
+      "inputSchema": { "type": "object", "required": ["kind"], "properties": { "kind": { "type": "string" }, "instruction": { "type": "string" }, "dependencies": { "type": "array", "items": { "type": "string" } } } }
+    },
+    {
+      "name": "resource.create",
+      "surfaces": ["mcp"],
+      "description": "完成当前阶段后保存结构化资源。先调用 workflow.context，只提交 allowedActions 对应的 kind；content 必须严格符合 resourceContracts[kind]，校验失败不会保存。成功返回带 id、kind、content、dependencies 的 Artifact。媒体输入快照只使用 prompt、imageAssetIds、audioAssetIds；资源 id 仅放 sourceResourceIds 追溯创作决定。",
+      "inputSchema": { "type": "object", "required": ["kind", "title", "content"], "properties": { "kind": { "type": "string", "enum": ["beats", "look", "keyframes", "audio", "scenes", "delivery"], "description": "必须等于 workflow.context.allowedActions 指向的当前阶段；Brief 使用 brief.create。" }, "title": { "type": "string", "minLength": 1, "description": "供用户在创作台识别的短标题。" }, "content": { "type": "object", "description": "阶段资源正文。字段、类型与数组项格式取自 workflow.context.resourceContracts[kind]；不能以自然语言替代结构化字段。" }, "dependencies": { "type": "array", "items": { "type": "string" }, "description": "本资源消费的前序资源 id。" } } }
     },
     {
       "name": "resource.list",
-      "description": "读取项目中由 B-roll 产生的资源。",
-      "kind": "query",
-      "inputSchema": { "type": "object" }
+      "surfaces": ["api"],
+      "description": "读取当前项目所有有效 B-roll 资源，供创作台渲染。",
+      "inputSchema": { "type": "object", "properties": {} }
     },
     {
       "name": "resource.retire",
-      "description": "将错误或废弃的资源移出当前创作方案，保留历史记录。",
-      "kind": "command",
-      "inputSchema": { "type": "object", "required": ["id"] }
+      "surfaces": ["api", "mcp"],
+      "description": "将错误或废弃资源移出当前方案但保留历史；用于重做候选。返回 retired: true，且不会删除媒体。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string", "description": "资源 id。" } } }
     },
     {
       "name": "resource.delete",
-      "description": "永久删除未被下游资源引用的 B-roll 资源。",
-      "kind": "command",
-      "inputSchema": { "type": "object", "required": ["id"] }
+      "surfaces": ["api", "mcp"],
+      "description": "永久删除未被下游资源引用的资源；存在引用时直接报错。通常优先使用 resource.retire。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string", "description": "要删除的资源 id。" } } }
     }
-  ],
-  "mcp": {
-    "tools": [
-      {
-        "name": "generate_brief",
-        "description": "根据主题创建 B-roll 解说视频的创作方向，并返回可消费的 Artifact。",
-        "inputSchema": { "type": "object", "required": ["topic"], "properties": { "topic": { "type": "string" } } }
-      },
-      {
-        "name": "workflow_context",
-        "description": "读取 B-roll 当前有效资源、阶段、准入条件与唯一允许的下一步动作。它是创作状态的唯一真相。",
-        "inputSchema": { "type": "object", "properties": {} }
-      },
-      {
-        "name": "create_resource",
-        "description": "提交一个 B-roll 资源及其依赖关系。",
-        "inputSchema": { "type": "object", "required": ["kind", "title", "content"], "properties": { "kind": { "type": "string" }, "title": { "type": "string" }, "content": {} } }
-      },
-      {
-        "name": "retire_resource",
-        "description": "将错误或废弃的 B-roll 资源移出当前创作方案，但保留历史记录。",
-        "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
-      },
-      {
-        "name": "delete_resource",
-        "description": "永久删除未被下游资源引用的 B-roll 资源。",
-        "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
-      }
-    ]
-  }
+  ]
 }

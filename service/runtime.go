@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 manifest、Store 的隔离存储与 goja JavaScript 运行时
- * [OUTPUT]: 对外提供 AppHost，执行 App background.js 的 API 与 MCP handler
+ * [OUTPUT]: 对外提供 AppHost，按 surface 执行 App background.js 的统一 operation handler
  * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用注入的 recut API
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -32,10 +32,10 @@ func (h *AppHost) InvokeAPI(projectID, appID, name string, input map[string]any)
 	if err != nil {
 		return nil, err
 	}
-	if !declaresAPI(app.Manifest, name) {
-		return nil, fmt.Errorf("App %q does not declare API %q", appID, name)
+	if !declaresOperation(app.Manifest, name, "api") {
+		return nil, fmt.Errorf("App %q does not expose API operation %q", appID, name)
 	}
-	return h.invoke(projectID, app, "api", name, input)
+	return h.invoke(projectID, app, "operation", name, input)
 }
 
 func (h *AppHost) InvokeMCP(projectID, appID, name string, input map[string]any) (any, error) {
@@ -43,10 +43,10 @@ func (h *AppHost) InvokeMCP(projectID, appID, name string, input map[string]any)
 	if err != nil {
 		return nil, err
 	}
-	if !declaresMCPTool(app.Manifest, name) {
-		return nil, fmt.Errorf("App %q does not declare MCP tool %q", appID, name)
+	if !declaresOperation(app.Manifest, name, "mcp") {
+		return nil, fmt.Errorf("App %q does not expose MCP operation %q", appID, name)
 	}
-	return h.invoke(projectID, app, "mcp", name, input)
+	return h.invoke(projectID, app, "operation", name, input)
 }
 
 func (h *AppHost) projectApp(projectID, appID string) (App, error) {
@@ -72,12 +72,9 @@ func (h *AppHost) invoke(projectID string, app App, group, name string, input ma
 			return goja.Undefined()
 		}
 	}
-	api := runtime.NewObject()
-	_ = api.Set("register", register("api"))
-	_ = recut.Set("api", api)
-	mcp := runtime.NewObject()
-	_ = mcp.Set("register", register("mcp"))
-	_ = recut.Set("mcp", mcp)
+	operation := runtime.NewObject()
+	_ = operation.Set("register", register("operation"))
+	_ = recut.Set("operation", operation)
 	ctx, err := h.context(runtime, projectID, app)
 	if err != nil {
 		return nil, err
@@ -261,18 +258,15 @@ func hasPermission(manifest Manifest, permission string) bool {
 	}
 	return false
 }
-func declaresAPI(manifest Manifest, name string) bool {
-	for _, api := range manifest.APIs {
-		if api.Name == name {
-			return true
+func declaresOperation(manifest Manifest, name, surface string) bool {
+	for _, operation := range manifest.Operations {
+		if operation.Name != name {
+			continue
 		}
-	}
-	return false
-}
-func declaresMCPTool(manifest Manifest, name string) bool {
-	for _, tool := range manifest.MCP.Tools {
-		if tool.Name == name {
-			return true
+		for _, allowed := range operation.Surfaces {
+			if allowed == surface {
+				return true
+			}
 		}
 	}
 	return false

@@ -5,7 +5,7 @@ Recut 是本地 AI 视频工作台，也是类似 Chrome 的 App Host：App 用 
 技术栈：Next.js + React 工作台，Go Daemon，Goja JavaScript sandbox，平台托管 SQLite，MCP stdio。
 
 ```text
-apps/             App 包：每个包只有 manifest.json 与自己的 JS/UI 代码
+apps/             App 包：每个包保存 manifest.json、JS/UI 与领域 AGENTS.md
 dev/              开发审计与设计记录；不参与运行时
 service/          Daemon：Extension Registry、JS runtime、Media Platform、storage/MCP/HTTP capability
 web/              平台工作台：项目、素材库系统应用与 App UI 容器
@@ -15,14 +15,14 @@ Makefile          本地开发入口；启动前会安全清理本项目残留�
 
 ## 核心法则
 
-- `manifest.json` 是 App 唯一运行时配置：身份、类型、入口、权限、API 和 MCP 工具。
+- `manifest.json` 是 App 唯一运行时配置：身份、类型、入口、权限和一次定义的 `operations`。每个 operation 以 `surfaces` 声明供 UI API、Agent MCP 或两者使用，避免同一业务契约重复。
 - `type: project` 绑定项目；`type: standalone` 绑定工作区。它们使用同一运行时和 capability API。
 - App 数据模型属于 App 的 JavaScript。平台不解析 `project-layout.json`，不规定表、JSON 文件或工作流步骤。
-- SQLite 是资源真相：App state、Artifact、事件、引用与版本均存表中；媒体平台在 `workspace.sqlite` 管理跨项目 Asset、Provider BYOK 凭据、用途模型 Route 与任务，文件根只保存内容寻址的大二进制，数据库保存其哈希引用。用户 Agent 对话同样位于根目录 `workspace.sqlite`，与项目数据库解耦。
+- SQLite 是资源真相：App state、Artifact、事件、引用与版本均存表中；媒体平台在 `workspace.sqlite` 管理跨项目 Asset、Provider BYOK 凭据、用途模型 Route 与任务，文件根只保存内容寻址的大二进制，数据库保存其哈希引用。所有媒体依赖以全局 `assetId` 表达；用户上传也先成为带 `origin: user-upload` 的 Asset，再绑定项目与 Agent turn。用户 Agent 对话同样位于根目录 `workspace.sqlite`，与项目数据库解耦。
 - App 之间通过公开 API 和不可变 Artifact 引用协作，绝不读取彼此数据库或文件目录。
 - Agent 只连平台 MCP Host。Host 始终暴露 `recut.media.*` 平台工具；`recut.project_context` 直接携带用户配置的默认媒体路由、模型契约和可选参数，生成时使用该 default route。`recut.media.generate` 默认同步返回资产或终态错误；长任务必须显式使用 `recut.media.generate_async`。当前 App 的业务工具仍由 manifest 约束。
 - Chat UI 消费结构化 Agent Session 事件；Codex/Claude 等 native session id 只用于续聊，终端 PTY 保留为兼容与诊断通道。
-- 每个 Codex turn 同时注入平台 guide 与当前 App 的 `AGENTS.md`；先调用 `recut.project_context` 获得项目与 Artifact 真相，再按 manifest 选择 App 工具。
+- 每个 Codex turn 由 Go 后端内嵌的 `service/prompts/core-agents.md.tmpl` 渲染平台 guide，并注入当前 App 自己的 `AGENTS.md`；渲染结果写入项目临时 `AGENTS.md`，再按 manifest 选择 App 工具。
 
 运行 `make dev` 启动服务和工作台；`make check` 执行 Go 测试、静态检查与前端构建。
 

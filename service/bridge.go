@@ -8,7 +8,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,15 +18,15 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"text/template"
 	"time"
 )
 
-const bridgeInstructions = `You are connected to Recut through the MCP Host.
+//go:embed prompts/core-agents.md.tmpl
+var coreAgentsTemplate string
 
-- First call recut.project_context, then tools/list. Do not infer project state from the filesystem.
-- Use only recut.project_context and tools declared by the current App manifest.
-- App tools execute through the App background runtime; do not read or mutate project files directly.
-- Report returned Artifact IDs when a tool creates reusable output.`
+//go:embed prompts/bridge-instructions.md
+var bridgeInstructions string
 
 type AgentSession struct {
 	ID        string    `json:"id"`
@@ -137,38 +139,46 @@ func (b *AgentBridge) MaterializeCodexProject(session AgentSession, token, execu
 	if !ok {
 		return "", errors.New("project App is unavailable")
 	}
-	appGuide, err := os.ReadFile(filepath.Join(app.Root, "AGENTS.md"))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	agents, err := b.renderCodexGuide(app)
+	if err != nil {
 		return "", err
-	}
-	agents := `# Recut Project Agent Guide
-
-You are working inside a Recut project through its MCP Host.
-
-## Required turn protocol
-
-1. Call recut.project_context before reasoning about project state.
-2. Call tools/list before selecting an App tool. recut.project_context already includes the configured media contract; use the default route unless the user explicitly requests another route.
-3. Use only Recut MCP tools for project data; do not inspect or edit project files directly.
-4. State what you learned from the tool result. Report Artifact IDs after creation.
-
-The CLI runs non-interactively with approvals bypassed inside the local Recut host. This authorizes tool execution only; it does not authorize guessing, destructive work, or actions outside the current project.
-`
-	if len(appGuide) > 0 {
-		agents += "\n## Current App Guide\n\nThe following guide is supplied by the installed App package and is authoritative for its workflow, reference usage, decision gates, and tool contracts.\n\n" + string(appGuide)
 	}
 	config := fmt.Sprintf(`[mcp_servers.recut]
 command = %q
 args = ["--mcp-stdio", "--data-dir", %q, "--apps-dir", %q]
 env = { RECUT_AGENT_SESSION = %q, RECUT_AGENT_TOKEN = %q }
 `, executable, b.store.root, b.store.catalog.Directory(), session.ID, token)
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(agents), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), agents, 0o600); err != nil {
 		return "", err
 	}
 	if err := os.WriteFile(filepath.Join(root, ".codex", "config.toml"), []byte(config), 0o600); err != nil {
 		return "", err
 	}
 	return executable, nil
+}
+
+type codexGuideData struct {
+	AppID    string
+	AppName  string
+	AppGuide string
+}
+
+func (b *AgentBridge) renderCodexGuide(app App) ([]byte, error) {
+	appGuidePath := filepath.Join(app.Root, "AGENTS.md")
+	appGuide, err := os.ReadFile(appGuidePath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read App prompt %s: %w", app.Manifest.ID, err)
+	}
+	guideTemplate, err := template.New("core-agents.md.tmpl").Parse(coreAgentsTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("parse core Agent prompt: %w", err)
+	}
+	var rendered bytes.Buffer
+	data := codexGuideData{AppID: app.Manifest.ID, AppName: app.Manifest.Name, AppGuide: string(appGuide)}
+	if err := guideTemplate.Execute(&rendered, data); err != nil {
+		return nil, fmt.Errorf("render core Agent prompt: %w", err)
+	}
+	return rendered.Bytes(), nil
 }
 
 func (b *AgentBridge) stableMCPExecutable(source string) (string, error) {

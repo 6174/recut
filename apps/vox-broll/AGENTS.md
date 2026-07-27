@@ -1,56 +1,53 @@
-# Vox B-roll Agent Guide
+# Vox B-roll 创作指南
 
-> App-local operating contract | Parent map: /apps/vox-broll/README.md
+> 这是创作契约，不是平台或工具说明。项目当前状态、可用能力和保存方式由宿主提供。
 
-This guide adapts the creative workflow of [vox-director](https://github.com/Alisa0808/vox-director) to Recut's App model. It is not runtime configuration: `manifest.json` remains the only runtime declaration, and this App does not itself render media or require Atlas Cloud, ffmpeg, or local output files.
+## 目标
 
-## Goal
+把一个主题做成可审阅、可继续制作的 Vox 风格 B-roll 方案：论点清楚，画面有统一的纸质拼贴语言，每个镜头都服务叙事。
 
-Turn a topic into a reviewable Vox-style paper-collage B-roll production plan. Persist every approved stage as an App resource so later stages consume explicit IDs rather than chat memory.
+## 七个阶段
 
-## Production graph
+`Brief → Beats → Look → Keyframes → Audio → Scenes → Delivery`
 
-`Brief → Beats → Look → Keyframes → Motion → Audio → Delivery`
+**Brief｜创作简报**
 
-Create resources in that order. A later resource must list the IDs of the earlier resources it uses in `dependencies`.
+回答：讲给谁、核心观点是什么、观众为什么现在要看、整支片的张力来自哪里。
 
-- **Brief（创作简报）** — 文字决策：主题、受众、论点、核心张力与编辑方向；界面以短文本字段审阅。
-- **Beats（叙事节拍）** — 文字叙事：一个已选的叙事弧、≤3 秒钩子与精炼节拍表。30 秒作品通常有 6–8 个节拍，每项包含宽景标题镜头与细节镜头，各 3–6 秒；界面以节拍列表审阅。
-- **Look（视觉风格）** —  风格版是是为了定义整个视频内容的整体风格元素，将视频中可能展示的元素整体放到一张图中，这样每个场景的结果
-- **Keyframes（关键画面）** — 每镜一张海报式画面规格：分层剪纸、撕纸、胶带、网点/新闻纸纹理、平面色块与标题位置。若已有参考图则保存 `imageAssetId` 并在界面显示图片；没有图时以镜头构图卡审阅。真实人物和品牌标记必须保留为受保护的参考资产，不得凭空替换。
-- **Audio（音频方案）** — 每个场景对应的音频内容
-- **Motion（动效设计）** — 结合音频内容 + 叙事上下文 + 风格生成的一段一段的 scenes 动画
-- **Delivery（交付规格）** — 最终时间线、画幅、导出规格与验证清单；界面以交付字段和清单审阅。它在适当的渲染 App 发布实际媒体前仅是计划。
+**Beats｜叙事节拍**
 
-## Human decision gates
+把观点排成能看完的短片结构。先用三秒内的冲突或反常识抓人，再用 6–8 个短节拍推进因果；每个节拍都要说明观众看见什么、理解什么。
 
-1. Draft the **Beats** resource, then stop for user approval before creating downstream creative resources.
-2. Draft the **Look** candidates by generating one reference image per candidate synchronously; persist each image `assetId` with its exact prompt, then stop for the user to choose a style before keyframes or motion.
+**Look｜视觉风格**
 
-If the user supplies an already-approved beat map or look, persist it as the relevant resource and continue. Do not silently replace an approved decision.
+一张风格参考图定义整支片的视觉语言，不是装饰海报。它应同时呈现视频里会反复出现的元素：纸张层次、信息卡、人物或物件的处理、色彩、标题区域、纹理与情绪。给出 3 个明显不同、都贴合主题的候选；每个候选必须有自己的参考图和原始画面描述。
 
-## Legacy resources
+**Keyframes｜关键画面**
 
-Look 缺少 `assetId` 或原始 `prompt` 即为旧格式错误资源，不得作为后续关键画面或动效的依赖。App 会在首次读取时一次性清理历史旧格式 Look；正常资源可通过 `delete_resource` 永久删除，但被下游资源引用时必须先处理依赖关系。
+把每个节拍变成一张能独立成立的画面。说明主体、构图、标题位置、前后景纸层、关键证据和与 Look 的关系。真实人物、品牌和用户提供的参考必须延续，不可凭空替换。
 
-## Available actions
+**Audio｜声音**
 
-1. Call `workflow_context` before every creative action. Its current resources, gates and `allowedActions` override chat history and old Artifacts.
-2. Call `generate_brief` first with a non-empty `topic`. It persists the brief and returns the immutable `recut.vox.brief@1` Artifact.
-3. Call `create_resource` to persist every non-Brief stage. Always provide `kind`, `title`, and structured `content`; include all consumed resource IDs in `dependencies`.
-4. In the UI flow, use `brief.create`, `brief.latest`, `workflow.context`, `resource.prepare`, and `resource.list`. `resource.prepare` creates a short task packet; completing the work still requires `create_resource`.
+先为每个场景定义旁白、音乐和必要音效怎样共同推动理解。旁白说新信息，画面提供证据；音乐只建立节奏，不能掩盖观点。声音是后续场景视频的输入：它决定镜头时长、信息出现的时刻、切点和情绪。
 
-## Boundaries
+**Scenes｜场景视频**
 
-- Do not write briefs, plans, or resources directly to files. This App owns SQLite state and publishes Artifacts itself.
-- Do not inspect another App's database or filesystem. Cross-App input must arrive through a public API or Artifact reference.
-- Text drafted in chat is not App state. A stage exists only after `create_resource` succeeds.
-- Keep dependencies explicit IDs; never infer hidden provenance from prose.
-- Do not claim that a keyframe, clip, soundtrack, or final video exists unless a producing App has published it as a resource or Artifact.
+把已确认的声音与关键画面组合成连续的短场景。每个场景视频只服务一段声音和一个信息变化：镜头怎么进入、什么纸层移动、在哪里停住、怎样在声音的切点进入下一个场景。宁可一个清楚动作，也不要在同一场景堆多种花哨运动。
 
-## Change protocol
+**Delivery｜交付**
 
-- When the manifest's tools, API names, permissions, data model, stage graph, or approval gates change, update this guide and `/apps/vox-broll/README.md` in the same change.
-- When changing `background.js`, keep its INPUT/OUTPUT/POS header accurate.
+整理时间线、画幅、时长、格式和最终检查项，确保每一个节拍、画面、运动和声音都能追溯到同一个论点。
+
+## 创作规则
+
+1. 宿主提供的当前创作上下文是事实来源；不要用旧聊天内容猜测阶段或重做已经确认的决定。
+2. 只做当前阶段要求的产出。节拍未经确认，不进入视觉；视觉方向未经选择，不进入关键画面。
+3. 每次请求媒体时，先说清它在叙事中的作用，再描述画面或声音本身。
+4. 媒体失败时如实说明失败，不把文字设想当成已经生成的图片、镜头或声音。
+5. 资源的依赖关系必须可追溯：后续阶段只使用已确认的前序决定。
+
+## 审美底线
+
+Vox 风格的力量来自信息与材料的对照：平面构图、撕纸边缘、胶带、网点、新闻纸、醒目的数据与克制的颜色。画面要有主次、有证据、有停顿；不要把可读正文、Logo 或水印塞进生成图。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

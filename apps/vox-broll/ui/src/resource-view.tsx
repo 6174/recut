@@ -7,13 +7,14 @@
 import type { Resource } from "./main";
 
 type RecordValue = Record<string, unknown>;
-type LookContent = { assetId?: string; prompt?: string; definition?: string };
+type MediaSnapshot = { assetId?: string; text?: string; imageAssetIds?: string[] };
+type LookContent = { media?: MediaSnapshot; definition?: string };
 
 const labels: Record<string, string> = {
   topic: "主题", premise: "核心观点", direction: "创作方向", summary: "摘要", definition: "风格定义", prompt: "生成提示词",
   palette: "色彩", paperTechnique: "纸张技法", typeTreatment: "字体处理", texture: "纹理", mood: "情绪",
   hook: "开场钩子", narrative: "叙事", composition: "画面构图", headline: "画面标题", layers: "画面层次",
-  motion: "动效", camera: "镜头", narration: "旁白", music: "音乐", captions: "字幕", mix: "混音",
+  scene: "场景", videoDirection: "视频方向", narration: "旁白", music: "音乐", captions: "字幕", mix: "混音",
   aspectRatio: "画幅", duration: "时长", format: "格式", export: "导出", checklist: "检查清单",
 };
 
@@ -25,7 +26,8 @@ const isLook = (resource: Resource) => resource.kind.toLowerCase() === "look";
 
 export function isLegacyLook(resource: Resource) {
   const content = record(resource.content);
-  return isLook(resource) && (!text(content.assetId) || !text(content.prompt));
+  const media = record(content.media);
+  return isLook(resource) && (!text(media.assetId) || !text(media.text));
 }
 
 function ids(content: RecordValue, singular: string, plural: string) {
@@ -72,26 +74,27 @@ function ItemList({ items, titleKey }: { items: unknown; titleKey: string }) {
 
 function LookView({ content, compact }: { content: RecordValue; compact: boolean }) {
   const look = content as LookContent;
-  const incomplete = !look.assetId || !look.prompt;
+  const media = look.media || {};
+  const incomplete = !media.assetId || !media.text;
   if (incomplete) return <div className="rounded-md border border-amber-300/80 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-950">{compact ? "缺少参考图与原始提示词，需重新生成。" : "旧格式资源：未保存风格参考图和原始提示词。请移出当前方案后重新生成，不能把它当作有效视觉风格。"}</div>;
-  return <div className="grid gap-3"><AssetImages compact={compact} content={content} />{!compact && <Field name="prompt" value={look.prompt} />}{!compact && <Field name="definition" value={look.definition} />}{compact && <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">{look.prompt || look.definition || "缺少风格提示词"}</p>}{!compact && <div className="grid gap-3 sm:grid-cols-2"><Field name="palette" value={content.palette} /><Field name="paperTechnique" value={content.paperTechnique} /><Field name="typeTreatment" value={content.typeTreatment} /><Field name="texture" value={content.texture} /><Field name="mood" value={content.mood} /></div>}</div>;
+  return <div className="grid gap-3"><AssetImages compact={compact} content={{ ...content, assetId: media.assetId }} />{!compact && <Field name="prompt" value={media.text} />}{!compact && <Field name="definition" value={look.definition} />}{compact && <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">{media.text || look.definition || "缺少风格提示词"}</p>}{!compact && <div className="grid gap-3 sm:grid-cols-2"><Field name="palette" value={content.palette} /><Field name="paperTechnique" value={content.paperTechnique} /><Field name="typeTreatment" value={content.typeTreatment} /><Field name="texture" value={content.texture} /><Field name="mood" value={content.mood} /></div>}</div>;
 }
 
 function StageView({ resource, compact }: { resource: Resource; compact: boolean }) {
   const content = record(resource.content);
   if (isLook(resource)) return <LookView compact={compact} content={content} />;
   const kind = resource.kind.toLowerCase();
-  const list = kind === "beats" ? content.beats || content.items : kind === "keyframes" ? content.keyframes || content.shots : kind === "motion" ? content.shots || content.moves : kind === "delivery" ? content.checklist : undefined;
-  const fields = kind === "brief" ? ["topic", "premise", "direction"] : kind === "beats" ? ["hook", "narrative", "summary"] : kind === "keyframes" ? ["composition", "headline", "layers"] : kind === "motion" ? ["motion", "camera"] : kind === "audio" ? ["narration", "music", "captions", "mix"] : kind === "delivery" ? ["aspectRatio", "duration", "format", "export"] : ["summary", "definition", "direction"];
+  const list = kind === "beats" ? content.beats || content.items : kind === "keyframes" ? content.keyframes || content.shots : kind === "scenes" ? content.scenes || content.shots : kind === "delivery" ? content.checklist : undefined;
+  const fields = kind === "brief" ? ["topic", "premise", "direction"] : kind === "beats" ? ["hook", "narrative", "summary"] : kind === "keyframes" ? ["composition", "headline", "layers"] : kind === "audio" ? ["narration", "music", "captions", "mix"] : kind === "scenes" ? ["scene", "videoDirection"] : kind === "delivery" ? ["aspectRatio", "duration", "format", "export"] : ["summary", "definition", "direction"];
   const first = fields.map((key) => text(content[key])).find(Boolean) || text(resource.content) || "尚未填写可展示内容";
   if (compact) return <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">{first}</p>;
-  return <div className="grid gap-4"><AssetImages content={content} /><MediaPlayers compact={compact} content={content} /><dl className="grid gap-3 sm:grid-cols-2">{fields.map((key) => <Field key={key} name={key} value={content[key]} />)}</dl><ItemList items={list} titleKey={kind === "keyframes" ? "关键画面" : kind === "motion" ? "动效镜头" : kind === "delivery" ? "检查清单" : "叙事节拍"} /></div>;
+  return <div className="grid gap-4"><AssetImages content={content} /><MediaPlayers compact={compact} content={content} /><dl className="grid gap-3 sm:grid-cols-2">{fields.map((key) => <Field key={key} name={key} value={content[key]} />)}</dl><ItemList items={list} titleKey={kind === "keyframes" ? "关键画面" : kind === "scenes" ? "场景视频" : kind === "delivery" ? "检查清单" : "叙事节拍"} /></div>;
 }
 
 export function resourceSummary(resource: Resource) {
   const content = record(resource.content);
-  if (isLook(resource)) return text(content.definition || content.prompt) || "视觉风格参考图";
-  const fields = resource.kind.toLowerCase() === "brief" ? ["topic", "premise", "direction"] : resource.kind.toLowerCase() === "beats" ? ["hook", "narrative", "summary"] : resource.kind.toLowerCase() === "keyframes" ? ["composition", "headline"] : resource.kind.toLowerCase() === "motion" ? ["motion", "camera"] : resource.kind.toLowerCase() === "audio" ? ["narration", "music"] : ["summary", "definition", "direction"];
+  if (isLook(resource)) return text(content.definition || record(content.media).text) || "视觉风格参考图";
+  const fields = resource.kind.toLowerCase() === "brief" ? ["topic", "premise", "direction"] : resource.kind.toLowerCase() === "beats" ? ["hook", "narrative", "summary"] : resource.kind.toLowerCase() === "keyframes" ? ["composition", "headline"] : resource.kind.toLowerCase() === "audio" ? ["narration", "music"] : resource.kind.toLowerCase() === "scenes" ? ["scene", "videoDirection"] : ["summary", "definition", "direction"];
   return fields.map((key) => text(content[key])).find(Boolean) || "点击查看完整内容";
 }
 
@@ -100,5 +103,5 @@ export function ResourcePresentation({ compact = false, resource }: { compact?: 
 }
 
 export function resourceKindLabel(kind: string) {
-  return ({ Brief: "创作方向", Beats: "内容结构", Look: "视觉参考", Keyframes: "分镜画面", Motion: "动画与转场", Audio: "配音与音乐", Delivery: "导出设置" } as Record<string, string>)[kind] || kind;
+  return ({ Brief: "创作方向", Beats: "内容结构", Look: "视觉参考", Keyframes: "分镜画面", Audio: "配音与音乐", Scenes: "场景视频", Delivery: "导出设置" } as Record<string, string>)[kind] || kind;
 }

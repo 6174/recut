@@ -712,7 +712,7 @@ func (m *MediaService) ImportImage(name, mimeType string, content []byte) (Media
 	if strings.TrimSpace(name) == "" {
 		name = "reference" + extensionFor(mimeType)
 	}
-	return m.saveAsset(content, "image", mimeType, name, "imported", "", map[string]any{}, "")
+	return m.saveAsset(content, "image", mimeType, name, "user-upload", "", map[string]any{"source": "user-upload"}, "")
 }
 
 func (m *MediaService) saveAsset(content []byte, kind, mimeType, name, origin, projectID string, metadata map[string]any, id string) (MediaAsset, error) {

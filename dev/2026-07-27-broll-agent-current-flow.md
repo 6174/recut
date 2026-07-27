@@ -251,7 +251,7 @@ flowchart TD
 2. 让 B-roll MCP 暴露 `workflow_context`；同时停止将“完整项目状态”寄希望于全部 Artifact 或 native 会话记忆。
 3. 用 App 的阶段状态机替代 `resource.prepare` 生成长用户提示词；UI 提交的是 `stage request`，而非模板化 prose。
 4. 把 Look 收敛成一个同步、原子、高层工具，超时即失败且不留半资源。
-5. 再将相同模式用于 Keyframes、Motion、Audio；对天然长任务保留异步状态，但恢复/完成必须由平台驱动。
+5. 再将相同模式用于 Keyframes、Audio、Scenes；对天然长任务保留异步状态，但恢复/完成必须由平台驱动。
 
 ## 下一步验证门槛（尚未执行）
 
@@ -261,7 +261,7 @@ flowchart TD
 2. 定义并暴露 B-roll `workflow_context`，使 Host 每回合拿到 App 的 canonical state，而非历史 Artifact。
 3. 定义同步图片调用的硬超时、错误码和“绝不创建半成品 Look”规则。
 4. 用一个新的、隔离的 B-roll 项目测试：一句想法 → Brief/Beats → 三张 Look 图 → 三个可见 `assetId` → 用户选择；并覆盖 Provider 超时与服务重启。
-5. 只有该路径稳定后，再考虑把 Keyframes/Motion/Audio 的长任务纳入相同的阶段状态模型。
+5. 只有该路径稳定后，再考虑把 Keyframes/Audio/Scenes 的长任务纳入相同的阶段状态模型。
 
 ## 2026-07-27 已实施的最小闭环
 
@@ -270,6 +270,16 @@ flowchart TD
 - Vox B-roll 新增 `workflow_context` MCP/API：读取 App 私有 SQLite 的当前有效 Brief、Beats、Look、阶段与 `allowedActions`。`recut.project_context` 会把这份状态直接带回 Agent，旧 Artifact 只保留为历史信息。
 - Look 任务包不再注入完整 Brief JSON 或轮询教程：它要求先读取 canonical context，然后用默认同步生成并且只在拥有 `assetId + prompt` 时创建资源。
 - 真实项目的运行时查询已验证为 `stage: look`、`nextAction: create_look`、`beatsReady: true`、`lookReady: false`，与 App SQLite 当前资源一致。
+
+## 2026-07-27 契约纠正
+
+App Guide 曾混入平台工具名、Job 轮询和保存实现，导致创作概念与执行机制互相污染。现已拆开：
+
+- `apps/vox-broll/AGENTS.md` 只描述 B-roll 的七阶段、阶段关系、媒体在叙事中的作用、审美标准和审批门。
+- 平台 Guide 负责当前项目状态、默认媒体配置、工具发现、同步/异步调用和持久化。
+- App 生成的单次任务书只包含阶段、已有输入、用户意图和本阶段交付，不包含 `recut.*`、Job、轮询或内部 JSON 契约。
+
+这条边界让模型先理解「要做一部什么片」，再由平台决定「怎样调用能力把它做出来」。
 
 ## 代码地图
 
