@@ -39,6 +39,9 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 	if _, ok := video["audioAssetIds"]; !ok {
 		t.Fatal("video generation must accept audio references")
 	}
+	if _, ok := video["videoAssetIds"]; !ok {
+		t.Fatal("video generation must accept video references")
+	}
 	speech := tools["recut.speech.generate_async"]["inputSchema"].(map[string]any)["properties"].(map[string]any)
 	if _, ok := speech["imageAssetIds"]; ok {
 		t.Fatal("speech generation must not advertise image references")

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 React、recut UI SDK、资源卡片与资源弹窗
- * [OUTPUT]: 对外提供 B-roll 多面板工作台根视图与项目事件驱动的资源刷新
+ * [OUTPUT]: 对外提供 B-roll 多面板工作台根视图与创建、原位更新后的项目事件驱动资源刷新
  * [POS]: vox-broll 的项目 UI 编排层；同时展示全部创作阶段，不直接访问 HTTP、终端或 SQLite
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -36,7 +36,7 @@ function App() {
     window.addEventListener("recut-sdk-ready", refresh);
     const unsubscribe = recut.events.subscribe((event) => {
       const capability = event as CapabilityEvent;
-      if (capability.type === "app.capability.completed" && capability.appId === "recut.vox-broll" && capability.kind === "operation" && capability.name === "resource.create") void refresh();
+      if (capability.type === "app.capability.completed" && capability.appId === "recut.vox-broll" && capability.kind === "operation" && ["resource.create", "resource.update"].includes(String(capability.name))) void refresh();
     });
     return () => { window.removeEventListener("recut-sdk-ready", refresh); unsubscribe(); };
   }, []);
@@ -66,14 +66,14 @@ function App() {
 
   return <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,oklch(0.99_0.012_151),transparent_30rem)] p-4 sm:p-6"><div className="mx-auto max-w-[1440px]">
     <header className="mb-4 flex items-end justify-between gap-6 border-b border-border/80 pb-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.18em] text-primary">RECUT APP / VOX B-ROLL</p><h1 className="mt-1.5 text-2xl font-semibold tracking-tight sm:text-3xl">视频创作台</h1><p className="mt-1 text-sm text-muted-foreground">从选题到导出，所有素材和创作决定都集中在这里。</p></div></header>
-    <div className="grid gap-x-6 gap-y-5 xl:grid-cols-12">
-      <div className="xl:col-span-4"><StagePanel onCreate={() => setCreatingStage(stages[0])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[0])} stage={stages[0]} /></div>
-      <div className="xl:col-span-8"><StagePanel onCreate={() => setCreatingStage(stages[1])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[1])} stage={stages[1]} /></div>
-      <div className="xl:col-span-7"><StagePanel onCreate={() => setCreatingStage(stages[2])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[2])} stage={stages[2]} /></div>
-      <div className="xl:col-span-5"><StagePanel onCreate={() => setCreatingStage(stages[3])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[3])} stage={stages[3]} /></div>
-      <div className="xl:col-span-4"><StagePanel onCreate={() => setCreatingStage(stages[4])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[4])} stage={stages[4]} /></div>
-      <div className="xl:col-span-4"><StagePanel onCreate={() => setCreatingStage(stages[5])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[5])} stage={stages[5]} /></div>
-      <div className="xl:col-span-4"><StagePanel onCreate={() => setCreatingStage(stages[6])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[6])} stage={stages[6]} /></div>
+    <div className="grid gap-5 xl:grid-cols-2">
+      <StagePanel onCreate={() => setCreatingStage(stages[0])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[0])} stage={stages[0]} />
+      <StagePanel onCreate={() => setCreatingStage(stages[1])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[1])} stage={stages[1]} />
+      <StagePanel onCreate={() => setCreatingStage(stages[2])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[2])} stage={stages[2]} />
+      <StagePanel onCreate={() => setCreatingStage(stages[3])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[3])} stage={stages[3]} />
+      <StagePanel onCreate={() => setCreatingStage(stages[4])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[4])} stage={stages[4]} />
+      <StagePanel onCreate={() => setCreatingStage(stages[5])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[5])} stage={stages[5]} />
+      <StagePanel onCreate={() => setCreatingStage(stages[6])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[6])} stage={stages[6]} />
     </div>
     {status && <p className="mt-5 text-sm text-muted-foreground" role="status">{status}</p>}
   </div>

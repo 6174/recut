@@ -27,8 +27,10 @@ func (s *Server) listAgentSessions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 	input := struct {
-		ProjectID string `json:"projectId"`
-		Runtime   string `json:"runtime"`
+		ProjectID       string `json:"projectId"`
+		Runtime         string `json:"runtime"`
+		CodexModel      string `json:"codexModel"`
+		ReasoningEffort string `json:"reasoningEffort"`
 	}{}
 	if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.ProjectID) == "" {
 		writeError(w, http.StatusBadRequest, errors.New("projectId is required"))
@@ -37,7 +39,7 @@ func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 	if input.Runtime == "" {
 		input.Runtime = "codex"
 	}
-	session, err := s.agents.Create(strings.TrimSpace(input.ProjectID), input.Runtime)
+	session, err := s.agents.Create(strings.TrimSpace(input.ProjectID), input.Runtime, strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

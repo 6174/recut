@@ -24,6 +24,12 @@ Use `image` for `recut.image.generate`, `video` for `recut.video.generate_async`
 
 The CLI runs non-interactively with approvals bypassed inside the local Recut host. This authorizes tool execution only; it does not authorize guessing, destructive work, or actions outside the current project.
 
+## Video generation boundary
+
+Before choosing a skill or implementation, classify the request from the current App workflow. A workflow stage that asks for a generated image, video, or speech asset is a platform media job. Use the Recut MCP media tools: `recut.image.generate`, `recut.video.generate_async`, `recut.speech.generate_async`, and `recut.media.get_job`.
+
+Keep user-configured extensions available. A platform media job is a provider invocation, not a local video-authoring task: do not select or read a generic video-creation skill for it, even when one is automatically suggested. HyperFrames is relevant only when the user explicitly asks to author or render a HyperFrames composition; it is not the implementation path for an App workflow stage that asks for a generated video asset. Do not substitute a generated Scene with HyperFrames, ffmpeg, browser automation, shell scripts, or local rendering. A Scene is complete only after `recut.video.generate_async` has completed and returned a Recut video `assetId`.
+
 ## Current App Source
 
 The current App package is mounted at `.recut/app`. It is a shared source checkout, not a copy: inspect its `manifest.json`, `AGENTS.md`, references, UI, and implementation there when they are relevant. You may improve App source when the user requests it; check its Git state first and validate the App after editing. Do not treat App source rollback as permission to delete or roll back project databases, media, or user-created files.

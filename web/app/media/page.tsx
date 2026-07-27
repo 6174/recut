@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Media Platform 的资产、Provider、Credential 与生成任务 API，以及系统项目 Agent Session
- * [OUTPUT]: 对外提供素材浏览、按 assetId 合并重复导入结果、生成详情中的提示词与参考图展示、生成参数回填再次创建、生成中任务卡片、紧凑 Provider 模型选择及可预览、移除的参考图选择的工作区级素材库
+ * [OUTPUT]: 对外提供素材浏览、按 assetId 合并重复导入结果、生成详情中的提示词与参考素材展示、生成参数回填再次创建、生成中任务卡片、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
  * [POS]: web/app/media 的系统应用入口；将素材创建收敛为独立弹框，右侧 Agent 仍用于复杂协作
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,18 +11,15 @@ import {
   ImageIcon,
   Music2,
   Plus,
-  Upload,
   Video,
   X,
 } from "lucide-react";
 import Link from "next/link";
 import {
-  ChangeEvent,
   ClipboardEvent,
   CSSProperties,
   FormEvent,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +27,7 @@ import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { AssetPreview } from "./asset-preview";
+import { ReferenceAssetsField } from "./reference-assets-field";
 import type {
   Asset,
   AssetKind,
@@ -38,6 +36,7 @@ import type {
   Filter,
   MediaJob,
   Model,
+  ModelInputMode,
   Provider,
   Voice,
 } from "./media-types";
@@ -84,6 +83,12 @@ const createKinds: CreateKind[] = [
     prompt: "输入需要生成的语音内容或音频描述…",
   },
 ];
+const referenceLabels: Record<AssetKind, string> = { image: "图片", video: "视频", audio: "音频" };
+
+function isReferenceKind(mode: ModelInputMode): mode is AssetKind {
+  return mode === "image" || mode === "video" || mode === "audio";
+}
+
 export default function MediaLibrary() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [jobs, setJobs] = useState<MediaJob[]>([]);
@@ -381,10 +386,8 @@ function CreateAssetDialog({
   const [referenceIDs, setReferenceIDs] = useState<string[]>(
     draft?.referenceIDs ?? [],
   );
-  const [referencePickerOpen, setReferencePickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     void (async () => {
       const [providerResponse, credentialResponse] = await Promise.all([
@@ -410,12 +413,11 @@ function CreateAssetDialog({
     (model) =>
       !credentials.some((credential) => credential.provider === model.provider),
   );
-  const referenceKinds: AssetKind[] =
-    kind.kind === "image"
-      ? ["image"]
-      : kind.kind === "video"
-        ? ["image", "audio"]
-        : [];
+  const referenceKinds: AssetKind[] = selectedModel
+    ? selectedModel.inputModes.filter(isReferenceKind)
+    : [];
+  const referenceKindKey = referenceKinds.join(",");
+  const referenceLabel = referenceKinds.map((item) => referenceLabels[item]).join("、");
   const referenceAssets = assets.filter((asset) =>
     referenceKinds.includes(asset.kind),
   );
@@ -450,9 +452,23 @@ function CreateAssetDialog({
       setVoiceID(next[0]?.id ?? "");
     })();
   }, [kind.kind, credentialID]);
+  useEffect(() => {
+    if (!selectedModel) return;
+    setReferenceIDs((ids) => {
+      const next = ids.filter((id) => {
+        const asset = assets.find((item) => item.id === id);
+        return asset ? referenceKinds.includes(asset.kind) : false;
+      });
+      return next.length === ids.length ? ids : next;
+    });
+  }, [assets, referenceKindKey]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!selectedModel || !credentialID || !prompt.trim() || (kind.kind === "audio" && !voiceID)) return;
+	if (selectedReferenceAssets.some((asset) => !referenceKinds.includes(asset.kind))) {
+		setError("当前模型不支持已选的参考素材类型，请移除后重试。");
+		return;
+	}
     setSubmitting(true);
     setError("");
     const response = await fetch(`${apiBase}/v1/media/jobs`, {
@@ -476,9 +492,9 @@ function CreateAssetDialog({
     onSubmitted((await response.json()) as MediaJob);
     onClose();
   }
-  async function importImage(file: File) {
-    if (!file.type.startsWith("image/")) {
-      setError("参考素材只支持图片。");
+  async function importReference(file: File) {
+    if (!referenceKinds.some((item) => file.type.startsWith(`${item}/`))) {
+      setError(`当前模型只支持${referenceLabel || "兼容的"}参考素材。`);
       return;
     }
     const form = new FormData();
@@ -489,7 +505,7 @@ function CreateAssetDialog({
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      setError(body?.error ?? "图片导入失败，请重试。");
+      setError(body?.error ?? "参考素材导入失败，请重试。");
       return;
     }
     const asset = (await response.json()) as Asset;
@@ -498,19 +514,20 @@ function CreateAssetDialog({
     );
     onAssetImported(asset);
   }
-  function pasteImage(event: ClipboardEvent<HTMLTextAreaElement>) {
+  function pasteReferenceImage(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (!referenceKinds.includes("image")) return;
     const image = Array.from(event.clipboardData.items).find((item) =>
       item.type.startsWith("image/"),
     );
     const file = image?.getAsFile();
     if (!file) return;
     event.preventDefault();
-    void importImage(file);
+    void importReference(file);
   }
-  function chooseImage(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) void importImage(file);
-    event.target.value = "";
+  function importReferences(files: File[]) {
+    void (async () => {
+      for (const file of files) await importReference(file);
+    })();
   }
   return (
     <div
@@ -596,81 +613,25 @@ function CreateAssetDialog({
               className="mt-2 min-h-28 w-full resize-y rounded-xs border bg-background p-3 text-sm outline-none focus:border-primary"
               id="asset-prompt"
               onChange={(event) => setPrompt(event.target.value)}
-              onPaste={pasteImage}
+              onPaste={referenceKinds.includes("image") ? pasteReferenceImage : undefined}
               placeholder={kind.prompt}
               value={prompt}
             />
             <p className="mt-1.5 text-[11px] text-muted-foreground">
-              可直接粘贴剪贴板中的图片作为参考图。
+              {referenceKinds.includes("image") ? "可直接粘贴剪贴板中的图片作为参考素材。" : "当前模型不支持图片参考素材。"}
             </p>
           </section>
           {referenceKinds.length > 0 && (
-            <section>
-              <div className="flex items-end justify-between">
-                <div>
-                  <p className="text-xs font-medium">参考素材</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {kind.kind === "image"
-                      ? "可添加已有图片作为创作上下文。"
-                      : "可添加已有图片或音频作为视频创作上下文。"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    accept="image/*"
-                    className="hidden"
-                    onChange={chooseImage}
-                    ref={fileInput}
-                    type="file"
-                  />
-                  <button
-                    className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted"
-                    onClick={() => setReferencePickerOpen(true)}
-                    type="button"
-                  >
-                    <Plus className="size-3" />
-                    添加参考图
-                  </button>
-                  <span className="font-mono text-[10px] text-muted-foreground">
-                    {referenceIDs.length} SELECTED
-                  </span>
-                </div>
-              </div>
-              {referenceIDs.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {selectedReferenceAssets.map((asset) => (
-                    <div
-                      className="group relative size-16 overflow-hidden rounded-xs border bg-muted"
-                      key={asset.id}
-                    >
-                      {asset.kind === "image" ? (
-                        <img
-                          alt={asset.name}
-                          className="h-full w-full object-cover"
-                          src={`${apiBase}/v1/media/assets/${asset.id}/content`}
-                        />
-                      ) : (
-                        <div className="grid h-full place-items-center">
-                          <Music2 className="size-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <button
-                        aria-label={`移除参考素材 ${asset.name}`}
-                        className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-foreground/75 text-background hover:bg-foreground"
-                        onClick={() =>
-                          setReferenceIDs((ids) =>
-                            ids.filter((id) => id !== asset.id),
-                          )
-                        }
-                        type="button"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+            <ReferenceAssetsField
+              apiBase={apiBase}
+              availableAssets={referenceAssets}
+              onReferenceIDsChange={setReferenceIDs}
+              onUpload={importReferences}
+              referenceIDs={referenceIDs}
+              referenceKinds={referenceKinds}
+              referenceLabel={referenceLabel}
+              selectedAssets={selectedReferenceAssets}
+            />
           )}
           {selectedModel &&
             credentials.filter(
@@ -745,104 +706,6 @@ function CreateAssetDialog({
             {submitting ? "提交中…" : "创建资源"}
           </button>
         </footer>
-        {referencePickerOpen && (
-          <div
-            aria-modal="true"
-            className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]"
-            onMouseDown={() => setReferencePickerOpen(false)}
-            role="dialog"
-          >
-            <section
-              className="w-full max-w-2xl overflow-hidden rounded-sm border bg-card shadow-2xl"
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <header className="flex items-start justify-between border-b px-5 py-4">
-                <div>
-                  <p className="text-sm font-semibold">选择参考素材</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    点击图片即可添加或移除参考图。
-                  </p>
-                </div>
-                <button
-                  aria-label="关闭参考素材选择"
-                  className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted"
-                  onClick={() => setReferencePickerOpen(false)}
-                  type="button"
-                >
-                  <X className="size-4" />
-                </button>
-              </header>
-              <div className="max-h-[60vh] overflow-y-auto p-5">
-                <button
-                  className="mb-4 flex h-9 items-center gap-2 rounded-xs border px-3 text-xs hover:bg-muted"
-                  onClick={() => fileInput.current?.click()}
-                  type="button"
-                >
-                  <Upload className="size-3.5" />
-                  上传图片
-                </button>
-                {referenceAssets.length ? (
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {referenceAssets.map((asset) => {
-                      const selected = referenceIDs.includes(asset.id);
-                      return (
-                        <button
-                          aria-pressed={selected}
-                          className={`overflow-hidden rounded-xs border text-left transition-colors ${selected ? "border-primary ring-1 ring-primary" : "hover:border-foreground/40"}`}
-                          key={asset.id}
-                          onClick={() =>
-                            setReferenceIDs((ids) =>
-                              ids.includes(asset.id)
-                                ? ids.filter((id) => id !== asset.id)
-                                : [...ids, asset.id],
-                            )
-                          }
-                          type="button"
-                        >
-                          <div className="grid aspect-square place-items-center bg-muted">
-                            {asset.kind === "image" ? (
-                              <img
-                                alt={asset.name}
-                                className="h-full w-full object-cover"
-                                src={`${apiBase}/v1/media/assets/${asset.id}/content`}
-                              />
-                            ) : (
-                              <Music2 className="size-5 text-muted-foreground" />
-                            )}
-                          </div>
-                          <div className="flex items-center justify-between gap-2 p-2">
-                            <span className="truncate text-[11px] font-medium">
-                              {asset.name}
-                            </span>
-                            {selected && (
-                              <span className="text-[10px] text-primary">已选</span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="rounded-xs border border-dashed p-4 text-xs text-muted-foreground">
-                    暂无可用参考素材，可先上传图片。
-                  </p>
-                )}
-              </div>
-              <footer className="flex items-center justify-between border-t px-5 py-4">
-                <span className="text-xs text-muted-foreground">
-                  已选 {referenceIDs.length} 个素材
-                </span>
-                <button
-                  className="h-8 rounded-xs bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/85"
-                  onClick={() => setReferencePickerOpen(false)}
-                  type="button"
-                >
-                  完成选择
-                </button>
-              </footer>
-            </section>
-          </div>
-        )}
       </form>
     </div>
   );

@@ -144,3 +144,27 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 		t.Fatalf("resource.delete MCP: %v", err)
 	}
 }
+
+func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
+	apps, err := LoadCatalog(filepath.Join("..", "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(t.TempDir(), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.Create(CreateInput{Name: "Vox media route", AppID: "recut.vox-broll"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow, err := NewAppHost(apps, store).InvokeAPI(project.ID, "recut.vox-broll", "workflow.context", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := workflow.(map[string]any)["mediaExecution"].(map[string]any)
+	scenes := execution["scenes"].(map[string]any)
+	if scenes["kind"] != "platform-media-generation" || scenes["generate"] != "recut.video.generate_async" || scenes["complete"] != "recut.media.get_job -> assetId -> resource.create" {
+		t.Fatalf("scene media route = %#v", scenes)
+	}
+}

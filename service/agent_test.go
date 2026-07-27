@@ -66,3 +66,33 @@ func TestStopPersistsCancelledTurnBeforeRuntimeExits(t *testing.T) {
 		t.Fatalf("cancelled events = %d, want 1", cancelled)
 	}
 }
+
+func TestNormalizeCodexConfiguration(t *testing.T) {
+	model, effort, err := normalizeCodexConfiguration("", "")
+	if err != nil || model != "gpt-5.6-terra" || effort != "xhigh" {
+		t.Fatalf("default configuration = %q/%q, %v", model, effort, err)
+	}
+	if _, _, err := normalizeCodexConfiguration("unknown", "high"); err == nil {
+		t.Fatal("unknown Codex model was accepted")
+	}
+}
+
+func TestCodexToolFailureDetection(t *testing.T) {
+	for _, item := range []map[string]any{
+		{"status": "failed"},
+		{"status": "error"},
+		{"error": "provider unavailable"},
+		{"error": map[string]any{"message": "provider unavailable"}},
+		{"is_error": true},
+		{"result": map[string]any{"is_error": true, "content": "credential missing"}},
+		{"output": `{"status":"failed","error":"credential missing"}`},
+		{"output": "Error: credential missing"},
+	} {
+		if !codexToolFailed(item) {
+			t.Fatalf("tool failure was not detected: %#v", item)
+		}
+	}
+	if codexToolFailed(map[string]any{"status": "completed", "is_error": false}) {
+		t.Fatal("successful tool call was marked failed")
+	}
+}

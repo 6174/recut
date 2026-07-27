@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、MediaService 的项目图片资产、AgentBridge 的 MCP 授权与 Codex JSONL CLI
- * [OUTPUT]: 对外提供 AgentManager、含图片资产引用的持久化 Turn、按序待发送队列、规范化事件与 Codex adapter
+ * [OUTPUT]: 对外提供 AgentManager、含图片资产引用和 Codex 模型/推理配置的持久化 Turn、按序待发送队列、保留工具输入/输出/失败态及时间戳的规范化事件与 Codex adapter
  * [POS]: service 的结构化 Agent 协议层；图片二进制始终留在媒体库，Turn 只持久化受验证的资产身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -30,6 +30,8 @@ type ChatSession struct {
 	AppID           string    `json:"appId,omitempty"`
 	Runtime         string    `json:"runtime"`
 	NativeSessionID string    `json:"nativeSessionId,omitempty"`
+	CodexModel      string    `json:"codexModel,omitempty"`
+	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
 	Title           string    `json:"title"`
 	Status          string    `json:"status"`
 	CreatedAt       time.Time `json:"createdAt"`
@@ -82,7 +84,7 @@ func NewAgentManager(store *Store, bridge *AgentBridge, media *MediaService) *Ag
 	return &AgentManager{store: store, bridge: bridge, media: media, running: map[string]context.CancelFunc{}}
 }
 
-func (m *AgentManager) Create(projectID, runtime string) (ChatSession, error) {
+func (m *AgentManager) Create(projectID, runtime, codexModel, reasoningEffort string) (ChatSession, error) {
 	project, err := m.store.Get(projectID)
 	if err != nil {
 		return ChatSession{}, errors.New("project not found")
@@ -90,18 +92,27 @@ func (m *AgentManager) Create(projectID, runtime string) (ChatSession, error) {
 	if runtime != "codex" && runtime != "claude" {
 		return ChatSession{}, fmt.Errorf("runtime %q is not available yet", runtime)
 	}
+	if runtime == "codex" {
+		var err error
+		codexModel, reasoningEffort, err = normalizeCodexConfiguration(codexModel, reasoningEffort)
+		if err != nil {
+			return ChatSession{}, err
+		}
+	} else if codexModel != "" || reasoningEffort != "" {
+		return ChatSession{}, errors.New("Codex configuration is only available for Codex conversations")
+	}
 	id, err := newID()
 	if err != nil {
 		return ChatSession{}, err
 	}
 	now := time.Now().UTC()
-	session := ChatSession{ID: id, ProfileID: localProfileID, ProjectID: projectID, ProjectName: project.Name, AppID: project.AppID, Runtime: runtime, Title: "新对话", Status: "idle", CreatedAt: now, UpdatedAt: now}
+	session := ChatSession{ID: id, ProfileID: localProfileID, ProjectID: projectID, ProjectName: project.Name, AppID: project.AppID, Runtime: runtime, CodexModel: codexModel, ReasoningEffort: reasoningEffort, Title: "新对话", Status: "idle", CreatedAt: now, UpdatedAt: now}
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
 		return ChatSession{}, err
 	}
 	defer db.Close()
-	_, err = db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.ProjectID, session.Runtime, session.NativeSessionID, session.Title, session.Status, iso(now), iso(now))
+	_, err = db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, codex_model, reasoning_effort, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.ProjectID, session.Runtime, session.NativeSessionID, session.CodexModel, session.ReasoningEffort, session.Title, session.Status, iso(now), iso(now))
 	return session, err
 }
 
@@ -111,7 +122,7 @@ func (m *AgentManager) List(projectID string) ([]ChatSession, error) {
 		return nil, err
 	}
 	defer db.Close()
-	query, args := "select id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
+	query, args := "select id, profile_id, project_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
 	if projectID != "" {
 		query += " and project_id = ?"
 		args = append(args, projectID)
@@ -438,6 +449,10 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	if err != nil {
 		return errors.New("Codex CLI is not installed")
 	}
+	model, effort, err := normalizeCodexConfiguration(session.CodexModel, session.ReasoningEffort)
+	if err != nil {
+		return err
+	}
 	bridgeSession, token, err := m.bridge.CreateSession(session.ProjectID)
 	if err != nil {
 		return err
@@ -456,6 +471,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		args = append(args, "resume", session.NativeSessionID)
 	}
 	args = append(args, withoutCodexCD(codexProjectArgs(projectRoot, executable, m.store.root, m.store.catalog.Directory(), bridgeSession, token))...)
+	args = append(args, "--model", model, "--config", fmt.Sprintf("model_reasoning_effort=%q", effort))
 	attachments := m.attachmentContexts(userTurn.Attachments)
 	for _, attachment := range attachments {
 		args = append(args, "--image", attachment.Path)
@@ -635,7 +651,7 @@ func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string
 		if isCodexTool(itemType) {
 			m.emit(sessionID, turnID, "tool.started", codexToolPayload(item, itemType))
 		}
-	case "item.completed":
+	case "item.completed", "item.failed":
 		if itemType == "agent_message" {
 			text, _ := item["text"].(string)
 			if strings.TrimSpace(text) != "" {
@@ -643,7 +659,11 @@ func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string
 				m.emit(sessionID, turnID, "assistant.completed", map[string]any{"text": text})
 			}
 		} else if isCodexTool(itemType) {
-			m.emit(sessionID, turnID, "tool.completed", codexToolPayload(item, itemType))
+			eventType := "tool.completed"
+			if typeName == "item.failed" || codexToolFailed(item) {
+				eventType = "tool.failed"
+			}
+			m.emit(sessionID, turnID, eventType, codexToolPayload(item, itemType))
 		}
 	case "error":
 		m.emit(sessionID, turnID, "status", map[string]any{"phase": "error", "label": "Agent 返回错误"})
@@ -697,6 +717,56 @@ func codexToolPayload(item map[string]any, kind string) map[string]any {
 	return map[string]any{"toolCallId": id, "tool": kind, "label": label, "toolName": name, "detail": detail}
 }
 
+func codexToolFailed(item map[string]any) bool {
+	status := strings.ToLower(fmt.Sprint(item["status"]))
+	if status == "failed" || status == "error" {
+		return true
+	}
+	return toolResultFailed(item)
+}
+
+func toolResultFailed(value any) bool {
+	switch result := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return result
+	case string:
+		text := strings.TrimSpace(result)
+		if text == "" {
+			return false
+		}
+		var decoded any
+		if json.Unmarshal([]byte(text), &decoded) == nil {
+			return toolResultFailed(decoded)
+		}
+		return strings.HasPrefix(strings.ToLower(text), "error:") || strings.HasPrefix(strings.ToLower(text), "failed:")
+	case map[string]any:
+		if failed, ok := result["is_error"].(bool); ok && failed {
+			return true
+		}
+		if failed, ok := result["isError"].(bool); ok && failed {
+			return true
+		}
+		status := strings.ToLower(fmt.Sprint(result["status"]))
+		if status == "failed" || status == "error" {
+			return true
+		}
+		if errorValue, exists := result["error"]; exists {
+			if text, ok := errorValue.(string); ok {
+				return strings.TrimSpace(text) != ""
+			}
+			if errorMap, ok := errorValue.(map[string]any); ok {
+				return len(errorMap) > 0
+			}
+			return toolResultFailed(errorValue)
+		}
+		return toolResultFailed(result["result"]) || toolResultFailed(result["output"])
+	default:
+		return false
+	}
+}
+
 func toolLabel(kind, name string, item map[string]any) string {
 	if kind != "mcp_tool_call" || name == "" {
 		return map[string]string{"command_execution": "运行命令", "file_change": "修改文件", "mcp_tool_call": "MCP 工具调用", "web_search": "搜索网络"}[kind] + toolLabelSuffix(name)
@@ -726,7 +796,7 @@ func toolLabelSuffix(name string) string {
 
 func codexToolSummary(item map[string]any, kind string) (string, string) {
 	keys := map[string][]string{
-		"mcp_tool_call":     {"server", "tool", "tool_name", "name", "arguments", "input", "result", "output", "error"},
+		"mcp_tool_call":     {"server", "tool", "tool_name", "name", "status", "arguments", "input", "result", "output", "error", "is_error", "isError"},
 		"command_execution": {"command", "cmd", "exit_code", "aggregated_output"},
 		"file_change":       {"path", "changes", "summary"},
 		"web_search":        {"query", "search_query", "results"},
@@ -794,7 +864,7 @@ func (m *AgentManager) updateSession(id, clause, value string) {
 func (m *AgentManager) finish(id string) { m.mu.Lock(); delete(m.running, id); m.mu.Unlock() }
 
 func getChatSession(db *sql.DB, id string) (ChatSession, error) {
-	row := db.QueryRow("select id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
+	row := db.QueryRow("select id, profile_id, project_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), title, status, created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
 	return scanChatSession(row)
 }
 
@@ -803,7 +873,7 @@ type scanner interface{ Scan(...any) error }
 func scanChatSession(row scanner) (ChatSession, error) {
 	var session ChatSession
 	var created, updated string
-	err := row.Scan(&session.ID, &session.ProfileID, &session.ProjectID, &session.Runtime, &session.NativeSessionID, &session.Title, &session.Status, &created, &updated)
+	err := row.Scan(&session.ID, &session.ProfileID, &session.ProjectID, &session.Runtime, &session.NativeSessionID, &session.CodexModel, &session.ReasoningEffort, &session.Title, &session.Status, &created, &updated)
 	if err != nil {
 		return ChatSession{}, err
 	}
@@ -814,6 +884,24 @@ func scanChatSession(row scanner) (ChatSession, error) {
 	}
 	session.UpdatedAt, parseErr = time.Parse(time.RFC3339Nano, updated)
 	return session, parseErr
+}
+
+func normalizeCodexConfiguration(model, effort string) (string, string, error) {
+	if model == "" {
+		model = "gpt-5.6-terra"
+	}
+	if effort == "" {
+		effort = "xhigh"
+	}
+	models := map[string]bool{"gpt-5.6-sol": true, "gpt-5.6-terra": true, "gpt-5.6-luna": true, "gpt-5.5": true, "gpt-5.4": true, "gpt-5.4-mini": true, "gpt-5.2": true}
+	efforts := map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+	if !models[model] {
+		return "", "", fmt.Errorf("Codex model %q is unavailable", model)
+	}
+	if !efforts[effort] {
+		return "", "", fmt.Errorf("reasoning effort %q is unavailable", effort)
+	}
+	return model, effort, nil
 }
 func listChatTurns(db *sql.DB, sessionID string) ([]ChatTurn, error) {
 	rows, err := db.Query("select id, session_id, role, content, status, created_at, completed_at from agent_turns where session_id = ? order by created_at, id", sessionID)

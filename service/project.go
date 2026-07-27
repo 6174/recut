@@ -200,7 +200,7 @@ func (s *Store) WorkspaceDatabase() (*sql.DB, error) {
 	_, err = db.Exec(`
 create table if not exists agent_sessions (
   id text primary key, profile_id text not null, project_id text, runtime text not null,
-  native_session_id text, title text not null, status text not null,
+  native_session_id text, codex_model text, reasoning_effort text, title text not null, status text not null,
   created_at text not null, updated_at text not null
 );
 create table if not exists agent_turns (
@@ -249,6 +249,17 @@ create index if not exists media_jobs_updated on media_jobs(updated_at desc);
 	if err != nil {
 		_ = db.Close()
 		return nil, err
+	}
+	// Older workspaces already have the original session table. SQLite only
+	// supports additive migrations here, which keeps existing conversations intact.
+	for _, statement := range []string{
+		"alter table agent_sessions add column codex_model text",
+		"alter table agent_sessions add column reasoning_effort text",
+	} {
+		if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			_ = db.Close()
+			return nil, err
+		}
 	}
 	return db, nil
 }

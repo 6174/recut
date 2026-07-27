@@ -6,6 +6,12 @@
 
 把一个主题做成可审阅、可继续制作的 Vox 风格 B-roll 方案：论点清楚，画面有统一的纸质拼贴语言，每个镜头都服务叙事。
 
+## 媒体执行边界
+
+本 App 的图片、旁白和场景视频必须通过 Recut MCP 媒体 API 生成。场景视频的唯一执行路径是 `recut.video.generate_async → recut.media.get_job → resource.create`；关键画面使用 `recut.image.generate`，旁白使用 `recut.speech.generate_async`。
+
+这是 Provider 调用，不是本地视频创作任务。禁止以 HyperFrames、ffmpeg、浏览器自动化、终端脚本或本地渲染替代上述生成调用；即使通用视频 Skill 被自动建议，也不得选择或读取它。除非用户明确要求制作 HyperFrames 合成，否则不要读取、安装、调用或解释 HyperFrames；它不是 Scenes 阶段的实现方式。
+
 ## 七个阶段
 
 `Brief → Beats → Look → Keyframes → Audio → Scenes → Delivery`
@@ -34,7 +40,7 @@
 
 对每个已确认的节拍，按这个顺序完成：
 
-1. 基于选定 Look 和该节拍调用 `recut.media.generate` 生成一张 16:9 关键画面；生成失败时如实报告，不能保存文字替代品。
+1. 基于选定 Look 和该节拍调用 `recut.image.generate` 生成一张 16:9 关键画面；生成失败时如实报告，不能保存文字替代品。
 2. 取得生成成功的 `assetId` 后，保存一个 Keyframe：`image.assetId` 是新图，`image.text` 是本图原始提示词，`composition`、`headline`、`layers` 解释这张图如何服务叙事。
 3. 将 Look 图片放入 `image.imageAssetIds` 作为风格来源，将当前 Beat 和 Look 的资源 ID 放入 `image.sourceResourceIds`；`image.audioAssetIds` 为空数组。
 
@@ -46,18 +52,21 @@
 
 请求目标：把已确认的 Keyframes 组织成可以制作的声音时间轴，不把“背景音乐”写成空泛占位。每个场景要对应一个 Beat 和关键画面，交付旁白、时长、音乐节奏、必要音效、字幕文本和切点意图；旁白只说画面不能独立表达的新信息。完成标准：每一段时长能支撑对应旁白，音乐与音效不遮挡信息，Scenes 可据此决定视频长度和转场时机。未确认 Audio 不得生成 Scenes。
 
+真实旁白是 Audio 阶段的必需产物，不是可选装饰。先从 `recut.project_context` 的 `media.defaultRoutes` 找到语音 Route 的 `credentialId`，调用 `recut.media.list_voices` 选择一个可用 `voiceId`；对每段旁白调用 `recut.speech.generate_async`，轮询 `recut.media.get_job` 直到返回音频 `assetId`。仅当每个场景都有成功生成的音频，才调用 `resource.create` 保存 Audio：每个 `scenes[].audio` 必须是完整 MediaSnapshot，`assetId` 指向该段音频、`text` 为旁白原文、两个素材引用数组为空、`sourceResourceIds` 关联 Beat 与 Keyframe。生成失败就报告失败，绝不能保存“只有声音设计文字”的空 Audio 容器。
+
 **Scenes｜场景视频**
 
 把已确认的声音与关键画面组合成连续的短场景。每个场景视频只服务一段声音和一个信息变化：镜头怎么进入、什么纸层移动、在哪里停住、怎样在声音的切点进入下一个场景。宁可一个清楚动作，也不要在同一场景堆多种花哨运动。
 
 请求目标：将一张 Keyframe 与一段 Audio 合成为可播放的短视频，而不是复述分镜。每个场景先使用对应关键画面 `assetId` 和音频 `assetId` 作为生成输入，随后保存新视频 `assetId`、时长、视觉动作和切点；一个场景只表达一个信息变化。完成标准：所有视频镜头按 Beats 顺序覆盖，首尾与声音切点相接，且视频中的材料、色彩和标题安全区延续已选 Look。
 
+视频昂贵，默认一次只生成当前待完成的第一段 Scene，并立即停下等待用户确认。每一段视频必须调用 `recut.video.generate_async` 后轮询完成，保存为一个独立的 `scenes` Resource：顶层只有该段的 `beatId`、`title`、`durationSec`、`visualAction`、`cutPoint` 和 `video` MediaSnapshot；禁止把多段视频塞进同一个 Resource。只有用户明确说“全部生成”“生成所有剩余场景”或同等意思时，才可以连续生成多段，但每段仍必须独立保存。局部修复只更新对应 Scene resource，绝不触及其他段。
+
 **Delivery｜交付**
 
 整理时间线、画幅、时长、格式和最终检查项，确保每一个节拍、画面、运动和声音都能追溯到同一个论点。
 
-请求目标：把已确认的场景收束成可以导出的交付定义，不重新创作内容。交付必须包含画幅、总时长、导出格式、时间线顺序和检查清单；检查每个 Beat 是否有 Keyframe、Audio 和 Scene 对应物，每个素材是否可追溯到同一 Brief 和 Look。完成标准：不存在缺失镜头、无声段、无图段、断裂切点、未确认素材或无法解释的资源引用，才可以宣布完成。
-方法：使用用户本地的 ffmpeg 工具基于场景 + 可能的音频合并为完整的视频
+请求目标：把已确认的场景收束成可以导出的交付定义，不重新创作内容。交付必须包含画幅、总时长、导出格式、时间线顺序和检查清单；检查每个 Beat 是否有 Keyframe、Audio 和 Scene 对应物，每个素材是否可追溯到同一 Brief 和 Look。完成标准：不存在缺失镜头、无声段、无图段、断裂切点、未确认素材或无法解释的资源引用，才可以宣布完成。这里仅定义交付，不得以 ffmpeg、HyperFrames 或本地渲染替代平台场景生成；若用户需要最终导出，使用宿主提供的导出能力。
 
 ## 创作规则
 
@@ -66,6 +75,7 @@
 3. 每次请求媒体时，先说清它在叙事中的作用，再描述画面或声音本身。
 4. 媒体失败时如实说明失败，不把文字设想当成已经生成的图片、镜头或声音。
 5. 资源的依赖关系必须可追溯：后续阶段只使用已确认的前序决定。
+6. 用户要求“只改某一段”时，必须先用 `resource.read` 读取目标资源，再只为该节拍生成新的图片、语音或视频，最后以 `resource.update.itemPatch` 按 `beatId` 原位替换对应项目。不得新建整份同阶段资源，不得重新生成未被指出的问题段；资源 ID 和下游依赖必须保持不变。
 
 ## 审美底线
 

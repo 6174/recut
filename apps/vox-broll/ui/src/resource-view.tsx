@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 Resource 类型与 React 图文展示原语
- * [OUTPUT]: 对外提供按 B-roll 创作阶段渲染的人类可读资源摘要、缩略文本、含内嵌 Keyframe 图片的 URL 与详情
+ * [OUTPUT]: 对外提供按 B-roll 创作阶段渲染的人类可读资源摘要、缩略文本、含内嵌 Keyframe 图片与 Audio 声音播放器的详情
  * [POS]: vox-broll 的资源展示语义层；将内部 content JSON 翻译为图、文、清单和镜头卡，不承担数据读写
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -44,6 +44,20 @@ function snapshotAssetID(value: unknown) {
   return text(record(value).assetId);
 }
 
+function audioSnapshotID(value: unknown) {
+  return snapshotAssetID(record(value).audio) || text(record(value).audioAssetId);
+}
+
+function itemHeading(value: RecordValue, item: unknown) {
+  return text(value.title || value.name || value.shot || value.beat || value.id || item);
+}
+
+function itemDetails(value: RecordValue) {
+  return ["description", "action", "narration", "visual", "purpose", "composition", "motion", "music", "soundEffects", "captions", "durationSec"]
+    .map((key) => text(value[key]))
+    .filter(Boolean);
+}
+
 export function resourceImageURLs(resource: Resource) {
   const content = record(resource.content);
   const lookAssetID = isLook(resource) ? text(record(content.media).assetId) : "";
@@ -58,11 +72,11 @@ export function resourcePreviewLines(resource: Resource) {
   const content = record(resource.content);
   const kind = resource.kind.toLowerCase();
   const fields = kind === "brief" ? ["topic", "premise", "direction"] : kind === "beats" ? ["hook", "narrative", "summary"] : kind === "keyframes" ? ["composition", "headline", "layers"] : kind === "audio" ? ["narration", "music", "captions"] : kind === "scenes" ? ["scene", "videoDirection"] : kind === "delivery" ? ["aspectRatio", "duration", "format", "export"] : ["summary", "definition", "direction"];
-  const list = kind === "beats" ? content.beats || content.items : kind === "keyframes" ? content.keyframes || content.shots : kind === "scenes" ? content.scenes || content.shots : undefined;
+  const list = kind === "beats" ? content.beats || content.items : kind === "keyframes" ? content.keyframes || content.shots : kind === "audio" ? content.scenes : kind === "scenes" ? content.scenes || content.shots : undefined;
   const entries = Array.isArray(list) ? list.map((item) => {
     const value = record(item);
-    return text(value.title || value.name || value.shot || value.beat || value.description || value.action || item);
-  }) : [];
+    return [itemHeading(value, item), ...itemDetails(value)];
+  }).flat() : [];
   const lines = [...fields.map((key) => text(content[key])), ...entries].filter(Boolean);
   return [...new Set(lines)].slice(0, 3);
 }
@@ -75,7 +89,7 @@ function AssetImages({ content, compact = false }: { content: RecordValue; compa
 
 function MediaPlayers({ content, compact }: { content: RecordValue; compact: boolean }) {
   if (compact) return null;
-  const videos = ids(content, "videoAssetId", "videoAssetIds");
+  const videos = [...new Set([snapshotAssetID(content.video), ...ids(content, "videoAssetId", "videoAssetIds")].filter(Boolean))];
   const audio = ids(content, "audioAssetId", "audioAssetIds");
   if (!videos.length && !audio.length) return null;
   return <div className="grid gap-3">{videos.map((id) => <video className="aspect-video w-full rounded-md border bg-muted" controls key={id} src={mediaURL(id)} />)}{audio.map((id) => <audio className="w-full" controls key={id} src={mediaURL(id)} />)}</div>;
@@ -90,11 +104,11 @@ function ItemList({ items, titleKey }: { items: unknown; titleKey: string }) {
   if (!Array.isArray(items) || !items.length) return null;
   return <div className="grid gap-2"><p className="text-xs font-medium text-muted-foreground">{title(titleKey)}</p><ol className="grid gap-2">{items.map((item, index) => {
     const value = record(item);
-    const heading = text(value.title || value.name || value.shot || value.beat || item) || `第 ${index + 1} 项`;
-    const detail = text(value.description || value.action || value.purpose || value.composition || value.motion || value);
+    const heading = itemHeading(value, item) || `第 ${index + 1} 项`;
+    const detail = itemDetails(value).filter((detail) => detail !== heading).join(" · ");
     const image = snapshotAssetID(value.image) || text(value.imageAssetId);
     const video = text(value.videoAssetId);
-    const audio = text(value.audioAssetId);
+    const audio = audioSnapshotID(value);
     return <li className="grid gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm" key={`${heading}-${index}`}><p className="font-medium">{index + 1}. {heading}</p>{detail && detail !== heading && <p className="leading-5 text-muted-foreground">{detail}</p>}{image && <img alt={`${heading} 参考图`} className="aspect-video w-full rounded border object-cover" src={mediaURL(image)} />}{video && <video className="aspect-video w-full rounded border bg-muted" controls src={mediaURL(video)} />}{audio && <audio className="w-full" controls src={mediaURL(audio)} />}</li>;
   })}</ol></div>;
 }
@@ -111,11 +125,11 @@ function StageView({ resource, compact }: { resource: Resource; compact: boolean
   const content = record(resource.content);
   if (isLook(resource)) return <LookView compact={compact} content={content} />;
   const kind = resource.kind.toLowerCase();
-  const list = kind === "beats" ? content.beats || content.items : kind === "keyframes" ? content.keyframes || content.shots : kind === "scenes" ? content.scenes || content.shots : kind === "delivery" ? content.checklist : undefined;
-  const fields = kind === "brief" ? ["topic", "premise", "direction"] : kind === "beats" ? ["hook", "narrative", "summary"] : kind === "keyframes" ? ["composition", "headline", "layers"] : kind === "audio" ? ["narration", "music", "captions", "mix"] : kind === "scenes" ? ["scene", "videoDirection"] : kind === "delivery" ? ["aspectRatio", "duration", "format", "export"] : ["summary", "definition", "direction"];
+  const list = kind === "beats" ? content.beats || content.items : kind === "keyframes" ? content.keyframes || content.shots : kind === "audio" ? content.scenes : kind === "scenes" ? content.scenes || content.shots : kind === "delivery" ? content.checklist : undefined;
+  const fields = kind === "brief" ? ["topic", "premise", "direction"] : kind === "beats" ? ["hook", "narrative", "summary"] : kind === "keyframes" ? ["composition", "headline", "layers"] : kind === "audio" ? ["narration", "music", "captions", "mix"] : kind === "scenes" ? ["beatId", "durationSec", "visualAction", "cutPoint"] : kind === "delivery" ? ["aspectRatio", "duration", "format", "export"] : ["summary", "definition", "direction"];
   const first = fields.map((key) => text(content[key])).find(Boolean) || text(resource.content) || "尚未填写可展示内容";
   if (compact) return <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">{first}</p>;
-  return <div className="grid gap-4"><AssetImages content={content} /><MediaPlayers compact={compact} content={content} /><dl className="grid gap-3 sm:grid-cols-2">{fields.map((key) => <Field key={key} name={key} value={content[key]} />)}</dl><ItemList items={list} titleKey={kind === "keyframes" ? "关键画面" : kind === "scenes" ? "场景视频" : kind === "delivery" ? "检查清单" : "叙事节拍"} /></div>;
+  return <div className="grid gap-4"><AssetImages content={content} /><MediaPlayers compact={compact} content={content} /><dl className="grid gap-3 sm:grid-cols-2">{fields.map((key) => <Field key={key} name={key} value={content[key]} />)}</dl><ItemList items={list} titleKey={kind === "keyframes" ? "关键画面" : kind === "audio" ? "声音时间线" : kind === "scenes" ? "场景视频" : kind === "delivery" ? "检查清单" : "叙事节拍"} /></div>;
 }
 
 export function resourceSummary(resource: Resource) {

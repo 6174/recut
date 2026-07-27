@@ -6,6 +6,7 @@
  */
 
 export type AssetKind = "image" | "video" | "audio";
+export type ModelInputMode = "text" | AssetKind;
 export type Capability = "image.generate" | "video.generate" | "speech.generate";
 export type Asset = {
   id: string;
@@ -34,6 +35,7 @@ export type Model = {
   name: string;
   capability: Capability;
   available: boolean;
+  inputModes: ModelInputMode[];
 };
 export type Provider = { id: string; name: string; models: Model[] };
 export type Credential = { id: string; name: string; provider: string };
