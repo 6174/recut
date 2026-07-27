@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost JavaScript runtime 与标准输入输出 JSON-RPC 流
- * [OUTPUT]: 对外提供 RunMCPStdio，将平台上下文与 manifest.mcp.tools 映射为受控 MCP 工具
+ * [OUTPUT]: 对外提供带默认媒体契约的项目上下文，并将 manifest.mcp.tools 映射为受控 MCP 工具
  * [POS]: service 的 MCP Host；App 不自行启动 MCP server，所有调用经平台权限与会话边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -62,15 +62,16 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 	case "initialize":
 		return map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]string{"name": "recut-mcp-host", "version": "0.2.0"}, "capabilities": map[string]any{"tools": map[string]any{}}}, nil
 	case "tools/list":
-		tools := make([]map[string]any, 0, len(app.Manifest.MCP.Tools)+6)
+		tools := make([]map[string]any, 0, len(app.Manifest.MCP.Tools)+7)
 		tools = append(tools, map[string]any{
 			"name":        "recut.project_context",
 			"description": "读取当前 Recut 项目的身份、版本、App、可用 Artifact 与 Agent 约束。任何项目任务开始时先调用此工具。",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		})
 		tools = append(tools,
-			map[string]any{"name": "recut.media.configuration", "description": "读取用户在全局设置中选择的 Provider、模型、输入模式和可选输出参数。生成前必须调用；不得猜测未列出的模型或参数。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
-			map[string]any{"name": "recut.media.generate", "description": "按平台已配置的能力路由提交图片、视频或语音生成任务。成功后返回 jobId；完成后会产生可复用 assetId。", "inputSchema": map[string]any{"type": "object", "required": []string{"capability", "prompt"}, "properties": map[string]any{"capability": map[string]any{"type": "string", "enum": []string{"image.generate", "video.generate", "speech.generate"}}, "prompt": map[string]any{"type": "string"}, "route": map[string]any{"type": "string"}, "referenceIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "output": map[string]any{"type": "object"}, "idempotencyKey": map[string]any{"type": "string"}}}},
+			map[string]any{"name": "recut.media.configuration", "description": "读取最新媒体配置；通常无需调用，因为 recut.project_context 已携带默认 route、模型契约和可选参数。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
+			map[string]any{"name": "recut.media.generate", "description": "同步生成短时、阶段关键的媒体。成功时返回 assetIds；Provider 失败或请求超时直接返回错误。", "inputSchema": map[string]any{"type": "object", "required": []string{"capability", "prompt"}, "properties": map[string]any{"capability": map[string]any{"type": "string", "enum": []string{"image.generate"}}, "prompt": map[string]any{"type": "string"}, "route": map[string]any{"type": "string"}, "referenceIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "output": map[string]any{"type": "object"}, "idempotencyKey": map[string]any{"type": "string"}}}},
+			map[string]any{"name": "recut.media.generate_async", "description": "提交可长时间运行的媒体任务，立即返回 jobId；调用 get_job 查询最终 assetIds。", "inputSchema": map[string]any{"type": "object", "required": []string{"capability", "prompt"}, "properties": map[string]any{"capability": map[string]any{"type": "string", "enum": []string{"image.generate", "video.generate", "speech.generate"}}, "prompt": map[string]any{"type": "string"}, "route": map[string]any{"type": "string"}, "referenceIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "output": map[string]any{"type": "object"}, "idempotencyKey": map[string]any{"type": "string"}}}},
 			map[string]any{"name": "recut.media.get_job", "description": "读取媒体生成任务状态；完成后返回 assetIds。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
 			map[string]any{"name": "recut.media.list_assets", "description": "检索当前项目或工作区的可复用媒体素材。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"workspace": map[string]string{"type": "boolean"}}}},
 			map[string]any{"name": "recut.media.attach", "description": "把现有媒体 assetId 引用到当前项目。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}}}},
@@ -88,7 +89,7 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 			return nil, err
 		}
 		if input.Name == "recut.project_context" {
-			return projectContextTool(bridge, session)
+			return projectContextTool(bridge, host, media, session)
 		}
 		if strings.HasPrefix(input.Name, "recut.media.") {
 			return mediaMCPTool(media, session, input.Name, input.Arguments)
@@ -115,6 +116,14 @@ func mediaMCPTool(media *MediaService, session AgentSession, name string, input 
 	case "recut.media.configuration":
 		result, err = media.ConfiguredModels()
 	case "recut.media.generate":
+		capability, _ := input["capability"].(string)
+		prompt, _ := input["prompt"].(string)
+		route, _ := input["route"].(string)
+		key, _ := input["idempotencyKey"].(string)
+		references := stringsFromAny(input["referenceIds"])
+		output, _ := input["output"].(map[string]any)
+		result, err = media.GenerateSync(GenerateMediaInput{Capability: MediaCapability(capability), Prompt: prompt, Route: route, ReferenceIDs: references, Output: output, ProjectID: session.ProjectID, IdempotencyKey: key})
+	case "recut.media.generate_async":
 		capability, _ := input["capability"].(string)
 		prompt, _ := input["prompt"].(string)
 		route, _ := input["route"].(string)
@@ -160,7 +169,7 @@ func stringsFromAny(value any) []string {
 	return result
 }
 
-func projectContextTool(bridge *AgentBridge, session AgentSession) (any, error) {
+func projectContextTool(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession) (any, error) {
 	context, err := bridge.Context(session)
 	if err != nil {
 		return nil, err
@@ -169,6 +178,8 @@ func projectContextTool(bridge *AgentBridge, session AgentSession) (any, error) 
 	if err != nil {
 		return nil, err
 	}
+	workflow, workflowErr := host.InvokeMCP(session.ProjectID, context.Project.AppID, "workflow_context", map[string]any{})
+	mediaConfiguration, mediaErr := media.ConfiguredModels()
 	result := map[string]any{
 		"project":      context.Project,
 		"resourceRef":  context.ResourceRef,
@@ -176,6 +187,12 @@ func projectContextTool(bridge *AgentBridge, session AgentSession) (any, error) 
 		"appState":     context.AppState,
 		"instructions": context.Instructions,
 		"artifacts":    artifacts,
+	}
+	if workflowErr == nil {
+		result["workflow"] = workflow
+	}
+	if mediaErr == nil {
+		result["media"] = map[string]any{"defaultRoutes": mediaConfiguration}
 	}
 	data, _ := json.Marshal(result)
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": result}, nil

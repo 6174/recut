@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的工作区 SQLite、受控本地文件根和标准 HTTP 客户端
- * [OUTPUT]: 对外提供媒体资产、提供商凭据、能力路由、受类型校验的素材上下文及异步生成任务的统一平台服务
+ * [OUTPUT]: 对外提供媒体资产、提供商凭据、能力路由、受类型校验的素材上下文及同步/异步生成任务
  * [POS]: service 的 Media Platform 核心；普通 App 只通过 assetId 和 MCP/HTTP 使用，不持有供应商密钥
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -146,6 +146,12 @@ type MediaService struct {
 	store *Store
 	mu    sync.Mutex
 }
+
+const mediaRequestTimeout = 2 * time.Minute
+
+const interruptedMediaJobMessage = "本地服务重启前任务未完成，请重新生成。"
+
+var mediaHTTPClient = &http.Client{Timeout: mediaRequestTimeout}
 
 func NewMediaService(store *Store) *MediaService { return &MediaService{store: store} }
 
@@ -385,12 +391,45 @@ func (m *MediaService) Attach(assetID, projectID string) error {
 }
 
 func (m *MediaService) Generate(input GenerateMediaInput) (MediaJob, error) {
+	job, credential, created, err := m.createJob(input)
+	if err != nil || !created {
+		return job, err
+	}
+	go m.execute(job, credential)
+	return job, nil
+}
+
+// GenerateSync is for short, stage-critical media operations. It waits for the
+// provider request to finish, so callers receive either usable asset IDs or a
+// terminal error instead of owning a polling loop.
+func (m *MediaService) GenerateSync(input GenerateMediaInput) (MediaJob, error) {
+	job, credential, created, err := m.createJob(input)
+	if err != nil {
+		return MediaJob{}, err
+	}
+	if created {
+		m.execute(job, credential)
+	}
+	job, err = m.GetJob(job.ID)
+	if err != nil {
+		return MediaJob{}, err
+	}
+	if job.Status != "completed" {
+		if job.Error == "" {
+			job.Error = "media generation did not reach a terminal state"
+		}
+		return job, fmt.Errorf("media job %s failed: %s", job.ID, job.Error)
+	}
+	return job, nil
+}
+
+func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCredential, bool, error) {
 	if !knownCapability(input.Capability) || strings.TrimSpace(input.Prompt) == "" {
-		return MediaJob{}, errors.New("capability and prompt are required")
+		return MediaJob{}, MediaCredential{}, false, errors.New("capability and prompt are required")
 	}
 	if input.ProjectID != "" {
 		if _, err := m.store.Get(input.ProjectID); err != nil {
-			return MediaJob{}, err
+			return MediaJob{}, MediaCredential{}, false, err
 		}
 	}
 	if input.IdempotencyKey == "" {
@@ -398,22 +437,22 @@ func (m *MediaService) Generate(input GenerateMediaInput) (MediaJob, error) {
 	}
 	route, credential, err := m.resolveRoute(input)
 	if err != nil {
-		return MediaJob{}, err
+		return MediaJob{}, MediaCredential{}, false, err
 	}
 	if err := m.validateReferences(input); err != nil {
-		return MediaJob{}, err
+		return MediaJob{}, MediaCredential{}, false, err
 	}
 	db, err := m.database()
 	if err != nil {
-		return MediaJob{}, err
+		return MediaJob{}, MediaCredential{}, false, err
 	}
 	defer db.Close()
 	if existing, err := m.jobByKey(db, input.IdempotencyKey); err == nil {
-		return existing, nil
+		return existing, credential, false, nil
 	}
 	id, err := newID()
 	if err != nil {
-		return MediaJob{}, err
+		return MediaJob{}, MediaCredential{}, false, err
 	}
 	now := time.Now().UTC()
 	job := MediaJob{ID: id, Capability: input.Capability, Status: "queued", Prompt: input.Prompt, ModelID: route.ModelID, ProjectID: input.ProjectID, ReferenceIDs: input.ReferenceIDs, Output: input.Output, CreatedAt: now, UpdatedAt: now}
@@ -422,10 +461,9 @@ func (m *MediaService) Generate(input GenerateMediaInput) (MediaJob, error) {
 	assets, _ := json.Marshal(job.AssetIDs)
 	_, err = db.Exec(`insert into media_jobs (id, idempotency_key, capability, status, prompt, model_id, credential_id, project_id, reference_ids_json, output_json, asset_ids_json, error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, job.ID, input.IdempotencyKey, job.Capability, job.Status, job.Prompt, job.ModelID, credential.ID, job.ProjectID, string(refs), string(output), string(assets), "", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
-		return MediaJob{}, err
+		return MediaJob{}, MediaCredential{}, false, err
 	}
-	go m.execute(job, credential)
-	return job, nil
+	return job, credential, true, nil
 }
 
 func (m *MediaService) GetJob(id string) (MediaJob, error) {
@@ -435,6 +473,23 @@ func (m *MediaService) GetJob(id string) (MediaJob, error) {
 	}
 	defer db.Close()
 	return scanJob(db.QueryRow("select id, capability, status, prompt, model_id, project_id, reference_ids_json, output_json, asset_ids_json, error, created_at, updated_at from media_jobs where id = ?", id))
+}
+
+// RecoverInterruptedJobs closes jobs whose in-memory workers were lost during
+// a local service restart. A job is immutable once submitted, so retrying it
+// silently would create an unexpected second image; the caller must submit a
+// new generation explicitly.
+func (m *MediaService) RecoverInterruptedJobs() (int64, error) {
+	db, err := m.database()
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+	result, err := db.Exec("update media_jobs set status = ?, error = ?, updated_at = ? where status in ('queued', 'running')", "failed", interruptedMediaJobMessage, time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (m *MediaService) resolveRoute(input GenerateMediaInput) (MediaRoute, MediaCredential, error) {
@@ -537,13 +592,15 @@ func (m *MediaService) generateOpenAIImage(job MediaJob, credential MediaCredent
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, strings.TrimRight(base, "/")+endpoint, body)
+	requestContext, cancel := context.WithTimeout(context.Background(), mediaRequestTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, strings.TrimRight(base, "/")+endpoint, body)
 	if err != nil {
 		return MediaAsset{}, err
 	}
 	request.Header.Set("Authorization", "Bearer "+secret)
 	request.Header.Set("Content-Type", contentType)
-	response, err := http.DefaultClient.Do(request)
+	response, err := mediaHTTPClient.Do(request)
 	if err != nil {
 		return MediaAsset{}, err
 	}
@@ -629,7 +686,7 @@ func (m *MediaService) openAIImageBody(job MediaJob, model MediaModel) (io.Reade
 }
 
 func fetchMedia(url string) ([]byte, error) {
-	response, err := http.Get(url)
+	response, err := mediaHTTPClient.Get(url)
 	if err != nil {
 		return nil, err
 	}

@@ -53,25 +53,41 @@ function latestBrief(_, ctx) {
   return rows.length ? JSON.parse(rows[0].body) : null;
 }
 
+const stageOrder = ["brief", "beats", "look", "keyframes", "motion", "audio", "delivery"];
+
+function workflowContext(_, ctx) {
+  ensureSchema(ctx);
+  purgeLegacyLooks(ctx);
+  const resources = listResources({}, ctx);
+  const byKind = Object.fromEntries(stageOrder.map((kind) => [kind, resources.filter((item) => String(item.kind).toLowerCase() === kind)]));
+  const storedBrief = latestBrief({}, ctx);
+  if (storedBrief && byKind.brief.length === 0) byKind.brief = [{ id: storedBrief.id, kind: "brief", title: storedBrief.title, content: storedBrief, dependencies: [], createdAt: storedBrief.createdAt }];
+  const latest = (kind) => byKind[kind][0] || null;
+  const nextStage = stageOrder.find((kind) => !latest(kind)) || null;
+  const brief = latest("brief");
+  const beats = latest("beats");
+  const look = latest("look");
+  return {
+    revision: `${resources.length}:${resources[0]?.createdAt || "empty"}`,
+    stage: nextStage || "delivery",
+    nextAction: nextStage ? `create_${nextStage}` : "review_delivery",
+    gates: { beatsReady: Boolean(beats), lookReady: Boolean(look) },
+    inputs: { brief, beats, look },
+    resources: Object.fromEntries(stageOrder.map((kind) => [kind, byKind[kind].map((item) => ({ id: item.id, title: item.title, createdAt: item.createdAt }))])),
+    allowedActions: nextStage ? [`create_${nextStage}`] : ["review_delivery"],
+    inFlight: null,
+  };
+}
+
 function prepareResource(input, ctx) {
   const kind = String(input.kind || "").trim();
   if (!kind) throw new Error("resource kind is required");
   const dependencies = Array.isArray(input.dependencies) ? input.dependencies : [];
   const instruction = String(input.instruction || "无额外要求");
-  const brief = latestBrief({}, ctx);
   const stageWorkflow = {
     brief: "content 使用 { topic, premise, direction }，这是供人审阅的短文本简报。",
     beats: "content 使用 { hook, narrative, beats: [{ title, description, duration }] }，每个 beat 是一张可读的叙事卡。",
-    look: `
-「视觉风格」不是 JSON 文案。先基于 Brief 起草 3 个可区分的风格候选；对每个候选依次执行：
-1. 调用 recut.media.configuration，确认当前已配置的图片模型与输入契约。
-2. 调用 recut.media.generate（capability: image.generate）生成一张 16:9 风格参考图；生成图只用于定义后续画面语言，不要在图中放可读正文、Logo 或水印。
-3. 用 recut.media.get_job 轮询至 completed，取得 assetIds；失败则如实报告，不要创建没有图片的 Look。
-4. 对每张成功的图片调用 recut.vox-broll.create_resource，kind 固定为 Look。content 必须是：
-   { assetId, prompt, definition, palette, paperTechnique, typeTreatment, texture, mood }
-   其中 assetId 是生成图的 assetId；prompt 是逐字保存的生成提示词；其余字段只作简短辅助说明。标题要能区分候选。
-完成后停下，等待用户在视觉风格中选择；不要继续创建关键画面或动效。
-`,
+    look: "先调用 recut.vox-broll.workflow_context，只使用其批准的 Brief 和 Beats。创建 3 个可区分的 16:9 风格候选；每个候选调用同步的 recut.media.generate（capability: image.generate），成功后立即调用 create_resource。content 必须有 { assetId, prompt, definition, palette, paperTechnique, typeTreatment, texture, mood }。超时或失败时如实报告且不要创建该候选。完成后停下，等待用户选择；不要创建 Keyframes。",
     keyframes: "content 使用 { keyframes: [{ title, composition, headline, layers, imageAssetId? }] }。镜头有参考图时保存 imageAssetId；没有图时只保存可读的构图、标题和层次，不要把 JSON 作为用户输出。",
     motion: "content 使用 { camera, motion, shots: [{ title, motion, duration, videoAssetId? }] }。有预览视频时保存 videoAssetId，否则以镜头动效卡表达。",
     audio: "content 使用 { narration, music, captions, mix, audioAssetId? }。有已生成的声音时保存 audioAssetId，文本只描述听觉方案。",
@@ -79,14 +95,17 @@ function prepareResource(input, ctx) {
   }[kind.toLowerCase()] || "content 必须是面向审阅的短字段或条目，不要把内部 JSON 作为用户输出。";
   return {
     intent: "resource.create",
-    prompt: `你正在 Recut 的 Vox B-roll 项目中创建「${kind}」资源。\n当前 Brief：${brief ? JSON.stringify(brief) : "尚未创建"}。\n用户选择的依赖资源：${dependencies.join("、") || "无"}。\n额外要求：${instruction}。\n资源表达契约：${stageWorkflow}\n完成创作后必须调用 recut.vox-broll.create_resource，传入 kind、title、content、dependencies。不要直接写文件。`,
+    prompt: `Action: create_${kind.toLowerCase()}\n先调用 recut.vox-broll.workflow_context；它是当前项目状态的唯一真相。\n用户选择的依赖资源：${dependencies.join("、") || "无"}。\n用户要求：${instruction}。\n验收：${stageWorkflow}\n完成创作后调用 recut.vox-broll.create_resource，传入 kind、title、content、dependencies。不要直接写文件。`,
   };
 }
 
 function createResource(input, ctx) {
   ensureSchema(ctx);
+  const kind = String(input.kind || "").toLowerCase();
+  if (!kind) throw new Error("resource kind is required");
+  if (kind === "look" && (!input.content || !input.content.assetId || !input.content.prompt)) throw new Error("Look requires a generated assetId and its exact prompt");
   const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const resource = { id, kind: String(input.kind), title: String(input.title), content: input.content, dependencies: Array.isArray(input.dependencies) ? input.dependencies : [], createdAt: new Date().toISOString() };
+  const resource = { id, kind, title: String(input.title), content: input.content, dependencies: Array.isArray(input.dependencies) ? input.dependencies : [], createdAt: new Date().toISOString() };
   ctx.sqlite.execute("insert into resources (id, kind, title, content_json, dependencies_json, created_at, retired_at) values (?, ?, ?, ?, ?, ?, null)", [resource.id, resource.kind, resource.title, JSON.stringify(resource.content), JSON.stringify(resource.dependencies), resource.createdAt]);
   return ctx.artifacts.publish({ type: `recut.vox.${resource.kind.toLowerCase()}@1`, value: resource });
 }
@@ -117,11 +136,13 @@ function deleteResource(input, ctx) {
 
 recut.api.register("brief.create", createBrief);
 recut.api.register("brief.latest", latestBrief);
+recut.api.register("workflow.context", workflowContext);
 recut.api.register("resource.prepare", prepareResource);
 recut.api.register("resource.list", listResources);
 recut.api.register("resource.retire", retireResource);
 recut.api.register("resource.delete", deleteResource);
 recut.mcp.register("generate_brief", createBrief);
+recut.mcp.register("workflow_context", workflowContext);
 recut.mcp.register("create_resource", createResource);
 recut.mcp.register("retire_resource", retireResource);
 recut.mcp.register("delete_resource", deleteResource);

@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 Store 的本地工作区 SQLite、AgentBridge 的 MCP 授权与 Codex JSONL CLI
- * [OUTPUT]: 对外提供 AgentManager、持久化一对一会话、按序待发送 Turn、规范化事件与 Codex adapter
- * [POS]: service 的结构化 Agent 协议层；单会话串行消费待发送消息，TerminalManager 保持独立，作为兼容和诊断通道
+ * [INPUT]: 依赖 Store 的本地工作区 SQLite、MediaService 的项目图片资产、AgentBridge 的 MCP 授权与 Codex JSONL CLI
+ * [OUTPUT]: 对外提供 AgentManager、含图片资产引用的持久化 Turn、按序待发送队列、规范化事件与 Codex adapter
+ * [POS]: service 的结构化 Agent 协议层；图片二进制始终留在媒体库，Turn 只持久化受验证的资产身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -37,13 +37,20 @@ type ChatSession struct {
 }
 
 type ChatTurn struct {
-	ID          string     `json:"id"`
-	SessionID   string     `json:"sessionId"`
-	Role        string     `json:"role"`
-	Content     string     `json:"content"`
-	Status      string     `json:"status"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	CompletedAt *time.Time `json:"completedAt,omitempty"`
+	ID          string           `json:"id"`
+	SessionID   string           `json:"sessionId"`
+	Role        string           `json:"role"`
+	Content     string           `json:"content"`
+	Status      string           `json:"status"`
+	CreatedAt   time.Time        `json:"createdAt"`
+	CompletedAt *time.Time       `json:"completedAt,omitempty"`
+	Attachments []ChatAttachment `json:"attachments"`
+}
+
+type ChatAttachment struct {
+	AssetID  string `json:"assetId"`
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType"`
 }
 
 type ChatEvent struct {
@@ -65,12 +72,13 @@ type ChatSessionDetail struct {
 type AgentManager struct {
 	store   *Store
 	bridge  *AgentBridge
+	media   *MediaService
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
 }
 
-func NewAgentManager(store *Store, bridge *AgentBridge) *AgentManager {
-	return &AgentManager{store: store, bridge: bridge, running: map[string]context.CancelFunc{}}
+func NewAgentManager(store *Store, bridge *AgentBridge, media *MediaService) *AgentManager {
+	return &AgentManager{store: store, bridge: bridge, media: media, running: map[string]context.CancelFunc{}}
 }
 
 func (m *AgentManager) Create(projectID, runtime string) (ChatSession, error) {
@@ -173,12 +181,8 @@ func (m *AgentManager) Events(id string, after int64) ([]ChatEvent, error) {
 	return listChatEvents(db, id, after)
 }
 
-func (m *AgentManager) StartTurn(sessionID, text string) (ChatTurn, error) {
+func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (ChatTurn, error) {
 	text = strings.TrimSpace(text)
-	if text == "" {
-		return ChatTurn{}, errors.New("message is required")
-	}
-
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
 		return ChatTurn{}, err
@@ -188,18 +192,38 @@ func (m *AgentManager) StartTurn(sessionID, text string) (ChatTurn, error) {
 		_ = db.Close()
 		return ChatTurn{}, err
 	}
+	attachments, err := m.turnAttachments(session.ProjectID, assetIDs)
+	if err != nil {
+		_ = db.Close()
+		return ChatTurn{}, err
+	}
+	if text == "" && len(attachments) == 0 {
+		_ = db.Close()
+		return ChatTurn{}, errors.New("message or image is required")
+	}
 	turnID, err := newID()
 	if err != nil {
 		_ = db.Close()
 		return ChatTurn{}, err
 	}
 	now := time.Now().UTC()
-	turn := ChatTurn{ID: turnID, SessionID: sessionID, Role: "user", Content: text, Status: "queued", CreatedAt: now}
+	turn := ChatTurn{ID: turnID, SessionID: sessionID, Role: "user", Content: text, Status: "queued", CreatedAt: now, Attachments: attachments}
 	_, err = db.Exec("insert into agent_turns (id, session_id, role, content, status, created_at) values (?, ?, ?, ?, ?, ?)", turn.ID, turn.SessionID, turn.Role, turn.Content, turn.Status, iso(now))
+	if err == nil {
+		for _, attachment := range attachments {
+			_, err = db.Exec("insert into agent_turn_attachments (turn_id, asset_id) values (?, ?)", turn.ID, attachment.AssetID)
+			if err != nil {
+				break
+			}
+		}
+	}
 	if err == nil {
 		title := session.Title
 		if title == "新对话" {
 			title = shortTitle(text)
+			if title == "" {
+				title = "图片对话"
+			}
 		}
 		_, err = db.Exec("update agent_sessions set title = ?, status = ?, updated_at = ? where id = ?", title, "running", iso(now), sessionID)
 		session.Title, session.Status = title, "running"
@@ -211,6 +235,33 @@ func (m *AgentManager) StartTurn(sessionID, text string) (ChatTurn, error) {
 	m.emit(sessionID, turnID, "turn.queued", map[string]any{"label": "已加入待发送消息"})
 	m.startRunner(sessionID)
 	return turn, nil
+}
+
+func (m *AgentManager) turnAttachments(projectID string, assetIDs []string) ([]ChatAttachment, error) {
+	attachments := make([]ChatAttachment, 0, len(assetIDs))
+	seen := map[string]bool{}
+	for _, id := range assetIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		asset, err := m.media.GetAsset(id)
+		if err != nil || asset.Kind != "image" || !containsString(asset.ProjectIDs, projectID) {
+			return nil, errors.New("image attachment is unavailable in this project")
+		}
+		attachments = append(attachments, ChatAttachment{AssetID: asset.ID, Name: asset.Name, MimeType: asset.MimeType})
+	}
+	return attachments, nil
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *AgentManager) Stop(sessionID string) error {
@@ -352,7 +403,10 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		args = append(args, "resume", session.NativeSessionID)
 	}
 	args = append(args, withoutCodexCD(codexProjectArgs(projectRoot, executable, m.store.root, m.store.catalog.Directory(), bridgeSession, token))...)
-	args = append(args, "--json", "--", userTurn.Content)
+	for _, path := range m.attachmentPaths(userTurn.Attachments) {
+		args = append(args, "--image", path)
+	}
+	args = append(args, "--json", "--", userTurn.runtimePrompt())
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = projectRoot
 	stdout, err := cmd.StdoutPipe()
@@ -420,7 +474,11 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	if err != nil {
 		return err
 	}
-	args := []string{"-p", userTurn.Content, "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--mcp-config", profile}
+	prompt := userTurn.runtimePrompt()
+	if paths := m.attachmentPaths(userTurn.Attachments); len(paths) > 0 {
+		prompt += "\n\n图片附件已保存在本地，请作为本条消息的上下文读取：\n" + strings.Join(paths, "\n")
+	}
+	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--mcp-config", profile}
 	if session.NativeSessionID != "" {
 		args = append(args, "--resume", session.NativeSessionID)
 	}
@@ -468,6 +526,27 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 		return err
 	}
 	return nil
+}
+
+func (m *AgentManager) attachmentPaths(attachments []ChatAttachment) []string {
+	paths := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		asset, err := m.media.GetAsset(attachment.AssetID)
+		if err != nil {
+			continue
+		}
+		if path, _ := asset.Metadata["path"].(string); path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+func (t ChatTurn) runtimePrompt() string {
+	if t.Content != "" {
+		return t.Content
+	}
+	return "请分析随本条消息附上的图片。"
 }
 
 func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string]any) {
@@ -553,12 +632,13 @@ func toolLabel(kind, name string, item map[string]any) string {
 		return map[string]string{"command_execution": "运行命令", "file_change": "修改文件", "mcp_tool_call": "MCP 工具调用", "web_search": "搜索网络"}[kind] + toolLabelSuffix(name)
 	}
 	labels := map[string]string{
-		"recut.project_context":     "读取 Recut 项目上下文",
-		"recut.media.configuration": "读取媒体模型配置",
-		"recut.media.generate":      "提交媒体生成任务",
-		"recut.media.get_job":       "查询媒体生成进度",
-		"recut.media.list_assets":   "读取素材库",
-		"recut.media.attach":        "将素材关联到项目",
+		"recut.project_context":      "读取 Recut 项目上下文",
+		"recut.media.configuration":  "读取媒体模型配置",
+		"recut.media.generate":       "同步生成媒体",
+		"recut.media.generate_async": "提交异步媒体任务",
+		"recut.media.get_job":        "查询媒体生成进度",
+		"recut.media.list_assets":    "读取素材库",
+		"recut.media.attach":         "将素材关联到项目",
 	}
 	if label, ok := labels[name]; ok {
 		return label
@@ -675,9 +755,30 @@ func listChatTurns(db *sql.DB, sessionID string) ([]ChatTurn, error) {
 		if err != nil {
 			return nil, err
 		}
+		turn.Attachments, err = listChatAttachments(db, turn.ID)
+		if err != nil {
+			return nil, err
+		}
 		result = append(result, turn)
 	}
 	return result, rows.Err()
+}
+
+func listChatAttachments(db *sql.DB, turnID string) ([]ChatAttachment, error) {
+	rows, err := db.Query(`select a.id, a.name, a.mime_type from agent_turn_attachments t join media_assets a on a.id = t.asset_id where t.turn_id = ? order by a.created_at, a.id`, turnID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	attachments := []ChatAttachment{}
+	for rows.Next() {
+		var attachment ChatAttachment
+		if err := rows.Scan(&attachment.AssetID, &attachment.Name, &attachment.MimeType); err != nil {
+			return nil, err
+		}
+		attachments = append(attachments, attachment)
+	}
+	return attachments, rows.Err()
 }
 
 func scanChatTurn(row scanner) (ChatTurn, error) {

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService、Store 与测试目录中的临时工作区
- * [OUTPUT]: 验证媒体凭据加密保存、能力路由、受校验的模型/凭据直连、图片导入和幂等生成任务的持久化契约
+ * [OUTPUT]: 验证媒体凭据加密保存、能力路由、受校验的模型/凭据直连、图片导入、幂等任务与中断恢复契约
  * [POS]: service 的 Media Platform 回归测试；不调用真实模型提供商
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestMediaRouteAndJobUseOpaqueCredential(t *testing.T) {
@@ -93,10 +94,62 @@ func TestMediaReferenceKindsFollowCreationCapability(t *testing.T) {
 	}
 }
 
+func TestGenerateSyncReturnsTerminalFailure(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	media := NewMediaService(store)
+	credential, err := media.SaveCredential(MediaCredential{Provider: "openai-compatible", Name: "Unavailable", APIBase: "http://127.0.0.1:1"}, "secret-value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := media.SaveRoute(MediaRoute{Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := media.GenerateSync(GenerateMediaInput{Capability: ImageGenerate, Prompt: "test", IdempotencyKey: "sync-terminal"})
+	if err == nil || job.Status != "failed" || job.Error == "" {
+		t.Fatalf("synchronous generation must return a terminal failure, got %#v, %v", job, err)
+	}
+}
+
 func TestImportedImageRejectsNonImageContent(t *testing.T) {
 	media := &MediaService{}
 	if _, err := media.ImportImage("note.txt", "text/plain", []byte("not an image")); err == nil {
 		t.Fatal("non-image import was accepted")
+	}
+}
+
+func TestMediaRecoversInterruptedJobs(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	media := NewMediaService(store)
+	db, err := media.database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, status := range []string{"queued", "running", "completed"} {
+		if _, err := db.Exec(`insert into media_jobs (id, idempotency_key, capability, status, prompt, model_id, credential_id, project_id, reference_ids_json, output_json, asset_ids_json, error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, status, "key-"+status, "image.generate", status, "test", "openai-compatible/image", "credential", "", "[]", "{}", "[]", "", now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recovered, err := media.RecoverInterruptedJobs()
+	if err != nil || recovered != 2 {
+		t.Fatalf("recovered = %d, %v", recovered, err)
+	}
+	rows, err := db.Query("select id, status, error from media_jobs order by id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	got := map[string]string{}
+	for rows.Next() {
+		var id, status, message string
+		if err := rows.Scan(&id, &status, &message); err != nil {
+			t.Fatal(err)
+		}
+		got[id] = status + ":" + message
+	}
+	if got["queued"] != "failed:"+interruptedMediaJobMessage || got["running"] != "failed:"+interruptedMediaJobMessage || got["completed"] != "completed:" {
+		t.Fatalf("recovered job states = %#v", got)
 	}
 }
 

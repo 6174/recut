@@ -34,6 +34,11 @@ func main() {
 	bridge := NewAgentBridge(store)
 	host := NewAppHost(apps, store)
 	media := NewMediaService(store)
+	if recovered, err := media.RecoverInterruptedJobs(); err != nil {
+		log.Fatal(err)
+	} else if recovered > 0 {
+		log.Printf("Marked %d interrupted media job(s) as failed", recovered)
+	}
 	if *mcpStdio {
 		if err := RunMCPStdio(bridge, host, media, os.Stdin, os.Stdout); err != nil {
 			log.Fatal(err)
@@ -44,7 +49,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	agents := NewAgentManager(store, bridge)
+	agents := NewAgentManager(store, bridge, media)
 	log.Printf("Recut local API listening on http://%s", *address)
 	log.Fatal(NewServer(apps, store, terminals, bridge, agents, host, media).ListenAndServe(*address))
 }
