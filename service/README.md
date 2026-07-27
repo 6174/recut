@@ -4,12 +4,13 @@
 
 成员清单
 main.go: 组合 Daemon、AppHost、MCP Host 与 loopback HTTP 服务。
-catalog.go: 只读取和校验 manifest.json，不理解 App 数据布局。
+catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json，跟随开发 App 的符号链接，不理解 App 数据布局。
 project.go: 创建平台项目并按 App scope 提供 SQLite、文件与 Artifact 存储。
 runtime.go: 在 Goja sandbox 中执行 App background.js，并注入统一 operation 注册器；同一 handler 可按 manifest surface 暴露给 UI API 与 MCP。
-mcp.go: 将带 App workflow context 与默认媒体契约的 recut.project_context、同步 recut.media.generate、异步 recut.media.generate_async 与当前 App 的 manifest operations 路由给 JavaScript handler。
+mcp.go: 将带 App workflow context 与默认媒体契约的 recut.project_context、同步 recut.image.generate、异步 recut.video.generate_async/recut.speech.generate_async 与当前 App 的 manifest operations 路由给 JavaScript handler。
+mcp_test.go: 锁定按图片、视频和语音拆分的 MCP 生成工具及其互不混淆的输入 schema。
 server.go: 提供项目、App UI、App API、Artifact 与终端 HTTP 边界。
-bridge.go: 管理 Agent session 与本地 CLI 连接，用内嵌 prompts/ 核心模板和当前 App 的 AGENTS.md 渲染 Codex 项目 guide。
+bridge.go: 管理 Agent session 与本地 CLI 连接，为项目挂载 `.recut/app`，再用内嵌 prompts/ 核心模板和当前 App 的 AGENTS.md 渲染 Codex 项目 guide。
 prompts/: Go 后端私有的嵌入式平台 Agent 模板；不会作为 App 包内容或运行时外部依赖暴露。
 agent.go: 保存本机用户的一对一 Agent 会话、消息、图片资产引用与事件；同一会话把生成期间的新消息持久化为 FIFO 待发送队列，附件以 assetId、来源和只读路径同时交给 Agent，Codex 以原生图片参数读取受控资产，并将 JSONL 规范化为 UI 时间线协议。
 agent_server.go: 提供 Agent Session 的创建、带项目图片资产引用的待发送消息入队、停止、查询与 SSE 事件 API。
@@ -17,7 +18,7 @@ media.go: 平台级媒体资产、BYOK 凭据加密、Provider Registry、模型
 media_server.go: 素材库、图片导入、模型、凭据、路由、任务和资产内容的 HTTP API。
 media_test.go: 验证媒体凭据不泄漏、Provider 模型归属、隐藏素材库系统项目、默认路由、模型/凭据直连校验和生成任务幂等性。
 terminal.go, ws.go: PTY 和事件传输基础设施。
-*_test.go: manifest、存储与 JS runtime 的回归验证。
+*_test.go: manifest、存储与 JS runtime 的回归验证；其中 runtime_test.go 断言 Vox Keyframes 不能退化为纯文本且接受带图片快照的结构化产出。
 
 依赖关系
 

@@ -15,11 +15,17 @@ import (
 
 func main() {
 	dataDir := flag.String("data-dir", defaultDataDir(), "local Recut data directory")
-	appsDir := flag.String("apps-dir", "../apps", "directory containing App packages")
+	appsDir := flag.String("apps-dir", "", "directory containing App packages (default: <data-dir>/apps)")
 	address := flag.String("address", "127.0.0.1:17373", "loopback API address")
 	mcpStdio := flag.Bool("mcp-stdio", false, "serve the App Agent Bridge over stdio")
 	flag.Parse()
+	if *appsDir == "" {
+		*appsDir = filepath.Join(*dataDir, "apps")
+	}
 
+	if err := os.MkdirAll(*appsDir, 0o755); err != nil {
+		log.Fatal(err)
+	}
 	apps, err := LoadCatalog(*appsDir)
 	if err != nil {
 		log.Fatal(err)
@@ -57,7 +63,7 @@ func main() {
 func defaultDataDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".recutvideo"
+		return ".recut"
 	}
-	return filepath.Join(home, ".recutvideo")
+	return filepath.Join(home, ".recut")
 }

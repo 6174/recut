@@ -32,3 +32,26 @@ func TestCatalogLoadsManifestOnlyApps(t *testing.T) {
 		t.Fatalf("standalone app = %#v, found = %v", app, ok)
 	}
 }
+
+func TestCatalogLoadsSymlinkedAppPackage(t *testing.T) {
+	root := t.TempDir()
+	packageRoot := filepath.Join(root, "source", "example")
+	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(packageRoot, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(packageRoot, filepath.Join(appsDir, "example")); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app, ok := catalog.Get("example.app"); !ok || app.Root != filepath.Join(appsDir, "example") {
+		t.Fatalf("symlinked app = %#v, found = %v", app, ok)
+	}
+}

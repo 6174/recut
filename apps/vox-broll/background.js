@@ -81,7 +81,7 @@ const resourceContracts = {
   keyframes: {
     inputs: ["approved beats", "selected look"],
     output: { keyframes: "Keyframe[]" },
-    item: { field: "keyframes", required: ["beatId", "title", "composition", "headline", "layers"], optional: ["image"], types: { beatId: "string", title: "string", composition: "string", headline: "string", layers: "string[]" }, media: { field: "image", requiredAsset: false } },
+    item: { field: "keyframes", required: ["beatId", "title", "composition", "headline", "layers", "image"], types: { beatId: "string", title: "string", composition: "string", headline: "string", layers: "string[]" }, media: { field: "image", requiredAsset: true } },
   },
   audio: {
     inputs: ["approved beats", "keyframes"],
@@ -117,7 +117,7 @@ function hasExpectedType(value, type) {
 
 function validateMediaSnapshot(label, snapshot, requiredAsset) {
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw new Error(`${label} must be a MediaSnapshot object`);
-  const missing = Object.entries(mediaSnapshotContract).filter(([field]) => field !== "assetId" && (snapshot[field] === undefined || snapshot[field] === null || snapshot[field] === "")).map(([field]) => field);
+  const missing = Object.entries(mediaSnapshotContract).filter(([field, type]) => field !== "assetId" && (snapshot[field] === undefined || snapshot[field] === null || (type === "string" && snapshot[field] === ""))).map(([field]) => field);
   if (requiredAsset && !hasValue(snapshot.assetId)) missing.push("assetId");
   if (missing.length) throw new Error(`${label} is missing required fields: ${missing.join(", ")}`);
   const invalid = Object.entries(mediaSnapshotContract).filter(([field, type]) => snapshot[field] !== undefined && !hasExpectedType(snapshot[field], type)).map(([field]) => field);
@@ -180,7 +180,7 @@ function prepareResource(input, ctx) {
     brief: "一份短而明确的创作简报：主题、受众、论点、核心张力与编辑方向。",
     beats: "一个可审阅的叙事弧：三秒钩子、逐段节拍、每段的观众理解与画面证据。",
     look: "3 个明显不同的视觉方向。每个方向都需要一张 16:9 风格参考图和原始画面描述；图里不要有可读正文、Logo 或水印。完成后停下，等待选择。",
-    keyframes: "每个节拍一张关键画面：主体、构图、标题区域、纸层和叙事证据；与已选 Look 保持一致。",
+    keyframes: "每个节拍一张关键画面：先用 recut.media.generate 逐张生成并拿到完成的图片 assetId，再保存。每个 keyframes[] 项的 image 必须是完整 MediaSnapshot，image.assetId 指向该节拍的新图；text 是该图的原始提示词；imageAssetIds 引用选定 Look 的参考图；audioAssetIds 为空数组；sourceResourceIds 记录对应 Beat 和 Look。绝不把文字画面描述当成关键画面保存。",
     audio: "每个场景的旁白、音乐与音效关系；声音必须帮助观众理解，而不是填满空白。",
     scenes: "基于已确认声音和关键画面的一组短场景视频；每段声音对应一个清楚的信息变化、镜头动作与切点。",
     delivery: "最终时间线、画幅、时长、格式和可执行的导出前检查表。",

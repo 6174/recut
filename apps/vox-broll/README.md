@@ -4,8 +4,8 @@
 
 成员清单
 manifest.json: 唯一运行时配置，声明 B-roll 的 JS 入口、权限、统一 operations 的调用说明、输入 schema 与暴露面，以及可缓存 UI 版本。
-AGENTS.md: 纯领域创作契约，定义 B-roll 的七阶段、声音先于场景视频的关系、审美标准与审批门；不包含平台工具或运行时实现。
-background.js: 自行创建 briefs/resources SQLite 表并发布 Artifact；定义并校验七种资源的输入/输出契约，计算权威 workflow context，将同步生成的风格图以 `assetId + prompt` 保存为 Look，首次读取时清理历史旧格式 Look，并支持受依赖保护的手动删除。
+AGENTS.md: 纯领域创作契约，为 B-roll 七阶段分别定义请求目标、输入边界、交付内容与完成条件，规定声音先于场景视频、Keyframes 必须图文配对；不包含平台工具或运行时实现。
+background.js: 自行创建 briefs/resources SQLite 表并发布 Artifact；定义并校验七种资源的输入/输出契约，强制 Keyframes 每个节拍保存图片 `assetId`，计算权威 workflow context，将同步生成的风格图以 `assetId + prompt` 保存为 Look，首次读取时清理历史旧格式 Look，并支持受依赖保护的手动删除。
 ui/index.html: React/Vite 开发入口。
 ui/src/: B-roll 的 React UI 源码、宿主事件订阅与样式；以多面板工作台同时预览所有创作阶段。
 ui/package.json: UI 独立构建依赖与 Vite 命令。

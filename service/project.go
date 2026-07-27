@@ -88,6 +88,17 @@ func (s *Store) Create(input CreateInput) (Project, error) {
 	return project, nil
 }
 
+// EnsureProjectAppMount exposes the current App package to an Agent in the
+// project workspace. The package remains shared: project data never lives in
+// this link and Git operations on it affect the App checkout itself.
+func (s *Store) EnsureProjectAppMount(projectID string) error {
+	project, err := s.Get(projectID)
+	if err != nil {
+		return err
+	}
+	return s.ensureAppMount(s.projectDir(projectID), project.AppID)
+}
+
 // EnsureMediaSystemProject creates the hidden project scope used by the
 // workspace-level Media Library. It reuses the regular Agent/MCP boundary
 // without making a system app look like user-created work.
@@ -346,15 +357,40 @@ func (s *Store) checkAppScope(projectID, appID string) error {
 }
 
 func (s *Store) initialize(root string, project Project) error {
-	for _, path := range []string{"files", "sessions", "snapshots", "logs", filepath.Join("apps", project.AppID)} {
+	for _, path := range []string{"files", "sessions", "snapshots", "logs", filepath.Join("apps", project.AppID), ".recut"} {
 		if err := os.MkdirAll(filepath.Join(root, path), 0o755); err != nil {
 			return err
 		}
+	}
+	if err := s.ensureAppMount(root, project.AppID); err != nil {
+		return err
 	}
 	if err := writeProjectJSON(filepath.Join(root, "recut.json"), project); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (s *Store) ensureAppMount(projectRoot, appID string) error {
+	app, ok := s.catalog.Get(appID)
+	if !ok {
+		return fmt.Errorf("app %q is unavailable", appID)
+	}
+	mount := filepath.Join(projectRoot, ".recut", "app")
+	if err := os.MkdirAll(filepath.Dir(mount), 0o755); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(mount); err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("App mount %q is not a symbolic link", mount)
+		}
+		if err := os.Remove(mount); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.Symlink(app.Root, mount)
 }
 
 func (s *Store) projectsDir() string         { return filepath.Join(s.root, "projects") }

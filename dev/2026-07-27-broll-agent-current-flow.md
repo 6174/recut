@@ -31,18 +31,16 @@ flowchart TD
   C --> M[MCP stdio: recut-mcp]
   M --> P[recut.project_context]
   M --> L[tools/list]
-  L --> A[App MCP tools + recut.media.*]
+  L --> A[App MCP tools + typed media generation]
   A --> PR[resource.prepare Look\n生成一段长指令]
   PR --> I[Agent 自行决定调用顺序]
   I --> CFG[recut.media.configuration]
-  CFG --> GEN[recut.media.generate]
-  GEN --> J[(workspace.sqlite: media_jobs\nstatus=queued)]
+  CFG --> GEN[recut.image.generate]
+  GEN --> J[(workspace.sqlite: media_jobs\nterminal state)]
   J --> W[go m.execute goroutine]
   W --> HTTP[Provider /images/generations]
   HTTP --> AS[保存 asset + attach project]
   AS --> DONE[media_jobs completed + assetIds]
-  I --> POLL[recut.media.get_job 反复轮询]
-  POLL --> DONE
   DONE --> SAVE[recut.vox-broll.create_resource\nLook: assetId + exact prompt]
   SAVE --> ART[App SQLite resource + Artifact]
   H --> SSE[SSE agent events]
@@ -68,7 +66,7 @@ flowchart TD
 - `apps/vox-broll/AGENTS.md`：规定 `Brief → Beats → Look → Keyframes → Motion → Audio → Delivery`，Look 必须有图片 `assetId` 与原始 `prompt`。
 - Recut MCP 配置：短生命周期 session token 通过子进程环境传入，MCP Host 按当前项目的 manifest 暴露工具。
 
-MCP `tools/list` 实际暴露两类能力：平台 `recut.media.*`（configuration / generate / get_job / list_assets / attach）和 App `recut.vox-broll.*`（generate_brief / create_resource / retire_resource / delete_resource）。
+MCP `tools/list` 实际暴露两类能力：平台按意图划分的 `recut.image.generate`、`recut.video.generate_async`、`recut.speech.generate_async`，以及 `recut.media.*`（configuration / get_job / list_assets / attach）；App 侧为 `recut.vox-broll.*`（generate_brief / create_resource / retire_resource / delete_resource）。
 
 这里的关键事实是：**注入的是行为说明，不是编排器**。`resource.prepare(kind=Look)` 只返回一段提示词，要求模型「依次生成 3 张图、轮询、保存资源、停下」。没有服务端状态机、没有循环预算、没有超时完成语义，也没有“一个 Look 计划”的父记录。
 
@@ -78,10 +76,9 @@ MCP `tools/list` 实际暴露两类能力：平台 `recut.media.*`（configurati
 
 1. 为候选 A/B/C 起草提示词。
 2. 调用 `recut.media.configuration`。
-3. 每个候选调用 `recut.media.generate(image.generate, prompt, output)`；返回的是 `{ jobId, status: "queued" }`，不是图片。
-4. Agent 在同一或后续回合内反复调用 `recut.media.get_job(jobId)`，直到 `completed`。
-5. 仅当结果带有 `assetIds` 时，调用 `recut.vox-broll.create_resource` 保存 `{ assetId, prompt, ... }`。
-6. 停下来等用户选择，才允许进入 Keyframes。
+3. 每个候选调用 `recut.image.generate(text, output)`；同步返回 `assetIds` 或终态错误。
+4. 仅当结果带有 `assetIds` 时，调用 `recut.vox-broll.create_resource` 保存 `{ assetId, prompt, ... }`。
+5. 停下来等用户选择，才允许进入 Keyframes。
 
 这条规定避免了“无图 Look”进入后续阶段，但只把完整性责任推给了 LLM。真实聊天记录已经出现两种偏差：旧版提示词先创建文字 Look 再让用户选 A；新版才要求先生成图片。清理旧 Look 后，历史回答/Artifact 仍说 Look 已完成，而 App 当前资源表并不承认它。
 
@@ -116,7 +113,7 @@ worker 不是持久化队列：Daemon 重启时 `RecoverInterruptedJobs` 会把�
 建议的最小语义：
 
 ```text
-recut.media.generate(prompt, output)
+recut.image.generate(text, output)
   -> { assetId, prompt, ... }       // 成功
   -> error { code, message, jobId } // Provider 失败、超时、服务中断
 ```
@@ -222,7 +219,7 @@ Required outcome: 3 persisted Look candidates, each with a generated 16:9 assetI
 Gate: stop after candidates; do not create Keyframes.
 ```
 
-当前最小实现让 Look 使用默认同步 `recut.media.generate`，并保留 `recut.media.generate_async` 给真正的长任务。进一步收敛时可由高层 App 工具 `generate_look_candidates` 完成候选持久化与验证；模型只负责把主题和审美约束转成候选创意，平台负责“生成、等待、超时、存储、验证”。
+当前最小实现让 Look 使用默认同步 `recut.image.generate`，并将视频与语音分别收敛到 `recut.video.generate_async`、`recut.speech.generate_async`。进一步收敛时可由高层 App 工具 `generate_look_candidates` 完成候选持久化与验证；模型只负责把主题和审美约束转成候选创意，平台负责“生成、等待、超时、存储、验证”。
 
 ## 推荐的全局执行闭环
 
@@ -265,7 +262,7 @@ flowchart TD
 
 ## 2026-07-27 已实施的最小闭环
 
-- `recut.media.generate` 现在同步返回 `assetIds` 或终态错误；Provider 请求沿用 2 分钟硬超时。需要异步的长任务必须显式调用 `recut.media.generate_async`，再用 `get_job` 查询。
+- `recut.image.generate` 现在同步返回 `assetIds` 或终态错误；Provider 请求沿用 2 分钟硬超时。视频和语音长任务分别调用 `recut.video.generate_async`、`recut.speech.generate_async`，再用 `recut.media.get_job` 查询。
 - `recut.project_context` 同时携带已配置的默认媒体路由、模型输入契约和可选参数；生成阶段直接使用 default route，不再为每一张图调用 `recut.media.configuration`。
 - Vox B-roll 新增 `workflow_context` MCP/API：读取 App 私有 SQLite 的当前有效 Brief、Beats、Look、阶段与 `allowedActions`。`recut.project_context` 会把这份状态直接带回 Agent，旧 Artifact 只保留为历史信息。
 - Look 任务包不再注入完整 Brief JSON 或轮询教程：它要求先读取 canonical context，然后用默认同步生成并且只在拥有 `assetId + prompt` 时创建资源。

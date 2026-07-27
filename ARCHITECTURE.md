@@ -3,7 +3,7 @@
 > L1 | 父级: /README.md
 
 ```text
-App package (GitHub release / local directory)
+App package (`~/.recut/apps` Git clone / 开发源码链接)
 ├── manifest.json       唯一运行时配置
 ├── background.js       App 业务、API 与 MCP handler
 └── ui/                 App 自己定义的界面
@@ -43,9 +43,11 @@ App package
 
 `AGENTS.md` 是当前已实现的自动注入层。`references/` 与 `scripts/` 的目标是支持类似 vox-director 的复杂制作 App：参考材料有可追溯 ID，脚本有参数 schema、产物和执行记录；Agent 不获得“随便运行包内脚本”的模糊权限。
 
+运行时始终从 `~/.recut/apps` 加载 App。开发仓库执行 `make app-link` 后，目录中的包会链接至源码，因此服务、项目和 Agent 使用同一份 App 文件。项目会创建 `.recut/app -> ~/.recut/apps/<package>`；平台生成的 Agent guide 明确该路径是 App 的 manifest、领域 guide、参考资料与实现源码位置。App 工作副本可被 Agent 按用户任务修改并以 Git 回退，项目 SQLite、媒体和用户文件不受 App 代码回退影响。
+
 ## Media Platform
 
-媒体资源是工作区级 Asset，不属于任一 App 的私有文件夹。`MediaService` 的 Provider Registry 声明每个平台的协议、默认 API Base 和模型目录；BYOK 凭据属于 Provider，Route 必须选择同一 Provider 下的具体模型。全局 SettingsPanel 负责“连接 Provider → 选择用途模型”，素材库不重复配置。`workspace.sqlite` 保存 Asset 元数据、项目引用、生成任务、能力 Route 和加密后的 BYOK 凭据；内容文件以哈希落入受控媒体根。`recut.project_context` 直接携带当前默认 route 的模型契约，因此 Agent 可直接调用 `recut.media.generate`，不为每次生成重复查询配置。App 仅消费稳定的 `assetId`，可在自身 Artifact 中保存该引用。Atlas Cloud 作为 OpenAI-compatible 聚合 Provider，模型目录含 GPT Image、Seedream、Seedance、Grok 和 xAI TTS；首个执行适配器覆盖其图片模型，视频与语音会复用相同任务与 Asset 契约。
+媒体资源是工作区级 Asset，不属于任一 App 的私有文件夹。`MediaService` 的 Provider Registry 声明每个平台的协议、默认 API Base 和模型目录；BYOK 凭据属于 Provider，Route 必须选择同一 Provider 下的具体模型。全局 SettingsPanel 负责“连接 Provider → 选择用途模型”，素材库不重复配置。`workspace.sqlite` 保存 Asset 元数据、项目引用、生成任务、能力 Route 和加密后的 BYOK 凭据；内容文件以哈希落入受控媒体根。`recut.project_context` 直接携带当前默认 route 的模型契约；Agent 按意图调用 `recut.image.generate`、`recut.video.generate_async` 或 `recut.speech.generate_async`，不再传递可错配的 capability 枚举。`recut.media.*` 仅保留配置、Job 与素材管理。App 仅消费稳定的 `assetId`，可在自身 Artifact 中保存该引用。Atlas Cloud 作为 OpenAI-compatible 聚合 Provider，模型目录含 GPT Image、Seedream、Seedance、Grok 和 xAI TTS；首个执行适配器覆盖其图片模型，视频与语音会复用相同任务与 Asset 契约。
 
 ## B-roll 案例
 

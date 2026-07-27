@@ -1,26 +1,22 @@
 /**
- * [INPUT]: 依赖 React 状态、Resource 类型、阶段摘要与基础按钮
- * [OUTPUT]: 对外提供素材库式缩略图项目、悬停操作与更多菜单
- * [POS]: vox-broll 的资源浏览单元；所有阶段均以小型可扫读缩略图呈现，详情交由模态框承载
+ * [INPUT]: 依赖 React 状态、Resource 类型、真实资源缩略文本与基础按钮
+ * [OUTPUT]: 对外提供素材库式缩略图项目、真实内容预览、悬停操作与更多菜单
+ * [POS]: vox-broll 的资源浏览单元；图片用图片、文本用真实缩略文本，详情交由模态框承载
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { Trash2 } from "lucide-react";
 import type { Resource } from "./main";
-import { isLegacyLook, ResourcePresentation, resourceSummary } from "./resource-view";
+import { isLegacyLook, ResourcePresentation, resourceImageURLs, resourcePreviewLines } from "./resource-view";
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui";
 
 function TextPreview({ resource }: { resource: Resource }) {
-  const kind = resource.kind.toLowerCase();
-  const summary = resourceSummary(resource);
-  if (kind === "beats") return <div className="grid h-full grid-cols-[auto_1fr] gap-x-2 p-3"><span className="font-mono text-lg text-primary">01</span><div className="grid content-center gap-1"><span className="h-1.5 w-4/5 rounded-full bg-foreground/70" /><span className="h-1.5 w-3/5 rounded-full bg-muted-foreground/30" /><span className="h-1.5 w-2/5 rounded-full bg-muted-foreground/20" /></div></div>;
-  if (kind === "keyframes") return <div className="grid h-full grid-cols-2 gap-1.5 p-2.5">{[0, 1, 2, 3].map((item) => <span className={`rounded-sm border ${item === 0 ? "border-primary/50 bg-primary/10" : "border-border bg-muted/40"}`} key={item} />)}</div>;
-  if (kind === "scenes") return <div className="grid h-full place-items-center bg-muted/30"><span className="font-mono text-2xl text-primary">▶</span></div>;
-  if (kind === "audio") return <div className="flex h-full items-center justify-center gap-1 bg-muted/30">{[4, 8, 14, 20, 12, 18, 7, 11].map((height, index) => <span className="w-1 rounded-full bg-primary/70" key={index} style={{ height }} />)}</div>;
-  if (kind === "delivery") return <div className="grid h-full content-center gap-2 p-3">{["画幅", "格式", "检查"].map((label) => <span className="flex items-center gap-2 text-[10px] text-muted-foreground" key={label}><i className="size-1.5 rounded-full bg-primary" />{label}</span>)}</div>;
-  return <div className="grid h-full content-center gap-2 bg-primary/[0.035] p-3"><p className="line-clamp-2 text-xs font-medium leading-5 text-foreground">{summary}</p><span className="h-1.5 w-2/3 rounded-full bg-primary/25" /></div>;
+  const lines = resourcePreviewLines(resource);
+  return <div className="grid h-full content-center gap-1.5 bg-primary/[0.035] p-3">{lines.length ? lines.map((line, index) => <p className={`line-clamp-2 text-xs leading-4 ${index === 0 ? "font-medium text-foreground" : "text-muted-foreground"}`} key={line}>{line}</p>) : <p className="text-xs text-muted-foreground">尚未填写可展示内容</p>}</div>;
 }
 
 function Preview({ resource }: { resource: Resource }) {
+  const image = resourceImageURLs(resource)[0];
+  if (image) return <img alt={`${resource.title} 缩略图`} className="size-full object-cover" src={image} />;
   if (resource.kind.toLowerCase() === "look") return <div className="h-full overflow-hidden"><ResourcePresentation compact resource={resource} /></div>;
   return <TextPreview resource={resource} />;
 }

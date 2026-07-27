@@ -135,6 +135,9 @@ func (b *AgentBridge) MaterializeCodexProject(session AgentSession, token, execu
 	if err != nil {
 		return "", err
 	}
+	if err := b.store.EnsureProjectAppMount(project.ID); err != nil {
+		return "", err
+	}
 	app, ok := b.store.catalog.Get(project.AppID)
 	if !ok {
 		return "", errors.New("project App is unavailable")

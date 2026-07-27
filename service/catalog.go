@@ -68,10 +68,15 @@ func LoadCatalog(dir string) (*Catalog, error) {
 	}
 	catalog := &Catalog{apps: map[string]App{}, dir: absolute}
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		root := filepath.Join(absolute, entry.Name())
+		info, err := os.Stat(root)
+		if err != nil {
+			return nil, fmt.Errorf("inspect App package %q: %w", entry.Name(), err)
+		}
+		if !info.IsDir() {
 			continue
 		}
-		app, err := loadApp(filepath.Join(absolute, entry.Name()))
+		app, err := loadApp(root)
 		if err != nil {
 			return nil, err
 		}

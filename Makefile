@@ -1,9 +1,11 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev service-dev stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build check
+.PHONY: help dev service-dev stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build app-link check
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
+RECUT_HOME ?= $(HOME)/.recut
+APP ?=
 
 help: ## Show available development commands.
 	@awk 'BEGIN { FS = ":.*##"; printf "\nRecut development commands:\n" } /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -53,5 +55,20 @@ web-dev: stop-stale-web ## Start only the Next.js workspace on port 3000.
 
 web-build: ## Build and type-check the Next.js workspace.
 	cd web && npm run build
+
+app-link: ## Link one local App package (APP=apps/vox-broll) or every local package into ~/.recut/apps.
+	@set -e; \
+	if [ -n "$(APP)" ]; then set -- "$(APP)"; else set -- apps/*; fi; \
+	mkdir -p "$(RECUT_HOME)/apps"; \
+	for source in "$$@"; do \
+		if [ ! -f "$$source/manifest.json" ]; then continue; fi; \
+		name="$$(basename "$$source")"; \
+		target="$(RECUT_HOME)/apps/$$name"; \
+		if [ -e "$$target" ] && [ ! -L "$$target" ]; then echo "Refusing to replace non-link App package: $$target"; exit 1; fi; \
+		if [ -L "$$target" ]; then rm "$$target"; fi; \
+		absolute="$$(cd "$$source" && pwd -P)"; \
+		ln -s "$$absolute" "$$target"; \
+		echo "Linked $$name -> $$absolute"; \
+	done
 
 check: service-test service-vet web-build ## Run all service and web verification.

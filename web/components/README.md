@@ -3,6 +3,7 @@
 > L2 | 父级: /web/README.md
 
 成员清单
+agent-message-content.tsx: Agent 回复的受控 XML 媒体节点渲染器；解析 `<media type="image|video|audio" assetid="..."/>` 为素材库内容 API 的图片、视频或音频预览，未知节点保留为纯文本。
 project-agent-panel.tsx: 项目与素材库共用的固定高度 Agent 对话侧栏；输入法组合输入期间不会误发 Enter，支持选择或粘贴图片上传为当前项目资产、发送前移除和时间线预览，用户消息、待发送消息、assistant 消息和去重后的工具调用按真实时间统一排序。
 settings-panel.tsx: Header 右侧的全局设置面板；管理多 Provider BYOK 凭据，并按图片、视频、语音用途选择已连接 Provider 下的模型，可由素材创建流程直接打开。
 use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧直接更新 DOM，暴露拖动状态以遮蔽 iframe，松手后才持久化宽度，避免渲染拥塞或跨文档丢失指针事件。

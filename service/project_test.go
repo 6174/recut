@@ -49,6 +49,16 @@ func TestProjectProvidesAppStorageWithoutProjectLayout(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(store.projectDir(project.ID), "apps", "example.app", "data")); !os.IsNotExist(err) {
 		t.Fatalf("legacy App data directory exists: %v", err)
 	}
+	mount := filepath.Join(store.projectDir(project.ID), ".recut", "app")
+	info, err := os.Lstat(mount)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("App source mount = %v, err = %v", info, err)
+	}
+	target, err := filepath.EvalSymlinks(mount)
+	expectedTarget, expectedErr := filepath.EvalSymlinks(appDir)
+	if err != nil || expectedErr != nil || target != expectedTarget {
+		t.Fatalf("App source mount target = %q, expected = %q, err = %v / %v", target, expectedTarget, err, expectedErr)
+	}
 }
 
 func TestStandaloneAppCannotCreateProject(t *testing.T) {

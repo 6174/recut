@@ -652,8 +652,9 @@ func toolLabel(kind, name string, item map[string]any) string {
 	labels := map[string]string{
 		"recut.project_context":      "读取 Recut 项目上下文",
 		"recut.media.configuration":  "读取媒体模型配置",
-		"recut.media.generate":       "同步生成媒体",
-		"recut.media.generate_async": "提交异步媒体任务",
+		"recut.image.generate":       "生成图片",
+		"recut.video.generate_async": "提交视频生成任务",
+		"recut.speech.generate_async": "提交语音生成任务",
 		"recut.media.get_job":        "查询媒体生成进度",
 		"recut.media.list_assets":    "读取素材库",
 		"recut.media.attach":         "将素材关联到项目",

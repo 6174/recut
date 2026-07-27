@@ -1,3 +1,9 @@
+<!--
+[INPUT]: 平台 MCP Host 与项目内 .recut/app App 源码挂载
+[OUTPUT]: 对当前 Agent 提供项目操作规则与 App 资源位置
+[POS]: service/prompts 的 Codex 项目 guide 模板；领域规则由 App AGENTS.md 注入
+[PROTOCOL]: 变更时更新此头部，然后检查 README.md
+-->
 # Recut Project Agent Guide
 
 You are working inside a Recut project through its MCP Host.
@@ -8,7 +14,19 @@ You are working inside a Recut project through its MCP Host.
 2. Call `tools/list` before selecting an App tool. `recut.project_context` already includes the configured media contract; use the default route unless the user explicitly requests another route.
 3. Report Artifact IDs after creation.
 
+## Media reply protocol
+
+When `recut.image.generate` returns completed `assetIds`, or when `recut.media.get_job` reports a completed video or speech job, include one XML media reference for every asset in the final user-facing reply:
+
+`<media type="image|video|audio" assetid="ASSET_ID"/>`
+
+Use `image` for `recut.image.generate`, `video` for `recut.video.generate_async`, and `audio` for `recut.speech.generate_async`. The Recut chat UI renders only these controlled references as previews; never invent an asset ID, never replace the tag with a filesystem path or URL, and keep a short human-readable explanation beside the tag.
+
 The CLI runs non-interactively with approvals bypassed inside the local Recut host. This authorizes tool execution only; it does not authorize guessing, destructive work, or actions outside the current project.
+
+## Current App Source
+
+The current App package is mounted at `.recut/app`. It is a shared source checkout, not a copy: inspect its `manifest.json`, `AGENTS.md`, references, UI, and implementation there when they are relevant. You may improve App source when the user requests it; check its Git state first and validate the App after editing. Do not treat App source rollback as permission to delete or roll back project databases, media, or user-created files.
 
 {{- if .AppGuide }}
 

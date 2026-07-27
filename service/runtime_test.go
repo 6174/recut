@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AppHost、临时 manifest 和 JavaScript background
- * [OUTPUT]: 验证 JS App 只能通过 SQLite/files/artifact capability 完成业务调用
+ * [OUTPUT]: 验证 JS App 的 capability 边界，以及 Vox Keyframes 必须保存图片快照
  * [POS]: service 的 capability runtime 回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -50,5 +50,97 @@ func TestAppHostInvokesManifestDeclaredJavaScriptAPI(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(store.projectDir(project.ID), "apps", "example.app", "files", "note.txt")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
+	apps, err := LoadCatalog(filepath.Join("..", "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(t.TempDir(), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.Create(CreateInput{Name: "Vox operation test", AppID: "recut.vox-broll"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := NewAppHost(apps, store)
+	appID := "recut.vox-broll"
+
+	if _, err := host.InvokeAPI(project.ID, appID, "brief.create", map[string]any{"topic": "测试统一 operation"}); err != nil {
+		t.Fatalf("brief.create API: %v", err)
+	}
+	if _, err := host.InvokeMCP(project.ID, appID, "brief.create", map[string]any{"topic": "测试统一 operation"}); err != nil {
+		t.Fatalf("brief.create MCP: %v", err)
+	}
+	for _, call := range []struct {
+		surface string
+		name    string
+		input   map[string]any
+	}{
+		{"api", "brief.latest", map[string]any{}},
+		{"api", "workflow.context", map[string]any{}},
+		{"mcp", "workflow.context", map[string]any{}},
+		{"api", "resource.prepare", map[string]any{"kind": "beats"}},
+	} {
+		var err error
+		if call.surface == "api" {
+			_, err = host.InvokeAPI(project.ID, appID, call.name, call.input)
+		} else {
+			_, err = host.InvokeMCP(project.ID, appID, call.name, call.input)
+		}
+		if err != nil {
+			t.Fatalf("%s %s: %v", call.name, call.surface, err)
+		}
+	}
+
+	beats := func(title string) map[string]any {
+		return map[string]any{"kind": "beats", "title": title, "content": map[string]any{"hook": "反常识", "narrative": "因果", "beats": []any{map[string]any{"id": "beat-1", "title": "开场", "narration": "新信息", "visual": "数据卡", "purpose": "建立冲突", "durationSec": 3}}}}
+	}
+	first, err := host.InvokeMCP(project.ID, appID, "resource.create", beats("第一份节拍"))
+	if err != nil {
+		t.Fatalf("resource.create MCP: %v", err)
+	}
+	firstID := first.(Artifact).Value.(map[string]any)["id"].(string)
+	second, err := host.InvokeMCP(project.ID, appID, "resource.create", beats("第二份节拍"))
+	if err != nil {
+		t.Fatalf("second resource.create MCP: %v", err)
+	}
+	secondID := second.(Artifact).Value.(map[string]any)["id"].(string)
+	keyframe := func(image any) map[string]any {
+		content := map[string]any{"keyframes": []any{map[string]any{"beatId": "beat-1", "title": "开场画面", "composition": "左侧人物，右侧数据卡", "headline": "三秒钩子", "layers": []any{"人物", "数据卡"}}}}
+		if image != nil {
+			content["keyframes"].([]any)[0].(map[string]any)["image"] = image
+		}
+		return map[string]any{"kind": "keyframes", "title": "关键画面", "content": content, "dependencies": []any{firstID}}
+	}
+	if _, err := host.InvokeMCP(project.ID, appID, "resource.create", keyframe(nil)); err == nil {
+		t.Fatal("text-only keyframes must be rejected")
+	}
+	image := map[string]any{"assetId": "generated-image", "text": "Vox 拼贴画面", "imageAssetIds": []any{"look-image"}, "audioAssetIds": []any{}, "sourceResourceIds": []any{"beat-1", firstID}}
+	createdKeyframes, err := host.InvokeMCP(project.ID, appID, "resource.create", keyframe(image))
+	if err != nil {
+		t.Fatalf("keyframes with generated image: %v", err)
+	}
+	keyframeID := createdKeyframes.(Artifact).Value.(map[string]any)["id"].(string)
+	if _, err := host.InvokeAPI(project.ID, appID, "resource.list", map[string]any{}); err != nil {
+		t.Fatalf("resource.list API: %v", err)
+	}
+	if _, err := host.InvokeAPI(project.ID, appID, "resource.retire", map[string]any{"id": keyframeID}); err != nil {
+		t.Fatalf("resource.retire keyframes: %v", err)
+	}
+	if _, err := host.InvokeAPI(project.ID, appID, "resource.retire", map[string]any{"id": firstID}); err != nil {
+		t.Fatalf("resource.retire API: %v", err)
+	}
+	if _, err := host.InvokeMCP(project.ID, appID, "resource.retire", map[string]any{"id": secondID}); err != nil {
+		t.Fatalf("resource.retire MCP: %v", err)
+	}
+	if _, err := host.InvokeAPI(project.ID, appID, "resource.delete", map[string]any{"id": firstID}); err != nil {
+		t.Fatalf("resource.delete API: %v", err)
+	}
+	if _, err := host.InvokeMCP(project.ID, appID, "resource.delete", map[string]any{"id": secondID}); err != nil {
+		t.Fatalf("resource.delete MCP: %v", err)
 	}
 }
