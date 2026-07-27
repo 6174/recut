@@ -78,10 +78,15 @@ type MediaAsset struct {
 	SizeBytes   int64          `json:"sizeBytes"`
 	ContentHash string         `json:"contentHash"`
 	Origin      string         `json:"origin"`
+	Status      string         `json:"status"`
+	JobID       string         `json:"jobId,omitempty"`
+	RemoteID    string         `json:"remoteId,omitempty"`
+	Error       string         `json:"error,omitempty"`
 	ProjectIDs  []string       `json:"projectIds"`
 	ParentID    string         `json:"parentId,omitempty"`
 	Metadata    map[string]any `json:"metadata"`
 	CreatedAt   time.Time      `json:"createdAt"`
+	UpdatedAt   time.Time      `json:"updatedAt"`
 }
 
 type MediaJob struct {
@@ -94,6 +99,7 @@ type MediaJob struct {
 	ReferenceIDs []string        `json:"referenceIds"`
 	Output       map[string]any  `json:"output"`
 	AssetIDs     []string        `json:"assetIds"`
+	RemoteID     string          `json:"remoteId,omitempty"`
 	Error        string          `json:"error,omitempty"`
 	CreatedAt    time.Time       `json:"createdAt"`
 	UpdatedAt    time.Time       `json:"updatedAt"`

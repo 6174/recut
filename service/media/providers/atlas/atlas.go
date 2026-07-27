@@ -47,6 +47,18 @@ type Result struct {
 	VideoURL     string
 }
 
+// Prediction is the durable remote-task handle returned as soon as Atlas
+// accepts a video request. Callers persist this before they start polling so a
+// local timeout or restart never severs the Recut Asset from the Atlas task.
+type Prediction struct {
+	ID      string
+	Status  string
+	Outputs []string
+	Error   string
+	Message string
+	PollURL string
+}
+
 func UploadMedia(client *http.Client, baseURL, secret string, input MediaUpload) (string, error) {
 	if len(input.Content) == 0 || strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.ContentType) == "" {
 		return "", errors.New("Atlas Cloud media upload requires name, content type, and content")
@@ -113,7 +125,7 @@ func uploadPartHeader(input MediaUpload) textproto.MIMEHeader {
 	return header
 }
 
-type prediction struct {
+type predictionResponse struct {
 	ID      string   `json:"id"`
 	Status  string   `json:"status"`
 	Outputs []string `json:"outputs"`
@@ -122,47 +134,96 @@ type prediction struct {
 	URLs    struct {
 		Get string `json:"get"`
 	} `json:"urls"`
-	Data *prediction `json:"data"`
+	Data *predictionResponse `json:"data"`
 }
 
-func Generate(client *http.Client, baseURL, secret string, input GenerateInput, timeout time.Duration) (Result, error) {
+// Submit performs only Atlas' POST /generateVideo request. A successful
+// response contains the prediction ID even while the actual video is still
+// processing; callers must persist that ID before returning to the user.
+func Submit(client *http.Client, baseURL, secret string, input GenerateInput) (Prediction, error) {
 	baseURL = normalizedBaseURL(baseURL)
 	payload, err := payloadFor(input)
 	if err != nil {
-		return Result{}, err
+		return Prediction{}, err
 	}
 	body, _ := json.Marshal(payload)
 	prediction, err := request(client, baseURL, secret, http.MethodPost, "/api/v1/model/generateVideo", bytes.NewReader(body))
 	if err != nil {
+		return Prediction{}, err
+	}
+	if strings.TrimSpace(prediction.ID) == "" {
+		return Prediction{}, errors.New("Atlas Cloud submission returned no prediction ID")
+	}
+	return prediction, nil
+}
+
+// Poll reads one Atlas prediction state. It does not sleep or impose a local
+// terminal deadline; task ownership belongs to the persistent caller.
+func Poll(client *http.Client, baseURL, secret string, submitted Prediction) (Prediction, error) {
+	if strings.TrimSpace(submitted.ID) == "" {
+		return Prediction{}, errors.New("Atlas Cloud prediction ID is required")
+	}
+	endpoint := submitted.PollURL
+	if endpoint == "" {
+		endpoint = "/api/v1/model/prediction/" + submitted.ID
+	}
+	return request(client, normalizedBaseURL(baseURL), secret, http.MethodGet, endpoint, nil)
+}
+
+func Generate(client *http.Client, baseURL, secret string, input GenerateInput, timeout time.Duration) (Result, error) {
+	prediction, err := Submit(client, baseURL, secret, input)
+	if err != nil {
 		return Result{}, err
 	}
 	deadline := time.Now().Add(timeout)
-	for !isCompleted(prediction.Status) {
-		if prediction.Status == "failed" || prediction.Status == "timeout" {
-			if prediction.Error == "" {
-				prediction.Error = prediction.Message
-			}
-			return Result{}, fmt.Errorf("Atlas Cloud prediction %s: %s", prediction.Status, prediction.Error)
+	for !prediction.Completed() {
+		if prediction.Failed() {
+			return Result{}, fmt.Errorf("Atlas Cloud prediction %s: %s", prediction.Status, prediction.FailureMessage())
 		}
 		if time.Now().After(deadline) {
 			return Result{}, errors.New("Atlas Cloud video prediction timed out")
 		}
-		endpoint := prediction.URLs.Get
-		if endpoint == "" {
-			endpoint = "/api/v1/model/prediction/" + prediction.ID
-		}
 		time.Sleep(predictionPollInterval)
-		prediction, err = request(client, baseURL, secret, http.MethodGet, endpoint, nil)
+		prediction, err = Poll(client, baseURL, secret, prediction)
 		if err != nil {
 			return Result{}, err
 		}
 	}
-	for _, output := range prediction.Outputs {
-		if isVideoURL(output) {
-			return Result{PredictionID: prediction.ID, VideoURL: output}, nil
-		}
+	if output := prediction.VideoURL(); output != "" {
+		return Result{PredictionID: prediction.ID, VideoURL: output}, nil
 	}
 	return Result{}, errors.New("Atlas Cloud completed without a video output")
+}
+
+func (p Prediction) Completed() bool { return isCompleted(p.Status) }
+
+func (p Prediction) Failed() bool {
+	status := strings.ToLower(strings.TrimSpace(p.Status))
+	return status == "failed" || status == "timeout"
+}
+
+func (p Prediction) FailureMessage() string {
+	if strings.TrimSpace(p.Error) != "" {
+		return p.Error
+	}
+	if strings.TrimSpace(p.Message) != "" {
+		return p.Message
+	}
+	return "Atlas Cloud did not return an error message"
+}
+
+func (p Prediction) VideoURL() string {
+	for _, output := range p.Outputs {
+		if isVideoURL(output) {
+			return output
+		}
+	}
+	for _, output := range p.Outputs {
+		if strings.TrimSpace(output) != "" {
+			return output
+		}
+	}
+	return ""
 }
 
 func payloadFor(input GenerateInput) (map[string]any, error) {
@@ -325,41 +386,44 @@ func oneOf(value string, options ...string) bool {
 	return false
 }
 
-func request(client *http.Client, baseURL, secret, method, endpoint string, body io.Reader) (prediction, error) {
+func request(client *http.Client, baseURL, secret, method, endpoint string, body io.Reader) (Prediction, error) {
 	url := endpoint
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		url = normalizedBaseURL(baseURL) + endpoint
 	}
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
-		return prediction{}, err
+		return Prediction{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+secret)
 	req.Header.Set("Content-Type", "application/json")
 	response, err := client.Do(req)
 	if err != nil {
-		return prediction{}, err
+		return Prediction{}, err
 	}
 	defer response.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(response.Body, 8<<20))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return prediction{}, fmt.Errorf("provider returned %s: %s", response.Status, string(data))
+		return Prediction{}, fmt.Errorf("provider returned %s: %s", response.Status, string(data))
 	}
-	value := prediction{}
+	value := predictionResponse{}
 	if err := json.Unmarshal(data, &value); err != nil {
-		return prediction{}, err
+		return Prediction{}, err
 	}
 	if value.Data != nil {
-		data := *value.Data
-		if data.Message == "" {
-			data.Message = value.Message
+		inner := *value.Data
+		if inner.Message == "" {
+			inner.Message = value.Message
 		}
-		value = data
+		if inner.Error == "" {
+			inner.Error = value.Error
+		}
+		value = inner
 	}
 	if value.ID == "" && value.Status == "" {
-		return prediction{}, errors.New("Atlas Cloud returned an invalid prediction")
+		return Prediction{}, errors.New("Atlas Cloud returned an invalid prediction")
 	}
-	return value, nil
+	return Prediction{ID: value.ID, Status: value.Status, Outputs: value.Outputs, Error: value.Error, Message: value.Message, PollURL: value.URLs.Get}, nil
 }
 
 func normalizedBaseURL(baseURL string) string {
@@ -371,6 +435,7 @@ func normalizedBaseURL(baseURL string) string {
 }
 
 func isCompleted(status string) bool {
+	status = strings.ToLower(strings.TrimSpace(status))
 	return status == "completed" || status == "succeeded"
 }
 

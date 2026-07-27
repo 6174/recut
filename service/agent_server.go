@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentManager 的本地持久化会话和 HTTP SSE 传输能力
- * [OUTPUT]: 对外提供 Agent Session 创建、查询、含图片资产引用的发送、停止与事件订阅 HTTP API
+ * [OUTPUT]: 对外提供 Agent Session 创建、Codex 配置更新、查询、含图片资产引用的发送、停止与事件订阅 HTTP API
  * [POS]: service 的结构化对话传输边界；与 terminal HTTP API 并存且互不代理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -54,6 +54,23 @@ func (s *Server) getAgentSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) updateCodexConfiguration(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		CodexModel      string `json:"codexModel"`
+		ReasoningEffort string `json:"reasoningEffort"`
+	}{}
+	if json.NewDecoder(r.Body).Decode(&input) != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	session, err := s.agents.UpdateCodexConfiguration(r.PathValue("id"), strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort))
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
 }
 
 func (s *Server) startAgentTurn(w http.ResponseWriter, r *http.Request) {

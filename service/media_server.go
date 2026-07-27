@@ -191,6 +191,17 @@ func (s *Server) getMediaAssetContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("media asset not found"))
 		return
 	}
+	if asset.Status != "completed" {
+		message := "media asset is still generating"
+		if asset.Status == "failed" {
+			message = asset.Error
+			if message == "" {
+				message = "media asset generation failed"
+			}
+		}
+		writeError(w, http.StatusConflict, errors.New(message))
+		return
+	}
 	path, _ := asset.Metadata["path"].(string)
 	if path == "" {
 		writeError(w, http.StatusNotFound, errors.New("media file not found"))

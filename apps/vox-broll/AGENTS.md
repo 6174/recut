@@ -8,7 +8,7 @@
 
 ## 媒体执行边界
 
-本 App 的图片、旁白和场景视频必须通过 Recut MCP 媒体 API 生成。场景视频的唯一执行路径是 `recut.video.generate_async → recut.media.get_job → resource.create`；关键画面使用 `recut.image.generate`，旁白使用 `recut.speech.generate_async`。
+本 App 的图片、旁白和场景视频必须通过 Recut MCP 媒体 API 生成。场景视频的唯一执行路径是 `recut.video.generate_async → resource.create`：Atlas 接受远端任务后会立刻返回稳定的 Recut `assetId`，该 Asset 先处于 `running`，随后在同一 ID 上变为 `completed` 或 `failed`。`recut.media.get_job` 只用于读取和汇报状态，不能阻塞 Scene 引用的创建；关键画面使用 `recut.image.generate`，旁白使用 `recut.speech.generate_async`。
 
 这是 Provider 调用，不是本地视频创作任务。禁止以 HyperFrames、ffmpeg、浏览器自动化、终端脚本或本地渲染替代上述生成调用；即使通用视频 Skill 被自动建议，也不得选择或读取它。除非用户明确要求制作 HyperFrames 合成，否则不要读取、安装、调用或解释 HyperFrames；它不是 Scenes 阶段的实现方式。
 
@@ -58,9 +58,9 @@
 
 把已确认的声音与关键画面组合成连续的短场景。每个场景视频只服务一段声音和一个信息变化：镜头怎么进入、什么纸层移动、在哪里停住、怎样在声音的切点进入下一个场景。宁可一个清楚动作，也不要在同一场景堆多种花哨运动。
 
-请求目标：将一张 Keyframe 与一段 Audio 合成为可播放的短视频，而不是复述分镜。每个场景先使用对应关键画面 `assetId` 和音频 `assetId` 作为生成输入，随后保存新视频 `assetId`、时长、视觉动作和切点；一个场景只表达一个信息变化。完成标准：所有视频镜头按 Beats 顺序覆盖，首尾与声音切点相接，且视频中的材料、色彩和标题安全区延续已选 Look。
+请求目标：将一张 Keyframe 与一段 Audio 合成为可播放的短视频，而不是复述分镜。每个场景先使用对应关键画面 `assetId` 和音频 `assetId` 作为生成输入；一旦远端接受任务，就保存返回的新视频 `assetId`、时长、视觉动作和切点。一个场景只表达一个信息变化；Asset 状态本身是视频完成与失败的唯一事实来源。完成标准：所有视频镜头按 Beats 顺序覆盖，首尾与声音切点相接，且视频中的材料、色彩和标题安全区延续已选 Look。
 
-视频昂贵，默认一次只生成当前待完成的第一段 Scene，并立即停下等待用户确认。每一段视频必须调用 `recut.video.generate_async` 后轮询完成，保存为一个独立的 `scenes` Resource：顶层只有该段的 `beatId`、`title`、`durationSec`、`visualAction`、`cutPoint` 和 `video` MediaSnapshot；禁止把多段视频塞进同一个 Resource。只有用户明确说“全部生成”“生成所有剩余场景”或同等意思时，才可以连续生成多段，但每段仍必须独立保存。局部修复只更新对应 Scene resource，绝不触及其他段。
+视频昂贵，默认一次只生成当前待完成的第一段 Scene，并立即停下等待用户确认。每一段视频必须调用 `recut.video.generate_async`；收到成功提交的 `assetIds[0]` 后立刻调用 `resource.create` 保存一个独立的 `scenes` Resource，不能等待轮询完成。顶层只有该段的 `beatId`、`title`、`durationSec`、`visualAction`、`cutPoint` 和 `video` MediaSnapshot；`video.assetId` 指向这个稳定 Asset，UI 会把 `running` 显示为生成中预览。禁止把多段视频塞进同一个 Resource。只有用户明确说“全部生成”“生成所有剩余场景”或同等意思时，才可以连续生成多段，但每段仍必须独立保存。局部修复只更新对应 Scene resource，绝不触及其他段。
 
 **Delivery｜交付**
 

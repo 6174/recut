@@ -43,7 +43,7 @@ func main() {
 	if recovered, err := media.RecoverInterruptedJobs(); err != nil {
 		log.Fatal(err)
 	} else if recovered > 0 {
-		log.Printf("Marked %d interrupted media job(s) as failed", recovered)
+		log.Printf("Reconciled %d interrupted media job(s)", recovered)
 	}
 	if *mcpStdio {
 		if err := RunMCPStdio(bridge, host, media, os.Stdin, os.Stdout); err != nil {

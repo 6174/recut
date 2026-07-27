@@ -5,9 +5,9 @@
 成员清单
 main.tsx: B-roll 工作台编排层；以两列等宽 panel 网格同时展示七个阶段，并按资源创建或原位更新的项目能力完成事件刷新资源。
 stage-panel.tsx: 工作台单层创作分区；以统一边框卡片承载标题、资源画布、空状态和创建入口，避免与页面标题重复绘制顶部分隔线。
-resource-card.tsx: 固定宽度的素材缩略图；Look 和 Keyframes 优先展示实际生成图，文本资源展示真实内容片段，悬停显示三点操作菜单。
+resource-card.tsx: 固定宽度的素材缩略图；Look 和 Keyframes 展示实际生成图，已完成 Scene 直接展示静音循环视频画面，运行或失败素材显示状态兜底，悬停显示三点操作菜单。
 resource-dialogs.tsx: iframe 内受控资源详情模态框、受确认的删除入口与新建请求弹窗；引用资源展示实际图片缩略图或文字摘要。
-resource-view.tsx: 资源展示语义层；按阶段把内部 JSON 翻译为图文、缩略文本、镜头卡与清单，读取 Keyframe 图片、Audio 语音与每段独立 Scene 视频快照并提供播放，绝不直接向用户展示 JSON。
+resource-view.tsx: 资源展示语义层；按阶段把内部 JSON 翻译为图文、缩略文本、视频画面、镜头卡与清单，读取 Keyframe 图片、Audio 语音与每段独立 Scene 视频快照；完成态提供真实视频预览与播放，运行或失败保留明确状态，绝不直接向用户展示 JSON。
 recut-sdk.ts: iframe 与宿主的 MessageChannel 边界，发布项目事件。
 ui.tsx: 基于 Tailwind、Radix Dialog / Dropdown Menu 的 shadcn 风格 UI 原子。
 style.css: Tailwind v4 入口与 Vox B-roll 设计令牌；与宿主共享白底、黑字、明亮品牌绿主题。

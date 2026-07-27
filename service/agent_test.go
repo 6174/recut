@@ -77,6 +77,39 @@ func TestNormalizeCodexConfiguration(t *testing.T) {
 	}
 }
 
+func TestCodexProjectArgsPreserveUserSkillConfiguration(t *testing.T) {
+	args := codexProjectArgs("/project", "/bin/recut", "/data", "/apps", AgentSession{ID: "session"}, "token")
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == "--config" && strings.HasPrefix(args[index+1], "skills.config=") {
+			t.Fatalf("Codex project arguments must not override user skills: %s", args[index+1])
+		}
+	}
+}
+
+func TestUpdateCodexConfigurationPersistsNextTurnDefaults(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := iso(time.Now().UTC())
+	if _, err := db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", "session-config", localProfileID, "", "codex", "", "Test", "idle", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewAgentManager(store, nil, nil)
+	session, err := manager.UpdateCodexConfiguration("session-config", "gpt-5.6-sol", "max")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.CodexModel != "gpt-5.6-sol" || session.ReasoningEffort != "max" {
+		t.Fatalf("saved configuration = %q/%q", session.CodexModel, session.ReasoningEffort)
+	}
+}
+
 func TestCodexToolFailureDetection(t *testing.T) {
 	for _, item := range []map[string]any{
 		{"status": "failed"},

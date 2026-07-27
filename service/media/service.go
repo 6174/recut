@@ -22,11 +22,13 @@ type Workspace interface {
 }
 
 type MediaService struct {
-	store Workspace
-	mu    sync.Mutex
+	store   Workspace
+	mu      sync.Mutex
+	pollers sync.Map
 }
 
 const mediaRequestTimeout = 2 * time.Minute
+const atlasPollInterval = 2 * time.Second
 
 const InterruptedMediaJobMessage = "本地服务重启前任务未完成，请重新生成。"
 

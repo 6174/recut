@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖素材库 Asset、模型允许的引用类型和受控上传回调
- * [OUTPUT]: 对外提供按模型能力筛选的参考素材选择、上传和预览字段
+ * [INPUT]: 依赖素材库 Asset、模型允许的引用类型、VideoFrame 和受控上传回调
+ * [OUTPUT]: 对外提供按模型能力筛选的参考素材选择、上传和预览字段，视频引用显示真实首帧
  * [POS]: media 创建弹框的参考素材子组件；不持有 Provider、凭据或生成任务状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { VideoFrame } from "@/components/video-frame";
 import type { Asset, AssetKind } from "./media-types";
 
 type ReferenceAssetsFieldProps = {
@@ -214,17 +215,15 @@ function ReferenceThumbnail({
   asset: Asset;
   className: string;
 }) {
-  const source = `${apiBase}/v1/media/assets/${asset.id}/content`;
+  const source = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`;
   if (asset.kind === "image") {
     return <img alt={asset.name} className={className} src={source} />;
   }
   if (asset.kind === "video") {
     return (
-      <video
-        aria-label={asset.name}
+      <VideoFrame
+        alt={asset.name || "参考视频"}
         className={className}
-        muted
-        preload="metadata"
         src={source}
       />
     );

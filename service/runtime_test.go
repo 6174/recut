@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AppHost、临时 manifest 和 JavaScript background
- * [OUTPUT]: 验证 JS App 的 capability 边界，以及 Vox Keyframes 必须保存图片快照
+ * [OUTPUT]: 验证 JS App 的 capability 边界，以及 Vox Keyframes 必须保存图片快照、Scenes 必须走平台异步视频路径
  * [POS]: service 的 capability runtime 回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -9,6 +9,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -164,7 +165,25 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 	}
 	execution := workflow.(map[string]any)["mediaExecution"].(map[string]any)
 	scenes := execution["scenes"].(map[string]any)
-	if scenes["kind"] != "platform-media-generation" || scenes["generate"] != "recut.video.generate_async" || scenes["complete"] != "recut.media.get_job -> assetId -> resource.create" {
+	if scenes["kind"] != "platform-media-generation" || scenes["generate"] != "recut.video.generate_async" || scenes["complete"] != "accepted -> assetIds[0] -> resource.create; get_job only reports Asset status" {
 		t.Fatalf("scene media route = %#v", scenes)
+	}
+	prepared, err := NewAppHost(apps, store).InvokeAPI(project.ID, "recut.vox-broll", "resource.prepare", map[string]any{"kind": "scenes"})
+	if err != nil {
+		t.Fatalf("resource.prepare scenes: %v", err)
+	}
+	prompt, _ := prepared.(map[string]any)["prompt"].(string)
+	for _, required := range []string{
+		"recut.video.generate_async",
+		"keyframe.assetId",
+		"audio.assetId",
+		"assetIds[0]",
+		"resource.create",
+		"不能等待轮询完成",
+		"禁止使用 HyperFrames",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("scene preparation is missing %q: %s", required, prompt)
+		}
 	}
 }

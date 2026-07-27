@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Media Platform 的资产、Provider、Credential 与生成任务 API，以及系统项目 Agent Session
- * [OUTPUT]: 对外提供素材浏览、按 assetId 合并重复导入结果、生成详情中的提示词与参考素材展示、生成参数回填再次创建、生成中任务卡片、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
+ * [OUTPUT]: 对外提供素材浏览、完成视频的真实首帧卡片、按 assetId 合并重复导入结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、生成中任务卡片、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
  * [POS]: web/app/media 的系统应用入口；将素材创建收敛为独立弹框，右侧 Agent 仍用于复杂协作
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -9,8 +9,10 @@ import {
   ArrowLeft,
   ChevronDown,
   ImageIcon,
+  LoaderCircle,
   Music2,
   Plus,
+  Upload,
   Video,
   X,
 } from "lucide-react";
@@ -18,16 +20,20 @@ import Link from "next/link";
 import {
   ClipboardEvent,
   CSSProperties,
+  ChangeEvent,
   FormEvent,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
+import { VideoFrame } from "@/components/video-frame";
 import { AssetPreview } from "./asset-preview";
 import { ReferenceAssetsField } from "./reference-assets-field";
+import { normalizeAsset } from "./media-types";
 import type {
   Asset,
   AssetKind,
@@ -102,6 +108,8 @@ export default function MediaLibrary() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [providerSettings, setProviderSettings] = useState(false);
   const [notice, setNotice] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const uploadInput = useRef<HTMLInputElement>(null);
   const { handlePointerDown, layoutRef, panelWidth } = useResizableSidePanel({
     storageKey: "recut.media-agent-panel-width",
   });
@@ -114,7 +122,7 @@ export default function MediaLibrary() {
       ]);
       if (!health.ok || !project.ok || !assetResponse.ok) throw new Error();
       setProjectID((await project.json()).id);
-      setAssets(await assetResponse.json());
+      setAssets(((await assetResponse.json()) as Asset[]).map(normalizeAsset));
       setOnline(true);
     } catch {
       setOnline(false);
@@ -162,9 +170,10 @@ export default function MediaLibrary() {
     filter === "all" ? assets : assets.filter((asset) => asset.kind === filter);
   const visibleJobs = jobs.filter(
     (job) =>
-      filter === "all" ||
-      job.capability ===
-        createKinds.find((item) => item.kind === filter)?.capability,
+      job.assetIds.length === 0 &&
+      (filter === "all" ||
+        job.capability ===
+          createKinds.find((item) => item.kind === filter)?.capability),
   );
   function openProviderSettings() {
     setCreateKind(null);
@@ -201,6 +210,39 @@ export default function MediaLibrary() {
         : [],
     });
     setCreateKind(kind);
+  }
+  async function uploadAssets(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length) return;
+    setUploading(true);
+    setNotice("");
+    const imported: Asset[] = [];
+    try {
+      for (const file of files) {
+        const form = new FormData();
+        form.append("file", file);
+        const response = await fetch(`${apiBase}/v1/media/assets`, {
+          method: "POST",
+          body: form,
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error ?? `“${file.name}”上传失败，请重试。`);
+        }
+        imported.push(normalizeAsset((await response.json()) as Asset));
+      }
+      setAssets((current) => [
+        ...imported.filter((asset) => !current.some((item) => item.id === asset.id)),
+        ...current,
+      ]);
+      setNotice(`已上传 ${imported.length} 个素材。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "素材上传失败，请重试。");
+      void load();
+    } finally {
+      setUploading(false);
+    }
   }
   return (
     <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
@@ -246,6 +288,23 @@ export default function MediaLibrary() {
                 <Badge>
                   {visibleAssets.length + visibleJobs.length} ASSETS
                 </Badge>
+                <input
+                  accept="image/*,video/*,audio/*"
+                  className="hidden"
+                  multiple
+                  onChange={uploadAssets}
+                  ref={uploadInput}
+                  type="file"
+                />
+                <button
+                  className="flex h-8 items-center gap-1.5 rounded-xs border px-2.5 text-xs font-medium hover:bg-muted disabled:cursor-wait disabled:opacity-60"
+                  disabled={uploading}
+                  onClick={() => uploadInput.current?.click()}
+                  type="button"
+                >
+                  <Upload className="size-3.5" />
+                  {uploading ? "上传中…" : "上传素材"}
+                </button>
                 <div className="relative">
                   <button
                     aria-expanded={createMenuOpen}
@@ -340,9 +399,10 @@ export default function MediaLibrary() {
           draft={createDraft ?? undefined}
           kind={createKind}
           onAssetImported={(asset) =>
-            setAssets((items) =>
-              items.some((item) => item.id === asset.id) ? items : [asset, ...items],
-            )
+            setAssets((items) => {
+              const normalized = normalizeAsset(asset);
+              return items.some((item) => item.id === normalized.id) ? items : [normalized, ...items];
+            })
           }
           onClose={() => {
             setCreateKind(null);
@@ -351,6 +411,7 @@ export default function MediaLibrary() {
           onOpenProviderSettings={openProviderSettings}
           onSubmitted={(job) => {
             setJobs((items) => [job, ...items]);
+            void load();
             setNotice(`${createKind.label}任务已提交，正在生成。`);
           }}
         />
@@ -419,7 +480,7 @@ function CreateAssetDialog({
   const referenceKindKey = referenceKinds.join(",");
   const referenceLabel = referenceKinds.map((item) => referenceLabels[item]).join("、");
   const referenceAssets = assets.filter((asset) =>
-    referenceKinds.includes(asset.kind),
+    asset.status === "completed" && referenceKinds.includes(asset.kind),
   );
   const selectedReferenceAssets = assets.filter((asset) =>
     referenceIDs.includes(asset.id),
@@ -767,7 +828,15 @@ function AssetGrid({
           onClick={() => onPreview(asset)}
           type="button"
         >
-          {asset.kind === "image" ? (
+          {asset.status !== "completed" ? (
+            <div className="grid aspect-[4/3] place-items-center bg-primary/10 px-4 text-center">
+              <div>
+                {asset.status === "failed" ? <span className="text-xs font-medium text-destructive">生成失败</span> : <LoaderCircle className="mx-auto size-5 animate-spin text-primary" />}
+                <p className="mt-2 text-xs font-medium text-foreground">{asset.status === "failed" ? asset.error ?? "任务未完成" : "生成中…"}</p>
+                {asset.status !== "failed" && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">素材引用已建立，完成后会原位显示。</p>}
+              </div>
+            </div>
+          ) : asset.kind === "image" ? (
             <div className="aspect-[4/3] bg-muted">
               <img
                 alt={asset.name}
@@ -775,6 +844,12 @@ function AssetGrid({
                 src={`${apiBase}/v1/media/assets/${asset.id}/content`}
               />
             </div>
+          ) : asset.kind === "video" ? (
+            <VideoFrame
+              alt={asset.name || "视频素材"}
+              className="aspect-[4/3]"
+              src={`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`}
+            />
           ) : (
             <div className="grid aspect-[4/3] place-items-center bg-muted">
               <span className="text-xs text-muted-foreground">

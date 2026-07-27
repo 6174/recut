@@ -230,7 +230,9 @@ create table if not exists media_routes (
 create table if not exists media_assets (
   id text primary key, kind text not null, name text not null, mime_type text not null,
   size_bytes integer not null, content_hash text not null, origin text not null,
-  parent_id text not null, metadata_json text not null, created_at text not null
+  parent_id text not null, status text not null default 'completed', job_id text not null default '',
+  remote_id text not null default '', remote_poll_url text not null default '', error text not null default '',
+  metadata_json text not null, created_at text not null, updated_at text not null
 );
 create table if not exists media_asset_projects (
   asset_id text not null, project_id text not null, created_at text not null,
@@ -240,7 +242,8 @@ create table if not exists media_jobs (
   id text primary key, idempotency_key text not null unique, capability text not null,
   status text not null, prompt text not null, model_id text not null, credential_id text not null,
   project_id text not null, reference_ids_json text not null, output_json text not null,
-  asset_ids_json text not null, error text not null, created_at text not null, updated_at text not null
+  asset_ids_json text not null, remote_id text not null default '', remote_poll_url text not null default '',
+  error text not null, created_at text not null, updated_at text not null
 );
 create index if not exists media_assets_created on media_assets(created_at desc);
 create index if not exists media_asset_projects_project on media_asset_projects(project_id, created_at desc);
@@ -255,11 +258,30 @@ create index if not exists media_jobs_updated on media_jobs(updated_at desc);
 	for _, statement := range []string{
 		"alter table agent_sessions add column codex_model text",
 		"alter table agent_sessions add column reasoning_effort text",
+		"alter table media_assets add column status text not null default 'completed'",
+		"alter table media_assets add column job_id text not null default ''",
+		"alter table media_assets add column remote_id text not null default ''",
+		"alter table media_assets add column remote_poll_url text not null default ''",
+		"alter table media_assets add column error text not null default ''",
+		"alter table media_assets add column updated_at text not null default ''",
+		"alter table media_jobs add column remote_id text not null default ''",
+		"alter table media_jobs add column remote_poll_url text not null default ''",
 	} {
 		if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			_ = db.Close()
 			return nil, err
 		}
+	}
+	if _, err := db.Exec("update media_assets set updated_at = created_at where updated_at = ''"); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	// Before asynchronous Assets existed, every persisted file was already
+	// usable. A pending Asset must carry both the local job and remote handle;
+	// unbound legacy pending values are completed files, not recoverable tasks.
+	if _, err := db.Exec("update media_assets set status = 'completed' where coalesce(trim(status), '') = '' or (status in ('queued', 'running') and (job_id = '' or remote_id = ''))"); err != nil {
+		_ = db.Close()
+		return nil, err
 	}
 	return db, nil
 }

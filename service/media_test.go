@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService、Store 与测试目录中的临时工作区
- * [OUTPUT]: 验证媒体凭据加密保存、能力路由、受校验的模型/凭据直连、图片导入、幂等任务与中断恢复契约
+ * [OUTPUT]: 验证媒体凭据加密保存、能力路由、受校验的模型/凭据直连、图片导入、幂等任务与 Atlas 异步及历史 Asset 状态恢复契约
  * [POS]: service 的 Media Platform 回归测试；不调用真实模型提供商
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -168,6 +169,272 @@ func TestAtlasReferenceModelsEnforceTheirInputContracts(t *testing.T) {
 	if err := validateModelReferences(gemini, 0, 0, 0); err == nil {
 		t.Fatal("Gemini accepted no reference images")
 	}
+}
+
+func TestAtlasAsyncVideoPublishesRunningAssetThenCompletesInPlace(t *testing.T) {
+	pollStarted := make(chan struct{}, 1)
+	releasePoll := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releasePoll) }) }
+
+	var atlas *httptest.Server
+	atlas = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/model/generateVideo":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"id":     "prediction-running",
+				"status": "processing",
+				"urls":   map[string]any{"get": atlas.URL + "/prediction-running"},
+			}})
+		case "/prediction-running":
+			select {
+			case pollStarted <- struct{}{}:
+			default:
+			}
+			<-releasePoll
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"id":      "prediction-running",
+				"status":  "completed",
+				"outputs": []string{atlas.URL + "/generated.mp4"},
+			}})
+		case "/generated.mp4":
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("completed video"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer atlas.Close()
+	defer release()
+
+	media, credentialID := newAtlasVideoMediaService(t, atlas.URL)
+	image, err := media.ImportImage("reference.png", "image/png", []byte("reference"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type generated struct {
+		job MediaJob
+		err error
+	}
+	returned := make(chan generated, 1)
+	go func() {
+		job, err := media.Generate(GenerateMediaInput{Capability: VideoGenerate, Prompt: "move", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credentialID, ReferenceIDs: []string{image.ID}, IdempotencyKey: "atlas-async-running"})
+		returned <- generated{job: job, err: err}
+	}()
+
+	var job MediaJob
+	select {
+	case result := <-returned:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		job = result.job
+	case <-time.After(time.Second):
+		t.Fatal("Atlas generation waited for remote completion instead of publishing a running asset")
+	}
+	if job.Status != "running" || job.RemoteID != "prediction-running" || len(job.AssetIDs) != 1 {
+		t.Fatalf("submitted Atlas job = %#v", job)
+	}
+	assetID := job.AssetIDs[0]
+	asset, err := media.GetAsset(assetID)
+	if err != nil || asset.ID != assetID || asset.JobID != job.ID || asset.Status != "running" || asset.RemoteID != job.RemoteID {
+		t.Fatalf("published running Atlas asset = %#v, %v", asset, err)
+	}
+	waitForAtlasPoll(t, pollStarted)
+
+	release()
+	completed := waitForMediaJobStatus(t, media, job.ID, "completed")
+	if completed.ID != job.ID || len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != assetID || completed.RemoteID != job.RemoteID {
+		t.Fatalf("completed Atlas job lost its stable identity: before=%#v after=%#v", job, completed)
+	}
+	asset, err = media.GetAsset(assetID)
+	if err != nil || asset.Status != "completed" || asset.ID != assetID || asset.JobID != job.ID || asset.RemoteID != job.RemoteID || asset.SizeBytes == 0 {
+		t.Fatalf("completed Atlas asset was not updated in place: %#v, %v", asset, err)
+	}
+}
+
+func TestAtlasAsyncVideoMarksPublishedAssetFailed(t *testing.T) {
+	pollStarted := make(chan struct{}, 1)
+	releasePoll := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releasePoll) }) }
+
+	var atlas *httptest.Server
+	atlas = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/model/generateVideo":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "prediction-failed", "status": "accepted", "urls": map[string]any{"get": atlas.URL + "/prediction-failed"}}})
+		case "/prediction-failed":
+			select {
+			case pollStarted <- struct{}{}:
+			default:
+			}
+			<-releasePoll
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "prediction-failed", "status": "failed", "error": "Atlas credits exhausted"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer atlas.Close()
+	defer release()
+
+	media, credentialID := newAtlasVideoMediaService(t, atlas.URL)
+	image, err := media.ImportImage("reference.png", "image/png", []byte("reference"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := media.Generate(GenerateMediaInput{Capability: VideoGenerate, Prompt: "move", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credentialID, ReferenceIDs: []string{image.ID}, IdempotencyKey: "atlas-async-failed"})
+	if err != nil || job.Status != "running" || len(job.AssetIDs) != 1 {
+		t.Fatalf("submitted Atlas job = %#v, %v", job, err)
+	}
+	assetID := job.AssetIDs[0]
+	waitForAtlasPoll(t, pollStarted)
+
+	release()
+	failed := waitForMediaJobStatus(t, media, job.ID, "failed")
+	if failed.ID != job.ID || len(failed.AssetIDs) != 1 || failed.AssetIDs[0] != assetID || !strings.Contains(failed.Error, "credits exhausted") {
+		t.Fatalf("failed Atlas job = %#v", failed)
+	}
+	asset, err := media.GetAsset(assetID)
+	if err != nil || asset.ID != assetID || asset.Status != "failed" || asset.JobID != job.ID || asset.RemoteID != job.RemoteID || !strings.Contains(asset.Error, "credits exhausted") {
+		t.Fatalf("failed Atlas asset = %#v, %v", asset, err)
+	}
+}
+
+func TestAtlasAsyncRecoveryResumesPersistedPrediction(t *testing.T) {
+	pollRequests := make(chan int, 2)
+	allowRecoveredPoll := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(allowRecoveredPoll) }) }
+	var pollMu sync.Mutex
+	polls := 0
+
+	var atlas *httptest.Server
+	atlas = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/model/generateVideo":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"id":     "prediction-recover",
+				"status": "processing",
+				"urls":   map[string]any{"get": atlas.URL + "/prediction-recover"},
+			}})
+		case "/prediction-recover":
+			pollMu.Lock()
+			polls++
+			poll := polls
+			pollMu.Unlock()
+			pollRequests <- poll
+			if poll == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "prediction-recover", "status": "processing"}})
+				return
+			}
+			<-allowRecoveredPoll
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"id":      "prediction-recover",
+				"status":  "succeeded",
+				"outputs": []string{atlas.URL + "/recovered.mp4"},
+			}})
+		case "/recovered.mp4":
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("recovered video"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer atlas.Close()
+	defer release()
+
+	store := NewStore(t.TempDir(), nil)
+	media := NewMediaService(store)
+	credential, err := media.SaveCredential(MediaCredential{Provider: "atlas-cloud", Name: "Atlas", APIBase: atlas.URL}, "atlas-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := media.ImportImage("reference.png", "image/png", []byte("reference"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := media.Generate(GenerateMediaInput{Capability: VideoGenerate, Prompt: "move", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credential.ID, ReferenceIDs: []string{image.ID}, IdempotencyKey: "atlas-async-recover"})
+	if err != nil || job.Status != "running" || job.RemoteID != "prediction-recover" || len(job.AssetIDs) != 1 {
+		t.Fatalf("submitted Atlas job = %#v, %v", job, err)
+	}
+	assetID := job.AssetIDs[0]
+	if asset, err := media.GetAsset(assetID); err != nil || asset.Status != "running" || asset.RemoteID != job.RemoteID {
+		t.Fatalf("durable running Atlas asset = %#v, %v", asset, err)
+	}
+	if poll := waitForAtlasPollNumber(t, pollRequests); poll != 1 {
+		t.Fatalf("first Atlas poll = %d, want 1", poll)
+	}
+
+	restarted := NewMediaService(store)
+	recovered, err := restarted.RecoverInterruptedJobs()
+	if err != nil || recovered != 1 {
+		t.Fatalf("RecoverInterruptedJobs() = %d, %v", recovered, err)
+	}
+	if poll := waitForAtlasPollNumber(t, pollRequests); poll != 2 {
+		t.Fatalf("recovered Atlas poll = %d, want 2", poll)
+	}
+
+	release()
+	completed := waitForMediaJobStatus(t, restarted, job.ID, "completed")
+	if completed.ID != job.ID || completed.RemoteID != "prediction-recover" || len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != assetID {
+		t.Fatalf("recovered Atlas job = %#v", completed)
+	}
+	asset, err := restarted.GetAsset(assetID)
+	if err != nil || asset.Status != "completed" || asset.ID != assetID || asset.RemoteID != "prediction-recover" || asset.JobID != job.ID {
+		t.Fatalf("recovered Atlas asset = %#v, %v", asset, err)
+	}
+}
+
+func newAtlasVideoMediaService(t *testing.T, apiBase string) (*MediaService, string) {
+	t.Helper()
+	media := NewMediaService(NewStore(t.TempDir(), nil))
+	credential, err := media.SaveCredential(MediaCredential{Provider: "atlas-cloud", Name: "Atlas", APIBase: apiBase}, "atlas-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return media, credential.ID
+}
+
+func waitForAtlasPoll(t *testing.T, polls <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-polls:
+	case <-time.After(time.Second):
+		t.Fatal("Atlas poll did not start")
+	}
+}
+
+func waitForAtlasPollNumber(t *testing.T, polls <-chan int) int {
+	t.Helper()
+	select {
+	case poll := <-polls:
+		return poll
+	case <-time.After(time.Second):
+		t.Fatal("Atlas poll did not start")
+		return 0
+	}
+}
+
+func waitForMediaJobStatus(t *testing.T, media *MediaService, jobID, want string) MediaJob {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var last MediaJob
+	var lastErr error
+	for time.Now().Before(deadline) {
+		job, err := media.GetJob(jobID)
+		if err == nil {
+			last = job
+			if job.Status == want {
+				return job
+			}
+		} else {
+			lastErr = err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("media job %s never reached %q: last=%#v err=%v", jobID, want, last, lastErr)
+	return MediaJob{}
 }
 
 func TestAtlasVideoAdapterSubmitsAndPollsPrediction(t *testing.T) {
@@ -373,6 +640,35 @@ func TestImportImageReusesAssetWithMatchingContentHash(t *testing.T) {
 	assets, err := media.ListAssets("")
 	if err != nil || len(assets) != 1 {
 		t.Fatalf("assets = %#v, %v", assets, err)
+	}
+}
+
+func TestLegacyUnboundMediaAssetStatusReadsCompleted(t *testing.T) {
+	media := NewMediaService(NewStore(t.TempDir(), nil))
+	asset, err := media.ImportImage("legacy.png", "image/png", []byte("legacy image"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := media.Database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, legacyStatus := range []string{"", "running"} {
+		if _, err := db.Exec("update media_assets set status = ?, job_id = '', remote_id = '' where id = ?", legacyStatus, asset.ID); err != nil {
+			_ = db.Close()
+			t.Fatal(err)
+		}
+		legacy, err := media.GetAsset(asset.ID)
+		if err != nil || legacy.Status != "completed" {
+			t.Fatalf("legacy %q asset = %#v, %v", legacyStatus, legacy, err)
+		}
+		assets, err := media.ListAssets("")
+		if err != nil || len(assets) != 1 || assets[0].ID != asset.ID || assets[0].Status != "completed" {
+			t.Fatalf("media library legacy %q asset = %#v, %v", legacyStatus, assets, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

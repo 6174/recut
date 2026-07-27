@@ -25,10 +25,17 @@ import (
 	"recut-service/media/providers/atlas"
 )
 
+const jobColumns = `id, capability, status, prompt, model_id, project_id, reference_ids_json, output_json, asset_ids_json, remote_id, error, created_at, updated_at`
+
+var errAtlasVideoOutputMissing = errors.New("Atlas Cloud completed without a video output")
+
 func (m *MediaService) Generate(input GenerateMediaInput) (MediaJob, error) {
 	job, credential, created, err := m.createJob(input)
 	if err != nil || !created {
 		return job, err
+	}
+	if isAtlasVideoJob(job, credential) {
+		return m.submitAtlasVideo(job, credential)
 	}
 	go m.execute(job, credential)
 	return job, nil
@@ -43,19 +50,42 @@ func (m *MediaService) GenerateSync(input GenerateMediaInput) (MediaJob, error) 
 		return MediaJob{}, err
 	}
 	if created {
-		m.execute(job, credential)
-	}
-	job, err = m.GetJob(job.ID)
-	if err != nil {
-		return MediaJob{}, err
-	}
-	if job.Status != "completed" {
-		if job.Error == "" {
-			job.Error = "media generation did not reach a terminal state"
+		if isAtlasVideoJob(job, credential) {
+			if job, err = m.submitAtlasVideo(job, credential); err != nil {
+				return job, err
+			}
+		} else {
+			m.execute(job, credential)
 		}
-		return job, fmt.Errorf("media job %s failed: %s", job.ID, job.Error)
 	}
-	return job, nil
+	return m.waitForJob(job.ID, mediaRequestTimeout)
+}
+
+func isAtlasVideoJob(job MediaJob, credential MediaCredential) bool {
+	return job.Capability == VideoGenerate && credential.Provider == "atlas-cloud"
+}
+
+func (m *MediaService) waitForJob(id string, timeout time.Duration) (MediaJob, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		job, err := m.GetJob(id)
+		if err != nil {
+			return MediaJob{}, err
+		}
+		if job.Status == "completed" {
+			return job, nil
+		}
+		if job.Status == "failed" {
+			if job.Error == "" {
+				job.Error = "media generation did not reach a terminal state"
+			}
+			return job, fmt.Errorf("media job %s failed: %s", job.ID, job.Error)
+		}
+		if time.Now().After(deadline) {
+			return job, fmt.Errorf("media job %s is still running", job.ID)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCredential, bool, error) {
@@ -94,11 +124,11 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 		return MediaJob{}, MediaCredential{}, false, err
 	}
 	now := time.Now().UTC()
-	job := MediaJob{ID: id, Capability: input.Capability, Status: "queued", Prompt: input.Prompt, ModelID: route.ModelID, ProjectID: input.ProjectID, ReferenceIDs: input.ReferenceIDs, Output: input.Output, CreatedAt: now, UpdatedAt: now}
+	job := MediaJob{ID: id, Capability: input.Capability, Status: "queued", Prompt: input.Prompt, ModelID: route.ModelID, ProjectID: input.ProjectID, ReferenceIDs: input.ReferenceIDs, Output: input.Output, AssetIDs: []string{}, CreatedAt: now, UpdatedAt: now}
 	refs, _ := json.Marshal(job.ReferenceIDs)
 	output, _ := json.Marshal(job.Output)
 	assets, _ := json.Marshal(job.AssetIDs)
-	_, err = db.Exec(`insert into media_jobs (id, idempotency_key, capability, status, prompt, model_id, credential_id, project_id, reference_ids_json, output_json, asset_ids_json, error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, job.ID, input.IdempotencyKey, job.Capability, job.Status, job.Prompt, job.ModelID, credential.ID, job.ProjectID, string(refs), string(output), string(assets), "", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+	_, err = db.Exec(`insert into media_jobs (id, idempotency_key, capability, status, prompt, model_id, credential_id, project_id, reference_ids_json, output_json, asset_ids_json, remote_id, remote_poll_url, error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, job.ID, input.IdempotencyKey, job.Capability, job.Status, job.Prompt, job.ModelID, credential.ID, job.ProjectID, string(refs), string(output), string(assets), "", "", "", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
 	}
@@ -111,24 +141,49 @@ func (m *MediaService) GetJob(id string) (MediaJob, error) {
 		return MediaJob{}, err
 	}
 	defer db.Close()
-	return scanJob(db.QueryRow("select id, capability, status, prompt, model_id, project_id, reference_ids_json, output_json, asset_ids_json, error, created_at, updated_at from media_jobs where id = ?", id))
+	return scanJob(db.QueryRow("select "+jobColumns+" from media_jobs where id = ?", id))
 }
 
-// RecoverInterruptedJobs closes jobs whose in-memory workers were lost during
-// a local service restart. A job is immutable once submitted, so retrying it
-// silently would create an unexpected second image; the caller must submit a
-// new generation explicitly.
+// RecoverInterruptedJobs resumes jobs that already have a durable remote task
+// handle. Jobs that never reached provider submission still fail safely rather
+// than causing an unexpected second provider request after restart.
 func (m *MediaService) RecoverInterruptedJobs() (int64, error) {
 	db, err := m.database()
 	if err != nil {
 		return 0, err
 	}
-	defer db.Close()
-	result, err := db.Exec("update media_jobs set status = ?, error = ?, updated_at = ? where status in ('queued', 'running')", "failed", InterruptedMediaJobMessage, time.Now().UTC().Format(time.RFC3339Nano))
+	rows, err := db.Query(`select j.id from media_jobs j join media_assets a on a.job_id = j.id join media_credentials c on c.id = j.credential_id where j.status = 'running' and j.remote_id != '' and a.status = 'running' and c.provider = 'atlas-cloud'`)
+	if err != nil {
+		_ = db.Close()
+		return 0, err
+	}
+	resumeIDs := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			_ = db.Close()
+			return 0, err
+		}
+		resumeIDs = append(resumeIDs, id)
+	}
+	if err := rows.Close(); err != nil {
+		_ = db.Close()
+		return 0, err
+	}
+	result, err := db.Exec("update media_jobs set status = ?, error = ?, updated_at = ? where status = 'queued' or (status = 'running' and (remote_id = '' or not exists (select 1 from media_assets a where a.job_id = media_jobs.id and a.status = 'running')))", "failed", InterruptedMediaJobMessage, time.Now().UTC().Format(time.RFC3339Nano))
+	_ = db.Close()
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	for _, id := range resumeIDs {
+		m.startAtlasPolling(id)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return affected + int64(len(resumeIDs)), nil
 }
 
 func (m *MediaService) resolveRoute(input GenerateMediaInput) (MediaRoute, MediaCredential, error) {
@@ -188,20 +243,6 @@ func (m *MediaService) execute(job MediaJob, credential MediaCredential) {
 			return
 		}
 		asset, err := m.generateOpenAIImage(job, credential, model, secret)
-		if err != nil {
-			m.setJobStatus(job.ID, "failed", nil, err.Error())
-			return
-		}
-		m.setJobStatus(job.ID, "completed", []string{asset.ID}, "")
-		return
-	}
-	if job.Capability == VideoGenerate && credential.Provider == "atlas-cloud" {
-		secret, err := m.secret(credential.ID)
-		if err != nil {
-			m.setJobStatus(job.ID, "failed", nil, err.Error())
-			return
-		}
-		asset, err := m.generateAtlasVideo(job, credential, model, secret)
 		if err != nil {
 			m.setJobStatus(job.ID, "failed", nil, err.Error())
 			return
@@ -282,25 +323,146 @@ func (m *MediaService) generateOpenAIImage(job MediaJob, credential MediaCredent
 	})
 }
 
-func (m *MediaService) generateAtlasVideo(job MediaJob, credential MediaCredential, model MediaModel, secret string) (MediaAsset, error) {
+// submitAtlasVideo performs the only synchronous part of an asynchronous
+// provider flow: obtain the durable Atlas prediction ID, then atomically bind
+// it to a stable running Asset before returning the Recut job to the caller.
+func (m *MediaService) submitAtlasVideo(job MediaJob, credential MediaCredential) (MediaJob, error) {
+	model, ok := modelByID(job.ModelID)
+	if !ok || !model.Available {
+		return m.failSubmittedJob(job, errors.New("this provider model adapter is not available yet"))
+	}
+	secret, err := m.secret(credential.ID)
+	if err != nil {
+		return m.failSubmittedJob(job, err)
+	}
 	references, err := m.atlasReferenceData(job)
 	if err != nil {
-		return MediaAsset{}, err
+		return m.failSubmittedJob(job, err)
 	}
 	baseURL := apiBaseFor(credential)
 	videos, err := uploadAtlasVideos(baseURL, secret, references.Videos)
 	if err != nil {
-		return MediaAsset{}, err
+		return m.failSubmittedJob(job, err)
 	}
-	result, err := atlas.Generate(mediaHTTPClient, baseURL, secret, atlas.GenerateInput{Model: model.APIModelID, Prompt: job.Prompt, Images: references.Images, Videos: videos, Audios: references.Audios, Output: job.Output}, mediaRequestTimeout)
+	prediction, err := atlas.Submit(mediaHTTPClient, baseURL, secret, atlas.GenerateInput{Model: model.APIModelID, Prompt: job.Prompt, Images: references.Images, Videos: videos, Audios: references.Audios, Output: job.Output})
 	if err != nil {
-		return MediaAsset{}, err
+		return m.failSubmittedJob(job, err)
 	}
-	content, err := fetchMedia(result.VideoURL)
+	if prediction.ID == "" {
+		return m.failSubmittedJob(job, errors.New("Atlas Cloud returned a prediction without an ID"))
+	}
+	asset, err := m.createRemoteAsset(job, credential.Provider, prediction.ID, prediction.PollURL)
 	if err != nil {
-		return MediaAsset{}, err
+		return MediaJob{}, err
 	}
-	return m.saveGeneratedAsset(job, content, "video", "video/mp4", map[string]any{"prompt": job.Prompt, "modelId": job.ModelID, "provider": credential.Provider, "capability": job.Capability, "referenceIds": job.ReferenceIDs, "atlasPredictionId": result.PredictionID})
+	job, err = m.GetJob(job.ID)
+	if err != nil {
+		return MediaJob{}, err
+	}
+	if len(job.AssetIDs) == 0 || job.AssetIDs[0] != asset.ID {
+		return MediaJob{}, errors.New("running Atlas asset was not linked to its media job")
+	}
+	m.startAtlasPolling(job.ID)
+	return job, nil
+}
+
+func (m *MediaService) failSubmittedJob(job MediaJob, cause error) (MediaJob, error) {
+	m.setJobStatus(job.ID, "failed", nil, cause.Error())
+	if failed, err := m.GetJob(job.ID); err == nil {
+		return failed, cause
+	}
+	return job, cause
+}
+
+func (m *MediaService) startAtlasPolling(jobID string) {
+	if _, loaded := m.pollers.LoadOrStore(jobID, struct{}{}); loaded {
+		return
+	}
+	go func() {
+		defer m.pollers.Delete(jobID)
+		m.pollAtlasJob(jobID)
+	}()
+}
+
+func (m *MediaService) pollAtlasJob(jobID string) {
+	for {
+		task, active := m.atlasTask(jobID)
+		if !active {
+			return
+		}
+		prediction, err := atlas.Poll(mediaHTTPClient, apiBaseFor(task.credential), task.secret, atlas.Prediction{ID: task.asset.RemoteID, PollURL: task.pollURL})
+		if err != nil {
+			time.Sleep(atlasPollInterval)
+			continue
+		}
+		if prediction.Failed() {
+			m.failRemoteAsset(task.job.ID, task.asset.ID, prediction.FailureMessage())
+			return
+		}
+		if !prediction.Completed() {
+			time.Sleep(atlasPollInterval)
+			continue
+		}
+		err = m.collectAtlasOutput(task, prediction)
+		if err == nil {
+			return
+		}
+		if errors.Is(err, errAtlasVideoOutputMissing) {
+			m.failRemoteAsset(task.job.ID, task.asset.ID, err.Error())
+			return
+		}
+		time.Sleep(atlasPollInterval)
+	}
+}
+
+type atlasTask struct {
+	job        MediaJob
+	asset      MediaAsset
+	credential MediaCredential
+	secret     string
+	pollURL    string
+}
+
+func (m *MediaService) atlasTask(jobID string) (atlasTask, bool) {
+	job, err := m.GetJob(jobID)
+	if err != nil || job.Status != "running" || job.RemoteID == "" {
+		return atlasTask{}, false
+	}
+	db, err := m.database()
+	if err != nil {
+		return atlasTask{}, false
+	}
+	defer db.Close()
+	var credentialID, pollURL string
+	if err := db.QueryRow("select credential_id, remote_poll_url from media_jobs where id = ?", job.ID).Scan(&credentialID, &pollURL); err != nil {
+		return atlasTask{}, false
+	}
+	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where job_id = ?", job.ID))
+	if err != nil || asset.Status != "running" || asset.RemoteID == "" {
+		return atlasTask{}, false
+	}
+	credential, err := m.credential(credentialID)
+	if err != nil {
+		return atlasTask{}, false
+	}
+	secret, err := m.secret(credential.ID)
+	if err != nil {
+		return atlasTask{}, false
+	}
+	return atlasTask{job: job, asset: asset, credential: credential, secret: secret, pollURL: pollURL}, true
+}
+
+func (m *MediaService) collectAtlasOutput(task atlasTask, prediction atlas.Prediction) error {
+	url := prediction.VideoURL()
+	if url == "" {
+		return errAtlasVideoOutputMissing
+	}
+	content, err := fetchMedia(url)
+	if err != nil {
+		return err
+	}
+	_, err = m.completeRemoteAsset(task.job.ID, task.asset.ID, content, "video/mp4")
+	return err
 }
 
 type atlasReferences struct {
@@ -561,17 +723,22 @@ func (m *MediaService) setJobStatus(id, status string, assetIDs []string, messag
 		return
 	}
 	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if assetIDs == nil {
+		_, _ = db.Exec("update media_jobs set status = ?, error = ?, updated_at = ? where id = ?", status, message, now, id)
+		return
+	}
 	assets, _ := json.Marshal(assetIDs)
-	_, _ = db.Exec("update media_jobs set status = ?, asset_ids_json = ?, error = ?, updated_at = ? where id = ?", status, string(assets), message, time.Now().UTC().Format(time.RFC3339Nano), id)
+	_, _ = db.Exec("update media_jobs set status = ?, asset_ids_json = ?, error = ?, updated_at = ? where id = ?", status, string(assets), message, now, id)
 }
 
 func (m *MediaService) jobByKey(db *sql.DB, key string) (MediaJob, error) {
-	return scanJob(db.QueryRow("select id, capability, status, prompt, model_id, project_id, reference_ids_json, output_json, asset_ids_json, error, created_at, updated_at from media_jobs where idempotency_key = ?", key))
+	return scanJob(db.QueryRow("select "+jobColumns+" from media_jobs where idempotency_key = ?", key))
 }
 func scanJob(row mediaScanner) (MediaJob, error) {
 	var job MediaJob
 	var capability, refs, output, assets, created, updated string
-	if err := row.Scan(&job.ID, &capability, &job.Status, &job.Prompt, &job.ModelID, &job.ProjectID, &refs, &output, &assets, &job.Error, &created, &updated); err != nil {
+	if err := row.Scan(&job.ID, &capability, &job.Status, &job.Prompt, &job.ModelID, &job.ProjectID, &refs, &output, &assets, &job.RemoteID, &job.Error, &created, &updated); err != nil {
 		return MediaJob{}, err
 	}
 	job.Capability = MediaCapability(capability)

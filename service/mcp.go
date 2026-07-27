@@ -146,10 +146,10 @@ func mediaMCPToolDefinitions() []map[string]any {
 	return []map[string]any{
 		{"name": "recut.media.configuration", "description": "读取最新媒体配置；通常无需调用，因为 recut.project_context 已携带默认 route、模型契约和可选参数。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "recut.image.generate", "description": "同步生成短时、阶段关键的图片。成功返回 assetIds；Provider 失败或超时直接返回错误。", "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
-		{"name": "recut.video.generate_async", "description": "提交长时间运行的视频生成。可使用图片、视频和音频素材作为参考；立即返回 jobId。具体模型支持的参考类型以 recut.project_context.media 为准。", "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
+		{"name": "recut.video.generate_async", "description": "提交长时间运行的视频生成。Atlas 接受任务后立即返回 jobId 与处于 running 状态的稳定 assetIds；可立刻用 assetId 建立项目引用，后续同一 Asset 原位更新。具体模型支持的参考类型以 recut.project_context.media 为准。", "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
 		{"name": "recut.speech.generate_async", "description": "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId。", "inputSchema": speechGenerationSchema()},
 		{"name": "recut.media.list_voices", "description": "读取一个 MiniMax 或 ElevenLabs 凭据当前可用的音色，返回可直接传给 recut.speech.generate_async 的 voiceId。", "inputSchema": map[string]any{"type": "object", "required": []string{"credentialId"}, "properties": map[string]any{"credentialId": map[string]string{"type": "string"}}}},
-		{"name": "recut.media.get_job", "description": "读取媒体生成任务状态；完成后返回 assetIds。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
+		{"name": "recut.media.get_job", "description": "读取媒体生成任务状态；异步视频提交成功时已返回稳定 assetIds，此工具只读取其后续 running/completed/failed 状态。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.list_assets", "description": "检索当前项目或工作区的可复用媒体素材。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"workspace": map[string]string{"type": "boolean"}}}},
 		{"name": "recut.media.attach", "description": "把现有媒体 assetId 引用到当前项目。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}}}},
 	}

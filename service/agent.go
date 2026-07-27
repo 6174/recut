@@ -297,6 +297,33 @@ func (m *AgentManager) Stop(sessionID string) error {
 	return nil
 }
 
+// UpdateCodexConfiguration changes the defaults used by the next queued turn.
+// A running child process keeps its already-started configuration unchanged.
+func (m *AgentManager) UpdateCodexConfiguration(sessionID, model, effort string) (ChatSession, error) {
+	model, effort, err := normalizeCodexConfiguration(model, effort)
+	if err != nil {
+		return ChatSession{}, err
+	}
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return ChatSession{}, err
+	}
+	defer db.Close()
+	session, err := getChatSession(db, sessionID)
+	if err != nil {
+		return ChatSession{}, err
+	}
+	if session.Runtime != "codex" {
+		return ChatSession{}, errors.New("only Codex conversations have this configuration")
+	}
+	now := time.Now().UTC()
+	if _, err := db.Exec("update agent_sessions set codex_model = ?, reasoning_effort = ?, updated_at = ? where id = ?", model, effort, iso(now), sessionID); err != nil {
+		return ChatSession{}, err
+	}
+	session.CodexModel, session.ReasoningEffort, session.UpdatedAt = model, effort, now
+	return m.hydrateSession(session), nil
+}
+
 func (m *AgentManager) startRunner(sessionID string) {
 	m.mu.Lock()
 	if _, running := m.running[sessionID]; running {

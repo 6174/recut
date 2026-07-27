@@ -70,6 +70,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/agent-sessions", s.listAgentSessions)
 	mux.HandleFunc("POST /v1/agent-sessions", s.createAgentSession)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}", s.getAgentSession)
+	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/codex-configuration", s.updateCodexConfiguration)
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/turns", s.startAgentTurn)
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/stop", s.stopAgentTurn)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/events", s.streamAgentEvents)
@@ -105,7 +106,7 @@ func withLocalCORS(next http.Handler) http.Handler {
 		if origin == "http://localhost:3000" || origin == "http://127.0.0.1:3000" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

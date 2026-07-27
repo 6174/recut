@@ -76,6 +76,9 @@ func (m *MediaService) validateReferences(input GenerateMediaInput) error {
 		if err != nil {
 			return fmt.Errorf("reference asset %q is unavailable", id)
 		}
+		if asset.Status != "completed" {
+			return fmt.Errorf("reference asset %q is still %s", id, asset.Status)
+		}
 		if !allowed[asset.Kind] {
 			return fmt.Errorf("%s cannot use %s as reference context", input.Capability, asset.Kind)
 		}
