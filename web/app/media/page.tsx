@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Media Platform 的资产、Provider、Credential 与生成任务 API，以及系统项目 Agent Session
- * [OUTPUT]: 对外提供素材浏览、生成详情中的提示词与参考图展示、生成参数回填再次创建、生成中任务卡片、紧凑 Provider 模型选择及可预览、移除的参考图选择的工作区级素材库
+ * [OUTPUT]: 对外提供素材浏览、按 assetId 合并重复导入结果、生成详情中的提示词与参考图展示、生成参数回填再次创建、生成中任务卡片、紧凑 Provider 模型选择及可预览、移除的参考图选择的工作区级素材库
  * [POS]: web/app/media 的系统应用入口；将素材创建收敛为独立弹框，右侧 Agent 仍用于复杂协作
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -39,6 +39,7 @@ import type {
   MediaJob,
   Model,
   Provider,
+  Voice,
 } from "./media-types";
 const apiBase =
   process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
@@ -333,7 +334,11 @@ export default function MediaLibrary() {
           assets={assets}
           draft={createDraft ?? undefined}
           kind={createKind}
-          onAssetImported={(asset) => setAssets((items) => [asset, ...items])}
+          onAssetImported={(asset) =>
+            setAssets((items) =>
+              items.some((item) => item.id === asset.id) ? items : [asset, ...items],
+            )
+          }
           onClose={() => {
             setCreateKind(null);
             setCreateDraft(null);
@@ -370,6 +375,8 @@ function CreateAssetDialog({
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [modelID, setModelID] = useState(draft?.modelID ?? "");
   const [credentialID, setCredentialID] = useState("");
+  const [voices, setVoices] = useState<Voice[]>([]);
+  const [voiceID, setVoiceID] = useState("");
   const [prompt, setPrompt] = useState(draft?.prompt ?? "");
   const [referenceIDs, setReferenceIDs] = useState<string[]>(
     draft?.referenceIDs ?? [],
@@ -424,9 +431,28 @@ function CreateAssetDialog({
     );
     setCredentialID(credential?.id ?? "");
   }, [selectedModel?.provider, credentials]);
+  useEffect(() => {
+    if (kind.kind !== "audio" || !credentialID) {
+      setVoices([]);
+      setVoiceID("");
+      return;
+    }
+    void (async () => {
+      setVoices([]);
+      setVoiceID("");
+      const response = await fetch(`${apiBase}/v1/media/credentials/${credentialID}/voices`);
+      if (!response.ok) {
+        setError("无法读取该 Provider 的可用音色。");
+        return;
+      }
+      const next = (await response.json()) as Voice[];
+      setVoices(next);
+      setVoiceID(next[0]?.id ?? "");
+    })();
+  }, [kind.kind, credentialID]);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!selectedModel || !credentialID || !prompt.trim()) return;
+    if (!selectedModel || !credentialID || !prompt.trim() || (kind.kind === "audio" && !voiceID)) return;
     setSubmitting(true);
     setError("");
     const response = await fetch(`${apiBase}/v1/media/jobs`, {
@@ -438,6 +464,7 @@ function CreateAssetDialog({
         credentialId: credentialID,
         prompt: prompt.trim(),
         referenceIds: referenceIDs,
+        output: kind.kind === "audio" ? { voiceId: voiceID } : undefined,
       }),
     });
     setSubmitting(false);
@@ -672,6 +699,32 @@ function CreateAssetDialog({
                 </select>
               </section>
             )}
+          {kind.kind === "audio" && selectedModel && (
+            <section>
+              <label className="text-xs font-medium" htmlFor="voice">
+                音色
+              </label>
+              {voices.length ? (
+                <select
+                  className="mt-2 h-9 w-full rounded-xs border bg-background px-2 text-xs"
+                  id="voice"
+                  onChange={(event) => setVoiceID(event.target.value)}
+                  value={voiceID}
+                >
+                  {voices.map((voice) => (
+                    <option key={voice.id} value={voice.id}>
+                      {voice.name} · {voice.category ?? "voice"}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">正在读取该凭据可用的音色…</p>
+              )}
+              {voices.find((voice) => voice.id === voiceID)?.description && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">{voices.find((voice) => voice.id === voiceID)?.description}</p>
+              )}
+            </section>
+          )}
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
         <footer className="flex justify-end gap-2 border-t px-5 py-4">

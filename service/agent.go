@@ -272,8 +272,16 @@ func (m *AgentManager) Stop(sessionID string) error {
 	if !exists {
 		return errors.New("this session is not running")
 	}
+	turnID, err := m.cancelActiveTurn(sessionID)
+	if err != nil {
+		return err
+	}
 	m.emit(sessionID, "", "turn.stopping", map[string]any{"label": "正在停止"})
-	m.setSessionStatus(sessionID, "stopping")
+	m.setSessionStatus(sessionID, "idle")
+	if turnID != "" {
+		m.emit(sessionID, turnID, "turn.cancelled", map[string]any{"label": "已停止"})
+	}
+	m.emit(sessionID, "", "session.updated", map[string]any{"label": "会话已停止"})
 	cancel()
 	return nil
 }
@@ -303,8 +311,9 @@ func (m *AgentManager) run(ctx context.Context, sessionID string) {
 		m.emit(sessionID, turn.ID, "turn.started", map[string]any{"label": "正在思考"})
 		if err := m.runRuntime(ctx, session, turn); err != nil {
 			if ctx.Err() != nil {
-				m.completeTurn(turn.ID, "cancelled")
-				m.emit(sessionID, turn.ID, "turn.cancelled", map[string]any{"label": "已停止"})
+				if m.completeTurnIfRunning(turn.ID, "cancelled") {
+					m.emit(sessionID, turn.ID, "turn.cancelled", map[string]any{"label": "已停止"})
+				}
 				m.finishAndRestart(sessionID)
 				m.emit(sessionID, "", "session.updated", map[string]any{"label": "会话状态已更新"})
 				return
@@ -368,6 +377,49 @@ func (m *AgentManager) completeTurn(turnID, status string) {
 	}
 	defer db.Close()
 	_, _ = db.Exec("update agent_turns set status = ?, completed_at = ? where id = ?", status, iso(time.Now().UTC()), turnID)
+}
+
+func (m *AgentManager) completeTurnIfRunning(turnID, status string) bool {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	result, err := db.Exec("update agent_turns set status = ?, completed_at = ? where id = ? and status = ?", status, iso(time.Now().UTC()), turnID, "running")
+	if err != nil {
+		return false
+	}
+	affected, err := result.RowsAffected()
+	return err == nil && affected == 1
+}
+
+func (m *AgentManager) cancelActiveTurn(sessionID string) (string, error) {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	row := tx.QueryRow("select id from agent_turns where session_id = ? and role = ? and status = ? order by created_at, id limit 1", sessionID, "user", "running")
+	var turnID string
+	if err := row.Scan(&turnID); errors.Is(err, sql.ErrNoRows) {
+		return "", tx.Commit()
+	} else if err != nil {
+		return "", err
+	}
+	result, err := tx.Exec("update agent_turns set status = ?, completed_at = ? where id = ? and status = ?", "cancelled", iso(time.Now().UTC()), turnID, "running")
+	if err != nil {
+		return "", err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil || affected != 1 {
+		return "", nil
+	}
+	return turnID, tx.Commit()
 }
 
 func (m *AgentManager) runRuntime(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
@@ -650,14 +702,15 @@ func toolLabel(kind, name string, item map[string]any) string {
 		return map[string]string{"command_execution": "运行命令", "file_change": "修改文件", "mcp_tool_call": "MCP 工具调用", "web_search": "搜索网络"}[kind] + toolLabelSuffix(name)
 	}
 	labels := map[string]string{
-		"recut.project_context":      "读取 Recut 项目上下文",
-		"recut.media.configuration":  "读取媒体模型配置",
-		"recut.image.generate":       "生成图片",
-		"recut.video.generate_async": "提交视频生成任务",
+		"recut.project_context":       "读取 Recut 项目上下文",
+		"recut.media.configuration":   "读取媒体模型配置",
+		"recut.image.generate":        "生成图片",
+		"recut.video.generate_async":  "提交视频生成任务",
 		"recut.speech.generate_async": "提交语音生成任务",
-		"recut.media.get_job":        "查询媒体生成进度",
-		"recut.media.list_assets":    "读取素材库",
-		"recut.media.attach":         "将素材关联到项目",
+		"recut.media.list_voices":     "读取可用音色",
+		"recut.media.get_job":         "查询媒体生成进度",
+		"recut.media.list_assets":     "读取素材库",
+		"recut.media.attach":          "将素材关联到项目",
 	}
 	if label, ok := labels[name]; ok {
 		return label

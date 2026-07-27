@@ -43,4 +43,30 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 	if _, ok := speech["imageAssetIds"]; ok {
 		t.Fatal("speech generation must not advertise image references")
 	}
+	if _, ok := speech["voiceId"]; !ok {
+		t.Fatal("speech generation must expose a voiceId")
+	}
+	if _, ok := tools["recut.media.list_voices"]; !ok {
+		t.Fatal("speech generation must expose voice discovery")
+	}
+}
+
+func TestMediaMCPToolsBypassAppToolBoundary(t *testing.T) {
+	for _, name := range []string{
+		"recut.media.configuration",
+		"recut.image.generate",
+		"recut.video.generate_async",
+		"recut.speech.generate_async",
+		"recut.media.list_voices",
+		"recut.media.get_job",
+		"recut.media.list_assets",
+		"recut.media.attach",
+	} {
+		if !isMediaMCPTool(name) {
+			t.Fatalf("platform media tool %q was not recognized", name)
+		}
+	}
+	if isMediaMCPTool("recut.vox-broll.create_resource") {
+		t.Fatal("App tool was misclassified as a platform media tool")
+	}
 }

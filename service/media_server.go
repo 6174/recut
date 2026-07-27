@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService 的平台级媒体边界与标准 HTTP JSON 协议
- * [OUTPUT]: 对外提供素材库、图片导入、模型路由、BYOK 凭据和生成任务（默认路由或受校验的模型/凭据直连）的本地 HTTP API
+ * [OUTPUT]: 对外提供素材库、图片导入、模型路由、BYOK 凭据、动态音色和生成任务（默认路由或受校验的模型/凭据直连）的本地 HTTP API
  * [POS]: service 的 Media Platform 传输层；工作台和系统 MCP 使用同一业务服务
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -46,6 +46,15 @@ func (s *Server) listMediaCredentials(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) listMediaVoices(w http.ResponseWriter, r *http.Request) {
+	voices, err := s.media.ListVoices(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, voices)
 }
 
 func (s *Server) listMediaRoutes(w http.ResponseWriter, _ *http.Request) {

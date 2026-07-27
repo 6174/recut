@@ -7,6 +7,9 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,6 +67,65 @@ func TestMediaRouteAndJobUseOpaqueCredential(t *testing.T) {
 	}
 }
 
+func TestSpeechProvidersExposeVoicesAndSaveAudio(t *testing.T) {
+	miniMax := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer minimax-key" {
+			t.Fatal("MiniMax request did not use bearer authentication")
+		}
+		switch r.URL.Path {
+		case "/v1/get_voice":
+			_ = json.NewEncoder(w).Encode(map[string]any{"system_voice": []map[string]any{{"voice_id": "news", "voice_name": "新闻女声", "description": []string{"专业", "普通话"}}}, "base_resp": map[string]any{"status_code": 0}})
+		case "/v1/t2a_v2":
+			input := map[string]any{}
+			_ = json.NewDecoder(r.Body).Decode(&input)
+			if input["voice_setting"].(map[string]any)["voice_id"] != "news" {
+				t.Fatal("MiniMax request lost voiceId")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"audio": "010203"}, "base_resp": map[string]any{"status_code": 0}})
+		default:
+			t.Fatalf("unexpected MiniMax path %s", r.URL.Path)
+		}
+	}))
+	defer miniMax.Close()
+	store := NewStore(t.TempDir(), nil)
+	media := NewMediaService(store)
+	credential, err := media.SaveCredential(MediaCredential{Provider: "minimax", Name: "MiniMax", APIBase: miniMax.URL}, "minimax-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	voices, err := media.ListVoices(credential.ID)
+	if err != nil || len(voices) != 1 || voices[0].ID != "news" {
+		t.Fatalf("MiniMax voices = %#v, %v", voices, err)
+	}
+	job, err := media.GenerateSync(GenerateMediaInput{Capability: SpeechGenerate, ModelID: "minimax/speech-2.8-hd", CredentialID: credential.ID, Prompt: "你好", Output: map[string]any{"voiceId": "news"}, IdempotencyKey: "minimax-speech"})
+	if err != nil || len(job.AssetIDs) != 1 {
+		t.Fatalf("MiniMax speech job = %#v, %v", job, err)
+	}
+	asset, err := media.GetAsset(job.AssetIDs[0])
+	if err != nil || asset.Kind != "audio" || asset.MimeType != "audio/mpeg" {
+		t.Fatalf("MiniMax audio asset = %#v, %v", asset, err)
+	}
+}
+
+func TestElevenLabsVoiceLookupUsesCredentialKey(t *testing.T) {
+	eleven := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/voices" || r.Header.Get("xi-api-key") != "eleven-key" {
+			t.Fatalf("unexpected ElevenLabs request: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"voices": []map[string]any{{"voice_id": "rachel", "name": "Rachel", "category": "premade", "labels": map[string]string{"accent": "American", "gender": "female"}}}})
+	}))
+	defer eleven.Close()
+	media := NewMediaService(NewStore(t.TempDir(), nil))
+	credential, err := media.SaveCredential(MediaCredential{Provider: "elevenlabs", Name: "ElevenLabs", APIBase: eleven.URL}, "eleven-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	voices, err := media.ListVoices(credential.ID)
+	if err != nil || len(voices) != 1 || voices[0].Name != "Rachel" {
+		t.Fatalf("ElevenLabs voices = %#v, %v", voices, err)
+	}
+}
+
 func TestMediaProvidersOwnTheirModelLists(t *testing.T) {
 	provider, ok := providerByID("atlas-cloud")
 	if !ok || provider.Protocol != "openai-compatible" {
@@ -114,6 +176,26 @@ func TestImportedImageRejectsNonImageContent(t *testing.T) {
 	media := &MediaService{}
 	if _, err := media.ImportImage("note.txt", "text/plain", []byte("not an image")); err == nil {
 		t.Fatal("non-image import was accepted")
+	}
+}
+
+func TestImportImageReusesAssetWithMatchingContentHash(t *testing.T) {
+	media := NewMediaService(NewStore(t.TempDir(), nil))
+	content := []byte("same image bytes")
+	first, err := media.ImportImage("first.png", "image/png", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := media.ImportImage("renamed-copy.png", "image/png", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID != first.ID || second.ContentHash != first.ContentHash {
+		t.Fatalf("duplicate import created a new asset: first=%#v second=%#v", first, second)
+	}
+	assets, err := media.ListAssets("")
+	if err != nil || len(assets) != 1 {
+		t.Fatalf("assets = %#v, %v", assets, err)
 	}
 }
 

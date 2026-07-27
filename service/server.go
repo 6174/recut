@@ -53,6 +53,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/media/configuration", s.listMediaConfiguration)
 	mux.HandleFunc("GET /v1/media/credentials", s.listMediaCredentials)
 	mux.HandleFunc("POST /v1/media/credentials", s.saveMediaCredential)
+	mux.HandleFunc("GET /v1/media/credentials/{id}/voices", s.listMediaVoices)
 	mux.HandleFunc("GET /v1/media/routes", s.listMediaRoutes)
 	mux.HandleFunc("POST /v1/media/routes", s.saveMediaRoute)
 	mux.HandleFunc("GET /v1/media/assets", s.listMediaAssets)

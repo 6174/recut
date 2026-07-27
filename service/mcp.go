@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost JavaScript runtime 与标准输入输出 JSON-RPC 流
- * [OUTPUT]: 对外提供带默认媒体契约的项目上下文，并将 manifest.mcp.tools 映射为受控 MCP 工具
+ * [OUTPUT]: 对外提供带默认媒体与音色契约的项目上下文，并将 manifest.mcp.tools 映射为受控 MCP 工具
  * [POS]: service 的 MCP Host；App 不自行启动 MCP server，所有调用经平台权限与会话边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 )
 
 type mcpRequest struct {
@@ -86,7 +85,7 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 		if input.Name == "recut.project_context" {
 			return projectContextTool(bridge, host, media, session)
 		}
-		if strings.HasPrefix(input.Name, "recut.media.") {
+		if isMediaMCPTool(input.Name) {
 			return mediaMCPTool(media, session, input.Name, input.Arguments)
 		}
 		prefix := app.Manifest.ID + "."
@@ -116,6 +115,9 @@ func mediaMCPTool(media *MediaService, session AgentSession, name string, input 
 		result, err = media.Generate(mediaGenerationInput(input, session, VideoGenerate))
 	case "recut.speech.generate_async":
 		result, err = media.Generate(mediaGenerationInput(input, session, SpeechGenerate))
+	case "recut.media.list_voices":
+		credentialID, _ := input["credentialId"].(string)
+		result, err = media.ListVoices(credentialID)
 	case "recut.media.get_job":
 		id, _ := input["jobId"].(string)
 		result, err = media.GetJob(id)
@@ -145,11 +147,21 @@ func mediaMCPToolDefinitions() []map[string]any {
 		{"name": "recut.media.configuration", "description": "读取最新媒体配置；通常无需调用，因为 recut.project_context 已携带默认 route、模型契约和可选参数。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "recut.image.generate", "description": "同步生成短时、阶段关键的图片。成功返回 assetIds；Provider 失败或超时直接返回错误。", "inputSchema": mediaGenerationSchema("生成提示词。", true, false)},
 		{"name": "recut.video.generate_async", "description": "提交长时间运行的视频生成。可使用图片和音频素材作为参考；立即返回 jobId。", "inputSchema": mediaGenerationSchema("生成提示词。", true, true)},
-		{"name": "recut.speech.generate_async", "description": "提交长时间运行的语音生成。text 是需朗读的旁白文本；立即返回 jobId。", "inputSchema": mediaGenerationSchema("需要朗读的旁白文本。", false, false)},
+		{"name": "recut.speech.generate_async", "description": "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId。", "inputSchema": speechGenerationSchema()},
+		{"name": "recut.media.list_voices", "description": "读取一个 MiniMax 或 ElevenLabs 凭据当前可用的音色，返回可直接传给 recut.speech.generate_async 的 voiceId。", "inputSchema": map[string]any{"type": "object", "required": []string{"credentialId"}, "properties": map[string]any{"credentialId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.get_job", "description": "读取媒体生成任务状态；完成后返回 assetIds。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.list_assets", "description": "检索当前项目或工作区的可复用媒体素材。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"workspace": map[string]string{"type": "boolean"}}}},
 		{"name": "recut.media.attach", "description": "把现有媒体 assetId 引用到当前项目。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}}}},
 	}
+}
+
+func isMediaMCPTool(name string) bool {
+	for _, tool := range mediaMCPToolDefinitions() {
+		if tool["name"] == name {
+			return true
+		}
+	}
+	return false
 }
 
 func mediaGenerationSchema(textDescription string, imageReferences, audioReferences bool) map[string]any {
@@ -168,11 +180,31 @@ func mediaGenerationSchema(textDescription string, imageReferences, audioReferen
 	return map[string]any{"type": "object", "required": []string{"text"}, "properties": properties}
 }
 
+func speechGenerationSchema() map[string]any {
+	schema := mediaGenerationSchema("需要朗读的旁白文本。", false, false)
+	schema["required"] = []string{"text", "voiceId"}
+	properties := schema["properties"].(map[string]any)
+	properties["voiceId"] = map[string]any{"type": "string", "description": "由 recut.media.list_voices 返回的当前 Provider 音色 ID。"}
+	return schema
+}
+
 func mediaGenerationInput(input map[string]any, session AgentSession, capability MediaCapability) GenerateMediaInput {
 	prompt, _ := input["text"].(string)
 	route, _ := input["route"].(string)
 	key, _ := input["idempotencyKey"].(string)
 	output, _ := input["output"].(map[string]any)
+	if output == nil {
+		output = map[string]any{}
+	} else {
+		copied := map[string]any{}
+		for key, value := range output {
+			copied[key] = value
+		}
+		output = copied
+	}
+	if voiceID, _ := input["voiceId"].(string); voiceID != "" {
+		output["voiceId"] = voiceID
+	}
 	return GenerateMediaInput{Capability: capability, Prompt: prompt, Route: route, ReferenceIDs: mediaReferenceIDs(input), Output: output, ProjectID: session.ProjectID, IdempotencyKey: key}
 }
 

@@ -17,4 +17,7 @@ lib/: 前端共享工具函数。
 依赖边界
 web 仅通过 `NEXT_PUBLIC_RECUT_API_URL` 调用 Daemon HTTP/SSE API；对话以 Agent Session 事件为真相，PTY 输出只可用于终端诊断，不得导入 `cmd/`、`internal/` 或直接读写本地项目目录。
 
+表单规范
+每个 `input`、`select`、`textarea` 必须有可见的 `<label htmlFor>`，并与控件 `id` 对应；placeholder 只能提供格式或示例，不能替代字段名称。
+
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
