@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
@@ -36,6 +37,7 @@ export default function ProjectDetailClient() {
   const [id, setID] = useState("");
   const [project, setProject] = useState<Project | null>(null);
   const [app, setApp] = useState<App | null>(null);
+  const [installation, setInstallation] = useState<ManagedApp | null>(null);
   const [online, setOnline] = useState(false);
   const appFrame = useRef<HTMLIFrameElement>(null);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.project-agent-panel-width" });
@@ -50,6 +52,8 @@ export default function ProjectDetailClient() {
       setProject(nextProject);
       const appsResponse = await fetch(`${apiBase}/v1/apps`);
       if (appsResponse.ok) setApp((await appsResponse.json()).find((item: App) => item.manifest.id === nextProject.appId) ?? null);
+      const installationResponse = await fetch(`${apiBase}/v1/apps/installed`);
+      if (installationResponse.ok) setInstallation((await installationResponse.json()).find((item: ManagedApp) => item.manifest.id === nextProject.appId) ?? null);
       setOnline(true);
     })();
   }, [id]);
@@ -111,7 +115,7 @@ export default function ProjectDetailClient() {
         <div aria-hidden="true" className="h-5 w-px bg-border" />
         <div className="min-w-0"><p className="truncate text-sm font-medium">{project?.name ?? "加载项目…"}</p><p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{project ? `${app?.manifest.name ?? project.appId} · v${app?.manifest.version ?? project.appVersion} · ${project.id}` : "正在读取项目元信息"}</p></div>
       </div>
-      <div className="ml-4 flex shrink-0 items-center gap-2"><Link className="rounded-xs px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground" href="/media">素材库</Link><Badge>{app?.manifest.id ?? project?.appId ?? "APP"}</Badge><Badge>{online ? "LOCAL" : "OFFLINE"}</Badge><SettingsPanel /></div>
+      <div className="ml-4 flex shrink-0 items-center gap-2"><Link className="rounded-xs px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground" href="/media">素材库</Link><Badge>{app?.manifest.id ?? project?.appId ?? "APP"}</Badge>{installation && <AppVersionControl app={installation} onUpdated={() => window.location.reload()} />}<Badge>{online ? "LOCAL" : "OFFLINE"}</Badge><SettingsPanel /></div>
     </header>
     <div className="relative grid min-h-0 flex-1 overflow-hidden [grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}>
       <section className="min-h-0 min-w-0 overflow-hidden border-r bg-card">

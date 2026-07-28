@@ -5,6 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { Metadata } from "next";
+import { ServiceControl } from "@/components/service-control";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body><ServiceControl />{children}</body>
     </html>
   );
 }

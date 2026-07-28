@@ -7,7 +7,7 @@ main.go: 组合 Daemon、AppHost、MCP Host 与 loopback HTTP 服务；启动时
 catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json，跟随开发 App 的符号链接，不理解 App 数据布局。
 app_install.go: App 分发边界；仅接受 HTTPS GitHub 地址，在临时 clone 通过 manifest 校验后激活，并以 Git status/fast-forward 管理升级。
 app_install_test.go: 锁定 GitHub 地址规范化与 dirty Git 工作树识别，不访问网络。
-updater.go: macOS service 自更新器；下载并校验 Cloudflare 发布 manifest/归档，原子替换当前 binary 后交给 launchd 重启。
+updater.go: macOS service 自更新器；下载并校验 Cloudflare 发布 manifest/归档，原子替换当前 binary 后交给 launchd 重启，并只对已安装的 `recut-service` 暴露重启能力。
 updater_test.go, server_update_test.go: 锁定自更新归档提取和 HTTP 可用性边界；不下载、替换或重启真实 daemon。
 project.go: 创建平台项目并按 App scope 提供 SQLite、文件与 Artifact 存储。
 runtime.go: 在 Goja sandbox 中执行 App background.js，并注入统一 operation 注册器；同一 handler 可按 manifest surface 暴露给 UI API 与 MCP，获 `media.compose` 权限的 App 只能调用平台验证过的两轨合成能力。

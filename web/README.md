@@ -22,6 +22,8 @@ public/: 公开的 macOS service 安装器与构建时生成的发布包。
 依赖边界
 web 仅通过 `NEXT_PUBLIC_RECUT_API_URL` 调用 Daemon HTTP/SSE API；Cloudflare 构建固定为 `http://127.0.0.1:17373`，由浏览器直连用户 service。`NEXT_PUBLIC_RECUT_SERVICE_VERSION` 是 Makefile 从唯一 `RECUT_VERSION` 注入的本次发布 service 版本；对话以 Agent Session 事件为真相，PTY 输出只可用于终端诊断，不得导入 `cmd/`、`internal/` 或直接读写本地项目目录。
 
+根布局固定挂载本地 service 控制入口：所有页面展示相同的状态与版本，并只能经 daemon API 确认式地升级或重启；浏览器不直接执行系统命令。项目 Header 与 Apps 目录分别显示 App 版本，Git 检测到远端版本后需在确认 popover 中升级。
+
 域名边界
 
 在 Cloudflare Dashboard 将 `recut.video` 与 `www.recut.video` 添加为同一 Worker 的 Custom Domain；不要同时保留指向外部 HTTPS origin 的代理 DNS 记录，也不要使用只匹配 `/` 的 Worker Route。Custom Domain 必须覆盖静态 HTML、`/_next/static/*`、release manifest 与安装包，避免 chunk 回落到源站并触发 525。不要在 `wrangler.toml` 的 `routes` 和 Dashboard Custom Domain 中重复配置域名：前者会禁用默认 `workers.dev` 域名并增加故障恢复复杂度。

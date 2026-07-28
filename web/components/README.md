@@ -11,6 +11,8 @@ asset-reference-picker.tsx: 资源引用交互层；解析素材库复制的 `<m
 agent-message-content.tsx: Agent 回复的受控 XML 媒体节点渲染器；解析 `<media type="image|video|audio" assetid="..."/>` 为紧凑可点击卡片，从共享 Asset 缓存显示实时/最终生成耗时；完成的图片与视频显示真实画面，未知节点保留为纯文本。
 project-agent-panel.tsx: 项目与素材库共用的固定高度 Agent 对话侧栏；支持 @ 引用项目资源或素材库资源、粘贴 `<media>` 上下文自动转引用、图片/视频/音频上传及预览 token；为内部媒体卡、详情和引用选择器接入共享 Asset SSE，Agent 会话本身仍使用自己的事件流，新建或点击输入框设置入口均可配置 Codex 模型和推理强度。
 settings-panel.tsx: Header 右侧的全局设置面板；以带能力说明的 Popover 连接多 Provider BYOK 凭据，并按图片、视频、语音用途选择模型；字段均有可见标签，官方 Provider 使用内置端点，只有 OpenAI Compatible 显示自定义 API 地址。
+service-control.tsx: 根布局级本地 service 控制入口；固定显示连接和版本状态，在确认 popover 中执行本机 daemon 的更新或 launchd 重启。
+app-version-control.tsx: App 版本与升级交互原子；项目 Header 和 Apps 目录复用，升级前确认并保留 dirty Git 工作树保护。
 use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧直接更新 DOM，暴露拖动状态以遮蔽 iframe，松手后才持久化宽度，避免渲染拥塞或跨文档丢失指针事件。
 terminal-panel.tsx: 基于 xterm.js 的可恢复 CLI 终端面板，负责 Daemon 引导、CLI 探测、一键启动、失败反馈，以及展示最新输出摘要、只读历史与原生 Agent 恢复入口的会话浮层。
 vox-broll-workflow.tsx: Vox B-roll 纵向资源管理器，展示创作方向的 AI 候选版本，并在创建资源时以弹窗选择依赖和补充意图。
