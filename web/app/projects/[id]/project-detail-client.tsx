@@ -24,6 +24,13 @@ function operationError(payload: unknown, fallback: string) {
   return typeof value?.error === "string" && value.error.trim() ? value.error : fallback;
 }
 
+function projectIDFromLocation(routeID: string) {
+  const queryID = new URLSearchParams(window.location.search).get("id");
+  if (queryID) return queryID;
+  const match = window.location.pathname.match(/^\/projects\/([^/]+)\/?$/);
+  return match?.[1] === "app" ? routeID : match?.[1] ?? routeID;
+}
+
 export default function ProjectDetailClient() {
   const { id: routeID } = useParams<{ id: string }>();
   const [id, setID] = useState("");
@@ -33,7 +40,7 @@ export default function ProjectDetailClient() {
   const appFrame = useRef<HTMLIFrameElement>(null);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.project-agent-panel-width" });
 
-  useEffect(() => { setID(new URLSearchParams(window.location.search).get("id") ?? routeID); }, [routeID]);
+  useEffect(() => { setID(projectIDFromLocation(routeID)); }, [routeID]);
   useEffect(() => {
     if (!id) return;
     void (async () => {

@@ -6,8 +6,8 @@
  */
 import ProjectDetailClient from "./project-detail-client";
 
-// 静态站只需要一个壳；Worker 将任意 /projects/<id> 深链重写成它并把真实 id
-// 放入查询串。开发态仍可直接服务任意动态 id。
+// 静态站只需要一个壳；Worker 在边缘内部把任意 /projects/<id> 映射到它，
+// 但浏览器地址保留真实 id。开发态仍可直接服务任意动态 id。
 export function generateStaticParams() { return [{ id: "app" }]; }
 
 export default function ProjectDetailPage() { return <ProjectDetailClient />; }

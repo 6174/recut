@@ -1,6 +1,7 @@
 name = "recut-web"
 main = "worker.ts"
 compatibility_date = "2025-04-08"
+workers_dev = true
 
 [assets]
 directory = "./out"

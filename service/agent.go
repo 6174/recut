@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权与 Codex JSONL CLI
- * [OUTPUT]: 对外提供 AgentManager、含项目媒体引用和 Codex 模型/推理配置的持久化 Turn、按序待发送队列、保留工具输入/输出/失败态及时间戳的规范化事件与 Codex adapter
+ * [OUTPUT]: 对外提供 AgentManager、含项目媒体引用和 Codex 模型/推理配置的持久化 Turn、按序待发送队列、服务重启后的中断 Turn 收敛、保留工具输入/输出/失败态及时间戳的规范化事件与 Codex adapter
  * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -83,6 +83,108 @@ type AgentManager struct {
 
 func NewAgentManager(store *Store, bridge *AgentBridge, media *MediaService) *AgentManager {
 	return &AgentManager{store: store, bridge: bridge, media: media, running: map[string]context.CancelFunc{}}
+}
+
+// RecoverInterruptedTurns reconciles durable state with the process boundary.
+// A CLI child cannot survive this daemon, so a persisted running turn after a
+// restart is cancelled rather than being presented as a stoppable live task.
+// Queued turns are durable and safe to resume in their original FIFO order.
+func (m *AgentManager) RecoverInterruptedTurns() (int, error) {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	type interruptedTurn struct{ id, sessionID string }
+	var turns []interruptedTurn
+	rows, err := tx.Query("select id, session_id from agent_turns where role = ? and status = ?", "user", "running")
+	if err != nil {
+		return 0, err
+	}
+	for rows.Next() {
+		var turn interruptedTurn
+		if err := rows.Scan(&turn.id, &turn.sessionID); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		turns = append(turns, turn)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	sessions := map[string]bool{}
+	for _, turn := range turns {
+		sessions[turn.sessionID] = true
+	}
+	rows, err = tx.Query("select id from agent_sessions where status = ?", "running")
+	if err != nil {
+		return 0, err
+	}
+	for rows.Next() {
+		var sessionID string
+		if err := rows.Scan(&sessionID); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		sessions[sessionID] = true
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	now := iso(time.Now().UTC())
+	for _, turn := range turns {
+		if _, err := tx.Exec("update agent_turns set status = ?, completed_at = ? where id = ? and status = ?", "cancelled", now, turn.id, "running"); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec("insert into agent_events (session_id, turn_id, type, payload_json, created_at) values (?, ?, ?, ?, ?)", turn.sessionID, turn.id, "turn.cancelled", `{"label":"服务重启，当前回复已停止"}`, now); err != nil {
+			return 0, err
+		}
+	}
+	for sessionID := range sessions {
+		if _, err := tx.Exec("update agent_sessions set status = ?, updated_at = ? where id = ?", "idle", now, sessionID); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec("insert into agent_events (session_id, turn_id, type, payload_json, created_at) values (?, ?, ?, ?, ?)", sessionID, "", "session.updated", `{"label":"服务重启后已恢复为空闲"}`, now); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	for _, sessionID := range m.queuedSessionIDs() {
+		m.startRunner(sessionID)
+	}
+	return len(turns), nil
+}
+
+func (m *AgentManager) queuedSessionIDs() []string {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+	rows, err := db.Query("select distinct session_id from agent_turns where role = ? and status = ?", "user", "queued")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var sessionIDs []string
+	for rows.Next() {
+		var sessionID string
+		if rows.Scan(&sessionID) == nil {
+			sessionIDs = append(sessionIDs, sessionID)
+		}
+	}
+	return sessionIDs
 }
 
 func (m *AgentManager) Create(projectID, runtime, codexModel, reasoningEffort string) (ChatSession, error) {

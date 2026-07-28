@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录的 Catalog、Store、MediaService、TerminalManager、Server 和标准库运行时能力
- * [OUTPUT]: 对外提供 recut 本地 shell service 可执行程序入口、注入媒体能力的 AppHost、Agent Session Host 与常驻媒体任务调度组合
+ * [OUTPUT]: 对外提供 recut 本地 shell service 可执行程序入口、注入媒体能力的 AppHost、服务重启后 Agent 状态收敛与常驻媒体任务调度组合
  * [POS]: service 的组合根；只负责运行时配置、能力装配和长生命周期媒体回收启动，不承载领域逻辑
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -66,6 +66,11 @@ func main() {
 		log.Fatal(err)
 	}
 	agents := NewAgentManager(store, bridge, media)
+	if recovered, err := agents.RecoverInterruptedTurns(); err != nil {
+		log.Fatal(err)
+	} else if recovered > 0 {
+		log.Printf("Reconciled %d interrupted agent turn(s)", recovered)
+	}
 	log.Printf("Recut local API listening on http://%s", *address)
 	log.Fatal(NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater()).ListenAndServe(*address))
 }

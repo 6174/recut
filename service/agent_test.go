@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Agent 附件上下文格式化函数
- * [OUTPUT]: 验证 Agent 附件身份，以及停止时即时持久化 Turn 与会话终态
+ * [OUTPUT]: 验证 Agent 附件身份、停止时即时持久化 Turn 与会话终态，以及服务重启后的中断状态收敛
  * [POS]: service 的 Agent 协议回归测试；防止附件退化为裸路径或取消永久悬挂
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -64,6 +64,49 @@ func TestStopPersistsCancelledTurnBeforeRuntimeExits(t *testing.T) {
 	}
 	if cancelled != 1 {
 		t.Fatalf("cancelled events = %d, want 1", cancelled)
+	}
+}
+
+func TestRecoverInterruptedTurnsClearsStaleRunningState(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := iso(time.Now().UTC())
+	if _, err := db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", "session-restart", localProfileID, "", "codex", "", "Restart", "running", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("insert into agent_turns (id, session_id, role, content, status, created_at) values (?, ?, ?, ?, ?, ?)", "turn-restart", "session-restart", "user", "interrupted", "running", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewAgentManager(store, nil, nil)
+	recovered, err := manager.RecoverInterruptedTurns()
+	if err != nil || recovered != 1 {
+		t.Fatalf("recovered = %d, %v", recovered, err)
+	}
+	detail, err := manager.Detail("session-restart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Status != "idle" || detail.Turns[0].Status != "cancelled" || detail.Turns[0].CompletedAt == nil {
+		t.Fatalf("restart left stale running state: %#v", detail)
+	}
+	var cancelled, sessionUpdated int
+	for _, event := range detail.Events {
+		if event.Type == "turn.cancelled" {
+			cancelled++
+		}
+		if event.Type == "session.updated" {
+			sessionUpdated++
+		}
+	}
+	if cancelled != 1 || sessionUpdated != 1 {
+		t.Fatalf("restart events = cancelled:%d session.updated:%d", cancelled, sessionUpdated)
 	}
 }
 

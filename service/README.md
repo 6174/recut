@@ -3,7 +3,7 @@
 > L2 | 父级: /README.md
 
 成员清单
-main.go: 组合 Daemon、AppHost、MCP Host 与 loopback HTTP 服务；将平台 MediaService 注入 AppHost，供已获授权的 App 发起本地两轨导出；仅常驻 Daemon 在启动恢复后以 SQLite lease 定期提交/回收媒体任务，短生命周期 MCP 只持久化 queued 任务。
+main.go: 组合 Daemon、AppHost、MCP Host 与 loopback HTTP 服务；启动时先将重启遗留的 Agent 运行态收敛为可解释终态，再恢复媒体任务；将平台 MediaService 注入 AppHost，供已获授权的 App 发起本地两轨导出；仅常驻 Daemon 在启动恢复后以 SQLite lease 定期提交/回收媒体任务，短生命周期 MCP 只持久化 queued 任务。
 catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json，跟随开发 App 的符号链接，不理解 App 数据布局。
 app_install.go: App 分发边界；仅接受 HTTPS GitHub 地址，在临时 clone 通过 manifest 校验后激活，并以 Git status/fast-forward 管理升级。
 app_install_test.go: 锁定 GitHub 地址规范化与 dirty Git 工作树识别，不访问网络。
@@ -13,12 +13,12 @@ project.go: 创建平台项目并按 App scope 提供 SQLite、文件与 Artifac
 runtime.go: 在 Goja sandbox 中执行 App background.js，并注入统一 operation 注册器；同一 handler 可按 manifest surface 暴露给 UI API 与 MCP，获 `media.compose` 权限的 App 只能调用平台验证过的两轨合成能力。
 mcp.go: 将带 App workflow context、默认媒体契约和凭据可用音色的 recut.project_context、同步 recut.image.generate、异步 recut.video.generate_async/recut.speech.generate_async、recut.media.list_voices 与当前 App 的 manifest operations 路由给 JavaScript handler。
 mcp_test.go: 锁定按图片、视频和语音拆分的 MCP 生成工具及其互不混淆的输入 schema。
-server.go: 提供项目、App UI、App API、App 安装/升级、service self-update、Artifact 与终端 HTTP 边界；允许 `recut.video` 跨域访问 loopback API。
+server.go: 提供项目、App UI、App API、App 安装/升级、service self-update/restart、Artifact 与终端 HTTP 边界；允许 `recut.video` 跨域访问 loopback API。
 bridge.go: 管理 Agent session 与本地 CLI 连接，为项目挂载 `.recut/app`，再用内嵌 prompts/ 核心模板和当前 App 的 AGENTS.md 渲染 Codex 项目 guide。
 bridge_prompt_test.go: 锁定渲染后的 Vox Agent guide 必须使用 Recut 视频生成 API、包含中文 Vox 提示词/导演语言，且禁止把场景生成委托给 HyperFrames 或本地渲染。
 prompts/: Go 后端私有的嵌入式平台 Agent 模板；不会作为 App 包内容或运行时外部依赖暴露。
-agent.go: 保存本机用户的一对一 Agent 会话、消息、项目媒体引用、Codex 模型/推理强度与事件；同一会话把生成期间的新消息持久化为 FIFO 待发送队列，停止操作先即时持久化 cancelled/idle 终态再终止运行时，附件以 assetId、类型、来源和只读路径同时交给 Agent，Codex 仅对图片注入原生图片参数，所有媒体均以稳定引用和路径进入上下文，并将 JSONL 规范化为 UI 时间线协议。
-agent_server.go: 提供 Agent Session 的创建、Codex 会话模型/推理强度更新、带项目媒体资产引用的待发送消息入队、停止、查询与 SSE 事件 API。
+agent.go: 保存本机用户的一对一 Agent 会话、消息、项目媒体引用、Codex 模型/推理强度与事件；同一会话把生成期间的新消息持久化为 FIFO 待发送队列，停止操作先即时持久化 cancelled/idle 终态再终止运行时；服务重启时取消无法跨进程恢复的 active Turn、把会话收敛为空闲并恢复安全的 queued Turn，附件以 assetId、类型、来源和只读路径同时交给 Agent，Codex 仅对图片注入原生图片参数，所有媒体均以稳定引用和路径进入上下文，并将 JSONL 规范化为 UI 时间线协议。
+agent_server.go: 提供 Agent Session 的创建、Codex 会话模型/推理强度更新、带项目媒体资产引用的待发送消息入队、停止、查询与 SSE 事件 API；仅对当前进程真实运行的回复接受停止。
 media_adapter.go: 根服务与 media 子包的窄 Store 适配器和兼容类型别名；不承载任何媒体业务。
 media/: 独立媒体领域包；按类型、模型目录、配置凭据、资产和任务拆分，Provider 协议位于 `providers/` 子目录。
 media_server.go: 素材库、图片/视频/音频导入、模型、凭据、路由、任务、资产内容及基于 SQLite 事件账本的 Asset SSE HTTP API。

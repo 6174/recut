@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖已完成的本地视频/音频 Asset、FFmpeg 与受限的两轨时间线参数
- * [OUTPUT]: 对外提供确定性视频合成；每次导出均创建一个带时间线 metadata 的新 video Asset
+ * [OUTPUT]: 对外提供确定性视频合成；每次导出均创建一个保留视频原声、可混入音频轨且带时间线 metadata 的新 video Asset
  * [POS]: media 的本地导出边界；不调用模型或 Provider，只把 App 提供的两条顺序轨道渲染为成片
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -156,6 +156,19 @@ func (m *MediaService) compositionAssets(track []TimelineClip, expectedKind stri
 	return assets, nil
 }
 
+func hasAudioStream(asset MediaAsset) (bool, error) {
+	path, _ := asset.Metadata["path"].(string)
+	ffprobe, err := exec.LookPath("ffprobe")
+	if err != nil {
+		return false, errors.New("FFmpeg 安装不完整：缺少 ffprobe，无法安全保留视频原声")
+	}
+	output, err := exec.Command(ffprobe, "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", path).Output()
+	if err != nil {
+		return false, fmt.Errorf("无法检查视频“%s”的音频流：%w", asset.Name, err)
+	}
+	return strings.TrimSpace(string(output)) != "", nil
+}
+
 func compositionCommand(videos, audios []MediaAsset, input ComposeMediaInput, outputPath string) ([]string, error) {
 	args := []string{"-hide_banner", "-y"}
 	paths := append([]MediaAsset{}, videos...)
@@ -166,15 +179,29 @@ func compositionCommand(videos, audios []MediaAsset, input ComposeMediaInput, ou
 	}
 	filters := []string{}
 	videoLabels := []string{}
+	videoAudioLabels := []string{}
 	for index, clip := range input.VideoTimeline {
 		label := fmt.Sprintf("v%d", index)
 		filters = append(filters, fmt.Sprintf("[%d:v]trim=duration=%.3f,setpts=PTS-STARTPTS,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setsar=1[%s]", index, clip.DurationSec, input.Settings.Width, input.Settings.Height, input.Settings.Width, input.Settings.Height, label))
 		videoLabels = append(videoLabels, "["+label+"]")
+		audioLabel := fmt.Sprintf("va%d", index)
+		hasAudio, err := hasAudioStream(videos[index])
+		if err != nil {
+			return nil, err
+		}
+		if hasAudio {
+			filters = append(filters, fmt.Sprintf("[%d:a]atrim=duration=%.3f,asetpts=PTS-STARTPTS[%s]", index, clip.DurationSec, audioLabel))
+		} else {
+			filters = append(filters, fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=%.3f,asetpts=PTS-STARTPTS[%s]", clip.DurationSec, audioLabel))
+		}
+		videoAudioLabels = append(videoAudioLabels, "["+audioLabel+"]")
 	}
 	filters = append(filters, strings.Join(videoLabels, "")+fmt.Sprintf("concat=n=%d:v=1:a=0[vout]", len(videoLabels)))
+	filters = append(filters, strings.Join(videoAudioLabels, "")+fmt.Sprintf("concat=n=%d:v=0:a=1[vain]", len(videoAudioLabels)))
 
-	hasAudio := len(audios) > 0
-	if hasAudio {
+	selectedAudio := len(audios) > 0
+	outputAudio := "vain"
+	if selectedAudio {
 		audioLabels := []string{}
 		for index, clip := range input.AudioTimeline {
 			inputIndex := len(videos) + index
@@ -183,14 +210,11 @@ func compositionCommand(videos, audios []MediaAsset, input ComposeMediaInput, ou
 			audioLabels = append(audioLabels, "["+label+"]")
 		}
 		filters = append(filters, strings.Join(audioLabels, "")+fmt.Sprintf("concat=n=%d:v=0:a=1[aout]", len(audioLabels)))
+		filters = append(filters, "[vain][aout]amix=inputs=2:duration=first:dropout_transition=0[mixout]")
+		outputAudio = "mixout"
 	}
 	quality := map[string]string{"high": "18", "balanced": "23", "small": "28"}[input.Settings.Quality]
-	args = append(args, "-filter_complex", strings.Join(filters, ";"), "-map", "[vout]")
-	if hasAudio {
-		args = append(args, "-map", "[aout]", "-c:a", "aac", "-b:a", "192k")
-	} else {
-		args = append(args, "-an")
-	}
+	args = append(args, "-filter_complex", strings.Join(filters, ";"), "-map", "[vout]", "-map", "["+outputAudio+"]", "-c:a", "aac", "-b:a", "192k")
 	args = append(args, "-r", fmt.Sprint(input.Settings.FPS), "-c:v", "libx264", "-crf", quality, "-pix_fmt", "yuv420p", "-movflags", "+faststart", outputPath)
 	return args, nil
 }

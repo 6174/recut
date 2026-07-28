@@ -6,8 +6,8 @@
 package.json: Next.js 工作台的独立依赖与开发命令，开发时以 polling 避免本机 watcher 耗尽。
 package-lock.json: 锁定前端依赖的可复现版本。
 next.config.ts: 前端构建配置。
-wrangler.toml: `recut-web` Cloudflare Worker 与静态 Assets 发布配置。
-worker.ts: Cloudflare 静态站边缘入口；将项目深链重写为唯一静态项目壳，并把真实项目 id 放入查询串，直接交给静态 Assets binding，绝不代理 localhost service。
+wrangler.toml: `recut-web` Cloudflare Worker 与静态 Assets 发布配置；域名在 Cloudflare Dashboard 的 Custom Domain 中管理。
+worker.ts: Cloudflare 静态站边缘入口；在边缘内部将项目深链映射为唯一静态项目壳，浏览器仍保留真实项目 URL，直接交给静态 Assets binding，绝不代理 localhost service。
 public/install.sh: 无源码 macOS 安装/升级入口；从同域 release manifest 取得版本与 SHA-256，校验用户 CPU 对应的 service 包后注册 launchd 用户服务。
 public/releases/latest/: `make service-release` 生成的 macOS 压缩 service 发布包与 SHA-256 manifest；随 Worker Assets 发布，不进入 Git。
 next-env.d.ts: Next.js 自动生成的 TypeScript 环境声明。
@@ -21,6 +21,10 @@ public/: 公开的 macOS service 安装器与构建时生成的发布包。
 
 依赖边界
 web 仅通过 `NEXT_PUBLIC_RECUT_API_URL` 调用 Daemon HTTP/SSE API；Cloudflare 构建固定为 `http://127.0.0.1:17373`，由浏览器直连用户 service。`NEXT_PUBLIC_RECUT_SERVICE_VERSION` 是 Makefile 从唯一 `RECUT_VERSION` 注入的本次发布 service 版本；对话以 Agent Session 事件为真相，PTY 输出只可用于终端诊断，不得导入 `cmd/`、`internal/` 或直接读写本地项目目录。
+
+域名边界
+
+在 Cloudflare Dashboard 将 `recut.video` 与 `www.recut.video` 添加为同一 Worker 的 Custom Domain；不要同时保留指向外部 HTTPS origin 的代理 DNS 记录，也不要使用只匹配 `/` 的 Worker Route。Custom Domain 必须覆盖静态 HTML、`/_next/static/*`、release manifest 与安装包，避免 chunk 回落到源站并触发 525。不要在 `wrangler.toml` 的 `routes` 和 Dashboard Custom Domain 中重复配置域名：前者会禁用默认 `workers.dev` 域名并增加故障恢复复杂度。
 
 表单规范
 每个 `input`、`select`、`textarea` 必须有可见的 `<label htmlFor>`，并与控件 `id` 对应；placeholder 只能提供格式或示例，不能替代字段名称。

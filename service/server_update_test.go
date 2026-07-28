@@ -24,4 +24,9 @@ func TestSystemUpdateRequiresConfiguredUpdater(t *testing.T) {
 	if update.Code != http.StatusNotImplemented {
 		t.Fatalf("self-update without updater = %d", update.Code)
 	}
+	restart := httptest.NewRecorder()
+	handler.ServeHTTP(restart, httptest.NewRequest(http.MethodPost, "/v1/system/restart", nil))
+	if restart.Code != http.StatusNotImplemented {
+		t.Fatalf("restart without updater = %d", restart.Code)
+	}
 }

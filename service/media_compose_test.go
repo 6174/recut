@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,7 +39,7 @@ func TestMediaComposeCreatesNewTimelineAsset(t *testing.T) {
 	}
 	videoPath := filepath.Join(root, "source.mp4")
 	audioPath := filepath.Join(root, "source.m4a")
-	runFFmpeg(t, "-f", "lavfi", "-i", "color=c=blue:s=320x320:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", videoPath)
+	runFFmpeg(t, "-f", "lavfi", "-i", "color=c=blue:s=320x320:d=1", "-f", "lavfi", "-i", "sine=frequency=330:duration=1", "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", videoPath)
 	runFFmpeg(t, "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "aac", "-y", audioPath)
 	media := NewMediaService(store)
 	video, err := media.ImportMedia("source.mp4", "video/mp4", readTestMedia(t, videoPath))
@@ -64,6 +65,9 @@ func TestMediaComposeCreatesNewTimelineAsset(t *testing.T) {
 	if _, err := os.Stat(asset.Metadata["path"].(string)); err != nil {
 		t.Fatal(err)
 	}
+	if !fileHasAudioStream(t, asset.Metadata["path"].(string)) {
+		t.Fatal("export lost the video audio track")
+	}
 }
 
 func runFFmpeg(t *testing.T, args ...string) {
@@ -80,4 +84,13 @@ func readTestMedia(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return content
+}
+
+func fileHasAudioStream(t *testing.T, path string) bool {
+	t.Helper()
+	output, err := exec.Command("ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("ffprobe %s: %v\n%s", path, err, output)
+	}
+	return strings.TrimSpace(string(output)) != ""
 }

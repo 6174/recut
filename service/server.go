@@ -48,6 +48,7 @@ func (s *Server) routes() http.Handler {
 	})
 	mux.HandleFunc("GET /v1/system/status", s.systemStatus)
 	mux.HandleFunc("POST /v1/system/update", s.updateSystem)
+	mux.HandleFunc("POST /v1/system/restart", s.restartSystem)
 	mux.HandleFunc("GET /v1/apps", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.apps.List()) })
 	mux.HandleFunc("GET /v1/apps/installed", s.listAppInstallations)
 	mux.HandleFunc("POST /v1/apps/install", s.installApp)
@@ -96,11 +97,11 @@ func (s *Server) routes() http.Handler {
 }
 
 func (s *Server) systemStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"version": ServiceVersion(), "selfUpdate": s.updater != nil})
+	writeJSON(w, http.StatusOK, map[string]any{"version": ServiceVersion(), "selfUpdate": s.updater != nil, "selfRestart": s.updater.CanRestart()})
 }
 
 func (s *Server) updateSystem(w http.ResponseWriter, _ *http.Request) {
-	if s.updater == nil {
+	if !s.updater.CanRestart() {
 		writeError(w, http.StatusNotImplemented, errors.New("service self-update is unavailable"))
 		return
 	}
@@ -110,6 +111,15 @@ func (s *Server) updateSystem(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "restarting", "version": version})
+	s.updater.RestartSoon()
+}
+
+func (s *Server) restartSystem(w http.ResponseWriter, _ *http.Request) {
+	if !s.updater.CanRestart() {
+		writeError(w, http.StatusNotImplemented, errors.New("service restart is unavailable"))
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "restarting", "version": ServiceVersion()})
 	s.updater.RestartSoon()
 }
 

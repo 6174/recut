@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Cloudflare 静态 Assets binding 与浏览器项目 URL
- * [OUTPUT]: 对外提供 recut.video 静态工作台和旧项目深链的无状态重定向
+ * [OUTPUT]: 对外提供 recut.video 静态工作台和项目深链的内部静态壳映射
  * [POS]: web 的 Cloudflare 边缘入口；绝不代理或读取用户 localhost 上的 service
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -16,10 +16,11 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const match = url.pathname.match(/^\/projects\/([^/]+)\/?$/);
-    if (match) {
-      const target = new URL("/projects/app/", url);
-      target.searchParams.set("id", decodeURIComponent(match[1]));
-      return Response.redirect(target, 302);
+    if (match && match[1] !== "app") {
+      // Static export only materializes /projects/app/. Serve that asset
+      // internally while leaving the real project URL in the browser bar.
+      const shell = new URL("/projects/app/", url);
+      return env.ASSETS.fetch(new Request(shell, request));
     }
     return env.ASSETS.fetch(request);
   },

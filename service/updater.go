@@ -103,6 +103,14 @@ func (u *ServiceUpdater) RestartSoon() {
 	}()
 }
 
+func (u *ServiceUpdater) CanRestart() bool {
+	if u == nil || u.goos != "darwin" {
+		return false
+	}
+	executable, err := u.executable()
+	return err == nil && filepath.Base(executable) == "recut-service"
+}
+
 func (u *ServiceUpdater) fetchManifest() (releaseManifest, error) {
 	manifest := releaseManifest{}
 	response, err := u.httpClient.Get(u.downloadBase + "/releases/latest/manifest.json")
