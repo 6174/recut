@@ -4,3 +4,6 @@ node_modules
 .cache
 coverage.out
 .DS_Store
+build/
+web/out/
+web/public/releases/

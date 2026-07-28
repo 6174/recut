@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 React、recut UI SDK、共享 Asset SSE 缓存、资源卡片与资源弹窗
- * [OUTPUT]: 对外提供 B-roll 多面板工作台根视图与创建、原位更新后的项目事件驱动资源刷新
- * [POS]: vox-broll 的项目 UI 编排层；同时展示全部创作阶段，为所有资源预览建立唯一 Asset SSE 缓存，不直接访问 HTTP、终端或 SQLite
+ * [OUTPUT]: 对外提供 B-roll 多面板工作台根视图与创建、两轨最终导出、原位更新后的项目事件驱动资源刷新
+ * [POS]: vox-broll 的项目 UI 编排层；同时展示全部创作阶段，为所有资源预览建立唯一 Asset SSE 缓存，最终阶段只调用 background API，不直接访问 HTTP、终端或 SQLite
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { createRoot } from "react-dom/client";
@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { CreateResourceDialog, ResourcePreviewDialog } from "./resource-dialogs";
 import { recut } from "./recut-sdk";
 import { StagePanel, type Stage } from "./stage-panel";
+import { DeliveryExportDialog } from "./timeline-export";
 import { MediaAssetEventsProvider } from "./use-media-asset-events";
 import "./style.css";
 
@@ -30,6 +31,7 @@ function App() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [preview, setPreview] = useState<Resource | null>(null);
   const [creatingStage, setCreatingStage] = useState<Stage | null>(null);
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [status, setStatus] = useState("");
   const refresh = async () => { try { setResources(await recut.state.query("resource.list")); } catch { /* SDK 尚未连接 */ } };
 
@@ -48,6 +50,18 @@ function App() {
     const prepared = await recut.background.call("resource.prepare", { kind: stage.kind, dependencies: selectedResources.map((item) => `${item.kind}:${item.id}`), instruction });
     await recut.agent.send({ prompt: prepared.prompt });
     setStatus("创作请求已发给 Codex；资源完成后会自动出现。 ");
+  };
+  const exportDelivery = async (input: Record<string, unknown>) => {
+    const asset = await recut.background.call("delivery.export", input);
+    await refresh();
+    setStatus("最终视频已作为新的素材导出。");
+    return asset;
+  };
+  const troubleshootExport = async (message: string) => {
+    try {
+      await recut.agent.send({ prompt: `请只排查并修复 B-roll 最终导出失败的问题，不要重新创作视频或改动时间线。导出由平台 FFmpeg 两轨合成执行，诊断如下：${message}\n如果未安装 FFmpeg，请按本机环境安装并在完成后提示我重试；若是编码或素材问题，定位原因并修复到可以重新导出。` });
+      setStatus("导出诊断已交给 Codex；它只会处理环境或导出错误，不会重做创作内容。");
+    } catch { setStatus("导出失败，且当前没有可用的 Codex 会话；请创建会话后重试导出。 "); }
   };
   const retire = async (resource: Resource) => {
     if (!window.confirm(`将“${resource.title}”移出当前方案？历史记录会保留。`)) return;
@@ -74,12 +88,13 @@ function App() {
       <StagePanel onCreate={() => setCreatingStage(stages[3])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[3])} stage={stages[3]} />
       <StagePanel onCreate={() => setCreatingStage(stages[4])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[4])} stage={stages[4]} />
       <StagePanel onCreate={() => setCreatingStage(stages[5])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[5])} stage={stages[5]} />
-      <StagePanel onCreate={() => setCreatingStage(stages[6])} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[6])} stage={stages[6]} />
+      <StagePanel onCreate={() => setDeliveryOpen(true)} onDelete={(resource) => void remove(resource)} onPreview={setPreview} onRetire={(resource) => void retire(resource)} resources={resourcesFor(stages[6])} stage={stages[6]} />
     </div>
     {status && <p className="mt-5 text-sm text-muted-foreground" role="status">{status}</p>}
   </div>
   <ResourcePreviewDialog onDelete={(resource) => void remove(resource)} onOpenChange={(open) => !open && setPreview(null)} resource={preview} />
   <CreateResourceDialog examples={creatingStage?.kind === "Brief" ? examples : []} isLook={creatingStage?.kind === "Look"} onCreate={(instruction, dependencies) => creatingStage ? create(creatingStage, instruction, dependencies) : Promise.resolve()} onOpenChange={(open) => !open && setCreatingStage(null)} open={Boolean(creatingStage)} resources={resources} stage={creatingStage?.label || "资源"} />
+  <DeliveryExportDialog onExport={exportDelivery} onOpenChange={setDeliveryOpen} onTroubleshoot={troubleshootExport} open={deliveryOpen} resources={resources} />
   </main>;
 }
 

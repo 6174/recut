@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type AppKind string
@@ -53,6 +54,7 @@ type App struct {
 }
 
 type Catalog struct {
+	mu   sync.RWMutex
 	apps map[string]App
 	dir  string
 }
@@ -62,13 +64,32 @@ func LoadCatalog(dir string) (*Catalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve apps directory: %w", err)
 	}
-	entries, err := os.ReadDir(absolute)
+	catalog := &Catalog{dir: absolute}
+	if err := catalog.Reload(); err != nil {
+		return nil, err
+	}
+	return catalog, nil
+}
+
+func (c *Catalog) Reload() error {
+	apps, err := loadCatalogApps(c.dir)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.apps = apps
+	c.mu.Unlock()
+	return nil
+}
+
+func loadCatalogApps(dir string) (map[string]App, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read apps directory: %w", err)
 	}
-	catalog := &Catalog{apps: map[string]App{}, dir: absolute}
+	apps := map[string]App{}
 	for _, entry := range entries {
-		root := filepath.Join(absolute, entry.Name())
+		root := filepath.Join(dir, entry.Name())
 		info, err := os.Stat(root)
 		if err != nil {
 			return nil, fmt.Errorf("inspect App package %q: %w", entry.Name(), err)
@@ -80,17 +101,24 @@ func LoadCatalog(dir string) (*Catalog, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, exists := catalog.apps[app.Manifest.ID]; exists {
+		if _, exists := apps[app.Manifest.ID]; exists {
 			return nil, fmt.Errorf("duplicate app id %q", app.Manifest.ID)
 		}
-		catalog.apps[app.Manifest.ID] = app
+		apps[app.Manifest.ID] = app
 	}
-	return catalog, nil
+	return apps, nil
 }
 
-func (c *Catalog) Directory() string         { return c.dir }
-func (c *Catalog) Get(id string) (App, bool) { app, ok := c.apps[id]; return app, ok }
+func (c *Catalog) Directory() string { return c.dir }
+func (c *Catalog) Get(id string) (App, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	app, ok := c.apps[id]
+	return app, ok
+}
 func (c *Catalog) List() []App {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	apps := make([]App, 0, len(c.apps))
 	for _, app := range c.apps {
 		if app.Manifest.ID == mediaSystemAppID {

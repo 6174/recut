@@ -1,13 +1,14 @@
 /*
- * [INPUT]: 依赖 Catalog 的 manifest、Store 的隔离存储与 goja JavaScript 运行时
- * [OUTPUT]: 对外提供 AppHost，按 surface 执行 App background.js 的统一 operation handler
- * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用注入的 recut API
+ * [INPUT]: 依赖 Catalog 的 manifest、Store 的隔离存储、MediaService 与 goja JavaScript 运行时
+ * [OUTPUT]: 对外提供 AppHost，按 surface 执行 App background.js 的统一 operation handler，并按权限注入受限媒体合成能力
+ * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用 manifest 明示的 recut API
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,10 +22,15 @@ import (
 type AppHost struct {
 	catalog *Catalog
 	store   *Store
+	media   *MediaService
 }
 
-func NewAppHost(catalog *Catalog, store *Store) *AppHost {
-	return &AppHost{catalog: catalog, store: store}
+func NewAppHost(catalog *Catalog, store *Store, media ...*MediaService) *AppHost {
+	var platformMedia *MediaService
+	if len(media) > 0 {
+		platformMedia = media[0]
+	}
+	return &AppHost{catalog: catalog, store: store, media: platformMedia}
 }
 
 func (h *AppHost) InvokeAPI(projectID, appID, name string, input map[string]any) (any, error) {
@@ -141,7 +147,50 @@ func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*go
 		})
 		_ = ctx.Set("artifacts", artifacts)
 	}
+	if hasPermission(app.Manifest, "media.compose") && h.media != nil {
+		media := runtime.NewObject()
+		_ = media.Set("compose", func(call goja.FunctionCall) goja.Value {
+			input, err := composeMediaInput(runtime, call.Argument(0))
+			if err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			input.ProjectID = projectID
+			asset, err := h.media.Compose(input)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(map[string]any{
+				"id":        asset.ID,
+				"name":      asset.Name,
+				"kind":      asset.Kind,
+				"mimeType":  asset.MimeType,
+				"status":    asset.Status,
+				"metadata":  asset.Metadata,
+				"createdAt": asset.CreatedAt,
+			})
+		})
+		_ = ctx.Set("media", media)
+	}
 	return ctx, nil
+}
+
+// composeMediaInput crosses the JavaScript boundary through JSON rather than
+// Go field names. Goja's direct struct export does not apply json tags, while
+// App payloads intentionally use the stable camelCase HTTP/MCP contract.
+func composeMediaInput(runtime *goja.Runtime, value goja.Value) (ComposeMediaInput, error) {
+	payload := map[string]any{}
+	if err := runtime.ExportTo(value, &payload); err != nil {
+		return ComposeMediaInput{}, err
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return ComposeMediaInput{}, err
+	}
+	input := ComposeMediaInput{}
+	if err := json.Unmarshal(encoded, &input); err != nil {
+		return ComposeMediaInput{}, err
+	}
+	return input, nil
 }
 
 func sqlExecute(runtime *goja.Runtime, db *sql.DB) func(goja.FunctionCall) goja.Value {

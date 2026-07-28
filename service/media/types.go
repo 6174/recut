@@ -117,3 +117,32 @@ type GenerateMediaInput struct {
 	ProjectID      string          `json:"projectId"`
 	IdempotencyKey string          `json:"idempotencyKey"`
 }
+
+// TimelineClip is one sequential segment on a composition track. The B-roll
+// editor deliberately uses two fixed tracks, so each segment starts where the
+// previous segment ends and needs no arbitrary layer or transition model.
+type TimelineClip struct {
+	AssetID     string  `json:"assetId"`
+	StartSec    float64 `json:"startSec"`
+	DurationSec float64 `json:"durationSec"`
+}
+
+// CompositionSettings contains the small, stable export surface exposed by
+// the platform. Codec choices remain platform-owned so App UI cannot create
+// non-portable FFmpeg command lines.
+type CompositionSettings struct {
+	Width   int    `json:"width"`
+	Height  int    `json:"height"`
+	FPS     int    `json:"fps"`
+	Quality string `json:"quality"`
+}
+
+// ComposeMediaInput describes a deterministic video/audio timeline. It is
+// intentionally separate from provider generation: all source IDs already
+// refer to completed local Assets and the result is a new local video Asset.
+type ComposeMediaInput struct {
+	ProjectID     string              `json:"projectId"`
+	VideoTimeline []TimelineClip      `json:"videoTimeline"`
+	AudioTimeline []TimelineClip      `json:"audioTimeline"`
+	Settings      CompositionSettings `json:"settings"`
+}

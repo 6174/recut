@@ -7,7 +7,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Cloudflare 只托管不可变的 UI；浏览器仍通过 loopback HTTP 调用用户自己的
+  // Recut service。开发/本地生产保持 standalone，发布时显式切换静态导出。
+  output: process.env.RECUT_STATIC_EXPORT === "1" ? "export" : "standalone",
+  trailingSlash: process.env.RECUT_STATIC_EXPORT === "1",
+  images: { unoptimized: true },
 };
 
 export default nextConfig;

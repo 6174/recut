@@ -9,6 +9,7 @@ stage-panel.tsx: 工作台单层创作分区；以统一边框卡片承载标题
 resource-card.tsx: 固定宽度的素材缩略图；Look 和 Keyframes 展示实际生成图，已完成 Scene 直接展示静音循环视频画面，运行或失败素材显示状态兜底，悬停显示三点操作菜单。
 resource-dialogs.tsx: iframe 内受控资源详情模态框、受确认的删除入口与新建请求弹窗；引用资源展示实际图片、视频画面或文字摘要。
 resource-view.tsx: 资源展示语义层；按阶段把内部 JSON 翻译为图文、缩略文本、视频画面、镜头卡与清单，优先读取独立 Scene 的 `video.assetId`，兼容历史 `scenes[]/shots[]` 项内的 `video.assetId` 或 `videoAssetId`；所有真实媒体从共享 Asset SSE 缓存读取状态，任何生成中的图片、音频或视频都显示实时计时，终态仅展示后端 `generationDurationMs`，历史素材绝不根据时间戳猜测生成耗时，也不直接向用户展示 JSON。
+timeline-export.tsx: Delivery 专用的两轨确定性时间线；选择已有 Scene 视频与 Audio 声音，按顺序排列、浏览器预览并以尺寸/帧率/画质设置调用 `delivery.export` 生成新的视频 Asset，错误时只将环境诊断交给 Codex。
 recut-sdk.ts: iframe 与宿主的 MessageChannel 边界，发布项目事件。
 ui.tsx: 基于 Tailwind、Radix Dialog / Dropdown Menu 的 shadcn 风格 UI 原子。
 style.css: Tailwind v4 入口与 Vox B-roll 设计令牌；与宿主共享白底、黑字、明亮品牌绿主题。

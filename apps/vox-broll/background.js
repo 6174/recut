@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖平台注入的 ctx.sqlite 与 ctx.artifacts capability
- * [OUTPUT]: 注册 B-roll brief、资源创建、查询、归档与受依赖保护删除的 App API 与 MCP 工具处理器
- * [POS]: vox-broll 的唯一业务后端；数据表、文件和产物模型由本 App 自己定义
+ * [INPUT]: 依赖平台注入的 ctx.sqlite、ctx.artifacts 与受限 ctx.media.compose capability
+ * [OUTPUT]: 注册 B-roll brief、资源创建、查询、归档、两轨确定性导出与受依赖保护删除的 App API 与 MCP 工具处理器
+ * [POS]: vox-broll 的唯一业务后端；数据表、文件和产物模型由本 App 自己定义，最终导出委托平台 Asset 合成
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
@@ -180,7 +180,7 @@ function workflowContext(_, ctx) {
     mediaExecution: {
       keyframes: { kind: "platform-media-generation", generate: "recut.image.generate", complete: "assetId" },
       audio: { kind: "platform-media-generation", generate: "recut.speech.generate_async", complete: "accepted -> queued assetIds[0] -> resource.create; Daemon updates Asset status" },
-      scenes: { kind: "platform-media-generation", generate: "recut.video.generate_async", complete: "accepted -> queued assetIds[0] -> resource.create; Daemon updates Asset status; for Seedance use output.generateAudio=true unless the user explicitly requests silent video", alternatives: "Use a composition extension only when the user explicitly requests that composition; do not substitute it for generated video." },
+      scenes: { kind: "platform-media-generation", generate: "recut.video.generate_async", complete: "accepted -> queued assetIds[0] -> resource.create; Daemon updates Asset status; for Seedance use output.generateAudio=true unless the user explicitly requests silent video; video text must quote audio.text verbatim and forbid extra speech", alternatives: "Use a composition extension only when the user explicitly requests that composition; do not substitute it for generated video." },
     },
    inFlight: null,
   };
@@ -206,7 +206,7 @@ function prepareResource(input, ctx) {
     look: "3 个明显不同的视觉方向。每个方向都需要一张 16:9 风格参考图和原始画面描述；图里不要有可读正文、Logo 或水印。完成后停下，等待选择。",
     keyframes: "每个节拍一张关键画面：先用 recut.image.generate 逐张生成并拿到完成的图片 assetId，再保存。每个 keyframes[] 项的 image 必须是完整 MediaSnapshot，image.assetId 指向该节拍的新图；text 是该图的原始提示词；imageAssetIds 引用选定 Look 的参考图；audioAssetIds 为空数组；sourceResourceIds 记录对应 Beat 和 Look。绝不把文字画面描述当成关键画面保存。",
     audio: "每个场景都必须先生成真实可播放的旁白：从 recut.project_context.media.defaultRoutes 找到 speech.generate 的 credentialId，调用 recut.media.list_voices 取得 voiceId；逐段调用 recut.speech.generate_async 后立即取得稳定 assetId 并保存 scenes[]。每项 audio 必须是完整 MediaSnapshot：assetId 为刚提交的音频，text 为旁白原文，imageAssetIds/audioAssetIds 为空数组，sourceResourceIds 记录对应 Beat 与 Keyframe。Daemon 会原位更新状态；只有音频已完成时才可将它作为场景视频输入。音乐和音效可以是编辑指令，但不能替代旁白音频。生成失败时不得保存空 Audio 资源，应如实报告。",
-    scenes: `视频生成昂贵，默认只生成第一段并停下等待用户确认。${batch ? "用户已明确要求一次生成全部剩余段；逐段生成，但每段必须独立调用 resource.create，绝不能合并为一个含多段的 Scene resource。" : "不要循环生成其余段，不要合并为一个含多段的 Scene resource。"} 执行顺序不可替换：先调用 recut.video.generate_async，传入该段 keyframe.assetId 与已完成 audio.assetId；若 Route 使用 Seedance，output.generateAudio 默认为 true，只有用户明确要求无声视频才传 false；Gemini 不传此字段。提交响应会带稳定 assetIds[0]，立刻调用 resource.create 保存独立 Scene resource，不能等待轮询完成。recut.media.get_job 只用于读取并报告该 Asset 的 queued/running/completed/failed 状态。禁止使用 HyperFrames、ffmpeg、浏览器自动化、终端脚本或本地渲染替代该 API 调用。顶层字段为 beatId、title、durationSec、visualAction、cutPoint、video；video 必须是完整 MediaSnapshot 且 assetId 指向刚提交的视频。`,
+    scenes: `视频生成昂贵，默认只生成第一段并停下等待用户确认。${batch ? "用户已明确要求一次生成全部剩余段；逐段生成，但每段必须独立调用 resource.create，绝不能合并为一个含多段的 Scene resource。" : "不要循环生成其余段，不要合并为一个含多段的 Scene resource。"} 执行顺序不可替换：先调用 recut.video.generate_async，传入该段 keyframe.assetId 与已完成 audio.assetId。调用的视频提示词必须把该场景 audio.text（若为空则 narration）原样逐字写在“唯一人声/逐字台词”段落中，并明确：使用附带参考音频作为唯一人声；禁止新增对白、歌词、耳语、翻译或不可辨识人声；只生成与画面动作相符的非语言效果声。若 Route 使用 Seedance，output.generateAudio 默认为 true，只有用户明确要求无声视频才传 false；Gemini 不传此字段。提交响应会带稳定 assetIds[0]，立刻调用 resource.create 保存独立 Scene resource，不能等待轮询完成。recut.media.get_job 只用于读取并报告该 Asset 的 queued/running/completed/failed 状态。禁止使用 HyperFrames、ffmpeg、浏览器自动化、终端脚本或本地渲染替代该 API 调用。顶层字段为 beatId、title、durationSec、visualAction、cutPoint、video；video 必须是完整 MediaSnapshot 且 assetId 指向刚提交的视频。`,
     delivery: "最终时间线、画幅、时长、格式和可执行的导出前检查表。",
   }[kind.toLowerCase()] || "一份面向审阅的清晰创作产出。";
   const contract = resourceContracts[kind.toLowerCase()];
@@ -305,6 +305,34 @@ function deleteResource(input, ctx) {
   return { id, deleted: true };
 }
 
+function timelineDuration(track) {
+  return (Array.isArray(track) ? track : []).reduce((total, clip) => Math.max(total, Number(clip.startSec || 0) + Number(clip.durationSec || 0)), 0);
+}
+
+function exportDelivery(input, ctx) {
+  ensureSchema(ctx);
+  if (!ctx.media || typeof ctx.media.compose !== "function") throw new Error("平台导出能力不可用，请重启 Recut 后重试。");
+  const videoTimeline = Array.isArray(input.videoTimeline) ? input.videoTimeline : [];
+  const audioTimeline = Array.isArray(input.audioTimeline) ? input.audioTimeline : [];
+  const settings = input.settings && typeof input.settings === "object" && !Array.isArray(input.settings) ? input.settings : {};
+  const asset = ctx.media.compose({ videoTimeline, audioTimeline, settings });
+  const duration = timelineDuration(videoTimeline);
+  const aspectRatio = `${settings.width || 1920}:${settings.height || 1080}`;
+  const content = {
+    aspectRatio,
+    duration,
+    format: "MP4 / H.264 + AAC",
+    export: `已导出为新素材：${asset.id}`,
+    checklist: ["视频轨已按顺序合成", audioTimeline.length ? "音频轨已按顺序合成" : "未选择音频轨，已导出无声视频", `导出尺寸：${aspectRatio}`, `帧率：${settings.fps || 30} fps`],
+    assetId: asset.id,
+    videoTimeline,
+    audioTimeline,
+    settings,
+  };
+  createResource({ kind: "delivery", title: `最终导出 · ${new Date().toLocaleString("zh-CN")}`, content, dependencies: Array.isArray(input.dependencies) ? input.dependencies : [] }, ctx);
+  return asset;
+}
+
 recut.operation.register("brief.create", createBrief);
 recut.operation.register("brief.latest", latestBrief);
 recut.operation.register("workflow.context", workflowContext);
@@ -315,3 +343,4 @@ recut.operation.register("resource.update", updateResource);
 recut.operation.register("resource.list", listResources);
 recut.operation.register("resource.retire", retireResource);
 recut.operation.register("resource.delete", deleteResource);
+recut.operation.register("delivery.export", exportDelivery);

@@ -6,11 +6,12 @@ Recut 是本地 AI 视频工作台，也是类似 Chrome 的 App Host：App 用 
 
 ```text
 apps/             开发中的 App 源码包；通过 make app-link 链接到运行时目录
+scripts/          当前用户生产 service 的 launchd/systemd 安装器
 dev/              开发审计与设计记录；不参与运行时
 service/          Daemon：Extension Registry、JS runtime、Media Platform、storage/MCP/HTTP capability
 web/              平台工作台：项目、素材库系统应用与 App UI 容器
 ARCHITECTURE.md   Extension Host 契约与 B-roll 案例
-Makefile          本地开发入口；启动前会安全清理本项目残留的后端与前端进程，并提供 App 链接命令
+Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部署入口
 ```
 
 ## 核心法则
@@ -29,5 +30,13 @@ Makefile          本地开发入口；启动前会安全清理本项目残留�
 运行 `make app-link` 链接全部本地 App；只链接一个包时使用 `make app-link APP=apps/vox-broll`。随后运行 `make dev`。
 
 运行 `make dev` 启动服务和工作台；`make check` 执行 Go 测试、静态检查与前端构建。
+
+## 发布与本地连接
+
+`make deploy` 是唯一发布入口：发布前在 Makefile 顶部维护唯一的 `RECUT_VERSION`，该值会同时写入 service、SHA-256 release manifest 和前端兼容版本。命令随后为 macOS 的 arm64/amd64 构建压缩 service 包到 web static 目录，导出 Next.js 工作台并以 Wrangler 部署到 Cloudflare Worker。`make web-deploy` 保留为等价兼容命令。将 `recut.video` 绑定到该 Worker 后，macOS 用户可运行 `curl -fsSL https://recut.video/install.sh | sh`；脚本从 release manifest 读取版本、校验 CPU 对应包的 SHA-256、保留 `~/.recut` 数据并注册当前用户 launchd 服务，重复执行即升级。Worker 不代理本地 API，也不会接触项目、素材或 BYOK 凭据；浏览器只连接用户自己的 `http://127.0.0.1:17373`。
+
+`make service-install RECUT_VERSION=0.1.0` 仍可用于从源码构建二进制并把它注册为当前用户的 launchd（macOS）或 systemd user service（Linux）。首次打开 `https://recut.video` 时，前端会检测本地 service；缺失或版本过低时显示同一个 `curl -fsSL https://recut.video/install.sh | sh` 入口。`make service-status` 用于检查常驻 service。
+
+首页只有 **Project** 与 **Apps** 两个核心 tab。Apps 可安装 HTTPS GitHub 仓库；service 只在 clone 后验证标准 `manifest.json` 才激活。已安装的 Git App 使用 `git status --porcelain --branch` 读取工作树和 behind 状态；升级拒绝覆盖本地修改，并只运行 `git pull --ff-only`。安装、升级和本地 service 出错时，界面提供可复制给 Codex 或 Claude Code 的诊断任务，而不猜测性修改本机状态。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

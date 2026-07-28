@@ -26,10 +26,15 @@ type Server struct {
 	agents    *AgentManager
 	host      *AppHost
 	media     *MediaService
+	updater   *ServiceUpdater
 }
 
-func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, agents *AgentManager, host *AppHost, media *MediaService) *Server {
-	return &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host, media: media}
+func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, agents *AgentManager, host *AppHost, media *MediaService, updater ...*ServiceUpdater) *Server {
+	server := &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host, media: media}
+	if len(updater) > 0 {
+		server.updater = updater[0]
+	}
+	return server
 }
 
 func (s *Server) ListenAndServe(address string) error {
@@ -39,9 +44,14 @@ func (s *Server) ListenAndServe(address string) error {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": ServiceVersion()})
 	})
+	mux.HandleFunc("GET /v1/system/status", s.systemStatus)
+	mux.HandleFunc("POST /v1/system/update", s.updateSystem)
 	mux.HandleFunc("GET /v1/apps", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.apps.List()) })
+	mux.HandleFunc("GET /v1/apps/installed", s.listAppInstallations)
+	mux.HandleFunc("POST /v1/apps/install", s.installApp)
+	mux.HandleFunc("POST /v1/apps/{package}/update", s.updateApp)
 	mux.HandleFunc("GET /v1/apps/{appID}/ui/{path...}", s.appUI)
 	mux.HandleFunc("GET /v1/projects", s.listProjects)
 	mux.HandleFunc("POST /v1/projects", s.createProject)
@@ -85,6 +95,24 @@ func (s *Server) routes() http.Handler {
 	return withLocalCORS(mux)
 }
 
+func (s *Server) systemStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"version": ServiceVersion(), "selfUpdate": s.updater != nil})
+}
+
+func (s *Server) updateSystem(w http.ResponseWriter, _ *http.Request) {
+	if s.updater == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("service self-update is unavailable"))
+		return
+	}
+	version, err := s.updater.Update()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "restarting", "version": version})
+	s.updater.RestartSoon()
+}
+
 type AgentStatus struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -104,10 +132,11 @@ func (s *Server) listAgents(w http.ResponseWriter, _ *http.Request) {
 func withLocalCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin == "http://localhost:3000" || origin == "http://127.0.0.1:3000" {
+		if origin == "http://localhost:3000" || origin == "http://127.0.0.1:3000" || origin == "https://recut.video" || origin == "https://www.recut.video" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -115,6 +144,40 @@ func withLocalCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) listAppInstallations(w http.ResponseWriter, _ *http.Request) {
+	installations, err := s.apps.Installations()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, installations)
+}
+
+func (s *Server) installApp(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		Repository string `json:"repository"`
+	}{}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	installed, err := s.apps.InstallGitHub(input.Repository)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, installed)
+}
+
+func (s *Server) updateApp(w http.ResponseWriter, r *http.Request) {
+	updated, err := s.apps.UpdateInstallation(r.PathValue("package"))
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, _ *http.Request) {

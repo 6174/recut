@@ -7,11 +7,27 @@
 package main
 
 import (
+	"github.com/dop251/goja"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestComposeMediaInputKeepsCamelCaseTimelineFields(t *testing.T) {
+	runtime := goja.New()
+	input, err := composeMediaInput(runtime, runtime.ToValue(map[string]any{
+		"videoTimeline": []any{map[string]any{"assetId": "video-1", "startSec": 0, "durationSec": 5}},
+		"audioTimeline": []any{map[string]any{"assetId": "audio-1", "startSec": 0, "durationSec": 5}},
+		"settings":      map[string]any{"width": 1920, "height": 1080, "fps": 30, "quality": "balanced"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(input.VideoTimeline) != 1 || input.VideoTimeline[0].AssetID != "video-1" || len(input.AudioTimeline) != 1 || input.Settings.Width != 1920 {
+		t.Fatalf("camelCase composition input was lost: %#v", input)
+	}
+}
 
 func TestAppHostInvokesManifestDeclaredJavaScriptAPI(t *testing.T) {
 	root := t.TempDir()
@@ -165,7 +181,7 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 	}
 	execution := workflow.(map[string]any)["mediaExecution"].(map[string]any)
 	scenes := execution["scenes"].(map[string]any)
-	if scenes["kind"] != "platform-media-generation" || scenes["generate"] != "recut.video.generate_async" || scenes["complete"] != "accepted -> queued assetIds[0] -> resource.create; Daemon updates Asset status; for Seedance use output.generateAudio=true unless the user explicitly requests silent video" {
+	if scenes["kind"] != "platform-media-generation" || scenes["generate"] != "recut.video.generate_async" || scenes["complete"] != "accepted -> queued assetIds[0] -> resource.create; Daemon updates Asset status; for Seedance use output.generateAudio=true unless the user explicitly requests silent video; video text must quote audio.text verbatim and forbid extra speech" {
 		t.Fatalf("scene media route = %#v", scenes)
 	}
 	prepared, err := NewAppHost(apps, store).InvokeAPI(project.ID, "recut.vox-broll", "resource.prepare", map[string]any{"kind": "scenes"})
@@ -177,6 +193,8 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 		"recut.video.generate_async",
 		"keyframe.assetId",
 		"audio.assetId",
+		"audio.text",
+		"唯一人声",
 		"assetIds[0]",
 		"resource.create",
 		"不能等待轮询完成",

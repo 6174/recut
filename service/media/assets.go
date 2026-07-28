@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Workspace 数据库与受控媒体根
- * [OUTPUT]: Asset 导入、查询、去重、落盘、项目关联、异步生成时间/输出/诊断元数据及 durable 更新事件
- * [POS]: media 的资产真相源；Provider 不直接访问该层，终态与 SSE 事件在此原位回写
+ * [OUTPUT]: Asset 导入、查询、去重或按交付强制新建、受控落盘、项目关联、异步生成时间/输出/诊断 metadata 及 durable 更新事件
+ * [POS]: media 的资产真相源；Provider 与本地两轨导出均不直接访问存储，终态与 SSE 事件在此原位回写
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media
@@ -600,6 +600,17 @@ func importedMediaKind(mimeType string) (string, int, error) {
 }
 
 func (m *MediaService) saveAsset(content []byte, kind, mimeType, name, origin, projectID string, metadata map[string]any, id string) (MediaAsset, error) {
+	return m.persistAsset(content, kind, mimeType, name, origin, projectID, metadata, id, true)
+}
+
+// saveDerivedAsset always creates a new Asset record. A repeated export may
+// produce identical bytes, but it is still a distinct user-visible delivery
+// with its own timeline metadata and project history.
+func (m *MediaService) saveDerivedAsset(content []byte, kind, mimeType, name, origin, projectID string, metadata map[string]any) (MediaAsset, error) {
+	return m.persistAsset(content, kind, mimeType, name, origin, projectID, metadata, "", false)
+}
+
+func (m *MediaService) persistAsset(content []byte, kind, mimeType, name, origin, projectID string, metadata map[string]any, id string, deduplicate bool) (MediaAsset, error) {
 	hash := sha256.Sum256(content)
 	contentHash := hex.EncodeToString(hash[:])
 	if projectID != "" {
@@ -615,31 +626,33 @@ func (m *MediaService) saveAsset(content []byte, kind, mimeType, name, origin, p
 		return MediaAsset{}, err
 	}
 	defer db.Close()
-	existing, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where content_hash = ?", contentHash))
-	if err == nil {
-		if projectID != "" {
-			now := time.Now().UTC()
-			tx, err := db.Begin()
-			if err != nil {
-				return MediaAsset{}, err
+	if deduplicate {
+		existing, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where content_hash = ?", contentHash))
+		if err == nil {
+			if projectID != "" {
+				now := time.Now().UTC()
+				tx, err := db.Begin()
+				if err != nil {
+					return MediaAsset{}, err
+				}
+				if err := attachTx(tx, existing.ID, projectID, now); err != nil {
+					_ = tx.Rollback()
+					return MediaAsset{}, err
+				}
+				if err := recordAssetEvent(tx, existing.ID, now); err != nil {
+					_ = tx.Rollback()
+					return MediaAsset{}, err
+				}
+				if err := tx.Commit(); err != nil {
+					return MediaAsset{}, err
+				}
+				existing.ProjectIDs = appendUnique(existing.ProjectIDs, projectID)
 			}
-			if err := attachTx(tx, existing.ID, projectID, now); err != nil {
-				_ = tx.Rollback()
-				return MediaAsset{}, err
-			}
-			if err := recordAssetEvent(tx, existing.ID, now); err != nil {
-				_ = tx.Rollback()
-				return MediaAsset{}, err
-			}
-			if err := tx.Commit(); err != nil {
-				return MediaAsset{}, err
-			}
-			existing.ProjectIDs = appendUnique(existing.ProjectIDs, projectID)
+			return existing, nil
 		}
-		return existing, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return MediaAsset{}, err
+		if !errors.Is(err, sql.ErrNoRows) {
+			return MediaAsset{}, err
+		}
 	}
 	if id == "" {
 		id, err = newID()

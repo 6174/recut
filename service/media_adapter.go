@@ -23,6 +23,9 @@ type MediaRoute = media.MediaRoute
 type MediaAsset = media.MediaAsset
 type MediaJob = media.MediaJob
 type GenerateMediaInput = media.GenerateMediaInput
+type TimelineClip = media.TimelineClip
+type CompositionSettings = media.CompositionSettings
+type ComposeMediaInput = media.ComposeMediaInput
 
 const (
 	ImageGenerate  = media.ImageGenerate

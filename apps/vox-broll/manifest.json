@@ -2,11 +2,11 @@
   "manifestVersion": 1,
   "id": "recut.vox-broll",
   "name": "Vox B-roll Explainer",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "type": "project",
   "background": "background.js",
   "ui": { "projectView": "ui/dist/index.html" },
-  "permissions": ["sqlite", "artifacts.publish"],
+  "permissions": ["sqlite", "artifacts.publish", "media.compose"],
   "operations": [
     {
       "name": "brief.create",
@@ -35,7 +35,7 @@
     {
       "name": "resource.create",
       "surfaces": ["mcp"],
-      "description": "完成当前阶段后保存结构化资源。先调用 workflow.context，只提交 allowedActions 对应的 kind；content 必须严格符合 resourceContracts[kind]，校验失败不会保存。Audio 阶段每个 scene.audio 必须引用成功提交后返回的 speech assetId，文字规划不能替代真实声音；Scenes 阶段可立即引用 video.generate_async 成功提交后返回的 queued video assetId，常驻 Daemon 会在同一 ID 上更新状态。成功返回带 id、kind、content、dependencies 的 Artifact。媒体输入快照只使用 prompt、imageAssetIds、audioAssetIds；资源 id 仅放 sourceResourceIds 追溯创作决定。",
+      "description": "完成当前阶段后保存结构化资源。先调用 workflow.context，只提交 allowedActions 对应的 kind；content 必须严格符合 resourceContracts[kind]，校验失败不会保存。Audio 阶段每个 scene.audio 必须引用成功提交后返回的 speech assetId，文字规划不能替代真实声音；Scenes 阶段可立即引用 video.generate_async 成功提交后返回的 queued video assetId，常驻 Daemon 会在同一 ID 上更新状态。提交有旁白参考的 Seedance 视频前，视频提示词必须逐字写入 audio.text/narration，并声明参考音频是唯一人声、禁止新增语言。成功返回带 id、kind、content、dependencies 的 Artifact。媒体输入快照只使用 prompt、imageAssetIds、audioAssetIds；资源 id 仅放 sourceResourceIds 追溯创作决定。",
       "inputSchema": { "type": "object", "required": ["kind", "title", "content"], "properties": { "kind": { "type": "string", "enum": ["beats", "look", "keyframes", "audio", "scenes", "delivery"], "description": "必须等于 workflow.context.allowedActions 指向的当前阶段；Brief 使用 brief.create。" }, "title": { "type": "string", "minLength": 1, "description": "供用户在创作台识别的短标题。" }, "content": { "type": "object", "description": "阶段资源正文。字段、类型与数组项格式取自 workflow.context.resourceContracts[kind]；不能以自然语言替代结构化字段。" }, "dependencies": { "type": "array", "items": { "type": "string" }, "description": "本资源消费的前序资源 id。" } } }
     },
     {
@@ -67,6 +67,12 @@
       "surfaces": ["api", "mcp"],
       "description": "永久删除未被下游资源引用的资源；存在引用时直接报错。通常优先使用 resource.retire。",
       "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string", "description": "要删除的资源 id。" } } }
+    },
+    {
+      "name": "delivery.export",
+      "surfaces": ["api"],
+      "description": "不使用 AI 的确定性最终导出：接收固定视频轨、固定音频轨和基础编码设置，调用平台 media.compose 生成新的 video Asset，并保存导出记录。轨道片段必须按 startSec 连续排列。",
+      "inputSchema": { "type": "object", "required": ["videoTimeline", "audioTimeline", "settings"], "properties": { "videoTimeline": { "type": "array", "description": "顺序视频轨片段：{assetId,startSec,durationSec}[]" }, "audioTimeline": { "type": "array", "description": "顺序音频轨片段：{assetId,startSec,durationSec}[]" }, "settings": { "type": "object", "description": "{width,height,fps,quality}；quality 为 high、balanced 或 small。" }, "dependencies": { "type": "array", "items": { "type": "string" }, "description": "本次导出引用的 B-roll 资源 id。" } } }
     }
   ]
 }

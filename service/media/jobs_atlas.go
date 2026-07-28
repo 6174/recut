@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖任务编排、Asset 持久化、凭据与 Atlas Provider 协议
- * [OUTPUT]: Atlas 视频提交、prediction 轮询、输出回收及图/视频/音频参考编码
+ * [OUTPUT]: Atlas 视频提交、短超时 prediction 轮询、输出回收及图/视频/音频参考编码
  * [POS]: media/jobs 的 Atlas 专属适配层；将已持久化远端 prediction 原位兑现为 Asset
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -129,7 +129,7 @@ func (m *MediaService) pollAtlasJob(jobID string) {
 // reconcileAtlasTask advances exactly one Atlas state transition. It returns
 // true only once the local Asset reached a terminal result or output retry budget.
 func (m *MediaService) reconcileAtlasTask(task atlasTask) (bool, time.Duration) {
-	prediction, err := atlas.Poll(mediaHTTPClient, apiBaseFor(task.credential), task.secret, atlas.Prediction{ID: task.asset.RemoteID, PollURL: task.pollURL})
+	prediction, err := atlas.Poll(atlasPollingHTTPClient, apiBaseFor(task.credential), task.secret, atlas.Prediction{ID: task.asset.RemoteID, PollURL: task.pollURL})
 	if err != nil {
 		attempt, _ := m.recordAtlasPollingDiagnostic(task.job.ID, task.asset.ID, err.Error())
 		return false, atlasPollingRetryDelay(attempt)

@@ -1,5 +1,5 @@
 /*
- * [INPUT]: 依赖 Store 的工作区 SQLite、受控本地文件根和标准 HTTP 客户端
+ * [INPUT]: 依赖 Store 的工作区 SQLite、受控本地文件根和按请求类别分隔的 HTTP 客户端
  * [OUTPUT]: 对外提供按 SHA-256 内容哈希去重的媒体资产、提供商凭据、能力路由、动态音色目录及同步/异步生成任务
  * [POS]: service 的 Media Platform 核心；普通 App 只通过 assetId 和 MCP/HTTP 使用，不持有供应商密钥
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -31,9 +31,14 @@ type MediaService struct {
 
 const mediaRequestTimeout = 2 * time.Minute
 const atlasPollInterval = 5 * time.Second
+const atlasPollRequestTimeout = 12 * time.Second
 const InterruptedMediaJobMessage = "本地服务重启前任务未完成，请重新生成。"
 
+// Large provider submissions and output downloads may legitimately take time.
+// Polling is a tiny status read: a separate short deadline prevents a slow
+// Atlas response from monopolizing a durable task lease for two minutes.
 var mediaHTTPClient = &http.Client{Timeout: mediaRequestTimeout}
+var atlasPollingHTTPClient = &http.Client{Timeout: atlasPollRequestTimeout}
 
 func NewMediaService(store Workspace) *MediaService {
 	id, err := newID()
