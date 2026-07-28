@@ -5,7 +5,8 @@ Recut 是本地 AI 视频工作台，也是类似 Chrome 的 App Host：App 用 
 技术栈：Next.js + React 工作台，Go Daemon，Goja JavaScript sandbox，平台托管 SQLite，MCP stdio。
 
 ```text
-apps/             开发中的 App 源码包；通过 make app-link 链接到运行时目录
+apps/             本地 App 包与 Vox B-roll submodule；通过 make app-link 链接到运行时目录
+.gitmodules       外部 App 源码的固定远端与分支配置
 scripts/          当前用户生产 service 的 launchd/systemd 安装器
 dev/              开发审计与设计记录；不参与运行时
 service/          Daemon：Extension Registry、JS runtime、Media Platform、storage/MCP/HTTP capability
@@ -27,7 +28,7 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 - 运行时 App 根默认为 `~/.recut/apps`。开发时运行 `make app-link`，将本仓库的 App 源码包逐个链接到此目录；生产安装可在相同位置放置 Git clone。服务不再从源码仓库的 `apps/` 直接加载。
 - 每个项目在 `.recut/app` 创建指向当前 App 包的符号链接。每个 Codex turn 由 Go 后端内嵌的 `service/prompts/core-agents.md.tmpl` 渲染平台 guide，并注入当前 App 自己的 `AGENTS.md`；该 guide 指示 Agent 从 `.recut/app` 读取、测试和按需修改当前 App 源码。
 
-运行 `make app-link` 链接全部本地 App；只链接一个包时使用 `make app-link APP=apps/vox-broll`。随后运行 `make dev`。
+运行 `git submodule update --init --recursive` 获取 Vox B-roll 后，再运行 `make app-link` 链接全部本地 App；只链接一个包时使用 `make app-link APP=apps/vox-broll`。随后运行 `make dev`。
 
 运行 `make dev` 启动服务和工作台；`make check` 执行 Go 测试、静态检查与前端构建。
 

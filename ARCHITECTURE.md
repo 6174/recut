@@ -3,7 +3,7 @@
 > L1 | 父级: /README.md
 
 ```text
-App package (`~/.recut/apps` Git clone / 开发源码链接)
+App package (`~/.recut/apps` Git clone / 本地源码或固定 Git submodule 链接)
 ├── manifest.json       唯一运行时配置
 ├── background.js       App 业务、API 与 MCP handler
 └── ui/                 App 自己定义的界面
