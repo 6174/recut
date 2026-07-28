@@ -7,3 +7,4 @@ coverage.out
 build/
 web/out/
 web/public/releases/
+.wrangler
