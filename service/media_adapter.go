@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的工作区数据库、项目校验与数据目录
- * [OUTPUT]: 对外提供 media 包的根服务兼容类型和构造入口
+ * [OUTPUT]: 对外提供 media 包的根服务兼容类型、Codex 图片模型标识和构造入口
  * [POS]: service 的组合适配层；媒体领域实现完全位于 media/
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -28,9 +28,10 @@ type CompositionSettings = media.CompositionSettings
 type ComposeMediaInput = media.ComposeMediaInput
 
 const (
-	ImageGenerate  = media.ImageGenerate
-	VideoGenerate  = media.VideoGenerate
-	SpeechGenerate = media.SpeechGenerate
+	ImageGenerate     = media.ImageGenerate
+	VideoGenerate     = media.VideoGenerate
+	SpeechGenerate    = media.SpeechGenerate
+	CodexImageModelID = media.CodexImageModelID
 )
 
 const interruptedMediaJobMessage = media.InterruptedMediaJobMessage

@@ -27,6 +27,9 @@ func TestVoxGuideRequiresRecutVideoGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, required := range []string{
+		"model ID `codex/image`",
+		"Codex's native image-generation capability",
+		"Do not call `recut.image.generate`",
 		"recut.video.generate_async",
 		"recut.media.get_job",
 		"do not select or read a generic video-creation skill",

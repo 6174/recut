@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖媒体数据库、模型目录与 Provider HTTP 辅助
- * [OUTPUT]: 凭据、音色、路由与加密密钥管理
- * [POS]: media 的配置边界；不处理资产或任务生命周期
+ * [OUTPUT]: 凭据、音色、路由与加密密钥管理；Codex 图片路由无需凭据
+ * [POS]: media 的配置边界；不处理资产或任务生命周期，原生 Codex 图片仅作为 Agent 选择信号
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media
@@ -152,6 +152,9 @@ func (m *MediaService) SaveCredential(input MediaCredential, secret string) (Med
 	if strings.TrimSpace(input.Provider) == "" || strings.TrimSpace(input.Name) == "" {
 		return MediaCredential{}, errors.New("provider and name are required")
 	}
+	if input.Provider == codexImageProvider.ID {
+		return MediaCredential{}, errors.New("Codex native image generation does not use a provider credential")
+	}
 	_, ok := providerByID(input.Provider)
 	if !ok {
 		return MediaCredential{}, fmt.Errorf("unknown media provider %q", input.Provider)
@@ -225,6 +228,10 @@ func (m *MediaService) SaveRoute(input MediaRoute) (MediaRoute, error) {
 		return MediaRoute{}, errors.New("model does not support this capability")
 	}
 	model, _ := modelByID(input.ModelID)
+	if model.ID == CodexImageModelID {
+		input.CredentialID = ""
+		return m.saveRoute(input)
+	}
 	credential, err := m.credential(input.CredentialID)
 	if err != nil {
 		return MediaRoute{}, errors.New("media route credential is unavailable")
@@ -232,6 +239,10 @@ func (m *MediaService) SaveRoute(input MediaRoute) (MediaRoute, error) {
 	if credential.Provider != model.Provider {
 		return MediaRoute{}, errors.New("model must use a credential from the same provider")
 	}
+	return m.saveRoute(input)
+}
+
+func (m *MediaService) saveRoute(input MediaRoute) (MediaRoute, error) {
 	if input.ID == "" {
 		input.ID = string(input.Capability) + ".default"
 	}

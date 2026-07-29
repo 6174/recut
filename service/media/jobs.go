@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖配置、资产与 Provider 适配器
- * [OUTPUT]: 生成任务创建、同步执行、结果持久化与通用 Provider 调度
- * [POS]: media 的任务编排层；scheduler 位于 jobs_scheduler，由其接管持久化异步任务
+ * [OUTPUT]: 生成任务创建、同步执行、结果持久化与通用 Provider 调度；拒绝将 Codex 原生图片路由误送入 Provider
+ * [POS]: media 的任务编排层；scheduler 位于 jobs_scheduler，由其接管持久化异步任务，Codex 图片由 Agent 自行执行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media
@@ -214,6 +214,9 @@ func (m *MediaService) resolveRoute(input GenerateMediaInput) (MediaRoute, Media
 		}
 		if !route.Enabled || route.Capability != input.Capability {
 			return MediaRoute{}, MediaCredential{}, errors.New("media route is unavailable")
+		}
+		if route.ModelID == CodexImageModelID {
+			return MediaRoute{}, MediaCredential{}, errors.New("image generation is configured for Codex; use Codex native image generation instead of recut.image.generate")
 		}
 		credential, err := m.credential(route.CredentialID)
 		if err != nil {

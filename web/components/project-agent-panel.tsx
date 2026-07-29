@@ -1,12 +1,12 @@
 /*
  * [INPUT]: 依赖项目范围 Agent Session/Media HTTP API、Agent 与媒体 SSE 及基础 UI 原子组件
- * [OUTPUT]: 对外提供带非空新对话 onboarding、输入法保护、图片上传/粘贴上下文、Codex 模型/推理强度配置与时间线预览的 ProjectAgentPanel；失效 session 自动收敛为新建空态，工具调用以行内卡片展示输入、输出/错误与耗时
+ * [OUTPUT]: 对外提供带非空新对话 onboarding、输入法保护、图片上传/粘贴上下文、Codex 模型/推理强度配置与时间线预览的 ProjectAgentPanel；失效 session 自动收敛为新建空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，并可完整查看或复制
  * [POS]: components 的通用 Agent 侧栏；运行期间的用户消息持久化排队，每张媒体以资产引用绑定到对应用户 Turn，并为内部预览提供共享 Asset 缓存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { ArrowUp, AtSign, Bot, ChevronDown, ChevronRight, CircleStop, Copy, History, ImagePlus, MessageSquarePlus, SlidersHorizontal, ThumbsDown, ThumbsUp } from "lucide-react";
+import { ArrowUp, AtSign, Bot, ChevronDown, ChevronRight, CircleStop, Copy, History, ImagePlus, MessageSquarePlus, SlidersHorizontal, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { FormEvent, type ClipboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { AgentMessageContent } from "@/components/agent-message-content";
@@ -21,7 +21,7 @@ const defaultCodexConfiguration: CodexConfiguration = { codexModel: "gpt-5.6-ter
 type Attachment = AssetReference;
 type UploadedAsset = { id: string; name: string; mimeType: string; kind: Attachment["kind"]; origin: string; status: string };
 type Turn = { id: string; role: "user" | "assistant"; content: string; status: string; createdAt: string; attachments?: Attachment[] };
-type ToolPayload = { label?: string; phase?: string; toolCallId?: string; tool?: string; toolName?: string; detail?: string };
+type ToolPayload = { label?: string; phase?: string; toolCallId?: string; tool?: string; toolName?: string; detail?: string; input?: string; output?: string; error?: string; cost?: string };
 type AgentEvent = { id: number; turnId?: string; type: string; createdAt: string; payload?: ToolPayload };
 type Detail = Session & { turns: Turn[]; events: AgentEvent[]; lastEventId: number };
 type Props = { apiBase: string; online: boolean; projectID: string | null };
@@ -71,9 +71,9 @@ function toolCalls(events: AgentEvent[]): ToolCall[] {
   for (const event of events.filter((item) => item.type.startsWith("tool."))) {
     const id = `${event.turnId ?? "session"}:${event.payload?.toolCallId ?? event.id}`; const previous = calls.get(id);
     const call: ToolCall = { id, createdAt: previous?.createdAt ?? event.createdAt, completedAt: previous?.completedAt, state: previous?.state ?? "running", input: previous?.input, output: previous?.output, error: previous?.error, payload: { ...previous?.payload, ...event.payload } };
-    if (event.type === "tool.started") call.input = event.payload?.detail;
-    if (event.type === "tool.completed") { call.state = "success"; call.completedAt = event.createdAt; call.output = event.payload?.detail; }
-    if (event.type === "tool.failed") { call.state = "error"; call.completedAt = event.createdAt; call.error = event.payload?.detail; }
+    if (event.type === "tool.started") call.input = event.payload?.input ?? legacyToolDetail(event.payload?.detail, "input");
+    if (event.type === "tool.completed") { call.state = "success"; call.completedAt = event.createdAt; call.output = event.payload?.output ?? legacyToolDetail(event.payload?.detail, "output"); }
+    if (event.type === "tool.failed") { call.state = "error"; call.completedAt = event.createdAt; call.error = event.payload?.error ?? legacyToolDetail(event.payload?.detail, "error"); }
     calls.set(id, call);
   }
   return [...calls.values()];
@@ -97,13 +97,21 @@ function ToolTimelineItem({ call, now }: { call: ToolCall; now: number }) {
     {open && hasDetail && <div className={`mt-2 max-w-full rounded-sm border p-3 text-foreground ${call.state === "error" ? "border-destructive/40 bg-destructive/5" : "bg-muted/30"}`}>
       <div className="flex items-center justify-between gap-3"><p className="text-xs font-medium">{call.payload.label ?? "工具调用"}</p><span className={`shrink-0 text-[10px] ${labelClass}`}>{stateLabel} · 耗时 {duration}</span></div>
       {call.payload.toolName && <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">{call.payload.toolName}</p>}
-      <ToolDetail title="调用参数" value={call.input} />
-      <ToolDetail title={call.state === "error" ? "错误信息" : "执行结果"} value={call.error ?? call.output} />
+      <ToolDetail emptyLabel="未返回调用参数" title="调用参数" value={call.input} />
+      <ToolDetail emptyLabel={call.state === "error" ? "未返回错误详情" : "未返回执行结果"} title={call.state === "error" ? "错误信息" : "执行结果"} value={call.error ?? call.output} />
+      {call.payload.cost && <ToolDetail title="成本信息" value={call.payload.cost} />}
     </div>}
   </div>;
 }
-function ToolDetail({ title, value }: { title: string; value?: string }) { return <section className="mt-3"><p className="mb-1 text-[10px] font-medium text-muted-foreground">{title}</p><pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/60 p-2 font-mono text-[10px] leading-4">{value ? safeToolDetail(value) : "未返回数据"}</pre></section>; }
+function ToolDetail({ emptyLabel = "未返回数据", title, value }: { emptyLabel?: string; title: string; value?: string }) {
+  const [open, setOpen] = useState(false); const [copied, setCopied] = useState(false);
+  const detail = value ? safeToolDetail(value) : emptyLabel;
+  async function copy() { try { await navigator.clipboard.writeText(detail); setCopied(true); } catch {} }
+  return <section className="mt-3"><div className="mb-1 flex items-center justify-between gap-2"><p className="text-[10px] font-medium text-muted-foreground">{title}</p><div className="flex shrink-0 gap-1"><button className="rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => void copy()} type="button">{copied ? "已复制" : "复制"}</button><button className="rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setOpen(true)} type="button">完整查看</button></div></div><pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/60 p-2 font-mono text-[10px] leading-4">{detail}</pre>{open && <ToolDetailDialog onClose={() => setOpen(false)} text={detail} title={title} />}</section>;
+}
+function ToolDetailDialog({ onClose, text, title }: { onClose: () => void; text: string; title: string }) { return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="tool-detail-title"><section className="flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-center justify-between border-b px-4 py-3"><h2 className="text-sm font-medium" id="tool-detail-title">{title}</h2><button aria-label="关闭详情" className="grid size-8 place-items-center rounded-sm text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-5">{text}</pre></section></div>; }
 function toolDuration(startedAt: string, completedAt: string | undefined, now: number) { const elapsed = Math.max(0, (new Date(completedAt ?? now).getTime() - new Date(startedAt).getTime()) / 1000); return elapsed < 10 ? `${elapsed.toFixed(1)} 秒` : `${Math.round(elapsed)} 秒`; }
+function legacyToolDetail(value: string | undefined, phase: "input" | "output" | "error") { if (!value) return undefined; try { const decoded = JSON.parse(value) as Record<string, unknown>; const keys = { input: ["arguments", "input", "command", "cmd", "path", "query", "search_query"], output: ["result", "output", "aggregated_output", "changes", "summary", "results"], error: ["error", "result", "output", "aggregated_output"] }[phase]; const detail = Object.fromEntries(keys.filter((key) => key in decoded).map((key) => [key, decoded[key]])); return Object.keys(detail).length ? JSON.stringify(detail) : undefined; } catch { return phase === "input" ? value : undefined; } }
 function safeToolDetail(value: string) { try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; } }
 
 function EmptyAgent({ onCreate }: { onCreate: () => void }) { return <div className="grid min-h-48 place-items-center text-center"><div><Bot className="mx-auto size-5 text-muted-foreground" /><p className="mt-2 text-xs font-medium">让 AI 协助这个项目</p><Button className="mt-3" onClick={onCreate} type="button" variant="outline">创建对话</Button></div></div>; }

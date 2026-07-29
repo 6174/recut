@@ -6,6 +6,7 @@ Recut 是本地 AI 视频工作台，也是类似 Chrome 的 App Host：App 用 
 
 ```text
 apps/             本地 App 包与 Vox B-roll submodule；通过 make app-link 链接到运行时目录
+operation/        运营与开源协作资产；`official-repo/` 是独立 Git 的官方社区 App 总库
 .gitmodules       外部 App 源码的固定远端与分支配置
 scripts/          当前用户生产 service 的 launchd/systemd 安装器
 dev/              开发审计与设计记录；不参与运行时

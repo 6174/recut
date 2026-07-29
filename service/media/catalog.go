@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖媒体 DTO、凭据和资产查询
- * [OUTPUT]: Provider/模型目录、模型配置和引用能力校验
- * [POS]: media 的声明式模型契约层
+ * [OUTPUT]: Provider/模型目录、无凭据 Codex 原生图片路由、模型配置和引用能力校验
+ * [POS]: media 的声明式模型契约层；Codex 图片能力仅供 Agent 指令选择，不经 Provider 调度
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media
@@ -31,6 +31,25 @@ var mediaProviders = []MediaProvider{
 	{ID: "minimax", Name: "MiniMax", Protocol: "minimax", DefaultAPIBase: "https://api.minimaxi.com", Models: []MediaModel{{ID: "minimax/speech-2.8-hd", Provider: "minimax", Name: "MiniMax Speech 2.8 HD", Capability: SpeechGenerate, APIModelID: "speech-2.8-hd", InputModes: []string{"text"}, Available: true, Configurable: true}}},
 }
 
+const CodexImageModelID = "codex/image"
+
+var codexImageModel = MediaModel{
+	ID:           CodexImageModelID,
+	Provider:     "codex",
+	Name:         "Codex",
+	Capability:   ImageGenerate,
+	InputModes:   []string{"text", "image"},
+	Available:    true,
+	Configurable: true,
+}
+
+var codexImageProvider = MediaProvider{
+	ID:       "codex",
+	Name:     "Codex",
+	Protocol: "native",
+	Models:   []MediaModel{codexImageModel},
+}
+
 func (m *MediaService) Providers() []MediaProvider {
 	return append([]MediaProvider(nil), mediaProviders...)
 }
@@ -58,11 +77,17 @@ func (m *MediaService) ConfiguredModels() ([]MediaConfiguration, error) {
 			continue
 		}
 		provider, _ := providerByID(model.Provider)
+		configuration := MediaConfiguration{Route: route, Provider: provider, Model: model, RequiredInputs: modelInputFields(model.InputModes), OptionalOutputs: modelOutputFields(model)}
+		if model.ID == CodexImageModelID {
+			items = append(items, configuration)
+			continue
+		}
 		credential, err := m.credential(route.CredentialID)
 		if err != nil {
 			continue
 		}
-		items = append(items, MediaConfiguration{Route: route, Provider: provider, Model: model, CredentialName: credential.Name, RequiredInputs: modelInputFields(model.InputModes), OptionalOutputs: modelOutputFields(model)})
+		configuration.CredentialName = credential.Name
+		items = append(items, configuration)
 	}
 	return items, nil
 }
@@ -174,6 +199,9 @@ func modelSupports(id string, capability MediaCapability) bool {
 	return ok && model.Capability == capability
 }
 func providerByID(id string) (MediaProvider, bool) {
+	if id == codexImageProvider.ID {
+		return codexImageProvider, true
+	}
 	for _, provider := range mediaProviders {
 		if provider.ID == id {
 			return provider, true
@@ -182,6 +210,9 @@ func providerByID(id string) (MediaProvider, bool) {
 	return MediaProvider{}, false
 }
 func modelByID(id string) (MediaModel, bool) {
+	if id == CodexImageModelID {
+		return codexImageModel, true
+	}
 	for _, provider := range mediaProviders {
 		for _, model := range provider.Models {
 			if model.ID == id {

@@ -782,7 +782,7 @@ func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string
 		m.emit(sessionID, turnID, "status", map[string]any{"phase": "thinking", "label": "正在分析"})
 	case "item.started":
 		if isCodexTool(itemType) {
-			m.emit(sessionID, turnID, "tool.started", codexToolPayload(item, itemType))
+			m.emit(sessionID, turnID, "tool.started", codexToolPayload(item, itemType, "input"))
 		}
 	case "item.completed", "item.failed":
 		if itemType == "agent_message" {
@@ -796,7 +796,11 @@ func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string
 			if typeName == "item.failed" || codexToolFailed(item) {
 				eventType = "tool.failed"
 			}
-			m.emit(sessionID, turnID, eventType, codexToolPayload(item, itemType))
+			phase := "output"
+			if eventType == "tool.failed" {
+				phase = "error"
+			}
+			m.emit(sessionID, turnID, eventType, codexToolPayload(item, itemType, phase))
 		}
 	case "error":
 		m.emit(sessionID, turnID, "status", map[string]any{"phase": "error", "label": "Agent 返回错误"})
@@ -840,14 +844,21 @@ func isCodexTool(kind string) bool {
 	return kind == "command_execution" || kind == "file_change" || kind == "mcp_tool_call" || kind == "web_search"
 }
 
-func codexToolPayload(item map[string]any, kind string) map[string]any {
+func codexToolPayload(item map[string]any, kind, phase string) map[string]any {
 	id, _ := item["id"].(string)
 	if id == "" {
 		id = kind
 	}
-	name, detail := codexToolSummary(item, kind)
+	name := codexToolName(item, kind)
 	label := toolLabel(kind, name, item)
-	return map[string]any{"toolCallId": id, "tool": kind, "label": label, "toolName": name, "detail": detail}
+	payload := map[string]any{"toolCallId": id, "tool": kind, "label": label, "toolName": name}
+	if detail := codexToolDetail(item, phase); detail != "" {
+		payload[phase] = detail
+	}
+	if cost := codexToolCost(item); cost != "" {
+		payload["cost"] = cost
+	}
+	return payload
 }
 
 func codexToolFailed(item map[string]any) bool {
@@ -927,31 +938,58 @@ func toolLabelSuffix(name string) string {
 	return " · " + name
 }
 
-func codexToolSummary(item map[string]any, kind string) (string, string) {
+func codexToolName(item map[string]any, kind string) string {
 	keys := map[string][]string{
-		"mcp_tool_call":     {"server", "tool", "tool_name", "name", "status", "arguments", "input", "result", "output", "error", "is_error", "isError"},
-		"command_execution": {"command", "cmd", "exit_code", "aggregated_output"},
-		"file_change":       {"path", "changes", "summary"},
-		"web_search":        {"query", "search_query", "results"},
+		"mcp_tool_call":     {"tool", "tool_name", "name"},
+		"command_execution": {"command", "cmd"},
+		"web_search":        {"query", "search_query"},
 	}[kind]
-	values := map[string]any{}
 	name := ""
 	for _, key := range keys {
-		value, ok := item[key]
-		if !ok {
-			continue
-		}
-		values[key] = value
-		if name == "" && (key == "tool" || key == "tool_name" || key == "name" || key == "command" || key == "cmd" || key == "query") {
+		if value, ok := item[key]; ok && name == "" {
 			name = fmt.Sprint(value)
 		}
 	}
-	data, _ := json.Marshal(values)
-	detail := string(data)
-	if len(detail) > 800 {
-		detail = detail[:800] + "…"
+	return name
+}
+
+func codexToolDetail(item map[string]any, phase string) string {
+	keys := map[string][]string{
+		"input":  {"arguments", "input", "command", "cmd", "path", "query", "search_query"},
+		"output": {"result", "output", "aggregated_output", "changes", "summary", "results"},
+		"error":  {"error", "result", "output", "aggregated_output"},
+	}[phase]
+	values := map[string]any{}
+	for _, key := range keys {
+		if value, ok := item[key]; ok {
+			values[key] = value
+		}
 	}
-	return name, detail
+	if len(values) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return fmt.Sprint(values)
+	}
+	return string(data)
+}
+
+func codexToolCost(item map[string]any) string {
+	values := map[string]any{}
+	for _, key := range []string{"cost", "cost_usd", "credits", "billed_credits", "usage", "billing"} {
+		if value, ok := item[key]; ok {
+			values[key] = value
+		}
+	}
+	if len(values) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return fmt.Sprint(values)
+	}
+	return string(data)
 }
 
 func (m *AgentManager) addAssistantTurn(sessionID, text string) {

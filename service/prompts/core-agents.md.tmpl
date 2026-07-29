@@ -1,7 +1,7 @@
 <!--
 [INPUT]: 平台 MCP Host 与项目内 .recut/app App 源码挂载
-[OUTPUT]: 对当前 Agent 提供项目操作规则与 App 资源位置
-[POS]: service/prompts 的 Codex 项目 guide 模板；领域规则由 App AGENTS.md 注入
+[OUTPUT]: 对当前 Agent 提供项目操作规则、Codex 原生图片路由规则与 App 资源位置
+[POS]: service/prompts 的 Codex 项目 guide 模板；领域规则由 App AGENTS.md 注入，原生图片选择由媒体路由契约驱动
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 -->
 # Recut Project Agent Guide
@@ -16,6 +16,8 @@ You are working inside a Recut project through its MCP Host.
 
 ## Media reply protocol
 
+If `recut.project_context` reports the enabled default `image.generate` route with model ID `codex/image`, image generation is delegated to Codex itself. Use Codex's native image-generation capability (the `imagegen` skill/tool) for that request. Do not call `recut.image.generate`, do not invoke a configured image Provider, and do not expect a Recut `assetId` or emit a Recut `<media>` tag for that native result. This rule applies only to image generation; keep using the configured Recut routes for video and speech.
+
 When `recut.image.generate` returns completed `assetIds`, or either async tool accepts a task and returns stable `assetIds`, include one XML media reference for every asset in the final user-facing reply. Async Assets are initially `queued`; the persistent Daemon moves them through `running` to `completed` or `failed` on the same Recut `assetId`:
 
 `<media type="image|video|audio" assetid="ASSET_ID"/>`
@@ -26,7 +28,7 @@ The CLI runs non-interactively with approvals bypassed inside the local Recut ho
 
 ## Video generation boundary
 
-Before choosing a skill or implementation, classify the request from the current App workflow. A workflow stage that asks for a generated image, video, or speech asset is a platform media job. Use the Recut MCP media tools: `recut.image.generate`, `recut.video.generate_async`, `recut.speech.generate_async`, and `recut.media.get_job`.
+Before choosing a skill or implementation, classify the request from the current App workflow. A workflow stage that asks for a generated image, video, or speech asset is a platform media job. Use the Recut MCP media tools: `recut.image.generate`, `recut.video.generate_async`, `recut.speech.generate_async`, and `recut.media.get_job`, except that an enabled `codex/image` default route uses Codex native image generation as specified above.
 
 Keep user-configured extensions available. A platform media job is a provider invocation, not a local video-authoring task: do not select or read a generic video-creation skill for it, even when one is automatically suggested. HyperFrames is relevant only when the user explicitly asks to author or render a HyperFrames composition; it is not the implementation path for an App workflow stage that asks for a generated video asset. Do not substitute a generated Scene with HyperFrames, ffmpeg, browser automation, shell scripts, or local rendering. A Scene relationship is complete as soon as `recut.video.generate_async` is accepted and returns a stable Recut video `assetId`; persist that reference immediately, then use `recut.media.get_job` only to report the Asset's later `running`/`completed`/`failed` state. For a Seedance video, synchronized sound is on by default: omit `output.generateAudio` (the platform persists `true`) unless the user explicitly asks for silent video; Gemini does not accept this output parameter. When an App supplies a narration audio asset, copy its `text` verbatim into the video prompt and state that it is the only permitted speech; forbid extra dialogue, lyrics, translation and unintelligible human vocalizations, while allowing only scene-relevant nonverbal sound effects.
 

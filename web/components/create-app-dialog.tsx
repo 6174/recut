@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 React 状态、浏览器剪贴板与公开的 app-standard.md 规范
- * [OUTPUT]: 对外提供新建 App 弹窗、可复制的 AI 创建 Prompt 与规范入口
+ * [INPUT]: 依赖 React 状态、浏览器剪贴板与公开的 app-standard.md 架构/API 规范
+ * [OUTPUT]: 对外提供新建 App 弹窗、可复制的 AI 创建 Prompt 与完整规范入口
  * [POS]: web/components 的 App 创作引导原子；只交付确定的创建任务，不直接修改用户应用目录
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,13 +13,13 @@ import { Button } from "@/components/ui/button";
 
 function creationPrompt() {
   const standardURL = `${window.location.origin}/app-standard.md`;
-  return `请为 Recut 创建一个新的项目型 App。先完整阅读应用标准：${standardURL}
+  return `请为 Recut 创建一个新的项目型 App。先完整阅读应用标准（尤其是产品架构和核心 Recut API）：${standardURL}
 
 目标：在 ~/.recut/apps/<package-name>/ 直接创建完整、可运行的 App 包；<package-name> 使用 kebab-case，并根据 App 的用途选择一个清晰的名字。
 
 要求：
 1. 先提出一个简短的 App 名称、id、用途和 operation 计划；确认没有冲突后再写文件。
-2. 严格遵守应用标准中的 manifest、background.js、UI、权限和 operation 契约。
+2. 严格遵守应用标准中的产品位置、manifest、background.js、UI SDK、ctx 权限和 operation 契约；不要直接 fetch service、访问 SQLite 或猜测不存在的 recut API。
 3. 不要修改 Recut 平台源码、其他 App、项目数据或 service 配置。
 4. 创建后验证 manifest.json、所有入口文件和 UI 路径；重启 Recut service，再确认新 App 出现在 Apps 目录与新建项目的 App 选择器中。
 5. 最后报告创建的目录、manifest 身份、公开 operations、验证结果，以及还需要我决定的事项。

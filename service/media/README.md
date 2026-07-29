@@ -5,8 +5,8 @@
 成员清单
 types.go: 媒体能力、含输入/输出参数能力的模型、路由、资产、任务、生成输入与固定两轨合成的稳定 JSON 契约。
 service.go: Workspace 端口、MediaService 组合根、长请求/短状态查询分离的 HTTP 超时配置与少量跨层诊断入口。
-catalog.go: Provider/模型目录、默认输出字段、参考素材能力及模型限制校验。
-config.go: BYOK 凭据加密、模型路由、MiniMax/ElevenLabs 音色目录和配置查询。
+catalog.go: Provider/模型目录、无需 Provider 凭据的 Codex 原生图片路由、默认输出字段、参考素材能力及模型限制校验。
+config.go: BYOK 凭据加密、模型路由（含无凭据的 Codex 图片路由）、MiniMax/ElevenLabs 音色目录和配置查询。
 assets.go: 图片、视频、音频 Asset 查询与导入、内容哈希去重、受控落盘、项目关联、异步任务的起止时间/耗时/诊断原位回写及 SQLite durable 更新事件账本；合成导出可绕过记录去重以保证每次交付都有新的 Asset。
 compose.go: 平台本地 FFmpeg 合成器；校验连续的视频/音频两轨、尺寸/帧率/质量设置和本地 Asset 文件，将视频原声按顺序保留并与可选音频轨混合，成片与可追溯时间线 metadata 作为新的 video Asset 保存；缺失时优先通过 Homebrew 安装 FFmpeg，失败则返回可执行诊断。
 jobs.go: 任务创建、幂等、同步图片/语音执行与 Provider 调度；按模型输出契约固化默认值（Seedance 同步音频默认开启），不持有常驻循环。

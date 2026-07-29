@@ -75,6 +75,27 @@ func TestMediaRouteAndJobUseOpaqueCredential(t *testing.T) {
 	}
 }
 
+func TestCodexImageRouteRequiresNoProviderCredential(t *testing.T) {
+	media := NewMediaService(NewStore(t.TempDir(), nil))
+	route, err := media.SaveRoute(MediaRoute{Capability: ImageGenerate, ModelID: CodexImageModelID, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.CredentialID != "" {
+		t.Fatalf("Codex image route stored a credential: %#v", route)
+	}
+	configured, err := media.ConfiguredModels()
+	if err != nil || len(configured) != 1 {
+		t.Fatalf("configured Codex route = %#v, %v", configured, err)
+	}
+	if configured[0].Model.ID != CodexImageModelID || configured[0].CredentialName != "" {
+		t.Fatalf("Codex configuration = %#v", configured[0])
+	}
+	if _, _, err := media.ResolveRoute(GenerateMediaInput{Capability: ImageGenerate}); err == nil || !strings.Contains(err.Error(), "configured for Codex") {
+		t.Fatalf("Codex route must direct Agent to native image generation, got %v", err)
+	}
+}
+
 func TestSpeechProvidersExposeVoicesAndSaveAudio(t *testing.T) {
 	miniMax := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer minimax-key" {

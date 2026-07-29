@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Agent 附件上下文格式化函数
- * [OUTPUT]: 验证 Agent 附件身份、停止时即时持久化 Turn 与会话终态，以及服务重启后的中断状态收敛
+ * [OUTPUT]: 验证 Agent 附件身份、工具输入/输出/错误与成本字段分离、停止时即时持久化 Turn 与会话终态，以及服务重启后的中断状态收敛
  * [POS]: service 的 Agent 协议回归测试；防止附件退化为裸路径或取消永久悬挂
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -170,5 +170,28 @@ func TestCodexToolFailureDetection(t *testing.T) {
 	}
 	if codexToolFailed(map[string]any{"status": "completed", "is_error": false}) {
 		t.Fatal("successful tool call was marked failed")
+	}
+}
+
+func TestCodexToolPayloadSeparatesInputOutputErrorAndCost(t *testing.T) {
+	item := map[string]any{
+		"id":        "tool-1",
+		"tool":      "recut.image.generate",
+		"arguments": map[string]any{"text": "make a cover"},
+		"result":    map[string]any{"assetIds": []string{"asset-1"}},
+		"cost":      map[string]any{"credits": 12},
+	}
+	input := codexToolPayload(item, "mcp_tool_call", "input")
+	output := codexToolPayload(item, "mcp_tool_call", "output")
+	if strings.Contains(output["output"].(string), "arguments") || strings.Contains(input["input"].(string), "result") {
+		t.Fatalf("tool payload mixed input and output: input=%s output=%s", input["input"], output["output"])
+	}
+	if _, ok := output["cost"]; !ok {
+		t.Fatalf("tool cost missing from payload: %#v", output)
+	}
+
+	failed := codexToolPayload(map[string]any{"id": "tool-2", "tool": "recut.image.generate", "arguments": map[string]any{"text": "make a cover"}, "error": "provider timed out"}, "mcp_tool_call", "error")
+	if strings.Contains(failed["error"].(string), "arguments") || !strings.Contains(failed["error"].(string), "provider timed out") {
+		t.Fatalf("tool payload did not preserve the actual error: %s", failed["error"])
 	}
 }
