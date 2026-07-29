@@ -1,12 +1,12 @@
 /*
- * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 状态、service endpoint 配置及项目、App 安装与 Agent Session HTTP API
- * [OUTPUT]: 对外提供 Project、Apps、素材库三个核心 Tab、可预览的项目 App 选择与详情入口，以及 service 安装、版本升级和 GitHub App 管理入口
- * [POS]: web/app 的主工作台框架；不重复探测 service health，Cloudflare 托管此 UI，用户可选择本地或远程 service 作为数据与执行边界
+ * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 状态、静态 App Catalog 及项目、App 安装状态与 Agent Session HTTP API
+ * [OUTPUT]: 对外提供 Project、Apps、素材库三个核心 Tab、可预览的项目 App 选择与详情入口，以及已安装与市场分区的离线可浏览目录
+ * [POS]: web/app 的主工作台框架；不重复探测 service health，Cloudflare 或本地 service 托管此 UI，用户可选择本地或远程 service 作为数据与执行边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, Check, ChevronDown, Clapperboard, Code2, Download, ExternalLink, FolderOpen, FolderPlus, Github, Plus, X } from "lucide-react";
+import { AppWindow, Check, ChevronDown, Clapperboard, Code2, Download, ExternalLink, FolderOpen, FolderPlus, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { CSSProperties, FormEvent, useEffect, useState } from "react";
 
@@ -14,10 +14,13 @@ import { Badge } from "@/components/ui/badge";
 import { AppVersionControl } from "@/components/app-version-control";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { CreateAppDialog } from "@/components/create-app-dialog";
 import { Input } from "@/components/ui/input";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { HeaderActions } from "@/components/header-actions";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
+import { marketplaceApps } from "@/lib/app-catalog";
+import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 import { MediaLibraryPanel } from "./media/page";
 
@@ -38,14 +41,15 @@ type Installation = {
   status?: string;
 };
 
-export function Workspace({ appDetail }: { appDetail?: React.ReactNode } = {}) {
+type AppDetailRenderer = (context: { onConnectService: () => void; serviceOnline: boolean }) => React.ReactNode;
+
+export function Workspace({ appDetail }: { appDetail?: AppDetailRenderer } = {}) {
   const [apps, setApps] = useState<App[]>([]);
   const [installations, setInstallations] = useState<Installation[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [appID, setAppID] = useState("");
   const [name, setName] = useState("");
   const [projectID, setProjectID] = useState<string | null>(null);
-  const [repository, setRepository] = useState("");
   const service = useServiceStore((state) => state.service);
   const apiBase = useServiceStore((state) => state.endpoint);
   const refreshService = useServiceStore((state) => state.refresh);
@@ -54,7 +58,6 @@ export function Workspace({ appDetail }: { appDetail?: React.ReactNode } = {}) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"service" | "multimodal" | undefined>();
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState("");
   const [updatingService, setUpdatingService] = useState(false);
   const { handlePointerDown, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.workspace-agent-panel-width" });
 
@@ -100,18 +103,6 @@ export function Workspace({ appDetail }: { appDetail?: React.ReactNode } = {}) {
     setProjectID(project.id);
   }
 
-  async function installApp(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!repository.trim()) return;
-    setBusy("install"); setError("");
-    try {
-      const response = await fetch(`${apiBase}/v1/apps/install`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repository }) });
-      if (!response.ok) throw new Error(await responseMessage(response));
-      setRepository("");
-      await loadWorkspace();
-    } catch (cause) { setError(messageOf(cause)); } finally { setBusy(""); }
-  }
-
   async function updateService() {
     setUpdatingService(true); setError("");
     try {
@@ -141,16 +132,20 @@ export function Workspace({ appDetail }: { appDetail?: React.ReactNode } = {}) {
     setTab(next);
   }
 
-  const outdated = serviceNeedsUpgrade(service.version, latestServiceVersion);
+  const outdated = !isLocalWorkspace && serviceNeedsUpgrade(service.version, latestServiceVersion);
+  const detail = appDetail?.({ onConnectService: openServiceSettings, serviceOnline: online });
+  const content = detail ?? (tab === "apps" ? <Apps installations={installations} onUpdated={loadWorkspace} serviceOnline={online} />
+    : service.phase === "checking" ? <ServiceChecking />
+    : !online ? <ServiceGuide embedded={isLocalWorkspace} onConnectRemote={openServiceSettings} />
+    : outdated ? <ServiceGuide error={error} installedVersion={service.version} onConnectRemote={openServiceSettings} onUpdate={updateService} updating={updatingService} />
+    : tab === "projects" ? <Projects apps={apps.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onNameChange={setName} onSubmit={createProject} projects={projects} selectedApp={appID} /> : <MediaLibraryPanel onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-5">
       <div className="flex items-center gap-4"><span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground"><Clapperboard className="size-4" /></span><strong className="text-sm tracking-tight">RECUT</strong><span className="h-5 w-px bg-border" /><nav aria-label="工作台" className="flex items-center gap-1"><Tab active={tab === "projects"} onClick={() => selectTab("projects")}>Project</Tab><Tab active={tab === "apps"} onClick={() => selectTab("apps")}>Apps</Tab><Tab active={tab === "media"} onClick={() => selectTab("media")}>素材库</Tab></nav></div>
       <HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} />
     </header>
     <div className="relative grid min-h-0 flex-1 overflow-hidden [grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}>
-      {service.phase !== "online" || outdated || tab !== "media" ? <section className="min-h-0 overflow-y-auto bg-muted/30 p-8"><div className="mx-auto max-w-6xl">
-        {service.phase === "checking" ? <ServiceChecking /> : !online ? <ServiceGuide onConnectRemote={openServiceSettings} /> : outdated ? <ServiceGuide error={error} installedVersion={service.version} onConnectRemote={openServiceSettings} onUpdate={updateService} updating={updatingService} /> : appDetail ?? (tab === "projects" ? <Projects apps={apps.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onNameChange={setName} onSubmit={createProject} projects={projects} selectedApp={appID} /> : <Apps installations={installations} busy={busy} error={error} onInstall={installApp} onRepositoryChange={setRepository} onUpdated={loadWorkspace} repository={repository} />)}
-      </div></section> : <MediaLibraryPanel onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />}
+      {online && tab === "media" ? content : <section className="min-h-0 overflow-y-auto bg-muted/30 p-8"><div className="mx-auto max-w-6xl">{content}</div></section>}
       <button aria-label="拖动调整 Agent 面板宽度" className="group absolute inset-y-0 z-10 w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button>
       <ProjectAgentPanel apiBase={apiBase} online={online} projectID={tab === "media" ? mediaProjectID : projectID} />
     </div>
@@ -188,14 +183,15 @@ function AppPickerDialog({ apps, onChange, onClose, selectedApp }: { apps: App[]
   return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="app-picker-title"><section className="flex max-h-[min(620px,calc(100vh-3rem))] w-full max-w-3xl flex-col overflow-hidden rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">PROJECT APP</p><h2 className="mt-1 text-base font-semibold" id="app-picker-title">选择创作方式</h2><p className="mt-1 text-xs text-muted-foreground">先了解 App 的用途，再把它作为新项目的工作台。</p></div><button aria-label="关闭应用选择" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header>{apps.length ? <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_18rem]"><div className="divide-y border-r">{apps.map((app) => { const active = app.manifest.id === selectedApp; return <button aria-pressed={active} className={active ? "block w-full bg-accent/60 px-5 py-4 text-left" : "block w-full px-5 py-4 text-left hover:bg-muted"} key={app.manifest.id} onClick={() => choose(app)} type="button"><span className="flex items-start gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-lg border bg-background text-accent-foreground"><AppWindow className="size-4" /></span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-3 text-xs font-medium">{app.manifest.name}{active && <Check className="size-3.5 shrink-0 text-primary" />}</span><span className="mt-1 block text-[11px] leading-4 text-muted-foreground">{app.manifest.description}</span><span className="mt-2 block font-mono text-[10px] text-muted-foreground">{app.manifest.author} · v{app.manifest.version}</span></span></span></button>; })}</div><aside className="bg-muted/30 p-5">{selected && <><span className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground"><AppWindow className="size-5" /></span><p className="mt-4 text-sm font-semibold">{selected.manifest.name}</p><p className="mt-2 text-xs leading-5 text-muted-foreground">{selected.manifest.description}</p><dl className="mt-5 space-y-3 text-xs"><div><dt className="text-muted-foreground">作者</dt><dd className="mt-1">{selected.manifest.author}</dd></div><div><dt className="text-muted-foreground">版本</dt><dd className="mt-1 font-mono">v{selected.manifest.version}</dd></div></dl><Link className="mt-5 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline" href={`/apps/${encodeURIComponent(selected.manifest.id)}`} onClick={onClose}>查看详情<ExternalLink className="size-3.5" /></Link></>}</aside></div> : <div className="grid min-h-60 place-items-center p-8 text-center"><div><p className="text-sm font-medium">还没有可用于项目的 App</p><p className="mt-2 text-xs leading-5 text-muted-foreground">去 Apps 添加一个项目型 App，再回到这里开始创作。</p></div></div>}<footer className="flex items-center justify-between gap-4 border-t px-5 py-3"><span className="text-[11px] text-muted-foreground">{apps.length ? `${apps.length} 个可用项目 App` : "项目 App 决定项目的创作能力"}</span><Link className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline" href="/?tab=apps" onClick={onClose}>前往 Apps 添加更多能力<ExternalLink className="size-3.5" /></Link></footer></section></div>;
 }
 
-function Apps({ installations, busy, error, onInstall, onRepositoryChange, onUpdated, repository }: { installations: Installation[]; busy: string; error: string; onInstall: (event: FormEvent<HTMLFormElement>) => void; onRepositoryChange: (value: string) => void; onUpdated: () => void; repository: string }) {
+function Apps({ installations, onUpdated, serviceOnline }: { installations: Installation[]; onUpdated: () => void; serviceOnline: boolean }) {
   const gitApps = installations.filter((app) => !app.builtIn);
   const systemApps = installations.filter((app) => app.builtIn);
   const count = `${gitApps.length} INSTALLED${systemApps.length ? ` · ${systemApps.length} SYSTEM` : ""}`;
-  return <><SectionTitle count={count} description="系统 App 随 Recut 自带；GitHub App 才会通过 Git 安装，并只执行安全的 fast-forward 升级。" title="应用目录" /><Card className="mb-5"><CardContent className="p-5"><form className="flex gap-3" onSubmit={onInstall}><div className="min-w-0 flex-1"><label className="mb-1 block text-[11px] font-medium" htmlFor="app-repository">GitHub 地址</label><Input id="app-repository" onChange={(event) => onRepositoryChange(event.target.value)} placeholder="https://github.com/owner/recut-app" value={repository} /></div><Button className="mt-5" disabled={busy === "install" || !repository.trim()} type="submit"><Github className="size-4" />安装 App</Button></form></CardContent></Card>{error && <RepairGuide message={error} />}{installations.length === 0 ? <Card><CardContent className="flex min-h-48 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">还没有可用的 App</p><p className="text-xs text-muted-foreground">粘贴一个 GitHub 仓库地址；Recut 会克隆后验证根目录的 manifest.json。</p></CardContent></Card> : <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-4">{installations.map((app) => <Card key={app.package}><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><Link aria-label={`查看 ${app.manifest.name} 详情`} className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground transition hover:bg-primary hover:text-primary-foreground" href={`/apps/${encodeURIComponent(app.manifest.id)}`}><AppWindow className="size-5" /></Link><AppVersionControl app={app} onUpdated={onUpdated} /></div><Link className="mt-5 block rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" href={`/apps/${encodeURIComponent(app.manifest.id)}`}><p className="text-base font-semibold">{app.manifest.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{app.manifest.id}</p><p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{app.manifest.description}</p><p className="mt-2 text-[11px] text-muted-foreground">作者 · {app.manifest.author}</p><p className="mt-3 text-xs text-muted-foreground">{app.builtIn ? "系统自带，由 Recut service 随附；不通过 Git 安装或升级。" : app.dirty ? "存在本地 Git 修改，升级已保护" : app.updateAvailable ? "检测到远端更新" : app.status ?? "已是当前 Git 状态"}</p></Link><div className="mt-4 flex gap-2">{(app.manifest.repository ?? app.repository) && <a className="truncate text-xs text-primary hover:underline" href={(app.manifest.repository ?? app.repository)!.replace(/\.git$/, "")} rel="noreferrer" target="_blank">查看仓库</a>}</div></CardContent></Card>)}</div>}</>;
+  return <><SectionTitle action={<CreateAppDialog />} count={serviceOnline ? count : "MARKETPLACE"} description="已安装 App 与应用市场分开呈现；点击任意应用查看详情与安装状态。" title="应用目录" /><section><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">已安装</h2><p className="mt-1 text-xs text-muted-foreground">包含 Recut 随 service 提供的系统应用。</p></div><Badge>{serviceOnline ? `${installations.length} APPS` : "SERVICE OFFLINE"}</Badge></div>{installations.length === 0 ? <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">{serviceOnline ? "还没有已安装的 App" : "连接 service 后显示已安装 App"}</p><p className="text-xs text-muted-foreground">应用市场仍可浏览，详情页会显示当前安装状态。</p></CardContent></Card> : <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-4">{installations.map((app) => <Card key={app.package}><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><Link aria-label={`查看 ${app.manifest.name} 详情`} className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground transition hover:bg-primary hover:text-primary-foreground" href={`/apps/${encodeURIComponent(app.manifest.id)}`}><AppWindow className="size-5" /></Link><AppVersionControl app={app} onUpdated={onUpdated} /></div><Link className="mt-5 block rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" href={`/apps/${encodeURIComponent(app.manifest.id)}`}><p className="text-base font-semibold">{app.manifest.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{app.manifest.id}</p><p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{app.manifest.description}</p><p className="mt-2 text-[11px] text-muted-foreground">作者 · {app.manifest.author}</p><p className="mt-3 text-xs text-muted-foreground">{app.builtIn ? "系统自带，由 Recut service 随附；不通过 Git 安装或升级。" : app.dirty ? "存在本地 Git 修改，升级已保护" : app.updateAvailable ? "检测到远端更新" : app.status ?? "已是当前 Git 状态"}</p></Link></CardContent></Card>)}</div>}</section><section className="mt-10"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">应用市场</h2><p className="mt-1 text-xs text-muted-foreground">市场条目随工作台发布；打开详情即可安装或创建项目。</p></div><Badge>{marketplaceApps.length} AVAILABLE</Badge></div><div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-4">{marketplaceApps.map((app) => { const installed = installations.some((item) => item.manifest.id === app.manifest.id); return <Link className="group" href={`/apps/${encodeURIComponent(app.manifest.id)}`} key={app.manifest.id}><Card className="h-full transition-all group-hover:-translate-y-1 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><AppWindow className="size-5" /></span><Badge>{installed ? "INSTALLED" : "MARKET APP"}</Badge></div><p className="mt-5 text-base font-semibold">{app.manifest.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{app.manifest.id}</p><p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{app.manifest.description}</p><p className="mt-2 text-[11px] text-muted-foreground">作者 · {app.manifest.author} · v{app.manifest.version}</p><p className="mt-4 text-xs font-medium text-primary">查看详情</p></CardContent></Card></Link>; })}</div></section></>;
 }
 
-function ServiceGuide({ error, installedVersion, onConnectRemote, onUpdate, updating }: { error?: string; installedVersion?: string; onConnectRemote: () => void; onUpdate?: () => void; updating?: boolean }) {
+function ServiceGuide({ embedded, error, installedVersion, onConnectRemote, onUpdate, updating }: { embedded?: boolean; error?: string; installedVersion?: string; onConnectRemote: () => void; onUpdate?: () => void; updating?: boolean }) {
+  if (embedded) return <Card><CardContent className="flex min-h-80 flex-col items-center justify-center gap-5 p-8 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><div><p className="text-lg font-semibold">本地工作台连接中断</p><p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">当前页面由同一个 Recut service 提供；请刷新页面或检查该 service 的日志。</p></div>{error && <RepairGuide message={error} />}</CardContent></Card>;
   const message = installedVersion ? `本地 service 为 ${installedVersion}，当前工作台发布版本为 ${latestServiceVersion}。` : "Recut 的数据与执行能力仍在你的电脑上，浏览器正在等待本地 service。";
   return <Card><CardContent className="flex min-h-80 flex-col items-center justify-center gap-5 p-8 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><div><p className="text-lg font-semibold">{installedVersion ? "升级本地 service" : "连接一个 service"}</p><p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">{message}</p></div>{onUpdate ? <><Button disabled={updating} onClick={onUpdate} type="button">{updating ? "正在下载并重启…" : "立即更新"}</Button><code className="rounded-md border bg-muted px-4 py-2 text-xs">curl -fsSL https://recut.video/install.sh | sh</code></> : <><code className="rounded-md border bg-muted px-4 py-2 text-sm">curl -fsSL https://recut.video/install.sh | sh</code><Button onClick={onConnectRemote} type="button" variant="outline">连接已有的远程 service</Button></>}<p className="max-w-md text-xs leading-5 text-muted-foreground">{onUpdate ? "本地 daemon 会校验发布包、原子替换自身，再由 launchd 重启；旧 daemon 不支持自更新时，可使用下方命令恢复。" : <>可以安装本地 service，也可以在连接设置中填入团队或服务器提供的 HTTPS 地址。</>}</p>{error ? <RepairGuide message={error} /> : <RepairGuide message={installedVersion ? "升级过程中出现错误" : "安装本地 service 过程中出现错误"} />}</CardContent></Card>;
 }
@@ -204,8 +200,8 @@ function ServiceChecking() {
   return <Card><CardContent className="grid min-h-80 place-items-center p-8 text-center"><div><span className="mx-auto block size-2 animate-pulse rounded-full bg-muted-foreground" /><p className="mt-4 text-sm text-muted-foreground">正在连接本地 service…</p></div></CardContent></Card>;
 }
 
-function SectionTitle({ count, description, title }: { count: string; description: string; title: string }) {
-  return <div className="mb-7 flex items-end justify-between"><div><p className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.16em] text-primary"><span className="size-1.5 rounded-full bg-primary" />DESKTOP</p><h1 className="text-3xl font-semibold tracking-tight">{title}</h1><p className="mt-2 text-sm text-muted-foreground">{description}</p></div><Badge className="border-primary/25 bg-accent text-accent-foreground">{count}</Badge></div>;
+function SectionTitle({ action, count, description, title }: { action?: React.ReactNode; count: string; description: string; title: string }) {
+  return <div className="mb-7 flex items-end justify-between"><div><p className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.16em] text-primary"><span className="size-1.5 rounded-full bg-primary" />DESKTOP</p><h1 className="text-3xl font-semibold tracking-tight">{title}</h1><p className="mt-2 text-sm text-muted-foreground">{description}</p></div><div className="flex items-center gap-3">{action}<Badge className="border-primary/25 bg-accent text-accent-foreground">{count}</Badge></div></div>;
 }
 
 function RepairGuide({ message }: { message: string }) {

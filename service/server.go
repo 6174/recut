@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store 与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供 Server 及 App 能力、项目产物、结构化 Agent 会话/新对话引导与终端 HTTP API
- * [POS]: service 的传输层，负责把受信任项目与扩展注册表映射为浏览器可消费的 API；对话和 PTY 协议并存
+ * [OUTPUT]: 对外提供 Server 及内嵌工作台、App 能力、项目产物、结构化 Agent 会话/新对话引导与终端 HTTP API
+ * [POS]: service 的传输层，负责把受信任项目、内嵌本地工作台与扩展注册表映射为浏览器可消费的 API；对话和 PTY 协议并存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,6 +97,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/terminals/{id}/input", s.writeTerminal)
 	mux.HandleFunc("POST /v1/terminals/{id}/resize", s.resizeTerminal)
 	mux.HandleFunc("POST /v1/terminals/{id}/stop", s.stopTerminal)
+	// 具体 API 路由优先于这个根路径；本地工作台和 API 因此始终共享同一个 loopback origin。
+	mux.Handle("GET /", localWorkspaceHandler(localWorkspaceFiles()))
 	return withLocalCORS(mux)
 }
 
@@ -144,18 +148,37 @@ func (s *Server) listAgents(w http.ResponseWriter, _ *http.Request) {
 func withLocalCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin == "http://localhost:3000" || origin == "http://127.0.0.1:3000" || origin == "https://recut.video" || origin == "https://www.recut.video" {
+		if allowedBrowserOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		}
 		if r.Method == http.MethodOptions {
+			if origin != "" && !allowedBrowserOrigin(origin) {
+				http.Error(w, "origin is not allowed", http.StatusForbidden)
+				return
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func allowedBrowserOrigin(origin string) bool {
+	if origin == "https://recut.video" || origin == "https://www.recut.video" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return false
+	}
+	if parsed.Hostname() == "localhost" {
+		return true
+	}
+	address, err := netip.ParseAddr(parsed.Hostname())
+	return err == nil && (address.IsLoopback() || address.IsPrivate() || address.IsLinkLocalUnicast())
 }
 
 func (s *Server) listAppInstallations(w http.ResponseWriter, _ *http.Request) {

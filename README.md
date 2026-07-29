@@ -9,8 +9,8 @@ apps/             本地 App 包与 Vox B-roll submodule；通过 make app-link 
 .gitmodules       外部 App 源码的固定远端与分支配置
 scripts/          当前用户生产 service 的 launchd/systemd 安装器
 dev/              开发审计与设计记录；不参与运行时
-service/          Daemon：Extension Registry、JS runtime、Media Platform、storage/MCP/HTTP capability
-web/              平台工作台：项目、素材库系统应用与 App UI 容器
+service/          Daemon：Extension Registry、JS runtime、Media Platform、storage/MCP/HTTP capability 与内嵌本地工作台
+web/              平台工作台源码：导出为 Cloudflare 静态站或随 service 嵌入的本地 UI
 ARCHITECTURE.md   Extension Host 契约与 B-roll 案例
 Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部署入口
 ```
@@ -30,11 +30,11 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 
 运行 `git submodule update --init --recursive` 获取 Vox B-roll 后，再运行 `make app-link` 链接全部本地 App；只链接一个包时使用 `make app-link APP=apps/vox-broll`。随后运行 `make dev`。
 
-运行 `make dev` 启动服务和工作台；其 service 固定报告为 `dev`，只能由开发命令停止/重启，网页管理器会明确禁用生产 service 操作。`make check` 执行 Go 测试、静态检查与前端构建。
+运行 `make dev` 启动服务和工作台；其 service 固定报告为 `dev`，只能由开发命令停止/重启，网页管理器会明确禁用生产 service 操作。生产 `make service-build` 先以 `NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local` 导出同源工作台（不包含发布安装包），再将它嵌入 service binary；启动后直接访问 service 地址即可。`make check` 执行 Go 测试、静态检查与前端构建。
 
 ## 发布与本地连接
 
-`make deploy` 是唯一发布入口：发布前在 Makefile 顶部维护唯一的 `RECUT_VERSION`，该值会同时写入 service、SHA-256 release manifest 和前端兼容版本。命令随后为 macOS、Linux、FreeBSD 与 Windows 的 arm64/amd64 构建压缩 service 包到 web static 目录，导出 Next.js 工作台并以 Wrangler 部署到 Cloudflare Worker。`make web-deploy` 保留为等价兼容命令。将 `recut.video` 绑定到该 Worker 后，macOS、Linux 或 FreeBSD 用户可运行 `curl -fsSL https://recut.video/install.sh | sh`；Windows 用户在 PowerShell 运行 `irm https://recut.video/install.ps1 | iex`。安装器从 release manifest 读取版本、校验 CPU 对应包的 SHA-256、保留用户数据；macOS 注册 launchd，Linux 注册 systemd user service，Windows 注册当前用户登录任务，FreeBSD 输出供进程管理器使用的启动命令。重复执行即升级。Worker 不代理本地 API，也不会接触项目、素材或 BYOK 凭据；浏览器只连接用户自己的 `http://127.0.0.1:17373`。
+`make deploy` 是唯一发布入口：发布前在 Makefile 顶部维护唯一的 `RECUT_VERSION`，该值会同时写入 service、SHA-256 release manifest 和前端兼容版本。命令先为本地 mode 构建并嵌入工作台，随后为 macOS、Linux、FreeBSD 与 Windows 的 arm64/amd64 构建压缩 self-contained service 包到 web static 目录，最后以 cloud mode 导出 Next.js 工作台并以 Wrangler 部署到 Cloudflare Worker。Cloudflare 静态站必须保留这些二进制包供用户安装；嵌入 binary 的本地工作台则明确排除它们，避免循环依赖。`make web-deploy` 保留为等价兼容命令。将 `recut.video` 绑定到该 Worker 后，macOS、Linux 或 FreeBSD 用户可运行 `curl -fsSL https://recut.video/install.sh | sh`；Windows 用户在 PowerShell 运行 `irm https://recut.video/install.ps1 | iex`。安装器从 release manifest 读取版本、校验 CPU 对应包的 SHA-256、保留用户数据；macOS 注册 launchd，Linux 注册 systemd user service，Windows 注册当前用户登录任务，FreeBSD 输出供进程管理器启动命令。重复执行即升级。Worker 不代理本地 API，也不会接触项目、素材或 BYOK 凭据；service 默认监听局域网地址 `:17373`，浏览器可使用宿主机的 LAN IP 直接连接。
 
 `make service-build` 默认构建当前平台；交叉编译使用 `make service-build TARGET=windows-amd64`（同样支持 `darwin-*`、`linux-*`、`freebsd-*`）。`make service-install RECUT_VERSION=0.1.0` 可从源码构建并安装当前 Unix 主机的二进制，注册为 macOS launchd 或 Linux systemd user service；FreeBSD 保留由宿主进程管理器启动。首次打开 `https://recut.video` 时，前端默认检测本地 service；缺失时可安装本地 service，也可在设置中填入已有远程 service 的根地址。远程 service 需对浏览器可达并允许 `https://recut.video` 的跨域请求。`make service-status` 用于检查常驻 service。
 

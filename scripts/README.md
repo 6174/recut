@@ -3,7 +3,7 @@
 > L2 | 父级: /README.md
 
 成员清单
-install-service.sh: 将已构建的 Recut service 安装为当前用户的 launchd 或 systemd 常驻服务，保留数据在 `~/.recut`。
+install-service.sh: 将已构建的 Recut service 安装为当前用户的 launchd 或 systemd 常驻服务，保留数据在 `~/.recut`；未显式传入 `--address` 时 service 默认监听局域网的 `:17373`。
 
 依赖边界
 

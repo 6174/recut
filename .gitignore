@@ -7,4 +7,7 @@ coverage.out
 build/
 web/out/
 web/public/releases/
+service/ui/assets/*
+!service/ui/assets/.keep
 .wrangler
+service/ui

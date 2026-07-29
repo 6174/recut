@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录的 Catalog、Store、MediaService、TerminalManager、Server 和标准库运行时能力
- * [OUTPUT]: 对外提供 recut 本地 shell service 可执行程序入口、注入媒体能力的 AppHost、服务重启后 Agent 状态收敛与常驻媒体任务调度组合
+ * [OUTPUT]: 对外提供含内嵌局域网工作台的 recut shell service 可执行程序入口、注入媒体能力的 AppHost、服务重启后 Agent 状态收敛与常驻媒体任务调度组合
  * [POS]: service 的组合根；只负责运行时配置、能力装配和长生命周期媒体回收启动，不承载领域逻辑
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -21,7 +21,7 @@ var serviceVersion = "dev"
 func main() {
 	dataDir := flag.String("data-dir", defaultDataDir(), "local Recut data directory")
 	appsDir := flag.String("apps-dir", "", "directory containing App packages (default: <data-dir>/apps)")
-	address := flag.String("address", "127.0.0.1:17373", "loopback API address")
+	address := flag.String("address", ":17373", "LAN HTTP address")
 	mcpStdio := flag.Bool("mcp-stdio", false, "serve the App Agent Bridge over stdio")
 	flag.Parse()
 	if *appsDir == "" {
@@ -71,7 +71,7 @@ func main() {
 	} else if recovered > 0 {
 		log.Printf("Reconciled %d interrupted agent turn(s)", recovered)
 	}
-	log.Printf("Recut local API listening on http://%s", *address)
+	log.Printf("Recut local workspace and API listening on http://%s", *address)
 	log.Fatal(NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater()).ListenAndServe(*address))
 }
 

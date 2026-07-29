@@ -5,6 +5,7 @@
 成员清单
 install.sh: 不依赖源码目录的 Unix 安装/升级器；从 release manifest 校验当前 CPU 包，在 macOS 注册 launchd、在 Linux 注册 systemd user service，FreeBSD 保留进程管理器启动命令。
 install.ps1: 不依赖源码目录的 Windows 安装/升级器；校验 ZIP 包后注册并启动当前用户的登录任务。
+app-standard.md: 公开的 Recut App 创建契约；供新建应用 Prompt 中的 AI 读取，约束包结构、manifest、operation、UI 和验证步骤。
 releases/latest/: `make service-release` 生成的 macOS、Linux、FreeBSD 和 Windows 静态发布包及 `manifest.json`；后者给 macOS daemon 校验版本、文件名与 SHA-256 后 self-update，不提交到 Git。
 
 依赖边界

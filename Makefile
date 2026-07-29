@@ -1,11 +1,11 @@
 # [INPUT]: 依赖 Go、Node.js、发布归档工具与 scripts/install-service.sh
-# [OUTPUT]: 对外提供本机开发、跨平台 service 构建/发布和 Web 部署命令
-# [POS]: 仓库自动化根；统一定义 service 版本、目标平台和发布物命名
+# [OUTPUT]: 对外提供本机开发、内嵌工作台、跨平台 service 构建/发布和 Web 部署命令
+# [POS]: 仓库自动化根；统一定义 service 版本、工作台模式与发布物命名
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-cloudflare web-deploy app-link check
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy app-link check
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
@@ -23,10 +23,10 @@ SERVICE_RELEASE_TARGETS := darwin-arm64 darwin-amd64 linux-arm64 linux-amd64 fre
 help: ## Show available development commands.
 	@awk 'BEGIN { FS = ":.*##"; printf "\nRecut development commands:\n" } /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-dev: stop-stale-service stop-stale-web ## Start the local service and web workspace together.
+dev: stop-stale-service stop-stale-web ## Start the LAN service and web development workspace together.
 	@set -e; \
 	GOCACHE=$(GOCACHE) go -C service run . & service_pid=$$!; \
-	( cd web && npm run dev ) & web_pid=$$!; \
+	( cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=17373 npm run dev ) & web_pid=$$!; \
 	trap 'kill $$service_pid $$web_pid 2>/dev/null || true' EXIT INT TERM; \
 	wait $$service_pid $$web_pid
 
@@ -51,14 +51,14 @@ stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never an
 		if kill -0 "$$pid" 2>/dev/null; then echo "Force-stopping stale Recut web workspace (PID $$pid)."; kill -9 "$$pid"; fi; \
 	done
 
-service-dev: stop-stale-service ## Start only the loopback Go service on port 17373.
+service-dev: web-build-embedded stop-stale-service ## Start only the LAN Go service and embedded workspace on port 17373.
 	GOCACHE=$(GOCACHE) go -C service run -ldflags "-X main.serviceVersion=dev" .
 
-service-build: ## Build a production service (TARGET=linux-amd64, windows-amd64, or host default).
+service-build: web-build-embedded ## Build a production service with its local workspace (TARGET=linux-amd64, windows-amd64, or host default).
 	@mkdir -p "$(dir $(SERVICE_BUILD))"
 	GOCACHE=$(GOCACHE) GOOS="$(BUILD_GOOS)" GOARCH="$(BUILD_GOARCH)" go -C service build -trimpath -ldflags "-s -w -X main.serviceVersion=$(RECUT_VERSION)" -o "$(SERVICE_BUILD)" .
 
-service-release: ## Build macOS, Linux, FreeBSD, and Windows service packages for the public installers.
+service-release: web-build-embedded ## Build self-contained service packages for the public Cloudflare installers.
 	@set -e; \
 	mkdir -p "$(RELEASE_STAGE)" "$(RELEASE_PUBLIC)"; \
 	manifest="$(RELEASE_PUBLIC)/manifest.json"; \
@@ -91,7 +91,7 @@ service-status: ## Show the current-user production service status.
 	elif command -v systemctl >/dev/null 2>&1; then systemctl --user status recut.service --no-pager; \
 	else echo "No supported user service manager found. Check $(RECUT_HOME)/logs."; fi
 
-service-test: ## Run the service test suite.
+service-test: web-build-embedded ## Run the service test suite.
 	GOCACHE=$(GOCACHE) go -C service test .
 
 service-vet: ## Run Go static analysis for the local service.
@@ -100,15 +100,21 @@ service-vet: ## Run Go static analysis for the local service.
 web-install: ## Install locked web workspace dependencies.
 	cd web && npm ci
 
-web-dev: stop-stale-web ## Start only the Next.js workspace on port 3000.
-	cd web && npm run dev
+web-dev: stop-stale-web ## Start only the LAN-aware Next.js workspace on port 3000.
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=17373 npm run dev
 
 web-build: ## Build and type-check the Next.js workspace.
 	cd web && npm run build
 
+web-build-embedded: ## Export the same-origin local workspace and stage it for Go embedding (never copies service releases).
+	@rm -rf "$(CURDIR)/web/out"
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
+	@rsync -a --delete --exclude='.keep' --exclude='releases/' "$(CURDIR)/web/out/" "$(CURDIR)/service/ui/assets/"
+	@rm -rf "$(CURDIR)/service/ui/assets/releases"
+
 web-build-cloudflare: ## Export the static web workspace for the Cloudflare Worker.
 	@rm -rf "$(CURDIR)/web/out"
-	cd web && NEXT_PUBLIC_RECUT_API_URL=http://127.0.0.1:17373 NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=cloud NEXT_PUBLIC_RECUT_API_URL=http://127.0.0.1:17373 NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
 
 web-deploy: service-release web-build-cloudflare ## Package the service, export the web workspace, then deploy it to Cloudflare.
 	cd web && node ./node_modules/wrangler/bin/wrangler.js deploy

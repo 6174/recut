@@ -1,11 +1,21 @@
 /*
- * [INPUT]: 依赖构建时的默认 Daemon 地址
- * [OUTPUT]: 对外提供 service endpoint 的默认值、校验与本地地址判断能力
- * [POS]: web/lib 的 service 连接配置边界；持久化与运行时状态统一由 service-store 管理
+ * [INPUT]: 依赖构建时的工作台模式、默认 Daemon 端口与浏览器地址
+ * [OUTPUT]: 对外提供 service endpoint 的默认值、工作台模式、格式校验与本地地址判断能力
+ * [POS]: web/lib 的 service 连接配置边界；嵌入模式固定同源，LAN 开发模式使用当前主机的 service 端口，Cloudflare 模式可持久化本地或远程 service
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
-export const defaultServiceEndpoint = process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
+export const workspaceMode = process.env.NEXT_PUBLIC_RECUT_WORKSPACE_MODE ?? "cloud";
+export const isLocalWorkspace = workspaceMode === "local";
+export const isLANWorkspace = workspaceMode === "lan";
+
+const localOrigin = typeof window === "undefined" ? "" : window.location.origin;
+const servicePort = process.env.NEXT_PUBLIC_RECUT_API_PORT ?? "17373";
+const lanServiceOrigin = localOrigin ? new URL(localOrigin) : null;
+if (lanServiceOrigin) lanServiceOrigin.port = servicePort;
+export const defaultServiceEndpoint = isLocalWorkspace && localOrigin ? localOrigin
+  : isLANWorkspace && lanServiceOrigin ? lanServiceOrigin.origin
+    : process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
 
 export function normalizeServiceEndpoint(value: string) {
   const endpoint = new URL(value.trim());

@@ -3,7 +3,7 @@
 > L2 | 父级: /README.md
 
 成员清单
-main.go: 组合 Daemon、AppHost、MCP Host 与 loopback HTTP 服务；启动时先将重启遗留的 Agent 运行态收敛为可解释终态，再恢复媒体任务；将平台 MediaService 注入 AppHost，供已获授权的 App 发起本地两轨导出；仅常驻 Daemon 在启动恢复后以 SQLite lease 定期提交/回收媒体任务，短生命周期 MCP 只持久化 queued 任务。
+main.go: 组合 Daemon、AppHost、MCP Host、内嵌工作台与默认监听全部网卡的 LAN HTTP 服务；启动时先将重启遗留的 Agent 运行态收敛为可解释终态，再恢复媒体任务；将平台 MediaService 注入 AppHost，供已获授权的 App 发起本地两轨导出；仅常驻 Daemon 在启动恢复后以 SQLite lease 定期提交/回收媒体任务，短生命周期 MCP 只持久化 queued 任务。
 catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json，强制每个 App 声明作者和简短描述，跟随开发 App 的符号链接，不理解 App 数据布局。
 onboarding.go: 新对话引导真相源；合并当前 App manifest、用户级全局设置，并仅在两者都为空时返回平台内置兜底，严格只使用显式 prompt。
 app_install.go: App 分发边界；仅接受 HTTPS GitHub 地址，在临时 clone 通过 manifest 校验后激活，并以 Git status/fast-forward 管理升级；素材库是显式 `builtIn` 系统 App，永不接受 Git 状态或升级操作。
@@ -14,7 +14,11 @@ project.go: 创建平台项目并按 App scope 提供 SQLite、文件与 Artifac
 runtime.go: 在 Goja sandbox 中执行 App background.js，并注入统一 operation 注册器；同一 handler 可按 manifest surface 暴露给 UI API 与 MCP，获 `media.compose` 权限的 App 只能调用平台验证过的两轨合成能力。
 mcp.go: 将带 App workflow context、默认媒体契约和凭据可用音色的 recut.project_context、同步 recut.image.generate、异步 recut.video.generate_async/recut.speech.generate_async、recut.media.list_voices 与当前 App 的 manifest operations 路由给 JavaScript handler。
 mcp_test.go: 锁定按图片、视频和语音拆分的 MCP 生成工具及其互不混淆的输入 schema。
-server.go: 提供项目、App UI、App API、App 安装/升级、service self-update/restart、Artifact 与终端 HTTP 边界；允许 `recut.video` 跨域访问 loopback API。
+server.go: 提供项目、App UI、App API、App 安装/升级、service self-update/restart、Artifact、终端与内嵌本地工作台 HTTP 边界；精确 API 路由优先于同源 UI 兜底，并允许 `recut.video`、loopback 与私有/链路本地 IP 的浏览器跨域访问 LAN API。
+workspace_embed.go: 将 `ui/assets/` 的 local mode 工作台静态导出嵌入 service binary；绝不嵌入 Cloudflare 发布用的 service 安装包。
+workspace_server.go: 将内嵌工作台映射到根路径，并把项目/App 语义深链收敛到静态导出的单一页面壳；Next hash 资源以 immutable 缓存交付。
+workspace_server_test.go: 锁定本地首页、项目/App 深链、Next 静态缓存与 HTTP 方法边界；不需要真实前端构建。
+ui/: 内嵌本地工作台的生成资源边界；`assets/` 仅由 Makefile 暂存，目录 README 记录它与 Cloudflare 发布物的单向关系。
 bridge.go: 管理 Agent session 与本地 CLI 连接，为项目挂载 `.recut/app`，再用内嵌 prompts/ 核心模板和当前 App 的 AGENTS.md 渲染 Codex 项目 guide。
 bridge_prompt_test.go: 锁定渲染后的 Vox Agent guide 必须使用 Recut 视频生成 API、包含中文 Vox 提示词/导演语言，且禁止把场景生成委托给 HyperFrames 或本地渲染。
 prompts/: Go 后端私有的嵌入式平台 Agent 模板；不会作为 App 包内容或运行时外部依赖暴露。
@@ -34,6 +38,6 @@ terminal.go, ws.go: PTY 和事件传输基础设施。
 
 依赖关系
 
-`Catalog -> Store -> AppHost -> Server/MCP Host`；`media_adapter -> media.Service -> providers/* -> WorkspaceDatabase/media files` 是平台级资源路径。异步媒体由 MCP 先原子持久化 `job -> queued asset`，再由常驻 Daemon 的周期调度器用 SQLite lease 认领、写入外部调用 checkpoint、提交远端 prediction、原位回收；只有已持久化 remote prediction 可安全重试轮询，未绑定 prediction 的过期调用明确失败而不重复收费。每次 Asset 变化与 SQLite `media_asset_events` 同事务提交，前端通过 `/v1/media/events` 的 snapshot/replay SSE 读取本地状态，绝不直接轮询 Provider。`AgentManager -> Store.WorkspaceDatabase -> Codex JSONL` 是平行的对话协议路径。PTY 保留在 `TerminalManager`，仅作兼容与诊断，不能成为对话 UI 的真相源。App 代码只能经 `ctx.sqlite`、`ctx.files`、`ctx.artifacts` 或 `recut.media.*` 使用平台资源；Host 决定权限和实际路径。
+`web/out (local) -> ui/assets -> workspace_embed -> workspace_server -> LAN /` 是本地工作台的单向资源路径，`releases/` 在进入 `ui/assets` 前被移除；相反 `web/out (cloud)` 保留 release binary 供 Cloudflare 安装器下载。`Catalog -> Store -> AppHost -> Server/MCP Host`；`media_adapter -> media.Service -> providers/* -> WorkspaceDatabase/media files` 是平台级资源路径。异步媒体由 MCP 先原子持久化 `job -> queued asset`，再由常驻 Daemon 的周期调度器用 SQLite lease 认领、写入外部调用 checkpoint、提交远端 prediction、原位回收；只有已持久化 remote prediction 可安全重试轮询，未绑定 prediction 的过期调用明确失败而不重复收费。每次 Asset 变化与 SQLite `media_asset_events` 同事务提交，前端通过 `/v1/media/events` 的 snapshot/replay SSE 读取本地状态，绝不直接轮询 Provider。`AgentManager -> Store.WorkspaceDatabase -> Codex JSONL` 是平行的对话协议路径。PTY 保留在 `TerminalManager`，仅作兼容与诊断，不能成为对话 UI 的真相源。App 代码只能经 `ctx.sqlite`、`ctx.files`、`ctx.artifacts` 或 `recut.media.*` 使用平台资源；Host 决定权限和实际路径。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

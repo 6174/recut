@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog、Store 与 Server 的本地 HTTP 路由
- * [OUTPUT]: 锁定全局 onboarding 保存和按项目解析的 HTTP 契约
+ * [OUTPUT]: 锁定全局 onboarding 保存、按项目解析与 LAN CORS 的 HTTP 契约
  * [POS]: service 的 Agent 传输层回归测试；不启动真实 daemon 或 Agent CLI
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -66,5 +66,21 @@ func TestAgentOnboardingHTTP(t *testing.T) {
 	handler.ServeHTTP(recorder, preflight)
 	if recorder.Code != http.StatusNoContent || recorder.Header().Get("Access-Control-Allow-Methods") != "GET, POST, PUT, PATCH, OPTIONS" {
 		t.Fatalf("onboarding preflight = %d, methods = %q", recorder.Code, recorder.Header().Get("Access-Control-Allow-Methods"))
+	}
+
+	lanPreflight := httptest.NewRequest(http.MethodOptions, "/v1/agent-onboarding", nil)
+	lanPreflight.Header.Set("Origin", "http://192.168.1.20:3000")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, lanPreflight)
+	if recorder.Code != http.StatusNoContent || recorder.Header().Get("Access-Control-Allow-Origin") != "http://192.168.1.20:3000" {
+		t.Fatalf("LAN preflight = %d, origin = %q", recorder.Code, recorder.Header().Get("Access-Control-Allow-Origin"))
+	}
+
+	deniedPreflight := httptest.NewRequest(http.MethodOptions, "/v1/agent-onboarding", nil)
+	deniedPreflight.Header.Set("Origin", "https://untrusted.example")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, deniedPreflight)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("untrusted preflight = %d", recorder.Code)
 	}
 }

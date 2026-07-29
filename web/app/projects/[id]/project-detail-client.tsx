@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖全局 Zustand service 状态、service endpoint、项目/App manifest API、Agent Session HTTP API 与 Next.js 浏览器路由参数
- * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发与结构化 Agent 请求转交，并透传 App API 的失败原因
- * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，共享根级 service 状态，隔离 useParams、WebSocket 与 iframe，不能吞没后台诊断
+ * [OUTPUT]: 对外提供通用项目 App UI 容器、可靠 iframe 就绪握手、项目事件转发与结构化 Agent 请求转交，并透传 App API 的失败原因
+ * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，共享根级 service 状态，隔离 useParams、WebSocket 与 iframe；只向已验证来源的 App 交付通信端口
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -9,7 +9,7 @@
 import { ArrowLeft, Clapperboard } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
@@ -72,7 +72,7 @@ export default function ProjectDetailClient() {
     return () => events.close();
   }, [apiBase, project]);
 
-  const connectUI = () => {
+  const connectUI = useCallback(() => {
     if (!appFrame.current || !project) return;
     const channel = new MessageChannel();
     channel.port1.onmessage = async (event) => {
@@ -103,10 +103,21 @@ export default function ProjectDetailClient() {
       } catch { reply(undefined, "Recut Host 通信失败"); }
     };
     appFrame.current.contentWindow?.postMessage({ type: "recut.ui.connect" }, apiBase, [channel.port2]);
-  };
+  }, [apiBase, project]);
 
   const view = app?.manifest.ui.projectView;
   const uiURL = project && view ? `${apiBase}/v1/apps/${encodeURIComponent(project.appId)}/ui/${view}?projectId=${encodeURIComponent(project.id)}&appVersion=${encodeURIComponent(app?.manifest.version ?? "")}` : null;
+
+  useEffect(() => {
+    if (!uiURL) return;
+    const origin = new URL(uiURL).origin;
+    const receiveReady = (event: MessageEvent) => {
+      if (event.data?.type !== "recut.ui.ready" || event.origin !== origin || event.source !== appFrame.current?.contentWindow) return;
+      connectUI();
+    };
+    window.addEventListener("message", receiveReady);
+    return () => window.removeEventListener("message", receiveReady);
+  }, [connectUI, uiURL]);
 
   return <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
     <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5">
