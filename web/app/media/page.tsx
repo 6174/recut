@@ -1,12 +1,11 @@
 /*
- * [INPUT]: 依赖 Media Platform 的资产 SSE、Provider、Credential 与生成任务 API，以及系统项目 Agent Session
+ * [INPUT]: 依赖 service endpoint、Media Platform 的资产 SSE、Provider、Credential 与生成任务 API，以及系统项目 Agent Session
  * [OUTPUT]: 对外提供素材浏览、完成视频的真实首帧卡片、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
  * [POS]: web/app/media 的系统应用入口；Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态而不轮询任务或 Provider
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 import {
-  ArrowLeft,
   ChevronDown,
   ImageIcon,
   Music2,
@@ -15,10 +14,8 @@ import {
   Video,
   X,
 } from "lucide-react";
-import Link from "next/link";
 import {
   ClipboardEvent,
-  CSSProperties,
   ChangeEvent,
   FormEvent,
   useMemo,
@@ -27,10 +24,8 @@ import {
   useState,
 } from "react";
 import { Badge } from "@/components/ui/badge";
-import { ProjectAgentPanel } from "@/components/project-agent-panel";
-import { SettingsPanel } from "@/components/settings-panel";
-import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { MediaAssetEventsProvider, useMediaAssetEvents } from "@/components/use-media-asset-events";
+import { getServiceEndpoint } from "@/lib/service-endpoint";
 import { AssetGrid } from "./asset-grid";
 import { AssetPreview } from "./asset-preview";
 import { ReferenceAssetsField } from "./reference-assets-field";
@@ -47,8 +42,7 @@ import type {
   Provider,
   Voice,
 } from "./media-types";
-const apiBase =
-  process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
+const apiBase = getServiceEndpoint();
 type CreateKind = {
   kind: AssetKind;
   capability: Capability;
@@ -97,40 +91,39 @@ function isReferenceKind(mode: ModelInputMode): mode is AssetKind {
   return mode === "image" || mode === "video" || mode === "audio";
 }
 
-export default function MediaLibrary() {
-  return <MediaAssetEventsProvider apiBase={apiBase}><MediaLibraryContent /></MediaAssetEventsProvider>;
+type MediaLibraryPanelProps = {
+  onOpenProviderSettings: () => void;
+  onProjectIDChange: (projectID: string | null) => void;
+};
+
+export default function MediaLibraryRoute() {
+  useEffect(() => { window.location.replace("/?tab=media"); }, []);
+  return null;
 }
 
-function MediaLibraryContent() {
+export function MediaLibraryPanel(props: MediaLibraryPanelProps) {
+  return <MediaAssetEventsProvider apiBase={apiBase}><MediaLibraryContent {...props} /></MediaAssetEventsProvider>;
+}
+
+function MediaLibraryContent({ onOpenProviderSettings, onProjectIDChange }: MediaLibraryPanelProps) {
   const { assetByID, assets: eventAssets, upsertAsset } = useMediaAssetEvents();
   const assets = useMemo(() => eventAssets.map((asset) => normalizeAsset(asset as Asset)), [eventAssets]);
   const [jobs, setJobs] = useState<MediaJob[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
-  const [online, setOnline] = useState(false);
-  const [projectID, setProjectID] = useState<string | null>(null);
   const [preview, setPreview] = useState<Asset | null>(null);
   const [createKind, setCreateKind] = useState<CreateKind | null>(null);
   const [createDraft, setCreateDraft] = useState<CreateDraft | null>(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [providerSettings, setProviderSettings] = useState(false);
   const [notice, setNotice] = useState("");
   const [uploading, setUploading] = useState(false);
   const uploadInput = useRef<HTMLInputElement>(null);
-  const { handlePointerDown, layoutRef, panelWidth } = useResizableSidePanel({
-    storageKey: "recut.media-agent-panel-width",
-  });
   async function initialize() {
     try {
-      const [health, project] = await Promise.all([
-        fetch(`${apiBase}/health`),
-        fetch(`${apiBase}/v1/media/system-project`),
-      ]);
-      if (!health.ok || !project.ok) throw new Error();
-      setProjectID((await project.json()).id);
-      setOnline(true);
+      const project = await fetch(`${apiBase}/v1/media/system-project`);
+      if (!project.ok) throw new Error();
+      onProjectIDChange((await project.json()).id);
     } catch {
-      setOnline(false);
+      onProjectIDChange(null);
     }
   }
   useEffect(() => {
@@ -147,12 +140,7 @@ function MediaLibraryContent() {
   );
   function openProviderSettings() {
     setCreateKind(null);
-    setProviderSettings(true);
-    setSettingsOpen(true);
-  }
-  function changeSettingsOpen(open: boolean) {
-    setSettingsOpen(open);
-    if (!open) setProviderSettings(false);
+    onOpenProviderSettings();
   }
   function openRegeneration(asset: Asset) {
     const capability =
@@ -218,37 +206,8 @@ function MediaLibraryContent() {
     }
   }
   return (
-    <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5">
-        <div className="flex items-center gap-3">
-          <Link
-            aria-label="返回项目工作区"
-            className="grid size-8 place-items-center rounded-xs hover:bg-muted"
-            href="/"
-          >
-            <ArrowLeft className="size-4" />
-          </Link>
-          <ImageIcon className="size-4" />
-          <strong className="text-sm">素材库</strong>
-          <Badge>WORKSPACE</Badge>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {online ? "DAEMON CONNECTED" : "DAEMON OFFLINE"}
-          </span>
-          <SettingsPanel
-            onOpenChange={changeSettingsOpen}
-            open={settingsOpen}
-            section={providerSettings ? "multimodal" : undefined}
-          />
-        </div>
-      </header>
-      <div
-        className="relative grid min-h-0 flex-1 overflow-hidden [grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]"
-        ref={layoutRef}
-        style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}
-      >
-        <section className="min-h-0 overflow-y-auto p-8">
+    <>
+        <section className="min-h-0 overflow-y-auto bg-muted/30 p-8">
           <div className="mx-auto max-w-5xl">
             <div className="mb-6 flex items-end justify-between border-b pb-4">
               <div>
@@ -345,20 +304,6 @@ function MediaLibraryContent() {
             />
           </div>
         </section>
-        <button
-          aria-label="拖动调整 Agent 面板宽度"
-          className="group absolute inset-y-0 z-10 w-2 cursor-col-resize border-0 bg-transparent p-0 [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]"
-          onPointerDown={handlePointerDown}
-          type="button"
-        >
-          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border group-hover:w-0.5 group-hover:bg-foreground" />
-        </button>
-        <ProjectAgentPanel
-          apiBase={apiBase}
-          online={online}
-          projectID={projectID}
-        />
-      </div>
       {preview && (
         <AssetPreview
           asset={preview}
@@ -385,7 +330,7 @@ function MediaLibraryContent() {
           }}
         />
       )}
-    </main>
+    </>
   );
 }
 

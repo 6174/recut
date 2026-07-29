@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentManager 的本地持久化会话和 HTTP SSE 传输能力
- * [OUTPUT]: 对外提供 Agent Session 创建、Codex 配置更新、查询、含图片资产引用的发送、停止与事件订阅 HTTP API
+ * [OUTPUT]: 对外提供 Agent Session 创建、Codex 配置更新、按项目解析/全局保存 onboarding、查询、含图片资产引用的发送、停止与事件订阅 HTTP API
  * [POS]: service 的结构化对话传输边界；与 terminal HTTP API 并存且互不代理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -15,6 +15,48 @@ import (
 	"strings"
 	"time"
 )
+
+func (s *Server) getAgentOnboarding(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("workspace storage is unavailable"))
+		return
+	}
+	projectID := strings.TrimSpace(r.URL.Query().Get("projectId"))
+	if projectID == "" {
+		items, err := s.store.GlobalOnboarding()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+		return
+	}
+	items, err := s.store.Onboarding(projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) saveAgentOnboarding(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("workspace storage is unavailable"))
+		return
+	}
+	input := struct {
+		Items []OnboardingGuide `json:"items"`
+	}{}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	if err := s.store.SaveGlobalOnboarding(input.Items); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": input.Items})
+}
 
 func (s *Server) listAgentSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.agents.List(strings.TrimSpace(r.URL.Query().Get("projectId")))

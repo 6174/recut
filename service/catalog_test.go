@@ -15,8 +15,8 @@ import (
 func TestCatalogLoadsManifestOnlyApps(t *testing.T) {
 	root := t.TempDir()
 	for name, manifest := range map[string]string{
-		"project":    `{"manifestVersion":1,"id":"example.project","name":"Project","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`,
-		"standalone": `{"manifestVersion":1,"id":"example.standalone","name":"Standalone","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"}}`,
+		"project":    `{"manifestVersion":1,"id":"example.project","name":"Project","author":"Test","description":"Test project App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`,
+		"standalone": `{"manifestVersion":1,"id":"example.standalone","name":"Standalone","author":"Test","description":"Test workspace App.","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"}}`,
 	} {
 		dir := filepath.Join(root, "apps", name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -39,7 +39,7 @@ func TestCatalogLoadsSymlinkedAppPackage(t *testing.T) {
 	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, filepath.Join(packageRoot, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	writeTestFile(t, filepath.Join(packageRoot, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
 	appsDir := filepath.Join(root, "apps")
 	if err := os.MkdirAll(appsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -53,5 +53,34 @@ func TestCatalogLoadsSymlinkedAppPackage(t *testing.T) {
 	}
 	if app, ok := catalog.Get("example.app"); !ok || app.Root != filepath.Join(appsDir, "example") {
 		t.Fatalf("symlinked app = %#v, found = %v", app, ok)
+	}
+}
+
+func TestCatalogRejectsManifestWithoutAttribution(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	if _, err := LoadCatalog(filepath.Join(root, "apps")); err == nil {
+		t.Fatal("manifest without author and description was accepted")
+	}
+}
+
+func TestCatalogLoadsManifestOnboarding(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"onboarding":[{"id":"brief","title":"Create a brief","description":"Start with the goal.","prompt":"Help me create a brief."}]}`)
+	catalog, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, ok := catalog.Get("example.app")
+	if !ok || len(app.Manifest.Onboarding) != 1 || app.Manifest.Onboarding[0].Prompt != "Help me create a brief." {
+		t.Fatalf("onboarding = %#v, found = %v", app.Manifest.Onboarding, ok)
 	}
 }

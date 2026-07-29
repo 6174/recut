@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力与含媒体任务 lease/checkpoint 的用户级 workspace SQLite
+ * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、全局 onboarding 设置与含媒体任务 lease/checkpoint 的用户级 workspace SQLite；拒绝以系统素材库创建用户项目
  * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根，Agent 会话使用独立工作区库
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,6 +66,9 @@ func (s *Store) Create(input CreateInput) (Project, error) {
 	app, ok := s.catalog.Get(input.AppID)
 	if !ok {
 		return Project{}, fmt.Errorf("unknown app %q", input.AppID)
+	}
+	if input.AppID == mediaSystemAppID {
+		return Project{}, errors.New("the media library is a system app and cannot create user projects")
 	}
 	if app.Manifest.Kind != ProjectApp {
 		return Project{}, fmt.Errorf("app %q is standalone and cannot create a project", input.AppID)
@@ -243,6 +247,9 @@ create table if not exists media_asset_events (
 );
 create table if not exists media_task_leases (
   job_id text primary key, owner_id text not null, expires_at_ms integer not null, updated_at text not null
+);
+create table if not exists workspace_preferences (
+  key text primary key, value_json text not null, updated_at text not null
 );
 create table if not exists media_jobs (
   id text primary key, idempotency_key text not null unique, capability text not null,

@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖共享 Asset SSE 缓存、素材元数据/内容 API、GenerationDuration、VideoFrame 与 lucide-react 图标
- * [OUTPUT]: 对外提供 AssetPreviewDialog 统一素材详情模态框；运行中素材按 assetId 从共享缓存原位更新并显示实时/最终生成耗时，同时预览完成的图片、视频首帧/播放器和音频
+ * [INPUT]: 依赖共享 Asset SSE 缓存、素材元数据/内容 API、GenerationDuration、VideoFrame、AudioWaveformPlayer 与 lucide-react 图标
+ * [OUTPUT]: 对外提供 AssetPreviewDialog 统一素材详情模态框；运行中素材按 assetId 从共享缓存原位更新并显示实时/最终生成耗时，同时预览完成的图片、视频首帧/播放器和波形音频
  * [POS]: web 的跨页面素材查看入口；素材库与 Agent 对话通过同一视图查看资产，不轮询单个 Asset 或依赖父视图刷新
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -8,6 +8,7 @@
 
 import { Check, Copy, LoaderCircle, Music2, RotateCcw, Video, X } from "lucide-react";
 import { useState } from "react";
+import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
 import { GenerationDuration } from "@/components/generation-duration";
 import { useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { VideoFrame } from "@/components/video-frame";
@@ -68,7 +69,7 @@ function AssetContent({ apiBase, asset, status }: { apiBase: string; asset: Prev
   if (status !== "completed") return <PendingAssetContent asset={asset} status={status} />;
   const source = mediaContentURL(apiBase, asset.id);
   if (asset.kind === "image") return <img alt={asset.name} className="max-h-[65vh] max-w-full object-contain" src={source} />;
-  if (asset.kind === "audio") return <div className="w-full max-w-lg"><Music2 className="mx-auto mb-4 size-8 text-muted-foreground" /><audio className="w-full" controls preload="metadata" src={source}>你的浏览器不支持音频播放。</audio></div>;
+  if (asset.kind === "audio") return <AudioWaveformPlayer name={asset.name || "音频素材"} src={source} />;
   return <VideoFrame alt={asset.name || "视频素材"} className="w-full max-w-4xl rounded-xs bg-black" controls src={source} videoClassName="max-h-[65vh] object-contain" />;
 }
 

@@ -45,3 +45,19 @@ func TestGitStatusDetectsDirtyCheckout(t *testing.T) {
 		t.Fatalf("status = %#v", status)
 	}
 }
+
+func TestBuiltInAppSkipsGitManagement(t *testing.T) {
+	root := t.TempDir()
+	if output, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
+		t.Fatalf("initialize Git checkout: %s: %v", output, err)
+	}
+	app := App{Manifest: Manifest{ID: mediaSystemAppID, Name: "素材库", Version: "1.0.0"}, Root: root}
+	installation := inspectAppInstallation(app)
+	if !installation.BuiltIn || installation.Manageable || installation.Dirty || installation.Repository != "" || installation.Status != "系统自带 App" {
+		t.Fatalf("installation = %#v", installation)
+	}
+	catalog := &Catalog{apps: map[string]App{app.Manifest.ID: app}, dir: filepath.Dir(root)}
+	if _, err := catalog.UpdateInstallation(filepath.Base(root)); err == nil || err.Error() != "system App is built into Recut and cannot be upgraded through Git" {
+		t.Fatalf("update built-in App error = %v", err)
+	}
+}

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store 与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供 Server 及 App 能力、项目产物、结构化 Agent 会话与终端 HTTP API
+ * [OUTPUT]: 对外提供 Server 及 App 能力、项目产物、结构化 Agent 会话/新对话引导与终端 HTTP API
  * [POS]: service 的传输层，负责把受信任项目与扩展注册表映射为浏览器可消费的 API；对话和 PTY 协议并存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -80,6 +80,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/projects/{id}/agent-tasks", s.startAgentTask)
 	mux.HandleFunc("POST /v1/projects/{id}/proposals/{proposalID}/approve", s.approveProposal)
 	mux.HandleFunc("GET /v1/agent-sessions", s.listAgentSessions)
+	mux.HandleFunc("GET /v1/agent-onboarding", s.getAgentOnboarding)
+	mux.HandleFunc("PUT /v1/agent-onboarding", s.saveAgentOnboarding)
 	mux.HandleFunc("POST /v1/agent-sessions", s.createAgentSession)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}", s.getAgentSession)
 	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/codex-configuration", s.updateCodexConfiguration)
@@ -145,7 +147,7 @@ func withLocalCORS(next http.Handler) http.Handler {
 		if origin == "http://localhost:3000" || origin == "http://127.0.0.1:3000" || origin == "https://recut.video" || origin == "https://www.recut.video" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		}
 		if r.Method == http.MethodOptions {

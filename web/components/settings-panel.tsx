@@ -1,29 +1,34 @@
 /*
- * [INPUT]: 依赖 Media Platform 的 Provider、Credential、Route HTTP API 与工作台 UI 原子组件
- * [OUTPUT]: 对外提供全局设置面板，以及面向用途决策的 Provider 连接和模型配置体验；表单字段均有可见标签，仅兼容 Provider 暴露自定义端点
- * [POS]: web/components 的工作台级设置入口；Provider、音色与用途模型的唯一用户配置界面
+ * [INPUT]: 依赖 service endpoint 配置、Media Platform 的 Provider、Credential、Route HTTP API 与工作台 UI 原子组件
+ * [OUTPUT]: 对外提供全局设置面板，以及 service 连接、全局对话引导、Provider 连接和用途模型配置体验；表单字段均有可见标签，仅兼容 Provider 暴露自定义端点
+ * [POS]: web/components 的工作台级设置入口；service 地址、全局 Agent 引导、Provider、音色与用途模型的唯一用户配置界面
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, Bot, Check, ChevronDown, Image, Mic2, Plus, Settings, Sparkles, TerminalSquare, Video, X } from "lucide-react";
+import { AppWindow, Bot, Check, ChevronDown, Copy, Image, Map, Mic2, Plus, Server, Settings, Sparkles, TerminalSquare, Video, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { AgentOnboardingSettings } from "@/components/agent-onboarding-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getServiceEndpoint, normalizeServiceEndpoint, resetServiceEndpoint, saveServiceEndpoint } from "@/lib/service-endpoint";
+import { useServiceStore } from "@/lib/service-store";
 
-const apiBase = process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
-type SettingSection = "apps" | "cli" | "agents" | "multimodal";
+const apiBase = getServiceEndpoint();
+type SettingSection = "service" | "apps" | "cli" | "agents" | "onboarding" | "multimodal";
 type Model = { id: string; provider: string; name: string; capability: string; available: boolean };
 type Provider = { id: string; name: string; defaultApiBase: string; models: Model[] };
 type Credential = { id: string; name: string; provider: string };
 type Route = { id: string; capability: string; modelId: string; credentialId: string; enabled: boolean };
 
 const sections: { id: SettingSection; label: string; icon: typeof AppWindow }[] = [
+  { id: "service", label: "Service 连接", icon: Server },
   { id: "apps", label: "应用管理", icon: AppWindow },
   { id: "cli", label: "本地 CLI", icon: TerminalSquare },
   { id: "agents", label: "本地 Agent", icon: Bot },
+  { id: "onboarding", label: "对话引导", icon: Map },
   { id: "multimodal", label: "AI 服务商", icon: Sparkles },
 ];
 
@@ -48,7 +53,7 @@ function providerInfo(id: string) { return providerGuidance[id] ?? { use: "连�
 
 export function SettingsPanel({ open: controlledOpen, onOpenChange, section }: { open?: boolean; onOpenChange?: (open: boolean) => void; section?: SettingSection }) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
-  const [selectedSection, setSelectedSection] = useState<SettingSection>("apps");
+  const [selectedSection, setSelectedSection] = useState<SettingSection>("service");
   const open = controlledOpen ?? uncontrolledOpen;
   const activeSection = section ?? selectedSection;
   function setOpen(next: boolean) { if (controlledOpen === undefined) setUncontrolledOpen(next); onOpenChange?.(next); }
@@ -66,14 +71,45 @@ export function SettingsPanel({ open: controlledOpen, onOpenChange, section }: {
               <div className="space-y-1">{sections.map((item) => { const Icon = item.icon; return <button className={`flex h-9 w-full items-center gap-2.5 rounded-xs px-3 text-left text-xs ${activeSection === item.id ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`} key={item.id} onClick={() => setSelectedSection(item.id)} type="button"><Icon className="size-3.5" />{item.label}</button>; })}</div>
             </nav>
             <div className="min-w-0 overflow-y-auto p-8">
-              <div className="flex items-start justify-between border-b pb-6"><div><h2 className="text-lg font-semibold">{activeSection === "multimodal" ? "AI 服务商" : sections.find((item) => item.id === activeSection)?.label}</h2><p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{activeSection === "multimodal" ? "先连接 Provider，再为每种创作用途选择合适的模型。密钥只在本机加密保存。" : "此设置将在后续版本开放。"}</p></div><button aria-label="关闭设置" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={() => setOpen(false)} type="button"><X className="size-4" /></button></div>
-              {activeSection === "multimodal" ? <ProviderSettings /> : <div className="grid min-h-80 place-items-center text-xs text-muted-foreground">即将推出</div>}
+              <div className="flex items-start justify-between border-b pb-6"><div><h2 className="text-lg font-semibold">{activeSection === "multimodal" ? "AI 服务商" : sections.find((item) => item.id === activeSection)?.label}</h2><p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{activeSection === "service" ? "选择此工作台要连接的 Recut service。默认仍是本机地址。" : activeSection === "multimodal" ? "先连接 Provider，再为每种创作用途选择合适的模型。密钥只在本机加密保存。" : activeSection === "onboarding" ? "为没有专属 App 引导的对话补充常用起点。点击卡片后只会写入你定义的提示词。" : "此设置将在后续版本开放。"}</p></div><button aria-label="关闭设置" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={() => setOpen(false)} type="button"><X className="size-4" /></button></div>
+              {activeSection === "service" ? <ServiceEndpointSettings /> : activeSection === "multimodal" ? <ProviderSettings /> : activeSection === "onboarding" ? <AgentOnboardingSettings apiBase={apiBase} /> : <div className="grid min-h-80 place-items-center text-xs text-muted-foreground">即将推出</div>}
             </div>
           </section>
         </div>
       )}
     </>
   );
+}
+
+function ServiceEndpointSettings() {
+  const refreshService = useServiceStore((state) => state.refresh);
+  const [endpoint, setEndpoint] = useState(() => getServiceEndpoint());
+  const [message, setMessage] = useState("");
+  const [working, setWorking] = useState(false);
+  const installCommand = "curl -fsSL https://recut.video/install.sh | sh";
+
+  async function connect(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setMessage(""); setWorking(true);
+    try {
+      const nextEndpoint = normalizeServiceEndpoint(endpoint);
+      const health = await fetch(`${nextEndpoint}/health`, { cache: "no-store" });
+      if (!health.ok) throw new Error(`service 返回 ${health.status}`);
+      saveServiceEndpoint(nextEndpoint);
+      await refreshService();
+      window.location.reload();
+    } catch (cause) { setMessage(`${cause instanceof Error ? cause.message : "无法连接 service"}。请确认地址可从浏览器访问，并允许当前工作台的跨域请求。`); } finally { setWorking(false); }
+  }
+
+  function useLocalService() {
+    resetServiceEndpoint();
+    window.location.reload();
+  }
+
+  async function copyInstallCommand() {
+    try { await navigator.clipboard.writeText(installCommand); setMessage("安装命令已复制。请在终端粘贴并执行，完成后刷新此页面。"); } catch { setMessage("无法自动复制，请手动复制安装命令。") }
+  }
+
+  return <section className="max-w-2xl pt-6"><div className="border bg-muted/20 p-5"><div className="flex items-start gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-md bg-accent text-accent-foreground"><Server className="size-4" /></span><div><p className="text-sm font-medium">连接 Recut service</p><p className="mt-1 text-xs leading-5 text-muted-foreground">地址只保存在此浏览器。远程 service 需要使用 <code>--address 0.0.0.0:17373</code> 或反向代理对外提供 HTTPS，并允许此工作台的跨域请求。</p></div></div><form className="mt-5" onSubmit={connect}><label className="mb-1.5 block text-xs font-medium" htmlFor="service-endpoint">Service 地址</label><div className="flex gap-2"><Input id="service-endpoint" onChange={(event) => setEndpoint(event.target.value)} placeholder="例如：https://recut.example.com" value={endpoint} /><Button disabled={!endpoint.trim() || working} type="submit">{working ? "正在验证…" : "连接"}</Button></div><p className="mt-2 text-[11px] leading-4 text-muted-foreground">仅支持 http(s) 根地址，不包含 API 路径、账号或密钥。</p></form><div className="mt-5 border-t pt-4"><p className="text-xs font-medium">还没有本地 service？</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">在终端执行一次安装命令。安装完成后刷新页面，工作台会自动连接 <code>127.0.0.1:17373</code>。</p><div className="mt-3 flex items-center gap-2 rounded-sm border bg-background p-2"><code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap px-1 font-mono text-[11px]">{installCommand}</code><Button aria-label="复制安装命令" className="size-7 shrink-0 px-0" onClick={() => void copyInstallCommand()} title="复制安装命令" type="button" variant="outline"><Copy className="size-3.5" /></Button></div></div><div className="mt-5 flex items-center justify-between border-t pt-4"><div><p className="text-xs font-medium">恢复本地 service</p><p className="mt-1 text-[11px] text-muted-foreground">切回默认的 127.0.0.1:17373。</p></div><Button onClick={useLocalService} type="button" variant="outline">使用本地地址</Button></div>{message && <p className="mt-4 border-l-2 border-warning pl-3 text-xs leading-5 text-warning">{message}</p>}</div></section>;
 }
 
 function ProviderSettings() {

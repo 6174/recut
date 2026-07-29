@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖项目/App manifest API、Agent Session HTTP API 与 Next.js 浏览器路由参数
+ * [INPUT]: 依赖全局 Zustand service 状态、service endpoint、项目/App manifest API、Agent Session HTTP API 与 Next.js 浏览器路由参数
  * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发与结构化 Agent 请求转交，并透传 App API 的失败原因
- * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，隔离 useParams、WebSocket 与 iframe，不能吞没后台诊断
+ * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，共享根级 service 状态，隔离 useParams、WebSocket 与 iframe，不能吞没后台诊断
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -13,10 +13,12 @@ import { CSSProperties, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
-import { SettingsPanel } from "@/components/settings-panel";
+import { HeaderActions } from "@/components/header-actions";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
+import { useServiceStore } from "@/lib/service-store";
+import { getServiceEndpoint } from "@/lib/service-endpoint";
 
-const apiBase = process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
+const apiBase = getServiceEndpoint();
 type Project = { id: string; name: string; appId: string; appVersion: string; createdAt: string };
 type App = { manifest: { id: string; name: string; version: string; ui: { projectView?: string } } };
 
@@ -38,13 +40,13 @@ export default function ProjectDetailClient() {
   const [project, setProject] = useState<Project | null>(null);
   const [app, setApp] = useState<App | null>(null);
   const [installation, setInstallation] = useState<ManagedApp | null>(null);
-  const [online, setOnline] = useState(false);
+  const online = useServiceStore((state) => state.service.phase === "online");
   const appFrame = useRef<HTMLIFrameElement>(null);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.project-agent-panel-width" });
 
   useEffect(() => { setID(projectIDFromLocation(routeID)); }, [routeID]);
   useEffect(() => {
-    if (!id) return;
+    if (!id || !online) return;
     void (async () => {
       const projectResponse = await fetch(`${apiBase}/v1/projects/${id}`);
       if (!projectResponse.ok) return;
@@ -54,9 +56,8 @@ export default function ProjectDetailClient() {
       if (appsResponse.ok) setApp((await appsResponse.json()).find((item: App) => item.manifest.id === nextProject.appId) ?? null);
       const installationResponse = await fetch(`${apiBase}/v1/apps/installed`);
       if (installationResponse.ok) setInstallation((await installationResponse.json()).find((item: ManagedApp) => item.manifest.id === nextProject.appId) ?? null);
-      setOnline(true);
     })();
-  }, [id]);
+  }, [id, online]);
 
   useEffect(() => {
     if (!project) return;
@@ -115,7 +116,7 @@ export default function ProjectDetailClient() {
         <div aria-hidden="true" className="h-5 w-px bg-border" />
         <div className="min-w-0"><p className="truncate text-sm font-medium">{project?.name ?? "加载项目…"}</p><p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{project ? `${app?.manifest.name ?? project.appId} · v${app?.manifest.version ?? project.appVersion} · ${project.id}` : "正在读取项目元信息"}</p></div>
       </div>
-      <div className="ml-4 flex shrink-0 items-center gap-2"><Link className="rounded-xs px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground" href="/media">素材库</Link><Badge>{app?.manifest.id ?? project?.appId ?? "APP"}</Badge>{installation && <AppVersionControl app={installation} onUpdated={() => window.location.reload()} />}<Badge>{online ? "LOCAL" : "OFFLINE"}</Badge><SettingsPanel /></div>
+      <HeaderActions>{installation && <AppVersionControl app={installation} onUpdated={() => window.location.reload()} />}</HeaderActions>
     </header>
     <div className="relative grid min-h-0 flex-1 overflow-hidden [grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}>
       <section className="min-h-0 min-w-0 overflow-hidden border-r bg-card">

@@ -3,7 +3,7 @@
 > L2 | 父级: /apps/README.md
 
 成员清单
-manifest.json: 内部素材库系统应用身份；仅用于承载标准 Agent/MCP 会话，不能由用户创建项目。
+manifest.json: 内部素材库系统应用身份，声明作者 Recut、用途描述与素材整理/创作规划 onboarding；仅用于承载标准 Agent/MCP 会话，不能由用户创建项目。
 background.js: 空运行时入口；所有媒体业务由 service 的 Media Platform 提供。
 ui/index.html: 最小占位 UI；真实系统界面由 web/app/media 承载。
 

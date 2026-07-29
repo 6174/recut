@@ -1,3 +1,7 @@
+# [INPUT]: 依赖 Go、Node.js、发布归档工具与 scripts/install-service.sh
+# [OUTPUT]: 对外提供本机开发、跨平台 service 构建/发布和 Web 部署命令
+# [POS]: 仓库自动化根；统一定义 service 版本、目标平台和发布物命名
+# [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
@@ -8,10 +12,13 @@ RECUT_HOME ?= $(HOME)/.recut
 APP ?=
 RECUT_VERSION ?= 0.1.0
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
-SERVICE_BUILD ?= $(CURDIR)/build/recut-service
+TARGET ?=
+BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
+BUILD_GOARCH := $(if $(TARGET),$(word 2,$(subst -, ,$(TARGET))),$(if $(GOARCH),$(GOARCH),$(shell go env GOARCH)))
+SERVICE_BUILD ?= $(CURDIR)/build/recut-service$(if $(filter windows,$(BUILD_GOOS)),.exe)
 RELEASE_STAGE ?= $(CURDIR)/build/releases
 RELEASE_PUBLIC ?= $(CURDIR)/web/public/releases/latest
-SERVICE_RELEASE_TARGETS := darwin-arm64 darwin-amd64
+SERVICE_RELEASE_TARGETS := darwin-arm64 darwin-amd64 linux-arm64 linux-amd64 freebsd-arm64 freebsd-amd64 windows-arm64 windows-amd64
 
 help: ## Show available development commands.
 	@awk 'BEGIN { FS = ":.*##"; printf "\nRecut development commands:\n" } /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -45,13 +52,13 @@ stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never an
 	done
 
 service-dev: stop-stale-service ## Start only the loopback Go service on port 17373.
-	GOCACHE=$(GOCACHE) go -C service run -ldflags "-X main.serviceVersion=$(RECUT_VERSION)" .
+	GOCACHE=$(GOCACHE) go -C service run -ldflags "-X main.serviceVersion=dev" .
 
-service-build: ## Build a versioned production Recut service binary.
+service-build: ## Build a production service (TARGET=linux-amd64, windows-amd64, or host default).
 	@mkdir -p "$(dir $(SERVICE_BUILD))"
-	GOCACHE=$(GOCACHE) go -C service build -trimpath -ldflags "-s -w -X main.serviceVersion=$(RECUT_VERSION)" -o "$(SERVICE_BUILD)" .
+	GOCACHE=$(GOCACHE) GOOS="$(BUILD_GOOS)" GOARCH="$(BUILD_GOARCH)" go -C service build -trimpath -ldflags "-s -w -X main.serviceVersion=$(RECUT_VERSION)" -o "$(SERVICE_BUILD)" .
 
-service-release: ## Build compressed macOS service packages for the Cloudflare static installer.
+service-release: ## Build macOS, Linux, FreeBSD, and Windows service packages for the public installers.
 	@set -e; \
 	mkdir -p "$(RELEASE_STAGE)" "$(RELEASE_PUBLIC)"; \
 	manifest="$(RELEASE_PUBLIC)/manifest.json"; \
@@ -59,16 +66,23 @@ service-release: ## Build compressed macOS service packages for the Cloudflare s
 	first=1; \
 	for target in $(SERVICE_RELEASE_TARGETS); do \
 		os="$${target%-*}"; arch="$${target#*-}"; binary="recut-service-$$os-$$arch"; \
+		if [ "$$os" = windows ]; then binary="$$binary.exe"; fi; \
 		echo "Building $$binary"; \
 		GOCACHE=$(GOCACHE) GOOS="$$os" GOARCH="$$arch" go -C service build -trimpath -ldflags "-s -w -X main.serviceVersion=$(RECUT_VERSION)" -o "$(RELEASE_STAGE)/$$binary" .; \
-		archive="$$binary.tar.gz"; tar -C "$(RELEASE_STAGE)" -czf "$(RELEASE_PUBLIC)/$$archive" "$$binary"; \
-		checksum="$$(shasum -a 256 "$(RELEASE_PUBLIC)/$$archive" | awk '{print $$1}')"; \
+		if [ "$$os" = windows ]; then \
+			command -v zip >/dev/null 2>&1 || { echo "zip is required to package Windows releases" >&2; exit 1; }; \
+			archive="$$binary.zip"; (cd "$(RELEASE_STAGE)" && zip -q -j "$(RELEASE_PUBLIC)/$$archive" "$$binary"); \
+		else archive="$$binary.tar.gz"; tar -C "$(RELEASE_STAGE)" -czf "$(RELEASE_PUBLIC)/$$archive" "$$binary"; fi; \
+		if command -v shasum >/dev/null 2>&1; then checksum="$$(shasum -a 256 "$(RELEASE_PUBLIC)/$$archive" | awk '{print $$1}')"; \
+		elif command -v sha256sum >/dev/null 2>&1; then checksum="$$(sha256sum "$(RELEASE_PUBLIC)/$$archive" | awk '{print $$1}')"; \
+		else echo "shasum or sha256sum is required" >&2; exit 1; fi; \
 		if [ "$$first" = 0 ]; then printf ',' >> "$$manifest"; fi; first=0; \
 		printf '"%s":{"archive":"%s","sha256":"%s"}' "$$os-$$arch" "$$archive" "$$checksum" >> "$$manifest"; \
 	done; \
 	printf '}}\n' >> "$$manifest"
 
-service-install: service-build ## Install and start the current-user production service (launchd/systemd).
+service-install: service-build ## Install the host-target production service (macOS/Linux/FreeBSD shell hosts).
+	@test "$(BUILD_GOOS)" = "$$(go env GOOS)" || { echo "service-install must target this host; copy the cross-built binary to $(BUILD_GOOS)-$(BUILD_GOARCH) instead." >&2; exit 1; }
 	@chmod +x scripts/install-service.sh
 	@RECUT_HOME="$(RECUT_HOME)" scripts/install-service.sh "$(SERVICE_BUILD)"
 

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖标准库 JSON 与文件系统能力
- * [OUTPUT]: 对外提供 manifest 驱动的 Catalog、App 与统一 operation 公开契约
+ * [OUTPUT]: 对外提供 manifest 驱动的 Catalog、含作者/描述/onboarding 的 App 身份与统一 operation 公开契约
  * [POS]: service 的扩展注册表；只理解 App 身份、入口、权限和扩展点，不理解业务数据布局
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -25,15 +25,19 @@ const (
 )
 
 type Manifest struct {
-	ManifestVersion int           `json:"manifestVersion"`
-	ID              string        `json:"id"`
-	Name            string        `json:"name"`
-	Version         string        `json:"version"`
-	Kind            AppKind       `json:"type"`
-	Background      string        `json:"background"`
-	UI              UIEntrypoints `json:"ui"`
-	Permissions     []string      `json:"permissions"`
-	Operations      []Operation   `json:"operations"`
+	ManifestVersion int               `json:"manifestVersion"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Author          string            `json:"author"`
+	Description     string            `json:"description"`
+	Repository      string            `json:"repository,omitempty"`
+	Version         string            `json:"version"`
+	Kind            AppKind           `json:"type"`
+	Background      string            `json:"background"`
+	UI              UIEntrypoints     `json:"ui"`
+	Permissions     []string          `json:"permissions"`
+	Operations      []Operation       `json:"operations"`
+	Onboarding      []OnboardingGuide `json:"onboarding"`
 }
 
 type UIEntrypoints struct {
@@ -153,8 +157,8 @@ func readCatalogJSON(path string, target any) error {
 }
 
 func validateManifest(manifest Manifest) error {
-	if manifest.ManifestVersion != 1 || manifest.ID == "" || manifest.Name == "" || manifest.Version == "" {
-		return errors.New("manifestVersion, id, name, and version are required")
+	if manifest.ManifestVersion != 1 || manifest.ID == "" || manifest.Name == "" || manifest.Author == "" || manifest.Description == "" || manifest.Version == "" {
+		return errors.New("manifestVersion, id, name, author, description, and version are required")
 	}
 	if manifest.Kind != ProjectApp && manifest.Kind != StandaloneApp {
 		return fmt.Errorf("invalid app type %q", manifest.Kind)
@@ -167,6 +171,9 @@ func validateManifest(manifest Manifest) error {
 	}
 	if manifest.Kind == StandaloneApp && !validPackagePath(manifest.UI.StandaloneView) {
 		return errors.New("standalone App requires ui.standaloneView")
+	}
+	if err := validateOnboarding(manifest.Onboarding); err != nil {
+		return fmt.Errorf("invalid onboarding: %w", err)
 	}
 	names := map[string]bool{}
 	for _, operation := range manifest.Operations {

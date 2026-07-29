@@ -19,6 +19,7 @@ import (
 )
 
 const mediaAssetEventPollInterval = 250 * time.Millisecond
+const completedMediaCacheControl = "public, max-age=31536000, immutable"
 
 type mediaAssetSnapshot struct {
 	Cursor int64        `json:"cursor"`
@@ -329,6 +330,10 @@ func (s *Server) getMediaAssetContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("media file not found"))
 		return
 	}
+	// A completed Asset's bytes are content-addressed and never change. Let the
+	// browser reuse a decoded preview instead of reopening the same local video
+	// for every card remount or scroll pass.
+	w.Header().Set("Cache-Control", completedMediaCacheControl)
 	w.Header().Set("Content-Type", asset.MimeType)
 	http.ServeFile(w, r, path)
 }

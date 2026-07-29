@@ -109,6 +109,23 @@ func TestMediaAssetEventsStreamSnapshotAndReplay(t *testing.T) {
 	}
 }
 
+func TestCompletedMediaContentIsImmutable(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	media := NewMediaService(store)
+	asset, err := media.ImportMedia("preview.mp4", "video/mp4", []byte("video bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	NewServer(nil, store, nil, nil, nil, nil, media).routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/media/assets/"+asset.ID+"/content", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("content status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if cacheControl := recorder.Header().Get("Cache-Control"); cacheControl != completedMediaCacheControl {
+		t.Fatalf("Cache-Control = %q", cacheControl)
+	}
+}
+
 func TestMediaAssetEventsCarryGenerationTiming(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	media := NewMediaService(store)

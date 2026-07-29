@@ -2,9 +2,25 @@
   "manifestVersion": 1,
   "id": "recut.media-library",
   "name": "素材库",
+  "author": "Recut",
+  "description": "管理跨项目图片、视频和音频素材的内置系统应用。",
   "version": "1.0.0",
   "type": "project",
   "background": "background.js",
   "ui": { "projectView": "ui/index.html" },
+  "onboarding": [
+    {
+      "id": "organize-assets",
+      "title": "整理已有素材",
+      "description": "上传或引用素材后，让 AI 帮你盘点并建议下一步。",
+      "prompt": "我想整理这次创作会用到的素材。请先问我需要上传或引用哪些图片、视频和音频，再按用途帮我列出下一步。"
+    },
+    {
+      "id": "plan-video",
+      "title": "从一个想法开始",
+      "description": "把主题、目标受众和交付形式变成可执行的创作计划。",
+      "prompt": "我想做一支视频，但目前只有一个初步想法。请先问我主题、受众和交付目标，然后把制作过程拆成清晰的下一步。"
+    }
+  ],
   "permissions": []
 }

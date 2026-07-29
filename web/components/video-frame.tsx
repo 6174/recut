@@ -1,13 +1,13 @@
 /*
  * [INPUT]: 依赖 React 生命周期、lucide-react 状态图标和媒体内容 URL
- * [OUTPUT]: 对外提供 VideoFrame，在卡片与详情中解码并展示视频首帧，统一处理加载与失败状态
- * [POS]: components 的媒体画面原子；被素材库、Agent 消息和素材详情复用，不承载业务状态
+ * [OUTPUT]: 对外提供 VideoFrame，直接播放原始视频作为卡片预览，统一处理加载与失败状态
+ * [POS]: components 的媒体画面原子；被素材库、Agent 消息和素材详情复用，不承载业务状态或额外的缩略图协议
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { LoaderCircle, VideoOff } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
 type VideoFrameProps = {
@@ -32,36 +32,24 @@ export function VideoFrame({
   videoClassName,
 }: VideoFrameProps) {
   const [state, setState] = useState<VideoState>("loading");
-  const previewSeeked = useRef(false);
 
   useEffect(() => {
-    previewSeeked.current = false;
     setState("loading");
   }, [src]);
-
-  function requestPreviewFrame(event: React.SyntheticEvent<HTMLVideoElement>) {
-    const video = event.currentTarget;
-    if (previewSeeked.current || !Number.isFinite(video.duration) || video.duration <= 0) return;
-    previewSeeked.current = true;
-    try {
-      video.currentTime = Math.min(0.1, video.duration / 2);
-    } catch {
-      // 浏览器仍可用已解码的第 0 帧；无需将可播放视频降级为错误。
-    }
-  }
 
   return (
     <div className={cn("relative isolate overflow-hidden bg-muted", className)}>
       <video
         aria-label={alt}
+        autoPlay={!controls}
         className={cn("block h-full w-full object-cover", videoClassName)}
         controls={controls}
+        loop={!controls}
         muted={!controls}
         onError={() => setState("error")}
         onLoadedData={() => setState("ready")}
-        onLoadedMetadata={requestPreviewFrame}
         playsInline
-        preload="metadata"
+        preload={controls ? "auto" : "metadata"}
         src={src}
         tabIndex={controls ? undefined : -1}
       >
