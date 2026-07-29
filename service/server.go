@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store 与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供 Server 及内嵌工作台、App 能力、项目产物、结构化 Agent 会话/新对话引导与终端 HTTP API
+ * [OUTPUT]: 对外提供 Server 及内嵌工作台、无入口重定向的 App UI、App 能力、项目产物、结构化 Agent 会话/新对话引导与终端 HTTP API
  * [POS]: service 的传输层，负责把受信任项目、内嵌本地工作台与扩展注册表映射为浏览器可消费的 API；对话和 PTY 协议并存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -147,6 +147,9 @@ func (s *Server) listAgents(w http.ResponseWriter, _ *http.Request) {
 
 func withLocalCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/") && !isAppUIPath(r.URL.Path) {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		origin := r.Header.Get("Origin")
 		if allowedBrowserOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -164,6 +167,10 @@ func withLocalCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isAppUIPath(path string) bool {
+	return strings.HasPrefix(path, "/v1/apps/") && strings.Contains(path, "/ui/")
 }
 
 func allowedBrowserOrigin(origin string) bool {
@@ -285,6 +292,14 @@ func (s *Server) appUI(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(path); err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
+	}
+	if strings.HasSuffix(requested, "/index.html") {
+		w.Header().Set("Cache-Control", "no-cache")
+		requestCopy := r.Clone(r.Context())
+		urlCopy := *r.URL
+		requestCopy.URL = &urlCopy
+		requestCopy.URL.Path = strings.TrimSuffix(r.URL.Path, "index.html")
+		r = requestCopy
 	}
 	http.ServeFile(w, r, path)
 }

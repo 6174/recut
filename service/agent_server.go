@@ -1,12 +1,13 @@
 /*
  * [INPUT]: 依赖 AgentManager 的本地持久化会话和 HTTP SSE 传输能力
- * [OUTPUT]: 对外提供 Agent Session 创建、Codex 配置更新、按项目解析/全局保存 onboarding、查询、含图片资产引用的发送、停止与事件订阅 HTTP API
+ * [OUTPUT]: 对外提供 Agent Session 创建、Codex 配置更新、按项目解析/全局保存 onboarding、查询、含图片资产引用的发送、停止与事件订阅 HTTP API，并区分不存在和存储读取失败
  * [POS]: service 的结构化对话传输边界；与 terminal HTTP API 并存且互不代理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -92,7 +93,11 @@ func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getAgentSession(w http.ResponseWriter, r *http.Request) {
 	detail, err := s.agents.Detail(r.PathValue("id"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, errors.New("agent session not found"))
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("agent session not found"))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
@@ -143,7 +148,11 @@ func (s *Server) stopAgentTurn(w http.ResponseWriter, r *http.Request) {
 func (s *Server) streamAgentEvents(w http.ResponseWriter, r *http.Request) {
 	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
 	if _, err := s.agents.Detail(r.PathValue("id")); err != nil {
-		writeError(w, http.StatusNotFound, errors.New("agent session not found"))
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("agent session not found"))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")

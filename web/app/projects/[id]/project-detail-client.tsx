@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖全局 Zustand service 状态、service endpoint、项目/App manifest API、Agent Session HTTP API 与 Next.js 浏览器路由参数
- * [OUTPUT]: 对外提供通用项目 App UI 容器、可靠 iframe 就绪握手、项目事件转发与结构化 Agent 请求转交，并透传 App API 的失败原因
- * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，共享根级 service 状态，隔离 useParams、WebSocket 与 iframe；只向已验证来源的 App 交付通信端口
+ * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发与带宿主通信诊断的结构化 Agent 请求转交，并透传 App API 的失败原因
+ * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，共享根级 service 状态，隔离 useParams、WebSocket 与 iframe，不能吞没后台诊断
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -9,7 +9,7 @@
 import { ArrowLeft, Clapperboard } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import { CSSProperties, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
@@ -72,20 +72,23 @@ export default function ProjectDetailClient() {
     return () => events.close();
   }, [apiBase, project]);
 
-  const connectUI = useCallback(() => {
+  const connectUI = () => {
     if (!appFrame.current || !project) return;
     const channel = new MessageChannel();
     channel.port1.onmessage = async (event) => {
       const request = event.data; const reply = (result?: unknown, error?: string) => channel.port1.postMessage({ id: request.id, result, error });
+      console.warn(`[recut-host] iframe request id=${String(request.id)} type=${String(request.type)}`);
       try {
         if (request.type === "state.query") {
           const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${request.input.name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, "状态读取失败"));
+          console.warn(`[recut-host] iframe response id=${String(request.id)} type=state.query result=${response.ok ? "ok" : "error"}`);
         } else if (request.type === "background.call") {
           const { name, ...input } = request.input; const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, "后台调用失败"));
+          console.warn(`[recut-host] iframe response id=${String(request.id)} type=background.call result=${response.ok ? "ok" : "error"}`);
         } else if (request.type === "agent.send") {
           const sessionsResponse = await fetch(`${apiBase}/v1/agent-sessions?projectId=${encodeURIComponent(project.id)}`);
           if (!sessionsResponse.ok) throw new Error("无法读取 Agent 对话");
@@ -99,25 +102,20 @@ export default function ProjectDetailClient() {
           const turnResponse = await fetch(`${apiBase}/v1/agent-sessions/${sessionID}/turns`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: request.input.prompt }) });
           if (!turnResponse.ok) throw new Error("无法发送给 Agent");
           reply({ delivery: "agent-session", sessionId: sessionID });
+          console.warn(`[recut-host] iframe response id=${String(request.id)} type=agent.send result=ok`);
         }
-      } catch { reply(undefined, "Recut Host 通信失败"); }
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : "Recut Host 通信失败";
+        console.error(`[recut-host] iframe response id=${String(request.id)} type=${String(request.type)} result=error: ${message}`);
+        reply(undefined, message);
+      }
     };
+    console.warn(`[recut-host] iframe loaded; sending MessageChannel to ${apiBase}`);
     appFrame.current.contentWindow?.postMessage({ type: "recut.ui.connect" }, apiBase, [channel.port2]);
-  }, [apiBase, project]);
+  };
 
   const view = app?.manifest.ui.projectView;
   const uiURL = project && view ? `${apiBase}/v1/apps/${encodeURIComponent(project.appId)}/ui/${view}?projectId=${encodeURIComponent(project.id)}&appVersion=${encodeURIComponent(app?.manifest.version ?? "")}` : null;
-
-  useEffect(() => {
-    if (!uiURL) return;
-    const origin = new URL(uiURL).origin;
-    const receiveReady = (event: MessageEvent) => {
-      if (event.data?.type !== "recut.ui.ready" || event.origin !== origin || event.source !== appFrame.current?.contentWindow) return;
-      connectUI();
-    };
-    window.addEventListener("message", receiveReady);
-    return () => window.removeEventListener("message", receiveReady);
-  }, [connectUI, uiURL]);
 
   return <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
     <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5">

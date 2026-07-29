@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖用户级 onboarding HTTP API、React 状态与基础表单 UI 原子组件
- * [OUTPUT]: 对外提供全局新对话引导的新增、编辑、删除与保存设置界面
+ * [OUTPUT]: 对外提供不依赖安全上下文 UUID 的全局新对话引导新增、编辑、删除与保存设置界面
  * [POS]: components/settings-panel 的 Agent 引导配置内容；不编辑 App manifest，只维护本机全局补充项
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,7 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 type Guide = { id: string; title: string; description: string; prompt: string };
-function newGuide(): Guide { return { id: `guide-${crypto.randomUUID()}`, title: "", description: "", prompt: "" }; }
+let guideSequence = 0;
+function newGuide(): Guide {
+  guideSequence += 1;
+  return { id: `guide-${Date.now().toString(36)}-${guideSequence.toString(36)}-${Math.random().toString(36).slice(2)}`, title: "", description: "", prompt: "" };
+}
 
 export function AgentOnboardingSettings({ apiBase }: { apiBase: string }) {
   const [items, setItems] = useState<Guide[]>([]);

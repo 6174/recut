@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、全局 onboarding 设置与含媒体任务 lease/checkpoint 的用户级 workspace SQLite；拒绝以系统素材库创建用户项目
+ * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、全局 onboarding 设置与仅初始化一次的用户级 workspace SQLite；拒绝以系统素材库创建用户项目
  * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根，Agent 会话使用独立工作区库
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -52,8 +53,10 @@ type Artifact struct {
 }
 
 type Store struct {
-	root    string
-	catalog *Catalog
+	root           string
+	catalog        *Catalog
+	workspaceMu    sync.Mutex
+	workspaceReady bool
 }
 
 func NewStore(root string, apps *Catalog) *Store { return &Store{root: root, catalog: apps} }
@@ -197,6 +200,11 @@ func (s *Store) WorkspaceDatabase() (*sql.DB, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	s.workspaceMu.Lock()
+	defer s.workspaceMu.Unlock()
+	if s.workspaceReady {
+		return db, nil
+	}
 	if err := os.Chmod(path, 0o600); err != nil && !os.IsNotExist(err) {
 		_ = db.Close()
 		return nil, err
@@ -300,6 +308,7 @@ create index if not exists media_task_leases_expiry on media_task_leases(expires
 		_ = db.Close()
 		return nil, err
 	}
+	s.workspaceReady = true
 	return db, nil
 }
 
