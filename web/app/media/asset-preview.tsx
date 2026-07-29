@@ -5,10 +5,10 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { AssetPreviewDialog } from "@/components/asset-preview-dialog";
-import { getServiceEndpoint } from "@/lib/service-endpoint";
+import { useServiceStore } from "@/lib/service-store";
 import type { Asset } from "./media-types";
 
 export function AssetPreview({ asset, assets, onClose, onRegenerate }: { asset: Asset; assets: Asset[]; onClose: () => void; onRegenerate: (asset: Asset) => void }) {
-  const apiBase = getServiceEndpoint();
+  const apiBase = useServiceStore((state) => state.endpoint);
   return <AssetPreviewDialog apiBase={apiBase} asset={asset} assets={assets} onClose={onClose} onRegenerate={onRegenerate} />;
 }

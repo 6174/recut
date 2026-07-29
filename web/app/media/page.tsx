@@ -25,7 +25,7 @@ import {
 } from "react";
 import { Badge } from "@/components/ui/badge";
 import { MediaAssetEventsProvider, useMediaAssetEvents } from "@/components/use-media-asset-events";
-import { getServiceEndpoint } from "@/lib/service-endpoint";
+import { useServiceStore } from "@/lib/service-store";
 import { AssetGrid } from "./asset-grid";
 import { AssetPreview } from "./asset-preview";
 import { ReferenceAssetsField } from "./reference-assets-field";
@@ -42,7 +42,6 @@ import type {
   Provider,
   Voice,
 } from "./media-types";
-const apiBase = getServiceEndpoint();
 type CreateKind = {
   kind: AssetKind;
   capability: Capability;
@@ -102,10 +101,12 @@ export default function MediaLibraryRoute() {
 }
 
 export function MediaLibraryPanel(props: MediaLibraryPanelProps) {
+  const apiBase = useServiceStore((state) => state.endpoint);
   return <MediaAssetEventsProvider apiBase={apiBase}><MediaLibraryContent {...props} /></MediaAssetEventsProvider>;
 }
 
 function MediaLibraryContent({ onOpenProviderSettings, onProjectIDChange }: MediaLibraryPanelProps) {
+  const apiBase = useServiceStore((state) => state.endpoint);
   const { assetByID, assets: eventAssets, upsertAsset } = useMediaAssetEvents();
   const assets = useMemo(() => eventAssets.map((asset) => normalizeAsset(asset as Asset)), [eventAssets]);
   const [jobs, setJobs] = useState<MediaJob[]>([]);
@@ -128,7 +129,7 @@ function MediaLibraryContent({ onOpenProviderSettings, onProjectIDChange }: Medi
   }
   useEffect(() => {
     void initialize();
-  }, []);
+  }, [apiBase]);
   const visibleAssets =
     filter === "all" ? assets : assets.filter((asset) => asset.kind === filter);
   const visibleJobs = jobs.filter(
@@ -351,6 +352,7 @@ function CreateAssetDialog({
   onOpenProviderSettings: () => void;
   onSubmitted: (job: MediaJob) => void;
 }) {
+  const apiBase = useServiceStore((state) => state.endpoint);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [modelID, setModelID] = useState(draft?.modelID ?? "");
@@ -376,7 +378,7 @@ function CreateAssetDialog({
       if (credentialResponse.ok)
         setCredentials(await credentialResponse.json());
     })();
-  }, []);
+  }, [apiBase]);
   const models = providers
     .flatMap((provider) => provider.models)
     .filter((model) => model.capability === kind.capability);
@@ -432,7 +434,7 @@ function CreateAssetDialog({
       setVoices(next);
       setVoiceID(next[0]?.id ?? "");
     })();
-  }, [kind.kind, credentialID]);
+  }, [apiBase, kind.kind, credentialID]);
   useEffect(() => {
     if (!selectedModel) return;
     setReferenceIDs((ids) => {

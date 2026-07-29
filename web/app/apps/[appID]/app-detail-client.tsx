@@ -15,10 +15,9 @@ import { AppVersionControl, type ManagedApp } from "@/components/app-version-con
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getServiceEndpoint } from "@/lib/service-endpoint";
+import { useServiceStore } from "@/lib/service-store";
 import { Workspace } from "../../page";
 
-const apiBase = getServiceEndpoint();
 type App = { manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone" } };
 type AppInstallation = ManagedApp & { repository?: string };
 type Project = { id: string };
@@ -33,6 +32,7 @@ function AppDetailContent() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
+  const apiBase = useServiceStore((state) => state.endpoint);
 
   useEffect(() => {
     const appID = decodeURIComponent(routeAppID);
@@ -44,7 +44,7 @@ function AppDetailContent() {
       setApp(catalogApps.find((item) => item.manifest.id === appID) ?? (installed ? { manifest: installed.manifest } : null));
       setInstallation(installed);
     })();
-  }, [routeAppID]);
+  }, [apiBase, routeAppID]);
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { getServiceEndpoint, isDefaultServiceEndpoint } from "@/lib/service-endpoint";
+import { isDefaultServiceEndpoint } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 
 const latestVersion = process.env.NEXT_PUBLIC_RECUT_SERVICE_VERSION ?? "dev";
@@ -19,6 +19,7 @@ type Action = "restart" | "update" | null;
 
 export function ServiceControl() {
   const service = useServiceStore((state) => state.service);
+  const apiBase = useServiceStore((state) => state.endpoint);
   const refreshService = useServiceStore((state) => state.refresh);
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState<Action>(null);
@@ -29,10 +30,9 @@ export function ServiceControl() {
     void refreshService();
     const timer = window.setInterval(() => void refreshService(), 5000);
     return () => window.clearInterval(timer);
-  }, [refreshService]);
+  }, [apiBase, refreshService]);
 
   const online = service.phase === "online";
-  const apiBase = getServiceEndpoint();
   const localEndpoint = isDefaultServiceEndpoint(apiBase);
   const updateAvailable = online && isOlderVersion(service.version, latestVersion);
   const developmentService = service.version === "dev";

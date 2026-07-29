@@ -13,10 +13,9 @@ import { Badge } from "@/components/ui/badge";
 import { AgentOnboardingSettings } from "@/components/agent-onboarding-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getServiceEndpoint, normalizeServiceEndpoint, resetServiceEndpoint, saveServiceEndpoint } from "@/lib/service-endpoint";
+import { normalizeServiceEndpoint } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 
-const apiBase = getServiceEndpoint();
 type SettingSection = "service" | "apps" | "cli" | "agents" | "onboarding" | "multimodal";
 type Model = { id: string; provider: string; name: string; capability: string; available: boolean };
 type Provider = { id: string; name: string; defaultApiBase: string; models: Model[] };
@@ -52,6 +51,7 @@ function capabilityLabel(id: string) { return capabilities.find((item) => item.i
 function providerInfo(id: string) { return providerGuidance[id] ?? { use: "连接此 Provider 后可使用其已声明的模型。", note: "密钥只会加密保存在本机。" }; }
 
 export function SettingsPanel({ open: controlledOpen, onOpenChange, section }: { open?: boolean; onOpenChange?: (open: boolean) => void; section?: SettingSection }) {
+  const apiBase = useServiceStore((state) => state.endpoint);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [selectedSection, setSelectedSection] = useState<SettingSection>("service");
   const open = controlledOpen ?? uncontrolledOpen;
@@ -82,27 +82,32 @@ export function SettingsPanel({ open: controlledOpen, onOpenChange, section }: {
 }
 
 function ServiceEndpointSettings() {
+  const savedEndpoint = useServiceStore((state) => state.endpoint);
+  const setServiceEndpoint = useServiceStore((state) => state.setEndpoint);
+  const resetServiceEndpoint = useServiceStore((state) => state.resetEndpoint);
   const refreshService = useServiceStore((state) => state.refresh);
-  const [endpoint, setEndpoint] = useState(() => getServiceEndpoint());
+  const [endpoint, setEndpoint] = useState(savedEndpoint);
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(false);
   const installCommand = "curl -fsSL https://recut.video/install.sh | sh";
+
+  useEffect(() => { setEndpoint(savedEndpoint); }, [savedEndpoint]);
 
   async function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setMessage(""); setWorking(true);
     try {
       const nextEndpoint = normalizeServiceEndpoint(endpoint);
-      const health = await fetch(`${nextEndpoint}/health`, { cache: "no-store" });
-      if (!health.ok) throw new Error(`service 返回 ${health.status}`);
-      saveServiceEndpoint(nextEndpoint);
+      setServiceEndpoint(nextEndpoint);
       await refreshService();
-      window.location.reload();
-    } catch (cause) { setMessage(`${cause instanceof Error ? cause.message : "无法连接 service"}。请确认地址可从浏览器访问，并允许当前工作台的跨域请求。`); } finally { setWorking(false); }
+      const insecureRemote = window.location.protocol === "https:" && nextEndpoint.startsWith("http:") && !nextEndpoint.includes("127.0.0.1") && !nextEndpoint.includes("localhost");
+      setMessage(insecureRemote ? "地址已保存，但 HTTPS 工作台无法访问局域网 HTTP 地址；请为远程 service 配置 HTTPS。" : "已切换 service 地址。连接状态会在此页面和 Header 中更新。");
+    } catch (cause) { setMessage(`${cause instanceof Error ? cause.message : "无法保存 service 地址"}。`); } finally { setWorking(false); }
   }
 
-  function useLocalService() {
+  async function useLocalService() {
     resetServiceEndpoint();
-    window.location.reload();
+    await refreshService();
+    setMessage("已切回本地 service 地址。");
   }
 
   async function copyInstallCommand() {
@@ -113,6 +118,7 @@ function ServiceEndpointSettings() {
 }
 
 function ProviderSettings() {
+  const apiBase = useServiceStore((state) => state.endpoint);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -123,7 +129,7 @@ function ProviderSettings() {
   const [apiKey, setAPIKey] = useState("");
   const [message, setMessage] = useState("");
   async function load() { const [providerResponse, credentialResponse, routeResponse] = await Promise.all([fetch(`${apiBase}/v1/media/providers`), fetch(`${apiBase}/v1/media/credentials`), fetch(`${apiBase}/v1/media/routes`)]); if (providerResponse.ok) { const next = await providerResponse.json(); setProviders(next); if (!apiBaseValue) setAPIBaseValue(next.find((item: Provider) => item.id === providerID)?.defaultApiBase ?? ""); } if (credentialResponse.ok) setCredentials(await credentialResponse.json()); if (routeResponse.ok) setRoutes(await routeResponse.json()); }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [apiBase]);
   const provider = providers.find((item) => item.id === providerID);
   const connectedProviders = new Set(credentials.map((credential) => credential.provider));
   function chooseProvider(id: string) { const next = providers.find((item) => item.id === id); setProviderID(id); setAPIBaseValue(next?.defaultApiBase ?? ""); }

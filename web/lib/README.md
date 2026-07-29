@@ -4,7 +4,7 @@
 
 成员清单
 utils.ts: 提供 shadcn 组件共享的 Tailwind 类名合并函数。
-service-endpoint.ts: 浏览器持久化的 Recut service 根地址；校验 http(s) 根地址，并提供本地默认地址恢复能力，所有 API 连接从此处收敛。
-service-store.ts: 基于 Zustand 的 service 状态唯一真相；ServiceControl 在根布局初始化和轮询，业务页面只读取当前 endpoint 的连接阶段、版本与自更新能力，避免路由切换时重新判定离线。
+service-endpoint.ts: Recut service 根地址的默认值、格式校验与本地地址判断；不持有运行时状态。
+service-store.ts: 基于 Zustand persist 的 service 状态唯一真相；持久化 endpoint 并让所有 HTTP、SSE、WebSocket 调用订阅该值，ServiceControl 负责连接轮询，避免路由切换或刷新后退回旧地址。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

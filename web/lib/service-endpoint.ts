@@ -1,17 +1,11 @@
 /*
- * [INPUT]: 依赖浏览器 localStorage 与构建时的默认 Daemon 地址
- * [OUTPUT]: 对外提供 service endpoint 的读取、校验、保存与重置能力
- * [POS]: web/lib 的 service 连接配置边界；所有 HTTP、SSE 与 WebSocket 调用从此取得同一个地址
+ * [INPUT]: 依赖构建时的默认 Daemon 地址
+ * [OUTPUT]: 对外提供 service endpoint 的默认值、校验与本地地址判断能力
+ * [POS]: web/lib 的 service 连接配置边界；持久化与运行时状态统一由 service-store 管理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
-const storageKey = "recut.service-endpoint";
-const defaultEndpoint = process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
-
-export function getServiceEndpoint() {
-  if (typeof window === "undefined") return defaultEndpoint;
-  return window.localStorage.getItem(storageKey) ?? defaultEndpoint;
-}
+export const defaultServiceEndpoint = process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
 
 export function normalizeServiceEndpoint(value: string) {
   const endpoint = new URL(value.trim());
@@ -20,17 +14,6 @@ export function normalizeServiceEndpoint(value: string) {
   return endpoint.origin;
 }
 
-export function saveServiceEndpoint(value: string) {
-  const endpoint = normalizeServiceEndpoint(value);
-  window.localStorage.setItem(storageKey, endpoint);
-  return endpoint;
-}
-
-export function resetServiceEndpoint() {
-  window.localStorage.removeItem(storageKey);
-  return defaultEndpoint;
-}
-
-export function isDefaultServiceEndpoint(endpoint = getServiceEndpoint()) {
-  return endpoint === defaultEndpoint;
+export function isDefaultServiceEndpoint(endpoint: string) {
+  return endpoint === defaultServiceEndpoint;
 }

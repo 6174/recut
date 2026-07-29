@@ -19,10 +19,8 @@ import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { HeaderActions } from "@/components/header-actions";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { useServiceStore } from "@/lib/service-store";
-import { getServiceEndpoint } from "@/lib/service-endpoint";
 import { MediaLibraryPanel } from "./media/page";
 
-const apiBase = getServiceEndpoint();
 // 生产发布由 Makefile 将唯一的 RECUT_VERSION 注入这里；dev 回退不会触发升级判断。
 const latestServiceVersion = process.env.NEXT_PUBLIC_RECUT_SERVICE_VERSION ?? "dev";
 
@@ -49,6 +47,7 @@ export function Workspace({ appDetail }: { appDetail?: React.ReactNode } = {}) {
   const [projectID, setProjectID] = useState<string | null>(null);
   const [repository, setRepository] = useState("");
   const service = useServiceStore((state) => state.service);
+  const apiBase = useServiceStore((state) => state.endpoint);
   const refreshService = useServiceStore((state) => state.refresh);
   const [tab, setTab] = useState<"projects" | "apps" | "media">(appDetail ? "apps" : "projects");
   const [mediaProjectID, setMediaProjectID] = useState<string | null>(null);
@@ -65,7 +64,7 @@ export function Workspace({ appDetail }: { appDetail?: React.ReactNode } = {}) {
     void loadWorkspace();
     const timer = window.setInterval(() => void loadWorkspace(), 5000);
     return () => window.clearInterval(timer);
-  }, [online]);
+  }, [apiBase, online]);
 
   useEffect(() => {
     if (appDetail) return;

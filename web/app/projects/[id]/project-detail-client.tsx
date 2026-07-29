@@ -16,9 +16,7 @@ import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { HeaderActions } from "@/components/header-actions";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { useServiceStore } from "@/lib/service-store";
-import { getServiceEndpoint } from "@/lib/service-endpoint";
 
-const apiBase = getServiceEndpoint();
 type Project = { id: string; name: string; appId: string; appVersion: string; createdAt: string };
 type App = { manifest: { id: string; name: string; version: string; ui: { projectView?: string } } };
 
@@ -40,6 +38,7 @@ export default function ProjectDetailClient() {
   const [project, setProject] = useState<Project | null>(null);
   const [app, setApp] = useState<App | null>(null);
   const [installation, setInstallation] = useState<ManagedApp | null>(null);
+  const apiBase = useServiceStore((state) => state.endpoint);
   const online = useServiceStore((state) => state.service.phase === "online");
   const appFrame = useRef<HTMLIFrameElement>(null);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.project-agent-panel-width" });
@@ -57,7 +56,7 @@ export default function ProjectDetailClient() {
       const installationResponse = await fetch(`${apiBase}/v1/apps/installed`);
       if (installationResponse.ok) setInstallation((await installationResponse.json()).find((item: ManagedApp) => item.manifest.id === nextProject.appId) ?? null);
     })();
-  }, [id, online]);
+  }, [apiBase, id, online]);
 
   useEffect(() => {
     if (!project) return;
@@ -71,7 +70,7 @@ export default function ProjectDetailClient() {
       appFrame.current?.contentWindow?.postMessage({ type: "recut.project.event", event: payload.event }, apiBase);
     });
     return () => events.close();
-  }, [project]);
+  }, [apiBase, project]);
 
   const connectUI = () => {
     if (!appFrame.current || !project) return;

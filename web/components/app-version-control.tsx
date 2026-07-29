@@ -12,12 +12,12 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { getServiceEndpoint } from "@/lib/service-endpoint";
+import { useServiceStore } from "@/lib/service-store";
 
-const apiBase = getServiceEndpoint();
 export type ManagedApp = { package: string; manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone" }; builtIn: boolean; dirty: boolean; updateAvailable: boolean; manageable: boolean; status?: string };
 
 export function AppVersionControl({ app, onUpdated }: { app: ManagedApp; onUpdated?: () => void }) {
+  const apiBase = useServiceStore((state) => state.endpoint);
   const [confirm, setConfirm] = useState(false); const [working, setWorking] = useState(false); const [message, setMessage] = useState("");
   if (app.builtIn) return <span className="inline-flex items-center gap-1"><Badge className="border-primary/25 bg-accent text-accent-foreground">SYSTEM APP</Badge><Badge>v{app.manifest.version}</Badge></span>;
   async function update() {
