@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { ArrowUp, AtSign, Bot, Check, ChevronDown, ChevronRight, CircleStop, Copy, History, ImagePlus, MessageSquarePlus, RefreshCw, SlidersHorizontal, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { ArrowUp, AtSign, Bot, Check, ChevronDown, ChevronRight, CircleAlert, CircleStop, Copy, History, ImagePlus, MessageSquarePlus, RefreshCw, SlidersHorizontal, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { FormEvent, type ClipboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { AgentMessageContent } from "@/components/agent-message-content";
@@ -20,7 +20,7 @@ type CodexConfiguration = { codexModel: string; reasoningEffort: string };
 const defaultCodexConfiguration: CodexConfiguration = { codexModel: "gpt-5.6-terra", reasoningEffort: "xhigh" };
 type Attachment = AssetReference;
 type UploadedAsset = { id: string; name: string; mimeType: string; kind: Attachment["kind"]; origin: string; status: string };
-type Turn = { id: string; role: "user" | "assistant"; content: string; status: string; createdAt: string; attachments?: Attachment[] };
+type Turn = { id: string; role: "user" | "assistant"; content: string; status: string; createdAt: string; completedAt?: string; attachments?: Attachment[] };
 type ToolPayload = { label?: string; message?: string; phase?: string; toolCallId?: string; tool?: string; toolName?: string; detail?: string; input?: string; output?: string; error?: string; cost?: string };
 type AgentEvent = { id: number; turnId?: string; type: string; createdAt: string; payload?: ToolPayload };
 type Detail = Session & { turns: Turn[]; events: AgentEvent[]; lastEventId: number };
@@ -39,7 +39,17 @@ function ProjectAgentPanelContent({ apiBase, online, projectID }: Props) {
   async function loadSessions() { const scope = projectID ? `projectId=${encodeURIComponent(projectID)}` : "scope=general"; const response = await fetch(`${apiBase}/v1/agent-sessions?${scope}`); if (!response.ok) return; const next: Session[] = await response.json(); setSessions(next); const selected = activeID && next.some((session) => session.id === activeID) ? activeID : next[0]?.id ?? null; if (selected) { await open(selected); return; } streamRef.current?.close(); setActiveID(null); setDetail(null); }
   async function loadRuntimeStatus() { const response = await fetch(`${apiBase}/v1/agents`); if (!response.ok) return null; const next = await response.json() as AgentRuntimeStatus[]; setRuntimeStatus(next); return next; }
   async function open(id: string) { streamRef.current?.close(); setActiveID(id); setSyncingID(id); try { const response = await fetch(`${apiBase}/v1/agent-sessions/${id}`); if (!response.ok) throw new Error(await responseMessage(response, "无法读取对话")); const next: Detail = await response.json(); setDetail(next); subscribe(id, next.lastEventId); } catch (cause) { setDetail(null); setError(`无法加载对话：${messageOf(cause, "请重试")}`); } finally { setSyncingID((current) => current === id ? null : current); } }
-  function subscribe(id: string, after: number) { const stream = new EventSource(`${apiBase}/v1/agent-sessions/${id}/events?after=${after}`); stream.addEventListener("agent", (event) => { const incoming = JSON.parse((event as MessageEvent<string>).data) as AgentEvent; setDetail((current) => current ? { ...current, status: incoming.type === "turn.started" ? "running" : current.status, events: [...current.events, incoming], lastEventId: incoming.id } : current); if (incoming.type === "turn.cancelled") setStopNotice("已停止当前回复"); if (incoming.type === "turn.started") setStopNotice(""); if (["assistant.completed", "turn.completed", "turn.failed", "turn.cancelled", "session.updated"].includes(incoming.type)) void refresh(id); }); streamRef.current = stream; }
+  function subscribe(id: string, after: number) {
+    const stream = new EventSource(`${apiBase}/v1/agent-sessions/${id}/events?after=${after}`);
+    stream.addEventListener("agent", (event) => {
+      const incoming = JSON.parse((event as MessageEvent<string>).data) as AgentEvent;
+      setDetail((current) => current ? applyAgentEvent(current, incoming) : current);
+      if (incoming.type === "turn.cancelled") setStopNotice("已停止当前回复");
+      if (incoming.type === "turn.started") setStopNotice("");
+      if (["assistant.completed", "turn.completed", "turn.failed", "turn.cancelled", "session.updated"].includes(incoming.type)) void refresh(id);
+    });
+    streamRef.current = stream;
+  }
   async function refresh(id: string) { const response = await fetch(`${apiBase}/v1/agent-sessions/${id}`); if (!response.ok) return; const next: Detail = await response.json(); setDetail(next); setSessions((current) => [next, ...current.filter((session) => session.id !== id)]); }
   async function create(runtime: "codex" | "claude", configuration?: CodexConfiguration) { if (creatingRuntime) return null; if (runtimeStatus?.find((agent) => agent.id === runtime)?.available === false) { setError(`${runtime === "codex" ? "Codex" : "Claude Code"} CLI 未就绪，请先完成面板中的安装指引。`); return null; } setCreatingRuntime(runtime); setError(""); try { const response = await fetch(`${apiBase}/v1/agent-sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(projectID ? { projectId: projectID } : {}), runtime, ...configuration }) }); if (!response.ok) throw new Error(await responseMessage(response, "无法创建对话")); const session: Session = await response.json(); setSessions((current) => [session, ...current]); setRuntimeOpen(false); await open(session.id); return session; } catch (cause) { setError(`无法创建对话：${messageOf(cause, "请稍后重试")}`); return null; } finally { setCreatingRuntime(null); } }
   async function addAsset(asset: UploadedAsset) { if (!projectID) throw new Error("请先选择一个项目"); const attached = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/attach`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: projectID }) }); if (!attached.ok) throw new Error("资源无法加入当前项目"); setAttachments((current) => current.some((item) => item.assetId === asset.id) ? current : [...current, { assetId: asset.id, name: asset.name, mimeType: asset.mimeType, kind: asset.kind, origin: asset.origin, status: asset.status }]); }
@@ -73,12 +83,26 @@ function Conversation({ apiBase, detail, now }: { apiBase: string; detail: Detai
   const timeline: TimelineItem[] = [...turnItems, ...toolCalls(detail.events).map((call) => ({ id: call.id, at: call.createdAt, kind: "tool", call }) as TimelineItem)].sort((left, right) => new Date(left.at).getTime() - new Date(right.at).getTime());
   const groups = responseGroups(timeline);
   const isProcessing = detail.status === "running" || detail.status === "stopping";
-  return <div className="space-y-5">{groups.map((group) => { const failure = group.user ? turnFailure(detail.events, group.user.id) : ""; return <section key={group.id}>{group.user && <div className="ml-auto w-fit max-w-[85%]">{(group.user.attachments ?? []).length > 0 && <div className="mb-1 flex flex-wrap justify-end gap-1">{(group.user.attachments ?? []).map((attachment) => <AssetReferenceChip apiBase={apiBase} key={attachment.assetId} reference={attachment} />)}</div>}{group.user.content && <p className="rounded-sm bg-secondary px-3 py-2 text-left text-xs leading-5 break-words whitespace-pre-wrap">{group.user.content}</p>}{group.user.status === "queued" && <p className="mt-1 text-right text-[10px] text-muted-foreground">待发送</p>}</div>}<div className={group.user ? "mt-5 space-y-5" : "space-y-5"}>{group.items.map((item) => item.kind === "assistant" ? <AgentMessageContent apiBase={apiBase} content={item.turn.content} key={item.id} /> : <ToolTimelineItem call={item.call} key={item.id} now={now} />)}</div>{failure && <TurnFailure message={failure} />}{!isProcessing && group.items.some((item) => item.kind === "assistant") && <div className="mt-2 flex items-center gap-1 text-muted-foreground"><ActionIcon label="复制回复"><Copy /></ActionIcon><ActionIcon label="有帮助"><ThumbsUp /></ActionIcon><ActionIcon label="没帮助"><ThumbsDown /></ActionIcon></div>}</section>; })}{detail.status === "running" && <RunningStatus events={detail.events} now={now} />}{detail.status === "stopping" && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="size-1.5 animate-pulse rounded-full bg-warning" />正在停止当前回复…</p>}</div>;
+  return <div className="space-y-5">{groups.map((group) => {
+    const failure = group.user ? turnFailure(detail.events, group.user.id) : "";
+    const reply = lastAssistantTurn(group.items);
+    const meta = group.user && reply ? replyMeta(group.user, reply) : null;
+    return <section key={group.id}>
+      {group.user && <div className="group ml-auto w-fit max-w-[85%]">
+        {(group.user.attachments ?? []).length > 0 && <div className="mb-1 flex flex-wrap justify-end gap-1">{(group.user.attachments ?? []).map((attachment) => <AssetReferenceChip apiBase={apiBase} key={attachment.assetId} reference={attachment} />)}</div>}
+        {group.user.content && <p className="rounded-sm bg-secondary px-3 py-2 text-left text-xs leading-5 break-words whitespace-pre-wrap">{group.user.content}</p>}
+        {group.user.status === "queued" ? <p className="mt-1 text-right text-[10px] text-muted-foreground">待发送</p> : <p className="mt-1 h-3 text-right text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{formatMessageTime(group.user.createdAt)}</p>}
+      </div>}
+      <div className={group.user ? "mt-5 space-y-5" : "space-y-5"}>{group.items.map((item) => item.kind === "assistant" ? <AgentMessageContent apiBase={apiBase} content={item.turn.content} key={item.id} /> : <ToolTimelineItem call={item.call} key={item.id} now={now} />)}</div>
+      {failure && <TurnFailure message={failure} />}
+      {!isProcessing && reply && <div className="mt-2 flex items-center gap-1 text-muted-foreground"><ActionIcon label="复制回复"><Copy /></ActionIcon><ActionIcon label="有帮助"><ThumbsUp /></ActionIcon><ActionIcon label="没帮助"><ThumbsDown /></ActionIcon>{meta && <span className="ml-1 text-[10px] text-muted-foreground/75" title={meta.title}>{meta.label}</span>}</div>}
+    </section>;
+  })}{detail.status === "running" && <RunningStatus events={detail.events} now={now} />}{detail.status === "stopping" && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="size-1.5 animate-pulse rounded-full bg-warning" />正在停止当前回复…</p>}</div>;
 }
 
 function turnFailure(events: AgentEvent[], turnID: string) { return [...events].reverse().find((event) => event.turnId === turnID && event.type === "turn.failed")?.payload?.message?.trim() ?? ""; }
 
-function TurnFailure({ message }: { message: string }) { return <div className="mt-3 border-l-2 border-destructive bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive"><p className="font-medium">本次对话未完成</p><p className="mt-1 break-words whitespace-pre-wrap">{message}</p></div>; }
+function TurnFailure({ message }: { message: string }) { return <div className="mt-4 flex items-center gap-3 rounded-sm border bg-muted/30 px-3 py-2.5 text-xs leading-5 text-muted-foreground"><CircleAlert className="size-4 shrink-0" /><p className="min-w-0 break-words whitespace-pre-wrap">{message}</p></div>; }
 
 function latestFailedTurn(detail: Detail) { const turn = [...detail.turns].reverse().find((item) => item.role === "user"); const message = turn?.status === "failed" ? turnFailure(detail.events, turn.id) : ""; return turn && message ? { id: turn.id, message } : null; }
 
@@ -93,6 +117,27 @@ async function copyToClipboard(value: string) { try { if (navigator.clipboard?.w
 function SetupStep({ children, index, title }: { children: ReactNode; index: string; title: string }) { return <div className="grid grid-cols-[20px_minmax(0,1fr)] gap-3"><span className="grid size-5 place-items-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">{index}</span><div><p className="text-xs font-medium">{title}</p>{children}</div></div>; }
 
 type ResponseGroup = { id: string; user?: Turn; items: Exclude<TimelineItem, { kind: "user" }>[] };
+
+function applyAgentEvent(detail: Detail, event: AgentEvent): Detail {
+  const status = event.type === "turn.started" ? "running" : event.type === "turn.completed" ? "completed" : event.type === "turn.failed" ? "failed" : event.type === "turn.cancelled" ? "cancelled" : undefined;
+  return { ...detail, status: event.type === "turn.started" ? "running" : detail.status, turns: status && event.turnId ? detail.turns.map((turn) => turn.id === event.turnId ? { ...turn, status, completedAt: status === "running" ? undefined : event.createdAt } : turn) : detail.turns, events: [...detail.events, event], lastEventId: event.id };
+}
+
+function lastAssistantTurn(items: ResponseGroup["items"]) {
+  const item = [...items].reverse().find((candidate) => candidate.kind === "assistant");
+  return item?.kind === "assistant" ? item.turn : undefined;
+}
+
+function replyMeta(user: Turn, reply: Turn) {
+  const completedAt = user.completedAt ?? reply.completedAt ?? reply.createdAt;
+  return { label: `${formatMessageTime(completedAt)} · 耗时 ${toolDuration(user.createdAt, completedAt, Date.now())}`, title: `完成于 ${formatMessageTime(completedAt)}，从发送到完成耗时 ${toolDuration(user.createdAt, completedAt, Date.now())}` };
+}
+
+function formatMessageTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "medium", hour12: false }).format(date);
+}
+
 function responseGroups(timeline: TimelineItem[]): ResponseGroup[] {
   const groups: ResponseGroup[] = []; let current: ResponseGroup | null = null;
   for (const item of timeline) { if (item.kind === "user") { current = { id: item.id, user: item.turn, items: [] }; groups.push(current); continue; } if (!current) { current = { id: "initial", items: [] }; groups.push(current); } current.items.push(item); }
