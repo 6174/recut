@@ -27,45 +27,48 @@ func main() {
 	address := flag.String("address", ":17373", "LAN HTTP address")
 	mcpStdio := flag.Bool("mcp-stdio", false, "serve the App Agent Bridge over stdio")
 	flag.Parse()
+	if err := configureServiceLogging(*dataDir); err != nil {
+		log.Fatalf("ERROR configure service logging: %v", err)
+	}
 	if *appsDir == "" {
 		*appsDir = filepath.Join(*dataDir, "apps")
 	}
 
 	if err := os.MkdirAll(*appsDir, 0o755); err != nil {
-		log.Fatal(err)
+		log.Fatalf("ERROR create apps directory: %v", err)
 	}
 	apps, err := LoadCatalog(*appsDir)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("ERROR load app catalog: %v", err)
 	}
 	store := NewStore(*dataDir, apps)
 	if err := store.Ensure(); err != nil {
-		log.Fatal(err)
+		log.Fatalf("ERROR initialize workspace store: %v", err)
 	}
 	if _, err := store.EnsureMediaSystemProject(); err != nil {
-		log.Fatal(err)
+		log.Fatalf("ERROR initialize media system project: %v", err)
 	}
 	if _, err := store.EnsureGeneralChatProject(); err != nil {
-		log.Fatal(err)
+		log.Fatalf("ERROR initialize general chat project: %v", err)
 	}
 	media := NewMediaService(store)
 	bridge := NewAgentBridge(store)
 	host := NewAppHost(apps, store, media)
 	if recovered, err := host.jobs.RecoverInterrupted(); err != nil {
-		log.Fatal(err)
+		log.Fatalf("ERROR recover interrupted shell jobs: %v", err)
 	} else if recovered > 0 {
-		log.Printf("Reconciled %d interrupted shell job(s)", recovered)
+		log.Printf("INFO reconciled interrupted shell jobs count=%d", recovered)
 	}
 	if *mcpStdio {
 		if err := RunMCPStdio(bridge, host, media, os.Stdin, os.Stdout); err != nil {
-			log.Fatal(err)
+			log.Fatalf("ERROR run MCP stdio bridge: %v", err)
 		}
 		return
 	}
 	if recovered, err := media.RecoverInterruptedJobs(); err != nil {
-		log.Fatal(err)
+		log.Fatalf("ERROR recover interrupted media jobs: %v", err)
 	} else if recovered > 0 {
-		log.Printf("Reconciled %d interrupted media job(s)", recovered)
+		log.Printf("INFO reconciled interrupted media jobs count=%d", recovered)
 	}
 	// The daemon, not a short-lived MCP child or browser, owns remote task
 	// recovery. It discovers newly submitted durable jobs and keeps their
@@ -74,16 +77,18 @@ func main() {
 	defer stopMediaReconciler()
 	terminals, err := NewTerminalManager(store)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("ERROR initialize terminal manager: %v", err)
 	}
 	agents := NewAgentManager(store, bridge, media)
 	if recovered, err := agents.RecoverInterruptedTurns(); err != nil {
-		log.Fatal(err)
+		log.Fatalf("ERROR recover interrupted agent turns: %v", err)
 	} else if recovered > 0 {
-		log.Printf("Reconciled %d interrupted agent turn(s)", recovered)
+		log.Printf("INFO reconciled interrupted agent turns count=%d", recovered)
 	}
-	log.Printf("Recut local workspace and API listening on http://%s", *address)
-	log.Fatal(NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater()).ListenAndServe(*address))
+	log.Printf("INFO Recut local workspace and API listening on http://%s", *address)
+	if err := NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater()).ListenAndServe(*address); err != nil {
+		log.Fatalf("ERROR serve HTTP API: %v", err)
+	}
 }
 
 func ServiceVersion() string { return serviceVersion }

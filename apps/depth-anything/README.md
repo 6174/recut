@@ -4,7 +4,7 @@ Depth Anything 是 Recut 的独立应用：选择一张素材库图片或视频�
 
 ## 使用流程
 
-1. 在 **Apps** 打开“Depth Anything”。首次进入会检查 Python、FFmpeg、运行环境和模型，并由平台异步创建 manifest 声明的 venv、安装锁定依赖与执行 App bootstrap。
+1. 在 **Apps** 中从 [recut-depth-anything-v2](https://github.com/6174/recut-depth-anything-v2) 安装并打开“Depth Anything”。首次进入会检查 Python、FFmpeg、运行环境和模型，并由平台异步创建 manifest 声明的 venv、安装锁定依赖与执行 App bootstrap。
 2. 运行环境就绪后，从下拉框选择 Small、Base 或 Large；按需下载多个模型。模型权重统一保存到 `~/.recut/models/depth-anything-v2/`，venv 由平台保存到 `~/.recut/python/envs/recut.depth-anything/depth-anything-v2/<fingerprint>/`。
 3. 选择图片或视频素材，再选择伪彩或灰度输出。
 4. 生成后先查看私有预览；满意时点击“保存到素材库”。

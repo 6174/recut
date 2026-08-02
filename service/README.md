@@ -3,7 +3,9 @@
 > L2 | 父级: /README.md
 
 成员清单
-main.go: 组合 Daemon、AppHost、MCP Host、内嵌工作台与默认监听全部网卡的 LAN HTTP 服务；启动时创建隐藏 media scope、先将重启遗留的 Agent 运行态收敛为可解释终态，再恢复媒体任务；将平台 MediaService 注入 AppHost，供已获授权的 App 发起本地两轨导出；仅常驻 Daemon 在启动恢复后以 SQLite lease 定期提交/回收媒体任务，短生命周期 MCP 只持久化 queued 任务。
+main.go: 组合 Daemon、AppHost、MCP Host、内嵌工作台与默认监听全部网卡的 LAN HTTP 服务；启动时创建隐藏 media scope、先将重启遗留的 Agent 运行态收敛为可解释终态，再恢复媒体任务；初始化 UTC 微秒服务日志并将其落盘到 `<data-dir>/logs/`；将平台 MediaService 注入 AppHost，供已获授权的 App 发起本地两轨导出；仅常驻 Daemon 在启动恢复后以 SQLite lease 定期提交/回收媒体任务，短生命周期 MCP 只持久化 queued 任务。
+logging.go: service 可观测性边界；将标准库日志以 UTC 微秒时间戳同时输出到 stderr 与 `<data-dir>/logs/service-YYYY-MM-DD.log`，并按 HTTP 最终状态码记录 INFO/WARN/ERROR 请求审计，保留 SSE、WebSocket 等 ResponseWriter 能力。
+logging_test.go: 锁定请求审计的状态码分级与耗时字段，不创建真实日志文件。
 catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json，强制每个 App 声明作者和简短描述，跟随开发 App 的符号链接；素材库只以无磁盘包的隐藏 scope 供平台 Agent/MCP 使用，旧失效链接不会阻止 daemon 启动。
 onboarding.go: 新对话引导真相源；合并当前 App manifest、用户级全局设置，并仅在两者都为空时返回平台内置兜底，严格只使用显式 prompt。
 app_install.go: App 分发边界；仅接受 HTTPS GitHub 地址，在临时 clone 通过 manifest 校验后激活，并以 Git status/fast-forward 管理升级；原生素材库不进入 App 分发链。
@@ -12,7 +14,8 @@ updater.go: macOS service 自更新器；下载并校验 Cloudflare 发布 manif
 updater_test.go, server_update_test.go: 锁定自更新归档提取和 HTTP 可用性边界；不下载、替换或重启真实 daemon。
 project.go: 创建平台项目并按 App scope 提供 SQLite、文件与 Artifact 存储；独立型 App 使用稳定但不出现在项目列表中的工作区 scope，原生素材库与首页 general chat 各使用同样隐藏的系统 scope；每个 SQLite 文件在 service 内由共享的有限连接池管理，连接统一启用 WAL、NORMAL 同步与 15 秒 busy timeout，既允许嵌套读取又让并发写入等待而非随机失败；缓存检测调用方关闭后的陈旧句柄并重开。
 runtime.go: 在 Goja sandbox 中执行 App background.js，并注入统一 operation 注册器；同一 handler 可按 manifest surface 暴露给 UI API 与 MCP；获授权的 App 可将已完成 Asset materialize 到私有文件、在用户确认后 import 私有输出，并使用通用 `ctx.shell` Job 或 manifest 声明的 `ctx.python` venv，模型根固定注入为 `~/.recut/models`。
-shell_jobs.go: 可恢复的非交互本地进程任务；持久化 queued/running/terminal 状态和顺序 stdout/stderr JSONL 日志，投递项目事件，支持取消，并在 daemon 重启时将未完成任务收敛为 interrupted。
+shell_jobs.go: 可恢复的非交互本地进程任务；持久化 queued/running/terminal 状态和顺序 stdout/stderr JSONL 日志，投递项目事件，并在 service 日志记录不含命令参数的排队/终态审计，支持取消，并在 daemon 重启时将未完成任务收敛为 interrupted。
+terminal.go: 通用 PTY 会话管理器；持久化 transcript 与摘要、支持输入/尺寸/订阅和终止，并在 service 日志记录不含参数的会话启动与退出。
 python_runtime.go: manifest 驱动的 Python 环境生命周期；以 App id、逻辑 venv 名和 requirements 指纹派生 `~/.recut/python/envs/` 路径，平台创建 venv/安装依赖，App bootstrap 仅作为自由兜底。
 mcp.go: 将带 App workflow context、默认媒体契约和凭据可用音色的 recut.project_context、同步 recut.image.generate、受限的 Codex 原生图归档 recut.media.import_image、异步 recut.video.generate_async/recut.speech.generate_async、recut.media.list_voices 与当前 App 的 manifest operations 路由给 JavaScript handler；原生图只接受当前项目内相对路径，并验证真实路径、类型和大小后关联为 Asset。
 mcp_test.go: 锁定按图片、视频和语音拆分的 MCP 工具、原生图片归档输入 schema，以及项目边界不可逃逸。
@@ -24,7 +27,8 @@ ui/: 内嵌本地工作台的生成资源边界；`assets/` 仅由 Makefile 暂�
 bridge.go: 管理 Agent session 与本地 CLI 连接，为普通 App 项目挂载 `.recut/app`，再用内嵌 prompts/ 核心模板和当前 App 的 AGENTS.md 渲染 Codex 项目 guide；原生素材库只使用平台模板，不读取任意工作目录的 AGENTS.md。
 bridge_prompt_test.go: 锁定渲染后的 Vox Agent guide 必须使用 Recut 视频生成 API、包含中文 Vox 提示词/导演语言，且禁止把场景生成委托给 HyperFrames 或本地渲染。
 prompts/: Go 后端私有的嵌入式平台 Agent 模板；不会作为 App 包内容或运行时外部依赖暴露。
-agent.go: 保存本机用户的一对一 Agent 会话、消息、项目媒体引用、Codex 模型/推理强度与事件；同一会话把生成期间的新消息持久化为 FIFO 待发送队列，消息、附件和会话运行态以单一短事务原子提交，停止操作先即时持久化 cancelled/idle 终态再终止运行时；服务重启时取消无法跨进程恢复的 active Turn、把会话收敛为空闲并恢复安全的 queued Turn，附件以 assetId、类型、来源和只读路径同时交给 Agent，Codex 仅对图片注入原生图片参数，所有媒体均以稳定引用和路径进入上下文，并将 JSONL 规范化为分离的工具输入、输出/错误与成本信息，供 UI 时间线完整查看；general chat 复用隐藏系统 scope，绝不混入用户项目会话。
+agent.go: 保存本机用户的一对一 Agent 会话、消息、项目媒体引用、Codex 模型/推理强度与事件；同一会话把生成期间的新消息持久化为 FIFO 待发送队列，消息、附件和会话运行态以单一短事务原子提交，停止操作先即时持久化 cancelled/idle 终态再终止运行时；服务日志审计会话和 Turn 的排队、开始、完成、取消及失败，但绝不写入用户消息或 CLI 输出；服务重启时取消无法跨进程恢复的 active Turn、把会话收敛为空闲并恢复安全的 queued Turn，附件以 assetId、类型、来源和只读路径同时交给 Agent，Codex 仅对图片注入原生图片参数，所有媒体均以稳定引用和路径进入上下文，并将 JSONL 规范化为分离的工具输入、输出/错误与成本信息，供 UI 时间线完整查看；general chat 复用隐藏系统 scope，绝不混入用户项目会话。
+agent_cli.go: Agent CLI 可执行文件解析器；先使用常规 PATH，再通过当前用户的 login shell 动态执行 `command -v` 并验证绝对可执行路径，消除 launchd/systemd 常驻环境与交互 shell 的 PATH 差异，不编码 NVM 等版本管理器的目录结构；每次检查和启动重新解析，因此安装后刷新即可生效。
 agent_server.go: 提供项目或 general scope Agent Session 的创建、Codex 会话模型/推理强度更新、带项目媒体资产引用的待发送消息入队、停止、查询与 SSE 事件 API，以及全局与按项目解析的新对话引导 API；`scope=general` 只列出隐藏 general scope 的会话，省略创建请求的 projectId 会在服务端绑定该 scope；仅对当前进程真实运行的回复接受停止，并准确区分会话不存在与存储暂时读取失败。
 agent_server_test.go: 锁定全局 onboarding 的保存与 App/全局按项目解析 HTTP 契约，不启动真实 Agent CLI。
 media_adapter.go: 根服务与 media 子包的窄 Store 适配器和兼容类型别名；不承载任何媒体业务。

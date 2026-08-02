@@ -28,6 +28,28 @@ export const appCatalog: CatalogApp[] = [
       type: "project",
     },
   },
+  {
+    manifest: {
+      id: "recut.depth-anything",
+      name: "Depth Anything",
+      author: "Recut",
+      description: "在本机将图片或视频转换为可预览的深度图，再按需保存到素材库。",
+      repository: "https://github.com/6174/recut-depth-anything-v2",
+      version: "0.2.0",
+      type: "standalone",
+    },
+  },
+  {
+    manifest: {
+      id: "recut.cover-studio",
+      name: "封面生成",
+      author: "Recut",
+      description: "用渠道尺寸、参考封面和创作要求生成并沉淀封面素材。",
+      repository: "https://github.com/6174/recut-cover-studio",
+      version: "0.2.0",
+      type: "standalone",
+    },
+  },
 ];
 
 export const marketplaceApps = appCatalog;

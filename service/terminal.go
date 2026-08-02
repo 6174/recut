@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的项目会话目录、creack/pty 的伪终端和标准库进程管理能力
- * [OUTPUT]: 对外提供 TerminalManager 及会话的启动、输入、尺寸、输出订阅、最新消息摘要、持久化和终止能力
+ * [OUTPUT]: 对外提供 TerminalManager 及会话的启动、输入、尺寸、输出订阅、最新消息摘要、持久化、无参数启动/退出审计和终止能力
  * [POS]: service 的通用终端包装层；不理解 Codex、Claude 或任何具体 CLI 语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -9,6 +9,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,6 +111,7 @@ func (m *TerminalManager) Start(input TerminalStart) (TerminalSession, error) {
 	if input.InitialInput != "" {
 		_, _ = file.WriteString(input.InitialInput)
 	}
+	log.Printf("INFO terminal started terminal_id=%s project_id=%s command=%s", current.ID, current.ProjectID, current.Command)
 	go m.read(current, command)
 	return current.TerminalSession, nil
 }
@@ -202,6 +204,7 @@ func (m *TerminalManager) read(current *terminal, command *exec.Cmd) {
 	current.ExitedAt = &now
 	m.mu.Unlock()
 	_ = m.persist(current)
+	log.Printf("INFO terminal exited terminal_id=%s project_id=%s command=%s", current.ID, current.ProjectID, current.Command)
 	m.recordOutput(current, "\r\n[terminal exited]\r\n")
 }
 

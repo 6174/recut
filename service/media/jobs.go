@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖配置、资产与 Provider 适配器
- * [OUTPUT]: 生成任务创建、同步执行、结果持久化与通用 Provider 调度；拒绝将 Codex 原生图片路由误送入 Provider
+ * [OUTPUT]: 生成任务创建、同步执行、结果持久化、无 prompt/凭据的状态审计与通用 Provider 调度；拒绝将 Codex 原生图片路由误送入 Provider
  * [POS]: media 的任务编排层；scheduler 位于 jobs_scheduler，由其接管持久化异步任务，Codex 图片由 Agent 自行执行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -168,6 +169,7 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 	if err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
 	}
+	log.Printf("INFO media job queued job_id=%s project_id=%s capability=%s model_id=%s", job.ID, job.ProjectID, job.Capability, job.ModelID)
 	return job, credential, true, nil
 }
 
@@ -536,11 +538,22 @@ func (m *MediaService) setJobStatus(id, status string, assetIDs []string, messag
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if assetIDs == nil {
-		_, _ = db.Exec("update media_jobs set status = ?, error = ?, updated_at = ? where id = ?", status, message, now, id)
+		if _, err := db.Exec("update media_jobs set status = ?, error = ?, updated_at = ? where id = ?", status, message, now, id); err != nil {
+			log.Printf("ERROR media job status update failed job_id=%s status=%s", id, status)
+			return
+		}
+	} else {
+		assets, _ := json.Marshal(assetIDs)
+		if _, err := db.Exec("update media_jobs set status = ?, asset_ids_json = ?, error = ?, updated_at = ? where id = ?", status, string(assets), message, now, id); err != nil {
+			log.Printf("ERROR media job status update failed job_id=%s status=%s", id, status)
+			return
+		}
+	}
+	if status == "failed" {
+		log.Printf("ERROR media job failed job_id=%s", id)
 		return
 	}
-	assets, _ := json.Marshal(assetIDs)
-	_, _ = db.Exec("update media_jobs set status = ?, asset_ids_json = ?, error = ?, updated_at = ? where id = ?", status, string(assets), message, now, id)
+	log.Printf("INFO media job status changed job_id=%s status=%s", id, status)
 }
 
 func (m *MediaService) jobByKey(db *sql.DB, key string) (MediaJob, error) {

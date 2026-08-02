@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权与 Codex JSONL CLI
- * [OUTPUT]: 对外提供 AgentManager、含项目媒体引用和 Codex 模型/推理配置的持久化 Turn、按序待发送队列、服务重启后的中断 Turn 收敛、保留工具输入/输出/失败态及时间戳的规范化事件与 Codex adapter
+ * [OUTPUT]: 对外提供 AgentManager、含项目媒体引用和 Codex 模型/推理配置的持久化 Turn、按序待发送队列、服务重启后的中断 Turn 收敛、不含用户内容的生命周期审计、保留工具输入/输出/失败态及时间戳的规范化事件与 Codex adapter
  * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -213,7 +214,11 @@ func (m *AgentManager) Create(projectID, runtime, codexModel, reasoningEffort st
 		return ChatSession{}, err
 	}
 	_, err = db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, codex_model, reasoning_effort, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.ProjectID, session.Runtime, session.NativeSessionID, session.CodexModel, session.ReasoningEffort, session.Title, session.Status, iso(now), iso(now))
-	return session, err
+	if err != nil {
+		return session, err
+	}
+	log.Printf("INFO agent session created session_id=%s project_id=%s runtime=%s", session.ID, session.ProjectID, session.Runtime)
+	return session, nil
 }
 
 func (m *AgentManager) List(projectID string) ([]ChatSession, error) {
@@ -345,6 +350,7 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (Cha
 		return ChatTurn{}, err
 	}
 	m.emit(sessionID, turnID, "turn.queued", map[string]any{"label": "已加入待发送消息"})
+	log.Printf("INFO agent turn queued session_id=%s turn_id=%s attachments=%d", sessionID, turn.ID, len(attachments))
 	m.startRunner(sessionID)
 	return turn, nil
 }
@@ -392,6 +398,7 @@ func (m *AgentManager) Stop(sessionID string) error {
 	if turnID != "" {
 		m.emit(sessionID, turnID, "turn.cancelled", map[string]any{"label": "已停止"})
 	}
+	log.Printf("INFO agent turn stop requested session_id=%s turn_id=%s", sessionID, turnID)
 	m.emit(sessionID, "", "session.updated", map[string]any{"label": "会话已停止"})
 	cancel()
 	return nil
@@ -446,6 +453,7 @@ func (m *AgentManager) run(ctx context.Context, sessionID string) {
 			return
 		}
 		m.emit(sessionID, turn.ID, "turn.started", map[string]any{"label": "正在思考"})
+		log.Printf("INFO agent turn started session_id=%s turn_id=%s runtime=%s", sessionID, turn.ID, session.Runtime)
 		if err := m.runRuntime(ctx, session, turn); err != nil {
 			if ctx.Err() != nil {
 				if m.completeTurnIfRunning(turn.ID, "cancelled") {
@@ -453,14 +461,17 @@ func (m *AgentManager) run(ctx context.Context, sessionID string) {
 				}
 				m.finishAndRestart(sessionID)
 				m.emit(sessionID, "", "session.updated", map[string]any{"label": "会话状态已更新"})
+				log.Printf("WARN agent turn cancelled session_id=%s turn_id=%s", sessionID, turn.ID)
 				return
 			}
 			m.completeTurn(turn.ID, "failed")
 			m.emit(sessionID, turn.ID, "turn.failed", map[string]any{"message": err.Error()})
+			log.Printf("ERROR agent turn failed session_id=%s turn_id=%s runtime=%s", sessionID, turn.ID, session.Runtime)
 			continue
 		}
 		m.completeTurn(turn.ID, "completed")
 		m.emit(sessionID, turn.ID, "turn.completed", map[string]any{})
+		log.Printf("INFO agent turn completed session_id=%s turn_id=%s", sessionID, turn.ID)
 	}
 }
 
@@ -566,9 +577,9 @@ func (m *AgentManager) runRuntime(ctx context.Context, session ChatSession, user
 }
 
 func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
-	command, err := exec.LookPath("codex")
+	command, err := findAgentCommand("codex")
 	if err != nil {
-		return errors.New("Codex CLI is not installed")
+		return agentCLIUnavailableError("Codex", "codex")
 	}
 	model, effort, err := normalizeCodexConfiguration(session.CodexModel, session.ReasoningEffort)
 	if err != nil {
@@ -651,9 +662,9 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 // immutable once created, exactly like Codex's thread id, so the generic
 // ChatSession may safely persist it as native_session_id.
 func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
-	command, err := exec.LookPath("claude")
+	command, err := findAgentCommand("claude")
 	if err != nil {
-		return errors.New("Claude Code CLI is not installed")
+		return agentCLIUnavailableError("Claude Code", "claude")
 	}
 	bridgeSession, token, err := m.bridge.CreateSession(session.ProjectID)
 	if err != nil {
@@ -716,6 +727,13 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 		return err
 	}
 	return nil
+}
+
+// agentCLIUnavailableError keeps process-environment failures actionable at
+// the durable event boundary, where both the UI and a later session reload
+// receive the same explanation.
+func agentCLIUnavailableError(name, command string) error {
+	return fmt.Errorf("%s CLI is unavailable. Install and sign in to it on the device running Recut service, confirm that the service user can run %q, then restart Recut service", name, command)
 }
 
 type attachmentContext struct {

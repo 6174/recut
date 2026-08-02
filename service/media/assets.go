@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Workspace 数据库与受控媒体根
- * [OUTPUT]: Asset 导入、查询、去重或按交付强制新建、受控落盘、项目关联、异步生成时间/输出/诊断 metadata 及 durable 更新事件
+ * [OUTPUT]: Asset 导入、查询、去重或按交付强制新建、受控落盘、项目关联、异步生成时间/输出/诊断 metadata、终态审计及 durable 更新事件
  * [POS]: media 的资产真相源；Provider 与本地两轨导出均不直接访问存储，终态与 SSE 事件在此原位回写
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -363,6 +364,7 @@ func (m *MediaService) completePendingAsset(jobID, assetID string, content []byt
 		return MediaAsset{}, err
 	}
 	asset.MimeType, asset.SizeBytes, asset.ContentHash, asset.Status, asset.Error, asset.Metadata, asset.UpdatedAt = mimeType, int64(len(content)), contentHash, "completed", "", metadata, now
+	log.Printf("INFO media job completed job_id=%s asset_id=%s", jobID, assetID)
 	return asset, nil
 }
 
@@ -407,7 +409,10 @@ func (m *MediaService) failRemoteAsset(jobID, assetID, message string) {
 		_ = tx.Rollback()
 		return
 	}
-	_ = tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return
+	}
+	log.Printf("ERROR media job failed job_id=%s asset_id=%s", jobID, assetID)
 }
 
 // completedGenerationMetadata keeps the clock anchored to durable Asset

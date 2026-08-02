@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -251,5 +252,24 @@ func TestCodexToolPayloadSeparatesInputOutputErrorAndCost(t *testing.T) {
 	failed := codexToolPayload(map[string]any{"id": "tool-2", "tool": "recut.image.generate", "arguments": map[string]any{"text": "make a cover"}, "error": "provider timed out"}, "mcp_tool_call", "error")
 	if strings.Contains(failed["error"].(string), "arguments") || !strings.Contains(failed["error"].(string), "provider timed out") {
 		t.Fatalf("tool payload did not preserve the actual error: %s", failed["error"])
+	}
+}
+
+func TestAgentCLIUnavailableErrorIsActionable(t *testing.T) {
+	message := agentCLIUnavailableError("Codex", "codex").Error()
+	for _, expected := range []string{"Codex CLI is unavailable", "device running Recut service", `"codex"`, "restart Recut service"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("CLI guidance missing %q: %s", expected, message)
+		}
+	}
+}
+
+func TestAgentCommandPathFromOutputUsesVerifiedShellResult(t *testing.T) {
+	command := t.TempDir() + "/codex"
+	if err := os.WriteFile(command, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if resolved := agentCommandPathFromOutput("codex", "shell init\n"+command+"\n"); resolved != command {
+		t.Fatalf("resolved command = %q, want %q", resolved, command)
 	}
 }

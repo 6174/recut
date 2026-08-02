@@ -10,7 +10,7 @@
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
 APP ?=
-RECUT_VERSION ?= 0.1.4
+RECUT_VERSION ?= 0.1.5
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -67,7 +67,7 @@ stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never an
 		if kill -0 "$$pid" 2>/dev/null; then echo "Force-stopping stale Recut web workspace (PID $$pid)."; kill -9 "$$pid"; fi; \
 	done
 
-service-dev: web-build-embedded stop-stale-service ## Start only the LAN Go service and embedded workspace on port 17373.
+service-dev: stop-stale-service ## Start only the LAN Go service for the port 3000 development workspace.
 	GOCACHE=$(GOCACHE) go -C service run -ldflags "-X main.serviceVersion=dev" .
 
 service-build: web-build-embedded ## Build a production service with its local workspace (TARGET=linux-amd64, windows-amd64, or host default).

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的 App 文件根、项目事件日志与标准库非交互进程能力
- * [OUTPUT]: 对外提供 ShellJobManager、持久 Job 状态、顺序 stdout/stderr 日志、取消及服务重启收敛
+ * [OUTPUT]: 对外提供 ShellJobManager、持久 Job 状态、顺序 stdout/stderr 日志、不含命令参数的生命周期审计、取消及服务重启收敛
  * [POS]: service 的本地任务执行边界；为 App shell 和 Python runtime 复用，不使用 PTY 或业务专属协议
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -130,6 +131,7 @@ func (m *ShellJobManager) Start(input ShellJobStart) (ShellJob, error) {
 	if err := m.persist(job); err != nil {
 		return ShellJob{}, err
 	}
+	log.Printf("INFO shell job queued job_id=%s project_id=%s app_id=%s", job.ID, job.ProjectID, job.AppID)
 	go m.run(job, input)
 	return job, nil
 }
@@ -183,6 +185,14 @@ func (m *ShellJobManager) run(job ShellJob, input ShellJobStart) {
 	}
 	_ = m.persist(job)
 	m.store.AppendEvent(job.ProjectID, map[string]any{"type": "shell.job.completed", "appId": job.AppID, "job": job})
+	switch job.Status {
+	case ShellJobCompleted:
+		log.Printf("INFO shell job completed job_id=%s exit_code=%d", job.ID, job.ExitCode)
+	case ShellJobCancelled:
+		log.Printf("WARN shell job cancelled job_id=%s", job.ID)
+	default:
+		log.Printf("ERROR shell job failed job_id=%s exit_code=%d", job.ID, job.ExitCode)
+	}
 }
 
 func (m *ShellJobManager) capture(job ShellJob, stream string, reader io.Reader) {

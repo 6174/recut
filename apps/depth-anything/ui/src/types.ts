@@ -7,7 +7,7 @@
 export type Model = "small" | "base" | "large";
 export type SourceKind = "image" | "video";
 export type OutputStyle = "color" | "grayscale";
-export type RuntimeStatus = { ready: boolean; installedModels: Model[]; modelsRoot: string; error?: string };
+export type RuntimeStatus = { ready: boolean; pending?: boolean; installedModels: Model[]; modelsRoot: string; error?: string };
 export type MediaAsset = { id: string; name: string; kind: SourceKind; mimeType: string; status: string };
 export type DepthOutput = { id: string; assetId: string; kind: SourceKind; model: Model; style: OutputStyle; previewURL: string; savedAssetId: string; createdAt: string };
 export type ShellJob = { id: string; status: "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted"; error?: string };

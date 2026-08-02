@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖持久化 MediaJob/MediaAsset、SQLite lease、凭据与 Atlas/local 执行器
- * [OUTPUT]: 对外提供常驻任务扫描、跨进程原子认领、重启恢复和单步 Atlas 回收
+ * [OUTPUT]: 对外提供常驻任务扫描、跨进程原子认领、重启恢复、失败终态审计和单步 Atlas 回收
  * [POS]: media/jobs 的 durable scheduler；MCP 只提交 queued Asset，Daemon 独占任务推进
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -76,7 +76,7 @@ func (m *MediaService) StartReconciler(interval time.Duration) func() {
 	stop := make(chan struct{})
 	run := func() {
 		if _, err := m.ReconcilePendingJobs(); err != nil {
-			log.Printf("media task reconciliation failed: %v", err)
+			log.Printf("WARN media task reconciliation failed: %v", err)
 		}
 	}
 	done := make(chan struct{})
@@ -585,7 +585,10 @@ func (m *MediaService) failQueuedAsset(jobID, assetID, message string) {
 		return
 	}
 	_, _ = tx.Exec("delete from media_task_leases where job_id = ?", jobID)
-	_ = tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return
+	}
+	log.Printf("ERROR media job failed job_id=%s asset_id=%s", jobID, assetID)
 }
 
 // A provider call with no durable remote ID is an external-transaction gap.

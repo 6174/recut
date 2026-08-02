@@ -32,7 +32,7 @@ function run(ctx, args, timeoutSeconds) {
 
 function status(_, ctx) {
   const environment = ctx.python.status();
-  if (!environment.ready) return { ready: false, installedModels: [], modelsRoot: "~/.recut/models/depth-anything-v2", error: environment.error || "Python environment has not been prepared." };
+  if (!environment.ready) return { ready: false, pending: true, installedModels: [], modelsRoot: "~/.recut/models/depth-anything-v2", error: environment.error || "" };
   return run(ctx, ["status"], 20);
 }
 
