@@ -11,3 +11,4 @@ service/ui/assets/*
 !service/ui/assets/.keep
 .wrangler
 service/ui
+apps/cover-studio/

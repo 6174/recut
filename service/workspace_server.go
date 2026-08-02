@@ -42,6 +42,9 @@ func localWorkspaceAssetPath(requestPath string) string {
 	if localWorkspaceDynamicRoute(cleaned, "/projects/") {
 		return "/projects/app/"
 	}
+	if localWorkspaceDynamicRoute(cleaned, "/workspace-app/") {
+		return "/workspace-app/app/"
+	}
 	if localWorkspaceDynamicRoute(cleaned, "/apps/") {
 		return "/apps/app/"
 	}

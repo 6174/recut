@@ -7,9 +7,11 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestSystemUpdateRequiresConfiguredUpdater(t *testing.T) {
@@ -28,5 +30,27 @@ func TestSystemUpdateRequiresConfiguredUpdater(t *testing.T) {
 	handler.ServeHTTP(restart, httptest.NewRequest(http.MethodPost, "/v1/system/restart", nil))
 	if restart.Code != http.StatusNotImplemented {
 		t.Fatalf("restart without updater = %d", restart.Code)
+	}
+}
+
+func TestHealthReportsServiceStartTime(t *testing.T) {
+	handler := NewServer(nil, nil, nil, nil, nil, nil, nil).routes()
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("health = %d", recorder.Code)
+	}
+	var body struct {
+		Status    string `json:"status"`
+		StartedAt string `json:"startedAt"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "ok" {
+		t.Fatalf("health status = %q", body.Status)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, body.StartedAt); err != nil {
+		t.Fatalf("health startedAt = %q: %v", body.StartedAt, err)
 	}
 }

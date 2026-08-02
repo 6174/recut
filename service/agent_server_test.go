@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog、Store 与 Server 的本地 HTTP 路由
- * [OUTPUT]: 锁定全局 onboarding 保存、按项目解析与 LAN CORS 的 HTTP 契约
+ * [OUTPUT]: 锁定全局 onboarding 保存、按项目与 general scope 解析、通用会话创建及 LAN CORS 的 HTTP 契约
  * [POS]: service 的 Agent 传输层回归测试；不启动真实 daemon 或 Agent CLI
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -82,5 +82,58 @@ func TestAgentOnboardingHTTP(t *testing.T) {
 	handler.ServeHTTP(recorder, deniedPreflight)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("untrusted preflight = %d", recorder.Code)
+	}
+}
+
+func TestGeneralAgentSessionHTTP(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer(apps, store, nil, nil, NewAgentManager(store, nil, nil), nil, nil).routes()
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/agent-sessions", bytes.NewBufferString(`{"runtime":"codex"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("create general session = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	session := ChatSession{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &session); err != nil {
+		t.Fatal(err)
+	}
+	if session.ProjectID != generalChatProjectID {
+		t.Fatalf("general session scope = %q", session.ProjectID)
+	}
+	if _, err := store.Get(generalChatProjectID); err != nil {
+		t.Fatalf("general scope was not materialized: %v", err)
+	}
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/agent-sessions?scope=general", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("list general sessions = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var sessions []ChatSession
+	if err := json.Unmarshal(recorder.Body.Bytes(), &sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || sessions[0].ID != session.ID {
+		t.Fatalf("general sessions = %#v", sessions)
+	}
+
+	projects, err := store.List()
+	if err != nil || len(projects) != 0 {
+		t.Fatalf("visible projects = %#v, %v", projects, err)
 	}
 }

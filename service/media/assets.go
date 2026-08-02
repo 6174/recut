@@ -575,6 +575,19 @@ func (m *MediaService) ImportImage(name, mimeType string, content []byte) (Media
 	return m.saveAsset(content, "image", mimeType, name, "user-upload", "", map[string]any{"source": "user-upload"}, "")
 }
 
+// ImportNativeImage records a Codex-native image as a project Asset. Native
+// generation writes its file before this boundary; callers must not invent an
+// Asset ID or treat a chat preview as a deliverable.
+func (m *MediaService) ImportNativeImage(projectID, name, mimeType string, content []byte) (MediaAsset, error) {
+	if !strings.HasPrefix(mimeType, "image/") || len(content) == 0 || len(content) > 20<<20 {
+		return MediaAsset{}, errors.New("only images up to 20 MB can be imported")
+	}
+	if strings.TrimSpace(name) == "" {
+		name = "codex-image" + extensionFor(mimeType)
+	}
+	return m.saveAsset(content, "image", mimeType, name, "codex-native", projectID, map[string]any{"source": "codex-native"}, "")
+}
+
 func (m *MediaService) ImportMedia(name, mimeType string, content []byte) (MediaAsset, error) {
 	kind, maxBytes, err := importedMediaKind(mimeType)
 	if err != nil || len(content) == 0 || len(content) > maxBytes {

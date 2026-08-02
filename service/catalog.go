@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖标准库 JSON 与文件系统能力
- * [OUTPUT]: 对外提供 manifest 驱动的 Catalog、含作者/描述/onboarding 的 App 身份与统一 operation 公开契约
- * [POS]: service 的扩展注册表；只理解 App 身份、入口、权限和扩展点，不理解业务数据布局
+ * [OUTPUT]: 对外提供 manifest 驱动的 Catalog、含作者/描述/onboarding 的 App 身份、隐藏平台 scope 描述符与统一 operation 公开契约
+ * [POS]: service 的扩展注册表；只理解 App 与平台 scope 身份、入口、权限和扩展点，不理解业务数据布局
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -96,6 +96,11 @@ func loadCatalogApps(dir string) (map[string]App, error) {
 		root := filepath.Join(dir, entry.Name())
 		info, err := os.Stat(root)
 		if err != nil {
+			// 0.1.0 将素材库作为 App 链接安装。新版素材库改为
+			// 平台原生 React 页面后，保留该失效链接不应阻止 daemon 启动。
+			if entry.Name() == mediaSystemProjectID && errors.Is(err, os.ErrNotExist) {
+				continue
+			}
 			return nil, fmt.Errorf("inspect App package %q: %w", entry.Name(), err)
 		}
 		if !info.IsDir() {
@@ -115,6 +120,9 @@ func loadCatalogApps(dir string) (map[string]App, error) {
 
 func (c *Catalog) Directory() string { return c.dir }
 func (c *Catalog) Get(id string) (App, bool) {
+	if app, ok := systemAppDescriptor(id); ok {
+		return app, true
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	app, ok := c.apps[id]
@@ -132,6 +140,45 @@ func (c *Catalog) List() []App {
 	}
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Manifest.ID < apps[j].Manifest.ID })
 	return apps
+}
+
+func mediaSystemAppDescriptor() App {
+	return App{Manifest: Manifest{
+		ManifestVersion: 1,
+		ID:              mediaSystemAppID,
+		Name:            "素材库",
+		Author:          "Recut",
+		Description:     "管理跨项目图片、视频和音频素材的内置系统能力。",
+		Version:         "1.0.0",
+		Kind:            ProjectApp,
+		Onboarding: []OnboardingGuide{
+			{ID: "organize-assets", Title: "整理已有素材", Description: "上传或引用素材后，让 AI 帮你盘点并建议下一步。", Prompt: "我想整理这次创作会用到的素材。请先问我需要上传或引用哪些图片、视频和音频，再按用途帮我列出下一步。"},
+			{ID: "plan-video", Title: "从一个想法开始", Description: "把主题、目标受众和交付形式变成可执行的创作计划。", Prompt: "我想做一支视频，但目前只有一个初步想法。请先问我主题、受众和交付目标，然后把制作过程拆成清晰的下一步。"},
+		},
+	}}
+}
+
+func generalChatAppDescriptor() App {
+	return App{Manifest: Manifest{
+		ManifestVersion: 1,
+		ID:              generalChatAppID,
+		Name:            "通用对话",
+		Author:          "Recut",
+		Description:     "不依附项目的通用 Codex 对话系统 scope。",
+		Version:         "1.0.0",
+		Kind:            ProjectApp,
+	}}
+}
+
+func systemAppDescriptor(id string) (App, bool) {
+	switch id {
+	case mediaSystemAppID:
+		return mediaSystemAppDescriptor(), true
+	case generalChatAppID:
+		return generalChatAppDescriptor(), true
+	default:
+		return App{}, false
+	}
 }
 
 func loadApp(root string) (App, error) {

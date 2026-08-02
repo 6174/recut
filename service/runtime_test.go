@@ -162,6 +162,36 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 	}
 }
 
+func TestCoverStudioSavePromotesAssetToCurrentPreview(t *testing.T) {
+	apps, err := LoadCatalog(filepath.Join("..", "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(t.TempDir(), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.EnsureStandaloneAppProject("recut.cover-studio")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := NewAppHost(apps, store)
+	appID := "recut.cover-studio"
+	if _, err := host.InvokeAPI(project.ID, appID, "cover.configure", map[string]any{"channel": "小红书", "width": 1242, "height": 1660, "templateId": "editorial", "referenceAssetIds": []any{}, "brief": "右侧留白"}); err != nil {
+		t.Fatalf("cover.configure: %v", err)
+	}
+	if _, err := host.InvokeMCP(project.ID, appID, "cover.save", map[string]any{"assetId": "cover-asset", "prompt": "真实封面", "channel": "小红书", "width": 1242, "height": 1660, "templateId": "editorial", "referenceAssetIds": []any{}}); err != nil {
+		t.Fatalf("cover.save: %v", err)
+	}
+	context, err := host.InvokeMCP(project.ID, appID, "cover.context", map[string]any{})
+	if err != nil {
+		t.Fatalf("cover.context: %v", err)
+	}
+	if context.(map[string]any)["previewAssetId"] != "cover-asset" {
+		t.Fatalf("current preview = %#v", context)
+	}
+}
+
 func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 	apps, err := LoadCatalog(filepath.Join("..", "apps"))
 	if err != nil {

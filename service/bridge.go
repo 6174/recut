@@ -167,10 +167,14 @@ type codexGuideData struct {
 }
 
 func (b *AgentBridge) renderCodexGuide(app App) ([]byte, error) {
-	appGuidePath := filepath.Join(app.Root, "AGENTS.md")
-	appGuide, err := os.ReadFile(appGuidePath)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("read App prompt %s: %w", app.Manifest.ID, err)
+	var appGuide []byte
+	if app.Root != "" {
+		appGuidePath := filepath.Join(app.Root, "AGENTS.md")
+		var err error
+		appGuide, err = os.ReadFile(appGuidePath)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("read App prompt %s: %w", app.Manifest.ID, err)
+		}
 	}
 	guideTemplate, err := template.New("core-agents.md.tmpl").Parse(coreAgentsTemplate)
 	if err != nil {

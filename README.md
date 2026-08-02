@@ -19,7 +19,7 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 ## 核心法则
 
 - `manifest.json` 是 App 唯一运行时配置：身份、作者、简短描述、可选 Git 仓库、类型、入口、权限、可选 `onboarding` 引导卡和一次定义的 `operations`。每个 onboarding 必须显式声明 `id`、`title` 和点击后写入的 `prompt`；每个 operation 以 `surfaces` 声明供 UI API、Agent MCP 或两者使用，避免同一业务契约重复。
-- `type: project` 绑定项目；`type: standalone` 绑定工作区。它们使用同一运行时和 capability API。
+- `type: project` 绑定用户项目；`type: standalone` 绑定稳定的 App 专属工作区 scope，不显示在项目桌面、不要求项目命名。它们使用同一运行时和 capability API。素材库是平台原生 React 页面，只使用隐藏 media scope 保存资产归属与 Agent 会话，不是 App、没有 manifest、不会进入 Catalog 或 iframe。
 - App 数据模型属于 App 的 JavaScript。平台不解析 `project-layout.json`，不规定表、JSON 文件或工作流步骤。
 - SQLite 是资源真相：App state、Artifact、事件、引用与版本均存表中；媒体平台在 `workspace.sqlite` 管理跨项目 Asset、Provider BYOK 凭据、用途模型 Route 与任务，文件根只保存内容寻址的大二进制，数据库保存其哈希引用。异步媒体先原子持久化稳定的 queued Asset 与 Job；常驻 Daemon 用 SQLite lease 和外部调用 checkpoint 提交 prediction、原位推进 Asset，并周期回收终态。只有已持久化的 prediction 可安全重试，未知外部提交保留原 Asset 并明确失败，避免重复收费；前端只读本地状态。所有媒体依赖以全局 `assetId` 表达；用户上传也先成为带 `origin: user-upload` 的 Asset，再绑定项目与 Agent turn。用户 Agent 对话同样位于根目录 `workspace.sqlite`，与项目数据库解耦。
 - App 之间通过公开 API 和不可变 Artifact 引用协作，绝不读取彼此数据库或文件目录。
@@ -39,6 +39,6 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 
 `make service-build` 默认构建当前平台；交叉编译使用 `make service-build TARGET=windows-amd64`（同样支持 `darwin-*`、`linux-*`、`freebsd-*`）。`make service-install RECUT_VERSION=0.1.0` 可从源码构建并安装当前 Unix 主机的二进制，注册为 macOS launchd 或 Linux systemd user service；FreeBSD 保留由宿主进程管理器启动。首次打开 `https://recut.video` 时，前端默认检测本地 service；缺失时可安装本地 service，也可在设置中填入已有远程 service 的根地址。远程 service 需对浏览器可达并允许 `https://recut.video` 的跨域请求。`make service-status` 用于检查常驻 service。
 
-首页只有 **Project** 与 **Apps** 两个核心 tab。素材库是随 Recut service 自带的系统 App，不属于 Git 安装或升级管理；Apps 中其余 App 可安装 HTTPS GitHub 仓库，service 只在 clone 后验证标准 `manifest.json` 才激活。已安装的 Git App 使用 `git status --porcelain --branch` 读取工作树和 behind 状态；升级拒绝覆盖本地修改，并只运行 `git pull --ff-only`。安装、升级和本地 service 出错时，界面提供可复制给 Codex 或 Claude Code 的诊断任务，而不猜测性修改本机状态。
+首页包含 **Project**、**Apps** 与素材库 Tab。素材库是 service 内置的原生 React 平台能力，不属于 Git 安装、App Catalog、升级管理或 iframe；它的隐藏 media scope 仅服务资产归属和 Agent 会话。Apps 中其余 App 可安装 HTTPS GitHub 仓库，service 只在 clone 后验证标准 `manifest.json` 才激活。已安装的 Git App 使用 `git status --porcelain --branch` 读取工作树和 behind 状态；升级拒绝覆盖本地修改，并只运行 `git pull --ff-only`。安装、升级和本地 service 出错时，界面提供可复制给 Codex 或 Claude Code 的诊断任务，而不猜测性修改本机状态。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

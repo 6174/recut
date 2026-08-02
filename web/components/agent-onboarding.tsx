@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖按项目解析的 Agent onboarding HTTP API 与 React 状态
- * [OUTPUT]: 对外提供新对话的可点击引导卡；点击时仅回填显式 prompt
+ * [INPUT]: 依赖按项目或全局解析的 Agent onboarding HTTP API 与 React 状态
+ * [OUTPUT]: 对外提供项目或通用新对话的可点击引导卡；点击时仅回填显式 prompt
  * [POS]: components 的新会话空态内容；App、全局与平台兜底配置都经同一后端契约进入此处
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -19,11 +19,11 @@ export function AgentOnboarding({ apiBase, onChoose, projectID }: { apiBase: str
   const [guides, setGuides] = useState<Guide[]>(fallback);
 
   useEffect(() => {
-    if (!projectID) return;
     const controller = new AbortController();
     void (async () => {
       try {
-        const response = await fetch(`${apiBase}/v1/agent-onboarding?projectId=${encodeURIComponent(projectID)}`, { signal: controller.signal });
+        const query = projectID ? `?projectId=${encodeURIComponent(projectID)}` : "";
+        const response = await fetch(`${apiBase}/v1/agent-onboarding${query}`, { signal: controller.signal });
         if (!response.ok) return;
         const payload = await response.json() as { items?: Guide[] };
         if (payload.items?.length) setGuides(payload.items);

@@ -14,22 +14,10 @@ export type AppManifest = {
   type: "project" | "standalone";
 };
 
-export type CatalogApp = { manifest: AppManifest; builtIn: boolean };
+export type CatalogApp = { manifest: AppManifest };
 
 export const appCatalog: CatalogApp[] = [
   {
-    builtIn: true,
-    manifest: {
-      id: "recut.media-library",
-      name: "素材库",
-      author: "Recut",
-      description: "管理跨项目图片、视频和音频素材的内置系统应用。",
-      version: "1.0.0",
-      type: "project",
-    },
-  },
-  {
-    builtIn: false,
     manifest: {
       id: "recut.vox-broll",
       name: "Vox B-roll Explainer",
@@ -42,7 +30,7 @@ export const appCatalog: CatalogApp[] = [
   },
 ];
 
-export const marketplaceApps = appCatalog.filter((app) => !app.builtIn);
+export const marketplaceApps = appCatalog;
 
 export function getCatalogApp(appID: string) {
   return appCatalog.find((app) => app.manifest.id === appID) ?? null;

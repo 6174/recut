@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的项目创建、App SQLite 与文件 sandbox capability
- * [OUTPUT]: 验证平台只提供资源，不规定 App 的数据布局，并阻止系统素材库被创建为用户项目
+ * [OUTPUT]: 验证平台只提供资源，不规定 App 的数据布局，并阻止原生素材库 scope 被创建为用户项目
  * [POS]: service 的项目存储回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -76,14 +76,44 @@ func TestStandaloneAppCannotCreateProject(t *testing.T) {
 	}
 }
 
-func TestMediaSystemAppCannotCreateUserProject(t *testing.T) {
+func TestStandaloneAppUsesHiddenWorkspaceScope(t *testing.T) {
 	root := t.TempDir()
-	appDir := filepath.Join(root, "apps", "media")
+	appDir := filepath.Join(root, "apps", "standalone")
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"recut.media-library","name":"素材库","author":"Recut","description":"System media library.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.standalone","name":"Standalone","author":"Test","description":"Test workspace App.","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"}}`)
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.EnsureStandaloneAppProject("example.standalone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.EnsureStandaloneAppProject("example.standalone")
+	if err != nil || first.ID != second.ID || first.AppID != "example.standalone" {
+		t.Fatalf("standalone workspace = %#v / %#v, err = %v", first, second, err)
+	}
+	if projects, err := store.List(); err != nil || len(projects) != 0 {
+		t.Fatalf("standalone workspace leaked into projects = %#v, err = %v", projects, err)
+	}
+	if err := store.checkAppScope(first.ID, first.AppID); err != nil {
+		t.Fatalf("standalone workspace scope is unavailable: %v", err)
+	}
+}
+
+func TestMediaSystemAppCannotCreateUserProject(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := LoadCatalog(appsDir)
 	if err != nil {
 		t.Fatal(err)
 	}

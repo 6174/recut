@@ -1,6 +1,6 @@
 #!/bin/sh
 # [INPUT]: 依赖 POSIX shell、curl、tar、SHA-256 工具、公开的 recut.video 静态发布包和用户级服务管理器
-# [OUTPUT]: 安装或原子升级 ~/.recut/bin/recut-service，并在 macOS/Linux 注册当前用户的常驻 service
+# [OUTPUT]: 安装或原子升级 ~/.recut/bin/recut-service，在 macOS/Linux 注册并验证当前用户的常驻 service
 # [POS]: web/public 的无源码 Unix 安装入口；覆盖 macOS、Linux 和 FreeBSD，绝不读取或删除用户项目数据
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 set -eu
@@ -95,10 +95,39 @@ UNIT
   systemctl --user daemon-reload && systemctl --user enable --now recut.service
 }
 
+wait_for_service() {
+  attempts=0
+  while [ "$attempts" -lt 30 ]; do
+    if curl --fail --silent --show-error --max-time 2 http://127.0.0.1:17373/health >/dev/null 2>&1; then
+      return 0
+    fi
+    attempts=$((attempts + 1))
+    sleep 1
+  done
+  echo "Recut service 已注册，但未能在 http://127.0.0.1:17373/health 启动。" >&2
+  print_startup_diagnostics
+  return 1
+}
+
+print_startup_diagnostics() {
+  if [ "$os" = "darwin" ]; then
+    echo "macOS service 日志：$recut_home/logs/service-error.log" >&2
+    if [ -f "$recut_home/logs/service-error.log" ]; then
+      tail -n 80 "$recut_home/logs/service-error.log" >&2 || true
+    fi
+    echo "launchd 状态：launchctl print gui/$(id -u)/video.recut.service" >&2
+    return
+  fi
+  echo "Linux service 日志：journalctl --user -u recut.service -n 80 --no-pager" >&2
+  if command -v journalctl >/dev/null 2>&1; then
+    journalctl --user -u recut.service -n 80 --no-pager >&2 || true
+  fi
+}
+
 case "$os" in
-  darwin) install_launchd ;;
+  darwin) install_launchd; wait_for_service || fail "service 启动失败" ;;
   linux)
-    if command -v systemctl >/dev/null 2>&1 && install_systemd_user; then :;
+    if command -v systemctl >/dev/null 2>&1 && install_systemd_user; then wait_for_service || fail "service 启动失败";
     else
       echo "Recut service 已安装，但当前 Unix 会话没有可用的 systemd user manager。" >&2
       echo "请用以下命令启动：$recut_home/bin/recut-service --data-dir $recut_home" >&2

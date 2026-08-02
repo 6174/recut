@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store 与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供 Server 及内嵌工作台、无入口重定向的 App UI、App 能力、项目产物、结构化 Agent 会话/新对话引导与终端 HTTP API
+ * [OUTPUT]: 对外提供含启动时间的 health、Server 及内嵌工作台、无入口重定向的 App UI、App 能力、项目产物、结构化 Agent 会话/新对话引导与终端 HTTP API
  * [POS]: service 的传输层，负责把受信任项目、内嵌本地工作台与扩展注册表映射为浏览器可消费的 API；对话和 PTY 协议并存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 type Server struct {
@@ -46,7 +47,11 @@ func (s *Server) ListenAndServe(address string) error {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": ServiceVersion()})
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":    "ok",
+			"version":   ServiceVersion(),
+			"startedAt": serviceStartedAt.Format(time.RFC3339Nano),
+		})
 	})
 	mux.HandleFunc("GET /v1/system/status", s.systemStatus)
 	mux.HandleFunc("POST /v1/system/update", s.updateSystem)
@@ -55,6 +60,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/apps/installed", s.listAppInstallations)
 	mux.HandleFunc("POST /v1/apps/install", s.installApp)
 	mux.HandleFunc("POST /v1/apps/{package}/update", s.updateApp)
+	mux.HandleFunc("GET /v1/apps/{appID}/workspace", s.getStandaloneAppProject)
 	mux.HandleFunc("GET /v1/apps/{appID}/ui/{path...}", s.appUI)
 	mux.HandleFunc("GET /v1/projects", s.listProjects)
 	mux.HandleFunc("POST /v1/projects", s.createProject)
@@ -78,6 +84,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/media/jobs", s.createMediaJob)
 	mux.HandleFunc("GET /v1/media/jobs/{id}", s.getMediaJob)
 	mux.HandleFunc("POST /v1/projects/{id}/apps/{appID}/api/{name}", s.invokeAppAPI)
+	mux.HandleFunc("GET /v1/projects/{id}/apps/{appID}/files/{path...}", s.appFile)
 	mux.HandleFunc("GET /v1/events", s.projectEventsWS)
 	mux.HandleFunc("POST /v1/projects/{id}/agent-tasks", s.startAgentTask)
 	mux.HandleFunc("POST /v1/projects/{id}/proposals/{proposalID}/approve", s.approveProposal)
@@ -222,6 +229,15 @@ func (s *Server) updateApp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+func (s *Server) getStandaloneAppProject(w http.ResponseWriter, r *http.Request) {
+	project, err := s.store.EnsureStandaloneAppProject(strings.TrimSpace(r.PathValue("appID")))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, project)
+}
+
 func (s *Server) listProjects(w http.ResponseWriter, _ *http.Request) {
 	projects, err := s.store.List()
 	if err != nil {
@@ -275,6 +291,42 @@ func (s *Server) invokeAppAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) appFile(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	appID := r.PathValue("appID")
+	app, ok := s.apps.Get(appID)
+	if !ok || !hasPermission(app.Manifest, "files") {
+		writeError(w, http.StatusNotFound, errors.New("App file not found"))
+		return
+	}
+	root, err := s.store.AppFilesRoot(projectID, appID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("App workspace not found"))
+		return
+	}
+	requested := strings.TrimPrefix(r.PathValue("path"), "/")
+	path, ok := sandboxPath(root, requested)
+	if !ok {
+		writeError(w, http.StatusBadRequest, errors.New("invalid App file path"))
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		writeError(w, http.StatusNotFound, errors.New("App file not found"))
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeFile(w, r, path)
+}
+
+func sandboxPath(root, requested string) (string, bool) {
+	clean := filepath.Clean(requested)
+	if requested == "" || filepath.IsAbs(requested) || clean == "." || strings.HasPrefix(clean, "..") {
+		return "", false
+	}
+	return filepath.Join(root, clean), true
 }
 
 func (s *Server) appUI(w http.ResponseWriter, r *http.Request) {

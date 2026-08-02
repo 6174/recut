@@ -4,7 +4,7 @@
 
 成员清单
 utils.ts: 提供 shadcn 组件共享的 Tailwind 类名合并函数。
-app-catalog.ts: 发布时固定的系统 App 与应用市场身份目录；Apps 目录和详情页由它渲染，service 仅返回安装状态并执行安装。
+app-catalog.ts: 发布时固定的可安装 App 身份目录；Apps 目录和详情页由它渲染，service 仅返回安装状态并执行安装；原生素材库不在此目录。
 service-endpoint.ts: Recut service 根地址、`local`/`lan`/`cloud` 工作台模式、格式校验与本地地址判断；嵌入式 local 工作台始终以浏览器同源地址连接 service，LAN 开发工作台复用当前主机名和 service 端口，不持有运行时状态。
 service-store.ts: 基于 Zustand persist 的 service 状态唯一真相；持久化 endpoint 并让所有 HTTP、SSE、WebSocket 调用订阅该值，ServiceControl 负责连接轮询，避免路由切换或刷新后退回旧地址。
 

@@ -21,7 +21,6 @@ import (
 type AppInstallation struct {
 	Package         string   `json:"package"`
 	Manifest        Manifest `json:"manifest"`
-	BuiltIn         bool     `json:"builtIn"`
 	Repository      string   `json:"repository,omitempty"`
 	Revision        string   `json:"revision,omitempty"`
 	Branch          string   `json:"branch,omitempty"`
@@ -40,6 +39,9 @@ func (c *Catalog) Installations() ([]AppInstallation, error) {
 	c.mu.RUnlock()
 	result := make([]AppInstallation, 0, len(apps))
 	for _, app := range apps {
+		if isSystemAppID(app.Manifest.ID) {
+			continue
+		}
 		result = append(result, inspectAppInstallation(app))
 	}
 	sortInstallations(result)
@@ -100,9 +102,6 @@ func (c *Catalog) UpdateInstallation(packageName string) (AppInstallation, error
 	if _, err := os.Stat(root); err != nil {
 		return AppInstallation{}, errors.New("App package not found")
 	}
-	if c.isBuiltInRoot(root) {
-		return AppInstallation{}, errors.New("system App is built into Recut and cannot be upgraded through Git")
-	}
 	status, err := gitStatus(root)
 	if err != nil {
 		return AppInstallation{}, errors.New("App is not a Git checkout and cannot be updated")
@@ -136,11 +135,6 @@ type gitCheckoutStatus struct {
 
 func inspectAppInstallation(app App) AppInstallation {
 	installation := AppInstallation{Package: filepath.Base(app.Root), Manifest: app.Manifest}
-	if isBuiltInApp(app) {
-		installation.BuiltIn = true
-		installation.Status = "系统自带 App"
-		return installation
-	}
 	status, err := gitStatus(app.Root)
 	if err != nil {
 		installation.Status = "本地开发包或非 Git 包"
@@ -154,17 +148,6 @@ func inspectAppInstallation(app App) AppInstallation {
 	installation.UpdateAvailable = status.UpdateAvailable
 	return installation
 }
-
-func (c *Catalog) isBuiltInRoot(root string) bool {
-	for _, app := range c.apps {
-		if filepath.Clean(app.Root) == filepath.Clean(root) {
-			return isBuiltInApp(app)
-		}
-	}
-	return false
-}
-
-func isBuiltInApp(app App) bool { return app.Manifest.ID == mediaSystemAppID }
 
 func gitStatus(root string) (gitCheckoutStatus, error) {
 	status := gitCheckoutStatus{}

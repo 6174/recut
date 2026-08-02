@@ -7,11 +7,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -129,7 +132,75 @@ func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*go
 		_ = files.Set("readText", fileReadText(runtime, root))
 		_ = files.Set("writeText", fileWriteText(runtime, root))
 		_ = files.Set("list", fileList(runtime, root))
+		_ = files.Set("url", func(call goja.FunctionCall) goja.Value {
+			path := safeSandboxFile(root, call.Argument(0).String())
+			if _, err := os.Stat(path); err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(fmt.Sprintf("/v1/projects/%s/apps/%s/files/%s", projectID, app.Manifest.ID, filepath.ToSlash(call.Argument(0).String())))
+		})
 		_ = ctx.Set("files", files)
+	}
+	if hasPermission(app.Manifest, "media.read") && h.media != nil {
+		media := runtime.NewObject()
+		_ = media.Set("materialize", func(call goja.FunctionCall) goja.Value {
+			asset, err := h.media.GetAsset(strings.TrimSpace(call.Argument(0).String()))
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			if asset.Status != "completed" {
+				panic(runtime.NewGoError(errors.New("source media is not ready")))
+			}
+			root, err := h.store.AppFilesRoot(projectID, app.Manifest.ID)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			path, err := h.copyAssetToApp(root, asset)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(map[string]any{"assetId": asset.ID, "kind": asset.Kind, "mimeType": asset.MimeType, "path": path})
+		})
+		_ = ctx.Set("media", media)
+	}
+	if hasPermission(app.Manifest, "media.write") && h.media != nil {
+		media := ctx.Get("media")
+		var mediaObject *goja.Object
+		if !goja.IsUndefined(media) {
+			mediaObject = media.ToObject(runtime)
+		} else {
+			mediaObject = runtime.NewObject()
+		}
+		_ = mediaObject.Set("importFile", func(call goja.FunctionCall) goja.Value {
+			input := map[string]any{}
+			if err := runtime.ExportTo(call.Argument(0), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			root, err := h.store.AppFilesRoot(projectID, app.Manifest.ID)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			path := safeSandboxFile(root, stringValue(input["path"]))
+			content, err := os.ReadFile(path)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			asset, err := h.media.ImportMedia(nonEmpty(stringValue(input["name"]), filepath.Base(path)), stringValue(input["mimeType"]), content)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(asset)
+		})
+		_ = ctx.Set("media", mediaObject)
+	}
+	if hasPermission(app.Manifest, "shell") {
+		root, err := h.store.AppFilesRoot(projectID, app.Manifest.ID)
+		if err != nil {
+			return nil, err
+		}
+		shell := runtime.NewObject()
+		_ = shell.Set("run", shellRun(runtime, app.Root, root, filepath.Join(h.store.root, "models"), app.Manifest.ID))
+		_ = ctx.Set("shell", shell)
 	}
 	if hasPermission(app.Manifest, "artifacts.publish") {
 		artifacts := runtime.NewObject()
@@ -293,11 +364,102 @@ func fileList(runtime *goja.Runtime, root string) func(goja.FunctionCall) goja.V
 	}
 }
 func sandboxFile(root, path string) string {
+	return safeSandboxFile(root, path)
+}
+func safeSandboxFile(root, path string) string {
 	clean := filepath.Clean(path)
 	if path == "" || filepath.IsAbs(path) || clean == "." || strings.HasPrefix(clean, "..") {
 		panic(errors.New("file path escapes App sandbox"))
 	}
 	return filepath.Join(root, clean)
+}
+
+func shellRun(runtime *goja.Runtime, appRoot, filesRoot, modelsRoot, appID string) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		input := call.Argument(0).ToObject(runtime)
+		commandName := input.Get("command").String()
+		arguments := []string{}
+		if err := runtime.ExportTo(input.Get("args"), &arguments); err != nil {
+			panic(runtime.NewTypeError("args must be an array of strings"))
+		}
+		timeoutSeconds := int(input.Get("timeoutSeconds").ToInteger())
+		if commandName != "python3" && commandName != "python" {
+			panic(runtime.NewTypeError("shell only permits python or python3"))
+		}
+		if timeoutSeconds < 1 || timeoutSeconds > 1800 {
+			panic(runtime.NewTypeError("timeoutSeconds must be between 1 and 1800"))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, commandName, arguments...)
+		command.Dir = appRoot
+		command.Env = append(os.Environ(), "RECUT_APP_FILES_DIR="+filesRoot, "RECUT_MODELS_DIR="+modelsRoot, "RECUT_APP_ID="+appID)
+		output, err := command.CombinedOutput()
+		result := map[string]any{"stdout": string(output), "exitCode": 0}
+		if err == nil {
+			return runtime.ToValue(result)
+		}
+		result["exitCode"] = 1
+		if exit, ok := err.(*exec.ExitError); ok {
+			result["exitCode"] = exit.ExitCode()
+		}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			result["error"] = "process timed out"
+		} else {
+			result["error"] = err.Error()
+		}
+		return runtime.ToValue(result)
+	}
+}
+
+func (h *AppHost) copyAssetToApp(root string, asset MediaAsset) (string, error) {
+	path, _ := asset.Metadata["path"].(string)
+	if path == "" {
+		return "", errors.New("source media file is unavailable")
+	}
+	assetsRoot := filepath.Join(h.store.root, "media", "assets")
+	relative, err := filepath.Rel(assetsRoot, path)
+	if err != nil || relative == "." || strings.HasPrefix(relative, "..") || filepath.IsAbs(relative) {
+		return "", errors.New("source media path is outside the managed media store")
+	}
+	source, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer source.Close()
+	extension := filepath.Ext(path)
+	if extension == "" || len(extension) > 10 {
+		extension = ".bin"
+	}
+	relativeTarget := filepath.Join("inputs", asset.ID+extension)
+	target := safeSandboxFile(root, relativeTarget)
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return "", err
+	}
+	destination, err := os.Create(target)
+	if err != nil {
+		return "", err
+	}
+	_, copyErr := io.Copy(destination, source)
+	closeErr := destination.Close()
+	if copyErr != nil {
+		return "", copyErr
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	return filepath.ToSlash(relativeTarget), nil
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
+func nonEmpty(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
 }
 func hasPermission(manifest Manifest, permission string) bool {
 	for _, candidate := range manifest.Permissions {

@@ -56,6 +56,24 @@ func TestCatalogLoadsSymlinkedAppPackage(t *testing.T) {
 	}
 }
 
+func TestCatalogIgnoresLegacyMediaLibraryLink(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "removed-media-library"), filepath.Join(appsDir, mediaSystemProjectID)); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatalf("legacy media-library link prevented startup: %v", err)
+	}
+	if apps := catalog.List(); len(apps) != 0 {
+		t.Fatalf("legacy media-library link appeared as an App: %#v", apps)
+	}
+}
+
 func TestCatalogRejectsManifestWithoutAttribution(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, "apps", "example")

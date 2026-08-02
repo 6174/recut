@@ -46,18 +46,26 @@ func TestGitStatusDetectsDirtyCheckout(t *testing.T) {
 	}
 }
 
-func TestBuiltInAppSkipsGitManagement(t *testing.T) {
+func TestInstallationsExcludeNativeMediaScope(t *testing.T) {
 	root := t.TempDir()
-	if output, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
-		t.Fatalf("initialize Git checkout: %s: %v", output, err)
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	app := App{Manifest: Manifest{ID: mediaSystemAppID, Name: "素材库", Version: "1.0.0"}, Root: root}
-	installation := inspectAppInstallation(app)
-	if !installation.BuiltIn || installation.Manageable || installation.Dirty || installation.Repository != "" || installation.Status != "系统自带 App" {
-		t.Fatalf("installation = %#v", installation)
+	appDir := filepath.Join(appsDir, "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	catalog := &Catalog{apps: map[string]App{app.Manifest.ID: app}, dir: filepath.Dir(root)}
-	if _, err := catalog.UpdateInstallation(filepath.Base(root)); err == nil || err.Error() != "system App is built into Recut and cannot be upgraded through Git" {
-		t.Fatalf("update built-in App error = %v", err)
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := catalog.Get(mediaSystemAppID); !ok {
+		t.Fatal("native media scope is unavailable to the platform")
+	}
+	installations, err := catalog.Installations()
+	if err != nil || len(installations) != 1 || installations[0].Manifest.ID != "example.app" {
+		t.Fatalf("app installations = %#v, err = %v", installations, err)
 	}
 }

@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、全局 onboarding 设置与仅初始化一次的用户级 workspace SQLite；拒绝以系统素材库创建用户项目
- * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根，Agent 会话使用独立工作区库
+ * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、原生素材库与首页 general chat 的隐藏平台 scope、全局 onboarding 设置与仅初始化一次的用户级 workspace SQLite
+ * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根，Agent 会话使用独立工作区库，首页聊天复用隐藏 scope 而非伪造用户项目
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -27,6 +27,14 @@ import (
 const formatVersion = 2
 const mediaSystemProjectID = "media-library"
 const mediaSystemAppID = "recut.media-library"
+const generalChatProjectID = "general-chat"
+const generalChatAppID = "recut.general-chat"
+const standaloneProjectPrefix = "workspace-app-"
+
+func isSystemProjectID(id string) bool {
+	return id == mediaSystemProjectID || id == generalChatProjectID
+}
+func isSystemAppID(id string) bool { return id == mediaSystemAppID || id == generalChatAppID }
 
 type Project struct {
 	ID            string    `json:"id"`
@@ -70,8 +78,8 @@ func (s *Store) Create(input CreateInput) (Project, error) {
 	if !ok {
 		return Project{}, fmt.Errorf("unknown app %q", input.AppID)
 	}
-	if input.AppID == mediaSystemAppID {
-		return Project{}, errors.New("the media library is a system app and cannot create user projects")
+	if isSystemAppID(input.AppID) {
+		return Project{}, errors.New("system apps cannot create user projects")
 	}
 	if app.Manifest.Kind != ProjectApp {
 		return Project{}, fmt.Errorf("app %q is standalone and cannot create a project", input.AppID)
@@ -113,11 +121,50 @@ func (s *Store) EnsureMediaSystemProject() (Project, error) {
 	if project, err := s.Get(mediaSystemProjectID); err == nil {
 		return project, nil
 	}
-	app, ok := s.catalog.Get(mediaSystemAppID)
-	if !ok {
-		return Project{}, fmt.Errorf("media system app is unavailable")
-	}
+	app := mediaSystemAppDescriptor()
 	project := Project{ID: mediaSystemProjectID, Name: "素材库", AppID: app.Manifest.ID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: time.Now().UTC()}
+	if err := os.MkdirAll(s.projectDir(project.ID), 0o755); err != nil {
+		return Project{}, err
+	}
+	if err := s.initialize(s.projectDir(project.ID), project); err != nil {
+		return Project{}, err
+	}
+	return project, nil
+}
+
+// EnsureGeneralChatProject creates the hidden, app-neutral workspace used by
+// homepage conversations before the user has selected or created a project.
+func (s *Store) EnsureGeneralChatProject() (Project, error) {
+	if project, err := s.Get(generalChatProjectID); err == nil {
+		return project, nil
+	}
+	app := generalChatAppDescriptor()
+	project := Project{ID: generalChatProjectID, Name: "通用对话", AppID: app.Manifest.ID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: time.Now().UTC()}
+	if err := os.MkdirAll(s.projectDir(project.ID), 0o755); err != nil {
+		return Project{}, err
+	}
+	if err := s.initialize(s.projectDir(project.ID), project); err != nil {
+		return Project{}, err
+	}
+	return project, nil
+}
+
+// EnsureStandaloneAppProject creates the private, stable workspace scope for
+// a standalone App. It uses the same capability boundary as a project without
+// allowing that implementation detail to leak into the user's project list.
+func (s *Store) EnsureStandaloneAppProject(appID string) (Project, error) {
+	app, ok := s.catalog.Get(appID)
+	if !ok || app.Manifest.Kind != StandaloneApp {
+		return Project{}, fmt.Errorf("standalone app %q is unavailable", appID)
+	}
+	id := standaloneProjectID(appID)
+	if project, err := s.Get(id); err == nil {
+		if project.AppID != appID {
+			return Project{}, fmt.Errorf("workspace scope %q belongs to another app", id)
+		}
+		return project, nil
+	}
+	project := Project{ID: id, Name: app.Manifest.Name, AppID: appID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: time.Now().UTC()}
 	if err := os.MkdirAll(s.projectDir(project.ID), 0o755); err != nil {
 		return Project{}, err
 	}
@@ -137,7 +184,7 @@ func (s *Store) List() ([]Project, error) {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
-		if entry.Name() == mediaSystemProjectID {
+		if isSystemProjectID(entry.Name()) || strings.HasPrefix(entry.Name(), standaloneProjectPrefix) {
 			continue
 		}
 		if project, err := s.Get(entry.Name()); err == nil {
@@ -408,15 +455,22 @@ func (s *Store) checkAppScope(projectID, appID string) error {
 	if project.AppID != appID {
 		return fmt.Errorf("app %q is not attached to project", appID)
 	}
+	if isSystemAppID(appID) {
+		return nil
+	}
 	app, ok := s.catalog.Get(appID)
-	if !ok || app.Manifest.Kind != ProjectApp {
+	if !ok || (app.Manifest.Kind != ProjectApp && (app.Manifest.Kind != StandaloneApp || project.ID != standaloneProjectID(appID))) {
 		return fmt.Errorf("project app is unavailable")
 	}
 	return nil
 }
 
 func (s *Store) initialize(root string, project Project) error {
-	for _, path := range []string{"files", "sessions", "snapshots", "logs", filepath.Join("apps", project.AppID), ".recut"} {
+	paths := []string{"files", "sessions", "snapshots", "logs", ".recut"}
+	if !isSystemAppID(project.AppID) {
+		paths = append(paths, filepath.Join("apps", project.AppID))
+	}
+	for _, path := range paths {
 		if err := os.MkdirAll(filepath.Join(root, path), 0o755); err != nil {
 			return err
 		}
@@ -431,6 +485,9 @@ func (s *Store) initialize(root string, project Project) error {
 }
 
 func (s *Store) ensureAppMount(projectRoot, appID string) error {
+	if isSystemAppID(appID) {
+		return nil
+	}
 	app, ok := s.catalog.Get(appID)
 	if !ok {
 		return fmt.Errorf("app %q is unavailable", appID)
@@ -462,6 +519,18 @@ func (s *Store) terminalSessionsDir(id string) string {
 }
 func (s *Store) workspaceTerminalSessionsDir() string {
 	return filepath.Join(s.root, "sessions", "terminals")
+}
+
+func standaloneProjectID(appID string) string {
+	var builder strings.Builder
+	for _, runeValue := range appID {
+		if (runeValue >= 'a' && runeValue <= 'z') || (runeValue >= '0' && runeValue <= '9') {
+			builder.WriteRune(runeValue)
+		} else {
+			builder.WriteByte('-')
+		}
+	}
+	return standaloneProjectPrefix + strings.Trim(builder.String(), "-")
 }
 
 func newID() (string, error) {

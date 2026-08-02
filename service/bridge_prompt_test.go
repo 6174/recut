@@ -27,9 +27,12 @@ func TestVoxGuideRequiresRecutVideoGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, required := range []string{
+		"reports no enabled default `image.generate` route",
+		"Codex Agent default when the user has not configured an image model",
 		"model ID `codex/image`",
 		"Codex's native image-generation capability",
 		"Do not call `recut.image.generate`",
+		"recut.media.import_image",
 		"recut.video.generate_async",
 		"recut.media.get_job",
 		"do not select or read a generic video-creation skill",

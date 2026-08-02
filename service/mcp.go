@@ -11,7 +11,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 type mcpRequest struct {
@@ -86,7 +89,7 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 			return projectContextTool(bridge, host, media, session)
 		}
 		if isMediaMCPTool(input.Name) {
-			return mediaMCPTool(media, session, input.Name, input.Arguments)
+			return mediaMCPTool(bridge.store, media, session, input.Name, input.Arguments)
 		}
 		prefix := app.Manifest.ID + "."
 		if len(input.Name) <= len(prefix) || input.Name[:len(prefix)] != prefix {
@@ -103,7 +106,7 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 	}
 }
 
-func mediaMCPTool(media *MediaService, session AgentSession, name string, input map[string]any) (any, error) {
+func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name string, input map[string]any) (any, error) {
 	var result any
 	var err error
 	switch name {
@@ -128,6 +131,8 @@ func mediaMCPTool(media *MediaService, session AgentSession, name string, input 
 			projectID = ""
 		}
 		result, err = media.ListAssets(projectID)
+	case "recut.media.import_image":
+		result, err = importNativeImage(store, media, session, input)
 	case "recut.media.attach":
 		id, _ := input["assetId"].(string)
 		err = media.Attach(id, session.ProjectID)
@@ -151,8 +156,51 @@ func mediaMCPToolDefinitions() []map[string]any {
 		{"name": "recut.media.list_voices", "description": "读取一个 MiniMax 或 ElevenLabs 凭据当前可用的音色，返回可直接传给 recut.speech.generate_async 的 voiceId。", "inputSchema": map[string]any{"type": "object", "required": []string{"credentialId"}, "properties": map[string]any{"credentialId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.get_job", "description": "读取媒体生成任务状态；所有异步提交成功时已返回稳定 assetIds，此工具只读取其后续 queued/running/completed/failed 状态。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.list_assets", "description": "检索当前项目或工作区的可复用媒体素材。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"workspace": map[string]string{"type": "boolean"}}}},
+		{"name": "recut.media.import_image", "description": "将 Codex 原生生成后已写入当前 Recut 项目目录的图片归档为当前项目的 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。", "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "当前 Recut 项目目录内的相对图片路径。Codex 原生生成的结果必须先复制到此处。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}}}},
 		{"name": "recut.media.attach", "description": "把现有媒体 assetId 引用到当前项目。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}}}},
 	}
+}
+
+func importNativeImage(store *Store, media *MediaService, session AgentSession, input map[string]any) (MediaAsset, error) {
+	relativePath, _ := input["path"].(string)
+	name, _ := input["name"].(string)
+	if strings.TrimSpace(relativePath) == "" || filepath.IsAbs(relativePath) {
+		return MediaAsset{}, fmt.Errorf("path must be a non-empty relative path inside the current Recut project")
+	}
+	root, err := filepath.EvalSymlinks(store.projectDir(session.ProjectID))
+	if err != nil {
+		return MediaAsset{}, fmt.Errorf("resolve current Recut project: %w", err)
+	}
+	path, err := filepath.EvalSymlinks(filepath.Join(root, filepath.Clean(relativePath)))
+	if err != nil {
+		return MediaAsset{}, fmt.Errorf("resolve image path: %w", err)
+	}
+	relativeToRoot, err := filepath.Rel(root, path)
+	if err != nil || relativeToRoot == ".." || strings.HasPrefix(relativeToRoot, ".."+string(filepath.Separator)) {
+		return MediaAsset{}, fmt.Errorf("path must remain inside the current Recut project")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return MediaAsset{}, fmt.Errorf("path must point to a regular image file")
+	}
+	if info.Size() > 20<<20 {
+		return MediaAsset{}, fmt.Errorf("image exceeds the 20 MB import limit")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	mimeType := http.DetectContentType(content)
+	if !strings.HasPrefix(mimeType, "image/") {
+		return MediaAsset{}, fmt.Errorf("path must contain a supported image file")
+	}
+	if strings.TrimSpace(name) == "" {
+		name = filepath.Base(path)
+	}
+	return media.ImportNativeImage(session.ProjectID, name, mimeType, content)
 }
 
 func isMediaMCPTool(name string) bool {

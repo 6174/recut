@@ -14,12 +14,11 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useServiceStore } from "@/lib/service-store";
 
-export type ManagedApp = { package: string; manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone" }; builtIn: boolean; dirty: boolean; updateAvailable: boolean; manageable: boolean; status?: string };
+export type ManagedApp = { package: string; manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone" }; dirty: boolean; updateAvailable: boolean; manageable: boolean; status?: string };
 
 export function AppVersionControl({ app, onUpdated }: { app: ManagedApp; onUpdated?: () => void }) {
   const apiBase = useServiceStore((state) => state.endpoint);
   const [confirm, setConfirm] = useState(false); const [working, setWorking] = useState(false); const [message, setMessage] = useState("");
-  if (app.builtIn) return <span className="inline-flex items-center gap-1"><Badge className="border-primary/25 bg-accent text-accent-foreground">SYSTEM APP</Badge><Badge>v{app.manifest.version}</Badge></span>;
   async function update() {
     setWorking(true); setMessage("");
     try { const response = await fetch(`${apiBase}/v1/apps/${encodeURIComponent(app.package)}/update`, { method: "POST" }); if (!response.ok) throw new Error(await responseMessage(response)); setConfirm(false); onUpdated?.(); } catch (cause) { setMessage(`${messageOf(cause)}。请交给 Codex 或 Claude Code 诊断。`); } finally { setWorking(false); }

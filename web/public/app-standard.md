@@ -72,9 +72,12 @@ recut.operation.register("plan.create", (input, ctx) => {
 | 权限 | 接口 | 用途 |
 | --- | --- | --- |
 | `sqlite` | `ctx.sqlite.execute(sql, params?)`、`ctx.sqlite.query(sql, params?)` | App 在**当前项目**的隔离 SQLite 中读写。`query` 返回对象数组，`execute` 返回 `{ rowsAffected }`。 |
-| `files` | `ctx.files.readText(path)`、`writeText(path, text)`、`list(path?)` | App 在**当前项目/当前 App**的文件沙箱中操作文本文件。路径不能越界。 |
+| `files` | `ctx.files.readText(path)`、`writeText(path, text)`、`list(path?)`、`url(path)` | App 在**当前项目/当前 App**的文件沙箱中操作文本文件；`url` 只为已存在的私有预览文件生成当前 App scope URL。路径不能越界。 |
 | `artifacts.publish` | `ctx.artifacts.publish({ type, value })` | 发布不可变 Artifact，供项目事件与受控跨能力引用使用。 |
 | `media.compose` | `ctx.media.compose(input)` | 确定性组合已存在的媒体 Asset；不能拿它替代 AI 生成。 |
+| `media.read` | `ctx.media.materialize(assetId)` | 将已完成素材复制进当前 App 的私有 `inputs/` 并返回相对路径；不创建新 Asset。 |
+| `media.write` | `ctx.media.importFile({ path, name, mimeType })` | 仅在用户明确选择后，将 App 私有文件导入素材库并返回 Asset。 |
+| `shell` | `ctx.shell.run({ command, args, timeoutSeconds })` | 在 App 包根执行受限 Python；没有 shell 字符串与裸路径，环境变量提供 App 私有文件与 `~/.recut/models` 根。 |
 
 没有对应权限时不得访问该对象。不要申请或伪造未列出的 `ctx` 能力。
 
@@ -103,7 +106,7 @@ manifest operation 的 `surfaces` 决定谁可调用它：
 | `api` | App UI 经 iframe SDK | `recut.background.call(name, input)` 进入同一个 background handler。 |
 | `mcp` | 当前项目的 Agent | 暴露为 `app-id.operation-name`，同样进入同一个 background handler。 |
 
-Agent 还可使用平台 MCP：`recut.project_context`、`recut.image.generate`、`recut.video.generate_async`、`recut.speech.generate_async`、`recut.media.list_voices`、`recut.media.get_job`、`recut.media.list_assets` 与 `recut.media.attach`。媒体生成返回稳定 `assetId`；视频和语音是异步任务，应保存该 id 并等待同一 Asset 被 service 原位更新，而不是重复提交。
+Agent 还可使用平台 MCP：`recut.project_context`、`recut.image.generate`、`recut.video.generate_async`、`recut.speech.generate_async`、`recut.media.list_voices`、`recut.media.get_job`、`recut.media.list_assets`、`recut.media.import_image` 与 `recut.media.attach`。平台生成直接返回稳定 `assetId`；若当前图片 route 是 Codex 原生生成，Agent 必须先将最终图片写入当前 Recut 项目目录，再用 `recut.media.import_image` 归档并取得真实 `assetId`，不能只交付对话预览。视频和语音是异步任务，应保存该 id 并等待同一 Asset 被 service 原位更新，而不是重复提交。
 
 ## 最小结构
 

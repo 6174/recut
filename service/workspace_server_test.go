@@ -16,13 +16,14 @@ import (
 
 func TestLocalWorkspaceHandlerServesStaticAndDynamicShells(t *testing.T) {
 	files := fstest.MapFS{
-		"index.html":              {Data: []byte("home")},
-		"projects/app/index.html": {Data: []byte("project")},
-		"apps/app/index.html":     {Data: []byte("app")},
-		"_next/static/chunk.js":   {Data: []byte("chunk")},
+		"index.html":                   {Data: []byte("home")},
+		"projects/app/index.html":      {Data: []byte("project")},
+		"workspace-app/app/index.html": {Data: []byte("workspace app")},
+		"apps/app/index.html":          {Data: []byte("app")},
+		"_next/static/chunk.js":        {Data: []byte("chunk")},
 	}
 	handler := localWorkspaceHandler(files)
-	for requestPath, want := range map[string]string{"/": "home", "/projects/first": "project", "/apps/example": "app", "/_next/static/chunk.js": "chunk"} {
+	for requestPath, want := range map[string]string{"/": "home", "/projects/first": "project", "/workspace-app/example": "workspace app", "/apps/example": "app", "/_next/static/chunk.js": "chunk"} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, requestPath, nil))
 		if recorder.Code != http.StatusOK || recorder.Body.String() != want {

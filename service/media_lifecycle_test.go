@@ -326,11 +326,8 @@ func TestMediaRecoveryLeavesMalformedLegacyJobsUntouched(t *testing.T) {
 func TestMediaSystemProjectIsHiddenFromUserProjects(t *testing.T) {
 	root := t.TempDir()
 	appsDir := filepath.Join(root, "apps")
-	for _, app := range []struct{ dir, manifest string }{{"example", `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`}, {"media", `{"manifestVersion":1,"id":"recut.media-library","name":"Media","author":"Recut","description":"System media library.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`}} {
-		if err := os.MkdirAll(filepath.Join(appsDir, app.dir), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		writeTestFile(t, filepath.Join(appsDir, app.dir, "manifest.json"), app.manifest)
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
 	apps, err := LoadCatalog(appsDir)
 	if err != nil {

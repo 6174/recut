@@ -1,0 +1,50 @@
+{
+  "manifestVersion": 1,
+  "id": "recut.depth-anything",
+  "name": "Depth Anything",
+  "author": "Recut",
+  "description": "在本机将图片或视频转换为可预览的深度图，再按需保存到素材库。",
+  "version": "0.1.0",
+  "type": "standalone",
+  "background": "background.js",
+  "ui": { "standaloneView": "ui/dist/index.html" },
+  "permissions": ["sqlite", "files", "media.read", "media.write", "shell"],
+  "operations": [
+    {
+      "name": "depth.status",
+      "surfaces": ["api", "mcp"],
+      "description": "检查 Depth Anything 本地 Python、FFmpeg、运行环境和已下载模型。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "depth.install",
+      "surfaces": ["api", "mcp"],
+      "description": "安装 Depth Anything 运行依赖，并下载用户选择的模型到 .recut/models/depth-anything-v2。",
+      "inputSchema": { "type": "object", "required": ["model"], "properties": { "model": { "type": "string", "enum": ["small", "base", "large"] } } }
+    },
+    {
+      "name": "depth.prepare",
+      "surfaces": ["api"],
+      "description": "自动安装 Depth Anything 的 Python 运行依赖和官方代码，不下载模型权重。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "depth.generate",
+      "surfaces": ["api"],
+      "description": "把一个图片或视频素材复制到私有工作目录并生成深度预览，不会保存到素材库。",
+      "inputSchema": { "type": "object", "required": ["assetId", "kind", "model", "style"], "properties": { "assetId": { "type": "string" }, "kind": { "type": "string", "enum": ["image", "video"] }, "model": { "type": "string", "enum": ["small", "base", "large"] }, "style": { "type": "string", "enum": ["color", "grayscale"] } } }
+    },
+    {
+      "name": "depth.list",
+      "surfaces": ["api"],
+      "description": "读取尚未导入或已导入素材库的 Depth Anything 输出记录。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "depth.save",
+      "surfaces": ["api"],
+      "description": "将用户明确选择的私有深度输出导入素材库。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
+    }
+  ]
+}

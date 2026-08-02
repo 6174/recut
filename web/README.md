@@ -8,7 +8,7 @@ package-lock.json: 锁定前端依赖的可复现版本。
 next.config.ts: 前端构建配置。
 wrangler.toml: `recut-web` Cloudflare Worker 与静态 Assets 发布配置；域名在 Cloudflare Dashboard 的 Custom Domain 中管理。
 worker.ts: Cloudflare 静态站边缘入口；在边缘内部将项目和 App 语义深链分别映射为唯一静态壳，浏览器仍保留真实 URL，直接交给静态 Assets binding，绝不代理 localhost service。
-public/install.sh: 无源码 Unix 安装/升级入口；从同域 release manifest 取得版本与 SHA-256，macOS 注册 launchd、Linux 注册 systemd user service，FreeBSD 输出进程管理器启动命令。
+public/install.sh: 无源码 Unix 安装/升级入口；从同域 release manifest 取得版本与 SHA-256，macOS 注册 launchd、Linux 注册 systemd user service，并等待 `/health` 验证 daemon 真正启动后才报告成功。
 public/install.ps1: 无源码 Windows 安装/升级入口；校验 ZIP service 包后注册并启动当前用户的登录任务。
 public/releases/latest/: `make service-release` 生成的 macOS、Linux、FreeBSD 和 Windows service 发布包与 SHA-256 manifest；随 Worker Assets 发布，不进入 Git。
 next-env.d.ts: Next.js 自动生成的 TypeScript 环境声明。
