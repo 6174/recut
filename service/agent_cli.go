@@ -16,36 +16,80 @@ import (
 	"time"
 )
 
+type AgentCommandDiagnostic struct {
+	Command      string                 `json:"command"`
+	ServicePath  string                 `json:"servicePath"`
+	ResolvedPath string                 `json:"resolvedPath,omitempty"`
+	Resolution   string                 `json:"resolution,omitempty"`
+	Shells       []AgentShellDiagnostic `json:"shells"`
+}
+
+type AgentShellDiagnostic struct {
+	Shell        string `json:"shell"`
+	Path         string `json:"path,omitempty"`
+	ResolvedPath string `json:"resolvedPath,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
 // findAgentCommand checks the daemon PATH first, then asks the current user's
 // login shell. This keeps NVM, fnm and similar version managers owned by the
 // user's shell configuration instead of encoding their directory layouts.
 func findAgentCommand(command string) (string, error) {
-	if path, err := exec.LookPath(command); err == nil {
-		return path, nil
-	}
-	for _, shell := range agentShells() {
-		if path, err := findAgentCommandInShell(shell, command); err == nil {
-			return path, nil
-		}
+	diagnostic := resolveAgentCommand(command, false)
+	if diagnostic.ResolvedPath != "" {
+		return diagnostic.ResolvedPath, nil
 	}
 	return "", exec.ErrNotFound
 }
 
-func findAgentCommandInShell(shell, command string) (string, error) {
+func inspectAgentCommand(command string) AgentCommandDiagnostic {
+	return resolveAgentCommand(command, true)
+}
+
+func resolveAgentCommand(command string, inspectShells bool) AgentCommandDiagnostic {
+	diagnostic := AgentCommandDiagnostic{Command: command, ServicePath: os.Getenv("PATH"), Shells: []AgentShellDiagnostic{}}
+	if !isAgentCommand(command) {
+		return diagnostic
+	}
+	if path, err := exec.LookPath(command); err == nil {
+		diagnostic.ResolvedPath, diagnostic.Resolution = path, "service PATH"
+		if !inspectShells {
+			return diagnostic
+		}
+	}
+	for _, shell := range agentShells() {
+		shellDiagnostic := inspectAgentCommandInShell(shell, command)
+		diagnostic.Shells = append(diagnostic.Shells, shellDiagnostic)
+		if diagnostic.ResolvedPath == "" && shellDiagnostic.ResolvedPath != "" {
+			diagnostic.ResolvedPath = shellDiagnostic.ResolvedPath
+			diagnostic.Resolution = "login shell " + shell
+		}
+		if diagnostic.ResolvedPath != "" && !inspectShells {
+			return diagnostic
+		}
+	}
+	return diagnostic
+}
+
+func inspectAgentCommandInShell(shell, command string) AgentShellDiagnostic {
+	diagnostic := AgentShellDiagnostic{Shell: shell}
 	if runtime.GOOS == "windows" || !isExecutableFile(shell) || !isAgentCommand(command) {
-		return "", exec.ErrNotFound
+		diagnostic.Error = "shell is unavailable"
+		return diagnostic
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, shell, "-lic", "command -v -- "+command).Output()
+	output, err := exec.CommandContext(ctx, shell, "-lic", "printf '__RECUT_PATH__%s\\n' \"$PATH\"; command -v -- "+command).CombinedOutput()
+	diagnostic.Path = agentShellPathFromOutput(string(output))
 	if err != nil {
-		return "", err
+		diagnostic.Error = err.Error()
+		return diagnostic
 	}
-	path := agentCommandPathFromOutput(command, string(output))
-	if path == "" {
-		return "", exec.ErrNotFound
+	diagnostic.ResolvedPath = agentCommandPathFromOutput(command, string(output))
+	if diagnostic.ResolvedPath == "" {
+		diagnostic.Error = "command was not found in shell PATH"
 	}
-	return path, nil
+	return diagnostic
 }
 
 func agentShells() []string {
@@ -74,6 +118,16 @@ func agentCommandPathFromOutput(command, output string) string {
 	for _, field := range strings.Fields(output) {
 		if filepath.Base(field) == command && filepath.IsAbs(field) && isExecutableFile(field) {
 			return field
+		}
+	}
+	return ""
+}
+
+func agentShellPathFromOutput(output string) string {
+	const marker = "__RECUT_PATH__"
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, marker) {
+			return strings.TrimSpace(strings.TrimPrefix(line, marker))
 		}
 	}
 	return ""

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -135,5 +136,32 @@ func TestGeneralAgentSessionHTTP(t *testing.T) {
 	projects, err := store.List()
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("visible projects = %#v, %v", projects, err)
+	}
+}
+
+func TestSystemLogsExposeDiagnosticsToLocalNetwork(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(root, nil)
+	if err := os.MkdirAll(filepath.Join(root, "logs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "logs", "service-2026-08-02.log"), []byte("INFO service started\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer(nil, store, nil, nil, nil, nil, nil).routes()
+	request := httptest.NewRequest(http.MethodGet, "/v1/system/logs", nil)
+	request.RemoteAddr = "192.168.1.20:17373"
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "CODEX CLI resolution") || !strings.Contains(recorder.Body.String(), "INFO service started") {
+		t.Fatalf("local diagnostics = %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/v1/system/logs", nil)
+	request.RemoteAddr = "203.0.113.10:17373"
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("public diagnostics = %d", recorder.Code)
 	}
 }

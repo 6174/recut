@@ -273,3 +273,10 @@ func TestAgentCommandPathFromOutputUsesVerifiedShellResult(t *testing.T) {
 		t.Fatalf("resolved command = %q, want %q", resolved, command)
 	}
 }
+
+func TestAgentShellPathFromOutputReadsOnlyDiagnosticMarker(t *testing.T) {
+	output := "shell startup noise\n__RECUT_PATH__/usr/local/bin:/usr/bin\n/usr/local/bin/codex\n"
+	if path := agentShellPathFromOutput(output); path != "/usr/local/bin:/usr/bin" {
+		t.Fatalf("shell path = %q", path)
+	}
+}

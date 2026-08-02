@@ -15,7 +15,7 @@ agent-onboarding.tsx: 新建 Codex 或 Claude 会话的非空引导空态；无�
 agent-onboarding-settings.tsx: 全局新对话引导设置；维护用户级卡片标题、说明与 prompt，不修改 App manifest，新增卡片 ID 不依赖安全上下文 UUID。
 settings-panel.tsx: Header 右侧的全局设置面板；可展示并复制本机 service 安装命令、验证并保存本地或远程 service 根地址，也以带能力说明的 Popover 连接多 Provider BYOK 凭据，并按图片、视频、语音用途选择模型；配置请求完成前展示明确加载态，图片可选无需密钥的 Codex 原生生图，字段均有可见标签。
 header-actions.tsx: 工作台 Header 右侧的统一操作组合；在页面流中汇集 service 状态、全局设置与可选页面上下文操作，首页与项目详情共用。
-service-control.tsx: Header 内的 service 控制入口；通过 Zustand 初始化并刷新唯一 endpoint 的全局状态，展示 health 提供的进程启动时间，并在启动时间变化后确认升级或 launchd 重启完成；发现本地 service 更新时将 Header 状态切换为醒目的更新操作，核心工作区保持可用；本地已安装 daemon 才允许网页执行这些操作，远程 service 只展示连接状态。
+service-control.tsx: Header 内的 service 控制入口；通过 Zustand 初始化并刷新唯一 endpoint 的全局状态，展示 health 提供的进程启动时间，并在启动时间变化后确认升级或 launchd 重启完成；所有已连通 service 均提供新标签页诊断日志入口，查看 CLI 解析、PATH 与近期 service 日志，接口仍由 service 限制在本地网络；发现本地 service 更新时将 Header 状态切换为醒目的更新操作，核心工作区保持可用；本地已安装 daemon 才允许网页执行这些操作，远程 service 只展示连接状态。
 app-version-control.tsx: App 版本与升级交互原子；项目 Header 和 Apps 目录复用，系统自带 App 只显示身份与版本，Git App 升级经 Radix Portal 确认并保留 dirty Git 工作树保护。
 create-app-dialog.tsx: Apps 顶部的新建应用引导；交付指向公开架构与 Recut API 标准的可复制 AI Prompt，不直接改写用户的应用目录。
 use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧直接更新 DOM，暴露拖动状态以遮蔽 iframe，松手后才持久化宽度，避免渲染拥塞或跨文档丢失指针事件。

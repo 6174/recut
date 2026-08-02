@@ -10,7 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -54,6 +56,7 @@ func (s *Server) routes() http.Handler {
 		})
 	})
 	mux.HandleFunc("GET /v1/system/status", s.systemStatus)
+	mux.HandleFunc("GET /v1/system/logs", s.systemLogs)
 	mux.HandleFunc("POST /v1/system/update", s.updateSystem)
 	mux.HandleFunc("POST /v1/system/restart", s.restartSystem)
 	mux.HandleFunc("GET /v1/apps", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.apps.List()) })
@@ -148,10 +151,68 @@ type AgentStatus struct {
 func (s *Server) listAgents(w http.ResponseWriter, _ *http.Request) {
 	agents := []AgentStatus{{ID: "codex", Name: "Codex", Command: "codex"}, {ID: "claude", Name: "Claude Code", Command: "claude"}}
 	for index := range agents {
-		_, err := findAgentCommand(agents[index].Command)
-		agents[index].Available = err == nil
+		diagnostic := inspectAgentCommand(agents[index].Command)
+		agents[index].Available = diagnostic.ResolvedPath != ""
+		if agents[index].Available {
+			log.Printf("INFO agent CLI resolved command=%s path=%q source=%q", agents[index].Command, diagnostic.ResolvedPath, diagnostic.Resolution)
+		} else {
+			log.Printf("WARN agent CLI unavailable command=%s service_path=%q", agents[index].Command, diagnostic.ServicePath)
+		}
 	}
 	writeJSON(w, http.StatusOK, agents)
+}
+
+func (s *Server) systemLogs(w http.ResponseWriter, r *http.Request) {
+	if !isLocalNetworkRequest(r) {
+		writeError(w, http.StatusForbidden, errors.New("diagnostic logs are available only from the local network"))
+		return
+	}
+	w.Header().Set("Content-Disposition", "inline; filename=recut-service-diagnostics.log")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintf(w, "Recut service diagnostics\nGenerated: %s\nVersion: %s\n\n", time.Now().UTC().Format(time.RFC3339), ServiceVersion())
+	for _, command := range []string{"codex", "claude"} {
+		data, _ := json.MarshalIndent(inspectAgentCommand(command), "", "  ")
+		fmt.Fprintf(w, "%s CLI resolution\n%s\n\n", strings.ToUpper(command), data)
+	}
+	path, data, err := s.latestServiceLog()
+	if err != nil {
+		fmt.Fprintf(w, "Recent service log unavailable: %v\n", err)
+		return
+	}
+	fmt.Fprintf(w, "Recent service log: %s\n%s", path, data)
+}
+
+func (s *Server) latestServiceLog() (string, []byte, error) {
+	entries, err := os.ReadDir(filepath.Join(s.store.root, "logs"))
+	if err != nil {
+		return "", nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "service-") && strings.HasSuffix(entry.Name(), ".log") {
+			paths = append(paths, filepath.Join(s.store.root, "logs", entry.Name()))
+		}
+	}
+	if len(paths) == 0 {
+		return "", nil, errors.New("no service log file exists")
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
+	file, err := os.Open(paths[0])
+	if err != nil {
+		return "", nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, 256<<10))
+	return paths[0], data, err
+}
+
+func isLocalNetworkRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	address, err := netip.ParseAddr(host)
+	return err == nil && (address.IsLoopback() || address.IsPrivate() || address.IsLinkLocalUnicast())
 }
 
 func withLocalCORS(next http.Handler) http.Handler {
