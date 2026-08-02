@@ -577,7 +577,7 @@ func (m *AgentManager) runRuntime(ctx context.Context, session ChatSession, user
 }
 
 func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
-	command, err := findAgentCommand("codex")
+	command, err := findAgentProcessCommand("codex")
 	if err != nil {
 		return agentCLIUnavailableError("Codex", "codex")
 	}
@@ -611,8 +611,9 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		}
 	}
 	args = append(args, "--json", "--", userTurn.runtimePrompt()+attachmentPrompt(attachments))
-	cmd := exec.CommandContext(ctx, command, args...)
+	cmd := exec.CommandContext(ctx, command.Path, args...)
 	cmd.Dir = projectRoot
+	cmd.Env = environmentWithOverrides(os.Environ(), command.Env)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -662,7 +663,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 // immutable once created, exactly like Codex's thread id, so the generic
 // ChatSession may safely persist it as native_session_id.
 func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
-	command, err := findAgentCommand("claude")
+	command, err := findAgentProcessCommand("claude")
 	if err != nil {
 		return agentCLIUnavailableError("Claude Code", "claude")
 	}
@@ -683,9 +684,9 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	if session.NativeSessionID != "" {
 		args = append(args, "--resume", session.NativeSessionID)
 	}
-	cmd := exec.CommandContext(ctx, command, args...)
+	cmd := exec.CommandContext(ctx, command.Path, args...)
 	cmd.Dir = m.store.projectDir(session.ProjectID)
-	cmd.Env = append(os.Environ(), "RECUT_AGENT_SESSION="+bridgeSession.ID, "RECUT_AGENT_TOKEN="+token)
+	cmd.Env = environmentWithOverrides(os.Environ(), append(command.Env, "RECUT_AGENT_SESSION="+bridgeSession.ID, "RECUT_AGENT_TOKEN="+token))
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err

@@ -151,8 +151,7 @@ type AgentStatus struct {
 func (s *Server) listAgents(w http.ResponseWriter, _ *http.Request) {
 	agents := []AgentStatus{{ID: "codex", Name: "Codex", Command: "codex"}, {ID: "claude", Name: "Claude Code", Command: "claude"}}
 	for index := range agents {
-		// The interactive panel only needs availability. Full multi-shell
-		// inspection is intentionally reserved for the explicit diagnostics page.
+		// 面板只需可用性；完整多 shell 扫描只在用户主动打开诊断页时执行。
 		diagnostic := resolveAgentCommand(agents[index].Command, false)
 		agents[index].Available = diagnostic.ResolvedPath != ""
 		if agents[index].Available {

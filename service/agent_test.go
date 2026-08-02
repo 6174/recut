@@ -280,3 +280,16 @@ func TestAgentShellPathFromOutputReadsOnlyDiagnosticMarker(t *testing.T) {
 		t.Fatalf("shell path = %q", path)
 	}
 }
+
+func TestEnvironmentWithOverridesReplacesPath(t *testing.T) {
+	environment := environmentWithOverrides([]string{"PATH=/usr/bin:/bin", "HOME=/tmp/recut"}, []string{"PATH=/nvm/bin:/usr/bin", "RECUT_AGENT_TOKEN=test"})
+	actual := strings.Join(environment, "\n")
+	for _, expected := range []string{"HOME=/tmp/recut", "PATH=/nvm/bin:/usr/bin", "RECUT_AGENT_TOKEN=test"} {
+		if !strings.Contains(actual, expected) {
+			t.Fatalf("environment missing %q: %s", expected, actual)
+		}
+	}
+	if strings.Contains(actual, "PATH=/usr/bin:/bin") {
+		t.Fatalf("stale PATH was retained: %s", actual)
+	}
+}

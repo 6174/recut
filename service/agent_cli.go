@@ -33,15 +33,35 @@ type AgentShellDiagnostic struct {
 	Error        string `json:"error,omitempty"`
 }
 
+type AgentProcessCommand struct {
+	Path string
+	Env  []string
+}
+
 // findAgentCommand checks the daemon PATH first, then asks the current user's
 // login shell. This keeps NVM, fnm and similar version managers owned by the
 // user's shell configuration instead of encoding their directory layouts.
 func findAgentCommand(command string) (string, error) {
-	diagnostic := resolveAgentCommand(command, false)
-	if diagnostic.ResolvedPath != "" {
-		return diagnostic.ResolvedPath, nil
+	process, err := findAgentProcessCommand(command)
+	if err == nil {
+		return process.Path, nil
 	}
-	return "", exec.ErrNotFound
+	return "", err
+}
+
+func findAgentProcessCommand(command string) (AgentProcessCommand, error) {
+	diagnostic := resolveAgentCommand(command, false)
+	if diagnostic.ResolvedPath == "" {
+		return AgentProcessCommand{}, exec.ErrNotFound
+	}
+	process := AgentProcessCommand{Path: diagnostic.ResolvedPath}
+	for _, shell := range diagnostic.Shells {
+		if shell.ResolvedPath == diagnostic.ResolvedPath && shell.Path != "" {
+			process.Env = []string{"PATH=" + shell.Path}
+			break
+		}
+	}
+	return process, nil
 }
 
 func inspectAgentCommand(command string) AgentCommandDiagnostic {
@@ -145,4 +165,22 @@ func isExecutableFile(path string) bool {
 		return false
 	}
 	return runtime.GOOS == "windows" || info.Mode()&0o111 != 0
+}
+
+func environmentWithOverrides(environment, overrides []string) []string {
+	replaced := make(map[string]bool, len(overrides))
+	for _, override := range overrides {
+		name, _, found := strings.Cut(override, "=")
+		if found {
+			replaced[name] = true
+		}
+	}
+	merged := make([]string, 0, len(environment)+len(overrides))
+	for _, value := range environment {
+		name, _, found := strings.Cut(value, "=")
+		if !found || !replaced[name] {
+			merged = append(merged, value)
+		}
+	}
+	return append(merged, overrides...)
 }
