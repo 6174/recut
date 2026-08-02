@@ -108,7 +108,6 @@ func (m *MediaService) runningAtlasJobIDs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	rows, err := db.Query(`select distinct j.id from media_jobs j join media_assets a on a.job_id = j.id join media_credentials c on c.id = j.credential_id where j.status = 'running' and j.remote_id != '' and a.status = 'running' and c.provider = 'atlas-cloud'`)
 	if err != nil {
 		return nil, err
@@ -126,7 +125,6 @@ func (m *MediaService) repairRunningAtlasBindings() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer db.Close()
 	rows, err := db.Query(`select j.id, a.id, j.remote_id, j.remote_poll_url, a.remote_id, a.remote_poll_url from media_jobs j join media_assets a on a.job_id = j.id where j.status = 'running' and a.status = 'running' and j.model_id like 'atlas-cloud/%'`)
 	if err != nil {
 		return 0, err
@@ -186,7 +184,6 @@ func (m *MediaService) repairAtlasBinding(binding atlasBinding) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer db.Close()
 	tx, err := db.Begin()
 	if err != nil {
 		return false, err
@@ -227,7 +224,6 @@ func (m *MediaService) queuedJobIDs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	rows, err := db.Query(`select distinct j.id from media_jobs j join media_assets a on a.job_id = j.id where j.status = 'queued' and j.remote_id = '' and j.submission_started_at = '' and a.status = 'queued' and a.remote_id = ''`)
 	if err != nil {
 		return nil, err
@@ -253,7 +249,6 @@ func (m *MediaService) failUnavailableAtlasJobs() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer db.Close()
 	rows, err := db.Query(`select j.id, a.id, j.credential_id from media_jobs j join media_assets a on a.job_id = j.id where j.status = 'running' and j.remote_id != '' and a.status = 'running' and j.model_id like 'atlas-cloud/%'`)
 	if err != nil {
 		return 0, err
@@ -362,7 +357,6 @@ func (m *MediaService) checkpointQueuedSubmission(job MediaJob) (MediaJob, bool,
 	if err != nil {
 		return MediaJob{}, false, err
 	}
-	defer db.Close()
 	tx, err := db.Begin()
 	if err != nil {
 		return MediaJob{}, false, err
@@ -394,7 +388,6 @@ func (m *MediaService) queuedTask(jobID string) (MediaJob, MediaCredential, bool
 	if err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
 	}
-	defer db.Close()
 	job, err := scanJob(db.QueryRow("select "+jobColumns+" from media_jobs where id = ? and status = 'queued' and remote_id = '' and submission_started_at = ''", jobID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return MediaJob{}, MediaCredential{}, false, nil
@@ -433,7 +426,6 @@ func (m *MediaService) activateQueuedTask(jobID string) (MediaJob, MediaCredenti
 	if err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
 	}
-	defer db.Close()
 	tx, err := db.Begin()
 	if err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
@@ -511,7 +503,6 @@ func (m *MediaService) bindQueuedAtlasPrediction(job MediaJob, assetID, remoteID
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	defer db.Close()
 	tx, err := db.Begin()
 	if err != nil {
 		return MediaAsset{}, err
@@ -564,7 +555,6 @@ func (m *MediaService) failQueuedAsset(jobID, assetID, message string) {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	tx, err := db.Begin()
 	if err != nil {
 		return
@@ -606,7 +596,6 @@ func (m *MediaService) failUncertainUnboundTasks() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer db.Close()
 	now := time.Now().UTC()
 	rows, err := db.Query(`select j.id, a.id, j.status, j.model_id from media_jobs j join media_assets a on a.job_id = j.id left join media_task_leases l on l.job_id = j.id where j.remote_id = '' and a.remote_id = '' and ((j.status = 'queued' and j.submission_started_at != '' and a.status = 'queued') or (j.status = 'running' and a.status = 'running')) and (l.job_id is null or l.expires_at_ms <= ?)`, now.UnixMilli())
 	if err != nil {
@@ -648,7 +637,6 @@ func (m *MediaService) claimTaskLease(jobID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer db.Close()
 	now := time.Now().UTC()
 	result, err := db.Exec(`insert into media_task_leases (job_id, owner_id, expires_at_ms, updated_at) values (?, ?, ?, ?) on conflict(job_id) do update set owner_id = excluded.owner_id, expires_at_ms = excluded.expires_at_ms, updated_at = excluded.updated_at where media_task_leases.expires_at_ms <= ? or media_task_leases.owner_id = ?`, jobID, m.schedulerID, now.Add(mediaTaskLeaseLifetime).UnixMilli(), now.Format(time.RFC3339Nano), now.UnixMilli(), m.schedulerID)
 	if err != nil {
@@ -693,7 +681,6 @@ func (m *MediaService) extendTaskLease(jobID string) bool {
 	if err != nil {
 		return false
 	}
-	defer db.Close()
 	now := time.Now().UTC()
 	result, err := db.Exec("update media_task_leases set expires_at_ms = ?, updated_at = ? where job_id = ? and owner_id = ?", now.Add(mediaTaskLeaseLifetime).UnixMilli(), now.Format(time.RFC3339Nano), jobID, m.schedulerID)
 	if err != nil {
@@ -708,6 +695,5 @@ func (m *MediaService) releaseTaskLease(jobID string) {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	_, _ = db.Exec("delete from media_task_leases where job_id = ? and owner_id = ?", jobID, m.schedulerID)
 }

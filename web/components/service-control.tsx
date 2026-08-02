@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Zustand 全局 service 状态、endpoint 配置、Radix Popover 及 service 的 health、system status、self-update 与 restart HTTP API
- * [OUTPUT]: 对外提供 Header 内的 service 状态、版本、启动时间、升级与重启确认浮层，并初始化唯一连接状态
+ * [OUTPUT]: 对外提供 Header 内的 service 状态、版本、启动时间、非阻塞的醒目升级入口与重启确认浮层，并初始化唯一连接状态
  * [POS]: web/components 的跨页面 service 控制入口；由 HeaderActions 挂载，浮层经 Portal 脱离 Header 堆叠上下文
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -34,7 +34,7 @@ export function ServiceControl() {
 
   const online = service.phase === "online";
   const localEndpoint = isDefaultServiceEndpoint(apiBase);
-  const updateAvailable = online && isOlderVersion(service.version, latestVersion);
+  const updateAvailable = online && localEndpoint && isOlderVersion(service.version, latestVersion);
   const developmentService = service.version === "dev";
   async function run(action: Exclude<Action, null>) {
     setWorking(action); setMessage("");
@@ -52,11 +52,14 @@ export function ServiceControl() {
     } finally { setWorking(null); }
   }
 
+  const triggerClassName = updateAvailable
+    ? "flex h-8 items-center gap-1.5 rounded-xs bg-primary px-2.5 font-sans text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:ring-2 focus-visible:ring-ring"
+    : "flex h-8 items-center gap-2 rounded-xs px-2 font-mono text-[10px] text-muted-foreground transition hover:bg-muted hover:text-foreground";
   return <Popover onOpenChange={setOpen} open={open}>
     <PopoverTrigger asChild>
-      <button aria-label="管理 service" className="flex h-8 items-center gap-2 rounded-xs px-2 font-mono text-[10px] text-muted-foreground transition hover:bg-muted hover:text-foreground" type="button">
+      <button aria-label={updateAvailable ? `升级本地 service 至 v${latestVersion}` : "管理 service"} className={triggerClassName} title={updateAvailable ? `发现 v${latestVersion} 更新` : undefined} type="button">
       <span className={online ? "size-1.5 rounded-full bg-success" : service.phase === "checking" ? "size-1.5 animate-pulse rounded-full bg-muted-foreground" : "size-1.5 rounded-full bg-warning"} />
-      <span>{localEndpoint ? "LOCAL" : "REMOTE"} SERVICE {online ? service.version : service.phase === "checking" ? "CONNECTING" : "OFFLINE"}</span><ChevronDown className="size-3" />
+      {updateAvailable ? <><Download className="size-3.5" /><span>更新 v{latestVersion}</span></> : <><span>{localEndpoint ? "LOCAL" : "REMOTE"} SERVICE {online ? service.version : service.phase === "checking" ? "CONNECTING" : "OFFLINE"}</span><ChevronDown className="size-3" /></>}
       </button>
     </PopoverTrigger>
     <PopoverContent align="end" aria-label="service 管理" className="w-80 p-4 font-sans text-xs">

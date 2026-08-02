@@ -55,6 +55,19 @@ export default function StandaloneAppClient() {
     return () => { active = false; };
   }, [apiBase, appID, online]);
 
+  useEffect(() => {
+    if (!scope) return;
+    const eventsURL = new URL("/v1/events", apiBase);
+    eventsURL.protocol = eventsURL.protocol === "https:" ? "wss:" : "ws:";
+    const events = new WebSocket(eventsURL);
+    events.addEventListener("open", () => events.send(JSON.stringify({ type: "subscribe", projectId: scope.id })));
+    events.addEventListener("message", (message) => {
+      const payload = JSON.parse(message.data) as { type?: string; event?: unknown };
+      if (payload.type === "project.event") appFrame.current?.contentWindow?.postMessage({ type: "recut.project.event", event: payload.event }, apiBase);
+    });
+    return () => events.close();
+  }, [apiBase, scope]);
+
   const connectUI = () => {
     if (!scope || !appFrame.current) return;
     const channel = new MessageChannel();

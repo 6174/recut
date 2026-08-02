@@ -1,0 +1,5 @@
+# Platform-owned virtual environment requirements for Depth Anything V2.
+torch
+torchvision
+opencv-python-headless
+timm

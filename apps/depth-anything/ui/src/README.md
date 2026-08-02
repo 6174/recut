@@ -10,6 +10,6 @@ style.css: 紧凑的应用工作台视觉样式和响应式布局。
 
 依赖关系
 
-`main.tsx` 只通过 `recut-sdk.ts` 调用 App operation；`depth.generate` 返回私有 `previewURL`，`depth.save` 是唯一可以产生素材库 Asset 的 UI 动作。
+`main.tsx` 只通过 `recut-sdk.ts` 调用 App operation；`depth.generate` 返回可观察 Job，收到 `shell.job.completed` 后通过 `depth.complete` 取得私有 `previewURL`；`depth.save` 是唯一可以产生素材库 Asset 的 UI 动作。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

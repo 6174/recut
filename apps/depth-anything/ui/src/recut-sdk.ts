@@ -19,6 +19,10 @@ function call(type: RequestType, input: Record<string, unknown>) {
 }
 
 window.addEventListener("message", (event) => {
+	if (event.data?.type === "recut.project.event") {
+		window.dispatchEvent(new CustomEvent("recut-project-event", { detail: event.data.event }));
+		return;
+	}
   if (event.data?.type !== "recut.ui.connect" || !event.ports[0]) return;
   port = event.ports[0];
   port.onmessage = (message) => {
@@ -35,4 +39,5 @@ export const recut = {
   state: { query: (name: string) => call("state.query", { name }) },
   background: { call: (name: string, input: Record<string, unknown> = {}) => call("background.call", { name, ...input }) },
   agent: { send: (prompt: string) => call("agent.send", { prompt }) },
+  events: { subscribe: (listener: (event: unknown) => void) => { const handler = (event: Event) => listener((event as CustomEvent).detail); window.addEventListener("recut-project-event", handler); return () => window.removeEventListener("recut-project-event", handler); } },
 };

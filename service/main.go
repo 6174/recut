@@ -51,6 +51,11 @@ func main() {
 	media := NewMediaService(store)
 	bridge := NewAgentBridge(store)
 	host := NewAppHost(apps, store, media)
+	if recovered, err := host.jobs.RecoverInterrupted(); err != nil {
+		log.Fatal(err)
+	} else if recovered > 0 {
+		log.Printf("Reconciled %d interrupted shell job(s)", recovered)
+	}
 	if *mcpStdio {
 		if err := RunMCPStdio(bridge, host, media, os.Stdin, os.Stdout); err != nil {
 			log.Fatal(err)

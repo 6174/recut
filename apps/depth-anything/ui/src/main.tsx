@@ -8,7 +8,7 @@ import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Check, Download, Image, LoaderCircle, Save, Send, SlidersHorizontal, Upload, Video } from "lucide-react";
 import { recut } from "./recut-sdk";
-import type { DepthOutput, MediaAsset, Model, OutputStyle, RuntimeStatus, SourceKind } from "./types";
+import type { DepthOutput, MediaAsset, Model, OutputStyle, RuntimeStatus, ShellJob, SourceKind } from "./types";
 import "./style.css";
 
 const models: { id: Model; label: string; note: string }[] = [
@@ -27,6 +27,8 @@ function App() {
   const [style, setStyle] = useState<OutputStyle>("color");
   const [busy, setBusy] = useState<"prepare" | "install" | "generate" | "save" | "upload" | "agent" | null>(null);
   const [message, setMessage] = useState("正在检查本地运行环境…");
+  const [activeJob, setActiveJob] = useState<{ id: string; action: "prepare" | "install" | "generate"; outputID?: string } | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -46,6 +48,26 @@ function App() {
 
   useEffect(() => { window.addEventListener("recut-sdk-ready", refresh); void refresh(); return () => window.removeEventListener("recut-sdk-ready", refresh); }, [refresh]);
   useEffect(() => { void loadAssets().catch((error) => setMessage(error.message)); }, [loadAssets]);
+  useEffect(() => recut.events.subscribe((raw) => {
+    const event = raw as { type?: string; log?: { jobId?: string; text?: string }; job?: ShellJob };
+    if (event.type === "shell.job.log" && event.log?.jobId === activeJob?.id) setLogs((items) => [...items, event.log?.text || ""].slice(-80));
+    if (event.type !== "shell.job.completed" || event.job?.id !== activeJob?.id) return;
+    const completed = event.job;
+    if (completed.status !== "completed") {
+      setMessage(completed.error || "本地任务未完成。"); setBusy(null); setActiveJob(null); return;
+    }
+    void (async () => {
+      try {
+        if (activeJob.action === "generate" && activeJob.outputID) {
+          const output = await recut.background.call("depth.complete", { id: activeJob.outputID }) as DepthOutput;
+          setOutputs((items) => [output, ...items]); setMessage("深度预览已生成，尚未进入素材库。");
+        } else {
+          await refresh(); setMessage(activeJob.action === "prepare" ? "运行环境已就绪，请选择要下载的模型。" : "模型下载完成，可以开始转换。");
+        }
+      } catch (error) { setMessage(error instanceof Error ? error.message : "任务完成后无法刷新状态。"); }
+      finally { setBusy(null); setActiveJob(null); }
+    })();
+  }), [activeJob, refresh]);
 
   const compatibleAssets = useMemo(() => assets.filter((asset) => asset.kind === sourceKind), [assets, sourceKind]);
   const readyModel = Boolean(status?.installedModels.includes(model));
@@ -54,26 +76,23 @@ function App() {
   const install = async () => {
     setBusy("install");
     setMessage(`正在安装运行环境并下载 ${models.find((item) => item.id === model)?.label} 模型…`);
-    try { setStatus(await recut.background.call("depth.install", { model }) as RuntimeStatus); setMessage("安装完成，可以开始转换。"); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "安装失败。"); }
-    finally { setBusy(null); }
+    try { const result = await recut.background.call("depth.install", { model }) as { job: ShellJob }; setActiveJob({ id: result.job.id, action: "install" }); setLogs([]); setMessage(`正在下载 ${models.find((item) => item.id === model)?.label} 模型…`); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "安装失败。"); setBusy(null); }
   };
 
   const prepare = useCallback(async () => {
     setBusy("prepare");
     setMessage("正在自动准备 Python 运行环境…");
-    try { const next = await recut.background.call("depth.prepare") as RuntimeStatus; setStatus(next); setMessage("运行环境已就绪，请选择要下载的模型。"); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "运行环境准备失败。"); }
-    finally { setBusy(null); }
+    try { const result = await recut.background.call("depth.prepare") as { job: ShellJob }; setActiveJob({ id: result.job.id, action: "prepare" }); setLogs([]); setMessage("正在自动准备 Python 运行环境…"); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "运行环境准备失败。"); setBusy(null); }
   }, []);
 
   const generate = async () => {
     if (!assetId) return setMessage("先选择一张图片或一个视频素材。");
     setBusy("generate");
     setMessage(sourceKind === "video" ? "正在逐帧计算深度图，视频处理会花更长时间。" : "正在生成深度图…");
-    try { const output = await recut.background.call("depth.generate", { assetId, kind: sourceKind, model, style }) as DepthOutput; setOutputs((items) => [output, ...items]); setMessage("深度预览已生成，尚未进入素材库。"); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "生成失败。"); }
-    finally { setBusy(null); }
+    try { const result = await recut.background.call("depth.generate", { assetId, kind: sourceKind, model, style }) as { job: ShellJob; output: { id: string } }; setActiveJob({ id: result.job.id, action: "generate", outputID: result.output.id }); setLogs([]); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "生成失败。"); setBusy(null); }
   };
 
   const save = async (output: DepthOutput) => {
@@ -104,14 +123,14 @@ function App() {
     finally { setBusy(null); }
   };
 
-  if (!status?.ready) return <Setup status={status} busy={busy} message={message} onPrepare={() => void prepare()} onAskAgent={() => void askAgent()} />;
-  return <main className="app-shell"><header className="app-header"><div><p className="eyebrow">RECUT APP / LOCAL DEPTH</p><h1>Depth Anything</h1><p>将图片或视频转换为深度图。预览不会自动进入素材库。</p></div><button className="icon-button" aria-label="重新检查运行环境" onClick={() => void refresh()} title="重新检查运行环境"><SlidersHorizontal size={16} /></button></header><section className="workspace"><div className="controls"><SectionTitle label="输入" title="选择素材" /><div className="segmented">{(["image", "video"] as SourceKind[]).map((kind) => <button className={sourceKind === kind ? "selected" : ""} key={kind} onClick={() => { setSourceKind(kind); setAssetId(""); }} type="button">{kind === "image" ? <Image size={15} /> : <Video size={15} />}{kind === "image" ? "图片" : "视频"}</button>)}</div><label className="field-label" htmlFor="source-asset">素材库</label><select id="source-asset" onChange={(event) => setAssetId(event.target.value)} value={assetId}><option value="">选择{sourceKind === "image" ? "图片" : "视频"}素材</option>{compatibleAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>)}</select><label className="upload-control"><Upload size={15} />上传{sourceKind === "image" ? "图片" : "视频"}<input accept={`${sourceKind}/*`} onChange={(event) => void upload(event.target.files?.[0])} type="file" /></label><SectionTitle label="模型" title="本地权重" /><label className="field-label" htmlFor="depth-model">模型尺寸</label><select id="depth-model" onChange={(event) => setModel(event.target.value as Model)} value={model}>{models.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.note}</option>)}</select>{readyModel ? <p className="model-ready"><Check size={14} />已下载</p> : <button className="secondary-button" disabled={busy !== null} onClick={() => void install()} type="button"><Download size={15} />下载此模型</button>}<SectionTitle label="输出" title="深度图样式" /><div className="segmented">{(["color", "grayscale"] as OutputStyle[]).map((item) => <button className={style === item ? "selected" : ""} key={item} onClick={() => setStyle(item)} type="button">{item === "color" ? "伪彩" : "灰度"}</button>)}</div><button className="primary-button" disabled={busy !== null || !assetId || !readyModel} onClick={() => void generate()} type="button">{busy === "generate" ? <LoaderCircle className="spin" size={16} /> : <Image size={16} />}{busy === "generate" ? "正在生成…" : "生成深度图"}</button></div><OutputPanel output={currentOutput} busy={busy} onSave={save} /></section><History outputs={outputs.slice(1)} busy={busy} onSave={save} /><p className="status" role="status">{message}</p></main>;
+  if (!status?.ready) return <Setup status={status} busy={busy} logs={logs} message={message} onPrepare={() => void prepare()} onAskAgent={() => void askAgent()} />;
+  return <main className="app-shell"><header className="app-header"><div><p className="eyebrow">RECUT APP / LOCAL DEPTH</p><h1>Depth Anything</h1><p>将图片或视频转换为深度图。预览不会自动进入素材库。</p></div><button className="icon-button" aria-label="重新检查运行环境" onClick={() => void refresh()} title="重新检查运行环境"><SlidersHorizontal size={16} /></button></header><section className="workspace"><div className="controls"><SectionTitle label="输入" title="选择素材" /><div className="segmented">{(["image", "video"] as SourceKind[]).map((kind) => <button className={sourceKind === kind ? "selected" : ""} key={kind} onClick={() => { setSourceKind(kind); setAssetId(""); }} type="button">{kind === "image" ? <Image size={15} /> : <Video size={15} />}{kind === "image" ? "图片" : "视频"}</button>)}</div><label className="field-label" htmlFor="source-asset">素材库</label><select id="source-asset" onChange={(event) => setAssetId(event.target.value)} value={assetId}><option value="">选择{sourceKind === "image" ? "图片" : "视频"}素材</option>{compatibleAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>)}</select><label className="upload-control"><Upload size={15} />上传{sourceKind === "image" ? "图片" : "视频"}<input accept={`${sourceKind}/*`} onChange={(event) => void upload(event.target.files?.[0])} type="file" /></label><SectionTitle label="模型" title="本地权重" /><label className="field-label" htmlFor="depth-model">模型尺寸</label><select id="depth-model" onChange={(event) => setModel(event.target.value as Model)} value={model}>{models.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.note}</option>)}</select>{readyModel ? <p className="model-ready"><Check size={14} />已下载</p> : <button className="secondary-button" disabled={busy !== null} onClick={() => void install()} type="button"><Download size={15} />下载此模型</button>}<SectionTitle label="输出" title="深度图样式" /><div className="segmented">{(["color", "grayscale"] as OutputStyle[]).map((item) => <button className={style === item ? "selected" : ""} key={item} onClick={() => setStyle(item)} type="button">{item === "color" ? "伪彩" : "灰度"}</button>)}</div><button className="primary-button" disabled={busy !== null || !assetId || !readyModel} onClick={() => void generate()} type="button">{busy === "generate" ? <LoaderCircle className="spin" size={16} /> : <Image size={16} />}{busy === "generate" ? "正在生成…" : "生成深度图"}</button></div><OutputPanel output={currentOutput} busy={busy} onSave={save} /></section><History outputs={outputs.slice(1)} busy={busy} onSave={save} />{logs.length > 0 && <pre className="job-log">{logs.join("")}</pre>}<p className="status" role="status">{message}</p></main>;
 }
 
-function Setup({ status, busy, message, onPrepare, onAskAgent }: { status: RuntimeStatus | null; busy: string | null; message: string; onPrepare: () => void; onAskAgent: () => void }) {
+function Setup({ status, busy, logs, message, onPrepare, onAskAgent }: { status: RuntimeStatus | null; busy: string | null; logs: string[]; message: string; onPrepare: () => void; onAskAgent: () => void }) {
   const started = useRef(false);
   useEffect(() => { if (status && !started.current) { started.current = true; onPrepare(); } }, [status, onPrepare]);
-  return <main className="setup"><div className="setup-mark"><AlertTriangle size={22} /></div><p className="eyebrow">DEPTH ANYTHING / LOCAL SETUP</p><h1>准备本地运行环境</h1><p>Depth Anything 在本机 Python 中执行。进入应用后会自动安装依赖与官方代码；模型权重将在工作台中由你自行选择下载，全部保存在 <code>~/.recut/models/depth-anything-v2</code>。</p>{status?.error && <div className="error-box"><strong>检查结果</strong><pre>{status.error}</pre><button className="link-button" disabled={busy !== null} onClick={onAskAgent} type="button"><Send size={14} />交给右侧 Codex 处理</button></div>}<button className="secondary-button" disabled={busy !== null} onClick={onPrepare} type="button">{busy === "prepare" ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />}{busy === "prepare" ? "正在自动准备…" : "重试运行环境准备"}</button><p className="status" role="status">{message}</p></main>;
+  return <main className="setup"><div className="setup-mark"><AlertTriangle size={22} /></div><p className="eyebrow">DEPTH ANYTHING / LOCAL SETUP</p><h1>准备本地运行环境</h1><p>Depth Anything 在本机 Python 中执行。进入应用后会自动安装依赖与官方代码；模型权重将在工作台中由你自行选择下载，全部保存在 <code>~/.recut/models/depth-anything-v2</code>。</p>{status?.error && <div className="error-box"><strong>检查结果</strong><pre>{status.error}</pre><button className="link-button" disabled={busy !== null} onClick={onAskAgent} type="button"><Send size={14} />交给右侧 Codex 处理</button></div>}{logs.length > 0 && <pre className="job-log">{logs.join("")}</pre>}<button className="secondary-button" disabled={busy !== null} onClick={onPrepare} type="button">{busy === "prepare" ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />}{busy === "prepare" ? "正在自动准备…" : "重试运行环境准备"}</button><p className="status" role="status">{message}</p></main>;
 }
 
 function OutputPanel({ output, busy, onSave }: { output?: DepthOutput; busy: string | null; onSave: (output: DepthOutput) => void }) {

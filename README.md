@@ -31,7 +31,7 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 
 运行 `git submodule update --init --recursive` 获取 Vox B-roll 后，再运行 `make app-link` 链接全部本地 App；只链接一个包时使用 `make app-link APP=apps/vox-broll`。随后运行 `make dev`。
 
-运行 `make dev` 启动服务和工作台；其 service 固定报告为 `dev`，只能由开发命令停止/重启，网页管理器会明确禁用生产 service 操作。生产 `make service-build` 先以 `NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local` 导出同源工作台（不包含发布安装包），再将它嵌入 service binary；启动后直接访问 service 地址即可。`make check` 执行 Go 测试、静态检查与前端构建。
+运行 `make dev` 或 `make service-dev` 时，命令会先暂停当前用户受 launchd/systemd 托管、占用 `17373` 的正式 Recut service，并确认端口已释放；若该端口属于其他程序则明确拒绝终止。开发 service 固定报告为 `dev`，只能由开发命令停止/重启，网页管理器会明确禁用生产 service 操作。结束开发后运行 `make service-resume` 恢复已安装的正式 service。生产 `make service-build` 先以 `NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local` 导出同源工作台（不包含发布安装包），再将它嵌入 service binary；启动后直接访问 service 地址即可。`make check` 执行 Go 测试、静态检查与前端构建。
 
 ## 发布与本地连接
 

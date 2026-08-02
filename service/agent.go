@@ -94,7 +94,6 @@ func (m *AgentManager) RecoverInterruptedTurns() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer db.Close()
 	tx, err := db.Begin()
 	if err != nil {
 		return 0, err
@@ -171,7 +170,6 @@ func (m *AgentManager) queuedSessionIDs() []string {
 	if err != nil {
 		return nil
 	}
-	defer db.Close()
 	rows, err := db.Query("select distinct session_id from agent_turns where role = ? and status = ?", "user", "queued")
 	if err != nil {
 		return nil
@@ -214,7 +212,6 @@ func (m *AgentManager) Create(projectID, runtime, codexModel, reasoningEffort st
 	if err != nil {
 		return ChatSession{}, err
 	}
-	defer db.Close()
 	_, err = db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, codex_model, reasoning_effort, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.ProjectID, session.Runtime, session.NativeSessionID, session.CodexModel, session.ReasoningEffort, session.Title, session.Status, iso(now), iso(now))
 	return session, err
 }
@@ -224,7 +221,6 @@ func (m *AgentManager) List(projectID string) ([]ChatSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	query, args := "select id, profile_id, project_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
 	if projectID != "" {
 		query += " and project_id = ?"
@@ -252,7 +248,6 @@ func (m *AgentManager) Detail(id string) (ChatSessionDetail, error) {
 	if err != nil {
 		return ChatSessionDetail{}, err
 	}
-	defer db.Close()
 	session, err := getChatSession(db, id)
 	if err != nil {
 		return ChatSessionDetail{}, err
@@ -289,7 +284,6 @@ func (m *AgentManager) Events(id string, after int64) ([]ChatEvent, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	if _, err := getChatSession(db, id); err != nil {
 		return nil, err
 	}
@@ -304,30 +298,29 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (Cha
 	}
 	session, err := getChatSession(db, sessionID)
 	if err != nil {
-		_ = db.Close()
 		return ChatTurn{}, err
 	}
 	attachments, err := m.turnAttachments(session.ProjectID, assetIDs)
 	if err != nil {
-		_ = db.Close()
 		return ChatTurn{}, err
 	}
 	if text == "" && len(attachments) == 0 {
-		_ = db.Close()
 		return ChatTurn{}, errors.New("message or image is required")
 	}
 	turnID, err := newID()
 	if err != nil {
-		_ = db.Close()
 		return ChatTurn{}, err
 	}
 	now := time.Now().UTC()
 	turn := ChatTurn{ID: turnID, SessionID: sessionID, Role: "user", Content: text, Status: "queued", CreatedAt: now, Attachments: attachments}
-	_, err = db.Exec("insert into agent_turns (id, session_id, role, content, status, created_at) values (?, ?, ?, ?, ?, ?)", turn.ID, turn.SessionID, turn.Role, turn.Content, turn.Status, iso(now))
+	tx, err := db.Begin()
+	if err == nil {
+		defer tx.Rollback()
+		_, err = tx.Exec("insert into agent_turns (id, session_id, role, content, status, created_at) values (?, ?, ?, ?, ?, ?)", turn.ID, turn.SessionID, turn.Role, turn.Content, turn.Status, iso(now))
+	}
 	if err == nil {
 		for _, attachment := range attachments {
-			_, err = db.Exec("insert into agent_turn_attachments (turn_id, asset_id) values (?, ?)", turn.ID, attachment.AssetID)
-			if err != nil {
+			if _, err = tx.Exec("insert into agent_turn_attachments (turn_id, asset_id) values (?, ?)", turn.ID, attachment.AssetID); err != nil {
 				break
 			}
 		}
@@ -340,10 +333,14 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (Cha
 				title = "图片对话"
 			}
 		}
-		_, err = db.Exec("update agent_sessions set title = ?, status = ?, updated_at = ? where id = ?", title, "running", iso(now), sessionID)
-		session.Title, session.Status = title, "running"
+		_, err = tx.Exec("update agent_sessions set title = ?, status = ?, updated_at = ? where id = ?", title, "running", iso(now), sessionID)
+		if err == nil {
+			err = tx.Commit()
+		}
+		if err == nil {
+			session.Title, session.Status = title, "running"
+		}
 	}
-	_ = db.Close()
 	if err != nil {
 		return ChatTurn{}, err
 	}
@@ -411,7 +408,6 @@ func (m *AgentManager) UpdateCodexConfiguration(sessionID, model, effort string)
 	if err != nil {
 		return ChatSession{}, err
 	}
-	defer db.Close()
 	session, err := getChatSession(db, sessionID)
 	if err != nil {
 		return ChatSession{}, err
@@ -483,7 +479,6 @@ func (m *AgentManager) hasQueuedTurn(sessionID string) bool {
 	if err != nil {
 		return false
 	}
-	defer db.Close()
 	var count int
 	err = db.QueryRow("select count(*) from agent_turns where session_id = ? and role = ? and status = ?", sessionID, "user", "queued").Scan(&count)
 	return err == nil && count > 0
@@ -494,7 +489,6 @@ func (m *AgentManager) nextQueuedTurn(sessionID string) (ChatSession, ChatTurn, 
 	if err != nil {
 		return ChatSession{}, ChatTurn{}, false
 	}
-	defer db.Close()
 	session, err := getChatSession(db, sessionID)
 	if err != nil {
 		return ChatSession{}, ChatTurn{}, false
@@ -516,7 +510,6 @@ func (m *AgentManager) completeTurn(turnID, status string) {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	_, _ = db.Exec("update agent_turns set status = ?, completed_at = ? where id = ?", status, iso(time.Now().UTC()), turnID)
 }
 
@@ -525,7 +518,6 @@ func (m *AgentManager) completeTurnIfRunning(turnID, status string) bool {
 	if err != nil {
 		return false
 	}
-	defer db.Close()
 	result, err := db.Exec("update agent_turns set status = ?, completed_at = ? where id = ? and status = ?", status, iso(time.Now().UTC()), turnID, "running")
 	if err != nil {
 		return false
@@ -539,7 +531,6 @@ func (m *AgentManager) cancelActiveTurn(sessionID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer db.Close()
 	tx, err := db.Begin()
 	if err != nil {
 		return "", err
@@ -1003,7 +994,6 @@ func (m *AgentManager) addAssistantTurn(sessionID, text string) {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	_, _ = db.Exec("insert into agent_turns (id, session_id, role, content, status, created_at, completed_at) values (?, ?, ?, ?, ?, ?, ?)", id, sessionID, "assistant", text, "completed", iso(now), iso(now))
 }
 
@@ -1017,7 +1007,6 @@ func (m *AgentManager) emit(sessionID, turnID, eventType string, payload any) {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	_, _ = db.Exec("insert into agent_events (session_id, turn_id, type, payload_json, created_at) values (?, ?, ?, ?, ?)", sessionID, turnID, eventType, string(data), iso(now))
 }
 
@@ -1030,7 +1019,6 @@ func (m *AgentManager) updateSession(id, clause, value string) {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	_, _ = db.Exec("update agent_sessions set "+clause+", updated_at = ? where id = ?", value, iso(time.Now().UTC()), id)
 }
 func (m *AgentManager) finish(id string) { m.mu.Lock(); delete(m.running, id); m.mu.Unlock() }

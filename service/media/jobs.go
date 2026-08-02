@@ -152,7 +152,6 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 	if err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
 	}
-	defer db.Close()
 	if existing, err := m.jobByKey(db, input.IdempotencyKey); err == nil {
 		return existing, credential, false, nil
 	}
@@ -181,7 +180,6 @@ func (m *MediaService) getJob(id string) (MediaJob, error) {
 	if err != nil {
 		return MediaJob{}, err
 	}
-	defer db.Close()
 	return scanJob(db.QueryRow("select "+jobColumns+" from media_jobs where id = ?", id))
 }
 
@@ -536,7 +534,6 @@ func (m *MediaService) setJobStatus(id, status string, assetIDs []string, messag
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if assetIDs == nil {
 		_, _ = db.Exec("update media_jobs set status = ?, error = ?, updated_at = ? where id = ?", status, message, now, id)

@@ -102,3 +102,14 @@ func TestCatalogLoadsManifestOnboarding(t *testing.T) {
 		t.Fatalf("onboarding = %#v, found = %v", app.Manifest.Onboarding, ok)
 	}
 }
+
+func TestCatalogValidatesPythonRuntime(t *testing.T) {
+	valid := Manifest{ManifestVersion: 1, ID: "example.python", Name: "Python", Author: "Test", Description: "Test App.", Version: "1.0.0", Kind: ProjectApp, Background: "background.js", UI: UIEntrypoints{ProjectView: "ui/index.html"}, Permissions: []string{"python", "shell"}, Runtime: AppRuntime{Python: &PythonRuntime{Venv: "example-runtime", Requirements: "python/requirements.lock", Bootstrap: "bootstrap.sh"}}}
+	if err := validateManifest(valid); err != nil {
+		t.Fatalf("valid python runtime rejected: %v", err)
+	}
+	valid.Runtime.Python.Venv = "../escape"
+	if err := validateManifest(valid); err == nil {
+		t.Fatal("unsafe Python venv accepted")
+	}
+}

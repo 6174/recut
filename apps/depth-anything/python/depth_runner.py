@@ -12,7 +12,6 @@ import argparse
 import json
 import os
 import shutil
-import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -40,19 +39,12 @@ def files_root() -> Path:
     return Path(value).resolve()
 
 
-def venv_python(root: Path) -> Path:
-    return root / ("Scripts/python.exe" if os.name == "nt" else "venv/bin/python")
-
-
 def state(root: Path) -> dict:
     checkpoint_dir = root / "checkpoints"
     installed = [name for name, (encoder, _) in MODELS.items() if (checkpoint_dir / f"depth_anything_v2_{encoder}.pth").is_file()]
-    runtime = venv_python(root)
     problems = []
     if not shutil.which("ffmpeg"):
         problems.append("FFmpeg is not available on PATH. Install it, then retry.")
-    if not runtime.is_file():
-        problems.append("Python environment has not been installed.")
     if not (root / "repository" / "depth_anything_v2" / "dpt.py").is_file():
         problems.append("Depth Anything V2 source has not been installed.")
     return {"ready": not problems, "modelsRoot": str(root), "installedModels": installed, "error": " ".join(problems)}
@@ -63,13 +55,6 @@ def emit(payload: dict, code: int = 0) -> None:
     raise SystemExit(code)
 
 
-def run_checked(arguments: list[str]) -> None:
-    completed = subprocess.run(arguments, capture_output=True, text=True)
-    if completed.returncode:
-        message = (completed.stderr or completed.stdout).strip()
-        raise RuntimeError(message or f"command failed: {' '.join(arguments)}")
-
-
 def download(url: str, target: Path) -> None:
     temporary = target.with_suffix(target.suffix + ".part")
     with urllib.request.urlopen(url, timeout=60) as response, temporary.open("wb") as destination:
@@ -77,32 +62,11 @@ def download(url: str, target: Path) -> None:
     temporary.replace(target)
 
 
-def prepare_runtime(root: Path) -> None:
-
-    root.mkdir(parents=True, exist_ok=True)
-    if not shutil.which("ffmpeg"):
-        raise RuntimeError("FFmpeg is required for image and video output. Install FFmpeg, then retry.")
-    runtime = venv_python(root)
-    if not runtime.is_file():
-        run_checked([sys.executable, "-m", "venv", str(root / "venv")])
-    run_checked([str(runtime), "-m", "pip", "install", "--upgrade", "pip"])
-    run_checked([str(runtime), "-m", "pip", "install", "torch", "torchvision", "opencv-python-headless", "timm"])
-    repository = root / "repository"
-    if not (repository / ".git").is_dir():
-        if repository.exists():
-            shutil.rmtree(repository)
-        run_checked(["git", "clone", "--depth", "1", "https://github.com/DepthAnything/Depth-Anything-V2.git", str(repository)])
-
-
-def prepare() -> None:
-    root = model_root()
-    prepare_runtime(root)
-    emit(state(root))
-
-
 def install(selected: str) -> None:
     root = model_root()
-    prepare_runtime(root)
+    current = state(root)
+    if not current["ready"]:
+        emit(current, 1)
     encoder, url = MODELS[selected]
     checkpoint = root / "checkpoints" / f"depth_anything_v2_{encoder}.pth"
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
@@ -121,14 +85,6 @@ def safe_file(relative: str) -> Path:
 
 def infer(selected: str, style: str, kind: str, source_relative: str, output_relative: str) -> None:
     root = model_root()
-    runtime = venv_python(root)
-    if Path(sys.executable).resolve() != runtime.resolve():
-        completed = subprocess.run([str(runtime), __file__, "infer", "--model", selected, "--style", style, "--kind", kind, "--input", source_relative, "--output", output_relative], capture_output=True, text=True)
-        if completed.stdout:
-            print(completed.stdout.strip())
-        if completed.returncode:
-            print(completed.stderr.strip())
-        raise SystemExit(completed.returncode)
     current = state(root)
     encoder, _ = MODELS[selected]
     checkpoint = root / "checkpoints" / f"depth_anything_v2_{encoder}.pth"
@@ -182,7 +138,6 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
-    commands.add_parser("prepare")
     install_parser = commands.add_parser("install")
     install_parser.add_argument("--model", choices=MODELS, required=True)
     infer_parser = commands.add_parser("infer")
@@ -195,8 +150,6 @@ def main() -> None:
     try:
         if args.command == "status":
             emit(state(model_root()))
-        if args.command == "prepare":
-            prepare()
         if args.command == "install":
             install(args.model)
         infer(args.model, args.style, args.kind, args.input, args.output)

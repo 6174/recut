@@ -51,7 +51,6 @@ func (s *Store) GlobalOnboarding() ([]OnboardingGuide, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	var raw string
 	err = db.QueryRow("select value_json from workspace_preferences where key = ?", globalOnboardingPreference).Scan(&raw)
 	if err != nil {
@@ -79,7 +78,6 @@ func (s *Store) SaveGlobalOnboarding(items []OnboardingGuide) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 	_, err = db.Exec("insert into workspace_preferences (key, value_json, updated_at) values (?, ?, ?) on conflict(key) do update set value_json = excluded.value_json, updated_at = excluded.updated_at", globalOnboardingPreference, string(raw), time.Now().UTC().Format(time.RFC3339Nano))
 	return err
 }

@@ -1,5 +1,5 @@
 /*
- * [INPUT]: 依赖 ctx.sqlite 保存运行记录，ctx.media 复制/显式导入素材，ctx.files 生成私有预览 URL，ctx.shell 执行 App 内 Python launcher
+ * [INPUT]: 依赖 ctx.sqlite 保存运行记录，ctx.media 复制/显式导入素材，ctx.files 生成私有预览 URL，ctx.python 与 ctx.shell 执行可观察本地任务
  * [OUTPUT]: 注册环境检查、模型安装、深度生成、预览历史与用户确认入库 operation
  * [POS]: depth-anything 的唯一业务后端；输出先停留在 App 文件沙箱，绝不在生成时自动创建素材库 Asset
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -27,22 +27,22 @@ function parseProcess(result) {
 }
 
 function run(ctx, args, timeoutSeconds) {
-  return parseProcess(ctx.shell.run({ command: "python3", args: ["python/depth_runner.py", ...args], timeoutSeconds }));
+  return parseProcess(ctx.shell.exec({ command: "python3", args: ["python/depth_runner.py", ...args], environment: "depth-anything-v2", timeoutSeconds }));
 }
 
-function status(_, ctx) { return run(ctx, ["status"], 20); }
+function status(_, ctx) {
+  const environment = ctx.python.status();
+  if (!environment.ready) return { ready: false, installedModels: [], modelsRoot: "~/.recut/models/depth-anything-v2", error: environment.error || "Python environment has not been prepared." };
+  return run(ctx, ["status"], 20);
+}
 
 function prepare(_, ctx) {
-  const result = run(ctx, ["prepare"], 1800);
-  if (!result.ready) throw new Error(result.error || "Depth Anything runtime preparation failed.");
-  return result;
+  return { job: ctx.python.prepare() };
 }
 
 function install(input, ctx) {
   const selected = model(input);
-  const result = run(ctx, ["install", "--model", selected], 1800);
-  if (!result.ready) throw new Error(result.error || "Depth Anything installation failed.");
-  return result;
+  return { job: ctx.python.run(["python/depth_runner.py", "install", "--model", selected]) };
 }
 
 function generate(input, ctx) {
@@ -57,11 +57,10 @@ function generate(input, ctx) {
   const id = outputID();
   const extension = kind === "image" ? "png" : "mp4";
   const path = `outputs/${id}.${extension}`;
-  const result = run(ctx, ["infer", "--model", selected, "--style", style, "--kind", kind, "--input", source.path, "--output", path], kind === "video" ? 1800 : 300);
-  if (!result.ready) throw new Error(result.error || "Depth Anything inference failed.");
   const output = { id, assetId: assetID, kind, model: selected, style, filePath: path, mimeType: kind === "image" ? "image/png" : "video/mp4", savedAssetId: "", createdAt: new Date().toISOString() };
+  const job = ctx.python.run(["python/depth_runner.py", "infer", "--model", selected, "--style", style, "--kind", kind, "--input", source.path, "--output", path]);
   ctx.sqlite.execute("insert into depth_outputs (id, asset_id, kind, model, style, file_path, mime_type, saved_asset_id, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", [output.id, output.assetId, output.kind, output.model, output.style, output.filePath, output.mimeType, output.savedAssetId, output.createdAt]);
-  return present(output, ctx);
+  return { job, output: { ...output, previewURL: "" } };
 }
 
 function present(output, ctx) { return { ...output, previewURL: ctx.files.url(output.filePath) }; }
@@ -69,6 +68,15 @@ function present(output, ctx) { return { ...output, previewURL: ctx.files.url(ou
 function list(_, ctx) {
   ensureSchema(ctx);
   return ctx.sqlite.query("select id, asset_id, kind, model, style, file_path, mime_type, saved_asset_id, created_at from depth_outputs order by created_at desc").map((row) => present({ id: row.id, assetId: row.asset_id, kind: row.kind, model: row.model, style: row.style, filePath: row.file_path, mimeType: row.mime_type, savedAssetId: row.saved_asset_id, createdAt: row.created_at }, ctx));
+}
+
+function complete(input, ctx) {
+  ensureSchema(ctx);
+  const id = value(input, "id");
+  const rows = ctx.sqlite.query("select id, asset_id, kind, model, style, file_path, mime_type, saved_asset_id, created_at from depth_outputs where id = ?", [id]);
+  if (!rows.length) throw new Error("Depth output was not found.");
+  const row = rows[0];
+  return present({ id: row.id, assetId: row.asset_id, kind: row.kind, model: row.model, style: row.style, filePath: row.file_path, mimeType: row.mime_type, savedAssetId: row.saved_asset_id, createdAt: row.created_at }, ctx);
 }
 
 function save(input, ctx) {
@@ -90,4 +98,5 @@ recut.operation.register("depth.prepare", prepare);
 recut.operation.register("depth.install", install);
 recut.operation.register("depth.generate", generate);
 recut.operation.register("depth.list", list);
+recut.operation.register("depth.complete", complete);
 recut.operation.register("depth.save", save);

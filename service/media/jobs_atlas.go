@@ -192,7 +192,6 @@ func (m *MediaService) atlasTask(jobID string) (atlasTask, bool) {
 	if err != nil {
 		return atlasTask{}, false
 	}
-	defer db.Close()
 	var credentialID, pollURL string
 	if err := db.QueryRow("select credential_id, remote_poll_url from media_jobs where id = ?", job.ID).Scan(&credentialID, &pollURL); err != nil {
 		return atlasTask{}, false

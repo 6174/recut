@@ -48,7 +48,6 @@ func (m *MediaService) AssetEvents(after int64) ([]MediaAssetEvent, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	rows, err := db.Query("select id, asset_id, created_at from media_asset_events where id > ? order by id", after)
 	if err != nil {
 		return nil, err
@@ -72,7 +71,6 @@ func (m *MediaService) LatestAssetEventID() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer db.Close()
 	var id int64
 	if err := db.QueryRow("select coalesce(max(id), 0) from media_asset_events").Scan(&id); err != nil {
 		return 0, err
@@ -94,7 +92,6 @@ func (m *MediaService) listAssets(projectID string) ([]MediaAsset, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	query := `select a.` + strings.ReplaceAll(assetColumns, ", ", ", a.") + ` from media_assets a`
 	args := []any{}
 	if projectID != "" {
@@ -127,7 +124,6 @@ func (m *MediaService) getAsset(id string) (MediaAsset, error) {
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	defer db.Close()
 	row := db.QueryRow("select "+assetColumns+" from media_assets where id = ?", id)
 	return scanAsset(db, row)
 }
@@ -178,7 +174,6 @@ func (m *MediaService) Attach(assetID, projectID string) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -255,7 +250,6 @@ func (m *MediaService) createPendingAsset(job MediaJob, provider, kind, mimeType
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	defer db.Close()
 	tx, err := db.Begin()
 	if err != nil {
 		return MediaAsset{}, err
@@ -311,7 +305,6 @@ func (m *MediaService) completePendingAsset(jobID, assetID string, content []byt
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	defer db.Close()
 	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where id = ?", assetID))
 	if err != nil {
 		return MediaAsset{}, err
@@ -380,7 +373,6 @@ func (m *MediaService) failRemoteAsset(jobID, assetID, message string) {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where id = ?", assetID))
 	if err != nil || asset.JobID != jobID || asset.Status != "running" {
 		return
@@ -458,7 +450,6 @@ func (m *MediaService) recordAtlasPollingDiagnostic(jobID, assetID, message stri
 	if err != nil {
 		return 0, err
 	}
-	defer db.Close()
 	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where id = ?", assetID))
 	if err != nil {
 		return 0, err
@@ -504,7 +495,6 @@ func (m *MediaService) clearAtlasPollingDiagnostic(jobID, assetID string) {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where id = ?", assetID))
 	if err != nil || asset.JobID != jobID || asset.Status != "running" || !clearAtlasPollingMetadata(asset.Metadata) {
 		return
@@ -638,7 +628,6 @@ func (m *MediaService) persistAsset(content []byte, kind, mimeType, name, origin
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	defer db.Close()
 	if deduplicate {
 		existing, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where content_hash = ?", contentHash))
 		if err == nil {

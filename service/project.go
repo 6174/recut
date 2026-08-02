@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、原生素材库与首页 general chat 的隐藏平台 scope、全局 onboarding 设置与仅初始化一次的用户级 workspace SQLite
+ * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、原生素材库与首页 general chat 的隐藏平台 scope、全局 onboarding 设置与按文件共享、WAL 连接池化的 SQLite 存储
  * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根，Agent 会话使用独立工作区库，首页聊天复用隐藏 scope 而非伪造用户项目
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +31,8 @@ const mediaSystemAppID = "recut.media-library"
 const generalChatProjectID = "general-chat"
 const generalChatAppID = "recut.general-chat"
 const standaloneProjectPrefix = "workspace-app-"
+const workspaceBusyTimeoutMilliseconds = 15000
+const sqlitePoolMaxOpenConnections = 8
 
 func isSystemProjectID(id string) bool {
 	return id == mediaSystemProjectID || id == generalChatProjectID
@@ -65,10 +68,14 @@ type Store struct {
 	catalog        *Catalog
 	workspaceMu    sync.Mutex
 	workspaceReady bool
+	databasesMu    sync.Mutex
+	databases      map[string]*sql.DB
 }
 
-func NewStore(root string, apps *Catalog) *Store { return &Store{root: root, catalog: apps} }
-func (s *Store) Ensure() error                   { return os.MkdirAll(s.projectsDir(), 0o755) }
+func NewStore(root string, apps *Catalog) *Store {
+	return &Store{root: root, catalog: apps, databases: map[string]*sql.DB{}}
+}
+func (s *Store) Ensure() error { return os.MkdirAll(s.projectsDir(), 0o755) }
 
 func (s *Store) Create(input CreateInput) (Project, error) {
 	if strings.TrimSpace(input.Name) == "" {
@@ -208,11 +215,7 @@ func (s *Store) AppDatabase(projectID, appID string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
-	}
-	return db, db.Ping()
+	return s.database(path, nil)
 }
 
 func (s *Store) ProjectDatabase(projectID string) (*sql.DB, error) {
@@ -220,15 +223,10 @@ func (s *Store) ProjectDatabase(projectID string) (*sql.DB, error) {
 		return nil, err
 	}
 	path := filepath.Join(s.projectDir(projectID), "project.sqlite")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec(`create table if not exists artifacts (id text primary key, type text not null, producer_app text not null, content_hash text not null, created_at text not null, value_json text not null); create table if not exists events (id integer primary key autoincrement, payload_json text not null, created_at text not null)`); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return db, nil
+	return s.database(path, func(db *sql.DB) error {
+		_, err := db.Exec(`create table if not exists artifacts (id text primary key, type text not null, producer_app text not null, content_hash text not null, created_at text not null, value_json text not null); create table if not exists events (id integer primary key autoincrement, payload_json text not null, created_at text not null)`)
+		return err
+	})
 }
 
 // WorkspaceDatabase owns local-user data that must survive independently of a
@@ -239,24 +237,16 @@ func (s *Store) WorkspaceDatabase() (*sql.DB, error) {
 		return nil, err
 	}
 	path := filepath.Join(s.root, "workspace.sqlite")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec("pragma busy_timeout = 5000"); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 	s.workspaceMu.Lock()
 	defer s.workspaceMu.Unlock()
 	if s.workspaceReady {
-		return db, nil
+		return s.database(path, nil)
 	}
-	if err := os.Chmod(path, 0o600); err != nil && !os.IsNotExist(err) {
-		_ = db.Close()
-		return nil, err
-	}
-	_, err = db.Exec(`
+	db, err := s.database(path, func(db *sql.DB) error {
+		if err := os.Chmod(path, 0o600); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		_, err := db.Exec(`
 create table if not exists agent_sessions (
   id text primary key, profile_id text not null, project_id text, runtime text not null,
   native_session_id text, codex_model text, reasoning_effort text, title text not null, status text not null,
@@ -320,43 +310,84 @@ create index if not exists media_asset_events_asset on media_asset_events(asset_
 create index if not exists media_jobs_updated on media_jobs(updated_at desc);
 create index if not exists media_task_leases_expiry on media_task_leases(expires_at_ms);
 `)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	// Older workspaces already have the original session table. SQLite only
-	// supports additive migrations here, which keeps existing conversations intact.
-	for _, statement := range []string{
-		"alter table agent_sessions add column codex_model text",
-		"alter table agent_sessions add column reasoning_effort text",
-		"alter table media_assets add column status text not null default 'completed'",
-		"alter table media_assets add column job_id text not null default ''",
-		"alter table media_assets add column remote_id text not null default ''",
-		"alter table media_assets add column remote_poll_url text not null default ''",
-		"alter table media_assets add column error text not null default ''",
-		"alter table media_assets add column updated_at text not null default ''",
-		"alter table media_jobs add column remote_id text not null default ''",
-		"alter table media_jobs add column remote_poll_url text not null default ''",
-		"alter table media_jobs add column submission_started_at text not null default ''",
-	} {
-		if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
-			_ = db.Close()
-			return nil, err
+		if err != nil {
+			return err
 		}
-	}
-	if _, err := db.Exec("update media_assets set updated_at = created_at where updated_at = ''"); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	// Before asynchronous Assets existed, every persisted file was already
-	// usable. A pending Asset must carry a durable local job; local providers
-	// deliberately have no remote prediction ID, so remote_id is not a test.
-	if _, err := db.Exec("update media_assets set status = 'completed' where coalesce(trim(status), '') = '' or (status in ('queued', 'running') and job_id = '')"); err != nil {
-		_ = db.Close()
+		// Older workspaces already have the original session table. SQLite only
+		// supports additive migrations here, which keeps existing conversations intact.
+		for _, statement := range []string{
+			"alter table agent_sessions add column codex_model text",
+			"alter table agent_sessions add column reasoning_effort text",
+			"alter table media_assets add column status text not null default 'completed'",
+			"alter table media_assets add column job_id text not null default ''",
+			"alter table media_assets add column remote_id text not null default ''",
+			"alter table media_assets add column remote_poll_url text not null default ''",
+			"alter table media_assets add column error text not null default ''",
+			"alter table media_assets add column updated_at text not null default ''",
+			"alter table media_jobs add column remote_id text not null default ''",
+			"alter table media_jobs add column remote_poll_url text not null default ''",
+			"alter table media_jobs add column submission_started_at text not null default ''",
+		} {
+			if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+				return err
+			}
+		}
+		if _, err := db.Exec("update media_assets set updated_at = created_at where updated_at = ''"); err != nil {
+			return err
+		}
+		// Before asynchronous Assets existed, every persisted file was already
+		// usable. A pending Asset must carry a durable local job; local providers
+		// deliberately have no remote prediction ID, so remote_id is not a test.
+		if _, err := db.Exec("update media_assets set status = 'completed' where coalesce(trim(status), '') = '' or (status in ('queued', 'running') and job_id = '')"); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	s.workspaceReady = true
 	return db, nil
+}
+
+func (s *Store) database(path string, initialize func(*sql.DB) error) (*sql.DB, error) {
+	s.databasesMu.Lock()
+	defer s.databasesMu.Unlock()
+	if db := s.databases[path]; db != nil {
+		if err := db.Ping(); err == nil {
+			return db, nil
+		}
+		delete(s.databases, path)
+	}
+	// Nested result scans need more than one connection. WAL permits those
+	// readers to proceed while SQLite serializes writers; every connection gets
+	// the same wait policy from the DSN.
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(sqlitePoolMaxOpenConnections)
+	db.SetMaxIdleConns(sqlitePoolMaxOpenConnections)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if initialize != nil {
+		if err := initialize(db); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	}
+	s.databases[path] = db
+	return db, nil
+}
+
+func sqliteDSN(path string) string {
+	query := url.Values{}
+	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", workspaceBusyTimeoutMilliseconds))
+	query.Add("_pragma", "journal_mode(WAL)")
+	query.Add("_pragma", "synchronous(NORMAL)")
+	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
 }
 
 func (s *Store) AppFilesRoot(projectID, appID string) (string, error) {
@@ -388,7 +419,6 @@ func (s *Store) PublishArtifact(projectID, appID, artifactType string, value any
 	if err != nil {
 		return Artifact{}, err
 	}
-	defer db.Close()
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
 		return Artifact{}, err
@@ -407,7 +437,6 @@ func (s *Store) ListArtifacts(projectID string) ([]Artifact, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	rows, err := db.Query("select id, type, producer_app, content_hash, created_at, value_json from artifacts order by created_at desc")
 	if err != nil {
 		return nil, err
@@ -443,7 +472,6 @@ func (s *Store) AppendEvent(projectID string, event any) {
 	if err != nil {
 		return
 	}
-	defer db.Close()
 	_, _ = db.Exec("insert into events (payload_json, created_at) values (?, ?)", string(data), time.Now().UTC().Format(time.RFC3339Nano))
 }
 

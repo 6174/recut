@@ -5,12 +5,12 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy app-link check
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy app-link check
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
 APP ?=
-RECUT_VERSION ?= 0.1.2
+RECUT_VERSION ?= 0.1.4
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -30,12 +30,28 @@ dev: stop-stale-service stop-stale-web ## Start the LAN service and web developm
 	trap 'kill $$service_pid $$web_pid 2>/dev/null || true' EXIT INT TERM; \
 	wait $$service_pid $$web_pid
 
-stop-stale-service: ## Stop the stale Recut daemon on port 17373, never another application.
-	@port_pid="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
-	if [ -z "$$port_pid" ]; then exit 0; fi; \
-	recut_pid="$$(lsof -a -tiTCP:17373 -sTCP:LISTEN -c recut-service 2>/dev/null || true)"; \
-	if [ "$$port_pid" != "$$recut_pid" ]; then echo "Port 17373 is occupied by a non-Recut process (PID $$port_pid); refusing to stop it."; exit 1; fi; \
-	echo "Stopping stale Recut daemon (PID $$port_pid)."; kill "$$port_pid"
+stop-stale-service: ## Pause the installed Recut service, then clear a stale Recut daemon from port 17373.
+	@port_pids="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
+	if [ -z "$$port_pids" ]; then exit 0; fi; \
+	for pid in $$port_pids; do \
+		command="$$(ps -p "$$pid" -o comm= 2>/dev/null | xargs basename)"; \
+		if [ "$$command" != "recut-service" ]; then echo "Port 17373 is occupied by a non-Recut process (PID $$pid); refusing to stop it."; exit 1; fi; \
+	done; \
+	case "$$(uname -s)" in \
+		Darwin) label="gui/$$(id -u)/video.recut.service"; if launchctl print "$$label" >/dev/null 2>&1; then echo "Pausing installed Recut service."; launchctl bootout "$$label"; fi ;; \
+		Linux) if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet recut.service; then echo "Pausing installed Recut service."; systemctl --user stop recut.service; fi ;; \
+	esac; \
+	for attempt in $$(seq 1 30); do \
+		remaining="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
+		if [ -z "$$remaining" ]; then exit 0; fi; \
+		sleep 0.1; \
+	done; \
+	for pid in $$remaining; do echo "Stopping stale Recut daemon (PID $$pid)."; kill "$$pid"; done; \
+	for attempt in $$(seq 1 30); do \
+		if [ -z "$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)" ]; then exit 0; fi; \
+		sleep 0.1; \
+	done; \
+	echo "Recut did not release port 17373."; exit 1
 
 stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never another application.
 	@port_pids="$$(lsof -tiTCP:3000 -sTCP:LISTEN 2>/dev/null || true)"; \
@@ -90,6 +106,13 @@ service-status: ## Show the current-user production service status.
 	@if [ "$$(uname -s)" = "Darwin" ]; then launchctl print "gui/$$(id -u)/video.recut.service"; \
 	elif command -v systemctl >/dev/null 2>&1; then systemctl --user status recut.service --no-pager; \
 	else echo "No supported user service manager found. Check $(RECUT_HOME)/logs."; fi
+
+service-resume: ## Resume the installed current-user production service after local development.
+	@case "$$(uname -s)" in \
+		Darwin) plist="$(HOME)/Library/LaunchAgents/video.recut.service.plist"; test -f "$$plist" || { echo "No installed Recut launchd service found."; exit 1; }; launchctl print "gui/$$(id -u)/video.recut.service" >/dev/null 2>&1 || launchctl bootstrap "gui/$$(id -u)" "$$plist" ;; \
+		Linux) command -v systemctl >/dev/null 2>&1 || { echo "systemctl is required to resume the installed Recut service."; exit 1; }; systemctl --user start recut.service ;; \
+		*) echo "Start $(RECUT_HOME)/bin/recut-service with this host's process manager."; exit 1 ;; \
+	esac
 
 service-test: web-build-embedded ## Run the service test suite.
 	GOCACHE=$(GOCACHE) go -C service test .

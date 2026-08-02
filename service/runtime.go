@@ -7,14 +7,12 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,6 +24,8 @@ type AppHost struct {
 	catalog *Catalog
 	store   *Store
 	media   *MediaService
+	jobs    *ShellJobManager
+	python  *PythonRuntimeManager
 }
 
 func NewAppHost(catalog *Catalog, store *Store, media ...*MediaService) *AppHost {
@@ -33,7 +33,8 @@ func NewAppHost(catalog *Catalog, store *Store, media ...*MediaService) *AppHost
 	if len(media) > 0 {
 		platformMedia = media[0]
 	}
-	return &AppHost{catalog: catalog, store: store, media: platformMedia}
+	jobs := NewShellJobManager(store)
+	return &AppHost{catalog: catalog, store: store, media: platformMedia, jobs: jobs, python: NewPythonRuntimeManager(store, jobs)}
 }
 
 func (h *AppHost) InvokeAPI(projectID, appID, name string, input map[string]any) (any, error) {
@@ -199,8 +200,26 @@ func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*go
 			return nil, err
 		}
 		shell := runtime.NewObject()
-		_ = shell.Set("run", shellRun(runtime, app.Root, root, filepath.Join(h.store.root, "models"), app.Manifest.ID))
+		modelsRoot := filepath.Join(h.store.root, "models")
+		_ = shell.Set("run", shellRun(runtime, h.jobs, h.python, projectID, app, root, modelsRoot))
+		_ = shell.Set("exec", shellRun(runtime, h.jobs, h.python, projectID, app, root, modelsRoot))
+		_ = shell.Set("start", shellStart(runtime, h.jobs, h.python, projectID, app, root, modelsRoot))
+		_ = shell.Set("status", shellStatus(runtime, h.jobs, projectID, app.Manifest.ID))
+		_ = shell.Set("logs", shellLogs(runtime, h.jobs, projectID, app.Manifest.ID))
+		_ = shell.Set("cancel", shellCancel(runtime, h.jobs, projectID, app.Manifest.ID))
 		_ = ctx.Set("shell", shell)
+	}
+	if hasPermission(app.Manifest, "python") && app.Manifest.Runtime.Python != nil {
+		root, err := h.store.AppFilesRoot(projectID, app.Manifest.ID)
+		if err != nil {
+			return nil, err
+		}
+		modelsRoot := filepath.Join(h.store.root, "models")
+		python := runtime.NewObject()
+		_ = python.Set("status", pythonStatus(runtime, h.python, app))
+		_ = python.Set("prepare", pythonPrepare(runtime, h.python, projectID, app, root, modelsRoot))
+		_ = python.Set("run", pythonRun(runtime, h.jobs, h.python, projectID, app, root, modelsRoot))
+		_ = ctx.Set("python", python)
 	}
 	if hasPermission(app.Manifest, "artifacts.publish") {
 		artifacts := runtime.NewObject()
@@ -374,41 +393,140 @@ func safeSandboxFile(root, path string) string {
 	return filepath.Join(root, clean)
 }
 
-func shellRun(runtime *goja.Runtime, appRoot, filesRoot, modelsRoot, appID string) func(goja.FunctionCall) goja.Value {
+func shellRun(runtime *goja.Runtime, jobs *ShellJobManager, python *PythonRuntimeManager, projectID string, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
-		input := call.Argument(0).ToObject(runtime)
-		commandName := input.Get("command").String()
+		input := shellInput(runtime, call.Argument(0), python, app, filesRoot, modelsRoot)
+		job, err := jobs.Execute(input.withScope(projectID, app.Manifest.ID))
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(shellResult(job, jobs.Output(projectID, job.ID)))
+	}
+}
+
+func shellStart(runtime *goja.Runtime, jobs *ShellJobManager, python *PythonRuntimeManager, projectID string, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		input := shellInput(runtime, call.Argument(0), python, app, filesRoot, modelsRoot)
+		job, err := jobs.Start(input.withScope(projectID, app.Manifest.ID))
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(job)
+	}
+}
+func shellStatus(runtime *goja.Runtime, jobs *ShellJobManager, projectID, appID string) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		job, err := jobs.Status(projectID, appID, call.Argument(0).String())
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(job)
+	}
+}
+func shellLogs(runtime *goja.Runtime, jobs *ShellJobManager, projectID, appID string) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		if _, err := jobs.Status(projectID, appID, call.Argument(0).String()); err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		logs, err := jobs.Logs(projectID, call.Argument(0).String())
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(logs)
+	}
+}
+func shellCancel(runtime *goja.Runtime, jobs *ShellJobManager, projectID, appID string) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		if err := jobs.Cancel(projectID, appID, call.Argument(0).String()); err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return goja.Undefined()
+	}
+}
+
+type appShellInput struct {
+	command        string
+	args           []string
+	dir            string
+	env            []string
+	timeoutSeconds int
+}
+
+func (input appShellInput) withScope(projectID, appID string) ShellJobStart {
+	return ShellJobStart{ProjectID: projectID, AppID: appID, Command: input.command, Args: input.args, Dir: input.dir, Env: input.env, TimeoutSeconds: input.timeoutSeconds}
+}
+func shellInput(runtime *goja.Runtime, value goja.Value, python *PythonRuntimeManager, app App, filesRoot, modelsRoot string) appShellInput {
+	input := value.ToObject(runtime)
+	command := strings.TrimSpace(input.Get("command").String())
+	arguments := []string{}
+	if err := runtime.ExportTo(input.Get("args"), &arguments); err != nil {
+		panic(runtime.NewTypeError("args must be an array of strings"))
+	}
+	timeout := int(input.Get("timeoutSeconds").ToInteger())
+	if timeout == 0 {
+		timeout = 300
+	}
+	if command == "" || filepath.Base(command) != command || timeout < 1 || timeout > 7200 {
+		panic(runtime.NewTypeError("invalid shell command or timeoutSeconds"))
+	}
+	dir := app.Root
+	cwd := optionalString(input.Get("cwd"))
+	if cwd == "files" {
+		dir = filesRoot
+	}
+	env := []string{"RECUT_APP_FILES_DIR=" + filesRoot, "RECUT_MODELS_DIR=" + modelsRoot, "RECUT_APP_ID=" + app.Manifest.ID}
+	environmentName := optionalString(input.Get("environment"))
+	if environmentName != "" {
+		environment, err := python.Environment(app)
+		if err != nil || environmentName != environment.Name || !environment.Ready {
+			panic(runtime.NewTypeError("requested Python environment is unavailable"))
+		}
+		env = append(env, "RECUT_VENV="+environment.Path, "RECUT_PYTHON="+environment.Python, "PATH="+filepath.Join(environment.Path, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	return appShellInput{command: command, args: arguments, dir: dir, env: env, timeoutSeconds: timeout}
+}
+func optionalString(value goja.Value) string {
+	if value == nil || goja.IsUndefined(value) || goja.IsNull(value) {
+		return ""
+	}
+	return value.String()
+}
+func shellResult(job ShellJob, output string) map[string]any {
+	return map[string]any{"jobId": job.ID, "status": job.Status, "stdout": output, "exitCode": job.ExitCode, "error": job.Error}
+}
+func pythonStatus(runtime *goja.Runtime, manager *PythonRuntimeManager, app App) func(goja.FunctionCall) goja.Value {
+	return func(goja.FunctionCall) goja.Value {
+		environment, err := manager.Environment(app)
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(environment)
+	}
+}
+func pythonPrepare(runtime *goja.Runtime, manager *PythonRuntimeManager, projectID string, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
+	return func(goja.FunctionCall) goja.Value {
+		job, err := manager.Prepare(projectID, app, filesRoot, modelsRoot)
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(job)
+	}
+}
+func pythonRun(runtime *goja.Runtime, jobs *ShellJobManager, manager *PythonRuntimeManager, projectID string, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		environment, err := manager.Environment(app)
+		if err != nil || !environment.Ready {
+			panic(runtime.NewTypeError("Python environment is not ready"))
+		}
 		arguments := []string{}
-		if err := runtime.ExportTo(input.Get("args"), &arguments); err != nil {
+		if err := runtime.ExportTo(call.Argument(0), &arguments); err != nil {
 			panic(runtime.NewTypeError("args must be an array of strings"))
 		}
-		timeoutSeconds := int(input.Get("timeoutSeconds").ToInteger())
-		if commandName != "python3" && commandName != "python" {
-			panic(runtime.NewTypeError("shell only permits python or python3"))
+		job, err := jobs.Start(ShellJobStart{ProjectID: projectID, AppID: app.Manifest.ID, Command: environment.Python, Args: arguments, Dir: app.Root, Env: manager.environment(environment, filesRoot, modelsRoot), TimeoutSeconds: 7200})
+		if err != nil {
+			panic(runtime.NewGoError(err))
 		}
-		if timeoutSeconds < 1 || timeoutSeconds > 1800 {
-			panic(runtime.NewTypeError("timeoutSeconds must be between 1 and 1800"))
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
-		defer cancel()
-		command := exec.CommandContext(ctx, commandName, arguments...)
-		command.Dir = appRoot
-		command.Env = append(os.Environ(), "RECUT_APP_FILES_DIR="+filesRoot, "RECUT_MODELS_DIR="+modelsRoot, "RECUT_APP_ID="+appID)
-		output, err := command.CombinedOutput()
-		result := map[string]any{"stdout": string(output), "exitCode": 0}
-		if err == nil {
-			return runtime.ToValue(result)
-		}
-		result["exitCode"] = 1
-		if exit, ok := err.(*exec.ExitError); ok {
-			result["exitCode"] = exit.ExitCode()
-		}
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			result["error"] = "process timed out"
-		} else {
-			result["error"] = err.Error()
-		}
-		return runtime.ToValue(result)
+		return runtime.ToValue(job)
 	}
 }
 

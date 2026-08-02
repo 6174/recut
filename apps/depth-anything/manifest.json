@@ -4,11 +4,19 @@
   "name": "Depth Anything",
   "author": "Recut",
   "description": "在本机将图片或视频转换为可预览的深度图，再按需保存到素材库。",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "standalone",
   "background": "background.js",
   "ui": { "standaloneView": "ui/dist/index.html" },
-  "permissions": ["sqlite", "files", "media.read", "media.write", "shell"],
+  "permissions": ["sqlite", "files", "media.read", "media.write", "python", "shell"],
+  "runtime": {
+    "python": {
+      "venv": "depth-anything-v2",
+      "version": "3.11",
+      "requirements": "python/requirements.lock",
+      "bootstrap": "bootstrap.sh"
+    }
+  },
   "operations": [
     {
       "name": "depth.status",
@@ -39,6 +47,12 @@
       "surfaces": ["api"],
       "description": "读取尚未导入或已导入素材库的 Depth Anything 输出记录。",
       "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "depth.complete",
+      "surfaces": ["api"],
+      "description": "确认异步深度任务已写入私有预览文件，并返回可展示的输出记录。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
     },
     {
       "name": "depth.save",

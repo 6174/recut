@@ -126,7 +126,6 @@ func (m *MediaService) ListCredentials() ([]MediaCredential, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	rows, err := db.Query("select id, provider, name, api_base, secret_ciphertext, created_at, updated_at from media_credentials order by updated_at desc")
 	if err != nil {
 		return nil, err
@@ -181,7 +180,6 @@ func (m *MediaService) SaveCredential(input MediaCredential, secret string) (Med
 	if err != nil {
 		return MediaCredential{}, err
 	}
-	defer db.Close()
 	_, err = db.Exec(`insert into media_credentials (id, provider, name, api_base, secret_ciphertext, created_at, updated_at)
 values (?, ?, ?, ?, ?, ?, ?)
 on conflict(id) do update set provider=excluded.provider, name=excluded.name, api_base=excluded.api_base, secret_ciphertext=excluded.secret_ciphertext, updated_at=excluded.updated_at`, input.ID, input.Provider, input.Name, strings.TrimRight(input.APIBase, "/"), ciphertext, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
@@ -201,7 +199,6 @@ func (m *MediaService) ListRoutes() ([]MediaRoute, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 	rows, err := db.Query("select id, capability, model_id, credential_id, enabled, updated_at from media_routes order by capability")
 	if err != nil {
 		return nil, err
@@ -252,7 +249,6 @@ func (m *MediaService) saveRoute(input MediaRoute) (MediaRoute, error) {
 	if err != nil {
 		return MediaRoute{}, err
 	}
-	defer db.Close()
 	_, err = db.Exec(`insert into media_routes (id, capability, model_id, credential_id, enabled, updated_at) values (?, ?, ?, ?, ?, ?)
 on conflict(id) do update set model_id=excluded.model_id, credential_id=excluded.credential_id, enabled=excluded.enabled, updated_at=excluded.updated_at`, input.ID, input.Capability, input.ModelID, input.CredentialID, input.Enabled, now.Format(time.RFC3339Nano))
 	return input, err
@@ -286,7 +282,6 @@ func (m *MediaService) secret(credentialID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer db.Close()
 	var ciphertext string
 	if err := db.QueryRow("select secret_ciphertext from media_credentials where id = ?", credentialID).Scan(&ciphertext); err != nil {
 		return "", err

@@ -48,7 +48,6 @@ func (s *Server) projectEventsWS(w http.ResponseWriter, r *http.Request) {
 		}
 		rows, err := db.Query("select id, payload_json from events where id > ? order by id", lastID)
 		if err != nil {
-			_ = db.Close()
 			continue
 		}
 		for rows.Next() {
@@ -61,13 +60,11 @@ func (s *Server) projectEventsWS(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal([]byte(payload), &event) == nil {
 				if connection.WriteJSON(map[string]any{"type": "project.event", "projectId": request.ProjectID, "event": event}) != nil {
 					_ = rows.Close()
-					_ = db.Close()
 					return
 				}
 			}
 			lastID = id
 		}
 		_ = rows.Close()
-		_ = db.Close()
 	}
 }

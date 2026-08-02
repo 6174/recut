@@ -77,9 +77,30 @@ recut.operation.register("plan.create", (input, ctx) => {
 | `media.compose` | `ctx.media.compose(input)` | 确定性组合已存在的媒体 Asset；不能拿它替代 AI 生成。 |
 | `media.read` | `ctx.media.materialize(assetId)` | 将已完成素材复制进当前 App 的私有 `inputs/` 并返回相对路径；不创建新 Asset。 |
 | `media.write` | `ctx.media.importFile({ path, name, mimeType })` | 仅在用户明确选择后，将 App 私有文件导入素材库并返回 Asset。 |
-| `shell` | `ctx.shell.run({ command, args, timeoutSeconds })` | 在 App 包根执行受限 Python；没有 shell 字符串与裸路径，环境变量提供 App 私有文件与 `~/.recut/models` 根。 |
+| `shell` | `ctx.shell.exec({ command, args, cwd?, environment?, timeoutSeconds? })`、`start(...)`、`status(jobId)`、`logs(jobId)`、`cancel(jobId)` | 在 App 包根或私有 files 执行非交互命令；`start` 返回可恢复 Job，stdout/stderr 作为 `shell.job.log` 项目事件实时发出，`logs` 可在重连后读取持久记录。`environment` 可选择 manifest 声明的 venv。 |
+| `python` | `ctx.python.status()`、`prepare()`、`run(args)` | 仅供声明 `runtime.python` 的 App 使用。平台创建、指纹化和激活 venv；`prepare` 返回安装依赖与 bootstrap 的 Job，`run` 在就绪 venv 中启动 Python Job。 |
 
 没有对应权限时不得访问该对象。不要申请或伪造未列出的 `ctx` 能力。
+
+### Python runtime
+
+需要本机 Python 的 App 在 manifest 中声明逻辑环境，而不是在业务脚本里创建 venv：
+
+```json
+{
+  "runtime": {
+    "python": {
+      "venv": "example-runtime",
+      "version": "3.11",
+      "requirements": "python/requirements.lock",
+      "bootstrap": "bootstrap.sh"
+    }
+  },
+  "permissions": ["python", "shell"]
+}
+```
+
+平台将环境放入 `~/.recut/python/envs/<app-id>/<venv>/<dependency-fingerprint>/`。`requirements` 内容决定指纹，因此升级依赖不会污染已有环境。`bootstrap` 是可选的自由兜底，可下载官方代码、检查系统工具或准备模型，但不要重复 venv 与 pip 生命周期。模型等大文件应放在 `~/.recut/models/<namespace>/`。
 
 ### 3. UI：宿主注入的 recut SDK
 
@@ -95,6 +116,7 @@ recut.events.subscribe((event) => unsubscribe)
 - `state.query(name)` 与 `background.call(name, input)` 都只会调用当前 App 的、带 `api` surface 的 operation；前者传空对象，后者传 input。
 - `agent.send({ prompt })` 把任务交给当前项目的 Agent Session；它不直接返回 Agent 最终回答。
 - `events.subscribe` 接收宿主转发的项目事件。operation 成功后会有 `app.capability.completed`，其中包含 `appId`、`kind: "operation"` 与 `name`；UI 可据此刷新自身状态。
+- `shell.job.log` 与 `shell.job.completed` 同样通过 `events.subscribe` 到达。长任务 UI 应按 job id 显示日志、在 terminal 状态后刷新领域数据，并保留失败文本交给 Agent 诊断。
 - UI 收到失败时必须向用户展示错误；不要绕过 SDK 直接调用 `/v1/*` HTTP 路由，因为那会跳过项目与 App scope。
 
 ### 4. Agent 与 MCP

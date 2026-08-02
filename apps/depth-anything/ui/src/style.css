@@ -71,4 +71,5 @@ select { width: 100%; height: 38px; border: 1px solid #cfd7d0; border-radius: 4p
 code { border: 1px solid #dce2dd; border-radius: 3px; background: #f5f7f4; padding: 1px 4px; font-size: .9em; }
 .error-box { margin-top: 16px; border: 1px solid #e6cccc; border-radius: 5px; background: #fff7f7; padding: 12px; color: #773b3b; font-size: 12px; }
 .error-box pre { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.45 ui-monospace, SFMono-Regular, monospace; }
+.job-log { max-height: 180px; margin: 16px 0 0; overflow: auto; border: 1px solid #d6ddd8; background: #172019; color: #d7eadc; padding: 10px; white-space: pre-wrap; font: 11px/1.45 ui-monospace, SFMono-Regular, monospace; }
 @media (max-width: 820px) { .app-shell { padding: 16px; } .workspace { grid-template-columns: 1fr; } .output-panel { min-height: 430px; } .output-panel footer { align-items: flex-start; flex-direction: column; } .primary-button.compact { width: 100%; } }

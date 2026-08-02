@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 状态、静态 App Catalog 及项目、App 安装状态与 Agent Session HTTP API
- * [OUTPUT]: 对外提供 Project、Apps、素材库三个核心 Tab、可预览的项目 App 选择与详情入口，以及已安装 App 的直接开始动作、service 连接错误诊断和市场分区的离线可浏览目录
+ * [OUTPUT]: 对外提供 Project、Apps、素材库三个核心 Tab、可预览的项目 App 选择与详情入口，以及已安装 App 的直接开始动作、service 连接错误诊断和市场分区的离线可浏览目录；service 更新只由 Header 操作提示，不替换核心工作区
  * [POS]: web/app 的主工作台框架；不重复探测 service health，Cloudflare 或本地 service 托管此 UI，用户可选择本地或远程 service 作为数据与执行边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -23,9 +23,6 @@ import { marketplaceApps } from "@/lib/app-catalog";
 import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 import { MediaLibraryPanel } from "./media/media-library-panel";
-
-// 生产发布由 Makefile 将唯一的 RECUT_VERSION 注入这里；dev 回退不会触发升级判断。
-const latestServiceVersion = process.env.NEXT_PUBLIC_RECUT_SERVICE_VERSION ?? "dev";
 
 type App = { manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone" } };
 type Project = { id: string; name: string; appId: string };
@@ -52,13 +49,11 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
   const [projectID, setProjectID] = useState<string | null>(null);
   const service = useServiceStore((state) => state.service);
   const apiBase = useServiceStore((state) => state.endpoint);
-  const refreshService = useServiceStore((state) => state.refresh);
   const [tab, setTab] = useState<WorkspaceTab>(appDetail ? "apps" : initialTab);
   const [mediaProjectID, setMediaProjectID] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"service" | "multimodal" | undefined>();
   const [error, setError] = useState("");
-  const [updatingService, setUpdatingService] = useState(false);
   const { handlePointerDown, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.workspace-agent-panel-width" });
 
   const online = service.phase === "online";
@@ -97,15 +92,6 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
     setProjectID(project.id);
   }
 
-  async function updateService() {
-    setUpdatingService(true); setError("");
-    try {
-      const response = await fetch(`${apiBase}/v1/system/update`, { method: "POST" });
-      if (!response.ok) throw new Error(await responseMessage(response));
-      window.setTimeout(() => void refreshService(), 1500);
-    } catch (cause) { setError(messageOf(cause)); } finally { setUpdatingService(false); }
-  }
-
   function openMediaProviderSettings() {
     setSettingsSection("multimodal");
     setSettingsOpen(true);
@@ -121,7 +107,6 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
     if (!open) setSettingsSection(undefined);
   }
 
-  const outdated = !isLocalWorkspace && serviceNeedsUpgrade(service.version, latestServiceVersion);
   const detail = appDetail?.({ onConnectService: openServiceSettings, serviceOnline: online });
   function startProjectWith(appID: string) {
     window.location.assign(`/projects?app=${encodeURIComponent(appID)}`);
@@ -130,7 +115,6 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
   const content = detail ?? (tab === "apps" ? <Apps installations={installations} onStartProject={startProjectWith} onUpdated={loadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
-    : outdated ? <ServiceGuide error={error} installedVersion={service.version} onConnectRemote={openServiceSettings} onUpdate={updateService} updating={updatingService} />
     : tab === "projects" ? <Projects apps={apps.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onNameChange={setName} onSubmit={createProject} projects={projects} selectedApp={appID} /> : <MediaLibraryPanel onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-5">
@@ -191,10 +175,9 @@ function InstalledAppAction({ app, onStartProject }: { app: Installation; onStar
   return <Button className="w-full" onClick={() => onStartProject(app.manifest.id)} type="button"><FolderPlus className="size-3.5" />新建项目</Button>;
 }
 
-function ServiceGuide({ embedded, error, installedVersion, onConnectRemote, onUpdate, updating }: { embedded?: boolean; error?: string; installedVersion?: string; onConnectRemote: () => void; onUpdate?: () => void; updating?: boolean }) {
+function ServiceGuide({ embedded, error, onConnectRemote }: { embedded?: boolean; error?: string; onConnectRemote: () => void }) {
   if (embedded) return <Card><CardContent className="flex min-h-80 flex-col items-center justify-center gap-5 p-8 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><div><p className="text-lg font-semibold">本地工作台连接中断</p><p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">当前页面由同一个 Recut service 提供；请刷新页面或检查该 service 的日志。</p></div>{error && <RepairGuide message={error} />}</CardContent></Card>;
-  const message = installedVersion ? `本地 service 为 ${installedVersion}，当前工作台发布版本为 ${latestServiceVersion}。` : "Recut 的数据与执行能力仍在你的电脑上，浏览器正在等待本地 service。";
-  return <Card><CardContent className="flex min-h-80 flex-col items-center justify-center gap-5 p-8 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><div><p className="text-lg font-semibold">{installedVersion ? "升级本地 service" : "连接一个 service"}</p><p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">{message}</p></div>{onUpdate ? <><Button disabled={updating} onClick={onUpdate} type="button">{updating ? "正在下载并重启…" : "立即更新"}</Button><code className="rounded-md border bg-muted px-4 py-2 text-xs">curl -fsSL https://recut.video/install.sh | sh</code></> : <><code className="rounded-md border bg-muted px-4 py-2 text-sm">curl -fsSL https://recut.video/install.sh | sh</code><Button onClick={onConnectRemote} type="button" variant="outline">连接已有的远程 service</Button></>}<p className="max-w-md text-xs leading-5 text-muted-foreground">{onUpdate ? "本地 daemon 会校验发布包、原子替换自身，再由 launchd 重启；旧 daemon 不支持自更新时，可使用下方命令恢复。" : <>可以安装本地 service，也可以在连接设置中填入团队或服务器提供的 HTTPS 地址。</>}</p>{error ? <RepairGuide message={error} /> : <RepairGuide message={installedVersion ? "升级过程中出现错误" : "安装本地 service 过程中出现错误"} />}</CardContent></Card>;
+  return <Card><CardContent className="flex min-h-80 flex-col items-center justify-center gap-5 p-8 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><div><p className="text-lg font-semibold">连接一个 service</p><p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">Recut 的数据与执行能力仍在你的电脑上，浏览器正在等待本地 service。</p></div><code className="rounded-md border bg-muted px-4 py-2 text-sm">curl -fsSL https://recut.video/install.sh | sh</code><Button onClick={onConnectRemote} type="button" variant="outline">连接已有的远程 service</Button><p className="max-w-md text-xs leading-5 text-muted-foreground">可以安装本地 service，也可以在连接设置中填入团队或服务器提供的 HTTPS 地址。</p>{error ? <RepairGuide message={error} /> : <RepairGuide message="安装本地 service 过程中出现错误" />}</CardContent></Card>;
 }
 
 function ServiceChecking() {
@@ -210,20 +193,7 @@ function RepairGuide({ message }: { message: string }) {
   return <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-left"><p className="text-xs font-medium">{message}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">不要让界面猜测或直接覆盖本机状态。把诊断任务交给 Codex 或 Claude Code。</p><Button className="mt-2 h-7" onClick={() => void navigator.clipboard.writeText(prompt)} type="button" variant="outline"><Code2 className="size-3.5" />复制诊断任务</Button></div>;
 }
 
-function serviceNeedsUpgrade(installed: string, required: string) {
-  if (!installed || installed === "dev" || installed === "unknown") return false;
-  const parse = (value: string) => value.replace(/^v/, "").split(".").map((part) => Number.parseInt(part, 10) || 0);
-  const current = parse(installed); const minimum = parse(required);
-  for (const index of [0, 1, 2]) {
-    if (current[index] < minimum[index]) return true;
-    if (current[index] > minimum[index]) return false;
-  }
-  return false;
-}
-
 async function responseMessage(response: Response) {
   const body = await response.json().catch(() => ({})) as { error?: string };
   return body.error ?? `请求失败（${response.status}）`;
 }
-
-function messageOf(cause: unknown) { return cause instanceof Error ? cause.message : "未知错误"; }

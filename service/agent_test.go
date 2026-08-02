@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Agent 附件上下文格式化函数
- * [OUTPUT]: 验证 Agent 附件身份、工具输入/输出/错误与成本字段分离、停止时即时持久化 Turn 与会话终态，以及服务重启后的中断状态收敛
+ * [OUTPUT]: 验证 Agent 附件身份、工具输入/输出/错误与成本字段分离、共享 SQLite 的 WAL/并发写入策略、停止时即时持久化 Turn 与会话终态，以及服务重启后的中断状态收敛
  * [POS]: service 的 Agent 协议回归测试；防止附件退化为裸路径或取消永久悬挂
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -8,7 +8,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -117,6 +119,62 @@ func TestNormalizeCodexConfiguration(t *testing.T) {
 	}
 	if _, _, err := normalizeCodexConfiguration("unknown", "high"); err == nil {
 		t.Fatal("unknown Codex model was accepted")
+	}
+}
+
+func TestWorkspaceDatabaseUsesWAL(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	var mode string
+	if err := db.QueryRow("pragma journal_mode").Scan(&mode); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ToLower(mode) != "wal" {
+		t.Fatalf("journal mode = %q, want wal", mode)
+	}
+}
+
+func TestWorkspaceDatabaseQueuesConcurrentWrites(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := store.WorkspaceDatabase()
+	if err != nil || again != db {
+		t.Fatalf("workspace database cache = %p, %v; want %p, nil", again, err, db)
+	}
+
+	const writes = 32
+	start := make(chan struct{})
+	errors := make(chan error, writes)
+	var group sync.WaitGroup
+	for index := 0; index < writes; index++ {
+		group.Add(1)
+		go func(index int) {
+			defer group.Done()
+			<-start
+			_, err := db.Exec("insert into agent_events (session_id, turn_id, type, payload_json, created_at) values (?, ?, ?, ?, ?)", "session", "", "test", fmt.Sprintf(`{"index":%d}`, index), iso(time.Now().UTC()))
+			errors <- err
+		}(index)
+	}
+	close(start)
+	group.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var count int
+	if err := db.QueryRow("select count(*) from agent_events").Scan(&count); err != nil || count != writes {
+		t.Fatalf("persisted concurrent writes = %d, %v; want %d, nil", count, err, writes)
 	}
 }
 

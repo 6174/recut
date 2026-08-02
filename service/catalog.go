@@ -36,8 +36,20 @@ type Manifest struct {
 	Background      string            `json:"background"`
 	UI              UIEntrypoints     `json:"ui"`
 	Permissions     []string          `json:"permissions"`
+	Runtime         AppRuntime        `json:"runtime,omitempty"`
 	Operations      []Operation       `json:"operations"`
 	Onboarding      []OnboardingGuide `json:"onboarding"`
+}
+
+type AppRuntime struct {
+	Python *PythonRuntime `json:"python,omitempty"`
+}
+
+type PythonRuntime struct {
+	Venv         string `json:"venv"`
+	Version      string `json:"version,omitempty"`
+	Requirements string `json:"requirements,omitempty"`
+	Bootstrap    string `json:"bootstrap,omitempty"`
 }
 
 type UIEntrypoints struct {
@@ -219,6 +231,20 @@ func validateManifest(manifest Manifest) error {
 	if manifest.Kind == StandaloneApp && !validPackagePath(manifest.UI.StandaloneView) {
 		return errors.New("standalone App requires ui.standaloneView")
 	}
+	if runtime := manifest.Runtime.Python; runtime != nil {
+		if !hasManifestPermission(manifest, "python") || !hasManifestPermission(manifest, "shell") {
+			return errors.New("python runtime requires python and shell permissions")
+		}
+		if strings.TrimSpace(runtime.Venv) == "" || !validRuntimeName(runtime.Venv) {
+			return errors.New("python runtime venv must be a simple logical name")
+		}
+		if runtime.Requirements != "" && !validPackagePath(runtime.Requirements) {
+			return errors.New("python runtime requirements must be a package-relative path")
+		}
+		if runtime.Bootstrap != "" && !validPackagePath(runtime.Bootstrap) {
+			return errors.New("python runtime bootstrap must be a package-relative path")
+		}
+	}
 	if err := validateOnboarding(manifest.Onboarding); err != nil {
 		return fmt.Errorf("invalid onboarding: %w", err)
 	}
@@ -237,6 +263,25 @@ func validateManifest(manifest Manifest) error {
 		}
 	}
 	return nil
+}
+
+func hasManifestPermission(manifest Manifest, permission string) bool {
+	for _, candidate := range manifest.Permissions {
+		if candidate == permission {
+			return true
+		}
+	}
+	return false
+}
+
+func validRuntimeName(name string) bool {
+	for _, value := range name {
+		if (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') || value == '-' || value == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validPackagePath(path string) bool {
