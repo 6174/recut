@@ -28,7 +28,7 @@ bridge.go: 管理 Agent session 与本地 CLI 连接，为普通 App 项目挂�
 bridge_prompt_test.go: 锁定渲染后的 Vox Agent guide 必须使用 Recut 视频生成 API、包含中文 Vox 提示词/导演语言，且禁止把场景生成委托给 HyperFrames 或本地渲染。
 prompts/: Go 后端私有的嵌入式平台 Agent 模板；不会作为 App 包内容或运行时外部依赖暴露。
 agent.go: 保存本机用户的一对一 Agent 会话、消息、项目媒体引用、Codex 模型/推理强度与事件；同一会话把生成期间的新消息持久化为 FIFO 待发送队列，消息、附件和会话运行态以单一短事务原子提交，停止操作先即时持久化 cancelled/idle 终态再终止运行时；服务日志审计会话和 Turn 的排队、开始、完成、取消及失败，但绝不写入用户消息或 CLI 输出；服务重启时取消无法跨进程恢复的 active Turn、把会话收敛为空闲并恢复安全的 queued Turn，附件以 assetId、类型、来源和只读路径同时交给 Agent，Codex 仅对图片注入原生图片参数，所有媒体均以稳定引用和路径进入上下文，并将 JSONL 规范化为分离的工具输入、输出/错误与成本信息，供 UI 时间线完整查看；general chat 复用隐藏系统 scope，绝不混入用户项目会话。
-agent_cli.go: Agent CLI 可执行文件解析器；先使用常规 PATH，再通过当前用户的 login shell 动态执行 `command -v` 并验证绝对可执行路径，消除 launchd/systemd 常驻环境与交互 shell 的 PATH 差异，不编码 NVM 等版本管理器的目录结构；每次检查和启动重新解析，因此安装后刷新即可生效。
+agent_cli.go: Agent CLI 可执行文件解析器；先使用常规 PATH，再通过当前用户的 login shell 动态执行 `command -v` 并验证绝对可执行路径，消除 launchd/systemd 常驻环境与交互 shell 的 PATH 差异，不编码 NVM 等版本管理器的目录结构；快速可用性检查在首个命中 shell 即结束，完整多 shell 扫描只由诊断页触发，shell 初始化最多等待 8 秒并留下明确超时原因；每次检查和启动重新解析，因此安装后刷新即可生效。
 agent_server.go: 提供项目或 general scope Agent Session 的创建、Codex 会话模型/推理强度更新、带项目媒体资产引用的待发送消息入队、停止、查询与 SSE 事件 API，以及全局与按项目解析的新对话引导 API；`scope=general` 只列出隐藏 general scope 的会话，省略创建请求的 projectId 会在服务端绑定该 scope；仅对当前进程真实运行的回复接受停止，并准确区分会话不存在与存储暂时读取失败。
 agent_server_test.go: 锁定全局 onboarding 的保存与 App/全局按项目解析 HTTP 契约，不启动真实 Agent CLI。
 media_adapter.go: 根服务与 media 子包的窄 Store 适配器和兼容类型别名；不承载任何媒体业务。

@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+const agentShellLookupTimeout = 8 * time.Second
+
 type AgentCommandDiagnostic struct {
 	Command      string                 `json:"command"`
 	ServicePath  string                 `json:"servicePath"`
@@ -77,11 +79,15 @@ func inspectAgentCommandInShell(shell, command string) AgentShellDiagnostic {
 		diagnostic.Error = "shell is unavailable"
 		return diagnostic
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), agentShellLookupTimeout)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, shell, "-lic", "printf '__RECUT_PATH__%s\\n' \"$PATH\"; command -v -- "+command).CombinedOutput()
 	diagnostic.Path = agentShellPathFromOutput(string(output))
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			diagnostic.Error = "shell startup exceeded 8 seconds before command lookup completed"
+			return diagnostic
+		}
 		diagnostic.Error = err.Error()
 		return diagnostic
 	}

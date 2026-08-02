@@ -151,7 +151,9 @@ type AgentStatus struct {
 func (s *Server) listAgents(w http.ResponseWriter, _ *http.Request) {
 	agents := []AgentStatus{{ID: "codex", Name: "Codex", Command: "codex"}, {ID: "claude", Name: "Claude Code", Command: "claude"}}
 	for index := range agents {
-		diagnostic := inspectAgentCommand(agents[index].Command)
+		// The interactive panel only needs availability. Full multi-shell
+		// inspection is intentionally reserved for the explicit diagnostics page.
+		diagnostic := resolveAgentCommand(agents[index].Command, false)
 		agents[index].Available = diagnostic.ResolvedPath != ""
 		if agents[index].Available {
 			log.Printf("INFO agent CLI resolved command=%s path=%q source=%q", agents[index].Command, diagnostic.ResolvedPath, diagnostic.Resolution)
