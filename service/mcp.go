@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost JavaScript runtime 与标准输入输出 JSON-RPC 流
- * [OUTPUT]: 对外提供带默认媒体与音色契约的项目上下文，并将 manifest.mcp.tools 映射为受控 MCP 工具
+ * [OUTPUT]: 对外提供项目创建、带默认媒体与音色契约的项目上下文，并将 manifest.mcp.tools 映射为受控 MCP 工具
  * [POS]: service 的 MCP Host；App 不自行启动 MCP server，所有调用经平台权限与会话边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -64,7 +64,8 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 	case "initialize":
 		return map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]string{"name": "recut-mcp-host", "version": "0.2.0"}, "capabilities": map[string]any{"tools": map[string]any{}}}, nil
 	case "tools/list":
-		tools := make([]map[string]any, 0, len(app.Manifest.Operations)+8)
+		tools := make([]map[string]any, 0, len(app.Manifest.Operations)+9)
+		tools = append(tools, projectMCPToolDefinition())
 		tools = append(tools, map[string]any{
 			"name":        "recut.project_context",
 			"description": "读取当前 Recut 项目的身份、版本、App、可用 Artifact 与 Agent 约束。任何项目任务开始时先调用此工具。",
@@ -88,6 +89,9 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 		if input.Name == "recut.project_context" {
 			return projectContextTool(bridge, host, media, session)
 		}
+		if input.Name == "recut.project.create" {
+			return projectMCPTool(bridge.store, input.Arguments)
+		}
 		if isMediaMCPTool(input.Name) {
 			return mediaMCPTool(bridge.store, media, session, input.Name, input.Arguments)
 		}
@@ -104,6 +108,32 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 	default:
 		return nil, fmt.Errorf("unsupported MCP method %q", request.Method)
 	}
+}
+
+func projectMCPToolDefinition() map[string]any {
+	return map[string]any{
+		"name":        "recut.project.create",
+		"description": "创建一个真实的 Recut 项目。仅当用户明确要求新建项目时调用；成功返回的 projectId 会出现在项目桌面。它不会创建 Brief、Artifact 或工作流资源。",
+		"inputSchema": map[string]any{
+			"type":     "object",
+			"required": []string{"name", "appId"},
+			"properties": map[string]any{
+				"name":  map[string]string{"type": "string", "description": "新项目的显示名称。"},
+				"appId": map[string]string{"type": "string", "description": "承载该项目的已安装项目型 App ID。"},
+			},
+		},
+	}
+}
+
+func projectMCPTool(store *Store, input map[string]any) (any, error) {
+	name, _ := input["name"].(string)
+	appID, _ := input["appId"].(string)
+	project, err := store.Create(CreateInput{Name: name, AppID: appID})
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(project)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": project}, nil
 }
 
 func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name string, input map[string]any) (any, error) {

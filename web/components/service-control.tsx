@@ -48,7 +48,7 @@ export function ServiceControl() {
       await refreshService();
       setMessage(`service 已于 ${formatStartedAt(startedAt)} 重启。`);
     } catch (cause) {
-      setMessage(`${messageOf(cause)}。请将此信息交给 Codex 或 Claude Code 诊断。`);
+      setMessage(`${messageOf(cause)}。请将此信息交给 Codex、Claude Code 或 OpenCode 诊断。`);
     } finally { setWorking(null); }
   }
 

@@ -13,6 +13,7 @@ import { CSSProperties, useEffect, useRef, useState } from "react";
 import { HeaderActions } from "@/components/header-actions";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
+import { firstAvailableAgentRuntime } from "@/lib/agent-runtime";
 import { useServiceStore } from "@/lib/service-store";
 
 type WorkspaceScope = { id: string; name: string; appId: string; appVersion: string };
@@ -86,7 +87,8 @@ export default function StandaloneAppClient() {
           const sessions = await sessionsResponse.json() as { id: string }[];
           let sessionID = sessions[0]?.id;
           if (!sessionID) {
-            const createResponse = await fetch(`${apiBase}/v1/agent-sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: scope.id, runtime: "codex" }) });
+            const runtime = await firstAvailableAgentRuntime(apiBase);
+            const createResponse = await fetch(`${apiBase}/v1/agent-sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: scope.id, runtime }) });
             if (!createResponse.ok) throw new Error("无法创建 Agent 对话");
             sessionID = (await createResponse.json() as { id: string }).id;
           }

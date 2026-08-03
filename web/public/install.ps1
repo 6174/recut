@@ -13,7 +13,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Fail([string]$Message) {
-  throw "Recut installer: $Message`n请将完整输出交给 Codex 或 Claude Code 诊断；不要删除 $RecutHome 中的用户数据。"
+  throw "Recut installer: $Message`n请将完整输出交给 Codex、Claude Code 或 OpenCode 诊断；不要删除 $RecutHome 中的用户数据。"
 }
 
 $architecture = switch ($env:PROCESSOR_ARCHITECTURE) {

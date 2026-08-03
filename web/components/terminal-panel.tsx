@@ -42,14 +42,14 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
   useEffect(() => { const refresh = () => void loadManager(); window.addEventListener("recut-terminal-started", refresh); return () => window.removeEventListener("recut-terminal-started", refresh); }, [online, projectID]);
 
   useEffect(() => {
-    const sendToCodex = (event: Event) => {
+    const sendToAgent = (event: Event) => {
       const prompt = (event as CustomEvent<{ prompt: string }>).detail?.prompt;
-      const session = sessions.find((candidate) => candidate.id === sessionID && candidate.command === "codex" && candidate.running);
-      if (!prompt || !session) { setError("请先在右侧启动一个运行中的 Codex 会话"); return; }
+      const session = sessions.find((candidate) => candidate.id === sessionID && (candidate.command === "codex" || candidate.command === "opencode") && candidate.running);
+      if (!prompt || !session) { setError("请先在右侧启动一个运行中的 Codex 或 OpenCode 会话"); return; }
       void fetch(`${apiBase}/v1/terminals/${session.id}/input`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: `${prompt}\n` }) });
     };
-    window.addEventListener("recut-terminal-input", sendToCodex);
-    return () => window.removeEventListener("recut-terminal-input", sendToCodex);
+    window.addEventListener("recut-terminal-input", sendToAgent);
+    return () => window.removeEventListener("recut-terminal-input", sendToAgent);
   }, [apiBase, sessionID, sessions]);
 
 
@@ -117,7 +117,7 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
   }
 
   const visibleSessions = sessions.filter((session) => session.command.toLowerCase().includes(sessionQuery.trim().toLowerCase()));
-  const canResume = activeSession?.command === "codex" || activeSession?.command === "claude";
+  const canResume = activeSession?.command === "codex" || activeSession?.command === "claude" || activeSession?.command === "opencode";
 
   if (!online) return <aside className="border-t bg-card p-4 lg:border-l lg:border-t-0"><PanelTitle /><p className="mt-4 text-sm font-medium">本地服务尚未启动</p><p className="mt-1 text-xs leading-5 text-muted-foreground">浏览器无法自行启动宿主进程。复制命令到终端，或把 prompt 发给已打开的 Codex。</p><CopyAction label="复制启动命令" text={daemonCommand} /><CopyAction label="复制给 Codex 的 prompt" text={daemonPrompt} /></aside>;
 
@@ -127,10 +127,16 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
     <><div className="mt-4 grid gap-2">{agents.map((agent) => <Button disabled={!agent.available || Boolean(starting)} key={agent.id} onClick={() => start(agent.command)} type="button"><Play className="size-3.5" />{starting === agent.command ? `正在启动 ${agent.name}…` : agent.available ? `启动 ${agent.name}` : `${agent.name} 未安装`}</Button>)}</div>
       {error && <p className="mt-2 rounded-xs border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">{error}</p>}
       {activeSession && <p className="mt-3 truncate font-mono text-[10px] text-muted-foreground">当前会话 · {activeSession.command}</p>}
-      {activeSession && !activeSession.running && <div className="mt-3 rounded-xs border bg-muted/40 p-3"><p className="text-xs font-medium">此终端已结束，以下内容仅供查看。</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">原始 PTY 无法在 Daemon 重启后重新附着。继续会打开 Agent 的原生会话选择器。</p>{canResume && <Button className="mt-3 w-full" disabled={Boolean(starting)} onClick={() => void start(activeSession.command, activeSession.command === "codex" ? ["resume", "--dangerously-bypass-approvals-and-sandbox"] : ["--resume"])} type="button" variant="outline"><RotateCcw className="size-3.5" />继续 {activeSession.command === "codex" ? "Codex 对话" : "Claude 对话"}</Button>}</div>}
+      {activeSession && !activeSession.running && <div className="mt-3 rounded-xs border bg-muted/40 p-3"><p className="text-xs font-medium">此终端已结束，以下内容仅供查看。</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">原始 PTY 无法在 Daemon 重启后重新附着。继续会打开 Agent 的原生会话选择器。</p>{canResume && <Button className="mt-3 w-full" disabled={Boolean(starting)} onClick={() => void start(activeSession.command, resumeArgsFor(activeSession.command))} type="button" variant="outline"><RotateCcw className="size-3.5" />继续 {activeSession.command === "codex" ? "Codex 对话" : activeSession.command === "opencode" ? "OpenCode 对话" : "Claude 对话"}</Button>}</div>}
       <div className="mt-3 h-[calc(100vh-17rem)] min-h-72 overflow-hidden rounded-xs border bg-terminal p-1"><div className="h-full" ref={host}>{!sessionID && <p className="p-3 font-mono text-[11px] text-muted-foreground">选择一个已安装的 CLI 启动终端会话。</p>}</div></div>
     </>
   </aside>;
+}
+
+function resumeArgsFor(command: string): string[] {
+  if (command === "codex") return ["resume", "--dangerously-bypass-approvals-and-sandbox"];
+  if (command === "opencode") return ["--continue"];
+  return ["--resume"];
 }
 
 function PanelTitle({ activeSession, historyOpen, onHistoryToggle }: { activeSession?: Session; historyOpen?: boolean; onHistoryToggle?: () => void }) {

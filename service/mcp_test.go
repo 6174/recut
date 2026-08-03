@@ -8,6 +8,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,6 +64,50 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 	}
 	if _, ok := tools["recut.media.list_voices"]; !ok {
 		t.Fatal("speech generation must expose voice discovery")
+	}
+}
+
+func TestProjectMCPToolCreatesListedProject(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	source, err := store.Create(CreateInput{Name: "Source", AppID: "example.app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := handleMCP(NewAgentBridge(store), NewAppHost(apps, store), NewMediaService(store), AgentSession{ProjectID: source.ID}, mcpRequest{
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"recut.project.create","arguments":{"name":"Agent Loop 概念","appId":"example.app"}}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, ok := result.(map[string]any)["structuredContent"].(Project)
+	if !ok || project.Name != "Agent Loop 概念" || project.AppID != "example.app" {
+		t.Fatalf("project tool result = %#v", result)
+	}
+	projects, err := store.List()
+	found := false
+	for _, candidate := range projects {
+		found = found || candidate.ID == project.ID
+	}
+	if err != nil || len(projects) != 2 || !found {
+		t.Fatalf("listed projects = %#v, err = %v", projects, err)
+	}
+	tool := projectMCPToolDefinition()
+	if tool["name"] != "recut.project.create" {
+		t.Fatalf("project tool definition = %#v", tool)
 	}
 }
 

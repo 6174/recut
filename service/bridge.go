@@ -121,6 +121,51 @@ func (b *AgentBridge) WriteClientProfile(session AgentSession, executable string
 	return path, nil
 }
 
+// WriteOpencodeProject materializes the per-project files that the OpenCode
+// CLI requires: the shared AGENTS.md plus a project-root `opencode.json` that
+// declares the platform MCP server. The token rides in the per-server
+// `environment` block because OpenCode has no `--mcp-config` flag.
+func (b *AgentBridge) WriteOpencodeProject(session AgentSession, token, executable string) (string, error) {
+	project, err := b.store.Get(session.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	if err := b.store.EnsureProjectAppMount(project.ID); err != nil {
+		return "", err
+	}
+	app, ok := b.store.catalog.Get(project.AppID)
+	if !ok {
+		return "", errors.New("project App is unavailable")
+	}
+	agents, err := b.renderCodexGuide(app)
+	if err != nil {
+		return "", err
+	}
+	root := b.store.projectDir(session.ProjectID)
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), agents, 0o600); err != nil {
+		return "", err
+	}
+	config := map[string]any{
+		"$schema": "https://opencode.ai/config.json",
+		"mcp": map[string]any{
+			"recut": map[string]any{
+				"type":    "local",
+				"command": []string{executable, "--mcp-stdio", "--data-dir", b.store.root, "--apps-dir", b.store.catalog.Directory()},
+				"environment": map[string]any{
+					"RECUT_AGENT_SESSION": session.ID,
+					"RECUT_AGENT_TOKEN":   token,
+				},
+				"enabled": true,
+			},
+		},
+	}
+	path := filepath.Join(root, "opencode.json")
+	if err := writeProjectJSON(path, config); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 func (b *AgentBridge) MaterializeCodexProject(session AgentSession, token, executable string) (string, error) {
 	stable, err := b.stableMCPExecutable(executable)
 	if err != nil {

@@ -249,7 +249,8 @@ func (s *Store) WorkspaceDatabase() (*sql.DB, error) {
 		_, err := db.Exec(`
 create table if not exists agent_sessions (
   id text primary key, profile_id text not null, project_id text, runtime text not null,
-  native_session_id text, codex_model text, reasoning_effort text, title text not null, status text not null,
+  native_session_id text, codex_model text, reasoning_effort text, opencode_model text,
+  title text not null, status text not null,
   created_at text not null, updated_at text not null
 );
 create table if not exists agent_turns (
@@ -318,6 +319,7 @@ create index if not exists media_task_leases_expiry on media_task_leases(expires
 		for _, statement := range []string{
 			"alter table agent_sessions add column codex_model text",
 			"alter table agent_sessions add column reasoning_effort text",
+			"alter table agent_sessions add column opencode_model text",
 			"alter table media_assets add column status text not null default 'completed'",
 			"alter table media_assets add column job_id text not null default ''",
 			"alter table media_assets add column remote_id text not null default ''",

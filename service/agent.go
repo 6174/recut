@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 Store 的本地工作区 SQLite、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权与 Codex JSONL CLI
- * [OUTPUT]: 对外提供 AgentManager、含项目媒体引用和 Codex 模型/推理配置的持久化 Turn、按序待发送队列、服务重启后的中断 Turn 收敛、不含用户内容的生命周期审计、保留工具输入/输出/失败态及时间戳的规范化事件与 Codex adapter
+ * [INPUT]: 依赖 Store 的本地工作区 SQLite、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
+ * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、含运行时模型配置的持久化 Turn、按序待发送队列、服务重启后的中断 Turn 收敛、不含用户内容的生命周期审计、保留工具输入/输出/失败态及时间戳的规范化事件
  * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -22,6 +22,12 @@ import (
 )
 
 const localProfileID = "local"
+const defaultOpencodeModel = "opencode-go/deepseek-v4-flash"
+
+type OpencodeModel struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+}
 
 type ChatSession struct {
 	ID              string    `json:"id"`
@@ -33,6 +39,7 @@ type ChatSession struct {
 	NativeSessionID string    `json:"nativeSessionId,omitempty"`
 	CodexModel      string    `json:"codexModel,omitempty"`
 	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
+	OpencodeModel   string    `json:"opencodeModel,omitempty"`
 	Title           string    `json:"title"`
 	Status          string    `json:"status"`
 	CreatedAt       time.Time `json:"createdAt"`
@@ -75,15 +82,16 @@ type ChatSessionDetail struct {
 }
 
 type AgentManager struct {
-	store   *Store
-	bridge  *AgentBridge
-	media   *MediaService
-	mu      sync.Mutex
-	running map[string]context.CancelFunc
+	store          *Store
+	bridge         *AgentBridge
+	media          *MediaService
+	opencodeModels func(context.Context) ([]OpencodeModel, error)
+	mu             sync.Mutex
+	running        map[string]context.CancelFunc
 }
 
 func NewAgentManager(store *Store, bridge *AgentBridge, media *MediaService) *AgentManager {
-	return &AgentManager{store: store, bridge: bridge, media: media, running: map[string]context.CancelFunc{}}
+	return &AgentManager{store: store, bridge: bridge, media: media, opencodeModels: listOpencodeModels, running: map[string]context.CancelFunc{}}
 }
 
 // RecoverInterruptedTurns reconciles durable state with the process boundary.
@@ -186,12 +194,12 @@ func (m *AgentManager) queuedSessionIDs() []string {
 	return sessionIDs
 }
 
-func (m *AgentManager) Create(projectID, runtime, codexModel, reasoningEffort string) (ChatSession, error) {
+func (m *AgentManager) Create(projectID, runtime, codexModel, reasoningEffort, opencodeModel string) (ChatSession, error) {
 	project, err := m.store.Get(projectID)
 	if err != nil {
 		return ChatSession{}, errors.New("project not found")
 	}
-	if runtime != "codex" && runtime != "claude" {
+	if runtime != "codex" && runtime != "claude" && runtime != "opencode" {
 		return ChatSession{}, fmt.Errorf("runtime %q is not available yet", runtime)
 	}
 	if runtime == "codex" {
@@ -203,17 +211,25 @@ func (m *AgentManager) Create(projectID, runtime, codexModel, reasoningEffort st
 	} else if codexModel != "" || reasoningEffort != "" {
 		return ChatSession{}, errors.New("Codex configuration is only available for Codex conversations")
 	}
+	if runtime == "opencode" {
+		opencodeModel, err = m.normalizeOpencodeConfiguration(context.Background(), opencodeModel)
+		if err != nil {
+			return ChatSession{}, err
+		}
+	} else if opencodeModel != "" {
+		return ChatSession{}, errors.New("OpenCode configuration is only available for OpenCode conversations")
+	}
 	id, err := newID()
 	if err != nil {
 		return ChatSession{}, err
 	}
 	now := time.Now().UTC()
-	session := ChatSession{ID: id, ProfileID: localProfileID, ProjectID: projectID, ProjectName: project.Name, AppID: project.AppID, Runtime: runtime, CodexModel: codexModel, ReasoningEffort: reasoningEffort, Title: "新对话", Status: "idle", CreatedAt: now, UpdatedAt: now}
+	session := ChatSession{ID: id, ProfileID: localProfileID, ProjectID: projectID, ProjectName: project.Name, AppID: project.AppID, Runtime: runtime, CodexModel: codexModel, ReasoningEffort: reasoningEffort, OpencodeModel: opencodeModel, Title: "新对话", Status: "idle", CreatedAt: now, UpdatedAt: now}
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
 		return ChatSession{}, err
 	}
-	_, err = db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, codex_model, reasoning_effort, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.ProjectID, session.Runtime, session.NativeSessionID, session.CodexModel, session.ReasoningEffort, session.Title, session.Status, iso(now), iso(now))
+	_, err = db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, codex_model, reasoning_effort, opencode_model, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.ProjectID, session.Runtime, session.NativeSessionID, session.CodexModel, session.ReasoningEffort, session.OpencodeModel, session.Title, session.Status, iso(now), iso(now))
 	if err != nil {
 		return session, err
 	}
@@ -226,7 +242,7 @@ func (m *AgentManager) List(projectID string) ([]ChatSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	query, args := "select id, profile_id, project_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
+	query, args := "select id, profile_id, project_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
 	if projectID != "" {
 		query += " and project_id = ?"
 		args = append(args, projectID)
@@ -430,6 +446,32 @@ func (m *AgentManager) UpdateCodexConfiguration(sessionID, model, effort string)
 	return m.hydrateSession(session), nil
 }
 
+// UpdateOpencodeConfiguration changes the model used by the next queued turn.
+// A running OpenCode child process keeps its already-started configuration.
+func (m *AgentManager) UpdateOpencodeConfiguration(sessionID, model string) (ChatSession, error) {
+	model, err := m.normalizeOpencodeConfiguration(context.Background(), model)
+	if err != nil {
+		return ChatSession{}, err
+	}
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return ChatSession{}, err
+	}
+	session, err := getChatSession(db, sessionID)
+	if err != nil {
+		return ChatSession{}, err
+	}
+	if session.Runtime != "opencode" {
+		return ChatSession{}, errors.New("only OpenCode conversations have this configuration")
+	}
+	now := time.Now().UTC()
+	if _, err := db.Exec("update agent_sessions set opencode_model = ?, updated_at = ? where id = ?", model, iso(now), sessionID); err != nil {
+		return ChatSession{}, err
+	}
+	session.OpencodeModel, session.UpdatedAt = model, now
+	return m.hydrateSession(session), nil
+}
+
 func (m *AgentManager) startRunner(sessionID string) {
 	m.mu.Lock()
 	if _, running := m.running[sessionID]; running {
@@ -571,6 +613,8 @@ func (m *AgentManager) runRuntime(ctx context.Context, session ChatSession, user
 		return m.runCodex(ctx, session, userTurn)
 	case "claude":
 		return m.runClaude(ctx, session, userTurn)
+	case "opencode":
+		return m.runOpencode(ctx, session, userTurn)
 	default:
 		return fmt.Errorf("runtime %q is not installed", session.Runtime)
 	}
@@ -730,6 +774,93 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	return nil
 }
 
+// OpenCode also publishes a stream-json contract; it carries a stable
+// `sessionID` in the event envelope, so the same ChatSession.native_session_id
+// field can resume the conversation via `opencode run --session <id>`.
+// MCP wiring is per-project via opencode.json written by the bridge.
+func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
+	command, err := findAgentProcessCommand("opencode")
+	if err != nil {
+		return agentCLIUnavailableError("OpenCode", "opencode")
+	}
+	model, err := m.normalizeOpencodeConfiguration(ctx, session.OpencodeModel)
+	if err != nil {
+		return err
+	}
+	bridgeSession, token, err := m.bridge.CreateSession(session.ProjectID)
+	if err != nil {
+		return err
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if _, err := m.bridge.WriteOpencodeProject(bridgeSession, token, executable); err != nil {
+		return err
+	}
+	prompt := userTurn.runtimePrompt() + attachmentPrompt(m.attachmentContexts(userTurn.Attachments))
+	projectDir := m.store.projectDir(session.ProjectID)
+	args := opencodeRunArgs(prompt, projectDir, model, session.NativeSessionID, session.Title)
+	cmd := exec.CommandContext(ctx, command.Path, args...)
+	cmd.Dir = projectDir
+	cmd.Env = environmentWithOverrides(os.Environ(), append(command.Env, "RECUT_AGENT_SESSION="+bridgeSession.ID, "RECUT_AGENT_TOKEN="+token))
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	var stderrText strings.Builder
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, `message="stream error"`) {
+				m.emit(session.ID, userTurn.ID, "status", map[string]any{"phase": "retrying", "label": "OpenCode 正在重试模型连接"})
+			}
+			if !strings.HasPrefix(line, "timestamp=") && stderrText.Len() < 4096 {
+				stderrText.WriteString(line + "\n")
+			}
+		}
+	}()
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		var raw map[string]any
+		if json.Unmarshal(scanner.Bytes(), &raw) == nil {
+			m.handleOpencodeEvent(session.ID, userTurn.ID, raw)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return errors.New("已停止")
+		}
+		if message := strings.TrimSpace(stderrText.String()); message != "" {
+			return errors.New(message)
+		}
+		return err
+	}
+	return nil
+}
+
+// opencodeRunArgs gives first turns a fixed title, preventing OpenCode from
+// issuing a second title-generation request beside the user's actual turn.
+func opencodeRunArgs(prompt, projectDir, model, nativeSessionID, title string) []string {
+	args := []string{"run", prompt, "--format", "json", "--print-logs", "--dir", projectDir, "--model", model}
+	if nativeSessionID != "" {
+		return append(args, "--session", nativeSessionID)
+	}
+	return append(args, "--title", title)
+}
+
 // agentCLIUnavailableError keeps process-environment failures actionable at
 // the durable event boundary, where both the UI and a later session reload
 // receive the same explanation.
@@ -847,6 +978,68 @@ func (m *AgentManager) handleClaudeEvent(sessionID, turnID string, raw map[strin
 				m.emit(sessionID, turnID, "tool.completed", map[string]any{"toolCallId": id, "tool": name, "label": name})
 			}
 		}
+	}
+}
+
+// handleOpencodeEvent maps OpenCode's `opencode run --format json` envelope
+// into the platform's generic event vocabulary. The session id is carried by
+// every event under `sessionID`; assistant text arrives in `part.text` and
+// tool invocations in `part.state` with `status` and free-form input/output.
+func (m *AgentManager) handleOpencodeEvent(sessionID, turnID string, raw map[string]any) {
+	if sid, ok := raw["sessionID"].(string); ok && sid != "" {
+		m.setNativeSession(sessionID, sid)
+	}
+	typeName, _ := raw["type"].(string)
+	part, _ := raw["part"].(map[string]any)
+	switch typeName {
+	case "step_start":
+		m.emit(sessionID, turnID, "status", map[string]any{"phase": "thinking", "label": "正在分析"})
+	case "step_finish":
+		// No-op: terminal status is communicated by the surrounding turn lifecycle.
+	case "text":
+		if value, ok := part["text"].(string); ok && strings.TrimSpace(value) != "" {
+			m.addAssistantTurn(sessionID, value)
+			m.emit(sessionID, turnID, "assistant.completed", map[string]any{"text": value})
+		}
+	case "tool_use":
+		if part == nil {
+			return
+		}
+		id, _ := part["id"].(string)
+		toolName, _ := part["tool"].(string)
+		state, _ := part["state"].(map[string]any)
+		status, _ := state["status"].(string)
+		eventType := "tool.completed"
+		phase := "output"
+		if status == "error" || status == "failed" {
+			eventType = "tool.failed"
+			phase = "error"
+		}
+		payload := map[string]any{
+			"toolCallId": id,
+			"tool":       toolName,
+			"toolName":   toolName,
+			"label":      toolLabel("mcp_tool_call", toolName, nil),
+		}
+		if raw := state["input"]; raw != nil {
+			if data, err := json.Marshal(raw); err == nil {
+				payload["input"] = string(data)
+			}
+		}
+		if value, ok := state["output"]; ok {
+			if data, err := json.Marshal(value); err == nil {
+				payload[phase] = string(data)
+			}
+		}
+		m.emit(sessionID, turnID, eventType, payload)
+	case "error":
+		label := "OpenCode 返回错误"
+		if value, ok := raw["error"]; ok {
+			if data, err := json.Marshal(value); err == nil {
+				label = label + "：" + string(data)
+			}
+		}
+		m.emit(sessionID, turnID, "status", map[string]any{"phase": "error", "label": label})
 	}
 }
 
@@ -1043,7 +1236,7 @@ func (m *AgentManager) updateSession(id, clause, value string) {
 func (m *AgentManager) finish(id string) { m.mu.Lock(); delete(m.running, id); m.mu.Unlock() }
 
 func getChatSession(db *sql.DB, id string) (ChatSession, error) {
-	row := db.QueryRow("select id, profile_id, project_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), title, status, created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
+	row := db.QueryRow("select id, profile_id, project_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
 	return scanChatSession(row)
 }
 
@@ -1052,7 +1245,7 @@ type scanner interface{ Scan(...any) error }
 func scanChatSession(row scanner) (ChatSession, error) {
 	var session ChatSession
 	var created, updated string
-	err := row.Scan(&session.ID, &session.ProfileID, &session.ProjectID, &session.Runtime, &session.NativeSessionID, &session.CodexModel, &session.ReasoningEffort, &session.Title, &session.Status, &created, &updated)
+	err := row.Scan(&session.ID, &session.ProfileID, &session.ProjectID, &session.Runtime, &session.NativeSessionID, &session.CodexModel, &session.ReasoningEffort, &session.OpencodeModel, &session.Title, &session.Status, &created, &updated)
 	if err != nil {
 		return ChatSession{}, err
 	}
@@ -1081,6 +1274,51 @@ func normalizeCodexConfiguration(model, effort string) (string, string, error) {
 		return "", "", fmt.Errorf("reasoning effort %q is unavailable", effort)
 	}
 	return model, effort, nil
+}
+
+func (m *AgentManager) normalizeOpencodeConfiguration(ctx context.Context, model string) (string, error) {
+	models, err := m.opencodeModels(ctx)
+	if err != nil {
+		return "", err
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = defaultOpencodeModel
+	}
+	for _, available := range models {
+		if available.ID == model {
+			return model, nil
+		}
+	}
+	return "", fmt.Errorf("OpenCode TUI does not offer model %q", model)
+}
+
+func listOpencodeModels(ctx context.Context) ([]OpencodeModel, error) {
+	command, err := findAgentProcessCommand("opencode")
+	if err != nil {
+		return nil, agentCLIUnavailableError("OpenCode", "opencode")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, command.Path, "models")
+	cmd.Env = environmentWithOverrides(os.Environ(), command.Env)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read OpenCode models: %s", strings.TrimSpace(string(output)))
+	}
+	return parseOpencodeModels(string(output)), nil
+}
+
+func parseOpencodeModels(output string) []OpencodeModel {
+	models := make([]OpencodeModel, 0)
+	for _, line := range strings.Split(output, "\n") {
+		id := strings.TrimSpace(line)
+		provider, name, found := strings.Cut(id, "/")
+		if found && name != "" {
+			models = append(models, OpencodeModel{ID: id, Provider: provider})
+		}
+	}
+	return models
 }
 func listChatTurns(db *sql.DB, sessionID string) ([]ChatTurn, error) {
 	rows, err := db.Query("select id, session_id, role, content, status, created_at, completed_at from agent_turns where session_id = ? order by created_at, id", sessionID)

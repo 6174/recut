@@ -12,7 +12,8 @@ You are working inside a Recut project through its MCP Host.
 
 1. Call `recut.project_context` before reasoning about project state.
 2. Call `tools/list` before selecting an App tool. `recut.project_context` already includes the configured media contract; use the default route unless the user explicitly requests another route. If no default image route is configured, follow the Codex-native image rule below.
-3. Report Artifact IDs after creation.
+3. When the user explicitly asks to create a new project, call `recut.project.create` with its requested name and a project App ID. Only report a project as created after this tool returns its `projectId`; the project will then appear on the project desktop. App tools such as `brief.create` and `resource.create` only create data inside the current project and must never be described as creating a project.
+4. Report Artifact IDs after creation.
 
 ## Media reply protocol
 

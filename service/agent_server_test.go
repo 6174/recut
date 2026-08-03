@@ -153,7 +153,7 @@ func TestSystemLogsExposeDiagnosticsToLocalNetwork(t *testing.T) {
 	request.RemoteAddr = "192.168.1.20:17373"
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "CODEX CLI resolution") || !strings.Contains(recorder.Body.String(), "INFO service started") {
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "CODEX CLI resolution") || !strings.Contains(recorder.Body.String(), "OPENCODE CLI resolution") || !strings.Contains(recorder.Body.String(), "INFO service started") {
 		t.Fatalf("local diagnostics = %d: %s", recorder.Code, recorder.Body.String())
 	}
 

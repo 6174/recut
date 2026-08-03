@@ -191,7 +191,7 @@ function SectionTitle({ action, count, description, title }: { action?: React.Re
 
 function RepairGuide({ message }: { message: string }) {
   const prompt = `Recut 本地环境遇到问题：${message}\n请先检查 service 日志、Git 状态和 manifest.json；解释根因并给出最小、可验证的修复。不要跳过现有本地修改。`;
-  return <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-left"><p className="text-xs font-medium">{message}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">不要让界面猜测或直接覆盖本机状态。把诊断任务交给 Codex 或 Claude Code。</p><Button className="mt-2 h-7" onClick={() => void navigator.clipboard.writeText(prompt)} type="button" variant="outline"><Code2 className="size-3.5" />复制诊断任务</Button></div>;
+  return <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-left"><p className="text-xs font-medium">{message}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">不要让界面猜测或直接覆盖本机状态。把诊断任务交给 Codex、Claude Code 或 OpenCode。</p><Button className="mt-2 h-7" onClick={() => void navigator.clipboard.writeText(prompt)} type="button" variant="outline"><Code2 className="size-3.5" />复制诊断任务</Button></div>;
 }
 
 async function responseMessage(response: Response) {

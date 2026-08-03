@@ -123,6 +123,24 @@ func TestNormalizeCodexConfiguration(t *testing.T) {
 	}
 }
 
+func TestParseOpencodeModelsKeepsEveryTUIProvider(t *testing.T) {
+	models := parseOpencodeModels("opencode/deepseek-v4-flash-free\nopencode-go/deepseek-v4-flash\ngithub-copilot/gpt-5.6-sol\ninvalid")
+	if len(models) != 3 || models[0].ID != "opencode/deepseek-v4-flash-free" || models[1].ID != defaultOpencodeModel || models[2].Provider != "github-copilot" {
+		t.Fatalf("models = %#v", models)
+	}
+}
+
+func TestOpencodeRunArgsAvoidsAutomaticTitleGeneration(t *testing.T) {
+	first := strings.Join(opencodeRunArgs("hello", "/project", defaultOpencodeModel, "", "New chat"), " ")
+	if !strings.Contains(first, "--print-logs") || !strings.Contains(first, "--title New chat") || strings.Contains(first, "--session") {
+		t.Fatalf("first OpenCode args = %q", first)
+	}
+	resumed := strings.Join(opencodeRunArgs("again", "/project", defaultOpencodeModel, "ses_123", "ignored"), " ")
+	if !strings.Contains(resumed, "--session ses_123") || strings.Contains(resumed, "--title") {
+		t.Fatalf("resumed OpenCode args = %q", resumed)
+	}
+}
+
 func TestWorkspaceDatabaseUsesWAL(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	db, err := store.WorkspaceDatabase()
@@ -212,6 +230,64 @@ func TestUpdateCodexConfigurationPersistsNextTurnDefaults(t *testing.T) {
 	}
 }
 
+func TestUpdateOpencodeConfigurationPersistsModel(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := iso(time.Now().UTC())
+	if _, err := db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, opencode_model, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", "session-opencode", localProfileID, "", "opencode", "", defaultOpencodeModel, "Test", "idle", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewAgentManager(store, nil, nil)
+	manager.opencodeModels = func(context.Context) ([]OpencodeModel, error) {
+		return []OpencodeModel{{ID: defaultOpencodeModel}, {ID: "opencode/deepseek-v4-flash-free"}}, nil
+	}
+	if _, err := manager.UpdateOpencodeConfiguration("session-opencode", "github-copilot/gpt-5.6-sol"); err == nil {
+		t.Fatal("model absent from the OpenCode TUI was accepted")
+	}
+	session, err := manager.UpdateOpencodeConfiguration("session-opencode", "opencode/deepseek-v4-flash-free")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.OpencodeModel != "opencode/deepseek-v4-flash-free" {
+		t.Fatalf("saved opencode model = %q", session.OpencodeModel)
+	}
+	db, err = store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := db.QueryRow("select opencode_model from agent_sessions where id = ?", "session-opencode").Scan(&stored); err != nil || stored != "opencode/deepseek-v4-flash-free" {
+		t.Fatalf("persisted opencode_model = %q, err=%v", stored, err)
+	}
+}
+
+func TestUpdateOpencodeConfigurationRejectsNonOpencodeSession(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := iso(time.Now().UTC())
+	if _, err := db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", "session-codex-only", localProfileID, "", "codex", "", "Test", "idle", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewAgentManager(store, nil, nil)
+	manager.opencodeModels = func(context.Context) ([]OpencodeModel, error) { return []OpencodeModel{{ID: "openai/gpt-5"}}, nil }
+	if _, err := manager.UpdateOpencodeConfiguration("session-codex-only", "openai/gpt-5"); err == nil {
+		t.Fatal("opencode configuration was accepted for a Codex session")
+	}
+}
+
 func TestCodexToolFailureDetection(t *testing.T) {
 	for _, item := range []map[string]any{
 		{"status": "failed"},
@@ -260,6 +336,15 @@ func TestAgentCLIUnavailableErrorIsActionable(t *testing.T) {
 	for _, expected := range []string{"Codex CLI is unavailable", "device running Recut service", `"codex"`, "restart Recut service"} {
 		if !strings.Contains(message, expected) {
 			t.Fatalf("CLI guidance missing %q: %s", expected, message)
+		}
+	}
+}
+
+func TestAgentCLIUnavailableErrorForOpencodeIsActionable(t *testing.T) {
+	message := agentCLIUnavailableError("OpenCode", "opencode").Error()
+	for _, expected := range []string{"OpenCode CLI is unavailable", "device running Recut service", `"opencode"`, "restart Recut service"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("OpenCode CLI guidance missing %q: %s", expected, message)
 		}
 	}
 }

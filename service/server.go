@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store 与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计的 Server 及内嵌工作台、无入口重定向的 App UI、App 能力、项目产物、结构化 Agent 会话/新对话引导与终端 HTTP API
+ * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计的 Server 及内嵌工作台、无入口重定向的 App UI、App 能力、项目产物、结构化 Agent 会话/新对话引导、OpenCode TUI 模型目录与终端 HTTP API
  * [POS]: service 的传输层，负责把受信任项目、内嵌本地工作台与扩展注册表映射为浏览器可消费的 API；对话和 PTY 协议并存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -97,10 +97,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/agent-sessions", s.createAgentSession)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}", s.getAgentSession)
 	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/codex-configuration", s.updateCodexConfiguration)
+	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/opencode-configuration", s.updateOpencodeConfiguration)
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/turns", s.startAgentTurn)
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/stop", s.stopAgentTurn)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/events", s.streamAgentEvents)
 	mux.HandleFunc("GET /v1/agents", s.listAgents)
+	mux.HandleFunc("GET /v1/agents/opencode/models", s.listOpencodeModels)
 	mux.HandleFunc("GET /v1/terminals", s.listTerminals)
 	mux.HandleFunc("POST /v1/terminals", s.startTerminal)
 	mux.HandleFunc("GET /v1/terminals/{id}/events", s.streamTerminal)
@@ -149,7 +151,7 @@ type AgentStatus struct {
 }
 
 func (s *Server) listAgents(w http.ResponseWriter, _ *http.Request) {
-	agents := []AgentStatus{{ID: "codex", Name: "Codex", Command: "codex"}, {ID: "claude", Name: "Claude Code", Command: "claude"}}
+	agents := []AgentStatus{{ID: "codex", Name: "Codex", Command: "codex"}, {ID: "claude", Name: "Claude Code", Command: "claude"}, {ID: "opencode", Name: "OpenCode", Command: "opencode"}}
 	for index := range agents {
 		// 面板只需可用性；完整多 shell 扫描只在用户主动打开诊断页时执行。
 		diagnostic := resolveAgentCommand(agents[index].Command, false)
@@ -171,7 +173,7 @@ func (s *Server) systemLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "inline; filename=recut-service-diagnostics.log")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintf(w, "Recut service diagnostics\nGenerated: %s\nVersion: %s\n\n", time.Now().UTC().Format(time.RFC3339), ServiceVersion())
-	for _, command := range []string{"codex", "claude"} {
+	for _, command := range []string{"codex", "claude", "opencode"} {
 		data, _ := json.MarshalIndent(inspectAgentCommand(command), "", "  ")
 		fmt.Fprintf(w, "%s CLI resolution\n%s\n\n", strings.ToUpper(command), data)
 	}

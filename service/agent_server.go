@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentManager 的本地持久化会话和 HTTP SSE 传输能力
- * [OUTPUT]: 对外提供项目或通用 scope 的 Agent Session 创建、Codex 配置更新、按项目解析/全局保存 onboarding、查询、含图片资产引用的发送、停止与事件订阅 HTTP API，并区分不存在和存储读取失败
+ * [OUTPUT]: 对外提供项目或通用 scope 的 Agent Session 创建、Codex 配置更新、OpenCode 实时模型目录、按项目解析/全局保存 onboarding、查询、含图片资产引用的发送、停止与事件订阅 HTTP API，并区分不存在和存储读取失败
  * [POS]: service 的结构化对话传输边界；与 terminal HTTP API 并存且互不代理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -72,12 +72,22 @@ func (s *Server) listAgentSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessions)
 }
 
+func (s *Server) listOpencodeModels(w http.ResponseWriter, r *http.Request) {
+	models, err := s.agents.opencodeModels(r.Context())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, models)
+}
+
 func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 	input := struct {
 		ProjectID       string `json:"projectId"`
 		Runtime         string `json:"runtime"`
 		CodexModel      string `json:"codexModel"`
 		ReasoningEffort string `json:"reasoningEffort"`
+		OpencodeModel   string `json:"opencodeModel"`
 	}{}
 	if json.NewDecoder(r.Body).Decode(&input) != nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
@@ -95,7 +105,7 @@ func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 	if input.Runtime == "" {
 		input.Runtime = "codex"
 	}
-	session, err := s.agents.Create(input.ProjectID, input.Runtime, strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort))
+	session, err := s.agents.Create(input.ProjectID, input.Runtime, strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort), strings.TrimSpace(input.OpencodeModel))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -126,6 +136,22 @@ func (s *Server) updateCodexConfiguration(w http.ResponseWriter, r *http.Request
 		return
 	}
 	session, err := s.agents.UpdateCodexConfiguration(r.PathValue("id"), strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort))
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) updateOpencodeConfiguration(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		OpencodeModel string `json:"opencodeModel"`
+	}{}
+	if json.NewDecoder(r.Body).Decode(&input) != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	session, err := s.agents.UpdateOpencodeConfiguration(r.PathValue("id"), strings.TrimSpace(input.OpencodeModel))
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
 		return

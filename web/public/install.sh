@@ -7,7 +7,7 @@ set -eu
 
 fail() {
   echo "Recut installer: $1" >&2
-  echo "请将完整输出交给 Codex 或 Claude Code 诊断；不要删除 ~/.recut 中的用户数据。" >&2
+  echo "请将完整输出交给 Codex、Claude Code 或 OpenCode 诊断；不要删除 ~/.recut 中的用户数据。" >&2
   exit 1
 }
 
