@@ -29,6 +29,34 @@ func TestComposeMediaInputKeepsCamelCaseTimelineFields(t *testing.T) {
 	}
 }
 
+func TestPythonStatusUsesCamelCasePropertiesForJavaScriptApps(t *testing.T) {
+	root := t.TempDir()
+	app := App{
+		Manifest: Manifest{ID: "example.python", Runtime: AppRuntime{Python: &PythonRuntime{Venv: "example", Version: "3.11", Requirements: "requirements.lock"}}},
+		Root:     root,
+	}
+	writeTestFile(t, filepath.Join(root, "requirements.lock"), "example-package\n")
+	store := NewStore(filepath.Join(root, "data"), nil)
+	manager := NewPythonRuntimeManager(store, NewShellJobManager(store))
+	environment, err := manager.Environment(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(environment.Python), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, environment.Python, "")
+
+	runtime := goja.New()
+	status := pythonStatus(runtime, manager, app)(goja.FunctionCall{}).ToObject(runtime)
+	if !status.Get("ready").ToBoolean() {
+		t.Fatalf("JavaScript ready property = %v", status.Get("ready"))
+	}
+	if status.Get("Ready") != nil {
+		t.Fatalf("Go field name leaked into JavaScript capability: %v", status.Get("Ready"))
+	}
+}
+
 func TestAppHostInvokesManifestDeclaredJavaScriptAPI(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, "apps", "example")
@@ -202,8 +230,8 @@ func TestCoverStudioSavePromotesAssetToCurrentPreview(t *testing.T) {
 	if _, err := host.InvokeAPI(project.ID, appID, "cover.configure", map[string]any{"channel": "小红书", "width": 1242, "height": 1660, "templateId": "editorial", "referenceAssetIds": []any{}, "brief": "右侧留白"}); err != nil {
 		t.Fatalf("cover.configure: %v", err)
 	}
-	if _, err := host.InvokeMCP(project.ID, appID, "cover.save", map[string]any{"assetId": "cover-asset", "prompt": "真实封面", "channel": "小红书", "width": 1242, "height": 1660, "templateId": "editorial", "referenceAssetIds": []any{}}); err != nil {
-		t.Fatalf("cover.save: %v", err)
+	if _, err := host.InvokeAPI(project.ID, appID, "cover.save", map[string]any{"assetId": "cover-asset", "prompt": "真实封面", "channel": "小红书", "width": 1242, "height": 1660, "templateId": "editorial", "referenceAssetIds": []any{}}); err != nil {
+		t.Fatalf("cover.save API: %v", err)
 	}
 	context, err := host.InvokeMCP(project.ID, appID, "cover.context", map[string]any{})
 	if err != nil {

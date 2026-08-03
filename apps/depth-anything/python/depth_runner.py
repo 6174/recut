@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 [INPUT]: 读取 RECUT_APP_FILES_DIR、RECUT_MODELS_DIR、Depth Anything V2 官方仓库、PyTorch、OpenCV 与 FFmpeg
-[OUTPUT]: 输出单行 JSON 状态；在 App 私有 files/outputs 中生成 PNG 或 MP4 深度预览
+[OUTPUT]: 输出单行 JSON 状态；在 App 私有 files/outputs 中生成 PNG 或浏览器可预览的 H.264 MP4 深度预览，并实时报告视频帧进度
 [POS]: depth-anything 的本地执行入口；依赖和模型固定到 .recut/models/depth-anything-v2，不写入素材库
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 """
@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -83,6 +84,17 @@ def safe_file(relative: str) -> Path:
     return target
 
 
+def encode_browser_video(source: Path, target: Path) -> None:
+    """将 OpenCV 的中间视频封装为所有主流浏览器都可播放的 H.264 MP4。"""
+    command = [
+        "ffmpeg", "-y", "-loglevel", "error", "-i", str(source),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(target),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError(f"Could not encode browser-compatible MP4: {result.stderr.strip()}")
+
+
 def infer(selected: str, style: str, kind: str, source_relative: str, output_relative: str) -> None:
     root = model_root()
     current = state(root)
@@ -121,16 +133,34 @@ def infer(selected: str, style: str, kind: str, source_relative: str, output_rel
             emit({"ready": False, "error": "The selected video could not be read."}, 1)
         width, height = int(video.get(cv2.CAP_PROP_FRAME_WIDTH)), int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = video.get(cv2.CAP_PROP_FPS) or 30
-        writer = cv2.VideoWriter(str(output), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+        total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+        intermediate = output.with_name(f"{output.stem}.render.mp4")
+        writer = cv2.VideoWriter(str(intermediate), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
         if not writer.isOpened():
             emit({"ready": False, "error": "Could not initialize MP4 output. Check FFmpeg support."}, 1)
-        while True:
-            ok, frame = video.read()
-            if not ok:
-                break
-            writer.write(render(frame))
-        video.release()
-        writer.release()
+        print(f"[depth] 开始处理视频，共 {total_frames or '未知'} 帧。", flush=True)
+        frame_index = 0
+        try:
+            while True:
+                ok, frame = video.read()
+                if not ok:
+                    break
+                writer.write(render(frame))
+                frame_index += 1
+                if frame_index % 10 == 0 or (total_frames and frame_index == total_frames):
+                    progress = f"{frame_index}/{total_frames}" if total_frames else str(frame_index)
+                    print(f"[depth] 已处理 {progress} 帧。", flush=True)
+        finally:
+            video.release()
+            writer.release()
+        if not frame_index:
+            emit({"ready": False, "error": "The selected video contains no readable frames."}, 1)
+        print("[depth] 正在转码为浏览器可预览的 H.264 MP4…", flush=True)
+        try:
+            encode_browser_video(intermediate, output)
+        finally:
+            intermediate.unlink(missing_ok=True)
+        print("[depth] 视频深度预览已生成。", flush=True)
     emit({"ready": True, "output": output_relative})
 
 

@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 service 的独立 App workspace scope、manifest UI 入口、App API 与 Agent Session HTTP API
- * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信和工作区级 Agent 对话侧栏；App 可回填输入草稿但不能借此提交 turn
+ * [INPUT]: 依赖 service 的独立 App workspace scope、manifest UI 入口、App API、媒体配置/生成、平台素材选择器与 Agent Session HTTP API
+ * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信、受 scope 约束的媒体直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏；App 可回填输入草稿但不能借此提交 turn
  * [POS]: workspace-app/[appID] 的客户端工作台；复用项目级安全 scope，但不显示或创建用户项目
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { HeaderActions } from "@/components/header-actions";
+import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { firstAvailableAgentRuntime } from "@/lib/agent-runtime";
@@ -37,9 +38,13 @@ export default function StandaloneAppClient() {
   const [scope, setScope] = useState<WorkspaceScope | null>(null);
   const [app, setApp] = useState<App | null>(null);
   const [agentDraft, setAgentDraft] = useState<{ id: string; text: string } | null>(null);
+  const [mediaPicker, setMediaPicker] = useState<PlatformMediaPickerRequest | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<"multimodal" | undefined>();
   const apiBase = useServiceStore((state) => state.endpoint);
   const online = useServiceStore((state) => state.service.phase === "online");
   const appFrame = useRef<HTMLIFrameElement>(null);
+  const mediaPickerReply = useRef<((selection: PlatformMediaPickerResult | null) => void) | null>(null);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.workspace-app-agent-panel-width" });
 
   useEffect(() => { setAppID(appIDFromLocation(routeID)); }, [routeID]);
@@ -87,6 +92,31 @@ export default function StandaloneAppClient() {
           if (!prompt) throw new Error("Agent Prompt 不能为空");
           setAgentDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
+        } else if (request.type === "media.configuration") {
+          const response = await fetch(`${apiBase}/v1/media/configuration`);
+          const payload = await response.json();
+          reply(payload, response.ok ? undefined : operationError(payload, "无法读取图片模型配置"));
+        } else if (request.type === "media.generate") {
+          const prompt = String(request.input?.prompt || "").trim();
+          const route = String(request.input?.route || "").trim();
+          const referenceIDs = Array.isArray(request.input?.referenceIDs) ? request.input.referenceIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
+          if (!prompt || !route) throw new Error("图片生成需要 Prompt 和已配置模型");
+          const response = await fetch(`${apiBase}/v1/media/jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capability: "image.generate", prompt, route, referenceIds: referenceIDs, projectId: scope.id }) });
+          const payload = await response.json();
+          reply(payload, response.ok ? undefined : operationError(payload, "无法创建图片生成任务"));
+        } else if (request.type === "settings.open") {
+          if (request.input?.section !== "multimodal") throw new Error("不支持的设置分类");
+          setSettingsSection("multimodal");
+          setSettingsOpen(true);
+          reply({ delivery: "settings" });
+        } else if (request.type === "media.pick") {
+          if (mediaPickerReply.current) throw new Error("已有素材选择器正在打开");
+          const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" => kind === "image" || kind === "video" || kind === "audio") : [];
+          if (!kinds.length) throw new Error("请声明可选择的素材类型");
+          const multiple = request.input?.multiple === true;
+          const selectedIDs = Array.isArray(request.input?.selectedIDs) ? request.input.selectedIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
+          mediaPickerReply.current = (selection) => reply(selection);
+          setMediaPicker({ kinds, multiple, selectedIDs });
         } else if (request.type === "agent.send") {
           const sessionsResponse = await fetch(`${apiBase}/v1/agent-sessions?projectId=${encodeURIComponent(scope.id)}`);
           if (!sessionsResponse.ok) throw new Error("无法读取 Agent 对话");
@@ -109,8 +139,11 @@ export default function StandaloneAppClient() {
 
   const view = app?.manifest.ui.standaloneView;
   const uiURL = scope && app && view ? `${apiBase}/v1/apps/${encodeURIComponent(app.manifest.id)}/ui/${view}?projectId=${encodeURIComponent(scope.id)}&appVersion=${encodeURIComponent(app.manifest.version)}` : null;
+  const resolveMediaPicker = (selection: PlatformMediaPickerResult | null) => { mediaPickerReply.current?.(selection); mediaPickerReply.current = null; setMediaPicker(null); };
+  const changeSettingsOpen = (open: boolean) => { setSettingsOpen(open); if (!open) setSettingsSection(undefined); };
   return <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
-    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5"><div className="flex min-w-0 items-center gap-4"><Link aria-label="返回应用目录" className="flex shrink-0 items-center gap-2" href="/apps"><ArrowLeft className="size-4" /><AppWindow className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link><div aria-hidden="true" className="h-5 w-px bg-border" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{app?.manifest.name ?? "工作区 App"}</p><p className="truncate font-mono text-[10px] text-muted-foreground">WORKSPACE APP · 不创建项目</p></div></div><HeaderActions /></header>
+    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5"><div className="flex min-w-0 items-center gap-4"><Link aria-label="返回应用目录" className="flex shrink-0 items-center gap-2" href="/apps"><ArrowLeft className="size-4" /><AppWindow className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link><div aria-hidden="true" className="h-5 w-px bg-border" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{app?.manifest.name ?? "工作区 App"}</p><p className="truncate font-mono text-[10px] text-muted-foreground">WORKSPACE APP · 不创建项目</p></div></div><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></header>
     <div className="relative grid min-h-0 flex-1 overflow-hidden [grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}><section className="min-h-0 min-w-0 overflow-hidden border-r bg-card">{uiURL ? <iframe className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={app?.manifest.name ?? "Recut App"} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">正在准备独立 App 工作区…</div>}</section>{isDragging && <div aria-hidden="true" className="absolute inset-0 z-[5] cursor-col-resize" />}<button aria-label="拖动调整 Agent 面板宽度" className="group absolute inset-y-0 z-10 w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button><ProjectAgentPanel apiBase={apiBase} draft={agentDraft} online={online} projectID={scope?.id ?? null} /></div>
+    <PlatformMediaPicker apiBase={apiBase} onCancel={() => resolveMediaPicker(null)} onPick={resolveMediaPicker} request={mediaPicker} />
   </main>;
 }

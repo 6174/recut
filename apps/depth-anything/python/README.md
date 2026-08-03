@@ -3,7 +3,7 @@
 > L2 | 父级: /apps/depth-anything/README.md
 
 成员清单
-depth_runner.py: 本机 Python 执行入口；检查 FFmpeg 与官方仓库、下载选择的权重，并将图片或视频转换为 App 私有深度预览；不管理 venv 或依赖安装。
+depth_runner.py: 本机 Python 执行入口；检查 FFmpeg 与官方仓库、下载选择的权重，将图片或视频转换为 App 私有深度预览，并将视频编码为浏览器可播放的 H.264 MP4、逐帧输出进度；不管理 venv 或依赖安装。
 requirements.lock: 平台 Python runtime 的锁定依赖清单；其内容参与 venv 指纹，变更会得到新的隔离环境。
 
 依赖关系

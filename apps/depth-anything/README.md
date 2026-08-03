@@ -13,7 +13,7 @@ Small 适合快速预览；Base 是默认平衡；Large 有更细的细节，对
 
 ## 本地依赖
 
-`manifest.json` 的 `runtime.python` 是唯一的环境声明：平台创建 venv、按 `python/requirements.lock` 安装 PyTorch、TorchVision、OpenCV 和 timm；`bootstrap.sh` 是不受产品约束的兜底脚本，本 App 用它浅克隆 [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2)。视频与图片路径都要求本机 `ffmpeg` 已可执行；安装、下载和推理均作为可取消任务运行，实时 stdout/stderr 会显示在界面和项目事件流中，错误可直接交给右侧 Codex 处理。
+`manifest.json` 的 `runtime.python` 是唯一的环境声明：平台创建 venv、按 `python/requirements.lock` 安装 PyTorch、TorchVision、OpenCV 和 timm；`bootstrap.sh` 是不受产品约束的兜底脚本，本 App 用它浅克隆 [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2)。视频与图片路径都要求本机 `ffmpeg` 已可执行；视频逐帧推理先写入中间文件，再经 FFmpeg 转为浏览器可播放的 H.264/yuv420p MP4；安装、下载和推理均作为可取消任务运行，实时 stdout/stderr 与逐帧进度会显示在界面和项目事件流中，错误可直接交给右侧 Codex 处理。
 
 ## 数据边界
 

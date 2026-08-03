@@ -2,3 +2,7 @@
 	path = apps/vox-broll
 	url = git@github.com:6174/recut-vox-broll.git
 	branch = main
+[submodule "recut-depth-anything-v2"]
+	path = apps/depth-anything
+	url = git@github.com:6174/recut-depth-anything-v2.git
+	branch = main

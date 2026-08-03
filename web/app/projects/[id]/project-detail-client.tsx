@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖全局 Zustand service 状态、service endpoint、项目/App manifest API、Agent Session HTTP API 与 Next.js 浏览器路由参数
- * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发与带宿主通信诊断的结构化 Agent 请求转交；App 可回填右侧 Agent 输入草稿但不能借此提交 turn，并透传 App API 的失败原因
+ * [INPUT]: 依赖全局 Zustand service 状态、service endpoint、项目/App manifest API、平台素材选择器、Agent Session HTTP API 与 Next.js 浏览器路由参数
+ * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发、全局素材选择与带宿主通信诊断的结构化 Agent 请求转交；App 可回填右侧 Agent 输入草稿但不能借此提交 turn，并透传 App API 的失败原因
  * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，共享根级 service 状态，隔离 useParams、WebSocket 与 iframe，不能吞没后台诊断
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { HeaderActions } from "@/components/header-actions";
+import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { firstAvailableAgentRuntime } from "@/lib/agent-runtime";
 import { useServiceStore } from "@/lib/service-store";
@@ -40,9 +41,11 @@ export default function ProjectDetailClient() {
   const [app, setApp] = useState<App | null>(null);
   const [installation, setInstallation] = useState<ManagedApp | null>(null);
   const [agentDraft, setAgentDraft] = useState<{ id: string; text: string } | null>(null);
+  const [mediaPicker, setMediaPicker] = useState<PlatformMediaPickerRequest | null>(null);
   const apiBase = useServiceStore((state) => state.endpoint);
   const online = useServiceStore((state) => state.service.phase === "online");
   const appFrame = useRef<HTMLIFrameElement>(null);
+  const mediaPickerReply = useRef<((selection: PlatformMediaPickerResult | null) => void) | null>(null);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.project-agent-panel-width" });
 
   useEffect(() => { setID(projectIDFromLocation(routeID)); }, [routeID]);
@@ -97,6 +100,14 @@ export default function ProjectDetailClient() {
           setAgentDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
           console.warn(`[recut-host] iframe response id=${String(request.id)} type=agent.compose result=ok`);
+        } else if (request.type === "media.pick") {
+          if (mediaPickerReply.current) throw new Error("已有素材选择器正在打开");
+          const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" => kind === "image" || kind === "video" || kind === "audio") : [];
+          if (!kinds.length) throw new Error("请声明可选择的素材类型");
+          const multiple = request.input?.multiple === true;
+          const selectedIDs = Array.isArray(request.input?.selectedIDs) ? request.input.selectedIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
+          mediaPickerReply.current = (selection) => reply(selection);
+          setMediaPicker({ kinds, multiple, selectedIDs });
         } else if (request.type === "agent.send") {
           const sessionsResponse = await fetch(`${apiBase}/v1/agent-sessions?projectId=${encodeURIComponent(project.id)}`);
           if (!sessionsResponse.ok) throw new Error("无法读取 Agent 对话");
@@ -125,6 +136,7 @@ export default function ProjectDetailClient() {
 
   const view = app?.manifest.ui.projectView;
   const uiURL = project && view ? `${apiBase}/v1/apps/${encodeURIComponent(project.appId)}/ui/${view}?projectId=${encodeURIComponent(project.id)}&appVersion=${encodeURIComponent(app?.manifest.version ?? "")}` : null;
+  const resolveMediaPicker = (selection: PlatformMediaPickerResult | null) => { mediaPickerReply.current?.(selection); mediaPickerReply.current = null; setMediaPicker(null); };
 
   return <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
     <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5">
@@ -143,5 +155,6 @@ export default function ProjectDetailClient() {
       <button aria-label="拖动调整 Agent 面板宽度" className="group absolute inset-y-0 z-10 w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button>
       <ProjectAgentPanel apiBase={apiBase} draft={agentDraft} online={online} projectID={project?.id ?? null} />
     </div>
+    <PlatformMediaPicker apiBase={apiBase} onCancel={() => resolveMediaPicker(null)} onPick={resolveMediaPicker} request={mediaPicker} />
   </main>;
 }

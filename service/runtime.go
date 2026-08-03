@@ -500,7 +500,16 @@ func pythonStatus(runtime *goja.Runtime, manager *PythonRuntimeManager, app App)
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}
-		return runtime.ToValue(environment)
+		// Keep the JavaScript capability contract independent of Go exported-field
+		// names. Apps consume camelCase properties, while Goja's struct projection
+		// does not apply encoding/json tags to property lookup.
+		return runtime.ToValue(map[string]any{
+			"name":   environment.Name,
+			"path":   environment.Path,
+			"python": environment.Python,
+			"ready":  environment.Ready,
+			"error":  environment.Error,
+		})
 	}
 }
 func pythonPrepare(runtime *goja.Runtime, manager *PythonRuntimeManager, projectID string, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
