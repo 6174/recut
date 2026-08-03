@@ -1,22 +1,56 @@
 /*
  * [INPUT]: 依赖项目或 general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
- * [OUTPUT]: 对外提供带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、项目与 general scope、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、作用域切换时同步 Loading 且拒绝过期请求回写的对话加载、创建/同步/重试均可见的状态、输入法保护、图片上传/粘贴上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
+ * [OUTPUT]: 对外提供带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、项目与 general scope、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、作用域切换时同步 Loading 且拒绝过期请求回写的对话加载、创建/同步/重试均可见的状态、输入法保护、图片上传/粘贴上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
  * [POS]: components 的通用 Agent 侧栏；首页无项目时自动使用隐藏 general scope，存在可用 runtime 的空态允许直接输入并在发送时创建会话，运行期间的用户消息持久化排队，每张项目媒体以资产引用绑定到对应用户 Turn，并为内部预览提供共享 Asset 缓存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { History, MessageSquarePlus, Terminal } from "lucide-react";
-import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { AgentInstallDialog } from "@/components/agent-install-dialog";
-import { runtimeAgentName, type AgentRuntimeStatus, type Runtime } from "@/components/agent-install-guide";
+import {
+  runtimeAgentName,
+  type AgentRuntimeStatus,
+  type Runtime,
+} from "@/components/agent-install-guide";
 import { AgentOnboarding } from "@/components/agent-onboarding";
 import { Button } from "@/components/ui/button";
 import { MediaAssetEventsProvider } from "@/components/use-media-asset-events";
 import { Composer, RuntimePicker } from "@/components/agent-composer";
-import { AgentRecoveryPanel, applyAgentEvent, CLIDebugDialog, Conversation, ConversationLoading, isCLIUnavailableFailure, latestFailedTurn, messageOf, responseMessage, SessionHistory } from "@/components/agent-panel-views";
-import { defaultCodexConfiguration, defaultOpencodeConfiguration, type AgentEvent, type Attachment, type CLIEntry, type CodexConfiguration, type Detail, type OpencodeConfiguration, type OpencodeModel, type Props, type Session, type UploadedAsset } from "@/components/agent-panel-types";
+import {
+  AgentRecoveryPanel,
+  applyAgentEvent,
+  CLIDebugDialog,
+  Conversation,
+  ConversationLoading,
+  isCLIUnavailableFailure,
+  latestFailedTurn,
+  messageOf,
+  responseMessage,
+  SessionHistory,
+} from "@/components/agent-panel-views";
+import {
+  defaultCodexConfiguration,
+  defaultOpencodeConfiguration,
+  type AgentEvent,
+  type Attachment,
+  type CLIEntry,
+  type CodexConfiguration,
+  type Detail,
+  type OpencodeConfiguration,
+  type OpencodeModel,
+  type Props,
+  type Session,
+  type UploadedAsset,
+} from "@/components/agent-panel-types";
 
 export function ProjectAgentPanel(props: Props) {
   return (
@@ -233,6 +267,10 @@ function ProjectAgentPanelContent({ apiBase, online, projectID }: Props) {
     const stream = new EventSource(
       `${apiBase}/v1/agent-sessions/${activeID}/cli-stream`,
     );
+    // EventSource may dispatch the replayed history immediately. Publish this
+    // instance before registering handlers so the first CLI line is never
+    // mistaken for output from the prior dialog connection.
+    cliStreamRef.current = stream;
     stream.addEventListener("output", (event) => {
       if (cliStreamRef.current !== stream) return;
       const incoming = JSON.parse(
@@ -248,7 +286,6 @@ function ProjectAgentPanelContent({ apiBase, online, projectID }: Props) {
     stream.onerror = () => {
       if (cliStreamRef.current === stream) stream.close();
     };
-    cliStreamRef.current = stream;
   }
   function closeCLIStream() {
     cliStreamRef.current?.close();

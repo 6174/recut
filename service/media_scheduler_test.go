@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 MediaService、共享 SQLite Store 与可控 Atlas HTTP 测试服务
- * [OUTPUT]: 验证提交 checkpoint 不重放、Atlas 单边远端关联自愈及多 Daemon lease 独占提交
+ * [INPUT]: 依赖 MediaService、共享 SQLite Store 与可控 Atlas/MiniMax HTTP 测试服务
+ * [OUTPUT]: 验证提交 checkpoint 不重放、one-request 任务原子激活及按凭据限流、Atlas 单边远端关联自愈和多 Daemon lease 独占提交
  * [POS]: service 的 durable scheduler 回归测试；补足媒体生命周期测试的跨进程安全边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -157,6 +157,61 @@ func TestExpiredOneRequestSubmissionCheckpointFailsWithoutReplay(t *testing.T) {
 	defer callsMu.Unlock()
 	if calls != 0 {
 		t.Fatalf("expired MiniMax checkpoint was submitted %d time(s)", calls)
+	}
+}
+
+func TestConcurrentOneRequestSpeechTasksActivateAtomically(t *testing.T) {
+	const taskCount = 6
+	var calls, concurrent, maximumConcurrent int
+	var providerMu sync.Mutex
+
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/t2a_v2" {
+			http.NotFound(w, r)
+			return
+		}
+		providerMu.Lock()
+		calls++
+		concurrent++
+		if concurrent > maximumConcurrent {
+			maximumConcurrent = concurrent
+		}
+		providerMu.Unlock()
+		time.Sleep(20 * time.Millisecond)
+		providerMu.Lock()
+		concurrent--
+		providerMu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"audio": "010203"}, "base_resp": map[string]any{"status_code": 0}})
+	}))
+	defer provider.Close()
+
+	media := NewMediaService(NewStore(t.TempDir(), nil))
+	credential, err := media.SaveCredential(MediaCredential{Provider: "minimax", Name: "MiniMax", APIBase: provider.URL}, "minimax-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := make([]MediaJob, 0, taskCount)
+	for index := 0; index < taskCount; index++ {
+		job, err := media.Generate(GenerateMediaInput{Capability: SpeechGenerate, Prompt: "你好", ModelID: "minimax/speech-2.8-hd", CredentialID: credential.ID, Output: map[string]any{"voiceId": "news"}, IdempotencyKey: "concurrent-speech-" + string(rune('a'+index))})
+		if err != nil || job.Status != "queued" || len(job.AssetIDs) != 1 {
+			t.Fatalf("queued speech job %d = %#v, %v", index, job, err)
+		}
+		jobs = append(jobs, job)
+	}
+
+	if _, err := media.ReconcilePendingJobs(); err != nil {
+		t.Fatal(err)
+	}
+	for _, job := range jobs {
+		completed := waitForMediaJobStatus(t, media, job.ID, "completed")
+		if len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != job.AssetIDs[0] {
+			t.Fatalf("completed concurrent speech job lost Asset identity: %#v", completed)
+		}
+	}
+	providerMu.Lock()
+	defer providerMu.Unlock()
+	if calls != taskCount || maximumConcurrent != 1 {
+		t.Fatalf("one-request provider calls = %d, max concurrent = %d; want %d, 1", calls, maximumConcurrent, taskCount)
 	}
 }
 

@@ -328,18 +328,30 @@ func (m *MediaService) startAtlasReconciliation(jobID string) {
 func (m *MediaService) executeQueuedTask(jobID string) {
 	job, credential, active, err := m.queuedTask(jobID)
 	if err != nil || !active {
-		return
-	}
-	job, active, err = m.checkpointQueuedSubmission(job)
-	if err != nil || !active {
+		if err != nil {
+			log.Printf("WARN media queued task lookup failed job_id=%s: %v", jobID, err)
+		}
 		return
 	}
 	if isAtlasVideoJob(job, credential) {
+		job, active, err = m.checkpointQueuedSubmission(job)
+		if err != nil || !active {
+			if err != nil {
+				log.Printf("WARN media Atlas submission checkpoint failed job_id=%s: %v", jobID, err)
+			}
+			return
+		}
 		_, _ = m.submitAtlasVideo(job, credential, false)
 		return
 	}
+	gate := m.oneRequestGate(credential.ID)
+	gate <- struct{}{}
+	defer func() { <-gate }()
 	job, credential, active, err = m.activateQueuedTask(jobID)
 	if err != nil || !active {
+		if err != nil {
+			log.Printf("WARN media one-request task activation failed job_id=%s: %v", jobID, err)
+		}
 		return
 	}
 	m.execute(job, credential)
@@ -418,9 +430,10 @@ func (m *MediaService) queuedTask(jobID string) (MediaJob, MediaCredential, bool
 }
 
 // activateQueuedTask is used by providers that return final bytes in one
-// request. Its durable checkpoint is already written, so an interruption
-// preserves the Asset but becomes an explicit unknown-result failure instead
-// of a potentially billable replay.
+// request. It atomically crosses the non-replayable boundary and marks the
+// local Asset running before the provider call. There is therefore no local
+// checkpointed-but-queued state that a SQLite write conflict can mistake for
+// an interrupted external request on the next reconciliation tick.
 func (m *MediaService) activateQueuedTask(jobID string) (MediaJob, MediaCredential, bool, error) {
 	db, err := m.database()
 	if err != nil {
@@ -434,19 +447,8 @@ func (m *MediaService) activateQueuedTask(jobID string) (MediaJob, MediaCredenti
 		_ = tx.Rollback()
 		return MediaJob{}, MediaCredential{}, false, cause
 	}
-	job, err := scanJob(tx.QueryRow("select "+jobColumns+" from media_jobs where id = ? and status = 'queued' and remote_id = '' and submission_started_at != ''", jobID))
-	if errors.Is(err, sql.ErrNoRows) {
-		_ = tx.Rollback()
-		return MediaJob{}, MediaCredential{}, false, nil
-	}
-	if err != nil {
-		return rollback(err)
-	}
-	if len(job.AssetIDs) != 1 {
-		return rollback(errors.New("queued media job has no single pending asset"))
-	}
 	now := time.Now().UTC()
-	result, err := tx.Exec("update media_jobs set status = ?, error = ?, updated_at = ? where id = ? and status = 'queued' and remote_id = '' and submission_started_at != ''", "running", "", now.Format(time.RFC3339Nano), job.ID)
+	result, err := tx.Exec(`update media_jobs set status = ?, submission_started_at = ?, error = ?, updated_at = ? where id = ? and status = 'queued' and remote_id = '' and submission_started_at = '' and exists (select 1 from media_assets a where a.job_id = media_jobs.id and a.status = 'queued' and a.remote_id = '')`, "running", now.Format(time.RFC3339Nano), "", now.Format(time.RFC3339Nano), jobID)
 	if err != nil {
 		return rollback(err)
 	}
@@ -456,6 +458,13 @@ func (m *MediaService) activateQueuedTask(jobID string) (MediaJob, MediaCredenti
 		}
 		_ = tx.Rollback()
 		return MediaJob{}, MediaCredential{}, false, nil
+	}
+	job, err := scanJob(tx.QueryRow("select "+jobColumns+" from media_jobs where id = ? and status = 'running' and remote_id = '' and submission_started_at != ''", jobID))
+	if err != nil {
+		return rollback(err)
+	}
+	if len(job.AssetIDs) != 1 {
+		return rollback(errors.New("queued media job has no single pending asset"))
 	}
 	result, err = tx.Exec("update media_assets set status = ?, error = ?, updated_at = ? where id = ? and job_id = ? and status = 'queued' and remote_id = ''", "running", "", now.Format(time.RFC3339Nano), job.AssetIDs[0], job.ID)
 	if err != nil {

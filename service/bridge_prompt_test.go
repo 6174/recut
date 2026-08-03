@@ -36,6 +36,7 @@ func TestVoxGuideRequiresRecutVideoGeneration(t *testing.T) {
 		"recut.media.import_image",
 		"recut.video.generate_async",
 		"recut.media.get_job",
+		"recut.media.wait_for_job",
 		"do not select or read a generic video-creation skill",
 		"Keep user-configured extensions available",
 		"HyperFrames；它不是 Scenes 阶段的实现方式",

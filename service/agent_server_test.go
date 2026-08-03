@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog、Store 与 Server 的本地 HTTP 路由
- * [OUTPUT]: 锁定全局 onboarding 保存、通用/项目/独立 App 三类 scope 的会话隔离与最新优先、通用会话创建及 LAN CORS 的 HTTP 契约
+ * [OUTPUT]: 锁定全局 onboarding 保存、通用/项目/独立 App 三类 scope 的会话隔离与最新优先、通用会话创建、CLI 调试流的 SSE 换行格式及 LAN CORS 的 HTTP 契约
  * [POS]: service 的 Agent 传输层回归测试；不启动真实 daemon 或 Agent CLI
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,19 @@ import (
 	"strings"
 	"testing"
 )
+
+type cancellingSSEWriter struct {
+	header http.Header
+	body   bytes.Buffer
+	cancel context.CancelFunc
+}
+
+func (w *cancellingSSEWriter) Header() http.Header { return w.header }
+func (w *cancellingSSEWriter) Write(data []byte) (int, error) {
+	return w.body.Write(data)
+}
+func (*cancellingSSEWriter) WriteHeader(int) {}
+func (w *cancellingSSEWriter) Flush()        { w.cancel() }
 
 func TestAgentOnboardingHTTP(t *testing.T) {
 	root := t.TempDir()
@@ -239,5 +253,33 @@ func TestSystemLogsExposeDiagnosticsToLocalNetwork(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("public diagnostics = %d", recorder.Code)
+	}
+}
+
+func TestAgentCLIStreamUsesSSELineBreaks(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	project, err := store.EnsureGeneralChatProject()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewAgentManager(store, nil, nil)
+	session, err := manager.Create(project.ID, "codex", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.beginCLIStream(session.ID)
+	manager.captureCLIOutput(session.ID, "stdout", "{\"type\":\"step_start\"}")
+	server := NewServer(nil, store, nil, nil, manager, nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	writer := &cancellingSSEWriter{header: http.Header{}, cancel: cancel}
+	request := httptest.NewRequest(http.MethodGet, "/v1/agent-sessions/"+session.ID+"/cli-stream", nil).WithContext(ctx)
+	request.SetPathValue("id", session.ID)
+	server.streamAgentCLI(writer, request)
+	body := writer.body.String()
+	if !strings.Contains(body, "event: output\ndata: ") {
+		t.Fatalf("CLI stream lacks SSE line break: %q", body)
+	}
+	if strings.Contains(body, "event: output\\ndata:") {
+		t.Fatalf("CLI stream used literal newline escape: %q", body)
 	}
 }

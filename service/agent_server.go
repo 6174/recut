@@ -249,12 +249,12 @@ func (s *Server) streamAgentCLI(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, entry := range history {
 		data, _ := json.Marshal(entry)
-		if _, err := fmt.Fprintf(w, "event: output\\ndata: %s\\n\\n", data); err != nil {
+		if _, err := fmt.Fprintf(w, "event: output\ndata: %s\n\n", data); err != nil {
 			return
 		}
 	}
 	if output == nil {
-		_, _ = fmt.Fprint(w, "event: status\\ndata: {\"available\":false}\\n\\n")
+		_, _ = fmt.Fprint(w, "event: status\ndata: {\"available\":false}\n\n")
 		flusher.Flush()
 		return
 	}
@@ -265,7 +265,7 @@ func (s *Server) streamAgentCLI(w http.ResponseWriter, r *http.Request) {
 			return
 		case entry := <-output:
 			data, _ := json.Marshal(entry)
-			if _, err := fmt.Fprintf(w, "event: output\\ndata: %s\\n\\n", data); err != nil {
+			if _, err := fmt.Fprintf(w, "event: output\ndata: %s\n\n", data); err != nil {
 				return
 			}
 			flusher.Flush()

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService、Store、测试 HTTP Provider 与异步任务辅助断言
- * [OUTPUT]: 验证本地排队 Asset、常驻协调器、恢复策略与基础媒体生命周期
+ * [OUTPUT]: 验证本地排队 Asset、常驻协调器、终态等待、恢复策略与基础媒体生命周期
  * [POS]: service/media_test 的生命周期拆分；覆盖 daemon 接管而非 MCP 子进程执行的契约
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -46,6 +46,29 @@ func TestGenerateSyncReturnsTerminalFailure(t *testing.T) {
 	job, err := media.GenerateSync(GenerateMediaInput{Capability: ImageGenerate, Prompt: "test", IdempotencyKey: "sync-terminal"})
 	if err == nil || job.Status != "failed" || job.Error == "" {
 		t.Fatalf("synchronous generation must return a terminal failure, got %#v, %v", job, err)
+	}
+}
+
+func TestWaitForTerminalJobReturnsFailureAsJobState(t *testing.T) {
+	media := NewMediaService(NewStore(t.TempDir(), nil))
+	credential, err := media.SaveCredential(MediaCredential{Provider: "minimax", Name: "MiniMax", APIBase: "https://api.minimaxi.com"}, "minimax-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := media.Generate(GenerateMediaInput{Capability: SpeechGenerate, Prompt: "你好", ModelID: "minimax/speech-2.8-hd", CredentialID: credential.ID, Output: map[string]any{"voiceId": "news"}, IdempotencyKey: "wait-terminal-failure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := media.Database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("update media_jobs set status = ?, error = ? where id = ?", "failed", "provider unavailable", job.ID); err != nil {
+		t.Fatal(err)
+	}
+	terminal, err := media.WaitForTerminalJob(job.ID, time.Second)
+	if err != nil || terminal.Status != "failed" || terminal.Error != "provider unavailable" {
+		t.Fatalf("WaitForTerminalJob() = %#v, %v", terminal, err)
 	}
 }
 

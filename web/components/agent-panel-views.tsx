@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖共享会话类型、Agent 安装恢复能力、素材引用卡片与基础 UI 原子组件
- * [OUTPUT]: 对外提供会话时间线、历史列表、加载/CLI 调试/恢复视图，以及 SSE 事件归并函数
+ * [OUTPUT]: 对外提供会话时间线、历史列表、加载/CLI 调试/恢复视图、工具结果中的 Asset 预览入口，以及 SSE 事件归并函数
  * [POS]: components Agent 对话模块的展示层；只根据传入数据渲染，不拥有会话请求状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -12,6 +12,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { AgentInstallGuide, CopyFeedback, copyToClipboard, recoverySubtitle, recoveryTitle, type AgentRuntimeStatus } from "@/components/agent-install-guide";
 import { AgentMessageContent } from "@/components/agent-message-content";
 import { AssetReferenceChip } from "@/components/asset-reference-picker";
+import { ToolResultAssets } from "@/components/tool-result-assets";
 import { Button } from "@/components/ui/button";
 import { ActionIcon, RunningStatus } from "@/components/agent-composer";
 import { codexModelLabel, opencodeModelLabel, reasoningLabel, runtimeLabel } from "@/components/agent-panel-types";
@@ -203,7 +204,7 @@ export function Conversation({
                     key={item.id}
                   />
                 ) : (
-                  <ToolTimelineItem call={item.call} key={item.id} now={now} />
+                  <ToolTimelineItem apiBase={apiBase} call={item.call} key={item.id} now={now} />
                 ),
               )}
             </div>
@@ -511,7 +512,7 @@ function toolCalls(events: AgentEvent[]): ToolCall[] {
   return [...calls.values()];
 }
 
-function ToolTimelineItem({ call, now }: { call: ToolCall; now: number }) {
+function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolCall; now: number }) {
   const [open, setOpen] = useState(false);
   const hasDetail = Boolean(call.input || call.output || call.error);
   const duration = toolDuration(call.createdAt, call.completedAt, now);
@@ -578,6 +579,9 @@ function ToolTimelineItem({ call, now }: { call: ToolCall; now: number }) {
             title="调用参数"
             value={call.input}
           />
+          {call.state !== "error" && (
+            <ToolResultAssets apiBase={apiBase} output={call.output} />
+          )}
           <ToolDetail
             emptyLabel={
               call.state === "error" ? "未返回错误详情" : "未返回执行结果"

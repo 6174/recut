@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖配置、资产与 Provider 适配器
- * [OUTPUT]: 生成任务创建、同步执行、结果持久化、无 prompt/凭据的状态审计与通用 Provider 调度；拒绝将 Codex 原生图片路由误送入 Provider
+ * [OUTPUT]: 生成任务创建、同步执行、终态等待、结果持久化、无 prompt/凭据的状态审计与通用 Provider 调度；拒绝将 Codex 原生图片路由误送入 Provider
  * [POS]: media 的任务编排层；scheduler 位于 jobs_scheduler，由其接管持久化异步任务，Codex 图片由 Agent 自行执行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -85,6 +85,26 @@ func (m *MediaService) waitForJob(id string, timeout time.Duration) (MediaJob, e
 			return job, fmt.Errorf("media job %s is still running", job.ID)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// WaitForTerminalJob waits only on Recut's durable local job record. The
+// Daemon still owns provider execution, so an Agent can observe a definitive
+// result without turning its MCP process into the provider worker.
+func (m *MediaService) WaitForTerminalJob(id string, timeout time.Duration) (MediaJob, error) {
+	if timeout <= 0 || timeout > mediaRequestTimeout {
+		timeout = mediaRequestTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		job, err := m.getJob(id)
+		if err != nil {
+			return MediaJob{}, err
+		}
+		if job.Status == "completed" || job.Status == "failed" || time.Now().After(deadline) {
+			return job, nil
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -378,8 +398,14 @@ func (m *MediaService) generateMiniMaxSpeech(job MediaJob, credential MediaCrede
 			StatusMessage string `json:"status_msg"`
 		} `json:"base_resp"`
 	}{}
-	if err := json.Unmarshal(data, &result); err != nil || result.BaseResp.StatusCode != 0 || result.Data.Audio == "" {
-		return MediaAsset{}, fmt.Errorf("MiniMax speech failed: %s", result.BaseResp.StatusMessage)
+	if err := json.Unmarshal(data, &result); err != nil {
+		return MediaAsset{}, fmt.Errorf("MiniMax speech response is invalid: %w", err)
+	}
+	if result.BaseResp.StatusCode != 0 {
+		return MediaAsset{}, fmt.Errorf("MiniMax speech failed (status %d): %s", result.BaseResp.StatusCode, result.BaseResp.StatusMessage)
+	}
+	if result.Data.Audio == "" {
+		return MediaAsset{}, errors.New("MiniMax speech response contained no audio")
 	}
 	audio, err := hex.DecodeString(result.Data.Audio)
 	if err != nil {

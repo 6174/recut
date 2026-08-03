@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 mcp.go 的平台工具定义、Store 与本地 HTTP 测试服务
- * [OUTPUT]: 锁定按媒体类型拆分的 MCP 工具名称和输入 schema，以及长图片请求不阻塞素材查询
+ * [OUTPUT]: 锁定按媒体类型拆分的 MCP 工具名称、终态等待输入 schema、数组型 structuredContent 的 record 包装，以及长图片请求不阻塞素材查询
  * [POS]: service MCP Host 的公开工具契约与 stdio 并发回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 			t.Fatalf("legacy multiplexed tool %q must not be exposed", name)
 		}
 	}
-	for _, name := range []string{"recut.image.generate", "recut.video.generate_async", "recut.speech.generate_async", "recut.media.import_image"} {
+	for _, name := range []string{"recut.image.generate", "recut.video.generate_async", "recut.speech.generate_async", "recut.media.wait_for_job", "recut.media.import_image"} {
 		tool, ok := tools[name]
 		if !ok {
 			t.Fatalf("missing media tool %q", name)
@@ -39,7 +40,7 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 		if _, exists := properties["capability"]; exists {
 			t.Fatalf("%s must encode its capability in the tool name", name)
 		}
-		if name != "recut.media.import_image" {
+		if name != "recut.media.import_image" && name != "recut.media.wait_for_job" {
 			if _, exists := properties["text"]; !exists {
 				t.Fatalf("%s must require text", name)
 			}
@@ -47,6 +48,11 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 		if name == "recut.media.import_image" {
 			if _, exists := properties["path"]; !exists {
 				t.Fatalf("%s must require a project-relative path", name)
+			}
+		}
+		if name == "recut.media.wait_for_job" {
+			if _, exists := properties["jobId"]; !exists {
+				t.Fatalf("%s must require a jobId", name)
 			}
 		}
 	}
@@ -124,6 +130,7 @@ func TestMediaMCPToolsBypassAppToolBoundary(t *testing.T) {
 		"recut.speech.generate_async",
 		"recut.media.list_voices",
 		"recut.media.get_job",
+		"recut.media.wait_for_job",
 		"recut.media.list_assets",
 		"recut.media.import_image",
 		"recut.media.attach",
@@ -134,6 +141,20 @@ func TestMediaMCPToolsBypassAppToolBoundary(t *testing.T) {
 	}
 	if isMediaMCPTool("recut.vox-broll.create_resource") {
 		t.Fatal("App tool was misclassified as a platform media tool")
+	}
+}
+
+func TestMCPStructuredContentWrapsListsInRecord(t *testing.T) {
+	wrapped, ok := structuredMCPContent([]MediaVoice{}).(map[string]any)
+	if !ok {
+		t.Fatalf("list structuredContent = %#v", structuredMCPContent([]MediaVoice{}))
+	}
+	if _, ok := wrapped["items"].([]MediaVoice); !ok {
+		t.Fatalf("wrapped list = %#v", wrapped)
+	}
+	object := map[string]any{"assetId": "asset-1"}
+	if structured := structuredMCPContent(object); !reflect.DeepEqual(structured, object) {
+		t.Fatalf("object structuredContent changed to %#v", structured)
 	}
 }
 

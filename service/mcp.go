@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost JavaScript runtime 与标准输入输出 JSON-RPC 流
- * [OUTPUT]: 对外提供项目创建、带默认媒体与音色契约的项目上下文，并将 manifest.mcp.tools 映射为受控 MCP 工具
+ * [OUTPUT]: 对外提供项目创建、带默认媒体与音色契约的项目上下文、符合 record 约束的 structuredContent，并将 manifest.mcp.tools 映射为受控 MCP 工具
  * [POS]: service 的 MCP Host；App 不自行启动 MCP server，所有调用经平台权限与会话边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,8 +14,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
+	"time"
 )
 
 type mcpRequest struct {
@@ -118,7 +120,7 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 			return nil, err
 		}
 		data, _ := json.Marshal(result)
-		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": result}, nil
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported MCP method %q", request.Method)
 	}
@@ -147,7 +149,7 @@ func projectMCPTool(store *Store, input map[string]any) (any, error) {
 		return nil, err
 	}
 	data, _ := json.Marshal(project)
-	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": project}, nil
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(project)}, nil
 }
 
 func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name string, input map[string]any) (any, error) {
@@ -168,6 +170,9 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 	case "recut.media.get_job":
 		id, _ := input["jobId"].(string)
 		result, err = media.GetJob(id)
+	case "recut.media.wait_for_job":
+		id, _ := input["jobId"].(string)
+		result, err = media.WaitForTerminalJob(id, mediaWaitTimeout(input))
 	case "recut.media.list_assets":
 		workspace, _ := input["workspace"].(bool)
 		projectID := session.ProjectID
@@ -188,7 +193,17 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		return nil, err
 	}
 	data, _ := json.Marshal(result)
-	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": result}, nil
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+// OpenCode 将 MCP structuredContent 校验为 record。文本负载保留原始结果，
+// 仅把列表装入稳定的对象信封。
+func structuredMCPContent(result any) any {
+	value := reflect.ValueOf(result)
+	if value.IsValid() && (value.Kind() == reflect.Array || value.Kind() == reflect.Slice) {
+		return map[string]any{"items": result}
+	}
+	return result
 }
 
 func mediaMCPToolDefinitions() []map[string]any {
@@ -196,13 +211,23 @@ func mediaMCPToolDefinitions() []map[string]any {
 		{"name": "recut.media.configuration", "description": "读取最新媒体配置；通常无需调用，因为 recut.project_context 已携带默认 route、模型契约和可选参数。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "recut.image.generate", "description": "同步生成短时、阶段关键的图片。成功返回 assetIds；Provider 失败或超时直接返回错误。", "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
 		{"name": "recut.video.generate_async", "description": "提交长时间运行的视频生成。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。具体模型支持的参考类型和输出参数以 recut.project_context.media 为准；Seedance 的 output.generateAudio 默认 true，Gemini 不支持该参数。", "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
-		{"name": "recut.speech.generate_async", "description": "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId 与处于 queued 状态的稳定 assetIds，可先建立引用，Daemon 会在同一 Asset 上原位更新。", "inputSchema": speechGenerationSchema()},
+		{"name": "recut.speech.generate_async", "description": "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId 与处于 queued 状态的稳定 assetIds。需要确认旁白真正可用时，必须随后调用 recut.media.wait_for_job 读取 completed/failed 终态。", "inputSchema": speechGenerationSchema()},
 		{"name": "recut.media.list_voices", "description": "读取一个 MiniMax 或 ElevenLabs 凭据当前可用的音色，返回可直接传给 recut.speech.generate_async 的 voiceId。", "inputSchema": map[string]any{"type": "object", "required": []string{"credentialId"}, "properties": map[string]any{"credentialId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.get_job", "description": "读取媒体生成任务状态；所有异步提交成功时已返回稳定 assetIds，此工具只读取其后续 queued/running/completed/failed 状态。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
+		{"name": "recut.media.wait_for_job", "description": "等待本地 Daemon 已提交的媒体任务达到 completed 或 failed；只观察 Recut job，不直接调用 Provider。超时会返回当前 queued/running 状态。旁白在保存为可用资源或宣称生成成功前必须调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}},
 		{"name": "recut.media.list_assets", "description": "检索当前项目或工作区的可复用媒体素材。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"workspace": map[string]string{"type": "boolean"}}}},
 		{"name": "recut.media.import_image", "description": "将 Codex 原生生成后已写入当前 Recut 项目目录的图片归档为当前项目的 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。", "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "当前 Recut 项目目录内的相对图片路径。Codex 原生生成的结果必须先复制到此处。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}}}},
 		{"name": "recut.media.attach", "description": "把现有媒体 assetId 引用到当前项目。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}}}},
 	}
+}
+
+func mediaWaitTimeout(input map[string]any) time.Duration {
+	seconds, _ := input["timeoutSeconds"].(float64)
+	maximum := (5 * time.Minute).Seconds()
+	if seconds <= 0 || seconds > maximum {
+		seconds = maximum
+	}
+	return time.Duration(seconds * float64(time.Second))
 }
 
 func importNativeImage(store *Store, media *MediaService, session AgentSession, input map[string]any) (MediaAsset, error) {
@@ -349,5 +374,5 @@ func projectContextTool(bridge *AgentBridge, host *AppHost, media *MediaService,
 		result["media"] = map[string]any{"defaultRoutes": mediaConfiguration}
 	}
 	data, _ := json.Marshal(result)
-	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": result}, nil
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 }

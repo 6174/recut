@@ -1206,6 +1206,7 @@ func toolLabel(kind, name string, item map[string]any) string {
 		"recut.speech.generate_async": "提交语音生成任务",
 		"recut.media.list_voices":     "读取可用音色",
 		"recut.media.get_job":         "查询媒体生成进度",
+		"recut.media.wait_for_job":    "等待媒体生成结果",
 		"recut.media.list_assets":     "读取素材库",
 		"recut.media.import_image":    "归档 Codex 原生图片",
 		"recut.media.attach":          "将素材关联到项目",
