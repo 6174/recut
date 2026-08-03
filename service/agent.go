@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 Store 的本地工作区 SQLite、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
- * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、含运行时模型配置的持久化 Turn、按序待发送队列、服务重启后的中断 Turn 收敛、不含用户内容的生命周期审计、保留工具输入/输出/失败态及时间戳的规范化事件
+ * [INPUT]: 依赖 Store 的本地工作区 SQLite、持久化 CLI 定位缓存、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
+ * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
  * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -81,17 +82,106 @@ type ChatSessionDetail struct {
 	LastEventID int64       `json:"lastEventId"`
 }
 
+const (
+	agentCLILineLimit    = 400
+	agentCLILineMaxBytes = 16 << 10
+)
+
+// AgentCLIOutput is a volatile mirror of one CLI output line. It is never
+// persisted: raw CLI output can contain user prompts, local paths, or tool data.
+type AgentCLIOutput struct {
+	Sequence  uint64    `json:"sequence"`
+	Stream    string    `json:"stream"`
+	Text      string    `json:"text"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type agentCLIStream struct {
+	running        bool
+	entries        []AgentCLIOutput
+	subscribers    map[uint64]chan AgentCLIOutput
+	nextSequence   uint64
+	nextSubscriber uint64
+}
+
 type AgentManager struct {
 	store          *Store
 	bridge         *AgentBridge
 	media          *MediaService
+	commands       *AgentCommandResolver
 	opencodeModels func(context.Context) ([]OpencodeModel, error)
 	mu             sync.Mutex
 	running        map[string]context.CancelFunc
+	cliStreams     map[string]*agentCLIStream
 }
 
 func NewAgentManager(store *Store, bridge *AgentBridge, media *MediaService) *AgentManager {
-	return &AgentManager{store: store, bridge: bridge, media: media, opencodeModels: listOpencodeModels, running: map[string]context.CancelFunc{}}
+	commands := store.agentCommands
+	return &AgentManager{store: store, bridge: bridge, media: media, commands: commands, opencodeModels: func(ctx context.Context) ([]OpencodeModel, error) { return listOpencodeModels(ctx, commands) }, running: map[string]context.CancelFunc{}, cliStreams: map[string]*agentCLIStream{}}
+}
+
+func (m *AgentManager) beginCLIStream(sessionID string) {
+	m.mu.Lock()
+	m.cliStreams[sessionID] = &agentCLIStream{running: true, subscribers: map[uint64]chan AgentCLIOutput{}}
+	m.mu.Unlock()
+}
+
+func (m *AgentManager) finishCLIStream(sessionID string) {
+	m.mu.Lock()
+	if stream := m.cliStreams[sessionID]; stream != nil {
+		stream.running = false
+	}
+	m.mu.Unlock()
+}
+
+func (m *AgentManager) captureCLIOutput(sessionID, streamName, text string) {
+	if text == "" {
+		return
+	}
+	if len(text) > agentCLILineMaxBytes {
+		text = text[:agentCLILineMaxBytes] + " …[truncated]"
+	}
+	m.mu.Lock()
+	stream := m.cliStreams[sessionID]
+	if stream == nil {
+		m.mu.Unlock()
+		return
+	}
+	stream.nextSequence++
+	entry := AgentCLIOutput{Sequence: stream.nextSequence, Stream: streamName, Text: text, CreatedAt: time.Now().UTC()}
+	stream.entries = append(stream.entries, entry)
+	if len(stream.entries) > agentCLILineLimit {
+		stream.entries = append([]AgentCLIOutput(nil), stream.entries[len(stream.entries)-agentCLILineLimit:]...)
+	}
+	for _, subscriber := range stream.subscribers {
+		select {
+		case subscriber <- entry:
+		default:
+		}
+	}
+	m.mu.Unlock()
+}
+
+func (m *AgentManager) SubscribeCLIStream(sessionID string) ([]AgentCLIOutput, <-chan AgentCLIOutput, func()) {
+	m.mu.Lock()
+	stream := m.cliStreams[sessionID]
+	if stream == nil {
+		m.mu.Unlock()
+		return nil, nil, func() {}
+	}
+	history := append([]AgentCLIOutput(nil), stream.entries...)
+	stream.nextSubscriber++
+	subscriberID := stream.nextSubscriber
+	output := make(chan AgentCLIOutput, agentCLILineLimit)
+	stream.subscribers[subscriberID] = output
+	m.mu.Unlock()
+	return history, output, func() {
+		m.mu.Lock()
+		if current := m.cliStreams[sessionID]; current == stream {
+			delete(current.subscribers, subscriberID)
+		}
+		m.mu.Unlock()
+	}
 }
 
 // RecoverInterruptedTurns reconciles durable state with the process boundary.
@@ -621,10 +711,6 @@ func (m *AgentManager) runRuntime(ctx context.Context, session ChatSession, user
 }
 
 func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
-	command, err := findAgentProcessCommand("codex")
-	if err != nil {
-		return agentCLIUnavailableError("Codex", "codex")
-	}
 	model, effort, err := normalizeCodexConfiguration(session.CodexModel, session.ReasoningEffort)
 	if err != nil {
 		return err
@@ -655,25 +741,18 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		}
 	}
 	args = append(args, "--json", "--", userTurn.runtimePrompt()+attachmentPrompt(attachments))
-	cmd := exec.CommandContext(ctx, command.Path, args...)
-	cmd.Dir = projectRoot
-	cmd.Env = environmentWithOverrides(os.Environ(), command.Env)
-	stdout, err := cmd.StdoutPipe()
+	cmd, stdout, stderr, err := m.startCLI(ctx, "codex", args, projectRoot, nil)
 	if err != nil {
 		return err
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
+	m.beginCLIStream(session.ID)
+	defer m.finishCLIStream(session.ID)
 	var stderrText strings.Builder
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		scanner.Buffer(make([]byte, 1024), 64*1024)
 		for scanner.Scan() {
+			m.captureCLIOutput(session.ID, "stderr", scanner.Text())
 			if stderrText.Len() < 4096 {
 				stderrText.WriteString(scanner.Text() + "\n")
 			}
@@ -682,6 +761,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
+		m.captureCLIOutput(session.ID, "stdout", scanner.Text())
 		var raw map[string]any
 		if json.Unmarshal(scanner.Bytes(), &raw) != nil {
 			continue
@@ -707,10 +787,6 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 // immutable once created, exactly like Codex's thread id, so the generic
 // ChatSession may safely persist it as native_session_id.
 func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
-	command, err := findAgentProcessCommand("claude")
-	if err != nil {
-		return agentCLIUnavailableError("Claude Code", "claude")
-	}
 	bridgeSession, token, err := m.bridge.CreateSession(session.ProjectID)
 	if err != nil {
 		return err
@@ -728,24 +804,17 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	if session.NativeSessionID != "" {
 		args = append(args, "--resume", session.NativeSessionID)
 	}
-	cmd := exec.CommandContext(ctx, command.Path, args...)
-	cmd.Dir = m.store.projectDir(session.ProjectID)
-	cmd.Env = environmentWithOverrides(os.Environ(), append(command.Env, "RECUT_AGENT_SESSION="+bridgeSession.ID, "RECUT_AGENT_TOKEN="+token))
-	stdout, err := cmd.StdoutPipe()
+	cmd, stdout, stderr, err := m.startCLI(ctx, "claude", args, m.store.projectDir(session.ProjectID), []string{"RECUT_AGENT_SESSION=" + bridgeSession.ID, "RECUT_AGENT_TOKEN=" + token})
 	if err != nil {
 		return err
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
+	m.beginCLIStream(session.ID)
+	defer m.finishCLIStream(session.ID)
 	var stderrText strings.Builder
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
+			m.captureCLIOutput(session.ID, "stderr", scanner.Text())
 			if stderrText.Len() < 4096 {
 				stderrText.WriteString(scanner.Text() + "\n")
 			}
@@ -754,6 +823,7 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
+		m.captureCLIOutput(session.ID, "stdout", scanner.Text())
 		var raw map[string]any
 		if json.Unmarshal(scanner.Bytes(), &raw) == nil {
 			m.handleClaudeEvent(session.ID, userTurn.ID, raw)
@@ -779,10 +849,6 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 // field can resume the conversation via `opencode run --session <id>`.
 // MCP wiring is per-project via opencode.json written by the bridge.
 func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
-	command, err := findAgentProcessCommand("opencode")
-	if err != nil {
-		return agentCLIUnavailableError("OpenCode", "opencode")
-	}
 	model, err := m.normalizeOpencodeConfiguration(ctx, session.OpencodeModel)
 	if err != nil {
 		return err
@@ -801,25 +867,18 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	prompt := userTurn.runtimePrompt() + attachmentPrompt(m.attachmentContexts(userTurn.Attachments))
 	projectDir := m.store.projectDir(session.ProjectID)
 	args := opencodeRunArgs(prompt, projectDir, model, session.NativeSessionID, session.Title)
-	cmd := exec.CommandContext(ctx, command.Path, args...)
-	cmd.Dir = projectDir
-	cmd.Env = environmentWithOverrides(os.Environ(), append(command.Env, "RECUT_AGENT_SESSION="+bridgeSession.ID, "RECUT_AGENT_TOKEN="+token))
-	stdout, err := cmd.StdoutPipe()
+	cmd, stdout, stderr, err := m.startCLI(ctx, "opencode", args, projectDir, []string{"RECUT_AGENT_SESSION=" + bridgeSession.ID, "RECUT_AGENT_TOKEN=" + token})
 	if err != nil {
 		return err
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
+	m.beginCLIStream(session.ID)
+	defer m.finishCLIStream(session.ID)
 	var stderrText strings.Builder
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
+			m.captureCLIOutput(session.ID, "stderr", line)
 			if strings.Contains(line, `message="stream error"`) {
 				m.emit(session.ID, userTurn.ID, "status", map[string]any{"phase": "retrying", "label": "OpenCode 正在重试模型连接"})
 			}
@@ -831,6 +890,7 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
+		m.captureCLIOutput(session.ID, "stdout", scanner.Text())
 		var raw map[string]any
 		if json.Unmarshal(scanner.Bytes(), &raw) == nil {
 			m.handleOpencodeEvent(session.ID, userTurn.ID, raw)
@@ -851,10 +911,10 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	return nil
 }
 
-// opencodeRunArgs gives first turns a fixed title, preventing OpenCode from
-// issuing a second title-generation request beside the user's actual turn.
+// opencodeRunArgs gives first turns a fixed title and auto-approves tools,
+// matching Recut's intentionally unattended Codex execution mode.
 func opencodeRunArgs(prompt, projectDir, model, nativeSessionID, title string) []string {
-	args := []string{"run", prompt, "--format", "json", "--print-logs", "--dir", projectDir, "--model", model}
+	args := []string{"run", prompt, "--format", "json", "--print-logs", "--auto", "--dir", projectDir, "--model", model}
 	if nativeSessionID != "" {
 		return append(args, "--session", nativeSessionID)
 	}
@@ -1021,15 +1081,11 @@ func (m *AgentManager) handleOpencodeEvent(sessionID, turnID string, raw map[str
 			"toolName":   toolName,
 			"label":      toolLabel("mcp_tool_call", toolName, nil),
 		}
-		if raw := state["input"]; raw != nil {
-			if data, err := json.Marshal(raw); err == nil {
-				payload["input"] = string(data)
-			}
+		if detail := opencodeToolDetail(state, "input"); detail != "" {
+			payload["input"] = detail
 		}
-		if value, ok := state["output"]; ok {
-			if data, err := json.Marshal(value); err == nil {
-				payload[phase] = string(data)
-			}
+		if detail := opencodeToolDetail(state, phase); detail != "" {
+			payload[phase] = detail
 		}
 		m.emit(sessionID, turnID, eventType, payload)
 	case "error":
@@ -1041,6 +1097,30 @@ func (m *AgentManager) handleOpencodeEvent(sessionID, turnID string, raw map[str
 		}
 		m.emit(sessionID, turnID, "status", map[string]any{"phase": "error", "label": label})
 	}
+}
+
+// opencodeToolDetail keeps OpenCode's error field distinct from successful
+// output. Failed tool_use events put the diagnostic in state.error, not output.
+func opencodeToolDetail(state map[string]any, phase string) string {
+	keys := map[string][]string{
+		"input":  {"input"},
+		"output": {"output", "result"},
+		"error":  {"error", "output", "result", "message"},
+	}[phase]
+	values := map[string]any{}
+	for _, key := range keys {
+		if value, ok := state[key]; ok {
+			values[key] = value
+		}
+	}
+	if len(values) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return fmt.Sprint(values)
+	}
+	return string(data)
 }
 
 func isCodexTool(kind string) bool {
@@ -1293,8 +1373,20 @@ func (m *AgentManager) normalizeOpencodeConfiguration(ctx context.Context, model
 	return "", fmt.Errorf("OpenCode TUI does not offer model %q", model)
 }
 
-func listOpencodeModels(ctx context.Context) ([]OpencodeModel, error) {
-	command, err := findAgentProcessCommand("opencode")
+func (m *AgentManager) startCLI(ctx context.Context, command string, arguments []string, directory string, overrides []string) (*exec.Cmd, io.ReadCloser, io.ReadCloser, error) {
+	cmd, stdout, stderr, err := m.commands.Start(ctx, command, arguments, directory, overrides)
+	if err != nil {
+		return nil, nil, nil, agentCLIUnavailableError(agentRuntimeName(command), command)
+	}
+	return cmd, stdout, stderr, nil
+}
+
+func agentRuntimeName(command string) string {
+	return map[string]string{"codex": "Codex", "claude": "Claude Code", "opencode": "OpenCode"}[command]
+}
+
+func listOpencodeModels(ctx context.Context, commands *AgentCommandResolver) ([]OpencodeModel, error) {
+	command, err := commands.Find("opencode")
 	if err != nil {
 		return nil, agentCLIUnavailableError("OpenCode", "opencode")
 	}
@@ -1303,6 +1395,14 @@ func listOpencodeModels(ctx context.Context) ([]OpencodeModel, error) {
 	cmd := exec.CommandContext(ctx, command.Path, "models")
 	cmd.Env = environmentWithOverrides(os.Environ(), command.Env)
 	output, err := cmd.CombinedOutput()
+	if err != nil {
+		commands.Invalidate("opencode")
+		if retry, retryErr := commands.Find("opencode"); retryErr == nil {
+			cmd = exec.CommandContext(ctx, retry.Path, "models")
+			cmd.Env = environmentWithOverrides(os.Environ(), retry.Env)
+			output, err = cmd.CombinedOutput()
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to read OpenCode models: %s", strings.TrimSpace(string(output)))
 	}
@@ -1325,20 +1425,30 @@ func listChatTurns(db *sql.DB, sessionID string) ([]ChatTurn, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	result := []ChatTurn{}
 	for rows.Next() {
 		turn, err := scanChatTurn(rows)
 		if err != nil {
-			return nil, err
-		}
-		turn.Attachments, err = listChatAttachments(db, turn.ID)
-		if err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		result = append(result, turn)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for index := range result {
+		attachments, err := listChatAttachments(db, result[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		result[index].Attachments = attachments
+	}
+	return result, nil
 }
 
 func listChatAttachments(db *sql.DB, turnID string) ([]ChatAttachment, error) {

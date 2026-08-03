@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖本目录 Catalog、Store 与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计的 Server 及内嵌工作台、无入口重定向的 App UI、App 能力、项目产物、结构化 Agent 会话/新对话引导、OpenCode TUI 模型目录与终端 HTTP API
+ * [INPUT]: 依赖本目录 Catalog、Store（含 Agent CLI 定位缓存）与 TerminalManager 的本地服务
+ * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计的 Server 及内嵌工作台、无入口重定向的 App UI、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API
  * [POS]: service 的传输层，负责把受信任项目、内嵌本地工作台与扩展注册表映射为浏览器可消费的 API；对话和 PTY 协议并存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -101,6 +101,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/turns", s.startAgentTurn)
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/stop", s.stopAgentTurn)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/events", s.streamAgentEvents)
+	mux.HandleFunc("GET /v1/agent-sessions/{id}/cli-stream", s.streamAgentCLI)
 	mux.HandleFunc("GET /v1/agents", s.listAgents)
 	mux.HandleFunc("GET /v1/agents/opencode/models", s.listOpencodeModels)
 	mux.HandleFunc("GET /v1/terminals", s.listTerminals)
@@ -153,13 +154,13 @@ type AgentStatus struct {
 func (s *Server) listAgents(w http.ResponseWriter, _ *http.Request) {
 	agents := []AgentStatus{{ID: "codex", Name: "Codex", Command: "codex"}, {ID: "claude", Name: "Claude Code", Command: "claude"}, {ID: "opencode", Name: "OpenCode", Command: "opencode"}}
 	for index := range agents {
-		// 面板只需可用性；完整多 shell 扫描只在用户主动打开诊断页时执行。
-		diagnostic := resolveAgentCommand(agents[index].Command, false)
-		agents[index].Available = diagnostic.ResolvedPath != ""
+		// 面板只需可用性；定位缓存只验证路径，完整多 shell 扫描仅由诊断页触发。
+		process, available := s.store.agentCommands.Available(agents[index].Command)
+		agents[index].Available = available
 		if agents[index].Available {
-			log.Printf("INFO agent CLI resolved command=%s path=%q source=%q", agents[index].Command, diagnostic.ResolvedPath, diagnostic.Resolution)
+			log.Printf("INFO agent CLI available command=%s path=%q", agents[index].Command, process.Path)
 		} else {
-			log.Printf("WARN agent CLI unavailable command=%s service_path=%q", agents[index].Command, diagnostic.ServicePath)
+			log.Printf("WARN agent CLI unavailable command=%s", agents[index].Command)
 		}
 	}
 	writeJSON(w, http.StatusOK, agents)

@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 状态、静态 App Catalog 及项目、App 安装状态与 Agent Session HTTP API
- * [OUTPUT]: 对外提供 Project、Apps、素材库三个核心 Tab、可预览的项目 App 选择与详情入口、Git 仓库安装入口，以及已安装 App 的直接开始动作、service 连接错误诊断和市场分区的离线可浏览目录；service 更新只由 Header 操作提示，不替换核心工作区
- * [POS]: web/app 的主工作台框架；不重复探测 service health，Cloudflare 或本地 service 托管此 UI，用户可选择本地或远程 service 作为数据与执行边界
+ * [OUTPUT]: 对外提供 Project、Apps、素材库三个核心 Tab、固定使用通用会话上下文的首页 Agent 面板、可预览的项目 App 选择与详情入口、Git 仓库安装入口，以及已安装 App 的直接开始动作、service 连接错误诊断和市场分区的离线可浏览目录；service 更新只由 Header 操作提示，不替换核心工作区
+ * [POS]: web/app 的主工作台框架；首页不从项目列表推导 Agent 上下文，Cloudflare 或本地 service 托管此 UI，用户可选择本地或远程 service 作为数据与执行边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -47,7 +47,6 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
   const [projects, setProjects] = useState<Project[]>([]);
   const [appID, setAppID] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("app") ?? "");
   const [name, setName] = useState("");
-  const [projectID, setProjectID] = useState<string | null>(null);
   const service = useServiceStore((state) => state.service);
   const apiBase = useServiceStore((state) => state.endpoint);
   const [tab, setTab] = useState<WorkspaceTab>(appDetail ? "apps" : initialTab);
@@ -78,7 +77,6 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
       setProjects(nextProjects);
       setInstallations(await installationResponse.json() as Installation[]);
       setAppID((current) => current && projectApps.some((app) => app.manifest.id === current) ? current : projectApps[0]?.manifest.id ?? "");
-      setProjectID((current) => current && nextProjects.some((project) => project.id === current) ? current : nextProjects[0]?.id ?? null);
     } catch { setError("本地 service 返回了无效响应"); }
   }
 
@@ -90,7 +88,6 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
     const project = await response.json() as Project;
     setName("");
     await loadWorkspace();
-    setProjectID(project.id);
   }
 
   function openMediaProviderSettings() {
@@ -125,7 +122,7 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
     <div className="relative grid min-h-0 flex-1 overflow-hidden [grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}>
       {online && tab === "media" ? content : <section className="min-h-0 overflow-y-auto bg-muted/30 p-8"><div className="mx-auto max-w-6xl">{content}</div></section>}
       <button aria-label="拖动调整 Agent 面板宽度" className="group absolute inset-y-0 z-10 w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button>
-      <ProjectAgentPanel apiBase={apiBase} online={online} projectID={tab === "media" ? mediaProjectID : projectID} />
+      <ProjectAgentPanel apiBase={apiBase} online={online} projectID={tab === "media" ? mediaProjectID : null} />
     </div>
   </main>;
 }

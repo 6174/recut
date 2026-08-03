@@ -1,18 +1,22 @@
 /*
- * [INPUT]: 依赖常驻 service PATH、当前用户的 login shell 与标准库的可执行文件检查
- * [OUTPUT]: 对外提供 findAgentCommand，为 Agent runtime 解析可执行 CLI 的绝对路径
- * [POS]: service 的 Agent 运行时环境适配器；以用户 shell 的动态 PATH 补足 launchd/systemd 与交互 shell 的环境差异
+ * [INPUT]: 依赖 Store 数据根、常驻 service PATH、当前用户的 login shell 与标准库的可执行文件检查
+ * [OUTPUT]: 对外提供 AgentCommandResolver，为 Agent runtime 缓存并解析可执行 CLI 的绝对路径和动态 PATH
+ * [POS]: service 的 Agent 运行时环境适配器；以持久化定位缓存避免重复启动 login shell，并以用户 shell 的动态 PATH 补足 launchd/systemd 与交互 shell 的环境差异
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,30 +42,163 @@ type AgentProcessCommand struct {
 	Env  []string
 }
 
-// findAgentCommand checks the daemon PATH first, then asks the current user's
-// login shell. This keeps NVM, fnm and similar version managers owned by the
-// user's shell configuration instead of encoding their directory layouts.
-func findAgentCommand(command string) (string, error) {
-	process, err := findAgentProcessCommand(command)
-	if err == nil {
-		return process.Path, nil
-	}
-	return "", err
+type agentCommandCacheEntry struct {
+	Path       string   `json:"path"`
+	Env        []string `json:"env,omitempty"`
+	Resolution string   `json:"resolution,omitempty"`
 }
 
-func findAgentProcessCommand(command string) (AgentProcessCommand, error) {
-	diagnostic := resolveAgentCommand(command, false)
+type agentCommandCache struct {
+	Commands map[string]agentCommandCacheEntry `json:"commands"`
+}
+
+// AgentCommandResolver keeps the expensive login-shell lookup out of normal
+// UI refreshes. A cached path is trusted only while it remains executable.
+type AgentCommandResolver struct {
+	path     string
+	mu       sync.Mutex
+	loaded   bool
+	commands map[string]agentCommandCacheEntry
+	resolve  func(string) AgentCommandDiagnostic
+}
+
+func newAgentCommandResolver(root string) *AgentCommandResolver {
+	return &AgentCommandResolver{
+		path:     filepath.Join(root, "config", "agent-commands.json"),
+		commands: map[string]agentCommandCacheEntry{},
+		resolve:  func(command string) AgentCommandDiagnostic { return resolveAgentCommand(command, false) },
+	}
+}
+
+func (r *AgentCommandResolver) Find(command string) (AgentProcessCommand, error) {
+	if !isAgentCommand(command) {
+		return AgentProcessCommand{}, exec.ErrNotFound
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.loadLocked()
+	if process, ok := agentCommandFromCache(r.commands[command]); ok {
+		return process, nil
+	}
+	delete(r.commands, command)
+	diagnostic := r.resolve(command)
 	if diagnostic.ResolvedPath == "" {
 		return AgentProcessCommand{}, exec.ErrNotFound
 	}
-	process := AgentProcessCommand{Path: diagnostic.ResolvedPath}
+	path, err := filepath.Abs(diagnostic.ResolvedPath)
+	if err != nil || !isExecutableFile(path) {
+		return AgentProcessCommand{}, exec.ErrNotFound
+	}
+	entry := agentCommandCacheEntry{Path: path, Resolution: diagnostic.Resolution}
 	for _, shell := range diagnostic.Shells {
-		if shell.ResolvedPath == diagnostic.ResolvedPath && shell.Path != "" {
-			process.Env = []string{"PATH=" + shell.Path}
+		if shell.ResolvedPath == path && shell.Path != "" {
+			entry.Env = []string{"PATH=" + shell.Path}
 			break
 		}
 	}
+	r.commands[command] = entry
+	_ = r.saveLocked()
+	process, _ := agentCommandFromCache(entry)
 	return process, nil
+}
+
+func (r *AgentCommandResolver) Available(command string) (AgentProcessCommand, bool) {
+	process, err := r.Find(command)
+	return process, err == nil
+}
+
+func (r *AgentCommandResolver) Invalidate(command string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.loadLocked()
+	delete(r.commands, command)
+	_ = r.saveLocked()
+}
+
+func (r *AgentCommandResolver) Start(ctx context.Context, command string, arguments []string, directory string, overrides []string) (*exec.Cmd, io.ReadCloser, io.ReadCloser, error) {
+	var startError error
+	for attempt := 0; attempt < 2; attempt++ {
+		process, err := r.Find(command)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		cmd := exec.CommandContext(ctx, process.Path, arguments...)
+		cmd.Dir = directory
+		environment := append([]string{}, process.Env...)
+		environment = append(environment, overrides...)
+		cmd.Env = environmentWithOverrides(os.Environ(), environment)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if err := cmd.Start(); err == nil {
+			return cmd, stdout, stderr, nil
+		} else {
+			startError = err
+		}
+		_ = stdout.Close()
+		_ = stderr.Close()
+		r.Invalidate(command)
+	}
+	return nil, nil, nil, fmt.Errorf("start %s after resolving its CLI location: %w", command, startError)
+}
+
+func agentCommandFromCache(entry agentCommandCacheEntry) (AgentProcessCommand, bool) {
+	if !filepath.IsAbs(entry.Path) || !isExecutableFile(entry.Path) {
+		return AgentProcessCommand{}, false
+	}
+	return AgentProcessCommand{Path: entry.Path, Env: entry.Env}, true
+}
+
+func (r *AgentCommandResolver) loadLocked() {
+	if r.loaded {
+		return
+	}
+	r.loaded = true
+	data, err := os.ReadFile(r.path)
+	if err != nil {
+		return
+	}
+	cache := agentCommandCache{}
+	if json.Unmarshal(data, &cache) == nil && cache.Commands != nil {
+		r.commands = cache.Commands
+	}
+}
+
+func (r *AgentCommandResolver) saveLocked() error {
+	directory := filepath.Dir(r.path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(agentCommandCache{Commands: r.commands}, "", "  ")
+	if err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(directory, ".agent-commands-")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(append(data, '\n')); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, r.path)
 }
 
 func inspectAgentCommand(command string) AgentCommandDiagnostic {

@@ -41,6 +41,8 @@ type AgentBridge struct {
 	sessions map[string]AgentSession
 }
 
+const opencodeMCPTimeoutMilliseconds = 5 * 60 * 1000
+
 type bridgeRecord struct {
 	Session AgentSession `json:"session"`
 }
@@ -156,8 +158,10 @@ func (b *AgentBridge) WriteOpencodeProject(session AgentSession, token, executab
 					"RECUT_AGENT_TOKEN":   token,
 				},
 				"enabled": true,
+				"timeout": opencodeMCPTimeoutMilliseconds,
 			},
 		},
+		"experimental": map[string]any{"mcp_timeout": opencodeMCPTimeoutMilliseconds},
 	}
 	path := filepath.Join(root, "opencode.json")
 	if err := writeProjectJSON(path, config); err != nil {

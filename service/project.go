@@ -1,12 +1,13 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、原生素材库与首页 general chat 的隐藏平台 scope、全局 onboarding 设置与按文件共享、WAL 连接池化的 SQLite 存储
+ * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、原生素材库与首页 general chat 的隐藏平台 scope、全局 onboarding 设置、持久化 Agent CLI 定位缓存与按文件共享、WAL 连接池化且以有界健康检查复用 SQLite 存储
  * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根，Agent 会话使用独立工作区库，首页聊天复用隐藏 scope 而非伪造用户项目
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -33,6 +34,7 @@ const generalChatAppID = "recut.general-chat"
 const standaloneProjectPrefix = "workspace-app-"
 const workspaceBusyTimeoutMilliseconds = 15000
 const sqlitePoolMaxOpenConnections = 8
+const databaseHealthCheckTimeout = 100 * time.Millisecond
 
 func isSystemProjectID(id string) bool {
 	return id == mediaSystemProjectID || id == generalChatProjectID
@@ -66,6 +68,7 @@ type Artifact struct {
 type Store struct {
 	root           string
 	catalog        *Catalog
+	agentCommands  *AgentCommandResolver
 	workspaceMu    sync.Mutex
 	workspaceReady bool
 	databasesMu    sync.Mutex
@@ -73,7 +76,7 @@ type Store struct {
 }
 
 func NewStore(root string, apps *Catalog) *Store {
-	return &Store{root: root, catalog: apps, databases: map[string]*sql.DB{}}
+	return &Store{root: root, catalog: apps, agentCommands: newAgentCommandResolver(root), databases: map[string]*sql.DB{}}
 }
 func (s *Store) Ensure() error { return os.MkdirAll(s.projectsDir(), 0o755) }
 
@@ -356,10 +359,14 @@ func (s *Store) database(path string, initialize func(*sql.DB) error) (*sql.DB, 
 	s.databasesMu.Lock()
 	defer s.databasesMu.Unlock()
 	if db := s.databases[path]; db != nil {
-		if err := db.Ping(); err == nil {
+		checkContext, cancel := context.WithTimeout(context.Background(), databaseHealthCheckTimeout)
+		err := db.PingContext(checkContext)
+		cancel()
+		if err == nil || errors.Is(err, context.DeadlineExceeded) {
 			return db, nil
 		}
 		delete(s.databases, path)
+		_ = db.Close()
 	}
 	// Nested result scans need more than one connection. WAL permits those
 	// readers to proceed while SQLite serializes writers; every connection gets

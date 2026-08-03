@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type mcpRequest struct {
@@ -31,24 +32,37 @@ func RunMCPStdio(bridge *AgentBridge, host *AppHost, media *MediaService, input 
 	}
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 4096), 2<<20)
+	var calls sync.WaitGroup
+	var outputMu sync.Mutex
+	var outputErr error
 	for scanner.Scan() {
 		request := mcpRequest{}
 		if json.Unmarshal(scanner.Bytes(), &request) != nil || len(request.ID) == 0 {
 			continue
 		}
-		result, callErr := handleMCP(bridge, host, media, session, request)
-		response := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(request.ID)}
-		if callErr != nil {
-			response["error"] = map[string]any{"code": -32000, "message": callErr.Error()}
-		} else {
-			response["result"] = result
-		}
-		data, _ := json.Marshal(response)
-		if _, err := fmt.Fprintln(output, string(data)); err != nil {
-			return err
-		}
+		calls.Add(1)
+		go func(request mcpRequest) {
+			defer calls.Done()
+			result, callErr := handleMCP(bridge, host, media, session, request)
+			response := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(request.ID)}
+			if callErr != nil {
+				response["error"] = map[string]any{"code": -32000, "message": callErr.Error()}
+			} else {
+				response["result"] = result
+			}
+			data, _ := json.Marshal(response)
+			outputMu.Lock()
+			defer outputMu.Unlock()
+			if outputErr == nil {
+				_, outputErr = fmt.Fprintln(output, string(data))
+			}
+		}(request)
 	}
-	return scanner.Err()
+	calls.Wait()
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return outputErr
 }
 
 func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, request mcpRequest) (any, error) {

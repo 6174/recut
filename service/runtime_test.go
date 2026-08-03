@@ -92,6 +92,28 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 	if _, err := host.InvokeMCP(project.ID, appID, "brief.create", map[string]any{"topic": "测试统一 operation"}); err != nil {
 		t.Fatalf("brief.create MCP: %v", err)
 	}
+	briefResources, err := host.InvokeAPI(project.ID, appID, "resource.list", map[string]any{})
+	if err != nil {
+		t.Fatalf("resource.list after brief.create: %v", err)
+	}
+	briefs := briefResources.([]any)
+	if len(briefs) != 2 || briefs[0].(map[string]any)["kind"] != "brief" || briefs[1].(map[string]any)["kind"] != "brief" {
+		t.Fatalf("brief.create must materialize visible brief resources: %#v", briefResources)
+	}
+	briefStore, err := store.AppDatabase(project.ID, appID)
+	if err != nil {
+		t.Fatalf("brief app database: %v", err)
+	}
+	if _, err := briefStore.Exec("delete from resources where kind = ?", "brief"); err != nil {
+		t.Fatalf("remove materialized brief resources: %v", err)
+	}
+	legacyResources, err := host.InvokeAPI(project.ID, appID, "resource.list", map[string]any{})
+	if err != nil {
+		t.Fatalf("resource.list for legacy brief: %v", err)
+	}
+	if len(legacyResources.([]any)) != 1 || legacyResources.([]any)[0].(map[string]any)["kind"] != "brief" {
+		t.Fatalf("resource.list must expose a legacy brief: %#v", legacyResources)
+	}
 	for _, call := range []struct {
 		surface string
 		name    string

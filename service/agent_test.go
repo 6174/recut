@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Agent 附件上下文格式化函数
- * [OUTPUT]: 验证 Agent 附件身份、工具输入/输出/错误与成本字段分离、共享 SQLite 的 WAL/并发写入策略、停止时即时持久化 Turn 与会话终态，以及服务重启后的中断状态收敛
+ * [OUTPUT]: 验证 Agent 附件身份、Codex 与 OpenCode 工具输入/输出/错误和成本字段分离、仅内存 CLI 调试流的回放与订阅、CLI 定位缓存的持久化/失效刷新/启动重试、共享 SQLite 的 WAL/并发写入策略、单连接池会话详情读取、停止时即时持久化 Turn 与会话终态，以及服务重启后的中断状态收敛
  * [POS]: service 的 Agent 协议回归测试；防止附件退化为裸路径或取消永久悬挂
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,31 @@ func TestAttachmentPromptPreservesAssetIdentity(t *testing.T) {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("attachment prompt missing %q: %s", expected, prompt)
 		}
+	}
+}
+
+func TestCLIStreamReplaysAndPublishesWithoutPersistingOutput(t *testing.T) {
+	manager := NewAgentManager(NewStore(t.TempDir(), nil), nil, nil)
+	manager.beginCLIStream("session")
+	manager.captureCLIOutput("session", "stdout", `{"type":"step_start"}`)
+	history, output, unsubscribe := manager.SubscribeCLIStream("session")
+	defer unsubscribe()
+	if len(history) != 1 || history[0].Stream != "stdout" || history[0].Text != `{"type":"step_start"}` {
+		t.Fatalf("CLI history = %#v", history)
+	}
+	manager.captureCLIOutput("session", "stderr", "network retry")
+	select {
+	case entry := <-output:
+		if entry.Sequence != 2 || entry.Stream != "stderr" || entry.Text != "network retry" {
+			t.Fatalf("CLI live entry = %#v", entry)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("CLI subscriber did not receive output")
+	}
+	manager.finishCLIStream("session")
+	if history, output, unsubscribe := manager.SubscribeCLIStream("missing"); history != nil || output != nil {
+		unsubscribe()
+		t.Fatalf("missing CLI stream = %#v, %v", history, output)
 	}
 }
 
@@ -130,13 +156,13 @@ func TestParseOpencodeModelsKeepsEveryTUIProvider(t *testing.T) {
 	}
 }
 
-func TestOpencodeRunArgsAvoidsAutomaticTitleGeneration(t *testing.T) {
+func TestOpencodeRunArgsUseUnattendedToolApproval(t *testing.T) {
 	first := strings.Join(opencodeRunArgs("hello", "/project", defaultOpencodeModel, "", "New chat"), " ")
-	if !strings.Contains(first, "--print-logs") || !strings.Contains(first, "--title New chat") || strings.Contains(first, "--session") {
+	if !strings.Contains(first, "--print-logs") || !strings.Contains(first, "--auto") || !strings.Contains(first, "--title New chat") || strings.Contains(first, "--session") {
 		t.Fatalf("first OpenCode args = %q", first)
 	}
 	resumed := strings.Join(opencodeRunArgs("again", "/project", defaultOpencodeModel, "ses_123", "ignored"), " ")
-	if !strings.Contains(resumed, "--session ses_123") || strings.Contains(resumed, "--title") {
+	if !strings.Contains(resumed, "--auto") || !strings.Contains(resumed, "--session ses_123") || strings.Contains(resumed, "--title") {
 		t.Fatalf("resumed OpenCode args = %q", resumed)
 	}
 }
@@ -155,6 +181,33 @@ func TestWorkspaceDatabaseUsesWAL(t *testing.T) {
 	}
 	if strings.ToLower(mode) != "wal" {
 		t.Fatalf("journal mode = %q, want wal", mode)
+	}
+}
+
+func TestDetailReadsTurnsWithSingleSQLiteConnection(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	now := iso(time.Now().UTC())
+	if _, err := db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", "session-single-connection", localProfileID, "", "codex", "", "Test", "idle", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("insert into agent_turns (id, session_id, role, content, status, created_at) values (?, ?, ?, ?, ?, ?)", "turn-single-connection", "session-single-connection", "user", "hello", "completed", now); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() { _, err := NewAgentManager(store, nil, nil).Detail("session-single-connection"); result <- err }()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session detail exhausted the SQLite connection pool")
 	}
 }
 
@@ -331,6 +384,21 @@ func TestCodexToolPayloadSeparatesInputOutputErrorAndCost(t *testing.T) {
 	}
 }
 
+func TestOpencodeToolErrorDetailPreservesStateError(t *testing.T) {
+	state := map[string]any{
+		"input": map[string]any{"filePath": "/outside-project/README.md"},
+		"error": map[string]any{"message": "Access denied: path is outside the workspace"},
+	}
+	input := opencodeToolDetail(state, "input")
+	detail := opencodeToolDetail(state, "error")
+	if !strings.Contains(input, "filePath") {
+		t.Fatalf("OpenCode tool input missing: %s", input)
+	}
+	if !strings.Contains(detail, "Access denied: path is outside the workspace") {
+		t.Fatalf("OpenCode tool failure detail missing: %s", detail)
+	}
+}
+
 func TestAgentCLIUnavailableErrorIsActionable(t *testing.T) {
 	message := agentCLIUnavailableError("Codex", "codex").Error()
 	for _, expected := range []string{"Codex CLI is unavailable", "device running Recut service", `"codex"`, "restart Recut service"} {
@@ -356,6 +424,92 @@ func TestAgentCommandPathFromOutputUsesVerifiedShellResult(t *testing.T) {
 	}
 	if resolved := agentCommandPathFromOutput("codex", "shell init\n"+command+"\n"); resolved != command {
 		t.Fatalf("resolved command = %q, want %q", resolved, command)
+	}
+}
+
+func TestAgentCommandResolverCachesVerifiedLookup(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "codex")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lookups := 0
+	resolver := newAgentCommandResolver(root)
+	resolver.resolve = func(command string) AgentCommandDiagnostic {
+		lookups++
+		return AgentCommandDiagnostic{Command: command, ResolvedPath: executable, Resolution: "login shell /bin/zsh", Shells: []AgentShellDiagnostic{{ResolvedPath: executable, Path: "/custom/bin:/usr/bin"}}}
+	}
+	process, err := resolver.Find("codex")
+	if err != nil || process.Path != executable || strings.Join(process.Env, "") != "PATH=/custom/bin:/usr/bin" {
+		t.Fatalf("first lookup = %#v, %v", process, err)
+	}
+	if lookups != 1 {
+		t.Fatalf("lookup count = %d, want 1", lookups)
+	}
+	for _, target := range []struct {
+		path string
+		mode os.FileMode
+	}{{filepath.Join(root, "config"), 0o700}, {filepath.Join(root, "config", "agent-commands.json"), 0o600}} {
+		info, err := os.Stat(target.path)
+		if err != nil || info.Mode().Perm() != target.mode {
+			t.Fatalf("cache permission %q = %v, %v", target.path, info, err)
+		}
+	}
+
+	loaded := newAgentCommandResolver(root)
+	loaded.resolve = func(string) AgentCommandDiagnostic {
+		t.Fatal("cached command triggered a new CLI lookup")
+		return AgentCommandDiagnostic{}
+	}
+	process, err = loaded.Find("codex")
+	if err != nil || process.Path != executable || strings.Join(process.Env, "") != "PATH=/custom/bin:/usr/bin" {
+		t.Fatalf("cached lookup = %#v, %v", process, err)
+	}
+}
+
+func TestAgentCommandResolverRefreshesInvalidCacheAndFailedStart(t *testing.T) {
+	root := t.TempDir()
+	valid := filepath.Join(root, "codex-valid")
+	if err := os.WriteFile(valid, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resolver := newAgentCommandResolver(root)
+	resolver.loaded = true
+	resolver.commands["codex"] = agentCommandCacheEntry{Path: filepath.Join(root, "removed-codex")}
+	refreshes := 0
+	resolver.resolve = func(command string) AgentCommandDiagnostic {
+		refreshes++
+		return AgentCommandDiagnostic{Command: command, ResolvedPath: valid}
+	}
+	if process, err := resolver.Find("codex"); err != nil || process.Path != valid || refreshes != 1 {
+		t.Fatalf("invalid cache refresh = %#v, %v, count=%d", process, err, refreshes)
+	}
+
+	broken := filepath.Join(root, "codex-broken")
+	if err := os.WriteFile(broken, []byte("not an executable format\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resolver.Invalidate("codex")
+	refreshes = 0
+	resolver.resolve = func(command string) AgentCommandDiagnostic {
+		refreshes++
+		path := broken
+		if refreshes == 2 {
+			path = valid
+		}
+		return AgentCommandDiagnostic{Command: command, ResolvedPath: path}
+	}
+	cmd, stdout, stderr, err := resolver.Start(context.Background(), "codex", nil, root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = stdout.Close()
+	_ = stderr.Close()
+	if err := cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if refreshes != 2 {
+		t.Fatalf("failed start refresh count = %d, want 2", refreshes)
 	}
 }
 

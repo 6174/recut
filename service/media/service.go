@@ -29,7 +29,7 @@ type MediaService struct {
 	schedulerID string
 }
 
-const mediaRequestTimeout = 2 * time.Minute
+const mediaRequestTimeout = 5 * time.Minute
 const atlasPollInterval = 5 * time.Second
 const atlasPollRequestTimeout = 12 * time.Second
 const InterruptedMediaJobMessage = "本地服务重启前任务未完成，请重新生成。"

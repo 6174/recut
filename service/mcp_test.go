@@ -1,17 +1,22 @@
 /*
- * [INPUT]: 依赖 mcp.go 的平台工具定义
- * [OUTPUT]: 锁定按媒体类型拆分的 MCP 工具名称和输入 schema
- * [POS]: service MCP Host 的公开工具契约回归测试；不启动 stdio 服务
+ * [INPUT]: 依赖 mcp.go 的平台工具定义、Store 与本地 HTTP 测试服务
+ * [OUTPUT]: 锁定按媒体类型拆分的 MCP 工具名称和输入 schema，以及长图片请求不阻塞素材查询
+ * [POS]: service MCP Host 的公开工具契约与 stdio 并发回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
@@ -129,6 +134,68 @@ func TestMediaMCPToolsBypassAppToolBoundary(t *testing.T) {
 	}
 	if isMediaMCPTool("recut.vox-broll.create_resource") {
 		t.Fatal("App tool was misclassified as a platform media tool")
+	}
+}
+
+func TestMCPListAssetsIsNotBlockedByImageGeneration(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.Create(CreateInput{Name: "Test", AppID: "example.app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/images/generations" {
+			t.Fatalf("path = %s", request.URL.Path)
+		}
+		time.Sleep(100 * time.Millisecond)
+		_, _ = writer.Write([]byte(`{"data":[{"b64_json":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9JwQAAAABJRU5ErkJggg=="}]}`))
+	}))
+	defer provider.Close()
+	media := NewMediaService(store)
+	credential, err := media.SaveCredential(MediaCredential{Provider: "openai-compatible", Name: "Test", APIBase: provider.URL}, "test-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := media.SaveRoute(MediaRoute{Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	bridge := NewAgentBridge(store)
+	session, token, err := bridge.CreateSession(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RECUT_AGENT_SESSION", session.ID)
+	t.Setenv("RECUT_AGENT_TOKEN", token)
+	input := strings.NewReader("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"recut.image.generate\",\"arguments\":{\"text\":\"slow image\"}}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"recut.media.list_assets\",\"arguments\":{}}}\n")
+	var output bytes.Buffer
+	if err := RunMCPStdio(bridge, NewAppHost(apps, store), media, input, &output); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("responses = %q", output.String())
+	}
+	first := struct {
+		ID int `json:"id"`
+	}{}
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != 2 {
+		t.Fatalf("list_assets was blocked behind image generation: first response = %s", lines[0])
 	}
 }
 

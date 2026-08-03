@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentManager 的本地持久化会话和 HTTP SSE 传输能力
- * [OUTPUT]: 对外提供项目或通用 scope 的 Agent Session 创建、Codex 配置更新、OpenCode 实时模型目录、按项目解析/全局保存 onboarding、查询、含图片资产引用的发送、停止与事件订阅 HTTP API，并区分不存在和存储读取失败
+ * [OUTPUT]: 对外提供项目或通用 scope 的 Agent Session 创建、Codex 配置更新、OpenCode 实时模型目录、按项目解析/全局保存 onboarding、查询、含图片资产引用的发送、停止、结构化事件与仅内存 CLI 调试流订阅 HTTP API，并区分不存在和存储读取失败
  * [POS]: service 的结构化对话传输边界；与 terminal HTTP API 并存且互不代理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -221,6 +221,54 @@ func (s *Server) streamAgentEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
+		}
+	}
+}
+
+// streamAgentCLI exposes the raw output owned by the currently running local
+// CLI process. The manager deliberately keeps it in memory only; this endpoint
+// is a live debugging surface, not a durable conversation archive.
+func (s *Server) streamAgentCLI(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.agents.Detail(r.PathValue("id")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("agent session not found"))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	history, output, unsubscribe := s.agents.SubscribeCLIStream(r.PathValue("id"))
+	defer unsubscribe()
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Content-Type", "text/event-stream")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, errors.New("streaming is unavailable"))
+		return
+	}
+	for _, entry := range history {
+		data, _ := json.Marshal(entry)
+		if _, err := fmt.Fprintf(w, "event: output\\ndata: %s\\n\\n", data); err != nil {
+			return
+		}
+	}
+	if output == nil {
+		_, _ = fmt.Fprint(w, "event: status\\ndata: {\"available\":false}\\n\\n")
+		flusher.Flush()
+		return
+	}
+	flusher.Flush()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case entry := <-output:
+			data, _ := json.Marshal(entry)
+			if _, err := fmt.Fprintf(w, "event: output\\ndata: %s\\n\\n", data); err != nil {
+				return
+			}
+			flusher.Flush()
 		}
 	}
 }

@@ -1,313 +1,744 @@
 /*
  * [INPUT]: 依赖项目或 general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
- * [OUTPUT]: 对外提供带非空新对话 onboarding、本地 Agent CLI 主动安装入口、项目与 general scope、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、创建/同步/重试均可见的状态、输入法保护、图片上传/粘贴上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，并可完整查看或复制；新建菜单与首次进入空态在无可用本地 Agent CLI 时主动列出 Codex、OpenCode、Claude Code 三项安装入口，与已有恢复流程共用 AgentInstallGuide
- * [POS]: components 的通用 Agent 侧栏；首页无项目时自动使用隐藏 general scope，空态仍允许直接输入并在发送时创建会话，运行期间的用户消息持久化排队，每张项目媒体以资产引用绑定到对应用户 Turn，并为内部预览提供共享 Asset 缓存
+ * [OUTPUT]: 对外提供带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、项目与 general scope、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、作用域切换时同步 Loading 且拒绝过期请求回写的对话加载、创建/同步/重试均可见的状态、输入法保护、图片上传/粘贴上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
+ * [POS]: components 的通用 Agent 侧栏；首页无项目时自动使用隐藏 general scope，存在可用 runtime 的空态允许直接输入并在发送时创建会话，运行期间的用户消息持久化排队，每张项目媒体以资产引用绑定到对应用户 Turn，并为内部预览提供共享 Asset 缓存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleAlert, CircleStop, Copy, History, ImagePlus, MessageSquarePlus, RefreshCw, SlidersHorizontal, ThumbsDown, ThumbsUp, X } from "lucide-react";
-import { FormEvent, type ClipboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { History, MessageSquarePlus, Terminal } from "lucide-react";
+import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { AgentInstallDialog } from "@/components/agent-install-dialog";
-import { AgentInstallGuide, CopyFeedback, copyToClipboard, RUNTIME_ORDER, recoverySubtitle, recoveryTitle, runtimeAgentName, syntheticAgent, type AgentRuntimeStatus, type Runtime } from "@/components/agent-install-guide";
-import { AgentMessageContent } from "@/components/agent-message-content";
+import { runtimeAgentName, type AgentRuntimeStatus, type Runtime } from "@/components/agent-install-guide";
 import { AgentOnboarding } from "@/components/agent-onboarding";
-import { AssetReferenceChip, AssetReferenceDialog, AssetReferenceMenu, mediaReferenceIDs, mediaReferenceText, type AssetReference } from "@/components/asset-reference-picker";
 import { Button } from "@/components/ui/button";
 import { MediaAssetEventsProvider } from "@/components/use-media-asset-events";
-
-function runtimeLabel(runtime: string): string {
-  return ({ codex: "Codex", opencode: "OpenCode", claude: "Claude Code" } as Record<string, string>)[runtime] ?? runtime;
-}
-
-type Session = { id: string; title: string; runtime: string; status: string; updatedAt: string; projectName?: string; appId?: string; codexModel?: string; reasoningEffort?: string; opencodeModel?: string };
-type CodexConfiguration = { codexModel: string; reasoningEffort: string };
-const defaultCodexConfiguration: CodexConfiguration = { codexModel: "gpt-5.6-terra", reasoningEffort: "xhigh" };
-type OpencodeConfiguration = { opencodeModel: string };
-type OpencodeModel = { id: string; provider: string };
-const defaultOpencodeConfiguration: OpencodeConfiguration = { opencodeModel: "opencode-go/deepseek-v4-flash" };
-type Attachment = AssetReference;
-type UploadedAsset = { id: string; name: string; mimeType: string; kind: Attachment["kind"]; origin: string; status: string };
-type Turn = { id: string; role: "user" | "assistant"; content: string; status: string; createdAt: string; completedAt?: string; attachments?: Attachment[] };
-type ToolPayload = { label?: string; message?: string; phase?: string; toolCallId?: string; tool?: string; toolName?: string; detail?: string; input?: string; output?: string; error?: string; cost?: string };
-type AgentEvent = { id: number; turnId?: string; type: string; createdAt: string; payload?: ToolPayload };
-type Detail = Session & { turns: Turn[]; events: AgentEvent[]; lastEventId: number };
-type Props = { apiBase: string; online: boolean; projectID: string | null };
+import { Composer, RuntimePicker } from "@/components/agent-composer";
+import { AgentRecoveryPanel, applyAgentEvent, CLIDebugDialog, Conversation, ConversationLoading, isCLIUnavailableFailure, latestFailedTurn, messageOf, responseMessage, SessionHistory } from "@/components/agent-panel-views";
+import { defaultCodexConfiguration, defaultOpencodeConfiguration, type AgentEvent, type Attachment, type CLIEntry, type CodexConfiguration, type Detail, type OpencodeConfiguration, type OpencodeModel, type Props, type Session, type UploadedAsset } from "@/components/agent-panel-types";
 
 export function ProjectAgentPanel(props: Props) {
-  return <MediaAssetEventsProvider apiBase={props.apiBase}><ProjectAgentPanelContent {...props} /></MediaAssetEventsProvider>;
+  return (
+    <MediaAssetEventsProvider apiBase={props.apiBase}>
+      <ProjectAgentPanelContent {...props} />
+    </MediaAssetEventsProvider>
+  );
 }
-
 function ProjectAgentPanelContent({ apiBase, online, projectID }: Props) {
-  const [sessions, setSessions] = useState<Session[]>([]); const [activeID, setActiveID] = useState<string | null>(null); const [detail, setDetail] = useState<Detail | null>(null); const [content, setContent] = useState(""); const [attachments, setAttachments] = useState<Attachment[]>([]); const [uploading, setUploading] = useState(false); const [creatingRuntime, setCreatingRuntime] = useState(false); const [syncingID, setSyncingID] = useState<string | null>(null); const [error, setError] = useState(""); const [stopNotice, setStopNotice] = useState(""); const [historyOpen, setHistoryOpen] = useState(false); const [runtimeOpen, setRuntimeOpen] = useState(false); const [installDialogAgent, setInstallDialogAgent] = useState<AgentRuntimeStatus | null>(null); const [pendingCodexConfig, setPendingCodexConfig] = useState<CodexConfiguration>(defaultCodexConfiguration); const [pendingOpencodeConfig, setPendingOpencodeConfig] = useState<OpencodeConfiguration>(defaultOpencodeConfiguration); const [opencodeModels, setOpencodeModels] = useState<OpencodeModel[]>([]); const [now, setNow] = useState(() => Date.now()); const [runtimeStatus, setRuntimeStatus] = useState<AgentRuntimeStatus[] | null>(null); const [acknowledgedFailureID, setAcknowledgedFailureID] = useState<string | null>(null);
-  const streamRef = useRef<EventSource | null>(null); const messagesRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (online) { void loadSessions(); void loadRuntimeStatus(); void loadOpencodeModels(); } else { streamRef.current?.close(); setSessions([]); setDetail(null); setActiveID(null); setRuntimeStatus(null); setOpencodeModels([]); } }, [apiBase, online, projectID]);
-  useEffect(() => () => streamRef.current?.close(), []); useEffect(() => { messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" }); }, [detail?.turns.length, detail?.events.length]); useEffect(() => { if (detail?.status !== "running") return; setNow(Date.now()); const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, [detail?.status]);
-  async function loadSessions() { const scope = projectID ? `projectId=${encodeURIComponent(projectID)}` : "scope=general"; const response = await fetch(`${apiBase}/v1/agent-sessions?${scope}`); if (!response.ok) return; const next: Session[] = await response.json(); setSessions(next); const selected = activeID && next.some((session) => session.id === activeID) ? activeID : next[0]?.id ?? null; if (selected) { await open(selected); return; } streamRef.current?.close(); setActiveID(null); setDetail(null); }
-  async function loadRuntimeStatus() { const response = await fetch(`${apiBase}/v1/agents`); if (!response.ok) return null; const next = await response.json() as AgentRuntimeStatus[]; setRuntimeStatus(next); return next; }
-  async function loadOpencodeModels() { const response = await fetch(`${apiBase}/v1/agents/opencode/models`); if (!response.ok) return; setOpencodeModels(await response.json() as OpencodeModel[]); }
-  async function open(id: string) { streamRef.current?.close(); setActiveID(id); setSyncingID(id); try { const response = await fetch(`${apiBase}/v1/agent-sessions/${id}`); if (!response.ok) throw new Error(await responseMessage(response, "无法读取对话")); const next: Detail = await response.json(); setDetail(next); subscribe(id, next.lastEventId); } catch (cause) { setDetail(null); setError(`无法加载对话：${messageOf(cause, "请重试")}`); } finally { setSyncingID((current) => current === id ? null : current); } }
-  function subscribe(id: string, after: number) {
-    const stream = new EventSource(`${apiBase}/v1/agent-sessions/${id}/events?after=${after}`);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [activeID, setActiveID] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [content, setContent] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [creatingRuntime, setCreatingRuntime] = useState(false);
+  const [syncingID, setSyncingID] = useState<string | null>(null);
+  const [loadingSessions, setLoadingSessions] = useState(online);
+  const [error, setError] = useState("");
+  const [stopNotice, setStopNotice] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [runtimeOpen, setRuntimeOpen] = useState(false);
+  const [cliOpen, setCLIOpen] = useState(false);
+  const [cliEntries, setCLIEntries] = useState<CLIEntry[]>([]);
+  const [cliAvailable, setCLIAvailable] = useState(true);
+  const [installDialogAgent, setInstallDialogAgent] =
+    useState<AgentRuntimeStatus | null>(null);
+  const [pendingCodexConfig, setPendingCodexConfig] =
+    useState<CodexConfiguration>(defaultCodexConfiguration);
+  const [pendingOpencodeConfig, setPendingOpencodeConfig] =
+    useState<OpencodeConfiguration>(defaultOpencodeConfiguration);
+  const [opencodeModels, setOpencodeModels] = useState<OpencodeModel[]>([]);
+  const [now, setNow] = useState(() => Date.now());
+  const [runtimeStatus, setRuntimeStatus] = useState<
+    AgentRuntimeStatus[] | null
+  >(null);
+  const [acknowledgedFailureID, setAcknowledgedFailureID] = useState<
+    string | null
+  >(null);
+  const streamRef = useRef<EventSource | null>(null);
+  const cliStreamRef = useRef<EventSource | null>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const scopeVersionRef = useRef(0);
+  const detailVersionRef = useRef(0);
+  const activeIDRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const scopeVersion = ++scopeVersionRef.current;
+    ++detailVersionRef.current;
+    activeIDRef.current = null;
+    streamRef.current?.close();
+    streamRef.current = null;
+    cliStreamRef.current?.close();
+    cliStreamRef.current = null;
+    setSessions([]);
+    setActiveID(null);
+    setDetail(null);
+    setSyncingID(null);
+    setError("");
+    setStopNotice("");
+    setHistoryOpen(false);
+    setRuntimeOpen(false);
+    setCLIOpen(false);
+    setCLIEntries([]);
+    setRuntimeStatus(null);
+    setOpencodeModels([]);
+    setLoadingSessions(online);
+    if (online) {
+      void loadSessions(scopeVersion);
+      void loadRuntimeStatus(scopeVersion);
+      void loadOpencodeModels(scopeVersion);
+    }
+  }, [apiBase, online, projectID]);
+  useEffect(
+    () => () => {
+      streamRef.current?.close();
+      cliStreamRef.current?.close();
+    },
+    [],
+  );
+  useEffect(() => {
+    messagesRef.current?.scrollTo({
+      top: messagesRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [detail?.turns.length, detail?.events.length]);
+  useEffect(() => {
+    if (detail?.status !== "running") return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [detail?.status]);
+  function isCurrentRequest(
+    id: string,
+    scopeVersion: number,
+    detailVersion: number,
+  ) {
+    return (
+      scopeVersion === scopeVersionRef.current &&
+      detailVersion === detailVersionRef.current &&
+      id === activeIDRef.current
+    );
+  }
+  async function loadSessions(scopeVersion: number) {
+    const scope = projectID
+      ? `projectId=${encodeURIComponent(projectID)}`
+      : "scope=general";
+    try {
+      const response = await fetch(`${apiBase}/v1/agent-sessions?${scope}`);
+      if (!response.ok)
+        throw new Error(await responseMessage(response, "无法读取会话列表"));
+      const next: Session[] = await response.json();
+      if (scopeVersion !== scopeVersionRef.current) return;
+      setSessions(next);
+      const selected = next[0]?.id;
+      if (selected) {
+        await open(selected, scopeVersion);
+        return;
+      }
+    } catch (cause) {
+      if (scopeVersion !== scopeVersionRef.current) return;
+      setError(`无法加载会话：${messageOf(cause, "请重试")}`);
+    }
+    if (scopeVersion === scopeVersionRef.current) setLoadingSessions(false);
+  }
+  async function loadRuntimeStatus(scopeVersion = scopeVersionRef.current) {
+    try {
+      const response = await fetch(`${apiBase}/v1/agents`);
+      if (!response.ok) return null;
+      const next = (await response.json()) as AgentRuntimeStatus[];
+      if (scopeVersion === scopeVersionRef.current) setRuntimeStatus(next);
+      return next;
+    } catch {
+      return null;
+    }
+  }
+  async function loadOpencodeModels(scopeVersion = scopeVersionRef.current) {
+    try {
+      const response = await fetch(`${apiBase}/v1/agents/opencode/models`);
+      if (!response.ok) return;
+      const next = (await response.json()) as OpencodeModel[];
+      if (scopeVersion === scopeVersionRef.current) setOpencodeModels(next);
+    } catch {}
+  }
+  async function open(id: string, scopeVersion = scopeVersionRef.current) {
+    const detailVersion = ++detailVersionRef.current;
+    activeIDRef.current = id;
+    streamRef.current?.close();
+    streamRef.current = null;
+    setActiveID(id);
+    setDetail(null);
+    setError("");
+    setSyncingID(id);
+    setLoadingSessions(true);
+    try {
+      const response = await fetch(`${apiBase}/v1/agent-sessions/${id}`);
+      if (!response.ok)
+        throw new Error(await responseMessage(response, "无法读取对话"));
+      const next: Detail = await response.json();
+      if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
+      setDetail(next);
+      subscribe(id, next.lastEventId, scopeVersion, detailVersion);
+    } catch (cause) {
+      if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
+      setDetail(null);
+      setError(`无法加载对话：${messageOf(cause, "请重试")}`);
+    } finally {
+      if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
+      setSyncingID(null);
+      setLoadingSessions(false);
+    }
+  }
+  function subscribe(
+    id: string,
+    after: number,
+    scopeVersion: number,
+    detailVersion: number,
+  ) {
+    const stream = new EventSource(
+      `${apiBase}/v1/agent-sessions/${id}/events?after=${after}`,
+    );
     stream.addEventListener("agent", (event) => {
-      const incoming = JSON.parse((event as MessageEvent<string>).data) as AgentEvent;
-      setDetail((current) => current ? applyAgentEvent(current, incoming) : current);
+      if (
+        !isCurrentRequest(id, scopeVersion, detailVersion) ||
+        streamRef.current !== stream
+      )
+        return;
+      const incoming = JSON.parse(
+        (event as MessageEvent<string>).data,
+      ) as AgentEvent;
+      setDetail((current) =>
+        current ? applyAgentEvent(current, incoming) : current,
+      );
       if (incoming.type === "turn.cancelled") setStopNotice("已停止当前回复");
       if (incoming.type === "turn.started") setStopNotice("");
-      if (["assistant.completed", "turn.completed", "turn.failed", "turn.cancelled", "session.updated"].includes(incoming.type)) void refresh(id);
+      if (
+        [
+          "assistant.completed",
+          "turn.completed",
+          "turn.failed",
+          "turn.cancelled",
+          "session.updated",
+        ].includes(incoming.type)
+      )
+        void refresh(id, scopeVersion, detailVersion);
     });
     streamRef.current = stream;
   }
-  async function refresh(id: string) { const response = await fetch(`${apiBase}/v1/agent-sessions/${id}`); if (!response.ok) return; const next: Detail = await response.json(); setDetail(next); setSessions((current) => [next, ...current.filter((session) => session.id !== id)]); }
+  function openCLIStream() {
+    if (!activeID) return;
+    cliStreamRef.current?.close();
+    setCLIEntries([]);
+    setCLIAvailable(true);
+    setCLIOpen(true);
+    const stream = new EventSource(
+      `${apiBase}/v1/agent-sessions/${activeID}/cli-stream`,
+    );
+    stream.addEventListener("output", (event) => {
+      if (cliStreamRef.current !== stream) return;
+      const incoming = JSON.parse(
+        (event as MessageEvent<string>).data,
+      ) as CLIEntry;
+      setCLIEntries((current) => [...current.slice(-399), incoming]);
+    });
+    stream.addEventListener("status", () => {
+      if (cliStreamRef.current !== stream) return;
+      setCLIAvailable(false);
+      stream.close();
+    });
+    stream.onerror = () => {
+      if (cliStreamRef.current === stream) stream.close();
+    };
+    cliStreamRef.current = stream;
+  }
+  function closeCLIStream() {
+    cliStreamRef.current?.close();
+    cliStreamRef.current = null;
+    setCLIOpen(false);
+  }
+  async function refresh(
+    id: string,
+    scopeVersion = scopeVersionRef.current,
+    detailVersion = detailVersionRef.current,
+  ) {
+    const response = await fetch(`${apiBase}/v1/agent-sessions/${id}`);
+    if (!response.ok || !isCurrentRequest(id, scopeVersion, detailVersion))
+      return;
+    const next: Detail = await response.json();
+    if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
+    setDetail(next);
+    setSessions((current) => [
+      next,
+      ...current.filter((session) => session.id !== id),
+    ]);
+  }
   async function createSession(runtime: Runtime) {
     if (creatingRuntime) return null;
-    if (runtimeStatus?.find((agent) => agent.id === runtime)?.available === false) { setError(`${runtimeAgentName(runtime)} CLI 未就绪，请先完成面板中的安装指引。`); return null; }
-    setCreatingRuntime(true); setError("");
+    if (
+      runtimeStatus?.find((agent) => agent.id === runtime)?.available === false
+    ) {
+      setError(
+        `${runtimeAgentName(runtime)} CLI 未就绪，请先完成面板中的安装指引。`,
+      );
+      return null;
+    }
+    setCreatingRuntime(true);
+    setError("");
     try {
-      const body: Record<string, unknown> = { ...(projectID ? { projectId: projectID } : {}), runtime };
-      if (runtime === "codex") { body.codexModel = pendingCodexConfig.codexModel; body.reasoningEffort = pendingCodexConfig.reasoningEffort; }
-      if (runtime === "opencode") { body.opencodeModel = pendingOpencodeConfig.opencodeModel; }
-      const response = await fetch(`${apiBase}/v1/agent-sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (!response.ok) throw new Error(await responseMessage(response, "无法创建对话"));
+      const body: Record<string, unknown> = {
+        ...(projectID ? { projectId: projectID } : {}),
+        runtime,
+      };
+      if (runtime === "codex") {
+        body.codexModel = pendingCodexConfig.codexModel;
+        body.reasoningEffort = pendingCodexConfig.reasoningEffort;
+      }
+      if (runtime === "opencode") {
+        body.opencodeModel = pendingOpencodeConfig.opencodeModel;
+      }
+      const response = await fetch(`${apiBase}/v1/agent-sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok)
+        throw new Error(await responseMessage(response, "无法创建对话"));
       const session: Session = await response.json();
-      setSessions((current) => [session, ...current]); setRuntimeOpen(false);
-      await open(session.id); return session;
-    } catch (cause) { setError(`无法创建对话：${messageOf(cause, "请稍后重试")}`); return null; } finally { setCreatingRuntime(false); }
+      setSessions((current) => [session, ...current]);
+      setRuntimeOpen(false);
+      await open(session.id);
+      return session;
+    } catch (cause) {
+      setError(`无法创建对话：${messageOf(cause, "请稍后重试")}`);
+      return null;
+    } finally {
+      setCreatingRuntime(false);
+    }
   }
-  async function addAsset(asset: UploadedAsset) { if (!projectID) throw new Error("请先选择一个项目"); const attached = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/attach`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: projectID }) }); if (!attached.ok) throw new Error("资源无法加入当前项目"); setAttachments((current) => current.some((item) => item.assetId === asset.id) ? current : [...current, { assetId: asset.id, name: asset.name, mimeType: asset.mimeType, kind: asset.kind, origin: asset.origin, status: asset.status }]); }
-  async function uploadMedia(files: FileList | File[]) { if (!projectID) { setError("通用对话暂不支持项目素材附件。"); return; } const media = [...files].filter((file) => /^(image|video|audio)\//.test(file.type)); if (!media.length) return; setUploading(true); setError(""); try { await Promise.all(media.map(async (file) => { const body = new FormData(); body.append("file", file); const response = await fetch(`${apiBase}/v1/media/assets`, { method: "POST", body }); if (!response.ok) throw new Error("素材上传失败"); await addAsset(await response.json() as UploadedAsset); })); } catch (cause) { setError(cause instanceof Error ? cause.message : "素材上传失败"); } finally { setUploading(false); } }
+  async function addAsset(asset: UploadedAsset) {
+    if (!projectID) throw new Error("请先选择一个项目");
+    const attached = await fetch(
+      `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/attach`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: projectID }),
+      },
+    );
+    if (!attached.ok) throw new Error("资源无法加入当前项目");
+    setAttachments((current) =>
+      current.some((item) => item.assetId === asset.id)
+        ? current
+        : [
+            ...current,
+            {
+              assetId: asset.id,
+              name: asset.name,
+              mimeType: asset.mimeType,
+              kind: asset.kind,
+              origin: asset.origin,
+              status: asset.status,
+            },
+          ],
+    );
+  }
+  async function uploadMedia(files: FileList | File[]) {
+    if (!projectID) {
+      setError("通用对话暂不支持项目素材附件。");
+      return;
+    }
+    const media = [...files].filter((file) =>
+      /^(image|video|audio)\//.test(file.type),
+    );
+    if (!media.length) return;
+    setUploading(true);
+    setError("");
+    try {
+      await Promise.all(
+        media.map(async (file) => {
+          const body = new FormData();
+          body.append("file", file);
+          const response = await fetch(`${apiBase}/v1/media/assets`, {
+            method: "POST",
+            body,
+          });
+          if (!response.ok) throw new Error("素材上传失败");
+          await addAsset((await response.json()) as UploadedAsset);
+        }),
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "素材上传失败");
+    } finally {
+      setUploading(false);
+    }
+  }
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (creatingRuntime || (!content.trim() && !attachments.length)) return;
-    const text = content.trim(); const pendingAttachments = attachments;
-    const session = activeID ? null : await createSession((detail?.runtime as Runtime) ?? "codex");
+    if (
+      creatingRuntime ||
+      loadingSessions ||
+      (!content.trim() && !attachments.length)
+    )
+      return;
+    const text = content.trim();
+    const pendingAttachments = attachments;
+    const session = activeID
+      ? null
+      : await createSession((detail?.runtime as Runtime) ?? "codex");
     const sessionID = activeID ?? session?.id;
     if (!sessionID) return;
-    setContent(""); setAttachments([]); setError(""); setStopNotice("");
-    const response = await fetch(`${apiBase}/v1/agent-sessions/${sessionID}/turns`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: text, assetIds: pendingAttachments.map((attachment) => attachment.assetId) }) });
-    if (!response.ok) { setContent(text); setAttachments(pendingAttachments); setError(`无法发送消息：${await responseMessage(response, "请重试")}`); return; }
+    setContent("");
+    setAttachments([]);
+    setError("");
+    setStopNotice("");
+    const response = await fetch(
+      `${apiBase}/v1/agent-sessions/${sessionID}/turns`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: text,
+          assetIds: pendingAttachments.map((attachment) => attachment.assetId),
+        }),
+      },
+    );
+    if (!response.ok) {
+      setContent(text);
+      setAttachments(pendingAttachments);
+      setError(`无法发送消息：${await responseMessage(response, "请重试")}`);
+      return;
+    }
     await refresh(sessionID);
   }
-  async function stop() { if (!activeID) return; setStopNotice("正在停止当前回复…"); setDetail((current) => current ? { ...current, status: "stopping" } : current); const response = await fetch(`${apiBase}/v1/agent-sessions/${activeID}/stop`, { method: "POST" }); if (!response.ok) { setStopNotice(""); setError("无法停止当前回复"); await refresh(activeID); return; } await refresh(activeID); }
-  async function saveCodexConfiguration(next: CodexConfiguration) { if (!activeID) { setPendingCodexConfig(next); return true; } setError(""); const response = await fetch(`${apiBase}/v1/agent-sessions/${activeID}/codex-configuration`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) }); if (!response.ok) { setError("无法保存 Codex 配置"); return false; } await refresh(activeID); return true; }
-  async function saveOpencodeConfiguration(next: OpencodeConfiguration) { if (!activeID) { setPendingOpencodeConfig(next); return true; } setError(""); const response = await fetch(`${apiBase}/v1/agent-sessions/${activeID}/opencode-configuration`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) }); if (!response.ok) { setError("无法保存 OpenCode 配置"); return false; } await refresh(activeID); return true; }
-  if (!online) return <aside className="h-full overflow-y-auto bg-muted/40 p-4"><p className="text-xs font-medium">Agent 暂不可用</p><p className="mt-1 text-xs leading-5 text-muted-foreground">本地服务恢复后，会话与记录会自动回到这里。</p></aside>;
+  async function stop() {
+    if (!activeID) return;
+    setStopNotice("正在停止当前回复…");
+    setDetail((current) =>
+      current ? { ...current, status: "stopping" } : current,
+    );
+    const response = await fetch(
+      `${apiBase}/v1/agent-sessions/${activeID}/stop`,
+      { method: "POST" },
+    );
+    if (!response.ok) {
+      setStopNotice("");
+      setError("无法停止当前回复");
+      await refresh(activeID);
+      return;
+    }
+    await refresh(activeID);
+  }
+  async function saveCodexConfiguration(next: CodexConfiguration) {
+    if (!activeID) {
+      setPendingCodexConfig(next);
+      return true;
+    }
+    setError("");
+    const response = await fetch(
+      `${apiBase}/v1/agent-sessions/${activeID}/codex-configuration`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      },
+    );
+    if (!response.ok) {
+      setError("无法保存 Codex 配置");
+      return false;
+    }
+    await refresh(activeID);
+    return true;
+  }
+  async function saveOpencodeConfiguration(next: OpencodeConfiguration) {
+    if (!activeID) {
+      setPendingOpencodeConfig(next);
+      return true;
+    }
+    setError("");
+    const response = await fetch(
+      `${apiBase}/v1/agent-sessions/${activeID}/opencode-configuration`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      },
+    );
+    if (!response.ok) {
+      setError("无法保存 OpenCode 配置");
+      return false;
+    }
+    await refresh(activeID);
+    return true;
+  }
+  if (!online)
+    return (
+      <aside className="h-full overflow-y-auto bg-muted/40 p-4">
+        <p className="text-xs font-medium">Agent 暂不可用</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          本地服务恢复后，会话与记录会自动回到这里。
+        </p>
+      </aside>
+    );
   const activeRuntime = (detail?.runtime ?? "codex") as Runtime;
-  const creatingLabel = creatingRuntime ? `正在创建 ${runtimeAgentName(activeRuntime)} 对话…` : "";
+  const creatingLabel = creatingRuntime
+    ? `正在创建 ${runtimeAgentName(activeRuntime)} 对话…`
+    : "";
   const syncing = Boolean(activeID && syncingID === activeID);
-  const activeAgent = runtimeStatus?.find((agent) => agent.id === activeRuntime);
-  const unavailableRuntime = activeAgent && !activeAgent.available ? activeAgent : undefined;
-  const failedTurn = activeRuntime === "codex" || activeRuntime === "opencode" ? latestFailedTurn(detail) : null;
-  const historicalMissingCLI = activeAgent?.available && isCLIUnavailableFailure(failedTurn?.message ?? "");
-  const startupFailure = failedTurn?.id === acknowledgedFailureID || historicalMissingCLI ? "" : failedTurn?.message ?? "";
+  const activeAgent = runtimeStatus?.find(
+    (agent) => agent.id === activeRuntime,
+  );
+  const unavailableRuntime =
+    activeID && activeAgent && !activeAgent.available ? activeAgent : undefined;
+  const noRuntimeReady =
+    runtimeStatus !== null && !runtimeStatus.some((agent) => agent.available);
+  const failedTurn =
+    activeRuntime === "codex" || activeRuntime === "opencode"
+      ? latestFailedTurn(detail)
+      : null;
+  const historicalMissingCLI =
+    activeAgent?.available &&
+    isCLIUnavailableFailure(failedTurn?.message ?? "");
+  const startupFailure =
+    failedTurn?.id === acknowledgedFailureID || historicalMissingCLI
+      ? ""
+      : (failedTurn?.message ?? "");
   const chooseOnboarding = (prompt: string) => setContent(prompt);
   // recheckAgent re-fetches /v1/agents and refreshes the active session. When invoked from
   // the proactive install dialog with a targetID, it additionally closes the dialog as soon
   // as the target agent is reported available. The recovery panel calls it without a target.
-  async function recheckAgent(targetID?: string): Promise<AgentRuntimeStatus[] | null> {
+  async function recheckAgent(
+    targetID?: string,
+  ): Promise<AgentRuntimeStatus[] | null> {
     const status = await loadRuntimeStatus();
     if (activeID) await refresh(activeID);
     if (targetID && status?.find((agent) => agent.id === targetID)?.available) {
       setAcknowledgedFailureID(failedTurn?.id ?? null);
       setInstallDialogAgent(null);
-    } else if (!targetID && status?.find((agent) => agent.id === activeRuntime)?.available) {
+    } else if (
+      !targetID &&
+      status?.find((agent) => agent.id === activeRuntime)?.available
+    ) {
       setAcknowledgedFailureID(failedTurn?.id ?? null);
     }
     return status;
   }
-  function openInstallDialog(agent: AgentRuntimeStatus) { setInstallDialogAgent(agent); setRuntimeOpen(false); }
-  if (unavailableRuntime || startupFailure) return <AgentRecoveryPanel agent={unavailableRuntime ?? { id: activeRuntime, name: runtimeAgentName(activeRuntime), command: activeRuntime, available: true }} failure={startupFailure} onRecheck={async () => { await recheckAgent(); }} />;
-  return <><aside className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background"><header className="flex h-10 shrink-0 items-center justify-between border-b bg-card px-4"><p className="text-xs font-semibold tracking-wide">AI</p><div className="flex items-center gap-1"><Button className="size-7 px-0" disabled={creatingRuntime} onClick={() => { setRuntimeOpen(false); setHistoryOpen((value) => !value); }} title="会话历史" type="button" variant="ghost"><History className="size-3.5" /></Button><Button className="size-7 px-0" disabled={creatingRuntime} onClick={() => { setHistoryOpen(false); setRuntimeOpen((value) => !value); }} title="新建对话" type="button" variant="ghost"><MessageSquarePlus className="size-3.5" /></Button></div></header>{runtimeOpen && <RuntimePicker creating={creatingRuntime} onChoose={(runtime) => void createSession(runtime)} onInstall={openInstallDialog} runtimeStatus={runtimeStatus ?? []} />}{historyOpen && <SessionHistory activeID={activeID} general={!projectID} onOpen={(id) => { setHistoryOpen(false); void open(id); }} sessions={sessions} />}<div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 pb-36" ref={messagesRef}>{creatingLabel && <p aria-live="polite" className="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground"><span className="size-1.5 animate-pulse rounded-full bg-warning" />{creatingLabel}</p>}{syncing && <p aria-live="polite" className="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground"><span className="size-1.5 animate-pulse rounded-full bg-muted-foreground" />正在同步对话记录；完成前暂不能输入。</p>}{error && <p className="mb-4 text-xs text-destructive">{error}</p>}{stopNotice && <p className="mb-4 text-xs text-muted-foreground">{stopNotice}</p>}{!detail || detail.turns.length === 0 ? <AgentOnboarding apiBase={apiBase} onChoose={chooseOnboarding} onInstall={openInstallDialog} projectID={projectID} runtimeStatus={runtimeStatus ?? []} /> : <Conversation apiBase={apiBase} detail={detail} now={now} />}</div><Composer apiBase={apiBase} attachments={attachments} codexConfiguration={detail?.codexModel || detail?.reasoningEffort ? { codexModel: detail.codexModel || defaultCodexConfiguration.codexModel, reasoningEffort: detail.reasoningEffort || defaultCodexConfiguration.reasoningEffort } : pendingCodexConfig} content={content} disabled={creatingRuntime || syncing} firstTurn={!detail} onAddAsset={(asset) => void addAsset(asset).catch((cause) => setError(cause instanceof Error ? cause.message : "无法引用资源"))} onChange={setContent} onRemoveAttachment={(assetID) => setAttachments((current) => current.filter((attachment) => attachment.assetId !== assetID))} onSaveCodexConfiguration={saveCodexConfiguration} onSaveOpencodeConfiguration={saveOpencodeConfiguration} onSend={send} onStop={() => void stop()} onUpload={uploadMedia} opencodeConfiguration={detail?.opencodeModel ? { opencodeModel: detail.opencodeModel } : pendingOpencodeConfig} opencodeModels={opencodeModels} projectID={projectID} runtime={detail?.runtime as Runtime | undefined ?? "codex"} running={detail?.status === "running" || detail?.status === "stopping"} stopping={detail?.status === "stopping"} uploading={uploading} /></aside><AgentInstallDialog agent={installDialogAgent} onClose={() => setInstallDialogAgent(null)} onRecheck={() => recheckAgent(installDialogAgent?.id)} open={installDialogAgent !== null} /></>;
-}
-
-async function responseMessage(response: Response, fallback: string) { try { const payload = await response.json() as { error?: unknown }; return typeof payload.error === "string" && payload.error.trim() ? payload.error : fallback; } catch { return fallback; } }
-function messageOf(cause: unknown, fallback: string) { return cause instanceof Error && cause.message.trim() ? cause.message : fallback; }
-
-type TimelineItem = { id: string; at: string; kind: "user"; turn: Turn } | { id: string; at: string; kind: "assistant"; turn: Turn } | { id: string; at: string; kind: "tool"; call: ToolCall };
-type ToolCall = { id: string; createdAt: string; completedAt?: string; state: "running" | "success" | "error"; input?: string; output?: string; error?: string; payload: ToolPayload };
-
-function Conversation({ apiBase, detail, now }: { apiBase: string; detail: Detail; now: number }) {
-  const turnItems: TimelineItem[] = detail.turns.map((turn) => turn.role === "user" ? { id: turn.id, at: turn.createdAt, kind: "user", turn } : { id: turn.id, at: turn.createdAt, kind: "assistant", turn });
-  const timeline: TimelineItem[] = [...turnItems, ...toolCalls(detail.events).map((call) => ({ id: call.id, at: call.createdAt, kind: "tool", call }) as TimelineItem)].sort((left, right) => new Date(left.at).getTime() - new Date(right.at).getTime());
-  const groups = responseGroups(timeline);
-  const isProcessing = detail.status === "running" || detail.status === "stopping";
-  return <div className="space-y-5">{groups.map((group) => {
-    const failure = group.user ? turnFailure(detail.events, group.user.id) : "";
-    const reply = lastAssistantTurn(group.items);
-    const meta = group.user && reply ? replyMeta(group.user, reply) : null;
-    return <section key={group.id}>
-      {group.user && <div className="group ml-auto w-fit max-w-[85%]">
-        {(group.user.attachments ?? []).length > 0 && <div className="mb-1 flex flex-wrap justify-end gap-1">{(group.user.attachments ?? []).map((attachment) => <AssetReferenceChip apiBase={apiBase} key={attachment.assetId} reference={attachment} />)}</div>}
-        {group.user.content && <p className="rounded-sm bg-secondary px-3 py-2 text-left text-xs leading-5 break-words whitespace-pre-wrap">{group.user.content}</p>}
-        {group.user.status === "queued" ? <p className="mt-1 text-right text-[10px] text-muted-foreground">待发送</p> : <p className="mt-1 h-3 text-right text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{formatMessageTime(group.user.createdAt)}</p>}
-      </div>}
-      <div className={group.user ? "mt-5 space-y-5" : "space-y-5"}>{group.items.map((item) => item.kind === "assistant" ? <AgentMessageContent apiBase={apiBase} content={item.turn.content} key={item.id} /> : <ToolTimelineItem call={item.call} key={item.id} now={now} />)}</div>
-      {failure && <TurnFailure message={failure} />}
-      {!isProcessing && reply && <div className="mt-2 flex items-center gap-1 text-muted-foreground"><ActionIcon label="复制回复"><Copy /></ActionIcon><ActionIcon label="有帮助"><ThumbsUp /></ActionIcon><ActionIcon label="没帮助"><ThumbsDown /></ActionIcon>{meta && <span className="ml-1 text-[10px] text-muted-foreground/75" title={meta.title}>{meta.label}</span>}</div>}
-    </section>;
-  })}{detail.status === "running" && <RunningStatus events={detail.events} now={now} />}{detail.status === "stopping" && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="size-1.5 animate-pulse rounded-full bg-warning" />正在停止当前回复…</p>}</div>;
-}
-
-function turnFailure(events: AgentEvent[], turnID: string) { return [...events].reverse().find((event) => event.turnId === turnID && event.type === "turn.failed")?.payload?.message?.trim() ?? ""; }
-
-function TurnFailure({ message }: { message: string }) { return <div className="mt-4 flex items-center gap-3 rounded-sm border bg-muted/30 px-3 py-2.5 text-xs leading-5 text-muted-foreground"><CircleAlert className="size-4 shrink-0" /><p className="min-w-0 break-words whitespace-pre-wrap">{message}</p></div>; }
-
-function latestFailedTurn(detail: Detail | null) { if (!detail) return null; const turn = [...detail.turns].reverse().find((item) => item.role === "user"); const message = turn?.status === "failed" ? turnFailure(detail.events, turn.id) : ""; return turn && message ? { id: turn.id, message } : null; }
-
-function isCLIUnavailableFailure(message: string) { return /\bCLI is (?:not installed|unavailable)\b/i.test(message); }
-
-function AgentRecoveryPanel({ agent, failure, onRecheck }: { agent: AgentRuntimeStatus; failure: string; onRecheck: () => Promise<void> }) {
-  const missing = !agent.available;
-  const diagnostic = `请在运行 Recut service 的设备上排查 ${agent.name} CLI 启动失败。\n\n错误：\n${failure}\n\n请检查 ${agent.command} 是否可执行、已登录且可运行，再给出修复命令。`;
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
-  const [checking, setChecking] = useState(false);
-  const [checkFailed, setCheckFailed] = useState(false);
-  async function copy() { const copied = await copyToClipboard(diagnostic); setCopyStatus(copied ? "copied" : "failed"); if (copied) window.setTimeout(() => setCopyStatus("idle"), 2200); }
-  async function recheck() { if (checking) return; setChecking(true); setCheckFailed(false); try { await onRecheck(); } catch { setCheckFailed(true); } finally { setChecking(false); } }
-  return <aside className="flex h-full min-h-0 flex-col overflow-hidden bg-background"><header className="flex h-10 shrink-0 items-center justify-between border-b bg-card px-4"><p className="text-xs font-semibold tracking-wide">AI</p><Button className="size-7 px-0" disabled={checking} onClick={() => void recheck()} title={checking ? `正在检查 ${agent.name} 状态` : `重新检查 ${agent.name} 状态`} type="button" variant="ghost"><RefreshCw className={`size-3.5 ${checking ? "animate-spin" : ""}`} /></Button></header><main className="flex min-h-0 flex-1 items-center overflow-y-auto p-7"><section className="mx-auto w-full max-w-sm"><div className="grid size-10 place-items-center rounded-sm bg-primary text-primary-foreground"><Bot className="size-5" /></div><h2 className="mt-5 text-base font-medium">{recoveryTitle(agent, missing)}</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{recoverySubtitle(agent, missing)}</p>{checking && <p aria-live="polite" className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground"><RefreshCw className="size-3 animate-spin" />正在检查 {agent.name} 状态…</p>}{checkFailed && <p aria-live="polite" className="mt-3 text-xs text-destructive">无法连接 Recut service，请确认设备在线后重试。</p>}{missing ? <div className="mt-7"><AgentInstallGuide agent={agent} checkFailed={checkFailed} checking={checking} onRecheck={recheck} /></div> : <div className="mt-7"><p className="text-xs font-medium">诊断任务</p><pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted p-3 font-mono text-xs leading-5 text-foreground">{failure}</pre><Button className="mt-3 h-8 w-full justify-center" onClick={() => void copy()} type="button" variant="outline">{copyStatus === "copied" ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}{copyStatus === "copied" ? "已复制诊断任务" : `复制给 ${agent.name} 排查`}</Button><CopyFeedback status={copyStatus} /></div>}</section></main></aside>;
-}
-
-type ResponseGroup = { id: string; user?: Turn; items: Exclude<TimelineItem, { kind: "user" }>[] };
-
-function applyAgentEvent(detail: Detail, event: AgentEvent): Detail {
-  const status = event.type === "turn.started" ? "running" : event.type === "turn.completed" ? "completed" : event.type === "turn.failed" ? "failed" : event.type === "turn.cancelled" ? "cancelled" : undefined;
-  return { ...detail, status: event.type === "turn.started" ? "running" : detail.status, turns: status && event.turnId ? detail.turns.map((turn) => turn.id === event.turnId ? { ...turn, status, completedAt: status === "running" ? undefined : event.createdAt } : turn) : detail.turns, events: [...detail.events, event], lastEventId: event.id };
-}
-
-function lastAssistantTurn(items: ResponseGroup["items"]) {
-  const item = [...items].reverse().find((candidate) => candidate.kind === "assistant");
-  return item?.kind === "assistant" ? item.turn : undefined;
-}
-
-function replyMeta(user: Turn, reply: Turn) {
-  const completedAt = user.completedAt ?? reply.completedAt ?? reply.createdAt;
-  return { label: `${formatMessageTime(completedAt)} · 耗时 ${toolDuration(user.createdAt, completedAt, Date.now())}`, title: `完成于 ${formatMessageTime(completedAt)}，从发送到完成耗时 ${toolDuration(user.createdAt, completedAt, Date.now())}` };
-}
-
-function formatMessageTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "medium", hour12: false }).format(date);
-}
-
-function responseGroups(timeline: TimelineItem[]): ResponseGroup[] {
-  const groups: ResponseGroup[] = []; let current: ResponseGroup | null = null;
-  for (const item of timeline) { if (item.kind === "user") { current = { id: item.id, user: item.turn, items: [] }; groups.push(current); continue; } if (!current) { current = { id: "initial", items: [] }; groups.push(current); } current.items.push(item); }
-  return groups;
-}
-
-function toolCalls(events: AgentEvent[]): ToolCall[] {
-  const calls = new Map<string, ToolCall>();
-  for (const event of events.filter((item) => item.type.startsWith("tool."))) {
-    const id = `${event.turnId ?? "session"}:${event.payload?.toolCallId ?? event.id}`; const previous = calls.get(id);
-    const call: ToolCall = { id, createdAt: previous?.createdAt ?? event.createdAt, completedAt: previous?.completedAt, state: previous?.state ?? "running", input: previous?.input, output: previous?.output, error: previous?.error, payload: { ...previous?.payload, ...event.payload } };
-    if (event.type === "tool.started") call.input = event.payload?.input ?? legacyToolDetail(event.payload?.detail, "input");
-    if (event.type === "tool.completed") { call.state = "success"; call.completedAt = event.createdAt; call.output = event.payload?.output ?? legacyToolDetail(event.payload?.detail, "output"); }
-    if (event.type === "tool.failed") { call.state = "error"; call.completedAt = event.createdAt; call.error = event.payload?.error ?? legacyToolDetail(event.payload?.detail, "error"); }
-    calls.set(id, call);
+  function openInstallDialog(agent: AgentRuntimeStatus) {
+    setInstallDialogAgent(agent);
+    setRuntimeOpen(false);
   }
-  return [...calls.values()];
+  if (!loadingSessions && (unavailableRuntime || startupFailure))
+    return (
+      <AgentRecoveryPanel
+        agent={
+          unavailableRuntime ?? {
+            id: activeRuntime,
+            name: runtimeAgentName(activeRuntime),
+            command: activeRuntime,
+            available: true,
+          }
+        }
+        failure={startupFailure}
+        onRecheck={async () => {
+          await recheckAgent();
+        }}
+      />
+    );
+  if (!loadingSessions && noRuntimeReady)
+    return (
+      <>
+        <aside className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+          <header className="flex h-10 shrink-0 items-center border-b bg-card px-4">
+            <p className="text-xs font-semibold tracking-wide">AI</p>
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
+            <AgentOnboarding
+              apiBase={apiBase}
+              onChoose={chooseOnboarding}
+              onInstall={openInstallDialog}
+              projectID={projectID}
+              runtimeStatus={runtimeStatus}
+            />
+          </div>
+        </aside>
+        <AgentInstallDialog
+          agent={installDialogAgent}
+          onClose={() => setInstallDialogAgent(null)}
+          onRecheck={() => recheckAgent(installDialogAgent?.id)}
+          open={installDialogAgent !== null}
+        />
+      </>
+    );
+  return (
+    <>
+      <aside className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
+        <header className="flex h-10 shrink-0 items-center justify-between border-b bg-card px-4">
+          <p className="text-xs font-semibold tracking-wide">AI</p>
+          <div className="flex items-center gap-1">
+            <Button
+              className="size-7 px-0"
+              disabled={!activeID || creatingRuntime || loadingSessions}
+              onClick={openCLIStream}
+              title="查看当前 Agent 的 CLI 运行流"
+              type="button"
+              variant="ghost"
+            >
+              <Terminal className="size-3.5" />
+            </Button>
+            <Button
+              className="size-7 px-0"
+              disabled={creatingRuntime || loadingSessions}
+              onClick={() => {
+                setRuntimeOpen(false);
+                setHistoryOpen((value) => !value);
+              }}
+              title="会话历史"
+              type="button"
+              variant="ghost"
+            >
+              <History className="size-3.5" />
+            </Button>
+            <Button
+              className="size-7 px-0"
+              disabled={creatingRuntime || loadingSessions}
+              onClick={() => {
+                setHistoryOpen(false);
+                setRuntimeOpen((value) => !value);
+              }}
+              title="新建对话"
+              type="button"
+              variant="ghost"
+            >
+              <MessageSquarePlus className="size-3.5" />
+            </Button>
+          </div>
+        </header>
+        {runtimeOpen && (
+          <RuntimePicker
+            creating={creatingRuntime}
+            onChoose={(runtime) => void createSession(runtime)}
+            onInstall={openInstallDialog}
+            runtimeStatus={runtimeStatus ?? []}
+          />
+        )}
+        {historyOpen && (
+          <SessionHistory
+            activeID={activeID}
+            general={!projectID}
+            onOpen={(id) => {
+              setHistoryOpen(false);
+              void open(id);
+            }}
+            sessions={sessions}
+          />
+        )}
+        <div
+          className="min-h-0 flex-1 overflow-y-auto px-4 py-6 pb-36"
+          ref={messagesRef}
+        >
+          {loadingSessions ? (
+            <ConversationLoading />
+          ) : (
+            <>
+              {creatingLabel && (
+                <p
+                  aria-live="polite"
+                  className="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <span className="size-1.5 animate-pulse rounded-full bg-warning" />
+                  {creatingLabel}
+                </p>
+              )}
+              {syncing && (
+                <p
+                  aria-live="polite"
+                  className="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground" />
+                  正在同步对话记录；完成前暂不能输入。
+                </p>
+              )}
+              {error && (
+                <p className="mb-4 text-xs text-destructive">{error}</p>
+              )}
+              {stopNotice && (
+                <p className="mb-4 text-xs text-muted-foreground">
+                  {stopNotice}
+                </p>
+              )}
+              {!detail || detail.turns.length === 0 ? (
+                <AgentOnboarding
+                  apiBase={apiBase}
+                  onChoose={chooseOnboarding}
+                  onInstall={openInstallDialog}
+                  projectID={projectID}
+                  runtimeStatus={runtimeStatus ?? []}
+                />
+              ) : (
+                <Conversation apiBase={apiBase} detail={detail} now={now} />
+              )}
+            </>
+          )}
+        </div>
+        <Composer
+          apiBase={apiBase}
+          attachments={attachments}
+          codexConfiguration={
+            detail?.codexModel || detail?.reasoningEffort
+              ? {
+                  codexModel:
+                    detail.codexModel || defaultCodexConfiguration.codexModel,
+                  reasoningEffort:
+                    detail.reasoningEffort ||
+                    defaultCodexConfiguration.reasoningEffort,
+                }
+              : pendingCodexConfig
+          }
+          content={content}
+          disabled={creatingRuntime || syncing || loadingSessions}
+          firstTurn={!detail}
+          onAddAsset={(asset) =>
+            void addAsset(asset).catch((cause) =>
+              setError(cause instanceof Error ? cause.message : "无法引用资源"),
+            )
+          }
+          onChange={setContent}
+          onRemoveAttachment={(assetID) =>
+            setAttachments((current) =>
+              current.filter((attachment) => attachment.assetId !== assetID),
+            )
+          }
+          onSaveCodexConfiguration={saveCodexConfiguration}
+          onSaveOpencodeConfiguration={saveOpencodeConfiguration}
+          onSend={send}
+          onStop={() => void stop()}
+          onUpload={uploadMedia}
+          opencodeConfiguration={
+            detail?.opencodeModel
+              ? { opencodeModel: detail.opencodeModel }
+              : pendingOpencodeConfig
+          }
+          opencodeModels={opencodeModels}
+          projectID={projectID}
+          runtime={(detail?.runtime as Runtime | undefined) ?? "codex"}
+          running={
+            detail?.status === "running" || detail?.status === "stopping"
+          }
+          stopping={detail?.status === "stopping"}
+          uploading={uploading}
+        />
+      </aside>
+      <AgentInstallDialog
+        agent={installDialogAgent}
+        onClose={() => setInstallDialogAgent(null)}
+        onRecheck={() => recheckAgent(installDialogAgent?.id)}
+        open={installDialogAgent !== null}
+      />
+      {cliOpen && (
+        <CLIDebugDialog
+          available={cliAvailable}
+          entries={cliEntries}
+          onClose={closeCLIStream}
+        />
+      )}
+    </>
+  );
 }
-
-function ToolTimelineItem({ call, now }: { call: ToolCall; now: number }) {
-  const [open, setOpen] = useState(false);
-  const hasDetail = Boolean(call.input || call.output || call.error);
-  const duration = toolDuration(call.createdAt, call.completedAt, now);
-  const stateLabel = { running: "执行中", success: "已完成", error: "失败" }[call.state];
-  const stateClass = { running: "animate-pulse bg-warning", success: "bg-success", error: "bg-destructive" }[call.state];
-  const labelClass = call.state === "error" ? "text-destructive" : call.state === "success" ? "text-success" : "text-warning";
-  return <div className="max-w-full text-[11px]">
-    <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-      <span className={`size-1.5 shrink-0 rounded-full ${stateClass}`} />
-      <span className="truncate">{call.payload.label ?? "MCP 工具调用"}</span>
-      {call.payload.toolName && <span className="truncate font-mono text-[10px] text-muted-foreground/80">{call.payload.toolName}</span>}
-      <span className={`ml-auto shrink-0 text-[10px] ${labelClass}`}>{stateLabel} · {duration}</span>
-      {hasDetail && <button aria-expanded={open} aria-label="展开工具调用详情" className="grid size-5 shrink-0 place-items-center rounded-sm hover:bg-muted hover:text-foreground" onClick={() => setOpen((value) => !value)} type="button"><ChevronRight className={`size-3 transition-transform ${open ? "rotate-90" : ""}`} /></button>}
-    </div>
-    {open && hasDetail && <div className={`mt-2 max-w-full rounded-sm border p-3 text-foreground ${call.state === "error" ? "border-destructive/40 bg-destructive/5" : "bg-muted/30"}`}>
-      <div className="flex items-center justify-between gap-3"><p className="text-xs font-medium">{call.payload.label ?? "工具调用"}</p><span className={`shrink-0 text-[10px] ${labelClass}`}>{stateLabel} · 耗时 {duration}</span></div>
-      {call.payload.toolName && <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">{call.payload.toolName}</p>}
-      <ToolDetail emptyLabel="未返回调用参数" title="调用参数" value={call.input} />
-      <ToolDetail emptyLabel={call.state === "error" ? "未返回错误详情" : "未返回执行结果"} title={call.state === "error" ? "错误信息" : "执行结果"} value={call.error ?? call.output} />
-      {call.payload.cost && <ToolDetail title="成本信息" value={call.payload.cost} />}
-    </div>}
-  </div>;
-}
-function ToolDetail({ emptyLabel = "未返回数据", title, value }: { emptyLabel?: string; title: string; value?: string }) {
-  const [open, setOpen] = useState(false); const [copied, setCopied] = useState(false);
-  const detail = value ? safeToolDetail(value) : emptyLabel;
-  async function copy() { try { await navigator.clipboard.writeText(detail); setCopied(true); } catch {} }
-  return <section className="mt-3"><div className="mb-1 flex items-center justify-between gap-2"><p className="text-[10px] font-medium text-muted-foreground">{title}</p><div className="flex shrink-0 gap-1"><button className="rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => void copy()} type="button">{copied ? "已复制" : "复制"}</button><button className="rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setOpen(true)} type="button">完整查看</button></div></div><pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/60 p-2 font-mono text-[10px] leading-4">{detail}</pre>{open && <ToolDetailDialog onClose={() => setOpen(false)} text={detail} title={title} />}</section>;
-}
-function ToolDetailDialog({ onClose, text, title }: { onClose: () => void; text: string; title: string }) { return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="tool-detail-title"><section className="flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-center justify-between border-b px-4 py-3"><h2 className="text-sm font-medium" id="tool-detail-title">{title}</h2><button aria-label="关闭详情" className="grid size-8 place-items-center rounded-sm text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-5">{text}</pre></section></div>; }
-function toolDuration(startedAt: string, completedAt: string | undefined, now: number) { const elapsed = Math.max(0, (new Date(completedAt ?? now).getTime() - new Date(startedAt).getTime()) / 1000); return elapsed < 10 ? `${elapsed.toFixed(1)} 秒` : `${Math.round(elapsed)} 秒`; }
-function legacyToolDetail(value: string | undefined, phase: "input" | "output" | "error") { if (!value) return undefined; try { const decoded = JSON.parse(value) as Record<string, unknown>; const keys = { input: ["arguments", "input", "command", "cmd", "path", "query", "search_query"], output: ["result", "output", "aggregated_output", "changes", "summary", "results"], error: ["error", "result", "output", "aggregated_output"] }[phase]; const detail = Object.fromEntries(keys.filter((key) => key in decoded).map((key) => [key, decoded[key]])); return Object.keys(detail).length ? JSON.stringify(detail) : undefined; } catch { return phase === "input" ? value : undefined; } }
-function safeToolDetail(value: string) { try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; } }
-
-function SessionHistory({ activeID, general, onOpen, sessions }: { activeID: string | null; general: boolean; onOpen: (id: string) => void; sessions: Session[] }) {
-  return <section className="absolute right-3 top-14 z-20 w-[calc(100%-1.5rem)] overflow-hidden rounded-md border bg-popover shadow-[var(--shadow-overlay)]"><p className="border-b px-3 py-2 text-[10px] font-medium text-muted-foreground">{general ? "通用对话历史" : "此项目的会话历史"}</p><div className="max-h-64 overflow-y-auto p-1.5">{sessions.length === 0 ? <p className="px-2 py-5 text-center text-xs text-muted-foreground">还没有会话</p> : sessions.map((session) => <button className={`w-full rounded-sm px-2 py-2 text-left text-xs hover:bg-muted ${session.id === activeID ? "bg-accent" : ""}`} key={session.id} onClick={() => onOpen(session.id)} type="button"><span className="block truncate font-medium">{session.title}</span><span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{sessionSummary(session)}</span></button>)}</div></section>;
-}
-
-function sessionSummary(session: Session): string {
-  const agent = runtimeLabel(session.runtime);
-  if (session.runtime === "codex") return `${agent} · ${codexModelLabel(session.codexModel)} · ${reasoningLabel(session.reasoningEffort)}`;
-  if (session.runtime === "opencode") return `${agent} · ${opencodeModelLabel(session.opencodeModel)}`;
-  return agent;
-}
-
-function Composer({ apiBase, attachments, codexConfiguration, content, disabled, firstTurn, onAddAsset, onChange, onRemoveAttachment, onSaveCodexConfiguration, onSaveOpencodeConfiguration, onSend, onStop, onUpload, opencodeConfiguration, opencodeModels, projectID, runtime, running, stopping, uploading }: { apiBase: string; attachments: Attachment[]; codexConfiguration: CodexConfiguration; content: string; disabled: boolean; firstTurn: boolean; onAddAsset: (asset: UploadedAsset) => void; onChange: (value: string) => void; onRemoveAttachment: (assetID: string) => void; onSaveCodexConfiguration: (configuration: CodexConfiguration) => Promise<boolean>; onSaveOpencodeConfiguration: (configuration: OpencodeConfiguration) => Promise<boolean>; onSend: (event: FormEvent<HTMLFormElement>) => void; onStop: () => void; onUpload: (files: FileList | File[]) => void; opencodeConfiguration: OpencodeConfiguration; opencodeModels: OpencodeModel[]; projectID: string | null; runtime: Runtime; running: boolean; stopping: boolean; uploading: boolean }) {
-  const fileInput = useRef<HTMLInputElement>(null);
-  const composing = useRef(false);
-  const [configOpen, setConfigOpen] = useState(false); const [libraryOpen, setLibraryOpen] = useState(false);
-  function pasteMedia(event: ClipboardEvent<HTMLTextAreaElement>) { const text = event.clipboardData.getData("text/plain"); const ids = mediaReferenceIDs(text); const files = [...event.clipboardData.files].filter((file) => /^(image|video|audio)\//.test(file.type)); if (ids.length || files.length) event.preventDefault(); if (files.length) onUpload(files); if (ids.length) { onChange(`${content}${mediaReferenceText(text)}`); void Promise.all(ids.map(async (id) => { const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(id)}`); if (!response.ok) return; onAddAsset(await response.json() as UploadedAsset); })); } }
-  async function saveCodex(next: CodexConfiguration) { if (await onSaveCodexConfiguration(next)) setConfigOpen(false); }
-  async function saveOpencode(next: OpencodeConfiguration) { if (await onSaveOpencodeConfiguration(next)) setConfigOpen(false); }
-  const mention = content.match(/@([^\s@]*)$/)?.[1];
-  function pickAsset(asset: UploadedAsset) { onAddAsset(asset); onChange(content.replace(/@([^\s@]*)$/, "")); }
-  const configButtonTitle = runtime === "codex" ? "配置 Codex" : runtime === "opencode" ? "配置 OpenCode 模型" : "Claude Code 暂不支持运行时配置";
-  const configDisabled = disabled || runtime === "claude";
-  const configSummary = runtime === "codex" ? `${codexModelLabel(codexConfiguration.codexModel)} · ${reasoningLabel(codexConfiguration.reasoningEffort)}` : runtime === "opencode" ? opencodeModelLabel(opencodeConfiguration.opencodeModel) : "";
-  const placeholder = firstTurn ? `告诉 AI 需要做什么，发送后将创建 ${runtimeAgentName(runtime)} 对话` : "告诉 AI 需要做什么，输入 @ 引用项目资源或素材库资源";
-  return <form className="absolute inset-x-0 bottom-0 border-t bg-card p-3" onSubmit={onSend}><div className="relative rounded-md border bg-popover px-3 py-2 shadow-[var(--shadow-overlay)]">{attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{attachments.map((attachment) => <AssetReferenceChip apiBase={apiBase} key={attachment.assetId} onRemove={() => onRemoveAttachment(attachment.assetId)} reference={attachment} />)}</div>}<textarea className="block min-h-12 w-full resize-none bg-transparent py-0.5 text-xs leading-5 outline-none" disabled={disabled} onChange={(event) => onChange(event.target.value)} onCompositionEnd={() => { composing.current = false; }} onCompositionStart={() => { composing.current = true; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !composing.current) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} onPaste={pasteMedia} placeholder={placeholder} value={content} />{mention !== undefined && <AssetReferenceMenu apiBase={apiBase} onOpenLibrary={() => setLibraryOpen(true)} onPick={pickAsset} projectID={projectID} query={mention} selectedIDs={attachments.map((attachment) => attachment.assetId)} />}<div className="mt-1 flex items-center justify-between"><button aria-expanded={configOpen} className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed" disabled={configDisabled} onClick={() => setConfigOpen((value) => !value)} title={configButtonTitle} type="button"><Bot className="size-3" /><span>{runtimeLabel(runtime)}</span>{configSummary && <span className="text-muted-foreground/70">{configSummary}</span>}<SlidersHorizontal className="size-3.5" /></button><div className="flex items-center gap-1"><input accept="image/*,video/*,audio/*" className="hidden" multiple onChange={(event) => { if (event.target.files) onUpload(event.target.files); event.currentTarget.value = ""; }} ref={fileInput} type="file" /><Button className="size-6 rounded-full p-0" disabled={disabled || uploading} onClick={() => setLibraryOpen(true)} title="引用资源" type="button" variant="ghost"><AtSign className="size-3.5" /></Button><Button className="size-6 rounded-full p-0" disabled={disabled || uploading} onClick={() => fileInput.current?.click()} title="上传素材" type="button" variant="ghost"><ImagePlus className="size-3.5" /></Button>{running && !stopping && <Button className="size-6 rounded-full p-0" onClick={onStop} title="停止当前回复" type="button" variant="outline"><CircleStop className="size-3" /></Button>}<Button className="size-6 rounded-full p-0" disabled={disabled || uploading || (!content.trim() && !attachments.length)} title={firstTurn ? `发送并创建 ${runtimeAgentName(runtime)} 对话` : running ? "加入待发送消息" : "发送"} type="submit"><ArrowUp className="size-3" /></Button></div></div>{configOpen && runtime === "codex" && <CodexConfigurationPopover configuration={codexConfiguration} onChange={(next) => void saveCodex(next)} />}{configOpen && runtime === "opencode" && <OpencodeConfigurationPopover configuration={opencodeConfiguration} models={opencodeModels} onChange={(next) => void saveOpencode(next)} />}</div><AssetReferenceDialog apiBase={apiBase} onClose={() => setLibraryOpen(false)} onPick={(asset) => { pickAsset(asset); setLibraryOpen(false); }} open={libraryOpen} projectID={projectID} selectedIDs={attachments.map((attachment) => attachment.assetId)} /></form>;
-}
-
-const codexModels = [["gpt-5.6-sol", "5.6 Sol"], ["gpt-5.6-terra", "5.6 Terra"], ["gpt-5.6-luna", "5.6 Luna"], ["gpt-5.5", "5.5"], ["gpt-5.4", "5.4"], ["gpt-5.4-mini", "5.4 Mini"], ["gpt-5.2", "5.2"]] as const;
-const reasoningEfforts = [["low", "低"], ["medium", "中"], ["high", "高"], ["xhigh", "极高"], ["max", "最大"]] as const;
-function CodexConfigurationPopover({ configuration, onChange }: { configuration: CodexConfiguration; onChange: (configuration: CodexConfiguration) => void }) { const [page, setPage] = useState<"menu" | "model" | "reasoning">("menu"); if (page === "model") return <ConfigurationChoices current={configuration.codexModel} label="模型" onBack={() => setPage("menu")} onChoose={(codexModel) => onChange({ ...configuration, codexModel })} options={codexModels} />; if (page === "reasoning") return <ConfigurationChoices current={configuration.reasoningEffort} label="推理强度" onBack={() => setPage("menu")} onChoose={(reasoningEffort) => onChange({ ...configuration, reasoningEffort })} options={reasoningEfforts} />; return <section className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]"><ConfigurationMenuItem label="模型" onClick={() => setPage("model")} value={codexModelLabel(configuration.codexModel)} /><ConfigurationMenuItem label="推理强度" onClick={() => setPage("reasoning")} value={reasoningLabel(configuration.reasoningEffort)} /></section>; }
-function OpencodeConfigurationPopover({ configuration, models, onChange }: { configuration: OpencodeConfiguration; models: OpencodeModel[]; onChange: (configuration: OpencodeConfiguration) => void }) {
-  const [page, setPage] = useState<"menu" | "model">("menu");
-  const [query, setQuery] = useState("");
-  if (page === "model") {
-    const matchingModels = models.filter((model) => model.id.toLowerCase().includes(query.trim().toLowerCase()));
-    const providers = [...new Set(matchingModels.map((model) => model.provider))];
-    return <section className="absolute bottom-full left-0 z-30 mb-2 w-80 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
-      <button className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs font-medium hover:bg-muted" onClick={() => setPage("menu")} type="button"><ChevronLeft className="size-3.5" />模型</button>
-      <label className="sr-only" htmlFor="opencode-model-search">搜索 OpenCode 模型</label>
-      <input autoFocus className="mt-1 w-full rounded-sm border bg-background px-2.5 py-2 font-mono text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30" id="opencode-model-search" onChange={(event) => setQuery(event.target.value)} placeholder="搜索模型或 provider" type="search" value={query} />
-      <div className="mt-1 max-h-80 space-y-2 overflow-y-auto border-t pt-2">
-        {providers.map((provider) => <section key={provider}><p className="px-2.5 py-1 text-[10px] font-medium text-muted-foreground">{opencodeProviderLabel(provider)}</p>{matchingModels.filter((model) => model.provider === provider).map((model) => <button className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted" key={model.id} onClick={() => onChange({ opencodeModel: model.id })} type="button"><span className="min-w-0 flex-1 break-all font-mono text-[10px]">{model.id}</span>{model.id === configuration.opencodeModel && <Check className="size-3.5 shrink-0 text-primary" />}</button>)}</section>)}
-        {matchingModels.length === 0 && <p className="px-2.5 py-3 text-xs text-muted-foreground">{models.length === 0 ? "未读取到 OpenCode 可用模型。" : "没有匹配的模型。"}</p>}
-      </div>
-    </section>;
-  }
-  return <section className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]"><ConfigurationMenuItem label="模型" onClick={() => setPage("model")} value={opencodeModelLabel(configuration.opencodeModel)} /></section>;
-}
-function ConfigurationMenuItem({ label, onClick, value }: { label: string; onClick: () => void; value: string }) { return <button className="flex w-full items-center gap-3 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted" onClick={onClick} type="button"><span>{label}</span><span className="ml-auto truncate text-muted-foreground">{value}</span><ChevronRight className="size-3.5 text-muted-foreground" /></button>; }
-function ConfigurationChoices({ current, label, onBack, onChoose, options }: { current: string; label: string; onBack: () => void; onChoose: (value: string) => void; options: readonly (readonly [string, string])[] }) { return <section className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]"><button className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs font-medium hover:bg-muted" onClick={onBack} type="button"><ChevronLeft className="size-3.5" />{label}</button><div className="mt-1 border-t pt-1">{options.map(([value, optionLabel]) => <button className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted" key={value} onClick={() => onChoose(value)} type="button"><span>{optionLabel}</span>{value === current && <Check className="ml-auto size-3.5 text-primary" />}</button>)}</div></section>; }
-function RunningStatus({ events, now }: { events: AgentEvent[]; now: number }) { const started = [...events].reverse().find((event) => event.type === "turn.started"); const status = [...events].reverse().find((event) => event.type === "status")?.payload?.label || "正在继续处理"; const elapsed = started ? Math.max(0, Math.floor((now - new Date(started.createdAt).getTime()) / 1000)) : 0; return <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="size-1.5 animate-pulse rounded-full bg-success" />{status} · {elapsed}s</p>; }
-function ActionIcon({ children, label }: { children: ReactNode; label: string }) { return <button aria-label={label} className="grid size-6 place-items-center rounded-sm hover:bg-muted hover:text-foreground [&>svg]:size-3" type="button">{children}</button>; }
-function RuntimePicker({ creating, onChoose, onInstall, runtimeStatus }: { creating: boolean; onChoose: (runtime: Runtime) => void; onInstall: (agent: AgentRuntimeStatus) => void; runtimeStatus: AgentRuntimeStatus[] }) {
-  // Show every supported runtime, even ones the backend has not yet reported. Missing
-  // entries get a synthetic placeholder so the user can still trigger the install dialog.
-  const rows = RUNTIME_ORDER.map((runtime) => ({ runtime, status: runtimeStatus.find((agent) => agent.id === runtime) ?? syntheticAgent(runtime) }));
-  return <section className="absolute right-3 top-14 z-30 w-[calc(100%-1.5rem)] overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">{rows.length === 0 ? <p className="px-2 py-3 text-center text-xs text-muted-foreground">暂未检测到任何 Agent</p> : rows.map(({ runtime, status }) => {
-    const available = status.available;
-    return <button className={`flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 ${creating ? "cursor-not-allowed opacity-50" : ""}`} disabled={creating} key={runtime} onClick={() => available ? onChoose(runtime) : onInstall(status)} type="button"><span className="font-medium">{runtimeLabel(runtime)}</span><span className="ml-auto text-[10px] text-muted-foreground">{available ? "已就绪" : "未安装"}</span></button>;
-  })}</section>;
-}
-function codexModelLabel(model?: string) { return ({ "gpt-5.6-sol": "5.6 Sol", "gpt-5.6-terra": "5.6 Terra", "gpt-5.6-luna": "5.6 Luna", "gpt-5.5": "5.5", "gpt-5.4": "5.4", "gpt-5.4-mini": "5.4 Mini", "gpt-5.2": "5.2" } as Record<string, string>)[model || defaultCodexConfiguration.codexModel] ?? "Codex"; }
-function reasoningLabel(effort?: string) { return ({ low: "低", medium: "中", high: "高", xhigh: "极高", max: "最大" } as Record<string, string>)[effort || defaultCodexConfiguration.reasoningEffort] ?? "默认推理"; }
-function opencodeModelLabel(model?: string) {
-  return model || defaultOpencodeConfiguration.opencodeModel;
-}
-function opencodeProviderLabel(provider: string) { return provider === "opencode" ? "OpenCode Zen" : provider === "opencode-go" ? "OpenCode Go" : provider; }

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog、Store 与 Server 的本地 HTTP 路由
- * [OUTPUT]: 锁定全局 onboarding 保存、按项目与 general scope 解析、通用会话创建及 LAN CORS 的 HTTP 契约
+ * [OUTPUT]: 锁定全局 onboarding 保存、通用/项目/独立 App 三类 scope 的会话隔离与最新优先、通用会话创建及 LAN CORS 的 HTTP 契约
  * [POS]: service 的 Agent 传输层回归测试；不启动真实 daemon 或 Agent CLI
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -137,6 +137,82 @@ func TestGeneralAgentSessionHTTP(t *testing.T) {
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("visible projects = %#v, %v", projects, err)
 	}
+}
+
+func TestAgentSessionHTTPScopesAreIsolatedAndNewestFirst(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	for name, manifest := range map[string]string{
+		"project":    `{"manifestVersion":1,"id":"example.project","name":"Project","author":"Test","description":"Test project App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`,
+		"standalone": `{"manifestVersion":1,"id":"example.standalone","name":"Standalone","author":"Test","description":"Test standalone App.","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"}}`,
+	} {
+		if err := os.MkdirAll(filepath.Join(appsDir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeTestFile(t, filepath.Join(appsDir, name, "manifest.json"), manifest)
+	}
+	apps, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.Create(CreateInput{Name: "Project", AppID: "example.project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appScope, err := store.EnsureStandaloneAppProject("example.standalone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer(apps, store, nil, nil, NewAgentManager(store, nil, nil), nil, nil).routes()
+
+	general := createAgentSessionHTTP(t, handler, `{"runtime":"codex"}`)
+	projectFirst := createAgentSessionHTTP(t, handler, `{"projectId":"`+project.ID+`","runtime":"codex"}`)
+	projectLatest := createAgentSessionHTTP(t, handler, `{"projectId":"`+project.ID+`","runtime":"codex"}`)
+	app := createAgentSessionHTTP(t, handler, `{"projectId":"`+appScope.ID+`","runtime":"codex"}`)
+
+	assertSessionList := func(path string, expected ...string) {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("list %s = %d: %s", path, recorder.Code, recorder.Body.String())
+		}
+		var sessions []ChatSession
+		if err := json.Unmarshal(recorder.Body.Bytes(), &sessions); err != nil {
+			t.Fatal(err)
+		}
+		if len(sessions) != len(expected) {
+			t.Fatalf("list %s = %#v, want %d sessions", path, sessions, len(expected))
+		}
+		for index, id := range expected {
+			if sessions[index].ID != id {
+				t.Fatalf("list %s[%d] = %q, want %q", path, index, sessions[index].ID, id)
+			}
+		}
+	}
+	assertSessionList("/v1/agent-sessions?scope=general", general.ID)
+	assertSessionList("/v1/agent-sessions?projectId="+project.ID, projectLatest.ID, projectFirst.ID)
+	assertSessionList("/v1/agent-sessions?projectId="+appScope.ID, app.ID)
+}
+
+func createAgentSessionHTTP(t *testing.T, handler http.Handler, body string) ChatSession {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/v1/agent-sessions", bytes.NewBufferString(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("create session = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var session ChatSession
+	if err := json.Unmarshal(recorder.Body.Bytes(), &session); err != nil {
+		t.Fatal(err)
+	}
+	return session
 }
 
 func TestSystemLogsExposeDiagnosticsToLocalNetwork(t *testing.T) {
