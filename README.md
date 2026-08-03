@@ -5,7 +5,7 @@ Recut 是本地 AI 视频工作台，也是类似 Chrome 的 App Host：App 用 
 技术栈：Next.js + React 工作台，Go Daemon，Goja JavaScript sandbox，平台托管 SQLite，MCP stdio。
 
 ```text
-apps/             本地 App 包与 Vox B-roll、Depth Anything submodule；通过 make app-link 链接到运行时目录
+apps/             本地 App 包与 Vox B-roll、Depth Anything、Cover Studio submodule；通过 make app-link 链接到运行时目录
 operation/        运营与开源协作资产；`official-repo/` 是独立 Git 的官方社区 App 总库
 .gitmodules       外部 App 源码的固定远端与分支配置
 scripts/          当前用户生产 service 的 launchd/systemd 安装器
@@ -29,7 +29,7 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 - 运行时 App 根默认为 `~/.recut/apps`。开发时运行 `make app-link`，将本仓库的 App 源码包逐个链接到此目录；生产安装可在相同位置放置 Git clone。服务不再从源码仓库的 `apps/` 直接加载。
 - 每个项目在 `.recut/app` 创建指向当前 App 包的符号链接。每个 Codex turn 由 Go 后端内嵌的 `service/prompts/core-agents.md.tmpl` 渲染平台 guide，并注入当前 App 自己的 `AGENTS.md`；该 guide 指示 Agent 从 `.recut/app` 读取、测试和按需修改当前 App 源码。
 
-运行 `git submodule update --init --recursive` 获取 Vox B-roll 和 Depth Anything 后，再运行 `make app-link` 链接全部本地 App；只链接一个包时使用 `make app-link APP=apps/vox-broll` 或 `make app-link APP=apps/depth-anything`。随后运行 `make dev`。
+运行 `git submodule update --init --recursive` 获取所有外部 App（Vox B-roll、Depth Anything、Cover Studio）后，再运行 `make app-link` 链接全部本地 App；只链接一个包时使用对应的 `make app-link APP=apps/<app-name>`。随后运行 `make dev`。
 
 运行 `make dev` 或 `make service-dev` 时，命令会先暂停当前用户受 launchd/systemd 托管、占用 `17373` 的正式 Recut service，并确认端口已释放；若该端口属于其他程序则明确拒绝终止。开发 service 固定报告为 `dev`，只能由开发命令停止/重启，网页管理器会明确禁用生产 service 操作。日常开发使用 `make dev`，它将 LAN service 与端口 `3000` 的 Next.js 热更新工作台一同启动；单独使用 `make service-dev` 时只启动 service，不再静态导出或嵌入前端，供已经运行的 `make web-dev` 配合。结束开发后运行 `make service-resume` 恢复已安装的正式 service。生产 `make service-build` 先以 `NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local` 导出同源工作台（不包含发布安装包），再将它嵌入 service binary；启动后直接访问 service 地址即可。`make check` 执行 Go 测试、静态检查与前端构建。
 
