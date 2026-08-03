@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 service 的独立 App workspace scope、manifest UI 入口、App API、媒体配置/生成、平台素材选择器与 Agent Session HTTP API
- * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信、受 scope 约束的媒体直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏；App 可回填输入草稿但不能借此提交 turn
+ * [INPUT]: 依赖 service 的独立 App workspace scope、manifest UI 入口、App API、Provider/凭据/媒体生成、平台素材选择器与 Agent Session HTTP API
+ * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏；App 可回填输入草稿但不能借此提交 turn
  * [POS]: workspace-app/[appID] 的客户端工作台；复用项目级安全 scope，但不显示或创建用户项目
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -93,15 +93,22 @@ export default function StandaloneAppClient() {
           setAgentDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
         } else if (request.type === "media.configuration") {
-          const response = await fetch(`${apiBase}/v1/media/configuration`);
-          const payload = await response.json();
-          reply(payload, response.ok ? undefined : operationError(payload, "无法读取图片模型配置"));
+          const [providerResponse, credentialResponse] = await Promise.all([fetch(`${apiBase}/v1/media/providers`), fetch(`${apiBase}/v1/media/credentials`)]);
+          const providers = await providerResponse.json() as { id: string; name: string; models: { id: string; name: string; capability: string; available: boolean; inputModes: string[] }[] }[];
+          const credentials = await credentialResponse.json() as { id: string; name: string; provider: string; secretSet: boolean }[];
+          if (!providerResponse.ok || !credentialResponse.ok) throw new Error("无法读取图片模型配置");
+          const payload = credentials.filter((credential) => credential.secretSet).flatMap((credential) => {
+            const provider = providers.find((item) => item.id === credential.provider);
+            return (provider?.models ?? []).filter((model) => model.capability === "image.generate" && model.available).map((model) => ({ id: `${credential.id}:${model.id}`, model, credentialID: credential.id, credentialName: credential.name, providerName: provider?.name ?? credential.provider }));
+          });
+          reply(payload);
         } else if (request.type === "media.generate") {
           const prompt = String(request.input?.prompt || "").trim();
-          const route = String(request.input?.route || "").trim();
+          const modelID = String(request.input?.modelID || "").trim();
+          const credentialID = String(request.input?.credentialID || "").trim();
           const referenceIDs = Array.isArray(request.input?.referenceIDs) ? request.input.referenceIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
-          if (!prompt || !route) throw new Error("图片生成需要 Prompt 和已配置模型");
-          const response = await fetch(`${apiBase}/v1/media/jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capability: "image.generate", prompt, route, referenceIds: referenceIDs, projectId: scope.id }) });
+          if (!prompt || !modelID || !credentialID) throw new Error("图片生成需要 Prompt 和已连接模型");
+          const response = await fetch(`${apiBase}/v1/media/jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capability: "image.generate", prompt, modelId: modelID, credentialId: credentialID, referenceIds: referenceIDs, projectId: scope.id }) });
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, "无法创建图片生成任务"));
         } else if (request.type === "settings.open") {
