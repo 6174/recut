@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖标准库 JSON 与文件系统能力
- * [OUTPUT]: 对外提供 manifest 驱动的 Catalog、含作者/描述/onboarding 的 App 身份、隐藏平台 scope 描述符与统一 operation 公开契约
+ * [OUTPUT]: 对外提供 manifest 驱动的 Catalog、含作者/描述/onboarding 的 App 身份、缓存化 Git 远端检查状态、隐藏平台 scope 描述符与统一 operation 公开契约
  * [POS]: service 的扩展注册表；只理解 App 与平台 scope 身份、入口、权限和扩展点，不理解业务数据布局
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 type AppKind string
@@ -70,9 +71,12 @@ type App struct {
 }
 
 type Catalog struct {
-	mu   sync.RWMutex
-	apps map[string]App
-	dir  string
+	mu                  sync.RWMutex
+	installationCheckMu sync.Mutex
+	lastRemoteCheck     time.Time
+	remoteCheckErrors   map[string]string
+	apps                map[string]App
+	dir                 string
 }
 
 func LoadCatalog(dir string) (*Catalog, error) {
@@ -92,8 +96,12 @@ func (c *Catalog) Reload() error {
 	if err != nil {
 		return err
 	}
+	c.installationCheckMu.Lock()
+	defer c.installationCheckMu.Unlock()
 	c.mu.Lock()
 	c.apps = apps
+	c.lastRemoteCheck = time.Time{}
+	c.remoteCheckErrors = nil
 	c.mu.Unlock()
 	return nil
 }

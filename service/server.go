@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store（含 Agent CLI 定位缓存）与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计的 Server 及内嵌工作台、无入口重定向的 App UI、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API
+ * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计的 Server 及内嵌工作台、无入口重定向的 App UI、App 安装/单个或批量更新、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API
  * [POS]: service 的传输层，负责把受信任项目、内嵌本地工作台与扩展注册表映射为浏览器可消费的 API；对话和 PTY 协议并存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -62,6 +62,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/apps", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.apps.List()) })
 	mux.HandleFunc("GET /v1/apps/installed", s.listAppInstallations)
 	mux.HandleFunc("POST /v1/apps/install", s.installApp)
+	mux.HandleFunc("POST /v1/apps/update", s.updateApps)
 	mux.HandleFunc("POST /v1/apps/{package}/update", s.updateApp)
 	mux.HandleFunc("GET /v1/apps/{appID}/workspace", s.getStandaloneAppProject)
 	mux.HandleFunc("GET /v1/apps/{appID}/ui/{path...}", s.appUI)
@@ -296,6 +297,18 @@ func (s *Server) updateApp(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("INFO app updated id=%s package=%s revision=%s", updated.Manifest.ID, updated.Package, updated.Revision)
 	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) updateApps(w http.ResponseWriter, _ *http.Request) {
+	result, err := s.apps.UpdateInstallations()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	for _, app := range result.Updated {
+		log.Printf("INFO app updated id=%s package=%s revision=%s", app.Manifest.ID, app.Package, app.Revision)
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) getStandaloneAppProject(w http.ResponseWriter, r *http.Request) {

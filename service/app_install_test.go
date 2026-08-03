@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 App 安装 URL 规范化与 Git 工作树状态读取能力
- * [OUTPUT]: 验证只接受确定的 GitHub 地址，并且本地修改会阻止安全升级
- * [POS]: service App 分发边界的回归测试；不访问网络、不执行真实 clone
+ * [INPUT]: 依赖 App 安装 URL 规范化、本地 Git remote 与工作树状态读取能力
+ * [OUTPUT]: 验证 Git 更新检测、单个与批量 fast-forward 升级均不覆盖本地修改
+ * [POS]: service App 分发边界的回归测试；只使用临时本地 Git remote，不访问网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -67,5 +67,54 @@ func TestInstallationsExcludeNativeMediaScope(t *testing.T) {
 	installations, err := catalog.Installations()
 	if err != nil || len(installations) != 1 || installations[0].Manifest.ID != "example.app" {
 		t.Fatalf("app installations = %#v, err = %v", installations, err)
+	}
+}
+
+func TestInstallationsDetectAndUpdateRemoteGitChanges(t *testing.T) {
+	root := t.TempDir()
+	remote := filepath.Join(root, "remote.git")
+	appsDir := filepath.Join(root, "apps")
+	appDir := filepath.Join(appsDir, "example")
+	runGit(t, root, "init", "--bare", remote)
+	runGit(t, root, "clone", remote, appDir)
+	runGit(t, appDir, "config", "user.email", "test@example.com")
+	runGit(t, appDir, "config", "user.name", "Test")
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	runGit(t, appDir, "add", "manifest.json")
+	runGit(t, appDir, "commit", "-m", "initial")
+	runGit(t, appDir, "push", "-u", "origin", "HEAD")
+
+	publisher := filepath.Join(root, "publisher")
+	runGit(t, root, "clone", remote, publisher)
+	runGit(t, publisher, "config", "user.email", "test@example.com")
+	runGit(t, publisher, "config", "user.name", "Test")
+	writeTestFile(t, filepath.Join(publisher, "CHANGELOG.md"), "remote update\n")
+	runGit(t, publisher, "add", "CHANGELOG.md")
+	runGit(t, publisher, "commit", "-m", "remote update")
+	runGit(t, publisher, "push")
+
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installations, err := catalog.Installations()
+	if err != nil || len(installations) != 1 || !installations[0].UpdateAvailable {
+		t.Fatalf("installations = %#v, err = %v", installations, err)
+	}
+	result, err := catalog.UpdateInstallations()
+	if err != nil || len(result.Updated) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("update result = %#v, err = %v", result, err)
+	}
+	installations, err = catalog.Installations()
+	if err != nil || installations[0].UpdateAvailable {
+		t.Fatalf("updated installations = %#v, err = %v", installations, err)
+	}
+}
+
+func runGit(t *testing.T, dir string, arguments ...string) {
+	t.Helper()
+	command := exec.Command("git", append([]string{"-C", dir}, arguments...)...)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %s: %v", arguments, output, err)
 	}
 }

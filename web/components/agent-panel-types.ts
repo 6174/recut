@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Agent runtime 与素材引用类型
- * [OUTPUT]: 对外提供 Agent 会话、Turn、事件、配置与面板 Props 的共享类型及默认配置
+ * [OUTPUT]: 对外提供 Agent 会话、Turn、事件、配置与面板 Props（含宿主回填、不自动提交的草稿）的共享类型及默认配置
  * [POS]: components Agent 对话模块的唯一数据契约；被面板控制器、会话视图与输入区共同消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -89,7 +89,7 @@ export type Detail = Session & {
   events: AgentEvent[];
   lastEventId: number;
 };
-export type Props = { apiBase: string; online: boolean; projectID: string | null };
+export type Props = { apiBase: string; online: boolean; projectID: string | null; draft?: { id: string; text: string } | null };
 
 
 export function codexModelLabel(model?: string) {

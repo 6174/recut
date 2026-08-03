@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 service endpoint、App 安装状态、Radix Popover 与 App fast-forward 升级 HTTP API
- * [OUTPUT]: 对外提供 App 版本徽标、可升级提示与经 Portal 呈现的确认式升级浮层
- * [POS]: web/components 的 App 版本交互原子；供项目 Header 和 Apps 目录复用，避免浮层受 Header 堆叠上下文影响
+ * [INPUT]: 依赖 service endpoint、App 安装状态、Radix Popover 与 App 单个或批量 fast-forward 升级 HTTP API
+ * [OUTPUT]: 对外提供 App 版本徽标、单应用升级与按可升级条目聚合的一键更新确认交互
+ * [POS]: web/components 的 App 版本交互原子；供项目 Header、应用目录与详情复用，避免浮层受 Header 堆叠上下文影响
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useServiceStore } from "@/lib/service-store";
 
 export type ManagedApp = { package: string; manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone" }; dirty: boolean; updateAvailable: boolean; manageable: boolean; status?: string };
+type AppUpdateResult = { updated: ManagedApp[]; failed: { package: string; error: string }[] };
 
 export function AppVersionControl({ app, onUpdated }: { app: ManagedApp; onUpdated?: () => void }) {
   const apiBase = useServiceStore((state) => state.endpoint);
@@ -24,6 +25,24 @@ export function AppVersionControl({ app, onUpdated }: { app: ManagedApp; onUpdat
     try { const response = await fetch(`${apiBase}/v1/apps/${encodeURIComponent(app.package)}/update`, { method: "POST" }); if (!response.ok) throw new Error(await responseMessage(response)); setConfirm(false); onUpdated?.(); } catch (cause) { setMessage(`${messageOf(cause)}。请交给 Codex、Claude Code 或 OpenCode 诊断。`); } finally { setWorking(false); }
   }
   return <span className="inline-flex items-center gap-1"><Badge>v{app.manifest.version}</Badge>{app.updateAvailable && <Popover onOpenChange={setConfirm} open={confirm}><PopoverTrigger asChild><Button className="h-6 px-2 text-[10px]" disabled={app.dirty || !app.manageable} type="button" variant="outline"><RefreshCw className="size-3" />升级</Button></PopoverTrigger><PopoverContent align="end" className="w-64 p-3 text-left text-xs"><strong>确认升级 {app.manifest.name}？</strong><span className="mt-1 block leading-4 text-muted-foreground">只会执行安全的 Git fast-forward；若有本地修改将拒绝覆盖。</span><span className="mt-3 flex justify-end gap-2"><Button onClick={() => setConfirm(false)} type="button" variant="ghost">取消</Button><Button disabled={working} onClick={() => void update()} type="button">确认升级</Button></span>{message && <span className="mt-2 block text-warning">{message}</span>}</PopoverContent></Popover>}{app.dirty && <span className="flex items-center gap-1 text-[10px] text-warning"><TriangleAlert className="size-3" />本地修改</span>}</span>;
+}
+
+export function AppUpdateAllControl({ apps, onUpdated }: { apps: ManagedApp[]; onUpdated: () => void | Promise<void> }) {
+  const apiBase = useServiceStore((state) => state.endpoint);
+  const [confirm, setConfirm] = useState(false); const [working, setWorking] = useState(false); const [message, setMessage] = useState("");
+  const updateable = apps.filter((app) => app.manageable && !app.dirty && app.updateAvailable);
+  if (!updateable.length) return null;
+  async function updateAll() {
+    setWorking(true); setMessage("");
+    try {
+      const response = await fetch(`${apiBase}/v1/apps/update`, { method: "POST" });
+      if (!response.ok) throw new Error(await responseMessage(response));
+      const result = await response.json() as AppUpdateResult;
+      if (result.failed.length) setMessage(`${result.updated.length} 个应用已更新；${result.failed.length} 个未完成。`); else setConfirm(false);
+      await onUpdated();
+    } catch (cause) { setMessage(`${messageOf(cause)}。请交给 Codex、Claude Code 或 OpenCode 诊断。`); } finally { setWorking(false); }
+  }
+  return <Popover onOpenChange={setConfirm} open={confirm}><PopoverTrigger asChild><Button className="h-9" type="button"><RefreshCw className="size-4" />一键更新 {updateable.length} 个应用</Button></PopoverTrigger><PopoverContent align="end" className="w-72 p-3 text-left text-xs"><strong>更新 {updateable.length} 个应用？</strong><span className="mt-1 block leading-4 text-muted-foreground">只更新没有本地修改且已检测到远端提交的应用。每个应用都使用安全的 Git fast-forward。</span><span className="mt-3 flex justify-end gap-2"><Button onClick={() => setConfirm(false)} type="button" variant="ghost">取消</Button><Button disabled={working} onClick={() => void updateAll()} type="button">{working ? "正在更新…" : "确认更新"}</Button></span>{message && <span className="mt-2 block text-warning">{message}</span>}</PopoverContent></Popover>;
 }
 
 async function responseMessage(response: Response) { const body = await response.json().catch(() => ({})) as { error?: string }; return body.error ?? `请求失败（${response.status}）`; }

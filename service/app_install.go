@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的已校验 App 包、Git CLI 与标准库路径/进程能力
- * [OUTPUT]: 对外提供 GitHub App 安装、工作树状态读取与 fast-forward 升级能力
+ * [OUTPUT]: 对外提供 GitHub App 安装、远端更新检测、单个与批量 fast-forward 升级能力
  * [POS]: service 的 App 分发边界；只接受标准 manifest 包，不让 HTTP 层拼接 Git 命令
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -30,19 +30,43 @@ type AppInstallation struct {
 	Status          string   `json:"status,omitempty"`
 }
 
+type AppUpdateFailure struct {
+	Package string `json:"package"`
+	Error   string `json:"error"`
+}
+
+type AppUpdateResult struct {
+	Updated []AppInstallation  `json:"updated"`
+	Failed  []AppUpdateFailure `json:"failed"`
+}
+
+const remoteCheckInterval = time.Minute
+
 func (c *Catalog) Installations() ([]AppInstallation, error) {
-	c.mu.RLock()
+	c.installationCheckMu.Lock()
+	defer c.installationCheckMu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if time.Since(c.lastRemoteCheck) >= remoteCheckInterval {
+		for _, app := range c.apps {
+			c.recordRemoteCheck(app.Root, refreshGitRemote(app.Root))
+		}
+		c.lastRemoteCheck = time.Now()
+	}
 	apps := make([]App, 0, len(c.apps))
 	for _, app := range c.apps {
 		apps = append(apps, app)
 	}
-	c.mu.RUnlock()
 	result := make([]AppInstallation, 0, len(apps))
 	for _, app := range apps {
 		if isSystemAppID(app.Manifest.ID) {
 			continue
 		}
-		result = append(result, inspectAppInstallation(app))
+		installation := inspectAppInstallation(app)
+		if message := c.remoteCheckErrors[app.Root]; message != "" {
+			installation.Status = message
+		}
+		result = append(result, installation)
 	}
 	sortInstallations(result)
 	return result, nil
@@ -53,6 +77,8 @@ func (c *Catalog) InstallGitHub(rawRepository string) (AppInstallation, error) {
 	if err != nil {
 		return AppInstallation{}, err
 	}
+	c.installationCheckMu.Lock()
+	defer c.installationCheckMu.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	destination := filepath.Join(c.dir, packageName)
@@ -85,6 +111,8 @@ func (c *Catalog) InstallGitHub(rawRepository string) (AppInstallation, error) {
 		return AppInstallation{}, err
 	}
 	c.apps = apps
+	c.lastRemoteCheck = time.Time{}
+	c.remoteCheckErrors = nil
 	installed, ok := c.apps[app.Manifest.ID]
 	if !ok {
 		return AppInstallation{}, errors.New("installed App disappeared from catalog")
@@ -96,8 +124,43 @@ func (c *Catalog) UpdateInstallation(packageName string) (AppInstallation, error
 	if !validPackageName(packageName) {
 		return AppInstallation{}, errors.New("invalid App package name")
 	}
+	c.installationCheckMu.Lock()
+	defer c.installationCheckMu.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	updated, err := c.updateInstallationLocked(packageName)
+	if err == nil {
+		c.lastRemoteCheck = time.Time{}
+		c.remoteCheckErrors = nil
+	}
+	return updated, err
+}
+
+func (c *Catalog) UpdateInstallations() (AppUpdateResult, error) {
+	c.installationCheckMu.Lock()
+	defer c.installationCheckMu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	result := AppUpdateResult{Updated: []AppInstallation{}, Failed: []AppUpdateFailure{}}
+	for _, app := range c.apps {
+		status, err := gitStatus(app.Root)
+		if err != nil || status.Dirty || !status.UpdateAvailable {
+			continue
+		}
+		updated, err := c.updateInstallationLocked(filepath.Base(app.Root))
+		if err != nil {
+			result.Failed = append(result.Failed, AppUpdateFailure{Package: filepath.Base(app.Root), Error: err.Error()})
+			continue
+		}
+		result.Updated = append(result.Updated, updated)
+	}
+	c.lastRemoteCheck = time.Time{}
+	c.remoteCheckErrors = nil
+	return result, nil
+}
+
+func (c *Catalog) updateInstallationLocked(packageName string) (AppInstallation, error) {
 	root := filepath.Join(c.dir, packageName)
 	if _, err := os.Stat(root); err != nil {
 		return AppInstallation{}, errors.New("App package not found")
@@ -170,6 +233,27 @@ func gitStatus(root string) (gitCheckoutStatus, error) {
 	status.Repository, _ = gitCommand(root, "config", "--get", "remote.origin.url")
 	status.Repository = strings.TrimSpace(status.Repository)
 	return status, nil
+}
+
+func (c *Catalog) recordRemoteCheck(root string, err error) {
+	if err == nil {
+		delete(c.remoteCheckErrors, root)
+		return
+	}
+	if c.remoteCheckErrors == nil {
+		c.remoteCheckErrors = map[string]string{}
+	}
+	c.remoteCheckErrors[root] = err.Error()
+}
+
+func refreshGitRemote(root string) error {
+	if repository, err := gitCommand(root, "config", "--get", "remote.origin.url"); err != nil || strings.TrimSpace(repository) == "" {
+		return nil
+	}
+	if output, err := gitCommand(root, "fetch", "--quiet", "origin"); err != nil {
+		return fmt.Errorf("无法检查远端更新: %s", gitError(output, err))
+	}
+	return nil
 }
 
 func normalizeGitHubRepository(raw string) (string, string, error) {

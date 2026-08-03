@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖全局 Zustand service 状态、service endpoint、项目/App manifest API、Agent Session HTTP API 与 Next.js 浏览器路由参数
- * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发与带宿主通信诊断的结构化 Agent 请求转交，并透传 App API 的失败原因
+ * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发与带宿主通信诊断的结构化 Agent 请求转交；App 可回填右侧 Agent 输入草稿但不能借此提交 turn，并透传 App API 的失败原因
  * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，共享根级 service 状态，隔离 useParams、WebSocket 与 iframe，不能吞没后台诊断
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -39,6 +39,7 @@ export default function ProjectDetailClient() {
   const [project, setProject] = useState<Project | null>(null);
   const [app, setApp] = useState<App | null>(null);
   const [installation, setInstallation] = useState<ManagedApp | null>(null);
+  const [agentDraft, setAgentDraft] = useState<{ id: string; text: string } | null>(null);
   const apiBase = useServiceStore((state) => state.endpoint);
   const online = useServiceStore((state) => state.service.phase === "online");
   const appFrame = useRef<HTMLIFrameElement>(null);
@@ -90,6 +91,12 @@ export default function ProjectDetailClient() {
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, "后台调用失败"));
           console.warn(`[recut-host] iframe response id=${String(request.id)} type=background.call result=${response.ok ? "ok" : "error"}`);
+        } else if (request.type === "agent.compose") {
+          const prompt = String(request.input?.prompt || "").trim();
+          if (!prompt) throw new Error("Agent Prompt 不能为空");
+          setAgentDraft({ id: String(request.id), text: prompt });
+          reply({ delivery: "agent-composer" });
+          console.warn(`[recut-host] iframe response id=${String(request.id)} type=agent.compose result=ok`);
         } else if (request.type === "agent.send") {
           const sessionsResponse = await fetch(`${apiBase}/v1/agent-sessions?projectId=${encodeURIComponent(project.id)}`);
           if (!sessionsResponse.ok) throw new Error("无法读取 Agent 对话");
@@ -134,7 +141,7 @@ export default function ProjectDetailClient() {
       </section>
       {isDragging && <div aria-hidden="true" className="absolute inset-0 z-[5] cursor-col-resize" />}
       <button aria-label="拖动调整 Agent 面板宽度" className="group absolute inset-y-0 z-10 w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button>
-      <ProjectAgentPanel apiBase={apiBase} online={online} projectID={project?.id ?? null} />
+      <ProjectAgentPanel apiBase={apiBase} draft={agentDraft} online={online} projectID={project?.id ?? null} />
     </div>
   </main>;
 }

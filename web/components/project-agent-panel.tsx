@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖项目或 general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
- * [OUTPUT]: 对外提供带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、项目与 general scope、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、作用域切换时同步 Loading 且拒绝过期请求回写的对话加载、创建/同步/重试均可见的状态、输入法保护、图片上传/粘贴上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
+ * [OUTPUT]: 对外提供带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、项目与 general scope、可由 App iframe 回填但绝不自动提交的输入草稿、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、作用域切换时同步 Loading 且拒绝过期请求回写的对话加载、创建/同步/重试均可见的状态、输入法保护、图片上传/粘贴上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
  * [POS]: components 的通用 Agent 侧栏；首页无项目时自动使用隐藏 general scope，存在可用 runtime 的空态允许直接输入并在发送时创建会话，运行期间的用户消息持久化排队，每张项目媒体以资产引用绑定到对应用户 Turn，并为内部预览提供共享 Asset 缓存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -59,7 +59,7 @@ export function ProjectAgentPanel(props: Props) {
     </MediaAssetEventsProvider>
   );
 }
-function ProjectAgentPanelContent({ apiBase, online, projectID }: Props) {
+function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeID, setActiveID] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -130,6 +130,12 @@ function ProjectAgentPanelContent({ apiBase, online, projectID }: Props) {
     },
     [],
   );
+  useEffect(() => {
+    if (!draft?.text) return;
+    setContent(draft.text);
+    setAttachments([]);
+    setError("");
+  }, [draft]);
   useEffect(() => {
     messagesRef.current?.scrollTo({
       top: messagesRef.current.scrollHeight,

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 service 的独立 App workspace scope、manifest UI 入口、App API 与 Agent Session HTTP API
- * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信和工作区级 Agent 对话侧栏
+ * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信和工作区级 Agent 对话侧栏；App 可回填输入草稿但不能借此提交 turn
  * [POS]: workspace-app/[appID] 的客户端工作台；复用项目级安全 scope，但不显示或创建用户项目
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -36,6 +36,7 @@ export default function StandaloneAppClient() {
   const [appID, setAppID] = useState("");
   const [scope, setScope] = useState<WorkspaceScope | null>(null);
   const [app, setApp] = useState<App | null>(null);
+  const [agentDraft, setAgentDraft] = useState<{ id: string; text: string } | null>(null);
   const apiBase = useServiceStore((state) => state.endpoint);
   const online = useServiceStore((state) => state.service.phase === "online");
   const appFrame = useRef<HTMLIFrameElement>(null);
@@ -81,6 +82,11 @@ export default function StandaloneAppClient() {
           const response = await fetch(`${apiBase}/v1/projects/${scope.id}/apps/${scope.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.type === "state.query" ? {} : input) });
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, "后台调用失败"));
+        } else if (request.type === "agent.compose") {
+          const prompt = String(request.input?.prompt || "").trim();
+          if (!prompt) throw new Error("Agent Prompt 不能为空");
+          setAgentDraft({ id: String(request.id), text: prompt });
+          reply({ delivery: "agent-composer" });
         } else if (request.type === "agent.send") {
           const sessionsResponse = await fetch(`${apiBase}/v1/agent-sessions?projectId=${encodeURIComponent(scope.id)}`);
           if (!sessionsResponse.ok) throw new Error("无法读取 Agent 对话");
@@ -105,6 +111,6 @@ export default function StandaloneAppClient() {
   const uiURL = scope && app && view ? `${apiBase}/v1/apps/${encodeURIComponent(app.manifest.id)}/ui/${view}?projectId=${encodeURIComponent(scope.id)}&appVersion=${encodeURIComponent(app.manifest.version)}` : null;
   return <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
     <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5"><div className="flex min-w-0 items-center gap-4"><Link aria-label="返回应用目录" className="flex shrink-0 items-center gap-2" href="/apps"><ArrowLeft className="size-4" /><AppWindow className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link><div aria-hidden="true" className="h-5 w-px bg-border" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{app?.manifest.name ?? "工作区 App"}</p><p className="truncate font-mono text-[10px] text-muted-foreground">WORKSPACE APP · 不创建项目</p></div></div><HeaderActions /></header>
-    <div className="relative grid min-h-0 flex-1 overflow-hidden [grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}><section className="min-h-0 min-w-0 overflow-hidden border-r bg-card">{uiURL ? <iframe className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={app?.manifest.name ?? "Recut App"} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">正在准备独立 App 工作区…</div>}</section>{isDragging && <div aria-hidden="true" className="absolute inset-0 z-[5] cursor-col-resize" />}<button aria-label="拖动调整 Agent 面板宽度" className="group absolute inset-y-0 z-10 w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button><ProjectAgentPanel apiBase={apiBase} online={online} projectID={scope?.id ?? null} /></div>
+    <div className="relative grid min-h-0 flex-1 overflow-hidden [grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}><section className="min-h-0 min-w-0 overflow-hidden border-r bg-card">{uiURL ? <iframe className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={app?.manifest.name ?? "Recut App"} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">正在准备独立 App 工作区…</div>}</section>{isDragging && <div aria-hidden="true" className="absolute inset-0 z-[5] cursor-col-resize" />}<button aria-label="拖动调整 Agent 面板宽度" className="group absolute inset-y-0 z-10 w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button><ProjectAgentPanel apiBase={apiBase} draft={agentDraft} online={online} projectID={scope?.id ?? null} /></div>
   </main>;
 }

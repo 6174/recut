@@ -6,10 +6,10 @@
 main.go: 组合 Daemon、AppHost、MCP Host、内嵌工作台与默认监听全部网卡的 LAN HTTP 服务；启动时创建隐藏 media scope、先将重启遗留的 Agent 运行态收敛为可解释终态，再恢复媒体任务；初始化 UTC 微秒服务日志并将其落盘到 `<data-dir>/logs/`；将平台 MediaService 注入 AppHost，供已获授权的 App 发起本地两轨导出；仅常驻 Daemon 在启动恢复后以 SQLite lease 定期提交/回收媒体任务，短生命周期 MCP 只持久化 queued 任务。
 logging.go: service 可观测性边界；将标准库日志以 UTC 微秒时间戳同时输出到 stderr 与 `<data-dir>/logs/service-YYYY-MM-DD.log`，并按 HTTP 最终状态码记录 INFO/WARN/ERROR 请求审计，保留 SSE、WebSocket 等 ResponseWriter 能力。
 logging_test.go: 锁定请求审计的状态码分级与耗时字段，不创建真实日志文件。
-catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json，强制每个 App 声明作者和简短描述，跟随开发 App 的符号链接；素材库只以无磁盘包的隐藏 scope 供平台 Agent/MCP 使用，旧失效链接不会阻止 daemon 启动。
+catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json，强制每个 App 声明作者和简短描述，跟随开发 App 的符号链接，并保留缓存化 Git 远端检查的错误状态；素材库只以无磁盘包的隐藏 scope 供平台 Agent/MCP 使用，旧失效链接不会阻止 daemon 启动。
 onboarding.go: 新对话引导真相源；合并当前 App manifest、用户级全局设置，并仅在两者都为空时返回平台内置兜底，严格只使用显式 prompt。
-app_install.go: App 分发边界；仅接受 HTTPS GitHub 地址，在临时 clone 通过 manifest 校验后激活，并以 Git status/fast-forward 管理升级；原生素材库不进入 App 分发链。
-app_install_test.go: 锁定 GitHub 地址规范化与 dirty Git 工作树识别，不访问网络。
+app_install.go: App 分发边界；仅接受 HTTPS GitHub 地址，在临时 clone 通过 manifest 校验后激活，按短时缓存抓取远端并以 Git status/fast-forward 管理单个或批量升级；原生素材库不进入 App 分发链。
+app_install_test.go: 锁定 GitHub 地址规范化、dirty Git 工作树识别与临时本地 remote 的更新检测/批量升级，不访问网络。
 updater.go: macOS service 自更新器；下载并校验 Cloudflare 发布 manifest/归档，原子替换当前 binary 后交给 launchd 重启，并只对已安装的 `recut-service` 暴露重启能力。
 updater_test.go, server_update_test.go: 锁定自更新归档提取和 HTTP 可用性边界；不下载、替换或重启真实 daemon。
 project.go: 创建平台项目并按 App scope 提供 SQLite、文件与 Artifact 存储；独立型 App 使用稳定但不出现在项目列表中的工作区 scope，原生素材库与首页 general chat 各使用同样隐藏的系统 scope；每个 SQLite 文件在 service 内由共享的有限连接池管理，连接统一启用 WAL、NORMAL 同步与 15 秒 busy timeout，既允许嵌套读取又让并发写入等待而非随机失败；缓存句柄以 100ms 上限探测，连接池繁忙时继续复用、调用方已关闭时才重开。
@@ -19,7 +19,7 @@ terminal.go: 通用 PTY 会话管理器；持久化 transcript 与摘要、支�
 python_runtime.go: manifest 驱动的 Python 环境生命周期；以 App id、逻辑 venv 名和 requirements 指纹派生 `~/.recut/python/envs/` 路径，平台创建 venv/安装依赖，App bootstrap 仅作为自由兜底。
 mcp.go: 将真实项目创建 `recut.project.create`、带 App workflow context、默认媒体契约和凭据可用音色的 recut.project_context、同步 recut.image.generate、受限的 Codex 原生图归档 recut.media.import_image、异步 recut.video.generate_async/recut.speech.generate_async、语音终态等待 recut.media.wait_for_job、recut.media.list_voices 与当前 App 的 manifest operations 路由给 JavaScript handler；每个 stdio 请求独立并发执行并以 JSON-RPC id 回应，故本地素材查询不会被同步图片生成阻塞；数组结果仅在 structuredContent 中包装为 `{items: [...]}` 以满足 OpenCode record 契约，文本内容仍是原始 JSON；项目内 Brief、Artifact 和资源绝不冒充项目；原生图只接受当前项目内相对路径，并验证真实路径、类型和大小后关联为 Asset。
 mcp_test.go: 锁定按图片、视频和语音拆分的 MCP 工具、原生图片归档输入 schema，以及项目边界不可逃逸。
-server.go: 提供带进程启动时间的 health、项目、独立 App 工作区 scope、App UI、App API、受 App scope 校验的私有预览文件、App 安装/升级、service self-update/restart、Artifact、终端、使用共享 CLI 定位缓存的 Agent 可用性、OpenCode TUI 模型目录与内嵌本地工作台 HTTP 边界；本机或私有网络可在新标签页读取 service `PATH`、login shell CLI 解析结果和受限近期日志，公网请求拒绝访问该诊断页；App `index.html` 直接返回且每次重新验证，不产生可缓存的 301；动态 `/v1` API 禁止缓存，精确 API 路由优先于同源 UI 兜底，并允许 `recut.video`、loopback 与私有/链路本地 IP 的浏览器跨域访问 LAN API。
+server.go: 提供带进程启动时间的 health、项目、独立 App 工作区 scope、App UI、App API、受 App scope 校验的私有预览文件、App 安装/单个或批量升级、service self-update/restart、Artifact、终端、使用共享 CLI 定位缓存的 Agent 可用性、OpenCode TUI 模型目录与内嵌本地工作台 HTTP 边界；本机或私有网络可在新标签页读取 service `PATH`、login shell CLI 解析结果和受限近期日志，公网请求拒绝访问该诊断页；App `index.html` 直接返回且每次重新验证，不产生可缓存的 301；动态 `/v1` API 禁止缓存，精确 API 路由优先于同源 UI 兜底，并允许 `recut.video`、loopback 与私有/链路本地 IP 的浏览器跨域访问 LAN API。
 workspace_embed.go: 将 `ui/assets/` 的 local mode 工作台静态导出嵌入 service binary；绝不嵌入 Cloudflare 发布用的 service 安装包。
 workspace_server.go: 将内嵌工作台映射到根路径，并把项目/App 语义深链收敛到静态导出的单一页面壳；Next hash 资源以 immutable 缓存交付。
 workspace_server_test.go: 锁定本地首页、项目/App 深链、Next 静态缓存与 HTTP 方法边界；不需要真实前端构建。
