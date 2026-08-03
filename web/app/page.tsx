@@ -1,14 +1,14 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 状态、静态 App Catalog 及项目、App 安装状态与 Agent Session HTTP API
- * [OUTPUT]: 对外提供 Project、Apps、素材库三个核心 Tab、固定使用通用会话上下文的首页 Agent 面板、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、直接开始动作、service 连接错误诊断和市场分区的离线可浏览目录；service 更新只由 Header 操作提示，不替换核心工作区
+ * [OUTPUT]: 对外提供 Project、Apps、素材库三个核心 Tab、固定使用通用会话上下文的首页 Agent 面板、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、直接开始动作、安装列表的明确读取/失败/空态、service 连接错误诊断和市场分区的离线可浏览目录；service 更新只由 Header 操作提示，不替换核心工作区
  * [POS]: web/app 的主工作台框架；首页不从项目列表推导 Agent 上下文，Cloudflare 或本地 service 托管此 UI，用户可选择本地或远程 service 作为数据与执行边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, Check, ChevronDown, Clapperboard, Code2, Download, ExternalLink, FolderOpen, FolderPlus, Plus, X } from "lucide-react";
+import { AppWindow, Check, ChevronDown, Clapperboard, Code2, Download, ExternalLink, FolderOpen, FolderPlus, LoaderCircle, Plus, X } from "lucide-react";
 import Link from "next/link";
-import { CSSProperties, FormEvent, useEffect, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { AppUpdateAllControl, AppVersionControl } from "@/components/app-version-control";
@@ -40,6 +40,7 @@ type Installation = {
 
 type AppDetailRenderer = (context: { onConnectService: () => void; serviceOnline: boolean }) => React.ReactNode;
 type WorkspaceTab = "projects" | "apps" | "media";
+type InstallationLoadState = "loading" | "ready" | "failed" | "offline";
 
 export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: AppDetailRenderer; initialTab?: WorkspaceTab } = {}) {
   const [apps, setApps] = useState<App[]>([]);
@@ -54,17 +55,24 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"service" | "multimodal" | undefined>();
   const [error, setError] = useState("");
+  const [installationLoadState, setInstallationLoadState] = useState<InstallationLoadState>("loading");
+  const [installationError, setInstallationError] = useState("");
+  const workspaceLoadInFlight = useRef(false);
   const { handlePointerDown, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.workspace-agent-panel-width" });
 
   const online = service.phase === "online";
   useEffect(() => {
     if (!online) return;
+    setInstallationLoadState("loading");
+    setInstallationError("");
     void loadWorkspace();
     const timer = window.setInterval(() => void loadWorkspace(), 5000);
     return () => window.clearInterval(timer);
   }, [apiBase, online]);
 
   async function loadWorkspace() {
+    if (workspaceLoadInFlight.current) return;
+    workspaceLoadInFlight.current = true;
     try {
       const [appResponse, projectResponse, installationResponse] = await Promise.all([
         fetch(`${apiBase}/v1/apps`), fetch(`${apiBase}/v1/projects`), fetch(`${apiBase}/v1/apps/installed`),
@@ -77,7 +85,19 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
       setProjects(nextProjects);
       setInstallations(await installationResponse.json() as Installation[]);
       setAppID((current) => current && projectApps.some((app) => app.manifest.id === current) ? current : projectApps[0]?.manifest.id ?? "");
-    } catch { setError("本地 service 返回了无效响应"); }
+      setInstallationLoadState("ready");
+    } catch {
+      const message = "无法读取已安装 App，请稍后重试。";
+      setError("本地 service 返回了无效响应");
+      setInstallationError(message);
+      setInstallationLoadState("failed");
+    } finally { workspaceLoadInFlight.current = false; }
+  }
+
+  async function reloadWorkspace() {
+    setInstallationLoadState("loading");
+    setInstallationError("");
+    await loadWorkspace();
   }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
@@ -110,7 +130,8 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
     window.location.assign(`/projects?app=${encodeURIComponent(appID)}`);
   }
 
-  const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} onStartProject={startProjectWith} onUpdated={loadWorkspace} serviceOnline={online} />
+  const appInstallationLoadState = online ? installationLoadState : service.phase === "checking" ? "loading" : "offline";
+  const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={installationError} installationLoadState={appInstallationLoadState} onStartProject={startProjectWith} onUpdated={reloadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
     : tab === "projects" ? <Projects apps={apps.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onNameChange={setName} onSubmit={createProject} projects={projects} selectedApp={appID} /> : <MediaLibraryPanel onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
@@ -158,8 +179,22 @@ function AppPickerDialog({ apps, onChange, onClose, selectedApp }: { apps: App[]
   return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="app-picker-title"><section className="flex max-h-[min(620px,calc(100vh-3rem))] w-full max-w-3xl flex-col overflow-hidden rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">PROJECT APP</p><h2 className="mt-1 text-base font-semibold" id="app-picker-title">选择创作方式</h2><p className="mt-1 text-xs text-muted-foreground">先了解 App 的用途，再把它作为新项目的工作台。</p></div><button aria-label="关闭应用选择" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header>{apps.length ? <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_18rem]"><div className="divide-y border-r">{apps.map((app) => { const active = app.manifest.id === selectedApp; return <button aria-pressed={active} className={active ? "block w-full bg-accent/60 px-5 py-4 text-left" : "block w-full px-5 py-4 text-left hover:bg-muted"} key={app.manifest.id} onClick={() => choose(app)} type="button"><span className="flex items-start gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-lg border bg-background text-accent-foreground"><AppWindow className="size-4" /></span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-3 text-xs font-medium">{app.manifest.name}{active && <Check className="size-3.5 shrink-0 text-primary" />}</span><span className="mt-1 block text-[11px] leading-4 text-muted-foreground">{app.manifest.description}</span><span className="mt-2 block font-mono text-[10px] text-muted-foreground">{app.manifest.author} · v{app.manifest.version}</span></span></span></button>; })}</div><aside className="bg-muted/30 p-5">{selected && <><span className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground"><AppWindow className="size-5" /></span><p className="mt-4 text-sm font-semibold">{selected.manifest.name}</p><p className="mt-2 text-xs leading-5 text-muted-foreground">{selected.manifest.description}</p><dl className="mt-5 space-y-3 text-xs"><div><dt className="text-muted-foreground">作者</dt><dd className="mt-1">{selected.manifest.author}</dd></div><div><dt className="text-muted-foreground">版本</dt><dd className="mt-1 font-mono">v{selected.manifest.version}</dd></div></dl><Link className="mt-5 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline" href={`/apps/${encodeURIComponent(selected.manifest.id)}`} onClick={onClose}>查看详情<ExternalLink className="size-3.5" /></Link></>}</aside></div> : <div className="grid min-h-60 place-items-center p-8 text-center"><div><p className="text-sm font-medium">还没有可用于项目的 App</p><p className="mt-2 text-xs leading-5 text-muted-foreground">去 Apps 添加一个项目型 App，再回到这里开始创作。</p></div></div>}<footer className="flex items-center justify-between gap-4 border-t px-5 py-3"><span className="text-[11px] text-muted-foreground">{apps.length ? `${apps.length} 个可用项目 App` : "项目 App 决定项目的创作能力"}</span><Link className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline" href="/apps" onClick={onClose}>前往 Apps 添加更多能力<ExternalLink className="size-3.5" /></Link></footer></section></div>;
 }
 
-function Apps({ apiBase, installations, onStartProject, onUpdated, serviceOnline }: { apiBase: string; installations: Installation[]; onStartProject: (appID: string) => void; onUpdated: () => Promise<void>; serviceOnline: boolean }) {
-  return <><SectionTitle action={<><AppUpdateAllControl apps={installations} onUpdated={onUpdated} /><CreateAppDialog /><InstallGitAppDialog apiBase={apiBase} disabled={!serviceOnline} onInstalled={onUpdated} /></>} description="主卡片查看详情；也可从 Git 安装已验证的 App。" title="应用目录" /><section><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">已安装</h2><p className="mt-1 text-xs text-muted-foreground">已安装的 App 可创建项目或直接打开工作区。</p></div><Badge>{serviceOnline ? `${installations.length} APPS` : "SERVICE OFFLINE"}</Badge></div>{installations.length === 0 ? <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">{serviceOnline ? "还没有已安装的 App" : "连接 service 后显示已安装 App"}</p><p className="text-xs text-muted-foreground">应用市场仍可浏览，详情页会显示当前安装状态。</p></CardContent></Card> : <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-4">{installations.map((app) => <InstalledAppCard app={app} key={app.package} onStartProject={onStartProject} onUpdated={onUpdated} />)}</div>}</section><section className="mt-10"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">应用市场</h2><p className="mt-1 text-xs text-muted-foreground">市场条目随工作台发布；打开详情即可安装或创建项目。</p></div><Badge>{marketplaceApps.length} AVAILABLE</Badge></div><div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-4">{marketplaceApps.map((app) => { const installed = installations.some((item) => item.manifest.id === app.manifest.id); return <Link className="group" href={`/apps/${encodeURIComponent(app.manifest.id)}`} key={app.manifest.id}><Card className="h-full transition-all group-hover:-translate-y-1 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><AppWindow className="size-5" /></span><Badge>{installed ? "INSTALLED" : "MARKET APP"}</Badge></div><p className="mt-5 text-base font-semibold">{app.manifest.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{app.manifest.id}</p><p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{app.manifest.description}</p><p className="mt-2 text-[11px] text-muted-foreground">作者 · {app.manifest.author} · v{app.manifest.version}</p><p className="mt-4 text-xs font-medium text-primary">查看详情</p></CardContent></Card></Link>; })}</div></section></>;
+function Apps({ apiBase, installations, installationError, installationLoadState, onStartProject, onUpdated, serviceOnline }: { apiBase: string; installations: Installation[]; installationError: string; installationLoadState: InstallationLoadState; onStartProject: (appID: string) => void; onUpdated: () => Promise<void>; serviceOnline: boolean }) {
+  const installationCount = installationLoadState === "loading" ? "读取中…" : installationLoadState === "offline" ? "SERVICE OFFLINE" : `${installations.length} APPS`;
+  const marketplaceStatus = (installed: boolean) => installed ? "INSTALLED" : installationLoadState === "loading" ? "CHECKING" : "MARKET APP";
+  return <><SectionTitle action={<><AppUpdateAllControl apps={installations} onUpdated={onUpdated} /><CreateAppDialog /><InstallGitAppDialog apiBase={apiBase} disabled={!serviceOnline} onInstalled={onUpdated} /></>} description="主卡片查看详情；也可从 Git 安装已验证的 App。" title="应用目录" /><section><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">已安装</h2><p className="mt-1 text-xs text-muted-foreground">已安装的 App 可创建项目或直接打开工作区。</p></div><Badge>{installationCount}</Badge></div>{installationLoadState === "loading" ? <InstalledAppsLoading /> : installationLoadState === "offline" ? <InstalledAppsOffline /> : installationLoadState === "failed" ? <InstalledAppsError message={installationError} onRetry={() => void onUpdated()} /> : installations.length === 0 ? <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">还没有已安装的 App</p><p className="text-xs text-muted-foreground">应用市场仍可浏览，详情页会显示当前安装状态。</p></CardContent></Card> : <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-4">{installations.map((app) => <InstalledAppCard app={app} key={app.package} onStartProject={onStartProject} onUpdated={onUpdated} />)}</div>}</section><section className="mt-10"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">应用市场</h2><p className="mt-1 text-xs text-muted-foreground">市场条目随工作台发布；打开详情即可安装或创建项目。</p></div><Badge>{marketplaceApps.length} AVAILABLE</Badge></div><div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-4">{marketplaceApps.map((app) => { const installed = installations.some((item) => item.manifest.id === app.manifest.id); return <Link className="group" href={`/apps/${encodeURIComponent(app.manifest.id)}`} key={app.manifest.id}><Card className="h-full transition-all group-hover:-translate-y-1 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><AppWindow className="size-5" /></span><Badge>{marketplaceStatus(installed)}</Badge></div><p className="mt-5 text-base font-semibold">{app.manifest.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{app.manifest.id}</p><p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{app.manifest.description}</p><p className="mt-2 text-[11px] text-muted-foreground">作者 · {app.manifest.author} · v{app.manifest.version}</p><p className="mt-4 text-xs font-medium text-primary">查看详情</p></CardContent></Card></Link>; })}</div></section></>;
+}
+
+function InstalledAppsLoading() {
+  return <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><LoaderCircle aria-hidden="true" className="size-6 animate-spin text-primary" /><p className="text-sm font-medium">正在读取已安装的 App…</p><p className="text-xs text-muted-foreground">正在检查本机安装状态和可用更新。</p></CardContent></Card>;
+}
+
+function InstalledAppsError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-warning" /><div><p className="text-sm font-medium">未能读取已安装的 App</p><p className="mt-1 text-xs text-muted-foreground">{message}</p></div><Button onClick={onRetry} type="button" variant="outline">重新读取</Button></CardContent></Card>;
+}
+
+function InstalledAppsOffline() {
+  return <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">连接 service 后显示已安装 App</p><p className="text-xs text-muted-foreground">应用市场仍可浏览，详情页会显示当前安装状态。</p></CardContent></Card>;
 }
 
 function InstalledAppCard({ app, onStartProject, onUpdated }: { app: Installation; onStartProject: (appID: string) => void; onUpdated: () => void }) {
