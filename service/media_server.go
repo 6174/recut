@@ -18,7 +18,6 @@ import (
 	"time"
 )
 
-const mediaAssetEventPollInterval = 250 * time.Millisecond
 const completedMediaCacheControl = "public, max-age=31536000, immutable"
 
 type mediaAssetSnapshot struct {
@@ -137,7 +136,7 @@ func (s *Server) streamMediaAssetEvents(w http.ResponseWriter, r *http.Request) 
 	}
 	flusher.Flush()
 
-	ticker := time.NewTicker(mediaAssetEventPollInterval)
+	ticker := time.NewTicker(changeHubPollInterval)
 	defer ticker.Stop()
 	for {
 		events, err := s.media.AssetEvents(after)
@@ -160,6 +159,7 @@ func (s *Server) streamMediaAssetEvents(w http.ResponseWriter, r *http.Request) 
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.store.mediaEvents.wait():
 		case <-ticker.C:
 		}
 	}

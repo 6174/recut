@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖内嵌工作台文件系统与标准库 HTTP 静态文件服务
- * [OUTPUT]: 对外提供本地工作台静态资源、项目/App 深链壳与不可变 Next 资源缓存
+ * [OUTPUT]: 对外提供无相对目录重定向的本地工作台静态资源、项目/App 深链壳与不可变 Next 资源缓存
  * [POS]: service 的本地 UI 传输边界；API 路由优先于此兜底，静态导出不理解业务数据
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -39,6 +39,12 @@ func localWorkspaceHandler(files fs.FS) http.Handler {
 
 func localWorkspaceAssetPath(requestPath string) string {
 	cleaned := path.Clean("/" + requestPath)
+	switch cleaned {
+	case "/":
+		return "/"
+	case "/apps", "/media", "/projects":
+		return cleaned + "/"
+	}
 	if localWorkspaceDynamicRoute(cleaned, "/projects/") {
 		return "/projects/app/"
 	}

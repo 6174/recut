@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 service 的独立 App workspace scope、manifest UI 入口、App API、Provider/凭据/媒体生成、平台素材选择器与 Agent Session HTTP API
- * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏；App 可回填输入草稿但不能借此提交 turn
+ * [INPUT]: 依赖 service 的独立 App workspace scope、manifest UI 入口、App API、Provider/凭据/媒体生成、平台素材选择器与按 scope 缓存的 Agent Session 列表
+ * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏；App 可回填输入草稿，`agent.send` 复用会话摘要缓存并在建会话后回写
  * [POS]: workspace-app/[appID] 的客户端工作台；复用项目级安全 scope，但不显示或创建用户项目
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,6 +14,7 @@ import { HeaderActions } from "@/components/header-actions";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
+import { agentScopeKey, useAgentStore } from "@/lib/agent-store";
 import { firstAvailableAgentRuntime } from "@/lib/agent-runtime";
 import { useServiceStore } from "@/lib/service-store";
 
@@ -43,6 +44,8 @@ export default function StandaloneAppClient() {
   const [settingsSection, setSettingsSection] = useState<"multimodal" | undefined>();
   const apiBase = useServiceStore((state) => state.endpoint);
   const online = useServiceStore((state) => state.service.phase === "online");
+  const loadAgentSessions = useAgentStore((state) => state.loadSessions);
+  const upsertAgentSession = useAgentStore((state) => state.upsertSession);
   const appFrame = useRef<HTMLIFrameElement>(null);
   const mediaPickerReply = useRef<((selection: PlatformMediaPickerResult | null) => void) | null>(null);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.workspace-app-agent-panel-width" });
@@ -125,15 +128,16 @@ export default function StandaloneAppClient() {
           mediaPickerReply.current = (selection) => reply(selection);
           setMediaPicker({ kinds, multiple, selectedIDs });
         } else if (request.type === "agent.send") {
-          const sessionsResponse = await fetch(`${apiBase}/v1/agent-sessions?projectId=${encodeURIComponent(scope.id)}`);
-          if (!sessionsResponse.ok) throw new Error("无法读取 Agent 对话");
-          const sessions = await sessionsResponse.json() as { id: string }[];
+          const agentScope = agentScopeKey(scope.id);
+          const sessions = await loadAgentSessions(apiBase, agentScope);
           let sessionID = sessions[0]?.id;
           if (!sessionID) {
             const runtime = await firstAvailableAgentRuntime(apiBase);
             const createResponse = await fetch(`${apiBase}/v1/agent-sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: scope.id, runtime }) });
             if (!createResponse.ok) throw new Error("无法创建 Agent 对话");
-            sessionID = (await createResponse.json() as { id: string }).id;
+            const session = await createResponse.json();
+            upsertAgentSession(apiBase, agentScope, session);
+            sessionID = session.id;
           }
           const turnResponse = await fetch(`${apiBase}/v1/agent-sessions/${sessionID}/turns`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: request.input.prompt }) });
           if (!turnResponse.ok) throw new Error("无法发送给 Agent");

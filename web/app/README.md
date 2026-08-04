@@ -3,6 +3,7 @@
 > L2 | 父级: /web/README.md
 
 成员清单
+工作台数据规则: 项目、App 与安装状态由 `lib/workspace-store` 跨路由缓存；首次读取及创建、安装、升级成功后显式刷新，绝不使用 5 秒轮询。
 layout.tsx: 工作台 HTML 外壳与全局元数据；不挂载悬浮控制，页面 Header 通过共享组件初始化全局 service 状态。
 page.tsx: 固定桌面双栏工作台；`/projects`、`/apps` 与 `/media` 共同复用 Header、Agent 面板和各自可刷新保留状态的 Tab 内容。首页 Project/Apps 始终使用隐藏 general scope，绝不从项目列表继承会话；素材库使用自己的隐藏 media scope，项目详情和独立 App 则各自传入专属 scope，三类历史彼此隔离且默认打开该 scope 的最新会话。新建项目使用受控 App 选择面板，只展示项目型 App、预览用途和身份、直达语义详情，并引导到 Apps 添加更多能力；从 Apps 开始项目时以 `/projects?app=<appId>` 保留选择；Apps 只呈现已安装扩展与静态应用市场，安装列表将读取中、失败、空列表拆为互斥状态，避免慢速 Git 检查被误呈现为“没有已安装 App”；主卡片进入详情，项目型 App 预选后转入新建项目、工作区型 App 直接打开；顶部提供“新建应用”AI Prompt 与“从 Git 安装”入口，后者把 GitHub 仓库交由 service 校验 manifest 并在成功后刷新目录；Git App 目录读取会检测远端更新，详情和卡片可升级单项，存在可安全更新项时顶部才显示一键更新；素材库不进入 App Catalog、安装管理或 iframe；任何条目均可离线进入详情，service 仅提供安装状态、安装和 Git 更新；其余依赖 service 的工作台功能在 cloud mode 提供本地安装和已有远程 service 的连接入口，而 local mode 已与 service 同进程，不显示安装引导或独立 UI/service 版本失配；发现 service 更新时继续保留当前核心 Tab，由 Header 右侧的醒目操作入口触发升级；两种 scope 的新会话均显示非空 onboarding；Header 右侧复用 service 状态与全局设置操作。
 media/: 原生 React 素材库能力；`page.tsx` 是 `/media` 深链壳，`media-library-panel.tsx` 为主工作台复用的内容组件；左侧按类型管理跨项目媒体资产，可主动批量上传图片、视频或音频，提交创建后由单条 Recut Asset SSE 原位呈现，活跃 Asset 显示实时用时、终态显示持久化耗时；以紧凑下拉框选择已连接 Provider 模型、在独立缩略图选择弹框中按需添加参考图，并引导添加缺失 Provider；右侧复用标准 Agent 会话，Provider 和用途模型仍在全局设置中管理。

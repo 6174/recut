@@ -6,6 +6,6 @@
 
 成员清单
 
-official-repo/: 独立 Git 仓库，Recut Video 的公开愿景、App 规范、提案与社区 App 提交入口。
+official-repo/: `recut-official-repo` Git submodule（`6174/recut` 的 `main`），Recut Video 的公开愿景、App 规范、提案与社区 App 提交入口。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

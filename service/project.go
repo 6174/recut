@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、原生素材库与首页 general chat 的隐藏平台 scope、全局 onboarding 设置、持久化 Agent CLI 定位缓存与按文件共享、WAL 连接池化且以有界健康检查复用 SQLite 存储
+ * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、原生素材库与首页 general chat 的隐藏平台 scope、全局 onboarding 设置、持久化 Agent CLI 定位缓存与按文件共享、WAL 连接池化且以有界健康检查复用 SQLite 存储，以及项目/Agent/媒体三类 durable 事件表的进程内唤醒广播
  * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根，Agent 会话使用独立工作区库，首页聊天复用隐藏 scope 而非伪造用户项目
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -69,14 +69,25 @@ type Store struct {
 	root           string
 	catalog        *Catalog
 	agentCommands  *AgentCommandResolver
-	workspaceMu    sync.Mutex
+	workspaceMu    sync.RWMutex
 	workspaceReady bool
-	databasesMu    sync.Mutex
+	databasesMu    sync.RWMutex
 	databases      map[string]*sql.DB
+	projectEvents  *changeHub
+	agentEvents    *changeHub
+	mediaEvents    *changeHub
 }
 
 func NewStore(root string, apps *Catalog) *Store {
-	return &Store{root: root, catalog: apps, agentCommands: newAgentCommandResolver(root), databases: map[string]*sql.DB{}}
+	return &Store{
+		root:          root,
+		catalog:       apps,
+		agentCommands: newAgentCommandResolver(root),
+		databases:     map[string]*sql.DB{},
+		projectEvents: newChangeHub(),
+		agentEvents:   newChangeHub(),
+		mediaEvents:   newChangeHub(),
+	}
 }
 func (s *Store) Ensure() error { return os.MkdirAll(s.projectsDir(), 0o755) }
 
@@ -240,6 +251,12 @@ func (s *Store) WorkspaceDatabase() (*sql.DB, error) {
 		return nil, err
 	}
 	path := filepath.Join(s.root, "workspace.sqlite")
+	s.workspaceMu.RLock()
+	ready := s.workspaceReady
+	s.workspaceMu.RUnlock()
+	if ready {
+		return s.database(path, nil)
+	}
 	s.workspaceMu.Lock()
 	defer s.workspaceMu.Unlock()
 	if s.workspaceReady {
@@ -356,17 +373,33 @@ create index if not exists media_task_leases_expiry on media_task_leases(expires
 }
 
 func (s *Store) database(path string, initialize func(*sql.DB) error) (*sql.DB, error) {
-	s.databasesMu.Lock()
-	defer s.databasesMu.Unlock()
-	if db := s.databases[path]; db != nil {
+	s.databasesMu.RLock()
+	db := s.databases[path]
+	s.databasesMu.RUnlock()
+	if db != nil {
+		// Health-check outside the global mutex. The pool already bounds
+		// concurrent access, and a slow or saturated Ping must not block
+		// acquisitions of unrelated project/App databases.
 		checkContext, cancel := context.WithTimeout(context.Background(), databaseHealthCheckTimeout)
 		err := db.PingContext(checkContext)
 		cancel()
 		if err == nil || errors.Is(err, context.DeadlineExceeded) {
 			return db, nil
 		}
-		delete(s.databases, path)
+		// The handle is closed or broken; drop it so the open path below
+		// rebuilds it, then keep the self-healing contract for callers that
+		// explicitly closed the returned handle.
+		s.databasesMu.Lock()
+		if s.databases[path] == db {
+			delete(s.databases, path)
+		}
+		s.databasesMu.Unlock()
 		_ = db.Close()
+	}
+	s.databasesMu.Lock()
+	defer s.databasesMu.Unlock()
+	if db := s.databases[path]; db != nil {
+		return db, nil
 	}
 	// Nested result scans need more than one connection. WAL permits those
 	// readers to proceed while SQLite serializes writers; every connection gets
@@ -396,6 +429,10 @@ func sqliteDSN(path string) string {
 	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", workspaceBusyTimeoutMilliseconds))
 	query.Add("_pragma", "journal_mode(WAL)")
 	query.Add("_pragma", "synchronous(NORMAL)")
+	// Every transaction starts as a writer. This removes the deferred
+	// read-then-upgrade window where two transactions holding read snapshots
+	// both try to promote and hit SQLITE_BUSY, even under busy_timeout.
+	query.Add("_txlock", "immediate")
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
 }
 
@@ -481,7 +518,10 @@ func (s *Store) AppendEvent(projectID string, event any) {
 	if err != nil {
 		return
 	}
-	_, _ = db.Exec("insert into events (payload_json, created_at) values (?, ?)", string(data), time.Now().UTC().Format(time.RFC3339Nano))
+	if _, err := db.Exec("insert into events (payload_json, created_at) values (?, ?)", string(data), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return
+	}
+	s.projectEvents.notify()
 }
 
 func (s *Store) checkAppScope(projectID, appID string) error {

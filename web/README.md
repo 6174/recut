@@ -17,7 +17,7 @@ components.json: shadcn/Mira 组件生成与路径别名配置。
 tsconfig.json: TypeScript 编译约束与 `@/*` 路径别名。
 app/: 本地 Recut 工作台的 App Router 页面与样式。
 components/: Chat UI、保留的终端诊断面板与 shadcn 风格 UI 原子组件；浮层交互基于 Radix Portal。
-lib/: 前端共享工具函数。
+lib/: 前端共享工具函数与不持久化的跨路由数据快照；service endpoint 变化时整体失效，目录和 Agent 低频元数据禁止页面级轮询。
 public/: 公开的跨平台 service 安装器与构建时生成的发布包。
 
 依赖边界

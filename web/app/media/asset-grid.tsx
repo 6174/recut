@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖素材、任务生命周期契约与共享视频首帧/计时组件
- * [OUTPUT]: 对外提供 AssetGrid，用真实视频画面和持久化/实时耗时渲染素材卡片
- * [POS]: media 页面列表渲染单元；从 page.tsx 拆出以隔离预览表现与页面编排
+ * [INPUT]: 依赖素材、任务生命周期契约与共享视频封面/计时组件
+ * [OUTPUT]: 对外提供 AssetGrid，用 iframe 子文档视频封面、惰性图片与持久化/实时耗时渲染素材卡片
+ * [POS]: media 页面列表渲染单元；从 page.tsx 拆出以隔离预览表现与页面编排，卡片点击由外层按钮统一接收
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { ImageIcon, LoaderCircle } from "lucide-react";
@@ -60,7 +60,7 @@ function AssetCard({ apiBase, asset, onPreview }: { apiBase: string; asset: Asse
   const contentURL = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`;
   return (
     <button className="overflow-hidden rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20" onClick={() => onPreview(asset)} type="button">
-      {asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-[4/3] bg-muted"><img alt={asset.name} className="h-full w-full object-cover" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-[4/3]" src={contentURL} /> : <div className="grid aspect-[4/3] place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
+      {asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-[4/3] bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-[4/3]" src={contentURL} /> : <div className="grid aspect-[4/3] place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
       <div className="p-3">
         <p className="truncate text-xs font-medium">{asset.name}</p>
         <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{asset.metadata.prompt ?? "导入素材"}</p>

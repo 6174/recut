@@ -1,40 +1,30 @@
 /*
- * [INPUT]: 依赖按项目或全局解析的 Agent onboarding HTTP API、/v1/agents 运行时状态与共享的 AgentInstallGuide 安装入口；React 状态
+ * [INPUT]: 依赖按项目或全局 scope 缓存的 Agent onboarding 快照、/v1/agents 运行时状态与共享的 AgentInstallGuide 安装入口
  * [OUTPUT]: 对外提供项目或通用新对话的可点击引导卡；点击时仅回填显式 prompt；在 runtimeStatus 报告无任何可用 runtime 时仅显示 1–3 张本地 Agent 安装卡，点击打开共享安装对话框
- * [POS]: components 的新会话空态内容；App、全局与平台兜底配置都经同一后端契约进入此处；全部本地 Agent 未就绪时只保留安装路径
+ * [POS]: components 的新会话空态内容；App、全局与平台兜底配置由 lib/agent-store 共享，全部本地 Agent 未就绪时只保留安装路径
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { ArrowUpRight, Sparkles, TerminalSquare } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatus } from "@/components/agent-install-guide";
+import { agentScopeKey, useAgentStore, type AgentGuide } from "@/lib/agent-store";
 
-type Guide = { id: string; title: string; description: string; prompt: string };
-const fallback: Guide[] = [
+const fallback: AgentGuide[] = [
   { id: "platform-start", title: "告诉我你的目标", description: "从想做什么开始，我会把下一步拆清楚。", prompt: "我想开始一个新项目，但还不确定第一步。请先问我最关键的几个问题，再给出清晰、可执行的下一步。" },
   { id: "platform-plan", title: "一起规划", description: "把一个模糊想法变成有顺序的行动。", prompt: "请帮我把这个想法拆成最小可执行步骤。先确认目标、素材和交付物，再一次只引导我完成下一步。" },
 ];
 
 export function AgentOnboarding({ apiBase, onChoose, onInstall, projectID, runtimeStatus }: { apiBase: string; onChoose: (prompt: string) => void; onInstall: (agent: AgentRuntimeStatus) => void; projectID: string | null; runtimeStatus: AgentRuntimeStatus[] }) {
-  const [guides, setGuides] = useState<Guide[]>(fallback);
+  const scope = agentScopeKey(projectID);
+  const guides = useAgentStore((state) => state.onboardingByScope[scope] ?? fallback);
+  const loadOnboarding = useAgentStore((state) => state.loadOnboarding);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        const query = projectID ? `?projectId=${encodeURIComponent(projectID)}` : "";
-        const response = await fetch(`${apiBase}/v1/agent-onboarding${query}`, { signal: controller.signal });
-        if (!response.ok) return;
-        const payload = await response.json() as { items?: Guide[] };
-        if (payload.items?.length) setGuides(payload.items);
-      } catch (cause) {
-        if (!(cause instanceof DOMException && cause.name === "AbortError")) setGuides(fallback);
-      }
-    })();
-    return () => controller.abort();
-  }, [apiBase, projectID]);
+    void loadOnboarding(apiBase, scope);
+  }, [apiBase, loadOnboarding, scope]);
 
   // Build the install-card list from RUNTIME_ORDER so every supported runtime gets a card
   // even if the backend has not yet reported its status. Anything not in the runtimeStatus

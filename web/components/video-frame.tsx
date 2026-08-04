@@ -1,13 +1,11 @@
 /*
- * [INPUT]: 依赖 React 生命周期、lucide-react 状态图标和媒体内容 URL
- * [OUTPUT]: 对外提供 VideoFrame，直接播放原始视频作为卡片预览，统一处理加载与失败状态
- * [POS]: components 的媒体画面原子；被素材库、Agent 消息和素材详情复用，不承载业务状态或额外的缩略图协议
+ * [INPUT]: 依赖媒体内容 URL 与浏览器原生媒体元素/iframe 媒体文档
+ * [OUTPUT]: 对外提供 VideoFrame，卡片以 srcDoc iframe 承载静音循环视频，详情嵌入原片 URL 的浏览器媒体文档
+ * [POS]: components 的媒体画面原子；被素材库、Agent 消息和素材详情复用，卡片使用真实子文档而非 iframe fallback 内容
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { LoaderCircle, VideoOff } from "lucide-react";
-import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
 type VideoFrameProps = {
@@ -18,11 +16,11 @@ type VideoFrameProps = {
   videoClassName?: string;
 };
 
-type VideoState = "loading" | "ready" | "error";
-
 /**
  * ---------- Video frame ----------
- * 请求首个可解码画面而非只取 metadata，保证素材卡片展示真实视频内容。
+ * 封面必须写入 iframe 的 srcDoc。iframe 的 JSX 子节点只是“不支持 iframe”时的
+ * fallback，不能作为子文档内容，因此会显示空白。
+ * 素材库首屏限定为 12 张，避免上百条封面同时占用解码器和网络连接。
  */
 export function VideoFrame({
   alt,
@@ -31,49 +29,36 @@ export function VideoFrame({
   src,
   videoClassName,
 }: VideoFrameProps) {
-  const [state, setState] = useState<VideoState>("loading");
-
-  useEffect(() => {
-    setState("loading");
-  }, [src]);
+  if (!controls) {
+    return (
+      <div className={cn("relative isolate aspect-video w-full overflow-hidden bg-muted", className)}>
+        <iframe
+          allow="autoplay"
+          className={cn("pointer-events-none block h-full w-full border-0", videoClassName)}
+          srcDoc={videoDocument(src, alt)}
+          tabIndex={-1}
+          title={alt}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className={cn("relative isolate overflow-hidden bg-muted", className)}>
-      <video
-        aria-label={alt}
-        autoPlay={!controls}
-        className={cn("block h-full w-full object-cover", videoClassName)}
-        controls={controls}
-        loop={!controls}
-        muted={!controls}
-        onError={() => setState("error")}
-        onLoadedData={() => setState("ready")}
-        playsInline
-        preload={controls ? "auto" : "metadata"}
+    <div className={cn("aspect-video isolate overflow-hidden bg-black", className)}>
+      <iframe
+        allow="autoplay; fullscreen; picture-in-picture"
+        className={cn("block h-full w-full border-0", videoClassName)}
         src={src}
-        tabIndex={controls ? undefined : -1}
-      >
-        你的浏览器不支持视频播放。
-      </video>
-      {state === "loading" && (
-        <div
-          aria-label="正在加载视频首帧"
-          className="pointer-events-none absolute inset-0 grid place-items-center bg-muted/45 text-muted-foreground"
-        >
-          <LoaderCircle className="size-5 animate-spin" />
-        </div>
-      )}
-      {state === "error" && (
-        <div
-          className="pointer-events-none absolute inset-0 grid place-items-center bg-muted px-3 text-center text-muted-foreground"
-          role="status"
-        >
-          <span className="grid gap-1.5 justify-items-center text-[11px]">
-            <VideoOff className="size-5" />
-            视频预览不可用
-          </span>
-        </div>
-      )}
+        title={alt}
+      />
     </div>
   );
+}
+
+function videoDocument(src: string, alt: string) {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>html,body,video{height:100%;width:100%;margin:0;background:#000}video{display:block;object-fit:cover}</style></head><body><video aria-label="${escapeAttribute(alt)}" autoplay loop muted playsinline preload="metadata" src="${escapeAttribute(src)}"></video></body></html>`;
+}
+
+function escapeAttribute(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

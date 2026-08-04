@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的已校验 App 包、Git CLI 与标准库路径/进程能力
- * [OUTPUT]: 对外提供 GitHub App 安装、远端更新检测、单个与批量 fast-forward 升级能力
+ * [OUTPUT]: 对外提供 GitHub App 安装、后台缓存化远端更新检测、单个与批量 fast-forward 升级能力
  * [POS]: service 的 App 分发边界；只接受标准 manifest 包，不让 HTTP 层拼接 Git 命令
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
@@ -43,19 +44,9 @@ type AppUpdateResult struct {
 const remoteCheckInterval = time.Minute
 
 func (c *Catalog) Installations() ([]AppInstallation, error) {
-	c.installationCheckMu.Lock()
-	defer c.installationCheckMu.Unlock()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if time.Since(c.lastRemoteCheck) >= remoteCheckInterval {
-		for _, app := range c.apps {
-			c.recordRemoteCheck(app.Root, refreshGitRemote(app.Root))
-		}
-		c.lastRemoteCheck = time.Now()
-	}
-	apps := make([]App, 0, len(c.apps))
-	for _, app := range c.apps {
-		apps = append(apps, app)
+	apps, remoteErrors, refresh := c.installationSnapshot()
+	if refresh {
+		go c.refreshRemoteStatuses()
 	}
 	result := make([]AppInstallation, 0, len(apps))
 	for _, app := range apps {
@@ -63,13 +54,64 @@ func (c *Catalog) Installations() ([]AppInstallation, error) {
 			continue
 		}
 		installation := inspectAppInstallation(app)
-		if message := c.remoteCheckErrors[app.Root]; message != "" {
-			installation.Status = message
-		}
+		installation.Status = remoteStatus(installation.Status, remoteErrors[app.Root])
 		result = append(result, installation)
 	}
 	sortInstallations(result)
 	return result, nil
+}
+
+func (c *Catalog) installationSnapshot() ([]App, map[string]string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	apps := catalogApps(c.apps)
+	errors := maps.Clone(c.remoteCheckErrors)
+	refresh := !c.remoteCheckRunning && time.Since(c.lastRemoteCheck) >= remoteCheckInterval
+	if refresh {
+		c.remoteCheckRunning = true
+	}
+	return apps, errors, refresh
+}
+
+func (c *Catalog) refreshRemoteStatuses() {
+	// The single-flight remoteCheckRunning flag (set under c.mu in
+	// installationSnapshot) already prevents concurrent refreshes, so the
+	// network fetch loop below must not hold installationCheckMu. A slow or
+	// offline `git fetch` would otherwise block every install/update request
+	// for its entire duration. Git operations on the same checkout are safe to
+	// overlap; only the state swap is serialized.
+	errors := map[string]string{}
+	for _, app := range c.snapshotApps() {
+		if err := c.remoteChecker(app.Root); err != nil {
+			errors[app.Root] = err.Error()
+		}
+	}
+	c.mu.Lock()
+	c.remoteCheckErrors = errors
+	c.lastRemoteCheck = time.Now()
+	c.remoteCheckRunning = false
+	c.mu.Unlock()
+}
+
+func (c *Catalog) snapshotApps() []App {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return catalogApps(c.apps)
+}
+
+func catalogApps(source map[string]App) []App {
+	apps := make([]App, 0, len(source))
+	for _, app := range source {
+		apps = append(apps, app)
+	}
+	return apps
+}
+
+func remoteStatus(local, remote string) string {
+	if remote != "" {
+		return remote
+	}
+	return local
 }
 
 func (c *Catalog) InstallGitHub(rawRepository string) (AppInstallation, error) {
@@ -79,8 +121,6 @@ func (c *Catalog) InstallGitHub(rawRepository string) (AppInstallation, error) {
 	}
 	c.installationCheckMu.Lock()
 	defer c.installationCheckMu.Unlock()
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	destination := filepath.Join(c.dir, packageName)
 	if _, err := os.Lstat(destination); err == nil {
 		return AppInstallation{}, fmt.Errorf("App package %q is already installed", packageName)
@@ -99,7 +139,7 @@ func (c *Catalog) InstallGitHub(rawRepository string) (AppInstallation, error) {
 	if err != nil {
 		return AppInstallation{}, fmt.Errorf("GitHub repository is not a standard Recut App: %w", err)
 	}
-	if _, exists := c.apps[app.Manifest.ID]; exists {
+	if _, exists := c.Get(app.Manifest.ID); exists {
 		return AppInstallation{}, fmt.Errorf("App id %q is already installed", app.Manifest.ID)
 	}
 	if err := os.Rename(temporary, destination); err != nil {
@@ -110,10 +150,8 @@ func (c *Catalog) InstallGitHub(rawRepository string) (AppInstallation, error) {
 		_ = os.RemoveAll(destination)
 		return AppInstallation{}, err
 	}
-	c.apps = apps
-	c.lastRemoteCheck = time.Time{}
-	c.remoteCheckErrors = nil
-	installed, ok := c.apps[app.Manifest.ID]
+	c.replaceApps(apps)
+	installed, ok := apps[app.Manifest.ID]
 	if !ok {
 		return AppInstallation{}, errors.New("installed App disappeared from catalog")
 	}
@@ -126,12 +164,9 @@ func (c *Catalog) UpdateInstallation(packageName string) (AppInstallation, error
 	}
 	c.installationCheckMu.Lock()
 	defer c.installationCheckMu.Unlock()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	updated, err := c.updateInstallationLocked(packageName)
+	updated, err := c.updateInstallation(packageName)
 	if err == nil {
-		c.lastRemoteCheck = time.Time{}
-		c.remoteCheckErrors = nil
+		c.invalidateRemoteStatus()
 	}
 	return updated, err
 }
@@ -139,28 +174,25 @@ func (c *Catalog) UpdateInstallation(packageName string) (AppInstallation, error
 func (c *Catalog) UpdateInstallations() (AppUpdateResult, error) {
 	c.installationCheckMu.Lock()
 	defer c.installationCheckMu.Unlock()
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	result := AppUpdateResult{Updated: []AppInstallation{}, Failed: []AppUpdateFailure{}}
-	for _, app := range c.apps {
+	for _, app := range c.snapshotApps() {
 		status, err := gitStatus(app.Root)
 		if err != nil || status.Dirty || !status.UpdateAvailable {
 			continue
 		}
-		updated, err := c.updateInstallationLocked(filepath.Base(app.Root))
+		updated, err := c.updateInstallation(filepath.Base(app.Root))
 		if err != nil {
 			result.Failed = append(result.Failed, AppUpdateFailure{Package: filepath.Base(app.Root), Error: err.Error()})
 			continue
 		}
 		result.Updated = append(result.Updated, updated)
 	}
-	c.lastRemoteCheck = time.Time{}
-	c.remoteCheckErrors = nil
+	c.invalidateRemoteStatus()
 	return result, nil
 }
 
-func (c *Catalog) updateInstallationLocked(packageName string) (AppInstallation, error) {
+func (c *Catalog) updateInstallation(packageName string) (AppInstallation, error) {
 	root := filepath.Join(c.dir, packageName)
 	if _, err := os.Stat(root); err != nil {
 		return AppInstallation{}, errors.New("App package not found")
@@ -179,13 +211,28 @@ func (c *Catalog) updateInstallationLocked(packageName string) (AppInstallation,
 	if err != nil {
 		return AppInstallation{}, err
 	}
-	c.apps = apps
+	c.replaceApps(apps)
 	for _, app := range apps {
 		if filepath.Clean(app.Root) == filepath.Clean(root) {
 			return inspectAppInstallation(app), nil
 		}
 	}
 	return AppInstallation{}, errors.New("updated App is no longer a valid Recut App")
+}
+
+func (c *Catalog) replaceApps(apps map[string]App) {
+	c.mu.Lock()
+	c.apps = apps
+	c.lastRemoteCheck = time.Time{}
+	c.remoteCheckErrors = nil
+	c.mu.Unlock()
+}
+
+func (c *Catalog) invalidateRemoteStatus() {
+	c.mu.Lock()
+	c.lastRemoteCheck = time.Time{}
+	c.remoteCheckErrors = nil
+	c.mu.Unlock()
 }
 
 type gitCheckoutStatus struct {
@@ -233,17 +280,6 @@ func gitStatus(root string) (gitCheckoutStatus, error) {
 	status.Repository, _ = gitCommand(root, "config", "--get", "remote.origin.url")
 	status.Repository = strings.TrimSpace(status.Repository)
 	return status, nil
-}
-
-func (c *Catalog) recordRemoteCheck(root string, err error) {
-	if err == nil {
-		delete(c.remoteCheckErrors, root)
-		return
-	}
-	if c.remoteCheckErrors == nil {
-		c.remoteCheckErrors = map[string]string{}
-	}
-	c.remoteCheckErrors[root] = err.Error()
 }
 
 func refreshGitRemote(root string) error {

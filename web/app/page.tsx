@@ -1,14 +1,14 @@
 /*
- * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 状态、静态 App Catalog 及项目、App 安装状态与 Agent Session HTTP API
+ * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与工作台目录状态、静态 App Catalog 及 Agent Session HTTP API
  * [OUTPUT]: 对外提供 Project、Apps、素材库三个核心 Tab、固定使用通用会话上下文的首页 Agent 面板、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、直接开始动作、安装列表的明确读取/失败/空态、service 连接错误诊断和市场分区的离线可浏览目录；service 更新只由 Header 操作提示，不替换核心工作区
- * [POS]: web/app 的主工作台框架；首页不从项目列表推导 Agent 上下文，Cloudflare 或本地 service 托管此 UI，用户可选择本地或远程 service 作为数据与执行边界
+ * [POS]: web/app 的主工作台框架；工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { AppWindow, Check, ChevronDown, Clapperboard, Code2, Download, ExternalLink, FolderOpen, FolderPlus, LoaderCircle, Plus, X } from "lucide-react";
 import Link from "next/link";
-import { CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { AppUpdateAllControl, AppVersionControl } from "@/components/app-version-control";
@@ -23,29 +23,20 @@ import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { marketplaceApps } from "@/lib/app-catalog";
 import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
+import { useWorkspaceStore, type WorkspaceApp as App, type WorkspaceInstallation as Installation, type WorkspaceProject as Project } from "@/lib/workspace-store";
 import { MediaLibraryPanel } from "./media/media-library-panel";
-
-type App = { manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone" } };
-type Project = { id: string; name: string; appId: string };
-type Installation = {
-  package: string;
-  manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone" };
-  repository?: string;
-  revision?: string;
-  dirty: boolean;
-  updateAvailable: boolean;
-  manageable: boolean;
-  status?: string;
-};
 
 type AppDetailRenderer = (context: { onConnectService: () => void; serviceOnline: boolean }) => React.ReactNode;
 type WorkspaceTab = "projects" | "apps" | "media";
 type InstallationLoadState = "loading" | "ready" | "failed" | "offline";
 
 export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: AppDetailRenderer; initialTab?: WorkspaceTab } = {}) {
-  const [apps, setApps] = useState<App[]>([]);
-  const [installations, setInstallations] = useState<Installation[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const apps = useWorkspaceStore((state) => state.apps);
+  const installations = useWorkspaceStore((state) => state.installations);
+  const projects = useWorkspaceStore((state) => state.projects);
+  const workspaceState = useWorkspaceStore((state) => state.state);
+  const workspaceError = useWorkspaceStore((state) => state.error);
+  const loadWorkspace = useWorkspaceStore((state) => state.load);
   const [appID, setAppID] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("app") ?? "");
   const [name, setName] = useState("");
   const service = useServiceStore((state) => state.service);
@@ -55,49 +46,21 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"service" | "multimodal" | undefined>();
   const [error, setError] = useState("");
-  const [installationLoadState, setInstallationLoadState] = useState<InstallationLoadState>("loading");
-  const [installationError, setInstallationError] = useState("");
-  const workspaceLoadInFlight = useRef(false);
   const { handlePointerDown, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.workspace-agent-panel-width" });
 
   const online = service.phase === "online";
   useEffect(() => {
     if (!online) return;
-    setInstallationLoadState("loading");
-    setInstallationError("");
-    void loadWorkspace();
-    const timer = window.setInterval(() => void loadWorkspace(), 5000);
-    return () => window.clearInterval(timer);
-  }, [apiBase, online]);
+    void loadWorkspace(apiBase);
+  }, [apiBase, loadWorkspace, online]);
 
-  async function loadWorkspace() {
-    if (workspaceLoadInFlight.current) return;
-    workspaceLoadInFlight.current = true;
-    try {
-      const [appResponse, projectResponse, installationResponse] = await Promise.all([
-        fetch(`${apiBase}/v1/apps`), fetch(`${apiBase}/v1/projects`), fetch(`${apiBase}/v1/apps/installed`),
-      ]);
-      if (!appResponse.ok || !projectResponse.ok || !installationResponse.ok) throw new Error("本地 service 返回了无效响应");
-      const nextApps = await appResponse.json() as App[];
-      const nextProjects = await projectResponse.json() as Project[];
-      const projectApps = nextApps.filter((app) => app.manifest.type === "project");
-      setApps(nextApps);
-      setProjects(nextProjects);
-      setInstallations(await installationResponse.json() as Installation[]);
-      setAppID((current) => current && projectApps.some((app) => app.manifest.id === current) ? current : projectApps[0]?.manifest.id ?? "");
-      setInstallationLoadState("ready");
-    } catch {
-      const message = "无法读取已安装 App，请稍后重试。";
-      setError("本地 service 返回了无效响应");
-      setInstallationError(message);
-      setInstallationLoadState("failed");
-    } finally { workspaceLoadInFlight.current = false; }
-  }
+  useEffect(() => {
+    const projectApps = apps.filter((app) => app.manifest.type === "project");
+    setAppID((current) => current && projectApps.some((app) => app.manifest.id === current) ? current : projectApps[0]?.manifest.id ?? "");
+  }, [apps]);
 
   async function reloadWorkspace() {
-    setInstallationLoadState("loading");
-    setInstallationError("");
-    await loadWorkspace();
+    await loadWorkspace(apiBase, true);
   }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
@@ -107,7 +70,7 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
     if (!response.ok) { setError(await responseMessage(response)); return; }
     const project = await response.json() as Project;
     setName("");
-    await loadWorkspace();
+    await loadWorkspace(apiBase, true);
   }
 
   function openMediaProviderSettings() {
@@ -130,8 +93,8 @@ export function Workspace({ appDetail, initialTab = "projects" }: { appDetail?: 
     window.location.assign(`/projects?app=${encodeURIComponent(appID)}`);
   }
 
-  const appInstallationLoadState = online ? installationLoadState : service.phase === "checking" ? "loading" : "offline";
-  const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={installationError} installationLoadState={appInstallationLoadState} onStartProject={startProjectWith} onUpdated={reloadWorkspace} serviceOnline={online} />
+  const appInstallationLoadState: InstallationLoadState = online ? workspaceState : service.phase === "checking" ? "loading" : "offline";
+  const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={workspaceError} installationLoadState={appInstallationLoadState} onStartProject={startProjectWith} onUpdated={reloadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
     : tab === "projects" ? <Projects apps={apps.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onNameChange={setName} onSubmit={createProject} projects={projects} selectedApp={appID} /> : <MediaLibraryPanel onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);

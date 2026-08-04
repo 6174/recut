@@ -23,11 +23,12 @@ type Workspace interface {
 }
 
 type MediaService struct {
-	store           Workspace
-	mu              sync.Mutex
-	pollers         sync.Map
-	oneRequestGates sync.Map
-	schedulerID     string
+	store             Workspace
+	dedupeMu          sync.Mutex
+	pollers           sync.Map
+	oneRequestGates   sync.Map
+	schedulerID       string
+	notifyMediaChange func()
 }
 
 const mediaRequestTimeout = 5 * time.Minute
@@ -46,8 +47,19 @@ func NewMediaService(store Workspace) *MediaService {
 	if err != nil {
 		id = fmt.Sprintf("fallback-%d", time.Now().UTC().UnixNano())
 	}
-	return &MediaService{store: store, schedulerID: "media-reconciler-" + id}
+	return &MediaService{store: store, schedulerID: "media-reconciler-" + id, notifyMediaChange: func() {}}
 }
+
+// SetNotifyMediaChange wires the durable media_asset_events table to an
+// in-process wakeup. The daemon installs a changeHub notifier here; short-lived
+// MCP processes keep the no-op default and rely on the SSE fallback poll.
+func (m *MediaService) SetNotifyMediaChange(notify func()) {
+	if notify != nil {
+		m.notifyMediaChange = notify
+	}
+}
+
+func (m *MediaService) publishAssetChange() { m.notifyMediaChange() }
 
 func projectExists(store Workspace, id string) (struct{}, error) {
 	return struct{}{}, store.ProjectExists(id)

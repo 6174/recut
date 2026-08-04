@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖用户级 onboarding HTTP API、React 状态与基础表单 UI 原子组件
+ * [INPUT]: 依赖用户级 onboarding 全局缓存、React 状态与基础表单 UI 原子组件
  * [OUTPUT]: 对外提供不依赖安全上下文 UUID 的全局新对话引导新增、编辑、删除与保存设置界面
- * [POS]: components/settings-panel 的 Agent 引导配置内容；不编辑 App manifest，只维护本机全局补充项
+ * [POS]: components/settings-panel 的 Agent 引导配置内容；不编辑 App manifest，只维护本机全局补充项并使共享缓存失效
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -11,8 +11,9 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAgentStore, type AgentGuide } from "@/lib/agent-store";
 
-type Guide = { id: string; title: string; description: string; prompt: string };
+type Guide = AgentGuide;
 let guideSequence = 0;
 function newGuide(): Guide {
   guideSequence += 1;
@@ -24,14 +25,17 @@ export function AgentOnboardingSettings({ apiBase }: { apiBase: string }) {
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { void (async () => { const response = await fetch(`${apiBase}/v1/agent-onboarding`); if (!response.ok) return; const payload = await response.json() as { items?: Guide[] }; setItems(payload.items ?? []); })(); }, [apiBase]);
+  const savedItems = useAgentStore((state) => state.onboardingByScope.general);
+  const loadOnboarding = useAgentStore((state) => state.loadOnboarding);
+  const saveOnboarding = useAgentStore((state) => state.saveGlobalOnboarding);
+  useEffect(() => { void loadOnboarding(apiBase, "general"); }, [apiBase, loadOnboarding]);
+  useEffect(() => { if (savedItems) setItems(savedItems); }, [savedItems]);
   function update(index: number, patch: Partial<Guide>) { setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)); }
   async function save() {
     if (items.some((item) => !item.title.trim() || !item.prompt.trim())) { setMessage("每个引导都需要标题和点击后写入的提示词。"); return; }
     setSaving(true); setMessage("");
     try {
-      const response = await fetch(`${apiBase}/v1/agent-onboarding`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
-      if (!response.ok) throw new Error("保存失败");
+      await saveOnboarding(apiBase, items);
       setMessage("已保存。它会作为没有 App 引导时的全局补充项出现。");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "保存失败"); } finally { setSaving(false); }
   }

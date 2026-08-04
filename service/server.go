@@ -43,7 +43,16 @@ func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *
 }
 
 func (s *Server) ListenAndServe(address string) error {
-	return http.ListenAndServe(address, s.routes())
+	// SSE streams are intentionally long-lived, so there is no WriteTimeout.
+	// Header and idle timeouts still bound slow clients and keep a stuck or
+	// abandoned connection from accumulating forever.
+	server := &http.Server{
+		Addr:              address,
+		Handler:           s.routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	return server.ListenAndServe()
 }
 
 func (s *Server) routes() http.Handler {

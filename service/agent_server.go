@@ -73,7 +73,7 @@ func (s *Server) listAgentSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listOpencodeModels(w http.ResponseWriter, r *http.Request) {
-	models, err := s.agents.opencodeModels(r.Context())
+	models, err := s.agents.cachedOpencodeModels(r.Context())
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, err)
 		return
@@ -186,12 +186,13 @@ func (s *Server) stopAgentTurn(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) streamAgentEvents(w http.ResponseWriter, r *http.Request) {
 	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
-	if _, err := s.agents.Detail(r.PathValue("id")); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, errors.New("agent session not found"))
-			return
-		}
+	exists, err := s.agents.SessionExists(r.PathValue("id"))
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !exists {
+		writeError(w, http.StatusNotFound, errors.New("agent session not found"))
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")
@@ -202,7 +203,7 @@ func (s *Server) streamAgentEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, errors.New("streaming is unavailable"))
 		return
 	}
-	ticker := time.NewTicker(250 * time.Millisecond)
+	ticker := time.NewTicker(changeHubPollInterval)
 	defer ticker.Stop()
 	for {
 		events, err := s.agents.Events(r.PathValue("id"), after)
@@ -220,6 +221,7 @@ func (s *Server) streamAgentEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.store.agentEvents.wait():
 		case <-ticker.C:
 		}
 	}
@@ -229,12 +231,13 @@ func (s *Server) streamAgentEvents(w http.ResponseWriter, r *http.Request) {
 // CLI process. The manager deliberately keeps it in memory only; this endpoint
 // is a live debugging surface, not a durable conversation archive.
 func (s *Server) streamAgentCLI(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.agents.Detail(r.PathValue("id")); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, errors.New("agent session not found"))
-			return
-		}
+	exists, err := s.agents.SessionExists(r.PathValue("id"))
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !exists {
+		writeError(w, http.StatusNotFound, errors.New("agent session not found"))
 		return
 	}
 	history, output, unsubscribe := s.agents.SubscribeCLIStream(r.PathValue("id"))

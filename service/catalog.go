@@ -75,6 +75,8 @@ type Catalog struct {
 	installationCheckMu sync.Mutex
 	lastRemoteCheck     time.Time
 	remoteCheckErrors   map[string]string
+	remoteCheckRunning  bool
+	remoteChecker       func(string) error
 	apps                map[string]App
 	dir                 string
 }
@@ -84,7 +86,7 @@ func LoadCatalog(dir string) (*Catalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve apps directory: %w", err)
 	}
-	catalog := &Catalog{dir: absolute}
+	catalog := &Catalog{dir: absolute, remoteChecker: refreshGitRemote}
 	if err := catalog.Reload(); err != nil {
 		return nil, err
 	}

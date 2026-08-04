@@ -8,6 +8,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -758,5 +759,69 @@ func TestAtlasVideoReferenceUploadsBeforeGeneration(t *testing.T) {
 	job, err := media.GenerateSync(GenerateMediaInput{Capability: VideoGenerate, Prompt: "continue the shot", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credential.ID, ReferenceIDs: []string{image.ID, video.ID}, IdempotencyKey: "atlas-video-reference"})
 	if err != nil || len(job.AssetIDs) != 1 {
 		t.Fatalf("Atlas video reference job = %#v, %v", job, err)
+	}
+}
+
+func TestListAssetsNeedsNoSecondSQLiteConnection(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	apps, err := LoadCatalog(filepath.Dir(appDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(t.TempDir(), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	media := NewMediaService(store)
+	project, err := store.Create(CreateInput{Name: "Test", AppID: "example.app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 8; index++ {
+		asset, err := media.ImportMedia("image.png", "image/png", []byte(fmt.Sprintf("distinct-image-%d", index)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := media.Attach(asset.ID, project.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The list path must never open a nested query while the result set is
+	// still open; that would need a second pooled connection and deadlock
+	// under a single-connection pool (or enough concurrent SSE listers).
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	start := make(chan struct{})
+	errors := make(chan error, 8)
+	var group sync.WaitGroup
+	for index := 0; index < 8; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			<-start
+			assets, err := media.ListAssets(project.ID)
+			if err != nil {
+				errors <- err
+				return
+			}
+			if len(assets) != 8 {
+				errors <- fmt.Errorf("ListAssets returned %d assets, want 8", len(assets))
+			}
+		}()
+	}
+	close(start)
+	group.Wait()
+	close(errors)
+	for err := range errors {
+		t.Fatal(err)
 	}
 }

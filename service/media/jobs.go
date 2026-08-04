@@ -187,6 +187,12 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 	assets, _ := json.Marshal(job.AssetIDs)
 	_, err = db.Exec(`insert into media_jobs (id, idempotency_key, capability, status, prompt, model_id, credential_id, project_id, reference_ids_json, output_json, asset_ids_json, remote_id, remote_poll_url, error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, job.ID, input.IdempotencyKey, job.Capability, job.Status, job.Prompt, job.ModelID, credential.ID, job.ProjectID, string(refs), string(output), string(assets), "", "", "", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
+		// A concurrent submitter (daemon and MCP children share the workspace
+		// SQLite file) may have won the idempotency-key race. Return their job
+		// instead of failing the duplicate request.
+		if existing, lookupErr := m.jobByKey(db, input.IdempotencyKey); lookupErr == nil {
+			return existing, credential, false, nil
+		}
 		return MediaJob{}, MediaCredential{}, false, err
 	}
 	log.Printf("INFO media job queued job_id=%s project_id=%s capability=%s model_id=%s", job.ID, job.ProjectID, job.Capability, job.ModelID)

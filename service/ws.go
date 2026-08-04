@@ -39,32 +39,35 @@ func (s *Server) projectEventsWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var lastID int64
-	ticker := time.NewTicker(300 * time.Millisecond)
+	ticker := time.NewTicker(changeHubPollInterval)
 	defer ticker.Stop()
-	for range ticker.C {
-		db, err := s.store.ProjectDatabase(request.ProjectID)
-		if err != nil {
-			continue
-		}
-		rows, err := db.Query("select id, payload_json from events where id > ? order by id", lastID)
-		if err != nil {
-			continue
-		}
-		for rows.Next() {
-			var id int64
-			var payload string
-			if rows.Scan(&id, &payload) != nil {
-				continue
-			}
-			var event any
-			if json.Unmarshal([]byte(payload), &event) == nil {
-				if connection.WriteJSON(map[string]any{"type": "project.event", "projectId": request.ProjectID, "event": event}) != nil {
-					_ = rows.Close()
-					return
+	for {
+		if db, err := s.store.ProjectDatabase(request.ProjectID); err == nil {
+			rows, err := db.Query("select id, payload_json from events where id > ? order by id", lastID)
+			if err == nil {
+				for rows.Next() {
+					var id int64
+					var payload string
+					if rows.Scan(&id, &payload) != nil {
+						continue
+					}
+					var event any
+					if json.Unmarshal([]byte(payload), &event) == nil {
+						if connection.WriteJSON(map[string]any{"type": "project.event", "projectId": request.ProjectID, "event": event}) != nil {
+							_ = rows.Close()
+							return
+						}
+					}
+					lastID = id
 				}
+				_ = rows.Close()
 			}
-			lastID = id
 		}
-		_ = rows.Close()
+		select {
+		case <-r.Context().Done():
+			return
+		case <-s.store.projectEvents.wait():
+		case <-ticker.C:
+		}
 	}
 }

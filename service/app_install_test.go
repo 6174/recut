@@ -7,10 +7,12 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestNormalizeGitHubRepository(t *testing.T) {
@@ -97,18 +99,65 @@ func TestInstallationsDetectAndUpdateRemoteGitChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installations, err := catalog.Installations()
-	if err != nil || len(installations) != 1 || !installations[0].UpdateAvailable {
-		t.Fatalf("installations = %#v, err = %v", installations, err)
-	}
+	waitForInstallation(t, catalog, func(installation AppInstallation) bool { return installation.UpdateAvailable })
 	result, err := catalog.UpdateInstallations()
 	if err != nil || len(result.Updated) != 1 || len(result.Failed) != 0 {
 		t.Fatalf("update result = %#v, err = %v", result, err)
 	}
-	installations, err = catalog.Installations()
-	if err != nil || installations[0].UpdateAvailable {
-		t.Fatalf("updated installations = %#v, err = %v", installations, err)
+	waitForInstallation(t, catalog, func(installation AppInstallation) bool { return !installation.UpdateAvailable })
+}
+
+func TestInstallationsReturnCachedStateDuringRemoteCheck(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	appDir := filepath.Join(appsDir, "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	catalog.remoteChecker = func(string) error {
+		close(started)
+		<-release
+		close(finished)
+		return errors.New("remote unavailable")
+	}
+	defer func() { close(release); <-finished }()
+
+	if _, err := catalog.Installations(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("remote check did not start")
+	}
+	listed := make(chan struct{})
+	go func() { _ = catalog.List(); close(listed) }()
+	select {
+	case <-listed:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("catalog list waited for the remote check")
+	}
+}
+
+func waitForInstallation(t *testing.T, catalog *Catalog, match func(AppInstallation) bool) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		installations, err := catalog.Installations()
+		if err == nil && len(installations) == 1 && match(installations[0]) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("installation state did not refresh")
 }
 
 func runGit(t *testing.T, dir string, arguments ...string) {

@@ -104,16 +104,58 @@ func (m *MediaService) listAssets(projectID string) ([]MediaAsset, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	assets := []MediaAsset{}
 	for rows.Next() {
-		asset, err := scanAsset(db, rows)
+		asset, err := scanAssetRow(rows)
 		if err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		assets = append(assets, asset)
 	}
-	return assets, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	// Project attachments are loaded in one batched query after the result set
+	// is closed. A per-row query while the result set is still open requires a
+	// second pooled connection; enough concurrent listers can exhaust the pool
+	// and deadlock every reader.
+	if err := loadAssetsProjects(db, assets); err != nil {
+		return nil, err
+	}
+	return assets, nil
+}
+
+func loadAssetsProjects(db *sql.DB, assets []MediaAsset) error {
+	if len(assets) == 0 {
+		return nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(assets)), ",")
+	args := make([]any, len(assets))
+	indexByID := make(map[string]int, len(assets))
+	for index, asset := range assets {
+		args[index] = asset.ID
+		indexByID[asset.ID] = index
+	}
+	rows, err := db.Query("select asset_id, project_id from media_asset_projects where asset_id in ("+placeholders+") order by project_id", args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var assetID, projectID string
+		if err := rows.Scan(&assetID, &projectID); err != nil {
+			return err
+		}
+		if index, ok := indexByID[assetID]; ok {
+			assets[index].ProjectIDs = append(assets[index].ProjectIDs, projectID)
+		}
+	}
+	return rows.Err()
 }
 
 func (m *MediaService) GetAsset(id string) (MediaAsset, error) {
@@ -131,7 +173,9 @@ func (m *MediaService) getAsset(id string) (MediaAsset, error) {
 
 type mediaScanner interface{ Scan(...any) error }
 
-func scanAsset(db *sql.DB, row mediaScanner) (MediaAsset, error) {
+// scanAssetRow scans the core Asset columns only. It never runs a nested query
+// so it is safe to call while the source *sql.Rows is still open.
+func scanAssetRow(row mediaScanner) (MediaAsset, error) {
 	var asset MediaAsset
 	var metadataJSON, created, updated string
 	if err := row.Scan(&asset.ID, &asset.Kind, &asset.Name, &asset.MimeType, &asset.SizeBytes, &asset.ContentHash, &asset.Origin, &asset.ParentID, &asset.Status, &asset.JobID, &asset.RemoteID, &asset.Error, &metadataJSON, &created, &updated); err != nil {
@@ -149,9 +193,27 @@ func scanAsset(db *sql.DB, row mediaScanner) (MediaAsset, error) {
 	if asset.UpdatedAt.IsZero() {
 		asset.UpdatedAt = asset.CreatedAt
 	}
+	return asset, nil
+}
+
+// scanAsset augments a core scan with the Asset's project attachments. It is
+// only safe when the source row was already consumed (a *sql.Row after Scan),
+// because it opens a second pooled connection.
+func scanAsset(db *sql.DB, row mediaScanner) (MediaAsset, error) {
+	asset, err := scanAssetRow(row)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if err := loadAssetProjects(db, &asset); err != nil {
+		return MediaAsset{}, err
+	}
+	return asset, nil
+}
+
+func loadAssetProjects(db *sql.DB, asset *MediaAsset) error {
 	projectRows, err := db.Query("select project_id from media_asset_projects where asset_id = ? order by project_id", asset.ID)
 	if err != nil {
-		return asset, nil
+		return err
 	}
 	defer projectRows.Close()
 	for projectRows.Next() {
@@ -159,7 +221,7 @@ func scanAsset(db *sql.DB, row mediaScanner) (MediaAsset, error) {
 		_ = projectRows.Scan(&projectID)
 		asset.ProjectIDs = append(asset.ProjectIDs, projectID)
 	}
-	return asset, nil
+	return projectRows.Err()
 }
 
 func (m *MediaService) Attach(assetID, projectID string) error {
@@ -169,8 +231,6 @@ func (m *MediaService) Attach(assetID, projectID string) error {
 	if _, err := m.GetAsset(assetID); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	db, err := m.database()
 	if err != nil {
 		return err
@@ -179,15 +239,20 @@ func (m *MediaService) Attach(assetID, projectID string) error {
 	if err != nil {
 		return err
 	}
-	if err := attachTx(tx, assetID, projectID, time.Now().UTC()); err != nil {
+	now := time.Now().UTC()
+	if err := attachTx(tx, assetID, projectID, now); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
-	if err := recordAssetEvent(tx, assetID, time.Now().UTC()); err != nil {
+	if err := recordAssetEvent(tx, assetID, now); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	m.publishAssetChange()
+	return nil
 }
 
 func attachTx(tx *sql.Tx, assetID, projectID string, now time.Time) error {
@@ -245,8 +310,6 @@ func (m *MediaService) createPendingAsset(job MediaJob, provider, kind, mimeType
 	serialized, _ := json.Marshal(metadata)
 	asset := MediaAsset{ID: id, Kind: kind, Name: "generated-" + id + extensionFor(mimeType), MimeType: mimeType, Origin: "generated", Status: status, JobID: job.ID, RemoteID: remoteID, Metadata: metadata, CreatedAt: now, UpdatedAt: now}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	db, err := m.database()
 	if err != nil {
 		return MediaAsset{}, err
@@ -275,6 +338,7 @@ func (m *MediaService) createPendingAsset(job MediaJob, provider, kind, mimeType
 	if err := tx.Commit(); err != nil {
 		return MediaAsset{}, err
 	}
+	m.publishAssetChange()
 	return asset, nil
 }
 
@@ -300,8 +364,6 @@ func (m *MediaService) completePendingAsset(jobID, assetID string, content []byt
 		return MediaAsset{}, err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	db, err := m.database()
 	if err != nil {
 		return MediaAsset{}, err
@@ -364,13 +426,12 @@ func (m *MediaService) completePendingAsset(jobID, assetID string, content []byt
 		return MediaAsset{}, err
 	}
 	asset.MimeType, asset.SizeBytes, asset.ContentHash, asset.Status, asset.Error, asset.Metadata, asset.UpdatedAt = mimeType, int64(len(content)), contentHash, "completed", "", metadata, now
+	m.publishAssetChange()
 	log.Printf("INFO media job completed job_id=%s asset_id=%s", jobID, assetID)
 	return asset, nil
 }
 
 func (m *MediaService) failRemoteAsset(jobID, assetID, message string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	db, err := m.database()
 	if err != nil {
 		return
@@ -412,6 +473,7 @@ func (m *MediaService) failRemoteAsset(jobID, assetID, message string) {
 	if err := tx.Commit(); err != nil {
 		return
 	}
+	m.publishAssetChange()
 	log.Printf("ERROR media job failed job_id=%s asset_id=%s", jobID, assetID)
 }
 
@@ -449,8 +511,6 @@ func recordedGenerationStart(metadata map[string]any, fallback time.Time) time.T
 // error field. Running means the remote task is still recoverable; the job
 // error carries a concise diagnostic while metadata retains the retry state.
 func (m *MediaService) recordAtlasPollingDiagnostic(jobID, assetID, message string) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	db, err := m.database()
 	if err != nil {
 		return 0, err
@@ -490,12 +550,11 @@ func (m *MediaService) recordAtlasPollingDiagnostic(jobID, assetID, message stri
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
+	m.publishAssetChange()
 	return attempt, nil
 }
 
 func (m *MediaService) clearAtlasPollingDiagnostic(jobID, assetID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	db, err := m.database()
 	if err != nil {
 		return
@@ -522,7 +581,9 @@ func (m *MediaService) clearAtlasPollingDiagnostic(jobID, assetID string) {
 		_ = tx.Rollback()
 		return
 	}
-	_ = tx.Commit()
+	if err := tx.Commit(); err == nil {
+		m.publishAssetChange()
+	}
 }
 
 func clearAtlasPollingMetadata(metadata map[string]any) bool {
@@ -626,8 +687,11 @@ func (m *MediaService) persistAsset(content []byte, kind, mimeType, name, origin
 			return MediaAsset{}, err
 		}
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Only the content-hash dedup check-and-insert needs mutual exclusion. Every
+	// other media write is already a guarded single transaction, so a global
+	// lock would only serialize unrelated imports behind a large disk write.
+	m.dedupeMu.Lock()
+	defer m.dedupeMu.Unlock()
 
 	db, err := m.database()
 	if err != nil {
@@ -702,6 +766,7 @@ func (m *MediaService) persistAsset(content []byte, kind, mimeType, name, origin
 	if err := tx.Commit(); err != nil {
 		return MediaAsset{}, err
 	}
+	m.publishAssetChange()
 	return asset, nil
 }
 

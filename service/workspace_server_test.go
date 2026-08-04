@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖内存静态文件系统与本地工作台 HTTP 处理器
- * [OUTPUT]: 验证首页、项目/App 深链、Next 不可变缓存与静态文件边界
+ * [OUTPUT]: 验证首页、顶层 Tab 与项目/App 深链无相对重定向、Next 不可变缓存与静态文件边界
  * [POS]: service 本地工作台传输层回归测试；不依赖真实 Next 构建或网络端口
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -17,17 +17,34 @@ import (
 func TestLocalWorkspaceHandlerServesStaticAndDynamicShells(t *testing.T) {
 	files := fstest.MapFS{
 		"index.html":                   {Data: []byte("home")},
+		"apps/index.html":              {Data: []byte("apps")},
+		"media/index.html":             {Data: []byte("media")},
+		"projects/index.html":          {Data: []byte("projects")},
 		"projects/app/index.html":      {Data: []byte("project")},
 		"workspace-app/app/index.html": {Data: []byte("workspace app")},
 		"apps/app/index.html":          {Data: []byte("app")},
 		"_next/static/chunk.js":        {Data: []byte("chunk")},
 	}
 	handler := localWorkspaceHandler(files)
-	for requestPath, want := range map[string]string{"/": "home", "/projects/first": "project", "/workspace-app/example": "workspace app", "/apps/example": "app", "/_next/static/chunk.js": "chunk"} {
+	for requestPath, want := range map[string]string{
+		"/":                      "home",
+		"/apps":                  "apps",
+		"/apps/":                 "apps",
+		"/media":                 "media",
+		"/projects":              "projects",
+		"/projects/":             "projects",
+		"/projects/first":        "project",
+		"/workspace-app/example": "workspace app",
+		"/apps/example":          "app",
+		"/_next/static/chunk.js": "chunk",
+	} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, requestPath, nil))
 		if recorder.Code != http.StatusOK || recorder.Body.String() != want {
 			t.Fatalf("GET %s = %d %q", requestPath, recorder.Code, recorder.Body.String())
+		}
+		if location := recorder.Header().Get("Location"); location != "" {
+			t.Fatalf("GET %s unexpectedly redirected to %q", requestPath, location)
 		}
 	}
 

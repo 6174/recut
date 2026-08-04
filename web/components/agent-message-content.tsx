@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖共享 Asset SSE 缓存、素材内容 HTTP API 与统一素材详情模态框
- * [OUTPUT]: 对外提供 AgentMessageContent，将受控 media XML 节点渲染为紧凑可点击媒体卡片；异步素材显示实时/终态生成耗时，完成的视频直接展示真实首帧
+ * [OUTPUT]: 对外提供 AgentMessageContent，将受控 media XML 节点渲染为紧凑可点击媒体卡片；异步素材显示实时/终态生成耗时，完成的视频以 iframe 子文档显示真实画面并在点击后打开详情
  * [POS]: components 的 Agent 回复内容层；由 project-agent-panel 使用，不解析或注入任意 HTML，状态由唯一 Asset 缓存驱动且不轮询
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */

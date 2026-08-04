@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 service endpoint、Media Platform 的资产 SSE、Provider、Credential 与生成任务 API，以及系统项目 Agent Session
- * [OUTPUT]: 对外提供素材浏览、完成视频的真实首帧卡片、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
+ * [OUTPUT]: 对外提供首屏限为 12 张的素材浏览、完成视频的 iframe 视频封面卡片、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
  * [POS]: web/app/media 的原生 React 内容组件；由根工作台与 /media 路由共享，Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态而不轮询任务或 Provider
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -85,6 +85,7 @@ const createKinds: CreateKind[] = [
   },
 ];
 const referenceLabels: Record<AssetKind, string> = { image: "图片", video: "视频", audio: "音频" };
+const initialAssetCount = 12;
 
 function isReferenceKind(mode: ModelInputMode): mode is AssetKind {
   return mode === "image" || mode === "video" || mode === "audio";
@@ -106,6 +107,7 @@ function MediaLibraryContent({ onOpenProviderSettings, onProjectIDChange }: Medi
   const assets = useMemo(() => eventAssets.map((asset) => normalizeAsset(asset as Asset)), [eventAssets]);
   const [jobs, setJobs] = useState<MediaJob[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  const [assetLimit, setAssetLimit] = useState(initialAssetCount);
   const [preview, setPreview] = useState<Asset | null>(null);
   const [createKind, setCreateKind] = useState<CreateKind | null>(null);
   const [createDraft, setCreateDraft] = useState<CreateDraft | null>(null);
@@ -127,6 +129,7 @@ function MediaLibraryContent({ onOpenProviderSettings, onProjectIDChange }: Medi
   }, [apiBase]);
   const visibleAssets =
     filter === "all" ? assets : assets.filter((asset) => asset.kind === filter);
+  const renderedAssets = visibleAssets.slice(0, assetLimit);
   const visibleJobs = jobs.filter(
     (job) =>
       !job.assetIds.some((assetID) => Boolean(assetByID[assetID])) &&
@@ -134,6 +137,9 @@ function MediaLibraryContent({ onOpenProviderSettings, onProjectIDChange }: Medi
         job.capability ===
           createKinds.find((item) => item.kind === filter)?.capability),
   );
+  useEffect(() => {
+    setAssetLimit(initialAssetCount);
+  }, [filter]);
   function openProviderSettings() {
     setCreateKind(null);
     onOpenProviderSettings();
@@ -294,10 +300,21 @@ function MediaLibraryContent({ onOpenProviderSettings, onProjectIDChange }: Medi
             </nav>
             <AssetGrid
               apiBase={apiBase}
-              assets={visibleAssets}
+              assets={renderedAssets}
               jobs={visibleJobs}
               onPreview={setPreview}
             />
+            {renderedAssets.length < visibleAssets.length && (
+              <div className="mt-5 flex justify-center">
+                <button
+                  className="h-9 rounded-xs border bg-card px-3 text-xs font-medium hover:bg-muted"
+                  onClick={() => setAssetLimit((limit) => limit + initialAssetCount)}
+                  type="button"
+                >
+                  显示更多素材（剩余 {visibleAssets.length - renderedAssets.length}）
+                </button>
+              </div>
+            )}
           </div>
         </section>
       {preview && (

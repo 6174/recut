@@ -49,7 +49,9 @@ func (a mediaStoreAdapter) ProjectExists(id string) error {
 }
 
 func NewMediaService(store *Store) *MediaService {
-	return media.NewMediaService(mediaStoreAdapter{store: store})
+	media := media.NewMediaService(mediaStoreAdapter{store: store})
+	media.SetNotifyMediaChange(func() { store.mediaEvents.notify() })
+	return media
 }
 
 func providerByID(id string) (MediaProvider, bool) { return media.ProviderByID(id) }

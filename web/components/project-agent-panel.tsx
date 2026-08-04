@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖项目或 general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
+ * [INPUT]: 依赖按 endpoint 缓存的 Agent 运行时、模型、引导与会话列表、项目或 general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
  * [OUTPUT]: 对外提供带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、项目与 general scope、可由 App iframe 回填但绝不自动提交的输入草稿、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、作用域切换时同步 Loading 且拒绝过期请求回写的对话加载、创建/同步/重试均可见的状态、输入法保护、图片上传/粘贴上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
- * [POS]: components 的通用 Agent 侧栏；首页无项目时自动使用隐藏 general scope，存在可用 runtime 的空态允许直接输入并在发送时创建会话，运行期间的用户消息持久化排队，每张项目媒体以资产引用绑定到对应用户 Turn，并为内部预览提供共享 Asset 缓存
+ * [POS]: components 的通用 Agent 侧栏；首页无项目时自动使用隐藏 general scope，低频快照由 lib/agent-store 跨路由共享，单会话详情仍以 SSE 为真相，存在可用 runtime 的空态允许直接输入并在发送时创建会话
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -51,6 +51,10 @@ import {
   type Session,
   type UploadedAsset,
 } from "@/components/agent-panel-types";
+import { agentScopeKey, useAgentStore } from "@/lib/agent-store";
+
+const EMPTY_SESSIONS: Session[] = [];
+const EMPTY_OPENCODE_MODELS: OpencodeModel[] = [];
 
 export function ProjectAgentPanel(props: Props) {
   return (
@@ -60,7 +64,14 @@ export function ProjectAgentPanel(props: Props) {
   );
 }
 function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) {
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const scope = agentScopeKey(projectID);
+  const sessions = useAgentStore((state) => state.sessionsByScope[scope] ?? EMPTY_SESSIONS);
+  const runtimeStatus = useAgentStore((state) => state.runtimeStatus);
+  const opencodeModels = useAgentStore((state) => state.opencodeModels ?? EMPTY_OPENCODE_MODELS);
+  const loadCachedSessions = useAgentStore((state) => state.loadSessions);
+  const loadCachedRuntimeStatus = useAgentStore((state) => state.loadRuntimeStatus);
+  const loadCachedOpencodeModels = useAgentStore((state) => state.loadOpencodeModels);
+  const upsertCachedSession = useAgentStore((state) => state.upsertSession);
   const [activeID, setActiveID] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [content, setContent] = useState("");
@@ -82,11 +93,7 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     useState<CodexConfiguration>(defaultCodexConfiguration);
   const [pendingOpencodeConfig, setPendingOpencodeConfig] =
     useState<OpencodeConfiguration>(defaultOpencodeConfiguration);
-  const [opencodeModels, setOpencodeModels] = useState<OpencodeModel[]>([]);
   const [now, setNow] = useState(() => Date.now());
-  const [runtimeStatus, setRuntimeStatus] = useState<
-    AgentRuntimeStatus[] | null
-  >(null);
   const [acknowledgedFailureID, setAcknowledgedFailureID] = useState<
     string | null
   >(null);
@@ -104,7 +111,6 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     streamRef.current = null;
     cliStreamRef.current?.close();
     cliStreamRef.current = null;
-    setSessions([]);
     setActiveID(null);
     setDetail(null);
     setSyncingID(null);
@@ -114,8 +120,6 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     setRuntimeOpen(false);
     setCLIOpen(false);
     setCLIEntries([]);
-    setRuntimeStatus(null);
-    setOpencodeModels([]);
     setLoadingSessions(online);
     if (online) {
       void loadSessions(scopeVersion);
@@ -160,16 +164,9 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     );
   }
   async function loadSessions(scopeVersion: number) {
-    const scope = projectID
-      ? `projectId=${encodeURIComponent(projectID)}`
-      : "scope=general";
     try {
-      const response = await fetch(`${apiBase}/v1/agent-sessions?${scope}`);
-      if (!response.ok)
-        throw new Error(await responseMessage(response, "无法读取会话列表"));
-      const next: Session[] = await response.json();
+      const next = await loadCachedSessions(apiBase, scope);
       if (scopeVersion !== scopeVersionRef.current) return;
-      setSessions(next);
       const selected = next[0]?.id;
       if (selected) {
         await open(selected, scopeVersion);
@@ -183,21 +180,15 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
   }
   async function loadRuntimeStatus(scopeVersion = scopeVersionRef.current) {
     try {
-      const response = await fetch(`${apiBase}/v1/agents`);
-      if (!response.ok) return null;
-      const next = (await response.json()) as AgentRuntimeStatus[];
-      if (scopeVersion === scopeVersionRef.current) setRuntimeStatus(next);
-      return next;
+      const next = await loadCachedRuntimeStatus(apiBase);
+      return scopeVersion === scopeVersionRef.current ? next : null;
     } catch {
       return null;
     }
   }
   async function loadOpencodeModels(scopeVersion = scopeVersionRef.current) {
     try {
-      const response = await fetch(`${apiBase}/v1/agents/opencode/models`);
-      if (!response.ok) return;
-      const next = (await response.json()) as OpencodeModel[];
-      if (scopeVersion === scopeVersionRef.current) setOpencodeModels(next);
+      await loadCachedOpencodeModels(apiBase);
     } catch {}
   }
   async function open(id: string, scopeVersion = scopeVersionRef.current) {
@@ -309,10 +300,7 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     const next: Detail = await response.json();
     if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
     setDetail(next);
-    setSessions((current) => [
-      next,
-      ...current.filter((session) => session.id !== id),
-    ]);
+    upsertCachedSession(apiBase, scope, next);
   }
   async function createSession(runtime: Runtime) {
     if (creatingRuntime) return null;
@@ -346,7 +334,7 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
       if (!response.ok)
         throw new Error(await responseMessage(response, "无法创建对话"));
       const session: Session = await response.json();
-      setSessions((current) => [session, ...current]);
+      upsertCachedSession(apiBase, scope, session);
       setRuntimeOpen(false);
       await open(session.id);
       return session;
@@ -551,7 +539,7 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
   async function recheckAgent(
     targetID?: string,
   ): Promise<AgentRuntimeStatus[] | null> {
-    const status = await loadRuntimeStatus();
+    const status = await loadCachedRuntimeStatus(apiBase, true);
     if (activeID) await refresh(activeID);
     if (targetID && status?.find((agent) => agent.id === targetID)?.available) {
       setAcknowledgedFailureID(failedTurn?.id ?? null);

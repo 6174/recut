@@ -10,3 +10,7 @@
 	path = apps/cover-studio
 	url = git@github.com:6174/recut-cover-studio.git
 	branch = main
+[submodule "recut-official-repo"]
+	path = operation/official-repo
+	url = git@github.com:6174/recut.git
+	branch = main

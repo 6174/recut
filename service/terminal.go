@@ -164,15 +164,22 @@ func (m *TerminalManager) Stop(id string) error {
 }
 
 func (m *TerminalManager) Subscribe(id string) (string, <-chan string, func(), error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
 	current := m.terminals[id]
 	if current == nil {
+		m.mu.RUnlock()
 		return "", nil, nil, errors.New("terminal session not found")
 	}
-	history, err := os.ReadFile(current.transcriptPath)
+	transcriptPath := current.transcriptPath
+	m.mu.RUnlock()
+	history, err := os.ReadFile(transcriptPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", nil, nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.terminals[id] != current {
+		return "", nil, nil, errors.New("terminal session changed during subscription")
 	}
 	current.nextSubID++
 	subscriberID := current.nextSubID

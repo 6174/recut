@@ -467,6 +467,56 @@ func TestAgentCommandResolverCachesVerifiedLookup(t *testing.T) {
 	}
 }
 
+func TestAgentCommandResolverDoesNotBlockCachedLookup(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"codex", "claude"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resolver := newAgentCommandResolver(root)
+	resolver.loaded = true
+	resolver.commands["claude"] = agentCommandCacheEntry{Path: filepath.Join(root, "claude")}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	resolver.resolve = func(string) AgentCommandDiagnostic {
+		close(started)
+		<-release
+		return AgentCommandDiagnostic{ResolvedPath: filepath.Join(root, "codex")}
+	}
+	resolved := make(chan error, 1)
+	go func() { _, err := resolver.Find("codex"); resolved <- err }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("CLI lookup did not start")
+	}
+	sameLookup := make(chan error, 1)
+	go func() { _, err := resolver.Find("codex"); sameLookup <- err }()
+	select {
+	case err := <-sameLookup:
+		t.Fatalf("duplicate lookup completed before the shared result: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	cached := make(chan error, 1)
+	go func() { _, err := resolver.Find("claude"); cached <- err }()
+	select {
+	case err := <-cached:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("cached CLI lookup waited for shell resolution")
+	}
+	close(release)
+	if err := <-resolved; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-sameLookup; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAgentCommandResolverRefreshesInvalidCacheAndFailedStart(t *testing.T) {
 	root := t.TempDir()
 	valid := filepath.Join(root, "codex-valid")

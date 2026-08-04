@@ -113,11 +113,38 @@ type AgentManager struct {
 	mu             sync.Mutex
 	running        map[string]context.CancelFunc
 	cliStreams     map[string]*agentCLIStream
+	modelsMu       sync.Mutex
+	modelsCache    []OpencodeModel
+	modelsCachedAt time.Time
 }
+
+const opencodeModelsCacheTTL = 60 * time.Second
 
 func NewAgentManager(store *Store, bridge *AgentBridge, media *MediaService) *AgentManager {
 	commands := store.agentCommands
 	return &AgentManager{store: store, bridge: bridge, media: media, commands: commands, opencodeModels: func(ctx context.Context) ([]OpencodeModel, error) { return listOpencodeModels(ctx, commands) }, running: map[string]context.CancelFunc{}, cliStreams: map[string]*agentCLIStream{}}
+}
+
+// cachedOpencodeModels bounds the cost of `opencode models`, which spawns the
+// CLI and can take seconds. The TTL keeps repeated session creation and
+// configuration updates from hanging on a fresh CLI spawn every time.
+func (m *AgentManager) cachedOpencodeModels(ctx context.Context) ([]OpencodeModel, error) {
+	m.modelsMu.Lock()
+	if len(m.modelsCache) > 0 && time.Since(m.modelsCachedAt) < opencodeModelsCacheTTL {
+		cached := append([]OpencodeModel(nil), m.modelsCache...)
+		m.modelsMu.Unlock()
+		return cached, nil
+	}
+	m.modelsMu.Unlock()
+	models, err := m.opencodeModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m.modelsMu.Lock()
+	m.modelsCache = append([]OpencodeModel(nil), models...)
+	m.modelsCachedAt = time.Now().UTC()
+	m.modelsMu.Unlock()
+	return models, nil
 }
 
 func (m *AgentManager) beginCLIStream(sessionID string) {
@@ -1300,7 +1327,24 @@ func (m *AgentManager) emit(sessionID, turnID, eventType string, payload any) {
 	if err != nil {
 		return
 	}
-	_, _ = db.Exec("insert into agent_events (session_id, turn_id, type, payload_json, created_at) values (?, ?, ?, ?, ?)", sessionID, turnID, eventType, string(data), iso(now))
+	if _, err := db.Exec("insert into agent_events (session_id, turn_id, type, payload_json, created_at) values (?, ?, ?, ?, ?)", sessionID, turnID, eventType, string(data), iso(now)); err != nil {
+		return
+	}
+	m.store.agentEvents.notify()
+}
+
+// SessionExists is the cheap existence check used by the SSE endpoints. It
+// avoids loading the full turn and event history just to validate a session.
+func (m *AgentManager) SessionExists(id string) (bool, error) {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return false, err
+	}
+	var count int
+	if err := db.QueryRow("select count(*) from agent_sessions where id = ? and profile_id = ?", id, localProfileID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (m *AgentManager) setNativeSession(id, native string) {
@@ -1358,7 +1402,7 @@ func normalizeCodexConfiguration(model, effort string) (string, string, error) {
 }
 
 func (m *AgentManager) normalizeOpencodeConfiguration(ctx context.Context, model string) (string, error) {
-	models, err := m.opencodeModels(ctx)
+	models, err := m.cachedOpencodeModels(ctx)
 	if err != nil {
 		return "", err
 	}

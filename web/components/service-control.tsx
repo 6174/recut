@@ -28,7 +28,7 @@ export function ServiceControl() {
 
   useEffect(() => {
     void refreshService();
-    const timer = window.setInterval(() => void refreshService(), 5000);
+    const timer = window.setInterval(() => void refreshService(), 30000);
     return () => window.clearInterval(timer);
   }, [apiBase, refreshService]);
 

@@ -178,8 +178,6 @@ func (m *MediaService) repairAtlasBinding(binding atlasBinding) (bool, error) {
 	if remoteID == "" || (binding.jobRemoteID == remoteID && binding.assetRemoteID == remoteID && binding.jobPollURL == pollURL && binding.assetPollURL == pollURL) {
 		return false, nil
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	db, err := m.database()
 	if err != nil {
 		return false, err
@@ -216,6 +214,7 @@ func (m *MediaService) repairAtlasBinding(binding atlasBinding) (bool, error) {
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
+	m.publishAssetChange()
 	return true, nil
 }
 
@@ -489,6 +488,7 @@ func (m *MediaService) activateQueuedTask(jobID string) (MediaJob, MediaCredenti
 	if err := tx.Commit(); err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
 	}
+	m.publishAssetChange()
 	credential, err := m.credential(credentialID)
 	if err == nil {
 		return job, credential, true, nil
@@ -551,6 +551,7 @@ func (m *MediaService) bindQueuedAtlasPrediction(job MediaJob, assetID, remoteID
 	if err := tx.Commit(); err != nil {
 		return MediaAsset{}, err
 	}
+	m.publishAssetChange()
 	asset.Status, asset.RemoteID, asset.Error, asset.Metadata, asset.UpdatedAt = "running", remoteID, "", metadata, now
 	return asset, nil
 }
@@ -597,6 +598,7 @@ func (m *MediaService) failQueuedAsset(jobID, assetID, message string) {
 	if err := tx.Commit(); err != nil {
 		return
 	}
+	m.publishAssetChange()
 	log.Printf("ERROR media job failed job_id=%s asset_id=%s", jobID, assetID)
 }
 

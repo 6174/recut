@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 数据根、常驻 service PATH、当前用户的 login shell 与标准库的可执行文件检查
- * [OUTPUT]: 对外提供 AgentCommandResolver，为 Agent runtime 缓存并解析可执行 CLI 的绝对路径和动态 PATH
+ * [OUTPUT]: 对外提供 AgentCommandResolver，为 Agent runtime 单飞缓存并解析可执行 CLI 的绝对路径和动态 PATH
  * [POS]: service 的 Agent 运行时环境适配器；以持久化定位缓存避免重复启动 login shell，并以用户 shell 的动态 PATH 补足 launchd/systemd 与交互 shell 的环境差异
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -21,6 +21,12 @@ import (
 )
 
 const agentShellLookupTimeout = 8 * time.Second
+
+// agentNotFoundTTL bounds how long a failed CLI resolution stays cached. The
+// login-shell scan can take several seconds per missing command, and the agent
+// panel checks all three CLIs on every refresh; caching failures keeps those
+// refreshes snappy while still picking up an install within the TTL.
+const agentNotFoundTTL = 30 * time.Second
 
 type AgentCommandDiagnostic struct {
 	Command      string                 `json:"command"`
@@ -55,18 +61,28 @@ type agentCommandCache struct {
 // AgentCommandResolver keeps the expensive login-shell lookup out of normal
 // UI refreshes. A cached path is trusted only while it remains executable.
 type AgentCommandResolver struct {
-	path     string
-	mu       sync.Mutex
-	loaded   bool
-	commands map[string]agentCommandCacheEntry
-	resolve  func(string) AgentCommandDiagnostic
+	path      string
+	mu        sync.Mutex
+	loaded    bool
+	commands  map[string]agentCommandCacheEntry
+	notFound  map[string]time.Time
+	resolving map[string]*agentCommandLookup
+	resolve   func(string) AgentCommandDiagnostic
+}
+
+type agentCommandLookup struct {
+	done    chan struct{}
+	process AgentProcessCommand
+	err     error
 }
 
 func newAgentCommandResolver(root string) *AgentCommandResolver {
 	return &AgentCommandResolver{
-		path:     filepath.Join(root, "config", "agent-commands.json"),
-		commands: map[string]agentCommandCacheEntry{},
-		resolve:  func(command string) AgentCommandDiagnostic { return resolveAgentCommand(command, false) },
+		path:      filepath.Join(root, "config", "agent-commands.json"),
+		commands:  map[string]agentCommandCacheEntry{},
+		notFound:  map[string]time.Time{},
+		resolving: map[string]*agentCommandLookup{},
+		resolve:   func(command string) AgentCommandDiagnostic { return resolveAgentCommand(command, false) },
 	}
 }
 
@@ -75,19 +91,53 @@ func (r *AgentCommandResolver) Find(command string) (AgentProcessCommand, error)
 		return AgentProcessCommand{}, exec.ErrNotFound
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.loadLocked()
 	if process, ok := agentCommandFromCache(r.commands[command]); ok {
+		r.mu.Unlock()
 		return process, nil
 	}
-	delete(r.commands, command)
-	diagnostic := r.resolve(command)
-	if diagnostic.ResolvedPath == "" {
+	if at, ok := r.notFound[command]; ok && time.Since(at) < agentNotFoundTTL {
+		r.mu.Unlock()
 		return AgentProcessCommand{}, exec.ErrNotFound
+	}
+	if lookup := r.resolving[command]; lookup != nil {
+		r.mu.Unlock()
+		<-lookup.done
+		return lookup.process, lookup.err
+	}
+	delete(r.commands, command)
+	delete(r.notFound, command)
+	lookup := &agentCommandLookup{done: make(chan struct{})}
+	r.resolving[command] = lookup
+	r.mu.Unlock()
+	return r.resolveAndCache(command, lookup)
+}
+
+func (r *AgentCommandResolver) resolveAndCache(command string, lookup *agentCommandLookup) (AgentProcessCommand, error) {
+	entry, ok := agentCommandEntry(r.resolve(command))
+	r.mu.Lock()
+	delete(r.resolving, command)
+	if ok {
+		r.commands[command] = entry
+		delete(r.notFound, command)
+		_ = r.saveLocked()
+		lookup.process, _ = agentCommandFromCache(entry)
+	} else {
+		r.notFound[command] = time.Now().UTC()
+		lookup.err = exec.ErrNotFound
+	}
+	close(lookup.done)
+	r.mu.Unlock()
+	return lookup.process, lookup.err
+}
+
+func agentCommandEntry(diagnostic AgentCommandDiagnostic) (agentCommandCacheEntry, bool) {
+	if diagnostic.ResolvedPath == "" {
+		return agentCommandCacheEntry{}, false
 	}
 	path, err := filepath.Abs(diagnostic.ResolvedPath)
 	if err != nil || !isExecutableFile(path) {
-		return AgentProcessCommand{}, exec.ErrNotFound
+		return agentCommandCacheEntry{}, false
 	}
 	entry := agentCommandCacheEntry{Path: path, Resolution: diagnostic.Resolution}
 	for _, shell := range diagnostic.Shells {
@@ -96,10 +146,7 @@ func (r *AgentCommandResolver) Find(command string) (AgentProcessCommand, error)
 			break
 		}
 	}
-	r.commands[command] = entry
-	_ = r.saveLocked()
-	process, _ := agentCommandFromCache(entry)
-	return process, nil
+	return entry, true
 }
 
 func (r *AgentCommandResolver) Available(command string) (AgentProcessCommand, bool) {
@@ -112,6 +159,7 @@ func (r *AgentCommandResolver) Invalidate(command string) {
 	defer r.mu.Unlock()
 	r.loadLocked()
 	delete(r.commands, command)
+	delete(r.notFound, command)
 	_ = r.saveLocked()
 }
 
