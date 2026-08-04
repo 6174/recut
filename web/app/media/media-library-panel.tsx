@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 service endpoint、Media Platform 的资产 SSE、Provider、Credential 与生成任务 API，以及系统项目 Agent Session
+ * [INPUT]: 依赖 service endpoint、Media Platform 的资产 SSE、media-configuration-store 的 Provider/Credential 快照与生成任务 API，以及系统项目 Agent Session
  * [OUTPUT]: 对外提供首屏限为 12 张的素材浏览、完成视频的 iframe 视频封面卡片、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
- * [POS]: web/app/media 的原生 React 内容组件；由根工作台与 /media 路由共享，Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态而不轮询任务或 Provider
+ * [POS]: web/app/media 的原生 React 内容组件；由根工作台与 /media 路由共享，Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态，配置从统一缓存读取而不轮询
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -25,6 +25,7 @@ import {
 } from "react";
 import { Badge } from "@/components/ui/badge";
 import { MediaAssetEventsProvider, useMediaAssetEvents } from "@/components/use-media-asset-events";
+import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { useServiceStore } from "@/lib/service-store";
 import { AssetGrid } from "./asset-grid";
 import { AssetPreview } from "./asset-preview";
@@ -365,8 +366,9 @@ function CreateAssetDialog({
   onSubmitted: (job: MediaJob) => void;
 }) {
   const apiBase = useServiceStore((state) => state.endpoint);
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [credentials, setCredentials] = useState<Credential[]>([]);
+  const providers = useMediaConfigurationStore((state) => state.providers);
+  const credentials = useMediaConfigurationStore((state) => state.credentials);
+  const loadConfiguration = useMediaConfigurationStore((state) => state.load);
   const [modelID, setModelID] = useState(draft?.modelID ?? "");
   const [credentialID, setCredentialID] = useState("");
   const [voices, setVoices] = useState<Voice[]>([]);
@@ -380,17 +382,7 @@ function CreateAssetDialog({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => {
-    void (async () => {
-      const [providerResponse, credentialResponse] = await Promise.all([
-        fetch(`${apiBase}/v1/media/providers`),
-        fetch(`${apiBase}/v1/media/credentials`),
-      ]);
-      if (providerResponse.ok) setProviders(await providerResponse.json());
-      if (credentialResponse.ok)
-        setCredentials(await credentialResponse.json());
-    })();
-  }, [apiBase]);
+  useEffect(() => { void loadConfiguration(apiBase); }, [apiBase, loadConfiguration]);
   const models = providers
     .flatMap((provider) => provider.models)
     .filter((model) => model.capability === kind.capability);

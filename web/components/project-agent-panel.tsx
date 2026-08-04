@@ -68,10 +68,14 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
   const sessions = useAgentStore((state) => state.sessionsByScope[scope] ?? EMPTY_SESSIONS);
   const runtimeStatus = useAgentStore((state) => state.runtimeStatus);
   const opencodeModels = useAgentStore((state) => state.opencodeModels ?? EMPTY_OPENCODE_MODELS);
+  const cachedActiveID = useAgentStore((state) => state.activeSessionIDByScope[scope] ?? null);
   const loadCachedSessions = useAgentStore((state) => state.loadSessions);
   const loadCachedRuntimeStatus = useAgentStore((state) => state.loadRuntimeStatus);
   const loadCachedOpencodeModels = useAgentStore((state) => state.loadOpencodeModels);
   const upsertCachedSession = useAgentStore((state) => state.upsertSession);
+  const loadCachedSessionDetail = useAgentStore((state) => state.loadSessionDetail);
+  const setCachedActiveSession = useAgentStore((state) => state.setActiveSession);
+  const upsertCachedSessionDetail = useAgentStore((state) => state.upsertSessionDetail);
   const [activeID, setActiveID] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [content, setContent] = useState("");
@@ -167,7 +171,9 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     try {
       const next = await loadCachedSessions(apiBase, scope);
       if (scopeVersion !== scopeVersionRef.current) return;
-      const selected = next[0]?.id;
+      const selected = cachedActiveID && next.some((session) => session.id === cachedActiveID)
+        ? cachedActiveID
+        : next[0]?.id;
       if (selected) {
         await open(selected, scopeVersion);
         return;
@@ -197,17 +203,16 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     streamRef.current?.close();
     streamRef.current = null;
     setActiveID(id);
+    setCachedActiveSession(apiBase, scope, id);
     setDetail(null);
     setError("");
     setSyncingID(id);
     setLoadingSessions(true);
     try {
-      const response = await fetch(`${apiBase}/v1/agent-sessions/${id}`);
-      if (!response.ok)
-        throw new Error(await responseMessage(response, "无法读取对话"));
-      const next: Detail = await response.json();
+      const next = await loadCachedSessionDetail(apiBase, id);
       if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
       setDetail(next);
+      upsertCachedSessionDetail(apiBase, next);
       subscribe(id, next.lastEventId, scopeVersion, detailVersion);
     } catch (cause) {
       if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
@@ -237,9 +242,11 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
       const incoming = JSON.parse(
         (event as MessageEvent<string>).data,
       ) as AgentEvent;
-      setDetail((current) =>
-        current ? applyAgentEvent(current, incoming) : current,
-      );
+      setDetail((current) => {
+        const next = current ? applyAgentEvent(current, incoming) : current;
+        if (next) upsertCachedSessionDetail(apiBase, next);
+        return next;
+      });
       if (incoming.type === "turn.cancelled") setStopNotice("已停止当前回复");
       if (incoming.type === "turn.started") setStopNotice("");
       if (
@@ -294,13 +301,11 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     scopeVersion = scopeVersionRef.current,
     detailVersion = detailVersionRef.current,
   ) {
-    const response = await fetch(`${apiBase}/v1/agent-sessions/${id}`);
-    if (!response.ok || !isCurrentRequest(id, scopeVersion, detailVersion))
-      return;
-    const next: Detail = await response.json();
+    const next = await loadCachedSessionDetail(apiBase, id, true);
     if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
     setDetail(next);
     upsertCachedSession(apiBase, scope, next);
+    upsertCachedSessionDetail(apiBase, next);
   }
   async function createSession(runtime: Runtime) {
     if (creatingRuntime) return null;
@@ -443,9 +448,11 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
   async function stop() {
     if (!activeID) return;
     setStopNotice("正在停止当前回复…");
-    setDetail((current) =>
-      current ? { ...current, status: "stopping" } : current,
-    );
+    setDetail((current) => {
+      const next = current ? { ...current, status: "stopping" } : current;
+      if (next) upsertCachedSessionDetail(apiBase, next);
+      return next;
+    });
     const response = await fetch(
       `${apiBase}/v1/agent-sessions/${activeID}/stop`,
       { method: "POST" },

@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖静态 App Catalog、浏览器真实 URL、Next.js 路由、service 的本地 App/安装状态/安装/项目 HTTP API 与版本展示原子
+ * [INPUT]: 依赖静态 App Catalog、浏览器真实 URL、Next.js 路由、workspace-store 的本地 App/安装状态、安装/项目 HTTP API 与版本展示原子
  * [OUTPUT]: 对外提供静态语义化 App 详情、安装状态、市场 App 安装与项目或工作区入口
- * [POS]: apps/[appID] 的客户端交互层；应用中心由 Catalog 决定身份，用户手动安装的 App 从 service 发现，service 只回答本机状态并执行用户操作
+ * [POS]: apps/[appID] 的客户端交互层；应用中心由 Catalog 决定身份，用户手动安装的 App 从 workspace-store 目录发现，service 只执行用户操作
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -11,19 +11,17 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
-import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
+import { AppVersionControl } from "@/components/app-version-control";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getCatalogApp, type CatalogApp } from "@/lib/app-catalog";
+import { getCatalogApp } from "@/lib/app-catalog";
 import { useServiceStore } from "@/lib/service-store";
+import { useWorkspaceStore } from "@/lib/workspace-store";
 import { Workspace } from "../../page";
 
-type AppInstallation = ManagedApp & { repository?: string };
 type Project = { id: string };
 type DetailContext = { onConnectService: () => void; serviceOnline: boolean };
-type ServiceApp = { manifest: CatalogApp["manifest"] };
-type LocalAppLookup = "idle" | "loading" | "complete";
 
 function appIDFromLocation(routeID: string) {
   const match = window.location.pathname.match(/^\/apps\/([^/]+)\/?$/);
@@ -40,49 +38,24 @@ function AppDetailContent({ onConnectService, serviceOnline }: DetailContext) {
   const router = useRouter();
   const [appID, setAppID] = useState("");
   const catalogApp = getCatalogApp(appID);
-  const [serviceApp, setServiceApp] = useState<CatalogApp | null>(null);
-  const [installation, setInstallation] = useState<AppInstallation | null>(null);
-  const [localAppLookup, setLocalAppLookup] = useState<LocalAppLookup>("idle");
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [installing, setInstalling] = useState(false);
   const apiBase = useServiceStore((state) => state.endpoint);
+  const apps = useWorkspaceStore((state) => state.apps);
+  const installations = useWorkspaceStore((state) => state.installations);
+  const workspaceState = useWorkspaceStore((state) => state.state);
+  const loadWorkspace = useWorkspaceStore((state) => state.load);
+  const serviceApp = serviceOnline ? apps.find((item) => item.manifest.id === appID) ?? null : null;
+  const installation = serviceOnline ? installations.find((item) => item.manifest.id === appID) ?? null : null;
   const app = catalogApp ?? serviceApp;
 
   useEffect(() => { setAppID(appIDFromLocation(routeAppID)); }, [routeAppID]);
 
   useEffect(() => {
-    if (!serviceOnline || !appID) {
-      setInstallation(null);
-      return;
-    }
-    let active = true;
-    void fetch(`${apiBase}/v1/apps/installed`).then(async (response) => {
-      const installations = response.ok ? await response.json() as AppInstallation[] : [];
-      if (active) setInstallation(installations.find((item) => item.manifest.id === appID) ?? null);
-    }).catch(() => { if (active) setInstallation(null); });
-    return () => { active = false; };
-  }, [apiBase, appID, serviceOnline]);
-
-  useEffect(() => {
-    if (catalogApp || !serviceOnline || !appID) {
-      setServiceApp(null);
-      setLocalAppLookup("idle");
-      return;
-    }
-    let active = true;
-    setServiceApp(null);
-    setLocalAppLookup("loading");
-    void fetch(`${apiBase}/v1/apps`).then(async (response) => {
-      if (!active) return;
-      const apps = response.ok ? await response.json() as ServiceApp[] : [];
-      const found = apps.find((item) => item.manifest.id === appID);
-      if (found) setServiceApp({ manifest: found.manifest });
-      setLocalAppLookup("complete");
-    }).catch(() => { if (active) setLocalAppLookup("complete"); });
-    return () => { active = false; };
-  }, [apiBase, appID, catalogApp, serviceOnline]);
+    if (serviceOnline) void loadWorkspace(apiBase);
+  }, [apiBase, loadWorkspace, serviceOnline]);
 
   async function installApp() {
     if (!app?.manifest.repository) return;
@@ -95,7 +68,8 @@ function AppDetailContent({ onConnectService, serviceOnline }: DetailContext) {
     try {
       const response = await fetch(`${apiBase}/v1/apps/install`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repository: app.manifest.repository }) });
       if (!response.ok) throw new Error(await responseMessage(response));
-      setInstallation(await response.json() as AppInstallation);
+      await response.json();
+      await loadWorkspace(apiBase, true);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "安装 App 失败"); } finally { setInstalling(false); }
   }
 
@@ -107,13 +81,14 @@ function AppDetailContent({ onConnectService, serviceOnline }: DetailContext) {
       const response = await fetch(`${apiBase}/v1/projects`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), appId: app.manifest.id }) });
       if (!response.ok) throw new Error(await responseMessage(response));
       const project = await response.json() as Project;
+      await loadWorkspace(apiBase, true);
       router.push(`/projects/${project.id}`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "创建项目失败"); } finally { setCreating(false); }
   }
 
   const canCreateProject = Boolean(app && installation && app.manifest.type === "project");
   const canOpenWorkspace = Boolean(app && installation && app.manifest.type === "standalone");
-  const loading = !appID || (!catalogApp && localAppLookup === "loading");
+  const loading = !appID || (!catalogApp && workspaceState === "loading");
   const unavailableMessage = serviceOnline
     ? "这个 App 不在应用中心，也没有在当前 service 中找到本地安装包。"
     : "这是本地安装的 App；连接 service 后才能读取它。";

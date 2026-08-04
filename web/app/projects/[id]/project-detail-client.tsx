@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖全局 Zustand service 状态、service endpoint、项目/App manifest API、平台素材选择器、按 scope 缓存的 Agent Session 列表与 Next.js 浏览器路由参数
+ * [INPUT]: 依赖全局 Zustand service 状态、workspace-store 的项目/App/安装状态、平台素材选择器、按 scope 缓存的 Agent Session 列表与 Next.js 浏览器路由参数
  * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发、全局素材选择与带宿主通信诊断的结构化 Agent 请求转交；App 可回填右侧 Agent 输入草稿，`agent.send` 复用会话摘要缓存并在建会话后回写
- * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，共享根级 service 状态，隔离 useParams、WebSocket 与 iframe，不能吞没后台诊断
+ * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，从 workspace-store 读取目录真相，隔离 useParams、WebSocket 与 iframe，不能吞没后台诊断
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -19,9 +19,7 @@ import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { agentScopeKey, useAgentStore } from "@/lib/agent-store";
 import { firstAvailableAgentRuntime } from "@/lib/agent-runtime";
 import { useServiceStore } from "@/lib/service-store";
-
-type Project = { id: string; name: string; appId: string; appVersion: string; createdAt: string };
-type App = { manifest: { id: string; name: string; version: string; ui: { projectView?: string } } };
+import { useWorkspaceStore } from "@/lib/workspace-store";
 
 function operationError(payload: unknown, fallback: string) {
   const value = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as { error?: unknown } : null;
@@ -38,33 +36,28 @@ function projectIDFromLocation(routeID: string) {
 export default function ProjectDetailClient() {
   const { id: routeID } = useParams<{ id: string }>();
   const [id, setID] = useState("");
-  const [project, setProject] = useState<Project | null>(null);
-  const [app, setApp] = useState<App | null>(null);
-  const [installation, setInstallation] = useState<ManagedApp | null>(null);
   const [agentDraft, setAgentDraft] = useState<{ id: string; text: string } | null>(null);
   const [mediaPicker, setMediaPicker] = useState<PlatformMediaPickerRequest | null>(null);
   const apiBase = useServiceStore((state) => state.endpoint);
   const online = useServiceStore((state) => state.service.phase === "online");
+  const apps = useWorkspaceStore((state) => state.apps);
+  const installations = useWorkspaceStore((state) => state.installations);
+  const project = useWorkspaceStore((state) => id ? state.projectDetailsByID[id] ?? null : null);
+  const loadWorkspace = useWorkspaceStore((state) => state.load);
+  const loadProject = useWorkspaceStore((state) => state.loadProject);
   const loadAgentSessions = useAgentStore((state) => state.loadSessions);
   const upsertAgentSession = useAgentStore((state) => state.upsertSession);
   const appFrame = useRef<HTMLIFrameElement>(null);
   const mediaPickerReply = useRef<((selection: PlatformMediaPickerResult | null) => void) | null>(null);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.project-agent-panel-width" });
+  const app = project ? apps.find((item) => item.manifest.id === project.appId) ?? null : null;
+  const installation = project ? installations.find((item) => item.manifest.id === project.appId) ?? null : null;
 
   useEffect(() => { setID(projectIDFromLocation(routeID)); }, [routeID]);
   useEffect(() => {
     if (!id || !online) return;
-    void (async () => {
-      const projectResponse = await fetch(`${apiBase}/v1/projects/${id}`);
-      if (!projectResponse.ok) return;
-      const nextProject = await projectResponse.json();
-      setProject(nextProject);
-      const appsResponse = await fetch(`${apiBase}/v1/apps`);
-      if (appsResponse.ok) setApp((await appsResponse.json()).find((item: App) => item.manifest.id === nextProject.appId) ?? null);
-      const installationResponse = await fetch(`${apiBase}/v1/apps/installed`);
-      if (installationResponse.ok) setInstallation((await installationResponse.json()).find((item: ManagedApp) => item.manifest.id === nextProject.appId) ?? null);
-    })();
-  }, [apiBase, id, online]);
+    void Promise.all([loadWorkspace(apiBase), loadProject(apiBase, id)]);
+  }, [apiBase, id, loadProject, loadWorkspace, online]);
 
   useEffect(() => {
     if (!project) return;
@@ -138,7 +131,7 @@ export default function ProjectDetailClient() {
     appFrame.current.contentWindow?.postMessage({ type: "recut.ui.connect" }, apiBase, [channel.port2]);
   };
 
-  const view = app?.manifest.ui.projectView;
+  const view = app?.manifest.ui?.projectView;
   const uiURL = project && view ? `${apiBase}/v1/apps/${encodeURIComponent(project.appId)}/ui/${view}?projectId=${encodeURIComponent(project.id)}&appVersion=${encodeURIComponent(app?.manifest.version ?? "")}` : null;
   const resolveMediaPicker = (selection: PlatformMediaPickerResult | null) => { mediaPickerReply.current?.(selection); mediaPickerReply.current = null; setMediaPicker(null); };
 

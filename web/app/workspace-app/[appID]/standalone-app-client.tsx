@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 service 的独立 App workspace scope、manifest UI 入口、App API、Provider/凭据/媒体生成、平台素材选择器与按 scope 缓存的 Agent Session 列表
+ * [INPUT]: 依赖 workspace-store 的独立 App scope/manifest、media-configuration-store 的 Provider/凭据、App API、媒体生成、平台素材选择器与按 scope 缓存的 Agent Session 列表
  * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏；App 可回填输入草稿，`agent.send` 复用会话摘要缓存并在建会话后回写
- * [POS]: workspace-app/[appID] 的客户端工作台；复用项目级安全 scope，但不显示或创建用户项目
+ * [POS]: workspace-app/[appID] 的客户端工作台；从统一缓存复用项目级安全 scope，但不显示或创建用户项目
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -16,10 +16,9 @@ import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { agentScopeKey, useAgentStore } from "@/lib/agent-store";
 import { firstAvailableAgentRuntime } from "@/lib/agent-runtime";
+import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { useServiceStore } from "@/lib/service-store";
-
-type WorkspaceScope = { id: string; name: string; appId: string; appVersion: string };
-type App = { manifest: { id: string; name: string; version: string; type: "standalone" | "project"; ui: { standaloneView?: string } } };
+import { useWorkspaceStore } from "@/lib/workspace-store";
 
 function appIDFromLocation(routeID: string) {
   const queryID = new URLSearchParams(window.location.search).get("id");
@@ -36,34 +35,28 @@ function operationError(payload: unknown, fallback: string) {
 export default function StandaloneAppClient() {
   const { appID: routeID } = useParams<{ appID: string }>();
   const [appID, setAppID] = useState("");
-  const [scope, setScope] = useState<WorkspaceScope | null>(null);
-  const [app, setApp] = useState<App | null>(null);
   const [agentDraft, setAgentDraft] = useState<{ id: string; text: string } | null>(null);
   const [mediaPicker, setMediaPicker] = useState<PlatformMediaPickerRequest | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"multimodal" | undefined>();
   const apiBase = useServiceStore((state) => state.endpoint);
   const online = useServiceStore((state) => state.service.phase === "online");
+  const apps = useWorkspaceStore((state) => state.apps);
+  const scope = useWorkspaceStore((state) => appID ? state.workspaceScopesByAppID[appID] ?? null : null);
+  const loadWorkspace = useWorkspaceStore((state) => state.load);
+  const loadWorkspaceScope = useWorkspaceStore((state) => state.loadWorkspaceScope);
   const loadAgentSessions = useAgentStore((state) => state.loadSessions);
   const upsertAgentSession = useAgentStore((state) => state.upsertSession);
   const appFrame = useRef<HTMLIFrameElement>(null);
   const mediaPickerReply = useRef<((selection: PlatformMediaPickerResult | null) => void) | null>(null);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.workspace-app-agent-panel-width" });
+  const app = appID ? apps.find((item) => item.manifest.id === appID) ?? null : null;
 
   useEffect(() => { setAppID(appIDFromLocation(routeID)); }, [routeID]);
   useEffect(() => {
     if (!appID || !online) return;
-    let active = true;
-    void (async () => {
-      const [scopeResponse, appsResponse] = await Promise.all([fetch(`${apiBase}/v1/apps/${encodeURIComponent(appID)}/workspace`), fetch(`${apiBase}/v1/apps`)]);
-      if (!active || !scopeResponse.ok || !appsResponse.ok) return;
-      const nextApp = (await appsResponse.json() as App[]).find((item) => item.manifest.id === appID) ?? null;
-      if (!nextApp || nextApp.manifest.type !== "standalone") return;
-      setScope(await scopeResponse.json() as WorkspaceScope);
-      setApp(nextApp);
-    })().catch(() => { if (active) { setScope(null); setApp(null); } });
-    return () => { active = false; };
-  }, [apiBase, appID, online]);
+    void Promise.all([loadWorkspace(apiBase), loadWorkspaceScope(apiBase, appID)]);
+  }, [apiBase, appID, loadWorkspace, loadWorkspaceScope, online]);
 
   useEffect(() => {
     if (!scope) return;
@@ -96,10 +89,10 @@ export default function StandaloneAppClient() {
           setAgentDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
         } else if (request.type === "media.configuration") {
-          const [providerResponse, credentialResponse] = await Promise.all([fetch(`${apiBase}/v1/media/providers`), fetch(`${apiBase}/v1/media/credentials`)]);
-          const providers = await providerResponse.json() as { id: string; name: string; models: { id: string; name: string; capability: string; available: boolean; inputModes: string[] }[] }[];
-          const credentials = await credentialResponse.json() as { id: string; name: string; provider: string; secretSet: boolean }[];
-          if (!providerResponse.ok || !credentialResponse.ok) throw new Error("无法读取图片模型配置");
+          await useMediaConfigurationStore.getState().load(apiBase);
+          const configuration = useMediaConfigurationStore.getState();
+          if (configuration.endpoint !== apiBase || configuration.state !== "ready") throw new Error("无法读取图片模型配置");
+          const { providers, credentials } = configuration;
           const payload = credentials.filter((credential) => credential.secretSet).flatMap((credential) => {
             const provider = providers.find((item) => item.id === credential.provider);
             return (provider?.models ?? []).filter((model) => model.capability === "image.generate" && model.available).map((model) => ({ id: `${credential.id}:${model.id}`, model, credentialID: credential.id, credentialName: credential.name, providerName: provider?.name ?? credential.provider }));
@@ -148,7 +141,7 @@ export default function StandaloneAppClient() {
     appFrame.current.contentWindow?.postMessage({ type: "recut.ui.connect" }, apiBase, [channel.port2]);
   };
 
-  const view = app?.manifest.ui.standaloneView;
+  const view = app?.manifest.ui?.standaloneView;
   const uiURL = scope && app && view ? `${apiBase}/v1/apps/${encodeURIComponent(app.manifest.id)}/ui/${view}?projectId=${encodeURIComponent(scope.id)}&appVersion=${encodeURIComponent(app.manifest.version)}` : null;
   const resolveMediaPicker = (selection: PlatformMediaPickerResult | null) => { mediaPickerReply.current?.(selection); mediaPickerReply.current = null; setMediaPicker(null); };
   const changeSettingsOpen = (open: boolean) => { setSettingsOpen(open); if (!open) setSettingsSection(undefined); };

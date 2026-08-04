@@ -1,28 +1,30 @@
 /*
- * [INPUT]: 依赖 service endpoint 配置、Media Platform 的 Provider、Credential、Route HTTP API 与工作台 UI 原子组件
+ * [INPUT]: 依赖 service endpoint 配置、media-configuration-store 的 Provider/Credential/Route 快照与工作台 UI 原子组件
  * [OUTPUT]: 对外提供全局设置面板，以及本机/LAN service 连接、全局对话引导、Provider 连接和用途模型配置体验；加载完成前保留明确等待态，图片用途可选择无需密钥的 Codex 原生生图，表单字段均有可见标签
- * [POS]: web/components 的工作台级设置入口；service 地址、全局 Agent 引导、Provider、Codex 原生图片与用途模型的唯一用户配置界面
+ * [POS]: web/components 的工作台级设置入口；service 地址、全局 Agent 引导、Provider、Codex 原生图片与用途模型的唯一用户配置界面，API Key 草稿不外泄到全局缓存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { AppWindow, Bot, Check, ChevronDown, Copy, Image, Map, Mic2, Plus, Server, Settings, Sparkles, TerminalSquare, Video, X } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { AgentOnboardingSettings } from "@/components/agent-onboarding-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { normalizeServiceEndpoint } from "@/lib/service-endpoint";
+import {
+  useMediaConfigurationStore,
+  type MediaCredential as Credential,
+  type MediaProvider as Provider,
+  type MediaRoute as Route,
+} from "@/lib/media-configuration-store";
 import { useServiceStore } from "@/lib/service-store";
+import type { Model } from "@/app/media/media-types";
 
 type SettingSection = "service" | "apps" | "cli" | "agents" | "onboarding" | "multimodal";
-type Model = { id: string; provider: string; name: string; capability: string; available: boolean };
-type Provider = { id: string; name: string; defaultApiBase: string; models: Model[] };
-type Credential = { id: string; name: string; provider: string };
-type Route = { id: string; capability: string; modelId: string; credentialId: string; enabled: boolean };
-
-const codexImageModel: Model = { id: "codex/image", provider: "codex", name: "Codex", capability: "image.generate", available: true };
+const codexImageModel: Model = { id: "codex/image", provider: "codex", name: "Codex", capability: "image.generate", available: true, inputModes: ["text"] };
 const codexImageProvider: Provider = { id: "codex", name: "Codex", defaultApiBase: "", models: [codexImageModel] };
 
 const sections: { id: SettingSection; label: string; icon: typeof AppWindow }[] = [
@@ -122,25 +124,30 @@ function ServiceEndpointSettings() {
 
 function ProviderSettings() {
   const apiBase = useServiceStore((state) => state.endpoint);
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [credentials, setCredentials] = useState<Credential[]>([]);
-  const [routes, setRoutes] = useState<Route[]>([]);
+  const configuredProviders = useMediaConfigurationStore((state) => state.providers);
+  const credentials = useMediaConfigurationStore((state) => state.credentials);
+  const routes = useMediaConfigurationStore((state) => state.routes);
+  const configurationState = useMediaConfigurationStore((state) => state.state);
+  const loadConfiguration = useMediaConfigurationStore((state) => state.load);
+  const providers = useMemo(
+    () => configuredProviders.some((item) => item.id === codexImageProvider.id) ? configuredProviders : [...configuredProviders, codexImageProvider],
+    [configuredProviders],
+  );
   const [adding, setAdding] = useState(false);
   const [providerID, setProviderID] = useState("atlas-cloud");
   const [name, setName] = useState("");
   const [apiBaseValue, setAPIBaseValue] = useState("");
   const [apiKey, setAPIKey] = useState("");
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(true);
-  async function load() { setLoading(true); try { const [providerResponse, credentialResponse, routeResponse] = await Promise.all([fetch(`${apiBase}/v1/media/providers`), fetch(`${apiBase}/v1/media/credentials`), fetch(`${apiBase}/v1/media/routes`)]); if (providerResponse.ok) { const next = await providerResponse.json(); setProviders(next); if (!apiBaseValue) setAPIBaseValue(next.find((item: Provider) => item.id === providerID)?.defaultApiBase ?? ""); } if (credentialResponse.ok) setCredentials(await credentialResponse.json()); if (routeResponse.ok) setRoutes(await routeResponse.json()); } finally { setLoading(false); } }
-  useEffect(() => { void load(); }, [apiBase]);
-  useEffect(() => { if (providers.some((item) => item.id === codexImageProvider.id)) return; setProviders((current) => [...current, codexImageProvider]); }, [providers]);
+  const loading = configurationState === "idle" || configurationState === "loading";
+  useEffect(() => { void loadConfiguration(apiBase); }, [apiBase, loadConfiguration]);
+  useEffect(() => { if (!apiBaseValue) setAPIBaseValue(providers.find((item) => item.id === providerID)?.defaultApiBase ?? ""); }, [apiBaseValue, providerID, providers]);
   const provider = providers.find((item) => item.id === providerID);
   const connectedProviders = new Set([...credentials.map((credential) => credential.provider), codexImageProvider.id]);
   function chooseProvider(id: string) { const next = providers.find((item) => item.id === id); setProviderID(id); setAPIBaseValue(next?.defaultApiBase ?? ""); }
   function beginAdding(preferred?: string) { if (preferred) chooseProvider(preferred); setAdding(true); setMessage(""); }
-  async function addProvider(event: FormEvent) { event.preventDefault(); const response = await fetch(`${apiBase}/v1/media/credentials`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: providerID, name: name || provider?.name || providerID, apiBase: apiBaseValue, apiKey }) }); if (!response.ok) { setMessage("无法连接 Provider。请检查密钥和 API 地址后重试。"); return; } setAdding(false); setName(""); setAPIKey(""); setMessage(`${provider?.name ?? "Provider"} 已连接，可以为对应用途选择模型。`); await load(); }
-  async function chooseModel(capability: string, modelID: string) { const model = modelID === codexImageModel.id ? codexImageModel : providers.flatMap((item) => item.models).find((item) => item.id === modelID); const credential = credentials.find((item) => item.provider === model?.provider); if (!model || (model.id !== codexImageModel.id && !credential)) { setMessage("请先连接此模型所属的 Provider。"); return; } const response = await fetch(`${apiBase}/v1/media/routes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: `${capability}.default`, capability, modelId: modelID, credentialId: credential?.id ?? "", enabled: true }) }); if (!response.ok) { setMessage("用途模型保存失败，请重试。"); return; } setMessage(model.id === codexImageModel.id ? "图片生成已切换为 Codex。Agent 会使用 Codex 原生生图，不调用 Provider。" : `${capabilityLabel(capability)}已切换为 ${model.name}。`); await load(); }
+  async function addProvider(event: FormEvent) { event.preventDefault(); const response = await fetch(`${apiBase}/v1/media/credentials`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: providerID, name: name || provider?.name || providerID, apiBase: apiBaseValue, apiKey }) }); if (!response.ok) { setMessage("无法连接 Provider。请检查密钥和 API 地址后重试。"); return; } setAdding(false); setName(""); setAPIKey(""); setMessage(`${provider?.name ?? "Provider"} 已连接，可以为对应用途选择模型。`); await loadConfiguration(apiBase, true); }
+  async function chooseModel(capability: string, modelID: string) { const model = modelID === codexImageModel.id ? codexImageModel : providers.flatMap((item) => item.models).find((item) => item.id === modelID); const credential = credentials.find((item) => item.provider === model?.provider); if (!model || (model.id !== codexImageModel.id && !credential)) { setMessage("请先连接此模型所属的 Provider。"); return; } const response = await fetch(`${apiBase}/v1/media/routes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: `${capability}.default`, capability, modelId: modelID, credentialId: credential?.id ?? "", enabled: true }) }); if (!response.ok) { setMessage("用途模型保存失败，请重试。"); return; } setMessage(model.id === codexImageModel.id ? "图片生成已切换为 Codex。Agent 会使用 Codex 原生生图，不调用 Provider。" : `${capabilityLabel(capability)}已切换为 ${model.name}。`); await loadConfiguration(apiBase, true); }
   if (loading) return <div className="grid min-h-80 place-items-center border border-dashed bg-muted/20 px-4 text-center"><div><p className="text-sm font-medium">正在加载 AI 服务配置…</p><p className="mt-1 text-xs text-muted-foreground">正在恢复已连接的服务商与用途模型。</p></div></div>;
   return <div className="space-y-9 pt-6"><section><div className="flex items-start justify-between"><div><p className="text-sm font-medium">已连接服务商</p><p className="mt-1 text-xs text-muted-foreground">连接后，模型和音色会按该密钥的实际权限出现。</p></div><Button className="size-8 px-0" onClick={() => beginAdding()} title="连接服务商" type="button" variant="outline"><Plus className="size-4" /></Button></div>{credentials.length ? <div className="mt-4 grid gap-2 sm:grid-cols-2">{credentials.map((credential) => { const connected = providers.find((item) => item.id === credential.provider); const info = providerInfo(credential.provider); return <div className="border bg-card p-3" key={credential.id}><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-medium">{credential.name}</p><p className="mt-1 text-[11px] text-muted-foreground">{connected?.name ?? credential.provider}</p></div><Badge>CONNECTED</Badge></div><p className="mt-3 text-[11px] leading-4 text-muted-foreground">{info.use}</p></div>; })}</div> : <div className="mt-4 flex items-center justify-between border border-dashed p-4"><p className="text-xs text-muted-foreground">还没有服务商。先连接一个 Provider 才能开始生成。</p><Button onClick={() => beginAdding()} type="button">连接服务商</Button></div>}{adding && <ProviderConnectForm apiBaseValue={apiBaseValue} apiKey={apiKey} name={name} onCancel={() => setAdding(false)} onProviderChange={chooseProvider} onSubmit={addProvider} providers={providers} selectedID={providerID} setAPIBaseValue={setAPIBaseValue} setAPIKey={setAPIKey} setName={setName} />}</section><section><div><p className="text-sm font-medium">按用途配置模型</p><p className="mt-1 text-xs text-muted-foreground">每种用途独立选择。Agent 只能调用这里已配置的模型，不会自行猜测 Provider。</p></div><div className="mt-4 space-y-3">{capabilities.map((capability) => { const route = routes.find((item) => item.capability === capability.id); const models = providers.filter((item) => connectedProviders.has(item.id)).flatMap((item) => item.models).filter((model) => model.capability === capability.id && model.available); return <ModelRouteCard capability={capability} key={capability.id} models={models} onChoose={chooseModel} onConnect={beginAdding} providerName={(id) => providers.find((item) => item.id === id)?.name ?? id} selectedID={route?.modelId} />; })}</div></section>{message && <p className="border-l-2 border-primary pl-3 text-xs text-muted-foreground">{message}</p>}</div>;
 }

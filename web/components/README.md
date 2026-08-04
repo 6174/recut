@@ -15,12 +15,12 @@ tool-result-assets.tsx: Agent 工具结果中的媒体适配层；从含嵌套 J
 agent-panel-types.ts: Agent 对话的共享数据契约；集中 Session、Turn、事件、运行时配置、默认值与展示标签，消除面板控制器、视图和输入区的类型耦合。
 agent-panel-views.tsx: Agent 对话展示层；渲染会话时间线、历史列表、加载态、CLI 调试弹框与 CLI 恢复面板，并在展开的工具结果中挂载 Asset 预览，归并 SSE 增量事件而不发起会话请求。
 agent-composer.tsx: Agent 对话输入层；处理文本、素材引用、上传、Codex/OpenCode 配置与新会话 runtime 选择，所有状态变更通过控制器回调上送。
-project-agent-panel.tsx: 项目与素材库共用的固定高度 Agent 对话侧栏；运行时、OpenCode 模型、onboarding 和按 scope 的会话摘要由 `lib/agent-store` 在同一 endpoint 内去重共享，切换路由不重拉；单会话详情和增量仍由 SSE 维护，创建/完成后局部回写会话摘要。首页无项目时以 `scope=general` 自动进入隐藏 general scope，存在可用 runtime 的空态允许直接输入并在首条消息发送时创建默认 Codex 会话；App iframe 只能回填输入草稿，不能自动提交 turn。无可用 runtime 时只显示安装入口，安装完成后的重新检查强制刷新运行时快照。
+project-agent-panel.tsx: 项目与素材库共用的固定高度 Agent 对话侧栏；运行时、模型、onboarding、按 scope 会话摘要、当前会话和详情快照由 `lib/agent-store` 去重共享，SSE 连接仍由面板拥有并将增量回写缓存。首页无项目时以 `scope=general` 自动进入隐藏 general scope，存在可用 runtime 的空态允许直接输入并在首条消息发送时创建默认 Codex 会话；App iframe 只能回填输入草稿，不能自动提交 turn。无可用 runtime 时只显示安装入口，安装完成后的重新检查强制刷新运行时快照。
 agent-onboarding.tsx: 新建 Codex、OpenCode 或 Claude Code 会话的非空引导空态；无论项目或 general scope，均读取当前项目或全局解析出的 App/全局/平台兜底卡片，点击只写入显式 prompt。在 `runtimeStatus` 报告无任何可用本地 Agent CLI 时，仅显示 1–3 张安装卡，点击同样打开共享安装对话框；至少一个 runtime 就绪后才显示目标引导卡。
 agent-onboarding-settings.tsx: 全局新对话引导设置；维护用户级卡片标题、说明与 prompt，不修改 App manifest，新增卡片 ID 不依赖安全上下文 UUID。
 agent-install-guide.tsx: 本地 Agent CLI 共享三步（安装、登录/验证、重新检查）正文；同时被现有恢复面板（CLI 缺失分支）与新增主动安装对话框消费，checking / checkFailed 由调用方管理，复制到剪贴板与失败兜底统一在内。
 agent-install-dialog.tsx: 主动引导用户安装本地 Agent CLI 的共享模态对话框；供空态安装卡、RuntimePicker 未就绪项与未来 settings 本地 Agent 分类复用，关闭即清空、Esc 关闭、背景点击关闭，完成 recheck 且 CLI 已在 backend 可用时由父级自动关闭并刷新 runtimeStatus。
-settings-panel.tsx: Header 右侧的全局设置面板；可展示并复制本机 service 安装命令、验证并保存本地或远程 service 根地址，也以带能力说明的 Popover 连接多 Provider BYOK 凭据，并按图片、视频、语音用途选择模型；配置请求完成前展示明确加载态，图片可选无需密钥的 Codex 原生生图，字段均有可见标签。
+settings-panel.tsx: Header 右侧的全局设置面板；可展示并复制本机 service 安装命令、验证并保存本地或远程 service 根地址，也以带能力说明的 Popover 连接多 Provider BYOK 凭据，并从 `media-configuration-store` 读取共享配置按图片、视频、语音用途选择模型；API Key 草稿只在表单本地保存。
 header-actions.tsx: 工作台 Header 右侧的统一操作组合；在页面流中汇集项目 GitHub 主页外链、service 状态、全局设置与可选页面上下文操作，首页与项目详情共用。
 service-control.tsx: Header 内的 service 控制入口；通过 Zustand 初始化并每 30 秒刷新唯一 endpoint 的全局状态，展示 health 提供的进程启动时间，并在启动时间变化后确认升级或 launchd 重启完成；所有已连通 service 均提供新标签页诊断日志入口，查看 CLI 解析、PATH 与近期 service 日志，接口仍由 service 限制在本地网络；发现本地 service 更新时将 Header 状态切换为醒目的更新操作，核心工作区保持可用；本地已安装 daemon 才允许网页执行这些操作，远程 service 只展示连接状态。
 app-version-control.tsx: Git App 版本交互原子；项目 Header 和 Apps 目录复用，单项升级经确认执行，且仅在存在可升级、无本地修改条目时提供一键更新，始终保留 dirty Git 工作树保护。

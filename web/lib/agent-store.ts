@@ -1,13 +1,13 @@
 /*
  * [INPUT]: 依赖 Zustand、Recut service 的 Agent 运行时、模型、引导与会话列表 HTTP API
- * [OUTPUT]: 对外提供按 service endpoint 去重的 Agent 共享快照、按 scope 缓存的会话列表及写操作后的局部回写
- * [POS]: web/lib 的 Agent 元数据唯一缓存；对话详情仍由组件持有的 SSE 维护，路由切换不重复读取低频快照
+ * [OUTPUT]: 对外提供按 service endpoint 去重的 Agent 共享快照、按 scope 缓存的会话列表、当前会话与详情快照及写操作后的局部回写
+ * [POS]: web/lib 的 Agent 服务端数据唯一缓存；组件拥有 SSE 连接但将增量回写此处，路由切换不重复读取已有对话
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { create } from "zustand";
 
 import type { AgentRuntimeStatus } from "@/components/agent-install-guide";
-import type { OpencodeModel, Session } from "@/components/agent-panel-types";
+import type { Detail, OpencodeModel, Session } from "@/components/agent-panel-types";
 
 export type AgentGuide = {
   id: string;
@@ -22,12 +22,18 @@ type AgentStore = {
   opencodeModels: OpencodeModel[] | null;
   onboardingByScope: Record<string, AgentGuide[]>;
   sessionsByScope: Record<string, Session[]>;
+  activeSessionIDByScope: Record<string, string | null>;
+  detailsBySessionID: Record<string, Detail>;
+  detailStateBySessionID: Record<string, "idle" | "loading" | "ready" | "failed">;
   loadRuntimeStatus: (endpoint: string, force?: boolean) => Promise<AgentRuntimeStatus[] | null>;
   loadOpencodeModels: (endpoint: string, force?: boolean) => Promise<OpencodeModel[]>;
   loadOnboarding: (endpoint: string, scope: string, force?: boolean) => Promise<AgentGuide[]>;
   saveGlobalOnboarding: (endpoint: string, items: AgentGuide[]) => Promise<void>;
   loadSessions: (endpoint: string, scope: string, force?: boolean) => Promise<Session[]>;
   upsertSession: (endpoint: string, scope: string, session: Session) => void;
+  setActiveSession: (endpoint: string, scope: string, sessionID: string | null) => void;
+  loadSessionDetail: (endpoint: string, sessionID: string, force?: boolean) => Promise<Detail>;
+  upsertSessionDetail: (endpoint: string, detail: Detail) => void;
 };
 
 const requests = new Map<string, Promise<unknown>>();
@@ -49,14 +55,30 @@ function requestOnce<T>(key: string, request: () => Promise<T>) {
   return pending;
 }
 
+function emptyAgentSnapshot(endpoint: string) {
+  return {
+    endpoint,
+    runtimeStatus: null,
+    opencodeModels: null,
+    onboardingByScope: {},
+    sessionsByScope: {},
+    activeSessionIDByScope: {},
+    detailsBySessionID: {},
+    detailStateBySessionID: {},
+  };
+}
+
 export const useAgentStore = create<AgentStore>((set, get) => ({
   endpoint: null,
   runtimeStatus: null,
   opencodeModels: null,
   onboardingByScope: {},
   sessionsByScope: {},
+  activeSessionIDByScope: {},
+  detailsBySessionID: {},
+  detailStateBySessionID: {},
   loadRuntimeStatus: async (endpoint, force = false) => {
-    if (get().endpoint !== endpoint) set({ endpoint, runtimeStatus: null, opencodeModels: null, onboardingByScope: {}, sessionsByScope: {} });
+    if (get().endpoint !== endpoint) set(emptyAgentSnapshot(endpoint));
     const cached = get().runtimeStatus;
     if (!force && cached) return cached;
     return requestOnce(`${endpoint}:agents`, async () => {
@@ -68,7 +90,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     });
   },
   loadOpencodeModels: async (endpoint, force = false) => {
-    if (get().endpoint !== endpoint) set({ endpoint, runtimeStatus: null, opencodeModels: null, onboardingByScope: {}, sessionsByScope: {} });
+    if (get().endpoint !== endpoint) set(emptyAgentSnapshot(endpoint));
     const cached = get().opencodeModels;
     if (!force && cached) return cached;
     return requestOnce(`${endpoint}:opencode-models`, async () => {
@@ -80,7 +102,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     });
   },
   loadOnboarding: async (endpoint, scope, force = false) => {
-    if (get().endpoint !== endpoint) set({ endpoint, runtimeStatus: null, opencodeModels: null, onboardingByScope: {}, sessionsByScope: {} });
+    if (get().endpoint !== endpoint) set(emptyAgentSnapshot(endpoint));
     const cached = get().onboardingByScope[scope];
     if (!force && cached) return cached;
     return requestOnce(`${endpoint}:onboarding:${scope}`, async () => {
@@ -99,7 +121,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     if (get().endpoint === endpoint) set({ onboardingByScope: { general: items } });
   },
   loadSessions: async (endpoint, scope, force = false) => {
-    if (get().endpoint !== endpoint) set({ endpoint, runtimeStatus: null, opencodeModels: null, onboardingByScope: {}, sessionsByScope: {} });
+    if (get().endpoint !== endpoint) set(emptyAgentSnapshot(endpoint));
     const cached = get().sessionsByScope[scope];
     if (!force && cached) return cached;
     return requestOnce(`${endpoint}:sessions:${scope}`, async () => {
@@ -113,5 +135,41 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   upsertSession: (endpoint, scope, session) => {
     if (get().endpoint !== endpoint) return;
     set((state) => ({ sessionsByScope: { ...state.sessionsByScope, [scope]: [session, ...(state.sessionsByScope[scope] ?? []).filter((item) => item.id !== session.id)] } }));
+  },
+  setActiveSession: (endpoint, scope, sessionID) => {
+    if (get().endpoint !== endpoint) return;
+    set((state) => ({ activeSessionIDByScope: { ...state.activeSessionIDByScope, [scope]: sessionID } }));
+  },
+  loadSessionDetail: async (endpoint, sessionID, force = false) => {
+    if (get().endpoint !== endpoint) set(emptyAgentSnapshot(endpoint));
+    const cached = get().detailsBySessionID[sessionID];
+    if (!force && cached) return cached;
+    set((state) => ({ detailStateBySessionID: { ...state.detailStateBySessionID, [sessionID]: "loading" } }));
+    return requestOnce(`${endpoint}:session:${sessionID}`, async () => {
+      try {
+        const response = await fetch(`${endpoint}/v1/agent-sessions/${sessionID}`);
+        if (!response.ok) throw new Error("无法读取对话");
+        const detail = await response.json() as Detail;
+        if (get().endpoint === endpoint) {
+          set((state) => ({
+            detailsBySessionID: { ...state.detailsBySessionID, [sessionID]: detail },
+            detailStateBySessionID: { ...state.detailStateBySessionID, [sessionID]: "ready" },
+          }));
+        }
+        return detail;
+      } catch (cause) {
+        if (get().endpoint === endpoint) {
+          set((state) => ({ detailStateBySessionID: { ...state.detailStateBySessionID, [sessionID]: "failed" } }));
+        }
+        throw cause;
+      }
+    });
+  },
+  upsertSessionDetail: (endpoint, detail) => {
+    if (get().endpoint !== endpoint) return;
+    set((state) => ({
+      detailsBySessionID: { ...state.detailsBySessionID, [detail.id]: detail },
+      detailStateBySessionID: { ...state.detailStateBySessionID, [detail.id]: "ready" },
+    }));
   },
 }));
