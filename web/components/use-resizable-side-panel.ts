@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 React ref、effect 与浏览器 Pointer Event、localStorage API
  * [OUTPUT]: 对外提供 useResizableSidePanel hook，生成无重渲染拖动、iframe 蒙层状态和持久化侧栏宽度的能力
- * [POS]: components 的工作台布局交互原语，被首页和项目详情页复用，不承载任何业务 UI
+ * [POS]: components 的工作台布局交互原语，被根布局全局挂载的 Agent 面板宿主消费，不承载任何业务 UI
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";

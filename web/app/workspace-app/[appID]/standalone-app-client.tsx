@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 workspace-store 的独立 App scope/manifest、media-configuration-store 的 Provider/凭据、App API、媒体生成、平台素材选择器与按 scope 缓存的 Agent Session 列表
- * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏；App 可回填输入草稿，`agent.send` 复用会话摘要缓存并在建会话后回写
- * [POS]: workspace-app/[appID] 的客户端工作台；从统一缓存复用项目级安全 scope，但不显示或创建用户项目
+ * [INPUT]: 依赖 workspace-store 的独立 App scope/manifest、media-configuration-store 的 Provider/凭据、App API、媒体生成、平台素材选择器、按 scope 缓存的 Agent Session 列表与全局 Agent 面板上下文
+ * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏；App 可经全局面板上下文回填输入草稿，`agent.send` 复用会话摘要缓存并在建会话后回写
+ * [POS]: workspace-app/[appID] 的客户端工作台；从统一缓存复用项目级安全 scope，但不显示或创建用户项目；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -9,11 +9,10 @@
 import { AppWindow, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { HeaderActions } from "@/components/header-actions";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
-import { ProjectAgentPanel } from "@/components/project-agent-panel";
-import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
+import { useAgentPanelContext } from "@/lib/agent-panel-context";
 import { appScopeKey, useAgentStore } from "@/lib/agent-store";
 import { firstAvailableAgentRuntime } from "@/lib/agent-runtime";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
@@ -35,13 +34,13 @@ function operationError(payload: unknown, fallback: string) {
 export default function StandaloneAppClient() {
   const { appID: routeID } = useParams<{ appID: string }>();
   const [appID, setAppID] = useState("");
-  const [agentDraft, setAgentDraft] = useState<{ id: string; text: string } | null>(null);
   const [mediaPicker, setMediaPicker] = useState<PlatformMediaPickerRequest | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"multimodal" | undefined>();
   const apiBase = useServiceStore((state) => state.endpoint);
   const online = useServiceStore((state) => state.service.phase === "online");
   const apps = useWorkspaceStore((state) => state.apps);
+  const installations = useWorkspaceStore((state) => state.installations);
   const scope = useWorkspaceStore((state) => appID ? state.workspaceScopesByAppID[appID] ?? null : null);
   const loadWorkspace = useWorkspaceStore((state) => state.load);
   const loadWorkspaceScope = useWorkspaceStore((state) => state.loadWorkspaceScope);
@@ -49,10 +48,12 @@ export default function StandaloneAppClient() {
   const upsertAgentSession = useAgentStore((state) => state.upsertSession);
   const appFrame = useRef<HTMLIFrameElement>(null);
   const mediaPickerReply = useRef<((selection: PlatformMediaPickerResult | null) => void) | null>(null);
-  const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.workspace-app-agent-panel-width" });
   const app = appID ? apps.find((item) => item.manifest.id === appID) ?? null : null;
 
   useEffect(() => { setAppID(appIDFromLocation(routeID)); }, [routeID]);
+  useLayoutEffect(() => {
+    useAgentPanelContext.getState().setContext({ projectID: null, headerHeight: 56 });
+  }, []);
   useEffect(() => {
     if (!appID || !online) return;
     void Promise.all([loadWorkspace(apiBase), loadWorkspaceScope(apiBase, appID)]);
@@ -86,7 +87,7 @@ export default function StandaloneAppClient() {
         } else if (request.type === "agent.compose") {
           const prompt = String(request.input?.prompt || "").trim();
           if (!prompt) throw new Error("Agent Prompt 不能为空");
-          setAgentDraft({ id: String(request.id), text: prompt });
+          useAgentPanelContext.getState().setDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
         } else if (request.type === "media.configuration") {
           await useMediaConfigurationStore.getState().load(apiBase);
@@ -145,9 +146,9 @@ export default function StandaloneAppClient() {
   const uiURL = scope && app && view ? `${apiBase}/v1/apps/${encodeURIComponent(app.manifest.id)}/ui/${view}?projectId=${encodeURIComponent(scope.id)}&appVersion=${encodeURIComponent(app.manifest.version)}` : null;
   const resolveMediaPicker = (selection: PlatformMediaPickerResult | null) => { mediaPickerReply.current?.(selection); mediaPickerReply.current = null; setMediaPicker(null); };
   const changeSettingsOpen = (open: boolean) => { setSettingsOpen(open); if (!open) setSettingsSection(undefined); };
-  return <main className="flex h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
+  return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5"><div className="flex min-w-0 items-center gap-4"><Link aria-label="返回首页" className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><AppWindow className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link><div aria-hidden="true" className="h-5 w-px bg-border" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{app?.manifest.name ?? "工作区 App"}</p><p className="truncate font-mono text-[10px] text-muted-foreground">WORKSPACE APP · 不创建项目</p></div></div><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></header>
-    <div className="relative grid min-h-0 flex-1 overflow-hidden [grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}><section className="min-h-0 min-w-0 overflow-hidden border-r bg-card">{uiURL ? <iframe className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={app?.manifest.name ?? "Recut App"} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">正在准备独立 App 工作区…</div>}</section>{isDragging && <div aria-hidden="true" className="absolute inset-0 z-[5] cursor-col-resize" />}<button aria-label="拖动调整 Agent 面板宽度" className="group absolute inset-y-0 z-10 w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button><ProjectAgentPanel apiBase={apiBase} draft={agentDraft} online={online} projectID={null} scope={appScopeKey(appID)} /></div>
+    <div className="min-h-0 flex-1 overflow-hidden md:pr-[var(--side-panel-width)]"><section className="h-full min-w-0 overflow-hidden border-r bg-card">{uiURL ? <iframe className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={app?.manifest.name ?? "Recut App"} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">正在准备独立 App 工作区…</div>}</section></div>
     <PlatformMediaPicker apiBase={apiBase} onCancel={() => resolveMediaPicker(null)} onPick={resolveMediaPicker} request={mediaPicker} />
   </main>;
 }

@@ -6,6 +6,7 @@
  */
 import type { Metadata } from "next";
 import "./globals.css";
+import { AgentPanelHost } from "@/components/agent-panel-host";
 
 export const metadata: Metadata = {
   title: "Recut Local Workspace",
@@ -15,7 +16,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <AgentPanelHost>{children}</AgentPanelHost>
+      </body>
     </html>
   );
 }

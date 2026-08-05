@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、持久化 CLI 定位缓存、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
- * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、停止时原子取消当前批次并重置 OpenCode 原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
+ * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、OpenCode 连续六分钟静默才取消的 watchdog、停止时原子取消当前批次并重置 OpenCode 原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
  * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -131,9 +131,72 @@ type AgentManager struct {
 
 const opencodeModelsCacheTTL = 60 * time.Second
 
-const opencodeResponseTimeout = 6 * time.Minute
+const opencodeSilenceTimeout = 6 * time.Minute
 
-var errOpencodeResponseTimeout = errors.New("OpenCode 模型响应超时")
+var errOpencodeResponseTimeout = errors.New("OpenCode 连续无响应超时")
+
+// OpenCode 静默看门狗只取消连续没有 CLI 活动的进程；复杂 Agent Loop
+// 只要持续产生进展即可运行任意时长。
+type opencodeSilenceWatchdog struct {
+	activity chan struct{}
+	stopped  chan struct{}
+	cancel   context.CancelFunc
+	timedOut bool
+	mu       sync.Mutex
+	once     sync.Once
+}
+
+func newOpencodeSilenceWatchdog(parent context.Context, timeout time.Duration) (context.Context, *opencodeSilenceWatchdog) {
+	ctx, cancel := context.WithCancel(parent)
+	watchdog := &opencodeSilenceWatchdog{activity: make(chan struct{}, 1), stopped: make(chan struct{}), cancel: cancel}
+	go watchdog.run(timeout)
+	return ctx, watchdog
+}
+
+func (w *opencodeSilenceWatchdog) run(timeout time.Duration) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		select {
+		case <-w.stopped:
+			return
+		case <-w.activity:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(timeout)
+		case <-timer.C:
+			w.mu.Lock()
+			w.timedOut = true
+			w.mu.Unlock()
+			w.cancel()
+			return
+		}
+	}
+}
+
+func (w *opencodeSilenceWatchdog) Touch() {
+	select {
+	case w.activity <- struct{}{}:
+	default:
+	}
+}
+
+func (w *opencodeSilenceWatchdog) TimedOut() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.timedOut
+}
+
+func (w *opencodeSilenceWatchdog) Stop() {
+	w.once.Do(func() {
+		close(w.stopped)
+		w.cancel()
+	})
+}
 
 func NewAgentManager(store *Store, bridge *AgentBridge, media *MediaService) *AgentManager {
 	commands := store.agentCommands
@@ -1000,8 +1063,8 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	}
 	prompt := userTurn.runtimePrompt() + attachmentPrompt(m.attachmentContexts(userTurn.Attachments))
 	args := opencodeRunArgs(prompt, workspace, model, session.NativeSessionID, session.Title)
-	runContext, cancel := context.WithTimeout(ctx, opencodeResponseTimeout)
-	defer cancel()
+	runContext, watchdog := newOpencodeSilenceWatchdog(ctx, opencodeSilenceTimeout)
+	defer watchdog.Stop()
 	cmd, stdout, stderr, err := m.startCLI(runContext, "opencode", args, workspace, []string{"RECUT_AGENT_SESSION=" + bridgeSession.ID, "RECUT_AGENT_TOKEN=" + token})
 	if err != nil {
 		return err
@@ -1013,6 +1076,7 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
+			watchdog.Touch()
 			m.captureCLIOutput(session.ID, "stderr", line)
 			if strings.Contains(line, `message="stream error"`) {
 				m.emit(session.ID, userTurn.ID, "status", map[string]any{"phase": "retrying", "label": "OpenCode 正在重试模型连接"})
@@ -1025,9 +1089,11 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		m.captureCLIOutput(session.ID, "stdout", scanner.Text())
+		line := scanner.Text()
+		watchdog.Touch()
+		m.captureCLIOutput(session.ID, "stdout", line)
 		var raw map[string]any
-		if json.Unmarshal(scanner.Bytes(), &raw) == nil {
+		if json.Unmarshal([]byte(line), &raw) == nil {
 			m.handleOpencodeEvent(session.ID, userTurn.ID, raw)
 		}
 	}
@@ -1035,8 +1101,8 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 		return err
 	}
 	if err := cmd.Wait(); err != nil {
-		if errors.Is(runContext.Err(), context.DeadlineExceeded) {
-			return fmt.Errorf("%w（超过 %s 未完成）", errOpencodeResponseTimeout, opencodeResponseTimeout)
+		if watchdog.TimedOut() {
+			return fmt.Errorf("%w（连续 %s 未收到 CLI 输出）", errOpencodeResponseTimeout, opencodeSilenceTimeout)
 		}
 		if ctx.Err() != nil {
 			return errors.New("已停止")

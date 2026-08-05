@@ -93,7 +93,7 @@ export type Detail = Session & {
   events: AgentEvent[];
   lastEventId: number;
 };
-export type Props = { apiBase: string; online: boolean; projectID: string | null; scope?: string; draft?: { id: string; text: string } | null };
+export type Props = { apiBase: string; online: boolean; projectID: string | null; draft?: { id: string; text: string } | null };
 
 type SessionDebugReportInput = {
   apiBase: string;

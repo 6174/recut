@@ -1,14 +1,14 @@
 /*
- * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与工作台目录状态、静态 App Catalog 及 Agent Session HTTP API
- * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口、固定使用通用会话上下文的 Agent 面板、Studio 的最近项目与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和 service 连接错误诊断
- * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询
+ * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与工作台目录状态、静态 App Catalog、Agent Session HTTP API 及全局 Agent 面板上下文
+ * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的最近项目与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和 service 连接错误诊断
+ * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { AppWindow, ArrowRight, Box, Check, ChevronDown, Clapperboard, Code2, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, ImageIcon, LoaderCircle, Music2, Plus, Send, Sparkles, Store, Video, X } from "lucide-react";
 import Link from "next/link";
-import { CSSProperties, FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { AppUpdateAllControl, AppVersionControl } from "@/components/app-version-control";
@@ -17,9 +17,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CreateAppDialog } from "@/components/create-app-dialog";
 import { InstallGitAppDialog } from "@/components/install-git-app-dialog";
 import { Input } from "@/components/ui/input";
-import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { HeaderActions } from "@/components/header-actions";
-import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
+import { useAgentPanelContext } from "@/lib/agent-panel-context";
 import { marketplaceApps } from "@/lib/app-catalog";
 import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
@@ -45,14 +44,16 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
   const service = useServiceStore((state) => state.service);
   const apiBase = useServiceStore((state) => state.endpoint);
   const [tab, setTab] = useState<WorkspaceTab>(appDetail ? "apps" : initialTab);
-  const [agentDraft, setAgentDraft] = useState<{ id: string; text: string } | null>(null);
   const [mediaProjectID, setMediaProjectID] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"service" | "multimodal" | undefined>();
   const [error, setError] = useState("");
-  const { handlePointerDown, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.workspace-agent-panel-width" });
 
   const online = service.phase === "online";
+  const agentProjectID = tab === "assets" ? mediaProjectID : null;
+  useLayoutEffect(() => {
+    useAgentPanelContext.getState().setContext({ projectID: agentProjectID, headerHeight: 64 });
+  }, [agentProjectID]);
   useEffect(() => {
     if (!online) return;
     void loadWorkspace(apiBase);
@@ -109,18 +110,16 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
   const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={workspaceError} installationLoadState={appInstallationLoadState} onStartProject={openCreateProject} onUpdated={reloadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
-    : tab === "studio" ? <Studio apiBase={apiBase} installations={installations} onCompose={(text) => setAgentDraft({ id: `${Date.now()}`, text })} onStartProject={openCreateProject} projects={projects} />
+    : tab === "studio" ? <Studio apiBase={apiBase} installations={installations} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onStartProject={openCreateProject} projects={projects} />
       : tab === "projects" ? <ProjectsPage apps={installations.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onNameChange={setName} onSubmit={createProject} projects={projects} selectedApp={appID} />
         : <MediaLibraryPanel onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
-  return <main className="flex min-h-screen min-w-0 flex-col overflow-hidden bg-background md:h-screen">
+  return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-5">
       <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground"><Clapperboard className="size-4" /></span><strong className="shrink-0 text-sm tracking-tight">RECUT</strong><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label="工作台" className="flex min-w-0 items-center gap-0.5 sm:gap-1"><Tab active={tab === "studio"} href="/">Studio</Tab><Tab active={tab === "projects"} href="/projects">Projects</Tab><Tab active={tab === "assets"} href="/media">Assets</Tab><Tab active={tab === "apps"} href="/apps">Apps</Tab></nav></div>
       <div className="hidden md:block"><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>
     </header>
-    <div className="relative grid min-h-0 flex-1 overflow-hidden md:[grid-template-columns:minmax(0,1fr)_var(--side-panel-width)]" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}>
-      {online && tab === "assets" ? content : <section className="min-h-0 overflow-y-auto bg-muted/30 p-4 sm:p-6 md:p-8"><div className="mx-auto max-w-6xl">{content}</div></section>}
-      <button aria-label="拖动调整 Agent 面板宽度" className="group absolute inset-y-0 z-10 hidden w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none md:block [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button>
-      <div className="hidden md:block"><ProjectAgentPanel apiBase={apiBase} draft={agentDraft} online={online} projectID={tab === "assets" ? mediaProjectID : null} /></div>
+    <div className="min-h-0 flex-1 overflow-hidden md:pr-[var(--side-panel-width)]">
+      {online && tab === "assets" ? content : <section className="h-full min-h-0 overflow-y-auto bg-muted/30 p-4 sm:p-6 md:p-8"><div className="mx-auto max-w-6xl">{content}</div></section>}
     </div>
     {createApp && <CreateProjectFromAppDialog app={createApp} onClose={() => setCreateApp(null)} onCreate={async (projectName) => createProjectWithApp(createApp, projectName)} />}
   </main>;

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Agent 附件上下文格式化函数
- * [OUTPUT]: 验证 Agent 附件身份、Codex 与 OpenCode 工具输入/输出/错误和成本字段分离、仅内存 CLI 调试流的回放与订阅、CLI 定位缓存的持久化/失效刷新/启动重试、共享 SQLite 的 WAL/并发写入策略、单连接池会话详情读取、停止时原子取消 active/queued Turn 并重置 OpenCode 会话，以及服务重启后的中断状态收敛
+ * [OUTPUT]: 验证 Agent 附件身份、Codex 与 OpenCode 工具输入/输出/错误和成本字段分离、OpenCode 静默 watchdog、仅内存 CLI 调试流的回放与订阅、CLI 定位缓存的持久化/失效刷新/启动重试、共享 SQLite 的 WAL/并发写入策略、单连接池会话详情读取、停止时原子取消 active/queued Turn 并重置 OpenCode 会话，以及服务重启后的中断状态收敛
  * [POS]: service 的 Agent 协议回归测试；防止附件退化为裸路径或取消永久悬挂
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -48,6 +48,31 @@ func TestCLIStreamReplaysAndPublishesWithoutPersistingOutput(t *testing.T) {
 	if history, output, unsubscribe := manager.SubscribeCLIStream("missing"); history != nil || output != nil {
 		unsubscribe()
 		t.Fatalf("missing CLI stream = %#v, %v", history, output)
+	}
+}
+
+func TestOpencodeSilenceWatchdogAllowsLongRunningActiveTurn(t *testing.T) {
+	ctx, watchdog := newOpencodeSilenceWatchdog(context.Background(), 100*time.Millisecond)
+	defer watchdog.Stop()
+	for range 4 {
+		watchdog.Touch()
+		time.Sleep(25 * time.Millisecond)
+		if ctx.Err() != nil {
+			t.Fatal("active OpenCode turn was cancelled by the silence watchdog")
+		}
+	}
+}
+
+func TestOpencodeSilenceWatchdogCancelsSilentTurn(t *testing.T) {
+	ctx, watchdog := newOpencodeSilenceWatchdog(context.Background(), 20*time.Millisecond)
+	defer watchdog.Stop()
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("silent OpenCode turn was not cancelled")
+	}
+	if !watchdog.TimedOut() {
+		t.Fatal("silent OpenCode turn was cancelled without recording a watchdog timeout")
 	}
 }
 
