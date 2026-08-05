@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖全局 Zustand service 状态、workspace-store 的项目/App/安装状态、平台素材选择器、按 scope 缓存的 Agent Session 列表、全局 Agent 面板上下文与 Next.js 浏览器路由参数
- * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发、全局素材选择与带宿主通信诊断的结构化 Agent 请求转交；App 可经全局面板上下文回填右侧 Agent 输入草稿，`agent.send` 复用会话摘要缓存并在建会话后回写
+ * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发、全局素材选择与带宿主通信诊断的结构化 Agent 请求转交；App 只能经全局面板上下文回填右侧 Agent 输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
  * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，从 workspace-store 读取目录真相，隔离 useParams、WebSocket 与 iframe，不能吞没后台诊断；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,9 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
 import { HeaderActions } from "@/components/header-actions";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
+import { useAgentStore } from "@/lib/agent-store";
 import { useAgentPanelContext } from "@/lib/agent-panel-context";
-import { agentScopeKey, useAgentStore } from "@/lib/agent-store";
-import { firstAvailableAgentRuntime } from "@/lib/agent-runtime";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore } from "@/lib/workspace-store";
 
@@ -104,22 +103,6 @@ export default function ProjectDetailClient() {
           const selectedIDs = Array.isArray(request.input?.selectedIDs) ? request.input.selectedIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
           mediaPickerReply.current = (selection) => reply(selection);
           setMediaPicker({ kinds, multiple, selectedIDs });
-        } else if (request.type === "agent.send") {
-          const scope = agentScopeKey(project.id);
-          const sessions = await loadAgentSessions(apiBase, scope);
-          let sessionID = sessions[0]?.id;
-          if (!sessionID) {
-            const runtime = await firstAvailableAgentRuntime(apiBase);
-            const createResponse = await fetch(`${apiBase}/v1/agent-sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: project.id, runtime }) });
-            if (!createResponse.ok) throw new Error("无法创建 Agent 对话");
-            const session = await createResponse.json();
-            upsertAgentSession(apiBase, scope, session);
-            sessionID = session.id;
-          }
-          const turnResponse = await fetch(`${apiBase}/v1/agent-sessions/${sessionID}/turns`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: request.input.prompt }) });
-          if (!turnResponse.ok) throw new Error("无法发送给 Agent");
-          reply({ delivery: "agent-session", sessionId: sessionID });
-          console.warn(`[recut-host] iframe response id=${String(request.id)} type=agent.send result=ok`);
         }
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : "Recut Host 通信失败";

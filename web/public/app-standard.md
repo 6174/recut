@@ -109,12 +109,12 @@ recut.operation.register("plan.create", (input, ctx) => {
 ```ts
 recut.state.query(operationName)
 recut.background.call(operationName, input)
-recut.agent.send({ prompt })
+recut.agent.compose({ prompt })
 recut.events.subscribe((event) => unsubscribe)
 ```
 
 - `state.query(name)` 与 `background.call(name, input)` 都只会调用当前 App 的、带 `api` surface 的 operation；前者传空对象，后者传 input。
-- `agent.send({ prompt })` 把任务交给当前项目的 Agent Session；它不直接返回 Agent 最终回答。
+- `agent.compose({ prompt })` 只把 Prompt 写入右侧全局 Agent 输入框，绝不自动提交；确认后发送的对话与结果始终在 chat 中可见。不再提供 `agent.send` 直发能力。
 - `events.subscribe` 接收宿主转发的项目事件。operation 成功后会有 `app.capability.completed`，其中包含 `appId`、`kind: "operation"` 与 `name`；UI 可据此刷新自身状态。
 - `shell.job.log` 与 `shell.job.completed` 同样通过 `events.subscribe` 到达。长任务 UI 应按 job id 显示日志、在 terminal 状态后刷新领域数据，并保留失败文本交给 Agent 诊断。
 - UI 收到失败时必须向用户展示错误；不要绕过 SDK 直接调用 `/v1/*` HTTP 路由，因为那会跳过项目与 App scope。
