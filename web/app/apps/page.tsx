@@ -1,11 +1,16 @@
 /*
- * [INPUT]: 依赖主工作台的共享路由容器
- * [OUTPUT]: 对外提供 /apps 应用目录深链
- * [POS]: web/app/apps 的目录路由壳；详情页 [appID] 的上级入口
+ * [INPUT]: 依赖 Next.js 浏览器路由与客户端导航
+ * [OUTPUT]: 对外提供 /apps 旧深链到 /appstore 的客户端重定向
+ * [POS]: web/app/apps 的兼容路由壳；应用市场已迁移到 /appstore，详情页 [appID] 仍保持原路径
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { Workspace } from "../page";
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function AppsPage() {
-  return <Workspace initialTab="apps" />;
+  const router = useRouter();
+  useEffect(() => { router.replace("/appstore"); }, [router]);
+  return null;
 }

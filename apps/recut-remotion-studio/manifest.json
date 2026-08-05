@@ -1,0 +1,113 @@
+{
+  "manifestVersion": 1,
+  "id": "recut.remotion-studio",
+  "name": "Remotion Studio",
+  "author": "6174",
+  "description": "把选题、文案、风格模板和素材编排成 Remotion 程序化合成视频：浏览器内实时预览，本地渲染并导出为媒体素材。",
+  "repository": "https://github.com/6174/recut-remotion-studio",
+  "version": "0.1.0",
+  "type": "project",
+  "background": "background.js",
+  "ui": { "projectView": "ui/dist/index.html" },
+  "onboarding": [
+    {
+      "id": "start-video",
+      "title": "从一次设计开始",
+      "description": "提交选题、风格与素材，让 AI 排出一支可实时预览的 Remotion 视频。",
+      "prompt": "我想用 Remotion Studio 做一支程序化视频，主题是【请在这里填写选题】。请先帮我在项目中完成 Brief：用 project.create 保存选题、细节和预期时长，并说明你会如何设计场景脚本、字幕主题和画面素材；在完成设计并保存 composition 之前，不要提前渲染或导出。"
+    },
+    {
+      "id": "design-video",
+      "title": "把想法变成场景脚本",
+      "description": "把模糊想法收敛成结构化的场景脚本、字幕与风格。",
+      "prompt": "我有一个还不成熟的视频想法：【请在这里填写想法】。请像视频剪辑师一样帮我收敛：先调用 workflow.context 看当前阶段，给出可执行的场景脚本（每段含旁白、字幕、画面与时长），确定风格模板、字幕主题和背景特效，然后只保存一次 composition，等待我预览后确认。"
+    }
+  ],
+  "permissions": ["sqlite", "files", "media.read", "media.write", "artifacts.publish", "shell"],
+  "operations": [
+    {
+      "name": "project.create",
+      "surfaces": ["api", "mcp"],
+      "description": "保存项目 Brief：风格模板、选题、细节描述、预期时长与可选素材 assetId 列表。仅在尚未有 Brief 或用户明确要求重做时调用。",
+      "inputSchema": { "type": "object", "required": ["topic", "template"], "properties": { "template": { "type": "string", "enum": ["paper-collage", "cinematic-dark", "clean-editorial", "vibrant-tech"] }, "topic": { "type": "string", "minLength": 1 }, "details": { "type": "string" }, "expectedDurationSec": { "type": "number" }, "materialAssetIds": { "type": "array", "items": { "type": "string" } } } }
+    },
+    {
+      "name": "brief.latest",
+      "surfaces": ["api"],
+      "description": "读取项目最新的 Brief，供界面展示。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "workflow.context",
+      "surfaces": ["api", "mcp"],
+      "description": "任何创作或导出动作之前先调用。返回当前阶段、唯一允许的下一步、最新的 Brief、设计契约 resourceContracts 与允许动作。返回值覆盖聊天记忆。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "catalog.list",
+      "surfaces": ["api"],
+      "description": "返回当前 App 提供的风格模板、字幕主题、场景特效与画布尺寸目录，供界面渲染选择器；Agent 以 AGENTS.md 中的目录为准。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "composition.save",
+      "surfaces": ["mcp"],
+      "description": "完成设计后保存结构化 composition 资源。先调用 workflow.context，content 必须严格符合 resourceContracts.design 的字段契约，校验失败不会保存。保存后界面会立即开始实时预览。",
+      "inputSchema": { "type": "object", "required": ["title", "content"], "properties": { "title": { "type": "string", "minLength": 1 }, "content": { "type": "object", "description": "设计正文。字段与类型取自 workflow.context.resourceContracts.design。" }, "dependencies": { "type": "array", "items": { "type": "string" } } } }
+    },
+    {
+      "name": "composition.read",
+      "surfaces": ["mcp"],
+      "description": "读取一份 design 的完整结构化正文。局部修改前必须先读；不要根据摘要猜测并覆盖其他场景或样式。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
+    },
+    {
+      "name": "composition.update",
+      "surfaces": ["api", "mcp"],
+      "description": "原位更新已有 design，保留 id、依赖与未修改部分。用户要求只改某段或某项时，先 composition.read，再用 contentPatch（顶层字段浅合并）或 itemPatch（scenes 数组中单个 scene 的精确替换）精确合并；更新后重新校验完整契约。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "contentPatch": { "type": "object" }, "itemPatch": { "type": "object", "description": "{ collection: 'scenes', match: { id }, patch: {...} }。" } } }
+    },
+    {
+      "name": "composition.latest",
+      "surfaces": ["api"],
+      "description": "读取最新一份 design 的完整内容与媒体引用，供创作台渲染实时预览。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "design.list",
+      "surfaces": ["api"],
+      "description": "读取当前项目所有 design 资源（含已归档）的标题与时间，供界面切换历史版本。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "render.setup",
+      "surfaces": ["api"],
+      "description": "检查并准备本地渲染环境：Node、render 工作区依赖（@remotion/renderer 等）与浏览器。首次会运行 npm install，耗时可能较长；返回每个检查项的状态。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "render.export",
+      "surfaces": ["api"],
+      "description": "把最新 design 渲染为 MP4。会物化所需素材、写 props、启动后台 shell 渲染任务并返回 renderId + shellJobId；渲染进度通过 render.status 或项目事件查询。",
+      "inputSchema": { "type": "object", "properties": { "designId": { "type": "string" }, "width": { "type": "number" }, "height": { "type": "number" }, "fps": { "type": "number" }, "codec": { "type": "string" }, "label": { "type": "string" } } }
+    },
+    {
+      "name": "render.status",
+      "surfaces": ["api"],
+      "description": "查询一次渲染任务的状态；当 shell 任务完成时会把产物导入媒体平台并记录导出。返回 status、progress、错误或完成后的 assetId。",
+      "inputSchema": { "type": "object", "required": ["renderId"], "properties": { "renderId": { "type": "string" } } }
+    },
+    {
+      "name": "render.cancel",
+      "surfaces": ["api"],
+      "description": "取消正在运行的渲染任务。",
+      "inputSchema": { "type": "object", "required": ["renderId"], "properties": { "renderId": { "type": "string" } } }
+    },
+    {
+      "name": "export.list",
+      "surfaces": ["api"],
+      "description": "读取当前项目所有导出记录（含产物 assetId 与设置），供界面展示历史导出。",
+      "inputSchema": { "type": "object", "properties": {} }
+    }
+  ]
+}

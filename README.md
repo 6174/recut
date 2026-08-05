@@ -5,7 +5,7 @@ Recut 是本地 AI 视频工作台，也是类似 Chrome 的 App Host：App 用 
 技术栈：Next.js + React 工作台，Go Daemon，Goja JavaScript sandbox，平台托管 SQLite，MCP stdio。
 
 ```text
-apps/             本地 App 包与 Vox B-roll、Depth Anything、Cover Studio submodule；通过 make app-link 链接到运行时目录
+apps/             本地 App 包与 Vox B-roll、Depth Anything、Cover Studio、Remotion Studio 子模块或源码；通过 make app-link 链接到运行时目录
 operation/        运营与开源协作资产；`official-repo/` 是官方社区 App 总库 submodule
 .gitmodules       外部 App 与官方社区仓库的固定远端与分支配置
 scripts/          当前用户生产 service 的 launchd/systemd 安装器
