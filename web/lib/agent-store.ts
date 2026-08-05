@@ -38,13 +38,47 @@ type AgentStore = {
 
 const requests = new Map<string, Promise<unknown>>();
 
+// Scope strings classify a conversation's current workspace context for
+// history filtering and onboarding. They are not session identity: sessions are
+// unbound and can travel across scopes.
 export function agentScopeKey(projectID: string | null) {
+  if (projectID === "media") return "media";
   return projectID ? `project:${projectID}` : "general";
 }
 
+export const mediaScopeKey = "media";
+export function appScopeKey(appID: string) {
+  return `app:${appID}`;
+}
+
+// scopeContext maps a scope string to the session workspace context hint sent
+// when creating a session. Only project scopes carry a real Project ID.
+export function scopeContext(scope: string): { projectId?: string; appId?: string; appView?: string } {
+  if (scope.startsWith("project:")) return { projectId: scope.slice("project:".length) };
+  if (scope === "media") return { appId: "recut.media-library", appView: "media" };
+  if (scope.startsWith("app:")) return { appId: scope.slice("app:".length), appView: "standalone" };
+  return {};
+}
+
+// sessionHistoryLabel gives a human label for a scope's conversation history.
+export function sessionHistoryLabel(scope: string) {
+  if (scope === "general") return "通用对话历史";
+  if (scope === "media") return "素材库会话历史";
+  if (scope.startsWith("app:")) return "此 App 的会话历史";
+  if (scope.startsWith("project:")) return "此项目的会话历史";
+  return "会话历史";
+}
+
+function scopeQuery(scope: string) {
+  if (scope === "general") return "scope=general";
+  if (scope === "media") return "scope=media";
+  if (scope.startsWith("app:")) return `scope=${encodeURIComponent(scope)}`;
+  if (scope.startsWith("project:")) return `projectId=${encodeURIComponent(scope.slice("project:".length))}`;
+  return "";
+}
+
 function sessionURL(endpoint: string, scope: string) {
-  const query = scope === "general" ? "scope=general" : `projectId=${encodeURIComponent(scope.slice("project:".length))}`;
-  return `${endpoint}/v1/agent-sessions?${query}`;
+  return `${endpoint}/v1/agent-sessions?${scopeQuery(scope)}`;
 }
 
 function requestOnce<T>(key: string, request: () => Promise<T>) {
@@ -106,8 +140,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const cached = get().onboardingByScope[scope];
     if (!force && cached) return cached;
     return requestOnce(`${endpoint}:onboarding:${scope}`, async () => {
-      const query = scope === "general" ? "" : `?projectId=${encodeURIComponent(scope.slice("project:".length))}`;
-      const response = await fetch(`${endpoint}/v1/agent-onboarding${query}`);
+      const query = scopeQuery(scope);
+      const response = await fetch(`${endpoint}/v1/agent-onboarding${query ? `?${query}` : ""}`);
       if (!response.ok) return [];
       const payload = await response.json() as { items?: AgentGuide[] };
       const items = payload.items ?? [];

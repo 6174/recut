@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录的 Catalog、Store、MediaService、TerminalManager、Server 和标准库运行时能力
- * [OUTPUT]: 对外提供含内嵌局域网工作台与进程启动时间 health 的 recut shell service 可执行程序入口、注入媒体能力的 AppHost、隐藏 media/general chat scope 初始化、服务重启后 Agent 状态收敛与常驻媒体任务调度组合
+ * [OUTPUT]: 对外提供含内嵌局域网工作台与进程启动时间 health 的 recut shell service 可执行程序入口、注入媒体能力的 AppHost、服务重启后 Agent 状态收敛与常驻媒体任务调度组合
  * [POS]: service 的组合根；只负责运行时配置、能力装配、平台 scope 初始化和长生命周期媒体回收启动，不承载领域逻辑
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -26,9 +26,18 @@ func main() {
 	appsDir := flag.String("apps-dir", "", "directory containing App packages (default: <data-dir>/apps)")
 	address := flag.String("address", ":17373", "LAN HTTP address")
 	mcpStdio := flag.Bool("mcp-stdio", false, "serve the App Agent Bridge over stdio")
+	mcpForward := flag.Bool("mcp", false, "forward stdio MCP to a running Recut daemon (external Agent entrypoint)")
+	mcpTarget := flag.String("mcp-target", "http://127.0.0.1:17373", "Recut daemon HTTP origin for --mcp forwarding")
+	deviceToken := flag.String("device-token", os.Getenv("RECUT_DEVICE_TOKEN"), "device token for --mcp forwarding (recut agent link)")
 	flag.Parse()
 	if err := configureServiceLogging(*dataDir); err != nil {
 		log.Fatalf("ERROR configure service logging: %v", err)
+	}
+	if *mcpForward {
+		if err := RunMCPForward(*mcpTarget, *deviceToken, os.Stdin, os.Stdout); err != nil {
+			log.Fatalf("ERROR run MCP forwarder: %v", err)
+		}
+		return
 	}
 	if *appsDir == "" {
 		*appsDir = filepath.Join(*dataDir, "apps")
@@ -44,12 +53,6 @@ func main() {
 	store := NewStore(*dataDir, apps)
 	if err := store.Ensure(); err != nil {
 		log.Fatalf("ERROR initialize workspace store: %v", err)
-	}
-	if _, err := store.EnsureMediaSystemProject(); err != nil {
-		log.Fatalf("ERROR initialize media system project: %v", err)
-	}
-	if _, err := store.EnsureGeneralChatProject(); err != nil {
-		log.Fatalf("ERROR initialize general chat project: %v", err)
 	}
 	media := NewMediaService(store)
 	bridge := NewAgentBridge(store)

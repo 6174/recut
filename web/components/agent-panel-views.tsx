@@ -749,19 +749,19 @@ function safeToolDetail(value: string) {
 
 export function SessionHistory({
   activeID,
-  general,
+  label,
   onOpen,
   sessions,
 }: {
   activeID: string | null;
-  general: boolean;
+  label: string;
   onOpen: (id: string) => void;
   sessions: Session[];
 }) {
   return (
     <section className="absolute right-3 top-14 z-20 w-[calc(100%-1.5rem)] overflow-hidden rounded-md border bg-popover shadow-[var(--shadow-overlay)]">
       <p className="border-b px-3 py-2 text-[10px] font-medium text-muted-foreground">
-        {general ? "通用对话历史" : "此项目的会话历史"}
+        {label}
       </p>
       <div className="max-h-64 overflow-y-auto p-1.5">
         {sessions.length === 0 ? (

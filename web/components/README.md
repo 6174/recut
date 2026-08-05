@@ -15,7 +15,7 @@ tool-result-assets.tsx: Agent 工具结果中的媒体适配层；从含嵌套 J
 agent-panel-types.ts: Agent 对话的共享数据契约；集中 Session、Turn、事件、运行时配置、默认值与展示标签，消除面板控制器、视图和输入区的类型耦合。
 agent-panel-views.tsx: Agent 对话展示层；渲染会话时间线、历史列表、加载态、CLI 调试弹框与 CLI 恢复面板，并在展开的工具结果中挂载 Asset 预览，归并 SSE 增量事件而不发起会话请求。
 agent-composer.tsx: Agent 对话输入层；处理文本、素材引用、上传、Codex/OpenCode 配置与新会话 runtime 选择，所有状态变更通过控制器回调上送。
-project-agent-panel.tsx: 项目与素材库共用的固定高度 Agent 对话侧栏；运行时、模型、onboarding、按 scope 会话摘要、当前会话和详情快照由 `lib/agent-store` 去重共享，SSE 连接仍由面板拥有并将增量回写缓存。首页无项目时以 `scope=general` 自动进入隐藏 general scope，存在可用 runtime 的空态允许直接输入并在首条消息发送时创建默认 Codex 会话；App iframe 只能回填输入草稿，不能自动提交 turn。无可用 runtime 时只显示安装入口，安装完成后的重新检查强制刷新运行时快照。
+project-agent-panel.tsx: 项目与素材库共用的固定高度 Agent 对话侧栏；运行时、模型、onboarding、按 scope 会话摘要、当前会话和详情快照由 `lib/agent-store` 去重共享，SSE 连接仍由面板拥有并将增量回写缓存。右上角 Debug 入口复制当前会话的版本化 JSON（身份、配置、turn 元数据与最近 100 条结构化事件；不含用户或 Agent 聊天正文）。首页无项目时以 `scope=general` 自动进入隐藏 general scope，存在可用 runtime 的空态允许直接输入并在首条消息发送时创建默认 Codex 会话；App iframe 只能回填输入草稿，不能自动提交 turn。无可用 runtime 时只显示安装入口，安装完成后的重新检查强制刷新运行时快照。
 agent-onboarding.tsx: 新建 Codex、OpenCode 或 Claude Code 会话的非空引导空态；无论项目或 general scope，均读取当前项目或全局解析出的 App/全局/平台兜底卡片，点击只写入显式 prompt。在 `runtimeStatus` 报告无任何可用本地 Agent CLI 时，仅显示 1–3 张安装卡，点击同样打开共享安装对话框；至少一个 runtime 就绪后才显示目标引导卡。
 agent-onboarding-settings.tsx: 全局新对话引导设置；维护用户级卡片标题、说明与 prompt，不修改 App manifest，新增卡片 ID 不依赖安全上下文 UUID。
 agent-install-guide.tsx: 本地 Agent CLI 共享三步（安装、登录/验证、重新检查）正文；同时被现有恢复面板（CLI 缺失分支）与新增主动安装对话框消费，checking / checkFailed 由调用方管理，复制到剪贴板与失败兜底统一在内。

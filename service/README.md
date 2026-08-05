@@ -6,10 +6,10 @@
 main.go: 组合 Daemon、AppHost、MCP Host、内嵌工作台与默认监听全部网卡的 LAN HTTP 服务；启动时创建隐藏 media scope、先将重启遗留的 Agent 运行态收敛为可解释终态，再恢复媒体任务；初始化 UTC 微秒服务日志并将其落盘到 `<data-dir>/logs/`；将平台 MediaService 注入 AppHost，供已获授权的 App 发起本地两轨导出；仅常驻 Daemon 在启动恢复后以 SQLite lease 定期提交/回收媒体任务，短生命周期 MCP 只持久化 queued 任务。
 logging.go: service 可观测性边界；将标准库日志以 UTC 微秒时间戳同时输出到 stderr 与 `<data-dir>/logs/service-YYYY-MM-DD.log`，并按 HTTP 最终状态码记录 INFO/WARN/ERROR 请求审计，保留 SSE、WebSocket 等 ResponseWriter 能力。
 logging_test.go: 锁定请求审计的状态码分级与耗时字段，不创建真实日志文件。
-catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json，强制每个 App 声明作者和简短描述，跟随开发 App 的符号链接，并保留缓存化 Git 远端检查的错误状态；素材库只以无磁盘包的隐藏 scope 供平台 Agent/MCP 使用，旧失效链接不会阻止 daemon 启动。
+catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json，按目录与 manifest 指纹在本地 link/修改后原子刷新注册表，强制每个 App 声明作者和简短描述，跟随开发 App 的符号链接且不清空缓存化 Git 远端检查状态；素材库只以无磁盘包的隐藏 scope 供平台 Agent/MCP 使用，旧失效链接不会阻止 daemon 启动。
 onboarding.go: 新对话引导真相源；合并当前 App manifest、用户级全局设置，并仅在两者都为空时返回平台内置兜底，严格只使用显式 prompt。
 app_install.go: App 分发边界；仅接受 HTTPS GitHub 地址，在临时 clone 通过 manifest 校验后激活，立即返回缓存化安装状态并在后台单飞抓取远端，任何 clone/fetch/pull 均不持有 Catalog 锁；以 Git status/fast-forward 管理单个或批量升级，原生素材库不进入 App 分发链。
-app_install_test.go: 锁定 GitHub 地址规范化、dirty Git 工作树识别、后台远端检查不阻塞 Catalog 读取与临时本地 remote 的更新检测/批量升级，不访问网络。
+app_install_test.go: 锁定 GitHub 地址规范化、dirty Git 工作树识别、本地目录刷新不清空远端检查缓存、后台远端检查不阻塞 Catalog 读取与临时本地 remote 的更新检测/批量升级，不访问网络。
 updater.go: macOS service 自更新器；下载并校验 Cloudflare 发布 manifest/归档，原子替换当前 binary 后交给 launchd 重启，并只对已安装的 `recut-service` 暴露重启能力。
 updater_test.go, server_update_test.go: 锁定自更新归档提取和 HTTP 可用性边界；不下载、替换或重启真实 daemon。
 project.go: 创建平台项目并按 App scope 提供 SQLite、文件与 Artifact 存储；独立型 App 使用稳定但不出现在项目列表中的工作区 scope，原生素材库与首页 general chat 各使用同样隐藏的系统 scope；每个 SQLite 文件在 service 内由共享的有限连接池管理，连接统一启用 WAL、NORMAL 同步与 15 秒 busy timeout，既允许嵌套读取又让并发写入等待而非随机失败；缓存句柄以 100ms 上限探测，连接池繁忙时继续复用、调用方已关闭时才重开。
@@ -27,8 +27,10 @@ ui/: 内嵌本地工作台的生成资源边界；`assets/` 仅由 Makefile 暂�
 bridge.go: 管理 Agent session 与本地 CLI 连接，为普通 App 项目挂载 `.recut/app`，再用内嵌 prompts/ 核心模板和当前 App 的 AGENTS.md 渲染 Codex 项目 guide；OpenCode 的 MCP 初始化与工具调用统一配置为 5 分钟；原生素材库只使用平台模板，不读取任意工作目录的 AGENTS.md。
 bridge_prompt_test.go: 锁定渲染后的 Vox Agent guide 必须使用 Recut 视频生成 API、包含中文 Vox 提示词/导演语言，且禁止把场景生成委托给 HyperFrames 或本地渲染。
 prompts/: Go 后端私有的嵌入式平台 Agent 模板；不会作为 App 包内容或运行时外部依赖暴露。
-agent.go: 保存本机用户的一对一 Agent 会话、消息、项目媒体引用、Codex 模型/推理强度与事件；Codex、Claude 与 OpenCode 的可执行位置共享 Store 的持久化定位缓存，缓存失效或启动失败才刷新；OpenCode 配置和每次执行仍读取本机 `opencode models`，只接受 TUI 当前真实可选的全部 provider/model，默认 Go DeepSeek V4 Flash，新会话显式标题以避免额外标题模型请求，并以 `--auto` 自动批准未被 OpenCode 明确拒绝的工具调用，使其与 Codex 的无人值守执行模式一致，并将模型连接重试映射为 UI 状态；会话详情先完整读取并关闭 Turn 结果集，再查询附件，因此单连接池也不会自锁；同一会话把生成期间的新消息持久化为 FIFO 待发送队列，消息、附件和会话运行态以单一短事务原子提交，停止操作先即时持久化 cancelled/idle 终态再终止运行时；服务日志审计会话和 Turn 的排队、开始、完成、取消及失败，但绝不写入用户消息或 CLI 输出；服务重启时取消无法跨进程恢复的 active Turn、把会话收敛为空闲并恢复安全的 queued Turn，附件以 assetId、类型、来源和只读路径同时交给 Agent，Codex 仅对图片注入原生图片参数，所有媒体均以稳定引用和路径进入上下文，并将 JSONL 规范化为分离的工具输入、输出、OpenCode `state.error` 与成本信息，供 UI 时间线完整查看；general chat 复用隐藏系统 scope，绝不混入用户项目会话。
-agent_test.go: 锁定 Agent 附件上下文、Codex/OpenCode 工具事件、CLI 定位缓存的私有落盘/命中/失效刷新/启动重试、共享 SQLite 并发与单连接池详情读取、取消持久化和重启后的 Turn 收敛。
+agent.go: 保存本机用户的一对一 Agent 会话、消息、项目媒体引用、Codex 模型/推理强度与事件；Codex、Claude 与 OpenCode 的可执行位置共享 Store 的持久化定位缓存，缓存失效或启动失败才刷新；OpenCode 配置和每次执行仍读取本机 `opencode models`，只接受 TUI 当前真实可选的全部 provider/model，默认 Go DeepSeek V4 Flash，新会话显式标题以避免额外标题模型请求，并以 `--auto` 自动批准未被 OpenCode 明确拒绝的工具调用，使其与 Codex 的无人值守执行模式一致，并将模型连接重试映射为 UI 状态；OpenCode 单次执行最多等待 6 分钟，超时失败后清除原生会话，避免坏的 provider stream 被下一条消息复用；会话详情先完整读取并关闭 Turn 结果集，再查询附件，因此单连接池也不会自锁；同一会话把生成期间的新消息持久化为 FIFO 待发送队列，消息、附件和会话运行态以单一短事务原子提交，停止操作原子取消 active 与 queued Turn、结束关联 Task、将会话收敛到 idle 并清除 OpenCode 原生会话后才终止运行时；服务日志审计会话和 Turn 的排队、开始、完成、取消及失败，但绝不写入用户消息或 CLI 输出；服务重启时取消无法跨进程恢复的 active Turn、把会话收敛为空闲并恢复安全的 queued Turn，附件以 assetId、类型、来源和只读路径同时交给 Agent，Codex 仅对图片注入原生图片参数，所有媒体均以稳定引用和路径进入上下文，并将 JSONL 规范化为分离的工具输入、输出、OpenCode `state.error` 与成本信息，供 UI 时间线完整查看；general chat 复用隐藏系统 scope，绝不混入用户项目会话。
+agent_process_unix.go, agent_process_windows.go: Agent CLI 的平台进程生命周期边界；Unix 将每次 CLI 置于独立进程组并在取消时共同终止 OpenCode 与 MCP 子进程，Windows 保持同一调用契约并使用 Go 的直接子进程取消。
+agent_test.go: 锁定 Agent 附件上下文、Codex/OpenCode 工具事件、CLI 定位缓存的私有落盘/命中/失效刷新/启动重试、共享 SQLite 并发与单连接池详情读取、停止时 active/queued Turn 共同收敛、OpenCode 原生会话重置和重启后的 Turn 收敛。
+agent_process_unix_test.go: 锁定 Unix 下取消 Agent CLI 会终止整个进程组，不残留 OpenCode 的 MCP 子进程。
 agent_cli.go: Agent CLI 可执行文件解析器；先使用常规 PATH，再通过当前用户的 login shell 动态执行 `command -v` 并验证绝对可执行路径，消除 launchd/systemd 常驻环境与交互 shell 的 PATH 差异，不编码 NVM 等版本管理器的目录结构；缓存未命中时以单飞 shell 探测、且不持有解析器锁，解析结果连同动态 PATH 原子持久化到 `<data-dir>/config/agent-commands.json`（目录 `0700`、文件 `0600`）；正常刷新只校验缓存路径可执行，缓存缺失、路径失效或 CLI 启动失败才重新解析；启动 CLI 时以动态 PATH 替换 daemon PATH，保证 `#!/usr/bin/env node` 等依赖能正确解析；完整多 shell 扫描只由诊断页触发，shell 初始化最多等待 8 秒并留下明确超时原因。
 agent_server.go: 提供项目或 general scope Agent Session 的创建、Codex 会话模型/推理强度更新、OpenCode 的实时 TUI 模型目录、带项目媒体资产引用的待发送消息入队、停止、查询与 SSE 事件 API，以及全局与按项目解析的新对话引导 API；`scope=general` 只列出隐藏 general scope 的会话，省略创建请求的 projectId 会在服务端绑定该 scope；仅对当前进程真实运行的回复接受停止，并准确区分会话不存在与存储暂时读取失败。
 agent_server_test.go: 锁定全局 onboarding 的保存、通用/项目/独立 App scope 的会话隔离与最新优先，以及 App/全局按项目解析 HTTP 契约；不启动真实 Agent CLI。

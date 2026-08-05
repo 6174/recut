@@ -68,12 +68,14 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/system/logs", s.systemLogs)
 	mux.HandleFunc("POST /v1/system/update", s.updateSystem)
 	mux.HandleFunc("POST /v1/system/restart", s.restartSystem)
-	mux.HandleFunc("GET /v1/apps", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.apps.List()) })
+	mux.HandleFunc("GET /v1/apps", s.listApps)
+	mux.HandleFunc("GET /v1/apps/store", s.listAppStore)
 	mux.HandleFunc("GET /v1/apps/installed", s.listAppInstallations)
 	mux.HandleFunc("POST /v1/apps/install", s.installApp)
 	mux.HandleFunc("POST /v1/apps/update", s.updateApps)
 	mux.HandleFunc("POST /v1/apps/{package}/update", s.updateApp)
-	mux.HandleFunc("GET /v1/apps/{appID}/workspace", s.getStandaloneAppProject)
+	mux.HandleFunc("GET /v1/apps/{appID}/workspace", s.getAppWorkspaceScope)
+	mux.HandleFunc("GET /v1/apps/{appID}/files/{path...}", s.appStateFile)
 	mux.HandleFunc("GET /v1/apps/{appID}/ui/{path...}", s.appUI)
 	mux.HandleFunc("GET /v1/projects", s.listProjects)
 	mux.HandleFunc("POST /v1/projects", s.createProject)
@@ -99,19 +101,22 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/projects/{id}/apps/{appID}/api/{name}", s.invokeAppAPI)
 	mux.HandleFunc("GET /v1/projects/{id}/apps/{appID}/files/{path...}", s.appFile)
 	mux.HandleFunc("GET /v1/events", s.projectEventsWS)
-	mux.HandleFunc("POST /v1/projects/{id}/agent-tasks", s.startAgentTask)
-	mux.HandleFunc("POST /v1/projects/{id}/proposals/{proposalID}/approve", s.approveProposal)
 	mux.HandleFunc("GET /v1/agent-sessions", s.listAgentSessions)
 	mux.HandleFunc("GET /v1/agent-onboarding", s.getAgentOnboarding)
 	mux.HandleFunc("PUT /v1/agent-onboarding", s.saveAgentOnboarding)
 	mux.HandleFunc("POST /v1/agent-sessions", s.createAgentSession)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}", s.getAgentSession)
+	mux.HandleFunc("PUT /v1/agent-sessions/{id}/context", s.updateAgentSessionContext)
 	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/codex-configuration", s.updateCodexConfiguration)
 	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/opencode-configuration", s.updateOpencodeConfiguration)
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/turns", s.startAgentTurn)
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/stop", s.stopAgentTurn)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/events", s.streamAgentEvents)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/cli-stream", s.streamAgentCLI)
+	mux.HandleFunc("POST /v1/mcp", s.mcpHTTP)
+	mux.HandleFunc("GET /v1/device-tokens", s.listDeviceTokens)
+	mux.HandleFunc("POST /v1/device-tokens", s.createDeviceToken)
+	mux.HandleFunc("DELETE /v1/device-tokens/{id}", s.revokeDeviceToken)
 	mux.HandleFunc("GET /v1/agents", s.listAgents)
 	mux.HandleFunc("GET /v1/agents/opencode/models", s.listOpencodeModels)
 	mux.HandleFunc("GET /v1/terminals", s.listTerminals)
@@ -272,6 +277,24 @@ func allowedBrowserOrigin(origin string) bool {
 	return err == nil && (address.IsLoopback() || address.IsPrivate() || address.IsLinkLocalUnicast())
 }
 
+func (s *Server) listApps(w http.ResponseWriter, _ *http.Request) {
+	apps, err := s.apps.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apps)
+}
+
+func (s *Server) listAppStore(w http.ResponseWriter, _ *http.Request) {
+	apps, err := s.store.AppStore()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apps)
+}
+
 func (s *Server) listAppInstallations(w http.ResponseWriter, _ *http.Request) {
 	installations, err := s.apps.Installations()
 	if err != nil {
@@ -320,13 +343,25 @@ func (s *Server) updateApps(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (s *Server) getStandaloneAppProject(w http.ResponseWriter, r *http.Request) {
-	project, err := s.store.EnsureStandaloneAppProject(strings.TrimSpace(r.PathValue("appID")))
-	if err != nil {
-		writeError(w, http.StatusNotFound, err)
+func (s *Server) getAppWorkspaceScope(w http.ResponseWriter, r *http.Request) {
+	appID := strings.TrimSpace(r.PathValue("appID"))
+	app, ok := s.apps.Get(appID)
+	if !ok || app.Manifest.Kind != StandaloneApp {
+		writeError(w, http.StatusNotFound, errors.New("standalone app is unavailable"))
 		return
 	}
-	writeJSON(w, http.StatusOK, project)
+	if _, err := s.store.AppStateDatabase(appID); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":            appID,
+		"name":          app.Manifest.Name,
+		"appId":         appID,
+		"appVersion":    app.Manifest.Version,
+		"formatVersion": formatVersion,
+		"kind":          "appstate",
+	})
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, _ *http.Request) {
@@ -377,7 +412,10 @@ func (s *Server) invokeAppAPI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
 		return
 	}
-	result, err := s.host.InvokeAPI(r.PathValue("id"), r.PathValue("appID"), r.PathValue("name"), input)
+	projectID := r.PathValue("id")
+	appID := r.PathValue("appID")
+	target := Target{ProjectID: projectID, AppID: appID}
+	result, err := s.host.InvokeAPI(target, appID, r.PathValue("name"), input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -393,11 +431,30 @@ func (s *Server) appFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("App file not found"))
 		return
 	}
-	root, err := s.store.AppFilesRoot(projectID, appID)
+	root, err := s.store.ProjectFilesRoot(projectID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, errors.New("App workspace not found"))
 		return
 	}
+	s.serveSandboxedFile(w, r, root)
+}
+
+func (s *Server) appStateFile(w http.ResponseWriter, r *http.Request) {
+	appID := r.PathValue("appID")
+	app, ok := s.apps.Get(appID)
+	if !ok || !hasPermission(app.Manifest, "files") {
+		writeError(w, http.StatusNotFound, errors.New("App file not found"))
+		return
+	}
+	root, err := s.store.AppStateFilesRoot(appID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("App workspace not found"))
+		return
+	}
+	s.serveSandboxedFile(w, r, root)
+}
+
+func (s *Server) serveSandboxedFile(w http.ResponseWriter, r *http.Request, root string) {
 	requested := strings.TrimPrefix(r.PathValue("path"), "/")
 	path, ok := sandboxPath(root, requested)
 	if !ok {
@@ -448,69 +505,6 @@ func (s *Server) appUI(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-func (s *Server) startAgentTask(w http.ResponseWriter, r *http.Request) {
-	input := struct {
-		Instruction string `json:"instruction"`
-	}{}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || strings.TrimSpace(input.Instruction) == "" {
-		writeError(w, http.StatusBadRequest, errors.New("task instruction is required"))
-		return
-	}
-	projectID := r.PathValue("id")
-	if _, err := s.store.Get(projectID); err != nil {
-		writeError(w, http.StatusNotFound, errors.New("project not found"))
-		return
-	}
-	for _, candidate := range s.terminals.List() {
-		if candidate.ProjectID == projectID && candidate.Command == "codex" && candidate.Running && candidate.ManagedBy == "recut-bridge" {
-			if err := s.terminals.Write(candidate.ID, input.Instruction+"\n"); err != nil {
-				writeError(w, http.StatusBadRequest, err)
-				return
-			}
-			writeJSON(w, http.StatusAccepted, map[string]any{"terminalId": candidate.ID, "status": "running", "reused": true})
-			return
-		}
-	}
-	agentSession, token, err := s.bridge.CreateSession(projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	executable, err = s.bridge.MaterializeCodexProject(agentSession, token, executable)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	projectRoot := s.store.projectDir(projectID)
-	session, err := s.terminals.Start(TerminalStart{ProjectID: projectID, Command: "codex", Args: codexProjectArgs(projectRoot, executable, s.store.root, s.apps.Directory(), agentSession, token), CWD: projectRoot, SessionDir: s.store.terminalSessionsDir(projectID), InitialInput: launchPrompt(agentSession) + "\n" + input.Instruction + "\n", ManagedBy: "recut-bridge"})
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"terminalId": session.ID, "status": "running", "reused": false})
-}
-
-func (s *Server) approveProposal(w http.ResponseWriter, r *http.Request) {
-	input := struct {
-		SessionID string `json:"sessionId"`
-	}{}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.SessionID == "" {
-		writeError(w, http.StatusBadRequest, errors.New("agent session is required"))
-		return
-	}
-	result, err := s.bridge.ApproveProposal(input.SessionID, r.PathValue("proposalID"))
-	if err != nil {
-		writeError(w, http.StatusConflict, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
 type startTerminalInput struct {
 	ProjectID string   `json:"projectId"`
 	Command   string   `json:"command"`
@@ -532,40 +526,44 @@ func (s *Server) startTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := strings.TrimSpace(input.ProjectID)
-	cwd, sessionDir := s.store.projectsDir(), s.store.workspaceTerminalSessionsDir()
+	cwd, sessionDir := s.store.projectsDir(), s.store.TerminalSessionsDir()
 	if projectID != "" {
 		if _, err := s.store.Get(projectID); err != nil {
 			writeError(w, http.StatusNotFound, errors.New("project not found"))
 			return
 		}
-		cwd, sessionDir = s.store.projectDir(projectID), s.store.terminalSessionsDir(projectID)
+		cwd = s.store.projectDir(projectID)
 	}
 	args := input.Args
 	start := TerminalStart{ProjectID: projectID, Command: input.Command, Args: args, CWD: cwd, SessionDir: sessionDir, Cols: input.Cols, Rows: input.Rows}
-	if projectID != "" && (input.Command == "codex" || input.Command == "claude") && len(args) == 0 {
-		agentSession, token, err := s.bridge.CreateSession(projectID)
+	if (input.Command == "codex" || input.Command == "claude") && len(args) == 0 {
+		agentSession, token, err := s.bridge.CreateSession(SessionContext{ProjectID: projectID, AppID: "", TaskID: ""})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
+		workspace := s.bridge.WorkspaceDir(agentSession)
 		start.Env = []string{"RECUT_AGENT_SESSION=" + agentSession.ID, "RECUT_AGENT_TOKEN=" + token}
 		start.ManagedBy = "recut-bridge"
 		start.InitialInput = launchPrompt(agentSession) + "\n"
+		start.CWD = workspace
+		start.SessionDir = s.store.TerminalSessionsDir()
 		executable, err := os.Executable()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
 		if input.Command == "codex" {
-			executable, err = s.bridge.MaterializeCodexProject(agentSession, token, executable)
+			workspace, err = s.bridge.MaterializeCodexWorkspace(agentSession, token, executable)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err)
 				return
 			}
 			start.Env = nil
-			start.Args = codexProjectArgs(cwd, executable, s.store.root, s.apps.Directory(), agentSession, token)
+			start.CWD = workspace
+			start.Args = []string{"exec"}
 		} else {
-			profile, err := s.bridge.WriteClientProfile(agentSession, executable)
+			profile, err := s.bridge.WriteClaudeProfile(agentSession, executable)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err)
 				return
@@ -585,18 +583,6 @@ func (s *Server) startTerminal(w http.ResponseWriter, r *http.Request) {
 
 func launchPrompt(session AgentSession) string {
 	return fmt.Sprintf("You are attached to Recut App Agent Bridge session %s. %s", session.ID, bridgeInstructions)
-}
-
-func tomlStringArray(values []string) string {
-	quoted := make([]string, len(values))
-	for index, value := range values {
-		quoted[index] = fmt.Sprintf("%q", value)
-	}
-	return "[" + strings.Join(quoted, ", ") + "]"
-}
-
-func codexProjectArgs(projectRoot, executable, dataDir, appsDir string, session AgentSession, token string) []string {
-	return []string{"--dangerously-bypass-approvals-and-sandbox", "-C", projectRoot, "--config", fmt.Sprintf("projects.%q.trust_level=\"trusted\"", projectRoot), "--config", fmt.Sprintf("mcp_servers.recut.command=%q", executable), "--config", "mcp_servers.recut.args=" + tomlStringArray([]string{"--mcp-stdio", "--data-dir", dataDir, "--apps-dir", appsDir}), "--config", fmt.Sprintf("mcp_servers.recut.env={ RECUT_AGENT_SESSION = %q, RECUT_AGENT_TOKEN = %q }", session.ID, token)}
 }
 
 func (s *Server) writeTerminal(w http.ResponseWriter, r *http.Request) {

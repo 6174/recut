@@ -42,7 +42,7 @@ func TestAppLocalExecutionUsesPrivateFilesUntilExplicitMediaImport(t *testing.T)
 		t.Fatal(err)
 	}
 	host := NewAppHost(apps, store, media)
-	result, err := host.InvokeAPI(project.ID, "example.depth", "depth.run", map[string]any{"assetId": source.ID})
+	result, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: "example.depth"}, "example.depth", "depth.run", map[string]any{"assetId": source.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

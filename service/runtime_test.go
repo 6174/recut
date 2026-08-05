@@ -78,14 +78,14 @@ func TestAppHostInvokesManifestDeclaredJavaScriptAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := NewAppHost(apps, store).InvokeAPI(project.ID, "example.app", "note.create", map[string]any{"value": "hello"})
+	result, err := NewAppHost(apps, store).InvokeAPI(Target{ProjectID: project.ID, AppID: "example.app"}, "example.app", "note.create", map[string]any{"value": "hello"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.(Artifact).Type != "example.note@1" {
 		t.Fatalf("result = %#v", result)
 	}
-	mcpResult, err := NewAppHost(apps, store).InvokeMCP(project.ID, "example.app", "note.create", map[string]any{"value": "from agent"})
+	mcpResult, err := NewAppHost(apps, store).InvokeMCP(Target{ProjectID: project.ID, AppID: "example.app"}, "example.app", "note.create", map[string]any{"value": "from agent"})
 	if err != nil || mcpResult.(Artifact).Type != "example.note@1" {
 		t.Fatalf("mcp result = %#v, err = %v", mcpResult, err)
 	}
@@ -93,7 +93,7 @@ func TestAppHostInvokesManifestDeclaredJavaScriptAPI(t *testing.T) {
 	if err != nil || len(artifacts) != 2 {
 		t.Fatalf("artifacts = %#v, err = %v", artifacts, err)
 	}
-	if _, err := os.Stat(filepath.Join(store.projectDir(project.ID), "apps", "example.app", "files", "note.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(store.projectDir(project.ID), "files", "note.txt")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -114,13 +114,13 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 	host := NewAppHost(apps, store)
 	appID := "recut.vox-broll"
 
-	if _, err := host.InvokeAPI(project.ID, appID, "brief.create", map[string]any{"topic": "测试统一 operation"}); err != nil {
+	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "brief.create", map[string]any{"topic": "测试统一 operation"}); err != nil {
 		t.Fatalf("brief.create API: %v", err)
 	}
-	if _, err := host.InvokeMCP(project.ID, appID, "brief.create", map[string]any{"topic": "测试统一 operation"}); err != nil {
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "brief.create", map[string]any{"topic": "测试统一 operation"}); err != nil {
 		t.Fatalf("brief.create MCP: %v", err)
 	}
-	briefResources, err := host.InvokeAPI(project.ID, appID, "resource.list", map[string]any{})
+	briefResources, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.list", map[string]any{})
 	if err != nil {
 		t.Fatalf("resource.list after brief.create: %v", err)
 	}
@@ -128,14 +128,14 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 	if len(briefs) != 2 || briefs[0].(map[string]any)["kind"] != "brief" || briefs[1].(map[string]any)["kind"] != "brief" {
 		t.Fatalf("brief.create must materialize visible brief resources: %#v", briefResources)
 	}
-	briefStore, err := store.AppDatabase(project.ID, appID)
+	briefStore, err := store.AppStateDatabase(appID)
 	if err != nil {
 		t.Fatalf("brief app database: %v", err)
 	}
 	if _, err := briefStore.Exec("delete from resources where kind = ?", "brief"); err != nil {
 		t.Fatalf("remove materialized brief resources: %v", err)
 	}
-	legacyResources, err := host.InvokeAPI(project.ID, appID, "resource.list", map[string]any{})
+	legacyResources, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.list", map[string]any{})
 	if err != nil {
 		t.Fatalf("resource.list for legacy brief: %v", err)
 	}
@@ -154,9 +154,9 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 	} {
 		var err error
 		if call.surface == "api" {
-			_, err = host.InvokeAPI(project.ID, appID, call.name, call.input)
+			_, err = host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, call.name, call.input)
 		} else {
-			_, err = host.InvokeMCP(project.ID, appID, call.name, call.input)
+			_, err = host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, call.name, call.input)
 		}
 		if err != nil {
 			t.Fatalf("%s %s: %v", call.name, call.surface, err)
@@ -166,12 +166,12 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 	beats := func(title string) map[string]any {
 		return map[string]any{"kind": "beats", "title": title, "content": map[string]any{"hook": "反常识", "narrative": "因果", "beats": []any{map[string]any{"id": "beat-1", "title": "开场", "narration": "新信息", "visual": "数据卡", "purpose": "建立冲突", "durationSec": 3}}}}
 	}
-	first, err := host.InvokeMCP(project.ID, appID, "resource.create", beats("第一份节拍"))
+	first, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", beats("第一份节拍"))
 	if err != nil {
 		t.Fatalf("resource.create MCP: %v", err)
 	}
 	firstID := first.(Artifact).Value.(map[string]any)["id"].(string)
-	second, err := host.InvokeMCP(project.ID, appID, "resource.create", beats("第二份节拍"))
+	second, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", beats("第二份节拍"))
 	if err != nil {
 		t.Fatalf("second resource.create MCP: %v", err)
 	}
@@ -183,31 +183,31 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 		}
 		return map[string]any{"kind": "keyframes", "title": "关键画面", "content": content, "dependencies": []any{firstID}}
 	}
-	if _, err := host.InvokeMCP(project.ID, appID, "resource.create", keyframe(nil)); err == nil {
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", keyframe(nil)); err == nil {
 		t.Fatal("text-only keyframes must be rejected")
 	}
 	image := map[string]any{"assetId": "generated-image", "text": "Vox 拼贴画面", "imageAssetIds": []any{"look-image"}, "audioAssetIds": []any{}, "sourceResourceIds": []any{"beat-1", firstID}}
-	createdKeyframes, err := host.InvokeMCP(project.ID, appID, "resource.create", keyframe(image))
+	createdKeyframes, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", keyframe(image))
 	if err != nil {
 		t.Fatalf("keyframes with generated image: %v", err)
 	}
 	keyframeID := createdKeyframes.(Artifact).Value.(map[string]any)["id"].(string)
-	if _, err := host.InvokeAPI(project.ID, appID, "resource.list", map[string]any{}); err != nil {
+	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.list", map[string]any{}); err != nil {
 		t.Fatalf("resource.list API: %v", err)
 	}
-	if _, err := host.InvokeAPI(project.ID, appID, "resource.retire", map[string]any{"id": keyframeID}); err != nil {
+	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.retire", map[string]any{"id": keyframeID}); err != nil {
 		t.Fatalf("resource.retire keyframes: %v", err)
 	}
-	if _, err := host.InvokeAPI(project.ID, appID, "resource.retire", map[string]any{"id": firstID}); err != nil {
+	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.retire", map[string]any{"id": firstID}); err != nil {
 		t.Fatalf("resource.retire API: %v", err)
 	}
-	if _, err := host.InvokeMCP(project.ID, appID, "resource.retire", map[string]any{"id": secondID}); err != nil {
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.retire", map[string]any{"id": secondID}); err != nil {
 		t.Fatalf("resource.retire MCP: %v", err)
 	}
-	if _, err := host.InvokeAPI(project.ID, appID, "resource.delete", map[string]any{"id": firstID}); err != nil {
+	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.delete", map[string]any{"id": firstID}); err != nil {
 		t.Fatalf("resource.delete API: %v", err)
 	}
-	if _, err := host.InvokeMCP(project.ID, appID, "resource.delete", map[string]any{"id": secondID}); err != nil {
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.delete", map[string]any{"id": secondID}); err != nil {
 		t.Fatalf("resource.delete MCP: %v", err)
 	}
 }
@@ -221,19 +221,16 @@ func TestCoverStudioSavePromotesAssetToCurrentPreview(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	project, err := store.EnsureStandaloneAppProject("recut.cover-studio")
-	if err != nil {
-		t.Fatal(err)
-	}
 	host := NewAppHost(apps, store)
 	appID := "recut.cover-studio"
-	if _, err := host.InvokeAPI(project.ID, appID, "cover.configure", map[string]any{"channel": "小红书", "width": 1242, "height": 1660, "templateId": "editorial", "referenceAssetIds": []any{}, "brief": "右侧留白"}); err != nil {
+	target := Target{AppID: appID}
+	if _, err := host.InvokeAPI(target, appID, "cover.configure", map[string]any{"channel": "小红书", "width": 1242, "height": 1660, "templateId": "editorial", "referenceAssetIds": []any{}, "brief": "右侧留白"}); err != nil {
 		t.Fatalf("cover.configure: %v", err)
 	}
-	if _, err := host.InvokeAPI(project.ID, appID, "cover.save", map[string]any{"assetId": "cover-asset", "prompt": "真实封面", "channel": "小红书", "width": 1242, "height": 1660, "templateId": "editorial", "referenceAssetIds": []any{}}); err != nil {
+	if _, err := host.InvokeAPI(target, appID, "cover.save", map[string]any{"assetId": "cover-asset", "prompt": "真实封面", "channel": "小红书", "width": 1242, "height": 1660, "templateId": "editorial", "referenceAssetIds": []any{}}); err != nil {
 		t.Fatalf("cover.save API: %v", err)
 	}
-	context, err := host.InvokeMCP(project.ID, appID, "cover.context", map[string]any{})
+	context, err := host.InvokeMCP(target, appID, "cover.context", map[string]any{})
 	if err != nil {
 		t.Fatalf("cover.context: %v", err)
 	}
@@ -255,7 +252,7 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workflow, err := NewAppHost(apps, store).InvokeAPI(project.ID, "recut.vox-broll", "workflow.context", map[string]any{})
+	workflow, err := NewAppHost(apps, store).InvokeAPI(Target{ProjectID: project.ID, AppID: "recut.vox-broll"}, "recut.vox-broll", "workflow.context", map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +261,7 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 	if scenes["kind"] != "platform-media-generation" || scenes["generate"] != "recut.video.generate_async" || scenes["complete"] != "accepted -> queued assetIds[0] -> resource.create; Daemon updates Asset status; for Seedance use output.generateAudio=true unless the user explicitly requests silent video; video text must quote audio.text verbatim and forbid extra speech" {
 		t.Fatalf("scene media route = %#v", scenes)
 	}
-	prepared, err := NewAppHost(apps, store).InvokeAPI(project.ID, "recut.vox-broll", "resource.prepare", map[string]any{"kind": "scenes"})
+	prepared, err := NewAppHost(apps, store).InvokeAPI(Target{ProjectID: project.ID, AppID: "recut.vox-broll"}, "recut.vox-broll", "resource.prepare", map[string]any{"kind": "scenes"})
 	if err != nil {
 		t.Fatalf("resource.prepare scenes: %v", err)
 	}

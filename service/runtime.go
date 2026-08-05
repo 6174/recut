@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 Catalog 的 manifest、Store 的隔离存储、MediaService 与 goja JavaScript 运行时
- * [OUTPUT]: 对外提供 AppHost，按 surface 执行 App background.js 的统一 operation handler，并按权限注入受限媒体合成能力
- * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用 manifest 明示的 recut API
+ * [INPUT]: 依赖 Catalog 的 manifest、Store 的目标命名空间与 App 全局状态、MediaService 与 goja JavaScript 运行时
+ * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx，并提供 ctx.appState 常驻句柄与按 surface 执行 App background.js 的统一 operation handler
+ * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用 manifest 明示的 recut API；平台表一律不进入 ctx.sqlite / ctx.appState
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -20,6 +20,16 @@ import (
 	"github.com/dop251/goja"
 )
 
+// Target is the resolved state namespace for one App capability call. A Project
+// target binds ctx.sqlite/files to the owner App's project Doc; an empty
+// ProjectID binds them to the App's global appstate.
+type Target struct {
+	ProjectID string
+	AppID     string
+}
+
+func (t Target) IsProject() bool { return t.ProjectID != "" }
+
 type AppHost struct {
 	catalog *Catalog
 	store   *Store
@@ -37,37 +47,45 @@ func NewAppHost(catalog *Catalog, store *Store, media ...*MediaService) *AppHost
 	return &AppHost{catalog: catalog, store: store, media: platformMedia, jobs: jobs, python: NewPythonRuntimeManager(store, jobs)}
 }
 
-func (h *AppHost) InvokeAPI(projectID, appID, name string, input map[string]any) (any, error) {
-	app, err := h.projectApp(projectID, appID)
+func (h *AppHost) InvokeAPI(target Target, appID, name string, input map[string]any) (any, error) {
+	app, err := h.requireApp(target, appID)
 	if err != nil {
 		return nil, err
 	}
 	if !declaresOperation(app.Manifest, name, "api") {
 		return nil, fmt.Errorf("App %q does not expose API operation %q", appID, name)
 	}
-	return h.invoke(projectID, app, "operation", name, input)
+	return h.invoke(target, app, "operation", name, input)
 }
 
-func (h *AppHost) InvokeMCP(projectID, appID, name string, input map[string]any) (any, error) {
-	app, err := h.projectApp(projectID, appID)
+func (h *AppHost) InvokeMCP(target Target, appID, name string, input map[string]any) (any, error) {
+	app, err := h.requireApp(target, appID)
 	if err != nil {
 		return nil, err
 	}
 	if !declaresOperation(app.Manifest, name, "mcp") {
 		return nil, fmt.Errorf("App %q does not expose MCP operation %q", appID, name)
 	}
-	return h.invoke(projectID, app, "operation", name, input)
+	return h.invoke(target, app, "operation", name, input)
 }
 
-func (h *AppHost) projectApp(projectID, appID string) (App, error) {
-	if err := h.store.checkAppScope(projectID, appID); err != nil {
-		return App{}, err
+// requireApp resolves the App package and enforces the Project ownership rule:
+// a Project target may only be used by its owner App; any App may use its own
+// appstate when no Project target is given.
+func (h *AppHost) requireApp(target Target, appID string) (App, error) {
+	app, ok := h.catalog.Get(appID)
+	if !ok {
+		return App{}, fmt.Errorf("app %q is unavailable", appID)
 	}
-	app, _ := h.catalog.Get(appID)
+	if target.IsProject() {
+		if err := h.store.projectOwnedBy(target.ProjectID, appID); err != nil {
+			return App{}, err
+		}
+	}
 	return app, nil
 }
 
-func (h *AppHost) invoke(projectID string, app App, group, name string, input map[string]any) (any, error) {
+func (h *AppHost) invoke(target Target, app App, group, name string, input map[string]any) (any, error) {
 	runtime := goja.New()
 	handlers := map[string]goja.Callable{}
 	recut := runtime.NewObject()
@@ -85,7 +103,7 @@ func (h *AppHost) invoke(projectID string, app App, group, name string, input ma
 	operation := runtime.NewObject()
 	_ = operation.Set("register", register("operation"))
 	_ = recut.Set("operation", operation)
-	ctx, err := h.context(runtime, projectID, app)
+	ctx, err := h.context(runtime, target, app)
 	if err != nil {
 		return nil, err
 	}
@@ -108,14 +126,24 @@ func (h *AppHost) invoke(projectID string, app App, group, name string, input ma
 		return nil, fmt.Errorf("run App handler: %w", err)
 	}
 	exported := result.Export()
-	h.store.AppendEvent(projectID, map[string]any{"type": "app.capability.completed", "appId": app.Manifest.ID, "kind": group, "name": name, "at": time.Now().UTC()})
+	if target.IsProject() {
+		h.store.AppendEvent(target.ProjectID, map[string]any{"type": "app.capability.completed", "appId": app.Manifest.ID, "kind": group, "name": name, "at": time.Now().UTC()})
+	}
 	return exported, nil
 }
 
-func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*goja.Object, error) {
+func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.Object, error) {
 	ctx := runtime.NewObject()
+	primaryFiles, err := h.store.TargetFilesRoot(target)
+	if err != nil {
+		return nil, err
+	}
 	if hasPermission(app.Manifest, "sqlite") {
-		db, err := h.store.AppDatabase(projectID, app.Manifest.ID)
+		// A single sqlite interface per App: appstate/<appId>/storage.sqlite
+		// holds both the App's global state and every Project it owns. The App
+		// partitions its rows by ctx.project.id; ctx.project is null outside a
+		// Project target. Platform tables never enter this database.
+		db, err := h.store.AppStateDatabase(app.Manifest.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -125,22 +153,36 @@ func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*go
 		_ = ctx.Set("sqlite", sqlite)
 	}
 	if hasPermission(app.Manifest, "files") {
-		root, err := h.store.AppFilesRoot(projectID, app.Manifest.ID)
-		if err != nil {
-			return nil, err
-		}
 		files := runtime.NewObject()
-		_ = files.Set("readText", fileReadText(runtime, root))
-		_ = files.Set("writeText", fileWriteText(runtime, root))
-		_ = files.Set("list", fileList(runtime, root))
+		_ = files.Set("readText", fileReadText(runtime, primaryFiles))
+		_ = files.Set("writeText", fileWriteText(runtime, primaryFiles))
+		_ = files.Set("list", fileList(runtime, primaryFiles))
 		_ = files.Set("url", func(call goja.FunctionCall) goja.Value {
-			path := safeSandboxFile(root, call.Argument(0).String())
+			path := safeSandboxFile(primaryFiles, call.Argument(0).String())
 			if _, err := os.Stat(path); err != nil {
 				panic(runtime.NewGoError(err))
 			}
-			return runtime.ToValue(fmt.Sprintf("/v1/projects/%s/apps/%s/files/%s", projectID, app.Manifest.ID, filepath.ToSlash(call.Argument(0).String())))
+			return runtime.ToValue(target.filesURL(app.Manifest.ID, call.Argument(0).String()))
 		})
 		_ = ctx.Set("files", files)
+		appStateRoot, err := h.store.AppStateFilesRoot(app.Manifest.ID)
+		if err != nil {
+			return nil, err
+		}
+		appFiles := runtime.NewObject()
+		_ = appFiles.Set("readText", fileReadText(runtime, appStateRoot))
+		_ = appFiles.Set("writeText", fileWriteText(runtime, appStateRoot))
+		_ = appFiles.Set("list", fileList(runtime, appStateRoot))
+		_ = ctx.Set("appFiles", appFiles)
+	}
+	if target.IsProject() {
+		project, err := h.store.Get(target.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		_ = ctx.Set("project", runtime.ToValue(map[string]any{"id": project.ID, "name": project.Name, "appId": project.AppID}))
+	} else {
+		_ = ctx.Set("project", goja.Null())
 	}
 	if hasPermission(app.Manifest, "media.read") && h.media != nil {
 		media := runtime.NewObject()
@@ -152,11 +194,7 @@ func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*go
 			if asset.Status != "completed" {
 				panic(runtime.NewGoError(errors.New("source media is not ready")))
 			}
-			root, err := h.store.AppFilesRoot(projectID, app.Manifest.ID)
-			if err != nil {
-				panic(runtime.NewGoError(err))
-			}
-			path, err := h.copyAssetToApp(root, asset)
+			path, err := h.copyAssetToApp(primaryFiles, asset)
 			if err != nil {
 				panic(runtime.NewGoError(err))
 			}
@@ -177,11 +215,7 @@ func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*go
 			if err := runtime.ExportTo(call.Argument(0), &input); err != nil {
 				panic(runtime.NewTypeError(err.Error()))
 			}
-			root, err := h.store.AppFilesRoot(projectID, app.Manifest.ID)
-			if err != nil {
-				panic(runtime.NewGoError(err))
-			}
-			path := safeSandboxFile(root, stringValue(input["path"]))
+			path := safeSandboxFile(primaryFiles, stringValue(input["path"]))
 			content, err := os.ReadFile(path)
 			if err != nil {
 				panic(runtime.NewGoError(err))
@@ -195,41 +229,36 @@ func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*go
 		_ = ctx.Set("media", mediaObject)
 	}
 	if hasPermission(app.Manifest, "shell") {
-		root, err := h.store.AppFilesRoot(projectID, app.Manifest.ID)
-		if err != nil {
-			return nil, err
-		}
 		shell := runtime.NewObject()
 		modelsRoot := filepath.Join(h.store.root, "models")
-		_ = shell.Set("run", shellRun(runtime, h.jobs, h.python, projectID, app, root, modelsRoot))
-		_ = shell.Set("exec", shellRun(runtime, h.jobs, h.python, projectID, app, root, modelsRoot))
-		_ = shell.Set("start", shellStart(runtime, h.jobs, h.python, projectID, app, root, modelsRoot))
-		_ = shell.Set("status", shellStatus(runtime, h.jobs, projectID, app.Manifest.ID))
-		_ = shell.Set("logs", shellLogs(runtime, h.jobs, projectID, app.Manifest.ID))
-		_ = shell.Set("cancel", shellCancel(runtime, h.jobs, projectID, app.Manifest.ID))
+		_ = shell.Set("run", shellRun(runtime, h.jobs, h.python, target, app, primaryFiles, modelsRoot))
+		_ = shell.Set("exec", shellRun(runtime, h.jobs, h.python, target, app, primaryFiles, modelsRoot))
+		_ = shell.Set("start", shellStart(runtime, h.jobs, h.python, target, app, primaryFiles, modelsRoot))
+		_ = shell.Set("status", shellStatus(runtime, h.jobs, target.ProjectID, app.Manifest.ID))
+		_ = shell.Set("logs", shellLogs(runtime, h.jobs, target.ProjectID, app.Manifest.ID))
+		_ = shell.Set("cancel", shellCancel(runtime, h.jobs, target.ProjectID, app.Manifest.ID))
 		_ = ctx.Set("shell", shell)
 	}
 	if hasPermission(app.Manifest, "python") && app.Manifest.Runtime.Python != nil {
-		root, err := h.store.AppFilesRoot(projectID, app.Manifest.ID)
-		if err != nil {
-			return nil, err
-		}
 		modelsRoot := filepath.Join(h.store.root, "models")
 		python := runtime.NewObject()
 		_ = python.Set("status", pythonStatus(runtime, h.python, app))
-		_ = python.Set("prepare", pythonPrepare(runtime, h.python, projectID, app, root, modelsRoot))
-		_ = python.Set("run", pythonRun(runtime, h.jobs, h.python, projectID, app, root, modelsRoot))
+		_ = python.Set("prepare", pythonPrepare(runtime, h.python, target.ProjectID, app, primaryFiles, modelsRoot))
+		_ = python.Set("run", pythonRun(runtime, h.jobs, h.python, target.ProjectID, app, primaryFiles, modelsRoot))
 		_ = ctx.Set("python", python)
 	}
 	if hasPermission(app.Manifest, "artifacts.publish") {
 		artifacts := runtime.NewObject()
 		_ = artifacts.Set("publish", func(call goja.FunctionCall) goja.Value {
+			if !target.IsProject() {
+				panic(runtime.NewGoError(errors.New("artifacts.publish requires a Project target")))
+			}
 			input := map[string]any{}
 			if err := runtime.ExportTo(call.Argument(0), &input); err != nil {
 				panic(runtime.NewTypeError(err.Error()))
 			}
 			artifactType, _ := input["type"].(string)
-			artifact, err := h.store.PublishArtifact(projectID, app.Manifest.ID, artifactType, input["value"])
+			artifact, err := h.store.PublishArtifact(target.ProjectID, app.Manifest.ID, artifactType, input["value"])
 			if err != nil {
 				panic(runtime.NewGoError(err))
 			}
@@ -244,7 +273,7 @@ func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*go
 			if err != nil {
 				panic(runtime.NewTypeError(err.Error()))
 			}
-			input.ProjectID = projectID
+			input.ProjectID = target.ProjectID
 			asset, err := h.media.Compose(input)
 			if err != nil {
 				panic(runtime.NewGoError(err))
@@ -262,6 +291,13 @@ func (h *AppHost) context(runtime *goja.Runtime, projectID string, app App) (*go
 		_ = ctx.Set("media", media)
 	}
 	return ctx, nil
+}
+
+func (t Target) filesURL(appID, path string) string {
+	if t.IsProject() {
+		return fmt.Sprintf("/v1/projects/%s/apps/%s/files/%s", t.ProjectID, appID, filepath.ToSlash(path))
+	}
+	return fmt.Sprintf("/v1/apps/%s/files/%s", appID, filepath.ToSlash(path))
 }
 
 // composeMediaInput crosses the JavaScript boundary through JSON rather than
@@ -393,21 +429,21 @@ func safeSandboxFile(root, path string) string {
 	return filepath.Join(root, clean)
 }
 
-func shellRun(runtime *goja.Runtime, jobs *ShellJobManager, python *PythonRuntimeManager, projectID string, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
+func shellRun(runtime *goja.Runtime, jobs *ShellJobManager, python *PythonRuntimeManager, target Target, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
 		input := shellInput(runtime, call.Argument(0), python, app, filesRoot, modelsRoot)
-		job, err := jobs.Execute(input.withScope(projectID, app.Manifest.ID))
+		job, err := jobs.Execute(input.withScope(target.ProjectID, app.Manifest.ID))
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}
-		return runtime.ToValue(shellResult(job, jobs.Output(projectID, job.ID)))
+		return runtime.ToValue(shellResult(job, jobs.Output(target.ProjectID, job.ID)))
 	}
 }
 
-func shellStart(runtime *goja.Runtime, jobs *ShellJobManager, python *PythonRuntimeManager, projectID string, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
+func shellStart(runtime *goja.Runtime, jobs *ShellJobManager, python *PythonRuntimeManager, target Target, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
 		input := shellInput(runtime, call.Argument(0), python, app, filesRoot, modelsRoot)
-		job, err := jobs.Start(input.withScope(projectID, app.Manifest.ID))
+		job, err := jobs.Start(input.withScope(target.ProjectID, app.Manifest.ID))
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}

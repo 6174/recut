@@ -346,7 +346,7 @@ func TestMediaRecoveryLeavesMalformedLegacyJobsUntouched(t *testing.T) {
 	}
 }
 
-func TestMediaSystemProjectIsHiddenFromUserProjects(t *testing.T) {
+func TestMediaScopeIsNotAUserProject(t *testing.T) {
 	root := t.TempDir()
 	appsDir := filepath.Join(root, "apps")
 	if err := os.MkdirAll(appsDir, 0o755); err != nil {
@@ -360,12 +360,15 @@ func TestMediaSystemProjectIsHiddenFromUserProjects(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	project, err := store.EnsureMediaSystemProject()
-	if err != nil || project.ID != mediaSystemProjectID {
-		t.Fatalf("system project = %#v, %v", project, err)
+	scope := mediaScopeDescriptor()
+	if scope["id"] != "media" {
+		t.Fatalf("media scope = %#v", scope)
 	}
 	projects, err := store.List()
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("visible projects = %#v, %v", projects, err)
+	}
+	if _, err := store.Get("media"); err == nil {
+		t.Fatal("media scope leaked into the projects table")
 	}
 }

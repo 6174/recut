@@ -194,7 +194,7 @@ func TestMCPListAssetsIsNotBlockedByImageGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	bridge := NewAgentBridge(store)
-	session, token, err := bridge.CreateSession(project.ID)
+	session, token, err := bridge.CreateSession(SessionContext{ProjectID: project.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,33 +239,42 @@ func TestImportNativeImageArchivesProjectFileAndRejectsEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bridge := NewAgentBridge(store)
+	session, _, err := bridge.CreateSession(SessionContext{ProjectID: project.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := store.SessionWorkspaceDir(session.ID)
 	content, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9JwQAAAABJRU5ErkJggg==")
 	if err != nil {
 		t.Fatal(err)
 	}
-	imagePath := filepath.Join(store.projectDir(project.ID), "files", "cover.png")
+	imagePath := filepath.Join(workspace, "project", "files", "cover.png")
+	if err := os.MkdirAll(filepath.Dir(imagePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(imagePath, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	media := NewMediaService(store)
-	asset, err := importNativeImage(store, media, AgentSession{ProjectID: project.ID}, map[string]any{"path": "files/cover.png"})
+	asset, err := importNativeImage(store, media, session, map[string]any{"path": "project/files/cover.png"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if asset.Origin != "codex-native" || len(asset.ProjectIDs) != 1 || asset.ProjectIDs[0] != project.ID {
 		t.Fatalf("native import = %#v", asset)
 	}
-	if _, err := importNativeImage(store, media, AgentSession{ProjectID: project.ID}, map[string]any{"path": "../outside.png"}); err == nil {
-		t.Fatal("native import accepted a path outside the project")
+	if _, err := importNativeImage(store, media, session, map[string]any{"path": "../outside.png"}); err == nil {
+		t.Fatal("native import accepted a path outside the workspace")
 	}
 	outsidePath := filepath.Join(root, "outside.png")
 	if err := os.WriteFile(outsidePath, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outsidePath, filepath.Join(store.projectDir(project.ID), "files", "escape.png")); err != nil {
+	if err := os.Symlink(outsidePath, filepath.Join(workspace, "escape.png")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := importNativeImage(store, media, AgentSession{ProjectID: project.ID}, map[string]any{"path": "files/escape.png"}); err == nil {
+	if _, err := importNativeImage(store, media, session, map[string]any{"path": "escape.png"}); err == nil {
 		t.Fatal("native import accepted a symbolic-link escape")
 	}
 }

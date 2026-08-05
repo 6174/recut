@@ -9,7 +9,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 function Card({ className, ...props }: React.ComponentProps<"section">) {
-  return <section className={cn("rounded-xs border border-border bg-card text-card-foreground", className)} data-slot="card" {...props} />;
+  return <section className={cn("rounded-sm border border-border bg-card text-card-foreground shadow-[0_1px_2px_oklch(0.19_0.008_150_/_0.03)]", className)} data-slot="card" {...props} />;
 }
 
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {

@@ -30,14 +30,14 @@ func TestTerminalTranscriptSurvivesManagerRestart(t *testing.T) {
 		Command:    "sh",
 		Args:       []string{"-c", "printf terminal-history"},
 		CWD:        projectRoot,
-		SessionDir: store.terminalSessionsDir("project-1"),
+		SessionDir: store.TerminalSessionsDir(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		data, _ := os.ReadFile(filepath.Join(store.terminalSessionsDir("project-1"), session.ID, "transcript.log"))
+		data, _ := os.ReadFile(filepath.Join(store.TerminalSessionsDir(), session.ID, "transcript.log"))
 		if strings.Contains(string(data), "terminal-history") {
 			break
 		}

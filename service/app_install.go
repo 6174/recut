@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的已校验 App 包、Git CLI 与标准库路径/进程能力
- * [OUTPUT]: 对外提供 GitHub App 安装、后台缓存化远端更新检测、单个与批量 fast-forward 升级能力
+ * [OUTPUT]: 对外提供 GitHub App 安装、link/manifest 变化感知的本地目录读取、后台缓存化远端更新检测、单个与批量 fast-forward 升级能力
  * [POS]: service 的 App 分发边界；只接受标准 manifest 包，不让 HTTP 层拼接 Git 命令
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -44,6 +44,9 @@ type AppUpdateResult struct {
 const remoteCheckInterval = time.Minute
 
 func (c *Catalog) Installations() ([]AppInstallation, error) {
+	if err := c.ReloadIfChanged(); err != nil {
+		return nil, err
+	}
 	apps, remoteErrors, refresh := c.installationSnapshot()
 	if refresh {
 		go c.refreshRemoteStatuses()

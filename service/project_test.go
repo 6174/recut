@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 Store 的项目创建、App SQLite 与文件 sandbox capability
- * [OUTPUT]: 验证平台只提供资源，不规定 App 的数据布局，并阻止原生素材库 scope 被创建为用户项目
+ * [INPUT]: 依赖 Store 的项目创建、项目 Doc SQLite 与 App 全局状态（appstate）sandbox capability
+ * [OUTPUT]: 验证平台只提供资源，不规定 App 的数据布局；项目 Doc 只含 App 表；系统 App 不能创建用户项目
  * [POS]: service 的项目存储回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-func TestProjectProvidesAppStorageWithoutProjectLayout(t *testing.T) {
+func TestProjectSharesSingleAppSqliteWithoutPlatformTables(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, "apps", "example")
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
@@ -31,33 +31,91 @@ func TestProjectProvidesAppStorageWithoutProjectLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := store.AppDatabase(project.ID, "example.app")
+	db, err := store.AppStateDatabase("example.app")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec("create table notes (value text)"); err != nil {
+	if _, err := db.Exec("create table notes (project_id text, value text)"); err != nil {
 		t.Fatal(err)
 	}
-	files, err := store.AppFilesRoot(project.ID, "example.app")
+	var tables []string
+	rows, err := db.Query("select name from sqlite_master where type = 'table'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, name)
+	}
+	_ = rows.Close()
+	for _, platform := range []string{"artifacts", "events", "projects", "agent_sessions"} {
+		for _, table := range tables {
+			if table == platform {
+				t.Fatalf("platform table %q leaked into App sqlite", platform)
+			}
+		}
+	}
+	// The project Doc has no own sqlite file: it lives in the App database,
+	// partitioned by ctx.project.id.
+	if _, err := os.Stat(filepath.Join(store.projectDir(project.ID), "project.sqlite")); !os.IsNotExist(err) {
+		t.Fatalf("project.sqlite exists: %v", err)
+	}
+	files, err := store.ProjectFilesRoot(project.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(files); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(store.projectDir(project.ID), "apps", "example.app", "data")); !os.IsNotExist(err) {
-		t.Fatalf("legacy App data directory exists: %v", err)
+	if _, err := os.Stat(filepath.Join(store.projectDir(project.ID), "recut.json")); !os.IsNotExist(err) {
+		t.Fatalf("legacy recut.json exists: %v", err)
 	}
-	mount := filepath.Join(store.projectDir(project.ID), ".recut", "app")
-	info, err := os.Lstat(mount)
-	if err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("App source mount = %v, err = %v", info, err)
+}
+
+func TestAppStateIsGlobalAndIndependentOfProjects(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "standalone")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	target, err := filepath.EvalSymlinks(mount)
-	expectedTarget, expectedErr := filepath.EvalSymlinks(appDir)
-	if err != nil || expectedErr != nil || target != expectedTarget {
-		t.Fatalf("App source mount target = %q, expected = %q, err = %v / %v", target, expectedTarget, err, expectedErr)
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.standalone","name":"Standalone","author":"Test","description":"Test workspace App.","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"},"permissions":["sqlite","files"]}`)
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.AppStateDatabase("example.standalone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	if _, err := first.Exec("create table if not exists prefs (k text)"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AppStateDatabase("example.standalone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := second.QueryRow("select count(*) from prefs").Scan(&count); err != nil {
+		t.Fatalf("appstate is not shared across handles: %v", err)
+	}
+	if projects, err := store.List(); err != nil || len(projects) != 0 {
+		t.Fatalf("appstate leaked into projects = %#v, err = %v", projects, err)
+	}
+	stateRoot, err := store.AppStateFilesRoot("example.standalone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stateRoot); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -73,37 +131,6 @@ func TestStandaloneAppCannotCreateProject(t *testing.T) {
 	_ = store.Ensure()
 	if _, err := store.Create(CreateInput{Name: "No", AppID: "example.standalone"}); err == nil {
 		t.Fatal("standalone App created a project")
-	}
-}
-
-func TestStandaloneAppUsesHiddenWorkspaceScope(t *testing.T) {
-	root := t.TempDir()
-	appDir := filepath.Join(root, "apps", "standalone")
-	if err := os.MkdirAll(appDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.standalone","name":"Standalone","author":"Test","description":"Test workspace App.","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"}}`)
-	apps, err := LoadCatalog(filepath.Join(root, "apps"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := NewStore(filepath.Join(root, "data"), apps)
-	if err := store.Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	first, err := store.EnsureStandaloneAppProject("example.standalone")
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := store.EnsureStandaloneAppProject("example.standalone")
-	if err != nil || first.ID != second.ID || first.AppID != "example.standalone" {
-		t.Fatalf("standalone workspace = %#v / %#v, err = %v", first, second, err)
-	}
-	if projects, err := store.List(); err != nil || len(projects) != 0 {
-		t.Fatalf("standalone workspace leaked into projects = %#v, err = %v", projects, err)
-	}
-	if err := store.checkAppScope(first.ID, first.AppID); err != nil {
-		t.Fatalf("standalone workspace scope is unavailable: %v", err)
 	}
 }
 

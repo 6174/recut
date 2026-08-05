@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 数据根、常驻 service PATH、当前用户的 login shell 与标准库的可执行文件检查
- * [OUTPUT]: 对外提供 AgentCommandResolver，为 Agent runtime 单飞缓存并解析可执行 CLI 的绝对路径和动态 PATH
+ * [OUTPUT]: 对外提供 AgentCommandResolver，为 Agent runtime 单飞缓存并解析可执行 CLI 的绝对路径和动态 PATH；启动进程时配置可取消的完整运行组
  * [POS]: service 的 Agent 运行时环境适配器；以持久化定位缓存避免重复启动 login shell，并以用户 shell 的动态 PATH 补足 launchd/systemd 与交互 shell 的环境差异
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -172,6 +172,7 @@ func (r *AgentCommandResolver) Start(ctx context.Context, command string, argume
 		}
 		cmd := exec.CommandContext(ctx, process.Path, arguments...)
 		cmd.Dir = directory
+		configureAgentCommand(cmd)
 		environment := append([]string{}, process.Env...)
 		environment = append(environment, overrides...)
 		cmd.Env = environmentWithOverrides(os.Environ(), environment)

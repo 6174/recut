@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 manifest-only 注册规则
- * [OUTPUT]: 验证项目型与独立型 App 不需要 project-layout 配置
+ * [OUTPUT]: 验证项目型与独立型 App 不需要 project-layout 配置，并锁定本地 App link/manifest 变化会刷新 Catalog
  * [POS]: service 的扩展注册表回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -69,8 +69,41 @@ func TestCatalogIgnoresLegacyMediaLibraryLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy media-library link prevented startup: %v", err)
 	}
-	if apps := catalog.List(); len(apps) != 0 {
+	if apps, err := catalog.List(); err != nil || len(apps) != 0 {
 		t.Fatalf("legacy media-library link appeared as an App: %#v", apps)
+	}
+}
+
+func TestCatalogRefreshesWhenLocalAppLinkOrManifestChanges(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageRoot := filepath.Join(root, "source", "example")
+	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := func(description string) string {
+		return `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"` + description + `","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`
+	}
+	writeTestFile(t, filepath.Join(packageRoot, "manifest.json"), manifest("A local App."))
+	if err := os.Symlink(packageRoot, filepath.Join(appsDir, "example")); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := catalog.List()
+	if err != nil || len(apps) != 1 || apps[0].Manifest.ID != "example.app" {
+		t.Fatalf("linked apps = %#v, err = %v", apps, err)
+	}
+
+	writeTestFile(t, filepath.Join(packageRoot, "manifest.json"), manifest("A locally linked App with an updated manifest."))
+	apps, err = catalog.List()
+	if err != nil || apps[0].Manifest.Description != "A locally linked App with an updated manifest." {
+		t.Fatalf("refreshed apps = %#v, err = %v", apps, err)
 	}
 }
 

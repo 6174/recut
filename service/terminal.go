@@ -269,19 +269,7 @@ func (m *TerminalManager) persist(current *terminal) error {
 }
 
 func (m *TerminalManager) load() error {
-	if err := m.loadSessions(m.store.workspaceTerminalSessionsDir()); err != nil {
-		return err
-	}
-	projects, err := m.store.List()
-	if err != nil {
-		return err
-	}
-	for _, project := range projects {
-		if err := m.loadSessions(m.store.terminalSessionsDir(project.ID)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return m.loadSessions(m.store.TerminalSessionsDir())
 }
 
 func (m *TerminalManager) loadSessions(root string) error {

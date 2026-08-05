@@ -139,11 +139,46 @@ func TestInstallationsReturnCachedStateDuringRemoteCheck(t *testing.T) {
 		t.Fatal("remote check did not start")
 	}
 	listed := make(chan struct{})
-	go func() { _ = catalog.List(); close(listed) }()
+	go func() { _, _ = catalog.List(); close(listed) }()
 	select {
 	case <-listed:
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("catalog list waited for the remote check")
+	}
+}
+
+func TestLocalCatalogRefreshPreservesRemoteCheckCache(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	appDir := filepath.Join(appsDir, "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog.mu.Lock()
+	catalog.lastRemoteCheck = time.Now()
+	catalog.remoteCheckErrors = map[string]string{appDir: "remote unavailable"}
+	catalog.mu.Unlock()
+
+	linkedRoot := filepath.Join(root, "source", "linked")
+	if err := os.MkdirAll(linkedRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(linkedRoot, "manifest.json"), `{"manifestVersion":1,"id":"linked.app","name":"Linked","author":"Test","description":"Linked App.","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"}}`)
+	if err := os.Symlink(linkedRoot, filepath.Join(appsDir, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := catalog.Installations(); err != nil {
+		t.Fatal(err)
+	}
+	catalog.mu.RLock()
+	defer catalog.mu.RUnlock()
+	if catalog.lastRemoteCheck.IsZero() || catalog.remoteCheckErrors[appDir] != "remote unavailable" {
+		t.Fatalf("local refresh discarded remote cache: checked=%v errors=%#v", catalog.lastRemoteCheck, catalog.remoteCheckErrors)
 	}
 }
 

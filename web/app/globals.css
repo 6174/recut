@@ -36,43 +36,43 @@
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
-  --font-sans: Arial, "Noto Sans SC", sans-serif;
+  --font-sans: Inter, "PingFang SC", "Noto Sans SC", Arial, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 :root {
-  /* Recut: clean white canvas, ink-black content, lively brand green actions. */
-  --background: oklch(0.995 0.001 150);
-  --foreground: oklch(0.19 0.008 150);
+  /* Recut Design System: quiet canvas, decisive green, low-radius tool surfaces. */
+  --background: oklch(0.99 0.003 150);
+  --foreground: oklch(0.18 0.012 150);
   --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.73 0.19 151);
-  --primary-foreground: oklch(0.18 0.01 150);
-  --secondary: oklch(0.94 0.006 150);
+  --primary: oklch(0.66 0.17 151);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.955 0.012 150);
   --secondary-foreground: var(--foreground);
-  --muted: oklch(0.965 0.005 150);
-  --muted-foreground: oklch(0.52 0.012 150);
-  --accent: oklch(0.93 0.055 151);
-  --accent-foreground: oklch(0.26 0.055 151);
+  --muted: oklch(0.965 0.006 150);
+  --muted-foreground: oklch(0.48 0.014 150);
+  --accent: oklch(0.935 0.055 151);
+  --accent-foreground: oklch(0.28 0.065 151);
   --destructive: oklch(0.52 0.18 28);
   --destructive-foreground: oklch(1 0 0);
-  --success: oklch(0.65 0.17 151);
+  --success: oklch(0.64 0.16 151);
   --warning: oklch(0.77 0.16 82);
   --border: oklch(0.9 0.007 150);
   --input: oklch(0.88 0.008 150);
   --ring: oklch(0.69 0.17 151);
   --terminal: oklch(0.16 0.008 150);
-  --radius-xs: 0.4rem;
-  --radius-sm: 0.55rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --shadow-overlay: 0 12px 32px oklch(0.19 0.008 150 / 0.1);
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --shadow-overlay: 0 14px 36px oklch(0.19 0.008 150 / 0.1);
 }
 
 @layer base {
   * { @apply border-border outline-ring/50; }
-  body { @apply min-h-screen bg-background font-sans text-foreground antialiased; }
+  body { @apply min-h-screen bg-background font-sans text-foreground antialiased; letter-spacing: 0; }
   ::selection { background: var(--accent); color: var(--accent-foreground); }
 }

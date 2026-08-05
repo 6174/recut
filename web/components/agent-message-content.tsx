@@ -8,15 +8,18 @@
 
 import { ImageIcon, LoaderCircle, Music2, Video } from "lucide-react";
 import { useState } from "react";
+import { AppReferenceCard, ProjectReferenceCard } from "@/components/agent-reference-card";
 import { AssetPreviewDialog, mediaContentURL, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { GenerationDuration, type GenerationTiming } from "@/components/generation-duration";
 import { useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { VideoFrame } from "@/components/video-frame";
 
 type MediaType = "image" | "video" | "audio";
-type Segment = { kind: "text"; value: string } | { kind: "media"; assetID: string; type: MediaType };
+type Segment = { kind: "text"; value: string } | { kind: "media"; assetID: string; type: MediaType } | { kind: "project"; projectId: string } | { kind: "app"; appId: string };
 
 const mediaTag = /<media\s+([^>]*?)\s*\/?>(?:<\/media>)?/gi;
+const projectTag = /<project\s+([^>]*?)\s*\/?>/gi;
+const appTag = /<app\s+([^>]*?)\s*\/?>/gi;
 const attribute = /([\w-]+)\s*=\s*(["'])(.*?)\2/g;
 
 export function AgentMessageContent({ apiBase, content }: { apiBase: string; content: string }) {
@@ -24,23 +27,37 @@ export function AgentMessageContent({ apiBase, content }: { apiBase: string; con
   const [error, setError] = useState("");
   const { assetByID, assets } = useMediaAssetEvents();
   const openPreview = async (assetID: string) => { setError(""); const cached = assetByID[assetID]; if (cached) { setPreview(cached as unknown as PreviewAsset); return; } try { const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(assetID)}`, { cache: "no-store" }); if (!response.ok) throw new Error("素材已不可用"); setPreview(await response.json() as PreviewAsset); } catch (cause) { setError(cause instanceof Error ? cause.message : "无法打开素材"); } };
-  return <><div className="space-y-3 text-xs leading-5">{parseMessage(content).map((segment, index) => segment.kind === "text" ? <p className="whitespace-pre-wrap" key={index}>{segment.value}</p> : <MediaPreview apiBase={apiBase} assetID={segment.assetID} key={`${segment.assetID}-${index}`} onOpen={() => void openPreview(segment.assetID)} type={segment.type} />)}{error && <p className="text-destructive">{error}</p>}</div>{preview && <AssetPreviewDialog apiBase={apiBase} asset={preview} assets={assets as unknown as PreviewAsset[]} onClose={() => setPreview(null)} />}</>;
+  return <><div className="flex flex-wrap items-start gap-2 text-xs leading-5">{parseMessage(content).map((segment, index) => segment.kind === "text" ? <p className="w-full whitespace-pre-wrap" key={index}>{segment.value}</p> : segment.kind === "media" ? <MediaPreview apiBase={apiBase} assetID={segment.assetID} key={`${segment.assetID}-${index}`} onOpen={() => void openPreview(segment.assetID)} type={segment.type} /> : segment.kind === "project" ? <ProjectReferenceCard apiBase={apiBase} key={`project-${segment.projectId}-${index}`} projectId={segment.projectId} /> : <AppReferenceCard apiBase={apiBase} key={`app-${segment.appId}-${index}`} appId={segment.appId} />)}{error && <p className="w-full text-destructive">{error}</p>}</div>{preview && <AssetPreviewDialog apiBase={apiBase} asset={preview} assets={assets as unknown as PreviewAsset[]} onClose={() => setPreview(null)} />}</>;
 }
 
 function parseMessage(content: string): Segment[] {
   const segments: Segment[] = [];
   let cursor = 0;
-  for (const match of content.matchAll(mediaTag)) {
+  const push = (segment: Segment) => { if (segment.kind === "text" && segment.value === "") return; segments.push(segment); };
+  for (const match of content.matchAll(new RegExp(`(?:${mediaTag.source})|(?:${projectTag.source})|(?:${appTag.source})`, "gi"))) {
     const start = match.index ?? 0;
-    if (start > cursor) segments.push({ kind: "text", value: content.slice(cursor, start) });
-    const attrs = parseAttributes(match[1]);
-    const assetID = attrs.assetid ?? attrs.assetId;
-    const type = attrs.type as MediaType;
-    if (assetID && isMediaType(type)) segments.push({ kind: "media", assetID, type });
-    else segments.push({ kind: "text", value: match[0] });
-    cursor = start + match[0].length;
+    if (start > cursor) push({ kind: "text", value: content.slice(cursor, start) });
+    const raw = match[0];
+    if (raw.startsWith("<media")) {
+      const attrs = parseAttributes(match[1]);
+      const assetID = attrs.assetid ?? attrs.assetId;
+      const type = attrs.type as MediaType;
+      if (assetID && isMediaType(type)) push({ kind: "media", assetID, type });
+      else push({ kind: "text", value: raw });
+    } else if (raw.startsWith("<project")) {
+      const projectId = parseAttributes(match[1]).projectid ?? parseAttributes(match[1]).projectId;
+      if (projectId) push({ kind: "project", projectId });
+      else push({ kind: "text", value: raw });
+    } else if (raw.startsWith("<app")) {
+      const appId = parseAttributes(match[1]).appid ?? parseAttributes(match[1]).appId;
+      if (appId) push({ kind: "app", appId });
+      else push({ kind: "text", value: raw });
+    } else {
+      push({ kind: "text", value: raw });
+    }
+    cursor = start + raw.length;
   }
-  if (cursor < content.length) segments.push({ kind: "text", value: content.slice(cursor) });
+  if (cursor < content.length) push({ kind: "text", value: content.slice(cursor) });
   return segments.length ? segments : [{ kind: "text", value: content }];
 }
 

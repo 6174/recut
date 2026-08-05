@@ -42,25 +42,15 @@ func (s *Server) projectEventsWS(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(changeHubPollInterval)
 	defer ticker.Stop()
 	for {
-		if db, err := s.store.ProjectDatabase(request.ProjectID); err == nil {
-			rows, err := db.Query("select id, payload_json from events where id > ? order by id", lastID)
-			if err == nil {
-				for rows.Next() {
-					var id int64
-					var payload string
-					if rows.Scan(&id, &payload) != nil {
-						continue
+		if events, err := s.store.ListProjectEvents(request.ProjectID, lastID); err == nil {
+			for _, event := range events {
+				var payload any
+				if json.Unmarshal([]byte(event.Payload), &payload) == nil {
+					if connection.WriteJSON(map[string]any{"type": "project.event", "projectId": request.ProjectID, "event": payload}) != nil {
+						return
 					}
-					var event any
-					if json.Unmarshal([]byte(payload), &event) == nil {
-						if connection.WriteJSON(map[string]any{"type": "project.event", "projectId": request.ProjectID, "event": event}) != nil {
-							_ = rows.Close()
-							return
-						}
-					}
-					lastID = id
 				}
-				_ = rows.Close()
+				lastID = event.ID
 			}
 		}
 		select {

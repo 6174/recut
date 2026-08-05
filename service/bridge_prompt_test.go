@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 App Catalog、Store 与嵌入式核心 Agent 模板
- * [OUTPUT]: 验证渲染后的 Vox Agent guide 强制经 Recut MCP 生成媒体、OpenCode MCP 5 分钟超时配置，包含中文 Vox 提示词/导演语言，且不会将场景交给 HyperFrames 或本地渲染
+ * [INPUT]: 依赖 App Catalog、Store、嵌入式核心 Agent 模板与 App skill 树
+ * [OUTPUT]: 验证会话 guide 是平台规则（不含任何 App 全文）、App 技能经 skill 树按需提供，以及 OpenCode 会话工作区 MCP 5 分钟超时配置
  * [POS]: service 的 Agent 指令与 MCP 配置回归测试；锁定跨 App 的媒体执行边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,52 +14,60 @@ import (
 	"testing"
 )
 
-func TestVoxGuideRequiresRecutVideoGeneration(t *testing.T) {
+func TestSessionGuideIsPlatformOnlyAndVoxSkillIsDiscoverable(t *testing.T) {
 	apps, err := LoadCatalog(filepath.Join("..", "apps"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, ok := apps.Get("recut.vox-broll")
-	if !ok {
-		t.Fatal("Vox B-roll app is unavailable")
+	store := NewStore(t.TempDir(), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
 	}
-	guide, err := NewAgentBridge(NewStore(t.TempDir(), apps)).renderCodexGuide(app)
+	guide, err := NewAgentBridge(store).renderSessionGuide()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, required := range []string{
-		"reports no enabled default `image.generate` route",
-		"Codex Agent default when the user has not configured an image model",
-		"model ID `codex/image`",
-		"Codex's native image-generation capability",
-		"Do not call `recut.image.generate`",
-		"recut.media.import_image",
+		"recut.context",
+		"recut.skills.list",
+		"recut.skills.read",
 		"recut.video.generate_async",
 		"recut.media.get_job",
 		"recut.media.wait_for_job",
-		"do not select or read a generic video-creation skill",
-		"Keep user-configured extensions available",
-		"HyperFrames；它不是 Scenes 阶段的实现方式",
-		"Vox 提示词与导演语言",
-		"关键画面：五段提示词结构",
-		"场景视频：六段提示词结构",
-		"导演节奏：从结构到镜头",
+		"__recut.target.projectId",
+		"appstate",
+		`<project projectid="PROJECT_ID"/>`,
+		`<app appid="APP_ID"/>`,
 	} {
 		if !bytes.Contains(guide, []byte(required)) {
-			t.Fatalf("rendered guide is missing %q", required)
+			t.Fatalf("rendered session guide is missing %q", required)
 		}
 	}
-	appGuide, err := os.ReadFile(filepath.Join(app.Root, "AGENTS.md"))
+	if bytes.Contains(guide, []byte("Vox 提示词与导演语言")) {
+		t.Fatal("session guide must not embed any App's domain workflow")
+	}
+	vox, ok := apps.Get("recut.vox-broll")
+	if !ok {
+		t.Fatal("Vox B-roll app is unavailable")
+	}
+	skills, err := vox.Skills()
+	if err != nil || len(skills) == 0 {
+		t.Fatalf("Vox skills = %#v, err = %v", skills, err)
+	}
+	if skills[0].Description == "" {
+		t.Fatal("Vox skill lacks a discoverable description")
+	}
+	if !bytes.Contains([]byte(skills[0].Body), []byte("关键画面：五段提示词结构")) {
+		t.Fatal("Vox skill body must retain the domain prompt language")
+	}
+	appGuide, err := os.ReadFile(filepath.Join(vox.Root, "skills", "vox-broll", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Contains(appGuide, []byte("recut.media.generate")) {
 		t.Fatal("Vox guide must not reference the retired recut.media.generate tool")
 	}
-	if bytes.Contains(appGuide, []byte("使用用户本地的 ffmpeg")) {
-		t.Fatal("Vox guide must not direct Scene delivery through local ffmpeg")
-	}
-	workflow, err := os.ReadFile(filepath.Join(app.Root, "background.js"))
+	workflow, err := os.ReadFile(filepath.Join(vox.Root, "background.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,14 +76,13 @@ func TestVoxGuideRequiresRecutVideoGeneration(t *testing.T) {
 	}
 }
 
-func TestOpencodeProjectAllowsFiveMinuteMCPCalls(t *testing.T) {
+func TestOpencodeWorkspaceAllowsFiveMinuteMCPCalls(t *testing.T) {
 	root := t.TempDir()
-	appDir := filepath.Join(root, "apps", "example")
-	if err := os.MkdirAll(appDir, 0o755); err != nil {
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
-	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	apps, err := LoadCatalog(appsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,20 +90,16 @@ func TestOpencodeProjectAllowsFiveMinuteMCPCalls(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	project, err := store.Create(CreateInput{Name: "Test", AppID: "example.app"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	bridge := NewAgentBridge(store)
-	session, token, err := bridge.CreateSession(project.ID)
+	session, token, err := bridge.CreateSession(SessionContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, err := bridge.WriteOpencodeProject(session, token, "/tmp/recut-service")
+	workspace, err := bridge.WriteOpencodeWorkspace(session, token, "/tmp/recut-service")
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join(workspace, "opencode.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

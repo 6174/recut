@@ -7,5 +7,5 @@
 import { Workspace } from "../page";
 
 export default function MediaLibraryPage() {
-  return <Workspace initialTab="media" />;
+  return <Workspace initialTab="assets" />;
 }

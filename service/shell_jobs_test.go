@@ -29,14 +29,18 @@ func TestShellJobPersistsLogsAndCompletion(t *testing.T) {
 	if err != nil || len(logs) != 2 || logs[0].Sequence >= logs[1].Sequence {
 		t.Fatalf("logs = %#v, err = %v", logs, err)
 	}
-	db, err := store.ProjectDatabase(project.ID)
+	events, err := store.ListProjectEvents(project.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	var count int
-	if err := db.QueryRow("select count(*) from events where payload_json like '%shell.job.completed%'").Scan(&count); err != nil || count != 1 {
-		t.Fatalf("completion events = %d, err = %v", count, err)
+	completed := 0
+	for _, event := range events {
+		if strings.Contains(event.Payload, "shell.job.completed") {
+			completed++
+		}
+	}
+	if completed != 1 {
+		t.Fatalf("completion events = %d, events = %#v", completed, events)
 	}
 }
 

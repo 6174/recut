@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost JavaScript runtime 与标准输入输出 JSON-RPC 流
- * [OUTPUT]: 对外提供项目创建、带默认媒体与音色契约的项目上下文、符合 record 约束的 structuredContent，并将 manifest.mcp.tools 映射为受控 MCP 工具
- * [POS]: service 的 MCP Host；App 不自行启动 MCP server，所有调用经平台权限与会话边界
+ * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost 双 target 运行时、Catalog 的 App 与 skill 树、MediaService 与标准输入输出 JSON-RPC 流
+ * [OUTPUT]: 对外提供项目/App-state 双 target 解析、__recut target envelope、跨 App 的 operation 路由、平台工具（context/skills/apps/project/media）与结构化内容
+ * [POS]: service 的 MCP Host；App 不自行启动 MCP server，所有调用经平台权限、目标解析与会话边界；平台工具无条件可见
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -9,6 +9,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,32 +69,11 @@ func RunMCPStdio(bridge *AgentBridge, host *AppHost, media *MediaService, input 
 }
 
 func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, request mcpRequest) (any, error) {
-	project, err := bridge.store.Get(session.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	app, ok := bridge.store.catalog.Get(project.AppID)
-	if !ok {
-		return nil, fmt.Errorf("project App is unavailable")
-	}
 	switch request.Method {
 	case "initialize":
-		return map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]string{"name": "recut-mcp-host", "version": "0.2.0"}, "capabilities": map[string]any{"tools": map[string]any{}}}, nil
+		return map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]string{"name": "recut-mcp-host", "version": "0.3.0"}, "capabilities": map[string]any{"tools": map[string]any{}}}, nil
 	case "tools/list":
-		tools := make([]map[string]any, 0, len(app.Manifest.Operations)+9)
-		tools = append(tools, projectMCPToolDefinition())
-		tools = append(tools, map[string]any{
-			"name":        "recut.project_context",
-			"description": "读取当前 Recut 项目的身份、版本、App、可用 Artifact 与 Agent 约束。任何项目任务开始时先调用此工具。",
-			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
-		})
-		tools = append(tools, mediaMCPToolDefinitions()...)
-		for _, operation := range app.Manifest.Operations {
-			if declaresOperation(app.Manifest, operation.Name, "mcp") {
-				tools = append(tools, map[string]any{"name": app.Manifest.ID + "." + operation.Name, "description": operation.Description, "inputSchema": operation.InputSchema})
-			}
-		}
-		return map[string]any{"tools": tools}, nil
+		return mcpToolList(bridge, media), nil
 	case "tools/call":
 		input := struct {
 			Name      string         `json:"name"`
@@ -102,40 +82,426 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 		if err := json.Unmarshal(request.Params, &input); err != nil {
 			return nil, err
 		}
-		if input.Name == "recut.project_context" {
-			return projectContextTool(bridge, host, media, session)
-		}
-		if input.Name == "recut.project.create" {
-			return projectMCPTool(bridge.store, input.Arguments)
-		}
-		if isMediaMCPTool(input.Name) {
-			return mediaMCPTool(bridge.store, media, session, input.Name, input.Arguments)
-		}
-		prefix := app.Manifest.ID + "."
-		if len(input.Name) <= len(prefix) || input.Name[:len(prefix)] != prefix {
-			return nil, fmt.Errorf("tool %q is outside the current App", input.Name)
-		}
-		result, err := host.InvokeMCP(project.ID, app.Manifest.ID, input.Name[len(prefix):], input.Arguments)
-		if err != nil {
-			return nil, err
-		}
-		data, _ := json.Marshal(result)
-		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+		return mcpToolCall(bridge, host, media, session, input.Name, input.Arguments)
 	default:
 		return nil, fmt.Errorf("unsupported MCP method %q", request.Method)
 	}
 }
 
+func mcpToolList(bridge *AgentBridge, media *MediaService) map[string]any {
+	tools := make([]map[string]any, 0)
+	tools = append(tools,
+		platformTool("recut.context", "读取当前 Recut 会话上下文：工作区位置、已安装 App、skill 目录与媒体配置。任何任务开始时先调用此工具。", map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.apps.list", "列出已安装 App（含 kind、skill 目录、Git 仓库、可更新状态与安装状态）。", map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.apps.store", "列出 App Store 中可安装的 Recut App（appId、name、kind、GitHub repository、是否已安装）。需要安装时用 recut.apps.install 传入其 repository。", map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.apps.install", "从一个 Git 仓库安装标准 Recut App（克隆、校验 manifest 后激活）。仅当用户明确要求安装该仓库时调用。", map[string]any{"type": "object", "required": []string{"repository"}, "properties": map[string]any{"repository": map[string]string{"type": "string", "description": "GitHub 仓库 URL（git@… 或 https://…）。"}}}),
+		platformTool("recut.apps.update", "更新一个已安装 App（传 package）或全部已安装 App。仅当用户明确要求更新时调用。", map[string]any{"type": "object", "properties": map[string]any{"package": map[string]string{"type": "string", "description": "可选：要更新的 App 包名（如 recut-vox-broll）；缺省更新全部。"}}}),
+		platformTool("recut.skills.list", "列出所有已安装 App 的 skill 目录（id、appId、name、description）。", map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.skills.read", "读取一个 App skill 的完整正文；该正文对对应 App 的工具契约与决策门有权威性。", map[string]any{"type": "object", "required": []string{"appId", "skillId"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}}}),
+		platformTool("recut.skills.reference", "读取一个 skill 声明的引用/资源子文档。路径必须是该 skill 目录内前置声明的相对路径。", map[string]any{"type": "object", "required": []string{"appId", "skillId", "path"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}, "path": map[string]string{"type": "string"}}}),
+		projectMCPToolDefinition(),
+		platformTool("recut.project.list", "列出全部用户项目（Doc metadata：id、name、owner App、版本）。", map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.project.get", "读取一个项目的 Doc metadata。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}}}),
+	)
+	tools = append(tools, mediaMCPToolDefinitions()...)
+	apps, err := bridge.store.catalog.List()
+	if err != nil {
+		return map[string]any{"tools": tools}
+	}
+	for _, app := range apps {
+		for _, operation := range app.Manifest.Operations {
+			if !declaresOperation(app.Manifest, operation.Name, "mcp") {
+				continue
+			}
+			tools = append(tools, map[string]any{"name": app.Manifest.ID + "." + operation.Name, "description": operation.Description, "inputSchema": wrappedOperationSchema(operation)})
+		}
+	}
+	return map[string]any{"tools": tools}
+}
+
+func platformTool(name, description string, schema map[string]any) map[string]any {
+	return map[string]any{"name": name, "description": description, "inputSchema": schema}
+}
+
+// wrappedOperationSchema copies the App schema and adds the __recut target
+// envelope without mutating the App-owned contract. additionalProperties is
+// relaxed at the host boundary so an App schema with additionalProperties: false
+// still accepts a legal target.
+func wrappedOperationSchema(operation Operation) map[string]any {
+	schema := cloneJSONMap(operation.InputSchema)
+	properties := map[string]any{}
+	if existing, ok := schema["properties"].(map[string]any); ok {
+		for key, value := range existing {
+			properties[key] = value
+		}
+	}
+	properties["__recut"] = map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"target": map[string]any{
+				"type":     "object",
+				"required": []string{"projectId"},
+				"properties": map[string]any{
+					"projectId": map[string]string{"type": "string", "description": "要操作的 Project Doc ID。仅接受 owner App 的项目；不传则使用会话默认 Doc，再没有则落到 App 全局状态。"},
+				},
+			},
+		},
+	}
+	schema["properties"] = properties
+	schema["additionalProperties"] = true
+	return schema
+}
+
+func cloneJSONMap(value map[string]any) map[string]any {
+	cloned := map[string]any{}
+	for key, item := range value {
+		cloned[key] = item
+	}
+	return cloned
+}
+
+func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, name string, arguments map[string]any) (any, error) {
+	switch name {
+	case "recut.context":
+		return recutContextTool(bridge, media, session)
+	case "recut.project_context":
+		return projectContextTool(bridge, host, media, session)
+	case "recut.project.create":
+		return projectMCPTool(bridge.store, arguments)
+	case "recut.project.list":
+		projects, err := bridge.store.List()
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.Marshal(projects)
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(projects)}, nil
+	case "recut.project.get":
+		projectID, _ := arguments["projectId"].(string)
+		project, err := bridge.store.Get(projectID)
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.Marshal(project)
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(project)}, nil
+	case "recut.apps.list":
+		return appsListTool(bridge)
+	case "recut.apps.store":
+		return appStoreTool(bridge)
+	case "recut.apps.install":
+		return appsInstallTool(bridge, arguments)
+	case "recut.apps.update":
+		return appsUpdateTool(bridge, arguments)
+	case "recut.skills.list":
+		return skillsListTool(bridge)
+	case "recut.skills.read":
+		return skillReadTool(bridge, arguments)
+	case "recut.skills.reference":
+		return skillReferenceTool(bridge, arguments)
+	}
+	if isMediaMCPTool(name) {
+		return mediaMCPTool(bridge.store, media, session, name, arguments)
+	}
+	prefix, appID, ok := splitAppTool(name)
+	if !ok {
+		return nil, fmt.Errorf("tool %q is not a platform or App tool", name)
+	}
+	app, ok := bridge.store.catalog.Get(appID)
+	if !ok {
+		return nil, fmt.Errorf("app %q is unavailable", appID)
+	}
+	operationName := name[len(prefix):]
+	if !declaresOperation(app.Manifest, operationName, "mcp") {
+		return nil, fmt.Errorf("App %q does not expose MCP operation %q", appID, operationName)
+	}
+	target, args, err := resolveAppTarget(bridge, app, session, arguments)
+	if err != nil {
+		return nil, err
+	}
+	result, err := host.InvokeMCP(target, appID, operationName, args)
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(result)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+func splitAppTool(name string) (prefix, appID string, ok bool) {
+	parts := strings.Split(name, ".")
+	if len(parts) < 3 {
+		return "", "", false
+	}
+	appID = strings.Join(parts[:2], ".")
+	return appID + ".", appID, true
+}
+
+// resolveAppTarget applies the target resolution rules: explicit __recut.target
+// > session default Doc > App global state. The __recut field is stripped and
+// never reaches background.js.
+func resolveAppTarget(bridge *AgentBridge, app App, session AgentSession, arguments map[string]any) (Target, map[string]any, error) {
+	args := map[string]any{}
+	for key, value := range arguments {
+		if key != "__recut" {
+			args[key] = value
+		}
+	}
+	projectID := explicitProjectID(arguments)
+	if projectID == "" {
+		projectID = session.ProjectID
+	}
+	if projectID != "" {
+		if err := bridge.store.projectOwnedBy(projectID, app.Manifest.ID); err != nil {
+			return Target{}, nil, fmt.Errorf("invalid target %q: %w", projectID, err)
+		}
+		return Target{ProjectID: projectID, AppID: app.Manifest.ID}, args, nil
+	}
+	return Target{AppID: app.Manifest.ID}, args, nil
+}
+
+func explicitProjectID(arguments map[string]any) string {
+	recut, ok := arguments["__recut"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	target, ok := recut["target"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	projectID, _ := target["projectId"].(string)
+	return strings.TrimSpace(projectID)
+}
+
+// requestedProjectID resolves a Project target for platform tools (media,
+// import_image) that have no App owner: __recut target > explicit argument >
+// session default Doc.
+func requestedProjectID(session AgentSession, arguments map[string]any) string {
+	if projectID := explicitProjectID(arguments); projectID != "" {
+		return projectID
+	}
+	if projectID, _ := arguments["projectId"].(string); strings.TrimSpace(projectID) != "" {
+		return strings.TrimSpace(projectID)
+	}
+	return session.ProjectID
+}
+
+func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSession) (any, error) {
+	apps, _ := bridge.store.catalog.List()
+	appSummaries := make([]map[string]any, 0, len(apps))
+	skillSummary := make([]map[string]any, 0)
+	for _, app := range apps {
+		skills, err := app.Skills()
+		if err != nil {
+			continue
+		}
+		summary := map[string]any{"appId": app.Manifest.ID, "name": app.Manifest.Name, "kind": string(app.Manifest.Kind), "description": app.Manifest.Description}
+		skillsMeta := make([]map[string]any, 0, len(skills))
+		for _, skill := range skills {
+			skillsMeta = append(skillsMeta, map[string]any{"id": skill.ID, "name": skill.Name, "description": skill.Description})
+			skillSummary = append(skillSummary, map[string]any{"id": skill.ID, "appId": app.Manifest.ID, "name": skill.Name, "description": skill.Description})
+		}
+		summary["skills"] = skillsMeta
+		appSummaries = append(appSummaries, summary)
+	}
+	workspace := map[string]any{"projectId": nil, "appId": nil}
+	if session.ProjectID != "" {
+		workspace["projectId"] = session.ProjectID
+	}
+	if session.AppID != "" {
+		workspace["appId"] = session.AppID
+	}
+	var mediaConfiguration any
+	if media != nil {
+		if configured, err := media.ConfiguredModels(); err == nil {
+			mediaConfiguration = configured
+		}
+	}
+	result := map[string]any{
+		"session":      map[string]any{"id": session.ID, "taskId": session.TaskID},
+		"workspace":    workspace,
+		"apps":         appSummaries,
+		"skills":       skillSummary,
+		"media":        map[string]any{"defaultRoutes": mediaConfiguration},
+		"instructions": bridgeInstructions,
+	}
+	data, _ := json.Marshal(result)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+func appsListTool(bridge *AgentBridge) (any, error) {
+	apps, err := bridge.store.catalog.List()
+	if err != nil {
+		return nil, err
+	}
+	installations, _ := bridge.store.catalog.Installations()
+	installByID := map[string]AppInstallation{}
+	for _, installation := range installations {
+		installByID[installation.Manifest.ID] = installation
+	}
+	result := make([]map[string]any, 0, len(apps))
+	for _, app := range apps {
+		skills, _ := app.Skills()
+		skillsMeta := make([]map[string]any, 0, len(skills))
+		for _, skill := range skills {
+			skillsMeta = append(skillsMeta, map[string]any{"id": skill.ID, "name": skill.Name, "description": skill.Description})
+		}
+		entry := map[string]any{"appId": app.Manifest.ID, "name": app.Manifest.Name, "kind": string(app.Manifest.Kind), "description": app.Manifest.Description, "skills": skillsMeta}
+		if installation, ok := installByID[app.Manifest.ID]; ok {
+			entry["package"] = installation.Package
+			entry["repository"] = installation.Repository
+			entry["revision"] = installation.Revision
+			entry["dirty"] = installation.Dirty
+			entry["updateAvailable"] = installation.UpdateAvailable
+			entry["manageable"] = installation.Manageable
+			entry["status"] = installation.Status
+		}
+		result = append(result, entry)
+	}
+	data, _ := json.Marshal(result)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+func appStoreTool(bridge *AgentBridge) (any, error) {
+	store, err := bridge.store.AppStore()
+	if err != nil {
+		return nil, err
+	}
+	installed := map[string]bool{}
+	for _, app := range bridge.store.catalog.snapshotApps() {
+		installed[app.Manifest.ID] = true
+	}
+	result := make([]map[string]any, 0, len(store))
+	for _, app := range store {
+		result = append(result, map[string]any{
+			"appId": app.AppID, "name": app.Name, "description": app.Description,
+			"kind": app.Kind, "repository": app.Repository, "installed": installed[app.AppID],
+		})
+	}
+	data, _ := json.Marshal(result)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+func appsInstallTool(bridge *AgentBridge, arguments map[string]any) (any, error) {
+	repository, _ := arguments["repository"].(string)
+	if strings.TrimSpace(repository) == "" {
+		return nil, errors.New("repository is required")
+	}
+	installed, err := bridge.store.catalog.InstallGitHub(strings.TrimSpace(repository))
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(installed)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(installed)}, nil
+}
+
+func appsUpdateTool(bridge *AgentBridge, arguments map[string]any) (any, error) {
+	packageName, _ := arguments["package"].(string)
+	if strings.TrimSpace(packageName) != "" {
+		updated, err := bridge.store.catalog.UpdateInstallation(strings.TrimSpace(packageName))
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.Marshal(updated)
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(updated)}, nil
+	}
+	result, err := bridge.store.catalog.UpdateInstallations()
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(result)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+func skillsListTool(bridge *AgentBridge) (any, error) {
+	apps, err := bridge.store.catalog.List()
+	if err != nil {
+		return nil, err
+	}
+	result := []map[string]any{}
+	for _, app := range apps {
+		skills, err := app.Skills()
+		if err != nil {
+			continue
+		}
+		for _, skill := range skills {
+			result = append(result, map[string]any{"id": skill.ID, "appId": app.Manifest.ID, "name": skill.Name, "description": skill.Description})
+		}
+	}
+	data, _ := json.Marshal(result)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+func skillReadTool(bridge *AgentBridge, arguments map[string]any) (any, error) {
+	appID, _ := arguments["appId"].(string)
+	skillID, _ := arguments["skillId"].(string)
+	app, ok := bridge.store.catalog.Get(appID)
+	if !ok {
+		return nil, fmt.Errorf("app %q is unavailable", appID)
+	}
+	skills, err := app.Skills()
+	if err != nil {
+		return nil, err
+	}
+	for _, skill := range skills {
+		if skill.ID == skillID {
+			data, _ := json.Marshal(map[string]any{"id": skill.ID, "appId": skill.AppID, "name": skill.Name, "description": skill.Description, "body": skill.Body, "references": skill.References, "resources": skill.Resources})
+			return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(map[string]any{"id": skill.ID, "appId": skill.AppID, "name": skill.Name, "description": skill.Description, "body": skill.Body, "references": skill.References, "resources": skill.Resources})}, nil
+		}
+	}
+	return nil, fmt.Errorf("skill %q is not provided by app %q", skillID, appID)
+}
+
+func skillReferenceTool(bridge *AgentBridge, arguments map[string]any) (any, error) {
+	appID, _ := arguments["appId"].(string)
+	skillID, _ := arguments["skillId"].(string)
+	path, _ := arguments["path"].(string)
+	app, ok := bridge.store.catalog.Get(appID)
+	if !ok {
+		return nil, fmt.Errorf("app %q is unavailable", appID)
+	}
+	skills, err := app.Skills()
+	if err != nil {
+		return nil, err
+	}
+	for _, skill := range skills {
+		if skill.ID != skillID {
+			continue
+		}
+		root, err := filepath.EvalSymlinks(skill.Root)
+		if err != nil {
+			return nil, fmt.Errorf("resolve skill root: %w", err)
+		}
+		resolved, err := filepath.EvalSymlinks(filepath.Join(root, filepath.Clean(path)))
+		if err != nil {
+			return nil, fmt.Errorf("resolve skill reference: %w", err)
+		}
+		relative, err := filepath.Rel(root, resolved)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("skill reference escapes the skill directory")
+		}
+		info, err := os.Stat(resolved)
+		if err != nil || info.IsDir() {
+			return nil, fmt.Errorf("skill reference is unavailable")
+		}
+		content, err := os.ReadFile(resolved)
+		if err != nil {
+			return nil, err
+		}
+		result := map[string]any{"appId": appID, "skillId": skillID, "path": filepath.ToSlash(relative), "content": string(content)}
+		data, _ := json.Marshal(result)
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+	}
+	return nil, fmt.Errorf("skill %q is not provided by app %q", skillID, appID)
+}
+
 func projectMCPToolDefinition() map[string]any {
 	return map[string]any{
 		"name":        "recut.project.create",
-		"description": "创建一个真实的 Recut 项目。仅当用户明确要求新建项目时调用；成功返回的 projectId 会出现在项目桌面。它不会创建 Brief、Artifact 或工作流资源。",
+		"description": "创建一个真实的 Recut Project Doc。仅当用户明确要求新建项目时调用；成功返回的 projectId 会出现在项目桌面。它不会创建 Brief、Artifact 或工作流资源。",
 		"inputSchema": map[string]any{
 			"type":     "object",
 			"required": []string{"name", "appId"},
 			"properties": map[string]any{
 				"name":  map[string]string{"type": "string", "description": "新项目的显示名称。"},
-				"appId": map[string]string{"type": "string", "description": "承载该项目的已安装项目型 App ID。"},
+				"appId": map[string]string{"type": "string", "description": "承载该项目的 owner App ID。"},
 			},
 		},
 	}
@@ -175,7 +541,7 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		result, err = media.WaitForTerminalJob(id, mediaWaitTimeout(input))
 	case "recut.media.list_assets":
 		workspace, _ := input["workspace"].(bool)
-		projectID := session.ProjectID
+		projectID := requestedProjectID(session, input)
 		if workspace {
 			projectID = ""
 		}
@@ -184,8 +550,8 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		result, err = importNativeImage(store, media, session, input)
 	case "recut.media.attach":
 		id, _ := input["assetId"].(string)
-		err = media.Attach(id, session.ProjectID)
-		result = map[string]any{"assetId": id, "projectId": session.ProjectID, "attached": err == nil}
+		err = media.Attach(id, requestedProjectID(session, input))
+		result = map[string]any{"assetId": id, "projectId": requestedProjectID(session, input), "attached": err == nil}
 	default:
 		return nil, fmt.Errorf("unknown media tool %q", name)
 	}
@@ -208,16 +574,16 @@ func structuredMCPContent(result any) any {
 
 func mediaMCPToolDefinitions() []map[string]any {
 	return []map[string]any{
-		{"name": "recut.media.configuration", "description": "读取最新媒体配置；通常无需调用，因为 recut.project_context 已携带默认 route、模型契约和可选参数。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
+		{"name": "recut.media.configuration", "description": "读取最新媒体配置；通常无需调用，因为 recut.context 已携带默认 route、模型契约和可选参数。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "recut.image.generate", "description": "同步生成短时、阶段关键的图片。成功返回 assetIds；Provider 失败或超时直接返回错误。", "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
-		{"name": "recut.video.generate_async", "description": "提交长时间运行的视频生成。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。具体模型支持的参考类型和输出参数以 recut.project_context.media 为准；Seedance 的 output.generateAudio 默认 true，Gemini 不支持该参数。", "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
-		{"name": "recut.speech.generate_async", "description": "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId 与处于 queued 状态的稳定 assetIds。需要确认旁白真正可用时，必须随后调用 recut.media.wait_for_job 读取 completed/failed 终态。", "inputSchema": speechGenerationSchema()},
-		{"name": "recut.media.list_voices", "description": "读取一个 MiniMax 或 ElevenLabs 凭据当前可用的音色，返回可直接传给 recut.speech.generate_async 的 voiceId。", "inputSchema": map[string]any{"type": "object", "required": []string{"credentialId"}, "properties": map[string]any{"credentialId": map[string]string{"type": "string"}}}},
-		{"name": "recut.media.get_job", "description": "读取媒体生成任务状态；所有异步提交成功时已返回稳定 assetIds，此工具只读取其后续 queued/running/completed/failed 状态。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
-		{"name": "recut.media.wait_for_job", "description": "等待本地 Daemon 已提交的媒体任务达到 completed 或 failed；只观察 Recut job，不直接调用 Provider。超时会返回当前 queued/running 状态。旁白在保存为可用资源或宣称生成成功前必须调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}},
-		{"name": "recut.media.list_assets", "description": "检索当前项目或工作区的可复用媒体素材。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"workspace": map[string]string{"type": "boolean"}}}},
-		{"name": "recut.media.import_image", "description": "将 Codex 原生生成后已写入当前 Recut 项目目录的图片归档为当前项目的 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。", "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "当前 Recut 项目目录内的相对图片路径。Codex 原生生成的结果必须先复制到此处。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}}}},
-		{"name": "recut.media.attach", "description": "把现有媒体 assetId 引用到当前项目。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}}}},
+		{"name": "recut.video.generate_async", "description": "提交长时间运行的视频生成。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。", "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
+		{"name": "recut.speech.generate_async", "description": "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId 与处于 queued 状态的稳定 assetIds。", "inputSchema": speechGenerationSchema()},
+		{"name": "recut.media.list_voices", "description": "读取一个 MiniMax 或 ElevenLabs 凭据当前可用的音色。", "inputSchema": map[string]any{"type": "object", "required": []string{"credentialId"}, "properties": map[string]any{"credentialId": map[string]string{"type": "string"}}}},
+		{"name": "recut.media.get_job", "description": "读取媒体生成任务状态。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
+		{"name": "recut.media.wait_for_job", "description": "等待本地 Daemon 已提交的媒体任务达到 completed 或 failed。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}},
+		{"name": "recut.media.list_assets", "description": "检索当前项目或工作区的可复用媒体素材。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省时使用会话默认 Doc，都没有则返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}}}},
+		{"name": "recut.media.import_image", "description": "将 Codex 原生生成后已写入会话工作区或项目目录的图片归档为 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。", "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "会话工作区或目标项目目录内的相对图片路径。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省使用会话默认 Doc，都没有则落到 workspace。"}}}},
+		{"name": "recut.media.attach", "description": "把现有媒体 assetId 引用到目标项目。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},
 	}
 }
 
@@ -234,19 +600,29 @@ func importNativeImage(store *Store, media *MediaService, session AgentSession, 
 	relativePath, _ := input["path"].(string)
 	name, _ := input["name"].(string)
 	if strings.TrimSpace(relativePath) == "" || filepath.IsAbs(relativePath) {
-		return MediaAsset{}, fmt.Errorf("path must be a non-empty relative path inside the current Recut project")
+		return MediaAsset{}, fmt.Errorf("path must be a non-empty relative path")
 	}
-	root, err := filepath.EvalSymlinks(store.projectDir(session.ProjectID))
+	// The import base is always the session workspace. For a Project-target
+	// session the workspace contains the controlled `project` symlink, so
+	// `project/files/...` resolves into the real Project directory. The
+	// resolved file must stay inside the workspace or the target Project root.
+	base, err := filepath.EvalSymlinks(store.SessionWorkspaceDir(session.ID))
 	if err != nil {
-		return MediaAsset{}, fmt.Errorf("resolve current Recut project: %w", err)
+		return MediaAsset{}, err
 	}
-	path, err := filepath.EvalSymlinks(filepath.Join(root, filepath.Clean(relativePath)))
+	path, err := filepath.EvalSymlinks(filepath.Join(base, filepath.Clean(relativePath)))
 	if err != nil {
 		return MediaAsset{}, fmt.Errorf("resolve image path: %w", err)
 	}
-	relativeToRoot, err := filepath.Rel(root, path)
-	if err != nil || relativeToRoot == ".." || strings.HasPrefix(relativeToRoot, ".."+string(filepath.Separator)) {
-		return MediaAsset{}, fmt.Errorf("path must remain inside the current Recut project")
+	allowedRoots := []string{base}
+	projectID := requestedProjectID(session, input)
+	if projectID != "" {
+		if projectRoot, rootErr := filepath.EvalSymlinks(store.projectDir(projectID)); rootErr == nil {
+			allowedRoots = append(allowedRoots, projectRoot)
+		}
+	}
+	if !withinAllowedRoots(allowedRoots, path) {
+		return MediaAsset{}, fmt.Errorf("path must remain inside the session workspace or the target Project")
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -269,7 +645,17 @@ func importNativeImage(store *Store, media *MediaService, session AgentSession, 
 	if strings.TrimSpace(name) == "" {
 		name = filepath.Base(path)
 	}
-	return media.ImportNativeImage(session.ProjectID, name, mimeType, content)
+	return media.ImportNativeImage(projectID, name, mimeType, content)
+}
+
+func withinAllowedRoots(roots []string, path string) bool {
+	for _, root := range roots {
+		relative, err := filepath.Rel(root, path)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
+			return true
+		}
+	}
+	return false
 }
 
 func isMediaMCPTool(name string) bool {
@@ -325,7 +711,7 @@ func mediaGenerationInput(input map[string]any, session AgentSession, capability
 	if voiceID, _ := input["voiceId"].(string); voiceID != "" {
 		output["voiceId"] = voiceID
 	}
-	return GenerateMediaInput{Capability: capability, Prompt: prompt, Route: route, ReferenceIDs: mediaReferenceIDs(input), Output: output, ProjectID: session.ProjectID, IdempotencyKey: key}
+	return GenerateMediaInput{Capability: capability, Prompt: prompt, Route: route, ReferenceIDs: mediaReferenceIDs(input), Output: output, ProjectID: requestedProjectID(session, input), IdempotencyKey: key}
 }
 
 func stringsFromAny(value any) []string {
@@ -349,29 +735,29 @@ func mediaReferenceIDs(input map[string]any) []string {
 }
 
 func projectContextTool(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession) (any, error) {
-	context, err := bridge.Context(session)
-	if err != nil {
-		return nil, err
-	}
-	artifacts, err := bridge.store.ListArtifacts(session.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	workflow, workflowErr := host.InvokeMCP(session.ProjectID, context.Project.AppID, "workflow.context", map[string]any{})
-	mediaConfiguration, mediaErr := media.ConfiguredModels()
 	result := map[string]any{
-		"project":      context.Project,
-		"resourceRef":  context.ResourceRef,
-		"revision":     context.Revision,
-		"appState":     context.AppState,
-		"instructions": context.Instructions,
-		"artifacts":    artifacts,
+		"session":      map[string]any{"id": session.ID, "taskId": session.TaskID},
+		"instructions": bridgeInstructions,
+		"apps":         []map[string]any{},
+		"skills":       []map[string]any{},
 	}
-	if workflowErr == nil {
-		result["workflow"] = workflow
+	if session.ProjectID != "" {
+		project, err := bridge.store.Get(session.ProjectID)
+		if err == nil {
+			workflow, workflowErr := host.InvokeMCP(Target{ProjectID: project.ID, AppID: project.AppID}, project.AppID, "workflow.context", map[string]any{})
+			if workflowErr == nil {
+				result["workflow"] = workflow
+			}
+			artifacts, _ := bridge.store.ListArtifacts(session.ProjectID)
+			result["project"] = project
+			result["artifacts"] = artifacts
+			result["appState"] = map[string]any{"appId": project.AppID}
+		}
 	}
-	if mediaErr == nil {
-		result["media"] = map[string]any{"defaultRoutes": mediaConfiguration}
+	if media != nil {
+		if configured, err := media.ConfiguredModels(); err == nil {
+			result["media"] = map[string]any{"defaultRoutes": configured}
+		}
 	}
 	data, _ := json.Marshal(result)
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil

@@ -13,7 +13,7 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 	}
 	root := t.TempDir()
 	dest := filepath.Join(root, "apps", "recut-remotion-studio")
-	if err := copyTree(t, appDir, dest, "background.js", "manifest.json", "AGENTS.md"); err != nil {
+	if err := copyTree(t, appDir, dest, "background.js", "manifest.json"); err != nil {
 		t.Fatal(err)
 	}
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
@@ -38,7 +38,7 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 	host := NewAppHost(apps, store, nil)
 
 	// workflow.context must run in Goja and report the brief stage.
-	result, err := host.InvokeAPI(project.ID, app.Manifest.ID, "workflow.context", map[string]any{})
+	result, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: app.Manifest.ID}, app.Manifest.ID, "workflow.context", map[string]any{})
 	if err != nil {
 		t.Fatalf("workflow.context failed: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 	}
 
 	// project.create stores a brief in the app SQLite namespace.
-	brief, err := host.InvokeAPI(project.ID, app.Manifest.ID, "project.create", map[string]any{
+	brief, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: app.Manifest.ID}, app.Manifest.ID, "project.create", map[string]any{
 		"template": "cinematic-dark", "topic": "测试选题", "details": "细节", "expectedDurationSec": 15,
 	})
 	if err != nil {
@@ -72,7 +72,7 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 			map[string]any{"id": "s3", "kind": "outro", "title": "收尾", "durationSec": 3},
 		},
 	}
-	saved, err := host.InvokeMCP(project.ID, app.Manifest.ID, "composition.save", map[string]any{"title": "测试设计", "content": design})
+	saved, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: app.Manifest.ID}, app.Manifest.ID, "composition.save", map[string]any{"title": "测试设计", "content": design})
 	if err != nil {
 		t.Fatalf("composition.save failed: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 	}
 
 	// An invalid design (scene durations not matching) must be rejected.
-	if _, err := host.InvokeMCP(project.ID, app.Manifest.ID, "composition.save", map[string]any{
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: app.Manifest.ID}, app.Manifest.ID, "composition.save", map[string]any{
 		"title": "坏设计",
 		"content": map[string]any{
 			"title": "x", "durationSec": 10, "template": "cinematic-dark", "style": map[string]any{},
@@ -97,12 +97,12 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 	}
 
 	// itemPatch update must succeed and the workflow stage must become preview.
-	if _, err := host.InvokeAPI(project.ID, app.Manifest.ID, "composition.update", map[string]any{
+	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: app.Manifest.ID}, app.Manifest.ID, "composition.update", map[string]any{
 		"id": designID, "itemPatch": map[string]any{"collection": "scenes", "match": map[string]any{"id": "s2"}, "patch": map[string]any{"narration": "改后的旁白。"}},
 	}); err != nil {
 		t.Fatalf("composition.update failed: %v", err)
 	}
-	wf, err := host.InvokeAPI(project.ID, app.Manifest.ID, "workflow.context", map[string]any{})
+	wf, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: app.Manifest.ID}, app.Manifest.ID, "workflow.context", map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,7 +1,9 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、Artifact、App 隔离能力、原生素材库与首页 general chat 的隐藏平台 scope、全局 onboarding 设置、持久化 Agent CLI 定位缓存与按文件共享、WAL 连接池化且以有界健康检查复用 SQLite 存储，以及项目/Agent/媒体三类 durable 事件表的进程内唤醒广播
- * [POS]: service 的平台存储边界；App 仅通过 capability 获得自己的数据库和文件根，Agent 会话使用独立工作区库，首页聊天复用隐藏 scope 而非伪造用户项目
+ * [OUTPUT]: 对外提供 Store、Project、Artifact、App 全局状态与项目 Doc 的隔离能力、
+ * 平台唯一 workspace SQLite、无迁移的布局版本门禁与项目/Agent/媒体三类 durable 事件表的进程内唤醒广播
+ * [POS]: service 的平台存储边界；平台表全部位于 workspace.sqlite，project.sqlite 只含 owner App 业务表，
+ * appstate/<appId> 是 App 的全局状态；App 仅通过 capability 获得自己的数据库和文件根
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -15,10 +17,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,20 +28,12 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const formatVersion = 2
-const mediaSystemProjectID = "media-library"
-const mediaSystemAppID = "recut.media-library"
-const generalChatProjectID = "general-chat"
-const generalChatAppID = "recut.general-chat"
-const standaloneProjectPrefix = "workspace-app-"
+const formatVersion = 3
+const layoutVersionKey = "layout_version"
+const currentLayoutVersion = "3"
 const workspaceBusyTimeoutMilliseconds = 15000
 const sqlitePoolMaxOpenConnections = 8
 const databaseHealthCheckTimeout = 100 * time.Millisecond
-
-func isSystemProjectID(id string) bool {
-	return id == mediaSystemProjectID || id == generalChatProjectID
-}
-func isSystemAppID(id string) bool { return id == mediaSystemAppID || id == generalChatAppID }
 
 type Project struct {
 	ID            string    `json:"id"`
@@ -66,16 +60,16 @@ type Artifact struct {
 }
 
 type Store struct {
-	root           string
-	catalog        *Catalog
-	agentCommands  *AgentCommandResolver
-	workspaceMu    sync.RWMutex
+	root          string
+	catalog       *Catalog
+	agentCommands *AgentCommandResolver
+	workspaceMu   sync.RWMutex
 	workspaceReady bool
-	databasesMu    sync.RWMutex
-	databases      map[string]*sql.DB
-	projectEvents  *changeHub
-	agentEvents    *changeHub
-	mediaEvents    *changeHub
+	databasesMu   sync.RWMutex
+	databases     map[string]*sql.DB
+	projectEvents *changeHub
+	agentEvents   *changeHub
+	mediaEvents   *changeHub
 }
 
 func NewStore(root string, apps *Catalog) *Store {
@@ -89,7 +83,56 @@ func NewStore(root string, apps *Catalog) *Store {
 		mediaEvents:   newChangeHub(),
 	}
 }
-func (s *Store) Ensure() error { return os.MkdirAll(s.projectsDir(), 0o755) }
+
+// Ensure applies the layout version gate and materializes the platform directory
+// skeleton. There is no historical data migration: an incompatible prior layout
+// is renamed aside and a fresh data directory is initialized.
+func (s *Store) Ensure() error {
+	if err := os.MkdirAll(s.root, 0o700); err != nil {
+		return err
+	}
+	legacy, err := s.detectLegacyLayout()
+	if err != nil {
+		return err
+	}
+	if legacy {
+		backup := s.root + ".legacy-" + time.Now().UTC().Format("20060102-150405")
+		if err := os.Rename(s.root, backup); err != nil {
+			return fmt.Errorf("move legacy data directory: %w", err)
+		}
+		if err := os.MkdirAll(s.root, 0o700); err != nil {
+			return err
+		}
+		log.Printf("WARN legacy Recut data moved to %s; starting a fresh data directory", backup)
+	}
+	for _, dir := range []string{"projects", "appstate", "sessions"} {
+		if err := os.MkdirAll(filepath.Join(s.root, dir), 0o755); err != nil {
+			return err
+		}
+	}
+	if _, err := s.WorkspaceDatabase(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) detectLegacyLayout() (bool, error) {
+	entries, err := os.ReadDir(s.projectsDir())
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+			if _, err := os.Stat(filepath.Join(s.projectDir(entry.Name()), "recut.json")); err == nil {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
 
 func (s *Store) Create(input CreateInput) (Project, error) {
 	if strings.TrimSpace(input.Name) == "" {
@@ -109,143 +152,99 @@ func (s *Store) Create(input CreateInput) (Project, error) {
 	if err != nil {
 		return Project{}, err
 	}
-	project := Project{ID: id, Name: input.Name, AppID: app.Manifest.ID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: time.Now().UTC()}
-	temporary, err := os.MkdirTemp(s.projectsDir(), ".new-")
+	now := time.Now().UTC()
+	project := Project{ID: id, Name: input.Name, AppID: app.Manifest.ID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: now}
+	db, err := s.WorkspaceDatabase()
 	if err != nil {
 		return Project{}, err
 	}
-	defer os.RemoveAll(temporary)
-	if err := s.initialize(temporary, project); err != nil {
+	if _, err := db.Exec("insert into projects (id, name, app_id, app_version, format_version, created_at) values (?, ?, ?, ?, ?, ?)", project.ID, project.Name, project.AppID, project.AppVersion, project.FormatVersion, iso(now)); err != nil {
 		return Project{}, err
 	}
-	if err := os.Rename(temporary, s.projectDir(id)); err != nil {
+	if err := os.MkdirAll(s.projectDir(id), 0o755); err != nil {
 		return Project{}, err
 	}
-	return project, nil
-}
-
-// EnsureProjectAppMount exposes the current App package to an Agent in the
-// project workspace. The package remains shared: project data never lives in
-// this link and Git operations on it affect the App checkout itself.
-func (s *Store) EnsureProjectAppMount(projectID string) error {
-	project, err := s.Get(projectID)
-	if err != nil {
-		return err
-	}
-	return s.ensureAppMount(s.projectDir(projectID), project.AppID)
-}
-
-// EnsureMediaSystemProject creates the hidden project scope used by the
-// workspace-level Media Library. It reuses the regular Agent/MCP boundary
-// without making a system app look like user-created work.
-func (s *Store) EnsureMediaSystemProject() (Project, error) {
-	if project, err := s.Get(mediaSystemProjectID); err == nil {
-		return project, nil
-	}
-	app := mediaSystemAppDescriptor()
-	project := Project{ID: mediaSystemProjectID, Name: "素材库", AppID: app.Manifest.ID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: time.Now().UTC()}
-	if err := os.MkdirAll(s.projectDir(project.ID), 0o755); err != nil {
-		return Project{}, err
-	}
-	if err := s.initialize(s.projectDir(project.ID), project); err != nil {
-		return Project{}, err
-	}
-	return project, nil
-}
-
-// EnsureGeneralChatProject creates the hidden, app-neutral workspace used by
-// homepage conversations before the user has selected or created a project.
-func (s *Store) EnsureGeneralChatProject() (Project, error) {
-	if project, err := s.Get(generalChatProjectID); err == nil {
-		return project, nil
-	}
-	app := generalChatAppDescriptor()
-	project := Project{ID: generalChatProjectID, Name: "通用对话", AppID: app.Manifest.ID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: time.Now().UTC()}
-	if err := os.MkdirAll(s.projectDir(project.ID), 0o755); err != nil {
-		return Project{}, err
-	}
-	if err := s.initialize(s.projectDir(project.ID), project); err != nil {
-		return Project{}, err
-	}
-	return project, nil
-}
-
-// EnsureStandaloneAppProject creates the private, stable workspace scope for
-// a standalone App. It uses the same capability boundary as a project without
-// allowing that implementation detail to leak into the user's project list.
-func (s *Store) EnsureStandaloneAppProject(appID string) (Project, error) {
-	app, ok := s.catalog.Get(appID)
-	if !ok || app.Manifest.Kind != StandaloneApp {
-		return Project{}, fmt.Errorf("standalone app %q is unavailable", appID)
-	}
-	id := standaloneProjectID(appID)
-	if project, err := s.Get(id); err == nil {
-		if project.AppID != appID {
-			return Project{}, fmt.Errorf("workspace scope %q belongs to another app", id)
-		}
-		return project, nil
-	}
-	project := Project{ID: id, Name: app.Manifest.Name, AppID: appID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: time.Now().UTC()}
-	if err := os.MkdirAll(s.projectDir(project.ID), 0o755); err != nil {
-		return Project{}, err
-	}
-	if err := s.initialize(s.projectDir(project.ID), project); err != nil {
+	if _, err := s.ProjectFilesRoot(id); err != nil {
 		return Project{}, err
 	}
 	return project, nil
 }
 
 func (s *Store) List() ([]Project, error) {
-	entries, err := os.ReadDir(s.projectsDir())
+	db, err := s.WorkspaceDatabase()
 	if err != nil {
 		return nil, err
 	}
-	projects := []Project{}
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		if isSystemProjectID(entry.Name()) || strings.HasPrefix(entry.Name(), standaloneProjectPrefix) {
-			continue
-		}
-		if project, err := s.Get(entry.Name()); err == nil {
-			projects = append(projects, project)
-		}
+	rows, err := db.Query("select id, name, app_id, app_version, format_version, created_at from projects order by created_at desc")
+	if err != nil {
+		return nil, err
 	}
-	sort.Slice(projects, func(i, j int) bool { return projects[i].CreatedAt.After(projects[j].CreatedAt) })
-	return projects, nil
+	defer rows.Close()
+	projects := []Project{}
+	for rows.Next() {
+		project, err := scanProject(rows)
+		if err != nil {
+			return nil, err
+		}
+		projects = append(projects, project)
+	}
+	return projects, rows.Err()
 }
 
 func (s *Store) Get(id string) (Project, error) {
-	project := Project{}
-	return project, readProjectJSON(filepath.Join(s.projectDir(id), "recut.json"), &project)
+	db, err := s.WorkspaceDatabase()
+	if err != nil {
+		return Project{}, err
+	}
+	row := db.QueryRow("select id, name, app_id, app_version, format_version, created_at from projects where id = ?", id)
+	project, err := scanProject(row)
+	if err != nil {
+		return Project{}, fmt.Errorf("project %q: %w", id, err)
+	}
+	return project, nil
 }
 
-func (s *Store) AppDatabase(projectID, appID string) (*sql.DB, error) {
-	if err := s.checkAppScope(projectID, appID); err != nil {
+// AppStateDatabase returns an App's single sqlite interface. It holds both the
+// App's global state and every Project it owns: the App scopes its own rows by
+// ctx.project.id. This keeps the App's sqlite contract to exactly one handle.
+func (s *Store) AppStateDatabase(appID string) (*sql.DB, error) {
+	if err := validateAppID(appID); err != nil {
 		return nil, err
 	}
-	path := s.appDatabasePath(projectID, appID)
+	path := s.appStateDatabasePath(appID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
 	return s.database(path, nil)
 }
 
-func (s *Store) ProjectDatabase(projectID string) (*sql.DB, error) {
+func (s *Store) ProjectFilesRoot(projectID string) (string, error) {
 	if _, err := s.Get(projectID); err != nil {
-		return nil, err
+		return "", err
 	}
-	path := filepath.Join(s.projectDir(projectID), "project.sqlite")
-	return s.database(path, func(db *sql.DB) error {
-		_, err := db.Exec(`create table if not exists artifacts (id text primary key, type text not null, producer_app text not null, content_hash text not null, created_at text not null, value_json text not null); create table if not exists events (id integer primary key autoincrement, payload_json text not null, created_at text not null)`)
-		return err
-	})
+	root := filepath.Join(s.projectDir(projectID), "files")
+	return root, os.MkdirAll(root, 0o755)
 }
 
-// WorkspaceDatabase owns local-user data that must survive independently of a
-// project: agent conversations, runtime session pointers, and their event log.
-// Project SQLite remains reserved for project state and App-owned artifacts.
+func (s *Store) AppStateFilesRoot(appID string) (string, error) {
+	if err := validateAppID(appID); err != nil {
+		return "", err
+	}
+	root := s.appStateFilesRoot(appID)
+	return root, os.MkdirAll(root, 0o755)
+}
+
+// TargetFilesRoot resolves the primary files root for a runtime Target.
+func (s *Store) TargetFilesRoot(target Target) (string, error) {
+	if target.IsProject() {
+		return s.ProjectFilesRoot(target.ProjectID)
+	}
+	return s.AppStateFilesRoot(target.AppID)
+}
+
+// WorkspaceDatabase owns platform-only data that must survive independently of a
+// project: agent conversations, project metadata, artifacts, events, media and
+// credentials. App-owned workflow tables never live here.
 func (s *Store) WorkspaceDatabase() (*sql.DB, error) {
 	if err := os.MkdirAll(s.root, 0o700); err != nil {
 		return nil, err
@@ -289,6 +288,21 @@ create index if not exists agent_sessions_updated on agent_sessions(profile_id, 
 create index if not exists agent_turns_session on agent_turns(session_id, created_at);
 create index if not exists agent_turn_attachments_turn on agent_turn_attachments(turn_id);
 create index if not exists agent_events_session on agent_events(session_id, id);
+create table if not exists projects (
+  id text primary key, name text not null, app_id text not null,
+  app_version text not null, format_version integer not null, created_at text not null
+);
+create table if not exists artifacts (
+  id text primary key, project_id text not null, type text not null,
+  producer_app text not null, content_hash text not null, created_at text not null,
+  value_json text not null
+);
+create index if not exists artifacts_project on artifacts(project_id, created_at desc);
+create table if not exists events (
+  id integer primary key autoincrement, project_id text not null,
+  payload_json text not null, created_at text not null
+);
+create index if not exists events_project on events(project_id, id);
 create table if not exists media_credentials (
   id text primary key, provider text not null, name text not null, api_base text not null,
   secret_ciphertext text not null, created_at text not null, updated_at text not null
@@ -330,16 +344,29 @@ create index if not exists media_asset_projects_project on media_asset_projects(
 create index if not exists media_asset_events_asset on media_asset_events(asset_id, id);
 create index if not exists media_jobs_updated on media_jobs(updated_at desc);
 create index if not exists media_task_leases_expiry on media_task_leases(expires_at_ms);
+create table if not exists agent_tasks (
+  id text primary key, session_id text not null, status text not null,
+  input_doc_ids_json text not null, output_doc_ids_json text not null,
+  accessed_doc_ids_json text not null, created_at text not null, completed_at text
+);
+create index if not exists agent_tasks_session on agent_tasks(session_id, created_at);
+create table if not exists device_tokens (
+  id text primary key, token_hash text not null unique, scope_json text not null,
+  created_at text not null, expires_at text, revoked integer not null default 0
+);
 `)
 		if err != nil {
 			return err
 		}
-		// Older workspaces already have the original session table. SQLite only
-		// supports additive migrations here, which keeps existing conversations intact.
 		for _, statement := range []string{
 			"alter table agent_sessions add column codex_model text",
 			"alter table agent_sessions add column reasoning_effort text",
 			"alter table agent_sessions add column opencode_model text",
+			"alter table agent_sessions add column workspace_context_json text not null default ''",
+			"alter table agent_sessions add column app_id text not null default ''",
+			"alter table agent_sessions add column app_view text not null default ''",
+			"alter table agent_turns add column task_id text not null default ''",
+			"alter table agent_turns add column default_doc_json text not null default ''",
 			"alter table media_assets add column status text not null default 'completed'",
 			"alter table media_assets add column job_id text not null default ''",
 			"alter table media_assets add column remote_id text not null default ''",
@@ -357,10 +384,10 @@ create index if not exists media_task_leases_expiry on media_task_leases(expires
 		if _, err := db.Exec("update media_assets set updated_at = created_at where updated_at = ''"); err != nil {
 			return err
 		}
-		// Before asynchronous Assets existed, every persisted file was already
-		// usable. A pending Asset must carry a durable local job; local providers
-		// deliberately have no remote prediction ID, so remote_id is not a test.
 		if _, err := db.Exec("update media_assets set status = 'completed' where coalesce(trim(status), '') = '' or (status in ('queued', 'running') and job_id = '')"); err != nil {
+			return err
+		}
+		if _, err := db.Exec("insert into workspace_preferences (key, value_json, updated_at) values (?, ?, ?) on conflict(key) do update set value_json = excluded.value_json, updated_at = excluded.updated_at", layoutVersionKey, currentLayoutVersion, iso(time.Now().UTC())); err != nil {
 			return err
 		}
 		return nil
@@ -377,18 +404,12 @@ func (s *Store) database(path string, initialize func(*sql.DB) error) (*sql.DB, 
 	db := s.databases[path]
 	s.databasesMu.RUnlock()
 	if db != nil {
-		// Health-check outside the global mutex. The pool already bounds
-		// concurrent access, and a slow or saturated Ping must not block
-		// acquisitions of unrelated project/App databases.
 		checkContext, cancel := context.WithTimeout(context.Background(), databaseHealthCheckTimeout)
 		err := db.PingContext(checkContext)
 		cancel()
 		if err == nil || errors.Is(err, context.DeadlineExceeded) {
 			return db, nil
 		}
-		// The handle is closed or broken; drop it so the open path below
-		// rebuilds it, then keep the self-healing contract for callers that
-		// explicitly closed the returned handle.
 		s.databasesMu.Lock()
 		if s.databases[path] == db {
 			delete(s.databases, path)
@@ -401,9 +422,6 @@ func (s *Store) database(path string, initialize func(*sql.DB) error) (*sql.DB, 
 	if db := s.databases[path]; db != nil {
 		return db, nil
 	}
-	// Nested result scans need more than one connection. WAL permits those
-	// readers to proceed while SQLite serializes writers; every connection gets
-	// the same wait policy from the DSN.
 	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, err
@@ -429,23 +447,12 @@ func sqliteDSN(path string) string {
 	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", workspaceBusyTimeoutMilliseconds))
 	query.Add("_pragma", "journal_mode(WAL)")
 	query.Add("_pragma", "synchronous(NORMAL)")
-	// Every transaction starts as a writer. This removes the deferred
-	// read-then-upgrade window where two transactions holding read snapshots
-	// both try to promote and hit SQLITE_BUSY, even under busy_timeout.
 	query.Add("_txlock", "immediate")
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
 }
 
-func (s *Store) AppFilesRoot(projectID, appID string) (string, error) {
-	if err := s.checkAppScope(projectID, appID); err != nil {
-		return "", err
-	}
-	root := filepath.Join(s.projectDir(projectID), "apps", appID, "files")
-	return root, os.MkdirAll(root, 0o755)
-}
-
 func (s *Store) PublishArtifact(projectID, appID, artifactType string, value any) (Artifact, error) {
-	if err := s.checkAppScope(projectID, appID); err != nil {
+	if err := s.projectOwnedBy(projectID, appID); err != nil {
 		return Artifact{}, err
 	}
 	if strings.TrimSpace(artifactType) == "" {
@@ -461,7 +468,7 @@ func (s *Store) PublishArtifact(projectID, appID, artifactType string, value any
 	}
 	hash := sha256.Sum256(content)
 	artifact := Artifact{ID: id, Type: artifactType, ProjectID: projectID, ProducerApp: appID, ContentHash: hex.EncodeToString(hash[:]), CreatedAt: time.Now().UTC(), Value: value}
-	db, err := s.ProjectDatabase(projectID)
+	db, err := s.WorkspaceDatabase()
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -469,7 +476,7 @@ func (s *Store) PublishArtifact(projectID, appID, artifactType string, value any
 	if err != nil {
 		return Artifact{}, err
 	}
-	if _, err := db.Exec("insert into artifacts (id, type, producer_app, content_hash, created_at, value_json) values (?, ?, ?, ?, ?, ?)", artifact.ID, artifact.Type, artifact.ProducerApp, artifact.ContentHash, artifact.CreatedAt.Format(time.RFC3339Nano), string(valueJSON)); err != nil {
+	if _, err := db.Exec("insert into artifacts (id, project_id, type, producer_app, content_hash, created_at, value_json) values (?, ?, ?, ?, ?, ?, ?)", artifact.ID, artifact.ProjectID, artifact.Type, artifact.ProducerApp, artifact.ContentHash, iso(artifact.CreatedAt), string(valueJSON)); err != nil {
 		return Artifact{}, err
 	}
 	return artifact, nil
@@ -479,11 +486,11 @@ func (s *Store) ListArtifacts(projectID string) ([]Artifact, error) {
 	if _, err := s.Get(projectID); err != nil {
 		return nil, err
 	}
-	db, err := s.ProjectDatabase(projectID)
+	db, err := s.WorkspaceDatabase()
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query("select id, type, producer_app, content_hash, created_at, value_json from artifacts order by created_at desc")
+	rows, err := db.Query("select id, project_id, type, producer_app, content_hash, created_at, value_json from artifacts where project_id = ? order by created_at desc", projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +499,7 @@ func (s *Store) ListArtifacts(projectID string) ([]Artifact, error) {
 	for rows.Next() {
 		artifact := Artifact{ProjectID: projectID}
 		var createdAt, valueJSON string
-		if err := rows.Scan(&artifact.ID, &artifact.Type, &artifact.ProducerApp, &artifact.ContentHash, &createdAt, &valueJSON); err != nil {
+		if err := rows.Scan(&artifact.ID, &artifact.ProjectID, &artifact.Type, &artifact.ProducerApp, &artifact.ContentHash, &createdAt, &valueJSON); err != nil {
 			return nil, err
 		}
 		if artifact.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
@@ -514,100 +521,97 @@ func (s *Store) AppendEvent(projectID string, event any) {
 	if err != nil {
 		return
 	}
-	db, err := s.ProjectDatabase(projectID)
+	db, err := s.WorkspaceDatabase()
 	if err != nil {
 		return
 	}
-	if _, err := db.Exec("insert into events (payload_json, created_at) values (?, ?)", string(data), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := db.Exec("insert into events (project_id, payload_json, created_at) values (?, ?, ?)", projectID, string(data), iso(time.Now().UTC())); err != nil {
 		return
 	}
 	s.projectEvents.notify()
 }
 
-func (s *Store) checkAppScope(projectID, appID string) error {
+// ListProjectEvents returns events for a project after lastID. It is used by the
+// WebSocket adapter and reads the platform events table.
+func (s *Store) ListProjectEvents(projectID string, after int64) ([]projectEvent, error) {
+	db, err := s.WorkspaceDatabase()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query("select id, payload_json from events where project_id = ? and id > ? order by id", projectID, after)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	events := []projectEvent{}
+	for rows.Next() {
+		var event projectEvent
+		if err := rows.Scan(&event.ID, &event.Payload); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+type projectEvent struct {
+	ID      int64
+	Payload string
+}
+
+func (s *Store) projectOwnedBy(projectID, appID string) error {
 	project, err := s.Get(projectID)
 	if err != nil {
 		return err
 	}
 	if project.AppID != appID {
-		return fmt.Errorf("app %q is not attached to project", appID)
-	}
-	if isSystemAppID(appID) {
-		return nil
-	}
-	app, ok := s.catalog.Get(appID)
-	if !ok || (app.Manifest.Kind != ProjectApp && (app.Manifest.Kind != StandaloneApp || project.ID != standaloneProjectID(appID))) {
-		return fmt.Errorf("project app is unavailable")
+		return fmt.Errorf("app %q is not the owner of project", appID)
 	}
 	return nil
 }
 
-func (s *Store) initialize(root string, project Project) error {
-	paths := []string{"files", "sessions", "snapshots", "logs", ".recut"}
-	if !isSystemAppID(project.AppID) {
-		paths = append(paths, filepath.Join("apps", project.AppID))
-	}
-	for _, path := range paths {
-		if err := os.MkdirAll(filepath.Join(root, path), 0o755); err != nil {
-			return err
-		}
-	}
-	if err := s.ensureAppMount(root, project.AppID); err != nil {
-		return err
-	}
-	if err := writeProjectJSON(filepath.Join(root, "recut.json"), project); err != nil {
-		return err
+func validateAppID(appID string) error {
+	if appID == "" || appID == "." || appID == ".." || strings.ContainsAny(appID, "/\\") {
+		return fmt.Errorf("invalid app id %q", appID)
 	}
 	return nil
 }
 
-func (s *Store) ensureAppMount(projectRoot, appID string) error {
-	if isSystemAppID(appID) {
-		return nil
+func scanProject(row scanner) (Project, error) {
+	var project Project
+	var createdAt string
+	err := row.Scan(&project.ID, &project.Name, &project.AppID, &project.AppVersion, &project.FormatVersion, &createdAt)
+	if err != nil {
+		return Project{}, err
 	}
-	app, ok := s.catalog.Get(appID)
-	if !ok {
-		return fmt.Errorf("app %q is unavailable", appID)
+	parsed, parseErr := time.Parse(time.RFC3339Nano, createdAt)
+	if parseErr != nil {
+		return Project{}, parseErr
 	}
-	mount := filepath.Join(projectRoot, ".recut", "app")
-	if err := os.MkdirAll(filepath.Dir(mount), 0o755); err != nil {
-		return err
-	}
-	if info, err := os.Lstat(mount); err == nil {
-		if info.Mode()&os.ModeSymlink == 0 {
-			return fmt.Errorf("App mount %q is not a symbolic link", mount)
-		}
-		if err := os.Remove(mount); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	return os.Symlink(app.Root, mount)
+	project.CreatedAt = parsed
+	return project, nil
 }
 
 func (s *Store) projectsDir() string         { return filepath.Join(s.root, "projects") }
 func (s *Store) projectDir(id string) string { return filepath.Join(s.projectsDir(), id) }
-func (s *Store) appDatabasePath(projectID, appID string) string {
-	return filepath.Join(s.projectDir(projectID), "apps", appID, "storage.sqlite")
+func (s *Store) appStateDir(appID string) string {
+	return filepath.Join(s.root, "appstate", appID)
 }
-func (s *Store) terminalSessionsDir(id string) string {
-	return filepath.Join(s.projectDir(id), "sessions", "terminals")
+func (s *Store) appStateDatabasePath(appID string) string {
+	return filepath.Join(s.appStateDir(appID), "storage.sqlite")
 }
-func (s *Store) workspaceTerminalSessionsDir() string {
-	return filepath.Join(s.root, "sessions", "terminals")
+func (s *Store) appStateFilesRoot(appID string) string {
+	return filepath.Join(s.appStateDir(appID), "files")
 }
 
-func standaloneProjectID(appID string) string {
-	var builder strings.Builder
-	for _, runeValue := range appID {
-		if (runeValue >= 'a' && runeValue <= 'z') || (runeValue >= '0' && runeValue <= '9') {
-			builder.WriteRune(runeValue)
-		} else {
-			builder.WriteByte('-')
-		}
-	}
-	return standaloneProjectPrefix + strings.Trim(builder.String(), "-")
+// SessionWorkspaceDir is the per-bridge-session CLI workspace. It is global and
+// independent of any project, which is what decouples sessions from projects.
+func (s *Store) SessionWorkspaceDir(bridgeSessionID string) string {
+	return filepath.Join(s.root, "sessions", "agent-bridge", bridgeSessionID, "workspace")
+}
+
+func (s *Store) TerminalSessionsDir() string {
+	return filepath.Join(s.root, "sessions", "terminals")
 }
 
 func newID() (string, error) {
@@ -617,6 +621,7 @@ func newID() (string, error) {
 	}
 	return hex.EncodeToString(bytes), nil
 }
+
 func writeProjectJSON(path string, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {

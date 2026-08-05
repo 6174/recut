@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Agent 附件上下文格式化函数
- * [OUTPUT]: 验证 Agent 附件身份、Codex 与 OpenCode 工具输入/输出/错误和成本字段分离、仅内存 CLI 调试流的回放与订阅、CLI 定位缓存的持久化/失效刷新/启动重试、共享 SQLite 的 WAL/并发写入策略、单连接池会话详情读取、停止时即时持久化 Turn 与会话终态，以及服务重启后的中断状态收敛
+ * [OUTPUT]: 验证 Agent 附件身份、Codex 与 OpenCode 工具输入/输出/错误和成本字段分离、仅内存 CLI 调试流的回放与订阅、CLI 定位缓存的持久化/失效刷新/启动重试、共享 SQLite 的 WAL/并发写入策略、单连接池会话详情读取、停止时原子取消 active/queued Turn 并重置 OpenCode 会话，以及服务重启后的中断状态收敛
  * [POS]: service 的 Agent 协议回归测试；防止附件退化为裸路径或取消永久悬挂
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -51,17 +51,20 @@ func TestCLIStreamReplaysAndPublishesWithoutPersistingOutput(t *testing.T) {
 	}
 }
 
-func TestStopPersistsCancelledTurnBeforeRuntimeExits(t *testing.T) {
+func TestStopCancelsCurrentBatchAndResetsOpenCodeSession(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	db, err := store.WorkspaceDatabase()
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := iso(time.Now().UTC())
-	if _, err := db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", "session-1", localProfileID, "", "codex", "", "Test", "running", now, now); err != nil {
+	if _, err := db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", "session-1", localProfileID, "", "opencode", "ses_stuck", "Test", "running", now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec("insert into agent_turns (id, session_id, role, content, status, created_at) values (?, ?, ?, ?, ?, ?)", "turn-1", "session-1", "user", "stop me", "running", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("insert into agent_turns (id, session_id, role, content, status, created_at) values (?, ?, ?, ?, ?, ?)", "turn-2", "session-1", "user", "queued after stop", "queued", now); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -82,8 +85,11 @@ func TestStopPersistsCancelledTurnBeforeRuntimeExits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.Status != "idle" || len(detail.Turns) != 1 || detail.Turns[0].Status != "cancelled" || detail.Turns[0].CompletedAt == nil {
+	if detail.Status != "idle" || detail.NativeSessionID != "" || len(detail.Turns) != 2 || detail.Turns[0].Status != "cancelled" || detail.Turns[0].CompletedAt == nil || detail.Turns[1].Status != "cancelled" || detail.Turns[1].CompletedAt == nil {
 		t.Fatalf("stop did not persist a terminal state: %#v", detail)
+	}
+	if manager.hasQueuedTurn("session-1") {
+		t.Fatal("stop left a queued turn that could restart the cancelled runner")
 	}
 	var cancelled int
 	for _, event := range detail.Events {
@@ -91,8 +97,8 @@ func TestStopPersistsCancelledTurnBeforeRuntimeExits(t *testing.T) {
 			cancelled++
 		}
 	}
-	if cancelled != 1 {
-		t.Fatalf("cancelled events = %d, want 1", cancelled)
+	if cancelled != 2 {
+		t.Fatalf("cancelled events = %d, want 2", cancelled)
 	}
 }
 
@@ -250,12 +256,30 @@ func TestWorkspaceDatabaseQueuesConcurrentWrites(t *testing.T) {
 	}
 }
 
-func TestCodexProjectArgsPreserveUserSkillConfiguration(t *testing.T) {
-	args := codexProjectArgs("/project", "/bin/recut", "/data", "/apps", AgentSession{ID: "session"}, "token")
-	for index := 0; index+1 < len(args); index++ {
-		if args[index] == "--config" && strings.HasPrefix(args[index+1], "skills.config=") {
-			t.Fatalf("Codex project arguments must not override user skills: %s", args[index+1])
-		}
+func TestCodexWorkspaceDoesNotOverrideUserSkillConfiguration(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	bridge := NewAgentBridge(store)
+	session, token, err := bridge.CreateSession(SessionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := bridge.MaterializeCodexWorkspace(session, token, "/bin/recut")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := os.ReadFile(filepath.Join(workspace, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(config)
+	if strings.Contains(text, "skills.config") {
+		t.Fatalf("session Codex config must not override user skills: %s", text)
+	}
+	if !strings.Contains(text, "mcp_servers.recut") {
+		t.Fatalf("session Codex config must declare the Recut MCP server: %s", text)
 	}
 }
 

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、持久化 CLI 定位缓存、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
- * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
+ * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、停止时原子取消当前批次并重置 OpenCode 原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
  * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -31,25 +31,36 @@ type OpencodeModel struct {
 }
 
 type ChatSession struct {
-	ID              string    `json:"id"`
-	ProfileID       string    `json:"profileId"`
-	ProjectID       string    `json:"projectId,omitempty"`
-	ProjectName     string    `json:"projectName,omitempty"`
-	AppID           string    `json:"appId,omitempty"`
-	Runtime         string    `json:"runtime"`
-	NativeSessionID string    `json:"nativeSessionId,omitempty"`
-	CodexModel      string    `json:"codexModel,omitempty"`
-	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
-	OpencodeModel   string    `json:"opencodeModel,omitempty"`
-	Title           string    `json:"title"`
-	Status          string    `json:"status"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	ID                   string    `json:"id"`
+	ProfileID            string    `json:"profileId"`
+	ProjectID            string    `json:"projectId,omitempty"`
+	ProjectName          string    `json:"projectName,omitempty"`
+	AppID                string    `json:"appId,omitempty"`
+	AppView              string    `json:"appView,omitempty"`
+	Runtime              string    `json:"runtime"`
+	NativeSessionID      string    `json:"nativeSessionId,omitempty"`
+	CodexModel           string    `json:"codexModel,omitempty"`
+	ReasoningEffort      string    `json:"reasoningEffort,omitempty"`
+	OpencodeModel        string    `json:"opencodeModel,omitempty"`
+	Title                string    `json:"title"`
+	Status               string    `json:"status"`
+	WorkspaceContextJSON string    `json:"-"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+}
+
+// SessionInput is the workspace context hint for a new chat session. Sessions
+// are unbound; the hint only sets the default target for future Turns.
+type SessionInput struct {
+	ProjectID string
+	AppID     string
+	AppView   string
 }
 
 type ChatTurn struct {
 	ID          string           `json:"id"`
 	SessionID   string           `json:"sessionId"`
+	TaskID      string           `json:"taskId,omitempty"`
 	Role        string           `json:"role"`
 	Content     string           `json:"content"`
 	Status      string           `json:"status"`
@@ -119,6 +130,10 @@ type AgentManager struct {
 }
 
 const opencodeModelsCacheTTL = 60 * time.Second
+
+const opencodeResponseTimeout = 6 * time.Minute
+
+var errOpencodeResponseTimeout = errors.New("OpenCode 模型响应超时")
 
 func NewAgentManager(store *Store, bridge *AgentBridge, media *MediaService) *AgentManager {
 	commands := store.agentCommands
@@ -311,16 +326,17 @@ func (m *AgentManager) queuedSessionIDs() []string {
 	return sessionIDs
 }
 
-func (m *AgentManager) Create(projectID, runtime, codexModel, reasoningEffort, opencodeModel string) (ChatSession, error) {
-	project, err := m.store.Get(projectID)
-	if err != nil {
-		return ChatSession{}, errors.New("project not found")
+func (m *AgentManager) Create(input SessionInput, runtime, codexModel, reasoningEffort, opencodeModel string) (ChatSession, error) {
+	if input.ProjectID != "" {
+		if _, err := m.store.Get(input.ProjectID); err != nil {
+			return ChatSession{}, errors.New("project not found")
+		}
 	}
 	if runtime != "codex" && runtime != "claude" && runtime != "opencode" {
 		return ChatSession{}, fmt.Errorf("runtime %q is not available yet", runtime)
 	}
+	var err error
 	if runtime == "codex" {
-		var err error
 		codexModel, reasoningEffort, err = normalizeCodexConfiguration(codexModel, reasoningEffort)
 		if err != nil {
 			return ChatSession{}, err
@@ -341,28 +357,64 @@ func (m *AgentManager) Create(projectID, runtime, codexModel, reasoningEffort, o
 		return ChatSession{}, err
 	}
 	now := time.Now().UTC()
-	session := ChatSession{ID: id, ProfileID: localProfileID, ProjectID: projectID, ProjectName: project.Name, AppID: project.AppID, Runtime: runtime, CodexModel: codexModel, ReasoningEffort: reasoningEffort, OpencodeModel: opencodeModel, Title: "新对话", Status: "idle", CreatedAt: now, UpdatedAt: now}
+	contextJSON, _ := json.Marshal(map[string]any{"projectId": input.ProjectID, "appId": input.AppID, "appView": input.AppView})
+	session := ChatSession{ID: id, ProfileID: localProfileID, ProjectID: input.ProjectID, AppID: input.AppID, AppView: input.AppView, WorkspaceContextJSON: string(contextJSON), Runtime: runtime, CodexModel: codexModel, ReasoningEffort: reasoningEffort, OpencodeModel: opencodeModel, Title: "新对话", Status: "idle", CreatedAt: now, UpdatedAt: now}
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
 		return ChatSession{}, err
 	}
-	_, err = db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, codex_model, reasoning_effort, opencode_model, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.ProjectID, session.Runtime, session.NativeSessionID, session.CodexModel, session.ReasoningEffort, session.OpencodeModel, session.Title, session.Status, iso(now), iso(now))
+	_, err = db.Exec("insert into agent_sessions (id, profile_id, project_id, app_id, app_view, workspace_context_json, runtime, native_session_id, codex_model, reasoning_effort, opencode_model, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.ProjectID, session.AppID, session.AppView, session.WorkspaceContextJSON, session.Runtime, session.NativeSessionID, session.CodexModel, session.ReasoningEffort, session.OpencodeModel, session.Title, session.Status, iso(now), iso(now))
 	if err != nil {
 		return session, err
 	}
-	log.Printf("INFO agent session created session_id=%s project_id=%s runtime=%s", session.ID, session.ProjectID, session.Runtime)
+	log.Printf("INFO agent session created session_id=%s project_id=%q app_id=%q runtime=%s", session.ID, session.ProjectID, session.AppID, session.Runtime)
 	return session, nil
 }
 
-func (m *AgentManager) List(projectID string) ([]ChatSession, error) {
+// UpdateContext changes the workspace context hint. It only affects the next
+// Turn: an executing Turn keeps its frozen default Doc.
+func (m *AgentManager) UpdateContext(sessionID string, input SessionInput) (ChatSession, error) {
+	if input.ProjectID != "" {
+		if _, err := m.store.Get(input.ProjectID); err != nil {
+			return ChatSession{}, errors.New("project not found")
+		}
+	}
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return ChatSession{}, err
+	}
+	session, err := getChatSession(db, sessionID)
+	if err != nil {
+		return ChatSession{}, err
+	}
+	contextJSON, _ := json.Marshal(map[string]any{"projectId": input.ProjectID, "appId": input.AppID, "appView": input.AppView})
+	now := time.Now().UTC()
+	if _, err := db.Exec("update agent_sessions set project_id = ?, app_id = ?, app_view = ?, workspace_context_json = ?, updated_at = ? where id = ?", input.ProjectID, input.AppID, input.AppView, string(contextJSON), iso(now), sessionID); err != nil {
+		return ChatSession{}, err
+	}
+	session.ProjectID, session.AppID, session.AppView = input.ProjectID, input.AppID, input.AppView
+	session.WorkspaceContextJSON = string(contextJSON)
+	session.UpdatedAt = now
+	return m.hydrateSession(session), nil
+}
+
+func (m *AgentManager) List(projectID, scope string) ([]ChatSession, error) {
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
 		return nil, err
 	}
-	query, args := "select id, profile_id, project_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
-	if projectID != "" {
+	query, args := "select id, profile_id, project_id, coalesce(app_id, ''), coalesce(app_view, ''), runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, coalesce(workspace_context_json, ''), created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
+	switch {
+	case projectID != "":
 		query += " and project_id = ?"
 		args = append(args, projectID)
+	case scope == "media":
+		query += " and app_view = 'media'"
+	case strings.HasPrefix(scope, "app:"):
+		query += " and app_view = 'standalone' and app_id = ?"
+		args = append(args, strings.TrimPrefix(scope, "app:"))
+	case scope == "general":
+		query += " and (project_id is null or project_id = '') and coalesce(app_view, '') = ''"
 	}
 	query += " order by updated_at desc"
 	rows, err := db.Query(query, args...)
@@ -405,15 +457,18 @@ func (m *AgentManager) Detail(id string) (ChatSessionDetail, error) {
 	return ChatSessionDetail{ChatSession: m.hydrateSession(session), Turns: turns, Events: events, LastEventID: last}, nil
 }
 
-// A session stores project_id as its durable relationship. Project name and
-// App id are hydrated at the API boundary so the UI can show its actual scope
-// without duplicating mutable project metadata in the conversation database.
+// A session stores its workspace context hint as durable columns. Project name
+// is hydrated at the API boundary so the UI can show its actual scope without
+// duplicating mutable project metadata in the conversation database.
 func (m *AgentManager) hydrateSession(session ChatSession) ChatSession {
-	project, err := m.store.Get(session.ProjectID)
-	if err != nil {
-		return session
+	if session.ProjectID != "" {
+		if project, err := m.store.Get(session.ProjectID); err == nil {
+			session.ProjectName = project.Name
+			if session.AppID == "" {
+				session.AppID = project.AppID
+			}
+		}
 	}
-	session.ProjectName, session.AppID = project.Name, project.AppID
 	return session
 }
 
@@ -445,6 +500,21 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (Cha
 	if text == "" && len(attachments) == 0 {
 		return ChatTurn{}, errors.New("message or image is required")
 	}
+	task, err := m.store.ActiveTask(sessionID)
+	if err != nil {
+		return ChatTurn{}, err
+	}
+	taskID := ""
+	if task == nil {
+		created, createErr := m.store.CreateTask(sessionID)
+		if createErr != nil {
+			return ChatTurn{}, createErr
+		}
+		taskID = created.ID
+	} else {
+		taskID = task.ID
+	}
+	defaultDoc, _ := json.Marshal(map[string]any{"projectId": session.ProjectID, "appId": session.AppID})
 	turnID, err := newID()
 	if err != nil {
 		return ChatTurn{}, err
@@ -454,7 +524,7 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (Cha
 	tx, err := db.Begin()
 	if err == nil {
 		defer tx.Rollback()
-		_, err = tx.Exec("insert into agent_turns (id, session_id, role, content, status, created_at) values (?, ?, ?, ?, ?, ?)", turn.ID, turn.SessionID, turn.Role, turn.Content, turn.Status, iso(now))
+		_, err = tx.Exec("insert into agent_turns (id, session_id, role, content, status, task_id, default_doc_json, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)", turn.ID, turn.SessionID, turn.Role, turn.Content, turn.Status, taskID, string(defaultDoc), iso(now))
 	}
 	if err == nil {
 		for _, attachment := range attachments {
@@ -483,7 +553,7 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (Cha
 		return ChatTurn{}, err
 	}
 	m.emit(sessionID, turnID, "turn.queued", map[string]any{"label": "已加入待发送消息"})
-	log.Printf("INFO agent turn queued session_id=%s turn_id=%s attachments=%d", sessionID, turn.ID, len(attachments))
+	log.Printf("INFO agent turn queued session_id=%s turn_id=%s task_id=%s attachments=%d", sessionID, turn.ID, taskID, len(attachments))
 	m.startRunner(sessionID)
 	return turn, nil
 }
@@ -498,7 +568,10 @@ func (m *AgentManager) turnAttachments(projectID string, assetIDs []string) ([]C
 		}
 		seen[id] = true
 		asset, err := m.media.GetAsset(id)
-		if err != nil || !containsString(asset.ProjectIDs, projectID) {
+		if err != nil {
+			return nil, errors.New("media attachment is unavailable")
+		}
+		if projectID != "" && !containsString(asset.ProjectIDs, projectID) {
 			return nil, errors.New("media attachment is unavailable in this project")
 		}
 		attachments = append(attachments, ChatAttachment{AssetID: asset.ID, Name: asset.Name, Kind: asset.Kind, MimeType: asset.MimeType, Origin: asset.Origin})
@@ -522,16 +595,18 @@ func (m *AgentManager) Stop(sessionID string) error {
 	if !exists {
 		return errors.New("this session is not running")
 	}
-	turnID, err := m.cancelActiveTurn(sessionID)
+	turns, err := m.cancelSessionTurns(sessionID)
 	if err != nil {
 		return err
 	}
 	m.emit(sessionID, "", "turn.stopping", map[string]any{"label": "正在停止"})
-	m.setSessionStatus(sessionID, "idle")
-	if turnID != "" {
-		m.emit(sessionID, turnID, "turn.cancelled", map[string]any{"label": "已停止"})
+	for _, turn := range turns {
+		if turn.TaskID != "" {
+			_ = m.store.CompleteTask(turn.TaskID)
+		}
+		m.emit(sessionID, turn.ID, "turn.cancelled", map[string]any{"label": "已停止"})
 	}
-	log.Printf("INFO agent turn stop requested session_id=%s turn_id=%s", sessionID, turnID)
+	log.Printf("INFO agent turns stop requested session_id=%s cancelled_turns=%d", sessionID, len(turns))
 	m.emit(sessionID, "", "session.updated", map[string]any{"label": "会话已停止"})
 	cancel()
 	return nil
@@ -616,6 +691,7 @@ func (m *AgentManager) run(ctx context.Context, sessionID string) {
 		if err := m.runRuntime(ctx, session, turn); err != nil {
 			if ctx.Err() != nil {
 				if m.completeTurnIfRunning(turn.ID, "cancelled") {
+					_ = m.store.CompleteTask(turn.TaskID)
 					m.emit(sessionID, turn.ID, "turn.cancelled", map[string]any{"label": "已停止"})
 				}
 				m.finishAndRestart(sessionID)
@@ -623,12 +699,17 @@ func (m *AgentManager) run(ctx context.Context, sessionID string) {
 				log.Printf("WARN agent turn cancelled session_id=%s turn_id=%s", sessionID, turn.ID)
 				return
 			}
+			if errors.Is(err, errOpencodeResponseTimeout) {
+				m.clearOpencodeNativeSession(session)
+			}
 			m.completeTurn(turn.ID, "failed")
+			_ = m.store.CompleteTask(turn.TaskID)
 			m.emit(sessionID, turn.ID, "turn.failed", map[string]any{"message": err.Error()})
 			log.Printf("ERROR agent turn failed session_id=%s turn_id=%s runtime=%s", sessionID, turn.ID, session.Runtime)
 			continue
 		}
 		m.completeTurn(turn.ID, "completed")
+		_ = m.store.CompleteTask(turn.TaskID)
 		m.emit(sessionID, turn.ID, "turn.completed", map[string]any{})
 		log.Printf("INFO agent turn completed session_id=%s turn_id=%s", sessionID, turn.ID)
 	}
@@ -663,7 +744,7 @@ func (m *AgentManager) nextQueuedTurn(sessionID string) (ChatSession, ChatTurn, 
 	if err != nil {
 		return ChatSession{}, ChatTurn{}, false
 	}
-	row := db.QueryRow("select id, session_id, role, content, status, created_at, completed_at from agent_turns where session_id = ? and role = ? and status = ? order by created_at, id limit 1", sessionID, "user", "queued")
+	row := db.QueryRow("select id, session_id, coalesce(task_id, ''), role, content, status, created_at, completed_at from agent_turns where session_id = ? and role = ? and status = ? order by created_at, id limit 1", sessionID, "user", "queued")
 	turn, err := scanChatTurn(row)
 	if err != nil {
 		return ChatSession{}, ChatTurn{}, false
@@ -696,32 +777,53 @@ func (m *AgentManager) completeTurnIfRunning(turnID, status string) bool {
 	return err == nil && affected == 1
 }
 
-func (m *AgentManager) cancelActiveTurn(sessionID string) (string, error) {
+type cancelledAgentTurn struct {
+	ID     string
+	TaskID string
+}
+
+// cancelSessionTurns makes Stop a terminal operation for the current batch.
+// A later user message creates a new batch and, for OpenCode, a fresh native session.
+func (m *AgentManager) cancelSessionTurns(sessionID string) ([]cancelledAgentTurn, error) {
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	tx, err := db.Begin()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer tx.Rollback()
-	row := tx.QueryRow("select id from agent_turns where session_id = ? and role = ? and status = ? order by created_at, id limit 1", sessionID, "user", "running")
-	var turnID string
-	if err := row.Scan(&turnID); errors.Is(err, sql.ErrNoRows) {
-		return "", tx.Commit()
-	} else if err != nil {
-		return "", err
-	}
-	result, err := tx.Exec("update agent_turns set status = ?, completed_at = ? where id = ? and status = ?", "cancelled", iso(time.Now().UTC()), turnID, "running")
+	rows, err := tx.Query("select id, coalesce(task_id, '') from agent_turns where session_id = ? and role = ? and status in (?, ?) order by created_at, id", sessionID, "user", "running", "queued")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	affected, err := result.RowsAffected()
-	if err != nil || affected != 1 {
-		return "", nil
+	defer rows.Close()
+	turns := []cancelledAgentTurn{}
+	for rows.Next() {
+		turn := cancelledAgentTurn{}
+		if err := rows.Scan(&turn.ID, &turn.TaskID); err != nil {
+			return nil, err
+		}
+		turns = append(turns, turn)
 	}
-	return turnID, tx.Commit()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	now := iso(time.Now().UTC())
+	if _, err := tx.Exec("update agent_turns set status = ?, completed_at = ? where session_id = ? and role = ? and status in (?, ?)", "cancelled", now, sessionID, "user", "running", "queued"); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec("update agent_sessions set status = ?, native_session_id = case when runtime = ? then '' else native_session_id end, updated_at = ? where id = ?", "idle", "opencode", now, sessionID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return turns, nil
 }
 
 func (m *AgentManager) runRuntime(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
@@ -742,7 +844,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	if err != nil {
 		return err
 	}
-	bridgeSession, token, err := m.bridge.CreateSession(session.ProjectID)
+	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{ProjectID: session.ProjectID, AppID: session.AppID, TaskID: userTurn.TaskID})
 	if err != nil {
 		return err
 	}
@@ -750,16 +852,14 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	if err != nil {
 		return err
 	}
-	executable, err = m.bridge.MaterializeCodexProject(bridgeSession, token, executable)
+	workspace, err := m.bridge.MaterializeCodexWorkspace(bridgeSession, token, executable)
 	if err != nil {
 		return err
 	}
-	projectRoot := m.store.projectDir(session.ProjectID)
 	args := []string{"exec"}
 	if session.NativeSessionID != "" {
 		args = append(args, "resume", session.NativeSessionID)
 	}
-	args = append(args, withoutCodexCD(codexProjectArgs(projectRoot, executable, m.store.root, m.store.catalog.Directory(), bridgeSession, token))...)
 	args = append(args, "--model", model, "--config", fmt.Sprintf("model_reasoning_effort=%q", effort))
 	attachments := m.attachmentContexts(userTurn.Attachments)
 	for _, attachment := range attachments {
@@ -768,7 +868,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		}
 	}
 	args = append(args, "--json", "--", userTurn.runtimePrompt()+attachmentPrompt(attachments))
-	cmd, stdout, stderr, err := m.startCLI(ctx, "codex", args, projectRoot, nil)
+	cmd, stdout, stderr, err := m.startCLI(ctx, "codex", args, workspace, nil)
 	if err != nil {
 		return err
 	}
@@ -814,24 +914,25 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 // immutable once created, exactly like Codex's thread id, so the generic
 // ChatSession may safely persist it as native_session_id.
 func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
-	bridgeSession, token, err := m.bridge.CreateSession(session.ProjectID)
-	if err != nil {
-		return err
-	}
 	executable, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	profile, err := m.bridge.WriteClientProfile(bridgeSession, executable)
+	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{ProjectID: session.ProjectID, AppID: session.AppID, TaskID: userTurn.TaskID})
 	if err != nil {
 		return err
 	}
+	profile, err := m.bridge.WriteClaudeProfile(bridgeSession, executable)
+	if err != nil {
+		return err
+	}
+	workspace := m.bridge.WorkspaceDir(bridgeSession)
 	prompt := userTurn.runtimePrompt() + attachmentPrompt(m.attachmentContexts(userTurn.Attachments))
 	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--mcp-config", profile}
 	if session.NativeSessionID != "" {
 		args = append(args, "--resume", session.NativeSessionID)
 	}
-	cmd, stdout, stderr, err := m.startCLI(ctx, "claude", args, m.store.projectDir(session.ProjectID), []string{"RECUT_AGENT_SESSION=" + bridgeSession.ID, "RECUT_AGENT_TOKEN=" + token})
+	cmd, stdout, stderr, err := m.startCLI(ctx, "claude", args, workspace, []string{"RECUT_AGENT_SESSION=" + bridgeSession.ID, "RECUT_AGENT_TOKEN=" + token})
 	if err != nil {
 		return err
 	}
@@ -880,7 +981,7 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	if err != nil {
 		return err
 	}
-	bridgeSession, token, err := m.bridge.CreateSession(session.ProjectID)
+	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{ProjectID: session.ProjectID, AppID: session.AppID, TaskID: userTurn.TaskID})
 	if err != nil {
 		return err
 	}
@@ -888,13 +989,15 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	if err != nil {
 		return err
 	}
-	if _, err := m.bridge.WriteOpencodeProject(bridgeSession, token, executable); err != nil {
+	workspace, err := m.bridge.WriteOpencodeWorkspace(bridgeSession, token, executable)
+	if err != nil {
 		return err
 	}
 	prompt := userTurn.runtimePrompt() + attachmentPrompt(m.attachmentContexts(userTurn.Attachments))
-	projectDir := m.store.projectDir(session.ProjectID)
-	args := opencodeRunArgs(prompt, projectDir, model, session.NativeSessionID, session.Title)
-	cmd, stdout, stderr, err := m.startCLI(ctx, "opencode", args, projectDir, []string{"RECUT_AGENT_SESSION=" + bridgeSession.ID, "RECUT_AGENT_TOKEN=" + token})
+	args := opencodeRunArgs(prompt, workspace, model, session.NativeSessionID, session.Title)
+	runContext, cancel := context.WithTimeout(ctx, opencodeResponseTimeout)
+	defer cancel()
+	cmd, stdout, stderr, err := m.startCLI(runContext, "opencode", args, workspace, []string{"RECUT_AGENT_SESSION=" + bridgeSession.ID, "RECUT_AGENT_TOKEN=" + token})
 	if err != nil {
 		return err
 	}
@@ -927,6 +1030,9 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 		return err
 	}
 	if err := cmd.Wait(); err != nil {
+		if errors.Is(runContext.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("%w（超过 %s 未完成）", errOpencodeResponseTimeout, opencodeResponseTimeout)
+		}
 		if ctx.Err() != nil {
 			return errors.New("已停止")
 		}
@@ -1350,6 +1456,12 @@ func (m *AgentManager) SessionExists(id string) (bool, error) {
 func (m *AgentManager) setNativeSession(id, native string) {
 	m.updateSession(id, "native_session_id = ?", native)
 }
+
+func (m *AgentManager) clearOpencodeNativeSession(session ChatSession) {
+	if session.Runtime == "opencode" {
+		m.setNativeSession(session.ID, "")
+	}
+}
 func (m *AgentManager) setSessionStatus(id, status string) { m.updateSession(id, "status = ?", status) }
 func (m *AgentManager) updateSession(id, clause, value string) {
 	db, err := m.store.WorkspaceDatabase()
@@ -1361,7 +1473,7 @@ func (m *AgentManager) updateSession(id, clause, value string) {
 func (m *AgentManager) finish(id string) { m.mu.Lock(); delete(m.running, id); m.mu.Unlock() }
 
 func getChatSession(db *sql.DB, id string) (ChatSession, error) {
-	row := db.QueryRow("select id, profile_id, project_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
+	row := db.QueryRow("select id, profile_id, project_id, coalesce(app_id, ''), coalesce(app_view, ''), runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, coalesce(workspace_context_json, ''), created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
 	return scanChatSession(row)
 }
 
@@ -1370,7 +1482,7 @@ type scanner interface{ Scan(...any) error }
 func scanChatSession(row scanner) (ChatSession, error) {
 	var session ChatSession
 	var created, updated string
-	err := row.Scan(&session.ID, &session.ProfileID, &session.ProjectID, &session.Runtime, &session.NativeSessionID, &session.CodexModel, &session.ReasoningEffort, &session.OpencodeModel, &session.Title, &session.Status, &created, &updated)
+	err := row.Scan(&session.ID, &session.ProfileID, &session.ProjectID, &session.AppID, &session.AppView, &session.Runtime, &session.NativeSessionID, &session.CodexModel, &session.ReasoningEffort, &session.OpencodeModel, &session.Title, &session.Status, &session.WorkspaceContextJSON, &created, &updated)
 	if err != nil {
 		return ChatSession{}, err
 	}
@@ -1466,7 +1578,7 @@ func parseOpencodeModels(output string) []OpencodeModel {
 	return models
 }
 func listChatTurns(db *sql.DB, sessionID string) ([]ChatTurn, error) {
-	rows, err := db.Query("select id, session_id, role, content, status, created_at, completed_at from agent_turns where session_id = ? order by created_at, id", sessionID)
+	rows, err := db.Query("select id, session_id, coalesce(task_id, ''), role, content, status, created_at, completed_at from agent_turns where session_id = ? order by created_at, id", sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1517,7 +1629,7 @@ func scanChatTurn(row scanner) (ChatTurn, error) {
 	var turn ChatTurn
 	var created string
 	var completed sql.NullString
-	if err := row.Scan(&turn.ID, &turn.SessionID, &turn.Role, &turn.Content, &turn.Status, &created, &completed); err != nil {
+	if err := row.Scan(&turn.ID, &turn.SessionID, &turn.TaskID, &turn.Role, &turn.Content, &turn.Status, &created, &completed); err != nil {
 		return ChatTurn{}, err
 	}
 	var err error
@@ -1570,16 +1682,3 @@ func shortTitle(text string) string {
 }
 
 // `codex exec resume` deliberately accepts fewer flags than fresh `exec`.
-// The child process already runs in projectRoot, so -C is redundant and must
-// disappear for both paths to keep the resume contract uniform.
-func withoutCodexCD(args []string) []string {
-	result := make([]string, 0, len(args))
-	for index := 0; index < len(args); index++ {
-		if args[index] == "-C" || args[index] == "--cd" {
-			index++
-			continue
-		}
-		result = append(result, args[index])
-	}
-	return result
-}

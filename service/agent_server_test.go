@@ -127,11 +127,8 @@ func TestGeneralAgentSessionHTTP(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &session); err != nil {
 		t.Fatal(err)
 	}
-	if session.ProjectID != generalChatProjectID {
-		t.Fatalf("general session scope = %q", session.ProjectID)
-	}
-	if _, err := store.Get(generalChatProjectID); err != nil {
-		t.Fatalf("general scope was not materialized: %v", err)
+	if session.ProjectID != "" {
+		t.Fatalf("general session must be unbound, got projectId %q", session.ProjectID)
 	}
 
 	recorder = httptest.NewRecorder()
@@ -177,16 +174,12 @@ func TestAgentSessionHTTPScopesAreIsolatedAndNewestFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	appScope, err := store.EnsureStandaloneAppProject("example.standalone")
-	if err != nil {
-		t.Fatal(err)
-	}
 	handler := NewServer(apps, store, nil, nil, NewAgentManager(store, nil, nil), nil, nil).routes()
 
 	general := createAgentSessionHTTP(t, handler, `{"runtime":"codex"}`)
 	projectFirst := createAgentSessionHTTP(t, handler, `{"projectId":"`+project.ID+`","runtime":"codex"}`)
 	projectLatest := createAgentSessionHTTP(t, handler, `{"projectId":"`+project.ID+`","runtime":"codex"}`)
-	app := createAgentSessionHTTP(t, handler, `{"projectId":"`+appScope.ID+`","runtime":"codex"}`)
+	app := createAgentSessionHTTP(t, handler, `{"appId":"example.standalone","appView":"standalone","runtime":"codex"}`)
 
 	assertSessionList := func(path string, expected ...string) {
 		t.Helper()
@@ -210,7 +203,7 @@ func TestAgentSessionHTTPScopesAreIsolatedAndNewestFirst(t *testing.T) {
 	}
 	assertSessionList("/v1/agent-sessions?scope=general", general.ID)
 	assertSessionList("/v1/agent-sessions?projectId="+project.ID, projectLatest.ID, projectFirst.ID)
-	assertSessionList("/v1/agent-sessions?projectId="+appScope.ID, app.ID)
+	assertSessionList("/v1/agent-sessions?scope=app:example.standalone", app.ID)
 }
 
 func createAgentSessionHTTP(t *testing.T, handler http.Handler, body string) ChatSession {
@@ -258,12 +251,9 @@ func TestSystemLogsExposeDiagnosticsToLocalNetwork(t *testing.T) {
 
 func TestAgentCLIStreamUsesSSELineBreaks(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
-	project, err := store.EnsureGeneralChatProject()
-	if err != nil {
-		t.Fatal(err)
-	}
+	_ = store.Ensure()
 	manager := NewAgentManager(store, nil, nil)
-	session, err := manager.Create(project.ID, "codex", "", "", "")
+	session, err := manager.Create(SessionInput{}, "codex", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

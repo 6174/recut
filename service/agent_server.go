@@ -23,6 +23,16 @@ func (s *Server) getAgentOnboarding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := strings.TrimSpace(r.URL.Query().Get("projectId"))
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+	if scope == "media" || projectID == "media" {
+		items, err := s.mediaOnboarding()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+		return
+	}
 	if projectID == "" {
 		items, err := s.store.GlobalOnboarding()
 		if err != nil {
@@ -38,6 +48,16 @@ func (s *Server) getAgentOnboarding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) mediaOnboarding() ([]OnboardingGuide, error) {
+	app := mediaSystemAppDescriptor()
+	global, err := s.store.GlobalOnboarding()
+	if err != nil {
+		return nil, err
+	}
+	items := append(append([]OnboardingGuide{}, app.Manifest.Onboarding...), global...)
+	return items, nil
 }
 
 func (s *Server) saveAgentOnboarding(w http.ResponseWriter, r *http.Request) {
@@ -61,10 +81,8 @@ func (s *Server) saveAgentOnboarding(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listAgentSessions(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.URL.Query().Get("projectId"))
-	if r.URL.Query().Get("scope") == "general" {
-		projectID = generalChatProjectID
-	}
-	sessions, err := s.agents.List(projectID)
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+	sessions, err := s.agents.List(projectID, scope)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -84,6 +102,8 @@ func (s *Server) listOpencodeModels(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 	input := struct {
 		ProjectID       string `json:"projectId"`
+		AppID           string `json:"appId"`
+		AppView         string `json:"appView"`
 		Runtime         string `json:"runtime"`
 		CodexModel      string `json:"codexModel"`
 		ReasoningEffort string `json:"reasoningEffort"`
@@ -93,24 +113,33 @@ func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
 		return
 	}
-	input.ProjectID = strings.TrimSpace(input.ProjectID)
-	if input.ProjectID == "" {
-		project, err := s.store.EnsureGeneralChatProject()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		input.ProjectID = project.ID
-	}
 	if input.Runtime == "" {
 		input.Runtime = "codex"
 	}
-	session, err := s.agents.Create(input.ProjectID, input.Runtime, strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort), strings.TrimSpace(input.OpencodeModel))
+	session, err := s.agents.Create(SessionInput{ProjectID: strings.TrimSpace(input.ProjectID), AppID: strings.TrimSpace(input.AppID), AppView: strings.TrimSpace(input.AppView)}, input.Runtime, strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort), strings.TrimSpace(input.OpencodeModel))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, session)
+}
+
+func (s *Server) updateAgentSessionContext(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		ProjectID string `json:"projectId"`
+		AppID     string `json:"appId"`
+		AppView   string `json:"appView"`
+	}{}
+	if json.NewDecoder(r.Body).Decode(&input) != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	session, err := s.agents.UpdateContext(r.PathValue("id"), SessionInput{ProjectID: strings.TrimSpace(input.ProjectID), AppID: strings.TrimSpace(input.AppID), AppView: strings.TrimSpace(input.AppView)})
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
 }
 
 func (s *Server) getAgentSession(w http.ResponseWriter, r *http.Request) {

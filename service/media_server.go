@@ -34,12 +34,21 @@ func (s *Server) listMediaModels(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.media.Models())
 }
 func (s *Server) getMediaSystemProject(w http.ResponseWriter, _ *http.Request) {
-	project, err := s.store.EnsureMediaSystemProject()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
+	writeJSON(w, http.StatusOK, mediaScopeDescriptor())
+}
+
+// mediaScopeDescriptor is the stable identity of the platform media scope. Media
+// conversations are unbound sessions (no Project); the media tools operate on
+// workspace-level Assets directly.
+func mediaScopeDescriptor() map[string]any {
+	return map[string]any{
+		"id":            "media",
+		"name":          "素材库",
+		"appId":         mediaSystemAppID,
+		"appVersion":    "1.0.0",
+		"formatVersion": formatVersion,
+		"kind":          "scope",
 	}
-	writeJSON(w, http.StatusOK, project)
 }
 
 func (s *Server) listMediaProviders(w http.ResponseWriter, _ *http.Request) {
