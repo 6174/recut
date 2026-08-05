@@ -8,7 +8,7 @@
 
 import { AppWindow, ArrowRight, Box, Check, ChevronDown, Clapperboard, Code2, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, ImageIcon, LoaderCircle, Music2, Plus, Send, Sparkles, Store, Video, X } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useLayoutEffect, useState } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { AppUpdateAllControl, AppVersionControl } from "@/components/app-version-control";
@@ -18,12 +18,13 @@ import { CreateAppDialog } from "@/components/create-app-dialog";
 import { InstallGitAppDialog } from "@/components/install-git-app-dialog";
 import { Input } from "@/components/ui/input";
 import { HeaderActions } from "@/components/header-actions";
-import { useAgentPanelContext } from "@/lib/agent-panel-context";
+import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
 import { marketplaceApps } from "@/lib/app-catalog";
 import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore, type WorkspaceApp as App, type WorkspaceInstallation as Installation, type WorkspaceProject as Project } from "@/lib/workspace-store";
 import { VideoFrame } from "@/components/video-frame";
+import { WebGLStudioHero } from "@/components/webgl-studio-hero";
 import type { Asset } from "./media/media-types";
 import { MediaLibraryPanel } from "./media/media-library-panel";
 
@@ -54,6 +55,14 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
   useLayoutEffect(() => {
     useAgentPanelContext.getState().setContext({ projectID: agentProjectID, headerHeight: 64 });
   }, [agentProjectID]);
+  const pageContext = useMemo(() => tab === "assets"
+    ? { title: "素材库", path: "/media" }
+    : tab === "projects"
+      ? { title: "项目", path: "/projects" }
+      : tab === "apps"
+        ? { title: "应用", path: "/apps" }
+        : null, [tab]);
+  useReportPageContext(pageContext);
   useEffect(() => {
     if (!online) return;
     void loadWorkspace(apiBase);
@@ -115,7 +124,7 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
         : <MediaLibraryPanel onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-5">
-      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground"><Clapperboard className="size-4" /></span><strong className="shrink-0 text-sm tracking-tight">RECUT</strong><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label="工作台" className="flex min-w-0 items-center gap-0.5 sm:gap-1"><Tab active={tab === "studio"} href="/">Studio</Tab><Tab active={tab === "projects"} href="/projects">Projects</Tab><Tab active={tab === "assets"} href="/media">Assets</Tab><Tab active={tab === "apps"} href="/apps">Apps</Tab></nav></div>
+      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label="工作台" className="flex min-w-0 items-center gap-0.5 sm:gap-1"><Tab active={tab === "studio"} href="/">Studio</Tab><Tab active={tab === "projects"} href="/projects">Projects</Tab><Tab active={tab === "assets"} href="/media">Assets</Tab><Tab active={tab === "apps"} href="/apps">Apps</Tab></nav></div>
       <div className="hidden md:block"><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>
     </header>
     <div className="min-h-0 flex-1 overflow-hidden md:pr-[var(--side-panel-width)]">
@@ -172,8 +181,9 @@ function Studio({ apiBase, installations, onCompose, onStartProject, projects }:
   ];
   const recentProjects = projects.slice(0, 4);
   return <div className="pb-10">
-    <section className="relative overflow-hidden border-b border-border pb-8 pt-4">
-      <div className="absolute right-2 top-0 hidden size-44 place-items-center rounded-full border border-primary/10 bg-accent/20 sm:grid"><div className="grid size-28 place-items-center rounded-[1.25rem] border border-primary/20 bg-card/80 shadow-[0_20px_50px_oklch(0.66_0.17_151_/_0.12)]"><Clapperboard className="size-11 text-primary" /></div></div>
+    <section className="relative min-h-[21rem] overflow-hidden border-b border-border bg-[radial-gradient(ellipse_at_78%_42%,oklch(0.94_0.075_151_/_0.55),transparent_34%)] pb-8 pt-7 sm:min-h-[23rem]">
+      <WebGLStudioHero />
+      <div className="relative z-10 max-w-xl">
       <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">GOOD MORNING · STUDIO</p>
       <h1 className="mt-3 text-3xl font-semibold leading-tight">你的 AI 创作工作站</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">{inspirationForToday()}</p>
@@ -181,6 +191,7 @@ function Studio({ apiBase, installations, onCompose, onStartProject, projects }:
         <div className="flex items-center gap-3 px-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground"><Sparkles className="size-4" /></span><label className="sr-only" htmlFor="studio-idea">创作想法</label><input className="h-12 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" id="studio-idea" onChange={(event) => setIdea(event.target.value)} placeholder="描述你想创作的内容，Agent 会把它变成可执行的工作流" value={idea} /><Button aria-label="发送创作想法" className="size-9 rounded-md p-0" disabled={!idea.trim()} type="submit"><Send className="size-4" /></Button></div>
       </form>
       <div className="relative z-10 mt-3 flex flex-wrap gap-2">{suggestions.map(({ icon: Icon, label, prompt }) => <button className="inline-flex h-9 items-center gap-2 rounded-full border bg-card px-3 text-xs font-medium transition hover:border-primary/30 hover:bg-accent/40" key={label} onClick={() => onCompose(prompt)} type="button"><Icon className="size-3.5 text-primary" />{label}</button>)}</div>
+      </div>
     </section>
     <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">查看全部<ArrowRight className="size-3.5" /></Link>} description="从上次停下的地方继续。" title="继续创作" />{recentProjects.length ? <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-3">{recentProjects.map((project) => <Link className="group" href={`/projects/${project.id}`} key={project.id}><Card className="overflow-hidden transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]"><div className="flex aspect-[16/9] items-end bg-[linear-gradient(135deg,oklch(0.29_0.045_210),oklch(0.52_0.075_170))] p-3"><span className="rounded-xs bg-black/35 px-1.5 py-0.5 font-mono text-[10px] text-white">PROJECT</span></div><CardContent className="p-3"><p className="truncate text-sm font-semibold">{project.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{project.appId}</p><p className="mt-3 text-xs font-medium text-primary">继续编辑</p></CardContent></Card></Link>)}</div> : <Card><CardContent className="flex min-h-28 items-center justify-between gap-5 p-5"><div><p className="text-sm font-semibold">从一个项目开始</p><p className="mt-1 text-xs text-muted-foreground">选择一款已安装的 App，建立你的第一个创作空间。</p></div><Link className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground" href="/projects"><FolderPlus className="size-3.5" />新建项目</Link></CardContent></Card>}</section>
     <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/media">打开 Assets<ArrowRight className="size-3.5" /></Link>} description="最近加入工作台的图片、视频和音频，可直接带入下一次创作。" title="最近使用的资源" /><RecentAssets apiBase={apiBase} /></section>

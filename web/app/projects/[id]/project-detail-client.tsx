@@ -6,16 +6,17 @@
  */
 "use client";
 
-import { ArrowLeft, Clapperboard } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
 import { HeaderActions } from "@/components/header-actions";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
+import { normalizePageContext } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
-import { useAgentPanelContext } from "@/lib/agent-panel-context";
+import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore } from "@/lib/workspace-store";
 
@@ -53,6 +54,7 @@ export default function ProjectDetailClient() {
   useLayoutEffect(() => {
     useAgentPanelContext.getState().setContext({ projectID: project?.id ?? null, headerHeight: 56 });
   }, [project?.id]);
+  useReportPageContext(useMemo(() => (project ? { title: project.name, path: `/projects/${id}`, url: window.location.href } : null), [project, id]));
   useEffect(() => {
     if (!id || !online) return;
     void Promise.all([loadWorkspace(apiBase), loadProject(apiBase, id)]);
@@ -95,6 +97,12 @@ export default function ProjectDetailClient() {
           useAgentPanelContext.getState().setDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
           console.warn(`[recut-host] iframe response id=${String(request.id)} type=agent.compose result=ok`);
+        } else if (request.type === "page.context") {
+          const context = normalizePageContext(request.input?.context);
+          if (!context) throw new Error("页面上下文需要标题");
+          useAgentPanelContext.getState().setPageContext(context);
+          reply({ delivery: "page-context" });
+          console.warn(`[recut-host] iframe response id=${String(request.id)} type=page.context result=ok`);
         } else if (request.type === "media.pick") {
           if (mediaPickerReply.current) throw new Error("已有素材选择器正在打开");
           const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" => kind === "image" || kind === "video" || kind === "audio") : [];
@@ -121,7 +129,7 @@ export default function ProjectDetailClient() {
   return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5">
       <div className="flex min-w-0 items-center gap-4">
-        <Link aria-label="返回项目列表" className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><Clapperboard className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link>
+        <Link aria-label="返回项目列表" className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><img alt="Recut" className="size-5 shrink-0 rounded-sm object-cover" src="/logo.jpg" /></Link>
         <div aria-hidden="true" className="h-5 w-px bg-border" />
         <div className="min-w-0"><p className="truncate text-sm font-medium">{project?.name ?? "加载项目…"}</p><p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{project ? `${app?.manifest.name ?? project.appId} · v${app?.manifest.version ?? project.appVersion} · ${project.id}` : "正在读取项目元信息"}</p></div>
       </div>

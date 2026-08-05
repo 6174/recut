@@ -1,18 +1,18 @@
 /*
  * [INPUT]: 依赖共享 Agent 会话配置类型、素材引用选择器、Agent runtime 安装状态与 UI 原子组件
- * [OUTPUT]: 对外提供消息输入区 Composer 及新会话 runtime 选择器 RuntimePicker
+ * [OUTPUT]: 对外提供消息输入区 Composer 及新会话 runtime 选择器 RuntimePicker；Composer 同时渲染用户选择的素材附件与自动附带、可移除的当前页面上下文 chip
  * [POS]: components Agent 对话模块的交互输入层；通过回调把发送、上传、配置保存交回面板控制器
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleStop, ImagePlus, SlidersHorizontal } from "lucide-react";
+import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleStop, FileText, ImagePlus, SlidersHorizontal, X } from "lucide-react";
 import { type ClipboardEvent, type FormEvent, type ReactNode, useRef, useState } from "react";
 
 import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatus, type Runtime } from "@/components/agent-install-guide";
 import { AssetReferenceChip, AssetReferenceDialog, AssetReferenceMenu, mediaReferenceIDs, mediaReferenceText } from "@/components/asset-reference-picker";
 import { Button } from "@/components/ui/button";
-import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, opencodeModelLabel, opencodeProviderLabel, reasoningLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type UploadedAsset } from "@/components/agent-panel-types";
+import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, opencodeModelLabel, opencodeProviderLabel, reasoningLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PageContext, type UploadedAsset } from "@/components/agent-panel-types";
 
 export function Composer({
   apiBase,
@@ -24,6 +24,7 @@ export function Composer({
   onAddAsset,
   onChange,
   onRemoveAttachment,
+  onRemovePageContext,
   onSaveCodexConfiguration,
   onSaveOpencodeConfiguration,
   onSend,
@@ -31,6 +32,8 @@ export function Composer({
   onUpload,
   opencodeConfiguration,
   opencodeModels,
+  pageContext,
+  pageContextIncluded,
   projectID,
   runtime,
   running,
@@ -46,6 +49,7 @@ export function Composer({
   onAddAsset: (asset: UploadedAsset) => void;
   onChange: (value: string) => void;
   onRemoveAttachment: (assetID: string) => void;
+  onRemovePageContext: () => void;
   onSaveCodexConfiguration: (
     configuration: CodexConfiguration,
   ) => Promise<boolean>;
@@ -57,6 +61,8 @@ export function Composer({
   onUpload: (files: FileList | File[]) => void;
   opencodeConfiguration: OpencodeConfiguration;
   opencodeModels: OpencodeModel[];
+  pageContext: PageContext | null;
+  pageContextIncluded: boolean;
   projectID: string | null;
   runtime: Runtime;
   running: boolean;
@@ -131,6 +137,26 @@ export function Composer({
                 reference={attachment}
               />
             ))}
+          </div>
+        )}
+        {pageContext && pageContextIncluded && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            <span className="inline-flex max-w-full items-center gap-1.5 rounded-sm border border-dashed bg-muted/40 py-1 pl-2 pr-1 text-[10px] text-muted-foreground">
+              <FileText className="size-3 shrink-0 text-primary" />
+              <span className="truncate">
+                当前页面 · {pageContext.title}
+                {pageContext.selection ? ` · ${pageContext.selection}` : ""}
+              </span>
+              <button
+                aria-label="移除当前页面上下文"
+                className="grid size-4 shrink-0 place-items-center rounded-sm hover:bg-muted-foreground/20"
+                onClick={onRemovePageContext}
+                title="移除当前页面上下文"
+                type="button"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
           </div>
         )}
         <textarea
@@ -232,7 +258,9 @@ export function Composer({
               disabled={
                 disabled ||
                 uploading ||
-                (!content.trim() && !attachments.length)
+                (!content.trim() &&
+                  !attachments.length &&
+                  !(pageContext && pageContextIncluded))
               }
               title={
                 firstTurn

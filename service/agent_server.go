@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentManager 的本地持久化会话和 HTTP SSE 传输能力
- * [OUTPUT]: 对外提供项目或通用 scope 的 Agent Session 创建、Codex 配置更新、OpenCode 实时模型目录、按项目解析/全局保存 onboarding、查询、含图片资产引用的发送、停止、结构化事件与仅内存 CLI 调试流订阅 HTTP API，并区分不存在和存储读取失败
+ * [OUTPUT]: 对外提供通用 scope 的 Agent Session 创建、Codex 配置更新、OpenCode 实时模型目录、按项目解析/全局保存 onboarding、查询、含图片资产引用与泛化消息上下文的发送、停止、结构化事件与仅内存 CLI 调试流订阅 HTTP API，并区分不存在和存储读取失败
  * [POS]: service 的结构化对话传输边界；与 terminal HTTP API 并存且互不代理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -101,9 +101,6 @@ func (s *Server) listOpencodeModels(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 	input := struct {
-		ProjectID       string `json:"projectId"`
-		AppID           string `json:"appId"`
-		AppView         string `json:"appView"`
 		Runtime         string `json:"runtime"`
 		CodexModel      string `json:"codexModel"`
 		ReasoningEffort string `json:"reasoningEffort"`
@@ -116,30 +113,12 @@ func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 	if input.Runtime == "" {
 		input.Runtime = "codex"
 	}
-	session, err := s.agents.Create(SessionInput{ProjectID: strings.TrimSpace(input.ProjectID), AppID: strings.TrimSpace(input.AppID), AppView: strings.TrimSpace(input.AppView)}, input.Runtime, strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort), strings.TrimSpace(input.OpencodeModel))
+	session, err := s.agents.Create(input.Runtime, strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort), strings.TrimSpace(input.OpencodeModel))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, session)
-}
-
-func (s *Server) updateAgentSessionContext(w http.ResponseWriter, r *http.Request) {
-	input := struct {
-		ProjectID string `json:"projectId"`
-		AppID     string `json:"appId"`
-		AppView   string `json:"appView"`
-	}{}
-	if json.NewDecoder(r.Body).Decode(&input) != nil {
-		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
-		return
-	}
-	session, err := s.agents.UpdateContext(r.PathValue("id"), SessionInput{ProjectID: strings.TrimSpace(input.ProjectID), AppID: strings.TrimSpace(input.AppID), AppView: strings.TrimSpace(input.AppView)})
-	if err != nil {
-		writeError(w, http.StatusConflict, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, session)
 }
 
 func (s *Server) getAgentSession(w http.ResponseWriter, r *http.Request) {
@@ -190,14 +169,15 @@ func (s *Server) updateOpencodeConfiguration(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) startAgentTurn(w http.ResponseWriter, r *http.Request) {
 	input := struct {
-		Content  string   `json:"content"`
-		AssetIDs []string `json:"assetIds"`
+		Content  string        `json:"content"`
+		AssetIDs []string      `json:"assetIds"`
+		Contexts []TurnContext `json:"contexts"`
 	}{}
 	if json.NewDecoder(r.Body).Decode(&input) != nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
 		return
 	}
-	turn, err := s.agents.StartTurn(r.PathValue("id"), input.Content, input.AssetIDs)
+	turn, err := s.agents.StartTurn(r.PathValue("id"), input.Content, input.AssetIDs, input.Contexts)
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
 		return

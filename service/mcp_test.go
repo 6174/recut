@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 mcp.go 的平台工具定义、Store 与本地 HTTP 测试服务
- * [OUTPUT]: 锁定按媒体类型拆分的 MCP 工具名称、终态等待输入 schema、数组型 structuredContent 的 record 包装，以及长图片请求不阻塞素材查询
+ * [OUTPUT]: 锁定 recut.context 不携带项目默认值、按媒体类型拆分的 MCP 工具名称、终态等待输入 schema、数组型 structuredContent 的 record 包装，以及长图片请求不阻塞素材查询
  * [POS]: service MCP Host 的公开工具契约与 stdio 并发回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -93,11 +93,10 @@ func TestProjectMCPToolCreatesListedProject(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	source, err := store.Create(CreateInput{Name: "Source", AppID: "example.app"})
-	if err != nil {
+	if _, err := store.Create(CreateInput{Name: "Source", AppID: "example.app"}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := handleMCP(NewAgentBridge(store), NewAppHost(apps, store), NewMediaService(store), AgentSession{ProjectID: source.ID}, mcpRequest{
+	result, err := handleMCP(NewAgentBridge(store), NewAppHost(apps, store), NewMediaService(store), AgentSession{ID: "s1"}, mcpRequest{
 		Method: "tools/call",
 		Params: json.RawMessage(`{"name":"recut.project.create","arguments":{"name":"Agent Loop 概念","appId":"example.app"}}`),
 	})
@@ -119,6 +118,38 @@ func TestProjectMCPToolCreatesListedProject(t *testing.T) {
 	tool := projectMCPToolDefinition()
 	if tool["name"] != "recut.project.create" {
 		t.Fatalf("project tool definition = %#v", tool)
+	}
+}
+
+func TestRecutContextReportsAppsWithoutProjectDefault(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(CreateInput{Name: "Current page", AppID: "example.app"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := recutContextTool(NewAgentBridge(store), NewMediaService(store), AgentSession{ID: "s1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	structured := result.(map[string]any)["structuredContent"].(map[string]any)
+	if _, exists := structured["workspace"]; exists {
+		t.Fatalf("recut.context must not report a workspace project default: %#v", structured)
+	}
+	appsReported := structured["apps"].([]map[string]any)
+	if len(appsReported) != 1 || appsReported[0]["appId"] != "example.app" {
+		t.Fatalf("recut.context apps = %#v", appsReported)
 	}
 }
 
@@ -173,8 +204,7 @@ func TestMCPListAssetsIsNotBlockedByImageGeneration(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	project, err := store.Create(CreateInput{Name: "Test", AppID: "example.app"})
-	if err != nil {
+	if _, err := store.Create(CreateInput{Name: "Test", AppID: "example.app"}); err != nil {
 		t.Fatal(err)
 	}
 	provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -194,7 +224,7 @@ func TestMCPListAssetsIsNotBlockedByImageGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	bridge := NewAgentBridge(store)
-	session, token, err := bridge.CreateSession(SessionContext{ProjectID: project.ID})
+	session, token, err := bridge.CreateSession(SessionContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +270,7 @@ func TestImportNativeImageArchivesProjectFileAndRejectsEscapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	bridge := NewAgentBridge(store)
-	session, _, err := bridge.CreateSession(SessionContext{ProjectID: project.ID})
+	session, _, err := bridge.CreateSession(SessionContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,15 +279,12 @@ func TestImportNativeImageArchivesProjectFileAndRejectsEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	imagePath := filepath.Join(workspace, "project", "files", "cover.png")
-	if err := os.MkdirAll(filepath.Dir(imagePath), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	imagePath := filepath.Join(workspace, "cover.png")
 	if err := os.WriteFile(imagePath, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	media := NewMediaService(store)
-	asset, err := importNativeImage(store, media, session, map[string]any{"path": "project/files/cover.png"})
+	asset, err := importNativeImage(store, media, session, map[string]any{"path": "cover.png", "projectId": project.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

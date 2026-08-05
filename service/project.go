@@ -280,6 +280,11 @@ create table if not exists agent_turn_attachments (
   turn_id text not null, asset_id text not null,
   primary key (turn_id, asset_id)
 );
+create table if not exists agent_turn_contexts (
+  turn_id text not null, seq integer not null,
+  type text not null, source text not null, payload_json text not null,
+  primary key (turn_id, seq)
+);
 create table if not exists agent_events (
   id integer primary key autoincrement, session_id text not null, turn_id text,
   type text not null, payload_json text not null, created_at text not null
@@ -287,6 +292,7 @@ create table if not exists agent_events (
 create index if not exists agent_sessions_updated on agent_sessions(profile_id, updated_at desc);
 create index if not exists agent_turns_session on agent_turns(session_id, created_at);
 create index if not exists agent_turn_attachments_turn on agent_turn_attachments(turn_id);
+create index if not exists agent_turn_contexts_turn on agent_turn_contexts(turn_id);
 create index if not exists agent_events_session on agent_events(session_id, id);
 create table if not exists projects (
   id text primary key, name text not null, app_id text not null,

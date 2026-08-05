@@ -4,6 +4,7 @@
 
 成员清单
 video-frame.tsx: 视频展示原子；列表和卡片以 `srcDoc` iframe 创建真实的静音循环 `<video>` 子文档，详情以 `iframe` 打开原片 URL 的浏览器媒体文档；封面鼠标事件穿透给卡片详情操作，素材库首屏限制媒体导航数量以避免解码器争用。
+webgl-studio-hero.tsx: Studio Header 的纯客户端 WebGL 背景；用 Three.js 绘制圆角、渐变磨砂的分层玻璃视频卡、播放符号和漂浮几何体，并由 GSAP 编排入场与低频浮动，遵守减少动态效果偏好且离屏暂停渲染。
 audio-waveform-player.tsx: 基于 wavesurfer.js 的音频波形播放原子；处理解码、波形绘制、点击定位、播放、静音与下载，错误时回退浏览器原生音频控件。
 generation-duration.tsx: 媒体生成耗时原子；活跃任务本地逐秒计时，终态只显示后端持久化的最终耗时，不发起状态请求。
 use-media-asset-events.tsx: Recut 媒体 SSE 缓存边界；以首次快照和增量 Asset 事件维护唯一前端真相，嵌套入口复用已有连接且绝不轮询 Atlas 或单个素材。
@@ -12,11 +13,11 @@ asset-reference-picker.tsx: 资源引用交互层；解析素材库复制的 `<m
 platform-media-picker.tsx: iframe App 的平台级单选素材桥；复用带元信息、详情预览与明确选择操作的全局素材面板，只返回指定类型、完成态素材的稳定 assetId 与展示元数据。
 agent-message-content.tsx: Agent 回复的受控 XML 媒体节点渲染器；解析 `<media type="image|video|audio" assetid="..."/>` 为紧凑可点击卡片，从共享 Asset 缓存显示实时/最终生成耗时；完成的图片和视频都显示真实画面，视频统一使用 `VideoFrame` 的 iframe 子文档模式，点击打开详情。
 tool-result-assets.tsx: Agent 工具结果中的媒体适配层；从含嵌套 JSON 字符串的 `assetIds` 提取结果，图片和视频直接显示真实预览，视频统一复用 `VideoFrame` 的 iframe 子文档模式与素材详情模态框。
-agent-panel-types.ts: Agent 对话的共享数据契约；集中 Session、Turn、事件、运行时配置、默认值与展示标签，消除面板控制器、视图和输入区的类型耦合。
-agent-panel-views.tsx: Agent 对话展示层；渲染会话时间线、历史列表、加载态、CLI 调试弹框与 CLI 恢复面板，并在展开的工具结果中挂载 Asset 预览，归并 SSE 增量事件而不发起会话请求。
-agent-composer.tsx: Agent 对话输入层；处理文本、素材引用、上传、Codex/OpenCode 配置与新会话 runtime 选择，所有状态变更通过控制器回调上送。
-agent-panel-host.tsx: 根布局唯一挂载的全局工作台壳；顶部页面 Header 横贯全宽，其下 Body 左侧为页面内容、右侧为单一全局 Agent 侧栏，跨路由共享同一 ProjectAgentPanel 实例与持久化面板宽度，页面的 projectID/Header 高度/草稿由 `lib/agent-panel-context` 声明，路由切换不重建面板、不重连 SSE 也不切换会话。
-project-agent-panel.tsx: 全局单一 general 会话的固定高度 Agent 对话侧栏，由 `agent-panel-host.tsx` 在根布局挂载；运行时、模型、onboarding、会话摘要、当前会话和详情快照由 `lib/agent-store` 去重共享，SSE 连接仍由面板拥有并将增量回写缓存，路由切换不做按页面的会话过滤。右上角 Debug 入口复制当前会话的版本化 JSON（身份、配置、turn 元数据与最近 100 条结构化事件；不含用户或 Agent 聊天正文）。存在可用 runtime 的空态允许直接输入并在首条消息发送时创建默认 Codex 会话；App iframe 只能回填输入草稿，不能自动提交 turn。无可用 runtime 时只显示安装入口，安装完成后的重新检查强制刷新运行时快照。
+agent-panel-types.ts: Agent 对话的共享数据契约；集中 Session、Turn、事件、运行时配置、默认值、展示标签与泛化的消息上下文（MessageContext：media/page/未来类型，含 PageContext 与构造/归一化辅助），消除面板控制器、视图和输入区的类型耦合。
+agent-panel-views.tsx: Agent 对话展示层；渲染会话时间线、历史列表、加载态、CLI 调试弹框与 CLI 恢复面板，在用户消息上方同时展示素材附件与自动附带的当前页面上下文 chip，并在展开的工具结果中挂载 Asset 预览，归并 SSE 增量事件而不发起会话请求。
+agent-composer.tsx: Agent 对话输入层；处理文本、素材引用、上传、自动附带且可移除的当前页面上下文 chip、Codex/OpenCode 配置与新会话 runtime 选择，所有状态变更通过控制器回调上送。
+agent-panel-host.tsx: 根布局唯一挂载的全局工作台壳；顶部页面 Header 横贯全宽，其下 Body 左侧为页面内容、右侧为单一全局 Agent 侧栏，跨路由共享同一 ProjectAgentPanel 实例与持久化面板宽度，页面的 projectID/Header 高度/草稿/当前页面上下文由 `lib/agent-panel-context` 声明，路由切换不重建面板、不重连 SSE 也不切换会话。
+project-agent-panel.tsx: 全局单一 general 会话的固定高度 Agent 对话侧栏，由 `agent-panel-host.tsx` 在根布局挂载；运行时、模型、onboarding、会话摘要、当前会话和详情快照由 `lib/agent-store` 去重共享，SSE 连接仍由面板拥有并将增量回写缓存，路由切换不做按页面的会话过滤。发送时把当前页面上下文与用户选择的素材合并为 `contexts` 泛化消息上下文（media 沿用 assetId 契约，page 携带标题/路径/选中/内容），当前页面 chip 默认自动附带、可在发送前移除；已出现回复的 Turn 不显示过期的停止提示。右上角 Debug 入口复制当前会话的版本化 JSON（身份、配置、turn 元数据与最近 100 条结构化事件；不含用户或 Agent 聊天正文）。存在可用 runtime 的空态允许直接输入并在首条消息发送时创建默认 Codex 会话；App iframe 只能回填输入草稿，不能自动提交 turn。无可用 runtime 时只显示安装入口，安装完成后的重新检查强制刷新运行时快照。
 agent-onboarding.tsx: 新建 Codex、OpenCode 或 Claude Code 会话的非空引导空态；无论项目或 general scope，均读取当前项目或全局解析出的 App/全局/平台兜底卡片，点击只写入显式 prompt。在 `runtimeStatus` 报告无任何可用本地 Agent CLI 时，仅显示 1–3 张安装卡，点击同样打开共享安装对话框；至少一个 runtime 就绪后才显示目标引导卡。
 agent-onboarding-settings.tsx: 全局新对话引导设置；维护用户级卡片标题、说明与 prompt，不修改 App manifest，新增卡片 ID 不依赖安全上下文 UUID。
 agent-install-guide.tsx: 本地 Agent CLI 共享三步（安装、登录/验证、重新检查）正文；同时被现有恢复面板（CLI 缺失分支）与新增主动安装对话框消费，checking / checkFailed 由调用方管理，复制到剪贴板与失败兜底统一在内。

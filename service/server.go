@@ -106,7 +106,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /v1/agent-onboarding", s.saveAgentOnboarding)
 	mux.HandleFunc("POST /v1/agent-sessions", s.createAgentSession)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}", s.getAgentSession)
-	mux.HandleFunc("PUT /v1/agent-sessions/{id}/context", s.updateAgentSessionContext)
 	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/codex-configuration", s.updateCodexConfiguration)
 	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/opencode-configuration", s.updateOpencodeConfiguration)
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/turns", s.startAgentTurn)
@@ -537,7 +536,7 @@ func (s *Server) startTerminal(w http.ResponseWriter, r *http.Request) {
 	args := input.Args
 	start := TerminalStart{ProjectID: projectID, Command: input.Command, Args: args, CWD: cwd, SessionDir: sessionDir, Cols: input.Cols, Rows: input.Rows}
 	if (input.Command == "codex" || input.Command == "claude") && len(args) == 0 {
-		agentSession, token, err := s.bridge.CreateSession(SessionContext{ProjectID: projectID, AppID: "", TaskID: ""})
+		agentSession, token, err := s.bridge.CreateSession(SessionContext{})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return

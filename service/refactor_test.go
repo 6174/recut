@@ -145,14 +145,6 @@ func TestMCPAppOperationTargetEnvelope(t *testing.T) {
 	if value := result.(map[string]any)["structuredContent"].(map[string]any)["project"]; value != project.ID {
 		t.Fatalf("explicit target did not resolve: %#v", value)
 	}
-	// Session default project -> project target.
-	result, err = handleMCP(bridge, host, nil, AgentSession{ID: "s1", ProjectID: project.ID}, mcpRequest{Method: "tools/call", Params: json.RawMessage(`{"name":"example.app.where","arguments":{"note":"c"}}`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value := result.(map[string]any)["structuredContent"].(map[string]any)["project"]; value != project.ID {
-		t.Fatalf("session default did not resolve: %#v", value)
-	}
 	// Cross-owner target rejected: another app cannot target this project.
 	otherDir := filepath.Join(root, "apps", "other")
 	if err := os.MkdirAll(otherDir, 0o755); err != nil {

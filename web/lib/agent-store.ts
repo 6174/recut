@@ -51,14 +51,9 @@ export function appScopeKey(appID: string) {
   return `app:${appID}`;
 }
 
-// scopeContext maps a scope string to the session workspace context hint sent
-// when creating a session. Only project scopes carry a real Project ID.
-export function scopeContext(scope: string): { projectId?: string; appId?: string; appView?: string } {
-  if (scope.startsWith("project:")) return { projectId: scope.slice("project:".length) };
-  if (scope === "media") return { appId: "recut.media-library", appView: "media" };
-  if (scope.startsWith("app:")) return { appId: scope.slice("app:".length), appView: "standalone" };
-  return {};
-}
+// scopeContext was removed: sessions are unbound and never carry a Project or
+// App context hint. Scope strings classify conversation history for onboarding
+// and filtering only.
 
 // sessionHistoryLabel gives a human label for a scope's conversation history.
 export function sessionHistoryLabel(scope: string) {

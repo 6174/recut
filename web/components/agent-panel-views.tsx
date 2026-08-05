@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { Bot, Check, ChevronRight, CircleAlert, Copy, RefreshCw, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { Bot, Check, ChevronRight, CircleAlert, Copy, FileText, RefreshCw, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { AgentInstallGuide, CopyFeedback, copyToClipboard, recoverySubtitle, recoveryTitle, type AgentRuntimeStatus } from "@/components/agent-install-guide";
@@ -15,7 +15,7 @@ import { AssetReferenceChip } from "@/components/asset-reference-picker";
 import { ToolResultAssets } from "@/components/tool-result-assets";
 import { Button } from "@/components/ui/button";
 import { ActionIcon, RunningStatus } from "@/components/agent-composer";
-import { codexModelLabel, opencodeModelLabel, reasoningLabel, runtimeLabel } from "@/components/agent-panel-types";
+import { codexModelLabel, contextLabel, opencodeModelLabel, reasoningLabel, runtimeLabel } from "@/components/agent-panel-types";
 import { type AgentEvent, type CLIEntry, type Detail, type Session, type ToolPayload, type Turn } from "@/components/agent-panel-types";
 
 export async function responseMessage(response: Response, fallback: string) {
@@ -166,11 +166,31 @@ export function Conversation({
         const meta = group.user && reply ? replyMeta(group.user, reply) : null;
         return (
           <section key={group.id}>
-            {group.user && (
+            {group.user && (() => {
+              const user = group.user;
+              return (
               <div className="group ml-auto w-fit max-w-[85%]">
-                {(group.user.attachments ?? []).length > 0 && (
+                {(user.contexts ?? []).some((context) => context.type !== "media") && (
                   <div className="mb-1 flex flex-wrap justify-end gap-1">
-                    {(group.user.attachments ?? []).map((attachment) => (
+                    {(user.contexts ?? [])
+                      .filter((context) => context.type !== "media")
+                      .map((context, index) => (
+                        <span
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-sm border border-dashed bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground"
+                          key={`${user.id}-${index}`}
+                          title={contextLabel(context)}
+                        >
+                          <FileText className="size-3 shrink-0 text-primary" />
+                          <span className="truncate">
+                            当前页面 · {contextLabel(context)}
+                          </span>
+                        </span>
+                      ))}
+                  </div>
+                )}
+                {(user.attachments ?? []).length > 0 && (
+                  <div className="mb-1 flex flex-wrap justify-end gap-1">
+                    {(user.attachments ?? []).map((attachment) => (
                       <AssetReferenceChip
                         apiBase={apiBase}
                         key={attachment.assetId}
@@ -179,22 +199,23 @@ export function Conversation({
                     ))}
                   </div>
                 )}
-                {group.user.content && (
+                {user.content && (
                   <p className="rounded-sm bg-secondary px-3 py-2 text-left text-xs leading-5 break-words whitespace-pre-wrap">
-                    {group.user.content}
+                    {user.content}
                   </p>
                 )}
-                {group.user.status === "queued" ? (
+                {user.status === "queued" ? (
                   <p className="mt-1 text-right text-[10px] text-muted-foreground">
                     待发送
                   </p>
                 ) : (
                   <p className="mt-1 h-3 text-right text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                    {formatMessageTime(group.user.createdAt)}
+                    {formatMessageTime(user.createdAt)}
                   </p>
                 )}
               </div>
-            )}
+              );
+            })()}
             <div className={group.user ? "mt-5 space-y-5" : "space-y-5"}>
               {group.items.map((item) =>
                 item.kind === "assistant" ? (

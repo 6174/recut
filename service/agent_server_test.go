@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog、Store 与 Server 的本地 HTTP 路由
- * [OUTPUT]: 锁定全局 onboarding 保存、通用/项目/独立 App 三类 scope 的会话隔离与最新优先、通用会话创建、CLI 调试流的 SSE 换行格式及 LAN CORS 的 HTTP 契约
+ * [OUTPUT]: 锁定全局 onboarding 保存、通用/项目/独立 App 三类 scope 的会话隔离与最新优先、通用会话创建、上下文入队与详情回读及非法上下文拒绝、CLI 调试流的 SSE 换行格式及 LAN CORS 的 HTTP 契约
  * [POS]: service 的 Agent 传输层回归测试；不启动真实 daemon 或 Agent CLI
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type cancellingSSEWriter struct {
@@ -127,8 +128,8 @@ func TestGeneralAgentSessionHTTP(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &session); err != nil {
 		t.Fatal(err)
 	}
-	if session.ProjectID != "" {
-		t.Fatalf("general session must be unbound, got projectId %q", session.ProjectID)
+	if session.ID == "" || session.Runtime != "codex" {
+		t.Fatalf("general session = %#v", session)
 	}
 
 	recorder = httptest.NewRecorder()
@@ -176,10 +177,12 @@ func TestAgentSessionHTTPScopesAreIsolatedAndNewestFirst(t *testing.T) {
 	}
 	handler := NewServer(apps, store, nil, nil, NewAgentManager(store, nil, nil), nil, nil).routes()
 
-	general := createAgentSessionHTTP(t, handler, `{"runtime":"codex"}`)
-	projectFirst := createAgentSessionHTTP(t, handler, `{"projectId":"`+project.ID+`","runtime":"codex"}`)
-	projectLatest := createAgentSessionHTTP(t, handler, `{"projectId":"`+project.ID+`","runtime":"codex"}`)
-	app := createAgentSessionHTTP(t, handler, `{"appId":"example.standalone","appView":"standalone","runtime":"codex"}`)
+	first := createAgentSessionHTTP(t, handler, `{"runtime":"codex"}`)
+	latest := createAgentSessionHTTP(t, handler, `{"runtime":"codex"}`)
+	// Sessions are unbound: project/app context sent to create is ignored and
+	// no session can be scoped to a Project or App.
+	projectScoped := createAgentSessionHTTP(t, handler, `{"projectId":"`+project.ID+`","runtime":"codex"}`)
+	appScoped := createAgentSessionHTTP(t, handler, `{"appId":"example.standalone","appView":"standalone","runtime":"codex"}`)
 
 	assertSessionList := func(path string, expected ...string) {
 		t.Helper()
@@ -201,9 +204,11 @@ func TestAgentSessionHTTPScopesAreIsolatedAndNewestFirst(t *testing.T) {
 			}
 		}
 	}
-	assertSessionList("/v1/agent-sessions?scope=general", general.ID)
-	assertSessionList("/v1/agent-sessions?projectId="+project.ID, projectLatest.ID, projectFirst.ID)
-	assertSessionList("/v1/agent-sessions?scope=app:example.standalone", app.ID)
+	// All sessions are unbound, so the general scope returns every session
+	// newest-first and no session is scoped to a Project or App.
+	assertSessionList("/v1/agent-sessions?scope=general", appScoped.ID, projectScoped.ID, latest.ID, first.ID)
+	assertSessionList("/v1/agent-sessions?projectId=" + project.ID)
+	assertSessionList("/v1/agent-sessions?scope=app:example.standalone")
 }
 
 func createAgentSessionHTTP(t *testing.T, handler http.Handler, body string) ChatSession {
@@ -220,6 +225,84 @@ func createAgentSessionHTTP(t *testing.T, handler http.Handler, body string) Cha
 		t.Fatal(err)
 	}
 	return session
+}
+
+func TestAgentTurnContextHTTP(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewAgentManager(store, NewAgentBridge(store), nil)
+	handler := NewServer(nil, store, nil, nil, manager, nil, nil).routes()
+	session := createAgentSessionHTTP(t, handler, `{"runtime":"codex"}`)
+
+	startTurn := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, "/v1/agent-sessions/"+session.ID+"/turns", bytes.NewBufferString(body))
+		request.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	// Page context round-trips through the turns endpoint with its source.
+	recorder := startTurn(`{"content":"继续","contexts":[{"type":"page","source":"page","payload":{"title":"素材库","path":"/media","selection":"封面.png"}}]}`)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("page context turn = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	turn := ChatTurn{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &turn); err != nil {
+		t.Fatal(err)
+	}
+	if len(turn.Contexts) != 1 || turn.Contexts[0].Type != "page" || turn.Contexts[0].Source != "page" {
+		t.Fatalf("turn contexts = %#v", turn.Contexts)
+	}
+	if title, _ := turn.Contexts[0].Payload["title"].(string); title != "素材库" {
+		t.Fatalf("page payload = %#v", turn.Contexts[0].Payload)
+	}
+
+	// The detail endpoint re-reads the persisted context.
+	request := httptest.NewRequest(http.MethodGet, "/v1/agent-sessions/"+session.ID, nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("session detail = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	detail := ChatSessionDetail{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Turns) != 1 || len(detail.Turns[0].Contexts) != 1 || detail.Turns[0].Contexts[0].Type != "page" {
+		t.Fatalf("detail turns = %#v", detail.Turns)
+	}
+
+	// Unknown and malformed context types fail the turn instead of reaching
+	// the CLI as a partial prompt.
+	for _, body := range []string{
+		`{"content":"x","contexts":[{"type":"unknown","payload":{}}]}`,
+		`{"content":"x","contexts":[{"type":"page","payload":{"path":"/media"}}]}`,
+	} {
+		if recorder := startTurn(body); recorder.Code != http.StatusConflict {
+			t.Fatalf("rejected context turn = %d: %s", recorder.Code, recorder.Body.String())
+		}
+	}
+
+	// The queued turn is consumed by an async runner that fails fast because
+	// no CLI is installed. Wait for it to exit so it does not keep writing its
+	// session workspace while TempDir cleanup runs.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		manager.mu.Lock()
+		_, running := manager.running[session.ID]
+		manager.mu.Unlock()
+		if !running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("agent runner did not exit")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func TestSystemLogsExposeDiagnosticsToLocalNetwork(t *testing.T) {
@@ -253,7 +336,7 @@ func TestAgentCLIStreamUsesSSELineBreaks(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	_ = store.Ensure()
 	manager := NewAgentManager(store, nil, nil)
-	session, err := manager.Create(SessionInput{}, "codex", "", "", "")
+	session, err := manager.Create("codex", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

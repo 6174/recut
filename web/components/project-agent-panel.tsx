@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖按 endpoint 缓存的 Agent 运行时、模型、引导与会话列表、general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
- * [OUTPUT]: 对外提供带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、右上角复制当前会话结构化调试报告的入口、单一全局 general 会话（不做按页面的会话过滤）、可由 App iframe 回填但绝不自动提交的输入草稿、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、创建/同步/重试均可见的状态、输入法保护、当前项目素材上传/粘贴上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
+ * [OUTPUT]: 对外提供带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、右上角复制当前会话结构化调试报告的入口、单一全局 general 会话（不做按页面的会话过滤）、可由 App iframe 回填但绝不自动提交的输入草稿、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、创建/同步/重试均可见的状态、输入法保护、当前页面的素材上传/粘贴上下文（素材始终为工作区级，关联项目由 Agent 自行决定）与自动附带且可移除的当前页面上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；过期的取消事件不会覆盖已出现的回复，失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
  * [POS]: components 的通用 Agent 侧栏；由根布局全局挂载为单一会话，路由切换不改变会话或过滤历史，低频快照由 lib/agent-store 跨路由共享，单会话详情仍以 SSE 为真相，存在可用 runtime 的空态允许直接输入并在发送时创建会话
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -42,19 +42,21 @@ import {
   buildSessionDebugReport,
   defaultCodexConfiguration,
   defaultOpencodeConfiguration,
+  mediaContextPayload,
+  pageContextPayload,
   type AgentEvent,
   type Attachment,
   type CLIEntry,
   type CodexConfiguration,
   type Detail,
+  type MessageContext,
   type OpencodeConfiguration,
   type OpencodeModel,
   type Props,
   type Session,
   type UploadedAsset,
 } from "@/components/agent-panel-types";
-import { scopeContext, sessionHistoryLabel, useAgentStore } from "@/lib/agent-store";
-
+import { sessionHistoryLabel, useAgentStore } from "@/lib/agent-store";
 const EMPTY_SESSIONS: Session[] = [];
 const EMPTY_OPENCODE_MODELS: OpencodeModel[] = [];
 
@@ -65,7 +67,7 @@ export function ProjectAgentPanel(props: Props) {
     </MediaAssetEventsProvider>
   );
 }
-function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) {
+function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, projectID }: Props) {
   // 全局单一会话：不随路由切换改变会话或按页面过滤历史。
   const scope = "general";
   const sessions = useAgentStore((state) => state.sessionsByScope[scope] ?? EMPTY_SESSIONS);
@@ -83,6 +85,7 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
   const [detail, setDetail] = useState<Detail | null>(null);
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [pageContextIncluded, setPageContextIncluded] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [creatingRuntime, setCreatingRuntime] = useState(false);
   const [syncingID, setSyncingID] = useState<string | null>(null);
@@ -149,6 +152,9 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     setAttachments([]);
     setError("");
   }, [draft]);
+  useEffect(() => {
+    setPageContextIncluded(true);
+  }, [pageContext]);
   useEffect(() => {
     messagesRef.current?.scrollTo({
       top: messagesRef.current.scrollHeight,
@@ -252,8 +258,13 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
         if (next) upsertCachedSessionDetail(apiBase, next);
         return next;
       });
-      if (incoming.type === "turn.cancelled") setStopNotice("已停止当前回复");
-      if (incoming.type === "turn.started") setStopNotice("");
+      if (incoming.type === "turn.cancelled") setStopNotice(incoming.turnId ?? "");
+      if (
+        ["turn.started", "assistant.completed", "turn.completed", "turn.failed"].includes(
+          incoming.type,
+        )
+      )
+        setStopNotice("");
       if (
         [
           "assistant.completed",
@@ -326,7 +337,6 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     setError("");
     try {
       const body: Record<string, unknown> = {
-        ...scopeContext(scope),
         runtime,
       };
       if (runtime === "codex") {
@@ -356,16 +366,9 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     }
   }
   async function addAsset(asset: UploadedAsset) {
-    if (!projectID) throw new Error("请先选择一个项目");
-    const attached = await fetch(
-      `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/attach`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: projectID }),
-      },
-    );
-    if (!attached.ok) throw new Error("资源无法加入当前项目");
+    // Attachments are workspace-level Asset references: the turn carries only
+    // assetIds and the Agent decides whether to attach them to a Project via
+    // the recut.media.attach tool. No project linkage happens on the client.
     setAttachments((current) =>
       current.some((item) => item.assetId === asset.id)
         ? current
@@ -383,10 +386,6 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
     );
   }
   async function uploadMedia(files: FileList | File[]) {
-    if (!projectID) {
-      setError("通用对话暂不支持项目素材附件。");
-      return;
-    }
     const media = [...files].filter((file) =>
       /^(image|video|audio)\//.test(file.type),
     );
@@ -414,10 +413,11 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
   }
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const pageAttached = Boolean(pageContext && pageContextIncluded);
     if (
       creatingRuntime ||
       loadingSessions ||
-      (!content.trim() && !attachments.length)
+      (!content.trim() && !attachments.length && !pageAttached)
     )
       return;
     const text = content.trim();
@@ -427,6 +427,13 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
       : await createSession((detail?.runtime as Runtime) ?? "codex");
     const sessionID = activeID ?? session?.id;
     if (!sessionID) return;
+    const pageItem = pageAttached && pageContext ? [pageContextPayload(pageContext)] : [];
+    const contexts: MessageContext[] = [
+      ...pendingAttachments.map((attachment) =>
+        mediaContextPayload(attachment.assetId),
+      ),
+      ...pageItem,
+    ];
     setContent("");
     setAttachments([]);
     setError("");
@@ -438,7 +445,7 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: text,
-          assetIds: pendingAttachments.map((attachment) => attachment.assetId),
+          contexts,
         }),
       },
     );
@@ -729,9 +736,9 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
               {error && (
                 <p className="mb-4 text-xs text-destructive">{error}</p>
               )}
-              {stopNotice && (
+              {stopNotice && !currentTurnHasReply(detail, stopNotice) && (
                 <p className="mb-4 text-xs text-muted-foreground">
-                  {stopNotice}
+                  已停止当前回复
                 </p>
               )}
               {!detail || detail.turns.length === 0 ? (
@@ -787,6 +794,9 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
               : pendingOpencodeConfig
           }
           opencodeModels={opencodeModels}
+          onRemovePageContext={() => setPageContextIncluded(false)}
+          pageContext={pageContext ?? null}
+          pageContextIncluded={pageContextIncluded}
           projectID={projectID}
           runtime={(detail?.runtime as Runtime | undefined) ?? "codex"}
           running={
@@ -811,4 +821,11 @@ function ProjectAgentPanelContent({ apiBase, draft, online, projectID }: Props) 
       )}
     </>
   );
+}
+
+function currentTurnHasReply(detail: Detail | null, turnID?: string) {
+  if (!detail || !turnID) return false;
+  const userIndex = detail.turns.findIndex((turn) => turn.id === turnID);
+  if (userIndex < 0) return false;
+  return detail.turns.slice(userIndex + 1).some((turn) => turn.role === "assistant");
 }

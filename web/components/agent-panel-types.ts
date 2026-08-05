@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Agent runtime 与素材引用类型
- * [OUTPUT]: 对外提供 Agent 会话、Turn、事件、配置、可复制且不含聊天正文的会话调试报告与面板 Props（含宿主回填、不自动提交的草稿）的共享类型及默认配置
+ * [OUTPUT]: 对外提供 Agent 会话、Turn、事件、配置、泛化的消息上下文（MessageContext：media/page/未来类型）、保留原始信息的可复制会话调试报告与面板 Props（含宿主回填、不自动提交的草稿与当前页面上下文）的共享类型及默认配置
  * [POS]: components Agent 对话模块的唯一数据契约；被面板控制器、会话视图与输入区共同消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -26,10 +26,6 @@ export type Session = {
   createdAt?: string;
   updatedAt: string;
   nativeSessionId?: string;
-  projectId?: string;
-  projectName?: string;
-  appId?: string;
-  appView?: string;
   codexModel?: string;
   reasoningEffort?: string;
   opencodeModel?: string;
@@ -53,6 +49,57 @@ export type UploadedAsset = {
   origin: string;
   status: string;
 };
+
+// PageContext is the structured description of the page the user was on when
+// sending a message. Native pages report a title and path; App iframes may add
+// selection and content for the currently edited element.
+export type PageContext = {
+  title: string;
+  path?: string;
+  url?: string;
+  selection?: string;
+  content?: string;
+};
+
+// MessageContext is the generic wire form of one typed context item mounted on
+// a user turn, mirroring the backend ChatContext. Type is the discriminator
+// ("media" | "page" | future "project-element"); source records who mounted it
+// ("user" for explicit picks, "page"/"app" for auto-attached current page).
+export type MessageContext = {
+  type: string;
+  source?: string;
+  payload: Record<string, unknown>;
+};
+
+export function mediaContextPayload(assetId: string): MessageContext {
+  return { type: "media", source: "user", payload: { assetId } };
+}
+export function pageContextPayload(context: PageContext): MessageContext {
+  return { type: "page", source: "page", payload: { ...context } };
+}
+export function normalizePageContext(value: unknown): PageContext | null {
+  if (!value || typeof value !== "object") return null;
+  const input = value as Record<string, unknown>;
+  const title = typeof input.title === "string" ? input.title.trim() : "";
+  if (!title) return null;
+  const stringField = (key: string) =>
+    typeof input[key] === "string" && input[key].trim() ? input[key] : undefined;
+  return {
+    title,
+    path: stringField("path"),
+    url: stringField("url"),
+    selection: stringField("selection"),
+    content: stringField("content"),
+  };
+}
+export function contextLabel(context: MessageContext): string {
+  if (context.type === "media")
+    return String(context.payload.name ?? context.payload.assetId ?? "素材");
+  if (context.type === "page")
+    return String(context.payload.title ?? "当前页面");
+  return context.type;
+}
+
 export type Turn = {
   id: string;
   role: "user" | "assistant";
@@ -61,6 +108,7 @@ export type Turn = {
   createdAt: string;
   completedAt?: string;
   attachments?: Attachment[];
+  contexts?: MessageContext[];
 };
 export type ToolPayload = {
   label?: string;
@@ -93,7 +141,7 @@ export type Detail = Session & {
   events: AgentEvent[];
   lastEventId: number;
 };
-export type Props = { apiBase: string; online: boolean; projectID: string | null; draft?: { id: string; text: string } | null };
+export type Props = { apiBase: string; online: boolean; projectID: string | null; draft?: { id: string; text: string } | null; pageContext?: PageContext | null };
 
 type SessionDebugReportInput = {
   apiBase: string;
@@ -119,20 +167,17 @@ function debugSessionMetadata(detail: Detail) {
     codexModel: detail.codexModel,
     reasoningEffort: detail.reasoningEffort,
     opencodeModel: detail.opencodeModel,
-    projectId: detail.projectId,
-    projectName: detail.projectName,
-    appId: detail.appId,
-    appView: detail.appView,
     createdAt: detail.createdAt,
     updatedAt: detail.updatedAt,
     lastEventId: detail.lastEventId,
   };
 }
 
-function debugTurnMetadata({ attachments, completedAt, createdAt, id, role, status }: Turn) {
+function debugTurnMetadata({ attachments, contexts, content, completedAt, createdAt, id, role, status }: Turn) {
   return {
     id,
     role,
+    content,
     status,
     createdAt,
     completedAt,
@@ -143,22 +188,17 @@ function debugTurnMetadata({ attachments, completedAt, createdAt, id, role, stat
       mimeType,
       origin,
     })),
+    contexts,
   };
 }
 
-function debugEventMetadata(event: AgentEvent) {
-  if (event.type !== "assistant.completed" || !event.payload) return event;
-  const { text: _text, ...payload } = event.payload as ToolPayload & { text?: unknown };
-  return { ...event, payload };
-}
-
-// 调试报告刻意不含用户或 Agent 的聊天正文：排障需要身份与结构化执行轨迹。
+// 调试报告保留原始事件与聊天正文，排障时不丢弃任何信息。
 export function buildSessionDebugReport({
   apiBase,
   detail,
   scope,
 }: SessionDebugReportInput) {
-  const events = detail.events.slice(-100).map(debugEventMetadata);
+  const events = detail.events.slice(-100);
   return JSON.stringify(
     {
       format: "recut.agent-session-debug/v1",

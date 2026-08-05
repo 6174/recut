@@ -10,7 +10,7 @@
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
 APP ?=
-RECUT_VERSION ?= 0.1.16
+RECUT_VERSION ?= 0.1.17
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -30,17 +30,20 @@ dev: stop-stale-service stop-stale-web ## Start the LAN service and web developm
 	trap 'kill $$service_pid $$web_pid 2>/dev/null || true' EXIT INT TERM; \
 	wait $$service_pid $$web_pid
 
-stop-stale-service: ## Pause the installed Recut service, then clear a stale Recut daemon from port 17373.
-	@port_pids="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
+stop-stale-service: ## Pause installed or leftover Recut launchd jobs, then clear a stale Recut daemon from port 17373.
+	@case "$$(uname -s)" in \
+		Darwin) for label in video.recut.service video.recut.dev-session; do \
+			full="gui/$$(id -u)/$$label"; \
+			if launchctl print "$$full" >/dev/null 2>&1; then echo "Pausing Recut launchd job $$label."; launchctl bootout "$$full" || true; fi; \
+		done ;; \
+		Linux) if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet recut.service; then echo "Pausing installed Recut service."; systemctl --user stop recut.service; fi ;; \
+	esac; \
+	port_pids="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
 	if [ -z "$$port_pids" ]; then exit 0; fi; \
 	for pid in $$port_pids; do \
 		command="$$(ps -p "$$pid" -o comm= 2>/dev/null | xargs basename)"; \
 		if [ "$$command" != "recut-service" ]; then echo "Port 17373 is occupied by a non-Recut process (PID $$pid); refusing to stop it."; exit 1; fi; \
 	done; \
-	case "$$(uname -s)" in \
-		Darwin) label="gui/$$(id -u)/video.recut.service"; if launchctl print "$$label" >/dev/null 2>&1; then echo "Pausing installed Recut service."; launchctl bootout "$$label"; fi ;; \
-		Linux) if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet recut.service; then echo "Pausing installed Recut service."; systemctl --user stop recut.service; fi ;; \
-	esac; \
 	for attempt in $$(seq 1 30); do \
 		remaining="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
 		if [ -z "$$remaining" ]; then exit 0; fi; \

@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、持久化 CLI 定位缓存、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
- * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、OpenCode 连续六分钟静默才取消的 watchdog、停止时原子取消当前批次并重置 OpenCode 原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
- * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份
+ * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、OpenCode 连续六分钟静默才取消的 watchdog、停止时原子取消当前批次并重置 OpenCode 原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、泛化的消息上下文（media/page/可扩展类型）注册与提示词/CLI 拼装、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
+ * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份，会话不绑定任何项目，项目与 App 完全由 MCP 上下文工具发现
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -31,31 +31,21 @@ type OpencodeModel struct {
 }
 
 type ChatSession struct {
-	ID                   string    `json:"id"`
-	ProfileID            string    `json:"profileId"`
-	ProjectID            string    `json:"projectId,omitempty"`
-	ProjectName          string    `json:"projectName,omitempty"`
-	AppID                string    `json:"appId,omitempty"`
-	AppView              string    `json:"appView,omitempty"`
-	Runtime              string    `json:"runtime"`
-	NativeSessionID      string    `json:"nativeSessionId,omitempty"`
-	CodexModel           string    `json:"codexModel,omitempty"`
-	ReasoningEffort      string    `json:"reasoningEffort,omitempty"`
-	OpencodeModel        string    `json:"opencodeModel,omitempty"`
-	Title                string    `json:"title"`
-	Status               string    `json:"status"`
-	WorkspaceContextJSON string    `json:"-"`
-	CreatedAt            time.Time `json:"createdAt"`
-	UpdatedAt            time.Time `json:"updatedAt"`
+	ID              string    `json:"id"`
+	ProfileID       string    `json:"profileId"`
+	Runtime         string    `json:"runtime"`
+	NativeSessionID string    `json:"nativeSessionId,omitempty"`
+	CodexModel      string    `json:"codexModel,omitempty"`
+	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
+	OpencodeModel   string    `json:"opencodeModel,omitempty"`
+	Title           string    `json:"title"`
+	Status          string    `json:"status"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
-// SessionInput is the workspace context hint for a new chat session. Sessions
-// are unbound; the hint only sets the default target for future Turns.
-type SessionInput struct {
-	ProjectID string
-	AppID     string
-	AppView   string
-}
+// ChatSession is unbound: it never carries a Project or App binding. The model
+// discovers Project and App context exclusively through MCP tools.
 
 type ChatTurn struct {
 	ID          string           `json:"id"`
@@ -67,6 +57,7 @@ type ChatTurn struct {
 	CreatedAt   time.Time        `json:"createdAt"`
 	CompletedAt *time.Time       `json:"completedAt,omitempty"`
 	Attachments []ChatAttachment `json:"attachments"`
+	Contexts    []ChatContext    `json:"contexts"`
 }
 
 type ChatAttachment struct {
@@ -75,6 +66,25 @@ type ChatAttachment struct {
 	Kind     string `json:"kind"`
 	MimeType string `json:"mimeType"`
 	Origin   string `json:"origin"`
+}
+
+// ChatContext is one typed piece of context mounted onto a user turn, e.g. a
+// media Asset (type "media") or the page the user was editing when sending
+// (type "page"). Source records who mounted it: "user" for explicit picks,
+// "page" for the automatically attached current page, or "app" when an App
+// reported it. The payload is a per-type JSON object resolved by a registered
+// contextMaterializer when the turn runs.
+type ChatContext struct {
+	Type    string         `json:"type"`
+	Source  string         `json:"source"`
+	Payload map[string]any `json:"payload"`
+}
+
+// TurnContext is the wire form of a context item accepted when starting a turn.
+type TurnContext struct {
+	Type    string          `json:"type"`
+	Source  string          `json:"source"`
+	Payload json.RawMessage `json:"payload"`
 }
 
 type ChatEvent struct {
@@ -394,12 +404,7 @@ func (m *AgentManager) queuedSessionIDs() []string {
 	return sessionIDs
 }
 
-func (m *AgentManager) Create(input SessionInput, runtime, codexModel, reasoningEffort, opencodeModel string) (ChatSession, error) {
-	if input.ProjectID != "" {
-		if _, err := m.store.Get(input.ProjectID); err != nil {
-			return ChatSession{}, errors.New("project not found")
-		}
-	}
+func (m *AgentManager) Create(runtime, codexModel, reasoningEffort, opencodeModel string) (ChatSession, error) {
 	if runtime != "codex" && runtime != "claude" && runtime != "opencode" {
 		return ChatSession{}, fmt.Errorf("runtime %q is not available yet", runtime)
 	}
@@ -425,45 +430,17 @@ func (m *AgentManager) Create(input SessionInput, runtime, codexModel, reasoning
 		return ChatSession{}, err
 	}
 	now := time.Now().UTC()
-	contextJSON, _ := json.Marshal(map[string]any{"projectId": input.ProjectID, "appId": input.AppID, "appView": input.AppView})
-	session := ChatSession{ID: id, ProfileID: localProfileID, ProjectID: input.ProjectID, AppID: input.AppID, AppView: input.AppView, WorkspaceContextJSON: string(contextJSON), Runtime: runtime, CodexModel: codexModel, ReasoningEffort: reasoningEffort, OpencodeModel: opencodeModel, Title: "新对话", Status: "idle", CreatedAt: now, UpdatedAt: now}
+	session := ChatSession{ID: id, ProfileID: localProfileID, Runtime: runtime, CodexModel: codexModel, ReasoningEffort: reasoningEffort, OpencodeModel: opencodeModel, Title: "新对话", Status: "idle", CreatedAt: now, UpdatedAt: now}
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
 		return ChatSession{}, err
 	}
-	_, err = db.Exec("insert into agent_sessions (id, profile_id, project_id, app_id, app_view, workspace_context_json, runtime, native_session_id, codex_model, reasoning_effort, opencode_model, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.ProjectID, session.AppID, session.AppView, session.WorkspaceContextJSON, session.Runtime, session.NativeSessionID, session.CodexModel, session.ReasoningEffort, session.OpencodeModel, session.Title, session.Status, iso(now), iso(now))
+	_, err = db.Exec("insert into agent_sessions (id, profile_id, runtime, native_session_id, codex_model, reasoning_effort, opencode_model, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.Runtime, session.NativeSessionID, session.CodexModel, session.ReasoningEffort, session.OpencodeModel, session.Title, session.Status, iso(now), iso(now))
 	if err != nil {
 		return session, err
 	}
-	log.Printf("INFO agent session created session_id=%s project_id=%q app_id=%q runtime=%s", session.ID, session.ProjectID, session.AppID, session.Runtime)
+	log.Printf("INFO agent session created session_id=%s runtime=%s", session.ID, session.Runtime)
 	return session, nil
-}
-
-// UpdateContext changes the workspace context hint. It only affects the next
-// Turn: an executing Turn keeps its frozen default Doc.
-func (m *AgentManager) UpdateContext(sessionID string, input SessionInput) (ChatSession, error) {
-	if input.ProjectID != "" {
-		if _, err := m.store.Get(input.ProjectID); err != nil {
-			return ChatSession{}, errors.New("project not found")
-		}
-	}
-	db, err := m.store.WorkspaceDatabase()
-	if err != nil {
-		return ChatSession{}, err
-	}
-	session, err := getChatSession(db, sessionID)
-	if err != nil {
-		return ChatSession{}, err
-	}
-	contextJSON, _ := json.Marshal(map[string]any{"projectId": input.ProjectID, "appId": input.AppID, "appView": input.AppView})
-	now := time.Now().UTC()
-	if _, err := db.Exec("update agent_sessions set project_id = ?, app_id = ?, app_view = ?, workspace_context_json = ?, updated_at = ? where id = ?", input.ProjectID, input.AppID, input.AppView, string(contextJSON), iso(now), sessionID); err != nil {
-		return ChatSession{}, err
-	}
-	session.ProjectID, session.AppID, session.AppView = input.ProjectID, input.AppID, input.AppView
-	session.WorkspaceContextJSON = string(contextJSON)
-	session.UpdatedAt = now
-	return m.hydrateSession(session), nil
 }
 
 func (m *AgentManager) List(projectID, scope string) ([]ChatSession, error) {
@@ -471,7 +448,7 @@ func (m *AgentManager) List(projectID, scope string) ([]ChatSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	query, args := "select id, profile_id, project_id, coalesce(app_id, ''), coalesce(app_view, ''), runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, coalesce(workspace_context_json, ''), created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
+	query, args := "select id, profile_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
 	switch {
 	case projectID != "":
 		query += " and project_id = ?"
@@ -496,7 +473,7 @@ func (m *AgentManager) List(projectID, scope string) ([]ChatSession, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, m.hydrateSession(session))
+		result = append(result, session)
 	}
 	return result, rows.Err()
 }
@@ -514,6 +491,7 @@ func (m *AgentManager) Detail(id string) (ChatSessionDetail, error) {
 	if err != nil {
 		return ChatSessionDetail{}, err
 	}
+	m.enrichTurnContexts(turns)
 	events, err := listChatEvents(db, id, 0)
 	if err != nil {
 		return ChatSessionDetail{}, err
@@ -522,22 +500,7 @@ func (m *AgentManager) Detail(id string) (ChatSessionDetail, error) {
 	if len(events) > 0 {
 		last = events[len(events)-1].ID
 	}
-	return ChatSessionDetail{ChatSession: m.hydrateSession(session), Turns: turns, Events: events, LastEventID: last}, nil
-}
-
-// A session stores its workspace context hint as durable columns. Project name
-// is hydrated at the API boundary so the UI can show its actual scope without
-// duplicating mutable project metadata in the conversation database.
-func (m *AgentManager) hydrateSession(session ChatSession) ChatSession {
-	if session.ProjectID != "" {
-		if project, err := m.store.Get(session.ProjectID); err == nil {
-			session.ProjectName = project.Name
-			if session.AppID == "" {
-				session.AppID = project.AppID
-			}
-		}
-	}
-	return session
+	return ChatSessionDetail{ChatSession: session, Turns: turns, Events: events, LastEventID: last}, nil
 }
 
 func (m *AgentManager) Events(id string, after int64) ([]ChatEvent, error) {
@@ -551,7 +514,7 @@ func (m *AgentManager) Events(id string, after int64) ([]ChatEvent, error) {
 	return listChatEvents(db, id, after)
 }
 
-func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (ChatTurn, error) {
+func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string, inputContexts []TurnContext) (ChatTurn, error) {
 	text = strings.TrimSpace(text)
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
@@ -561,12 +524,22 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (Cha
 	if err != nil {
 		return ChatTurn{}, err
 	}
-	attachments, err := m.turnAttachments(session.ProjectID, assetIDs)
+	contexts := make([]ChatContext, 0, len(assetIDs)+len(inputContexts))
+	for _, id := range assetIDs {
+		contexts = append(contexts, ChatContext{Type: "media", Source: "user", Payload: map[string]any{"assetId": id}})
+	}
+	for _, input := range inputContexts {
+		contexts = append(contexts, ChatContext{Type: strings.TrimSpace(input.Type), Source: defaultContextSource(input.Source), Payload: rawPayloadMap(input.Payload)})
+	}
+	attachments, err := m.turnAttachments(contexts)
 	if err != nil {
 		return ChatTurn{}, err
 	}
-	if text == "" && len(attachments) == 0 {
-		return ChatTurn{}, errors.New("message or image is required")
+	if text == "" && len(attachments) == 0 && len(contexts) == 0 {
+		return ChatTurn{}, errors.New("message, image or context is required")
+	}
+	if _, err := m.contextMaterials(contexts); err != nil {
+		return ChatTurn{}, err
 	}
 	task, err := m.store.ActiveTask(sessionID)
 	if err != nil {
@@ -582,21 +555,21 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (Cha
 	} else {
 		taskID = task.ID
 	}
-	defaultDoc, _ := json.Marshal(map[string]any{"projectId": session.ProjectID, "appId": session.AppID})
 	turnID, err := newID()
 	if err != nil {
 		return ChatTurn{}, err
 	}
 	now := time.Now().UTC()
-	turn := ChatTurn{ID: turnID, SessionID: sessionID, Role: "user", Content: text, Status: "queued", CreatedAt: now, Attachments: attachments}
+	turn := ChatTurn{ID: turnID, SessionID: sessionID, Role: "user", Content: text, Status: "queued", CreatedAt: now, Attachments: attachments, Contexts: contexts}
 	tx, err := db.Begin()
 	if err == nil {
 		defer tx.Rollback()
-		_, err = tx.Exec("insert into agent_turns (id, session_id, role, content, status, task_id, default_doc_json, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)", turn.ID, turn.SessionID, turn.Role, turn.Content, turn.Status, taskID, string(defaultDoc), iso(now))
+		_, err = tx.Exec("insert into agent_turns (id, session_id, role, content, status, task_id, created_at) values (?, ?, ?, ?, ?, ?, ?)", turn.ID, turn.SessionID, turn.Role, turn.Content, turn.Status, taskID, iso(now))
 	}
 	if err == nil {
-		for _, attachment := range attachments {
-			if _, err = tx.Exec("insert into agent_turn_attachments (turn_id, asset_id) values (?, ?)", turn.ID, attachment.AssetID); err != nil {
+		for index, context := range contexts {
+			payload, _ := json.Marshal(context.Payload)
+			if _, err = tx.Exec("insert into agent_turn_contexts (turn_id, seq, type, source, payload_json) values (?, ?, ?, ?, ?)", turn.ID, index, context.Type, context.Source, string(payload)); err != nil {
 				break
 			}
 		}
@@ -606,7 +579,7 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (Cha
 		if title == "新对话" {
 			title = shortTitle(text)
 			if title == "" {
-				title = "图片对话"
+				title = turnTitleFallback(attachments, contexts)
 			}
 		}
 		_, err = tx.Exec("update agent_sessions set title = ?, status = ?, updated_at = ? where id = ?", title, "running", iso(now), sessionID)
@@ -621,15 +594,62 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string) (Cha
 		return ChatTurn{}, err
 	}
 	m.emit(sessionID, turnID, "turn.queued", map[string]any{"label": "已加入待发送消息"})
-	log.Printf("INFO agent turn queued session_id=%s turn_id=%s task_id=%s attachments=%d", sessionID, turn.ID, taskID, len(attachments))
+	log.Printf("INFO agent turn queued session_id=%s turn_id=%s task_id=%s contexts=%d", sessionID, turn.ID, taskID, len(contexts))
 	m.startRunner(sessionID)
 	return turn, nil
 }
 
-func (m *AgentManager) turnAttachments(projectID string, assetIDs []string) ([]ChatAttachment, error) {
-	attachments := make([]ChatAttachment, 0, len(assetIDs))
+// defaultContextSource normalizes the optional source field: anything but
+// "page" or "app" falls back to an explicit user pick.
+func defaultContextSource(source string) string {
+	switch source {
+	case "page", "app":
+		return source
+	default:
+		return "user"
+	}
+}
+
+// rawPayloadMap decodes a context payload into a map; an absent or invalid
+// payload becomes an empty object so the row still round-trips.
+func rawPayloadMap(raw json.RawMessage) map[string]any {
+	payload := map[string]any{}
+	_ = json.Unmarshal(raw, &payload)
+	return payload
+}
+
+// turnTitleFallback keeps empty-text context-only turns from collapsing into
+// the media-specific default.
+func turnTitleFallback(attachments []ChatAttachment, contexts []ChatContext) string {
+	hasMedia := len(attachments) > 0
+	hasOther := false
+	for _, context := range contexts {
+		if context.Type == "media" {
+			hasMedia = true
+		} else {
+			hasOther = true
+		}
+	}
+	switch {
+	case hasOther:
+		return "上下文对话"
+	case hasMedia:
+		return "图片对话"
+	default:
+		return "新对话"
+	}
+}
+
+// turnAttachments resolves media contexts into their enriched display shape
+// and rejects unavailable assets, matching the legacy assetIds contract.
+func (m *AgentManager) turnAttachments(contexts []ChatContext) ([]ChatAttachment, error) {
+	attachments := make([]ChatAttachment, 0, len(contexts))
 	seen := map[string]bool{}
-	for _, id := range assetIDs {
+	for _, context := range contexts {
+		if context.Type != "media" {
+			continue
+		}
+		id, _ := context.Payload["assetId"].(string)
 		id = strings.TrimSpace(id)
 		if id == "" || seen[id] {
 			continue
@@ -639,21 +659,9 @@ func (m *AgentManager) turnAttachments(projectID string, assetIDs []string) ([]C
 		if err != nil {
 			return nil, errors.New("media attachment is unavailable")
 		}
-		if projectID != "" && !containsString(asset.ProjectIDs, projectID) {
-			return nil, errors.New("media attachment is unavailable in this project")
-		}
 		attachments = append(attachments, ChatAttachment{AssetID: asset.ID, Name: asset.Name, Kind: asset.Kind, MimeType: asset.MimeType, Origin: asset.Origin})
 	}
 	return attachments, nil
-}
-
-func containsString(values []string, expected string) bool {
-	for _, value := range values {
-		if value == expected {
-			return true
-		}
-	}
-	return false
 }
 
 func (m *AgentManager) Stop(sessionID string) error {
@@ -703,7 +711,7 @@ func (m *AgentManager) UpdateCodexConfiguration(sessionID, model, effort string)
 		return ChatSession{}, err
 	}
 	session.CodexModel, session.ReasoningEffort, session.UpdatedAt = model, effort, now
-	return m.hydrateSession(session), nil
+	return session, nil
 }
 
 // UpdateOpencodeConfiguration changes the model used by the next queued turn.
@@ -729,7 +737,7 @@ func (m *AgentManager) UpdateOpencodeConfiguration(sessionID, model string) (Cha
 		return ChatSession{}, err
 	}
 	session.OpencodeModel, session.UpdatedAt = model, now
-	return m.hydrateSession(session), nil
+	return session, nil
 }
 
 func (m *AgentManager) startRunner(sessionID string) {
@@ -817,6 +825,15 @@ func (m *AgentManager) nextQueuedTurn(sessionID string) (ChatSession, ChatTurn, 
 	if err != nil {
 		return ChatSession{}, ChatTurn{}, false
 	}
+	// The runner needs the turn's typed contexts: scanChatTurn only reads the
+	// agent_turns row, so hydrate them before handing the turn to the CLI.
+	// Without this the prompt would silently drop every attached asset and
+	// page context.
+	contexts, err := listChatContexts(db, turn.ID)
+	if err != nil {
+		return ChatSession{}, ChatTurn{}, false
+	}
+	turn.Contexts = contexts
 	if _, err := db.Exec("update agent_turns set status = ?, completed_at = null where id = ?", "running", turn.ID); err != nil {
 		return ChatSession{}, ChatTurn{}, false
 	}
@@ -912,7 +929,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	if err != nil {
 		return err
 	}
-	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{ProjectID: session.ProjectID, AppID: session.AppID, TaskID: userTurn.TaskID})
+	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{TaskID: userTurn.TaskID})
 	if err != nil {
 		return err
 	}
@@ -929,13 +946,14 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		args = append(args, "resume", session.NativeSessionID)
 	}
 	args = append(args, "--model", model, "--config", fmt.Sprintf("model_reasoning_effort=%q", effort))
-	attachments := m.attachmentContexts(userTurn.Attachments)
-	for _, attachment := range attachments {
-		if attachment.Kind == "image" {
-			args = append(args, "--image", attachment.Path)
-		}
+	materials, err := m.contextMaterials(userTurn.Contexts)
+	if err != nil {
+		return err
 	}
-	args = append(args, "--json", "--", userTurn.runtimePrompt()+attachmentPrompt(attachments))
+	for _, material := range materials {
+		args = append(args, material.Args...)
+	}
+	args = append(args, "--json", "--", userTurn.runtimePrompt()+contextPrompt(materials))
 	cmd, stdout, stderr, err := m.startCLI(ctx, "codex", args, workspace, nil)
 	if err != nil {
 		return err
@@ -986,7 +1004,7 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	if err != nil {
 		return err
 	}
-	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{ProjectID: session.ProjectID, AppID: session.AppID, TaskID: userTurn.TaskID})
+	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{TaskID: userTurn.TaskID})
 	if err != nil {
 		return err
 	}
@@ -995,7 +1013,11 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 		return err
 	}
 	workspace := m.bridge.WorkspaceDir(bridgeSession)
-	prompt := userTurn.runtimePrompt() + attachmentPrompt(m.attachmentContexts(userTurn.Attachments))
+	materials, err := m.contextMaterials(userTurn.Contexts)
+	if err != nil {
+		return err
+	}
+	prompt := userTurn.runtimePrompt() + contextPrompt(materials)
 	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--mcp-config", profile}
 	if session.NativeSessionID != "" {
 		args = append(args, "--resume", session.NativeSessionID)
@@ -1049,7 +1071,7 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	if err != nil {
 		return err
 	}
-	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{ProjectID: session.ProjectID, AppID: session.AppID, TaskID: userTurn.TaskID})
+	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{TaskID: userTurn.TaskID})
 	if err != nil {
 		return err
 	}
@@ -1061,7 +1083,11 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	if err != nil {
 		return err
 	}
-	prompt := userTurn.runtimePrompt() + attachmentPrompt(m.attachmentContexts(userTurn.Attachments))
+	materials, err := m.contextMaterials(userTurn.Contexts)
+	if err != nil {
+		return err
+	}
+	prompt := userTurn.runtimePrompt() + contextPrompt(materials)
 	args := opencodeRunArgs(prompt, workspace, model, session.NativeSessionID, session.Title)
 	runContext, watchdog := newOpencodeSilenceWatchdog(ctx, opencodeSilenceTimeout)
 	defer watchdog.Stop()
@@ -1154,6 +1180,10 @@ func (m *AgentManager) attachmentContexts(attachments []ChatAttachment) []attach
 	return contexts
 }
 
+func attachmentLine(attachment attachmentContext) string {
+	return fmt.Sprintf("- assetId=%s；name=%s；kind=%s；origin=%s；path=%s", attachment.AssetID, attachment.Name, attachment.Kind, attachment.Origin, attachment.Path)
+}
+
 func attachmentPrompt(attachments []attachmentContext) string {
 	if len(attachments) == 0 {
 		return ""
@@ -1161,7 +1191,138 @@ func attachmentPrompt(attachments []attachmentContext) string {
 	lines := make([]string, 0, len(attachments)+1)
 	lines = append(lines, "\n\n本条消息附带的素材已导入全局素材库。后续媒体工具必须引用 assetId；path 仅供本次 Agent 读取：")
 	for _, attachment := range attachments {
-		lines = append(lines, fmt.Sprintf("- assetId=%s；name=%s；kind=%s；origin=%s；path=%s", attachment.AssetID, attachment.Name, attachment.Kind, attachment.Origin, attachment.Path))
+		lines = append(lines, attachmentLine(attachment))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// contextMaterial is one context type's resolved contribution to a turn. Kind
+// distinguishes media (which additionally contributes codex --image args) from
+// plain text contexts like the current page.
+type contextMaterial struct {
+	Label string   // 展示名，用于日志与调试
+	Kind  string   // "media" 或其它类型标识
+	Text  string   // 拼入用户消息的 prompt 行
+	Args  []string // 运行时参数，如 codex --image <path>
+}
+
+// contextMaterializers is the extensible context type registry. A new context
+// type (e.g. a project element reference) only needs a map entry plus its
+// payload contract; the prompt/CLI pipeline is shared.
+var contextMaterializers = map[string]func(m *AgentManager, payload json.RawMessage) (contextMaterial, error){
+	"media": materializeMediaContext,
+	"page":  materializePageContext,
+}
+
+func (m *AgentManager) contextMaterials(contexts []ChatContext) ([]contextMaterial, error) {
+	if len(contexts) == 0 {
+		return nil, nil
+	}
+	materials := make([]contextMaterial, 0, len(contexts))
+	for _, context := range contexts {
+		materialize, ok := contextMaterializers[context.Type]
+		if !ok {
+			return nil, fmt.Errorf("unsupported context type %q", context.Type)
+		}
+		payload, _ := json.Marshal(context.Payload)
+		material, err := materialize(m, payload)
+		if err != nil {
+			return nil, err
+		}
+		materials = append(materials, material)
+	}
+	return materials, nil
+}
+
+// materializeMediaContext keeps the legacy assetIds contract: the media binary
+// stays in the library, the turn only carries the verified asset identity, and
+// the local path is exposed to this Agent run alone.
+func materializeMediaContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		AssetID string `json:"assetId"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || input.AssetID == "" {
+		return contextMaterial{}, errors.New("media context requires assetId")
+	}
+	asset, err := m.media.GetAsset(input.AssetID)
+	if err != nil {
+		return contextMaterial{}, errors.New("media attachment is unavailable")
+	}
+	path, _ := asset.Metadata["path"].(string)
+	if path == "" {
+		return contextMaterial{}, errors.New("media attachment has no local path")
+	}
+	context := attachmentContext{AssetID: asset.ID, Name: asset.Name, Kind: asset.Kind, Origin: asset.Origin, Path: path}
+	material := contextMaterial{Label: asset.Name, Kind: "media", Text: attachmentLine(context)}
+	if asset.Kind == "image" {
+		material.Args = []string{"--image", path}
+	}
+	return material, nil
+}
+
+// pageContextPayload is the structured description of the page the user was on
+// when sending. App UIs may fill selection and content for the currently edited
+// element; native pages at minimum report a title and path.
+type pageContextPayload struct {
+	Title     string `json:"title"`
+	Path      string `json:"path,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Selection string `json:"selection,omitempty"`
+	Content   string `json:"content,omitempty"`
+}
+
+func materializePageContext(_ *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var page pageContextPayload
+	if err := json.Unmarshal(payload, &page); err != nil {
+		return contextMaterial{}, err
+	}
+	if strings.TrimSpace(page.Title) == "" {
+		return contextMaterial{}, errors.New("page context requires title")
+	}
+	parts := []string{"标题=" + page.Title}
+	if page.Path != "" {
+		parts = append(parts, "路径="+page.Path)
+	}
+	if page.URL != "" {
+		parts = append(parts, "URL="+page.URL)
+	}
+	if page.Selection != "" {
+		parts = append(parts, "选中内容="+page.Selection)
+	}
+	if page.Content != "" {
+		parts = append(parts, "页面内容="+page.Content)
+	}
+	return contextMaterial{Label: page.Title, Kind: "page", Text: "[当前页面] " + strings.Join(parts, "；")}, nil
+}
+
+// contextPrompt groups materialized contexts into one prompt appendix. The
+// media section keeps the shared library instruction so path stays single-use,
+// and other context types follow their own section.
+func contextPrompt(materials []contextMaterial) string {
+	if len(materials) == 0 {
+		return ""
+	}
+	var media []contextMaterial
+	var other []contextMaterial
+	for _, material := range materials {
+		if material.Kind == "media" {
+			media = append(media, material)
+		} else {
+			other = append(other, material)
+		}
+	}
+	lines := make([]string, 0, len(materials)+2)
+	if len(media) > 0 {
+		lines = append(lines, "\n\n本条消息附带的素材已导入全局素材库。后续媒体工具必须引用 assetId；path 仅供本次 Agent 读取：")
+		for _, material := range media {
+			lines = append(lines, material.Text)
+		}
+	}
+	if len(other) > 0 {
+		lines = append(lines, "\n\n本条消息附带的其他上下文：")
+		for _, material := range other {
+			lines = append(lines, material.Text)
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1170,7 +1331,7 @@ func (t ChatTurn) runtimePrompt() string {
 	if t.Content != "" {
 		return t.Content
 	}
-	return "请分析随本条消息附上的图片。"
+	return "请结合本条消息附带的上下文进行分析。"
 }
 
 func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string]any) {
@@ -1544,7 +1705,7 @@ func (m *AgentManager) updateSession(id, clause, value string) {
 func (m *AgentManager) finish(id string) { m.mu.Lock(); delete(m.running, id); m.mu.Unlock() }
 
 func getChatSession(db *sql.DB, id string) (ChatSession, error) {
-	row := db.QueryRow("select id, profile_id, project_id, coalesce(app_id, ''), coalesce(app_view, ''), runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, coalesce(workspace_context_json, ''), created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
+	row := db.QueryRow("select id, profile_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
 	return scanChatSession(row)
 }
 
@@ -1553,7 +1714,7 @@ type scanner interface{ Scan(...any) error }
 func scanChatSession(row scanner) (ChatSession, error) {
 	var session ChatSession
 	var created, updated string
-	err := row.Scan(&session.ID, &session.ProfileID, &session.ProjectID, &session.AppID, &session.AppView, &session.Runtime, &session.NativeSessionID, &session.CodexModel, &session.ReasoningEffort, &session.OpencodeModel, &session.Title, &session.Status, &session.WorkspaceContextJSON, &created, &updated)
+	err := row.Scan(&session.ID, &session.ProfileID, &session.Runtime, &session.NativeSessionID, &session.CodexModel, &session.ReasoningEffort, &session.OpencodeModel, &session.Title, &session.Status, &created, &updated)
 	if err != nil {
 		return ChatSession{}, err
 	}
@@ -1675,8 +1836,84 @@ func listChatTurns(db *sql.DB, sessionID string) ([]ChatTurn, error) {
 			return nil, err
 		}
 		result[index].Attachments = attachments
+		contexts, err := listChatContexts(db, result[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(contexts) > 0 {
+			result[index].Contexts = contexts
+		}
 	}
 	return result, nil
+}
+
+func listChatContexts(db *sql.DB, turnID string) ([]ChatContext, error) {
+	rows, err := db.Query(`select type, source, payload_json from agent_turn_contexts where turn_id = ? order by seq`, turnID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	contexts := []ChatContext{}
+	for rows.Next() {
+		var context ChatContext
+		var payload string
+		if err := rows.Scan(&context.Type, &context.Source, &payload); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(payload), &context.Payload); err != nil {
+			continue
+		}
+		contexts = append(contexts, context)
+	}
+	return contexts, rows.Err()
+}
+
+// enrichTurnContexts fills display metadata for media context payloads and
+// keeps the legacy attachments field populated for turns that only store
+// contexts, so history rendering never depends on which table wrote a turn.
+func (m *AgentManager) enrichTurnContexts(turns []ChatTurn) {
+	for index := range turns {
+		turn := &turns[index]
+		for contextIndex := range turn.Contexts {
+			context := &turn.Contexts[contextIndex]
+			if context.Type != "media" {
+				continue
+			}
+			assetID, _ := context.Payload["assetId"].(string)
+			if assetID == "" || m.media == nil {
+				continue
+			}
+			asset, err := m.media.GetAsset(assetID)
+			if err != nil {
+				continue
+			}
+			context.Payload["assetId"] = asset.ID
+			context.Payload["name"] = asset.Name
+			context.Payload["kind"] = asset.Kind
+			context.Payload["mimeType"] = asset.MimeType
+			context.Payload["origin"] = asset.Origin
+			if path, _ := asset.Metadata["path"].(string); path != "" {
+				context.Payload["path"] = path
+			}
+		}
+		if len(turn.Attachments) > 0 {
+			continue
+		}
+		for _, context := range turn.Contexts {
+			if context.Type != "media" {
+				continue
+			}
+			assetID, _ := context.Payload["assetId"].(string)
+			if assetID == "" {
+				continue
+			}
+			name, _ := context.Payload["name"].(string)
+			kind, _ := context.Payload["kind"].(string)
+			mimeType, _ := context.Payload["mimeType"].(string)
+			origin, _ := context.Payload["origin"].(string)
+			turn.Attachments = append(turn.Attachments, ChatAttachment{AssetID: assetID, Name: name, Kind: kind, MimeType: mimeType, Origin: origin})
+		}
+	}
 }
 
 func listChatAttachments(db *sql.DB, turnID string) ([]ChatAttachment, error) {

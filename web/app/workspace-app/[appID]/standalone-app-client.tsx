@@ -9,11 +9,12 @@
 import { AppWindow, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HeaderActions } from "@/components/header-actions";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
+import { normalizePageContext } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
-import { useAgentPanelContext } from "@/lib/agent-panel-context";
+import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore } from "@/lib/workspace-store";
@@ -53,6 +54,7 @@ export default function StandaloneAppClient() {
   useLayoutEffect(() => {
     useAgentPanelContext.getState().setContext({ projectID: null, headerHeight: 56 });
   }, []);
+  useReportPageContext(useMemo(() => (app ? { title: app.manifest.name, path: `/workspace-app/${appID}`, url: window.location.href } : null), [app, appID]));
   useEffect(() => {
     if (!appID || !online) return;
     void Promise.all([loadWorkspace(apiBase), loadWorkspaceScope(apiBase, appID)]);
@@ -88,6 +90,11 @@ export default function StandaloneAppClient() {
           if (!prompt) throw new Error("Agent Prompt 不能为空");
           useAgentPanelContext.getState().setDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
+        } else if (request.type === "page.context") {
+          const context = normalizePageContext(request.input?.context);
+          if (!context) throw new Error("页面上下文需要标题");
+          useAgentPanelContext.getState().setPageContext(context);
+          reply({ delivery: "page-context" });
         } else if (request.type === "media.configuration") {
           await useMediaConfigurationStore.getState().load(apiBase);
           const configuration = useMediaConfigurationStore.getState();

@@ -18,6 +18,7 @@ export function AgentPanelHost({ children }: Readonly<{ children: React.ReactNod
   const projectID = useAgentPanelContext((state) => state.projectID);
   const headerHeight = useAgentPanelContext((state) => state.headerHeight);
   const draft = useAgentPanelContext((state) => state.draft);
+  const pageContext = useAgentPanelContext((state) => state.pageContext);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.agent-panel-width" });
   return (
     <div className="relative flex min-h-screen min-w-0 flex-col overflow-hidden bg-background md:h-screen" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}>
@@ -25,7 +26,7 @@ export function AgentPanelHost({ children }: Readonly<{ children: React.ReactNod
       {isDragging && <div aria-hidden="true" className="absolute inset-0 z-[5] cursor-col-resize" />}
       <button aria-label="拖动调整 Agent 面板宽度" className="group absolute bottom-0 z-10 hidden w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none md:block [left:calc(100%_-_var(--side-panel-width)_-_0.25rem)]" onPointerDown={handlePointerDown} style={{ top: headerHeight }} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button>
       <aside className="absolute bottom-0 right-0 z-0 hidden md:block" style={{ top: headerHeight, width: panelWidth }}>
-        <ProjectAgentPanel apiBase={apiBase} draft={draft} online={online} projectID={projectID} />
+        <ProjectAgentPanel apiBase={apiBase} draft={draft} online={online} pageContext={pageContext} projectID={projectID} />
       </aside>
     </div>
   );

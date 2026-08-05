@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Store 的工作区身份、全局 Agent guide 模板与标准库文件系统能力
  * [OUTPUT]: 对外提供 AgentBridge、AgentSession、按会话独立的工作区物化（全局 guide + 三 CLI 的 MCP 配置）与鉴权
- * [POS]: service 的 Agent 会话边界；会话不绑定项目，bridge session 携带冻结的默认 Doc 与 Task ID，CLI 从会话工作区运行
+ * [POS]: service 的 Agent 会话边界；会话不绑定项目，bridge session 仅携带 Task ID，CLI 从中立会话工作区运行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -28,20 +28,16 @@ var bridgeInstructions string
 
 type AgentSession struct {
 	ID        string    `json:"id"`
-	ProjectID string    `json:"projectId,omitempty"`
-	AppID     string    `json:"appId,omitempty"`
 	TaskID    string    `json:"taskId,omitempty"`
 	TokenHash string    `json:"tokenHash"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// SessionContext carries the frozen default Doc (optional) and Task identity for
-// one CLI execution. A session never binds to a Project; the default Doc only
-// influences target resolution for calls that do not pass an explicit target.
+// SessionContext carries the Task identity for one CLI execution. A session
+// never binds to a Project or App: the model discovers both exclusively through
+// MCP context tools and passes explicit targets.
 type SessionContext struct {
-	ProjectID string
-	AppID     string
-	TaskID    string
+	TaskID string
 }
 
 type AgentBridge struct {
@@ -69,24 +65,10 @@ func (b *AgentBridge) CreateSession(ctx SessionContext) (AgentSession, string, e
 	if err != nil {
 		return AgentSession{}, "", err
 	}
-	session := AgentSession{ID: id, ProjectID: ctx.ProjectID, AppID: ctx.AppID, TaskID: ctx.TaskID, TokenHash: hashToken(token), CreatedAt: time.Now().UTC()}
+	session := AgentSession{ID: id, TaskID: ctx.TaskID, TokenHash: hashToken(token), CreatedAt: time.Now().UTC()}
 	workspace := b.store.SessionWorkspaceDir(session.ID)
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		return AgentSession{}, "", err
-	}
-	// For a Project-target session the workspace exposes the Project directory
-	// through a controlled `project` symlink, so the CLI can write native Codex
-	// images into `project/files/...` and import them back as Project Assets.
-	if session.ProjectID != "" {
-		if _, err := b.store.Get(session.ProjectID); err == nil {
-			if target, targetErr := filepath.EvalSymlinks(b.store.projectDir(session.ProjectID)); targetErr == nil {
-				link := filepath.Join(workspace, "project")
-				_ = os.Remove(link)
-				if linkErr := os.Symlink(target, link); linkErr != nil {
-					return AgentSession{}, "", linkErr
-				}
-			}
-		}
 	}
 	if err := writeProjectJSON(filepath.Join(b.store.SessionWorkspaceDir(session.ID), "..", "bridge-session.json"), bridgeRecord{Session: session}); err != nil {
 		return AgentSession{}, "", err

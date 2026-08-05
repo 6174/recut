@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 Agent 附件上下文格式化函数
- * [OUTPUT]: 验证 Agent 附件身份、Codex 与 OpenCode 工具输入/输出/错误和成本字段分离、OpenCode 静默 watchdog、仅内存 CLI 调试流的回放与订阅、CLI 定位缓存的持久化/失效刷新/启动重试、共享 SQLite 的 WAL/并发写入策略、单连接池会话详情读取、停止时原子取消 active/queued Turn 并重置 OpenCode 会话，以及服务重启后的中断状态收敛
+ * [INPUT]: 依赖 Agent 附件与泛化上下文格式化函数
+ * [OUTPUT]: 验证 Agent 附件身份、页面上下文 materializer、上下文提示词分组、标题兜底、Codex 与 OpenCode 工具输入/输出/错误和成本字段分离、OpenCode 静默 watchdog、仅内存 CLI 调试流的回放与订阅、CLI 定位缓存的持久化/失效刷新/启动重试、共享 SQLite 的 WAL/并发写入策略、单连接池会话详情读取、停止时原子取消 active/queued Turn 并重置 OpenCode 会话，以及服务重启后的中断状态收敛
  * [POS]: service 的 Agent 协议回归测试；防止附件退化为裸路径或取消永久悬挂
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +24,106 @@ func TestAttachmentPromptPreservesAssetIdentity(t *testing.T) {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("attachment prompt missing %q: %s", expected, prompt)
 		}
+	}
+}
+
+func TestMaterializePageContextRendersStructuredPage(t *testing.T) {
+	manager := NewAgentManager(NewStore(t.TempDir(), nil), nil, nil)
+	payload := json.RawMessage(`{"title":"分镜编辑","path":"/workspace-app/vox-broll","selection":"scene-3 的镜头","content":"镜头 B-roll 素材"}`)
+	material, err := materializePageContext(manager, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"[当前页面]", "标题=分镜编辑", "路径=/workspace-app/vox-broll", "选中内容=scene-3 的镜头", "页面内容=镜头 B-roll 素材"} {
+		if !strings.Contains(material.Text, expected) {
+			t.Fatalf("page material missing %q: %s", expected, material.Text)
+		}
+	}
+	if material.Label != "分镜编辑" || material.Kind != "page" || len(material.Args) != 0 {
+		t.Fatalf("page material = %#v", material)
+	}
+	if _, err := materializePageContext(manager, json.RawMessage(`{"path":"/media"}`)); err == nil {
+		t.Fatal("page context without title was accepted")
+	}
+	if _, err := materializePageContext(manager, json.RawMessage(`{bad`)); err == nil {
+		t.Fatal("malformed page context was accepted")
+	}
+}
+
+func TestContextPromptGroupsMediaAndPage(t *testing.T) {
+	media := contextMaterial{Kind: "media", Label: "shot.png", Text: "- assetId=a1；name=shot.png"}
+	page := contextMaterial{Kind: "page", Label: "素材库", Text: "[当前页面] 标题=素材库"}
+	prompt := contextPrompt([]contextMaterial{media, page})
+	for _, expected := range []string{"本条消息附带的素材已导入全局素材库", "assetId=a1", "本条消息附带的其他上下文", "[当前页面] 标题=素材库"} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("context prompt missing %q: %s", expected, prompt)
+		}
+	}
+	if contextPrompt(nil) != "" || contextPrompt([]contextMaterial{}) != "" {
+		t.Fatal("empty context prompt must be blank")
+	}
+}
+
+func TestTurnTitleFallbackDistinguishesMediaFromPageContexts(t *testing.T) {
+	if title := turnTitleFallback(nil, []ChatContext{{Type: "media", Payload: map[string]any{"assetId": "a1"}}}); title != "图片对话" {
+		t.Fatalf("media-only title = %q, want 图片对话", title)
+	}
+	if title := turnTitleFallback(nil, []ChatContext{{Type: "page", Payload: map[string]any{"title": "素材库"}}}); title != "上下文对话" {
+		t.Fatalf("page title = %q, want 上下文对话", title)
+	}
+	if title := turnTitleFallback(nil, nil); title != "新对话" {
+		t.Fatalf("empty title = %q, want 新对话", title)
+	}
+}
+
+func TestDefaultContextSourceNormalizesSource(t *testing.T) {
+	for source, want := range map[string]string{"": "user", "user": "user", "page": "page", "app": "app", "other": "user"} {
+		if got := defaultContextSource(source); got != want {
+			t.Fatalf("defaultContextSource(%q) = %q, want %q", source, got, want)
+		}
+	}
+}
+
+// The runner reads the queued turn from the DB and must hydrate typed contexts
+// (and legacy attachments) or the CLI prompt would silently drop every attached
+// asset and page context. StartTurn would race its own async runner, so this
+// test inserts the turn row directly.
+func TestNextQueuedTurnHydratesContexts(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewAgentManager(store, nil, nil)
+	session, err := manager.Create("codex", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, err := db.Exec("insert into agent_turns (id, session_id, role, content, status, task_id, created_at) values (?, ?, 'user', ?, 'queued', '', ?)", "turn-ctx", session.ID, "分析素材库", iso(now)); err != nil {
+		t.Fatal(err)
+	}
+	for index, context := range []struct{ type_, payload string }{
+		{"page", `{"title":"素材库","path":"/media"}`},
+		{"media", `{"assetId":"asset-1"}`},
+	} {
+		if _, err := db.Exec("insert into agent_turn_contexts (turn_id, seq, type, source, payload_json) values (?, ?, ?, ?, ?)", "turn-ctx", index, context.type_, "page", context.payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, turn, ok := manager.nextQueuedTurn(session.ID)
+	if !ok {
+		t.Fatal("nextQueuedTurn found no queued turn")
+	}
+	if len(turn.Contexts) != 2 || turn.Contexts[0].Type != "page" || turn.Contexts[1].Type != "media" {
+		t.Fatalf("hydrated contexts = %#v", turn.Contexts)
+	}
+	if payload := turn.Contexts[1].Payload["assetId"]; payload != "asset-1" {
+		t.Fatalf("media context payload = %#v", turn.Contexts[1].Payload)
 	}
 }
 
