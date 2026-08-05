@@ -109,7 +109,7 @@ func TestRecoverInterruptedTurnsClearsStaleRunningState(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := iso(time.Now().UTC())
-	if _, err := db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", "session-restart", localProfileID, "", "codex", "", "Restart", "running", now, now); err != nil {
+	if _, err := db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", "session-restart", localProfileID, "", "opencode", "ses_interrupted", "Restart", "running", now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec("insert into agent_turns (id, session_id, role, content, status, created_at) values (?, ?, ?, ?, ?, ?)", "turn-restart", "session-restart", "user", "interrupted", "running", now); err != nil {
@@ -128,7 +128,7 @@ func TestRecoverInterruptedTurnsClearsStaleRunningState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.Status != "idle" || detail.Turns[0].Status != "cancelled" || detail.Turns[0].CompletedAt == nil {
+	if detail.Status != "idle" || detail.NativeSessionID != "" || detail.Turns[0].Status != "cancelled" || detail.Turns[0].CompletedAt == nil {
 		t.Fatalf("restart left stale running state: %#v", detail)
 	}
 	var cancelled, sessionUpdated int

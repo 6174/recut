@@ -17,9 +17,7 @@ import { VideoFrame } from "@/components/video-frame";
 type MediaType = "image" | "video" | "audio";
 type Segment = { kind: "text"; value: string } | { kind: "media"; assetID: string; type: MediaType } | { kind: "project"; projectId: string } | { kind: "app"; appId: string };
 
-const mediaTag = /<media\s+([^>]*?)\s*\/?>(?:<\/media>)?/gi;
-const projectTag = /<project\s+([^>]*?)\s*\/?>/gi;
-const appTag = /<app\s+([^>]*?)\s*\/?>/gi;
+const tagPattern = /<(media|project|app)\s+([^>]*?)\s*\/?>(?:<\/media>)?/gi;
 const attribute = /([\w-]+)\s*=\s*(["'])(.*?)\2/g;
 
 export function AgentMessageContent({ apiBase, content }: { apiBase: string; content: string }) {
@@ -31,29 +29,28 @@ export function AgentMessageContent({ apiBase, content }: { apiBase: string; con
 }
 
 function parseMessage(content: string): Segment[] {
+  if (!content) return [{ kind: "text", value: "" }];
   const segments: Segment[] = [];
   let cursor = 0;
   const push = (segment: Segment) => { if (segment.kind === "text" && segment.value === "") return; segments.push(segment); };
-  for (const match of content.matchAll(new RegExp(`(?:${mediaTag.source})|(?:${projectTag.source})|(?:${appTag.source})`, "gi"))) {
+  for (const match of content.matchAll(tagPattern)) {
     const start = match.index ?? 0;
     if (start > cursor) push({ kind: "text", value: content.slice(cursor, start) });
     const raw = match[0];
-    if (raw.startsWith("<media")) {
-      const attrs = parseAttributes(match[1]);
+    const attrs = parseAttributes(match[2]);
+    if (match[1] === "media") {
       const assetID = attrs.assetid ?? attrs.assetId;
       const type = attrs.type as MediaType;
       if (assetID && isMediaType(type)) push({ kind: "media", assetID, type });
       else push({ kind: "text", value: raw });
-    } else if (raw.startsWith("<project")) {
-      const projectId = parseAttributes(match[1]).projectid ?? parseAttributes(match[1]).projectId;
+    } else if (match[1] === "project") {
+      const projectId = attrs.projectid ?? attrs.projectId;
       if (projectId) push({ kind: "project", projectId });
       else push({ kind: "text", value: raw });
-    } else if (raw.startsWith("<app")) {
-      const appId = parseAttributes(match[1]).appid ?? parseAttributes(match[1]).appId;
+    } else {
+      const appId = attrs.appid ?? attrs.appId;
       if (appId) push({ kind: "app", appId });
       else push({ kind: "text", value: raw });
-    } else {
-      push({ kind: "text", value: raw });
     }
     cursor = start + raw.length;
   }
@@ -61,8 +58,9 @@ function parseMessage(content: string): Segment[] {
   return segments.length ? segments : [{ kind: "text", value: content }];
 }
 
-function parseAttributes(source: string) {
+function parseAttributes(source: string | undefined) {
   const attrs: Record<string, string> = {};
+  if (!source) return attrs;
   for (const match of source.matchAll(attribute)) attrs[match[1]] = match[3];
   return attrs;
 }

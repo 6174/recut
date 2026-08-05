@@ -241,15 +241,15 @@ func (m *AgentManager) RecoverInterruptedTurns() (int, error) {
 	}
 	defer tx.Rollback()
 
-	type interruptedTurn struct{ id, sessionID string }
+	type interruptedTurn struct{ id, sessionID, taskID string }
 	var turns []interruptedTurn
-	rows, err := tx.Query("select id, session_id from agent_turns where role = ? and status = ?", "user", "running")
+	rows, err := tx.Query("select id, session_id, coalesce(task_id, '') from agent_turns where role = ? and status = ?", "user", "running")
 	if err != nil {
 		return 0, err
 	}
 	for rows.Next() {
 		var turn interruptedTurn
-		if err := rows.Scan(&turn.id, &turn.sessionID); err != nil {
+		if err := rows.Scan(&turn.id, &turn.sessionID, &turn.taskID); err != nil {
 			_ = rows.Close()
 			return 0, err
 		}
@@ -289,7 +289,7 @@ func (m *AgentManager) RecoverInterruptedTurns() (int, error) {
 		}
 	}
 	for sessionID := range sessions {
-		if _, err := tx.Exec("update agent_sessions set status = ?, updated_at = ? where id = ?", "idle", now, sessionID); err != nil {
+		if _, err := tx.Exec("update agent_sessions set status = ?, native_session_id = case when runtime = ? then '' else native_session_id end, updated_at = ? where id = ?", "idle", "opencode", now, sessionID); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec("insert into agent_events (session_id, turn_id, type, payload_json, created_at) values (?, ?, ?, ?, ?)", sessionID, "", "session.updated", `{"label":"服务重启后已恢复为空闲"}`, now); err != nil {
@@ -298,6 +298,11 @@ func (m *AgentManager) RecoverInterruptedTurns() (int, error) {
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
+	}
+	for _, turn := range turns {
+		if turn.taskID != "" {
+			_ = m.store.CompleteTask(turn.taskID)
+		}
 	}
 
 	for _, sessionID := range m.queuedSessionIDs() {
