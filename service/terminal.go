@@ -1,5 +1,5 @@
 /*
- * [INPUT]: 依赖 Store 的项目会话目录、creack/pty 的伪终端和标准库进程管理能力
+ * [INPUT]: 依赖 Store 的项目会话目录、creack/pty 的伪终端、userBaseEnv 用户 shell 环境和标准库进程管理能力
  * [OUTPUT]: 对外提供 TerminalManager 及会话的启动、输入、尺寸、输出订阅、最新消息摘要、持久化、无参数启动/退出审计和终止能力
  * [POS]: service 的通用终端包装层；不理解 Codex、Claude 或任何具体 CLI 语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -87,9 +87,7 @@ func (m *TerminalManager) Start(input TerminalStart) (TerminalSession, error) {
 	cols, rows := terminalSize(input.Cols, input.Rows)
 	command := exec.Command(input.Command, input.Args...)
 	command.Dir = input.CWD
-	if len(input.Env) > 0 {
-		command.Env = append(os.Environ(), input.Env...)
-	}
+	command.Env = append(userBaseEnv(), input.Env...)
 	file, err := pty.StartWithSize(command, &pty.Winsize{Cols: cols, Rows: rows})
 	if err != nil {
 		return TerminalSession{}, fmt.Errorf("start terminal: %w", err)

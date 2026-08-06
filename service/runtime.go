@@ -246,7 +246,15 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 					panic(runtime.NewGoError(err))
 				}
 			}
-			return runtime.ToValue(asset)
+			return runtime.ToValue(map[string]any{
+				"id":        asset.ID,
+				"kind":      asset.Kind,
+				"name":      asset.Name,
+				"mimeType":  asset.MimeType,
+				"sizeBytes": asset.SizeBytes,
+				"status":    asset.Status,
+				"createdAt": asset.CreatedAt.Format(time.RFC3339Nano),
+			})
 		})
 		_ = ctx.Set("media", mediaObject)
 	}
@@ -492,7 +500,7 @@ func shellStart(runtime *goja.Runtime, jobs *ShellJobManager, python *PythonRunt
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}
-		return runtime.ToValue(job)
+		return runtime.ToValue(shellJobMap(job))
 	}
 }
 func shellStatus(runtime *goja.Runtime, jobs *ShellJobManager, projectID, appID string) func(goja.FunctionCall) goja.Value {
@@ -501,7 +509,7 @@ func shellStatus(runtime *goja.Runtime, jobs *ShellJobManager, projectID, appID 
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}
-		return runtime.ToValue(job)
+		return runtime.ToValue(shellJobMap(job))
 	}
 }
 func shellLogs(runtime *goja.Runtime, jobs *ShellJobManager, projectID, appID string) func(goja.FunctionCall) goja.Value {
@@ -513,7 +521,11 @@ func shellLogs(runtime *goja.Runtime, jobs *ShellJobManager, projectID, appID st
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}
-		return runtime.ToValue(logs)
+		mapped := make([]map[string]any, 0, len(logs))
+		for _, entry := range logs {
+			mapped = append(mapped, shellLogMap(entry))
+		}
+		return runtime.ToValue(mapped)
 	}
 }
 func shellCancel(runtime *goja.Runtime, jobs *ShellJobManager, projectID, appID string) func(goja.FunctionCall) goja.Value {
@@ -573,7 +585,34 @@ func optionalString(value goja.Value) string {
 	return value.String()
 }
 func shellResult(job ShellJob, output string) map[string]any {
-	return map[string]any{"jobId": job.ID, "status": job.Status, "stdout": output, "exitCode": job.ExitCode, "error": job.Error}
+	return map[string]any{"jobId": job.ID, "status": string(job.Status), "stdout": output, "exitCode": job.ExitCode, "error": job.Error}
+}
+
+// shellJobMap projects a ShellJob to the camelCase contract Apps consume.
+// Goja does not apply encoding/json tags to struct projection and renders named
+// string types (ShellJobStatus) as String objects, so both struct projection and
+// raw Status would break Apps' strict `job.status === "running"` checks.
+func shellJobMap(job ShellJob) map[string]any {
+	return map[string]any{
+		"id":        job.ID,
+		"projectId": job.ProjectID,
+		"appId":     job.AppID,
+		"status":    string(job.Status),
+		"command":   job.Command,
+		"args":      job.Args,
+		"exitCode":  job.ExitCode,
+		"error":     job.Error,
+	}
+}
+
+func shellLogMap(entry ShellJobLog) map[string]any {
+	return map[string]any{
+		"jobId":     entry.JobID,
+		"sequence":  entry.Sequence,
+		"stream":    entry.Stream,
+		"text":      entry.Text,
+		"timestamp": entry.Timestamp.UTC().Format(time.RFC3339Nano),
+	}
 }
 func pythonStatus(runtime *goja.Runtime, manager *PythonRuntimeManager, app App) func(goja.FunctionCall) goja.Value {
 	return func(goja.FunctionCall) goja.Value {
@@ -599,7 +638,7 @@ func pythonPrepare(runtime *goja.Runtime, manager *PythonRuntimeManager, project
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}
-		return runtime.ToValue(job)
+		return runtime.ToValue(shellJobMap(job))
 	}
 }
 func pythonRun(runtime *goja.Runtime, jobs *ShellJobManager, manager *PythonRuntimeManager, projectID string, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
@@ -616,7 +655,7 @@ func pythonRun(runtime *goja.Runtime, jobs *ShellJobManager, manager *PythonRunt
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}
-		return runtime.ToValue(job)
+		return runtime.ToValue(shellJobMap(job))
 	}
 }
 

@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 MCP Host 的 handleMCP、Store 的设备 token 与标准库 HTTP JSON-RPC 协议
- * [OUTPUT]: 对外提供 loopback MCP HTTP 入口（Bearer 设备 token 鉴权）与设备 token 生命周期管理 API
- * [POS]: service 的外部 Agent 传输边界；外部调用无 Recut 内部会话，平台工具可用，App 操作落到显式 target 或 appstate
+ * [INPUT]: 依赖 MCP Host 的 handleMCP、AgentBridge 会话鉴权与标准库 HTTP JSON-RPC 协议
+ * [OUTPUT]: 对外提供 loopback MCP HTTP 入口（唯一常驻 MCP Host）与设备 token 生命周期管理 API；会话身份经 X-Recut-Session/X-Recut-Token header 透传，缺失时以匿名会话兜底
+ * [POS]: service 的传输边界；所有 stdio Agent 都经无状态 --mcp 转发器接入本端点，工具执行与长驻任务状态全部由常驻 daemon 统一管理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -19,17 +18,23 @@ func (s *Server) mcpHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, errors.New("MCP HTTP is available only from the local network"))
 		return
 	}
-	token, err := s.store.AuthenticateDeviceToken(bearerToken(r))
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, err)
-		return
+	// 会话身份优先：--mcp 转发器带 RECUT_AGENT_SESSION/RECUT_AGENT_TOKEN 时
+	// 还原真实 Agent 会话（驱动会话工作区与 skills/import 工具）；外部接入
+	// 未携带会话时以匿名会话执行平台工具与显式 target 的 App 操作。
+	session := AgentSession{ID: "anonymous"}
+	if sessionID := r.Header.Get("X-Recut-Session"); sessionID != "" {
+		authenticated, err := s.bridge.Authenticate(sessionID, r.Header.Get("X-Recut-Token"))
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err)
+			return
+		}
+		session = authenticated
 	}
 	request := mcpRequest{}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid JSON-RPC request"))
 		return
 	}
-	session := AgentSession{ID: "device:" + token.ID}
 	result, callErr := handleMCP(s.bridge, s.host, s.media, session, request)
 	response := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(request.ID)}
 	if callErr != nil {
@@ -38,14 +43,6 @@ func (s *Server) mcpHTTP(w http.ResponseWriter, r *http.Request) {
 		response["result"] = result
 	}
 	writeJSON(w, http.StatusOK, response)
-}
-
-func bearerToken(r *http.Request) string {
-	authorization := r.Header.Get("Authorization")
-	if strings.HasPrefix(authorization, "Bearer ") {
-		return strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
-	}
-	return ""
 }
 
 func (s *Server) createDeviceToken(w http.ResponseWriter, r *http.Request) {

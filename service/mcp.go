@@ -1,23 +1,20 @@
 /*
- * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost 双 target 运行时、Catalog 的 App 与 skill 树、MediaService 与标准输入输出 JSON-RPC 流
+ * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost 双 target 运行时、Catalog 的 App 与 skill 树、MediaService 与 JSON-RPC 请求/响应模型
  * [OUTPUT]: 对外提供项目/App-state 双 target 解析、上下文 context（不携带项目默认值）、__recut target envelope、跨 App 的 operation 路由、平台工具（context/skills/apps/project/media）与结构化内容
- * [POS]: service 的 MCP Host；App 不自行启动 MCP server，所有调用经平台权限、目标解析与会话边界；平台工具无条件可见
+ * [POS]: service 的 MCP Host；唯一监听者是常驻 Daemon 的 /v1/mcp（HTTP），所有 stdio 客户端（会话内 opencode/codex/claude 或外部 Agent）经无状态 --mcp 转发器接入，不启动 per-session 子进程；App 不自行启动 MCP server，所有调用经平台权限、目标解析与会话边界；平台工具无条件可见
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -26,46 +23,6 @@ type mcpRequest struct {
 	ID      json.RawMessage `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params"`
-}
-
-func RunMCPStdio(bridge *AgentBridge, host *AppHost, media *MediaService, input io.Reader, output io.Writer) error {
-	session, err := bridge.Authenticate(os.Getenv("RECUT_AGENT_SESSION"), os.Getenv("RECUT_AGENT_TOKEN"))
-	if err != nil {
-		return err
-	}
-	scanner := bufio.NewScanner(input)
-	scanner.Buffer(make([]byte, 4096), 2<<20)
-	var calls sync.WaitGroup
-	var outputMu sync.Mutex
-	var outputErr error
-	for scanner.Scan() {
-		request := mcpRequest{}
-		if json.Unmarshal(scanner.Bytes(), &request) != nil || len(request.ID) == 0 {
-			continue
-		}
-		calls.Add(1)
-		go func(request mcpRequest) {
-			defer calls.Done()
-			result, callErr := handleMCP(bridge, host, media, session, request)
-			response := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(request.ID)}
-			if callErr != nil {
-				response["error"] = map[string]any{"code": -32000, "message": callErr.Error()}
-			} else {
-				response["result"] = result
-			}
-			data, _ := json.Marshal(response)
-			outputMu.Lock()
-			defer outputMu.Unlock()
-			if outputErr == nil {
-				_, outputErr = fmt.Fprintln(output, string(data))
-			}
-		}(request)
-	}
-	calls.Wait()
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	return outputErr
 }
 
 func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, request mcpRequest) (any, error) {

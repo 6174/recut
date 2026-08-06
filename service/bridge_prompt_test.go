@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -119,6 +120,78 @@ func TestOpencodeWorkspaceAllowsFiveMinuteMCPCalls(t *testing.T) {
 	external, ok := permission["external_directory"].(string)
 	if !ok || external != "allow" {
 		t.Fatalf("external_directory permission must be allow in phase 1, got %#v", permission["external_directory"])
+	}
+	command, ok := recut["command"].([]any)
+	if !ok || !reflect.DeepEqual(command, []any{"/tmp/recut-service", "--mcp", "--mcp-target", defaultMCPTarget}) {
+		t.Fatalf("recut MCP command = %#v", recut["command"])
+	}
+	env := recut["environment"].(map[string]any)
+	if env["RECUT_AGENT_SESSION"] != session.ID || env["RECUT_AGENT_TOKEN"] != token {
+		t.Fatalf("recut MCP environment = %#v", env)
+	}
+}
+
+func TestBridgeMCPConfigsForwardToDaemon(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	bridge := NewAgentBridge(store)
+	session, token, err := bridge.CreateSession(SessionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := "/tmp/recut-service"
+
+	codexWorkspace, err := bridge.MaterializeCodexWorkspace(session, token, executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexConfig, err := os.ReadFile(filepath.Join(codexWorkspace, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"--mcp"`, `"--mcp-target"`, defaultMCPTarget, `RECUT_AGENT_SESSION = "` + session.ID + `"`, `RECUT_AGENT_TOKEN = "` + token + `"`} {
+		if !bytes.Contains(codexConfig, []byte(want)) {
+			t.Fatalf("codex MCP config is missing %q:\n%s", want, codexConfig)
+		}
+	}
+
+	claudeProfile, err := bridge.WriteClaudeProfile(session, executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claudeRaw, err := os.ReadFile(claudeProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude := map[string]any{}
+	if err := json.Unmarshal(claudeRaw, &claude); err != nil {
+		t.Fatal(err)
+	}
+	recutServer := claude["mcpServers"].(map[string]any)["recut"].(map[string]any)
+	args, ok := recutServer["args"].([]any)
+	if !ok || !reflect.DeepEqual(args, []any{"--mcp", "--mcp-target", defaultMCPTarget}) {
+		t.Fatalf("claude recut MCP args = %#v", recutServer["args"])
+	}
+
+	for _, file := range []string{filepath.Join(codexWorkspace, ".codex", "config.toml"), claudeProfile} {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(content, []byte("--mcp-stdio")) {
+			t.Fatalf("%s must not spawn a per-session --mcp-stdio subprocess:\n%s", file, content)
+		}
 	}
 }
 

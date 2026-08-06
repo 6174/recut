@@ -1,18 +1,20 @@
 /*
  * [INPUT]: 依赖共享 Agent 会话配置类型、素材引用选择器、Agent runtime 安装状态与 UI 原子组件
- * [OUTPUT]: 对外提供消息输入区 Composer 及新会话 runtime 选择器 RuntimePicker；Composer 同时渲染用户选择的素材附件与自动附带、可移除的当前页面上下文 chip
+ * [OUTPUT]: 对外提供消息输入区 Composer 及新会话 runtime 选择器 RuntimePicker；Composer 同时渲染用户选择的素材附件与自动附带、可移除的当前页面上下文 chip，并让文本区随内容增长至固定上限
  * [POS]: components Agent 对话模块的交互输入层；通过回调把发送、上传、配置保存交回面板控制器
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleStop, FileText, ImagePlus, SlidersHorizontal, X } from "lucide-react";
-import { type ClipboardEvent, type FormEvent, type ReactNode, useRef, useState } from "react";
+import { type ClipboardEvent, type FormEvent, type ReactNode, useLayoutEffect, useRef, useState } from "react";
 
 import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatus, type Runtime } from "@/components/agent-install-guide";
 import { AssetReferenceChip, AssetReferenceDialog, AssetReferenceMenu, mediaReferenceIDs, mediaReferenceText } from "@/components/asset-reference-picker";
 import { Button } from "@/components/ui/button";
 import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, opencodeModelLabel, opencodeProviderLabel, reasoningLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PageContext, type UploadedAsset } from "@/components/agent-panel-types";
+
+const COMPOSER_TEXT_MAX_HEIGHT = 192;
 
 export function Composer({
   apiBase,
@@ -70,6 +72,7 @@ export function Composer({
   uploading: boolean;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const textInput = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -121,6 +124,13 @@ export function Composer({
   const placeholder = firstTurn
     ? `告诉 AI 需要做什么，发送后将创建 ${runtimeAgentName(runtime)} 对话`
     : "告诉 AI 需要做什么，输入 @ 引用项目资源或素材库资源";
+  function resizeTextInput() {
+    const input = textInput.current;
+    if (!input) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, COMPOSER_TEXT_MAX_HEIGHT)}px`;
+  }
+  useLayoutEffect(resizeTextInput, [content]);
   return (
     <form
       className="absolute inset-x-0 bottom-0 border-t bg-card p-3"
@@ -149,9 +159,12 @@ export function Composer({
           </div>
         )}
         <textarea
-          className="block min-h-12 w-full resize-none bg-transparent py-0.5 text-xs leading-5 outline-none"
+          className="block min-h-12 w-full resize-none overflow-y-auto bg-transparent py-0.5 text-xs leading-5 outline-none"
           disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => {
+            resizeTextInput();
+            onChange(event.target.value);
+          }}
           onCompositionEnd={() => {
             composing.current = false;
           }}
@@ -171,6 +184,7 @@ export function Composer({
           }}
           onPaste={pasteMedia}
           placeholder={placeholder}
+          ref={textInput}
           value={content}
         />
         {mention !== undefined && (

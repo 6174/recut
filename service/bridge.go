@@ -48,6 +48,12 @@ type AgentBridge struct {
 
 const opencodeMCPTimeoutMilliseconds = 5 * 60 * 1000
 
+// defaultMCPTarget 是常驻 daemon 的 loopback origin，唯一拥有 MCP Host 与所有
+// 长驻任务状态的进程。三种 runtime 的 MCP 配置一律用 `--mcp` 无状态转发器接入
+// 该端点，而不是启动 per-session 的 --mcp-stdio 全量子进程，从而保证会话结束后
+// job/media 状态仍归 daemon 单一实例管理。
+const defaultMCPTarget = "http://127.0.0.1:17373"
+
 type bridgeRecord struct {
 	Session AgentSession `json:"session"`
 }
@@ -83,13 +89,6 @@ func (b *AgentBridge) WorkspaceDir(session AgentSession) string {
 	return b.store.SessionWorkspaceDir(session.ID)
 }
 
-func (b *AgentBridge) appsDir() string {
-	if b.store != nil && b.store.catalog != nil {
-		return b.store.catalog.Directory()
-	}
-	return filepath.Join(b.store.root, "apps")
-}
-
 // MaterializeCodexWorkspace writes the global guide and the Codex MCP config
 // into the session workspace. The workspace is the CLI cwd, so guide and config
 // never touch a user project and concurrent sessions cannot overwrite each other.
@@ -119,9 +118,9 @@ func (b *AgentBridge) materializeCodexWorkspace(dir string, session AgentSession
 	}
 	config := fmt.Sprintf(`[mcp_servers.recut]
 command = %q
-args = ["--mcp-stdio", "--data-dir", %q, "--apps-dir", %q]
+args = ["--mcp", "--mcp-target", %q]
 env = { RECUT_AGENT_SESSION = %q, RECUT_AGENT_TOKEN = %q }
-`, executable, b.store.root, b.appsDir(), session.ID, token)
+`, executable, defaultMCPTarget, session.ID, token)
 	if err := os.WriteFile(filepath.Join(dir, ".codex", "config.toml"), []byte(config), 0o600); err != nil {
 		return "", err
 	}
@@ -159,7 +158,7 @@ func (b *AgentBridge) writeOpencodeWorkspace(dir string, session AgentSession, t
 		"mcp": map[string]any{
 			"recut": map[string]any{
 				"type":    "local",
-				"command": []string{executable, "--mcp-stdio", "--data-dir", b.store.root, "--apps-dir", b.appsDir()},
+				"command": []string{executable, "--mcp", "--mcp-target", defaultMCPTarget},
 				"environment": map[string]any{
 					"RECUT_AGENT_SESSION": session.ID,
 					"RECUT_AGENT_TOKEN":   token,
@@ -212,7 +211,7 @@ func (b *AgentBridge) writeClaudeProfile(dir string, session AgentSession, execu
 	}
 	profile := map[string]any{"mcpServers": map[string]any{"recut": map[string]any{
 		"command": executable,
-		"args":    []string{"--mcp-stdio", "--data-dir", b.store.root, "--apps-dir", b.appsDir()},
+		"args":    []string{"--mcp", "--mcp-target", defaultMCPTarget},
 	}}}
 	path := filepath.Join(dir, "claude-mcp.json")
 	if err := writeProjectJSON(path, profile); err != nil {

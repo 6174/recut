@@ -163,6 +163,17 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [detail?.status]);
+  // The SSE events stream can silently stall (dropped EventSource, backgrounded
+  // tab). While a turn runs, periodically re-sync from the server so a turn the
+  // AI actually finished never leaves the "正在分析" indicator spinning.
+  useEffect(() => {
+    if (!activeID || detail?.status !== "running") return;
+    const timer = window.setInterval(
+      () => void refresh(activeID).catch(() => {}),
+      10_000,
+    );
+    return () => window.clearInterval(timer);
+  }, [activeID, detail?.status]);
   function isCurrentRequest(
     id: string,
     scopeVersion: number,
@@ -272,6 +283,12 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
       )
         void refresh(id, scopeVersion, detailVersion);
     });
+    // Reconcile immediately when the connection drops instead of waiting for
+    // the next periodic poll or the EventSource reconnect to deliver events.
+    stream.onerror = () => {
+      if (streamRef.current === stream)
+        void refresh(id, scopeVersion, detailVersion).catch(() => {});
+    };
     streamRef.current = stream;
   }
   function openCLIStream() {

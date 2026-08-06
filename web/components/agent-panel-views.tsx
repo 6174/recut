@@ -424,9 +424,25 @@ export function applyAgentEvent(detail: Detail, event: AgentEvent): Detail {
           : event.type === "turn.cancelled"
             ? "cancelled"
             : undefined;
+  // The server flips the session to idle only via a later session.updated +
+  // refresh round-trip; clear the running indicator here on the active turn's
+  // terminal event so a delayed or dropped refresh can never leave the
+  // "正在分析" spinner stuck after the AI has actually finished.
+  const latestUserTurn = [...detail.turns]
+    .reverse()
+    .find((turn) => turn.role === "user");
+  const clearsRunning =
+    status === "completed" || status === "failed" || status === "cancelled"
+      ? event.turnId === latestUserTurn?.id
+      : false;
   return {
     ...detail,
-    status: event.type === "turn.started" ? "running" : detail.status,
+    status:
+      event.type === "turn.started"
+        ? "running"
+        : clearsRunning
+          ? "idle"
+          : detail.status,
     turns:
       status && event.turnId
         ? detail.turns.map((turn) =>
@@ -504,10 +520,10 @@ function toolCalls(events: AgentEvent[]): ToolCall[] {
       error: previous?.error,
       payload: { ...previous?.payload, ...event.payload },
     };
-    if (event.type === "tool.started")
-      call.input =
-        event.payload?.input ??
-        legacyToolDetail(event.payload?.detail, "input");
+    // OpenCode 只发终态事件；所有事件均可携带参数，不能只依赖 started。
+    const input =
+      event.payload?.input ?? legacyToolDetail(event.payload?.detail, "input");
+    if (input !== undefined) call.input = input;
     if (event.type === "tool.completed") {
       call.state = "success";
       call.completedAt = event.createdAt;

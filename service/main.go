@@ -25,16 +25,17 @@ func main() {
 	dataDir := flag.String("data-dir", defaultDataDir(), "local Recut data directory")
 	appsDir := flag.String("apps-dir", "", "directory containing App packages (default: <data-dir>/apps)")
 	address := flag.String("address", ":17373", "LAN HTTP address")
-	mcpStdio := flag.Bool("mcp-stdio", false, "serve the App Agent Bridge over stdio")
-	mcpForward := flag.Bool("mcp", false, "forward stdio MCP to a running Recut daemon (external Agent entrypoint)")
-	mcpTarget := flag.String("mcp-target", "http://127.0.0.1:17373", "Recut daemon HTTP origin for --mcp forwarding")
-	deviceToken := flag.String("device-token", os.Getenv("RECUT_DEVICE_TOKEN"), "device token for --mcp forwarding (recut agent link)")
+	mcpForward := flag.Bool("mcp", false, "forward stdio MCP to the running Recut daemon (single persistent MCP host)")
+	mcpTarget := flag.String("mcp-target", defaultMCPTarget, "Recut daemon HTTP origin for --mcp forwarding")
 	flag.Parse()
 	if err := configureServiceLogging(*dataDir); err != nil {
 		log.Fatalf("ERROR configure service logging: %v", err)
 	}
 	if *mcpForward {
-		if err := RunMCPForward(*mcpTarget, *deviceToken, os.Stdin, os.Stdout); err != nil {
+		// 短生命周期、无状态转发器：只把外部/会话 Agent 的 stdio JSON-RPC
+		// 转发到常驻 daemon，绝不做状态收敛（RecoverInterrupted 等只允许
+		// daemon 在启动时执行），因此这里必须在任何 Recover* 之前返回。
+		if err := RunMCPForward(*mcpTarget, os.Stdin, os.Stdout); err != nil {
 			log.Fatalf("ERROR run MCP forwarder: %v", err)
 		}
 		return
@@ -61,12 +62,6 @@ func main() {
 		log.Fatalf("ERROR recover interrupted shell jobs: %v", err)
 	} else if recovered > 0 {
 		log.Printf("INFO reconciled interrupted shell jobs count=%d", recovered)
-	}
-	if *mcpStdio {
-		if err := RunMCPStdio(bridge, host, media, os.Stdin, os.Stdout); err != nil {
-			log.Fatalf("ERROR run MCP stdio bridge: %v", err)
-		}
-		return
 	}
 	if recovered, err := media.RecoverInterruptedJobs(); err != nil {
 		log.Fatalf("ERROR recover interrupted media jobs: %v", err)

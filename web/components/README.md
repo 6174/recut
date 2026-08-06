@@ -15,8 +15,8 @@ agent-message-content.tsx: Agent 回复的受控 XML 媒体节点渲染器；解
 tool-result-assets.tsx: Agent 工具结果中的媒体适配层；从含嵌套 JSON 字符串的 `assetIds` 提取结果，图片和视频直接显示真实预览，视频统一复用 `VideoFrame` 的 iframe 子文档模式与素材详情模态框。
 agent-panel-types.ts: Agent 对话的共享数据契约；集中 Session、Turn、事件、运行时配置、默认值、展示标签与泛化的消息上下文（MessageContext：media/page/未来类型，含 PageContext 与构造/归一化辅助），消除面板控制器、视图和输入区的类型耦合。
 agent-panel-views.tsx: Agent 对话展示层；渲染会话时间线、历史列表、加载态、CLI 调试弹框与 CLI 恢复面板，在用户消息上方同时展示素材附件与自动附带的当前页面上下文 chip，并在展开的工具结果中挂载 Asset 预览，归并 SSE 增量事件而不发起会话请求。
-agent-composer.tsx: Agent 对话输入层；处理文本、素材引用、上传、自动附带且可移除的当前页面上下文 chip、Codex/OpenCode 配置与新会话 runtime 选择，所有状态变更通过控制器回调上送。
-agent-panel-host.tsx: 根布局唯一挂载的全局工作台壳；顶部页面 Header 横贯全宽，其下 Body 左侧为页面内容、右侧为单一全局 Agent 侧栏，跨路由共享同一 ProjectAgentPanel 实例与持久化面板宽度，页面的 projectID/Header 高度/草稿/当前页面上下文由 `lib/agent-panel-context` 声明，路由切换不重建面板、不重连 SSE 也不切换会话。
+agent-composer.tsx: Agent 对话输入层；处理自动增高且上限为 192px 的文本、素材引用、上传、自动附带且可移除的当前页面上下文 chip、Codex/OpenCode 配置与新会话 runtime 选择，所有状态变更通过控制器回调上送。
+agent-panel-host.tsx: 根布局唯一挂载的全局工作台壳；顶部页面 Header 横贯全宽，其下 Body 左侧内容区、右侧单一全局 Agent 侧栏与拖动手柄共同读取 `--side-panel-width`，拖拽中同步响应且跨路由持久化，页面的 projectID/Header 高度/草稿/当前页面上下文由 `lib/agent-panel-context` 声明，路由切换不重建面板、不重连 SSE 也不切换会话。
 project-agent-panel.tsx: 全局单一 general 会话的固定高度 Agent 对话侧栏，由 `agent-panel-host.tsx` 在根布局挂载；运行时、模型、onboarding、会话摘要、当前会话和详情快照由 `lib/agent-store` 去重共享，SSE 连接仍由面板拥有并将增量回写缓存，路由切换不做按页面的会话过滤。发送时把当前页面上下文与用户选择的素材合并为 `contexts` 泛化消息上下文（media 沿用 assetId 契约，page 携带标题/路径/选中/内容），当前页面 chip 默认自动附带、可在发送前移除；已出现回复的 Turn 不显示过期的停止提示。右上角 Debug 入口复制当前会话的版本化 JSON（身份、配置、turn 元数据与最近 100 条结构化事件；不含用户或 Agent 聊天正文）。存在可用 runtime 的空态允许直接输入并在首条消息发送时创建默认 Codex 会话；App iframe 只能回填输入草稿，不能自动提交 turn。无可用 runtime 时只显示安装入口，安装完成后的重新检查强制刷新运行时快照。
 agent-onboarding.tsx: 新建 Codex、OpenCode 或 Claude Code 会话的非空引导空态；无论项目或 general scope，均读取当前项目或全局解析出的 App/全局/平台兜底卡片，点击只写入显式 prompt。在 `runtimeStatus` 报告无任何可用本地 Agent CLI 时，仅显示 1–3 张安装卡，点击同样打开共享安装对话框；至少一个 runtime 就绪后才显示目标引导卡。
 agent-onboarding-settings.tsx: 全局新对话引导设置；维护用户级卡片标题、说明与 prompt，不修改 App manifest，新增卡片 ID 不依赖安全上下文 UUID。
@@ -28,7 +28,7 @@ service-control.tsx: Header 内的 service 控制入口；通过 Zustand 初始�
 app-version-control.tsx: Git App 版本交互原子；项目 Header 和 Apps 目录复用，单项升级经确认执行，且仅在存在可升级、无本地修改条目时提供一键更新，始终保留 dirty Git 工作树保护。
 create-app-dialog.tsx: Apps 顶部的新建应用引导；交付指向公开架构与 Recut API 标准的可复制 AI Prompt，不直接改写用户的应用目录。
 install-git-app-dialog.tsx: Apps 顶部的 Git 安装入口；将 GitHub 仓库交给本地 service 校验并安装，成功后通知目录刷新。
-use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧直接更新 DOM，暴露拖动状态以遮蔽 iframe，松手后才持久化宽度，避免渲染拥塞或跨文档丢失指针事件；当前只被根布局全局挂载的 Agent 面板宿主消费。
+use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧更新共享 CSS 宽度变量，左右栏和手柄即时响应，暴露拖动状态以遮蔽 iframe，松手后才持久化宽度，避免渲染拥塞或跨文档丢失指针事件；当前只被根布局全局挂载的 Agent 面板宿主消费。
 terminal-panel.tsx: 基于 xterm.js 的可恢复 CLI 终端面板，负责 Daemon 引导、CLI 探测、一键启动、失败反馈，以及展示最新输出摘要、只读历史与原生 Agent 恢复入口的会话浮层。
 Agent 调试流：`project-agent-panel.tsx` 的右上角终端入口订阅当前会话 `/cli-stream`；弹框只显示 Agent runner 已捕获的有界内存 stdout/stderr，不能附着或重放服务重启前的进程，也不取代结构化对话时间线。
 vox-broll-workflow.tsx: Vox B-roll 纵向资源管理器，展示创作方向的 AI 候选版本，并在创建资源时以弹窗选择依赖和补充意图。

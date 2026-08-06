@@ -1,15 +1,15 @@
 /*
  * [INPUT]: 依赖 mcp.go 的平台工具定义、Store 与本地 HTTP 测试服务
  * [OUTPUT]: 锁定 recut.context 不携带项目默认值、按媒体类型拆分的 MCP 工具名称、终态等待输入 schema、数组型 structuredContent 的 record 包装，以及长图片请求不阻塞素材查询
- * [POS]: service MCP Host 的公开工具契约与 stdio 并发回归测试
+ * [POS]: service MCP Host 的公开工具契约与并发回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -224,29 +224,120 @@ func TestMCPListAssetsIsNotBlockedByImageGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	bridge := NewAgentBridge(store)
+	session, _, err := bridge.CreateSession(SessionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := NewAppHost(apps, store)
+	slow := mcpRequest{Method: "tools/call", Params: json.RawMessage(`{"name":"recut.image.generate","arguments":{"text":"slow image"}}`)}
+	fast := mcpRequest{Method: "tools/call", Params: json.RawMessage(`{"name":"recut.media.list_assets","arguments":{}}`)}
+	slowDone := make(chan error, 1)
+	fastDone := make(chan error, 1)
+	go func() { _, err := handleMCP(bridge, host, media, session, slow); slowDone <- err }()
+	time.Sleep(20 * time.Millisecond)
+	go func() { _, err := handleMCP(bridge, host, media, session, fast); fastDone <- err }()
+	select {
+	case err := <-fastDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("list_assets was blocked behind image generation")
+	}
+	if err := <-slowDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMCPHTTPResolvesSessionViaHeaders(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	media := NewMediaService(store)
+	bridge := NewAgentBridge(store)
+	server := NewServer(apps, store, nil, bridge, nil, NewAppHost(apps, store), media)
+	httpServer := httptest.NewServer(server.routes())
+	defer httpServer.Close()
+
+	call := func(sessionID, token string) (*http.Response, []byte) {
+		payload := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"recut.context","arguments":{}}}`
+		req, err := http.NewRequest(http.MethodPost, httpServer.URL+"/v1/mcp", strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if sessionID != "" {
+			req.Header.Set("X-Recut-Session", sessionID)
+			req.Header.Set("X-Recut-Token", token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp, body
+	}
+
+	// Without session headers the endpoint serves an anonymous session.
+	resp, body := call("", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("anonymous /v1/mcp = %d: %s", resp.StatusCode, body)
+	}
+	var anonymous struct {
+		Result struct {
+			StructuredContent map[string]any `json:"structuredContent"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &anonymous); err != nil {
+		t.Fatal(err)
+	}
+	if anonymous.Result.StructuredContent["session"] == nil {
+		t.Fatalf("anonymous context = %s", body)
+	}
+
+	// With a valid session header the real bridge session is restored.
 	session, token, err := bridge.CreateSession(SessionContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("RECUT_AGENT_SESSION", session.ID)
-	t.Setenv("RECUT_AGENT_TOKEN", token)
-	input := strings.NewReader("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"recut.image.generate\",\"arguments\":{\"text\":\"slow image\"}}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"recut.media.list_assets\",\"arguments\":{}}}\n")
-	var output bytes.Buffer
-	if err := RunMCPStdio(bridge, NewAppHost(apps, store), media, input, &output); err != nil {
+	resp, body = call(session.ID, token)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("session /v1/mcp = %d: %s", resp.StatusCode, body)
+	}
+	var identified struct {
+		Result struct {
+			StructuredContent struct {
+				Session struct {
+					ID string `json:"id"`
+				} `json:"session"`
+			} `json:"structuredContent"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &identified); err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("responses = %q", output.String())
+	if identified.Result.StructuredContent.Session.ID != session.ID {
+		t.Fatalf("session header resolved to %q, want %q", identified.Result.StructuredContent.Session.ID, session.ID)
 	}
-	first := struct {
-		ID int `json:"id"`
-	}{}
-	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
-		t.Fatal(err)
-	}
-	if first.ID != 2 {
-		t.Fatalf("list_assets was blocked behind image generation: first response = %s", lines[0])
+
+	// A wrong token for a known session must be rejected.
+	resp, body = call(session.ID, "wrong")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong session token = %d, want 401: %s", resp.StatusCode, body)
 	}
 }
 

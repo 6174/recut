@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 Store 的 App 文件根、项目事件日志与标准库非交互进程能力
- * [OUTPUT]: 对外提供 ShellJobManager、持久 Job 状态、顺序 stdout/stderr 日志、不含命令参数的生命周期审计、取消及服务重启收敛
+ * [INPUT]: 依赖 Store 的 App 文件根、项目事件日志、userBaseEnv 用户 shell 环境与标准库非交互进程能力
+ * [OUTPUT]: 对外提供 ShellJobManager、持久 Job 状态、顺序 stdout/stderr 日志、不含命令参数的生命周期审计、取消及服务重启收敛；任务进程以用户登录 shell 环境为基础环境，取消/超时按进程组终止整棵任务树（不残留孙进程）
  * [POS]: service 的本地任务执行边界；为 App shell 和 Python runtime 复用，不使用 PTY 或业务专属协议
  * [PROTOCOL]: TimeoutSeconds 0 = 无期限（仅 Start 服务型长驻进程，如 Remotion Studio 预览）；阻塞 Execute 必须给有限超时。变更时更新此头部，然后检查 README.md
  */
@@ -162,8 +162,9 @@ func (m *ShellJobManager) run(job ShellJob, input ShellJobStart, ctx context.Con
 	_ = m.persist(job)
 	m.store.AppendEvent(job.ProjectID, map[string]any{"type": "shell.job.started", "appId": job.AppID, "job": job})
 	command := exec.CommandContext(ctx, input.Command, input.Args...)
+	configureShellJobCommand(command)
 	command.Dir = input.Dir
-	command.Env = append(os.Environ(), input.Env...)
+	command.Env = append(userBaseEnv(), input.Env...)
 	stdout, err := command.StdoutPipe()
 	if err == nil {
 		stderr, nextErr := command.StderrPipe()
