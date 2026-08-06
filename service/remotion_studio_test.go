@@ -109,13 +109,13 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 		t.Fatalf("unexpected assets result: %#v", assets)
 	}
 
-	// preview.version reports null before any build.
-	version, err := host.InvokeAPI(target, app.Manifest.ID, "preview.version", map[string]any{})
+	// preview.serve.status reports stopped before any preview server is started.
+	serve, err := host.InvokeAPI(target, app.Manifest.ID, "preview.serve.status", map[string]any{})
 	if err != nil {
-		t.Fatalf("preview.version failed: %v", err)
+		t.Fatalf("preview.serve.status failed: %v", err)
 	}
-	if version != nil {
-		t.Fatalf("expected preview.version null before build, got %#v", version)
+	if serve.(map[string]any)["running"] != false {
+		t.Fatalf("expected preview stopped, got %#v", serve)
 	}
 
 	// logs.read rejects an unknown job id.
