@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSessionGuideIsPlatformOnlyAndVoxSkillIsDiscoverable(t *testing.T) {
@@ -113,5 +114,108 @@ func TestOpencodeWorkspaceAllowsFiveMinuteMCPCalls(t *testing.T) {
 	recut := config["mcp"].(map[string]any)["recut"].(map[string]any)
 	if timeout, ok := recut["timeout"].(float64); !ok || timeout != opencodeMCPTimeoutMilliseconds {
 		t.Fatalf("MCP initialization timeout = %#v", recut["timeout"])
+	}
+	permission := config["permission"].(map[string]any)
+	external, ok := permission["external_directory"].(string)
+	if !ok || external != "allow" {
+		t.Fatalf("external_directory permission must be allow in phase 1, got %#v", permission["external_directory"])
+	}
+}
+
+func TestOpencodeWorkspaceReusesNativeWorkspaceOnResume(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	bridge := NewAgentBridge(store)
+	manager := NewAgentManager(store, bridge, nil)
+
+	firstBridge, firstToken, err := bridge.CreateSession(SessionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstWorkspace, err := bridge.WriteOpencodeWorkspace(firstBridge, firstToken, "/tmp/recut-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resumeSession := ChatSession{ID: "session-resume", Runtime: "opencode", NativeSessionID: "ses_abc", NativeWorkspace: firstWorkspace}
+	resumeBridge, resumeToken, err := bridge.CreateSession(SessionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reused, err := manager.opencodeWorkspace(resumeSession, resumeBridge, resumeToken, "/tmp/recut-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused != firstWorkspace {
+		t.Fatalf("resume must reuse the pinned native workspace, got %q want %q", reused, firstWorkspace)
+	}
+	for _, name := range []string{"AGENTS.md", "opencode.json"} {
+		if _, err := os.Stat(filepath.Join(reused, name)); err != nil {
+			t.Fatalf("resume workspace is missing %s: %v", name, err)
+		}
+	}
+
+	freshSession := ChatSession{ID: "session-fresh", Runtime: "opencode"}
+	freshBridge, freshToken, err := bridge.CreateSession(SessionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	freshWorkspace, err := manager.opencodeWorkspace(freshSession, freshBridge, freshToken, "/tmp/recut-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if freshWorkspace == firstWorkspace {
+		t.Fatalf("first turn must get its own workspace, got %q", freshWorkspace)
+	}
+}
+
+func TestPersistNativeWorkspacePinsOnlyAfterNativeSession(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := iso(time.Now().UTC())
+	if _, err := db.Exec("insert into agent_sessions (id, profile_id, project_id, runtime, native_session_id, native_workspace, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", "session-ws", localProfileID, "", "opencode", "", "", "Test", "idle", now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewAgentManager(store, nil, nil)
+	workspace := "/tmp/pinned-workspace"
+
+	// Without a native session the workspace must not be pinned.
+	manager.persistNativeWorkspace("session-ws", workspace)
+	db, err = store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := db.QueryRow("select coalesce(native_workspace, '') from agent_sessions where id = ?", "session-ws").Scan(&stored); err != nil || stored != "" {
+		t.Fatalf("workspace pinned before native session existed: %q, err=%v", stored, err)
+	}
+
+	// Once the native session id is present, the workspace is pinned.
+	manager.setNativeSession("session-ws", "ses_abc")
+	manager.persistNativeWorkspace("session-ws", workspace)
+	if err := db.QueryRow("select coalesce(native_workspace, '') from agent_sessions where id = ?", "session-ws").Scan(&stored); err != nil || stored != workspace {
+		t.Fatalf("workspace not pinned after native session: %q, err=%v", stored, err)
+	}
+
+	// Clearing the native session also clears the pinned workspace.
+	manager.clearOpencodeNativeSession(ChatSession{ID: "session-ws", Runtime: "opencode"})
+	var native, workspaceStored string
+	if err := db.QueryRow("select coalesce(native_session_id, ''), coalesce(native_workspace, '') from agent_sessions where id = ?", "session-ws").Scan(&native, &workspaceStored); err != nil || native != "" || workspaceStored != "" {
+		t.Fatalf("clear did not reset native session/workspace: %q/%q, err=%v", native, workspaceStored, err)
 	}
 }

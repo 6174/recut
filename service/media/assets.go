@@ -7,20 +7,20 @@
 package media
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
-
-const MaxMediaUploadBytes = 50 << 20
 
 const (
 	generationStartedAtMetadataKey   = "generationStartedAt"
@@ -645,27 +645,109 @@ func (m *MediaService) ImportNativeImage(projectID, name, mimeType string, conte
 }
 
 func (m *MediaService) ImportMedia(name, mimeType string, content []byte) (MediaAsset, error) {
-	kind, maxBytes, err := importedMediaKind(mimeType)
-	if err != nil || len(content) == 0 || len(content) > maxBytes {
-		return MediaAsset{}, errors.New("only supported images, videos, or audio within their upload limits can be imported")
+	return m.ImportMediaReader(name, mimeType, bytes.NewReader(content))
+}
+
+// ImportMediaReader streams a user-selected file into the content-addressed
+// store. Video imports must not be held in RAM simply because the browser
+// selected a longer clip.
+func (m *MediaService) ImportMediaReader(name, mimeType string, content io.Reader) (MediaAsset, error) {
+	kind, err := importedMediaKind(mimeType)
+	if err != nil {
+		return MediaAsset{}, err
 	}
 	if strings.TrimSpace(name) == "" {
 		name = "reference" + extensionFor(mimeType)
 	}
-	return m.saveAsset(content, kind, mimeType, name, "user-upload", "", map[string]any{"source": "user-upload"}, "")
+	return m.persistImportedMedia(content, kind, mimeType, name)
 }
 
-func importedMediaKind(mimeType string) (string, int, error) {
+func importedMediaKind(mimeType string) (string, error) {
 	switch {
 	case strings.HasPrefix(mimeType, "image/"):
-		return "image", 30 << 20, nil
+		return "image", nil
 	case strings.HasPrefix(mimeType, "audio/"):
-		return "audio", 15 << 20, nil
+		return "audio", nil
 	case strings.HasPrefix(mimeType, "video/"):
-		return "video", MaxMediaUploadBytes, nil
+		return "video", nil
 	default:
-		return "", 0, errors.New("unsupported media type")
+		return "", errors.New("unsupported media type")
 	}
+}
+
+func (m *MediaService) persistImportedMedia(content io.Reader, kind, mimeType, name string) (MediaAsset, error) {
+	root := filepath.Join(m.store.MediaRoot(), "media", "assets")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return MediaAsset{}, err
+	}
+	temporary, err := os.CreateTemp(root, ".upload-*")
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+
+	hash := sha256.New()
+	size, err := io.Copy(io.MultiWriter(temporary, hash), content)
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if size == 0 {
+		return MediaAsset{}, errors.New("media file is empty")
+	}
+	return m.persistImportedFile(temporaryPath, hex.EncodeToString(hash.Sum(nil)), size, kind, mimeType, name)
+}
+
+func (m *MediaService) persistImportedFile(temporaryPath, contentHash string, size int64, kind, mimeType, name string) (MediaAsset, error) {
+	m.dedupeMu.Lock()
+	defer m.dedupeMu.Unlock()
+
+	db, err := m.database()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	existing, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where content_hash = ?", contentHash))
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return MediaAsset{}, err
+	}
+	id, err := newID()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	path := filepath.Join(m.store.MediaRoot(), "media", "assets", contentHash[:2], contentHash+extensionFor(mimeType))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return MediaAsset{}, err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return MediaAsset{}, err
+	}
+
+	now := time.Now().UTC()
+	metadata := map[string]any{"source": "user-upload", "path": path}
+	asset := MediaAsset{ID: id, Kind: kind, Name: name, MimeType: mimeType, SizeBytes: size, ContentHash: contentHash, Origin: "user-upload", Status: "completed", Metadata: metadata, CreatedAt: now, UpdatedAt: now}
+	serialized, _ := json.Marshal(metadata)
+	tx, err := db.Begin()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	rollback := func(cause error) (MediaAsset, error) { _ = tx.Rollback(); return MediaAsset{}, cause }
+	if _, err = tx.Exec("insert into media_assets (id, kind, name, mime_type, size_bytes, content_hash, origin, parent_id, status, job_id, remote_id, remote_poll_url, error, metadata_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", asset.ID, asset.Kind, asset.Name, asset.MimeType, asset.SizeBytes, asset.ContentHash, asset.Origin, "", asset.Status, "", "", "", "", string(serialized), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		return rollback(err)
+	}
+	if err := recordAssetEvent(tx, asset.ID, now); err != nil {
+		return rollback(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return MediaAsset{}, err
+	}
+	m.publishAssetChange()
+	return asset, nil
 }
 
 func (m *MediaService) saveAsset(content []byte, kind, mimeType, name, origin, projectID string, metadata map[string]any, id string) (MediaAsset, error) {

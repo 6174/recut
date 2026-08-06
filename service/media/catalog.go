@@ -14,6 +14,8 @@ import (
 	"recut-service/media/providers/atlas"
 )
 
+const seedanceVideoReferenceMaxBytes = 50 << 20
+
 var mediaProviders = []MediaProvider{
 	{ID: "atlas-cloud", Name: "Atlas Cloud", Protocol: "openai-compatible", DefaultAPIBase: atlas.DefaultAPIBase, Models: []MediaModel{
 		{ID: "atlas-cloud/openai/gpt-image-2", Provider: "atlas-cloud", Name: "GPT Image 2 · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true},
@@ -164,7 +166,7 @@ func validSeedanceReference(kind, mimeType string, size int64) bool {
 	case "image":
 		return size < 30<<20 && oneOf(mimeType, "image/jpeg", "image/jpg", "image/png", "image/webp", "image/bmp", "image/tiff", "image/gif", "image/heic", "image/heif")
 	case "video":
-		return size <= MaxMediaUploadBytes && oneOf(mimeType, "video/mp4", "video/quicktime")
+		return size <= seedanceVideoReferenceMaxBytes && oneOf(mimeType, "video/mp4", "video/quicktime")
 	case "audio":
 		return size <= 15<<20 && oneOf(mimeType, "audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3")
 	default:

@@ -44,6 +44,15 @@ App package（你创建的目录）
 - **Agent 不直接执行 App 的私有函数。** Agent 只能调用 manifest 中声明 `mcp` surface 的 operation，以及 Recut 提供的 `recut.*` 平台 MCP 工具。
 - **数据和业务属于 App；平台提供通用能力。** App 自己决定表、工作流和页面；平台不理解你的业务模型。
 
+### 执行模型：随调随用，不常驻
+
+App 的业务代码采用「Cloudflare Workers」式执行模型——没有 App 进程常驻，只有平台 daemon 常驻。background.js 在每次 operation 调用时全新执行、用完即弃：
+
+- **无状态执行**：每次调用都从零执行一遍 background.js，进程内变量、定时器或长连接无法跨调用存活。
+- **状态外置**：需要跨调用保留的数据必须写入 `ctx.sqlite` 或 `ctx.files`，不要依赖内存。
+- **长活能力归平台**：定时扫描、异步任务推进、WebSocket 长连接等由常驻的 service daemon 持有。App 通过「提交任务 + 订阅事件」参与，而不是自己启动 worker 或守护进程。
+- **真长活进程走 shell**：必须自己持有 socket、常驻或跑定时器的场景，在 App 包内放脚本，用 `ctx.shell.start` 启动为独立进程，进程生命周期与日志由平台托管。
+
 ## 核心 Recut 接口
 
 ### 1. background.js：注册 operation

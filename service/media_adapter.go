@@ -35,7 +35,6 @@ const (
 )
 
 const interruptedMediaJobMessage = media.InterruptedMediaJobMessage
-const maxMediaUploadBytes = media.MaxMediaUploadBytes
 
 type mediaStoreAdapter struct{ store *Store }
 

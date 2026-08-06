@@ -32,7 +32,6 @@ import {
   CLIDebugDialog,
   Conversation,
   ConversationLoading,
-  isCLIUnavailableFailure,
   latestFailedTurn,
   messageOf,
   responseMessage,
@@ -105,9 +104,6 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
   const [pendingOpencodeConfig, setPendingOpencodeConfig] =
     useState<OpencodeConfiguration>(defaultOpencodeConfiguration);
   const [now, setNow] = useState(() => Date.now());
-  const [acknowledgedFailureID, setAcknowledgedFailureID] = useState<
-    string | null
-  >(null);
   const streamRef = useRef<EventSource | null>(null);
   const cliStreamRef = useRef<EventSource | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -540,34 +536,18 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
     activeID && activeAgent && !activeAgent.available ? activeAgent : undefined;
   const noRuntimeReady =
     runtimeStatus !== null && !runtimeStatus.some((agent) => agent.available);
-  const failedTurn =
-    activeRuntime === "codex" || activeRuntime === "opencode"
-      ? latestFailedTurn(detail)
-      : null;
-  const historicalMissingCLI =
-    activeAgent?.available &&
-    isCLIUnavailableFailure(failedTurn?.message ?? "");
-  const startupFailure =
-    failedTurn?.id === acknowledgedFailureID || historicalMissingCLI
-      ? ""
-      : (failedTurn?.message ?? "");
+  const failedTurn = latestFailedTurn(detail);
   const chooseOnboarding = (prompt: string) => setContent(prompt);
   // recheckAgent re-fetches /v1/agents and refreshes the active session. When invoked from
   // the proactive install dialog with a targetID, it additionally closes the dialog as soon
-  // as the target agent is reported available. The recovery panel calls it without a target.
+  // as the target agent is reported available.
   async function recheckAgent(
     targetID?: string,
   ): Promise<AgentRuntimeStatus[] | null> {
     const status = await loadCachedRuntimeStatus(apiBase, true);
     if (activeID) await refresh(activeID);
     if (targetID && status?.find((agent) => agent.id === targetID)?.available) {
-      setAcknowledgedFailureID(failedTurn?.id ?? null);
       setInstallDialogAgent(null);
-    } else if (
-      !targetID &&
-      status?.find((agent) => agent.id === activeRuntime)?.available
-    ) {
-      setAcknowledgedFailureID(failedTurn?.id ?? null);
     }
     return status;
   }
@@ -581,18 +561,11 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
     setDebugCopyStatus(copied ? "copied" : "failed");
     if (copied) window.setTimeout(() => setDebugCopyStatus("idle"), 2200);
   }
-  if (!loadingSessions && (unavailableRuntime || startupFailure))
+  if (!loadingSessions && unavailableRuntime)
     return (
       <AgentRecoveryPanel
-        agent={
-          unavailableRuntime ?? {
-            id: activeRuntime,
-            name: runtimeAgentName(activeRuntime),
-            command: activeRuntime,
-            available: true,
-          }
-        }
-        failure={startupFailure}
+        agent={unavailableRuntime}
+        failure={failedTurn?.message ?? "本地 CLI 当前不可用。"}
         onRecheck={async () => {
           await recheckAgent();
         }}
@@ -708,7 +681,7 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
           />
         )}
         <div
-          className="min-h-0 flex-1 overflow-y-auto px-4 py-6 pb-36"
+          className="min-h-0 flex-1 overflow-y-auto px-4 py-6 pb-72"
           ref={messagesRef}
         >
           {loadingSessions ? (

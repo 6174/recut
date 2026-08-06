@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖临时 App/Project scope、ShellJobManager 与项目事件持久化
- * [OUTPUT]: 锁定 shell job 的 stdout/stderr 日志、完成事件与服务重启中断收敛
+ * [OUTPUT]: 锁定 shell job 的 stdout/stderr 日志、排队即取消、并发状态读取、完成事件与服务重启中断收敛
  * [POS]: service 的本地任务系统回归测试；不依赖 Python、网络或模型下载
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestShellJobPersistsLogsAndCompletion(t *testing.T) {
@@ -68,7 +67,6 @@ func TestShellJobCancellationPersistsTerminalState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(20 * time.Millisecond)
 	if err := jobs.Cancel(project.ID, project.AppID, job.ID); err != nil {
 		t.Fatal(err)
 	}

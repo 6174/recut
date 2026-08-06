@@ -62,12 +62,12 @@ func (m *PythonRuntimeManager) Prepare(projectID string, app App, filesRoot, mod
 		return ShellJob{}, err
 	}
 	runtime := app.Manifest.Runtime.Python
-	script := "set -eu\npython3 -m venv \"$RECUT_VENV\"\n\"$RECUT_PYTHON\" -m pip install --upgrade pip\n"
+	script := "set -eu\nprintf '%s\\n' '[python] 正在创建隔离运行环境。'\npython3 -m venv \"$RECUT_VENV\"\nprintf '%s\\n' '[python] 正在升级 pip。'\n\"$RECUT_PYTHON\" -m pip install --upgrade pip\n"
 	if runtime.Requirements != "" {
-		script += "\"$RECUT_PYTHON\" -m pip install --requirement \"$1\"\n"
+		script += "printf '%s\\n' '[python] 正在安装锁定依赖。'\n\"$RECUT_PYTHON\" -m pip install --requirement \"$1\"\n"
 	}
 	if runtime.Bootstrap != "" {
-		script += "sh \"$2\"\n"
+		script += "printf '%s\\n' '[python] 正在准备应用代码。'\nsh \"$2\"\n"
 	}
 	arguments := []string{"-eu", "-c", script, "recut-python-runtime"}
 	if runtime.Requirements != "" {

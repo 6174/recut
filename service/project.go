@@ -268,7 +268,7 @@ func (s *Store) WorkspaceDatabase() (*sql.DB, error) {
 		_, err := db.Exec(`
 create table if not exists agent_sessions (
   id text primary key, profile_id text not null, project_id text, runtime text not null,
-  native_session_id text, codex_model text, reasoning_effort text, opencode_model text,
+  native_session_id text, native_workspace text not null default '', codex_model text, reasoning_effort text, opencode_model text,
   title text not null, status text not null,
   created_at text not null, updated_at text not null
 );
@@ -368,6 +368,7 @@ create table if not exists device_tokens (
 			"alter table agent_sessions add column codex_model text",
 			"alter table agent_sessions add column reasoning_effort text",
 			"alter table agent_sessions add column opencode_model text",
+			"alter table agent_sessions add column native_workspace text not null default '',",
 			"alter table agent_sessions add column workspace_context_json text not null default ''",
 			"alter table agent_sessions add column app_id text not null default ''",
 			"alter table agent_sessions add column app_view text not null default ''",

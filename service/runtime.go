@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 manifest、Store 的目标命名空间与 App 全局状态、MediaService 与 goja JavaScript 运行时
- * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx，并提供 ctx.appState 常驻句柄与按 surface 执行 App background.js 的统一 operation handler
+ * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、流式私有媒体导入，以及按 surface 执行 App background.js 的统一 operation handler
  * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用 manifest 明示的 recut API；平台表一律不进入 ctx.sqlite / ctx.appState
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -216,11 +216,12 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 				panic(runtime.NewTypeError(err.Error()))
 			}
 			path := safeSandboxFile(primaryFiles, stringValue(input["path"]))
-			content, err := os.ReadFile(path)
+			content, err := os.Open(path)
 			if err != nil {
 				panic(runtime.NewGoError(err))
 			}
-			asset, err := h.media.ImportMedia(nonEmpty(stringValue(input["name"]), filepath.Base(path)), stringValue(input["mimeType"]), content)
+			defer content.Close()
+			asset, err := h.media.ImportMediaReader(nonEmpty(stringValue(input["name"]), filepath.Base(path)), stringValue(input["mimeType"]), content)
 			if err != nil {
 				panic(runtime.NewGoError(err))
 			}

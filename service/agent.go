@@ -35,6 +35,7 @@ type ChatSession struct {
 	ProfileID       string    `json:"profileId"`
 	Runtime         string    `json:"runtime"`
 	NativeSessionID string    `json:"nativeSessionId,omitempty"`
+	NativeWorkspace string    `json:"nativeWorkspace,omitempty"`
 	CodexModel      string    `json:"codexModel,omitempty"`
 	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
 	OpencodeModel   string    `json:"opencodeModel,omitempty"`
@@ -435,7 +436,7 @@ func (m *AgentManager) Create(runtime, codexModel, reasoningEffort, opencodeMode
 	if err != nil {
 		return ChatSession{}, err
 	}
-	_, err = db.Exec("insert into agent_sessions (id, profile_id, runtime, native_session_id, codex_model, reasoning_effort, opencode_model, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.Runtime, session.NativeSessionID, session.CodexModel, session.ReasoningEffort, session.OpencodeModel, session.Title, session.Status, iso(now), iso(now))
+	_, err = db.Exec("insert into agent_sessions (id, profile_id, runtime, native_session_id, native_workspace, codex_model, reasoning_effort, opencode_model, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.Runtime, session.NativeSessionID, session.NativeWorkspace, session.CodexModel, session.ReasoningEffort, session.OpencodeModel, session.Title, session.Status, iso(now), iso(now))
 	if err != nil {
 		return session, err
 	}
@@ -448,7 +449,7 @@ func (m *AgentManager) List(projectID, scope string) ([]ChatSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	query, args := "select id, profile_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
+	query, args := "select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
 	switch {
 	case projectID != "":
 		query += " and project_id = ?"
@@ -1079,10 +1080,18 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	if err != nil {
 		return err
 	}
-	workspace, err := m.bridge.WriteOpencodeWorkspace(bridgeSession, token, executable)
+	// An OpenCode native session must always be resumed from the workspace it
+	// was created in; passing a different --dir makes `opencode run --session`
+	// emit no events and hang after the loop. First turns persist that workspace
+	// so every later turn of the same native session reuses it.
+	workspace, err := m.opencodeWorkspace(session, bridgeSession, token, executable)
 	if err != nil {
 		return err
 	}
+	// A first turn created this workspace (or reused a stored one); once the run
+	// finishes and the native session id is known, pin the workspace so future
+	// turns resume from the exact same directory.
+	defer func() { m.persistNativeWorkspace(session.ID, workspace) }()
 	materials, err := m.contextMaterials(userTurn.Contexts)
 	if err != nil {
 		return err
@@ -1139,6 +1148,18 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 		return err
 	}
 	return nil
+}
+
+// opencodeWorkspace reuses the persisted native workspace for resumed OpenCode
+// sessions and materializes a fresh bridge workspace on the first turn. Running
+// `opencode run --session` from a different directory than the native session's
+// original workspace emits no events and hangs, so the workspace must be stable
+// across turns of the same native session.
+func (m *AgentManager) opencodeWorkspace(session ChatSession, bridgeSession AgentSession, token, executable string) (string, error) {
+	if session.NativeWorkspace != "" {
+		return m.bridge.WriteOpencodeWorkspaceTo(session.NativeWorkspace, bridgeSession, token, executable)
+	}
+	return m.bridge.WriteOpencodeWorkspace(bridgeSession, token, executable)
 }
 
 // opencodeRunArgs gives first turns a fixed title and auto-approves tools,
@@ -1689,10 +1710,41 @@ func (m *AgentManager) setNativeSession(id, native string) {
 	m.updateSession(id, "native_session_id = ?", native)
 }
 
+// setNativeSessionWorkspace records the workspace that owns a native session so
+// later OpenCode turns resume from the exact same directory.
+func (m *AgentManager) setNativeSessionWorkspace(id, workspace string) {
+	m.updateSession(id, "native_workspace = ?", workspace)
+}
+
+// persistNativeWorkspace records the workspace where a first OpenCode run
+// created its native session. Only stored when the native session was already
+// discovered, so a failed boot never pins a broken workspace.
+func (m *AgentManager) persistNativeWorkspace(sessionID, workspace string) {
+	if workspace == "" {
+		return
+	}
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return
+	}
+	_, _ = db.Exec("update agent_sessions set native_workspace = ? where id = ? and native_session_id != '' and coalesce(native_workspace, '') = ''", workspace, sessionID)
+}
+
 func (m *AgentManager) clearOpencodeNativeSession(session ChatSession) {
 	if session.Runtime == "opencode" {
-		m.setNativeSession(session.ID, "")
+		m.clearNativeSessionWorkspace(session.ID)
 	}
+}
+
+// clearNativeSessionWorkspace drops the native session pointer and its pinned
+// workspace together, so the next turn starts a fresh native session in a fresh
+// workspace instead of resuming a poisoned one.
+func (m *AgentManager) clearNativeSessionWorkspace(id string) {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return
+	}
+	_, _ = db.Exec("update agent_sessions set native_session_id = '', native_workspace = '', updated_at = ? where id = ?", iso(time.Now().UTC()), id)
 }
 func (m *AgentManager) setSessionStatus(id, status string) { m.updateSession(id, "status = ?", status) }
 func (m *AgentManager) updateSession(id, clause, value string) {
@@ -1705,7 +1757,7 @@ func (m *AgentManager) updateSession(id, clause, value string) {
 func (m *AgentManager) finish(id string) { m.mu.Lock(); delete(m.running, id); m.mu.Unlock() }
 
 func getChatSession(db *sql.DB, id string) (ChatSession, error) {
-	row := db.QueryRow("select id, profile_id, runtime, native_session_id, coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
+	row := db.QueryRow("select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
 	return scanChatSession(row)
 }
 
@@ -1714,7 +1766,7 @@ type scanner interface{ Scan(...any) error }
 func scanChatSession(row scanner) (ChatSession, error) {
 	var session ChatSession
 	var created, updated string
-	err := row.Scan(&session.ID, &session.ProfileID, &session.Runtime, &session.NativeSessionID, &session.CodexModel, &session.ReasoningEffort, &session.OpencodeModel, &session.Title, &session.Status, &created, &updated)
+	err := row.Scan(&session.ID, &session.ProfileID, &session.Runtime, &session.NativeSessionID, &session.NativeWorkspace, &session.CodexModel, &session.ReasoningEffort, &session.OpencodeModel, &session.Title, &session.Status, &created, &updated)
 	if err != nil {
 		return ChatSession{}, err
 	}

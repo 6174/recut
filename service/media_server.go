@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService 的平台级媒体边界与标准 HTTP JSON 协议
- * [OUTPUT]: 对外提供素材库、图片/视频/音频导入、模型路由、BYOK 凭据、动态音色、生成任务及 durable Asset SSE 的本地 HTTP API
+ * [OUTPUT]: 对外提供素材库、无固定大小上限的流式图片/视频/音频导入、模型路由、BYOK 凭据、动态音色、生成任务及 durable Asset SSE 的本地 HTTP API
  * [POS]: service 的 Media Platform 传输层；工作台和系统 MCP 使用同一业务服务，SSE 只传播本地 Asset 真相
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -204,27 +204,34 @@ func writeMediaSSE(w io.Writer, id, event string, value any) bool {
 }
 
 func (s *Server) importMediaAsset(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxMediaUploadBytes)
-	if err := r.ParseMultipartForm(maxMediaUploadBytes); err != nil {
-		writeError(w, http.StatusBadRequest, errors.New("media upload must be 50 MB or smaller"))
+	// ParseMultipartForm spills files beyond this small memory buffer to disk.
+	// It is not an upload limit: ImportMediaReader streams the selected file into
+	// the content-addressed media store without retaining its bytes in memory.
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("无法读取上传的媒体文件"))
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("media file is required"))
 		return
 	}
 	defer file.Close()
-	content, err := io.ReadAll(io.LimitReader(file, maxMediaUploadBytes))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
 	mimeType := header.Header.Get("Content-Type")
 	if !strings.HasPrefix(mimeType, "image/") && !strings.HasPrefix(mimeType, "audio/") && !strings.HasPrefix(mimeType, "video/") {
+		content, err := io.ReadAll(io.LimitReader(file, 512))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
 		mimeType = http.DetectContentType(content)
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
 	}
-	asset, err := s.media.ImportMedia(header.Filename, mimeType, content)
+	asset, err := s.media.ImportMediaReader(header.Filename, mimeType, file)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

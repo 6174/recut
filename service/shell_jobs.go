@@ -132,15 +132,23 @@ func (m *ShellJobManager) Start(input ShellJobStart) (ShellJob, error) {
 		return ShellJob{}, err
 	}
 	log.Printf("INFO shell job queued job_id=%s project_id=%s app_id=%s", job.ID, job.ProjectID, job.AppID)
-	go m.run(job, input)
-	return job, nil
-}
-
-func (m *ShellJobManager) run(job ShellJob, input ShellJobStart) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(input.TimeoutSeconds)*time.Second)
 	m.mu.Lock()
 	m.active[job.ID] = activeShellJob{cancel: cancel}
 	m.mu.Unlock()
+	go m.run(job, input, ctx, cancel)
+	return job, nil
+}
+
+func (m *ShellJobManager) run(job ShellJob, input ShellJobStart, ctx context.Context, cancel context.CancelFunc) {
+	m.mu.Lock()
+	activeJob := m.active[job.ID]
+	m.mu.Unlock()
+	if activeJob.cancelled {
+		m.finishCancelled(job)
+		cancel()
+		return
+	}
 	now := time.Now().UTC()
 	job.Status, job.StartedAt = ShellJobRunning, &now
 	_ = m.persist(job)
@@ -195,6 +203,17 @@ func (m *ShellJobManager) run(job ShellJob, input ShellJobStart) {
 	}
 }
 
+func (m *ShellJobManager) finishCancelled(job ShellJob) {
+	m.mu.Lock()
+	delete(m.active, job.ID)
+	m.mu.Unlock()
+	now := time.Now().UTC()
+	job.Status, job.Error, job.EndedAt = ShellJobCancelled, "cancelled", &now
+	_ = m.persist(job)
+	m.store.AppendEvent(job.ProjectID, map[string]any{"type": "shell.job.completed", "appId": job.AppID, "job": job})
+	log.Printf("WARN shell job cancelled job_id=%s", job.ID)
+}
+
 func (m *ShellJobManager) capture(job ShellJob, stream string, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 4096), 1024*1024)
@@ -222,6 +241,8 @@ func (m *ShellJobManager) appendLog(job ShellJob, stream, text string) {
 }
 
 func (m *ShellJobManager) Status(projectID, appID, id string) (ShellJob, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	job, err := m.read(projectID, id)
 	if err != nil || job.AppID != appID {
 		return ShellJob{}, errors.New("shell job not found")
@@ -250,6 +271,8 @@ func (m *ShellJobManager) Cancel(projectID, appID, id string) error {
 	return nil
 }
 func (m *ShellJobManager) persist(job ShellJob) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if err := os.MkdirAll(m.jobsDir(job.ProjectID), 0o700); err != nil {
 		return err
 	}
@@ -289,6 +312,8 @@ func (m *ShellJobManager) Output(projectID, id string) string {
 }
 
 func (m *ShellJobManager) Logs(projectID, id string) ([]ShellJobLog, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	file, err := os.Open(m.logsPath(projectID, id))
 	if errors.Is(err, os.ErrNotExist) {
 		return []ShellJobLog{}, nil

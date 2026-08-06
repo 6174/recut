@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的工作区身份、全局 Agent guide 模板与标准库文件系统能力
- * [OUTPUT]: 对外提供 AgentBridge、AgentSession、按会话独立的工作区物化（全局 guide + 三 CLI 的 MCP 配置）与鉴权
+ * [OUTPUT]: 对外提供 AgentBridge、AgentSession、按会话独立的工作区物化（全局 guide + 三 CLI 的 MCP 配置）、OpenCode 外部目录权限与鉴权
  * [POS]: service 的 Agent 会话边界；会话不绑定项目，bridge session 仅携带 Task ID，CLI 从中立会话工作区运行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -84,7 +84,7 @@ func (b *AgentBridge) WorkspaceDir(session AgentSession) string {
 }
 
 func (b *AgentBridge) appsDir() string {
-	if b.store.catalog != nil {
+	if b.store != nil && b.store.catalog != nil {
 		return b.store.catalog.Directory()
 	}
 	return filepath.Join(b.store.root, "apps")
@@ -119,12 +119,27 @@ env = { RECUT_AGENT_SESSION = %q, RECUT_AGENT_TOKEN = %q }
 // WriteOpencodeWorkspace writes the global guide and the OpenCode MCP config
 // into the session workspace.
 func (b *AgentBridge) WriteOpencodeWorkspace(session AgentSession, token, executable string) (string, error) {
-	root := b.WorkspaceDir(session)
+	return b.writeOpencodeWorkspace(b.WorkspaceDir(session), session, token, executable)
+}
+
+// WriteOpencodeWorkspaceTo writes the global guide and the OpenCode MCP config
+// into an explicit directory. Resuming an OpenCode native session must run in
+// the exact workspace where that session was created; a different --dir makes
+// `opencode run --session` emit no events and hang, so Recut persists the
+// original workspace and reuses it for every later turn of the same session.
+func (b *AgentBridge) WriteOpencodeWorkspaceTo(dir string, session AgentSession, token, executable string) (string, error) {
+	return b.writeOpencodeWorkspace(dir, session, token, executable)
+}
+
+func (b *AgentBridge) writeOpencodeWorkspace(dir string, session AgentSession, token, executable string) (string, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
 	agents, err := b.renderSessionGuide()
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), agents, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), agents, 0o600); err != nil {
 		return "", err
 	}
 	config := map[string]any{
@@ -141,12 +156,20 @@ func (b *AgentBridge) WriteOpencodeWorkspace(session AgentSession, token, execut
 				"timeout": opencodeMCPTimeoutMilliseconds,
 			},
 		},
+		// Phase 1: allow all external-directory reads so the headless CLI never
+		// blocks on an unanswerable permission prompt. A deny-first allowlist
+		// scoped to Recut's data root plus user-facing confirmation for anything
+		// outside it is a later phase, so the agent can currently diagnose and
+		// fix local setup issues in full.
+		"permission": map[string]any{
+			"external_directory": "allow",
+		},
 		"experimental": map[string]any{"mcp_timeout": opencodeMCPTimeoutMilliseconds},
 	}
-	if err := writeProjectJSON(filepath.Join(root, "opencode.json"), config); err != nil {
+	if err := writeProjectJSON(filepath.Join(dir, "opencode.json"), config); err != nil {
 		return "", err
 	}
-	return root, nil
+	return dir, nil
 }
 
 // WriteClaudeProfile materializes the Claude Code MCP adapter in the session

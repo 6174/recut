@@ -141,22 +141,11 @@ export function Composer({
         )}
         {pageContext && pageContextIncluded && (
           <div className="mb-2 flex flex-wrap gap-1.5">
-            <span className="inline-flex max-w-full items-center gap-1.5 rounded-sm border border-dashed bg-muted/40 py-1 pl-2 pr-1 text-[10px] text-muted-foreground">
-              <FileText className="size-3 shrink-0 text-primary" />
-              <span className="truncate">
-                当前页面 · {pageContext.title}
-                {pageContext.selection ? ` · ${pageContext.selection}` : ""}
-              </span>
-              <button
-                aria-label="移除当前页面上下文"
-                className="grid size-4 shrink-0 place-items-center rounded-sm hover:bg-muted-foreground/20"
-                onClick={onRemovePageContext}
-                title="移除当前页面上下文"
-                type="button"
-              >
-                <X className="size-3" />
-              </button>
-            </span>
+            <PageContextChip
+              onRemove={onRemovePageContext}
+              selection={pageContext.selection}
+              title={pageContext.title}
+            />
           </div>
         )}
         <textarea
@@ -511,6 +500,38 @@ function ConfigurationChoices({
         ))}
       </div>
     </section>
+  );
+}
+// PageContextChip mirrors the AssetReferenceChip visual so the auto-attached
+// current page reads identically to a media attachment chip in the composer and
+// the conversation history.
+export function PageContextChip({
+  onRemove,
+  selection,
+  title,
+}: {
+  onRemove?: () => void;
+  selection?: string;
+  title: string;
+}) {
+  return (
+    <span className="group inline-flex h-7 max-w-60 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1 pr-1.5 text-[10px] text-foreground">
+      <FileText className="size-3.5 shrink-0 text-primary" />
+      <span className="truncate">
+        当前页面 · {title}
+        {selection ? ` · ${selection}` : ""}
+      </span>
+      {onRemove && (
+        <button
+          aria-label={`移除 ${title}`}
+          className="ml-0.5 grid size-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground"
+          onClick={onRemove}
+          type="button"
+        >
+          <X className="size-3" />
+        </button>
+      )}
+    </span>
   );
 }
 export function RunningStatus({ events, now }: { events: AgentEvent[]; now: number }) {

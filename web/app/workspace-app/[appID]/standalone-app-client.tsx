@@ -82,7 +82,7 @@ export default function StandaloneAppClient() {
       try {
         if (request.type === "state.query" || request.type === "background.call") {
           const { name, ...input } = request.input;
-          const response = await fetch(`${apiBase}/v1/projects/${scope.id}/apps/${scope.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.type === "state.query" ? {} : input) });
+          const response = await fetch(`${apiBase}/v1/apps/${scope.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.type === "state.query" ? {} : input) });
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, "后台调用失败"));
         } else if (request.type === "agent.compose") {
@@ -111,7 +111,7 @@ export default function StandaloneAppClient() {
           const credentialID = String(request.input?.credentialID || "").trim();
           const referenceIDs = Array.isArray(request.input?.referenceIDs) ? request.input.referenceIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
           if (!prompt || !modelID || !credentialID) throw new Error("图片生成需要 Prompt 和已连接模型");
-          const response = await fetch(`${apiBase}/v1/media/jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capability: "image.generate", prompt, modelId: modelID, credentialId: credentialID, referenceIds: referenceIDs, projectId: scope.id }) });
+          const response = await fetch(`${apiBase}/v1/media/jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capability: "image.generate", prompt, modelId: modelID, credentialId: credentialID, referenceIds: referenceIDs }) });
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, "无法创建图片生成任务"));
         } else if (request.type === "settings.open") {

@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -258,6 +259,26 @@ func TestImportedMediaPreservesReferenceKinds(t *testing.T) {
 	}
 	if _, err := media.ImportMedia("reference.txt", "text/plain", []byte("text")); err == nil {
 		t.Fatal("non-media content was accepted")
+	}
+}
+
+func TestImportedMediaReaderAcceptsVideoBeyondLegacyUploadLimit(t *testing.T) {
+	media := NewMediaService(NewStore(t.TempDir(), nil))
+	content := bytes.Repeat([]byte("v"), 50<<20+1)
+	asset, err := media.ImportMediaReader("long-video.mp4", "video/mp4", bytes.NewReader(content))
+	if err != nil {
+		t.Fatalf("ImportMediaReader() = %v", err)
+	}
+	if asset.SizeBytes != int64(len(content)) || asset.Kind != "video" {
+		t.Fatalf("imported asset = %#v", asset)
+	}
+	path, _ := asset.Metadata["path"].(string)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stored video stat = %v", err)
+	}
+	if info.Size() != int64(len(content)) {
+		t.Fatalf("stored video = %d bytes, %v", info.Size(), err)
 	}
 }
 

@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { Bot, Check, ChevronRight, CircleAlert, Copy, FileText, RefreshCw, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { Bot, Check, ChevronRight, CircleAlert, Copy, RefreshCw, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { AgentInstallGuide, CopyFeedback, copyToClipboard, recoverySubtitle, recoveryTitle, type AgentRuntimeStatus } from "@/components/agent-install-guide";
@@ -14,7 +14,7 @@ import { AgentMessageContent } from "@/components/agent-message-content";
 import { AssetReferenceChip } from "@/components/asset-reference-picker";
 import { ToolResultAssets } from "@/components/tool-result-assets";
 import { Button } from "@/components/ui/button";
-import { ActionIcon, RunningStatus } from "@/components/agent-composer";
+import { ActionIcon, PageContextChip, RunningStatus } from "@/components/agent-composer";
 import { codexModelLabel, contextLabel, opencodeModelLabel, reasoningLabel, runtimeLabel } from "@/components/agent-panel-types";
 import { type AgentEvent, type CLIEntry, type Detail, type Session, type ToolPayload, type Turn } from "@/components/agent-panel-types";
 
@@ -168,33 +168,27 @@ export function Conversation({
           <section key={group.id}>
             {group.user && (() => {
               const user = group.user;
+              const pageContexts = (user.contexts ?? []).filter((context) => context.type !== "media");
               return (
               <div className="group ml-auto w-fit max-w-[85%]">
-                {(user.contexts ?? []).some((context) => context.type !== "media") && (
-                  <div className="mb-1 flex flex-wrap justify-end gap-1">
-                    {(user.contexts ?? [])
-                      .filter((context) => context.type !== "media")
-                      .map((context, index) => (
-                        <span
-                          className="inline-flex max-w-full items-center gap-1.5 rounded-sm border border-dashed bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground"
-                          key={`${user.id}-${index}`}
-                          title={contextLabel(context)}
-                        >
-                          <FileText className="size-3 shrink-0 text-primary" />
-                          <span className="truncate">
-                            当前页面 · {contextLabel(context)}
-                          </span>
-                        </span>
-                      ))}
-                  </div>
-                )}
-                {(user.attachments ?? []).length > 0 && (
+                {(pageContexts.length > 0 || (user.attachments ?? []).length > 0) && (
                   <div className="mb-1 flex flex-wrap justify-end gap-1">
                     {(user.attachments ?? []).map((attachment) => (
                       <AssetReferenceChip
                         apiBase={apiBase}
                         key={attachment.assetId}
                         reference={attachment}
+                      />
+                    ))}
+                    {pageContexts.map((context, index) => (
+                      <PageContextChip
+                        key={`${user.id}-${index}`}
+                        selection={
+                          typeof context.payload.selection === "string"
+                            ? context.payload.selection
+                            : undefined
+                        }
+                        title={contextLabel(context)}
                       />
                     ))}
                   </div>

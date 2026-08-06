@@ -77,6 +77,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/apps/{appID}/workspace", s.getAppWorkspaceScope)
 	mux.HandleFunc("GET /v1/apps/{appID}/files/{path...}", s.appStateFile)
 	mux.HandleFunc("GET /v1/apps/{appID}/ui/{path...}", s.appUI)
+	mux.HandleFunc("POST /v1/apps/{appID}/api/{name}", s.invokeAppStateAPI)
 	mux.HandleFunc("GET /v1/projects", s.listProjects)
 	mux.HandleFunc("POST /v1/projects", s.createProject)
 	mux.HandleFunc("GET /v1/projects/{id}", s.getProject)
@@ -415,6 +416,33 @@ func (s *Server) invokeAppAPI(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("appID")
 	target := Target{ProjectID: projectID, AppID: appID}
 	result, err := s.host.InvokeAPI(target, appID, r.PathValue("name"), input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// invokeAppStateAPI routes standalone App operations to the App's global
+// appstate target. Standalone Apps own no Project, so the target is the App
+// itself and ctx.project is null inside their background.js.
+func (s *Server) invokeAppStateAPI(w http.ResponseWriter, r *http.Request) {
+	appID := strings.TrimSpace(r.PathValue("appID"))
+	app, ok := s.apps.Get(appID)
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("app is unavailable"))
+		return
+	}
+	if app.Manifest.Kind != StandaloneApp {
+		writeError(w, http.StatusBadRequest, errors.New("project apps require a project target"))
+		return
+	}
+	input := map[string]any{}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	result, err := s.host.InvokeAPI(Target{AppID: appID}, appID, r.PathValue("name"), input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
