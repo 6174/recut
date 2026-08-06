@@ -15,6 +15,7 @@ Recut Daemon / Capability Host
 ├── Artifact registry   ctx.artifacts.publish
 ├── App API broker      recut.apps（下一步）
 ├── Media Platform      asset registry / encrypted BYOK / routes / jobs
+├── Project cover       owner App selects image/video Asset via ctx.project.setCover
 └── MCP Host            recut.media.* + manifest.mcp → background.js
         │
         ▼
@@ -26,7 +27,7 @@ Agent Session Host
 
 `manifest.json` 只声明身份、`type`、`background`、UI 入口、权限和 `operations`。一个 operation 定义名称、描述、输入 schema 与 `surfaces: ["api", "mcp"]`；它不声明数据表、项目文件、迁移或业务 workflow；这些都是 App JavaScript 的内部实现。
 
-每个 App 只有一个 sqlite 接口：`appstate/<appId>/storage.sqlite`，同时承载该 App 的全局状态与它拥有的所有 Project——App 以 `ctx.project.id` 分区自己的行，无项目时 `ctx.project` 为 `null`。平台表（Project 元数据、Artifact、事件、Agent、媒体、凭据）全部位于唯一 `workspace.sqlite`。大媒体写入 content-addressed `files/`，SQLite 永远先保存资源记录、哈希和 `fileId`，而不是让业务状态散落成 JSON 文件。路径只是平台实现细节，JS 不获得裸路径或 SQLite 连接串。
+每个 App 只有一个 sqlite 接口：`appstate/<appId>/storage.sqlite`，同时承载该 App 的全局状态与它拥有的所有 Project——App 以 `ctx.project.id` 分区自己的行，无项目时 `ctx.project` 为 `null`。平台表（Project 元数据、Artifact、事件、Agent、媒体、凭据）全部位于唯一 `workspace.sqlite`。Project 的 `cover` 是平台元数据，但封面选择仍是 App 业务：owner App 只能把自己的已完成 image/video Asset 交给 `ctx.project.setCover({ assetId })`，平台自动关联、保存并在项目桌面按类型展示。大媒体写入 content-addressed `files/`，SQLite 永远先保存资源记录、哈希和 `fileId`，而不是让业务状态散落成 JSON 文件。路径只是平台实现细节，JS 不获得裸路径或 SQLite 连接串。
 
 MCP 由平台而非 App 监听。Agent session 只看到当前 App manifest 声明且包含 `mcp` surface 的 `app-id.operation`；调用经 Host 权限校验后进入 `background.js` 注册的 `recut.operation.register(name, handler)`。同一 operation 以 `api` surface 给 UI 调用，以 `mcp` surface 给 Agent 调用，只有一份名称、schema 与实现。
 

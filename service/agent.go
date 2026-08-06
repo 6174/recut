@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、持久化 CLI 定位缓存、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
- * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、OpenCode 连续六分钟静默才取消的 watchdog、停止时原子取消当前批次并重置 OpenCode 原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、泛化的消息上下文（media/page/可扩展类型）注册与提示词/CLI 拼装、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
+ * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、OpenCode 连续六分钟静默才取消的 watchdog、停止时原子取消当前批次并重置原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、泛化的消息上下文（media/page/可扩展类型）注册与提示词/CLI 拼装、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
  * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份，会话不绑定任何项目，项目与 App 完全由 MCP 上下文工具发现
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -17,6 +17,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -363,7 +364,7 @@ func (m *AgentManager) RecoverInterruptedTurns() (int, error) {
 		}
 	}
 	for sessionID := range sessions {
-		if _, err := tx.Exec("update agent_sessions set status = ?, native_session_id = case when runtime = ? then '' else native_session_id end, updated_at = ? where id = ?", "idle", "opencode", now, sessionID); err != nil {
+		if _, err := tx.Exec("update agent_sessions set status = ?, native_session_id = case when runtime = ? then '' else native_session_id end, native_workspace = case when runtime = ? then '' else native_workspace end, updated_at = ? where id = ?", "idle", "opencode", "opencode", now, sessionID); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec("insert into agent_events (session_id, turn_id, type, payload_json, created_at) values (?, ?, ?, ?, ?)", sessionID, "", "session.updated", `{"label":"服务重启后已恢复为空闲"}`, now); err != nil {
@@ -777,7 +778,7 @@ func (m *AgentManager) run(ctx context.Context, sessionID string) {
 				return
 			}
 			if errors.Is(err, errOpencodeResponseTimeout) {
-				m.clearOpencodeNativeSession(session)
+				m.clearNativeSession(session)
 			}
 			m.completeTurn(turn.ID, "failed")
 			_ = m.store.CompleteTask(turn.TaskID)
@@ -903,7 +904,7 @@ func (m *AgentManager) cancelSessionTurns(sessionID string) ([]cancelledAgentTur
 	if _, err := tx.Exec("update agent_turns set status = ?, completed_at = ? where session_id = ? and role = ? and status in (?, ?)", "cancelled", now, sessionID, "user", "running", "queued"); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec("update agent_sessions set status = ?, native_session_id = case when runtime = ? then '' else native_session_id end, updated_at = ? where id = ?", "idle", "opencode", now, sessionID); err != nil {
+	if _, err := tx.Exec("update agent_sessions set status = ?, native_session_id = case when runtime = ? then '' else native_session_id end, native_workspace = case when runtime = ? then '' else native_workspace end, updated_at = ? where id = ?", "idle", "opencode", "opencode", now, sessionID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -938,15 +939,21 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	if err != nil {
 		return err
 	}
-	workspace, err := m.bridge.MaterializeCodexWorkspace(bridgeSession, token, executable)
+	// Codex threads are global, but the CLI still runs from the workspace where
+	// the native session was created so AGENTS.md, the MCP config and the
+	// session's working directory stay stable across turns. The workspace must
+	// also pass Codex's repo/trust check, which a bare Recut session directory
+	// does not, so --skip-git-repo-check keeps the headless run from aborting.
+	// danger-full-access mirrors OpenCode's phase-1 `--auto` + allow-all
+	// external-directory policy: the headless Agent must read and write App
+	// packages, models and media under ~/.recut, which the default read-only
+	// and workspace-write sandboxes both block.
+	workspace, err := m.codexWorkspace(session, bridgeSession, token, executable)
 	if err != nil {
 		return err
 	}
-	args := []string{"exec"}
-	if session.NativeSessionID != "" {
-		args = append(args, "resume", session.NativeSessionID)
-	}
-	args = append(args, "--model", model, "--config", fmt.Sprintf("model_reasoning_effort=%q", effort))
+	defer func() { m.persistNativeWorkspace(session.ID, workspace) }()
+	args := codexRunArgs(session.NativeSessionID, model, effort)
 	materials, err := m.contextMaterials(userTurn.Contexts)
 	if err != nil {
 		return err
@@ -1009,17 +1016,20 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	if err != nil {
 		return err
 	}
-	profile, err := m.bridge.WriteClaudeProfile(bridgeSession, executable)
+	// Claude stores each session under the project directory it was created in,
+	// so resuming from a different cwd fails; the workspace is pinned on the
+	// first turn and reused for every later turn of the same native session.
+	workspace, err := m.claudeWorkspace(session, bridgeSession, executable)
 	if err != nil {
 		return err
 	}
-	workspace := m.bridge.WorkspaceDir(bridgeSession)
+	defer func() { m.persistNativeWorkspace(session.ID, workspace) }()
 	materials, err := m.contextMaterials(userTurn.Contexts)
 	if err != nil {
 		return err
 	}
 	prompt := userTurn.runtimePrompt() + contextPrompt(materials)
-	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--mcp-config", profile}
+	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--mcp-config", filepath.Join(workspace, "claude-mcp.json")}
 	if session.NativeSessionID != "" {
 		args = append(args, "--resume", session.NativeSessionID)
 	}
@@ -1162,6 +1172,34 @@ func (m *AgentManager) opencodeWorkspace(session ChatSession, bridgeSession Agen
 	return m.bridge.WriteOpencodeWorkspace(bridgeSession, token, executable)
 }
 
+// codexWorkspace reuses the persisted native workspace for resumed Codex
+// sessions and materializes a fresh bridge workspace on the first turn, keeping
+// the CLI cwd and Codex's working directory stable across turns of the same
+// native thread.
+func (m *AgentManager) codexWorkspace(session ChatSession, bridgeSession AgentSession, token, executable string) (string, error) {
+	if session.NativeWorkspace != "" {
+		return m.bridge.MaterializeCodexWorkspaceTo(session.NativeWorkspace, bridgeSession, token, executable)
+	}
+	return m.bridge.MaterializeCodexWorkspace(bridgeSession, token, executable)
+}
+
+// claudeWorkspace reuses the persisted native workspace for resumed Claude
+// sessions. Claude stores each session under the project directory it was
+// created in, so --resume from a different cwd errors; the original workspace
+// must be reused for every later turn.
+func (m *AgentManager) claudeWorkspace(session ChatSession, bridgeSession AgentSession, executable string) (string, error) {
+	if session.NativeWorkspace != "" {
+		if _, err := m.bridge.WriteClaudeProfileTo(session.NativeWorkspace, bridgeSession, executable); err != nil {
+			return "", err
+		}
+		return session.NativeWorkspace, nil
+	}
+	if _, err := m.bridge.WriteClaudeProfile(bridgeSession, executable); err != nil {
+		return "", err
+	}
+	return m.bridge.WorkspaceDir(bridgeSession), nil
+}
+
 // opencodeRunArgs gives first turns a fixed title and auto-approves tools,
 // matching Recut's intentionally unattended Codex execution mode.
 func opencodeRunArgs(prompt, projectDir, model, nativeSessionID, title string) []string {
@@ -1170,6 +1208,19 @@ func opencodeRunArgs(prompt, projectDir, model, nativeSessionID, title string) [
 		return append(args, "--session", nativeSessionID)
 	}
 	return append(args, "--title", title)
+}
+
+// codexRunArgs builds a headless Codex invocation. Flags must precede the
+// `resume` subcommand: `codex exec resume <id> --flag` stalls on the second
+// turn. --skip-git-repo-check keeps Recut's non-git session workspace from
+// aborting, and danger-full-access mirrors OpenCode's phase-1 allow-all policy
+// so the unattended Agent can write App packages and models outside the cwd.
+func codexRunArgs(nativeSessionID, model, effort string) []string {
+	args := []string{"exec", "--skip-git-repo-check", "-s", "danger-full-access", "--model", model, "--config", fmt.Sprintf("model_reasoning_effort=%q", effort)}
+	if nativeSessionID != "" {
+		return append(args, "resume", nativeSessionID)
+	}
+	return args
 }
 
 // agentCLIUnavailableError keeps process-environment failures actionable at
@@ -1710,15 +1761,10 @@ func (m *AgentManager) setNativeSession(id, native string) {
 	m.updateSession(id, "native_session_id = ?", native)
 }
 
-// setNativeSessionWorkspace records the workspace that owns a native session so
-// later OpenCode turns resume from the exact same directory.
-func (m *AgentManager) setNativeSessionWorkspace(id, workspace string) {
-	m.updateSession(id, "native_workspace = ?", workspace)
-}
-
-// persistNativeWorkspace records the workspace where a first OpenCode run
-// created its native session. Only stored when the native session was already
-// discovered, so a failed boot never pins a broken workspace.
+// persistNativeWorkspace records the workspace where a first run created its
+// native session, so every later turn of the same session runs from the exact
+// same directory. Only stored when the native session was already discovered,
+// so a failed boot never pins a broken workspace.
 func (m *AgentManager) persistNativeWorkspace(sessionID, workspace string) {
 	if workspace == "" {
 		return
@@ -1730,10 +1776,8 @@ func (m *AgentManager) persistNativeWorkspace(sessionID, workspace string) {
 	_, _ = db.Exec("update agent_sessions set native_workspace = ? where id = ? and native_session_id != '' and coalesce(native_workspace, '') = ''", workspace, sessionID)
 }
 
-func (m *AgentManager) clearOpencodeNativeSession(session ChatSession) {
-	if session.Runtime == "opencode" {
-		m.clearNativeSessionWorkspace(session.ID)
-	}
+func (m *AgentManager) clearNativeSession(session ChatSession) {
+	m.clearNativeSessionWorkspace(session.ID)
 }
 
 // clearNativeSessionWorkspace drops the native session pointer and its pinned

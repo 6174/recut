@@ -1,3 +1,5 @@
+<!-- [PROTOCOL]: 变更时更新此头部，然后检查 README.md -->
+
 # Recut 应用标准
 
 > 给 AI 的创建契约。请完整遵守；不确定时先提问，不要猜测或扩展平台边界。
@@ -88,6 +90,8 @@ recut.operation.register("plan.create", (input, ctx) => {
 | `media.write` | `ctx.media.importFile({ path, name, mimeType })` | 仅在用户明确选择后，将 App 私有文件导入素材库并返回 Asset。 |
 | `shell` | `ctx.shell.exec({ command, args, cwd?, environment?, timeoutSeconds? })`、`start(...)`、`status(jobId)`、`logs(jobId)`、`cancel(jobId)` | 在 App 包根或私有 files 执行非交互命令；`start` 返回可恢复 Job，stdout/stderr 作为 `shell.job.log` 项目事件实时发出，`logs` 可在重连后读取持久记录。`environment` 可选择 manifest 声明的 venv。 |
 | `python` | `ctx.python.status()`、`prepare()`、`run(args)` | 仅供声明 `runtime.python` 的 App 使用。平台创建、指纹化和激活 venv；`prepare` 返回安装依赖与 bootstrap 的 Job，`run` 在就绪 venv 中启动 Python Job。 |
+
+项目型 App 始终可读取 `ctx.project.cover`，并可以用 `ctx.project.setCover({ assetId })` 选择项目桌面的封面。`assetId` 必须是一个已经完成的图片或视频 Asset；平台验证类型、自动关联到当前项目、持久化 `{ assetId, kind }` 并在 Studio 按类型渲染。App 决定何时用哪个业务产物作为封面，平台绝不从 App SQLite、文件名或 Artifact 猜测。独立型 App 的 `ctx.project` 为 `null`，不能设置封面。
 
 没有对应权限时不得访问该对象。不要申请或伪造未列出的 `ctx` 能力。
 

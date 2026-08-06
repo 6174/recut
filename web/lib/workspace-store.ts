@@ -1,13 +1,14 @@
 /*
  * [INPUT]: 依赖 Zustand 与 Recut service 的 App、项目、已安装 App HTTP API
- * [OUTPUT]: 对外提供当前 service endpoint 的项目/App/安装目录、按 ID 项目详情、独立 App scope 快照、请求去重与显式失效刷新
+ * [OUTPUT]: 对外提供含可选媒体封面的当前 service 项目/App/安装目录、按 ID 项目详情、独立 App scope 快照、请求去重与显式失效刷新
  * [POS]: web/lib 的工作台目录缓存；写操作成功后刷新，绝不使用页面级定时轮询维持一致性
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { create } from "zustand";
 
 export type WorkspaceApp = { manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone"; ui?: { projectView?: string; standaloneView?: string } } };
-export type WorkspaceProject = { id: string; name: string; appId: string };
+export type WorkspaceProjectCover = { assetId: string; kind: "image" | "video" };
+export type WorkspaceProject = { id: string; name: string; appId: string; cover?: WorkspaceProjectCover };
 export type WorkspaceProjectDetail = WorkspaceProject & { appVersion: string; createdAt: string };
 export type WorkspaceScope = { id: string; name: string; appId: string; appVersion: string };
 export type WorkspaceInstallation = { package: string; manifest: WorkspaceApp["manifest"]; repository?: string; revision?: string; dirty: boolean; updateAvailable: boolean; manageable: boolean; status?: string };

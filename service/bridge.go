@@ -94,15 +94,27 @@ func (b *AgentBridge) appsDir() string {
 // into the session workspace. The workspace is the CLI cwd, so guide and config
 // never touch a user project and concurrent sessions cannot overwrite each other.
 func (b *AgentBridge) MaterializeCodexWorkspace(session AgentSession, token, executable string) (string, error) {
-	root := b.WorkspaceDir(session)
-	if err := os.MkdirAll(filepath.Join(root, ".codex"), 0o700); err != nil {
+	return b.materializeCodexWorkspace(b.WorkspaceDir(session), session, token, executable)
+}
+
+// MaterializeCodexWorkspaceTo writes the Codex workspace into an explicit
+// directory. Codex resumes threads globally, but the CLI must still run from a
+// Recut-managed workspace so AGENTS.md and the MCP config stay available and
+// the directory passes Codex's repo/trust checks; Recut persists the original
+// workspace and reuses it for every later turn of the same native session.
+func (b *AgentBridge) MaterializeCodexWorkspaceTo(dir string, session AgentSession, token, executable string) (string, error) {
+	return b.materializeCodexWorkspace(dir, session, token, executable)
+}
+
+func (b *AgentBridge) materializeCodexWorkspace(dir string, session AgentSession, token, executable string) (string, error) {
+	if err := os.MkdirAll(filepath.Join(dir, ".codex"), 0o700); err != nil {
 		return "", err
 	}
 	agents, err := b.renderSessionGuide()
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), agents, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), agents, 0o600); err != nil {
 		return "", err
 	}
 	config := fmt.Sprintf(`[mcp_servers.recut]
@@ -110,10 +122,10 @@ command = %q
 args = ["--mcp-stdio", "--data-dir", %q, "--apps-dir", %q]
 env = { RECUT_AGENT_SESSION = %q, RECUT_AGENT_TOKEN = %q }
 `, executable, b.store.root, b.appsDir(), session.ID, token)
-	if err := os.WriteFile(filepath.Join(root, ".codex", "config.toml"), []byte(config), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".codex", "config.toml"), []byte(config), 0o600); err != nil {
 		return "", err
 	}
-	return root, nil
+	return dir, nil
 }
 
 // WriteOpencodeWorkspace writes the global guide and the OpenCode MCP config
@@ -176,19 +188,33 @@ func (b *AgentBridge) writeOpencodeWorkspace(dir string, session AgentSession, t
 // workspace. The token is intentionally absent: the CLI process passes it to
 // its MCP child through env.
 func (b *AgentBridge) WriteClaudeProfile(session AgentSession, executable string) (string, error) {
-	root := b.WorkspaceDir(session)
+	return b.writeClaudeProfile(b.WorkspaceDir(session), session, executable)
+}
+
+// WriteClaudeProfileTo writes the Claude Code profile into an explicit
+// directory. Claude stores each session under the project directory it was
+// created in, so `--resume` from a different cwd fails; Recut persists the
+// original workspace and reuses it for every later turn of the same session.
+func (b *AgentBridge) WriteClaudeProfileTo(dir string, session AgentSession, executable string) (string, error) {
+	return b.writeClaudeProfile(dir, session, executable)
+}
+
+func (b *AgentBridge) writeClaudeProfile(dir string, session AgentSession, executable string) (string, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
 	agents, err := b.renderSessionGuide()
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), agents, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), agents, 0o600); err != nil {
 		return "", err
 	}
 	profile := map[string]any{"mcpServers": map[string]any{"recut": map[string]any{
 		"command": executable,
 		"args":    []string{"--mcp-stdio", "--data-dir", b.store.root, "--apps-dir", b.appsDir()},
 	}}}
-	path := filepath.Join(root, "claude-mcp.json")
+	path := filepath.Join(dir, "claude-mcp.json")
 	if err := writeProjectJSON(path, profile); err != nil {
 		return "", err
 	}

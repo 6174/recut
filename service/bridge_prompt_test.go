@@ -180,6 +180,81 @@ func TestOpencodeWorkspaceReusesNativeWorkspaceOnResume(t *testing.T) {
 	}
 }
 
+func TestCodexAndClaudeWorkspacesReuseNativeWorkspaceOnResume(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	bridge := NewAgentBridge(store)
+	manager := NewAgentManager(store, bridge, nil)
+
+	firstBridge, firstToken, err := bridge.CreateSession(SessionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexWorkspace, err := bridge.MaterializeCodexWorkspace(firstBridge, firstToken, "/tmp/recut-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resumeSession := ChatSession{ID: "session-codex-resume", Runtime: "codex", NativeSessionID: "thread_abc", NativeWorkspace: codexWorkspace}
+	resumeBridge, resumeToken, err := bridge.CreateSession(SessionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reused, err := manager.codexWorkspace(resumeSession, resumeBridge, resumeToken, "/tmp/recut-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused != codexWorkspace {
+		t.Fatalf("codex resume must reuse the pinned workspace, got %q want %q", reused, codexWorkspace)
+	}
+	for _, name := range []string{"AGENTS.md", filepath.Join(".codex", "config.toml")} {
+		if _, err := os.Stat(filepath.Join(reused, name)); err != nil {
+			t.Fatalf("codex resume workspace is missing %s: %v", name, err)
+		}
+	}
+
+	claudeBridge, _, err := bridge.CreateSession(SessionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claudeSession := ChatSession{ID: "session-claude-resume", Runtime: "claude", NativeSessionID: "uuid", NativeWorkspace: codexWorkspace}
+	claudeWorkspace, err := manager.claudeWorkspace(claudeSession, claudeBridge, "/tmp/recut-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claudeWorkspace != codexWorkspace {
+		t.Fatalf("claude resume must reuse the pinned workspace, got %q want %q", claudeWorkspace, codexWorkspace)
+	}
+	for _, name := range []string{"AGENTS.md", "claude-mcp.json"} {
+		if _, err := os.Stat(filepath.Join(claudeWorkspace, name)); err != nil {
+			t.Fatalf("claude resume workspace is missing %s: %v", name, err)
+		}
+	}
+
+	freshBridge, freshToken, err := bridge.CreateSession(SessionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	freshWorkspace, err := manager.codexWorkspace(ChatSession{ID: "session-codex-fresh", Runtime: "codex"}, freshBridge, freshToken, "/tmp/recut-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if freshWorkspace == codexWorkspace {
+		t.Fatalf("codex first turn must get its own workspace, got %q", freshWorkspace)
+	}
+}
+
 func TestPersistNativeWorkspacePinsOnlyAfterNativeSession(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	db, err := store.WorkspaceDatabase()
@@ -213,7 +288,7 @@ func TestPersistNativeWorkspacePinsOnlyAfterNativeSession(t *testing.T) {
 	}
 
 	// Clearing the native session also clears the pinned workspace.
-	manager.clearOpencodeNativeSession(ChatSession{ID: "session-ws", Runtime: "opencode"})
+	manager.clearNativeSession(ChatSession{ID: "session-ws", Runtime: "opencode"})
 	var native, workspaceStored string
 	if err := db.QueryRow("select coalesce(native_session_id, ''), coalesce(native_workspace, '') from agent_sessions where id = ?", "session-ws").Scan(&native, &workspaceStored); err != nil || native != "" || workspaceStored != "" {
 		t.Fatalf("clear did not reset native session/workspace: %q/%q, err=%v", native, workspaceStored, err)

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与工作台目录状态、静态 App Catalog、Agent Session HTTP API 及全局 Agent 面板上下文
- * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的最近项目与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和 service 连接错误诊断
+ * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和 service 连接错误诊断
  * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -181,7 +181,7 @@ function Studio({ apiBase, installations, onCompose, onStartProject, projects }:
   ];
   const recentProjects = projects.slice(0, 4);
   return <div className="pb-10">
-    <section className="relative min-h-[21rem] overflow-hidden border-b border-border bg-[radial-gradient(ellipse_at_78%_42%,oklch(0.94_0.075_151_/_0.55),transparent_34%)] pb-8 pt-7 sm:min-h-[23rem]">
+    <section className="relative min-h-[21rem] overflow-hidden border-b border-border pb-8 pt-7 sm:min-h-[23rem]">
       <WebGLStudioHero />
       <div className="relative z-10 max-w-xl">
       <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">GOOD MORNING · STUDIO</p>
@@ -193,10 +193,25 @@ function Studio({ apiBase, installations, onCompose, onStartProject, projects }:
       <div className="relative z-10 mt-3 flex flex-wrap gap-2">{suggestions.map(({ icon: Icon, label, prompt }) => <button className="inline-flex h-9 items-center gap-2 rounded-full border bg-card px-3 text-xs font-medium transition hover:border-primary/30 hover:bg-accent/40" key={label} onClick={() => onCompose(prompt)} type="button"><Icon className="size-3.5 text-primary" />{label}</button>)}</div>
       </div>
     </section>
-    <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">查看全部<ArrowRight className="size-3.5" /></Link>} description="从上次停下的地方继续。" title="继续创作" />{recentProjects.length ? <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-3">{recentProjects.map((project) => <Link className="group" href={`/projects/${project.id}`} key={project.id}><Card className="overflow-hidden transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]"><div className="flex aspect-[16/9] items-end bg-[linear-gradient(135deg,oklch(0.29_0.045_210),oklch(0.52_0.075_170))] p-3"><span className="rounded-xs bg-black/35 px-1.5 py-0.5 font-mono text-[10px] text-white">PROJECT</span></div><CardContent className="p-3"><p className="truncate text-sm font-semibold">{project.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{project.appId}</p><p className="mt-3 text-xs font-medium text-primary">继续编辑</p></CardContent></Card></Link>)}</div> : <Card><CardContent className="flex min-h-28 items-center justify-between gap-5 p-5"><div><p className="text-sm font-semibold">从一个项目开始</p><p className="mt-1 text-xs text-muted-foreground">选择一款已安装的 App，建立你的第一个创作空间。</p></div><Link className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground" href="/projects"><FolderPlus className="size-3.5" />新建项目</Link></CardContent></Card>}</section>
+    <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">查看全部<ArrowRight className="size-3.5" /></Link>} description="从上次停下的地方继续。" title="继续创作" />{recentProjects.length ? <RecentProjects apiBase={apiBase} projects={recentProjects} /> : <Card><CardContent className="flex min-h-28 items-center justify-between gap-5 p-5"><div><p className="text-sm font-semibold">从一个项目开始</p><p className="mt-1 text-xs text-muted-foreground">选择一款已安装的 App，建立你的第一个创作空间。</p></div><Link className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground" href="/projects"><FolderPlus className="size-3.5" />新建项目</Link></CardContent></Card>}</section>
     <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/media">打开 Assets<ArrowRight className="size-3.5" /></Link>} description="最近加入工作台的图片、视频和音频，可直接带入下一次创作。" title="最近使用的资源" /><RecentAssets apiBase={apiBase} /></section>
-    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps">管理 Apps<ArrowRight className="size-3.5" /></Link>} description="已安装的创作能力，按项目或独立工作区直接进入。" title="创作 Apps" />{installations.length ? <div className="grid grid-cols-[repeat(auto-fit,minmax(12rem,1fr))] gap-3">{installations.slice(0, 4).map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div> : <EmptyHomeApps />}</section>
+    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps">管理 Apps<ArrowRight className="size-3.5" /></Link>} description="已安装的创作能力，按项目或独立工作区直接进入。" title="创作 Apps" />{installations.length ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{installations.slice(0, 4).map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div> : <EmptyHomeApps />}</section>
   </div>;
+}
+
+function RecentProjects({ apiBase, projects }: { apiBase: string; projects: Project[] }) {
+  const gridClass = projects.length === 1 ? "grid max-w-60 grid-cols-1 gap-3" : "grid grid-cols-2 gap-3 lg:grid-cols-4";
+  return <div className={gridClass}>{projects.map((project) => <Link className="group" href={`/projects/${project.id}`} key={project.id}><Card className="overflow-hidden transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]"><ProjectCoverPreview apiBase={apiBase} project={project} /><CardContent className="p-3"><p className="truncate text-sm font-semibold">{project.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{project.appId}</p><p className="mt-2 text-xs font-medium text-primary">继续编辑</p></CardContent></Card></Link>)}</div>;
+}
+
+function ProjectCoverPreview({ apiBase, project }: { apiBase: string; project: Project }) {
+  const cover = project.cover;
+  if (cover) {
+    const src = `${apiBase}/v1/media/assets/${encodeURIComponent(cover.assetId)}/content`;
+    if (cover.kind === "video") return <VideoFrame alt={`${project.name} 项目封面`} className="aspect-[16/7] border-b" src={src} />;
+    return <img alt={`${project.name} 项目封面`} className="aspect-[16/7] w-full border-b object-cover" src={src} />;
+  }
+  return <div className="flex aspect-[16/7] items-center justify-between border-b bg-muted p-3"><span className="grid size-7 place-items-center rounded-sm bg-card text-muted-foreground shadow-sm"><AppWindow className="size-3.5" /></span><span className="rounded-xs border bg-card px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">PROJECT</span></div>;
 }
 
 function ProjectsPage({ apps, name, onAppChange, onNameChange, onSubmit, projects, selectedApp }: { apps: Installation[]; name: string; onAppChange: (value: string) => void; onNameChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
@@ -207,9 +222,9 @@ function RecentAssets({ apiBase }: { apiBase: string }) {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   useEffect(() => { let active = true; void fetch(`${apiBase}/v1/media/assets`, { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error(); return response.json() as Promise<Asset[]>; }).then((items) => { if (active) { setAssets(items.slice(0, 5)); setState("ready"); } }).catch(() => { if (active) setState("error"); }); return () => { active = false; }; }, [apiBase]);
-  if (state === "loading") return <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">{Array.from({ length: 5 }, (_, index) => <div className="aspect-square animate-pulse rounded-sm bg-muted" key={index} />)}</div>;
+  if (state === "loading") return <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{Array.from({ length: 5 }, (_, index) => <div className="aspect-square animate-pulse rounded-sm bg-muted" key={index} />)}</div>;
   if (state === "error" || !assets.length) return <Card><CardContent className="flex min-h-28 items-center gap-3"><span className="grid size-9 place-items-center rounded-sm bg-muted"><Box className="size-4 text-muted-foreground" /></span><div><p className="text-sm font-medium">还没有可展示的资源</p><p className="mt-1 text-xs text-muted-foreground">上传素材或在任一 App 中生成内容后，它们会出现在这里。</p></div></CardContent></Card>;
-  return <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">{assets.map((asset) => <Link className="group min-w-0" href="/media" key={asset.id}><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35"><AssetPreview apiBase={apiBase} asset={asset} /><CardContent className="p-2.5"><p className="truncate text-xs font-medium">{asset.name}</p><p className="mt-1 text-[10px] text-muted-foreground">{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : "音频"}</p></CardContent></Card></Link>)}</div>;
+  return <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{assets.map((asset) => <Link className="group min-w-0" href="/media" key={asset.id}><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35"><AssetPreview apiBase={apiBase} asset={asset} /><CardContent className="p-2.5"><p className="truncate text-xs font-medium">{asset.name}</p><p className="mt-1 text-[10px] text-muted-foreground">{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : "音频"}</p></CardContent></Card></Link>)}</div>;
 }
 
 function AssetPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
@@ -218,13 +233,13 @@ function AssetPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
   if (asset.status !== "completed") return <div className="grid aspect-square place-items-center bg-muted text-muted-foreground">{icon}</div>;
   if (asset.kind === "video") return <VideoFrame alt={asset.name} className="aspect-square" src={source} />;
   if (asset.kind === "image") return <img alt={asset.name} className="aspect-square w-full object-cover" src={source} />;
-  return <div className="grid aspect-square place-items-center bg-[linear-gradient(135deg,oklch(0.94_0.055_151),oklch(0.94_0.045_285))] text-primary">{icon}</div>;
+  return <div className="grid aspect-square place-items-center bg-muted text-primary">{icon}</div>;
 }
 
 function StudioAppCard({ app, onOpen }: { app: Installation; onOpen: () => void }) {
   const detailHref = `/apps/${encodeURIComponent(app.manifest.id)}`;
   const actionLabel = app.manifest.type === "standalone" ? "打开应用" : "新建项目";
-  return <Card className="group flex min-h-36 cursor-pointer flex-col transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]" onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }} role="button" tabIndex={0}><CardContent className="flex flex-1 flex-col p-4"><div className="flex items-start justify-between gap-3"><span className="grid size-9 place-items-center rounded-sm bg-accent text-accent-foreground"><AppWindow className="size-4" /></span><Link className="text-[10px] text-muted-foreground hover:text-foreground" href={detailHref} onClick={(event) => event.stopPropagation()}>详情</Link></div><p className="mt-4 truncate text-sm font-semibold">{app.manifest.name}</p><p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{app.manifest.description}</p><p className="mt-auto pt-3 text-xs font-medium text-primary">{actionLabel}</p></CardContent></Card>;
+  return <Card className="group flex min-h-30 cursor-pointer flex-col transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]" onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }} role="button" tabIndex={0}><CardContent className="flex flex-1 flex-col p-3"><div className="flex items-start justify-between gap-3"><span className="grid size-8 place-items-center rounded-sm bg-accent text-accent-foreground"><AppWindow className="size-3.5" /></span><Link className="text-[10px] text-muted-foreground hover:text-foreground" href={detailHref} onClick={(event) => event.stopPropagation()}>详情</Link></div><p className="mt-3 truncate text-sm font-semibold">{app.manifest.name}</p><p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{app.manifest.description}</p><p className="mt-auto pt-2 text-xs font-medium text-primary">{actionLabel}</p></CardContent></Card>;
 }
 
 function SectionHeading({ action, description, title }: { action?: React.ReactNode; description: string; title: string }) {

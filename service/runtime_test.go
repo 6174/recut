@@ -98,6 +98,58 @@ func TestAppHostInvokesManifestDeclaredJavaScriptAPI(t *testing.T) {
 	}
 }
 
+func TestProjectAppCanSetItsOwnImageOrVideoCover(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(filepath.Join(appDir, "ui"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"operations":[{"name":"cover.apply","description":"Set the project cover.","surfaces":["api"],"inputSchema":{"type":"object","required":["assetId"],"properties":{"assetId":{"type":"string"}}}}]}`)
+	writeTestFile(t, filepath.Join(appDir, "background.js"), `recut.operation.register("cover.apply", function(input, ctx) { return ctx.project.setCover({assetId: input.assetId}); });`)
+	writeTestFile(t, filepath.Join(appDir, "ui", "index.html"), "ok")
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.Create(CreateInput{Name: "Cover", AppID: "example.app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := NewMediaService(store)
+	asset, err := media.ImportMedia("cover.mp4", "video/mp4", []byte("video"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewAppHost(apps, store, media).InvokeAPI(Target{ProjectID: project.ID, AppID: "example.app"}, "example.app", "cover.apply", map[string]any{"assetId": asset.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := result.(Project)
+	if updated.Cover == nil || updated.Cover.AssetID != asset.ID || updated.Cover.Kind != "video" {
+		t.Fatalf("cover result = %#v", updated)
+	}
+	assets, err := media.ListAssets(project.ID)
+	if err != nil || len(assets) != 1 || assets[0].ID != asset.ID {
+		t.Fatalf("cover asset was not attached to project: %#v, %v", assets, err)
+	}
+}
+
+func TestProjectAppsPromoteCompletedDeliveryToCover(t *testing.T) {
+	for _, app := range []string{"remotion-studio", "vox-broll"} {
+		source, err := os.ReadFile(filepath.Join("..", "apps", app, "background.js"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(source), "ctx.project.setCover({ assetId: asset.id });") {
+			t.Fatalf("%s does not promote its completed video to the project cover", app)
+		}
+	}
+}
+
 func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 	apps, err := LoadCatalog(filepath.Join("..", "apps"))
 	if err != nil {

@@ -299,6 +299,22 @@ func TestOpencodeRunArgsUseUnattendedToolApproval(t *testing.T) {
 	}
 }
 
+func TestCodexRunArgsPutFlagsBeforeResumeAndAllowExternalWrites(t *testing.T) {
+	first := strings.Join(codexRunArgs("", "gpt-5.6-sol", "max"), " ")
+	if !strings.Contains(first, "--skip-git-repo-check") || !strings.Contains(first, "-s danger-full-access") || !strings.Contains(first, "--model gpt-5.6-sol") || strings.Contains(first, "resume") {
+		t.Fatalf("first Codex args = %q", first)
+	}
+	resumed := strings.Join(codexRunArgs("thread_abc", "gpt-5.6-sol", "max"), " ")
+	if !strings.Contains(resumed, "-s danger-full-access") {
+		t.Fatalf("resumed Codex args lost the external-write sandbox: %q", resumed)
+	}
+	idxModel := strings.Index(resumed, "--model")
+	idxResume := strings.Index(resumed, "resume")
+	if idxModel == -1 || idxResume == -1 || idxModel > idxResume {
+		t.Fatalf("resumed Codex args must put flags before resume, got %q", resumed)
+	}
+}
+
 func TestWorkspaceDatabaseUsesWAL(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	db, err := store.WorkspaceDatabase()

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 manifest、Store 的目标命名空间与 App 全局状态、MediaService 与 goja JavaScript 运行时
- * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、流式私有媒体导入，以及按 surface 执行 App background.js 的统一 operation handler
+ * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、受控项目封面设置、流式私有媒体导入，以及按 surface 执行 App background.js 的统一 operation handler
  * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用 manifest 明示的 recut API；平台表一律不进入 ctx.sqlite / ctx.appState
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -180,7 +180,23 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 		if err != nil {
 			return nil, err
 		}
-		_ = ctx.Set("project", runtime.ToValue(map[string]any{"id": project.ID, "name": project.Name, "appId": project.AppID}))
+		projectContext := runtime.NewObject()
+		_ = projectContext.Set("id", project.ID)
+		_ = projectContext.Set("name", project.Name)
+		_ = projectContext.Set("appId", project.AppID)
+		_ = projectContext.Set("cover", project.Cover)
+		_ = projectContext.Set("setCover", func(call goja.FunctionCall) goja.Value {
+			input := map[string]any{}
+			if err := runtime.ExportTo(call.Argument(0), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			cover, err := h.setProjectCover(target, stringValue(input["assetId"]))
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(cover)
+		})
+		_ = ctx.Set("project", projectContext)
 	} else {
 		_ = ctx.Set("project", goja.Null())
 	}
@@ -224,6 +240,11 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 			asset, err := h.media.ImportMediaReader(nonEmpty(stringValue(input["name"]), filepath.Base(path)), stringValue(input["mimeType"]), content)
 			if err != nil {
 				panic(runtime.NewGoError(err))
+			}
+			if target.IsProject() {
+				if err := h.media.Attach(asset.ID, target.ProjectID); err != nil {
+					panic(runtime.NewGoError(err))
+				}
 			}
 			return runtime.ToValue(asset)
 		})
@@ -292,6 +313,29 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 		_ = ctx.Set("media", media)
 	}
 	return ctx, nil
+}
+
+func (h *AppHost) setProjectCover(target Target, assetID string) (Project, error) {
+	if !target.IsProject() {
+		return Project{}, errors.New("project.setCover requires a Project target")
+	}
+	if h.media == nil {
+		return Project{}, errors.New("media service is unavailable")
+	}
+	asset, err := h.media.GetAsset(strings.TrimSpace(assetID))
+	if err != nil {
+		return Project{}, err
+	}
+	if asset.Status != "completed" {
+		return Project{}, errors.New("cover media is not ready")
+	}
+	if asset.Kind != "image" && asset.Kind != "video" {
+		return Project{}, errors.New("project cover must be an image or video Asset")
+	}
+	if err := h.media.Attach(asset.ID, target.ProjectID); err != nil {
+		return Project{}, err
+	}
+	return h.store.SetProjectCover(target.ProjectID, ProjectCover{AssetID: asset.ID, Kind: asset.Kind})
 }
 
 func (t Target) filesURL(appID, path string) string {

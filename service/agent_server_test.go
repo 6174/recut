@@ -287,9 +287,13 @@ func TestAgentTurnContextHTTP(t *testing.T) {
 		}
 	}
 
-	// The queued turn is consumed by an async runner that fails fast because
-	// no CLI is installed. Wait for it to exit so it does not keep writing its
-	// session workspace while TempDir cleanup runs.
+	// The queued turn is consumed by an async runner. On machines where a real
+	// Codex CLI is installed this genuinely starts Codex, so the test stops the
+	// session explicitly instead of assuming the runner fails fast on a missing
+	// CLI. Stop waits for the running turn to terminate.
+	if err := manager.Stop(session.ID); err != nil {
+		t.Fatal(err)
+	}
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		manager.mu.Lock()

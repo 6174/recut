@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、Project、Artifact、App 全局状态与项目 Doc 的隔离能力、
+ * [OUTPUT]: 对外提供 Store、含可选媒体封面的 Project、Artifact、App 全局状态与项目 Doc 的隔离能力、
  * 平台唯一 workspace SQLite、无迁移的布局版本门禁与项目/Agent/媒体三类 durable 事件表的进程内唤醒广播
  * [POS]: service 的平台存储边界；平台表全部位于 workspace.sqlite，project.sqlite 只含 owner App 业务表，
  * appstate/<appId> 是 App 的全局状态；App 仅通过 capability 获得自己的数据库和文件根
@@ -36,12 +36,20 @@ const sqlitePoolMaxOpenConnections = 8
 const databaseHealthCheckTimeout = 100 * time.Millisecond
 
 type Project struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	AppID         string    `json:"appId"`
-	AppVersion    string    `json:"appVersion"`
-	FormatVersion int       `json:"formatVersion"`
-	CreatedAt     time.Time `json:"createdAt"`
+	ID            string        `json:"id"`
+	Name          string        `json:"name"`
+	AppID         string        `json:"appId"`
+	AppVersion    string        `json:"appVersion"`
+	FormatVersion int           `json:"formatVersion"`
+	Cover         *ProjectCover `json:"cover,omitempty"`
+	CreatedAt     time.Time     `json:"createdAt"`
+}
+
+// ProjectCover is platform metadata. Apps select the media Asset; the
+// workspace owns its display, storage, and fallback behavior.
+type ProjectCover struct {
+	AssetID string `json:"assetId"`
+	Kind    string `json:"kind"`
 }
 
 type CreateInput struct {
@@ -60,16 +68,16 @@ type Artifact struct {
 }
 
 type Store struct {
-	root          string
-	catalog       *Catalog
-	agentCommands *AgentCommandResolver
-	workspaceMu   sync.RWMutex
+	root           string
+	catalog        *Catalog
+	agentCommands  *AgentCommandResolver
+	workspaceMu    sync.RWMutex
 	workspaceReady bool
-	databasesMu   sync.RWMutex
-	databases     map[string]*sql.DB
-	projectEvents *changeHub
-	agentEvents   *changeHub
-	mediaEvents   *changeHub
+	databasesMu    sync.RWMutex
+	databases      map[string]*sql.DB
+	projectEvents  *changeHub
+	agentEvents    *changeHub
+	mediaEvents    *changeHub
 }
 
 func NewStore(root string, apps *Catalog) *Store {
@@ -175,7 +183,8 @@ func (s *Store) List() ([]Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query("select id, name, app_id, app_version, format_version, created_at from projects order by created_at desc")
+	rows, err := db.Query(`select p.id, p.name, p.app_id, p.app_version, p.format_version, p.created_at, c.asset_id, c.kind
+from projects p left join project_covers c on c.project_id = p.id order by p.created_at desc`)
 	if err != nil {
 		return nil, err
 	}
@@ -196,12 +205,35 @@ func (s *Store) Get(id string) (Project, error) {
 	if err != nil {
 		return Project{}, err
 	}
-	row := db.QueryRow("select id, name, app_id, app_version, format_version, created_at from projects where id = ?", id)
+	row := db.QueryRow(`select p.id, p.name, p.app_id, p.app_version, p.format_version, p.created_at, c.asset_id, c.kind
+from projects p left join project_covers c on c.project_id = p.id where p.id = ?`, id)
 	project, err := scanProject(row)
 	if err != nil {
 		return Project{}, fmt.Errorf("project %q: %w", id, err)
 	}
 	return project, nil
+}
+
+func (s *Store) SetProjectCover(projectID string, cover ProjectCover) (Project, error) {
+	if strings.TrimSpace(cover.AssetID) == "" {
+		return Project{}, errors.New("cover asset id is required")
+	}
+	if cover.Kind != "image" && cover.Kind != "video" {
+		return Project{}, fmt.Errorf("cover kind %q is not supported", cover.Kind)
+	}
+	if _, err := s.Get(projectID); err != nil {
+		return Project{}, err
+	}
+	db, err := s.WorkspaceDatabase()
+	if err != nil {
+		return Project{}, err
+	}
+	if _, err := db.Exec(`insert into project_covers (project_id, asset_id, kind, updated_at) values (?, ?, ?, ?)
+on conflict(project_id) do update set asset_id = excluded.asset_id, kind = excluded.kind, updated_at = excluded.updated_at`, projectID, cover.AssetID, cover.Kind, iso(time.Now().UTC())); err != nil {
+		return Project{}, err
+	}
+	s.AppendEvent(projectID, map[string]any{"type": "project.cover.updated", "assetId": cover.AssetID, "kind": cover.Kind, "at": time.Now().UTC()})
+	return s.Get(projectID)
 }
 
 // AppStateDatabase returns an App's single sqlite interface. It holds both the
@@ -298,6 +330,9 @@ create table if not exists projects (
   id text primary key, name text not null, app_id text not null,
   app_version text not null, format_version integer not null, created_at text not null
 );
+create table if not exists project_covers (
+  project_id text primary key, asset_id text not null, kind text not null, updated_at text not null
+);
 create table if not exists artifacts (
   id text primary key, project_id text not null, type text not null,
   producer_app text not null, content_hash text not null, created_at text not null,
@@ -368,7 +403,7 @@ create table if not exists device_tokens (
 			"alter table agent_sessions add column codex_model text",
 			"alter table agent_sessions add column reasoning_effort text",
 			"alter table agent_sessions add column opencode_model text",
-			"alter table agent_sessions add column native_workspace text not null default '',",
+			"alter table agent_sessions add column native_workspace text not null default ''",
 			"alter table agent_sessions add column workspace_context_json text not null default ''",
 			"alter table agent_sessions add column app_id text not null default ''",
 			"alter table agent_sessions add column app_view text not null default ''",
@@ -587,7 +622,8 @@ func validateAppID(appID string) error {
 func scanProject(row scanner) (Project, error) {
 	var project Project
 	var createdAt string
-	err := row.Scan(&project.ID, &project.Name, &project.AppID, &project.AppVersion, &project.FormatVersion, &createdAt)
+	var coverAssetID, coverKind sql.NullString
+	err := row.Scan(&project.ID, &project.Name, &project.AppID, &project.AppVersion, &project.FormatVersion, &createdAt, &coverAssetID, &coverKind)
 	if err != nil {
 		return Project{}, err
 	}
@@ -596,6 +632,9 @@ func scanProject(row scanner) (Project, error) {
 		return Project{}, parseErr
 	}
 	project.CreatedAt = parsed
+	if coverAssetID.Valid && coverKind.Valid {
+		project.Cover = &ProjectCover{AssetID: coverAssetID.String, Kind: coverKind.String}
+	}
 	return project, nil
 }
 
