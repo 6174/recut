@@ -476,7 +476,7 @@ func safeSandboxFile(root, path string) string {
 
 func shellRun(runtime *goja.Runtime, jobs *ShellJobManager, python *PythonRuntimeManager, target Target, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
-		input := shellInput(runtime, call.Argument(0), python, app, filesRoot, modelsRoot)
+		input := shellInput(runtime, call.Argument(0), python, app, filesRoot, modelsRoot, false)
 		job, err := jobs.Execute(input.withScope(target.ProjectID, app.Manifest.ID))
 		if err != nil {
 			panic(runtime.NewGoError(err))
@@ -487,7 +487,7 @@ func shellRun(runtime *goja.Runtime, jobs *ShellJobManager, python *PythonRuntim
 
 func shellStart(runtime *goja.Runtime, jobs *ShellJobManager, python *PythonRuntimeManager, target Target, app App, filesRoot, modelsRoot string) func(goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
-		input := shellInput(runtime, call.Argument(0), python, app, filesRoot, modelsRoot)
+		input := shellInput(runtime, call.Argument(0), python, app, filesRoot, modelsRoot, true)
 		job, err := jobs.Start(input.withScope(target.ProjectID, app.Manifest.ID))
 		if err != nil {
 			panic(runtime.NewGoError(err))
@@ -536,7 +536,7 @@ type appShellInput struct {
 func (input appShellInput) withScope(projectID, appID string) ShellJobStart {
 	return ShellJobStart{ProjectID: projectID, AppID: appID, Command: input.command, Args: input.args, Dir: input.dir, Env: input.env, TimeoutSeconds: input.timeoutSeconds}
 }
-func shellInput(runtime *goja.Runtime, value goja.Value, python *PythonRuntimeManager, app App, filesRoot, modelsRoot string) appShellInput {
+func shellInput(runtime *goja.Runtime, value goja.Value, python *PythonRuntimeManager, app App, filesRoot, modelsRoot string, allowIndefinite bool) appShellInput {
 	input := value.ToObject(runtime)
 	command := strings.TrimSpace(input.Get("command").String())
 	arguments := []string{}
@@ -544,10 +544,10 @@ func shellInput(runtime *goja.Runtime, value goja.Value, python *PythonRuntimeMa
 		panic(runtime.NewTypeError("args must be an array of strings"))
 	}
 	timeout := int(input.Get("timeoutSeconds").ToInteger())
-	if timeout == 0 {
+	if timeout == 0 && !allowIndefinite {
 		timeout = 300
 	}
-	if command == "" || filepath.Base(command) != command || timeout < 1 || timeout > 7200 {
+	if command == "" || filepath.Base(command) != command || timeout < 0 || timeout > 7200 || (timeout == 0 && !allowIndefinite) {
 		panic(runtime.NewTypeError("invalid shell command or timeoutSeconds"))
 	}
 	dir := app.Root

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestShellJobPersistsLogsAndCompletion(t *testing.T) {
@@ -73,6 +74,41 @@ func TestShellJobCancellationPersistsTerminalState(t *testing.T) {
 	completed, err := jobs.Wait(project.ID, project.AppID, job.ID)
 	if err != nil || completed.Status != ShellJobCancelled {
 		t.Fatalf("job = %#v, err = %v", completed, err)
+	}
+}
+
+func TestShellJobIndefiniteStartSurvivesUntilCancelled(t *testing.T) {
+	store, project := testShellJobScope(t)
+	jobs := NewShellJobManager(store)
+	// timeoutSeconds 0 = indefinite, server-style (e.g. Remotion Studio preview).
+	job, err := jobs.Start(ShellJobStart{ProjectID: project.ID, AppID: project.AppID, Command: "sh", Args: []string{"-c", "trap 'exit 0' TERM; while true; do sleep 1; done"}, Dir: t.TempDir(), TimeoutSeconds: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != ShellJobQueued {
+		t.Fatalf("job status = %s", job.Status)
+	}
+	// It must still be running long past any plausible default timeout, then
+	// finish cleanly on cancel.
+	time.Sleep(1100 * time.Millisecond)
+	running, err := jobs.Status(project.ID, project.AppID, job.ID)
+	if err != nil || running.Status != ShellJobRunning {
+		t.Fatalf("job after 1.1s = %#v, err = %v", running, err)
+	}
+	if err := jobs.Cancel(project.ID, project.AppID, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	done, err := jobs.Wait(project.ID, project.AppID, job.ID)
+	if err != nil || done.Status != ShellJobCancelled {
+		t.Fatalf("job = %#v, err = %v", done, err)
+	}
+}
+
+func TestShellJobBlockingExecuteRejectsIndefinite(t *testing.T) {
+	store, project := testShellJobScope(t)
+	jobs := NewShellJobManager(store)
+	if _, err := jobs.Execute(ShellJobStart{ProjectID: project.ID, AppID: project.AppID, Command: "sh", Args: []string{"-c", "true"}, Dir: t.TempDir(), TimeoutSeconds: 0}); err == nil {
+		t.Fatal("blocking Execute accepted timeoutSeconds 0")
 	}
 }
 

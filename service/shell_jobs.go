@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 Store 的 App 文件根、项目事件日志与标准库非交互进程能力
  * [OUTPUT]: 对外提供 ShellJobManager、持久 Job 状态、顺序 stdout/stderr 日志、不含命令参数的生命周期审计、取消及服务重启收敛
  * [POS]: service 的本地任务执行边界；为 App shell 和 Python runtime 复用，不使用 PTY 或业务专属协议
- * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+ * [PROTOCOL]: TimeoutSeconds 0 = 无期限（仅 Start 服务型长驻进程，如 Remotion Studio 预览）；阻塞 Execute 必须给有限超时。变更时更新此头部，然后检查 README.md
  */
 package main
 
@@ -120,7 +120,7 @@ func (m *ShellJobManager) RecoverInterrupted() (int, error) {
 }
 
 func (m *ShellJobManager) Start(input ShellJobStart) (ShellJob, error) {
-	if input.Command == "" || input.Dir == "" || input.TimeoutSeconds < 1 || input.TimeoutSeconds > 7200 {
+	if input.Command == "" || input.Dir == "" || input.TimeoutSeconds < 0 || input.TimeoutSeconds > 7200 {
 		return ShellJob{}, errors.New("invalid shell job")
 	}
 	id, err := newID()
@@ -132,7 +132,15 @@ func (m *ShellJobManager) Start(input ShellJobStart) (ShellJob, error) {
 		return ShellJob{}, err
 	}
 	log.Printf("INFO shell job queued job_id=%s project_id=%s app_id=%s", job.ID, job.ProjectID, job.AppID)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(input.TimeoutSeconds)*time.Second)
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if input.TimeoutSeconds == 0 {
+		// 0 = indefinite, reserved for server-style long-running processes
+		// (e.g. Remotion Studio preview). Blocking Execute rejects it below.
+		ctx, cancel = context.WithCancel(context.Background())
+	} else {
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(input.TimeoutSeconds)*time.Second)
+	}
 	m.mu.Lock()
 	m.active[job.ID] = activeShellJob{cancel: cancel}
 	m.mu.Unlock()
@@ -336,6 +344,9 @@ func (m *ShellJobManager) Logs(projectID, id string) ([]ShellJobLog, error) {
 }
 
 func (m *ShellJobManager) Execute(input ShellJobStart) (ShellJob, error) {
+	if input.TimeoutSeconds == 0 {
+		return ShellJob{}, errors.New("blocking shell execution requires a finite timeoutSeconds")
+	}
 	job, err := m.Start(input)
 	if err != nil {
 		return ShellJob{}, err

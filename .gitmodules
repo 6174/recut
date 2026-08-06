@@ -15,6 +15,6 @@
 	url = git@github.com:6174/recut.git
 	branch = main
 [submodule "recut-remotion-studio"]
-	path = apps/recut-remotion-studio
+	path = apps/remotion-studio
 	url = git@github.com:6174/recut-remotion-studio.git
 	branch = main
