@@ -109,17 +109,18 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 		t.Fatalf("unexpected assets result: %#v", assets)
 	}
 
-	// studio.stop is a no-op-safe lifecycle op without a running server.
-	if _, err := host.InvokeAPI(target, app.Manifest.ID, "studio.stop", map[string]any{}); err != nil {
-		t.Fatalf("studio.stop failed: %v", err)
-	}
-	// studio.status reports stopped without a running server.
-	status, err := host.InvokeAPI(target, app.Manifest.ID, "studio.status", map[string]any{})
+	// preview.version reports null before any build.
+	version, err := host.InvokeAPI(target, app.Manifest.ID, "preview.version", map[string]any{})
 	if err != nil {
-		t.Fatalf("studio.status failed: %v", err)
+		t.Fatalf("preview.version failed: %v", err)
 	}
-	if status.(map[string]any)["running"] != false {
-		t.Fatalf("expected studio stopped, got %#v", status)
+	if version != nil {
+		t.Fatalf("expected preview.version null before build, got %#v", version)
+	}
+
+	// logs.read rejects an unknown job id.
+	if _, err := host.InvokeAPI(target, app.Manifest.ID, "logs.read", map[string]any{"jobId": "missing"}); err == nil {
+		t.Fatal("logs.read accepted an unknown job id")
 	}
 }
 
