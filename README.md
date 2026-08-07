@@ -27,6 +27,7 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 - Chat UI 消费结构化 Agent Session 事件；Codex/Claude 等 native session id 只用于续聊，终端 PTY 保留为兼容与诊断通道。
 - 前端表单控件必须有与 `id` 关联的可见 `label`；`placeholder` 只用于填写示例，不能承担字段名称或可访问性语义。
 - 运行时 App 根默认为 `~/.recut/apps`。开发时运行 `make app-link`，将本仓库的 App 源码包逐个链接到此目录；生产安装可在相同位置放置 Git clone。服务不再从源码仓库的 `apps/` 直接加载。
+- Recut 平台 Skill 的唯一运行时正文固定在 `~/.recut/skills/recut`：service 启动（包括自更新后的重启）会原子同步二进制内嵌的最新版本，并自动安全软链接至 `~/.agents/skills/recut`、`~/.claude/skills/recut`、`~/.codex/skills/recut` 和 OpenCode 的用户配置目录；Codex、Claude Code、OpenCode 同时原子注册匿名本机 Recut MCP。已存在的其他 Skill 或用户配置只会记录告警，绝不被覆盖；全局设置的 **Recut Skill** Tab 用于查看状态和手动修复。
 - 每个项目在 `.recut/app` 创建指向当前 App 包的符号链接。每个 Codex turn 由 Go 后端内嵌的 `service/prompts/core-agents.md.tmpl` 渲染平台 guide，并注入当前 App 自己的 `AGENTS.md`；该 guide 指示 Agent 从 `.recut/app` 读取、测试和按需修改当前 App 源码。
 
 运行 `git submodule update --init --recursive` 获取所有外部 App（Vox B-roll、Depth Anything、Cover Studio）后，再运行 `make app-link` 链接全部本地 App；只链接一个包时使用对应的 `make app-link APP=apps/<app-name>`。随后运行 `make dev`。

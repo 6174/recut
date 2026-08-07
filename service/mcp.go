@@ -48,7 +48,7 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 func mcpToolList(bridge *AgentBridge, media *MediaService) map[string]any {
 	tools := make([]map[string]any, 0)
 	tools = append(tools,
-		platformTool("recut.context", "读取当前 Recut 会话上下文：已安装 App、skill 目录与媒体配置。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。任何任务开始时先调用此工具。", map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.context", "读取当前 Recut 会话上下文：已安装 App（含绝对路径 root）、skill 目录、媒体配置与 .recut 文件系统路径（paths）。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。任何任务开始时先调用此工具。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.apps.list", "列出已安装 App（含 kind、skill 目录、Git 仓库、可更新状态与安装状态）。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.apps.store", "列出 App Store 中可安装的 Recut App（appId、name、kind、GitHub repository、是否已安装）。需要安装时用 recut.apps.install 传入其 repository。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.apps.install", "从一个 Git 仓库安装标准 Recut App（克隆、校验 manifest 后激活）。仅当用户明确要求安装该仓库时调用。", map[string]any{"type": "object", "required": []string{"repository"}, "properties": map[string]any{"repository": map[string]string{"type": "string", "description": "GitHub 仓库 URL（git@… 或 https://…）。"}}}),
@@ -59,7 +59,7 @@ func mcpToolList(bridge *AgentBridge, media *MediaService) map[string]any {
 		projectMCPToolDefinition(),
 		platformTool("recut.project.list", "列出全部用户项目（Doc metadata：id、name、owner App、版本）。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.project.get", "读取一个项目的 Doc metadata。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}}}),
-		platformTool("recut.project_context", "读取一个项目的深层上下文：owner App 的 workflow.context、已产出 Artifact 与 appState。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "要读取上下文的 Project Doc ID。"}}}),
+		platformTool("recut.project_context", "读取一个项目的深层上下文：owner App 的 workflow.context、已产出 Artifact、appState 与项目绝对路径（paths.projectFilesRoot）。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "要读取上下文的 Project Doc ID。"}}}),
 	)
 	tools = append(tools, mediaMCPToolDefinitions()...)
 	apps, err := bridge.store.catalog.List()
@@ -247,7 +247,7 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 		if err != nil {
 			continue
 		}
-		summary := map[string]any{"appId": app.Manifest.ID, "name": app.Manifest.Name, "kind": string(app.Manifest.Kind), "description": app.Manifest.Description}
+		summary := map[string]any{"appId": app.Manifest.ID, "name": app.Manifest.Name, "kind": string(app.Manifest.Kind), "description": app.Manifest.Description, "root": app.Root}
 		skillsMeta := make([]map[string]any, 0, len(skills))
 		for _, skill := range skills {
 			skillsMeta = append(skillsMeta, map[string]any{"id": skill.ID, "name": skill.Name, "description": skill.Description})
@@ -267,6 +267,14 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 		"apps":         appSummaries,
 		"skills":       skillSummary,
 		"media":        map[string]any{"defaultRoutes": mediaConfiguration},
+		"paths": map[string]any{
+			"dataRoot":         bridge.store.root,
+			"appsDir":          filepath.Join(bridge.store.root, "apps"),
+			"projectsDir":      filepath.Join(bridge.store.root, "projects"),
+			"sessionWorkspace": bridge.store.SessionWorkspaceDir(session.ID),
+			"mediaDir":         filepath.Join(bridge.store.root, "media"),
+			"modelsDir":        filepath.Join(bridge.store.root, "models"),
+		},
 		"instructions": bridgeInstructions,
 	}
 	data, _ := json.Marshal(result)
@@ -469,8 +477,6 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 	var result any
 	var err error
 	switch name {
-	case "recut.media.configuration":
-		result, err = media.ConfiguredModels()
 	case "recut.image.generate":
 		result, err = media.GenerateSync(mediaGenerationInput(input, ImageGenerate))
 	case "recut.video.generate_async":
@@ -521,7 +527,6 @@ func structuredMCPContent(result any) any {
 
 func mediaMCPToolDefinitions() []map[string]any {
 	return []map[string]any{
-		{"name": "recut.media.configuration", "description": "读取最新媒体配置；通常无需调用，因为 recut.context 已携带默认 route、模型契约和可选参数。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "recut.image.generate", "description": "同步生成短时、阶段关键的图片。成功返回 assetIds；Provider 失败或超时直接返回错误。", "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
 		{"name": "recut.video.generate_async", "description": "提交长时间运行的视频生成。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。", "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
 		{"name": "recut.speech.generate_async", "description": "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId 与处于 queued 状态的稳定 assetIds。", "inputSchema": speechGenerationSchema()},
@@ -704,6 +709,9 @@ func projectContextTool(bridge *AgentBridge, host *AppHost, media *MediaService,
 	result["project"] = project
 	result["artifacts"] = artifacts
 	result["appState"] = map[string]any{"appId": project.AppID}
+	if filesRoot, err := bridge.store.ProjectFilesRoot(projectID); err == nil {
+		result["paths"] = map[string]any{"projectDir": bridge.store.projectDir(projectID), "projectFilesRoot": filesRoot}
+	}
 	if media != nil {
 		if configured, err := media.ConfiguredModels(); err == nil {
 			result["media"] = map[string]any{"defaultRoutes": configured}

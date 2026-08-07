@@ -1,9 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -17,6 +17,10 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 	if err := copyTree(t, appDir, dest, "background.js", "manifest.json"); err != nil {
 		t.Fatal(err)
 	}
+	// createBrief validates the template against the kit catalog via
+	// scripts/kit-bridge.js; seed a minimal self-contained kit so the test
+	// hermetic temp App does not depend on the source App's full package.
+	seedMinimalKit(t, dest, []string{"paper-collage", "cinematic-dark", "clean-editorial", "vibrant-tech"})
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
 	if err != nil {
 		t.Fatalf("catalog load (manifest validation) failed: %v", err)
@@ -83,23 +87,6 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 		t.Fatalf("unexpected catalog result: %#v", catalog)
 	}
 
-	// code.write/code.read round-trip through the project files sandbox.
-	if _, err := host.InvokeAPI(target, app.Manifest.ID, "code.write", map[string]any{"path": "workspace/compositions/ProjectVideo.tsx", "content": "export const x = 1;"}); err != nil {
-		t.Fatalf("code.write failed: %v", err)
-	}
-	read, err := host.InvokeAPI(target, app.Manifest.ID, "code.read", map[string]any{"path": "workspace/compositions/ProjectVideo.tsx"})
-	if err != nil {
-		t.Fatalf("code.read failed: %v", err)
-	}
-	if !strings.Contains(read.(map[string]any)["content"].(string), "export const x = 1;") {
-		t.Fatalf("code.read did not round-trip: %#v", read)
-	}
-
-	// code paths outside workspace/ are rejected.
-	if _, err := host.InvokeAPI(target, app.Manifest.ID, "code.write", map[string]any{"path": "outside.ts", "content": "x"}); err == nil {
-		t.Fatal("code.write accepted a path outside workspace/")
-	}
-
 	// composition.assets registers referenced assetIds for export.
 	assets, err := host.InvokeMCP(target, app.Manifest.ID, "composition.assets", map[string]any{"assetIds": []any{"imgA", "audioX"}})
 	if err != nil {
@@ -139,4 +126,39 @@ func copyTree(t *testing.T, src, dst string, names ...string) error {
 		}
 	}
 	return nil
+}
+
+// seedMinimalKit writes a tiny scripts/kit-bridge.js and kit catalog so the
+// App's readCatalog shell call works in a hermetic test App without the full
+// source package tree.
+func seedMinimalKit(t *testing.T, appDir string, templates []string) {
+	t.Helper()
+	bridge := `const fs = require("fs"); const path = require("path");
+const kit = path.join(__dirname, "..", "packages", "remotion-kit");
+const catalog = JSON.parse(fs.readFileSync(path.join(kit, "catalog.json"), "utf8"));
+let version = "0.0.0";
+try { version = JSON.parse(fs.readFileSync(path.join(kit, "manifest.json"), "utf8")).version || version; } catch (_) {}
+process.stdout.write(JSON.stringify({ ...catalog, kitVersion: version }));`
+	scriptsDir := filepath.Join(appDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scriptsDir, "kit-bridge.js"), []byte(bridge), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kitDir := filepath.Join(appDir, "packages", "remotion-kit")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	styleTemplates := map[string]any{}
+	for _, name := range templates {
+		styleTemplates[name] = map[string]string{"label": name}
+	}
+	catalogData, _ := json.Marshal(map[string]any{"styleTemplates": styleTemplates, "captionThemes": []any{}, "canvasSizes": []any{}, "components": []any{}})
+	if err := os.WriteFile(filepath.Join(kitDir, "catalog.json"), catalogData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "manifest.json"), []byte(`{"version":"0.0.0"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

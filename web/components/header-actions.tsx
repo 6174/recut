@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 lucide-react 的 Github 图标、ServiceControl 的 service 状态与操作、SettingsPanel 的全局设置交互
- * [OUTPUT]: 对外提供工作台 Header 右侧的项目 GitHub 外链、统一 service 状态、全局设置和可选上下文操作容器
+ * [INPUT]: 依赖 lucide-react 的 Github 图标、ServiceControl 的 service 状态与操作、含 Recut Skill Tab 的 SettingsPanel 全局设置交互
+ * [OUTPUT]: 对外提供工作台 Header 右侧的项目 GitHub 外链、统一 service 状态、可定向 Recut Skill Tab 的全局设置和可选上下文操作容器
  * [POS]: web/components 的 Header 操作组合层；首页与项目详情共用，避免全局状态脱离页面 Header
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -15,7 +15,7 @@ import { SettingsPanel } from "@/components/settings-panel";
 type HeaderActionsProps = {
   children?: ReactNode;
   settingsOpen?: boolean;
-  settingsSection?: "service" | "apps" | "cli" | "agents" | "onboarding" | "multimodal";
+  settingsSection?: "service" | "apps" | "cli" | "agents" | "onboarding" | "multimodal" | "skill";
   onSettingsOpenChange?: (open: boolean) => void;
 };
 

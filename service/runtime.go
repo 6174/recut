@@ -352,6 +352,25 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 		})
 		_ = ctx.Set("media", media)
 	}
+	// ctx.paths exposes absolute filesystem locations so the background can tell
+	// the Agent where App business files live; those files are read/written with
+	// the Agent's native tools, not through extra MCP operations.
+	appFilesRoot := ""
+	if resolved, err := h.store.AppStateFilesRoot(app.Manifest.ID); err == nil {
+		appFilesRoot = resolved
+	}
+	paths := map[string]any{
+		"dataRoot":     h.store.root,
+		"appRoot":      app.Root,
+		"appFilesRoot": appFilesRoot,
+		"modelsDir":    filepath.Join(h.store.root, "models"),
+		"mediaDir":     filepath.Join(h.store.root, "media"),
+	}
+	if target.IsProject() {
+		paths["projectFilesRoot"] = primaryFiles
+		paths["workspacePath"] = filepath.Join(primaryFiles, "workspace")
+	}
+	_ = ctx.Set("paths", runtime.ToValue(paths))
 	return ctx, nil
 }
 

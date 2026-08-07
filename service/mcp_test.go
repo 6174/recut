@@ -155,7 +155,6 @@ func TestRecutContextReportsAppsWithoutProjectDefault(t *testing.T) {
 
 func TestMediaMCPToolsBypassAppToolBoundary(t *testing.T) {
 	for _, name := range []string{
-		"recut.media.configuration",
 		"recut.image.generate",
 		"recut.video.generate_async",
 		"recut.speech.generate_async",

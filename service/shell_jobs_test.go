@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖临时 App/Project scope、ShellJobManager 与项目事件持久化
- * [OUTPUT]: 锁定 shell job 的 stdout/stderr 日志、排队即取消、并发状态读取、完成事件与服务重启中断收敛
+ * [OUTPUT]: 锁定 shell job 的 stdout/stderr 日志、最终 PATH 命令解析、排队即取消、并发状态读取、完成事件与服务重启中断收敛
  * [POS]: service 的本地任务系统回归测试；不依赖 Python、网络或模型下载
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -9,6 +9,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,34 @@ func TestShellJobPersistsLogsAndCompletion(t *testing.T) {
 	}
 	if completed != 1 {
 		t.Fatalf("completion events = %d, events = %#v", completed, events)
+	}
+}
+
+func TestShellJobResolvesCommandFromItsEffectivePath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test fixture is a POSIX shell script")
+	}
+	store, project := testShellJobScope(t)
+	directory := t.TempDir()
+	bin := filepath.Join(directory, "venv", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(bin, "venv-only-command")
+	writeTestFile(t, command, "#!/bin/sh\nprintf venv-python\n")
+	if err := os.Chmod(command, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	job, err := NewShellJobManager(store).Execute(ShellJobStart{
+		ProjectID: project.ID, AppID: project.AppID, Command: "venv-only-command",
+		Dir: directory, Env: []string{"PATH=" + bin}, TimeoutSeconds: 5,
+	})
+	if err != nil || job.Status != ShellJobCompleted {
+		t.Fatalf("job = %#v, err = %v", job, err)
+	}
+	if output := NewShellJobManager(store).Output(project.ID, job.ID); !strings.Contains(output, "venv-python") {
+		t.Fatalf("output = %q", output)
 	}
 }
 

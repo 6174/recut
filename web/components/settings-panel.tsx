@@ -1,16 +1,17 @@
 /*
- * [INPUT]: 依赖 service endpoint 配置、media-configuration-store 的 Provider/Credential/Route 快照与工作台 UI 原子组件
- * [OUTPUT]: 对外提供全局设置面板，以及本机/LAN service 连接、全局对话引导、Provider 连接和用途模型配置体验；加载完成前保留明确等待态，图片用途可选择无需密钥的 Codex 原生生图，表单字段均有可见标签
- * [POS]: web/components 的工作台级设置入口；service 地址、全局 Agent 引导、Provider、Codex 原生图片与用途模型的唯一用户配置界面，API Key 草稿不外泄到全局缓存
+ * [INPUT]: 依赖 service endpoint 配置、Recut Skill 状态、media-configuration-store 的 Provider/Credential/Route 快照与工作台 UI 原子组件
+ * [OUTPUT]: 对外提供全局设置面板，以及本机/LAN service 连接、全局对话引导、Recut Skill 软链接、Provider 连接和用途模型配置体验；加载完成前保留明确等待态，图片用途可选择无需密钥的 Codex 原生生图，表单字段均有可见标签
+ * [POS]: web/components 的工作台级设置入口；service 地址、全局 Agent 引导、Recut Skill、Provider、Codex 原生图片与用途模型的唯一用户配置界面，API Key 草稿不外泄到全局缓存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, Bot, Check, ChevronDown, Copy, Image, Map, Mic2, Plus, Server, Settings, Sparkles, TerminalSquare, Video, X } from "lucide-react";
+import { AppWindow, Bot, Check, ChevronDown, Copy, Image, Link2, Map, Mic2, Plus, Server, Settings, Sparkles, TerminalSquare, Video, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { AgentOnboardingSettings } from "@/components/agent-onboarding-settings";
+import { RecutSkillSettings } from "@/components/recut-skill-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { normalizeServiceEndpoint } from "@/lib/service-endpoint";
@@ -23,7 +24,7 @@ import {
 import { useServiceStore } from "@/lib/service-store";
 import type { Model } from "@/app/media/media-types";
 
-type SettingSection = "service" | "apps" | "cli" | "agents" | "onboarding" | "multimodal";
+type SettingSection = "service" | "apps" | "cli" | "agents" | "onboarding" | "multimodal" | "skill";
 const codexImageModel: Model = { id: "codex/image", provider: "codex", name: "Codex", capability: "image.generate", available: true, inputModes: ["text"] };
 const codexImageProvider: Provider = { id: "codex", name: "Codex", defaultApiBase: "", models: [codexImageModel] };
 
@@ -33,6 +34,7 @@ const sections: { id: SettingSection; label: string; icon: typeof AppWindow }[] 
   { id: "cli", label: "本地 CLI", icon: TerminalSquare },
   { id: "agents", label: "本地 Agent", icon: Bot },
   { id: "onboarding", label: "对话引导", icon: Map },
+  { id: "skill", label: "Recut Skill", icon: Link2 },
   { id: "multimodal", label: "AI 服务商", icon: Sparkles },
 ];
 
@@ -76,8 +78,8 @@ export function SettingsPanel({ open: controlledOpen, onOpenChange, section }: {
               <div className="space-y-1">{sections.map((item) => { const Icon = item.icon; return <button className={`flex h-9 w-full items-center gap-2.5 rounded-xs px-3 text-left text-xs ${activeSection === item.id ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`} key={item.id} onClick={() => setSelectedSection(item.id)} type="button"><Icon className="size-3.5" />{item.label}</button>; })}</div>
             </nav>
             <div className="min-w-0 overflow-y-auto p-8">
-              <div className="flex items-start justify-between border-b pb-6"><div><h2 className="text-lg font-semibold">{activeSection === "multimodal" ? "AI 服务商" : sections.find((item) => item.id === activeSection)?.label}</h2><p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{activeSection === "service" ? "选择此工作台要连接的 Recut service。默认仍是本机地址。" : activeSection === "multimodal" ? "先连接 Provider，再为每种创作用途选择合适的模型。密钥只在本机加密保存。" : activeSection === "onboarding" ? "为没有专属 App 引导的对话补充常用起点。点击卡片后只会写入你定义的提示词。" : "此设置将在后续版本开放。"}</p></div><button aria-label="关闭设置" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={() => setOpen(false)} type="button"><X className="size-4" /></button></div>
-              {activeSection === "service" ? <ServiceEndpointSettings /> : activeSection === "multimodal" ? <ProviderSettings /> : activeSection === "onboarding" ? <AgentOnboardingSettings apiBase={apiBase} /> : <div className="grid min-h-80 place-items-center text-xs text-muted-foreground">即将推出</div>}
+              <div className="flex items-start justify-between border-b pb-6"><div><h2 className="text-lg font-semibold">{activeSection === "multimodal" ? "AI 服务商" : sections.find((item) => item.id === activeSection)?.label}</h2><p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{activeSection === "service" ? "选择此工作台要连接的 Recut service。默认仍是本机地址。" : activeSection === "multimodal" ? "先连接 Provider，再为每种创作用途选择合适的模型。密钥只在本机加密保存。" : activeSection === "onboarding" ? "为没有专属 App 引导的对话补充常用起点。点击卡片后只会写入你定义的提示词。" : activeSection === "skill" ? "把由 Recut service 持续维护的 Skill 链接到你日常使用的 Agent。" : "此设置将在后续版本开放。"}</p></div><button aria-label="关闭设置" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={() => setOpen(false)} type="button"><X className="size-4" /></button></div>
+              {activeSection === "service" ? <ServiceEndpointSettings /> : activeSection === "multimodal" ? <ProviderSettings /> : activeSection === "onboarding" ? <AgentOnboardingSettings apiBase={apiBase} /> : activeSection === "skill" ? <RecutSkillSettings apiBase={apiBase} /> : <div className="grid min-h-80 place-items-center text-xs text-muted-foreground">即将推出</div>}
             </div>
           </section>
         </div>

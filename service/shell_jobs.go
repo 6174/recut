@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的 App 文件根、项目事件日志、userBaseEnv 用户 shell 环境与标准库非交互进程能力
- * [OUTPUT]: 对外提供 ShellJobManager、持久 Job 状态、顺序 stdout/stderr 日志、不含命令参数的生命周期审计、取消及服务重启收敛；任务进程以用户登录 shell 环境为基础环境，取消/超时按进程组终止整棵任务树（不残留孙进程）
+ * [OUTPUT]: 对外提供 ShellJobManager、持久 Job 状态、顺序 stdout/stderr 日志、不含命令参数的生命周期审计、取消及服务重启收敛；任务从合并后的最终 PATH 解析命令，取消/超时按进程组终止整棵任务树（不残留孙进程）
  * [POS]: service 的本地任务执行边界；为 App shell 和 Python runtime 复用，不使用 PTY 或业务专属协议
  * [PROTOCOL]: TimeoutSeconds 0 = 无期限（仅 Start 服务型长驻进程，如 Remotion Studio 预览）；阻塞 Execute 必须给有限超时。变更时更新此头部，然后检查 README.md
  */
@@ -17,6 +17,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -161,10 +163,11 @@ func (m *ShellJobManager) run(job ShellJob, input ShellJobStart, ctx context.Con
 	job.Status, job.StartedAt = ShellJobRunning, &now
 	_ = m.persist(job)
 	m.store.AppendEvent(job.ProjectID, map[string]any{"type": "shell.job.started", "appId": job.AppID, "job": job})
-	command := exec.CommandContext(ctx, input.Command, input.Args...)
+	environment := mergeEnv(userBaseEnv(), input.Env)
+	command := exec.CommandContext(ctx, resolveShellCommand(input.Command, environment), input.Args...)
 	configureShellJobCommand(command)
 	command.Dir = input.Dir
-	command.Env = append(userBaseEnv(), input.Env...)
+	command.Env = environment
 	stdout, err := command.StdoutPipe()
 	if err == nil {
 		stderr, nextErr := command.StderrPipe()
@@ -210,6 +213,48 @@ func (m *ShellJobManager) run(job ShellJob, input ShellJobStart, ctx context.Con
 	default:
 		log.Printf("ERROR shell job failed job_id=%s exit_code=%d", job.ID, job.ExitCode)
 	}
+}
+
+// resolveShellCommand 在 exec.Command 解析命令名之前应用子进程的最终 PATH。
+// 否则 venv 的 PATH 虽会进入子进程环境，却无法影响 daemon 已选定的可执行文件。
+func resolveShellCommand(name string, environment []string) string {
+	if filepath.IsAbs(name) || strings.ContainsRune(name, filepath.Separator) {
+		return name
+	}
+	path := environmentValue(environment, "PATH")
+	if path == "" {
+		return name
+	}
+	extensions := []string{""}
+	if runtime.GOOS == "windows" && filepath.Ext(name) == "" {
+		extensions = strings.Split(environmentValue(environment, "PATHEXT"), ";")
+		if len(extensions) == 0 || extensions[0] == "" {
+			extensions = []string{".com", ".exe", ".bat", ".cmd"}
+		}
+	}
+	for _, directory := range filepath.SplitList(path) {
+		if directory == "" {
+			directory = "."
+		}
+		for _, extension := range extensions {
+			candidate := filepath.Join(directory, name+extension)
+			info, err := os.Stat(candidate)
+			if err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+				return candidate
+			}
+		}
+	}
+	return name
+}
+
+func environmentValue(environment []string, name string) string {
+	prefix := name + "="
+	for index := len(environment) - 1; index >= 0; index-- {
+		if strings.HasPrefix(environment[index], prefix) {
+			return strings.TrimPrefix(environment[index], prefix)
+		}
+	}
+	return ""
 }
 
 func (m *ShellJobManager) finishCancelled(job ShellJob) {

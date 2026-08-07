@@ -57,3 +57,20 @@ An App operation resolves its state namespace in this order:
 2. Otherwise — the App's global state (appstate), with `ctx.project` set to `null`.
 
 Media tools are platform-owned: they accept a `projectId` argument, and otherwise create workspace-level Assets that can be attached to a Project later with `recut.media.attach`. You never read another App's private database; cross-App understanding goes through the owner App's declared read operations.
+
+## Filesystem and native file tools
+
+`recut.context` reports the `.recut` layout under `paths` and each installed App's absolute root under `apps[].root`; `recut.project_context` and each App's `workflow.context` report project paths (`paths.projectFilesRoot`, `paths.workspacePath`, and App-specific workspace paths). **Read and write App business files with your native Read/Write/Edit/Glob tools at those paths** — do not call dedicated MCP tools for plain file I/O:
+
+```text
+<dataRoot>/.recut/
+  apps/<appId>/              App package (root): manifest, background.js, skills/, skeleton, kit source
+  apps/<appId>/skills/<skillId>/SKILL.md + references/
+  projects/<projectId>/files/           project files (owner App private)
+  projects/<projectId>/files/workspace/ per-project workspace (e.g. Remotion composition code)
+  appstate/<appId>/          App global state (sqlite + files; never read another App's DB)
+  sessions/agent-bridge/<sessionId>/workspace/   your session workspace (CLI cwd)
+  media/  models/
+```
+
+MCP tools remain for platform business only: media library and generation jobs, background tasks, App install/update, and App-owned sqlite state through the owner App's declared operations. Never read another App's sqlite database directly.

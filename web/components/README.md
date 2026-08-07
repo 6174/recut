@@ -22,7 +22,8 @@ agent-onboarding.tsx: 新建 Codex、OpenCode 或 Claude Code 会话的非空引
 agent-onboarding-settings.tsx: 全局新对话引导设置；维护用户级卡片标题、说明与 prompt，不修改 App manifest，新增卡片 ID 不依赖安全上下文 UUID。
 agent-install-guide.tsx: 本地 Agent CLI 共享三步（安装、登录/验证、重新检查）正文；同时被现有恢复面板（CLI 缺失分支）与新增主动安装对话框消费，checking / checkFailed 由调用方管理，复制到剪贴板与失败兜底统一在内。
 agent-install-dialog.tsx: 主动引导用户安装本地 Agent CLI 的共享模态对话框；供空态安装卡、RuntimePicker 未就绪项与未来 settings 本地 Agent 分类复用，关闭即清空、Esc 关闭、背景点击关闭，完成 recheck 且 CLI 已在 backend 可用时由父级自动关闭并刷新 runtimeStatus。
-settings-panel.tsx: Header 右侧的全局设置面板；可展示并复制本机 service 安装命令、验证并保存本地或远程 service 根地址，也以带能力说明的 Popover 连接多 Provider BYOK 凭据，并从 `media-configuration-store` 读取共享配置按图片、视频、语音用途选择模型；API Key 草稿只在表单本地保存。
+settings-panel.tsx: Header 右侧的全局设置面板；可展示并复制本机 service 安装命令、验证并保存本地或远程 service 根地址，也以带能力说明的 Popover 连接多 Provider BYOK 凭据、维护新对话引导，并通过 Recut Skill Tab 挂载 daemon 管理的跨 Agent Skill 链接；API Key 草稿只在表单本地保存。
+recut-skill-settings.tsx: Recut Skill 全局设置子面板；读取 daemon 启动时自动维护的唯一 Skill 来源、各 Agent 链接状态与 MCP 注册状态，只请求后端安全修复异常项，不在浏览器直接写用户目录。
 header-actions.tsx: 工作台 Header 右侧的统一操作组合；在页面流中汇集项目 GitHub 主页外链、service 状态、全局设置与可选页面上下文操作，首页与项目详情共用。
 service-control.tsx: Header 内的 service 控制入口；通过 Zustand 初始化并每 30 秒刷新唯一 endpoint 的全局状态，展示 health 提供的进程启动时间，并在启动时间变化后确认升级或 launchd 重启完成；所有已连通 service 均提供新标签页诊断日志入口，查看 CLI 解析、PATH 与近期 service 日志，接口仍由 service 限制在本地网络；发现本地 service 更新时将 Header 状态切换为醒目的更新操作，核心工作区保持可用；本地已安装 daemon 才允许网页执行这些操作，远程 service 只展示连接状态。
 app-version-control.tsx: Git App 版本交互原子；项目 Header 和 Apps 目录复用，单项升级经确认执行，且仅在存在可升级、无本地修改条目时提供一键更新，始终保留 dirty Git 工作树保护。

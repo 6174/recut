@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store（含 Agent CLI 定位缓存）与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计的 Server 及内嵌工作台、无入口重定向的 App UI、App 安装/单个或批量更新、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API
+ * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计的 Server 及内嵌工作台、无入口重定向的 App UI、App 安装/单个或批量更新、Recut Skill 状态/软链接、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API
  * [POS]: service 的传输层，负责把受信任项目、内嵌本地工作台与扩展注册表映射为浏览器可消费的 API；对话和 PTY 协议并存
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -32,12 +32,16 @@ type Server struct {
 	host      *AppHost
 	media     *MediaService
 	updater   *ServiceUpdater
+	skill     *RecutSkillManager
 }
 
 func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, agents *AgentManager, host *AppHost, media *MediaService, updater ...*ServiceUpdater) *Server {
 	server := &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host, media: media}
 	if len(updater) > 0 {
 		server.updater = updater[0]
+	}
+	if store != nil {
+		server.skill = NewRecutSkillManager(store.root)
 	}
 	return server
 }
@@ -68,6 +72,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/system/logs", s.systemLogs)
 	mux.HandleFunc("POST /v1/system/update", s.updateSystem)
 	mux.HandleFunc("POST /v1/system/restart", s.restartSystem)
+	mux.HandleFunc("GET /v1/skills/recut", s.recutSkillStatus)
+	mux.HandleFunc("POST /v1/skills/recut/links", s.linkRecutSkill)
 	mux.HandleFunc("GET /v1/apps", s.listApps)
 	mux.HandleFunc("GET /v1/apps/store", s.listAppStore)
 	mux.HandleFunc("GET /v1/apps/installed", s.listAppInstallations)
