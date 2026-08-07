@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Workspace 数据库与受控媒体根
- * [OUTPUT]: Asset 导入、查询、去重或按交付强制新建、受控落盘、项目关联、异步生成时间/输出/诊断 metadata、终态审计及 durable 更新事件
+ * [OUTPUT]: Asset 导入、查询、去重或按交付强制新建、ASR 转写 bundle（源声音 + SRT + JSON parts）导入与 parts 读取、受控落盘、项目关联、异步生成时间/输出/诊断 metadata、终态审计及 durable 更新事件
  * [POS]: media 的资产真相源；Provider 与本地两轨导出均不直接访问存储，终态与 SSE 事件在此原位回写
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -850,6 +850,199 @@ func (m *MediaService) persistAsset(content []byte, kind, mimeType, name, origin
 	}
 	m.publishAssetChange()
 	return asset, nil
+}
+
+// TranscriptPart is one non-primary file of a transcript Asset bundle. The
+// primary Asset content is the aligned source audio track served by the content
+// endpoint; SRT and JSON transcript payloads are content-addressed parts
+// referenced from metadata and served by the parts endpoint. Paths stay
+// platform-internal and are only used to serve bytes, mirroring metadata["path"].
+type TranscriptPart struct {
+	Name        string `json:"name"`
+	ContentHash string `json:"contentHash"`
+	MimeType    string `json:"mimeType"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	Path        string `json:"path,omitempty"`
+}
+
+// TranscriptImport describes a platform-owned ASR bundle Asset: an aligned
+// source audio track plus its SRT and JSON transcript payloads. Audio is the
+// primary content so the content endpoint can play it directly.
+type TranscriptImport struct {
+	Name           string
+	SourceAssetID  string
+	Audio          []byte
+	SRT            []byte
+	TranscriptJSON []byte
+	AudioMimeType  string
+	Model          string
+	Language       string
+	LanguageProb   float64
+	Duration       float64
+}
+
+// ImportTranscript persists an ASR bundle as a single transcript Asset. Unlike
+// imports of user files this is a generated delivery: every call creates a new
+// Asset record while still sharing content-addressed bytes on disk.
+func (m *MediaService) ImportTranscript(input TranscriptImport) (MediaAsset, error) {
+	if len(input.Audio) == 0 || len(input.SRT) == 0 || len(input.TranscriptJSON) == 0 {
+		return MediaAsset{}, errors.New("transcript bundle requires audio, srt and json content")
+	}
+	if strings.TrimSpace(input.AudioMimeType) == "" {
+		input.AudioMimeType = "audio/wav"
+	}
+	root := m.store.MediaRoot()
+	audioPath, audioHash, err := m.persistTranscriptPart(root, input.Audio, extensionFor(input.AudioMimeType))
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	srtPath, srtHash, err := m.persistTranscriptPart(root, input.SRT, ".srt")
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	jsonPath, jsonHash, err := m.persistTranscriptPart(root, input.TranscriptJSON, ".json")
+	if err != nil {
+		return MediaAsset{}, err
+	}
+
+	duration := input.Duration
+	segmentCount := 0
+	var parsedTranscript struct {
+		Duration float64 `json:"duration"`
+		Segments []any   `json:"segments"`
+	}
+	if json.Unmarshal(input.TranscriptJSON, &parsedTranscript) == nil {
+		segmentCount = len(parsedTranscript.Segments)
+		if parsedTranscript.Duration > 0 {
+			duration = parsedTranscript.Duration
+		}
+	}
+
+	id, err := newID()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	now := time.Now().UTC()
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = "transcript-" + id + extensionFor(input.AudioMimeType)
+	}
+	metadata := map[string]any{
+		"path": audioPath,
+		"source": "transcript",
+		"transcript": map[string]any{
+			"sourceAssetId":       input.SourceAssetID,
+			"model":               input.Model,
+			"language":            input.Language,
+			"languageProbability": input.LanguageProb,
+			"duration":            duration,
+			"segmentCount":        segmentCount,
+			"parts": map[string]TranscriptPart{
+				"srt":  {Name: "transcript.srt", ContentHash: srtHash, MimeType: "text/plain", SizeBytes: int64(len(input.SRT)), Path: srtPath},
+				"json": {Name: "transcript.json", ContentHash: jsonHash, MimeType: "application/json", SizeBytes: int64(len(input.TranscriptJSON)), Path: jsonPath},
+			},
+		},
+	}
+	serialized, _ := json.Marshal(metadata)
+	asset := MediaAsset{ID: id, Kind: "transcript", Name: name, MimeType: input.AudioMimeType, SizeBytes: int64(len(input.Audio)), ContentHash: audioHash, Origin: "generated", Status: "completed", Metadata: metadata, CreatedAt: now, UpdatedAt: now}
+
+	db, err := m.database()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	rollback := func(cause error) (MediaAsset, error) { _ = tx.Rollback(); return MediaAsset{}, cause }
+	if _, err = tx.Exec("insert into media_assets (id, kind, name, mime_type, size_bytes, content_hash, origin, parent_id, status, job_id, remote_id, remote_poll_url, error, metadata_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", asset.ID, asset.Kind, asset.Name, asset.MimeType, asset.SizeBytes, asset.ContentHash, asset.Origin, "", asset.Status, "", "", "", "", string(serialized), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		return rollback(err)
+	}
+	if input.SourceAssetID != "" {
+		if _, err = tx.Exec("update media_assets set parent_id = ? where id = ?", input.SourceAssetID, asset.ID); err != nil {
+			return rollback(err)
+		}
+		asset.ParentID = input.SourceAssetID
+	}
+	if err := recordAssetEvent(tx, asset.ID, now); err != nil {
+		return rollback(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return MediaAsset{}, err
+	}
+	m.publishAssetChange()
+	return asset, nil
+}
+
+func (m *MediaService) persistTranscriptPart(root string, content []byte, ext string) (path, contentHash string, err error) {
+	hash := sha256.Sum256(content)
+	contentHash = hex.EncodeToString(hash[:])
+	path = filepath.Join(root, "media", "assets", contentHash[:2], contentHash+ext)
+	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", "", err
+	}
+	if err = os.WriteFile(path, content, 0o600); err != nil && !os.IsExist(err) {
+		return "", "", err
+	}
+	return path, contentHash, nil
+}
+
+// GetAssetPart returns one named transcript part (srt or json) of a completed
+// transcript Asset. Parts are content-addressed and immutable like the primary
+// audio content.
+func (m *MediaService) GetAssetPart(id, partName string) (TranscriptPart, []byte, error) {
+	asset, err := m.getAsset(id)
+	if err != nil {
+		return TranscriptPart{}, nil, err
+	}
+	if asset.Status != "completed" {
+		return TranscriptPart{}, nil, errors.New("media asset is not ready")
+	}
+	bundle, ok := asset.Metadata["transcript"].(map[string]any)
+	if !ok {
+		return TranscriptPart{}, nil, errors.New("media asset is not a transcript bundle")
+	}
+	parts, ok := bundle["parts"].(map[string]any)
+	if !ok {
+		return TranscriptPart{}, nil, errors.New("media asset has no transcript parts")
+	}
+	raw, ok := parts[partName].(map[string]any)
+	if !ok {
+		return TranscriptPart{}, nil, fmt.Errorf("transcript part %q was not found", partName)
+	}
+	path, _ := raw["path"].(string)
+	if path == "" {
+		return TranscriptPart{}, nil, errors.New("transcript part file is missing")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return TranscriptPart{}, nil, err
+	}
+	return TranscriptPart{
+		Name:        metadataString(raw["name"]),
+		ContentHash: metadataString(raw["contentHash"]),
+		MimeType:    metadataString(raw["mimeType"]),
+		SizeBytes:   metadataFloat(raw["sizeBytes"]),
+		Path:        path,
+	}, content, nil
+}
+
+func metadataString(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func metadataFloat(value any) int64 {
+	switch value := value.(type) {
+	case int:
+		return int64(value)
+	case int64:
+		return value
+	case float64:
+		return int64(value)
+	default:
+		return 0
+	}
 }
 
 func appendUnique(values []string, value string) []string {

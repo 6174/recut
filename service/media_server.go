@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService 的平台级媒体边界与标准 HTTP JSON 协议
- * [OUTPUT]: 对外提供素材库、无固定大小上限的流式图片/视频/音频导入、模型路由、BYOK 凭据、动态音色、生成任务及 durable Asset SSE 的本地 HTTP API
+ * [OUTPUT]: 对外提供素材库、无固定大小上限的流式图片/视频/音频导入、转写 bundle 的 SRT/JSON parts 交付、模型路由、BYOK 凭据、动态音色、生成任务及 durable Asset SSE 的本地 HTTP API
  * [POS]: service 的 Media Platform 传输层；工作台和系统 MCP 使用同一业务服务，SSE 只传播本地 Asset 真相
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -318,6 +318,25 @@ func (s *Server) attachMediaAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// getMediaAssetPart serves a named part (srt or json) of a transcript Asset
+// bundle. Parts are immutable content-addressed files, so the same long-lived
+// cache policy as primary content applies.
+func (s *Server) getMediaAssetPart(w http.ResponseWriter, r *http.Request) {
+	partName := strings.TrimSpace(r.PathValue("part"))
+	if partName == "" {
+		writeError(w, http.StatusBadRequest, errors.New("transcript part name is required"))
+		return
+	}
+	part, content, err := s.media.GetAssetPart(r.PathValue("id"), partName)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	w.Header().Set("Cache-Control", completedMediaCacheControl)
+	w.Header().Set("Content-Type", part.MimeType)
+	w.Write(content)
 }
 
 func (s *Server) getMediaAssetContent(w http.ResponseWriter, r *http.Request) {

@@ -7,8 +7,8 @@ video-frame.tsx: 视频展示原子；列表和卡片以 `srcDoc` iframe 创建�
 webgl-studio-hero.tsx: Studio Header 的纯客户端 WebGL 背景；用 Three.js 绘制圆角、渐变磨砂的分层玻璃视频卡、播放符号和漂浮几何体，并由 GSAP 编排入场与低频浮动，遵守减少动态效果偏好且离屏暂停渲染。
 audio-waveform-player.tsx: 基于 wavesurfer.js 的音频波形播放原子；处理解码、波形绘制、点击定位、播放、静音与下载，错误时回退浏览器原生音频控件。
 generation-duration.tsx: 媒体生成耗时原子；活跃任务本地逐秒计时，终态只显示后端持久化的最终耗时，不发起状态请求。
-use-media-asset-events.tsx: Recut 媒体 SSE 缓存边界；以首次快照和增量 Asset 事件维护唯一前端真相，嵌套入口复用已有连接且绝不轮询 Atlas 或单个素材。
-asset-preview-dialog.tsx: 跨页面统一素材详情模态框；素材库与 Agent 对话都通过它预览图片、按需视频播放器和可定位波形音频，从共享 Asset 缓存原位更新运行/终态与生成耗时，参考视频在详情内才加载原片，兼容缺少生命周期字段的历史 Asset，查看提示词与参考素材，并复制符合 `<media>` 协议的素材上下文给 Agent。
+use-media-asset-events.tsx: Recut 媒体 SSE 缓存边界；以首次快照和增量 Asset 事件维护唯一前端真相，嵌套入口复用已有连接且绝不轮询 Atlas 或单个素材；保留 ASR 转写 bundle 的 `transcript` 类型。
+asset-preview-dialog.tsx: 跨页面统一素材详情模态框；素材库与 Agent 对话都通过它预览图片、按需视频播放器、可定位波形音频与转写 bundle（源声音播放、分段列表、SRT/JSON parts 预览下载），从共享 Asset 缓存原位更新运行/终态与生成耗时，参考视频在详情内才加载原片，兼容缺少生命周期字段的历史 Asset，查看提示词与参考素材，并复制符合 `<media>` 协议的素材上下文给 Agent。
 asset-reference-picker.tsx: 资源引用交互层；解析素材库复制的 `<media>` 协议，提供 @ 快速候选、项目/素材库全局选择面板与可移除引用 token；选择面板使用正常高度真实预览卡，直接显示名称、类型、来源、创建时间、提示词/时长，并分离“详情”和“选择”操作。
 platform-media-picker.tsx: iframe App 的平台级单选素材桥；复用带元信息、详情预览与明确选择操作的全局素材面板，只返回指定类型、完成态素材的稳定 assetId 与展示元数据。
 agent-message-content.tsx: Agent 回复的受控 XML 媒体节点渲染器；解析 `<media type="image|video|audio" assetid="..."/>` 为紧凑可点击卡片，从共享 Asset 缓存显示实时/最终生成耗时；完成的图片和视频都显示真实画面，视频统一使用 `VideoFrame` 的 iframe 子文档模式，点击打开详情。

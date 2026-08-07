@@ -96,6 +96,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/media/assets", s.importMediaAsset)
 	mux.HandleFunc("GET /v1/media/assets/{id}", s.getMediaAsset)
 	mux.HandleFunc("GET /v1/media/assets/{id}/content", s.getMediaAssetContent)
+	mux.HandleFunc("GET /v1/media/assets/{id}/parts/{part}", s.getMediaAssetPart)
 	mux.HandleFunc("POST /v1/media/assets/{id}/attach", s.attachMediaAsset)
 	mux.HandleFunc("POST /v1/media/jobs", s.createMediaJob)
 	mux.HandleFunc("GET /v1/media/jobs/{id}", s.getMediaJob)

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 manifest、Store 的目标命名空间与 App 全局状态、MediaService 与 goja JavaScript 运行时
- * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、受控项目封面设置、流式私有媒体导入，以及按 surface 执行 App background.js 的统一 operation handler
+ * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、受控项目封面设置、流式私有媒体导入、ASR 转写 bundle（源声音 + SRT + JSON）导入，以及按 surface 执行 App background.js 的统一 operation handler
  * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用 manifest 明示的 recut API；平台表一律不进入 ctx.sqlite / ctx.appState
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -221,7 +222,7 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 	if hasPermission(app.Manifest, "media.write") && h.media != nil {
 		media := ctx.Get("media")
 		var mediaObject *goja.Object
-		if !goja.IsUndefined(media) {
+		if !goja.IsUndefined(media) && !goja.IsNull(media) && media != nil {
 			mediaObject = media.ToObject(runtime)
 		} else {
 			mediaObject = runtime.NewObject()
@@ -246,15 +247,46 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 					panic(runtime.NewGoError(err))
 				}
 			}
-			return runtime.ToValue(map[string]any{
-				"id":        asset.ID,
-				"kind":      asset.Kind,
-				"name":      asset.Name,
-				"mimeType":  asset.MimeType,
-				"sizeBytes": asset.SizeBytes,
-				"status":    asset.Status,
-				"createdAt": asset.CreatedAt.Format(time.RFC3339Nano),
+			return runtime.ToValue(importedAssetResult(asset))
+		})
+		_ = mediaObject.Set("importTranscript", func(call goja.FunctionCall) goja.Value {
+			input := map[string]any{}
+			if err := runtime.ExportTo(call.Argument(0), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			audio, err := os.ReadFile(safeSandboxFile(primaryFiles, stringValue(input["audioPath"])))
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			srt, err := os.ReadFile(safeSandboxFile(primaryFiles, stringValue(input["srtPath"])))
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			transcript, err := os.ReadFile(safeSandboxFile(primaryFiles, stringValue(input["jsonPath"])))
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			asset, err := h.media.ImportTranscript(TranscriptImport{
+				Name:           stringValue(input["name"]),
+				SourceAssetID:  stringValue(input["sourceAssetId"]),
+				Audio:          audio,
+				SRT:            srt,
+				TranscriptJSON: transcript,
+				AudioMimeType:  stringValue(input["mimeType"]),
+				Model:          stringValue(input["model"]),
+				Language:       stringValue(input["language"]),
+				LanguageProb:   numericValue(input["languageProbability"]),
+				Duration:       numericValue(input["duration"]),
 			})
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			if target.IsProject() {
+				if err := h.media.Attach(asset.ID, target.ProjectID); err != nil {
+					panic(runtime.NewGoError(err))
+				}
+			}
+			return runtime.ToValue(importedAssetResult(asset))
 		})
 		_ = ctx.Set("media", mediaObject)
 	}
@@ -707,6 +739,32 @@ func nonEmpty(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+func numericValue(value any) float64 {
+	switch value := value.(type) {
+	case int:
+		return float64(value)
+	case int64:
+		return float64(value)
+	case float64:
+		return value
+	case string:
+		parsed, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		return parsed
+	default:
+		return 0
+	}
+}
+func importedAssetResult(asset MediaAsset) map[string]any {
+	return map[string]any{
+		"id":        asset.ID,
+		"kind":      asset.Kind,
+		"name":      asset.Name,
+		"mimeType":  asset.MimeType,
+		"sizeBytes": asset.SizeBytes,
+		"status":    asset.Status,
+		"createdAt": asset.CreatedAt.Format(time.RFC3339Nano),
+	}
 }
 func hasPermission(manifest Manifest, permission string) bool {
 	for _, candidate := range manifest.Permissions {

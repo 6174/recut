@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖浏览器 EventSource 与 Recut `/v1/media/events` 的资产快照/增量事件契约
- * [OUTPUT]: 对外提供 MediaAssetEventsProvider、useMediaAssetEvents 与 MediaEventAsset；维护唯一的前端 Asset 缓存
+ * [OUTPUT]: 对外提供 MediaAssetEventsProvider、useMediaAssetEvents 与 MediaEventAsset；维护唯一的前端 Asset 缓存（含 ASR 转写 bundle 类型）
  * [POS]: components 的媒体生命周期边界；素材库、Agent、预览和引用选择器共享同一条 Recut SSE，不轮询 Provider 或单个 Asset
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -18,7 +18,7 @@ import {
 
 export type MediaEventAsset = {
   id: string;
-  kind: "image" | "video" | "audio";
+  kind: "image" | "video" | "audio" | "transcript";
   mimeType: string;
   name: string;
   origin: string;
@@ -60,7 +60,7 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 function assetKind(value: unknown, mimeType: string): MediaEventAsset["kind"] {
-  if (value === "image" || value === "video" || value === "audio") return value;
+  if (value === "image" || value === "video" || value === "audio" || value === "transcript") return value;
   if (mimeType.startsWith("video/")) return "video";
   if (mimeType.startsWith("audio/")) return "audio";
   return "image";

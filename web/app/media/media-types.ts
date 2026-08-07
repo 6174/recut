@@ -1,11 +1,11 @@
 /*
  * [INPUT]: 无运行时依赖；定义素材库 API 的 JSON 契约
- * [OUTPUT]: 对外提供素材、任务、含输入/输出参数能力的 Provider 模型、Credential、筛选类型，以及按 durable jobId 保留异步生成状态的历史 Asset 展示归一化
+ * [OUTPUT]: 对外提供素材、任务、含输入/输出参数能力的 Provider 模型、Credential、筛选类型（含 ASR 转写 bundle），以及按 durable jobId 保留异步生成状态的历史 Asset 展示归一化
  * [POS]: web/app/media 的共享类型边界；由页面、详情和创建流程共同使用，Provider 专属 remoteId 不是生命周期依据
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
-export type AssetKind = "image" | "video" | "audio";
+export type AssetKind = "image" | "video" | "audio" | "transcript";
 export type AssetStatus = "queued" | "running" | "completed" | "failed";
 export type ModelInputMode = "text" | AssetKind;
 export type Capability = "image.generate" | "video.generate" | "speech.generate";
@@ -29,6 +29,13 @@ export type Asset = {
     modelId?: unknown;
     output?: Record<string, unknown>;
     referenceIds?: unknown;
+    transcript?: {
+      sourceAssetId?: string;
+      model?: string;
+      language?: string;
+      duration?: number;
+      segmentCount?: number;
+    };
   };
 };
 export type MediaJob = {

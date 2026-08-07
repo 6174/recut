@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { ImageIcon, LoaderCircle, Music2, Video } from "lucide-react";
+import { Captions, ImageIcon, LoaderCircle, Music2, Video } from "lucide-react";
 import { useState } from "react";
 import { AppReferenceCard, ProjectReferenceCard } from "@/components/agent-reference-card";
 import { AssetPreviewDialog, mediaContentURL, type PreviewAsset } from "@/components/asset-preview-dialog";
@@ -14,7 +14,7 @@ import { GenerationDuration, type GenerationTiming } from "@/components/generati
 import { useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { VideoFrame } from "@/components/video-frame";
 
-type MediaType = "image" | "video" | "audio";
+type MediaType = "image" | "video" | "audio" | "transcript";
 type Segment = { kind: "text"; value: string } | { kind: "media"; assetID: string; type: MediaType } | { kind: "project"; projectId: string } | { kind: "app"; appId: string };
 
 const tagPattern = /<(media|project|app)\s+([^>]*?)\s*\/?>(?:<\/media>)?/gi;
@@ -66,7 +66,7 @@ function parseAttributes(source: string | undefined) {
 }
 
 function isMediaType(value: string): value is MediaType {
-  return value === "image" || value === "video" || value === "audio";
+  return value === "image" || value === "video" || value === "audio" || value === "transcript";
 }
 
 type MediaPreviewStatus = "checking" | "queued" | "running" | "completed" | "failed";
@@ -84,8 +84,8 @@ function MediaPreview({ apiBase, assetID, onOpen, type }: { apiBase: string; ass
       ? { status: "failed", error: "素材已不可用" }
       : { status: "checking", error: "" };
   const url = mediaContentURL(apiBase, assetID);
-  const label = `${type === "image" ? "图片" : type === "video" ? "视频" : "音频"}素材预览`;
-  const Icon = type === "image" ? ImageIcon : type === "video" ? Video : Music2;
+  const label = `${type === "image" ? "图片" : type === "video" ? "视频" : type === "transcript" ? "转写" : "音频"}素材预览`;
+  const Icon = type === "image" ? ImageIcon : type === "video" ? Video : type === "transcript" ? Captions : Music2;
   return <button aria-label={`打开${label}`} className="group block w-56 overflow-hidden rounded-sm border bg-card text-left shadow-sm transition hover:border-primary hover:shadow-md" onClick={onOpen} type="button">{state.status === "completed" ? type === "image" ? <img alt={label} className="aspect-video w-full object-cover" src={url} /> : type === "video" ? <VideoFrame alt={label} className="aspect-video w-full" src={url} /> : <div className="grid aspect-video place-items-center bg-muted text-muted-foreground"><Icon className="size-6" /></div> : <MediaPreviewState state={state} />}<span className="flex items-center gap-1.5 border-t px-2 py-1.5 font-mono text-[10px] text-muted-foreground group-hover:text-foreground"><Icon className="size-3" />{label} · 点击查看</span></button>;
 }
 

@@ -1,21 +1,22 @@
 /*
  * [INPUT]: 依赖共享 Asset SSE 缓存、素材元数据/内容 API、GenerationDuration、VideoFrame、AudioWaveformPlayer 与 lucide-react 图标
- * [OUTPUT]: 对外提供 AssetPreviewDialog 统一素材详情模态框；运行中素材按 assetId 从共享缓存原位更新并显示实时/最终生成耗时，同时预览完成的图片、按需视频播放器和波形音频
+ * [OUTPUT]: 对外提供 AssetPreviewDialog 统一素材详情模态框；运行中素材按 assetId 从共享缓存原位更新并显示实时/最终生成耗时，同时预览完成的图片、按需视频播放器、波形音频与转写 bundle（源声音播放 + 分段 + SRT/JSON parts）
  * [POS]: web 的跨页面素材查看入口；素材库与 Agent 对话通过同一视图查看资产，不轮询单个 Asset 或依赖父视图刷新
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { Check, Copy, LoaderCircle, Music2, RotateCcw, Video, X } from "lucide-react";
-import { useState } from "react";
+import { Check, Copy, Download, FileText, LoaderCircle, Music2, RotateCcw, Video, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
 import { GenerationDuration } from "@/components/generation-duration";
 import { useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { VideoFrame } from "@/components/video-frame";
+import { Badge } from "@/components/ui/badge";
 
 export type PreviewAsset = {
   id: string;
-  kind: "image" | "video" | "audio";
+  kind: "image" | "video" | "audio" | "transcript";
   name: string;
   origin: string;
   status: "queued" | "running" | "completed" | "failed";
@@ -24,19 +25,27 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; referenceIds?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; referenceIds?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number } };
 };
 
 export function mediaContext(asset: PreviewAsset) {
   // 历史导入素材没有 generation metadata；复制上下文也必须和预览一样可用。
   const metadata = asset.metadata ?? {};
   const prompt = typeof metadata.prompt === "string" && metadata.prompt.trim();
+  const transcript = transcriptMetadata(asset);
   return [
     `<media type="${asset.kind}" assetid="${asset.id}"/>`,
     `素材名称：${asset.name}`,
-    `素材类型：${asset.kind}`,
+    `素材类型：${asset.kind === "transcript" ? "转写（源声音 + SRT + JSON）" : asset.kind}`,
     `素材来源：${asset.origin}`,
     `素材状态：${asset.status}`,
+    ...(transcript ? [
+      `转写来源素材：${transcript.sourceAssetId || "未知"}`,
+      `转写模型：${transcript.model || "未知"}`,
+      `语言：${transcript.language || "未知"}`,
+      `时长：${transcript.duration ?? 0} 秒`,
+      `分段数：${transcript.segmentCount ?? 0}`,
+    ] : []),
     ...(prompt ? [`生成提示词：${prompt}`] : []),
   ].join("\n");
 }
@@ -70,7 +79,86 @@ function AssetContent({ apiBase, asset, status }: { apiBase: string; asset: Prev
   const source = mediaContentURL(apiBase, asset.id);
   if (asset.kind === "image") return <img alt={asset.name} className="max-h-[65vh] max-w-full object-contain" src={source} />;
   if (asset.kind === "audio") return <AudioWaveformPlayer name={asset.name || "音频素材"} src={source} />;
+  if (asset.kind === "transcript") return <TranscriptAssetContent apiBase={apiBase} asset={asset} />;
   return <VideoFrame alt={asset.name || "视频素材"} className="w-full max-w-4xl rounded-xs bg-black" controls src={source} videoClassName="max-h-[65vh] object-contain" />;
+}
+
+type TranscriptSegment = { start: number; end: number; text: string; speaker?: string; emotion?: string };
+
+type TranscriptMetadata = {
+  sourceAssetId?: string;
+  model?: string;
+  language?: string;
+  duration?: number;
+  segmentCount?: number;
+  parts?: Record<string, { name?: string; contentHash?: string; mimeType?: string; sizeBytes?: number }>;
+};
+
+function transcriptMetadata(asset: PreviewAsset): TranscriptMetadata | null {
+  const value = asset.metadata?.transcript;
+  if (!value || typeof value !== "object") return null;
+  return value as TranscriptMetadata;
+}
+
+function transcriptPartURL(apiBase: string, assetID: string, part: string) {
+  return `${apiBase}/v1/media/assets/${encodeURIComponent(assetID)}/parts/${encodeURIComponent(part)}`;
+}
+
+function formatTimecode(seconds: number) {
+  const milliseconds = Math.max(0, Math.round(seconds * 1000));
+  const hours = Math.floor(milliseconds / 3600000).toString().padStart(2, "0");
+  const minutes = Math.floor((milliseconds % 3600000) / 60000).toString().padStart(2, "0");
+  const secs = Math.floor((milliseconds % 60000) / 1000).toString().padStart(2, "0");
+  return `${hours}:${minutes}:${secs}`;
+}
+
+function TranscriptAssetContent({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
+  const source = mediaContentURL(apiBase, asset.id);
+  const meta = transcriptMetadata(asset);
+  const [segments, setSegments] = useState<TranscriptSegment[] | null>(null);
+  const [srt, setSRT] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [showSRT, setShowSRT] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(transcriptPartURL(apiBase, asset.id, "json"), { cache: "no-store" });
+        if (!response.ok) throw new Error("无法读取转写 JSON。");
+        const payload = await response.json() as { segments?: TranscriptSegment[] };
+        if (!cancelled) setSegments(payload.segments ?? []);
+      } catch (error) {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : "无法读取转写内容。");
+      }
+      try {
+        const response = await fetch(transcriptPartURL(apiBase, asset.id, "srt"), { cache: "no-store" });
+        if (response.ok && !cancelled) setSRT(await response.text());
+      } catch { /* SRT 缺失时只展示分段 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [apiBase, asset.id]);
+  const items = segments ?? [];
+  return <div className="grid w-full max-w-3xl gap-4">
+    <AudioWaveformPlayer name={asset.name || "转写素材"} src={source} />
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Badge className="bg-violet-600/10 text-violet-600">转写</Badge>
+      {meta?.model && <Badge>{meta.model}</Badge>}
+      {meta?.language && <Badge>{meta.language === "auto" ? "自动检测" : meta.language}</Badge>}
+      {typeof meta?.duration === "number" && <Badge>{meta.duration.toFixed(1)} 秒</Badge>}
+      <Badge>{typeof meta?.segmentCount === "number" ? meta.segmentCount : items.length} 段</Badge>
+    </div>
+    <div className="flex items-center justify-between gap-3">
+      <button className="flex h-7 items-center gap-1.5 rounded-xs border px-2 text-[11px] hover:bg-muted" onClick={() => setShowSRT((visible) => !visible)} type="button"><FileText className="size-3" />{showSRT ? "收起 SRT" : "预览 SRT"}</button>
+      <div className="flex gap-1.5">
+        <a className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted" download href={transcriptPartURL(apiBase, asset.id, "srt")} type="button"><Download className="size-3" />SRT</a>
+        <a className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted" download href={transcriptPartURL(apiBase, asset.id, "json")} type="button"><Download className="size-3" />JSON</a>
+      </div>
+    </div>
+    {showSRT && <pre className="max-h-52 overflow-auto rounded-xs border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">{srt || "（没有可用的 SRT）"}</pre>}
+    {loadError ? <p className="text-xs text-destructive">{loadError}</p> : <div className="max-h-72 overflow-auto rounded-xs border">
+      {items.length ? items.map((segment, index) => <div className="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-3 border-b px-3 py-2 last:border-0" key={`${asset.id}-${index}`}><span className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">{formatTimecode(segment.start)} → {formatTimecode(segment.end)}</span><p className="text-xs leading-5">{segment.text}</p></div>) : <p className="px-4 py-6 text-center text-xs text-muted-foreground">正在读取转写分段…</p>}
+    </div>}
+  </div>;
 }
 
 function PendingAssetContent({ asset, status }: { asset: PreviewAsset; status: string }) {

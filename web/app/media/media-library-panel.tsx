@@ -6,6 +6,7 @@
  */
 "use client";
 import {
+  Captions,
   ChevronDown,
   ImageIcon,
   Music2,
@@ -61,6 +62,7 @@ const filters: { id: Filter; label: string; icon: typeof ImageIcon }[] = [
   { id: "image", label: "图片", icon: ImageIcon },
   { id: "video", label: "视频", icon: Video },
   { id: "audio", label: "音频", icon: Music2 },
+  { id: "transcript", label: "转写", icon: Captions },
 ];
 const createKinds: CreateKind[] = [
   {
@@ -85,10 +87,10 @@ const createKinds: CreateKind[] = [
     prompt: "输入需要生成的语音内容或音频描述…",
   },
 ];
-const referenceLabels: Record<AssetKind, string> = { image: "图片", video: "视频", audio: "音频" };
+const referenceLabels: Record<Exclude<AssetKind, "transcript">, string> = { image: "图片", video: "视频", audio: "音频" };
 const initialAssetCount = 12;
 
-function isReferenceKind(mode: ModelInputMode): mode is AssetKind {
+function isReferenceKind(mode: ModelInputMode): mode is Exclude<AssetKind, "transcript"> {
   return mode === "image" || mode === "video" || mode === "audio";
 }
 
@@ -397,7 +399,7 @@ function CreateAssetDialog({
     (model) =>
       !credentials.some((credential) => credential.provider === model.provider),
   );
-  const referenceKinds: AssetKind[] = selectedModel
+  const referenceKinds: Exclude<AssetKind, "transcript">[] = selectedModel
     ? selectedModel.inputModes.filter(isReferenceKind)
     : [];
   const supportsGeneratedAudio =
@@ -406,7 +408,7 @@ function CreateAssetDialog({
   const referenceKindKey = referenceKinds.join(",");
   const referenceLabel = referenceKinds.map((item) => referenceLabels[item]).join("、");
   const referenceAssets = assets.filter((asset) =>
-    asset.status === "completed" && referenceKinds.includes(asset.kind),
+    asset.status === "completed" && (referenceKinds as AssetKind[]).includes(asset.kind),
   );
   const selectedReferenceAssets = assets.filter((asset) =>
     referenceIDs.includes(asset.id),
@@ -444,7 +446,7 @@ function CreateAssetDialog({
     setReferenceIDs((ids) => {
       const next = ids.filter((id) => {
         const asset = assets.find((item) => item.id === id);
-        return asset ? referenceKinds.includes(asset.kind) : false;
+        return asset ? (referenceKinds as AssetKind[]).includes(asset.kind) : false;
       });
       return next.length === ids.length ? ids : next;
     });
@@ -452,7 +454,7 @@ function CreateAssetDialog({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!selectedModel || !credentialID || !prompt.trim() || (kind.kind === "audio" && !voiceID)) return;
-    if (selectedReferenceAssets.some((asset) => !referenceKinds.includes(asset.kind))) {
+    if (selectedReferenceAssets.some((asset) => !(referenceKinds as AssetKind[]).includes(asset.kind))) {
       setError("当前模型不支持已选的参考素材类型，请移除后重试。");
       return;
     }
