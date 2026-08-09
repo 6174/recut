@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖全局 Zustand service 状态、workspace-store 的项目/App/安装状态、平台素材选择器、按 scope 缓存的 Agent Session 列表、全局 Agent 面板上下文与 Next.js 浏览器路由参数
- * [OUTPUT]: 对外提供通用项目 App UI 容器、项目事件转发、全局素材选择与带宿主通信诊断的结构化 Agent 请求转交；App 只能经全局面板上下文回填右侧 Agent 输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
- * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，从 workspace-store 读取目录真相，隔离 useParams、WebSocket 与 iframe，不能吞没后台诊断；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
+ * [OUTPUT]: 对外提供通用项目 App UI 容器、按 iframe 实际 origin 转发的项目事件、全局素材选择与结构化 Agent 请求转交；App 只能经全局面板上下文回填右侧 Agent 输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
+ * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，从 workspace-store 读取目录真相，隔离 useParams、WebSocket 与 iframe，通信目标以 iframe URL 为唯一真相源；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -9,7 +9,7 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
 import { HeaderActions } from "@/components/header-actions";
@@ -30,6 +30,13 @@ function projectIDFromLocation(routeID: string) {
   if (queryID) return queryID;
   const match = window.location.pathname.match(/^\/projects\/([^/]+)\/?$/);
   return match?.[1] === "app" ? routeID : match?.[1] ?? routeID;
+}
+
+function postToFrame(frame: HTMLIFrameElement | null, message: unknown, transfer?: Transferable[]) {
+  if (!frame?.contentWindow) return;
+  const targetOrigin = new URL(frame.src).origin;
+  if (transfer) frame.contentWindow.postMessage(message, targetOrigin, transfer);
+  else frame.contentWindow.postMessage(message, targetOrigin);
 }
 
 export default function ProjectDetailClient() {
@@ -69,40 +76,40 @@ export default function ProjectDetailClient() {
     events.addEventListener("message", (message) => {
       const payload = JSON.parse(message.data);
       if (payload.type !== "project.event") return;
-      appFrame.current?.contentWindow?.postMessage({ type: "recut.project.event", event: payload.event }, apiBase);
+      postToFrame(appFrame.current, { type: "recut.project.event", event: payload.event });
     });
     return () => events.close();
   }, [apiBase, project]);
 
-  const connectUI = () => {
+  const connectUI = useCallback(() => {
     if (!appFrame.current || !project) return;
     const channel = new MessageChannel();
     channel.port1.onmessage = async (event) => {
       const request = event.data; const reply = (result?: unknown, error?: string) => channel.port1.postMessage({ id: request.id, result, error });
-      console.warn(`[recut-host] iframe request id=${String(request.id)} type=${String(request.type)}`);
+      console.debug(`[recut-host] iframe request id=${String(request.id)} type=${String(request.type)}`);
       try {
         if (request.type === "state.query") {
           const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${request.input.name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, "状态读取失败"));
-          console.warn(`[recut-host] iframe response id=${String(request.id)} type=state.query result=${response.ok ? "ok" : "error"}`);
+          console.debug(`[recut-host] iframe response id=${String(request.id)} type=state.query result=${response.ok ? "ok" : "error"}`);
         } else if (request.type === "background.call") {
           const { name, ...input } = request.input; const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, "后台调用失败"));
-          console.warn(`[recut-host] iframe response id=${String(request.id)} type=background.call result=${response.ok ? "ok" : "error"}`);
+          console.debug(`[recut-host] iframe response id=${String(request.id)} type=background.call result=${response.ok ? "ok" : "error"}`);
         } else if (request.type === "agent.compose") {
           const prompt = String(request.input?.prompt || "").trim();
           if (!prompt) throw new Error("Agent Prompt 不能为空");
           useAgentPanelContext.getState().setDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
-          console.warn(`[recut-host] iframe response id=${String(request.id)} type=agent.compose result=ok`);
+          console.debug(`[recut-host] iframe response id=${String(request.id)} type=agent.compose result=ok`);
         } else if (request.type === "page.context") {
           const context = normalizePageContext(request.input?.context);
           if (!context) throw new Error("页面上下文需要标题");
           useAgentPanelContext.getState().setPageContext(context);
           reply({ delivery: "page-context" });
-          console.warn(`[recut-host] iframe response id=${String(request.id)} type=page.context result=ok`);
+          console.debug(`[recut-host] iframe response id=${String(request.id)} type=page.context result=ok`);
         } else if (request.type === "media.pick") {
           if (mediaPickerReply.current) throw new Error("已有素材选择器正在打开");
           const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" => kind === "image" || kind === "video" || kind === "audio") : [];
@@ -118,9 +125,20 @@ export default function ProjectDetailClient() {
         reply(undefined, message);
       }
     };
-    console.warn(`[recut-host] iframe loaded; sending MessageChannel to ${apiBase}`);
-    appFrame.current.contentWindow?.postMessage({ type: "recut.ui.connect" }, apiBase, [channel.port2]);
-  };
+    console.debug(`[recut-host] iframe loaded; sending MessageChannel to ${new URL(appFrame.current.src).origin}`);
+    postToFrame(appFrame.current, { type: "recut.ui.connect" }, [channel.port2]);
+  }, [apiBase, project]);
+
+  useEffect(() => {
+    const receiveReady = (event: MessageEvent) => {
+      const frame = appFrame.current;
+      if (event.data?.type !== "recut.ui.ready" || !frame?.contentWindow) return;
+      if (event.source !== frame.contentWindow || event.origin !== new URL(frame.src).origin) return;
+      connectUI();
+    };
+    window.addEventListener("message", receiveReady);
+    return () => window.removeEventListener("message", receiveReady);
+  }, [connectUI]);
 
   const view = app?.manifest.ui?.projectView;
   const uiURL = project && view ? `${apiBase}/v1/apps/${encodeURIComponent(project.appId)}/ui/${view}?projectId=${encodeURIComponent(project.id)}&appVersion=${encodeURIComponent(app?.manifest.version ?? "")}` : null;

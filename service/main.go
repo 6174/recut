@@ -1,16 +1,21 @@
 /*
  * [INPUT]: 依赖本目录的 Catalog、Store、MediaService、TerminalManager、Server 和标准库运行时能力
- * [OUTPUT]: 对外提供含内嵌局域网工作台与进程启动时间 health 的 recut shell service 可执行程序入口、启动同步的 Recut Skill、注入媒体能力的 AppHost、服务重启后 Agent 状态收敛与常驻媒体任务调度组合
- * [POS]: service 的组合根；只负责运行时配置、能力装配、平台 scope/Skill 初始化和长生命周期媒体回收启动，不承载领域逻辑
+ * [OUTPUT]: 对外提供含内嵌局域网工作台与进程启动时间 health 的 recut shell service 可执行程序入口、启动同步的 Recut Skill、注入媒体能力的 AppHost、服务重启后 Agent 状态收敛、常驻媒体任务调度与 SIGINT/SIGTERM 优雅关停组合
+ * [POS]: service 的组合根；只负责运行时配置、能力装配、平台 scope/Skill 初始化、长生命周期媒体回收启动和进程关停，不承载领域逻辑
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -98,9 +103,38 @@ func main() {
 	} else if recovered > 0 {
 		log.Printf("INFO reconciled interrupted agent turns count=%d", recovered)
 	}
+	server := NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater()).HTTPServer(*address)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+
 	log.Printf("INFO Recut local workspace and API listening on http://%s", *address)
-	if err := NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater()).ListenAndServe(*address); err != nil {
+	if err := serveUntilSignal(server, signals); err != nil {
 		log.Fatalf("ERROR serve HTTP API: %v", err)
+	}
+}
+
+func serveUntilSignal(server *http.Server, signals <-chan os.Signal) error {
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.ListenAndServe() }()
+
+	select {
+	case err := <-serveErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case received := <-signals:
+		log.Printf("INFO received signal=%s; shutting down HTTP service", received)
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownContext); err != nil {
+			return err
+		}
+		if err := <-serveErr; !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
 	}
 }
 

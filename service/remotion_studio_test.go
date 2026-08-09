@@ -20,7 +20,7 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 	// createBrief validates the template against the kit catalog via
 	// scripts/kit-bridge.js; seed a minimal self-contained kit so the test
 	// hermetic temp App does not depend on the source App's full package.
-	seedMinimalKit(t, dest, []string{"faceless-explainer", "product-launch"}, []string{"clean-editorial"})
+	seedMinimalKit(t, dest, []string{"faceless-explainer", "product-launch"})
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
 	if err != nil {
 		t.Fatalf("catalog load (manifest validation) failed: %v", err)
@@ -58,7 +58,7 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 
 	// project.create stores a brief in the app SQLite namespace.
 	brief, err := host.InvokeAPI(target, app.Manifest.ID, "project.create", map[string]any{
-		"template": "faceless-explainer", "style": "clean-editorial", "topic": "测试选题", "details": "细节", "expectedDurationSec": 15,
+		"template": "faceless-explainer", "topic": "测试选题",
 	})
 	if err != nil {
 		t.Fatalf("project.create failed: %v", err)
@@ -83,7 +83,7 @@ func TestRemotionStudioManifestAndRuntime(t *testing.T) {
 		t.Fatalf("catalog.list failed: %v", err)
 	}
 	catalogMap, ok := catalog.(map[string]any)
-	if !ok || catalogMap["designSystems"] == nil || catalogMap["captionThemes"] == nil {
+	if !ok || catalogMap["scenarios"] == nil || catalogMap["captionThemes"] == nil {
 		t.Fatalf("unexpected catalog result: %#v", catalog)
 	}
 
@@ -131,7 +131,7 @@ func copyTree(t *testing.T, src, dst string, names ...string) error {
 // seedMinimalKit writes a tiny scripts/kit-bridge.js and kit catalog so the
 // App's readCatalog shell call works in a hermetic test App without the full
 // source package tree.
-func seedMinimalKit(t *testing.T, appDir string, scenarios, styles []string) {
+func seedMinimalKit(t *testing.T, appDir string, scenarios []string) {
 	t.Helper()
 	bridge := `const fs = require("fs"); const path = require("path");
 const kit = path.join(__dirname, "..", "packages", "remotion-kit");
@@ -150,15 +150,11 @@ process.stdout.write(JSON.stringify({ ...catalog, kitVersion: version }));`
 	if err := os.MkdirAll(kitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	designSystems := map[string]any{}
-	for _, name := range styles {
-		designSystems[name] = map[string]string{"label": name}
-	}
 	scenarioMap := map[string]any{}
 	for _, name := range scenarios {
 		scenarioMap[name] = map[string]any{"label": name, "components": []any{}}
 	}
-	catalogData, _ := json.Marshal(map[string]any{"designSystems": designSystems, "scenarios": scenarioMap, "captionThemes": []any{}, "canvasSizes": []any{}, "components": []any{}})
+	catalogData, _ := json.Marshal(map[string]any{"scenarios": scenarioMap, "captionThemes": []any{}, "canvasSizes": []any{}, "components": []any{}})
 	if err := os.WriteFile(filepath.Join(kitDir, "catalog.json"), catalogData, 0o644); err != nil {
 		t.Fatal(err)
 	}

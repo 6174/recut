@@ -28,6 +28,17 @@ description: Recut 视频创作平台：素材库、媒体生成（图片/视频
 4. 项目是单一 owner App 的类型化 Doc。要操作某个项目，在其 App 工具参数里传 `__recut.target.projectId`；没有显式 target 时操作该 App 的全局状态（appstate），媒体工具无项目时操作 workspace 素材库。
 5. 用户要求新建或正式化创作时，先 `recut.project.list` 复用，或 `recut.project.create` 传入 name 与 owner App ID。
 
+## 平台级视频表达铁律
+
+凡是创建、改写、预览或评审视频画面，都把文字和色彩当作镜头表演，而不是 UI 排版：
+
+- **少而巨大**：每个镜头只让一条主张成为主角。主信息要占据足够画面并分段/分词展开；不能读到的小字、微型标签、弱对比说明和“看起来像信息”的 UI chip 一律删除，而不是保留占位。
+- **最终像素优先**：在 1080p 画面中，主信息有效字高 ≥56px、字幕 ≥40px、必要辅助信息 ≥32px；在 480px 宽的手机预览仍一眼读不清，就删、拆镜头或放大。
+- **色彩有景深**：拒绝单一纯色大铺底。至少用背景、主色块、文字或光晕中的两层渐变建立层次；渐变服务主次和阅读对比，不能降低文字清晰度。
+- **字幕是文字层，不是组件框**：默认无底框、无气泡、无卡片。字幕以高对比白字黑描边或同等强度的文字处理置于画面安全区，不能遮住主视觉。
+
+这条铁律由每个 App 的领域 Skill 进一步落地；任何 App Prompt 与模板实现都不得与之冲突。
+
 ## 媒体
 
 平台媒体任务使用 `recut.image.generate`、`recut.video.generate_async`、`recut.speech.generate_async`、`recut.media.get_job`、`recut.media.wait_for_job`。异步任务返回稳定 assetId（先 queued，Daemon 原位推进到 completed/failed）。旁白必须 `recut.media.wait_for_job` 到 completed 才可声称成功。禁止用 HyperFrames、ffmpeg、浏览器自动化或本地渲染替代平台生成。你从不读取其他 App 的私有数据库；跨 App 理解走 owner App 声明的 read operation。

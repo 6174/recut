@@ -3,7 +3,7 @@
 > L2 | 父级: /README.md
 
 成员清单
-main.go: 组合 Daemon、AppHost、MCP Host、内嵌工作台与默认监听全部网卡的 LAN HTTP 服务；启动时创建隐藏 media scope、先将重启遗留的 Agent 运行态收敛为可解释终态，再恢复媒体任务；初始化 UTC 微秒服务日志并将其落盘到 `<data-dir>/logs/`；将平台 MediaService 注入 AppHost，供已获授权的 App 发起本地两轨导出；状态收敛与媒体任务回收只允许常驻 Daemon 在启动恢复后执行（以 SQLite lease 定期提交/回收），`--mcp` 转发器是短生命周期、无状态代理，启动即返回、不做任何恢复。
+main.go: 组合 Daemon、AppHost、MCP Host、内嵌工作台与默认监听全部网卡的 LAN HTTP 服务；启动时创建隐藏 media scope、先将重启遗留的 Agent 运行态收敛为可解释终态，再恢复媒体任务；初始化 UTC 微秒服务日志并将其落盘到 `<data-dir>/logs/`；将平台 MediaService 注入 AppHost，供已获授权的 App 发起本地两轨导出；常驻 HTTP 服务接收 SIGINT/SIGTERM 后在 10 秒内停止接收请求并退出，确保开发命令可回收；状态收敛与媒体任务回收只允许常驻 Daemon 在启动恢复后执行（以 SQLite lease 定期提交/回收），`--mcp` 转发器是短生命周期、无状态代理，启动即返回、不做任何恢复。
 recut_skill.go, recut_skill_mcp.go, recut_skill_server.go: 平台对外 Skill 分发与连接边界；将编译内嵌的唯一 Recut Skill 原子同步到 `<data-dir>/skills/recut`，并在每次 daemon 启动时自动安全软链接到 Codex、Claude Code、OpenCode 与通用 Agent 的全局 Skill 目录；支持的 Agent 同时以原子、保留用户字段的方式注册匿名本机 Recut MCP，冲突只记录告警、绝不覆盖已有内容或阻塞 service；HTTP 用于状态与手动修复。
 recut_skill_test.go: 锁定旧 Skill 启动同步覆盖、启动时尽力启用所有非冲突 Agent、跨 Agent 软链接复用唯一来源、Codex/Claude/OpenCode MCP 注册、已有目录/用户配置不被覆盖与 HTTP 按目标链接契约。
 skills/: 随 service 发布的对外 Recut Skill 唯一正文；编译进二进制，不依赖源码仓库存在。
@@ -23,7 +23,8 @@ terminal.go: 通用 PTY 会话管理器；持久化 transcript 与摘要、支�
 python_runtime.go: manifest 驱动的 Python 环境生命周期；以 App id、逻辑 venv 名和 requirements 指纹派生 `~/.recut/python/envs/` 路径，平台在创建 venv、升级 pip、安装锁定依赖和执行 bootstrap 前逐阶段写入任务日志，App bootstrap 仅作为自由兜底。
 mcp.go: 将真实项目创建 `recut.project.create`、不携带项目默认值、仅报告已安装 App/skill 与媒体配置的 `recut.context`、带 App workflow context、默认媒体契约和凭据可用音色、需显式 projectId 的 recut.project_context、同步 recut.image.generate、受限的 Codex 原生图归档 recut.media.import_image、异步 recut.video.generate_async/recut.speech.generate_async、语音终态等待 recut.media.wait_for_job、recut.media.list_voices 与当前 App 的 manifest operations 路由给 JavaScript handler；唯一 MCP Host 由常驻 Daemon 的 `/v1/mcp`（HTTP）监听，stdio 客户端（会话内 opencode/codex/claude 或外部 Agent）统一经无状态 `--mcp` 转发器接入，不再启动 per-session 子进程；每个请求独立并发处理并以 JSON-RPC id 回应，故本地素材查询不会被同步图片生成阻塞；数组结果仅在 structuredContent 中包装为 `{items: [...]}` 以满足 OpenCode record 契约，文本内容仍是原始 JSON；项目内 Brief、Artifact 和资源绝不冒充项目；原生图只接受会话工作区内相对路径，并验证真实路径、类型和大小后关联为 Asset。
 mcp_test.go: 锁定 `recut.context` 不报告项目默认值、按图片、视频和语音拆分的 MCP 工具、原生图片归档输入 schema，以及项目边界不可逃逸。
-server.go: 提供带进程启动时间的 health、含可选媒体 `cover` 的项目、独立 App 工作区 scope、App UI、App API、受 App scope 校验的私有预览文件、App 安装/单个或批量升级、service self-update/restart、Recut Skill 状态与软链接、Artifact、终端、使用共享 CLI 定位缓存的 Agent 可用性、OpenCode TUI 模型目录与内嵌本地工作台 HTTP 边界；本机或私有网络可在新标签页读取 service `PATH`、login shell CLI 解析结果和受限近期日志，公网请求拒绝访问该诊断页；App `index.html` 直接返回且每次重新验证，不产生可缓存的 301；动态 `/v1` API 禁止缓存，精确 API 路由优先于同源 UI 兜底，并允许 `recut.video`、loopback 与私有/链路本地 IP 的浏览器跨域访问 LAN API。
+server.go: 构造可由组合根优雅关停的 HTTP Server，并提供带进程启动时间的 health、含可选媒体 `cover` 的项目、独立 App 工作区 scope、App UI、App API、受 App scope 校验的私有预览文件、App 安装/单个或批量升级、service self-update/restart、Recut Skill 状态与软链接、Artifact、终端、使用共享 CLI 定位缓存的 Agent 可用性、OpenCode TUI 模型目录与内嵌本地工作台 HTTP 边界；本机或私有网络可在新标签页读取 service `PATH`、login shell CLI 解析结果和受限近期日志，公网请求拒绝访问该诊断页；App `index.html` 直接返回且每次重新验证，不产生可缓存的 301；动态 `/v1` API 禁止缓存，精确 API 路由优先于同源 UI 兜底，并允许 `recut.video`、loopback 与私有/链路本地 IP 的浏览器跨域访问 LAN API。
+main_test.go: 锁定 SIGINT/SIGTERM 到达后 HTTP Server 以 `Shutdown` 正常结束，避免开发服务残留监听端口。
 workspace_embed.go: 将 `ui/assets/` 的 local mode 工作台静态导出嵌入 service binary；绝不嵌入 Cloudflare 发布用的 service 安装包。
 workspace_server.go: 将内嵌工作台映射到根路径，并把顶层 Tab、项目/App 语义深链收敛到带尾部斜杠的静态目录壳，杜绝静态目录相对重定向造成路径重复；Next hash 资源以 immutable 缓存交付。
 workspace_server_test.go: 锁定本地首页、顶层 Tab 与项目/App 深链无重定向、Next 静态缓存及 HTTP 方法边界；不需要真实前端构建。

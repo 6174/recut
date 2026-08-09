@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 workspace-store 的独立 App scope/manifest、media-configuration-store 的 Provider/凭据、App API、媒体生成、平台素材选择器、按 scope 缓存的 Agent Session 列表与全局 Agent 面板上下文
- * [OUTPUT]: 对外提供独立 App iframe 容器、宿主通信、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏；App 只能经全局面板上下文回填输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
- * [POS]: workspace-app/[appID] 的客户端工作台；从统一缓存复用项目级安全 scope，但不显示或创建用户项目；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
+ * [OUTPUT]: 对外提供独立 App iframe 容器、按 iframe 实际 origin 的宿主通信、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏；App 只能经全局面板上下文回填输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
+ * [POS]: workspace-app/[appID] 的客户端工作台；从统一缓存复用项目级安全 scope，但不显示或创建用户项目；iframe URL 是消息目标 origin 的唯一真相源；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -29,6 +29,13 @@ function appIDFromLocation(routeID: string) {
 function operationError(payload: unknown, fallback: string) {
   const value = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as { error?: unknown } : null;
   return typeof value?.error === "string" && value.error.trim() ? value.error : fallback;
+}
+
+function postToFrame(frame: HTMLIFrameElement | null, message: unknown, transfer?: Transferable[]) {
+  if (!frame?.contentWindow) return;
+  const targetOrigin = new URL(frame.src).origin;
+  if (transfer) frame.contentWindow.postMessage(message, targetOrigin, transfer);
+  else frame.contentWindow.postMessage(message, targetOrigin);
 }
 
 export default function StandaloneAppClient() {
@@ -68,7 +75,7 @@ export default function StandaloneAppClient() {
     events.addEventListener("open", () => events.send(JSON.stringify({ type: "subscribe", projectId: scope.id })));
     events.addEventListener("message", (message) => {
       const payload = JSON.parse(message.data) as { type?: string; event?: unknown };
-      if (payload.type === "project.event") appFrame.current?.contentWindow?.postMessage({ type: "recut.project.event", event: payload.event }, apiBase);
+      if (payload.type === "project.event") postToFrame(appFrame.current, { type: "recut.project.event", event: payload.event });
     });
     return () => events.close();
   }, [apiBase, scope]);
@@ -130,7 +137,7 @@ export default function StandaloneAppClient() {
         }
       } catch (cause) { reply(undefined, cause instanceof Error ? cause.message : "Recut Host 通信失败"); }
     };
-    appFrame.current.contentWindow?.postMessage({ type: "recut.ui.connect" }, apiBase, [channel.port2]);
+    postToFrame(appFrame.current, { type: "recut.ui.connect" }, [channel.port2]);
   };
 
   const view = app?.manifest.ui?.standaloneView;

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost 双 target 运行时、Catalog 的 App 与 skill 树、MediaService 与 JSON-RPC 请求/响应模型
- * [OUTPUT]: 对外提供项目/App-state 双 target 解析、上下文 context（不携带项目默认值）、__recut target envelope、跨 App 的 operation 路由、平台工具（context/skills/apps/project/media）与结构化内容
+ * [OUTPUT]: 对外提供项目/App-state 双 target 解析、上下文 context（不携带项目默认值）、__recut target envelope、跨 App 的 operation 路由、平台工具（context/skills/apps/project/media）、结构化内容与按全局/App 分组的工具清单（GET /v1/mcp/tools）
  * [POS]: service 的 MCP Host；唯一监听者是常驻 Daemon 的 /v1/mcp（HTTP），所有 stdio 客户端（会话内 opencode/codex/claude 或外部 Agent）经无状态 --mcp 转发器接入，不启动 per-session 子进程；App 不自行启动 MCP server，所有调用经平台权限、目标解析与会话边界；平台工具无条件可见
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -46,6 +46,22 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 }
 
 func mcpToolList(bridge *AgentBridge, media *MediaService) map[string]any {
+	tools := platformMCPToolDefinitions()
+	apps, err := bridge.store.catalog.List()
+	if err != nil {
+		return map[string]any{"tools": tools}
+	}
+	for _, app := range apps {
+		tools = append(tools, appMCPToolDefinitions(app)...)
+	}
+	return map[string]any{"tools": tools}
+}
+
+// platformMCPToolDefinitions returns the global, App-agnostic MCP tools the
+// platform always exposes: session context, apps/skills/project management,
+// design system and media generation. They are unconditional and form the
+// "全局" group in GET /v1/mcp/tools.
+func platformMCPToolDefinitions() []map[string]any {
 	tools := make([]map[string]any, 0)
 	tools = append(tools,
 		platformTool("recut.context", "读取当前 Recut 会话上下文：已安装 App（含绝对路径 root）、skill 目录、媒体配置与 .recut 文件系统路径（paths）。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。任何任务开始时先调用此工具。", map[string]any{"type": "object", "properties": map[string]any{}}),
@@ -64,19 +80,45 @@ func mcpToolList(bridge *AgentBridge, media *MediaService) map[string]any {
 		platformTool("recut.project_context", "读取一个项目的深层上下文：owner App 的 workflow.context、已产出 Artifact、appState 与项目绝对路径（paths.projectFilesRoot）。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "要读取上下文的 Project Doc ID。"}}}),
 	)
 	tools = append(tools, mediaMCPToolDefinitions()...)
+	return tools
+}
+
+// appMCPToolDefinitions returns the MCP tools an App exposes through its
+// declared operations: one tool per operation whose surfaces include "mcp".
+func appMCPToolDefinitions(app App) []map[string]any {
+	tools := make([]map[string]any, 0)
+	for _, operation := range app.Manifest.Operations {
+		if !declaresOperation(app.Manifest, operation.Name, "mcp") {
+			continue
+		}
+		tools = append(tools, map[string]any{"name": app.Manifest.ID + "." + operation.Name, "description": operation.Description, "inputSchema": wrappedOperationSchema(operation)})
+	}
+	return tools
+}
+
+// mcpToolGroups splits the full MCP tool set into the platform's global tools
+// and per-App groups, for the settings panel to render Recut-provided MCP
+// services grouped by owning App. Apps without any MCP operation are omitted.
+func mcpToolGroups(bridge *AgentBridge) map[string]any {
 	apps, err := bridge.store.catalog.List()
 	if err != nil {
-		return map[string]any{"tools": tools}
+		return map[string]any{"global": platformMCPToolDefinitions(), "apps": []map[string]any{}}
 	}
+	appGroups := make([]map[string]any, 0, len(apps))
 	for _, app := range apps {
-		for _, operation := range app.Manifest.Operations {
-			if !declaresOperation(app.Manifest, operation.Name, "mcp") {
-				continue
-			}
-			tools = append(tools, map[string]any{"name": app.Manifest.ID + "." + operation.Name, "description": operation.Description, "inputSchema": wrappedOperationSchema(operation)})
+		tools := appMCPToolDefinitions(app)
+		if len(tools) == 0 {
+			continue
 		}
+		appGroups = append(appGroups, map[string]any{
+			"appId":       app.Manifest.ID,
+			"name":        app.Manifest.Name,
+			"kind":        string(app.Manifest.Kind),
+			"description": app.Manifest.Description,
+			"tools":       tools,
+		})
 	}
-	return map[string]any{"tools": tools}
+	return map[string]any{"global": platformMCPToolDefinitions(), "apps": appGroups}
 }
 
 func platformTool(name, description string, schema map[string]any) map[string]any {

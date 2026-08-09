@@ -1,6 +1,6 @@
 # [INPUT]: 依赖 Go、Node.js、发布归档工具与 scripts/install-service.sh
-# [OUTPUT]: 对外提供本机开发、内嵌工作台、跨平台 service 构建/发布和 Web 部署命令
-# [POS]: 仓库自动化根；统一定义 service 版本、工作台模式与发布物命名
+# [OUTPUT]: 对外提供本机开发、内嵌工作台、独占开发端口回收、跨平台 service 构建/发布和 Web 部署命令
+# [POS]: 仓库自动化根；统一定义 service 版本、工作台模式与发布物命名，并确保开发 service 可取得 17373
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 # Recut local development commands. Run `make help` for the public interface.
 
@@ -30,7 +30,7 @@ dev: stop-stale-service stop-stale-web ## Start the LAN service and web developm
 	trap 'kill $$service_pid $$web_pid 2>/dev/null || true' EXIT INT TERM; \
 	wait $$service_pid $$web_pid
 
-stop-stale-service: ## Pause installed or leftover Recut launchd jobs, then clear a stale Recut daemon from port 17373.
+stop-stale-service: ## Reclaim port 17373 from every listener before starting the development service.
 	@case "$$(uname -s)" in \
 		Darwin) for label in video.recut.service video.recut.dev-session; do \
 			full="gui/$$(id -u)/$$label"; \
@@ -40,21 +40,20 @@ stop-stale-service: ## Pause installed or leftover Recut launchd jobs, then clea
 	esac; \
 	port_pids="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
 	if [ -z "$$port_pids" ]; then exit 0; fi; \
-	for pid in $$port_pids; do \
-		command="$$(ps -p "$$pid" -o comm= 2>/dev/null | xargs basename)"; \
-		if [ "$$command" != "recut-service" ]; then echo "Port 17373 is occupied by a non-Recut process (PID $$pid); refusing to stop it."; exit 1; fi; \
-	done; \
-	for attempt in $$(seq 1 30); do \
+	echo "Reclaiming development port 17373 from PID(s) $$port_pids."; \
+	for pid in $$port_pids; do kill -TERM "$$pid" 2>/dev/null || true; done; \
+	for attempt in $$(seq 1 100); do \
 		remaining="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
 		if [ -z "$$remaining" ]; then exit 0; fi; \
 		sleep 0.1; \
 	done; \
-	for pid in $$remaining; do echo "Stopping stale Recut daemon (PID $$pid)."; kill "$$pid"; done; \
-	for attempt in $$(seq 1 30); do \
+	echo "Force-reclaiming development port 17373 from PID(s) $$remaining."; \
+	for pid in $$remaining; do kill -KILL "$$pid" 2>/dev/null || true; done; \
+	for attempt in $$(seq 1 20); do \
 		if [ -z "$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)" ]; then exit 0; fi; \
 		sleep 0.1; \
 	done; \
-	echo "Recut did not release port 17373."; exit 1
+	echo "Could not reclaim development port 17373."; exit 1
 
 stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never another application.
 	@port_pids="$$(lsof -tiTCP:3000 -sTCP:LISTEN 2>/dev/null || true)"; \
@@ -71,7 +70,13 @@ stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never an
 	done
 
 service-dev: stop-stale-service ## Start only the LAN Go service for the port 3000 development workspace.
-	GOCACHE=$(GOCACHE) go -C service run -ldflags "-X main.serviceVersion=dev" .
+	@set -e; \
+	dev_service="$(CURDIR)/.cache/recut-service-dev"; \
+	mkdir -p "$$(dirname "$$dev_service")"; \
+	GOCACHE=$(GOCACHE) go -C service build -o "$$dev_service" -ldflags "-X main.serviceVersion=dev" .; \
+	"$$dev_service" & service_pid=$$!; \
+	trap 'kill -TERM "$$service_pid" 2>/dev/null || true; wait "$$service_pid" 2>/dev/null || true' EXIT INT TERM; \
+	wait "$$service_pid"
 
 service-build: web-build-embedded ## Build a production service with its local workspace (TARGET=linux-amd64, windows-amd64, or host default).
 	@mkdir -p "$(dir $(SERVICE_BUILD))"

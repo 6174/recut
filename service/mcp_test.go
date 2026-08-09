@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 mcp.go 的平台工具定义、Store 与本地 HTTP 测试服务
- * [OUTPUT]: 锁定 recut.context 不携带项目默认值、按媒体类型拆分的 MCP 工具名称、终态等待输入 schema、数组型 structuredContent 的 record 包装，以及长图片请求不阻塞素材查询
+ * [OUTPUT]: 锁定 recut.context 不携带项目默认值、按媒体类型拆分的 MCP 工具名称、终态等待输入 schema、按全局/App 分组的工具清单（GET /v1/mcp/tools）、数组型 structuredContent 的 record 包装，以及长图片请求不阻塞素材查询
  * [POS]: service MCP Host 的公开工具契约与并发回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -395,3 +395,96 @@ func TestImportNativeImageArchivesProjectFileAndRejectsEscapes(t *testing.T) {
 		t.Fatal("native import accepted a symbolic-link escape")
 	}
 }
+
+func TestMCPToolGroupsSeparateGlobalAndAppTools(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"operations":[{"name":"where","description":"Report target.","surfaces":["api","mcp"],"inputSchema":{"type":"object"}}]}`)
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	groups := mcpToolGroups(NewAgentBridge(store))
+
+	global, ok := groups["global"].([]map[string]any)
+	if !ok || len(global) == 0 {
+		t.Fatalf("global tools missing: %#v", groups["global"])
+	}
+	globalNames := map[string]bool{}
+	for _, tool := range global {
+		globalNames[tool["name"].(string)] = true
+	}
+	if !globalNames["recut.context"] || !globalNames["recut.project.list"] || !globalNames["recut.image.generate"] {
+		t.Fatalf("global group must carry platform tools, got %#v", globalNames)
+	}
+	if globalNames["example.app.where"] {
+		t.Fatal("app operation leaked into the global group")
+	}
+
+	appGroups, ok := groups["apps"].([]map[string]any)
+	if !ok || len(appGroups) != 1 {
+		t.Fatalf("app groups = %#v", groups["apps"])
+	}
+	app := appGroups[0]
+	if app["appId"] != "example.app" || app["name"] != "Example" || app["kind"] != "project" {
+		t.Fatalf("app group metadata = %#v", app)
+	}
+	tools, ok := app["tools"].([]map[string]any)
+	if !ok || len(tools) != 1 || tools[0]["name"] != "example.app.where" {
+		t.Fatalf("app group tools = %#v", app["tools"])
+	}
+}
+
+func TestMCPToolsEndpointServesGroupedTools(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"operations":[{"name":"where","description":"Report target.","surfaces":["api","mcp"],"inputSchema":{"type":"object"}}]}`)
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(apps, store, nil, NewAgentBridge(store), nil, NewAppHost(apps, store), NewMediaService(store))
+	httpServer := httptest.NewServer(server.routes())
+	defer httpServer.Close()
+
+	resp, err := http.Get(httpServer.URL + "/v1/mcp/tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/mcp/tools = %d: %s", resp.StatusCode, body)
+	}
+	var groups struct {
+		Global []map[string]any `json:"global"`
+		Apps   []map[string]any `json:"apps"`
+	}
+	if err := json.Unmarshal(body, &groups); err != nil {
+		t.Fatal(err)
+	}
+	if len(groups.Global) == 0 || groups.Global[0]["name"] == nil {
+		t.Fatalf("global tools = %s", body)
+	}
+	if len(groups.Apps) != 1 || groups.Apps[0]["appId"] != "example.app" {
+		t.Fatalf("app groups = %s", body)
+	}
+}
+

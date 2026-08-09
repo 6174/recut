@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MCP Host 的 handleMCP、AgentBridge 会话鉴权与标准库 HTTP JSON-RPC 协议
- * [OUTPUT]: 对外提供 loopback MCP HTTP 入口（唯一常驻 MCP Host）与设备 token 生命周期管理 API；会话身份经 X-Recut-Session/X-Recut-Token header 透传，缺失时以匿名会话兜底
+ * [OUTPUT]: 对外提供 loopback MCP HTTP 入口（唯一常驻 MCP Host）、设备 token 生命周期管理 API 与只读的按全局/App 分组的 MCP 工具清单（GET /v1/mcp/tools）；会话身份经 X-Recut-Session/X-Recut-Token header 透传，缺失时以匿名会话兜底
  * [POS]: service 的传输边界；所有 stdio Agent 都经无状态 --mcp 转发器接入本端点，工具执行与长驻任务状态全部由常驻 daemon 统一管理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -43,6 +43,12 @@ func (s *Server) mcpHTTP(w http.ResponseWriter, r *http.Request) {
 		response["result"] = result
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+// mcpTools serves the settings panel's Recut MCP tab: the platform's global
+// tools plus each installed App's MCP operations, grouped by owning App.
+func (s *Server) mcpTools(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, mcpToolGroups(s.bridge))
 }
 
 func (s *Server) createDeviceToken(w http.ResponseWriter, r *http.Request) {
