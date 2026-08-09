@@ -56,6 +56,7 @@ import {
   type UploadedAsset,
 } from "@/components/agent-panel-types";
 import { sessionHistoryLabel, useAgentStore } from "@/lib/agent-store";
+import { streamServiceEndpoint } from "@/lib/service-endpoint";
 const EMPTY_SESSIONS: Session[] = [];
 const EMPTY_OPENCODE_MODELS: OpencodeModel[] = [];
 
@@ -249,7 +250,7 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
     detailVersion: number,
   ) {
     const stream = new EventSource(
-      `${apiBase}/v1/agent-sessions/${id}/events?after=${after}`,
+      `${streamServiceEndpoint(apiBase)}/v1/agent-sessions/${id}/events?after=${after}`,
     );
     stream.addEventListener("agent", (event) => {
       if (
@@ -298,7 +299,7 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
     setCLIAvailable(true);
     setCLIOpen(true);
     const stream = new EventSource(
-      `${apiBase}/v1/agent-sessions/${activeID}/cli-stream`,
+      `${streamServiceEndpoint(apiBase)}/v1/agent-sessions/${activeID}/cli-stream`,
     );
     // EventSource may dispatch the replayed history immediately. Publish this
     // instance before registering handlers so the first CLI line is never

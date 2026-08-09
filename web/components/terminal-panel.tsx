@@ -8,6 +8,7 @@
 
 import { Check, Clock3, Copy, Play, RotateCcw, Search, SquareTerminal, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { streamServiceEndpoint } from "@/lib/service-endpoint";
 
 import { Button } from "@/components/ui/button";
 
@@ -78,7 +79,7 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
       const send = (path: string, body: unknown) => fetch(`${apiBase}/v1/terminals/${sessionID}/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (sessionIsLive) void send("resize", { cols: terminal.cols, rows: terminal.rows });
       const input = sessionIsLive ? terminal.onData((data) => { void send("input", { data }); }) : undefined;
-      const stream = new EventSource(`${apiBase}/v1/terminals/${sessionID}/events`);
+      const stream = new EventSource(`${streamServiceEndpoint(apiBase)}/v1/terminals/${sessionID}/events`);
       stream.addEventListener("output", (event) => {
         terminal.write(JSON.parse((event as MessageEvent<string>).data));
         if (sessionIsLive) {

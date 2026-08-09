@@ -1,6 +1,6 @@
 # [INPUT]: 依赖 Go、Node.js、发布归档工具与 scripts/install-service.sh
-# [OUTPUT]: 对外提供本机开发、内嵌工作台、独占开发端口回收、跨平台 service 构建/发布和 Web 部署命令
-# [POS]: 仓库自动化根；统一定义 service 版本、工作台模式与发布物命名，并确保开发 service 可取得 17373
+# [OUTPUT]: 对外提供本机开发、内嵌工作台、独占开发双端口回收、跨平台 service 构建/发布和 Web 部署命令
+# [POS]: 仓库自动化根；统一定义 service 版本、工作台模式与发布物命名，并确保开发 service 可取得 API 17373 与事件流 17374
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 # Recut local development commands. Run `make help` for the public interface.
 
@@ -10,6 +10,8 @@
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
 APP ?=
+SERVICE_PORT ?= 17373
+STREAM_PORT ?= 17374
 RECUT_VERSION ?= 0.1.17
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
@@ -25,12 +27,12 @@ help: ## Show available development commands.
 
 dev: stop-stale-service stop-stale-web ## Start the LAN service and web development workspace together.
 	@set -e; \
-	GOCACHE=$(GOCACHE) go -C service run . & service_pid=$$!; \
-	( cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=17373 npm run dev ) & web_pid=$$!; \
+	GOCACHE=$(GOCACHE) go -C service run . --address ":$(SERVICE_PORT)" --stream-address ":$(STREAM_PORT)" & service_pid=$$!; \
+	( cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) npm run dev ) & web_pid=$$!; \
 	trap 'kill $$service_pid $$web_pid 2>/dev/null || true' EXIT INT TERM; \
 	wait $$service_pid $$web_pid
 
-stop-stale-service: ## Reclaim port 17373 from every listener before starting the development service.
+stop-stale-service: ## Reclaim the API and event-stream ports from every listener before starting the development service.
 	@case "$$(uname -s)" in \
 		Darwin) for label in video.recut.service video.recut.dev-session; do \
 			full="gui/$$(id -u)/$$label"; \
@@ -38,22 +40,22 @@ stop-stale-service: ## Reclaim port 17373 from every listener before starting th
 		done ;; \
 		Linux) if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet recut.service; then echo "Pausing installed Recut service."; systemctl --user stop recut.service; fi ;; \
 	esac; \
-	port_pids="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
+	port_pids="$$(for port in $(SERVICE_PORT) $(STREAM_PORT); do lsof -tiTCP:$$port -sTCP:LISTEN 2>/dev/null || true; done | sort -u)"; \
 	if [ -z "$$port_pids" ]; then exit 0; fi; \
-	echo "Reclaiming development port 17373 from PID(s) $$port_pids."; \
+	echo "Reclaiming development ports $(SERVICE_PORT) and $(STREAM_PORT) from PID(s) $$port_pids."; \
 	for pid in $$port_pids; do kill -TERM "$$pid" 2>/dev/null || true; done; \
 	for attempt in $$(seq 1 100); do \
-		remaining="$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)"; \
+		remaining="$$(for port in $(SERVICE_PORT) $(STREAM_PORT); do lsof -tiTCP:$$port -sTCP:LISTEN 2>/dev/null || true; done | sort -u)"; \
 		if [ -z "$$remaining" ]; then exit 0; fi; \
 		sleep 0.1; \
 	done; \
-	echo "Force-reclaiming development port 17373 from PID(s) $$remaining."; \
+	echo "Force-reclaiming development ports $(SERVICE_PORT) and $(STREAM_PORT) from PID(s) $$remaining."; \
 	for pid in $$remaining; do kill -KILL "$$pid" 2>/dev/null || true; done; \
 	for attempt in $$(seq 1 20); do \
-		if [ -z "$$(lsof -tiTCP:17373 -sTCP:LISTEN 2>/dev/null || true)" ]; then exit 0; fi; \
+		if [ -z "$$(for port in $(SERVICE_PORT) $(STREAM_PORT); do lsof -tiTCP:$$port -sTCP:LISTEN 2>/dev/null || true; done | sort -u)" ]; then exit 0; fi; \
 		sleep 0.1; \
 	done; \
-	echo "Could not reclaim development port 17373."; exit 1
+	echo "Could not reclaim development ports $(SERVICE_PORT) and $(STREAM_PORT)."; exit 1
 
 stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never another application.
 	@port_pids="$$(lsof -tiTCP:3000 -sTCP:LISTEN 2>/dev/null || true)"; \
@@ -69,12 +71,12 @@ stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never an
 		if kill -0 "$$pid" 2>/dev/null; then echo "Force-stopping stale Recut web workspace (PID $$pid)."; kill -9 "$$pid"; fi; \
 	done
 
-service-dev: stop-stale-service ## Start only the LAN Go service for the port 3000 development workspace.
+service-dev: stop-stale-service ## Start only the LAN Go service for the port 3000 workspace (API 17373, event streams 17374).
 	@set -e; \
 	dev_service="$(CURDIR)/.cache/recut-service-dev"; \
 	mkdir -p "$$(dirname "$$dev_service")"; \
 	GOCACHE=$(GOCACHE) go -C service build -o "$$dev_service" -ldflags "-X main.serviceVersion=dev" .; \
-	"$$dev_service" & service_pid=$$!; \
+	"$$dev_service" --address ":$(SERVICE_PORT)" --stream-address ":$(STREAM_PORT)" & service_pid=$$!; \
 	trap 'kill -TERM "$$service_pid" 2>/dev/null || true; wait "$$service_pid" 2>/dev/null || true' EXIT INT TERM; \
 	wait "$$service_pid"
 
@@ -132,7 +134,7 @@ web-install: ## Install locked web workspace dependencies.
 	cd web && npm ci
 
 web-dev: stop-stale-web ## Start only the LAN-aware Next.js workspace on port 3000.
-	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=17373 npm run dev
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) npm run dev
 
 web-build: ## Build and type-check the Next.js workspace.
 	cd web && npm run build

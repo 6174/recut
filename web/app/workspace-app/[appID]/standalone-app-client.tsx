@@ -15,6 +15,7 @@ import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMedi
 import { normalizePageContext } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
 import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
+import { streamServiceEndpoint } from "@/lib/service-endpoint";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore } from "@/lib/workspace-store";
@@ -69,7 +70,7 @@ export default function StandaloneAppClient() {
 
   useEffect(() => {
     if (!scope) return;
-    const eventsURL = new URL("/v1/events", apiBase);
+    const eventsURL = new URL("/v1/events", streamServiceEndpoint(apiBase));
     eventsURL.protocol = eventsURL.protocol === "https:" ? "wss:" : "ws:";
     const events = new WebSocket(eventsURL);
     events.addEventListener("open", () => events.send(JSON.stringify({ type: "subscribe", projectId: scope.id })));

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录的 Catalog、Store、MediaService、TerminalManager、Server 和标准库运行时能力
- * [OUTPUT]: 对外提供含内嵌局域网工作台与进程启动时间 health 的 recut shell service 可执行程序入口、启动同步的 Recut Skill、注入媒体能力的 AppHost、服务重启后 Agent 状态收敛、常驻媒体任务调度与 SIGINT/SIGTERM 优雅关停组合
+ * [OUTPUT]: 对外提供含内嵌局域网工作台与进程启动时间 health 的 recut shell service 可执行程序入口、隔离短请求与事件流的双 HTTP 监听、启动同步的 Recut Skill、注入媒体能力的 AppHost、服务重启后 Agent 状态收敛、常驻媒体任务调度与 SIGINT/SIGTERM 优雅关停组合
  * [POS]: service 的组合根；只负责运行时配置、能力装配、平台 scope/Skill 初始化、长生命周期媒体回收启动和进程关停，不承载领域逻辑
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -30,6 +30,7 @@ func main() {
 	dataDir := flag.String("data-dir", defaultDataDir(), "local Recut data directory")
 	appsDir := flag.String("apps-dir", "", "directory containing App packages (default: <data-dir>/apps)")
 	address := flag.String("address", ":17373", "LAN HTTP address")
+	streamAddress := flag.String("stream-address", ":17374", "LAN HTTP address reserved for browser event streams")
 	mcpForward := flag.Bool("mcp", false, "forward stdio MCP to the running Recut daemon (single persistent MCP host)")
 	mcpTarget := flag.String("mcp-target", defaultMCPTarget, "Recut daemon HTTP origin for --mcp forwarding")
 	flag.Parse()
@@ -103,36 +104,57 @@ func main() {
 	} else if recovered > 0 {
 		log.Printf("INFO reconciled interrupted agent turns count=%d", recovered)
 	}
-	server := NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater()).HTTPServer(*address)
+	service := NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater())
+	server := service.HTTPServer(*address)
+	streamServer := service.StreamHTTPServer(*streamAddress)
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
 
-	log.Printf("INFO Recut local workspace and API listening on http://%s", *address)
-	if err := serveUntilSignal(server, signals); err != nil {
+	log.Printf("INFO Recut local workspace and API listening on http://%s (event streams http://%s)", *address, *streamAddress)
+	if err := serveHTTPServersUntilSignal([]*http.Server{server, streamServer}, signals); err != nil {
 		log.Fatalf("ERROR serve HTTP API: %v", err)
 	}
 }
 
 func serveUntilSignal(server *http.Server, signals <-chan os.Signal) error {
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- server.ListenAndServe() }()
+	return serveHTTPServersUntilSignal([]*http.Server{server}, signals)
+}
+
+func serveHTTPServersUntilSignal(servers []*http.Server, signals <-chan os.Signal) error {
+	serveErr := make(chan error, len(servers))
+	for _, server := range servers {
+		go func(server *http.Server) { serveErr <- server.ListenAndServe() }(server)
+	}
+	shutdown := func() error {
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for _, server := range servers {
+			if err := server.Shutdown(shutdownContext); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 
 	select {
 	case err := <-serveErr:
+		if shutdownErr := shutdown(); shutdownErr != nil {
+			return shutdownErr
+		}
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err
 	case received := <-signals:
 		log.Printf("INFO received signal=%s; shutting down HTTP service", received)
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownContext); err != nil {
+		if err := shutdown(); err != nil {
 			return err
 		}
-		if err := <-serveErr; !errors.Is(err, http.ErrServerClosed) {
-			return err
+		for range servers {
+			if err := <-serveErr; !errors.Is(err, http.ErrServerClosed) {
+				return err
+			}
 		}
 		return nil
 	}

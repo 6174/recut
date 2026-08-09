@@ -25,11 +25,14 @@ export function RecutMCPSettings({ apiBase }: { apiBase: string }) {
     setWorking(true);
     setMessage("");
     try {
-      const response = await fetch(`${apiBase}/v1/mcp/tools`, { cache: "no-store" });
+      const response = await fetch(`${apiBase}/v1/mcp/tools`, { cache: "no-store", signal: AbortSignal.timeout(8000) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "无法读取 Recut MCP 工具");
       setStatus(body);
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "无法读取 Recut MCP 工具"); } finally { setWorking(false); }
+    } catch (cause) {
+      const timedOut = cause instanceof DOMException && cause.name === "TimeoutError";
+      setMessage(timedOut ? "读取超时：service 可能正在重启。请稍后重试。" : cause instanceof Error ? cause.message : "无法读取 Recut MCP 工具");
+    } finally { setWorking(false); }
   }, [apiBase]);
 
   useEffect(() => { void load(); }, [load]);

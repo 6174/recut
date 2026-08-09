@@ -1,5 +1,5 @@
 /*
- * [INPUT]: 依赖浏览器 EventSource 与 Recut `/v1/media/events` 的资产快照/增量事件契约
+ * [INPUT]: 依赖浏览器 EventSource、service-endpoint 的事件流地址与 Recut `/v1/media/events` 的资产快照/增量事件契约
  * [OUTPUT]: 对外提供 MediaAssetEventsProvider、useMediaAssetEvents 与 MediaEventAsset；维护唯一的前端 Asset 缓存（含 ASR 转写 bundle 类型）
  * [POS]: components 的媒体生命周期边界；素材库、Agent、预览和引用选择器共享同一条 Recut SSE，不轮询 Provider 或单个 Asset
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -15,6 +15,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { streamServiceEndpoint } from "@/lib/service-endpoint";
 
 export type MediaEventAsset = {
   id: string;
@@ -126,7 +127,7 @@ function MediaAssetEventsConnection({ apiBase, children }: { apiBase: string; ch
   }, []);
 
   useEffect(() => {
-    const stream = new EventSource(`${apiBase}/v1/media/events`);
+    const stream = new EventSource(`${streamServiceEndpoint(apiBase)}/v1/media/events`);
     stream.addEventListener("media.snapshot", (event) => {
       const payload = record(eventData(event));
       const assets = Array.isArray(payload?.assets)
