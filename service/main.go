@@ -54,6 +54,13 @@ func main() {
 	if err := skillManager.EnableDefaultTargets(); err != nil {
 		log.Printf("WARN enable Recut Skill targets: %v", err)
 	}
+	designSystemManager := NewDesignSystemManager(*dataDir)
+	if err := designSystemManager.Ensure(); err != nil {
+		log.Printf("WARN synchronize design-system Skill: %v", err)
+	}
+	if err := designSystemManager.EnableDefaultTargets(); err != nil {
+		log.Printf("WARN enable design-system Skill targets: %v", err)
+	}
 	apps, err := LoadCatalog(*appsDir)
 	if err != nil {
 		log.Fatalf("ERROR load app catalog: %v", err)
@@ -64,6 +71,7 @@ func main() {
 	}
 	media := NewMediaService(store)
 	bridge := NewAgentBridge(store)
+	bridge.SetDesignSystemManager(designSystemManager)
 	host := NewAppHost(apps, store, media)
 	if recovered, err := host.jobs.RecoverInterrupted(); err != nil {
 		log.Fatalf("ERROR recover interrupted shell jobs: %v", err)

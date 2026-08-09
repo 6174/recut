@@ -56,6 +56,8 @@ func mcpToolList(bridge *AgentBridge, media *MediaService) map[string]any {
 		platformTool("recut.skills.list", "列出所有已安装 App 的 skill 目录（id、appId、name、description）。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.skills.read", "读取一个 App skill 的完整正文；该正文对对应 App 的工具契约与决策门有权威性。", map[string]any{"type": "object", "required": []string{"appId", "skillId"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}}}),
 		platformTool("recut.skills.reference", "读取一个 skill 声明的引用/资源子文档。路径必须是该 skill 目录内前置声明的相对路径。", map[string]any{"type": "object", "required": []string{"appId", "skillId", "path"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}, "path": map[string]string{"type": "string"}}}),
+		platformTool("recut.design_system.list", "列出 Recut 全局设计系统的全部可用风格（id / name / category / origin / description）。设计系统是业务无关的抽象视觉风格定义，直接复用 Open Design。", map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.design_system.get", "读取一套全局设计系统的完整视觉契约（DESIGN.md + tokens.css + 可用的 USAGE.md / manifest）。用返回的语义值实施风格，不手写无关十六进制。", map[string]any{"type": "object", "required": []string{"styleId"}, "properties": map[string]any{"styleId": map[string]string{"type": "string", "description": "设计系统 id，如 neobrutalism / glassmorphism / clean-editorial。"}}}),
 		projectMCPToolDefinition(),
 		platformTool("recut.project.list", "列出全部用户项目（Doc metadata：id、name、owner App、版本）。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.project.get", "读取一个项目的 Doc metadata。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}}}),
@@ -155,6 +157,16 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 		return skillReadTool(bridge, arguments)
 	case "recut.skills.reference":
 		return skillReferenceTool(bridge, arguments)
+	case "recut.design_system.list":
+		if bridge.designSystems == nil {
+			return nil, errors.New("design-system skill is unavailable")
+		}
+		return designSystemListTool(bridge.designSystems)
+	case "recut.design_system.get":
+		if bridge.designSystems == nil {
+			return nil, errors.New("design-system skill is unavailable")
+		}
+		return designSystemGetTool(bridge.designSystems, arguments)
 	}
 	if isMediaMCPTool(name) {
 		return mediaMCPTool(bridge.store, media, session, name, arguments)
@@ -274,6 +286,7 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 			"sessionWorkspace": bridge.store.SessionWorkspaceDir(session.ID),
 			"mediaDir":         filepath.Join(bridge.store.root, "media"),
 			"modelsDir":        filepath.Join(bridge.store.root, "models"),
+			"designSystemsDir": filepath.Join(bridge.store.root, "skills", designSystemSkillID),
 		},
 		"instructions": bridgeInstructions,
 	}

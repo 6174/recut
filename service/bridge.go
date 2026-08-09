@@ -41,9 +41,10 @@ type SessionContext struct {
 }
 
 type AgentBridge struct {
-	mu       sync.Mutex
-	store    *Store
-	sessions map[string]AgentSession
+	mu            sync.Mutex
+	store         *Store
+	sessions      map[string]AgentSession
+	designSystems *DesignSystemManager
 }
 
 const opencodeMCPTimeoutMilliseconds = 5 * 60 * 1000
@@ -60,6 +61,12 @@ type bridgeRecord struct {
 
 func NewAgentBridge(store *Store) *AgentBridge {
 	return &AgentBridge{store: store, sessions: map[string]AgentSession{}}
+}
+
+func (b *AgentBridge) SetDesignSystemManager(manager *DesignSystemManager) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.designSystems = manager
 }
 
 func (b *AgentBridge) CreateSession(ctx SessionContext) (AgentSession, string, error) {
