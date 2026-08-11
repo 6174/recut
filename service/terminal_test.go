@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 TerminalManager 的通用 PTY 生命周期与临时文件系统
- * [OUTPUT]: 验证终端 transcript 与最新消息摘要在管理器重建后仍可恢复
+ * [INPUT]: 依赖 TerminalManager 的通用 PTY 生命周期、终端工作目录边界与临时文件系统
+ * [OUTPUT]: 验证终端 transcript 与最新消息摘要在管理器重建后仍可恢复，并锁定项目相对工作目录不越界
  * [POS]: service 的终端会话持久化回归测试，保护浏览器重连与 Daemon 重启语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -67,5 +67,26 @@ func TestTerminalTranscriptSurvivesManagerRestart(t *testing.T) {
 	}
 	if restoredSession.LastMessage != "terminal-history" {
 		t.Fatalf("last message = %q", restoredSession.LastMessage)
+	}
+}
+
+func TestTerminalWorkingDirectoryStaysWithinProjectFiles(t *testing.T) {
+	filesRoot := t.TempDir()
+	workspace := filepath.Join(filesRoot, "workspace")
+	if err := os.Mkdir(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := terminalWorkingDirectory(filesRoot, "workspace")
+	if err != nil || resolved != expected {
+		t.Fatalf("workspace cwd = %q, %v", resolved, err)
+	}
+	for _, invalid := range []string{"..", "../outside", "/tmp"} {
+		if _, err := terminalWorkingDirectory(filesRoot, invalid); err == nil {
+			t.Fatalf("cwd %q escaped project files", invalid)
+		}
 	}
 }

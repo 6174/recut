@@ -26,5 +26,12 @@
     "description": "对图片或视频执行深度估计并保存深度图结果。",
     "kind": "standalone",
     "repository": "https://github.com/6174/recut-depth-anything-v2.git"
+  },
+  {
+    "appId": "recut.audio-studio",
+    "name": "声音工坊",
+    "description": "本地转写、声音角色与配音：将音视频转成可编辑文稿和字幕，再以声音角色合成配音。",
+    "kind": "standalone",
+    "repository": "https://github.com/6174/recut-audio-studio.git"
   }
 ]

@@ -198,21 +198,38 @@ export function Composer({
           />
         )}
         <div className="mt-1 flex items-center justify-between">
-          <button
-            aria-expanded={configOpen}
-            className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed"
-            disabled={configDisabled}
-            onClick={() => setConfigOpen((value) => !value)}
-            title={configButtonTitle}
-            type="button"
-          >
-            <Bot className="size-3" />
-            <span>{runtimeLabel(runtime)}</span>
-            {configSummary && (
-              <span className="text-muted-foreground/70">{configSummary}</span>
+          <div className="relative min-w-0 flex-1">
+            <button
+              aria-expanded={configOpen}
+              className="flex min-h-8 w-full min-w-0 items-center gap-1.5 rounded-sm px-1 text-left text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed"
+              disabled={configDisabled}
+              onClick={() => setConfigOpen((value) => !value)}
+              title={configButtonTitle}
+              type="button"
+            >
+              <Bot className="size-3" />
+              <span>{runtimeLabel(runtime)}</span>
+              {configSummary && (
+                <span className="min-w-0 truncate text-muted-foreground/70">
+                  {configSummary}
+                </span>
+              )}
+              <SlidersHorizontal className="size-3.5" />
+            </button>
+            {configOpen && runtime === "codex" && (
+              <CodexConfigurationPopover
+                configuration={codexConfiguration}
+                onChange={(next) => void saveCodex(next)}
+              />
             )}
-            <SlidersHorizontal className="size-3.5" />
-          </button>
+            {configOpen && runtime === "opencode" && (
+              <OpencodeConfigurationPopover
+                configuration={opencodeConfiguration}
+                models={opencodeModels}
+                onChange={(next) => void saveOpencode(next)}
+              />
+            )}
+          </div>
           <div className="flex items-center gap-1">
             <input
               accept="image/*,video/*,audio/*"
@@ -278,19 +295,6 @@ export function Composer({
             </Button>
           </div>
         </div>
-        {configOpen && runtime === "codex" && (
-          <CodexConfigurationPopover
-            configuration={codexConfiguration}
-            onChange={(next) => void saveCodex(next)}
-          />
-        )}
-        {configOpen && runtime === "opencode" && (
-          <OpencodeConfigurationPopover
-            configuration={opencodeConfiguration}
-            models={opencodeModels}
-            onChange={(next) => void saveOpencode(next)}
-          />
-        )}
       </div>
       <AssetReferenceDialog
         apiBase={apiBase}
@@ -377,80 +381,59 @@ function OpencodeConfigurationPopover({
   models: OpencodeModel[];
   onChange: (configuration: OpencodeConfiguration) => void;
 }) {
-  const [page, setPage] = useState<"menu" | "model">("menu");
   const [query, setQuery] = useState("");
-  if (page === "model") {
-    const matchingModels = models.filter((model) =>
-      model.id.toLowerCase().includes(query.trim().toLowerCase()),
-    );
-    const providers = [
-      ...new Set(matchingModels.map((model) => model.provider)),
-    ];
-    return (
-      <section className="absolute bottom-full left-0 z-30 mb-2 w-80 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
-        <button
-          className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs font-medium hover:bg-muted"
-          onClick={() => setPage("menu")}
-          type="button"
-        >
-          <ChevronLeft className="size-3.5" />
-          模型
-        </button>
-        <label className="sr-only" htmlFor="opencode-model-search">
-          搜索 OpenCode 模型
-        </label>
-        <input
-          autoFocus
-          className="mt-1 w-full rounded-sm border bg-background px-2.5 py-2 font-mono text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-          id="opencode-model-search"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索模型或 provider"
-          type="search"
-          value={query}
-        />
-        <div className="mt-1 max-h-80 space-y-2 overflow-y-auto border-t pt-2">
-          {providers.map((provider) => (
-            <section key={provider}>
-              <p className="px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
-                {opencodeProviderLabel(provider)}
-              </p>
-              {matchingModels
-                .filter((model) => model.provider === provider)
-                .map((model) => (
-                  <button
-                    className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted"
-                    key={model.id}
-                    onClick={() => onChange({ opencodeModel: model.id })}
-                    type="button"
-                  >
-                    <span className="min-w-0 flex-1 break-all font-mono text-[10px]">
-                      {model.id}
-                    </span>
-                    {model.id === configuration.opencodeModel && (
-                      <Check className="size-3.5 shrink-0 text-primary" />
-                    )}
-                  </button>
-                ))}
-            </section>
-          ))}
-          {matchingModels.length === 0 && (
-            <p className="px-2.5 py-3 text-xs text-muted-foreground">
-              {models.length === 0
-                ? "未读取到 OpenCode 可用模型。"
-                : "没有匹配的模型。"}
-            </p>
-          )}
-        </div>
-      </section>
-    );
-  }
+  const matchingModels = models.filter((model) =>
+    model.id.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const providers = [...new Set(matchingModels.map((model) => model.provider))];
   return (
-    <section className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
-      <ConfigurationMenuItem
-        label="模型"
-        onClick={() => setPage("model")}
-        value={opencodeModelLabel(configuration.opencodeModel)}
+    <section className="absolute bottom-full left-0 z-30 mb-2 w-80 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
+      <p className="px-2 py-1.5 text-xs font-medium">模型</p>
+      <label className="sr-only" htmlFor="opencode-model-search">
+        搜索 OpenCode 模型
+      </label>
+      <input
+        autoFocus
+        className="mt-1 w-full rounded-sm border bg-background px-2.5 py-2 font-mono text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+        id="opencode-model-search"
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="搜索模型或 provider"
+        type="search"
+        value={query}
       />
+      <div className="mt-1 max-h-80 space-y-2 overflow-y-auto border-t pt-2">
+        {providers.map((provider) => (
+          <section key={provider}>
+            <p className="px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
+              {opencodeProviderLabel(provider)}
+            </p>
+            {matchingModels
+              .filter((model) => model.provider === provider)
+              .map((model) => (
+                <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted"
+                  key={model.id}
+                  onClick={() => onChange({ opencodeModel: model.id })}
+                  type="button"
+                >
+                  <span className="min-w-0 flex-1 break-all font-mono text-[10px]">
+                    {model.id}
+                  </span>
+                  {model.id === configuration.opencodeModel && (
+                    <Check className="size-3.5 shrink-0 text-primary" />
+                  )}
+                </button>
+              ))}
+          </section>
+        ))}
+        {matchingModels.length === 0 && (
+          <p className="px-2.5 py-3 text-xs text-muted-foreground">
+            {models.length === 0
+              ? "未读取到 OpenCode 可用模型。"
+              : "没有匹配的模型。"}
+          </p>
+        )}
+      </div>
     </section>
   );
 }

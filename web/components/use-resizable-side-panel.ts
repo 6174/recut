@@ -39,7 +39,7 @@ export function useResizableSidePanel({ storageKey, defaultWidth = 400, minWidth
     document.body.style.userSelect = "none";
     setIsDragging(true);
     const move = (moveEvent: PointerEvent) => {
-      const nextWidth = clamp(startWidth - (moveEvent.clientX - startX));
+      const nextWidth = clamp(startWidth + moveEvent.clientX - startX);
       widthRef.current = nextWidth;
       if (frameRef.current !== null) return;
       frameRef.current = window.requestAnimationFrame(() => { frameRef.current = null; paint(widthRef.current); });

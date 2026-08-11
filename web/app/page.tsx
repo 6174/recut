@@ -127,7 +127,7 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
       <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label="工作台" className="flex min-w-0 items-center gap-0.5 sm:gap-1"><Tab active={tab === "studio"} href="/">Studio</Tab><Tab active={tab === "projects"} href="/projects">Projects</Tab><Tab active={tab === "assets"} href="/media">Assets</Tab><Tab active={tab === "apps"} href="/apps">Apps</Tab></nav></div>
       <div className="hidden md:block"><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>
     </header>
-    <div className="min-h-0 flex-1 overflow-hidden md:pr-[var(--side-panel-width)]">
+    <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]">
       {online && tab === "assets" ? content : <section className="h-full min-h-0 overflow-y-auto bg-muted/30 p-4 sm:p-6 md:p-8"><div className="mx-auto max-w-6xl">{content}</div></section>}
     </div>
     {createApp && <CreateProjectFromAppDialog app={createApp} onClose={() => setCreateApp(null)} onCreate={async (projectName) => createProjectWithApp(createApp, projectName)} />}

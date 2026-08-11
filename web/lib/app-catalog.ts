@@ -41,12 +41,34 @@ export const appCatalog: CatalogApp[] = [
   },
   {
     manifest: {
+      id: "recut.remotion-studio",
+      name: "Remotion Studio",
+      author: "6174",
+      description: "把选题、文案和素材编排成可审阅、可实时预览、可导出的 Remotion 程序化视频。",
+      repository: "https://github.com/6174/recut-remotion-studio",
+      version: "0.2.0",
+      type: "project",
+    },
+  },
+  {
+    manifest: {
+      id: "recut.audio-studio",
+      name: "声音工坊",
+      author: "Recut",
+      description: "本地转写、声音角色与配音：把音视频转成字幕和可编辑文稿，再让角色朗读新文本。",
+      repository: "https://github.com/6174/recut-audio-studio",
+      version: "0.1.0",
+      type: "standalone",
+    },
+  },
+  {
+    manifest: {
       id: "recut.cover-studio",
       name: "封面生成",
       author: "Recut",
       description: "用渠道尺寸、参考封面和创作要求生成并沉淀封面素材。",
       repository: "https://github.com/6174/recut-cover-studio",
-      version: "0.2.0",
+      version: "0.3.1",
       type: "standalone",
     },
   },

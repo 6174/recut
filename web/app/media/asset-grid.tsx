@@ -26,7 +26,7 @@ export function AssetGrid({
         <div>
           <ImageIcon className="mx-auto size-5 text-muted-foreground" />
           <p className="mt-3 text-sm font-medium">还没有素材</p>
-          <p className="mt-1 text-xs text-muted-foreground">点击“创建”选择资源类型和模型，或让右侧 Agent 协作创作。</p>
+          <p className="mt-1 text-xs text-muted-foreground">点击“创建”选择资源类型和模型，或让左侧 Agent 协作创作。</p>
         </div>
       </div>
     );

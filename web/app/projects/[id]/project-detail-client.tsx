@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖全局 Zustand service 状态、workspace-store 的项目/App/安装状态、平台素材选择器、按 scope 缓存的 Agent Session 列表、全局 Agent 面板上下文与 Next.js 浏览器路由参数
- * [OUTPUT]: 对外提供通用项目 App UI 容器、按 iframe 实际 origin 转发的项目事件、全局素材选择与结构化 Agent 请求转交；App 只能经全局面板上下文回填右侧 Agent 输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
+ * [OUTPUT]: 对外提供通用项目 App UI 容器、按 iframe 实际 origin 转发的项目事件、全局素材选择与结构化 Agent 请求转交；App 只能经全局面板上下文回填左侧 Agent 输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
  * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，从 workspace-store 读取目录真相，隔离 useParams、WebSocket 与 iframe，通信目标以 iframe URL 为唯一真相源；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -113,7 +113,7 @@ export default function ProjectDetailClient() {
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=page.context result=ok`);
         } else if (request.type === "media.pick") {
           if (mediaPickerReply.current) throw new Error("已有素材选择器正在打开");
-          const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" => kind === "image" || kind === "video" || kind === "audio") : [];
+          const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" | "transcript" => kind === "image" || kind === "video" || kind === "audio" || kind === "transcript") : [];
           if (!kinds.length) throw new Error("请声明可选择的素材类型");
           const multiple = request.input?.multiple === true;
           const selectedIDs = Array.isArray(request.input?.selectedIDs) ? request.input.selectedIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
@@ -154,8 +154,8 @@ export default function ProjectDetailClient() {
       </div>
       <HeaderActions>{installation && <AppVersionControl app={installation} onUpdated={() => window.location.reload()} />}</HeaderActions>
     </header>
-    <div className="min-h-0 flex-1 overflow-hidden md:pr-[var(--side-panel-width)]">
-      <section className="h-full min-w-0 overflow-hidden border-r bg-card">
+    <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]">
+      <section className="h-full min-w-0 overflow-hidden border-l bg-card">
         {uiURL ? <iframe className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={`${project?.name ?? "Recut"} App`} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">这个 App 没有声明项目 UI。</div>}
       </section>
     </div>

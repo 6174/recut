@@ -218,7 +218,7 @@ function MediaLibraryContent({ onOpenProviderSettings, onProjectIDChange }: Medi
               <div>
                 <h1 className="text-2xl font-semibold">媒体资产</h1>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  直接选择模型创建素材，复杂创作也可交给右侧 Agent。
+                  直接选择模型创建素材，复杂创作也可交给左侧 Agent。
                 </p>
               </div>
               <div className="flex items-center gap-3">

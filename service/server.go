@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store（含 Agent CLI 定位缓存）与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计且可由组合根优雅关停的短请求与事件流 HTTP Server、内嵌工作台、无入口重定向的 App UI、App 安装/单个或批量更新、Recut Skill 状态/软链接、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API
+ * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计且可由组合根优雅关停的短请求与事件流 HTTP Server、内嵌工作台、无入口重定向的 App UI、App 安装/单个或批量更新、Recut Skill 状态/软链接、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API（含受项目文件根约束的相对工作目录）
  * [POS]: service 的传输层，负责把受信任项目、内嵌本地工作台与扩展注册表映射为浏览器可消费的 API；只构造 HTTP Server，进程信号和关停策略归组合根所有
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -550,6 +550,7 @@ type startTerminalInput struct {
 	ProjectID string   `json:"projectId"`
 	Command   string   `json:"command"`
 	Args      []string `json:"args"`
+	CWD       string   `json:"cwd"`
 	Cols      uint16   `json:"cols"`
 	Rows      uint16   `json:"rows"`
 }
@@ -574,9 +575,24 @@ func (s *Server) startTerminal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cwd = s.store.projectDir(projectID)
+		if input.CWD != "" {
+			filesRoot, err := s.store.ProjectFilesRoot(projectID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+			cwd, err = terminalWorkingDirectory(filesRoot, input.CWD)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+		}
+	} else if input.CWD != "" {
+		writeError(w, http.StatusBadRequest, errors.New("terminal cwd requires a project"))
+		return
 	}
 	args := input.Args
-	start := TerminalStart{ProjectID: projectID, Command: input.Command, Args: args, CWD: cwd, SessionDir: sessionDir, Cols: input.Cols, Rows: input.Rows}
+	start := TerminalStart{ProjectID: projectID, Command: input.Command, Args: args, CWD: cwd, SessionDir: sessionDir, Cols: input.Cols, Rows: input.Rows, Env: []string{"TERM=xterm-256color", "COLORTERM=truecolor"}}
 	if (input.Command == "codex" || input.Command == "claude") && len(args) == 0 {
 		agentSession, token, err := s.bridge.CreateSession(SessionContext{})
 		if err != nil {
@@ -620,6 +636,42 @@ func (s *Server) startTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, session)
+}
+
+// terminalWorkingDirectory resolves an API-provided project-relative directory.
+// It deliberately permits normal shell navigation after launch, while preventing
+// an embedded App from using the session-start API to escape its own file root.
+func terminalWorkingDirectory(filesRoot, relative string) (string, error) {
+	if filepath.IsAbs(relative) {
+		return "", errors.New("terminal cwd must be relative to project files")
+	}
+	clean := filepath.Clean(relative)
+	if clean == "." {
+		return filesRoot, nil
+	}
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", errors.New("terminal cwd must stay within project files")
+	}
+	root, err := filepath.EvalSymlinks(filesRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve project files: %w", err)
+	}
+	candidate, err := filepath.EvalSymlinks(filepath.Join(root, clean))
+	if err != nil {
+		return "", fmt.Errorf("resolve terminal cwd: %w", err)
+	}
+	relation, err := filepath.Rel(root, candidate)
+	if err != nil || relation == ".." || strings.HasPrefix(relation, ".."+string(filepath.Separator)) {
+		return "", errors.New("terminal cwd must stay within project files")
+	}
+	info, err := os.Stat(candidate)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", errors.New("terminal cwd must be a directory")
+	}
+	return candidate, nil
 }
 
 func launchPrompt(session AgentSession) string {

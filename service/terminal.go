@@ -87,7 +87,7 @@ func (m *TerminalManager) Start(input TerminalStart) (TerminalSession, error) {
 	cols, rows := terminalSize(input.Cols, input.Rows)
 	command := exec.Command(input.Command, input.Args...)
 	command.Dir = input.CWD
-	command.Env = append(userBaseEnv(), input.Env...)
+	command.Env = mergeEnv(userBaseEnv(), input.Env)
 	file, err := pty.StartWithSize(command, &pty.Winsize{Cols: cols, Rows: rows})
 	if err != nil {
 		return TerminalSession{}, fmt.Errorf("start terminal: %w", err)

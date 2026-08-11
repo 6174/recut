@@ -245,8 +245,17 @@ func TestMCPAppManagementTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	storeItems := storeResult.(map[string]any)["structuredContent"].(map[string]any)["items"].([]map[string]any)
-	if len(storeItems) == 0 {
-		t.Fatal("app store is empty")
+	storeAppIDs := map[string]bool{}
+	for _, entry := range storeItems {
+		storeAppIDs[entry["appId"].(string)] = true
+	}
+	for _, appID := range []string{"recut.vox-broll", "recut.remotion-studio", "recut.cover-studio", "recut.depth-anything", "recut.audio-studio"} {
+		if !storeAppIDs[appID] {
+			t.Fatalf("app store omits %q: %#v", appID, storeItems)
+		}
+	}
+	if len(storeAppIDs) != 5 {
+		t.Fatalf("app store has %d entries, want 5: %#v", len(storeAppIDs), storeItems)
 	}
 	for _, entry := range storeItems {
 		for _, field := range []string{"appId", "name", "repository", "installed"} {
