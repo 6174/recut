@@ -1,12 +1,12 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、Agent Session HTTP API 及全局 Agent 面板上下文
- * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的日期稳定随机创作场景卡与新手/继续创作帮助入口（点击只回填左侧创作输入框，绝不自动提交）、紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和无外框的 service 连接/诊断空态
+ * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的每日稳定随机两张创作场景卡（首访引导作为同一候选卡，点击只回填左侧创作输入框，绝不自动提交）、紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和无外框的 service 连接/诊断空态
  * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, ImageIcon, LoaderCircle, Music2, Plus, Sparkles, Store, Video, X } from "lucide-react";
+import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, ImageIcon, LoaderCircle, Music2, Plus, Sparkles, Store, Video, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, MouseEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
@@ -196,7 +196,9 @@ function inspirationForToday() {
   return HOME_INSPIRATIONS[Math.abs(dayIndex) % HOME_INSPIRATIONS.length];
 }
 
-const STUDIO_PROMPT_TEMPLATES = [
+type StudioPromptTemplate = { icon: LucideIcon; title: string; description: string; prompt: string };
+
+const STUDIO_PROMPT_TEMPLATES: StudioPromptTemplate[] = [
   {
     icon: Clapperboard,
     title: "把一段文字做成视频",
@@ -271,29 +273,30 @@ const STUDIO_PROMPT_TEMPLATES = [
   },
 ];
 
-const STUDIO_HELP_PROMPTS = [
-  { title: "认识 Recut", prompt: "我是第一次使用 Recut。请用简单的话告诉我这里能做什么，并带我从一个最适合的新手视频开始。" },
-  { title: "做我的第一支视频", prompt: "我想从零开始做我的第一支视频。请先问我几个简单的问题，再带我一步一步开始。" },
-  { title: "找回上次的创作", prompt: "我想继续上次的创作。请帮我看看现在可以从哪里接着做。" },
-];
+const STUDIO_FIRST_VISIT_TEMPLATE: StudioPromptTemplate = {
+  icon: Sparkles,
+  title: "第一次来这里？",
+  description: "从认识 Recut 或做第一支视频开始。",
+  prompt: "我是第一次使用 Recut。请用简单的话告诉我这里能做什么，并带我从一个最适合的新手视频开始。",
+};
 
 function promptTemplatesForToday() {
-  const templates = [...STUDIO_PROMPT_TEMPLATES];
+  const templates = [...STUDIO_PROMPT_TEMPLATES, STUDIO_FIRST_VISIT_TEMPLATE];
   let seed = Math.floor(Date.now() / 86_400_000) >>> 0;
   for (let index = templates.length - 1; index > 0; index -= 1) {
     seed = (seed * 1_664_525 + 1_013_904_223) >>> 0;
     const swapIndex = seed % (index + 1);
     [templates[index], templates[swapIndex]] = [templates[swapIndex], templates[index]];
   }
-  return templates.slice(0, 4);
+  return templates.slice(0, 2);
 }
 
 function Studio({ apiBase, installations, onCompose, onStartProject, projects }: { apiBase: string; installations: Installation[]; onCompose: (text: string) => void; onStartProject: (app: Installation) => void; projects: Project[] }) {
   const recentProjects = projects.slice(0, 4);
-  const [promptTemplates, setPromptTemplates] = useState(() => STUDIO_PROMPT_TEMPLATES.slice(0, 4));
+  const [promptTemplates, setPromptTemplates] = useState(() => STUDIO_PROMPT_TEMPLATES.slice(0, 2));
   useEffect(() => setPromptTemplates(promptTemplatesForToday()), []);
   return <div className="pb-10">
-    <section className="relative min-h-[21rem] overflow-hidden border-b border-border pb-8 pt-7 sm:min-h-[23rem]">
+    <section className="relative min-h-[21rem] overflow-hidden pb-8 pt-7 sm:min-h-[23rem]">
       <WebGLStudioHero />
       <div className="relative z-10 max-w-xl">
       <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">GOOD MORNING · STUDIO</p>
@@ -302,7 +305,6 @@ function Studio({ apiBase, installations, onCompose, onStartProject, projects }:
       <div className="mt-7">
         <div><h2 className="text-lg font-semibold">今天想做什么？</h2><p className="mt-1 text-sm text-muted-foreground">从一个你已经有感觉的画面开始。</p></div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">{promptTemplates.map(({ description, icon: Icon, prompt, title }) => <button aria-label={`从「${title}」开始`} className="group flex min-h-[7.75rem] flex-col rounded-lg border bg-card p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={title} onClick={() => onCompose(prompt)} type="button"><span className="grid size-7 place-items-center rounded-sm bg-accent text-accent-foreground"><Icon className="size-3.5" /></span><p className="mt-2 text-sm font-semibold">{title}</p><p className="mt-0.5 line-clamp-2 text-xs leading-4 text-muted-foreground">{description}</p><span className="mt-auto flex items-center gap-1.5 pt-2 text-xs font-medium text-primary">从这里开始<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></span></button>)}</div>
-        <div className="mt-5 rounded-lg border bg-card p-4 shadow-sm"><p className="text-sm font-semibold">第一次来这里？</p><p className="mt-1 text-xs text-muted-foreground">从认识 Recut 或做第一支视频开始。</p><div className="mt-3 flex flex-wrap gap-2">{STUDIO_HELP_PROMPTS.map(({ prompt, title }) => <button className="inline-flex items-center gap-1.5 rounded-sm border bg-background px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/35 hover:text-primary" key={title} onClick={() => onCompose(prompt)} type="button">{title}<ArrowRight className="size-3" /></button>)}</div></div>
       </div>
       </div>
     </section>
