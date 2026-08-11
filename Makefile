@@ -1,18 +1,18 @@
 # [INPUT]: 依赖 Go、Node.js、发布归档工具与 scripts/install-service.sh
-# [OUTPUT]: 对外提供本机开发、内嵌工作台、独占开发双端口回收、跨平台 service 构建/发布和 Web 部署命令
+# [OUTPUT]: 对外提供本机开发、内嵌工作台与内置 App 归档、独占开发双端口回收、跨平台 service 构建/发布和 Web 部署命令
 # [POS]: 仓库自动化根；统一定义 service 版本、工作台模式与发布物命名，并确保开发 service 可取得 API 17373 与事件流 17374
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy app-link check
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy app-link builtin-apps check
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
 APP ?=
 SERVICE_PORT ?= 17373
 STREAM_PORT ?= 17374
-RECUT_VERSION ?= 0.1.19
+RECUT_VERSION ?= 0.1.20
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -20,12 +20,13 @@ BUILD_GOARCH := $(if $(TARGET),$(word 2,$(subst -, ,$(TARGET))),$(if $(GOARCH),$
 SERVICE_BUILD ?= $(CURDIR)/build/recut-service$(if $(filter windows,$(BUILD_GOOS)),.exe)
 RELEASE_STAGE ?= $(CURDIR)/build/releases
 RELEASE_PUBLIC ?= $(CURDIR)/web/public/releases/latest
+BUILTIN_REMOTION_ARCHIVE := $(CURDIR)/service/builtin_apps/remotion-studio.tar.gz
 SERVICE_RELEASE_TARGETS := darwin-arm64 darwin-amd64 linux-arm64 linux-amd64 freebsd-arm64 freebsd-amd64 windows-arm64 windows-amd64
 
 help: ## Show available development commands.
 	@awk 'BEGIN { FS = ":.*##"; printf "\nRecut development commands:\n" } /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-dev: stop-stale-service stop-stale-web ## Start the LAN service and web development workspace together.
+dev: builtin-apps stop-stale-service stop-stale-web ## Start the LAN service and web development workspace together.
 	@set -e; \
 	GOCACHE=$(GOCACHE) go -C service run . --address ":$(SERVICE_PORT)" --stream-address ":$(STREAM_PORT)" & service_pid=$$!; \
 	( cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) npm run dev ) & web_pid=$$!; \
@@ -71,7 +72,7 @@ stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never an
 		if kill -0 "$$pid" 2>/dev/null; then echo "Force-stopping stale Recut web workspace (PID $$pid)."; kill -9 "$$pid"; fi; \
 	done
 
-service-dev: stop-stale-service ## Start only the LAN Go service for the port 3000 workspace (API 17373, event streams 17374).
+service-dev: builtin-apps stop-stale-service ## Start only the LAN Go service for the port 3000 workspace (API 17373, event streams 17374).
 	@set -e; \
 	dev_service="$(CURDIR)/.cache/recut-service-dev"; \
 	mkdir -p "$$(dirname "$$dev_service")"; \
@@ -80,11 +81,11 @@ service-dev: stop-stale-service ## Start only the LAN Go service for the port 30
 	trap 'kill -TERM "$$service_pid" 2>/dev/null || true; wait "$$service_pid" 2>/dev/null || true' EXIT INT TERM; \
 	wait "$$service_pid"
 
-service-build: web-build-embedded ## Build a production service with its local workspace (TARGET=linux-amd64, windows-amd64, or host default).
+service-build: builtin-apps web-build-embedded ## Build a production service with its local workspace (TARGET=linux-amd64, windows-amd64, or host default).
 	@mkdir -p "$(dir $(SERVICE_BUILD))"
 	GOCACHE=$(GOCACHE) GOOS="$(BUILD_GOOS)" GOARCH="$(BUILD_GOARCH)" go -C service build -trimpath -ldflags "-s -w -X main.serviceVersion=$(RECUT_VERSION)" -o "$(SERVICE_BUILD)" .
 
-service-release: web-build-embedded ## Build self-contained service packages for the public Cloudflare installers.
+service-release: builtin-apps web-build-embedded ## Build self-contained service packages for the public Cloudflare installers.
 	@set -e; \
 	mkdir -p "$(RELEASE_STAGE)" "$(RELEASE_PUBLIC)"; \
 	manifest="$(RELEASE_PUBLIC)/manifest.json"; \
@@ -124,7 +125,7 @@ service-resume: ## Resume the installed current-user production service after lo
 		*) echo "Start $(RECUT_HOME)/bin/recut-service with this host's process manager."; exit 1 ;; \
 	esac
 
-service-test: web-build-embedded ## Run the service test suite.
+service-test: builtin-apps web-build-embedded ## Run the service test suite.
 	GOCACHE=$(GOCACHE) go -C service test .
 
 service-vet: ## Run Go static analysis for the local service.
@@ -168,5 +169,9 @@ app-link: ## Link one local App package (APP=apps/vox-broll) or every local pack
 		ln -s "$$absolute" "$$target"; \
 		echo "Linked $$name -> $$absolute"; \
 	done
+
+builtin-apps: ## Package the App sources that ship inside every Recut service binary.
+	@mkdir -p "$(dir $(BUILTIN_REMOTION_ARCHIVE))"
+	node scripts/package-builtin-app.mjs apps/remotion-studio "$(BUILTIN_REMOTION_ARCHIVE)"
 
 check: service-test service-vet web-build ## Run all service and web verification.

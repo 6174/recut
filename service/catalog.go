@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖标准库 JSON 与文件系统能力
- * [OUTPUT]: 对外提供 manifest 驱动且按本地目录变化刷新的 Catalog、含作者/描述/onboarding 的 App 身份、缓存化 Git 远端检查状态、隐藏平台 scope 描述符与统一 operation 公开契约
+ * [OUTPUT]: 对外提供 manifest 驱动且自动创建空 apps 目录、按本地目录变化刷新的 Catalog、含作者/描述/onboarding 的 App 身份、缓存化 Git 远端检查状态、隐藏平台 scope 描述符与统一 operation 公开契约
  * [POS]: service 的扩展注册表；只理解 App 与平台 scope 身份、入口、权限和扩展点，不理解业务数据布局；本地 link 或 manifest 修改会原子更新注册表
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -101,6 +101,9 @@ func LoadCatalog(dir string) (*Catalog, error) {
 }
 
 func (c *Catalog) Reload() error {
+	if err := ensureCatalogDirectory(c.dir); err != nil {
+		return err
+	}
 	apps, directoryVersion, err := loadCatalogSnapshot(c.dir)
 	if err != nil {
 		return err
@@ -119,6 +122,9 @@ func (c *Catalog) Reload() error {
 // ReloadIfChanged keeps the Catalog aligned with local App links without
 // invalidating cached Git remote status on ordinary page refreshes.
 func (c *Catalog) ReloadIfChanged() error {
+	if err := ensureCatalogDirectory(c.dir); err != nil {
+		return err
+	}
 	directoryVersion, err := catalogDirectoryVersion(c.dir)
 	if err != nil {
 		return err
@@ -150,6 +156,23 @@ func (c *Catalog) ReloadIfChanged() error {
 	c.apps = apps
 	c.directoryVersion = directoryVersion
 	c.mu.Unlock()
+	return nil
+}
+
+func ensureCatalogDirectory(dir string) error {
+	info, err := os.Stat(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("create apps directory: %w", err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect apps directory: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("apps directory path is not a directory: %s", dir)
+	}
 	return nil
 }
 

@@ -1,12 +1,12 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、Agent Session HTTP API 及全局 Agent 面板上下文
- * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和 service 连接错误诊断
+ * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的日期稳定随机创作场景卡与新手/继续创作帮助入口（点击只回填左侧创作输入框，绝不自动提交）、紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和无外框的 service 连接/诊断空态
  * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, ImageIcon, LoaderCircle, Music2, Plus, Send, Sparkles, Store, Video, X } from "lucide-react";
+import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, ImageIcon, LoaderCircle, Music2, Plus, Sparkles, Store, Video, X } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, MouseEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
@@ -53,7 +53,7 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
   const online = service.phase === "online";
   const agentProjectID = tab === "assets" ? mediaProjectID : null;
   useLayoutEffect(() => {
-    useAgentPanelContext.getState().setContext({ projectID: agentProjectID, headerHeight: 64 });
+    useAgentPanelContext.getState().setProjectID(agentProjectID);
   }, [agentProjectID]);
   const pageContext = useMemo(() => tab === "assets"
     ? { title: "素材库", path: "/media" }
@@ -196,14 +196,102 @@ function inspirationForToday() {
   return HOME_INSPIRATIONS[Math.abs(dayIndex) % HOME_INSPIRATIONS.length];
 }
 
+const STUDIO_PROMPT_TEMPLATES = [
+  {
+    icon: Clapperboard,
+    title: "把一段文字做成视频",
+    description: "从你的故事或脚本开始，慢慢拼成一支短片。",
+    prompt: "请根据下面这段脚本规划并制作一支完整视频。先梳理叙事结构、镜头清单和节奏，再给出可执行的生成与剪辑计划：\n\n[在这里粘贴脚本]",
+  },
+  {
+    icon: Video,
+    title: "给现有视频补一些画面",
+    description: "补上细节和衔接画面，让故事看起来更完整。",
+    prompt: "我正在制作一支视频，请为下面的内容规划并生成一组衔接主线的画面。每个画面请说明内容、运动、时长和它在故事里的作用：\n\n[描述主题、脚本或已有主镜头]",
+  },
+  {
+    icon: ImageIcon,
+    title: "做一支剪纸风格动画",
+    description: "用纸片、纹理和手作感讲一个小故事。",
+    prompt: "我想做一支剪纸风格的小动画。请帮我想好故事、画面、色彩和镜头节奏，再开始制作：[填写主题、人物、时长和想要的感觉]",
+  },
+  {
+    icon: Sparkles,
+    title: "给产品拍一条短片",
+    description: "把亮点、细节和使用场景讲清楚。",
+    prompt: "请帮我策划一支产品发布短片。先提炼核心卖点与受众，再输出 30 秒的分镜、旁白和视觉生成提示词：\n\n[填写产品、卖点、受众和发布场景]",
+  },
+  {
+    icon: Sparkles,
+    title: "做一支 Remotion 视频",
+    description: "用清爽的动态画面，把一个主题讲明白。",
+    prompt: "我想做一支 Remotion 视频。请根据下面的主题，帮我想好画面、文字、节奏和转场，再开始制作：[填写主题、时长、风格和想传达的重点]",
+  },
+  {
+    icon: Captions,
+    title: "把数据讲成一支视频",
+    description: "让数字、图表和结论变得一目了然。",
+    prompt: "请制作一支数据解说视频。将下面的数据转成有节奏的图表动效、关键结论和旁白，并制作一支可编辑的视频：[填写数据、观点、时长和受众]",
+  },
+  {
+    icon: Video,
+    title: "给产品补一些好看的画面",
+    description: "拍出细节、材质和真正被使用的瞬间。",
+    prompt: "请为下面的产品设计一组高质感画面。覆盖开场、细节特写、使用场景与收束画面，并为每个画面写出可生成的视频提示词：[填写产品、材质、使用场景和风格参考]",
+  },
+  {
+    icon: Clapperboard,
+    title: "把一个人的故事剪成短片",
+    description: "让采访、日常和细节连成一个故事。",
+    prompt: "请把下面的人物与素材方向策划成一支人物故事短片。输出故事主线、采访问题、配套画面和剪辑节奏：[填写人物、故事、现有素材与目标时长]",
+  },
+  {
+    icon: Sparkles,
+    title: "给短视频想一个好开头",
+    description: "先在前三秒抓住观众，再慢慢把话讲完。",
+    prompt: "请为下面的主题设计 5 个适合短视频的前三秒开场方案。每个方案包含画面、屏幕文案、旁白、音效节奏和后续画面的衔接：[填写主题、平台和目标观众]",
+  },
+  {
+    icon: Clapperboard,
+    title: "做一支教程演示视频",
+    description: "把步骤、重点和操作过程讲得清清楚楚。",
+    prompt: "请制作一支教程演示视频。根据下面的步骤规划屏幕录制、重点标注、字幕、转场和时间轴，再制作一支可编辑的视频：[填写教程主题、步骤、时长和画面素材]",
+  },
+  {
+    icon: Video,
+    title: "做一段循环的氛围视频",
+    description: "给音乐、活动或页面添一点会呼吸的画面。",
+    prompt: "请为下面的主题设计一支可无缝循环的氛围背景视频。明确镜头运动、色彩、循环衔接点和生成提示词：[填写使用场景、时长、画幅和情绪关键词]",
+  },
+  {
+    icon: ImageIcon,
+    title: "做一个好看的视频封面",
+    description: "用一张画面先让人愿意点开。",
+    prompt: "请为下面这支视频设计 3 个有吸引力的封面方向。每个方向包含构图、主体、标题文案、色彩和可直接用于生成图片的提示词：[描述视频主题与目标观众]",
+  },
+];
+
+const STUDIO_HELP_PROMPTS = [
+  { title: "认识 Recut", prompt: "我是第一次使用 Recut。请用简单的话告诉我这里能做什么，并带我从一个最适合的新手视频开始。" },
+  { title: "做我的第一支视频", prompt: "我想从零开始做我的第一支视频。请先问我几个简单的问题，再带我一步一步开始。" },
+  { title: "找回上次的创作", prompt: "我想继续上次的创作。请帮我看看现在可以从哪里接着做。" },
+];
+
+function promptTemplatesForToday() {
+  const templates = [...STUDIO_PROMPT_TEMPLATES];
+  let seed = Math.floor(Date.now() / 86_400_000) >>> 0;
+  for (let index = templates.length - 1; index > 0; index -= 1) {
+    seed = (seed * 1_664_525 + 1_013_904_223) >>> 0;
+    const swapIndex = seed % (index + 1);
+    [templates[index], templates[swapIndex]] = [templates[swapIndex], templates[index]];
+  }
+  return templates.slice(0, 4);
+}
+
 function Studio({ apiBase, installations, onCompose, onStartProject, projects }: { apiBase: string; installations: Installation[]; onCompose: (text: string) => void; onStartProject: (app: Installation) => void; projects: Project[] }) {
-  const [idea, setIdea] = useState("");
-  const suggestions = [
-    { icon: Clapperboard, label: "从脚本生成视频", prompt: "根据这段脚本规划并生成一支完整视频：" },
-    { icon: Video, label: "生成 B-roll", prompt: "为当前创作规划需要的 B-roll，并生成第一组镜头。" },
-    { icon: ImageIcon, label: "生成视频封面", prompt: "为我的视频设计一组吸引人的封面方向。" },
-  ];
   const recentProjects = projects.slice(0, 4);
+  const [promptTemplates, setPromptTemplates] = useState(() => STUDIO_PROMPT_TEMPLATES.slice(0, 4));
+  useEffect(() => setPromptTemplates(promptTemplatesForToday()), []);
   return <div className="pb-10">
     <section className="relative min-h-[21rem] overflow-hidden border-b border-border pb-8 pt-7 sm:min-h-[23rem]">
       <WebGLStudioHero />
@@ -211,10 +299,11 @@ function Studio({ apiBase, installations, onCompose, onStartProject, projects }:
       <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">GOOD MORNING · STUDIO</p>
       <h1 className="mt-3 text-3xl font-semibold leading-tight">你的 AI 创作工作站</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">{inspirationForToday()}</p>
-      <form className="relative z-10 mt-7 max-w-3xl rounded-md border bg-card p-2 shadow-[var(--shadow-overlay)]" onSubmit={(event) => { event.preventDefault(); if (!idea.trim()) return; onCompose(idea.trim()); setIdea(""); }}>
-        <div className="flex items-center gap-3 px-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground"><Sparkles className="size-4" /></span><label className="sr-only" htmlFor="studio-idea">创作想法</label><input className="h-12 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" id="studio-idea" onChange={(event) => setIdea(event.target.value)} placeholder="描述你想创作的内容，Agent 会把它变成可执行的工作流" value={idea} /><Button aria-label="发送创作想法" className="size-9 rounded-md p-0" disabled={!idea.trim()} type="submit"><Send className="size-4" /></Button></div>
-      </form>
-      <div className="relative z-10 mt-3 flex flex-wrap gap-2">{suggestions.map(({ icon: Icon, label, prompt }) => <button className="inline-flex h-9 items-center gap-2 rounded-full border bg-card px-3 text-xs font-medium transition hover:border-primary/30 hover:bg-accent/40" key={label} onClick={() => onCompose(prompt)} type="button"><Icon className="size-3.5 text-primary" />{label}</button>)}</div>
+      <div className="mt-7">
+        <div><h2 className="text-lg font-semibold">今天想做什么？</h2><p className="mt-1 text-sm text-muted-foreground">从一个你已经有感觉的画面开始。</p></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">{promptTemplates.map(({ description, icon: Icon, prompt, title }) => <button aria-label={`从「${title}」开始`} className="group flex min-h-[7.75rem] flex-col rounded-lg border bg-card p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={title} onClick={() => onCompose(prompt)} type="button"><span className="grid size-7 place-items-center rounded-sm bg-accent text-accent-foreground"><Icon className="size-3.5" /></span><p className="mt-2 text-sm font-semibold">{title}</p><p className="mt-0.5 line-clamp-2 text-xs leading-4 text-muted-foreground">{description}</p><span className="mt-auto flex items-center gap-1.5 pt-2 text-xs font-medium text-primary">从这里开始<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></span></button>)}</div>
+        <div className="mt-5 rounded-lg border bg-card p-4 shadow-sm"><p className="text-sm font-semibold">第一次来这里？</p><p className="mt-1 text-xs text-muted-foreground">从认识 Recut 或做第一支视频开始。</p><div className="mt-3 flex flex-wrap gap-2">{STUDIO_HELP_PROMPTS.map(({ prompt, title }) => <button className="inline-flex items-center gap-1.5 rounded-sm border bg-background px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/35 hover:text-primary" key={title} onClick={() => onCompose(prompt)} type="button">{title}<ArrowRight className="size-3" /></button>)}</div></div>
+      </div>
       </div>
     </section>
     <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps">管理 Apps<ArrowRight className="size-3.5" /></Link>} description="已安装的创作能力，按项目或独立工作区直接进入。" title="创作 Apps" />{installations.length ? <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{installations.map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div> : <EmptyHomeApps />}</section>
@@ -338,8 +427,19 @@ function InstalledAppAction({ app, onStartProject }: { app: Installation; onStar
 }
 
 function ServiceGuide({ embedded, error, onConnectRemote }: { embedded?: boolean; error?: string; onConnectRemote: () => void }) {
-  if (embedded) return <Card><CardContent className="flex min-h-80 flex-col items-center justify-center gap-5 p-8 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><div><p className="text-lg font-semibold">本地工作台连接中断</p><p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">当前页面由同一个 Recut service 提供；请刷新页面或检查该 service 的日志。</p></div>{error && <RepairGuide message={error} />}</CardContent></Card>;
-  return <Card><CardContent className="flex min-h-80 flex-col items-center justify-center gap-5 p-8 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><div><p className="text-lg font-semibold">连接一个 service</p><p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">Recut 的数据与执行能力仍在你的电脑上，浏览器正在等待本地 service。</p></div><code className="rounded-md border bg-muted px-4 py-2 text-sm">curl -fsSL https://recut.video/install.sh | sh</code><Button onClick={onConnectRemote} type="button" variant="outline">连接已有的远程 service</Button><p className="max-w-md text-xs leading-5 text-muted-foreground">可以安装本地 service，也可以在连接设置中填入团队或服务器提供的 HTTPS 地址。</p>{error ? <RepairGuide message={error} /> : <RepairGuide message="安装本地 service 过程中出现错误" />}</CardContent></Card>;
+  const [copied, setCopied] = useState(false);
+  const title = embedded ? "本地工作台连接中断" : "启动一个 service";
+  const description = embedded ? "当前页面由同一个 Recut service 提供；请刷新页面或检查该 service 的日志。" : "Recut 的数据与执行能力仍在你的电脑上。安装后会自动启动本地 service。";
+  async function copyInstallCommand() {
+    try {
+      await navigator.clipboard.writeText("curl -fsSL https://recut.video/install.sh | sh");
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2200);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return <section className="mx-auto flex min-h-[30rem] max-w-2xl flex-col items-center justify-center py-12 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><p className="mt-6 font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">LOCAL SERVICE</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">{title}</h1><p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">{description}</p>{!embedded && <><div className="mt-7 flex w-full max-w-xl items-center overflow-hidden rounded-lg bg-foreground text-left text-primary-foreground shadow-sm"><code className="min-w-0 flex-1 overflow-x-auto px-4 py-3 font-mono text-xs">curl -fsSL https://recut.video/install.sh | sh</code><button aria-label="复制安装命令" className="flex h-11 shrink-0 items-center gap-1.5 border-l border-primary-foreground/15 bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/85" onClick={() => void copyInstallCommand()} type="button"><Copy className="size-3.5" />{copied ? "已复制" : "复制"}</button></div><button className="mt-5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground" onClick={onConnectRemote} type="button">连接已有的远程 service</button><p className="mt-2 text-xs leading-5 text-muted-foreground">也可以在连接设置中填入团队或服务器提供的 HTTPS 地址。</p></>}{error && <div className="mt-8 w-full max-w-2xl"><RepairGuide message={error} /></div>}</section>;
 }
 
 function ServiceChecking() {

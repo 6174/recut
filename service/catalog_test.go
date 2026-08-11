@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 manifest-only 注册规则
- * [OUTPUT]: 验证项目型与独立型 App 不需要 project-layout 配置，并锁定本地 App link/manifest 变化会刷新 Catalog
+ * [OUTPUT]: 验证缺失 apps 目录自动初始化为空目录、项目型与独立型 App 不需要 project-layout 配置，并锁定本地 App link/manifest 变化会刷新 Catalog
  * [POS]: service 的扩展注册表回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,6 +11,26 @@ import (
 	"path/filepath"
 	"testing"
 )
+
+func TestCatalogCreatesMissingAppsDirectoryAsEmpty(t *testing.T) {
+	appsDir := filepath.Join(t.TempDir(), "apps")
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(appsDir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("apps directory = %#v, %v", info, err)
+	}
+	apps, err := catalog.List()
+	if err != nil || len(apps) != 0 {
+		t.Fatalf("empty catalog = %#v, %v", apps, err)
+	}
+	installations, err := catalog.Installations()
+	if err != nil || len(installations) != 0 {
+		t.Fatalf("empty installations = %#v, %v", installations, err)
+	}
+}
 
 func TestCatalogLoadsManifestOnlyApps(t *testing.T) {
 	root := t.TempDir()

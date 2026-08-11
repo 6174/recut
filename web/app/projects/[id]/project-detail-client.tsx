@@ -60,7 +60,7 @@ export default function ProjectDetailClient() {
 
   useEffect(() => { setID(projectIDFromLocation(routeID)); }, [routeID]);
   useLayoutEffect(() => {
-    useAgentPanelContext.getState().setContext({ projectID: project?.id ?? null, headerHeight: 56 });
+    useAgentPanelContext.getState().setProjectID(project?.id ?? null);
   }, [project?.id]);
   useReportPageContext(useMemo(() => (project ? { title: project.name, path: `/projects/${id}`, url: window.location.href } : null), [project, id]));
   useEffect(() => {
@@ -146,7 +146,7 @@ export default function ProjectDetailClient() {
   const resolveMediaPicker = (selection: PlatformMediaPickerResult | null) => { mediaPickerReply.current?.(selection); mediaPickerReply.current = null; setMediaPicker(null); };
 
   return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">
-    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5">
+    <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-5">
       <div className="flex min-w-0 items-center gap-4">
         <Link aria-label="返回项目列表" className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><img alt="Recut" className="size-5 shrink-0 rounded-sm object-cover" src="/logo.jpg" /></Link>
         <div aria-hidden="true" className="h-5 w-px bg-border" />

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录的 Catalog、Store、MediaService、TerminalManager、Server 和标准库运行时能力
- * [OUTPUT]: 对外提供含内嵌局域网工作台与进程启动时间 health 的 recut shell service 可执行程序入口、隔离短请求与事件流的双 HTTP 监听、启动同步的 Recut Skill、注入媒体能力的 AppHost、服务重启后 Agent 状态收敛、常驻媒体任务调度与 SIGINT/SIGTERM 优雅关停组合
+ * [OUTPUT]: 对外提供含内嵌局域网工作台、内置 App 启动同步与进程启动时间 health 的 recut shell service 可执行程序入口、隔离短请求与事件流的双 HTTP 监听、启动同步的 Recut Skill、注入媒体能力的 AppHost、服务重启后 Agent 状态收敛、常驻媒体任务调度与 SIGINT/SIGTERM 优雅关停组合
  * [POS]: service 的组合根；只负责运行时配置、能力装配、平台 scope/Skill 初始化、长生命周期媒体回收启动和进程关停，不承载领域逻辑
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -52,6 +52,10 @@ func main() {
 
 	if err := os.MkdirAll(*appsDir, 0o755); err != nil {
 		log.Fatalf("ERROR create apps directory: %v", err)
+	}
+	builtinApps := NewBuiltinAppManager(*appsDir)
+	if err := builtinApps.Ensure(); err != nil {
+		log.Fatalf("ERROR synchronize built-in Apps: %v", err)
 	}
 	skillManager := NewRecutSkillManager(*dataDir)
 	if err := skillManager.Ensure(); err != nil {

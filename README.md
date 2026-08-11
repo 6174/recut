@@ -8,7 +8,7 @@ Recut 是本地 AI 视频工作台，也是类似 Chrome 的 App Host：App 用 
 apps/             本地 App 包与 Vox B-roll、Depth Anything、Cover Studio、Remotion Studio 子模块或源码；通过 make app-link 链接到运行时目录
 operation/        运营与开源协作资产；`official-repo/` 是官方社区 App 总库 submodule
 .gitmodules       外部 App 与官方社区仓库的固定远端与分支配置
-scripts/          当前用户生产 service 的 launchd/systemd 安装器
+scripts/          当前用户 production service 的安装器与内置 App 白名单打包器
 dev/              开发审计与设计记录；不参与运行时
 service/          Daemon：Extension Registry、JS runtime、Media Platform、storage/MCP/HTTP capability 与内嵌本地工作台
 web/              平台工作台源码：导出为 Cloudflare 静态站或随 service 嵌入的本地 UI
@@ -18,7 +18,7 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 
 ## 核心法则
 
-- `manifest.json` 是 App 唯一运行时配置：身份、作者、简短描述、可选 Git 仓库、类型、入口、权限、可选 `onboarding` 引导卡和一次定义的 `operations`。每个 onboarding 必须显式声明 `id`、`title` 和点击后写入的 `prompt`；每个 operation 以 `surfaces` 声明供 UI API、Agent MCP 或两者使用，避免同一业务契约重复。
+- `manifest.json` 是 App 唯一契约：身份、作者、简短描述、可选 Git 仓库、类型、入口、权限、可选 `onboarding` 引导卡、一次定义的 `operations`，以及可选的 `distribution.builtin.include` 发布白名单。每个 onboarding 必须显式声明 `id`、`title` 和点击后写入的 `prompt`；每个 operation 以 `surfaces` 声明供 UI API、Agent MCP 或两者使用，避免同一业务契约重复。
 - `type: project` 绑定用户项目；`type: standalone` 绑定稳定的 App 专属工作区 scope，不显示在项目桌面、不要求项目命名。它们使用同一运行时和 capability API。素材库是平台原生 React 页面，只使用隐藏 media scope 保存资产归属与 Agent 会话，不是 App、没有 manifest、不会进入 Catalog 或 iframe。
 - App 数据模型属于 App 的 JavaScript。平台不解析 `project-layout.json`，不规定表、JSON 文件或工作流步骤。
 - SQLite 是资源真相：App state、Artifact、事件、引用与版本均存表中；媒体平台在 `workspace.sqlite` 管理跨项目 Asset、Provider BYOK 凭据、用途模型 Route 与任务，文件根只保存内容寻址的大二进制，数据库保存其哈希引用。异步媒体先原子持久化稳定的 queued Asset 与 Job；常驻 Daemon 用 SQLite lease 和外部调用 checkpoint 提交 prediction、原位推进 Asset，并周期回收终态。只有已持久化的 prediction 可安全重试，未知外部提交保留原 Asset 并明确失败，避免重复收费；前端只读本地状态。所有媒体依赖以全局 `assetId` 表达；用户上传也先成为带 `origin: user-upload` 的 Asset，再绑定项目与 Agent turn。Project Doc 的可选 `cover` 只引用已完成的图片或视频 Asset，由 owner App 通过 `ctx.project.setCover({ assetId })` 按自身业务逻辑写入，平台只持久化和展示。用户 Agent 对话同样位于根目录 `workspace.sqlite`，与项目数据库解耦。
@@ -26,7 +26,7 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 - Agent 只连平台 MCP Host。Host 以按媒介类型划分的 `recut.image.generate`、`recut.video.generate_async`、`recut.speech.generate_async` 暴露生成能力，另以 `recut.media.*` 提供配置、任务和素材管理；Agent 会话不绑定任何项目，项目由 `recut.project.list` / `recut.project_context` 发现并以显式 target 操作，`recut.project_context` 携带目标项目的默认媒体路由、模型契约和可选参数。图片同步返回资产或终态错误，视频与语音显式返回异步 Job。当前 App 的业务工具仍由 manifest 约束。
 - Chat UI 消费结构化 Agent Session 事件；Codex/Claude 等 native session id 只用于续聊，终端 PTY 保留为兼容与诊断通道。
 - 前端表单控件必须有与 `id` 关联的可见 `label`；`placeholder` 只用于填写示例，不能承担字段名称或可访问性语义。
-- 运行时 App 根默认为 `~/.recut/apps`。开发时运行 `make app-link`，将本仓库的 App 源码包逐个链接到此目录；生产安装可在相同位置放置 Git clone。服务不再从源码仓库的 `apps/` 直接加载。
+- 运行时 App 根默认为 `~/.recut/apps`。发布 binary 内置 `builtinAppList` 中的 App（当前为 Remotion Studio），启动时原子同步其可运行包到该目录，因此首次打开不再是空白 App 列表；开发时 `make app-link` 创建的本地软链接优先，不会被内置同步替换。其他 App 仍可在相同位置以 Git clone 安装，服务不从源码仓库的 `apps/` 直接加载。
 - Recut 平台 Skill 的唯一运行时正文固定在 `~/.recut/skills/recut`：service 启动（包括自更新后的重启）会原子同步二进制内嵌的最新版本，并自动安全软链接至 `~/.agents/skills/recut`、`~/.claude/skills/recut`、`~/.codex/skills/recut` 和 OpenCode 的用户配置目录；Codex、Claude Code、OpenCode 同时原子注册匿名本机 Recut MCP。已存在的其他 Skill 或用户配置只会记录告警，绝不被覆盖；全局设置的 **Recut Skill** Tab 用于查看状态和手动修复。全局设置的 **Recut MCP** Tab 按归属列出本机 MCP Host 可提供的全部工具：平台能力始终可见并归入「平台工具」，App 声明 `mcp` surface 的操作按其归属 App 分组展示。
 - 每个项目在 `.recut/app` 创建指向当前 App 包的符号链接。每个 Codex turn 由 Go 后端内嵌的 `service/prompts/core-agents.md.tmpl` 渲染平台 guide，并注入当前 App 自己的 `AGENTS.md`；该 guide 指示 Agent 从 `.recut/app` 读取、测试和按需修改当前 App 源码。
 
@@ -40,6 +40,6 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 
 `make service-build` 默认构建当前平台；交叉编译使用 `make service-build TARGET=windows-amd64`（同样支持 `darwin-*`、`linux-*`、`freebsd-*`）。`make service-install RECUT_VERSION=0.1.0` 可从源码构建并安装当前 Unix 主机的二进制，注册为 macOS launchd 或 Linux systemd user service；FreeBSD 保留由宿主进程管理器启动。首次打开 `https://recut.video` 时，前端默认检测本地 service；缺失时可安装本地 service，也可在设置中填入已有远程 service 的根地址。远程 service 需对浏览器可达并允许 `https://recut.video` 的跨域请求。`make service-status` 用于检查常驻 service。
 
-首页包含 **Project**、**Apps** 与素材库 Tab。素材库是 service 内置的原生 React 平台能力，不属于 Git 安装、App Catalog、升级管理或 iframe；它的隐藏 media scope 仅服务资产归属和 Agent 会话。Apps 中其余 App 可安装 HTTPS GitHub 仓库，service 只在 clone 后验证标准 `manifest.json` 才激活。已安装的 Git App 定期抓取 `origin`，再以 `git status --porcelain --branch` 读取工作树和 behind 状态；升级拒绝覆盖本地修改，只运行 `git pull --ff-only`，目录仅在存在可安全升级条目时展示一键更新。安装、升级和本地 service 出错时，界面提供可复制给 Codex 或 Claude Code 的诊断任务，而不猜测性修改本机状态。
+首页包含 **Project**、**Apps** 与素材库 Tab。素材库是 service 内置的原生 React 平台能力，不属于 Git 安装、App Catalog、升级管理或 iframe；它的隐藏 media scope 仅服务资产归属和 Agent 会话。首个内置 App Remotion Studio 随 binary 同步，其他 App 可安装 HTTPS GitHub 仓库，service 只在 clone 后验证标准 `manifest.json` 才激活。已安装的 Git App 定期抓取 `origin`，再以 `git status --porcelain --branch` 读取工作树和 behind 状态；升级拒绝覆盖本地修改，只运行 `git pull --ff-only`，目录仅在存在可安全升级条目时展示一键更新。安装、升级和本地 service 出错时，界面提供可复制给 Codex 或 Claude Code 的诊断任务，而不猜测性修改本机状态。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

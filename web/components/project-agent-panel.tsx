@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖按 endpoint 缓存的 Agent 运行时、模型、引导与会话列表、general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
- * [OUTPUT]: 对外提供连接阶段骨架、带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、右上角复制当前会话结构化调试报告的入口、单一全局 general 会话（不做按页面的会话过滤）、可由 App iframe 回填但绝不自动提交的输入草稿、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、创建/同步/重试均可见的状态、输入法保护、当前页面的素材上传/粘贴上下文（素材始终为工作区级，关联项目由 Agent 自行决定）与自动附带且可移除的当前页面上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；过期的取消事件不会覆盖已出现的回复，失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
+ * [OUTPUT]: 对外提供连接阶段骨架、默认本地 service 离线时可复制的安装/启动命令、带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、右上角复制当前会话结构化调试报告的入口、单一全局 general 会话（不做按页面的会话过滤）、可由 App iframe 回填但绝不自动提交的输入草稿、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、创建/同步/重试均可见的状态、输入法保护、当前页面的素材上传/粘贴上下文（素材始终为工作区级，关联项目由 Agent 自行决定）与自动附带且可移除的当前页面上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；过期的取消事件不会覆盖已出现的回复，失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
  * [POS]: components 的通用 Agent 侧栏；由根布局全局挂载为单一会话，路由切换不改变会话或过滤历史，低频快照由 lib/agent-store 跨路由共享，单会话详情仍以 SSE 为真相，存在可用 runtime 的空态允许直接输入并在发送时创建会话
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -56,9 +56,10 @@ import {
   type UploadedAsset,
 } from "@/components/agent-panel-types";
 import { sessionHistoryLabel, useAgentStore } from "@/lib/agent-store";
-import { streamServiceEndpoint } from "@/lib/service-endpoint";
+import { isDefaultServiceEndpoint, isLocalWorkspace, streamServiceEndpoint } from "@/lib/service-endpoint";
 const EMPTY_SESSIONS: Session[] = [];
 const EMPTY_OPENCODE_MODELS: OpencodeModel[] = [];
+const serviceInstallCommand = "curl -fsSL https://recut.video/install.sh | sh";
 
 export function ProjectAgentPanel(props: Props) {
   return (
@@ -105,6 +106,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     useState<CodexConfiguration>(defaultCodexConfiguration);
   const [pendingOpencodeConfig, setPendingOpencodeConfig] =
     useState<OpencodeConfiguration>(defaultOpencodeConfiguration);
+  const [serviceInstallCopyStatus, setServiceInstallCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [now, setNow] = useState(() => Date.now());
   const streamRef = useRef<EventSource | null>(null);
   const cliStreamRef = useRef<EventSource | null>(null);
@@ -537,15 +539,20 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
   }
   if (servicePhase === "checking")
     return <aside aria-busy="true" aria-label="正在连接本地 service" className="h-full overflow-hidden bg-muted/40 p-4"><div className="space-y-3 pt-2"><div className="h-3 w-20 animate-pulse rounded-full bg-muted" /><div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" /><div className="h-3 w-3/5 animate-pulse rounded-full bg-muted" /></div></aside>;
-  if (!online)
+  if (!online) {
+    const canInstallLocalService = !isLocalWorkspace && isDefaultServiceEndpoint(apiBase);
+    async function copyServiceInstallCommand() {
+      const copied = await copyToClipboard(serviceInstallCommand);
+      setServiceInstallCopyStatus(copied ? "copied" : "failed");
+      if (copied) window.setTimeout(() => setServiceInstallCopyStatus("idle"), 2200);
+    }
     return (
       <aside className="h-full overflow-y-auto bg-muted/40 p-4">
-        <p className="text-xs font-medium">Agent 暂不可用</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          本地服务恢复后，会话与记录会自动回到这里。
-        </p>
+        <p className="text-xs font-medium">{canInstallLocalService ? "启动 Recut service" : "Agent 暂不可用"}</p>
+        {canInstallLocalService ? <><p className="mt-1 text-xs leading-5 text-muted-foreground">安装或升级后会自动启动本地 service；连接成功后，对话会回到这里。</p><code className="mt-3 block overflow-x-auto rounded-sm border bg-background px-2 py-2 text-[10px] text-foreground">{serviceInstallCommand}</code><Button className="mt-2 h-8 w-full" onClick={() => void copyServiceInstallCommand()} type="button" variant="outline">{serviceInstallCopyStatus === "copied" ? "已复制安装命令" : serviceInstallCopyStatus === "failed" ? "复制失败，请手动复制" : "复制安装命令"}</Button></> : <p className="mt-1 text-xs leading-5 text-muted-foreground">连接的 service 恢复后，会话与记录会自动回到这里。</p>}
       </aside>
     );
+  }
   const activeRuntime = (detail?.runtime ?? "codex") as Runtime;
   const creatingLabel = creatingRuntime
     ? `正在创建 ${runtimeAgentName(activeRuntime)} 对话…`

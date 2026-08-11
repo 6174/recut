@@ -128,7 +128,7 @@ export function WebGLStudioHero() {
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(27, 1, 0.1, 100);
-    camera.position.set(2.65, 1.45, 8.9);
+    camera.position.set(3.98, 2.12, 13.35);
     camera.lookAt(0, 0.12, 0);
 
     const artwork = new THREE.Group();

@@ -60,7 +60,7 @@ export default function StandaloneAppClient() {
 
   useEffect(() => { setAppID(appIDFromLocation(routeID)); }, [routeID]);
   useLayoutEffect(() => {
-    useAgentPanelContext.getState().setContext({ projectID: null, headerHeight: 56 });
+    useAgentPanelContext.getState().setProjectID(null);
   }, []);
   useReportPageContext(useMemo(() => (app ? { title: app.manifest.name, path: `/workspace-app/${appID}`, url: window.location.href } : null), [app, appID]));
   useEffect(() => {
@@ -146,7 +146,7 @@ export default function StandaloneAppClient() {
   const resolveMediaPicker = (selection: PlatformMediaPickerResult | null) => { mediaPickerReply.current?.(selection); mediaPickerReply.current = null; setMediaPicker(null); };
   const changeSettingsOpen = (open: boolean) => { setSettingsOpen(open); if (!open) setSettingsSection(undefined); };
   return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">
-    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-5"><div className="flex min-w-0 items-center gap-4"><Link aria-label="返回首页" className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><AppWindow className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link><div aria-hidden="true" className="h-5 w-px bg-border" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{app?.manifest.name ?? "工作区 App"}</p><p className="truncate font-mono text-[10px] text-muted-foreground">WORKSPACE APP · 不创建项目</p></div></div><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></header>
+    <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-5"><div className="flex min-w-0 items-center gap-4"><Link aria-label="返回首页" className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><AppWindow className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link><div aria-hidden="true" className="h-5 w-px bg-border" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{app?.manifest.name ?? "工作区 App"}</p><p className="truncate font-mono text-[10px] text-muted-foreground">WORKSPACE APP · 不创建项目</p></div></div><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></header>
     <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]"><section className="h-full min-w-0 overflow-hidden border-l bg-card">{uiURL ? <iframe className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={app?.manifest.name ?? "Recut App"} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">正在准备独立 App 工作区…</div>}</section></div>
     <PlatformMediaPicker apiBase={apiBase} onCancel={() => resolveMediaPicker(null)} onPick={resolveMediaPicker} request={mediaPicker} />
   </main>;

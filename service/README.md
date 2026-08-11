@@ -9,13 +9,14 @@ recut_skill_test.go: 锁定旧 Skill 启动同步覆盖、启动时尽力启用�
 skills/: 随 service 发布的对外 Recut Skill 唯一正文；编译进二进制，不依赖源码仓库存在。
 logging.go: service 可观测性边界；将标准库日志以 UTC 微秒时间戳同时输出到 stderr 与 `<data-dir>/logs/service-YYYY-MM-DD.log`，并按 HTTP 最终状态码记录 INFO/WARN/ERROR 请求审计，保留 SSE、WebSocket 等 ResponseWriter 能力。
 logging_test.go: 锁定请求审计的状态码分级与耗时字段，不创建真实日志文件。
-catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json，按目录与 manifest 指纹在本地 link/修改后原子刷新注册表，强制每个 App 声明作者和简短描述，跟随开发 App 的符号链接且不清空缓存化 Git 远端检查状态；素材库只以无磁盘包的隐藏 scope 供平台 Agent/MCP 使用，旧失效链接不会阻止 daemon 启动。
+catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json；缺失目录会以用户私有权限自动创建并作为零个 App 的正常状态，按目录与 manifest 指纹在本地 link/修改后原子刷新注册表，强制每个 App 声明作者和简短描述，跟随开发 App 的符号链接且不清空缓存化 Git 远端检查状态；素材库只以无磁盘包的隐藏 scope 供平台 Agent/MCP 使用，旧失效链接不会阻止 daemon 启动。
 onboarding.go: 新对话引导真相源；合并当前 App manifest、用户级全局设置，并仅在两者都为空时返回平台内置兜底，严格只使用显式 prompt。
 app_install.go: App 分发边界；仅接受 HTTPS GitHub 地址，在临时 clone 通过 manifest 校验后激活，立即返回缓存化安装状态并在后台单飞抓取远端，任何 clone/fetch/pull 均不持有 Catalog 锁；以 Git status/fast-forward 管理单个或批量升级，原生素材库不进入 App 分发链。
 app_install_test.go: 锁定 GitHub 地址规范化、dirty Git 工作树识别、本地目录刷新不清空远端检查缓存、后台远端检查不阻塞 Catalog 读取与临时本地 remote 的更新检测/批量升级，不访问网络。
 appstore.go, appstore/apps.json: 内嵌的可安装 App 市场清单及其本地覆盖读取；`recut.apps.store` 以此返回全部官方 App 的仓库与安装状态。
-updater.go: macOS service 自更新器；下载并校验 Cloudflare 发布 manifest/归档，原子替换当前 binary 后交给 launchd 重启，并只对已安装的 `recut-service` 暴露重启能力。
-updater_test.go, server_update_test.go: 锁定自更新归档提取和 HTTP 可用性边界；不下载、替换或重启真实 daemon。
+builtin_apps.go, builtin_apps/: 内置 App 分发边界；发布构建把明确名单中的运行时 App 包压缩进 Go binary，服务启动时原子同步到 apps 目录，开发期 `app-link` 软链接保持优先。
+updater.go: macOS service 自更新器；下载并校验 Cloudflare 发布 manifest/归档，使用 macOS 系统 PEM 根证书做严格 TLS 链校验以规避新系统的 Security.framework 桥接异常，仍以归档 SHA-256 校验内容，原子替换当前 binary 后交给 launchd 重启，并只对已安装的 `recut-service` 暴露重启能力。
+updater_test.go, server_update_test.go: 锁定自更新归档提取、显式 PEM 根证书 TLS 校验和 HTTP 可用性边界；不下载、替换或重启真实 daemon。
 project.go: 创建平台项目并按 App scope 提供 SQLite、文件、Artifact 与可选 `cover` 元数据存储；owner App 选定已完成 image/video Asset 后，项目封面随 Project Doc 返回且记录更新事件；独立型 App 使用稳定但不出现在项目列表中的工作区 scope，原生素材库与首页 general chat 各使用同样隐藏的系统 scope；每个 SQLite 文件在 service 内由共享的有限连接池管理，连接统一启用 WAL、NORMAL 同步与 15 秒 busy timeout，既允许嵌套读取又让并发写入等待而非随机失败；缓存句柄以 100ms 上限探测，连接池繁忙时继续复用、调用方已关闭时才重开。
 runtime.go: 在 Goja sandbox 中执行 App background.js，并注入统一 operation 注册器；同一 handler 可按 manifest surface 暴露给 UI API 与 MCP；项目型 App 以 `ctx.project.setCover({ assetId })` 选择自己的 completed image/video 封面，平台验证类型并自动关联该 Asset；获授权的 App 可将已完成 Asset materialize 到私有文件、在用户确认后以流式 reader import 私有输出（自动关联当前 Project），避免长视频占满内存，并使用通用 `ctx.shell` Job 或 manifest 声明的 `ctx.python` venv，模型根固定注入为 `~/.recut/models`。
 shell_jobs.go: 可恢复的非交互本地进程任务；以单锁保护状态/日志的落盘与读取，持久化 queued/running/terminal 状态和顺序 stdout/stderr JSONL 日志，投递项目事件，并在 service 日志记录不含命令参数的排队/终态审计；命令名从合并后的最终 PATH 解析，确保 App 注入的 Python venv 真正生效；取消句柄在排队时即建立，队列和运行阶段都可可靠取消，daemon 重启时将未完成任务收敛为 interrupted；每个任务置于独立进程组，取消/超时按组终止整棵进程树（make → node 等孙进程不残留为孤儿）。

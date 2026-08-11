@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 self-update 归档提取与发布包名称契约
- * [OUTPUT]: 验证 updater 只接受目标 binary，不会写入 archive 中的其他文件
+ * [INPUT]: 依赖 self-update 归档提取、发布包名称契约与本地 TLS 测试服务器
+ * [OUTPUT]: 验证 updater 只接受目标 binary，不会写入 archive 中的其他文件，并使用显式 PEM 根证书保持 TLS 校验
  * [POS]: service 自更新边界的纯本地回归测试；不下载、不替换实际 daemon
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -10,6 +10,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,6 +38,31 @@ func TestExtractReleaseBinaryRejectsMissingTarget(t *testing.T) {
 	archive := releaseArchive(t, map[string]string{"other": "binary"})
 	if _, err := extractReleaseBinary(bytes.NewReader(archive), "recut-service-darwin-arm64", t.TempDir()); err == nil {
 		t.Fatal("missing binary was accepted")
+	}
+}
+
+func TestTLSHTTPClientVerifiesPEMRoot(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	certificatePath := filepath.Join(t.TempDir(), "roots.pem")
+	pemData := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	if err := os.WriteFile(certificatePath, pemData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	roots, err := certificatePoolFromPEM(certificatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := newTLSHTTPClient(roots).Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d", response.StatusCode)
 	}
 }
 

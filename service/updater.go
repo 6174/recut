@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖公开 release manifest、macOS launchd、当前 service 二进制路径与标准库网络/归档能力
- * [OUTPUT]: 对外提供已校验发布包的下载、原子 self-update 与延迟重启能力
+ * [INPUT]: 依赖公开 release manifest、macOS launchd、当前 service 二进制路径、macOS 系统 PEM 根证书与标准库网络/归档能力
+ * [OUTPUT]: 对外提供严格校验证书与 SHA-256 的发布包下载、原子 self-update 与延迟重启能力
  * [POS]: service 的自更新边界；浏览器只请求本机 API，二进制替换和 launchd 重启始终由 daemon 自己完成
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,6 +11,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -26,6 +28,7 @@ import (
 )
 
 const defaultUpdateBaseURL = "https://recut.video"
+const macOSSystemCertificateBundle = "/etc/ssl/cert.pem"
 
 type releaseManifest struct {
 	Version  string                    `json:"version"`
@@ -53,12 +56,41 @@ func NewServiceUpdater() *ServiceUpdater {
 	}
 	return &ServiceUpdater{
 		downloadBase: base,
-		httpClient:   &http.Client{Timeout: 90 * time.Second},
+		httpClient:   newUpdateHTTPClient(),
 		executable:   os.Executable,
 		goos:         runtime.GOOS,
 		goarch:       runtime.GOARCH,
 		restart:      restartLaunchdService,
 	}
+}
+
+func newUpdateHTTPClient() *http.Client {
+	if runtime.GOOS != "darwin" {
+		return &http.Client{Timeout: 90 * time.Second}
+	}
+	roots, err := certificatePoolFromPEM(macOSSystemCertificateBundle)
+	if err != nil {
+		return &http.Client{Timeout: 90 * time.Second}
+	}
+	return newTLSHTTPClient(roots)
+}
+
+func certificatePoolFromPEM(path string) (*x509.CertPool, error) {
+	pemData, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read system certificate bundle: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(pemData) {
+		return nil, errors.New("system certificate bundle contains no certificates")
+	}
+	return roots, nil
+}
+
+func newTLSHTTPClient(roots *x509.CertPool) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: roots}
+	return &http.Client{Timeout: 90 * time.Second, Transport: transport}
 }
 
 func (u *ServiceUpdater) Update() (string, error) {
