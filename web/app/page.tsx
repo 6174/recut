@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与工作台目录状态、静态 App Catalog、Agent Session HTTP API 及全局 Agent 面板上下文
- * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和 service 连接错误诊断
+ * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、Agent Session HTTP API 及全局 Agent 面板上下文
+ * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和 service 连接错误诊断
  * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -8,7 +8,7 @@
 
 import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, ImageIcon, LoaderCircle, Music2, Plus, Send, Sparkles, Store, Video, X } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { FormEvent, MouseEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { AppUpdateAllControl, AppVersionControl } from "@/components/app-version-control";
@@ -36,8 +36,8 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
   const apps = useWorkspaceStore((state) => state.apps);
   const installations = useWorkspaceStore((state) => state.installations);
   const projects = useWorkspaceStore((state) => state.projects);
-  const workspaceState = useWorkspaceStore((state) => state.state);
-  const workspaceError = useWorkspaceStore((state) => state.error);
+  const installationsState = useWorkspaceStore((state) => state.installationsState);
+  const installationsError = useWorkspaceStore((state) => state.installationsError);
   const loadWorkspace = useWorkspaceStore((state) => state.load);
   const [appID, setAppID] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("app") ?? "");
   const [name, setName] = useState("");
@@ -67,6 +67,15 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
     if (!online) return;
     void loadWorkspace(apiBase);
   }, [apiBase, loadWorkspace, online]);
+
+  useEffect(() => {
+    function syncTabFromHistory() {
+      const next = tabFromPath(window.location.pathname);
+      if (next) setTab(next);
+    }
+    window.addEventListener("popstate", syncTabFromHistory);
+    return () => window.removeEventListener("popstate", syncTabFromHistory);
+  }, []);
 
   useEffect(() => {
     const projectApps = apps.filter((app) => app.manifest.type === "project");
@@ -114,9 +123,16 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
     if (!open) setSettingsSection(undefined);
   }
 
+  function navigateTab(next: WorkspaceTab, href: string, event: MouseEvent<HTMLAnchorElement>) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (window.location.pathname !== href) window.history.pushState(null, "", href);
+    setTab(next);
+  }
+
   const detail = appDetail?.({ onConnectService: openServiceSettings, serviceOnline: online });
-  const appInstallationLoadState: InstallationLoadState = online ? workspaceState : service.phase === "checking" ? "loading" : "offline";
-  const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={workspaceError} installationLoadState={appInstallationLoadState} onStartProject={openCreateProject} onUpdated={reloadWorkspace} serviceOnline={online} />
+  const appInstallationLoadState: InstallationLoadState = online ? installationsState : service.phase === "checking" ? "loading" : "offline";
+  const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={installationsError} installationLoadState={appInstallationLoadState} onStartProject={openCreateProject} onUpdated={reloadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
     : tab === "studio" ? <Studio apiBase={apiBase} installations={installations} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onStartProject={openCreateProject} projects={projects} />
@@ -124,7 +140,7 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
         : <MediaLibraryPanel onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-5">
-      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label="工作台" className="flex min-w-0 items-center gap-0.5 sm:gap-1"><Tab active={tab === "studio"} href="/">Studio</Tab><Tab active={tab === "projects"} href="/projects">Projects</Tab><Tab active={tab === "assets"} href="/media">Assets</Tab><Tab active={tab === "apps"} href="/apps">Apps</Tab></nav></div>
+      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label="工作台" className="flex min-w-0 items-center gap-0.5 sm:gap-1"><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">Studio</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">Projects</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">Assets</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">Apps</Tab></nav></div>
       <div className="hidden md:block"><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>
     </header>
     <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]">
@@ -136,8 +152,16 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
 
 export default Workspace;
 
-function Tab({ active, children, href }: { active: boolean; children: React.ReactNode; href: string }) {
-  return <Link aria-current={active ? "page" : undefined} className={active ? "rounded-lg bg-accent px-2 py-1.5 text-[11px] font-semibold text-accent-foreground sm:px-2.5 sm:text-xs" : "rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground sm:px-2.5 sm:text-xs"} href={href}>{children}</Link>;
+function tabFromPath(pathname: string): WorkspaceTab | null {
+  if (pathname === "/") return "studio";
+  if (pathname === "/projects" || pathname === "/projects/") return "projects";
+  if (pathname === "/media" || pathname === "/media/") return "assets";
+  if (pathname === "/apps" || pathname === "/apps/") return "apps";
+  return null;
+}
+
+function Tab({ active, children, href, onNavigate, tab }: { active: boolean; children: React.ReactNode; href: string; onNavigate: (tab: WorkspaceTab, href: string, event: MouseEvent<HTMLAnchorElement>) => void; tab: WorkspaceTab }) {
+  return <a aria-current={active ? "page" : undefined} className={active ? "rounded-lg bg-accent px-2 py-1.5 text-[11px] font-semibold text-accent-foreground sm:px-2.5 sm:text-xs" : "rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground sm:px-2.5 sm:text-xs"} href={href} onClick={(event) => onNavigate(tab, href, event)}>{children}</a>;
 }
 
 function Projects({ apps, name, onAppChange, onNameChange, onSubmit, projects, selectedApp }: { apps: App[]; name: string; onAppChange: (value: string) => void; onNameChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
@@ -319,7 +343,7 @@ function ServiceGuide({ embedded, error, onConnectRemote }: { embedded?: boolean
 }
 
 function ServiceChecking() {
-  return <Card><CardContent className="grid min-h-80 place-items-center p-8 text-center"><div><span className="mx-auto block size-2 animate-pulse rounded-full bg-muted-foreground" /><p className="mt-4 text-sm text-muted-foreground">正在连接本地 service…</p></div></CardContent></Card>;
+  return <section aria-busy="true" aria-label="正在连接本地 service" className="grid min-h-80 place-items-center p-8 text-center"><div><span className="mx-auto block size-2 animate-pulse rounded-full bg-muted-foreground" /><p className="mt-4 text-sm text-muted-foreground">正在连接本地 service…</p></div></section>;
 }
 
 function SectionTitle({ action, count, description, title }: { action?: React.ReactNode; count?: string; description: string; title: string }) {

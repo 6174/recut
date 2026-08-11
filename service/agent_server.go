@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentManager 的本地持久化会话和 HTTP SSE 传输能力
- * [OUTPUT]: 对外提供通用 scope 的 Agent Session 创建、Codex 配置更新、OpenCode 实时模型目录、按项目解析/全局保存 onboarding、查询、含图片资产引用与泛化消息上下文的发送、停止、结构化事件与仅内存 CLI 调试流订阅 HTTP API，并区分不存在和存储读取失败
+ * [OUTPUT]: 对外提供通用 scope 的 Agent Session 创建、Codex 配置更新、OpenCode 实时模型目录（CLI 未安装时返回空目录）、按项目解析/全局保存 onboarding、查询、含图片资产引用与泛化消息上下文的发送、停止、结构化事件与仅内存 CLI 调试流订阅 HTTP API，并区分不存在和存储读取失败
  * [POS]: service 的结构化对话传输边界；与 terminal HTTP API 并存且互不代理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -91,6 +91,13 @@ func (s *Server) listAgentSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listOpencodeModels(w http.ResponseWriter, r *http.Request) {
+	// OpenCode is optional. Its absence is a normal capability state, not a
+	// service failure; clients can use the empty directory to keep its picker
+	// dormant while another runtime (for example Codex) remains usable.
+	if _, available := s.store.agentCommands.Available("opencode"); !available {
+		writeJSON(w, http.StatusOK, []OpencodeModel{})
+		return
+	}
 	models, err := s.agents.cachedOpencodeModels(r.Context())
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, err)

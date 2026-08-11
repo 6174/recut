@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog、Store 与 Server 的本地 HTTP 路由
- * [OUTPUT]: 锁定全局 onboarding 保存、通用/项目/独立 App 三类 scope 的会话隔离与最新优先、通用会话创建、上下文入队与详情回读及非法上下文拒绝、CLI 调试流的 SSE 换行格式及 LAN CORS 的 HTTP 契约
+ * [OUTPUT]: 锁定全局 onboarding 保存、OpenCode 缺失时模型目录正常为空、通用/项目/独立 App 三类 scope 的会话隔离与最新优先、通用会话创建、上下文入队与详情回读及非法上下文拒绝、CLI 调试流的 SSE 换行格式及 LAN CORS 的 HTTP 契约
  * [POS]: service 的 Agent 传输层回归测试；不启动真实 daemon 或 Agent CLI
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -98,6 +98,26 @@ func TestAgentOnboardingHTTP(t *testing.T) {
 	handler.ServeHTTP(recorder, deniedPreflight)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("untrusted preflight = %d", recorder.Code)
+	}
+}
+
+func TestOpencodeModelsMissingCLIIsAnEmptyDirectory(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	store.agentCommands.resolve = func(string) AgentCommandDiagnostic { return AgentCommandDiagnostic{} }
+	manager := NewAgentManager(store, nil, nil)
+	handler := NewServer(nil, store, nil, nil, manager, nil, nil).routes()
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/agents/opencode/models", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("missing OpenCode models = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var models []OpencodeModel
+	if err := json.Unmarshal(recorder.Body.Bytes(), &models); err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 0 {
+		t.Fatalf("missing OpenCode models = %#v", models)
 	}
 }
 

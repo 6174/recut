@@ -141,7 +141,7 @@ export type Detail = Session & {
   events: AgentEvent[];
   lastEventId: number;
 };
-export type Props = { apiBase: string; online: boolean; projectID: string | null; draft?: { id: string; text: string } | null; pageContext?: PageContext | null };
+export type Props = { apiBase: string; servicePhase: "checking" | "online" | "offline"; projectID: string | null; draft?: { id: string; text: string } | null; pageContext?: PageContext | null };
 
 type SessionDebugReportInput = {
   apiBase: string;

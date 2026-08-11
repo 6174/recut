@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖按 endpoint 缓存的 Agent 运行时、模型、引导与会话列表、general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
- * [OUTPUT]: 对外提供带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、右上角复制当前会话结构化调试报告的入口、单一全局 general 会话（不做按页面的会话过滤）、可由 App iframe 回填但绝不自动提交的输入草稿、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、创建/同步/重试均可见的状态、输入法保护、当前页面的素材上传/粘贴上下文（素材始终为工作区级，关联项目由 Agent 自行决定）与自动附带且可移除的当前页面上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；过期的取消事件不会覆盖已出现的回复，失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
+ * [OUTPUT]: 对外提供连接阶段骨架、带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、右上角复制当前会话结构化调试报告的入口、单一全局 general 会话（不做按页面的会话过滤）、可由 App iframe 回填但绝不自动提交的输入草稿、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、创建/同步/重试均可见的状态、输入法保护、当前页面的素材上传/粘贴上下文（素材始终为工作区级，关联项目由 Agent 自行决定）与自动附带且可移除的当前页面上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；过期的取消事件不会覆盖已出现的回复，失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
  * [POS]: components 的通用 Agent 侧栏；由根布局全局挂载为单一会话，路由切换不改变会话或过滤历史，低频快照由 lib/agent-store 跨路由共享，单会话详情仍以 SSE 为真相，存在可用 runtime 的空态允许直接输入并在发送时创建会话
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -67,7 +67,8 @@ export function ProjectAgentPanel(props: Props) {
     </MediaAssetEventsProvider>
   );
 }
-function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, projectID }: Props) {
+function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, servicePhase }: Props) {
+  const online = servicePhase === "online";
   // 全局单一会话：不随路由切换改变会话或按页面过滤历史。
   const scope = "general";
   const sessions = useAgentStore((state) => state.sessionsByScope[scope] ?? EMPTY_SESSIONS);
@@ -132,8 +133,9 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
     setLoadingSessions(online);
     if (online) {
       void loadSessions(scopeVersion);
-      void loadRuntimeStatus(scopeVersion);
-      void loadOpencodeModels(scopeVersion);
+      void loadRuntimeStatus(scopeVersion).then((status) => {
+        if (status?.some((agent) => agent.id === "opencode" && agent.available)) void loadOpencodeModels(scopeVersion);
+      });
     }
   }, [apiBase, online]);
   useEffect(
@@ -533,6 +535,8 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
     await refresh(activeID);
     return true;
   }
+  if (servicePhase === "checking")
+    return <aside aria-busy="true" aria-label="正在连接本地 service" className="h-full overflow-hidden bg-muted/40 p-4"><div className="space-y-3 pt-2"><div className="h-3 w-20 animate-pulse rounded-full bg-muted" /><div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" /><div className="h-3 w-3/5 animate-pulse rounded-full bg-muted" /></div></aside>;
   if (!online)
     return (
       <aside className="h-full overflow-y-auto bg-muted/40 p-4">
@@ -563,6 +567,9 @@ function ProjectAgentPanelContent({ apiBase, draft, online, pageContext, project
     targetID?: string,
   ): Promise<AgentRuntimeStatus[] | null> {
     const status = await loadCachedRuntimeStatus(apiBase, true);
+    if (status?.some((agent) => agent.id === "opencode" && agent.available)) {
+      await loadCachedOpencodeModels(apiBase, true);
+    }
     if (activeID) await refresh(activeID);
     if (targetID && status?.find((agent) => agent.id === targetID)?.available) {
       setInstallDialogAgent(null);

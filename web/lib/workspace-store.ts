@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Zustand 与 Recut service 的 App、项目、已安装 App HTTP API
- * [OUTPUT]: 对外提供含可选媒体封面的当前 service 项目/App/安装目录、按 ID 项目详情、独立 App scope 快照、请求去重与显式失效刷新
+ * [OUTPUT]: 对外提供含可选媒体封面的当前 service 项目/App/安装目录及各自独立的读取状态与具体失败原因、按 ID 项目详情、独立 App scope 快照、请求去重与显式失效刷新
  * [POS]: web/lib 的工作台目录缓存；写操作成功后刷新，绝不使用页面级定时轮询维持一致性
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -23,6 +23,8 @@ type WorkspaceStore = {
   workspaceScopesByAppID: Record<string, WorkspaceScope>;
   state: WorkspaceLoadState;
   error: string;
+  installationsState: WorkspaceLoadState;
+  installationsError: string;
   load: (endpoint: string, force?: boolean) => Promise<void>;
   loadProject: (endpoint: string, projectID: string, force?: boolean) => Promise<WorkspaceProjectDetail>;
   loadWorkspaceScope: (endpoint: string, appID: string, force?: boolean) => Promise<WorkspaceScope>;
@@ -42,6 +44,8 @@ function emptyWorkspace(endpoint: string) {
     workspaceScopesByAppID: {},
     state: "loading" as const,
     error: "",
+    installationsState: "loading" as const,
+    installationsError: "",
   };
 }
 
@@ -54,20 +58,32 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   workspaceScopesByAppID: {},
   state: "loading",
   error: "",
+  installationsState: "loading",
+  installationsError: "",
   load: async (endpoint, force = false) => {
     if (get().endpoint !== endpoint) set(emptyWorkspace(endpoint));
     if (!force && get().state === "ready") return;
     const current = requests.get(endpoint);
     if (current) return current;
     const pending = (async () => {
-      set({ state: "loading", error: "" });
+      set({ state: "loading", error: "", installationsState: "loading", installationsError: "" });
       try {
-        const [appResponse, projectResponse, installationResponse] = await Promise.all([fetch(`${endpoint}/v1/apps`), fetch(`${endpoint}/v1/projects`), fetch(`${endpoint}/v1/apps/installed`)]);
-        if (!appResponse.ok || !projectResponse.ok || !installationResponse.ok) throw new Error("本地 service 返回了无效响应");
-        const [apps, projects, installations] = await Promise.all([appResponse.json() as Promise<WorkspaceApp[]>, projectResponse.json() as Promise<WorkspaceProject[]>, installationResponse.json() as Promise<WorkspaceInstallation[]>]);
-        if (get().endpoint === endpoint) set({ apps, projects, installations, state: "ready", error: "" });
-      } catch {
-        if (get().endpoint === endpoint) set({ state: "failed", error: "无法读取已安装 App，请稍后重试。" });
+        const [appsResult, projectsResult, installationsResult] = await Promise.allSettled([
+          fetchWorkspaceJSON<WorkspaceApp[]>(`${endpoint}/v1/apps`, "App 目录"),
+          fetchWorkspaceJSON<WorkspaceProject[]>(`${endpoint}/v1/projects`, "项目列表"),
+          fetchWorkspaceJSON<WorkspaceInstallation[]>(`${endpoint}/v1/apps/installed`, "已安装 App"),
+        ]);
+        if (get().endpoint !== endpoint) return;
+        const failures = [appsResult, projectsResult, installationsResult].filter((result): result is PromiseRejectedResult => result.status === "rejected");
+        set({
+          apps: appsResult.status === "fulfilled" ? appsResult.value : [],
+          projects: projectsResult.status === "fulfilled" ? projectsResult.value : [],
+          installations: installationsResult.status === "fulfilled" ? installationsResult.value : [],
+          state: failures.length ? "failed" : "ready",
+          error: failures.map((result) => messageOf(result.reason)).join("；"),
+          installationsState: installationsResult.status === "fulfilled" ? "ready" : "failed",
+          installationsError: installationsResult.status === "rejected" ? messageOf(installationsResult.reason) : "",
+        });
       } finally {
         requests.delete(endpoint);
       }
@@ -114,3 +130,14 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     return pending;
   },
 }));
+
+async function fetchWorkspaceJSON<T>(url: string, label: string): Promise<T> {
+  const response = await fetch(url);
+  if (response.ok) return response.json() as Promise<T>;
+  const body = await response.json().catch(() => ({})) as { error?: string };
+  throw new Error(`${label}读取失败（${response.status}）：${body.error ?? response.statusText ?? "服务未说明原因"}`);
+}
+
+function messageOf(cause: unknown) {
+  return cause instanceof Error ? cause.message : "服务未说明原因";
+}
