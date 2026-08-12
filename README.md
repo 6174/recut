@@ -40,6 +40,6 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 
 `make service-build` 默认构建当前平台；交叉编译使用 `make service-build TARGET=windows-amd64`（同样支持 `darwin-*`、`linux-*`、`freebsd-*`）。`make service-install RECUT_VERSION=0.1.0` 可从源码构建并安装当前 Unix 主机的二进制，注册为 macOS launchd 或 Linux systemd user service；FreeBSD 保留由宿主进程管理器启动。首次打开 `https://recut.video` 时，前端默认检测本地 service；缺失时可安装本地 service，也可在设置中填入已有远程 service 的根地址。远程 service 需对浏览器可达并允许 `https://recut.video` 的跨域请求。`make service-status` 用于检查常驻 service。
 
-首页包含 **Project**、**Apps** 与素材库 Tab。素材库是 service 内置的原生 React 平台能力，不属于 Git 安装、App Catalog、升级管理或 iframe；它的隐藏 media scope 仅服务资产归属和 Agent 会话。首个内置 App Remotion Studio 随 binary 同步，其他 App 可安装 HTTPS GitHub 仓库，service 只在 clone 后验证标准 `manifest.json` 才激活。已安装的 Git App 定期抓取 `origin`，再以 `git status --porcelain --branch` 读取工作树和 behind 状态；升级拒绝覆盖本地修改，只运行 `git pull --ff-only`，目录仅在存在可安全升级条目时展示一键更新。安装、升级和本地 service 出错时，界面提供可复制给 Codex 或 Claude Code 的诊断任务，而不猜测性修改本机状态。
+首页包含 **Project**、**Apps** 与素材库 Tab。素材库是 service 内置的原生 React 平台能力，不属于 Git 安装、App Catalog、升级管理或 iframe；它的隐藏 media scope 仅服务资产归属和 Agent 会话。首个内置 App Remotion Studio 随 binary 同步，其他 App 可安装 HTTPS GitHub 仓库，service 只在 clone 后验证标准 `manifest.json` 才激活。已安装的 Git App 定期抓取 `origin`，再以 `git status --porcelain --branch` 读取工作树和 behind 状态；后台检查结束经事件流刷新工作台目录，使更新提示无需页面轮询或手动刷新。升级拒绝覆盖本地修改，只运行 `git pull --ff-only`；远端更新和本地修改同时存在时，界面明确提示更新已发现且本地修改受保护，目录仅在存在可安全升级条目时展示一键更新。安装、升级和本地 service 出错时，界面提供可复制给 Codex 或 Claude Code 的诊断任务，而不猜测性修改本机状态。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

@@ -80,6 +80,8 @@ type App struct {
 type Catalog struct {
 	mu                  sync.RWMutex
 	installationCheckMu sync.Mutex
+	installationEvents  *changeHub
+	installationVersion uint64
 	lastRemoteCheck     time.Time
 	remoteCheckErrors   map[string]string
 	remoteCheckRunning  bool
@@ -94,11 +96,20 @@ func LoadCatalog(dir string) (*Catalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve apps directory: %w", err)
 	}
-	catalog := &Catalog{dir: absolute, remoteChecker: refreshGitRemote}
+	catalog := &Catalog{dir: absolute, remoteChecker: refreshGitRemote, installationEvents: newChangeHub()}
 	if err := catalog.Reload(); err != nil {
 		return nil, err
 	}
 	return catalog, nil
+}
+
+// installationChangeSnapshot returns a durable in-memory version paired with
+// the current wakeup channel. Reading them under one lock means an SSE reader
+// cannot miss a completed background fetch between its initial flush and wait.
+func (c *Catalog) installationChangeSnapshot() (uint64, <-chan struct{}) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.installationVersion, c.installationEvents.wait()
 }
 
 func (c *Catalog) Reload() error {

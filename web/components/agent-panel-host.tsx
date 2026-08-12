@@ -11,6 +11,7 @@ import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { useAgentPanelContext } from "@/lib/agent-panel-context";
 import { useServiceStore } from "@/lib/service-store";
+import { useAppInstallationEvents } from "@/components/use-app-installation-events";
 
 const workspaceHeaderHeight = 64;
 
@@ -21,6 +22,7 @@ export function AgentPanelHost({ children }: Readonly<{ children: React.ReactNod
   const draft = useAgentPanelContext((state) => state.draft);
   const pageContext = useAgentPanelContext((state) => state.pageContext);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.agent-panel-width" });
+  useAppInstallationEvents(apiBase, servicePhase === "online");
   return (
     <div className="relative flex min-h-screen min-w-0 flex-col overflow-hidden bg-background md:h-screen" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>

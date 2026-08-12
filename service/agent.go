@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、持久化 CLI 定位缓存、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
- * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、OpenCode 连续六分钟静默才取消的 watchdog、停止时原子取消当前批次并重置原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、泛化的消息上下文（media/page/可扩展类型）注册与提示词/CLI 拼装、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
+ * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、OpenCode 连续六分钟静默才取消的 watchdog、Codex 可重试连接状态与终态传输错误的区分、停止时原子取消当前批次并重置原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、泛化的消息上下文（media/page/可扩展类型）注册与提示词/CLI 拼装、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
  * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份，会话不绑定任何项目，项目与 App 完全由 MCP 上下文工具发现
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -962,7 +962,13 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		args = append(args, material.Args...)
 	}
 	args = append(args, "--json", "--", userTurn.runtimePrompt()+contextPrompt(materials))
-	cmd, stdout, stderr, err := m.startCLI(ctx, "codex", args, workspace, nil)
+	// Codex can report a retryable transport problem as a top-level `error`
+	// event, then emit a completed error item once recovery has been exhausted.
+	// Its process may otherwise remain alive after that terminal item, so give
+	// this invocation its own cancellation boundary and close it explicitly.
+	runtimeCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd, stdout, stderr, err := m.startCLI(runtimeCtx, "codex", args, workspace, nil)
 	if err != nil {
 		return err
 	}
@@ -981,13 +987,17 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	}()
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	var terminalErr error
 	for scanner.Scan() {
 		m.captureCLIOutput(session.ID, "stdout", scanner.Text())
 		var raw map[string]any
 		if json.Unmarshal(scanner.Bytes(), &raw) != nil {
 			continue
 		}
-		m.handleCodexEvent(session.ID, userTurn.ID, raw)
+		if eventErr := m.handleCodexEvent(session.ID, userTurn.ID, raw); eventErr != nil && terminalErr == nil {
+			terminalErr = eventErr
+			cancel()
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return err
@@ -996,12 +1006,15 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		if ctx.Err() != nil {
 			return errors.New("已停止")
 		}
+		if terminalErr != nil {
+			return terminalErr
+		}
 		if message := strings.TrimSpace(stderrText.String()); message != "" {
 			return errors.New(message)
 		}
 		return err
 	}
-	return nil
+	return terminalErr
 }
 
 // Claude Code exposes a documented stream-json contract. Its session id is
@@ -1406,7 +1419,7 @@ func (t ChatTurn) runtimePrompt() string {
 	return "请结合本条消息附带的上下文进行分析。"
 }
 
-func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string]any) {
+func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string]any) error {
 	typeName, _ := raw["type"].(string)
 	item, _ := raw["item"].(map[string]any)
 	itemType, _ := item["type"].(string)
@@ -1423,6 +1436,11 @@ func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string
 			m.emit(sessionID, turnID, "tool.started", codexToolPayload(item, itemType, "input"))
 		}
 	case "item.completed", "item.failed":
+		if itemType == "error" {
+			message := codexErrorMessage(item)
+			m.emit(sessionID, turnID, "status", map[string]any{"phase": "error", "label": message})
+			return errors.New(message)
+		}
 		if itemType == "agent_message" {
 			text, _ := item["text"].(string)
 			if strings.TrimSpace(text) != "" {
@@ -1441,8 +1459,22 @@ func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string
 			m.emit(sessionID, turnID, eventType, codexToolPayload(item, itemType, phase))
 		}
 	case "error":
-		m.emit(sessionID, turnID, "status", map[string]any{"phase": "error", "label": "Agent 返回错误"})
+		// A top-level error is often only Codex's reconnect progress. Keep the
+		// turn alive and make the actual message visible; item.error above is
+		// the terminal signal that transitions the turn into a failed state.
+		m.emit(sessionID, turnID, "status", map[string]any{"phase": "retrying", "label": "正在重连：" + codexErrorMessage(raw)})
 	}
+	return nil
+}
+
+func codexErrorMessage(value map[string]any) string {
+	for _, key := range []string{"message", "error"} {
+		text, ok := value[key].(string)
+		if ok && strings.TrimSpace(text) != "" {
+			return strings.TrimSpace(text)
+		}
+	}
+	return "Codex 连接失败，未返回错误详情"
 }
 
 func (m *AgentManager) handleClaudeEvent(sessionID, turnID string, raw map[string]any) {

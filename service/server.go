@@ -85,6 +85,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/apps", s.listApps)
 	mux.HandleFunc("GET /v1/apps/store", s.listAppStore)
 	mux.HandleFunc("GET /v1/apps/installed", s.listAppInstallations)
+	mux.HandleFunc("GET /v1/apps/events", s.streamAppInstallationEvents)
 	mux.HandleFunc("POST /v1/apps/install", s.installApp)
 	mux.HandleFunc("POST /v1/apps/update", s.updateApps)
 	mux.HandleFunc("POST /v1/apps/{package}/update", s.updateApp)
@@ -318,6 +319,52 @@ func (s *Server) listAppInstallations(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, installations)
+}
+
+// streamAppInstallationEvents tells the workspace when a background Git fetch
+// has refreshed the installation snapshot. The browser then performs one
+// normal directory read; this stream carries no duplicated installation state.
+func (s *Server) streamAppInstallationEvents(w http.ResponseWriter, r *http.Request) {
+	if s.apps == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("App catalog is unavailable"))
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, errors.New("streaming is unavailable"))
+		return
+	}
+	version, changes := s.apps.installationChangeSnapshot()
+	if !writeAppInstallationSSE(w, "event: app.installations.updated\ndata: {}\n\n") {
+		return
+	}
+	flusher.Flush()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-changes:
+			nextVersion, nextChanges := s.apps.installationChangeSnapshot()
+			changes = nextChanges
+			if nextVersion == version {
+				continue
+			}
+			version = nextVersion
+			if !writeAppInstallationSSE(w, "event: app.installations.updated\ndata: {}\n\n") {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+func writeAppInstallationSSE(w io.Writer, value string) bool {
+	_, err := io.WriteString(w, value)
+	return err == nil
 }
 
 func (s *Server) installApp(w http.ResponseWriter, r *http.Request) {

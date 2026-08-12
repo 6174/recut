@@ -93,6 +93,8 @@ func (c *Catalog) refreshRemoteStatuses() {
 	c.remoteCheckErrors = errors
 	c.lastRemoteCheck = time.Now()
 	c.remoteCheckRunning = false
+	c.installationVersion++
+	c.installationEvents.notify()
 	c.mu.Unlock()
 }
 

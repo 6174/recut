@@ -8,6 +8,8 @@ package main
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -144,6 +146,47 @@ func TestInstallationsReturnCachedStateDuringRemoteCheck(t *testing.T) {
 	case <-listed:
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("catalog list waited for the remote check")
+	}
+}
+
+func TestAppInstallationEventsNotifyAfterRemoteCheck(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	appDir := filepath.Join(appsDir, "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	catalog.remoteChecker = func(string) error {
+		close(started)
+		<-release
+		return nil
+	}
+	handler := NewServer(catalog, nil, nil, nil, nil, nil, nil).routes()
+	stream, stop := startMediaSSE(t, handler, httptest.NewRequest(http.MethodGet, "/v1/apps/events", nil))
+	defer stop()
+	initial := readMediaSSE(t, stream)
+	if initial.Event != "app.installations.updated" || string(initial.Data) != "{}" {
+		t.Fatalf("initial installation SSE event = %#v", initial)
+	}
+	if _, err := catalog.Installations(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("remote check did not start")
+	}
+	close(release)
+	update := readMediaSSE(t, stream)
+	if update.Event != "app.installations.updated" || string(update.Data) != "{}" {
+		t.Fatalf("installation SSE update = %#v", update)
 	}
 }
 

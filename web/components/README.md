@@ -27,6 +27,7 @@ recut-skill-settings.tsx: Recut Skill 全局设置子面板；读取 daemon 启�
 header-actions.tsx: 工作台 Header 右侧的统一操作组合；在页面流中汇集项目 GitHub 主页外链、service 状态、全局设置与可选页面上下文操作，首页与项目详情共用。
 service-control.tsx: Header 内的 service 控制入口；通过 Zustand 初始化并每 30 秒刷新唯一 endpoint 的全局状态，展示 health 提供的进程启动时间，并在启动时间变化后确认升级或 launchd 重启完成；所有已连通 service 均提供新标签页诊断日志入口，查看 CLI 解析、PATH 与近期 service 日志，接口仍由 service 限制在本地网络；发现本地 service 更新时将 Header 状态切换为醒目的更新操作，核心工作区保持可用；本地已安装 daemon 才允许网页执行这些操作，远程 service 只展示连接状态。
 app-version-control.tsx: Git App 版本交互原子；项目 Header 和 Apps 目录复用，单项升级经确认执行，且仅在存在可升级、无本地修改条目时提供一键更新，始终保留 dirty Git 工作树保护。
+use-app-installation-events.tsx: App 安装目录事件桥；根工作台壳订阅后台 Git 检查完成事件后显式刷新唯一 workspace 快照，不用页面级轮询，远端更新与本地修改同时存在时也会显示保护状态。
 create-app-dialog.tsx: Apps 顶部的新建应用引导；交付指向公开架构与 Recut API 标准的可复制 AI Prompt，不直接改写用户的应用目录。
 install-git-app-dialog.tsx: Apps 顶部的 Git 安装入口；将 GitHub 仓库交给本地 service 校验并安装，成功后通知目录刷新。
 use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧更新共享 CSS 宽度变量，左侧对话栏、右侧内容与手柄即时响应，暴露拖动状态以遮蔽 iframe，松手后才持久化宽度，避免渲染拥塞或跨文档丢失指针事件；当前只被根布局全局挂载的 Agent 面板宿主消费。

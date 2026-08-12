@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Agent 附件与泛化上下文格式化函数
- * [OUTPUT]: 验证 Agent 附件身份、页面上下文 materializer、上下文提示词分组、标题兜底、Codex 与 OpenCode 工具输入/输出/错误和成本字段分离、OpenCode 静默 watchdog、仅内存 CLI 调试流的回放与订阅、CLI 定位缓存的持久化/失效刷新/启动重试、共享 SQLite 的 WAL/并发写入策略、单连接池会话详情读取、停止时原子取消 active/queued Turn 并重置 OpenCode 会话，以及服务重启后的中断状态收敛
+ * [OUTPUT]: 验证 Agent 附件身份、页面上下文 materializer、上下文提示词分组、标题兜底、Codex 可重试连接状态与终态传输错误、Codex 与 OpenCode 工具输入/输出/错误和成本字段分离、OpenCode 静默 watchdog、仅内存 CLI 调试流的回放与订阅、CLI 定位缓存的持久化/失效刷新/启动重试、共享 SQLite 的 WAL/并发写入策略、单连接池会话详情读取、停止时原子取消 active/queued Turn 并重置 OpenCode 会话，以及服务重启后的中断状态收敛
  * [POS]: service 的 Agent 协议回归测试；防止附件退化为裸路径或取消永久悬挂
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -524,6 +524,41 @@ func TestCodexToolFailureDetection(t *testing.T) {
 	}
 	if codexToolFailed(map[string]any{"status": "completed", "is_error": false}) {
 		t.Fatal("successful tool call was marked failed")
+	}
+}
+
+func TestCodexTransportErrorsDistinguishReconnectFromTerminalFailure(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewAgentManager(store, nil, nil)
+	session, err := manager.Create("codex", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.handleCodexEvent(session.ID, "turn-1", map[string]any{
+		"type":    "error",
+		"message": "Reconnecting... 2/5 (request timed out)",
+	}); err != nil {
+		t.Fatalf("reconnect event was terminal: %v", err)
+	}
+	err = manager.handleCodexEvent(session.ID, "turn-1", map[string]any{
+		"type": "item.completed",
+		"item": map[string]any{
+			"type":    "error",
+			"message": "Falling back from WebSockets to HTTPS transport. request timed out",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "request timed out") {
+		t.Fatalf("terminal transport error = %v", err)
+	}
+	events, err := manager.Events(session.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Payload.(map[string]any)["phase"] != "retrying" || events[1].Payload.(map[string]any)["phase"] != "error" {
+		t.Fatalf("transport events = %#v", events)
 	}
 }
 
