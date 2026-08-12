@@ -488,3 +488,51 @@ func TestMCPToolsEndpointServesGroupedTools(t *testing.T) {
 	}
 }
 
+func TestRecutJobMCPToolsSurfaceLocalShellJobs(t *testing.T) {
+	store, project := testShellJobScope(t)
+	job, err := NewShellJobManager(store).Start(ShellJobStart{ProjectID: project.ID, AppID: project.AppID, Command: "sh", Args: []string{"-c", "printf job-mcp-tool"}, Dir: t.TempDir(), TimeoutSeconds: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewShellJobManager(store).WaitByID(job.ID, 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	host := NewAppHost(store.catalog, store)
+	checks := []struct{ name, arguments, want string }{
+		{"recut.job.status", `{"jobId":"` + job.ID + `"}`, `"status":"completed"`},
+		{"recut.job.wait", `{"jobId":"` + job.ID + `","timeoutSeconds":2}`, `"status":"completed"`},
+		{"recut.job.logs", `{"jobId":"` + job.ID + `","limit":10}`, "job-mcp-tool"},
+	}
+	for _, check := range checks {
+		result, err := handleMCP(NewAgentBridge(store), host, NewMediaService(store), AgentSession{ID: "s1"}, mcpRequest{
+			Method: "tools/call",
+			Params: json.RawMessage(`{"name":"` + check.name + `","arguments":` + check.arguments + `}`),
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", check.name, err)
+		}
+		text := result.(map[string]any)["content"].([]map[string]string)[0]["text"]
+		if !strings.Contains(text, check.want) {
+			t.Fatalf("%s text = %s, want substring %q", check.name, text, check.want)
+		}
+	}
+
+	// The global tool list exposes the platform job group.
+	definitions := map[string]map[string]any{}
+	for _, tool := range platformMCPToolDefinitions() {
+		definitions[tool["name"].(string)] = tool
+	}
+	for _, name := range []string{"recut.job.status", "recut.job.wait", "recut.job.logs", "recut.job.cancel"} {
+		if _, exists := definitions[name]; !exists {
+			t.Fatalf("platform tool %q is not exposed", name)
+		}
+	}
+
+	// Cancelling a missing job surfaces a clear error.
+	if _, err := handleMCP(NewAgentBridge(store), host, NewMediaService(store), AgentSession{ID: "s1"}, mcpRequest{
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"recut.job.cancel","arguments":{"jobId":"missing"}}`),
+	}); err == nil {
+		t.Fatal("recut.job.cancel accepted a missing job")
+	}
+}

@@ -7,6 +7,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -799,6 +801,147 @@ func TestReferenceAssetIsGlobalAndAttachable(t *testing.T) {
 	metadata, _ := assets[0].Metadata["reference"].(map[string]any)
 	if metadata["url"] != "https://example.com/report?edition=1" || metadata["sourceKind"] != "article" {
 		t.Fatalf("reference metadata = %#v", assets[0].Metadata)
+	}
+}
+
+func TestReferenceAssetStoresContentAndImageParts(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	apps, err := LoadCatalog(filepath.Dir(appDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(t.TempDir(), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	media := NewMediaService(store)
+	imageBytes := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("pixel", 16))
+	bodyText := "# 标题\n\n第一段正文，支持证据。\n\n第二段限制。"
+	asset, err := media.CreateReferenceAsset(ReferenceAssetInput{
+		Name: "文章正文", URL: "https://example.com/essay", SourceKind: "article", Summary: "事实摘要",
+		Description: "来源简介", Excerpt: "直接引文", Author: "作者", PublishedAt: "2026-01-02T00:00:00Z",
+		SiteName: "Example", Language: "zh", ThumbnailURL: "https://example.com/cover.png",
+		Content: bodyText, ContentMimeType: "text/markdown",
+		ImageData: base64.StdEncoding.EncodeToString(imageBytes), ImageMimeType: "image/png",
+		ChannelName: "频道", DurationSec: 123.5, ViewCount: 1200, LikeCount: 88,
+	})
+	if err != nil {
+		t.Fatalf("create reference with content = %#v, %v", asset, err)
+	}
+	// Re-read from the workspace database so numeric metadata values decode to
+	// float64 exactly as consumers (MCP, web) observe them.
+	stored, err := media.GetAsset(asset.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference, ok := stored.Metadata["reference"].(map[string]any)
+	if !ok {
+		t.Fatalf("reference metadata missing: %#v", stored.Metadata)
+	}
+	if reference["siteName"] != "Example" || reference["language"] != "zh" || reference["publishedAt"] != "2026-01-02T00:00:00Z" {
+		t.Fatalf("reference metadata = %#v", reference)
+	}
+	if reference["contentWordCount"] != float64(len(strings.Fields(bodyText))) || reference["contentLength"] != float64(len(bodyText)) || reference["contentMimeType"] != "text/markdown" {
+		t.Fatalf("content summary metadata = %#v", reference)
+	}
+	mediaMeta, ok := reference["media"].(map[string]any)
+	if !ok || mediaMeta["channelName"] != "频道" || mediaMeta["durationSeconds"] != 123.5 || mediaMeta["viewCount"] != float64(1200) || mediaMeta["likeCount"] != float64(88) {
+		t.Fatalf("media metadata = %#v", reference["media"])
+	}
+	parts, ok := reference["parts"].(map[string]any)
+	if !ok || len(parts) != 2 {
+		t.Fatalf("reference parts = %#v", reference["parts"])
+	}
+	contentPart, contentBytes, err := media.GetAssetPart(asset.ID, "content")
+	if err != nil || contentPart.MimeType != "text/markdown" || !strings.Contains(string(contentBytes), "支持证据") {
+		t.Fatalf("GetAssetPart(content) = %#v, %v", contentPart, err)
+	}
+	imagePart, imageBytesOut, err := media.GetAssetPart(asset.ID, "image")
+	if err != nil || imagePart.MimeType != "image/png" || !bytes.Equal(imageBytesOut, imageBytes) {
+		t.Fatalf("GetAssetPart(image) = %#v, %v", imagePart, err)
+	}
+	if _, _, err := media.GetAssetPart(asset.ID, "missing"); err == nil {
+		t.Fatalf("GetAssetPart(missing) should fail")
+	}
+
+	handler := NewServer(nil, store, nil, nil, nil, nil, media).routes()
+	contentRequest := httptest.NewRecorder()
+	handler.ServeHTTP(contentRequest, httptest.NewRequest(http.MethodGet, "/v1/media/assets/"+asset.ID+"/parts/content", nil))
+	if contentRequest.Code != http.StatusOK || !strings.Contains(contentRequest.Body.String(), "支持证据") {
+		t.Fatalf("content part http = %d %q", contentRequest.Code, contentRequest.Body.String())
+	}
+	imageRequest := httptest.NewRecorder()
+	handler.ServeHTTP(imageRequest, httptest.NewRequest(http.MethodGet, "/v1/media/assets/"+asset.ID+"/parts/image", nil))
+	if imageRequest.Code != http.StatusOK || imageRequest.Body.String() != string(imageBytes) {
+		t.Fatalf("image part http = %d", imageRequest.Code)
+	}
+
+	dedup, err := media.CreateReferenceAsset(ReferenceAssetInput{Name: "同一文章", URL: "https://example.com/essay", SourceKind: "article"})
+	if err != nil || dedup.ID != asset.ID {
+		t.Fatalf("reference must deduplicate by canonical URL: first=%s second=%s err=%v", asset.ID, dedup.ID, err)
+	}
+	invalidImage, err := media.CreateReferenceAsset(ReferenceAssetInput{Name: "坏图", URL: "https://example.com/bad", SourceKind: "image", ImageData: base64.StdEncoding.EncodeToString([]byte("not-an-image"))})
+	if err == nil || invalidImage.ID != "" {
+		t.Fatalf("invalid image must be rejected: %#v, %v", invalidImage, err)
+	}
+}
+
+func TestReferenceAssetFillInOnDedup(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	media := NewMediaService(store)
+	imageBytes := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("pixel", 16))
+	bodyText := "# 补全的正文\n\n第二段。"
+	first, err := media.CreateReferenceAsset(ReferenceAssetInput{Name: "首登记", URL: "https://example.com/fill", SourceKind: "article"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parts, _ := first.Metadata["reference"].(map[string]any); parts["parts"] != nil {
+		t.Fatalf("first registration must have no parts: %#v", parts)
+	}
+	filled, err := media.CreateReferenceAsset(ReferenceAssetInput{
+		Name: "首登记", URL: "https://example.com/fill", SourceKind: "article", Summary: "补全摘要",
+		Content: bodyText, ImageData: base64.StdEncoding.EncodeToString(imageBytes), ImageMimeType: "image/png",
+		ChannelName: "频道", ViewCount: 42,
+	})
+	if err != nil || filled.ID != first.ID {
+		t.Fatalf("fill-in must reuse the same URL identity: first=%s filled=%s err=%v", first.ID, filled.ID, err)
+	}
+	stored, err := media.GetAsset(filled.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference, _ := stored.Metadata["reference"].(map[string]any)
+	parts, _ := reference["parts"].(map[string]any)
+	if len(parts) != 2 {
+		t.Fatalf("fill-in must add missing parts: %#v", reference["parts"])
+	}
+	if reference["summary"] != "补全摘要" || reference["contentWordCount"] != float64(len(strings.Fields(bodyText))) {
+		t.Fatalf("fill-in metadata = %#v", reference)
+	}
+	mediaMeta, _ := reference["media"].(map[string]any)
+	if mediaMeta["channelName"] != "频道" || mediaMeta["viewCount"] != float64(42) {
+		t.Fatalf("fill-in media = %#v", reference["media"])
+	}
+	if _, content, err := media.GetAssetPart(filled.ID, "content"); err != nil || !strings.Contains(string(content), "补全的正文") {
+		t.Fatalf("fill-in content part = %v", err)
+	}
+	if _, image, err := media.GetAssetPart(filled.ID, "image"); err != nil || !bytes.Equal(image, imageBytes) {
+		t.Fatalf("fill-in image part = %v", err)
+	}
+	// A later registration must not overwrite already-present content.
+	repeat, err := media.CreateReferenceAsset(ReferenceAssetInput{Name: "首登记", URL: "https://example.com/fill", SourceKind: "article", Content: "# 会覆盖的正文"})
+	if err != nil || repeat.ID != first.ID {
+		t.Fatalf("repeat registration = %#v, %v", repeat, err)
+	}
+	if _, content, err := media.GetAssetPart(repeat.ID, "content"); err != nil || !strings.Contains(string(content), "补全的正文") {
+		t.Fatalf("existing content must not be overwritten: %v", err)
 	}
 }
 

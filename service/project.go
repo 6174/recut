@@ -385,6 +385,15 @@ create index if not exists media_asset_projects_project on media_asset_projects(
 create index if not exists media_asset_events_asset on media_asset_events(asset_id, id);
 create index if not exists media_jobs_updated on media_jobs(updated_at desc);
 create index if not exists media_task_leases_expiry on media_task_leases(expires_at_ms);
+create table if not exists shell_jobs (
+  id text primary key, project_id text not null default '', app_id text not null,
+  status text not null, command text not null default '', args_json text not null default '[]',
+  exit_code integer not null default 0, error text not null default '',
+  started_at text not null default '', ended_at text not null default '',
+  created_at text not null, updated_at text not null
+);
+create index if not exists shell_jobs_scope on shell_jobs(project_id, created_at desc);
+create index if not exists shell_jobs_status on shell_jobs(status);
 create table if not exists agent_tasks (
   id text primary key, session_id text not null, status text not null,
   input_doc_ids_json text not null, output_doc_ids_json text not null,

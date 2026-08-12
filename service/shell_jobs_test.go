@@ -7,6 +7,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -138,6 +139,81 @@ func TestShellJobBlockingExecuteRejectsIndefinite(t *testing.T) {
 	jobs := NewShellJobManager(store)
 	if _, err := jobs.Execute(ShellJobStart{ProjectID: project.ID, AppID: project.AppID, Command: "sh", Args: []string{"-c", "true"}, Dir: t.TempDir(), TimeoutSeconds: 0}); err == nil {
 		t.Fatal("blocking Execute accepted timeoutSeconds 0")
+	}
+}
+
+func TestShellJobFindByIDAcrossProjectAndAppstateScopes(t *testing.T) {
+	store, project := testShellJobScope(t)
+	jobs := NewShellJobManager(store)
+
+	job, err := jobs.Start(ShellJobStart{ProjectID: project.ID, AppID: project.AppID, Command: "sh", Args: []string{"-c", "printf global-lookup"}, Dir: t.TempDir(), TimeoutSeconds: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := jobs.FindByID(job.ID)
+	if err != nil || found.ID != job.ID || found.ProjectID != project.ID || found.AppID != project.AppID {
+		t.Fatalf("FindByID = %#v, err = %v", found, err)
+	}
+	if _, err := jobs.FindByID("missing"); err == nil {
+		t.Fatal("FindByID accepted a missing job")
+	}
+
+	terminal, err := jobs.WaitByID(job.ID, 10*time.Second)
+	if err != nil || terminal.Status != ShellJobCompleted {
+		t.Fatalf("WaitByID = %#v, err = %v", terminal, err)
+	}
+	logs, err := jobs.LogsByID(job.ID)
+	if err != nil || len(logs) == 0 || !strings.Contains(logs[0].Text, "global-lookup") {
+		t.Fatalf("LogsByID = %#v, err = %v", logs, err)
+	}
+
+	// Standalone appstate scope (ProjectID "") is locatable by id too.
+	standalone, err := jobs.Start(ShellJobStart{ProjectID: "", AppID: "example.standalone", Command: "sh", Args: []string{"-c", "true"}, Dir: t.TempDir(), TimeoutSeconds: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	standaloneFound, err := jobs.FindByID(standalone.ID)
+	if err != nil || standaloneFound.ProjectID != "" || standaloneFound.AppID != "example.standalone" {
+		t.Fatalf("standalone FindByID = %#v, err = %v", standaloneFound, err)
+	}
+}
+
+func TestShellJobCancelByID(t *testing.T) {
+	store, project := testShellJobScope(t)
+	jobs := NewShellJobManager(store)
+	job, err := jobs.Start(ShellJobStart{ProjectID: project.ID, AppID: project.AppID, Command: "sh", Args: []string{"-c", "sleep 5"}, Dir: t.TempDir(), TimeoutSeconds: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := jobs.CancelByID(job.ID); err != nil {
+		t.Fatal(err)
+	}
+	done, err := jobs.WaitByID(job.ID, 10*time.Second)
+	if err != nil || done.Status != ShellJobCancelled {
+		t.Fatalf("job = %#v, err = %v", done, err)
+	}
+}
+
+func TestShellJobMigratesLegacyFilesIntoTable(t *testing.T) {
+	store, project := testShellJobScope(t)
+	legacy := ShellJob{ID: "legacy-job", ProjectID: project.ID, AppID: project.AppID, Status: ShellJobRunning, Command: "sh"}
+	raw, _ := json.Marshal(legacy)
+	legacyDir := filepath.Join(store.projectDir(project.ID), "shell-jobs")
+	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(legacyDir, "legacy-job.json"), string(raw))
+
+	jobs := NewShellJobManager(store)
+	if count, err := jobs.RecoverInterrupted(); err != nil || count != 1 {
+		t.Fatalf("recovered = %d, err = %v", count, err)
+	}
+	job, err := jobs.FindByID("legacy-job")
+	if err != nil || job.Status != ShellJobInterrupted {
+		t.Fatalf("job = %#v, err = %v", job, err)
+	}
+	if _, err := os.Stat(filepath.Join(legacyDir, "legacy-job.json")); !os.IsNotExist(err) {
+		t.Fatal("legacy job record file was not removed after migration")
 	}
 }
 

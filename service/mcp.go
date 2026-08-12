@@ -78,6 +78,10 @@ func platformMCPToolDefinitions() []map[string]any {
 		platformTool("recut.project.list", "列出全部用户项目（Doc metadata：id、name、owner App、版本）。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.project.get", "读取一个项目的 Doc metadata。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}}}),
 		platformTool("recut.project_context", "读取一个项目的深层上下文：owner App 的 workflow.context、已产出 Artifact、appState 与项目绝对路径（paths.projectFilesRoot）。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "要读取上下文的 Project Doc ID。"}}}),
+		platformTool("recut.job.status", "读取一个本地 App 任务（shell job）的当前状态：queued / running / completed / failed / cancelled / interrupted。App 的异步操作（如 audio.install/transcribe、depth.generate、render.export）返回的 jobId 都可用此工具查询。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
+		platformTool("recut.job.wait", "等待一个本地 App 任务达到终态（completed / failed / cancelled / interrupted）。超时返回当前状态而不报错，可继续用 recut.job.status 轮询。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}),
+		platformTool("recut.job.logs", "读取一个本地 App 任务的 stdout/stderr 日志，供失败诊断。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 2000, "description": "只返回最近 N 行，默认 300。"}}}),
+		platformTool("recut.job.cancel", "取消一个 queued / running 的本地 App 任务。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
 	)
 	tools = append(tools, mediaMCPToolDefinitions()...)
 	return tools
@@ -212,6 +216,9 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 	}
 	if isMediaMCPTool(name) {
 		return mediaMCPTool(bridge.store, media, session, name, arguments)
+	}
+	if strings.HasPrefix(name, "recut.job.") {
+		return jobMCPTool(host.jobs, name, arguments)
 	}
 	prefix, appID, ok := splitAppTool(name)
 	if !ok {
@@ -559,7 +566,13 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 	case "recut.media.create_reference":
 		result, err = media.CreateReferenceAsset(ReferenceAssetInput{
 			Name: stringValue(input["name"]), URL: stringValue(input["url"]), SourceKind: stringValue(input["sourceKind"]),
-			Summary: stringValue(input["summary"]), Author: stringValue(input["author"]), PublishedAt: stringValue(input["publishedAt"]), ThumbnailURL: stringValue(input["thumbnailUrl"]),
+			Summary: stringValue(input["summary"]), Description: stringValue(input["description"]), Excerpt: stringValue(input["excerpt"]),
+			Author: stringValue(input["author"]), PublishedAt: stringValue(input["publishedAt"]), SiteName: stringValue(input["siteName"]),
+			Language: stringValue(input["language"]), ThumbnailURL: stringValue(input["thumbnailUrl"]),
+			Content: stringValue(input["content"]), ContentMimeType: stringValue(input["contentMimeType"]),
+			ImageData: stringValue(input["imageData"]), ImageMimeType: stringValue(input["imageMimeType"]),
+			ChannelName: stringValue(input["channelName"]), ChannelURL: stringValue(input["channelUrl"]),
+			DurationSec: numericValue(input["durationSeconds"]), ViewCount: int64(numericValue(input["viewCount"])), LikeCount: int64(numericValue(input["likeCount"])),
 		})
 	case "recut.media.attach":
 		id, _ := input["assetId"].(string)
@@ -595,7 +608,7 @@ func mediaMCPToolDefinitions() []map[string]any {
 		{"name": "recut.media.wait_for_job", "description": "等待本地 Daemon 已提交的媒体任务达到 completed 或 failed。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}},
 		{"name": "recut.media.list_assets", "description": "检索工作区或指定项目的可复用媒体素材。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}}}},
 		{"name": "recut.media.import_image", "description": "将 Codex 原生生成后已写入会话工作区的图片归档为 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。", "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "会话工作区内的相对图片路径。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
-		{"name": "recut.media.create_reference", "description": "把文章、网页、YouTube、小红书、抖音等公开链接登记为可跨项目复用的全局 reference Asset。只保存规范 URL 与可审阅元数据，不抓取或下载外部内容。", "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、youtube、xiaohongshu、douyin、web。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "author": map[string]string{"type": "string"}, "publishedAt": map[string]string{"type": "string"}, "thumbnailUrl": map[string]string{"type": "string"}}}},
+		{"name": "recut.media.create_reference", "description": "把文章、网页、YouTube、小红书、抖音等公开链接登记为可跨项目复用的全局 reference Asset。URL 是唯一身份并按规范 URL 去重；可同时提交正文全文（article/web 的真实文章数据）、base64 图片（真实图片数据）与尽量完整的平台元数据。正文与图片作为不可变 parts 随素材保存，可经素材 parts 接口审阅；服务本身不抓取或下载外部内容。", "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL；作为全局去重身份。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、web、youtube、xiaohongshu、douyin、image。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "description": map[string]string{"type": "string", "description": "来源自身的简介或视频简介。"}, "excerpt": map[string]string{"type": "string", "description": "直接引用的原文片段，便于审阅。"}, "author": map[string]string{"type": "string", "description": "作者或发布者名称。"}, "publishedAt": map[string]string{"type": "string", "description": "发布时间（ISO-8601）。"}, "siteName": map[string]string{"type": "string", "description": "站点名称，如 The New York Times。"}, "language": map[string]string{"type": "string", "description": "内容语言代码，如 zh、en。"}, "thumbnailUrl": map[string]string{"type": "string", "description": "来源封面/缩略图 URL。"}, "content": map[string]string{"type": "string", "description": "文章或网页的完整正文（真实文章数据）；保存为 content part，默认 text/markdown。"}, "contentMimeType": map[string]string{"type": "string", "description": "正文 part 的 MIME 类型，缺省 text/markdown；限 text/*、application/json、application/xml。"}, "imageData": map[string]string{"type": "string", "description": "图片内容（base64 或 data: URL）；保存为不可变的 image part，限 20MB。"}, "imageMimeType": map[string]string{"type": "string", "description": "图片 MIME 类型，如 image/png、image/jpeg。"}, "channelName": map[string]string{"type": "string", "description": "YouTube 等视频平台的频道/账号名。"}, "channelUrl": map[string]string{"type": "string", "description": "频道主页 URL。"}, "durationSeconds": map[string]any{"type": "number", "description": "视频时长（秒）。"}, "viewCount": map[string]any{"type": "integer", "description": "播放量。"}, "likeCount": map[string]any{"type": "integer", "description": "点赞数。"}}}},
 		{"name": "recut.media.attach", "description": "把现有媒体 assetId 引用到目标项目。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "projectId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},
 	}
 }
@@ -607,6 +620,100 @@ func mediaWaitTimeout(input map[string]any) time.Duration {
 		seconds = maximum
 	}
 	return time.Duration(seconds * float64(time.Second))
+}
+
+// jobMCPTool implements the platform job observation surface (recut.job.*),
+// mirroring the media-layer contract but for local App shell jobs. It reads the
+// single ShellJobManager every App long task already flows through.
+func jobMCPTool(jobs *ShellJobManager, name string, input map[string]any) (any, error) {
+	jobID, _ := input["jobId"].(string)
+	if strings.TrimSpace(jobID) == "" {
+		return nil, errors.New("jobId is required")
+	}
+	var result any
+	var err error
+	switch name {
+	case "recut.job.status":
+		var job ShellJob
+		job, err = jobs.FindByID(jobID)
+		result = jobView(job)
+	case "recut.job.wait":
+		var job ShellJob
+		job, err = jobs.WaitByID(jobID, jobWaitTimeout(input))
+		result = jobView(job)
+	case "recut.job.logs":
+		var logs []ShellJobLog
+		logs, err = jobs.LogsByID(jobID)
+		if err == nil {
+			result = jobLogViews(logs, input)
+		}
+	case "recut.job.cancel":
+		var job ShellJob
+		job, err = jobs.FindByID(jobID)
+		if err != nil {
+			break
+		}
+		if job.Status != ShellJobQueued && job.Status != ShellJobRunning {
+			result = map[string]any{"jobId": jobID, "cancelled": false, "status": string(job.Status)}
+			break
+		}
+		err = jobs.CancelByID(jobID)
+		result = map[string]any{"jobId": jobID, "cancelled": err == nil}
+	default:
+		return nil, fmt.Errorf("unknown job tool %q", name)
+	}
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(result)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+func jobView(job ShellJob) map[string]any {
+	view := map[string]any{
+		"id":        job.ID,
+		"projectId": job.ProjectID,
+		"appId":     job.AppID,
+		"status":    string(job.Status),
+		"exitCode":  job.ExitCode,
+		"error":     job.Error,
+	}
+	if job.StartedAt != nil {
+		view["startedAt"] = job.StartedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if job.EndedAt != nil {
+		view["endedAt"] = job.EndedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if job.CreatedAt != nil {
+		view["createdAt"] = job.CreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return view
+}
+
+func jobWaitTimeout(input map[string]any) time.Duration {
+	seconds, _ := input["timeoutSeconds"].(float64)
+	if seconds <= 0 || seconds > 300 {
+		seconds = 300
+	}
+	return time.Duration(seconds * float64(time.Second))
+}
+
+func jobLogViews(logs []ShellJobLog, input map[string]any) []map[string]any {
+	limit := int64(300)
+	if value, ok := input["limit"].(float64); ok && value > 0 {
+		limit = int64(value)
+	}
+	if limit > 2000 {
+		limit = 2000
+	}
+	views := make([]map[string]any, 0, len(logs))
+	for _, entry := range logs {
+		views = append(views, shellLogMap(entry))
+	}
+	if limit < int64(len(views)) {
+		views = views[len(views)-int(limit):]
+	}
+	return views
 }
 
 func importNativeImage(store *Store, media *MediaService, session AgentSession, input map[string]any) (MediaAsset, error) {

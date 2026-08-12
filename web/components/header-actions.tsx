@@ -15,7 +15,7 @@ import { SettingsPanel } from "@/components/settings-panel";
 type HeaderActionsProps = {
   children?: ReactNode;
   settingsOpen?: boolean;
-  settingsSection?: "service" | "apps" | "multimodal" | "skill";
+  settingsSection?: "service" | "multimodal" | "skill" | "mcp";
   onSettingsOpenChange?: (open: boolean) => void;
 };
 

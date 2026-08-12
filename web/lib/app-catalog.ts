@@ -14,7 +14,13 @@ export type AppManifest = {
   type: "project" | "standalone";
 };
 
-export type CatalogApp = { manifest: AppManifest };
+export type AppRequirement = {
+  title: string;
+  items: string[];
+  note?: string;
+};
+
+export type CatalogApp = { manifest: AppManifest; requirements?: AppRequirement };
 
 export const appCatalog: CatalogApp[] = [
   {
@@ -59,6 +65,15 @@ export const appCatalog: CatalogApp[] = [
       repository: "https://github.com/6174/recut-audio-studio",
       version: "0.1.0",
       type: "standalone",
+    },
+    requirements: {
+      title: "运行前请确认设备条件",
+      items: [
+        "基础转写建议至少 16 GB 内存；要稳定创建声音角色和合成配音，建议 32 GB 及以上。8 GB 内存或较旧设备不建议下载。",
+        "建议至少预留 15 GB 磁盘空间；Qwen3-ASR 0.6B 连同时间戳对齐器约 3.5 GB，CosyVoice2-0.5B 约 1 GB，Python 运行环境和缓存还会占用额外空间；下载多个模型需要更多空间。",
+        "想要较快的 Qwen 转写，推荐 Windows / Linux 上具备 8 GB 以上显存的 NVIDIA CUDA 显卡。纯 CPU 与 Apple 芯片 Mac 也能运行，但当前版本不会使用 Apple GPU 加速，Qwen 和配音会明显更慢。",
+      ],
+      note: "模型在本机运行。安装 App 不会下载权重；只有你在声音工坊中选择模型后才会下载。",
     },
   },
   {

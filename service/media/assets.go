@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Workspace 数据库与受控媒体根
- * [OUTPUT]: Asset 导入、查询、去重或按交付强制新建、无本地二进制的全局 reference 研究资料 Asset、ASR 转写 bundle（源声音 + SRT + JSON parts）导入与 parts 读取、受控落盘、项目关联、异步生成时间/输出/诊断 metadata、终态审计及 durable 更新事件
+ * [OUTPUT]: Asset 导入、查询、去重或按交付强制新建、带正文/图片 content-addressed parts 的全局 reference 研究资料 Asset、ASR 转写 bundle（源声音 + SRT + JSON parts）导入与 parts 读取、受控落盘、项目关联、异步生成时间/输出/诊断 metadata、终态审计及 durable 更新事件
  * [POS]: media 的资产真相源；Provider 与本地两轨导出均不直接访问存储，终态与 SSE 事件在此原位回写
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -10,12 +10,14 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -256,9 +258,12 @@ func (m *MediaService) Attach(assetID, projectID string) error {
 	return nil
 }
 
-// CreateReferenceAsset creates a workspace-level research citation. Reference
-// Assets have no local content endpoint: the URL is the source of truth, while
-// metadata makes citations searchable, reviewable and reusable across Apps.
+// CreateReferenceAsset creates a workspace-level research citation. The URL is
+// the source of truth and identity for de-duplication; the Agent additionally
+// supplies reviewable metadata plus, when available, the full body text and an
+// image. Body text and image bytes are persisted as immutable content-addressed
+// parts served by the parts endpoint, mirroring transcript bundles, so research
+// content survives locally without re-fetching the origin.
 func (m *MediaService) CreateReferenceAsset(input ReferenceAssetInput) (MediaAsset, error) {
 	name := strings.TrimSpace(input.Name)
 	referenceURL := strings.TrimSpace(input.URL)
@@ -285,23 +290,47 @@ func (m *MediaService) CreateReferenceAsset(input ReferenceAssetInput) (MediaAss
 	}
 	existing, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where content_hash = ?", contentHash))
 	if err == nil {
-		return existing, nil
+		return m.fillReferenceAsset(existing, input, db)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return MediaAsset{}, err
+	}
+	// Content-addressed parts keep the Asset record's URL identity while body
+	// text and image bytes become immutable files served by the parts endpoint.
+	parts, err := m.referenceContentParts(input)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	reference := map[string]any{
+		"url":         canonicalURL,
+		"sourceKind":  sourceKind,
+		"title":       name,
+		"summary":     strings.TrimSpace(input.Summary),
+		"description": strings.TrimSpace(input.Description),
+		"excerpt":     strings.TrimSpace(input.Excerpt),
+		"author":      strings.TrimSpace(input.Author),
+		"publishedAt": strings.TrimSpace(input.PublishedAt),
+		"siteName":    strings.TrimSpace(input.SiteName),
+		"language":    strings.TrimSpace(input.Language),
+		"thumbnailUrl": strings.TrimSpace(input.ThumbnailURL),
+	}
+	if contentPart, ok := parts["content"]; ok {
+		reference["contentMimeType"] = contentPart.MimeType
+		reference["contentLength"] = contentPart.SizeBytes
+		reference["contentWordCount"] = wordCount(input.Content)
+	}
+	if mediaMeta := referenceMediaMetadata(input); len(mediaMeta) > 0 {
+		reference["media"] = mediaMeta
+	}
+	if len(parts) > 0 {
+		reference["parts"] = parts
 	}
 	id, err := newID()
 	if err != nil {
 		return MediaAsset{}, err
 	}
 	now := time.Now().UTC()
-	metadata := map[string]any{
-		"source": "research",
-		"reference": map[string]any{
-			"url": canonicalURL, "sourceKind": sourceKind, "summary": strings.TrimSpace(input.Summary),
-			"author": strings.TrimSpace(input.Author), "publishedAt": strings.TrimSpace(input.PublishedAt), "thumbnailUrl": strings.TrimSpace(input.ThumbnailURL),
-		},
-	}
+	metadata := map[string]any{"source": "research", "reference": reference}
 	serialized, _ := json.Marshal(metadata)
 	asset := MediaAsset{ID: id, Kind: "reference", Name: name, MimeType: "application/vnd.recut.reference+json", ContentHash: contentHash, Origin: "research", Status: "completed", Metadata: metadata, CreatedAt: now, UpdatedAt: now}
 	tx, err := db.Begin()
@@ -320,6 +349,258 @@ func (m *MediaService) CreateReferenceAsset(input ReferenceAssetInput) (MediaAss
 	}
 	m.publishAssetChange()
 	return asset, nil
+}
+
+const (
+	referenceContentMaxBytes = 4 << 20
+	referenceImageMaxBytes   = 20 << 20
+)
+
+// referenceContentParts persists the Agent-supplied body text and image bytes
+// as content-addressed parts. Persisting happens before the transaction so a
+// rejected URL or oversized payload never writes to the database.
+func (m *MediaService) referenceContentParts(input ReferenceAssetInput) (map[string]TranscriptPart, error) {
+	parts := map[string]TranscriptPart{}
+	if strings.TrimSpace(input.Content) != "" {
+		part, err := m.referenceContentPart(input.Content, input.ContentMimeType)
+		if err != nil {
+			return nil, err
+		}
+		parts["content"] = part
+	}
+	if strings.TrimSpace(input.ImageData) != "" {
+		part, err := m.referenceImagePart(input.ImageData, input.ImageMimeType)
+		if err != nil {
+			return nil, err
+		}
+		parts["image"] = part
+	}
+	return parts, nil
+}
+
+func (m *MediaService) referenceContentPart(contentText, contentMimeType string) (TranscriptPart, error) {
+	text := strings.TrimSpace(contentText)
+	if text == "" {
+		return TranscriptPart{}, errors.New("reference content is empty")
+	}
+	mimeType := strings.TrimSpace(contentMimeType)
+	if mimeType == "" {
+		mimeType = "text/markdown"
+	}
+	if !referenceTextMimeType(mimeType) {
+		return TranscriptPart{}, fmt.Errorf("reference content mime type %q is not a supported text type", mimeType)
+	}
+	content := []byte(text)
+	if len(content) > referenceContentMaxBytes {
+		return TranscriptPart{}, fmt.Errorf("reference content exceeds the %d-byte limit", referenceContentMaxBytes)
+	}
+	partPath, partHash, err := m.persistContentPart(m.store.MediaRoot(), content, extensionFor(mimeType))
+	if err != nil {
+		return TranscriptPart{}, err
+	}
+	return TranscriptPart{Name: "content" + extensionFor(mimeType), ContentHash: partHash, MimeType: mimeType, SizeBytes: int64(len(content)), Path: partPath}, nil
+}
+
+func (m *MediaService) referenceImagePart(imageData, imageMimeType string) (TranscriptPart, error) {
+	content, mimeType, err := decodeReferenceImage(imageData, imageMimeType)
+	if err != nil {
+		return TranscriptPart{}, err
+	}
+	partPath, partHash, err := m.persistContentPart(m.store.MediaRoot(), content, extensionFor(mimeType))
+	if err != nil {
+		return TranscriptPart{}, err
+	}
+	return TranscriptPart{Name: "image" + extensionFor(mimeType), ContentHash: partHash, MimeType: mimeType, SizeBytes: int64(len(content)), Path: partPath}, nil
+}
+
+// missingReferenceParts returns the content/image parts a later registration
+// supplies that the existing reference Asset does not already carry.
+func (m *MediaService) missingReferenceParts(reference map[string]any, input ReferenceAssetInput) (map[string]TranscriptPart, error) {
+	existingParts, _ := reference["parts"].(map[string]any)
+	has := func(name string) bool {
+		if existingParts == nil {
+			return false
+		}
+		_, ok := existingParts[name].(map[string]any)
+		return ok
+	}
+	missing := map[string]TranscriptPart{}
+	if strings.TrimSpace(input.Content) != "" && !has("content") {
+		part, err := m.referenceContentPart(input.Content, input.ContentMimeType)
+		if err != nil {
+			return nil, err
+		}
+		missing["content"] = part
+	}
+	if strings.TrimSpace(input.ImageData) != "" && !has("image") {
+		part, err := m.referenceImagePart(input.ImageData, input.ImageMimeType)
+		if err != nil {
+			return nil, err
+		}
+		missing["image"] = part
+	}
+	return missing, nil
+}
+
+// fillReferenceAsset merges content, metadata and media fields from a later
+// registration of the same URL into the existing reference Asset. The URL
+// identity stays immutable; only gaps are filled, never overwritten.
+func (m *MediaService) fillReferenceAsset(existing MediaAsset, input ReferenceAssetInput, db *sql.DB) (MediaAsset, error) {
+	reference, ok := existing.Metadata["reference"].(map[string]any)
+	if !ok {
+		return existing, nil
+	}
+	missing, err := m.missingReferenceParts(reference, input)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	changed := false
+	if len(missing) > 0 {
+		parts, _ := reference["parts"].(map[string]any)
+		if parts == nil {
+			parts = map[string]any{}
+			reference["parts"] = parts
+		}
+		for name, part := range missing {
+			parts[name] = part
+		}
+		if contentPart, ok := missing["content"]; ok {
+			reference["contentMimeType"] = contentPart.MimeType
+			reference["contentLength"] = contentPart.SizeBytes
+			reference["contentWordCount"] = wordCount(input.Content)
+		}
+		changed = true
+	}
+	for key, value := range map[string]string{
+		"summary": input.Summary, "description": input.Description, "excerpt": input.Excerpt,
+		"author": input.Author, "publishedAt": input.PublishedAt, "siteName": input.SiteName,
+		"language": input.Language, "thumbnailUrl": input.ThumbnailURL,
+	} {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if current, _ := reference[key].(string); strings.TrimSpace(current) == "" {
+			reference[key] = value
+			changed = true
+		}
+	}
+	if mediaMeta := referenceMediaMetadata(input); len(mediaMeta) > 0 {
+		existingMedia, _ := reference["media"].(map[string]any)
+		for key, value := range mediaMeta {
+			if existingMedia == nil {
+				existingMedia = map[string]any{}
+				reference["media"] = existingMedia
+			}
+			if current, present := existingMedia[key]; !present || emptyMetadataValue(current) {
+				existingMedia[key] = value
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return existing, nil
+	}
+	serialized, _ := json.Marshal(existing.Metadata)
+	now := time.Now().UTC()
+	tx, err := db.Begin()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if _, err := tx.Exec("update media_assets set metadata_json = ?, updated_at = ? where id = ?", string(serialized), now.Format(time.RFC3339Nano), existing.ID); err != nil {
+		_ = tx.Rollback()
+		return MediaAsset{}, err
+	}
+	if err := recordAssetEvent(tx, existing.ID, now); err != nil {
+		_ = tx.Rollback()
+		return MediaAsset{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return MediaAsset{}, err
+	}
+	existing.UpdatedAt = now
+	m.publishAssetChange()
+	return existing, nil
+}
+
+func emptyMetadataValue(value any) bool {
+	switch value := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(value) == ""
+	case int:
+		return value == 0
+	case int64:
+		return value == 0
+	case float64:
+		return value == 0
+	default:
+		return false
+	}
+}
+
+func referenceTextMimeType(mimeType string) bool {
+	lower := strings.ToLower(mimeType)
+	return strings.HasPrefix(lower, "text/") || lower == "application/json" || lower == "application/xml"
+}
+
+func wordCount(text string) int64 {
+	return int64(len(strings.Fields(text)))
+}
+
+// decodeReferenceImage accepts base64-encoded image bytes (or a data: URL) and
+// validates the decoded payload is a real image within the reference size limit.
+func decodeReferenceImage(data, mimeType string) ([]byte, string, error) {
+	raw := strings.TrimSpace(data)
+	if rest, ok := strings.CutPrefix(raw, "data:"); ok {
+		if payload, _, ok := strings.Cut(rest, ","); ok && strings.Contains(payload, "base64") {
+			raw = strings.TrimSpace(strings.TrimPrefix(rest, payload+","))
+		}
+	}
+	content, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, "", errors.New("imageData must be base64-encoded image bytes")
+	}
+	if len(content) == 0 || len(content) > referenceImageMaxBytes {
+		return nil, "", fmt.Errorf("reference image exceeds the %d-byte limit", referenceImageMaxBytes)
+	}
+	detected := http.DetectContentType(content)
+	if !strings.HasPrefix(detected, "image/") {
+		return nil, "", errors.New("imageData must decode to an image")
+	}
+	if strings.TrimSpace(mimeType) == "" {
+		mimeType = detected
+	}
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(mimeType)), "image/") {
+		return nil, "", errors.New("imageMimeType must be an image/* type")
+	}
+	return content, strings.TrimSpace(mimeType), nil
+}
+
+// referenceMediaMetadata collects the platform-specific fields (channel,
+// duration, engagement) only when the Agent supplied them.
+func referenceMediaMetadata(input ReferenceAssetInput) map[string]any {
+	media := map[string]any{}
+	if value := strings.TrimSpace(input.ChannelName); value != "" {
+		media["channelName"] = value
+	}
+	if value := strings.TrimSpace(input.ChannelURL); value != "" {
+		media["channelUrl"] = value
+	}
+	if input.DurationSec > 0 {
+		media["durationSeconds"] = input.DurationSec
+	}
+	if input.ViewCount > 0 {
+		media["viewCount"] = input.ViewCount
+	}
+	if input.LikeCount > 0 {
+		media["likeCount"] = input.LikeCount
+	}
+	if value := strings.TrimSpace(input.Language); value != "" {
+		media["language"] = value
+	}
+	return media
 }
 
 func attachTx(tx *sql.Tx, assetID, projectID string, now time.Time) error {
@@ -959,15 +1240,15 @@ func (m *MediaService) ImportTranscript(input TranscriptImport) (MediaAsset, err
 		input.AudioMimeType = "audio/wav"
 	}
 	root := m.store.MediaRoot()
-	audioPath, audioHash, err := m.persistTranscriptPart(root, input.Audio, extensionFor(input.AudioMimeType))
+	audioPath, audioHash, err := m.persistContentPart(root, input.Audio, extensionFor(input.AudioMimeType))
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	srtPath, srtHash, err := m.persistTranscriptPart(root, input.SRT, ".srt")
+	srtPath, srtHash, err := m.persistContentPart(root, input.SRT, ".srt")
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	jsonPath, jsonHash, err := m.persistTranscriptPart(root, input.TranscriptJSON, ".json")
+	jsonPath, jsonHash, err := m.persistContentPart(root, input.TranscriptJSON, ".json")
 	if err != nil {
 		return MediaAsset{}, err
 	}
@@ -1041,7 +1322,7 @@ func (m *MediaService) ImportTranscript(input TranscriptImport) (MediaAsset, err
 	return asset, nil
 }
 
-func (m *MediaService) persistTranscriptPart(root string, content []byte, ext string) (path, contentHash string, err error) {
+func (m *MediaService) persistContentPart(root string, content []byte, ext string) (path, contentHash string, err error) {
 	hash := sha256.Sum256(content)
 	contentHash = hex.EncodeToString(hash[:])
 	path = filepath.Join(root, "media", "assets", contentHash[:2], contentHash+ext)
@@ -1054,9 +1335,10 @@ func (m *MediaService) persistTranscriptPart(root string, content []byte, ext st
 	return path, contentHash, nil
 }
 
-// GetAssetPart returns one named transcript part (srt or json) of a completed
-// transcript Asset. Parts are content-addressed and immutable like the primary
-// audio content.
+// GetAssetPart returns one named content part of a completed Asset bundle:
+// transcript Assets expose srt/json parts while reference Assets expose body
+// text (content) and image parts. Parts are content-addressed and immutable
+// like the primary content.
 func (m *MediaService) GetAssetPart(id, partName string) (TranscriptPart, []byte, error) {
 	asset, err := m.getAsset(id)
 	if err != nil {
@@ -1065,21 +1347,17 @@ func (m *MediaService) GetAssetPart(id, partName string) (TranscriptPart, []byte
 	if asset.Status != "completed" {
 		return TranscriptPart{}, nil, errors.New("media asset is not ready")
 	}
-	bundle, ok := asset.Metadata["transcript"].(map[string]any)
-	if !ok {
-		return TranscriptPart{}, nil, errors.New("media asset is not a transcript bundle")
-	}
-	parts, ok := bundle["parts"].(map[string]any)
-	if !ok {
-		return TranscriptPart{}, nil, errors.New("media asset has no transcript parts")
+	parts, err := assetContentParts(asset)
+	if err != nil {
+		return TranscriptPart{}, nil, err
 	}
 	raw, ok := parts[partName].(map[string]any)
 	if !ok {
-		return TranscriptPart{}, nil, fmt.Errorf("transcript part %q was not found", partName)
+		return TranscriptPart{}, nil, fmt.Errorf("asset part %q was not found", partName)
 	}
 	path, _ := raw["path"].(string)
 	if path == "" {
-		return TranscriptPart{}, nil, errors.New("transcript part file is missing")
+		return TranscriptPart{}, nil, errors.New("asset part file is missing")
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -1092,6 +1370,26 @@ func (m *MediaService) GetAssetPart(id, partName string) (TranscriptPart, []byte
 		SizeBytes:   metadataFloat(raw["sizeBytes"]),
 		Path:        path,
 	}, content, nil
+}
+
+// assetContentParts resolves the content-addressed parts map from either a
+// transcript or a reference Asset bundle.
+func assetContentParts(asset MediaAsset) (map[string]any, error) {
+	if bundle, ok := asset.Metadata["transcript"].(map[string]any); ok {
+		parts, ok := bundle["parts"].(map[string]any)
+		if !ok {
+			return nil, errors.New("media asset has no transcript parts")
+		}
+		return parts, nil
+	}
+	if reference, ok := asset.Metadata["reference"].(map[string]any); ok {
+		parts, ok := reference["parts"].(map[string]any)
+		if !ok {
+			return nil, errors.New("media asset has no reference content parts")
+		}
+		return parts, nil
+	}
+	return nil, errors.New("media asset is not a transcript bundle or reference")
 }
 
 func metadataString(value any) string {

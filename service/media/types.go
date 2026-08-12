@@ -91,17 +91,46 @@ type MediaAsset struct {
 }
 
 // ReferenceAssetInput records a web-native research source in the global Asset
-// library. It deliberately stores a canonical URL and metadata rather than
-// scraping, downloading, or pretending an external page is a local media file.
-// Any project can attach the resulting immutable Asset by ID.
+// library. The Asset identity stays a canonical URL so the same source dedups
+// across projects and Apps; the Agent also attaches as much reviewable content
+// as the origin provides: full body text for articles/webpages, decoded image
+// bytes, and complete platform metadata for video/social sources. Nothing is
+// scraped or downloaded by the service itself, and the URL remains the source
+// of truth. Any project can attach the resulting immutable Asset by ID.
 type ReferenceAssetInput struct {
-	Name         string `json:"name"`
-	URL          string `json:"url"`
-	SourceKind   string `json:"sourceKind"`
-	Summary      string `json:"summary,omitempty"`
-	Author       string `json:"author,omitempty"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
+	// SourceKind distinguishes the origin platform: article, web, youtube,
+	// xiaohongshu, douyin, image or similar. It defaults to "web".
+	SourceKind string `json:"sourceKind"`
+	// Summary is the Agent's short factual summary of the source.
+	Summary string `json:"summary,omitempty"`
+	// Description is the source's own meta description or video description.
+	Description string `json:"description,omitempty"`
+	// Excerpt is a direct quote pulled from the source for review.
+	Excerpt string `json:"excerpt,omitempty"`
+	Author  string `json:"author,omitempty"`
+	// PublishedAt is the source publication/upload time in ISO-8601 form.
 	PublishedAt  string `json:"publishedAt,omitempty"`
+	SiteName     string `json:"siteName,omitempty"`
+	Language     string `json:"language,omitempty"`
 	ThumbnailURL string `json:"thumbnailUrl,omitempty"`
+	// Content is the full body text of an article or webpage. It is persisted
+	// as a content-addressed part so research survives without re-fetching.
+	Content string `json:"content,omitempty"`
+	// ContentMimeType overrides the default text/markdown part type.
+	ContentMimeType string `json:"contentMimeType,omitempty"`
+	// ImageData is base64-encoded image bytes (or a data: URL). When present the
+	// decoded image is persisted as a content-addressed image part.
+	ImageData     string `json:"imageData,omitempty"`
+	ImageMimeType string `json:"imageMimeType,omitempty"`
+	// ChannelName/ChannelURL name the publisher for YouTube or other video
+	// platforms; duration, view and like counts complete the platform metadata.
+	ChannelName string  `json:"channelName,omitempty"`
+	ChannelURL  string  `json:"channelUrl,omitempty"`
+	DurationSec float64 `json:"durationSeconds,omitempty"`
+	ViewCount   int64   `json:"viewCount,omitempty"`
+	LikeCount   int64   `json:"likeCount,omitempty"`
 }
 
 type MediaJob struct {

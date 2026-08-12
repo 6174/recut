@@ -89,8 +89,10 @@ export default function StandaloneAppClient() {
       const reply = (result?: unknown, error?: string) => channel.port1.postMessage({ id: request.id, result, error });
       try {
         if (request.type === "state.query" || request.type === "background.call") {
-          const { name, ...input } = request.input;
-          const response = await fetch(`${apiBase}/v1/apps/${scope.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.type === "state.query" ? {} : input) });
+          const operation = request.type === "state.query" ? request.input?.name : request.input?.operation ?? request.input?.name;
+          const { operation: _operation, ...input } = request.input ?? {};
+          if (typeof operation !== "string" || !operation.trim()) throw new Error("后台 operation 名称不能为空");
+          const response = await fetch(`${apiBase}/v1/apps/${scope.appId}/api/${operation}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.type === "state.query" ? {} : input) });
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, "后台调用失败"));
         } else if (request.type === "agent.compose") {

@@ -60,10 +60,10 @@ function AssetCard({ apiBase, asset, onPreview }: { apiBase: string; asset: Asse
   const contentURL = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`;
   return (
     <button className="overflow-hidden rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20" onClick={() => onPreview(asset)} type="button">
-      {asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-[4/3] bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-[4/3]" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "reference" ? <ReferenceCardPreview asset={asset} /> : <div className="grid aspect-[4/3] place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
+      {asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-[4/3] bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-[4/3]" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "reference" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-[4/3] place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
       <div className="p-3">
         <p className="truncate text-xs font-medium">{asset.name}</p>
-        <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{asset.metadata.prompt ?? "导入素材"}</p>
+        <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{asset.kind === "reference" ? (asset.metadata.reference?.summary ?? asset.metadata.reference?.description ?? "可复用研究资料") : (asset.metadata.prompt ?? "导入素材")}</p>
         <div className="mt-3 flex justify-between font-mono text-[10px] text-muted-foreground"><span>{asset.origin.toUpperCase()}</span><span>{new Date(asset.createdAt).toLocaleDateString()}</span></div>
         <GenerationDuration className="mt-1 block font-mono text-[10px] text-muted-foreground" item={asset} />
       </div>
@@ -71,9 +71,14 @@ function AssetCard({ apiBase, asset, onPreview }: { apiBase: string; asset: Asse
   );
 }
 
-function ReferenceCardPreview({ asset }: { asset: Asset }) {
+function ReferenceCardPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
   const reference = asset.metadata.reference;
-  return <div className="grid aspect-[4/3] content-center gap-2 bg-primary/5 p-5 text-primary"><Link2 className="size-5" /><p className="font-mono text-[10px] uppercase">{reference?.sourceKind || "web"}</p><p className="line-clamp-2 text-xs leading-5 text-foreground">{reference?.summary || "可复用研究资料"}</p></div>;
+  const imagePart = reference?.parts?.image;
+  if (imagePart) {
+    const imageURL = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/parts/image`;
+    return <div className="aspect-[4/3] bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={imageURL} /></div>;
+  }
+  return <div className="grid aspect-[4/3] content-center gap-2 bg-primary/5 p-5 text-primary"><Link2 className="size-5" /><p className="font-mono text-[10px] uppercase">{reference?.sourceKind || "web"}</p><p className="line-clamp-2 text-xs leading-5 text-foreground">{reference?.summary || reference?.description || reference?.excerpt || "可复用研究资料"}</p></div>;
 }
 
 function TranscriptCardPreview({ asset }: { asset: Asset }) {

@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖媒体内容 URL 与浏览器原生媒体元素/iframe 媒体文档
- * [OUTPUT]: 对外提供 VideoFrame，卡片以 srcDoc iframe 承载静音循环视频，详情嵌入原片 URL 的浏览器媒体文档
- * [POS]: components 的媒体画面原子；被素材库、Agent 消息和素材详情复用，卡片使用真实子文档而非 iframe fallback 内容
+ * [OUTPUT]: 对外提供 VideoFrame，卡片以 srcDoc iframe 承载静音循环视频，详情以原生 video 元素内联预览（不使用 iframe 直载媒体 URL，避免点击触发下载）
+ * [POS]: components 的媒体画面原子；被素材库、Agent 消息和素材详情复用，卡片使用真实子文档而非 iframe fallback 内容，详情使用原生媒体元素保证只预览不下载
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -45,11 +45,13 @@ export function VideoFrame({
 
   return (
     <div className={cn("aspect-video isolate overflow-hidden bg-black", className)}>
-      <iframe
-        allow="autoplay; fullscreen; picture-in-picture"
-        className={cn("block h-full w-full border-0", videoClassName)}
+      <video
+        aria-label={alt}
+        className={cn("block h-full w-full", videoClassName)}
+        controls
+        playsInline
+        preload="metadata"
         src={src}
-        title={alt}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 service endpoint、全局与 App Skill 状态、安全软链接与 Agent MCP 注册 HTTP API、工作台 Button/Badge 原子
- * [OUTPUT]: 对外提供全部 Skill 的按归属分组面板：平台 Skill（全局）保持详细链接/启用体验，已安装 App 的 Skill 以更紧凑的行提供链接操作
+ * [OUTPUT]: 对外提供全部 Skill 的按归属分组面板：平台 Skill（全局）保持详细链接/启用体验，已安装 App 的 Skill 以更紧凑的行提供链接操作，并将非 JSON 服务错误转为可读提示
  * [POS]: web/components 的全局设置子面板；只展示 daemon 管理的 Skill 来源，绝不在浏览器写入用户目录或配置
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -35,6 +35,16 @@ function mergeSummary(previous: SkillLink, updated: SkillLink): SkillLink {
   return { ...previous, source: updated.source ?? previous.source, version: updated.version ?? previous.version, targets: updated.targets ?? previous.targets };
 }
 
+async function readSkillResponse(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = contentType.includes("application/json") ? await response.json() : null;
+  if (!response.ok) {
+    throw new Error(body?.error ?? `Skill service 请求失败（${response.status}）。请确认本机 Recut service 已重启至最新版本。`);
+  }
+  if (!body) throw new Error("Skill service 返回了无效响应。请重试；若持续发生，请重启本机 Recut service。");
+  return body;
+}
+
 export function RecutSkillSettings({ apiBase }: { apiBase: string }) {
   const [catalog, setCatalog] = useState<SkillCatalog | null>(null);
   const [message, setMessage] = useState("");
@@ -44,8 +54,7 @@ export function RecutSkillSettings({ apiBase }: { apiBase: string }) {
     setMessage("");
     try {
       const response = await fetch(`${apiBase}/v1/skills`, { cache: "no-store" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "无法读取 Skill 状态");
+      const body = await readSkillResponse(response);
       setCatalog(body);
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "无法读取 Skill 状态"); }
   }, [apiBase]);
@@ -71,8 +80,7 @@ export function RecutSkillSettings({ apiBase }: { apiBase: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(isRecut ? { targets } : { appId: skill.appId, skillId: skill.id, targets }),
       });
-      const updated = await response.json();
-      if (!response.ok) throw new Error(updated.error ?? "无法创建软链接");
+      const updated = await readSkillResponse(response);
       updateCatalog(skill.appId, skill.id, updated);
       setMessage(isRecut ? "Skill 已链接，并已为支持的 Agent 注册 Recut MCP。新开 Agent 会话后即可使用。" : "Skill 已链接。新开 Agent 会话后即可使用。");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "无法创建软链接"); } finally { setWorking(null); }

@@ -36,7 +36,31 @@ export type Asset = {
       duration?: number;
       segmentCount?: number;
     };
-    reference?: { url?: string; sourceKind?: string; summary?: string; author?: string; publishedAt?: string; thumbnailUrl?: string };
+    reference?: {
+      url?: string;
+      sourceKind?: string;
+      title?: string;
+      summary?: string;
+      description?: string;
+      excerpt?: string;
+      author?: string;
+      publishedAt?: string;
+      siteName?: string;
+      language?: string;
+      thumbnailUrl?: string;
+      contentMimeType?: string;
+      contentLength?: number;
+      contentWordCount?: number;
+      media?: {
+        channelName?: string;
+        channelUrl?: string;
+        durationSeconds?: number;
+        viewCount?: number;
+        likeCount?: number;
+        language?: string;
+      };
+      parts?: Record<string, { name?: string; contentHash?: string; mimeType?: string; sizeBytes?: number }>;
+    };
   };
 };
 export type MediaJob = {

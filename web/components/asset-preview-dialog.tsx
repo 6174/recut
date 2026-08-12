@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖共享 Asset SSE 缓存、素材元数据/内容 API、GenerationDuration、VideoFrame、AudioWaveformPlayer 与 lucide-react 图标
- * [OUTPUT]: 对外提供 AssetPreviewDialog 统一素材详情模态框；运行中素材按 assetId 从共享缓存原位更新并显示实时/最终生成耗时，同时预览完成的图片、按需视频播放器、波形音频与转写 bundle（源声音播放 + 分段 + SRT/JSON parts）
+ * [OUTPUT]: 对外提供 AssetPreviewDialog 统一素材详情模态框；运行中素材按 assetId 从共享缓存原位更新并显示实时/最终生成耗时，同时预览完成的图片、按需视频播放器、可先播放后补波形的音频与转写 bundle（源声音播放 + 分段 + SRT/JSON parts）
  * [POS]: web 的跨页面素材查看入口；素材库与 Agent 对话通过同一视图查看资产，不轮询单个 Asset 或依赖父视图刷新
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,6 +14,32 @@ import { useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { VideoFrame } from "@/components/video-frame";
 import { Badge } from "@/components/ui/badge";
 
+export type ReferenceMetadata = {
+  url?: string;
+  sourceKind?: string;
+  title?: string;
+  summary?: string;
+  description?: string;
+  excerpt?: string;
+  author?: string;
+  publishedAt?: string;
+  siteName?: string;
+  language?: string;
+  thumbnailUrl?: string;
+  contentMimeType?: string;
+  contentLength?: number;
+  contentWordCount?: number;
+  media?: {
+    channelName?: string;
+    channelUrl?: string;
+    durationSeconds?: number;
+    viewCount?: number;
+    likeCount?: number;
+    language?: string;
+  };
+  parts?: Record<string, { name?: string; contentHash?: string; mimeType?: string; sizeBytes?: number }>;
+};
+
 export type PreviewAsset = {
   id: string;
   kind: "image" | "video" | "audio" | "transcript" | "reference";
@@ -25,7 +51,7 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; referenceIds?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; reference?: { url?: string; sourceKind?: string; summary?: string; author?: string; publishedAt?: string; thumbnailUrl?: string } };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; referenceIds?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; reference?: ReferenceMetadata };
 };
 
 export function mediaContext(asset: PreviewAsset) {
@@ -33,6 +59,7 @@ export function mediaContext(asset: PreviewAsset) {
   const metadata = asset.metadata ?? {};
   const prompt = typeof metadata.prompt === "string" && metadata.prompt.trim();
   const transcript = transcriptMetadata(asset);
+  const reference = metadata.reference as ReferenceMetadata | undefined;
   return [
     `<media type="${asset.kind}" assetid="${asset.id}"/>`,
     `素材名称：${asset.name}`,
@@ -45,6 +72,19 @@ export function mediaContext(asset: PreviewAsset) {
       `语言：${transcript.language || "未知"}`,
       `时长：${transcript.duration ?? 0} 秒`,
       `分段数：${transcript.segmentCount ?? 0}`,
+    ] : []),
+    ...(reference ? [
+      `研究资料链接：${reference.url || "未知"}`,
+      `来源类型：${reference.sourceKind || "web"}`,
+      `作者：${reference.author || reference.media?.channelName || "未知"}`,
+      `发布时间：${reference.publishedAt || "未知"}`,
+      `站点：${reference.siteName || "未知"}`,
+      `语言：${reference.language || reference.media?.language || "未知"}`,
+      ...(typeof reference.media?.durationSeconds === "number" ? [`时长：${reference.media.durationSeconds} 秒`] : []),
+      ...(typeof reference.media?.viewCount === "number" ? [`播放量：${reference.media.viewCount}`] : []),
+      ...(typeof reference.media?.likeCount === "number" ? [`点赞数：${reference.media.likeCount}`] : []),
+      ...(reference.summary ? [`事实摘要：${reference.summary}`] : []),
+      ...(typeof reference.contentWordCount === "number" ? [`正文：约 ${reference.contentWordCount} 词`] : []),
     ] : []),
     ...(prompt ? [`生成提示词：${prompt}`] : []),
   ].join("\n");
@@ -80,16 +120,45 @@ function AssetContent({ apiBase, asset, status }: { apiBase: string; asset: Prev
   if (asset.kind === "image") return <img alt={asset.name} className="max-h-[65vh] max-w-full object-contain" src={source} />;
   if (asset.kind === "audio") return <AudioWaveformPlayer name={asset.name || "音频素材"} src={source} />;
   if (asset.kind === "transcript") return <TranscriptAssetContent apiBase={apiBase} asset={asset} />;
-  if (asset.kind === "reference") return <ReferenceAssetContent asset={asset} />;
+  if (asset.kind === "reference") return <ReferenceAssetContent apiBase={apiBase} asset={asset} />;
   return <VideoFrame alt={asset.name || "视频素材"} className="w-full max-w-4xl rounded-xs bg-black" controls src={source} videoClassName="max-h-[65vh] object-contain" />;
 }
 
-type ReferenceMetadata = { url?: string; sourceKind?: string; summary?: string; author?: string; publishedAt?: string; thumbnailUrl?: string };
-
-function ReferenceAssetContent({ asset }: { asset: PreviewAsset }) {
+function ReferenceAssetContent({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
   const reference = asset.metadata?.reference as ReferenceMetadata | undefined;
   const url = typeof reference?.url === "string" ? reference.url : "";
-  return <div className="grid w-full max-w-2xl gap-4 rounded-sm border bg-card p-6 text-left"><span className="grid size-10 place-items-center rounded-sm bg-primary/10 text-primary"><Link2 className="size-5" /></span><div><p className="text-sm font-medium">{asset.name}</p><p className="mt-1 text-xs text-muted-foreground">{reference?.sourceKind || "web"} · 可跨项目复用的研究资料</p></div>{reference?.summary && <p className="text-sm leading-6">{reference.summary}</p>}{url ? <a className="truncate text-sm text-primary underline underline-offset-4" href={url} rel="noreferrer" target="_blank">打开原始资料</a> : <p className="text-sm text-destructive">资料链接缺失</p>}</div>;
+  const mediaMeta = reference?.media;
+  const rows: { label: string; value: string }[] = [];
+  if (reference?.siteName) rows.push({ label: "站点", value: reference.siteName });
+  if (reference?.author || mediaMeta?.channelName) rows.push({ label: "作者", value: reference?.author || mediaMeta?.channelName || "" });
+  if (reference?.publishedAt) rows.push({ label: "发布时间", value: reference.publishedAt });
+  if (reference?.language || mediaMeta?.language) rows.push({ label: "语言", value: reference?.language || mediaMeta?.language || "" });
+  if (typeof mediaMeta?.durationSeconds === "number") rows.push({ label: "时长", value: formatTimecode(mediaMeta.durationSeconds) });
+  if (typeof mediaMeta?.viewCount === "number") rows.push({ label: "播放量", value: mediaMeta.viewCount.toLocaleString() });
+  if (typeof mediaMeta?.likeCount === "number") rows.push({ label: "点赞", value: mediaMeta.likeCount.toLocaleString() });
+  if (typeof reference?.contentWordCount === "number") rows.push({ label: "正文", value: `${reference.contentWordCount} 词` });
+  return <div className="grid w-full max-w-2xl gap-4 rounded-sm border bg-card p-6 text-left"><span className="grid size-10 place-items-center rounded-sm bg-primary/10 text-primary"><Link2 className="size-5" /></span><div><p className="text-sm font-medium">{asset.name}</p><p className="mt-1 text-xs text-muted-foreground">{reference?.sourceKind || "web"} · 可跨项目复用的研究资料</p></div>{reference?.parts?.image && <img alt={`${asset.name} 图片资料`} className="max-h-72 w-full rounded-xs border bg-muted/40 object-contain" src={transcriptPartURL(apiBase, asset.id, "image")} />}{reference?.description && <p className="text-xs leading-5 text-muted-foreground">{reference.description}</p>}{reference?.summary && <p className="text-sm leading-6">{reference.summary}</p>}{reference?.excerpt && <blockquote className="border-l-2 border-primary/40 pl-3 text-xs leading-5 italic">{reference.excerpt}</blockquote>}{rows.length > 0 && <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t pt-3 text-xs">{rows.map((row) => <div key={row.label}><dt className="text-muted-foreground">{row.label}</dt><dd className="mt-0.5 truncate" title={row.value}>{row.value}</dd></div>)}</dl>}{reference?.parts?.content && <ArticleContent apiBase={apiBase} assetID={asset.id} mimeType={reference.contentMimeType || "text/markdown"} />}{url ? <a className="truncate text-sm text-primary underline underline-offset-4" href={url} rel="noreferrer" target="_blank">打开原始资料</a> : <p className="text-sm text-destructive">资料链接缺失</p>}</div>;
+}
+
+function ArticleContent({ apiBase, assetID, mimeType }: { apiBase: string; assetID: string; mimeType: string }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(transcriptPartURL(apiBase, assetID, "content"), { cache: "no-store" });
+        if (!response.ok) throw new Error("无法读取文章正文。");
+        const text = await response.text();
+        if (!cancelled) setContent(text);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "无法读取文章正文。");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [apiBase, assetID]);
+  const markdown = mimeType === "text/markdown";
+  return <div><div className="flex items-center justify-between gap-3"><p className="text-xs font-medium">文章正文</p><a className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted" download href={transcriptPartURL(apiBase, assetID, "content")} type="button"><Download className="size-3" />正文</a></div>{error ? <p className="mt-2 text-xs text-destructive">{error}</p> : content === null ? <p className="mt-2 text-xs text-muted-foreground">正在读取正文…</p> : markdown ? <div className="mt-2 max-h-80 overflow-auto rounded-xs border bg-muted/40 p-3"><p className="whitespace-pre-wrap text-xs leading-5">{content}</p></div> : <pre className="mt-2 max-h-80 overflow-auto rounded-xs border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">{content}</pre>}</div>;
 }
 
 type TranscriptSegment = { start: number; end: number; text: string; speaker?: string; emotion?: string };
