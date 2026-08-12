@@ -9,8 +9,37 @@ package main
 import (
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func TestActivateManagedToolPathPrependsPlatformFFmpeg(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "python", "platform", platformPythonVersion, "bin")
+	name := "ffmpeg"
+	if runtime.GOOS == "windows" {
+		bin = filepath.Join(root, "python", "platform", platformPythonVersion, "Scripts")
+		name = "ffmpeg.exe"
+	}
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, name), []byte(""), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Getenv("PATH")
+	t.Cleanup(func() { _ = os.Setenv("PATH", previous) })
+	if err := os.Setenv("PATH", "/usr/bin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := activateManagedToolPath(root); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv("PATH"); got != bin+string(os.PathListSeparator)+"/usr/bin" {
+		t.Fatalf("PATH = %q", got)
+	}
+}
 
 func TestServeUntilSignalShutsDownHTTPServer(t *testing.T) {
 	signals := make(chan os.Signal, 1)

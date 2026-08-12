@@ -4,7 +4,7 @@
  * [POS]: media 页面列表渲染单元；从 page.tsx 拆出以隔离预览表现与页面编排，卡片点击由外层按钮统一接收
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { Captions, ImageIcon, LoaderCircle } from "lucide-react";
+import { Captions, ImageIcon, Link2, LoaderCircle } from "lucide-react";
 import { GenerationDuration } from "@/components/generation-duration";
 import { VideoFrame } from "@/components/video-frame";
 import type { Asset, MediaJob } from "./media-types";
@@ -60,7 +60,7 @@ function AssetCard({ apiBase, asset, onPreview }: { apiBase: string; asset: Asse
   const contentURL = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`;
   return (
     <button className="overflow-hidden rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20" onClick={() => onPreview(asset)} type="button">
-      {asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-[4/3] bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-[4/3]" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : <div className="grid aspect-[4/3] place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
+      {asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-[4/3] bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-[4/3]" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "reference" ? <ReferenceCardPreview asset={asset} /> : <div className="grid aspect-[4/3] place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
       <div className="p-3">
         <p className="truncate text-xs font-medium">{asset.name}</p>
         <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{asset.metadata.prompt ?? "导入素材"}</p>
@@ -69,6 +69,11 @@ function AssetCard({ apiBase, asset, onPreview }: { apiBase: string; asset: Asse
       </div>
     </button>
   );
+}
+
+function ReferenceCardPreview({ asset }: { asset: Asset }) {
+  const reference = asset.metadata.reference;
+  return <div className="grid aspect-[4/3] content-center gap-2 bg-primary/5 p-5 text-primary"><Link2 className="size-5" /><p className="font-mono text-[10px] uppercase">{reference?.sourceKind || "web"}</p><p className="line-clamp-2 text-xs leading-5 text-foreground">{reference?.summary || "可复用研究资料"}</p></div>;
 }
 
 function TranscriptCardPreview({ asset }: { asset: Asset }) {

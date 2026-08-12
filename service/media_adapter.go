@@ -27,6 +27,7 @@ type TimelineClip = media.TimelineClip
 type CompositionSettings = media.CompositionSettings
 type ComposeMediaInput = media.ComposeMediaInput
 type TranscriptImport = media.TranscriptImport
+type ReferenceAssetInput = media.ReferenceAssetInput
 
 const (
 	ImageGenerate     = media.ImageGenerate

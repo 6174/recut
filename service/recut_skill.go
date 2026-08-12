@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖编译内嵌的 Recut Skill 正文、data-dir 与当前用户的 Agent 配置目录
- * [OUTPUT]: 对外提供 Recut Skill 的启动同步、跨 Agent 安全软链接、状态查询与 HTTP 请求模型
+ * [OUTPUT]: 对外提供 Recut Skill 的启动同步、跨 Agent 安全软链接、状态查询，以及任意全局/App Skill 的通用链接能力与 HTTP 请求模型
  * [POS]: service 的平台 Skill 分发边界；唯一正文写入 `~/.recut/skills/recut`，外部 Agent 只能链接它而不持有副本
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -16,6 +16,11 @@ import (
 )
 
 const recutSkillID = "recut"
+
+// platformSkillAppID is the virtual owner of platform-level skills (recut,
+// recut-design-system) in the settings catalog, mirroring the appId declared in
+// their SKILL.md frontmatter.
+const platformSkillAppID = "recut.platform"
 
 //go:embed skills/recut/SKILL.md
 var recutSkillBody []byte
@@ -81,7 +86,7 @@ func (m *RecutSkillManager) EnableDefaultTargets() error {
 			failures = append(failures, fmt.Errorf("%s: target already contains another skill", target.Name))
 			continue
 		}
-		if err := m.linkTarget(target.Path); err != nil {
+		if err := linkSkillPath(target.Path, m.sourceDir()); err != nil {
 			failures = append(failures, fmt.Errorf("link %s: %w", target.Name, err))
 			continue
 		}
@@ -122,6 +127,13 @@ func writeRecutSkillFile(path string, body []byte) error {
 }
 
 func (m *RecutSkillManager) targets() ([]RecutSkillTarget, error) {
+	return m.skillTargets(recutSkillID)
+}
+
+// skillTargets returns the Agent link targets shared by every skill: the
+// target directory name is the skill ID, so global and App skills can be
+// linked without hardcoding a single skill.
+func (m *RecutSkillManager) skillTargets(skillID string) ([]RecutSkillTarget, error) {
 	home, err := m.homeDir()
 	if err != nil {
 		return nil, fmt.Errorf("locate user home directory: %w", err)
@@ -131,21 +143,36 @@ func (m *RecutSkillManager) targets() ([]RecutSkillTarget, error) {
 		configDir = filepath.Join(home, ".config")
 	}
 	return []RecutSkillTarget{
-		{ID: "agents", Name: "通用 Agent", Path: filepath.Join(home, ".agents", "skills", recutSkillID)},
-		{ID: "claude", Name: "Claude Code", Path: filepath.Join(home, ".claude", "skills", recutSkillID)},
-		{ID: "codex", Name: "Codex", Path: filepath.Join(home, ".codex", "skills", recutSkillID)},
-		{ID: "opencode", Name: "OpenCode", Path: filepath.Join(configDir, "opencode", "skills", recutSkillID)},
+		{ID: "agents", Name: "通用 Agent", Path: filepath.Join(home, ".agents", "skills", skillID)},
+		{ID: "claude", Name: "Claude Code", Path: filepath.Join(home, ".claude", "skills", skillID)},
+		{ID: "codex", Name: "Codex", Path: filepath.Join(home, ".codex", "skills", skillID)},
+		{ID: "opencode", Name: "OpenCode", Path: filepath.Join(configDir, "opencode", "skills", skillID)},
 	}, nil
 }
 
-func (m *RecutSkillManager) Status() (RecutSkillStatus, error) {
-	targets, err := m.targets()
+// skillStatus reports each Agent target's link status against an arbitrary
+// skill source directory. Only the platform Recut Skill configures MCP; App
+// skills are linked as files and keep MCP "not-applicable".
+func (m *RecutSkillManager) skillStatus(sourceDir, skillID string) ([]RecutSkillTarget, error) {
+	targets, err := m.skillTargets(skillID)
 	if err != nil {
-		return RecutSkillStatus{}, err
+		return nil, err
 	}
 	for index := range targets {
-		targets[index].Status = recutSkillLinkStatus(targets[index].Path, m.sourceDir())
-		targets[index].MCP = m.mcpStatus(targets[index].ID)
+		targets[index].Status = recutSkillLinkStatus(targets[index].Path, sourceDir)
+		if skillID == recutSkillID {
+			targets[index].MCP = m.mcpStatus(targets[index].ID)
+		} else {
+			targets[index].MCP = recutMCPNotApplicable
+		}
+	}
+	return targets, nil
+}
+
+func (m *RecutSkillManager) Status() (RecutSkillStatus, error) {
+	targets, err := m.skillStatus(m.sourceDir(), recutSkillID)
+	if err != nil {
+		return RecutSkillStatus{}, err
 	}
 	return RecutSkillStatus{ID: recutSkillID, Version: ServiceVersion(), Source: m.sourceDir(), Targets: targets}, nil
 }
@@ -181,10 +208,34 @@ func (m *RecutSkillManager) Link(targetIDs []string) (RecutSkillStatus, error) {
 	if err := m.Ensure(); err != nil {
 		return RecutSkillStatus{}, err
 	}
-	targets, err := m.targets()
+	targets, err := m.skillTargets(recutSkillID)
 	if err != nil {
 		return RecutSkillStatus{}, err
 	}
+	if err := linkSkillTargets(targets, m.sourceDir(), recutSkillID, targetIDs, m.configureMCP); err != nil {
+		return RecutSkillStatus{}, err
+	}
+	return m.Status()
+}
+
+// LinkSkill links an arbitrary skill (global or App-owned) into the requested
+// Agent directories, mirroring the platform Recut Skill flow without touching
+// MCP configuration: App skills are discovered through the Recut MCP already.
+func (m *RecutSkillManager) LinkSkill(sourceDir, skillID string, targetIDs []string) ([]RecutSkillTarget, error) {
+	targets, err := m.skillTargets(skillID)
+	if err != nil {
+		return nil, err
+	}
+	if err := linkSkillTargets(targets, sourceDir, skillID, targetIDs, nil); err != nil {
+		return nil, err
+	}
+	return m.skillStatus(sourceDir, skillID)
+}
+
+// linkSkillTargets validates and creates the requested Agent links for a skill
+// located at sourceDir. configureMCP is only invoked for the platform Recut
+// Skill; nil keeps App skills file-only.
+func linkSkillTargets(targets []RecutSkillTarget, sourceDir, skillID string, targetIDs []string, configureMCP func(string) error) error {
 	requested := map[string]bool{}
 	for _, id := range targetIDs {
 		requested[id] = true
@@ -200,22 +251,22 @@ func (m *RecutSkillManager) Link(targetIDs []string) (RecutSkillStatus, error) {
 	}
 	for id := range requested {
 		if !known[id] {
-			return RecutSkillStatus{}, fmt.Errorf("unknown Recut Skill target %q", id)
+			return fmt.Errorf("unknown skill %q target %q", skillID, id)
 		}
 	}
 	for _, target := range targets {
 		if !requested[target.ID] {
 			continue
 		}
-		status := recutSkillLinkStatus(target.Path, m.sourceDir())
+		status := recutSkillLinkStatus(target.Path, sourceDir)
 		if status != "available" && status != "broken" && status != "linked" {
-			return RecutSkillStatus{}, fmt.Errorf("link %s: target already contains another skill; Recut will not overwrite it", target.Name)
+			return fmt.Errorf("link %s: target already contains another skill; Recut will not overwrite it", target.Name)
 		}
 	}
 	for _, target := range targets {
-		if requested[target.ID] {
-			if err := m.configureMCP(target.ID); err != nil {
-				return RecutSkillStatus{}, fmt.Errorf("configure %s MCP: %w", target.Name, err)
+		if requested[target.ID] && configureMCP != nil {
+			if err := configureMCP(target.ID); err != nil {
+				return fmt.Errorf("configure %s MCP: %w", target.Name, err)
 			}
 		}
 	}
@@ -223,15 +274,15 @@ func (m *RecutSkillManager) Link(targetIDs []string) (RecutSkillStatus, error) {
 		if !requested[target.ID] {
 			continue
 		}
-		if err := m.linkTarget(target.Path); err != nil {
-			return RecutSkillStatus{}, fmt.Errorf("link %s: %w", target.Name, err)
+		if err := linkSkillPath(target.Path, sourceDir); err != nil {
+			return fmt.Errorf("link %s: %w", target.Name, err)
 		}
 	}
-	return m.Status()
+	return nil
 }
 
-func (m *RecutSkillManager) linkTarget(target string) error {
-	switch recutSkillLinkStatus(target, m.sourceDir()) {
+func linkSkillPath(target, source string) error {
+	switch recutSkillLinkStatus(target, source) {
 	case "linked":
 		return nil
 	case "available", "broken":
@@ -239,10 +290,10 @@ func (m *RecutSkillManager) linkTarget(target string) error {
 			return fmt.Errorf("create Agent Skill directory: %w", err)
 		}
 		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove broken Recut Skill link: %w", err)
+			return fmt.Errorf("remove broken skill link: %w", err)
 		}
-		if err := os.Symlink(m.sourceDir(), target); err != nil {
-			return fmt.Errorf("create Recut Skill link: %w", err)
+		if err := os.Symlink(source, target); err != nil {
+			return fmt.Errorf("create skill link: %w", err)
 		}
 		return nil
 	default:

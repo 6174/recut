@@ -16,8 +16,6 @@ import (
 	"strings"
 )
 
-const ffmpegInstallHint = "未检测到 FFmpeg，且无法自动安装。请安装 Homebrew 后运行 `brew install ffmpeg`，或让 Codex 排查本机导出环境。"
-
 // Compose renders a fixed video track and an optional fixed audio track. It
 // accepts no shell fragments: every FFmpeg argument is constructed from a
 // validated local Asset path or a finite platform setting.
@@ -68,29 +66,11 @@ func (m *MediaService) Compose(input ComposeMediaInput) (MediaAsset, error) {
 	return m.saveDerivedAsset(content, "video", "video/mp4", "timeline-export.mp4", "timeline-export", input.ProjectID, metadata)
 }
 
-// ensureFFmpeg makes the export path self-healing on a standard macOS Recut
-// install. It only installs the single declared dependency and returns an
-// actionable diagnostic when Homebrew is unavailable or the install fails.
 func ensureFFmpeg() error {
 	if _, err := exec.LookPath("ffmpeg"); err == nil {
 		return nil
 	}
-	brew, err := exec.LookPath("brew")
-	if err != nil {
-		return errors.New(ffmpegInstallHint)
-	}
-	output, err := exec.Command(brew, "install", "ffmpeg").CombinedOutput()
-	if err != nil {
-		message := strings.TrimSpace(string(output))
-		if len(message) > 800 {
-			message = message[len(message)-800:]
-		}
-		return fmt.Errorf("自动安装 FFmpeg 失败：%s", message)
-	}
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return errors.New(ffmpegInstallHint)
-	}
-	return nil
+	return fmt.Errorf("平台受管 FFmpeg 不可用；请重新运行 Recut 安装器")
 }
 
 func validateComposition(input ComposeMediaInput) error {
@@ -158,15 +138,17 @@ func (m *MediaService) compositionAssets(track []TimelineClip, expectedKind stri
 
 func hasAudioStream(asset MediaAsset) (bool, error) {
 	path, _ := asset.Metadata["path"].(string)
-	ffprobe, err := exec.LookPath("ffprobe")
+	output, err := exec.Command("ffmpeg", "-hide_banner", "-i", path).CombinedOutput()
 	if err != nil {
-		return false, errors.New("FFmpeg 安装不完整：缺少 ffprobe，无法安全保留视频原声")
-	}
-	output, err := exec.Command(ffprobe, "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", path).Output()
-	if err != nil {
+		if strings.Contains(string(output), "Audio:") {
+			return true, nil
+		}
+		if strings.Contains(string(output), "Input #0") {
+			return false, nil
+		}
 		return false, fmt.Errorf("无法检查视频“%s”的音频流：%w", asset.Name, err)
 	}
-	return strings.TrimSpace(string(output)) != "", nil
+	return strings.Contains(string(output), "Audio:"), nil
 }
 
 func compositionCommand(videos, audios []MediaAsset, input ComposeMediaInput, outputPath string) ([]string, error) {

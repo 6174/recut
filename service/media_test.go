@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService、Store 与测试目录中的临时工作区
- * [OUTPUT]: 验证媒体凭据加密保存、能力路由、受校验的模型/凭据直连、图片导入、幂等任务及 Atlas 异步 Asset 状态、生成耗时、常驻协调器和历史状态恢复契约
+ * [OUTPUT]: 验证媒体凭据加密保存、能力路由、受校验的模型/凭据直连、图片导入、全局研究资料 Asset、幂等任务及 Atlas 异步 Asset 状态、生成耗时、常驻协调器和历史状态恢复契约
  * [POS]: service 的 Media Platform 回归测试；不调用真实模型提供商
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -759,6 +759,46 @@ func TestAtlasVideoReferenceUploadsBeforeGeneration(t *testing.T) {
 	job, err := media.GenerateSync(GenerateMediaInput{Capability: VideoGenerate, Prompt: "continue the shot", ModelID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", CredentialID: credential.ID, ReferenceIDs: []string{image.ID, video.ID}, IdempotencyKey: "atlas-video-reference"})
 	if err != nil || len(job.AssetIDs) != 1 {
 		t.Fatalf("Atlas video reference job = %#v, %v", job, err)
+	}
+}
+
+func TestReferenceAssetIsGlobalAndAttachable(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	apps, err := LoadCatalog(filepath.Dir(appDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(t.TempDir(), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	media := NewMediaService(store)
+	first, err := media.CreateReferenceAsset(ReferenceAssetInput{Name: "原始报道", URL: "https://example.com/report?edition=1", SourceKind: "article", Summary: "可验证事实"})
+	if err != nil || first.Kind != "reference" || first.Origin != "research" {
+		t.Fatalf("create reference = %#v, %v", first, err)
+	}
+	second, err := media.CreateReferenceAsset(ReferenceAssetInput{Name: "同一报道", URL: "https://example.com/report?edition=1", SourceKind: "web"})
+	if err != nil || second.ID != first.ID {
+		t.Fatalf("reference must deduplicate by canonical URL: first=%#v second=%#v err=%v", first, second, err)
+	}
+	project, err := store.Create(CreateInput{Name: "Film", AppID: "example.app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := media.Attach(first.ID, project.ID); err != nil {
+		t.Fatal(err)
+	}
+	assets, err := media.ListAssets(project.ID)
+	if err != nil || len(assets) != 1 || assets[0].ID != first.ID || assets[0].ProjectIDs[0] != project.ID {
+		t.Fatalf("attached reference = %#v, %v", assets, err)
+	}
+	metadata, _ := assets[0].Metadata["reference"].(map[string]any)
+	if metadata["url"] != "https://example.com/report?edition=1" || metadata["sourceKind"] != "article" {
+		t.Fatalf("reference metadata = %#v", assets[0].Metadata)
 	}
 }
 

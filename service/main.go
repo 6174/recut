@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 )
@@ -48,6 +49,9 @@ func main() {
 	}
 	if *appsDir == "" {
 		*appsDir = filepath.Join(*dataDir, "apps")
+	}
+	if err := activateManagedToolPath(*dataDir); err != nil {
+		log.Printf("WARN activate managed tools: %v", err)
 	}
 
 	if err := os.MkdirAll(*appsDir, 0o755); err != nil {
@@ -119,6 +123,24 @@ func main() {
 	if err := serveHTTPServersUntilSignal([]*http.Server{server, streamServer}, signals); err != nil {
 		log.Fatalf("ERROR serve HTTP API: %v", err)
 	}
+}
+
+func activateManagedToolPath(dataDir string) error {
+	platformVenv := filepath.Join(dataDir, "python", "platform", platformPythonVersion)
+	bin := filepath.Join(platformVenv, "bin")
+	ffmpeg := "ffmpeg"
+	if runtime.GOOS == "windows" {
+		bin = filepath.Join(platformVenv, "Scripts")
+		ffmpeg = "ffmpeg.exe"
+	}
+	if _, err := os.Stat(filepath.Join(bin, ffmpeg)); err != nil {
+		return err
+	}
+	path := os.Getenv("PATH")
+	if path == "" {
+		return os.Setenv("PATH", bin)
+	}
+	return os.Setenv("PATH", bin+string(os.PathListSeparator)+path)
 }
 
 func serveUntilSignal(server *http.Server, signals <-chan os.Signal) error {

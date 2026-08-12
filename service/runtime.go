@@ -625,7 +625,7 @@ func shellInput(runtime *goja.Runtime, value goja.Value, python *PythonRuntimeMa
 		if err != nil || environmentName != environment.Name || !environment.Ready {
 			panic(runtime.NewTypeError("requested Python environment is unavailable"))
 		}
-		env = append(env, "RECUT_VENV="+environment.Path, "RECUT_PYTHON="+environment.Python, "PATH="+filepath.Join(environment.Path, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+		env = append(env, "RECUT_VENV="+environment.Path, "RECUT_PYTHON="+environment.Python, "PATH="+prependPythonEnvironmentPath(environment.Path, environmentValue(userBaseEnv(), "PATH")))
 	}
 	return appShellInput{command: command, args: arguments, dir: dir, env: env, timeoutSeconds: timeout}
 }
@@ -675,11 +675,12 @@ func pythonStatus(runtime *goja.Runtime, manager *PythonRuntimeManager, app App)
 		// names. Apps consume camelCase properties, while Goja's struct projection
 		// does not apply encoding/json tags to property lookup.
 		return runtime.ToValue(map[string]any{
-			"name":   environment.Name,
-			"path":   environment.Path,
-			"python": environment.Python,
-			"ready":  environment.Ready,
-			"error":  environment.Error,
+			"name":    environment.Name,
+			"path":    environment.Path,
+			"python":  environment.Python,
+			"version": environment.Version,
+			"ready":   environment.Ready,
+			"error":   environment.Error,
 		})
 	}
 }

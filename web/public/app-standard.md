@@ -105,15 +105,16 @@ recut.operation.register("plan.create", (input, ctx) => {
     "python": {
       "venv": "example-runtime",
       "version": "3.11",
+      "tools": ["ffmpeg"],
       "requirements": "python/requirements.lock",
-      "bootstrap": "bootstrap.sh"
+      "bootstrap": "bootstrap.py"
     }
   },
   "permissions": ["python", "shell"]
 }
 ```
 
-平台将环境放入 `~/.recut/python/envs/<app-id>/<venv>/<dependency-fingerprint>/`。`requirements` 内容决定指纹，因此升级依赖不会污染已有环境。`bootstrap` 是可选的自由兜底，可下载官方代码、检查系统工具或准备模型，但不要重复 venv 与 pip 生命周期。模型等大文件应放在 `~/.recut/models/<namespace>/`。
+平台安装器预置 Python 3.11、venv 与 FFmpeg；平台把自己的工具链放入 `~/.recut/tools/`，把 App 环境放入 `~/.recut/python/envs/<app-id>/<venv>/<dependency-fingerprint>/`。App 可以覆盖 `version` 和 `venv`；两项都省略时分别使用平台默认的 Python 3.11 与 `platform` venv。`tools` 声明 App 需要的平台工具（当前支持 `ffmpeg`），平台负责提供它们。`requirements` 内容决定指纹，因此升级依赖不会污染已有环境。`bootstrap` 是可选的、跨平台的 `.py` 脚本，可下载官方代码或准备模型；它绝不重复系统工具、Python、venv 与 pip 生命周期。模型等大文件应放在 `~/.recut/models/<namespace>/`。
 
 ### 3. UI：宿主注入的 recut SDK
 

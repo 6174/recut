@@ -5,7 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
-export type AssetKind = "image" | "video" | "audio" | "transcript";
+export type AssetKind = "image" | "video" | "audio" | "transcript" | "reference";
 export type AssetStatus = "queued" | "running" | "completed" | "failed";
 export type ModelInputMode = "text" | AssetKind;
 export type Capability = "image.generate" | "video.generate" | "speech.generate";
@@ -36,6 +36,7 @@ export type Asset = {
       duration?: number;
       segmentCount?: number;
     };
+    reference?: { url?: string; sourceKind?: string; summary?: string; author?: string; publishedAt?: string; thumbnailUrl?: string };
   };
 };
 export type MediaJob = {

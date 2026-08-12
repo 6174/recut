@@ -29,7 +29,7 @@ func TestBuiltinAppsInstallRemotionStudioOnFirstLaunch(t *testing.T) {
 	if app.Root != filepath.Join(appsDir, "remotion-studio") {
 		t.Fatalf("built-in App root = %q", app.Root)
 	}
-	for _, required := range []string{"background.js", "ui/dist/index.html", "remotion-skeleton/package-lock.json", "skills/remotion-studio/SKILL.md"} {
+	for _, required := range []string{"background.js", "ui/dist/index.html", "remotion-skeleton/pnpm-lock.yaml", "skills/remotion-studio/SKILL.md"} {
 		if _, err := os.Stat(filepath.Join(app.Root, required)); err != nil {
 			t.Fatalf("built-in App is missing %s: %v", required, err)
 		}

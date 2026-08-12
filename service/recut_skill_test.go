@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 RecutSkillManager 的内嵌正文、临时 data/home/config 目录与 Server HTTP 路由
- * [OUTPUT]: 验证启动同步覆盖旧正文、Agent 软链接复用唯一来源且拒绝覆盖已有目录
+ * [OUTPUT]: 验证启动同步覆盖旧正文、Agent 软链接复用唯一来源且拒绝覆盖已有目录，以及按全局/App 分组列出并链接任意 Skill 的 HTTP 契约
  * [POS]: service Recut Skill 分发的回归测试；不读取真实用户目录或启动真实 daemon
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -184,6 +184,112 @@ func TestRecutSkillHTTPLinksRequestedTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, target := range status.Targets {
+		want := "available"
+		if target.ID == "opencode" {
+			want = "linked"
+		}
+		if target.Status != want {
+			t.Fatalf("%s status = %q want %q", target.ID, target.Status, want)
+		}
+	}
+}
+
+func TestSkillsHTTPCatalogGroupsGlobalAndApps(t *testing.T) {
+	manager := testRecutSkillManager(t)
+	if err := manager.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	appsDir := filepath.Join(t.TempDir(), "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	appRoot := filepath.Join(appsDir, "test-app")
+	if err := os.MkdirAll(appRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appRoot, "manifest.json"), `{"manifestVersion":1,"id":"test.app","name":"Test App","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	skillRoot := filepath.Join(appRoot, "skills", "studio")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(skillRoot, "SKILL.md"), "---\nname: studio\ndescription: Test studio skill.\n---\n# Studio")
+	apps, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(apps, nil, nil, nil, nil, nil, nil)
+	server.skill = manager
+	handler := server.routes()
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/skills", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	catalog := skillCatalogStatus{}
+	if err := json.NewDecoder(recorder.Body).Decode(&catalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Global) < 1 || catalog.Global[0].ID != recutSkillID {
+		t.Fatalf("global skills = %#v", catalog.Global)
+	}
+	if len(catalog.Apps) != 1 || catalog.Apps[0].AppID != "test.app" {
+		t.Fatalf("apps = %#v", catalog.Apps)
+	}
+	group := catalog.Apps[0]
+	if len(group.Skills) != 1 || group.Skills[0].ID != "studio" {
+		t.Fatalf("app skills = %#v", group.Skills)
+	}
+	for _, target := range group.Skills[0].Targets {
+		if target.MCP != recutMCPNotApplicable {
+			t.Fatalf("App skill MCP = %q want not-applicable", target.MCP)
+		}
+	}
+}
+
+func TestSkillsHTTPLinksAppSkillWithoutMCP(t *testing.T) {
+	manager := testRecutSkillManager(t)
+	if err := manager.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	appsDir := filepath.Join(t.TempDir(), "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	appRoot := filepath.Join(appsDir, "test-app")
+	if err := os.MkdirAll(appRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appRoot, "manifest.json"), `{"manifestVersion":1,"id":"test.app","name":"Test App","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	skillRoot := filepath.Join(appRoot, "skills", "studio")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(skillRoot, "SKILL.md"), "---\nname: studio\n---\n# Studio")
+	apps, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(apps, nil, nil, nil, nil, nil, nil)
+	server.skill = manager
+	handler := server.routes()
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/skills/links", bytes.NewBufferString(`{"appId":"test.app","skillId":"studio","targets":["opencode"]}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("link = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	summary := skillLinkSummary{}
+	if err := json.NewDecoder(recorder.Body).Decode(&summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.ID != "studio" || summary.Source != skillRoot {
+		t.Fatalf("summary = %#v", summary)
+	}
+	if len(summary.Targets) != 4 {
+		t.Fatalf("targets = %#v", summary.Targets)
+	}
+	for _, target := range summary.Targets {
 		want := "available"
 		if target.ID == "opencode" {
 			want = "linked"

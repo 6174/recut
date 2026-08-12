@@ -1,16 +1,21 @@
 #!/bin/sh
 # [INPUT]: 依赖 POSIX shell、curl、tar、SHA-256 工具、公开的 recut.video 静态发布包和用户级服务管理器
-# [OUTPUT]: 安装或原子升级 ~/.recut/bin/recut-service，在 macOS/Linux 注册并验证当前用户的常驻 service
+# [OUTPUT]: 带阶段日志地安装或原子升级 ~/.recut/bin/recut-service，并预置受管 Python 3.11、venv、FFmpeg 后注册/验证当前用户的常驻 service
 # [POS]: web/public 的无源码 Unix 安装入口；覆盖 macOS、Linux 和 FreeBSD，绝不读取或删除用户项目数据
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 set -eu
 
+log() {
+  printf '%s %s\n' "[Recut install]" "$*"
+}
+
 fail() {
-  echo "Recut installer: $1" >&2
+  log "失败：$1" >&2
   echo "请将完整输出交给 Codex、Claude Code 或 OpenCode 诊断；不要删除 ~/.recut 中的用户数据。" >&2
   exit 1
 }
 
+log "检查安装器能力"
 command -v curl >/dev/null 2>&1 || fail "需要 curl"
 command -v tar >/dev/null 2>&1 || fail "需要 tar"
 if command -v shasum >/dev/null 2>&1; then
@@ -41,14 +46,19 @@ recut_home=${RECUT_HOME:-"$HOME/.recut"}
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/recut-install.XXXXXX") || fail "无法创建临时目录"
 trap 'rm -rf "$temporary"' EXIT HUP INT TERM
 
+log "检测到 $os/$arch；数据目录：$recut_home"
+log "下载发布清单"
 curl --fail --location --silent --show-error "$download_base/releases/latest/manifest.json" -o "$temporary/manifest.json" || fail "无法下载 release manifest"
 release_version=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$temporary/manifest.json")
 expected_checksum=$(sed -n "s/.*\"$os-$arch\":{\"archive\":\"$archive\",\"sha256\":\"\([^\"]*\)\"}.*/\1/p" "$temporary/manifest.json")
 [ -n "$release_version" ] || fail "release manifest 缺少版本"
 [ -n "$expected_checksum" ] || fail "release manifest 缺少 $os-$arch 包"
+log "下载 Recut service $release_version"
 curl --fail --location --silent --show-error "$download_base/releases/latest/$archive" -o "$temporary/$archive" || fail "无法下载 $archive"
+log "校验发布包完整性"
 actual_checksum=$(sha256 "$temporary/$archive")
 [ "$actual_checksum" = "$expected_checksum" ] || fail "发布包校验失败"
+log "解压并激活 service"
 tar -xzf "$temporary/$archive" -C "$temporary" || fail "无法解压 $archive"
 test -x "$temporary/recut-service-$os-$arch" || fail "发布包缺少 service binary"
 
@@ -56,6 +66,35 @@ mkdir -p "$recut_home/bin" "$recut_home/logs"
 cp "$temporary/recut-service-$os-$arch" "$recut_home/bin/recut-service.new" || fail "无法写入 service binary"
 chmod 755 "$recut_home/bin/recut-service.new" || fail "无法设置 service binary 权限"
 mv -f "$recut_home/bin/recut-service.new" "$recut_home/bin/recut-service" || fail "无法激活 service binary"
+
+prepare_platform_runtime() {
+  tools_dir="$recut_home/tools"
+  uv="$tools_dir/uv/uv"
+  log "准备平台 Python 3.11、venv 与 FFmpeg"
+  if [ ! -x "$uv" ]; then
+    log "下载受管 Python 安装器"
+    mkdir -p "$tools_dir"
+    curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$tools_dir/uv" sh || fail "无法安装受管 Python 安装器"
+  else
+    log "复用已安装的受管 Python 安装器"
+  fi
+  log "安装或复用 Python 3.11"
+  "$uv" python install 3.11 || fail "无法准备 Python 3.11"
+  platform_python=$("$uv" python find 3.11) || fail "无法定位受管 Python 3.11"
+  platform_venv="$recut_home/python/platform/3.11"
+  if [ ! -x "$platform_venv/bin/python" ]; then
+    log "创建平台默认 venv"
+    mkdir -p "$(dirname "$platform_venv")"
+    "$platform_python" -m venv "$platform_venv" || fail "无法创建平台默认 venv"
+  else
+    log "复用平台默认 venv"
+  fi
+  log "安装平台 FFmpeg"
+  "$platform_venv/bin/python" -m pip install --disable-pip-version-check --upgrade imageio-ffmpeg || fail "无法安装平台 FFmpeg"
+  RECUT_PLATFORM_VENV="$platform_venv" "$platform_venv/bin/python" -c 'from pathlib import Path; import imageio_ffmpeg, os; source = Path(imageio_ffmpeg.get_ffmpeg_exe()); target = Path(os.environ["RECUT_PLATFORM_VENV"]) / "bin" / "ffmpeg"; target.unlink(missing_ok=True); target.symlink_to(source); print("[Recut install] FFmpeg 已就绪")' || fail "无法激活平台 FFmpeg"
+}
+
+prepare_platform_runtime
 
 install_launchd() {
   launch_dir="$HOME/Library/LaunchAgents"
@@ -125,9 +164,9 @@ print_startup_diagnostics() {
 }
 
 case "$os" in
-  darwin) install_launchd; wait_for_service || fail "service 启动失败" ;;
+  darwin) log "注册并启动 macOS 本地服务"; install_launchd; log "等待本地服务就绪"; wait_for_service || fail "service 启动失败" ;;
   linux)
-    if command -v systemctl >/dev/null 2>&1 && install_systemd_user; then wait_for_service || fail "service 启动失败";
+    if command -v systemctl >/dev/null 2>&1 && { log "注册并启动 Linux 本地服务"; install_systemd_user; }; then log "等待本地服务就绪"; wait_for_service || fail "service 启动失败";
     else
       echo "Recut service 已安装，但当前 Unix 会话没有可用的 systemd user manager。" >&2
       echo "请用以下命令启动：$recut_home/bin/recut-service --data-dir $recut_home" >&2
@@ -138,4 +177,4 @@ case "$os" in
     ;;
 esac
 
-echo "Recut service $release_version 已安装/升级。请刷新 https://recut.video。"
+log "完成：Recut service $release_version 已安装/升级。请刷新 https://recut.video。"

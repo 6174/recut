@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost 双 target 运行时、Catalog 的 App 与 skill 树、MediaService 与 JSON-RPC 请求/响应模型
- * [OUTPUT]: 对外提供项目/App-state 双 target 解析、上下文 context（不携带项目默认值）、__recut target envelope、跨 App 的 operation 路由、平台工具（context/skills/apps/project/media）、结构化内容与按全局/App 分组的工具清单（GET /v1/mcp/tools）
+ * [OUTPUT]: 对外提供项目/App-state 双 target 解析、上下文 context（不携带项目默认值）、__recut target envelope、跨 App 的 operation 路由、平台工具（含全局 reference 研究资料 Asset 创建）、结构化内容与按全局/App 分组的工具清单（GET /v1/mcp/tools）
  * [POS]: service 的 MCP Host；唯一监听者是常驻 Daemon 的 /v1/mcp（HTTP），所有 stdio 客户端（会话内 opencode/codex/claude 或外部 Agent）经无状态 --mcp 转发器接入，不启动 per-session 子进程；App 不自行启动 MCP server，所有调用经平台权限、目标解析与会话边界；平台工具无条件可见
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -317,10 +317,10 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 		}
 	}
 	result := map[string]any{
-		"session":      map[string]any{"id": session.ID, "taskId": session.TaskID},
-		"apps":         appSummaries,
-		"skills":       skillSummary,
-		"media":        map[string]any{"defaultRoutes": mediaConfiguration},
+		"session": map[string]any{"id": session.ID, "taskId": session.TaskID},
+		"apps":    appSummaries,
+		"skills":  skillSummary,
+		"media":   map[string]any{"defaultRoutes": mediaConfiguration},
 		"paths": map[string]any{
 			"dataRoot":         bridge.store.root,
 			"appsDir":          filepath.Join(bridge.store.root, "apps"),
@@ -556,6 +556,11 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		result, err = media.ListAssets(projectID)
 	case "recut.media.import_image":
 		result, err = importNativeImage(store, media, session, input)
+	case "recut.media.create_reference":
+		result, err = media.CreateReferenceAsset(ReferenceAssetInput{
+			Name: stringValue(input["name"]), URL: stringValue(input["url"]), SourceKind: stringValue(input["sourceKind"]),
+			Summary: stringValue(input["summary"]), Author: stringValue(input["author"]), PublishedAt: stringValue(input["publishedAt"]), ThumbnailURL: stringValue(input["thumbnailUrl"]),
+		})
 	case "recut.media.attach":
 		id, _ := input["assetId"].(string)
 		err = media.Attach(id, requestedProjectID(input))
@@ -590,6 +595,7 @@ func mediaMCPToolDefinitions() []map[string]any {
 		{"name": "recut.media.wait_for_job", "description": "等待本地 Daemon 已提交的媒体任务达到 completed 或 failed。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}},
 		{"name": "recut.media.list_assets", "description": "检索工作区或指定项目的可复用媒体素材。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}}}},
 		{"name": "recut.media.import_image", "description": "将 Codex 原生生成后已写入会话工作区的图片归档为 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。", "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "会话工作区内的相对图片路径。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
+		{"name": "recut.media.create_reference", "description": "把文章、网页、YouTube、小红书、抖音等公开链接登记为可跨项目复用的全局 reference Asset。只保存规范 URL 与可审阅元数据，不抓取或下载外部内容。", "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、youtube、xiaohongshu、douyin、web。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "author": map[string]string{"type": "string"}, "publishedAt": map[string]string{"type": "string"}, "thumbnailUrl": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.attach", "description": "把现有媒体 assetId 引用到目标项目。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "projectId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},
 	}
 }

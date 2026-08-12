@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { Check, Copy, Download, FileText, LoaderCircle, Music2, RotateCcw, Video, X } from "lucide-react";
+import { Check, Copy, Download, FileText, Link2, LoaderCircle, Music2, RotateCcw, Video, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
 import { GenerationDuration } from "@/components/generation-duration";
@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 
 export type PreviewAsset = {
   id: string;
-  kind: "image" | "video" | "audio" | "transcript";
+  kind: "image" | "video" | "audio" | "transcript" | "reference";
   name: string;
   origin: string;
   status: "queued" | "running" | "completed" | "failed";
@@ -25,7 +25,7 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; referenceIds?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number } };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; referenceIds?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; reference?: { url?: string; sourceKind?: string; summary?: string; author?: string; publishedAt?: string; thumbnailUrl?: string } };
 };
 
 export function mediaContext(asset: PreviewAsset) {
@@ -36,7 +36,7 @@ export function mediaContext(asset: PreviewAsset) {
   return [
     `<media type="${asset.kind}" assetid="${asset.id}"/>`,
     `素材名称：${asset.name}`,
-    `素材类型：${asset.kind === "transcript" ? "转写（源声音 + SRT + JSON）" : asset.kind}`,
+    `素材类型：${asset.kind === "transcript" ? "转写（源声音 + SRT + JSON）" : asset.kind === "reference" ? "研究资料链接" : asset.kind}`,
     `素材来源：${asset.origin}`,
     `素材状态：${asset.status}`,
     ...(transcript ? [
@@ -80,7 +80,16 @@ function AssetContent({ apiBase, asset, status }: { apiBase: string; asset: Prev
   if (asset.kind === "image") return <img alt={asset.name} className="max-h-[65vh] max-w-full object-contain" src={source} />;
   if (asset.kind === "audio") return <AudioWaveformPlayer name={asset.name || "音频素材"} src={source} />;
   if (asset.kind === "transcript") return <TranscriptAssetContent apiBase={apiBase} asset={asset} />;
+  if (asset.kind === "reference") return <ReferenceAssetContent asset={asset} />;
   return <VideoFrame alt={asset.name || "视频素材"} className="w-full max-w-4xl rounded-xs bg-black" controls src={source} videoClassName="max-h-[65vh] object-contain" />;
+}
+
+type ReferenceMetadata = { url?: string; sourceKind?: string; summary?: string; author?: string; publishedAt?: string; thumbnailUrl?: string };
+
+function ReferenceAssetContent({ asset }: { asset: PreviewAsset }) {
+  const reference = asset.metadata?.reference as ReferenceMetadata | undefined;
+  const url = typeof reference?.url === "string" ? reference.url : "";
+  return <div className="grid w-full max-w-2xl gap-4 rounded-sm border bg-card p-6 text-left"><span className="grid size-10 place-items-center rounded-sm bg-primary/10 text-primary"><Link2 className="size-5" /></span><div><p className="text-sm font-medium">{asset.name}</p><p className="mt-1 text-xs text-muted-foreground">{reference?.sourceKind || "web"} · 可跨项目复用的研究资料</p></div>{reference?.summary && <p className="text-sm leading-6">{reference.summary}</p>}{url ? <a className="truncate text-sm text-primary underline underline-offset-4" href={url} rel="noreferrer" target="_blank">打开原始资料</a> : <p className="text-sm text-destructive">资料链接缺失</p>}</div>;
 }
 
 type TranscriptSegment = { start: number; end: number; text: string; speaker?: string; emotion?: string };

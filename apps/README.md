@@ -3,7 +3,7 @@
 > L2 | 父级: /README.md
 
 成员清单
-vox-broll/: `git@github.com:6174/recut-vox-broll.git` 的 Git submodule（跟踪 main）；B-roll 项目型 App 的源码与领域文档独立演进，主仓库只固定 commit。
+vox-broll/: `git@github.com:6174/recut-vox-broll.git` 的 Git submodule（跟踪 main）；AI 短片项目型应用，冻结导演风格模板后依次完成全局资料研究、用户确认、创作方案选定、剧本与场景方案、媒体生成与可供 Remotion 消费的短片交接包，主仓库只固定 commit。
 cover-studio/: `git@github.com:6174/recut-cover-studio.git` 的 Git submodule（跟踪 main）；以渠道尺寸、提示词模板和素材库参考图生成封面，历史只保存 Asset 引用与生成元数据，不创建用户项目。
 depth-anything/: `git@github.com:6174/recut-depth-anything-v2.git` 的 Git submodule（跟踪 main）；本地深度图 App 以官方 Depth Anything V2 将素材库图片或视频转换成私有 PNG/MP4 预览，只有用户确认后才导入素材库；manifest 声明的平台 venv 位于 `~/.recut/python/envs/`，模型位于 `~/.recut/models/depth-anything-v2/`。
 audio-studio/: `git@github.com:6174/recut-audio-studio.git` 的 Git submodule（跟踪 main）；非项目型声音智能层 App，用 faster-whisper 把素材库音视频转成可编辑文稿与 SRT，用参考人声创建可复用声音角色（参考音 + 自动生成的提示词），再用 CosyVoice2 零样本/情绪指令合成角色配音；模型位于 `~/.recut/models/audio-studio/`，CosyVoice 官方代码与 Matcha-TTS 子模块由 bootstrap 浅克隆到同一模型根。

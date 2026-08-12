@@ -113,7 +113,7 @@ export default function ProjectDetailClient() {
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=page.context result=ok`);
         } else if (request.type === "media.pick") {
           if (mediaPickerReply.current) throw new Error("已有素材选择器正在打开");
-          const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" | "transcript" => kind === "image" || kind === "video" || kind === "audio" || kind === "transcript") : [];
+          const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" | "transcript" | "reference" => kind === "image" || kind === "video" || kind === "audio" || kind === "transcript" || kind === "reference") : [];
           if (!kinds.length) throw new Error("请声明可选择的素材类型");
           const multiple = request.input?.multiple === true;
           const selectedIDs = Array.isArray(request.input?.selectedIDs) ? request.input.selectedIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];

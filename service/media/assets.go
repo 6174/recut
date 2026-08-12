@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Workspace 数据库与受控媒体根
- * [OUTPUT]: Asset 导入、查询、去重或按交付强制新建、ASR 转写 bundle（源声音 + SRT + JSON parts）导入与 parts 读取、受控落盘、项目关联、异步生成时间/输出/诊断 metadata、终态审计及 durable 更新事件
+ * [OUTPUT]: Asset 导入、查询、去重或按交付强制新建、无本地二进制的全局 reference 研究资料 Asset、ASR 转写 bundle（源声音 + SRT + JSON parts）导入与 parts 读取、受控落盘、项目关联、异步生成时间/输出/诊断 metadata、终态审计及 durable 更新事件
  * [POS]: media 的资产真相源；Provider 与本地两轨导出均不直接访问存储，终态与 SSE 事件在此原位回写
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,6 +254,72 @@ func (m *MediaService) Attach(assetID, projectID string) error {
 	}
 	m.publishAssetChange()
 	return nil
+}
+
+// CreateReferenceAsset creates a workspace-level research citation. Reference
+// Assets have no local content endpoint: the URL is the source of truth, while
+// metadata makes citations searchable, reviewable and reusable across Apps.
+func (m *MediaService) CreateReferenceAsset(input ReferenceAssetInput) (MediaAsset, error) {
+	name := strings.TrimSpace(input.Name)
+	referenceURL := strings.TrimSpace(input.URL)
+	parsed, err := url.Parse(referenceURL)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+		return MediaAsset{}, errors.New("reference URL must be an absolute http(s) URL")
+	}
+	if name == "" {
+		name = parsed.Host
+	}
+	sourceKind := strings.TrimSpace(input.SourceKind)
+	if sourceKind == "" {
+		sourceKind = "web"
+	}
+	canonicalURL := parsed.String()
+	hash := sha256.Sum256([]byte("reference:" + canonicalURL))
+	contentHash := hex.EncodeToString(hash[:])
+
+	m.dedupeMu.Lock()
+	defer m.dedupeMu.Unlock()
+	db, err := m.database()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	existing, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where content_hash = ?", contentHash))
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return MediaAsset{}, err
+	}
+	id, err := newID()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	now := time.Now().UTC()
+	metadata := map[string]any{
+		"source": "research",
+		"reference": map[string]any{
+			"url": canonicalURL, "sourceKind": sourceKind, "summary": strings.TrimSpace(input.Summary),
+			"author": strings.TrimSpace(input.Author), "publishedAt": strings.TrimSpace(input.PublishedAt), "thumbnailUrl": strings.TrimSpace(input.ThumbnailURL),
+		},
+	}
+	serialized, _ := json.Marshal(metadata)
+	asset := MediaAsset{ID: id, Kind: "reference", Name: name, MimeType: "application/vnd.recut.reference+json", ContentHash: contentHash, Origin: "research", Status: "completed", Metadata: metadata, CreatedAt: now, UpdatedAt: now}
+	tx, err := db.Begin()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	rollback := func(cause error) (MediaAsset, error) { _ = tx.Rollback(); return MediaAsset{}, cause }
+	if _, err = tx.Exec("insert into media_assets (id, kind, name, mime_type, size_bytes, content_hash, origin, parent_id, status, job_id, remote_id, remote_poll_url, error, metadata_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", asset.ID, asset.Kind, asset.Name, asset.MimeType, 0, asset.ContentHash, asset.Origin, "", asset.Status, "", "", "", "", string(serialized), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		return rollback(err)
+	}
+	if err := recordAssetEvent(tx, asset.ID, now); err != nil {
+		return rollback(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return MediaAsset{}, err
+	}
+	m.publishAssetChange()
+	return asset, nil
 }
 
 func attachTx(tx *sql.Tx, assetID, projectID string, now time.Time) error {
@@ -928,7 +995,7 @@ func (m *MediaService) ImportTranscript(input TranscriptImport) (MediaAsset, err
 		name = "transcript-" + id + extensionFor(input.AudioMimeType)
 	}
 	metadata := map[string]any{
-		"path": audioPath,
+		"path":   audioPath,
 		"source": "transcript",
 		"transcript": map[string]any{
 			"sourceAssetId":       input.SourceAssetID,

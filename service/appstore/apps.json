@@ -1,14 +1,14 @@
 [
   {
     "appId": "recut.vox-broll",
-    "name": "Vox B-roll Explainer",
-    "description": "把一个主题做成 Vox 风格 B-roll 解说片（Brief→Beats→Look→Keyframes→Audio→Scenes→Delivery）。",
+    "name": "AI 短片",
+    "description": "把一个主题做成可研究、可审阅、可继续生产的 AI 短片（立项→资料研究→创作方案→剧本与场景方案→成片交付）。",
     "kind": "project",
     "repository": "https://github.com/6174/recut-vox-broll.git"
   },
   {
     "appId": "recut.remotion-studio",
-    "name": "Remotion Studio",
+    "name": "Remotion 视频",
     "description": "把一个选题做成可审阅、可实时预览、可导出的 Remotion 程序化视频。",
     "kind": "project",
     "repository": "https://github.com/6174/recut-remotion-studio.git"
@@ -22,7 +22,7 @@
   },
   {
     "appId": "recut.depth-anything",
-    "name": "Depth Anything",
+    "name": "深度图",
     "description": "对图片或视频执行深度估计并保存深度图结果。",
     "kind": "standalone",
     "repository": "https://github.com/6174/recut-depth-anything-v2.git"

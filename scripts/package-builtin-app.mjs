@@ -19,7 +19,8 @@ const packageName = basename(source);
 const manifestPath = resolve(source, "manifest.json");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const include = manifest.distribution?.builtin?.include;
-if (!Array.isArray(include) || include.length === 0 || include.some((entry) => typeof entry !== "string" || !isSafePackagePath(entry))) {
+const exclude = manifest.distribution?.builtin?.exclude ?? [];
+if (!Array.isArray(include) || include.length === 0 || include.some((entry) => typeof entry !== "string" || !isSafePackagePath(entry)) || !Array.isArray(exclude) || exclude.some((entry) => typeof entry !== "string" || !isSafePackagePath(entry))) {
   throw new Error(`${manifestPath}: distribution.builtin.include must be a non-empty list of package-relative paths`);
 }
 
@@ -31,20 +32,10 @@ for (const entry of include) {
 }
 
 mkdirSync(dirname(output), { recursive: true });
+const mandatoryExcludes = [".git", "**/.git", "node_modules", "**/node_modules", ".vite", "**/.vite", ".remotion", "**/.remotion", ".DS_Store", "**/.DS_Store", "._*", "**/._*"];
 const result = spawnSync("tar", [
   "-C", dirname(source),
-  `--exclude=${packageName}/.git`,
-  `--exclude=${packageName}/**/.git`,
-  `--exclude=${packageName}/node_modules`,
-  `--exclude=${packageName}/**/node_modules`,
-  `--exclude=${packageName}/.vite`,
-  `--exclude=${packageName}/**/.vite`,
-  `--exclude=${packageName}/.remotion`,
-  `--exclude=${packageName}/**/.remotion`,
-  `--exclude=${packageName}/.DS_Store`,
-  `--exclude=${packageName}/**/.DS_Store`,
-  `--exclude=${packageName}/._*`,
-  `--exclude=${packageName}/**/._*`,
+  ...[...mandatoryExcludes, ...exclude].map((entry) => `--exclude=${packageName}/${entry}`),
   "-czf", output,
   ...include.map((entry) => `${packageName}/${entry}`),
 ], {
@@ -56,7 +47,7 @@ if (result.status !== 0) process.exit(result.status ?? 1);
 
 function isSafePackagePath(value) {
   const clean = normalize(value);
-  return value !== "" && !isAbsolute(value) && clean !== "." && clean !== ".." && !clean.startsWith(`..${sep}`);
+  return value !== "" && !isAbsolute(value) && clean !== ".." && !clean.startsWith(`..${sep}`);
 }
 
 function isInside(root, candidate) {

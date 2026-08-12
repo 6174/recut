@@ -73,7 +73,7 @@ func TestSessionGuideIsPlatformOnlyAndVoxSkillIsDiscoverable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(workflow, []byte("recut.media.generate")) || !bytes.Contains(workflow, []byte("platform-media-generation")) {
+	if bytes.Contains(workflow, []byte("recut.media.generate")) || !bytes.Contains(workflow, []byte("平台媒体生成")) {
 		t.Fatal("Vox workflow must declare platform media generation without the retired media tool")
 	}
 }

@@ -20,7 +20,7 @@ export const appCatalog: CatalogApp[] = [
   {
     manifest: {
       id: "recut.vox-broll",
-      name: "Vox B-roll Explainer",
+      name: "AI 短片",
       author: "6174",
       description: "将一个主题制作成可审阅、可继续制作的 Vox 风格 B-roll 解说片。",
       repository: "https://github.com/6174/recut-vox-broll",
@@ -31,7 +31,7 @@ export const appCatalog: CatalogApp[] = [
   {
     manifest: {
       id: "recut.depth-anything",
-      name: "Depth Anything",
+      name: "深度图",
       author: "Recut",
       description: "在本机将图片或视频转换为可预览的深度图，再按需保存到素材库。",
       repository: "https://github.com/6174/recut-depth-anything-v2",
@@ -42,7 +42,7 @@ export const appCatalog: CatalogApp[] = [
   {
     manifest: {
       id: "recut.remotion-studio",
-      name: "Remotion Studio",
+      name: "Remotion 视频",
       author: "6174",
       description: "把选题、文案和素材编排成可审阅、可实时预览、可导出的 Remotion 程序化视频。",
       repository: "https://github.com/6174/recut-remotion-studio",

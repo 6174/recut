@@ -23,7 +23,7 @@ public/: 公开的跨平台 service 安装器与构建时生成的发布包。
 依赖边界
 `NEXT_PUBLIC_RECUT_WORKSPACE_MODE=cloud` 时，web 以 `NEXT_PUBLIC_RECUT_API_URL` 作为默认地址，并将用户选择的 service endpoint 保存于浏览器；浏览器直连该本地或远程 service，Cloudflare Worker 不代理其 API。`NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local` 时，导出的页面由 service 自身交付，默认 API 为浏览器同源地址，既不显示“安装本地 service”的引导，也不依赖固定端口；local 和 LAN 模式均不读取或写入 cloud 留下的 endpoint。`NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan` 用于端口 3000 的开发工作台：它复用访问页面的主机名、改用 `NEXT_PUBLIC_RECUT_API_PORT`（默认 17373）访问 service。LAN service 接受私有、链路本地和 loopback IP 的浏览器跨域请求。`NEXT_PUBLIC_RECUT_SERVICE_VERSION` 是 Makefile 从唯一 `RECUT_VERSION` 注入的本次发布 service 版本；对话以 Agent Session 事件为真相，PTY 输出只可用于终端诊断，不得导入 `cmd/`、`internal/` 或直接读写本地项目目录。
 
-根布局固定挂载 service 控制入口：所有页面展示同一 endpoint 的状态与版本；仅默认本地 endpoint 可经 daemon API 确认式升级或重启，浏览器不直接执行系统命令。daemon 启动即将 Codex、Claude Code、OpenCode 与通用 Agent 软链接到同一个 `<data-dir>/skills/recut` 来源，并为前三者保留现有用户配置地原子注册 Recut MCP，使 Skill 可直接调用平台工具；全局设置的 Recut Skill Tab 查询 `GET /v1/skills/recut` 并仅在异常时调用 `POST /v1/skills/recut/links` 修复。所有工作台 Header 右侧提供 Recut GitHub 项目主页外链；项目 Header 与 Apps 目录分别显示 App 版本，Git 检测到远端版本后需在确认 popover 中升级。
+根布局固定挂载 service 控制入口：所有页面展示同一 endpoint 的状态与版本；仅默认本地 endpoint 可经 daemon API 确认式升级或重启，浏览器不直接执行系统命令。daemon 启动即将 Codex、Claude Code、OpenCode 与通用 Agent 软链接到同一个 `<data-dir>/skills/recut` 来源，并为前三者保留现有用户配置地原子注册 Recut MCP，使 Skill 可直接调用平台工具；全局设置的 Recut Skill Tab 查询 `GET /v1/skills` 按归属列出平台与全部 App Skill，并通过 `POST /v1/skills/links`（平台 Recut Skill 沿用 `POST /v1/skills/recut/links`）创建或修复 Agent 软链接。所有工作台 Header 右侧提供 Recut GitHub 项目主页外链；项目 Header 与 Apps 目录分别显示 App 版本，Git 检测到远端版本后需在确认 popover 中升级。
 
 域名边界
 

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 React 状态能力、lucide 图标与 AgentInstallGuide 的三步安装正文
- * [OUTPUT]: 对外提供 AgentInstallDialog 共享模态对话框，接收当前要引导安装的 Agent 与 recheck 回调，渲染安装三步并在 recheck 期间禁用关闭，recheck 是否成功的语义由父级通过返回值自行决定
+ * [OUTPUT]: 对外提供 AgentInstallDialog 共享模态对话框，接收当前要引导安装的 Agent 与 recheck 回调，经 document.body Portal 渲染安装三步并在 recheck 期间禁用关闭，recheck 是否成功的语义由父级通过返回值自行决定
  * [POS]: web/components 的本地 Agent CLI 主动安装入口；由空态安装卡、RuntimePicker 未就绪项与未来 settings 本地 Agent 分类复用
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -8,6 +8,7 @@
 
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { AgentInstallGuide, type AgentRuntimeStatus } from "@/components/agent-install-guide";
 
@@ -48,7 +49,7 @@ export function AgentInstallDialog({ agent, open, onClose, onRecheck }: { agent:
 
   function close() { if (!checking) onClose(); }
 
-  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={close} role="dialog" aria-labelledby="agent-install-title">
+  return createPortal(<div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={close} role="dialog" aria-labelledby="agent-install-title">
     <section className="flex w-full max-w-md flex-col overflow-hidden rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
       <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
         <div>
@@ -64,5 +65,5 @@ export function AgentInstallDialog({ agent, open, onClose, onRecheck }: { agent:
         <AgentInstallGuide agent={agent} checkFailed={checkFailed} checking={checking} onRecheck={recheck} />
       </div>
     </section>
-  </div>;
+  </div>, document.body);
 }

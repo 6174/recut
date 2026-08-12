@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, ImageIcon, LoaderCircle, Music2, Plus, Sparkles, Store, Video, X, type LucideIcon } from "lucide-react";
+import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, ImageIcon, Link2, LoaderCircle, Music2, Plus, Sparkles, Store, Video, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, MouseEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
@@ -338,13 +338,13 @@ function RecentAssets({ apiBase }: { apiBase: string }) {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   useEffect(() => { let active = true; void fetch(`${apiBase}/v1/media/assets`, { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error(); return response.json() as Promise<Asset[]>; }).then((items) => { if (active) { setAssets(items.slice(0, 5)); setState("ready"); } }).catch(() => { if (active) setState("error"); }); return () => { active = false; }; }, [apiBase]);
   if (state === "loading") return <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{Array.from({ length: 5 }, (_, index) => <div className="aspect-square animate-pulse rounded-sm bg-muted" key={index} />)}</div>;
-  if (state === "error" || !assets.length) return <Card><CardContent className="flex min-h-28 items-center gap-3"><span className="grid size-9 place-items-center rounded-sm bg-muted"><Box className="size-4 text-muted-foreground" /></span><div><p className="text-sm font-medium">还没有可展示的资源</p><p className="mt-1 text-xs text-muted-foreground">上传素材或在任一 App 中生成内容后，它们会出现在这里。</p></div></CardContent></Card>;
-  return <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{assets.map((asset) => <Link className="group min-w-0" href="/media" key={asset.id}><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35"><AssetPreview apiBase={apiBase} asset={asset} /><CardContent className="p-2.5"><p className="truncate text-xs font-medium">{asset.name}</p><p className="mt-1 text-[10px] text-muted-foreground">{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "transcript" ? "转写" : "音频"}</p></CardContent></Card></Link>)}</div>;
+  if (state === "error" || !assets.length) return <Card><CardContent className="flex min-h-28 items-center gap-3"><span className="grid size-9 place-items-center rounded-sm bg-muted"><Box className="size-4 text-muted-foreground" /></span><div><p className="text-sm font-medium">还没有可展示的资源</p><p className="mt-1 text-xs text-muted-foreground">上传素材、登记研究资料或在任一 App 中生成内容后，它们会出现在这里。</p></div></CardContent></Card>;
+  return <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{assets.map((asset) => <Link className="group min-w-0" href="/media" key={asset.id}><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35"><AssetPreview apiBase={apiBase} asset={asset} /><CardContent className="p-2.5"><p className="truncate text-xs font-medium">{asset.name}</p><p className="mt-1 text-[10px] text-muted-foreground">{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "transcript" ? "转写" : asset.kind === "reference" ? "资料" : "音频"}</p></CardContent></Card></Link>)}</div>;
 }
 
 function AssetPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
   const source = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`;
-  const icon = asset.kind === "audio" ? <Music2 className="size-5" /> : asset.kind === "video" ? <Video className="size-5" /> : asset.kind === "transcript" ? <Captions className="size-5" /> : <FileImage className="size-5" />;
+  const icon = asset.kind === "audio" ? <Music2 className="size-5" /> : asset.kind === "video" ? <Video className="size-5" /> : asset.kind === "transcript" ? <Captions className="size-5" /> : asset.kind === "reference" ? <Link2 className="size-5" /> : <FileImage className="size-5" />;
   if (asset.status !== "completed") return <div className="grid aspect-square place-items-center bg-muted text-muted-foreground">{icon}</div>;
   if (asset.kind === "video") return <VideoFrame alt={asset.name} className="aspect-square" src={source} />;
   if (asset.kind === "image") return <img alt={asset.name} className="aspect-square w-full object-cover" src={source} />;

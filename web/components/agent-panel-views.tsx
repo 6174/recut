@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖共享会话类型、Agent 安装恢复能力、素材引用卡片与基础 UI 原子组件
- * [OUTPUT]: 对外提供会话时间线、历史列表、加载/CLI 调试/恢复视图、工具结果中的 Asset 预览入口，以及 SSE 事件归并函数
+ * [OUTPUT]: 对外提供会话时间线、历史列表、加载/CLI 调试/恢复视图、工具结果中的 Asset 预览入口；调试与工具详情弹框经 document.body Portal 脱离侧栏堆叠上下文，以及 SSE 事件归并函数
  * [POS]: components Agent 对话模块的展示层；只根据传入数据渲染，不拥有会话请求状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -8,6 +8,7 @@
 
 import { Bot, Check, ChevronRight, CircleAlert, Copy, RefreshCw, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { AgentInstallGuide, CopyFeedback, copyToClipboard, recoverySubtitle, recoveryTitle, type AgentRuntimeStatus } from "@/components/agent-install-guide";
 import { AgentMessageContent } from "@/components/agent-message-content";
@@ -66,7 +67,7 @@ export function CLIDebugDialog({
       return `${at} ${entry.stream === "stderr" ? "ERR" : "OUT"} ${entry.text}`;
     })
     .join("\n");
-  return (
+  return createPortal(
     <div
       aria-labelledby="agent-cli-title"
       aria-modal="true"
@@ -106,7 +107,8 @@ export function CLIDebugDialog({
               : "此会话没有可用的实时 CLI 流。运行流只会从启用本功能后启动的 Agent turn 开始捕获。")}
         </pre>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -689,7 +691,7 @@ function ToolDetailDialog({
   text: string;
   title: string;
 }) {
-  return (
+  return createPortal(
     <div
       aria-modal="true"
       className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]"
@@ -718,7 +720,8 @@ function ToolDetailDialog({
           {text}
         </pre>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 function toolDuration(

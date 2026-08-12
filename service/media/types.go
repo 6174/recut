@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 无运行时依赖
- * [OUTPUT]: 媒体能力、含输入/输出参数能力的模型、配置、资产、任务和生成请求 JSON 契约
+ * [OUTPUT]: 媒体能力、含输入/输出参数能力的模型、配置、图片/视频/音频/转写/研究资料资产、任务和生成请求 JSON 契约
  * [POS]: media 的稳定 DTO 边界；被服务、HTTP/MCP 和 Provider 共同消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -88,6 +88,20 @@ type MediaAsset struct {
 	Metadata    map[string]any `json:"metadata"`
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
+}
+
+// ReferenceAssetInput records a web-native research source in the global Asset
+// library. It deliberately stores a canonical URL and metadata rather than
+// scraping, downloading, or pretending an external page is a local media file.
+// Any project can attach the resulting immutable Asset by ID.
+type ReferenceAssetInput struct {
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	SourceKind   string `json:"sourceKind"`
+	Summary      string `json:"summary,omitempty"`
+	Author       string `json:"author,omitempty"`
+	PublishedAt  string `json:"publishedAt,omitempty"`
+	ThumbnailURL string `json:"thumbnailUrl,omitempty"`
 }
 
 type MediaJob struct {

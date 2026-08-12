@@ -116,6 +116,9 @@ func extractBuiltinApp(destination, packageName string, archive []byte) error {
 			return fmt.Errorf("archive entry escapes package root: %q", header.Name)
 		}
 		relative := strings.TrimPrefix(header.Name, prefix)
+		if relative == "." || relative == "./" {
+			continue
+		}
 		if !safeBuiltinAppPath(relative) {
 			return fmt.Errorf("unsafe archive path %q", header.Name)
 		}

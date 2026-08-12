@@ -87,7 +87,7 @@ const createKinds: CreateKind[] = [
     prompt: "输入需要生成的语音内容或音频描述…",
   },
 ];
-const referenceLabels: Record<Exclude<AssetKind, "transcript">, string> = { image: "图片", video: "视频", audio: "音频" };
+const referenceLabels: Record<Exclude<AssetKind, "transcript">, string> = { image: "图片", video: "视频", audio: "音频", reference: "资料" };
 const initialAssetCount = 12;
 
 function isReferenceKind(mode: ModelInputMode): mode is Exclude<AssetKind, "transcript"> {

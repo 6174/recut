@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { Captions, ImageIcon, LoaderCircle, Music2, Video } from "lucide-react";
+import { Captions, ImageIcon, Link2, LoaderCircle, Music2, Video } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -130,7 +130,7 @@ function ToolResultAsset({
   const label = asset?.name || "生成的素材";
   const completed = asset?.status === "completed";
   const source = mediaContentURL(apiBase, assetID);
-  const Icon = asset?.kind === "video" ? Video : asset?.kind === "audio" ? Music2 : asset?.kind === "transcript" ? Captions : ImageIcon;
+  const Icon = asset?.kind === "video" ? Video : asset?.kind === "audio" ? Music2 : asset?.kind === "transcript" ? Captions : asset?.kind === "reference" ? Link2 : ImageIcon;
   return (
     <button
       aria-label={`打开${label}`}

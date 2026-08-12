@@ -157,12 +157,26 @@ func TestCatalogLoadsManifestOnboarding(t *testing.T) {
 }
 
 func TestCatalogValidatesPythonRuntime(t *testing.T) {
-	valid := Manifest{ManifestVersion: 1, ID: "example.python", Name: "Python", Author: "Test", Description: "Test App.", Version: "1.0.0", Kind: ProjectApp, Background: "background.js", UI: UIEntrypoints{ProjectView: "ui/index.html"}, Permissions: []string{"python", "shell"}, Runtime: AppRuntime{Python: &PythonRuntime{Venv: "example-runtime", Requirements: "python/requirements.lock", Bootstrap: "bootstrap.sh"}}}
+	valid := Manifest{ManifestVersion: 1, ID: "example.python", Name: "Python", Author: "Test", Description: "Test App.", Version: "1.0.0", Kind: ProjectApp, Background: "background.js", UI: UIEntrypoints{ProjectView: "ui/index.html"}, Permissions: []string{"python", "shell"}, Runtime: AppRuntime{Python: &PythonRuntime{Venv: "example-runtime", Requirements: "python/requirements.lock", Bootstrap: "bootstrap.py"}}}
 	if err := validateManifest(valid); err != nil {
 		t.Fatalf("valid python runtime rejected: %v", err)
+	}
+	valid.Runtime.Python.Venv = ""
+	if err := validateManifest(valid); err != nil {
+		t.Fatalf("platform-default Python venv rejected: %v", err)
 	}
 	valid.Runtime.Python.Venv = "../escape"
 	if err := validateManifest(valid); err == nil {
 		t.Fatal("unsafe Python venv accepted")
+	}
+	valid.Runtime.Python.Venv = "example-runtime"
+	valid.Runtime.Python.Version = "3.11.1"
+	if err := validateManifest(valid); err == nil {
+		t.Fatal("patch-level Python runtime version accepted")
+	}
+	valid.Runtime.Python.Version = "3.11"
+	valid.Runtime.Python.Tools = []string{"ffmpeg", "ffmpeg"}
+	if err := validateManifest(valid); err == nil {
+		t.Fatal("duplicate Python runtime tool accepted")
 	}
 }

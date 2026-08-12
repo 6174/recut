@@ -46,6 +46,7 @@ func TestPythonStatusUsesCamelCasePropertiesForJavaScriptApps(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestFile(t, environment.Python, "")
+	writeTestFile(t, filepath.Join(environment.Path, "pyvenv.cfg"), "version = 3.11.12\n")
 
 	runtime := goja.New()
 	status := pythonStatus(runtime, manager, app)(goja.FunctionCall{}).ToObject(runtime)
@@ -54,6 +55,78 @@ func TestPythonStatusUsesCamelCasePropertiesForJavaScriptApps(t *testing.T) {
 	}
 	if status.Get("Ready") != nil {
 		t.Fatalf("Go field name leaked into JavaScript capability: %v", status.Get("Ready"))
+	}
+}
+
+func TestPythonEnvironmentRejectsVenvCreatedWithWrongVersion(t *testing.T) {
+	root := t.TempDir()
+	app := App{Manifest: Manifest{ID: "example.python", Runtime: AppRuntime{Python: &PythonRuntime{Venv: "example", Version: "3.11", Requirements: "requirements.lock"}}}, Root: root}
+	writeTestFile(t, filepath.Join(root, "requirements.lock"), "example-package\n")
+	manager := NewPythonRuntimeManager(NewStore(filepath.Join(root, "data"), nil), NewShellJobManager(NewStore(filepath.Join(root, "unused"), nil)))
+	environment, err := manager.Environment(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(environment.Python), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, environment.Python, "")
+	writeTestFile(t, filepath.Join(environment.Path, "pyvenv.cfg"), "version = 3.9.19\n")
+	environment, err = manager.Environment(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if environment.Ready || !strings.Contains(environment.Error, "different Python version") {
+		t.Fatalf("environment = %#v", environment)
+	}
+}
+
+func TestPythonRuntimeUsesManifestVersionForVenvCreation(t *testing.T) {
+	command, err := runtimePythonCommand(PythonRuntime{Version: "3.11"})
+	if err != nil || command != "python3.11" {
+		t.Fatalf("command = %q, err = %v", command, err)
+	}
+	script := preparePythonScript()
+	if !strings.Contains(script, "astral.sh/uv/install.sh") || !strings.Contains(script, "\"$uv\" python install \"$RECUT_PYTHON_VERSION\"") || !strings.Contains(script, "\"$RECUT_PYTHON_COMMAND\" -m venv") || !strings.Contains(script, "rm -rf \"$RECUT_VENV\"") {
+		t.Fatalf("prepare script does not recreate mismatched environments: %s", script)
+	}
+}
+
+func TestPythonRuntimeUsesPlatformDefaultsWhenAppOmitsVersionAndVenv(t *testing.T) {
+	definition := PythonRuntime{}
+	if runtimePythonVersion(definition) != "3.11" || runtimeVenvName(definition) != "platform" {
+		t.Fatalf("defaults = version %q, venv %q", runtimePythonVersion(definition), runtimeVenvName(definition))
+	}
+	command, err := runtimePythonCommand(definition)
+	if err != nil || command != "python3.11" {
+		t.Fatalf("default command = %q, err = %v", command, err)
+	}
+}
+
+func TestPythonRuntimeInstallsDeclaredFFmpegWithoutSystemPackageManager(t *testing.T) {
+	script := preparePythonTools([]string{"ffmpeg"})
+	if !strings.Contains(script, "imageio_ffmpeg.get_ffmpeg_exe()") || !strings.Contains(script, "shutil.copy2(source, target)") || !strings.Contains(script, "Scripts") {
+		t.Fatalf("ffmpeg tool bootstrap = %s", script)
+	}
+}
+
+func TestPythonEnvironmentPathPreservesLoginShellTools(t *testing.T) {
+	path := prependPythonEnvironmentPath("/private/recut/env", "/opt/homebrew/bin:/usr/bin:/bin")
+	if path != "/private/recut/env/bin:/opt/homebrew/bin:/usr/bin:/bin" {
+		t.Fatalf("Python environment PATH = %q", path)
+	}
+}
+
+func TestPythonRuntimeBootstrapIsPortablePython(t *testing.T) {
+	command, args, err := pythonPrepareCommand(PythonRuntime{Requirements: "requirements.lock", Bootstrap: "bootstrap.py"})
+	if err != nil || command != "sh" || len(args) != 3 || !strings.Contains(args[2], "\"$RECUT_PYTHON\" \"$RECUT_PYTHON_BOOTSTRAP\"") || !strings.Contains(args[2], "RECUT_PYTHON_REQUIREMENTS") {
+		t.Fatalf("portable bootstrap command = %q %#v, err = %v", command, args, err)
+	}
+	windows := preparePythonPowerShell([]string{"ffmpeg"})
+	for _, expected := range []string{"UV_INSTALL_DIR", "uv\\uv.exe", "python install", "Scripts", "RECUT_PYTHON_BOOTSTRAP", "RECUT_PYTHON_REQUIREMENTS"} {
+		if !strings.Contains(windows, expected) {
+			t.Fatalf("Windows bootstrap missing %q: %s", expected, windows)
+		}
 	}
 }
 
@@ -169,15 +242,15 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "brief.create", map[string]any{"topic": "测试统一 operation"}); err != nil {
 		t.Fatalf("brief.create API: %v", err)
 	}
-	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "brief.create", map[string]any{"topic": "测试统一 operation"}); err != nil {
-		t.Fatalf("brief.create MCP: %v", err)
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "brief.create", map[string]any{"topic": "重复立项"}); err == nil {
+		t.Fatal("brief.create must reject a second project brief without recreate: true")
 	}
 	briefResources, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.list", map[string]any{})
 	if err != nil {
 		t.Fatalf("resource.list after brief.create: %v", err)
 	}
 	briefs := briefResources.([]any)
-	if len(briefs) != 2 || briefs[0].(map[string]any)["kind"] != "brief" || briefs[1].(map[string]any)["kind"] != "brief" {
+	if len(briefs) != 1 || briefs[0].(map[string]any)["kind"] != "brief" {
 		t.Fatalf("brief.create must materialize visible brief resources: %#v", briefResources)
 	}
 	briefStore, err := store.AppStateDatabase(appID)
@@ -202,7 +275,7 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 		{"api", "brief.latest", map[string]any{}},
 		{"api", "workflow.context", map[string]any{}},
 		{"mcp", "workflow.context", map[string]any{}},
-		{"api", "resource.prepare", map[string]any{"kind": "beats"}},
+		{"api", "resource.prepare", map[string]any{"kind": "research"}},
 	} {
 		var err error
 		if call.surface == "api" {
@@ -215,52 +288,77 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 		}
 	}
 
-	beats := func(title string) map[string]any {
-		return map[string]any{"kind": "beats", "title": title, "content": map[string]any{"hook": "反常识", "narrative": "因果", "beats": []any{map[string]any{"id": "beat-1", "title": "开场", "narration": "新信息", "visual": "数据卡", "purpose": "建立冲突", "durationSec": 3}}}}
-	}
-	first, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", beats("第一份节拍"))
+	research := map[string]any{"kind": "research", "title": "资料库", "content": map[string]any{"researchQuestion": "为什么", "coverageSummary": "包含支持与限制", "status": "draft", "sources": []any{
+		map[string]any{"assetId": "reference-1", "title": "文章", "kind": "article", "insight": "支持证据", "relevance": "高"},
+		map[string]any{"assetId": "reference-2", "title": "视频", "kind": "youtube", "insight": "案例", "relevance": "高"},
+		map[string]any{"assetId": "reference-3", "title": "反例", "kind": "web", "insight": "限制", "relevance": "中"},
+	}}}
+	first, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", research)
 	if err != nil {
-		t.Fatalf("resource.create MCP: %v", err)
+		t.Fatalf("create research: %v", err)
 	}
 	firstID := first.(Artifact).Value.(map[string]any)["id"].(string)
-	second, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", beats("第二份节拍"))
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "research.approve", map[string]any{"id": firstID}); err != nil {
+		t.Fatalf("approve research: %v", err)
+	}
+	preparedProposals, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.prepare", map[string]any{"kind": "proposals", "contextMentions": []any{
+		map[string]any{"type": "project_item", "id": firstID, "name": "资料库", "kind": "research"},
+		map[string]any{"type": "system_asset", "id": "system-image-1", "name": "系统参考图", "kind": "image"},
+	}})
 	if err != nil {
-		t.Fatalf("second resource.create MCP: %v", err)
+		t.Fatalf("prepare proposals with temporary mentions: %v", err)
+	}
+	preparedPrompt, _ := preparedProposals.(map[string]any)["prompt"].(string)
+	for _, required := range []string{"本次 @ 临时上下文", "资料库", "system-image-1", "系统参考图"} {
+		if !strings.Contains(preparedPrompt, required) {
+			t.Fatalf("temporary context is missing %q: %s", required, preparedPrompt)
+		}
+	}
+	proposals := map[string]any{"kind": "proposals", "title": "叙事方案", "content": map[string]any{"framing": "从证据到结论", "selectionStatus": "pending", "candidates": []any{map[string]any{"id": "proposal-1", "title": "方案一", "logline": "一个清晰论点", "thesis": "核心结论", "narrativeArc": "钩子到回报", "sourceIds": []any{"reference-1"}, "whyNow": "观众关心"}}}}
+	second, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", proposals)
+	if err != nil {
+		t.Fatalf("create proposals: %v", err)
 	}
 	secondID := second.(Artifact).Value.(map[string]any)["id"].(string)
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "proposal.select", map[string]any{"id": secondID, "candidateId": "proposal-1"}); err != nil {
+		t.Fatalf("select proposal: %v", err)
+	}
+	script := map[string]any{"kind": "script", "title": "剧本", "content": map[string]any{"title": "测试短片", "logline": "一句话", "screenplay": "旁白", "scenes": []any{map[string]any{"id": "scene-1", "title": "开场", "narration": "新信息", "visualPlan": "数据卡", "purpose": "建立冲突", "durationSec": 60, "sourceIds": []any{"reference-1"}}}}}
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", script); err != nil {
+		t.Fatalf("create script: %v", err)
+	}
+	media := map[string]any{"assetId": "look-image", "text": "视觉圣经", "imageAssetIds": []any{}, "audioAssetIds": []any{}}
+	look := map[string]any{"kind": "look", "title": "视觉圣经", "content": map[string]any{"media": media, "definition": "编辑风格", "palette": "红蓝", "paperTechnique": "拼贴", "typeTreatment": "粗体", "texture": "新闻纸", "mood": "紧张", "directorMethod": "证据递进"}}
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", look); err != nil {
+		t.Fatalf("create look: %v", err)
+	}
 	keyframe := func(image any) map[string]any {
 		content := map[string]any{"keyframes": []any{map[string]any{"beatId": "beat-1", "title": "开场画面", "composition": "左侧人物，右侧数据卡", "headline": "三秒钩子", "layers": []any{"人物", "数据卡"}}}}
 		if image != nil {
 			content["keyframes"].([]any)[0].(map[string]any)["image"] = image
 		}
-		return map[string]any{"kind": "keyframes", "title": "关键画面", "content": content, "dependencies": []any{firstID}}
+		return map[string]any{"kind": "keyframes", "title": "关键画面", "content": content}
 	}
 	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", keyframe(nil)); err == nil {
 		t.Fatal("text-only keyframes must be rejected")
 	}
-	image := map[string]any{"assetId": "generated-image", "text": "Vox 拼贴画面", "imageAssetIds": []any{"look-image"}, "audioAssetIds": []any{}, "sourceResourceIds": []any{"beat-1", firstID}}
+	image := map[string]any{"assetId": "generated-image", "text": "编辑拼贴画面", "imageAssetIds": []any{"look-image"}, "audioAssetIds": []any{}}
 	createdKeyframes, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.create", keyframe(image))
 	if err != nil {
 		t.Fatalf("keyframes with generated image: %v", err)
 	}
-	keyframeID := createdKeyframes.(Artifact).Value.(map[string]any)["id"].(string)
+	keyframeValue := createdKeyframes.(Artifact).Value.(map[string]any)
+	if _, ok := keyframeValue["dependencies"]; ok {
+		t.Fatalf("new resources must not expose section dependencies: %#v", keyframeValue)
+	}
 	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.list", map[string]any{}); err != nil {
 		t.Fatalf("resource.list API: %v", err)
 	}
-	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.retire", map[string]any{"id": keyframeID}); err != nil {
-		t.Fatalf("resource.retire keyframes: %v", err)
+	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.retire", map[string]any{"id": firstID}); err == nil {
+		t.Fatal("resource.retire must not be exposed: linear workflow resources cannot be arbitrarily removed")
 	}
-	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.retire", map[string]any{"id": firstID}); err != nil {
-		t.Fatalf("resource.retire API: %v", err)
-	}
-	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.retire", map[string]any{"id": secondID}); err != nil {
-		t.Fatalf("resource.retire MCP: %v", err)
-	}
-	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.delete", map[string]any{"id": firstID}); err != nil {
-		t.Fatalf("resource.delete API: %v", err)
-	}
-	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.delete", map[string]any{"id": secondID}); err != nil {
-		t.Fatalf("resource.delete MCP: %v", err)
+	if _, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: appID}, appID, "resource.delete", map[string]any{"id": secondID}); err == nil {
+		t.Fatal("resource.delete must not be exposed: linear workflow resources cannot be arbitrarily removed")
 	}
 }
 
@@ -310,14 +408,16 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 	}
 	execution := workflow.(map[string]any)["mediaExecution"].(map[string]any)
 	scenes := execution["scenes"].(map[string]any)
-	if scenes["kind"] != "platform-media-generation" || scenes["generate"] != "recut.video.generate_async" || scenes["complete"] != "accepted -> queued assetIds[0] -> resource.create; Daemon updates Asset status; for Seedance use output.generateAudio=true unless the user explicitly requests silent video; video text must quote audio.text verbatim and forbid extra speech" {
+	if scenes["kind"] != "平台媒体生成" || scenes["generate"] != "recut.video.generate_async" {
 		t.Fatalf("scene media route = %#v", scenes)
 	}
-	prepared, err := NewAppHost(apps, store).InvokeAPI(Target{ProjectID: project.ID, AppID: "recut.vox-broll"}, "recut.vox-broll", "resource.prepare", map[string]any{"kind": "scenes"})
-	if err != nil {
-		t.Fatalf("resource.prepare scenes: %v", err)
+	if _, err := NewAppHost(apps, store).InvokeAPI(Target{ProjectID: project.ID, AppID: "recut.vox-broll"}, "recut.vox-broll", "resource.prepare", map[string]any{"kind": "scenes"}); err == nil {
+		t.Fatal("resource.prepare scenes must reject an out-of-order stage")
 	}
-	prompt, _ := prepared.(map[string]any)["prompt"].(string)
+	workflowSource, err := os.ReadFile(filepath.Join("..", "apps", "vox-broll", "background.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, required := range []string{
 		"recut.video.generate_async",
 		"keyframe.assetId",
@@ -329,8 +429,8 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 		"不能等待轮询完成",
 		"禁止使用 HyperFrames",
 	} {
-		if !strings.Contains(prompt, required) {
-			t.Fatalf("scene preparation is missing %q: %s", required, prompt)
+		if !strings.Contains(string(workflowSource), required) {
+			t.Fatalf("scene workflow is missing %q", required)
 		}
 	}
 }

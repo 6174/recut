@@ -53,10 +53,11 @@ type AppRuntime struct {
 }
 
 type PythonRuntime struct {
-	Venv         string `json:"venv"`
-	Version      string `json:"version,omitempty"`
-	Requirements string `json:"requirements,omitempty"`
-	Bootstrap    string `json:"bootstrap,omitempty"`
+	Venv         string   `json:"venv"`
+	Version      string   `json:"version,omitempty"`
+	Tools        []string `json:"tools,omitempty"`
+	Requirements string   `json:"requirements,omitempty"`
+	Bootstrap    string   `json:"bootstrap,omitempty"`
 }
 
 type UIEntrypoints struct {
@@ -350,8 +351,14 @@ func validateManifest(manifest Manifest) error {
 		if !hasManifestPermission(manifest, "python") || !hasManifestPermission(manifest, "shell") {
 			return errors.New("python runtime requires python and shell permissions")
 		}
-		if strings.TrimSpace(runtime.Venv) == "" || !validRuntimeName(runtime.Venv) {
+		if runtime.Venv != "" && !validRuntimeName(runtime.Venv) {
 			return errors.New("python runtime venv must be a simple logical name")
+		}
+		if runtime.Version != "" && !validPythonVersion(runtime.Version) {
+			return errors.New("python runtime version must be a major.minor version such as 3.11")
+		}
+		if !validPythonTools(runtime.Tools) {
+			return errors.New("python runtime tools contains an unsupported or duplicate tool")
 		}
 		if runtime.Requirements != "" && !validPackagePath(runtime.Requirements) {
 			return errors.New("python runtime requirements must be a package-relative path")
@@ -395,6 +402,35 @@ func validRuntimeName(name string) bool {
 			continue
 		}
 		return false
+	}
+	return true
+}
+
+func validPythonVersion(version string) bool {
+	parts := strings.Split(version, ".")
+	if len(parts) != 2 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, value := range part {
+			if value < '0' || value > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validPythonTools(tools []string) bool {
+	seen := map[string]bool{}
+	for _, tool := range tools {
+		if tool != "ffmpeg" || seen[tool] {
+			return false
+		}
+		seen[tool] = true
 	}
 	return true
 }
