@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖配置、资产与 Provider 适配器
- * [OUTPUT]: 生成任务创建、同步执行、终态等待、结果持久化、无 prompt/凭据的状态审计与通用 Provider 调度；拒绝将 Codex 原生图片路由误送入 Provider
- * [POS]: media 的任务编排层；scheduler 位于 jobs_scheduler，由其接管持久化异步任务，Codex 图片由 Agent 自行执行
+ * [INPUT]: 依赖配置、资产、Provider 策略与 Provider 适配器
+ * [OUTPUT]: 生成任务创建、同步执行、终态等待、结果持久化、无 prompt/凭据的状态审计与按策略分派的通用 Provider 调度；图片 job 带参考图时自动切换模型编辑变体；拒绝将 Codex 原生图片路由误送入 Provider
+ * [POS]: media 的任务编排层；图片按 Provider ID 从 model_providers 注册表取策略执行，未注册的 OpenAI 协议 Provider 回退 OpenAI 兼容端点；scheduler 位于 jobs_scheduler，由其接管持久化异步任务，Codex 图片由 Agent 自行执行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media
@@ -22,9 +22,17 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"recut-service/media/model_providers"
 )
 
 const jobColumns = `id, capability, status, prompt, model_id, project_id, reference_ids_json, output_json, asset_ids_json, remote_id, error, created_at, updated_at`
+
+// atlasImagePollRetries bounds how many prediction polls a synchronous image
+// strategy may attempt before failing. Image generation is fast relative to
+// video, so a modest budget keeps recut.image.generate from blocking for the
+// full five-minute mediaRequestTimeout on a stuck remote task.
+const atlasImagePollRetries = 40
 
 func (m *MediaService) Generate(input GenerateMediaInput) (MediaJob, error) {
 	job, credential, created, err := m.createJob(input)
@@ -266,18 +274,36 @@ func (m *MediaService) execute(job MediaJob, credential MediaCredential) {
 		m.failExecution(job, errors.New("this provider model adapter is not available yet"))
 		return
 	}
-	if job.Capability == ImageGenerate && providerUsesOpenAIProtocol(credential.Provider) {
-		secret, err := m.secret(credential.ID)
-		if err != nil {
-			m.failExecution(job, err)
+	if job.Capability == ImageGenerate {
+		if provider, ok := model_providers.For(credential.Provider); ok {
+			secret, err := m.secret(credential.ID)
+			if err != nil {
+				m.failExecution(job, err)
+				return
+			}
+			asset, err := m.generateImage(job, credential, model, secret, provider)
+			if err != nil {
+				m.failExecution(job, err)
+				return
+			}
+			m.completeExecution(job, asset)
 			return
 		}
-		asset, err := m.generateOpenAIImage(job, credential, model, secret)
-		if err != nil {
-			m.failExecution(job, err)
+		if providerUsesOpenAIProtocol(credential.Provider) {
+			secret, err := m.secret(credential.ID)
+			if err != nil {
+				m.failExecution(job, err)
+				return
+			}
+			asset, err := m.generateOpenAIImage(job, credential, model, secret)
+			if err != nil {
+				m.failExecution(job, err)
+				return
+			}
+			m.completeExecution(job, asset)
 			return
 		}
-		m.completeExecution(job, asset)
+		m.failExecution(job, errors.New("this provider image adapter is not available yet"))
 		return
 	}
 	if job.Capability != SpeechGenerate || (credential.Provider != "minimax" && credential.Provider != "elevenlabs") {
@@ -366,6 +392,67 @@ func (m *MediaService) generateOpenAIImage(job MediaJob, credential MediaCredent
 		"capability":   job.Capability,
 		"referenceIds": job.ReferenceIDs,
 	})
+}
+
+// generateImage runs one image job through a registered provider strategy. The
+// strategy owns the provider wire protocol (OpenAI-compatible JSON/multipart,
+// Atlas native prediction, ...) and returns final bytes for Asset persistence.
+func (m *MediaService) generateImage(job MediaJob, credential MediaCredential, model MediaModel, secret string, provider model_providers.Provider) (MediaAsset, error) {
+	references, err := m.imageReferences(job)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	apiModelID := model.APIModelID
+	if len(references) > 0 && model.EditModelID != "" {
+		// Atlas and other providers expose image editing under a separate
+		// model variant (…/edit) distinct from text-to-image (…/text-to-image).
+		apiModelID = model.EditModelID
+	}
+	result, err := provider.GenerateImage(model_providers.ImageInput{
+		Model:       apiModelID,
+		Prompt:      job.Prompt,
+		Output:      job.Output,
+		References:  references,
+		APIBase:     apiBaseFor(credential),
+		Secret:      secret,
+		HTTPClient:  mediaHTTPClient,
+		PollClient:  atlasPollingHTTPClient,
+		PollRetries: atlasImagePollRetries,
+	})
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	return m.saveGeneratedAsset(job, result.Content, "image", result.MimeType, map[string]any{
+		"prompt":       job.Prompt,
+		"modelId":      job.ModelID,
+		"provider":     credential.Provider,
+		"capability":   job.Capability,
+		"referenceIds": job.ReferenceIDs,
+	})
+}
+
+// imageReferences decodes a job's reference assets into the byte form a
+// provider strategy consumes. Reference files are content-addressed in the
+// media root; strategies serialize them (data URL, multipart, ...) per their
+// own protocol.
+func (m *MediaService) imageReferences(job MediaJob) ([]model_providers.ImageReference, error) {
+	references := []model_providers.ImageReference{}
+	for _, id := range job.ReferenceIDs {
+		asset, err := m.GetAsset(id)
+		if err != nil {
+			return nil, err
+		}
+		if asset.Kind != "image" {
+			continue
+		}
+		path, _ := asset.Metadata["path"].(string)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("reference asset %q cannot be read", id)
+		}
+		references = append(references, model_providers.ImageReference{Kind: asset.Kind, Name: asset.Name, MimeType: asset.MimeType, Content: content})
+	}
+	return references, nil
 }
 
 func (m *MediaService) generateSpeech(job MediaJob, credential MediaCredential, model MediaModel, secret string) (MediaAsset, error) {

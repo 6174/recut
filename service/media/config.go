@@ -186,6 +186,35 @@ on conflict(id) do update set provider=excluded.provider, name=excluded.name, ap
 	return input, err
 }
 
+// DeleteCredential removes a BYOK credential together with every route that
+// points at it. Routes are the only references validated against credentials,
+// so dropping them in the same transaction keeps the route table consistent.
+func (m *MediaService) DeleteCredential(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("credential id is required")
+	}
+	db, err := m.database()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("delete from media_routes where credential_id = ?", id); err != nil {
+		return err
+	}
+	result, err := tx.Exec("delete from media_credentials where id = ?", id)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected == 0 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
+}
+
 func apiBaseFor(credential MediaCredential) string {
 	if base := strings.TrimSpace(credential.APIBase); base != "" {
 		return strings.TrimRight(base, "/")

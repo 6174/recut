@@ -25,12 +25,12 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 	for _, tool := range mediaMCPToolDefinitions() {
 		tools[tool["name"].(string)] = tool
 	}
-	for _, name := range []string{"recut.media.generate", "recut.media.generate_async"} {
+	for _, name := range []string{"recut.media.generate", "recut.media.generate_async", "recut.video.generate_async", "recut.speech.generate_async"} {
 		if _, exists := tools[name]; exists {
-			t.Fatalf("legacy multiplexed tool %q must not be exposed", name)
+			t.Fatalf("legacy async/multiplexed tool %q must not be exposed", name)
 		}
 	}
-	for _, name := range []string{"recut.image.generate", "recut.video.generate_async", "recut.speech.generate_async", "recut.media.wait_for_job", "recut.media.import_image"} {
+	for _, name := range []string{"recut.image.generate", "recut.video.generate", "recut.speech.generate", "recut.media.wait_for_job", "recut.media.import_image"} {
 		tool, ok := tools[name]
 		if !ok {
 			t.Fatalf("missing media tool %q", name)
@@ -56,7 +56,7 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 			}
 		}
 	}
-	video := tools["recut.video.generate_async"]["inputSchema"].(map[string]any)["properties"].(map[string]any)
+	video := tools["recut.video.generate"]["inputSchema"].(map[string]any)["properties"].(map[string]any)
 	if _, ok := video["imageAssetIds"]; !ok {
 		t.Fatal("video generation must accept image references")
 	}
@@ -66,7 +66,7 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 	if _, ok := video["videoAssetIds"]; !ok {
 		t.Fatal("video generation must accept video references")
 	}
-	speech := tools["recut.speech.generate_async"]["inputSchema"].(map[string]any)["properties"].(map[string]any)
+	speech := tools["recut.speech.generate"]["inputSchema"].(map[string]any)["properties"].(map[string]any)
 	if _, ok := speech["imageAssetIds"]; ok {
 		t.Fatal("speech generation must not advertise image references")
 	}
@@ -151,13 +151,62 @@ func TestRecutContextReportsAppsWithoutProjectDefault(t *testing.T) {
 	if len(appsReported) != 1 || appsReported[0]["appId"] != "example.app" {
 		t.Fatalf("recut.context apps = %#v", appsReported)
 	}
+	readiness := structured["media"].(map[string]any)["readiness"].(map[string]map[string]string)
+	if readiness["image.generate"]["status"] != "not-configured" {
+		t.Fatalf("unconfigured image readiness = %#v", readiness)
+	}
+}
+
+func TestRecutContextReportsConfiguredMediaReadiness(t *testing.T) {
+	root := t.TempDir()
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	media := NewMediaService(store)
+	credential, err := media.SaveCredential(MediaCredential{Provider: "openai-compatible", Name: "Image Provider", APIBase: "http://127.0.0.1:1"}, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := media.SaveRoute(MediaRoute{ID: "image.generate.default", Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := recutContextTool(NewAgentBridge(store), media, AgentSession{ID: "s1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	structured := result.(map[string]any)["structuredContent"].(map[string]any)
+	readiness := structured["media"].(map[string]any)["readiness"].(map[string]map[string]string)
+	if readiness["image.generate"]["status"] != "ready" || readiness["image.generate"]["modelId"] != "openai-compatible/image" {
+		t.Fatalf("configured image readiness = %#v", readiness)
+	}
+}
+
+func TestMediaMCPToolExplainsMissingRoute(t *testing.T) {
+	root := t.TempDir()
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = mediaMCPTool(store, NewMediaService(store), AgentSession{ID: "s1"}, "recut.image.generate", map[string]any{"text": "test"})
+	if err == nil || !strings.Contains(err.Error(), "no route configured for image.generate") || !strings.Contains(err.Error(), "open Recut settings") {
+		t.Fatalf("missing route error = %v", err)
+	}
 }
 
 func TestMediaMCPToolsBypassAppToolBoundary(t *testing.T) {
 	for _, name := range []string{
 		"recut.image.generate",
-		"recut.video.generate_async",
-		"recut.speech.generate_async",
+		"recut.video.generate",
+		"recut.speech.generate",
 		"recut.media.list_voices",
 		"recut.media.get_job",
 		"recut.media.wait_for_job",
@@ -268,16 +317,20 @@ func TestMCPHTTPResolvesSessionViaHeaders(t *testing.T) {
 	httpServer := httptest.NewServer(server.routes())
 	defer httpServer.Close()
 
-	call := func(sessionID, token string) (*http.Response, []byte) {
+	call := func(sessionID, token, bearer string) (*http.Response, []byte) {
 		payload := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"recut.context","arguments":{}}}`
 		req, err := http.NewRequest(http.MethodPost, httpServer.URL+"/v1/mcp", strings.NewReader(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("MCP-Protocol-Version", mcpProtocolVersion)
 		if sessionID != "" {
 			req.Header.Set("X-Recut-Session", sessionID)
 			req.Header.Set("X-Recut-Token", token)
+		}
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
 		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -291,10 +344,20 @@ func TestMCPHTTPResolvesSessionViaHeaders(t *testing.T) {
 		return resp, body
 	}
 
-	// Without session headers the endpoint serves an anonymous session.
-	resp, body := call("", "")
+	// Global Streamable HTTP requires a machine token; anonymous requests are
+	// never allowed to invoke local creation tools merely because they reached
+	// the loopback listener.
+	resp, body := call("", "", "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anonymous /v1/mcp = %d, want 401: %s", resp.StatusCode, body)
+	}
+	_, bearer, err := store.CreateDeviceToken(nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, body = call("", "", bearer)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("anonymous /v1/mcp = %d: %s", resp.StatusCode, body)
+		t.Fatalf("bearer /v1/mcp = %d: %s", resp.StatusCode, body)
 	}
 	var anonymous struct {
 		Result struct {
@@ -305,7 +368,7 @@ func TestMCPHTTPResolvesSessionViaHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	if anonymous.Result.StructuredContent["session"] == nil {
-		t.Fatalf("anonymous context = %s", body)
+		t.Fatalf("external context = %s", body)
 	}
 
 	// With a valid session header the real bridge session is restored.
@@ -313,7 +376,7 @@ func TestMCPHTTPResolvesSessionViaHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, body = call(session.ID, token)
+	resp, body = call(session.ID, token, "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("session /v1/mcp = %d: %s", resp.StatusCode, body)
 	}
@@ -334,9 +397,75 @@ func TestMCPHTTPResolvesSessionViaHeaders(t *testing.T) {
 	}
 
 	// A wrong token for a known session must be rejected.
-	resp, body = call(session.ID, "wrong")
+	resp, body = call(session.ID, "wrong", "")
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("wrong session token = %d, want 401: %s", resp.StatusCode, body)
+	}
+}
+
+func TestMCPHTTPUsesStreamableHTTPContract(t *testing.T) {
+	root := t.TempDir()
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	_, bearer, err := store.CreateDeviceToken(nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(apps, store, nil, NewAgentBridge(store), nil, NewAppHost(apps, store), NewMediaService(store))
+	httpServer := httptest.NewServer(server.routes())
+	defer httpServer.Close()
+
+	request, err := http.NewRequest(http.MethodPost, httpServer.URL+"/v1/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("Authorization", "Bearer "+bearer)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || response.Header.Get("MCP-Protocol-Version") != mcpProtocolVersion {
+		t.Fatalf("initialize status=%d protocol=%q", response.StatusCode, response.Header.Get("MCP-Protocol-Version"))
+	}
+
+	request, err = http.NewRequest(http.MethodPost, httpServer.URL+"/v1/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+bearer)
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing protocol version status=%d, want 400", response.StatusCode)
+	}
+
+	request, err = http.NewRequest(http.MethodPost, httpServer.URL+"/v1/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("MCP-Protocol-Version", mcpProtocolVersion)
+	request.Header.Set("Authorization", "Bearer "+bearer)
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("notification status=%d, want 202", response.StatusCode)
 	}
 }
 

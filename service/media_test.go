@@ -78,6 +78,31 @@ func TestMediaRouteAndJobUseOpaqueCredential(t *testing.T) {
 	}
 }
 
+func TestDeleteCredentialRemovesRoutes(t *testing.T) {
+	media := NewMediaService(NewStore(t.TempDir(), nil))
+	credential, err := media.SaveCredential(MediaCredential{Provider: "openai-compatible", Name: "Test", APIBase: "http://127.0.0.1:1"}, "secret-value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := media.SaveRoute(MediaRoute{Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := media.DeleteCredential(credential.ID); err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := media.ListCredentials()
+	if err != nil || len(credentials) != 0 {
+		t.Fatalf("credentials after delete = %#v, %v", credentials, err)
+	}
+	routes, err := media.ListRoutes()
+	if err != nil || len(routes) != 0 {
+		t.Fatalf("routes after delete = %#v, %v", routes, err)
+	}
+	if err := media.DeleteCredential(credential.ID); err == nil {
+		t.Fatal("deleting a missing credential did not fail")
+	}
+}
+
 func TestCodexImageRouteRequiresNoProviderCredential(t *testing.T) {
 	media := NewMediaService(NewStore(t.TempDir(), nil))
 	route, err := media.SaveRoute(MediaRoute{Capability: ImageGenerate, ModelID: CodexImageModelID, Enabled: true})
@@ -163,7 +188,7 @@ func TestElevenLabsVoiceLookupUsesCredentialKey(t *testing.T) {
 
 func TestMediaProvidersOwnTheirModelLists(t *testing.T) {
 	provider, ok := providerByID("atlas-cloud")
-	if !ok || provider.Protocol != "openai-compatible" || provider.DefaultAPIBase != "https://api.atlascloud.ai" {
+	if !ok || provider.Protocol != "atlas" || provider.DefaultAPIBase != "https://api.atlascloud.ai" {
 		t.Fatalf("Atlas provider = %#v", provider)
 	}
 	model, ok := modelByID("atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video")
@@ -172,6 +197,10 @@ func TestMediaProvidersOwnTheirModelLists(t *testing.T) {
 	}
 	if model.Provider != provider.ID {
 		t.Fatalf("model is not owned by Atlas: %#v", model)
+	}
+	gptImage, ok := modelByID("atlas-cloud/openai/gpt-image-2")
+	if !ok || gptImage.APIModelID != "openai/gpt-image-2/text-to-image" || gptImage.EditModelID != "openai/gpt-image-2/edit" {
+		t.Fatalf("Atlas GPT Image model variants = %#v", gptImage)
 	}
 }
 
@@ -299,6 +328,59 @@ func TestAtlasAsyncVideoPublishesQueuedAssetThenCompletesInPlace(t *testing.T) {
 		t.Fatalf("completed Atlas asset %q missing from list: %#v", assetID, assets)
 	}
 	assertCompletedAssetGenerationTiming(t, listed, startedAt)
+}
+
+func TestAtlasSyncImageGenerationRunsNativePrediction(t *testing.T) {
+	var provider *httptest.Server
+	provider = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v1/model/generateImage":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"id":     "image-pred",
+				"status": "processing",
+				"urls":   map[string]any{"get": provider.URL + "/api/v1/model/prediction/image-pred"},
+			}})
+		case "/api/v1/model/prediction/image-pred":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"id":      "image-pred",
+				"status":  "completed",
+				"outputs": []string{provider.URL + "/generated.png"},
+			}})
+		case "/generated.png":
+			writer.Header().Set("Content-Type", "image/png")
+			_, _ = writer.Write([]byte("atlas image bytes"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer provider.Close()
+
+	media, credentialID := newAtlasVideoMediaService(t, provider.URL)
+	job, err := media.GenerateSync(GenerateMediaInput{
+		Capability:     ImageGenerate,
+		Prompt:         "a landscape",
+		ModelID:        "atlas-cloud/openai/gpt-image-2",
+		CredentialID:   credentialID,
+		IdempotencyKey: "atlas-sync-image",
+	})
+	if err != nil {
+		t.Fatalf("synchronous Atlas image generation failed: %v", err)
+	}
+	if job.Status != "completed" || len(job.AssetIDs) != 1 {
+		t.Fatalf("Atlas image job = %#v, %v", job, err)
+	}
+	asset, err := media.GetAsset(job.AssetIDs[0])
+	if err != nil || asset.Kind != "image" || asset.SizeBytes == 0 {
+		t.Fatalf("Atlas image asset = %#v, %v", asset, err)
+	}
+	path, _ := asset.Metadata["path"].(string)
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "atlas image bytes" {
+		t.Fatalf("Atlas image content = %q, %v", content, err)
+	}
+	if asset.Metadata["modelId"] != "atlas-cloud/openai/gpt-image-2" {
+		t.Fatalf("Atlas image metadata = %#v", asset.Metadata)
+	}
 }
 
 func TestAtlasAsyncVideoMarksPublishedAssetFailed(t *testing.T) {

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 RecutSkillManager 的内嵌正文、临时 data/home/config 目录与 Server HTTP 路由
- * [OUTPUT]: 验证启动同步覆盖旧正文、Agent 软链接复用唯一来源且拒绝覆盖已有目录，以及按全局/App 分组列出并链接任意 Skill 的 HTTP 契约
+ * [OUTPUT]: 验证启动同步覆盖旧正文、Agent 软链接复用唯一来源且拒绝覆盖已有目录、Skill 以 OutputFormat=url 输出 recut.video 深链且绝不含 Recut chat UI 的受控 XML，以及按全局/App 分组列出并链接任意 Skill 的 HTTP 契约
  * [POS]: service Recut Skill 分发的回归测试；不读取真实用户目录或启动真实 daemon
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -49,6 +49,26 @@ func TestRecutSkillExplainsServiceRecovery(t *testing.T) {
 	for _, required := range []string{"recut.context", "https://recut.video", "install.sh | sh", "install.ps1 | iex", "LOCAL SERVICE CONNECTED", "新开一个 Agent 会话"} {
 		if !bytes.Contains(recutSkillBody, []byte(required)) {
 			t.Fatalf("Recut Skill is missing offline recovery guidance %q", required)
+		}
+	}
+}
+
+func TestRecutSkillOutputFormatIsURLOnly(t *testing.T) {
+	for _, required := range []string{
+		"OutputFormat: url",
+		"https://recut.video/media?asset=",
+		"https://recut.video/projects/",
+		"https://recut.video/?app=",
+		"recut.worlds.list",
+		"recut.apps.install",
+	} {
+		if !bytes.Contains(recutSkillBody, []byte(required)) {
+			t.Fatalf("Recut Skill is missing third-party URL output guidance %q", required)
+		}
+	}
+	for _, forbidden := range []string{`<media type=`, `projectid="`, `app appid="`} {
+		if bytes.Contains(recutSkillBody, []byte(forbidden)) {
+			t.Fatalf("Recut Skill must not emit Recut chat UI XML references %q", forbidden)
 		}
 	}
 }
@@ -138,6 +158,39 @@ func TestRecutSkillPreservesExistingClaudeConfiguration(t *testing.T) {
 	servers := config["mcpServers"].(map[string]any)
 	if _, ok := servers[recutSkillID]; !ok {
 		t.Fatalf("Recut MCP was not registered: %#v", config)
+	}
+	recut := servers[recutSkillID].(map[string]any)
+	if recut["type"] != "http" || recut["url"] != globalMCPEndpoint {
+		t.Fatalf("Claude MCP must use Streamable HTTP: %#v", recut)
+	}
+}
+
+func TestRecutSkillMigratesManagedCodexMCPToStreamableHTTP(t *testing.T) {
+	manager := testRecutSkillManager(t)
+	path, _, err := manager.mcpConfig("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := "model = \"test\"\n# Recut-managed MCP: keep this block so the Recut Skill can use local tools.\n[mcp_servers.recut]\ncommand = \"/tmp/go-build/recut-service\"\nargs = [\"--mcp\"]\n"
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Link([]string{"codex"}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !bytes.Contains(body, []byte("url = \""+globalMCPEndpoint+"\"")) || bytes.Contains(body, []byte("go-build")) {
+		t.Fatalf("Codex MCP was not migrated: %s", text)
+	}
+	if !bytes.Contains(body, []byte("model = \"test\"")) {
+		t.Fatalf("Codex user configuration was not preserved: %s", text)
 	}
 }
 

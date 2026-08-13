@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost 双 target 运行时、Catalog 的 App 与 skill 树、MediaService 与 JSON-RPC 请求/响应模型
- * [OUTPUT]: 对外提供项目/App-state 双 target 解析、上下文 context（不携带项目默认值）、__recut target envelope、跨 App 的 operation 路由、平台工具（含全局 reference 研究资料 Asset 创建）、结构化内容与按全局/App 分组的工具清单（GET /v1/mcp/tools）
- * [POS]: service 的 MCP Host；唯一监听者是常驻 Daemon 的 /v1/mcp（HTTP），所有 stdio 客户端（会话内 opencode/codex/claude 或外部 Agent）经无状态 --mcp 转发器接入，不启动 per-session 子进程；App 不自行启动 MCP server，所有调用经平台权限、目标解析与会话边界；平台工具无条件可见
+ * [OUTPUT]: 对外提供项目/App-state 双 target 解析、上下文 context（不携带项目默认值且报告媒体 readiness）、__recut target envelope、跨 App 的 operation 路由、平台工具（含全局 reference 研究资料 Asset 创建）、结构化内容与按全局/App 分组的工具清单（GET /v1/mcp/tools）
+ * [POS]: service 的 MCP Host；唯一监听者是常驻 Daemon 的 /v1/mcp（Streamable HTTP），全局 Agent 直接以 Bearer token 连接，内置会话的 stdio adapter 只传递 session 身份；App 不自行启动 MCP server，所有调用经平台权限、目标解析与会话边界；平台工具无条件可见
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -64,7 +64,7 @@ func mcpToolList(bridge *AgentBridge, media *MediaService) map[string]any {
 func platformMCPToolDefinitions() []map[string]any {
 	tools := make([]map[string]any, 0)
 	tools = append(tools,
-		platformTool("recut.context", "读取当前 Recut 会话上下文：已安装 App（含绝对路径 root）、skill 目录、媒体配置与 .recut 文件系统路径（paths）。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。任何任务开始时先调用此工具。", map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.context", "读取当前 Recut 会话上下文：已安装 App（含绝对路径 root）、Skill 元数据、媒体配置与 .recut 文件系统路径（paths）。新 native session 或能力状态可能变化时调用；同一会话 15 分钟内复用已确认快照。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.apps.list", "列出已安装 App（含 kind、skill 目录、Git 仓库、可更新状态与安装状态）。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.apps.store", "列出 App Store 中可安装的 Recut App（appId、name、kind、GitHub repository、是否已安装）。需要安装时用 recut.apps.install 传入其 repository。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.apps.install", "从一个 Git 仓库安装标准 Recut App（克隆、校验 manifest 后激活）。仅当用户明确要求安装该仓库时调用。", map[string]any{"type": "object", "required": []string{"repository"}, "properties": map[string]any{"repository": map[string]string{"type": "string", "description": "GitHub 仓库 URL（git@… 或 https://…）。"}}}),
@@ -84,6 +84,7 @@ func platformMCPToolDefinitions() []map[string]any {
 		platformTool("recut.job.cancel", "取消一个 queued / running 的本地 App 任务。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
 	)
 	tools = append(tools, mediaMCPToolDefinitions()...)
+	tools = append(tools, worldsMCPToolDefinitions()...)
 	return tools
 }
 
@@ -217,6 +218,9 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 	if isMediaMCPTool(name) {
 		return mediaMCPTool(bridge.store, media, session, name, arguments)
 	}
+	if strings.HasPrefix(name, "recut.worlds.") {
+		return worldsMCPTool(NewWorldStore(bridge.store, media), name, arguments)
+	}
 	if strings.HasPrefix(name, "recut.job.") {
 		return jobMCPTool(host.jobs, name, arguments)
 	}
@@ -317,17 +321,12 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 		summary["skills"] = skillsMeta
 		appSummaries = append(appSummaries, summary)
 	}
-	var mediaConfiguration any
-	if media != nil {
-		if configured, err := media.ConfiguredModels(); err == nil {
-			mediaConfiguration = configured
-		}
-	}
+	mediaConfiguration, mediaReadiness := mediaContext(media)
 	result := map[string]any{
 		"session": map[string]any{"id": session.ID, "taskId": session.TaskID},
 		"apps":    appSummaries,
 		"skills":  skillSummary,
-		"media":   map[string]any{"defaultRoutes": mediaConfiguration},
+		"media":   map[string]any{"defaultRoutes": mediaConfiguration, "readiness": mediaReadiness},
 		"paths": map[string]any{
 			"dataRoot":         bridge.store.root,
 			"appsDir":          filepath.Join(bridge.store.root, "apps"),
@@ -341,6 +340,45 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 	}
 	data, _ := json.Marshal(result)
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+// mediaContext turns persisted routes into a decision-ready view for Agents.
+// Tool discovery is static, but a provider-backed generation call is only
+// possible after the user has configured its capability's default route.
+func mediaContext(media *MediaService) (any, map[string]map[string]string) {
+	readiness := map[string]map[string]string{}
+	for _, capability := range []MediaCapability{ImageGenerate, VideoGenerate, SpeechGenerate} {
+		readiness[string(capability)] = map[string]string{
+			"status":  "not-configured",
+			"routeId": string(capability) + ".default",
+			"action":  "Open Recut settings, connect a Provider, then choose a model for this capability.",
+		}
+	}
+	if media == nil {
+		return []MediaConfiguration{}, readiness
+	}
+	configured, err := media.ConfiguredModels()
+	if err != nil {
+		for _, value := range readiness {
+			value["status"] = "unavailable"
+			value["action"] = "Reconnect to the local Recut service, then inspect its media settings."
+		}
+		return []MediaConfiguration{}, readiness
+	}
+	for _, configuration := range configured {
+		value := readiness[string(configuration.Route.Capability)]
+		if configuration.Model.ID == CodexImageModelID {
+			value["status"] = "codex-native"
+			value["action"] = "Use Codex native image generation; do not call recut.image.generate."
+			continue
+		}
+		value["status"] = "ready"
+		value["routeId"] = configuration.Route.ID
+		value["modelId"] = configuration.Model.ID
+		value["credentialName"] = configuration.CredentialName
+		value["action"] = ""
+	}
+	return configured, readiness
 }
 
 func appsListTool(bridge *AgentBridge) (any, error) {
@@ -540,10 +578,10 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 	var err error
 	switch name {
 	case "recut.image.generate":
-		result, err = media.GenerateSync(mediaGenerationInput(input, ImageGenerate))
-	case "recut.video.generate_async":
+		result, err = media.Generate(mediaGenerationInput(input, ImageGenerate))
+	case "recut.video.generate":
 		result, err = media.Generate(mediaGenerationInput(input, VideoGenerate))
-	case "recut.speech.generate_async":
+	case "recut.speech.generate":
 		result, err = media.Generate(mediaGenerationInput(input, SpeechGenerate))
 	case "recut.media.list_voices":
 		credentialID, _ := input["credentialId"].(string)
@@ -582,6 +620,9 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		return nil, fmt.Errorf("unknown media tool %q", name)
 	}
 	if err != nil {
+		if strings.Contains(err.Error(), "no route configured for ") {
+			return nil, fmt.Errorf("%w; open Recut settings, connect a Provider, then choose the default model for this capability", err)
+		}
 		return nil, err
 	}
 	data, _ := json.Marshal(result)
@@ -600,9 +641,9 @@ func structuredMCPContent(result any) any {
 
 func mediaMCPToolDefinitions() []map[string]any {
 	return []map[string]any{
-		{"name": "recut.image.generate", "description": "同步生成短时、阶段关键的图片。成功返回 assetIds；Provider 失败或超时直接返回错误。", "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
-		{"name": "recut.video.generate_async", "description": "提交长时间运行的视频生成。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。", "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
-		{"name": "recut.speech.generate_async", "description": "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId 与处于 queued 状态的稳定 assetIds。", "inputSchema": speechGenerationSchema()},
+		{"name": "recut.image.generate", "description": "提交图片生成任务。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 完成后将同一 Asset 原位转为 completed 或 failed。可立刻用 assetId 建立项目引用，再用 recut.media.wait_for_job 等待终态。", "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
+		{"name": "recut.video.generate", "description": "提交长时间运行的视频生成。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。", "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
+		{"name": "recut.speech.generate", "description": "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId 与处于 queued 状态的稳定 assetIds。", "inputSchema": speechGenerationSchema()},
 		{"name": "recut.media.list_voices", "description": "读取一个 MiniMax 或 ElevenLabs 凭据当前可用的音色。", "inputSchema": map[string]any{"type": "object", "required": []string{"credentialId"}, "properties": map[string]any{"credentialId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.get_job", "description": "读取媒体生成任务状态。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.wait_for_job", "description": "等待本地 Daemon 已提交的媒体任务达到 completed 或 failed。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}},

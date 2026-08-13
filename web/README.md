@@ -7,7 +7,7 @@ package.json: Next.js 工作台的独立依赖与开发命令；Zustand 保存�
 package-lock.json: 锁定前端依赖的可复现版本。
 next.config.ts: 前端构建配置。
 wrangler.toml: `recut-web` Cloudflare Worker 与静态 Assets 发布配置；域名在 Cloudflare Dashboard 的 Custom Domain 中管理。
-worker.ts: Cloudflare 静态站边缘入口；在边缘内部将项目和 App 语义深链分别映射为唯一静态壳，浏览器仍保留真实 URL，直接交给静态 Assets binding，绝不代理 localhost service。
+worker.ts: Cloudflare 静态站边缘入口；在边缘内部将 World、项目和 App 语义深链分别映射为唯一静态壳，浏览器仍保留真实 URL，直接交给静态 Assets binding，绝不代理 localhost service。
 public/install.sh: 无源码 Unix 安装/升级入口；从同域 release manifest 取得版本与 SHA-256，macOS 注册 launchd、Linux 注册 systemd user service，并等待 `/health` 验证 daemon 真正启动后才报告成功。
 public/install.ps1: 无源码 Windows 安装/升级入口；校验 ZIP service 包后注册并启动当前用户的登录任务。
 public/releases/latest/: `make service-release` 生成的 macOS、Linux、FreeBSD 和 Windows service 发布包与 SHA-256 manifest；随 Worker Assets 发布，不进入 Git。
@@ -15,7 +15,7 @@ next-env.d.ts: Next.js 自动生成的 TypeScript 环境声明。
 postcss.config.mjs: Tailwind v4 的 PostCSS 编译入口。
 components.json: shadcn/Mira 组件生成与路径别名配置。
 tsconfig.json: TypeScript 编译约束与 `@/*` 路径别名。
-app/: 本地 Recut 工作台的 App Router 页面与样式。
+app/: 本地 Recut 工作台的 App Router 页面与样式；顶级 Tab 依次为 Studio、Worlds、Projects、Assets 与 Apps。
 components/: Chat UI、保留的终端诊断面板与 shadcn 风格 UI 原子组件；浮层交互基于 Radix Portal。
 lib/: 前端共享工具函数与不持久化的跨路由数据快照；service endpoint 变化时整体失效，目录和 Agent 低频元数据禁止页面级轮询。
 public/: 公开的跨平台 service 安装器与构建时生成的发布包。

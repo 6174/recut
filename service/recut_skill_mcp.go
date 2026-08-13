@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 RecutSkillManager 的安装路径、Codex TOML 与 Claude Code/OpenCode JSON 全局配置格式
- * [OUTPUT]: 对外提供各 Agent 的 Recut MCP 注册、非破坏性配置检测与原子 JSON 配置写入
- * [POS]: service 的 Skill-to-MCP 连接层；Skill 被发现后即可拥有 Recut 工具，不依赖用户手动复制 MCP 命令
+ * [INPUT]: 依赖 RecutSkillManager 的安装路径、daemon-owned Device Token 与 Codex TOML、Claude Code/OpenCode JSON 全局配置格式
+ * [OUTPUT]: 对外提供各 Agent 的 Recut Streamable HTTP MCP 注册、非破坏性配置检测与原子配置写入
+ * [POS]: service 的 Skill-to-MCP 连接层；全局 Agent 直接共享常驻 daemon，不启动本地 stdio 转发器；内置 Agent 的 session bridge 保持独立兼容
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -23,16 +22,7 @@ const (
 	recutMCPUnavailable   = "unavailable"
 )
 
-func (m *RecutSkillManager) mcpCommand() string {
-	name := "recut-service"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	if executable, err := m.execPath(); err == nil && filepath.Base(executable) == name {
-		return executable
-	}
-	return filepath.Join(m.dataDir, "bin", name)
-}
+const globalMCPEndpoint = defaultMCPTarget + "/v1/mcp"
 
 func (m *RecutSkillManager) mcpStatus(targetID string) string {
 	path, format, err := m.mcpConfig(targetID)
@@ -47,7 +37,7 @@ func (m *RecutSkillManager) mcpStatus(targetID string) string {
 		if readErr != nil {
 			return recutMCPUnavailable
 		}
-		if strings.Contains(string(body), "[mcp_servers.recut]") {
+		if strings.Contains(string(body), "[mcp_servers.recut]") && strings.Contains(string(body), "url = \""+globalMCPEndpoint+"\"") {
 			return recutMCPConfigured
 		}
 		return recutMCPNotConfigured
@@ -67,7 +57,7 @@ func (m *RecutSkillManager) mcpStatus(targetID string) string {
 	if !ok {
 		return recutMCPNotConfigured
 	}
-	if _, ok := servers[recutSkillID]; ok {
+	if server, ok := servers[recutSkillID].(map[string]any); ok && server["url"] == globalMCPEndpoint {
 		return recutMCPConfigured
 	}
 	return recutMCPNotConfigured
@@ -78,10 +68,26 @@ func (m *RecutSkillManager) configureMCP(targetID string) error {
 	if err != nil {
 		return nil
 	}
-	if format == "toml" {
-		return m.configureCodexMCP(path)
+	secret, err := m.globalMCPToken()
+	if err != nil {
+		return err
 	}
-	return m.configureJSONMCP(targetID, path)
+	if format == "toml" {
+		return m.configureCodexMCP(path, secret)
+	}
+	return m.configureJSONMCP(targetID, path, secret)
+}
+
+func (m *RecutSkillManager) globalMCPToken() (string, error) {
+	apps, err := LoadCatalog(filepath.Join(m.dataDir, "apps"))
+	if err != nil {
+		return "", err
+	}
+	store := NewStore(m.dataDir, apps)
+	if err := store.Ensure(); err != nil {
+		return "", err
+	}
+	return store.EnsureGlobalMCPToken()
 }
 
 func (m *RecutSkillManager) mcpConfig(targetID string) (path, format string, err error) {
@@ -89,23 +95,19 @@ func (m *RecutSkillManager) mcpConfig(targetID string) (path, format string, err
 	if homeErr != nil {
 		return "", "", homeErr
 	}
-	configDir, configErr := m.config()
-	if configErr != nil || strings.TrimSpace(configDir) == "" {
-		configDir = filepath.Join(home, ".config")
-	}
 	switch targetID {
 	case "codex":
 		return filepath.Join(home, ".codex", "config.toml"), "toml", nil
 	case "claude":
 		return filepath.Join(home, ".claude.json"), "json", nil
 	case "opencode":
-		return filepath.Join(configDir, "opencode", "opencode.json"), "json", nil
+		return filepath.Join(m.openCodeConfigDir(home), "opencode", "opencode.jsonc"), "json", nil
 	default:
 		return "", "", errors.New("Agent does not expose a supported global MCP configuration")
 	}
 }
 
-func (m *RecutSkillManager) configureCodexMCP(path string) error {
+func (m *RecutSkillManager) configureCodexMCP(path, secret string) error {
 	body, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		body = nil
@@ -113,20 +115,34 @@ func (m *RecutSkillManager) configureCodexMCP(path string) error {
 		return fmt.Errorf("read Codex configuration: %w", err)
 	}
 	text := string(body)
-	if strings.Contains(text, "[mcp_servers.recut]") {
-		return nil
-	}
 	if strings.Contains(text, "mcp_servers =") {
 		return errors.New("Codex uses an inline mcp_servers configuration; add Recut MCP manually to avoid overwriting it")
 	}
-	block := fmt.Sprintf("\n# Recut-managed MCP: keep this block so the Recut Skill can use local tools.\n[mcp_servers.recut]\ncommand = %q\nargs = [\"--mcp\", \"--mcp-target\", %q]\n", m.mcpCommand(), defaultMCPTarget)
+	text = removeManagedCodexMCP(text)
+	block := fmt.Sprintf("\n# Recut-managed MCP: direct Streamable HTTP connection to the local daemon.\n[mcp_servers.recut]\nurl = %q\nhttp_headers = { Authorization = %q }\n", globalMCPEndpoint, "Bearer "+secret)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create Codex configuration directory: %w", err)
 	}
 	return writeRecutConfigFile(path, []byte(strings.TrimRight(text, "\n")+block))
 }
 
-func (m *RecutSkillManager) configureJSONMCP(targetID, path string) error {
+func removeManagedCodexMCP(text string) string {
+	table := strings.Index(text, "[mcp_servers.recut]")
+	if table < 0 {
+		return text
+	}
+	start := table
+	if marker := strings.LastIndex(text[:table], "# Recut-managed MCP:"); marker >= 0 && strings.TrimSpace(text[marker:table]) != "" {
+		start = marker
+	}
+	end := len(text)
+	if next := strings.Index(text[table+len("[mcp_servers.recut]"):], "\n["); next >= 0 {
+		end = table + len("[mcp_servers.recut]") + next
+	}
+	return strings.TrimRight(text[:start]+text[end:], "\n")
+}
+
+func (m *RecutSkillManager) configureJSONMCP(targetID, path, secret string) error {
 	config, err := readRecutJSONConfig(path)
 	if errors.Is(err, os.ErrNotExist) {
 		config = map[string]any{}
@@ -134,10 +150,10 @@ func (m *RecutSkillManager) configureJSONMCP(targetID, path string) error {
 		return fmt.Errorf("read %s configuration: %w", targetID, err)
 	}
 	key := "mcpServers"
-	server := map[string]any{"command": m.mcpCommand(), "args": []string{"--mcp", "--mcp-target", defaultMCPTarget}}
+	server := map[string]any{"type": "http", "url": globalMCPEndpoint, "headers": map[string]string{"Authorization": "Bearer " + secret}}
 	if targetID == "opencode" {
 		key = "mcp"
-		server = map[string]any{"type": "local", "command": []string{m.mcpCommand(), "--mcp", "--mcp-target", defaultMCPTarget}, "enabled": true, "timeout": opencodeMCPTimeoutMilliseconds}
+		server = map[string]any{"type": "remote", "url": globalMCPEndpoint, "headers": map[string]string{"Authorization": "Bearer " + secret}}
 	}
 	servers, exists := config[key]
 	if !exists {
@@ -148,8 +164,8 @@ func (m *RecutSkillManager) configureJSONMCP(targetID, path string) error {
 	if !ok {
 		return fmt.Errorf("%s configuration has a non-object %s field", targetID, key)
 	}
-	if _, exists := values[recutSkillID]; exists {
-		return nil
+	if existing, exists := values[recutSkillID].(map[string]any); exists && !isRecutManagedMCP(targetID, existing) {
+		return fmt.Errorf("%s already has a user-managed Recut MCP; Recut will not overwrite it", targetID)
 	}
 	values[recutSkillID] = server
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -160,6 +176,17 @@ func (m *RecutSkillManager) configureJSONMCP(targetID, path string) error {
 		return fmt.Errorf("encode %s configuration: %w", targetID, err)
 	}
 	return writeRecutConfigFile(path, append(data, '\n'))
+}
+
+func isRecutManagedMCP(targetID string, server map[string]any) bool {
+	if server["url"] == globalMCPEndpoint {
+		return true
+	}
+	if targetID == "opencode" {
+		return server["type"] == "local"
+	}
+	_, hasCommand := server["command"]
+	return hasCommand
 }
 
 func readRecutJSONConfig(path string) (map[string]any, error) {

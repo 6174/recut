@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖编译内嵌的 Recut Skill 正文、data-dir 与当前用户的 Agent 配置目录
- * [OUTPUT]: 对外提供 Recut Skill 的启动同步、跨 Agent 安全软链接、状态查询，以及任意全局/App Skill 的通用链接能力与 HTTP 请求模型
+ * [INPUT]: 依赖编译内嵌的 Recut Skill 正文（OutputFormat: url 第三方变体）、data-dir 与当前用户的 Agent 配置目录
+ * [OUTPUT]: 对外提供 Recut Skill 的启动同步、跨 Agent 安全软链接、状态查询，以及任意全局/App Skill 的通用链接能力与 HTTP 请求模型；平台规则与 core-agents.md.tmpl（OutputFormat: xml 内建变体）共享，唯一行为分叉是最终回复的引用格式
  * [POS]: service 的平台 Skill 分发边界；唯一正文写入 `~/.recut/skills/recut`，外部 Agent 只能链接它而不持有副本
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -138,16 +138,22 @@ func (m *RecutSkillManager) skillTargets(skillID string) ([]RecutSkillTarget, er
 	if err != nil {
 		return nil, fmt.Errorf("locate user home directory: %w", err)
 	}
-	configDir, configErr := m.config()
-	if configErr != nil || strings.TrimSpace(configDir) == "" {
-		configDir = filepath.Join(home, ".config")
-	}
 	return []RecutSkillTarget{
 		{ID: "agents", Name: "通用 Agent", Path: filepath.Join(home, ".agents", "skills", skillID)},
 		{ID: "claude", Name: "Claude Code", Path: filepath.Join(home, ".claude", "skills", skillID)},
 		{ID: "codex", Name: "Codex", Path: filepath.Join(home, ".codex", "skills", skillID)},
-		{ID: "opencode", Name: "OpenCode", Path: filepath.Join(configDir, "opencode", "skills", skillID)},
+		{ID: "opencode", Name: "OpenCode", Path: filepath.Join(m.openCodeConfigDir(home), "opencode", "skills", skillID)},
 	}, nil
+}
+
+// OpenCode follows the XDG directory convention even on macOS. Go's
+// os.UserConfigDir resolves to Library/Application Support there, which the
+// OpenCode CLI does not inspect.
+func (m *RecutSkillManager) openCodeConfigDir(home string) string {
+	if configured := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); configured != "" {
+		return configured
+	}
+	return filepath.Join(home, ".config")
 }
 
 // skillStatus reports each Agent target's link status against an arbitrary

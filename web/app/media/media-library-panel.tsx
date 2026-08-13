@@ -95,6 +95,7 @@ function isReferenceKind(mode: ModelInputMode): mode is Exclude<AssetKind, "tran
 }
 
 type MediaLibraryPanelProps = {
+  initialAssetID?: string;
   onOpenProviderSettings: () => void;
   onProjectIDChange: (projectID: string | null) => void;
 };
@@ -104,7 +105,7 @@ export function MediaLibraryPanel(props: MediaLibraryPanelProps) {
   return <MediaAssetEventsProvider apiBase={apiBase}><MediaLibraryContent {...props} /></MediaAssetEventsProvider>;
 }
 
-function MediaLibraryContent({ onOpenProviderSettings, onProjectIDChange }: MediaLibraryPanelProps) {
+function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProjectIDChange }: MediaLibraryPanelProps) {
   const apiBase = useServiceStore((state) => state.endpoint);
   const { assetByID, assets: eventAssets, upsertAsset } = useMediaAssetEvents();
   const assets = useMemo(() => eventAssets.map((asset) => normalizeAsset(asset as Asset)), [eventAssets]);
@@ -130,6 +131,21 @@ function MediaLibraryContent({ onOpenProviderSettings, onProjectIDChange }: Medi
   useEffect(() => {
     void initialize();
   }, [apiBase]);
+  const deepLinkAsset = initialAssetID ? assetByID[initialAssetID] : null;
+  useEffect(() => {
+    if (initialAssetID && deepLinkAsset) setPreview(normalizeAsset(deepLinkAsset as Asset));
+  }, [initialAssetID, deepLinkAsset]);
+  useEffect(() => {
+    if (!initialAssetID) return;
+    let active = true;
+    void fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(initialAssetID)}`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok || !active) return;
+        setPreview(normalizeAsset((await response.json()) as Asset));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [apiBase, initialAssetID]);
   const visibleAssets =
     filter === "all" ? assets : assets.filter((asset) => asset.kind === filter);
   const renderedAssets = visibleAssets.slice(0, assetLimit);

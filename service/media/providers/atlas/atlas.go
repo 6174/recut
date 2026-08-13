@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖标准 HTTP 客户端、Atlas Cloud Bearer 凭据及已编码的媒体引用
- * [OUTPUT]: 对外提供 Seedance 2.0 Mini 与 Gemini Omni Flash 的视频预测提交和轮询
+ * [OUTPUT]: 对外提供 Seedance 2.0 Mini 与 Gemini Omni Flash 的视频预测提交和轮询、原生图片生成的提交与 prediction 输出回收
  * [POS]: media/providers/atlas 的协议适配器；不访问 Recut 的 Store、任务或 Asset
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -45,6 +45,16 @@ type MediaUpload struct {
 type Result struct {
 	PredictionID string
 	VideoURL     string
+}
+
+// GenerateImageInput is the native Atlas Cloud image-generation request. Image
+// generation uses the same prediction lifecycle as video: submit returns a
+// prediction ID and the caller polls until completed, then reads outputs[0].
+type GenerateImageInput struct {
+	Model  string
+	Prompt string
+	Images []string
+	Output map[string]any
 }
 
 // Prediction is the durable remote-task handle returned as soon as Atlas
@@ -157,6 +167,34 @@ func Submit(client *http.Client, baseURL, secret string, input GenerateInput) (P
 	return prediction, nil
 }
 
+// SubmitImage performs Atlas' POST /generateImage request. A successful
+// response contains a prediction ID that callers persist and poll, matching the
+// video prediction lifecycle.
+func SubmitImage(client *http.Client, baseURL, secret string, input GenerateImageInput) (Prediction, error) {
+	if strings.TrimSpace(input.Prompt) == "" {
+		return Prediction{}, errors.New("Atlas Cloud image prompt is required")
+	}
+	payload := map[string]any{"model": input.Model, "prompt": input.Prompt}
+	if len(input.Images) > 0 {
+		payload["images"] = input.Images
+	}
+	for _, key := range []string{"size", "quality", "background"} {
+		if value, ok := input.Output[key]; ok {
+			payload[key] = value
+		}
+	}
+	body, _ := json.Marshal(payload)
+	baseURL = normalizedBaseURL(baseURL)
+	prediction, err := request(client, baseURL, secret, http.MethodPost, "/api/v1/model/generateImage", bytes.NewReader(body))
+	if err != nil {
+		return Prediction{}, err
+	}
+	if strings.TrimSpace(prediction.ID) == "" {
+		return Prediction{}, errors.New("Atlas Cloud image submission returned no prediction ID")
+	}
+	return prediction, nil
+}
+
 // Poll reads one Atlas prediction state. It does not sleep or impose a local
 // terminal deadline; task ownership belongs to the persistent caller.
 func Poll(client *http.Client, baseURL, secret string, submitted Prediction) (Prediction, error) {
@@ -218,6 +256,17 @@ func (p Prediction) VideoURL() string {
 			return output
 		}
 	}
+	for _, output := range p.Outputs {
+		if strings.TrimSpace(output) != "" {
+			return output
+		}
+	}
+	return ""
+}
+
+// FirstOutput returns the first non-empty generated output URL. Image
+// generation places its image URL in outputs[0], so this is the image handle.
+func (p Prediction) FirstOutput() string {
 	for _, output := range p.Outputs {
 		if strings.TrimSpace(output) != "" {
 			return output

@@ -408,7 +408,7 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 	}
 	execution := workflow.(map[string]any)["mediaExecution"].(map[string]any)
 	scenes := execution["scenes"].(map[string]any)
-	if scenes["kind"] != "平台媒体生成" || scenes["generate"] != "recut.video.generate_async" {
+	if scenes["kind"] != "平台媒体生成" || scenes["generate"] != "recut.video.generate" {
 		t.Fatalf("scene media route = %#v", scenes)
 	}
 	if _, err := NewAppHost(apps, store).InvokeAPI(Target{ProjectID: project.ID, AppID: "recut.vox-broll"}, "recut.vox-broll", "resource.prepare", map[string]any{"kind": "scenes"}); err == nil {
@@ -419,7 +419,7 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, required := range []string{
-		"recut.video.generate_async",
+		"recut.video.generate",
 		"keyframe.assetId",
 		"audio.assetId",
 		"audio.text",

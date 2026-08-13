@@ -7,6 +7,7 @@ Recut 是本地 AI 视频工作台，也是类似 Chrome 的 App Host：App 用 
 ```text
 apps/             本地 App 包与 AI 短片、Depth Anything、Cover Studio、Remotion Studio 子模块或源码；通过 make app-link 链接到运行时目录
 operation/        运营与开源协作资产；`official-repo/` 是官方社区 App 总库 submodule
+rfc/              平台与产品的提议设计；Creation Worlds 等跨模块契约在实现前于此定稿
 .gitmodules       外部 App 与官方社区仓库的固定远端与分支配置
 scripts/          当前用户 production service 的安装器与内置 App 白名单打包器
 dev/              开发审计与设计记录；不参与运行时
@@ -23,11 +24,11 @@ Makefile          本地开发、生产 service 安装与 Cloudflare Worker 部�
 - App 数据模型属于 App 的 JavaScript。平台不解析 `project-layout.json`，不规定表、JSON 文件或工作流步骤。
 - SQLite 是资源真相：App state、Artifact、事件、引用与版本均存表中；媒体平台在 `workspace.sqlite` 管理跨项目 Asset、Provider BYOK 凭据、用途模型 Route 与任务，文件根只保存内容寻址的大二进制，数据库保存其哈希引用。异步媒体先原子持久化稳定的 queued Asset 与 Job；常驻 Daemon 用 SQLite lease 和外部调用 checkpoint 提交 prediction、原位推进 Asset，并周期回收终态。只有已持久化的 prediction 可安全重试，未知外部提交保留原 Asset 并明确失败，避免重复收费；前端只读本地状态。所有媒体依赖以全局 `assetId` 表达；用户上传也先成为带 `origin: user-upload` 的 Asset，再绑定项目与 Agent turn。Project Doc 的可选 `cover` 只引用已完成的图片或视频 Asset，由 owner App 通过 `ctx.project.setCover({ assetId })` 按自身业务逻辑写入，平台只持久化和展示。用户 Agent 对话同样位于根目录 `workspace.sqlite`，与项目数据库解耦。
 - App 之间通过公开 API 和不可变 Artifact 引用协作，绝不读取彼此数据库或文件目录。
-- Agent 只连平台 MCP Host。Host 以按媒介类型划分的 `recut.image.generate`、`recut.video.generate_async`、`recut.speech.generate_async` 暴露生成能力，另以 `recut.media.*` 提供配置、任务和素材管理；Agent 会话不绑定任何项目，项目由 `recut.project.list` / `recut.project_context` 发现并以显式 target 操作，`recut.project_context` 携带目标项目的默认媒体路由、模型契约和可选参数。图片同步返回资产或终态错误，视频与语音显式返回异步 Job。当前 App 的业务工具仍由 manifest 约束。
+- Agent 只连平台 MCP Host。Host 以按媒介类型划分的 `recut.image.generate`、`recut.video.generate`、`recut.speech.generate` 暴露生成能力，另以 `recut.media.*` 提供配置、任务和素材管理；`recut.context.media.readiness` 是生成能力是否可调用的唯一前置真相，防止已加载工具被误认为已配置模型。Agent 会话不绑定任何项目，项目由 `recut.project.list` / `recut.project_context` 发现并以显式 target 操作，`recut.project_context` 携带目标项目的默认媒体路由、模型契约和可选参数。三种生成都是异步 Job：提交即返回稳定 jobId 与 assetIds，Daemon 原位推进到终态，Agent 用 `recut.media.get_job` / `recut.media.wait_for_job` 观察状态。当前 App 的业务工具仍由 manifest 约束。
 - Chat UI 消费结构化 Agent Session 事件；Codex/Claude 等 native session id 只用于续聊，终端 PTY 保留为兼容与诊断通道。
 - 前端表单控件必须有与 `id` 关联的可见 `label`；`placeholder` 只用于填写示例，不能承担字段名称或可访问性语义。
 - 运行时 App 根默认为 `~/.recut/apps`。发布 binary 内置 `builtinAppList` 中的 App（当前为 Remotion Studio），启动时原子同步其可运行包到该目录，因此首次打开不再是空白 App 列表；开发时 `make app-link` 创建的本地软链接优先，不会被内置同步替换。其他 App 仍可在相同位置以 Git clone 安装，服务不从源码仓库的 `apps/` 直接加载。
-- Recut 平台 Skill 的唯一运行时正文固定在 `~/.recut/skills/recut`：service 启动（包括自更新后的重启）会原子同步二进制内嵌的最新版本，并自动安全软链接至 `~/.agents/skills/recut`、`~/.claude/skills/recut`、`~/.codex/skills/recut` 和 OpenCode 的用户配置目录；Codex、Claude Code、OpenCode 同时原子注册匿名本机 Recut MCP。已存在的其他 Skill 或用户配置只会记录告警，绝不被覆盖；全局设置的 **Recut Skill** Tab 按归属列出全部 Skill（平台 Skill 归入「全局」，每个已安装 App 一个分组），供查看状态、手动修复和链接 App Skill。全局设置的 **Recut MCP** Tab 按归属列出本机 MCP Host 可提供的全部工具：平台能力始终可见并归入「平台工具」，App 声明 `mcp` surface 的操作按其归属 App 分组展示。
+- Recut 平台 Skill 的唯一运行时正文固定在 `~/.recut/skills/recut`：service 启动（包括自更新后的重启）会原子同步二进制内嵌的最新版本，并自动安全软链接至 `~/.agents/skills/recut`、`~/.claude/skills/recut`、`~/.codex/skills/recut` 和 OpenCode 的用户配置目录；Codex、Claude Code、OpenCode 同时原子注册同一个 `http://127.0.0.1:17373/v1/mcp` Streamable HTTP Host，以 daemon-owned、可撤销的本机 Bearer device token 鉴权，绝不为每个 Agent 启动新的 service。Recut 内置会话暂以无状态 stdio adapter 连到同一 Host，保留 session 级工作区和素材导入上下文。已存在的其他 Skill 或用户自管 MCP 配置只会记录告警，绝不被覆盖；全局设置的 **Recut Skill** Tab 按归属列出全部 Skill（平台 Skill 归入「全局」，每个已安装 App 一个分组），供查看状态、手动修复和链接 App Skill。全局设置的 **Recut MCP** Tab 按归属列出本机 MCP Host 可提供的全部工具：平台能力始终可见并归入「平台工具」，App 声明 `mcp` surface 的操作按其归属 App 分组展示。
 - 每个项目在 `.recut/app` 创建指向当前 App 包的符号链接。每个 Codex turn 由 Go 后端内嵌的 `service/prompts/core-agents.md.tmpl` 渲染平台 guide，并注入当前 App 自己的 `AGENTS.md`；该 guide 指示 Agent 从 `.recut/app` 读取、测试和按需修改当前 App 源码。
 
 运行 `git submodule update --init --recursive` 获取所有外部 App（AI 短片、Depth Anything、Cover Studio）后，再运行 `make app-link` 链接全部本地 App；只链接一个包时使用对应的 `make app-link APP=apps/<app-name>`。随后运行 `make dev`。

@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"database/sql"
 )
 
 const completedMediaCacheControl = "public, max-age=31536000, immutable"
@@ -237,6 +239,18 @@ func (s *Server) importMediaAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, asset)
+}
+
+func (s *Server) deleteMediaCredential(w http.ResponseWriter, r *http.Request) {
+	if err := s.media.DeleteCredential(r.PathValue("id")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("media credential not found"))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) saveMediaCredential(w http.ResponseWriter, r *http.Request) {

@@ -33,10 +33,14 @@ type Server struct {
 	media     *MediaService
 	updater   *ServiceUpdater
 	skill     *RecutSkillManager
+	worlds    *WorldStore
 }
 
 func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, agents *AgentManager, host *AppHost, media *MediaService, updater ...*ServiceUpdater) *Server {
 	server := &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host, media: media}
+	if store != nil {
+		server.worlds = NewWorldStore(store, media)
+	}
 	if len(updater) > 0 {
 		server.updater = updater[0]
 	}
@@ -97,12 +101,25 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/projects", s.createProject)
 	mux.HandleFunc("GET /v1/projects/{id}", s.getProject)
 	mux.HandleFunc("GET /v1/projects/{id}/artifacts", s.listArtifacts)
+	mux.HandleFunc("GET /v1/projects/{projectID}/world-context", s.getProjectWorldContext)
+	mux.HandleFunc("PUT /v1/projects/{projectID}/world-context", s.putProjectWorldContext)
+	mux.HandleFunc("GET /v1/worlds", s.listWorlds)
+	mux.HandleFunc("POST /v1/worlds", s.createWorld)
+	mux.HandleFunc("GET /v1/worlds/{worldID}", s.getWorld)
+	mux.HandleFunc("PATCH /v1/worlds/{worldID}", s.updateWorld)
+	mux.HandleFunc("GET /v1/worlds/{worldID}/entities", s.listWorldEntities)
+	mux.HandleFunc("POST /v1/worlds/{worldID}/entities", s.createWorldEntity)
+	mux.HandleFunc("GET /v1/worlds/{worldID}/entities/{entityID}", s.getWorldEntity)
+	mux.HandleFunc("PATCH /v1/worlds/{worldID}/entities/{entityID}", s.updateWorldEntity)
+	mux.HandleFunc("POST /v1/worlds/{worldID}/references", s.attachWorldReference)
+	mux.HandleFunc("POST /v1/worlds/{worldID}/resolve", s.resolveWorld)
 	mux.HandleFunc("GET /v1/media/models", s.listMediaModels)
 	mux.HandleFunc("GET /v1/media/system-project", s.getMediaSystemProject)
 	mux.HandleFunc("GET /v1/media/providers", s.listMediaProviders)
 	mux.HandleFunc("GET /v1/media/configuration", s.listMediaConfiguration)
 	mux.HandleFunc("GET /v1/media/credentials", s.listMediaCredentials)
 	mux.HandleFunc("POST /v1/media/credentials", s.saveMediaCredential)
+	mux.HandleFunc("DELETE /v1/media/credentials/{id}", s.deleteMediaCredential)
 	mux.HandleFunc("GET /v1/media/credentials/{id}/voices", s.listMediaVoices)
 	mux.HandleFunc("GET /v1/media/routes", s.listMediaRoutes)
 	mux.HandleFunc("POST /v1/media/routes", s.saveMediaRoute)
@@ -129,6 +146,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/stop", s.stopAgentTurn)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/events", s.streamAgentEvents)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/cli-stream", s.streamAgentCLI)
+	mux.HandleFunc("GET /v1/mcp", s.mcpHTTP)
 	mux.HandleFunc("POST /v1/mcp", s.mcpHTTP)
 	mux.HandleFunc("GET /v1/mcp/tools", s.mcpTools)
 	mux.HandleFunc("GET /v1/device-tokens", s.listDeviceTokens)
@@ -260,7 +278,7 @@ func withLocalCORS(next http.Handler) http.Handler {
 		if allowedBrowserOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		}
 		if r.Method == http.MethodOptions {

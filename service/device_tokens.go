@@ -10,6 +10,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -19,6 +22,66 @@ type DeviceToken struct {
 	CreatedAt time.Time  `json:"createdAt"`
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 	Revoked   bool       `json:"revoked"`
+}
+
+type globalMCPTokenFile struct {
+	Secret string `json:"secret"`
+}
+
+// EnsureGlobalMCPToken returns the daemon-owned credential used by global
+// Codex, Claude Code and OpenCode Streamable HTTP connections. The database
+// keeps only the hash; the local config file is 0600 and lets startup recover
+// the reusable secret without ever putting it in a command line.
+func (s *Store) EnsureGlobalMCPToken() (string, error) {
+	path := filepath.Join(s.root, "config", "global-mcp-token.json")
+	file := globalMCPTokenFile{}
+	if body, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(body, &file); err != nil {
+			return "", fmt.Errorf("read global MCP token: %w", err)
+		}
+		if _, err := s.AuthenticateDeviceToken(file.Secret); err == nil {
+			return file.Secret, nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read global MCP token: %w", err)
+	}
+	token, secret, err := s.CreateDeviceToken(nil, 0)
+	if err != nil {
+		return "", err
+	}
+	_ = token
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", fmt.Errorf("create MCP token directory: %w", err)
+	}
+	if err := writePrivateJSON(path, globalMCPTokenFile{Secret: secret}); err != nil {
+		return "", fmt.Errorf("store global MCP token: %w", err)
+	}
+	return secret, nil
+}
+
+func writePrivateJSON(path string, value any) error {
+	body, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".recut-token-")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(append(body, '\n')); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
 
 // CreateDeviceToken persists a machine token and returns the one-time bearer

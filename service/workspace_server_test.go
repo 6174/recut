@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖内存静态文件系统与本地工作台 HTTP 处理器
- * [OUTPUT]: 验证首页、顶层 Tab 与项目/App 深链无相对重定向、Next 不可变缓存与静态文件边界
+ * [OUTPUT]: 验证首页、顶层 Tab 与 World/项目/App 深链无相对重定向、Next 不可变缓存与静态文件边界
  * [POS]: service 本地工作台传输层回归测试；不依赖真实 Next 构建或网络端口
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -23,6 +23,8 @@ func TestLocalWorkspaceHandlerServesStaticAndDynamicShells(t *testing.T) {
 		"projects/app/index.html":      {Data: []byte("project")},
 		"workspace-app/app/index.html": {Data: []byte("workspace app")},
 		"apps/app/index.html":          {Data: []byte("app")},
+		"worlds/index.html":            {Data: []byte("worlds")},
+		"worlds/app/index.html":        {Data: []byte("world")},
 		"_next/static/chunk.js":        {Data: []byte("chunk")},
 	}
 	handler := localWorkspaceHandler(files)
@@ -36,6 +38,9 @@ func TestLocalWorkspaceHandlerServesStaticAndDynamicShells(t *testing.T) {
 		"/projects/first":        "project",
 		"/workspace-app/example": "workspace app",
 		"/apps/example":          "app",
+		"/worlds":                "worlds",
+		"/worlds/":               "worlds",
+		"/worlds/cw-01":          "world",
 		"/_next/static/chunk.js": "chunk",
 	} {
 		recorder := httptest.NewRecorder()

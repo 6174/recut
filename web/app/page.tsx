@@ -1,12 +1,12 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、Agent Session HTTP API 及全局 Agent 面板上下文
- * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的每日稳定随机两张创作场景卡（首访引导作为同一候选卡，点击只回填左侧创作输入框，绝不自动提交）、紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和无外框的 service 连接/诊断空态
+ * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的每日稳定随机两张创作场景卡（首访引导作为同一候选卡，点击只回填左侧创作输入框，绝不自动提交）、应用图标式快速启动器、紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和无外框的 service 连接/诊断空态
  * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, ImageIcon, Link2, LoaderCircle, Music2, Plus, Sparkles, Store, Video, X, type LucideIcon } from "lucide-react";
+import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, Globe2, ImageIcon, Link2, LoaderCircle, Music2, Plus, Sparkles, Store, Video, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, MouseEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
@@ -24,13 +24,15 @@ import { marketplaceApps } from "@/lib/app-catalog";
 import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore, type WorkspaceApp as App, type WorkspaceInstallation as Installation, type WorkspaceProject as Project } from "@/lib/workspace-store";
+import { worldKindLabels, type WorldSummary } from "@/lib/recut-worlds-client";
 import { VideoFrame } from "@/components/video-frame";
 import { WebGLStudioHero } from "@/components/webgl-studio-hero";
 import type { Asset } from "./media/media-types";
 import { MediaLibraryPanel } from "./media/media-library-panel";
+import { WorldsClient } from "./worlds/worlds-client";
 
 type AppDetailRenderer = (context: { onConnectService: () => void; serviceOnline: boolean }) => React.ReactNode;
-type WorkspaceTab = "studio" | "projects" | "assets" | "apps";
+type WorkspaceTab = "studio" | "worlds" | "projects" | "assets" | "apps";
 type InstallationLoadState = "loading" | "ready" | "failed" | "offline";
 
 export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: AppDetailRenderer; initialTab?: WorkspaceTab } = {}) {
@@ -41,6 +43,7 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
   const installationsError = useWorkspaceStore((state) => state.installationsError);
   const loadWorkspace = useWorkspaceStore((state) => state.load);
   const [appID, setAppID] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("app") ?? "");
+  const [initialAssetID, setInitialAssetID] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("asset") ?? "");
   const [name, setName] = useState("");
   const [createApp, setCreateApp] = useState<Installation | null>(null);
   const service = useServiceStore((state) => state.service);
@@ -58,11 +61,13 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
   }, [agentProjectID]);
   const pageContext = useMemo(() => tab === "assets"
     ? { title: "素材库", path: "/media" }
-    : tab === "projects"
-      ? { title: "项目", path: "/projects" }
-      : tab === "apps"
-        ? { title: "应用", path: "/apps" }
-        : null, [tab]);
+    : tab === "worlds"
+      ? { title: "Worlds", path: "/worlds" }
+      : tab === "projects"
+        ? { title: "项目", path: "/projects" }
+        : tab === "apps"
+          ? { title: "应用", path: "/apps" }
+          : null, [tab]);
   useReportPageContext(pageContext);
   useEffect(() => {
     if (!online) return;
@@ -124,6 +129,10 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
     if (!open) setSettingsSection(undefined);
   }
 
+  useEffect(() => {
+    if (tab !== "assets") setInitialAssetID("");
+  }, [tab]);
+
   function navigateTab(next: WorkspaceTab, href: string, event: MouseEvent<HTMLAnchorElement>) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -137,11 +146,12 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
     : tab === "studio" ? <Studio apiBase={apiBase} installations={installations} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onStartProject={openCreateProject} projects={projects} />
-      : tab === "projects" ? <ProjectsPage apps={installations.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onNameChange={setName} onSubmit={createProject} projects={projects} selectedApp={appID} />
-        : <MediaLibraryPanel onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
+      : tab === "worlds" ? <WorldsClient />
+        : tab === "projects" ? <ProjectsPage apps={installations.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onNameChange={setName} onSubmit={createProject} projects={projects} selectedApp={appID} />
+          : <MediaLibraryPanel initialAssetID={initialAssetID} onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-5">
-      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label="工作台" className="flex min-w-0 items-center gap-0.5 sm:gap-1"><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">创作台</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">项目</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">素材库</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">应用</Tab></nav></div>
+      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label="工作台" className="flex min-w-0 items-center gap-0.5 sm:gap-1"><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">创作台</Tab><Tab active={tab === "worlds"} href="/worlds" onNavigate={navigateTab} tab="worlds">Worlds</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">项目</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">素材库</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">应用</Tab></nav></div>
       <div className="hidden md:block"><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>
     </header>
     <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]">
@@ -155,6 +165,7 @@ export default Workspace;
 
 function tabFromPath(pathname: string): WorkspaceTab | null {
   if (pathname === "/") return "studio";
+  if (pathname === "/worlds" || pathname === "/worlds/") return "worlds";
   if (pathname === "/projects" || pathname === "/projects/") return "projects";
   if (pathname === "/media" || pathname === "/media/") return "assets";
   if (pathname === "/apps" || pathname === "/apps/") return "apps";
@@ -309,10 +320,20 @@ function Studio({ apiBase, installations, onCompose, onStartProject, projects }:
       </div>
       </div>
     </section>
-    <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps">管理 Apps<ArrowRight className="size-3.5" /></Link>} description="已安装的创作能力，按项目或独立工作区直接进入。" title="创作 Apps" />{installations.length ? <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{installations.map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div> : <EmptyHomeApps />}</section>
+    <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/worlds">管理 Worlds<ArrowRight className="size-3.5" /></Link>} description="继续一个角色 IP、内容账号或故事世界，从上次停下的地方开工。" title="Continue a world" /><RecentWorlds apiBase={apiBase} /></section>
+    <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps">管理 Apps<ArrowRight className="size-3.5" /></Link>} description="已安装的创作能力，点击图标即可开始。" title="创作 Apps" />{installations.length ? <div className="max-w-[34rem] rounded-2xl border bg-card/70 p-3 shadow-sm"><div className="grid grid-cols-3 gap-y-3 sm:grid-cols-5">{installations.map((app) => <StudioAppIcon app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div></div> : <EmptyHomeApps />}</section>
     <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">查看全部<ArrowRight className="size-3.5" /></Link>} description="从上次停下的地方继续。" title="继续创作" />{recentProjects.length ? <RecentProjects apiBase={apiBase} projects={recentProjects} /> : <Card><CardContent className="flex min-h-28 items-center justify-between gap-5 p-5"><div><p className="text-sm font-semibold">从一个项目开始</p><p className="mt-1 text-xs text-muted-foreground">选择一款已安装的 App，建立你的第一个创作空间。</p></div><Link className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground" href="/projects"><FolderPlus className="size-3.5" />新建项目</Link></CardContent></Card>}</section>
     <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/media">打开素材库<ArrowRight className="size-3.5" /></Link>} description="最近加入工作台的图片、视频和音频，可直接带入下一次创作。" title="最近使用的资源" /><RecentAssets apiBase={apiBase} /></section>
   </div>;
+}
+
+function RecentWorlds({ apiBase }: { apiBase: string }) {
+  const [worlds, setWorlds] = useState<WorldSummary[]>([]);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  useEffect(() => { let active = true; void fetch(`${apiBase}/v1/worlds?limit=6`, { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error(); const body = await response.json() as { items?: WorldSummary[] }; return body.items ?? []; }).then((items) => { if (active) { setWorlds(items); setState("ready"); } }).catch(() => { if (active) setState("error"); }); return () => { active = false; }; }, [apiBase]);
+  if (state === "loading") return <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div className="h-40 animate-pulse rounded-lg border bg-card" key={index} />)}</div>;
+  if (state === "error" || !worlds.length) return <Card><CardContent className="flex min-h-28 items-center justify-between gap-5 p-5"><div><p className="text-sm font-semibold">从一个世界开始</p><p className="mt-1 text-xs text-muted-foreground">为角色、品牌或故事建立持续上下文，让 AI 记住你正在创造什么。</p></div><Link className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground" href="/worlds"><Globe2 className="size-3.5" />新建 World</Link></CardContent></Card>;
+  return <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{worlds.slice(0, 6).map((world) => <Link className="group" href={`/worlds/${encodeURIComponent(world.id)}`} key={world.id}><Card className="overflow-hidden transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]">{world.coverAssetId ? <img alt={`${world.name} 封面`} className="aspect-[16/7] w-full border-b object-cover" src={`${apiBase}/v1/media/assets/${encodeURIComponent(world.coverAssetId)}/content`} /> : <div className="grid aspect-[16/7] place-items-center border-b bg-muted text-muted-foreground"><Globe2 className="size-5" /></div>}<CardContent className="p-3"><p className="truncate text-sm font-semibold">{world.name}</p><p className="mt-1 truncate text-[10px] text-muted-foreground">{worldKindLabels[world.type]}</p><p className="mt-2 text-xs font-medium text-primary">继续创作</p></CardContent></Card></Link>)}</div>;
 }
 
 function RecentProjects({ apiBase, projects }: { apiBase: string; projects: Project[] }) {
@@ -353,10 +374,22 @@ function AssetPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
   return <div className="grid aspect-square place-items-center bg-muted text-primary">{icon}</div>;
 }
 
-function StudioAppCard({ app, onOpen }: { app: Installation; onOpen: () => void }) {
-  const detailHref = `/apps/${encodeURIComponent(app.manifest.id)}`;
-  const actionLabel = app.manifest.type === "standalone" ? "打开应用" : "新建项目";
-  return <Card className="group cursor-pointer transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]" onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }} role="button" tabIndex={0}><CardContent className="flex flex-col p-3"><div className="flex items-center gap-2"><span className="grid size-7 shrink-0 place-items-center rounded-sm bg-accent text-accent-foreground"><AppWindow className="size-3" /></span><p className="min-w-0 flex-1 truncate text-xs font-semibold">{app.manifest.name}</p><Link aria-label={`查看 ${app.manifest.name} 详情`} className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground" href={detailHref} onClick={(event) => event.stopPropagation()}>详情</Link></div><p className="mt-2 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{app.manifest.description}</p><p className="mt-2 text-[11px] font-medium text-primary">{actionLabel}</p></CardContent></Card>;
+function StudioAppIcon({ app, onOpen }: { app: Installation; onOpen: () => void }) {
+  const Icon = studioAppIcon(app.manifest.id);
+  const actionLabel = app.manifest.type === "standalone" ? `打开 ${app.manifest.name}` : `用 ${app.manifest.name} 新建项目`;
+  return <button aria-label={actionLabel} className="group flex min-w-0 flex-col items-center rounded-xl px-1.5 py-1 text-center outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring" onClick={onOpen} type="button">
+    <span className="grid size-16 place-items-center rounded-[1.15rem] border border-primary/10 bg-primary/10 text-primary shadow-sm transition duration-200 group-hover:-translate-y-0.5 group-hover:bg-primary group-hover:text-primary-foreground group-hover:shadow-[var(--shadow-overlay)]"><Icon aria-hidden="true" className="size-6" strokeWidth={1.8} /></span>
+    <span className="mt-1.5 w-full truncate text-xs font-medium text-foreground">{app.manifest.name}</span>
+  </button>;
+}
+
+function studioAppIcon(id: string): LucideIcon {
+  if (id === "recut.vox-broll") return Clapperboard;
+  if (id === "recut.remotion-studio") return Video;
+  if (id === "recut.audio-studio") return Music2;
+  if (id === "recut.cover-studio") return ImageIcon;
+  if (id === "recut.depth-anything") return Box;
+  return AppWindow;
 }
 
 function SectionHeading({ action, description, title }: { action?: React.ReactNode; description: string; title: string }) {

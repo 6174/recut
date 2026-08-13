@@ -262,7 +262,7 @@ flowchart TD
 
 ## 2026-07-27 已实施的最小闭环
 
-- `recut.image.generate` 现在同步返回 `assetIds` 或终态错误；Provider 请求沿用 2 分钟硬超时。视频和语音长任务分别调用 `recut.video.generate_async`、`recut.speech.generate_async`，再用 `recut.media.get_job` 查询。
+- `recut.image.generate`、`recut.video.generate`、`recut.speech.generate` 统一为异步 Job：提交即返回稳定 `jobId` 与 `assetIds`，常驻 Daemon 原位推进终态，Agent 用 `recut.media.wait_for_job` / `recut.media.get_job` 查询。
 - `recut.project_context` 同时携带已配置的默认媒体路由、模型输入契约和可选参数；生成阶段直接使用 default route，不再为每一张图调用 `recut.media.configuration`。
 - Vox B-roll 新增 `workflow_context` MCP/API：读取 App 私有 SQLite 的当前有效 Brief、Beats、Look、阶段与 `allowedActions`。`recut.project_context` 会把这份状态直接带回 Agent，旧 Artifact 只保留为历史信息。
 - Look 任务包不再注入完整 Brief JSON 或轮询教程：它要求先读取 canonical context，然后用默认同步生成并且只在拥有 `assetId + prompt` 时创建资源。

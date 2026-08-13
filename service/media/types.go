@@ -22,6 +22,7 @@ type MediaModel struct {
 	Name         string          `json:"name"`
 	Capability   MediaCapability `json:"capability"`
 	APIModelID   string          `json:"apiModelId"`
+	EditModelID  string          `json:"editModelId,omitempty"`
 	InputModes   []string        `json:"inputModes"`
 	OutputModes  []string        `json:"outputModes"`
 	Available    bool            `json:"available"`

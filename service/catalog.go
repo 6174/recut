@@ -378,6 +378,14 @@ func validateManifest(manifest Manifest) error {
 			return errors.New("python runtime bootstrap must be a package-relative path")
 		}
 	}
+	// Creation Worlds permissions are closed combinations: write implies read,
+	// bind implies read, and neither grants any other platform capability.
+	if hasManifestPermission(manifest, "worlds.write") && !hasManifestPermission(manifest, "worlds.read") {
+		return errors.New("worlds.write requires worlds.read")
+	}
+	if hasManifestPermission(manifest, "worlds.bind") && !hasManifestPermission(manifest, "worlds.read") {
+		return errors.New("worlds.bind requires worlds.read")
+	}
 	if err := validateOnboarding(manifest.Onboarding); err != nil {
 		return fmt.Errorf("invalid onboarding: %w", err)
 	}

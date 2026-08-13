@@ -37,6 +37,7 @@ type AppHost struct {
 	media   *MediaService
 	jobs    *ShellJobManager
 	python  *PythonRuntimeManager
+	worlds  *WorldStore
 }
 
 func NewAppHost(catalog *Catalog, store *Store, media ...*MediaService) *AppHost {
@@ -45,7 +46,7 @@ func NewAppHost(catalog *Catalog, store *Store, media ...*MediaService) *AppHost
 		platformMedia = media[0]
 	}
 	jobs := NewShellJobManager(store)
-	return &AppHost{catalog: catalog, store: store, media: platformMedia, jobs: jobs, python: NewPythonRuntimeManager(store, jobs)}
+	return &AppHost{catalog: catalog, store: store, media: platformMedia, jobs: jobs, python: NewPythonRuntimeManager(store, jobs), worlds: NewWorldStore(store, platformMedia)}
 }
 
 func (h *AppHost) InvokeAPI(target Target, appID, name string, input map[string]any) (any, error) {
@@ -371,7 +372,236 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 		paths["workspacePath"] = filepath.Join(primaryFiles, "workspace")
 	}
 	_ = ctx.Set("paths", runtime.ToValue(paths))
+	// ctx.worlds is the permission-scoped runtime form of the global
+	// recut.worlds.* contract. It never exposes ctx.sqlite and never grants
+	// direct World table access; worlds.read enables discovery/resolve and
+	// worlds.write additionally enables create/update/upsert/attach.
+	if hasPermission(app.Manifest, "worlds.read") && h.worlds != nil {
+		worlds := runtime.NewObject()
+		_ = worlds.Set("list", func(call goja.FunctionCall) goja.Value {
+			input := ListWorldsInput{}
+			if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			items, nextCursor, err := h.worlds.ListWorlds(input)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(map[string]any{"items": items, "nextCursor": nextCursor})
+		})
+		_ = worlds.Set("get", func(call goja.FunctionCall) goja.Value {
+			input := struct{ WorldID string `json:"worldId"` }{}
+			if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			world, err := h.worlds.GetWorld(input.WorldID)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(world)
+		})
+		_ = worlds.Set("entities", worldsEntitiesCapability(runtime, h.worlds, hasPermission(app.Manifest, "worlds.write")))
+		_ = worlds.Set("resolve", func(call goja.FunctionCall) goja.Value {
+			input := ResolveInput{}
+			if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			context, err := h.worlds.Resolve(input)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(context)
+		})
+		if hasPermission(app.Manifest, "worlds.write") {
+			_ = worlds.Set("create", func(call goja.FunctionCall) goja.Value {
+				input := CreateWorldInput{}
+				if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+					panic(runtime.NewTypeError(err.Error()))
+				}
+				world, err := h.worlds.CreateWorld(input)
+				if err != nil {
+					panic(runtime.NewGoError(err))
+				}
+				return runtime.ToValue(world)
+			})
+			_ = worlds.Set("update", func(call goja.FunctionCall) goja.Value {
+				var input struct {
+					WorldID            string         `json:"worldId"`
+					Name               *string        `json:"name"`
+					Description        *string        `json:"description"`
+					Identity           map[string]any `json:"identity"`
+					ExpectedRevisionID string         `json:"expectedRevisionId"`
+				}
+				if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+					panic(runtime.NewTypeError(err.Error()))
+				}
+				world, err := h.worlds.UpdateWorld(UpdateWorldInput{
+					WorldID: input.WorldID, Name: input.Name, Description: input.Description,
+					Identity: input.Identity, ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: app.Manifest.ID,
+				})
+				if err != nil {
+					panic(runtime.NewGoError(err))
+				}
+				return runtime.ToValue(world)
+			})
+			_ = worlds.Set("references", worldsReferencesCapability(runtime, h.worlds))
+		}
+		_ = ctx.Set("worlds", worlds)
+	}
+	if hasPermission(app.Manifest, "worlds.bind") && h.worlds != nil {
+		creationContext := runtime.NewObject()
+		_ = creationContext.Set("get", func(call goja.FunctionCall) goja.Value {
+			if !target.IsProject() {
+				return goja.Null()
+			}
+			context, err := h.worlds.GetProjectContext(target.ProjectID)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			if context == nil {
+				return goja.Null()
+			}
+			return runtime.ToValue(context)
+		})
+		_ = creationContext.Set("resolve", func(call goja.FunctionCall) goja.Value {
+			input := ResolveInput{}
+			if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			context, err := h.worlds.Resolve(input)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(context)
+		})
+		_ = creationContext.Set("bindProject", func(call goja.FunctionCall) goja.Value {
+			if !target.IsProject() {
+				panic(runtime.NewGoError(errors.New("creationContext.bindProject requires a Project target")))
+			}
+			var input struct {
+				WorldID    string         `json:"worldId"`
+				RevisionID string         `json:"revisionId"`
+				Selection  WorldSelection `json:"selection"`
+				Replace    bool           `json:"replace"`
+			}
+			if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			binding, err := h.worlds.BindProject(BindProjectInput{
+				ProjectID: target.ProjectID, AppID: app.Manifest.ID, WorldID: input.WorldID,
+				RevisionID: input.RevisionID, Selection: input.Selection, Replace: input.Replace, CreatedBy: app.Manifest.ID,
+			})
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(binding)
+		})
+		_ = creationContext.Set("bindMediaJob", func(call goja.FunctionCall) goja.Value {
+			var input struct {
+				JobID      string         `json:"jobId"`
+				WorldID    string         `json:"worldId"`
+				RevisionID string         `json:"revisionId"`
+				Selection  WorldSelection `json:"selection"`
+				Replace    bool           `json:"replace"`
+			}
+			if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			binding, err := h.worlds.BindMediaJob(input.JobID, input.WorldID, input.RevisionID, input.Selection, input.Replace, app.Manifest.ID)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(binding)
+		})
+		_ = ctx.Set("creationContext", creationContext)
+	}
 	return ctx, nil
+}
+
+// worldsEntitiesCapability builds ctx.worlds.entities.list / get / upsert.
+// list/get need only worlds.read; upsert additionally requires worlds.write.
+func worldsEntitiesCapability(runtime *goja.Runtime, worlds *WorldStore, canWrite bool) goja.Value {
+	entities := runtime.NewObject()
+	_ = entities.Set("list", func(call goja.FunctionCall) goja.Value {
+		input := ListEntitiesInput{}
+		if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+			panic(runtime.NewTypeError(err.Error()))
+		}
+		items, nextCursor, err := worlds.ListEntities(input)
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(map[string]any{"items": items, "nextCursor": nextCursor})
+	})
+	_ = entities.Set("get", func(call goja.FunctionCall) goja.Value {
+		input := struct {
+			WorldID  string `json:"worldId"`
+			EntityID string `json:"entityId"`
+		}{}
+		if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+			panic(runtime.NewTypeError(err.Error()))
+		}
+		entity, err := worlds.GetEntity(input.WorldID, input.EntityID)
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(entity)
+	})
+	if canWrite {
+		_ = entities.Set("upsert", func(call goja.FunctionCall) goja.Value {
+			input := UpsertEntityInput{CreatedBy: "app"}
+			if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			entity, err := worlds.UpsertEntity(input)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(entity)
+		})
+	}
+	return entities
+}
+
+// worldsReferencesCapability builds ctx.worlds.references.attach, available
+// only with worlds.write so generated results cannot silently become Canon.
+func worldsReferencesCapability(runtime *goja.Runtime, worlds *WorldStore) goja.Value {
+	references := runtime.NewObject()
+	_ = references.Set("attach", func(call goja.FunctionCall) goja.Value {
+		input := AttachReferenceInput{CreatedBy: "app"}
+		if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
+			panic(runtime.NewTypeError(err.Error()))
+		}
+		reference, err := worlds.AttachReference(input)
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(reference)
+	})
+	return references
+}
+
+// mapArgument exports a goja argument to a JSON map, treating undefined/null as
+// an empty input so optional arguments are safe to omit.
+func mapArgument(runtime *goja.Runtime, value goja.Value) map[string]any {
+	payload := map[string]any{}
+	if goja.IsUndefined(value) || goja.IsNull(value) {
+		return payload
+	}
+	if err := runtime.ExportTo(value, &payload); err != nil {
+		panic(runtime.NewTypeError(err.Error()))
+	}
+	return payload
+}
+
+// decodeJSONMap crosses the JavaScript/JSON boundary through camelCase tags,
+// matching the stable HTTP/MCP contract rather than Go struct field names.
+func decodeJSONMap(payload map[string]any, target any) error {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(encoded, target)
 }
 
 func (h *AppHost) setProjectCover(target Target, assetID string) (Project, error) {

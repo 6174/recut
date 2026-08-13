@@ -15,6 +15,13 @@ interface Env {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const worldMatch = url.pathname.match(/^\/worlds\/([^/]+)\/?$/);
+    if (worldMatch && worldMatch[1] !== "app") {
+      // Static export only materializes /worlds/app/. Preserve the real World
+      // id in the visible URL while serving the one generated route shell.
+      const shell = new URL("/worlds/app/", url);
+      return env.ASSETS.fetch(new Request(shell, request));
+    }
     const projectMatch = url.pathname.match(/^\/projects\/([^/]+)\/?$/);
     if (projectMatch && projectMatch[1] !== "app") {
       // Static export only materializes /projects/app/. Serve that asset

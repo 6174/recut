@@ -80,7 +80,7 @@ func TestAgentOnboardingHTTP(t *testing.T) {
 	preflight.Header.Set("Origin", "https://recut.video")
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, preflight)
-	if recorder.Code != http.StatusNoContent || recorder.Header().Get("Access-Control-Allow-Methods") != "GET, POST, PUT, PATCH, OPTIONS" {
+	if recorder.Code != http.StatusNoContent || recorder.Header().Get("Access-Control-Allow-Methods") != "GET, POST, PUT, PATCH, DELETE, OPTIONS" {
 		t.Fatalf("onboarding preflight = %d, methods = %q", recorder.Code, recorder.Header().Get("Access-Control-Allow-Methods"))
 	}
 

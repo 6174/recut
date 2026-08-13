@@ -404,6 +404,87 @@ create table if not exists device_tokens (
   id text primary key, token_hash text not null unique, scope_json text not null,
   created_at text not null, expires_at text, revoked integer not null default 0
 );
+create table if not exists worlds (
+  id text primary key,
+  name text not null,
+  type text not null,
+  description text not null default '',
+  identity_json text not null default '{}',
+  cover_asset_id text,
+  current_revision_id text,
+  created_at text not null,
+  updated_at text not null,
+  archived_at text
+);
+create index if not exists worlds_updated on worlds(updated_at desc);
+create index if not exists worlds_type on worlds(type, updated_at desc);
+
+create table if not exists world_entities (
+  id text primary key,
+  world_id text not null references worlds(id) on delete cascade,
+  kind text not null,
+  title text not null,
+  summary text not null default '',
+  content_json text not null,
+  created_at text not null,
+  updated_at text not null,
+  archived_at text
+);
+create index if not exists world_entities_world_kind on world_entities(world_id, kind, updated_at desc);
+create index if not exists world_entities_world_title on world_entities(world_id, title collate nocase);
+
+create table if not exists world_relations (
+  id text primary key,
+  world_id text not null references worlds(id) on delete cascade,
+  from_entity_id text not null references world_entities(id) on delete cascade,
+  to_entity_id text not null references world_entities(id) on delete cascade,
+  relation_type text not null,
+  metadata_json text not null default '{}',
+  created_at text not null,
+  unique(world_id, from_entity_id, to_entity_id, relation_type)
+);
+create index if not exists world_relations_world_from on world_relations(world_id, from_entity_id);
+create index if not exists world_relations_world_to on world_relations(world_id, to_entity_id);
+
+create table if not exists world_asset_refs (
+  id text primary key,
+  world_id text not null references worlds(id) on delete cascade,
+  entity_id text references world_entities(id) on delete cascade,
+  asset_id text not null,
+  role text not null,
+  label text not null default '',
+  sort_order integer not null default 0,
+  created_at text not null,
+  unique(world_id, entity_id, asset_id, role)
+);
+create index if not exists world_asset_refs_world on world_asset_refs(world_id, entity_id, sort_order);
+create index if not exists world_asset_refs_asset on world_asset_refs(asset_id);
+
+create table if not exists world_revisions (
+  id text primary key,
+  world_id text not null references worlds(id) on delete cascade,
+  canonical_json text not null,
+  canonical_hash text not null,
+  reason text not null,
+  created_by text not null,
+  created_at text not null,
+  unique(world_id, canonical_hash)
+);
+create index if not exists world_revisions_world on world_revisions(world_id, created_at desc);
+
+create table if not exists creation_context_bindings (
+  id text primary key,
+  target_type text not null,
+  target_id text not null,
+  world_id text not null references worlds(id),
+  revision_id text not null references world_revisions(id),
+  selection_json text not null,
+  role text not null,
+  created_at text not null,
+  unique(target_type, target_id, role)
+);
+create index if not exists creation_context_bindings_target on creation_context_bindings(target_type, target_id);
+create index if not exists creation_context_bindings_world on creation_context_bindings(world_id, revision_id);
 `)
 		if err != nil {
 			return err
@@ -427,6 +508,8 @@ create table if not exists device_tokens (
 			"alter table media_jobs add column remote_id text not null default ''",
 			"alter table media_jobs add column remote_poll_url text not null default ''",
 			"alter table media_jobs add column submission_started_at text not null default ''",
+			"alter table artifacts add column creation_context_binding_id text",
+			"alter table media_jobs add column creation_context_binding_id text",
 		} {
 			if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 				return err

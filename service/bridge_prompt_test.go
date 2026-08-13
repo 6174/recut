@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 App Catalog、Store、嵌入式核心 Agent 模板与 App skill 树
- * [OUTPUT]: 验证会话 guide 是平台规则（不含任何 App 全文）、App 技能经 skill 树按需提供，以及 OpenCode 会话工作区 MCP 5 分钟超时配置
- * [POS]: service 的 Agent 指令与 MCP 配置回归测试；锁定跨 App 的媒体执行边界
+ * [OUTPUT]: 验证会话 guide 是平台规则（不含任何 App 全文）、App 技能经 skill 树按需提供，guide 以 OutputFormat=xml 渲染受控 XML 引用（绝不输出第三方 recut.video 深链），以及 OpenCode 会话工作区 MCP 5 分钟超时配置
+ * [POS]: service 的 Agent 指令与 MCP 配置回归测试；锁定跨 App 的媒体执行边界与内建/第三方输出格式分叉
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -31,19 +31,27 @@ func TestSessionGuideIsPlatformOnlyAndVoxSkillIsDiscoverable(t *testing.T) {
 	}
 	for _, required := range []string{
 		"recut.context",
-		"recut.skills.list",
 		"recut.skills.read",
-		"recut.video.generate_async",
+		"15 minutes",
+		"not a turn-by-turn ritual",
+		"never call it as a routine preflight",
+		"recut.video.generate",
 		"recut.media.get_job",
 		"recut.media.wait_for_job",
+		"recut.context.media.readiness",
+		"recut.worlds.list",
 		"__recut.target.projectId",
 		"appstate",
+		"OutputFormat: xml",
 		`<project projectid="PROJECT_ID"/>`,
 		`<app appid="APP_ID"/>`,
 	} {
 		if !bytes.Contains(guide, []byte(required)) {
 			t.Fatalf("rendered session guide is missing %q", required)
 		}
+	}
+	if bytes.Contains(guide, []byte("recut.video/media?asset=")) {
+		t.Fatal("internal session guide must not emit third-party recut.video URLs")
 	}
 	if bytes.Contains(guide, []byte("Vox 提示词与导演语言")) {
 		t.Fatal("session guide must not embed any App's domain workflow")

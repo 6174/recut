@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖媒体 DTO、凭据和资产查询
- * [OUTPUT]: Provider/模型目录、无凭据 Codex 原生图片路由、模型配置和引用能力校验
+ * [OUTPUT]: Provider/模型目录（Atlas 图片使用原生 prediction 模型 ID，协议为 atlas）、无凭据 Codex 原生图片路由、模型配置和引用能力校验
  * [POS]: media 的声明式模型契约层；Codex 图片能力仅供 Agent 指令选择，不经 Provider 调度
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -17,10 +17,10 @@ import (
 const seedanceVideoReferenceMaxBytes = 50 << 20
 
 var mediaProviders = []MediaProvider{
-	{ID: "atlas-cloud", Name: "Atlas Cloud", Protocol: "openai-compatible", DefaultAPIBase: atlas.DefaultAPIBase, Models: []MediaModel{
-		{ID: "atlas-cloud/openai/gpt-image-2", Provider: "atlas-cloud", Name: "GPT Image 2 · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true},
-		{ID: "atlas-cloud/bytedance/seedream-v5.0-pro", Provider: "atlas-cloud", Name: "Seedream 5.0 Pro · 文生图", Capability: ImageGenerate, APIModelID: "bytedance/seedream-v5.0-pro", InputModes: []string{"text", "image"}, Available: true, Configurable: true},
-		{ID: "atlas-cloud/xai/grok-imagine-image", Provider: "atlas-cloud", Name: "Grok Imagine · 文生图", Capability: ImageGenerate, APIModelID: "xai/grok-imagine-image", InputModes: []string{"text"}, Available: true, Configurable: true},
+	{ID: "atlas-cloud", Name: "Atlas Cloud", Protocol: "atlas", DefaultAPIBase: atlas.DefaultAPIBase, Models: []MediaModel{
+		{ID: "atlas-cloud/openai/gpt-image-2", Provider: "atlas-cloud", Name: "GPT Image 2 · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2/text-to-image", EditModelID: "openai/gpt-image-2/edit", InputModes: []string{"text"}, Available: true, Configurable: true},
+		{ID: "atlas-cloud/bytedance/seedream-v5.0-pro", Provider: "atlas-cloud", Name: "Seedream 5.0 Pro · 文生图", Capability: ImageGenerate, APIModelID: "bytedance/seedream-v5.0-pro/text-to-image", EditModelID: "bytedance/seedream-v5.0-pro/edit", InputModes: []string{"text", "image"}, Available: true, Configurable: true},
+		{ID: "atlas-cloud/xai/grok-imagine-image", Provider: "atlas-cloud", Name: "Grok Imagine · 文生图", Capability: ImageGenerate, APIModelID: "xai/grok-imagine-image/text-to-image", EditModelID: "xai/grok-imagine-image/edit", InputModes: []string{"text"}, Available: true, Configurable: true},
 		{ID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", Provider: "atlas-cloud", Name: "Seedance 2.0 Mini · 多参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0-mini/reference-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "bitrateMode", "generateAudio", "seed", "watermark", "returnLastFrame"}, Available: true, Configurable: true},
 		{ID: "atlas-cloud/google/gemini-omni-flash-reference-to-video", Provider: "atlas-cloud", Name: "Gemini Omni Flash · 参考图视频", Capability: VideoGenerate, APIModelID: "google/gemini-omni-flash/reference-to-video", InputModes: []string{"text", "image"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "thinkingLevel", "seed"}, Available: true, Configurable: true},
 		{ID: "atlas-cloud/xai/tts-v1", Provider: "atlas-cloud", Name: "xAI TTS v1", Capability: SpeechGenerate, APIModelID: "xai/tts-v1", InputModes: []string{"text"}, Configurable: true},

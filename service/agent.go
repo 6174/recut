@@ -463,7 +463,8 @@ func (m *AgentManager) List(projectID, scope string) ([]ChatSession, error) {
 	case scope == "general":
 		query += " and (project_id is null or project_id = '') and coalesce(app_view, '') = ''"
 	}
-	query += " order by updated_at desc"
+	// SQLite 对相同时间戳的行不保证顺序；rowid 是此表稳定的创建序号。
+	query += " order by updated_at desc, agent_sessions.rowid desc"
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -1295,8 +1296,10 @@ type contextMaterial struct {
 // type (e.g. a project element reference) only needs a map entry plus its
 // payload contract; the prompt/CLI pipeline is shared.
 var contextMaterializers = map[string]func(m *AgentManager, payload json.RawMessage) (contextMaterial, error){
-	"media": materializeMediaContext,
-	"page":  materializePageContext,
+	"media":           materializeMediaContext,
+	"page":            materializePageContext,
+	"creation_world":  materializeCreationWorldContext,
+	"creation_entity": materializeCreationEntityContext,
 }
 
 func (m *AgentManager) contextMaterials(contexts []ChatContext) ([]contextMaterial, error) {
@@ -1378,6 +1381,57 @@ func materializePageContext(_ *AgentManager, payload json.RawMessage) (contextMa
 		parts = append(parts, "页面内容="+page.Content)
 	}
 	return contextMaterial{Label: page.Title, Kind: "page", Text: "[当前页面] " + strings.Join(parts, "；")}, nil
+}
+
+// materializeCreationWorldContext validates a creation_world attachment and
+// renders a prompt line that tells the Agent to read live content via the
+// global recut.worlds.* tools. The turn only persists structured IDs, never a
+// Canon copy.
+func materializeCreationWorldContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		WorldID    string `json:"worldId"`
+		RevisionID string `json:"revisionId"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || input.WorldID == "" {
+		return contextMaterial{}, errors.New("creation_world context requires worldId")
+	}
+	worlds := NewWorldStore(m.store, m.media)
+	world, err := worlds.GetWorld(input.WorldID)
+	if err != nil {
+		return contextMaterial{}, errors.New("creation world attachment is unavailable")
+	}
+	revision := input.RevisionID
+	if revision == "" {
+		revision = world.CurrentRevisionID
+	}
+	return contextMaterial{
+		Label: world.Name,
+		Kind:  "creation_world",
+		Text:  "[Creation World] worldId=" + world.ID + " name=" + world.Name + " revisionId=" + revision + " —— 调用 recut.worlds.get({ worldId: \"" + world.ID + "\" }) 确认身份；需要实体时用 recut.worlds.entities.list/get；把这条消息相关的内容用 recut.worlds.resolve 解析为 CreationContext。不要凭聊天记忆假定世界当前状态，也不要调用写工具。",
+	}, nil
+}
+
+// materializeCreationEntityContext validates a creation_entity attachment
+// against its World and tells the Agent to read the live Entity content.
+func materializeCreationEntityContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		WorldID    string `json:"worldId"`
+		EntityID   string `json:"entityId"`
+		RevisionID string `json:"revisionId"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || input.WorldID == "" || input.EntityID == "" {
+		return contextMaterial{}, errors.New("creation_entity context requires worldId and entityId")
+	}
+	worlds := NewWorldStore(m.store, m.media)
+	entity, err := worlds.GetEntity(input.WorldID, input.EntityID)
+	if err != nil {
+		return contextMaterial{}, errors.New("creation entity attachment is unavailable")
+	}
+	return contextMaterial{
+		Label: entity.Title,
+		Kind:  "creation_entity",
+		Text:  "[Creation Entity] worldId=" + input.WorldID + " entityId=" + entity.ID + " kind=" + string(entity.Kind) + " title=" + entity.Title + " —— 调用 recut.worlds.entities.get({ worldId: \"" + input.WorldID + "\", entityId: \"" + entity.ID + "\" }) 读取完整内容；关联的世界用 recut.worlds.resolve 解析。不要凭聊天记忆假定设定当前状态。",
+	}, nil
 }
 
 // contextPrompt groups materialized contexts into one prompt appendix. The
@@ -1668,16 +1722,16 @@ func toolLabel(kind, name string, item map[string]any) string {
 		return map[string]string{"command_execution": "运行命令", "file_change": "修改文件", "mcp_tool_call": "MCP 工具调用", "web_search": "搜索网络"}[kind] + toolLabelSuffix(name)
 	}
 	labels := map[string]string{
-		"recut.project_context":       "读取 Recut 项目上下文",
-		"recut.image.generate":        "生成图片",
-		"recut.video.generate_async":  "提交视频生成任务",
-		"recut.speech.generate_async": "提交语音生成任务",
-		"recut.media.list_voices":     "读取可用音色",
-		"recut.media.get_job":         "查询媒体生成进度",
-		"recut.media.wait_for_job":    "等待媒体生成结果",
-		"recut.media.list_assets":     "读取素材库",
-		"recut.media.import_image":    "归档 Codex 原生图片",
-		"recut.media.attach":          "将素材关联到项目",
+		"recut.project_context":    "读取 Recut 项目上下文",
+		"recut.image.generate":     "提交图片生成任务",
+		"recut.video.generate":     "提交视频生成任务",
+		"recut.speech.generate":    "提交语音生成任务",
+		"recut.media.list_voices":  "读取可用音色",
+		"recut.media.get_job":      "查询媒体生成进度",
+		"recut.media.wait_for_job": "等待媒体生成结果",
+		"recut.media.list_assets":  "读取素材库",
+		"recut.media.import_image": "归档 Codex 原生图片",
+		"recut.media.attach":       "将素材关联到项目",
 	}
 	if label, ok := labels[name]; ok {
 		return label
