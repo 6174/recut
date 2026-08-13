@@ -237,6 +237,21 @@ func TestMCPStructuredContentWrapsListsInRecord(t *testing.T) {
 	}
 }
 
+func TestMediaJobViewExposesJobIdForWaiting(t *testing.T) {
+	view := mediaJobView(MediaJob{ID: "job-1", Status: "queued", Capability: ImageGenerate, AssetIDs: []string{"asset-1"}, ModelID: "atlas-cloud/openai/gpt-image-2"})
+	if view["jobId"] != "job-1" || view["status"] != "queued" {
+		t.Fatalf("job view = %#v", view)
+	}
+	assets, ok := view["assetIds"].([]string)
+	if !ok || len(assets) != 1 || assets[0] != "asset-1" {
+		t.Fatalf("job view assetIds = %#v", view["assetIds"])
+	}
+	raw, _ := json.Marshal(view)
+	if !strings.Contains(string(raw), `"jobId":"job-1"`) {
+		t.Fatalf("job view JSON must carry jobId for wait_for_job: %s", raw)
+	}
+}
+
 func TestMCPListAssetsIsNotBlockedByImageGeneration(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, "apps", "example")
@@ -663,5 +678,77 @@ func TestRecutJobMCPToolsSurfaceLocalShellJobs(t *testing.T) {
 		Params: json.RawMessage(`{"name":"recut.job.cancel","arguments":{"jobId":"missing"}}`),
 	}); err == nil {
 		t.Fatal("recut.job.cancel accepted a missing job")
+	}
+}
+
+func TestUnifiedJobObservationCoversShellAndMedia(t *testing.T) {
+	store, project := testShellJobScope(t)
+	media := NewMediaService(store)
+
+	// A shell job is observable through recut.job.status with kind=shell.
+	shellJob, err := NewShellJobManager(store).Start(ShellJobStart{ProjectID: project.ID, AppID: project.AppID, Command: "sh", Args: []string{"-c", "true"}, Dir: t.TempDir(), TimeoutSeconds: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewShellJobManager(store).WaitByID(shellJob.ID, 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	host := NewAppHost(store.catalog, store)
+
+	// A media job is queued synchronously; record its jobId and assetId.
+	credential, err := media.SaveCredential(MediaCredential{Provider: "openai-compatible", Name: "Image", APIBase: "http://127.0.0.1:1"}, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := media.SaveRoute(MediaRoute{Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	mediaJob, err := media.Generate(GenerateMediaInput{Capability: ImageGenerate, Prompt: "unified", IdempotencyKey: "unified-job"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checks := []struct {
+		jobID, wantKind, wantStatus string
+	}{
+		{shellJob.ID, "shell", "completed"},
+		{mediaJob.ID, "media", "queued"},
+	}
+	for _, check := range checks {
+		result, err := handleMCP(NewAgentBridge(store), host, media, AgentSession{ID: "s1"}, mcpRequest{
+			Method: "tools/call",
+			Params: json.RawMessage(`{"name":"recut.job.status","arguments":{"jobId":"` + check.jobID + `"}}`),
+		})
+		if err != nil {
+			t.Fatalf("recut.job.status(%s): %v", check.jobID, err)
+		}
+		text := result.(map[string]any)["content"].([]map[string]string)[0]["text"]
+		if !strings.Contains(text, `"kind":"`+check.wantKind+`"`) {
+			t.Fatalf("recut.job.status(%s) text = %s, want kind=%s", check.jobID, text, check.wantKind)
+		}
+		if !strings.Contains(text, `"status":"`+check.wantStatus+`"`) {
+			t.Fatalf("recut.job.status(%s) text = %s, want status=%s", check.jobID, text, check.wantStatus)
+		}
+	}
+
+	// A media jobId also works through the unified wait surface.
+	result, err := handleMCP(NewAgentBridge(store), host, media, AgentSession{ID: "s1"}, mcpRequest{
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"recut.job.wait","arguments":{"jobId":"` + mediaJob.ID + `","timeoutSeconds":1}}`),
+	})
+	if err != nil {
+		t.Fatalf("recut.job.wait(media): %v", err)
+	}
+	text := result.(map[string]any)["content"].([]map[string]string)[0]["text"]
+	if !strings.Contains(text, `"kind":"media"`) {
+		t.Fatalf("recut.job.wait(media) text = %s", text)
+	}
+
+	// Unknown jobIds are reported uniformly.
+	if _, err := handleMCP(NewAgentBridge(store), host, media, AgentSession{ID: "s1"}, mcpRequest{
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"recut.job.status","arguments":{"jobId":"does-not-exist"}}`),
+	}); err == nil {
+		t.Fatal("recut.job.status accepted an unknown jobId")
 	}
 }

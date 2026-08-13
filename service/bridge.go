@@ -227,11 +227,13 @@ func (b *AgentBridge) writeClaudeProfile(dir string, session AgentSession, execu
 	return path, nil
 }
 
-// agentGuideData carries the render mode for the shared platform Agent guide.
+// agentGuideData carries the render mode for the core Agent guide template.
 // The internal bridge always renders OutputFormat=xml: the Recut chat UI parses
 // the controlled tags into media previews and clickable cards. The third-party
-// Recut Skill (service/skills/recut/SKILL.md) is the OutputFormat=url variant
-// and must emit plain recut.video deep links instead of XML tags.
+// Recut Skill (service/skills/recut/SKILL.md) is a separate text document in
+// the OutputFormat=url convention and must emit plain recut.video deep links
+// instead of XML tags; the two are kept consistent by test invariants, not by
+// a shared render source.
 type agentGuideData struct {
 	OutputFormat string // "xml" | "url"
 }
@@ -243,8 +245,8 @@ func (b *AgentBridge) renderSessionGuide() ([]byte, error) {
 	return renderAgentGuide(agentGuideData{OutputFormat: "xml"})
 }
 
-// renderAgentGuide renders the shared core Agent guide template with an
-// explicit output format.
+// renderAgentGuide renders the core Agent guide template with an explicit
+// output format.
 func renderAgentGuide(data agentGuideData) ([]byte, error) {
 	guideTemplate, err := template.New("core-agents.md.tmpl").Parse(coreAgentsTemplate)
 	if err != nil {

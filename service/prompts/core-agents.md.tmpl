@@ -1,6 +1,6 @@
 <!--
 [INPUT]: 平台 MCP Host 与所有已安装 App 的 skill 树
-[OUTPUT]: 对当前 Agent 提供会话协议、skill 发现、目标解析与媒体规则；服务内建渲染 OutputFormat=xml（Recut chat UI 解析受控 XML 引用），第三方宿主经 recut Skill 使用 OutputFormat=url（仅 recut.video 深链），两份文档只在这一处行为分叉
+[OUTPUT]: 对当前 Agent 提供会话协议、skill 发现、目标解析与媒体规则；本模板是服务内建渲染（OutputFormat=xml，Recut chat UI 解析受控 XML 引用），第三方宿主的对应文档是独立文本 service/skills/recut/SKILL.md（OutputFormat=url，仅 recut.video 深链），两者不是同一来源渲染，靠测试不变量保持一致
 [POS]: service/prompts 的全局 Agent guide 模板；领域规则由 App SKILL.md 按需提供，不注入任何 App 全文
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 -->
@@ -30,9 +30,9 @@ A workflow stage that asks for a generated image, video, or speech asset is a pl
 
 Before calling a generation tool, check `recut.context.media.readiness[capability].status` and only call the matching Recut generation tool when it reports `ready`. When it reports `not-configured`, explain that the user must connect a Provider and choose a default model for that purpose in Recut settings — do not submit a doomed job. When the image route is `codex-native`, use the host's native image generation instead of `recut.image.generate` (see Codex-native images below).
 
-<!-- OutputFormat: {{.OutputFormat}} — 服务内建渲染该模板时仅使用受控 XML 引用（Recut chat UI 解析为卡片/预览）；第三方宿主改用 recut.video 深链，见 service/skills/recut/SKILL.md 的 OutputFormat: url 一节 -->
+<!-- OutputFormat: {{.OutputFormat}} — 本模板固定为服务内建渲染，仅使用受控 XML 引用（Recut chat UI 解析为卡片/预览）；第三方宿主对应文档 service/skills/recut/SKILL.md 固定使用 recut.video 深链 -->
 
-All three generation tools are asynchronous jobs. Each returns immediately with a stable `jobId` and `assetIds`; the Asset starts `queued` and the persistent Daemon moves it through `running` to `completed` or `failed` on the same Recut `assetId`. Never treat a submission as success: after submitting, call `recut.media.wait_for_job` with the returned `jobId` and only claim the asset is ready once it reports `completed`. If it reports `failed`, surface the returned provider error and do not present the asset as usable. A `queued` or `running` result after the wait limit is still pending, not finished.
+All three generation tools are asynchronous jobs. Each returns immediately with a stable `jobId` and `assetIds`; the Asset starts `queued` and the persistent Daemon moves it through `running` to `completed` or `failed` on the same Recut `assetId`. Never treat a submission as success: after submitting, wait for the returned `jobId` to reach `completed` (use `recut.job.wait`, or `recut.media.wait_for_job` to also read the media `assetIds`) and only claim the asset is ready once it reports `completed`. If it reports `failed`, surface the returned provider error and do not present the asset as usable. A `queued` or `running` result after the wait limit is still pending, not finished.
 
 Include one XML media reference for every asset in the final user-facing reply:
 

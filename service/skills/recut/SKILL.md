@@ -53,7 +53,11 @@ description: Recut 视频创作平台：素材库、媒体生成（图片/视频
 
 ## 媒体
 
-平台媒体任务使用 `recut.image.generate`、`recut.video.generate`、`recut.speech.generate`、`recut.media.get_job`、`recut.media.wait_for_job`。调用前必须检查 `recut.context.media.readiness[capability].status`：只有 `ready` 才调用对应 Recut 生成工具；`not-configured` 时直接说明用户需要在 Recut 设置中连接 Provider 并为该用途选择默认模型；图片为 `codex-native` 时使用宿主原生生图、不调用 `recut.image.generate`，把生成文件写入当前会话工作区根目录（如 `cover.png`），再按上文 OutputFormat: url 一节以深链引用，需要挂到项目时用 `recut.media.import_image` 传入工作区相对路径与目标 `projectId` 换取真实 `assetId`。三种生成工具都是异步 job：提交即返回稳定 jobId 与 assetIds（先 queued，Daemon 原位推进到 completed/failed）。**提交不等于成功**——必须用返回的 jobId 调 `recut.media.wait_for_job` 等待，`completed` 才能声称素材可用；`failed` 要如实报告 provider 错误，`queued`/`running` 是仍在进行而非完成。禁止用 HyperFrames、ffmpeg、浏览器自动化或本地渲染替代平台生成。你从不读取其他 App 的私有数据库；跨 App 理解走 owner App 声明的 read operation。
+平台媒体任务使用 `recut.image.generate`、`recut.video.generate`、`recut.speech.generate`、`recut.media.get_job`、`recut.media.wait_for_job`。调用前必须检查 `recut.context.media.readiness[capability].status`：只有 `ready` 才调用对应 Recut 生成工具；`not-configured` 时直接说明用户需要在 Recut 设置中连接 Provider 并为该用途选择默认模型；图片为 `codex-native` 时使用宿主原生生图、不调用 `recut.image.generate`，把生成文件写入当前会话工作区根目录（如 `cover.png`），再按上文 OutputFormat: url 一节以深链引用，需要挂到项目时用 `recut.media.import_image` 传入工作区相对路径与目标 `projectId` 换取真实 `assetId`。三种生成工具都是异步 job：提交即返回稳定 jobId 与 assetIds（先 queued，Daemon 原位推进到 completed/failed）。**提交不等于成功**——必须用返回的 jobId 等待，`completed` 才能声称素材可用；`failed` 要如实报告 provider 错误，`queued`/`running` 是仍在进行而非完成。禁止用 HyperFrames、ffmpeg、浏览器自动化或本地渲染替代平台生成。你从不读取其他 App 的私有数据库；跨 App 理解走 owner App 声明的 read operation。
+
+## 任务观察（统一）
+
+所有异步任务共享一个 jobId 命名空间与一套观察工具：`recut.job.status` 读取任意 job 的当前状态，`recut.job.wait` 等它到终态，返回视图带 `kind` 区分 `shell`（本地 App 长任务，如 audio.install/transcribe、depth.generate、render.export）与 `media`（recut.image/video/speech.generate 提交的生成任务）。提交任何任务后先用返回的 jobId 调 `recut.job.wait` 到 completed/failed，再决定保存资源或如实报告失败；日志用 `recut.job.logs`、取消用 `recut.job.cancel`（仅 shell job 支持）。
 
 ## 目标规则
 

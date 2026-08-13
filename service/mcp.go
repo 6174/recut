@@ -7,6 +7,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,10 +79,10 @@ func platformMCPToolDefinitions() []map[string]any {
 		platformTool("recut.project.list", "列出全部用户项目（Doc metadata：id、name、owner App、版本）。", map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.project.get", "读取一个项目的 Doc metadata。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}}}),
 		platformTool("recut.project_context", "读取一个项目的深层上下文：owner App 的 workflow.context、已产出 Artifact、appState 与项目绝对路径（paths.projectFilesRoot）。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "要读取上下文的 Project Doc ID。"}}}),
-		platformTool("recut.job.status", "读取一个本地 App 任务（shell job）的当前状态：queued / running / completed / failed / cancelled / interrupted。App 的异步操作（如 audio.install/transcribe、depth.generate、render.export）返回的 jobId 都可用此工具查询。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
-		platformTool("recut.job.wait", "等待一个本地 App 任务达到终态（completed / failed / cancelled / interrupted）。超时返回当前状态而不报错，可继续用 recut.job.status 轮询。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}),
-		platformTool("recut.job.logs", "读取一个本地 App 任务的 stdout/stderr 日志，供失败诊断。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 2000, "description": "只返回最近 N 行，默认 300。"}}}),
-		platformTool("recut.job.cancel", "取消一个 queued / running 的本地 App 任务。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
+		platformTool("recut.job.status", "读取一个任务（job）的当前状态：queued / running / completed / failed / cancelled / interrupted。统一观察层同时覆盖本地 App shell job（如 audio.install/transcribe、depth.generate、render.export）与平台媒体生成 job（recut.image/video/speech.generate 返回的 jobId）；返回视图带 kind 区分 shell / media。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
+		platformTool("recut.job.wait", "等待一个任务（job）达到终态（completed / failed / cancelled / interrupted），shell 与 media job 通用。超时返回当前状态而不报错，可继续用 recut.job.status 轮询。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}),
+		platformTool("recut.job.logs", "读取一个本地 App shell job 的 stdout/stderr 日志，供失败诊断；媒体生成 job 无进程日志。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 2000, "description": "只返回最近 N 行，默认 300。"}}}),
+		platformTool("recut.job.cancel", "取消一个 queued / running 的本地 App shell job。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
 	)
 	tools = append(tools, mediaMCPToolDefinitions()...)
 	tools = append(tools, worldsMCPToolDefinitions()...)
@@ -222,7 +223,7 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 		return worldsMCPTool(NewWorldStore(bridge.store, media), name, arguments)
 	}
 	if strings.HasPrefix(name, "recut.job.") {
-		return jobMCPTool(host.jobs, name, arguments)
+		return jobMCPTool(host.jobs, media, name, arguments)
 	}
 	prefix, appID, ok := splitAppTool(name)
 	if !ok {
@@ -577,21 +578,30 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 	var result any
 	var err error
 	switch name {
-	case "recut.image.generate":
-		result, err = media.Generate(mediaGenerationInput(input, ImageGenerate))
-	case "recut.video.generate":
-		result, err = media.Generate(mediaGenerationInput(input, VideoGenerate))
-	case "recut.speech.generate":
-		result, err = media.Generate(mediaGenerationInput(input, SpeechGenerate))
+	case "recut.image.generate", "recut.video.generate", "recut.speech.generate":
+		capability := map[string]MediaCapability{"recut.image.generate": ImageGenerate, "recut.video.generate": VideoGenerate, "recut.speech.generate": SpeechGenerate}[name]
+		job, generateErr := media.Generate(mediaGenerationInput(input, capability))
+		err = generateErr
+		if err == nil {
+			result = mediaJobView(job)
+		}
 	case "recut.media.list_voices":
 		credentialID, _ := input["credentialId"].(string)
 		result, err = media.ListVoices(credentialID)
 	case "recut.media.get_job":
 		id, _ := input["jobId"].(string)
-		result, err = media.GetJob(id)
+		job, getErr := media.GetJob(id)
+		err = getErr
+		if err == nil {
+			result = mediaJobView(job)
+		}
 	case "recut.media.wait_for_job":
 		id, _ := input["jobId"].(string)
-		result, err = media.WaitForTerminalJob(id, mediaWaitTimeout(input))
+		job, waitErr := media.WaitForTerminalJob(id, mediaWaitTimeout(input))
+		err = waitErr
+		if err == nil {
+			result = mediaJobView(job)
+		}
 	case "recut.media.list_assets":
 		workspace, _ := input["workspace"].(bool)
 		projectID := requestedProjectID(input)
@@ -639,6 +649,24 @@ func structuredMCPContent(result any) any {
 	return result
 }
 
+// mediaJobView exposes an async generation job under the explicit `jobId` key
+// that wait_for_job / get_job / recut.job.* accept, so an Agent never has to
+// guess that the job's `id` field is its jobId. assetIds stay the stable
+// project references and kind marks this as a media job in the unified view.
+func mediaJobView(job MediaJob) map[string]any {
+	return map[string]any{
+		"jobId":      job.ID,
+		"id":         job.ID,
+		"kind":       "media",
+		"capability": job.Capability,
+		"status":     job.Status,
+		"modelId":    job.ModelID,
+		"assetIds":   job.AssetIDs,
+		"remoteId":   job.RemoteID,
+		"error":      job.Error,
+	}
+}
+
 func mediaMCPToolDefinitions() []map[string]any {
 	return []map[string]any{
 		{"name": "recut.image.generate", "description": "提交图片生成任务。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 完成后将同一 Asset 原位转为 completed 或 failed。可立刻用 assetId 建立项目引用，再用 recut.media.wait_for_job 等待终态。", "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
@@ -663,10 +691,13 @@ func mediaWaitTimeout(input map[string]any) time.Duration {
 	return time.Duration(seconds * float64(time.Second))
 }
 
-// jobMCPTool implements the platform job observation surface (recut.job.*),
-// mirroring the media-layer contract but for local App shell jobs. It reads the
-// single ShellJobManager every App long task already flows through.
-func jobMCPTool(jobs *ShellJobManager, name string, input map[string]any) (any, error) {
+// jobMCPTool implements the unified platform job observation surface
+// (recut.job.*). Both local App shell jobs and platform media generation jobs
+// live behind the same jobId namespace: status/wait look up the shell store
+// first, then fall back to the media store, and every view carries a `kind`
+// discriminator. logs/cancel remain shell-only, because media jobs have no
+// process logs and no local cancellation model.
+func jobMCPTool(jobs *ShellJobManager, media *MediaService, name string, input map[string]any) (any, error) {
 	jobID, _ := input["jobId"].(string)
 	if strings.TrimSpace(jobID) == "" {
 		return nil, errors.New("jobId is required")
@@ -675,13 +706,9 @@ func jobMCPTool(jobs *ShellJobManager, name string, input map[string]any) (any, 
 	var err error
 	switch name {
 	case "recut.job.status":
-		var job ShellJob
-		job, err = jobs.FindByID(jobID)
-		result = jobView(job)
+		result, err = unifiedJobStatus(jobs, media, jobID)
 	case "recut.job.wait":
-		var job ShellJob
-		job, err = jobs.WaitByID(jobID, jobWaitTimeout(input))
-		result = jobView(job)
+		result, err = unifiedJobWait(jobs, media, jobID, jobWaitTimeout(input))
 	case "recut.job.logs":
 		var logs []ShellJobLog
 		logs, err = jobs.LogsByID(jobID)
@@ -695,11 +722,11 @@ func jobMCPTool(jobs *ShellJobManager, name string, input map[string]any) (any, 
 			break
 		}
 		if job.Status != ShellJobQueued && job.Status != ShellJobRunning {
-			result = map[string]any{"jobId": jobID, "cancelled": false, "status": string(job.Status)}
+			result = map[string]any{"jobId": jobID, "kind": "shell", "cancelled": false, "status": string(job.Status)}
 			break
 		}
 		err = jobs.CancelByID(jobID)
-		result = map[string]any{"jobId": jobID, "cancelled": err == nil}
+		result = map[string]any{"jobId": jobID, "kind": "shell", "cancelled": err == nil}
 	default:
 		return nil, fmt.Errorf("unknown job tool %q", name)
 	}
@@ -708,6 +735,54 @@ func jobMCPTool(jobs *ShellJobManager, name string, input map[string]any) (any, 
 	}
 	data, _ := json.Marshal(result)
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+// unifiedJobStatus reads one job from either backend by a shared jobId. Shell
+// jobs are checked first because their ids are validated against path-like
+// characters; a shell miss falls back to the media store.
+func unifiedJobStatus(jobs *ShellJobManager, media *MediaService, jobID string) (any, error) {
+	if shell, err := jobs.FindByID(jobID); err == nil {
+		view := jobView(shell)
+		view["kind"] = "shell"
+		return view, nil
+	}
+	if media == nil {
+		return nil, errors.New("job not found")
+	}
+	job, err := media.GetJob(jobID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errors.New("job not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	view := mediaJobView(job)
+	view["kind"] = "media"
+	return view, nil
+}
+
+// unifiedJobWait waits for either backend to reach a terminal state. Both wait
+// contracts return the current (possibly non-terminal) job once the timeout is
+// reached, so the Agent can keep polling with status.
+func unifiedJobWait(jobs *ShellJobManager, media *MediaService, jobID string, timeout time.Duration) (any, error) {
+	if shell, err := jobs.WaitByID(jobID, timeout); err == nil {
+		view := jobView(shell)
+		view["kind"] = "shell"
+		return view, nil
+	}
+	if media == nil {
+		return nil, errors.New("job not found")
+	}
+	job, err := media.WaitForTerminalJob(jobID, timeout)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errors.New("job not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	view := mediaJobView(job)
+	view["kind"] = "media"
+	return view, nil
 }
 
 func jobView(job ShellJob) map[string]any {
