@@ -1,5 +1,5 @@
 /*
- * [INPUT]: 依赖 BuiltinAppManager、内嵌 Remotion Studio 发布归档与临时 apps 目录
+ * [INPUT]: 依赖 BuiltinAppManager、内嵌 Remotion Studio 与剪辑器发布归档及临时 apps 目录
  * [OUTPUT]: 验证首启安装、旧内置包原子覆盖和开发软链接优先级
  * [POS]: service 内置 App 分发的回归测试；不访问真实用户目录或网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -11,6 +11,30 @@ import (
 	"path/filepath"
 	"testing"
 )
+
+func TestBuiltinAppsInstallEditorOnFirstLaunch(t *testing.T) {
+	appsDir := filepath.Join(t.TempDir(), "apps")
+	manager := NewBuiltinAppManager(appsDir)
+	if err := manager.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, ok := catalog.Get("recut.editor")
+	if !ok {
+		t.Fatal("Editor was not added to the catalog")
+	}
+	if app.Root != filepath.Join(appsDir, "editor") {
+		t.Fatalf("built-in App root = %q", app.Root)
+	}
+	for _, required := range []string{"background.js", "ui/dist/index.html", "skills/recut-editor/SKILL.md", "scripts/decode-base64.js"} {
+		if _, err := os.Stat(filepath.Join(app.Root, required)); err != nil {
+			t.Fatalf("built-in App is missing %s: %v", required, err)
+		}
+	}
+}
 
 func TestBuiltinAppsInstallRemotionStudioOnFirstLaunch(t *testing.T) {
 	appsDir := filepath.Join(t.TempDir(), "apps")

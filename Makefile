@@ -5,14 +5,14 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy app-link builtin-apps check
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy app-link builtin-apps editor-ui-build check
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
 APP ?=
 SERVICE_PORT ?= 17373
 STREAM_PORT ?= 17374
-RECUT_VERSION ?= 0.1.26
+RECUT_VERSION ?= 0.1.27
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -21,6 +21,7 @@ SERVICE_BUILD ?= $(CURDIR)/build/recut-service$(if $(filter windows,$(BUILD_GOOS
 RELEASE_STAGE ?= $(CURDIR)/build/releases
 RELEASE_PUBLIC ?= $(CURDIR)/web/public/releases/latest
 BUILTIN_REMOTION_ARCHIVE := $(CURDIR)/service/builtin_apps/remotion-studio.tar.gz
+BUILTIN_EDITOR_ARCHIVE := $(CURDIR)/service/builtin_apps/editor.tar.gz
 SERVICE_RELEASE_TARGETS := darwin-arm64 darwin-amd64 linux-arm64 linux-amd64 freebsd-arm64 freebsd-amd64 windows-arm64 windows-amd64
 
 help: ## Show available development commands.
@@ -170,8 +171,14 @@ app-link: ## Link one local App package (APP=apps/vox-broll) or every local pack
 		echo "Linked $$name -> $$absolute"; \
 	done
 
-builtin-apps: ## Package the App sources that ship inside every Recut service binary.
+builtin-apps: editor-ui-build ## Package the App sources that ship inside every Recut service binary.
 	@mkdir -p "$(dir $(BUILTIN_REMOTION_ARCHIVE))"
 	node scripts/package-builtin-app.mjs apps/remotion-studio "$(BUILTIN_REMOTION_ARCHIVE)"
+	node scripts/package-builtin-app.mjs apps/editor "$(BUILTIN_EDITOR_ARCHIVE)"
+
+editor-ui-build: ## Build the editor UI bundle included in the builtin editor App.
+	@set -e; \
+	if [ ! -d "$(CURDIR)/apps/editor/ui/node_modules" ]; then (cd "$(CURDIR)/apps/editor/ui" && npm ci); fi; \
+	(cd "$(CURDIR)/apps/editor/ui" && npm run build)
 
 check: service-test service-vet web-build ## Run all service and web verification.
