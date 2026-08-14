@@ -338,9 +338,15 @@ function ProjectCard({ apiBase, app, onDeleteProject, onRenameProject, project }
 function ProjectCoverPreview({ apiBase, app, project }: { apiBase?: string; app?: Installation; project: Project }) {
   const cover = project.cover;
   if (cover && apiBase) {
-    const src = `${apiBase}/v1/media/assets/${encodeURIComponent(cover.assetId)}/content`;
-    if (cover.kind === "video") return <VideoFrame alt={`${project.name} 项目封面`} className="aspect-[16/7] border-b" src={src} />;
-    return <img alt={`${project.name} 项目封面`} className="aspect-[16/7] w-full border-b object-cover" src={src} />;
+    if (cover.source === "file") {
+      const src = `${apiBase}/v1/projects/${encodeURIComponent(project.id)}/cover`;
+      return <img alt={`${project.name} 项目封面`} className="aspect-[16/7] w-full border-b object-cover" src={src} />;
+    }
+    const src = cover.assetId ? `${apiBase}/v1/media/assets/${encodeURIComponent(cover.assetId)}/content` : null;
+    if (src && cover.kind === "video") return <VideoFrame alt={`${project.name} 项目封面`} className="aspect-[16/7] border-b" src={src} />;
+    if (src) return <img alt={`${project.name} 项目封面`} className="aspect-[16/7] w-full border-b object-cover" src={src} />;
+    const Icon = app ? appIcon(app.manifest.id) : AppWindow;
+    return <div className="flex aspect-[16/7] items-center justify-between border-b bg-muted p-3"><span className="grid size-7 place-items-center rounded-sm bg-card text-muted-foreground shadow-sm"><Icon className="size-3.5" /></span><span className="rounded-xs border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground">{app?.manifest.name ?? project.appId}</span></div>;
   }
   const Icon = app ? appIcon(app.manifest.id) : AppWindow;
   return <div className="flex aspect-[16/7] items-center justify-between border-b bg-muted p-3"><span className="grid size-7 place-items-center rounded-sm bg-card text-muted-foreground shadow-sm"><Icon className="size-3.5" /></span><span className="rounded-xs border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground">{app?.manifest.name ?? project.appId}</span></div>;

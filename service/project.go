@@ -45,11 +45,17 @@ type Project struct {
 	CreatedAt     time.Time     `json:"createdAt"`
 }
 
-// ProjectCover is platform metadata. Apps select the media Asset; the
-// workspace owns its display, storage, and fallback behavior.
+// ProjectCover is platform metadata. Apps select either a completed media
+// Asset (source "asset") or a file inside the project files root (source
+// "file"); the workspace owns its display, storage, and fallback behavior.
+// File-based covers are written by the App and served by the platform, so
+// frequent first-frame refreshes never pollute the media Asset library.
 type ProjectCover struct {
-	AssetID string `json:"assetId"`
-	Kind    string `json:"kind"`
+	Source   string `json:"source,omitempty"` // "asset" | "file"
+	AssetID  string `json:"assetId,omitempty"`
+	Kind     string `json:"kind"`
+	FilePath string `json:"filePath,omitempty"` // 相对 ProjectFilesRoot；仅 source=file
+	MimeType string `json:"mimeType,omitempty"` // 仅 source=file
 }
 
 type CreateInput struct {
@@ -183,7 +189,7 @@ func (s *Store) List() ([]Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`select p.id, p.name, p.app_id, p.app_version, p.format_version, p.created_at, c.asset_id, c.kind
+	rows, err := db.Query(`select p.id, p.name, p.app_id, p.app_version, p.format_version, p.created_at, c.source, c.asset_id, c.kind, c.file_path, c.mime_type
 from projects p left join project_covers c on c.project_id = p.id order by p.created_at desc`)
 	if err != nil {
 		return nil, err
@@ -205,7 +211,7 @@ func (s *Store) Get(id string) (Project, error) {
 	if err != nil {
 		return Project{}, err
 	}
-	row := db.QueryRow(`select p.id, p.name, p.app_id, p.app_version, p.format_version, p.created_at, c.asset_id, c.kind
+	row := db.QueryRow(`select p.id, p.name, p.app_id, p.app_version, p.format_version, p.created_at, c.source, c.asset_id, c.kind, c.file_path, c.mime_type
 from projects p left join project_covers c on c.project_id = p.id where p.id = ?`, id)
 	project, err := scanProject(row)
 	if err != nil {
@@ -292,11 +298,49 @@ func (s *Store) SetProjectCover(projectID string, cover ProjectCover) (Project, 
 	if err != nil {
 		return Project{}, err
 	}
-	if _, err := db.Exec(`insert into project_covers (project_id, asset_id, kind, updated_at) values (?, ?, ?, ?)
-on conflict(project_id) do update set asset_id = excluded.asset_id, kind = excluded.kind, updated_at = excluded.updated_at`, projectID, cover.AssetID, cover.Kind, iso(time.Now().UTC())); err != nil {
+	if _, err := db.Exec(`insert into project_covers (project_id, source, asset_id, kind, file_path, mime_type, updated_at) values (?, 'asset', ?, ?, '', '', ?)
+on conflict(project_id) do update set source = excluded.source, asset_id = excluded.asset_id, kind = excluded.kind, file_path = excluded.file_path, mime_type = excluded.mime_type, updated_at = excluded.updated_at`, projectID, cover.AssetID, cover.Kind, iso(time.Now().UTC())); err != nil {
 		return Project{}, err
 	}
-	s.AppendEvent(projectID, map[string]any{"type": "project.cover.updated", "assetId": cover.AssetID, "kind": cover.Kind, "at": time.Now().UTC()})
+	s.AppendEvent(projectID, map[string]any{"type": "project.cover.updated", "source": "asset", "assetId": cover.AssetID, "kind": cover.Kind, "at": time.Now().UTC()})
+	return s.Get(projectID)
+}
+
+// SetProjectCoverFile registers an App-written file inside the project files
+// root as the project cover. The bytes live in the project files sandbox, not
+// in the media Asset library, so first-frame covers that refresh frequently
+// never accumulate Assets. The path is validated and served by the platform.
+func (s *Store) SetProjectCoverFile(projectID, filePath, mimeType string) (Project, error) {
+	if strings.TrimSpace(filePath) == "" {
+		return Project{}, errors.New("cover file path is required")
+	}
+	if !strings.HasPrefix(strings.ToLower(mimeType), "image/") {
+		return Project{}, fmt.Errorf("cover mime type %q is not an image", mimeType)
+	}
+	if _, err := s.Get(projectID); err != nil {
+		return Project{}, err
+	}
+	root, err := s.ProjectFilesRoot(projectID)
+	if err != nil {
+		return Project{}, err
+	}
+	path, ok := sandboxPath(root, filePath)
+	if !ok {
+		return Project{}, errors.New("cover file path escapes project files root")
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return Project{}, errors.New("cover file not found in project files root")
+	}
+	db, err := s.WorkspaceDatabase()
+	if err != nil {
+		return Project{}, err
+	}
+	if _, err := db.Exec(`insert into project_covers (project_id, source, asset_id, kind, file_path, mime_type, updated_at) values (?, 'file', '', 'image', ?, ?, ?)
+on conflict(project_id) do update set source = excluded.source, asset_id = excluded.asset_id, kind = excluded.kind, file_path = excluded.file_path, mime_type = excluded.mime_type, updated_at = excluded.updated_at`, projectID, filePath, mimeType, iso(time.Now().UTC())); err != nil {
+		return Project{}, err
+	}
+	s.AppendEvent(projectID, map[string]any{"type": "project.cover.updated", "source": "file", "filePath": filePath, "mimeType": mimeType, "at": time.Now().UTC()})
 	return s.Get(projectID)
 }
 
@@ -395,7 +439,13 @@ create table if not exists projects (
   app_version text not null, format_version integer not null, created_at text not null
 );
 create table if not exists project_covers (
-  project_id text primary key, asset_id text not null, kind text not null, updated_at text not null
+  project_id text primary key,
+  source text not null default 'asset',
+  asset_id text not null default '',
+  kind text not null default 'image',
+  file_path text not null default '',
+  mime_type text not null default '',
+  updated_at text not null
 );
 create table if not exists artifacts (
   id text primary key, project_id text not null, type text not null,
@@ -588,6 +638,9 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table world_asset_refs add column collection_name text not null default ''",
 			"alter table world_asset_refs add column segment_json text not null default ''",
 			"alter table world_asset_refs add column archived_at text",
+			"alter table project_covers add column source text not null default 'asset'",
+			"alter table project_covers add column file_path text not null default ''",
+			"alter table project_covers add column mime_type text not null default ''",
 		} {
 			if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 				return err
@@ -792,8 +845,8 @@ func validateAppID(appID string) error {
 func scanProject(row scanner) (Project, error) {
 	var project Project
 	var createdAt string
-	var coverAssetID, coverKind sql.NullString
-	err := row.Scan(&project.ID, &project.Name, &project.AppID, &project.AppVersion, &project.FormatVersion, &createdAt, &coverAssetID, &coverKind)
+	var coverSource, coverAssetID, coverKind, coverFilePath, coverMimeType sql.NullString
+	err := row.Scan(&project.ID, &project.Name, &project.AppID, &project.AppVersion, &project.FormatVersion, &createdAt, &coverSource, &coverAssetID, &coverKind, &coverFilePath, &coverMimeType)
 	if err != nil {
 		return Project{}, err
 	}
@@ -802,8 +855,19 @@ func scanProject(row scanner) (Project, error) {
 		return Project{}, parseErr
 	}
 	project.CreatedAt = parsed
-	if coverAssetID.Valid && coverKind.Valid {
-		project.Cover = &ProjectCover{AssetID: coverAssetID.String, Kind: coverKind.String}
+	if coverKind.Valid {
+		source := "asset"
+		if coverSource.Valid && coverSource.String == "file" {
+			source = "file"
+		}
+		cover := &ProjectCover{Source: source, Kind: coverKind.String}
+		if source == "file" {
+			cover.FilePath = coverFilePath.String
+			cover.MimeType = coverMimeType.String
+		} else if coverAssetID.Valid {
+			cover.AssetID = coverAssetID.String
+		}
+		project.Cover = cover
 	}
 	return project, nil
 }

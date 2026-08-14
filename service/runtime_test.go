@@ -7,6 +7,10 @@
 package main
 
 import (
+	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
+
 	"github.com/dop251/goja"
 	"os"
 	"path/filepath"
@@ -208,6 +212,85 @@ func TestProjectAppCanSetItsOwnImageOrVideoCover(t *testing.T) {
 	assets, err := media.ListAssets(project.ID)
 	if err != nil || len(assets) != 1 || assets[0].ID != asset.ID {
 		t.Fatalf("cover asset was not attached to project: %#v, %v", assets, err)
+	}
+}
+
+// TestProjectSetCoverImage 覆盖 App 把首帧图片写入项目文件根并登记为 file 封面
+// 的完整链路：不产生 media Asset、可重复覆盖同一路径、/v1/projects/{id}/cover 可读取。
+func TestProjectSetCoverImage(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(filepath.Join(appDir, "ui"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"permissions":["files"],"operations":[{"name":"cover.image","description":"Set a file cover.","surfaces":["api"],"inputSchema":{"type":"object","properties":{"fileBase64":{"type":"string"}}}}]}`)
+	writeTestFile(t, filepath.Join(appDir, "background.js"), `recut.operation.register("cover.image", function(input, ctx) { ctx.files.writeBase64("covers/cover.png", input.fileBase64); return ctx.project.setCoverImage({path: "covers/cover.png", mimeType: "image/png"}); });`)
+	writeTestFile(t, filepath.Join(appDir, "ui", "index.html"), "ok")
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.Create(CreateInput{Name: "File Cover", AppID: "example.app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := NewAppHost(apps, store)
+	fileContent := []byte("first-frame-png")
+	pngB64 := base64.StdEncoding.EncodeToString(fileContent)
+
+	result, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: "example.app"}, "example.app", "cover.image", map[string]any{"fileBase64": pngB64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := result.(Project)
+	if updated.Cover == nil || updated.Cover.Source != "file" || updated.Cover.Kind != "image" || updated.Cover.FilePath != "covers/cover.png" || updated.Cover.MimeType != "image/png" || updated.Cover.AssetID != "" {
+		t.Fatalf("file cover result = %#v", updated)
+	}
+	// 覆盖同一路径可重复刷新，不产生 media Asset。
+	for i := 0; i < 3; i++ {
+		if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: "example.app"}, "example.app", "cover.image", map[string]any{"fileBase64": pngB64}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	relaunched, err := store.Get(project.ID)
+	if err != nil || relaunched.Cover == nil || relaunched.Cover.Source != "file" || relaunched.Cover.FilePath != "covers/cover.png" {
+		t.Fatalf("file cover after refresh = %#v, %v", relaunched, err)
+	}
+	// 读取写入的封面文件。
+	written, err := os.ReadFile(filepath.Join(store.projectDir(project.ID), "files", "covers", "cover.png"))
+	if err != nil {
+		t.Fatalf("read cover file: %v", err)
+	}
+	if string(written) != string(fileContent) {
+		t.Fatalf("cover file content = %q, want %q", written, fileContent)
+	}
+	// /v1/projects/{id}/cover 直接服务文件内容。
+	server := NewServer(apps, store, nil, nil, nil, nil, NewMediaService(store))
+	req := httptest.NewRequest(http.MethodGet, "/v1/projects/"+project.ID+"/cover", nil)
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /v1/projects/{id}/cover = %d", rec.Code)
+	}
+	if got := rec.Body.String(); got != string(fileContent) {
+		t.Fatalf("cover endpoint body = %q, want %q", got, fileContent)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
+		t.Fatalf("cover Content-Type = %q, want image/png", ct)
+	}
+	// 未登记封面时返回 404。
+	noCover, err := store.Create(CreateInput{Name: "No Cover", AppID: "example.app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec2 := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/v1/projects/"+noCover.ID+"/cover", nil))
+	if rec2.Code != http.StatusNotFound {
+		t.Fatalf("GET cover for project without cover = %d, want 404", rec2.Code)
 	}
 }
 

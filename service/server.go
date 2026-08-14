@@ -104,6 +104,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PATCH /v1/projects/{id}", s.updateProject)
 	mux.HandleFunc("DELETE /v1/projects/{id}", s.deleteProject)
 	mux.HandleFunc("GET /v1/projects/{id}/artifacts", s.listArtifacts)
+	mux.HandleFunc("GET /v1/projects/{id}/cover", s.projectCover)
 	mux.HandleFunc("GET /v1/projects/{projectID}/world-context", s.getProjectWorldContext)
 	mux.HandleFunc("PUT /v1/projects/{projectID}/world-context", s.putProjectWorldContext)
 	mux.HandleFunc("GET /v1/worlds", s.listWorlds)
@@ -518,6 +519,50 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, artifacts)
+}
+
+// projectCover serves the current project cover. File-based covers (source
+// "file") are read from the project files root with a no-cache policy because
+// the editor refreshes the first-frame cover frequently; asset-based covers
+// redirect to the immutable media content URL.
+func (s *Server) projectCover(w http.ResponseWriter, r *http.Request) {
+	project, err := s.store.Get(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("project not found"))
+		return
+	}
+	if project.Cover == nil {
+		writeError(w, http.StatusNotFound, errors.New("project has no cover"))
+		return
+	}
+	if project.Cover.Source == "file" {
+		root, err := s.store.ProjectFilesRoot(project.ID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, errors.New("project files root is unavailable"))
+			return
+		}
+		path, ok := sandboxPath(root, project.Cover.FilePath)
+		if !ok {
+			writeError(w, http.StatusBadRequest, errors.New("invalid cover file path"))
+			return
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			writeError(w, http.StatusNotFound, errors.New("cover file not found"))
+			return
+		}
+		w.Header().Set("Cache-Control", "no-cache")
+		if project.Cover.MimeType != "" {
+			w.Header().Set("Content-Type", project.Cover.MimeType)
+		}
+		http.ServeFile(w, r, path)
+		return
+	}
+	if project.Cover.AssetID == "" {
+		writeError(w, http.StatusNotFound, errors.New("project cover is unavailable"))
+		return
+	}
+	http.Redirect(w, r, "/v1/media/assets/"+url.PathEscape(project.Cover.AssetID)+"/content", http.StatusFound)
 }
 
 func (s *Server) invokeAppAPI(w http.ResponseWriter, r *http.Request) {

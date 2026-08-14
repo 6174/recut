@@ -8,6 +8,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -158,6 +159,7 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 		files := runtime.NewObject()
 		_ = files.Set("readText", fileReadText(runtime, primaryFiles))
 		_ = files.Set("writeText", fileWriteText(runtime, primaryFiles))
+		_ = files.Set("writeBase64", fileWriteBase64(runtime, primaryFiles))
 		_ = files.Set("list", fileList(runtime, primaryFiles))
 		_ = files.Set("url", func(call goja.FunctionCall) goja.Value {
 			path := safeSandboxFile(primaryFiles, call.Argument(0).String())
@@ -193,6 +195,20 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 				panic(runtime.NewTypeError(err.Error()))
 			}
 			cover, err := h.setProjectCover(target, stringValue(input["assetId"]))
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(cover)
+		})
+		// setCoverImage registers an App-written file inside the project files
+		// root as the project cover. Frequent first-frame refreshes overwrite the
+		// same file, so the media Asset library is never polluted.
+		_ = projectContext.Set("setCoverImage", func(call goja.FunctionCall) goja.Value {
+			input := map[string]any{}
+			if err := runtime.ExportTo(call.Argument(0), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			cover, err := h.setProjectCoverFile(target, stringValue(input["path"]), stringValue(input["mimeType"]))
 			if err != nil {
 				panic(runtime.NewGoError(err))
 			}
@@ -646,6 +662,16 @@ func (h *AppHost) setProjectCover(target Target, assetID string) (Project, error
 	return h.store.SetProjectCover(target.ProjectID, ProjectCover{AssetID: asset.ID, Kind: asset.Kind})
 }
 
+// setProjectCoverFile registers an App-written file inside the project files
+// root as the project cover. No media Asset is created; the file is served by
+// the platform at /v1/projects/{id}/cover.
+func (h *AppHost) setProjectCoverFile(target Target, filePath, mimeType string) (Project, error) {
+	if !target.IsProject() {
+		return Project{}, errors.New("project.setCoverImage requires a Project target")
+	}
+	return h.store.SetProjectCoverFile(target.ProjectID, filePath, mimeType)
+}
+
 func (t Target) filesURL(appID, path string) string {
 	if t.IsProject() {
 		return fmt.Sprintf("/v1/projects/%s/apps/%s/files/%s", t.ProjectID, appID, filepath.ToSlash(path))
@@ -752,6 +778,23 @@ func fileWriteText(runtime *goja.Runtime, root string) func(goja.FunctionCall) g
 			panic(runtime.NewGoError(err))
 		}
 		if err := os.WriteFile(path, []byte(call.Argument(1).String()), 0o644); err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return goja.Undefined()
+	}
+}
+func fileWriteBase64(runtime *goja.Runtime, root string) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		path := sandboxFile(root, call.Argument(0).String())
+		raw := strings.TrimSpace(call.Argument(1).String())
+		decoded, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil {
+			panic(runtime.NewGoError(errors.New("invalid base64 content")))
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		if err := os.WriteFile(path, decoded, 0o644); err != nil {
 			panic(runtime.NewGoError(err))
 		}
 		return goja.Undefined()

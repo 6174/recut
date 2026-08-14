@@ -157,7 +157,7 @@ export default function ProjectDetailClient() {
     </header>
     <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]">
       <section className="h-full min-w-0 overflow-hidden border-l bg-card">
-        {uiURL ? <iframe className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={`${project?.name ?? "Recut"} App`} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">这个 App 没有声明项目 UI。</div>}
+        {uiURL ? <iframe allow="fullscreen" className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={`${project?.name ?? "Recut"} App`} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">这个 App 没有声明项目 UI。</div>}
       </section>
     </div>
     <PlatformMediaPicker apiBase={apiBase} onCancel={() => resolveMediaPicker(null)} onPick={resolveMediaPicker} request={mediaPicker} />
