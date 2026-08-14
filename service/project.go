@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、含可选媒体封面的 Project、Artifact、App 全局状态与项目 Doc 的隔离能力、
+ * [OUTPUT]: 对外提供 Store、可重命名/删除且含可选媒体封面的 Project、Artifact、App 全局状态与项目 Doc 的隔离能力、
  * 平台唯一 workspace SQLite、无迁移的布局版本门禁与项目/Agent/媒体三类 durable 事件表的进程内唤醒广播
  * [POS]: service 的平台存储边界；平台表全部位于 workspace.sqlite，project.sqlite 只含 owner App 业务表，
  * appstate/<appId> 是 App 的全局状态；App 仅通过 capability 获得自己的数据库和文件根
@@ -212,6 +212,70 @@ from projects p left join project_covers c on c.project_id = p.id where p.id = ?
 		return Project{}, fmt.Errorf("project %q: %w", id, err)
 	}
 	return project, nil
+}
+
+// Rename changes only the user-facing project title; its ID and owning App
+// remain stable so existing URLs, files and App-owned records continue to work.
+func (s *Store) Rename(id, name string) (Project, error) {
+	id, name = strings.TrimSpace(id), strings.TrimSpace(name)
+	if id == "" || name == "" {
+		return Project{}, errors.New("project name is required")
+	}
+	db, err := s.WorkspaceDatabase()
+	if err != nil {
+		return Project{}, err
+	}
+	result, err := db.Exec("update projects set name = ? where id = ?", name, id)
+	if err != nil {
+		return Project{}, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return Project{}, err
+	}
+	if changed == 0 {
+		return Project{}, errors.New("project not found")
+	}
+	return s.Get(id)
+}
+
+// Delete removes the platform project and its owned filesystem scope. Media
+// Assets stay in the workspace library; only their association with this
+// project is removed, so shared media never loses content unexpectedly.
+func (s *Store) Delete(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("project not found")
+	}
+	if _, err := s.Get(id); err != nil {
+		return errors.New("project not found")
+	}
+	db, err := s.WorkspaceDatabase()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, query := range []string{
+		"delete from project_covers where project_id = ?",
+		"delete from artifacts where project_id = ?",
+		"delete from events where project_id = ?",
+		"delete from media_asset_projects where project_id = ?",
+		"delete from creation_context_bindings where target_type = 'project' and target_id = ?",
+		"delete from shell_jobs where project_id = ?",
+		"delete from projects where id = ?",
+	} {
+		if _, err := tx.Exec(query, id); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return os.RemoveAll(s.projectDir(id))
 }
 
 func (s *Store) SetProjectCover(projectID string, cover ProjectCover) (Project, error) {

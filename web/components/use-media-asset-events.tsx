@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖浏览器 EventSource、service-endpoint 的事件流地址与 Recut `/v1/media/events` 的资产快照/增量事件契约
- * [OUTPUT]: 对外提供 MediaAssetEventsProvider、useMediaAssetEvents 与 MediaEventAsset；维护唯一的前端 Asset 缓存（含 ASR 转写 bundle 类型）
- * [POS]: components 的媒体生命周期边界；素材库、Agent、预览和引用选择器共享同一条 Recut SSE，不轮询 Provider 或单个 Asset
+ * [INPUT]: 依赖实时通道单例与 Recut `/v1/media/assets` REST 快照；增量经全局 WS 的 media channel
+ * [OUTPUT]: 对外提供 MediaAssetEventsProvider、useMediaAssetEvents 与 MediaEventAsset；维护唯一的前端 Asset 缓存（含 ASR 转写 bundle 类型）并即时移除已删除项目；首屏 REST + 断线重连补快照
+ * [POS]: components 的媒体生命周期边界；素材库、Agent、预览和引用选择器共享同一条实时通道，不轮询 Provider 或单个 Asset
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -13,9 +13,10 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
-import { streamServiceEndpoint } from "@/lib/service-endpoint";
+import { getRealtimeChannel } from "@/lib/realtime-channel";
 
 export type MediaEventAsset = {
   id: string;
@@ -43,6 +44,7 @@ export type MediaAssetEvents = {
   assets: MediaEventAsset[];
   assetByID: Record<string, MediaEventAsset>;
   ready: boolean;
+  removeAsset: (assetID: string) => void;
   upsertAsset: (asset: unknown) => void;
 };
 
@@ -50,6 +52,7 @@ const emptyAssetEvents: MediaAssetEvents = {
   assets: [],
   assetByID: {},
   ready: false,
+  removeAsset: () => {},
   upsertAsset: () => {},
 };
 const MediaAssetEventsContext = createContext<MediaAssetEvents | null>(null);
@@ -111,48 +114,72 @@ function upsert(store: MediaAssetStore, asset: MediaEventAsset): MediaAssetStore
   };
 }
 
-function eventData(event: Event) {
-  try {
-    return JSON.parse((event as MessageEvent<string>).data) as unknown;
-  } catch {
-    return null;
-  }
-}
-
 function MediaAssetEventsConnection({ apiBase, children }: { apiBase: string; children: ReactNode }) {
   const [store, setStore] = useState<MediaAssetStore>({ assetByID: {}, order: [], ready: false });
+  const readyRef = useRef(false);
   const upsertAsset = useCallback((value: unknown) => {
     const asset = normalizeMediaEventAsset(value);
-    if (asset) setStore((current) => upsert(current, asset));
+    if (!asset) return;
+    readyRef.current = true;
+    setStore((current) => upsert({ ...current, ready: true }, asset));
+  }, []);
+  const removeAsset = useCallback((assetID: string) => {
+    setStore((current) => {
+      if (!current.assetByID[assetID]) return current;
+      const { [assetID]: _, ...assetByID } = current.assetByID;
+      return { ...current, assetByID, order: current.order.filter((id) => id !== assetID) };
+    });
   }, []);
 
-  useEffect(() => {
-    const stream = new EventSource(`${streamServiceEndpoint(apiBase)}/v1/media/events`);
-    stream.addEventListener("media.snapshot", (event) => {
-      const payload = record(eventData(event));
-      const assets = Array.isArray(payload?.assets)
-        ? payload.assets.map(normalizeMediaEventAsset).filter((asset): asset is MediaEventAsset => Boolean(asset))
-        : [];
+  const loadSnapshot = useCallback(async (): Promise<void> => {
+    try {
+      const response = await fetch(`${apiBase}/v1/media/assets`, { cache: "no-store" });
+      if (!response.ok) return;
+      const assets = ((await response.json()) as unknown[])
+        .map(normalizeMediaEventAsset)
+        .filter((asset): asset is MediaEventAsset => Boolean(asset));
+      readyRef.current = true;
       setStore({
         assetByID: Object.fromEntries(assets.map((asset) => [asset.id, asset])),
         order: assets.map((asset) => asset.id),
         ready: true,
       });
-    });
-    stream.addEventListener("asset.updated", (event) => {
-      const payload = record(eventData(event));
-      const asset = normalizeMediaEventAsset(payload?.asset);
-      if (asset) setStore((current) => upsert({ ...current, ready: true }, asset));
-    });
-    return () => stream.close();
+    } catch {
+      // 保留 ready 终态可达性：下一次重连或增量事件会推进。
+    }
   }, [apiBase]);
+
+  useEffect(() => {
+    readyRef.current = false;
+    const channel = getRealtimeChannel(apiBase);
+    // 首屏走 REST；增量经全局 WS 的 media channel。
+    void loadSnapshot();
+    const unsubscribe = channel.subscribe("media", "", (frame) => {
+      const data =
+        frame.data && typeof frame.data === "object"
+          ? (frame.data as Record<string, unknown>)
+          : {};
+      if (data.event === "asset.deleted" && typeof data.assetId === "string") removeAsset(data.assetId);
+      const asset = normalizeMediaEventAsset(data.asset);
+      if (asset) upsertAsset(asset);
+    });
+    // 断线重连后补一次 REST 快照，保证缓存完整。
+    const offStatus = channel.onStatusChange((connected) => {
+      if (connected) void loadSnapshot();
+    });
+    return () => {
+      unsubscribe();
+      offStatus();
+    };
+  }, [apiBase, loadSnapshot, removeAsset, upsertAsset]);
 
   const value = useMemo<MediaAssetEvents>(() => ({
     assets: store.order.map((id) => store.assetByID[id]).filter((asset): asset is MediaEventAsset => Boolean(asset)),
     assetByID: store.assetByID,
     ready: store.ready,
+    removeAsset,
     upsertAsset,
-  }), [store, upsertAsset]);
+  }), [removeAsset, store, upsertAsset]);
   return <MediaAssetEventsContext.Provider value={value}>{children}</MediaAssetEventsContext.Provider>;
 }
 

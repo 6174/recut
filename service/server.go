@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store（含 Agent CLI 定位缓存）与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计且可由组合根优雅关停的短请求与事件流 HTTP Server、内嵌工作台、无入口重定向的 App UI、App 安装/单个或批量更新、按归属分组的 Skill 状态/软链接、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API（含受项目文件根约束的相对工作目录）
+ * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计且可由组合根优雅关停的短请求与事件流 HTTP Server、可重命名/删除的项目与素材、内嵌工作台、无入口重定向的 App UI、App 安装/单个或批量更新、按归属分组的 Skill 状态/软链接、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API（含受项目文件根约束的相对工作目录）
  * [POS]: service 的传输层，负责把受信任项目、内嵌本地工作台与扩展注册表映射为浏览器可消费的 API；只构造 HTTP Server，进程信号和关停策略归组合根所有
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -34,10 +34,11 @@ type Server struct {
 	updater   *ServiceUpdater
 	skill     *RecutSkillManager
 	worlds    *WorldStore
+	bus       *EventBus
 }
 
 func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, agents *AgentManager, host *AppHost, media *MediaService, updater ...*ServiceUpdater) *Server {
-	server := &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host, media: media}
+	server := &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host, media: media, bus: newEventBus()}
 	if store != nil {
 		server.worlds = NewWorldStore(store, media)
 	}
@@ -100,6 +101,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/projects", s.listProjects)
 	mux.HandleFunc("POST /v1/projects", s.createProject)
 	mux.HandleFunc("GET /v1/projects/{id}", s.getProject)
+	mux.HandleFunc("PATCH /v1/projects/{id}", s.updateProject)
+	mux.HandleFunc("DELETE /v1/projects/{id}", s.deleteProject)
 	mux.HandleFunc("GET /v1/projects/{id}/artifacts", s.listArtifacts)
 	mux.HandleFunc("GET /v1/projects/{projectID}/world-context", s.getProjectWorldContext)
 	mux.HandleFunc("PUT /v1/projects/{projectID}/world-context", s.putProjectWorldContext)
@@ -127,6 +130,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/media/assets", s.listMediaAssets)
 	mux.HandleFunc("POST /v1/media/assets", s.importMediaAsset)
 	mux.HandleFunc("GET /v1/media/assets/{id}", s.getMediaAsset)
+	mux.HandleFunc("PATCH /v1/media/assets/{id}", s.updateMediaAsset)
+	mux.HandleFunc("DELETE /v1/media/assets/{id}", s.deleteMediaAsset)
 	mux.HandleFunc("GET /v1/media/assets/{id}/content", s.getMediaAssetContent)
 	mux.HandleFunc("GET /v1/media/assets/{id}/parts/{part}", s.getMediaAssetPart)
 	mux.HandleFunc("POST /v1/media/assets/{id}/attach", s.attachMediaAsset)
@@ -134,7 +139,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/media/jobs/{id}", s.getMediaJob)
 	mux.HandleFunc("POST /v1/projects/{id}/apps/{appID}/api/{name}", s.invokeAppAPI)
 	mux.HandleFunc("GET /v1/projects/{id}/apps/{appID}/files/{path...}", s.appFile)
-	mux.HandleFunc("GET /v1/events", s.projectEventsWS)
+	mux.HandleFunc("GET /v1/events", s.realtimeWS)
 	mux.HandleFunc("GET /v1/agent-sessions", s.listAgentSessions)
 	mux.HandleFunc("GET /v1/agent-onboarding", s.getAgentOnboarding)
 	mux.HandleFunc("PUT /v1/agent-onboarding", s.saveAgentOnboarding)
@@ -476,6 +481,30 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, project)
+}
+
+func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		Name string `json:"name"`
+	}{}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	project, err := s.store.Rename(strings.TrimSpace(r.PathValue("id")), input.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, project)
+}
+
+func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.Delete(strings.TrimSpace(r.PathValue("id"))); err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {

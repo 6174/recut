@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService 的平台级媒体边界与标准 HTTP JSON 协议
- * [OUTPUT]: 对外提供素材库、无固定大小上限的流式图片/视频/音频导入、转写 bundle 与 reference 素材的 parts 交付、模型路由、BYOK 凭据、动态音色、生成任务及 durable Asset SSE 的本地 HTTP API
+ * [OUTPUT]: 对外提供素材库、无固定大小上限的流式图片/视频/音频导入、可重命名/删除的 Asset、转写 bundle 与 reference 素材的 parts 交付、模型路由、BYOK 凭据、动态音色、生成任务及 durable Asset SSE 的本地 HTTP API
  * [POS]: service 的 Media Platform 传输层；工作台和系统 MCP 使用同一业务服务，SSE 只传播本地 Asset 真相
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -317,6 +317,30 @@ func (s *Server) getMediaAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, asset)
+}
+
+func (s *Server) updateMediaAsset(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		Name string `json:"name"`
+	}{}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	asset, err := s.media.RenameAsset(r.PathValue("id"), input.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, asset)
+}
+
+func (s *Server) deleteMediaAsset(w http.ResponseWriter, r *http.Request) {
+	if err := s.media.DeleteAsset(r.PathValue("id")); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) attachMediaAsset(w http.ResponseWriter, r *http.Request) {

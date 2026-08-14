@@ -1,10 +1,11 @@
 /*
  * [INPUT]: 依赖素材、任务生命周期契约与共享视频封面/计时组件
- * [OUTPUT]: 对外提供 AssetGrid，用 iframe 子文档视频封面、惰性图片与持久化/实时耗时渲染素材卡片
+ * [OUTPUT]: 对外提供 AssetGrid，用 iframe 子文档视频封面、惰性图片、统一 More 菜单与持久化/实时耗时渲染素材卡片
  * [POS]: media 页面列表渲染单元；从 page.tsx 拆出以隔离预览表现与页面编排，卡片点击由外层按钮统一接收
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { Captions, ImageIcon, Link2, LoaderCircle } from "lucide-react";
+import { CardMoreMenu } from "@/components/card-more-menu";
 import { GenerationDuration } from "@/components/generation-duration";
 import { VideoFrame } from "@/components/video-frame";
 import type { Asset, MediaJob } from "./media-types";
@@ -13,12 +14,16 @@ export function AssetGrid({
   apiBase,
   assets,
   jobs,
+  onDelete,
   onPreview,
+  onRename,
 }: {
   apiBase: string;
   assets: Asset[];
   jobs: MediaJob[];
+  onDelete: (asset: Asset) => Promise<void>;
   onPreview: (asset: Asset) => void;
+  onRename: (asset: Asset, name: string) => Promise<void>;
 }) {
   if (!assets.length && !jobs.length) {
     return (
@@ -34,7 +39,7 @@ export function AssetGrid({
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {jobs.map((job) => <QueuedJobCard job={job} key={job.id} />)}
-      {assets.map((asset) => <AssetCard apiBase={apiBase} asset={asset} key={asset.id} onPreview={onPreview} />)}
+      {assets.map((asset) => <AssetCard apiBase={apiBase} asset={asset} key={asset.id} onDelete={onDelete} onPreview={onPreview} onRename={onRename} />)}
     </div>
   );
 }
@@ -56,10 +61,10 @@ function QueuedJobCard({ job }: { job: MediaJob }) {
   );
 }
 
-function AssetCard({ apiBase, asset, onPreview }: { apiBase: string; asset: Asset; onPreview: (asset: Asset) => void }) {
+function AssetCard({ apiBase, asset, onDelete, onPreview, onRename }: { apiBase: string; asset: Asset; onDelete: (asset: Asset) => Promise<void>; onPreview: (asset: Asset) => void; onRename: (asset: Asset, name: string) => Promise<void> }) {
   const contentURL = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`;
-  return (
-    <button className="overflow-hidden rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20" onClick={() => onPreview(asset)} type="button">
+  return <div className="group relative overflow-visible rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20">
+    <button className="block w-full overflow-hidden text-left" onClick={() => onPreview(asset)} type="button">
       {asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-[4/3] bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-[4/3]" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "reference" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-[4/3] place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
       <div className="p-3">
         <p className="truncate text-xs font-medium">{asset.name}</p>
@@ -68,7 +73,8 @@ function AssetCard({ apiBase, asset, onPreview }: { apiBase: string; asset: Asse
         <GenerationDuration className="mt-1 block font-mono text-[10px] text-muted-foreground" item={asset} />
       </div>
     </button>
-  );
+    <div className="absolute right-2 top-2"><CardMoreMenu itemName={asset.name} itemType="素材" onDelete={() => onDelete(asset)} onRename={(name) => onRename(asset, name)} /></div>
+  </div>;
 }
 
 function ReferenceCardPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {

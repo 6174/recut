@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 service endpoint、Media Platform 的资产 SSE、media-configuration-store 的 Provider/Credential 快照与生成任务 API，以及系统项目 Agent Session
- * [OUTPUT]: 对外提供首屏限为 12 张的素材浏览、完成视频的 iframe 视频封面卡片、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
+ * [OUTPUT]: 对外提供首屏限为 12 张的素材浏览、完成视频的 iframe 视频封面卡片、统一 More 重命名/确认删除、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
  * [POS]: web/app/media 的原生 React 内容组件；由根工作台与 /media 路由共享，Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态，配置从统一缓存读取而不轮询
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -90,6 +90,11 @@ const createKinds: CreateKind[] = [
 const referenceLabels: Record<Exclude<AssetKind, "transcript">, string> = { image: "图片", video: "视频", audio: "音频", reference: "资料" };
 const initialAssetCount = 12;
 
+async function responseMessage(response: Response) {
+  const body = await response.json().catch(() => null) as { error?: string } | null;
+  return body?.error ?? "操作失败，请重试。";
+}
+
 function isReferenceKind(mode: ModelInputMode): mode is Exclude<AssetKind, "transcript"> {
   return mode === "image" || mode === "video" || mode === "audio";
 }
@@ -107,7 +112,7 @@ export function MediaLibraryPanel(props: MediaLibraryPanelProps) {
 
 function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProjectIDChange }: MediaLibraryPanelProps) {
   const apiBase = useServiceStore((state) => state.endpoint);
-  const { assetByID, assets: eventAssets, upsertAsset } = useMediaAssetEvents();
+  const { assetByID, assets: eventAssets, removeAsset, upsertAsset } = useMediaAssetEvents();
   const assets = useMemo(() => eventAssets.map((asset) => normalizeAsset(asset as Asset)), [eventAssets]);
   const [jobs, setJobs] = useState<MediaJob[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
@@ -196,6 +201,17 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
       const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(assetID)}`, { cache: "no-store" });
       if (response.ok) upsertAsset(await response.json());
     }));
+  }
+  async function renameAsset(asset: Asset, name: string) {
+    const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    if (!response.ok) throw new Error(await responseMessage(response));
+    upsertAsset(await response.json());
+  }
+  async function deleteAsset(asset: Asset) {
+    const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await responseMessage(response));
+    removeAsset(asset.id);
+    if (preview?.id === asset.id) setPreview(null);
   }
   async function uploadAssets(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -321,7 +337,9 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
               apiBase={apiBase}
               assets={renderedAssets}
               jobs={visibleJobs}
+              onDelete={deleteAsset}
               onPreview={setPreview}
+              onRename={renameAsset}
             />
             {renderedAssets.length < visibleAssets.length && (
               <div className="mt-5 flex justify-center">

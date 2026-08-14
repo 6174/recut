@@ -56,7 +56,8 @@ import {
   type UploadedAsset,
 } from "@/components/agent-panel-types";
 import { sessionHistoryLabel, useAgentStore } from "@/lib/agent-store";
-import { isDefaultServiceEndpoint, isLocalWorkspace, streamServiceEndpoint } from "@/lib/service-endpoint";
+import { getRealtimeChannel } from "@/lib/realtime-channel";
+import { isDefaultServiceEndpoint, isLocalWorkspace } from "@/lib/service-endpoint";
 const EMPTY_SESSIONS: Session[] = [];
 const EMPTY_OPENCODE_MODELS: OpencodeModel[] = [];
 const serviceInstallCommand = "curl -fsSL https://recut.video/install.sh | sh";
@@ -108,8 +109,8 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     useState<OpencodeConfiguration>(defaultOpencodeConfiguration);
   const [serviceInstallCopyStatus, setServiceInstallCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [now, setNow] = useState(() => Date.now());
-  const streamRef = useRef<EventSource | null>(null);
-  const cliStreamRef = useRef<EventSource | null>(null);
+  const streamRef = useRef<{ unsubscribe: () => void } | null>(null);
+  const cliStreamRef = useRef<{ unsubscribe: () => void } | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const scopeVersionRef = useRef(0);
   const detailVersionRef = useRef(0);
@@ -118,9 +119,9 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     const scopeVersion = ++scopeVersionRef.current;
     ++detailVersionRef.current;
     activeIDRef.current = null;
-    streamRef.current?.close();
+    streamRef.current?.unsubscribe();
     streamRef.current = null;
-    cliStreamRef.current?.close();
+    cliStreamRef.current?.unsubscribe();
     cliStreamRef.current = null;
     setActiveID(null);
     setDetail(null);
@@ -142,11 +143,26 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
   }, [apiBase, online]);
   useEffect(
     () => () => {
-      streamRef.current?.close();
-      cliStreamRef.current?.close();
+      streamRef.current?.unsubscribe();
+      cliStreamRef.current?.unsubscribe();
     },
     [],
   );
+  // 实时通道断线重连后，立即与服务器会话详情对齐，避免 EventSource 时代
+  // onerror 触发的 reconcile 在 channel 化后丢失。
+  useEffect(() => {
+    const channel = getRealtimeChannel(apiBase);
+    const off = channel.onStatusChange((connected) => {
+      if (connected && activeIDRef.current) {
+        void refresh(
+          activeIDRef.current,
+          scopeVersionRef.current,
+          detailVersionRef.current,
+        ).catch(() => {});
+      }
+    });
+    return off;
+  }, [apiBase]);
   useEffect(() => {
     if (!draft?.text) return;
     setContent(draft.text);
@@ -223,7 +239,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
   async function open(id: string, scopeVersion = scopeVersionRef.current) {
     const detailVersion = ++detailVersionRef.current;
     activeIDRef.current = id;
-    streamRef.current?.close();
+    streamRef.current?.unsubscribe();
     streamRef.current = null;
     setActiveID(id);
     setCachedActiveSession(apiBase, scope, id);
@@ -253,80 +269,64 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     scopeVersion: number,
     detailVersion: number,
   ) {
-    const stream = new EventSource(
-      `${streamServiceEndpoint(apiBase)}/v1/agent-sessions/${id}/events?after=${after}`,
-    );
-    stream.addEventListener("agent", (event) => {
-      if (
-        !isCurrentRequest(id, scopeVersion, detailVersion) ||
-        streamRef.current !== stream
-      )
-        return;
-      const incoming = JSON.parse(
-        (event as MessageEvent<string>).data,
-      ) as AgentEvent;
-      setDetail((current) => {
-        const next = current ? applyAgentEvent(current, incoming) : current;
-        if (next) upsertCachedSessionDetail(apiBase, next);
-        return next;
-      });
-      if (incoming.type === "turn.cancelled") setStopNotice(incoming.turnId ?? "");
-      if (
-        ["turn.started", "assistant.completed", "turn.completed", "turn.failed"].includes(
-          incoming.type,
-        )
-      )
-        setStopNotice("");
-      if (
-        [
-          "assistant.completed",
-          "turn.completed",
-          "turn.failed",
-          "turn.cancelled",
-          "session.updated",
-        ].includes(incoming.type)
-      )
-        void refresh(id, scopeVersion, detailVersion);
-    });
-    // Reconcile immediately when the connection drops instead of waiting for
-    // the next periodic poll or the EventSource reconnect to deliver events.
-    stream.onerror = () => {
-      if (streamRef.current === stream)
-        void refresh(id, scopeVersion, detailVersion).catch(() => {});
+    const handle = {
+      unsubscribe: getRealtimeChannel(apiBase).subscribe(
+        "agent",
+        id,
+        (frame) => {
+          if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
+          const incoming = frame.data as AgentEvent;
+          setDetail((current) => {
+            const next = current ? applyAgentEvent(current, incoming) : current;
+            if (next) upsertCachedSessionDetail(apiBase, next);
+            return next;
+          });
+          if (incoming.type === "turn.cancelled") setStopNotice(incoming.turnId ?? "");
+          if (
+            ["turn.started", "assistant.completed", "turn.completed", "turn.failed"].includes(
+              incoming.type,
+            )
+          )
+            setStopNotice("");
+          if (
+            [
+              "assistant.completed",
+              "turn.completed",
+              "turn.failed",
+              "turn.cancelled",
+              "session.updated",
+            ].includes(incoming.type)
+          )
+            void refresh(id, scopeVersion, detailVersion);
+        },
+        after,
+      ),
     };
-    streamRef.current = stream;
+    streamRef.current = handle;
   }
   function openCLIStream() {
     if (!activeID) return;
-    cliStreamRef.current?.close();
+    cliStreamRef.current?.unsubscribe();
     setCLIEntries([]);
     setCLIAvailable(true);
     setCLIOpen(true);
-    const stream = new EventSource(
-      `${streamServiceEndpoint(apiBase)}/v1/agent-sessions/${activeID}/cli-stream`,
-    );
-    // EventSource may dispatch the replayed history immediately. Publish this
-    // instance before registering handlers so the first CLI line is never
-    // mistaken for output from the prior dialog connection.
-    cliStreamRef.current = stream;
-    stream.addEventListener("output", (event) => {
-      if (cliStreamRef.current !== stream) return;
-      const incoming = JSON.parse(
-        (event as MessageEvent<string>).data,
-      ) as CLIEntry;
-      setCLIEntries((current) => [...current.slice(-399), incoming]);
-    });
-    stream.addEventListener("status", () => {
-      if (cliStreamRef.current !== stream) return;
-      setCLIAvailable(false);
-      stream.close();
-    });
-    stream.onerror = () => {
-      if (cliStreamRef.current === stream) stream.close();
+    // 订阅前先建立句柄，供输出帧内用于关闭；history 由服务端在订阅后立即回放。
+    let handle: { unsubscribe: () => void } = { unsubscribe: () => {} };
+    handle = {
+      unsubscribe: getRealtimeChannel(apiBase).subscribe("cli", activeID, (frame) => {
+        const data = frame.data as CLIEntry & { available?: boolean };
+        if (data && "available" in data) {
+          setCLIAvailable(false);
+          handle.unsubscribe();
+          return;
+        }
+        setCLIEntries((current) => [...current.slice(-399), data]);
+      }),
     };
+    cliStreamRef.current = handle;
   }
   function closeCLIStream() {
-    cliStreamRef.current?.close();
+    cliStreamRef.current?.unsubscribe();
     cliStreamRef.current = null;
     setCLIOpen(false);
   }

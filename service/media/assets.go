@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Workspace 数据库与受控媒体根
- * [OUTPUT]: Asset 导入、查询、去重或按交付强制新建、带正文/图片 content-addressed parts 的全局 reference 研究资料 Asset、ASR 转写 bundle（源声音 + SRT + JSON parts）导入与 parts 读取、受控落盘、项目关联、异步生成时间/输出/诊断 metadata、终态审计及 durable 更新事件
+ * [OUTPUT]: Asset 导入、查询、重命名、安全删除、去重或按交付强制新建、带正文/图片 content-addressed parts 的全局 reference 研究资料 Asset、ASR 转写 bundle（源声音 + SRT + JSON parts）导入与 parts 读取、受控落盘、项目关联、异步生成时间/输出/诊断 metadata、终态审计及 durable 更新事件
  * [POS]: media 的资产真相源；Provider 与本地两轨导出均不直接访问存储，终态与 SSE 事件在此原位回写
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -165,6 +165,93 @@ func (m *MediaService) GetAsset(id string) (MediaAsset, error) {
 	return m.getAsset(id)
 }
 
+// RenameAsset changes presentation metadata without changing immutable bytes,
+// content identity or any project attachment.
+func (m *MediaService) RenameAsset(id, name string) (MediaAsset, error) {
+	id, name = strings.TrimSpace(id), strings.TrimSpace(name)
+	if id == "" || name == "" {
+		return MediaAsset{}, errors.New("asset name is required")
+	}
+	db, err := m.database()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	now := time.Now().UTC()
+	tx, err := db.Begin()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	result, err := tx.Exec("update media_assets set name = ?, updated_at = ? where id = ?", name, now.Format(time.RFC3339Nano), id)
+	if err == nil {
+		var changed int64
+		changed, err = result.RowsAffected()
+		if changed == 0 && err == nil {
+			err = errors.New("media asset not found")
+		}
+	}
+	if err == nil {
+		err = recordAssetEvent(tx, id, now)
+	}
+	if err != nil {
+		_ = tx.Rollback()
+		return MediaAsset{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return MediaAsset{}, err
+	}
+	m.publishAssetChange()
+	return m.GetAsset(id)
+}
+
+// DeleteAsset removes the Asset record and every platform reference to it. The
+// content-addressed files are deliberately retained because several records
+// can share bytes; a later garbage collector may reclaim unreferenced blobs.
+func (m *MediaService) DeleteAsset(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("media asset not found")
+	}
+	m.dedupeMu.Lock()
+	defer m.dedupeMu.Unlock()
+	asset, err := m.GetAsset(id)
+	if err != nil {
+		return errors.New("media asset not found")
+	}
+	if asset.Status == "queued" || asset.Status == "running" {
+		return errors.New("generating media cannot be deleted")
+	}
+	db, err := m.database()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, query := range []string{
+		"delete from project_covers where asset_id = ?",
+		"update worlds set cover_asset_id = null where cover_asset_id = ?",
+		"delete from media_asset_projects where asset_id = ?",
+		"delete from world_asset_refs where asset_id = ?",
+		"delete from agent_turn_attachments where asset_id = ?",
+		"delete from media_assets where id = ?",
+	} {
+		if _, err := tx.Exec(query, id); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := recordAssetEvent(tx, id, time.Now().UTC()); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	m.publishAssetChange()
+	return nil
+}
+
 func (m *MediaService) getAsset(id string) (MediaAsset, error) {
 	db, err := m.database()
 	if err != nil {
@@ -302,16 +389,16 @@ func (m *MediaService) CreateReferenceAsset(input ReferenceAssetInput) (MediaAss
 		return MediaAsset{}, err
 	}
 	reference := map[string]any{
-		"url":         canonicalURL,
-		"sourceKind":  sourceKind,
-		"title":       name,
-		"summary":     strings.TrimSpace(input.Summary),
-		"description": strings.TrimSpace(input.Description),
-		"excerpt":     strings.TrimSpace(input.Excerpt),
-		"author":      strings.TrimSpace(input.Author),
-		"publishedAt": strings.TrimSpace(input.PublishedAt),
-		"siteName":    strings.TrimSpace(input.SiteName),
-		"language":    strings.TrimSpace(input.Language),
+		"url":          canonicalURL,
+		"sourceKind":   sourceKind,
+		"title":        name,
+		"summary":      strings.TrimSpace(input.Summary),
+		"description":  strings.TrimSpace(input.Description),
+		"excerpt":      strings.TrimSpace(input.Excerpt),
+		"author":       strings.TrimSpace(input.Author),
+		"publishedAt":  strings.TrimSpace(input.PublishedAt),
+		"siteName":     strings.TrimSpace(input.SiteName),
+		"language":     strings.TrimSpace(input.Language),
 		"thumbnailUrl": strings.TrimSpace(input.ThumbnailURL),
 	}
 	if contentPart, ok := parts["content"]; ok {

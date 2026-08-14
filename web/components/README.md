@@ -4,6 +4,7 @@
 
 成员清单
 video-frame.tsx: 视频展示原子；列表和卡片以 `srcDoc` iframe 创建真实的静音循环 `<video>` 子文档，详情以 `iframe` 打开原片 URL 的浏览器媒体文档；封面鼠标事件穿透给卡片详情操作，素材库首屏限制媒体导航数量以避免解码器争用。
+card-more-menu.tsx: 实体卡片统一的 More 操作原子；项目和素材共用轻量 context menu、重命名弹框与不可逆删除确认，不持有领域 API 或缓存。
 webgl-studio-hero.tsx: Studio Header 的纯客户端 WebGL 背景；用 Three.js 绘制圆角、渐变磨砂的分层玻璃视频卡、播放符号和漂浮几何体，并由 GSAP 编排入场与低频浮动，遵守减少动态效果偏好且离屏暂停渲染。
 audio-waveform-player.tsx: 音频预览原子；原生 `HTMLAudioElement` 先加载元数据并开放播放、定位、静音与下载，wavesurfer.js 随后共享该媒体元素在后台解码和绘制波形，波形失败时不阻塞播放。
 generation-duration.tsx: 媒体生成耗时原子；活跃任务本地逐秒计时，终态只显示后端持久化的最终耗时，不发起状态请求。

@@ -113,6 +113,7 @@ func main() {
 		log.Printf("INFO reconciled interrupted agent turns count=%d", recovered)
 	}
 	service := NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater())
+	service.StartRealtimeForwarders(context.Background())
 	server := service.HTTPServer(*address)
 	streamServer := service.StreamHTTPServer(*streamAddress)
 	signals := make(chan os.Signal, 1)

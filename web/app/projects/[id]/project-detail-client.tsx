@@ -17,7 +17,7 @@ import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMedi
 import { normalizePageContext } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
 import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
-import { streamServiceEndpoint } from "@/lib/service-endpoint";
+import { getRealtimeChannel } from "@/lib/realtime-channel";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore } from "@/lib/workspace-store";
 
@@ -70,16 +70,12 @@ export default function ProjectDetailClient() {
 
   useEffect(() => {
     if (!project) return;
-    const eventsURL = new URL("/v1/events", streamServiceEndpoint(apiBase));
-    eventsURL.protocol = eventsURL.protocol === "https:" ? "wss:" : "ws:";
-    const events = new WebSocket(eventsURL);
-    events.addEventListener("open", () => events.send(JSON.stringify({ type: "subscribe", projectId: project.id })));
-    events.addEventListener("message", (message) => {
-      const payload = JSON.parse(message.data);
-      if (payload.type !== "project.event") return;
-      postToFrame(appFrame.current, { type: "recut.project.event", event: payload.event });
+    const channel = getRealtimeChannel(apiBase);
+    const unsubscribe = channel.subscribe("project", project.id, (frame) => {
+      if (frame.type !== "project.event") return;
+      postToFrame(appFrame.current, { type: "recut.project.event", event: frame.event });
     });
-    return () => events.close();
+    return unsubscribe;
   }, [apiBase, project]);
 
   const connectUI = useCallback(() => {

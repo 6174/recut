@@ -12,7 +12,7 @@ RECUT_HOME ?= $(HOME)/.recut
 APP ?=
 SERVICE_PORT ?= 17373
 STREAM_PORT ?= 17374
-RECUT_VERSION ?= 0.1.27
+RECUT_VERSION ?= 0.1.28
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -73,8 +73,12 @@ stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never an
 		if kill -0 "$$pid" 2>/dev/null; then echo "Force-stopping stale Recut web workspace (PID $$pid)."; kill -9 "$$pid"; fi; \
 	done
 
-service-dev: builtin-apps stop-stale-service ## Start only the LAN Go service for the port 3000 workspace (API 17373, event streams 17374).
+service-dev: stop-stale-service ## Start only the LAN Go service for the port 3000 workspace (API 17373, event streams 17374). Built-in App archives build only once; rebuild them via `make builtin-apps` or `make deploy`.
 	@set -e; \
+	if [ ! -f "$(BUILTIN_REMOTION_ARCHIVE)" ] || [ ! -f "$(BUILTIN_EDITOR_ARCHIVE)" ]; then \
+		echo "Built-in App archives missing; building them once."; \
+		$(MAKE) builtin-apps; \
+	fi; \
 	dev_service="$(CURDIR)/.cache/recut-service-dev"; \
 	mkdir -p "$$(dirname "$$dev_service")"; \
 	GOCACHE=$(GOCACHE) go -C service build -o "$$dev_service" -ldflags "-X main.serviceVersion=dev" .; \

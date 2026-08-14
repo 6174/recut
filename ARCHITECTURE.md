@@ -50,6 +50,10 @@ App package
 
 媒体资源是工作区级 Asset，不属于任一 App 的私有文件夹。`MediaService` 的 Provider Registry 声明每个平台的协议、默认 API Base 和模型目录；BYOK 凭据属于 Provider，Route 必须选择同一 Provider 下的具体模型。全局 SettingsPanel 负责“连接 Provider → 选择用途模型”，素材库不重复配置。`workspace.sqlite` 保存 Asset 元数据、项目引用、生成任务、能力 Route 和加密后的 BYOK 凭据；内容文件以哈希落入受控媒体根。`recut.project_context` 直接携带当前默认 route 的模型契约；Agent 按意图调用 `recut.image.generate`、`recut.video.generate` 或 `recut.speech.generate`，不再传递可错配的 capability 枚举。三种生成都是异步 Job：提交即返回稳定 jobId 与 assetIds（先 queued，Daemon 原位推进到 completed/failed），Agent 用 `recut.media.get_job` / `recut.media.wait_for_job` 观察终态。`recut.media.list_voices` 按配置的 MiniMax/ElevenLabs 凭据返回实时可用音色，`voiceId` 是语音生成的必填输入。`recut.media.*` 仅保留配置、Job、音色与素材管理。App 仅消费稳定的 `assetId`，可在自身 Artifact 中保存该引用。Atlas Cloud 作为原生 prediction 聚合 Provider，图片模型经 `/api/v1/model/generateImage` 提交并轮询 `outputs[0]`（模型 ID 形如 `openai/gpt-image-2/text-to-image`，带参考图时自动切到 `…/edit` 编辑变体），模型目录含 GPT Image、Seedream、Seedance、Grok 和 xAI TTS；`model_providers` 策略层按 Provider ID 分派图片执行，`openai` / `openai-compatible` 走 OpenAI 兼容 `/images/generations`（有引用时 multipart `/images/edits`），MiniMax 与 ElevenLabs 覆盖动态音色和语音适配器，视频会复用相同任务与 Asset 契约。
 
+### Realtime Channel
+
+平台实时事件收敛为单条 WebSocket（`/v1/events`，stream 端口 17374），浏览器每页一条连接，按 `channel` 订阅分流（media/project/app/agent/cli/terminal）。首屏/全量数据走 REST（如 `GET /v1/media/assets`），长连接只承载增量事件；服务端 `EventBus` 扇出 + 后台账本 forwarder（每账本每秒至多一次 DB 轮询，与客户端数量解耦）。连接内置心跳保活与指数退避重连，重连后重订阅并补 REST 快照。iframe App 通过传输层抽象接入：嵌入宿主运行走宿主桥，无宿主独立运行回退直连 WS。实现详见 `rfc/2026-08-14-realtime-channel-ws.md`。
+
 ## B-roll 案例
 
 `apps/vox-broll/manifest.json` 申请 `sqlite`、`files`、`artifacts.publish`，声明 `brief.create` API 和 `generate_brief` MCP 工具。`background.js` 自行创建 `briefs` 表、保存 brief 文件并发布 `recut.vox.brief@1` Artifact；平台没有任何 B-roll 专用数据结构或 workflow 代码。

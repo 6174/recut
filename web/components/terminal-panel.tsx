@@ -8,7 +8,7 @@
 
 import { Check, Clock3, Copy, Play, RotateCcw, Search, SquareTerminal, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { streamServiceEndpoint } from "@/lib/service-endpoint";
+import { getRealtimeChannel } from "@/lib/realtime-channel";
 
 import { Button } from "@/components/ui/button";
 
@@ -79,9 +79,8 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
       const send = (path: string, body: unknown) => fetch(`${apiBase}/v1/terminals/${sessionID}/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (sessionIsLive) void send("resize", { cols: terminal.cols, rows: terminal.rows });
       const input = sessionIsLive ? terminal.onData((data) => { void send("input", { data }); }) : undefined;
-      const stream = new EventSource(`${streamServiceEndpoint(apiBase)}/v1/terminals/${sessionID}/events`);
-      stream.addEventListener("output", (event) => {
-        terminal.write(JSON.parse((event as MessageEvent<string>).data));
+      const unsubTerminal = getRealtimeChannel(apiBase).subscribe("terminal", sessionID, (frame) => {
+        terminal.write(frame.data as string);
         if (sessionIsLive) {
           if (previewRefresh.current) window.clearTimeout(previewRefresh.current);
           previewRefresh.current = window.setTimeout(() => { previewRefresh.current = null; void loadManager(); }, 800);
@@ -89,7 +88,7 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
       });
       const resize = new ResizeObserver(() => { fit.fit(); if (sessionIsLive) void send("resize", { cols: terminal.cols, rows: terminal.rows }); });
       resize.observe(host.current); if (sessionIsLive) terminal.focus();
-      cleanup = () => { if (previewRefresh.current) window.clearTimeout(previewRefresh.current); input?.dispose(); resize.disconnect(); stream.close(); terminal.dispose(); };
+      cleanup = () => { if (previewRefresh.current) window.clearTimeout(previewRefresh.current); input?.dispose(); resize.disconnect(); unsubTerminal(); terminal.dispose(); };
     })();
     return () => { disposed = true; cleanup(); };
   }, [activeSession?.running, apiBase, sessionID]);

@@ -1,16 +1,17 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、Agent Session HTTP API 及全局 Agent 面板上下文
- * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的每日稳定随机两张创作场景卡（首访引导作为同一候选卡，点击只回填左侧创作输入框，绝不自动提交）、横向应用能力卡、紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、世界观对象卡及新建占位卡、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和无外框的 service 连接/诊断空态
- * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
+ * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的每日稳定两条轻量创作引导（首访引导作为同一候选，点击只回填左侧创作输入框，绝不自动提交）、以首位「世界观」固定能力卡开头的应用入口、项目列表首位的新建项目卡、项目与资源卡统一 More 重命名/确认删除操作、紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和无外框的 service 连接/诊断空态
+ * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，世界观作为首个原生创作应用统一进入世界观管理，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, Globe2, ImageIcon, Link2, LoaderCircle, Music2, Plus, Sparkles, Store, Video, X, type LucideIcon } from "lucide-react";
+import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, Globe2, ImageIcon, Link2, LoaderCircle, Music2, Plus, Sparkles, Video, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, MouseEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 import { AssetPreviewDialog } from "@/components/asset-preview-dialog";
+import { CardMoreMenu } from "@/components/card-more-menu";
 import { Badge } from "@/components/ui/badge";
 import { AppUpdateAllControl, AppVersionControl } from "@/components/app-version-control";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,6 @@ import { marketplaceApps } from "@/lib/app-catalog";
 import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore, type WorkspaceApp as App, type WorkspaceInstallation as Installation, type WorkspaceProject as Project } from "@/lib/workspace-store";
-import { worldKindLabels, type WorldSummary } from "@/lib/recut-worlds-client";
 import { VideoFrame } from "@/components/video-frame";
 import { WebGLStudioHero } from "@/components/webgl-studio-hero";
 import type { Asset } from "./media/media-types";
@@ -114,6 +114,18 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
     window.location.assign(`/projects/${project.id}`);
   }
 
+  async function renameProject(project: Project, projectName: string) {
+    const response = await fetch(`${apiBase}/v1/projects/${encodeURIComponent(project.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: projectName }) });
+    if (!response.ok) throw new Error(await responseMessage(response));
+    await loadWorkspace(apiBase, true);
+  }
+
+  async function deleteProject(project: Project) {
+    const response = await fetch(`${apiBase}/v1/projects/${encodeURIComponent(project.id)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await responseMessage(response));
+    await loadWorkspace(apiBase, true);
+  }
+
   function openMediaProviderSettings() {
     setSettingsSection("multimodal");
     setSettingsOpen(true);
@@ -145,9 +157,9 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
   const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={installationsError} installationLoadState={appInstallationLoadState} onStartProject={openCreateProject} onUpdated={reloadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
-    : tab === "studio" ? <Studio apiBase={apiBase} installations={installations} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onStartProject={openCreateProject} projects={projects} />
+    : tab === "studio" ? <Studio apiBase={apiBase} apps={installations.filter((app) => app.manifest.type === "project")} installations={installations} name={name} onAppChange={setAppID} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onDeleteProject={deleteProject} onNameChange={setName} onRenameProject={renameProject} onStartProject={openCreateProject} onSubmit={createProject} projects={projects} selectedApp={appID} />
       : tab === "worlds" ? <WorldsClient />
-        : tab === "projects" ? <ProjectsPage apps={installations.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onNameChange={setName} onSubmit={createProject} projects={projects} selectedApp={appID} />
+        : tab === "projects" ? <ProjectsPage apps={installations.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onDeleteProject={deleteProject} onNameChange={setName} onRenameProject={renameProject} onSubmit={createProject} projects={projects} selectedApp={appID} />
           : <MediaLibraryPanel initialAssetID={initialAssetID} onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-5">
@@ -176,8 +188,12 @@ function Tab({ active, children, href, onNavigate, tab }: { active: boolean; chi
   return <a aria-current={active ? "page" : undefined} className={active ? "rounded-lg bg-accent px-2 py-1.5 text-[11px] font-semibold text-accent-foreground sm:px-2.5 sm:text-xs" : "rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground sm:px-2.5 sm:text-xs"} href={href} onClick={(event) => onNavigate(tab, href, event)}>{children}</a>;
 }
 
-function Projects({ apps, name, onAppChange, onNameChange, onSubmit, projects, selectedApp }: { apps: App[]; name: string; onAppChange: (value: string) => void; onNameChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
-  return <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-4"><form className="group flex min-h-56 min-w-0 flex-col rounded-xl border-2 border-dashed border-primary/35 bg-card p-5 transition hover:border-primary hover:bg-accent/40" onSubmit={onSubmit}><span className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><FolderPlus className="size-5" /></span><div className="mt-auto min-w-0"><p className="text-base font-semibold">新建项目</p><p className="mt-1 text-xs leading-5 text-muted-foreground">选择一个 App，给你的新创作命名。</p><div className="mt-4 grid min-w-0 gap-2"><div className="min-w-0"><label className="mb-1 block text-[11px] font-medium" htmlFor="project-name">项目名称</label><Input className="h-8 bg-background text-xs" id="project-name" onChange={(event) => onNameChange(event.target.value)} placeholder="例如：夏季品牌片" value={name} /></div><AppPicker apps={apps} onChange={onAppChange} selectedApp={selectedApp} /><Button className="mt-1 h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/85" disabled={!name.trim() || !selectedApp} type="submit"><Plus className="size-3.5" />创建项目</Button></div></div></form>{projects.map((project) => <Link className="group min-w-0" href={`/projects/${project.id}`} key={project.id}><Card className="flex min-h-56 h-full min-w-0 flex-col border-transparent bg-card p-5 shadow-sm transition-all group-hover:-translate-y-1 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><div className="flex items-start justify-between"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><AppWindow className="size-5" /></span><Badge className="border-primary/20 bg-accent/60 text-accent-foreground">{project.appId}</Badge></div><div className="mt-auto"><p className="truncate text-base font-semibold">{project.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{project.id}</p><div className="mt-4 flex items-center gap-2 text-xs font-medium text-primary"><span className="size-1.5 rounded-full bg-primary" />继续创作</div></div></Card></Link>)}</div>;
+function Projects({ apps, name, onAppChange, onDeleteProject, onNameChange, onRenameProject, onSubmit, projects, selectedApp }: { apps: App[]; name: string; onAppChange: (value: string) => void; onDeleteProject: (project: Project) => Promise<void>; onNameChange: (value: string) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
+  return <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-4"><NewProjectCard apps={apps} name={name} onAppChange={onAppChange} onNameChange={onNameChange} onSubmit={onSubmit} selectedApp={selectedApp} />{projects.map((project) => <div className="group relative min-w-0" key={project.id}><Link className="block h-full" href={`/projects/${project.id}`}><Card className="flex min-h-56 h-full min-w-0 flex-col border-transparent bg-card p-5 shadow-sm transition-all group-hover:-translate-y-1 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><div className="flex items-start justify-between"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><AppWindow className="size-5" /></span><Badge className="border-primary/20 bg-accent/60 text-accent-foreground">{project.appId}</Badge></div><div className="mt-auto"><p className="truncate text-base font-semibold">{project.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{project.id}</p><div className="mt-4 flex items-center gap-2 text-xs font-medium text-primary"><span className="size-1.5 rounded-full bg-primary" />继续创作</div></div></Card></Link><div className="absolute right-3 top-3"><CardMoreMenu itemName={project.name} itemType="项目" onDelete={() => onDeleteProject(project)} onRename={(projectName) => onRenameProject(project, projectName)} /></div></div>)}</div>;
+}
+
+function NewProjectCard({ apps, name, onAppChange, onNameChange, onSubmit, selectedApp }: { apps: App[]; name: string; onAppChange: (value: string) => void; onNameChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; selectedApp: string }) {
+  return <form className="group flex min-h-56 min-w-0 flex-col rounded-xl border-2 border-dashed border-primary/35 bg-card p-5 transition hover:border-primary hover:bg-accent/40" onSubmit={onSubmit}><span className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><FolderPlus className="size-5" /></span><div className="mt-auto min-w-0"><p className="text-base font-semibold">新建项目</p><p className="mt-1 text-xs leading-5 text-muted-foreground">选择一个 App，给你的新创作命名。</p><div className="mt-4 grid min-w-0 gap-2"><div className="min-w-0"><label className="mb-1 block text-[11px] font-medium" htmlFor="project-name">项目名称</label><Input className="h-8 bg-background text-xs" id="project-name" onChange={(event) => onNameChange(event.target.value)} placeholder="例如：夏季品牌片" value={name} /></div><AppPicker apps={apps} onChange={onAppChange} selectedApp={selectedApp} /><Button className="mt-1 h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/85" disabled={!name.trim() || !selectedApp} type="submit"><Plus className="size-3.5" />创建项目</Button></div></div></form>;
 }
 
 const HOME_INSPIRATIONS = [
@@ -303,42 +319,28 @@ function promptTemplatesForToday() {
   return templates.slice(0, 2);
 }
 
-function Studio({ apiBase, installations, onCompose, onStartProject, projects }: { apiBase: string; installations: Installation[]; onCompose: (text: string) => void; onStartProject: (app: Installation) => void; projects: Project[] }) {
+function Studio({ apiBase, apps, installations, name, onAppChange, onCompose, onDeleteProject, onNameChange, onRenameProject, onStartProject, onSubmit, projects, selectedApp }: { apiBase: string; apps: Installation[]; installations: Installation[]; name: string; onAppChange: (value: string) => void; onCompose: (text: string) => void; onDeleteProject: (project: Project) => Promise<void>; onNameChange: (value: string) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
   const recentProjects = projects.slice(0, 4);
   const [promptTemplates, setPromptTemplates] = useState(() => STUDIO_PROMPT_TEMPLATES.slice(0, 2));
   useEffect(() => setPromptTemplates(promptTemplatesForToday()), []);
   return <div className="pb-10">
-    <section className="relative min-h-[21rem] overflow-hidden pb-8 pt-7 sm:min-h-[23rem]">
+    <section className="relative min-h-[17rem] overflow-hidden pb-8 pt-7 sm:min-h-[19rem]">
       <WebGLStudioHero />
       <div className="relative z-10 max-w-xl">
       <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">早安 · 创作台</p>
       <h1 className="mt-3 text-3xl font-semibold leading-tight">你的 AI 创作工作站</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">{inspirationForToday()}</p>
-      <div className="mt-7">
-        <div><h2 className="text-lg font-semibold">今天想做什么？</h2><p className="mt-1 text-sm text-muted-foreground">从一个你已经有感觉的画面开始。</p></div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">{promptTemplates.map(({ description, icon: Icon, prompt, title }) => <button aria-label={`从「${title}」开始`} className="group flex min-h-[7.75rem] flex-col rounded-lg border bg-card p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={title} onClick={() => onCompose(prompt)} type="button"><span className="grid size-7 place-items-center rounded-sm bg-accent text-accent-foreground"><Icon className="size-3.5" /></span><p className="mt-2 text-sm font-semibold">{title}</p><p className="mt-0.5 line-clamp-2 text-xs leading-4 text-muted-foreground">{description}</p><span className="mt-auto flex items-center gap-1.5 pt-2 text-xs font-medium text-primary">从这里开始<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></span></button>)}</div>
-      </div>
+      <div className="mt-7 flex max-w-2xl flex-col">{promptTemplates.map(({ description, icon: Icon, prompt, title }) => <button aria-label={`从「${title}」开始`} className="group flex min-w-0 items-center gap-3 border-b border-border/80 py-3 text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={title} onClick={() => onCompose(prompt)} type="button"><span className="grid size-7 shrink-0 place-items-center rounded-sm bg-accent text-accent-foreground"><Icon className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="text-sm font-semibold">{title}</span><span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div>
       </div>
     </section>
-    <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/worlds">管理世界观<ArrowRight className="size-3.5" /></Link>} description="为角色、品牌或故事建立持续上下文，让每一次创作从同一个世界出发。" title="世界观" /><RecentWorlds apiBase={apiBase} /></section>
-    <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps">管理应用<ArrowRight className="size-3.5" /></Link>} description="选择一种创作能力，立即开始一个新的作品。" title="创作应用" />{installations.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{installations.map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div> : <EmptyHomeApps />}</section>
-    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">查看全部<ArrowRight className="size-3.5" /></Link>} description="从上次停下的地方继续。" title="继续创作" />{recentProjects.length ? <RecentProjects apiBase={apiBase} projects={recentProjects} /> : <HomeEmptyState action={<Link className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground" href="/projects"><FolderPlus className="size-3.5" />新建项目</Link>} description="选择一款已安装的 App，建立你的第一个创作空间。" title="从一个项目开始" />}</section>
+    <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps">管理应用<ArrowRight className="size-3.5" /></Link>} description="选择一种创作能力，立即开始一个新的作品。" title="创作应用" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><WorldsAppCard />{installations.map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div></section>
+    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">查看全部<ArrowRight className="size-3.5" /></Link>} description="整理所有创作空间，新项目从这里开始。" title="项目列表" /><RecentProjects apiBase={apiBase} apps={apps} name={name} onAppChange={onAppChange} onDeleteProject={onDeleteProject} onNameChange={onNameChange} onRenameProject={onRenameProject} onSubmit={onSubmit} projects={recentProjects} selectedApp={selectedApp} /></section>
     <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/media">打开素材库<ArrowRight className="size-3.5" /></Link>} description="最近加入工作台的图片、视频和音频，可直接带入下一次创作。" title="最近使用的资源" /><RecentAssets apiBase={apiBase} /></section>
   </div>;
 }
 
-function RecentWorlds({ apiBase }: { apiBase: string }) {
-  const [worlds, setWorlds] = useState<WorldSummary[]>([]);
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
-  useEffect(() => { let active = true; void fetch(`${apiBase}/v1/worlds?limit=6`, { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error(); const body = await response.json() as { items?: WorldSummary[] }; return body.items ?? []; }).then((items) => { if (active) { setWorlds(items); setState("ready"); } }).catch(() => { if (active) setState("error"); }); return () => { active = false; }; }, [apiBase]);
-  if (state === "loading") return <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div className="h-40 animate-pulse rounded-lg border bg-card" key={index} />)}</div>;
-  const recentWorlds = state === "error" ? [] : worlds.slice(0, 5);
-  return <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{recentWorlds.map((world) => <Link className="group" href={`/worlds/${encodeURIComponent(world.id)}`} key={world.id}><Card className="overflow-hidden transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]">{world.coverAssetId ? <img alt={`${world.name} 封面`} className="aspect-[16/7] w-full border-b object-cover" src={`${apiBase}/v1/media/assets/${encodeURIComponent(world.coverAssetId)}/content`} /> : <div className="grid aspect-[16/7] place-items-center border-b bg-muted text-muted-foreground"><Globe2 className="size-5" /></div>}<CardContent className="p-3"><p className="truncate text-sm font-semibold">{world.name}</p><p className="mt-1 truncate text-[10px] text-muted-foreground">{worldKindLabels[world.type]}</p><p className="mt-2 text-xs font-medium text-primary">进入世界观</p></CardContent></Card></Link>)}<NewWorldPlaceholder /></div>;
-}
-
-function RecentProjects({ apiBase, projects }: { apiBase: string; projects: Project[] }) {
-  const gridClass = projects.length === 1 ? "grid max-w-60 grid-cols-1 gap-3" : "grid grid-cols-2 gap-3 lg:grid-cols-4";
-  return <div className={gridClass}>{projects.map((project) => <Link className="group" href={`/projects/${project.id}`} key={project.id}><Card className="overflow-hidden transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]"><ProjectCoverPreview apiBase={apiBase} project={project} /><CardContent className="p-3"><p className="truncate text-sm font-semibold">{project.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{project.appId}</p><p className="mt-2 text-xs font-medium text-primary">继续编辑</p></CardContent></Card></Link>)}</div>;
+function RecentProjects({ apiBase, apps, name, onAppChange, onDeleteProject, onNameChange, onRenameProject, onSubmit, projects, selectedApp }: { apiBase: string; apps: App[]; name: string; onAppChange: (value: string) => void; onDeleteProject: (project: Project) => Promise<void>; onNameChange: (value: string) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
+  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"><NewProjectCard apps={apps} name={name} onAppChange={onAppChange} onNameChange={onNameChange} onSubmit={onSubmit} selectedApp={selectedApp} />{projects.map((project) => <div className="group relative" key={project.id}><Link className="block" href={`/projects/${project.id}`}><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><ProjectCoverPreview apiBase={apiBase} project={project} /><CardContent className="p-3"><p className="truncate text-sm font-semibold">{project.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{project.appId}</p><p className="mt-2 text-xs font-medium text-primary">继续编辑</p></CardContent></Card></Link><div className="absolute right-2 top-2"><CardMoreMenu itemName={project.name} itemType="项目" onDelete={() => onDeleteProject(project)} onRename={(projectName) => onRenameProject(project, projectName)} /></div></div>)}</div>;
 }
 
 function ProjectCoverPreview({ apiBase, project }: { apiBase: string; project: Project }) {
@@ -351,8 +353,8 @@ function ProjectCoverPreview({ apiBase, project }: { apiBase: string; project: P
   return <div className="flex aspect-[16/7] items-center justify-between border-b bg-muted p-3"><span className="grid size-7 place-items-center rounded-sm bg-card text-muted-foreground shadow-sm"><AppWindow className="size-3.5" /></span><span className="rounded-xs border bg-card px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">PROJECT</span></div>;
 }
 
-function ProjectsPage({ apps, name, onAppChange, onNameChange, onSubmit, projects, selectedApp }: { apps: Installation[]; name: string; onAppChange: (value: string) => void; onNameChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
-  return <><SectionTitle count={`${projects.length} 个项目`} description="整理所有创作空间，新项目从这里开始。" title="项目" /><Projects apps={apps} name={name} onAppChange={onAppChange} onNameChange={onNameChange} onSubmit={onSubmit} projects={projects} selectedApp={selectedApp} /></>;
+function ProjectsPage({ apps, name, onAppChange, onDeleteProject, onNameChange, onRenameProject, onSubmit, projects, selectedApp }: { apps: Installation[]; name: string; onAppChange: (value: string) => void; onDeleteProject: (project: Project) => Promise<void>; onNameChange: (value: string) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
+  return <><SectionTitle count={`${projects.length} 个项目`} description="整理所有创作空间，新项目从这里开始。" title="项目" /><Projects apps={apps} name={name} onAppChange={onAppChange} onDeleteProject={onDeleteProject} onNameChange={onNameChange} onRenameProject={onRenameProject} onSubmit={onSubmit} projects={projects} selectedApp={selectedApp} /></>;
 }
 
 function RecentAssets({ apiBase }: { apiBase: string }) {
@@ -360,9 +362,21 @@ function RecentAssets({ apiBase }: { apiBase: string }) {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [preview, setPreview] = useState<Asset | null>(null);
   useEffect(() => { let active = true; void fetch(`${apiBase}/v1/media/assets`, { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error(); return response.json() as Promise<Asset[]>; }).then((items) => { if (active) { setAssets(items.slice(0, 5)); setState("ready"); } }).catch(() => { if (active) setState("error"); }); return () => { active = false; }; }, [apiBase]);
+  async function renameAsset(asset: Asset, name: string) {
+    const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    if (!response.ok) throw new Error(await responseMessage(response));
+    const updated = await response.json() as Asset;
+    setAssets((items) => items.map((item) => item.id === asset.id ? updated : item));
+  }
+  async function deleteAsset(asset: Asset) {
+    const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await responseMessage(response));
+    setAssets((items) => items.filter((item) => item.id !== asset.id));
+    if (preview?.id === asset.id) setPreview(null);
+  }
   if (state === "loading") return <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{Array.from({ length: 5 }, (_, index) => <div className="aspect-square animate-pulse rounded-sm bg-muted" key={index} />)}</div>;
   if (state === "error" || !assets.length) return <HomeEmptyState description="上传素材、登记研究资料或在任一 App 中生成内容后，它们会出现在这里。" icon={Box} title="还没有可展示的资源" />;
-  return <>{preview && <AssetPreviewDialog apiBase={apiBase} asset={preview} assets={assets} onClose={() => setPreview(null)} />}<div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{assets.map((asset) => <button aria-label={`预览 ${asset.name}`} className="group min-w-0 text-left" key={asset.id} onClick={() => setPreview(asset)} type="button"><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35"><AssetPreview apiBase={apiBase} asset={asset} /><CardContent className="p-2.5"><p className="truncate text-xs font-medium">{asset.name}</p><p className="mt-1 text-[10px] text-muted-foreground">{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "transcript" ? "转写" : asset.kind === "reference" ? "资料" : "音频"}</p></CardContent></Card></button>)}</div></>;
+  return <>{preview && <AssetPreviewDialog apiBase={apiBase} asset={preview} assets={assets} onClose={() => setPreview(null)} />}<div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{assets.map((asset) => <div className="group relative min-w-0" key={asset.id}><button aria-label={`预览 ${asset.name}`} className="block w-full text-left" onClick={() => setPreview(asset)} type="button"><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35"><AssetPreview apiBase={apiBase} asset={asset} /><CardContent className="p-2.5"><p className="truncate text-xs font-medium">{asset.name}</p><p className="mt-1 text-[10px] text-muted-foreground">{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "transcript" ? "转写" : asset.kind === "reference" ? "资料" : "音频"}</p></CardContent></Card></button><div className="absolute right-2 top-2"><CardMoreMenu itemName={asset.name} itemType="素材" onDelete={() => deleteAsset(asset)} onRename={(name) => renameAsset(asset, name)} /></div></div>)}</div></>;
 }
 
 function AssetPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
@@ -374,8 +388,8 @@ function AssetPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
   return <div className="grid aspect-square place-items-center bg-muted text-primary">{icon}</div>;
 }
 
-function NewWorldPlaceholder() {
-  return <Link className="group" href="/worlds"><Card className="flex h-full min-h-40 flex-col justify-between border-dashed bg-transparent p-3 shadow-none transition hover:-translate-y-0.5 hover:border-primary/50 hover:bg-accent/25"><span className="grid size-8 place-items-center rounded-sm bg-accent text-accent-foreground"><Plus className="size-4" /></span><div><p className="text-sm font-semibold">新建世界观</p><p className="mt-1 text-[10px] leading-4 text-muted-foreground">从角色、品牌或故事设定开始。</p><span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary">开始建立<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></span></div></Card></Link>;
+function WorldsAppCard() {
+  return <Link aria-label="打开世界观" className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" href="/worlds"><div className="flex min-w-0 items-start gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-xl border border-primary/10 bg-primary/10 text-primary transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground"><Globe2 aria-hidden="true" className="size-5" strokeWidth={1.8} /></span><div className="min-w-0"><p className="truncate text-sm font-semibold">世界观</p><p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">为角色、品牌或故事建立持续上下文，让每一次创作从同一个世界出发。</p></div></div><span className="mt-auto flex items-center justify-end pt-3 text-primary"><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" /></span></Link>;
 }
 
 function StudioAppCard({ app, onOpen }: { app: Installation; onOpen: () => void }) {
@@ -399,10 +413,6 @@ function SectionHeading({ action, description, title }: { action?: React.ReactNo
 
 function HomeEmptyState({ action, description, icon: Icon, title }: { action?: React.ReactNode; description: string; icon?: LucideIcon; title: string }) {
   return <div className="flex min-h-24 items-center justify-between gap-5 border-y border-border/80 py-4"><div className="flex min-w-0 items-center gap-3">{Icon && <span className="grid size-9 shrink-0 place-items-center rounded-sm bg-muted"><Icon className="size-4 text-muted-foreground" /></span>}<div><p className="text-sm font-semibold">{title}</p><p className="mt-1 text-xs text-muted-foreground">{description}</p></div></div>{action}</div>;
-}
-
-function EmptyHomeApps() {
-  return <div className="flex min-h-32 max-w-[34rem] flex-col items-center justify-center gap-3 border-y border-border/80 py-5 text-center"><span className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground"><Store className="size-5" /></span><div><p className="text-sm font-medium">还没有已安装的 App</p><p className="mt-1 text-xs text-muted-foreground">去 Apps 挑一个顺手的，装好就能从这里开工。</p></div><Link className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/85" href="/apps"><Store className="size-3.5" />浏览 Apps</Link></div>;
 }
 
 function CreateProjectFromAppDialog({ app, onClose, onCreate }: { app: Installation; onClose: () => void; onCreate: (projectName: string) => Promise<void> }) {
