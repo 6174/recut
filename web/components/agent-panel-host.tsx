@@ -27,7 +27,7 @@ export function AgentPanelHost({ children }: Readonly<{ children: React.ReactNod
     <div className="relative flex min-h-screen min-w-0 flex-col overflow-hidden bg-background md:h-screen" ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
       {isDragging && <div aria-hidden="true" className="absolute inset-0 z-[5] cursor-col-resize" />}
-      <button aria-label="拖动调整对话面板宽度" className="group absolute bottom-0 left-[calc(var(--side-panel-width)_-_0.25rem)] z-10 hidden w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none md:block" onPointerDown={handlePointerDown} style={{ top: workspaceHeaderHeight }} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button>
+      <button aria-label="拖动调整对话面板宽度" className="group absolute bottom-0 left-[calc(var(--side-panel-width)_-_0.25rem)] z-10 hidden w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none md:block" onPointerDown={handlePointerDown} style={{ top: workspaceHeaderHeight }} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[oklch(0.9_0_0)] transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button>
       <aside className="absolute bottom-0 left-0 z-0 hidden md:block" style={{ top: workspaceHeaderHeight, width: "var(--side-panel-width)" }}>
         <ProjectAgentPanel apiBase={apiBase} draft={draft} pageContext={pageContext} projectID={projectID} servicePhase={servicePhase} />
       </aside>
