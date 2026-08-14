@@ -336,6 +336,10 @@ func (s *Server) updateMediaAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteMediaAsset(w http.ResponseWriter, r *http.Request) {
+	if err := s.worldsStore().ArchiveEvidenceForAsset(r.PathValue("id")); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	if err := s.media.DeleteAsset(r.PathValue("id")); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

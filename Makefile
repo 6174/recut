@@ -185,4 +185,10 @@ editor-ui-build: ## Build the editor UI bundle included in the builtin editor Ap
 	if [ ! -d "$(CURDIR)/apps/editor/ui/node_modules" ]; then (cd "$(CURDIR)/apps/editor/ui" && npm ci); fi; \
 	(cd "$(CURDIR)/apps/editor/ui" && npm run build)
 
-check: service-test service-vet web-build ## Run all service and web verification.
+editor-model-test: ## L0 Model API 测试：AI op 引擎、D1 关键帧、统一日志 undo/redo/conflict、aiLock。
+	node apps/editor/scripts/test-model-api.js
+
+editor-e2e: ## 编辑器 UI Playwright 端到端（含 recut 项目实时同步）。
+	cd apps/editor/ui && npx playwright test
+
+check: service-test service-vet web-build editor-model-test ## Run all service and web verification.

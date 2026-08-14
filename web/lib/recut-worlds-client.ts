@@ -41,7 +41,26 @@ export type WorldEntitySummary = {
 
 export type WorldEntityRelation = { id: string; type: string; fromEntityId: string; toEntityId: string };
 
-export type WorldAssetReference = { id?: string; assetId: string; role: string; label?: string; entityId?: string };
+export type WorldEvidenceSegment = { startSec: number; endSec: number };
+
+// A World remembers media as evidence, rather than treating it as an opaque
+// attachment. `role` remains optional for legacy App callers only.
+export type WorldEvidence = {
+  id?: string;
+  assetId: string;
+  assetContentHash?: string;
+  modality: "image" | "video" | "audio" | "text" | "research";
+  purpose: WorldEvidencePurpose;
+  status: WorldEvidenceStatus;
+  collection?: string;
+  segment?: WorldEvidenceSegment;
+  role?: string;
+  label?: string;
+  entityId?: string;
+};
+export type WorldAssetReference = WorldEvidence;
+export type WorldEvidencePurpose = "identity" | "appearance" | "wardrobe" | "voice" | "motion" | "scene" | "mood" | "visual_style" | "sound_style" | "narrative" | "rule_evidence";
+export type WorldEvidenceStatus = "primary" | "supporting" | "counterexample" | "archived";
 
 export type WorldEntity = WorldEntitySummary & {
   content: Record<string, unknown>;
@@ -157,7 +176,13 @@ export type RecutWorldsClient = {
     upsert(input: { worldId: string; entityId?: string; kind: EntityKind; title: string; summary?: string; content: Record<string, unknown>; expectedRevisionId?: string }): Promise<WorldEntity>;
   };
   references: {
-    attach(input: { worldId: string; entityId?: string; assetId: string; role: string; label?: string; expectedRevisionId?: string }): Promise<WorldAssetReference>;
+    attach(input: { worldId: string; entityId?: string; assetId: string; role: string; label?: string; expectedRevisionId?: string }): Promise<WorldEvidence>;
+  };
+  evidence: {
+    list(input: { worldId: string }): Promise<WorldEvidence[]>;
+    attach(input: { worldId: string; entityId?: string; assetId: string; purpose: WorldEvidencePurpose; status?: Exclude<WorldEvidenceStatus, "archived">; collection?: string; label?: string; segment?: WorldEvidenceSegment; expectedRevisionId?: string }): Promise<WorldEvidence>;
+    update(input: { worldId: string; evidenceId: string; purpose: WorldEvidencePurpose; status: Exclude<WorldEvidenceStatus, "archived">; label?: string; expectedRevisionId?: string }): Promise<WorldEvidence>;
+    archive(input: { worldId: string; evidenceId: string; expectedRevisionId?: string }): Promise<void>;
   };
   resolve(input: { worldId: string; revisionId?: string; selection: WorldSelection }): Promise<CreationContext>;
   project: {
@@ -198,6 +223,18 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
     },
     references: {
       attach: ({ worldId, ...rest }) => requestJSON<WorldAssetReference>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/references`, { method: "POST", body: rest }),
+    },
+    evidence: {
+      list: async ({ worldId }) => {
+        const page = await requestJSON<{ items: WorldEvidence[] }>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/evidence`);
+        return page.items;
+      },
+      attach: ({ worldId, ...rest }) => requestJSON<WorldEvidence>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/evidence`, { method: "POST", body: rest }),
+      update: ({ worldId, evidenceId, ...rest }) => requestJSON<WorldEvidence>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/evidence/${encodeURIComponent(evidenceId)}`, { method: "PATCH", body: rest }),
+      archive: async ({ worldId, evidenceId, expectedRevisionId }) => {
+        const response = await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/evidence/${encodeURIComponent(evidenceId)}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevisionId }) });
+        if (!response.ok) throw await errorFrom(response);
+      },
     },
     resolve: ({ worldId, ...rest }) => requestJSON<CreationContext>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/resolve`, { method: "POST", body: rest }),
     project: {

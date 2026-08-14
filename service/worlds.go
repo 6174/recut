@@ -27,7 +27,7 @@ import (
 type WorldKind string
 
 const (
-	WorldCharacterIP WorldKind = "character_ip"
+	WorldCharacterIP  WorldKind = "character_ip"
 	WorldCreatorBrand WorldKind = "creator_brand"
 	WorldBrand        WorldKind = "brand"
 	WorldFiction      WorldKind = "fiction_world"
@@ -61,6 +61,22 @@ var assetReferenceRoles = map[string]bool{
 	"style_reference": true, "story_reference": true, "brand_reference": true,
 }
 
+// Evidence describes why an asset belongs to a World. Role is kept solely as
+// the legacy transport shape; purpose, modality and status are the Canon.
+var evidencePurposes = map[string]bool{
+	"identity": true, "appearance": true, "wardrobe": true, "voice": true,
+	"motion": true, "scene": true, "mood": true, "visual_style": true,
+	"sound_style": true, "narrative": true, "rule_evidence": true,
+}
+
+var evidenceStatuses = map[string]bool{
+	"primary": true, "supporting": true, "counterexample": true, "archived": true,
+}
+
+var evidenceModalities = map[string]bool{
+	"image": true, "video": true, "audio": true, "text": true, "research": true,
+}
+
 // WorldSelection is the explicit selection a consumer passes to resolve or
 // binding. It never implies a global active World; worldId always accompanies it.
 type WorldSelection struct {
@@ -91,7 +107,7 @@ type WorldRevisionView struct {
 
 type WorldDetail struct {
 	WorldSummary
-	Identity             map[string]any   `json:"identity"`
+	Identity             map[string]any    `json:"identity"`
 	Revision             WorldRevisionView `json:"revision"`
 	AvailableEntityKinds []WorldEntityKind `json:"availableEntityKinds"`
 }
@@ -113,12 +129,30 @@ type WorldEntityRelation struct {
 }
 
 type WorldAssetReference struct {
-	ID       string `json:"id,omitempty"`
-	AssetID  string `json:"assetId"`
-	Role     string `json:"role"`
-	Label    string `json:"label,omitempty"`
-	EntityID string `json:"entityId,omitempty"`
+	ID               string                `json:"id,omitempty"`
+	AssetID          string                `json:"assetId"`
+	AssetContentHash string                `json:"assetContentHash,omitempty"`
+	Modality         string                `json:"modality"`
+	Purpose          string                `json:"purpose"`
+	Status           string                `json:"status"`
+	Collection       string                `json:"collection,omitempty"`
+	Segment          *WorldEvidenceSegment `json:"segment,omitempty"`
+	Role             string                `json:"role,omitempty"`
+	Label            string                `json:"label,omitempty"`
+	EntityID         string                `json:"entityId,omitempty"`
 }
+
+// WorldEvidenceSegment pins the meaningful part of a long audio or video
+// asset. A revision therefore freezes both bytes and the chosen moment.
+type WorldEvidenceSegment struct {
+	StartSec float64 `json:"startSec"`
+	EndSec   float64 `json:"endSec"`
+}
+
+// WorldEvidence is the product name for the previously under-specified asset
+// reference. The alias preserves existing App/runtime callers while exposing a
+// single richer Canon model everywhere else.
+type WorldEvidence = WorldAssetReference
 
 type WorldEntity struct {
 	WorldEntitySummary
@@ -150,9 +184,9 @@ type ResolvedWorldEntities struct {
 }
 
 type CreationContext struct {
-	World       WorldContextIdentity `json:"world"`
-	Selection   WorldSelection       `json:"selection"`
-	Identity    map[string]any       `json:"identity"`
+	World       WorldContextIdentity  `json:"world"`
+	Selection   WorldSelection        `json:"selection"`
+	Identity    map[string]any        `json:"identity"`
 	Entities    ResolvedWorldEntities `json:"entities"`
 	Constraints WorldConstraints      `json:"constraints"`
 	References  []WorldAssetReference `json:"references"`
@@ -180,16 +214,16 @@ type WorldsError struct {
 func (e *WorldsError) Error() string { return e.Message }
 
 const (
-	WorldsErrNotFound             = "WORLD_NOT_FOUND"
-	WorldsErrEntityNotFound       = "ENTITY_NOT_FOUND"
-	WorldsErrEntityWorldMismatch  = "ENTITY_WORLD_MISMATCH"
-	WorldsErrRevisionNotFound     = "WORLD_REVISION_NOT_FOUND"
-	WorldsErrRevisionConflict     = "WORLD_REVISION_CONFLICT"
-	WorldsErrContextInvalid       = "WORLD_CONTEXT_INVALID"
-	WorldsErrAssetNotFound        = "ASSET_NOT_FOUND"
-	WorldsErrAssetNotReady        = "ASSET_NOT_READY"
-	WorldsErrProjectAlreadyBound  = "PROJECT_WORLD_ALREADY_BOUND"
-	WorldsErrAccessDenied         = "WORLD_ACCESS_DENIED"
+	WorldsErrNotFound            = "WORLD_NOT_FOUND"
+	WorldsErrEntityNotFound      = "ENTITY_NOT_FOUND"
+	WorldsErrEntityWorldMismatch = "ENTITY_WORLD_MISMATCH"
+	WorldsErrRevisionNotFound    = "WORLD_REVISION_NOT_FOUND"
+	WorldsErrRevisionConflict    = "WORLD_REVISION_CONFLICT"
+	WorldsErrContextInvalid      = "WORLD_CONTEXT_INVALID"
+	WorldsErrAssetNotFound       = "ASSET_NOT_FOUND"
+	WorldsErrAssetNotReady       = "ASSET_NOT_READY"
+	WorldsErrProjectAlreadyBound = "PROJECT_WORLD_ALREADY_BOUND"
+	WorldsErrAccessDenied        = "WORLD_ACCESS_DENIED"
 )
 
 func worldsError(code, message string) *WorldsError {
@@ -390,7 +424,7 @@ func (w *WorldStore) CreateWorld(input CreateWorldInput) (WorldDetail, error) {
 		return WorldDetail{}, err
 	}
 	if input.CoverAssetID != "" {
-		if err := w.validateAsset(input.CoverAssetID); err != nil {
+		if _, _, err := w.validateEvidenceAsset(input.CoverAssetID); err != nil {
 			return WorldDetail{}, err
 		}
 	}
@@ -614,20 +648,16 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 	if err := relationRows.Err(); err != nil {
 		return WorldEntity{}, err
 	}
-	refRows, err := db.Query("select id, asset_id, role, label, entity_id from world_asset_refs where world_id = ? and entity_id = ? order by sort_order, created_at", worldID, entityID)
+	refRows, err := db.Query("select id, asset_id, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, entity_id from world_asset_refs where world_id = ? and entity_id = ? and archived_at is null order by sort_order, created_at", worldID, entityID)
 	if err != nil {
 		return WorldEntity{}, err
 	}
 	defer refRows.Close()
 	entity.References = []WorldAssetReference{}
 	for refRows.Next() {
-		var reference WorldAssetReference
-		var refEntity sql.NullString
-		if err := refRows.Scan(&reference.ID, &reference.AssetID, &reference.Role, &reference.Label, &refEntity); err != nil {
+		reference, err := scanWorldEvidence(refRows)
+		if err != nil {
 			return WorldEntity{}, err
-		}
-		if refEntity.Valid {
-			reference.EntityID = refEntity.String
 		}
 		entity.References = append(entity.References, reference)
 	}
@@ -704,7 +734,25 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 }
 
 func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetReference, error) {
-	if !assetReferenceRoles[input.Role] {
+	if input.Purpose == "" {
+		input.Purpose = legacyPurpose(input.Role)
+	}
+	if input.Status == "" {
+		input.Status = "supporting"
+	}
+	if !evidencePurposes[input.Purpose] {
+		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid evidence purpose %q", input.Purpose))
+	}
+	if !evidenceStatuses[input.Status] {
+		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid evidence status %q", input.Status))
+	}
+	if input.Role == "" {
+		// The old unique key includes role. Make the invisible storage key follow
+		// purpose so one asset can honestly serve, for example, both appearance
+		// and wardrobe evidence without pretending those are the same fact.
+		input.Role = "evidence:" + input.Purpose
+	}
+	if !assetReferenceRoles[input.Role] && !strings.HasPrefix(input.Role, "evidence:") {
 		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid asset reference role %q", input.Role))
 	}
 	if strings.TrimSpace(input.AssetID) == "" {
@@ -722,8 +770,15 @@ func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetRefe
 			return WorldAssetReference{}, err
 		}
 	}
-	if err := w.validateAsset(input.AssetID); err != nil {
+	modality, contentHash, err := w.validateEvidenceAsset(input.AssetID)
+	if err != nil {
 		return WorldAssetReference{}, err
+	}
+	if input.Modality != "" && input.Modality != modality {
+		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "evidence modality must match the selected asset")
+	}
+	if input.Segment != nil && (modality != "audio" && modality != "video" || input.Segment.StartSec < 0 || input.Segment.EndSec <= input.Segment.StartSec) {
+		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "a segment must be a valid audio or video time range")
 	}
 	tx, err := db.Begin()
 	if err != nil {
@@ -742,15 +797,23 @@ func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetRefe
 	if nextSort.Valid {
 		sortOrder = int(nextSort.Int64)
 	}
-	reference := WorldAssetReference{
-		AssetID: input.AssetID, Role: input.Role, Label: strings.TrimSpace(input.Label), EntityID: input.EntityID,
+	segmentJSON := ""
+	if input.Segment != nil {
+		encoded, err := json.Marshal(input.Segment)
+		if err != nil {
+			return WorldAssetReference{}, err
+		}
+		segmentJSON = string(encoded)
 	}
+	reference := WorldAssetReference{AssetID: input.AssetID, AssetContentHash: contentHash, Modality: modality,
+		Purpose: input.Purpose, Status: input.Status, Collection: strings.TrimSpace(input.Collection), Segment: input.Segment,
+		Role: input.Role, Label: strings.TrimSpace(input.Label), EntityID: input.EntityID}
 	reference.ID, err = newID()
 	if err != nil {
 		return WorldAssetReference{}, err
 	}
-	if _, err := tx.Exec("insert into world_asset_refs (id, world_id, entity_id, asset_id, role, label, sort_order, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-		reference.ID, input.WorldID, reference.EntityID, reference.AssetID, reference.Role, reference.Label, sortOrder, now); err != nil {
+	if _, err := tx.Exec("insert into world_asset_refs (id, world_id, entity_id, asset_id, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, sort_order, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		reference.ID, input.WorldID, reference.EntityID, reference.AssetID, reference.AssetContentHash, reference.Modality, reference.Purpose, reference.Status, reference.Collection, segmentJSON, reference.Role, reference.Label, sortOrder, now); err != nil {
 		return WorldAssetReference{}, err
 	}
 	revisionID, err := w.commitRevision(tx, input.WorldID, "reference.attached", input.CreatedBy)
@@ -765,20 +828,68 @@ func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetRefe
 	return reference, nil
 }
 
-// validateAsset enforces the invariant that every World reference points to an
-// existing, completed global Asset; binary content is never copied into Worlds.
-func (w *WorldStore) validateAsset(assetID string) error {
+// validateEvidenceAsset freezes the immutable binary identity and derives the
+// modality from the Asset truth; clients never get to claim one arbitrarily.
+func (w *WorldStore) validateEvidenceAsset(assetID string) (string, string, error) {
 	if w.media == nil {
-		return worldsError(WorldsErrAccessDenied, "media service is unavailable")
+		return "", "", worldsError(WorldsErrAccessDenied, "media service is unavailable")
 	}
 	asset, err := w.media.GetAsset(strings.TrimSpace(assetID))
 	if err != nil {
-		return worldsError(WorldsErrAssetNotFound, "asset not found")
+		return "", "", worldsError(WorldsErrAssetNotFound, "asset not found")
 	}
 	if asset.Status != "completed" {
-		return worldsError(WorldsErrAssetNotReady, "asset is not ready")
+		return "", "", worldsError(WorldsErrAssetNotReady, "asset is not ready")
 	}
-	return nil
+	modality := asset.Kind
+	if modality == "reference" {
+		modality = "research"
+	}
+	if !evidenceModalities[modality] {
+		return "", "", worldsError(WorldsErrContextInvalid, "asset cannot be used as World evidence")
+	}
+	return modality, asset.ContentHash, nil
+}
+
+func legacyPurpose(role string) string {
+	switch role {
+	case "character_reference":
+		return "appearance"
+	case "voice_reference":
+		return "voice"
+	case "location_reference":
+		return "scene"
+	case "style_reference":
+		return "visual_style"
+	case "story_reference":
+		return "narrative"
+	case "brand_reference":
+		return "identity"
+	default:
+		return "visual_style"
+	}
+}
+
+func scanWorldEvidence(row interface{ Scan(...any) error }) (WorldEvidence, error) {
+	var evidence WorldEvidence
+	var segmentJSON string
+	var entityID sql.NullString
+	if err := row.Scan(&evidence.ID, &evidence.AssetID, &evidence.AssetContentHash, &evidence.Modality, &evidence.Purpose, &evidence.Status, &evidence.Collection, &segmentJSON, &evidence.Role, &evidence.Label, &entityID); err != nil {
+		return WorldEvidence{}, err
+	}
+	if evidence.Purpose == "" {
+		evidence.Purpose = legacyPurpose(evidence.Role)
+	}
+	if evidence.Status == "" {
+		evidence.Status = "supporting"
+	}
+	if strings.TrimSpace(segmentJSON) != "" {
+		_ = json.Unmarshal([]byte(segmentJSON), &evidence.Segment)
+	}
+	if entityID.Valid {
+		evidence.EntityID = entityID.String
+	}
+	return evidence, nil
 }
 
 // rowQuerier is satisfied by both *sql.DB and *sql.Tx, so optimistic revision
@@ -834,6 +945,20 @@ func (w *WorldStore) commitRevision(tx *sql.Tx, worldID, reason, createdBy strin
 	}
 	if currentHash == hash && currentRevisionID != "" {
 		return currentRevisionID, nil
+	}
+	// A semantic edit can deliberately return Canon to a previous state (for
+	// example, archiving the last added reference). Revisions are immutable and
+	// de-duplicated by hash, so move the head back to that existing snapshot
+	// rather than attempting an identical insert.
+	var existingRevisionID string
+	if err := tx.QueryRow("select id from world_revisions where world_id = ? and canonical_hash = ?", worldID, hash).Scan(&existingRevisionID); err == nil {
+		now := iso(time.Now().UTC())
+		if _, err := tx.Exec("update worlds set current_revision_id = ?, updated_at = ? where id = ?", existingRevisionID, now, worldID); err != nil {
+			return "", err
+		}
+		return existingRevisionID, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
 	}
 	revisionID, err := newID()
 	if err != nil {
@@ -905,20 +1030,24 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 	}
 
 	references := []map[string]any{}
-	refRows, err := tx.Query("select id, asset_id, role, label, entity_id from world_asset_refs where world_id = ? order by id", worldID)
+	refRows, err := tx.Query("select id, asset_id, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, entity_id from world_asset_refs where world_id = ? and archived_at is null order by id", worldID)
 	if err != nil {
 		return "", "", err
 	}
 	for refRows.Next() {
-		var id, assetID, role, label string
-		var entityID sql.NullString
-		if err := refRows.Scan(&id, &assetID, &role, &label, &entityID); err != nil {
+		evidence, err := scanWorldEvidence(refRows)
+		if err != nil {
 			refRows.Close()
 			return "", "", err
 		}
-		record := map[string]any{"id": id, "assetId": assetID, "role": role, "label": label}
-		if entityID.Valid {
-			record["entityId"] = entityID.String
+		record := map[string]any{"id": evidence.ID, "assetId": evidence.AssetID, "assetContentHash": evidence.AssetContentHash,
+			"modality": evidence.Modality, "purpose": evidence.Purpose, "status": evidence.Status,
+			"collection": evidence.Collection, "role": evidence.Role, "label": evidence.Label}
+		if evidence.Segment != nil {
+			record["segment"] = evidence.Segment
+		}
+		if evidence.EntityID != "" {
+			record["entityId"] = evidence.EntityID
 		}
 		references = append(references, record)
 	}
@@ -1119,8 +1248,8 @@ func (w *WorldStore) projectContext(world WorldDetail, canonical map[string]any,
 		World: WorldContextIdentity{
 			ID: world.ID, Name: world.Name, RevisionID: revisionID, CanonicalHash: canonicalHash,
 		},
-		Selection: selection,
-		Identity:  world.Identity,
+		Selection:  selection,
+		Identity:   world.Identity,
 		References: []WorldAssetReference{},
 	}
 	entities, _ := canonical["entities"].(map[string]any)
@@ -1178,19 +1307,171 @@ func (w *WorldStore) projectContext(world WorldDetail, canonical map[string]any,
 	}
 	for _, raw := range references {
 		record, _ := raw.(map[string]any)
+		encoded, _ := json.Marshal(record)
 		reference := WorldAssetReference{}
-		reference.ID, _ = record["id"].(string)
-		reference.AssetID, _ = record["assetId"].(string)
-		reference.Role, _ = record["role"].(string)
-		reference.Label, _ = record["label"].(string)
-		reference.EntityID, _ = record["entityId"].(string)
-		entityMatches := includeAll || (reference.EntityID != "" && selected[reference.EntityID])
+		_ = json.Unmarshal(encoded, &reference)
+		entityMatches := reference.EntityID == "" || includeAll || selected[reference.EntityID]
 		roleMatches := desiredRoles[reference.Role] && reference.EntityID == ""
 		if entityMatches || roleMatches {
 			context.References = append(context.References, reference)
 		}
 	}
 	return context
+}
+
+// ListEvidence exposes all current evidence, including World-level evidence
+// that cannot appear in an individual entity response.
+func (w *WorldStore) ListEvidence(worldID string) ([]WorldEvidence, error) {
+	db, err := w.database()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.summary(db, worldID); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query("select id, asset_id, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, entity_id from world_asset_refs where world_id = ? and archived_at is null order by collection_name, sort_order, created_at", worldID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorldEvidence{}
+	for rows.Next() {
+		evidence, err := scanWorldEvidence(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, evidence)
+	}
+	return items, rows.Err()
+}
+
+// ArchiveEvidenceForAsset is called before a user removes an Asset. Archiving
+// is itself a Canon mutation: the next revision records why current creation
+// no longer uses the evidence, while older revisions remain reproducible.
+func (w *WorldStore) ArchiveEvidenceForAsset(assetID string) error {
+	db, err := w.database()
+	if err != nil {
+		return err
+	}
+	rows, err := db.Query("select distinct world_id from world_asset_refs where asset_id = ? and archived_at is null", assetID)
+	if err != nil {
+		return err
+	}
+	worldIDs := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		worldIDs = append(worldIDs, id)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, worldID := range worldIDs {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		now := iso(time.Now().UTC())
+		if _, err = tx.Exec("update world_asset_refs set evidence_status = 'archived', archived_at = ? where world_id = ? and asset_id = ? and archived_at is null", now, worldID, assetID); err == nil {
+			_, err = w.commitRevision(tx, worldID, "evidence.archived", "media")
+		}
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		logWorldEvent("world.evidence.archived", map[string]string{"worldId": worldID, "assetId": assetID})
+	}
+	return nil
+}
+
+// ArchiveEvidence removes one evidence item from the current Canon without
+// erasing the frozen revisions that already used it.
+func (w *WorldStore) ArchiveEvidence(input ArchiveEvidenceInput) error {
+	db, err := w.database()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
+		return err
+	}
+	now := iso(time.Now().UTC())
+	result, err := tx.Exec("update world_asset_refs set evidence_status = 'archived', archived_at = ? where id = ? and world_id = ? and archived_at is null", now, input.EvidenceID, input.WorldID)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return worldsError(WorldsErrNotFound, "world evidence not found")
+	}
+	if _, err := w.commitRevision(tx, input.WorldID, "evidence.archived", input.CreatedBy); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	logWorldEvent("world.evidence.archived", map[string]string{"worldId": input.WorldID, "evidenceId": input.EvidenceID})
+	return nil
+}
+
+// UpdateEvidence changes how an existing piece of media describes a World.
+// The media bytes and its frozen content hash remain untouched.
+func (w *WorldStore) UpdateEvidence(input UpdateEvidenceInput) (WorldEvidence, error) {
+	if !evidencePurposes[input.Purpose] {
+		return WorldEvidence{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid evidence purpose %q", input.Purpose))
+	}
+	if !evidenceStatuses[input.Status] {
+		return WorldEvidence{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid evidence status %q", input.Status))
+	}
+	db, err := w.database()
+	if err != nil {
+		return WorldEvidence{}, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return WorldEvidence{}, err
+	}
+	defer tx.Rollback()
+	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
+		return WorldEvidence{}, err
+	}
+	result, err := tx.Exec("update world_asset_refs set purpose = ?, evidence_status = ?, role = ?, label = ? where id = ? and world_id = ? and archived_at is null", input.Purpose, input.Status, "evidence:"+input.Purpose, strings.TrimSpace(input.Label), input.EvidenceID, input.WorldID)
+	if err != nil {
+		return WorldEvidence{}, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return WorldEvidence{}, err
+	}
+	if changed == 0 {
+		return WorldEvidence{}, worldsError(WorldsErrNotFound, "world evidence not found")
+	}
+	if _, err := w.commitRevision(tx, input.WorldID, "evidence.updated", input.CreatedBy); err != nil {
+		return WorldEvidence{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorldEvidence{}, err
+	}
+	row := db.QueryRow("select id, asset_id, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, entity_id from world_asset_refs where id = ? and world_id = ?", input.EvidenceID, input.WorldID)
+	evidence, err := scanWorldEvidence(row)
+	if err != nil {
+		return WorldEvidence{}, err
+	}
+	logWorldEvent("world.evidence.updated", map[string]string{"worldId": input.WorldID, "evidenceId": input.EvidenceID})
+	return evidence, nil
 }
 
 func (w *WorldStore) entityView(record map[string]any, nameKey string) map[string]any {
@@ -1463,19 +1744,41 @@ type AttachReferenceInput struct {
 	AssetID            string
 	Role               string
 	Label              string
+	Purpose            string
+	Status             string
+	Collection         string
+	Modality           string
+	Segment            *WorldEvidenceSegment
+	ExpectedRevisionID string
+	CreatedBy          string
+}
+
+type ArchiveEvidenceInput struct {
+	WorldID            string
+	EvidenceID         string
+	ExpectedRevisionID string
+	CreatedBy          string
+}
+
+type UpdateEvidenceInput struct {
+	WorldID            string
+	EvidenceID         string
+	Purpose            string
+	Status             string
+	Label              string
 	ExpectedRevisionID string
 	CreatedBy          string
 }
 
 // BindProjectInput is the typed input of bind_project.
 type BindProjectInput struct {
-	ProjectID   string
-	AppID       string
-	WorldID     string
-	RevisionID  string
-	Selection   WorldSelection
-	Replace     bool
-	CreatedBy   string
+	ProjectID  string
+	AppID      string
+	WorldID    string
+	RevisionID string
+	Selection  WorldSelection
+	Replace    bool
+	CreatedBy  string
 }
 
 // ResolveInput is the typed input of canon.resolve.

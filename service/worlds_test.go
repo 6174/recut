@@ -217,6 +217,88 @@ func TestReferenceRequiresCompletedAssetAndValidRole(t *testing.T) {
 	}
 }
 
+func TestEvidenceFreezesMultimodalMeaningAndRevisions(t *testing.T) {
+	worlds, _, media := newTestWorldStore(t)
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Mina", Type: WorldCharacterIP})
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageID := newTestAsset(t, media, "mina-front.png")
+	evidence, err := worlds.AttachReference(AttachReferenceInput{
+		WorldID: world.ID, AssetID: imageID, Purpose: "appearance", Status: "primary",
+		Collection: "Mina · appearance", Label: "front view, silver earring",
+	})
+	if err != nil {
+		t.Fatalf("attach evidence = %v", err)
+	}
+	if evidence.Modality != "image" || evidence.Purpose != "appearance" || evidence.Status != "primary" || evidence.AssetContentHash == "" {
+		t.Fatalf("evidence did not freeze its meaning: %#v", evidence)
+	}
+	// The same bytes can serve another semantic purpose; Canon must not flatten it.
+	if _, err := worlds.AttachReference(AttachReferenceInput{WorldID: world.ID, AssetID: imageID, Purpose: "wardrobe"}); err != nil {
+		t.Fatalf("same asset for wardrobe = %v", err)
+	}
+	audio, err := media.ImportMediaReader("mina-voice.mp3", "audio/mpeg", bytes.NewReader([]byte("voice-take")))
+	if err != nil {
+		t.Fatalf("import audio = %v", err)
+	}
+	voice, err := worlds.AttachReference(AttachReferenceInput{WorldID: world.ID, AssetID: audio.ID, Purpose: "voice", Segment: &WorldEvidenceSegment{StartSec: 1.2, EndSec: 4.8}})
+	if err != nil || voice.Modality != "audio" || voice.Segment == nil {
+		t.Fatalf("audio evidence = %#v, %v", voice, err)
+	}
+	video, err := media.ImportMediaReader("mina-walk.mp4", "video/mp4", bytes.NewReader([]byte("motion-take")))
+	if err != nil {
+		t.Fatalf("import video = %v", err)
+	}
+	motion, err := worlds.AttachReference(AttachReferenceInput{WorldID: world.ID, AssetID: video.ID, Purpose: "motion"})
+	if err != nil || motion.Modality != "video" {
+		t.Fatalf("video evidence = %#v, %v", motion, err)
+	}
+	items, err := worlds.ListEvidence(world.ID)
+	if err != nil || len(items) != 4 {
+		t.Fatalf("list evidence = %#v, %v", items, err)
+	}
+	beforeUpdate, err := worlds.GetWorld(world.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedEvidence, err := worlds.UpdateEvidence(UpdateEvidenceInput{
+		WorldID: world.ID, EvidenceID: evidence.ID, Purpose: "identity", Status: "counterexample",
+		Label: "不要使用这版角色造型", ExpectedRevisionID: beforeUpdate.CurrentRevisionID,
+	})
+	if err != nil || updatedEvidence.Purpose != "identity" || updatedEvidence.Status != "counterexample" || updatedEvidence.Label != "不要使用这版角色造型" {
+		t.Fatalf("update evidence = %#v, %v", updatedEvidence, err)
+	}
+	context, err := worlds.Resolve(ResolveInput{WorldID: world.ID, Selection: WorldSelection{Purpose: "image"}})
+	if err != nil || len(context.References) != 4 || context.References[0].AssetContentHash == "" {
+		t.Fatalf("resolved evidence = %#v, %v", context.References, err)
+	}
+	beforeArchive, err := worlds.GetWorld(world.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worlds.ArchiveEvidence(ArchiveEvidenceInput{WorldID: world.ID, EvidenceID: evidence.ID, ExpectedRevisionID: beforeArchive.CurrentRevisionID}); err != nil {
+		t.Fatalf("archive selected evidence = %v", err)
+	}
+	if err := worlds.ArchiveEvidenceForAsset(imageID); err != nil {
+		t.Fatalf("archive remaining image evidence = %v", err)
+	}
+	if err := worlds.ArchiveEvidenceForAsset(audio.ID); err != nil {
+		t.Fatalf("archive audio evidence = %v", err)
+	}
+	if err := worlds.ArchiveEvidenceForAsset(video.ID); err != nil {
+		t.Fatalf("archive video evidence = %v", err)
+	}
+	items, err = worlds.ListEvidence(world.ID)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("archived evidence remains current = %#v, %v", items, err)
+	}
+	updated, err := worlds.GetWorld(world.ID)
+	if err != nil || updated.CurrentRevisionID == beforeArchive.CurrentRevisionID {
+		t.Fatalf("archive did not change the current Canon = %#v, %v", updated, err)
+	}
+}
+
 func TestResolveProjectsSelectionAndRejectsForeignEntity(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Future City", Type: WorldFiction})

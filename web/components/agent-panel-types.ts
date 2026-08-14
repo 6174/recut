@@ -41,6 +41,7 @@ export const defaultOpencodeConfiguration: OpencodeConfiguration = {
   opencodeModel: "opencode-go/deepseek-v4-flash",
 };
 export type Attachment = AssetReference;
+export type WorldReference = { worldId: string; name: string };
 export type UploadedAsset = {
   id: string;
   name: string;
@@ -73,6 +74,9 @@ export type MessageContext = {
 
 export function mediaContextPayload(assetId: string): MessageContext {
   return { type: "media", source: "user", payload: { assetId } };
+}
+export function creationWorldContextPayload(worldId: string): MessageContext {
+  return { type: "creation_world", source: "user", payload: { worldId } };
 }
 export function pageContextPayload(context: PageContext): MessageContext {
   return { type: "page", source: "page", payload: { ...context } };

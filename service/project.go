@@ -515,10 +515,17 @@ create table if not exists world_asset_refs (
   world_id text not null references worlds(id) on delete cascade,
   entity_id text references world_entities(id) on delete cascade,
   asset_id text not null,
+  asset_content_hash text not null default '',
+  modality text not null default '',
+  purpose text not null default '',
+  evidence_status text not null default 'supporting',
+  collection_name text not null default '',
+  segment_json text not null default '',
   role text not null,
   label text not null default '',
   sort_order integer not null default 0,
   created_at text not null,
+  archived_at text,
   unique(world_id, entity_id, asset_id, role)
 );
 create index if not exists world_asset_refs_world on world_asset_refs(world_id, entity_id, sort_order);
@@ -574,6 +581,13 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table media_jobs add column submission_started_at text not null default ''",
 			"alter table artifacts add column creation_context_binding_id text",
 			"alter table media_jobs add column creation_context_binding_id text",
+			"alter table world_asset_refs add column asset_content_hash text not null default ''",
+			"alter table world_asset_refs add column modality text not null default ''",
+			"alter table world_asset_refs add column purpose text not null default ''",
+			"alter table world_asset_refs add column evidence_status text not null default 'supporting'",
+			"alter table world_asset_refs add column collection_name text not null default ''",
+			"alter table world_asset_refs add column segment_json text not null default ''",
+			"alter table world_asset_refs add column archived_at text",
 		} {
 			if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 				return err

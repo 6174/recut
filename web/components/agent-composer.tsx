@@ -6,13 +6,14 @@
  */
 "use client";
 
-import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleStop, FileText, ImagePlus, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleStop, FileText, Globe2, ImagePlus, SlidersHorizontal, X } from "lucide-react";
 import { type ClipboardEvent, type FormEvent, type ReactNode, useLayoutEffect, useRef, useState } from "react";
 
 import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatus, type Runtime } from "@/components/agent-install-guide";
 import { AssetReferenceChip, AssetReferenceDialog, AssetReferenceMenu, mediaReferenceIDs, mediaReferenceText } from "@/components/asset-reference-picker";
+import { WorldPicker, type WorldPick } from "@/components/world-picker";
 import { Button } from "@/components/ui/button";
-import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, opencodeModelLabel, opencodeProviderLabel, reasoningLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PageContext, type UploadedAsset } from "@/components/agent-panel-types";
+import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, opencodeModelLabel, opencodeProviderLabel, reasoningLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PageContext, type UploadedAsset, type WorldReference } from "@/components/agent-panel-types";
 
 const COMPOSER_TEXT_MAX_HEIGHT = 192;
 
@@ -24,8 +25,10 @@ export function Composer({
   disabled,
   firstTurn,
   onAddAsset,
+  onAddWorld,
   onChange,
   onRemoveAttachment,
+  onRemoveWorld,
   onRemovePageContext,
   onSaveCodexConfiguration,
   onSaveOpencodeConfiguration,
@@ -41,6 +44,7 @@ export function Composer({
   running,
   stopping,
   uploading,
+  worldReferences,
 }: {
   apiBase: string;
   attachments: Attachment[];
@@ -49,8 +53,10 @@ export function Composer({
   disabled: boolean;
   firstTurn: boolean;
   onAddAsset: (asset: UploadedAsset) => void;
+  onAddWorld: (world: WorldReference) => void;
   onChange: (value: string) => void;
   onRemoveAttachment: (assetID: string) => void;
+  onRemoveWorld: (worldID: string) => void;
   onRemovePageContext: () => void;
   onSaveCodexConfiguration: (
     configuration: CodexConfiguration,
@@ -70,12 +76,14 @@ export function Composer({
   running: boolean;
   stopping: boolean;
   uploading: boolean;
+  worldReferences: WorldReference[];
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const textInput = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [worldPickerOpen, setWorldPickerOpen] = useState(false);
   function pasteMedia(event: ClipboardEvent<HTMLTextAreaElement>) {
     const text = event.clipboardData.getData("text/plain");
     const ids = mediaReferenceIDs(text);
@@ -106,6 +114,10 @@ export function Composer({
   const mention = content.match(/@([^\s@]*)$/)?.[1];
   function pickAsset(asset: UploadedAsset) {
     onAddAsset(asset);
+    onChange(content.replace(/@([^\s@]*)$/, ""));
+  }
+  function pickWorld(world: WorldPick) {
+    onAddWorld({ worldId: world.worldId, name: world.name });
     onChange(content.replace(/@([^\s@]*)$/, ""));
   }
   const configButtonTitle =
@@ -149,6 +161,7 @@ export function Composer({
             ))}
           </div>
         )}
+        {worldReferences.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{worldReferences.map((world) => <button className="inline-flex h-7 max-w-60 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" key={world.worldId} onClick={() => onRemoveWorld(world.worldId)} title={`移除世界观：${world.name}`} type="button"><Globe2 className="size-3 text-primary" /><span className="truncate">{world.name}</span><X className="size-3 text-muted-foreground" /></button>)}</div>}
         {pageContext && pageContextIncluded && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             <PageContextChip
@@ -191,6 +204,7 @@ export function Composer({
           <AssetReferenceMenu
             apiBase={apiBase}
             onOpenLibrary={() => setLibraryOpen(true)}
+            onOpenWorlds={() => setWorldPickerOpen(true)}
             onPick={pickAsset}
             projectID={projectID}
             query={mention}
@@ -280,6 +294,7 @@ export function Composer({
                 uploading ||
                 (!content.trim() &&
                   !attachments.length &&
+                  !worldReferences.length &&
                   !(pageContext && pageContextIncluded))
               }
               title={
@@ -307,6 +322,7 @@ export function Composer({
         projectID={projectID}
         selectedIDs={attachments.map((attachment) => attachment.assetId)}
       />
+      <WorldPicker apiBase={apiBase} onClose={() => setWorldPickerOpen(false)} onPick={(world) => { pickWorld(world); setWorldPickerOpen(false); }} open={worldPickerOpen} />
     </form>
   );
 }

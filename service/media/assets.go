@@ -232,11 +232,15 @@ func (m *MediaService) DeleteAsset(id string) error {
 		"delete from project_covers where asset_id = ?",
 		"update worlds set cover_asset_id = null where cover_asset_id = ?",
 		"delete from media_asset_projects where asset_id = ?",
-		"delete from world_asset_refs where asset_id = ?",
+		"update world_asset_refs set evidence_status = 'archived', archived_at = ? where asset_id = ? and archived_at is null",
 		"delete from agent_turn_attachments where asset_id = ?",
 		"delete from media_assets where id = ?",
 	} {
-		if _, err := tx.Exec(query, id); err != nil {
+		args := []any{id}
+		if strings.Contains(query, "archived_at = ?") {
+			args = []any{time.Now().UTC().Format(time.RFC3339Nano), id}
+		}
+		if _, err := tx.Exec(query, args...); err != nil {
 			_ = tx.Rollback()
 			return err
 		}

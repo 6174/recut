@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 import { Badge } from "@/components/ui/badge";
+import { CustomSelect } from "@/components/ui/select-field";
 import { MediaAssetEventsProvider, useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { useServiceStore } from "@/lib/service-store";
@@ -585,27 +586,8 @@ function CreateAssetDialog({
         </header>
         <div className="max-h-[70vh] space-y-5 overflow-y-auto p-5">
           <section>
-            <label className="text-xs font-medium" htmlFor="model">
-              模型
-            </label>
             {connected.length ? (
-              <select
-                className="mt-2 h-9 w-full rounded-xs border bg-background px-2 text-xs"
-                id="model"
-                onChange={(event) => setModelID(event.target.value)}
-                value={modelID}
-              >
-                {connected.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {
-                      providers.find(
-                        (provider) => provider.id === model.provider,
-                      )?.name
-                    }{" "}
-                    · {model.name}
-                  </option>
-                ))}
-              </select>
+              <CustomSelect id="model" label="模型" onChange={setModelID} options={connected.map((model) => ({ value: model.id, label: `${providers.find((provider) => provider.id === model.provider)?.name ?? model.provider} · ${model.name}` }))} value={modelID} />
             ) : (
               <div className="mt-2 rounded-xs border border-dashed p-4 text-xs text-muted-foreground">
                 还没有可直接使用的模型。连接一个 Provider 后即可创建。
@@ -682,47 +664,12 @@ function CreateAssetDialog({
             credentials.filter(
               (credential) => credential.provider === selectedModel.provider,
             ).length > 1 && (
-              <section>
-                <label className="text-xs font-medium" htmlFor="credential">
-                  使用凭据
-                </label>
-                <select
-                  className="mt-2 h-9 w-full rounded-xs border bg-background px-2 text-xs"
-                  id="credential"
-                  onChange={(event) => setCredentialID(event.target.value)}
-                  value={credentialID}
-                >
-                  {credentials
-                    .filter(
-                      (credential) =>
-                        credential.provider === selectedModel.provider,
-                    )
-                    .map((credential) => (
-                      <option key={credential.id} value={credential.id}>
-                        {credential.name}
-                      </option>
-                    ))}
-                </select>
-              </section>
+              <section><CustomSelect id="credential" label="使用凭据" onChange={setCredentialID} options={credentials.filter((credential) => credential.provider === selectedModel.provider).map((credential) => ({ value: credential.id, label: credential.name }))} value={credentialID} /></section>
             )}
           {kind.kind === "audio" && selectedModel && (
             <section>
-              <label className="text-xs font-medium" htmlFor="voice">
-                音色
-              </label>
               {voices.length ? (
-                <select
-                  className="mt-2 h-9 w-full rounded-xs border bg-background px-2 text-xs"
-                  id="voice"
-                  onChange={(event) => setVoiceID(event.target.value)}
-                  value={voiceID}
-                >
-                  {voices.map((voice) => (
-                    <option key={voice.id} value={voice.id}>
-                      {voice.name} · {voice.category ?? "voice"}
-                    </option>
-                  ))}
-                </select>
+                <CustomSelect id="voice" label="音色" onChange={setVoiceID} options={voices.map((voice) => ({ value: voice.id, label: `${voice.name} · ${voice.category ?? "voice"}` }))} value={voiceID} />
               ) : (
                 <p className="mt-2 text-xs text-muted-foreground">正在读取该凭据可用的音色…</p>
               )}

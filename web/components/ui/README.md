@@ -8,6 +8,7 @@ button.tsx: 支持 default、outline、ghost 变体的操作按钮；品牌绿�
 card.tsx: 带 Header、Content、Footer 插槽的低圆角内容容器；仅用于独立条目、对话框和工具面板，页面分区不得套卡片。
 input.tsx: 统一焦点环和无障碍状态的单行输入框。
 popover.tsx: 基于 Radix Portal 的可访问浮层原子；负责锚点定位、边界碰撞处理和脱离父级堆叠上下文渲染。
+select-field.tsx: 固定枚举的自定义选择原子；经 Popover 呈现可达选项列表，禁止页面直接使用原生 `<select>`。
 
 设计规范
 - 色彩：内容使用语义 token；`primary` 仅表示可执行的主命令，`accent` 用于当前导航和弱强调，状态色不能充当品牌色。

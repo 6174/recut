@@ -4,7 +4,9 @@
 
 成员清单
 page.tsx: 世界详情路由的服务端壳；静态导出只需 `/worlds/app/` 一个占位路径，Worker 在边缘把任意 `/worlds/<id>` 映射到它，浏览器地址保留真实 id。
-world-detail-client.tsx: 世界详情客户端容器；从 `window.location.pathname` 读取真实 worldID（兼容旧查询串 `?id=`），Overview 头部显示名称、类型、revision 与 canonical hash，五个实体区域按 kind 分组，References 区把已完成全局 Asset 以 `character_reference` 等语义 role 附加到世界或实体；实体编辑以 JSON 文本框维护 `content`，保存后平台在同一事务产出新 revision。
+world-detail-client.tsx: 世界详情页面编排容器；负责统一工作台壳、真实 worldID、结构化设定、World 级非结构化资源库与从故事创建视频；对象多模态信息只从所属设定项进入，资源则独立归属于 World。
+world-detail-settings.tsx: 设定领域表单；一个编辑面板同时维护角色、故事、风格、规则和场景的文字字段与所属多模态证据，带 expectedRevisionId 安全保存且不展示 JSON。
+world-detail-panels.tsx: 设定展示分区；主设定弹框只摘要多模态资料，二级管理弹框复用系统素材选择器处理单份资料；隐藏 revision/hash 等系统细节。
 
 依赖边界
 

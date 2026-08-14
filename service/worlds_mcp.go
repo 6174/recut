@@ -24,11 +24,15 @@ func worldsMCPToolDefinitions() []map[string]any {
 		{"name": "recut.worlds.get", "description": "读取一个 World 的身份、统计、当前 revision 摘要与可用实体种类。worldId 必填；该接口不内联实体，需要角色/故事/风格时调用 recut.worlds.entities.list / entities.get。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string", "description": "World ID，entityId 只在同一个 worldId 内有效。"}}}},
 		{"name": "recut.worlds.entities.list", "description": "列出指定 World 的实体摘要。worldId 必填；可按 kind、text 过滤并分页。实体从不跨 World 复用，entityId 只在所属 worldId 内有效。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "kind": worldEntityKindSchema(), "text": map[string]string{"type": "string"}, "cursor": map[string]string{"type": "string"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 50}}}},
 		{"name": "recut.worlds.entities.get", "description": "读取一个实体的完整内容、关系与语义 Asset references。worldId 与 entityId 必填，两者一起校验。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "entityId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.evidence.list", "description": "读取 World 当前的多模态证据：图片、视频、声音和文字资料均包含用途、主次、集合、片段与内容哈希。它是创作前应读取的完整 Canon，不是附件名称列表。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.resolve", "description": "按 World、revision 与显式 selection 解析可消费的 CreationContext（身份、实体、约束、references）。selection 的 entityIds/storyId 必须都属于该 World；revisionId 缺省用当前 revision。结果带 revisionId 与 canonicalHash，可追溯。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "selection"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "revisionId": map[string]string{"type": "string", "description": "可选：缺省为 World 当前 revision。"}, "selection": map[string]any{"type": "object", "required": []string{"purpose"}, "properties": map[string]any{"storyId": map[string]string{"type": "string"}, "entityIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "assetRoles": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "purpose": worldPurposeSchema()}}}}},
 		{"name": "recut.worlds.create", "description": "创建一个 Creation World 并按其类型写入模板初始实体。只在用户明确要求创建 World 时调用；这是 Canon 写入，Agent 不得因推测有帮助而自动创建。", "inputSchema": map[string]any{"type": "object", "required": []string{"name", "type"}, "properties": map[string]any{"name": map[string]string{"type": "string"}, "type": worldKindSchema(), "description": map[string]string{"type": "string"}, "identity": map[string]any{"type": "object"}}}},
 		{"name": "recut.worlds.update", "description": "修改 World 的身份或元数据并按需产出新 revision。expectedRevisionId 提供乐观并发门；过期时返回 WORLD_REVISION_CONFLICT，绝不静默覆盖。只在用户明确要求修改时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "name": map[string]string{"type": "string"}, "description": map[string]string{"type": "string"}, "identity": map[string]any{"type": "object"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.entities.upsert", "description": "新增或修改 World 内的 Character、Story、Style、Rule 等实体。entityId 缺省为新建；提供后更新。每次语义写入都会产出新的不可变 revision。只在用户明确要求记录或修改设定时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "kind", "title"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string", "description": "缺省为新建实体；提供后更新该实体。"}, "kind": worldEntityKindSchema(), "title": map[string]string{"type": "string"}, "summary": map[string]string{"type": "string"}, "content": map[string]any{"type": "object", "description": "结构化属性；不同 kind 有不同的 JSON 契约。"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.references.attach", "description": "以语义 role 把一个已完成的全局 Asset 引用到 World（可选绑定到实体）。只记录 assetId 与语义，不复制二进制。只在用户明确要求把素材登记为参考时调用；不能自动把生成结果写进 Canon。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "assetId", "role"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}, "assetId": map[string]string{"type": "string"}, "role": worldReferenceRoleSchema(), "label": map[string]string{"type": "string"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.evidence.attach", "description": "将用户确认的媒体或文字资料收录为多模态 Canon。服务从 assetId 推导 modality 和内容哈希；purpose、status、collection 与可选 segment 决定 AI 如何使用它。不得自动将生成结果写入。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "assetId", "purpose"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}, "assetId": map[string]string{"type": "string"}, "purpose": worldEvidencePurposeSchema(), "status": worldEvidenceStatusSchema(), "collection": map[string]string{"type": "string"}, "label": map[string]string{"type": "string"}, "segment": map[string]any{"type": "object", "properties": map[string]any{"startSec": map[string]string{"type": "number"}, "endSec": map[string]string{"type": "number"}}}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.evidence.update", "description": "修改一份已收录资料的用途、参考强度或说明，不替换原始素材且会产出新的 Canon revision。仅在用户明确要求编辑该资料时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "evidenceId", "purpose", "status"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "evidenceId": map[string]string{"type": "string"}, "purpose": worldEvidencePurposeSchema(), "status": worldEvidenceStatusSchema(), "label": map[string]string{"type": "string"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.evidence.archive", "description": "把一份证据从当前 Canon 归档，不删除源素材或旧作品使用的历史版本。仅在用户明确要求移除时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "evidenceId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "evidenceId": map[string]string{"type": "string"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.bind_project", "description": "把 World 的固定 revision 绑定到当前 Project。必须是用户动作、当前 Project owner App 或获得用户确认的 Agent 调用；绑定是跨系统可观察的状态变化。Project 已有 primary binding 时默认替换需提供 replace: true，否则返回 PROJECT_WORLD_ALREADY_BOUND。", "inputSchema": map[string]any{"type": "object", "required": []string{"projectId", "worldId", "selection"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}, "worldId": map[string]string{"type": "string"}, "revisionId": map[string]string{"type": "string"}, "selection": map[string]any{"type": "object", "required": []string{"purpose"}, "properties": map[string]any{"storyId": map[string]string{"type": "string"}, "entityIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "assetRoles": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "purpose": worldPurposeSchema()}}, "replace": map[string]string{"type": "boolean"}}}},
 	}
 }
@@ -47,6 +51,14 @@ func worldPurposeSchema() map[string]any {
 
 func worldReferenceRoleSchema() map[string]any {
 	return map[string]any{"type": "string", "enum": []string{"character_reference", "voice_reference", "location_reference", "style_reference", "story_reference", "brand_reference"}}
+}
+
+func worldEvidencePurposeSchema() map[string]any {
+	return map[string]any{"type": "string", "enum": []string{"identity", "appearance", "wardrobe", "voice", "motion", "scene", "mood", "visual_style", "sound_style", "narrative", "rule_evidence"}}
+}
+
+func worldEvidenceStatusSchema() map[string]any {
+	return map[string]any{"type": "string", "enum": []string{"primary", "supporting", "counterexample"}}
 }
 
 // worldsMCPTool dispatches one recut.worlds.* tool call against the platform
@@ -76,6 +88,8 @@ func worldsMCPTool(worlds *WorldStore, name string, input map[string]any) (any, 
 		result = map[string]any{"items": items, "nextCursor": nextCursor}
 	case "recut.worlds.entities.get":
 		result, err = worlds.GetEntity(stringValue(input["worldId"]), stringValue(input["entityId"]))
+	case "recut.worlds.evidence.list":
+		result, err = worlds.ListEvidence(stringValue(input["worldId"]))
 	case "recut.worlds.resolve":
 		selection := WorldSelection{}
 		if err = decodeJSONMap(inputMap(input["selection"]), &selection); err != nil {
@@ -116,6 +130,29 @@ func worldsMCPTool(worlds *WorldStore, name string, input map[string]any) (any, 
 			WorldID: stringValue(input["worldId"]), EntityID: stringValue(input["entityId"]),
 			AssetID: stringValue(input["assetId"]), Role: stringValue(input["role"]),
 			Label: stringValue(input["label"]), ExpectedRevisionID: stringValue(input["expectedRevisionId"]), CreatedBy: "mcp",
+		})
+	case "recut.worlds.evidence.attach":
+		var segment *WorldEvidenceSegment
+		if raw := inputMap(input["segment"]); len(raw) > 0 {
+			parsed := WorldEvidenceSegment{}
+			if err = decodeJSONMap(raw, &parsed); err != nil {
+				return nil, err
+			}
+			segment = &parsed
+		}
+		result, err = worlds.AttachReference(AttachReferenceInput{
+			WorldID: stringValue(input["worldId"]), EntityID: stringValue(input["entityId"]), AssetID: stringValue(input["assetId"]),
+			Purpose: stringValue(input["purpose"]), Status: stringValue(input["status"]), Collection: stringValue(input["collection"]),
+			Label: stringValue(input["label"]), Segment: segment, ExpectedRevisionID: stringValue(input["expectedRevisionId"]), CreatedBy: "mcp",
+		})
+	case "recut.worlds.evidence.archive":
+		err = worlds.ArchiveEvidence(ArchiveEvidenceInput{WorldID: stringValue(input["worldId"]), EvidenceID: stringValue(input["evidenceId"]), ExpectedRevisionID: stringValue(input["expectedRevisionId"]), CreatedBy: "mcp"})
+		result = map[string]bool{"archived": err == nil}
+	case "recut.worlds.evidence.update":
+		result, err = worlds.UpdateEvidence(UpdateEvidenceInput{
+			WorldID: stringValue(input["worldId"]), EvidenceID: stringValue(input["evidenceId"]),
+			Purpose: stringValue(input["purpose"]), Status: stringValue(input["status"]), Label: stringValue(input["label"]),
+			ExpectedRevisionID: stringValue(input["expectedRevisionId"]), CreatedBy: "mcp",
 		})
 	case "recut.worlds.bind_project":
 		selection := WorldSelection{}

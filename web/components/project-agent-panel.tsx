@@ -41,6 +41,7 @@ import {
   buildSessionDebugReport,
   defaultCodexConfiguration,
   defaultOpencodeConfiguration,
+  creationWorldContextPayload,
   mediaContextPayload,
   pageContextPayload,
   type AgentEvent,
@@ -54,6 +55,7 @@ import {
   type Props,
   type Session,
   type UploadedAsset,
+  type WorldReference,
 } from "@/components/agent-panel-types";
 import { sessionHistoryLabel, useAgentStore } from "@/lib/agent-store";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
@@ -88,6 +90,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
   const [detail, setDetail] = useState<Detail | null>(null);
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [worldReferences, setWorldReferences] = useState<WorldReference[]>([]);
   const [pageContextIncluded, setPageContextIncluded] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [creatingRuntime, setCreatingRuntime] = useState(false);
@@ -435,11 +438,12 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     if (
       creatingRuntime ||
       loadingSessions ||
-      (!content.trim() && !attachments.length && !pageAttached)
+      (!content.trim() && !attachments.length && !worldReferences.length && !pageAttached)
     )
       return;
     const text = content.trim();
     const pendingAttachments = attachments;
+    const pendingWorldReferences = worldReferences;
     const session = activeID
       ? null
       : await createSession((detail?.runtime as Runtime) ?? "codex");
@@ -450,10 +454,12 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
       ...pendingAttachments.map((attachment) =>
         mediaContextPayload(attachment.assetId),
       ),
+      ...pendingWorldReferences.map((world) => creationWorldContextPayload(world.worldId)),
       ...pageItem,
     ];
     setContent("");
     setAttachments([]);
+    setWorldReferences([]);
     setError("");
     setStopNotice("");
     const response = await fetch(
@@ -470,6 +476,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     if (!response.ok) {
       setContent(text);
       setAttachments(pendingAttachments);
+      setWorldReferences(pendingWorldReferences);
       setError(`无法发送消息：${await responseMessage(response, "请重试")}`);
       return;
     }
@@ -782,12 +789,14 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
               setError(cause instanceof Error ? cause.message : "无法引用资源"),
             )
           }
+          onAddWorld={(world) => setWorldReferences((current) => current.some((item) => item.worldId === world.worldId) ? current : [...current, world])}
           onChange={setContent}
           onRemoveAttachment={(assetID) =>
             setAttachments((current) =>
               current.filter((attachment) => attachment.assetId !== assetID),
             )
           }
+          onRemoveWorld={(worldID) => setWorldReferences((current) => current.filter((world) => world.worldId !== worldID))}
           onSaveCodexConfiguration={saveCodexConfiguration}
           onSaveOpencodeConfiguration={saveOpencodeConfiguration}
           onSend={send}
@@ -809,6 +818,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
           }
           stopping={detail?.status === "stopping"}
           uploading={uploading}
+          worldReferences={worldReferences}
         />
       </aside>
       <AgentInstallDialog

@@ -10,13 +10,13 @@ audio-waveform-player.tsx: 音频预览原子；原生 `HTMLAudioElement` 先加
 generation-duration.tsx: 媒体生成耗时原子；活跃任务本地逐秒计时，终态只显示后端持久化的最终耗时，不发起状态请求。
 use-media-asset-events.tsx: Recut 媒体 SSE 缓存边界；以首次快照和增量 Asset 事件维护唯一前端真相，嵌套入口复用已有连接且绝不轮询 Atlas 或单个素材；保留 ASR 转写 bundle 的 `transcript` 与可跨项目研究资料的 `reference` 类型。
 asset-preview-dialog.tsx: 跨页面统一素材详情模态框；素材库与 Agent 对话都通过它预览图片、按需视频播放器、可定位波形音频、转写 bundle（源声音播放、分段列表、SRT/JSON parts 预览下载）和无本地二进制的 `reference` 资料链接，从共享 Asset 缓存原位更新运行/终态与生成耗时，查看提示词与参考素材，并复制符合 `<media>` 协议的素材上下文给 Agent。
-asset-reference-picker.tsx: 资源引用交互层；解析素材库复制的 `<media>` 协议，提供 @ 快速候选、项目/素材库全局选择面板与可移除引用 token；选择面板使用正常高度真实预览卡，直接显示名称、类型、来源、创建时间、提示词/时长，并分离“详情”和“选择”操作。
+asset-reference-picker.tsx: 资源引用交互层；解析素材库复制的 `<media>` 协议，提供 @ 素材候选与进入全局世界观/素材选择器的统一入口；素材选择面板使用正常高度真实预览卡，直接显示名称、类型、来源、创建时间、提示词/时长，并分离“详情”和“选择”操作。
 platform-media-picker.tsx: iframe App 的平台级素材桥；复用带元信息、详情预览与明确选择操作的全局素材面板，返回指定类型（含转写稿）、完成态素材的稳定 assetId 与展示元数据；转写稿选择只从库中读取，避免错误上传类型。
 agent-message-content.tsx: Agent 回复的受控 XML 媒体节点渲染器；解析 `<media type="image|video|audio|transcript|reference" assetid="..."/>` 为紧凑可点击卡片，从共享 Asset 缓存显示实时/最终生成耗时；完成的图片和视频显示真实画面，资料链接点击打开详情。
 tool-result-assets.tsx: Agent 工具结果中的媒体适配层；从含嵌套 JSON 字符串的 `assetIds` 提取结果，图片和视频直接显示真实预览，视频统一复用 `VideoFrame` 的 iframe 子文档模式与素材详情模态框。
-agent-panel-types.ts: Agent 对话的共享数据契约；集中 Session、Turn、事件、运行时配置、默认值、展示标签、service 连接阶段与泛化的消息上下文（MessageContext：media/page/未来类型，含 PageContext 与构造/归一化辅助），消除面板控制器、视图和输入区的类型耦合。
+agent-panel-types.ts: Agent 对话的共享数据契约；集中 Session、Turn、事件、运行时配置、默认值、展示标签、service 连接阶段与泛化的消息上下文（MessageContext：media/page/creation_world/未来类型，含 PageContext 与构造/归一化辅助），消除面板控制器、视图和输入区的类型耦合。
 agent-panel-views.tsx: Agent 对话展示层；渲染会话时间线、历史列表、加载态、CLI 调试弹框与 CLI 恢复面板，调试与工具详情弹框经 Portal 脱离侧栏堆叠上下文，在用户消息上方同时展示素材附件与自动附带的当前页面上下文 chip，并在展开的工具结果中挂载 Asset 预览，归并 SSE 增量事件而不发起会话请求。
-agent-composer.tsx: Agent 对话输入层；处理自动增高且上限为 192px 的文本、素材引用、上传、自动附带且可移除的当前页面上下文 chip、Codex/OpenCode 配置与新会话 runtime 选择，所有状态变更通过控制器回调上送。
+agent-composer.tsx: Agent 对话输入层；处理自动增高且上限为 192px 的文本、素材与世界观引用、上传、自动附带且可移除的当前页面上下文 chip、Codex/OpenCode 配置与新会话 runtime 选择，所有状态变更通过控制器回调上送。
 agent-panel-host.tsx: 根布局唯一挂载的全局工作台壳；顶部固定 64px Header 横贯全宽，其下 Body 左侧单一全局 Agent 对话栏、右侧内容区与拖动手柄共同读取 `--side-panel-width`，拖拽中同步响应且跨路由持久化；壳自身以固定 Header 高度定位左栏，页面只通过 `lib/agent-panel-context` 声明 projectID/草稿/当前页面上下文，路由切换不重建面板、不重连 SSE 也不切换会话；连接阶段原样传给左栏，避免把连接中误报为不可用。
 project-agent-panel.tsx: 全局单一 general 会话的固定高度 Agent 对话侧栏，由 `agent-panel-host.tsx` 在根布局挂载；运行时、模型、onboarding、会话摘要、当前会话和详情快照由 `lib/agent-store` 去重共享，SSE 连接仍由面板拥有并将增量回写缓存，路由切换不做按页面的会话过滤。连接中的左栏只渲染骨架；默认本地 service 离线时直接提供可复制的安装/启动命令，已配置远程 service 离线时才只说明连接不可用；OpenCode 模型目录仅在该 CLI 可用后读取，重新检查发现它可用时才强制刷新。发送时把当前页面上下文与用户选择的素材合并为 `contexts` 泛化消息上下文（media 沿用 assetId 契约，page 携带标题/路径/选中/内容），当前页面 chip 默认自动附带、可在发送前移除；已出现回复的 Turn 不显示过期的停止提示。右上角 Debug 入口复制当前会话的版本化 JSON（身份、配置、turn 元数据与最近 100 条结构化事件；不含用户或 Agent 聊天正文）。存在可用 runtime 的空态允许直接输入并在首条消息发送时创建默认 Codex 会话；App iframe 只能回填输入草稿，不能自动提交 turn。无可用 runtime 时只显示安装入口，安装完成后的重新检查强制刷新运行时快照。
 agent-onboarding.tsx: 新建 Codex、OpenCode 或 Claude Code 会话的非空引导空态；无论项目或 general scope，均读取当前项目或全局解析出的 App/全局/平台兜底卡片，点击只写入显式 prompt。仅在 `runtimeStatus` 报告无任何可用本地 Agent CLI 时显示 1–3 张必要安装卡；至少一个 runtime 就绪后只显示目标引导卡，不在首页推广额外 CLI。
@@ -28,6 +28,8 @@ recut-skill-settings.tsx: Recut Skill 全局设置子面板；读取 daemon 启�
 header-actions.tsx: 工作台 Header 右侧的统一操作组合；在页面流中汇集项目 GitHub 主页外链、service 状态、全局设置与可选页面上下文操作，首页与项目详情共用。
 service-control.tsx: Header 内的 service 控制入口；通过 Zustand 初始化并每 30 秒刷新唯一 endpoint 的全局状态，展示 health 提供的进程启动时间，并在启动时间变化后确认升级或 launchd 重启完成；所有已连通 service 均提供新标签页诊断日志入口，查看 CLI 解析、PATH 与近期 service 日志，接口仍由 service 限制在本地网络；发现本地 service 更新时将 Header 状态切换为醒目的更新操作，核心工作区保持可用；本地已安装 daemon 才允许网页执行这些操作，远程 service 只展示连接状态。
 app-version-control.tsx: Git App 版本交互原子；项目 Header 和 Apps 目录复用，单项升级经确认执行，且仅在存在可升级、无本地修改条目时提供一键更新，始终保留 dirty Git 工作树保护。
+app-identity-icon.tsx: App 身份视觉原子；按 App ID 解析唯一图标，并以首页一致的浅绿图标徽标供应用中心、详情、工作区与 Agent 引用复用。
+agent-reference-card.tsx: Agent 回复中的项目与 App 引用卡；App 引用通过统一身份图标保留与工作台相同的应用语义。
 use-app-installation-events.tsx: App 安装目录事件桥；根工作台壳订阅后台 Git 检查完成事件后显式刷新唯一 workspace 快照，不用页面级轮询，远端更新与本地修改同时存在时也会显示保护状态。
 create-app-dialog.tsx: Apps 顶部的新建应用引导；交付指向公开架构与 Recut API 标准的可复制 AI Prompt，不直接改写用户的应用目录。
 install-git-app-dialog.tsx: Apps 顶部的 Git 安装入口；将 GitHub 仓库交给本地 service 校验并安装，成功后通知目录刷新。

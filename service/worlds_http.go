@@ -162,12 +162,30 @@ func (s *Server) updateWorldEntity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) attachWorldReference(w http.ResponseWriter, r *http.Request) {
+	s.attachWorldEvidence(w, r)
+}
+
+func (s *Server) listWorldEvidence(w http.ResponseWriter, r *http.Request) {
+	evidence, err := s.worldsStore().ListEvidence(r.PathValue("worldID"))
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": evidence})
+}
+
+func (s *Server) attachWorldEvidence(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		EntityID           string `json:"entityId"`
-		AssetID            string `json:"assetId"`
-		Role               string `json:"role"`
-		Label              string `json:"label"`
-		ExpectedRevisionID string `json:"expectedRevisionId"`
+		EntityID           string                `json:"entityId"`
+		AssetID            string                `json:"assetId"`
+		Role               string                `json:"role"`
+		Label              string                `json:"label"`
+		Purpose            string                `json:"purpose"`
+		Status             string                `json:"status"`
+		Collection         string                `json:"collection"`
+		Modality           string                `json:"modality"`
+		Segment            *WorldEvidenceSegment `json:"segment"`
+		ExpectedRevisionID string                `json:"expectedRevisionId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
@@ -175,7 +193,9 @@ func (s *Server) attachWorldReference(w http.ResponseWriter, r *http.Request) {
 	}
 	reference, err := s.worldsStore().AttachReference(AttachReferenceInput{
 		WorldID: r.PathValue("worldID"), EntityID: input.EntityID, AssetID: input.AssetID,
-		Role: input.Role, Label: input.Label, ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+		Role: input.Role, Label: input.Label, Purpose: input.Purpose, Status: input.Status,
+		Collection: input.Collection, Modality: input.Modality, Segment: input.Segment,
+		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
 	})
 	if err != nil {
 		writeWorldsError(w, err)
@@ -184,9 +204,47 @@ func (s *Server) attachWorldReference(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, reference)
 }
 
+func (s *Server) archiveWorldEvidence(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	if err := s.worldsStore().ArchiveEvidence(ArchiveEvidenceInput{WorldID: r.PathValue("worldID"), EvidenceID: r.PathValue("evidenceID"), ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http"}); err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) updateWorldEvidence(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Purpose            string `json:"purpose"`
+		Status             string `json:"status"`
+		Label              string `json:"label"`
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	evidence, err := s.worldsStore().UpdateEvidence(UpdateEvidenceInput{
+		WorldID: r.PathValue("worldID"), EvidenceID: r.PathValue("evidenceID"),
+		Purpose: input.Purpose, Status: input.Status, Label: input.Label,
+		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+	})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, evidence)
+}
+
 func (s *Server) resolveWorld(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		RevisionID string        `json:"revisionId"`
+		RevisionID string         `json:"revisionId"`
 		Selection  WorldSelection `json:"selection"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {

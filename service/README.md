@@ -51,10 +51,10 @@ media_lifecycle_test.go: 验证 queued 本地 Asset 由常驻 Daemon 原子认�
 media_scheduler_test.go: 验证 Atlas 与 one-request Provider 在 daemon 崩溃后的提交 checkpoint 都不重放、Atlas 单边远端关联会自愈、两个 Daemon 共享 SQLite 时仅一个可提交任务。
 media_events_test.go: 验证 Asset SQLite 事件账本的 SSE snapshot、生成耗时元数据更新、游标回放与 Last-Event-ID 重连契约。
 terminal.go, ws.go: PTY 和事件传输基础设施；订阅先快照会话再读取 transcript，慢文件 I/O 不阻塞终端状态锁。
-worlds.go: Creation Worlds 平台存储边界；worlds/world_entities/world_relations/world_asset_refs/world_revisions/creation_context_bindings 表归 WorldStore 独占，任何 App 的 ctx.sqlite 都看不到；确定性 Canon 序列化（递归排序键）与 SHA-256 哈希，每次语义写入在同一事务里产出不可变 revision，纯 UI 排序不产生新 revision；乐观并发以 expectedRevisionId 门禁，过期返回 WORLD_REVISION_CONFLICT；Asset reference 只保存 assetId 并校验为已完成的全局 Asset；resolve 按 World+revision+selection 投影稳定 CreationContext，selection 中的实体必须属于该 World；Project/媒体 Job 绑定在单事务中固化 revision。
-worlds_http.go: RESTful /v1/worlds 资源路由与结构化 WorldsError HTTP 信封；系统 Worlds UI 与 App 背景都经本 facade 读写，绝不直接访问 world_* 表。
-worlds_mcp.go: 全局 recut.worlds.* MCP 工具；只读 list/get/entities.list/entities.get/resolve 无条件可发现，写 create/update/entities.upsert/references.attach 与 bind_project 常注册但仅按用户明确要求调用，返回同构 structuredContent。
-worlds_test.go, worlds_mcp_test.go, worlds_runtime_test.go: 锁定多 World 隔离、同标题实体跨 World 独立、实体-世界不匹配、分页、已完成/缺失/未就绪 Asset、Canon 哈希稳定性、乐观冲突、Project 绑定固定 revision、全局 MCP 工具注册与 ctx.worlds/ctx.creationContext 权限门。
+worlds.go: Creation Worlds 平台存储边界；worlds/world_entities/world_relations/world_asset_refs/world_revisions/creation_context_bindings 表归 WorldStore 独占，任何 App 的 ctx.sqlite 都看不到；每份 World Evidence 固定 Asset 内容哈希、图像/视频/声音/文字模态、用途、主次、集合及可选片段，可原子修改其语义、删除素材前归档并产出新 revision；resolve 输出可被 Agent 直接消费的多模态证据包。
+worlds_http.go: RESTful /v1/worlds 资源路由与结构化 WorldsError HTTP 信封；`/evidence` 是多模态 Canon 的读取/收录/修改/归档面，系统 Worlds UI 与 App 背景都经本 facade 读写，绝不直接访问 world_* 表。
+worlds_mcp.go: 全局 recut.worlds.* MCP 工具；只读 list/get/entities/evidence/resolve 无条件可发现，写 create/update/entities.upsert/evidence.attach/evidence.update/evidence.archive 与 bind_project 常注册但仅按用户明确要求调用，返回同构 structuredContent。
+worlds_test.go, worlds_mcp_test.go, worlds_runtime_test.go: 锁定多 World 隔离、同标题实体跨 World 独立、实体-世界不匹配、分页、已完成/缺失/未就绪 Asset、Canon 哈希稳定性、乐观冲突、Project 绑定固定 revision、多模态证据与 ctx.worlds/ctx.creationContext 权限门。
 *_test.go: manifest、存储与 JS runtime 的回归验证；其中 shell_jobs_test.go 锁定刚入队任务也可取消，runtime_test.go 断言 Vox Keyframes 不能退化为纯文本且接受带图片快照的结构化产出。
 
 依赖关系

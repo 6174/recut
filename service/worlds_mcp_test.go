@@ -24,11 +24,15 @@ func TestWorldsMCPToolsAreAlwaysRegistered(t *testing.T) {
 		"recut.worlds.get",
 		"recut.worlds.entities.list",
 		"recut.worlds.entities.get",
+		"recut.worlds.evidence.list",
 		"recut.worlds.resolve",
 		"recut.worlds.create",
 		"recut.worlds.update",
 		"recut.worlds.entities.upsert",
 		"recut.worlds.references.attach",
+		"recut.worlds.evidence.attach",
+		"recut.worlds.evidence.update",
+		"recut.worlds.evidence.archive",
 		"recut.worlds.bind_project",
 	} {
 		if !names[expected] {

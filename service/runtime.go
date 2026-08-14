@@ -198,6 +198,23 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 			}
 			return runtime.ToValue(cover)
 		})
+		// ctx.project.emit(type, payload) —— App 向项目实时通道广播事件（经 events 账本 + project WS channel）。
+		// 编辑器用它广播 project.document.changed{version} 等，iframe 经 recut.events.subscribe 接收。
+		_ = projectContext.Set("emit", func(call goja.FunctionCall) goja.Value {
+			eventType := call.Argument(0).String()
+			payload := map[string]any{}
+			if !goja.IsUndefined(call.Argument(1)) {
+				if err := runtime.ExportTo(call.Argument(1), &payload); err != nil {
+					panic(runtime.NewTypeError(err.Error()))
+				}
+			}
+			event := map[string]any{"type": eventType, "at": time.Now().UTC()}
+			for k, v := range payload {
+				event[k] = v
+			}
+			h.store.AppendEvent(target.ProjectID, event)
+			return goja.Undefined()
+		})
 		_ = ctx.Set("project", projectContext)
 	} else {
 		_ = ctx.Set("project", goja.Null())
@@ -390,7 +407,9 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 			return runtime.ToValue(map[string]any{"items": items, "nextCursor": nextCursor})
 		})
 		_ = worlds.Set("get", func(call goja.FunctionCall) goja.Value {
-			input := struct{ WorldID string `json:"worldId"` }{}
+			input := struct {
+				WorldID string `json:"worldId"`
+			}{}
 			if err := decodeJSONMap(mapArgument(runtime, call.Argument(0)), &input); err != nil {
 				panic(runtime.NewTypeError(err.Error()))
 			}
