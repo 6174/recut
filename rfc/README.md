@@ -8,6 +8,7 @@
 2026-08-13-visual-runtime-component-system.md: Recut Visual Runtime 与 Component System：世界（场景图）+ 时间线创作表面、R3F 全权渲染、组件即代码对象、材质混合与排序规则、Preview/Export 统一与分阶段实施路线。
 2026-08-14-editor-data-model-selection.md: 编辑器数据模型（DocumentData + EditorState + Ephemeral Layer + NodeState）与选区/元素定位架构：单一解析入口、实时渲染几何 bbox、Model API（含关键帧提交策略）、渲染路径收缩与 Chromium 自测方案。
 2026-08-14-realtime-channel-ws.md: 平台实时通道的单 WS 收敛：一条长连接 + channels 订阅 + 心跳保活 + REST 首屏取数 + 单后台账本转发，以及 iframe App 的宿主桥/直连 WS 双链路传输抽象。
+2026-08-14-ai-temp-components.md: AI 临时组件（Temp Components）：代码即项目内临时素材。surface 作者分级（html/react/r3f）、source+bundle 同版本持有、head 跟随语义、@recut/runtime 托管 SDK 与服务端构建工具链、安全边界与验证闭环。
 
 此目录保存尚未实施或分阶段实施的平台设计决策。RFC 定义目标、边界、数据与接口契约；获批实现后，代码与运行时文档必须反向更新以保持一致。
 

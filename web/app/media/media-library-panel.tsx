@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 service endpoint、Media Platform 的资产 SSE、media-configuration-store 的 Provider/Credential 快照与生成任务 API，以及系统项目 Agent Session
  * [OUTPUT]: 对外提供首屏限为 12 张的素材浏览、完成视频的 iframe 视频封面卡片、统一 More 重命名/确认删除、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
- * [POS]: web/app/media 的原生 React 内容组件；由根工作台与 /media 路由共享，Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态，配置从统一缓存读取而不轮询
+ * [POS]: web/app/media 的原生 React 内容组件；由根工作台与 /media 路由共享，在固定工作台高度内独占纵向滚动，Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态，配置从统一缓存读取而不轮询
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -244,7 +244,7 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
   }
   return (
     <>
-        <section className="min-h-0 overflow-y-auto bg-muted/30 p-8">
+        <section className="h-full min-h-0 overflow-y-auto bg-muted/30 p-8">
           <div className="mx-auto max-w-5xl">
             <div className="mb-6 flex items-end justify-between border-b pb-4">
               <div>

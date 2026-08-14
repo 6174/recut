@@ -7,7 +7,7 @@
 "use client";
 
 import { Ellipsis, Pencil, Trash2, X } from "lucide-react";
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 type CardMoreMenuProps = {
   itemName: string;
@@ -23,7 +23,16 @@ export function CardMoreMenu({ itemName, itemType, onDelete, onRename }: CardMor
   const [name, setName] = useState(itemName);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const menu = useRef<HTMLDivElement>(null);
   const stop = (event: MouseEvent) => event.stopPropagation();
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: PointerEvent) => { if (!menu.current?.contains(event.target as Node)) setMenuOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
+    document.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", close); window.removeEventListener("keydown", escape); };
+  }, [menuOpen]);
   async function rename() {
     if (!name.trim() || saving) return;
     setSaving(true); setError("");
@@ -38,7 +47,7 @@ export function CardMoreMenu({ itemName, itemType, onDelete, onRename }: CardMor
     catch (cause) { setError(cause instanceof Error ? cause.message : `无法删除${itemType}`); }
     finally { setSaving(false); }
   }
-  return <><div className="relative" onClick={stop} onMouseDown={stop}><button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`${itemName} 的更多操作`} className="grid size-7 place-items-center rounded-xs bg-card/90 text-muted-foreground shadow-sm ring-1 ring-border/80 hover:bg-muted hover:text-foreground" onClick={() => setMenuOpen((value) => !value)} type="button"><Ellipsis className="size-4" /></button>{menuOpen && <div className="absolute right-0 top-8 z-30 w-28 rounded-xs border bg-card p-1 shadow-lg" role="menu"><button className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-left text-xs hover:bg-muted" onClick={() => { setName(itemName); setMenuOpen(false); setEditing(true); }} role="menuitem" type="button"><Pencil className="size-3.5" />重命名</button><button className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-left text-xs text-destructive hover:bg-destructive/10" onClick={() => { setMenuOpen(false); setDeleting(true); }} role="menuitem" type="button"><Trash2 className="size-3.5" />删除</button></div>}</div>{editing && <ActionDialog error={error} itemName={itemName} itemType={itemType} onClose={() => setEditing(false)} onSubmit={rename} saving={saving} title={`重命名${itemType}`}><label className="block text-xs font-medium" htmlFor="card-item-name">名称</label><input autoFocus className="mt-2 h-9 w-full rounded-xs border bg-background px-2 text-sm outline-none focus:border-primary" id="card-item-name" onChange={(event) => setName(event.target.value)} value={name} /></ActionDialog>}{deleting && <ActionDialog danger error={error} itemName={itemName} itemType={itemType} onClose={() => setDeleting(false)} onSubmit={remove} saving={saving} title={`删除${itemType}`}><p className="text-sm leading-6 text-muted-foreground">确定要删除「{itemName}」吗？此操作无法撤销。</p></ActionDialog>}</>;
+  return <><div className="relative" onClick={stop} onMouseDown={stop} ref={menu}><button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`${itemName} 的更多操作`} className="grid size-7 place-items-center rounded-xs bg-card/90 text-muted-foreground shadow-sm ring-1 ring-border/80 hover:bg-muted hover:text-foreground" onClick={() => setMenuOpen((value) => !value)} type="button"><Ellipsis className="size-4" /></button>{menuOpen && <div className="absolute right-0 top-8 z-30 w-28 rounded-xs border bg-card p-1 shadow-lg" role="menu"><button className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-left text-xs hover:bg-muted" onClick={() => { setName(itemName); setMenuOpen(false); setEditing(true); }} role="menuitem" type="button"><Pencil className="size-3.5" />重命名</button><button className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-left text-xs text-destructive hover:bg-destructive/10" onClick={() => { setMenuOpen(false); setDeleting(true); }} role="menuitem" type="button"><Trash2 className="size-3.5" />删除</button></div>}</div>{editing && <ActionDialog error={error} itemName={itemName} itemType={itemType} onClose={() => setEditing(false)} onSubmit={rename} saving={saving} title={`重命名${itemType}`}><label className="block text-xs font-medium" htmlFor="card-item-name">名称</label><input autoFocus className="mt-2 h-9 w-full rounded-xs border bg-background px-2 text-sm outline-none focus:border-primary" id="card-item-name" onChange={(event) => setName(event.target.value)} value={name} /></ActionDialog>}{deleting && <ActionDialog danger error={error} itemName={itemName} itemType={itemType} onClose={() => setDeleting(false)} onSubmit={remove} saving={saving} title={`删除${itemType}`}><p className="text-sm leading-6 text-muted-foreground">确定要删除「{itemName}」吗？此操作无法撤销。</p></ActionDialog>}</>;
 }
 
 function ActionDialog({ children, danger = false, error, itemName, itemType, onClose, onSubmit, saving, title }: { children: ReactNode; danger?: boolean; error: string; itemName: string; itemType: string; onClose: () => void; onSubmit: () => Promise<void>; saving: boolean; title: string }) {

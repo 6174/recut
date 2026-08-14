@@ -1,14 +1,14 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、Agent Session HTTP API 及全局 Agent 面板上下文
- * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的每日稳定两条轻量创作引导（首访引导作为同一候选，点击只回填左侧创作输入框，绝不自动提交）、以首位「世界观」固定能力卡开头的应用入口、项目列表首位的新建项目卡、项目与资源卡统一 More 重命名/确认删除操作、紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和无外框的 service 连接/诊断空态
+ * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的每日稳定两条轻量创作引导（首访引导作为同一候选，点击只回填左侧创作输入框，绝不自动提交）、以首位「世界观」固定能力卡开头的应用入口、项目列表首位的「新建」应用类型下拉卡及其后的命名弹框、项目与资源卡统一 More 重命名/确认删除操作、紧凑最近项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和无外框的 service 连接/诊断空态
  * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，世界观作为首个原生创作应用统一进入世界观管理，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, ArrowRight, Box, Captions, Check, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, Globe2, ImageIcon, Link2, LoaderCircle, Music2, Plus, Sparkles, Video, X, type LucideIcon } from "lucide-react";
+import { AppWindow, ArrowRight, Box, Captions, ChevronDown, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, Globe2, ImageIcon, Link2, LoaderCircle, Music2, Plus, Sparkles, Video, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, MouseEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { FormEvent, MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { AssetPreviewDialog } from "@/components/asset-preview-dialog";
 import { CardMoreMenu } from "@/components/card-more-menu";
@@ -24,7 +24,7 @@ import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-co
 import { marketplaceApps } from "@/lib/app-catalog";
 import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
-import { useWorkspaceStore, type WorkspaceApp as App, type WorkspaceInstallation as Installation, type WorkspaceProject as Project } from "@/lib/workspace-store";
+import { useWorkspaceStore, type WorkspaceInstallation as Installation, type WorkspaceProject as Project } from "@/lib/workspace-store";
 import { VideoFrame } from "@/components/video-frame";
 import { WebGLStudioHero } from "@/components/webgl-studio-hero";
 import type { Asset } from "./media/media-types";
@@ -36,15 +36,12 @@ type WorkspaceTab = "studio" | "worlds" | "projects" | "assets" | "apps";
 type InstallationLoadState = "loading" | "ready" | "failed" | "offline";
 
 export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: AppDetailRenderer; initialTab?: WorkspaceTab } = {}) {
-  const apps = useWorkspaceStore((state) => state.apps);
   const installations = useWorkspaceStore((state) => state.installations);
   const projects = useWorkspaceStore((state) => state.projects);
   const installationsState = useWorkspaceStore((state) => state.installationsState);
   const installationsError = useWorkspaceStore((state) => state.installationsError);
   const loadWorkspace = useWorkspaceStore((state) => state.load);
-  const [appID, setAppID] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("app") ?? "");
   const [initialAssetID, setInitialAssetID] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("asset") ?? "");
-  const [name, setName] = useState("");
   const [createApp, setCreateApp] = useState<Installation | null>(null);
   const service = useServiceStore((state) => state.service);
   const apiBase = useServiceStore((state) => state.endpoint);
@@ -52,7 +49,6 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
   const [mediaProjectID, setMediaProjectID] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"service" | "multimodal" | undefined>();
-  const [error, setError] = useState("");
 
   const online = service.phase === "online";
   const agentProjectID = tab === "assets" ? mediaProjectID : null;
@@ -83,22 +79,7 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
     return () => window.removeEventListener("popstate", syncTabFromHistory);
   }, []);
 
-  useEffect(() => {
-    const projectApps = apps.filter((app) => app.manifest.type === "project");
-    setAppID((current) => current && projectApps.some((app) => app.manifest.id === current) ? current : projectApps[0]?.manifest.id ?? "");
-  }, [apps]);
-
   async function reloadWorkspace() {
-    await loadWorkspace(apiBase, true);
-  }
-
-  async function createProject(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!name.trim() || !appID) return;
-    const response = await fetch(`${apiBase}/v1/projects`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, appId: appID }) });
-    if (!response.ok) { setError(await responseMessage(response)); return; }
-    await response.json();
-    setName("");
     await loadWorkspace(apiBase, true);
   }
 
@@ -157,9 +138,9 @@ export function Workspace({ appDetail, initialTab = "studio" }: { appDetail?: Ap
   const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={installationsError} installationLoadState={appInstallationLoadState} onStartProject={openCreateProject} onUpdated={reloadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
-    : tab === "studio" ? <Studio apiBase={apiBase} apps={installations.filter((app) => app.manifest.type === "project")} installations={installations} name={name} onAppChange={setAppID} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onDeleteProject={deleteProject} onNameChange={setName} onRenameProject={renameProject} onStartProject={openCreateProject} onSubmit={createProject} projects={projects} selectedApp={appID} />
+    : tab === "studio" ? <Studio apiBase={apiBase} apps={installations.filter((app) => app.manifest.type === "project")} installations={installations} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onDeleteProject={deleteProject} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} />
       : tab === "worlds" ? <WorldsClient />
-        : tab === "projects" ? <ProjectsPage apps={installations.filter((app) => app.manifest.type === "project")} name={name} onAppChange={setAppID} onDeleteProject={deleteProject} onNameChange={setName} onRenameProject={renameProject} onSubmit={createProject} projects={projects} selectedApp={appID} />
+        : tab === "projects" ? <ProjectsPage apps={installations.filter((app) => app.manifest.type === "project")} onDeleteProject={deleteProject} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} />
           : <MediaLibraryPanel initialAssetID={initialAssetID} onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-5">
@@ -188,12 +169,22 @@ function Tab({ active, children, href, onNavigate, tab }: { active: boolean; chi
   return <a aria-current={active ? "page" : undefined} className={active ? "rounded-lg bg-accent px-2 py-1.5 text-[11px] font-semibold text-accent-foreground sm:px-2.5 sm:text-xs" : "rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground sm:px-2.5 sm:text-xs"} href={href} onClick={(event) => onNavigate(tab, href, event)}>{children}</a>;
 }
 
-function Projects({ apps, name, onAppChange, onDeleteProject, onNameChange, onRenameProject, onSubmit, projects, selectedApp }: { apps: App[]; name: string; onAppChange: (value: string) => void; onDeleteProject: (project: Project) => Promise<void>; onNameChange: (value: string) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
-  return <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-4"><NewProjectCard apps={apps} name={name} onAppChange={onAppChange} onNameChange={onNameChange} onSubmit={onSubmit} selectedApp={selectedApp} />{projects.map((project) => <div className="group relative min-w-0" key={project.id}><Link className="block h-full" href={`/projects/${project.id}`}><Card className="flex min-h-56 h-full min-w-0 flex-col border-transparent bg-card p-5 shadow-sm transition-all group-hover:-translate-y-1 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><div className="flex items-start justify-between"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><AppWindow className="size-5" /></span><Badge className="border-primary/20 bg-accent/60 text-accent-foreground">{project.appId}</Badge></div><div className="mt-auto"><p className="truncate text-base font-semibold">{project.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{project.id}</p><div className="mt-4 flex items-center gap-2 text-xs font-medium text-primary"><span className="size-1.5 rounded-full bg-primary" />继续创作</div></div></Card></Link><div className="absolute right-3 top-3"><CardMoreMenu itemName={project.name} itemType="项目" onDelete={() => onDeleteProject(project)} onRename={(projectName) => onRenameProject(project, projectName)} /></div></div>)}</div>;
+function Projects({ apps, onDeleteProject, onRenameProject, onStartProject, projects }: { apps: Installation[]; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
+  return <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-4"><NewProjectCard apps={apps} onStartProject={onStartProject} />{projects.map((project) => <ProjectCard app={apps.find((app) => app.manifest.id === project.appId)} key={project.id} layout="workspace" onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} project={project} />)}</div>;
 }
 
-function NewProjectCard({ apps, name, onAppChange, onNameChange, onSubmit, selectedApp }: { apps: App[]; name: string; onAppChange: (value: string) => void; onNameChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; selectedApp: string }) {
-  return <form className="group flex min-h-56 min-w-0 flex-col rounded-xl border-2 border-dashed border-primary/35 bg-card p-5 transition hover:border-primary hover:bg-accent/40" onSubmit={onSubmit}><span className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><FolderPlus className="size-5" /></span><div className="mt-auto min-w-0"><p className="text-base font-semibold">新建项目</p><p className="mt-1 text-xs leading-5 text-muted-foreground">选择一个 App，给你的新创作命名。</p><div className="mt-4 grid min-w-0 gap-2"><div className="min-w-0"><label className="mb-1 block text-[11px] font-medium" htmlFor="project-name">项目名称</label><Input className="h-8 bg-background text-xs" id="project-name" onChange={(event) => onNameChange(event.target.value)} placeholder="例如：夏季品牌片" value={name} /></div><AppPicker apps={apps} onChange={onAppChange} selectedApp={selectedApp} /><Button className="mt-1 h-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/85" disabled={!name.trim() || !selectedApp} type="submit"><Plus className="size-3.5" />创建项目</Button></div></div></form>;
+function NewProjectCard({ apps, onStartProject }: { apps: Installation[]; onStartProject: (app: Installation) => void }) {
+  const [open, setOpen] = useState(false);
+  const card = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => { if (!card.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", close); window.removeEventListener("keydown", escape); };
+  }, [open]);
+  return <div aria-disabled={!apps.length} aria-expanded={open} aria-haspopup="menu" className={`group relative flex min-h-40 min-w-0 cursor-pointer flex-col rounded-lg border-2 border-dashed border-primary/35 bg-transparent p-4 text-left shadow-none transition hover:-translate-y-0.5 hover:border-primary/50 hover:bg-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 ${open ? "z-40" : "z-0"} ${apps.length ? "" : "cursor-not-allowed opacity-60"}`} onClick={() => apps.length && setOpen((value) => !value)} onKeyDown={(event) => { if (apps.length && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); setOpen((value) => !value); } }} ref={card} role="button" tabIndex={apps.length ? 0 : -1}><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><Plus className="size-5" /></span><div className="mt-auto"><p className="text-base font-semibold">新建项目</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{apps.length ? "选择一种应用类型开始创作。" : "先添加一个项目型应用。"}</p><span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary">新建<ChevronDown className="size-3.5" /></span></div>{open && <div className="absolute left-0 right-0 top-full z-50 mt-2 rounded-sm border bg-card p-1 shadow-lg" onClick={(event) => event.stopPropagation()} role="menu">{apps.map((app) => <button className="flex min-h-10 w-full items-center gap-2 rounded-xs px-2 text-left hover:bg-muted" key={app.package} onClick={() => { setOpen(false); onStartProject(app); }} role="menuitem" type="button"><span className="grid size-6 shrink-0 place-items-center rounded-sm bg-accent text-accent-foreground"><AppWindow className="size-3.5" /></span><span className="min-w-0"><span className="block truncate text-xs font-medium">{app.manifest.name}</span><span className="block truncate text-[10px] text-muted-foreground">{app.manifest.description}</span></span></button>)}</div>}</div>;
 }
 
 const HOME_INSPIRATIONS = [
@@ -319,7 +310,7 @@ function promptTemplatesForToday() {
   return templates.slice(0, 2);
 }
 
-function Studio({ apiBase, apps, installations, name, onAppChange, onCompose, onDeleteProject, onNameChange, onRenameProject, onStartProject, onSubmit, projects, selectedApp }: { apiBase: string; apps: Installation[]; installations: Installation[]; name: string; onAppChange: (value: string) => void; onCompose: (text: string) => void; onDeleteProject: (project: Project) => Promise<void>; onNameChange: (value: string) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
+function Studio({ apiBase, apps, installations, onCompose, onDeleteProject, onRenameProject, onStartProject, projects }: { apiBase: string; apps: Installation[]; installations: Installation[]; onCompose: (text: string) => void; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
   const recentProjects = projects.slice(0, 4);
   const [promptTemplates, setPromptTemplates] = useState(() => STUDIO_PROMPT_TEMPLATES.slice(0, 2));
   useEffect(() => setPromptTemplates(promptTemplatesForToday()), []);
@@ -334,27 +325,35 @@ function Studio({ apiBase, apps, installations, name, onAppChange, onCompose, on
       </div>
     </section>
     <section className="mt-8"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps">管理应用<ArrowRight className="size-3.5" /></Link>} description="选择一种创作能力，立即开始一个新的作品。" title="创作应用" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><WorldsAppCard />{installations.map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div></section>
-    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">查看全部<ArrowRight className="size-3.5" /></Link>} description="整理所有创作空间，新项目从这里开始。" title="项目列表" /><RecentProjects apiBase={apiBase} apps={apps} name={name} onAppChange={onAppChange} onDeleteProject={onDeleteProject} onNameChange={onNameChange} onRenameProject={onRenameProject} onSubmit={onSubmit} projects={recentProjects} selectedApp={selectedApp} /></section>
+    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">查看全部<ArrowRight className="size-3.5" /></Link>} description="整理所有创作空间，新项目从这里开始。" title="项目列表" /><RecentProjects apiBase={apiBase} apps={apps} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={recentProjects} /></section>
     <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/media">打开素材库<ArrowRight className="size-3.5" /></Link>} description="最近加入工作台的图片、视频和音频，可直接带入下一次创作。" title="最近使用的资源" /><RecentAssets apiBase={apiBase} /></section>
   </div>;
 }
 
-function RecentProjects({ apiBase, apps, name, onAppChange, onDeleteProject, onNameChange, onRenameProject, onSubmit, projects, selectedApp }: { apiBase: string; apps: App[]; name: string; onAppChange: (value: string) => void; onDeleteProject: (project: Project) => Promise<void>; onNameChange: (value: string) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
-  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"><NewProjectCard apps={apps} name={name} onAppChange={onAppChange} onNameChange={onNameChange} onSubmit={onSubmit} selectedApp={selectedApp} />{projects.map((project) => <div className="group relative" key={project.id}><Link className="block" href={`/projects/${project.id}`}><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><ProjectCoverPreview apiBase={apiBase} project={project} /><CardContent className="p-3"><p className="truncate text-sm font-semibold">{project.name}</p><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{project.appId}</p><p className="mt-2 text-xs font-medium text-primary">继续编辑</p></CardContent></Card></Link><div className="absolute right-2 top-2"><CardMoreMenu itemName={project.name} itemType="项目" onDelete={() => onDeleteProject(project)} onRename={(projectName) => onRenameProject(project, projectName)} /></div></div>)}</div>;
+function RecentProjects({ apiBase, apps, onDeleteProject, onRenameProject, onStartProject, projects }: { apiBase: string; apps: Installation[]; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
+  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"><NewProjectCard apps={apps} onStartProject={onStartProject} />{projects.map((project) => <ProjectCard apiBase={apiBase} app={apps.find((app) => app.manifest.id === project.appId)} key={project.id} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} project={project} />)}</div>;
 }
 
-function ProjectCoverPreview({ apiBase, project }: { apiBase: string; project: Project }) {
+function ProjectCard({ apiBase, app, layout = "home", onDeleteProject, onRenameProject, project }: { apiBase?: string; app?: Installation; layout?: "home" | "workspace"; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; project: Project }) {
+  const Icon = app ? studioAppIcon(app.manifest.id) : AppWindow;
+  const appName = app?.manifest.name ?? project.appId;
+  if (layout === "workspace") return <div className="group relative min-w-0"><Link className="block h-full" href={`/projects/${project.id}`}><Card className="flex min-h-56 h-full min-w-0 flex-col border-transparent bg-card p-5 shadow-sm transition-all group-hover:-translate-y-1 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><div className="flex items-start justify-between"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><Icon className="size-5" /></span><Badge className="border-primary/20 bg-accent/60 text-accent-foreground">{appName}</Badge></div><div className="mt-auto"><p className="truncate text-base font-semibold">{project.name}</p><p className="mt-1 truncate text-xs text-muted-foreground">{appName}</p></div></Card></Link><div className="absolute right-3 top-3"><CardMoreMenu itemName={project.name} itemType="项目" onDelete={() => onDeleteProject(project)} onRename={(projectName) => onRenameProject(project, projectName)} /></div></div>;
+  return <div className="group relative"><Link className="block" href={`/projects/${project.id}`}><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><ProjectCoverPreview apiBase={apiBase} app={app} project={project} /><CardContent className="p-3"><p className="truncate text-sm font-semibold">{project.name}</p><p className="mt-1 truncate text-[10px] text-muted-foreground">{appName}</p></CardContent></Card></Link><div className="absolute right-2 top-2"><CardMoreMenu itemName={project.name} itemType="项目" onDelete={() => onDeleteProject(project)} onRename={(projectName) => onRenameProject(project, projectName)} /></div></div>;
+}
+
+function ProjectCoverPreview({ apiBase, app, project }: { apiBase?: string; app?: Installation; project: Project }) {
   const cover = project.cover;
-  if (cover) {
+  if (cover && apiBase) {
     const src = `${apiBase}/v1/media/assets/${encodeURIComponent(cover.assetId)}/content`;
     if (cover.kind === "video") return <VideoFrame alt={`${project.name} 项目封面`} className="aspect-[16/7] border-b" src={src} />;
     return <img alt={`${project.name} 项目封面`} className="aspect-[16/7] w-full border-b object-cover" src={src} />;
   }
-  return <div className="flex aspect-[16/7] items-center justify-between border-b bg-muted p-3"><span className="grid size-7 place-items-center rounded-sm bg-card text-muted-foreground shadow-sm"><AppWindow className="size-3.5" /></span><span className="rounded-xs border bg-card px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">PROJECT</span></div>;
+  const Icon = app ? studioAppIcon(app.manifest.id) : AppWindow;
+  return <div className="flex aspect-[16/7] items-center justify-between border-b bg-muted p-3"><span className="grid size-7 place-items-center rounded-sm bg-card text-muted-foreground shadow-sm"><Icon className="size-3.5" /></span><span className="rounded-xs border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground">{app?.manifest.name ?? project.appId}</span></div>;
 }
 
-function ProjectsPage({ apps, name, onAppChange, onDeleteProject, onNameChange, onRenameProject, onSubmit, projects, selectedApp }: { apps: Installation[]; name: string; onAppChange: (value: string) => void; onDeleteProject: (project: Project) => Promise<void>; onNameChange: (value: string) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onSubmit: (event: FormEvent<HTMLFormElement>) => void; projects: Project[]; selectedApp: string }) {
-  return <><SectionTitle count={`${projects.length} 个项目`} description="整理所有创作空间，新项目从这里开始。" title="项目" /><Projects apps={apps} name={name} onAppChange={onAppChange} onDeleteProject={onDeleteProject} onNameChange={onNameChange} onRenameProject={onRenameProject} onSubmit={onSubmit} projects={projects} selectedApp={selectedApp} /></>;
+function ProjectsPage({ apps, onDeleteProject, onRenameProject, onStartProject, projects }: { apps: Installation[]; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
+  return <><SectionTitle count={`${projects.length} 个项目`} description="整理所有创作空间，新项目从这里开始。" title="项目" /><Projects apps={apps} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={projects} /></>;
 }
 
 function RecentAssets({ apiBase }: { apiBase: string }) {
@@ -426,27 +425,6 @@ function CreateProjectFromAppDialog({ app, onClose, onCreate }: { app: Installat
     try { await onCreate(projectName.trim()); } catch (cause) { setError(cause instanceof Error ? cause.message : "创建项目失败"); setCreating(false); }
   }
   return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="create-project-app-title"><section className="w-full max-w-md rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">NEW PROJECT</p><h2 className="mt-1 text-base font-semibold" id="create-project-app-title">为「{app.manifest.name}」新建项目</h2><p className="mt-1 text-xs text-muted-foreground">创建后进入项目工作台，开始使用这个 App 创作。</p></div><button aria-label="关闭新建项目" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><form onSubmit={submit}><div className="p-5"><label className="mb-1 block text-[11px] font-medium" htmlFor="create-project-app-name">项目名称</label><Input autoFocus className="h-9 bg-background text-xs" id="create-project-app-name" onChange={(event) => setProjectName(event.target.value)} placeholder="例如：夏季品牌片" value={projectName} />{error && <p className="mt-2 text-xs text-warning">{error}</p>}</div><footer className="flex items-center justify-end gap-2 border-t px-5 py-3"><Button onClick={onClose} type="button" variant="ghost">取消</Button><Button disabled={!projectName.trim() || creating} type="submit">{creating ? "正在创建…" : "创建并进入项目"}</Button></footer></form></section></div>;
-}
-
-function AppPicker({ apps, onChange, selectedApp }: { apps: App[]; onChange: (id: string) => void; selectedApp: string }) {
-  const [open, setOpen] = useState(false);
-  const selected = apps.find((app) => app.manifest.id === selectedApp);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [open]);
-
-  return <div className="min-w-0"><label className="mb-1 block text-[11px] font-medium" htmlFor="project-app-picker">应用</label><button aria-describedby="project-app-help" aria-expanded={open} aria-haspopup="dialog" className="flex min-h-11 min-w-0 w-full items-center justify-between gap-2 overflow-hidden rounded-sm border bg-background px-2 text-left transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30" id="project-app-picker" onClick={() => setOpen(true)} type="button"><span className="min-w-0 flex-1 overflow-hidden"><span className="block truncate text-xs font-medium">{selected?.manifest.name ?? "选择一个 App"}</span><span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{selected ? `作者 · ${selected.manifest.author}` : "查看用途后再开始创作"}</span></span><ChevronDown className="size-3.5 shrink-0 text-muted-foreground" /></button><p className="sr-only" id="project-app-help">打开应用选择面板，查看用途和详情后选择项目 App。</p>{open && <AppPickerDialog apps={apps} onChange={onChange} onClose={() => setOpen(false)} selectedApp={selectedApp} />}</div>;
-}
-
-function AppPickerDialog({ apps, onChange, onClose, selectedApp }: { apps: App[]; onChange: (id: string) => void; onClose: () => void; selectedApp: string }) {
-  const selected = apps.find((app) => app.manifest.id === selectedApp) ?? apps[0];
-  function choose(app: App) { onChange(app.manifest.id); onClose(); }
-
-  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="app-picker-title"><section className="flex max-h-[min(620px,calc(100vh-3rem))] w-full max-w-3xl flex-col overflow-hidden rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">PROJECT APP</p><h2 className="mt-1 text-base font-semibold" id="app-picker-title">选择创作方式</h2><p className="mt-1 text-xs text-muted-foreground">先了解 App 的用途，再把它作为新项目的工作台。</p></div><button aria-label="关闭应用选择" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header>{apps.length ? <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_18rem]"><div className="divide-y border-r">{apps.map((app) => { const active = app.manifest.id === selectedApp; return <button aria-pressed={active} className={active ? "block w-full bg-accent/60 px-5 py-4 text-left" : "block w-full px-5 py-4 text-left hover:bg-muted"} key={app.manifest.id} onClick={() => choose(app)} type="button"><span className="flex items-start gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-lg border bg-background text-accent-foreground"><AppWindow className="size-4" /></span><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-3 text-xs font-medium">{app.manifest.name}{active && <Check className="size-3.5 shrink-0 text-primary" />}</span><span className="mt-1 block text-[11px] leading-4 text-muted-foreground">{app.manifest.description}</span><span className="mt-2 block font-mono text-[10px] text-muted-foreground">{app.manifest.author} · v{app.manifest.version}</span></span></span></button>; })}</div><aside className="bg-muted/30 p-5">{selected && <><span className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground"><AppWindow className="size-5" /></span><p className="mt-4 text-sm font-semibold">{selected.manifest.name}</p><p className="mt-2 text-xs leading-5 text-muted-foreground">{selected.manifest.description}</p><dl className="mt-5 space-y-3 text-xs"><div><dt className="text-muted-foreground">作者</dt><dd className="mt-1">{selected.manifest.author}</dd></div><div><dt className="text-muted-foreground">版本</dt><dd className="mt-1 font-mono">v{selected.manifest.version}</dd></div></dl><Link className="mt-5 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline" href={`/apps/${encodeURIComponent(selected.manifest.id)}`} onClick={onClose}>查看详情<ExternalLink className="size-3.5" /></Link></>}</aside></div> : <div className="grid min-h-60 place-items-center p-8 text-center"><div><p className="text-sm font-medium">还没有可用于项目的 App</p><p className="mt-2 text-xs leading-5 text-muted-foreground">去 Apps 添加一个项目型 App，再回到这里开始创作。</p></div></div>}<footer className="flex items-center justify-between gap-4 border-t px-5 py-3"><span className="text-[11px] text-muted-foreground">{apps.length ? `${apps.length} 个可用项目 App` : "项目 App 决定项目的创作能力"}</span><Link className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline" href="/apps" onClick={onClose}>前往 Apps 添加更多能力<ExternalLink className="size-3.5" /></Link></footer></section></div>;
 }
 
 function Apps({ apiBase, installations, installationError, installationLoadState, onStartProject, onUpdated, serviceOnline }: { apiBase: string; installations: Installation[]; installationError: string; installationLoadState: InstallationLoadState; onStartProject: (app: Installation) => void; onUpdated: () => Promise<void>; serviceOnline: boolean }) {
