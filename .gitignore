@@ -8,6 +8,7 @@ build/
 web/out/
 web/public/releases/
 service/ui/assets/*
+service/builtin_apps/
 !service/ui/assets/.keep
 .wrangler
 service/ui
