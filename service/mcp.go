@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost 双 target 运行时、Catalog 的 App 与 skill 树、MediaService 与 JSON-RPC 请求/响应模型
- * [OUTPUT]: 对外提供项目/App-state 双 target 解析、上下文 context（不携带项目默认值且报告媒体 readiness）、__recut target envelope、跨 App 的 operation 路由、平台工具（含全局 reference 研究资料 Asset 创建）、结构化内容与按全局/App 分组的工具清单（GET /v1/mcp/tools）
+ * [OUTPUT]: 对外提供项目/App-state 双 target 解析、上下文 context（不携带项目默认值且报告媒体 readiness）、__recut target envelope、跨 App 的 operation 路由、平台工具（含全局 reference 研究资料 Asset 创建）、裸 skill reference 到 `references/` 的解析、结构化内容与按全局/App 分组的工具清单（GET /v1/mcp/tools）
  * [POS]: service 的 MCP Host；唯一监听者是常驻 Daemon 的 /v1/mcp（Streamable HTTP），全局 Agent 直接以 Bearer token 连接，内置会话的 stdio adapter 只传递 session 身份；App 不自行启动 MCP server，所有调用经平台权限、目标解析与会话边界；平台工具无条件可见
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -521,31 +521,49 @@ func skillReferenceTool(bridge *AgentBridge, arguments map[string]any) (any, err
 		if skill.ID != skillID {
 			continue
 		}
-		root, err := filepath.EvalSymlinks(skill.Root)
+		root := filepath.Clean(skill.Root)
+		resolvedRoot, err := filepath.EvalSymlinks(root)
 		if err != nil {
 			return nil, fmt.Errorf("resolve skill root: %w", err)
 		}
-		resolved, err := filepath.EvalSymlinks(filepath.Join(root, filepath.Clean(path)))
-		if err != nil {
-			return nil, fmt.Errorf("resolve skill reference: %w", err)
+		for _, candidate := range skillReferenceCandidates(path) {
+			resolved, resolveErr := filepath.EvalSymlinks(filepath.Join(root, candidate))
+			if errors.Is(resolveErr, os.ErrNotExist) {
+				continue
+			}
+			if resolveErr != nil {
+				return nil, fmt.Errorf("resolve skill reference: %w", resolveErr)
+			}
+			relative, relativeErr := filepath.Rel(resolvedRoot, resolved)
+			if relativeErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				return nil, fmt.Errorf("skill reference escapes the skill directory")
+			}
+			info, statErr := os.Stat(resolved)
+			if statErr != nil || info.IsDir() {
+				continue
+			}
+			content, readErr := os.ReadFile(resolved)
+			if readErr != nil {
+				return nil, readErr
+			}
+			result := map[string]any{"appId": appID, "skillId": skillID, "path": filepath.ToSlash(relative), "content": string(content)}
+			data, _ := json.Marshal(result)
+			return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 		}
-		relative, err := filepath.Rel(root, resolved)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return nil, fmt.Errorf("skill reference escapes the skill directory")
-		}
-		info, err := os.Stat(resolved)
-		if err != nil || info.IsDir() {
-			return nil, fmt.Errorf("skill reference is unavailable")
-		}
-		content, err := os.ReadFile(resolved)
-		if err != nil {
-			return nil, err
-		}
-		result := map[string]any{"appId": appID, "skillId": skillID, "path": filepath.ToSlash(relative), "content": string(content)}
-		data, _ := json.Marshal(result)
-		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+		return nil, fmt.Errorf("skill reference is unavailable")
 	}
 	return nil, fmt.Errorf("skill %q is not provided by app %q", skillID, appID)
+}
+
+func skillReferenceCandidates(path string) []string {
+	clean := filepath.Clean(path)
+	if path == "" || filepath.IsAbs(path) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return nil
+	}
+	if clean == "references" || strings.HasPrefix(clean, "references"+string(filepath.Separator)) {
+		return []string{clean}
+	}
+	return []string{clean, filepath.Join("references", clean)}
 }
 
 func projectMCPToolDefinition() map[string]any {

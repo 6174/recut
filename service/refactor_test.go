@@ -64,12 +64,13 @@ func TestSkillDiscoveryFromStandardTreeAndAgentsFallback(t *testing.T) {
 func TestMCPSkillToolsReadReference(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, "apps", "example")
-	if err := os.MkdirAll(filepath.Join(appDir, "skills", "vox-broll"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(appDir, "skills", "vox-broll", "references"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
-	writeTestFile(t, filepath.Join(appDir, "skills", "vox-broll", "SKILL.md"), "---\nname: vox-broll\ndescription: Vox 风格解说片。\nreferences: [notes.md]\n---\n# 正文")
+	writeTestFile(t, filepath.Join(appDir, "skills", "vox-broll", "SKILL.md"), "---\nname: vox-broll\ndescription: Vox 风格解说片。\nreferences: [notes.md, timeline-workflow.md]\n---\n# 正文")
 	writeTestFile(t, filepath.Join(appDir, "skills", "vox-broll", "notes.md"), "补充材料")
+	writeTestFile(t, filepath.Join(appDir, "skills", "vox-broll", "references", "timeline-workflow.md"), "时间线工作流")
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +101,14 @@ func TestMCPSkillToolsReadReference(t *testing.T) {
 	ref := result.(map[string]any)["structuredContent"].(map[string]any)
 	if !strings.Contains(ref["content"].(string), "补充材料") {
 		t.Fatalf("reference = %#v", ref)
+	}
+	result, err = call("recut.skills.reference", `{"appId":"example.app","skillId":"vox-broll","path":"timeline-workflow.md"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare := result.(map[string]any)["structuredContent"].(map[string]any)
+	if bare["path"] != "references/timeline-workflow.md" || bare["content"] != "时间线工作流" {
+		t.Fatalf("bare reference = %#v", bare)
 	}
 	if _, err := call("recut.skills.reference", `{"appId":"example.app","skillId":"vox-broll","path":"../manifest.json"}`); err == nil {
 		t.Fatal("skill reference escaped the skill directory")

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖标准库 HTTP、JSON、IO 与 OS 环境；作为常驻 Daemon 的薄 stdio 转发器
- * [OUTPUT]: 对外提供 `recut-service --mcp`：把任意 stdio Agent（会话内 opencode/Codex/Claude 或外部 Codex）的 JSON-RPC 转发到 Daemon 的 POST /v1/mcp；若进程携带 RECUT_AGENT_SESSION/RECUT_AGENT_TOKEN，则以会话身份 header 转发，daemon 侧据此解析真实会话
+ * [OUTPUT]: 对外提供 `recut-service --mcp`：把任意 stdio Agent（会话内 opencode/Codex/Claude 或外部 Codex）的 JSON-RPC 转发到 Daemon 的 POST /v1/mcp；补齐与 Host 一致的 MCP 协议版本，若进程携带 RECUT_AGENT_SESSION/RECUT_AGENT_TOKEN，则以会话身份 header 转发，daemon 侧据此解析真实会话
  * [POS]: service 的 Agent 传输边界；不执行业务，只做协议转发。短生命周期、无状态，启动不初始化 store 也不做任何状态收敛，因此不会干扰常驻 daemon 管理的长驻任务
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -60,6 +60,10 @@ func forwardMCPRequest(target, sessionID, sessionToken string, request mcpReques
 		return errorResponse(request.ID, err)
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
+	// stdio MCP does not carry HTTP headers. The daemon's Streamable HTTP Host
+	// correctly requires this header after initialization, so the adapter owns
+	// the transport translation and always forwards its negotiated version.
+	httpRequest.Header.Set("MCP-Protocol-Version", mcpProtocolVersion)
 	if sessionID != "" {
 		httpRequest.Header.Set("X-Recut-Session", sessionID)
 		httpRequest.Header.Set("X-Recut-Token", sessionToken)
