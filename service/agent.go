@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、持久化 CLI 定位缓存、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
- * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、OpenCode 连续六分钟静默才取消的 watchdog、Codex 可重试连接状态与终态传输错误的区分、停止时原子取消当前批次并重置原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、泛化的消息上下文（media/page/可扩展类型）注册与提示词/CLI 拼装、保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
+ * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、OpenCode 连续六分钟静默才取消的 watchdog、Codex 可重试连接状态与终态传输错误的区分、停止时原子取消当前批次并重置原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、泛化的消息上下文（media/page/可扩展类型）注册与提示词/CLI 拼装、Codex MCP 别名的人可读动作标签，以及保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
  * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份，会话不绑定任何项目，项目与 App 完全由 MCP 上下文工具发现
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -1487,7 +1487,7 @@ func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string
 		m.emit(sessionID, turnID, "status", map[string]any{"phase": "thinking", "label": "正在分析"})
 	case "item.started":
 		if isCodexTool(itemType) {
-			m.emit(sessionID, turnID, "tool.started", codexToolPayload(item, itemType, "input"))
+			m.emit(sessionID, turnID, "tool.started", m.codexToolPayload(item, itemType, "input"))
 		}
 	case "item.completed", "item.failed":
 		if itemType == "error" {
@@ -1510,7 +1510,7 @@ func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string
 			if eventType == "tool.failed" {
 				phase = "error"
 			}
-			m.emit(sessionID, turnID, eventType, codexToolPayload(item, itemType, phase))
+			m.emit(sessionID, turnID, eventType, m.codexToolPayload(item, itemType, phase))
 		}
 	case "error":
 		// A top-level error is often only Codex's reconnect progress. Keep the
@@ -1558,7 +1558,7 @@ func (m *AgentManager) handleClaudeEvent(sessionID, turnID string, raw map[strin
 				if id == "" {
 					id = fmt.Sprintf("tool-%d", index)
 				}
-				m.emit(sessionID, turnID, "tool.completed", map[string]any{"toolCallId": id, "tool": name, "label": name})
+				m.emit(sessionID, turnID, "tool.completed", map[string]any{"toolCallId": id, "tool": name, "toolName": name, "label": m.toolLabel("mcp_tool_call", name, nil)})
 			}
 		}
 	}
@@ -1602,7 +1602,7 @@ func (m *AgentManager) handleOpencodeEvent(sessionID, turnID string, raw map[str
 			"toolCallId": id,
 			"tool":       toolName,
 			"toolName":   toolName,
-			"label":      toolLabel("mcp_tool_call", toolName, nil),
+			"label":      m.toolLabel("mcp_tool_call", toolName, nil),
 		}
 		if detail := opencodeToolDetail(state, "input"); detail != "" {
 			payload["input"] = detail
@@ -1667,6 +1667,13 @@ func codexToolPayload(item map[string]any, kind, phase string) map[string]any {
 	return payload
 }
 
+func (m *AgentManager) codexToolPayload(item map[string]any, kind, phase string) map[string]any {
+	payload := codexToolPayload(item, kind, phase)
+	name, _ := payload["toolName"].(string)
+	payload["label"] = m.toolLabel(kind, name, item)
+	return payload
+}
+
 func codexToolFailed(item map[string]any) bool {
 	status := strings.ToLower(fmt.Sprint(item["status"]))
 	if status == "failed" || status == "error" {
@@ -1722,21 +1729,113 @@ func toolLabel(kind, name string, item map[string]any) string {
 		return map[string]string{"command_execution": "运行命令", "file_change": "修改文件", "mcp_tool_call": "MCP 工具调用", "web_search": "搜索网络"}[kind] + toolLabelSuffix(name)
 	}
 	labels := map[string]string{
-		"recut.project_context":    "读取 Recut 项目上下文",
-		"recut.image.generate":     "提交图片生成任务",
-		"recut.video.generate":     "提交视频生成任务",
-		"recut.speech.generate":    "提交语音生成任务",
-		"recut.media.list_voices":  "读取可用音色",
-		"recut.media.get_job":      "查询媒体生成进度",
-		"recut.media.wait_for_job": "等待媒体生成结果",
-		"recut.media.list_assets":  "读取素材库",
-		"recut.media.import_image": "归档 Codex 原生图片",
-		"recut.media.attach":       "将素材关联到项目",
+		"recut.context":                             "读取 Recut 上下文",
+		"recut.apps.list":                           "读取已安装应用",
+		"recut.apps.store":                          "浏览应用商店",
+		"recut.apps.install":                        "安装应用",
+		"recut.apps.update":                         "更新应用",
+		"recut.skills.list":                         "读取技能目录",
+		"recut.skills.read":                         "读取技能说明",
+		"recut.skills.reference":                    "读取技能参考资料",
+		"recut.design_system.list":                  "浏览设计系统",
+		"recut.design_system.get":                   "读取设计系统",
+		"recut.project.create":                      "创建项目",
+		"recut.project.list":                        "读取项目列表",
+		"recut.project.get":                         "读取项目",
+		"recut.project_context":                     "读取 Recut 项目上下文",
+		"recut.job.status":                          "查询任务状态",
+		"recut.job.wait":                            "等待任务完成",
+		"recut.job.logs":                            "读取任务日志",
+		"recut.job.cancel":                          "取消任务",
+		"recut.image.generate":                      "提交图片生成任务",
+		"recut.video.generate":                      "提交视频生成任务",
+		"recut.speech.generate":                     "提交语音生成任务",
+		"recut.media.list_voices":                   "读取可用音色",
+		"recut.media.get_job":                       "查询媒体生成进度",
+		"recut.media.wait_for_job":                  "等待媒体生成结果",
+		"recut.media.list_assets":                   "读取素材库",
+		"recut.media.import_image":                  "归档 Codex 原生图片",
+		"recut.media.create_reference":              "登记参考资料",
+		"recut.media.attach":                        "将素材关联到项目",
+		"recut.worlds.list":                         "读取世界列表",
+		"recut.worlds.get":                          "读取世界",
+		"recut.worlds.entities.list":                "读取世界实体",
+		"recut.worlds.entities.get":                 "读取世界实体详情",
+		"recut.worlds.evidence.list":                "读取世界资料",
+		"recut.worlds.resolve":                      "解析世界上下文",
+		"recut.worlds.create":                       "创建世界",
+		"recut.worlds.update":                       "更新世界",
+		"recut.worlds.entities.upsert":              "保存世界实体",
+		"recut.worlds.references.attach":            "关联世界参考素材",
+		"recut.worlds.evidence.attach":              "收录世界资料",
+		"recut.worlds.evidence.update":              "更新世界资料",
+		"recut.worlds.evidence.archive":             "归档世界资料",
+		"recut.worlds.bind_project":                 "关联世界到项目",
+		"recut_recut_editor_project_create":         "创建剪辑项目",
+		"recut_recut_editor_workflow_context":       "读取剪辑工作流",
+		"recut_recut_editor_timeline_assets":        "登记时间线素材",
+		"recut_recut_editor_project_get":            "读取剪辑项目",
+		"recut_recut_editor_project_updateSettings": "更新剪辑设置",
+		"recut_recut_editor_project_lock":           "锁定剪辑项目",
+		"recut_recut_editor_project_unlock":         "解锁剪辑项目",
+		"recut_recut_editor_timeline_read":          "读取时间线",
+		"recut_recut_editor_element_get":            "读取时间线元素",
+		"recut_recut_editor_timeline_validate":      "校验时间线",
+		"recut_recut_editor_timeline_command":       "编辑时间线",
 	}
 	if label, ok := labels[name]; ok {
 		return label
 	}
+	for toolName, label := range labels {
+		if name == codexMCPToolAlias(toolName) {
+			return label
+		}
+	}
 	return "调用 " + name
+}
+
+func (m *AgentManager) toolLabel(kind, name string, item map[string]any) string {
+	label := toolLabel(kind, name, item)
+	if kind != "mcp_tool_call" || label != "调用 "+name || m.bridge == nil {
+		return label
+	}
+	apps, err := m.bridge.store.catalog.List()
+	if err != nil {
+		return label
+	}
+	for _, app := range apps {
+		for _, operation := range app.Manifest.Operations {
+			fullName := app.Manifest.ID + "." + operation.Name
+			if name != fullName && name != codexMCPToolAlias(fullName) {
+				continue
+			}
+			return conciseToolLabel(operation.Description)
+		}
+	}
+	return label
+}
+
+func codexMCPToolAlias(name string) string {
+	var value strings.Builder
+	value.WriteString("recut_")
+	for _, char := range name {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '_' {
+			value.WriteRune(char)
+			continue
+		}
+		value.WriteByte('_')
+	}
+	return value.String()
+}
+
+func conciseToolLabel(description string) string {
+	label := strings.TrimSpace(description)
+	for _, separator := range []string{"：", "。", "（"} {
+		if index := strings.Index(label, separator); index > 0 {
+			label = label[:index]
+		}
+	}
+	return strings.TrimSpace(label)
 }
 func toolLabelSuffix(name string) string {
 	if name == "" {

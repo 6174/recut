@@ -585,6 +585,19 @@ func TestCodexToolPayloadSeparatesInputOutputErrorAndCost(t *testing.T) {
 	}
 }
 
+func TestToolLabelUsesHumanFriendlyEditorActionsForCodexAliases(t *testing.T) {
+	for name, want := range map[string]string{
+		"recut_recut_media_list_assets":        "读取素材库",
+		"recut_recut_editor_timeline_assets":   "登记时间线素材",
+		"recut_recut_editor_timeline_command":  "编辑时间线",
+		"recut_recut_editor_timeline_validate": "校验时间线",
+	} {
+		if got := toolLabel("mcp_tool_call", name, nil); got != want {
+			t.Errorf("toolLabel(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
 func TestOpencodeToolErrorDetailPreservesStateError(t *testing.T) {
 	state := map[string]any{
 		"input": map[string]any{"filePath": "/outside-project/README.md"},

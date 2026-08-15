@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖共享会话类型、Agent 安装恢复能力、素材引用卡片与基础 UI 原子组件
- * [OUTPUT]: 对外提供会话时间线、历史列表、加载/CLI 调试/恢复视图、工具结果中的 Asset 预览入口；调试与工具详情弹框经 document.body Portal 脱离侧栏堆叠上下文，以及 SSE 事件归并函数
+ * [OUTPUT]: 对外提供会话时间线、历史列表、加载/CLI 调试/恢复视图、工具结果中的 Asset 预览入口；所有工具调用在收起态只展示人可读动作、展开后可查看真实名称，且以单份可复制诊断记录归集输入/输出/错误/成本；调试与工具详情弹框经 document.body Portal 脱离侧栏堆叠上下文，以及 SSE 事件归并函数
  * [POS]: components Agent 对话模块的展示层；只根据传入数据渲染，不拥有会话请求状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -547,8 +547,10 @@ function toolCalls(events: AgentEvent[]): ToolCall[] {
 
 function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolCall; now: number }) {
   const [open, setOpen] = useState(false);
-  const hasDetail = Boolean(call.input || call.output || call.error);
+  const [copied, setCopied] = useState(false);
+  const hasDetail = true;
   const duration = toolDuration(call.createdAt, call.completedAt, now);
+  const label = toolDisplayLabel(call.payload);
   const stateLabel = { running: "执行中", success: "已完成", error: "失败" }[
     call.state
   ];
@@ -567,12 +569,7 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
     <div className="max-w-full text-[11px]">
       <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
         <span className={`size-1.5 shrink-0 rounded-full ${stateClass}`} />
-        <span className="truncate">{call.payload.label ?? "MCP 工具调用"}</span>
-        {call.payload.toolName && (
-          <span className="truncate font-mono text-[10px] text-muted-foreground/80">
-            {call.payload.toolName}
-          </span>
-        )}
+        <span className="truncate">{label}</span>
         <span className={`ml-auto shrink-0 text-[10px] ${labelClass}`}>
           {stateLabel} · {duration}
         </span>
@@ -596,17 +593,26 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
         >
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-medium">
-              {call.payload.label ?? "工具调用"}
+              {label}
             </p>
             <span className={`shrink-0 text-[10px] ${labelClass}`}>
               {stateLabel} · 耗时 {duration}
             </span>
           </div>
-          {call.payload.toolName && (
-            <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
-              {call.payload.toolName}
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className="min-w-0 break-all font-mono text-[10px] text-muted-foreground">
+              真实工具名：{call.payload.toolName ?? call.payload.tool ?? "未返回"}
             </p>
-          )}
+            <button
+              className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={async () => {
+                setCopied(await copyToClipboard(toolCallReport(call, label, duration)));
+              }}
+              type="button"
+            >
+              {copied ? "已复制" : "复制调用"}
+            </button>
+          </div>
           <ToolDetail
             emptyLabel="未返回调用参数"
             title="调用参数"
@@ -630,6 +636,105 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
     </div>
   );
 }
+
+const toolLabels: Record<string, string> = {
+  recut_recut_context: "读取 Recut 上下文",
+  recut_recut_apps_list: "读取已安装应用",
+  recut_recut_apps_store: "浏览应用商店",
+  recut_recut_apps_install: "安装应用",
+  recut_recut_apps_update: "更新应用",
+  recut_recut_skills_list: "读取技能目录",
+  recut_recut_skills_read: "读取技能说明",
+  recut_recut_skills_reference: "读取技能参考资料",
+  recut_recut_design_system_list: "浏览设计系统",
+  recut_recut_design_system_get: "读取设计系统",
+  recut_recut_project_create: "创建项目",
+  recut_recut_project_list: "读取项目列表",
+  recut_recut_project_get: "读取项目",
+  recut_recut_project_context: "读取项目上下文",
+  recut_recut_job_status: "查询任务状态",
+  recut_recut_job_wait: "等待任务完成",
+  recut_recut_job_logs: "读取任务日志",
+  recut_recut_job_cancel: "取消任务",
+  recut_recut_image_generate: "提交图片生成任务",
+  recut_recut_video_generate: "提交视频生成任务",
+  recut_recut_speech_generate: "提交语音生成任务",
+  recut_recut_media_list_voices: "读取可用音色",
+  recut_recut_media_get_job: "查询媒体生成进度",
+  recut_recut_media_wait_for_job: "等待媒体生成结果",
+  recut_recut_media_list_assets: "读取素材库",
+  recut_recut_media_import_image: "归档生成图片",
+  recut_recut_media_create_reference: "登记参考资料",
+  recut_recut_media_attach: "关联素材到项目",
+  recut_recut_worlds_list: "读取世界列表",
+  recut_recut_worlds_get: "读取世界",
+  recut_recut_worlds_entities_list: "读取世界实体",
+  recut_recut_worlds_entities_get: "读取世界实体详情",
+  recut_recut_worlds_evidence_list: "读取世界资料",
+  recut_recut_worlds_resolve: "解析世界上下文",
+  recut_recut_worlds_create: "创建世界",
+  recut_recut_worlds_update: "更新世界",
+  recut_recut_worlds_entities_upsert: "保存世界实体",
+  recut_recut_worlds_references_attach: "关联世界参考素材",
+  recut_recut_worlds_evidence_attach: "收录世界资料",
+  recut_recut_worlds_evidence_update: "更新世界资料",
+  recut_recut_worlds_evidence_archive: "归档世界资料",
+  recut_recut_worlds_bind_project: "关联世界到项目",
+  recut_recut_editor_project_create: "创建剪辑项目",
+  recut_recut_editor_workflow_context: "读取剪辑工作流",
+  recut_recut_editor_timeline_assets: "登记时间线素材",
+  recut_recut_editor_project_get: "读取剪辑项目",
+  recut_recut_editor_project_updateSettings: "更新剪辑设置",
+  recut_recut_editor_project_lock: "锁定剪辑项目",
+  recut_recut_editor_project_unlock: "解锁剪辑项目",
+  recut_recut_editor_timeline_read: "读取时间线",
+  recut_recut_editor_element_get: "读取时间线元素",
+  recut_recut_editor_timeline_validate: "校验时间线",
+  recut_recut_editor_timeline_command: "编辑时间线",
+  recut_recut_editor_history_undo: "撤销时间线操作",
+  recut_recut_editor_history_redo: "重做时间线操作",
+  recut_recut_editor_film_package_import: "导入短片交接包",
+  recut_recut_editor_component_define: "创建剪辑组件",
+  recut_recut_editor_component_verify: "验证剪辑组件",
+  recut_recut_editor_component_list: "读取剪辑组件",
+  recut_recut_editor_component_source: "读取组件源码",
+};
+
+function toolDisplayLabel(payload: ToolPayload) {
+  const name = payload.toolName ?? "";
+  const alias = `recut_${name.replaceAll(".", "_")}`;
+  const label = toolLabels[name] ?? toolLabels[alias] ?? payload.label?.trim();
+  return label?.startsWith("调用 ") ? "MCP 工具调用" : label || "MCP 工具调用";
+}
+
+function toolCallReport(call: ToolCall, label: string, duration: string) {
+  return JSON.stringify(
+    {
+      action: label,
+      toolName: call.payload.toolName ?? call.payload.tool ?? null,
+      state: call.state,
+      startedAt: call.createdAt,
+      completedAt: call.completedAt ?? null,
+      duration,
+      input: parseToolReportValue(call.input),
+      output: parseToolReportValue(call.output),
+      error: parseToolReportValue(call.error),
+      cost: parseToolReportValue(call.payload.cost),
+    },
+    null,
+    2,
+  );
+}
+
+function parseToolReportValue(value: string | undefined) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
 function ToolDetail({
   emptyLabel = "未返回数据",
   title,
@@ -640,26 +745,12 @@ function ToolDetail({
   value?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const detail = value ? safeToolDetail(value) : emptyLabel;
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(detail);
-      setCopied(true);
-    } catch {}
-  }
   return (
     <section className="mt-3">
       <div className="mb-1 flex items-center justify-between gap-2">
         <p className="text-[10px] font-medium text-muted-foreground">{title}</p>
         <div className="flex shrink-0 gap-1">
-          <button
-            className="rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={() => void copy()}
-            type="button"
-          >
-            {copied ? "已复制" : "复制"}
-          </button>
           <button
             className="rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={() => setOpen(true)}

@@ -251,6 +251,42 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 			}
 			return runtime.ToValue(map[string]any{"assetId": asset.ID, "kind": asset.Kind, "mimeType": asset.MimeType, "path": path})
 		})
+		// ctx.media.transcript(assetId) —— 解析一个 completed 转写素材的分段为
+		// { language, duration, segments: [{start, end, text}] }（秒）。编辑器 speech-track
+		// 用它把说话内容映射到时间线，供 script.* 文稿剪辑。来源: transcript.json part，
+		// 缺省回退到 srt part。
+		_ = media.Set("transcript", func(call goja.FunctionCall) goja.Value {
+			asset, err := h.media.GetAsset(strings.TrimSpace(call.Argument(0).String()))
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			if asset.Status != "completed" {
+				panic(runtime.NewGoError(errors.New("transcript is not ready")))
+			}
+			_, jsonBytes, jsonErr := h.media.GetAssetPart(asset.ID, "transcript.json")
+			if jsonErr == nil {
+				var doc struct {
+					Language string           `json:"language"`
+					Duration float64          `json:"duration"`
+					Segments []map[string]any `json:"segments"`
+				}
+				if err := json.Unmarshal(jsonBytes, &doc); err == nil {
+					segments := make([]any, 0, len(doc.Segments))
+					for _, s := range doc.Segments {
+						start, _ := s["start"].(float64)
+						end, _ := s["end"].(float64)
+						text, _ := s["text"].(string)
+						segments = append(segments, map[string]any{"start": start, "end": end, "text": text})
+					}
+					return runtime.ToValue(map[string]any{"language": doc.Language, "duration": doc.Duration, "segments": segments})
+				}
+			}
+			_, srtBytes, srtErr := h.media.GetAssetPart(asset.ID, "srt")
+			if srtErr != nil {
+				panic(runtime.NewGoError(errors.New("transcript has no readable parts")))
+			}
+			return runtime.ToValue(map[string]any{"language": nil, "duration": 0, "segments": parseTranscriptSrt(string(srtBytes))})
+		})
 		_ = ctx.Set("media", media)
 	}
 	if hasPermission(app.Manifest, "media.write") && h.media != nil {
@@ -1085,6 +1121,57 @@ func hasPermission(manifest Manifest, permission string) bool {
 		}
 	}
 	return false
+}
+
+// parseTranscriptSrt 把 SRT 文本解析为 {start,end,text} 分段（秒），
+// 供 ctx.media.transcript 在 transcript.json part 缺失时回退。
+func parseTranscriptSrt(content string) []any {
+	segments := []any{}
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	blocks := strings.Split(strings.TrimSpace(normalized), "\n\n")
+	for _, block := range blocks {
+		lines := strings.Split(strings.TrimSpace(block), "\n")
+		if len(lines) < 2 {
+			continue
+		}
+		arrowIdx := -1
+		for i, line := range lines {
+			if strings.Contains(line, "-->") {
+				arrowIdx = i
+				break
+			}
+		}
+		if arrowIdx < 0 {
+			continue
+		}
+		parts := strings.SplitN(lines[arrowIdx], "-->", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		start, ok1 := parseTranscriptSrtTime(parts[0])
+		end, ok2 := parseTranscriptSrtTime(parts[1])
+		if !ok1 || !ok2 || end <= start {
+			continue
+		}
+		text := strings.Join(lines[arrowIdx+1:], "\n")
+		text = strings.ReplaceAll(text, "{\\an8}", "")
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		segments = append(segments, map[string]any{"start": start, "end": end, "text": text})
+	}
+	return segments
+}
+
+func parseTranscriptSrtTime(text string) (float64, bool) {
+	raw := strings.TrimSpace(text)
+	raw = strings.ReplaceAll(raw, ",", ".")
+	var h, m, s, frac int
+	if n, _ := fmt.Sscanf(raw, "%d:%d:%d.%d", &h, &m, &s, &frac); n < 4 {
+		return 0, false
+	}
+	return float64(h*3600+m*60+s) + float64(frac)/1000.0, true
 }
 func declaresOperation(manifest Manifest, name, surface string) bool {
 	for _, operation := range manifest.Operations {
