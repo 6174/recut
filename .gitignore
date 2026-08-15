@@ -8,7 +8,8 @@ build/
 web/out/
 web/public/releases/
 service/ui/assets/*
-service/builtin_apps/
+# Release-generated built-in App archives stay local to each build.
+service/builtin_apps/*.tar.gz
 !service/ui/assets/.keep
 .wrangler
 service/ui
