@@ -13,6 +13,8 @@ import { Card } from "@/components/ui/card";
 import { PlatformMediaPicker } from "@/components/platform-media-picker";
 import { Input } from "@/components/ui/input";
 import { CustomSelect } from "@/components/ui/select-field";
+import { useI18n, useLocaleStore, t as plainT } from "@/lib/i18n/index";
+import { interpolate } from "@/lib/i18n/workspace-dict";
 import {
   createRecutWorldsClient,
   type EntityKind,
@@ -30,18 +32,18 @@ type WorldAsset = {
   status: string;
 };
 
-const evidencePurposes: Array<{ value: WorldEvidencePurpose; label: string }> = [
-  { value: "identity", label: "身份与核心印象" },
-  { value: "appearance", label: "外貌与形象" },
-  { value: "wardrobe", label: "服装与道具" },
-  { value: "voice", label: "角色声线" },
-  { value: "motion", label: "动作与表演" },
-  { value: "scene", label: "场景与空间" },
-  { value: "mood", label: "情绪与氛围" },
-  { value: "visual_style", label: "画面风格" },
-  { value: "sound_style", label: "声音风格" },
-  { value: "narrative", label: "叙事与节奏" },
-  { value: "rule_evidence", label: "规则佐证" },
+const evidencePurposeValues: WorldEvidencePurpose[] = [
+  "identity",
+  "appearance",
+  "wardrobe",
+  "voice",
+  "motion",
+  "scene",
+  "mood",
+  "visual_style",
+  "sound_style",
+  "narrative",
+  "rule_evidence",
 ];
 
 export function SettingCard({
@@ -53,6 +55,7 @@ export function SettingCard({
   onCreateVideo?: () => void;
   onEdit: () => void;
 }) {
+  const { t } = useI18n();
   const entries = contentEntries(entity);
   const evidence = entity.references ?? [];
 
@@ -62,13 +65,13 @@ export function SettingCard({
         <div>
           <p className="text-base font-semibold">{entity.title}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {entity.summary || "还没有一句话介绍。"}
+            {entity.summary || t("worlds.entity.summary.empty")}
           </p>
         </div>
         <span
           className={`shrink-0 rounded-full px-2 py-1 text-[11px] ${entries.length ? "bg-primary/10 text-primary" : "bg-warning/15 text-warning"}`}
         >
-          {entries.length ? "已补充" : "待完善"}
+          {entries.length ? t("worlds.entity.completed") : t("worlds.entity.incomplete")}
         </span>
       </div>
       {entries.length ? (
@@ -76,7 +79,7 @@ export function SettingCard({
           {entries.map(([key, value]) => (
             <div key={key}>
               <dt className="text-[11px] font-medium text-muted-foreground">
-                {fieldLabel(key)}
+                {fieldLabel(key, t)}
               </dt>
               <dd className="mt-0.5 line-clamp-2 text-xs leading-5">{value}</dd>
             </div>
@@ -84,11 +87,11 @@ export function SettingCard({
         </dl>
       ) : (
         <p className="mt-4 text-xs leading-5 text-muted-foreground">
-          补充几个具体细节，AI 才能在创作中稳定地使用它。
+          {t("worlds.entity.completion.hint")}
         </p>
       )}
       <div className="mt-4 border-t pt-3">
-        <p className="text-xs font-medium">图像、视频与声音</p>
+        <p className="text-xs font-medium">{t("worlds.entity.media.title")}</p>
         {evidence.length ? (
           <div className="mt-2 flex items-center gap-1.5">
             {evidence.slice(0, 4).map((item) => (
@@ -99,17 +102,17 @@ export function SettingCard({
             )}
           </div>
         ) : (
-          <p className="mt-2 text-xs text-muted-foreground">在“编辑设定”中补充多模态信息。</p>
+          <p className="mt-2 text-xs text-muted-foreground">{t("worlds.entity.media.hint")}</p>
         )}
       </div>
       <div className="mt-auto flex items-center gap-2 pt-4">
         {onCreateVideo && (
           <Button className="h-8" onClick={onCreateVideo} type="button">
-            <Clapperboard className="size-3" />制作视频
+            <Clapperboard className="size-3" />{t("worlds.entity.video")}
           </Button>
         )}
         <Button className="h-8" onClick={onEdit} type="button" variant="outline">
-          <Pencil className="size-3" />编辑设定
+          <Pencil className="size-3" />{t("worlds.entity.edit")}
         </Button>
       </div>
     </Card>
@@ -117,16 +120,18 @@ export function SettingCard({
 }
 
 function EvidenceToken({ evidence }: { evidence: WorldEvidence }) {
-  const label = evidence.modality === "audio" ? "声音" : evidence.modality === "video" ? "视频" : evidence.modality === "image" ? "图片" : "资料";
+  const { t } = useI18n();
+  const label = evidence.modality === "audio" ? t("worlds.entity.modality.audio") : evidence.modality === "video" ? t("worlds.entity.modality.video") : evidence.modality === "image" ? t("worlds.entity.modality.image") : t("worlds.entity.modality.reference");
   return <span className="rounded-sm bg-muted px-1.5 py-1 text-[10px] text-muted-foreground">{label}</span>;
 }
 
 export function EmptySetting({ kind, onCreate }: { kind: EntityKind; onCreate: () => void }) {
-  const section = settingSection(kind);
+  const { t } = useI18n();
+  const section = settingSection(kind, t);
   return (
     <Card className="w-full p-6">
       <div className="flex min-h-28 flex-col items-center justify-center text-center">
-        <p className="text-sm font-medium">还没有{section?.title}</p>
+        <p className="text-sm font-medium">{interpolate(t("worlds.entity.empty.title"), { title: section?.title ?? "" })}</p>
         <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">{section?.description}</p>
         <Button className="mt-4" onClick={onCreate} type="button">
           <Plus className="size-3.5" />{section?.action}
@@ -144,6 +149,7 @@ export function ObjectEvidencePanel(props: {
   onChanged: () => void;
   worldID: string;
 }) {
+  const { t } = useI18n();
   const [managerOpen, setManagerOpen] = useState(false);
   const count = props.entity.references?.length ?? 0;
 
@@ -151,13 +157,13 @@ export function ObjectEvidencePanel(props: {
     <section className="border-t pt-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold">图像、视频与声音</p>
+          <p className="text-sm font-semibold">{t("worlds.entity.media.title")}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {count ? `已添加 ${count} 份资料，与文字设定共同描述「${props.entity.title}」。` : `还没有为「${props.entity.title}」添加多模态资料。`}
+            {count ? interpolate(t("worlds.entity.media.summary"), { count, title: props.entity.title }) : interpolate(t("worlds.entity.media.empty"), { title: props.entity.title })}
           </p>
         </div>
         <Button className="shrink-0" onClick={() => setManagerOpen(true)} type="button" variant="outline">
-          管理资料
+          {t("worlds.entity.media.manage")}
         </Button>
       </div>
       {managerOpen && <ObjectEvidenceManager {...props} onClose={() => setManagerOpen(false)} />}
@@ -180,6 +186,7 @@ function ObjectEvidenceManager({
   worldID: string;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const [assets, setAssets] = useState<WorldAsset[]>([]);
   const [evidence, setEvidence] = useState<WorldEvidence[]>(entity.references ?? []);
   const [editingEvidence, setEditingEvidence] = useState<WorldEvidence | null>(null);
@@ -196,7 +203,7 @@ function ObjectEvidenceManager({
       .then(async (response) => {
         if (response.ok) setAssets((await response.json()) as WorldAsset[]);
       })
-      .catch(() => setError("无法读取素材库"));
+      .catch(() => setError(plainT("workspace", useLocaleStore.getState().locale, "worlds.entity.manager.assets.load.failed")));
   }, [apiBase]);
 
   async function attach() {
@@ -234,12 +241,12 @@ function ObjectEvidenceManager({
       setLabel("");
       onChanged();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "无法补充素材");
+      setError(cause instanceof Error ? cause.message : t("worlds.entity.manager.attach.failed"));
     }
   }
 
   async function archive(item: WorldEvidence) {
-    if (!item.id || !window.confirm("从当前设定移除这份素材？历史创作仍可追溯它。")) return;
+    if (!item.id || !window.confirm(t("worlds.entity.manager.remove.confirm"))) return;
     setError("");
     try {
       await createRecutWorldsClient(apiBase).evidence.archive({
@@ -250,7 +257,7 @@ function ObjectEvidenceManager({
       setEvidence((current) => current.filter((candidate) => candidate.id !== item.id));
       onChanged();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "无法移除素材");
+      setError(cause instanceof Error ? cause.message : t("worlds.entity.manager.remove.failed"));
     }
   }
 
@@ -260,10 +267,10 @@ function ObjectEvidenceManager({
         <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
           <div>
             <p className="text-xs font-medium text-primary">{entity.title}</p>
-            <h2 className="mt-1 text-lg font-semibold" id="evidence-manager-title">管理图像、视频与声音</h2>
-            <p className="mt-1 text-xs text-muted-foreground">每一份资料都说明它如何帮助描述这项设定。</p>
+            <h2 className="mt-1 text-lg font-semibold" id="evidence-manager-title">{t("worlds.entity.manager.title")}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{t("worlds.entity.manager.desc")}</p>
           </div>
-          <button aria-label="关闭资料管理" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button">
+          <button aria-label={t("worlds.entity.manager.close.aria")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button">
             <X className="size-4" />
           </button>
         </header>
@@ -274,19 +281,19 @@ function ObjectEvidenceManager({
             <div className="overflow-hidden rounded-sm border" key={item.id ?? item.assetId}>
               <EvidencePreview asset={assets.find((asset) => asset.id === item.assetId)} source={`${apiBase}/v1/media/assets/${encodeURIComponent(item.assetId)}/content`} />
               <div className="flex items-center justify-between gap-2 p-2">
-                <span className="truncate text-[11px] text-muted-foreground">{item.label || item.purpose}</span>
+                <span className="truncate text-[11px] text-muted-foreground">{item.label || t(`worlds.evidence.${item.purpose}`)}</span>
                 <span className="flex items-center gap-1">
-                  <button aria-label="编辑资料" className="text-muted-foreground hover:text-foreground" onClick={() => {
+                  <button aria-label={t("worlds.entity.manager.edit.aria")} className="text-muted-foreground hover:text-foreground" onClick={() => {
                     setEditingEvidence(item);
                     setAssetID(item.assetId);
-                    setPickedAsset({ id: item.assetId, kind: item.modality, name: assets.find((asset) => asset.id === item.assetId)?.name ?? "当前素材" });
+                    setPickedAsset({ id: item.assetId, kind: item.modality, name: assets.find((asset) => asset.id === item.assetId)?.name ?? t("worlds.entity.manager.currentAsset") });
                     setPurpose(item.purpose);
                     setStatus(item.status === "archived" ? "supporting" : item.status);
                     setLabel(item.label ?? "");
                   }} type="button">
                     <Pencil className="size-3.5" />
                   </button>
-                  <button aria-label="移除素材" className="text-muted-foreground hover:text-destructive" onClick={() => void archive(item)} type="button">
+                  <button aria-label={t("worlds.entity.manager.remove.aria")} className="text-muted-foreground hover:text-destructive" onClick={() => void archive(item)} type="button">
                     <Trash2 className="size-3.5" />
                   </button>
                 </span>
@@ -295,24 +302,24 @@ function ObjectEvidenceManager({
           ))}
         </div>
       ) : (
-        <p className="mt-3 rounded-sm border border-dashed p-3 text-xs text-muted-foreground">还没有多模态资料。</p>
+        <p className="mt-3 rounded-sm border border-dashed p-3 text-xs text-muted-foreground">{t("worlds.entity.manager.empty")}</p>
       )}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div>
-          <p className="text-xs font-medium">选择素材</p>
+          <p className="text-xs font-medium">{t("worlds.entity.manager.choose.title")}</p>
           <Button className="mt-1 w-full justify-start" disabled={Boolean(editingEvidence)} onClick={() => setPickerOpen(true)} type="button" variant="outline">
-            {pickedAsset ? `${pickedAsset.name} · ${assetKindLabel(pickedAsset.kind)}` : "从素材库选择"}
+            {pickedAsset ? `${pickedAsset.name} · ${assetKindLabel(pickedAsset.kind, t)}` : t("worlds.entity.manager.choose.placeholder")}
           </Button>
         </div>
-        <SelectField id="setting-evidence-purpose" label="它说明什么" onChange={(value) => setPurpose(value as WorldEvidencePurpose)} options={evidencePurposes.map((item) => ({ label: item.label, value: item.value }))} value={purpose} />
-        <SelectField id="setting-evidence-status" label="参考强度" onChange={(value) => setStatus(value as typeof status)} options={[{ value: "primary", label: "主参考：优先保持一致" }, { value: "supporting", label: "补充参考：丰富细节" }, { value: "counterexample", label: "反例：不要这样做" }]} value={status} />
+        <SelectField id="setting-evidence-purpose" label={t("worlds.entity.manager.purpose")} onChange={(value) => setPurpose(value as WorldEvidencePurpose)} options={evidencePurposeValues.map((value) => ({ label: t(`worlds.evidence.${value}`), value }))} value={purpose} />
+        <SelectField id="setting-evidence-status" label={t("worlds.entity.manager.status")} onChange={(value) => setStatus(value as typeof status)} options={[{ value: "primary", label: t("worlds.entity.status.primary") }, { value: "supporting", label: t("worlds.entity.status.supporting") }, { value: "counterexample", label: t("worlds.entity.status.counterexample") }]} value={status} />
         <label className="text-xs font-medium" htmlFor="setting-evidence-note">
-          具体说明
-          <Input className="mt-1 h-9 bg-background" id="setting-evidence-note" onChange={(event) => setLabel(event.target.value)} placeholder="例如：正面全身；银色耳钉必须保留" value={label} />
+          {t("worlds.entity.manager.note.label")}
+          <Input className="mt-1 h-9 bg-background" id="setting-evidence-note" onChange={(event) => setLabel(event.target.value)} placeholder={t("worlds.entity.manager.note.placeholder")} value={label} />
         </label>
       </div>
       <Button className="mt-3" disabled={!assetID} onClick={() => void attach()} type="button" variant="outline">
-        <ImagePlus className="size-3.5" />{editingEvidence ? "保存修改" : "添加资料"}
+        <ImagePlus className="size-3.5" />{editingEvidence ? t("worlds.entity.manager.save") : t("worlds.entity.manager.add")}
       </Button>
       {error && <p className="mt-2 text-xs text-warning">{error}</p>}
       <PlatformMediaPicker
@@ -333,17 +340,18 @@ function ObjectEvidenceManager({
   );
 }
 
-function assetKindLabel(kind: string) {
-  if (kind === "image") return "图片";
-  if (kind === "video") return "视频";
-  return "声音";
+function assetKindLabel(kind: string, t: (key: string) => string) {
+  if (kind === "image") return t("worlds.entity.modality.image");
+  if (kind === "video") return t("worlds.entity.modality.video");
+  return t("worlds.entity.modality.audio");
 }
 
 function EvidencePreview({ asset, source }: { asset?: WorldAsset; source: string }) {
+  const { t } = useI18n();
   if (asset?.kind === "image") return <img alt={asset.name} className="h-36 w-full object-cover" src={source} />;
   if (asset?.kind === "video") return <video className="h-36 w-full bg-black object-cover" controls muted preload="metadata" src={source} />;
   if (asset?.kind === "audio") return <div className="flex h-36 flex-col justify-between bg-muted p-3"><Volume2 className="size-5 text-primary" /><audio className="w-full" controls preload="metadata" src={source} /></div>;
-  return <div className="flex h-36 items-end bg-muted p-3 text-xs text-muted-foreground">文字或研究资料会作为可读上下文交给 AI</div>;
+  return <div className="flex h-36 items-end bg-muted p-3 text-xs text-muted-foreground">{t("worlds.entity.preview.fallback")}</div>;
 }
 
 function purposeFor(kind: EntityKind): WorldEvidencePurpose {

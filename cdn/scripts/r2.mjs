@@ -1,29 +1,149 @@
 /**
- * R2 资源管理核心库。
+ * R2 资源管理核心库（S3 兼容 API）。
  *
- * 封装 wrangler r2 命令，提供「本地暂存区 ↔ R2 bucket 前缀」的同步、
- * 列出、删除与 URL 生成。所有资源统一进 recut-assets bucket，
- * 对象 key = {prefix}/{relPath}，访问 URL = {baseUrl}/{prefix}/{relPath}。
+ * 对象级操作（上传/列表/删除/HEAD）统一走 S3 兼容 API
+ * （https://<ACCOUNT_ID>.r2.cloudflarestorage.com，region=auto），因为
+ * wrangler r2 命令走 Cloudflare REST API，账号级限流 ~4 req/s，上传大量小
+ * 对象慢且并发会 429。S3 API 无 1200/5min 限制，可真正并发。
+ *
+ * 仅 purge（Cloudflare Cache Purge）保留在 Cloudflare API（CLOUDFLARE_API_TOKEN）。
+ *
+ * 所有资源统一进 recut-assets bucket，对象 key = {prefix}/{relPath}，
+ * 访问 URL = {baseUrl}/{prefix}/{relPath}。
  *
  * 用法：import { uploadPrefix, listObjects, ... } from "./r2.mjs";
  */
 
-import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { CDN, wranglerPath, bucketDir } from "../config.mjs";
+import { createHmac, createHash } from "node:crypto";
+import { CDN, bucketDir } from "../config.mjs";
 
-function runWrangler(args) {
-  const res = spawnSync(wranglerPath(), args, {
-    cwd: new URL("../../web/", import.meta.url).pathname,
-    encoding: "utf8",
-  });
-  if (res.status !== 0) {
+const REGION = "auto";
+const SERVICE = "s3";
+
+function s3Credentials() {
+  return {
+    accountId: CDN.accountId,
+    accessKeyId: process.env.R2_ACCESS_KEY_ID ?? "",
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? "",
+  };
+}
+
+function requireS3Credentials() {
+  const cred = s3Credentials();
+  if (!cred.accountId || !cred.accessKeyId || !cred.secretAccessKey) {
     throw new Error(
-      `wrangler ${args.join(" ")} failed (${res.status}):\n${res.stderr || res.stdout}`,
+      "R2 S3 凭据缺失。请在 Cloudflare R2 → Manage API Tokens 创建 token，并导出：\n" +
+        "  export R2_ACCESS_KEY_ID=<access key id>\n" +
+        "  export R2_SECRET_ACCESS_KEY=<secret access key>\n" +
+        "（R2_ACCOUNT_ID 可用 CLOUDFLARE_ACCOUNT_ID 或 config.mjs 默认值）",
     );
   }
-  return res.stdout;
+  return cred;
+}
+
+function s3Endpoint(accountId) {
+  return `https://${accountId}.r2.cloudflarestorage.com`;
+}
+
+/* --- AWS Signature V4（零依赖实现） ------------------------------------ */
+
+function hmac(key, data) {
+  return createHmac("sha256", key).update(data).digest();
+}
+function sha256hex(data) {
+  return createHash("sha256").update(data).digest("hex");
+}
+function amzDate(now) {
+  return now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+}
+function shortDate(long) {
+  return long.slice(0, 8);
+}
+function signingKey(cred, dateLong) {
+  const kDate = hmac(`AWS4${cred.secretAccessKey}`, shortDate(dateLong));
+  const kRegion = hmac(kDate, REGION);
+  const kService = hmac(kRegion, SERVICE);
+  return hmac(kService, "aws4_request");
+}
+/** RFC3986 编码（保留 A-Za-z0-9-._~）。 */
+function uriEncode(s) {
+  return encodeURIComponent(s).replace(/[!'()*]/g, (c) =>
+    "%" + c.charCodeAt(0).toString(16).toUpperCase(),
+  );
+}
+
+function canonicalHeaders(headers) {
+  return Object.keys(headers)
+    .sort()
+    .map((k) => `${k}:${headers[k]}\n`)
+    .join("");
+}
+function signedHeaderNames(headers) {
+  return Object.keys(headers).sort().join(";");
+}
+
+/** 生成 S3 请求的 Authorization 头。params 为 query 参数对象。 */
+function authorize({ method, path, params, headers, payload, dateLong, cred }) {
+  const query = Object.keys(params)
+    .sort()
+    .map((k) => `${uriEncode(k)}=${uriEncode(params[k])}`)
+    .join("&");
+  const canonicalRequest = [
+    method,
+    path,
+    query,
+    canonicalHeaders(headers),
+    signedHeaderNames(headers),
+    sha256hex(payload),
+  ].join("\n");
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    dateLong,
+    `${shortDate(dateLong)}/${REGION}/${SERVICE}/aws4_request`,
+    sha256hex(canonicalRequest),
+  ].join("\n");
+  const signature = hmac(signingKey(cred, dateLong), stringToSign).toString(
+    "hex",
+  );
+  return {
+    authorization: `AWS4-HMAC-SHA256 Credential=${cred.accessKeyId}/${shortDate(dateLong)}/${REGION}/${SERVICE}/aws4_request, SignedHeaders=${signedHeaderNames(headers)}, Signature=${signature}`,
+    query,
+  };
+}
+
+/**
+ * 发送一个已签名的 S3 请求。key 为对象 key（不含 bucket）。
+ * 返回 fetch Response。
+ */
+async function s3Request({ method, key, query = {}, body, contentType }) {
+  const cred = requireS3Credentials();
+  const dateLong = amzDate(new Date());
+  // 签名与请求都包含 bucket 段：/{bucket}/{key}
+  const path = `/${CDN.bucket}/${key.split("/").map(uriEncode).join("/")}`;
+  const headers = {
+    host: new URL(s3Endpoint(cred.accountId)).host,
+    "x-amz-content-sha256": sha256hex(body ?? ""),
+    "x-amz-date": dateLong,
+  };
+  if (contentType) headers["content-type"] = contentType;
+  const { authorization, query: signedQuery } = authorize({
+    method,
+    path,
+    params: query,
+    headers,
+    payload: body ?? "",
+    dateLong,
+    cred,
+  });
+  headers.authorization = authorization;
+  const qs = signedQuery ? `?${signedQuery}` : "";
+  return fetch(`${s3Endpoint(cred.accountId)}${path}${qs}`, {
+    method,
+    headers,
+    body: body ?? undefined,
+  });
 }
 
 /** 对象 key -> 公开 URL。 */
@@ -47,64 +167,180 @@ export function listLocalFiles(dir) {
   return out.sort();
 }
 
-/** 上传 cdn/buckets/{prefix}/ 全部文件到 R2（对象 key = {prefix}/{rel}）。 */
-export function uploadPrefix(prefix) {
-  const dir = bucketDir(prefix);
-  const files = listLocalFiles(dir);
-  if (files.length === 0) {
-    console.log(`[r2] ${prefix}: nothing to upload`);
-    return [];
-  }
-  console.log(`[r2] uploading ${files.length} files to ${CDN.bucket}/${prefix}/`);
-  for (const rel of files) {
-    const localPath = join(dir, rel);
-    const key = `${prefix}/${rel}`;
-    const contentType = guessContentType(rel);
-    const args = [
-      "r2",
-      "object",
-      "put",
-      `${CDN.bucket}/${key}`,
-      "--file",
-      localPath,
-    ];
-    if (contentType) args.push("--content-type", contentType);
-    try {
-      runWrangler(args);
-      console.log(`  ↑ ${key}`);
-    } catch (e) {
-      console.warn(`  ✗ ${key}: ${e.message.split("\n")[0]}`);
-    }
-  }
-  return files.map((rel) => `${prefix}/${rel}`);
-}
-
-/** 列出 R2 bucket 中某个前缀下的对象 key（按前缀过滤）。 */
-export function listObjects(prefix) {
-  const out = runWrangler(["r2", "object", "list", CDN.bucket, "--prefix", `${prefix}/`]);
-  // wrangler list 输出形如 "name  size  modified"；解析 name 字段
+/** 列出 R2 bucket 中某个前缀下的对象 key（S3 ListObjectsV2，自动分页）。 */
+export async function listObjects(prefix) {
   const keys = [];
-  for (const line of out.split("\n")) {
-    const m = line.match(/^\s*([^\s]+)\s+\d+\s+.*$/);
-    if (m && m[1] !== "name") keys.push(m[1]);
+  let token = "";
+  for (;;) {
+    const query = { "list-type": "2", prefix: `${prefix}/`, "max-keys": "1000" };
+    if (token) query["continuation-token"] = token;
+    const res = await s3Request({
+      method: "GET",
+      key: "",
+      query,
+    });
+    const xml = await res.text();
+    if (!res.ok) {
+      throw new Error(`list ${prefix} failed: HTTP ${res.status} ${xml.slice(0, 200)}`);
+    }
+    keys.push(...[...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map((x) => x[1]));
+    token = (xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/) || [])[1];
+    if (!token) break;
   }
   return keys.sort();
 }
 
+/** HEAD 探测对象是否已存在；返回远端对象大小（-1 表示不存在/请求失败）。 */
+async function headSize(key) {
+  try {
+    const res = await s3Request({ method: "HEAD", key });
+    if (res.status === 200) {
+      return Number(res.headers.get("content-length") ?? -1);
+    }
+    return -1;
+  } catch {
+    return -1;
+  }
+}
+
+/** 上传 cdn/buckets/{prefix}/ 全部文件到 R2（对象 key = {prefix}/{rel}）。S3 并发上传。 */
+export async function uploadPrefix(prefix, { concurrency = 16, retries = 3, skipExisting = false } = {}) {
+  const dir = bucketDir(prefix);
+  const files = listLocalFiles(dir);
+  if (files.length === 0) {
+    console.log(`[s3] ${prefix}: nothing to upload`);
+    return [];
+  }
+
+  console.log(
+    `[s3] uploading ${files.length} files → ${CDN.bucket}/${prefix}/ (concurrency=${concurrency}, skip-existing=${skipExisting})`,
+  );
+  const started = Date.now();
+  let cursor = 0;
+  let okCount = 0;
+  let skipCount = 0;
+  let failCount = 0;
+  const failures = [];
+
+  const putOne = async (rel) => {
+    const key = `${prefix}/${rel}`;
+    const localPath = join(dir, rel);
+    const localSize = statSync(localPath).size;
+    // skip-existing：HEAD 比较远端大小，仅"存在且大小相同"跳过；同名不同内容必须覆盖。
+    if (skipExisting) {
+      const remoteSize = await headSize(key);
+      if (remoteSize === localSize) {
+        skipCount += 1;
+        return;
+      }
+    }
+    const contentType = guessContentType(rel);
+    const body = readFileSync(localPath);
+
+    let lastErr;
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const res = await s3Request({
+          method: "PUT",
+          key,
+          body,
+          contentType,
+        });
+        if (res.ok) {
+          okCount += 1;
+          return;
+        }
+        if (res.status === 429 || res.status >= 500) {
+          lastErr = new Error(`HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 120)}`);
+          const delay = Math.min(500 * 2 ** (attempt - 1), 4000);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        lastErr = new Error(`HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 120)}`);
+        break; // 其它 4xx 不重试
+      } catch (e) {
+        lastErr = e;
+        const delay = Math.min(500 * 2 ** (attempt - 1), 4000);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+    failCount += 1;
+    failures.push(`${key}: ${lastErr.message.split("\n")[0]}`);
+  };
+
+  // 有界并发：固定 worker 数从队列取任务
+  const worker = async () => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= files.length) return;
+      await putOne(files[index]);
+      const done = cursor;
+      if (done % 250 === 0 || done === files.length) {
+        console.log(`[s3] ${prefix}: ${done}/${files.length} (ok=${okCount} skip=${skipCount} fail=${failCount}) elapsed=${Math.round((Date.now() - started) / 1000)}s`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, files.length) }, worker));
+
+  if (failures.length > 0) {
+    console.warn(`[s3] ${prefix}: ${failures.length} uploads failed after ${retries} retries`);
+    for (const f of failures.slice(0, 20)) console.warn(`  ✗ ${f}`);
+    if (failures.length > 20) console.warn(`  … and ${failures.length - 20} more`);
+    process.exitCode = 1;
+  } else {
+    console.log(`[s3] ${prefix}: done ok=${okCount} skip=${skipCount} in ${Math.round((Date.now() - started) / 1000)}s`);
+  }
+  return files.map((rel) => `${prefix}/${rel}`);
+}
+
 /** 删除 R2 bucket 中的单个对象。 */
-export function deleteObject(key) {
-  runWrangler(["r2", "object", "delete", `${CDN.bucket}/${key}`]);
+export async function deleteObject(key) {
+  const res = await s3Request({ method: "DELETE", key });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`delete ${key} failed: HTTP ${res.status}`);
+  }
   console.log(`  ✗ ${key}`);
 }
 
-/** 删除 R2 bucket 中某个前缀下的全部对象。 */
-export function deletePrefix(prefix) {
-  const keys = listObjects(prefix);
+/** 删除 R2 bucket 中某个前缀下的全部对象（S3 DeleteObjects 批量，最多 1000/批）。 */
+export async function deletePrefix(prefix) {
+  const keys = await listObjects(prefix);
   if (keys.length === 0) {
-    console.log(`[r2] ${prefix}: nothing to delete`);
+    console.log(`[s3] ${prefix}: nothing to delete`);
     return;
   }
-  for (const key of keys) deleteObject(key);
+  console.log(`[s3] deleting ${keys.length} objects under ${prefix}/`);
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000);
+    const body =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<Delete><Quiet>true</Quiet>` +
+      batch.map((key) => `<Object><Key>${escapeXml(key)}</Key></Object>`).join("") +
+      `</Delete>`;
+    const res = await s3Request({
+      method: "POST",
+      key: "",
+      query: { delete: "" },
+      body,
+      contentType: "application/xml",
+    });
+    const xml = await res.text();
+    if (!res.ok || /<Error>/.test(xml)) {
+      throw new Error(`delete batch failed: HTTP ${res.status} ${xml.slice(0, 200)}`);
+    }
+  }
+  console.log(`[s3] ${prefix}: deleted ${keys.length} objects`);
+}
+
+function escapeXml(s) {
+  return s.replace(/[<>&'"]/g, (c) => ({
+    "<": "&lt;",
+    ">": "&gt;",
+    "&": "&amp;",
+    "'": "&apos;",
+    '"': "&quot;",
+  })[c]);
 }
 
 function guessContentType(rel) {
@@ -139,7 +375,7 @@ export function readCatalog(prefix, name = "catalog.json") {
 
 /**
  * 通过 Cloudflare Cache Purge API 精确清理边缘缓存中的 URL。
- * 需要 CDN.apiToken（Zone > Cache Purge 权限）。
+ * 需要 CDN.apiToken（Zone > Cache Purge 权限）。这是 Cloudflare API，不是 S3。
  */
 export async function purgeUrls(urls) {
   if (urls.length === 0) {
@@ -179,6 +415,6 @@ export async function purgeUrls(urls) {
 }
 
 /** 某个前缀下的全部对象对应的 CDN URL。 */
-export function prefixUrls(prefix) {
-  return listObjects(prefix).map((key) => objectUrl(prefix, key));
+export async function prefixUrls(prefix) {
+  return (await listObjects(prefix)).map((key) => objectUrl(prefix, key));
 }

@@ -11,15 +11,22 @@ import { useEffect, useRef, useState } from "react";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 
 import { Button } from "@/components/ui/button";
+import { t, useI18n } from "@/lib/i18n/index";
+import { useLocaleStore } from "@/lib/i18n/locale-store";
+import { interpolate } from "@/lib/i18n/workspace-dict";
 
 type Agent = { id: string; name: string; command: string; available: boolean };
 type Session = { id: string; projectId: string; command: string; running: boolean; startedAt: string; lastActivityAt?: string; lastMessage?: string };
 type Props = { apiBase: string; online: boolean; projectID: string | null };
 
 const daemonCommand = "cd service && go run .";
-const daemonPrompt = "请在 Recut 项目根目录启动本地服务：cd service && go run .。服务启动后保持进程运行。";
+
+function daemonPromptText(): string {
+  return t("workspace", useLocaleStore.getState().locale, "agent.terminal.daemonPrompt");
+}
 
 export function TerminalPanel({ apiBase, online, projectID }: Props) {
+  const { t: text } = useI18n();
   const host = useRef<HTMLDivElement>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -46,7 +53,7 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
     const sendToAgent = (event: Event) => {
       const prompt = (event as CustomEvent<{ prompt: string }>).detail?.prompt;
       const session = sessions.find((candidate) => candidate.id === sessionID && (candidate.command === "codex" || candidate.command === "opencode") && candidate.running);
-      if (!prompt || !session) { setError("请先在右侧启动一个运行中的 Codex 或 OpenCode 会话"); return; }
+      if (!prompt || !session) { setError(text("agent.terminal.needSession")); return; }
       void fetch(`${apiBase}/v1/terminals/${session.id}/input`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: `${prompt}\n` }) });
     };
     window.addEventListener("recut-terminal-input", sendToAgent);
@@ -110,25 +117,25 @@ export function TerminalPanel({ apiBase, online, projectID }: Props) {
     setError(""); setStarting(command);
     try {
       const response = await fetch(`${apiBase}/v1/terminals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: projectID, command, args }) });
-      if (!response.ok) { const body = await response.json(); throw new Error(body.error ?? "无法启动终端"); }
+      if (!response.ok) { const body = await response.json(); throw new Error(body.error ?? text("agent.terminal.startFailed")); }
       const session: Session = await response.json();
       await loadManager(); setSessionID(session.id);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "无法启动终端"); } finally { setStarting(""); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : text("agent.terminal.startFailed")); } finally { setStarting(""); }
   }
 
   const visibleSessions = sessions.filter((session) => session.command.toLowerCase().includes(sessionQuery.trim().toLowerCase()));
   const canResume = activeSession?.command === "codex" || activeSession?.command === "claude" || activeSession?.command === "opencode";
 
-  if (!online) return <aside className="border-t bg-card p-4 lg:border-l lg:border-t-0"><PanelTitle /><p className="mt-4 text-sm font-medium">本地服务尚未启动</p><p className="mt-1 text-xs leading-5 text-muted-foreground">浏览器无法自行启动宿主进程。复制命令到终端，或把 prompt 发给已打开的 Codex。</p><CopyAction label="复制启动命令" text={daemonCommand} /><CopyAction label="复制给 Codex 的 prompt" text={daemonPrompt} /></aside>;
+  if (!online) return <aside className="border-t bg-card p-4 lg:border-l lg:border-t-0"><PanelTitle /><p className="mt-4 text-sm font-medium">{text("agent.terminal.offlineTitle")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{text("agent.terminal.offlineDesc")}</p><CopyAction label={text("agent.terminal.copyCommand")} text={daemonCommand} /><CopyAction label={text("agent.terminal.copyPrompt")} text={daemonPromptText()} /></aside>;
 
   return <aside className="border-t bg-card p-4 lg:border-l lg:border-t-0"><div className="relative" ref={historyRef}><PanelTitle activeSession={activeSession} historyOpen={historyOpen} onHistoryToggle={() => { setSessionQuery(""); setHistoryOpen((open) => !open); }} />
     {historyOpen && <SessionHistory query={sessionQuery} sessions={visibleSessions} selectedID={sessionID} onQueryChange={setSessionQuery} onSelect={(id) => { setSessionID(id); setHistoryOpen(false); }} />}</div>
-    <p className="mt-3 text-xs text-muted-foreground">{projectID ? "会话在当前项目目录中运行。" : "未选择项目：会话在 projects 根目录中运行。"}</p>
-    <><div className="mt-4 grid gap-2">{agents.map((agent) => <Button disabled={!agent.available || Boolean(starting)} key={agent.id} onClick={() => start(agent.command)} type="button"><Play className="size-3.5" />{starting === agent.command ? `正在启动 ${agent.name}…` : agent.available ? `启动 ${agent.name}` : `${agent.name} 未安装`}</Button>)}</div>
+    <p className="mt-3 text-xs text-muted-foreground">{projectID ? text("agent.terminal.runsInProject") : text("agent.terminal.runsInRoot")}</p>
+    <><div className="mt-4 grid gap-2">{agents.map((agent) => <Button disabled={!agent.available || Boolean(starting)} key={agent.id} onClick={() => start(agent.command)} type="button"><Play className="size-3.5" />{starting === agent.command ? interpolate(text("agent.terminal.starting"), { name: agent.name }) : agent.available ? interpolate(text("agent.terminal.start"), { name: agent.name }) : interpolate(text("agent.terminal.notInstalled"), { name: agent.name })}</Button>)}</div>
       {error && <p className="mt-2 rounded-xs border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">{error}</p>}
-      {activeSession && <p className="mt-3 truncate font-mono text-[10px] text-muted-foreground">当前会话 · {activeSession.command}</p>}
-      {activeSession && !activeSession.running && <div className="mt-3 rounded-xs border bg-muted/40 p-3"><p className="text-xs font-medium">此终端已结束，以下内容仅供查看。</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">原始 PTY 无法在 Daemon 重启后重新附着。继续会打开 Agent 的原生会话选择器。</p>{canResume && <Button className="mt-3 w-full" disabled={Boolean(starting)} onClick={() => void start(activeSession.command, resumeArgsFor(activeSession.command))} type="button" variant="outline"><RotateCcw className="size-3.5" />继续 {activeSession.command === "codex" ? "Codex 对话" : activeSession.command === "opencode" ? "OpenCode 对话" : "Claude 对话"}</Button>}</div>}
-      <div className="mt-3 h-[calc(100vh-17rem)] min-h-72 overflow-hidden rounded-xs border bg-terminal p-1"><div className="h-full" ref={host}>{!sessionID && <p className="p-3 font-mono text-[11px] text-muted-foreground">选择一个已安装的 CLI 启动终端会话。</p>}</div></div>
+      {activeSession && <p className="mt-3 truncate font-mono text-[10px] text-muted-foreground">{interpolate(text("agent.terminal.currentSession"), { command: activeSession.command })}</p>}
+      {activeSession && !activeSession.running && <div className="mt-3 rounded-xs border bg-muted/40 p-3"><p className="text-xs font-medium">{text("agent.terminal.ended")}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{text("agent.terminal.endedDesc")}</p>{canResume && <Button className="mt-3 w-full" disabled={Boolean(starting)} onClick={() => void start(activeSession.command, resumeArgsFor(activeSession.command))} type="button" variant="outline"><RotateCcw className="size-3.5" />{interpolate(text("agent.terminal.resume"), { name: activeSession.command === "codex" ? "Codex" : activeSession.command === "opencode" ? "OpenCode" : "Claude" })}</Button>}</div>}
+      <div className="mt-3 h-[calc(100vh-17rem)] min-h-72 overflow-hidden rounded-xs border bg-terminal p-1"><div className="h-full" ref={host}>{!sessionID && <p className="p-3 font-mono text-[11px] text-muted-foreground">{text("agent.terminal.placeholder")}</p>}</div></div>
     </>
   </aside>;
 }
@@ -140,22 +147,25 @@ function resumeArgsFor(command: string): string[] {
 }
 
 function PanelTitle({ activeSession, historyOpen, onHistoryToggle }: { activeSession?: Session; historyOpen?: boolean; onHistoryToggle?: () => void }) {
-  return <div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="font-mono text-[10px] text-muted-foreground">TERMINAL SESSIONS</p><h2 className="mt-1 truncate text-sm font-semibold">{activeSession ? activeSession.command : "本机 Agent"}</h2></div>{onHistoryToggle ? <Button aria-expanded={historyOpen} aria-haspopup="dialog" className="shrink-0" onClick={onHistoryToggle} title="会话历史" type="button" variant="ghost"><Clock3 className="size-4" /><span className="sr-only">会话历史</span></Button> : <SquareTerminal className="size-4 shrink-0 text-muted-foreground" />}</div>;
+  const { t: text } = useI18n();
+  return <div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="font-mono text-[10px] text-muted-foreground">TERMINAL SESSIONS</p><h2 className="mt-1 truncate text-sm font-semibold">{activeSession ? activeSession.command : text("agent.terminal.localAgent")}</h2></div>{onHistoryToggle ? <Button aria-expanded={historyOpen} aria-haspopup="dialog" className="shrink-0" onClick={onHistoryToggle} title={text("agent.history.title")} type="button" variant="ghost"><Clock3 className="size-4" /><span className="sr-only">{text("agent.history.title")}</span></Button> : <SquareTerminal className="size-4 shrink-0 text-muted-foreground" />}</div>;
 }
 
 function SessionHistory({ query, sessions, selectedID, onQueryChange, onSelect }: { query: string; sessions: Session[]; selectedID: string | null; onQueryChange: (query: string) => void; onSelect: (id: string) => void }) {
-  return <section aria-label="会话历史" className="absolute right-0 top-full z-20 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-md border bg-card shadow-[var(--shadow-overlay)]"><div className="border-b p-2"><div className="flex h-8 items-center gap-2 rounded-xs border bg-background px-2 text-muted-foreground"><Search className="size-3.5" /><input aria-label="搜索最近会话" autoFocus className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground" onChange={(event) => onQueryChange(event.target.value)} placeholder="搜索最近会话" value={query} />{query && <button aria-label="清除搜索" className="text-muted-foreground hover:text-foreground" onClick={() => onQueryChange("")} type="button"><X className="size-3.5" /></button>}</div></div><div className="max-h-80 overflow-y-auto p-1.5">{sessions.length === 0 ? <p className="px-2 py-6 text-center text-xs text-muted-foreground">没有匹配的会话</p> : sessions.map((session) => <button className={`flex w-full items-center gap-2 rounded-xs px-2 py-2 text-left text-xs transition-colors hover:bg-muted ${session.id === selectedID ? "bg-muted" : ""}`} key={session.id} onClick={() => onSelect(session.id)} type="button"><span className={`size-1.5 shrink-0 rounded-full ${session.running ? "bg-success" : "bg-muted-foreground/50"}`} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{session.command}</span>{session.lastMessage && <span className="mt-0.5 block truncate text-[10px] text-foreground/75">{session.lastMessage}</span>}<span className="mt-0.5 block text-[10px] text-muted-foreground">{session.running ? "运行中" : "已结束"} · {relativeTime(session.lastActivityAt ?? session.startedAt)}</span></span>{session.id === selectedID && <Check className="size-3.5 shrink-0 text-foreground" />}</button>)}</div></section>;
+  const { t: text } = useI18n();
+  return <section aria-label={text("agent.history.title")} className="absolute right-0 top-full z-20 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-md border bg-card shadow-[var(--shadow-overlay)]"><div className="border-b p-2"><div className="flex h-8 items-center gap-2 rounded-xs border bg-background px-2 text-muted-foreground"><Search className="size-3.5" /><input aria-label={text("agent.terminal.search")} autoFocus className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground" onChange={(event) => onQueryChange(event.target.value)} placeholder={text("agent.terminal.search")} value={query} />{query && <button aria-label={text("agent.terminal.clearSearch")} className="text-muted-foreground hover:text-foreground" onClick={() => onQueryChange("")} type="button"><X className="size-3.5" /></button>}</div></div><div className="max-h-80 overflow-y-auto p-1.5">{sessions.length === 0 ? <p className="px-2 py-6 text-center text-xs text-muted-foreground">{text("agent.terminal.noMatch")}</p> : sessions.map((session) => <button className={`flex w-full items-center gap-2 rounded-xs px-2 py-2 text-left text-xs transition-colors hover:bg-muted ${session.id === selectedID ? "bg-muted" : ""}`} key={session.id} onClick={() => onSelect(session.id)} type="button"><span className={`size-1.5 shrink-0 rounded-full ${session.running ? "bg-success" : "bg-muted-foreground/50"}`} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{session.command}</span>{session.lastMessage && <span className="mt-0.5 block truncate text-[10px] text-foreground/75">{session.lastMessage}</span>}<span className="mt-0.5 block text-[10px] text-muted-foreground">{session.running ? text("agent.terminal.running") : text("agent.terminal.endedShort")} · {relativeTime(session.lastActivityAt ?? session.startedAt)}</span></span>{session.id === selectedID && <Check className="size-3.5 shrink-0 text-foreground" />}</button>)}</div></section>;
 }
 
 function relativeTime(value: string) {
+  const locale = useLocaleStore.getState().locale;
   const elapsed = Date.now() - new Date(value).getTime();
-  if (!Number.isFinite(elapsed) || elapsed < 0) return "刚刚";
+  if (!Number.isFinite(elapsed) || elapsed < 0) return t("workspace", locale, "agent.terminal.time.justNow");
   const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1) return t("workspace", locale, "agent.terminal.time.justNow");
+  if (minutes < 60) return interpolate(t("workspace", locale, "agent.terminal.time.minutesAgo"), { value: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
+  if (hours < 24) return interpolate(t("workspace", locale, "agent.terminal.time.hoursAgo"), { value: hours });
+  return interpolate(t("workspace", locale, "agent.terminal.time.daysAgo"), { value: Math.floor(hours / 24) });
 }
 
 function CopyAction({ label, text }: { label: string; text: string }) { return <Button className="mt-3 w-full" onClick={() => void navigator.clipboard.writeText(text)} type="button"><Copy className="size-3.5" />{label}</Button>; }

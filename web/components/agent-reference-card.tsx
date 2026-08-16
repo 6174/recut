@@ -12,8 +12,10 @@ import { useEffect } from "react";
 
 import { AppIdentityIcon, appIcon } from "@/components/app-identity-icon";
 import { useWorkspaceStore } from "@/lib/workspace-store";
+import { useI18n } from "@/lib/i18n/index";
 
 export function ProjectReferenceCard({ apiBase, projectId }: { apiBase: string; projectId: string }) {
+  const { t } = useI18n();
   const load = useWorkspaceStore((state) => state.load);
   const loadProject = useWorkspaceStore((state) => state.loadProject);
   const project = useWorkspaceStore((state) => state.projectDetailsByID[projectId]);
@@ -26,12 +28,13 @@ export function ProjectReferenceCard({ apiBase, projectId }: { apiBase: string; 
   return (
     <Link className="group block w-64 overflow-hidden rounded-sm border bg-card text-left shadow-sm transition hover:border-primary hover:shadow-md" href={`/projects/${encodeURIComponent(projectId)}`}>
       <span className="grid aspect-video place-items-center bg-muted text-muted-foreground">{project ? <FolderKanban className="size-7" /> : <LoaderCircle className="size-5 animate-spin text-primary" />}</span>
-      <span className="flex items-center gap-1.5 border-t px-2 py-1.5 font-mono text-[10px] text-muted-foreground group-hover:text-foreground"><FolderKanban className="size-3" />{project ? project.name : "正在读取项目…"} · {app ? app.manifest.name : project?.appId ?? "项目"} · 点击打开</span>
+      <span className="flex items-center gap-1.5 border-t px-2 py-1.5 font-mono text-[10px] text-muted-foreground group-hover:text-foreground"><FolderKanban className="size-3" />{project ? project.name : t("agent.reference.projectLoading")} · {app ? app.manifest.name : project?.appId ?? t("agent.reference.project")} · {t("agent.reference.open")}</span>
     </Link>
   );
 }
 
 export function AppReferenceCard({ apiBase, appId }: { apiBase: string; appId: string }) {
+  const { t } = useI18n();
   const load = useWorkspaceStore((state) => state.load);
   const app = useWorkspaceStore((state) => state.apps.find((item) => item.manifest.id === appId));
   useEffect(() => {
@@ -42,7 +45,7 @@ export function AppReferenceCard({ apiBase, appId }: { apiBase: string; appId: s
   return (
     <Link className="group block w-64 overflow-hidden rounded-sm border bg-card text-left shadow-sm transition hover:border-primary hover:shadow-md" href={href}>
       <span className="grid aspect-video place-items-center bg-muted text-muted-foreground">{app ? <AppIdentityIcon appID={app.manifest.id} /> : <LoaderCircle className="size-5 animate-spin text-primary" />}</span>
-      <span className="flex items-center gap-1.5 border-t px-2 py-1.5 font-mono text-[10px] text-muted-foreground group-hover:text-foreground"><Icon className="size-3" />{app ? app.manifest.name : "正在读取 App…"} · {app ? (app.manifest.type === "standalone" ? "工作区 App" : "项目型 App") : ""} · 点击打开</span>
+      <span className="flex items-center gap-1.5 border-t px-2 py-1.5 font-mono text-[10px] text-muted-foreground group-hover:text-foreground"><Icon className="size-3" />{app ? app.manifest.name : t("agent.reference.appLoading")} · {app ? (app.manifest.type === "standalone" ? t("agent.reference.appStandalone") : t("agent.reference.appProject")) : ""} · {t("agent.reference.open")}</span>
     </Link>
   );
 }

@@ -5,6 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { create } from "zustand";
+import { loadMarketplace as fetchMarketplace, type MarketplaceApp } from "@/lib/appstore";
 import { useLocaleStore } from "./i18n/locale-store";
 import { t } from "./i18n/index";
 import { fetchRecutJSON } from "./service-endpoint";
@@ -22,6 +23,8 @@ type WorkspaceStore = {
   apps: WorkspaceApp[];
   projects: WorkspaceProject[];
   installations: WorkspaceInstallation[];
+  marketplace: MarketplaceApp[];
+  marketplaceState: WorkspaceLoadState;
   projectDetailsByID: Record<string, WorkspaceProjectDetail>;
   workspaceScopesByAppID: Record<string, WorkspaceScope>;
   state: WorkspaceLoadState;
@@ -29,6 +32,7 @@ type WorkspaceStore = {
   installationsState: WorkspaceLoadState;
   installationsError: string;
   load: (endpoint: string, force?: boolean) => Promise<void>;
+  loadMarketplace: (force?: boolean) => Promise<void>;
   loadProject: (endpoint: string, projectID: string, force?: boolean) => Promise<WorkspaceProjectDetail>;
   loadWorkspaceScope: (endpoint: string, appID: string, force?: boolean) => Promise<WorkspaceScope>;
 };
@@ -43,6 +47,8 @@ function emptyWorkspace(endpoint: string) {
     apps: [],
     projects: [],
     installations: [],
+    marketplace: [],
+    marketplaceState: "loading" as const,
     projectDetailsByID: {},
     workspaceScopesByAppID: {},
     state: "loading" as const,
@@ -57,12 +63,20 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   apps: [],
   projects: [],
   installations: [],
+  marketplace: [],
+  marketplaceState: "loading",
   projectDetailsByID: {},
   workspaceScopesByAppID: {},
   state: "loading",
   error: "",
   installationsState: "loading",
   installationsError: "",
+  loadMarketplace: async (force = false) => {
+    if (!force && get().marketplaceState === "ready") return;
+    set({ marketplaceState: "loading" });
+    const apps = await fetchMarketplace();
+    set({ marketplace: apps, marketplaceState: "ready" });
+  },
   load: async (endpoint, force = false) => {
     if (get().endpoint !== endpoint) set(emptyWorkspace(endpoint));
     if (!force && get().state === "ready") return;

@@ -10,6 +10,7 @@ import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { t as i18nT, useLocaleStore } from "@/lib/i18n/index";
 
 function roundedRect(width: number, height: number, radius: number) {
   const x = -width / 2;
@@ -27,12 +28,12 @@ function roundedRect(width: number, height: number, radius: number) {
   return shape;
 }
 
-function frostedTexture(start: string, end: string, grain: number) {
+function frostedTexture(start: string, end: string, grain: number, textureError: string) {
   const textureCanvas = document.createElement("canvas");
   textureCanvas.width = 256;
   textureCanvas.height = 256;
   const context = textureCanvas.getContext("2d");
-  if (!context) throw new Error("无法创建 WebGL 磨砂纹理。");
+  if (!context) throw new Error(textureError);
   const gradient = context.createLinearGradient(0, 0, 256, 256);
   gradient.addColorStop(0, start);
   gradient.addColorStop(0.52, "#f8fff9");
@@ -51,21 +52,21 @@ function frostedTexture(start: string, end: string, grain: number) {
   return texture;
 }
 
-function glassPanel(width: number, height: number, opacity: number) {
+function glassPanel(width: number, height: number, opacity: number, textureError: string) {
   const geometry = new THREE.ExtrudeGeometry(roundedRect(width, height, 0.26), { bevelEnabled: true, bevelSegments: 4, bevelSize: 0.025, bevelThickness: 0.025, depth: 0.025 });
   geometry.center();
-  const material = new THREE.MeshBasicMaterial({ map: frostedTexture("#ffffff", "#cbedda", 0.15), transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false });
+  const material = new THREE.MeshBasicMaterial({ map: frostedTexture("#ffffff", "#cbedda", 0.15, textureError), transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false });
   const panel = new THREE.Mesh(geometry, material);
   panel.renderOrder = 2;
   return panel;
 }
 
-function glassFrame(width: number, height: number, thickness: number) {
+function glassFrame(width: number, height: number, thickness: number, textureError: string) {
   const shape = roundedRect(width, height, 0.28);
   shape.holes.push(roundedRect(width - thickness * 2, height - thickness * 2, 0.16));
   const geometry = new THREE.ExtrudeGeometry(shape, { bevelEnabled: true, bevelSegments: 4, bevelSize: 0.03, bevelThickness: 0.03, depth: 0.08 });
   geometry.center();
-  const frame = new THREE.Mesh(geometry, new THREE.MeshPhysicalMaterial({ map: frostedTexture("#b8ffcf", "#18b953", 0.09), color: 0xffffff, transparent: true, opacity: 0.78, emissive: 0x11943d, emissiveIntensity: 0.3, roughness: 0.4, clearcoat: 0.75, clearcoatRoughness: 0.28 }));
+  const frame = new THREE.Mesh(geometry, new THREE.MeshPhysicalMaterial({ map: frostedTexture("#b8ffcf", "#18b953", 0.09, textureError), color: 0xffffff, transparent: true, opacity: 0.78, emissive: 0x11943d, emissiveIntensity: 0.3, roughness: 0.4, clearcoat: 0.75, clearcoatRoughness: 0.28 }));
   frame.renderOrder = 1;
   return frame;
 }
@@ -94,12 +95,12 @@ function floatingCube(size: number) {
   return cube;
 }
 
-function softGlow() {
+function softGlow(glowError: string) {
   const textureCanvas = document.createElement("canvas");
   textureCanvas.width = 128;
   textureCanvas.height = 128;
   const context = textureCanvas.getContext("2d");
-  if (!context) throw new Error("无法创建 WebGL 光晕纹理。");
+  if (!context) throw new Error(glowError);
   const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
   gradient.addColorStop(0, "rgba(106, 255, 159, 0.28)");
   gradient.addColorStop(0.48, "rgba(165, 255, 196, 0.12)");
@@ -119,6 +120,9 @@ export function WebGLStudioHero() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    const locale = useLocaleStore.getState().locale;
+    const textureError = i18nT("workspace", locale, "studio.hero.texture.error");
+    const glowError = i18nT("workspace", locale, "studio.hero.glow.error");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, canvas });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
@@ -136,27 +140,27 @@ export function WebGLStudioHero() {
     artwork.rotation.set(-0.16, -0.34, -0.05);
     scene.add(artwork);
 
-    const backPanel = glassPanel(2.25, 2.85, 0.13);
+    const backPanel = glassPanel(2.25, 2.85, 0.13, textureError);
     backPanel.position.set(1.12, 0.72, -0.95);
     backPanel.rotation.set(0.02, 0.02, 0.13);
     artwork.add(backPanel);
 
-    const middlePanel = glassPanel(2.28, 2.88, 0.2);
+    const middlePanel = glassPanel(2.28, 2.88, 0.2, textureError);
     middlePanel.position.set(0.54, 0.42, -0.48);
     middlePanel.rotation.set(0.01, 0.02, 0.09);
     artwork.add(middlePanel);
 
-    const greenFrame = glassFrame(2.08, 2.66, 0.22);
+    const greenFrame = glassFrame(2.08, 2.66, 0.22, textureError);
     greenFrame.position.set(0.12, 0.12, -0.06);
     greenFrame.rotation.set(-0.01, 0.03, -0.03);
     artwork.add(greenFrame);
 
-    const frontPanel = glassPanel(2.22, 2.96, 0.32);
+    const frontPanel = glassPanel(2.22, 2.96, 0.32, textureError);
     frontPanel.position.set(-0.44, -0.16, 0.55);
     frontPanel.rotation.set(-0.015, -0.025, -0.055);
     artwork.add(frontPanel);
 
-    const floorPanel = glassPanel(3.4, 1.1, 0.13);
+    const floorPanel = glassPanel(3.4, 1.1, 0.13, textureError);
     floorPanel.position.set(-0.1, -1.52, -0.72);
     floorPanel.rotation.set(0.95, 0.02, -0.02);
     artwork.add(floorPanel);
@@ -174,7 +178,7 @@ export function WebGLStudioHero() {
     ];
     cubes.forEach(({ cube, position }, index) => { cube.position.set(position[0], position[1], position[2]); cube.rotation.set(0.22 + index * 0.08, -0.25 + index * 0.12, 0.1); artwork.add(cube); });
 
-    const halo = softGlow();
+    const halo = softGlow(glowError);
     halo.position.set(-0.12, -0.05, -1.35);
     halo.scale.set(4.5, 4.5, 1);
     artwork.add(halo);

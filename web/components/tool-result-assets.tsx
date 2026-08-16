@@ -16,6 +16,8 @@ import {
 } from "@/components/asset-preview-dialog";
 import { VideoFrame } from "@/components/video-frame";
 import { useMediaAssetEvents } from "@/components/use-media-asset-events";
+import { useI18n } from "@/lib/i18n/index";
+import { interpolate } from "@/lib/i18n/workspace-dict";
 
 type ResultAsset = PreviewAsset;
 
@@ -69,12 +71,13 @@ export function ToolResultAssets({
 }) {
   const assetIDs = resultAssetIDs(output);
   const { assetByID, assets } = useMediaAssetEvents();
+  const { t } = useI18n();
   const [preview, setPreview] = useState<ResultAsset | null>(null);
   if (!assetIDs.length) return null;
   return (
     <section className="mt-3">
       <p className="mb-1 text-[10px] font-medium text-muted-foreground">
-        生成结果
+        {t("agent.tool.result")}
       </p>
       <div className="flex flex-wrap gap-2">
         {assetIDs.map((assetID) => (
@@ -127,13 +130,14 @@ function ToolResultAsset({
       cancelled = true;
     };
   }, [apiBase, assetID, cachedAsset]);
-  const label = asset?.name || "生成的素材";
+  const { t } = useI18n();
+  const label = asset?.name || t("agent.tool.assetFallback");
   const completed = asset?.status === "completed";
   const source = mediaContentURL(apiBase, assetID);
   const Icon = asset?.kind === "video" ? Video : asset?.kind === "audio" ? Music2 : asset?.kind === "transcript" ? Captions : asset?.kind === "reference" ? Link2 : ImageIcon;
   return (
     <button
-      aria-label={`打开${label}`}
+      aria-label={interpolate(t("agent.tool.open"), { label })}
       className="group w-52 overflow-hidden rounded-sm border bg-card text-left shadow-sm transition hover:border-primary hover:shadow-md"
       disabled={!asset}
       onClick={() => asset && onOpen(asset)}
@@ -146,7 +150,7 @@ function ToolResultAsset({
       ) : (
         <div className="grid aspect-video place-items-center bg-muted text-muted-foreground">
           {asset?.status === "failed" ? (
-            <span className="text-[10px] text-destructive">生成失败</span>
+            <span className="text-[10px] text-destructive">{t("agent.message.generationFailed")}</span>
           ) : (
             <LoaderCircle className="size-5 animate-spin text-primary" />
           )}

@@ -13,9 +13,19 @@ import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatu
 import { AssetReferenceChip, AssetReferenceDialog, AssetReferenceMenu, mediaReferenceIDs, mediaReferenceText } from "@/components/asset-reference-picker";
 import { WorldPicker, type WorldPick } from "@/components/world-picker";
 import { Button } from "@/components/ui/button";
-import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, opencodeModelLabel, opencodeProviderLabel, reasoningLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PageContext, type UploadedAsset, type WorldReference } from "@/components/agent-panel-types";
+import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, opencodeModelLabel, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PageContext, type UploadedAsset, type WorldReference } from "@/components/agent-panel-types";
+import { useI18n } from "@/lib/i18n/index";
+import { interpolate } from "@/lib/i18n/workspace-dict";
 
 const COMPOSER_TEXT_MAX_HEIGHT = 192;
+
+// reasoningLabel 的本地化包装：字典缺失时回退原始 effort 值。
+function localizedReasoningLabel(t: (key: string) => string, effort?: string): string {
+  const value = effort ?? defaultCodexConfiguration.reasoningEffort;
+  const key = `agent.composer.reasoning.${value}`;
+  const label = t(key);
+  return label !== key ? label : value;
+}
 
 export function Composer({
   apiBase,
@@ -78,6 +88,7 @@ export function Composer({
   uploading: boolean;
   worldReferences: WorldReference[];
 }) {
+  const { t } = useI18n();
   const fileInput = useRef<HTMLInputElement>(null);
   const textInput = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
@@ -122,20 +133,20 @@ export function Composer({
   }
   const configButtonTitle =
     runtime === "codex"
-      ? "配置 Codex"
+      ? t("agent.composer.config.codex")
       : runtime === "opencode"
-        ? "配置 OpenCode 模型"
-        : "Claude Code 暂不支持运行时配置";
+        ? t("agent.composer.config.opencode")
+        : t("agent.composer.config.claude");
   const configDisabled = disabled || runtime === "claude";
   const configSummary =
     runtime === "codex"
-      ? `${codexModelLabel(codexConfiguration.codexModel)} · ${reasoningLabel(codexConfiguration.reasoningEffort)}`
+      ? `${codexModelLabel(codexConfiguration.codexModel)} · ${localizedReasoningLabel(t, codexConfiguration.reasoningEffort)}`
       : runtime === "opencode"
         ? opencodeModelLabel(opencodeConfiguration.opencodeModel)
         : "";
   const placeholder = firstTurn
-    ? `告诉 AI 需要做什么，发送后将创建 ${runtimeAgentName(runtime)} 对话`
-    : "告诉 AI 需要做什么，输入 @ 引用项目资源或素材库资源";
+    ? interpolate(t("agent.composer.placeholder.first"), { name: runtimeAgentName(runtime) })
+    : t("agent.composer.placeholder");
   function resizeTextInput() {
     const input = textInput.current;
     if (!input) return;
@@ -161,7 +172,7 @@ export function Composer({
             ))}
           </div>
         )}
-        {worldReferences.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{worldReferences.map((world) => <button className="inline-flex h-7 max-w-60 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" key={world.worldId} onClick={() => onRemoveWorld(world.worldId)} title={`移除世界观：${world.name}`} type="button"><Globe2 className="size-3 text-primary" /><span className="truncate">{world.name}</span><X className="size-3 text-muted-foreground" /></button>)}</div>}
+        {worldReferences.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{worldReferences.map((world) => <button className="inline-flex h-7 max-w-60 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" key={world.worldId} onClick={() => onRemoveWorld(world.worldId)} title={interpolate(t("agent.composer.removeWorld"), { name: world.name })} type="button"><Globe2 className="size-3 text-primary" /><span className="truncate">{world.name}</span><X className="size-3 text-muted-foreground" /></button>)}</div>}
         {pageContext && pageContextIncluded && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             <PageContextChip
@@ -260,7 +271,7 @@ export function Composer({
               className="size-6 rounded-full p-0"
               disabled={disabled || uploading}
               onClick={() => setLibraryOpen(true)}
-              title="引用资源"
+              title={t("agent.composer.reference")}
               type="button"
               variant="ghost"
             >
@@ -270,7 +281,7 @@ export function Composer({
               className="size-6 rounded-full p-0"
               disabled={disabled || uploading}
               onClick={() => fileInput.current?.click()}
-              title="上传素材"
+              title={t("agent.composer.upload")}
               type="button"
               variant="ghost"
             >
@@ -280,7 +291,7 @@ export function Composer({
               <Button
                 className="size-6 rounded-full p-0"
                 onClick={onStop}
-                title="停止当前回复"
+                title={t("agent.composer.stop")}
                 type="button"
                 variant="outline"
               >
@@ -299,10 +310,10 @@ export function Composer({
               }
               title={
                 firstTurn
-                  ? `发送并创建 ${runtimeAgentName(runtime)} 对话`
+                  ? interpolate(t("agent.composer.sendCreate"), { name: runtimeAgentName(runtime) })
                   : running
-                    ? "加入待发送消息"
-                    : "发送"
+                    ? t("agent.composer.sendQueued")
+                    : t("agent.composer.send")
               }
               type="submit"
             >
@@ -336,13 +347,7 @@ const codexModels = [
   ["gpt-5.4-mini", "5.4 Mini"],
   ["gpt-5.2", "5.2"],
 ] as const;
-const reasoningEfforts = [
-  ["low", "低"],
-  ["medium", "中"],
-  ["high", "高"],
-  ["xhigh", "极高"],
-  ["max", "最大"],
-] as const;
+const reasoningEfforts = ["low", "medium", "high", "xhigh", "max"] as const;
 function CodexConfigurationPopover({
   configuration,
   onChange,
@@ -350,12 +355,13 @@ function CodexConfigurationPopover({
   configuration: CodexConfiguration;
   onChange: (configuration: CodexConfiguration) => void;
 }) {
+  const { t } = useI18n();
   const [page, setPage] = useState<"menu" | "model" | "reasoning">("menu");
   if (page === "model")
     return (
       <ConfigurationChoices
         current={configuration.codexModel}
-        label="模型"
+        label={t("agent.composer.model")}
         onBack={() => setPage("menu")}
         onChoose={(codexModel) => onChange({ ...configuration, codexModel })}
         options={codexModels}
@@ -365,25 +371,25 @@ function CodexConfigurationPopover({
     return (
       <ConfigurationChoices
         current={configuration.reasoningEffort}
-        label="推理强度"
+        label={t("agent.composer.reasoning")}
         onBack={() => setPage("menu")}
         onChoose={(reasoningEffort) =>
           onChange({ ...configuration, reasoningEffort })
         }
-        options={reasoningEfforts}
+        options={reasoningEfforts.map((value) => [value, t(`agent.composer.reasoning.${value}`)] as const)}
       />
     );
   return (
     <section className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
       <ConfigurationMenuItem
-        label="模型"
+        label={t("agent.composer.model")}
         onClick={() => setPage("model")}
         value={codexModelLabel(configuration.codexModel)}
       />
       <ConfigurationMenuItem
-        label="推理强度"
+        label={t("agent.composer.reasoning")}
         onClick={() => setPage("reasoning")}
-        value={reasoningLabel(configuration.reasoningEffort)}
+        value={localizedReasoningLabel(t, configuration.reasoningEffort)}
       />
     </section>
   );
@@ -397,6 +403,7 @@ function OpencodeConfigurationPopover({
   models: OpencodeModel[];
   onChange: (configuration: OpencodeConfiguration) => void;
 }) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const matchingModels = models.filter((model) =>
     model.id.toLowerCase().includes(query.trim().toLowerCase()),
@@ -404,16 +411,16 @@ function OpencodeConfigurationPopover({
   const providers = [...new Set(matchingModels.map((model) => model.provider))];
   return (
     <section className="absolute bottom-full left-0 z-30 mb-2 w-80 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
-      <p className="px-2 py-1.5 text-xs font-medium">模型</p>
+      <p className="px-2 py-1.5 text-xs font-medium">{t("agent.composer.model")}</p>
       <label className="sr-only" htmlFor="opencode-model-search">
-        搜索 OpenCode 模型
+        {t("agent.composer.searchModel")}
       </label>
       <input
         autoFocus
         className="mt-1 w-full rounded-sm border bg-background px-2.5 py-2 font-mono text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
         id="opencode-model-search"
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="搜索模型或 provider"
+        placeholder={t("agent.composer.searchPlaceholder")}
         type="search"
         value={query}
       />
@@ -445,8 +452,8 @@ function OpencodeConfigurationPopover({
         {matchingModels.length === 0 && (
           <p className="px-2.5 py-3 text-xs text-muted-foreground">
             {models.length === 0
-              ? "未读取到 OpenCode 可用模型。"
-              : "没有匹配的模型。"}
+              ? t("agent.composer.noModels")
+              : t("agent.composer.noMatch")}
           </p>
         )}
       </div>
@@ -527,16 +534,19 @@ export function PageContextChip({
   selection?: string;
   title: string;
 }) {
+  const { t } = useI18n();
+  const label = selection
+    ? interpolate(t("agent.composer.pageContextWithSelection"), { title, selection })
+    : interpolate(t("agent.composer.pageContext"), { title });
   return (
     <span className="group inline-flex h-7 max-w-60 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1 pr-1.5 text-[10px] text-foreground">
       <FileText className="size-3.5 shrink-0 text-primary" />
       <span className="truncate">
-        当前页面 · {title}
-        {selection ? ` · ${selection}` : ""}
+        {label}
       </span>
       {onRemove && (
         <button
-          aria-label={`移除 ${title}`}
+          aria-label={interpolate(t("agent.composer.removePage"), { title })}
           className="ml-0.5 grid size-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground"
           onClick={onRemove}
           type="button"
@@ -548,12 +558,13 @@ export function PageContextChip({
   );
 }
 export function RunningStatus({ events, now }: { events: AgentEvent[]; now: number }) {
+  const { t } = useI18n();
   const started = [...events]
     .reverse()
     .find((event) => event.type === "turn.started");
   const status =
     [...events].reverse().find((event) => event.type === "status")?.payload
-      ?.label || "正在继续处理";
+      ?.label || t("agent.composer.statusWorking");
   const elapsed = started
     ? Math.max(
         0,
@@ -595,6 +606,7 @@ export function RuntimePicker({
   onInstall: (agent: AgentRuntimeStatus) => void;
   runtimeStatus: AgentRuntimeStatus[];
 }) {
+  const { t } = useI18n();
   // Show every supported runtime, even ones the backend has not yet reported. Missing
   // entries get a synthetic placeholder so the user can still trigger the install dialog.
   const rows = RUNTIME_ORDER.map((runtime) => ({
@@ -607,7 +619,7 @@ export function RuntimePicker({
     <section className="absolute right-3 top-14 z-30 w-[calc(100%-1.5rem)] overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
       {rows.length === 0 ? (
         <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-          暂未检测到任何 Agent
+          {t("agent.composer.noAgent")}
         </p>
       ) : (
         rows.map(({ runtime, status }) => {
@@ -624,7 +636,7 @@ export function RuntimePicker({
             >
               <span className="font-medium">{runtimeLabel(runtime)}</span>
               <span className="ml-auto text-[10px] text-muted-foreground">
-                {available ? "已就绪" : "未安装"}
+                {available ? t("agent.composer.ready") : t("agent.composer.notInstalled")}
               </span>
             </button>
           );

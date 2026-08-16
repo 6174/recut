@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "apps": [
+    {
+      "appId": "recut.vox-broll",
+      "author": "6174",
+      "kind": "project",
+      "repository": "https://github.com/6174/recut-vox-broll.git",
+      "name": { "zh": "AI 短片", "en": "AI Short Films" },
+      "description": {
+        "zh": "将一个主题制作成可审阅、可继续制作的 Vox 风格 B-roll 解说片。",
+        "en": "Turn a topic into a reviewable, continuously producible Vox-style B-roll explainer."
+      }
+    },
+    {
+      "appId": "recut.depth-anything",
+      "author": "Recut",
+      "kind": "standalone",
+      "repository": "https://github.com/6174/recut-depth-anything-v2.git",
+      "name": { "zh": "深度图", "en": "Depth Map" },
+      "description": {
+        "zh": "在本机将图片或视频转换为可预览的深度图，再按需保存到素材库。",
+        "en": "Convert images or videos into previewable depth maps locally, saving them to the media library as needed."
+      }
+    },
+    {
+      "appId": "recut.remotion-studio",
+      "author": "6174",
+      "kind": "project",
+      "repository": "https://github.com/6174/recut-remotion-studio.git",
+      "name": { "zh": "Remotion 视频", "en": "Remotion Video" },
+      "description": {
+        "zh": "把选题、文案和素材编排成可审阅、可实时预览、可导出的 Remotion 程序化视频。",
+        "en": "Arrange a topic, script and assets into a reviewable, live-previewable, exportable Remotion programmatic video."
+      }
+    },
+    {
+      "appId": "recut.audio-studio",
+      "author": "Recut",
+      "kind": "standalone",
+      "repository": "https://github.com/6174/recut-audio-studio.git",
+      "name": { "zh": "声音工坊", "en": "Audio Studio" },
+      "description": {
+        "zh": "本地转写、声音角色与配音：把音视频转成字幕和可编辑文稿，再让角色朗读新文本。",
+        "en": "Local transcription, voice characters and dubbing: turn audio or video into subtitles and an editable transcript, then have a character read new text."
+      },
+      "requirements": {
+        "zh": {
+          "title": "运行前请确认设备条件",
+          "items": [
+            "基础转写建议至少 16 GB 内存；要稳定创建声音角色和合成配音，建议 32 GB 及以上。8 GB 内存或较旧设备不建议下载。",
+            "建议至少预留 15 GB 磁盘空间；Qwen3-ASR 0.6B 连同时间戳对齐器约 3.5 GB，CosyVoice2-0.5B 约 1 GB，Python 运行环境和缓存还会占用额外空间；下载多个模型需要更多空间。",
+            "想要较快的 Qwen 转写，推荐 Windows / Linux 上具备 8 GB 以上显存的 NVIDIA CUDA 显卡。纯 CPU 与 Apple 芯片 Mac 也能运行，但当前版本不会使用 Apple GPU 加速，Qwen 和配音会明显更慢。"
+          ],
+          "note": "模型在本机运行。安装 App 不会下载权重；只有你在声音工坊中选择模型后才会下载。"
+        },
+        "en": {
+          "title": "Check your hardware before you start",
+          "items": [
+            "Basic transcription is best with at least 16 GB of RAM; for stable voice-character creation and dubbing, 32 GB or more is recommended. Devices with 8 GB or older hardware are not recommended.",
+            "Reserve at least 15 GB of disk space; Qwen3-ASR 0.6B plus the timestamp aligner is about 3.5 GB, CosyVoice2-0.5B about 1 GB, and the Python runtime and caches add more. Downloading multiple models needs more space.",
+            "For faster Qwen transcription, an NVIDIA CUDA GPU with 8 GB+ VRAM on Windows/Linux is recommended. CPU-only and Apple Silicon Macs also work, but this version does not use Apple GPU acceleration, so Qwen and dubbing will be noticeably slower."
+          ],
+          "note": "Models run locally. Installing the App does not download weights; they are only downloaded after you pick a model in Audio Studio."
+        }
+      }
+    },
+    {
+      "appId": "recut.cover-studio",
+      "author": "Recut",
+      "kind": "standalone",
+      "repository": "https://github.com/6174/recut-cover-studio.git",
+      "name": { "zh": "封面生成", "en": "Cover Studio" },
+      "description": {
+        "zh": "用渠道尺寸、参考封面和创作要求生成并沉淀封面素材。",
+        "en": "Generate and collect cover assets from channel sizes, reference covers and creative requirements."
+      }
+    }
+  ]
+}

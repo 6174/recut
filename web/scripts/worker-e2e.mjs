@@ -25,6 +25,7 @@ const worker = workerModule.default ?? workerModule;
 // 2. 最小 ASSETS binding：目录补 index.html，缺失回退 404.html（not_found_handling="404-page"）。
 const mime = { ".html": "text/html", ".xml": "application/xml", ".txt": "text/plain", ".ico": "image/x-icon", ".png": "image/png", ".jpg": "image/jpeg", ".webmanifest": "application/manifest+json", ".js": "text/javascript" };
 function assetFetch(request) {
+  return Promise.resolve().then(() => {
   const url = new URL(request.url);
   let path = url.pathname;
   if (path.endsWith("/")) path += "index.html";
@@ -36,6 +37,7 @@ function assetFetch(request) {
   }
   const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
   return new Response(readFileSync(file, "utf8"), { status: 200, headers: { "Content-Type": mime[ext] ?? "application/octet-stream" } });
+  });
 }
 const env = { ASSETS: { fetch: assetFetch } };
 
@@ -63,6 +65,7 @@ const cases = [
   ["www.recut.video → 301 裸域", "www.recut.video", "/docs", {}, { status: 301, location: "/docs" }],
   ["未知路径 /foo → 404", "recut.video", "/foo", {}, { status: 404 }],
   ["/zh/ 下未知 /zh/foo → 404", "recut.video", "/zh/foo", {}, { status: 404 }],
+  ["市场 API /api/appstore.json → 200 且带 CORS", "recut.video", "/api/appstore.json", { "accept-language": "en-US" }, { status: 200, bodyContains: "\"recut.vox-broll\"", header: { "Access-Control-Allow-Origin": "*" } }],
 ];
 
 let pass = 0;
@@ -78,6 +81,11 @@ for (const [name, host, path, headers, expect] of cases) {
   if (res.status !== expect.status) problems.push(`status=${res.status} expected=${expect.status}`);
   if (expect.location !== undefined && location !== expect.location) problems.push(`location="${location}" expected="${expect.location}"`);
   if (expect.bodyContains !== undefined && !text.includes(expect.bodyContains)) problems.push(`body 缺 "${expect.bodyContains}"`);
+  if (expect.header) {
+    for (const [name, value] of Object.entries(expect.header)) {
+      if (res.headers.get(name) !== value) problems.push(`header ${name}=${res.headers.get(name)} expected=${value}`);
+    }
+  }
   if (problems.length) {
     console.log(`✗ ${name}\n    ${problems.join(" | ")}`);
   } else {

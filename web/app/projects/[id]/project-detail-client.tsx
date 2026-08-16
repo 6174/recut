@@ -45,7 +45,7 @@ function postToFrame(frame: HTMLIFrameElement | null, message: unknown, transfer
 }
 
 export default function ProjectDetailClient() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { id: routeID } = useParams<{ id: string }>();
   const [id, setID] = useState("");
   const [mediaPicker, setMediaPicker] = useState<PlatformMediaPickerRequest | null>(null);
@@ -143,7 +143,7 @@ export default function ProjectDetailClient() {
   }, [connectUI]);
 
   const view = app?.manifest.ui?.projectView;
-  const uiURL = project && view ? `${apiBase}/v1/apps/${encodeURIComponent(project.appId)}/ui/${view}?projectId=${encodeURIComponent(project.id)}&appVersion=${encodeURIComponent(app?.manifest.version ?? "")}` : null;
+  const uiURL = project && view ? `${apiBase}/v1/apps/${encodeURIComponent(project.appId)}/ui/${view}?projectId=${encodeURIComponent(project.id)}&appVersion=${encodeURIComponent(app?.manifest.version ?? "")}&locale=${encodeURIComponent(locale)}` : null;
   const resolveMediaPicker = (selection: PlatformMediaPickerResult | null) => { mediaPickerReply.current?.(selection); mediaPickerReply.current = null; setMediaPicker(null); };
   const refreshProject = async () => {
     if (!project) return;

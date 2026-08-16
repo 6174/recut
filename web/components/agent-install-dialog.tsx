@@ -11,8 +11,11 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { AgentInstallGuide, type AgentRuntimeStatus } from "@/components/agent-install-guide";
+import { useI18n } from "@/lib/i18n/index";
+import { interpolate } from "@/lib/i18n/workspace-dict";
 
 export function AgentInstallDialog({ agent, open, onClose, onRecheck }: { agent: AgentRuntimeStatus | null; open: boolean; onClose: () => void; onRecheck: () => Promise<AgentRuntimeStatus[] | null> }) {
+  const { t } = useI18n();
   const [checking, setChecking] = useState(false);
   const [checkFailed, setCheckFailed] = useState(false);
 
@@ -54,10 +57,10 @@ export function AgentInstallDialog({ agent, open, onClose, onRecheck }: { agent:
       <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
         <div>
           <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">INSTALL AGENT</p>
-          <h2 className="mt-1 text-base font-semibold" id="agent-install-title">安装 {agent.name} CLI</h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">在运行 Recut service 的设备上完成下列步骤，完成后点击重新检查。</p>
+          <h2 className="mt-1 text-base font-semibold" id="agent-install-title">{interpolate(t("agent.install.title"), { name: agent.name })}</h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("agent.install.dialogDesc")}</p>
         </div>
-        <button aria-label={`关闭 ${agent.name} 安装引导`} className="grid size-8 shrink-0 place-items-center rounded-xs text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed" disabled={checking} onClick={close} type="button">
+        <button aria-label={interpolate(t("agent.install.close"), { name: agent.name })} className="grid size-8 shrink-0 place-items-center rounded-xs text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed" disabled={checking} onClick={close} type="button">
           <X className="size-4" />
         </button>
       </header>

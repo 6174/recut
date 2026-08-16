@@ -9,6 +9,10 @@
 import { Check, Copy, RefreshCw } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
+import { t, useI18n } from "@/lib/i18n/index";
+import { useLocaleStore } from "@/lib/i18n/locale-store";
+import { interpolate } from "@/lib/i18n/workspace-dict";
+
 export type AgentRuntimeStatus = { id: string; name: string; command: string; available: boolean };
 export type Runtime = "codex" | "claude" | "opencode";
 export const RUNTIME_ORDER: ReadonlyArray<Runtime> = ["codex", "opencode", "claude"];
@@ -27,7 +31,10 @@ const opencodeLoginCommands = ["opencode auth login", "opencode --version"];
 export function recoveryInstallCommand(agent: AgentRuntimeStatus): string {
   if (agent.id === "codex") return "npm install -g @openai/codex";
   if (agent.id === "opencode") return opencodeInstallCommand;
-  return `请访问 ${agent.name} 官方安装文档`;
+  return interpolate(
+    t("workspace", useLocaleStore.getState().locale, "agent.recovery.claudeInstallDoc"),
+    { name: agent.name },
+  );
 }
 
 export function recoveryLoginCommands(agent: AgentRuntimeStatus): string[] {
@@ -37,13 +44,15 @@ export function recoveryLoginCommands(agent: AgentRuntimeStatus): string[] {
 }
 
 export function recoveryTitle(agent: AgentRuntimeStatus, missing: boolean): string {
-  if (missing) return `连接 ${agent.name} CLI`;
-  return `继续配置 ${agent.name}`;
+  const locale = useLocaleStore.getState().locale;
+  if (missing) return interpolate(t("workspace", locale, "agent.recovery.title.missing"), { name: agent.name });
+  return interpolate(t("workspace", locale, "agent.recovery.title.installed"), { name: agent.name });
 }
 
 export function recoverySubtitle(agent: AgentRuntimeStatus, missing: boolean): string {
-  if (missing) return `先在运行 Recut service 的设备上安装并登录 ${agent.name}，完成后直接使用重新检查按钮。`;
-  return `${agent.name} 已安装，但 Agent 启动没有完成。把下面的诊断任务交给该设备上的 ${agent.name} 处理。`;
+  const locale = useLocaleStore.getState().locale;
+  if (missing) return interpolate(t("workspace", locale, "agent.recovery.subtitle.missing"), { name: agent.name });
+  return interpolate(t("workspace", locale, "agent.recovery.subtitle.installed"), { name: agent.name });
 }
 
 export async function copyToClipboard(value: string): Promise<boolean> {
@@ -67,8 +76,9 @@ export async function copyToClipboard(value: string): Promise<boolean> {
 }
 
 export function CopyFeedback({ status }: { status: "idle" | "copied" | "failed" }) {
+  const { t: text } = useI18n();
   if (status === "idle") return null;
-  return <p aria-live="polite" className={`mt-2 text-[11px] ${status === "copied" ? "text-success" : "text-destructive"}`}>{status === "copied" ? "已复制到剪贴板。" : "浏览器不允许自动复制，请手动选择并复制。"}</p>;
+  return <p aria-live="polite" className={`mt-2 text-[11px] ${status === "copied" ? "text-success" : "text-destructive"}`}>{status === "copied" ? text("agent.install.copiedFeedback") : text("agent.install.copyBlocked")}</p>;
 }
 
 export function SetupStep({ children, index, title }: { children: ReactNode; index: string; title: string }) {
@@ -76,6 +86,7 @@ export function SetupStep({ children, index, title }: { children: ReactNode; ind
 }
 
 export function AgentInstallGuide({ agent, checking, checkFailed, onRecheck }: { agent: AgentRuntimeStatus; checking: boolean; checkFailed: boolean; onRecheck: () => Promise<unknown> }) {
+  const { t: text } = useI18n();
   const install = recoveryInstallCommand(agent);
   const loginCommands = recoveryLoginCommands(agent);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
@@ -89,26 +100,26 @@ export function AgentInstallGuide({ agent, checking, checkFailed, onRecheck }: {
     await onRecheck();
   }
   return <div className="space-y-5">
-    <SetupStep index="1" title={`安装 ${agent.name} CLI`}>
+    <SetupStep index="1" title={interpolate(text("agent.install.step1"), { name: agent.name })}>
       <div className="mt-2 flex items-center gap-2">
         <code className="min-w-0 flex-1 overflow-x-auto rounded-sm bg-muted px-3 py-2 text-xs text-foreground">{install}</code>
-        <button className="grid size-8 shrink-0 place-items-center rounded-sm border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={() => void copy()} title={copyStatus === "copied" ? "已复制安装命令" : "复制安装命令"} type="button">
+        <button className="grid size-8 shrink-0 place-items-center rounded-sm border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={() => void copy()} title={copyStatus === "copied" ? text("agent.install.copied") : text("agent.install.copy")} type="button">
           {copyStatus === "copied" ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         </button>
       </div>
       <CopyFeedback status={copyStatus} />
     </SetupStep>
-    <SetupStep index="2" title="登录并验证">
-      {loginCommands.map((command, index) => <p className={`text-xs leading-5 text-muted-foreground${index === 0 ? " mt-1" : " mt-0.5"}`} key={command}>执行 <code>{command}</code>{index === loginCommands.length - 1 ? "。" : "，"}</p>)}
+    <SetupStep index="2" title={text("agent.install.step2")}>
+      {loginCommands.map((command, index) => <p className={`text-xs leading-5 text-muted-foreground${index === 0 ? " mt-1" : " mt-0.5"}`} key={command}>{interpolate(text("agent.install.execute"), { command: "" })}<code>{command}</code>{text(index === loginCommands.length - 1 ? "agent.install.execute.period" : "agent.install.execute.comma")}</p>)}
     </SetupStep>
-    <SetupStep index="3" title="重新检查">
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">点击下方按钮重新检查，无需重启 Recut service。</p>
-      {checking && <p aria-live="polite" className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><RefreshCw className="size-3 animate-spin" />正在检查 {agent.name} 状态…</p>}
-      {checkFailed && <p aria-live="polite" className="mt-2 text-xs text-destructive">无法连接 Recut service，请确认设备在线后重试。</p>}
+    <SetupStep index="3" title={text("agent.install.step3")}>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{text("agent.install.recheckDesc")}</p>
+      {checking && <p aria-live="polite" className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><RefreshCw className="size-3 animate-spin" />{interpolate(text("agent.install.checking"), { name: agent.name })}</p>}
+      {checkFailed && <p aria-live="polite" className="mt-2 text-xs text-destructive">{text("agent.recovery.offline")}</p>}
       <div className="mt-3">
         <button className="inline-flex h-8 items-center gap-1.5 rounded-sm border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={checking} onClick={() => void recheck()} type="button">
           <RefreshCw className={`size-3.5 ${checking ? "animate-spin" : ""}`} />
-          {checking ? "正在重新检查…" : "重新检查"}
+          {checking ? text("agent.install.rechecking") : text("agent.install.recheck")}
         </button>
       </div>
     </SetupStep>

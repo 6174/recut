@@ -242,6 +242,59 @@ func TestListAppsLocalizesManifestByAcceptLanguage(t *testing.T) {
 	}
 }
 
+func TestListInstalledLocalizesManifestByAcceptLanguage(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "example")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"AI 短片","author":"Test","description":"中文描述。","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"localized":{"en":{"name":"AI Short Films","description":"English description."}}}`)
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer(apps, store, nil, nil, nil, nil, nil).routes()
+
+	zhRequest := httptest.NewRequest(http.MethodGet, "/v1/apps/installed", nil)
+	zhRequest.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	zhRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(zhRecorder, zhRequest)
+	if zhRecorder.Code != http.StatusOK {
+		t.Fatalf("GET /v1/apps/installed (zh) = %d", zhRecorder.Code)
+	}
+	var zhInstalled []struct {
+		Manifest struct {
+			Name string `json:"name"`
+		} `json:"manifest"`
+	}
+	if err := json.Unmarshal(zhRecorder.Body.Bytes(), &zhInstalled); err != nil {
+		t.Fatal(err)
+	}
+	if len(zhInstalled) != 1 || zhInstalled[0].Manifest.Name != "AI 短片" {
+		t.Fatalf("zh installed = %#v", zhInstalled)
+	}
+
+	enRequest := httptest.NewRequest(http.MethodGet, "/v1/apps/installed", nil)
+	enRequest.Header.Set("Accept-Language", "en-US,en;q=0.8")
+	enRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(enRecorder, enRequest)
+	var enInstalled []struct {
+		Manifest struct {
+			Name string `json:"name"`
+		} `json:"manifest"`
+	}
+	if err := json.Unmarshal(enRecorder.Body.Bytes(), &enInstalled); err != nil {
+		t.Fatal(err)
+	}
+	if len(enInstalled) != 1 || enInstalled[0].Manifest.Name != "AI Short Films" {
+		t.Fatalf("en installed = %#v", enInstalled)
+	}
+}
+
 func TestMCPDescriptionsLocalizeToolLevelCopy(t *testing.T) {
 	for _, tool := range platformMCPToolDefinitions(LocaleEn) {
 		if tool["name"] == "recut.context" {

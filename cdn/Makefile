@@ -4,7 +4,7 @@
 #        上传后经 https://cdn.recut.video/{name}/ 分发
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 
-.PHONY: help whoami fetch upload list delete sync url purge purge-all check cors fetch-fonts
+.PHONY: help whoami fetch upload upload-fonts list delete sync url purge purge-all check cors fetch-fonts
 
 help: ## Show available CDN commands.
 	@awk 'BEGIN { FS = ":.*##"; printf "Recut CDN commands:\n" } /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -18,9 +18,12 @@ fetch: ## Fetch the curated CC0 audio library into cdn/buckets/audio/ (music-onl
 fetch-fonts: ## Fetch the curated Google Fonts (incl. CJK) into cdn/buckets/fonts/google/ as self-hosted woff2 + css + catalog.
 	node scripts/fetch-fonts.mjs $(ARGS)
 
-upload: ## Upload cdn/buckets/$(PREFIX)/ to R2 (PREFIX=audio).
-	@test -n "$(PREFIX)" || { echo "usage: make upload PREFIX=audio"; exit 1; }
-	node scripts/cli.mjs upload $(PREFIX)
+upload: ## Upload cdn/buckets/$(PREFIX)/ to R2 via S3 API（PREFIX=audio; ARGS=--skip-existing 仅跳大小相同的对象）。
+	@test -n "$(PREFIX)" || { echo "usage: make upload PREFIX=audio [ARGS=--skip-existing]"; exit 1; }
+	node scripts/cli.mjs upload $(PREFIX) $(ARGS)
+
+upload-fonts: ## Upload self-hosted fonts to R2 via S3 API（并发 16 + 重试；ARGS=--skip-existing 断点续传）。
+	node scripts/cli.mjs upload fonts $(ARGS)
 
 list: ## List objects in the R2 bucket for a prefix (PREFIX=audio).
 	@test -n "$(PREFIX)" || { echo "usage: make list PREFIX=audio"; exit 1; }

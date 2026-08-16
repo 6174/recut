@@ -113,7 +113,7 @@ func (u *ServiceUpdater) Update() (string, error) {
 	if filepath.Base(executable) != "recut-service" {
 		return "", errors.New("self-update is only available for the installed recut-service binary")
 	}
-	archive, err := u.fetchArchive(packageInfo)
+	archive, err := u.fetchArchive(manifest.Version, packageInfo)
 	if err != nil {
 		return "", err
 	}
@@ -145,6 +145,7 @@ func (u *ServiceUpdater) CanRestart() bool {
 
 func (u *ServiceUpdater) fetchManifest() (releaseManifest, error) {
 	manifest := releaseManifest{}
+	// latest 只存最新版 manifest 指针（含 version 字段）；包本体在版本目录。
 	response, err := u.httpClient.Get(u.downloadBase + "/releases/latest/manifest.json")
 	if err != nil {
 		return manifest, fmt.Errorf("download release manifest: %w", err)
@@ -162,11 +163,12 @@ func (u *ServiceUpdater) fetchManifest() (releaseManifest, error) {
 	return manifest, nil
 }
 
-func (u *ServiceUpdater) fetchArchive(packageInfo releasePackage) (io.ReadCloser, error) {
+func (u *ServiceUpdater) fetchArchive(version string, packageInfo releasePackage) (io.ReadCloser, error) {
 	if strings.Contains(packageInfo.Archive, "/") || !strings.HasSuffix(packageInfo.Archive, ".tar.gz") {
 		return nil, errors.New("release manifest has an invalid archive name")
 	}
-	response, err := u.httpClient.Get(u.downloadBase + "/releases/latest/" + packageInfo.Archive)
+	// 包从版本目录下载（/releases/<version>/<archive>），latest 只是指针。
+	response, err := u.httpClient.Get(u.downloadBase + "/releases/" + version + "/" + packageInfo.Archive)
 	if err != nil {
 		return nil, fmt.Errorf("download service package: %w", err)
 	}

@@ -25,6 +25,7 @@ import {
   type MediaProvider as Provider,
 } from "@/lib/media-configuration-store";
 import { useServiceStore } from "@/lib/service-store";
+import { useWorkspaceStore } from "@/lib/workspace-store";
 import type { Model } from "@/app/media/media-types";
 
 type SettingSection = "service" | "multimodal" | "skill" | "mcp";
@@ -111,6 +112,8 @@ function LanguageSettings() {
     if (next === locale) return;
     setLocale(next);
     void saveLocalePreference(apiBase, next);
+    // 语言变化后重取目录数据：App 名称/描述按 Accept-Language 本地化，缓存按 endpoint 只取一次。
+    if (apiBase) void useWorkspaceStore.getState().load(apiBase, true);
   }
   return <section className="max-w-2xl pt-6"><div className="border bg-muted/20 p-5"><div className="flex items-start gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-md bg-accent text-accent-foreground"><Settings className="size-4" /></span><div><p className="text-sm font-medium">{t("settings.language.title")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.language.desc")}</p></div></div><fieldset className="mt-4 flex flex-col gap-2"><legend className="sr-only">{t("settings.language.title")}</legend>{options.map((option) => <label className="flex cursor-pointer items-center gap-2 rounded-xs border bg-background px-3 py-2 text-xs hover:bg-muted" htmlFor={`locale-${option.value}`} key={option.value}><input checked={locale === option.value} className="accent-primary" id={`locale-${option.value}`} name="workspace-locale" onChange={() => choose(option.value)} type="radio" value={option.value} /><span className="flex-1">{option.label}</span>{locale === option.value && <Check className="size-3.5 text-primary" />}</label>)}</fieldset></div></section>;
 }

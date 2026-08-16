@@ -6,6 +6,10 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { Locale } from "./locales";
+import { agentZh, agentEn } from "./workspace-agent-dict";
+import { worldsZh, worldsEn } from "./workspace-worlds-dict";
+import { studioZh, studioEn } from "./workspace-studio-dict";
+import { appstoreZh, appstoreEn } from "./workspace-appstore-dict";
 
 const zh = {
   "common.fallback": "示例",
@@ -832,4 +836,9 @@ export function interpolate(template: string, values: Record<string, string | nu
   return Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 }
 
-export const workspaceDictionary: Record<Locale, Record<string, string>> = { zh, en };
+// 命名空间字典由各工作台面独立维护（agent/worlds/studio/appstore），此处合并；
+// 各命名空间文件内部强制 zh/en key 对齐，跨命名空间 key 不得重复（前缀已隔离）。
+export const workspaceDictionary: Record<Locale, Record<string, string>> = {
+  zh: { ...zh, ...studioZh, ...worldsZh, ...agentZh, ...appstoreZh },
+  en: { ...en, ...studioEn, ...worldsEn, ...agentEn, ...appstoreEn },
+};

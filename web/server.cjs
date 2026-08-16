@@ -104,6 +104,20 @@ function routeByHost(request, response) {
 
 app.prepare().then(() => {
   http.createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://localhost");
+    // 本地市场 API：从 public/api 直接服务 appstore.json 并允许跨域，供 app.localhost 工作台消费。
+    if (url.pathname === "/api/appstore.json") {
+      response.setHeader("Access-Control-Allow-Origin", "*");
+      response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      const file = require("node:path").join(__dirname, "public", "api", "appstore.json");
+      require("node:fs").readFile(file, (error, body) => {
+        if (error) { response.writeHead(404); response.end(); return; }
+        response.setHeader("Content-Type", "application/json");
+        response.writeHead(200);
+        response.end(body);
+      });
+      return;
+    }
     const handled = routeByHost(request, response);
     if (handled) return;
     void handle(request, response);

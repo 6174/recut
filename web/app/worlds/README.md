@@ -10,6 +10,6 @@ worlds-client.tsx: 工作区级原生 React Worlds 桌面内容；供 `/worlds` 
 
 依赖边界
 
-本页面只调用 Daemon 的 `/v1/worlds*` 与 `/v1/projects/*/world-context` REST facade；世界业务表归平台 WorldStore 独占，原生页面不直接访问任何 App 的 SQLite 或文件。World 是系统级列表，不属于 App Catalog、安装管理或 iframe，`recut.creation-worlds` 不进入 `web/lib/app-catalog.ts`。所有读取都要求显式 `worldId`，没有隐式当前 World。
+本页面只调用 Daemon 的 `/v1/worlds*` 与 `/v1/projects/*/world-context` REST facade；世界业务表归平台 WorldStore 独占，原生页面不直接访问任何 App 的 SQLite 或文件。World 是系统级列表，不属于 App Catalog、安装管理或 iframe，`recut.creation-worlds` 不进入 `web/lib/appstore.ts`（云端市场数据）。所有读取都要求显式 `worldId`，没有隐式当前 World。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

@@ -21,18 +21,19 @@ import { PlatformMediaPicker } from "@/components/platform-media-picker";
 import { useReportPageContext } from "@/lib/agent-panel-context";
 import {
   createRecutWorldsClient,
-  worldKindLabels,
   type EntityKind,
   type WorldDetail,
   type WorldEntity,
 } from "@/lib/recut-worlds-client";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorldsStore } from "@/lib/worlds-store";
+import { useI18n, useLocaleStore, t as plainT } from "@/lib/i18n/index";
+import { interpolate } from "@/lib/i18n/workspace-dict";
 import {
   EmptySetting,
   SettingCard,
 } from "./world-detail-panels";
-import { SETTING_SECTIONS, SettingDialog } from "./world-detail-settings";
+import { settingSections, SettingDialog } from "./world-detail-settings";
 import { Workspace } from "../../page";
 
 export default function WorldDetailClient() {
@@ -42,6 +43,7 @@ export default function WorldDetailClient() {
 }
 
 function WorldDetailContent() {
+  const { t } = useI18n();
   const apiBase = useServiceStore((state) => state.endpoint);
   const loadDetail = useWorldsStore((state) => state.loadDetail);
   const loadEntities = useWorldsStore((state) => state.loadEntities);
@@ -84,7 +86,7 @@ function WorldDetailContent() {
         if (active) setDetail(value);
       })
       .catch(() => {
-        if (active) setError("无法读取创作设定");
+        if (active) setError(t("worlds.detail.load.failed"));
       });
     return () => {
       active = false;
@@ -110,7 +112,7 @@ function WorldDetailContent() {
   if (!worldID)
     return (
       <p className="py-10 text-center text-sm text-muted-foreground">
-        没有指定创作设定。
+        {t("worlds.detail.noWorld")}
       </p>
     );
   if (error && !detail)
@@ -124,7 +126,7 @@ function WorldDetailContent() {
     );
   const worldId = worldID;
   const worldName = detail.name;
-  const currentSection = SETTING_SECTIONS.find(
+  const currentSection = settingSections(t).find(
     (section) => section.kind === activeKind,
   );
 
@@ -144,12 +146,12 @@ function WorldDetailContent() {
         await fetch(`${apiBase}/v1/apps`, { cache: "no-store" })
       ).json()) as Array<{ id: string }>;
       if (!apps.some((app) => app.id === "recut.remotion-studio"))
-        throw new Error("请先安装 Remotion Studio，才能从故事开始制作视频。");
+        throw new Error(t("worlds.detail.installStudio"));
       const response = await fetch(`${apiBase}/v1/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: `${worldName} · 视频`,
+          name: interpolate(t("worlds.detail.videoProjectName"), { name: worldName }),
           appId: "recut.remotion-studio",
         }),
       });
@@ -161,7 +163,7 @@ function WorldDetailContent() {
       });
       window.location.assign(`/projects/${project.id}`);
     } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : "创建视频项目失败");
+      setNotice(cause instanceof Error ? cause.message : t("worlds.detail.videoProject.failed"));
     }
   }
 
@@ -169,7 +171,7 @@ function WorldDetailContent() {
     <>
       <header className="relative mb-8">
         <Link
-          aria-label="返回创作设定列表"
+          aria-label={t("worlds.detail.back.aria")}
           className="absolute -left-12 top-2 grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted hover:text-foreground"
           href="/worlds"
         >
@@ -185,21 +187,20 @@ function WorldDetailContent() {
                 {detail.name}
               </h1>
               <Badge className="shrink-0 border-primary/20 bg-accent/60 text-accent-foreground">
-                {worldKindLabels[detail.type]}
+                {t(`worlds.kind.${detail.type}`)}
               </Badge>
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              {detail.description ||
-                "从角色、故事、风格与素材开始，让每一次创作都保持同一个世界。"}
+              {detail.description || t("worlds.detail.fallbackDesc")}
             </p>
           </div>
         </div>
       </header>
       <nav
-        aria-label="创作设定分类"
+        aria-label={t("worlds.detail.tabs.aria")}
         className="mb-6 flex flex-wrap items-center gap-1.5"
       >
-        {[...SETTING_SECTIONS, { kind: "resource" as const, title: "资源", description: "这个世界下的文档、研究与其他非结构化资料。", action: "添加资源" }].map((section) => (
+        {[...settingSections(t), { kind: "resource" as const, title: t("worlds.detail.resource.title"), description: t("worlds.detail.resource.desc"), action: t("worlds.detail.resource.action") }].map((section) => (
           <button
             aria-pressed={activeKind === section.kind}
             className={tabClass(activeKind === section.kind)}
@@ -272,13 +273,14 @@ function WorldDetailContent() {
 }
 
 function WorldResourcesPanel({ apiBase, expectedRevisionID, onChanged, worldID }: { apiBase: string; expectedRevisionID: string; onChanged: () => void; worldID: string }) {
+  const { t } = useI18n();
   const [items, setItems] = useState<Array<{ id?: string; assetId: string; label?: string; modality: string }>>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<{ id: string; name: string } | null>(null);
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
-  useEffect(() => { void createRecutWorldsClient(apiBase).evidence.list({ worldId: worldID }).then((all) => setItems(all.filter((item) => !item.entityId))).catch(() => setError("资源暂时无法读取。请重启本地 Recut 服务后重试。")); }, [apiBase, worldID]);
-  return <section className="flex w-full flex-col items-start gap-5"><div className="flex w-full items-end justify-between gap-4"><div><h2 className="text-xl font-semibold">资源</h2><p className="mt-1 text-sm text-muted-foreground">归属于这个世界的文档、研究资料、原始素材与其他非结构化信息。</p></div><Button onClick={() => setPickerOpen(true)} type="button">添加资源</Button></div>{error ? <div className="w-full rounded-md border border-warning/30 bg-warning/10 p-4 text-sm text-warning">{error}</div> : items.length ? <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-4">{items.map((item) => <div className="rounded-md border p-4" key={item.id ?? item.assetId}><p className="text-sm font-medium">{item.label || "未命名资料"}</p><p className="mt-1 text-xs text-muted-foreground">{item.modality === "research" ? "文档资料" : item.modality === "text" ? "文字资料" : item.modality === "audio" ? "声音资料" : item.modality === "video" ? "视频资料" : "图片资料"}</p></div>)}</div> : <div className="w-full rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">还没有资源。加入文档、研究或素材，让 AI 在需要时理解这个世界。</div>}<PlatformMediaPicker apiBase={apiBase} onCancel={() => setPickerOpen(false)} onPick={(selection) => { const asset = Array.isArray(selection) ? selection[0] : selection; if (!asset) return; setSelectedAsset(asset); setDescription(""); setPickerOpen(false); }} request={pickerOpen ? { kinds: [] } : null} />{selectedAsset && <div aria-modal="true" className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6" role="dialog"><form className="w-full max-w-lg rounded-md border bg-card p-5 shadow-2xl" onSubmit={(event) => { event.preventDefault(); void createRecutWorldsClient(apiBase).evidence.attach({ worldId: worldID, assetId: selectedAsset.id, purpose: "narrative", status: "supporting", label: description.trim() || selectedAsset.name, expectedRevisionId: expectedRevisionID }).then(() => { setSelectedAsset(null); onChanged(); }).catch(() => setError("资源暂时无法保存。请重启本地 Recut 服务后重试。")); }}><h3 className="text-lg font-semibold">说明这份资源</h3><p className="mt-1 text-sm text-muted-foreground">{selectedAsset.name}</p><label className="mt-5 block text-xs font-medium" htmlFor="world-resource-description">它如何帮助理解这个世界？<Input autoFocus className="mt-1" id="world-resource-description" onChange={(event) => setDescription(event.target.value)} placeholder="例如：世界历史年表；用于理解角色之间的背景关系" value={description} /></label><div className="mt-5 flex justify-end gap-2"><Button onClick={() => setSelectedAsset(null)} type="button" variant="ghost">取消</Button><Button type="submit">加入资源</Button></div></form></div>}</section>;
+  useEffect(() => { void createRecutWorldsClient(apiBase).evidence.list({ worldId: worldID }).then((all) => setItems(all.filter((item) => !item.entityId))).catch(() => setError(t("worlds.detail.resource.load.failed"))); }, [apiBase, worldID]);
+  return <section className="flex w-full flex-col items-start gap-5"><div className="flex w-full items-end justify-between gap-4"><div><h2 className="text-xl font-semibold">{t("worlds.detail.resource.title")}</h2><p className="mt-1 text-sm text-muted-foreground">{t("worlds.detail.resource.fullDesc")}</p></div><Button onClick={() => setPickerOpen(true)} type="button">{t("worlds.detail.resource.action")}</Button></div>{error ? <div className="w-full rounded-md border border-warning/30 bg-warning/10 p-4 text-sm text-warning">{error}</div> : items.length ? <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-4">{items.map((item) => <div className="rounded-md border p-4" key={item.id ?? item.assetId}><p className="text-sm font-medium">{item.label || t("worlds.detail.resource.unnamed")}</p><p className="mt-1 text-xs text-muted-foreground">{item.modality === "research" ? t("worlds.detail.resource.kind.document") : item.modality === "text" ? t("worlds.detail.resource.kind.text") : item.modality === "audio" ? t("worlds.detail.resource.kind.audio") : item.modality === "video" ? t("worlds.detail.resource.kind.video") : t("worlds.detail.resource.kind.image")}</p></div>)}</div> : <div className="w-full rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">{t("worlds.detail.resource.empty")}</div>}<PlatformMediaPicker apiBase={apiBase} onCancel={() => setPickerOpen(false)} onPick={(selection) => { const asset = Array.isArray(selection) ? selection[0] : selection; if (!asset) return; setSelectedAsset(asset); setDescription(""); setPickerOpen(false); }} request={pickerOpen ? { kinds: [] } : null} />{selectedAsset && <div aria-modal="true" className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6" role="dialog"><form className="w-full max-w-lg rounded-md border bg-card p-5 shadow-2xl" onSubmit={(event) => { event.preventDefault(); void createRecutWorldsClient(apiBase).evidence.attach({ worldId: worldID, assetId: selectedAsset.id, purpose: "narrative", status: "supporting", label: description.trim() || selectedAsset.name, expectedRevisionId: expectedRevisionID }).then(() => { setSelectedAsset(null); onChanged(); }).catch(() => setError(t("worlds.detail.resource.save.failed"))); }}><h3 className="text-lg font-semibold">{t("worlds.detail.resource.attach.title")}</h3><p className="mt-1 text-sm text-muted-foreground">{selectedAsset.name}</p><label className="mt-5 block text-xs font-medium" htmlFor="world-resource-description">{t("worlds.detail.resource.attach.label")}<Input autoFocus className="mt-1" id="world-resource-description" onChange={(event) => setDescription(event.target.value)} placeholder={t("worlds.detail.resource.attach.placeholder")} value={description} /></label><div className="mt-5 flex justify-end gap-2"><Button onClick={() => setSelectedAsset(null)} type="button" variant="ghost">{t("worlds.detail.resource.attach.cancel")}</Button><Button type="submit">{t("worlds.detail.resource.attach.submit")}</Button></div></form></div>}</section>;
 }
 
 async function loadWorldEntities(
@@ -307,5 +309,5 @@ function tabClass(active: boolean) {
 }
 async function projectErrorMessage(response: Response) {
   const body = (await response.json().catch(() => ({}))) as { error?: string };
-  return body.error ?? `创建项目失败（${response.status}）`;
+  return body.error ?? interpolate(plainT("workspace", useLocaleStore.getState().locale, "worlds.detail.videoProject.failed.status"), { status: response.status });
 }

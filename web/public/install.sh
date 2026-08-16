@@ -48,13 +48,14 @@ trap 'rm -rf "$temporary"' EXIT HUP INT TERM
 
 log "检测到 $os/$arch；数据目录：$recut_home"
 log "下载发布清单"
+# latest 只存最新版 manifest 指针（含 version）；包本体在版本目录 /releases/<version>/。
 curl --fail --location --silent --show-error "$download_base/releases/latest/manifest.json" -o "$temporary/manifest.json" || fail "无法下载 release manifest"
 release_version=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$temporary/manifest.json")
 expected_checksum=$(sed -n "s/.*\"$os-$arch\":{\"archive\":\"$archive\",\"sha256\":\"\([^\"]*\)\"}.*/\1/p" "$temporary/manifest.json")
 [ -n "$release_version" ] || fail "release manifest 缺少版本"
 [ -n "$expected_checksum" ] || fail "release manifest 缺少 $os-$arch 包"
 log "下载 Recut service $release_version"
-curl --fail --location --silent --show-error "$download_base/releases/latest/$archive" -o "$temporary/$archive" || fail "无法下载 $archive"
+curl --fail --location --silent --show-error "$download_base/releases/$release_version/$archive" -o "$temporary/$archive" || fail "无法下载 $archive"
 log "校验发布包完整性"
 actual_checksum=$(sha256 "$temporary/$archive")
 [ "$actual_checksum" = "$expected_checksum" ] || fail "发布包校验失败"

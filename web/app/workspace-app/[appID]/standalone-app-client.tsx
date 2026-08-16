@@ -20,6 +20,7 @@ import { getRealtimeChannel } from "@/lib/realtime-channel";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore } from "@/lib/workspace-store";
+import { useI18n } from "@/lib/i18n";
 
 function appIDFromLocation(routeID: string) {
   const queryID = new URLSearchParams(window.location.search).get("id");
@@ -56,6 +57,7 @@ export default function StandaloneAppClient() {
   const loadAgentSessions = useAgentStore((state) => state.loadSessions);
   const upsertAgentSession = useAgentStore((state) => state.upsertSession);
   const appFrame = useRef<HTMLIFrameElement>(null);
+  const { locale } = useI18n();
   const mediaPickerReply = useRef<((selection: PlatformMediaPickerResult | null) => void) | null>(null);
   const app = appID ? apps.find((item) => item.manifest.id === appID) ?? null : null;
 
@@ -142,7 +144,7 @@ export default function StandaloneAppClient() {
   };
 
   const view = app?.manifest.ui?.standaloneView;
-  const uiURL = scope && app && view ? `${apiBase}/v1/apps/${encodeURIComponent(app.manifest.id)}/ui/${view}?projectId=${encodeURIComponent(scope.id)}&appVersion=${encodeURIComponent(app.manifest.version)}` : null;
+  const uiURL = scope && app && view ? `${apiBase}/v1/apps/${encodeURIComponent(app.manifest.id)}/ui/${view}?projectId=${encodeURIComponent(scope.id)}&appVersion=${encodeURIComponent(app.manifest.version)}&locale=${encodeURIComponent(locale)}` : null;
   const resolveMediaPicker = (selection: PlatformMediaPickerResult | null) => { mediaPickerReply.current?.(selection); mediaPickerReply.current = null; setMediaPicker(null); };
   const changeSettingsOpen = (open: boolean) => { setSettingsOpen(open); if (!open) setSettingsSection(undefined); };
   return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">

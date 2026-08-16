@@ -11,15 +11,21 @@ import { useEffect } from "react";
 
 import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatus } from "@/components/agent-install-guide";
 import { agentScopeKey, useAgentStore, type AgentGuide } from "@/lib/agent-store";
+import { useI18n } from "@/lib/i18n/index";
 
-const fallback: AgentGuide[] = [
-  { id: "platform-start", title: "告诉我你的目标", description: "从想做什么开始，我会把下一步拆清楚。", prompt: "我想开始一个新项目，但还不确定第一步。请先问我最关键的几个问题，再给出清晰、可执行的下一步。" },
-  { id: "platform-plan", title: "一起规划", description: "把一个模糊想法变成有顺序的行动。", prompt: "请帮我把这个想法拆成最小可执行步骤。先确认目标、素材和交付物，再一次只引导我完成下一步。" },
-];
+// 本地兜底引导卡（fallback 为空态时才展示）：title/description/prompt 均来自字典，按当前 locale 取值。
+// TODO: 服务端下发的 onboardingByScope 引导卡（lib/agent-store 缓存）仍是服务端数据，后续需服务端侧按 locale 下发再本地化。
+function fallbackGuides(t: (key: string) => string): AgentGuide[] {
+  return [
+    { id: "platform-start", title: t("agent.onboard.guide1.title"), description: t("agent.onboard.guide1.desc"), prompt: t("agent.onboard.guide1.prompt") },
+    { id: "platform-plan", title: t("agent.onboard.guide2.title"), description: t("agent.onboard.guide2.desc"), prompt: t("agent.onboard.guide2.prompt") },
+  ];
+}
 
 export function AgentOnboarding({ apiBase, onChoose, onInstall, projectID, runtimeStatus }: { apiBase: string; onChoose: (prompt: string) => void; onInstall: (agent: AgentRuntimeStatus) => void; projectID: string | null; runtimeStatus: AgentRuntimeStatus[] }) {
+  const { t } = useI18n();
   const scope = agentScopeKey(projectID);
-  const guides = useAgentStore((state) => state.onboardingByScope[scope] ?? fallback);
+  const guides = useAgentStore((state) => state.onboardingByScope[scope]) ?? fallbackGuides(t);
   const loadOnboarding = useAgentStore((state) => state.loadOnboarding);
 
   useEffect(() => {
@@ -38,19 +44,19 @@ export function AgentOnboarding({ apiBase, onChoose, onInstall, projectID, runti
     <div className="w-full">
       {noRuntimeReady && (
         <div className="mb-7 border-b pb-6 text-left">
-          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">开始使用 Agent</p>
-          <p className="mt-1 text-xs text-muted-foreground">先在运行 Recut service 的设备上安装并登录下面任一 CLI，再点击「重新检查」。</p>
+          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">{t("agent.onboard.installTitle")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("agent.onboard.installDesc")}</p>
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
             {missingAgents.map((agent) => <button className="group flex min-h-24 flex-col rounded-md border bg-card p-3 text-left transition hover:border-primary/45 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" key={agent.id} onClick={() => onInstall(agent)} type="button">
               <span className="flex items-center justify-between gap-3 text-xs font-medium"><span className="flex items-center gap-1.5"><TerminalSquare className="size-3.5 text-muted-foreground transition-colors group-hover:text-primary" />{runtimeAgentName(agent.id)}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-primary" /></span>
-              <span className="mt-1.5 text-[11px] leading-4 text-muted-foreground">点击查看安装指引</span>
+              <span className="mt-1.5 text-[11px] leading-4 text-muted-foreground">{t("agent.onboard.installHint")}</span>
             </button>)}
           </div>
         </div>
       )}
       {!noRuntimeReady && <><span className="mx-auto grid size-9 place-items-center rounded-lg bg-accent text-accent-foreground"><Sparkles className="size-4" /></span>
-        <h2 className="mt-4 text-sm font-semibold">今天想做什么？</h2>
-        <p className="mt-1 text-xs text-muted-foreground">从一个引导开始，或直接在下方描述你的想法。</p>
+        <h2 className="mt-4 text-sm font-semibold">{t("agent.onboard.welcomeTitle")}</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{t("agent.onboard.welcomeDesc")}</p>
         <div className="mt-5 grid gap-2 text-left sm:grid-cols-2">{guides.map((guide) => <button className="group flex min-h-24 flex-col rounded-md border bg-card p-3 text-left transition hover:border-primary/45 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" key={guide.id} onClick={() => onChoose(guide.prompt)} type="button"><span className="flex items-center justify-between gap-3 text-xs font-medium">{guide.title}<ArrowUpRight className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-primary" /></span>{guide.description && <span className="mt-1.5 text-[11px] leading-4 text-muted-foreground">{guide.description}</span>}</button>)}</div>
       </>}
     </div>

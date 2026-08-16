@@ -57,9 +57,11 @@ import {
   type UploadedAsset,
   type WorldReference,
 } from "@/components/agent-panel-types";
-import { sessionHistoryLabel, useAgentStore } from "@/lib/agent-store";
+import { useAgentStore } from "@/lib/agent-store";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 import { isDefaultServiceEndpoint, isLocalWorkspace } from "@/lib/service-endpoint";
+import { useI18n } from "@/lib/i18n/index";
+import { interpolate } from "@/lib/i18n/workspace-dict";
 const EMPTY_SESSIONS: Session[] = [];
 const EMPTY_OPENCODE_MODELS: OpencodeModel[] = [];
 const serviceInstallCommand = "curl -fsSL https://recut.video/install.sh | sh";
@@ -72,6 +74,7 @@ export function ProjectAgentPanel(props: Props) {
   );
 }
 function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, servicePhase }: Props) {
+  const { t } = useI18n();
   const online = servicePhase === "online";
   // 全局单一会话：不随路由切换改变会话或按页面过滤历史。
   const scope = "general";
@@ -222,7 +225,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
       }
     } catch (cause) {
       if (scopeVersion !== scopeVersionRef.current) return;
-      setError(`无法加载会话：${messageOf(cause, "请重试")}`);
+      setError(interpolate(t("agent.panel.loadSessions.failed"), { message: messageOf(cause, t("agent.panel.retry")) }));
     }
     if (scopeVersion === scopeVersionRef.current) setLoadingSessions(false);
   }
@@ -259,7 +262,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     } catch (cause) {
       if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
       setDetail(null);
-      setError(`无法加载对话：${messageOf(cause, "请重试")}`);
+      setError(interpolate(t("agent.panel.loadConversation.failed"), { message: messageOf(cause, t("agent.panel.retry")) }));
     } finally {
       if (!isCurrentRequest(id, scopeVersion, detailVersion)) return;
       setSyncingID(null);
@@ -350,7 +353,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
       runtimeStatus?.find((agent) => agent.id === runtime)?.available === false
     ) {
       setError(
-        `${runtimeAgentName(runtime)} CLI 未就绪，请先完成面板中的安装指引。`,
+        interpolate(t("agent.panel.runtimeUnavailable"), { name: runtimeAgentName(runtime) }),
       );
       return null;
     }
@@ -373,14 +376,14 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
         body: JSON.stringify(body),
       });
       if (!response.ok)
-        throw new Error(await responseMessage(response, "无法创建对话"));
+        throw new Error(await responseMessage(response, t("agent.panel.create.fallback")));
       const session: Session = await response.json();
       upsertCachedSession(apiBase, scope, session);
       setRuntimeOpen(false);
       await open(session.id);
       return session;
     } catch (cause) {
-      setError(`无法创建对话：${messageOf(cause, "请稍后重试")}`);
+      setError(interpolate(t("agent.panel.createConversation.failed"), { message: messageOf(cause, t("agent.panel.retryLater")) }));
       return null;
     } finally {
       setCreatingRuntime(false);
@@ -422,12 +425,12 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
             method: "POST",
             body,
           });
-          if (!response.ok) throw new Error("素材上传失败");
+          if (!response.ok) throw new Error(t("agent.panel.uploadFailed"));
           await addAsset((await response.json()) as UploadedAsset);
         }),
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "素材上传失败");
+      setError(cause instanceof Error ? cause.message : t("agent.panel.uploadFailed"));
     } finally {
       setUploading(false);
     }
@@ -477,14 +480,14 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
       setContent(text);
       setAttachments(pendingAttachments);
       setWorldReferences(pendingWorldReferences);
-      setError(`无法发送消息：${await responseMessage(response, "请重试")}`);
+      setError(interpolate(t("agent.panel.send.failed"), { message: await responseMessage(response, t("agent.panel.retry")) }));
       return;
     }
     await refresh(sessionID);
   }
   async function stop() {
     if (!activeID) return;
-    setStopNotice("正在停止当前回复…");
+    setStopNotice(t("agent.panel.stopping"));
     setDetail((current) => {
       const next = current ? { ...current, status: "stopping" } : current;
       if (next) upsertCachedSessionDetail(apiBase, next);
@@ -496,7 +499,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     );
     if (!response.ok) {
       setStopNotice("");
-      setError("无法停止当前回复");
+      setError(t("agent.panel.stop.failed"));
       await refresh(activeID);
       return;
     }
@@ -517,7 +520,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
       },
     );
     if (!response.ok) {
-      setError("无法保存 Codex 配置");
+      setError(t("agent.panel.codexSaveFailed"));
       return false;
     }
     await refresh(activeID);
@@ -538,14 +541,14 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
       },
     );
     if (!response.ok) {
-      setError("无法保存 OpenCode 配置");
+      setError(t("agent.panel.opencodeSaveFailed"));
       return false;
     }
     await refresh(activeID);
     return true;
   }
   if (servicePhase === "checking")
-    return <aside aria-busy="true" aria-label="正在连接本地 service" className="h-full overflow-hidden bg-muted/40 p-4"><div className="space-y-3 pt-2"><div className="h-3 w-20 animate-pulse rounded-full bg-muted" /><div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" /><div className="h-3 w-3/5 animate-pulse rounded-full bg-muted" /></div></aside>;
+    return <aside aria-busy="true" aria-label={t("agent.panel.connecting")} className="h-full overflow-hidden bg-muted/40 p-4"><div className="space-y-3 pt-2"><div className="h-3 w-20 animate-pulse rounded-full bg-muted" /><div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" /><div className="h-3 w-3/5 animate-pulse rounded-full bg-muted" /></div></aside>;
   if (!online) {
     const canInstallLocalService = !isLocalWorkspace && isDefaultServiceEndpoint(apiBase);
     async function copyServiceInstallCommand() {
@@ -555,14 +558,14 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     }
     return (
       <aside className="h-full overflow-y-auto bg-muted/40 p-4">
-        <p className="text-xs font-medium">{canInstallLocalService ? "启动 Recut service" : "Agent 暂不可用"}</p>
-        {canInstallLocalService ? <><p className="mt-1 text-xs leading-5 text-muted-foreground">安装或升级后会自动启动本地 service；连接成功后，对话会回到这里。</p><code className="mt-3 block overflow-x-auto rounded-sm border bg-background px-2 py-2 text-[10px] text-foreground">{serviceInstallCommand}</code><Button className="mt-2 h-8 w-full" onClick={() => void copyServiceInstallCommand()} type="button" variant="outline">{serviceInstallCopyStatus === "copied" ? "已复制安装命令" : serviceInstallCopyStatus === "failed" ? "复制失败，请手动复制" : "复制安装命令"}</Button></> : <p className="mt-1 text-xs leading-5 text-muted-foreground">连接的 service 恢复后，会话与记录会自动回到这里。</p>}
+        <p className="text-xs font-medium">{canInstallLocalService ? t("agent.panel.offline.title.local") : t("agent.panel.offline.title.remote")}</p>
+        {canInstallLocalService ? <><p className="mt-1 text-xs leading-5 text-muted-foreground">{t("agent.panel.offline.desc.local")}</p><code className="mt-3 block overflow-x-auto rounded-sm border bg-background px-2 py-2 text-[10px] text-foreground">{serviceInstallCommand}</code><Button className="mt-2 h-8 w-full" onClick={() => void copyServiceInstallCommand()} type="button" variant="outline">{serviceInstallCopyStatus === "copied" ? t("agent.panel.install.copied") : serviceInstallCopyStatus === "failed" ? t("agent.panel.install.copyFailed") : t("agent.panel.install.copy")}</Button></> : <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("agent.panel.offline.desc.remote")}</p>}
       </aside>
     );
   }
   const activeRuntime = (detail?.runtime ?? "codex") as Runtime;
   const creatingLabel = creatingRuntime
-    ? `正在创建 ${runtimeAgentName(activeRuntime)} 对话…`
+    ? interpolate(t("agent.panel.creating"), { name: runtimeAgentName(activeRuntime) })
     : "";
   const syncing = Boolean(activeID && syncingID === activeID);
   const activeAgent = runtimeStatus?.find(
@@ -604,7 +607,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     return (
       <AgentRecoveryPanel
         agent={unavailableRuntime}
-        failure={failedTurn?.message ?? "本地 CLI 当前不可用。"}
+        failure={failedTurn?.message ?? t("agent.recovery.unavailable")}
         onRecheck={async () => {
           await recheckAgent();
         }}
@@ -642,16 +645,16 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
           <p className="text-xs font-semibold tracking-wide">AI</p>
           <div className="flex items-center gap-1">
             <Button
-              aria-label={debugCopyStatus === "copied" ? "会话调试信息已复制" : "复制当前会话调试信息"}
+              aria-label={debugCopyStatus === "copied" ? t("agent.debug.copied") : t("agent.debug.copy")}
               className="size-7 px-0"
               disabled={!detail || creatingRuntime || loadingSessions}
               onClick={() => void copySessionDebugReport()}
               title={
                 debugCopyStatus === "copied"
-                  ? "会话调试信息已复制"
+                  ? t("agent.debug.copied")
                   : debugCopyStatus === "failed"
-                    ? "复制失败，请重试"
-                    : "复制当前会话调试信息"
+                    ? t("agent.debug.copyFailed")
+                    : t("agent.debug.copy")
               }
               type="button"
               variant="ghost"
@@ -666,7 +669,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
               className="size-7 px-0"
               disabled={!activeID || creatingRuntime || loadingSessions}
               onClick={openCLIStream}
-              title="查看当前 Agent 的 CLI 运行流"
+              title={t("agent.debug.viewCli")}
               type="button"
               variant="ghost"
             >
@@ -679,7 +682,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
                 setRuntimeOpen(false);
                 setHistoryOpen((value) => !value);
               }}
-              title="会话历史"
+              title={t("agent.history.title")}
               type="button"
               variant="ghost"
             >
@@ -692,7 +695,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
                 setHistoryOpen(false);
                 setRuntimeOpen((value) => !value);
               }}
-              title="新建对话"
+              title={t("agent.panel.newConversation")}
               type="button"
               variant="ghost"
             >
@@ -711,7 +714,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
         {historyOpen && (
           <SessionHistory
             activeID={activeID}
-            label={sessionHistoryLabel(scope)}
+            label={historyLabel(t, scope)}
             onOpen={(id) => {
               setHistoryOpen(false);
               void open(id);
@@ -742,7 +745,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
                   className="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground"
                 >
                   <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground" />
-                  正在同步对话记录；完成前暂不能输入。
+                  {t("agent.panel.syncing")}
                 </p>
               )}
               {error && (
@@ -750,7 +753,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
               )}
               {stopNotice && !currentTurnHasReply(detail, stopNotice) && (
                 <p className="mb-4 text-xs text-muted-foreground">
-                  已停止当前回复
+                  {t("agent.panel.stopped")}
                 </p>
               )}
               {!detail || detail.turns.length === 0 ? (
@@ -786,7 +789,7 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
           firstTurn={!detail}
           onAddAsset={(asset) =>
             void addAsset(asset).catch((cause) =>
-              setError(cause instanceof Error ? cause.message : "无法引用资源"),
+              setError(cause instanceof Error ? cause.message : t("agent.panel.addAssetFailed")),
             )
           }
           onAddWorld={(world) => setWorldReferences((current) => current.some((item) => item.worldId === world.worldId) ? current : [...current, world])}
@@ -843,4 +846,13 @@ function currentTurnHasReply(detail: Detail | null, turnID?: string) {
   const userIndex = detail.turns.findIndex((turn) => turn.id === turnID);
   if (userIndex < 0) return false;
   return detail.turns.slice(userIndex + 1).some((turn) => turn.role === "assistant");
+}
+
+// 会话历史标签：scope 分类为本地静态文案，按当前 locale 从字典取值。
+function historyLabel(t: (key: string) => string, scope: string): string {
+  if (scope === "general") return t("agent.history.general");
+  if (scope === "media") return t("agent.history.media");
+  if (scope.startsWith("app:")) return t("agent.history.app");
+  if (scope.startsWith("project:")) return t("agent.history.project");
+  return t("agent.history.default");
 }

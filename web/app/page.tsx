@@ -23,12 +23,13 @@ import { Input } from "@/components/ui/input";
 import { HeaderActions } from "@/components/header-actions";
 import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
 import { trackEvent } from "@/components/posthog-analytics";
-import { marketplaceApps } from "@/lib/app-catalog";
+import { marketplaceDescription, marketplaceName, type MarketplaceApp } from "@/lib/appstore";
 import { isLocalWorkspace, fetchRecutJSON } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore, type WorkspaceInstallation as Installation, type WorkspaceProject as Project } from "@/lib/workspace-store";
-import { useI18n } from "@/lib/i18n/index";
+import { t, useI18n, type Locale } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
+import { STUDIO_INSPIRATION_COUNT, STUDIO_TEMPLATE_COUNT } from "@/lib/i18n/workspace-studio-dict";
 import { VideoFrame } from "@/components/video-frame";
 import { WebGLStudioHero } from "@/components/webgl-studio-hero";
 import type { Asset } from "./media/media-types";
@@ -51,6 +52,8 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
   const installationsState = useWorkspaceStore((state) => state.installationsState);
   const installationsError = useWorkspaceStore((state) => state.installationsError);
   const loadWorkspace = useWorkspaceStore((state) => state.load);
+  const marketplace = useWorkspaceStore((state) => state.marketplace);
+  const loadMarketplace = useWorkspaceStore((state) => state.loadMarketplace);
   const [initialAssetID, setInitialAssetID] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("asset") ?? "");
   const [createApp, setCreateApp] = useState<Installation | null>(null);
   const service = useServiceStore((state) => state.service);
@@ -81,6 +84,11 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
     if (!online) return;
     void loadWorkspace(apiBase);
   }, [apiBase, loadWorkspace, online]);
+
+  // 应用市场（云端数据）与 service 目录解耦：挂载即拉取，语言切换只影响展示层选择。
+  useEffect(() => {
+    void loadMarketplace();
+  }, [loadMarketplace]);
 
   useEffect(() => {
     function syncTabFromHistory() {
@@ -143,7 +151,7 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
 
   const detail = appDetail?.({ onConnectService: openServiceSettings, serviceOnline: online });
   const appInstallationLoadState: InstallationLoadState = online ? installationsState : service.phase === "checking" ? "loading" : "offline";
-  const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={installationsError} installationLoadState={appInstallationLoadState} onStartProject={openCreateProject} onUpdated={reloadWorkspace} serviceOnline={online} />
+  const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={installationsError} installationLoadState={appInstallationLoadState} marketplace={marketplace} onStartProject={openCreateProject} onUpdated={reloadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
     : tab === "studio" ? <Studio apiBase={apiBase} apps={installations.filter((app) => app.manifest.type === "project")} installations={installations} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onDeleteProject={deleteProject} onManageApps={(event) => navigateTab("apps", "/apps", event)} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} />
@@ -192,122 +200,41 @@ function ProjectAppPickerDialog({ apps, onClose, onPick }: { apps: Installation[
   return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="project-app-picker-title"><section className="w-full max-w-lg rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">NEW PROJECT</p><h2 className="mt-1 text-base font-semibold" id="project-app-picker-title">{t("projects.picker.title")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("projects.picker.desc")}</p></div><button aria-label={t("projects.picker.close")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><div className="grid gap-2 p-3">{apps.map((app) => <button className="group flex min-w-0 items-center gap-3 rounded-sm p-3 text-left transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={app.package} onClick={() => onPick(app)} type="button"><AppIdentityIcon appID={app.manifest.id} className="transition group-hover:bg-primary group-hover:text-primary-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{app.manifest.name}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{app.manifest.description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div></section></div>;
 }
 
-const HOME_INSPIRATIONS = [
-  // TODO(i18n): 每日文案为内容面，本期未迁移；后续并入字典时需保持日期稳定与双语言一一对应。
-  "今天，镜头先于语言，让画面替你说出未尽的话。",
-  "把时间剪开一条缝，光就会从那里透进来。",
-  "一帧是一念，把念想连成故事。",
-  "每个故事都值得一个耐心的开始。",
-  "别急着回答，先让画面安静一会儿。",
-  "光影落下的地方，就是叙事的起点。",
-  "好故事不是被发现的，是被剪辑出来的。",
-  "从第一秒开始，让观看变成一场呼吸。",
-  "灵感是一阵风，剪进画面，它就停住了。",
-  "把日常拍成诗的，不是技巧，是目光。",
-  "空白也是内容，留白处有回声。",
-  "让节奏慢一点，情绪就会自己长出来。",
-  "你在意的细节，就是观众动容的瞬间。",
-  "今天的素材里，藏着你明天的代表作。",
-  "声音先到，画面随后抵达。",
-  "把想法落到时间轴上，它才算真正开始。",
-  "色彩会说话，情绪有形状。",
-  "好的开头是一句邀请，观众不会拒绝。",
-  "每一个转场，都是写给下个镜头的情书。",
-  "记录世界，或者创造它，都从这一帧开始。",
-];
+function homeInspirations(locale: Locale) {
+  return Array.from({ length: STUDIO_INSPIRATION_COUNT }, (_, index) => t("workspace", locale, `studio.inspiration.${index}`));
+}
 
-function inspirationForToday() {
+function inspirationForToday(locale: Locale) {
+  const inspirations = homeInspirations(locale);
   const dayIndex = Math.floor(Date.now() / 86_400_000);
-  return HOME_INSPIRATIONS[Math.abs(dayIndex) % HOME_INSPIRATIONS.length];
+  return inspirations[Math.abs(dayIndex) % inspirations.length];
 }
 
 type StudioPromptTemplate = { icon: LucideIcon; title: string; description: string; prompt: string };
 
-// TODO(i18n): Studio 提示模板与首访引导为内容面，本期仅迁移标题级文案；模板正文按语言拆两组（zh/en）后续跟进。
-const STUDIO_PROMPT_TEMPLATES: StudioPromptTemplate[] = [
-  {
-    icon: Clapperboard,
-    title: "把一段文字做成视频",
-    description: "从你的故事或脚本开始，慢慢拼成一支短片。",
-    prompt: "请根据下面这段脚本规划并制作一支完整视频。先梳理叙事结构、镜头清单和节奏，再给出可执行的生成与剪辑计划：\n\n[在这里粘贴脚本]",
-  },
-  {
-    icon: Video,
-    title: "给现有视频补一些画面",
-    description: "补上细节和衔接画面，让故事看起来更完整。",
-    prompt: "我正在制作一支视频，请为下面的内容规划并生成一组衔接主线的画面。每个画面请说明内容、运动、时长和它在故事里的作用：\n\n[描述主题、脚本或已有主镜头]",
-  },
-  {
-    icon: ImageIcon,
-    title: "做一支剪纸风格动画",
-    description: "用纸片、纹理和手作感讲一个小故事。",
-    prompt: "我想做一支剪纸风格的小动画。请帮我想好故事、画面、色彩和镜头节奏，再开始制作：[填写主题、人物、时长和想要的感觉]",
-  },
-  {
-    icon: Sparkles,
-    title: "给产品拍一条短片",
-    description: "把亮点、细节和使用场景讲清楚。",
-    prompt: "请帮我策划一支产品发布短片。先提炼核心卖点与受众，再输出 30 秒的分镜、旁白和视觉生成提示词：\n\n[填写产品、卖点、受众和发布场景]",
-  },
-  {
-    icon: Sparkles,
-    title: "做一支 Remotion 视频",
-    description: "用清爽的动态画面，把一个主题讲明白。",
-    prompt: "我想做一支 Remotion 视频。请根据下面的主题，帮我想好画面、文字、节奏和转场，再开始制作：[填写主题、时长、风格和想传达的重点]",
-  },
-  {
-    icon: Captions,
-    title: "把数据讲成一支视频",
-    description: "让数字、图表和结论变得一目了然。",
-    prompt: "请制作一支数据解说视频。将下面的数据转成有节奏的图表动效、关键结论和旁白，并制作一支可编辑的视频：[填写数据、观点、时长和受众]",
-  },
-  {
-    icon: Video,
-    title: "给产品补一些好看的画面",
-    description: "拍出细节、材质和真正被使用的瞬间。",
-    prompt: "请为下面的产品设计一组高质感画面。覆盖开场、细节特写、使用场景与收束画面，并为每个画面写出可生成的视频提示词：[填写产品、材质、使用场景和风格参考]",
-  },
-  {
-    icon: Clapperboard,
-    title: "把一个人的故事剪成短片",
-    description: "让采访、日常和细节连成一个故事。",
-    prompt: "请把下面的人物与素材方向策划成一支人物故事短片。输出故事主线、采访问题、配套画面和剪辑节奏：[填写人物、故事、现有素材与目标时长]",
-  },
-  {
-    icon: Sparkles,
-    title: "给短视频想一个好开头",
-    description: "先在前三秒抓住观众，再慢慢把话讲完。",
-    prompt: "请为下面的主题设计 5 个适合短视频的前三秒开场方案。每个方案包含画面、屏幕文案、旁白、音效节奏和后续画面的衔接：[填写主题、平台和目标观众]",
-  },
-  {
-    icon: Clapperboard,
-    title: "做一支教程演示视频",
-    description: "把步骤、重点和操作过程讲得清清楚楚。",
-    prompt: "请制作一支教程演示视频。根据下面的步骤规划屏幕录制、重点标注、字幕、转场和时间轴，再制作一支可编辑的视频：[填写教程主题、步骤、时长和画面素材]",
-  },
-  {
-    icon: Video,
-    title: "做一段循环的氛围视频",
-    description: "给音乐、活动或页面添一点会呼吸的画面。",
-    prompt: "请为下面的主题设计一支可无缝循环的氛围背景视频。明确镜头运动、色彩、循环衔接点和生成提示词：[填写使用场景、时长、画幅和情绪关键词]",
-  },
-  {
-    icon: ImageIcon,
-    title: "做一个好看的视频封面",
-    description: "用一张画面先让人愿意点开。",
-    prompt: "请为下面这支视频设计 3 个有吸引力的封面方向。每个方向包含构图、主体、标题文案、色彩和可直接用于生成图片的提示词：[描述视频主题与目标观众]",
-  },
-];
+const STUDIO_TEMPLATE_ICONS: LucideIcon[] = [Clapperboard, Video, ImageIcon, Sparkles, Sparkles, Captions, Video, Clapperboard, Sparkles, Clapperboard, Video, ImageIcon];
+const STUDIO_FIRST_VISIT_ICON: LucideIcon = Sparkles;
 
-const STUDIO_FIRST_VISIT_TEMPLATE: StudioPromptTemplate = {
-  icon: Sparkles,
-  title: "第一次来这里？",
-  description: "从认识 Recut 或做第一支视频开始。",
-  prompt: "我是第一次使用 Recut。请用简单的话告诉我这里能做什么，并带我从一个最适合的新手视频开始。",
-};
+function studioPromptTemplates(locale: Locale): StudioPromptTemplate[] {
+  return Array.from({ length: STUDIO_TEMPLATE_COUNT }, (_, index) => ({
+    icon: STUDIO_TEMPLATE_ICONS[index],
+    title: t("workspace", locale, `studio.template.${index}.title`),
+    description: t("workspace", locale, `studio.template.${index}.description`),
+    prompt: t("workspace", locale, `studio.template.${index}.prompt`),
+  }));
+}
 
-function promptTemplatesForToday() {
-  const templates = [...STUDIO_PROMPT_TEMPLATES, STUDIO_FIRST_VISIT_TEMPLATE];
+function studioFirstVisitTemplate(locale: Locale): StudioPromptTemplate {
+  return {
+    icon: STUDIO_FIRST_VISIT_ICON,
+    title: t("workspace", locale, "studio.firstVisit.title"),
+    description: t("workspace", locale, "studio.firstVisit.description"),
+    prompt: t("workspace", locale, "studio.firstVisit.prompt"),
+  };
+}
+
+function promptTemplatesForToday(locale: Locale) {
+  const templates = [...studioPromptTemplates(locale), studioFirstVisitTemplate(locale)];
   let seed = Math.floor(Date.now() / 86_400_000) >>> 0;
   for (let index = templates.length - 1; index > 0; index -= 1) {
     seed = (seed * 1_664_525 + 1_013_904_223) >>> 0;
@@ -318,17 +245,17 @@ function promptTemplatesForToday() {
 }
 
 function Studio({ apiBase, apps, installations, onCompose, onDeleteProject, onManageApps, onRenameProject, onStartProject, projects }: { apiBase: string; apps: Installation[]; installations: Installation[]; onCompose: (text: string) => void; onDeleteProject: (project: Project) => Promise<void>; onManageApps: (event: MouseEvent<HTMLAnchorElement>) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const recentProjects = projects.slice(0, 11);
-  const [promptTemplates, setPromptTemplates] = useState(() => STUDIO_PROMPT_TEMPLATES.slice(0, 2));
-  useEffect(() => setPromptTemplates(promptTemplatesForToday()), []);
+  const [promptTemplates, setPromptTemplates] = useState(() => studioPromptTemplates(locale).slice(0, 2));
+  useEffect(() => setPromptTemplates(promptTemplatesForToday(locale)), [locale]);
   return <div className="pb-10">
     <section className="relative min-h-[17rem] overflow-hidden pb-8 pt-7 sm:min-h-[19rem]">
       <WebGLStudioHero />
       <div className="relative z-10 max-w-xl">
       <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">{t("studio.eyebrow")}</p>
       <h1 className="mt-3 text-3xl font-semibold leading-tight">{t("studio.title")}</h1>
-      <p className="mt-2 max-w-xl text-sm text-muted-foreground">{inspirationForToday()}</p>
+      <p className="mt-2 max-w-xl text-sm text-muted-foreground">{inspirationForToday(locale)}</p>
       <div className="mt-7 flex max-w-2xl flex-col">{promptTemplates.map(({ description, icon: Icon, prompt, title }) => <button aria-label={interpolate(t("studio.template.aria"), { title })} className="group flex min-w-0 items-center gap-3 border-b border-border/80 py-3 text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={title} onClick={() => onCompose(prompt)} type="button"><span className="grid size-7 shrink-0 place-items-center rounded-sm bg-accent text-accent-foreground"><Icon className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="text-sm font-semibold">{title}</span><span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div>
       </div>
     </section>
@@ -433,11 +360,11 @@ function CreateProjectFromAppDialog({ app, onClose, onCreate }: { app: Installat
   return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="create-project-app-title"><section className="w-full max-w-md rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">NEW PROJECT</p><h2 className="mt-1 text-base font-semibold" id="create-project-app-title">{interpolate(t("projects.create.title"), { name: app.manifest.name })}</h2><p className="mt-1 text-xs text-muted-foreground">{t("projects.create.desc")}</p></div><button aria-label={t("projects.create.close")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><form onSubmit={submit}><div className="p-5"><label className="mb-1 block text-[11px] font-medium" htmlFor="create-project-app-name">{t("projects.create.name")}</label><Input autoFocus className="h-9 bg-background text-xs" id="create-project-app-name" onChange={(event) => setProjectName(event.target.value)} placeholder={t("projects.create.name.placeholder")} value={projectName} />{error && <p className="mt-2 text-xs text-warning">{error}</p>}</div><footer className="flex items-center justify-end gap-2 border-t px-5 py-3"><Button onClick={onClose} type="button" variant="ghost">{t("projects.create.cancel")}</Button><Button disabled={!projectName.trim() || creating} type="submit">{creating ? t("projects.create.submitting") : t("projects.create.submit")}</Button></footer></form></section></div>;
 }
 
-function Apps({ apiBase, installations, installationError, installationLoadState, onStartProject, onUpdated, serviceOnline }: { apiBase: string; installations: Installation[]; installationError: string; installationLoadState: InstallationLoadState; onStartProject: (app: Installation) => void; onUpdated: () => Promise<void>; serviceOnline: boolean }) {
-  const { t } = useI18n();
+function Apps({ apiBase, installations, installationError, installationLoadState, marketplace, onStartProject, onUpdated, serviceOnline }: { apiBase: string; installations: Installation[]; installationError: string; installationLoadState: InstallationLoadState; marketplace: MarketplaceApp[]; onStartProject: (app: Installation) => void; onUpdated: () => Promise<void>; serviceOnline: boolean }) {
+  const { t, locale } = useI18n();
   const installationCount = installationLoadState === "loading" ? t("apps.count.loading") : installationLoadState === "offline" ? t("apps.count.offline") : interpolate(t("apps.installed.count"), { count: installations.length });
   const marketplaceStatus = (installed: boolean) => installed ? t("apps.market.installed") : installationLoadState === "loading" ? t("apps.market.checking") : t("apps.market.market");
-  return <><SectionTitle action={<><AppUpdateAllControl apps={installations} onUpdated={onUpdated} /><CreateAppDialog /><InstallGitAppDialog apiBase={apiBase} disabled={!serviceOnline} onInstalled={onUpdated} /></>} description={t("apps.desc")} title={t("apps.title")} /><section><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">{t("apps.installed")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("apps.installed.desc")}</p></div><Badge>{installationCount}</Badge></div>{installationLoadState === "loading" ? <InstalledAppsLoading /> : installationLoadState === "offline" ? <InstalledAppsOffline /> : installationLoadState === "failed" ? <InstalledAppsError message={installationError} onRetry={() => void onUpdated()} /> : installations.length === 0 ? <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">{t("apps.installed.empty.title")}</p><p className="text-xs text-muted-foreground">{t("apps.installed.empty.desc")}</p></CardContent></Card> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{installations.map((app) => <InstalledAppCard app={app} key={app.package} onStartProject={onStartProject} onUpdated={onUpdated} />)}</div>}</section><section className="mt-10"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">{t("apps.addable")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("apps.addable.desc")}</p></div><Badge>{interpolate(t("apps.addable.count"), { count: marketplaceApps.length })}</Badge></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{marketplaceApps.map((app) => { const installed = installations.some((item) => item.manifest.id === app.manifest.id); return <Link className="group" href={`/apps/${encodeURIComponent(app.manifest.id)}`} key={app.manifest.id}><Card className="flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><CardContent className="flex flex-1 flex-col p-0"><div className="flex min-w-0 items-start gap-3"><AppIdentityIcon appID={app.manifest.id} className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{app.manifest.name}</p><p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">{app.manifest.description}</p></div><Badge>{marketplaceStatus(installed)}</Badge></div><span className="mt-auto flex items-center justify-end pt-3 text-primary"><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" /></span></CardContent></Card></Link>; })}</div></section></>;
+  return <><SectionTitle action={<><AppUpdateAllControl apps={installations} onUpdated={onUpdated} /><CreateAppDialog /><InstallGitAppDialog apiBase={apiBase} disabled={!serviceOnline} onInstalled={onUpdated} /></>} description={t("apps.desc")} title={t("apps.title")} /><section><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">{t("apps.installed")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("apps.installed.desc")}</p></div><Badge>{installationCount}</Badge></div>{installationLoadState === "loading" ? <InstalledAppsLoading /> : installationLoadState === "offline" ? <InstalledAppsOffline /> : installationLoadState === "failed" ? <InstalledAppsError message={installationError} onRetry={() => void onUpdated()} /> : installations.length === 0 ? <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">{t("apps.installed.empty.title")}</p><p className="text-xs text-muted-foreground">{t("apps.installed.empty.desc")}</p></CardContent></Card> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{installations.map((app) => <InstalledAppCard app={app} key={app.package} onStartProject={onStartProject} onUpdated={onUpdated} />)}</div>}</section><section className="mt-10"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">{t("apps.addable")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("apps.addable.desc")}</p></div><Badge>{interpolate(t("apps.addable.count"), { count: marketplace.length })}</Badge></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{marketplace.map((app) => { const installed = installations.some((item) => item.manifest.id === app.appId); return <Link className="group" href={`/apps/${encodeURIComponent(app.appId)}`} key={app.appId}><Card className="flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><CardContent className="flex flex-1 flex-col p-0"><div className="flex min-w-0 items-start gap-3"><AppIdentityIcon appID={app.appId} className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{marketplaceName(app, locale)}</p><p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">{marketplaceDescription(app, locale)}</p></div><Badge>{marketplaceStatus(installed)}</Badge></div><span className="mt-auto flex items-center justify-end pt-3 text-primary"><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" /></span></CardContent></Card></Link>; })}</div></section></>;
 }
 
 function InstalledAppsLoading() {
@@ -459,7 +386,7 @@ function InstalledAppCard({ app, onStartProject, onUpdated }: { app: Installatio
   const { t } = useI18n();
   const detailHref = `/apps/${encodeURIComponent(app.manifest.id)}`;
   const status = app.dirty && app.updateAvailable ? t("apps.status.remoteDirty") : app.dirty ? t("apps.status.dirty") : app.updateAvailable ? t("apps.status.remote") : app.status ?? t("apps.status.current");
-  return <Card className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]"><CardContent className="flex flex-1 flex-col p-0"><div className="flex min-w-0 items-start gap-3"><Link aria-label={interpolate(t("apps.detail.aria"), { name: app.manifest.name })} className="flex min-w-0 flex-1 items-start gap-3 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" href={detailHref}><AppIdentityIcon appID={app.manifest.id} className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground" /><span className="min-w-0"><span className="block truncate text-sm font-semibold">{app.manifest.name}</span><span className="mt-1 block line-clamp-2 text-xs leading-4 text-muted-foreground">{app.manifest.description}</span></span></Link><div className="shrink-0" title={status}><AppVersionControl app={app} onUpdated={onUpdated} /></div></div><div className="mt-auto flex items-center justify-between gap-3 pt-3"><Link className="text-xs font-medium text-primary hover:underline" href={detailHref}>{t("apps.details")}</Link><InstalledAppAction app={app} onStartProject={onStartProject} /></div></CardContent></Card>;
+  return <Card className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]"><CardContent className="flex flex-1 flex-col p-0"><Link aria-label={interpolate(t("apps.detail.aria"), { name: app.manifest.name })} className="flex min-w-0 items-start gap-3 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" href={detailHref}><AppIdentityIcon appID={app.manifest.id} className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground" /><span className="min-w-0"><span className="block truncate text-sm font-semibold">{app.manifest.name}</span><span className="mt-1 block line-clamp-2 text-xs leading-4 text-muted-foreground">{app.manifest.description}</span></span></Link><div className="mt-auto flex items-center justify-between gap-3 pt-3"><Link className="text-xs font-medium text-primary hover:underline" href={detailHref}>{t("apps.details")}</Link><InstalledAppAction app={app} onStartProject={onStartProject} /></div><div className="mt-2 flex justify-end" title={status}><AppVersionControl app={app} onUpdated={onUpdated} /></div></CardContent></Card>;
 }
 
 function InstalledAppAction({ app, onStartProject }: { app: Installation; onStartProject: (app: Installation) => void }) {

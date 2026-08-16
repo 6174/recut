@@ -19,9 +19,12 @@ BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOO
 BUILD_GOARCH := $(if $(TARGET),$(word 2,$(subst -, ,$(TARGET))),$(if $(GOARCH),$(GOARCH),$(shell go env GOARCH)))
 SERVICE_BUILD ?= $(CURDIR)/build/recut-service$(if $(filter windows,$(BUILD_GOOS)),.exe)
 RELEASE_STAGE ?= $(CURDIR)/build/releases
-# 发布包本地暂存区在 cdn/buckets/releases/latest（经 `make cd-upload` 上传 R2，走 https://cdn.recut.video/releases/latest 分发）；
+# 发布包本地暂存区：版本目录 cdn/buckets/releases/<version>（含全部平台包 + manifest.json，
+# 历史可追溯），latest 仅保留最新版 manifest.json 指针（updater/install.sh 读它拿 version 再拼版本目录下载）。
+# 经 `make cd-upload` 上传 R2，走 https://cdn.recut.video/releases/<version> 分发；
 # 不再写入 web/public，否则会进入 Next 静态导出而超出 Cloudflare Workers Assets 单文件 25 MiB 上限。
-RELEASE_PUBLIC ?= $(CURDIR)/cdn/buckets/releases/latest
+RELEASE_PUBLIC ?= $(CURDIR)/cdn/buckets/releases/$(RECUT_VERSION)
+RELEASE_LATEST ?= $(CURDIR)/cdn/buckets/releases/latest
 BUILTIN_REMOTION_ARCHIVE := $(CURDIR)/service/builtin_apps/remotion-studio.tar.gz
 BUILTIN_EDITOR_ARCHIVE := $(CURDIR)/service/builtin_apps/editor.tar.gz
 SERVICE_RELEASE_TARGETS := darwin-arm64 darwin-amd64 linux-arm64 linux-amd64 freebsd-arm64 freebsd-amd64 windows-arm64 windows-amd64
@@ -92,9 +95,9 @@ service-build: builtin-apps web-build-embedded ## Build a production service wit
 	@mkdir -p "$(dir $(SERVICE_BUILD))"
 	GOCACHE=$(GOCACHE) GOOS="$(BUILD_GOOS)" GOARCH="$(BUILD_GOARCH)" go -C service build -trimpath -ldflags "-s -w -X main.serviceVersion=$(RECUT_VERSION)" -o "$(SERVICE_BUILD)" .
 
-service-release: builtin-apps web-build-embedded ## Build self-contained service packages staged for the CDN (make cd-upload to publish to R2).
+service-release: builtin-apps web-build-embedded ## Build self-contained service packages staged for the CDN: cdn/buckets/releases/<version>/ + latest manifest pointer (make cd-upload to publish to R2).
 	@set -e; \
-	mkdir -p "$(RELEASE_STAGE)" "$(RELEASE_PUBLIC)"; \
+	mkdir -p "$(RELEASE_STAGE)" "$(RELEASE_PUBLIC)" "$(RELEASE_LATEST)"; \
 	manifest="$(RELEASE_PUBLIC)/manifest.json"; \
 	printf '{"version":"%s","packages":{' "$(RECUT_VERSION)" > "$$manifest"; \
 	first=1; \
@@ -113,9 +116,11 @@ service-release: builtin-apps web-build-embedded ## Build self-contained service
 		if [ "$$first" = 0 ]; then printf ',' >> "$$manifest"; fi; first=0; \
 		printf '"%s":{"archive":"%s","sha256":"%s"}' "$$os-$$arch" "$$archive" "$$checksum" >> "$$manifest"; \
 	done; \
-	printf '}}\n' >> "$$manifest"
+	printf '}}\n' >> "$$manifest"; \
+	cp "$$manifest" "$(RELEASE_LATEST)/manifest.json"; \
+	echo "Staged $(RECUT_VERSION) packages in $(RELEASE_PUBLIC) with latest pointer."
 
-cd-upload: ## Upload the staged service release packages to R2 (distributed at https://cdn.recut.video/releases/latest).
+cd-upload: ## Upload the staged service release packages to R2 (versioned at https://cdn.recut.video/releases/<version>, latest pointer at /releases/latest).
 	node cdn/scripts/cli.mjs upload releases
 
 service-install: service-build ## Install the host-target production service (macOS/Linux/FreeBSD shell hosts).
@@ -145,7 +150,7 @@ web-install: ## Install locked web workspace dependencies.
 	cd web && npm ci
 
 web-dev: stop-stale-web ## Start the public localhost site; app.localhost:3000 is the LAN-aware workspace.
-	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) NEXT_PUBLIC_RECUT_APP_URL=http://app.localhost:3000 npm run dev
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) NEXT_PUBLIC_RECUT_APP_URL=http://app.localhost:3000 NEXT_PUBLIC_RECUT_SITE_URL=http://localhost:3000 npm run dev
 
 web-build: ## Build and type-check the Next.js workspace.
 	cd web && npm run build

@@ -356,11 +356,16 @@ func (s *Server) listAppStore(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apps)
 }
 
-func (s *Server) listAppInstallations(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) listAppInstallations(w http.ResponseWriter, r *http.Request) {
 	installations, err := s.apps.Installations()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
+	}
+	// 与 GET /v1/apps 同口径：按 Accept-Language 本地化每个安装的 manifest（名称/描述/onboarding）。
+	locale := DetectLocale(r)
+	for index := range installations {
+		installations[index].Manifest = installations[index].Manifest.LocalizedFor(locale)
 	}
 	writeJSON(w, http.StatusOK, installations)
 }

@@ -40,29 +40,30 @@ async function run() {
   switch (cmd) {
     case "upload": {
       const p = requirePrefix();
-      uploadPrefix(p);
+      // --skip-existing：先列出远端，只上传缺失对象（断点续传，补上次失败批次）
+      await uploadPrefix(p, { skipExisting: process.argv.includes("--skip-existing") });
       break;
     }
     case "list": {
       const p = requirePrefix();
-      const keys = listObjects(p);
-      console.log(`[r2] ${CDN.bucket}/${p}/ -> ${keys.length} objects`);
+      const keys = await listObjects(p);
+      console.log(`[s3] ${CDN.bucket}/${p}/ -> ${keys.length} objects`);
       for (const k of keys) console.log(`  ${k}  ${objectUrl(p, k)}`);
       break;
     }
     case "delete": {
       const p = requirePrefix();
-      deletePrefix(p);
+      await deletePrefix(p);
       break;
     }
     case "sync": {
       const p = requirePrefix();
-      const remote = new Set(listObjects(p));
+      const remote = new Set(await listObjects(p));
       const local = new Set(listLocalFiles(bucketDir(p)).map((f) => `${p}/${f}`));
       const missing = [...local].filter((k) => !remote.has(k));
-      console.log(`[r2] sync ${p}: local=${local.size} remote=${remote.size} missing=${missing.length}`);
+      console.log(`[s3] sync ${p}: local=${local.size} remote=${remote.size} missing=${missing.length}`);
       if (missing.length > 0) {
-        uploadPrefix(p);
+        await uploadPrefix(p);
       }
       break;
     }

@@ -4,7 +4,7 @@
 
 成员清单
 utils.ts: 提供 shadcn 组件共享的 Tailwind 类名合并函数。
-app-catalog.ts: 发布时固定的可安装 App 身份目录；Apps 目录和详情页由它渲染，条目可声明下载前设备/磁盘条件，service 仅返回安装状态并执行安装；原生素材库不在此目录。
+appstore.ts: 应用市场（可添加 App）的唯一云端数据源；从 `<site>/api/appstore.json` 拉取双语言目录（name/description/requirements 按 Locale 取），离线或拉取失败返回空目录；工作台 Apps 市场与 App 详情页消费，取代原静态 `app-catalog.ts`；service 的嵌入式 appstore 仅服务 MCP `recut.apps.store` 发现。
 marketing-apps.ts: 官网应用市场的 MDX 加载器；用 gray-matter 读取 `content/apps/<locale>/*.mdx`，frontmatter 解析 `id/name/type/tagline/description/keywords/relatedApps/repository/requirements/faq`，正文为自由 markdown；导出 `MarketingApp` 与 `marketingApps`/`getMarketingApp`；只在服务端模块导入，客户端组件一律经 props 接收数据，避免 `node:fs` 进入浏览器包；App 的 `id` 需与工作台 Catalog 的 app id 一致以打通深链，但内容与安装目录完全解耦。
 content-locale.ts: 内容目录默认 locale（`zh-CN`）与可用 locale 清单常量；多语言接入时在此扩展，blog 与 App 的 MDX 加载器共用。
 docs.ts: 官网 Docs 的 MDX 加载器；读取 `content/docs/<locale>/*.mdx`，frontmatter 解析 `title/description/group/order`，正文为自由 markdown；导出 `DocPage` 与 `loadDocs`/`getDoc`；只在服务端模块导入，客户端组件经 props 接收数据；`group` 供索引按分组展示。

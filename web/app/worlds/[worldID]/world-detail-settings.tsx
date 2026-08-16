@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CustomSelect } from "@/components/ui/select-field";
 import { ObjectEvidencePanel } from "./world-detail-panels";
+import { useI18n } from "@/lib/i18n/index";
+import { interpolate } from "@/lib/i18n/workspace-dict";
 import {
   createRecutWorldsClient,
   type EntityKind,
@@ -25,6 +27,9 @@ type SettingField = {
   multiline?: boolean;
   options?: Array<{ label: string; value: string }>;
 };
+type FieldDefinition = Omit<SettingField, "label" | "placeholder" | "options"> & {
+  options?: Array<{ value: string }>;
+};
 export type SettingSection = {
   kind: EntityKind;
   title: string;
@@ -32,147 +37,83 @@ export type SettingSection = {
   action: string;
 };
 
-export const SETTING_SECTIONS: SettingSection[] = [
-  {
-    kind: "character",
-    title: "角色",
-    description: "人物是谁、如何呈现、哪些特征不能改变。",
-    action: "添加角色",
-  },
-  {
-    kind: "story",
-    title: "故事",
-    description: "这次想讲什么，以及它如何发生。",
-    action: "添加故事",
-  },
-  {
-    kind: "style",
-    title: "风格",
-    description: "画面、文字、声音与节奏的共同语言。",
-    action: "添加风格",
-  },
-  {
-    kind: "rule",
-    title: "创作规则",
-    description: "告诉 AI 什么必须坚持、避免或尽量做到。",
-    action: "添加规则",
-  },
-  {
-    kind: "location",
-    title: "场景",
-    description: "故事发生在哪里，有怎样的氛围与细节。",
-    action: "添加场景",
-  },
-];
-
-const fields: Record<EntityKind, SettingField[]> = {
+const fieldDefinitions: Record<EntityKind, FieldDefinition[]> = {
   character: [
-    {
-      key: "appearance",
-      label: "外貌与标志",
-      placeholder: "例如：黑色短发，右侧有一枚银色耳钉",
-      multiline: true,
-    },
-    {
-      key: "personality",
-      label: "性格与行为",
-      placeholder: "例如：克制、好奇，说话前总会停顿半秒",
-      multiline: true,
-    },
-    {
-      key: "voice",
-      label: "声音与说话方式",
-      placeholder: "例如：低沉、语速平稳，偶尔带轻微笑意",
-      multiline: true,
-    },
-    {
-      key: "invariants",
-      label: "不可改变的特征",
-      placeholder: "例如：任何画面都保留耳钉；不能显得轻浮",
-      multiline: true,
-    },
+    { key: "appearance", multiline: true },
+    { key: "personality", multiline: true },
+    { key: "voice", multiline: true },
+    { key: "invariants", multiline: true },
   ],
   story: [
-    {
-      key: "premise",
-      label: "这次想讲什么",
-      placeholder: "用一两句话说清故事核心",
-      multiline: true,
-    },
-    {
-      key: "moment",
-      label: "关键时刻",
-      placeholder: "冲突、转折或最希望观众记住的画面",
-      multiline: true,
-    },
-    {
-      key: "emotion",
-      label: "希望留下的感受",
-      placeholder: "例如：温柔、紧张、释然",
-    },
+    { key: "premise", multiline: true },
+    { key: "moment", multiline: true },
+    { key: "emotion" },
   ],
   style: [
-    {
-      key: "visual",
-      label: "画面风格",
-      placeholder: "色彩、光线、构图与材质",
-      multiline: true,
-    },
-    {
-      key: "guidance",
-      label: "表达方式",
-      placeholder: "文字、镜头、节奏与声音的偏好",
-      multiline: true,
-    },
-    {
-      key: "avoid",
-      label: "避免什么",
-      placeholder: "例如：避免过度饱和、夸张转场",
-      multiline: true,
-    },
+    { key: "visual", multiline: true },
+    { key: "guidance", multiline: true },
+    { key: "avoid", multiline: true },
   ],
   rule: [
-    {
-      key: "type",
-      label: "规则强度",
-      placeholder: "",
-      options: [
-        { value: "always", label: "必须坚持" },
-        { value: "never", label: "不要出现" },
-        { value: "prefer", label: "尽量做到" },
-      ],
-    },
-    {
-      key: "text",
-      label: "规则内容",
-      placeholder: "例如：主角始终保持克制的表达",
-      multiline: true,
-    },
+    { key: "type", options: [{ value: "always" }, { value: "never" }, { value: "prefer" }] },
+    { key: "text", multiline: true },
   ],
   location: [
-    {
-      key: "description",
-      label: "地点与细节",
-      placeholder: "空间、时间、可见元素与氛围",
-      multiline: true,
-    },
-    {
-      key: "atmosphere",
-      label: "氛围",
-      placeholder: "例如：雨后、潮湿、安静但并不冷清",
-    },
+    { key: "description", multiline: true },
+    { key: "atmosphere" },
   ],
   reference: [],
 };
 
-const labels = Object.fromEntries(
-  Object.values(fields)
-    .flat()
-    .map((field) => [field.key, field.label]),
-);
+export function settingSections(t: (key: string) => string): SettingSection[] {
+  return [
+    {
+      kind: "character",
+      title: t("worlds.settings.character.title"),
+      description: t("worlds.settings.character.desc"),
+      action: t("worlds.settings.character.action"),
+    },
+    {
+      kind: "story",
+      title: t("worlds.settings.story.title"),
+      description: t("worlds.settings.story.desc"),
+      action: t("worlds.settings.story.action"),
+    },
+    {
+      kind: "style",
+      title: t("worlds.settings.style.title"),
+      description: t("worlds.settings.style.desc"),
+      action: t("worlds.settings.style.action"),
+    },
+    {
+      kind: "rule",
+      title: t("worlds.settings.rule.title"),
+      description: t("worlds.settings.rule.desc"),
+      action: t("worlds.settings.rule.action"),
+    },
+    {
+      kind: "location",
+      title: t("worlds.settings.location.title"),
+      description: t("worlds.settings.location.desc"),
+      action: t("worlds.settings.location.action"),
+    },
+  ];
+}
 
-export function settingSection(kind: EntityKind) {
-  return SETTING_SECTIONS.find((item) => item.kind === kind);
+export function fieldsFor(kind: EntityKind, t: (key: string) => string): SettingField[] {
+  return fieldDefinitions[kind].map((def) => {
+    const base = `worlds.settings.field.${def.key}`;
+    return {
+      ...def,
+      label: t(`${base}.label`),
+      placeholder: t(`${base}.placeholder`),
+      options: def.options?.map((option) => ({ value: option.value, label: t(`${base}.option.${option.value}`) })),
+    };
+  });
+}
+
+export function settingSection(kind: EntityKind, t: (key: string) => string) {
+  return settingSections(t).find((item) => item.kind === kind);
 }
 export function contentEntries(entity: WorldEntity) {
   return Object.entries(entity.content ?? {})
@@ -185,8 +126,8 @@ export function contentEntries(entity: WorldEntity) {
 export function hasUsefulContent(entity: WorldEntity) {
   return contentEntries(entity).length > 0;
 }
-export function fieldLabel(key: string) {
-  return labels[key] ?? key;
+export function fieldLabel(key: string, t: (k: string) => string) {
+  return t(`worlds.settings.field.${key}.label`);
 }
 
 export function SettingDialog({
@@ -208,6 +149,7 @@ export function SettingDialog({
   onEvidenceChanged: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useI18n();
   const [title, setTitle] = useState(entity?.title ?? "");
   const [summary, setSummary] = useState(entity?.summary ?? "");
   const [content, setContent] = useState<Record<string, unknown>>(() => ({
@@ -216,7 +158,13 @@ export function SettingDialog({
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const section = settingSection(kind);
+  const section = settingSection(kind, t);
+  const nameExample =
+    kind === "character"
+      ? t("worlds.settings.dialog.name.example.character")
+      : kind === "story"
+        ? t("worlds.settings.dialog.name.example.story")
+        : (section?.title ?? t("worlds.settings.dialog.newSetting"));
   async function submit() {
     if (!title.trim() || saving) return;
     setSaving(true);
@@ -236,7 +184,7 @@ export function SettingDialog({
       setError(
         cause instanceof Error
           ? cause.message
-          : "保存失败；如果设定刚被其他人更新，请刷新后重试。",
+          : t("worlds.settings.dialog.save.failed"),
       );
       setSaving(false);
     }
@@ -255,19 +203,19 @@ export function SettingDialog({
       >
         <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
           <div>
-            <p className="text-xs font-medium text-primary">创作设定</p>
+            <p className="text-xs font-medium text-primary">{t("worlds.settings.dialog.eyebrow")}</p>
             <h2
               className="mt-1 text-lg font-semibold"
               id="setting-dialog-title"
             >
-              {entity ? `编辑${section?.title}` : section?.action}
+              {entity ? interpolate(t("worlds.settings.dialog.title.edit"), { title: section?.title ?? "" }) : section?.action}
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              写下具体细节，AI 会在之后的创作中稳定地使用它们。
+              {t("worlds.settings.dialog.desc")}
             </p>
           </div>
           <button
-            aria-label="关闭设定编辑"
+            aria-label={t("worlds.settings.dialog.close.aria")}
             className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted"
             onClick={onClose}
             type="button"
@@ -277,27 +225,27 @@ export function SettingDialog({
         </header>
         <div className="grid flex-1 gap-4 overflow-y-auto p-5">
           <label className="text-xs font-medium" htmlFor="setting-title">
-            名称
+            {t("worlds.settings.dialog.name")}
             <Input
               autoFocus
               className="mt-1 h-9 bg-background"
               id="setting-title"
               onChange={(event) => setTitle(event.target.value)}
-              placeholder={`例如：${kind === "character" ? "小满" : kind === "story" ? "雨后的见面" : (section?.title ?? "新的设定")}`}
+              placeholder={interpolate(t("worlds.settings.dialog.name.placeholder"), { example: nameExample })}
               value={title}
             />
           </label>
           <label className="text-xs font-medium" htmlFor="setting-summary">
-            一句话说明
+            {t("worlds.settings.dialog.summary")}
             <Input
               className="mt-1 h-9 bg-background"
               id="setting-summary"
               onChange={(event) => setSummary(event.target.value)}
-              placeholder="帮助你和 AI 快速理解这项设定"
+              placeholder={t("worlds.settings.dialog.summary.placeholder")}
               value={summary}
             />
           </label>
-          {fields[kind].map((field) => (
+          {fieldsFor(kind, t).map((field) => (
             <FieldInput
               field={field}
               key={field.key}
@@ -320,14 +268,14 @@ export function SettingDialog({
         </div>
         <footer className="flex items-center justify-end gap-2 border-t px-5 py-3">
           <Button onClick={onClose} type="button" variant="ghost">
-            取消
+            {t("worlds.settings.dialog.cancel")}
           </Button>
           <Button
             disabled={!title.trim() || saving}
             onClick={() => void submit()}
             type="button"
           >
-            {saving ? "正在保存…" : "保存设定"}
+            {saving ? t("worlds.settings.dialog.saving") : t("worlds.settings.dialog.save")}
           </Button>
         </footer>
       </section>

@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/pem"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -63,6 +64,50 @@ func TestTLSHTTPClientVerifiesPEMRoot(t *testing.T) {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d", response.StatusCode)
+	}
+}
+
+// TestFetchArchiveUsesVersionedPath 验证：manifest 从 /releases/latest 指针读取，
+// 包本体从 /releases/<version>/<archive> 版本目录下载（latest 只作指针，不含包）。
+func TestFetchArchiveUsesVersionedPath(t *testing.T) {
+	archiveBytes := releaseArchive(t, map[string]string{"recut-service-darwin-arm64": "binary"})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/releases/latest/manifest.json":
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"version":"0.1.30","packages":{"darwin-arm64":{"archive":"recut-service-darwin-arm64.tar.gz","sha256":"` + sha256Hex(archiveBytes) + `"}}}`))
+		case "/releases/0.1.30/recut-service-darwin-arm64.tar.gz":
+			_, _ = writer.Write(archiveBytes)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	updater := &ServiceUpdater{
+		downloadBase: server.URL,
+		httpClient:   server.Client(),
+		goos:         "darwin",
+		goarch:       "arm64",
+	}
+	manifest, err := updater.fetchManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Version != "0.1.30" {
+		t.Fatalf("manifest version = %q", manifest.Version)
+	}
+	archive, err := updater.fetchArchive(manifest.Version, manifest.Packages["darwin-arm64"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	data, err := io.ReadAll(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, archiveBytes) {
+		t.Fatalf("downloaded archive bytes differ (got %d bytes)", len(data))
 	}
 }
 

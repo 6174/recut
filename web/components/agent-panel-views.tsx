@@ -16,8 +16,11 @@ import { AssetReferenceChip } from "@/components/asset-reference-picker";
 import { ToolResultAssets } from "@/components/tool-result-assets";
 import { Button } from "@/components/ui/button";
 import { ActionIcon, PageContextChip, RunningStatus } from "@/components/agent-composer";
-import { codexModelLabel, contextLabel, opencodeModelLabel, reasoningLabel, runtimeLabel } from "@/components/agent-panel-types";
+import { codexModelLabel, contextLabel, defaultCodexConfiguration, opencodeModelLabel, runtimeLabel } from "@/components/agent-panel-types";
 import { type AgentEvent, type CLIEntry, type Detail, type Session, type ToolPayload, type Turn } from "@/components/agent-panel-types";
+import { t, useI18n } from "@/lib/i18n/index";
+import { useLocaleStore } from "@/lib/i18n/locale-store";
+import { interpolate } from "@/lib/i18n/workspace-dict";
 
 export async function responseMessage(response: Response, fallback: string) {
   try {
@@ -35,11 +38,12 @@ export function messageOf(cause: unknown, fallback: string) {
     : fallback;
 }
 export function ConversationLoading() {
+  const { t } = useI18n();
   return (
     <div aria-live="polite" className="grid h-full place-items-center">
       <p className="flex items-center gap-2 text-xs text-muted-foreground">
         <RefreshCw className="size-3.5 animate-spin" />
-        正在加载对话…
+        {t("agent.conversation.loading")}
       </p>
     </div>
   );
@@ -54,6 +58,7 @@ export function CLIDebugDialog({
   entries: CLIEntry[];
   onClose: () => void;
 }) {
+  const { t: text, locale } = useI18n();
   const outputRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
     const output = outputRef.current;
@@ -61,7 +66,7 @@ export function CLIDebugDialog({
   }, [entries.length]);
   const output = entries
     .map((entry) => {
-      const at = new Date(entry.createdAt).toLocaleTimeString("zh-CN", {
+      const at = new Date(entry.createdAt).toLocaleTimeString(locale === "en" ? "en-US" : "zh-CN", {
         hour12: false,
       });
       return `${at} ${entry.stream === "stderr" ? "ERR" : "OUT"} ${entry.text}`;
@@ -82,14 +87,14 @@ export function CLIDebugDialog({
         <header className="flex items-center justify-between border-b px-4 py-3">
           <div>
             <h2 className="text-sm font-medium" id="agent-cli-title">
-              Agent CLI 运行流
+              {text("agent.cli.title")}
             </h2>
             <p className="mt-0.5 text-[10px] text-muted-foreground">
-              仅保留在本机内存中，不写入服务日志。
+              {text("agent.cli.desc")}
             </p>
           </div>
           <button
-            aria-label="关闭 CLI 运行流"
+            aria-label={text("agent.cli.close")}
             className="grid size-8 place-items-center rounded-sm text-muted-foreground hover:bg-muted"
             onClick={onClose}
             type="button"
@@ -103,8 +108,8 @@ export function CLIDebugDialog({
         >
           {output ||
             (available
-              ? "等待 CLI 输出…"
-              : "此会话没有可用的实时 CLI 流。运行流只会从启用本功能后启动的 Agent turn 开始捕获。")}
+              ? text("agent.cli.waiting")
+              : text("agent.cli.unavailable"))}
         </pre>
       </section>
     </div>,
@@ -158,6 +163,7 @@ export function Conversation({
   const groups = responseGroups(timeline);
   const isProcessing =
     detail.status === "running" || detail.status === "stopping";
+  const { t: text } = useI18n();
   return (
     <div className="space-y-5">
       {groups.map((group) => {
@@ -190,6 +196,7 @@ export function Conversation({
                             ? context.payload.selection
                             : undefined
                         }
+                        // TODO: contextLabel 的「素材/当前页面」兜底定义在 agent-panel-types.ts，暂未本地化。
                         title={contextLabel(context)}
                       />
                     ))}
@@ -202,7 +209,7 @@ export function Conversation({
                 )}
                 {user.status === "queued" ? (
                   <p className="mt-1 text-right text-[10px] text-muted-foreground">
-                    待发送
+                    {text("agent.conversation.queued")}
                   </p>
                 ) : (
                   <p className="mt-1 h-3 text-right text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
@@ -228,13 +235,13 @@ export function Conversation({
             {failure && <TurnFailure message={failure} />}
             {!isProcessing && reply && (
               <div className="mt-2 flex items-center gap-1 text-muted-foreground">
-                <ActionIcon label="复制回复">
+                <ActionIcon label={text("agent.conversation.copyReply")}>
                   <Copy />
                 </ActionIcon>
-                <ActionIcon label="有帮助">
+                <ActionIcon label={text("agent.conversation.helpful")}>
                   <ThumbsUp />
                 </ActionIcon>
-                <ActionIcon label="没帮助">
+                <ActionIcon label={text("agent.conversation.notHelpful")}>
                   <ThumbsDown />
                 </ActionIcon>
                 {meta && (
@@ -256,7 +263,7 @@ export function Conversation({
       {detail.status === "stopping" && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="size-1.5 animate-pulse rounded-full bg-warning" />
-          正在停止当前回复…
+          {text("agent.panel.stopping")}
         </p>
       )}
     </div>
@@ -302,8 +309,9 @@ export function AgentRecoveryPanel({
   failure: string;
   onRecheck: () => Promise<void>;
 }) {
+  const { t: text } = useI18n();
   const missing = !agent.available;
-  const diagnostic = `请在运行 Recut service 的设备上排查 ${agent.name} CLI 启动失败。\n\n错误：\n${failure}\n\n请检查 ${agent.command} 是否可执行、已登录且可运行，再给出修复命令。`;
+  const diagnostic = interpolate(text("agent.recovery.diagnostic"), { name: agent.name, failure, command: agent.command });
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
@@ -336,8 +344,8 @@ export function AgentRecoveryPanel({
           onClick={() => void recheck()}
           title={
             checking
-              ? `正在检查 ${agent.name} 状态`
-              : `重新检查 ${agent.name} 状态`
+              ? interpolate(text("agent.recovery.checkingTitle"), { name: agent.name })
+              : interpolate(text("agent.recovery.recheckTitle"), { name: agent.name })
           }
           type="button"
           variant="ghost"
@@ -362,12 +370,12 @@ export function AgentRecoveryPanel({
               className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground"
             >
               <RefreshCw className="size-3 animate-spin" />
-              正在检查 {agent.name} 状态…
+              {interpolate(text("agent.recovery.checking"), { name: agent.name })}
             </p>
           )}
           {checkFailed && (
             <p aria-live="polite" className="mt-3 text-xs text-destructive">
-              无法连接 Recut service，请确认设备在线后重试。
+              {text("agent.recovery.offline")}
             </p>
           )}
           {missing ? (
@@ -381,7 +389,7 @@ export function AgentRecoveryPanel({
             </div>
           ) : (
             <div className="mt-7">
-              <p className="text-xs font-medium">诊断任务</p>
+              <p className="text-xs font-medium">{text("agent.recovery.diagnosticTask")}</p>
               <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted p-3 font-mono text-xs leading-5 text-foreground">
                 {failure}
               </pre>
@@ -397,8 +405,8 @@ export function AgentRecoveryPanel({
                   <Copy className="size-3.5" />
                 )}
                 {copyStatus === "copied"
-                  ? "已复制诊断任务"
-                  : `复制给 ${agent.name} 排查`}
+                  ? text("agent.recovery.copied")
+                  : interpolate(text("agent.recovery.copyTo"), { name: agent.name })}
               </Button>
               <CopyFeedback status={copyStatus} />
             </div>
@@ -471,10 +479,12 @@ function lastAssistantTurn(items: ResponseGroup["items"]) {
 }
 
 function replyMeta(user: Turn, reply: Turn) {
+  const locale = useLocaleStore.getState().locale;
   const completedAt = user.completedAt ?? reply.completedAt ?? reply.createdAt;
+  const duration = toolDuration(user.createdAt, completedAt, Date.now());
   return {
-    label: `${formatMessageTime(completedAt)} · 耗时 ${toolDuration(user.createdAt, completedAt, Date.now())}`,
-    title: `完成于 ${formatMessageTime(completedAt)}，从发送到完成耗时 ${toolDuration(user.createdAt, completedAt, Date.now())}`,
+    label: `${formatMessageTime(completedAt)} · ${interpolate(t("workspace", locale, "agent.conversation.elapsed"), { duration })}`,
+    title: interpolate(t("workspace", locale, "agent.conversation.elapsedTitle"), { at: formatMessageTime(completedAt), duration }),
   };
 }
 
@@ -482,7 +492,7 @@ function formatMessageTime(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? value
-    : new Intl.DateTimeFormat("zh-CN", {
+    : new Intl.DateTimeFormat(useLocaleStore.getState().locale === "en" ? "en-US" : "zh-CN", {
         dateStyle: "medium",
         timeStyle: "medium",
         hour12: false,
@@ -546,12 +556,13 @@ function toolCalls(events: AgentEvent[]): ToolCall[] {
 }
 
 function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolCall; now: number }) {
+  const { t: text } = useI18n();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const hasDetail = true;
   const duration = toolDuration(call.createdAt, call.completedAt, now);
-  const label = toolDisplayLabel(call.payload);
-  const stateLabel = { running: "执行中", success: "已完成", error: "失败" }[
+  const label = toolDisplayLabel(call.payload, text);
+  const stateLabel = { running: text("agent.tool.running"), success: text("agent.tool.success"), error: text("agent.tool.error") }[
     call.state
   ];
   const stateClass = {
@@ -576,7 +587,7 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
         {hasDetail && (
           <button
             aria-expanded={open}
-            aria-label="展开工具调用详情"
+            aria-label={text("agent.tool.expand")}
             className="grid size-5 shrink-0 place-items-center rounded-sm hover:bg-muted hover:text-foreground"
             onClick={() => setOpen((value) => !value)}
             type="button"
@@ -596,12 +607,12 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
               {label}
             </p>
             <span className={`shrink-0 text-[10px] ${labelClass}`}>
-              {stateLabel} · 耗时 {duration}
+              {stateLabel} · {interpolate(text("agent.conversation.elapsed"), { duration })}
             </span>
           </div>
           <div className="mt-2 flex items-center justify-between gap-3">
             <p className="min-w-0 break-all font-mono text-[10px] text-muted-foreground">
-              真实工具名：{call.payload.toolName ?? call.payload.tool ?? "未返回"}
+              {interpolate(text("agent.tool.realName"), { name: call.payload.toolName ?? call.payload.tool ?? text("agent.tool.noName") })}
             </p>
             <button
               className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -610,12 +621,12 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
               }}
               type="button"
             >
-              {copied ? "已复制" : "复制调用"}
+              {copied ? text("agent.tool.copied") : text("agent.tool.copy")}
             </button>
           </div>
           <ToolDetail
-            emptyLabel="未返回调用参数"
-            title="调用参数"
+            emptyLabel={text("agent.tool.args.empty")}
+            title={text("agent.tool.args")}
             value={call.input}
           />
           {call.state !== "error" && (
@@ -623,13 +634,13 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
           )}
           <ToolDetail
             emptyLabel={
-              call.state === "error" ? "未返回错误详情" : "未返回执行结果"
+              call.state === "error" ? text("agent.tool.error.empty") : text("agent.tool.output.empty")
             }
-            title={call.state === "error" ? "错误信息" : "执行结果"}
+            title={call.state === "error" ? text("agent.tool.error.title") : text("agent.tool.output")}
             value={call.error ?? call.output}
           />
           {call.payload.cost && (
-            <ToolDetail title="成本信息" value={call.payload.cost} />
+            <ToolDetail title={text("agent.tool.cost")} value={call.payload.cost} />
           )}
         </div>
       )}
@@ -637,74 +648,17 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
   );
 }
 
-const toolLabels: Record<string, string> = {
-  recut_recut_context: "读取 Recut 上下文",
-  recut_recut_apps_list: "读取已安装应用",
-  recut_recut_apps_store: "浏览应用商店",
-  recut_recut_apps_install: "安装应用",
-  recut_recut_apps_update: "更新应用",
-  recut_recut_skills_list: "读取技能目录",
-  recut_recut_skills_read: "读取技能说明",
-  recut_recut_skills_reference: "读取技能参考资料",
-  recut_recut_design_system_list: "浏览设计系统",
-  recut_recut_design_system_get: "读取设计系统",
-  recut_recut_project_create: "创建项目",
-  recut_recut_project_list: "读取项目列表",
-  recut_recut_project_get: "读取项目",
-  recut_recut_project_context: "读取项目上下文",
-  recut_recut_job_status: "查询任务状态",
-  recut_recut_job_wait: "等待任务完成",
-  recut_recut_job_logs: "读取任务日志",
-  recut_recut_job_cancel: "取消任务",
-  recut_recut_image_generate: "提交图片生成任务",
-  recut_recut_video_generate: "提交视频生成任务",
-  recut_recut_speech_generate: "提交语音生成任务",
-  recut_recut_media_list_voices: "读取可用音色",
-  recut_recut_media_get_job: "查询媒体生成进度",
-  recut_recut_media_wait_for_job: "等待媒体生成结果",
-  recut_recut_media_list_assets: "读取素材库",
-  recut_recut_media_import_image: "归档生成图片",
-  recut_recut_media_create_reference: "登记参考资料",
-  recut_recut_media_attach: "关联素材到项目",
-  recut_recut_worlds_list: "读取世界列表",
-  recut_recut_worlds_get: "读取世界",
-  recut_recut_worlds_entities_list: "读取世界实体",
-  recut_recut_worlds_entities_get: "读取世界实体详情",
-  recut_recut_worlds_evidence_list: "读取世界资料",
-  recut_recut_worlds_resolve: "解析世界上下文",
-  recut_recut_worlds_create: "创建世界",
-  recut_recut_worlds_update: "更新世界",
-  recut_recut_worlds_entities_upsert: "保存世界实体",
-  recut_recut_worlds_references_attach: "关联世界参考素材",
-  recut_recut_worlds_evidence_attach: "收录世界资料",
-  recut_recut_worlds_evidence_update: "更新世界资料",
-  recut_recut_worlds_evidence_archive: "归档世界资料",
-  recut_recut_worlds_bind_project: "关联世界到项目",
-  recut_recut_editor_project_create: "创建剪辑项目",
-  recut_recut_editor_workflow_context: "读取剪辑工作流",
-  recut_recut_editor_timeline_assets: "登记时间线素材",
-  recut_recut_editor_project_get: "读取剪辑项目",
-  recut_recut_editor_project_updateSettings: "更新剪辑设置",
-  recut_recut_editor_project_lock: "锁定剪辑项目",
-  recut_recut_editor_project_unlock: "解锁剪辑项目",
-  recut_recut_editor_timeline_read: "读取时间线",
-  recut_recut_editor_element_get: "读取时间线元素",
-  recut_recut_editor_timeline_validate: "校验时间线",
-  recut_recut_editor_timeline_command: "编辑时间线",
-  recut_recut_editor_history_undo: "撤销时间线操作",
-  recut_recut_editor_history_redo: "重做时间线操作",
-  recut_recut_editor_film_package_import: "导入短片交接包",
-  recut_recut_editor_component_define: "创建剪辑组件",
-  recut_recut_editor_component_verify: "验证剪辑组件",
-  recut_recut_editor_component_list: "读取剪辑组件",
-  recut_recut_editor_component_source: "读取组件源码",
-};
-
-function toolDisplayLabel(payload: ToolPayload) {
+// 工具动作标签统一走字典（agent.tool.name.*），未知工具名回退服务端下发 label。
+// TODO: 服务端下发的 payload.label 仍是服务端数据（如以「调用 」开头的 MCP 标签），暂不本地化，待服务端按 locale 下发。
+function toolDisplayLabel(payload: ToolPayload, t: (key: string) => string) {
   const name = payload.toolName ?? "";
   const alias = `recut_${name.replaceAll(".", "_")}`;
-  const label = toolLabels[name] ?? toolLabels[alias] ?? payload.label?.trim();
-  return label?.startsWith("调用 ") ? "MCP 工具调用" : label || "MCP 工具调用";
+  const directKey = `agent.tool.name.${name}`;
+  const aliasKey = `agent.tool.name.${alias}`;
+  const direct = t(directKey) !== directKey ? t(directKey) : "";
+  const viaAlias = aliasKey !== directKey && t(aliasKey) !== aliasKey ? t(aliasKey) : "";
+  const label = direct || viaAlias || payload.label?.trim();
+  return label?.startsWith("调用 ") ? t("agent.tool.mcpCall") : label || t("agent.tool.mcpCall");
 }
 
 function toolCallReport(call: ToolCall, label: string, duration: string) {
@@ -736,7 +690,7 @@ function parseToolReportValue(value: string | undefined) {
 }
 
 function ToolDetail({
-  emptyLabel = "未返回数据",
+  emptyLabel,
   title,
   value,
 }: {
@@ -744,8 +698,9 @@ function ToolDetail({
   title: string;
   value?: string;
 }) {
+  const { t: text } = useI18n();
   const [open, setOpen] = useState(false);
-  const detail = value ? safeToolDetail(value) : emptyLabel;
+  const detail = value ? safeToolDetail(value) : (emptyLabel ?? text("agent.tool.noData"));
   return (
     <section className="mt-3">
       <div className="mb-1 flex items-center justify-between gap-2">
@@ -756,7 +711,7 @@ function ToolDetail({
             onClick={() => setOpen(true)}
             type="button"
           >
-            完整查看
+            {text("agent.tool.viewFull")}
           </button>
         </div>
       </div>
@@ -775,13 +730,14 @@ function ToolDetail({
 }
 function ToolDetailDialog({
   onClose,
-  text,
+  text: content,
   title,
 }: {
   onClose: () => void;
   text: string;
   title: string;
 }) {
+  const { t: text } = useI18n();
   return createPortal(
     <div
       aria-modal="true"
@@ -799,7 +755,7 @@ function ToolDetailDialog({
             {title}
           </h2>
           <button
-            aria-label="关闭详情"
+            aria-label={text("agent.tool.closeDetail")}
             className="grid size-8 place-items-center rounded-sm text-muted-foreground hover:bg-muted"
             onClick={onClose}
             type="button"
@@ -808,7 +764,7 @@ function ToolDetailDialog({
           </button>
         </header>
         <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-5">
-          {text}
+          {content}
         </pre>
       </section>
     </div>,
@@ -825,9 +781,8 @@ function toolDuration(
     (new Date(completedAt ?? now).getTime() - new Date(startedAt).getTime()) /
       1000,
   );
-  return elapsed < 10
-    ? `${elapsed.toFixed(1)} 秒`
-    : `${Math.round(elapsed)} 秒`;
+  const value = elapsed < 10 ? elapsed.toFixed(1) : String(Math.round(elapsed));
+  return interpolate(t("workspace", useLocaleStore.getState().locale, "agent.tool.seconds"), { value });
 }
 function legacyToolDetail(
   value: string | undefined,
@@ -883,6 +838,7 @@ export function SessionHistory({
   onOpen: (id: string) => void;
   sessions: Session[];
 }) {
+  const { t: text } = useI18n();
   return (
     <section className="absolute right-3 top-14 z-20 w-[calc(100%-1.5rem)] overflow-hidden rounded-md border bg-popover shadow-[var(--shadow-overlay)]">
       <p className="border-b px-3 py-2 text-[10px] font-medium text-muted-foreground">
@@ -891,7 +847,7 @@ export function SessionHistory({
       <div className="max-h-64 overflow-y-auto p-1.5">
         {sessions.length === 0 ? (
           <p className="px-2 py-5 text-center text-xs text-muted-foreground">
-            还没有会话
+            {text("agent.history.empty")}
           </p>
         ) : (
           sessions.map((session) => (
@@ -915,10 +871,19 @@ export function SessionHistory({
   );
 }
 
+// reasoningLabel 的本地化包装（agent-panel-types 仍返回中文，仅在展示层包装）：字典缺失时回退原始 effort 值。
+function reasoningEffortLabel(effort?: string): string {
+  const locale = useLocaleStore.getState().locale;
+  const value = effort ?? defaultCodexConfiguration.reasoningEffort;
+  const key = `agent.composer.reasoning.${value}`;
+  const label = t("workspace", locale, key);
+  return label !== key ? label : value;
+}
+
 function sessionSummary(session: Session): string {
   const agent = runtimeLabel(session.runtime);
   if (session.runtime === "codex")
-    return `${agent} · ${codexModelLabel(session.codexModel)} · ${reasoningLabel(session.reasoningEffort)}`;
+    return `${agent} · ${codexModelLabel(session.codexModel)} · ${reasoningEffortLabel(session.reasoningEffort)}`;
   if (session.runtime === "opencode")
     return `${agent} · ${opencodeModelLabel(session.opencodeModel)}`;
   return agent;

@@ -105,6 +105,17 @@ function handleMarketing(request: Request, url: URL, env: Env): Promise<Response
     return env.ASSETS.fetch(new Request(shell, request));
   }
 
+  // 云端 API：市场数据等静态 JSON，允许跨域（app.recut.video 工作台经 /api/appstore.json 消费）。
+  if (pathname.startsWith("/api/")) {
+    return env.ASSETS.fetch(request).then((response) => {
+      const headers = new Headers(response.headers);
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+      headers.set("Access-Control-Allow-Headers", "Content-Type");
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    });
+  }
+
   // 其余未知路径：交给静态 Assets 404 兜底。
   return env.ASSETS.fetch(request);
 }
