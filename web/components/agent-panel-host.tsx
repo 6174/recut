@@ -1,16 +1,19 @@
 /*
- * [INPUT]: 依赖 Next 路径、service-store 的 endpoint/连接阶段、工作台模式、agent-panel-context 的全局 projectID/草稿、固定 64px 工作台 Header、useResizableSidePanel 与 ProjectAgentPanel
- * [OUTPUT]: 对外提供根布局挂载的全局工作台壳：顶部由页面渲染的 64px Header 横贯全宽，其下 Body 左侧为全局 Agent 对话、右侧为页面内容；左右两栏与拖动手柄共同读取 `--side-panel-width`，单实例侧栏从固定 Header 下沿起向下铺满并持久化宽度；公开站点改用可纵向滚动的普通文档流，Marketing Host 与 cloud mode 的首次离线页均不挂载侧栏或拖拽手柄
- * [POS]: components 的工作台全局壳；所有正常工作台路由共享同一 ProjectAgentPanel 实例（单一全局会话，不做按页面过滤），路由切换保留会话与 SSE，不再由页面各自挂载；官网与首访离线页是无侧栏的产品入口
+ * [INPUT]: 依赖 Next 路径、marketing-site / marketing-apps 公开页面、marketing-apps 静态目录、service-store 的 endpoint/连接阶段、工作台模式、agent-panel-context 的全局 projectID/草稿、固定 64px 工作台 Header、useResizableSidePanel 与 ProjectAgentPanel
+ * [OUTPUT]: 对外提供根布局挂载的全局 Host 路由边界与工作台壳：SSR 与浏览器 Host 未确认时透明输出页面 children；Marketing Host 在客户端路由时直接渲染官网 Home / Apps / App 详情或 404，绝不挂载工作台页面；App Host 才渲染固定桌面 Agent 壳，左右两栏与拖动手柄共同读取 `--side-panel-width`
+ * [POS]: components 的域名级路由边界与工作台全局壳；先保持 SSR 中性，避免官网首屏泄露应用壳；所有正常 App Host 路由共享同一 ProjectAgentPanel 实例（单一全局会话，不做按页面过滤）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { CSSProperties, useEffect, useState } from "react";
+import { CSSProperties, useLayoutEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { MarketingAppDetailContent, MarketingAppsContent } from "@/components/marketing-apps";
+import { MarketingLanding, MarketingShell } from "@/components/marketing-site";
 import { ProjectAgentPanel } from "@/components/project-agent-panel";
 import { useResizableSidePanel } from "@/components/use-resizable-side-panel";
 import { useAgentPanelContext } from "@/lib/agent-panel-context";
+import { getMarketingApp } from "@/lib/marketing-apps";
 import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 import { useAppInstallationEvents } from "@/components/use-app-installation-events";
@@ -27,11 +30,14 @@ export function AgentPanelHost({ children }: Readonly<{ children: React.ReactNod
   const pageContext = useAgentPanelContext((state) => state.pageContext);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.agent-panel-width" });
   const [browserHost, setBrowserHost] = useState<string | null>(null);
-  useEffect(() => setBrowserHost(window.location.hostname), []);
-  const publicSite = isPublicSitePath(pathname) || (browserHost !== null && marketingHosts.has(browserHost));
+  useLayoutEffect(() => setBrowserHost(window.location.hostname), []);
+  const marketingHost = browserHost !== null && marketingHosts.has(browserHost);
+  const publicSite = isPublicSitePath(pathname) || marketingHost;
   const hostResolved = browserHost !== null;
   const showAgentPanel = hostResolved && !publicSite && (isLocalWorkspace || servicePhase !== "offline");
   useAppInstallationEvents(apiBase, !publicSite && servicePhase === "online");
+  if (!hostResolved) return <>{children}</>;
+  if (marketingHost) return <MarketingHostRoute pathname={pathname}>{children}</MarketingHostRoute>;
   return (
     <div className={publicSite ? "min-h-screen bg-background" : "relative flex min-h-screen min-w-0 flex-col overflow-hidden bg-background md:h-screen"} ref={layoutRef} style={{ "--side-panel-width": `${panelWidth}px` } as CSSProperties}>
       <div className={publicSite ? "" : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"}>{children}</div>
@@ -45,5 +51,21 @@ export function AgentPanelHost({ children }: Readonly<{ children: React.ReactNod
 }
 
 function isPublicSitePath(pathname: string | null) {
-  return pathname === "/marketing" || pathname === "/docs" || pathname?.startsWith("/docs/") || pathname === "/blog" || pathname?.startsWith("/blog/");
+  return pathname === "/marketing" || pathname?.startsWith("/marketing/") || pathname === "/docs" || pathname?.startsWith("/docs/") || pathname === "/blog" || pathname?.startsWith("/blog/");
+}
+
+function MarketingHostRoute({ children, pathname }: { children: React.ReactNode; pathname: string | null }) {
+  if (pathname === "/" || pathname === "/marketing" || pathname === "/marketing/") return <MarketingShell><MarketingLanding /></MarketingShell>;
+  const appPath = pathname?.match(/^\/(?:marketing\/)?apps\/([^/]+)\/?$/);
+  if (appPath) {
+    const app = getMarketingApp(decodeURIComponent(appPath[1]));
+    return app ? <MarketingShell><MarketingAppDetailContent app={app} /></MarketingShell> : <MarketingNotFound />;
+  }
+  if (pathname === "/apps" || pathname === "/apps/" || pathname === "/marketing/apps" || pathname === "/marketing/apps/") return <MarketingShell><MarketingAppsContent /></MarketingShell>;
+  if (pathname === "/docs" || pathname?.startsWith("/docs/") || pathname === "/blog" || pathname?.startsWith("/blog/")) return <>{children}</>;
+  return <MarketingNotFound />;
+}
+
+function MarketingNotFound() {
+  return <MarketingShell><main className="mx-auto grid min-h-[60vh] max-w-6xl place-items-center px-5 py-16 text-center sm:px-8"><div><p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">PUBLIC SITE</p><h1 className="mt-4 text-3xl font-semibold tracking-tight">这个页面不在官网中。</h1><a className="mt-7 inline-flex h-10 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground" href="/">返回 Recut 官网</a></div></main></MarketingShell>;
 }

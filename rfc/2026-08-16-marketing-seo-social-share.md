@@ -12,12 +12,12 @@
 
 # RFC: 官网 SEO 与社交分享 —— recut.video 的元数据、索引与分享预览完整方案
 
-- 状态：提议
+- 状态：已实施
 - 作者：Recut
 - 日期：2026-08-16
 - 决策范围：逐路由 metadata、canonical/域名收敛、robots.txt 与 sitemap.xml、Open Graph/Twitter Card 与各平台分享预览、OG 图片（首期图标+文本，图槽留作扩展）、JSON-LD 结构化数据、工作台 noindex 隔离、Worker 边缘调整（www 重定向、软 404、/marketing 别名）、favicon/图标集、Blog 内容补强
 - 关联：`web/worker.ts`（Host 分流）、`web/wrangler.toml`（三域名 Custom Domain）、`web/app/layout.tsx`（根元数据）、`web/components/marketing-site.tsx`（官网展示层）、`web/lib/marketing-posts.ts`（文章目录）、`web/README.md` 与 `web/app/README.md`（路由协议）、`Makefile`（web-build-cloudflare / web-deploy）
-- 实施进展：未实施
+- 实施进展：**P0 已落地**（根布局 `title.template` + 默认 noindex、四个 Marketing 路由独立 metadata、canonical、`app/robots.ts`/`app/sitemap.ts`/`app/manifest.ts`、Worker www→裸域 301、`/marketing` 301、Marketing/App Host 未知路径 404、`not_found_handling = "404-page"`）。**P1 已落地**（全站 og/twitter 标签 image 指向 `logo.jpg`，`marketing-jsonld.tsx` Organization/WebSite/SoftwareApplication/Blog/BlogPosting/Breadcrumb，`icon.png`/`apple-touch-icon.png`/`favicon.ico` + `theme-color`）。**P2 已落地**（Blog 五篇唯一 markdown 正文 ≥600 字，`BlogPostContent` 轻量 markdown 渲染 + `ShareActions` 分享组件）。**扩展落地**：官网新增公开 `/apps` 应用市场与 `/apps/:appID` SEO 落地页（Worker 从 Marketing Host 映射、robots 不再 Disallow `/apps`、sitemap/JSON-LD 覆盖、header/footer 加入口）；应用数据与工作台 `app-catalog` 解耦为 `lib/marketing-apps`，每个 App 含关键词/板块/FAQ/相关应用内链；首页按「本地 AI 视频剪辑」关键词策略重构（title/description/H1/H2、三步开始、适合谁、与云端对比、FAQ 六条），并新增首页 FAQPage、应用 ItemList 与增强 SoftwareApplication JSON-LD。验证：`make build:cloudflare` 全绿，逐页 head/sitemap/robots 审计通过，Worker 路由单测（含 deep-link 不回归）。
 
 ## 1. 背景与病灶（当前 SEO 状态盘点）
 

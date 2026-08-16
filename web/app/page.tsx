@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、统一 App 身份图标、Agent Session HTTP API 及全局 Agent 面板上下文
- * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Apps 工作台入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态；并为尚未重启的本地开发服务器保留无水合错误的官网回退
+ * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Apps 工作台入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态
  * [POS]: web/app 的应用工作台框架；Studio 是 app Host 的默认创作入口，世界观作为首个原生创作应用统一进入世界观管理，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -21,8 +21,8 @@ import { CreateAppDialog } from "@/components/create-app-dialog";
 import { InstallGitAppDialog } from "@/components/install-git-app-dialog";
 import { Input } from "@/components/ui/input";
 import { HeaderActions } from "@/components/header-actions";
-import { MarketingLanding, MarketingShell } from "@/components/marketing-site";
 import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
+import { trackEvent } from "@/components/posthog-analytics";
 import { marketplaceApps } from "@/lib/app-catalog";
 import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
@@ -39,9 +39,6 @@ type InstallationLoadState = "loading" | "ready" | "failed" | "offline";
 type WorkspaceProps = { appDetail?: AppDetailRenderer; contentTab?: WorkspaceTab; initialTab?: WorkspaceTab };
 
 export function Workspace(props: WorkspaceProps = {}) {
-  const [showLocalMarketing, setShowLocalMarketing] = useState(false);
-  useEffect(() => setShowLocalMarketing(isLocalMarketingHost()), []);
-  if (showLocalMarketing && !props.appDetail && !props.contentTab && (props.initialTab ?? "studio") === "studio") return <MarketingHome />;
   return <WorkspaceFrame {...props} />;
 }
 
@@ -167,14 +164,6 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
 }
 
 export default Workspace;
-
-function isLocalMarketingHost() {
-  return typeof window !== "undefined" && window.location.hostname === "localhost";
-}
-
-function MarketingHome() {
-  return <MarketingShell><MarketingLanding /></MarketingShell>;
-}
 
 function tabFromPath(pathname: string): WorkspaceTab | null {
   if (pathname === "/") return "studio";
@@ -495,7 +484,7 @@ function ServiceGuide({ embedded, error, onConnectRemote }: { embedded?: boolean
           <p className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-primary"><span className="size-1.5 rounded-full bg-primary" />RECUT · LOCAL CREATIVE OS</p>
           <h1 className="mt-5 max-w-xl text-4xl font-semibold leading-[1.08] tracking-tight text-foreground sm:text-5xl">让 AI 视频创作，<br /><span className="text-primary">留在你的电脑里。</span></h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground">Recut 是为视频创作而生的本地 AI 工作台。剪辑、世界观、声音与新的创作能力，都在同一个可控、可扩展的空间中发生。</p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center"><button className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" onClick={() => void copyInstallCommand()} type="button"><Download className="size-4" />{copied ? "安装命令已复制" : "安装 Recut"}</button><a className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border bg-background px-5 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" href="https://github.com/6174/recut" rel="noreferrer" target="_blank"><Code2 className="size-4" />在 GitHub 上查看</a></div>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center"><button className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" onClick={() => { trackEvent("recut_install_clicked", { location: "service_guide" }); void copyInstallCommand(); }} type="button"><Download className="size-4" />{copied ? "安装命令已复制" : "安装 Recut"}</button><a className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border bg-background px-5 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" href="https://github.com/6174/recut" onClick={() => trackEvent("recut_external_clicked", { target: "github" })} rel="noreferrer" target="_blank"><Code2 className="size-4" />在 GitHub 上查看</a></div>
           <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground"><Terminal className="size-3.5" />点击安装后，命令会复制到剪贴板；在终端粘贴并运行即可。</p>
           <button className="mt-5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground" onClick={onConnectRemote} type="button">已有 service？连接远程工作区 <ArrowRight className="ml-1 inline size-3.5" /></button>
         </div>

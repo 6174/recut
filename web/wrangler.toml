@@ -15,5 +15,7 @@ routes = [
 [assets]
 directory = "./out"
 binding = "ASSETS"
-not_found_handling = "single-page-application"
+# 404 由 Worker 与 404.html 接管：Marketing Host 未知路径不再回退到工作台 index.html（软 404）。
+# 工作台所有真实路由都是静态文件，App Host 也不需要 SPA 回退。
+not_found_handling = "404-page"
 run_worker_first = true
