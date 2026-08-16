@@ -1,6 +1,6 @@
 ---
-order: 70
-group: "FAQ"
+order: 41
+group: "部署与 FAQ"
 title: "常见问题"
 description: "关于 Recut 的常见问题：支持哪些平台、需要什么配置、是否免费开源、素材会不会上传、能不能离线、BYOK 模型、App 生态与开发入门。"
 ---
@@ -15,7 +15,11 @@ macOS、Linux、Windows 与 FreeBSD。macOS 注册 launchd、Linux 注册 system
 
 ## Recut 是免费开源的吗？
 
-是。Recut 完全免费开源，代码公开可审阅，可自部署长期使用；App 可安装、可替换、也可以自己编写。
+Recut 完全免费，也开源——但今天的开源范围需要说清楚。目前所有官方 App（AI 短片、声音工坊、Remotion、封面生成、深度图与剪辑器）的源码都公开在各自的 GitHub 仓库，可以查看、fork 与修改；公开的 App 创建契约 `/app-standard.md` 也在开源。Platform 本体（service、App Host 与媒体平台）的源码尚未发布，未来会开源；在此之前，service 二进制免费、完全运行在你自己的机器上。
+
+## 现在哪些部分已经开源？
+
+目前开源的是 App。每个官方 App 都在独立公开仓库中，你可以审阅其业务逻辑、安装、替换，或按同一契约自己编写 App。Platform 源码会随后跟进。App 始终可安装、可替换、可自写，公开的 App 标准就是「新建应用」Prompt 的参考。
 
 ## 我的素材会上传到云端吗？
 

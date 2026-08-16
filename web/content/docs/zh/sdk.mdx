@@ -1,0 +1,186 @@
+---
+order: 31
+group: "开发"
+title: "App SDK 参考：runtime ctx、background.js 与 UI 桥"
+description: "完整的 App SDK 接口：background.js 运行时（recut.operation.register 与按权限注入的 ctx 能力）、UI iframe 桥（state.query、background.call、agent.compose、events.subscribe）、manifest 权限与事件流。"
+---
+
+Recut App 通过两层 SDK 与平台对话：`background.js` 里的**运行时 SDK**（operation + `ctx` 能力）与 `ui/` iframe 里的**UI 桥**。两者都由 `manifest.json` 声明的权限门控——这份参考就是「你的 App 能看到什么」的权威清单。
+
+## manifest 契约
+
+`manifest.json` 是唯一运行时契约。必填：`manifestVersion`（1）、`id`、`name`、`author`、`description`、`version`、`type`（`project` | `standalone`）、`background`，以及对应的 UI 入口（项目型用 `ui.projectView`，standalone 用 `ui.standaloneView`）。可选：`repository`、`onboarding`、`localized`、`runtime.python`。
+
+```json
+{
+  "manifestVersion": 1,
+  "id": "example.shot-planner",
+  "name": "镜头计划",
+  "author": "Your name",
+  "description": "把创作意图整理为可执行的镜头计划。",
+  "version": "0.1.0",
+  "type": "project",
+  "background": "background.js",
+  "ui": { "projectView": "ui/index.html" },
+  "permissions": ["sqlite", "artifacts.publish"],
+  "operations": [
+    {
+      "name": "plan.create",
+      "description": "根据创作目标创建镜头计划。",
+      "surfaces": ["api", "mcp"],
+      "inputSchema": { "type": "object", "required": ["topic"], "properties": { "topic": { "type": "string", "minLength": 1 } } }
+    }
+  ]
+}
+```
+
+### 权限
+
+每个权限解锁一块 `ctx`。只声明实际用到的最小集合。
+
+| 权限 | 解锁的能力 |
+| --- | --- |
+| `sqlite` | `ctx.sqlite.execute` / `query`，读写 App 命名空间数据库 |
+| `files` | `ctx.files`（项目/App 状态文件）、`ctx.appFiles`（App 全局文件）、`ctx.app.readText`（只读 App 随包文件） |
+| `http` | `ctx.http.get`，受控的外部 GET 请求 |
+| `media.read` | `ctx.media.materialize`、`ctx.media.transcript` |
+| `media.write` | `ctx.media.importFile`、`ctx.media.importTranscript` |
+| `media.compose` | `ctx.media.compose`——确定性时间线合成 |
+| `artifacts.publish` | `ctx.artifacts.publish`（仅项目 target） |
+| `shell` | `ctx.shell.run` / `exec` / `start` / `status` / `logs` / `cancel` |
+| `python` | `ctx.python.status` / `prepare` / `run`（要求 `shell`，并声明 `runtime.python`） |
+| `worlds.read` | `ctx.worlds.list` / `get` / `entities.list` / `entities.get` / `resolve` |
+| `worlds.write` | 追加 `ctx.worlds.create` / `update` / `entities.upsert` / `references.attach`（隐含 `worlds.read`） |
+| `worlds.bind` | `ctx.creationContext.get` / `resolve` / `bindProject` / `bindMediaJob`（隐含 `worlds.read`） |
+
+## background.js：运行时 SDK
+
+`background.js` 在每次 operation 调用时由受限 JavaScript runtime 全新执行。它只注册 handler，平台随后把 UI（`api`）与 Agent（`mcp`）的调用分发到同一个 handler。
+
+```js
+recut.operation.register("plan.create", (input, ctx) => {
+  ctx.sqlite.execute("create table if not exists plans (topic text not null)");
+  ctx.sqlite.execute("insert into plans (topic) values (?)", [input.topic]);
+  return { topic: input.topic };
+});
+```
+
+- `recut.operation.register(name, handler)`——`handler(input, ctx)` 返回可序列化 JSON；`name` 必须与 manifest operation 完全一致。
+- `ctx.locale`——调用者解析后的语言（`"zh"` 或 `"en"`），用它本地化结果与错误。
+- App 业务不常驻内存：需要跨调用保留的状态写进 `ctx.sqlite` 或 `ctx.files`。
+
+### ctx.sqlite
+
+App 命名空间数据库（每个 App 一个 SQLite，同时保存其全局状态与它拥有的所有项目；用 `ctx.project.id` 区分行）。平台表绝不进入它。
+
+| 方法 | 签名 |
+| --- | --- |
+| `execute` | `execute(sql, params?)` → `{ rowsAffected }` |
+| `query` | `query(sql, params?)` → 行对象数组 |
+
+### ctx.files、ctx.appFiles、ctx.app
+
+| 对象 | 方法 |
+| --- | --- |
+| `ctx.files` | `readText(path)`、`writeText(path, text)`、`writeBase64(path, base64)`、`list(path?)`、`url(path)`——限定当前项目（standalone 为 App 状态）；`url` 为已存在的私有文件返回预览 URL |
+| `ctx.appFiles` | `readText(path)`、`writeText(path, text)`、`list(path?)`——App 自己的全局文件区 |
+| `ctx.app` | `readText(relPath)`——只读访问 App 随包文件（如内置 catalog） |
+
+### ctx.http
+
+`ctx.http.get(url, { timeoutMs?, maxBytes? })` → `{ status, body }`。有限请求：默认 5000 ms 与 8 MiB；需要更多时显式调大。
+
+### ctx.project
+
+仅当 App 运行在项目 target 下存在（`project` 型 App 在项目内）。standalone 的 `ctx.project === null`。
+
+| 成员 | 说明 |
+| --- | --- |
+| `id`、`name`、`appId`、`cover` | 只读项目元数据；`cover` 是已设为项目桌面封面的 `{ assetId, kind }` |
+| `setCover({ assetId })` | 把项目封面设为某个已完成的图片/视频 Asset；平台校验类型并自动关联 |
+| `setCoverImage({ path, mimeType })` | 把 App 写在项目文件根里的文件注册为封面，不污染素材库 |
+| `emit(type, payload)` | 经事件账本 + 项目 WebSocket 通道广播实时项目事件（如 `project.document.changed`） |
+
+### ctx.media
+
+| 方法 | 权限 | 说明 |
+| --- | --- | --- |
+| `materialize(assetId)` | `media.read` | 把**已完成**的 Asset 复制进 App 私有 `inputs/`；返回 `{ assetId, kind, mimeType, path }` |
+| `transcript(assetId)` | `media.read` | 把已完成的转写素材解析为 `{ language, duration, segments: [{ start, end, text }] }` |
+| `importFile({ path, name, mimeType })` | `media.write` | 把 App 私有文件导入素材库；只在用户明确选择后调用 |
+| `importTranscript({ audioPath, srtPath, jsonPath, name, sourceAssetId, mimeType, model, language, languageProbability, duration })` | `media.write` | 把私有转写 bundle（源声音 + SRT + JSON）导入为平台 transcript 素材 |
+| `compose(input)` | `media.compose` | 确定性组合已有素材为新视频 Asset——不能替代 AI 生成 |
+
+`compose` 输入：`{ videoTimeline, audioTimeline, settings }`，其中 `settings: { width, height, fps, quality }`，`quality` 为 `high`、`balanced` 或 `small`；每个片段是 `{ assetId, startSec, durationSec }`。
+
+### ctx.shell
+
+在 App 包根（或 `cwd: "files"` 指向项目文件根）运行非交互命令。环境始终包含 `RECUT_APP_FILES_DIR`、`RECUT_MODELS_DIR`、`RECUT_APP_ID`；选用已就绪的 Python 环境会追加 `RECUT_VENV`、`RECUT_PYTHON` 与 `PATH`。
+
+| 方法 | 签名 |
+| --- | --- |
+| `run` / `exec` | `({ command, args, cwd?, environment?, timeoutSeconds? })` → `{ jobId, status, stdout, exitCode, error }`；阻塞到完成，默认超时 300 秒（上限 7200） |
+| `start` | 同输入，立即返回运行中 job `{ id, projectId, appId, status, command, args, exitCode, error }`（timeout 0 = 不限时） |
+| `status` | `(jobId)` → job |
+| `logs` | `(jobId)` → `[{ jobId, sequence, stream, text, timestamp }]` |
+| `cancel` | `(jobId)`——取消运行中的 job |
+
+### ctx.python
+
+供声明 `runtime.python` 的 App 使用。平台创建、指纹化并激活 venv；`prepare` 返回安装与 bootstrap 的 job。
+
+| 方法 | 说明 |
+| --- | --- |
+| `status()` | `{ name, path, python, version, ready, error }` |
+| `prepare()` | 启动依赖 + bootstrap job |
+| `run(args)` | 在已就绪 venv 中启动 Python job（要求 `ready`） |
+
+### ctx.artifacts
+
+`ctx.artifacts.publish({ type, value })` 发布不可变 Artifact 供其他 App 引用。仅项目 target。
+
+### ctx.paths
+
+用于告诉 Agent App 业务文件在哪里的绝对路径（由 Agent 用原生工具读写）：`dataRoot`、`appRoot`、`appFilesRoot`、`modelsDir`、`mediaDir`，项目 target 下另有 `projectFilesRoot` 与 `workspacePath`。
+
+### ctx.worlds
+
+全局 `recut.worlds.*` 契约的权限化运行时形态。它绝不暴露 `ctx.sqlite`，也不授予任何直接 World 表访问。
+
+- `list(input)`、`get({ worldId })`、`entities.list(input)`、`entities.get({ worldId, entityId })`、`resolve({ worldId, selection, revisionId? })`——`worlds.read`
+- `create(input)`、`update(input)`、`entities.upsert(input)`、`references.attach(input)`——追加 `worlds.write`
+
+### ctx.creationContext
+
+配合 `worlds.bind`：`get()` 读取项目绑定的 CreationContext（未绑定时为 `null`），`resolve(input)` 投影固定 revision，`bindProject({ worldId, revisionId, selection, replace })` 把某个 World revision 绑定到当前项目，`bindMediaJob(...)` 绑定媒体 job 的 World 上下文。`bindProject` 与 `get` 需要项目 target。
+
+## ui/：UI 桥
+
+App 的 `ui/` 运行在 iframe 中，绝不直接调用 `/v1/*`。宿主先经 `recut.ui.connect` 把 `MessagePort` 交给 iframe；iframe 先发送 `recut.ui.ready`。iframe 侧的轻量 SDK 封装这个 port：
+
+```ts
+recut.state.query(operationName)          // api surface，空输入
+recut.background.call(operationName, input) // api surface，带输入
+recut.agent.compose({ prompt })           // 写入 Agent 输入框，绝不自动提交
+recut.media.pick({ kinds, multiple?, selectedIDs? }) // 打开素材选择器
+recut.page.context({ title, path?, url?, selection?, content? }) // 上报页面上下文
+recut.navigation.openAppDetail(appID)     // 在新标签打开 App 详情页
+recut.events.subscribe((event) => unsubscribe) // 订阅项目事件
+```
+
+- `state.query` 与 `background.call` 只会触达当前 App 的 `api` surface operation。
+- `agent.compose` 只填充 Agent 输入框——用户确认后才会执行。
+- 素材内容 URL：`recut.media.contentURL(assetId)` 与 `recut.media.partURL(assetId, part)`（part 为 `content`/`srt`/`json`/`image`）。
+
+## 事件流
+
+事件经 `recut.events.subscribe` 与项目 WebSocket 通道到达：
+
+| 事件 | 载荷 |
+| --- | --- |
+| `app.capability.completed` | `{ appId, kind: "operation", name, at }`——operation 成功后刷新 UI 状态 |
+| `shell.job.started` | `{ appId, job }` |
+| `shell.job.log` | `{ appId, log }`——`{ jobId, sequence, stream, text, timestamp }` |
+| `shell.job.completed` | `{ appId, job }`——终态；保留失败文本供 Agent 诊断 |
+
+长任务 UI 应按 job id 渲染日志、在终态后刷新领域数据，并向用户展示错误而不是隐藏它。

@@ -355,6 +355,15 @@ function TeamNote() {
   );
 }
 
+function PostDate({ className, date }: { className?: string; date: string }) {
+  const locale = useMarketingLocale();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const readableDate = match
+    ? new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))))
+    : date;
+  return <time className={`block font-mono text-muted-foreground ${className ?? ""}`} dateTime={date}>{t("marketing", locale, "blog.published").replace("{date}", readableDate)}</time>;
+}
+
 function LatestPosts({ posts }: { posts: MarketingPost[] }) {
   const locale = useMarketingLocale();
   return (
@@ -366,7 +375,7 @@ function LatestPosts({ posts }: { posts: MarketingPost[] }) {
         </div>
         <a className="hidden text-sm font-semibold text-primary sm:inline" href={localizeURL("/blog", locale)}>{t("marketing", locale, "blog.allPosts")}</a>
       </div>
-      <div className="mt-10 grid gap-4 md:grid-cols-3">{posts.map((post) => <article className="flex min-h-60 flex-col rounded-2xl border bg-card p-5" key={post.slug}><time className="font-mono text-[10px] text-muted-foreground">{post.date}</time><h3 className="mt-8 text-lg font-semibold leading-6"><a className="transition hover:text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{post.title[locale]}</a></h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{post.description[locale]}</p><a className="mt-auto pt-6 text-sm font-semibold text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{t("marketing", locale, "blog.continueReading")}</a></article>)}</div>
+      <div className="mt-10 grid gap-4 md:grid-cols-3">{posts.map((post) => <article className="flex min-h-60 flex-col rounded-2xl border bg-card p-5" key={post.slug}><PostDate className="text-[10px]" date={post.date} /><h3 className="mt-8 text-lg font-semibold leading-6"><a className="transition hover:text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{post.title[locale]}</a></h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{post.description[locale]}</p><a className="mt-auto pt-6 text-sm font-semibold text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{t("marketing", locale, "blog.continueReading")}</a></article>)}</div>
       <a className="mt-6 inline-flex text-sm font-semibold text-primary sm:hidden" href={localizeURL("/blog", locale)}>{t("marketing", locale, "blog.allPosts")}</a>
     </section>
   );
@@ -420,7 +429,7 @@ export function BlogContent({ posts }: { posts: MarketingPost[] }) {
       <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "blog.eyebrow")}</p>
       <h1 className="mt-4 text-4xl font-semibold tracking-tight">{t("marketing", locale, "blog.title")}</h1>
       <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">{t("marketing", locale, "blog.tagline")}</p>
-      <div className="mt-10 divide-y border-y">{posts.map((post) => <article className="grid gap-3 py-7 sm:grid-cols-[9rem_1fr_auto] sm:items-center" key={post.slug}><time className="font-mono text-xs text-muted-foreground">{post.date}</time><div><h2 className="text-xl font-semibold"><a className="transition hover:text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{post.title[locale]}</a></h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{post.description[locale]}</p></div><a aria-label={t("marketing", locale, "blog.readAria").replace("{title}", post.title[locale])} className="text-sm font-semibold text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{t("marketing", locale, "blog.read")}</a></article>)}</div>
+      <div className="mt-10 divide-y border-y">{posts.map((post) => <article className="grid gap-3 py-7 sm:grid-cols-[9rem_1fr_auto] sm:items-center" key={post.slug}><PostDate className="text-xs" date={post.date} /><div><h2 className="text-xl font-semibold"><a className="transition hover:text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{post.title[locale]}</a></h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{post.description[locale]}</p></div><a aria-label={t("marketing", locale, "blog.readAria").replace("{title}", post.title[locale])} className="text-sm font-semibold text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{t("marketing", locale, "blog.read")}</a></article>)}</div>
     </section>
   );
 }
@@ -432,7 +441,7 @@ export function BlogPostContent({ post }: { post: MarketingPost }) {
   return (
     <article className="mx-auto max-w-3xl px-5 py-16 sm:px-8">
       <a className="text-sm font-semibold text-primary" href={localizeURL("/blog", locale)}>{t("marketing", locale, "blog.backToAll")}</a>
-      <p className="mt-10 font-mono text-xs text-muted-foreground">{post.date}</p>
+      <PostDate className="mt-10 text-xs" date={post.date} />
       <h1 className="mt-4 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">{title}</h1>
       <p className="mt-6 text-lg leading-8 text-muted-foreground">{post.description[locale]}</p>
       <MarkdownContent content={post.content[locale]} />

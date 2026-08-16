@@ -1067,6 +1067,12 @@ function contentDir() {
   return path.join(process.cwd(), "content", "marketing", "zh");
 }
 
+function postDate(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.valueOf())) return value.toISOString().slice(0, 10);
+  const text = String(value ?? "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
 function loadPosts(): MarketingPost[] {
   const dir = contentDir();
   if (!fs.existsSync(dir)) return [];
@@ -1083,7 +1089,7 @@ function loadPosts(): MarketingPost[] {
       const contentZh = content.trim();
       return {
         slug,
-        date: String(data.date ?? ""),
+        date: postDate(data.date),
         title: { zh: titleZh, en: en?.title ?? titleZh },
         description: { zh: descriptionZh, en: en?.description ?? descriptionZh },
         content: { zh: contentZh, en: en?.content ?? contentZh },

@@ -1,0 +1,186 @@
+---
+order: 31
+group: "Development"
+title: "App SDK reference: runtime ctx, background.js and the UI bridge"
+description: "The complete App SDK surface: the background.js runtime (recut.operation.register and the permission-scoped ctx capabilities), the UI iframe bridge (state.query, background.call, agent.compose, events.subscribe), manifest permissions and the event stream."
+---
+
+A Recut App talks to the platform through two SDK surfaces: a **runtime SDK** inside `background.js` (operations + `ctx` capabilities) and a **UI bridge** inside the `ui/` iframe. Both are gated by the permissions declared in `manifest.json` — the SDK reference for what your App can see.
+
+## The manifest contract
+
+`manifest.json` is the single runtime contract. Required fields: `manifestVersion` (1), `id`, `name`, `author`, `description`, `version`, `type` (`project` | `standalone`), `background`, and a matching UI entrypoint (`ui.projectView` for project Apps, `ui.standaloneView` for standalone Apps). Optional: `repository`, `onboarding`, `localized` and `runtime.python`.
+
+```json
+{
+  "manifestVersion": 1,
+  "id": "example.shot-planner",
+  "name": "镜头计划",
+  "author": "Your name",
+  "description": "把创作意图整理为可执行的镜头计划。",
+  "version": "0.1.0",
+  "type": "project",
+  "background": "background.js",
+  "ui": { "projectView": "ui/index.html" },
+  "permissions": ["sqlite", "artifacts.publish"],
+  "operations": [
+    {
+      "name": "plan.create",
+      "description": "根据创作目标创建镜头计划。",
+      "surfaces": ["api", "mcp"],
+      "inputSchema": { "type": "object", "required": ["topic"], "properties": { "topic": { "type": "string", "minLength": 1 } } }
+    }
+  ]
+}
+```
+
+### Permissions
+
+Each permission unlocks a slice of `ctx`. Only declare what you actually use.
+
+| Permission | Enables |
+| --- | --- |
+| `sqlite` | `ctx.sqlite.execute` / `query` in the App-scoped namespace database |
+| `files` | `ctx.files` (project/App-state files), `ctx.appFiles` (App global files), `ctx.app.readText` (read-only app package files) |
+| `http` | `ctx.http.get` for bounded external GET requests |
+| `media.read` | `ctx.media.materialize`, `ctx.media.transcript` |
+| `media.write` | `ctx.media.importFile`, `ctx.media.importTranscript` |
+| `media.compose` | `ctx.media.compose` — deterministic timeline composition |
+| `artifacts.publish` | `ctx.artifacts.publish` (Project target only) |
+| `shell` | `ctx.shell.run` / `exec` / `start` / `status` / `logs` / `cancel` |
+| `python` | `ctx.python.status` / `prepare` / `run` (requires `shell`, plus `runtime.python`) |
+| `worlds.read` | `ctx.worlds.list` / `get` / `entities.list` / `entities.get` / `resolve` |
+| `worlds.write` | adds `ctx.worlds.create` / `update` / `entities.upsert` / `references.attach` (implies `worlds.read`) |
+| `worlds.bind` | `ctx.creationContext.get` / `resolve` / `bindProject` / `bindMediaJob` (implies `worlds.read`) |
+
+## background.js: the runtime SDK
+
+`background.js` runs fresh on every operation call in the platform's restricted JavaScript runtime. It registers handlers once; the platform then dispatches UI (`api`) and Agent (`mcp`) calls to the same handler.
+
+```js
+recut.operation.register("plan.create", (input, ctx) => {
+  ctx.sqlite.execute("create table if not exists plans (topic text not null)");
+  ctx.sqlite.execute("insert into plans (topic) values (?)", [input.topic]);
+  return { topic: input.topic };
+});
+```
+
+- `recut.operation.register(name, handler)` — `handler(input, ctx)` returns serializable JSON; `name` must match a manifest operation exactly.
+- `ctx.locale` — the caller's resolved locale (`"zh"` or `"en"`); localize results and errors with it.
+- There is no App process resident in memory: state that must survive calls goes to `ctx.sqlite` or `ctx.files`.
+
+### ctx.sqlite
+
+App-scoped namespace database (one SQLite per App holds both its global state and every project it owns; partition rows by `ctx.project.id`). Platform tables never enter it.
+
+| Method | Signature |
+| --- | --- |
+| `execute` | `execute(sql, params?)` → `{ rowsAffected }` |
+| `query` | `query(sql, params?)` → array of row objects |
+
+### ctx.files, ctx.appFiles, ctx.app
+
+| Object | Methods |
+| --- | --- |
+| `ctx.files` | `readText(path)`, `writeText(path, text)`, `writeBase64(path, base64)`, `list(path?)`, `url(path)` — scoped to the current project (or App state for standalone); `url` returns a preview URL for an existing private file |
+| `ctx.appFiles` | `readText(path)`, `writeText(path, text)`, `list(path?)` — the App's own global file area |
+| `ctx.app` | `readText(relPath)` — read-only access to the App's package files (e.g. a bundled catalog) |
+
+### ctx.http
+
+`ctx.http.get(url, { timeoutMs?, maxBytes? })` → `{ status, body }`. Bounded: default 5000 ms and 8 MiB; raise them explicitly if your App needs more.
+
+### ctx.project
+
+Only present when the App runs under a Project target (a `project` type App in a project). Standalone Apps get `ctx.project === null`.
+
+| Member | Description |
+| --- | --- |
+| `id`, `name`, `appId`, `cover` | Read-only project metadata; `cover` is the `{ assetId, kind }` set as the project desktop cover |
+| `setCover({ assetId })` | Set the project cover to a completed image/video Asset; platform validates type and attaches it |
+| `setCoverImage({ path, mimeType })` | Register an App-written file inside the project files root as the cover, without polluting the media library |
+| `emit(type, payload)` | Broadcast a realtime project event (e.g. `project.document.changed`) through the event ledger + project WebSocket channel |
+
+### ctx.media
+
+| Method | Permission | Description |
+| --- | --- | --- |
+| `materialize(assetId)` | `media.read` | Copy a **completed** Asset into the App's private `inputs/`; returns `{ assetId, kind, mimeType, path }` |
+| `transcript(assetId)` | `media.read` | Parse a completed transcript Asset into `{ language, duration, segments: [{ start, end, text }] }` |
+| `importFile({ path, name, mimeType })` | `media.write` | Import an App-private file into the media library; only after explicit user choice |
+| `importTranscript({ audioPath, srtPath, jsonPath, name, sourceAssetId, mimeType, model, language, languageProbability, duration })` | `media.write` | Import a private transcript bundle (source audio + SRT + JSON) as a platform transcript Asset |
+| `compose(input)` | `media.compose` | Deterministically combine existing Assets into a new video Asset — not a substitute for AI generation |
+
+`compose` input: `{ videoTimeline, audioTimeline, settings }` with `settings: { width, height, fps, quality }` where `quality` is `high`, `balanced` or `small`; each clip is `{ assetId, startSec, durationSec }`.
+
+### ctx.shell
+
+Run non-interactive commands in the App package root (or `cwd: "files"` for the project files root). Environment always includes `RECUT_APP_FILES_DIR`, `RECUT_MODELS_DIR`, `RECUT_APP_ID`; selecting a ready Python environment adds `RECUT_VENV`, `RECUT_PYTHON` and `PATH`.
+
+| Method | Signature |
+| --- | --- |
+| `run` / `exec` | `({ command, args, cwd?, environment?, timeoutSeconds? })` → `{ jobId, status, stdout, exitCode, error }`; waits to completion, default timeout 300 s (max 7200) |
+| `start` | same input, returns the running job `{ id, projectId, appId, status, command, args, exitCode, error }` immediately (timeout 0 = indefinite) |
+| `status` | `(jobId)` → job |
+| `logs` | `(jobId)` → `[{ jobId, sequence, stream, text, timestamp }]` |
+| `cancel` | `(jobId)` — cancel a running job |
+
+### ctx.python
+
+For Apps declaring `runtime.python`. The platform creates, fingerprints and activates the venv; `prepare` returns the install/bootstrap job.
+
+| Method | Description |
+| --- | --- |
+| `status()` | `{ name, path, python, version, ready, error }` |
+| `prepare()` | Start the dependency + bootstrap job |
+| `run(args)` | Start a Python job in the ready venv (requires `ready`) |
+
+### ctx.artifacts
+
+`ctx.artifacts.publish({ type, value })` publishes an immutable Artifact other Apps can reference. Project target only.
+
+### ctx.paths
+
+Absolute filesystem locations for telling the Agent where App business files live (read/written with the Agent's native tools): `dataRoot`, `appRoot`, `appFilesRoot`, `modelsDir`, `mediaDir`, plus `projectFilesRoot` and `workspacePath` under a Project target.
+
+### ctx.worlds
+
+The permission-scoped runtime form of the global `recut.worlds.*` contract. It never exposes `ctx.sqlite` and never grants direct World-table access.
+
+- `list(input)`, `get({ worldId })`, `entities.list(input)`, `entities.get({ worldId, entityId })`, `resolve({ worldId, selection, revisionId? })` — with `worlds.read`
+- `create(input)`, `update(input)`, `entities.upsert(input)`, `references.attach(input)` — additionally with `worlds.write`
+
+### ctx.creationContext
+
+With `worlds.bind`: `get()` reads the project's bound CreationContext (`null` when unbound), `resolve(input)` projects a fixed revision, `bindProject({ worldId, revisionId, selection, replace })` binds a World revision to the current project, and `bindMediaJob(...)` binds a media job's World context. `bindProject` and `get` require a Project target.
+
+## ui/: the UI bridge
+
+The App's `ui/` runs in an iframe and never talks to `/v1/*` directly. The host hands the iframe a `MessagePort` (`recut.ui.connect`); the iframe posts `recut.ui.ready` first. A lightweight SDK on the iframe side wraps the port:
+
+```ts
+recut.state.query(operationName)          // api surface, empty input
+recut.background.call(operationName, input) // api surface, with input
+recut.agent.compose({ prompt })           // write into the Agent composer, never auto-submit
+recut.media.pick({ kinds, multiple?, selectedIDs? }) // open the media picker
+recut.page.context({ title, path?, url?, selection?, content? }) // report page context
+recut.navigation.openAppDetail(appID)     // open an App detail page in a new tab
+recut.events.subscribe((event) => unsubscribe) // subscribe to project events
+```
+
+- `state.query` and `background.call` only reach the current App's `api`-surface operations.
+- `agent.compose` only fills the Agent input — the user confirms before anything runs.
+- Media content URLs: `recut.media.contentURL(assetId)` and `recut.media.partURL(assetId, part)` for `content`/`srt`/`json`/`image`.
+
+## The event stream
+
+Events arrive through `recut.events.subscribe` and the project WebSocket channel:
+
+| Event | Payload |
+| --- | --- |
+| `app.capability.completed` | `{ appId, kind: "operation", name, at }` — refresh UI state after an operation |
+| `shell.job.started` | `{ appId, job }` |
+| `shell.job.log` | `{ appId, log }` — `{ jobId, sequence, stream, text, timestamp }` |
+| `shell.job.completed` | `{ appId, job }` — terminal status; keep the failure text for Agent diagnosis |
+
+Long-running UI should render logs by job id, refresh domain data on terminal status, and surface errors instead of hiding them.
