@@ -1,12 +1,12 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、统一 App 身份图标、Agent Session HTTP API 及全局 Agent 面板上下文
- * [OUTPUT]: 对外提供 Studio、Projects、Assets、Apps 四个独立入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、Studio 的每日稳定两条轻量创作引导（首访引导作为同一候选，点击只回填左侧创作输入框，绝不自动提交）、首页与应用中心一致的紧凑应用卡、以首位「世界观」固定能力卡开头的应用入口、项目列表首位的「新建」卡及居中 App 选择模态框，点选 App 后紧接项目命名弹框、首页最多 11 张且与项目页复用的紧凑项目卡（按 App 设置的图片/视频封面渲染）与最近资源外显、项目与资源卡统一 More 重命名/确认删除操作、可预览的项目 App 选择与详情入口、Git 仓库安装入口、已安装 App 的单个与聚合升级动作、为项目型 App 弹框创建项目、直接打开工作区型 App、安装列表的明确读取/失败/空态和无外框的 service 连接/诊断空态
- * [POS]: web/app 的主工作台框架；Studio 是默认创作入口，世界观作为首个原生创作应用统一进入世界观管理，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
+ * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Apps 工作台入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态；并为尚未重启的本地开发服务器保留无水合错误的官网回退
+ * [POS]: web/app 的应用工作台框架；Studio 是 app Host 的默认创作入口，世界观作为首个原生创作应用统一进入世界观管理，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AppWindow, ArrowRight, Box, Captions, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, Globe2, ImageIcon, Link2, LoaderCircle, Music2, Plus, Sparkles, Video, X, type LucideIcon } from "lucide-react";
+import { AppWindow, ArrowRight, Blocks, Box, Captions, Check, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, Globe2, HardDrive, ImageIcon, Link2, LoaderCircle, Mic2, Music2, Plus, Scissors, Sparkles, Terminal, Video, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, MouseEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
@@ -21,6 +21,7 @@ import { CreateAppDialog } from "@/components/create-app-dialog";
 import { InstallGitAppDialog } from "@/components/install-git-app-dialog";
 import { Input } from "@/components/ui/input";
 import { HeaderActions } from "@/components/header-actions";
+import { MarketingLanding, MarketingShell } from "@/components/marketing-site";
 import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
 import { marketplaceApps } from "@/lib/app-catalog";
 import { isLocalWorkspace } from "@/lib/service-endpoint";
@@ -35,8 +36,16 @@ import { WorldsClient } from "./worlds/worlds-client";
 type AppDetailRenderer = (context: { onConnectService: () => void; serviceOnline: boolean }) => React.ReactNode;
 type WorkspaceTab = "studio" | "worlds" | "projects" | "assets" | "apps";
 type InstallationLoadState = "loading" | "ready" | "failed" | "offline";
+type WorkspaceProps = { appDetail?: AppDetailRenderer; contentTab?: WorkspaceTab; initialTab?: WorkspaceTab };
 
-export function Workspace({ appDetail, contentTab, initialTab = "studio" }: { appDetail?: AppDetailRenderer; contentTab?: WorkspaceTab; initialTab?: WorkspaceTab } = {}) {
+export function Workspace(props: WorkspaceProps = {}) {
+  const [showLocalMarketing, setShowLocalMarketing] = useState(false);
+  useEffect(() => setShowLocalMarketing(isLocalMarketingHost()), []);
+  if (showLocalMarketing && !props.appDetail && !props.contentTab && (props.initialTab ?? "studio") === "studio") return <MarketingHome />;
+  return <WorkspaceFrame {...props} />;
+}
+
+function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: WorkspaceProps = {}) {
   const installations = useWorkspaceStore((state) => state.installations);
   const projects = useWorkspaceStore((state) => state.projects);
   const installationsState = useWorkspaceStore((state) => state.installationsState);
@@ -52,6 +61,8 @@ export function Workspace({ appDetail, contentTab, initialTab = "studio" }: { ap
   const [settingsSection, setSettingsSection] = useState<"service" | "multimodal" | undefined>();
 
   const online = service.phase === "online";
+  const showLanding = !isLocalWorkspace && service.phase === "offline";
+  const showAgentPanel = isLocalWorkspace || service.phase !== "offline";
   const agentProjectID = tab === "assets" ? mediaProjectID : null;
   useLayoutEffect(() => {
     useAgentPanelContext.getState().setProjectID(agentProjectID);
@@ -145,10 +156,10 @@ export function Workspace({ appDetail, contentTab, initialTab = "studio" }: { ap
           : <MediaLibraryPanel initialAssetID={initialAssetID} onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-5">
-      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label="工作台" className="flex min-w-0 items-center gap-0.5 sm:gap-1"><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">创作台</Tab><Tab active={tab === "worlds"} href="/worlds" onNavigate={navigateTab} tab="worlds">Worlds</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">项目</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">素材库</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">应用</Tab></nav></div>
-      <div className="hidden md:block"><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>
+      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label={showLanding ? "官网导航" : "工作台"} className="flex min-w-0 items-center gap-0.5 sm:gap-1">{showLanding ? <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">工作台</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">应用市场</Tab></> : <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">创作台</Tab><Tab active={tab === "worlds"} href="/worlds" onNavigate={navigateTab} tab="worlds">Worlds</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">项目</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">素材库</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">应用</Tab></>}</nav></div>
+      {!showLanding && <div className="hidden md:block"><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>}
     </header>
-    <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]">
+    <div className={`min-h-0 flex-1 overflow-hidden ${showAgentPanel ? "md:pl-[var(--side-panel-width)]" : ""}`}>
       {online && tab === "assets" ? content : <section className="h-full min-h-0 overflow-y-auto bg-muted/30 p-4 sm:p-6 md:p-8"><div className="mx-auto max-w-6xl">{content}</div></section>}
     </div>
     {createApp && <CreateProjectFromAppDialog app={createApp} onClose={() => setCreateApp(null)} onCreate={async (projectName) => createProjectWithApp(createApp, projectName)} />}
@@ -156,6 +167,14 @@ export function Workspace({ appDetail, contentTab, initialTab = "studio" }: { ap
 }
 
 export default Workspace;
+
+function isLocalMarketingHost() {
+  return typeof window !== "undefined" && window.location.hostname === "localhost";
+}
+
+function MarketingHome() {
+  return <MarketingShell><MarketingLanding /></MarketingShell>;
+}
 
 function tabFromPath(pathname: string): WorkspaceTab | null {
   if (pathname === "/") return "studio";
@@ -446,20 +465,55 @@ function InstalledAppAction({ app, onStartProject }: { app: Installation; onStar
   return <Button className="h-8 px-2.5" onClick={() => onStartProject(app)} type="button"><FolderPlus className="size-3.5" />新建</Button>;
 }
 
+const SERVICE_INSTALL_COMMAND = "curl -fsSL https://recut.video/install.sh | sh";
+
+const LANDING_FEATURES = [
+  { description: "从素材、脚本到时间线，把每一帧剪成你的故事。", icon: Scissors, title: "视频剪辑" },
+  { description: "让角色、场景和叙事规则持续存在，每次创作都从同一个宇宙出发。", icon: Globe2, title: "世界观" },
+  { description: "为已获授权的声音保留独特表达，并把它用于角色与旁白。", icon: Mic2, title: "语音克隆" },
+  { description: "安装或自己编写 App，把新的模型、流程和工具接进工作台。", icon: Blocks, title: "扩展应用" },
+] as const;
+
 function ServiceGuide({ embedded, error, onConnectRemote }: { embedded?: boolean; error?: string; onConnectRemote: () => void }) {
   const [copied, setCopied] = useState(false);
-  const title = embedded ? "本地工作台连接中断" : "启动一个 service";
-  const description = embedded ? "当前页面由同一个 Recut service 提供；请刷新页面或检查该 service 的日志。" : "Recut 的数据与执行能力仍在你的电脑上。安装后会自动启动本地 service。";
   async function copyInstallCommand() {
     try {
-      await navigator.clipboard.writeText("curl -fsSL https://recut.video/install.sh | sh");
+      await navigator.clipboard.writeText(SERVICE_INSTALL_COMMAND);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2200);
     } catch {
       setCopied(false);
     }
   }
-  return <section className="mx-auto flex min-h-[30rem] max-w-2xl flex-col items-center justify-center py-12 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><p className="mt-6 font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">LOCAL SERVICE</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">{title}</h1><p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">{description}</p>{!embedded && <><div className="mt-7 flex w-full max-w-xl items-center overflow-hidden rounded-lg bg-foreground text-left text-primary-foreground shadow-sm"><code className="min-w-0 flex-1 overflow-x-auto px-4 py-3 font-mono text-xs">curl -fsSL https://recut.video/install.sh | sh</code><button aria-label="复制安装命令" className="flex h-11 shrink-0 items-center gap-1.5 border-l border-primary-foreground/15 bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/85" onClick={() => void copyInstallCommand()} type="button"><Copy className="size-3.5" />{copied ? "已复制" : "复制"}</button></div><button className="mt-5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground" onClick={onConnectRemote} type="button">连接已有的远程 service</button><p className="mt-2 text-xs leading-5 text-muted-foreground">也可以在连接设置中填入团队或服务器提供的 HTTPS 地址。</p></>}{error && <div className="mt-8 w-full max-w-2xl"><RepairGuide message={error} /></div>}</section>;
+  if (embedded) return <ServiceRecoveryGuide error={error} />;
+  return <section className="mx-auto max-w-6xl py-4 pb-10 sm:py-8">
+    <div className="relative overflow-hidden rounded-[1.75rem] border border-primary/15 bg-card px-6 py-10 shadow-[0_24px_80px_oklch(0.25_0.06_151_/_0.10)] sm:px-10 sm:py-14 lg:px-14">
+      <div aria-hidden="true" className="absolute -right-24 -top-32 size-96 rounded-full bg-primary/10 blur-3xl" />
+      <div aria-hidden="true" className="absolute -bottom-32 left-1/3 size-80 rounded-full bg-accent/70 blur-3xl" />
+      <div className="relative grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-14">
+        <div className="max-w-2xl">
+          <p className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-primary"><span className="size-1.5 rounded-full bg-primary" />RECUT · LOCAL CREATIVE OS</p>
+          <h1 className="mt-5 max-w-xl text-4xl font-semibold leading-[1.08] tracking-tight text-foreground sm:text-5xl">让 AI 视频创作，<br /><span className="text-primary">留在你的电脑里。</span></h1>
+          <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground">Recut 是为视频创作而生的本地 AI 工作台。剪辑、世界观、声音与新的创作能力，都在同一个可控、可扩展的空间中发生。</p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center"><button className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" onClick={() => void copyInstallCommand()} type="button"><Download className="size-4" />{copied ? "安装命令已复制" : "安装 Recut"}</button><a className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border bg-background px-5 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" href="https://github.com/6174/recut" rel="noreferrer" target="_blank"><Code2 className="size-4" />在 GitHub 上查看</a></div>
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground"><Terminal className="size-3.5" />点击安装后，命令会复制到剪贴板；在终端粘贴并运行即可。</p>
+          <button className="mt-5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground" onClick={onConnectRemote} type="button">已有 service？连接远程工作区 <ArrowRight className="ml-1 inline size-3.5" /></button>
+        </div>
+        <div className="relative rounded-2xl border border-primary/15 bg-background/85 p-4 shadow-xl backdrop-blur-sm"><div className="flex items-center justify-between border-b border-border/80 pb-3"><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground"><Clapperboard className="size-4" /></span><span><span className="block text-sm font-semibold">你的创作工作台</span><span className="block text-[10px] text-muted-foreground">LOCAL · PRIVATE · EXTENSIBLE</span></span></div><span className="rounded-full bg-primary/10 px-2 py-1 font-mono text-[9px] font-semibold tracking-wider text-primary">READY</span></div><div className="mt-4 grid grid-cols-2 gap-2.5">{LANDING_FEATURES.map(({ description, icon: Icon, title }) => <div className="rounded-xl border border-border/80 bg-card p-3.5" key={title}><span className="grid size-8 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="size-4" /></span><p className="mt-5 text-sm font-semibold">{title}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{description}</p></div>)}</div></div>
+      </div>
+    </div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-3"><LandingValue icon={HardDrive} text="项目、素材与凭据都由你掌控，不交给陌生的云端。" title="本地优先" /><LandingValue icon={Code2} text="代码公开，工作方式透明，也可以按你的流程继续塑造。" title="开源构建" /><LandingValue icon={Check} text="一条命令安装，服务会在本机启动，准备好再开始创作。" title="立即可用" /></div>
+    <div className="mt-5 overflow-hidden rounded-xl border bg-foreground text-left text-primary-foreground shadow-sm"><div className="flex items-center gap-3 border-b border-primary-foreground/10 px-4 py-2 text-[10px] font-medium text-primary-foreground/55"><Terminal className="size-3.5" />TERMINAL · MACOS / LINUX / FREEBSD</div><div className="flex items-center gap-3 px-4 py-3"><code className="min-w-0 flex-1 overflow-x-auto font-mono text-xs">{SERVICE_INSTALL_COMMAND}</code><button aria-label="复制安装命令" className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary/85" onClick={() => void copyInstallCommand()} type="button"><Copy className="size-3.5" />{copied ? "已复制" : "复制"}</button></div></div>
+    {error && <div className="mt-5"><RepairGuide message={error} /></div>}
+  </section>;
+}
+
+function ServiceRecoveryGuide({ error }: { error?: string }) {
+  return <section className="mx-auto flex min-h-[30rem] max-w-2xl flex-col items-center justify-center py-12 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><p className="mt-6 font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">LOCAL SERVICE</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">本地工作台连接中断</h1><p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">当前页面由同一个 Recut service 提供；请刷新页面或检查该 service 的日志。</p>{error && <div className="mt-8 w-full max-w-2xl"><RepairGuide message={error} /></div>}</section>;
+}
+
+function LandingValue({ icon: Icon, text, title }: { icon: LucideIcon; text: string; title: string }) {
+  return <div className="flex gap-3 rounded-xl border bg-card p-4"><span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Icon className="size-4" /></span><div><h2 className="text-sm font-semibold">{title}</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p></div></div>;
 }
 
 function ServiceChecking() {

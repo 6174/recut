@@ -92,6 +92,22 @@ func TestAgentOnboardingHTTP(t *testing.T) {
 		t.Fatalf("LAN preflight = %d, origin = %q", recorder.Code, recorder.Header().Get("Access-Control-Allow-Origin"))
 	}
 
+	localAppPreflight := httptest.NewRequest(http.MethodOptions, "/v1/agent-onboarding", nil)
+	localAppPreflight.Header.Set("Origin", "http://app.localhost:3000")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, localAppPreflight)
+	if recorder.Code != http.StatusNoContent || recorder.Header().Get("Access-Control-Allow-Origin") != "http://app.localhost:3000" {
+		t.Fatalf("app.localhost preflight = %d, origin = %q", recorder.Code, recorder.Header().Get("Access-Control-Allow-Origin"))
+	}
+
+	appPreflight := httptest.NewRequest(http.MethodOptions, "/v1/agent-onboarding", nil)
+	appPreflight.Header.Set("Origin", "https://app.recut.video")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, appPreflight)
+	if recorder.Code != http.StatusNoContent || recorder.Header().Get("Access-Control-Allow-Origin") != "https://app.recut.video" {
+		t.Fatalf("app.recut.video preflight = %d, origin = %q", recorder.Code, recorder.Header().Get("Access-Control-Allow-Origin"))
+	}
+
 	deniedPreflight := httptest.NewRequest(http.MethodOptions, "/v1/agent-onboarding", nil)
 	deniedPreflight.Header.Set("Origin", "https://untrusted.example")
 	recorder = httptest.NewRecorder()

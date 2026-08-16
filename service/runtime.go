@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -179,6 +180,51 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.
 		_ = appFiles.Set("list", fileList(runtime, appStateRoot))
 		_ = ctx.Set("appFiles", appFiles)
 	}
+	if hasPermission(app.Manifest, "files") {
+		// ctx.app.readText(relPath) —— 只读 App 随包文件（如 catalog/effects.json 回退源）。
+		// 绑定 app.Root，与项目文件隔离；仅本 App 自己的包可读。
+		appPkg := runtime.NewObject()
+		_ = appPkg.Set("readText", fileReadText(runtime, app.Root))
+		_ = ctx.Set("app", appPkg)
+	}
+	if hasPermission(app.Manifest, "http") {
+		httpc := runtime.NewObject()
+		// ctx.http.get(url, { timeoutMs?, maxBytes? }) —— 有限 GET，返回 { status, body }。
+		// 供 App 拉取动态目录（如 CDN catalog），权限由 manifest 的 http 声明门控。
+		_ = httpc.Set("get", func(call goja.FunctionCall) goja.Value {
+			url := strings.TrimSpace(call.Argument(0).String())
+			if url == "" {
+				panic(runtime.NewGoError(errors.New("http.get: url required")))
+			}
+			opts := map[string]any{}
+			if !goja.IsUndefined(call.Argument(1)) && !goja.IsNull(call.Argument(1)) {
+				if err := runtime.ExportTo(call.Argument(1), &opts); err != nil {
+					panic(runtime.NewTypeError(err.Error()))
+				}
+			}
+			timeoutMs := int64(5000)
+			if v, ok := numericAny(opts["timeoutMs"]); ok {
+				timeoutMs = v
+			}
+			maxBytes := int64(8 << 20)
+			if v, ok := numericAny(opts["maxBytes"]); ok {
+				maxBytes = v
+			}
+			client := &http.Client{Timeout: time.Duration(timeoutMs) * time.Millisecond}
+			resp, err := client.Get(url)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return runtime.ToValue(map[string]any{"status": resp.StatusCode, "body": string(body)})
+		})
+		_ = ctx.Set("http", httpc)
+	}
+
 	if target.IsProject() {
 		project, err := h.store.Get(target.ProjectID)
 		if err != nil {
@@ -1102,6 +1148,15 @@ func numericValue(value any) float64 {
 	default:
 		return 0
 	}
+}
+
+// numericAny 取正整数数值；非数值或 <=0 返回 ok=false。
+func numericAny(value any) (int64, bool) {
+	f := numericValue(value)
+	if f <= 0 || f != f {
+		return 0, false
+	}
+	return int64(f), true
 }
 func importedAssetResult(asset MediaAsset) map[string]any {
 	return map[string]any{

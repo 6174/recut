@@ -3,6 +3,15 @@ main = "worker.ts"
 compatibility_date = "2025-04-08"
 workers_dev = true
 
+# 一个 Worker、两个产品 Host：官网与本地 service 驱动的工作台。
+# 由 Wrangler 在部署时创建/维持 Custom Domain、DNS 与 Universal SSL 绑定，
+# 不再依赖 Dashboard 中不可审阅的手工触发器。
+routes = [
+  { pattern = "recut.video", custom_domain = true },
+  { pattern = "www.recut.video", custom_domain = true },
+  { pattern = "app.recut.video", custom_domain = true },
+]
+
 [assets]
 directory = "./out"
 binding = "ASSETS"

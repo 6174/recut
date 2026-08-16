@@ -12,7 +12,7 @@ RECUT_HOME ?= $(HOME)/.recut
 APP ?=
 SERVICE_PORT ?= 17373
 STREAM_PORT ?= 17374
-RECUT_VERSION ?= 0.1.29
+RECUT_VERSION ?= 0.1.30
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -30,7 +30,7 @@ help: ## Show available development commands.
 dev: builtin-apps stop-stale-service stop-stale-web ## Start the LAN service and web development workspace together.
 	@set -e; \
 	GOCACHE=$(GOCACHE) go -C service run . --address ":$(SERVICE_PORT)" --stream-address ":$(STREAM_PORT)" & service_pid=$$!; \
-	( cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) npm run dev ) & web_pid=$$!; \
+	( cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) NEXT_PUBLIC_RECUT_APP_URL=http://app.localhost:3000 npm run dev ) & web_pid=$$!; \
 	trap 'kill $$service_pid $$web_pid 2>/dev/null || true' EXIT INT TERM; \
 	wait $$service_pid $$web_pid
 
@@ -139,21 +139,21 @@ service-vet: ## Run Go static analysis for the local service.
 web-install: ## Install locked web workspace dependencies.
 	cd web && npm ci
 
-web-dev: stop-stale-web ## Start only the LAN-aware Next.js workspace on port 3000.
-	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) npm run dev
+web-dev: stop-stale-web ## Start the public localhost site; app.localhost:3000 is the LAN-aware workspace.
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) NEXT_PUBLIC_RECUT_APP_URL=http://app.localhost:3000 npm run dev
 
 web-build: ## Build and type-check the Next.js workspace.
 	cd web && npm run build
 
 web-build-embedded: ## Export the same-origin local workspace and stage it for Go embedding (never copies service releases).
 	@rm -rf "$(CURDIR)/web/out"
-	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local NEXT_PUBLIC_RECUT_APP_URL=https://app.recut.video NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
 	@rsync -a --delete --exclude='.keep' --exclude='releases/' "$(CURDIR)/web/out/" "$(CURDIR)/service/ui/assets/"
 	@rm -rf "$(CURDIR)/service/ui/assets/releases"
 
 web-build-cloudflare: ## Export the static web workspace for the Cloudflare Worker.
 	@rm -rf "$(CURDIR)/web/out"
-	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=cloud NEXT_PUBLIC_RECUT_API_URL=http://127.0.0.1:17373 NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=cloud NEXT_PUBLIC_RECUT_API_URL=http://127.0.0.1:17373 NEXT_PUBLIC_RECUT_APP_URL=https://app.recut.video NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
 
 web-deploy: service-release web-build-cloudflare ## Package the service, export the web workspace, then deploy it to Cloudflare.
 	cd web && node ./node_modules/wrangler/bin/wrangler.js deploy
@@ -187,6 +187,9 @@ editor-ui-build: ## Build the editor UI bundle included in the builtin editor Ap
 
 editor-model-test: ## L0 Model API 测试：AI op 引擎、D1 关键帧、统一日志 undo/redo/conflict、aiLock。
 	node apps/editor/scripts/test-model-api.js
+
+effects-catalog: ## 从 runtime EFFECT_COMPONENTS 重新生成内置效果目录（apps/editor/catalog + cdn/buckets/effects）。
+	node apps/editor/scripts/build-effects-catalog.mjs
 
 editor-e2e: ## 编辑器 UI Playwright 端到端（含 recut 项目实时同步）。
 	cd apps/editor/ui && npx playwright test

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -30,6 +31,20 @@ func setupEditorTestApp(t *testing.T) (*Catalog, *Store, *AppHost, Project) {
 	writeTestFile(t, filepath.Join(appDir, "manifest.json"), string(manifest))
 	writeTestFile(t, filepath.Join(appDir, "background.js"), string(background))
 	writeTestFile(t, filepath.Join(appDir, "ui", "dist", "index.html"), "ok")
+	// 随包 catalog（library.browse 的 shipped 回退源）
+	catalogSrc := filepath.Join(src, "catalog")
+	if entries, err := os.ReadDir(catalogSrc); err == nil {
+		if err := os.MkdirAll(filepath.Join(appDir, "catalog"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			content, err := os.ReadFile(filepath.Join(catalogSrc, entry.Name()))
+			if err != nil {
+				continue
+			}
+			writeTestFile(t, filepath.Join(appDir, "catalog", entry.Name()), string(content))
+		}
+	}
 
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
 	if err != nil {
@@ -50,7 +65,27 @@ func setupEditorTestApp(t *testing.T) (*Catalog, *Store, *AppHost, Project) {
 // invoke 走与 MCP 完全相同的 InvokeMCP 路径（surface 门 + __recut 解析 + goja 执行）。
 func invoke(t *testing.T, host *AppHost, project Project, op string, input map[string]any) map[string]any {
 	t.Helper()
-	res, err := host.InvokeMCP(Target{ProjectID: project.ID, AppID: "recut.editor"}, "recut.editor", op, input)
+	return invokeSurface(t, host, project, op, input, "mcp")
+}
+
+// invokeAPI 走 InvokeAPI 路径（api surface 门），用于 cover.* 等仅 UI 的操作。
+func invokeAPI(t *testing.T, host *AppHost, project Project, op string, input map[string]any) map[string]any {
+	t.Helper()
+	return invokeSurface(t, host, project, op, input, "api")
+}
+
+func invokeSurface(t *testing.T, host *AppHost, project Project, op string, input map[string]any, surface string) map[string]any {
+	t.Helper()
+	target := Target{ProjectID: project.ID, AppID: "recut.editor"}
+	var (
+		res any
+		err error
+	)
+	if surface == "api" {
+		res, err = host.InvokeAPI(target, "recut.editor", op, input)
+	} else {
+		res, err = host.InvokeMCP(target, "recut.editor", op, input)
+	}
 	if err != nil {
 		t.Fatalf("%s: %v", op, err)
 	}
@@ -453,6 +488,46 @@ func TestEditorAudioMix(t *testing.T) {
 	}
 }
 
+// TestEditorLibraryBrowse 覆盖 P4 catalog-first：真实 goja 链路下 library.browse
+// 按 CDN(若可达)→随包→builtin 顺序解析目录（网络无关断言：只检查内容不锁 source），
+// 且能按 category/query 过滤。
+func TestEditorLibraryBrowse(t *testing.T) {
+	_, _, host, project := setupEditorTestApp(t)
+	invoke(t, host, project, "project.create", map[string]any{})
+
+	all := invoke(t, host, project, "library.browse", map[string]any{"category": "effects"})
+	if !boolOf(all["ok"]) {
+		t.Fatalf("library.browse effects = %#v", all)
+	}
+	src := all["source"].(string)
+	if src != "cdn" && src != "shipped" && src != "builtin" {
+		t.Fatalf("unexpected catalog source %q", src)
+	}
+	items := all["items"].([]any)
+	if len(items) < 4 {
+		t.Fatalf("effects catalog should have >=4 effects, got %d (source=%s)", len(items), src)
+	}
+	first := items[0].(map[string]any)
+	if first["kind"] != "effect" || first["id"] != "effect.glass" {
+		t.Fatalf("first effect = %#v", first)
+	}
+
+	query := invoke(t, host, project, "library.browse", map[string]any{"category": "effects", "query": "magnify"})
+	if numOf(query["count"]) != 1 || query["items"].([]any)[0].(map[string]any)["id"] != "effect.magnify" {
+		t.Fatalf("library.browse query = %#v", query)
+	}
+
+	// 随包音频目录有 sfx → 无论 CDN 是否可达都有结果
+	sfx := invoke(t, host, project, "library.browse", map[string]any{"category": "sound-effects"})
+	if !boolOf(sfx["ok"]) || numOf(sfx["count"]) < 1 {
+		t.Fatalf("library.browse sfx = %#v", sfx)
+	}
+	sfxFirst := sfx["items"].([]any)[0].(map[string]any)
+	if sfxFirst["kind"] != "sound-effect" || !strings.HasPrefix(sfxFirst["url"].(string), "https://cdn.recut.video/") {
+		t.Fatalf("sfx url should be absolute CDN: %#v", sfxFirst)
+	}
+}
+
 // numOf / boolOf 取 JSON 数值/布尔。
 func numOf(v any) float64 {
 	switch n := v.(type) {
@@ -471,6 +546,68 @@ func numOf(v any) float64 {
 func boolOf(v any) bool {
 	b, _ := v.(bool)
 	return b
+}
+
+func stringOf(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// TestEditorManualCoverFlow 覆盖封面选择模式闭环：auto → frame（用户选帧）→ asset（素材选图）
+// → auto 恢复；手动模式下 cover.update 自动首帧同步被跳过。
+func TestEditorManualCoverFlow(t *testing.T) {
+	_, store, _, project := setupEditorTestApp(t)
+	media := NewMediaService(store)
+	host := NewAppHost(store.catalog, store, media)
+
+	pngB64 := base64.StdEncoding.EncodeToString([]byte("frame-png"))
+
+	// 初始 auto 模式。
+	got := invokeAPI(t, host, project, "cover.get", map[string]any{})
+	if mode := stringOf(got["mode"]); mode != "auto" {
+		t.Fatalf("initial cover mode = %q, want auto", mode)
+	}
+
+	// 手动选帧：切到 frame 模式并登记 file 封面。
+	frame := invokeAPI(t, host, project, "cover.set-frame", map[string]any{"fileBase64": pngB64, "mimeType": "image/png", "frameSec": 3.5})
+	if mode := stringOf(frame["mode"]); mode != "frame" {
+		t.Fatalf("cover.set-frame mode = %q, want frame", mode)
+	}
+	if sec := numOf(frame["frameSec"]); sec != 3.5 {
+		t.Fatalf("cover.set-frame frameSec = %v, want 3.5", sec)
+	}
+	if cover, ok := frame["cover"].(map[string]any); !ok || stringOf(cover["source"]) != "file" {
+		t.Fatalf("cover.set-frame cover = %#v, want file cover", frame["cover"])
+	}
+
+	// 手动模式下自动首帧同步被跳过。
+	skip := invokeAPI(t, host, project, "cover.update", map[string]any{"fileBase64": pngB64})
+	if ok := boolOf(skip["skipped"]); !ok {
+		t.Fatalf("cover.update should be skipped in manual mode, got %#v", skip)
+	}
+
+	// 从素材库选图片：切到 asset 模式。
+	img, err := media.ImportMedia("cover.png", "image/png", []byte("img"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset := invokeAPI(t, host, project, "cover.set-asset", map[string]any{"assetId": img.ID})
+	if mode := stringOf(asset["mode"]); mode != "asset" {
+		t.Fatalf("cover.set-asset mode = %q, want asset", mode)
+	}
+	if cover, ok := asset["cover"].(map[string]any); !ok || stringOf(cover["assetId"]) != img.ID || stringOf(cover["kind"]) != "image" {
+		t.Fatalf("cover.set-asset cover = %#v, want image asset cover", asset["cover"])
+	}
+
+	// 恢复自动：mode 回到 auto，cover.update 恢复生效。
+	auto := invokeAPI(t, host, project, "cover.set-auto", map[string]any{})
+	if mode := stringOf(auto["mode"]); mode != "auto" {
+		t.Fatalf("cover.set-auto mode = %q, want auto", mode)
+	}
+	restored := invokeAPI(t, host, project, "cover.update", map[string]any{"fileBase64": pngB64})
+	if skipped := boolOf(restored["skipped"]); skipped {
+		t.Fatalf("cover.update should apply again after set-auto, got %#v", restored)
+	}
 }
 
 func TestEditorManifestIsSelfConsistent(t *testing.T) {

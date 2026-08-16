@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖本目录 Catalog、Store（含 Agent CLI 定位缓存）与 TerminalManager 的本地服务
- * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计且可由组合根优雅关停的短请求与事件流 HTTP Server、可重命名/删除的项目与素材、内嵌工作台、无入口重定向的 App UI、App 安装/单个或批量更新、按归属分组的 Skill 状态/软链接、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API（含受项目文件根约束的相对工作目录）
+ * [OUTPUT]: 对外提供含启动时间的 health、带 INFO/WARN/ERROR 请求审计且可由组合根优雅关停的短请求与事件流 HTTP Server、可重命名/删除的项目与素材、内嵌工作台、无入口重定向的 App UI、App 安装/单个或批量更新、按归属分组的 Skill 状态/软链接、App 能力、项目产物、结构化 Agent 会话/新对话引导、缓存化 CLI 可用性、OpenCode TUI 模型目录、Agent CLI 调试流与终端 HTTP API（含受项目文件根约束的相对工作目录），并为 app.localhost 等本机开发 Host 提供 CORS
  * [POS]: service 的传输层，负责把受信任项目、内嵌本地工作台与扩展注册表映射为浏览器可消费的 API；只构造 HTTP Server，进程信号和关停策略归组合根所有
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -308,14 +308,14 @@ func isAppUIPath(path string) bool {
 }
 
 func allowedBrowserOrigin(origin string) bool {
-	if origin == "https://recut.video" || origin == "https://www.recut.video" {
+	if origin == "https://recut.video" || origin == "https://www.recut.video" || origin == "https://app.recut.video" {
 		return true
 	}
 	parsed, err := url.Parse(origin)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
 		return false
 	}
-	if parsed.Hostname() == "localhost" {
+	if parsed.Hostname() == "localhost" || strings.HasSuffix(parsed.Hostname(), ".localhost") {
 		return true
 	}
 	address, err := netip.ParseAddr(parsed.Hostname())

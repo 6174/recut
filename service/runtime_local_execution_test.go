@@ -57,3 +57,42 @@ func TestAppLocalExecutionUsesPrivateFilesUntilExplicitMediaImport(t *testing.T)
 		t.Fatalf("private preview = %d %q", preview.Code, preview.Body.String())
 	}
 }
+
+// TestAppHTTPFetch 验证 http 权限门控的 ctx.http.get（动态目录的数据通道）。
+func TestAppHTTPFetch(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "fetch")
+	if err := os.MkdirAll(filepath.Join(appDir, "ui"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.fetch","name":"Fetch","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"permissions":["http"],"operations":[{"name":"fetch.run","description":"Fetch a remote catalog.","surfaces":["api"],"inputSchema":{"type":"object"}}]}`)
+	writeTestFile(t, filepath.Join(appDir, "background.js"), `recut.operation.register("fetch.run", function(input, ctx) { const res = ctx.http.get(input.url, { timeoutMs: 3000, maxBytes: 1024 }); return { status: res.status, body: res.body }; });`)
+	writeTestFile(t, filepath.Join(appDir, "ui", "index.html"), "ok")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"effects":[{"id":"effect.glass"}]}`))
+	}))
+	defer srv.Close()
+
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.Create(CreateInput{Name: "Fetch", AppID: "example.fetch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := NewAppHost(apps, store)
+	result, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: "example.fetch"}, "example.fetch", "fetch.run", map[string]any{"url": srv.URL + "/effects/catalog.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := result.(map[string]any)
+	if numOf(output["status"]) != 200 || !strings.Contains(output["body"].(string), "effect.glass") {
+		t.Fatalf("ctx.http.get = %#v", output)
+	}
+}
