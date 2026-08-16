@@ -26,12 +26,148 @@ type mcpRequest struct {
 	Params  json.RawMessage `json:"params"`
 }
 
+// mcpToolDescriptions holds the tool-level MCP descriptions in zh (the service
+// default) and en. Schema-internal per-property descriptions are not localized
+// yet; see D12.
+var mcpToolDescriptions = map[string]map[Locale]string{
+	"recut.context": {
+		LocaleZh: "读取当前 Recut 会话上下文：已安装 App（含绝对路径 root）、Skill 元数据、媒体配置与 .recut 文件系统路径（paths）。新 native session 或能力状态可能变化时调用；同一会话 15 分钟内复用已确认快照。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。",
+		LocaleEn: "Read the current Recut session context: installed Apps (including absolute root paths), Skill metadata, media configuration, and .recut filesystem paths (paths). Call it for a new native session or when capability state may have changed; reuse a confirmed snapshot for 15 minutes within the same session. The session is not bound to a Project; use recut.project.list / recut.project.get or recut.project_context when you need project information.",
+	},
+	"recut.apps.list": {
+		LocaleZh: "列出已安装 App（含 kind、skill 目录、Git 仓库、可更新状态与安装状态）。",
+		LocaleEn: "List installed Apps (kind, skill directory, Git repository, update availability, and installation status).",
+	},
+	"recut.apps.store": {
+		LocaleZh: "列出 App Store 中可安装的 Recut App（appId、name、kind、GitHub repository、是否已安装）。需要安装时用 recut.apps.install 传入其 repository。",
+		LocaleEn: "List installable Recut Apps in the App Store (appId, name, kind, GitHub repository, and whether already installed). Use recut.apps.install with its repository to install one.",
+	},
+	"recut.apps.install": {
+		LocaleZh: "从一个 Git 仓库安装标准 Recut App（克隆、校验 manifest 后激活）。仅当用户明确要求安装该仓库时调用。",
+		LocaleEn: "Install a standard Recut App from a Git repository (clone, validate the manifest, then activate). Call it only when the user explicitly asks to install that repository.",
+	},
+	"recut.apps.update": {
+		LocaleZh: "更新一个已安装 App（传 package）或全部已安装 App。仅当用户明确要求更新时调用。",
+		LocaleEn: "Update one installed App (pass its package) or all installed Apps. Call it only when the user explicitly asks to update.",
+	},
+	"recut.skills.list": {
+		LocaleZh: "列出所有已安装 App 的 skill 目录（id、appId、name、description）。",
+		LocaleEn: "List the skill directories of all installed Apps (id, appId, name, description).",
+	},
+	"recut.skills.read": {
+		LocaleZh: "读取一个 App skill 的完整正文；该正文对对应 App 的工具契约与决策门有权威性。",
+		LocaleEn: "Read the full body of an App skill; it is authoritative for that App's tool contracts and decision gates.",
+	},
+	"recut.skills.reference": {
+		LocaleZh: "读取一个 skill 声明的引用/资源子文档。路径必须是该 skill 目录内前置声明的相对路径。",
+		LocaleEn: "Read a reference/resource sub-document declared by a skill. The path must be a relative path declared inside that skill's directory.",
+	},
+	"recut.design_system.list": {
+		LocaleZh: "列出 Recut 全局设计系统的全部可用风格（id / name / category / origin / description）。设计系统是业务无关的抽象视觉风格定义，直接复用 Open Design。",
+		LocaleEn: "List all available styles in the Recut global design system (id / name / category / origin / description). The design system defines business-agnostic abstract visual styles, reused from Open Design.",
+	},
+	"recut.design_system.get": {
+		LocaleZh: "读取一套全局设计系统的完整视觉契约（DESIGN.md + tokens.css + 可用的 USAGE.md / manifest）。用返回的语义值实施风格，不手写无关十六进制。",
+		LocaleEn: "Read the complete visual contract of a global design system (DESIGN.md + tokens.css + available USAGE.md / manifest). Implement the style with the returned semantic values; do not hand-write unrelated hex codes.",
+	},
+	"recut.project.create": {
+		LocaleZh: "创建一个真实的 Recut Project Doc。仅当用户明确要求新建项目时调用；成功返回的 projectId 会出现在项目桌面。它不会创建 Brief、Artifact 或工作流资源。",
+		LocaleEn: "Create a real Recut Project Doc. Call it only when the user explicitly asks to create a project; the returned projectId appears on the project desktop. It does not create Brief, Artifact, or workflow resources.",
+	},
+	"recut.project.list": {
+		LocaleZh: "列出全部用户项目（Doc metadata：id、name、owner App、版本）。",
+		LocaleEn: "List all user projects (Doc metadata: id, name, owner App, version).",
+	},
+	"recut.project.get": {
+		LocaleZh: "读取一个项目的 Doc metadata。",
+		LocaleEn: "Read a project's Doc metadata.",
+	},
+	"recut.project_context": {
+		LocaleZh: "读取一个项目的深层上下文：owner App 的 workflow.context、已产出 Artifact、appState 与项目绝对路径（paths.projectFilesRoot）。",
+		LocaleEn: "Read a project's deep context: the owner App's workflow.context, produced Artifacts, appState, and the project's absolute paths (paths.projectFilesRoot).",
+	},
+	"recut.job.status": {
+		LocaleZh: "读取一个任务（job）的当前状态：queued / running / completed / failed / cancelled / interrupted。统一观察层同时覆盖本地 App shell job（如 audio.install/transcribe、depth.generate、render.export）与平台媒体生成 job（recut.image/video/speech.generate 返回的 jobId）；返回视图带 kind 区分 shell / media。",
+		LocaleEn: "Read the current status of a job: queued / running / completed / failed / cancelled / interrupted. The unified observation layer covers both local App shell jobs (e.g. audio.install/transcribe, depth.generate, render.export) and platform media generation jobs (jobIds returned by recut.image/video/speech.generate); the returned view carries a kind of shell or media.",
+	},
+	"recut.job.wait": {
+		LocaleZh: "等待一个任务（job）达到终态（completed / failed / cancelled / interrupted），shell 与 media job 通用。超时返回当前状态而不报错，可继续用 recut.job.status 轮询。",
+		LocaleEn: "Wait for a job to reach a terminal state (completed / failed / cancelled / interrupted), working for both shell and media jobs. On timeout it returns the current state without error; keep polling with recut.job.status.",
+	},
+	"recut.job.logs": {
+		LocaleZh: "读取一个本地 App shell job 的 stdout/stderr 日志，供失败诊断；媒体生成 job 无进程日志。",
+		LocaleEn: "Read the stdout/stderr logs of a local App shell job for failure diagnosis; media generation jobs have no process logs.",
+	},
+	"recut.job.cancel": {
+		LocaleZh: "取消一个 queued / running 的本地 App shell job。",
+		LocaleEn: "Cancel a queued or running local App shell job.",
+	},
+	"recut.image.generate": {
+		LocaleZh: "提交图片生成任务。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 完成后将同一 Asset 原位转为 completed 或 failed。可立刻用 assetId 建立项目引用，再用 recut.media.wait_for_job 等待终态。",
+		LocaleEn: "Submit an image generation job. It immediately returns a stable queued jobId and assetIds; the persistent Daemon moves the same Asset to completed or failed in place. You may create project references with the assetId right away, then use recut.media.wait_for_job to await the terminal state.",
+	},
+	"recut.video.generate": {
+		LocaleZh: "提交长时间运行的视频生成。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。",
+		LocaleEn: "Submit a long-running video generation. It immediately returns a stable queued jobId and assetIds; after the persistent Daemon accepts the Atlas task, the same Asset moves to running in place and is later reclaimed as completed or failed. Create project references with the assetId right away.",
+	},
+	"recut.speech.generate": {
+		LocaleZh: "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId 与处于 queued 状态的稳定 assetIds。",
+		LocaleEn: "Submit a long-running speech generation. First query the current credential's available voiceId with recut.media.list_voices; it immediately returns a jobId and stable queued assetIds.",
+	},
+	"recut.media.list_voices": {
+		LocaleZh: "读取一个 MiniMax 或 ElevenLabs 凭据当前可用的音色。",
+		LocaleEn: "Read the voices currently available on a MiniMax or ElevenLabs credential.",
+	},
+	"recut.media.get_job": {
+		LocaleZh: "读取媒体生成任务状态。",
+		LocaleEn: "Read a media generation job's status.",
+	},
+	"recut.media.wait_for_job": {
+		LocaleZh: "等待本地 Daemon 已提交的媒体任务达到 completed 或 failed。",
+		LocaleEn: "Wait for a media job submitted to the local Daemon to reach completed or failed.",
+	},
+	"recut.media.list_assets": {
+		LocaleZh: "检索工作区或指定项目的可复用媒体素材。",
+		LocaleEn: "Search reusable media assets in the workspace or a specific project.",
+	},
+	"recut.media.import_image": {
+		LocaleZh: "将 Codex 原生生成后已写入会话工作区的图片归档为 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。",
+		LocaleEn: "Archive an image written to the session workspace by Codex-native generation as a Media Asset. Only relative paths are accepted; the service validates the path, symlinks, file type, and size, and returns the real assetId.",
+	},
+	"recut.media.create_reference": {
+		LocaleZh: "把文章、网页、YouTube、小红书、抖音等公开链接登记为可跨项目复用的全局 reference Asset。URL 是唯一身份并按规范 URL 去重；可同时提交正文全文（article/web 的真实文章数据）、base64 图片（真实图片数据）与尽量完整的平台元数据。正文与图片作为不可变 parts 随素材保存，可经素材 parts 接口审阅；服务本身不抓取或下载外部内容。",
+		LocaleEn: "Register a public link (article, web, YouTube, Xiaohongshu, Douyin, etc.) as a reusable global reference Asset across projects. The URL is the unique identity and is deduplicated by canonical URL; you may submit the full body text (real article data for article/web), a base64 image (real image data), and as complete platform metadata as possible. The body and image are saved as immutable parts with the asset and can be reviewed through the asset parts API; the service itself never fetches or downloads external content.",
+	},
+	"recut.media.attach": {
+		LocaleZh: "把现有媒体 assetId 引用到目标项目。",
+		LocaleEn: "Attach an existing media assetId to a target project.",
+	},
+}
+
+// mcpDescription resolves a tool-level MCP description for the requested
+// locale, falling back to the zh default.
+func mcpDescription(locale Locale, key string) string {
+	if localized, ok := mcpToolDescriptions[key]; ok {
+		if text, ok := localized[locale]; ok && text != "" {
+			return text
+		}
+		if text, ok := localized[LocaleZh]; ok {
+			return text
+		}
+	}
+	return key
+}
+
 func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, request mcpRequest) (any, error) {
+	locale := DefaultLocale
+	if bridge != nil && bridge.store != nil {
+		locale, _ = bridge.store.StoredLocale()
+	}
 	switch request.Method {
 	case "initialize":
 		return map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]string{"name": "recut-mcp-host", "version": "0.3.0"}, "capabilities": map[string]any{"tools": map[string]any{}}}, nil
 	case "tools/list":
-		return mcpToolList(bridge, media), nil
+		return mcpToolList(bridge, media, locale), nil
 	case "tools/call":
 		input := struct {
 			Name      string         `json:"name"`
@@ -40,14 +176,14 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 		if err := json.Unmarshal(request.Params, &input); err != nil {
 			return nil, err
 		}
-		return mcpToolCall(bridge, host, media, session, input.Name, input.Arguments)
+		return mcpToolCall(bridge, host, media, session, input.Name, input.Arguments, locale)
 	default:
 		return nil, fmt.Errorf("unsupported MCP method %q", request.Method)
 	}
 }
 
-func mcpToolList(bridge *AgentBridge, media *MediaService) map[string]any {
-	tools := platformMCPToolDefinitions()
+func mcpToolList(bridge *AgentBridge, media *MediaService, locale Locale) map[string]any {
+	tools := platformMCPToolDefinitions(locale)
 	apps, err := bridge.store.catalog.List()
 	if err != nil {
 		return map[string]any{"tools": tools}
@@ -61,31 +197,32 @@ func mcpToolList(bridge *AgentBridge, media *MediaService) map[string]any {
 // platformMCPToolDefinitions returns the global, App-agnostic MCP tools the
 // platform always exposes: session context, apps/skills/project management,
 // design system and media generation. They are unconditional and form the
-// "全局" group in GET /v1/mcp/tools.
-func platformMCPToolDefinitions() []map[string]any {
+// "全局" group in GET /v1/mcp/tools. Tool-level descriptions follow the
+// requested locale; schema-internal property descriptions stay Chinese for now.
+func platformMCPToolDefinitions(locale Locale) []map[string]any {
 	tools := make([]map[string]any, 0)
 	tools = append(tools,
-		platformTool("recut.context", "读取当前 Recut 会话上下文：已安装 App（含绝对路径 root）、Skill 元数据、媒体配置与 .recut 文件系统路径（paths）。新 native session 或能力状态可能变化时调用；同一会话 15 分钟内复用已确认快照。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。", map[string]any{"type": "object", "properties": map[string]any{}}),
-		platformTool("recut.apps.list", "列出已安装 App（含 kind、skill 目录、Git 仓库、可更新状态与安装状态）。", map[string]any{"type": "object", "properties": map[string]any{}}),
-		platformTool("recut.apps.store", "列出 App Store 中可安装的 Recut App（appId、name、kind、GitHub repository、是否已安装）。需要安装时用 recut.apps.install 传入其 repository。", map[string]any{"type": "object", "properties": map[string]any{}}),
-		platformTool("recut.apps.install", "从一个 Git 仓库安装标准 Recut App（克隆、校验 manifest 后激活）。仅当用户明确要求安装该仓库时调用。", map[string]any{"type": "object", "required": []string{"repository"}, "properties": map[string]any{"repository": map[string]string{"type": "string", "description": "GitHub 仓库 URL（git@… 或 https://…）。"}}}),
-		platformTool("recut.apps.update", "更新一个已安装 App（传 package）或全部已安装 App。仅当用户明确要求更新时调用。", map[string]any{"type": "object", "properties": map[string]any{"package": map[string]string{"type": "string", "description": "可选：要更新的 App 包名（如 recut-vox-broll）；缺省更新全部。"}}}),
-		platformTool("recut.skills.list", "列出所有已安装 App 的 skill 目录（id、appId、name、description）。", map[string]any{"type": "object", "properties": map[string]any{}}),
-		platformTool("recut.skills.read", "读取一个 App skill 的完整正文；该正文对对应 App 的工具契约与决策门有权威性。", map[string]any{"type": "object", "required": []string{"appId", "skillId"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}}}),
-		platformTool("recut.skills.reference", "读取一个 skill 声明的引用/资源子文档。路径必须是该 skill 目录内前置声明的相对路径。", map[string]any{"type": "object", "required": []string{"appId", "skillId", "path"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}, "path": map[string]string{"type": "string"}}}),
-		platformTool("recut.design_system.list", "列出 Recut 全局设计系统的全部可用风格（id / name / category / origin / description）。设计系统是业务无关的抽象视觉风格定义，直接复用 Open Design。", map[string]any{"type": "object", "properties": map[string]any{}}),
-		platformTool("recut.design_system.get", "读取一套全局设计系统的完整视觉契约（DESIGN.md + tokens.css + 可用的 USAGE.md / manifest）。用返回的语义值实施风格，不手写无关十六进制。", map[string]any{"type": "object", "required": []string{"styleId"}, "properties": map[string]any{"styleId": map[string]string{"type": "string", "description": "设计系统 id，如 neobrutalism / glassmorphism / clean-editorial。"}}}),
-		projectMCPToolDefinition(),
-		platformTool("recut.project.list", "列出全部用户项目（Doc metadata：id、name、owner App、版本）。", map[string]any{"type": "object", "properties": map[string]any{}}),
-		platformTool("recut.project.get", "读取一个项目的 Doc metadata。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}}}),
-		platformTool("recut.project_context", "读取一个项目的深层上下文：owner App 的 workflow.context、已产出 Artifact、appState 与项目绝对路径（paths.projectFilesRoot）。", map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "要读取上下文的 Project Doc ID。"}}}),
-		platformTool("recut.job.status", "读取一个任务（job）的当前状态：queued / running / completed / failed / cancelled / interrupted。统一观察层同时覆盖本地 App shell job（如 audio.install/transcribe、depth.generate、render.export）与平台媒体生成 job（recut.image/video/speech.generate 返回的 jobId）；返回视图带 kind 区分 shell / media。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
-		platformTool("recut.job.wait", "等待一个任务（job）达到终态（completed / failed / cancelled / interrupted），shell 与 media job 通用。超时返回当前状态而不报错，可继续用 recut.job.status 轮询。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}),
-		platformTool("recut.job.logs", "读取一个本地 App shell job 的 stdout/stderr 日志，供失败诊断；媒体生成 job 无进程日志。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 2000, "description": "只返回最近 N 行，默认 300。"}}}),
-		platformTool("recut.job.cancel", "取消一个 queued / running 的本地 App shell job。", map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
+		platformTool("recut.context", mcpDescription(locale, "recut.context"), map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.apps.list", mcpDescription(locale, "recut.apps.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.apps.store", mcpDescription(locale, "recut.apps.store"), map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.apps.install", mcpDescription(locale, "recut.apps.install"), map[string]any{"type": "object", "required": []string{"repository"}, "properties": map[string]any{"repository": map[string]string{"type": "string", "description": "GitHub 仓库 URL（git@… 或 https://…）。"}}}),
+		platformTool("recut.apps.update", mcpDescription(locale, "recut.apps.update"), map[string]any{"type": "object", "properties": map[string]any{"package": map[string]string{"type": "string", "description": "可选：要更新的 App 包名（如 recut-vox-broll）；缺省更新全部。"}}}),
+		platformTool("recut.skills.list", mcpDescription(locale, "recut.skills.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.skills.read", mcpDescription(locale, "recut.skills.read"), map[string]any{"type": "object", "required": []string{"appId", "skillId"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}}}),
+		platformTool("recut.skills.reference", mcpDescription(locale, "recut.skills.reference"), map[string]any{"type": "object", "required": []string{"appId", "skillId", "path"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}, "path": map[string]string{"type": "string"}}}),
+		platformTool("recut.design_system.list", mcpDescription(locale, "recut.design_system.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.design_system.get", mcpDescription(locale, "recut.design_system.get"), map[string]any{"type": "object", "required": []string{"styleId"}, "properties": map[string]any{"styleId": map[string]string{"type": "string", "description": "设计系统 id，如 neobrutalism / glassmorphism / clean-editorial。"}}}),
+		projectMCPToolDefinition(locale),
+		platformTool("recut.project.list", mcpDescription(locale, "recut.project.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
+		platformTool("recut.project.get", mcpDescription(locale, "recut.project.get"), map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}}}),
+		platformTool("recut.project_context", mcpDescription(locale, "recut.project_context"), map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "要读取上下文的 Project Doc ID。"}}}),
+		platformTool("recut.job.status", mcpDescription(locale, "recut.job.status"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
+		platformTool("recut.job.wait", mcpDescription(locale, "recut.job.wait"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}),
+		platformTool("recut.job.logs", mcpDescription(locale, "recut.job.logs"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 2000, "description": "只返回最近 N 行，默认 300。"}}}),
+		platformTool("recut.job.cancel", mcpDescription(locale, "recut.job.cancel"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
 	)
-	tools = append(tools, mediaMCPToolDefinitions()...)
-	tools = append(tools, worldsMCPToolDefinitions()...)
+	tools = append(tools, mediaMCPToolDefinitions(locale)...)
+	tools = append(tools, worldsMCPToolDefinitions(locale)...)
 	return tools
 }
 
@@ -105,10 +242,16 @@ func appMCPToolDefinitions(app App) []map[string]any {
 // mcpToolGroups splits the full MCP tool set into the platform's global tools
 // and per-App groups, for the settings panel to render Recut-provided MCP
 // services grouped by owning App. Apps without any MCP operation are omitted.
+// Tool descriptions and App metadata follow the persisted language preference
+// because the settings panel has no Accept-Language header of its own.
 func mcpToolGroups(bridge *AgentBridge) map[string]any {
+	locale := DefaultLocale
+	if bridge != nil && bridge.store != nil {
+		locale, _ = bridge.store.StoredLocale()
+	}
 	apps, err := bridge.store.catalog.List()
 	if err != nil {
-		return map[string]any{"global": platformMCPToolDefinitions(), "apps": []map[string]any{}}
+		return map[string]any{"global": platformMCPToolDefinitions(locale), "apps": []map[string]any{}}
 	}
 	appGroups := make([]map[string]any, 0, len(apps))
 	for _, app := range apps {
@@ -116,15 +259,16 @@ func mcpToolGroups(bridge *AgentBridge) map[string]any {
 		if len(tools) == 0 {
 			continue
 		}
+		manifest := app.Manifest.LocalizedFor(locale)
 		appGroups = append(appGroups, map[string]any{
-			"appId":       app.Manifest.ID,
-			"name":        app.Manifest.Name,
-			"kind":        string(app.Manifest.Kind),
-			"description": app.Manifest.Description,
+			"appId":       manifest.ID,
+			"name":        manifest.Name,
+			"kind":        string(manifest.Kind),
+			"description": manifest.Description,
 			"tools":       tools,
 		})
 	}
-	return map[string]any{"global": platformMCPToolDefinitions(), "apps": appGroups}
+	return map[string]any{"global": platformMCPToolDefinitions(locale), "apps": appGroups}
 }
 
 func platformTool(name, description string, schema map[string]any) map[string]any {
@@ -168,12 +312,12 @@ func cloneJSONMap(value map[string]any) map[string]any {
 	return cloned
 }
 
-func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, name string, arguments map[string]any) (any, error) {
+func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, name string, arguments map[string]any, locale Locale) (any, error) {
 	switch name {
 	case "recut.context":
-		return recutContextTool(bridge, media, session)
+		return recutContextTool(bridge, media, session, locale)
 	case "recut.project_context":
-		return projectContextTool(bridge, host, media, session, arguments)
+		return projectContextTool(bridge, host, media, session, arguments, locale)
 	case "recut.project.create":
 		return projectMCPTool(bridge.store, arguments)
 	case "recut.project.list":
@@ -192,9 +336,9 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 		data, _ := json.Marshal(project)
 		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(project)}, nil
 	case "recut.apps.list":
-		return appsListTool(bridge)
+		return appsListTool(bridge, locale)
 	case "recut.apps.store":
-		return appStoreTool(bridge)
+		return appStoreTool(bridge, locale)
 	case "recut.apps.install":
 		return appsInstallTool(bridge, arguments)
 	case "recut.apps.update":
@@ -241,7 +385,7 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 	if err != nil {
 		return nil, err
 	}
-	result, err := host.InvokeMCP(target, appID, operationName, args)
+	result, err := host.InvokeMCPLocale(target, appID, operationName, args, locale)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +448,7 @@ func requestedProjectID(arguments map[string]any) string {
 	return ""
 }
 
-func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSession) (any, error) {
+func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSession, locale Locale) (any, error) {
 	apps, _ := bridge.store.catalog.List()
 	appSummaries := make([]map[string]any, 0, len(apps))
 	skillSummary := make([]map[string]any, 0)
@@ -313,7 +457,8 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 		if err != nil {
 			continue
 		}
-		summary := map[string]any{"appId": app.Manifest.ID, "name": app.Manifest.Name, "kind": string(app.Manifest.Kind), "description": app.Manifest.Description, "root": app.Root}
+		manifest := app.Manifest.LocalizedFor(locale)
+		summary := map[string]any{"appId": manifest.ID, "name": manifest.Name, "kind": string(manifest.Kind), "description": manifest.Description, "root": app.Root}
 		skillsMeta := make([]map[string]any, 0, len(skills))
 		for _, skill := range skills {
 			skillsMeta = append(skillsMeta, map[string]any{"id": skill.ID, "name": skill.Name, "description": skill.Description})
@@ -382,7 +527,7 @@ func mediaContext(media *MediaService) (any, map[string]map[string]string) {
 	return configured, readiness
 }
 
-func appsListTool(bridge *AgentBridge) (any, error) {
+func appsListTool(bridge *AgentBridge, locale Locale) (any, error) {
 	apps, err := bridge.store.catalog.List()
 	if err != nil {
 		return nil, err
@@ -399,7 +544,8 @@ func appsListTool(bridge *AgentBridge) (any, error) {
 		for _, skill := range skills {
 			skillsMeta = append(skillsMeta, map[string]any{"id": skill.ID, "name": skill.Name, "description": skill.Description})
 		}
-		entry := map[string]any{"appId": app.Manifest.ID, "name": app.Manifest.Name, "kind": string(app.Manifest.Kind), "description": app.Manifest.Description, "skills": skillsMeta}
+		manifest := app.Manifest.LocalizedFor(locale)
+		entry := map[string]any{"appId": manifest.ID, "name": manifest.Name, "kind": string(manifest.Kind), "description": manifest.Description, "skills": skillsMeta}
 		if installation, ok := installByID[app.Manifest.ID]; ok {
 			entry["package"] = installation.Package
 			entry["repository"] = installation.Repository
@@ -415,8 +561,8 @@ func appsListTool(bridge *AgentBridge) (any, error) {
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 }
 
-func appStoreTool(bridge *AgentBridge) (any, error) {
-	store, err := bridge.store.AppStore()
+func appStoreTool(bridge *AgentBridge, locale Locale) (any, error) {
+	store, err := bridge.store.AppStoreFor(locale)
 	if err != nil {
 		return nil, err
 	}
@@ -566,10 +712,10 @@ func skillReferenceCandidates(path string) []string {
 	return []string{clean, filepath.Join("references", clean)}
 }
 
-func projectMCPToolDefinition() map[string]any {
+func projectMCPToolDefinition(locale Locale) map[string]any {
 	return map[string]any{
 		"name":        "recut.project.create",
-		"description": "创建一个真实的 Recut Project Doc。仅当用户明确要求新建项目时调用；成功返回的 projectId 会出现在项目桌面。它不会创建 Brief、Artifact 或工作流资源。",
+		"description": mcpDescription(locale, "recut.project.create"),
 		"inputSchema": map[string]any{
 			"type":     "object",
 			"required": []string{"name", "appId"},
@@ -685,18 +831,18 @@ func mediaJobView(job MediaJob) map[string]any {
 	}
 }
 
-func mediaMCPToolDefinitions() []map[string]any {
+func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 	return []map[string]any{
-		{"name": "recut.image.generate", "description": "提交图片生成任务。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 完成后将同一 Asset 原位转为 completed 或 failed。可立刻用 assetId 建立项目引用，再用 recut.media.wait_for_job 等待终态。", "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
-		{"name": "recut.video.generate", "description": "提交长时间运行的视频生成。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。", "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
-		{"name": "recut.speech.generate", "description": "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId 与处于 queued 状态的稳定 assetIds。", "inputSchema": speechGenerationSchema()},
-		{"name": "recut.media.list_voices", "description": "读取一个 MiniMax 或 ElevenLabs 凭据当前可用的音色。", "inputSchema": map[string]any{"type": "object", "required": []string{"credentialId"}, "properties": map[string]any{"credentialId": map[string]string{"type": "string"}}}},
-		{"name": "recut.media.get_job", "description": "读取媒体生成任务状态。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
-		{"name": "recut.media.wait_for_job", "description": "等待本地 Daemon 已提交的媒体任务达到 completed 或 failed。", "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}},
-		{"name": "recut.media.list_assets", "description": "检索工作区或指定项目的可复用媒体素材。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}}}},
-		{"name": "recut.media.import_image", "description": "将 Codex 原生生成后已写入会话工作区的图片归档为 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。", "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "会话工作区内的相对图片路径。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
-		{"name": "recut.media.create_reference", "description": "把文章、网页、YouTube、小红书、抖音等公开链接登记为可跨项目复用的全局 reference Asset。URL 是唯一身份并按规范 URL 去重；可同时提交正文全文（article/web 的真实文章数据）、base64 图片（真实图片数据）与尽量完整的平台元数据。正文与图片作为不可变 parts 随素材保存，可经素材 parts 接口审阅；服务本身不抓取或下载外部内容。", "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL；作为全局去重身份。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、web、youtube、xiaohongshu、douyin、image。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "description": map[string]string{"type": "string", "description": "来源自身的简介或视频简介。"}, "excerpt": map[string]string{"type": "string", "description": "直接引用的原文片段，便于审阅。"}, "author": map[string]string{"type": "string", "description": "作者或发布者名称。"}, "publishedAt": map[string]string{"type": "string", "description": "发布时间（ISO-8601）。"}, "siteName": map[string]string{"type": "string", "description": "站点名称，如 The New York Times。"}, "language": map[string]string{"type": "string", "description": "内容语言代码，如 zh、en。"}, "thumbnailUrl": map[string]string{"type": "string", "description": "来源封面/缩略图 URL。"}, "content": map[string]string{"type": "string", "description": "文章或网页的完整正文（真实文章数据）；保存为 content part，默认 text/markdown。"}, "contentMimeType": map[string]string{"type": "string", "description": "正文 part 的 MIME 类型，缺省 text/markdown；限 text/*、application/json、application/xml。"}, "imageData": map[string]string{"type": "string", "description": "图片内容（base64 或 data: URL）；保存为不可变的 image part，限 20MB。"}, "imageMimeType": map[string]string{"type": "string", "description": "图片 MIME 类型，如 image/png、image/jpeg。"}, "channelName": map[string]string{"type": "string", "description": "YouTube 等视频平台的频道/账号名。"}, "channelUrl": map[string]string{"type": "string", "description": "频道主页 URL。"}, "durationSeconds": map[string]any{"type": "number", "description": "视频时长（秒）。"}, "viewCount": map[string]any{"type": "integer", "description": "播放量。"}, "likeCount": map[string]any{"type": "integer", "description": "点赞数。"}}}},
-		{"name": "recut.media.attach", "description": "把现有媒体 assetId 引用到目标项目。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "projectId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},
+		{"name": "recut.image.generate", "description": mcpDescription(locale, "recut.image.generate"), "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
+		{"name": "recut.video.generate", "description": mcpDescription(locale, "recut.video.generate"), "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
+		{"name": "recut.speech.generate", "description": mcpDescription(locale, "recut.speech.generate"), "inputSchema": speechGenerationSchema()},
+		{"name": "recut.media.list_voices", "description": mcpDescription(locale, "recut.media.list_voices"), "inputSchema": map[string]any{"type": "object", "required": []string{"credentialId"}, "properties": map[string]any{"credentialId": map[string]string{"type": "string"}}}},
+		{"name": "recut.media.get_job", "description": mcpDescription(locale, "recut.media.get_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
+		{"name": "recut.media.wait_for_job", "description": mcpDescription(locale, "recut.media.wait_for_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}},
+		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}}}},
+		{"name": "recut.media.import_image", "description": mcpDescription(locale, "recut.media.import_image"), "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "会话工作区内的相对图片路径。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
+		{"name": "recut.media.create_reference", "description": mcpDescription(locale, "recut.media.create_reference"), "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL；作为全局去重身份。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、web、youtube、xiaohongshu、douyin、image。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "description": map[string]string{"type": "string", "description": "来源自身的简介或视频简介。"}, "excerpt": map[string]string{"type": "string", "description": "直接引用的原文片段，便于审阅。"}, "author": map[string]string{"type": "string", "description": "作者或发布者名称。"}, "publishedAt": map[string]string{"type": "string", "description": "发布时间（ISO-8601）。"}, "siteName": map[string]string{"type": "string", "description": "站点名称，如 The New York Times。"}, "language": map[string]string{"type": "string", "description": "内容语言代码，如 zh、en。"}, "thumbnailUrl": map[string]string{"type": "string", "description": "来源封面/缩略图 URL。"}, "content": map[string]string{"type": "string", "description": "文章或网页的完整正文（真实文章数据）；保存为 content part，默认 text/markdown。"}, "contentMimeType": map[string]string{"type": "string", "description": "正文 part 的 MIME 类型，缺省 text/markdown；限 text/*、application/json、application/xml。"}, "imageData": map[string]string{"type": "string", "description": "图片内容（base64 或 data: URL）；保存为不可变的 image part，限 20MB。"}, "imageMimeType": map[string]string{"type": "string", "description": "图片 MIME 类型，如 image/png、image/jpeg。"}, "channelName": map[string]string{"type": "string", "description": "YouTube 等视频平台的频道/账号名。"}, "channelUrl": map[string]string{"type": "string", "description": "频道主页 URL。"}, "durationSeconds": map[string]any{"type": "number", "description": "视频时长（秒）。"}, "viewCount": map[string]any{"type": "integer", "description": "播放量。"}, "likeCount": map[string]any{"type": "integer", "description": "点赞数。"}}}},
+		{"name": "recut.media.attach", "description": mcpDescription(locale, "recut.media.attach"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "projectId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},
 	}
 }
 
@@ -912,7 +1058,7 @@ func withinAllowedRoots(roots []string, path string) bool {
 }
 
 func isMediaMCPTool(name string) bool {
-	for _, tool := range mediaMCPToolDefinitions() {
+	for _, tool := range mediaMCPToolDefinitions(DefaultLocale) {
 		if tool["name"] == name {
 			return true
 		}
@@ -987,7 +1133,7 @@ func mediaReferenceIDs(input map[string]any) []string {
 	return append(ids, stringsFromAny(input["audioAssetIds"])...)
 }
 
-func projectContextTool(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, arguments map[string]any) (any, error) {
+func projectContextTool(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, arguments map[string]any, locale Locale) (any, error) {
 	projectID, _ := arguments["projectId"].(string)
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -1003,7 +1149,7 @@ func projectContextTool(bridge *AgentBridge, host *AppHost, media *MediaService,
 	if err != nil {
 		return nil, fmt.Errorf("project %q is unavailable", projectID)
 	}
-	workflow, workflowErr := host.InvokeMCP(Target{ProjectID: project.ID, AppID: project.AppID}, project.AppID, "workflow.context", map[string]any{})
+	workflow, workflowErr := host.InvokeMCPLocale(Target{ProjectID: project.ID, AppID: project.AppID}, project.AppID, "workflow.context", map[string]any{}, locale)
 	if workflowErr == nil {
 		result["workflow"] = workflow
 	}

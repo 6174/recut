@@ -1,0 +1,182 @@
+---
+date: 2026-07-27
+title: "Remotion 入门：用代码做视频的完整教程与真实示例"
+description: "Remotion 入门教程：从 Composition、DurationInFrames、useCurrentFrame、Sequence 等核心概念讲起，给出真实可运行的最小示例与 npx remotion render 渲染命令，再讲批量模板化生产，以及不想写代码时的 Recut Remotion App 本地工作台。"
+---
+
+Remotion 入门：用代码做视频，正在成为越来越多前端工程师的副业技能。传统视频剪辑靠鼠标在时间线上拖拽，而 Remotion 反其道而行——视频不是被剪辑出来的，而是被**渲染**出来的：你把每一帧画面当作一次 React 渲染去写，Remotion 负责在浏览器里逐帧截图，再用 FFmpeg 把它们编码成 MP4。官方给自己的定位是「Make videos programmatically（用代码程序化做视频）」，GitHub 上约 56k stars、月下载超 500 万。这篇文章就是一篇面向中文开发者的 Remotion 入门教程，所有 API 均对照当前官方文档（remotion@4.0.512）核对，代码可直接照抄。
+
+如果你搜过「Remotion 入门」「Remotion 教程」「React 做视频」，大概率已经知道：Remotion 的核心价值在于**确定性**与**批量**——同一套代码，换一组数据，就能批量生成无数条视频。这正是它与传统剪辑软件最根本的区别。
+
+## Remotion 是什么
+
+一句话概括：**Remotion 把视频抽象成「随时间变化的 React 组件」**。视频本质上是连续的画面，Remotion 把每一帧编号，让你用 `useCurrentFrame()` 拿到「现在是第几帧」，再基于这个数字去渲染画面。帧推进得越多，画面变化就越连贯，最终连成一整段视频。
+
+它和普通的 React 应用几乎没有任何心智落差：同样的 JSX、同样的 CSS、同样的组件化，只是渲染结果从「网页」变成了「一帧一帧的视频」。这也是为什么官方建议入门前提是**懂一点 React**——你不需要先学会 AE 或 Premiere。
+
+在动手写代码前，先记住 Remotion 入门的五个核心概念（这也是官方 Terminology 页面定义的本体）：
+
+- **Composition**：一个可以导出的「视频单元」，由 React 组件 + 宽高 + fps + 时长 + 唯一 id 组成，注册在 `src/Root.tsx` 里，会显示在 Remotion Studio 的左侧面板；
+- **durationInFrames**：视频总帧数。配合 fps 就得到秒数：`时长（秒）= durationInFrames / fps`；
+- **fps**：帧率，常见 30 或 60；
+- **useCurrentFrame()**：返回当前帧号（从 0 开始），是所有动画的「时钟」；
+- **Sequence**：时间轴上的「图层」。用 `from` 延迟某段内容的出现，用 `durationInFrames` 裁剪它的长度，嵌套 Sequence 可以叠加时间偏移。
+
+## 核心概念与最小示例（真实 API）
+
+一个能跑起来的最小 Remotion 工程只需要三个文件。先建工程：
+
+```bash
+npx create-video@latest
+# 或 npm init video --blank
+```
+
+然后是**视频组件**（`src/Composition.tsx`）——它决定每一帧画什么：
+
+```tsx
+import {AbsoluteFill, useCurrentFrame} from 'remotion';
+
+export const MyComposition = () => {
+  const frame = useCurrentFrame();
+
+  return (
+    <AbsoluteFill
+      style={{
+        justifyContent: 'center',
+        alignItems: 'center',
+        fontSize: 100,
+        backgroundColor: 'white',
+      }}
+    >
+      The current frame is {frame}.
+    </AbsoluteFill>
+  );
+};
+```
+
+接着在**入口文件**（`src/index.ts`）注册根组件：
+
+```tsx
+import {registerRoot} from 'remotion';
+import {RemotionRoot} from './Root';
+
+registerRoot(RemotionRoot);
+```
+
+最后在 **Root 文件**（`src/Root.tsx`）里用 `<Composition>` 声明视频的元数据：
+
+```tsx
+import {Composition} from 'remotion';
+import {MyComposition} from './Composition';
+
+export const RemotionRoot = () => {
+  return (
+    <Composition
+      id="MyComposition"
+      component={MyComposition}
+      durationInFrames={150}
+      fps={30}
+      width={1920}
+      height={1080}
+    />
+  );
+};
+```
+
+150 帧、30fps，正好 5 秒。`useVideoConfig()` 可以在组件里读到这四样元数据，`interpolate()` 和 `spring()` 则是做过渡动画最常用的纯函数。
+
+预览就一条命令：
+
+```bash
+npx remotion studio src/index.ts
+```
+
+它会启动 Remotion Studio，一个带时间线、逐帧预览、props 编辑面板的本地开发台。
+
+## 渲染命令与逐帧确定性
+
+写好了就导出。渲染（Remotion 渲染）命令是：
+
+```bash
+npx remotion render src/index.ts MyComposition out/video.mp4
+```
+
+`composition-id` 可以省略，省略时 CLI 会弹出一个选择器让你选。默认编码是 **H.264**，即输出最通用的 MP4；如果需要，可以换 `h265`、`vp8`、`vp9`、`av1`、`prores`，甚至只导出音频（`mp3`/`wav`/`aac`）或 GIF。容器格式由输出文件的后缀自动决定。
+
+很多 Remotion 教程强调一个杀手级特性：**逐帧确定性（preview == export）**。为什么重要？因为在传统工具里，预览效果和最终导出往往存在肉眼差异，调好的效果导出后对不上。Remotion 的预览和导出走的是同一套渲染管线：Studio 里你在浏览器中看到的每一帧，导出时也由浏览器内核逐帧渲染（Remotion 4.0.247 起自动下载并**锁定指定版本**的 Chrome Headless Shell，再用 FFmpeg 编码）。官方甚至在文档里提示：如果你用自己的浏览器二进制替换内置版本，渲染结果「可能不那么确定」。
+
+要守住这种确定性，规则只有一条：**组件里不要用 `Math.random()`、`Date.now()` 这类随时间/环境变化的量**。动画全部由 `useCurrentFrame()` 驱动，用 `interpolate()`、`spring()` 计算中间值——这样同一帧在任何机器、任何时刻渲染，结果都一模一样。这也是「预览即导出」能成立的前提，更是后续批量生产的基石。
+
+## 批量与模板化：一套模板，N 条视频
+
+确定性带来最直接的红利就是**批量生成视频**。Remotion 的模板化思路和 React 完全一致——把数据做成 props。
+
+首先给 `<Composition>` 声明 `defaultProps`，定义数据的形状：
+
+```tsx
+<Composition
+  id="MyComp"
+  component={MyComposition}
+  durationInFrames={150}
+  fps={30}
+  width={1920}
+  height={1080}
+  defaultProps={{titleText: 'Hello'}}
+/>
+```
+
+组件里直接用 props 渲染：
+
+```tsx
+type Props = {titleText: string};
+export const MyComposition: React.FC<Props> = ({titleText}) => {
+  return <AbsoluteFill>{titleText}</AbsoluteFill>;
+};
+```
+
+渲染时用 `--props` 覆盖数据，每跑一次就产出一条视频：
+
+```bash
+npx remotion render MyComp out/a.mp4 --props="./input-props.json"
+```
+
+要规模化，就用 Node.js API 写脚本循环。官方 dataset-render 教程的做法是：`bundle()` 打包工程 → `selectComposition()` 按数据取 composition → 循环 `renderMedia()` 逐条导出：
+
+```ts
+import {renderMedia, selectComposition} from '@remotion/renderer';
+import {data} from './dataset';
+
+for (const entry of data) {
+  const composition = await selectComposition({
+    serveUrl: bundleLocation,
+    id: 'MyComp',
+    inputProps: entry,
+  });
+
+  await renderMedia({
+    composition,
+    serveUrl: bundleLocation,
+    codec: 'h264',
+    outputLocation: `out/${entry.name}.mp4`,
+    inputProps: entry,
+  });
+}
+```
+
+数据可以是 JSON、CSV（转 JSON 即可），推文案、电商主图视频、千人千面的营销视频都是典型场景——这就是「用代码做视频」真正值钱的地方：数据在变，模板不动，产出是流水线。
+
+## 不想写代码的路径：Recut Remotion App
+
+如果你觉得「Remotion 入门」门槛还是高，或不想从零搭工程，也有更省事的路线——把 Remotion 工程封装进本地工作台的 **Recut Remotion App**。
+
+- Recut 把一个真实的 Remotion 工程（`remotion-skeleton` 复制为项目私有的 workspace）封装成本地工作台：你选模板、填选题与素材，AI 直接改写项目里的 composition 代码，并实时预览，不用手敲脚手架和代码；
+- 因为项目本身就是一个真实 Remotion 工程，你可以随时打开代码改任意一帧，想在代码层面深挖时它也完全开放；
+- 导出在本机渲染 MP4，自动归档为素材并设为封面；本地优先，素材不上传，隐私和可控性都有保障。
+
+也就是说，Recut 不替代 Remotion，而是把「代码做视频」这件事的门槛降低：先在工作台里完成第一条成片，再按需下沉到代码层面。
+
+## 结论
+
+从零开始用代码做视频，路径其实很清晰：用 `npx create-video` 建工程 → 用 `Composition` + `useCurrentFrame()` 写第一段动画 → `npx remotion render` 导出 MP4 → 用 props 把视频模板化 → 批量生产。核心始终是四个概念：Composition、durationInFrames、useCurrentFrame、Sequence。
+
+这篇 Remotion 入门教程给你的是「真实可用」的地图，而不是过时的 API——文中代码均对照 remotion@4.0.512 官方文档核对。剩下的就是把第一帧画出来。等你跑通一次最小示例，再回头看「Remotion 渲染」「批量生成视频」这些进阶话题，会发现一切都建立在同一个直觉上：**视频 = 一个随帧号变化的 React 组件**。如果你更想先出成片再谈代码，也可以直接从 Recut Remotion App 的本地工作台起步。

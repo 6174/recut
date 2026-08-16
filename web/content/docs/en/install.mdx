@@ -1,0 +1,42 @@
+---
+order: 20
+group: "Get Started"
+title: "Install Recut"
+description: "Install the Recut local service on macOS, Linux, Windows and FreeBSD with one command — it registers a system service, provisions the runtime and FFmpeg, then open the workspace and start creating."
+---
+
+Recut runs as a local service on your own machine. Installation is a single command, after which the service registers itself and stays running.
+
+## Supported platforms
+
+- **macOS**: registered as a launchd service
+- **Linux**: registered as a systemd user service
+- **Windows**: registered as a login task for the current user
+- **FreeBSD**: prints a command for your process manager
+
+## Install commands
+
+macOS, Linux or FreeBSD:
+
+```bash
+curl -fsSL https://recut.video/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://recut.video/install.ps1 | iex
+```
+
+The installer downloads and verifies the service with staged logs, then provisions a managed Python, default venv and FFmpeg under `~/.recut/`. Re-running upgrades.
+
+## After installing
+
+- The service listens on the LAN API address `:17373` and serves browser event streams on `:17374`.
+- Open https://app.recut.video — the workspace auto-detects the local service.
+- If the service is offline, the workspace shows an install guide, or you can connect an existing remote service.
+
+## Checking and resuming
+
+- `make service-status` (dev) or checking launchd/systemd confirms the service is running.
+- Re-running the installer upgrades; uninstalling requires stopping and removing the system service first.

@@ -29,6 +29,20 @@ var platformOnboarding = []OnboardingGuide{
 	{ID: "platform-plan", Title: "一起规划", Description: "把一个模糊想法变成有顺序的行动。", Prompt: "请帮我把这个想法拆成最小可执行步骤。先确认目标、素材和交付物，再一次只引导我完成下一步。"},
 }
 
+var platformOnboardingEn = []OnboardingGuide{
+	{ID: "platform-start", Title: "Tell me your goal", Description: "Start from what you want to do, and I'll break the next steps down.", Prompt: "I want to start a new project but I'm not sure where to begin. First ask me the most important questions, then give me clear, actionable next steps."},
+	{ID: "platform-plan", Title: "Plan together", Description: "Turn a vague idea into an ordered set of actions.", Prompt: "Help me break this idea into the smallest executable steps. First confirm the goal, materials, and deliverables, then walk me through only one next step at a time."},
+}
+
+// platformOnboardingFor returns the platform fallback onboarding in the
+// requested locale; the zh list doubles as the default.
+func platformOnboardingFor(locale Locale) []OnboardingGuide {
+	if locale == LocaleEn {
+		return platformOnboardingEn
+	}
+	return platformOnboarding
+}
+
 func validateOnboarding(items []OnboardingGuide) error {
 	if len(items) > 12 {
 		return errors.New("at most 12 onboarding guides are allowed")
@@ -82,7 +96,7 @@ func (s *Store) SaveGlobalOnboarding(items []OnboardingGuide) error {
 	return err
 }
 
-func (s *Store) Onboarding(projectID string) ([]OnboardingGuide, error) {
+func (s *Store) Onboarding(projectID string, locale Locale) ([]OnboardingGuide, error) {
 	project, err := s.Get(projectID)
 	if err != nil {
 		return nil, err
@@ -95,9 +109,9 @@ func (s *Store) Onboarding(projectID string) ([]OnboardingGuide, error) {
 	if err != nil {
 		return nil, err
 	}
-	items := append(append([]OnboardingGuide{}, app.Manifest.Onboarding...), global...)
+	items := append(append([]OnboardingGuide{}, app.Manifest.LocalizedFor(locale).Onboarding...), global...)
 	if len(items) == 0 {
-		return append([]OnboardingGuide{}, platformOnboarding...), nil
+		return append([]OnboardingGuide{}, platformOnboardingFor(locale)...), nil
 	}
 	return items, nil
 }

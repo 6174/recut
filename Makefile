@@ -5,7 +5,7 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy app-link builtin-apps editor-ui-build check
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
@@ -19,7 +19,9 @@ BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOO
 BUILD_GOARCH := $(if $(TARGET),$(word 2,$(subst -, ,$(TARGET))),$(if $(GOARCH),$(GOARCH),$(shell go env GOARCH)))
 SERVICE_BUILD ?= $(CURDIR)/build/recut-service$(if $(filter windows,$(BUILD_GOOS)),.exe)
 RELEASE_STAGE ?= $(CURDIR)/build/releases
-RELEASE_PUBLIC ?= $(CURDIR)/web/public/releases/latest
+# 发布包本地暂存区在 cdn/buckets/releases/latest（经 `make cd-upload` 上传 R2，走 https://cdn.recut.video/releases/latest 分发）；
+# 不再写入 web/public，否则会进入 Next 静态导出而超出 Cloudflare Workers Assets 单文件 25 MiB 上限。
+RELEASE_PUBLIC ?= $(CURDIR)/cdn/buckets/releases/latest
 BUILTIN_REMOTION_ARCHIVE := $(CURDIR)/service/builtin_apps/remotion-studio.tar.gz
 BUILTIN_EDITOR_ARCHIVE := $(CURDIR)/service/builtin_apps/editor.tar.gz
 SERVICE_RELEASE_TARGETS := darwin-arm64 darwin-amd64 linux-arm64 linux-amd64 freebsd-arm64 freebsd-amd64 windows-arm64 windows-amd64
@@ -90,7 +92,7 @@ service-build: builtin-apps web-build-embedded ## Build a production service wit
 	@mkdir -p "$(dir $(SERVICE_BUILD))"
 	GOCACHE=$(GOCACHE) GOOS="$(BUILD_GOOS)" GOARCH="$(BUILD_GOARCH)" go -C service build -trimpath -ldflags "-s -w -X main.serviceVersion=$(RECUT_VERSION)" -o "$(SERVICE_BUILD)" .
 
-service-release: builtin-apps web-build-embedded ## Build self-contained service packages for the public Cloudflare installers.
+service-release: builtin-apps web-build-embedded ## Build self-contained service packages staged for the CDN (make cd-upload to publish to R2).
 	@set -e; \
 	mkdir -p "$(RELEASE_STAGE)" "$(RELEASE_PUBLIC)"; \
 	manifest="$(RELEASE_PUBLIC)/manifest.json"; \
@@ -112,6 +114,9 @@ service-release: builtin-apps web-build-embedded ## Build self-contained service
 		printf '"%s":{"archive":"%s","sha256":"%s"}' "$$os-$$arch" "$$archive" "$$checksum" >> "$$manifest"; \
 	done; \
 	printf '}}\n' >> "$$manifest"
+
+cd-upload: ## Upload the staged service release packages to R2 (distributed at https://cdn.recut.video/releases/latest).
+	node cdn/scripts/cli.mjs upload releases
 
 service-install: service-build ## Install the host-target production service (macOS/Linux/FreeBSD shell hosts).
 	@test "$(BUILD_GOOS)" = "$$(go env GOOS)" || { echo "service-install must target this host; copy the cross-built binary to $(BUILD_GOOS)-$(BUILD_GOARCH) instead." >&2; exit 1; }
@@ -145,17 +150,24 @@ web-dev: stop-stale-web ## Start the public localhost site; app.localhost:3000 i
 web-build: ## Build and type-check the Next.js workspace.
 	cd web && npm run build
 
+web-e2e-worker: web-build-cloudflare ## Worker 路由 E2E：真实 worker.ts + out/ 静态导出（Accept-Language/cookie 判定、302/301、双语言正文）。
+	cd web && npm run test:e2e:worker
+
+web-e2e: ## 浏览器 E2E：自动拉起本地 dev server 验证官网 hydration、逐语言渲染、自动跳转与 cookie 切换。
+	cd web && npm run test:e2e
+
 web-build-embedded: ## Export the same-origin local workspace and stage it for Go embedding (never copies service releases).
 	@rm -rf "$(CURDIR)/web/out"
 	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local NEXT_PUBLIC_RECUT_APP_URL=https://app.recut.video NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
 	@rsync -a --delete --exclude='.keep' --exclude='releases/' "$(CURDIR)/web/out/" "$(CURDIR)/service/ui/assets/"
 	@rm -rf "$(CURDIR)/service/ui/assets/releases"
 
-web-build-cloudflare: ## Export the static web workspace for the Cloudflare Worker.
+web-build-cloudflare: ## Export the static web workspace for the Cloudflare Worker (service releases live on the CDN, never in Worker Assets).
 	@rm -rf "$(CURDIR)/web/out"
+	@rm -rf "$(CURDIR)/web/public/releases"
 	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=cloud NEXT_PUBLIC_RECUT_API_URL=http://127.0.0.1:17373 NEXT_PUBLIC_RECUT_APP_URL=https://app.recut.video NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
 
-web-deploy: service-release web-build-cloudflare ## Package the service, export the web workspace, then deploy it to Cloudflare.
+web-deploy: service-release cd-upload web-build-cloudflare ## Package the service, publish it to the CDN, export the web workspace, then deploy it to Cloudflare.
 	cd web && node ./node_modules/wrangler/bin/wrangler.js deploy
 
 deploy: web-deploy ## Build macOS service release assets and deploy the complete web workspace to Cloudflare.

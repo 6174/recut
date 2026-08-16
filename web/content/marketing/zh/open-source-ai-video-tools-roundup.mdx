@@ -1,0 +1,67 @@
+---
+date: 2026-07-23
+title: "开源 AI 视频剪辑工具盘点：本地优先的 9 个代表项目"
+description: "开源 AI 视频剪辑工具盘点：从 Whisper、Qwen3-ASR 转写，Depth Anything 深度图，Remotion 程序化视频，到 CosyVoice 配音、Kdenlive 剪辑，本地优先 AI 视频工作流部署门槛与许可证逐一对照。"
+---
+
+想用 AI 做视频、剪口播、加字幕、生成封面，又不愿意把素材交给云端，这是很多人都会卡住的第一道坎。好消息是，「本地优先」的开源方案这几年已经长成了完整的工具链：转写、配音、深度图、程序化视频、开源剪辑器各有人用、各有活人维护。这篇盘点把五个方向的代表项目、真实部署门槛和许可证一次讲清，涉及事实处都标注了核实情况，方便你判断哪个值得装。
+
+## 一、语音转写（ASR/字幕）：从 Whisper 到 Qwen3-ASR
+
+代表项目：OpenAI Whisper（MIT，代码与权重均已核实）、whisper.cpp（MIT）、faster-whisper（MIT）、Qwen3-ASR（Apache-2.0）。
+
+部署门槛：Whisper 最标准，Python 3.8-3.11 + PyTorch + ffmpeg 即可，tiny 约 1GB 显存、large 约 10GB（已核实官方 README）。whisper.cpp 是纯 C/C++ 的 ggml 移植，CPU 就能跑，模型从 75MiB 到 2.9GiB，Apple Silicon 还能走 Metal，是嵌入式/低配机的首选。faster-whisper 用 CTranslate2 重写，宣称比原版快约 4 倍，GPU 加速需要 CUDA12 + cuDNN9。Qwen3-ASR 是 2026 年初发布的阿里通义新家族（0.6B/1.7B），官方仓库与模型卡均为 Apache-2.0（已核实），支持 30 种语言 + 22 种中文方言、流式离线统一推理，附带 ForcedAligner 出时间戳；但它要 Python 3.12 和 CUDA 显卡，跑起来偏「LLM 部署」那套（transformers 或 vLLM），门槛明显高于 Whisper 系（部署相关均已核实官方文档）。
+
+适合谁：只要「开箱即出字幕」，优先 Whisper 或 faster-whisper；追求中文/方言识别精度，且有 N 卡，再上 Qwen3-ASR。
+
+## 二、深度估计（深度图）：Depth Anything V1 / V2
+
+代表项目：Depth Anything V1（Apache-2.0，已核实）、Depth Anything V2（Small = Apache-2.0；Base/Large/Giant = CC-BY-NC-4.0，已核实官方 README）。
+
+部署门槛：两个版本都是 DINOv2-DPT 路线，Python + PyTorch + OpenCV 即可，不需要特别大的显存——V2 Small 仅 24.8M 参数，Base 97.5M，Large 335.3M，Giant 1.3B；默认输入分辨率 518，提供 run.py 和 run_video.py 脚本（已核实官方 README）。
+
+适合谁：做伪 3D、景深封面、背景虚化、转绘前引导，优先 Depth Anything V2 Small；要更细的边缘用 Base。注意许可证坑：V2 的 Small 可以放心商用，Base 和 Large 是 CC-BY-NC-4.0 非商用协议（已核实），商用项目要么用 Small，要么再评估授权。
+
+## 三、程序化视频：Remotion
+
+代表项目：Remotion（React + Node.js，56k+ stars，已核实）。它让你用写代码的方式做视频——用 React 组件描述每一帧，跑一条命令批量渲染，天生适合数据可视化、字幕动画、自动化批量出片。
+
+部署门槛：需要 Node.js 环境，`npx create-video@latest` 起步，渲染依赖 Chrome/Chromium（官方文档，已核实）；不需要 GPU、不需要 Python。真正的坑在许可证：Remotion 不是普通开源许可证，是特殊许可，某些商业场景需要购买公司授权（已核实官方 README）。
+
+适合谁：会前端、要做模板化/批量化的短视频或动态字幕的团队；这也是很多「AI 生成视频」产品的地基。
+
+## 四、本地 TTS 与声音克隆：CosyVoice / IndexTTS2 / GPT-SoVITS / OpenVoice
+
+代表项目与门槛（均核实官方仓库）：
+
+- CosyVoice / CosyVoice2（现 QwenAudio/CosyVoice）：代码 Apache-2.0，CosyVoice2-0.5B 权重也是 Apache-2.0；Python 3.10 + conda 安装，约 0.5B 模型，1-2 句话就能做零样本克隆，中文/方言/跨语种都稳，生态还推到了 Fun-CosyVoice 3.0（0.5B）。
+- IndexTTS2 / IndexTTS2.5（index-tts）：情感可控、语速可控、拼音/音素可控，质量在开源 TTS 里属第一梯队；但它是 bilibili 模型使用许可，不是标准开源协议，商用需联系官方（已核实）；安装走 uv，官方要求 CUDA 12.8+，IndexTTS2 约 1.5B、2.5 约 0.8B。
+- GPT-SoVITS（RVC-Boss）：MIT，5 秒音频零样本、1 分钟微调少样本，支持中英日韩粤，WebUI 友好，CUDA/Apple Silicon/CPU 都能跑。
+- OpenVoice（myshell-ai）：MIT 可商用，主打即时克隆 + 风格控制。
+
+适合谁：只做配音和克隆、要最省事，选 GPT-SoVITS 或 OpenVoice；要中文音质和跨语种、且能接受自己部署 N 卡环境，CosyVoice2 性价比最高；做商业化配音服务，先避开 IndexTTS2 的协议、再确认 CosyVoice/OpenVoice 的 MIT/Apache 条款（均已核实）。
+
+## 五、开源剪辑器：Kdenlive / Shotcut / Olive / DaVinci Resolve
+
+代表项目（已核实）：Kdenlive（GPL-3.0，基于 MLT + KDE 框架，跨平台）；Shotcut（免费开源跨平台，基于 MLT + FFmpeg，官方页面写明 free & open source；精确许可证公开信息为 GPL-3.0，SPDX 细节未核实）；Olive（官网现为「Olive will return…」，处于回归/重建中，旧版可从 GitHub Releases 下载，已核实）；DaVinci Resolve 免费版——注意它**不是开源软件**，是 Blackmagic 的专有软件，免费版最高支持 UHD 3840×2160、8bit、60fps（已核实官方页面），常被误当开源替代品。
+
+适合谁：日常剪辑、多轨调色，Kdenlive/Shotcut 够用且零成本；重度调色和 Fusion 特效需求，DaVinci 免费版仍是免费天花板，只是别把它写进「开源」列表。
+
+## 六、把整条链装进一个 App：Recut
+
+上面五类是「一个工具管一件事」。如果你不想自己拼 Python 环境、显卡驱动和一条条命令行，可以看 Recut：它本身是免费开源的本地 AI 视频剪辑工作台，用 App 承载能力，包括时间线剪辑、AI 短片、字幕配音、封面、深度图，素材不上传，跑在本机。
+
+和本盘点里的开源项目是「兼容并封装」的关系，而不是空头罗列：深度图 App 基于 Depth Anything 的 Small/Base/Large，支持伪彩/灰度输出，可导出 PNG/MP4，素材不上传；声音工坊在本地做转写（Qwen3-ASR）和配音（CosyVoice2）；Remotion 视频 App 封装的是真实的 Remotion 工程，AI 会改写代码来改片。想要自由度，还可用 JavaScript 扩展 Recut，接入你自己的模型与工具（以上均为 Recut 官方能力说明，未声称内置其他未证实的项目清单）。
+
+## 七、怎么选
+
+- 只想快速出字幕：Whisper（CPU 够用）或 faster-whisper（有 N 卡提速）→ 需要中文方言/歌词识别再升级 Qwen3-ASR。
+- 只做封面/伪 3D：Depth Anything V2 Small（Apache-2.0 可商用）；商用绕开 Base/Large 的 CC-BY-NC。
+- 批量模板视频：Remotion，先确认公司授权是否覆盖。
+- 配音克隆：省事选 GPT-SoVITS/OpenVoice（MIT）；要音质选 CosyVoice2；商用优先看许可证再选。
+- 剪辑：Kdenlive / Shotcut；需要好莱坞级调色再装 DaVinci 免费版（记住它不开源）。
+- 想一步到位且偏本地：把 Recut 当工作台，按需接上面的开源模型。
+
+## 八、结论
+
+开源 AI 视频剪辑工具这条链早已不是「有没有」的问题，而是「要不要自己部署」的问题：Whisper 系转写、Depth Anything V2 深度图、CosyVoice/GPT-SoVITS 配音、Remotion 程序化视频、Kdenlive/Shotcut 剪辑，每个方向都有 MIT/Apache 级别的可靠代表（许可证均已核实）。真正要小心的只有三件事：一是非开源但被误认开源的 DaVinci；二是 CC-BY-NC（Depth Anything V2 大模型）、bilibili 许可（IndexTTS2）、特殊许可（Remotion）这类商用限制；三是显存与 CUDA 门槛，低配机从 whisper.cpp 和 Depth Anything Small 入门最稳。把这三点想清楚，本地优先的 AI 视频工作流就能真正跑起来。

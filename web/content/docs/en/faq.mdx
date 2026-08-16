@@ -1,0 +1,42 @@
+---
+order: 70
+group: "FAQ"
+title: "Frequently asked questions"
+description: "Common questions about Recut: supported platforms, hardware, free/open source, whether media uploads, offline use, BYOK models, the app ecosystem and development."
+---
+
+## Which platforms does Recut support?
+
+macOS, Linux, Windows and FreeBSD. macOS registers a launchd service, Linux a systemd user service, Windows a login task, and FreeBSD prints a start command.
+
+## What hardware does Recut need?
+
+Basic editing is lightweight. Local transcription is recommended with 16 GB+ RAM; stable voice characters and AI dubbing with 32 GB+ and roughly 15 GB of disk. An NVIDIA CUDA GPU speeds transcription and dubbing noticeably; Apple silicon and CPU-only machines work too.
+
+## Is Recut free and open source?
+
+Yes. Recut is completely free and open source — the code is public, reviewable and self-hostable long-term; Apps can be installed, swapped or written from scratch.
+
+## Does my media upload to the cloud?
+
+No. Recut is local-first: media, projects and credentials stay on your device or a controlled remote service, and AI models run on your machine. Models download on demand at first use; after that you can keep creating offline.
+
+## How do models connect?
+
+Recut supports BYOK (bring your own keys): connect a Provider in settings and pick a model for each capability, and generation (image, video, voice) is submitted through the local service to that model. Model choice is yours — not bound to a single vendor.
+
+## What is the App ecosystem like?
+
+Recut is a Chrome-like App Host: Apps define UI and business in JavaScript, and the platform provides isolated storage, files, tasks, media, Artifacts and MCP capabilities. Official apps include AI Short Films, Audio Studio, Remotion Video, Cover Studio and Depth Maps — and you can write your own.
+
+## Do I need to write code?
+
+No. Official apps work out of the box: AI Short Films, timeline editing, auto-captions, AI voice, covers and depth maps cover the main creation scenarios. JavaScript extension is an option for advanced users and teams, not a requirement.
+
+## Is remote deployment secure?
+
+A remote service is controlled and protected by you (TLS, auth, etc.), and browsers connect directly to your server with no third-party proxy. Only expose it in environments you trust.
+
+## What does developing an App take?
+
+A GitHub repo (or local source) with `manifest.json` and `background.js`, plus an optional `ui/`. The full contract lives in `/app-standard.md`, which is also the reference for the "new app" prompt.

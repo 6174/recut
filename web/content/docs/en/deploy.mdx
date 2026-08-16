@@ -1,0 +1,35 @@
+---
+order: 60
+group: "Deployment"
+title: "Deploying the Recut service: local, LAN and remote"
+description: "Three deployment shapes for the Recut service: on your machine, shared on a LAN, or on a controlled remote server; how browsers connect directly, plus CORS and port conventions."
+---
+
+Recut's service runs in three shapes, and your browser connects to it directly — the cloud never proxies its API.
+
+## Local (default)
+
+The installer registers the service as a system service listening on `:17373` (API) and `:17374` (event streams). The browser visits https://app.recut.video or `http://localhost:3000` and talks straight to the local service. Media, projects and credentials stay on your device.
+
+## LAN
+
+Run the service on one shared host; devices on the same LAN reach the workspace and API via its LAN IP. The LAN service accepts cross-origin requests from private, link-local and loopback IPs.
+
+## Remote service
+
+Deploy the service on a remote server you control, and browsers connect through its public address. A remote service needs:
+
+- to be reachable by browsers;
+- to allow cross-origin requests from https://app.recut.video;
+- its own access security (TLS, auth, etc.).
+
+## Port conventions
+
+- `17373`: regular API requests
+- `17374`: SSE / WebSocket event streams
+
+Both ports share one daemon and state; the browser allocates separate connection pools per port, so multiple tabs and auto-reconnects never starve core API requests.
+
+## Development mode
+
+`make dev` starts the LAN service with a `localhost:3000` workspace — `localhost:3000` renders the site and `app.localhost:3000` renders the workspace. `make service-resume` restores the installed service after development.

@@ -13,6 +13,10 @@
 2026-08-14-creation-worlds-product-reframe.md: Creation Worlds 面向完整用户产品的重构 RFC：以创作设定替代 Geek 数据表面，定义类型化编辑、完整生命周期、AI WorldBrief 与需确认的写回契约，并规划旧 Canon 的渐进迁移。
 2026-08-15-editor-chatcut-adoptions.md: recut.editor 系统性吸收 ChatCut 对标结论：script-first 文稿剪辑面（script.read/apply/clean）、speech-track 转录来源、track role 自动 duck + audio.smooth、catalog-first 内置效果/SFX 目录、skill 工艺层（speech-editing/subject-protection/errors references）与验证/生成纪律，并明确不采纳边界（保留 op 日志、确定性关键帧、preview==export、本地渲染）。
 2026-08-16-marketing-seo-social-share.md: 官网 SEO 与社交分享完整方案：逐路由元数据与默认 noindex、canonical/域名收敛（www 301、/marketing 别名、软 404）、robots.txt/sitemap.xml、Open Graph/Twitter Card 与微信/微博/X/LinkedIn 等平台分享预览、OG 图片静态生成、JSON-LD 结构化数据、工作台 noindex 隔离、Worker 边缘调整、图标集与 Blog 内容补强。
+2026-08-16-i18n-zh-en.md: 全站多语言（zh/en）整体方案：语言枚举与两种语言真相（官网 URL 驱动、工作台/Service/App 偏好驱动）、官网多路由与 Worker 重写映射、逐语言 metadata/hreflang/sitemap/canonical、内容模型 locale-keyed、轻量类型化字典、工作台偏好端点与 Accept-Language 传递、manifest.localized 契约、ctx.locale 注入、iframe 语言注入与 Agent guide/MCP 语言一致化。
+2026-08-16-marketing-content-plan.md: 视频创作主题域内容计划：AI 视频生成/视频制作科普/工具文/创作方法论四个主题簇的选题库（Google 全球 + Google 中文视角）、内容形态配比（权威 60% / 承接 40%）、zh/en 双语言生产模型（对齐 i18n RFC）、P0–P2 执行顺序与榜单时效更新机制；P0 打样第一篇为「AI 视频生成后怎么剪辑」。
+2026-08-16-i18n-zh-en.md: 全站 zh / en 双语言整体方案：两种语言真相（官网 URL 驱动、工作台/Service/App 偏好驱动）、官网多路由与 Worker 重写映射、逐语言 metadata/hreflang/sitemap/canonical、`lib/i18n` 类型化字典、`/v1/preferences` 偏好端点、Service 的 Accept-Language 传递、manifest `localized` 契约、`ctx.locale` 注入 background.js、iframe `?locale=` + 宿主桥 page.context.locale、Agent guide/MCP 语言一致化。
+2026-08-16-editor-font-system.md: 编辑器字体系统：Recut 自有 CDN 自托管字体（cdn/fonts/google，fetch-fonts.mjs 编制上传，运行期零 Google 依赖）、service /v1/fonts 目录与字体文件 API（首次从自家 CDN 抓取 + 内容寻址缓存 + 离线可用）、Google Fonts / Local Fonts 双 Tab 面板、中文 CJK 家族与 unicode-range 按需加载、本机字体枚举（queryLocalFonts + SYSTEM_FONTS 扩充）、用户上传字体（FontFace 注册 + 持久化）、渲染/导出一致性，以及基于 Playwright 的分层 E2E（L1 Go httptest / L2 编辑器 fixtures mock / L3 全链路）。
 
 此目录保存尚未实施或分阶段实施的平台设计决策。RFC 定义目标、边界、数据与接口契约；获批实现后，代码与运行时文档必须反向更新以保持一致。
 

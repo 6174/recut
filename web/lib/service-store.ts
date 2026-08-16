@@ -6,7 +6,10 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { defaultServiceEndpoint, isLANWorkspace, isLocalWorkspace } from "@/lib/service-endpoint";
+import { useLocaleStore } from "./i18n/locale-store";
+import { t } from "./i18n/index";
+import { interpolate } from "./i18n/workspace-dict";
+import { defaultServiceEndpoint, isLANWorkspace, isLocalWorkspace, recutHeaders } from "@/lib/service-endpoint";
 
 export type ServiceState = { phase: "checking" | "online" | "offline"; version: string; startedAt?: string; selfUpdate: boolean; selfRestart: boolean; error?: string };
 type ServiceStore = { endpoint: string; service: ServiceState; refreshing: boolean; setEndpoint: (endpoint: string) => void; resetEndpoint: () => void; refresh: () => Promise<void> };
@@ -25,13 +28,13 @@ export const useServiceStore = create<ServiceStore>()(persist((set, get) => ({
     const endpoint = get().endpoint;
     set({ refreshing: true });
     try {
-      const [health, status] = await Promise.all([fetch(`${endpoint}/health`, { cache: "no-store" }), fetch(`${endpoint}/v1/system/status`, { cache: "no-store" })]);
+      const [health, status] = await Promise.all([fetch(`${endpoint}/health`, { cache: "no-store", headers: recutHeaders() }), fetch(`${endpoint}/v1/system/status`, { cache: "no-store", headers: recutHeaders() })]);
       if (!health.ok) throw new Error();
       const healthBody = await health.json() as { version?: string; startedAt?: string };
       const statusBody = status.ok ? await status.json() as { selfUpdate?: boolean; selfRestart?: boolean } : {};
       if (get().endpoint === endpoint) set({ service: { phase: "online", version: healthBody.version ?? "unknown", startedAt: healthBody.startedAt, selfUpdate: Boolean(statusBody.selfUpdate), selfRestart: Boolean(statusBody.selfRestart), error: undefined } });
     } catch {
-      if (get().endpoint === endpoint) set({ service: { phase: "offline", version: "—", selfUpdate: false, selfRestart: false, error: `无法连接 ${endpoint}/health；请检查 service 是否启动，并查看安装命令输出的日志。` } });
+      if (get().endpoint === endpoint) set({ service: { phase: "offline", version: "—", selfUpdate: false, selfRestart: false, error: interpolate(t("workspace", useLocaleStore.getState().locale, "store.health.failed"), { endpoint }) } });
     } finally { if (get().endpoint === endpoint) set({ refreshing: false }); }
   },
 }), {

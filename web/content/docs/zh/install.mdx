@@ -1,0 +1,42 @@
+---
+order: 20
+group: "开始使用"
+title: "安装 Recut"
+description: "在 macOS、Linux、Windows 与 FreeBSD 上安装 Recut 本地 service：一条命令完成，注册系统服务、预置运行时与 FFmpeg，然后打开工作台开始创作。"
+---
+
+Recut 以本地 service 的形式运行在你自己的设备上。安装只需一条命令，随后 service 会自动注册为系统服务并常驻。
+
+## 支持的平台
+
+- **macOS**：注册为 launchd 服务
+- **Linux**：注册为 systemd user 服务
+- **Windows**：注册为当前用户登录任务
+- **FreeBSD**：输出供进程管理器启动的命令
+
+## 安装命令
+
+macOS、Linux 或 FreeBSD：
+
+```bash
+curl -fsSL https://recut.video/install.sh | sh
+```
+
+Windows（PowerShell）：
+
+```powershell
+irm https://recut.video/install.ps1 | iex
+```
+
+安装器会以阶段日志下载并校验 service，然后在 `~/.recut/` 预置受管的 Python、默认 venv 与 FFmpeg。重复执行即升级。
+
+## 安装后做什么
+
+- service 默认监听局域网 API 地址 `:17373`，并在 `:17374` 承载浏览器事件流。
+- 打开 https://app.recut.video 工作台，浏览器会自动检测本机 service。
+- 首次离线时工作台会展示安装引导；也可以连接一个已有的远程 service。
+
+## 检查与恢复
+
+- `make service-status`（开发环境）或检查 launchd/systemd 状态可确认 service 是否运行。
+- 安装器反复执行即升级；卸载需先停止并移除对应系统服务。

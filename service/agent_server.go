@@ -22,10 +22,11 @@ func (s *Server) getAgentOnboarding(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("workspace storage is unavailable"))
 		return
 	}
+	locale := DetectLocale(r)
 	projectID := strings.TrimSpace(r.URL.Query().Get("projectId"))
 	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
 	if scope == "media" || projectID == "media" {
-		items, err := s.mediaOnboarding()
+		items, err := s.mediaOnboarding(locale)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
@@ -42,7 +43,7 @@ func (s *Server) getAgentOnboarding(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"items": items})
 		return
 	}
-	items, err := s.store.Onboarding(projectID)
+	items, err := s.store.Onboarding(projectID, locale)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -50,8 +51,8 @@ func (s *Server) getAgentOnboarding(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
-func (s *Server) mediaOnboarding() ([]OnboardingGuide, error) {
-	app := mediaSystemAppDescriptor()
+func (s *Server) mediaOnboarding(locale Locale) ([]OnboardingGuide, error) {
+	app := mediaSystemAppDescriptorFor(locale)
 	global, err := s.store.GlobalOnboarding()
 	if err != nil {
 		return nil, err

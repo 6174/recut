@@ -1,5 +1,5 @@
 /*
- * [INPUT]: 依赖 Zustand 与 Recut service 的 Provider、Credential、Route HTTP API
+ * [INPUT]: 依赖 Zustand 与 Recut service 的 Provider、Credential、Route HTTP API；经 fetchRecutJSON 统一附加 Accept-Language
  * [OUTPUT]: 对外提供按 endpoint 去重的 Provider、脱敏 Credential、用途 Route 配置快照与显式刷新动作
  * [POS]: web/lib 的媒体配置唯一缓存；Settings、素材创建和 iframe App 宿主共享，API Key 输入草稿绝不进入此处
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -7,6 +7,9 @@
 import { create } from "zustand";
 
 import type { Credential, Provider } from "@/app/media/media-types";
+import { useLocaleStore } from "./i18n/locale-store";
+import { t } from "./i18n/index";
+import { fetchRecutJSON } from "./service-endpoint";
 
 export type MediaProvider = Provider & { defaultApiBase: string };
 export type MediaCredential = Credential & { secretSet?: boolean };
@@ -57,25 +60,17 @@ export const useMediaConfigurationStore = create<MediaConfigurationStore>((set, 
     const pending = (async () => {
       set({ state: "loading", error: "" });
       try {
-        const [providerResponse, credentialResponse, routeResponse] = await Promise.all([
-          fetch(`${endpoint}/v1/media/providers`),
-          fetch(`${endpoint}/v1/media/credentials`),
-          fetch(`${endpoint}/v1/media/routes`),
-        ]);
-        if (!providerResponse.ok || !credentialResponse.ok || !routeResponse.ok) {
-          throw new Error("媒体配置读取失败");
-        }
         const [providers, credentials, routes] = await Promise.all([
-          providerResponse.json() as Promise<MediaProvider[]>,
-          credentialResponse.json() as Promise<MediaCredential[]>,
-          routeResponse.json() as Promise<MediaRoute[]>,
+          fetchRecutJSON<MediaProvider[]>(endpoint, "/v1/media/providers"),
+          fetchRecutJSON<MediaCredential[]>(endpoint, "/v1/media/credentials"),
+          fetchRecutJSON<MediaRoute[]>(endpoint, "/v1/media/routes"),
         ]);
         if (get().endpoint === endpoint) {
           set({ providers, credentials, routes, state: "ready", error: "" });
         }
       } catch {
         if (get().endpoint === endpoint) {
-          set({ state: "failed", error: "无法读取 AI 服务配置，请检查 service 连接。" });
+          set({ state: "failed", error: t("workspace", useLocaleStore.getState().locale, "store.media.unreadable") });
         }
       } finally {
         requests.delete(endpoint);

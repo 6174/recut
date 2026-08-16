@@ -1,0 +1,52 @@
+---
+order: 50
+group: "开发"
+title: "开发 Recut App：manifest、background 与 UI"
+description: "用 JavaScript 编写 Recut App：manifest.json 声明身份与权限，background.js 承载业务与 operations，ui/ 提供界面；operations 可暴露为 UI API 或 MCP 工具。"
+---
+
+Recut 的 App 就是一段可扩展的创作能力。开发一个 App，通常只需 manifest、background 与可选 UI 三部分。
+
+## 整体结构
+
+```text
+App package
+├── manifest.json       唯一运行时配置：身份、类型、入口、权限、operations
+├── background.js       App 业务、API 与 MCP handler
+└── ui/                 App 自己定义的界面（iframe）
+```
+
+## manifest.json
+
+`manifest.json` 是 App 的唯一契约，声明：
+
+- `id`、`name`、`author`、`description`、可选 `repository`
+- `type`：`project`（项目型）或 `standalone`（工作区型）
+- `entry` 与权限（sqlite / files / artifacts 等）
+- `operations`：一次定义的名称、描述、输入 schema 与 `surfaces`（`["api", "mcp"]`）
+
+manifest 不声明数据表或业务 workflow——那些是 App JavaScript 的内部实现。
+
+## background.js：operations
+
+`background.js` 用 `recut.operation.register(name, handler)` 注册操作。同一个 operation 以 `api` surface 给 UI 调用，以 `mcp` surface 给 Agent 调用，只有一份名称、schema 与实现。
+
+平台提供隔离的能力边界：
+
+- `ctx.sqlite`：App 专属的命名空间数据库
+- `ctx.files`：受控文件沙箱
+- `ctx.artifacts.publish`：发布不可变 Artifact 供其他 App 引用
+- `ctx.project` / `ctx.media.*`：项目上下文与媒体平台能力
+
+## ui/：界面
+
+App 的 `ui/` 是一个独立的 iframe 构建。宿主通过 `page.context` 传递项目、素材与草稿上下文；App 可以读取当前项目 scope 与 Agent 回填的草稿。
+
+## MCP surface
+
+平台监听 MCP，App 只需在 manifest 声明 `mcp` surface 并注册对应 operation。Agent 会话只看到当前 App 声明且含 `mcp` surface 的 `app-id.operation`，调用经权限校验后进入 `background.js`。
+
+## 开发与验证
+
+- 开发时用 `make app-link` 把本地包链接到运行时目录，service、项目与 Agent 共用同一份 App 文件。
+- 完整的 App 创建契约见公开的 `/app-standard.md`，它是新建应用 Prompt 的参考文档。

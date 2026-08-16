@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、统一 App 身份图标、Agent Session HTTP API 及全局 Agent 面板上下文
- * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Apps 工作台入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态
+ * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、统一 App 身份图标、Agent Session HTTP API 及全局 Agent 面板上下文、工作台 i18n 字典与 Accept-Language 统一请求包装
+ * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Apps 工作台入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态；全部文案经 useI18n 迁移到 workspace 字典
  * [POS]: web/app 的应用工作台框架；Studio 是 app Host 的默认创作入口，世界观作为首个原生创作应用统一进入世界观管理，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -24,9 +24,11 @@ import { HeaderActions } from "@/components/header-actions";
 import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
 import { trackEvent } from "@/components/posthog-analytics";
 import { marketplaceApps } from "@/lib/app-catalog";
-import { isLocalWorkspace } from "@/lib/service-endpoint";
+import { isLocalWorkspace, fetchRecutJSON } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore, type WorkspaceInstallation as Installation, type WorkspaceProject as Project } from "@/lib/workspace-store";
+import { useI18n } from "@/lib/i18n/index";
+import { interpolate } from "@/lib/i18n/workspace-dict";
 import { VideoFrame } from "@/components/video-frame";
 import { WebGLStudioHero } from "@/components/webgl-studio-hero";
 import type { Asset } from "./media/media-types";
@@ -43,6 +45,7 @@ export function Workspace(props: WorkspaceProps = {}) {
 }
 
 function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: WorkspaceProps = {}) {
+  const { t } = useI18n();
   const installations = useWorkspaceStore((state) => state.installations);
   const projects = useWorkspaceStore((state) => state.projects);
   const installationsState = useWorkspaceStore((state) => state.installationsState);
@@ -65,14 +68,14 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
     useAgentPanelContext.getState().setProjectID(agentProjectID);
   }, [agentProjectID]);
   const pageContext = useMemo(() => tab === "assets"
-    ? { title: "素材库", path: "/media" }
+    ? { title: t("page.assets.title"), path: "/media" }
     : tab === "worlds"
-      ? { title: "Worlds", path: "/worlds" }
+      ? { title: t("page.worlds.title"), path: "/worlds" }
       : tab === "projects"
-        ? { title: "项目", path: "/projects" }
+        ? { title: t("page.projects.title"), path: "/projects" }
         : tab === "apps"
-          ? { title: "应用", path: "/apps" }
-          : null, [tab]);
+          ? { title: t("page.apps.title"), path: "/apps" }
+          : null, [tab, t]);
   useReportPageContext(pageContext);
   useEffect(() => {
     if (!online) return;
@@ -97,22 +100,18 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
   }
 
   async function createProjectWithApp(app: Installation, projectName: string) {
-    const response = await fetch(`${apiBase}/v1/projects`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: projectName, appId: app.manifest.id }) });
-    if (!response.ok) throw new Error(await responseMessage(response));
-    const project = await response.json() as Project;
+    const project = await fetchRecutJSON<Project>(apiBase, "/v1/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: projectName, appId: app.manifest.id }) });
     await loadWorkspace(apiBase, true);
     window.location.assign(`/projects/${project.id}`);
   }
 
   async function renameProject(project: Project, projectName: string) {
-    const response = await fetch(`${apiBase}/v1/projects/${encodeURIComponent(project.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: projectName }) });
-    if (!response.ok) throw new Error(await responseMessage(response));
+    await fetchRecutJSON(apiBase, `/v1/projects/${encodeURIComponent(project.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: projectName }) });
     await loadWorkspace(apiBase, true);
   }
 
   async function deleteProject(project: Project) {
-    const response = await fetch(`${apiBase}/v1/projects/${encodeURIComponent(project.id)}`, { method: "DELETE" });
-    if (!response.ok) throw new Error(await responseMessage(response));
+    await fetchRecutJSON(apiBase, `/v1/projects/${encodeURIComponent(project.id)}`, { method: "DELETE" });
     await loadWorkspace(apiBase, true);
   }
 
@@ -153,7 +152,7 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
           : <MediaLibraryPanel initialAssetID={initialAssetID} onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-5">
-      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label={showLanding ? "官网导航" : "工作台"} className="flex min-w-0 items-center gap-0.5 sm:gap-1">{showLanding ? <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">工作台</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">应用市场</Tab></> : <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">创作台</Tab><Tab active={tab === "worlds"} href="/worlds" onNavigate={navigateTab} tab="worlds">Worlds</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">项目</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">素材库</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">应用</Tab></>}</nav></div>
+      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label={showLanding ? t("nav.aria.website") : t("nav.aria.workspace")} className="flex min-w-0 items-center gap-0.5 sm:gap-1">{showLanding ? <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">{t("nav.workspace")}</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">{t("nav.market")}</Tab></> : <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">{t("nav.studio")}</Tab><Tab active={tab === "worlds"} href="/worlds" onNavigate={navigateTab} tab="worlds">{t("nav.worlds")}</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">{t("nav.projects")}</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">{t("nav.assets")}</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">{t("nav.apps")}</Tab></>}</nav></div>
       {!showLanding && <div className="hidden md:block"><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>}
     </header>
     <div className={`min-h-0 flex-1 overflow-hidden ${showAgentPanel ? "md:pl-[var(--side-panel-width)]" : ""}`}>
@@ -183,15 +182,18 @@ function Projects({ apiBase, apps, onDeleteProject, onRenameProject, onStartProj
 }
 
 function NewProjectCard({ apps, onStartProject }: { apps: Installation[]; onStartProject: (app: Installation) => void }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  return <><button className="group flex min-h-40 min-w-0 flex-col rounded-lg border-2 border-dashed border-primary/35 bg-transparent p-4 text-left shadow-none transition hover:-translate-y-0.5 hover:border-primary/50 hover:bg-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60" disabled={!apps.length} onClick={() => setOpen(true)} type="button"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><Plus className="size-5" /></span><span className="mt-auto"><span className="block text-base font-semibold">新建项目</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{apps.length ? "选择一种应用类型开始创作。" : "先添加一个项目型应用。"}</span><span className="mt-3 inline-flex text-xs font-medium text-primary">选择应用</span></span></button>{open && <ProjectAppPickerDialog apps={apps} onClose={() => setOpen(false)} onPick={(app) => { setOpen(false); onStartProject(app); }} />}</>;
+  return <><button className="group flex min-h-40 min-w-0 flex-col rounded-lg border-2 border-dashed border-primary/35 bg-transparent p-4 text-left shadow-none transition hover:-translate-y-0.5 hover:border-primary/50 hover:bg-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60" disabled={!apps.length} onClick={() => setOpen(true)} type="button"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><Plus className="size-5" /></span><span className="mt-auto"><span className="block text-base font-semibold">{t("projects.new")}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{apps.length ? t("projects.new.desc") : t("projects.new.descEmpty")}</span><span className="mt-3 inline-flex text-xs font-medium text-primary">{t("projects.new.choose")}</span></span></button>{open && <ProjectAppPickerDialog apps={apps} onClose={() => setOpen(false)} onPick={(app) => { setOpen(false); onStartProject(app); }} />}</>;
 }
 
 function ProjectAppPickerDialog({ apps, onClose, onPick }: { apps: Installation[]; onClose: () => void; onPick: (app: Installation) => void }) {
-  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="project-app-picker-title"><section className="w-full max-w-lg rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">NEW PROJECT</p><h2 className="mt-1 text-base font-semibold" id="project-app-picker-title">选择项目类型</h2><p className="mt-1 text-xs text-muted-foreground">选择后输入项目名称，即可开始创作。</p></div><button aria-label="关闭项目类型选择" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><div className="grid gap-2 p-3">{apps.map((app) => <button className="group flex min-w-0 items-center gap-3 rounded-sm p-3 text-left transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={app.package} onClick={() => onPick(app)} type="button"><AppIdentityIcon appID={app.manifest.id} className="transition group-hover:bg-primary group-hover:text-primary-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{app.manifest.name}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{app.manifest.description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div></section></div>;
+  const { t } = useI18n();
+  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="project-app-picker-title"><section className="w-full max-w-lg rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">NEW PROJECT</p><h2 className="mt-1 text-base font-semibold" id="project-app-picker-title">{t("projects.picker.title")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("projects.picker.desc")}</p></div><button aria-label={t("projects.picker.close")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><div className="grid gap-2 p-3">{apps.map((app) => <button className="group flex min-w-0 items-center gap-3 rounded-sm p-3 text-left transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={app.package} onClick={() => onPick(app)} type="button"><AppIdentityIcon appID={app.manifest.id} className="transition group-hover:bg-primary group-hover:text-primary-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{app.manifest.name}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{app.manifest.description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div></section></div>;
 }
 
 const HOME_INSPIRATIONS = [
+  // TODO(i18n): 每日文案为内容面，本期未迁移；后续并入字典时需保持日期稳定与双语言一一对应。
   "今天，镜头先于语言，让画面替你说出未尽的话。",
   "把时间剪开一条缝，光就会从那里透进来。",
   "一帧是一念，把念想连成故事。",
@@ -221,6 +223,7 @@ function inspirationForToday() {
 
 type StudioPromptTemplate = { icon: LucideIcon; title: string; description: string; prompt: string };
 
+// TODO(i18n): Studio 提示模板与首访引导为内容面，本期仅迁移标题级文案；模板正文按语言拆两组（zh/en）后续跟进。
 const STUDIO_PROMPT_TEMPLATES: StudioPromptTemplate[] = [
   {
     icon: Clapperboard,
@@ -315,6 +318,7 @@ function promptTemplatesForToday() {
 }
 
 function Studio({ apiBase, apps, installations, onCompose, onDeleteProject, onManageApps, onRenameProject, onStartProject, projects }: { apiBase: string; apps: Installation[]; installations: Installation[]; onCompose: (text: string) => void; onDeleteProject: (project: Project) => Promise<void>; onManageApps: (event: MouseEvent<HTMLAnchorElement>) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
+  const { t } = useI18n();
   const recentProjects = projects.slice(0, 11);
   const [promptTemplates, setPromptTemplates] = useState(() => STUDIO_PROMPT_TEMPLATES.slice(0, 2));
   useEffect(() => setPromptTemplates(promptTemplatesForToday()), []);
@@ -322,15 +326,15 @@ function Studio({ apiBase, apps, installations, onCompose, onDeleteProject, onMa
     <section className="relative min-h-[17rem] overflow-hidden pb-8 pt-7 sm:min-h-[19rem]">
       <WebGLStudioHero />
       <div className="relative z-10 max-w-xl">
-      <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">早安 · 创作台</p>
-      <h1 className="mt-3 text-3xl font-semibold leading-tight">你的 AI 创作工作站</h1>
+      <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">{t("studio.eyebrow")}</p>
+      <h1 className="mt-3 text-3xl font-semibold leading-tight">{t("studio.title")}</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">{inspirationForToday()}</p>
-      <div className="mt-7 flex max-w-2xl flex-col">{promptTemplates.map(({ description, icon: Icon, prompt, title }) => <button aria-label={`从「${title}」开始`} className="group flex min-w-0 items-center gap-3 border-b border-border/80 py-3 text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={title} onClick={() => onCompose(prompt)} type="button"><span className="grid size-7 shrink-0 place-items-center rounded-sm bg-accent text-accent-foreground"><Icon className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="text-sm font-semibold">{title}</span><span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div>
+      <div className="mt-7 flex max-w-2xl flex-col">{promptTemplates.map(({ description, icon: Icon, prompt, title }) => <button aria-label={interpolate(t("studio.template.aria"), { title })} className="group flex min-w-0 items-center gap-3 border-b border-border/80 py-3 text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={title} onClick={() => onCompose(prompt)} type="button"><span className="grid size-7 shrink-0 place-items-center rounded-sm bg-accent text-accent-foreground"><Icon className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="text-sm font-semibold">{title}</span><span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div>
       </div>
     </section>
-    <section className="mt-8"><SectionHeading action={<a className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps" onClick={onManageApps}>管理应用<ArrowRight className="size-3.5" /></a>} description="选择一种创作能力，立即开始一个新的作品。" title="创作应用" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><WorldsAppCard />{installations.map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div></section>
-    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">查看全部<ArrowRight className="size-3.5" /></Link>} description="整理所有创作空间，新项目从这里开始。" title="项目列表" /><RecentProjects apiBase={apiBase} apps={apps} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={recentProjects} /></section>
-    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/media">打开素材库<ArrowRight className="size-3.5" /></Link>} description="最近加入工作台的图片、视频和音频，可直接带入下一次创作。" title="最近使用的资源" /><RecentAssets apiBase={apiBase} /></section>
+    <section className="mt-8"><SectionHeading action={<a className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps" onClick={onManageApps}>{t("studio.section.apps.manage")}<ArrowRight className="size-3.5" /></a>} description={t("studio.section.apps.desc")} title={t("studio.section.apps")} /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><WorldsAppCard />{installations.map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div></section>
+    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">{t("studio.section.projects.all")}<ArrowRight className="size-3.5" /></Link>} description={t("studio.section.projects.desc")} title={t("studio.section.projects")} /><RecentProjects apiBase={apiBase} apps={apps} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={recentProjects} /></section>
+    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/media">{t("studio.section.assets.open")}<ArrowRight className="size-3.5" /></Link>} description={t("studio.section.assets.desc")} title={t("studio.section.assets")} /><RecentAssets apiBase={apiBase} /></section>
   </div>;
 }
 
@@ -339,20 +343,22 @@ function RecentProjects({ apiBase, apps, onDeleteProject, onRenameProject, onSta
 }
 
 function ProjectCard({ apiBase, app, onDeleteProject, onRenameProject, project }: { apiBase?: string; app?: Installation; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; project: Project }) {
+  const { t } = useI18n();
   const appName = app?.manifest.name ?? project.appId;
-  return <div className="group relative"><Link className="block" href={`/projects/${project.id}`}><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><ProjectCoverPreview apiBase={apiBase} app={app} project={project} /><CardContent className="p-3"><p className="truncate text-sm font-semibold">{project.name}</p><p className="mt-1 truncate text-[10px] text-muted-foreground">{appName}</p></CardContent></Card></Link><div className="absolute right-2 top-2"><CardMoreMenu itemName={project.name} itemType="项目" onDelete={() => onDeleteProject(project)} onRename={(projectName) => onRenameProject(project, projectName)} /></div></div>;
+  return <div className="group relative"><Link className="block" href={`/projects/${project.id}`}><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><ProjectCoverPreview apiBase={apiBase} app={app} project={project} /><CardContent className="p-3"><p className="truncate text-sm font-semibold">{project.name}</p><p className="mt-1 truncate text-[10px] text-muted-foreground">{appName}</p></CardContent></Card></Link><div className="absolute right-2 top-2"><CardMoreMenu itemName={project.name} itemType={t("nav.projects")} onDelete={() => onDeleteProject(project)} onRename={(projectName) => onRenameProject(project, projectName)} /></div></div>;
 }
 
 function ProjectCoverPreview({ apiBase, app, project }: { apiBase?: string; app?: Installation; project: Project }) {
+  const { t } = useI18n();
   const cover = project.cover;
   if (cover && apiBase) {
     if (cover.source === "file") {
       const src = `${apiBase}/v1/projects/${encodeURIComponent(project.id)}/cover`;
-      return <img alt={`${project.name} 项目封面`} className="aspect-[16/7] w-full border-b object-cover" src={src} />;
+      return <img alt={interpolate(t("projects.cover.alt"), { name: project.name })} className="aspect-[16/7] w-full border-b object-cover" src={src} />;
     }
     const src = cover.assetId ? `${apiBase}/v1/media/assets/${encodeURIComponent(cover.assetId)}/content` : null;
-    if (src && cover.kind === "video") return <VideoFrame alt={`${project.name} 项目封面`} className="aspect-[16/7] border-b" src={src} />;
-    if (src) return <img alt={`${project.name} 项目封面`} className="aspect-[16/7] w-full border-b object-cover" src={src} />;
+    if (src && cover.kind === "video") return <VideoFrame alt={interpolate(t("projects.cover.alt"), { name: project.name })} className="aspect-[16/7] border-b" src={src} />;
+    if (src) return <img alt={interpolate(t("projects.cover.alt"), { name: project.name })} className="aspect-[16/7] w-full border-b object-cover" src={src} />;
     const Icon = app ? appIcon(app.manifest.id) : AppWindow;
     return <div className="flex aspect-[16/7] items-center justify-between border-b bg-muted p-3"><span className="grid size-7 place-items-center rounded-sm bg-card text-muted-foreground shadow-sm"><Icon className="size-3.5" /></span><span className="rounded-xs border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground">{app?.manifest.name ?? project.appId}</span></div>;
   }
@@ -361,29 +367,28 @@ function ProjectCoverPreview({ apiBase, app, project }: { apiBase?: string; app?
 }
 
 function ProjectsPage({ apiBase, apps, onDeleteProject, onRenameProject, onStartProject, projects }: { apiBase: string; apps: Installation[]; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
-  return <><SectionTitle count={`${projects.length} 个项目`} description="整理所有创作空间，新项目从这里开始。" title="项目" /><Projects apiBase={apiBase} apps={apps} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={projects} /></>;
+  const { t } = useI18n();
+  return <><SectionTitle count={interpolate(t("projects.count"), { count: projects.length })} description={t("projects.desc")} title={t("projects.title")} /><Projects apiBase={apiBase} apps={apps} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={projects} /></>;
 }
 
 function RecentAssets({ apiBase }: { apiBase: string }) {
+  const { t } = useI18n();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [preview, setPreview] = useState<Asset | null>(null);
-  useEffect(() => { let active = true; void fetch(`${apiBase}/v1/media/assets`, { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error(); return response.json() as Promise<Asset[]>; }).then((items) => { if (active) { setAssets(items.slice(0, 5)); setState("ready"); } }).catch(() => { if (active) setState("error"); }); return () => { active = false; }; }, [apiBase]);
+  useEffect(() => { let active = true; void fetchRecutJSON<Asset[]>(apiBase, "/v1/media/assets").then((items) => { if (active) { setAssets(items.slice(0, 5)); setState("ready"); } }).catch(() => { if (active) setState("error"); }); return () => { active = false; }; }, [apiBase]);
   async function renameAsset(asset: Asset, name: string) {
-    const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
-    if (!response.ok) throw new Error(await responseMessage(response));
-    const updated = await response.json() as Asset;
+    const updated = await fetchRecutJSON<Asset>(apiBase, `/v1/media/assets/${encodeURIComponent(asset.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
     setAssets((items) => items.map((item) => item.id === asset.id ? updated : item));
   }
   async function deleteAsset(asset: Asset) {
-    const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { method: "DELETE" });
-    if (!response.ok) throw new Error(await responseMessage(response));
+    await fetchRecutJSON(apiBase, `/v1/media/assets/${encodeURIComponent(asset.id)}`, { method: "DELETE" });
     setAssets((items) => items.filter((item) => item.id !== asset.id));
     if (preview?.id === asset.id) setPreview(null);
   }
   if (state === "loading") return <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{Array.from({ length: 5 }, (_, index) => <div className="aspect-square animate-pulse rounded-sm bg-muted" key={index} />)}</div>;
-  if (state === "error" || !assets.length) return <HomeEmptyState description="上传素材、登记研究资料或在任一 App 中生成内容后，它们会出现在这里。" icon={Box} title="还没有可展示的资源" />;
-  return <>{preview && <AssetPreviewDialog apiBase={apiBase} asset={preview} assets={assets} onClose={() => setPreview(null)} />}<div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{assets.map((asset) => <div className="group relative min-w-0" key={asset.id}><button aria-label={`预览 ${asset.name}`} className="block w-full text-left" onClick={() => setPreview(asset)} type="button"><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35"><AssetPreview apiBase={apiBase} asset={asset} /><CardContent className="p-2.5"><p className="truncate text-xs font-medium">{asset.name}</p><p className="mt-1 text-[10px] text-muted-foreground">{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "transcript" ? "转写" : asset.kind === "reference" ? "资料" : "音频"}</p></CardContent></Card></button><div className="absolute right-2 top-2"><CardMoreMenu itemName={asset.name} itemType="素材" onDelete={() => deleteAsset(asset)} onRename={(name) => renameAsset(asset, name)} /></div></div>)}</div></>;
+  if (state === "error" || !assets.length) return <HomeEmptyState description={t("assets.recent.desc")} icon={Box} title={t("assets.recent.title")} />;
+  return <>{preview && <AssetPreviewDialog apiBase={apiBase} asset={preview} assets={assets} onClose={() => setPreview(null)} />}<div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{assets.map((asset) => <div className="group relative min-w-0" key={asset.id}><button aria-label={interpolate(t("assets.preview.aria"), { name: asset.name })} className="block w-full text-left" onClick={() => setPreview(asset)} type="button"><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35"><AssetPreview apiBase={apiBase} asset={asset} /><CardContent className="p-2.5"><p className="truncate text-xs font-medium">{asset.name}</p><p className="mt-1 text-[10px] text-muted-foreground">{asset.kind === "image" ? t("assets.kind.image") : asset.kind === "video" ? t("assets.kind.video") : asset.kind === "transcript" ? t("assets.kind.transcript") : asset.kind === "reference" ? t("assets.kind.reference") : t("assets.kind.audio")}</p></CardContent></Card></button><div className="absolute right-2 top-2"><CardMoreMenu itemName={asset.name} itemType={t("page.assets.title")} onDelete={() => deleteAsset(asset)} onRename={(name) => renameAsset(asset, name)} /></div></div>)}</div></>;
 }
 
 function AssetPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
@@ -396,11 +401,13 @@ function AssetPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
 }
 
 function WorldsAppCard() {
-  return <Link aria-label="打开世界观" className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" href="/worlds"><div className="flex min-w-0 items-start gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-xl border border-primary/10 bg-primary/10 text-primary transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground"><Globe2 aria-hidden="true" className="size-5" strokeWidth={1.8} /></span><div className="min-w-0"><p className="truncate text-sm font-semibold">世界观</p><p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">为角色、品牌或故事建立持续上下文，让每一次创作从同一个世界出发。</p></div></div><span className="mt-auto flex items-center justify-end pt-3 text-primary"><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" /></span></Link>;
+  const { t } = useI18n();
+  return <Link aria-label={t("studio.worlds.open")} className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" href="/worlds"><div className="flex min-w-0 items-start gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-xl border border-primary/10 bg-primary/10 text-primary transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground"><Globe2 aria-hidden="true" className="size-5" strokeWidth={1.8} /></span><div className="min-w-0"><p className="truncate text-sm font-semibold">{t("studio.worlds.title")}</p><p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">{t("studio.worlds.desc")}</p></div></div><span className="mt-auto flex items-center justify-end pt-3 text-primary"><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" /></span></Link>;
 }
 
 function StudioAppCard({ app, onOpen }: { app: Installation; onOpen: () => void }) {
-  const actionLabel = app.manifest.type === "standalone" ? `打开 ${app.manifest.name}` : `用 ${app.manifest.name} 新建项目`;
+  const { t } = useI18n();
+  const actionLabel = app.manifest.type === "standalone" ? interpolate(t("studio.app.open"), { name: app.manifest.name }) : interpolate(t("studio.app.new"), { name: app.manifest.name });
   return <button aria-label={actionLabel} className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" onClick={onOpen} type="button"><div className="flex min-w-0 items-start gap-3"><AppIdentityIcon appID={app.manifest.id} className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{app.manifest.name}</p><p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">{app.manifest.description}</p></div></div><span className="mt-auto flex items-center justify-end pt-3 text-primary"><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" /></span></button>;
 }
 
@@ -413,6 +420,7 @@ function HomeEmptyState({ action, description, icon: Icon, title }: { action?: R
 }
 
 function CreateProjectFromAppDialog({ app, onClose, onCreate }: { app: Installation; onClose: () => void; onCreate: (projectName: string) => Promise<void> }) {
+  const { t } = useI18n();
   const [projectName, setProjectName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -420,50 +428,57 @@ function CreateProjectFromAppDialog({ app, onClose, onCreate }: { app: Installat
     event.preventDefault();
     if (!projectName.trim() || creating) return;
     setCreating(true); setError("");
-    try { await onCreate(projectName.trim()); } catch (cause) { setError(cause instanceof Error ? cause.message : "创建项目失败"); setCreating(false); }
+    try { await onCreate(projectName.trim()); } catch (cause) { setError(cause instanceof Error ? cause.message : t("projects.create.failed")); setCreating(false); }
   }
-  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="create-project-app-title"><section className="w-full max-w-md rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">NEW PROJECT</p><h2 className="mt-1 text-base font-semibold" id="create-project-app-title">为「{app.manifest.name}」新建项目</h2><p className="mt-1 text-xs text-muted-foreground">创建后进入项目工作台，开始使用这个 App 创作。</p></div><button aria-label="关闭新建项目" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><form onSubmit={submit}><div className="p-5"><label className="mb-1 block text-[11px] font-medium" htmlFor="create-project-app-name">项目名称</label><Input autoFocus className="h-9 bg-background text-xs" id="create-project-app-name" onChange={(event) => setProjectName(event.target.value)} placeholder="例如：夏季品牌片" value={projectName} />{error && <p className="mt-2 text-xs text-warning">{error}</p>}</div><footer className="flex items-center justify-end gap-2 border-t px-5 py-3"><Button onClick={onClose} type="button" variant="ghost">取消</Button><Button disabled={!projectName.trim() || creating} type="submit">{creating ? "正在创建…" : "创建并进入项目"}</Button></footer></form></section></div>;
+  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="create-project-app-title"><section className="w-full max-w-md rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">NEW PROJECT</p><h2 className="mt-1 text-base font-semibold" id="create-project-app-title">{interpolate(t("projects.create.title"), { name: app.manifest.name })}</h2><p className="mt-1 text-xs text-muted-foreground">{t("projects.create.desc")}</p></div><button aria-label={t("projects.create.close")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><form onSubmit={submit}><div className="p-5"><label className="mb-1 block text-[11px] font-medium" htmlFor="create-project-app-name">{t("projects.create.name")}</label><Input autoFocus className="h-9 bg-background text-xs" id="create-project-app-name" onChange={(event) => setProjectName(event.target.value)} placeholder={t("projects.create.name.placeholder")} value={projectName} />{error && <p className="mt-2 text-xs text-warning">{error}</p>}</div><footer className="flex items-center justify-end gap-2 border-t px-5 py-3"><Button onClick={onClose} type="button" variant="ghost">{t("projects.create.cancel")}</Button><Button disabled={!projectName.trim() || creating} type="submit">{creating ? t("projects.create.submitting") : t("projects.create.submit")}</Button></footer></form></section></div>;
 }
 
 function Apps({ apiBase, installations, installationError, installationLoadState, onStartProject, onUpdated, serviceOnline }: { apiBase: string; installations: Installation[]; installationError: string; installationLoadState: InstallationLoadState; onStartProject: (app: Installation) => void; onUpdated: () => Promise<void>; serviceOnline: boolean }) {
-  const installationCount = installationLoadState === "loading" ? "读取中…" : installationLoadState === "offline" ? "服务离线" : `${installations.length} 个应用`;
-  const marketplaceStatus = (installed: boolean) => installed ? "已安装" : installationLoadState === "loading" ? "检查中" : "市场应用";
-  return <><SectionTitle action={<><AppUpdateAllControl apps={installations} onUpdated={onUpdated} /><CreateAppDialog /><InstallGitAppDialog apiBase={apiBase} disabled={!serviceOnline} onInstalled={onUpdated} /></>} description="选择、安装和管理所有创作能力；每个 App 都使用同一套工作台规范。" title="应用" /><section><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">已安装</h2><p className="mt-1 text-xs text-muted-foreground">你已装好的能力，随时用来新建项目或直接打开。</p></div><Badge>{installationCount}</Badge></div>{installationLoadState === "loading" ? <InstalledAppsLoading /> : installationLoadState === "offline" ? <InstalledAppsOffline /> : installationLoadState === "failed" ? <InstalledAppsError message={installationError} onRetry={() => void onUpdated()} /> : installations.length === 0 ? <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">还没有已安装的 App</p><p className="text-xs text-muted-foreground">在下面挑一个装好，它就会出现在这里。</p></CardContent></Card> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{installations.map((app) => <InstalledAppCard app={app} key={app.package} onStartProject={onStartProject} onUpdated={onUpdated} />)}</div>}</section><section className="mt-10"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">可添加的能力</h2><p className="mt-1 text-xs text-muted-foreground">浏览你要的创作能力，打开详情就能安装或开始项目。</p></div><Badge>{marketplaceApps.length} 个可添加</Badge></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{marketplaceApps.map((app) => { const installed = installations.some((item) => item.manifest.id === app.manifest.id); return <Link className="group" href={`/apps/${encodeURIComponent(app.manifest.id)}`} key={app.manifest.id}><Card className="flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><CardContent className="flex flex-1 flex-col p-0"><div className="flex min-w-0 items-start gap-3"><AppIdentityIcon appID={app.manifest.id} className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{app.manifest.name}</p><p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">{app.manifest.description}</p></div><Badge>{marketplaceStatus(installed)}</Badge></div><span className="mt-auto flex items-center justify-end pt-3 text-primary"><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" /></span></CardContent></Card></Link>; })}</div></section></>;
+  const { t } = useI18n();
+  const installationCount = installationLoadState === "loading" ? t("apps.count.loading") : installationLoadState === "offline" ? t("apps.count.offline") : interpolate(t("apps.installed.count"), { count: installations.length });
+  const marketplaceStatus = (installed: boolean) => installed ? t("apps.market.installed") : installationLoadState === "loading" ? t("apps.market.checking") : t("apps.market.market");
+  return <><SectionTitle action={<><AppUpdateAllControl apps={installations} onUpdated={onUpdated} /><CreateAppDialog /><InstallGitAppDialog apiBase={apiBase} disabled={!serviceOnline} onInstalled={onUpdated} /></>} description={t("apps.desc")} title={t("apps.title")} /><section><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">{t("apps.installed")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("apps.installed.desc")}</p></div><Badge>{installationCount}</Badge></div>{installationLoadState === "loading" ? <InstalledAppsLoading /> : installationLoadState === "offline" ? <InstalledAppsOffline /> : installationLoadState === "failed" ? <InstalledAppsError message={installationError} onRetry={() => void onUpdated()} /> : installations.length === 0 ? <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">{t("apps.installed.empty.title")}</p><p className="text-xs text-muted-foreground">{t("apps.installed.empty.desc")}</p></CardContent></Card> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{installations.map((app) => <InstalledAppCard app={app} key={app.package} onStartProject={onStartProject} onUpdated={onUpdated} />)}</div>}</section><section className="mt-10"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">{t("apps.addable")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("apps.addable.desc")}</p></div><Badge>{interpolate(t("apps.addable.count"), { count: marketplaceApps.length })}</Badge></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{marketplaceApps.map((app) => { const installed = installations.some((item) => item.manifest.id === app.manifest.id); return <Link className="group" href={`/apps/${encodeURIComponent(app.manifest.id)}`} key={app.manifest.id}><Card className="flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]"><CardContent className="flex flex-1 flex-col p-0"><div className="flex min-w-0 items-start gap-3"><AppIdentityIcon appID={app.manifest.id} className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{app.manifest.name}</p><p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">{app.manifest.description}</p></div><Badge>{marketplaceStatus(installed)}</Badge></div><span className="mt-auto flex items-center justify-end pt-3 text-primary"><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" /></span></CardContent></Card></Link>; })}</div></section></>;
 }
 
 function InstalledAppsLoading() {
-  return <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><LoaderCircle aria-hidden="true" className="size-6 animate-spin text-primary" /><p className="text-sm font-medium">正在读取已安装的 App…</p><p className="text-xs text-muted-foreground">正在检查本机安装状态和可用更新。</p></CardContent></Card>;
+  const { t } = useI18n();
+  return <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><LoaderCircle aria-hidden="true" className="size-6 animate-spin text-primary" /><p className="text-sm font-medium">{t("apps.installed.loading.title")}</p><p className="text-xs text-muted-foreground">{t("apps.installed.loading.desc")}</p></CardContent></Card>;
 }
 
 function InstalledAppsError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-warning" /><div><p className="text-sm font-medium">未能读取已安装的 App</p><p className="mt-1 text-xs text-muted-foreground">{message}</p></div><Button onClick={onRetry} type="button" variant="outline">重新读取</Button></CardContent></Card>;
+  const { t } = useI18n();
+  return <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-warning" /><div><p className="text-sm font-medium">{t("apps.installed.error.title")}</p><p className="mt-1 text-xs text-muted-foreground">{message}</p></div><Button onClick={onRetry} type="button" variant="outline">{t("apps.installed.error.retry")}</Button></CardContent></Card>;
 }
 
 function InstalledAppsOffline() {
-  return <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">连接 service 后显示已安装 App</p><p className="text-xs text-muted-foreground">应用市场仍可浏览，详情页会显示当前安装状态。</p></CardContent></Card>;
+  const { t } = useI18n();
+  return <Card><CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center"><FolderOpen className="size-6 text-primary" /><p className="text-sm font-medium">{t("apps.installed.offline.title")}</p><p className="text-xs text-muted-foreground">{t("apps.installed.offline.desc")}</p></CardContent></Card>;
 }
 
 function InstalledAppCard({ app, onStartProject, onUpdated }: { app: Installation; onStartProject: (app: Installation) => void; onUpdated: () => void }) {
+  const { t } = useI18n();
   const detailHref = `/apps/${encodeURIComponent(app.manifest.id)}`;
-  const status = app.dirty && app.updateAvailable ? "检测到远端更新；本地修改已保护" : app.dirty ? "存在本地 Git 修改，升级已保护" : app.updateAvailable ? "检测到远端更新" : app.status ?? "已是当前 Git 状态";
-  return <Card className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]"><CardContent className="flex flex-1 flex-col p-0"><div className="flex min-w-0 items-start gap-3"><Link aria-label={`查看 ${app.manifest.name} 详情`} className="flex min-w-0 flex-1 items-start gap-3 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" href={detailHref}><AppIdentityIcon appID={app.manifest.id} className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground" /><span className="min-w-0"><span className="block truncate text-sm font-semibold">{app.manifest.name}</span><span className="mt-1 block line-clamp-2 text-xs leading-4 text-muted-foreground">{app.manifest.description}</span></span></Link><div className="shrink-0" title={status}><AppVersionControl app={app} onUpdated={onUpdated} /></div></div><div className="mt-auto flex items-center justify-between gap-3 pt-3"><Link className="text-xs font-medium text-primary hover:underline" href={detailHref}>查看详情</Link><InstalledAppAction app={app} onStartProject={onStartProject} /></div></CardContent></Card>;
+  const status = app.dirty && app.updateAvailable ? t("apps.status.remoteDirty") : app.dirty ? t("apps.status.dirty") : app.updateAvailable ? t("apps.status.remote") : app.status ?? t("apps.status.current");
+  return <Card className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]"><CardContent className="flex flex-1 flex-col p-0"><div className="flex min-w-0 items-start gap-3"><Link aria-label={interpolate(t("apps.detail.aria"), { name: app.manifest.name })} className="flex min-w-0 flex-1 items-start gap-3 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" href={detailHref}><AppIdentityIcon appID={app.manifest.id} className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground" /><span className="min-w-0"><span className="block truncate text-sm font-semibold">{app.manifest.name}</span><span className="mt-1 block line-clamp-2 text-xs leading-4 text-muted-foreground">{app.manifest.description}</span></span></Link><div className="shrink-0" title={status}><AppVersionControl app={app} onUpdated={onUpdated} /></div></div><div className="mt-auto flex items-center justify-between gap-3 pt-3"><Link className="text-xs font-medium text-primary hover:underline" href={detailHref}>{t("apps.details")}</Link><InstalledAppAction app={app} onStartProject={onStartProject} /></div></CardContent></Card>;
 }
 
 function InstalledAppAction({ app, onStartProject }: { app: Installation; onStartProject: (app: Installation) => void }) {
-  if (app.manifest.type === "standalone") return <Link className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/85" href={`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`}><AppWindow className="size-3.5" />打开</Link>;
-  return <Button className="h-8 px-2.5" onClick={() => onStartProject(app)} type="button"><FolderPlus className="size-3.5" />新建</Button>;
+  const { t } = useI18n();
+  if (app.manifest.type === "standalone") return <Link className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/85" href={`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`}><AppWindow className="size-3.5" />{t("apps.open")}</Link>;
+  return <Button className="h-8 px-2.5" onClick={() => onStartProject(app)} type="button"><FolderPlus className="size-3.5" />{t("apps.new")}</Button>;
 }
 
 const SERVICE_INSTALL_COMMAND = "curl -fsSL https://recut.video/install.sh | sh";
 
 const LANDING_FEATURES = [
-  { description: "从素材、脚本到时间线，把每一帧剪成你的故事。", icon: Scissors, title: "视频剪辑" },
-  { description: "让角色、场景和叙事规则持续存在，每次创作都从同一个宇宙出发。", icon: Globe2, title: "世界观" },
-  { description: "为已获授权的声音保留独特表达，并把它用于角色与旁白。", icon: Mic2, title: "语音克隆" },
-  { description: "安装或自己编写 App，把新的模型、流程和工具接进工作台。", icon: Blocks, title: "扩展应用" },
+  { descKey: "landing.feature.editing.desc", icon: Scissors, titleKey: "landing.feature.editing" },
+  { descKey: "landing.feature.worlds.desc", icon: Globe2, titleKey: "landing.feature.worlds" },
+  { descKey: "landing.feature.voice.desc", icon: Mic2, titleKey: "landing.feature.voice" },
+  { descKey: "landing.feature.extensions.desc", icon: Blocks, titleKey: "landing.feature.extensions" },
 ] as const;
 
 function ServiceGuide({ embedded, error, onConnectRemote }: { embedded?: boolean; error?: string; onConnectRemote: () => void }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   async function copyInstallCommand() {
     try {
@@ -482,23 +497,24 @@ function ServiceGuide({ embedded, error, onConnectRemote }: { embedded?: boolean
       <div className="relative grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-14">
         <div className="max-w-2xl">
           <p className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-primary"><span className="size-1.5 rounded-full bg-primary" />RECUT · LOCAL CREATIVE OS</p>
-          <h1 className="mt-5 max-w-xl text-4xl font-semibold leading-[1.08] tracking-tight text-foreground sm:text-5xl">让 AI 视频创作，<br /><span className="text-primary">留在你的电脑里。</span></h1>
-          <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground">Recut 是为视频创作而生的本地 AI 工作台。剪辑、世界观、声音与新的创作能力，都在同一个可控、可扩展的空间中发生。</p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center"><button className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" onClick={() => { trackEvent("recut_install_clicked", { location: "service_guide" }); void copyInstallCommand(); }} type="button"><Download className="size-4" />{copied ? "安装命令已复制" : "安装 Recut"}</button><a className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border bg-background px-5 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" href="https://github.com/6174/recut" onClick={() => trackEvent("recut_external_clicked", { target: "github" })} rel="noreferrer" target="_blank"><Code2 className="size-4" />在 GitHub 上查看</a></div>
-          <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground"><Terminal className="size-3.5" />点击安装后，命令会复制到剪贴板；在终端粘贴并运行即可。</p>
-          <button className="mt-5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground" onClick={onConnectRemote} type="button">已有 service？连接远程工作区 <ArrowRight className="ml-1 inline size-3.5" /></button>
+          <h1 className="mt-5 max-w-xl text-4xl font-semibold leading-[1.08] tracking-tight text-foreground sm:text-5xl">{t("landing.title")}<br /><span className="text-primary">{t("landing.title2")}</span></h1>
+          <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground">{t("landing.desc")}</p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center"><button className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" onClick={() => { trackEvent("recut_install_clicked", { location: "service_guide" }); void copyInstallCommand(); }} type="button"><Download className="size-4" />{copied ? t("landing.install.copied") : t("landing.install")}</button><a className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border bg-background px-5 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40" href="https://github.com/6174/recut" onClick={() => trackEvent("recut_external_clicked", { target: "github" })} rel="noreferrer" target="_blank"><Code2 className="size-4" />{t("landing.github")}</a></div>
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground"><Terminal className="size-3.5" />{t("landing.install.hint")}</p>
+          <button className="mt-5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground" onClick={onConnectRemote} type="button">{t("landing.connectRemote")} <ArrowRight className="ml-1 inline size-3.5" /></button>
         </div>
-        <div className="relative rounded-2xl border border-primary/15 bg-background/85 p-4 shadow-xl backdrop-blur-sm"><div className="flex items-center justify-between border-b border-border/80 pb-3"><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground"><Clapperboard className="size-4" /></span><span><span className="block text-sm font-semibold">你的创作工作台</span><span className="block text-[10px] text-muted-foreground">LOCAL · PRIVATE · EXTENSIBLE</span></span></div><span className="rounded-full bg-primary/10 px-2 py-1 font-mono text-[9px] font-semibold tracking-wider text-primary">READY</span></div><div className="mt-4 grid grid-cols-2 gap-2.5">{LANDING_FEATURES.map(({ description, icon: Icon, title }) => <div className="rounded-xl border border-border/80 bg-card p-3.5" key={title}><span className="grid size-8 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="size-4" /></span><p className="mt-5 text-sm font-semibold">{title}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{description}</p></div>)}</div></div>
+        <div className="relative rounded-2xl border border-primary/15 bg-background/85 p-4 shadow-xl backdrop-blur-sm"><div className="flex items-center justify-between border-b border-border/80 pb-3"><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground"><Clapperboard className="size-4" /></span><span><span className="block text-sm font-semibold">{t("landing.workspace.title")}</span><span className="block text-[10px] text-muted-foreground">LOCAL · PRIVATE · EXTENSIBLE</span></span></div><span className="rounded-full bg-primary/10 px-2 py-1 font-mono text-[9px] font-semibold tracking-wider text-primary">READY</span></div><div className="mt-4 grid grid-cols-2 gap-2.5">{LANDING_FEATURES.map(({ descKey, icon: Icon, titleKey }) => <div className="rounded-xl border border-border/80 bg-card p-3.5" key={titleKey}><span className="grid size-8 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="size-4" /></span><p className="mt-5 text-sm font-semibold">{t(titleKey)}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{t(descKey)}</p></div>)}</div></div>
       </div>
     </div>
-    <div className="mt-4 grid gap-3 sm:grid-cols-3"><LandingValue icon={HardDrive} text="项目、素材与凭据都由你掌控，不交给陌生的云端。" title="本地优先" /><LandingValue icon={Code2} text="代码公开，工作方式透明，也可以按你的流程继续塑造。" title="开源构建" /><LandingValue icon={Check} text="一条命令安装，服务会在本机启动，准备好再开始创作。" title="立即可用" /></div>
-    <div className="mt-5 overflow-hidden rounded-xl border bg-foreground text-left text-primary-foreground shadow-sm"><div className="flex items-center gap-3 border-b border-primary-foreground/10 px-4 py-2 text-[10px] font-medium text-primary-foreground/55"><Terminal className="size-3.5" />TERMINAL · MACOS / LINUX / FREEBSD</div><div className="flex items-center gap-3 px-4 py-3"><code className="min-w-0 flex-1 overflow-x-auto font-mono text-xs">{SERVICE_INSTALL_COMMAND}</code><button aria-label="复制安装命令" className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary/85" onClick={() => void copyInstallCommand()} type="button"><Copy className="size-3.5" />{copied ? "已复制" : "复制"}</button></div></div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-3"><LandingValue icon={HardDrive} text={t("landing.value.local.desc")} title={t("landing.value.local")} /><LandingValue icon={Code2} text={t("landing.value.open.desc")} title={t("landing.value.open")} /><LandingValue icon={Check} text={t("landing.value.ready.desc")} title={t("landing.value.ready")} /></div>
+    <div className="mt-5 overflow-hidden rounded-xl border bg-foreground text-left text-primary-foreground shadow-sm"><div className="flex items-center gap-3 border-b border-primary-foreground/10 px-4 py-2 text-[10px] font-medium text-primary-foreground/55"><Terminal className="size-3.5" />TERMINAL · MACOS / LINUX / FREEBSD</div><div className="flex items-center gap-3 px-4 py-3"><code className="min-w-0 flex-1 overflow-x-auto font-mono text-xs">{SERVICE_INSTALL_COMMAND}</code><button aria-label={t("landing.copy.aria")} className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary/85" onClick={() => void copyInstallCommand()} type="button"><Copy className="size-3.5" />{copied ? t("landing.copied") : t("landing.copy")}</button></div></div>
     {error && <div className="mt-5"><RepairGuide message={error} /></div>}
   </section>;
 }
 
 function ServiceRecoveryGuide({ error }: { error?: string }) {
-  return <section className="mx-auto flex min-h-[30rem] max-w-2xl flex-col items-center justify-center py-12 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><p className="mt-6 font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">LOCAL SERVICE</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">本地工作台连接中断</h1><p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">当前页面由同一个 Recut service 提供；请刷新页面或检查该 service 的日志。</p>{error && <div className="mt-8 w-full max-w-2xl"><RepairGuide message={error} /></div>}</section>;
+  const { t } = useI18n();
+  return <section className="mx-auto flex min-h-[30rem] max-w-2xl flex-col items-center justify-center py-12 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Download className="size-6" /></span><p className="mt-6 font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">LOCAL SERVICE</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">{t("recovery.title")}</h1><p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">{t("recovery.desc")}</p>{error && <div className="mt-8 w-full max-w-2xl"><RepairGuide message={error} /></div>}</section>;
 }
 
 function LandingValue({ icon: Icon, text, title }: { icon: LucideIcon; text: string; title: string }) {
@@ -506,7 +522,8 @@ function LandingValue({ icon: Icon, text, title }: { icon: LucideIcon; text: str
 }
 
 function ServiceChecking() {
-  return <section aria-busy="true" aria-label="正在连接本地 service" className="grid min-h-80 place-items-center p-8 text-center"><div><span className="mx-auto block size-2 animate-pulse rounded-full bg-muted-foreground" /><p className="mt-4 text-sm text-muted-foreground">正在连接本地 service…</p></div></section>;
+  const { t } = useI18n();
+  return <section aria-busy="true" aria-label={t("service.checking.aria")} className="grid min-h-80 place-items-center p-8 text-center"><div><span className="mx-auto block size-2 animate-pulse rounded-full bg-muted-foreground" /><p className="mt-4 text-sm text-muted-foreground">{t("service.checking.label")}</p></div></section>;
 }
 
 function SectionTitle({ action, count, description, title }: { action?: React.ReactNode; count?: string; description: string; title: string }) {
@@ -514,11 +531,7 @@ function SectionTitle({ action, count, description, title }: { action?: React.Re
 }
 
 function RepairGuide({ message }: { message: string }) {
+  const { t } = useI18n();
   const prompt = `Recut 本地环境遇到问题：${message}\n请先检查 service 日志、Git 状态和 manifest.json；解释根因并给出最小、可验证的修复。不要跳过现有本地修改。`;
-  return <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-left"><p className="text-xs font-medium">{message}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">不要让界面猜测或直接覆盖本机状态。把诊断任务交给 Codex、Claude Code 或 OpenCode。</p><Button className="mt-2 h-7" onClick={() => void navigator.clipboard.writeText(prompt)} type="button" variant="outline"><Code2 className="size-3.5" />复制诊断任务</Button></div>;
-}
-
-async function responseMessage(response: Response) {
-  const body = await response.json().catch(() => ({})) as { error?: string };
-  return body.error ?? `请求失败（${response.status}）`;
+  return <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-left"><p className="text-xs font-medium">{message}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{t("repair.desc")}</p><Button className="mt-2 h-7" onClick={() => void navigator.clipboard.writeText(prompt)} type="button" variant="outline"><Code2 className="size-3.5" />{t("repair.copy")}</Button></div>;
 }

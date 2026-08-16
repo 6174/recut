@@ -1,5 +1,5 @@
 #!/bin/sh
-# [INPUT]: 依赖 POSIX shell、curl、tar、SHA-256 工具、公开的 recut.video 静态发布包和用户级服务管理器
+# [INPUT]: 依赖 POSIX shell、curl、tar、SHA-256 工具、公开的 cdn.recut.video 发布包（R2）和用户级服务管理器
 # [OUTPUT]: 带阶段日志地安装或原子升级 ~/.recut/bin/recut-service，并预置受管 Python 3.11、venv、FFmpeg 后注册/验证当前用户的常驻 service
 # [POS]: web/public 的无源码 Unix 安装入口；覆盖 macOS、Linux 和 FreeBSD，绝不读取或删除用户项目数据
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -40,7 +40,7 @@ case "$(uname -m)" in
   *) fail "暂不支持 $(uname -m) CPU" ;;
 esac
 
-download_base=${RECUT_DOWNLOAD_BASE_URL:-https://recut.video}
+download_base=${RECUT_DOWNLOAD_BASE_URL:-https://cdn.recut.video}
 archive="recut-service-$os-$arch.tar.gz"
 recut_home=${RECUT_HOME:-"$HOME/.recut"}
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/recut-install.XXXXXX") || fail "无法创建临时目录"

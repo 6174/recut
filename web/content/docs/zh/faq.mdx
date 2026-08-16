@@ -1,0 +1,42 @@
+---
+order: 70
+group: "FAQ"
+title: "常见问题"
+description: "关于 Recut 的常见问题：支持哪些平台、需要什么配置、是否免费开源、素材会不会上传、能不能离线、BYOK 模型、App 生态与开发入门。"
+---
+
+## Recut 支持哪些平台？
+
+macOS、Linux、Windows 与 FreeBSD。macOS 注册 launchd、Linux 注册 systemd user service、Windows 注册当前用户登录任务、FreeBSD 输出启动命令。
+
+## Recut 需要什么电脑配置？
+
+基础剪辑很轻量。本地转写字幕建议 16 GB 内存以上；稳定创建声音角色与 AI 配音建议 32 GB，并预留约 15 GB 磁盘。NVIDIA CUDA 显卡能显著加速转写与配音，Apple 芯片与纯 CPU 也能运行。
+
+## Recut 是免费开源的吗？
+
+是。Recut 完全免费开源，代码公开可审阅，可自部署长期使用；App 可安装、可替换、也可以自己编写。
+
+## 我的素材会上传到云端吗？
+
+不会。Recut 本地优先：素材、项目与凭据都留在你的设备或受控的远程 service 上，AI 模型在本机运行。首次使用按需下载模型权重，之后断网也能继续创作。
+
+## 模型是怎么接入的？
+
+Recut 支持 BYOK（自带模型密钥）：在全局设置里连接 Provider 并选择用途模型，生成能力（图片、视频、语音）经本地 service 提交到对应的模型。模型选择由你掌控，不绑定单一服务商。
+
+## App 生态是怎么样的？
+
+Recut 类似 Chrome 的 App Host：App 用 JavaScript 定义 UI 与业务，平台提供隔离的存储、文件、任务、素材、Artifact 与 MCP 能力。官方应用包括 AI 短片、声音工坊、Remotion 视频、封面生成与深度图；你也能自己编写 App。
+
+## 我不会写代码，能用 Recut 吗？
+
+可以。官方应用开箱即用：AI 短片、时间线剪辑、自动字幕、AI 配音、封面与深度图覆盖主要创作场景。JavaScript 扩展是给进阶用户与团队的可选项，不是使用门槛。
+
+## 远程部署安全吗？
+
+远程 service 由你自己控制与保护（TLS、认证等），浏览器直连你的服务器，不经过第三方代理。建议只在可信环境暴露。
+
+## 开发 App 需要什么？
+
+一个 GitHub 仓库（或本地源码），包含 `manifest.json` 与 `background.js`，可选 `ui/`。完整的 App 创建契约见 `/app-standard.md`，也是新建应用 Prompt 的参考文档。

@@ -1,0 +1,52 @@
+---
+order: 50
+group: "Development"
+title: "Developing Recut Apps: manifest, background and UI"
+description: "Write Recut Apps in JavaScript: manifest.json declares identity and permissions, background.js carries business and operations, ui/ provides the interface; operations can surface as UI APIs or MCP tools."
+---
+
+A Recut App is a piece of extensible creation capability. Building one usually means three parts: manifest, background, and an optional UI.
+
+## Overall structure
+
+```text
+App package
+├── manifest.json       the single runtime config: identity, type, entry, permissions, operations
+├── background.js       App business, API and MCP handlers
+└── ui/                 the App's own interface (iframe)
+```
+
+## manifest.json
+
+`manifest.json` is the App's single contract. It declares:
+
+- `id`, `name`, `author`, `description`, optional `repository`
+- `type`: `project` or `standalone`
+- `entry` and permissions (sqlite / files / artifacts / …)
+- `operations`: names, descriptions, input schemas and `surfaces` (`["api", "mcp"]`)
+
+The manifest does not declare tables or business workflows — those are the App's internal JavaScript.
+
+## background.js: operations
+
+`background.js` registers operations with `recut.operation.register(name, handler)`. The same operation can be exposed to the UI via the `api` surface and to Agents via the `mcp` surface — one name, one schema, one implementation.
+
+The platform provides isolated capability boundaries:
+
+- `ctx.sqlite`: an App-scoped namespace database
+- `ctx.files`: a controlled file sandbox
+- `ctx.artifacts.publish`: publish immutable Artifacts other Apps can reference
+- `ctx.project` / `ctx.media.*`: project context and media platform capabilities
+
+## ui/: the interface
+
+An App's `ui/` is a separate iframe build. The host passes project, media and draft context through `page.context`; the App reads the current project scope and Agent-provided drafts.
+
+## MCP surface
+
+The platform listens for MCP; an App only declares an `mcp` surface in the manifest and registers the matching operation. Agent sessions only see `app-id.operation` for operations that declare the `mcp` surface; calls are permission-checked before reaching `background.js`.
+
+## Developing and verifying
+
+- During development, `make app-link` links a local package into the runtime directory so service, projects and Agents share the same App files.
+- The full App creation contract lives in the public `/app-standard.md`, which is also the reference for the "new app" prompt.

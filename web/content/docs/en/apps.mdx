@@ -1,0 +1,44 @@
+---
+order: 40
+group: "Apps"
+title: "Apps: Recut's capability carrier, installing and using them"
+description: "What a Recut App is, how the app marketplace works — installing (Git / built-in), updating, uninstalling — and how to use the official apps: AI Short Films, Audio Studio, Remotion, Cover Studio and Depth Maps."
+---
+
+Recut packages creation capabilities as Apps: an App defines its interface, business and workflows in JavaScript and connects to the platform's storage, files, tasks, media and models. One App is one kind of creation capability.
+
+## What a Recut App is
+
+- **Project-type Apps** bind to user projects and are used to "create a project."
+- **Standalone Apps** bind to a stable app-specific workspace and open directly, without project naming.
+
+Each App declares identity and permissions in `manifest.json`, carries business logic in `background.js`, and optionally ships an interface in `ui/`. Apps never read each other's private data.
+
+## The app marketplace
+
+The "Apps" tab has two sections:
+
+- **Installed**: capabilities on your machine, ready to create a project or open directly.
+- **Addable**: the marketplace catalog — browse details, then install or start a project.
+
+### Installing apps
+
+- Install from the marketplace: the service verifies `manifest.json` before cloning and activating.
+- Install from Git: hand the "Apps" tab a GitHub repo, and the service validates and installs it.
+- Built-in apps (like Remotion Studio) ship with the binary and are ready on first open.
+
+### Updating and uninstalling
+
+Installed Git apps are checked for remote updates periodically; the workspace offers one-click update when safe upgrades exist, and local changes are protected. Uninstalling removes the app from the list without touching project files.
+
+## Official apps
+
+- **AI Short Films**: give it a topic and it drafts narrative structure and storyboards, then generates reviewable narration and matching B-roll.
+- **Remotion Video**: arranges topic, copy and media into a live-preview, exportable programmatic video — a real Remotion project.
+- **Audio Studio**: local transcription, captions and AI dubbing; build reusable characters from licensed voices.
+- **Cover Studio**: batch-generates and archives channel-sized covers.
+- **Depth Maps**: turns images or video into previewable depth maps on your machine.
+
+## Writing your own
+
+Developers can write Apps in JavaScript and connect platform capabilities. See "Developing Apps" and the public App creation contract (`/app-standard.md`).

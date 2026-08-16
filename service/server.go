@@ -31,6 +31,7 @@ type Server struct {
 	agents    *AgentManager
 	host      *AppHost
 	media     *MediaService
+	fonts     *FontService
 	updater   *ServiceUpdater
 	skill     *RecutSkillManager
 	worlds    *WorldStore
@@ -41,6 +42,8 @@ func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *
 	server := &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host, media: media, bus: newEventBus()}
 	if store != nil {
 		server.worlds = NewWorldStore(store, media)
+		server.fonts = NewFontService(store.root)
+		server.fonts.loadCacheIndex()
 	}
 	if len(updater) > 0 {
 		server.updater = updater[0]
@@ -90,6 +93,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/apps", s.listApps)
 	mux.HandleFunc("GET /v1/apps/store", s.listAppStore)
 	mux.HandleFunc("GET /v1/apps/installed", s.listAppInstallations)
+	mux.HandleFunc("GET /v1/preferences", s.getPreferences)
+	mux.HandleFunc("PUT /v1/preferences", s.putPreferences)
 	mux.HandleFunc("GET /v1/apps/events", s.streamAppInstallationEvents)
 	mux.HandleFunc("POST /v1/apps/install", s.installApp)
 	mux.HandleFunc("POST /v1/apps/update", s.updateApps)
@@ -142,6 +147,13 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/media/assets/{id}/attach", s.attachMediaAsset)
 	mux.HandleFunc("POST /v1/media/jobs", s.createMediaJob)
 	mux.HandleFunc("GET /v1/media/jobs/{id}", s.getMediaJob)
+	mux.HandleFunc("GET /v1/fonts", s.listFonts)
+	mux.HandleFunc("GET /v1/fonts/google/{id}/css", s.fontGoogleCSS)
+	mux.HandleFunc("GET /v1/fonts/google/{id}/{file...}", s.fontGoogleFile)
+	mux.HandleFunc("GET /v1/fonts/local", s.listLocalFonts)
+	mux.HandleFunc("POST /v1/fonts/local", s.uploadLocalFont)
+	mux.HandleFunc("GET /v1/fonts/local/{id}/content", s.localFontFile)
+	mux.HandleFunc("DELETE /v1/fonts/local/{id}", s.deleteLocalFont)
 	mux.HandleFunc("POST /v1/projects/{id}/apps/{appID}/api/{name}", s.invokeAppAPI)
 	mux.HandleFunc("GET /v1/projects/{id}/apps/{appID}/files/{path...}", s.appFile)
 	mux.HandleFunc("GET /v1/events", s.realtimeWS)
@@ -322,17 +334,21 @@ func allowedBrowserOrigin(origin string) bool {
 	return err == nil && (address.IsLoopback() || address.IsPrivate() || address.IsLinkLocalUnicast())
 }
 
-func (s *Server) listApps(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) listApps(w http.ResponseWriter, r *http.Request) {
 	apps, err := s.apps.List()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	locale := DetectLocale(r)
+	for index := range apps {
+		apps[index].Manifest = apps[index].Manifest.LocalizedFor(locale)
+	}
 	writeJSON(w, http.StatusOK, apps)
 }
 
-func (s *Server) listAppStore(w http.ResponseWriter, _ *http.Request) {
-	apps, err := s.store.AppStore()
+func (s *Server) listAppStore(w http.ResponseWriter, r *http.Request) {
+	apps, err := s.store.AppStoreFor(DetectLocale(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -445,6 +461,7 @@ func (s *Server) getAppWorkspaceScope(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	app.Manifest = app.Manifest.LocalizedFor(DetectLocale(r))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":            appID,
 		"name":          app.Manifest.Name,
@@ -574,7 +591,7 @@ func (s *Server) invokeAppAPI(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	appID := r.PathValue("appID")
 	target := Target{ProjectID: projectID, AppID: appID}
-	result, err := s.host.InvokeAPI(target, appID, r.PathValue("name"), input)
+	result, err := s.host.InvokeAPILocale(target, appID, r.PathValue("name"), input, DetectLocale(r))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -601,7 +618,7 @@ func (s *Server) invokeAppStateAPI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
 		return
 	}
-	result, err := s.host.InvokeAPI(Target{AppID: appID}, appID, r.PathValue("name"), input)
+	result, err := s.host.InvokeAPILocale(Target{AppID: appID}, appID, r.PathValue("name"), input, DetectLocale(r))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

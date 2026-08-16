@@ -52,6 +52,12 @@ func NewAppHost(catalog *Catalog, store *Store, media ...*MediaService) *AppHost
 }
 
 func (h *AppHost) InvokeAPI(target Target, appID, name string, input map[string]any) (any, error) {
+	return h.InvokeAPILocale(target, appID, name, input, DefaultLocale)
+}
+
+// InvokeAPILocale runs an App API operation with the caller's resolved locale,
+// which is injected into background.js as ctx.locale (D10).
+func (h *AppHost) InvokeAPILocale(target Target, appID, name string, input map[string]any, locale Locale) (any, error) {
 	app, err := h.requireApp(target, appID)
 	if err != nil {
 		return nil, err
@@ -59,10 +65,17 @@ func (h *AppHost) InvokeAPI(target Target, appID, name string, input map[string]
 	if !declaresOperation(app.Manifest, name, "api") {
 		return nil, fmt.Errorf("App %q does not expose API operation %q", appID, name)
 	}
-	return h.invoke(target, app, "operation", name, input)
+	return h.invoke(target, app, "operation", name, input, locale)
 }
 
 func (h *AppHost) InvokeMCP(target Target, appID, name string, input map[string]any) (any, error) {
+	return h.InvokeMCPLocale(target, appID, name, input, DefaultLocale)
+}
+
+// InvokeMCPLocale runs an App MCP operation with the caller's resolved locale,
+// which is injected into background.js as ctx.locale (D10). MCP carries no
+// Accept-Language header, so callers pass the persisted user preference.
+func (h *AppHost) InvokeMCPLocale(target Target, appID, name string, input map[string]any, locale Locale) (any, error) {
 	app, err := h.requireApp(target, appID)
 	if err != nil {
 		return nil, err
@@ -70,7 +83,7 @@ func (h *AppHost) InvokeMCP(target Target, appID, name string, input map[string]
 	if !declaresOperation(app.Manifest, name, "mcp") {
 		return nil, fmt.Errorf("App %q does not expose MCP operation %q", appID, name)
 	}
-	return h.invoke(target, app, "operation", name, input)
+	return h.invoke(target, app, "operation", name, input, locale)
 }
 
 // requireApp resolves the App package and enforces the Project ownership rule:
@@ -89,7 +102,7 @@ func (h *AppHost) requireApp(target Target, appID string) (App, error) {
 	return app, nil
 }
 
-func (h *AppHost) invoke(target Target, app App, group, name string, input map[string]any) (any, error) {
+func (h *AppHost) invoke(target Target, app App, group, name string, input map[string]any, locale Locale) (any, error) {
 	runtime := goja.New()
 	handlers := map[string]goja.Callable{}
 	recut := runtime.NewObject()
@@ -107,7 +120,7 @@ func (h *AppHost) invoke(target Target, app App, group, name string, input map[s
 	operation := runtime.NewObject()
 	_ = operation.Set("register", register("operation"))
 	_ = recut.Set("operation", operation)
-	ctx, err := h.context(runtime, target, app)
+	ctx, err := h.context(runtime, target, app, locale)
 	if err != nil {
 		return nil, err
 	}
@@ -136,8 +149,12 @@ func (h *AppHost) invoke(target Target, app App, group, name string, input map[s
 	return exported, nil
 }
 
-func (h *AppHost) context(runtime *goja.Runtime, target Target, app App) (*goja.Object, error) {
+func (h *AppHost) context(runtime *goja.Runtime, target Target, app App, locale Locale) (*goja.Object, error) {
 	ctx := runtime.NewObject()
+	// ctx.locale is the App-facing language signal (D10): it is injected from
+	// the App API request's Accept-Language, or from the persisted preference
+	// for MCP calls. App background code may localize its results and errors.
+	_ = ctx.Set("locale", string(locale))
 	primaryFiles, err := h.store.TargetFilesRoot(target)
 	if err != nil {
 		return nil, err

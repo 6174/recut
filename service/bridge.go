@@ -227,22 +227,28 @@ func (b *AgentBridge) writeClaudeProfile(dir string, session AgentSession, execu
 	return path, nil
 }
 
-// agentGuideData carries the render mode for the core Agent guide template.
-// The internal bridge always renders OutputFormat=xml: the Recut chat UI parses
-// the controlled tags into media previews and clickable cards. The third-party
-// Recut Skill (service/skills/recut/SKILL.md) is a separate text document in
-// the OutputFormat=url convention and must emit plain recut.video deep links
-// instead of XML tags; the two are kept consistent by test invariants, not by
-// a shared render source.
+// agentGuideData carries the render mode and the user language for the core
+// Agent guide template. The internal bridge always renders OutputFormat=xml:
+// the Recut chat UI parses the controlled tags into media previews and
+// clickable cards. The third-party Recut Skill (service/skills/recut/SKILL.md)
+// is a separate text document in the OutputFormat=url convention and must emit
+// plain recut.video deep links instead of XML tags; the two are kept consistent
+// by test invariants, not by a shared render source.
 type agentGuideData struct {
 	OutputFormat string // "xml" | "url"
+	Locale       string // "" | "zh" | "en"; empty renders the default language
 }
 
 // renderSessionGuide renders the platform-only Agent guide. Domain workflow
 // lives in App skills, loaded on demand through recut.skills.read; no App guide
-// is injected into the session.
+// is injected into the session. The guide language follows the persisted user
+// preference because an Agent session has no Accept-Language header (D12).
 func (b *AgentBridge) renderSessionGuide() ([]byte, error) {
-	return renderAgentGuide(agentGuideData{OutputFormat: "xml"})
+	locale := DefaultLocale
+	if b != nil && b.store != nil {
+		locale, _ = b.store.StoredLocale()
+	}
+	return renderAgentGuide(agentGuideData{OutputFormat: "xml", Locale: string(locale)})
 }
 
 // renderAgentGuide renders the core Agent guide template with an explicit

@@ -1,0 +1,35 @@
+---
+order: 60
+group: "部署"
+title: "部署 Recut service：本地、局域网与远程"
+description: "Recut service 的三种部署形态：本机运行、局域网共享、受控远程服务器；浏览器如何直连、跨域与端口约定。"
+---
+
+Recut 的 service 可以在三种形态下运行，你的浏览器直连它，云端不代理其 API。
+
+## 本机运行（默认）
+
+安装器把 service 注册为系统服务，监听 `:17373`（API）与 `:17374`（事件流）。浏览器访问 https://app.recut.video 或 `http://localhost:3000` 工作台，直连本机 service。素材、项目与凭据都留在你的设备上。
+
+## 局域网共享
+
+把 service 运行在一台共享主机上，同一局域网内的设备用它的 LAN IP 访问工作台与 API。LAN service 接受私有、链路本地和 loopback IP 的浏览器跨域请求。
+
+## 远程 service
+
+把 service 部署在你受控的远程服务器上，浏览器通过它的公网地址直连。远程 service 需要：
+
+- 对浏览器可达；
+- 允许 https://app.recut.video 的跨域请求；
+- 自行保障访问安全（TLS、认证等）。
+
+## 端口约定
+
+- `17373`：普通 API 请求
+- `17374`：SSE / WebSocket 事件流
+
+两端口共享同一个 daemon 与状态，浏览器为它们分别分配连接池，多个标签页与自动重连不会挤占核心 API 请求。
+
+## 开发模式
+
+开发时 `make dev` 启动 LAN service 与 `localhost:3000` 工作台；`localhost:3000` 渲染官网，`app.localhost:3000` 渲染工作台。结束开发后 `make service-resume` 恢复正式 service。

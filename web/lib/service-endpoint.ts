@@ -1,9 +1,12 @@
 /*
- * [INPUT]: 依赖构建时的工作台模式、默认 Daemon 端口与浏览器地址
- * [OUTPUT]: 对外提供 service endpoint 的默认值、工作台模式、格式校验与短请求隔离的事件流地址能力
- * [POS]: web/lib 的 service 连接配置边界；嵌入模式固定同源，LAN 开发模式使用当前主机的 service 端口，Cloudflare 模式可持久化本地或远程 service
+ * [INPUT]: 依赖构建时的工作台模式、默认 Daemon 端口与浏览器地址，以及 i18n 的 locale 真相（Accept-Language 传递）
+ * [OUTPUT]: 对外提供 service endpoint 的默认值、工作台模式、格式校验、短请求隔离的事件流地址能力、统一请求头与 JSON 包装
+ * [POS]: web/lib 的 service 连接配置边界；嵌入模式固定同源，LAN 开发模式使用当前主机的 service 端口，Cloudflare 模式可持久化本地或远程 service；recutHeaders/fetchRecutJSON 为全部 /v1 请求附加 Accept-Language
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
+import { useLocaleStore } from "./i18n/locale-store";
+import { t } from "./i18n/index";
+import { interpolate } from "./i18n/workspace-dict";
 
 export const workspaceMode = process.env.NEXT_PUBLIC_RECUT_WORKSPACE_MODE ?? "cloud";
 export const isLocalWorkspace = workspaceMode === "local";
@@ -18,10 +21,42 @@ export const defaultServiceEndpoint = isLocalWorkspace && localOrigin ? localOri
     : process.env.NEXT_PUBLIC_RECUT_API_URL ?? "http://127.0.0.1:17373";
 
 export function normalizeServiceEndpoint(value: string) {
+  const locale = useLocaleStore.getState().locale;
   const endpoint = new URL(value.trim());
-  if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") throw new Error("仅支持 http 或 https 地址");
-  if (endpoint.username || endpoint.password || endpoint.pathname !== "/" || endpoint.search || endpoint.hash) throw new Error("请输入 service 根地址，例如 https://recut.example.com");
+  if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") throw new Error(t("workspace", locale, "endpoint.error.protocol"));
+  if (endpoint.username || endpoint.password || endpoint.pathname !== "/" || endpoint.search || endpoint.hash) throw new Error(t("workspace", locale, "endpoint.error.format"));
   return endpoint.origin;
+}
+
+// 统一请求头：为全部 /v1 请求附加当前工作台语言的 Accept-Language（D8 的 service 端入口）。
+export function recutHeaders(localeOverride?: import("./i18n/locales").Locale): Record<string, string> {
+  const locale = localeOverride ?? useLocaleStore.getState().locale;
+  return { "Accept-Language": locale };
+}
+
+export type RecutRequestOptions = {
+  // 失败时按此 label 生成本地化「{label}读取失败（{status}）」并保留服务端原因。
+  labelKey?: string;
+  // 失败时直接使用此本地化信息作为前缀，并保留服务端原因。
+  messageKey?: string;
+};
+
+// 轻量 JSON 包装：自动附加 Accept-Language，禁用缓存；失败时本地化消息并保留服务端原因。
+export async function fetchRecutJSON<T>(endpoint: string, path: string, init?: RequestInit, options?: RecutRequestOptions): Promise<T> {
+  const response = await fetch(`${endpoint}${path}`, {
+    cache: "no-store",
+    ...init,
+    headers: { ...recutHeaders(), ...(init?.headers ?? {}) },
+  });
+  if (response.ok) return response.json() as Promise<T>;
+  const locale = useLocaleStore.getState().locale;
+  const body = await response.json().catch(() => ({})) as { error?: string };
+  const reason = body.error ?? response.statusText ?? t("workspace", locale, "store.noReason");
+  let base: string;
+  if (options?.messageKey) base = t("workspace", locale, options.messageKey);
+  else if (options?.labelKey) base = interpolate(t("workspace", locale, "store.read.failed"), { label: t("workspace", locale, options.labelKey), status: response.status });
+  else base = interpolate(t("workspace", locale, "store.request.failed"), { status: response.status });
+  throw new Error(`${base}：${reason}`);
 }
 
 export function isDefaultServiceEndpoint(endpoint: string) {

@@ -22,7 +22,7 @@ import (
 
 func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 	tools := map[string]map[string]any{}
-	for _, tool := range mediaMCPToolDefinitions() {
+	for _, tool := range mediaMCPToolDefinitions(DefaultLocale) {
 		tools[tool["name"].(string)] = tool
 	}
 	for _, name := range []string{"recut.media.generate", "recut.media.generate_async", "recut.video.generate_async", "recut.speech.generate_async"} {
@@ -115,7 +115,7 @@ func TestProjectMCPToolCreatesListedProject(t *testing.T) {
 	if err != nil || len(projects) != 2 || !found {
 		t.Fatalf("listed projects = %#v, err = %v", projects, err)
 	}
-	tool := projectMCPToolDefinition()
+	tool := projectMCPToolDefinition(DefaultLocale)
 	if tool["name"] != "recut.project.create" {
 		t.Fatalf("project tool definition = %#v", tool)
 	}
@@ -139,7 +139,7 @@ func TestRecutContextReportsAppsWithoutProjectDefault(t *testing.T) {
 	if _, err := store.Create(CreateInput{Name: "Current page", AppID: "example.app"}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := recutContextTool(NewAgentBridge(store), NewMediaService(store), AgentSession{ID: "s1"})
+	result, err := recutContextTool(NewAgentBridge(store), NewMediaService(store), AgentSession{ID: "s1"}, DefaultLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestRecutContextReportsConfiguredMediaReadiness(t *testing.T) {
 	if _, err := media.SaveRoute(MediaRoute{ID: "image.generate.default", Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := recutContextTool(NewAgentBridge(store), media, AgentSession{ID: "s1"})
+	result, err := recutContextTool(NewAgentBridge(store), media, AgentSession{ID: "s1"}, DefaultLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +663,7 @@ func TestRecutJobMCPToolsSurfaceLocalShellJobs(t *testing.T) {
 
 	// The global tool list exposes the platform job group.
 	definitions := map[string]map[string]any{}
-	for _, tool := range platformMCPToolDefinitions() {
+	for _, tool := range platformMCPToolDefinitions(DefaultLocale) {
 		definitions[tool["name"].(string)] = tool
 	}
 	for _, name := range []string{"recut.job.status", "recut.job.wait", "recut.job.logs", "recut.job.cancel"} {

@@ -6,7 +6,7 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$DownloadBase = $(if ($env:RECUT_DOWNLOAD_BASE_URL) { $env:RECUT_DOWNLOAD_BASE_URL } else { "https://recut.video" }),
+  [string]$DownloadBase = $(if ($env:RECUT_DOWNLOAD_BASE_URL) { $env:RECUT_DOWNLOAD_BASE_URL } else { "https://cdn.recut.video" }),
   [string]$RecutHome = $(if ($env:RECUT_HOME) { $env:RECUT_HOME } else { Join-Path $HOME ".recut" })
 )
 

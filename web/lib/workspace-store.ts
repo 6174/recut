@@ -1,10 +1,13 @@
 /*
- * [INPUT]: 依赖 Zustand 与 Recut service 的 App、项目、已安装 App HTTP API
+ * [INPUT]: 依赖 Zustand 与 Recut service 的 App、项目、已安装 App HTTP API；经 fetchRecutJSON 统一附加 Accept-Language
  * [OUTPUT]: 对外提供含可选媒体封面的当前 service 项目/App/安装目录及各自独立的读取状态与具体失败原因、按 ID 项目详情、独立 App scope 快照、请求去重与显式失效刷新
  * [POS]: web/lib 的工作台目录缓存；写操作成功后刷新，绝不使用页面级定时轮询维持一致性
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { create } from "zustand";
+import { useLocaleStore } from "./i18n/locale-store";
+import { t } from "./i18n/index";
+import { fetchRecutJSON } from "./service-endpoint";
 
 export type WorkspaceApp = { manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone"; ui?: { projectView?: string; standaloneView?: string } } };
 export type WorkspaceProjectCover = { source?: "asset" | "file"; assetId?: string; kind: "image" | "video"; filePath?: string; mimeType?: string };
@@ -69,9 +72,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       set({ state: "loading", error: "", installationsState: "loading", installationsError: "" });
       try {
         const [appsResult, projectsResult, installationsResult] = await Promise.allSettled([
-          fetchWorkspaceJSON<WorkspaceApp[]>(`${endpoint}/v1/apps`, "App 目录"),
-          fetchWorkspaceJSON<WorkspaceProject[]>(`${endpoint}/v1/projects`, "项目列表"),
-          fetchWorkspaceJSON<WorkspaceInstallation[]>(`${endpoint}/v1/apps/installed`, "已安装 App"),
+          fetchRecutJSON<WorkspaceApp[]>(endpoint, "/v1/apps", undefined, { labelKey: "store.catalog" }),
+          fetchRecutJSON<WorkspaceProject[]>(endpoint, "/v1/projects", undefined, { labelKey: "store.projects.list" }),
+          fetchRecutJSON<WorkspaceInstallation[]>(endpoint, "/v1/apps/installed", undefined, { labelKey: "store.apps.installed" }),
         ]);
         if (get().endpoint !== endpoint) return;
         const failures = [appsResult, projectsResult, installationsResult].filter((result): result is PromiseRejectedResult => result.status === "rejected");
@@ -99,9 +102,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const current = projectRequests.get(key);
     if (current) return current;
     const pending = (async () => {
-      const response = await fetch(`${endpoint}/v1/projects/${encodeURIComponent(projectID)}`);
-      if (!response.ok) throw new Error("无法读取项目");
-      const project = await response.json() as WorkspaceProjectDetail;
+      const project = await fetchRecutJSON<WorkspaceProjectDetail>(endpoint, `/v1/projects/${encodeURIComponent(projectID)}`, undefined, { messageKey: "store.unreadable.project" });
       if (get().endpoint === endpoint) {
         set((state) => ({ projectDetailsByID: { ...state.projectDetailsByID, [projectID]: project } }));
       }
@@ -118,9 +119,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const current = scopeRequests.get(key);
     if (current) return current;
     const pending = (async () => {
-      const response = await fetch(`${endpoint}/v1/apps/${encodeURIComponent(appID)}/workspace`);
-      if (!response.ok) throw new Error("无法读取 App 工作区");
-      const scope = await response.json() as WorkspaceScope;
+      const scope = await fetchRecutJSON<WorkspaceScope>(endpoint, `/v1/apps/${encodeURIComponent(appID)}/workspace`, undefined, { messageKey: "store.unreadable.workspace" });
       if (get().endpoint === endpoint) {
         set((state) => ({ workspaceScopesByAppID: { ...state.workspaceScopesByAppID, [appID]: scope } }));
       }
@@ -131,13 +130,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 }));
 
-async function fetchWorkspaceJSON<T>(url: string, label: string): Promise<T> {
-  const response = await fetch(url);
-  if (response.ok) return response.json() as Promise<T>;
-  const body = await response.json().catch(() => ({})) as { error?: string };
-  throw new Error(`${label}读取失败（${response.status}）：${body.error ?? response.statusText ?? "服务未说明原因"}`);
-}
-
 function messageOf(cause: unknown) {
-  return cause instanceof Error ? cause.message : "服务未说明原因";
+  return cause instanceof Error ? cause.message : t("workspace", useLocaleStore.getState().locale, "store.noReason");
 }

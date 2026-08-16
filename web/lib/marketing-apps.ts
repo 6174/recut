@@ -1,443 +1,557 @@
 /*
- * [INPUT]: 不依赖浏览器、服务端或 UI 状态；与工作台 lib/app-catalog.ts 数据独立
- * [OUTPUT]: 对外提供官网应用市场（recut.video/apps）与应用详情 SEO 落地页的静态营销数据：关键词、tagline/description、板块正文、卖点、FAQ 与相关应用内链
- * [POS]: web/lib 的公开营销内容数据源；只服务官网 SEO 页面，App 的 `id` 需与工作台 Catalog 的 app id 一致以打通「在工作台打开」深链，但内容与目录完全解耦
+ * [INPUT]: 依赖 node:fs / node:path 与 gray-matter，读取 content/apps/zh/*.mdx；英文正文在本文件内联提供（content 目录由内容任务另行演化，本文件不修改 content/**）
+ * [OUTPUT]: 对外提供官网应用市场与应用详情 SEO 落地页的静态营销数据：MarketingApp 用户可见字段（name/tagline/description/keywords/faq/requirements/body）为 Record<Locale, …>，中文来自 MDX、英文来自内联翻译；id/type/relatedApps/repository 与语言无关
+ * [POS]: web/lib 的公开营销内容加载器；只在服务端模块（页面、sitemap、JSON-LD）导入，客户端组件一律通过 props 接收数据；App 的 `id` 需与工作台 Catalog 的 app id 一致以打通「在工作台打开」深链，但内容与目录完全解耦；en 为 default 面必须恒有内容
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
+import fs from "node:fs";
+import path from "node:path";
+import matter from "gray-matter";
+import { type Locale } from "@/lib/i18n/locales";
 
-export type MarketingAppSection = { heading: string; body: string[] };
 export type MarketingAppFaq = { question: string; answer: string };
 
 export type MarketingApp = {
   id: string;
-  name: string;
   type: "project" | "standalone";
-  tagline: string;
-  description: string;
-  keywords: string[];
-  overview: string[];
-  sections: MarketingAppSection[];
-  highlights: string[];
-  faq: MarketingAppFaq[];
+  name: Record<Locale, string>;
+  tagline: Record<Locale, string>;
+  description: Record<Locale, string>;
+  keywords: Record<Locale, string[]>;
+  faq: Record<Locale, MarketingAppFaq[]>;
   relatedApps: string[];
-  requirements?: { title: string; items: string[]; note?: string };
+  requirements?: Record<Locale, { title: string; items: string[]; note?: string }>;
+  repository?: string;
+  body: Record<Locale, string>;
+};
+
+type AppFrontmatter = {
+  id?: string;
+  name?: string;
+  type?: string;
+  tagline?: string;
+  description?: string;
+  keywords?: unknown;
+  faq?: unknown;
+  relatedApps?: unknown;
+  requirements?: { title?: string; items?: unknown; note?: string };
   repository?: string;
 };
 
-export const marketingApps: MarketingApp[] = [
-  {
-    id: "recut.vox-broll",
-    name: "AI 短片",
-    type: "project",
-    tagline: "把选题交给 AI，产出可审阅、能继续剪的 B-roll 解说短片",
-    description: "AI 解说视频工具：输入一个选题，自动梳理叙事结构与分镜，生成可审阅的解说文案与配套 B-roll 画面；画面、旁白、节奏在本地时间线统一编排，成片可导出、项目可继续制作，素材不上传云端。适合知识区、观点区 UP 主与解说类创作者，从选题到成片一次走通，免费体验。",
-    keywords: ["AI 解说视频工具", "AI 短片生成工具", "AI 一键生成解说视频", "B-roll 视频制作", "科普视频制作工具", "知识类视频工具", "解说视频文案脚本", "AI 视频分镜", "本地视频剪辑工具"],
-    overview: [
-      "解说型视频（B-roll 短片）是知识类、观点类内容的主力形式：一条主线旁白，配上画面、图表与节奏。传统做法里，从选题到成片要经历写稿、找画面、配音、剪辑四步，每一步都在不同工具间切换。",
-      "「AI 短片」App 把这四步收进同一个本地工作台：你给出一个主题，它先梳理叙事结构与分镜，再生成可审阅的解说文案和配套画面。你不需要一次性接受全部结果——每一步都可以继续编辑、继续制作，素材与项目始终留在你的设备上。",
-    ],
-    sections: [
-      {
-        heading: "从选题到成片：AI 短片生成工具怎么梳理叙事结构",
-        body: [
-          "在 AI 短片里，你不必从空白时间线开始。给一个主题，比如「人为什么会拖延」，AI 会先自动梳理这套叙事的结构：开头抛问题、中间讲原理、结尾给结论，再据此拆成一条条分镜，每条分镜对应一版解说视频文案脚本草稿和配套画面方向。",
-          "知识区内容最怕结构散，这类知识类视频工具的价值，就是把结构问题前置，让一个选题直接长成可以继续制作的短片。",
-        ],
-      },
-      {
-        heading: "B-roll 视频制作：画面、旁白与节奏在同一时间线对齐",
-        body: [
-          "解说类视频最容易翻车的地方，是旁白讲东、画面放西。AI 短片把 B-roll 画面、解说旁白与节奏放在同一条本地时间线里编排：改一句旁白，对应画面可以跟着对齐；拖入一段素材，立刻能预览它落在哪句解说上。",
-          "主流剪辑软件靠手动拖素材库补 B-roll，而这里画面由 AI 按文案自动匹配生成，你再决定留哪段、换哪段。镜头长短、节奏疏密都肉眼可见、随手可调。",
-        ],
-      },
-      {
-        heading: "科普视频制作工具怎么保证内容可复核",
-        body: [
-          "做科普、讲观点的 UP 主最怕 AI 一本正经地编。AI 短片不替你做最终决定：它生成的是可审阅的解说文案与配套画面，你逐句核对事实、改写措辞之后再定稿。审核文案与配画面的阶段分开，错误在进入时间线之前就能被拦下。",
-          "相比「AI 一键生成解说视频」的纯自动工具，这类科普视频制作工具的价值是人审在前、成片在后，对事实严谨度要求高的选题尤其适用。",
-        ],
-      },
-      {
-        heading: "AI 视频分镜可反复改，项目型 App 支持继续制作",
-        body: [
-          "一次没剪完、或成片后想改观点，传统工具往往要从头再来。AI 短片把每个选题存成一个项目，成片可导出，项目保留在本地，随时打开继续制作：换一条分镜、改一句解说、补一段画面，都在原项目上完成，不必重新生成整片。",
-          "对连载、多期、复盘类选题，AI 视频分镜的复用让系列内容的生产更连贯。",
-        ],
-      },
-      {
-        heading: "本地视频剪辑工具：素材与项目留在你的设备上",
-        body: [
-          "主流在线工具往往要求素材上传云端，项目越攒越多、素材隐私顾虑也越重。AI 短片选择本地优先：B-roll 素材、解说文案与项目文件都留在用户设备上，离线也能打开继续制作。",
-          "对素材涉密、习惯把项目存在自己硬盘上的创作者，这类本地视频剪辑工具意味着流程完全由自己掌控，不依赖服务商的带宽与服务器状态。",
-        ],
-      },
-    ],
-    highlights: [
-      "给一个选题，自动生成叙事结构与分镜脚本",
-      "生成可审阅的解说文案，核对后再定稿",
-      "按文案自动匹配 B-roll 画面，与旁白同线对齐",
-      "成片可导出，项目保留在本地，随时接着做",
-      "本地优先处理素材与项目，不上传云端",
-      "覆盖知识区、观点区、科普解说选题场景",
+type EnApp = {
+  name: string;
+  tagline: string;
+  description: string;
+  keywords?: string[];
+  faq?: MarketingAppFaq[];
+  requirements?: { title: string; items: string[]; note?: string };
+  body: string;
+};
+
+// 英文内容（内联）：与 zh 目录按 id 对应；en 是 default 无前缀面，必须恒有内容。
+const EN_APPS: Record<string, EnApp> = {
+  "recut.audio-studio": {
+    name: "Audio Studio",
+    tagline: "Auto-caption your videos and dub with local AI — your voice material never leaves this computer",
+    description: "Auto-captions with Audio Studio: a Qwen ASR model on your machine turns audio and video into timestamped captions and an editable transcript, with SRT/ASS/Markdown export that drops straight into your editing flow; synthesize dubbing locally with CosyVoice and reuse licensed voice characters. Media and voices stay on your device and work offline — built for talking-head, interview, course and narration creators.",
+    keywords: [
+      "auto video captions",
+      "AI dubbing software",
+      "local speech transcription",
+      "video to subtitles",
+      "caption generation tool",
+      "AI voice cloning",
+      "voiceover dubbing",
+      "local ASR deployment",
+      "local AI dubbing",
     ],
     faq: [
       {
-        question: "AI 解说视频工具生成的文案能直接发布吗？",
-        answer: "不能直接当成品。AI 短片生成的是可审阅的解说文案草稿，建议逐句核对事实、调整措辞后再定稿；定稿文案会与配套的 B-roll 画面在本地时间线中对齐，确认后即可导出成片。",
+        question: "How do I auto-caption a video?",
+        answer: "Drag the video into Audio Studio and a local ASR model like Qwen transcribes it automatically, generating timestamped captions and an editable transcript — no need to upload media to the cloud. Export SRT or ASS when done and load them straight into CapCut, Premiere and similar editors.",
       },
       {
-        question: "解说视频里的 B-roll 是什么？一定要用吗？",
-        answer: "B-roll 指穿插在主讲画面之间的辅助镜头，能让解说视频更耐看。AI 短片会根据旁白内容自动生成配套画面，避免单一镜头长时间停留；你也可以在时间线里手动替换素材，不必全程使用自动生成的画面。",
+        question: "Can Audio Studio work without an internet connection?",
+        answer: "Yes. Transcription and dubbing are both done by local models, so they work in fully offline environments. Media and voice characters stay on your device the whole time and never reach a third-party server — ideal for privacy-sensitive creation.",
       },
       {
-        question: "剪到一半关机了，项目还能继续制作吗？",
-        answer: "可以。AI 短片是项目型 App，每个选题对应一个项目文件，成片可导出，项目会保存在本地设备上，之后随时打开接着制作，不用从头重新生成。",
+        question: "What computer specs do I need?",
+        answer: "Basic transcription is recommended with at least 16 GB RAM; creating voice characters and dubbing reliably is recommended with 32 GB+ and roughly 15 GB of free disk. An NVIDIA CUDA GPU with 8 GB+ VRAM transcribes faster; CPU-only or Apple silicon Macs work too, just slower.",
       },
       {
-        question: "我的素材和项目会上传到服务器吗？",
-        answer: "不会。AI 短片本地优先，B-roll 素材、解说文案与项目文件都留在用户设备上，不经过云端服务器，离线也能打开继续制作。",
+        question: "Will voice cloning leak my voice?",
+        answer: "No. The characters you build for licensed voices are stored locally, and dubbing is synthesized by local models like CosyVoice — voice data never leaves the device. Only use voices you own or have rights to, and avoid cloning others' timbres.",
       },
       {
-        question: "我不会写解说文案，能用这个工具做知识类视频吗？",
-        answer: "可以。工具会先为你的选题自动梳理叙事结构与分镜，再生成对应的解说文案草稿，相当于先给你一版结构化的稿子，你只需审阅、改写和定稿。面向知识区、观点区 UP 主与解说类创作者，即使没有脚本经验也能从选题起步。",
-      },
-    ],
-    relatedApps: ["recut.audio-studio", "recut.cover-studio"],
-    repository: "https://github.com/6174/recut-vox-broll",
-  },
-  {
-    id: "recut.remotion-studio",
-    name: "Remotion 视频",
-    type: "project",
-    tagline: "用代码和素材编排程序化视频，改数据就能重渲，剪片像写代码一样可控",
-    description: "Remotion 视频制作不用从零搭框架：Recut 基于 Remotion 与 React，把选题、文案、素材编排成可实时预览、可导出 MP4 的程序化视频，改数据即可重新渲染，批量做视频与数据可视化，素材和工程全留在本机。",
-    keywords: ["Remotion 视频制作", "用代码做视频", "程序化视频", "React 视频制作", "数据可视化视频", "视频模板批量生成", "Remotion 入门", "视频自动化生成"],
-    overview: [
-      "当视频需要重复生产、跟随数据变化或保证多条内容风格完全一致时，手工剪辑的效率就会到瓶颈。Remotion 让视频由代码驱动：每一帧都来自确定的组件与数据，可版本控制、可参数化、可批量导出。",
-      "Recut 的「Remotion 视频」App 把 Remotion 工程的威力放进本地工作台：先规划选题、文案与分镜，再编排素材与画面并实时预览，最后导出成片。项目就是真实的 Remotion 工程，想深入修改时随时可以打开代码。",
-    ],
-    sections: [
-      {
-        heading: "什么是程序化视频，为什么要用它做视频",
-        body: [
-          "程序化视频是用代码定义每一帧的视频：画面由数据、文案和素材驱动，而非逐秒手工拖拽。它天然适合会一点 React 的内容团队、需要定期出片的数据可视化需求者，以及要模板化、批量生产视频的个人与团队。",
-          "传统剪辑软件的痛点——改一遍数据就重做一遍——在这里变成「改参数、重渲染」两件事。",
-        ],
-      },
-      {
-        heading: "用代码做视频，与传统剪辑软件有什么不同",
-        body: [
-          "用代码做视频时，时间轴退位，逻辑上位。Recut 里的每个项目就是一份真实的 Remotion 工程：AI 直接读写 workspace 里的 composition 代码，改动即时在预览中可见。想精确改任意一帧，不用找关键帧按钮，改一行代码即可。",
-        ],
-      },
-      {
-        heading: "React 视频制作工作流：选题、文案到成片模板",
-        body: [
-          "React 视频制作不必从空工程开始。新建项目时先选择成片模板，再填选题与素材，首版成片之后，素材与字幕主题只作局部编辑工具，画面与叙事由模板统一约束。",
-          "对需要固定模板、滚动更新的内容，这套工作流把重复劳动压到最低。",
-        ],
-      },
-      {
-        heading: "数据可视化视频：改数据即可重新渲染",
-        body: [
-          "数据可视化视频最常见的痛点是数据一变全片重做。Recut 的组合与字幕时间轴全部由 frame 派生、无随机数参与，预览与导出逐帧一致；数据、文案或素材发生变化，改完即更新预览，重新导出即成新片。",
-          "适合周报、榜单、大盘复盘这类需要固定模板、滚动更新的内容。",
-        ],
-      },
-      {
-        heading: "视频模板批量生成：一个项目反复出片",
-        body: [
-          "视频模板批量生成的关键是「模板单一真相源」。Recut 中模板与视觉原语统一管理，项目间互不干扰；同一模板换一批选题与素材就是一条新片。",
-          "导出在本机渲染为 MP4，自动归档为素材并设为项目封面，几十条片子也可排队产出，全程不依赖云端额度。",
-        ],
-      },
-    ],
-    highlights: [
-      "选成片模板、填选题，AI 把文案与素材编排成片",
-      "改数据改文案即更新预览，导出结果逐帧一致",
-      "打开项目文件夹直接改真实 Remotion 代码，逐帧精确控制",
-      "本地渲染导出 MP4，自动归档为素材并设为封面",
-      "素材与工程留在本机，本地优先、不上传素材",
-    ],
-    faq: [
-      {
-        question: "Remotion 是什么？怎么用代码做视频？",
-        answer: "Remotion 是一个用 React 写视频的开源框架，用组件描述每一帧，逐帧渲染成 MP4。Recut 把它封装成项目型工作流：你选模板、填选题和素材，AI 直接改写项目里的 Remotion composition 代码，改代码即更新预览，本地渲染导出，无需从零搭框架。",
-      },
-      {
-        question: "不会写代码也能用吗？",
-        answer: "需要「会用一点代码」。AI 会用选题、文案与素材驱动出片；但当你想精确改某一帧时，项目就是真实 Remotion 工程，可以打开文件夹改代码，这正是它的核心价值。",
-      },
-      {
-        question: "数据变了，视频需要重新生成吗？",
-        answer: "需要重新渲染，但过程很短：改数据、文案或素材后，预览即时刷新，确认无误再导出。组合与字幕时间轴全部由帧号派生、无随机性，预览与导出逐帧一致，改完不会出现「预览对、导出错」。",
-      },
-      {
-        question: "导出的视频是什么格式？",
-        answer: "导出在本机渲染为 MP4，完成后自动归档为 Recut 素材并设为项目封面。导出进程在后台任务中运行，可在工作台查看进度。",
-      },
-      {
-        question: "每个项目真的是独立的 Remotion 工程吗？",
-        answer: "是。首次使用会把 remotion-skeleton 骨架整体复制为项目私有 workspace，AI 改写的是这个副本，项目之间互不干扰；支持一键重置回骨架、在文件管理器中打开项目文件夹，方便回溯或二次开发。",
-      },
-    ],
-    relatedApps: ["recut.vox-broll", "recut.cover-studio"],
-    repository: "https://github.com/6174/recut-remotion-studio",
-  },
-  {
-    id: "recut.audio-studio",
-    name: "声音工坊",
-    type: "standalone",
-    tagline: "视频自动加字幕、本地 AI 配音，你的声音素材不出这台电脑",
-    description: "视频自动加字幕用声音工坊：本机用 Qwen 模型把音视频自动转成带时间戳字幕与可编辑文稿，支持导出 SRT/ASS/Markdown 接进剪辑流程；用 CosyVoice 本地合成配音、复用已授权声音角色，素材与声音都不离开设备，断网也能工作，口播、访谈、课程、解说创作者皆适用。",
-    keywords: ["视频自动加字幕", "AI 配音软件", "本地语音转写", "视频转字幕", "字幕生成工具", "AI 克隆声音", "口播视频配音", "ASR 本地部署", "本地 AI 配音"],
-    overview: [
-      "字幕是视频的隐形放大器，但大多数「一键字幕」工具要求先把素材上传到云端，再被时长、次数与收费限制。声音工坊把整条链路放到本机执行：用 Qwen 等 ASR 模型把音频转成带时间戳的文稿，再导出 SRT、ASS 或 Markdown 字幕。",
-      "转写只是起点。同一份本地语音链路还能建立可复用的声音角色，用 CosyVoice 等本地模型朗读新文本，适合补录旁白、多语言配音与快速迭代文案。素材、字幕与声音角色都不离开你的设备。",
-    ],
-    sections: [
-      {
-        heading: "视频怎么自动加字幕？本地转写一步出带时间戳的字幕",
-        body: [
-          "把口播、访谈或课程音视频拖进声音工坊，本机用 Qwen 等 ASR 模型自动转成带时间戳的字幕与可编辑文稿，不需要把文件上传到任何云端服务。字幕时间轴与文稿一一对应，改稿、校对、删句都在本地完成。",
-          "适合视频转字幕的高频创作者：一次导入，字幕、文稿一次拿齐，接进剪映等剪辑流程即可成片。",
-        ],
-      },
-      {
-        heading: "本地语音转写：音视频在设备上变成可编辑文稿",
-        body: [
-          "声音工坊把本地语音转写做成一件日常小事：基础转写只需 16GB 内存，纯 CPU、Apple 芯片 Mac 都能跑，只是速度更慢；配有 NVIDIA CUDA 8GB 以上显存可明显提速。",
-          "转写产出的文稿可直接改、直接引用，也可导出 Markdown 用于写稿、发笔记或做课程讲义，无需二次整理。",
-        ],
-      },
-      {
-        heading: "本地 AI 配音软件怎么选：角色、素材、模型都在本机",
-        body: [
-          "市面上多数 AI 配音软件把文本与音色都上传到服务商服务器。声音工坊相反：为已授权的声音建立可复用角色，用 CosyVoice 等本地模型合成配音，声音角色与素材都不离开设备。断网也能工作，适合对素材隐私敏感、或有保密要求的课程、访谈与解说项目。",
-          "建议 32GB 及以上内存稳定创建声音角色与配音，预留约 15GB 磁盘。",
-        ],
-      },
-      {
-        heading: "口播、访谈、课程、解说：不同视频怎么加字幕怎么配音",
-        body: [
-          "口播类：先自动加字幕再补 AI 配音；访谈类：转写成文稿便于提炼金句；课程类：字幕配合可编辑文稿做成讲义；解说类：用已授权声音角色批量合成旁白。",
-          "一个工作区 App 覆盖四类场景，转写、校对、配音、导出在同一套本地流程里完成，不打断创作节奏。",
-        ],
-      },
-      {
-        heading: "导出 SRT/ASS/Markdown，接入你惯用的剪辑流程",
-        body: [
-          "字幕成品支持导出 SRT/ASS 等标准格式，可直接载入剪映、PR 等剪辑软件叠轨使用；文稿导出 Markdown 便于沉淀内容。",
-          "想要更高效的成片流水线，可结合 AI 短片 App 对口播素材做停顿与口癖修剪，把「转写—校对—配音—剪辑」串成一条完整本地链路。",
-        ],
-      },
-    ],
-    highlights: [
-      "本机自动转写音视频，生成带时间戳字幕与可编辑文稿",
-      "为已授权声音建立可复用角色，CosyVoice 本地合成配音",
-      "导出 SRT/ASS/Markdown，轻松接进剪映、PR 等剪辑流程",
-      "素材与声音角色都不离开设备，断网也能开工",
-      "16GB 内存即可转写，Apple 芯片 Mac 也能运行",
-      "源码公开可查，能力与边界透明",
-    ],
-    faq: [
-      {
-        question: "视频怎么自动加字幕？",
-        answer: "把视频拖进声音工坊，本机用 Qwen 等 ASR 模型自动转写，生成带时间戳的字幕与可编辑文稿，无需上传素材到云端。完成后导出 SRT 或 ASS 字幕文件，即可载入剪映、PR 等剪辑软件直接使用。",
-      },
-      {
-        question: "声音工坊可以不联网使用吗？",
-        answer: "可以。转写、配音都由本机模型完成，断网环境也能正常工作。素材与声音角色全程留在设备里，不会上传到第三方服务器，适合对素材隐私敏感的创作场景。",
-      },
-      {
-        question: "电脑配置要求高吗？",
-        answer: "基础转写建议至少 16GB 内存；稳定创建声音角色与配音建议 32GB 及以上，并预留约 15GB 磁盘。配有 NVIDIA CUDA 8GB 以上显存转写更快，纯 CPU 或 Apple 芯片 Mac 也能运行，只是速度更慢。",
-      },
-      {
-        question: "声音克隆会泄露我的声音吗？",
-        answer: "不会。你为已授权声音建立的角色保存在本机，用 CosyVoice 等本地模型合成配音，声音数据不离开设备。仅建议用于本人或已获授权的声音，避免克隆他人音色。",
-      },
-      {
-        question: "生成的字幕能用在剪映里吗？",
-        answer: "能。声音工坊支持导出 SRT/ASS 标准字幕格式，把文件导入剪映或 PR 即可叠轨使用；文稿还可导出 Markdown，用于写稿、做讲义或发内容平台。",
+        question: "Can the generated captions be used in CapCut?",
+        answer: "Yes. Audio Studio exports standard SRT/ASS caption formats — import the file into CapCut or Premiere and layer it on your edit; transcripts can also be exported as Markdown for scripting, lecture notes or publishing.",
       },
     ],
     requirements: {
-      title: "运行前请确认设备条件",
+      title: "Check your device before you run",
       items: [
-        "基础转写建议至少 16 GB 内存；要稳定创建声音角色和合成配音，建议 32 GB 及以上。8 GB 内存或较旧设备不建议下载。",
-        "建议至少预留 15 GB 磁盘空间；Qwen3-ASR 0.6B 连同时间戳对齐器约 3.5 GB，CosyVoice2-0.5B 约 1 GB，Python 运行环境和缓存还会占用额外空间；下载多个模型需要更多空间。",
-        "想要较快的 Qwen 转写，推荐 Windows / Linux 上具备 8 GB 以上显存的 NVIDIA CUDA 显卡。纯 CPU 与 Apple 芯片 Mac 也能运行，但当前版本不会使用 Apple GPU 加速，Qwen 和配音会明显更慢。",
+        "Basic transcription is recommended with at least 16 GB RAM; creating voice characters and synthesizing dubbing reliably is recommended with 32 GB or more. 8 GB machines or older devices are not recommended.",
+        "Reserve at least 15 GB of disk: Qwen3-ASR 0.6B plus the timestamp aligner is about 3.5 GB, CosyVoice2-0.5B about 1 GB, with the Python runtime and cache taking more; downloading several models needs more space.",
+        "For faster Qwen transcription, an NVIDIA CUDA GPU with 8 GB+ VRAM on Windows/Linux is recommended. Pure CPU and Apple silicon Macs run too, but the current version doesn't use Apple GPU acceleration, so Qwen and dubbing will be noticeably slower.",
       ],
-      note: "模型在本机运行。安装 App 不会下载权重；只有你在声音工坊中选择模型后才会下载。",
+      note: "Models run on your machine. Installing the App doesn't download weights; they download only when you pick a model inside Audio Studio.",
     },
-    relatedApps: ["recut.vox-broll", "recut.remotion-studio"],
-    repository: "https://github.com/6174/recut-audio-studio",
-  },
-  {
-    id: "recut.cover-studio",
-    name: "封面生成",
-    type: "standalone",
-    tagline: "按平台尺寸批量生成视频封面，参考封面统一风格，素材沉淀随取随用",
-    description: "AI 视频封面生成工具，按 B站/抖音/YouTube 等渠道尺寸批量生成封面候选，上传参考封面保持系列视觉一致；封面沉淀素材库跨项目复用，与视频、字幕素材同处一个本地工作台。今天就来批量做封面。",
-    keywords: ["AI 视频封面生成", "视频封面生成工具", "AI 视频封面", "视频封面制作", "封面批量生成", "B站封面尺寸", "抖音封面尺寸", "YouTube 封面尺寸", "视频缩略图生成"],
-    overview: [
-      "封面决定点击。不同渠道对封面尺寸、构图与文字的要求各不相同，手动为每支视频做封面既耗时又难以保持一致。",
-      "「封面生成」App 用渠道尺寸、参考封面与创作要求驱动生成：批量产出候选封面，选定后沉淀到素材库，后续创作直接复用。封面与视频素材在同一个工作台里管理，不必在多个工具之间搬运。",
-    ],
-    sections: [
-      {
-        heading: "视频封面生成工具：一个工作台批量出候选封面",
-        body: [
-          "在 B站、抖音、YouTube、西瓜等平台运营，每期都要做封面，单张手作费时且尺寸易错。封面生成把发布渠道尺寸、参考图和创作要求放进一次选择流程：选渠道即带出对应横竖画幅规格，配参考图约束主体、参考封面约束构图与视觉语气，一次批量产出候选封面。",
-        ],
-      },
-      {
-        heading: "AI 视频封面：参考封面让系列风格保持一致",
-        body: [
-          "持续更新的创作者最怕「每期封面风格都不一样」。把上一期满意的封面设为参考封面，AI 生成的构图、留白和视觉语气便向它对齐；再搭配参考图固定主体、产品或人物。",
-          "这样 AI 视频封面不仅解决「有没有」，更解决「像不像自己频道」，系列感自动沉淀，不用靠记忆复刻。",
-        ],
-      },
-      {
-        heading: "视频封面制作：渠道尺寸、素材与历史一步到位",
-        body: [
-          "视频封面制作最繁琐的是尺寸换算与素材归集。封面生成把渠道尺寸、参考封面与创作要求放进同一次流程，生成结果由素材库统一保存，封面与视频、字幕等素材同处一个本地工作台。",
-          "每次成功生成都写入可追溯历史，记录渠道、尺寸、完整提示词与参考来源，找回、复用、复盘都方便。",
-        ],
-      },
-      {
-        heading: "封面批量生成：一份参考，多平台一次出图",
-        body: [
-          "一条视频常要同时发 B站、西瓜、YouTube，抖音另发竖屏版。横向 16:9 与竖向 9:16 是不同的独立规格，逐平台手搓容易出错。",
-          "封面批量生成把横竖画幅列为独立规格，用同一组参考与要求分别产出各渠道候选封面，择优发布。多平台分发不必为封面反复加班。",
-        ],
-      },
-      {
-        heading: "B站、抖音、YouTube 封面尺寸一次讲清",
-        body: [
-          "高频搜「B站封面尺寸」「抖音封面尺寸」「YouTube 封面尺寸」的创作者，要的是「别再被裁切」。常识参考：B站封面建议 16:9、1280×720 以上；YouTube 封面同样 16:9、推荐 1280×720；抖音竖屏视频封面常用 9:16（1080×1920）。",
-          "封面生成按渠道内置尺寸选择，横竖画幅分开，生成即符合规格，重要信息放画面中央区域即可。",
-        ],
-      },
-    ],
-    highlights: [
-      "按渠道尺寸批量生成封面候选，横竖画幅独立规格",
-      "上传参考封面，对齐构图留白，系列视觉一致",
-      "参考图约束主体元素，画面主体不跑偏",
-      "生成结果自动沉淀素材库，跨项目随取随用",
-      "与视频、字幕素材同工作台，素材管理不跳转",
-      "每次生成留痕可追溯，提示词尺寸随时复盘",
-    ],
-    faq: [
-      {
-        question: "B站封面尺寸是多少？怎么做才不被裁切？",
-        answer: "B站推荐使用 16:9 横图封面，业内常用 1280×720 及以上分辨率，宽度过小易压缩发糊。封面生成选择渠道后按对应横竖规格生成，建议把重要信息放在画面中央区域，避开边缘以防小尺寸下显示不全。",
-      },
-      {
-        question: "YouTube 缩略图（封面）用什么尺寸合适？",
-        answer: "YouTube 缩略图常用 16:9，推荐 1280×720，最小不要低于 640×360。封面生成覆盖 YouTube 等海外渠道尺寸，选渠道即可按规格生成；再设一张参考封面，还能保持频道系列风格统一。",
-      },
-      {
-        question: "AI 生成的封面素材存在哪里？能跨项目复用吗？",
-        answer: "生成成功的封面自动归档到 Recut 素材库，可跨项目复用；封面生成应用本身只保存可追溯的元数据（渠道、尺寸、提示词、参考来源），不复制媒体文件。下一个视频项目需要同一批封面，直接调用素材库即可，不必重新生成。",
-      },
-      {
-        question: "怎么让一整期封面风格保持统一？",
-        answer: "把上一期满意的封面设为参考封面，再配参考图固定主体，AI 生成时会向两类参考对齐构图、留白与视觉语气。每次生成的历史都记录参考来源，想找回某期的风格组合，直接查生成历史就能复现同一套配置。",
-      },
-      {
-        question: "支持抖音、微信视频号这种竖屏封面吗？",
-        answer: "支持。封面生成把抖音、微信视频号等竖屏渠道作为独立规格，与 B站、YouTube 等横屏规格分开选择。抖音竖屏视频封面常用 9:16（1080×1920）画幅，选择渠道后生成结果即按对应横竖规格产出。",
-      },
-    ],
-    relatedApps: ["recut.vox-broll", "recut.remotion-studio"],
-    repository: "https://github.com/6174/recut-cover-studio",
-  },
-  {
-    id: "recut.depth-anything",
-    name: "深度图",
-    type: "standalone",
-    tagline: "选一张图或一段视频，本机生成可预览的深度图，素材不传云端",
-    description: "深度图生成工具：基于 Depth Anything 在本机把图片或视频转换为可预览的深度图，支持 Small、Base、Large 三种模型与伪彩、灰度输出，生成结果可预览并按需保存到素材库。全程本地处理、素材不上传，无需配置 Python 或 FFmpeg，打开即用。",
-    keywords: ["深度图生成", "图片转深度图", "AI 深度估计", "Depth Anything", "视频深度图", "深度图 后期合成", "3D 深度图", "深度图工具"],
-    overview: [
-      "深度图描述画面里物体距离相机的远近，是立体感设计、后期合成与素材研究常用的中间产物。把它交给云端工具意味着要把原始图片或视频上传，也会受额度与隐私限制。",
-      "「深度图」App 在本机完成转换：图片或视频直接生成可预览的深度图，按需保存到素材库，与后续创作流程无缝衔接。",
-    ],
-    sections: [
-      {
-        heading: "深度图是什么：AI 深度估计如何给画面分层",
-        body: [
-          "深度图是一张记录画面纵深信息的中间产物，像素越亮表示离镜头越近，越暗表示越远（伪彩模式另有色阶）。它来自单目深度估计——AI 只凭一张普通 RGB 图片就能推断每个像素的相对距离，这正是 Depth Anything 模型最擅长的事。",
-          "对创作者而言，深度图不是成品，而是通往景深合成、3D 视差、立体转场等效果的「通行证」，理解它能让后续合成工作有据可依。",
-        ],
-      },
-      {
-        heading: "图片转深度图怎么做：三种模型任选，预览即得",
-        body: [
-          "在素材库选中一张图片即可开始，Small、Base、Large 三种模型随意切换：Small 最快适合快速看效果，Base 是默认平衡之选，Large 细节更细。支持伪彩与灰度两种输出样式，生成后先看预览，满意再保存。",
-          "全程免配置 Python 或命令行，首次打开自动准备运行环境，不用折腾环境变量。",
-        ],
-      },
-      {
-        heading: "视频深度图生成：逐帧推理，输出可播放的 MP4",
-        body: [
-          "选一段视频即可逐帧推理，每一帧都得到对应的深度信息，最终输出浏览器可播放的 H.264 MP4。运动剧烈或时长较长的镜头，建议用 Large 模型，逐帧更稳定。",
-          "生成进度与错误会实时显示，随时可取消，不用干等。",
-        ],
-      },
-      {
-        heading: "深度图后期合成与 3D 场景：从平面到立体的关键",
-        body: [
-          "在 AE 里，深度图常被用来做景深、视差移动、立体转场；在 Blender 里，视频深度图能把普通镜头转成 3D 场景。对 3D 场景构建者来说，深度图是给背景板、贴图或虚拟摄像机提供空间信息的低成本方案。",
-          "生成的深度图保存进素材库，之后随取随用，直接接上你的下一步合成流程。",
-        ],
-      },
-      {
-        heading: "本地深度图工具：素材不上传，处理全在设备上",
-        body: [
-          "推理全程在本机完成，输入的图片、视频与生成的深度图都不会上传服务器，适合素材保密的创作与开发流程。输出先暂存在 App 私有文件区，只有你点击「保存到素材库」才会正式归档。",
-          "官方模型权重与运行环境统一管理，版本清晰、可复用。",
-        ],
-      },
-    ],
-    highlights: [
-      "选择图片或视频，一键生成可预览的深度图",
-      "在 Small、Base、Large 三种模型间自由切换",
-      "伪彩与灰度两种输出样式按需选用",
-      "生成结果先预览，确认后再保存到素材库",
-      "全程本地处理，素材与深度图均不上传云端",
-      "自动准备运行环境，打开即可用",
-    ],
-    faq: [
-      {
-        question: "深度图是什么？它有什么实际用途？",
-        answer: "深度图是一张用明暗记录画面纵深信息的图片，像素越亮离镜头越近。它不是最终成品，而是后期合成与 3D 制作里的中间产物——用 AI 深度估计生成深度图后，可以做景深、视差移动、立体转场、3D 场景构建等效果。",
-      },
-      {
-        question: "生成深度图需要联网或上传素材吗？",
-        answer: "不需要上传素材。深度图生成完全在本地完成，你的图片和视频不会被送到服务器。首次使用时只需联网下载一次官方模型权重，之后即可离线生成，适合素材保密的创作与开发项目。",
-      },
-      {
-        question: "视频也能生成深度图吗？",
-        answer: "可以。从素材库选一段视频，App 会逐帧推理并输出可预览的 H.264 MP4 深度图。画面越稳定、选用的模型越大，逐帧结果越连贯；生成进度与错误都会实时显示，可随时取消。",
-      },
-      {
-        question: "生成的深度图是什么格式，能保存到哪里？",
-        answer: "图片输出为 PNG，视频输出为 MP4。生成后先以预览暂存在 App 私有文件区，只有你点击「保存到素材库」才会正式成为素材库里的 Asset，之后可随取随用、继续后期合成。",
-      },
-      {
-        question: "Small、Base、Large 三种模型有什么区别？",
-        answer: "Small 推理最快，适合快速预览效果；Base 是默认平衡之选；Large 细节更丰富，对逐帧视频也更稳定。许可上有差异：Small 为 Apache-2.0，Base 与 Large 为 CC-BY-NC-4.0，商用前需确认用途匹配。",
-      },
-    ],
-    relatedApps: ["recut.remotion-studio", "recut.vox-broll"],
-    repository: "https://github.com/6174/recut-depth-anything-v2",
-  },
-];
+    body: `Captions are the invisible amplifier of video, but most "one-click caption" tools want your media in the cloud first, then limit you by duration, usage and price. Audio Studio runs the entire chain on your machine: an ASR model like Qwen turns audio into a timestamped transcript, then you export SRT, ASS or Markdown captions.
 
-export function getMarketingApp(appID: string) {
+Transcription is only the start. The same local speech pipeline can also build reusable voice characters and read new text with local models like CosyVoice — ideal for re-recording narration, multilingual dubbing and fast copy iteration. Media, captions and voice characters never leave your device.
+
+## How to auto-caption a video: local transcription with timestamped captions in one step
+
+Drag a talking-head, interview or course audio/video into Audio Studio and a local ASR model like Qwen turns it into timestamped captions and an editable transcript automatically — nothing is uploaded to any cloud service. The caption timeline matches the transcript one-to-one, so editing copy, proofreading and deleting lines all happen locally.
+
+For high-frequency video-to-caption creators: import once, get captions and a transcript in one go, and load them into CapCut or another editing flow to finish a video.
+
+## Local speech transcription: audio and video become an editable transcript on your device
+
+Audio Studio makes local speech transcription an everyday chore: basic transcription only needs 16 GB RAM, and pure CPU or Apple silicon Macs run it too, just slower; an NVIDIA CUDA GPU with 8 GB+ VRAM speeds it up noticeably.
+
+The transcript it produces can be edited and quoted directly, and exported as Markdown for scripting, notes or course handouts — no second pass needed.
+
+## Choosing local AI dubbing software: characters, media and models all on your machine
+
+Most AI dubbing software uploads both text and timbre to the vendor's servers. Audio Studio is the opposite: build reusable characters from licensed voices and synthesize dubbing with local models like CosyVoice — voice characters and media never leave the device. It works offline, suiting privacy-sensitive or confidential courses, interviews and narration projects.
+
+Use 32 GB+ RAM for stable voice-character creation and dubbing, and reserve about 15 GB of disk.
+
+## Talking-head, interviews, courses, narration: different videos, one local flow
+
+Talking-head: add captions first, then AI dubbing. Interviews: transcribe to a transcript so you can pull out quotable lines. Courses: captions plus an editable transcript as handouts. Narration: batch-synthesize voice-over with a licensed voice character.
+
+One standalone App covers all four scenarios — transcribing, reviewing, dubbing and exporting happen in the same local flow without breaking your rhythm.
+
+## Export SRT/ASS/Markdown and plug into your usual editing pipeline
+
+Caption output exports in standard SRT/ASS formats, loadable straight into CapCut, Premiere and other editors as layered tracks; transcripts export as Markdown for easy content reuse.
+
+For a more efficient finishing pipeline, combine with the AI Short Films App to trim pauses and filler from talking-head media, chaining "transcribe — review — dub — edit" into one complete local flow.
+
+## What Audio Studio can do for you
+
+- Transcribe audio/video locally into timestamped captions and an editable transcript
+- Build reusable characters from licensed voices; CosyVoice synthesizes dubbing locally
+- Export SRT/ASS/Markdown and plug into CapCut, Premiere and other editing flows
+- Media and voice characters never leave the device; works offline
+- Transcribe on 16 GB RAM; runs on Apple silicon Macs too
+- Source code is public and auditable, with transparent capabilities and boundaries`,
+  },
+  "recut.cover-studio": {
+    name: "Cover Studio",
+    tagline: "Batch-generate video covers in platform sizes, unify the series style with reference covers, and keep every asset ready to reuse",
+    description: "An AI video cover generator: batch-produce cover candidates in Bilibili/Douyin/YouTube sizes, upload a reference cover to keep a series visually consistent; covers accumulate in the media library for reuse across projects, living in the same local workspace as your video and caption assets. Start batch-making covers today.",
+    keywords: [
+      "AI video thumbnail generator",
+      "video thumbnail generator",
+      "AI video covers",
+      "video cover maker",
+      "batch thumbnail generation",
+      "Bilibili cover size",
+      "Douyin cover size",
+      "YouTube thumbnail size",
+      "video thumbnail maker",
+    ],
+    faq: [
+      {
+        question: "What's the Bilibili cover size, and how do I avoid cropping?",
+        answer: "Bilibili recommends a 16:9 landscape cover, commonly 1280×720 or higher — too-small widths get compressed and blurry. In Cover Studio, pick the channel and it generates to the matching landscape/portrait spec; keep important information in the center to avoid it being cut off at small sizes.",
+      },
+      {
+        question: "What YouTube thumbnail size should I use?",
+        answer: "YouTube thumbnails are typically 16:9, recommended at 1280×720 and no smaller than 640×360. Cover Studio covers YouTube and other international channel sizes — pick the channel and it generates to spec; set a reference cover too, and your channel's series style stays consistent.",
+      },
+      {
+        question: "Where are AI-generated covers stored? Can I reuse them across projects?",
+        answer: "Successful covers archive into the Recut media library automatically and can be reused across projects; the Cover Studio App itself only keeps traceable metadata (channel, size, prompt, reference source) and never copies media files. When your next video needs the same batch of covers, pull them straight from the library — no regeneration needed.",
+      },
+      {
+        question: "How do I keep an entire series of covers consistent?",
+        answer: "Set last episode's best cover as the reference cover, and add a reference image to lock the subject — AI generation aligns composition, whitespace and visual tone toward both. Every generation records its reference source, so to recreate a certain episode's style you can just check the history and reproduce the same configuration.",
+      },
+      {
+        question: "Do you support vertical covers for Douyin and WeChat Channels?",
+        answer: "Yes. Cover Studio treats vertical channels like Douyin and WeChat Channels as separate specs from landscape ones like Bilibili and YouTube. Douyin vertical video covers commonly use 9:16 (1080×1920); pick the channel and results are generated to the matching aspect ratio.",
+      },
+    ],
+    body: `A thumbnail decides the click. Every channel demands different sizes, composition and text treatment, so making covers by hand for each video is both slow and hard to keep consistent.
+
+The "Cover Studio" App drives generation with channel sizes, a reference cover and your creative requirements: batch-produce cover candidates, archive the chosen ones into the media library, and reuse them in later creations. Covers and video media are managed in the same workspace — no shuttling between tools.
+
+## A video cover generator: batch cover candidates from one workspace
+
+Running on Bilibili, Douyin, YouTube or Xigua means a cover every episode; hand-making each one is slow and size-prone. Cover Studio folds channel sizes, reference images and creative requirements into one selection flow: pick the channel and get its landscape/portrait spec, add a reference image to constrain the subject and a reference cover to align composition and visual tone, and batch-produce candidates in one go.
+
+## AI video covers: reference covers keep a series consistent
+
+Serial creators dread "a different style every episode". Set last episode's best cover as the reference and AI generation aligns its composition, whitespace and visual tone; add a reference image to fix the subject, product or person.
+
+That way AI video covers answer not just "is there a cover" but "does it look like my channel" — series cohesion accumulates automatically instead of relying on memory.
+
+## Video cover making: channel sizes, assets and history in one place
+
+The most tedious part of video cover making is size conversion and asset aggregation. Cover Studio puts channel sizes, reference covers and creative requirements into the same flow, saves results uniformly in the media library, and keeps covers alongside your video and caption assets in one local workspace.
+
+Every successful generation writes traceable history — channel, size, full prompt and reference source — so finding, reusing and reviewing are all easy.
+
+## Batch cover generation: one reference, covers for every platform at once
+
+One video often ships to Bilibili, Xigua and YouTube, plus a vertical version for Douyin. Landscape 16:9 and vertical 9:16 are different specs, and hand-making per platform is error-prone.
+
+Batch cover generation treats landscape and vertical as separate specs and uses the same reference and requirements to produce channel-specific candidates in parallel — multi-platform distribution no longer means overtime on covers.
+
+## Bilibili, Douyin and YouTube cover sizes, explained once
+
+Creators who search "Bilibili cover size", "Douyin cover size" and "YouTube cover size" want one thing: "stop cropping my cover". Common references: Bilibili covers recommended at 16:9, 1280×720 and up; YouTube thumbnails also 16:9, recommended 1280×720; Douyin vertical video covers commonly 9:16 (1080×1920).
+
+Cover Studio has built-in per-channel size selection with landscape and portrait kept separate, so generation always matches the spec — just keep important information in the center of the frame.
+
+## What Cover Studio can do for you
+
+- Batch-generate cover candidates in channel sizes, with landscape and portrait as separate specs
+- Upload a reference cover to align composition and whitespace — consistent series visuals
+- Reference images constrain the subject so the picture never drifts
+- Results archive into the media library automatically, ready for reuse across projects
+- Same workspace as video and caption assets — asset management without switching tools
+- Every generation leaves a traceable record; prompts and sizes are reviewable anytime`,
+  },
+  "recut.depth-anything": {
+    name: "Depth Map",
+    tagline: "Pick an image or a video and generate a previewable depth map locally — no cloud uploads",
+    description: "A depth map generator: based on Depth Anything, convert images or video into previewable depth maps on your machine, with Small/Base/Large models and false-color or grayscale output. Results can be previewed and saved to the media library on demand. Everything runs locally with no uploads, and no Python or FFmpeg setup required — just open and use it.",
+    keywords: [
+      "depth map generator",
+      "image to depth map",
+      "AI depth estimation",
+      "Depth Anything",
+      "video depth map",
+      "depth map compositing",
+      "3D depth map",
+      "depth map tool",
+    ],
+    faq: [
+      {
+        question: "What is a depth map and what is it actually for?",
+        answer: "A depth map records scene depth through brightness — the brighter a pixel, the closer it is to the camera. It isn't a finished product but an intermediate artifact for compositing and 3D work: once AI depth estimation generates a depth map, you can build depth-of-field, parallax motion, stereoscopic transitions and 3D scene construction.",
+      },
+      {
+        question: "Does generating a depth map need a network connection or media upload?",
+        answer: "No uploads. Depth Map generation is fully local — your images and video never reach a server. The official model weights download once over the internet at first use; after that generation works offline, suiting confidential creation and development projects.",
+      },
+      {
+        question: "Can video also become a depth map?",
+        answer: "Yes. Pick a video from the media library and the App infers frame by frame, outputting a previewable H.264 MP4 depth map. The steadier the footage and the larger the model, the more consistent the per-frame results; progress and errors display live and you can cancel anytime.",
+      },
+      {
+        question: "What format are the depth maps, and where can I save them?",
+        answer: "Images export as PNG and video as MP4. Results first preview in the App's private file area; they only become real Assets in the media library when you click “Save to Library”, ready for later use and continued compositing.",
+      },
+      {
+        question: "What's the difference between the Small, Base and Large models?",
+        answer: "Small infers fastest, good for quick previews; Base is the balanced default; Large has richer detail and is steadier on frame-by-frame video. Licensing differs: Small is Apache-2.0 while Base and Large are CC-BY-NC-4.0 — confirm your use case matches before commercial use.",
+      },
+    ],
+    requirements: {
+      title: "Check your device before you run",
+      items: [
+        "Runs fully on your machine; a standard consumer device is enough for Small/Base models.",
+        "First use downloads the official model weights over the internet; after that generation works offline.",
+        "Base and Large are CC-BY-NC-4.0 licenses — confirm your use case matches before commercial use.",
+      ],
+      note: "Models run locally. Installing the App doesn't upload any of your media.",
+    },
+    body: `A depth map describes how far objects are from the camera — a common intermediate artifact for stereoscopic design, compositing and media research. Handing it to a cloud tool means uploading raw images or video and accepting quota and privacy limits.
+
+The "Depth Map" App does the conversion on your machine: images or video become previewable depth maps, saved to the media library on demand and seamlessly continued into your next creative step.
+
+## What a depth map is: how AI depth estimation layers a picture
+
+A depth map is an intermediate artifact recording a scene's depth — brighter pixels are closer, darker ones farther (with an extra color scale in false-color mode). It comes from monocular depth estimation: AI infers the relative distance of every pixel from a single ordinary RGB image, which is exactly what Depth Anything models excel at.
+
+For creators, a depth map isn't the finished piece — it's the "pass" to depth-of-field compositing, 3D parallax and stereoscopic transitions, and understanding it makes later compositing work evidence-based.
+
+## Turning images into depth maps: three models, previewable results
+
+Select an image in the media library and go: switch freely among Small, Base and Large — Small is fastest for quick looks, Base is the balanced default, Large has the finest detail. Both false-color and grayscale output styles are supported; preview first, then save when you're happy.
+
+No Python or command line to configure — the runtime prepares itself on first open, with no environment variables to fiddle with.
+
+## Video depth maps: frame-by-frame inference to a playable MP4
+
+Pick a video and it infers frame by frame, with every frame carrying its depth information, output as a browser-playable H.264 MP4. For footage with heavy motion or long duration, use Large for steadier per-frame results.
+
+Progress and errors display live, and you can cancel at any time instead of waiting around.
+
+## Depth maps in compositing and 3D scenes: the step from flat to dimensional
+
+In After Effects, depth maps are commonly used for depth of field, parallax movement and stereoscopic transitions; in Blender, a video depth map can turn ordinary footage into a 3D scene. For 3D scene builders, depth maps are a low-cost way to give backdrops, textures or virtual cameras spatial information.
+
+Saved depth maps live in the media library, ready to connect directly into your next compositing step.
+
+## A local depth map tool: no uploads, everything processed on your device
+
+Inference runs entirely on your machine — the input images, video and generated depth maps never upload to a server, suiting confidential creation and development flows. Output first previews in the App's private file area and only formally archives when you click "Save to Library".
+
+Official model weights and the runtime are managed in one place, with clear versions and easy reuse.
+
+## What Depth Map can do for you
+
+- Select an image or video and generate a previewable depth map in one click
+- Switch freely between Small, Base and Large models
+- Choose false-color or grayscale output as needed
+- Preview results first, then save to the media library after confirming
+- Fully local processing — media and depth maps never upload to the cloud
+- Runtime prepares itself automatically; open and use it`,
+  },
+  "recut.remotion-studio": {
+    name: "Remotion Video",
+    tagline: "Compose programmatic video with code and media — change the data, re-render; edit video with the control of writing code",
+    description: "Make Remotion videos without building the framework from scratch: Recut builds on Remotion and React to arrange topics, copy and media into programmatic videos you can preview live and export as MP4. Change the data and re-render, batch videos and data visualizations, with media and projects fully local.",
+    keywords: [
+      "Remotion video production",
+      "make video with code",
+      "programmatic video",
+      "React video production",
+      "data visualization video",
+      "batch video template generation",
+      "Remotion for beginners",
+      "automated video generation",
+    ],
+    faq: [
+      {
+        question: "What is Remotion? How do you make video with code?",
+        answer: "Remotion is an open-source framework that writes video with React: components describe every frame, which are rendered frame-by-frame into an MP4. Recut wraps it into a project-based workflow — you pick a template, fill in the topic and media, and AI rewrites the Remotion composition code in the project; changing code updates the preview, rendering happens locally, and you never scaffold the framework from scratch.",
+      },
+      {
+        question: "Can I use it without knowing how to code?",
+        answer: "You'll want to know a little code. AI drives the video from your topic, copy and media; but when you want to precisely change a single frame, the project is a real Remotion project — open the folder and edit the code. That's its core value.",
+      },
+      {
+        question: "If the data changes, does the video need to be regenerated?",
+        answer: "It needs a re-render, but the cycle is short: after changing data, copy or media, the preview refreshes instantly, and you export once confirmed. Compositions and caption timelines are all derived from frame numbers with no randomness, so preview and export match frame for frame — no “preview right, export wrong”.",
+      },
+      {
+        question: "What format do exported videos use?",
+        answer: "Export renders locally to MP4 and archives automatically as a Recut asset, set as the project cover. The export process runs as a background task whose progress you can watch in the workspace.",
+      },
+      {
+        question: "Is every project really an independent Remotion project?",
+        answer: "Yes. On first use the remotion-skeleton is copied entirely into a project-private workspace, and AI rewrites that copy — projects never interfere with each other; you can reset to the skeleton in one click or open the project folder in a file manager, convenient for rollback or further development.",
+      },
+    ],
+    body: `When video needs repeat production, must follow data changes, or has to keep dozens of outputs perfectly consistent, hand-editing hits its ceiling. Remotion makes video code-driven: every frame comes from deterministic components and data, so it can be version-controlled, parameterized and batch-exported.
+
+Recut's "Remotion Video" App brings the power of a Remotion project into the local workspace: plan the topic, copy and storyboard first, then arrange media and picture with live preview, and export the finished video at the end. The project is a real Remotion project — open the code anytime for deeper changes.
+
+## What programmatic video is, and why use it
+
+Programmatic video defines every frame in code: the picture is driven by data, copy and media rather than hand-dragging second by second. It naturally suits content teams who know a bit of React, data-visualization producers who ship on schedule, and individuals or teams that want templated, batched video.
+
+The classic pain of traditional editing — redo everything when the data changes — becomes two simple steps here: "change the parameters, re-render".
+
+## Making video with code vs. traditional editing software
+
+When you make video with code, the timeline steps back and logic steps forward. Every project in Recut is a real Remotion project: AI reads and writes the composition code in the workspace, and changes show up in the preview immediately. To precisely change any frame, you don't hunt for keyframe buttons — change one line of code.
+
+## A React video production workflow: from topic and copy to a finishing template
+
+React video production doesn't start from an empty project. When creating a project you pick a finishing template first, then fill in the topic and media; after the first cut, media and caption themes are just local editing tools, with picture and narrative constrained by the template.
+
+For content that needs fixed templates and rolling updates, this workflow compresses repetitive labor to a minimum.
+
+## Data-visualization video: change the data, re-render
+
+The most common pain in data-visualization video is the whole video being redone when data changes. Recut's compositions and caption timelines are all derived from frames with no random numbers involved, so preview and export match frame for frame; when data, copy or media changes, update and re-export to a new video.
+
+Suited to weekly reports, leaderboards and market reviews that need fixed templates and rolling updates.
+
+## Batch template video: one project, videos on repeat
+
+The key to batch template video is "the template as single source of truth". In Recut, templates and visual primitives are managed uniformly and projects never interfere; swap in a new topic and media into the same template and it's a new video.
+
+Export renders locally to MP4, archives automatically as an asset and sets the project cover — dozens of videos can queue up, with no cloud quota involved.
+
+## What Remotion Video can do for you
+
+- Pick a finishing template, fill in the topic, and AI arranges copy and media into a video
+- Change data or copy and the preview updates; export matches frame for frame
+- Open the project folder and edit real Remotion code for frame-exact control
+- Render and export MP4 locally, archived automatically as an asset and cover
+- Media and project stay on your machine — local-first, no uploads`,
+  },
+  "recut.vox-broll": {
+    name: "AI Short Films",
+    tagline: "Hand a topic to AI and get a reviewable, further-editable B-roll narration short film",
+    description: "An AI narration video tool: input a topic and it automatically structures the narrative and storyboard, producing a reviewable narration script with matching B-roll; picture, voice-over and pacing are arranged on a local timeline, the finished video exports, the project keeps going, and no media uploads. Built for knowledge and opinion creators and narration channels — go from topic to finished video in one flow, free to try.",
+    keywords: [
+      "AI narration video tool",
+      "AI short film generator",
+      "AI one-click narration video",
+      "B-roll video production",
+      "educational video tool",
+      "knowledge video tool",
+      "narration video script",
+      "AI video storyboard",
+      "local video editing tool",
+    ],
+    faq: [
+      {
+        question: "Can the narration script from an AI video tool be published directly?",
+        answer: "Not as a finished product. AI Short Films generates a reviewable narration draft — check facts line by line and adjust wording before finalizing; the finalized script aligns with matching B-roll on the local timeline, and once confirmed you can export the finished video.",
+      },
+      {
+        question: "What is B-roll in a narration video, and is it required?",
+        answer: "B-roll is the supporting footage between the main talking-head shots that makes a narration video more watchable. AI Short Films automatically generates matching visuals from the voice-over to avoid a single shot lingering too long; you can also replace media manually on the timeline — you don't have to use the generated visuals throughout.",
+      },
+      {
+        question: "I closed the machine mid-edit. Can I keep making the project?",
+        answer: "Yes. AI Short Films is a project-based App: each topic maps to a project file, the finished video can be exported, and the project is saved on your local device — open it anytime and keep working without regenerating from scratch.",
+      },
+      {
+        question: "Will my media and projects be uploaded to a server?",
+        answer: "No. AI Short Films is local-first: B-roll media, narration scripts and project files all stay on your device, never passing through a cloud server, and you can open and keep working offline.",
+      },
+      {
+        question: "I can't write narration scripts. Can I use this for knowledge videos?",
+        answer: "Yes. The tool first structures the narrative and storyboard for your topic automatically, then generates a matching narration draft — essentially a structured script for you to review, rewrite and finalize. Built for knowledge and opinion creators and narration channels, so even without scriptwriting experience you can start from a topic.",
+      },
+    ],
+    body: `Narration videos (B-roll shorts) are the main format for knowledge and opinion content: one main voice-over line with picture, charts and pacing. Traditionally, going from topic to finished video means scriptwriting, sourcing footage, dubbing and editing — four steps, each in a different tool.
+
+The "AI Short Films" App folds all four steps into one local workspace: you give it a topic, and it structures the narrative and storyboard first, then generates a reviewable narration script and matching visuals. You don't have to accept every result at once — each step stays editable and continuable, and media and projects always remain on your device.
+
+## From topic to finished video: how an AI short film generator structures narrative
+
+In AI Short Films you don't start from a blank timeline. Give a topic — "why people procrastinate", say — and AI structures the narrative: hook with the question up front, explain the mechanism in the middle, conclude at the end, then breaks it into storyboard lines, each with a narration script draft and matching visual direction.
+
+Knowledge content fails when the structure falls apart, so the value of this kind of knowledge-video tool is front-loading structure — a topic grows directly into a short film you can keep making.
+
+## B-roll video production: picture, voice-over and pacing on one timeline
+
+The most common way narration videos fall apart is voice-over talking about one thing while the picture shows another. AI Short Films arranges B-roll, narration and pacing on the same local timeline: change a line of voice-over and the matching picture can re-align; drag in a clip and immediately preview which narration line it lands on.
+
+Mainstream editors rely on hand-dragging a media library to fill B-roll; here the AI matches visuals to the script automatically, and you decide which to keep or swap. Shot length and pacing are visible and adjustable at a glance.
+
+## How an educational video tool keeps content reviewable
+
+Knowledge and opinion creators fear an AI that confidently makes things up. AI Short Films doesn't make the final call for you: it generates a reviewable narration script and matching visuals, and you verify facts and rewrite wording line by line before finalizing. Script review and visual matching are separated phases, so errors are caught before they reach the timeline.
+
+Compared with "AI one-click narration video" tools that are purely automatic, this kind of educational-video tool values human review before output — especially for topics that demand factual rigor.
+
+## Storyboards you can redo; a project-based App that keeps going
+
+With traditional tools, an unfinished cut or a changed opinion after the first export often means starting over. AI Short Films saves every topic as a project: the finished video exports, the project stays local, and you can open it anytime and keep working — swap a storyboard line, change one line of narration, add a shot, all on the original project without regenerating the whole video.
+
+For serial, multi-episode and review-style topics, reusable AI video storyboards make series production much more continuous.
+
+## A local video editing tool: media and projects stay on your device
+
+Mainstream online tools tend to require cloud uploads, so projects accumulate and privacy concerns grow. AI Short Films chooses local-first: B-roll media, narration scripts and project files all stay on your device, and you can open and keep working offline.
+
+For creators whose media is confidential or who prefer projects on their own hard drive, this kind of local video editing tool means the whole flow is yours — independent of a vendor's bandwidth and server status.
+
+## What AI Short Films can do for you
+
+- Give it a topic and it generates narrative structure and a storyboard script automatically
+- Produces a reviewable narration script — verify before finalizing
+- Matches B-roll visuals to the script automatically, aligned on the same timeline as the voice-over
+- Finished video exports; the project stays local and can be reopened anytime
+- Local-first for media and projects — nothing uploads to the cloud
+- Covers knowledge, opinion and educational narration topics`,
+  },
+};
+
+function toStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item));
+}
+
+function toFaq(value: unknown): MarketingAppFaq[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const entry = (item ?? {}) as Record<string, unknown>;
+      return { question: String(entry.question ?? ""), answer: String(entry.answer ?? "") };
+    })
+    .filter((item) => item.question && item.answer);
+}
+
+function contentDir() {
+  return path.join(process.cwd(), "content", "apps", "zh");
+}
+
+function readApp(file: string, idFromFile: string): MarketingApp {
+  const raw = fs.readFileSync(file, "utf8");
+  const { data, content } = matter(raw);
+  const frontmatter = data as AppFrontmatter;
+  const id = frontmatter.id ?? idFromFile;
+  const en = EN_APPS[id];
+  const zhName = String(frontmatter.name ?? "");
+  const zhTagline = String(frontmatter.tagline ?? "");
+  const zhDescription = String(frontmatter.description ?? "");
+  const zhKeywords = toStringList(frontmatter.keywords);
+  const zhFaq = toFaq(frontmatter.faq);
+  const zhRequirements = frontmatter.requirements
+    ? {
+        title: String(frontmatter.requirements.title ?? ""),
+        items: toStringList(frontmatter.requirements.items),
+        note: frontmatter.requirements.note ? String(frontmatter.requirements.note) : undefined,
+      }
+    : undefined;
+  return {
+    id,
+    type: frontmatter.type === "standalone" ? "standalone" : "project",
+    name: { zh: zhName, en: en?.name ?? zhName },
+    tagline: { zh: zhTagline, en: en?.tagline ?? zhTagline },
+    description: { zh: zhDescription, en: en?.description ?? zhDescription },
+    keywords: { zh: zhKeywords, en: en?.keywords ?? zhKeywords },
+    faq: { zh: zhFaq, en: en?.faq ?? zhFaq },
+    relatedApps: toStringList(frontmatter.relatedApps),
+    requirements: zhRequirements
+      ? {
+          zh: zhRequirements,
+          en: en?.requirements ?? zhRequirements,
+        }
+      : undefined,
+    repository: frontmatter.repository ? String(frontmatter.repository) : undefined,
+    body: { zh: content.trim(), en: en?.body ?? content.trim() },
+  };
+}
+
+export function loadMarketingApps(): MarketingApp[] {
+  const dir = contentDir();
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((file) => file.endsWith(".mdx"))
+    .map((file) => readApp(path.join(dir, file), path.basename(file, ".mdx")))
+    .sort((a, b) => a.name.zh.localeCompare(b.name.zh));
+}
+
+export const marketingApps: MarketingApp[] = loadMarketingApps();
+
+export function getMarketingApp(appID: string): MarketingApp | null {
   return marketingApps.find((app) => app.id === appID) ?? null;
+}
+
+// 取某语言下可用的展示字段（缺该语言时回退 default en）。
+export function appName(app: MarketingApp, locale: Locale): string {
+  return app.name[locale] ?? app.name.en;
+}
+export function appTagline(app: MarketingApp, locale: Locale): string {
+  return app.tagline[locale] ?? app.tagline.en;
+}
+export function appDescription(app: MarketingApp, locale: Locale): string {
+  return app.description[locale] ?? app.description.en;
+}
+export function appFaq(app: MarketingApp, locale: Locale): MarketingAppFaq[] {
+  return app.faq[locale] ?? app.faq.en;
+}
+export function appBody(app: MarketingApp, locale: Locale): string {
+  return app.body[locale] ?? app.body.en;
+}
+export function appRequirements(app: MarketingApp, locale: Locale): { title: string; items: string[]; note?: string } | undefined {
+  return app.requirements?.[locale] ?? app.requirements?.en;
 }

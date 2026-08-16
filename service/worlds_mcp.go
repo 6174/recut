@@ -18,7 +18,10 @@ import (
 // worldsMCPToolDefinitions returns the unconditional global Worlds tools. Read
 // tools are freely discoverable; mutating tools repeat the explicit-user-action
 // requirement in their descriptions and are only invoked on explicit requests.
-func worldsMCPToolDefinitions() []map[string]any {
+// The locale parameter matches the platform tool list signature; Worlds tool
+// descriptions are not localized yet (D12, TODO: add en branches for the
+// recut.worlds.* descriptions).
+func worldsMCPToolDefinitions(_ Locale) []map[string]any {
 	return []map[string]any{
 		{"name": "recut.worlds.list", "description": "列出全部 Creation World 的摘要（名称、类型、实体计数与最近更新时间）。按 text 过滤或按 type 筛选；结果是分页的，limit 默认 50，最大 50。没有隐式当前 World，读取任何 World 都必须先拿到显式 worldId。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"text": map[string]string{"type": "string", "description": "可选：按名称或描述过滤。"}, "type": worldKindSchema(), "cursor": map[string]string{"type": "string", "description": "可选：上一页返回的 nextCursor。"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 50}}}},
 		{"name": "recut.worlds.get", "description": "读取一个 World 的身份、统计、当前 revision 摘要与可用实体种类。worldId 必填；该接口不内联实体，需要角色/故事/风格时调用 recut.worlds.entities.list / entities.get。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string", "description": "World ID，entityId 只在同一个 worldId 内有效。"}}}},

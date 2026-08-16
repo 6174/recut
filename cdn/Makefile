@@ -4,7 +4,7 @@
 #        上传后经 https://cdn.recut.video/{name}/ 分发
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 
-.PHONY: help whoami fetch upload list delete sync url purge purge-all check cors
+.PHONY: help whoami fetch upload list delete sync url purge purge-all check cors fetch-fonts
 
 help: ## Show available CDN commands.
 	@awk 'BEGIN { FS = ":.*##"; printf "Recut CDN commands:\n" } /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -14,6 +14,9 @@ whoami: ## Show the CDN bucket, account and base URL configuration.
 
 fetch: ## Fetch the curated CC0 audio library into cdn/buckets/audio/ (music-only=--music-only).
 	node scripts/fetch-audio.mjs $(ARGS)
+
+fetch-fonts: ## Fetch the curated Google Fonts (incl. CJK) into cdn/buckets/fonts/google/ as self-hosted woff2 + css + catalog.
+	node scripts/fetch-fonts.mjs $(ARGS)
 
 upload: ## Upload cdn/buckets/$(PREFIX)/ to R2 (PREFIX=audio).
 	@test -n "$(PREFIX)" || { echo "usage: make upload PREFIX=audio"; exit 1; }

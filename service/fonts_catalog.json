@@ -1,0 +1,414 @@
+{
+  "version": 1,
+  "generatedAt": "2026-08-16T07:09:08.974Z",
+  "google": [
+    {
+      "id": "inter",
+      "family": "Inter",
+      "category": "sans-serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "roboto",
+      "family": "Roboto",
+      "category": "sans-serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "open-sans",
+      "family": "Open Sans",
+      "category": "sans-serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "montserrat",
+      "family": "Montserrat",
+      "category": "sans-serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "lato",
+      "family": "Lato",
+      "category": "sans-serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "poppins",
+      "family": "Poppins",
+      "category": "sans-serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "oswald",
+      "family": "Oswald",
+      "category": "sans-serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "bebas-neue",
+      "family": "Bebas Neue",
+      "category": "sans-serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "space-grotesk",
+      "family": "Space Grotesk",
+      "category": "sans-serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "playfair-display",
+      "family": "Playfair Display",
+      "category": "serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "merriweather",
+      "family": "Merriweather",
+      "category": "serif",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "roboto-mono",
+      "family": "Roboto Mono",
+      "category": "monospace",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "great-vibes",
+      "family": "Great Vibes",
+      "category": "handwriting",
+      "scripts": [
+        "latin"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "noto-sans-sc",
+      "family": "Noto Sans SC",
+      "category": "sans-serif",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "noto-serif-sc",
+      "family": "Noto Serif SC",
+      "category": "serif",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "noto-sans-hk",
+      "family": "Noto Sans HK",
+      "category": "sans-serif",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "zcool-qingke-huangyou",
+      "family": "ZCOOL QingKe HuangYou",
+      "category": "sans-serif",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "zcool-kuailes",
+      "family": "ZCOOL KuaiLe",
+      "category": "display",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "zcool-xiaowei",
+      "family": "ZCOOL XiaoWei",
+      "category": "serif",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "ma-shan-zheng",
+      "family": "Ma Shan Zheng",
+      "category": "handwriting",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "liu-jian-mao-cao",
+      "family": "Liu Jian Mao Cao",
+      "category": "handwriting",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "long-cang",
+      "family": "Long Cang",
+      "category": "handwriting",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "zhi-mang-xing",
+      "family": "Zhi Mang Xing",
+      "category": "handwriting",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "noto-sans-tc",
+      "family": "Noto Sans TC",
+      "category": "sans-serif",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "noto-serif-tc",
+      "family": "Noto Serif TC",
+      "category": "serif",
+      "scripts": [
+        "zh"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "noto-sans-jp",
+      "family": "Noto Sans JP",
+      "category": "sans-serif",
+      "scripts": [
+        "ja"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "noto-serif-jp",
+      "family": "Noto Serif JP",
+      "category": "serif",
+      "scripts": [
+        "ja"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "zen-maru-gothic",
+      "family": "Zen Maru Gothic",
+      "category": "sans-serif",
+      "scripts": [
+        "ja"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "zen-kaku-gothic-new",
+      "family": "Zen Kaku Gothic New",
+      "category": "sans-serif",
+      "scripts": [
+        "ja"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "m-plus-1p",
+      "family": "M PLUS 1p",
+      "category": "sans-serif",
+      "scripts": [
+        "ja"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "m-plus-rounded-1c",
+      "family": "M PLUS Rounded 1c",
+      "category": "sans-serif",
+      "scripts": [
+        "ja"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "klee-one",
+      "family": "Klee One",
+      "category": "handwriting",
+      "scripts": [
+        "ja"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "dotgothic16",
+      "family": "DotGothic16",
+      "category": "display",
+      "scripts": [
+        "ja"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    },
+    {
+      "id": "yuji-syuku",
+      "family": "Yuji Syuku",
+      "category": "serif",
+      "scripts": [
+        "ja"
+      ],
+      "weights": [
+        400,
+        700
+      ]
+    }
+  ]
+}

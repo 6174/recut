@@ -25,6 +25,11 @@ func TestSessionGuideIsPlatformOnlyAndVoxSkillIsDiscoverable(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
+	// renderSessionGuide follows the persisted user language; this invariant
+	// test locks the English contract, so pin the en preference explicitly.
+	if err := store.SaveLocalePreference(LocaleEn); err != nil {
+		t.Fatal(err)
+	}
 	guide, err := NewAgentBridge(store).renderSessionGuide()
 	if err != nil {
 		t.Fatal(err)
@@ -373,5 +378,84 @@ func TestPersistNativeWorkspacePinsOnlyAfterNativeSession(t *testing.T) {
 	var native, workspaceStored string
 	if err := db.QueryRow("select coalesce(native_session_id, ''), coalesce(native_workspace, '') from agent_sessions where id = ?", "session-ws").Scan(&native, &workspaceStored); err != nil || native != "" || workspaceStored != "" {
 		t.Fatalf("clear did not reset native session/workspace: %q/%q, err=%v", native, workspaceStored, err)
+	}
+}
+
+func TestAgentGuideDefaultAndEnRenderEnglish(t *testing.T) {
+	// The default render (empty Locale) and the explicit en branch must keep the
+	// English invariants the session guide contract asserts.
+	for _, locale := range []string{"", "en"} {
+		guide, err := renderAgentGuide(agentGuideData{OutputFormat: "xml", Locale: locale})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, required := range []string{
+			"recut.context",
+			"15 minutes",
+			"not a turn-by-turn ritual",
+			"never call it as a routine preflight",
+			"recut.video.generate",
+			"recut.media.get_job",
+			"recut.media.wait_for_job",
+			"recut.context.media.readiness",
+			"recut.worlds.list",
+			"__recut.target.projectId",
+			"appstate",
+			"OutputFormat: xml",
+			`<project projectid="PROJECT_ID"/>`,
+			`<app appid="APP_ID"/>`,
+		} {
+			if !bytes.Contains(guide, []byte(required)) {
+				t.Fatalf("guide locale=%q is missing %q", locale, required)
+			}
+		}
+		if bytes.Contains(guide, []byte("上下文刷新协议")) {
+			t.Fatalf("guide locale=%q must not render the zh branch", locale)
+		}
+	}
+}
+
+func TestAgentGuideZhRendersChineseBranch(t *testing.T) {
+	guide, err := renderAgentGuide(agentGuideData{OutputFormat: "xml", Locale: "zh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"上下文刷新协议",
+		"媒体回复协议",
+		"__recut.target.projectId",
+		"appstate",
+		"recut.video.generate",
+		"recut.media.wait_for_job",
+		"OutputFormat: xml",
+		`<project projectid="PROJECT_ID"/>`,
+		`<app appid="APP_ID"/>`,
+	} {
+		if !bytes.Contains(guide, []byte(required)) {
+			t.Fatalf("zh guide is missing %q", required)
+		}
+	}
+	if bytes.Contains(guide, []byte("Context freshness protocol")) {
+		t.Fatal("zh guide must not render the en branch")
+	}
+}
+
+func TestRenderSessionGuideFollowsStoredLocale(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveLocalePreference(LocaleEn); err != nil {
+		t.Fatal(err)
+	}
+	guide, err := NewAgentBridge(store).renderSessionGuide()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(guide, []byte("Context freshness protocol")) {
+		t.Fatal("session guide did not follow the stored en preference")
+	}
+	if bytes.Contains(guide, []byte("上下文刷新协议")) {
+		t.Fatal("session guide rendered zh despite the stored en preference")
 	}
 }

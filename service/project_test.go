@@ -180,7 +180,7 @@ func TestOnboardingUsesAppThenGlobalThenPlatformFallback(t *testing.T) {
 	if err := store.SaveGlobalOnboarding([]OnboardingGuide{{ID: "global", Title: "Global", Prompt: "Global prompt"}}); err != nil {
 		t.Fatal(err)
 	}
-	items, err := store.Onboarding(project.ID)
+	items, err := store.Onboarding(project.ID, DefaultLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestOnboardingUsesAppThenGlobalThenPlatformFallback(t *testing.T) {
 	if err := store.SaveGlobalOnboarding(nil); err != nil {
 		t.Fatal(err)
 	}
-	items, err = store.Onboarding(project.ID)
+	items, err = store.Onboarding(project.ID, DefaultLocale)
 	if err != nil || len(items) != 1 || items[0].ID != "app" {
 		t.Fatalf("app onboarding after global reset = %#v, err = %v", items, err)
 	}
@@ -198,7 +198,7 @@ func TestOnboardingUsesAppThenGlobalThenPlatformFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	items, err = store.Onboarding(fallbackProject.ID)
+	items, err = store.Onboarding(fallbackProject.ID, DefaultLocale)
 	if err != nil || len(items) != len(platformOnboarding) || items[0].ID != "platform-start" {
 		t.Fatalf("platform fallback = %#v, err = %v", items, err)
 	}

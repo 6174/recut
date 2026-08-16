@@ -19,17 +19,31 @@ var embeddedAppStore []byte
 
 // StoreApp is one installable App advertised by the store.
 type StoreApp struct {
-	AppID       string `json:"appId"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Kind        string `json:"kind"`
-	Repository  string `json:"repository"`
+	AppID       string                       `json:"appId"`
+	Name        string                       `json:"name"`
+	Description string                       `json:"description"`
+	Kind        string                       `json:"kind"`
+	Repository  string                       `json:"repository"`
+	Localized   map[string]StoreAppLocalized `json:"localized,omitempty"`
 }
 
-// AppStore returns the store catalog: the user-provided <data-dir>/appstore.json
-// when present, otherwise the embedded default. A store entry's repository is
-// what recut.apps.install consumes.
+// StoreAppLocalized is the per-locale override for a store entry's name and
+// description; empty values keep the top-level (author) language.
+type StoreAppLocalized struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// AppStore returns the store catalog in the default (zh) locale.
 func (s *Store) AppStore() ([]StoreApp, error) {
+	return s.AppStoreFor(DefaultLocale)
+}
+
+// AppStoreFor returns the store catalog with each entry's name and description
+// merged against the requested locale's localized block. The user-provided
+// <data-dir>/appstore.json wins over the embedded default, exactly like
+// AppStore; the merge is applied after decoding.
+func (s *Store) AppStoreFor(locale Locale) ([]StoreApp, error) {
 	data := embeddedAppStore
 	if override, err := os.ReadFile(filepath.Join(s.root, "appstore.json")); err == nil {
 		data = override
@@ -43,6 +57,14 @@ func (s *Store) AppStore() ([]StoreApp, error) {
 	for index := range apps {
 		if apps[index].AppID == "" || apps[index].Name == "" || apps[index].Repository == "" {
 			return nil, fmt.Errorf("app store entry %d is missing appId, name, or repository", index)
+		}
+		if localized, ok := apps[index].Localized[string(locale)]; ok {
+			if localized.Name != "" {
+				apps[index].Name = localized.Name
+			}
+			if localized.Description != "" {
+				apps[index].Description = localized.Description
+			}
 		}
 	}
 	return apps, nil

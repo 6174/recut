@@ -27,7 +27,7 @@ import (
 	"time"
 )
 
-const defaultUpdateBaseURL = "https://recut.video"
+const defaultUpdateBaseURL = "https://cdn.recut.video"
 const macOSSystemCertificateBundle = "/etc/ssl/cert.pem"
 
 type releaseManifest struct {

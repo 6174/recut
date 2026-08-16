@@ -234,7 +234,7 @@ func TestMCPAppManagementTools(t *testing.T) {
 	host := NewAppHost(apps, store, NewMediaService(store))
 	session := AgentSession{ID: "test"}
 
-	tools := mcpToolList(bridge, NewMediaService(store))["tools"].([]map[string]any)
+	tools := mcpToolList(bridge, NewMediaService(store), DefaultLocale)["tools"].([]map[string]any)
 	names := map[string]bool{}
 	for _, tool := range tools {
 		names[tool["name"].(string)] = true

@@ -14,7 +14,7 @@ import (
 )
 
 func TestWorldsMCPToolsAreAlwaysRegistered(t *testing.T) {
-	definitions := platformMCPToolDefinitions()
+	definitions := platformMCPToolDefinitions(DefaultLocale)
 	names := map[string]bool{}
 	for _, tool := range definitions {
 		names[tool["name"].(string)] = true

@@ -18,6 +18,9 @@ import { EditableProjectName } from "./editable-project-name";
 import { normalizePageContext } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
 import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
+import { useI18n } from "@/lib/i18n/index";
+import { interpolate } from "@/lib/i18n/workspace-dict";
+import { recutHeaders } from "@/lib/service-endpoint";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore } from "@/lib/workspace-store";
@@ -42,6 +45,7 @@ function postToFrame(frame: HTMLIFrameElement | null, message: unknown, transfer
 }
 
 export default function ProjectDetailClient() {
+  const { t } = useI18n();
   const { id: routeID } = useParams<{ id: string }>();
   const [id, setID] = useState("");
   const [mediaPicker, setMediaPicker] = useState<PlatformMediaPickerRequest | null>(null);
@@ -87,45 +91,45 @@ export default function ProjectDetailClient() {
       console.debug(`[recut-host] iframe request id=${String(request.id)} type=${String(request.type)}`);
       try {
         if (request.type === "state.query") {
-          const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${request.input.name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${request.input.name}`, { method: "POST", headers: { "Content-Type": "application/json", ...recutHeaders() }, body: "{}" });
           const payload = await response.json();
-          reply(payload, response.ok ? undefined : operationError(payload, "状态读取失败"));
+          reply(payload, response.ok ? undefined : operationError(payload, t("detail.operation.state")));
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=state.query result=${response.ok ? "ok" : "error"}`);
         } else if (request.type === "background.call") {
-          const { name, ...input } = request.input; const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+          const { name, ...input } = request.input; const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json", ...recutHeaders() }, body: JSON.stringify(input) });
           const payload = await response.json();
-          reply(payload, response.ok ? undefined : operationError(payload, "后台调用失败"));
+          reply(payload, response.ok ? undefined : operationError(payload, t("detail.operation.background")));
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=background.call result=${response.ok ? "ok" : "error"}`);
         } else if (request.type === "agent.compose") {
           const prompt = String(request.input?.prompt || "").trim();
-          if (!prompt) throw new Error("Agent Prompt 不能为空");
+          if (!prompt) throw new Error(t("detail.operation.prompt"));
           useAgentPanelContext.getState().setDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=agent.compose result=ok`);
         } else if (request.type === "page.context") {
           const context = normalizePageContext(request.input?.context);
-          if (!context) throw new Error("页面上下文需要标题");
+          if (!context) throw new Error(t("detail.operation.context"));
           useAgentPanelContext.getState().setPageContext(context);
           reply({ delivery: "page-context" });
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=page.context result=ok`);
         } else if (request.type === "media.pick") {
-          if (mediaPickerReply.current) throw new Error("已有素材选择器正在打开");
+          if (mediaPickerReply.current) throw new Error(t("detail.operation.pickerBusy"));
           const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" | "transcript" | "reference" => kind === "image" || kind === "video" || kind === "audio" || kind === "transcript" || kind === "reference") : [];
-          if (!kinds.length) throw new Error("请声明可选择的素材类型");
+          if (!kinds.length) throw new Error(t("detail.operation.kinds"));
           const multiple = request.input?.multiple === true;
           const selectedIDs = Array.isArray(request.input?.selectedIDs) ? request.input.selectedIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
           mediaPickerReply.current = (selection) => reply(selection);
           setMediaPicker({ kinds, multiple, selectedIDs });
         }
       } catch (cause) {
-        const message = cause instanceof Error ? cause.message : "Recut Host 通信失败";
+        const message = cause instanceof Error ? cause.message : t("detail.operation.host");
         console.error(`[recut-host] iframe response id=${String(request.id)} type=${String(request.type)} result=error: ${message}`);
         reply(undefined, message);
       }
     };
     console.debug(`[recut-host] iframe loaded; sending MessageChannel to ${new URL(appFrame.current.src).origin}`);
     postToFrame(appFrame.current, { type: "recut.ui.connect" }, [channel.port2]);
-  }, [apiBase, project]);
+  }, [apiBase, project, t]);
 
   useEffect(() => {
     const receiveReady = (event: MessageEvent) => {
@@ -149,15 +153,15 @@ export default function ProjectDetailClient() {
   return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-5">
       <div className="flex min-w-0 items-center gap-4">
-        <Link aria-label="返回项目列表" className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><img alt="Recut" className="size-5 shrink-0 rounded-sm object-cover" src="/logo.jpg" /></Link>
+        <Link aria-label={t("detail.back")} className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><img alt="Recut" className="size-5 shrink-0 rounded-sm object-cover" src="/logo.jpg" /></Link>
         <div aria-hidden="true" className="h-5 w-px bg-border" />
-        <div className="min-w-0">{project ? <EditableProjectName apiBase={apiBase} name={project.name} onRenamed={refreshProject} projectID={project.id} /> : <p className="truncate text-sm font-medium">加载项目…</p>}<p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{project ? `${app?.manifest.name ?? project.appId} · v${app?.manifest.version ?? project.appVersion} · ${project.id}` : "正在读取项目元信息"}</p></div>
+        <div className="min-w-0">{project ? <EditableProjectName apiBase={apiBase} name={project.name} onRenamed={refreshProject} projectID={project.id} /> : <p className="truncate text-sm font-medium">{t("detail.loading")}</p>}<p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{project ? `${app?.manifest.name ?? project.appId} · v${app?.manifest.version ?? project.appVersion} · ${project.id}` : t("detail.loading.meta")}</p></div>
       </div>
       <HeaderActions>{installation && <AppVersionControl app={installation} onUpdated={() => window.location.reload()} />}</HeaderActions>
     </header>
     <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]">
       <section className="h-full min-w-0 overflow-hidden border-l bg-card">
-        {uiURL ? <iframe allow="fullscreen" className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={`${project?.name ?? "Recut"} App`} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">这个 App 没有声明项目 UI。</div>}
+        {uiURL ? <iframe allow="fullscreen" className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={interpolate(t("detail.frame.title"), { name: project?.name ?? "Recut" })} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">{t("detail.noUI")}</div>}
       </section>
     </div>
     <PlatformMediaPicker apiBase={apiBase} onCancel={() => resolveMediaPicker(null)} onPick={resolveMediaPicker} request={mediaPicker} />

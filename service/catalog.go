@@ -32,20 +32,51 @@ const (
 )
 
 type Manifest struct {
-	ManifestVersion int               `json:"manifestVersion"`
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Author          string            `json:"author"`
-	Description     string            `json:"description"`
-	Repository      string            `json:"repository,omitempty"`
-	Version         string            `json:"version"`
-	Kind            AppKind           `json:"type"`
-	Background      string            `json:"background"`
-	UI              UIEntrypoints     `json:"ui"`
-	Permissions     []string          `json:"permissions"`
-	Runtime         AppRuntime        `json:"runtime,omitempty"`
-	Operations      []Operation       `json:"operations"`
-	Onboarding      []OnboardingGuide `json:"onboarding"`
+	ManifestVersion int                          `json:"manifestVersion"`
+	ID              string                       `json:"id"`
+	Name            string                       `json:"name"`
+	Author          string                       `json:"author"`
+	Description     string                       `json:"description"`
+	Repository      string                       `json:"repository,omitempty"`
+	Version         string                       `json:"version"`
+	Kind            AppKind                      `json:"type"`
+	Background      string                       `json:"background"`
+	UI              UIEntrypoints                `json:"ui"`
+	Permissions     []string                     `json:"permissions"`
+	Runtime         AppRuntime                   `json:"runtime,omitempty"`
+	Operations      []Operation                  `json:"operations"`
+	Onboarding      []OnboardingGuide            `json:"onboarding"`
+	Localized       map[string]ManifestLocalized `json:"localized,omitempty"`
+}
+
+// ManifestLocalized is the per-locale override for a Manifest's user-facing
+// metadata (D9). Every field is optional; zero values keep the top-level field,
+// which acts as the author's fallback language.
+type ManifestLocalized struct {
+	Name        string            `json:"name,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Onboarding  []OnboardingGuide `json:"onboarding,omitempty"`
+}
+
+// LocalizedFor returns a shallow copy of the Manifest whose name, description,
+// and onboarding are overridden by the requested locale's localized block when
+// present; any missing localized field keeps the top-level value.
+func (m Manifest) LocalizedFor(locale Locale) Manifest {
+	localized, ok := m.Localized[string(locale)]
+	if !ok {
+		return m
+	}
+	manifest := m
+	if localized.Name != "" {
+		manifest.Name = localized.Name
+	}
+	if localized.Description != "" {
+		manifest.Description = localized.Description
+	}
+	if len(localized.Onboarding) > 0 {
+		manifest.Onboarding = localized.Onboarding
+	}
+	return manifest
 }
 
 type AppRuntime struct {
@@ -308,7 +339,25 @@ func mediaSystemAppDescriptor() App {
 			{ID: "organize-assets", Title: "整理已有素材", Description: "上传或引用素材后，让 AI 帮你盘点并建议下一步。", Prompt: "我想整理这次创作会用到的素材。请先问我需要上传或引用哪些图片、视频和音频，再按用途帮我列出下一步。"},
 			{ID: "plan-video", Title: "从一个想法开始", Description: "把主题、目标受众和交付形式变成可执行的创作计划。", Prompt: "我想做一支视频，但目前只有一个初步想法。请先问我主题、受众和交付目标，然后把制作过程拆成清晰的下一步。"},
 		},
+		Localized: map[string]ManifestLocalized{
+			string(LocaleEn): {
+				Name:        "Media Library",
+				Description: "Built-in system capability for managing images, videos, and audio across projects.",
+				Onboarding: []OnboardingGuide{
+					{ID: "organize-assets", Title: "Organize existing assets", Description: "After uploading or referencing assets, let AI take stock and suggest what to do next.", Prompt: "I want to organize the assets I'll use for this project. First ask me which images, videos, and audio to upload or reference, then list the next steps by purpose."},
+					{ID: "plan-video", Title: "Start from an idea", Description: "Turn a topic, target audience, and delivery format into an executable production plan.", Prompt: "I want to make a video but only have a rough idea. First ask me about the topic, audience, and delivery goals, then break the production into clear next steps."},
+				},
+			},
+		},
 	}}
+}
+
+// mediaSystemAppDescriptorFor resolves the built-in media system App with its
+// metadata localized for the requested locale.
+func mediaSystemAppDescriptorFor(locale Locale) App {
+	app := mediaSystemAppDescriptor()
+	app.Manifest = app.Manifest.LocalizedFor(locale)
+	return app
 }
 
 func systemAppDescriptor(id string) (App, bool) {
