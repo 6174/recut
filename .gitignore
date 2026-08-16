@@ -16,3 +16,6 @@ service/ui
 # CDN 资源本地暂存区可再生成（源头为 fetch 脚本 + R2），不提交二进制。
 cdn/buckets/*
 !cdn/buckets/.gitkeep
+# R2 S3 本地凭据（deploy 用），不提交 git。
+cdn/.r2-credentials
+cdn/.env

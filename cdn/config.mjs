@@ -6,8 +6,28 @@
  * 本地暂存区（先编排、再上传、后可删除），上传后对象 key 形如
  * {name}/...，访问 URL 为 {baseUrl}/{name}/...
  *
- * 配置优先级：环境变量 > 本文件默认值。
+ * 配置优先级：环境变量 > cdn/.env（本地凭据，gitignored）> 本文件默认值。
  */
+
+import { readFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+/** 加载 cdn/.env（若有），仅填充尚未设置的环境变量。 */
+function loadLocalEnv() {
+  const envPath = join(dirname(fileURLToPath(import.meta.url)), ".env");
+  if (!existsSync(envPath)) return;
+  for (const rawLine of readFileSync(envPath, "utf8").split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+    if (key && process.env[key] === undefined) process.env[key] = value;
+  }
+}
+loadLocalEnv();
 
 export const CDN = {
   /** R2 bucket 名（单个 bucket，前缀区分资源类型） */
