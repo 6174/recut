@@ -18,5 +18,7 @@ media-configuration-store.ts: Provider、脱敏 Credential 与用途 Route 的�
 workspace-store.ts: 含可选 image/video `cover` 的项目、App、已安装 App、项目详情和独立 App scope 的内存目录缓存；App、项目与安装列表分别保留读取状态和服务端失败原因，安装列表成功返回空数组即是“尚未安装”，首次读取和写操作后显式刷新，禁止页面级轮询。
 recut-worlds-client.ts: Creation Worlds 的浏览器传输适配器；请求/响应与全局 SDK 及 MCP 同构，World/Entity、可冻结的多模态 Evidence、Resolve 与项目 World Context 读写；错误统一解包为结构化 `RecutWorldsError`；只被原生 Recut 页面使用，App iframe 永不经它。
 worlds-store.ts: Creation Worlds 的跨路由内存缓存；World 列表分页、详情、Entity 列表/详情快照分别保留读取状态与失败原因，缓存键按 `{endpoint, text, type, cursor}` / `{endpoint, worldId}` / `{endpoint, worldId, kind, cursor}` 划分，任何写或绑定成功后显式失效，禁止页面级轮询。
+iframe-assets-bridge.ts: iframe `recut.assets` 的宿主实现；以当前 project scope 代理全局 Asset 查询、上传、绑定、删除和内容 URL，iframe 不发现 Service 或拼接 API。
+agent-panel-context.ts: 路由签发的 Work Surface 与 App/页面补充的完整 Focus 的全局状态；路由变更立刻清理 Focus，禁止选区跨项目、App 或 World 泄漏。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

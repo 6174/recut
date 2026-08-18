@@ -471,7 +471,8 @@ create table if not exists media_assets (
   size_bytes integer not null, content_hash text not null, origin text not null,
   parent_id text not null, status text not null default 'completed', job_id text not null default '',
   remote_id text not null default '', remote_poll_url text not null default '', error text not null default '',
-  metadata_json text not null, created_at text not null, updated_at text not null
+  metadata_json text not null, created_at text not null, updated_at text not null,
+  deleted_at text not null default ''
 );
 create table if not exists media_asset_projects (
   asset_id text not null, project_id text not null, created_at text not null,
@@ -626,6 +627,7 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table media_assets add column remote_poll_url text not null default ''",
 			"alter table media_assets add column error text not null default ''",
 			"alter table media_assets add column updated_at text not null default ''",
+			"alter table media_assets add column deleted_at text not null default ''",
 			"alter table media_jobs add column remote_id text not null default ''",
 			"alter table media_jobs add column remote_poll_url text not null default ''",
 			"alter table media_jobs add column submission_started_at text not null default ''",

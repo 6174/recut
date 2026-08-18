@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 App Catalog、MCP Host、Store 与设备 token
- * [OUTPUT]: 锁定 skill 树发现、__recut target envelope 的目标解析、跨 owner 拒绝与设备 token 生命周期
- * [POS]: service 的会话解耦回归测试；验证任意会话可调用任意 App、target 解析与外部封装基础
+ * [OUTPUT]: 锁定 skill 树发现、__recut target envelope、跨 owner 拒绝与设备 token 生命周期
+ * [POS]: service 的 MCP 会话解耦回归测试；验证目标解析与外部封装基础
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main

@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost 双 target 运行时、Catalog 的 App 与 skill 树、MediaService 与 JSON-RPC 请求/响应模型
- * [OUTPUT]: 对外提供项目/App-state 双 target 解析、上下文 context（不携带项目默认值且报告媒体 readiness）、__recut target envelope、跨 App 的 operation 路由、平台工具（含全局 reference 研究资料 Asset 创建）、裸 skill reference 到 `references/` 的解析、结构化内容与按全局/App 分组的工具清单（GET /v1/mcp/tools）
- * [POS]: service 的 MCP Host；唯一监听者是常驻 Daemon 的 /v1/mcp（Streamable HTTP），全局 Agent 直接以 Bearer token 连接，内置会话的 stdio adapter 只传递 session 身份；App 不自行启动 MCP server，所有调用经平台权限、目标解析与会话边界；平台工具无条件可见
+ * [OUTPUT]: 对外提供项目/App-state target 解析、Skill 读取、跨 App operation 路由、受限 Component Author 调度及平台工具清单
+ * [POS]: service 的 MCP Host；不把页面上下文变成全局 capability 或 operation 权限限制
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -167,7 +167,7 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 	case "initialize":
 		return map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]string{"name": "recut-mcp-host", "version": "0.3.0"}, "capabilities": map[string]any{"tools": map[string]any{}}}, nil
 	case "tools/list":
-		return mcpToolList(bridge, media, locale), nil
+		return mcpToolListForSession(bridge, media, session, locale), nil
 	case "tools/call":
 		input := struct {
 			Name      string         `json:"name"`
@@ -183,15 +183,53 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 }
 
 func mcpToolList(bridge *AgentBridge, media *MediaService, locale Locale) map[string]any {
+	return mcpToolListForSession(bridge, media, AgentSession{}, locale)
+}
+
+func mcpToolListForSession(bridge *AgentBridge, media *MediaService, session AgentSession, locale Locale) map[string]any {
 	tools := platformMCPToolDefinitions(locale)
 	apps, err := bridge.store.catalog.List()
 	if err != nil {
-		return map[string]any{"tools": tools}
+		return map[string]any{"tools": filterSessionTools(tools, session)}
 	}
 	for _, app := range apps {
 		tools = append(tools, appMCPToolDefinitions(app)...)
 	}
-	return map[string]any{"tools": tools}
+	if session.AllowsTool("recut.editor.component.commit") && len(session.AllowedTools) > 0 {
+		tools = append(tools, componentCommitToolDefinition(locale))
+	}
+	return map[string]any{"tools": filterSessionTools(tools, session)}
+}
+
+func filterSessionTools(tools []map[string]any, session AgentSession) []map[string]any {
+	if len(session.AllowedTools) == 0 {
+		return tools
+	}
+	filtered := make([]map[string]any, 0, len(session.AllowedTools))
+	for _, tool := range tools {
+		name, _ := tool["name"].(string)
+		if session.AllowsTool(name) {
+			filtered = append(filtered, tool)
+		}
+	}
+	return filtered
+}
+
+func componentCommitToolDefinition(locale Locale) map[string]any {
+	return platformTool("recut.editor.component.commit", map[Locale]string{
+		LocaleZh: "提交一个已完成的项目私有组件素材。只在 Component Author 完成创作后调用一次；平台构建、入库并安排验证，绝不插入时间线。",
+		LocaleEn: "Commit one finished private component asset. Call exactly once when Component Author finishes; the platform builds, stores, and schedules verification, never a timeline placement.",
+	}[locale], map[string]any{
+		"type":     "object",
+		"required": []string{"name", "surface", "source"},
+		"properties": map[string]any{
+			"name":     map[string]string{"type": "string"},
+			"surface":  map[string]any{"type": "string", "enum": []string{"html", "react", "r3f"}},
+			"keywords": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+			"inputs":   map[string]any{"type": "array", "description": "ParamDefinition[]"},
+			"source":   map[string]string{"type": "string"},
+		},
+	})
 }
 
 // platformMCPToolDefinitions returns the global, App-agnostic MCP tools the
@@ -216,6 +254,12 @@ func platformMCPToolDefinitions(locale Locale) []map[string]any {
 		platformTool("recut.project.list", mcpDescription(locale, "recut.project.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.project.get", mcpDescription(locale, "recut.project.get"), map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}}}),
 		platformTool("recut.project_context", mcpDescription(locale, "recut.project_context"), map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "要读取上下文的 Project Doc ID。"}}}),
+		platformTool("recut.agent.run", mcpDescription(locale, "recut.agent.run"), map[string]any{"type": "object", "required": []string{"app", "operation", "payload"}, "properties": map[string]any{
+			"app":       map[string]string{"type": "string", "description": "承载该子 Agent 运行的 App ID。"},
+			"operation": map[string]string{"type": "string", "description": "App 用于声明 SubAgentRequest 的 background operation（返回 {subAgent:{allowedTools,prompt,...}}）。"},
+			"payload":   map[string]any{"type": "object", "description": "传给该 operation 的参数。"},
+			"target":    map[string]any{"type": "object", "description": "可选的 {projectId} 目标；缺省用 App 默认 scope。"},
+		}}),
 		platformTool("recut.job.status", mcpDescription(locale, "recut.job.status"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
 		platformTool("recut.job.wait", mcpDescription(locale, "recut.job.wait"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}),
 		platformTool("recut.job.logs", mcpDescription(locale, "recut.job.logs"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 2000, "description": "只返回最近 N 行，默认 300。"}}}),
@@ -313,6 +357,37 @@ func cloneJSONMap(value map[string]any) map[string]any {
 }
 
 func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, name string, arguments map[string]any, locale Locale) (any, error) {
+	if !session.AllowsTool(name) {
+		return nil, fmt.Errorf("tool %q is unavailable in this focused Agent session", name)
+	}
+	if name == "recut.editor.component.commit" {
+		target, ok := session.SessionTarget()
+		if !ok {
+			return nil, errors.New("component.commit requires a focused Component Author session")
+		}
+		commitArguments := cloneJSONMap(arguments)
+		// 聚焦上下文由 App（editor background）声明，平台只透传：componentId/baseVersionId/mode 等
+		// 由 editor 的 component.commit 消费，平台不理解其语义。
+		if session.Focused != nil {
+			for k, v := range session.Focused {
+				if s, isStr := v.(string); isStr && s != "" {
+					commitArguments[k] = s
+				}
+			}
+		}
+		result, err := host.InvokeAPILocale(target, "recut.editor", "component.define", commitArguments, locale)
+		if err != nil {
+			return nil, err
+		}
+		committed, _ := result.(map[string]any)
+		if committed == nil || committed["status"] != "draft" {
+			data, _ := json.Marshal(result)
+			return nil, fmt.Errorf("component.commit build did not produce a draft component: %s", data)
+		}
+		bridge.RecordAgentToolCall(session.ID, "recut.editor.component.commit", committed)
+		data, _ := json.Marshal(result)
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+	}
 	switch name {
 	case "recut.context":
 		return recutContextTool(bridge, media, session, locale)
@@ -359,6 +434,8 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 			return nil, errors.New("design-system skill is unavailable")
 		}
 		return designSystemGetTool(bridge.designSystems, arguments)
+	case "recut.agent.run":
+		return agentRunMCPTool(bridge, host, session, arguments, locale)
 	}
 	if isMediaMCPTool(name) {
 		return mediaMCPTool(bridge.store, media, session, name, arguments)
@@ -367,7 +444,7 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 		return worldsMCPTool(NewWorldStore(bridge.store, media), name, arguments)
 	}
 	if strings.HasPrefix(name, "recut.job.") {
-		return jobMCPTool(host.jobs, media, name, arguments)
+		return jobMCPTool(bridge, host.jobs, media, name, arguments)
 	}
 	prefix, appID, ok := splitAppTool(name)
 	if !ok {
@@ -384,6 +461,16 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 	target, args, err := resolveAppTarget(bridge, app, arguments)
 	if err != nil {
 		return nil, err
+	}
+	// manifest 标记 subAgent 的 op：平台通用受限子 Agent 运行（authorize → run → finalize），
+	// 上下文与工具范围由 background 动态声明，无任何 App 专属 Go 代码。
+	if operationIsSubAgent(app.Manifest, operationName) {
+		view, err := startAppSubAgentJob(bridge, host, session, target, appID, operationName, args, locale)
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.Marshal(view)
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": view}, nil
 	}
 	result, err := host.InvokeMCPLocale(target, appID, operationName, args, locale)
 	if err != nil {
@@ -857,11 +944,11 @@ func mediaWaitTimeout(input map[string]any) time.Duration {
 
 // jobMCPTool implements the unified platform job observation surface
 // (recut.job.*). Both local App shell jobs and platform media generation jobs
-// live behind the same jobId namespace: status/wait look up the shell store
-// first, then fall back to the media store, and every view carries a `kind`
-// discriminator. logs/cancel remain shell-only, because media jobs have no
-// process logs and no local cancellation model.
-func jobMCPTool(jobs *ShellJobManager, media *MediaService, name string, input map[string]any) (any, error) {
+// live behind the same jobId namespace: status/wait look up focused Component
+// Author jobs, then shell jobs, then media jobs; every view carries a `kind`
+// discriminator. Author diagnostics are exposed through logs and cancellation
+// propagates to the child Codex process.
+func jobMCPTool(bridge *AgentBridge, jobs *ShellJobManager, media *MediaService, name string, input map[string]any) (any, error) {
 	jobID, _ := input["jobId"].(string)
 	if strings.TrimSpace(jobID) == "" {
 		return nil, errors.New("jobId is required")
@@ -870,16 +957,32 @@ func jobMCPTool(jobs *ShellJobManager, media *MediaService, name string, input m
 	var err error
 	switch name {
 	case "recut.job.status":
-		result, err = unifiedJobStatus(jobs, media, jobID)
+		if view, ok := bridge.agentJobView(jobID); ok {
+			result = view
+		} else {
+			result, err = unifiedJobStatus(jobs, media, jobID)
+		}
 	case "recut.job.wait":
-		result, err = unifiedJobWait(jobs, media, jobID, jobWaitTimeout(input))
+		if view, ok := bridge.waitAgentJob(jobID, jobWaitTimeout(input)); ok {
+			result = view
+		} else {
+			result, err = unifiedJobWait(jobs, media, jobID, jobWaitTimeout(input))
+		}
 	case "recut.job.logs":
+		if view, ok := bridge.agentJobView(jobID); ok {
+			result = map[string]any{"jobId": jobID, "kind": "sub-agent", "diagnostics": view}
+			break
+		}
 		var logs []ShellJobLog
 		logs, err = jobs.LogsByID(jobID)
 		if err == nil {
 			result = jobLogViews(logs, input)
 		}
 	case "recut.job.cancel":
+		if cancelled, ok := bridge.cancelAgentJob(jobID); ok {
+			result = cancelled
+			break
+		}
 		var job ShellJob
 		job, err = jobs.FindByID(jobID)
 		if err != nil {

@@ -9,7 +9,7 @@ recut_skill_test.go: 锁定旧 Skill 启动同步覆盖、启动时尽力启用�
 skills/: 随 service 发布的对外 Recut Skill 唯一正文（独立文本，`OutputFormat: url` 第三方约定）；编译进二进制，不依赖源码仓库存在。它与 `service/prompts/core-agents.md.tmpl`（`OutputFormat: xml` 内建 bridge 约定）不是同一来源渲染，规则覆盖一致、引用格式分叉（本 Skill 输出 `https://recut.video/...` 深链，绝不输出 `<media>`/`<project>`/`<app>` 受控 XML 标签）；变更时分别维护，由 recut_skill_test.go / bridge_prompt_test.go 的分叉不变量锁定。
 logging.go: service 可观测性边界；将标准库日志以 UTC 微秒时间戳同时输出到 stderr 与 `<data-dir>/logs/service-YYYY-MM-DD.log`，并按 HTTP 最终状态码记录 INFO/WARN/ERROR 请求审计，保留 SSE、WebSocket 等 ResponseWriter 能力。
 logging_test.go: 锁定请求审计的状态码分级与耗时字段，不创建真实日志文件。
-catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json；缺失目录会以用户私有权限自动创建并作为零个 App 的正常状态，按目录与 manifest 指纹在本地 link/修改后原子刷新注册表，强制每个 App 声明作者和简短描述，跟随开发 App 的符号链接且不清空缓存化 Git 远端检查状态；素材库只以无磁盘包的隐藏 scope 供平台 Agent/MCP 使用，旧失效链接不会阻止 daemon 启动。
+catalog.go: 从运行时 `~/.recut/apps` 读取和校验 manifest.json；支持 package-relative `backgroundModules` 的有序后台模块声明，拒绝越界路径与非 JavaScript 模块；缺失目录会以用户私有权限自动创建并作为零个 App 的正常状态，按目录与 manifest 指纹在本地 link/修改后原子刷新注册表，强制每个 App 声明作者和简短描述，跟随开发 App 的符号链接且不清空缓存化 Git 远端检查状态；素材库只以无磁盘包的隐藏 scope 供平台 Agent/MCP 使用，旧失效链接不会阻止 daemon 启动。
 onboarding.go: 新对话引导真相源；合并当前 App manifest、用户级全局设置，并仅在两者都为空时返回平台内置兜底，严格只使用显式 prompt。
 app_install.go: App 分发边界；仅接受 HTTPS GitHub 地址，在临时 clone 通过 manifest 校验后激活，立即返回缓存化安装状态并在后台单飞抓取远端；检查完成唤醒安装目录事件流，任何 clone/fetch/pull 均不持有 Catalog 锁；以 Git status/fast-forward 管理单个或批量升级，原生素材库不进入 App 分发链。
 app_install_test.go: 锁定 GitHub 地址规范化、dirty Git 工作树识别、本地目录刷新不清空远端检查缓存、后台远端检查不阻塞 Catalog 读取与临时本地 remote 的更新检测/批量升级，不访问网络。
@@ -18,7 +18,9 @@ builtin_apps.go, builtin_apps/: 内置 App 分发边界；发布构建把明确�
 updater.go: macOS service 自更新器；下载并校验 Cloudflare 发布 manifest/归档，使用 macOS 系统 PEM 根证书做严格 TLS 链校验以规避新系统的 Security.framework 桥接异常，仍以归档 SHA-256 校验内容，原子替换当前 binary 后交给 launchd 重启，并只对已安装的 `recut-service` 暴露重启能力。
 updater_test.go, server_update_test.go: 锁定自更新归档提取、显式 PEM 根证书 TLS 校验和 HTTP 可用性边界；不下载、替换或重启真实 daemon。
 project.go: 创建、重命名及删除平台项目，并按 App scope 提供 SQLite、文件、Artifact 与可选 `cover` 元数据存储；删除只清理该项目的平台记录、文件和素材关联，工作区共享素材保留；owner App 选定已完成 image/video Asset 后，项目封面随 Project Doc 返回且记录更新事件；独立型 App 使用稳定但不出现在项目列表中的工作区 scope，原生素材库与首页 general chat 各使用同样隐藏的系统 scope；每个 SQLite 文件在 service 内由共享的有限连接池管理，连接统一启用 WAL、NORMAL 同步与 15 秒 busy timeout，既允许嵌套读取又让并发写入等待而非随机失败；缓存句柄以 100ms 上限探测，连接池繁忙时继续复用、调用方已关闭时才重开。
-runtime.go: 在 Goja sandbox 中执行 App background.js，并注入统一 operation 注册器；同一 handler 可按 manifest surface 暴露给 UI API 与 MCP；项目型 App 以 `ctx.project.setCover({ assetId })` 选择自己的 completed image/video 封面，平台验证类型并自动关联该 Asset；获授权的 App 可将已完成 Asset materialize 到私有文件、在用户确认后以流式 reader import 私有输出（自动关联当前 Project），避免长视频占满内存，并使用通用 `ctx.shell` Job 或 manifest 声明的 `ctx.python` venv，模型根固定注入为 `~/.recut/models`。
+runtime.go: 在同一 Goja sandbox 按 `background.js` 再按 manifest `backgroundModules` 的顺序执行 App 后台模块，并注入统一 operation 注册器；同一 handler 可按 manifest surface 暴露给 UI API 与 MCP；项目型 App 以 `ctx.project.setCover({ assetId })` 选择自己的 completed image/video 封面，平台验证类型并自动关联该 Asset；获授权的 App 可将已完成 Asset materialize 到私有文件、在用户确认后以流式 reader import 私有输出（自动关联当前 Project），避免长视频占满内存，并使用通用 `ctx.shell` Job 或 manifest 声明的 `ctx.python` venv，模型根固定注入为 `~/.recut/models`。
+subagent.go: 平台通用受限子 Agent 执行器；`runFocusedSubAgent` 以受限工具面（background 声明的 `allowedTools`）在只读 sandbox 跑同模型 Codex 子 Agent 并收集工具调用；`recut.agent.run` 是通用入口，任一 App 的 manifest 中标记 `subAgent:true` 的 op 都会由平台自动走 authorize → run → finalize（finalize 把工具结果回传同一 op），编辑器的 `component.create`/`component.revise` 即如此。上下文（prompt 含 skeleton）与工具范围完全由 background 动态声明，平台无 App 专属 Go 代码。不能读取项目、执行 shell、浏览文件或放置时间线元素。
+agent_jobs.go: 通用受限子 Agent job 的状态、进度、取消与诊断查询；通过统一 `recut.job.*` 暴露生命周期，不触碰时间线。
 shell_jobs.go: 可恢复的非交互本地进程任务；job 记录持久化到平台 `workspace.sqlite` 的 `shell_jobs` 表（含 queued/running/terminal 状态），顺序 stdout/stderr 日志仍为 JSONL 文件；按 jobId 的全局查找/等待（FindByID/WaitByID）为平台 `recut.job.*` MCP 工具提供支撑，启动时把旧版按项目存放的 JSON 记录幂等迁移进表；投递项目事件，并在 service 日志记录不含命令参数的排队/终态审计；命令名从合并后的最终 PATH 解析，确保 App 注入的 Python venv 真正生效；取消句柄在排队时即建立，队列和运行阶段都可可靠取消，daemon 重启时将未完成任务收敛为 interrupted；每个任务置于独立进程组，取消/超时按组终止整棵进程树（make → node 等孙进程不残留为孤儿）。
 user_env.go: 通用用户 shell 环境捕获；以 `$SHELL`（回退 /etc/passwd 登录 shell）跑一次 `-l -i -c env` 拿到用户完整环境（含 .zshrc/.bashrc/.zprofile 的 PATH 等），与 daemon 环境按 key 合并后作为所有 shell 任务与 PTY 终端的基础环境，消除常驻 daemon 缺少用户 PATH 的问题，且不假设具体 shell 品牌；捕获超时/失败回退 daemon 环境。
 terminal.go: 通用 PTY 会话管理器；以合并后的登录 shell 与会话环境启动、持久化 transcript 与摘要、支持输入/尺寸/订阅和终止，并在 service 日志记录不含参数的会话启动与退出。
@@ -57,6 +59,8 @@ worlds_http.go: RESTful /v1/worlds 资源路由与结构化 WorldsError HTTP 信
 worlds_mcp.go: 全局 recut.worlds.* MCP 工具；只读 list/get/entities/evidence/resolve 无条件可发现，写 create/update/entities.upsert/evidence.attach/evidence.update/evidence.archive 与 bind_project 常注册但仅按用户明确要求调用，返回同构 structuredContent。
 worlds_test.go, worlds_mcp_test.go, worlds_runtime_test.go: 锁定多 World 隔离、同标题实体跨 World 独立、实体-世界不匹配、分页、已完成/缺失/未就绪 Asset、Canon 哈希稳定性、乐观冲突、Project 绑定固定 revision、多模态证据与 ctx.worlds/ctx.creationContext 权限门。
 *_test.go: manifest、存储与 JS runtime 的回归验证；其中 shell_jobs_test.go 锁定刚入队任务也可取消，runtime_test.go 断言 Vox Keyframes 不能退化为纯文本且接受带图片快照的结构化产出。
+
+Agent 工作面: `agent.go` 将经 Store 校验的 `work_surface` 与完整 `work_focus` 物化为独立提示段，Focus 必须同 Turn 附着工作面；`catalog.go` 的 `agentSurface` 仅提供领域、相关 Skill 与语义提示。工作面不收紧 MCP operation、原生文件工具或 App 的既有能力范围。
 
 依赖关系
 

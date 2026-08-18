@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖标准库 JSON 与文件系统能力
- * [OUTPUT]: 对外提供 manifest 驱动且自动创建空 apps 目录、按本地目录变化刷新的 Catalog、含作者/描述/onboarding 的 App 身份、缓存化 Git 远端检查状态、隐藏平台 scope 描述符与统一 operation 公开契约
- * [POS]: service 的扩展注册表；只理解 App 与平台 scope 身份、入口、权限和扩展点，不理解业务数据布局；本地 link 或 manifest 修改会原子更新注册表
+ * [OUTPUT]: 对外提供 manifest 驱动的 App Catalog、可有序加载的 backgroundModules、operation 公开契约与 agentSurface（领域、默认意图、required skill、源码策略）元数据
+ * [POS]: service 的扩展注册表；为工作面路由提供 App 身份和策略，不理解业务数据布局
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -32,21 +32,31 @@ const (
 )
 
 type Manifest struct {
-	ManifestVersion int                          `json:"manifestVersion"`
-	ID              string                       `json:"id"`
-	Name            string                       `json:"name"`
-	Author          string                       `json:"author"`
-	Description     string                       `json:"description"`
-	Repository      string                       `json:"repository,omitempty"`
-	Version         string                       `json:"version"`
-	Kind            AppKind                      `json:"type"`
-	Background      string                       `json:"background"`
-	UI              UIEntrypoints                `json:"ui"`
-	Permissions     []string                     `json:"permissions"`
-	Runtime         AppRuntime                   `json:"runtime,omitempty"`
-	Operations      []Operation                  `json:"operations"`
-	Onboarding      []OnboardingGuide            `json:"onboarding"`
-	Localized       map[string]ManifestLocalized `json:"localized,omitempty"`
+	ManifestVersion   int                          `json:"manifestVersion"`
+	ID                string                       `json:"id"`
+	Name              string                       `json:"name"`
+	Author            string                       `json:"author"`
+	Description       string                       `json:"description"`
+	Repository        string                       `json:"repository,omitempty"`
+	Version           string                       `json:"version"`
+	Kind              AppKind                      `json:"type"`
+	Background        string                       `json:"background"`
+	BackgroundModules []string                     `json:"backgroundModules,omitempty"`
+	UI                UIEntrypoints                `json:"ui"`
+	Permissions       []string                     `json:"permissions"`
+	Runtime           AppRuntime                   `json:"runtime,omitempty"`
+	Operations        []Operation                  `json:"operations"`
+	Onboarding        []OnboardingGuide            `json:"onboarding"`
+	Localized         map[string]ManifestLocalized `json:"localized,omitempty"`
+	AgentSurface      *AgentSurface                `json:"agentSurface,omitempty"`
+}
+
+// AgentSurface declares only the host-level routing policy for an App. Skill
+// text remains the authority for craft and operation sequencing.
+type AgentSurface struct {
+	Domain        string `json:"domain"`
+	DefaultIntent string `json:"defaultIntent"`
+	RequiredSkill string `json:"requiredSkill,omitempty"`
 }
 
 // ManifestLocalized is the per-locale override for a Manifest's user-facing
@@ -101,6 +111,9 @@ type Operation struct {
 	Description string         `json:"description"`
 	Surfaces    []string       `json:"surfaces"`
 	InputSchema map[string]any `json:"inputSchema"`
+	// SubAgent 标记该 operation 是一次受限子 Agent 运行：调用时 background 返回
+	// {subAgent:{allowedTools,prompt,...}}，平台用通用 runner 执行并回调该 op 做 finalize。
+	SubAgent bool `json:"subAgent,omitempty"`
 }
 
 type App struct {
@@ -400,6 +413,11 @@ func validateManifest(manifest Manifest) error {
 	}
 	if !validPackagePath(manifest.Background) {
 		return errors.New("background must be a package-relative path")
+	}
+	for _, module := range manifest.BackgroundModules {
+		if !validPackagePath(module) || filepath.Ext(module) != ".js" {
+			return errors.New("backgroundModules must contain package-relative .js paths")
+		}
 	}
 	if manifest.Kind == ProjectApp && !validPackagePath(manifest.UI.ProjectView) {
 		return errors.New("project App requires ui.projectView")

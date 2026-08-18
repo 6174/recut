@@ -14,9 +14,9 @@ asset-reference-picker.tsx: 资源引用交互层；解析素材库复制的 `<m
 platform-media-picker.tsx: iframe App 的平台级素材桥；复用带元信息、详情预览与明确选择操作的全局素材面板，返回指定类型（含转写稿）、完成态素材的稳定 assetId 与展示元数据；转写稿选择只从库中读取，避免错误上传类型。
 agent-message-content.tsx: Agent 回复的受控 XML 媒体节点渲染器；解析 `<media type="image|video|audio|transcript|reference" assetid="..."/>` 为紧凑可点击卡片，从共享 Asset 缓存显示实时/最终生成耗时；完成的图片和视频显示真实画面，资料链接点击打开详情。
 tool-result-assets.tsx: Agent 工具结果中的媒体适配层；从含嵌套 JSON 字符串的 `assetIds` 提取结果，图片和视频直接显示真实预览，视频统一复用 `VideoFrame` 的 iframe 子文档模式与素材详情模态框。
-agent-panel-types.ts: Agent 对话的共享数据契约；集中 Session、Turn、事件、运行时配置、默认值、展示标签、service 连接阶段与泛化的消息上下文（MessageContext：media/page/creation_world/未来类型，含 PageContext 与构造/归一化辅助），消除面板控制器、视图和输入区的类型耦合。
-agent-panel-views.tsx: Agent 对话展示层；渲染会话时间线、历史列表、加载态、CLI 调试弹框与 CLI 恢复面板，收起态以人可读动作覆盖新旧工具事件、展开时展示真实工具名，并以单份复制记录汇集输入/输出/错误/成本，调试与工具详情弹框经 Portal 脱离侧栏堆叠上下文，在用户消息上方同时展示素材附件与自动附带的当前页面上下文 chip，并在展开的工具结果中挂载 Asset 预览，归并 SSE 增量事件而不发起会话请求。
-agent-composer.tsx: Agent 对话输入层；处理自动增高且上限为 192px 的文本、素材与世界观引用、上传、自动附带且可移除的当前页面上下文 chip、Codex/OpenCode 配置与新会话 runtime 选择，所有状态变更通过控制器回调上送。
+agent-panel-types.ts: Agent 对话的共享数据契约；集中 Session、Turn、事件、运行时配置以及宿主签发的 Work Surface、App 补充的完整 Work Focus 和泛化 MessageContext，iframe 不能覆盖目标。
+agent-panel-views.tsx: Agent 对话展示层；渲染会话时间线、历史、调试与工具结果，并按原始结构展示素材、Work Surface 和 Focus。
+agent-composer.tsx: Agent 对话输入层；处理文本、素材、世界观、上传、Work Surface 和独立可移除的 Focus，以及 runtime 配置。
 agent-panel-host.tsx: 根布局唯一挂载的域名级路由边界与工作台壳；SSR 与浏览器 Host 未确认时透明输出页面本身，不生成任何固定高度、Chat skeleton 或工作台容器；Marketing Host 在浏览器前端路由时自行映射 `/`、`/apps`、`/apps/:id` 到官网组件，未知或工作台路由只显示官网 404，绝不依赖 Worker 重请求、更不会挂载 Workspace；App Host 才使用顶部固定 64px Header、左侧单一全局 Agent 对话栏、右侧内容区与共享 `--side-panel-width`，拖拽中同步响应且跨路由持久化。官网使用无固定高度、可纵向滚动的普通文档流，且绝不挂载 Agent 面板、拖拽手柄或 App SSE；cloud mode 首次离线 Landing Page 同样无面板。
 marketing-site.tsx: 官网共享展示层；提供按 Hero→核心应用→创作底座→三步开始→适合谁→与云端对比→文章→FAQ→CTA 编排的 Landing、Docs、Blog、Header/Footer 与跨域「打开工作台」链接；文章数据由服务端页面经 props 注入，Blog 详情用 `MarkdownContent` 渲染 MDX 正文并提供分享条；线上指向 `app.recut.video`，`localhost` 自动改为同端口 `app.localhost`，不读取 service 或工作台状态。
 marketing-jsonld.tsx: 官网 JSON-LD 结构化数据服务端组件；输出 Organization、WebSite、SoftwareApplication（含首页增强版）、Blog 列表与 BlogPosting（publisher 携带 logo，支持文章富结果）、BreadcrumbList、逐 App 的 SoftwareApplication/FAQPage、应用市场 ItemList 与首页 FAQPage，只允许在服务端页面渲染（React 19 要求客户端 `<script>` 带 async），构建期随静态导出写入 HTML。
@@ -40,7 +40,7 @@ create-app-dialog.tsx: Apps 顶部的新建应用引导；交付指向公开架�
 install-git-app-dialog.tsx: Apps 顶部的 Git 安装入口；将 GitHub 仓库交给本地 service 校验并安装，成功后通知目录刷新。
 use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧更新共享 CSS 宽度变量，左侧对话栏、右侧内容与手柄即时响应，暴露拖动状态以遮蔽 iframe，松手后才持久化宽度，避免渲染拥塞或跨文档丢失指针事件；当前只被根布局全局挂载的 Agent 面板宿主消费。
 terminal-panel.tsx: 基于 xterm.js 的可恢复 CLI 终端面板，负责 Daemon 引导、CLI 探测、一键启动、失败反馈，以及展示最新输出摘要、只读历史与原生 Agent 恢复入口的会话浮层。
-Agent 调试流：`project-agent-panel.tsx` 的右上角终端入口订阅当前会话 `/cli-stream`；弹框只显示 Agent runner 已捕获的有界内存 stdout/stderr，不能附着或重放服务重启前的进程，也不取代结构化对话时间线。
+Agent 调试流：`project-agent-panel.tsx` 的右上角终端入口订阅当前会话 `/cli-stream`；弹框只显示 Agent runner 已捕获的有界内存 stdout/stderr，不能附着或重放服务重启前的进程，也不取代结构化对话时间线。每个发送 Turn 固定保存 Work Surface；Focus 在同一 Turn 内是完整但可独立移除的选择态。
 vox-broll-workflow.tsx: 已废弃的 AI 短片纵向资源管理器；当前短片流程由 App iframe 自己承载，此文件仅保留历史说明。
 world-card.tsx: Worlds 列表与 Studio 区域的 World 卡片；显示名称、类型、定位、最近更新与实体计数摘要，可选渲染已完成素材封面，点击整卡进入 `/worlds/{id}`；卡片只消费摘要，不请求实体正文。
 world-picker.tsx: World picker 弹框；搜索与类型筛选后选择只发出结构化 `{ type: "creation_world", worldId }` 引用，供 Chat attachment 与生产 App 的 World 选择使用，绝不把 Canon 复制进消息。

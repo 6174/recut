@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖共享 Asset SSE 缓存、素材内容 API、AssetPreviewDialog、VideoFrame、GenerationDuration 与 lucide-react 图标
- * [OUTPUT]: 对外提供素材引用与平台选择面板、@ 快速候选、带正常高度真实预览、元信息、查看详情/选择操作的素材卡；选择面板经 document.body Portal 脱离侧栏堆叠上下文，并提供 `<media>` 剪贴板解析
+ * [OUTPUT]: 对外提供素材引用与平台选择面板、@ 快速候选、单行紧凑引用芯片、带正常高度真实预览与元信息的素材卡；选择面板经 document.body Portal 脱离侧栏堆叠上下文，并提供 `<media>` 剪贴板解析
  * [POS]: components 的资源引用交互层；项目对话、全局素材库与 iframe App 共享一套稳定 assetId 和详情预览协议，完成态媒体不以类型图标替代预览，运行态从 Asset 真相显示时长
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -93,7 +93,7 @@ export function AssetReferenceChip({ apiBase, reference, onRemove }: { apiBase: 
   const asset = assetByID[reference.assetId]
     ? normalizeAsset(assetByID[reference.assetId])
     : normalizeAsset({ ...reference, id: reference.assetId });
-  return <div className="group inline-flex h-7 max-w-60 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1 pr-1.5 text-[10px] text-foreground"><AssetThumbnail apiBase={apiBase} asset={asset} className="size-5 shrink-0 overflow-hidden rounded-[2px]" iconClassName="size-3" /><span className="truncate">{asset.name}</span><GenerationDuration className="shrink-0 font-mono text-[9px] text-muted-foreground" item={asset} />{onRemove && <button aria-label={`移除 ${asset.name}`} className="ml-0.5 grid size-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground" onClick={onRemove} type="button"><X className="size-3" /></button>}</div>;
+  return <div className="group inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1 pr-1.5 text-[10px] text-foreground" title={`${asset.name} · ${asset.origin}`}><AssetThumbnail apiBase={apiBase} asset={asset} className="size-5 shrink-0 overflow-hidden rounded-[2px]" iconClassName="size-3" /><span className="truncate">{asset.name}</span><GenerationDuration className="shrink-0 font-mono text-[9px] text-muted-foreground" item={asset} />{onRemove && <button aria-label={`移除 ${asset.name}`} className="ml-0.5 grid size-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground" onClick={onRemove} type="button"><X className="size-3" /></button>}</div>;
 }
 
 export function AssetReferenceMenu({ apiBase, projectID, query, selectedIDs, onPick, onOpenLibrary, onOpenWorlds }: { apiBase: string; projectID: string | null; query: string; selectedIDs: string[]; onPick: (asset: Asset) => void; onOpenLibrary: () => void; onOpenWorlds?: () => void }) {

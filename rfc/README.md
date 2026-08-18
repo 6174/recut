@@ -17,6 +17,10 @@
 2026-08-16-marketing-content-plan.md: 视频创作主题域内容计划：AI 视频生成/视频制作科普/工具文/创作方法论四个主题簇的选题库（Google 全球 + Google 中文视角）、内容形态配比（权威 60% / 承接 40%）、zh/en 双语言生产模型（对齐 i18n RFC）、P0–P2 执行顺序与榜单时效更新机制；P0 打样第一篇为「AI 视频生成后怎么剪辑」。
 2026-08-16-i18n-zh-en.md: 全站 zh / en 双语言整体方案：两种语言真相（官网 URL 驱动、工作台/Service/App 偏好驱动）、官网多路由与 Worker 重写映射、逐语言 metadata/hreflang/sitemap/canonical、`lib/i18n` 类型化字典、`/v1/preferences` 偏好端点、Service 的 Accept-Language 传递、manifest `localized` 契约、`ctx.locale` 注入 background.js、iframe `?locale=` + 宿主桥 page.context.locale、Agent guide/MCP 语言一致化。
 2026-08-16-editor-font-system.md: 编辑器字体系统：Recut 自有 CDN 自托管字体（cdn/fonts/google，fetch-fonts.mjs 编制上传，运行期零 Google 依赖）、service /v1/fonts 目录与字体文件 API（首次从自家 CDN 抓取 + 内容寻址缓存 + 离线可用）、Google Fonts / Local Fonts 双 Tab 面板、中文 CJK 家族与 unicode-range 按需加载、本机字体枚举（queryLocalFonts + SYSTEM_FONTS 扩充）、用户上传字体（FontFace 注册 + 持久化）、渲染/导出一致性，以及基于 Playwright 的分层 E2E（L1 Go httptest / L2 编辑器 fixtures mock / L3 全链路）。
+2026-08-16-canonical-assets-opfs-cache.md: Canonical Assets：用户设备上 Recut Assets Service 是图片/视频/音频唯一真相源，App 经 `recut.assets` SDK 获取/上传素材，OPFS/IndexedDB 是按 `(assetId, contentHash)` 可重建缓存；规定跨域名/跨设备按需同步、渐进 Loading、离线状态、删除墓碑（“资源已删除”）与分阶段验收。
+2026-08-16-agent-work-surface-context.md: Agent Work Surface Context：将当前页面从自由文本附件升级为宿主签发的目标绑定，并与 App 局部 Focus 分层；定义项目/World/素材/App 全页面语义、用户引导、领域 Skill 提示、迁移、测试与可观测性，不改变既有权限范围。
+2026-08-16-editor-component-asset-workflow.md: 编辑器组件素材工作流：组件先入库、默认不落轨；模板化快速创建与平台可信验证；MCP/UI 统一时间线避碰 placement，并以原子批量放置消除同轨重叠。
+2026-08-18-remotion-studio-music-font-finetunes.md: remotion-studio 音乐与字体微调：复用 Recut CDN（audio/fonts catalog 与编辑器同一份数据）与 catalog-first 架构，不做代码复用；音乐「选择即导入」为媒体资产走 composition.assets 物化管道、字体经 CDN 自托管 {id}.css 注入（caption 主题 palette.font 覆盖）、预览静音门控，MusicFineTune/FontFineTune 两模块与 Prompt 契约、选择持久化与 workflow.context 资源可见性，及分阶段实施与分层验证。
 
 此目录保存尚未实施或分阶段实施的平台设计决策。RFC 定义目标、边界、数据与接口契约；获批实现后，代码与运行时文档必须反向更新以保持一致。
 

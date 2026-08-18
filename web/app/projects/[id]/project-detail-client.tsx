@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖全局 Zustand service 状态、workspace-store 的项目/App/安装状态、平台素材选择器、可编辑项目名称、按 scope 缓存的 Agent Session 列表、全局 Agent 面板上下文与 Next.js 浏览器路由参数
- * [OUTPUT]: 对外提供通用项目 App UI 容器、按 iframe 实际 origin 转发的项目事件、全局素材选择、项目名称编辑与结构化 Agent 请求转交；App 只能经全局面板上下文回填左侧 Agent 输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
+ * [INPUT]: 依赖全局 Zustand service 状态、workspace-store 的项目/App/安装状态、平台素材选择器、Assets bridge、可编辑项目名称、按 scope 缓存的 Agent Session 列表、全局 Agent 面板上下文与 Next.js 浏览器路由参数
+ * [OUTPUT]: 对外提供通用项目 App UI 容器、按 iframe 实际 origin 转发的项目事件、全局素材选择、受 project scope 限制的 recut.assets 能力、项目名称编辑与结构化 Agent 请求转交；App 只能经全局面板上下文回填左侧 Agent 输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
  * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，从 workspace-store 读取目录真相，隔离 useParams、WebSocket 与 iframe，通信目标以 iframe URL 为唯一真相源；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -15,15 +15,16 @@ import { AppVersionControl, type ManagedApp } from "@/components/app-version-con
 import { HeaderActions } from "@/components/header-actions";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
 import { EditableProjectName } from "./editable-project-name";
-import { normalizePageContext } from "@/components/agent-panel-types";
+import { normalizeWorkFocus } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
-import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
+import { useAgentPanelContext, useReportWorkSurface } from "@/lib/agent-panel-context";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 import { recutHeaders } from "@/lib/service-endpoint";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore } from "@/lib/workspace-store";
+import { handleIframeAssetsRequest } from "@/lib/iframe-assets-bridge";
 
 function operationError(payload: unknown, fallback: string) {
   const value = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as { error?: unknown } : null;
@@ -59,6 +60,8 @@ export default function ProjectDetailClient() {
   const loadAgentSessions = useAgentStore((state) => state.loadSessions);
   const upsertAgentSession = useAgentStore((state) => state.upsertSession);
   const appFrame = useRef<HTMLIFrameElement>(null);
+  const frameReady = useRef(false);
+  const pendingProjectEvents = useRef<unknown[]>([]);
   const mediaPickerReply = useRef<((selection: PlatformMediaPickerResult | null) => void) | null>(null);
   const app = project ? apps.find((item) => item.manifest.id === project.appId) ?? null : null;
   const installation = project ? installations.find((item) => item.manifest.id === project.appId) ?? null : null;
@@ -67,7 +70,22 @@ export default function ProjectDetailClient() {
   useLayoutEffect(() => {
     useAgentPanelContext.getState().setProjectID(project?.id ?? null);
   }, [project?.id]);
-  useReportPageContext(useMemo(() => (project ? { title: project.name, path: `/projects/${id}`, url: window.location.href } : null), [project, id]));
+  useReportWorkSurface(useMemo(() => {
+    if (!project || !app) return null;
+    const agentSurface = app.manifest.agentSurface;
+    return {
+      version: 1 as const,
+      surface: "project" as const,
+      title: project.name,
+      path: `/projects/${id}`,
+      url: window.location.href,
+      target: { kind: "project" as const, projectId: project.id, appId: project.appId, appName: app.manifest.name, appKind: "project" as const },
+      policy: {
+        defaultIntent: agentSurface?.defaultIntent ?? "project_edit" as const,
+        requiredSkill: agentSurface?.requiredSkill ? { appId: project.appId, skillId: agentSurface.requiredSkill } : undefined,
+      },
+    };
+  }, [app, id, project]));
   useEffect(() => {
     if (!id || !online) return;
     void Promise.all([loadWorkspace(apiBase), loadProject(apiBase, id)]);
@@ -75,16 +93,33 @@ export default function ProjectDetailClient() {
 
   useEffect(() => {
     if (!project) return;
+    frameReady.current = false;
+    pendingProjectEvents.current = [];
+    return () => {
+      frameReady.current = false;
+      pendingProjectEvents.current = [];
+    };
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (!project) return;
     const channel = getRealtimeChannel(apiBase);
     const unsubscribe = channel.subscribe("project", project.id, (frame) => {
       if (frame.type !== "project.event") return;
-      postToFrame(appFrame.current, { type: "recut.project.event", event: frame.event });
+      const message = { type: "recut.project.event", event: frame.event };
+      if (!frameReady.current) {
+        pendingProjectEvents.current.push(message);
+        if (pendingProjectEvents.current.length > 64) pendingProjectEvents.current.shift();
+        return;
+      }
+      postToFrame(appFrame.current, message);
     });
     return unsubscribe;
   }, [apiBase, project]);
 
   const connectUI = useCallback(() => {
     if (!appFrame.current || !project) return;
+    frameReady.current = true;
     const channel = new MessageChannel();
     channel.port1.onmessage = async (event) => {
       const request = event.data; const reply = (result?: unknown, error?: string) => channel.port1.postMessage({ id: request.id, result, error });
@@ -100,18 +135,22 @@ export default function ProjectDetailClient() {
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, t("detail.operation.background")));
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=background.call result=${response.ok ? "ok" : "error"}`);
-        } else if (request.type === "agent.compose") {
+        } else {
+          const assets = await handleIframeAssetsRequest(request, { apiBase, projectID: project.id, headers: recutHeaders() });
+          if (assets.handled) {
+            reply(assets.result);
+          } else if (request.type === "agent.compose") {
           const prompt = String(request.input?.prompt || "").trim();
           if (!prompt) throw new Error(t("detail.operation.prompt"));
           useAgentPanelContext.getState().setDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=agent.compose result=ok`);
-        } else if (request.type === "page.context") {
-          const context = normalizePageContext(request.input?.context);
-          if (!context) throw new Error(t("detail.operation.context"));
-          useAgentPanelContext.getState().setPageContext(context);
-          reply({ delivery: "page-context" });
-          console.debug(`[recut-host] iframe response id=${String(request.id)} type=page.context result=ok`);
+        } else if (request.type === "focus.report" || request.type === "page.context") {
+          const focus = normalizeWorkFocus(request.input?.focus ?? request.input?.context);
+          if (!focus) throw new Error(t("detail.operation.context"));
+          useAgentPanelContext.getState().setWorkFocus(focus);
+          reply({ delivery: "work-focus" });
+          console.debug(`[recut-host] iframe response id=${String(request.id)} type=${String(request.type)} result=ok`);
         } else if (request.type === "media.pick") {
           if (mediaPickerReply.current) throw new Error(t("detail.operation.pickerBusy"));
           const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" | "transcript" | "reference" => kind === "image" || kind === "video" || kind === "audio" || kind === "transcript" || kind === "reference") : [];
@@ -120,6 +159,7 @@ export default function ProjectDetailClient() {
           const selectedIDs = Array.isArray(request.input?.selectedIDs) ? request.input.selectedIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
           mediaPickerReply.current = (selection) => reply(selection);
           setMediaPicker({ kinds, multiple, selectedIDs });
+          }
         }
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : t("detail.operation.host");
@@ -129,6 +169,8 @@ export default function ProjectDetailClient() {
     };
     console.debug(`[recut-host] iframe loaded; sending MessageChannel to ${new URL(appFrame.current.src).origin}`);
     postToFrame(appFrame.current, { type: "recut.ui.connect" }, [channel.port2]);
+    const pending = pendingProjectEvents.current.splice(0);
+    for (const message of pending) postToFrame(appFrame.current, message);
   }, [apiBase, project, t]);
 
   useEffect(() => {

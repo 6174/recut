@@ -11,7 +11,7 @@ import (
 )
 
 // setupEditorTestApp 把真实 recut.editor 应用（../apps/editor）复制进临时目录并建项目，
-// 使测试走真实 background.js + manifest + goja host + sqlite 全链路。
+// 使测试走真实 background.js + backgroundModules + manifest + goja host + sqlite 全链路。
 func setupEditorTestApp(t *testing.T) (*Catalog, *Store, *AppHost, Project) {
 	t.Helper()
 	src := filepath.Join("..", "apps", "editor")
@@ -30,7 +30,41 @@ func setupEditorTestApp(t *testing.T) (*Catalog, *Store, *AppHost, Project) {
 	}
 	writeTestFile(t, filepath.Join(appDir, "manifest.json"), string(manifest))
 	writeTestFile(t, filepath.Join(appDir, "background.js"), string(background))
+	backgroundDir := filepath.Join(src, "background")
+	if entries, readErr := os.ReadDir(backgroundDir); readErr == nil {
+		if err := os.MkdirAll(filepath.Join(appDir, "background"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".js" {
+				continue
+			}
+			content, fileErr := os.ReadFile(filepath.Join(backgroundDir, entry.Name()))
+			if fileErr != nil {
+				t.Fatal(fileErr)
+			}
+			writeTestFile(t, filepath.Join(appDir, "background", entry.Name()), string(content))
+		}
+	}
 	writeTestFile(t, filepath.Join(appDir, "ui", "dist", "index.html"), "ok")
+	// 组件构建链依赖：复制 scripts/component-build.js 与 sdk/，并让 ui/node_modules 指向真实应用
+	// （component-build.js 从 `<appRoot>/scripts` 解析 esbuild/typescript 于 `<appRoot>/ui`）。
+	if err := copyEditorDir(t, filepath.Join(src, "scripts"), filepath.Join(appDir, "scripts")); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyEditorDir(t, filepath.Join(src, "sdk"), filepath.Join(appDir, "sdk")); err != nil {
+		t.Fatal(err)
+	}
+	realNodeModules := filepath.Join(src, "ui", "node_modules")
+	if _, err := os.Stat(realNodeModules); err == nil {
+		absReal, absErr := filepath.Abs(realNodeModules)
+		if absErr != nil {
+			t.Fatal(absErr)
+		}
+		if err := os.Symlink(absReal, filepath.Join(appDir, "ui", "node_modules")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// 随包 catalog（library.browse 的 shipped 回退源）
 	catalogSrc := filepath.Join(src, "catalog")
 	if entries, err := os.ReadDir(catalogSrc); err == nil {
@@ -66,6 +100,37 @@ func setupEditorTestApp(t *testing.T) (*Catalog, *Store, *AppHost, Project) {
 func invoke(t *testing.T, host *AppHost, project Project, op string, input map[string]any) map[string]any {
 	t.Helper()
 	return invokeSurface(t, host, project, op, input, "mcp")
+}
+
+// copyEditorDir 递归复制目录（非空内容），用于让测试 app 具备组件构建链的 scripts/sdk。
+func copyEditorDir(t *testing.T, src, dst string) error {
+	t.Helper()
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := copyEditorDir(t, srcPath, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+		content, err := os.ReadFile(srcPath)
+		if err != nil {
+			return err
+		}
+		writeTestFile(t, dstPath, string(content))
+	}
+	return nil
 }
 
 // invokeAPI 走 InvokeAPI 路径（api surface 门），用于 cover.* 等仅 UI 的操作。
@@ -636,7 +701,7 @@ func TestEditorManifestIsSelfConsistent(t *testing.T) {
 		}
 	}
 	// 关键 AI 操作必须 mcp surface
-	for _, must := range []string{"timeline.read", "element.get", "timeline.validate", "timeline.command", "history.undo", "project.lock", "component.define", "component.list"} {
+	for _, must := range []string{"timeline.read", "element.get", "timeline.validate", "timeline.command", "timeline.placeComponents", "history.undo", "project.lock", "component.create", "component.revise", "component.list"} {
 		ok := false
 		for _, op := range manifest.Operations {
 			if op.Name == must && strings.Contains(strings.Join(op.Surfaces, ","), "mcp") {

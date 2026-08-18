@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖共享 Agent 会话配置类型、素材引用选择器、Agent runtime 安装状态与 UI 原子组件
- * [OUTPUT]: 对外提供消息输入区 Composer 及新会话 runtime 选择器 RuntimePicker；Composer 同时渲染用户选择的素材附件与自动附带、可移除的当前页面上下文 chip，并让文本区随内容增长至固定上限
- * [POS]: components Agent 对话模块的交互输入层；通过回调把发送、上传、配置保存交回面板控制器
+ * [OUTPUT]: 对外提供 Composer 与 RuntimePicker；以单行紧凑芯片展示素材、Work Surface 与 Focus，悬浮查看完整上下文，并让文本区随内容增长至固定上限
+ * [POS]: components Agent 对话模块的交互输入层；让用户发送前明确看见 Agent 的目标与局部选区
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -13,7 +13,7 @@ import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatu
 import { AssetReferenceChip, AssetReferenceDialog, AssetReferenceMenu, mediaReferenceIDs, mediaReferenceText } from "@/components/asset-reference-picker";
 import { WorldPicker, type WorldPick } from "@/components/world-picker";
 import { Button } from "@/components/ui/button";
-import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, opencodeModelLabel, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PageContext, type UploadedAsset, type WorldReference } from "@/components/agent-panel-types";
+import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, opencodeModelLabel, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 
@@ -39,7 +39,8 @@ export function Composer({
   onChange,
   onRemoveAttachment,
   onRemoveWorld,
-  onRemovePageContext,
+  onRemoveWorkFocus,
+  onRemoveWorkSurface,
   onSaveCodexConfiguration,
   onSaveOpencodeConfiguration,
   onSend,
@@ -47,8 +48,10 @@ export function Composer({
   onUpload,
   opencodeConfiguration,
   opencodeModels,
-  pageContext,
-  pageContextIncluded,
+  workFocus,
+  workFocusIncluded,
+  workSurface,
+  workSurfaceIncluded,
   projectID,
   runtime,
   running,
@@ -67,7 +70,8 @@ export function Composer({
   onChange: (value: string) => void;
   onRemoveAttachment: (assetID: string) => void;
   onRemoveWorld: (worldID: string) => void;
-  onRemovePageContext: () => void;
+  onRemoveWorkFocus: () => void;
+  onRemoveWorkSurface: () => void;
   onSaveCodexConfiguration: (
     configuration: CodexConfiguration,
   ) => Promise<boolean>;
@@ -79,8 +83,10 @@ export function Composer({
   onUpload: (files: FileList | File[]) => void;
   opencodeConfiguration: OpencodeConfiguration;
   opencodeModels: OpencodeModel[];
-  pageContext: PageContext | null;
-  pageContextIncluded: boolean;
+  workFocus: WorkFocusContext | null;
+  workFocusIncluded: boolean;
+  workSurface: WorkSurfaceContext | null;
+  workSurfaceIncluded: boolean;
   projectID: string | null;
   runtime: Runtime;
   running: boolean;
@@ -160,8 +166,8 @@ export function Composer({
       onSubmit={onSend}
     >
       <div className="relative rounded-md border bg-popover px-3 py-2 shadow-[var(--shadow-overlay)]">
-        {attachments.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
+        {(attachments.length > 0 || worldReferences.length > 0 || (workSurface && workSurfaceIncluded) || (workFocus && workFocusIncluded && workSurface && workSurfaceIncluded)) && (
+          <div className="mb-2 flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {attachments.map((attachment) => (
               <AssetReferenceChip
                 apiBase={apiBase}
@@ -170,16 +176,15 @@ export function Composer({
                 reference={attachment}
               />
             ))}
-          </div>
-        )}
-        {worldReferences.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{worldReferences.map((world) => <button className="inline-flex h-7 max-w-60 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" key={world.worldId} onClick={() => onRemoveWorld(world.worldId)} title={interpolate(t("agent.composer.removeWorld"), { name: world.name })} type="button"><Globe2 className="size-3 text-primary" /><span className="truncate">{world.name}</span><X className="size-3 text-muted-foreground" /></button>)}</div>}
-        {pageContext && pageContextIncluded && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            <PageContextChip
-              onRemove={onRemovePageContext}
-              selection={pageContext.selection}
-              title={pageContext.title}
-            />
+            {worldReferences.map((world) => (
+              <button className="inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" key={world.worldId} onClick={() => onRemoveWorld(world.worldId)} title={interpolate(t("agent.composer.removeWorld"), { name: world.name })} type="button">
+                <Globe2 className="size-3 text-primary" />
+                <span className="truncate">{world.name}</span>
+                <X className="size-3 text-muted-foreground" />
+              </button>
+            ))}
+            {workSurface && workSurfaceIncluded && <WorkSurfaceChip onRemove={onRemoveWorkSurface} surface={workSurface} />}
+            {workFocus && workFocusIncluded && workSurface && workSurfaceIncluded && <WorkFocusChip focus={workFocus} onRemove={onRemoveWorkFocus} />}
           </div>
         )}
         <textarea
@@ -306,7 +311,7 @@ export function Composer({
                 (!content.trim() &&
                   !attachments.length &&
                   !worldReferences.length &&
-                  !(pageContext && pageContextIncluded))
+                  !(workSurface && workSurfaceIncluded))
               }
               title={
                 firstTurn
@@ -522,31 +527,25 @@ function ConfigurationChoices({
     </section>
   );
 }
-// PageContextChip mirrors the AssetReferenceChip visual so the auto-attached
-// current page reads identically to a media attachment chip in the composer and
-// the conversation history.
-export function PageContextChip({
+// WorkSurfaceChip mirrors the AssetReferenceChip visual, while naming the
+// concrete object the Agent will operate on instead of a vague current page.
+export function WorkSurfaceChip({
   onRemove,
-  selection,
-  title,
+  surface,
 }: {
   onRemove?: () => void;
-  selection?: string;
-  title: string;
+  surface: WorkSurfaceContext;
 }) {
   const { t } = useI18n();
-  const label = selection
-    ? interpolate(t("agent.composer.pageContextWithSelection"), { title, selection })
-    : interpolate(t("agent.composer.pageContext"), { title });
+  const label = interpolate(t("agent.composer.workSurface"), { title: surface.title });
+  const guidance = workSurfaceGuidance(surface, t);
   return (
-    <span className="group inline-flex h-7 max-w-60 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1 pr-1.5 text-[10px] text-foreground">
-      <FileText className="size-3.5 shrink-0 text-primary" />
-      <span className="truncate">
-        {label}
-      </span>
+    <span className="group inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" title={`${label} · ${guidance}`}>
+      <FileText className="size-3 shrink-0 text-primary" />
+      <span className="min-w-0 truncate">{label}</span>
       {onRemove && (
         <button
-          aria-label={interpolate(t("agent.composer.removePage"), { title })}
+          aria-label={interpolate(t("agent.composer.removeWorkSurface"), { title: surface.title })}
           className="ml-0.5 grid size-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground"
           onClick={onRemove}
           type="button"
@@ -554,6 +553,28 @@ export function PageContextChip({
           <X className="size-3" />
         </button>
       )}
+    </span>
+  );
+}
+
+function workSurfaceGuidance(surface: WorkSurfaceContext, t: (key: string) => string) {
+  if (surface.target?.kind === "project") return t("agent.composer.workSurfaceProject");
+  if (surface.target?.kind === "world") return t("agent.composer.workSurfaceWorld");
+  if (surface.target?.kind === "media_library") return t("agent.composer.workSurfaceMedia");
+  if (surface.target?.kind === "app_scope") return t("agent.composer.workSurfaceApp");
+  return t("agent.composer.workSurfaceBrowse");
+}
+
+export function WorkFocusChip({ focus, onRemove }: { focus: WorkFocusContext; onRemove?: () => void }) {
+  const { t } = useI18n();
+  const label = interpolate(t("agent.composer.workFocus"), { summary: focus.summary || focus.view || t("agent.composer.workFocusDefault") });
+  return (
+    <span className="group inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1 pr-1.5 text-[10px] text-foreground" title={label}>
+      <FileText className="size-3 shrink-0 text-primary" />
+      <span className="truncate">{label}</span>
+      {onRemove && <button aria-label={t("agent.composer.removeWorkFocus")} className="ml-0.5 grid size-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground" onClick={onRemove} type="button">
+        <X className="size-3" />
+      </button>}
     </span>
   );
 }

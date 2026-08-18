@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、持久化 CLI 定位缓存、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
- * [OUTPUT]: 对外提供 AgentManager、OpenCode 的实时 TUI 模型目录与连接重试状态、仅内存保留的 CLI stdout/stderr 调试流、缓存定位且失败刷新一次的 CLI 启动、以 --auto 无人值守运行的持久化 Turn、按序待发送队列、OpenCode 连续六分钟静默才取消的 watchdog、Codex 可重试连接状态与终态传输错误的区分、停止时原子取消当前批次并重置原生会话、服务重启后的中断 Turn 收敛、单连接池也可完成的会话详情读取、不含用户内容的生命周期审计、泛化的消息上下文（media/page/可扩展类型）注册与提示词/CLI 拼装、Codex MCP 别名的人可读动作标签，以及保留 OpenCode state.error 的工具输入/输出/失败态及时间戳的规范化事件
- * [POS]: service 的结构化 Agent 协议层；媒体二进制始终留在素材库，Turn 只持久化受验证的资产身份，会话不绑定任何项目，项目与 App 完全由 MCP 上下文工具发现
+ * [OUTPUT]: 对外提供 AgentManager、持久化 Turn、CLI 生命周期、调试事件，以及 Work Surface（经 Store 校验的目标策略）与完整 Work Focus 的提示词物化
+ * [POS]: service 的结构化 Agent 协议层；每个 Turn 固定自己的真实工作目标，Focus 不能脱离或改写该目标
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -602,11 +602,11 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string, inpu
 	return turn, nil
 }
 
-// defaultContextSource normalizes the optional source field: anything but
-// "page" or "app" falls back to an explicit user pick.
+// defaultContextSource normalizes the optional source field. Host is reserved
+// for platform-issued work surfaces; anything else falls back to a user pick.
 func defaultContextSource(source string) string {
 	switch source {
-	case "page", "app":
+	case "page", "app", "host":
 		return source
 	default:
 		return "user"
@@ -932,7 +932,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	if err != nil {
 		return err
 	}
-	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{TaskID: userTurn.TaskID})
+	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{TaskID: userTurn.TaskID, Runtime: "codex", Model: model, ReasoningEffort: effort})
 	if err != nil {
 		return err
 	}
@@ -1096,7 +1096,11 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	if err != nil {
 		return err
 	}
-	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{TaskID: userTurn.TaskID})
+	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{
+		TaskID:  userTurn.TaskID,
+		Runtime: "opencode",
+		Model:   model,
+	})
 	if err != nil {
 		return err
 	}
@@ -1298,13 +1302,148 @@ type contextMaterial struct {
 var contextMaterializers = map[string]func(m *AgentManager, payload json.RawMessage) (contextMaterial, error){
 	"media":           materializeMediaContext,
 	"page":            materializePageContext,
+	"work_surface":    materializeWorkSurfaceContext,
+	"work_focus":      materializeWorkFocusContext,
 	"creation_world":  materializeCreationWorldContext,
 	"creation_entity": materializeCreationEntityContext,
+}
+
+// workSurfaceContextPayload is the host-owned target binding for one turn.
+// Unlike legacy page context, title and URL are display data only: the target
+// ID is resolved again against Store before it reaches the native Agent.
+type workSurfaceContextPayload struct {
+	Version int    `json:"version"`
+	Surface string `json:"surface"`
+	Title   string `json:"title"`
+	Path    string `json:"path,omitempty"`
+	Target  struct {
+		Kind       string `json:"kind"`
+		ProjectID  string `json:"projectId,omitempty"`
+		AppID      string `json:"appId,omitempty"`
+		ScopeID    string `json:"scopeId,omitempty"`
+		WorldID    string `json:"worldId,omitempty"`
+		RevisionID string `json:"revisionId,omitempty"`
+	} `json:"target,omitempty"`
+	Policy struct {
+		DefaultIntent string            `json:"defaultIntent"`
+		RequiredSkill *workSurfaceSkill `json:"requiredSkill,omitempty"`
+	} `json:"policy"`
+}
+
+type workSurfaceSkill struct {
+	AppID   string `json:"appId"`
+	SkillID string `json:"skillId"`
+}
+
+func materializeWorkSurfaceContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var surface workSurfaceContextPayload
+	if err := json.Unmarshal(payload, &surface); err != nil {
+		return contextMaterial{}, err
+	}
+	if surface.Version != 1 || strings.TrimSpace(surface.Surface) == "" || strings.TrimSpace(surface.Title) == "" {
+		return contextMaterial{}, errors.New("work surface requires version, surface and title")
+	}
+	defaultIntent := surface.Policy.DefaultIntent
+	requiredSkill := surface.Policy.RequiredSkill
+	lines := []string{"<recut-work-surface version=\"1\">", "Current work surface: " + surface.Surface, "Title: " + surface.Title}
+	if surface.Path != "" {
+		lines = append(lines, "Route: "+surface.Path)
+	}
+	switch surface.Target.Kind {
+	case "project":
+		if surface.Target.ProjectID == "" {
+			return contextMaterial{}, errors.New("project work surface requires projectId")
+		}
+		project, err := m.store.Get(surface.Target.ProjectID)
+		if err != nil {
+			return contextMaterial{}, errors.New("work surface project is unavailable")
+		}
+		if surface.Target.AppID != "" && surface.Target.AppID != project.AppID {
+			return contextMaterial{}, errors.New("work surface project app does not match")
+		}
+		lines = append(lines, "Target: projectId="+project.ID+"; appId="+project.AppID)
+		if m.store.catalog != nil {
+			if app, ok := m.store.catalog.Get(project.AppID); ok && app.Manifest.AgentSurface != nil {
+				policy := app.Manifest.AgentSurface
+				defaultIntent = policy.DefaultIntent
+				if policy.RequiredSkill != "" {
+					requiredSkill = &workSurfaceSkill{AppID: project.AppID, SkillID: policy.RequiredSkill}
+				}
+				if policy.Domain == "timeline-editor" {
+					lines = append(lines, "Interpret HTML, React, R3F, shader, component, and animation as timeline visual-component work. Interpret 'bottom' as the video canvas lower safe area.")
+				}
+			}
+		}
+	case "world":
+		if surface.Target.WorldID == "" {
+			return contextMaterial{}, errors.New("world work surface requires worldId")
+		}
+		world, err := NewWorldStore(m.store, m.media).GetWorld(surface.Target.WorldID)
+		if err != nil {
+			return contextMaterial{}, errors.New("work surface world is unavailable")
+		}
+		lines = append(lines, "Target: worldId="+world.ID+"; revisionId="+world.CurrentRevisionID)
+	case "app_scope":
+		if surface.Target.AppID == "" || surface.Target.ScopeID == "" {
+			return contextMaterial{}, errors.New("app scope work surface requires appId and scopeId")
+		}
+		lines = append(lines, "Target: appId="+surface.Target.AppID+"; scopeId="+surface.Target.ScopeID)
+	case "media_library", "app", "":
+		// These surfaces are intentionally not writable targets. Their host-owned
+		// policy is still useful to the Agent, but they do not grant a project.
+	default:
+		return contextMaterial{}, errors.New("unsupported work surface target")
+	}
+	if defaultIntent != "" {
+		lines = append(lines, "Default intent: "+defaultIntent+".")
+	}
+	if skill := requiredSkill; skill != nil && skill.AppID != "" && skill.SkillID != "" {
+		lines = append(lines, "Relevant App skill: appId="+skill.AppID+"; skillId="+skill.SkillID+".")
+	}
+	lines = append(lines, "</recut-work-surface>")
+	return contextMaterial{Label: surface.Title, Kind: "work_surface", Text: strings.Join(lines, "\n")}, nil
+}
+
+// materializeWorkFocusContext deliberately preserves the complete structured
+// selection snapshot. The host has already bound it to a work surface; this
+// materializer only checks its envelope and makes it a separate controlled
+// prompt section instead of flattening it into a lossy title string.
+func materializeWorkFocusContext(_ *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var focus struct {
+		Version   int    `json:"version"`
+		View      string `json:"view,omitempty"`
+		Selection any    `json:"selection,omitempty"`
+		Cursor    any    `json:"cursor,omitempty"`
+		State     any    `json:"state,omitempty"`
+		Summary   string `json:"summary,omitempty"`
+	}
+	if err := json.Unmarshal(payload, &focus); err != nil {
+		return contextMaterial{}, err
+	}
+	if focus.Version != 1 || (focus.Selection == nil && focus.State == nil && focus.View == "" && focus.Summary == "") {
+		return contextMaterial{}, errors.New("work focus requires version and state")
+	}
+	pretty, err := json.MarshalIndent(focus, "", "  ")
+	if err != nil {
+		return contextMaterial{}, err
+	}
+	return contextMaterial{Label: focus.Summary, Kind: "work_focus", Text: "<recut-work-focus>\n" + string(pretty) + "\n</recut-work-focus>"}, nil
 }
 
 func (m *AgentManager) contextMaterials(contexts []ChatContext) ([]contextMaterial, error) {
 	if len(contexts) == 0 {
 		return nil, nil
+	}
+	hasSurface := false
+	for _, context := range contexts {
+		if context.Type == "work_surface" {
+			hasSurface = true
+		}
+	}
+	for _, context := range contexts {
+		if context.Type == "work_focus" && !hasSurface {
+			return nil, errors.New("work focus requires a work surface")
+		}
 	}
 	materials := make([]contextMaterial, 0, len(contexts))
 	for _, context := range contexts {
@@ -1724,11 +1863,7 @@ func toolResultFailed(value any) bool {
 	}
 }
 
-func toolLabel(kind, name string, item map[string]any) string {
-	if kind != "mcp_tool_call" || name == "" {
-		return map[string]string{"command_execution": "运行命令", "file_change": "修改文件", "mcp_tool_call": "MCP 工具调用", "web_search": "搜索网络"}[kind] + toolLabelSuffix(name)
-	}
-	labels := map[string]string{
+var mcpToolLabels = map[string]string{
 		"recut.context":                             "读取 Recut 上下文",
 		"recut.apps.list":                           "读取已安装应用",
 		"recut.apps.store":                          "浏览应用商店",

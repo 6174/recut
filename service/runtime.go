@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 manifest、Store 的目标命名空间与 App 全局状态、MediaService 与 goja JavaScript 运行时
- * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、受控项目封面设置、流式私有媒体导入、ASR 转写 bundle（源声音 + SRT + JSON）导入，以及按 surface 执行 App background.js 的统一 operation handler
+ * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、受控项目封面设置、流式私有媒体导入、ASR 转写 bundle（源声音 + SRT + JSON）导入，以及按 surface 有序执行 App background.js/backgroundModules 的统一 operation handler
  * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用 manifest 明示的 recut API；平台表一律不进入 ctx.sqlite / ctx.appState
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -127,12 +127,15 @@ func (h *AppHost) invoke(target Target, app App, group, name string, input map[s
 	if err := runtime.Set("recut", recut); err != nil {
 		return nil, err
 	}
-	script, err := os.ReadFile(filepath.Join(app.Root, app.Manifest.Background))
-	if err != nil {
-		return nil, err
-	}
-	if _, err := runtime.RunScript(app.Manifest.Background, string(script)); err != nil {
-		return nil, fmt.Errorf("run App background: %w", err)
+	backgrounds := append([]string{app.Manifest.Background}, app.Manifest.BackgroundModules...)
+	for _, background := range backgrounds {
+		script, err := os.ReadFile(filepath.Join(app.Root, background))
+		if err != nil {
+			return nil, fmt.Errorf("read App background %q: %w", background, err)
+		}
+		if _, err := runtime.RunScript(background, string(script)); err != nil {
+			return nil, fmt.Errorf("run App background %q: %w", background, err)
+		}
 	}
 	handler, ok := handlers[group+":"+name]
 	if !ok {
@@ -1254,6 +1257,16 @@ func declaresOperation(manifest Manifest, name, surface string) bool {
 			if allowed == surface {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// operationIsSubAgent 报告 manifest 中某 operation 是否声明为受限子 Agent 运行。
+func operationIsSubAgent(manifest Manifest, name string) bool {
+	for _, operation := range manifest.Operations {
+		if operation.Name == name && operation.SubAgent {
+			return true
 		}
 	}
 	return false

@@ -15,7 +15,8 @@ appstore/: `/appstore` 到 `/apps` 的兼容深链；App 的主入口是 `/apps`
 workspace-app/: 工作区型 App 的独立工作台路由；为 standaloneView 建立不显示在项目桌面的稳定 App scope，复用 iframe 宿主与根布局全局挂载的 Agent 面板，但没有项目创建或项目名称。
 projects/: `/projects` 独立项目桌面与单个项目详情的路由边界。
 projects/[id]/page.tsx: 项目详情的服务端路由壳；只导出静态站需要的占位参数并挂载客户端容器，不能使用浏览器 API，避免客户端组件导出 `generateStaticParams`。
-projects/[id]/project-detail-client.tsx: 固定桌面项目详情客户端容器；从真实路径（兼容旧查询串）读取项目 ID，Header 右侧复用 service 状态、全局设置与项目 App 版本升级入口；右侧全高 iframe 承载 App UI，左侧的 Agent 对话栏由根布局全局挂载（可拖拽调宽、持久化宽度），本页只经 context 声明项目 scope、当前页面上下文与回填草稿，并转发项目事件与 iframe 请求；App 经 `page.context` 宿主消息上报更具体的当前编辑页上下文；App API 的结构化失败原因必须透传到 iframe。
+projects/[id]/project-detail-client.tsx: 固定桌面项目详情客户端容器；从真实项目与 manifest 签发 Work Surface，iframe `focus.report` 只追加局部 Focus，绝不覆盖 projectId/appId；同时承载 App UI、项目事件、素材桥与草稿回填。
+Agent 工作面: 顶级 Tab 签发 workspace/media-library Work Surface；项目、World 与 standalone App 子路由签发带稳定 ID 的工作面，当前选区作为独立 Focus 随本次 Turn 发送。
 globals.css: 工作台的全局设计 token：白色画布、黑色内容、明亮品牌绿操作，以及状态色、低圆角、阴影与基础排版；小屏下工作台退化为单栏，Agent 仅保留在桌面工作面。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

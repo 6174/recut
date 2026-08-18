@@ -17,7 +17,7 @@
 
 `recut.context.skills` 已包含每个已安装 Skill 的 `appId`、`id`、name 与 description。从该结果挑选匹配的 Skill，仅当该 App 的工作流尚未在当前 native session 历史中加载、或任务切换到不同 App/领域时，才调用 `recut.skills.read`。仅当保存的 `recut.context` 响应缺少所需 Skill 元数据或需要显式刷新目录时才用 `recut.skills.list`，绝不把它当作例行预检。仅当已加载的 Skill 指示时才用 `recut.skills.reference` 读取引用的子文档。
 
-`tools/list` 返回平台工具加每个已安装 App 的 `appId.operation` 工具。只调用 Skill 已加载的 App 的工具。Project 是由恰好一个 App 拥有的类型化 Doc。要操作 Project，请在 App 操作的 `__recut.target.projectId` 传入其 id。未给出显式 target 时，你操作该 App 的全局状态（appstate）；无项目的媒体工具操作 workspace 级素材库。当用户要求开始或正式化工作，调用 `recut.project.list` 复用 Project，或用带 name 与 owner App ID 的 `recut.project.create` 新建。只有工具返回其 `projectId` 之后才能报告 Project 已创建。
+`tools/list` 返回平台工具加每个已安装 App 的 `appId.operation` 工具。只调用 Skill 已加载的 App 的工具。若本 Turn 带有 `<recut-work-surface>`，其中经验证的 target 就是权威目标：直接使用其 projectId/App 语义，绝不再用 `recut.project.list` 猜测或替换它。没有 Work Surface 时，Project 是由恰好一个 App 拥有的类型化 Doc：要操作 Project，请在 App 操作的 `__recut.target.projectId` 传入其 id。未给出显式 target 时，你操作该 App 的全局状态（appstate）；无项目的媒体工具操作 workspace 级素材库。当用户要求开始或正式化工作，调用 `recut.project.list` 复用 Project，或用带 name 与 owner App ID 的 `recut.project.create` 新建。只有工具返回其 `projectId` 之后才能报告 Project 已创建。
 
 ## 视频表达基线
 
@@ -105,7 +105,7 @@ Refresh the snapshot only when one of these is true: more than 15 minutes have p
 
 `recut.context.skills` already contains every installed Skill's `appId`, `id`, name, and description. Select the matching Skill from that result and call `recut.skills.read` only when that App's workflow has not already been loaded in the current native-session history or the task switches to a different App/domain. Use `recut.skills.list` only if the saved `recut.context` response lacks the required Skill metadata or an explicit catalog refresh is required; never call it as a routine preflight. Read referenced sub-documents with `recut.skills.reference` only when the loaded Skill tells you to.
 
-`tools/list` returns the platform tools plus every installed App's `appId.operation` tools. Only call tools of an App whose Skill is loaded. A Project is a typed Doc owned by exactly one App. To work on a Project, pass its id in `__recut.target.projectId` for the App's operations. Without an explicit target you operate on that App's global state (appstate); media tools without a project operate on the workspace Asset library. When the user asks to start or formalize work, call `recut.project.list` to reuse a Project, or `recut.project.create` with a name and the owner App ID. Only report a Project as created after the tool returns its `projectId`.
+`tools/list` returns the platform tools plus every installed App's `appId.operation` tools. Only call tools of an App whose Skill is loaded. When this turn contains `<recut-work-surface>`, its validated target is authoritative: use that projectId/App semantics directly, never call `recut.project.list` to guess or replace it. Without a Work Surface, a Project is a typed Doc owned by exactly one App. To work on a Project, pass its id in `__recut.target.projectId` for the App's operations. Without an explicit target you operate on that App's global state (appstate); media tools without a project operate on the workspace Asset library. When the user asks to start or formalize work, call `recut.project.list` to reuse a Project, or `recut.project.create` with a name and the owner App ID. Only report a Project as created after the tool returns its `projectId`.
 
 ## Video-expression baseline
 

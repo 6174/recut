@@ -36,7 +36,7 @@ const (
 
 const atlasPollingDiagnosticPrefix = "Atlas Cloud reconciliation retry"
 
-const assetColumns = `id, kind, name, mime_type, size_bytes, content_hash, origin, parent_id, status, job_id, remote_id, error, metadata_json, created_at, updated_at`
+const assetColumns = `id, kind, name, mime_type, size_bytes, content_hash, origin, parent_id, status, job_id, remote_id, error, metadata_json, created_at, updated_at, deleted_at`
 
 // MediaAssetEvent is a durable cursor entry. The SSE server reads the current
 // Asset by ID after commit, so separate MCP and daemon processes share one
@@ -203,9 +203,9 @@ func (m *MediaService) RenameAsset(id, name string) (MediaAsset, error) {
 	return m.GetAsset(id)
 }
 
-// DeleteAsset removes the Asset record and every platform reference to it. The
-// content-addressed files are deliberately retained because several records
-// can share bytes; a later garbage collector may reclaim unreferenced blobs.
+// DeleteAsset preserves a metadata tombstone for every existing reference.
+// Timeline clips and project bindings must keep resolving to an explicit
+// deleted Asset instead of becoming indistinguishable from corrupt data.
 func (m *MediaService) DeleteAsset(id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -224,36 +224,55 @@ func (m *MediaService) DeleteAsset(id string) error {
 	if err != nil {
 		return err
 	}
+	now := time.Now().UTC()
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	for _, query := range []string{
-		"delete from project_covers where asset_id = ?",
-		"update worlds set cover_asset_id = null where cover_asset_id = ?",
-		"delete from media_asset_projects where asset_id = ?",
-		"update world_asset_refs set evidence_status = 'archived', archived_at = ? where asset_id = ? and archived_at is null",
-		"delete from agent_turn_attachments where asset_id = ?",
-		"delete from media_assets where id = ?",
-	} {
-		args := []any{id}
-		if strings.Contains(query, "archived_at = ?") {
-			args = []any{time.Now().UTC().Format(time.RFC3339Nano), id}
-		}
-		if _, err := tx.Exec(query, args...); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
+	if asset.Status == "deleted" {
+		_ = tx.Rollback()
+		return nil
 	}
-	if err := recordAssetEvent(tx, id, time.Now().UTC()); err != nil {
+	if _, err := tx.Exec(
+		"update media_assets set status = 'deleted', deleted_at = ?, updated_at = ? where id = ?",
+		now.Format(time.RFC3339Nano),
+		now.Format(time.RFC3339Nano),
+		id,
+	); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := recordAssetEvent(tx, id, now); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	m.removeContentIfUnreferenced(asset)
 	m.publishAssetChange()
 	return nil
+}
+
+func (m *MediaService) removeContentIfUnreferenced(asset MediaAsset) {
+	path, _ := asset.Metadata["path"].(string)
+	if path == "" || asset.ContentHash == "" {
+		return
+	}
+	db, err := m.database()
+	if err != nil {
+		return
+	}
+	var retained int
+	if err := db.QueryRow(
+		"select count(*) from media_assets where content_hash = ? and status = 'completed'",
+		asset.ContentHash,
+	).Scan(&retained); err != nil || retained != 0 {
+		return
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		log.Printf("remove deleted media content %s: %v", asset.ID, err)
+	}
 }
 
 func (m *MediaService) getAsset(id string) (MediaAsset, error) {
@@ -271,8 +290,8 @@ type mediaScanner interface{ Scan(...any) error }
 // so it is safe to call while the source *sql.Rows is still open.
 func scanAssetRow(row mediaScanner) (MediaAsset, error) {
 	var asset MediaAsset
-	var metadataJSON, created, updated string
-	if err := row.Scan(&asset.ID, &asset.Kind, &asset.Name, &asset.MimeType, &asset.SizeBytes, &asset.ContentHash, &asset.Origin, &asset.ParentID, &asset.Status, &asset.JobID, &asset.RemoteID, &asset.Error, &metadataJSON, &created, &updated); err != nil {
+	var metadataJSON, created, updated, deleted string
+	if err := row.Scan(&asset.ID, &asset.Kind, &asset.Name, &asset.MimeType, &asset.SizeBytes, &asset.ContentHash, &asset.Origin, &asset.ParentID, &asset.Status, &asset.JobID, &asset.RemoteID, &asset.Error, &metadataJSON, &created, &updated, &deleted); err != nil {
 		return MediaAsset{}, err
 	}
 	// Lifecycle fields were introduced after existing workspaces already held
@@ -286,6 +305,11 @@ func scanAssetRow(row mediaScanner) (MediaAsset, error) {
 	asset.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
 	if asset.UpdatedAt.IsZero() {
 		asset.UpdatedAt = asset.CreatedAt
+	}
+	if deleted != "" {
+		if deletedAt, err := time.Parse(time.RFC3339Nano, deleted); err == nil {
+			asset.DeletedAt = &deletedAt
+		}
 	}
 	return asset, nil
 }
@@ -322,8 +346,12 @@ func (m *MediaService) Attach(assetID, projectID string) error {
 	if _, err := projectExists(m.store, projectID); err != nil {
 		return err
 	}
-	if _, err := m.GetAsset(assetID); err != nil {
+	asset, err := m.GetAsset(assetID)
+	if err != nil {
 		return err
+	}
+	if asset.Status == "deleted" {
+		return errors.New("deleted media cannot be attached")
 	}
 	db, err := m.database()
 	if err != nil {
@@ -379,7 +407,7 @@ func (m *MediaService) CreateReferenceAsset(input ReferenceAssetInput) (MediaAss
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	existing, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where content_hash = ?", contentHash))
+	existing, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where content_hash = ? and status = 'completed'", contentHash))
 	if err == nil {
 		return m.fillReferenceAsset(existing, input, db)
 	}

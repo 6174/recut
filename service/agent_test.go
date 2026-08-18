@@ -50,6 +50,44 @@ func TestMaterializePageContextRendersStructuredPage(t *testing.T) {
 	}
 }
 
+func TestWorkSurfaceBindsRealProjectAndPreservesFullFocus(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("insert into projects (id, name, app_id, app_version, format_version, created_at) values (?, ?, ?, ?, ?, ?)", "project-1", "剪辑试片", "recut.editor", "0.1.3", formatVersion, iso(time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewAgentManager(store, nil, nil)
+	surface := json.RawMessage(`{"version":1,"surface":"project","title":"伪造标题不影响目标","path":"/projects/project-1","target":{"kind":"project","projectId":"project-1","appId":"recut.editor"},"policy":{"defaultIntent":"project_edit","requiredSkill":{"appId":"recut.editor","skillId":"recut-editor"}}}`)
+	material, err := materializeWorkSurfaceContext(manager, surface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"<recut-work-surface", "projectId=project-1", "appId=recut.editor", "Relevant App skill"} {
+		if !strings.Contains(material.Text, expected) {
+			t.Fatalf("work surface missing %q: %s", expected, material.Text)
+		}
+	}
+	focus := json.RawMessage(`{"version":1,"view":"timeline","selection":{"refs":[{"kind":"timeline_element","id":"el-1"}],"state":{"selectedElements":[{"id":"el-1","params":{"text":"完整状态"},"keyframes":[{"atSec":1.2}]}]}},"cursor":{"kind":"time","seconds":12.4},"state":{"canvas":{"width":2028,"height":2160}}}`)
+	focusMaterial, err := materializeWorkFocusContext(manager, focus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"<recut-work-focus>", "完整状态", "2028", "12.4"} {
+		if !strings.Contains(focusMaterial.Text, expected) {
+			t.Fatalf("work focus missing %q: %s", expected, focusMaterial.Text)
+		}
+	}
+	if _, err := manager.contextMaterials([]ChatContext{{Type: "work_focus", Payload: map[string]any{"version": 1, "view": "timeline"}}}); err == nil {
+		t.Fatal("work focus without work surface was accepted")
+	}
+}
+
 func TestContextPromptGroupsMediaAndPage(t *testing.T) {
 	media := contextMaterial{Kind: "media", Label: "shot.png", Text: "- assetId=a1；name=shot.png"}
 	page := contextMaterial{Kind: "page", Label: "素材库", Text: "[当前页面] 标题=素材库"}
@@ -77,7 +115,7 @@ func TestTurnTitleFallbackDistinguishesMediaFromPageContexts(t *testing.T) {
 }
 
 func TestDefaultContextSourceNormalizesSource(t *testing.T) {
-	for source, want := range map[string]string{"": "user", "user": "user", "page": "page", "app": "app", "other": "user"} {
+	for source, want := range map[string]string{"": "user", "user": "user", "page": "page", "app": "app", "host": "host", "other": "user"} {
 		if got := defaultContextSource(source); got != want {
 			t.Fatalf("defaultContextSource(%q) = %q, want %q", source, got, want)
 		}

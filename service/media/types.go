@@ -87,6 +87,7 @@ type MediaAsset struct {
 	ProjectIDs  []string       `json:"projectIds"`
 	ParentID    string         `json:"parentId,omitempty"`
 	Metadata    map[string]any `json:"metadata"`
+	DeletedAt   *time.Time     `json:"deletedAt,omitempty"`
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
 }

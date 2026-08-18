@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Agent runtime 与素材引用类型
- * [OUTPUT]: 对外提供 Agent 会话、Turn、事件、配置、泛化的消息上下文（MessageContext：media/page/未来类型）、保留原始信息的可复制会话调试报告与面板 Props（含宿主回填、不自动提交的草稿与当前页面上下文）的共享类型及默认配置
- * [POS]: components Agent 对话模块的唯一数据契约；被面板控制器、会话视图与输入区共同消费
+ * [OUTPUT]: 对外提供 Agent 会话、Turn、配置以及 Work Surface（宿主目标）/Work Focus（完整选区）消息上下文、可复制会话调试报告与面板 Props
+ * [POS]: components Agent 对话模块的唯一数据契约；iframe 只能补充 Focus，不能覆盖宿主签发的目标
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { Runtime } from "@/components/agent-install-guide";
@@ -51,15 +51,45 @@ export type UploadedAsset = {
   status: string;
 };
 
-// PageContext is the structured description of the page the user was on when
-// sending a message. Native pages report a title and path; App iframes may add
-// selection and content for the currently edited element.
-export type PageContext = {
+// WorkSurfaceContext is host-owned, stable context for the page from which a
+// turn starts. It binds the real object the user is working on; an iframe may
+// only augment it with WorkFocusContext and must never replace its target.
+export type WorkSurfaceContext = {
+  version: 1;
+  surface: "workspace" | "media_library" | "project" | "standalone_app" | "world" | "app_detail";
   title: string;
   path?: string;
   url?: string;
-  selection?: string;
-  content?: string;
+  target?:
+    | { kind: "project"; projectId: string; appId: string; appName: string; appKind: "project" }
+    | { kind: "app_scope"; appId: string; scopeId: string; appName: string; appKind: "standalone" }
+    | { kind: "world"; worldId: string; revisionId?: string; name: string }
+    | { kind: "media_library"; scope: "workspace" | "project"; projectId?: string }
+    | { kind: "app"; appId: string; appName: string };
+  policy: {
+    defaultIntent: "browse" | "create" | "project_edit" | "world_review" | "media_manage";
+    requiredSkill?: { appId: string; skillId: string };
+  };
+};
+
+export type ContextRef =
+  | { kind: "timeline_element"; id: string }
+  | { kind: "timeline_track"; id: string }
+  | { kind: "component"; id: string }
+  | { kind: "asset"; id: string }
+  | { kind: "world_entity"; id: string }
+  | { kind: "world_evidence"; id: string };
+
+// WorkFocusContext is app-owned, ephemeral state. State intentionally carries
+// the complete user-visible selection snapshot so the Agent does not re-read
+// the same object merely to reconstruct what the user has selected.
+export type WorkFocusContext = {
+  version: 1;
+  view?: string;
+  selection?: { refs: ContextRef[]; primaryRef?: ContextRef; state: Record<string, unknown> };
+  cursor?: { kind: "time"; seconds: number } | { kind: "none" };
+  state?: Record<string, unknown>;
+  summary?: string;
 };
 
 // MessageContext is the generic wire form of one typed context item mounted on
@@ -78,28 +108,41 @@ export function mediaContextPayload(assetId: string): MessageContext {
 export function creationWorldContextPayload(worldId: string): MessageContext {
   return { type: "creation_world", source: "user", payload: { worldId } };
 }
-export function pageContextPayload(context: PageContext): MessageContext {
-  return { type: "page", source: "page", payload: { ...context } };
+export function workSurfaceContextPayload(context: WorkSurfaceContext): MessageContext {
+  return { type: "work_surface", source: "host", payload: { ...context } };
 }
-export function normalizePageContext(value: unknown): PageContext | null {
+export function workFocusContextPayload(context: WorkFocusContext): MessageContext {
+  return { type: "work_focus", source: "app", payload: { ...context } };
+}
+export function normalizeWorkFocus(value: unknown): WorkFocusContext | null {
   if (!value || typeof value !== "object") return null;
   const input = value as Record<string, unknown>;
-  const title = typeof input.title === "string" ? input.title.trim() : "";
-  if (!title) return null;
-  const stringField = (key: string) =>
-    typeof input[key] === "string" && input[key].trim() ? input[key] : undefined;
-  return {
-    title,
-    path: stringField("path"),
-    url: stringField("url"),
-    selection: stringField("selection"),
-    content: stringField("content"),
-  };
+  const refs = Array.isArray(input.selection) ? input.selection : null;
+  const selection = refs
+    ? { refs: refs.filter(isContextRef), state: objectField(input.selectionState) }
+    : undefined;
+  const state = objectField(input.state);
+  const view = stringField(input.view);
+  const summary = stringField(input.summary) ?? stringField(input.selection);
+  const legacyContent = stringField(input.content);
+  if (!selection && !state && !view && !summary && !legacyContent) return null;
+  return { version: 1, view, selection, state: legacyContent ? { ...state, legacyContent } : state, summary };
+}
+function objectField(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+function isContextRef(value: unknown): value is ContextRef {
+  if (!value || typeof value !== "object") return false;
+  const ref = value as Record<string, unknown>;
+  return typeof ref.id === "string" && typeof ref.kind === "string" && ["timeline_element", "timeline_track", "component", "asset", "world_entity", "world_evidence"].includes(ref.kind);
 }
 export function contextLabel(context: MessageContext): string {
   if (context.type === "media")
     return String(context.payload.name ?? context.payload.assetId ?? "素材");
-  if (context.type === "page")
+  if (context.type === "work_surface")
     return String(context.payload.title ?? "当前页面");
   return context.type;
 }
@@ -145,7 +188,7 @@ export type Detail = Session & {
   events: AgentEvent[];
   lastEventId: number;
 };
-export type Props = { apiBase: string; servicePhase: "checking" | "online" | "offline"; projectID: string | null; draft?: { id: string; text: string } | null; pageContext?: PageContext | null };
+export type Props = { apiBase: string; servicePhase: "checking" | "online" | "offline"; projectID: string | null; draft?: { id: string; text: string } | null; workSurface?: WorkSurfaceContext | null; workFocus?: WorkFocusContext | null };
 
 type SessionDebugReportInput = {
   apiBase: string;

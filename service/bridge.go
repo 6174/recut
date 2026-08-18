@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Store 的工作区身份、全局 Agent guide 模板与标准库文件系统能力
- * [OUTPUT]: 对外提供 AgentBridge、AgentSession、按会话独立的工作区物化（全局 guide + 三 CLI 的 MCP 配置）、OpenCode 外部目录权限与鉴权
- * [POS]: service 的 Agent 会话边界；会话不绑定项目，bridge session 仅携带 Task ID，CLI 从中立会话工作区运行
+ * [OUTPUT]: 对外提供 AgentBridge、会话独立工作区、CLI MCP 配置、鉴权与同模型 Component Author 的配置继承
+ * [POS]: service 的 native Agent 会话边界；会话不绑定项目，CLI 从中立会话工作区运行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -27,24 +27,42 @@ var coreAgentsTemplate string
 var bridgeInstructions string
 
 type AgentSession struct {
-	ID        string    `json:"id"`
-	TaskID    string    `json:"taskId,omitempty"`
-	TokenHash string    `json:"tokenHash"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID              string    `json:"id"`
+	TaskID          string    `json:"taskId,omitempty"`
+	Runtime         string    `json:"-"`
+	Model           string    `json:"-"`
+	ReasoningEffort string    `json:"-"`
+	AllowedTools    []string  `json:"allowedTools,omitempty"`
+	ProjectID       string    `json:"projectId,omitempty"`
+	AppID           string    `json:"appId,omitempty"`
+	// Focused 是 App 声明的聚焦上下文（不透明 map），平台只透传，App 的受限工具消费它。
+	Focused    map[string]any `json:"-"`
+	TokenHash  string         `json:"tokenHash"`
+	CreatedAt  time.Time      `json:"createdAt"`
 }
 
 // SessionContext carries the Task identity for one CLI execution. A session
 // never binds to a Project or App: the model discovers both exclusively through
 // MCP context tools and passes explicit targets.
 type SessionContext struct {
-	TaskID string
+	TaskID          string
+	Runtime         string
+	Model           string
+	ReasoningEffort string
+	AllowedTools    []string
+	Target          Target
+	Focused         map[string]any
 }
 
 type AgentBridge struct {
-	mu            sync.Mutex
-	store         *Store
-	sessions      map[string]AgentSession
-	designSystems *DesignSystemManager
+	mu             sync.Mutex
+	store          *Store
+	sessions       map[string]AgentSession
+	agentToolCalls map[string][]agentToolCall
+	agentJobs      map[string]*AgentJob
+	designSystems  *DesignSystemManager
+	mcpTarget      string
+	mcpExecutable  string
 }
 
 const opencodeMCPTimeoutMilliseconds = 5 * 60 * 1000
@@ -60,13 +78,36 @@ type bridgeRecord struct {
 }
 
 func NewAgentBridge(store *Store) *AgentBridge {
-	return &AgentBridge{store: store, sessions: map[string]AgentSession{}}
+	return &AgentBridge{store: store, sessions: map[string]AgentSession{}, agentToolCalls: map[string][]agentToolCall{}, agentJobs: map[string]*AgentJob{}, mcpTarget: defaultMCPTarget}
 }
 
 func (b *AgentBridge) SetDesignSystemManager(manager *DesignSystemManager) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.designSystems = manager
+}
+
+// SetMCPForwarder is a test seam for isolated daemon instances. Production
+// keeps the default loopback endpoint and its own executable.
+func (b *AgentBridge) SetMCPForwarder(target, executable string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if target != "" {
+		b.mcpTarget = target
+	}
+	b.mcpExecutable = executable
+}
+
+func (b *AgentBridge) mcpForwarder(executable string) (string, string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.mcpTarget == "" {
+		b.mcpTarget = defaultMCPTarget
+	}
+	if b.mcpExecutable != "" {
+		executable = b.mcpExecutable
+	}
+	return b.mcpTarget, executable
 }
 
 func (b *AgentBridge) CreateSession(ctx SessionContext) (AgentSession, string, error) {
@@ -78,7 +119,7 @@ func (b *AgentBridge) CreateSession(ctx SessionContext) (AgentSession, string, e
 	if err != nil {
 		return AgentSession{}, "", err
 	}
-	session := AgentSession{ID: id, TaskID: ctx.TaskID, TokenHash: hashToken(token), CreatedAt: time.Now().UTC()}
+	session := AgentSession{ID: id, TaskID: ctx.TaskID, Runtime: ctx.Runtime, Model: ctx.Model, ReasoningEffort: ctx.ReasoningEffort, AllowedTools: append([]string(nil), ctx.AllowedTools...), ProjectID: ctx.Target.ProjectID, AppID: ctx.Target.AppID, Focused: cloneJSONMap(ctx.Focused), TokenHash: hashToken(token), CreatedAt: time.Now().UTC()}
 	workspace := b.store.SessionWorkspaceDir(session.ID)
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		return AgentSession{}, "", err
@@ -90,6 +131,48 @@ func (b *AgentBridge) CreateSession(ctx SessionContext) (AgentSession, string, e
 	b.sessions[session.ID] = session
 	b.mu.Unlock()
 	return session, token, nil
+}
+
+func (s AgentSession) AllowsTool(name string) bool {
+	if len(s.AllowedTools) == 0 {
+		return true
+	}
+	for _, allowed := range s.AllowedTools {
+		if name == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// SessionTarget 返回聚焦会话绑定的项目目标（App 声明）；无则 ok=false。
+func (s AgentSession) SessionTarget() (Target, bool) {
+	if s.ProjectID == "" || s.AppID == "" {
+		return Target{}, false
+	}
+	return Target{ProjectID: s.ProjectID, AppID: s.AppID}, true
+}
+
+// agentToolCall 是受限子 Agent 的一次工具调用的结构化结果（按工具名收集，通用）。
+type agentToolCall struct {
+	Name   string         `json:"name"`
+	Result map[string]any `json:"result"`
+}
+
+// RecordAgentToolCall 记录受限子 Agent 会话中某次受限工具调用的结构化结果。
+func (b *AgentBridge) RecordAgentToolCall(sessionID, name string, result map[string]any) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.agentToolCalls[sessionID] = append(b.agentToolCalls[sessionID], agentToolCall{Name: name, Result: result})
+}
+
+// AgentToolCalls 取走受限子 Agent 会话的全部工具调用结果（读取即清空）。
+func (b *AgentBridge) AgentToolCalls(sessionID string) ([]agentToolCall, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	calls, ok := b.agentToolCalls[sessionID]
+	delete(b.agentToolCalls, sessionID)
+	return calls, ok
 }
 
 func (b *AgentBridge) WorkspaceDir(session AgentSession) string {
@@ -110,6 +193,20 @@ func (b *AgentBridge) MaterializeCodexWorkspace(session AgentSession, token, exe
 // workspace and reuses it for every later turn of the same native session.
 func (b *AgentBridge) MaterializeCodexWorkspaceTo(dir string, session AgentSession, token, executable string) (string, error) {
 	return b.materializeCodexWorkspace(dir, session, token, executable)
+}
+
+// ComponentAuthorMCPOverrides puts the focused server on the Codex command
+// line, which has precedence over user and Desktop configuration. The normal
+// Recut server is explicitly disabled so a child cannot inherit the parent
+// Agent's broad tool surface.
+func (b *AgentBridge) ComponentAuthorMCPOverrides(session AgentSession, token, executable string) []string {
+	target, executable := b.mcpForwarder(executable)
+	return []string{
+		"--config", "mcp_servers.recut.enabled=false",
+		"--config", fmt.Sprintf("mcp_servers.component_author.command=%q", executable),
+		"--config", fmt.Sprintf("mcp_servers.component_author.args=[%q, %q, %q]", "--mcp", "--mcp-target", target),
+		"--config", fmt.Sprintf("mcp_servers.component_author.env={RECUT_AGENT_SESSION=%q, RECUT_AGENT_TOKEN=%q}", session.ID, token),
+	}
 }
 
 func (b *AgentBridge) materializeCodexWorkspace(dir string, session AgentSession, token, executable string) (string, error) {

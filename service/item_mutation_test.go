@@ -64,7 +64,8 @@ func TestMediaAssetRenameAndDelete(t *testing.T) {
 	if err := media.DeleteAsset(asset.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := media.GetAsset(asset.ID); err == nil {
-		t.Fatal("deleted asset is still readable")
+	deleted, err := media.GetAsset(asset.ID)
+	if err != nil || deleted.Status != "deleted" || deleted.DeletedAt == nil {
+		t.Fatalf("deleted asset tombstone = %#v, %v", deleted, err)
 	}
 }

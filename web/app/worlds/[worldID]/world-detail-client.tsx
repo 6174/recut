@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PlatformMediaPicker } from "@/components/platform-media-picker";
-import { useReportPageContext } from "@/lib/agent-panel-context";
+import { useAgentPanelContext, useReportWorkSurface } from "@/lib/agent-panel-context";
 import {
   createRecutWorldsClient,
   type EntityKind,
@@ -60,15 +60,25 @@ function WorldDetailContent() {
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
 
-  useReportPageContext(
+  useReportWorkSurface(
     useMemo(
       () =>
         detail && worldID
-          ? { title: detail.name, path: `/worlds/${worldID}` }
-          : { title: "Worlds", path: "/worlds" },
+          ? { version: 1 as const, surface: "world" as const, title: detail.name, path: `/worlds/${worldID}`, target: { kind: "world" as const, worldId, revisionId: detail.revision.id, name: detail.name }, policy: { defaultIntent: "world_review" as const } }
+          : { version: 1 as const, surface: "workspace" as const, title: "Worlds", path: "/worlds", policy: { defaultIntent: "browse" as const } },
       [detail, worldID],
     ),
   );
+  useEffect(() => {
+    if (!detail || !worldID) return;
+    useAgentPanelContext.getState().setWorkFocus({
+      version: 1,
+      view: activeKind,
+      selection: editing ? { refs: [{ kind: "world_entity", id: editing.id }], primaryRef: { kind: "world_entity", id: editing.id }, state: { entity: editing } } : { refs: [], state: { entity: null } },
+      state: { activeKind, entityCounts: detail.entityCounts, revision: detail.revision },
+      summary: editing ? `正在编辑 ${editing.title}` : `查看 ${activeKind}`,
+    });
+  }, [activeKind, detail, editing, worldID]);
   useEffect(() => {
     const queryID = new URLSearchParams(window.location.search).get("id");
     const segments = window.location.pathname.split("/").filter(Boolean);

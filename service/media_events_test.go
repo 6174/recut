@@ -126,6 +126,29 @@ func TestCompletedMediaContentIsImmutable(t *testing.T) {
 	}
 }
 
+func TestDeletedMediaAssetKeepsTombstoneAndRejectsContent(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	media := NewMediaService(store)
+	asset, err := media.ImportMedia("deleted.mp4", "video/mp4", []byte("video bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := media.DeleteAsset(asset.ID); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServer(nil, store, nil, nil, nil, nil, media).routes()
+	metadata := httptest.NewRecorder()
+	handler.ServeHTTP(metadata, httptest.NewRequest(http.MethodGet, "/v1/media/assets/"+asset.ID, nil))
+	if metadata.Code != http.StatusOK || !strings.Contains(metadata.Body.String(), `"status":"deleted"`) {
+		t.Fatalf("deleted metadata = %d %s", metadata.Code, metadata.Body.String())
+	}
+	content := httptest.NewRecorder()
+	handler.ServeHTTP(content, httptest.NewRequest(http.MethodGet, "/v1/media/assets/"+asset.ID+"/content", nil))
+	if content.Code != http.StatusGone || !strings.Contains(content.Body.String(), `"code":"asset_deleted"`) {
+		t.Fatalf("deleted content = %d %s", content.Code, content.Body.String())
+	}
+}
+
 func TestMediaAssetEventsCarryGenerationTiming(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	media := NewMediaService(store)

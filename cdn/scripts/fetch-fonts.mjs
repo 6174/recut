@@ -44,6 +44,10 @@ const FONTS = [
   { id: "merriweather", family: "Merriweather", category: "serif", scripts: ["latin"] },
   { id: "roboto-mono", family: "Roboto Mono", category: "monospace", scripts: ["latin"] },
   { id: "great-vibes", family: "Great Vibes", category: "handwriting", scripts: ["latin"] },
+  // 字幕主题引用家族（remotion-studio captions themes）：补齐 curator 覆盖，避免预览/导出回退
+  { id: "outfit", family: "Outfit", category: "sans-serif", scripts: ["latin"] },
+  { id: "rajdhani", family: "Rajdhani", category: "sans-serif", scripts: ["latin"] },
+  { id: "dancing-script", family: "Dancing Script", category: "handwriting", scripts: ["latin"] },
   // CJK — Simplified Chinese (SC) / Hong Kong (HK)
   { id: "noto-sans-sc", family: "Noto Sans SC", category: "sans-serif", scripts: ["zh"] },
   { id: "noto-serif-sc", family: "Noto Serif SC", category: "serif", scripts: ["zh"] },
@@ -128,7 +132,7 @@ function cdnUrl(familyId, file) {
 }
 
 async function download(url, dest) {
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (buf.length === 0) throw new Error(`empty download for ${url}`);
@@ -179,7 +183,17 @@ function buildCss(familyId, family, faces) {
 
 async function main() {
   mkdirSync(FONT_DIR, { recursive: true });
-  const catalog = { version: 1, generatedAt: new Date().toISOString(), google: [] };
+  // 保留既有 catalog（离线/上游失败时回退），新运行只增改；避免网络故障清空目录。
+  const catalogPath = join(FONT_DIR, "catalog.json");
+  let previous = [];
+  let previousVersion = 0;
+  try {
+    const raw = JSON.parse(readFileSync(catalogPath, "utf8"));
+    previous = Array.isArray(raw.google) ? raw.google : [];
+    previousVersion = Number(raw.version || 0) || 0;
+  } catch (_) { /* 首次运行无既有目录 */ }
+  const byId = new Map(previous.map((entry) => [entry.id, entry]));
+  const catalog = { version: previousVersion + 1, generatedAt: new Date().toISOString(), google: [] };
 
   for (const spec of FONTS) {
     const familyId = spec.id;
@@ -194,10 +208,17 @@ async function main() {
 
     let css;
     try {
-      const res = await fetch(apiUrl, { headers: { "User-Agent": UA } });
+      const res = await fetch(apiUrl, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(20000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       css = await res.text();
     } catch (e) {
+      css = null;
+      const existing = byId.get(familyId);
+      if (existing) {
+        catalog.google.push({ ...existing, family: spec.family, category: spec.category, scripts: spec.scripts });
+        console.warn(`  ↻ ${familyId}: css fetch failed (${e.message}); keeping existing catalog entry`);
+        continue;
+      }
       console.warn(`  ✗ ${familyId}: fetch css failed: ${e.message}`);
       continue;
     }
@@ -206,6 +227,12 @@ async function main() {
     try {
       faces = parseFaces(css, familyId);
     } catch (e) {
+      const existing = byId.get(familyId);
+      if (existing) {
+        catalog.google.push({ ...existing, family: spec.family, category: spec.category, scripts: spec.scripts });
+        console.warn(`  ↻ ${familyId}: ${e.message}; keeping existing catalog entry`);
+        continue;
+      }
       console.warn(`  ✗ ${familyId}: ${e.message}`);
       continue;
     }

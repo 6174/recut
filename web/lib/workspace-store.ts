@@ -10,7 +10,7 @@ import { useLocaleStore } from "./i18n/locale-store";
 import { t } from "./i18n/index";
 import { fetchRecutJSON } from "./service-endpoint";
 
-export type WorkspaceApp = { manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone"; ui?: { projectView?: string; standaloneView?: string } } };
+export type WorkspaceApp = { manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone"; ui?: { projectView?: string; standaloneView?: string }; agentSurface?: { domain: string; defaultIntent: "browse" | "create" | "project_edit" | "world_review" | "media_manage"; requiredSkill?: string } } };
 export type WorkspaceProjectCover = { source?: "asset" | "file"; assetId?: string; kind: "image" | "video"; filePath?: string; mimeType?: string };
 export type WorkspaceProject = { id: string; name: string; appId: string; cover?: WorkspaceProjectCover };
 export type WorkspaceProjectDetail = WorkspaceProject & { appVersion: string; createdAt: string };

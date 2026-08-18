@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖共享会话类型、Agent 安装恢复能力、素材引用卡片与基础 UI 原子组件
- * [OUTPUT]: 对外提供会话时间线、历史列表、加载/CLI 调试/恢复视图、工具结果中的 Asset 预览入口；所有工具调用在收起态只展示人可读动作、展开后可查看真实名称，且以单份可复制诊断记录归集输入/输出/错误/成本；调试与工具详情弹框经 document.body Portal 脱离侧栏堆叠上下文，以及 SSE 事件归并函数
- * [POS]: components Agent 对话模块的展示层；只根据传入数据渲染，不拥有会话请求状态
+ * [OUTPUT]: 对外提供会话时间线、历史、调试与工具结果预览；用户消息按原始结构显示素材、Work Surface、Focus 和 legacy page context
+ * [POS]: components Agent 对话模块的纯展示层；不拥有请求状态，历史中的 Focus 永远不改变工作面 target
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -15,8 +15,8 @@ import { AgentMessageContent } from "@/components/agent-message-content";
 import { AssetReferenceChip } from "@/components/asset-reference-picker";
 import { ToolResultAssets } from "@/components/tool-result-assets";
 import { Button } from "@/components/ui/button";
-import { ActionIcon, PageContextChip, RunningStatus } from "@/components/agent-composer";
-import { codexModelLabel, contextLabel, defaultCodexConfiguration, opencodeModelLabel, runtimeLabel } from "@/components/agent-panel-types";
+import { ActionIcon, RunningStatus, WorkFocusChip, WorkSurfaceChip } from "@/components/agent-composer";
+import { codexModelLabel, contextLabel, defaultCodexConfiguration, opencodeModelLabel, runtimeLabel, type WorkFocusContext, type WorkSurfaceContext } from "@/components/agent-panel-types";
 import { type AgentEvent, type CLIEntry, type Detail, type Session, type ToolPayload, type Turn } from "@/components/agent-panel-types";
 import { t, useI18n } from "@/lib/i18n/index";
 import { useLocaleStore } from "@/lib/i18n/locale-store";
@@ -188,18 +188,15 @@ export function Conversation({
                         reference={attachment}
                       />
                     ))}
-                    {pageContexts.map((context, index) => (
-                      <PageContextChip
-                        key={`${user.id}-${index}`}
-                        selection={
-                          typeof context.payload.selection === "string"
-                            ? context.payload.selection
-                            : undefined
-                        }
-                        // TODO: contextLabel 的「素材/当前页面」兜底定义在 agent-panel-types.ts，暂未本地化。
-                        title={contextLabel(context)}
-                      />
-                    ))}
+                    {pageContexts.map((context, index) => {
+                      if (context.type === "work_focus") {
+                        return <WorkFocusChip focus={context.payload as WorkFocusContext} key={`${user.id}-${index}`} />;
+                      }
+                      const surface = context.type === "work_surface"
+                        ? context.payload as WorkSurfaceContext
+                        : { version: 1, surface: "workspace", title: contextLabel(context), policy: { defaultIntent: "browse" } } satisfies WorkSurfaceContext;
+                      return <WorkSurfaceChip key={`${user.id}-${index}`} surface={surface} />;
+                    })}
                   </div>
                 )}
                 {user.content && (

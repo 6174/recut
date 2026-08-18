@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 manifest-only 注册规则
- * [OUTPUT]: 验证缺失 apps 目录自动初始化为空目录、项目型与独立型 App 不需要 project-layout 配置，并锁定本地 App link/manifest 变化会刷新 Catalog
+ * [OUTPUT]: 验证缺失 apps 目录自动初始化为空目录、项目型与独立型 App 不需要 project-layout 配置、backgroundModules 路径约束，并锁定本地 App link/manifest 变化会刷新 Catalog
  * [POS]: service 的扩展注册表回归测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -50,6 +50,32 @@ func TestCatalogLoadsManifestOnlyApps(t *testing.T) {
 	}
 	if app, ok := catalog.Get("example.standalone"); !ok || app.Manifest.Kind != StandaloneApp {
 		t.Fatalf("standalone app = %#v, found = %v", app, ok)
+	}
+}
+
+func TestCatalogValidatesBackgroundModules(t *testing.T) {
+	manifest := Manifest{
+		ManifestVersion: 1,
+		ID:              "example.modules",
+		Name:            "Modules",
+		Author:          "Test",
+		Description:     "Test App.",
+		Version:         "1.0.0",
+		Kind:            ProjectApp,
+		Background:      "background.js",
+		BackgroundModules: []string{"background/model.js"},
+		UI:              UIEntrypoints{ProjectView: "ui/index.html"},
+	}
+	if err := validateManifest(manifest); err != nil {
+		t.Fatalf("valid backgroundModules rejected: %v", err)
+	}
+	manifest.BackgroundModules = []string{"../escape.js"}
+	if err := validateManifest(manifest); err == nil {
+		t.Fatal("escaping background module accepted")
+	}
+	manifest.BackgroundModules = []string{"background/model.ts"}
+	if err := validateManifest(manifest); err == nil {
+		t.Fatal("non-JavaScript background module accepted")
 	}
 }
 

@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 workspace-store 的独立 App scope/manifest、统一 App 身份图标、media-configuration-store 的 Provider/凭据、App API、媒体生成、平台素材选择器、按 scope 缓存的 Agent Session 列表与全局 Agent 面板上下文
- * [OUTPUT]: 对外提供独立 App iframe 容器、按 iframe 实际 origin 的宿主通信、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏，并在工作区头部展示统一的 App 身份；App 只能经全局面板上下文回填输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
+ * [INPUT]: 依赖 workspace-store 的独立 App scope/manifest、统一 App 身份图标、media-configuration-store 的 Provider/凭据、App API、媒体生成、Assets bridge、平台素材选择器、按 scope 缓存的 Agent Session 列表与全局 Agent 面板上下文
+ * [OUTPUT]: 对外提供独立 App iframe 容器、按 iframe 实际 origin 的宿主通信、受 scope 限制的 recut.assets 能力、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏，并在工作区头部展示统一的 App 身份；App 只能经全局面板上下文回填输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
  * [POS]: workspace-app/[appID] 的客户端工作台；从统一缓存复用项目级安全 scope，但不显示或创建用户项目；iframe URL 是消息目标 origin 的唯一真相源；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,14 +13,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AppIdentityIcon } from "@/components/app-identity-icon";
 import { HeaderActions } from "@/components/header-actions";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
-import { normalizePageContext } from "@/components/agent-panel-types";
+import { normalizeWorkFocus } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
-import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
+import { useAgentPanelContext, useReportWorkSurface } from "@/lib/agent-panel-context";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore } from "@/lib/workspace-store";
 import { useI18n } from "@/lib/i18n";
+import { handleIframeAssetsRequest } from "@/lib/iframe-assets-bridge";
 
 function appIDFromLocation(routeID: string) {
   const queryID = new URLSearchParams(window.location.search).get("id");
@@ -65,7 +66,19 @@ export default function StandaloneAppClient() {
   useLayoutEffect(() => {
     useAgentPanelContext.getState().setProjectID(null);
   }, []);
-  useReportPageContext(useMemo(() => (app ? { title: app.manifest.name, path: `/workspace-app/${appID}`, url: window.location.href } : null), [app, appID]));
+  useReportWorkSurface(useMemo(() => {
+    if (!app || !scope) return null;
+    const agentSurface = app.manifest.agentSurface;
+    return {
+      version: 1 as const,
+      surface: "standalone_app" as const,
+      title: app.manifest.name,
+      path: `/workspace-app/${appID}`,
+      url: window.location.href,
+      target: { kind: "app_scope" as const, appId: appID, scopeId: scope.id, appName: app.manifest.name, appKind: "standalone" as const },
+      policy: { defaultIntent: agentSurface?.defaultIntent ?? "create" as const, requiredSkill: agentSurface?.requiredSkill ? { appId: appID, skillId: agentSurface.requiredSkill } : undefined },
+    };
+  }, [app, appID, scope]));
   useEffect(() => {
     if (!appID || !online) return;
     void Promise.all([loadWorkspace(apiBase), loadWorkspaceScope(apiBase, appID)]);
@@ -88,7 +101,10 @@ export default function StandaloneAppClient() {
       const request = event.data;
       const reply = (result?: unknown, error?: string) => channel.port1.postMessage({ id: request.id, result, error });
       try {
-        if (request.type === "state.query" || request.type === "background.call") {
+        const assets = await handleIframeAssetsRequest(request, { apiBase, projectID: scope.id });
+        if (assets.handled) {
+          reply(assets.result);
+        } else if (request.type === "state.query" || request.type === "background.call") {
           const operation = request.type === "state.query" ? request.input?.name : request.input?.operation ?? request.input?.name;
           const { operation: _operation, ...input } = request.input ?? {};
           if (typeof operation !== "string" || !operation.trim()) throw new Error("后台 operation 名称不能为空");
@@ -100,11 +116,11 @@ export default function StandaloneAppClient() {
           if (!prompt) throw new Error("Agent Prompt 不能为空");
           useAgentPanelContext.getState().setDraft({ id: String(request.id), text: prompt });
           reply({ delivery: "agent-composer" });
-        } else if (request.type === "page.context") {
-          const context = normalizePageContext(request.input?.context);
-          if (!context) throw new Error("页面上下文需要标题");
-          useAgentPanelContext.getState().setPageContext(context);
-          reply({ delivery: "page-context" });
+        } else if (request.type === "focus.report" || request.type === "page.context") {
+          const focus = normalizeWorkFocus(request.input?.focus ?? request.input?.context);
+          if (!focus) throw new Error("页面焦点不能为空");
+          useAgentPanelContext.getState().setWorkFocus(focus);
+          reply({ delivery: "work-focus" });
         } else if (request.type === "media.configuration") {
           await useMediaConfigurationStore.getState().load(apiBase);
           const configuration = useMediaConfigurationStore.getState();

@@ -336,10 +336,6 @@ func (s *Server) updateMediaAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteMediaAsset(w http.ResponseWriter, r *http.Request) {
-	if err := s.worldsStore().ArchiveEvidenceForAsset(r.PathValue("id")); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
 	if err := s.media.DeleteAsset(r.PathValue("id")); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -372,7 +368,16 @@ func (s *Server) getMediaAssetPart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("asset part name is required"))
 		return
 	}
-	part, content, err := s.media.GetAssetPart(r.PathValue("id"), partName)
+	asset, err := s.media.GetAsset(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("media asset not found"))
+		return
+	}
+	if asset.Status == "deleted" {
+		writeJSON(w, http.StatusGone, map[string]string{"code": "asset_deleted", "assetId": asset.ID})
+		return
+	}
+	part, content, err := s.media.GetAssetPart(asset.ID, partName)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -389,6 +394,10 @@ func (s *Server) getMediaAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if asset.Status != "completed" {
+		if asset.Status == "deleted" {
+			writeJSON(w, http.StatusGone, map[string]string{"code": "asset_deleted", "assetId": asset.ID})
+			return
+		}
 		message := "media asset is still generating"
 		if asset.Status == "failed" {
 			message = asset.Error

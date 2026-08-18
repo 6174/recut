@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖按 endpoint 缓存的 Agent 运行时、模型、引导与会话列表、general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
- * [OUTPUT]: 对外提供连接阶段骨架、默认本地 service 离线时可复制的安装/启动命令、带非空新对话 onboarding、本地 Agent CLI 主动安装入口、当前会话的易读时间线与原始 CLI stdout/stderr 调试弹框、右上角复制当前会话结构化调试报告的入口、单一全局 general 会话（不做按页面的会话过滤）、可由 App iframe 回填但绝不自动提交的输入草稿、首条消息自动创建所选 runtime 会话、按 Agent 类型优先展示配置模型的会话历史、创建/同步/重试均可见的状态、输入法保护、当前页面的素材上传/粘贴上下文（素材始终为工作区级，关联项目由 Agent 自行决定）与自动附带且可移除的当前页面上下文、Codex 模型/推理强度配置与可搜索的实时 OpenCode TUI 模型配置的时间线预览的 ProjectAgentPanel；过期的取消事件不会覆盖已出现的回复，失效 session 自动收敛为空态，工具调用以行内卡片展示分离的输入、输出/错误、成本与耗时，含 `assetIds` 的结果直接显示可点击素材预览，并可完整查看或复制；全部本地 CLI 未就绪时只保留安装入口，不渲染无效的新对话引导或输入框
- * [POS]: components 的通用 Agent 侧栏；由根布局全局挂载为单一会话，路由切换不改变会话或过滤历史，低频快照由 lib/agent-store 跨路由共享，单会话详情仍以 SSE 为真相，存在可用 runtime 的空态允许直接输入并在发送时创建会话
+ * [OUTPUT]: 对外提供单一全局 Agent 会话及其运行、调试、素材上下文与 Work Surface/Focus 发送逻辑；稳定工作面默认附带，完整 Focus 可独立移除，二者随每个 Turn 持久化
+ * [POS]: components 的通用 Agent 侧栏；由根布局挂载，Work Surface 是本次操作目标的单一真相，Focus 只是可撤销的局部视线
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -43,7 +43,8 @@ import {
   defaultOpencodeConfiguration,
   creationWorldContextPayload,
   mediaContextPayload,
-  pageContextPayload,
+  workFocusContextPayload,
+  workSurfaceContextPayload,
   type AgentEvent,
   type Attachment,
   type CLIEntry,
@@ -73,7 +74,7 @@ export function ProjectAgentPanel(props: Props) {
     </MediaAssetEventsProvider>
   );
 }
-function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, servicePhase }: Props) {
+function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, workFocus, workSurface }: Props) {
   const { t } = useI18n();
   const online = servicePhase === "online";
   // 全局单一会话：不随路由切换改变会话或按页面过滤历史。
@@ -94,7 +95,8 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [worldReferences, setWorldReferences] = useState<WorldReference[]>([]);
-  const [pageContextIncluded, setPageContextIncluded] = useState(true);
+  const [workSurfaceIncluded, setWorkSurfaceIncluded] = useState(true);
+  const [workFocusIncluded, setWorkFocusIncluded] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [creatingRuntime, setCreatingRuntime] = useState(false);
   const [syncingID, setSyncingID] = useState<string | null>(null);
@@ -176,8 +178,11 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
     setError("");
   }, [draft]);
   useEffect(() => {
-    setPageContextIncluded(true);
-  }, [pageContext]);
+    setWorkSurfaceIncluded(true);
+  }, [workSurface]);
+  useEffect(() => {
+    setWorkFocusIncluded(true);
+  }, [workFocus]);
   useEffect(() => {
     messagesRef.current?.scrollTo({
       top: messagesRef.current.scrollHeight,
@@ -437,11 +442,11 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
   }
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const pageAttached = Boolean(pageContext && pageContextIncluded);
+    const workSurfaceAttached = Boolean(workSurface && workSurfaceIncluded);
     if (
       creatingRuntime ||
       loadingSessions ||
-      (!content.trim() && !attachments.length && !worldReferences.length && !pageAttached)
+      (!content.trim() && !attachments.length && !worldReferences.length && !workSurfaceAttached)
     )
       return;
     const text = content.trim();
@@ -452,13 +457,15 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
       : await createSession((detail?.runtime as Runtime) ?? "codex");
     const sessionID = activeID ?? session?.id;
     if (!sessionID) return;
-    const pageItem = pageAttached && pageContext ? [pageContextPayload(pageContext)] : [];
+    const workSurfaceItem = workSurfaceAttached && workSurface ? [workSurfaceContextPayload(workSurface)] : [];
+    const workFocusItem = workSurfaceAttached && workFocus && workFocusIncluded ? [workFocusContextPayload(workFocus)] : [];
     const contexts: MessageContext[] = [
       ...pendingAttachments.map((attachment) =>
         mediaContextPayload(attachment.assetId),
       ),
       ...pendingWorldReferences.map((world) => creationWorldContextPayload(world.worldId)),
-      ...pageItem,
+      ...workSurfaceItem,
+      ...workFocusItem,
     ];
     setContent("");
     setAttachments([]);
@@ -811,9 +818,12 @@ function ProjectAgentPanelContent({ apiBase, draft, pageContext, projectID, serv
               : pendingOpencodeConfig
           }
           opencodeModels={opencodeModels}
-          onRemovePageContext={() => setPageContextIncluded(false)}
-          pageContext={pageContext ?? null}
-          pageContextIncluded={pageContextIncluded}
+          onRemoveWorkFocus={() => setWorkFocusIncluded(false)}
+          onRemoveWorkSurface={() => setWorkSurfaceIncluded(false)}
+          workFocus={workFocus ?? null}
+          workFocusIncluded={workFocusIncluded}
+          workSurface={workSurface ?? null}
+          workSurfaceIncluded={workSurfaceIncluded}
           projectID={projectID}
           runtime={(detail?.runtime as Runtime | undefined) ?? "codex"}
           running={

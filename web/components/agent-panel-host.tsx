@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 Next 路径、marketing-site / marketing-apps 公开页面、marketing-posts 双语言文章目录、service-store 的 endpoint/连接阶段、工作台模式、agent-panel-context 的全局 projectID/草稿、固定 64px 工作台 Header、useResizableSidePanel 与 ProjectAgentPanel
+ * [INPUT]: 依赖 Next 路径、marketing-site / marketing-apps 公开页面、service-store 的 endpoint/连接阶段、agent-panel-context 的全局 projectID/草稿/Work Surface/Focus、固定 Header 与 ProjectAgentPanel
  * [OUTPUT]: 对外提供根布局挂载的全局 Host 路由边界与工作台壳：SSR 与浏览器 Host 未确认时透明输出页面 children；Marketing Host 在客户端按路径渲染逐语言官网 Home / Apps / App 详情 / Docs / Blog / 文章或 404（locale 从 /zh 前缀解析），绝不挂载工作台页面；App Host 才渲染固定桌面 Agent 壳，左右两栏与拖动手柄共同读取 `--side-panel-width`
- * [POS]: components 的域名级路由边界与工作台全局壳；先保持 SSR 中性，避免官网首屏泄露应用壳；所有正常 App Host 路由共享同一 ProjectAgentPanel 实例（单一全局会话，不做按页面过滤）
+ * [POS]: components 的域名级路由边界与工作台全局壳；所有正常 App Host 路由共享一个 Agent 面板，同时把当前工作面原样传入
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -30,7 +30,8 @@ export function AgentPanelHost({ apps, children, docs, posts }: Readonly<{ apps:
   const servicePhase = useServiceStore((state) => state.service.phase);
   const projectID = useAgentPanelContext((state) => state.projectID);
   const draft = useAgentPanelContext((state) => state.draft);
-  const pageContext = useAgentPanelContext((state) => state.pageContext);
+  const workSurface = useAgentPanelContext((state) => state.workSurface);
+  const workFocus = useAgentPanelContext((state) => state.workFocus);
   const { handlePointerDown, isDragging, layoutRef, panelWidth } = useResizableSidePanel({ storageKey: "recut.agent-panel-width" });
   const [browserHost, setBrowserHost] = useState<string | null>(null);
   useLayoutEffect(() => setBrowserHost(window.location.hostname), []);
@@ -47,7 +48,7 @@ export function AgentPanelHost({ apps, children, docs, posts }: Readonly<{ apps:
       {showAgentPanel && isDragging && <div aria-hidden="true" className="absolute inset-0 z-[5] cursor-col-resize" />}
       {showAgentPanel && <button aria-label="拖动调整对话面板宽度" className="group absolute bottom-0 left-[calc(var(--side-panel-width)_-_0.25rem)] z-10 hidden w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none md:block" onPointerDown={handlePointerDown} style={{ top: workspaceHeaderHeight }} type="button"><span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[oklch(0.9_0_0)] transition-colors group-hover:w-0.5 group-hover:bg-foreground group-focus:w-0.5 group-focus:bg-foreground" /></button>}
       {showAgentPanel && <aside className="absolute bottom-0 left-0 z-0 hidden md:block" style={{ top: workspaceHeaderHeight, width: "var(--side-panel-width)" }}>
-        <ProjectAgentPanel apiBase={apiBase} draft={draft} pageContext={pageContext} projectID={projectID} servicePhase={servicePhase} />
+        <ProjectAgentPanel apiBase={apiBase} draft={draft} projectID={projectID} servicePhase={servicePhase} workFocus={workFocus} workSurface={workSurface} />
       </aside>}
     </div>
   );

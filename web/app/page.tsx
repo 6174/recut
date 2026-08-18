@@ -21,7 +21,7 @@ import { CreateAppDialog } from "@/components/create-app-dialog";
 import { InstallGitAppDialog } from "@/components/install-git-app-dialog";
 import { Input } from "@/components/ui/input";
 import { HeaderActions } from "@/components/header-actions";
-import { useAgentPanelContext, useReportPageContext } from "@/lib/agent-panel-context";
+import { useAgentPanelContext, useReportWorkSurface } from "@/lib/agent-panel-context";
 import { trackEvent } from "@/components/posthog-analytics";
 import { marketplaceDescription, marketplaceName, type MarketplaceApp } from "@/lib/appstore";
 import { isLocalWorkspace, fetchRecutJSON } from "@/lib/service-endpoint";
@@ -70,16 +70,16 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
   useLayoutEffect(() => {
     useAgentPanelContext.getState().setProjectID(agentProjectID);
   }, [agentProjectID]);
-  const pageContext = useMemo(() => tab === "assets"
-    ? { title: t("page.assets.title"), path: "/media" }
+  const workSurface = useMemo(() => tab === "assets"
+    ? { version: 1 as const, surface: "media_library" as const, title: t("page.assets.title"), path: "/media", target: { kind: "media_library" as const, scope: mediaProjectID ? "project" as const : "workspace" as const, projectId: mediaProjectID ?? undefined }, policy: { defaultIntent: "media_manage" as const } }
     : tab === "worlds"
-      ? { title: t("page.worlds.title"), path: "/worlds" }
+      ? { version: 1 as const, surface: "workspace" as const, title: t("page.worlds.title"), path: "/worlds", policy: { defaultIntent: "browse" as const } }
       : tab === "projects"
-        ? { title: t("page.projects.title"), path: "/projects" }
+        ? { version: 1 as const, surface: "workspace" as const, title: t("page.projects.title"), path: "/projects", policy: { defaultIntent: "browse" as const } }
         : tab === "apps"
-          ? { title: t("page.apps.title"), path: "/apps" }
+          ? { version: 1 as const, surface: "workspace" as const, title: t("page.apps.title"), path: "/apps", policy: { defaultIntent: "browse" as const } }
           : null, [tab, t]);
-  useReportPageContext(pageContext);
+  useReportWorkSurface(workSurface);
   useEffect(() => {
     if (!online) return;
     void loadWorkspace(apiBase);
