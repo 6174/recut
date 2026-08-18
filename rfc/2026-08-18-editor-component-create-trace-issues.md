@@ -1,31 +1,34 @@
 <!--
  * [INPUT]: 依赖 2026-08-18 第二次「尝试创建 Hello React 组件」的 agent-session-debug 快照（session
  *          31dfdddaf279ddea385c7c2e，job fc486df0e61d225dae7228f6，component ai-fqorxd2a），
- *          以及 apps/editor（components.js / component-library.tsx / component-loader.ts）、
+ *          以及 apps/editor（components.js / component-library.tsx / component-loader.ts / component-cover.ts /
+ *          world-renderer.tsx / component-preview.tsx / html-surface.ts）、
  *          service（mcp.go / agent_jobs.go / prompts/core-agents.md.tmpl）、web
  *          （agent-message-content.tsx / tool-result-assets.tsx / agent-panel-views.tsx）的代码现状。
- * [OUTPUT]: 如实梳理本次创建链路暴露的 4 个问题的症状、证据、根因与修复建议，供排障与产品决策使用。
+ * [OUTPUT]: 如实梳理本次创建链路暴露的 5 个问题（含组件预览/封面的根因、修复与复用编辑器渲染路径评估）的
+ *           症状、证据、根因与修复建议，供排障与产品决策使用。
  * [POS]: rfc 的"问题梳理报告"文档；对同一创建链路事故的第三次复盘（前两次见 2026-08-16-editor-component-asset-workflow.md
  *       与 2026-08-18-editor-component-workflow-review.md）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
-# 复盘：第二次「Hello React 组件」创建链路事故（四问题梳理）
+# 复盘：第二次「Hello React 组件」创建链路事故（问题梳理）
 
 - 状态：Review（基于 2026-08-18 10:18 的 session-debug 快照 + 当时代码）
 - 场景：主 Agent（opencode）创建全屏 react 组件 → 受限子 Agent commit → 构建/轻量验证 → verified 进素材库
-- 结果：**job 成功（verified、asset 已建），但用户侧 4 个可感知问题并存**
+- 结果：**job 成功（verified、asset 已建），但用户侧 5 个可感知问题并存**（其中 1 的"卡片无预览图"在 §9 深化为封面链路 bug）
 
 ## 0. 结论摘要
 
-组件本身**创建成功**（`ai-fqorxd2a`，`component:ai-fqorxd2a`，status=verified，library.tab=media）。用户观察到的 4 个问题都不是"没创建"，而是**从创建到被用户看见这条链路**上的展示与通信缺陷：
+组件本身**创建成功**（`ai-fqorxd2a`，`component:ai-fqorxd2a`，status=verified，library.tab=media）。用户观察到的 5 个问题都不是"没创建"，而是**从创建到被用户看见这条链路**上的展示与通信缺陷：
 
 | # | 问题 | 严重度 | 一句话根因 |
 |---|---|---|---|
-| 1 | 组件已 verified，素材库却不显示 | 高 | 素材库刷新是**事件驱动、无兜底**；事件通道同期正抖动（问题 3），事件一丢就永不刷新 |
+| 1 | 组件已 verified，素材库却不显示 | 高 | 原为"两区域排版 + 卡片无预览"；排版已合并为单一网格（§5.1 补充），无预览图的封面链路 bug 见 §9 |
 | 2 | AI 回复里 `<app appid="recut.editor"/>` 被渲染成 app 卡片，打断句子 | 中 | Agent 误用了「App 引用标签」（它只该用于推荐/加载 App），渲染器对 prose 内标签无降级 |
 | 3 | `recut.job.wait` 报 `Post …/v1/mcp: EOF` | 中 | job.wait 是**同步长轮询（最长 300s）占住 MCP HTTP 连接**，连接被服务端/网络层关闭 |
 | 4 | `recut.job.status` 的 tool-result 预览永远 Loading | 高 | 工具结果提取器把 `component:` assetId 当**媒体资产**去拉取，拉不到 → 无限转圈 |
+| 5 | 组件卡片没有预览图（全为占位色块） | 高 | 封面 harness 装在**离屏隐藏 iframe**，rAF 不触发 → render 挂死 → cover 从未写入（§9） |
 
 其中 1、3、4 共享一个更深的语义缺陷：**「组件素材」与「媒体素材」是两套资产体系，但事件驱动刷新和工具结果预览都没有把组件资产当一等公民对待**。
 
@@ -49,24 +52,23 @@
 ## 2. 问题 1（高）：组件 verified 但素材库不显示
 
 ### 症状
-用户打开 media（素材）tab，看不到刚创建的组件卡片。
+用户打开 media（素材）tab，看不到刚创建的组件卡片（刷新后亦然）。
 
-### 证据（代码）
-- 刷新链路全部是**事件驱动**：
-  - `apps/editor/ui/src/recut/use-project-sync.ts:57-61`：收到 `project.components.changed`（经 `recut-project-event` CustomEvent）→ `syncTimelineComponents` + `setActiveTab("media")`。
-  - `apps/editor/ui/src/components/editor/panels/assets/views/component-library.tsx:452`（`ComponentAssetLibraryView`）：只在**挂载**和 `recut:components-changed` 时 `refresh`。
-  - `apps/editor/ui/src/recut/components.ts:107-115`：`syncTimelineComponents` 仅在"本次**成功**加载了组件"时才 dispatch `recut:components-changed`；全失败/全已存在则**不发事件**。
-- 事件来源链：service 后台事件 → web host 的 WS/SSE 通道 → 宿主 iframe 派发 `recut-project-event` → 编辑器 `recut.events.subscribe`（`apps/editor/ui/src/recut/sdk.ts:184-190`）。
+### 定位（Playwright 实测，2026-08-18 晚）
+- **组件确实渲染在 DOM 里**：打开 `app.localhost:3000/projects/4a29d051f2971d5cad40efb6` 后，assets 面板的 body 文本含 `Hello` / `HelloReact` / `Feature Chip×4`，卡片 `<span>` 齐全。**不是"没创建"，也不是"没渲染"**。
+- 实际问题是**排版**：媒体网格（7rem 空网格）占据上方整块，组件被挤在下方 `border-t` 分隔的 96px 小格子区；空网格没有空态文案（空态仅在 `ready && count===0` 时显示），看起来"空空如也"。
+- 数据层复核（真实 sqlite）：`editor_components.ai-fqorxd2a` head 已设；`editor_assets.component:ai-fqorxd2a` 存在且 active；真实 bundle 经当前 loader 加载渲染成功。**asset 记录与运行时均正常**。
 
 ### 根因
-1. **事件通道一旦抖动，素材库永远不刷新**。本次通道在同一窗口内就发生了问题 3 的 EOF，说明链路脆弱；`project.components.changed` 一旦丢失，已挂载的面板没有任何轮询/手动刷新兜底。
-2. **即便事件送达，`syncTimelineComponents` 也只 dispatch 成功情况**；若组件 runtime 加载失败（如编辑器 UI 跑的是旧 build，旧 loader 仍把函数组件判为"模块未导出定义"），registry 记为 failed，素材库（旧代码只取 `getAll()` 的 loaded 定义）就**没有卡片**——这正是上一轮事故的原 bug。本次无法从快照确认子 Agent 提交的源码形态，故该路径仍可能是直接原因（需查 child session 的 commit source / 编辑器当前 build）。
-3. 次要：media 面板空态判定（`assets.tsx:259-264`）只在 `ready && count===0` 时显示"空"，卡片缺失时用户看到的是"既非空、也无卡片"的空白区，无任何提示。
+1. **排版分两区（R6「同列」未兑现）**：`assets.tsx` 渲染"媒体 `MediaItemList` + `border-t` 组件区"两个独立网格；媒体为空时顶部留白，组件被压在最下，用户误以为没创建。
+2. **卡片无预览图**：组件卡片全为占位色块（封面从未生成）→ 进一步强化"没出现"的观感。封面链路 bug 见 §9。
+3. 次要：空态判定只在 `ready && count===0` 显示"空"，无媒体但有组件时顶部空白无任何提示。
 
-### 建议
-- **P0 兜底刷新**：`ComponentAssetLibraryView` 增加低频率轮询（如 5–10s `asset.list` 对账）或"手动刷新"按钮；至少保证"打开面板即强制对账"（现已 `refresh on mount`）。
-- **P0 确认运行时**：确认编辑器 UI 是 `vite dev`（热更新）还是 `vite preview`（需重建 dist）；确保 loader 归一化与 failed 卡片（本 repo 已改）在运行 UI 中生效。
-- P1：`project.components.changed` 丢失时，至少留下可见的"数据可能过期"状态。
+### 修复（已实施并验证）
+- **合并单一网格**：`MediaItemList` 增加 `extraItems`，`ComponentAssetLibraryView` 增加 `embedded` 模式 → 媒体与 AI 组件在**同一个 7rem 网格**渲染（R6 同列）；删除 `border-t` 分隔与空媒体网格。
+- **空态文案**：全空显示新增 `assets.emptyLibrary`；`ComponentGrid` 独立空态用 `assets.emptyComponents`（i18n zh/en 已补）。
+- 验证：Playwright 实测单一 `grid gap-4` + `repeat(auto-fill, 7rem)` 网格直接包含 6 张卡片。
+- 封面：§9 的 iframe rAF 修复后，6 张卡片重载即显示真实 `<img>` 预览。
 
 ## 3. 问题 2（中）：`<app appid="recut.editor"/>` 被渲染成 app 卡片
 
@@ -140,14 +142,60 @@ AI 最终回复：「- 组件 `<app appid="recut.editor"/>`：ai-fqorxd2a（comp
 | P1 | `core-agents.md.tmpl` 收紧引用标签语义：只允许独立行/列表项，禁止在 prose 中引用 App | `service/prompts/core-agents.md.tmpl` |
 | P2 | 组件资产受控引用卡（`component:` 前缀在聊天与素材库中一致渲染） | `web/components/*` + editor 组件预览 |
 
-## 8. 附录：关键代码定位
+## 9. 组件预览/封面：实现复查、根因、修复与「复用编辑器自身渲染路径」评估
 
-| 关注点 | 位置 |
+> 本节是问题 1 的深化复盘（卡片"看不到预览图"）。结论先行：**封面工作是"做了但有 bug"，不是没做**；根因是封面 harness 被放进"离屏 + opacity:0"的隐藏 iframe，Chromium 不触发其 rAF，`harness.render` 永久挂起。
+
+### 9.1 现状：代码存在但从未生效
+
+- 完整链路已在：`component-cover.ts` `ensureVisibleComponentCovers` → `verifyComponentVersion` → 隐藏 iframe harness → `harness.render(0.45)` → `capturePng()` → `component.verify` 写 `cover_path`。
+- **实测数据**：项目内全部 verified 版本的 `cover_path` 均为空，`components/covers/` 目录不存在 → 封面从未生成成功。
+- html-in-canvas 环境**确认可用**（本产品整体依赖该 flag）：带 `--enable-features=CanvasDrawElement` 的实测中 harness 顶层渲染 248ms 出 194KB 真实 PNG（230400 非背景像素）。
+
+### 9.2 根因（Playwright 实测定位）
+
+`verifyComponentVersion`（`component-cover.ts`）把 harness iframe 用 `left:-9999px; top:-9999px; opacity:0` 隐藏：
+
+- Chromium 对**离屏/不可见（未被合成）的嵌套 iframe 不触发 `requestAnimationFrame`**。
+- harness 的 `render()` 依赖 `waitFrames(3)`（3 次 rAF）才 resolve（`demo/component-harness.tsx:52-62,132`）→ **rAF 永不触发 → render 永久挂起**。
+- 后果链：`component.verify`（含 cover 写入）永不执行 → 封面为空；iframe 永不回收（finally 在 await 之后）→ 泄漏；`running` 集合永不清除 → 会话内该版本无法重试；挂起不是异常，`catch/markGiveUp` 不触发 → 无 "deferred" 日志，静默失败。
+- 对照实测（同一嵌套环境）：离屏 iframe rAF/1.5s=**-1**（不触发）、render 超时；**视口内** iframe rAF/1.5s=**110+**、render 1.7s 出图成功。根因确定。
+
+### 9.3 修复（已实施并验证）
+
+`apps/editor/ui/src/recut/component-cover.ts`：
+1. iframe 改到**视口内**：`position:fixed; top:0; left:0; width:1px; height:1px; opacity:0.011; pointer-events:none; border:0; z-index:99999`（保持 opacity>0，1px 不可见，封面是一次性工作）。
+2. `harness.render` 加 **10s 超时兜底**（`Promise.race`），极端环境不再永久阻塞。
+
+验证：6 个版本 `cover_path` 全部写入 `components/covers/<versionId>.png`；重载后素材库 6 张卡片全部显示真实 `<img>` 封面。缓存语义正确：封面按 version 一次性写入、之后 `asset.list`/`component.resolve` 直接复用（满足"版本不变可缓存"）。
+
+### 9.4 复用编辑器自身渲染/纹理提取路径（用户建议评估）
+
+**参考点**：编辑器预览/导出早已有一套不依赖隐藏 iframe 的成熟渲染：
+
+- `renderer-manager.ts` `createSnapshot` → `WorldRenderer.renderToCanvas({world, time, targetCanvas})` → `toBlob` PNG（整项目快照，`renderer-manager.ts:82-142`）。
+- `WorldRenderer.render`（`world-renderer.tsx:130-155`）→ `WorldScene` → `HtmlObject`/`DomContentSurface`（**html-in-canvas 提取组件 DOM 纹理**）→ `waitForCapture` 等纹理就绪 → 主窗口 rAF → 画布出帧。导出即走此路径。
+- 预览弹窗对 html/react 走 `ComponentDomPreview`（直接渲染 DOM，`component-preview.tsx:180-306`）；r3f 走 `WorldScene`。
+
+**关键差异 = 复用价值的核心**：`WorldRenderer.render` 用**主窗口**的 `requestAnimationFrame`（主窗口永远有帧），而封面 harness 用的是**隐藏 iframe 窗口**的 rAF（离屏被节流到 0）。这就是"导出正常、封面挂死"的根本分野。
+
+**复用方案**（建议 P1 重构，替代 iframe harness）：
+```
+verifyComponentVersion(versionId):
+  resolve → ensureComponent(componentId)          # 主 frame registry 已加载定义
+  构建仅含该组件的 world（baseSize、progress=0.45、默认 inputs）
+  new WorldRenderer({width, height, fps})          # 与 createSnapshot 同构
+  await renderer.renderToCanvas({world, time, targetCanvas})   # 主窗口 rAF + html-in-canvas 纹理提取 + waitForCapture
+  targetCanvas.toBlob('image/png') → component.verify(cover)
+```
+收益：彻底移除 iframe（无泄漏/上下文隔离成本/窗口 rAF 依赖）；"组件封面渲染"与"编辑器预览/导出渲染"同源同实现；封面即"编辑器所见"。风险低（复用已验证的导出渲染路径），需注意 `renderToCanvas` 的 `waitForCapture` 会等 `activeContentSurfaces` 全部就绪（含实时编辑器表面，400ms 上限），成本可接受。
+
+### 9.5 建议优先级
+
+| 优先级 | 项 |
 |---|---|
-| 素材库刷新（事件驱动，无兜底） | `apps/editor/ui/src/recut/use-project-sync.ts:57`、`…/component-library.tsx:452` |
-| 成功才 dispatch 事件（失败静默） | `apps/editor/ui/src/recut/components.ts:107-115` |
-| job.wait 同步长轮询 | `service/agent_jobs.go:183`、`service/mcp.go:965` |
-| `<app appid>` 标签引导 | `service/prompts/core-agents.md.tmpl:49,55` |
-| 标签无脑转卡片 | `web/components/agent-message-content.tsx:22,31,54` |
-| 工具结果把 `component:` 当媒体资产 | `web/components/tool-result-assets.tsx:38-63,116-132` |
-| 组件创建成功但未出现（事件链） | `apps/editor/ui/src/recut/sdk.ts:184`（`recut-project-event`） |
+| P0（已完成） | 修复 iframe 离屏导致 rAF 挂起 + render 超时兜底 → 封面可生成并缓存 |
+| P1（推荐） | 用 `WorldRenderer.renderToCanvas` 替代隐藏 iframe harness，复用编辑器自身 html-in-canvas 纹理提取路径 |
+| P2 | 封面生成后立即刷新卡片（当前重载后显示；同会话内需等一次 refresh），并给素材库"手动补封面/重试"入口 |
+
+

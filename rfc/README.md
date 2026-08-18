@@ -22,7 +22,7 @@
 2026-08-16-editor-component-asset-workflow.md: 编辑器组件素材工作流：组件先入库、默认不落轨；模板化快速创建与平台可信验证；MCP/UI 统一时间线避碰 placement，并以原子批量放置消除同轨重叠。
 2026-08-18-remotion-studio-music-font-finetunes.md: remotion-studio 音乐与字体微调：复用 Recut CDN（audio/fonts catalog 与编辑器同一份数据）与 catalog-first 架构，不做代码复用；音乐「选择即导入」为媒体资产走 composition.assets 物化管道、字体经 CDN 自托管 {id}.css 注入（caption 主题 palette.font 覆盖）、预览静音门控，MusicFineTune/FontFineTune 两模块与 Prompt 契约、选择持久化与 workflow.context 资源可见性，及分阶段实施与分层验证。
 2026-08-18-subagent-task-card-ws.md: 子 Agent 任务卡片与全局预览：核心原则是子 Agent 与通用 Agent 会话同构（落 agent_sessions/agent_events 账本、复用 handleCodexEvent 事件解析与 agent channel），差异仅在受限工具面——执行一次性但记录持久化、可审计、可实时观察（修正"stdout 丢弃、无账本"的设计缺陷）。chat 工具事件携带 subagentId 判别字段（服务端注册表注入 tool.completed payload）→ 前端自动渲染任务卡片（状态/阶段/实时耗时 counter）→ 点击弹全局视图（本质就是复用 Conversation 渲染子会话 + subagent Meta 头）；子会话活动走 agent channel(childSessionId)、job 生命周期走新增 subagent channel(jobId)（账本回放、终态 available:false）。含 schema 迁移、三阶段 phase、REST cancel、审计链 parent→job→child，及"向子 Agent 发消息"的交互边界（同会话续谈 Phase 2 可行，运行中插话不可行）。
-2026-08-18-editor-component-create-trace-issues.md: 第二次「Hello React 组件」创建链路事故的四问题梳理：组件 verified 但素材库不显示（事件驱动刷新无兜底）、`<app appid>` 引用标签在 prose 中被渲染成卡片、`recut.job.wait` 同步长轮询触发 MCP EOF、工具结果预览把 `component:` 资产当媒体资产拉取导致永久 Loading。含证据、根因与 P0-P2 修复建议。
+2026-08-18-editor-component-create-trace-issues.md: 第二次「Hello React 组件」创建链路事故的问题梳理：组件 verified 但素材库不显示（排版分两区 → 已合并单一网格）、`<app appid>` 引用标签在 prose 中被渲染成卡片、`recut.job.wait` 同步长轮询触发 MCP EOF、工具结果预览把 `component:` 资产当媒体资产导致永久 Loading、组件卡片无预览图（封面 harness 离屏 iframe 导致 rAF 挂死 → 已修复并验证，含复用 WorldRenderer 渲染路径的评估）。
 
 此目录保存尚未实施或分阶段实施的平台设计决策。RFC 定义目标、边界、数据与接口契约；获批实现后，代码与运行时文档必须反向更新以保持一致。
 
