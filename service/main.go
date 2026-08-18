@@ -107,6 +107,7 @@ func main() {
 		log.Fatalf("ERROR initialize terminal manager: %v", err)
 	}
 	agents := NewAgentManager(store, bridge, media)
+	bridge.SetAgentManager(agents)
 	if recovered, err := agents.RecoverInterruptedTurns(); err != nil {
 		log.Fatalf("ERROR recover interrupted agent turns: %v", err)
 	} else if recovered > 0 {

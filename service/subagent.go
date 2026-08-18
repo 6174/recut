@@ -7,11 +7,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,8 +67,10 @@ func (t *subAgentDiagnosticTail) String() string {
 
 // runFocusedSubAgent 在只读 sandbox 中以受限工具面运行一个同模型子 Agent，
 // 返回它发起的全部受限工具调用的结构化结果（App 无关，结果按工具名收集）。
+// 子 Agent 会话与通用 Agent 会话同构：落 agent_sessions 账本（受限工具面标记）、stdout 事件流解析后
+// 写入 agent_events（审计），仅执行形态是一次性的（受限只读 CLI 进程）。
 // 模型与推理参数继承调用方会话（运行时无关），由子 Agent CLI 校验；不假设父会话是哪种 agent。
-func runFocusedSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost, session AgentSession, target Target, req SubAgentRequest) ([]agentToolCall, error) {
+func runFocusedSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost, session AgentSession, target Target, req SubAgentRequest, jobID string) ([]agentToolCall, error) {
 	model := req.Model
 	effort := req.ReasoningEffort
 	if model == "" {
@@ -95,6 +99,26 @@ func runFocusedSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost,
 	}
 	workspace := bridge.WorkspaceDir(child)
 	defer os.RemoveAll(filepath.Dir(workspace))
+	// 持久化子 Agent 会话行（审计链 parent -> job -> child），并把 job 关联到 child。
+	var childSessionID string
+	if bridge.agents != nil {
+		codexModel, reasoningEffort, opencodeModel := "", "", ""
+		if session.Runtime == "codex" {
+			codexModel, reasoningEffort = model, effort
+		} else if session.Runtime == "opencode" {
+			opencodeModel = model
+		}
+		title := "子 Agent 任务"
+		if job, ok := bridge.agentJob(jobID); ok && job.Operation != "" {
+			title = "子 Agent · " + job.Operation
+		}
+		if persisted, createErr := bridge.agents.CreateChildSession(session.ID, jobID, session.Runtime, codexModel, reasoningEffort, opencodeModel, title, req.AllowedTools); createErr == nil {
+			childSessionID = persisted.ID
+			bridge.setAgentJobChild(jobID, childSessionID)
+		} else {
+			log.Printf("WARN subagent child session persistence failed job_id=%s: %v", jobID, createErr)
+		}
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -123,7 +147,7 @@ func runFocusedSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost,
 	var streams sync.WaitGroup
 	var stdoutTail, stderrTail subAgentDiagnosticTail
 	streams.Add(2)
-	go func() { defer streams.Done(); _, _ = io.Copy(io.MultiWriter(io.Discard, &stdoutTail), stdout) }()
+	go func() { defer streams.Done(); scanSubagentEvents(bridge, childSessionID, session.Runtime, stdout, &stdoutTail) }()
 	go func() { defer streams.Done(); _, _ = io.Copy(io.MultiWriter(io.Discard, &stderrTail), stderr) }()
 	err = cmd.Wait()
 	_ = stdout.Close()
@@ -144,6 +168,32 @@ func runFocusedSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost,
 		return nil, errors.New("sub-agent finished without calling any restricted tool")
 	}
 	return calls, nil
+}
+
+// scanSubagentEvents 把子 Agent CLI 的 JSON 事件流逐行解析并写入子会话的 agent_events 账本，
+// 与父会话（runCodex / runOpencode 的 scanner 模式）同构；stdout 同时保留为诊断 tail。
+func scanSubagentEvents(bridge *AgentBridge, childSessionID, runtime string, stdout io.Reader, tail *subAgentDiagnosticTail) {
+	if bridge == nil || bridge.agents == nil || childSessionID == "" {
+		_, _ = io.Copy(io.MultiWriter(io.Discard, tail), stdout)
+		return
+	}
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		_, _ = tail.Write(line)
+		_, _ = tail.Write([]byte("\n"))
+		var raw map[string]any
+		if json.Unmarshal(line, &raw) != nil {
+			continue
+		}
+		switch runtime {
+		case "codex":
+			_ = bridge.agents.handleCodexEvent(childSessionID, "", raw)
+		case "opencode":
+			bridge.agents.handleOpencodeEvent(childSessionID, "", raw)
+		}
+	}
 }
 
 // runCodexSubAgent 组装 codex CLI 子 Agent 命令（受限工具面由 ComponentAuthorMCPOverrides 注入）。
@@ -187,12 +237,15 @@ func startAppSubAgentJob(bridge *AgentBridge, host *AppHost, session AgentSessio
 	if !target.IsProject() {
 		return nil, errors.New("sub-agent requires a project target")
 	}
-	job, err := bridge.startAgentJob(target, func(ctx context.Context) (any, error) {
-		return runDeclaredSubAgent(ctx, bridge, host, session, target, appID, operation, payload, locale)
-	})
+	run := func(ctx context.Context, jobID string) (any, error) {
+		return runDeclaredSubAgent(ctx, bridge, host, session, target, appID, operation, payload, locale, jobID)
+	}
+	job, err := bridge.startAgentJob(target, run)
 	if err != nil {
 		return nil, err
 	}
+	bridge.setAgentJobMeta(job.ID, appID, operation, session.ID)
+	bridge.registerSubagentToolCall(session.ID, job.ID, appID, operation)
 	view, ok := bridge.agentJobView(job.ID)
 	if !ok {
 		return nil, errors.New("sub-agent job view unavailable")
@@ -235,9 +288,14 @@ func agentRunMCPTool(bridge *AgentBridge, host *AppHost, session AgentSession, a
 
 // runDeclaredSubAgent 执行一个由 background 动态声明请求的受限子 Agent，分三阶段：
 // 1) authorize：调 background operation 取 SubAgentRequest（上下文+工具范围由 background 声明）；
-// 2) run：用平台通用 runner 执行，收集受限工具调用；
+// 2) run：用平台通用 runner 执行（持久化子会话 + 事件落账本），收集受限工具调用；
 // 3) finalize：把工具调用结果回传同一 operation（subAgentTools），由 background 产出最终结果。
-func runDeclaredSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost, session AgentSession, target Target, appID, operation string, payload map[string]any, locale Locale) (any, error) {
+// 每个阶段边界显式更新 job phase（authorizing → running → finalizing → complete）。
+func runDeclaredSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost, session AgentSession, target Target, appID, operation string, payload map[string]any, locale Locale, jobID string) (any, error) {
+	// 在 job goroutine 内尽早登记 meta，避免与调用方 setAgentJobMeta 竞态导致早期事件缺 appId/operation。
+	bridge.setAgentJobMeta(jobID, appID, operation, session.ID)
+	setPhase := func(phase string) { bridge.setAgentJobPhase(jobID, phase) }
+	setPhase("authorizing")
 	raw, err := host.InvokeAPILocale(target, appID, operation, payload, locale)
 	if err != nil {
 		return nil, fmt.Errorf("%s failed: %w", operation, err)
@@ -246,10 +304,11 @@ func runDeclaredSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost
 	if !ok {
 		return nil, fmt.Errorf("%s did not return a subAgent request", operation)
 	}
-	calls, err := runFocusedSubAgent(ctx, bridge, host, session, target, req)
+	calls, err := runFocusedSubAgent(ctx, bridge, host, session, target, req, jobID)
 	if err != nil {
 		return nil, err
 	}
+	setPhase("finalizing")
 	tools := make([]map[string]any, 0, len(calls))
 	for _, call := range calls {
 		tools = append(tools, map[string]any{"name": call.Name, "result": call.Result})

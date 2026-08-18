@@ -63,6 +63,34 @@ type AgentBridge struct {
 	designSystems  *DesignSystemManager
 	mcpTarget      string
 	mcpExecutable  string
+	// agents 是 AgentManager 的后向引用（创建后经 SetAgentManager 注入）：用于子 Agent 会话持久化、
+	// 事件落账本与子会话状态同步。测试场景可为 nil（退化为无记录运行）。
+	agents *AgentManager
+	// subagentToolCalls 关联"父会话正在执行的 subagent 工具调用"：job 创建时注册，tool.completed
+	// 事件消费后注入 subagentId 判别字段。
+	subagentToolCalls map[string]subagentInfo
+	// subagentMu / subagentStreams 是 subagent job 生命周期事件的实时流 hub（ws subagent channel）。
+	subagentMu      sync.Mutex
+	subagentStreams map[string]*subagentStream
+}
+
+// subagentInfo 是一次 subagent 工具调用在父会话事件流上的关联信息。
+type subagentInfo struct {
+	SubagentID string
+	AppID      string
+	Operation  string
+}
+
+// subagentEvent 是 subagent 流上的一条事件帧（job 生命周期）。
+type subagentEvent struct {
+	Event string         `json:"event"`
+	Job   map[string]any `json:"job,omitempty"`
+}
+
+type subagentStream struct {
+	history        []subagentEvent
+	subscribers    map[uint64]chan subagentEvent
+	nextSubscriber uint64
 }
 
 const opencodeMCPTimeoutMilliseconds = 5 * 60 * 1000
@@ -78,7 +106,14 @@ type bridgeRecord struct {
 }
 
 func NewAgentBridge(store *Store) *AgentBridge {
-	return &AgentBridge{store: store, sessions: map[string]AgentSession{}, agentToolCalls: map[string][]agentToolCall{}, agentJobs: map[string]*AgentJob{}, mcpTarget: defaultMCPTarget}
+	return &AgentBridge{store: store, sessions: map[string]AgentSession{}, agentToolCalls: map[string][]agentToolCall{}, agentJobs: map[string]*AgentJob{}, subagentToolCalls: map[string]subagentInfo{}, subagentStreams: map[string]*subagentStream{}, mcpTarget: defaultMCPTarget}
+}
+
+// SetAgentManager 注入 AgentManager 后向引用（组合根创建顺序：bridge 先于 agents）。
+func (b *AgentBridge) SetAgentManager(agents *AgentManager) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.agents = agents
 }
 
 func (b *AgentBridge) SetDesignSystemManager(manager *DesignSystemManager) {
@@ -173,6 +208,105 @@ func (b *AgentBridge) AgentToolCalls(sessionID string) ([]agentToolCall, bool) {
 	calls, ok := b.agentToolCalls[sessionID]
 	delete(b.agentToolCalls, sessionID)
 	return calls, ok
+}
+
+// registerSubagentToolCall 记录父会话当前正在执行的 subagent 工具调用，供 tool.completed 事件注入
+// subagentId 判别字段。父会话的一次 subagent 工具调用在运行期间只有它自己在执行，因此"注册 → 下一条
+// tool.completed 消费"是 1:1 的；异常残留由下一 turn 开始时清理。
+func (b *AgentBridge) registerSubagentToolCall(sessionID, subagentID, appID, operation string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.subagentToolCalls[sessionID] = subagentInfo{SubagentID: subagentID, AppID: appID, Operation: operation}
+}
+
+func (b *AgentBridge) consumeSubagentToolCall(sessionID string) (subagentInfo, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	info, ok := b.subagentToolCalls[sessionID]
+	delete(b.subagentToolCalls, sessionID)
+	return info, ok
+}
+
+func (b *AgentBridge) clearSubagentToolCall(sessionID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.subagentToolCalls, sessionID)
+}
+
+// --- subagent 实时流 hub（ws subagent channel） ---
+
+const subagentHistoryLimit = 200
+
+func (b *AgentBridge) beginSubagentStream(jobID string) {
+	b.subagentMu.Lock()
+	defer b.subagentMu.Unlock()
+	if b.subagentStreams[jobID] == nil {
+		b.subagentStreams[jobID] = &subagentStream{subscribers: map[uint64]chan subagentEvent{}}
+	}
+}
+
+// appendSubagentEvent 把一条 job 生命周期事件写入流历史并扇出给所有订阅者（非阻塞）。
+func (b *AgentBridge) appendSubagentEvent(jobID string, frame subagentEvent) {
+	b.subagentMu.Lock()
+	stream := b.subagentStreams[jobID]
+	if stream != nil {
+		stream.history = append(stream.history, frame)
+		if len(stream.history) > subagentHistoryLimit {
+			stream.history = append([]subagentEvent(nil), stream.history[len(stream.history)-subagentHistoryLimit:]...)
+		}
+		for _, subscriber := range stream.subscribers {
+			select {
+			case subscriber <- frame:
+			default:
+			}
+		}
+	}
+	b.subagentMu.Unlock()
+}
+
+func (b *AgentBridge) finishSubagentStream(jobID string) {
+	b.subagentMu.Lock()
+	delete(b.subagentStreams, jobID)
+	b.subagentMu.Unlock()
+}
+
+// SubscribeSubagentStream 订阅一个 subagent job 的生命周期流：先回放历史，再实时推送。
+// job 不存在返回 (nil, nil, noop)。
+func (b *AgentBridge) SubscribeSubagentStream(jobID string) ([]subagentEvent, <-chan subagentEvent, func()) {
+	b.subagentMu.Lock()
+	stream := b.subagentStreams[jobID]
+	if stream == nil {
+		b.subagentMu.Unlock()
+		return nil, nil, func() {}
+	}
+	history := append([]subagentEvent(nil), stream.history...)
+	stream.nextSubscriber++
+	subscriberID := stream.nextSubscriber
+	output := make(chan subagentEvent, subagentHistoryLimit)
+	stream.subscribers[subscriberID] = output
+	b.subagentMu.Unlock()
+	return history, output, func() {
+		b.subagentMu.Lock()
+		if current := b.subagentStreams[jobID]; current == stream {
+			delete(current.subscribers, subscriberID)
+		}
+		b.subagentMu.Unlock()
+	}
+}
+
+// emitSubagentEvent 处理一条 subagent job 生命周期事件：持久化为审计账本（agent_events 的
+// subagent.job 类型，归属子会话；子会话未创建前归属父会话）+ 实时扇出到 subagent 流。
+func (b *AgentBridge) emitSubagentEvent(jobID, event string, view map[string]any) {
+	if b.agents != nil {
+		sessionID, _ := view["childSessionId"].(string)
+		if sessionID == "" {
+			sessionID, _ = view["parentSessionId"].(string)
+		}
+		if sessionID != "" {
+			b.agents.emitSubagentJobEvent(sessionID, event, view)
+		}
+	}
+	b.appendSubagentEvent(jobID, subagentEvent{Event: event, Job: view})
 }
 
 func (b *AgentBridge) WorkspaceDir(session AgentSession) string {

@@ -7,7 +7,7 @@
 "use client";
 
 import { Bot, Check, ChevronRight, CircleAlert, Copy, RefreshCw, ThumbsDown, ThumbsUp, X } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { AgentInstallGuide, CopyFeedback, copyToClipboard, recoverySubtitle, recoveryTitle, type AgentRuntimeStatus } from "@/components/agent-install-guide";
@@ -15,12 +15,13 @@ import { AgentMessageContent } from "@/components/agent-message-content";
 import { AssetReferenceChip } from "@/components/asset-reference-picker";
 import { ToolResultAssets } from "@/components/tool-result-assets";
 import { Button } from "@/components/ui/button";
-import { ActionIcon, RunningStatus, WorkFocusChip, WorkSurfaceChip } from "@/components/agent-composer";
-import { codexModelLabel, contextLabel, defaultCodexConfiguration, opencodeModelLabel, runtimeLabel, type WorkFocusContext, type WorkSurfaceContext } from "@/components/agent-panel-types";
+import { ActionIcon, RunningStatus, WorkFocusChip, WorkSurfaceChip } from "@/components/agent-composer";import { codexModelLabel, contextLabel, defaultCodexConfiguration, opencodeModelLabel, parseSubagentJob, runtimeLabel, type SubagentJob, type WorkFocusContext, type WorkSurfaceContext } from "@/components/agent-panel-types";
 import { type AgentEvent, type CLIEntry, type Detail, type Session, type ToolPayload, type Turn } from "@/components/agent-panel-types";
 import { t, useI18n } from "@/lib/i18n/index";
 import { useLocaleStore } from "@/lib/i18n/locale-store";
 import { interpolate } from "@/lib/i18n/workspace-dict";
+import { getRealtimeChannel } from "@/lib/realtime-channel";
+import { useSubagentJob } from "@/lib/subagent-store";
 
 export async function responseMessage(response: Response, fallback: string) {
   try {
@@ -130,6 +131,7 @@ type ToolCall = {
   output?: string;
   error?: string;
   payload: ToolPayload;
+  subagent?: { id: string; appId?: string; operation?: string };
 };
 
 export function Conversation({
@@ -547,18 +549,29 @@ function toolCalls(events: AgentEvent[]): ToolCall[] {
         event.payload?.error ??
         legacyToolDetail(event.payload?.detail, "error");
     }
+    if (event.payload?.subagentId) {
+      call.subagent = {
+        id: event.payload.subagentId,
+        appId: event.payload.subagentAppId,
+        operation: event.payload.subagentOperation,
+      };
+    }
     calls.set(id, call);
   }
   return [...calls.values()];
 }
 
 function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolCall; now: number }) {
+  // 子 Agent 任务：识别到 subagentId 判别字段即渲染专用任务卡片（含实时状态与耗时 counter）。
+  if (call.subagent?.id) {
+    return <SubagentTaskCard apiBase={apiBase} call={call} now={now} />;
+  }
   const { t: text } = useI18n();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const hasDetail = true;
   const duration = toolDuration(call.createdAt, call.completedAt, now);
-  const label = toolDisplayLabel(call.payload, text);
+  const label = toolDisplayLabel(call.payload, call.input, text);
   const stateLabel = { running: text("agent.tool.running"), success: text("agent.tool.success"), error: text("agent.tool.error") }[
     call.state
   ];
@@ -645,17 +658,142 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
   );
 }
 
-// 工具动作标签统一走字典（agent.tool.name.*），未知工具名回退服务端下发 label。
-// TODO: 服务端下发的 payload.label 仍是服务端数据（如以「调用 」开头的 MCP 标签），暂不本地化，待服务端按 locale 下发。
-function toolDisplayLabel(payload: ToolPayload, t: (key: string) => string) {
-  const name = payload.toolName ?? "";
+// 工具动作标签同时展示翻译名称与英文 tool-name；未知工具名直接展示英文名，
+// 不做无语义的「MCP 工具调用」兜底。有输入参数时再附加关键参数摘要，便于一眼看出调用内容。
+export function toolDisplayLabel(payload: ToolPayload, input: string | undefined, t: (key: string) => string) {
+  const name = payload.toolName ?? payload.tool ?? "";
   const alias = `recut_${name.replaceAll(".", "_")}`;
   const directKey = `agent.tool.name.${name}`;
   const aliasKey = `agent.tool.name.${alias}`;
   const direct = t(directKey) !== directKey ? t(directKey) : "";
   const viaAlias = aliasKey !== directKey && t(aliasKey) !== aliasKey ? t(aliasKey) : "";
-  const label = direct || viaAlias || payload.label?.trim();
-  return label?.startsWith("调用 ") ? t("agent.tool.mcpCall") : label || t("agent.tool.mcpCall");
+  const translated = direct || viaAlias;
+  const english = name.trim();
+  let label = "";
+  if (translated) {
+    label = english && translated !== english ? `${translated} · ${english}` : translated;
+  } else {
+    const serverLabel = payload.label?.trim();
+    if (serverLabel && !serverLabel.startsWith("调用 ")) {
+      label = english && serverLabel !== english ? `${serverLabel} · ${english}` : serverLabel;
+    } else {
+      label = english || t("agent.tool.noName");
+    }
+  }
+  const kind = payload.tool;
+  const noParams = kind === "command_execution" || kind === "file_change" || kind === "web_search";
+  return label + (noParams ? "" : toolParamSummary(name, input));
+}
+
+// 每个工具在标签里额外展示的关键参数（按规范英文 tool-name）。
+// 未配置的工具走 toolParamPriority 通用优先级，最多展示两个非空参数。
+const TOOL_PARAM_SUMMARY: Record<string, string[]> = {
+  "recut.skills.read": ["skillId"],
+  "recut.skills.reference": ["skillId", "path"],
+  "recut.apps.install": ["repository"],
+  "recut.apps.update": ["package"],
+  "recut.design_system.get": ["styleId"],
+  "recut.project.get": ["projectId"],
+  "recut.project_context": ["projectId"],
+  "recut.agent.run": ["app", "operation"],
+  "recut.job.status": ["jobId"],
+  "recut.job.wait": ["jobId"],
+  "recut.job.logs": ["jobId"],
+  "recut.job.cancel": ["jobId"],
+  "recut.image.generate": ["prompt"],
+  "recut.video.generate": ["prompt"],
+  "recut.speech.generate": ["text"],
+  "recut.media.list_voices": ["voiceId"],
+  "recut.media.get_job": ["jobId"],
+  "recut.media.wait_for_job": ["jobId"],
+  "recut.media.list_assets": ["query"],
+  "recut.media.import_image": ["path"],
+  "recut.media.create_reference": ["url"],
+  "recut.media.attach": ["assetId"],
+  "recut.worlds.list": ["text"],
+  "recut.worlds.get": ["worldId"],
+  "recut.worlds.entities.list": ["worldId"],
+  "recut.worlds.entities.get": ["worldId", "entityId"],
+  "recut.worlds.evidence.list": ["worldId"],
+  "recut.worlds.resolve": ["worldId"],
+  "recut.worlds.create": ["name"],
+  "recut.worlds.update": ["worldId", "name"],
+  "recut.worlds.entities.upsert": ["worldId", "title"],
+  "recut.worlds.references.attach": ["worldId", "assetId"],
+  "recut.worlds.evidence.attach": ["worldId", "assetId"],
+  "recut.worlds.evidence.update": ["worldId", "evidenceId"],
+  "recut.worlds.evidence.archive": ["worldId", "evidenceId"],
+  "recut.worlds.bind_project": ["projectId", "worldId"],
+  "recut.recut_editor.workflow_context": ["projectId"],
+  "recut.recut_editor.timeline_command": ["action"],
+  "recut_recut_editor_workflow_context": ["projectId"],
+  "recut_recut_editor_timeline_command": ["action"],
+};
+
+// 未配置工具的关键参数通用优先级。
+const TOOL_PARAM_PRIORITY = [
+  "title",
+  "name",
+  "skillId",
+  "query",
+  "path",
+  "command",
+  "action",
+  "projectId",
+  "jobId",
+  "worldId",
+  "entityId",
+  "assetId",
+  "url",
+  "repository",
+  "package",
+  "voiceId",
+  "prompt",
+  "text",
+];
+
+function toolParamSummary(name: string, input: string | undefined): string {
+  if (!name.trim() || !input) return "";
+  const alias = `recut_${name.replaceAll(".", "_")}`;
+  const keys =
+    TOOL_PARAM_SUMMARY[alias] ??
+    TOOL_PARAM_SUMMARY[name] ??
+    TOOL_PARAM_PRIORITY;
+  const values = parseToolInput(input);
+  if (!values) return "";
+  const parts: string[] = [];
+  for (const key of keys) {
+    const value = values[key];
+    if (typeof value !== "string" || !value.trim()) continue;
+    parts.push(`${key}=${shortenParam(value)}`);
+    if (parts.length === 2) break;
+  }
+  return parts.length ? ` · ${parts.join(" · ")}` : "";
+}
+
+function parseToolInput(input: string): Record<string, unknown> | null {
+  let values: unknown;
+  try {
+    values = JSON.parse(input);
+  } catch {
+    return null;
+  }
+  if (values && typeof values === "object" && !Array.isArray(values)) {
+    const record = values as Record<string, unknown>;
+    for (const key of ["arguments", "input"]) {
+      const nested = record[key];
+      if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+        return nested as Record<string, unknown>;
+      }
+    }
+    return record;
+  }
+  return null;
+}
+
+function shortenParam(value: string) {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > 40 ? `${compact.slice(0, 40)}…` : compact;
 }
 
 function toolCallReport(call: ToolCall, label: string, duration: string) {
@@ -768,7 +906,259 @@ function ToolDetailDialog({
     document.body,
   );
 }
-function toolDuration(
+
+// SubagentTaskCard 渲染一次 subagent 工具调用（识别到 payload.subagentId）为任务卡片：
+// 状态徽标 + authorize/run/finalize 阶段指示 + 自治实时耗时 counter；点击打开全局预览弹框。
+// 状态来自共享 subagent-store（单条 ws subagent channel 订阅），初始用工具 output 的 job view 做种子。
+function SubagentTaskCard({ apiBase, call, now }: { apiBase: string; call: ToolCall; now: number }) {
+  const { t: text } = useI18n();
+  const { job, available } = useSubagentJob(call.subagent?.id, apiBase);
+  const seed = useMemo(() => parseSubagentJob(call.output), [call.output]);
+  const current = job ?? seed;
+  const [open, setOpen] = useState(false);
+  const [localNow, setLocalNow] = useState(() => Date.now());
+  const running = current?.status === "queued" || current?.status === "running";
+  useEffect(() => {
+    if (!running) return;
+    setLocalNow(Date.now());
+    const timer = window.setInterval(() => setLocalNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  const displayNow = running ? localNow : now;
+  const label = toolDisplayLabel(call.payload, call.input, text);
+  const status = current?.status ?? "running";
+  const statusLabel = text(`agent.subagent.status.${status}`);
+  const statusClass =
+    (
+      {
+        queued: "bg-muted-foreground",
+        running: "animate-pulse bg-warning",
+        completed: "bg-success",
+        failed: "bg-destructive",
+        cancelled: "bg-muted-foreground",
+      } as Record<string, string>
+    )[status] ?? "bg-muted-foreground";
+  const statusTextClass =
+    (
+      {
+        running: "text-warning",
+        completed: "text-success",
+        failed: "text-destructive",
+      } as Record<string, string>
+    )[status] ?? "text-muted-foreground";
+  const elapsed = toolDuration(current?.createdAt ?? call.createdAt, current?.updatedAt ?? call.completedAt, displayNow);
+  const phaseIndex =
+    current?.phase === "authorizing" || current?.phase === "authoring"
+      ? 0
+      : current?.phase === "finalizing"
+        ? 2
+        : current?.phase === "running" || current?.phase === "complete"
+          ? 2
+          : -1;
+  const phases = ["authorizing", "running", "finalizing"] as const;
+  const metaLine = call.subagent?.appId
+    ? `${call.subagent.appId}.${call.subagent.operation ?? "…"}`
+    : call.payload.toolName ?? call.subagent?.id ?? "";
+  return (
+    <div className="max-w-full text-[11px]">
+      <button
+        aria-label={text("agent.subagent.card.open")}
+        className="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-card px-2.5 py-2 text-left shadow-sm transition hover:border-primary"
+        onClick={() => setOpen(true)}
+        type="button"
+      >
+        <span className={`size-1.5 shrink-0 rounded-full ${statusClass}`} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium text-foreground">{label}</span>
+          <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
+            {metaLine || subagentIdLabel(call, text)}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1">
+          {phases.map((phase, index) => (
+            <span
+              className={`size-1 rounded-full ${index <= phaseIndex ? "bg-primary" : "bg-muted-foreground/30"}`}
+              key={phase}
+              title={text(`agent.subagent.phase.${phase}`)}
+            />
+          ))}
+        </span>
+        <span className={`shrink-0 text-[10px] ${statusTextClass}`}>
+          {available === false && !current ? text("agent.subagent.dialog.unavailable") : `${statusLabel} · ${elapsed}`}
+        </span>
+      </button>
+      {open && current && <SubagentPreviewDialog apiBase={apiBase} job={current} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+function subagentIdLabel(call: ToolCall, text: (key: string) => string) {
+  if (call.payload.toolName) return call.payload.toolName;
+  return text("agent.subagent.card.unknown");
+}
+
+// SubagentPreviewDialog 是子 Agent 任务的全局预览弹框：Meta 头（job/app/operation/status/phase/耗时/取消/复制诊断）
+// + 主体 = 子 Agent 会话的 chat 视图（复用 Conversation 渲染 child session 的 turns + 事件）。
+// 数据：GET /v1/agent-sessions/{childSessionId} 首屏 + agent channel(childSessionId) 实时事件；
+// job 状态由卡片经 subagent-store 驱动本组件 rerender。
+function SubagentPreviewDialog({ apiBase, job, onClose }: { apiBase: string; job: SubagentJob; onClose: () => void }) {
+  const { t: text } = useI18n();
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const running = job.status === "queued" || job.status === "running";
+  const terminal = !running;
+  const childID = job.childSessionId;
+
+  useEffect(() => {
+    if (!running) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+
+  // 首屏：拉取子会话详情并订阅其实时事件（本质就是 chat 的会话通道）。
+  useEffect(() => {
+    if (!childID) return;
+    let cancelled = false;
+    let handle: { unsubscribe: () => void } | null = null;
+    setLoading(true);
+    setDetail(null);
+    void fetch(`${apiBase}/v1/agent-sessions/${encodeURIComponent(childID)}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((loaded: Detail | null) => {
+        if (cancelled) return;
+        setLoading(false);
+        if (!loaded) return;
+        setDetail(loaded);
+        handle = {
+          unsubscribe: getRealtimeChannel(apiBase).subscribe(
+            "agent",
+            childID,
+            (frame) => {
+              setDetail((current) => (current ? applyAgentEvent(current, frame.data as AgentEvent) : current));
+            },
+            loaded.lastEventId,
+          ),
+        };
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      handle?.unsubscribe();
+    };
+  }, [apiBase, childID]);
+
+  // job 终态时刷新一次子会话详情（服务端已把子会话状态同步为 completed/failed/cancelled）。
+  useEffect(() => {
+    if (!terminal || !childID) return;
+    void fetch(`${apiBase}/v1/agent-sessions/${encodeURIComponent(childID)}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((loaded: Detail | null) => {
+        if (loaded) setDetail(loaded);
+      })
+      .catch(() => {});
+  }, [terminal, childID, apiBase]);
+
+  async function cancel() {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      await fetch(`${apiBase}/v1/jobs/${encodeURIComponent(job.id)}/cancel`, { method: "POST" });
+    } catch {
+      // 网络错误静默；job 终态由 store 帧驱动，无需乐观更新。
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  async function copyDiagnostic() {
+    const report = JSON.stringify(
+      {
+        subagentJob: job,
+        childSession: detail
+          ? { id: detail.id, status: detail.status, turns: detail.turns, events: detail.events.slice(-100) }
+          : null,
+      },
+      null,
+      2,
+    );
+    const ok = await copyToClipboard(report);
+    setCopied(ok);
+    if (ok) window.setTimeout(() => setCopied(false), 2200);
+  }
+
+  const status = job.status;
+  const statusLabel = text(`agent.subagent.status.${status}`);
+  const phaseKey = job.phase === "authoring" ? "authorizing" : job.phase;
+  const phaseLabel = text(`agent.subagent.phase.${phaseKey}`);
+  const elapsed = toolDuration(job.createdAt ?? new Date().toISOString(), job.updatedAt, running ? now : Date.now());
+  const metaLine = `${job.appId ? `${job.appId}.` : ""}${job.operation ?? "sub-agent"} · ${job.id}`;
+
+  return createPortal(
+    <div
+      aria-labelledby="subagent-preview-title"
+      aria-modal="true"
+      className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]"
+      onMouseDown={onClose}
+      role="dialog"
+    >
+      <section
+        className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-sm border bg-card shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b px-4 py-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-medium" id="subagent-preview-title">
+              {text("agent.subagent.dialog.title")}
+            </h2>
+            <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{metaLine}</p>
+          </div>
+          <button
+            aria-label={text("agent.subagent.dialog.close")}
+            className="grid size-8 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-muted"
+            onClick={onClose}
+            type="button"
+          >
+            <X className="size-4" />
+          </button>
+        </header>
+        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-2 text-[10px] text-muted-foreground">
+          <span className={`size-1.5 rounded-full ${status === "running" ? "animate-pulse bg-warning" : status === "completed" ? "bg-success" : status === "failed" ? "bg-destructive" : "bg-muted-foreground"}`} />
+          <span className="font-medium text-foreground">{statusLabel}</span>
+          <span>{interpolate(text("agent.subagent.meta.phase"), { phase: phaseLabel })}</span>
+          <span className="ml-auto flex items-center gap-1">
+            <Button className="h-6 px-2 text-[10px]" disabled={cancelling || terminal} onClick={() => void cancel()} type="button" variant="outline">
+              {cancelling ? text("agent.subagent.dialog.cancelling") : text("agent.subagent.dialog.cancel")}
+            </Button>
+            <Button className="h-6 px-2 text-[10px]" onClick={() => void copyDiagnostic()} type="button" variant="ghost">
+              {copied ? text("agent.subagent.dialog.copied") : text("agent.subagent.dialog.copyDiagnostic")}
+            </Button>
+            <span className="shrink-0">{elapsed}</span>
+          </span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <ConversationLoading />
+          ) : detail ? (
+            <Conversation apiBase={apiBase} detail={detail} now={now} />
+          ) : childID ? (
+            <p className="text-xs text-muted-foreground">{text("agent.subagent.dialog.noActivity")}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">{text("agent.subagent.dialog.noActivity")}</p>
+          )}
+        </div>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+export function toolDuration(
   startedAt: string,
   completedAt: string | undefined,
   now: number,

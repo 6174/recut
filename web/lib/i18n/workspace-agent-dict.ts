@@ -144,7 +144,6 @@ const zh = {
   "agent.tool.result": "生成结果",
   "agent.tool.assetFallback": "生成的素材",
   "agent.tool.open": "打开{label}",
-  "agent.tool.mcpCall": "MCP 工具调用",
 
   // 工具动作标签（按工具名）
   "agent.tool.name.recut_recut_context": "读取 Recut 上下文",
@@ -290,6 +289,29 @@ const zh = {
   "agent.terminal.time.minutesAgo": "{value} 分钟前",
   "agent.terminal.time.hoursAgo": "{value} 小时前",
   "agent.terminal.time.daysAgo": "{value} 天前",
+
+  // 子 Agent 任务卡片与全局预览
+  "agent.subagent.status.queued": "排队中",
+  "agent.subagent.status.running": "执行中",
+  "agent.subagent.status.completed": "已完成",
+  "agent.subagent.status.failed": "失败",
+  "agent.subagent.status.cancelled": "已取消",
+  "agent.subagent.phase.authorizing": "授权上下文",
+  "agent.subagent.phase.running": "子 Agent 执行",
+  "agent.subagent.phase.finalizing": "校验入库",
+  "agent.subagent.phase.queued": "排队中",
+  "agent.subagent.phase.complete": "全部完成",
+  "agent.subagent.card.open": "打开子 Agent 任务详情",
+  "agent.subagent.card.unknown": "子 Agent 任务",
+  "agent.subagent.dialog.title": "子 Agent 任务",
+  "agent.subagent.dialog.close": "关闭子 Agent 任务详情",
+  "agent.subagent.dialog.cancel": "取消任务",
+  "agent.subagent.dialog.cancelling": "取消中…",
+  "agent.subagent.dialog.copyDiagnostic": "复制诊断",
+  "agent.subagent.dialog.copied": "已复制",
+  "agent.subagent.dialog.noActivity": "暂无子 Agent 活动记录",
+  "agent.subagent.dialog.unavailable": "任务不可用",
+  "agent.subagent.meta.phase": "阶段：{phase}",
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
@@ -430,7 +452,6 @@ const en: Record<keyof typeof zh, string> = {
   "agent.tool.result": "Generated results",
   "agent.tool.assetFallback": "Generated asset",
   "agent.tool.open": "Open {label}",
-  "agent.tool.mcpCall": "MCP tool call",
 
   // Tool action labels (keyed by tool name)
   "agent.tool.name.recut_recut_context": "Read Recut context",
@@ -576,6 +597,29 @@ const en: Record<keyof typeof zh, string> = {
   "agent.terminal.time.minutesAgo": "{value} min ago",
   "agent.terminal.time.hoursAgo": "{value} h ago",
   "agent.terminal.time.daysAgo": "{value} d ago",
+
+  // Subagent task card & global preview
+  "agent.subagent.status.queued": "Queued",
+  "agent.subagent.status.running": "Running",
+  "agent.subagent.status.completed": "Done",
+  "agent.subagent.status.failed": "Failed",
+  "agent.subagent.status.cancelled": "Cancelled",
+  "agent.subagent.phase.authorizing": "Preparing context",
+  "agent.subagent.phase.running": "Subagent running",
+  "agent.subagent.phase.finalizing": "Verifying",
+  "agent.subagent.phase.queued": "Queued",
+  "agent.subagent.phase.complete": "Complete",
+  "agent.subagent.card.open": "Open subagent task details",
+  "agent.subagent.card.unknown": "Subagent task",
+  "agent.subagent.dialog.title": "Subagent task",
+  "agent.subagent.dialog.close": "Close subagent task details",
+  "agent.subagent.dialog.cancel": "Cancel task",
+  "agent.subagent.dialog.cancelling": "Cancelling…",
+  "agent.subagent.dialog.copyDiagnostic": "Copy diagnostic",
+  "agent.subagent.dialog.copied": "Copied",
+  "agent.subagent.dialog.noActivity": "No subagent activity recorded",
+  "agent.subagent.dialog.unavailable": "Task unavailable",
+  "agent.subagent.meta.phase": "Phase: {phase}",
 };
 
 export const agentZh = zh;

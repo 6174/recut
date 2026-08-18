@@ -147,6 +147,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/media/assets/{id}/attach", s.attachMediaAsset)
 	mux.HandleFunc("POST /v1/media/jobs", s.createMediaJob)
 	mux.HandleFunc("GET /v1/media/jobs/{id}", s.getMediaJob)
+	mux.HandleFunc("GET /v1/jobs/{id}", s.getJob)
+	mux.HandleFunc("POST /v1/jobs/{id}/cancel", s.cancelJob)
 	mux.HandleFunc("GET /v1/fonts", s.listFonts)
 	mux.HandleFunc("GET /v1/fonts/google/{id}/css", s.fontGoogleCSS)
 	mux.HandleFunc("GET /v1/fonts/google/{id}/{file...}", s.fontGoogleFile)
@@ -915,6 +917,33 @@ func (s *Server) streamTerminal(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// getJob 读取一个 subagent job 的完整视图（排障/预览首屏）。
+func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
+	if s.bridge == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("agent bridge is unavailable"))
+		return
+	}
+	if view, ok := s.bridge.agentJobView(r.PathValue("id")); ok {
+		writeJSON(w, http.StatusOK, view)
+		return
+	}
+	writeError(w, http.StatusNotFound, errors.New("sub-agent job not found"))
+}
+
+// cancelJob 取消一个 queued / running 的 subagent job；terminal 幂等返回，不存在 404。
+func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
+	if s.bridge == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("agent bridge is unavailable"))
+		return
+	}
+	result, ok := s.bridge.cancelAgentJob(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("sub-agent job not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

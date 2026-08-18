@@ -136,6 +136,10 @@ type AgentManager struct {
 	mu             sync.Mutex
 	running        map[string]context.CancelFunc
 	cliStreams     map[string]*agentCLIStream
+	// bridgeSessions 记录当前 turn 的 chatSessionID -> bridgeSessionID 映射。
+	// 主 Agent 的 MCP 工具调用以 bridge session 身份鉴权（subagent 工具调用注册在 bridge ID 下），
+	// 而事件流（handleCodexEvent 等）用 chat session ID；subagentId 注入据此映射消费。
+	bridgeSessions map[string]string
 	modelsMu       sync.Mutex
 	modelsCache    []OpencodeModel
 	modelsCachedAt time.Time
@@ -212,7 +216,14 @@ func (w *opencodeSilenceWatchdog) Stop() {
 
 func NewAgentManager(store *Store, bridge *AgentBridge, media *MediaService) *AgentManager {
 	commands := store.agentCommands
-	return &AgentManager{store: store, bridge: bridge, media: media, commands: commands, opencodeModels: func(ctx context.Context) ([]OpencodeModel, error) { return listOpencodeModels(ctx, commands) }, running: map[string]context.CancelFunc{}, cliStreams: map[string]*agentCLIStream{}}
+	return &AgentManager{store: store, bridge: bridge, media: media, commands: commands, opencodeModels: func(ctx context.Context) ([]OpencodeModel, error) { return listOpencodeModels(ctx, commands) }, running: map[string]context.CancelFunc{}, cliStreams: map[string]*agentCLIStream{}, bridgeSessions: map[string]string{}}
+}
+
+// recordBridgeSession 记录当前 turn 的 chatSessionID -> bridgeSessionID 映射（见 bridgeSessions 注释）。
+func (m *AgentManager) recordBridgeSession(chatID, bridgeID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.bridgeSessions[chatID] = bridgeID
 }
 
 // cachedOpencodeModels bounds the cost of `opencode models`, which spawns the
@@ -445,12 +456,56 @@ func (m *AgentManager) Create(runtime, codexModel, reasoningEffort, opencodeMode
 	return session, nil
 }
 
+// CreateChildSession 持久化一个受限子 Agent 会话行（agent_sessions），与通用会话同构，仅额外记录
+// parent_session_id / job_id / allowed_tools 供审计链与受限工具面恢复。执行是一次性的，记录是持久的。
+func (m *AgentManager) CreateChildSession(parentID, jobID, runtime, codexModel, reasoningEffort, opencodeModel, title string, allowedTools []string) (ChatSession, error) {
+	id, err := newID()
+	if err != nil {
+		return ChatSession{}, err
+	}
+	allowed, _ := json.Marshal(allowedTools)
+	now := time.Now().UTC()
+	session := ChatSession{ID: id, ProfileID: localProfileID, Runtime: runtime, CodexModel: codexModel, ReasoningEffort: reasoningEffort, OpencodeModel: opencodeModel, Title: title, Status: "running", CreatedAt: now, UpdatedAt: now}
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return ChatSession{}, err
+	}
+	_, err = db.Exec("insert into agent_sessions (id, profile_id, runtime, native_session_id, native_workspace, codex_model, reasoning_effort, opencode_model, title, status, parent_session_id, job_id, allowed_tools, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		session.ID, session.ProfileID, session.Runtime, "", "", session.CodexModel, session.ReasoningEffort, session.OpencodeModel, session.Title, session.Status, parentID, jobID, string(allowed), iso(now), iso(now))
+	if err != nil {
+		return ChatSession{}, err
+	}
+	log.Printf("INFO subagent session created session_id=%s parent_session_id=%s job_id=%s runtime=%s", session.ID, parentID, jobID, session.Runtime)
+	return session, nil
+}
+
+// UpdateChildSessionStatus 把子会话状态随 job 终态同步（completed/failed/cancelled）。
+func (m *AgentManager) UpdateChildSessionStatus(sessionID, status string) {
+	m.updateSession(sessionID, "status = ?", status)
+}
+
+// emitSubagentJobEvent 把一条 subagent job 生命周期事件写入 agent_events 账本（type=subagent.job），
+// 供审计与 subagent channel 的断线回放。
+func (m *AgentManager) emitSubagentJobEvent(sessionID, event string, view map[string]any) {
+	m.emit(sessionID, "", "subagent.job", map[string]any{"event": event, "job": view})
+}
+
+// SessionByJob 按 job_id 查找子会话（daemon 重启后 job 内存态丢失，审计视图据此从账本重建）。
+func (m *AgentManager) SessionByJob(jobID string) (ChatSession, error) {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return ChatSession{}, err
+	}
+	row := db.QueryRow("select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where job_id = ? and profile_id = ? limit 1", jobID, localProfileID)
+	return scanChatSession(row)
+}
+
 func (m *AgentManager) List(projectID, scope string) ([]ChatSession, error) {
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
 		return nil, err
 	}
-	query, args := "select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ?", []any{localProfileID}
+	query, args := "select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ? and parent_session_id is null", []any{localProfileID}
 	switch {
 	case projectID != "":
 		query += " and project_id = ?"
@@ -506,6 +561,32 @@ func (m *AgentManager) Detail(id string) (ChatSessionDetail, error) {
 	return ChatSessionDetail{ChatSession: session, Turns: turns, Events: events, LastEventID: last}, nil
 }
 
+func (m *AgentManager) subagentToolFields(sessionID string) map[string]any {
+	if m.bridge == nil {
+		return nil
+	}
+	// 主 Agent 事件流用 chatSessionID，而 subagent 工具调用注册在 bridge session ID 下
+	// （MCP 以 bridge session 鉴权）；先查 chat ID，再经映射查当前 turn 的 bridge ID。
+	ids := []string{sessionID}
+	m.mu.Lock()
+	if bridgeID := m.bridgeSessions[sessionID]; bridgeID != "" {
+		ids = append(ids, bridgeID)
+	}
+	m.mu.Unlock()
+	for _, id := range ids {
+		info, ok := m.bridge.consumeSubagentToolCall(id)
+		if !ok {
+			continue
+		}
+		return map[string]any{
+			"subagentId":        info.SubagentID,
+			"subagentAppId":     info.AppID,
+			"subagentOperation": info.Operation,
+		}
+	}
+	return nil
+}
+
 func (m *AgentManager) Events(id string, after int64) ([]ChatEvent, error) {
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
@@ -526,6 +607,16 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string, inpu
 	session, err := getChatSession(db, sessionID)
 	if err != nil {
 		return ChatTurn{}, err
+	}
+	// 上一个 turn 若因异常没消费 subagent 工具调用注册，清理残留，避免串到下一条 tool.completed。
+	if m.bridge != nil {
+		m.bridge.clearSubagentToolCall(sessionID)
+		m.mu.Lock()
+		bridgeID := m.bridgeSessions[sessionID]
+		m.mu.Unlock()
+		if bridgeID != "" {
+			m.bridge.clearSubagentToolCall(bridgeID)
+		}
 	}
 	contexts := make([]ChatContext, 0, len(assetIDs)+len(inputContexts))
 	for _, id := range assetIDs {
@@ -936,6 +1027,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	if err != nil {
 		return err
 	}
+	m.recordBridgeSession(session.ID, bridgeSession.ID)
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -1030,6 +1122,7 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	if err != nil {
 		return err
 	}
+	m.recordBridgeSession(session.ID, bridgeSession.ID)
 	// Claude stores each session under the project directory it was created in,
 	// so resuming from a different cwd fails; the workspace is pinned on the
 	// first turn and reused for every later turn of the same native session.
@@ -1104,6 +1197,7 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	if err != nil {
 		return err
 	}
+	m.recordBridgeSession(session.ID, bridgeSession.ID)
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -1649,7 +1743,13 @@ func (m *AgentManager) handleCodexEvent(sessionID, turnID string, raw map[string
 			if eventType == "tool.failed" {
 				phase = "error"
 			}
-			m.emit(sessionID, turnID, eventType, m.codexToolPayload(item, itemType, phase))
+			payload := m.codexToolPayload(item, itemType, phase)
+			if fields := m.subagentToolFields(sessionID); len(fields) > 0 {
+				for key, value := range fields {
+					payload[key] = value
+				}
+			}
+			m.emit(sessionID, turnID, eventType, payload)
 		}
 	case "error":
 		// A top-level error is often only Codex's reconnect progress. Keep the
@@ -1693,6 +1793,7 @@ func (m *AgentManager) handleClaudeEvent(sessionID, turnID string, raw map[strin
 			}
 			if kind == "tool_use" {
 				name, _ := content["name"].(string)
+				name = canonicalMCPToolName(name)
 				id, _ := content["id"].(string)
 				if id == "" {
 					id = fmt.Sprintf("tool-%d", index)
@@ -1729,6 +1830,7 @@ func (m *AgentManager) handleOpencodeEvent(sessionID, turnID string, raw map[str
 		}
 		id, _ := part["id"].(string)
 		toolName, _ := part["tool"].(string)
+		toolName = canonicalMCPToolName(toolName)
 		state, _ := part["state"].(map[string]any)
 		status, _ := state["status"].(string)
 		eventType := "tool.completed"
@@ -1748,6 +1850,11 @@ func (m *AgentManager) handleOpencodeEvent(sessionID, turnID string, raw map[str
 		}
 		if detail := opencodeToolDetail(state, phase); detail != "" {
 			payload[phase] = detail
+		}
+		if fields := m.subagentToolFields(sessionID); len(fields) > 0 {
+			for key, value := range fields {
+				payload[key] = value
+			}
 		}
 		m.emit(sessionID, turnID, eventType, payload)
 	case "error":
@@ -1795,6 +1902,7 @@ func codexToolPayload(item map[string]any, kind, phase string) map[string]any {
 		id = kind
 	}
 	name := codexToolName(item, kind)
+	name = canonicalMCPToolName(name)
 	label := toolLabel(kind, name, item)
 	payload := map[string]any{"toolCallId": id, "tool": kind, "label": label, "toolName": name}
 	if detail := codexToolDetail(item, phase); detail != "" {
@@ -1918,20 +2026,25 @@ var mcpToolLabels = map[string]string{
 		"recut_recut_editor_timeline_validate":      "校验时间线",
 		"recut_recut_editor_timeline_command":       "编辑时间线",
 	}
-	if label, ok := labels[name]; ok {
+
+func toolLabel(kind, name string, item map[string]any) string {
+	if kind != "mcp_tool_call" || name == "" {
+		return map[string]string{"command_execution": "运行命令", "file_change": "修改文件", "web_search": "搜索网络"}[kind] + toolLabelSuffix(name)
+	}
+	if label, ok := mcpToolLabels[name]; ok {
 		return label
 	}
-	for toolName, label := range labels {
+	for toolName, label := range mcpToolLabels {
 		if name == codexMCPToolAlias(toolName) {
 			return label
 		}
 	}
-	return "调用 " + name
+	return name
 }
 
 func (m *AgentManager) toolLabel(kind, name string, item map[string]any) string {
 	label := toolLabel(kind, name, item)
-	if kind != "mcp_tool_call" || label != "调用 "+name || m.bridge == nil {
+	if kind != "mcp_tool_call" || label != name || m.bridge == nil {
 		return label
 	}
 	apps, err := m.bridge.store.catalog.List()
@@ -1961,6 +2074,20 @@ func codexMCPToolAlias(name string) string {
 		value.WriteByte('_')
 	}
 	return value.String()
+}
+
+// canonicalMCPToolName 把 codex MCP 工具别名（如 recut_recut_media_list_assets）
+// 还原为规范英文工具名（如 recut.media.list_assets）；非别名或未知名字原样返回。
+func canonicalMCPToolName(name string) string {
+	if name == "" || strings.ContainsAny(name, " .") {
+		return name
+	}
+	for canonical := range mcpToolLabels {
+		if codexMCPToolAlias(canonical) == name {
+			return canonical
+		}
+	}
+	return name
 }
 
 func conciseToolLabel(description string) string {

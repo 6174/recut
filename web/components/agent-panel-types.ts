@@ -169,6 +169,11 @@ export type ToolPayload = {
   output?: string;
   error?: string;
   cost?: string;
+  // subagent 判别字段：一次 subAgent op（如 component.create）启动受限子 Agent job 时，
+  // tool.completed 事件注入这三个字段；前端据此渲染子 Agent 任务卡片。
+  subagentId?: string;
+  subagentAppId?: string;
+  subagentOperation?: string;
 };
 export type AgentEvent = {
   id: number;
@@ -177,6 +182,62 @@ export type AgentEvent = {
   createdAt: string;
   payload?: ToolPayload;
 };
+
+// 子 Agent 任务的 job 视图（服务端 agentJobView 扩展）与实时帧（ws subagent channel）。
+export type SubagentStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type SubagentPhase = "queued" | "authoring" | "authorizing" | "running" | "finalizing" | "complete";
+export type SubagentJob = {
+  id: string;
+  kind?: string;
+  status: SubagentStatus;
+  phase: SubagentPhase;
+  result?: unknown;
+  error?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  appId?: string;
+  operation?: string;
+  parentSessionId?: string;
+  childSessionId?: string;
+  elapsedMs?: number;
+};
+export type SubagentFrame = {
+  event: "job.updated" | "job.completed" | "job.failed" | "job.cancelled";
+  job: SubagentJob;
+};
+
+// parseSubagentJob 从工具 output（job 视图 JSON 文本）解析初始 job 状态，作为卡片/弹框的种子。
+export function parseSubagentJob(output?: string): SubagentJob | null {
+  if (!output) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(output);
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== "string" || !record.id.trim()) return null;
+  if (record.kind !== undefined && record.kind !== "sub-agent") return null;
+  const status = String(record.status ?? "queued") as SubagentStatus;
+  const phase = String(record.phase ?? "queued") as SubagentPhase;
+  const pick = (key: string) => (typeof record[key] === "string" ? String(record[key]) : undefined);
+  return {
+    id: record.id,
+    kind: "sub-agent",
+    status,
+    phase,
+    result: record.result,
+    error: pick("error"),
+    createdAt: pick("createdAt"),
+    updatedAt: pick("updatedAt"),
+    appId: pick("appId"),
+    operation: pick("operation"),
+    parentSessionId: pick("parentSessionId"),
+    childSessionId: pick("childSessionId"),
+    elapsedMs: typeof record.elapsedMs === "number" ? record.elapsedMs : undefined,
+  };
+}
 export type CLIEntry = {
   sequence: number;
   stream: "stdout" | "stderr";

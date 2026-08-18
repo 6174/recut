@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 EventBus、Store 的项目事件账本、AgentManager 事件/CLI、TerminalManager、gorilla/websocket 传输能力与进程内 changeHub
- * [OUTPUT]: 对外提供单条全局实时 WS（/v1/events）：channels 订阅（project/media/app/agent/cli/terminal）、心跳保活、项目与 agent 事件轮询兜底、cli/terminal 事件驱动转发；兼容旧 {type:"subscribe",projectId} 单项目协议
+ * [OUTPUT]: 对外提供单条全局实时 WS（/v1/events）：channels 订阅（project/media/app/agent/cli/terminal/subagent）、心跳保活、项目与 agent 事件轮询兜底、cli/terminal 事件驱动转发；subagent channel 经 AgentBridge 的 job 生命周期流转发（前端子 Agent 任务卡片/全局预览）；兼容旧 {type:"subscribe",projectId} 单项目协议
  * [POS]: service 的实时事件总线适配器；UI 与 iframe App 通过统一 channel 而非各自 SSE 同步
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -329,6 +329,18 @@ func (s *Server) applySubscribe(
 		}
 		return true
 	}
+	if channel == "subagent" {
+		if key == "" || s.bridge == nil {
+			return true
+		}
+		s.bus.Subscribe(client, channel, key)
+		streamKey := channel + ":" + key
+		handle, isNew := subs.startStream(streamKey)
+		if isNew {
+			go s.runSubagentForwarder(client, done, key, handle)
+		}
+		return true
+	}
 	// media / app 等全局 channel
 	s.bus.Subscribe(client, channel, key)
 	return true
@@ -346,6 +358,59 @@ func (s *Server) applyUnsubscribe(
 	}
 	if channel == "cli" || channel == "terminal" {
 		subs.stopStream(channel + ":" + key)
+		return
+	}
+	if channel == "subagent" {
+		// 同一连接内若仍有其它逻辑订阅同一 job（如卡片 + 弹框），保留流，避免提前截断。
+		if !client.subscribesTo(channel, key) {
+			subs.stopStream(channel + ":" + key)
+		}
+		return
+	}
+}
+
+// runSubagentForwarder 订阅一个 subagent job 的生命周期流：先回放历史，再实时推送。
+// job 不存在时发送 unavailable 状态，客户端据此关闭或降级展示。
+func (s *Server) runSubagentForwarder(client *wsClient, done <-chan struct{}, jobID string, handle *streamHandle) {
+	history, output, unsubscribe := s.bridge.SubscribeSubagentStream(jobID)
+	defer unsubscribe()
+	send := func(payload any) bool {
+		frame, err := json.Marshal(map[string]any{
+			"type":      "event",
+			"channel":   "subagent",
+			"jobId":     jobID,
+			"sessionId": jobID,
+			"data":      payload,
+		})
+		if err != nil {
+			return true
+		}
+		return enqueueFrame(client, done, frame)
+	}
+	for _, entry := range history {
+		if !send(entry) {
+			return
+		}
+	}
+	if output == nil {
+		_ = send(map[string]any{"available": false})
+		return
+	}
+	for {
+		select {
+		case <-done:
+			return
+		case <-handle.stop:
+			return
+		case entry, ok := <-output:
+			if !ok {
+				_ = send(map[string]any{"available": false})
+				return
+			}
+			if !send(entry) {
+				return
+			}
+		}
 	}
 }
 

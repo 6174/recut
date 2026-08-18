@@ -20,6 +20,15 @@ func newWSClient() *wsClient {
 	return &wsClient{send: make(chan []byte, 64), subs: map[string]bool{}}
 }
 
+// subscribesTo reports whether this client still holds a subscription to the
+// given channel+key after an unsubscribe (a single connection may subscribe the
+// same key multiple times through the page singleton).
+func (c *wsClient) subscribesTo(channel, key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.subs[subKey(channel, key)]
+}
+
 // EventBus fans out channel events to subscribed clients. A subscription key
 // of "" means "all keys for this channel"; a publish key of "" means "any
 // subscriber on this channel". Matching is channel equality plus
