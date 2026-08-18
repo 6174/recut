@@ -13,7 +13,7 @@ import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatu
 import { AssetReferenceChip, AssetReferenceDialog, AssetReferenceMenu, mediaReferenceIDs, mediaReferenceText } from "@/components/asset-reference-picker";
 import { WorldPicker, type WorldPick } from "@/components/world-picker";
 import { Button } from "@/components/ui/button";
-import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, opencodeModelLabel, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
+import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, hasWorkFocusSelection, opencodeModelLabel, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 
@@ -166,7 +166,7 @@ export function Composer({
       onSubmit={onSend}
     >
       <div className="relative rounded-md border bg-popover px-3 py-2 shadow-[var(--shadow-overlay)]">
-        {(attachments.length > 0 || worldReferences.length > 0 || (workSurface && workSurfaceIncluded) || (workFocus && workFocusIncluded && workSurface && workSurfaceIncluded)) && (
+        {(attachments.length > 0 || worldReferences.length > 0 || (workSurface && workSurfaceIncluded) || (hasWorkFocusSelection(workFocus) && workFocusIncluded && workSurface && workSurfaceIncluded)) && (
           <div className="mb-2 flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {attachments.map((attachment) => (
               <AssetReferenceChip
@@ -184,7 +184,7 @@ export function Composer({
               </button>
             ))}
             {workSurface && workSurfaceIncluded && <WorkSurfaceChip onRemove={onRemoveWorkSurface} surface={workSurface} />}
-            {workFocus && workFocusIncluded && workSurface && workSurfaceIncluded && <WorkFocusChip focus={workFocus} onRemove={onRemoveWorkFocus} />}
+            {hasWorkFocusSelection(workFocus) && workFocus && workFocusIncluded && workSurface && workSurfaceIncluded && <WorkFocusChip focus={workFocus} onRemove={onRemoveWorkFocus} />}
           </div>
         )}
         <textarea

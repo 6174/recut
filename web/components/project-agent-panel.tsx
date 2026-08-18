@@ -42,6 +42,7 @@ import {
   defaultCodexConfiguration,
   defaultOpencodeConfiguration,
   creationWorldContextPayload,
+  hasWorkFocusSelection,
   mediaContextPayload,
   workFocusContextPayload,
   workSurfaceContextPayload,
@@ -458,7 +459,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     const sessionID = activeID ?? session?.id;
     if (!sessionID) return;
     const workSurfaceItem = workSurfaceAttached && workSurface ? [workSurfaceContextPayload(workSurface)] : [];
-    const workFocusItem = workSurfaceAttached && workFocus && workFocusIncluded ? [workFocusContextPayload(workFocus)] : [];
+    const workFocusItem = workSurfaceAttached && hasWorkFocusSelection(workFocus) && workFocusIncluded && workFocus ? [workFocusContextPayload(workFocus)] : [];
     const contexts: MessageContext[] = [
       ...pendingAttachments.map((attachment) =>
         mediaContextPayload(attachment.assetId),

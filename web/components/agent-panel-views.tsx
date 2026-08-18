@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖共享会话类型、Agent 安装恢复能力、素材引用卡片与基础 UI 原子组件
- * [OUTPUT]: 对外提供会话时间线、历史、调试与工具结果预览；用户消息按原始结构显示素材、Work Surface、Focus 和 legacy page context
+ * [OUTPUT]: 对外提供会话时间线、历史、调试与工具结果预览；用户消息按原始结构显示素材、Work Surface、有效 Focus 和 legacy page context
  * [POS]: components Agent 对话模块的纯展示层；不拥有请求状态，历史中的 Focus 永远不改变工作面 target
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -15,7 +15,7 @@ import { AgentMessageContent } from "@/components/agent-message-content";
 import { AssetReferenceChip } from "@/components/asset-reference-picker";
 import { ToolResultAssets } from "@/components/tool-result-assets";
 import { Button } from "@/components/ui/button";
-import { ActionIcon, RunningStatus, WorkFocusChip, WorkSurfaceChip } from "@/components/agent-composer";import { codexModelLabel, contextLabel, defaultCodexConfiguration, opencodeModelLabel, parseSubagentJob, runtimeLabel, type SubagentJob, type WorkFocusContext, type WorkSurfaceContext } from "@/components/agent-panel-types";
+import { ActionIcon, RunningStatus, WorkFocusChip, WorkSurfaceChip } from "@/components/agent-composer";import { codexModelLabel, contextLabel, defaultCodexConfiguration, hasWorkFocusSelection, opencodeModelLabel, parseSubagentJob, runtimeLabel, type SubagentJob, type WorkFocusContext, type WorkSurfaceContext } from "@/components/agent-panel-types";
 import { type AgentEvent, type CLIEntry, type Detail, type Session, type ToolPayload, type Turn } from "@/components/agent-panel-types";
 import { t, useI18n } from "@/lib/i18n/index";
 import { useLocaleStore } from "@/lib/i18n/locale-store";
@@ -178,7 +178,7 @@ export function Conversation({
           <section key={group.id}>
             {group.user && (() => {
               const user = group.user;
-              const pageContexts = (user.contexts ?? []).filter((context) => context.type !== "media");
+              const pageContexts = (user.contexts ?? []).filter((context) => context.type !== "media" && (context.type !== "work_focus" || hasWorkFocusSelection(context.payload as WorkFocusContext)));
               return (
               <div className="group ml-auto w-fit max-w-[85%]">
                 {(pageContexts.length > 0 || (user.attachments ?? []).length > 0) && (

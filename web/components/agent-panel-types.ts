@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Agent runtime 与素材引用类型
- * [OUTPUT]: 对外提供 Agent 会话、Turn、配置以及 Work Surface（宿主目标）/Work Focus（完整选区）消息上下文、可复制会话调试报告与面板 Props
+ * [OUTPUT]: 对外提供 Agent 会话、Turn、配置以及 Work Surface（宿主目标）/Work Focus（完整选区）消息上下文、选区存在性判断、可复制会话调试报告与面板 Props
  * [POS]: components Agent 对话模块的唯一数据契约；iframe 只能补充 Focus，不能覆盖宿主签发的目标
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -91,6 +91,10 @@ export type WorkFocusContext = {
   state?: Record<string, unknown>;
   summary?: string;
 };
+
+export function hasWorkFocusSelection(context: WorkFocusContext | null | undefined): boolean {
+  return Boolean(context?.selection?.refs.length);
+}
 
 // MessageContext is the generic wire form of one typed context item mounted on
 // a user turn, mirroring the backend ChatContext. Type is the discriminator
