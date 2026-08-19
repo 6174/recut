@@ -31,8 +31,8 @@ type mcpRequest struct {
 // yet; see D12.
 var mcpToolDescriptions = map[string]map[Locale]string{
 	"recut.context": {
-		LocaleZh: "读取当前 Recut 会话上下文：已安装 App（含绝对路径 root）、Skill 元数据、媒体配置与 .recut 文件系统路径（paths）。新 native session 或能力状态可能变化时调用；同一会话 15 分钟内复用已确认快照。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。",
-		LocaleEn: "Read the current Recut session context: installed Apps (including absolute root paths), Skill metadata, media configuration, and .recut filesystem paths (paths). Call it for a new native session or when capability state may have changed; reuse a confirmed snapshot for 15 minutes within the same session. The session is not bound to a Project; use recut.project.list / recut.project.get or recut.project_context when you need project information.",
+		LocaleZh: "读取当前 Recut 会话上下文：已安装 App（含绝对路径 root）、Skill 元数据、媒体配置、可选集成能力状态与 .recut 文件系统路径（paths）。新 native session 或能力状态可能变化时调用；同一会话 15 分钟内复用已确认快照。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。",
+		LocaleEn: "Read the current Recut session context: installed Apps (including absolute root paths), Skill metadata, media configuration, optional integration readiness, and .recut filesystem paths (paths). Call it for a new native session or when capability state may have changed; reuse a confirmed snapshot for 15 minutes within the same session. The session is not bound to a Project; use recut.project.list / recut.project.get or recut.project_context when you need project information.",
 	},
 	"recut.apps.list": {
 		LocaleZh: "列出已安装 App（含 kind、skill 目录、Git 仓库、可更新状态与安装状态）。",
@@ -448,7 +448,7 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 		return worldsMCPTool(NewWorldStore(bridge.store, media), name, arguments)
 	}
 	if strings.HasPrefix(name, "recut.job.") {
-		return jobMCPTool(bridge, host.jobs, media, name, arguments)
+		return jobMCPTool(bridge, host.jobs, host.async, media, name, arguments)
 	}
 	prefix, appID, ok := splitAppTool(name)
 	if !ok {
@@ -564,6 +564,10 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 		"apps":    appSummaries,
 		"skills":  skillSummary,
 		"media":   map[string]any{"defaultRoutes": mediaConfiguration, "readiness": mediaReadiness},
+		"integrations": recutIntegrationContext(apps, func() []StoreApp {
+			storeApps, _ := bridge.store.AppStoreFor(locale)
+			return storeApps
+		}()),
 		"paths": map[string]any{
 			"dataRoot":         bridge.store.root,
 			"appsDir":          filepath.Join(bridge.store.root, "apps"),
@@ -577,6 +581,52 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 	}
 	data, _ := json.Marshal(result)
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+// recutIntegrationContext exposes platform-level optional App capabilities.
+// Domain Apps consume this read-only snapshot instead of guessing whether a
+// companion MCP surface is installed. Installation remains user-authorized.
+func recutIntegrationContext(apps []App, storeApps []StoreApp) map[string]any {
+	result := map[string]any{}
+	audio := map[string]any{
+		"appId": "recut.audio-studio",
+		"capability": "transcription",
+		"installed": false,
+		"mcpReady": false,
+		"status": "not-installed",
+		"action": "Use recut.apps.install with the Audio Studio repository, then start a new Agent session.",
+	}
+	for _, app := range apps {
+		if app.Manifest.ID != "recut.audio-studio" {
+			continue
+		}
+		audio["installed"] = true
+		for _, operation := range app.Manifest.Operations {
+			for _, surface := range operation.Surfaces {
+				if surface == "mcp" {
+					audio["mcpReady"] = true
+					break
+				}
+			}
+		}
+		if audio["mcpReady"] == true {
+			audio["status"] = "ready"
+			audio["action"] = "Use the installed Audio Studio MCP transcription operations."
+		} else {
+			audio["status"] = "installed-no-mcp"
+			audio["action"] = "Update or reinstall Audio Studio so its MCP operations are available, then start a new Agent session."
+		}
+	}
+	if !audio["installed"].(bool) {
+		for _, app := range storeApps {
+			if app.AppID == "recut.audio-studio" {
+				audio["repository"] = app.Repository
+				break
+			}
+		}
+	}
+	result["audioStudio"] = audio
+	return result
 }
 
 // mediaContext turns persisted routes into a decision-ready view for Agents.
@@ -947,12 +997,13 @@ func mediaWaitTimeout(input map[string]any) time.Duration {
 }
 
 // jobMCPTool implements the unified platform job observation surface
-// (recut.job.*). Both local App shell jobs and platform media generation jobs
-// live behind the same jobId namespace: status/wait look up focused Component
-// Author jobs, then shell jobs, then media jobs; every view carries a `kind`
-// discriminator. Author diagnostics are exposed through logs and cancellation
-// propagates to the child Codex process.
-func jobMCPTool(bridge *AgentBridge, jobs *ShellJobManager, media *MediaService, name string, input map[string]any) (any, error) {
+// (recut.job.*). Local App shell jobs, App/UI deferred handles (async_ops) and
+// platform media generation jobs all live behind the same jobId namespace:
+// status/wait look up focused Component Author jobs, then shell jobs, then
+// deferred handles, then media jobs; every view carries a `kind` discriminator.
+// Author diagnostics are exposed through logs and cancellation propagates to
+// the child Codex process.
+func jobMCPTool(bridge *AgentBridge, jobs *ShellJobManager, async *AsyncOpsManager, media *MediaService, name string, input map[string]any) (any, error) {
 	jobID, _ := input["jobId"].(string)
 	if strings.TrimSpace(jobID) == "" {
 		return nil, errors.New("jobId is required")
@@ -964,13 +1015,13 @@ func jobMCPTool(bridge *AgentBridge, jobs *ShellJobManager, media *MediaService,
 		if view, ok := bridge.agentJobView(jobID); ok {
 			result = view
 		} else {
-			result, err = unifiedJobStatus(jobs, media, jobID)
+			result, err = unifiedJobStatus(jobs, async, media, jobID)
 		}
 	case "recut.job.wait":
 		if view, ok := bridge.waitAgentJob(jobID, jobWaitTimeout(input)); ok {
 			result = view
 		} else {
-			result, err = unifiedJobWait(jobs, media, jobID, jobWaitTimeout(input))
+			result, err = unifiedJobWait(jobs, async, media, jobID, jobWaitTimeout(input))
 		}
 	case "recut.job.logs":
 		if view, ok := bridge.agentJobView(jobID); ok {
@@ -981,6 +1032,10 @@ func jobMCPTool(bridge *AgentBridge, jobs *ShellJobManager, media *MediaService,
 		logs, err = jobs.LogsByID(jobID)
 		if err == nil {
 			result = jobLogViews(logs, input)
+		} else if _, asyncErr := async.FindByID(jobID); asyncErr == nil {
+			// deferred Handle 无进程日志；生命周期事件在项目账本。
+			result = map[string]any{"jobId": jobID, "kind": "deferred", "logs": []any{}}
+			err = nil
 		}
 	case "recut.job.cancel":
 		if cancelled, ok := bridge.cancelAgentJob(jobID); ok {
@@ -989,15 +1044,29 @@ func jobMCPTool(bridge *AgentBridge, jobs *ShellJobManager, media *MediaService,
 		}
 		var job ShellJob
 		job, err = jobs.FindByID(jobID)
-		if err != nil {
+		if err == nil {
+			if job.Status != ShellJobQueued && job.Status != ShellJobRunning {
+				result = map[string]any{"jobId": jobID, "kind": "shell", "cancelled": false, "status": string(job.Status)}
+				break
+			}
+			err = jobs.CancelByID(jobID)
+			result = map[string]any{"jobId": jobID, "kind": "shell", "cancelled": err == nil}
 			break
 		}
-		if job.Status != ShellJobQueued && job.Status != ShellJobRunning {
-			result = map[string]any{"jobId": jobID, "kind": "shell", "cancelled": false, "status": string(job.Status)}
+		if op, asyncErr := async.FindByID(jobID); asyncErr == nil {
+			if op.Status != AsyncOpPending && op.Status != AsyncOpRunning {
+				result = map[string]any{"jobId": jobID, "kind": "deferred", "cancelled": false, "status": string(op.Status)}
+				break
+			}
+			if _, cancelErr := async.Cancel(jobID); cancelErr != nil {
+				err = cancelErr
+				break
+			}
+			result = map[string]any{"jobId": jobID, "kind": "deferred", "cancelled": true, "status": "cancelled"}
+			err = nil
 			break
 		}
-		err = jobs.CancelByID(jobID)
-		result = map[string]any{"jobId": jobID, "kind": "shell", "cancelled": err == nil}
+		err = errors.New("job not found")
 	default:
 		return nil, fmt.Errorf("unknown job tool %q", name)
 	}
@@ -1008,14 +1077,16 @@ func jobMCPTool(bridge *AgentBridge, jobs *ShellJobManager, media *MediaService,
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 }
 
-// unifiedJobStatus reads one job from either backend by a shared jobId. Shell
-// jobs are checked first because their ids are validated against path-like
-// characters; a shell miss falls back to the media store.
-func unifiedJobStatus(jobs *ShellJobManager, media *MediaService, jobID string) (any, error) {
+// unifiedJobStatus reads one job by a shared jobId. Shell jobs and deferred
+// handles are checked first (both local), then the media store.
+func unifiedJobStatus(jobs *ShellJobManager, async *AsyncOpsManager, media *MediaService, jobID string) (any, error) {
 	if shell, err := jobs.FindByID(jobID); err == nil {
 		view := jobView(shell)
 		view["kind"] = "shell"
 		return view, nil
+	}
+	if op, err := async.FindByID(jobID); err == nil {
+		return asyncOpView(op), nil
 	}
 	if media == nil {
 		return nil, errors.New("job not found")
@@ -1032,14 +1103,29 @@ func unifiedJobStatus(jobs *ShellJobManager, media *MediaService, jobID string) 
 	return view, nil
 }
 
-// unifiedJobWait waits for either backend to reach a terminal state. Both wait
+// unifiedJobWait waits for any backend to reach a terminal state. Both wait
 // contracts return the current (possibly non-terminal) job once the timeout is
 // reached, so the Agent can keep polling with status.
-func unifiedJobWait(jobs *ShellJobManager, media *MediaService, jobID string, timeout time.Duration) (any, error) {
+func unifiedJobWait(jobs *ShellJobManager, async *AsyncOpsManager, media *MediaService, jobID string, timeout time.Duration) (any, error) {
 	if shell, err := jobs.WaitByID(jobID, timeout); err == nil {
 		view := jobView(shell)
 		view["kind"] = "shell"
 		return view, nil
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		op, err := async.FindByID(jobID)
+		if err == nil {
+			if op.Status != AsyncOpPending && op.Status != AsyncOpRunning {
+				return asyncOpView(op), nil
+			}
+			if time.Now().After(deadline) {
+				return asyncOpView(op), nil
+			}
+			time.Sleep(250 * time.Millisecond)
+			continue
+		}
+		break
 	}
 	if media == nil {
 		return nil, errors.New("job not found")

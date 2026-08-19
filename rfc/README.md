@@ -26,6 +26,8 @@
 2026-08-19-editor-component-create-resilience-and-compositing.md: 六组件产品介绍会话（7a13e308）复盘与架构修复方案，四堵墙：单一事实源（job 事件日志 + 状态机投影，终态一律 finalize）、边界分层（作者契约/错误面/验证权杖各归其位）、平台拥有框架模型只拥有内容（脚手架生成 + 结构化契约 + 构建闸=运行安全非类型卫生）、证据驱动验证（信任阶梯 build/render/composite + 证据戳）。覆盖 6 个问题：①90s 超时 + create 不抗杀（**已决策超时 90s→30min** + `recut.job.cancel` + 事件日志 + 杀后仍 finalize）；②作者契约与 strict typecheck 失配（脚手架自带类型、typecheck 降级，消除整批 TS7006）；③MCP 错误面（统一错误信封 kind/code/hint、终态即结果、wait 改事件订阅）；④失败账本不可见（事件日志 SSOT，一切视图是投影）；⑤上下文层偏离（session digest 投影 + 合成上下文平台推导注入契约，默认透明）；⑥快速路径验证是代码级自证（统一验证管线 + 证据戳，取消 update 自证）。
 2026-08-19-platform-communication-op-bus.md: 平台通讯架构：把 WS/HTTP 桥/MCP/shell job/事件账本五套方言收敛为统一 Op 总线契约——标准信封（id/correlationId/from/to/version）、对称原语（on/call/publish/handle）、统一异步 Handle（async_ops，shell/media/deferred 三类统一由 recut.job.* 观察）、App→UI RPC（ctx.project.callUI + rpc.reply + iframe recut.on）。preview.frame 是首个验收消费者：Agent 一次调用返回 jobId，recut.job.wait 直接拿 {imageUrl}，无专用轮询/请求表。稳定契约见 docs/platform-comms-contract.md。
 
+2026-08-19-editor-ai-video-authoring-quality.md: Editor AI 成片质量重构：实际对照 ChatCut plugin 0.2.21 的 scenario/router、A-roll/B-roll/MG、生成镜头与 verification skills，从文字时间线拼接升级为 route + treatment 编排；定义好视频的叙事、画面、镜头关系、视觉系统、节奏与交付证据，规定 CreativePlan、设计回执、依赖图、组件准入、原子 transaction、Op 总线增量同步、用户中断收敛和预览/导出门。
+
 此目录保存尚未实施或分阶段实施的平台设计决策。RFC 定义目标、边界、数据与接口契约；获批实现后，代码与运行时文档必须反向更新以保持一致。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

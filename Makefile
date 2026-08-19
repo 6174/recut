@@ -205,10 +205,13 @@ editor-ui-build: ## Build the editor UI bundle included in the builtin editor Ap
 editor-model-test: ## L0 Model API 测试：AI op 引擎、D1 关键帧、统一日志 undo/redo/conflict、aiLock。
 	node apps/editor/scripts/test-model-api.js
 
+editor-frame-render-test: ## L0 frame-render（平台通讯契约 preview.frame 消费者）纯逻辑测试。
+	node apps/editor/scripts/test-frame-render.js
+
 effects-catalog: ## 从 runtime EFFECT_COMPONENTS 重新生成内置效果目录（apps/editor/catalog + cdn/buckets/effects）。
 	node apps/editor/scripts/build-effects-catalog.mjs
 
 editor-e2e: ## 编辑器 UI Playwright 端到端（含 recut 项目实时同步）。
 	cd apps/editor/ui && npx playwright test
 
-check: service-test service-vet web-build editor-model-test ## Run all service and web verification.
+check: service-test service-vet web-build editor-model-test editor-frame-render-test ## Run all service and web verification.

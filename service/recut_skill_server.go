@@ -82,8 +82,8 @@ func (s *Server) linkRecutSkill(w http.ResponseWriter, r *http.Request) {
 }
 
 // skillsStatus lists every discoverable skill grouped by owning App. The
-// platform Recut Skill and the global design-system skill form the "全局" group;
-// each installed App forms its own group.
+// platform Recut Skill, the global design-system skill and the global create-app
+// skill form the "全局" group; each installed App forms its own group.
 func (s *Server) skillsStatus(w http.ResponseWriter, _ *http.Request) {
 	if s.skill == nil {
 		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("Recut Skill manager is unavailable"))
@@ -105,6 +105,14 @@ func (s *Server) skillsStatus(w http.ResponseWriter, _ *http.Request) {
 				ID: designSystemSkillID, AppID: platformSkillAppID, Name: "recut-design-system",
 				Description: "Recut 全局设计系统参考库：业务无关的抽象视觉风格定义，直接复用 Open Design 的包格式与内容。",
 				Source:      designSource, Targets: targets,
+			})
+		}
+		createAppSource := filepath.Join(s.store.root, "skills", createAppSkillID)
+		if targets, createErr := s.skill.skillStatus(createAppSource, createAppSkillID); createErr == nil {
+			global = append(global, skillLinkSummary{
+				ID: createAppSkillID, AppID: platformSkillAppID, Name: "recut-create-app",
+				Description: "Recut 全局「创建 App」工作流：从零打造标准 Recut App（manifest + background + 可选 iframe UI + 平台通讯契约），可安装、可测试、可随 Git 分发。",
+				Source:      createAppSource, Targets: targets,
 			})
 		}
 	}
@@ -193,6 +201,10 @@ func (s *Server) resolveSkillSource(appID, skillID string) (string, skillLinkSum
 		if skillID == designSystemSkillID && s.store != nil {
 			source := filepath.Join(s.store.root, "skills", designSystemSkillID)
 			return source, skillLinkSummary{ID: skillID, AppID: appID, Name: "recut-design-system", Description: "Recut 全局设计系统参考库：业务无关的抽象视觉风格定义，直接复用 Open Design 的包格式与内容。"}, nil
+		}
+		if skillID == createAppSkillID && s.store != nil {
+			source := filepath.Join(s.store.root, "skills", createAppSkillID)
+			return source, skillLinkSummary{ID: skillID, AppID: appID, Name: "recut-create-app", Description: "Recut 全局「创建 App」工作流：从零打造标准 Recut App（manifest + background + 可选 iframe UI + 平台通讯契约），可安装、可测试、可随 Git 分发。"}, nil
 		}
 		return "", skillLinkSummary{}, fmt.Errorf("unknown platform skill %q", skillID)
 	}

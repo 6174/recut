@@ -75,6 +75,13 @@ func main() {
 	if err := designSystemManager.EnableDefaultTargets(); err != nil {
 		log.Printf("WARN enable design-system Skill targets: %v", err)
 	}
+	createAppSkillManager := NewCreateAppSkillManager(*dataDir)
+	if err := createAppSkillManager.Ensure(); err != nil {
+		log.Printf("WARN synchronize create-app Skill: %v", err)
+	}
+	if err := createAppSkillManager.EnableDefaultTargets(); err != nil {
+		log.Printf("WARN enable create-app Skill targets: %v", err)
+	}
 	apps, err := LoadCatalog(*appsDir)
 	if err != nil {
 		log.Fatalf("ERROR load app catalog: %v", err)
@@ -115,6 +122,21 @@ func main() {
 	}
 	service := NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater())
 	service.StartRealtimeForwarders(context.Background())
+	// deferred Handle（async_ops）过期收敛：启动时清扫一次 + 周期性兜底。
+	if swept, err := host.async.SweepExpired(); err != nil {
+		log.Printf("WARN sweep expired async ops: %v", err)
+	} else if swept > 0 {
+		log.Printf("INFO reconciled expired async ops count=%d", swept)
+	}
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if _, err := host.async.SweepExpired(); err != nil {
+				log.Printf("WARN periodic async op sweep: %v", err)
+			}
+		}
+	}()
 	server := service.HTTPServer(*address)
 	streamServer := service.StreamHTTPServer(*streamAddress)
 	signals := make(chan os.Signal, 1)

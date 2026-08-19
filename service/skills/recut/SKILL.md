@@ -72,6 +72,10 @@ App 操作按以下顺序解析状态命名空间：
 
 你可以在用户授权下管理已安装 App：`recut.apps.store` 列出 App Store 的安装项（含 GitHub 仓库与安装状态）；`recut.apps.list` 报告每个已安装 App 的 Git 仓库、版本、更新可用性与 skill 目录；`recut.apps.install` 从 Git URL 安装标准 App；`recut.apps.update` 更新单个或全部 App。这些操作会改动本机环境，只有用户明确要求安装或更新时才调用——绝不主动，也绝不基于你自己的建议。
 
+### 可选创作集成能力
+
+`recut.context.integrations` 是平台统一的可选能力快照。例如 `audioStudio` 表示 `recut.audio-studio` 是否已安装，以及它是否暴露 transcription MCP。领域 App（如 Editor）遇到 `status: not-installed` 或 `installed-no-mcp` 时必须停止依赖该能力的写入，明确说明“暂时不可用”，并给出返回的 repository 与 `recut.apps.install` 安装路径；除非用户明确授权安装，否则不要自动安装。安装或更新完成后要求新开 Agent session，让 MCP 工具列表重新加载。没有 Audio Studio 时，Editor 可以继续做不依赖转写的 `media-led` / `motion-graphics` 工作，但不得把缺失能力解释成 `explicit-text-only`。
+
 ## Creation Worlds 上下文
 
 `recut.worlds.*` 是全局只读工具：`recut.worlds.list` 发现 Worlds，`recut.worlds.get` 确认身份，`recut.worlds.entities.list/get` 浏览角色/故事/风格/规则，`recut.worlds.resolve` 在固定 revision 上投影稳定的 `CreationContext`（身份、实体、约束、引用）。**不存在隐式当前 World**：每次调用都要显式传 `worldId`，`entityId` 只在它的 `worldId` 内有效。当消息携带 World/Entity 引用，或 Project 的 `workflow.context`/`ctx.creationContext` 报出 `creationContext` 时，在该次工作期间把它当作权威 Canon：遵守 `constraints.always/never`、优先使用被引用的 `assetId`、绝不凭空捏造 Canon。**不要**调用写入类工具（`recut.worlds.create/update/entities.upsert/references.attach/bind_project`），除非用户明确要求记录或改动 World；先提出新设置，经用户确认后再写回。

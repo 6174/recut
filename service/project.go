@@ -509,6 +509,24 @@ create table if not exists shell_jobs (
 );
 create index if not exists shell_jobs_scope on shell_jobs(project_id, created_at desc);
 create index if not exists shell_jobs_status on shell_jobs(status);
+create table if not exists async_ops (
+  id            text primary key,
+  scope_type    text not null default 'project',
+  project_id    text not null default '',
+  app_id        text not null,
+  kind          text not null default 'deferred',
+  method        text not null default '',
+  complete_op   text not null default '',
+  status        text not null default 'pending',
+  payload_json  text not null default '{}',
+  result_json   text not null default '',
+  error_json    text not null default '',
+  timeout_at    text not null default '',
+  created_at    text not null,
+  updated_at    text not null
+);
+create index if not exists idx_async_ops_scope on async_ops(project_id, app_id, created_at desc);
+create index if not exists idx_async_ops_status on async_ops(status);
 create table if not exists agent_tasks (
   id text primary key, session_id text not null, status text not null,
   input_doc_ids_json text not null, output_doc_ids_json text not null,

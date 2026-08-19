@@ -38,6 +38,7 @@ type AppHost struct {
 	store   *Store
 	media   *MediaService
 	jobs    *ShellJobManager
+	async   *AsyncOpsManager
 	python  *PythonRuntimeManager
 	worlds  *WorldStore
 }
@@ -48,7 +49,7 @@ func NewAppHost(catalog *Catalog, store *Store, media ...*MediaService) *AppHost
 		platformMedia = media[0]
 	}
 	jobs := NewShellJobManager(store)
-	return &AppHost{catalog: catalog, store: store, media: platformMedia, jobs: jobs, python: NewPythonRuntimeManager(store, jobs), worlds: NewWorldStore(store, platformMedia)}
+	return &AppHost{catalog: catalog, store: store, media: platformMedia, jobs: jobs, async: NewAsyncOpsManager(store), python: NewPythonRuntimeManager(store, jobs), worlds: NewWorldStore(store, platformMedia)}
 }
 
 // appBusinessError 是 App background 经 recut.error(payload) 声明的类型化业务错误；MCP 边界据此
@@ -104,10 +105,94 @@ func (h *AppHost) InvokeAPILocale(target Target, appID, name string, input map[s
 	if err != nil {
 		return nil, err
 	}
+	// 平台 op：rpc.reply / rpc.cancel 由 daemon 直接处理（async_ops 层），
+	// 不要求 App 在 manifest 声明，也不进入 App 的 goja VM。
+	if name == "rpc.reply" {
+		return h.rpcReply(target, app, input, locale)
+	}
+	if name == "rpc.cancel" {
+		return h.rpcCancel(target, app, input)
+	}
 	if !declaresOperation(app.Manifest, name, "api") {
 		return nil, fmt.Errorf("App %q does not expose API operation %q", appID, name)
 	}
 	return h.invoke(target, app, "operation", name, input, locale)
+}
+
+// rpcReply 处理 UI 侧对 ctx.project.callUI 请求的回包：校验归属 → completeOp 收尾 → async_ops 终态。
+func (h *AppHost) rpcReply(target Target, app App, input map[string]any, locale Locale) (any, error) {
+	if !target.IsProject() {
+		return nil, fmt.Errorf("rpc.reply requires a project target")
+	}
+	id := toString(input["id"])
+	if id == "" {
+		return nil, errors.New("rpc.reply: id required")
+	}
+	op, err := h.async.FindByID(id)
+	if err != nil {
+		return nil, errors.New("rpc.reply: async handle not found")
+	}
+	if op.ProjectID != target.ProjectID || op.AppID != app.Manifest.ID {
+		return nil, errors.New("rpc.reply: handle does not belong to this project/app")
+	}
+	if op.Status == AsyncOpCompleted || op.Status == AsyncOpFailed ||
+		op.Status == AsyncOpCancelled || op.Status == AsyncOpTimedOut {
+		return map[string]any{"ok": true, "id": id, "status": string(op.Status), "resolved": false}, nil
+	}
+	// 错误回包：统一错误信封。
+	if rawErr, ok := input["error"].(map[string]any); ok && len(rawErr) > 0 {
+		if _, err := h.async.Fail(id, rawErr); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true, "id": id, "status": "failed"}, nil
+	}
+	// 成功回包：completeOp 收尾（有 ctx，可写文件/导入素材/整形结果），其返回值即最终 result。
+	result := input["result"]
+	if op.CompleteOp != "" {
+		appResult, err := h.invoke(target, app, "operation", op.CompleteOp, map[string]any{"id": id, "result": result}, locale)
+		if err != nil {
+			biz, ok := appBusinessErrorFrom(err)
+			envelope := map[string]any{"code": "complete-op-failed", "message": toString(err)}
+			if ok {
+				envelope = map[string]any{"code": biz.Code, "message": biz.Message, "hint": biz.Hint}
+			}
+			if _, failErr := h.async.Fail(id, envelope); failErr != nil {
+				return nil, failErr
+			}
+			return nil, err
+		}
+		result = appResult
+	}
+	if _, err := h.async.Resolve(id, result); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true, "id": id, "status": "completed"}, nil
+}
+
+// rpcCancel 取消一个未终态的 deferred Handle，并广播 app.rpc.cancel 通知 UI 中止。
+func (h *AppHost) rpcCancel(target Target, app App, input map[string]any) (any, error) {
+	if !target.IsProject() {
+		return nil, fmt.Errorf("rpc.cancel requires a project target")
+	}
+	id := toString(input["id"])
+	if id == "" {
+		return nil, errors.New("rpc.cancel: id required")
+	}
+	op, err := h.async.FindByID(id)
+	if err != nil {
+		return map[string]any{"ok": false, "id": id, "cancelled": false}, nil
+	}
+	if op.ProjectID != target.ProjectID || op.AppID != app.Manifest.ID {
+		return nil, errors.New("rpc.cancel: handle does not belong to this project/app")
+	}
+	if op.Status != AsyncOpPending && op.Status != AsyncOpRunning {
+		return map[string]any{"ok": true, "id": id, "cancelled": false, "status": string(op.Status)}, nil
+	}
+	if _, err := h.async.Cancel(id); err != nil {
+		return nil, err
+	}
+	h.store.AppendEvent(target.ProjectID, map[string]any{"type": "app.rpc.cancel", "id": id, "appId": app.Manifest.ID, "at": time.Now().UTC()})
+	return map[string]any{"ok": true, "id": id, "cancelled": true, "status": "cancelled"}, nil
 }
 
 func (h *AppHost) InvokeMCP(target Target, appID, name string, input map[string]any) (any, error) {
@@ -213,6 +298,20 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App, locale 
 	// the App API request's Accept-Language, or from the persisted preference
 	// for MCP calls. App background code may localize its results and errors.
 	_ = ctx.Set("locale", string(locale))
+	// ctx.platform is a read-only capability snapshot shared by all Apps. It
+	// lets a domain workflow explain missing optional integrations without
+	// coupling itself to another App's private state or MCP implementation.
+	platform := runtime.NewObject()
+	var installedApps []App
+	if h.catalog != nil {
+		installedApps, _ = h.catalog.List()
+	}
+	var storeApps []StoreApp
+	if h.store != nil {
+		storeApps, _ = h.store.AppStoreFor(locale)
+	}
+	_ = platform.Set("integrations", recutIntegrationContext(installedApps, storeApps))
+	_ = ctx.Set("platform", platform)
 	primaryFiles, err := h.store.TargetFilesRoot(target)
 	if err != nil {
 		return nil, err
@@ -351,6 +450,42 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App, locale 
 			}
 			h.store.AppendEvent(target.ProjectID, event)
 			return goja.Undefined()
+		})
+		// ctx.project.callUI(method, payload, { timeoutMs?, completeOp? }) → { id }
+		// 统一异步 Handle + App→UI RPC：创建 deferred Handle 并广播 app.rpc.request 事件，
+		// iframe 经 recut.on(method) 处理并 rpc.reply 回包，平台按 completeOp 收尾。
+		// 详见 docs/platform-comms-contract.md §5–§6。
+		_ = projectContext.Set("callUI", func(call goja.FunctionCall) goja.Value {
+			method := call.Argument(0).String()
+			if method == "" {
+				panic(runtime.NewTypeError("callUI: method required"))
+			}
+			payload := map[string]any{}
+			if !goja.IsUndefined(call.Argument(1)) && !goja.IsNull(call.Argument(1)) {
+				if err := runtime.ExportTo(call.Argument(1), &payload); err != nil {
+					panic(runtime.NewTypeError(err.Error()))
+				}
+			}
+			opts := map[string]any{}
+			if !goja.IsUndefined(call.Argument(2)) && !goja.IsNull(call.Argument(2)) {
+				if err := runtime.ExportTo(call.Argument(2), &opts); err != nil {
+					panic(runtime.NewTypeError(err.Error()))
+				}
+			}
+			timeoutMs := 120000
+			if v, ok := numericAny(opts["timeoutMs"]); ok {
+				timeoutMs = int(v)
+			}
+			completeOp := toString(opts["completeOp"])
+			op, err := h.async.Create("project", target.ProjectID, app.Manifest.ID, method, payload, completeOp, timeoutMs)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			h.store.AppendEvent(target.ProjectID, map[string]any{
+				"type": "app.rpc.request", "id": op.ID, "method": method,
+				"payload": payload, "appId": app.Manifest.ID, "at": time.Now().UTC(),
+			})
+			return runtime.ToValue(map[string]any{"id": op.ID, "requestId": op.ID, "status": string(op.Status)})
 		})
 		_ = ctx.Set("project", projectContext)
 	} else {
@@ -492,6 +627,64 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App, locale 
 		_ = shell.Set("cancel", shellCancel(runtime, h.jobs, target.ProjectID, app.Manifest.ID))
 		_ = ctx.Set("shell", shell)
 	}
+	// ctx.job.* —— 统一异步 Handle（deferred 类）的 App 侧原语。scope 绑定当前 target，
+	// App 只能创建/完成/查询自己的 Handle；平台经 recut.job.* 统一观察。
+	jobScope := "project"
+	jobProjectID := target.ProjectID
+	if !target.IsProject() {
+		jobScope = "appstate"
+	}
+	job := runtime.NewObject()
+	_ = job.Set("create", func(call goja.FunctionCall) goja.Value {
+		opts := map[string]any{}
+		if !goja.IsUndefined(call.Argument(0)) && !goja.IsNull(call.Argument(0)) {
+			if err := runtime.ExportTo(call.Argument(0), &opts); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+		}
+		timeoutMs := 120000
+		if v, ok := numericAny(opts["timeoutMs"]); ok {
+			timeoutMs = int(v)
+		}
+		op, err := h.async.Create(jobScope, jobProjectID, app.Manifest.ID,
+			toString(opts["method"]), opts["payload"], toString(opts["completeOp"]), timeoutMs)
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(map[string]any{"id": op.ID, "status": string(op.Status)})
+	})
+	_ = job.Set("complete", func(call goja.FunctionCall) goja.Value {
+		id := call.Argument(0).String()
+		result := goja.Null()
+		if !goja.IsUndefined(call.Argument(1)) {
+			result = call.Argument(1)
+		}
+		op, err := h.async.Resolve(id, result.Export())
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(map[string]any{"id": id, "status": string(op.Status)})
+	})
+	_ = job.Set("fail", func(call goja.FunctionCall) goja.Value {
+		id := call.Argument(0).String()
+		errValue := map[string]any{"code": "async-op-failed", "message": "async op failed"}
+		if !goja.IsUndefined(call.Argument(1)) && !goja.IsNull(call.Argument(1)) {
+			errValue = call.Argument(1).Export().(map[string]any)
+		}
+		op, err := h.async.Fail(id, errValue)
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(map[string]any{"id": id, "status": string(op.Status)})
+	})
+	_ = job.Set("status", func(call goja.FunctionCall) goja.Value {
+		op, err := h.async.FindByID(call.Argument(0).String())
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(asyncOpView(op))
+	})
+	_ = ctx.Set("job", job)
 	if hasPermission(app.Manifest, "python") && app.Manifest.Runtime.Python != nil {
 		modelsRoot := filepath.Join(h.store.root, "models")
 		python := runtime.NewObject()

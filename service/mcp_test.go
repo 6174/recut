@@ -155,6 +155,42 @@ func TestRecutContextReportsAppsWithoutProjectDefault(t *testing.T) {
 	if readiness["image.generate"]["status"] != "not-configured" {
 		t.Fatalf("unconfigured image readiness = %#v", readiness)
 	}
+	integrations := structured["integrations"].(map[string]any)
+	audioStudio := integrations["audioStudio"].(map[string]any)
+	if audioStudio["status"] != "not-installed" || audioStudio["mcpReady"] != false {
+		t.Fatalf("audio studio integration = %#v", audioStudio)
+	}
+	if audioStudio["repository"] == "" {
+		t.Fatalf("audio studio integration missing install repository: %#v", audioStudio)
+	}
+}
+
+func TestRecutContextReportsAudioStudioMCPReadiness(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "apps", "audio-studio")
+	if err := os.MkdirAll(filepath.Join(appDir, "ui"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"recut.audio-studio","name":"Audio Studio","author":"Test","description":"Test audio studio.","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"},"operations":[{"name":"transcribe","description":"Transcribe audio.","surfaces":["mcp"],"inputSchema":{"type":"object"}}]}`)
+	writeTestFile(t, filepath.Join(appDir, "background.js"), "")
+	writeTestFile(t, filepath.Join(appDir, "ui", "index.html"), "ok")
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := recutContextTool(NewAgentBridge(store), NewMediaService(store), AgentSession{ID: "s1"}, DefaultLocale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	structured := result.(map[string]any)["structuredContent"].(map[string]any)
+	audioStudio := structured["integrations"].(map[string]any)["audioStudio"].(map[string]any)
+	if audioStudio["status"] != "ready" || audioStudio["mcpReady"] != true {
+		t.Fatalf("audio studio ready integration = %#v", audioStudio)
+	}
 }
 
 func TestRecutContextReportsConfiguredMediaReadiness(t *testing.T) {
