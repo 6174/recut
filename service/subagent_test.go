@@ -273,6 +273,102 @@ func TestSubagentToolFieldsInjection(t *testing.T) {
 	}
 }
 
+func TestAgentJobInterruptedTerminalCarriesPartialResult(t *testing.T) {
+	bridge, _, _ := newSubagentTestBridge(t)
+	// 模拟：子 Agent 被杀（超时/取消）但 part 结果已提交并成功 finalize → 以 interrupted 终态呈现。
+	run := func(ctx context.Context, jobID string) (any, error) {
+		time.Sleep(10 * time.Millisecond)
+		return nil, &subagentInterruptedError{Result: map[string]any{"components": []map[string]any{{"componentId": "c-partial"}}}, Cause: context.DeadlineExceeded}
+	}
+	job, err := bridge.startAgentJob(Target{}, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var view map[string]any
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		v, _ := bridge.agentJobView(job.ID)
+		if s, _ := v["status"].(string); s != "queued" && s != "running" {
+			view = v
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if view == nil {
+		t.Fatal("job did not reach a terminal state")
+	}
+	if view["status"] != "interrupted" {
+		t.Fatalf("terminal status = %v; want interrupted", view["status"])
+	}
+	result, ok := view["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("terminal view must carry partial result, got %#v", view["result"])
+	}
+	if comps, _ := result["components"].([]map[string]any); len(comps) != 1 || comps[0]["componentId"] != "c-partial" {
+		t.Fatalf("partial result = %#v", result)
+	}
+}
+
+func TestAgentJobToolCallLedgerAndChildLookup(t *testing.T) {
+	bridge, _, _ := newSubagentTestBridge(t)
+	run := func(ctx context.Context, jobID string) (any, error) {
+		return map[string]any{"ok": true}, nil
+	}
+	job, err := bridge.startAgentJob(Target{}, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge.setAgentJobChild(job.ID, "child-xyz")
+	if found, ok := bridge.agentJobByChild("child-xyz"); !ok || found.ID != job.ID {
+		t.Fatalf("agentJobByChild = %+v, %v", found, ok)
+	}
+	if _, ok := bridge.agentJobByChild("nope"); ok {
+		t.Fatal("agentJobByChild must miss for unknown child")
+	}
+	// 发生时即追加：杀后账本仍在（finalize 从 job 投影）。
+	bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.component.commit", Result: map[string]any{"componentId": "c1"}})
+	bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.component.commit", Result: map[string]any{"componentId": "c2"}})
+	view, ok := bridge.agentJobView(job.ID)
+	if !ok {
+		t.Fatal("job view unavailable")
+	}
+	calls, _ := view["toolCalls"].([]agentToolCall)
+	if len(calls) != 2 {
+		t.Fatalf("view toolCalls = %#v", view["toolCalls"])
+	}
+	if first := calls[0]; first.Name != "recut.editor.component.commit" || first.Result["componentId"] != "c1" {
+		t.Fatalf("first tool call = %#v", first)
+	}
+}
+
+func TestWaitAgentJobBoundedWindowReturnsEarly(t *testing.T) {
+	bridge, _, _ := newSubagentTestBridge(t)
+	run := func(ctx context.Context, jobID string) (any, error) {
+		// 远长于单次 wait 窗口：验证 wait 不再阻塞满超时。
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+		return map[string]any{"ok": true}, nil
+	}
+	job, err := bridge.startAgentJob(Target{}, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.cancel()
+	start := time.Now()
+	view, ok := bridge.waitAgentJob(job.ID, 2*time.Second)
+	if !ok {
+		t.Fatal("waitAgentJob miss")
+	}
+	if v, _ := view["status"].(string); v != "cancelled" {
+		t.Fatalf("wait status = %v", view["status"])
+	}
+	if elapsed := time.Since(start); elapsed > agentJobWaitWindow+time.Second {
+		t.Fatalf("wait blocked %v; window is %v", elapsed, agentJobWaitWindow)
+	}
+}
+
 // 主 Agent 的 MCP 工具调用以 bridge session 鉴权（注册在 bridge ID 下），而事件流用 chat session ID；
 // subagentToolFields 必须经 chat->bridge 映射消费到。
 func TestSubagentToolFieldsResolvesBridgeSessionMapping(t *testing.T) {

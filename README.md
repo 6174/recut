@@ -6,6 +6,7 @@ Recut 是本地 AI 视频工作台，也是类似 Chrome 的 App Host：App 用 
 
 ```text
 apps/             本地 App 包与 AI 短片、Depth Anything、Cover Studio、Remotion Studio 子模块或源码；通过 make app-link 链接到运行时目录
+docs/             平台稳定契约（权威规范）：通讯契约等；实现与文档必须与之保持一致
 operation/        运营与开源协作资产；`official-repo/` 是官方社区 App 总库 submodule
 rfc/              平台与产品的提议设计；Creation Worlds 等跨模块契约在实现前于此定稿
 .gitmodules       外部 App 与官方社区仓库的固定远端与分支配置

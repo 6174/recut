@@ -51,6 +51,48 @@ func NewAppHost(catalog *Catalog, store *Store, media ...*MediaService) *AppHost
 	return &AppHost{catalog: catalog, store: store, media: platformMedia, jobs: jobs, python: NewPythonRuntimeManager(store, jobs), worlds: NewWorldStore(store, platformMedia)}
 }
 
+// appBusinessError 是 App background 经 recut.error(payload) 声明的类型化业务错误；MCP 边界据此
+// 翻译成错误信封（架构 P2：业务/校验/冲突是正常结果，不是 JSON-RPC error）。Kind 缺省 business。
+type appBusinessError struct {
+	Kind      string
+	Code      string
+	Message   string
+	Hint      string
+	Retryable bool
+	Data      any
+}
+
+// appBusinessErrorFrom 从 goja handler 返回的错误中解包 recut.error 携带的结构化载荷。
+func appBusinessErrorFrom(err error) (*appBusinessError, bool) {
+	if err == nil {
+		return nil, false
+	}
+	var ex *goja.Exception
+	if !errors.As(err, &ex) {
+		return nil, false
+	}
+	m, ok := ex.Value().Export().(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	raw, ok := m["__recutError"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	biz := &appBusinessError{Kind: "business"}
+	if v, ok := raw["kind"].(string); ok && v != "" {
+		biz.Kind = v
+	}
+	biz.Code = toString(raw["code"])
+	biz.Message = toString(raw["message"])
+	biz.Hint = toString(raw["hint"])
+	if v, ok := raw["retryable"].(bool); ok {
+		biz.Retryable = v
+	}
+	biz.Data = raw["data"]
+	return biz, true
+}
+
 func (h *AppHost) InvokeAPI(target Target, appID, name string, input map[string]any) (any, error) {
 	return h.InvokeAPILocale(target, appID, name, input, DefaultLocale)
 }
@@ -120,6 +162,16 @@ func (h *AppHost) invoke(target Target, app App, group, name string, input map[s
 	operation := runtime.NewObject()
 	_ = operation.Set("register", register("operation"))
 	_ = recut.Set("operation", operation)
+	// recut.error(payload)：App background 声明类型化业务错误（架构 P2 错误信封）。
+	// payload = { kind?, code, message, hint?, retryable?, data? }；MCP 边界翻译成正常结果 {ok:false,...}，
+	// 而非 JSON-RPC error。业务校验失败必须走这里，禁止 throw 裸 Error。
+	_ = recut.Set("error", func(call goja.FunctionCall) goja.Value {
+		payload, _ := call.Argument(0).Export().(map[string]any)
+		if payload == nil {
+			payload = map[string]any{"message": call.Argument(0).String()}
+		}
+		panic(runtime.ToValue(map[string]any{"__recutError": payload}))
+	})
 	ctx, err := h.context(runtime, target, app, locale)
 	if err != nil {
 		return nil, err
@@ -143,6 +195,9 @@ func (h *AppHost) invoke(target Target, app App, group, name string, input map[s
 	}
 	result, err := handler(goja.Undefined(), runtime.ToValue(input), ctx)
 	if err != nil {
+		if biz, ok := appBusinessErrorFrom(err); ok {
+			return nil, &mcpError{Kind: biz.Kind, Code: biz.Code, Message: biz.Message, Hint: biz.Hint, Retryable: biz.Retryable, Data: biz.Data}
+		}
 		return nil, fmt.Errorf("run App handler: %w", err)
 	}
 	exported := result.Export()

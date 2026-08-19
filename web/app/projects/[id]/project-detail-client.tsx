@@ -131,7 +131,9 @@ export default function ProjectDetailClient() {
           reply(payload, response.ok ? undefined : operationError(payload, t("detail.operation.state")));
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=state.query result=${response.ok ? "ok" : "error"}`);
         } else if (request.type === "background.call") {
-          const { name, ...input } = request.input; const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${name}`, { method: "POST", headers: { "Content-Type": "application/json", ...recutHeaders() }, body: JSON.stringify(input) });
+          const operation = request.input?.operation ?? request.input?.name;
+          const { operation: _operation, ...input } = request.input ?? {};
+          const response = await fetch(`${apiBase}/v1/projects/${project.id}/apps/${project.appId}/api/${operation}`, { method: "POST", headers: { "Content-Type": "application/json", ...recutHeaders() }, body: JSON.stringify(input) });
           const payload = await response.json();
           reply(payload, response.ok ? undefined : operationError(payload, t("detail.operation.background")));
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=background.call result=${response.ok ? "ok" : "error"}`);

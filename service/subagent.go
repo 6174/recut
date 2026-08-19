@@ -3,6 +3,9 @@
  * [OUTPUT]: 平台通用的"受限子 Agent"执行器；由 App（background）声明上下文与受限工具范围，平台只负责运行。
  * [POS]: service 的通用子 Agent runner；App 无关，不解析模型 JSON，不触碰时间线。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+ *
+ * 架构（rfc/2026-08-19）：超时默认 30min、按 op 可配（subAgent.timeoutSeconds）；子 Agent 被杀/超时/取消时
+ * 保留已收集的受限工具调用并仍执行 finalize（subagentInterruptedError → job 的 interrupted 终态）。
  */
 package main
 
@@ -33,13 +36,16 @@ type SubAgentRequest struct {
 	// Focused 是 App 声明的聚焦上下文（不透明 map），随受限工具调用一并注入 session。
 	Focused map[string]any
 	// Model / ReasoningEffort 可选覆盖；缺省继承父会话。
-	Model          string
+	Model           string
 	ReasoningEffort string
 	// Timeout 可选；缺省使用全局默认。
 	Timeout time.Duration
 }
 
-const defaultSubAgentTimeout = 90 * time.Second
+// defaultSubAgentTimeout 是多件/复杂创作任务的普适兜底值：作者子 Agent 需完成数轮模型生成 + 构建，
+// 90s 只够 1–2 件（2026-08-19 六组件会话实测单件 46–79s），大 batch 必被杀。上调为 30min，
+// 由运行期可取消 + 杀后 finalize 保证"预算大但可控"（rfc/2026-08-19：90s→30min 已决策）。
+const defaultSubAgentTimeout = 30 * time.Minute
 const subAgentDiagnosticLimit = 32 << 10
 const defaultSubAgentModel = "gpt-5.6-terra"
 const defaultSubAgentEffort = "medium"
@@ -147,24 +153,29 @@ func runFocusedSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost,
 	var streams sync.WaitGroup
 	var stdoutTail, stderrTail subAgentDiagnosticTail
 	streams.Add(2)
-	go func() { defer streams.Done(); scanSubagentEvents(bridge, childSessionID, session.Runtime, stdout, &stdoutTail) }()
+	go func() {
+		defer streams.Done()
+		scanSubagentEvents(bridge, childSessionID, session.Runtime, stdout, &stdoutTail)
+	}()
 	go func() { defer streams.Done(); _, _ = io.Copy(io.MultiWriter(io.Discard, &stderrTail), stderr) }()
 	err = cmd.Wait()
 	_ = stdout.Close()
 	_ = stderr.Close()
 	streams.Wait()
+	// 无论成功失败，都先取走已收集的受限工具调用：子 Agent 被杀/超时/异常退出时，
+	// 已提交的结果不能随进程死掉，必须保留给 finalize（架构 P1：partial result 不丢）。
+	calls, _ := bridge.AgentToolCalls(child.ID)
 	if err != nil {
 		diagnostic := stderrTail.String()
 		if diagnostic == "" {
 			diagnostic = stdoutTail.String()
 		}
 		if diagnostic != "" {
-			return nil, fmt.Errorf("sub-agent did not finish: %w: %s", err, diagnostic)
+			return calls, fmt.Errorf("sub-agent did not finish: %w: %s", err, diagnostic)
 		}
-		return nil, fmt.Errorf("sub-agent did not finish: %w", err)
+		return calls, fmt.Errorf("sub-agent did not finish: %w", err)
 	}
-	calls, ok := bridge.AgentToolCalls(child.ID)
-	if !ok || len(calls) == 0 {
+	if len(calls) == 0 {
 		return nil, errors.New("sub-agent finished without calling any restricted tool")
 	}
 	return calls, nil
@@ -291,6 +302,8 @@ func agentRunMCPTool(bridge *AgentBridge, host *AppHost, session AgentSession, a
 // 2) run：用平台通用 runner 执行（持久化子会话 + 事件落账本），收集受限工具调用；
 // 3) finalize：把工具调用结果回传同一 operation（subAgentTools），由 background 产出最终结果。
 // 每个阶段边界显式更新 job phase（authorizing → running → finalizing → complete）。
+// 架构（P1 单一事实源 + 抗杀）：子 Agent 被杀/超时/取消时，只要已产生 commit，仍执行 finalize
+// 保留部分交付，并以 subagentInterruptedError 呈现给 job 状态机（interrupted 终态）。
 func runDeclaredSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost, session AgentSession, target Target, appID, operation string, payload map[string]any, locale Locale, jobID string) (any, error) {
 	// 在 job goroutine 内尽早登记 meta，避免与调用方 setAgentJobMeta 竞态导致早期事件缺 appId/operation。
 	bridge.setAgentJobMeta(jobID, appID, operation, session.ID)
@@ -306,9 +319,39 @@ func runDeclaredSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost
 	}
 	calls, err := runFocusedSubAgent(ctx, bridge, host, session, target, req, jobID)
 	if err != nil {
+		if len(calls) > 0 {
+			// 子 Agent 未正常完成但已有提交：finalize 保留部分交付，并以 interrupted 终态呈现。
+			setPhase("finalizing")
+			finalized, ferr := invokeFinalize(host, target, appID, operation, payload, calls, locale)
+			if ferr != nil {
+				return nil, fmt.Errorf("%s finalize after sub-agent interrupt: %w", operation, ferr)
+			}
+			setPhase("finalized")
+			return nil, &subagentInterruptedError{Result: finalized, Cause: err}
+		}
 		return nil, err
 	}
 	setPhase("finalizing")
+	finalized, err := invokeFinalize(host, target, appID, operation, payload, calls, locale)
+	if err != nil {
+		return nil, err
+	}
+	setPhase("finalized")
+	return finalized, nil
+}
+
+// subagentInterruptedError 表示子 Agent 未正常完成（被杀/超时/异常退出），但已提交结果成功 finalize。
+// runAgentJob 据此把 job 落成 interrupted 终态并携带部分结果（架构 P4：终态即结果）。
+type subagentInterruptedError struct {
+	Result any
+	Cause  error
+}
+
+func (e *subagentInterruptedError) Error() string { return "sub-agent interrupted: " + e.Cause.Error() }
+func (e *subagentInterruptedError) Unwrap() error { return e.Cause }
+
+// invokeFinalize 把子 Agent 收集到的受限工具调用结果回传同一 operation 的 finalize 分支。
+func invokeFinalize(host *AppHost, target Target, appID, operation string, payload map[string]any, calls []agentToolCall, locale Locale) (any, error) {
 	tools := make([]map[string]any, 0, len(calls))
 	for _, call := range calls {
 		tools = append(tools, map[string]any{"name": call.Name, "result": call.Result})
@@ -334,6 +377,11 @@ func subAgentRequestFrom(result any) (SubAgentRequest, bool) {
 		Focused:         toAnyMap(subAgentRaw["focused"]),
 		Model:           trim(toString(subAgentRaw["model"])),
 		ReasoningEffort: trim(toString(subAgentRaw["reasoningEffort"])),
+	}
+	// 超时按 op 可配：background 可声明 subAgent.timeoutSeconds（如 component.create 按 items 数预估），
+	// 缺省回落全局 defaultSubAgentTimeout（30min）。
+	if seconds, ok := numericAny(subAgentRaw["timeoutSeconds"]); ok && seconds > 0 {
+		req.Timeout = time.Duration(seconds) * time.Second
 	}
 	if len(req.AllowedTools) == 0 || req.Prompt == "" {
 		return SubAgentRequest{}, false

@@ -91,16 +91,16 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Read the current status of a job: queued / running / completed / failed / cancelled / interrupted. The unified observation layer covers both local App shell jobs (e.g. audio.install/transcribe, depth.generate, render.export) and platform media generation jobs (jobIds returned by recut.image/video/speech.generate); the returned view carries a kind of shell or media.",
 	},
 	"recut.job.wait": {
-		LocaleZh: "等待一个任务（job）达到终态（completed / failed / cancelled / interrupted），shell 与 media job 通用。超时返回当前状态而不报错，可继续用 recut.job.status 轮询。",
-		LocaleEn: "Wait for a job to reach a terminal state (completed / failed / cancelled / interrupted), working for both shell and media jobs. On timeout it returns the current state without error; keep polling with recut.job.status.",
+		LocaleZh: "等待一个任务（job）达到终态（completed / interrupted / failed / cancelled），sub-agent / shell / media job 通用。等待是短窗口轮询（单次最多 15s），超时返回当前状态而不报错，可继续用 recut.job.status 继续轮询。",
+		LocaleEn: "Wait for a job to reach a terminal state (completed / interrupted / failed / cancelled), working for sub-agent, shell, and media jobs. Waiting is a short-window poll (at most 15s per call); on timeout it returns the current state without error, keep polling with recut.job.status.",
 	},
 	"recut.job.logs": {
-		LocaleZh: "读取一个本地 App shell job 的 stdout/stderr 日志，供失败诊断；媒体生成 job 无进程日志。",
-		LocaleEn: "Read the stdout/stderr logs of a local App shell job for failure diagnosis; media generation jobs have no process logs.",
+		LocaleZh: "读取本地 App shell job 的 stdout/stderr 日志，或子 Agent job 的当前视图（含 toolCalls 提交账本），供失败诊断；媒体生成 job 无进程日志。",
+		LocaleEn: "Read the stdout/stderr logs of a local App shell job, or a sub-agent job's current view (including the toolCalls commit ledger) for failure diagnosis; media generation jobs have no process logs.",
 	},
 	"recut.job.cancel": {
-		LocaleZh: "取消一个 queued / running 的本地 App shell job。",
-		LocaleEn: "Cancel a queued or running local App shell job.",
+		LocaleZh: "取消一个 queued / running 的本地 App shell job 或子 Agent job（sub-agent job 取消会传播到子 CLI 进程；已提交的部分结果仍会被 finalize 并以 interrupted 终态呈现）。",
+		LocaleEn: "Cancel a queued or running local App shell job or a sub-agent job (cancellation propagates to the child CLI process; already committed partial results are still finalized and surfaced as an interrupted terminal state).",
 	},
 	"recut.image.generate": {
 		LocaleZh: "提交图片生成任务。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 完成后将同一 Asset 原位转为 completed 或 failed。可立刻用 assetId 建立项目引用，再用 recut.media.wait_for_job 等待终态。",
@@ -385,6 +385,10 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 			return nil, fmt.Errorf("component.commit build did not produce a draft component: %s", data)
 		}
 		bridge.RecordAgentToolCall(session.ID, "recut.editor.component.commit", committed)
+		// 架构 P1：commit 结果发生时即追加到 job 账本（子 Agent 被杀也保留，finalize 从 job 投影）。
+		if job, ok := bridge.agentJobByChild(session.ID); ok {
+			bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.component.commit", Result: committed})
+		}
 		data, _ := json.Marshal(result)
 		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 	}
