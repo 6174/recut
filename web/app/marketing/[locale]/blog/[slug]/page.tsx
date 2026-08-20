@@ -11,6 +11,7 @@ import { BlogPostContent, MarketingShell } from "@/components/marketing-site";
 import { BlogPostJsonLd, BreadcrumbJsonLd } from "@/components/marketing-jsonld";
 import { getMarketingPost, marketingPosts, postHasLocale } from "@/lib/marketing-posts";
 import { buildAlternates, buildOpenGraph, buildTwitter } from "../../seo";
+import { marketingEnabled } from "../../../mode";
 
 export function generateStaticParams() {
   return marketingPosts.map(({ slug }) => ({ slug }));
@@ -35,6 +36,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function BlogPostPage({ params }: { params: Promise<{ locale: string; slug: string }> }) {
+  if (!marketingEnabled()) notFound();
   const { locale, slug } = await params;
   const current = locale as Locale;
   const post = getMarketingPost(slug);

@@ -5,11 +5,13 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { t, type Locale } from "@/lib/i18n";
 import { DocsContent, MarketingShell } from "@/components/marketing-site";
 import { BreadcrumbJsonLd } from "@/components/marketing-jsonld";
 import { loadDocs } from "@/lib/docs";
 import { buildAlternates, buildOpenGraph, buildTwitter } from "../seo";
+import { marketingEnabled } from "../../mode";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -31,6 +33,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function DocsPage({ params }: { params: Promise<{ locale: string }> }) {
+  if (!marketingEnabled()) notFound();
   const { locale } = await params;
   const current = locale as Locale;
   const docs = loadDocs(current);

@@ -556,7 +556,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     return true;
   }
   if (servicePhase === "checking")
-    return <aside aria-busy="true" aria-label={t("agent.panel.connecting")} className="h-full overflow-hidden bg-muted/40 p-4"><div className="space-y-3 pt-2"><div className="h-3 w-20 animate-pulse rounded-full bg-muted" /><div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" /><div className="h-3 w-3/5 animate-pulse rounded-full bg-muted" /></div></aside>;
+    return <aside aria-busy="true" aria-label={t("agent.panel.connecting")} className="h-full overflow-hidden bg-background p-4"><div className="space-y-3 pt-2"><div className="h-3 w-20 animate-pulse rounded-full bg-muted" /><div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" /><div className="h-3 w-3/5 animate-pulse rounded-full bg-muted" /></div></aside>;
   if (!online) {
     const canInstallLocalService = !isLocalWorkspace && isDefaultServiceEndpoint(apiBase);
     async function copyServiceInstallCommand() {
@@ -565,7 +565,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
       if (copied) window.setTimeout(() => setServiceInstallCopyStatus("idle"), 2200);
     }
     return (
-      <aside className="h-full overflow-y-auto bg-muted/40 p-4">
+      <aside className="h-full overflow-y-auto bg-background p-4">
         <p className="text-xs font-medium">{canInstallLocalService ? t("agent.panel.offline.title.local") : t("agent.panel.offline.title.remote")}</p>
         {canInstallLocalService ? <><p className="mt-1 text-xs leading-5 text-muted-foreground">{t("agent.panel.offline.desc.local")}</p><code className="mt-3 block overflow-x-auto rounded-sm border bg-background px-2 py-2 text-[10px] text-foreground">{serviceInstallCommand}</code><Button className="mt-2 h-8 w-full" onClick={() => void copyServiceInstallCommand()} type="button" variant="outline">{serviceInstallCopyStatus === "copied" ? t("agent.panel.install.copied") : serviceInstallCopyStatus === "failed" ? t("agent.panel.install.copyFailed") : t("agent.panel.install.copy")}</Button></> : <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("agent.panel.offline.desc.remote")}</p>}
       </aside>

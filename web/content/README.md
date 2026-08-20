@@ -18,6 +18,6 @@ content/
 - **正文**：自由 markdown，支持段落、`##`/`###` 标题、`-`/有序列表、`**加粗**`、行内代码与围栏代码块，由 `components/markdown-content.tsx` 渲染；不同文章/App 可以有不同的结构与篇幅。
 - **消费方式**：`lib/marketing-posts.ts` 与 `lib/marketing-apps.ts` 是 server-only 的 MDX 加载器，读取后经 props 注入客户端组件；改内容只需编辑 MDX，sitemap / JSON-LD / 列表 / 详情自动派生，无需改路由。
 
-新增文章：在 `content/marketing/zh/` 新建 `<slug>.mdx` 即可；新增 App：在 `content/apps/zh/` 新建 `<appID>.mdx`，`id` 需与工作台 Catalog 的 app id 一致以打通「在工作台打开」深链。
+新增文章：在 `content/marketing/zh/` 新建 `<slug>.mdx` 即可；新增 App：在 `content/apps/zh/` 新建 `<appID>.mdx`，`id` 需与工作台 Catalog 的 app id 一致以打通「在工作台打开」深链。`apps/zh/recut.editor.mdx` 是 Editor 的公开产品入口，路由详情会自动挂载其专属 Showcase。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

@@ -50,9 +50,42 @@ type EnApp = {
 
 // 英文内容（内联）：与 zh 目录按 id 对应；en 是 default 无前缀面，必须恒有内容。
 const EN_APPS: Record<string, EnApp> = {
+  "recut.editor": {
+    name: "Video Editor",
+    tagline: "Let Codex or Claude Code drive the video creation workflow — editing is no longer only for professionals",
+    description: "Recut Editor lets Codex, Claude Code and other agents participate in real video creation: organizing footage, planning shots, shaping pacing and operating an editable timeline. You do not need to become a professional editor first; every action lands as a reviewable, editable and reversible result, with the final decision still yours.",
+    keywords: ["AI video editor", "agentic video editing", "Codex video workflow", "Claude Code video workflow", "local video editor", "open source video editor"],
+    faq: [
+      {
+        question: "Can Codex or Claude Code really help edit a video?",
+        answer: "Yes. Describe the goal in natural language and the Agent can help organize footage, plan shots, shape an initial rhythm and propose timeline changes. Each result remains visible, editable and reversible in the Editor.",
+      },
+      {
+        question: "Do I need professional editing experience?",
+        answer: "No. The Agent handles the first pass from your description, while the timeline keeps every result understandable and adjustable. You can start with an intention instead of mastering every editing control first.",
+      },
+    ],
+    body: `Let Codex or Claude Code drive your video creation workflow. Recut Editor turns a natural-language goal into an editable project: the Agent helps organize footage, plan shots and shape pacing, while you keep the final say.
+
+## Editing help without becoming a professional first
+
+You do not need to learn every panel before making a good first cut. Describe the story, audience or mood you want, and the Agent can prepare a reviewable starting point. The result is not a black-box export: it lands on a timeline you can inspect, change and undo.
+
+## A real timeline, not a one-click video generator
+
+Media, preview, properties and multi-track editing stay visible together. Every suggestion has a place in the project, so you can understand why a shot appears, adjust its timing and continue working with your own judgment.
+
+## Codex and Claude Code as creative collaborators
+
+Use the coding Agent you already trust to describe the next change. Recut connects that conversation to the editing workflow, turning intent into concrete, reviewable operations instead of leaving you to translate every idea into dozens of manual clicks.
+
+## Local-first and reversible by design
+
+Your media, project and reusable components stay on your machine. Agent suggestions never take away control: accept them, edit them, undo them or ignore them, then keep shaping the same project.`
+  },
   "recut.audio-studio": {
     name: "Audio Studio",
-    tagline: "Auto-caption your videos and dub with local AI — your voice material never leaves this computer",
+    tagline: "Free local ASR understands your footage, clones an authorized voice for narration and dubbing, then returns it to the editor",
     description: "Auto-captions with Audio Studio: a Qwen ASR model on your machine turns audio and video into timestamped captions and an editable transcript, with SRT/ASS/Markdown export that drops straight into your editing flow; synthesize dubbing locally with CosyVoice and reuse licensed voice characters. Media and voices stay on your device and work offline — built for talking-head, interview, course and narration creators.",
     keywords: [
       "auto video captions",
@@ -141,7 +174,7 @@ For a more efficient finishing pipeline, combine with the AI Short Films App to 
   },
   "recut.cover-studio": {
     name: "Cover Studio",
-    tagline: "Batch-generate video covers in platform sizes, unify the series style with reference covers, and keep every asset ready to reuse",
+    tagline: "The last stop of video creation: make the cover worthy of the edit with real references, not guessed prompts",
     description: "An AI video cover generator: batch-produce cover candidates in Bilibili/Douyin/YouTube sizes, upload a reference cover to keep a series visually consistent; covers accumulate in the media library for reuse across projects, living in the same local workspace as your video and caption assets. Start batch-making covers today.",
     keywords: [
       "AI video thumbnail generator",
@@ -219,7 +252,7 @@ Cover Studio has built-in per-channel size selection with landscape and portrait
   },
   "recut.depth-anything": {
     name: "Depth Map",
-    tagline: "Pick an image or a video and generate a previewable depth map locally — no cloud uploads",
+    tagline: "Create a cleaner depth reference for images and video, so the next generation understands subject, space and layers",
     description: "A depth map generator: based on Depth Anything, convert images or video into previewable depth maps on your machine, with Small/Base/Large models and false-color or grayscale output. Results can be previewed and saved to the media library on demand. Everything runs locally with no uploads, and no Python or FFmpeg setup required — just open and use it.",
     keywords: [
       "depth map generator",
@@ -307,7 +340,7 @@ Official model weights and the runtime are managed in one place, with clear vers
   },
   "recut.remotion-studio": {
     name: "Remotion Video",
-    tagline: "Compose programmatic video with code and media — change the data, re-render; edit video with the control of writing code",
+    tagline: "Do not start from zero: build code-driven video with built-in templates, components, effects, fonts and music",
     description: "Make Remotion videos without building the framework from scratch: Recut builds on Remotion and React to arrange topics, copy and media into programmatic videos you can preview live and export as MP4. Change the data and re-render, batch videos and data visualizations, with media and projects fully local.",
     keywords: [
       "Remotion video production",

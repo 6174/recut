@@ -36,7 +36,7 @@ function frostedTexture(start: string, end: string, grain: number, textureError:
   if (!context) throw new Error(textureError);
   const gradient = context.createLinearGradient(0, 0, 256, 256);
   gradient.addColorStop(0, start);
-  gradient.addColorStop(0.52, "#f8fff9");
+  gradient.addColorStop(0.52, "#25352d");
   gradient.addColorStop(1, end);
   context.fillStyle = gradient;
   context.fillRect(0, 0, 256, 256);
@@ -55,7 +55,7 @@ function frostedTexture(start: string, end: string, grain: number, textureError:
 function glassPanel(width: number, height: number, opacity: number, textureError: string) {
   const geometry = new THREE.ExtrudeGeometry(roundedRect(width, height, 0.26), { bevelEnabled: true, bevelSegments: 4, bevelSize: 0.025, bevelThickness: 0.025, depth: 0.025 });
   geometry.center();
-  const material = new THREE.MeshBasicMaterial({ map: frostedTexture("#ffffff", "#cbedda", 0.15, textureError), transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false });
+  const material = new THREE.MeshBasicMaterial({ map: frostedTexture("#18231f", "#294b3a", 0.15, textureError), transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false });
   const panel = new THREE.Mesh(geometry, material);
   panel.renderOrder = 2;
   return panel;
@@ -66,7 +66,7 @@ function glassFrame(width: number, height: number, thickness: number, textureErr
   shape.holes.push(roundedRect(width - thickness * 2, height - thickness * 2, 0.16));
   const geometry = new THREE.ExtrudeGeometry(shape, { bevelEnabled: true, bevelSegments: 4, bevelSize: 0.03, bevelThickness: 0.03, depth: 0.08 });
   geometry.center();
-  const frame = new THREE.Mesh(geometry, new THREE.MeshPhysicalMaterial({ map: frostedTexture("#b8ffcf", "#18b953", 0.09, textureError), color: 0xffffff, transparent: true, opacity: 0.78, emissive: 0x11943d, emissiveIntensity: 0.3, roughness: 0.4, clearcoat: 0.75, clearcoatRoughness: 0.28 }));
+  const frame = new THREE.Mesh(geometry, new THREE.MeshPhysicalMaterial({ map: frostedTexture("#4fca88", "#167344", 0.09, textureError), color: 0x8ee9a6, transparent: true, opacity: 0.78, emissive: 0x0d6b37, emissiveIntensity: 0.3, roughness: 0.4, clearcoat: 0.75, clearcoatRoughness: 0.28 }));
   frame.renderOrder = 1;
   return frame;
 }
@@ -89,8 +89,8 @@ function playMark() {
 function floatingCube(size: number) {
   const geometry = new RoundedBoxGeometry(size, size, size, 4, size * 0.18);
   const cube = new THREE.Group();
-  const body = new THREE.Mesh(geometry, new THREE.MeshPhysicalMaterial({ color: 0xc9f7dc, transparent: true, opacity: 0.68, roughness: 0.38, transmission: 0.08, thickness: 0.55, clearcoat: 0.5, clearcoatRoughness: 0.3 }));
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 22), new THREE.LineBasicMaterial({ color: 0x8addaa, transparent: true, opacity: 0.32 }));
+  const body = new THREE.Mesh(geometry, new THREE.MeshPhysicalMaterial({ color: 0x294b3a, transparent: true, opacity: 0.72, roughness: 0.38, transmission: 0.08, thickness: 0.55, clearcoat: 0.5, clearcoatRoughness: 0.3 }));
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 22), new THREE.LineBasicMaterial({ color: 0x72e3a0, transparent: true, opacity: 0.42 }));
   cube.add(body, edges);
   return cube;
 }
@@ -183,11 +183,11 @@ export function WebGLStudioHero() {
     halo.scale.set(4.5, 4.5, 1);
     artwork.add(halo);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xc9f6df, 2.4));
+    scene.add(new THREE.HemisphereLight(0xd8f5e4, 0x101713, 2.4));
     const keyLight = new THREE.PointLight(0x98ffbd, 18, 12, 2);
     keyLight.position.set(-2.6, 2.6, 4.8);
     scene.add(keyLight);
-    const fillLight = new THREE.PointLight(0xffefb1, 7, 8, 2);
+    const fillLight = new THREE.PointLight(0xb7e8c8, 5, 8, 2);
     fillLight.position.set(-0.8, -2.15, 3.4);
     scene.add(fillLight);
 

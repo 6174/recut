@@ -164,7 +164,7 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
       {!showLanding && <div className="hidden md:block"><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>}
     </header>
     <div className={`min-h-0 flex-1 overflow-hidden ${showAgentPanel ? "md:pl-[var(--side-panel-width)]" : ""}`}>
-      {online && tab === "assets" ? content : <section className="h-full min-h-0 overflow-y-auto bg-muted/30 p-4 sm:p-6 md:p-8"><div className="mx-auto max-w-6xl">{content}</div></section>}
+      {online && tab === "assets" ? content : <section className="h-full min-h-0 overflow-y-auto bg-background p-4 sm:p-6 md:p-8"><div className="mx-auto max-w-6xl">{content}</div></section>}
     </div>
     {createApp && <CreateProjectFromAppDialog app={createApp} onClose={() => setCreateApp(null)} onCreate={async (projectName) => createProjectWithApp(createApp, projectName)} />}
   </main>;

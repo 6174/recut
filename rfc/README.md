@@ -27,6 +27,7 @@
 2026-08-19-platform-communication-op-bus.md: 平台通讯架构：把 WS/HTTP 桥/MCP/shell job/事件账本五套方言收敛为统一 Op 总线契约——标准信封（id/correlationId/from/to/version）、对称原语（on/call/publish/handle）、统一异步 Handle（async_ops，shell/media/deferred 三类统一由 recut.job.* 观察）、App→UI RPC（ctx.project.callUI + rpc.reply + iframe recut.on）。preview.frame 是首个验收消费者：Agent 一次调用返回 jobId，recut.job.wait 直接拿 {imageUrl}，无专用轮询/请求表。稳定契约见 docs/platform-comms-contract.md。
 
 2026-08-19-editor-ai-video-authoring-quality.md: Editor AI 成片质量重构：实际对照 ChatCut plugin 0.2.21 的 scenario/router、A-roll/B-roll/MG、生成镜头与 verification skills，从文字时间线拼接升级为 route + treatment 编排；定义好视频的叙事、画面、镜头关系、视觉系统、节奏与交付证据，规定 CreativePlan、设计回执、依赖图、组件准入、原子 transaction、Op 总线增量同步、用户中断收敛和预览/导出门。
+2026-08-20-editor-component-gsap-animation.md: 组件动画升级：GSAP Timeline + 运行时逐帧 seek(t) 作为 react/r3f 承载面主要动画模型（html 保持 anim.*）。确定性从「每帧渲染纯函数」演化为「构造确定性 + 驱动靠 seek」；r3f 复用同一 useTimeline/useGSAP 模式（目标是 Object3D ref）；useTimeline/useFrameContext API + 插件白名单 + 构建期确定性扫描扩展；gsap-skills 融合进 references/gsap.md 与作者契约；零强制迁移。
 
 此目录保存尚未实施或分阶段实施的平台设计决策。RFC 定义目标、边界、数据与接口契约；获批实现后，代码与运行时文档必须反向更新以保持一致。
 

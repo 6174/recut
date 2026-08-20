@@ -64,7 +64,7 @@ function WorldDetailContent() {
     useMemo(
       () =>
         detail && worldID
-          ? { version: 1 as const, surface: "world" as const, title: detail.name, path: `/worlds/${worldID}`, target: { kind: "world" as const, worldId, revisionId: detail.revision.id, name: detail.name }, policy: { defaultIntent: "world_review" as const } }
+          ? { version: 1 as const, surface: "world" as const, title: detail.name, path: `/worlds/${worldID}`, target: { kind: "world" as const, worldId: worldID, revisionId: detail.revision.id, name: detail.name }, policy: { defaultIntent: "world_review" as const } }
           : { version: 1 as const, surface: "workspace" as const, title: "Worlds", path: "/worlds", policy: { defaultIntent: "browse" as const } },
       [detail, worldID],
     ),

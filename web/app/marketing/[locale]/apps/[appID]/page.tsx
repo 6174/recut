@@ -12,6 +12,7 @@ import { MarketingAppDetailContent } from "@/components/marketing-apps";
 import { AppFaqJsonLd, AppSoftwareJsonLd, BreadcrumbJsonLd } from "@/components/marketing-jsonld";
 import { appDescription, appName, appTagline, getMarketingApp, marketingApps, type MarketingApp } from "@/lib/marketing-apps";
 import { buildAlternates, buildOpenGraph, buildTwitter } from "../../seo";
+import { marketingEnabled } from "../../../mode";
 
 export function generateStaticParams() {
   return marketingApps.map((app) => ({ appID: app.id }));
@@ -37,6 +38,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function MarketingAppDetailPage({ params }: { params: Promise<{ locale: string; appID: string }> }) {
+  if (!marketingEnabled()) notFound();
   const { locale, appID } = await params;
   const current = locale as Locale;
   const app = getMarketingApp(decodeURIComponent(appID));

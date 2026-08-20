@@ -120,8 +120,8 @@ service-release: builtin-apps web-build-embedded ## Build self-contained service
 	cp "$$manifest" "$(RELEASE_LATEST)/manifest.json"; \
 	echo "Staged $(RECUT_VERSION) packages in $(RELEASE_PUBLIC) with latest pointer."
 
-cd-upload: ## Upload the staged service release packages to R2 (versioned at https://cdn.recut.video/releases/<version>, latest pointer at /releases/latest). Historical versions are immutable; --skip-existing compares MD5 vs remote ETag so unchanged packages are not re-uploaded.
-	node cdn/scripts/cli.mjs upload releases --skip-existing
+cd-upload: ## Upload only this version + latest pointer to R2 (versioned at https://cdn.recut.video/releases/<version>, latest pointer at /releases/latest). Historical versions are immutable, so only the newly staged <version>/ and latest/manifest.json are touched; --skip-existing compares MD5 vs remote ETag so unchanged packages are not re-uploaded.
+	node cdn/scripts/cli.mjs upload releases --only $(RECUT_VERSION) --only latest/manifest.json --skip-existing
 
 service-install: service-build ## Install the host-target production service (macOS/Linux/FreeBSD shell hosts).
 	@test "$(BUILD_GOOS)" = "$$(go env GOOS)" || { echo "service-install must target this host; copy the cross-built binary to $(BUILD_GOOS)-$(BUILD_GOARCH) instead." >&2; exit 1; }
@@ -161,10 +161,11 @@ web-e2e-worker: web-build-cloudflare ## Worker 路由 E2E：真实 worker.ts + o
 web-e2e: ## 浏览器 E2E：自动拉起本地 dev server 验证官网 hydration、逐语言渲染、自动跳转与 cookie 切换。
 	cd web && npm run test:e2e
 
-web-build-embedded: ## Export the same-origin local workspace and stage it for Go embedding (never copies service releases).
+web-build-embedded: ## Export the same-origin local workspace and stage it for Go embedding (never copies service releases). Marketing pages are served from the CDN (web-build-cloudflare), not from the service binary, so marketing/ is dropped here to keep release archives small.
 	@rm -rf "$(CURDIR)/web/out"
 	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local NEXT_PUBLIC_RECUT_APP_URL=https://app.recut.video NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
-	@rsync -a --delete --exclude='.keep' --exclude='releases/' "$(CURDIR)/web/out/" "$(CURDIR)/service/ui/assets/"
+	@rm -rf "$(CURDIR)/service/ui/assets/marketing"
+	@rsync -a --delete --exclude='.keep' --exclude='releases/' --exclude='marketing/' "$(CURDIR)/web/out/" "$(CURDIR)/service/ui/assets/"
 	@rm -rf "$(CURDIR)/service/ui/assets/releases"
 
 web-build-cloudflare: ## Export the static web workspace for the Cloudflare Worker (service releases live on the CDN, never in Worker Assets).

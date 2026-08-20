@@ -15,7 +15,7 @@ import { marketingPosts } from "@/lib/marketing-posts";
 import { loadDocs } from "@/lib/docs";
 
 export const viewport: Viewport = {
-  themeColor: "#34d399",
+  themeColor: "#151918",
 };
 
 export const metadata: Metadata = {

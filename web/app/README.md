@@ -17,6 +17,6 @@ projects/: `/projects` 独立项目桌面与单个项目详情的路由边界。
 projects/[id]/page.tsx: 项目详情的服务端路由壳；只导出静态站需要的占位参数并挂载客户端容器，不能使用浏览器 API，避免客户端组件导出 `generateStaticParams`。
 projects/[id]/project-detail-client.tsx: 固定桌面项目详情客户端容器；从真实项目与 manifest 签发 Work Surface，iframe `focus.report` 只追加局部 Focus，绝不覆盖 projectId/appId；同时承载 App UI、项目事件、素材桥与草稿回填。
 Agent 工作面: 顶级 Tab 签发 workspace/media-library Work Surface；项目、World 与 standalone App 子路由签发带稳定 ID 的工作面，当前选区作为独立 Focus 随本次 Turn 发送。
-globals.css: 工作台的全局设计 token：白色画布、黑色内容、明亮品牌绿操作，以及状态色、低圆角、阴影与基础排版；小屏下工作台退化为单栏，Agent 仅保留在桌面工作面。
+globals.css: 工作台与官网同源的暗色优先设计 token：深色画布、分层面板、明亮品牌绿操作，以及状态色、低圆角、阴影与基础排版；小屏下工作台退化为单栏，Agent 仅保留在桌面工作面。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

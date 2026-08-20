@@ -18,7 +18,8 @@ func TestEditorWorkUnitCancelBySequence(t *testing.T) {
 	if !boolOf(locked["ok"]) {
 		t.Fatalf("project.lock = %#v", locked)
 	}
-	defer invoke(t, host, project, "project.unlock", map[string]any{})
+	lock := locked["lock"].(map[string]any)
+	defer invoke(t, host, project, "project.unlock", map[string]any{"owner": lock["owner"], "token": lock["token"]})
 
 	first := invoke(t, host, project, "timeline.command", map[string]any{"op": map[string]any{
 		"type": "insert",
@@ -44,7 +45,7 @@ func TestEditorWorkUnitCancelBySequence(t *testing.T) {
 		t.Fatalf("second command = %#v", second)
 	}
 
-	cancelled := invoke(t, host, project, "work.cancel", map[string]any{"checkpointSeq": checkpoint["checkpointSeq"]})
+	cancelled := invoke(t, host, project, "work.cancel", map[string]any{"checkpointSeq": checkpoint["checkpointSeq"], "owner": lock["owner"], "token": lock["token"]})
 	if !boolOf(cancelled["ok"]) || numOf(cancelled["checkpointSeq"]) != 1 || numOf(cancelled["version"]) != 4 {
 		t.Fatalf("work.cancel = %#v", cancelled)
 	}
@@ -58,7 +59,7 @@ func TestEditorWorkUnitCancelBySequence(t *testing.T) {
 		t.Fatalf("cancelled timeline = %#v", read)
 	}
 
-	noOpCancel := invoke(t, host, project, "work.cancel", map[string]any{"checkpointSeq": checkpoint["checkpointSeq"]})
+	noOpCancel := invoke(t, host, project, "work.cancel", map[string]any{"checkpointSeq": checkpoint["checkpointSeq"], "owner": lock["owner"], "token": lock["token"]})
 	if !boolOf(noOpCancel["ok"]) || len(noOpCancel["undoneSeqs"].([]any)) != 0 || numOf(noOpCancel["version"]) != 4 {
 		t.Fatalf("repeat work.cancel should be a no-op: %#v", noOpCancel)
 	}

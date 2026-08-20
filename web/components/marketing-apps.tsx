@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 MDX App 数据（经 props 传入）、marketing-site 的 App URL 与 Locale 上下文、lib/i18n 字典、共享 MarkdownContent
- * [OUTPUT]: 对外提供官网 /apps 的应用市场目录与 /apps/:appID 的公开 App SEO 落地页；App 展示字段按 MarketingLocaleContext 取双语言数据；详情用 MDX 正文渲染，附加 frontmatter 中的 FAQ/设备要求/相关应用内链；官网内部导航一律用 <a> 全页跳转（营销 URL 不在 Next 客户端路由树内）
+ * [INPUT]: 依赖 MDX App 数据（经 props 传入）、marketing-site 的 App URL 与 Locale 上下文、lib/i18n 字典、App 专属 Landing 注册表
+ * [OUTPUT]: 对外提供官网 /apps 的动态应用画廊与 /apps/:appID 的小型 Landing Page；目录与详情复用 AppProductVisual，详情按产品 Hero→专属功能叙事→FAQ/CTA 编排，Editor 额外挂载专属 Workspace Showcase，避免重复标题和文档式正文主视觉
  * [POS]: web/components 的公开官网应用层；App 数据一律由服务端页面经 props 注入，本文件不引入内容加载器，也不读取工作台 Catalog 或本地 service 安装状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -9,72 +9,29 @@
 import { useMarketingLocale, useMarketingAppURL } from "@/components/marketing-site";
 import { t, type Locale, localizeURL } from "@/lib/i18n";
 import type { MarketingApp } from "@/lib/marketing-apps";
-import { MarkdownContent } from "@/components/markdown-content";
 import { trackEvent } from "@/components/posthog-analytics";
+import { AppShowcaseView } from "@/components/app-showcase/app-showcase-view";
+import { appShowcaseRegistry } from "@/components/app-showcase/registry";
+import { AppProductVisual } from "@/components/app-product-visual";
+import { appLandingRegistry } from "@/components/app-landing";
 
-// 与 lib/marketing-apps 的访问器同名同义；组件是 client，不能导入含 node:fs 的加载器模块。
-function appName(app: MarketingApp, locale: Locale): string {
-  return app.name[locale] ?? app.name.en;
-}
-function appTagline(app: MarketingApp, locale: Locale): string {
-  return app.tagline[locale] ?? app.tagline.en;
-}
-function appFaq(app: MarketingApp, locale: Locale): MarketingApp["faq"]["en"] {
-  return app.faq[locale] ?? app.faq.en;
-}
-function appBody(app: MarketingApp, locale: Locale): string {
-  return app.body[locale] ?? app.body.en;
-}
+function appName(app: MarketingApp, locale: Locale): string { return app.name[locale] ?? app.name.en; }
+function appTagline(app: MarketingApp, locale: Locale): string { return app.tagline[locale] ?? app.tagline.en; }
+function appFaq(app: MarketingApp, locale: Locale): MarketingApp["faq"]["en"] { return app.faq[locale] ?? app.faq.en; }
 type AppRequirements = { title: string; items: string[]; note?: string };
-function appRequirements(app: MarketingApp, locale: Locale): AppRequirements | undefined {
-  return app.requirements?.[locale] ?? app.requirements?.en;
-}
+function appRequirements(app: MarketingApp, locale: Locale): AppRequirements | undefined { return app.requirements?.[locale] ?? app.requirements?.en; }
 
 export function MarketingAppsContent({ apps }: { apps: MarketingApp[] }) {
   const locale = useMarketingLocale();
-  return (
-    <section className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
-      <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "apps.eyebrow")}</p>
-      <h1 className="mt-4 text-4xl font-semibold tracking-tight">{t("marketing", locale, "apps.title")}</h1>
-      <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">{t("marketing", locale, "apps.tagline")}</p>
-      <div className="mt-10 grid gap-4 md:grid-cols-2">{apps.map((app) => { const name = appName(app, locale); return (
-        <article className="flex min-h-56 flex-col rounded-2xl border bg-card p-6 transition hover:border-primary/35 hover:shadow-sm" key={app.id}>
-          <p className="font-mono text-[10px] font-semibold tracking-[0.15em] text-primary">{app.type === "project" ? "PROJECT APP" : "STANDALONE APP"}</p>
-          <h2 className="mt-4 text-xl font-semibold"><a className="transition hover:text-primary" href={localizeURL(`/apps/${encodeURIComponent(app.id)}`, locale)}>{name}</a></h2>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">{appTagline(app, locale)}</p>
-          <div className="mt-auto flex items-center justify-between gap-3 pt-6">
-            <span className="text-xs text-muted-foreground">{app.type === "project" ? t("marketing", locale, "apps.projectApp") : t("marketing", locale, "apps.standaloneApp")}</span>
-            <a className="inline-flex items-center gap-1 text-sm font-semibold text-primary" href={localizeURL(`/apps/${encodeURIComponent(app.id)}`, locale)}>{t("marketing", locale, "apps.learnMore").replace("{name}", name)}</a>
-          </div>
-          {app.requirements && <p className="mt-3 rounded-lg border border-warning/35 bg-warning/5 px-3 py-2 text-xs leading-5 text-muted-foreground">{t("marketing", locale, "apps.requirementsNote")}</p>}
-        </article>
-      ); })}</div>
-    </section>
-  );
+  return <section className="mx-auto max-w-6xl px-5 py-16 sm:px-8"><div className="max-w-3xl"><p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "apps.eyebrow")}</p><h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">{t("marketing", locale, "apps.title")}</h1><p className="mt-4 text-base leading-7 text-muted-foreground">{t("marketing", locale, "apps.tagline")}</p></div><div className="mt-14 grid gap-5 lg:grid-cols-2">{apps.map((app, index) => <AppGalleryCard app={app} index={index} key={app.id} locale={locale} />)}</div></section>;
+}
+
+function AppGalleryCard({ app, index, locale }: { app: MarketingApp; index: number; locale: Locale }) {
+  const name = appName(app, locale); const href = localizeURL(`/apps/${encodeURIComponent(app.id)}`, locale);
+  return <a className="group block h-full" href={href}><article className="flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-card p-4 transition hover:-translate-y-0.5 hover:border-primary/45 hover:shadow-[var(--shadow-overlay)] sm:p-5"><div className="flex items-center justify-between"><span className="font-mono text-[10px] font-semibold tracking-[.16em] text-primary">{app.type === "project" ? "PROJECT APP" : "STANDALONE APP"}</span><span className="font-mono text-[10px] text-white/35">{String(index + 1).padStart(2, "0")}</span></div><div className="mt-4"><AppProductVisual appId={app.id} /></div><div className="mt-auto flex items-end justify-between gap-4 pt-5"><div><h2 className="text-xl font-semibold transition group-hover:text-primary">{name}</h2><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{appTagline(app, locale)}</p></div><span className="mb-1 shrink-0 text-lg text-primary transition group-hover:translate-x-1">→</span></div></article></a>;
 }
 
 export function MarketingAppDetailContent({ app, related }: { app: MarketingApp; related: MarketingApp[] }) {
-  const appURL = useMarketingAppURL();
-  const locale = useMarketingLocale();
-  const name = appName(app, locale);
-  const detailURL = `${appURL}/apps/${encodeURIComponent(app.id)}`;
-  const repoURL = app.repository?.replace(/\.git$/, "");
-  const faq = appFaq(app, locale);
-  const requirements = appRequirements(app, locale);
-  return (
-    <article className="mx-auto max-w-3xl px-5 py-16 sm:px-8">
-      <a className="text-sm font-semibold text-primary" href={localizeURL("/apps", locale)}>{t("marketing", locale, "apps.backToAll")}</a>
-      <p className="mt-10 font-mono text-xs text-muted-foreground">{app.type === "project" ? t("marketing", locale, "apps.projectApp") : t("marketing", locale, "apps.standaloneApp")}</p>
-      <h1 className="mt-4 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">{name}</h1>
-      <p className="mt-6 text-lg leading-8 text-muted-foreground">{appTagline(app, locale)}</p>
-      <MarkdownContent content={appBody(app, locale)} />
-      {faq.length > 0 && <section className="mt-12 border-t pt-8"><h2 className="text-2xl font-semibold tracking-tight">{t("marketing", locale, "apps.faqTitle")}</h2><div className="mt-4 space-y-4">{faq.map(({ question, answer }) => <div className="rounded-xl border bg-card p-5" key={question}><h3 className="text-base font-semibold">{question}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{answer}</p></div>)}</div></section>}
-      {requirements && <div className="mt-12 rounded-xl border border-warning/35 bg-warning/5 p-5"><h2 className="text-sm font-semibold">{requirements.title}</h2><ul className="mt-3 space-y-2">{requirements.items.map((item) => <li className="pl-1 text-sm leading-6 text-muted-foreground" key={item}>· {item}</li>)}</ul>{requirements.note && <p className="mt-3 text-xs leading-5 text-muted-foreground">{requirements.note}</p>}</div>}
-      <div className="mt-10 flex flex-wrap gap-3">
-        <a className="inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={detailURL} onClick={() => trackEvent("recut_workspace_clicked", { location: "app_detail", app_id: app.id })}>{t("marketing", locale, "apps.openInWorkspace").replace("{name}", name)}</a>
-        {repoURL && <a className="inline-flex h-11 items-center rounded-lg border bg-card px-5 text-sm font-semibold transition hover:bg-muted" href={repoURL} onClick={() => trackEvent("recut_external_clicked", { target: "app_repo", app_id: app.id })} rel="noreferrer" target="_blank">{t("marketing", locale, "apps.viewSource")}</a>}
-      </div>
-      {related.length > 0 && <div className="mt-10 border-t pt-8"><h2 className="text-sm font-semibold">{t("marketing", locale, "apps.learnMoreRelated")}</h2><div className="mt-3 flex flex-wrap gap-2">{related.map((item) => <a className="inline-flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition hover:border-primary/35 hover:text-foreground" href={localizeURL(`/apps/${encodeURIComponent(item.id)}`, locale)} key={item.id}>{appName(item, locale)} →</a>)}</div></div>}
-    </article>
-  );
+  const appURL = useMarketingAppURL(); const locale = useMarketingLocale(); const name = appName(app, locale); const detailURL = `${appURL}/apps/${encodeURIComponent(app.id)}`; const repoURL = app.repository?.replace(/\.git$/, ""); const faq = appFaq(app, locale); const requirements = appRequirements(app, locale); const showcase = appShowcaseRegistry[app.id]; const Landing = appLandingRegistry[app.id];
+  return <article className="mx-auto w-full max-w-6xl px-5 py-14 sm:px-8 sm:py-20"><div><a className="text-sm font-semibold text-primary" href={localizeURL("/apps", locale)}>{t("marketing", locale, "apps.backToAll")}</a><section className="mt-9 grid items-center gap-10 lg:grid-cols-[minmax(0,.9fr)_minmax(26rem,1.1fr)] lg:gap-14"><div><p className="font-mono text-xs text-muted-foreground">{app.type === "project" ? t("marketing", locale, "apps.projectApp") : t("marketing", locale, "apps.standaloneApp")}</p><h1 className="mt-4 text-4xl font-semibold leading-[.98] tracking-[-.045em] sm:text-6xl">{name}</h1><p className="mt-6 max-w-xl text-lg leading-8 text-muted-foreground">{appTagline(app, locale)}</p></div>{!showcase && <section className="overflow-hidden rounded-2xl border border-white/10 bg-card p-4 sm:p-5"><div className="flex items-center justify-between font-mono text-[10px] font-semibold tracking-[.16em] text-primary"><span>{app.type === "project" ? "PROJECT WORKFLOW" : "LOCAL WORKFLOW"}</span><span className="text-white/35">RECUT</span></div><div className="mt-4"><AppProductVisual appId={app.id} size="hero" /></div></section>}</section></div>{showcase ? <div className="mt-16"><AppShowcaseView appId={app.id} kind={app.type} locale={locale} fallback={<></>} /></div> : Landing ? <div className="mt-16"><Landing locale={locale} /></div> : null}<div>{faq.length > 0 && <section className="mt-12 border-t pt-8"><h2 className="text-2xl font-semibold tracking-tight">{t("marketing", locale, "apps.faqTitle")}</h2><div className="mt-4 space-y-4">{faq.map(({ question, answer }) => <div className="rounded-xl border bg-card p-5" key={question}><h3 className="text-base font-semibold">{question}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{answer}</p></div>)}</div></section>}{requirements && <div className="mt-12 rounded-xl border border-warning/35 bg-warning/5 p-5"><h2 className="text-sm font-semibold">{requirements.title}</h2><ul className="mt-3 space-y-2">{requirements.items.map((item) => <li className="pl-1 text-sm leading-6 text-muted-foreground" key={item}>· {item}</li>)}</ul>{requirements.note && <p className="mt-3 text-xs leading-5 text-muted-foreground">{requirements.note}</p>}</div>}<div className="mt-10 flex flex-wrap gap-3"><a className="inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={detailURL} onClick={() => trackEvent("recut_workspace_clicked", { location: "app_detail", app_id: app.id })}>{t("marketing", locale, "apps.openInWorkspace").replace("{name}", name)}</a>{repoURL && <a className="inline-flex h-11 items-center rounded-lg border bg-card px-5 text-sm font-semibold transition hover:bg-muted" href={repoURL} onClick={() => trackEvent("recut_external_clicked", { target: "app_repo", app_id: app.id })} rel="noreferrer" target="_blank">{t("marketing", locale, "apps.viewSource")}</a>}</div>{related.length > 0 && <div className="mt-10 border-t pt-8"><h2 className="text-sm font-semibold">{t("marketing", locale, "apps.learnMoreRelated")}</h2><div className="mt-3 flex flex-wrap gap-2">{related.map((item) => <a className="inline-flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition hover:border-primary/35 hover:text-foreground" href={localizeURL(`/apps/${encodeURIComponent(item.id)}`, locale)} key={item.id}>{appName(item, locale)} →</a>)}</div></div>}</div></article>;
 }

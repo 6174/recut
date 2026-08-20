@@ -275,6 +275,7 @@ func TestEditorAgentDataLayerAndOps(t *testing.T) {
 	if !boolOf(lock["ok"]) {
 		t.Fatalf("lock = %#v", lock)
 	}
+	lockInfo := lock["lock"].(map[string]any)
 	// UI 整份保存走 api surface（InvokeAPI）；锁内应被拒
 	uiSave, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: "recut.editor"}, "recut.editor", "project.save", map[string]any{"project": map[string]any{"metadata": map[string]any{}}})
 	if err != nil {
@@ -286,7 +287,7 @@ func TestEditorAgentDataLayerAndOps(t *testing.T) {
 	if !boolOf(uiSaveMap["locked"]) {
 		t.Fatalf("UI save under lock should be rejected: %#v", uiSaveMap)
 	}
-	unlock := invoke(t, host, project, "project.unlock", map[string]any{})
+	unlock := invoke(t, host, project, "project.unlock", map[string]any{"owner": lockInfo["owner"], "token": lockInfo["token"]})
 	if !boolOf(unlock["ok"]) {
 		t.Fatalf("unlock = %#v", unlock)
 	}

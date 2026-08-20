@@ -3,7 +3,9 @@
  * Recut CDN 资源管理 CLI。
  *
  * 用法：
- *   node cdn/scripts/cli.mjs upload <prefix>     # 上传 cdn/buckets/{prefix}/ 到 R2（加 --skip-existing：MD5/ETag 一致则跳过，只补缺和变更）
+ *   node cdn/scripts/cli.mjs upload <prefix>     # 上传 cdn/buckets/{prefix}/ 到 R2
+ *     --skip-existing                          # MD5/ETag 一致则跳过（只补缺和变更）
+ *     --only <子目录或文件路径>（可多次）        # 只上传该子集，如 release 只推新版本与 latest
  *   node cdn/scripts/cli.mjs list <prefix>       # 列出 R2 中的 {prefix}/ 对象
  *   node cdn/scripts/cli.mjs delete <prefix>     # 删除 R2 中的 {prefix}/ 对象
  *   node cdn/scripts/cli.mjs sync <prefix>       # 上传缺失/变更文件（按 size 简比）
@@ -40,8 +42,15 @@ async function run() {
   switch (cmd) {
     case "upload": {
       const p = requirePrefix();
-      // --skip-existing：先列出远端，只上传缺失对象（断点续传，补上次失败批次）
-      await uploadPrefix(p, { skipExisting: process.argv.includes("--skip-existing") });
+      let skipExisting = false;
+      const only = [];
+      for (let i = 3; i < process.argv.length; i++) {
+        const a = process.argv[i];
+        if (a === "--skip-existing") skipExisting = true;
+        else if (a === "--only") only.push(process.argv[++i]);
+      }
+      // --skip-existing：HEAD 比对 MD5/ETag 只补缺失/变更对象；--only 把更新限定到本版本与 latest。
+      await uploadPrefix(p, { skipExisting, only });
       break;
     }
     case "list": {
