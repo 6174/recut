@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 usePathname、lib/i18n（Locale/localizeURL/t）、lib/marketing-home 双语言数据、MDX 文章/App 正文（以 props 传入）、构建时的 Recut App URL 与浏览器当前 Host
- * [OUTPUT]: 对外提供官网 Header 与 Footer（均含语言切换）、按 Hero→核心应用→创作底座→三步开始→适合谁→对比→文章→FAQ→CTA 编排的 Landing、Docs 与 Blog 的共享展示组件；
+ * [OUTPUT]: 对外提供官网 Header 与 Footer（均含语言切换）、按 Hero→核心应用→创作底座→三步开始→适合谁→对比→文章→FAQ→CTA 编排的 Landing、Docs 与 Blog 的共享展示组件；Hero 挂载可交互的 Agent + 剪辑器工作台演示；
  *           MarketingLocaleContext 供 client 组件读 locale；Blog 与 App 详情共用 MarkdownContent 渲染 MDX 正文并提供分享条；localhost 下的工作台链接统一指向同端口 app.localhost；
  *           官网内部导航一律用 <a> 全页跳转：营销浏览器 URL（无前缀 / /zh/ 前缀）与 Next 客户端路由树（/marketing/[locale]/…）不一致，<a> 保证每次导航都经 Worker/server.cjs 的正确重写
  * [POS]: web/components 的公开官网视觉层；服务 recut.video 与 localhost，不读取本地 service 或工作台状态；文章/应用数据一律由服务端页面经 props 注入，本文件不引入内容加载器
@@ -16,6 +16,7 @@ import type { DocPage } from "@/lib/docs";
 import { HOME_FAQ, HOW_IT_WORKS } from "@/lib/marketing-home";
 import { MarkdownContent } from "@/components/markdown-content";
 import { trackEvent } from "@/components/posthog-analytics";
+import { MarketingEditorDemo } from "@/components/marketing-editor-demo";
 
 const defaultAppURL = process.env.NEXT_PUBLIC_RECUT_APP_URL ?? "https://app.recut.video";
 const MarketingAppURLContext = createContext(defaultAppURL);
@@ -84,7 +85,7 @@ export function MarketingShell({ children, locale }: { children: React.ReactNode
   return (
     <MarketingAppURLContext value={appURL}>
       <MarketingLocaleContext value={effective}>
-        <div className="min-h-screen bg-[oklch(0.985_0.004_150)] text-foreground">
+        <div className="marketing-dark min-h-screen bg-background text-foreground">
           <MarketingHeader />
           <main>{children}</main>
           <MarketingFooter />
@@ -98,7 +99,7 @@ export function MarketingHeader() {
   const appURL = useMarketingAppURL();
   const locale = useMarketingLocale();
   return (
-    <header className="sticky top-0 z-30 border-b border-border/80 bg-background/90 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-white/10 bg-[oklch(0.145_0.012_150_/_0.92)] backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-5 px-5 sm:px-8">
 <a aria-label={t("marketing", locale, "nav.ariaHome")} className="flex shrink-0 items-center gap-2.5" href={localizeURL("/", locale)}>
         <img alt="Recut" className="size-8 rounded-lg" height={424} src="/logo.jpg" width={404} />
@@ -169,22 +170,20 @@ function FooterLinks({ links, title }: { links: ReadonlyArray<{ href: string; la
 export function MarketingHero() {
   const appURL = useMarketingAppURL();
   const locale = useMarketingLocale();
+  const zh = locale === "zh";
   return (
-    <section className="relative overflow-hidden border-b">
-      <div aria-hidden="true" className="absolute -top-48 right-[-18rem] size-[38rem] rounded-full bg-primary/15 blur-3xl" />
-      <div aria-hidden="true" className="absolute -bottom-64 left-1/4 size-[32rem] rounded-full bg-accent/75 blur-3xl" />
-      <div className="relative mx-auto grid max-w-6xl gap-12 px-5 py-20 sm:px-8 sm:py-28 lg:grid-cols-[1fr_0.8fr] lg:items-center">
-        <div className="max-w-3xl">
-          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "hero.eyebrow")}</p>
-          <h1 className="mt-5 text-5xl font-semibold leading-[1.03] tracking-[-0.045em] sm:text-6xl">{t("marketing", locale, "hero.title1")}<br /><span className="text-primary">{t("marketing", locale, "hero.title2")}</span></h1>
-          <p className="mt-6 max-w-xl text-base leading-7 text-muted-foreground sm:text-lg">{t("marketing", locale, "hero.tagline")}</p>
-          <div className="mt-9 flex flex-wrap gap-3">
-            <a className="inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "hero" })}>{t("marketing", locale, "hero.install")} <span aria-hidden="true" className="ml-1">↗</span></a>
-            <a className="inline-flex h-11 items-center rounded-lg border bg-card px-5 text-sm font-semibold transition hover:bg-muted" href={localizeURL("/docs", locale)} onClick={() => trackEvent("recut_docs_clicked", { location: "hero" })}>{t("marketing", locale, "hero.readDocs")}</a>
+    <section className="marketing-hero-grid relative overflow-hidden border-b border-white/10 bg-[oklch(0.12_0.01_150)] text-white">
+      <div className="relative mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28">
+        <div className="mx-auto max-w-4xl text-center">
+          <p className="font-mono text-[11px] font-semibold tracking-[0.22em] text-primary">{zh ? "本地优先 · 开源 · 可扩展" : "LOCAL-FIRST · OPEN SOURCE · EXTENSIBLE"}</p>
+          <h1 className="mt-6 text-5xl font-semibold leading-[0.98] tracking-[-0.055em] sm:text-7xl">{zh ? "让 AI 参与创作，" : "Create with AI."}<br /><span className="text-white/42">{zh ? "但作品始终属于你。" : "Keep everything yours."}</span></h1>
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-white/55 sm:text-lg">{zh ? "在你的电脑上，用自己的素材与模型完成剪辑、生成和扩展。每一次修改都可见、可编辑、可撤销。" : "Edit, generate, and extend with your own media and models on your own machine. Every change stays visible, editable, and reversible."}</p>
+          <div className="mt-9 flex flex-wrap justify-center gap-3">
+            <a className="inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "hero" })}>{zh ? "打开工作台" : "Open workspace"} <span aria-hidden="true" className="ml-1">↗</span></a>
+            <a className="inline-flex h-11 items-center rounded-lg border border-white/15 bg-white/[0.03] px-5 text-sm font-semibold text-white/85 transition hover:bg-white/[0.08]" href="#product" onClick={() => trackEvent("recut_docs_clicked", { location: "hero" })}>{zh ? "了解开源架构" : "Explore the open architecture"}</a>
           </div>
-          <p className="mt-4 text-xs text-muted-foreground">{t("marketing", locale, "hero.subtext")}</p>
         </div>
-        <ProductPreview />
+        <MarketingEditorDemo locale={locale} />
       </div>
     </section>
   );
@@ -266,28 +265,6 @@ function HomeFaqSection() {
         <div className="mt-10 grid gap-4">{HOME_FAQ[locale].map(({ question, answer }) => <div className="rounded-2xl border bg-background p-6" key={question}><h3 className="text-lg font-semibold">{question}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{answer}</p></div>)}</div>
       </div>
     </section>
-  );
-}
-
-function ProductPreview() {
-  const locale = useMarketingLocale();
-  const items = [
-    [t("marketing", locale, "preview.item1Title"), t("marketing", locale, "preview.item1Body")],
-    [t("marketing", locale, "preview.item2Title"), t("marketing", locale, "preview.item2Body")],
-    [t("marketing", locale, "preview.item3Title"), t("marketing", locale, "preview.item3Body")],
-    [t("marketing", locale, "preview.item4Title"), t("marketing", locale, "preview.item4Body")],
-  ] as const;
-  return (
-    <div className="rounded-2xl border border-primary/20 bg-card/85 p-4 shadow-[0_24px_70px_oklch(0.22_0.05_151_/_0.14)] backdrop-blur">
-      <div className="flex items-center justify-between border-b pb-3">
-        <div className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">R</span>
-          <span><span className="block text-sm font-semibold">{t("marketing", locale, "preview.workspace")}</span><span className="block text-[10px] tracking-[0.14em] text-muted-foreground">{t("marketing", locale, "preview.eyebrow")}</span></span>
-        </div>
-        <span className="rounded-full bg-primary/10 px-2 py-1 font-mono text-[9px] font-semibold text-primary">{t("marketing", locale, "preview.status")}</span>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2.5">{items.map(([title, description]) => <div className="rounded-xl border bg-background p-3.5" key={title}><span className="grid size-7 place-items-center rounded-lg bg-accent text-xs font-bold text-accent-foreground">✦</span><h3 className="mt-5 text-sm font-semibold">{title}</h3><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{description}</p></div>)}</div>
-    </div>
   );
 }
 

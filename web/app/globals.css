@@ -71,6 +71,68 @@
   --shadow-overlay: 0 14px 36px oklch(0.19 0.008 150 / 0.1);
 }
 
+/* 官网与产品工作台共享同一套深色语义，避免营销页出现黑白两张皮。 */
+.marketing-dark {
+  --background: oklch(0.145 0.012 150);
+  --foreground: oklch(0.95 0.008 150);
+  --card: oklch(0.185 0.012 150);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.205 0.014 150);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.68 0.18 151);
+  --primary-foreground: oklch(0.12 0.012 150);
+  --secondary: oklch(0.235 0.016 150);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.225 0.012 150);
+  --muted-foreground: oklch(0.68 0.012 150);
+  --accent: oklch(0.28 0.06 151);
+  --accent-foreground: oklch(0.9 0.025 151);
+  --border: oklch(0.32 0.014 150);
+  --input: oklch(0.3 0.014 150);
+  --ring: oklch(0.68 0.18 151);
+  --shadow-overlay: 0 20px 60px oklch(0 0 0 / 0.3);
+  color-scheme: dark;
+}
+
+/* Hero 网格只承担空间尺度，不能越过编辑器演示抢占叙事焦点。 */
+.marketing-hero-grid {
+  background-image:
+    linear-gradient(oklch(1 0 0 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(1 0 0 / 0.035) 1px, transparent 1px);
+  background-position: center top;
+  background-size: 28px 28px;
+}
+
+/* 移动端展示真实桌面 App 画布：固定内部尺寸，只用一个 transform 做等比缩放。 */
+.marketing-editor-demo-stage {
+  display: flex;
+  height: 500px;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.marketing-editor-demo-canvas {
+  transform: scale(0.78);
+  transform-origin: top center;
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .marketing-editor-demo-stage { height: 560px; }
+  .marketing-editor-demo-canvas { transform: scale(0.84); }
+}
+
+@media (min-width: 1024px) {
+  .marketing-editor-demo-stage {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+  .marketing-editor-demo-canvas {
+    transform: none;
+    transform-origin: top left;
+  }
+}
+
 @layer base {
   * { @apply border-border outline-ring/50; }
   body { @apply min-h-screen bg-background font-sans text-foreground antialiased; letter-spacing: 0; }

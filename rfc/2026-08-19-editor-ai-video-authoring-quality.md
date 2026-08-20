@@ -12,7 +12,7 @@
 
 # RFC: Editor AI 成片创作——导演模型、组件驱动与增量同步
 
-- 状态：Proposal
+- 状态：Proposal（部分落地；headless 未实现，不得声称 RFC 完成）
 - 作者：Recut
 - 日期：2026-08-19
 - 决策范围：`recut.editor` 的 AI 创作 skill、设计系统与组件准入、时间线批量写入、Agent/UI 同步、预览与导出交付门；不改变现有时间线模型、组件运行时或用户手动编辑能力。
@@ -362,17 +362,17 @@ AI 锁也应收窄：批事务期间 UI 暂停本地写入，但持续应用远�
 | `apps/editor/ui/src/recut/use-project-sync.ts` | 从 `loadProject` 正常刷新切换为 delta queue；只在 gap/apply failure 时 fallback reload。 | 连续 Agent 更新不卸载 renderer。 |
 | `apps/editor/ui/src/core/managers/project-manager.ts` | 暴露 `applyRemoteOperations` 和 `getAppliedVersion`，沿用 UI 自己的 reducer。 | 外部 mutation 与 UI mutation 使用同一状态变换。 |
 | `apps/editor/ui/tests/e2e/recut-sync.spec.ts` | 将“agent event 触发 reload”的断言改成“agent event 应用 delta 且 reloadCount 不变”；新增 gap/fallback 测试。 | 回归测试不再把刷新当作正常同步。 |
-| `service/mcp.go` / `service/runtime.go` | 将 preview、export、cancel 统一纳入 async handle 和结构化错误信封；Plan 仍是普通文件。 | Agent 能观察、取消和恢复长任务。 |
+| `service/mcp.go` / `service/runtime.go` | 将 preview、export、cancel 统一纳入 async handle 和结构化错误信封；项目工作稿仍是普通文件。 | Agent 能观察、取消和恢复长任务。 |
 
-### 7.2 Plan 的实际形态：普通 Markdown 工作稿
+### 7.2 项目工作稿的实际形态：普通 Markdown
 
-不新增 Plan 工具、SQLite 表、JSON schema、revision 状态机或编译器。Agent 直接用项目文件的原生读写维护 `project.md`；文件只记录导演判断和执行过程，例如 route、treatment 理由、风格选择、scene 意图、候选 asset/job、timeline version、proof 和下一步。
+不新增工作稿工具、数据库表、JSON schema、revision 状态机或编译器。Agent 直接用项目文件的原生读写维护 `project.md`；文件只记录导演判断和执行过程，例如 route、treatment 理由、风格选择、scene 意图、候选 asset/job、timeline version、proof 和下一步。
 
-Plan 的状态由人类可读的标题和清单表达（如 `pending`、`running`、`done`、`stale`），不作为服务端门禁。真正的状态检查通过现有工具完成：`workflow.context`、`timeline.read`、`timeline.validate`、`preview.frame`、`recut.job.*`。当 Markdown 与 timeline 不一致时，timeline 胜出，Agent 修正文档。
+工作稿的进度由人类可读的标题和清单表达（如 `pending`、`running`、`done`、`stale`），不作为服务端门禁。真正的状态检查通过现有工具完成：`workflow.context`、`timeline.read`、`timeline.validate`、`preview.frame`、`recut.job.*`。当 Markdown 与 timeline 不一致时，timeline 胜出，Agent 修正文档。
 
 ### 7.3 执行与质量门
 
-执行顺序仍然是：读工作稿 → 读当前 timeline → 选择 treatment → 生成/读取资产 → 用现有写入口落轨 → 回读 timeline → 做结构/画面/交付验证。任何“lint”都是 Agent 在工作稿中的自检清单，不新增一个 Plan 验证器，也不把工作稿编译成隐藏的结构化对象。
+执行顺序仍然是：读工作稿 → 读当前 timeline → 选择 treatment → 生成/读取资产 → 用现有写入口落轨 → 回读 timeline → 做结构/画面/交付验证。任何“lint”都是 Agent 在工作稿中的自检清单，不新增工作稿验证器，也不把工作稿编译成隐藏的结构化对象。
 
 最低自检清单：
 
@@ -484,7 +484,7 @@ flushRemoteOps() {
 
 ### 7.7 取消、反馈和失败恢复
 
-每个长任务都登记 `workUnitId`：`plan`, `component-job`, `apply-plan`, `preview`, `export`。Agent 新消息到达时，runtime 将它广播给当前 work unit：
+每个长任务都登记 `workUnitId`：`authoring`, `component-job`, `timeline-revision`, `preview`, `export`。Agent 新消息到达时，runtime 将它广播给当前 work unit：
 
 ```text
 running -> cancel_requested -> cancelled
@@ -534,7 +534,7 @@ running -> cancel_requested -> cancelled
 
 | 层级 | 新增测试 | 关键断言 |
 |---|---|---|
-| L0 worklog | Markdown fixture review、manifest schema test | 工作稿包含 route、treatment 理由、主体、风格选择、proof 与下一步；不要求 JSON schema。 |
+| L0 worklog | Markdown fixture review、manifest prompt gate | 工作稿包含 route、treatment 理由、主体、风格选择、proof 与下一步；不要求 JSON schema。 |
 | L1 background | 现有 component/timeline tests | 统一 op 原子性、幂等、undo、baseVersion conflict。 |
 | L2 service | `editor_delta_test.go`、`editor_work_unit_test.go` | delta 事件顺序、async handle、cancel 状态和错误信封。 |
 | L3 UI | `recut-sync.spec.ts` | 连续 delta 不 reload；gap 才 reload；播放头/selection 保持。 |
@@ -585,7 +585,38 @@ running -> cancel_requested -> cancelled
 2. 生成 scene contact sheet，检查空画布、文字截断、安全区冲突、token 漂移与无意义视觉重复。
 3. 用“短片需求 -> 可编辑时间线 + 视觉证据 + 导出资产”的样例集回归，不再只回归 `timeline.validate`。
 
+### 8.0 Headless preview/export 的平台边界（尚未实现）
+
+headless 不能通过复用已打开的 iframe、调用 `world.html` demo，或假设生产 App 包含 `ui/src` / `node_modules` 来“补齐”。它必须是平台拥有的正式渲染能力，且与交互编辑器共享 World/render contract：
+
+1. **输入冻结**：接收指定 `timelineVersion` 的完整项目快照、canvas/fps/duration、已物化的本地媒体文件，以及精确的 verified component bundle；不在渲染进程临时访问 Host RPC 或依赖当前编辑器页面。
+2. **渲染执行**：受管 Chromium 用与 UI 相同的 World/`WorldScene` 入口加载 snapshot；启动前验证 `CanvasDrawElement`、本地媒体可读、组件 bundle 与字体，单帧输出 PNG，多帧按 fps 输出确定性帧序列。
+3. **导出执行**：平台受管 ffmpeg 将帧序列与最终音频混音合成为 MP4；输出先写为 app 私有文件，再通过既有 asset import 生成 video asset。任何 frame/encode 失败都使 job failed，不能生成黑帧证据或空壳视频。
+4. **异步与取消**：preview/export 使用同一 async handle；取消同时终止 Chromium、帧任务和 ffmpeg 进程组，清理仅属于该 job 的临时目录，绝不回报伪 completed。
+5. **发布前验证**：先做单帧 `preview.frame({mode:"headless"})` 的像素与版本断言，再做含图片、视频、文字和 verified component 的短片导出 golden；只有 production bundle 中 Chromium/runtime/ffmpeg 均被正式声明并可用后，才能把 `workflow.context` 的 headless capability 改为 true。
+
+当前 Editor 的生产包只分发 `ui/dist`，而这个 App 未声明 Chromium/CDP adapter 或 headless renderer runtime。因此这项工作需要一个平台级运行时与发布契约，不能由 Editor App 在 background 中偷偷启动开发依赖；在该契约落地前，所有无 UI 调用必须继续返回 `headless-unavailable`。
+
+### 8.1 落地对照（2026-08-20）
+
+本 RFC 仍是 Proposal。下表只记录仓库里已经存在的适配，不把未完成项写成完成。
+
+| 条目 | 状态 | 说明 |
+|---|---|---|
+| P0 skill 导演链 / 组件优先 / 三层证据 | 已落地 | `SKILL.md` + `verification.md` 等 references |
+| P0 `preview.frame` 对 Agent 可达 | 已落地 | MCP + presence 门；离线 `editor-not-open` |
+| P0 `export.start` MCP async | 已落地 | iframe 在线走 `callUI(export.encode)`；`jobId` + `export.finalize` |
+| P1 iframe 增量同步 | 已落地 | `applyRemoteOperations` 应用 Host 折叠后的 **document 快照**（不在 UI 重放 `applyOp`）；rAF 合并；带 document 的 version gap 不 reload；无 document 时仅在恢复路径走 `timeline.delta` 或 `loadProject` |
+| P1 取消 / rollback | 部分落地 | `work.checkpoint` / `work.cancel` 按 command-log **seq** undo；preview/export 取消通过真实 `AbortSignal` 与 renderer cancel 链路执行。**尚未**由平台把任意新用户消息自动映射为特定项目工作单元的取消，主 Agent 仍需按 Skill 主动停止并调用 cancel |
+| P2 `preview.batch` / `preview.contact-sheet` | 已落地 | UI 快路径；L0 + Playwright contact-sheet |
+| P2 headless preview/export | **未落地** | 诚实返回 `headless-unavailable`；`authoring.headlessPreview/Export=false` |
+| L0 prompt / worklog 门 | 已落地 | `scripts/test-authoring-quality.js` + `scripts/authoring-fixtures/` 校验 Skill、onboarding 与新片/二次编辑 Markdown 工作稿；不把它称为 30s 真片回归 |
+| L2 service Go delta/work-unit 测试 | 已落地 | `service/editor_delta_test.go` 锁 versioned delta/document event；`service/editor_work_unit_test.go` 锁 checkpoint 按 command-log seq cancel 与 redo |
+| L5 真片 golden | 未落地 | 不把 L0 fixture 当成成片证据 |
+
 ## 9. 验收标准
+
+下表是 RFC 完成时的目标，不是当前全部已满足的状态。当前仅“无 UI 可完成 headless preview/export”仍未满足；运行时明确返回 `headless-unavailable`，因此不得以该项验收或对用户声称无头交付完成。
 
 | 场景 | 可验证结果 |
 |---|---|
