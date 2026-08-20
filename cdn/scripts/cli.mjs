@@ -3,7 +3,7 @@
  * Recut CDN 资源管理 CLI。
  *
  * 用法：
- *   node cdn/scripts/cli.mjs upload <prefix>     # 上传 cdn/buckets/{prefix}/ 到 R2
+ *   node cdn/scripts/cli.mjs upload <prefix>     # 上传 cdn/buckets/{prefix}/ 到 R2（加 --skip-existing：MD5/ETag 一致则跳过，只补缺和变更）
  *   node cdn/scripts/cli.mjs list <prefix>       # 列出 R2 中的 {prefix}/ 对象
  *   node cdn/scripts/cli.mjs delete <prefix>     # 删除 R2 中的 {prefix}/ 对象
  *   node cdn/scripts/cli.mjs sync <prefix>       # 上传缺失/变更文件（按 size 简比）

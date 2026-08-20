@@ -14,7 +14,7 @@
  * 用法：import { uploadPrefix, listObjects, ... } from "./r2.mjs";
  */
 
-import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, existsSync, createReadStream } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { createHmac, createHash } from "node:crypto";
 import { CDN, bucketDir } from "../config.mjs";
@@ -190,17 +190,33 @@ export async function listObjects(prefix) {
   return keys.sort();
 }
 
-/** HEAD 探测对象是否已存在；返回远端对象大小（-1 表示不存在/请求失败）。 */
-async function headSize(key) {
+/** HEAD 探测远端对象；返回 { size, etag }（etag 为 R2 单段 PUT 的 MD5 十六进制，无 ETag 时为空串，不存在/失败时 size=-1）。 */
+async function headObject(key) {
   try {
     const res = await s3Request({ method: "HEAD", key });
     if (res.status === 200) {
-      return Number(res.headers.get("content-length") ?? -1);
+      const etag = (res.headers.get("etag") ?? "")
+        .replace(/^W\//, "")
+        .replace(/^"|"$/g, "")
+        .toLowerCase();
+      const size = Number(res.headers.get("content-length") ?? -1);
+      return { size, etag };
     }
-    return -1;
+    return { size: -1, etag: "" };
   } catch {
-    return -1;
+    return { size: -1, etag: "" };
   }
+}
+
+/** 流式计算本地文件 MD5（十六进制，与 R2 单段 PUT 的 ETag 对齐）。 */
+function md5File(path) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("md5");
+    const rs = createReadStream(path);
+    rs.on("data", (chunk) => hash.update(chunk));
+    rs.on("end", () => resolve(hash.digest("hex")));
+    rs.on("error", reject);
+  });
 }
 
 /** 上传 cdn/buckets/{prefix}/ 全部文件到 R2（对象 key = {prefix}/{rel}）。S3 并发上传。 */
@@ -226,17 +242,23 @@ export async function uploadPrefix(prefix, { concurrency = 16, retries = 3, skip
     const key = `${prefix}/${rel}`;
     const localPath = join(dir, rel);
     const localSize = statSync(localPath).size;
-    // skip-existing：HEAD 比较远端大小，仅"存在且大小相同"跳过；同名不同内容必须覆盖。
+    // skip-existing：HEAD 远端对象，MD5 与 ETag 一致才跳过（size 不可靠：如
+    // latest/manifest.json 每个版本都是 1152 字节、内容却不同，且 gzip 响应无
+    // content-length 头）；同名不同内容必须覆盖。
     if (skipExisting) {
-      const remoteSize = await headSize(key);
-      if (remoteSize === localSize) {
+      const remote = await headObject(key);
+      if (remote.etag && (await md5File(localPath)) === remote.etag) {
+        skipCount += 1;
+        return;
+      }
+      // 远端对象存在但无 ETag（代理/异常对象）时退化为大小比较。
+      if (!remote.etag && remote.size === localSize) {
         skipCount += 1;
         return;
       }
     }
-    const contentType = guessContentType(rel);
+const contentType = guessContentType(rel);
     const body = readFileSync(localPath);
-
     let lastErr;
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
@@ -268,17 +290,25 @@ export async function uploadPrefix(prefix, { concurrency = 16, retries = 3, skip
     failures.push(`${key}: ${lastErr.message.split("\n")[0]}`);
   };
 
-  // 有界并发：固定 worker 数从队列取任务
+  // 有界并发：固定 worker 数从队列取任务；进度按"完成数"上报（小批次逐文件、大批次每 250 个一批）
+  const logProgress = (completed, rel) => {
+    const elapsed = Math.round((Date.now() - started) / 1000);
+    if (files.length <= 100) {
+      console.log(`[s3] ${prefix}: ${completed}/${files.length} ${rel} (ok=${okCount} skip=${skipCount} fail=${failCount}) elapsed=${elapsed}s`);
+    } else if (completed % 250 === 0 || completed === files.length) {
+      console.log(`[s3] ${prefix}: ${completed}/${files.length} (ok=${okCount} skip=${skipCount} fail=${failCount}) elapsed=${elapsed}s`);
+    }
+  };
+  let completed = 0;
   const worker = async () => {
     for (;;) {
       const index = cursor;
       cursor += 1;
       if (index >= files.length) return;
-      await putOne(files[index]);
-      const done = cursor;
-      if (done % 250 === 0 || done === files.length) {
-        console.log(`[s3] ${prefix}: ${done}/${files.length} (ok=${okCount} skip=${skipCount} fail=${failCount}) elapsed=${Math.round((Date.now() - started) / 1000)}s`);
-      }
+      const rel = files[index];
+      await putOne(rel);
+      completed += 1;
+      logProgress(completed, rel);
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, files.length) }, worker));

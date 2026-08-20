@@ -120,8 +120,8 @@ service-release: builtin-apps web-build-embedded ## Build self-contained service
 	cp "$$manifest" "$(RELEASE_LATEST)/manifest.json"; \
 	echo "Staged $(RECUT_VERSION) packages in $(RELEASE_PUBLIC) with latest pointer."
 
-cd-upload: ## Upload the staged service release packages to R2 (versioned at https://cdn.recut.video/releases/<version>, latest pointer at /releases/latest).
-	node cdn/scripts/cli.mjs upload releases
+cd-upload: ## Upload the staged service release packages to R2 (versioned at https://cdn.recut.video/releases/<version>, latest pointer at /releases/latest). Historical versions are immutable; --skip-existing compares MD5 vs remote ETag so unchanged packages are not re-uploaded.
+	node cdn/scripts/cli.mjs upload releases --skip-existing
 
 service-install: service-build ## Install the host-target production service (macOS/Linux/FreeBSD shell hosts).
 	@test "$(BUILD_GOOS)" = "$$(go env GOOS)" || { echo "service-install must target this host; copy the cross-built binary to $(BUILD_GOOS)-$(BUILD_GOARCH) instead." >&2; exit 1; }
