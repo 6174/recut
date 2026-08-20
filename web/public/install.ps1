@@ -44,7 +44,7 @@ try {
 
   $archivePath = Join-Path $temporary $package.archive
   Log "下载 Recut service $($manifest.version)"
-  Invoke-WebRequest -UseBasicParsing -Uri "$base/releases/latest/$($package.archive)" -OutFile $archivePath
+  Invoke-WebRequest -UseBasicParsing -Uri "$base/releases/$($manifest.version)/$($package.archive)" -OutFile $archivePath
   Log "校验发布包完整性"
   $actualChecksum = (Get-FileHash -Algorithm SHA256 $archivePath).Hash.ToLowerInvariant()
   if ($actualChecksum -ne $package.sha256.ToLowerInvariant()) { Fail "发布包校验失败" }

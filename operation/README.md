@@ -6,6 +6,6 @@
 
 成员清单
 
-official-repo/: `recut-official-repo` Git submodule（`6174/recut` 的 `main`），Recut Video 的公开愿景、App 规范、提案与社区 App 提交入口。
+official-repo/: `recut-official-repo` Git submodule（`6174/recut` 的 `main`），Recut Video 的中英文开源 Landing README、App 规范、提案与社区 App 提交入口；`README.md` 为中文默认版本，`README.en.md` 为英文版本。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
