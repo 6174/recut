@@ -31,6 +31,7 @@ var mediaProviders = []MediaProvider{
 	{ID: "grok", Name: "xAI Grok", Protocol: "xai", Models: []MediaModel{{ID: "grok/image", Provider: "grok", Name: "Grok Image", Capability: ImageGenerate, APIModelID: "", InputModes: []string{"text", "image"}, Configurable: true}, {ID: "grok/video", Provider: "grok", Name: "Grok Video", Capability: VideoGenerate, APIModelID: "", InputModes: []string{"text", "image"}, Configurable: true}}},
 	{ID: "elevenlabs", Name: "ElevenLabs", Protocol: "elevenlabs", DefaultAPIBase: "https://api.elevenlabs.io", Models: []MediaModel{{ID: "elevenlabs/eleven-multilingual-v2", Provider: "elevenlabs", Name: "Eleven Multilingual v2", Capability: SpeechGenerate, APIModelID: "eleven_multilingual_v2", InputModes: []string{"text"}, Available: true, Configurable: true}}},
 	{ID: "minimax", Name: "MiniMax", Protocol: "minimax", DefaultAPIBase: "https://api.minimaxi.com", Models: []MediaModel{{ID: "minimax/speech-2.8-hd", Provider: "minimax", Name: "MiniMax Speech 2.8 HD", Capability: SpeechGenerate, APIModelID: "speech-2.8-hd", InputModes: []string{"text"}, Available: true, Configurable: true}}},
+	{ID: "local-audio", Name: "Audio Studio（本机）", Protocol: "local", DefaultAPIBase: "", Models: []MediaModel{{ID: "local-audio/cosyvoice2", Provider: "local-audio", Name: "CosyVoice2 · 本机 TTS", Capability: SpeechGenerate, APIModelID: "cosyvoice2", InputModes: []string{"text"}, Available: true, Configurable: false}}},
 }
 
 const CodexImageModelID = "codex/image"
@@ -74,24 +75,36 @@ func (m *MediaService) ConfiguredModels() ([]MediaConfiguration, error) {
 		if !route.Enabled {
 			continue
 		}
-		model, ok := modelByID(route.ModelID)
-		if !ok {
-			continue
-		}
-		provider, _ := providerByID(model.Provider)
-		configuration := MediaConfiguration{Route: route, Provider: provider, Model: model, RequiredInputs: modelInputFields(model.InputModes), OptionalOutputs: modelOutputFields(model)}
-		if model.ID == CodexImageModelID {
+		configuration, ok := m.configuredModelFor(route)
+		if ok {
 			items = append(items, configuration)
-			continue
 		}
-		credential, err := m.credential(route.CredentialID)
-		if err != nil {
-			continue
-		}
-		configuration.CredentialName = credential.Name
-		items = append(items, configuration)
 	}
 	return items, nil
+}
+
+// configuredModelFor 把一条已启用路由解析为配置视图；本地 provider（无凭据，
+// 如 Audio Studio 本机 TTS）与 Codex 原生图同样不需要查询凭据。
+func (m *MediaService) configuredModelFor(route MediaRoute) (MediaConfiguration, bool) {
+	model, ok := modelByID(route.ModelID)
+	if !ok {
+		return MediaConfiguration{}, false
+	}
+	provider, _ := providerByID(model.Provider)
+	configuration := MediaConfiguration{Route: route, Provider: provider, Model: model, RequiredInputs: modelInputFields(model.InputModes), OptionalOutputs: modelOutputFields(model)}
+	if model.ID == CodexImageModelID {
+		return configuration, true
+	}
+	if p, ok := providerByID(model.Provider); ok && p.Protocol == "local" {
+		configuration.CredentialName = "Audio Studio（本机）"
+		return configuration, true
+	}
+	credential, err := m.credential(route.CredentialID)
+	if err != nil {
+		return MediaConfiguration{}, false
+	}
+	configuration.CredentialName = credential.Name
+	return configuration, true
 }
 
 func (m *MediaService) validateReferences(input GenerateMediaInput) error {

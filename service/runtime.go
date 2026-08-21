@@ -614,6 +614,25 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App, locale 
 			}
 			return runtime.ToValue(importedAssetResult(asset))
 		})
+		_ = mediaObject.Set("attach", func(call goja.FunctionCall) goja.Value {
+			input := map[string]any{}
+			if err := runtime.ExportTo(call.Argument(0), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			assetID := stringValue(input["assetId"])
+			if assetID == "" {
+				panic(runtime.NewGoError(errors.New("media.attach: assetId required")))
+			}
+			if _, err := h.media.GetAsset(assetID); err != nil {
+				panic(runtime.NewGoError(errors.New("media.attach: asset not found: " + assetID)))
+			}
+			if target.IsProject() {
+				if err := h.media.Attach(assetID, target.ProjectID); err != nil {
+					panic(runtime.NewGoError(err))
+				}
+			}
+			return runtime.ToValue(map[string]any{"ok": true, "assetId": assetID, "projectId": target.ProjectID})
+		})
 		_ = ctx.Set("media", mediaObject)
 	}
 	if hasPermission(app.Manifest, "shell") {

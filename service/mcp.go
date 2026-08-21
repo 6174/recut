@@ -111,12 +111,12 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Submit a long-running video generation. It immediately returns a stable queued jobId and assetIds; after the persistent Daemon accepts the Atlas task, the same Asset moves to running in place and is later reclaimed as completed or failed. Create project references with the assetId right away.",
 	},
 	"recut.speech.generate": {
-		LocaleZh: "提交长时间运行的语音生成。先用 recut.media.list_voices 查询当前凭据可用的 voiceId；立即返回 jobId 与处于 queued 状态的稳定 assetIds。",
-		LocaleEn: "Submit a long-running speech generation. First query the current credential's available voiceId with recut.media.list_voices; it immediately returns a jobId and stable queued assetIds.",
+		LocaleZh: "提交长时间运行的语音生成。云端路由先用 recut.media.list_voices 查询凭据可用的 voiceId；本机 TTS 路由可省略 voiceId（用 Audio Studio 默认音，或经其 audio.synthesize/audio.save）。立即返回 jobId 与处于 queued 状态的稳定 assetIds。",
+		LocaleEn: "Submit a long-running speech generation. For cloud routes first query the credential's available voiceId with recut.media.list_voices; the local TTS route may omit voiceId (Audio Studio default voice, or use audio.synthesize/audio.save). It immediately returns a jobId and stable queued assetIds.",
 	},
 	"recut.media.list_voices": {
-		LocaleZh: "读取一个 MiniMax 或 ElevenLabs 凭据当前可用的音色。",
-		LocaleEn: "Read the voices currently available on a MiniMax or ElevenLabs credential.",
+		LocaleZh: "读取当前可用音色：云端凭据（MiniMax/ElevenLabs）的音色，或本机 TTS 的 Audio Studio 默认音（credentialId 传 local-audio 或留空）。",
+		LocaleEn: "Read currently available voices: those of a cloud credential (MiniMax/ElevenLabs), or the Audio Studio default voice for local TTS (pass credentialId local-audio or leave it empty).",
 	},
 	"recut.media.get_job": {
 		LocaleZh: "读取媒体生成任务状态。",
@@ -261,7 +261,7 @@ func platformMCPToolDefinitions(locale Locale) []map[string]any {
 			"target":    map[string]any{"type": "object", "description": "可选的 {projectId} 目标；缺省用 App 默认 scope。"},
 		}}),
 		platformTool("recut.job.status", mcpDescription(locale, "recut.job.status"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
-		platformTool("recut.job.wait", mcpDescription(locale, "recut.job.wait"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}),
+		platformTool("recut.job.wait", mcpDescription(locale, "recut.job.wait"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 15, "description": "单次最多阻塞 15 秒（Streamable HTTP 兼容，避免长阻塞连接被断开）；超时返回当前状态，需用 recut.job.status 继续轮询。长任务请用短轮询，不要设接近 300 秒。"}}}),
 		platformTool("recut.job.logs", mcpDescription(locale, "recut.job.logs"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 2000, "description": "只返回最近 N 行，默认 300。"}}}),
 		platformTool("recut.job.cancel", mcpDescription(locale, "recut.job.cancel"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
 	)
@@ -659,6 +659,19 @@ func mediaContext(media *MediaService) (any, map[string]map[string]string) {
 			value["action"] = "Use Codex native image generation; do not call recut.image.generate."
 			continue
 		}
+		if configuration.Provider.ID == "local-audio" {
+			// 本机 TTS 路由就绪：Agent 应优先使用 Audio Studio 的 MCP
+			// （audio.synthesize + audio.save）完成配音，recut.speech.generate 仍可用但
+			// 依赖 daemon 注入的本地执行桥。
+			value["status"] = "ready"
+			value["routeId"] = configuration.Route.ID
+			value["modelId"] = configuration.Model.ID
+			value["provider"] = "local-audio"
+			value["credentialName"] = configuration.CredentialName
+			value["local"] = "true"
+			value["action"] = "Local Audio Studio TTS is configured; use audio.synthesize + audio.save (or recut.speech.generate when the daemon bridge is wired)."
+			continue
+		}
 		value["status"] = "ready"
 		value["routeId"] = configuration.Route.ID
 		value["modelId"] = configuration.Model.ID
@@ -977,9 +990,9 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.image.generate", "description": mcpDescription(locale, "recut.image.generate"), "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
 		{"name": "recut.video.generate", "description": mcpDescription(locale, "recut.video.generate"), "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
 		{"name": "recut.speech.generate", "description": mcpDescription(locale, "recut.speech.generate"), "inputSchema": speechGenerationSchema()},
-		{"name": "recut.media.list_voices", "description": mcpDescription(locale, "recut.media.list_voices"), "inputSchema": map[string]any{"type": "object", "required": []string{"credentialId"}, "properties": map[string]any{"credentialId": map[string]string{"type": "string"}}}},
+		{"name": "recut.media.list_voices", "description": mcpDescription(locale, "recut.media.list_voices"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"credentialId": map[string]string{"type": "string", "description": "云端语音 provider 的凭据 ID；本机 TTS 可传 local-audio 或留空返回 Audio Studio 默认音。"}}}},
 		{"name": "recut.media.get_job", "description": mcpDescription(locale, "recut.media.get_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
-		{"name": "recut.media.wait_for_job", "description": mcpDescription(locale, "recut.media.wait_for_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 300, "description": "最长等待秒数，默认且最大为 300。"}}}},
+		{"name": "recut.media.wait_for_job", "description": mcpDescription(locale, "recut.media.wait_for_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 15, "description": "单次最多阻塞 15 秒（Streamable HTTP 兼容，避免长阻塞连接被断开）；超时返回当前状态，需继续轮询。长任务请用短轮询，不要设接近 300 秒。"}}}},
 		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}}}},
 		{"name": "recut.media.import_image", "description": mcpDescription(locale, "recut.media.import_image"), "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "会话工作区内的相对图片路径。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
 		{"name": "recut.media.create_reference", "description": mcpDescription(locale, "recut.media.create_reference"), "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL；作为全局去重身份。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、web、youtube、xiaohongshu、douyin、image。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "description": map[string]string{"type": "string", "description": "来源自身的简介或视频简介。"}, "excerpt": map[string]string{"type": "string", "description": "直接引用的原文片段，便于审阅。"}, "author": map[string]string{"type": "string", "description": "作者或发布者名称。"}, "publishedAt": map[string]string{"type": "string", "description": "发布时间（ISO-8601）。"}, "siteName": map[string]string{"type": "string", "description": "站点名称，如 The New York Times。"}, "language": map[string]string{"type": "string", "description": "内容语言代码，如 zh、en。"}, "thumbnailUrl": map[string]string{"type": "string", "description": "来源封面/缩略图 URL。"}, "content": map[string]string{"type": "string", "description": "文章或网页的完整正文（真实文章数据）；保存为 content part，默认 text/markdown。"}, "contentMimeType": map[string]string{"type": "string", "description": "正文 part 的 MIME 类型，缺省 text/markdown；限 text/*、application/json、application/xml。"}, "imageData": map[string]string{"type": "string", "description": "图片内容（base64 或 data: URL）；保存为不可变的 image part，限 20MB。"}, "imageMimeType": map[string]string{"type": "string", "description": "图片 MIME 类型，如 image/png、image/jpeg。"}, "channelName": map[string]string{"type": "string", "description": "YouTube 等视频平台的频道/账号名。"}, "channelUrl": map[string]string{"type": "string", "description": "频道主页 URL。"}, "durationSeconds": map[string]any{"type": "number", "description": "视频时长（秒）。"}, "viewCount": map[string]any{"type": "integer", "description": "播放量。"}, "likeCount": map[string]any{"type": "integer", "description": "点赞数。"}}}},
@@ -988,10 +1001,11 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 }
 
 func mediaWaitTimeout(input map[string]any) time.Duration {
+	// 与 recut.job.wait 一致：单次等待封顶 15s（Streamable HTTP 兼容），避免长阻塞连接被断开。
+	max := agentJobWaitWindow
 	seconds, _ := input["timeoutSeconds"].(float64)
-	maximum := (5 * time.Minute).Seconds()
-	if seconds <= 0 || seconds > maximum {
-		seconds = maximum
+	if seconds <= 0 || time.Duration(seconds*float64(time.Second)) > max {
+		return max
 	}
 	return time.Duration(seconds * float64(time.Second))
 }
@@ -1163,10 +1177,15 @@ func jobView(job ShellJob) map[string]any {
 	return view
 }
 
+// jobWaitTimeout 是 recut.job.wait 单次阻塞窗口。阻塞 HTTP 长轮询与 Streamable
+// HTTP 传输不兼容（连接会在任务收尾/空闲期被断开，2026-08-21 会话复现 EOF）；因此无论
+// 调用方传多少 timeout，单次等待都被封顶到 agentJobWaitWindow，超时返回当前状态由
+// 调用方继续轮询，连接永不长期占用。
 func jobWaitTimeout(input map[string]any) time.Duration {
+	max := agentJobWaitWindow
 	seconds, _ := input["timeoutSeconds"].(float64)
-	if seconds <= 0 || seconds > 300 {
-		seconds = 300
+	if seconds <= 0 || time.Duration(seconds*float64(time.Second)) > max {
+		return max
 	}
 	return time.Duration(seconds * float64(time.Second))
 }

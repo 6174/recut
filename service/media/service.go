@@ -29,6 +29,33 @@ type MediaService struct {
 	oneRequestGates   sync.Map
 	schedulerID       string
 	notifyMediaChange func()
+	// localSpeechExec 是本机 TTS（Audio Studio / CosyVoice2）执行桥。Daemon 在
+	// 创建 MediaService 后注入（因为 MediaService 早于 AppHost 构建）；MCP 直连等
+	// 短命进程保持 nil，此时本地路由提交会得到引导错误（走 audio-studio MCP）。
+	localSpeechExec func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error)
+}
+
+// SetLocalSpeechExecutor wires the local-audio provider to an execution backend.
+// The daemon supplies a bridge that delegates to Audio Studio's synthesized speech;
+// without one, local route jobs fail with an actionable guidance error.
+func (m *MediaService) SetLocalSpeechExecutor(exec func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error)) {
+	if exec != nil {
+		m.localSpeechExec = exec
+	}
+}
+
+// SaveGeneratedAudio persists synthesized speech bytes as a completed media asset.
+// Used by the local speech executor (Audio Studio bridge / tests) to produce the
+// same durable asset contract as cloud providers.
+func (m *MediaService) SaveGeneratedAudio(job MediaJob, content []byte, mimeType string, metadata map[string]any) (MediaAsset, error) {
+	if mimeType == "" {
+		mimeType = "audio/wav"
+	}
+	return m.saveGeneratedAsset(job, content, "audio", mimeType, metadata)
+}
+
+func (m *MediaService) LocalSpeechExecutor() func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
+	return m.localSpeechExec
 }
 
 const mediaRequestTimeout = 5 * time.Minute

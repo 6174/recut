@@ -238,6 +238,68 @@ func TestMediaMCPToolExplainsMissingRoute(t *testing.T) {
 	}
 }
 
+// TestLocalAudioRouteConfiguredReadinessAndDefaultVoice 覆盖本地 TTS（Audio Studio）路由端到端：
+// 保存无凭据的 local-audio 路由 → readiness 报 ready+local+该 modelId → list_voices 返回默认音 →
+// 无 voiceId 的 speech.generate 由注入的本地执行桥完成并可交代真实 Asset。
+func TestLocalAudioRouteConfiguredReadinessAndDefaultVoice(t *testing.T) {
+	root := t.TempDir()
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	media := NewMediaService(store)
+
+	// 本地路由无凭据即可保存
+	route, err := media.SaveRoute(MediaRoute{ID: "speech.generate.default", Capability: SpeechGenerate, ModelID: "local-audio/cosyvoice2", CredentialID: "", Enabled: true})
+	if err != nil {
+		t.Fatalf("save local-audio route with empty credential: %v", err)
+	}
+	if route.CredentialID != "" {
+		t.Fatalf("local route should keep empty credential, got %q", route.CredentialID)
+	}
+
+	// readiness：ready + local + modelId
+	result, err := recutContextTool(NewAgentBridge(store), media, AgentSession{ID: "s1"}, DefaultLocale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	structured := result.(map[string]any)["structuredContent"].(map[string]any)
+	readiness := structured["media"].(map[string]any)["readiness"].(map[string]map[string]string)
+	speech := readiness["speech.generate"]
+	if speech["status"] != "ready" || speech["local"] != "true" || speech["modelId"] != "local-audio/cosyvoice2" {
+		t.Fatalf("local speech readiness = %#v", speech)
+	}
+
+	// list_voices：local-audio 或空 credential → 默认音
+	voices, err := media.ListVoices("local-audio")
+	if err != nil || len(voices) != 1 || voices[0].ID != "__cosyvoice_default__" {
+		t.Fatalf("list local voices = %#v, err=%v", voices, err)
+	}
+
+	// 注入本地执行桥：无 voiceId 也应默认用默认音并产出真实 Asset
+	media.SetLocalSpeechExecutor(func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
+		if voiceID != "__cosyvoice_default__" {
+			t.Fatalf("executor voiceID = %q, want default", voiceID)
+		}
+		return media.SaveGeneratedAudio(job, []byte("RIFF...."), "audio/wav", nil)
+	})
+	job, err := media.GenerateSync(GenerateMediaInput{Capability: SpeechGenerate, Prompt: "你好"})
+	if err != nil {
+		t.Fatalf("generate local speech: %v", err)
+	}
+	if len(job.AssetIDs) != 1 {
+		t.Fatalf("local speech job assets = %#v", job.AssetIDs)
+	}
+	asset, err := media.GetAsset(job.AssetIDs[0])
+	if err != nil || asset.Kind != "audio" {
+		t.Fatalf("local speech asset = %#v, err=%v", asset, err)
+	}
+}
+
 func TestMediaMCPToolsBypassAppToolBoundary(t *testing.T) {
 	for _, name := range []string{
 		"recut.image.generate",

@@ -554,6 +554,154 @@ func TestEditorAudioMix(t *testing.T) {
 	}
 }
 
+// TestEditorPlaceAudioAndAudioResolvable 覆盖 AI 音频落轨一等公民链路：
+// timeline.placeAudio 由 AI 只给 media assetId，后端推导 sourceType:upload+mediaId，
+// 自动登记并广播 project.assets.changed（前端实时同步事件）；validate 对无效
+// library+无 sourceUrl 的组合报 audio-unresolvable。
+func TestEditorPlaceAudioAndAudioResolvable(t *testing.T) {
+	_, store, host, project := setupEditorTestApp(t)
+	invoke(t, host, project, "project.create", map[string]any{})
+
+	// 1) timeline.placeAudio：AI 只给媒体 assetId + start/duration
+	pa := invoke(t, host, project, "timeline.placeAudio", map[string]any{"items": []any{
+		map[string]any{"assetId": "voice-1", "name": "旁白", "startSec": float64(0), "durationSec": float64(5)},
+		map[string]any{"assetId": "voice-2", "name": "旁白2", "startSec": float64(5), "durationSec": float64(4)},
+	}})
+	if !boolOf(pa["ok"]) {
+		t.Fatalf("placeAudio = %#v", pa)
+	}
+	refs := pa["result"].(map[string]any)["refs"].([]any)
+	if len(refs) != 2 {
+		t.Fatalf("placeAudio refs = %d, want 2", len(refs))
+	}
+
+	// 2) 回读：两个音频元素都应是 sourceType:upload + mediaId
+	read := invoke(t, host, project, "timeline.read", map[string]any{})
+	clips := read["clips"].([]any)
+	if len(clips) != 2 {
+		t.Fatalf("clips = %d, want 2", len(clips))
+	}
+	for _, c := range clips {
+		m := c.(map[string]any)
+		if m["type"] != "audio" {
+			t.Fatalf("clip type = %#v", m["type"])
+		}
+		if stringOf(m["sourceType"]) != "upload" {
+			t.Fatalf("audio sourceType = %#v, want upload", m["sourceType"])
+		}
+		mediaID := stringOf(m["mediaId"])
+		if mediaID != "voice-1" && mediaID != "voice-2" {
+			t.Fatalf("audio mediaId = %#v", mediaID)
+		}
+	}
+
+	// 3) validate：mediaId 已被自动登记 → 零违反（可播放）
+	val := invoke(t, host, project, "timeline.validate", map[string]any{})
+	if !boolOf(val["ok"]) || len(val["violations"].([]any)) != 0 {
+		t.Fatalf("validate after placeAudio = %#v", val)
+	}
+
+	// 4) 反向用例：直接 insert 一个 library + 无 sourceUrl 的音频 → validate 报 audio-unresolvable
+	lst := invoke(t, host, project, "timeline.read", map[string]any{})
+	tracks := lst["tracks"].([]any)
+	var audioTrack string
+	for _, tr := range tracks {
+		m := tr.(map[string]any)
+		if m["type"] == "audio" {
+			audioTrack = stringOf(m["trackId"])
+			break
+		}
+	}
+	if audioTrack == "" {
+		t.Fatalf("no audio track found")
+	}
+	invoke(t, host, project, "timeline.command", map[string]any{"op": map[string]any{
+		"type": "insert", "payload": map[string]any{
+			"trackId": audioTrack,
+			"element": map[string]any{"type": "audio", "name": "坏音频", "sourceType": "library", "startSec": float64(10), "durationSec": float64(3)},
+		},
+	}})
+	val = invoke(t, host, project, "timeline.validate", map[string]any{})
+	badFound := false
+	for _, v := range val["violations"].([]any) {
+		vm := v.(map[string]any)
+		if stringOf(vm["code"]) == "audio-unresolvable" {
+			badFound = true
+		}
+	}
+	if !badFound {
+		t.Fatalf("expected audio-unresolvable violation, got %#v", val)
+	}
+
+	// 5) 同步事件：placeAudio 与 timeline.assets 都广播 project.assets.changed{library.tab=media}
+	assetSeen := false
+	for _, e := range projectEvents(store, project.ID) {
+		if e["type"] == "project.assets.changed" {
+			if lib, ok := e["library"].(map[string]any); ok && stringOf(lib["tab"]) == "media" {
+				assetSeen = true
+			}
+		}
+	}
+	if !assetSeen {
+		t.Fatal("project.assets.changed event missing after placeAudio")
+	}
+}
+
+// TestEditorPlaceAudioAttachesAssetToProject 覆盖「前端面板实时看到新增音频」的数据链路：
+// placeAudio 会把引用的媒体素材 attach 到当前项目，使 recut.assets.list(projectId)
+// 能取到它（编辑器媒体面板重拉即见、回放可解析）；同时校验 audio.save 之类 workspace 素材
+// 不 attach 时不会出现在项目素材列表（缺省分离语义）。
+func TestEditorPlaceAudioAttachesAssetToProject(t *testing.T) {
+	_, store, _, project := setupEditorTestApp(t)
+	media := NewMediaService(store)
+	host := NewAppHost(store.catalog, store, media)
+
+	vo, err := media.ImportMedia("voice-audio.wav", "audio/wav", []byte("RIFF"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	png, err := media.ImportMedia("pic.png", "image/png", []byte("png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invoke(t, host, project, "project.create", map[string]any{})
+
+	// attach 前：项目素材列表不应包含 voice（workspace 分离）
+	before, _ := media.ListAssets(project.ID)
+	for _, a := range before {
+		if a.ID == vo.ID {
+			t.Fatalf("voice asset should not be project-attached before placeAudio: %#v", a)
+		}
+	}
+
+	// 只 placeAudio 引用 voice；image 留作对照
+	pa := invoke(t, host, project, "timeline.placeAudio", map[string]any{"items": []any{
+		map[string]any{"assetId": vo.ID, "name": "旁白", "startSec": float64(0), "durationSec": float64(5)},
+	}})
+	if !boolOf(pa["ok"]) {
+		t.Fatalf("placeAudio = %#v", pa)
+	}
+
+	// attach 后：voice 出现在项目素材列表（前端 recut.assets.list(projectId) 即见）；image 仍不归属
+	after, _ := media.ListAssets(project.ID)
+	voiceFound, imageFound := false, false
+	for _, a := range after {
+		if a.ID == vo.ID {
+			voiceFound = true
+		}
+		if a.ID == png.ID {
+			imageFound = true
+		}
+	}
+	if !voiceFound {
+		t.Fatal("placeAudio should attach the narration asset to the project (panel real-time visibility)")
+	}
+	if imageFound {
+		t.Fatalf("unreferenced image should not be project-attached: %#v", png)
+	}
+}
+
 // TestEditorLibraryBrowse 覆盖 P4 catalog-first：真实 goja 链路下 library.browse
 // 按 CDN(若可达)→随包→builtin 顺序解析目录（网络无关断言：只检查内容不锁 source），
 // 且能按 category/query 过滤。

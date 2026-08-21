@@ -29,6 +29,8 @@
 2026-08-19-editor-ai-video-authoring-quality.md: Editor AI 成片质量重构：实际对照 ChatCut plugin 0.2.21 的 scenario/router、A-roll/B-roll/MG、生成镜头与 verification skills，从文字时间线拼接升级为 route + treatment 编排；定义好视频的叙事、画面、镜头关系、视觉系统、节奏与交付证据，规定 CreativePlan、设计回执、依赖图、组件准入、原子 transaction、Op 总线增量同步、用户中断收敛和预览/导出门。
 2026-08-20-editor-component-gsap-animation.md: 组件动画升级：GSAP Timeline + 运行时逐帧 seek(t) 作为 react/r3f 承载面主要动画模型（html 保持 anim.*）。确定性从「每帧渲染纯函数」演化为「构造确定性 + 驱动靠 seek」；r3f 复用同一 useTimeline/useGSAP 模式（目标是 Object3D ref）；useTimeline/useFrameContext API + 插件白名单 + 构建期确定性扫描扩展；gsap-skills 融合进 references/gsap.md 与作者契约；零强制迁移。
 
+2026-08-21-ai-narration-audio-asset-lifecycle.md: AI 解说音频素材生命周期：先梳理 4 个 UX 缺陷（Audio Studio 生成时 recut.job.wait 触发 Streamable HTTP EOF、AI 落轨配音 sourceType/sourceUrl/mediaId 混用致时间线无声、new-authoring 对说明性输入未默认 voice-led 且缺 B-roll 验收、Settings 缺本地 TTS 作语音 Route/默认项），再给落地方案细化并把改动分为 A 类代码修复（契约文案对齐 + errors.md runbook、route 表 voice-led 默认 + Visual-first sync map 硬产出）与 B 类架构设计（项目级 audio asset + timeline.placeAudio + validate 可播放性，editor_assets 扩 audio 类型并扩展编辑器媒体供给面；本地 TTS 经 MediaRoute.CredentialID 允许空 + execute 本地分支 + audio-studio 桥接 op 入语音路由并支持云端回退）。给出云图、数据模型、op 契约、验收标准与 P0/P1/P2 实施顺序。截至 2026-08-21 已实施 #1/#2/#3/#4：recut.job.wait 服务端 15s 封顶 + 文档、placeAudio + audio-unresolvable + project.assets.changed 前端实时同步、voice-assets.md 声音资产总览、local-audio 本机 TTS provider（catalog/无凭据路由/readiness/默认音 + wireLocalSpeechBridge 执行桥），均带 API 级端到端测试。
+
 此目录保存尚未实施或分阶段实施的平台设计决策。RFC 定义目标、边界、数据与接口契约；获批实现后，代码与运行时文档必须反向更新以保持一致。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

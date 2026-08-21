@@ -29,7 +29,7 @@
 
 要求生成图片、视频或语音素材的工作流阶段是一个平台媒体 job。使用 Recut MCP 媒体工具：`recut.image.generate`、`recut.video.generate`、`recut.speech.generate`、`recut.media.get_job` 与 `recut.media.wait_for_job`。
 
-调用生成工具前，先检查 `recut.context.media.readiness[capability].status`，仅当它报告 `ready` 时才调用对应的 Recut 生成工具。当它报告 `not-configured` 时，向用户说明必须在 Recut 设置里连接 Provider 并为该用途选择默认模型——不要提交注定失败的任务。当图片 route 是 `codex-native` 时，用宿主原生图片生成而不是 `recut.image.generate`（见下方 Codex 原生图片）。
+调用生成工具前，先检查 `recut.context.media.readiness[capability].status`，仅当它报告 `ready` 时才调用对应的 Recut 生成工具。当它报告 `not-configured` 时，向用户说明必须在 Recut 设置里连接 Provider 并为该用途选择默认模型——不要提交注定失败的任务。当图片 route 是 `codex-native` 时，用宿主原生图片生成而不是 `recut.image.generate`（见下方 Codex 原生图片）。当语音 route 报告 `provider:"local-audio"` 时，本机 TTS 已配置：优先用 Audio Studio 的 `audio.synthesize`（默认音）与 `audio.characters`+`characterId`（声音角色），验收后 `audio.save(kind:"synthesis")` 入库；`recut.speech.generate` 的本地路由仅当 daemon 已接 Audio Studio 桥时才可用，未接通时提交会失败，应改走 Audio Studio MCP。
 
 <!-- OutputFormat: {{.OutputFormat}} — 本模板固定为服务内建渲染，仅使用受控 XML 引用（Recut chat UI 解析为卡片/预览）；第三方宿主对应文档 service/skills/recut/SKILL.md 固定使用 recut.video 深链 -->
 
@@ -117,7 +117,7 @@ Captions are frameless text layers by default—no card, pill, bubble, or contai
 
 A workflow stage that asks for a generated image, video, or speech asset is a platform media job. Use the Recut MCP media tools: `recut.image.generate`, `recut.video.generate`, `recut.speech.generate`, `recut.media.get_job`, and `recut.media.wait_for_job`.
 
-Before calling a generation tool, check `recut.context.media.readiness[capability].status` and only call the matching Recut generation tool when it reports `ready`. When it reports `not-configured`, explain that the user must connect a Provider and choose a default model for that purpose in Recut settings — do not submit a doomed job. When the image route is `codex-native`, use the host's native image generation instead of `recut.image.generate` (see Codex-native images below).
+Before calling a generation tool, check `recut.context.media.readiness[capability].status` and only call the matching Recut generation tool when it reports `ready`. When it reports `not-configured`, explain that the user must connect a Provider and choose a default model for that purpose in Recut settings — do not submit a doomed job. When the image route is `codex-native`, use the host's native image generation instead of `recut.image.generate` (see Codex-native images below). When the speech route reports `provider:"local-audio"`, local TTS is configured: prefer Audio Studio's `audio.synthesize` (default voice) with `audio.characters` + `characterId` for voice characters, then `audio.save(kind:"synthesis")` after acceptance; the `recut.speech.generate` local route is only usable when the daemon wires the Audio Studio bridge — otherwise submission fails, so fall back to the Audio Studio MCP.
 
 <!-- OutputFormat: {{.OutputFormat}} — 本模板固定为服务内建渲染，仅使用受控 XML 引用（Recut chat UI 解析为卡片/预览）；第三方宿主对应文档 service/skills/recut/SKILL.md 固定使用 recut.video 深链 -->
 

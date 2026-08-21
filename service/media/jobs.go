@@ -157,9 +157,6 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 	if !knownCapability(input.Capability) || strings.TrimSpace(input.Prompt) == "" {
 		return MediaJob{}, MediaCredential{}, false, errors.New("capability and prompt are required")
 	}
-	if input.Capability == SpeechGenerate && speechVoiceID(MediaJob{Output: input.Output}) == "" {
-		return MediaJob{}, MediaCredential{}, false, errors.New("voiceId is required for speech generation")
-	}
 	if input.ProjectID != "" {
 		if _, err := projectExists(m.store, input.ProjectID); err != nil {
 			return MediaJob{}, MediaCredential{}, false, err
@@ -174,6 +171,16 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 	}
 	input.ModelID = route.ModelID
 	input.Output = normalizedGenerationOutput(input.Capability, input.ModelID, input.Output)
+	// 语音必需 voiceId：本地路由缺省用默认音；云端路由缺失则报错。
+	if input.Capability == SpeechGenerate {
+		if speechVoiceID(MediaJob{Output: input.Output}) == "" {
+			if credential.Provider == "local-audio" {
+				input.Output["voiceId"] = speechLocalVoiceDefault
+			} else {
+				return MediaJob{}, MediaCredential{}, false, errors.New("voiceId is required for speech generation")
+			}
+		}
+	}
 	if err := m.validateReferences(input); err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
 	}
@@ -252,11 +259,18 @@ func (m *MediaService) resolveRoute(input GenerateMediaInput) (MediaRoute, Media
 		if route.ModelID == CodexImageModelID {
 			return MediaRoute{}, MediaCredential{}, errors.New("image generation is configured for Codex; use Codex native image generation instead of recut.image.generate")
 		}
+		model, ok := modelByID(route.ModelID)
+		if !ok {
+			return MediaRoute{}, MediaCredential{}, errors.New("media route model is unknown")
+		}
+		if provider, ok := providerByID(model.Provider); ok && provider.Protocol == "local" {
+			// 本地 provider（Audio Studio 本机 TTS）无需凭据。
+			return route, MediaCredential{Provider: model.Provider}, nil
+		}
 		credential, err := m.credential(route.CredentialID)
 		if err != nil {
 			return MediaRoute{}, MediaCredential{}, errors.New("media route credential is unavailable")
 		}
-		model, _ := modelByID(route.ModelID)
 		if credential.Provider != model.Provider {
 			return MediaRoute{}, MediaCredential{}, errors.New("media route model and credential provider do not match")
 		}
@@ -304,6 +318,21 @@ func (m *MediaService) execute(job MediaJob, credential MediaCredential) {
 			return
 		}
 		m.failExecution(job, errors.New("this provider image adapter is not available yet"))
+		return
+	}
+	if credential.Provider == "local-audio" {
+		// 本机 TTS（Audio Studio / CosyVoice2）：执行经 daemon 注入的本地执行桥；
+		// 未注入时给可操作的引导错误，避免把素材伪装成可用。
+		if m.localSpeechExec == nil {
+			m.failExecution(job, errors.New("local speech route is not connected; install/start Audio Studio or switch the speech default route to a cloud provider in Recut settings"))
+			return
+		}
+		asset, err := m.localSpeechExec(job, model, speechVoiceID(job))
+		if err != nil {
+			m.failExecution(job, err)
+			return
+		}
+		m.completeExecution(job, asset)
 		return
 	}
 	if job.Capability != SpeechGenerate || (credential.Provider != "minimax" && credential.Provider != "elevenlabs") {
@@ -608,6 +637,10 @@ func (body cancelOnClose) Close() error {
 	defer body.cancel()
 	return body.ReadCloser.Close()
 }
+
+// speechLocalVoiceDefault 是本机 TTS（Audio Studio / CosyVoice2）的默认音色 ID。
+// 与 audio-studio 的 audio.synthesize 缺省音一致：角色未指定时使用官方默认声音。
+const speechLocalVoiceDefault = "__cosyvoice_default__"
 
 func speechVoiceID(job MediaJob) string { return outputString(job.Output, "voiceId", "") }
 

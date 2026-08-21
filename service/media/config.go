@@ -25,6 +25,13 @@ import (
 )
 
 func (m *MediaService) ListVoices(credentialID string) ([]MediaVoice, error) {
+	if credentialID == "local-audio" || credentialID == "" {
+		// 本机 TTS：固定返回默认音；用户已验收的声音角色由 audio-studio 的
+		// audio.characters 通过其 MCP 面提供，这里只保证平台默认音契约。
+		return []MediaVoice{
+			{ID: "__cosyvoice_default__", Name: "Audio Studio 默认音", Description: "本机 CosyVoice2 官方默认声音", Provider: "local-audio", Category: "local"},
+		}, nil
+	}
 	credential, err := m.credential(credentialID)
 	if err != nil {
 		return nil, errors.New("speech credential is unavailable")
@@ -255,6 +262,11 @@ func (m *MediaService) SaveRoute(input MediaRoute) (MediaRoute, error) {
 	}
 	model, _ := modelByID(input.ModelID)
 	if model.ID == CodexImageModelID {
+		input.CredentialID = ""
+		return m.saveRoute(input)
+	}
+	if provider, ok := providerByID(model.Provider); ok && provider.Protocol == "local" {
+		// 本地 provider（如 Audio Studio 本机 TTS）无需凭据：路由可空凭据。
 		input.CredentialID = ""
 		return m.saveRoute(input)
 	}
