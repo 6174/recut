@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dop251/goja"
@@ -41,6 +42,10 @@ type AppHost struct {
 	async   *AsyncOpsManager
 	python  *PythonRuntimeManager
 	worlds  *WorldStore
+
+	// 能力授权签名密钥（media.key 或进程随机）与并发保护。
+	capMu  sync.Mutex
+	capKey []byte
 }
 
 func NewAppHost(catalog *Catalog, store *Store, media ...*MediaService) *AppHost {
@@ -311,6 +316,19 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App, locale 
 		storeApps, _ = h.store.AppStoreFor(locale)
 	}
 	_ = platform.Set("integrations", recutIntegrationContext(installedApps, storeApps))
+	// ctx.platform.verifyCapabilityGrant：能力提供方校验平台注入 input._authorization 的签名授权。
+	_ = platform.Set("verifyCapabilityGrant", func(call goja.FunctionCall) goja.Value {
+		token := map[string]any{}
+		if !goja.IsUndefined(call.Argument(0)) && !goja.IsNull(call.Argument(0)) {
+			if err := runtime.ExportTo(call.Argument(0), &token); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+		}
+		appID := toString(call.Argument(1))
+		op := toString(call.Argument(2))
+		grant, ok := h.verifyCapabilityToken(token, appID, op)
+		return runtime.ToValue(map[string]any{"ok": ok, "grant": grant})
+	})
 	_ = ctx.Set("platform", platform)
 	// ctx.capabilities 是通用跨 App 能力桥（capability bridge）：invoke 把一个 App 显式声明的
 	// capability op 调用到目标 App 自己的 appstate 命名空间，带统一错误信封与同步超时；inspect
@@ -333,8 +351,10 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App, locale 
 		}
 		appID := toString(input["appId"])
 		name := toString(input["name"])
+		authorization := toString(input["authorization"])
+		// 原始授权声明不下发给目标 op（平台签名后以 _authorization 注入）。
 		opInput, _ := input["input"].(map[string]any)
-		result, err := h.capabilityInvoke(target, appID, name, opInput, locale)
+		result, err := h.capabilityInvoke(target, appID, name, opInput, authorization, locale)
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}

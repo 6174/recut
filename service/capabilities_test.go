@@ -39,7 +39,7 @@ recut.operation.register("private.op", function(input, ctx) { return { private: 
 		t.Fatal(err)
 	}
 	writeTestFile(t, filepath.Join(callerDir, "manifest.json"), `{"manifestVersion":1,"id":"recut.editor","name":"Editor","author":"Test","description":"Test caller.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"permissions":[],"operations":[{"name":"gen.run","description":"Invoke a capability.","surfaces":["api"],"inputSchema":{"type":"object"}}]}`)
-	writeTestFile(t, filepath.Join(callerDir, "background.js"), `recut.operation.register("gen.run", function(input, ctx) { const r = ctx.capabilities.invoke({ appId: input.appId, name: input.name, input: input.input || {} }); return r; });`)
+	writeTestFile(t, filepath.Join(callerDir, "background.js"), `recut.operation.register("gen.run", function(input, ctx) { const r = ctx.capabilities.invoke({ appId: input.appId, name: input.name, input: input.input || {}, authorization: input.authorization || "" }); return r; });`)
 	writeTestFile(t, filepath.Join(callerDir, "ui", "index.html"), "ok")
 
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
@@ -166,7 +166,7 @@ func TestCapabilityBridgeSyncTimeout(t *testing.T) {
 	capabilityInvokeTimeout = 80 * time.Millisecond
 	defer func() { capabilityInvokeTimeout = old }()
 	start := time.Now()
-	result, err := host.capabilityInvoke(Target{ProjectID: projectID, AppID: "recut.editor"}, "recut.audio-studio", "cap.slow", map[string]any{}, DefaultLocale)
+	result, err := host.capabilityInvoke(Target{ProjectID: projectID, AppID: "recut.editor"}, "recut.audio-studio", "cap.slow", map[string]any{}, "", DefaultLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,5 +179,37 @@ func TestCapabilityBridgeSyncTimeout(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("invoke.timeout did not bound the call: %v", elapsed)
+	}
+}
+
+func TestCapabilitySignedAuthorization(t *testing.T) {
+	host, _, projectID := writeTwoAppHarness(t)
+	result, err := host.InvokeAPI(Target{ProjectID: projectID, AppID: "recut.editor"}, "recut.editor", "gen.run",
+		map[string]any{"appId": "recut.audio-studio", "name": "cap.echo", "input": map[string]any{"x": 1}, "authorization": "user-generated-captions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer := result.(map[string]any)
+	if !outer["ok"].(bool) {
+		t.Fatalf("echo failed: %#v", outer)
+	}
+	echoed, _ := outer["result"].(map[string]any)
+	echoedInner, _ := echoed["echoed"].(map[string]any)
+	token, ok := echoedInner["_authorization"].(map[string]any)
+	if !ok {
+		t.Fatalf("_authorization not injected into provider input: %#v", echoedInner)
+	}
+	// 正确身份可校验通过，其它 op/篡改签名被拒绝。
+	grant, ok := host.verifyCapabilityToken(token, "recut.audio-studio", "cap.echo")
+	if !ok || grant["grant"] != "user-generated-captions" || grant["projectId"] != projectID {
+		t.Fatalf("signed grant mismatch: ok=%v grant=%#v", ok, grant)
+	}
+	if _, ok := host.verifyCapabilityToken(token, "recut.audio-studio", "cap.slow"); ok {
+		t.Fatalf("op mismatch must fail verification")
+	}
+	tampered, _ := token["sig"].(string)
+	token["sig"] = strings.Repeat("0", len(tampered))
+	if _, ok := host.verifyCapabilityToken(token, "recut.audio-studio", "cap.echo"); ok {
+		t.Fatalf("tampered signature must fail verification")
 	}
 }

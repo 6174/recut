@@ -351,6 +351,10 @@ func (m *MediaService) key() ([]byte, error) {
 	return key, nil
 }
 
+// SigningKey 返回持久化的 32 字节签名密钥（media.key，缺失时创建）。
+// 平台用它为跨 App 能力调用的授权声明签名，提供方可经 ctx.platform.verifyCapabilityGrant 校验。
+func (m *MediaService) SigningKey() ([]byte, error) { return m.key() }
+
 func (m *MediaService) encrypt(value string) (string, error) {
 	key, err := m.key()
 	if err != nil {

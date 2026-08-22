@@ -10,6 +10,11 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -126,7 +131,10 @@ func (h *AppHost) capabilityInspect(appID string, locale Locale) map[string]any 
 
 // capabilityInvoke 执行一次跨 App 能力调用：目标 App 的 op 在其自身 appstate 命名空间运行
 // （Target.AppID=目标、ProjectID 为空），调用方项目只用于审计归属。结果或统一错误信封成对返回。
-func (h *AppHost) capabilityInvoke(callerTarget Target, appID, name string, input map[string]any, locale Locale) (map[string]any, error) {
+// authorization 非空时（如用户点「生成字幕」= 许可入库），平台用持久化密钥为其签名并注入
+// input._authorization（HMAC），提供方可经 ctx.platform.verifyCapabilityGrant 校验；授权声明
+// 同时进审计账本，消费方不能自封任意授权。
+func (h *AppHost) capabilityInvoke(callerTarget Target, appID, name string, input map[string]any, authorization string, locale Locale) (map[string]any, error) {
 	if appID == "" || name == "" {
 		return nil, fmt.Errorf("capabilities.invoke: appId and name required")
 	}
@@ -143,6 +151,31 @@ func (h *AppHost) capabilityInvoke(callerTarget Target, appID, name string, inpu
 			"error": map[string]any{"kind": "provider", "code": "op.not-exposed", "message": fmt.Sprintf("App %q does not expose capability %q", appID, name), "retryable": false, "phase": "sync"},
 		}, nil
 	}
+
+	// 授权声明签名注入（防自封）：消费方断言授权来源，平台签名后放入目标 op 输入。
+	var signedGrant map[string]any
+	if authorization != "" {
+		if input == nil {
+			input = map[string]any{}
+		}
+		grant := map[string]any{
+			"v":         1,
+			"appId":     appID,
+			"op":        name,
+			"grant":     authorization,
+			"projectId": callerTarget.ProjectID,
+			"ts":        time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		payload, err := json.Marshal(grant)
+		if err != nil {
+			return nil, err
+		}
+		sig := signCapabilityPayload(payload, h.capabilityKey())
+		token := map[string]any{"grant": grant, "sig": hex.EncodeToString(sig)}
+		input["_authorization"] = token
+		signedGrant = grant
+	}
+
 	// 目标 op 在目标 App 自己的 appstate 命名空间运行；调用方 target 只决定审计归属。
 	target := Target{AppID: appID}
 
@@ -164,20 +197,73 @@ func (h *AppHost) capabilityInvoke(callerTarget Target, appID, name string, inpu
 	case o := <-ch:
 		if o.err != nil {
 			envelope := capabilityEnvelope(o.err)
-			h.recordCapabilityEvent(callerTarget, targetApp.Manifest.ID, name, "failed", envelope)
+			h.recordCapabilityEvent(callerTarget, targetApp.Manifest.ID, name, "failed", envelope, signedGrant)
 			return map[string]any{"ok": false, "error": envelope}, nil
 		}
-		h.recordCapabilityEvent(callerTarget, targetApp.Manifest.ID, name, "completed", nil)
+		h.recordCapabilityEvent(callerTarget, targetApp.Manifest.ID, name, "completed", nil, signedGrant)
 		return map[string]any{"ok": true, "result": o.value}, nil
 	case <-time.After(capabilityInvokeTimeout):
 		envelope := map[string]any{"kind": "transport", "code": "invoke.timeout", "message": fmt.Sprintf("capability %s.%s exceeded the %s sync window", appID, name, capabilityInvokeTimeout), "retryable": true, "phase": "sync"}
-		h.recordCapabilityEvent(callerTarget, targetApp.Manifest.ID, name, "failed", envelope)
+		h.recordCapabilityEvent(callerTarget, targetApp.Manifest.ID, name, "failed", envelope, signedGrant)
 		return map[string]any{"ok": false, "error": envelope}, nil
 	}
 }
 
+// capabilityKey 返回能力授权签名密钥：有媒体服务时用持久化 media.key（跨进程稳定），否则用主机级随机密钥。
+func (h *AppHost) capabilityKey() []byte {
+	h.capMu.Lock()
+	defer h.capMu.Unlock()
+	if h.capKey == nil {
+		if h.media != nil {
+			if key, err := h.media.SigningKey(); err == nil && len(key) == 32 {
+				h.capKey = key
+			}
+		}
+		if h.capKey == nil {
+			h.capKey = make([]byte, 32)
+			if _, err := rand.Read(h.capKey); err != nil {
+				// 极推进退：不可随机时退回固定派生，仅影响签名强度不影响功能。
+				copy(h.capKey, []byte("recut-capability-grant-fallback-key"))
+			}
+		}
+	}
+	return h.capKey
+}
+
+func signCapabilityPayload(payload []byte, key []byte) []byte {
+	mac := hmac.New(sha256.New, key)
+	mac.Write(payload)
+	return mac.Sum(nil)
+}
+
+// verifyCapabilityToken 供能力提供方校验平台注入的授权签名（ctx.platform.verifyCapabilityGrant）。
+// token 为 invoke 注入 input._authorization 的对象；appID/op 提供方声明自己的身份/操作约束。
+func (h *AppHost) verifyCapabilityToken(token map[string]any, appID, op string) (map[string]any, bool) {
+	grantRaw, _ := token["grant"].(map[string]any)
+	sig, _ := token["sig"].(string)
+	if grantRaw == nil || sig == "" {
+		return nil, false
+	}
+	payload, err := json.Marshal(grantRaw)
+	if err != nil {
+		return nil, false
+	}
+	if hex.EncodeToString(signCapabilityPayload(payload, h.capabilityKey())) != sig {
+		return nil, false
+	}
+	if gApp, _ := grantRaw["appId"].(string); gApp != appID {
+		return nil, false
+	}
+	if op != "" {
+		if gOp, _ := grantRaw["op"].(string); gOp != op {
+			return nil, false
+		}
+	}
+	return grantRaw, true
+}
+
 // recordCapabilityEvent 记录一次能力调用的审计事件到调用方项目账本（调用方非项目命名空间时跳过）。
-func (h *AppHost) recordCapabilityEvent(callerTarget Target, appID, name, outcome string, envelope map[string]any) {
+func (h *AppHost) recordCapabilityEvent(callerTarget Target, appID, name, outcome string, envelope map[string]any, grant map[string]any) {
 	if !callerTarget.IsProject() || h.store == nil {
 		return
 	}
@@ -185,6 +271,9 @@ func (h *AppHost) recordCapabilityEvent(callerTarget Target, appID, name, outcom
 	event := map[string]any{"type": eventType, "appId": appID, "name": name, "at": time.Now().UTC()}
 	if envelope != nil {
 		event["error"] = envelope
+	}
+	if grant != nil {
+		event["authorization"] = grant
 	}
 	h.store.AppendEvent(callerTarget.ProjectID, event)
 }

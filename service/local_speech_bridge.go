@@ -28,10 +28,10 @@ func wireLocalSpeechBridge(host *AppHost, platformMedia *media.MediaService) {
 	}
 	platformMedia.SetLocalSpeechExecutor(func(job media.MediaJob, model media.MediaModel, voiceID string) (media.MediaAsset, error) {
 		target := Target{AppID: audioStudioAppID}
-		// 校验 Audio Studio 已安装且暴露 MCP 面。
+		// 校验 Audio Studio 已安装且暴露能力面（capability 或 mcp，与 capabilityInvoke 同一判定）。
 		app, ok := host.catalog.Get(audioStudioAppID)
-		if !ok || !appExposesOperation(app, "audio.synthesize", "mcp") {
-			return media.MediaAsset{}, fmt.Errorf("Audio Studio is not installed or its MCP operations are unavailable; install Audio Studio or switch the speech default route to a cloud provider")
+		if !ok || !operationIsCapability(app.Manifest, "audio.synthesize") || !operationIsCapability(app.Manifest, "audio.save") {
+			return media.MediaAsset{}, fmt.Errorf("Audio Studio is not installed or its capabilities are unavailable; install Audio Studio or switch the speech default route to a cloud provider")
 		}
 		// audio.synthesize：未指定角色（默认音）不传 characterId；角色 ID 直接透传。
 		input := map[string]any{"text": job.Prompt}
@@ -63,12 +63,18 @@ func wireLocalSpeechBridge(host *AppHost, platformMedia *media.MediaService) {
 			}
 			return media.MediaAsset{}, fmt.Errorf("local speech job did not complete (status=%s)", status)
 		}
-		// 平台授权落库：用户把本地 TTS 选为默认语音路由即视为允许保存；产物成为平台 media Asset。
-		saved, err := host.InvokeMCP(target, audioStudioAppID, "audio.save", map[string]any{"id": synthesisID, "kind": "synthesis"})
-		if err != nil {
-			return media.MediaAsset{}, fmt.Errorf("local speech save failed: %w", err)
+		// 平台授权落库：走通用能力桥（同一签名授权注入 input._authorization），
+		// 与字幕生成共用一段 InvokeMCP→观察→save 的表达；用户选本地 TTS 为默认即视为允许保存。
+		invoked, err := host.capabilityInvoke(Target{ProjectID: job.ProjectID}, audioStudioAppID, "audio.save", map[string]any{"id": synthesisID, "kind": "synthesis"}, "default-voice-route", DefaultLocale)
+		if err != nil || !boolMap(invoked, "ok") {
+			message := "local speech save failed"
+			if invoked != nil {
+				message = fmt.Sprintf("%s: %v", message, jsonMap(invoked)["error"])
+			}
+			return media.MediaAsset{}, fmt.Errorf("%s: %w", message, err)
 		}
-		assetID := mapString(jsonMap(saved), "assetId")
+		rawResult := jsonMap(invoked)["result"]
+		assetID := mapString(jsonMap(rawResult), "assetId")
 		if assetID == "" {
 			return media.MediaAsset{}, fmt.Errorf("local speech save did not return an asset id")
 		}
@@ -82,6 +88,17 @@ func wireLocalSpeechBridge(host *AppHost, platformMedia *media.MediaService) {
 		}
 		return asset, nil
 	})
+}
+
+// boolMap 读 map 的布尔字段，缺省 false。
+func boolMap(m map[string]any, key string) bool {
+	if m == nil {
+		return false
+	}
+	if b, ok := m[key].(bool); ok {
+		return b
+	}
+	return false
 }
 
 func jsonMap(v any) map[string]any {

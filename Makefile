@@ -5,7 +5,7 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test transcribe-e2e
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
@@ -27,7 +27,8 @@ RELEASE_PUBLIC ?= $(CURDIR)/cdn/buckets/releases/$(RECUT_VERSION)
 RELEASE_LATEST ?= $(CURDIR)/cdn/buckets/releases/latest
 BUILTIN_REMOTION_ARCHIVE := $(CURDIR)/service/builtin_apps/remotion-studio.tar.gz
 BUILTIN_EDITOR_ARCHIVE := $(CURDIR)/service/builtin_apps/editor.tar.gz
-SERVICE_RELEASE_TARGETS := darwin-arm64 darwin-amd64 linux-arm64 linux-amd64 freebsd-arm64 freebsd-amd64 windows-arm64 windows-amd64
+# 发布平台收敛为 Apple Silicon macOS 与 Windows，不再产出 darwin-amd64 / linux-* / freebsd-* 包。
+SERVICE_RELEASE_TARGETS := darwin-arm64 windows-arm64 windows-amd64
 
 help: ## Show available development commands.
 	@awk 'BEGIN { FS = ":.*##"; printf "\nRecut development commands:\n" } /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -91,7 +92,7 @@ service-dev: stop-stale-service ## Start only the LAN Go service for the port 30
 	trap 'kill -TERM "$$service_pid" 2>/dev/null || true; wait "$$service_pid" 2>/dev/null || true' EXIT INT TERM; \
 	wait "$$service_pid"
 
-service-build: builtin-apps web-build-embedded ## Build a production service with its local workspace (TARGET=linux-amd64, windows-amd64, or host default).
+service-build: builtin-apps web-build-embedded ## Build a production service with its local workspace (TARGET=darwin-arm64, windows-amd64, windows-arm64, or host default).
 	@mkdir -p "$(dir $(SERVICE_BUILD))"
 	GOCACHE=$(GOCACHE) GOOS="$(BUILD_GOOS)" GOARCH="$(BUILD_GOARCH)" go -C service build -trimpath -ldflags "-s -w -X main.serviceVersion=$(RECUT_VERSION)" -o "$(SERVICE_BUILD)" .
 
@@ -123,7 +124,7 @@ service-release: builtin-apps web-build-embedded ## Build self-contained service
 cd-upload: ## Upload only this version + latest pointer to R2 (versioned at https://cdn.recut.video/releases/<version>, latest pointer at /releases/latest). Historical versions are immutable, so only the newly staged <version>/ and latest/manifest.json are touched; --skip-existing compares MD5 vs remote ETag so unchanged packages are not re-uploaded.
 	node cdn/scripts/cli.mjs upload releases --only $(RECUT_VERSION) --only latest/manifest.json --skip-existing
 
-service-install: service-build ## Install the host-target production service (macOS/Linux/FreeBSD shell hosts).
+service-install: service-build ## Install the host-target production service (macOS/Linux/FreeBSD shell hosts; published releases only ship macOS Apple-silicon and Windows).
 	@test "$(BUILD_GOOS)" = "$$(go env GOOS)" || { echo "service-install must target this host; copy the cross-built binary to $(BUILD_GOOS)-$(BUILD_GOARCH) instead." >&2; exit 1; }
 	@chmod +x scripts/install-service.sh
 	@RECUT_HOME="$(RECUT_HOME)" scripts/install-service.sh "$(SERVICE_BUILD)"
@@ -219,3 +220,6 @@ editor-e2e: ## 编辑器 UI Playwright 端到端（含 recut 项目实时同步�
 	cd apps/editor/ui && npx playwright test
 
 check: service-test service-vet web-build editor-model-test editor-frame-render-test editor-authoring-quality-test ## Run all service and web verification.
+
+transcribe-e2e: ## 真实接口转写 E2E（不经 UI）：editor subtitle.generate → audio.transcribe → subtitle.status 轮询到完成。
+	cd service && RECUT_E2E_TRANSCRIBE=1 go test -run TestTranscriptionE2E -count=1 -v .
