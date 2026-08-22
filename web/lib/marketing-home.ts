@@ -25,7 +25,7 @@ export const HOME_FAQ: Record<Locale, HomeFaqItem[]> = {
     },
     {
       question: "Recut 需要什么电脑配置？",
-      answer: "支持 macOS、Linux、Windows 与 FreeBSD。基础剪辑很轻量；本地转写字幕建议 16 GB 内存以上，创建声音角色和 AI 配音建议 32 GB；NVIDIA CUDA 显卡能显著加速转写与配音，Apple 芯片与纯 CPU 也能运行。",
+      answer: "支持 macOS（Apple 芯片）与 Windows。基础剪辑很轻量；本地转写字幕建议 16 GB 内存以上，创建声音角色和 AI 配音建议 32 GB；NVIDIA CUDA 显卡能显著加速转写与配音，Apple 芯片与纯 CPU 也能运行。Linux、FreeBSD 与 Intel Mac 暂不随发布提供，可在宿主机从源码构建。",
     },
     {
       question: "我不会写代码，能使用 Recut 吗？",
@@ -51,7 +51,7 @@ export const HOME_FAQ: Record<Locale, HomeFaqItem[]> = {
     },
     {
       question: "What kind of computer does Recut need?",
-      answer: "macOS, Linux, Windows and FreeBSD are supported. Basic editing is light; local caption transcription is recommended with 16 GB+ RAM, and creating voice characters plus AI dubbing with 32 GB+. An NVIDIA CUDA GPU noticeably accelerates transcription and dubbing; Apple silicon and CPU-only machines work too.",
+      answer: "macOS (Apple silicon) and Windows are supported. Basic editing is light; local caption transcription is recommended with 16 GB+ RAM, and creating voice characters plus AI dubbing with 32 GB+. An NVIDIA CUDA GPU noticeably accelerates transcription and dubbing; Apple silicon and CPU-only machines work too. Linux, FreeBSD and Intel Macs are not shipped for now and can be built from source on the host.",
     },
     {
       question: "I don't write code. Can I still use Recut?",
@@ -66,12 +66,12 @@ export const HOME_FAQ: Record<Locale, HomeFaqItem[]> = {
 
 export const HOW_IT_WORKS: Record<Locale, HowItWorksItem[]> = {
   zh: [
-    { step: "01", title: "安装本地 service", description: "一条命令或安装包完成，支持 macOS、Linux、Windows 与 FreeBSD。" },
+    { step: "01", title: "安装本地 service", description: "一条命令或安装包完成，支持 macOS（Apple 芯片）与 Windows。" },
     { step: "02", title: "导入素材、选择应用", description: "导入你的素材，挑一个创作应用：AI 短片、声音工坊或 Remotion 视频。" },
     { step: "03", title: "生成、剪辑并导出", description: "生成与剪辑都在你的电脑里完成，断网也能继续，导出即成片。" },
   ],
   en: [
-    { step: "01", title: "Install the local service", description: "Done in one command or installer, available on macOS, Linux, Windows and FreeBSD." },
+    { step: "01", title: "Install the local service", description: "Done in one command or installer, available on macOS (Apple silicon) and Windows." },
     { step: "02", title: "Import media and pick an App", description: "Import your media and choose a creation App: AI Short Films, Audio Studio or Remotion Video." },
     { step: "03", title: "Generate, edit and export", description: "Generation and editing all happen on your computer, keep working offline, and export to a finished video." },
   ],
