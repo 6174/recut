@@ -62,13 +62,13 @@ export function AppInstallGuide() {
   }
 
   return (
-    <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" role="dialog" aria-labelledby="app-install-guide-title" onMouseDown={() => { if (!installing) closeInstallGuide(); }}>
+    <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-6 backdrop-blur-[1px]" role="dialog" aria-labelledby="app-install-guide-title" onMouseDown={() => { if (!installing) closeInstallGuide(); }}>
       <section className="w-full max-w-md rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
           <div>
             <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">RECUT APP — INSTALL GUIDE</p>
             <h2 className="mt-1 text-base font-semibold" id="app-install-guide-title">{t("git.title")}</h2>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">{request.name && request.appId ? <>{request.name} {t("git.needForCaptions")}</> : t("git.desc")}</p>
+            <p className="mt-1 text-xs leading-5 text-foreground/80">{request.name && request.appId ? <>{request.name} {t("git.needForCaptions")}</> : t("git.desc")}</p>
           </div>
           <button aria-label={t("git.close")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted disabled:cursor-not-allowed" disabled={installing} onClick={closeInstallGuide} type="button"><X className="size-4" /></button>
         </header>
