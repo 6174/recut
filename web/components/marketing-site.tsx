@@ -9,7 +9,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { t, type Locale, localizeURL } from "@/lib/i18n";
 import type { MarketingPost } from "@/lib/marketing-posts";
@@ -18,6 +18,7 @@ import { HOME_FAQ, HOW_IT_WORKS } from "@/lib/marketing-home";
 import { MarkdownContent } from "@/components/markdown-content";
 import { trackEvent } from "@/components/posthog-analytics";
 import { MarketingEditorDemo } from "@/components/marketing-editor-demo";
+import { MarketingHeroAtmosphere } from "@/components/marketing-hero-atmosphere";
 import { MarketingFeatureIllustration, type MarketingFeatureKind } from "@/components/marketing-feature-illustrations";
 
 const defaultAppURL = process.env.NEXT_PUBLIC_RECUT_APP_URL ?? "https://app.recut.video";
@@ -136,7 +137,7 @@ export function MarketingHeader() {
   const appURL = useMarketingAppURL();
   const locale = useMarketingLocale();
   return (
-    <header className="sticky top-0 z-30 border-b border-white/10 bg-[oklch(0.145_0.012_150_/_0.92)] backdrop-blur">
+    <header className="marketing-header sticky top-0 z-30 -mb-16 border-b border-transparent">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-5 px-5 sm:px-8">
 <a aria-label={t("marketing", locale, "nav.ariaHome")} className="flex shrink-0 items-center gap-2.5" href={localizeURL("/", locale)}>
         <img alt="Recut" className="size-8 rounded-lg" height={424} src="/logo.jpg" width={404} />
@@ -208,19 +209,37 @@ export function MarketingHero() {
   const appURL = useMarketingAppURL();
   const locale = useMarketingLocale();
   const zh = locale === "zh";
+  const heroRef = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    const root = heroRef.current;
+    if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const context = gsap.context(() => {
+      const q = gsap.utils.selector(root);
+      gsap.timeline({ defaults: { ease: "power3.out" } })
+        .fromTo(q("[data-hero-eyebrow]"), { autoAlpha: 0, y: 10, filter: "blur(6px)" }, { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.42 })
+        .fromTo(q("[data-hero-title-line]"), { autoAlpha: 0, y: 28, filter: "blur(10px)" }, { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.62, stagger: 0.08 }, "-=0.16")
+        .fromTo(q("[data-hero-body]"), { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.48 }, "-=0.18")
+        .fromTo(q("[data-hero-cta]"), { autoAlpha: 0, y: 12, scale: 0.98 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.46 }, "-=0.16")
+        .fromTo(q("[data-hero-demo]"), { autoAlpha: 0, y: 24, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.8 }, "-=0.08");
+    }, root);
+    return () => context.revert();
+  }, []);
+
   return (
-    <section className="marketing-hero-grid relative overflow-hidden border-b border-white/10 bg-[oklch(0.12_0.01_150)] text-white">
+    <section className="marketing-hero-grid relative overflow-hidden border-b border-white/10 bg-[oklch(0.08_0.01_150)] text-white" ref={heroRef}>
+      <MarketingHeroAtmosphere />
       <div className="relative mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28">
         <div className="mx-auto max-w-4xl text-center">
-          <p className="font-mono text-[11px] font-semibold tracking-[0.22em] text-primary">{zh ? "本地优先 · 开源 · 可扩展" : "LOCAL-FIRST · OPEN SOURCE · EXTENSIBLE"}</p>
-          <h1 className="mt-6 text-5xl font-semibold leading-[0.98] tracking-[-0.055em] sm:text-7xl">{zh ? "让 AI 参与创作，" : "Create with AI."}<br /><span className="text-white/42">{zh ? "但作品始终属于你。" : "Keep everything yours."}</span></h1>
-          <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-white/55 sm:text-lg">{zh ? <>在你的电脑上，Recut 与 <RotatingAgentModel /> 协作，打造专属于你的视频创作平台。每一次迭代，都让它更适合你的创作。</> : <>On your computer, Recut works with <RotatingAgentModel /> to build your own video creation platform. Every iteration makes it a better fit for how you create.</>}</p>
-          <div className="mt-9 flex flex-wrap justify-center gap-3">
+          <p className="font-mono text-[11px] font-semibold tracking-[0.22em] text-primary" data-hero-eyebrow>{zh ? "本地优先 · 开源 · 可扩展" : "LOCAL-FIRST · OPEN SOURCE · EXTENSIBLE"}</p>
+          <h1 className="mt-6 text-5xl font-semibold leading-[0.98] tracking-[-0.055em] sm:text-7xl"><span className="block" data-hero-title-line>{zh ? "让 AI 参与创作，" : "Create with AI."}</span><span className="marketing-hero-title-accent block" data-hero-title-line>{zh ? "但作品始终属于你。" : "Keep everything yours."}</span></h1>
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-white/55 sm:text-lg" data-hero-body>{zh ? <>在你的电脑上，Recut 与 <RotatingAgentModel /> 协作，打造专属于你的视频创作平台。每一次迭代，都让它更适合你的创作。</> : <>On your computer, Recut works with <RotatingAgentModel /> to build your own video creation platform. Every iteration makes it a better fit for how you create.</>}</p>
+          <div className="mt-9 flex flex-wrap justify-center gap-3" data-hero-cta>
             <a className="inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "hero" })}>{zh ? "打开工作台" : "Open workspace"} <span aria-hidden="true" className="ml-1">↗</span></a>
             <a className="inline-flex h-11 items-center rounded-lg border border-white/15 bg-white/[0.03] px-5 text-sm font-semibold text-white/85 transition hover:bg-white/[0.08]" href="#product" onClick={() => trackEvent("recut_docs_clicked", { location: "hero" })}>{zh ? "了解开源架构" : "Explore the open architecture"}</a>
           </div>
         </div>
-        <MarketingEditorDemo locale={locale} />
+        <div data-hero-demo><MarketingEditorDemo locale={locale} /></div>
       </div>
     </section>
   );

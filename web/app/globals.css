@@ -98,10 +98,42 @@
 /* Hero 网格只承担空间尺度，不能越过编辑器演示抢占叙事焦点。 */
 .marketing-hero-grid {
   background-image:
-    linear-gradient(oklch(1 0 0 / 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(1 0 0 / 0.035) 1px, transparent 1px);
+    linear-gradient(oklch(1 0 0 / 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(1 0 0 / 0.02) 1px, transparent 1px);
   background-position: center top;
   background-size: 28px 28px;
+}
+
+/* Header 与 Hero 共用一层深色渐隐，不再切出一条生硬的黑色横杠。 */
+.marketing-header {
+  background: linear-gradient(
+    to bottom,
+    oklch(0.08 0.012 150 / 0.58) 0%,
+    oklch(0.08 0.012 150 / 0.28) 52%,
+    transparent 100%
+  );
+  backdrop-filter: blur(14px);
+}
+
+.marketing-hero-atmosphere {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.8;
+  mix-blend-mode: screen;
+}
+
+.marketing-hero-title-accent {
+  background: linear-gradient(105deg, #a7f3c1 0%, #65d8a0 42%, #91a8ff 100%) text;
+  color: transparent;
+  text-shadow: 0 0 32px oklch(0.68 0.18 151 / 0.16);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-hero-atmosphere { opacity: 0.68; }
 }
 
 .marketing-agent-model {
