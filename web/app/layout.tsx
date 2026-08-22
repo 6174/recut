@@ -8,6 +8,7 @@ import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import "./globals.css";
 import { AgentPanelHost } from "@/components/agent-panel-host";
+import { AppInstallGuide } from "@/components/app-install-guide";
 import { LocaleEffect } from "@/components/locale-effect";
 import { PosthogAnalytics } from "@/components/posthog-analytics";
 import { marketingApps } from "@/lib/marketing-apps";
@@ -51,6 +52,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         </Suspense>
         <LocaleEffect />
         <AgentPanelHost apps={marketingApps} docs={{ zh: loadDocs("zh"), en: loadDocs("en") }} posts={marketingPosts}>{children}</AgentPanelHost>
+        <AppInstallGuide />
       </body>
     </html>
   );

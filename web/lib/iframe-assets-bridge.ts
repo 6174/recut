@@ -1,9 +1,12 @@
 /**
  * [INPUT]: 依赖已连接 Service 的 API base、iframe MessagePort 请求和当前 project scope。
- * [OUTPUT]: 对外提供 handleIframeAssetsRequest，把 recut.assets SDK 调用收敛为受 scope 限制的 Service 请求。
- * [POS]: web/lib 的 iframe Assets 能力边界；项目与独立 App 宿主共用，iframe 不发现 Service 或拼接资产 API。
+ * [OUTPUT]: 对外提供 handleIframeAssetsRequest，把 recut.assets SDK 调用收敛为受 scope 限制的 Service 请求；
+ *           同时承接 apps.request-install，让 iframe App 拉起宿主全局统一的 App 安装引导弹窗。
+ * [POS]: web/lib 的 iframe Assets/安装引导能力边界；项目与独立 App 宿主共用，iframe 不发现 Service 或拼接资产 API。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
+
+import { useAppInstallGuideStore } from "@/lib/app-install-guide-store";
 
 type IframeRequest = {
   type?: unknown;
@@ -52,6 +55,16 @@ export async function handleIframeAssetsRequest(
   options: AssetsBridgeOptions,
 ): Promise<AssetsBridgeResult> {
   const type = typeof request.type === "string" ? request.type : "";
+  // iframe App 请求拉起宿主全局安装引导：安全面由宿主页面持有，App 只提供身份与来源。
+  if (type === "apps.request-install") {
+    const input = request.input;
+    useAppInstallGuideStore.getState().openInstallGuide({
+      appId: stringInput(input, "appId") || undefined,
+      name: stringInput(input, "name") || undefined,
+      repository: stringInput(input, "repository") || undefined,
+    });
+    return { handled: true, result: { opened: true } };
+  }
   if (!type.startsWith("assets.")) return { handled: false };
 
   const input = request.input;

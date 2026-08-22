@@ -312,6 +312,35 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App, locale 
 	}
 	_ = platform.Set("integrations", recutIntegrationContext(installedApps, storeApps))
 	_ = ctx.Set("platform", platform)
+	// ctx.capabilities 是通用跨 App 能力桥（capability bridge）：invoke 把一个 App 显式声明的
+	// capability op 调用到目标 App 自己的 appstate 命名空间，带统一错误信封与同步超时；inspect
+	// 做能力发现（含未安装时的安装引导信息）。平台在此层完全不理解具体业务，只做发现/执行/容错/审计。
+	capabilities := runtime.NewObject()
+	_ = capabilities.Set("inspect", func(call goja.FunctionCall) goja.Value {
+		input := map[string]any{}
+		if !goja.IsUndefined(call.Argument(0)) && !goja.IsNull(call.Argument(0)) {
+			if err := runtime.ExportTo(call.Argument(0), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+		}
+		appID := toString(input["appId"])
+		return runtime.ToValue(h.capabilityInspect(appID, locale))
+	})
+	_ = capabilities.Set("invoke", func(call goja.FunctionCall) goja.Value {
+		input := map[string]any{}
+		if err := runtime.ExportTo(call.Argument(0), &input); err != nil {
+			panic(runtime.NewTypeError(err.Error()))
+		}
+		appID := toString(input["appId"])
+		name := toString(input["name"])
+		opInput, _ := input["input"].(map[string]any)
+		result, err := h.capabilityInvoke(target, appID, name, opInput, locale)
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return runtime.ToValue(result)
+	})
+	_ = ctx.Set("capabilities", capabilities)
 	primaryFiles, err := h.store.TargetFilesRoot(target)
 	if err != nil {
 		return nil, err

@@ -152,6 +152,7 @@ const zh = {
   "git.installing": "正在安装…",
   "git.submit": "安装应用",
   "git.failed": "安装失败，请检查仓库地址后重试",
+  "git.needForCaptions": "安装后才能使用字幕生成能力。",
 
   // App 版本控制
   "version.update": "升级",
@@ -562,6 +563,7 @@ const en: Record<keyof typeof zh, string> = {
   "git.installing": "Installing…",
   "git.submit": "Install app",
   "git.failed": "Install failed — check the repository URL and try again",
+  "git.needForCaptions": "is required to enable subtitle generation.",
 
   // App version control
   "version.update": "Upgrade",

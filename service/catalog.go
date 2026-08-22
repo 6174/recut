@@ -114,6 +114,9 @@ type Operation struct {
 	// SubAgent 标记该 operation 是一次受限子 Agent 运行：调用时 background 返回
 	// {subAgent:{allowedTools,prompt,...}}，平台用通用 runner 执行并回调该 op 做 finalize。
 	SubAgent bool `json:"subAgent,omitempty"`
+	// Capability 标记该 operation 是可被其他 App 经 ctx.capabilities.invoke
+	// 复用的跨 App 能力（capability bridge）。未标记的 op 只能被宿主/Agent 面调用。
+	Capability bool `json:"capability,omitempty"`
 }
 
 type App struct {
