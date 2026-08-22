@@ -1,7 +1,7 @@
 #!/bin/sh
 # [INPUT]: 依赖 POSIX shell、curl、tar、SHA-256 工具、公开的 cdn.recut.video 发布包（R2）和用户级服务管理器
 # [OUTPUT]: 带阶段日志地安装或原子升级 ~/.recut/bin/recut-service，并预置受管 Python 3.11、venv、FFmpeg 后注册/验证当前用户的常驻 service
-# [POS]: web/public 的无源码 Unix 安装入口；覆盖 macOS、Linux 和 FreeBSD，绝不读取或删除用户项目数据
+# [POS]: web/public 的无源码安装入口；当前发布仅覆盖 macOS（Apple 芯片）与 Windows，Linux、FreeBSD 与 Intel Mac 暂不提供发布包，绝不读取或删除用户项目数据
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 set -eu
 
@@ -32,15 +32,15 @@ fi
 
 case "$(uname -s)" in
   Darwin) os=darwin ;;
-  Linux) os=linux ;;
-  FreeBSD) os=freebsd ;;
   MINGW*|MSYS*|CYGWIN*) fail "Windows 请在 PowerShell 运行: irm https://recut.video/install.ps1 | iex" ;;
+  Linux) fail "暂不支持 Linux；可用 make service-build TARGET=linux-<arch> 从源码构建" ;;
+  FreeBSD) fail "暂不支持 FreeBSD；可用 make service-build TARGET=freebsd-<arch> 从源码构建" ;;
   *) fail "暂不支持 $(uname -s)；可用 make service-build TARGET=<os>-<arch> 交叉编译" ;;
 esac
 
 case "$(uname -m)" in
   arm64|aarch64) arch=arm64 ;;
-  x86_64|amd64) arch=amd64 ;;
+  x86_64|amd64) [ "$os" = darwin ] && fail "暂不支持 Intel Mac；请使用 Apple 芯片的 Mac 或参考源码构建" || arch=amd64 ;;
   *) fail "暂不支持 $(uname -m) CPU" ;;
 esac
 
@@ -130,25 +130,6 @@ PLIST
   launchctl bootstrap "gui/$(id -u)" "$plist" || fail "无法注册 macOS service"
 }
 
-install_systemd_user() {
-  unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-  unit="$unit_dir/recut.service"
-  mkdir -p "$unit_dir"
-  cat > "$unit" <<UNIT
-[Unit]
-Description=Recut local service
-
-[Service]
-ExecStart="$recut_home/bin/recut-service" --data-dir "$recut_home"
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=default.target
-UNIT
-  systemctl --user daemon-reload && systemctl --user enable recut.service && systemctl --user restart recut.service
-}
-
 wait_for_service() {
   attempts=0
   while [ "$attempts" -lt 30 ]; do
@@ -164,32 +145,16 @@ wait_for_service() {
 }
 
 print_startup_diagnostics() {
-  if [ "$os" = "darwin" ]; then
-    echo "macOS service 日志：$recut_home/logs/service-error.log" >&2
-    if [ -f "$recut_home/logs/service-error.log" ]; then
-      tail -n 80 "$recut_home/logs/service-error.log" >&2 || true
-    fi
-    echo "launchd 状态：launchctl print gui/$(id -u)/video.recut.service" >&2
-    return
+  echo "macOS service 日志：$recut_home/logs/service-error.log" >&2
+  if [ -f "$recut_home/logs/service-error.log" ]; then
+    tail -n 80 "$recut_home/logs/service-error.log" >&2 || true
   fi
-  echo "Linux service 日志：journalctl --user -u recut.service -n 80 --no-pager" >&2
-  if command -v journalctl >/dev/null 2>&1; then
-    journalctl --user -u recut.service -n 80 --no-pager >&2 || true
-  fi
+  echo "launchd 状态：launchctl print gui/$(id -u)/video.recut.service" >&2
 }
 
-case "$os" in
-  darwin) log "注册并启动 macOS 本地服务"; install_launchd; log "等待本地服务就绪"; wait_for_service || fail "service 启动失败" ;;
-  linux)
-    if command -v systemctl >/dev/null 2>&1 && { log "注册并启动 Linux 本地服务"; install_systemd_user; }; then log "等待本地服务就绪"; wait_for_service || fail "service 启动失败";
-    else
-      echo "Recut service 已安装，但当前 Unix 会话没有可用的 systemd user manager。" >&2
-      echo "请用以下命令启动：$recut_home/bin/recut-service --data-dir $recut_home" >&2
-    fi
-    ;;
-  freebsd)
-    echo "Recut service 已安装。请由服务器进程管理器启动：$recut_home/bin/recut-service --data-dir $recut_home" >&2
-    ;;
-esac
+log "注册并启动 macOS 本地服务"
+install_launchd
+log "等待本地服务就绪"
+wait_for_service || fail "service 启动失败"
 
 log "完成：Recut service $release_version 已安装/升级。请刷新 https://recut.video。"
