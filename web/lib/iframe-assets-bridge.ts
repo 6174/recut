@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖已连接 Service 的 API base、iframe MessagePort 请求和当前 project scope。
- * [OUTPUT]: 对外提供 handleIframeAssetsRequest，把 recut.assets SDK 调用收敛为受 scope 限制的 Service 请求；
+ * [OUTPUT]: 对外提供 handleIframeAssetsRequest，把 recut.assets SDK 调用收敛为受 scope 限制的 Service 请求，并承接顶层 Clipboard 写入；
  *           同时承接 apps.request-install，让 iframe App 拉起宿主全局统一的 App 安装引导弹窗。
  * [POS]: web/lib 的 iframe Assets/安装引导能力边界；项目与独立 App 宿主共用，iframe 不发现 Service 或拼接资产 API。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -64,6 +64,25 @@ export async function handleIframeAssetsRequest(
       repository: stringInput(input, "repository") || undefined,
     });
     return { handled: true, result: { opened: true } };
+  }
+  if (type === "clipboard.write-text") {
+    const text = typeof request.input?.text === "string" ? request.input.text : "";
+    if (!text) throw new Error("clipboard text is required");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard API 仍可能被浏览器策略拒绝；顶层文档的同步 fallback 不依赖 iframe policy。
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      if (!copied) throw new Error("clipboard write was blocked");
+    }
+    return { handled: true, result: undefined };
   }
   if (!type.startsWith("assets.")) return { handled: false };
 

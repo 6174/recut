@@ -163,6 +163,8 @@ recut.state.query(operationName)          // api surface，空输入
 recut.background.call(operationName, input) // api surface，带输入
 recut.agent.compose({ prompt })           // 写入 Agent 输入框，绝不自动提交
 recut.media.pick({ kinds, multiple?, selectedIDs? }) // 打开素材选择器
+recut.clipboard.writeText(text)                  // 请求宿主顶层文档写入剪贴板
+recut.isConnected()                              // 当前 iframe 是否已连接宿主
 recut.page.context({ title, path?, url?, selection?, content? }) // 上报页面上下文
 recut.navigation.openAppDetail(appID)     // 在新标签打开 App 详情页
 recut.events.subscribe((event) => unsubscribe) // 订阅项目事件
@@ -170,6 +172,7 @@ recut.events.subscribe((event) => unsubscribe) // 订阅项目事件
 
 - `state.query` 与 `background.call` 只会触达当前 App 的 `api` surface operation。
 - `agent.compose` 只填充 Agent 输入框——用户确认后才会执行。
+- `clipboard.writeText` 由宿主顶层文档执行，避免 iframe 的 Permissions Policy 阻止 Clipboard API。
 - 素材内容 URL：`recut.media.contentURL(assetId)` 与 `recut.media.partURL(assetId, part)`（part 为 `content`/`srt`/`json`/`image`）。
 
 ## 事件流

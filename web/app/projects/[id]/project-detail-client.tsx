@@ -205,7 +205,7 @@ export default function ProjectDetailClient() {
     </header>
     <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]">
       <section className="h-full min-w-0 overflow-hidden border-l bg-card">
-        {uiURL ? <iframe allow="fullscreen" className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={interpolate(t("detail.frame.title"), { name: project?.name ?? "Recut" })} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">{t("detail.noUI")}</div>}
+        {uiURL ? <iframe allow="clipboard-write; fullscreen" className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={interpolate(t("detail.frame.title"), { name: project?.name ?? "Recut" })} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">{t("detail.noUI")}</div>}
       </section>
     </div>
     <PlatformMediaPicker apiBase={apiBase} onCancel={() => resolveMediaPicker(null)} onPick={resolveMediaPicker} request={mediaPicker} />

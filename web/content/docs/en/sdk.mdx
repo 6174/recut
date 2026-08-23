@@ -163,6 +163,8 @@ recut.state.query(operationName)          // api surface, empty input
 recut.background.call(operationName, input) // api surface, with input
 recut.agent.compose({ prompt })           // write into the Agent composer, never auto-submit
 recut.media.pick({ kinds, multiple?, selectedIDs? }) // open the media picker
+recut.clipboard.writeText(text)                  // ask the host top-level document to write clipboard text
+recut.isConnected()                              // whether the iframe is connected to the host
 recut.page.context({ title, path?, url?, selection?, content? }) // report page context
 recut.navigation.openAppDetail(appID)     // open an App detail page in a new tab
 recut.events.subscribe((event) => unsubscribe) // subscribe to project events
@@ -170,6 +172,7 @@ recut.events.subscribe((event) => unsubscribe) // subscribe to project events
 
 - `state.query` and `background.call` only reach the current App's `api`-surface operations.
 - `agent.compose` only fills the Agent input — the user confirms before anything runs.
+- `clipboard.writeText` runs in the host top-level document so iframe Permissions Policy cannot block Clipboard API access.
 - Media content URLs: `recut.media.contentURL(assetId)` and `recut.media.partURL(assetId, part)` for `content`/`srt`/`json`/`image`.
 
 ## The event stream

@@ -19,3 +19,4 @@ cdn/buckets/*
 # R2 S3 本地凭据（deploy 用），不提交 git。
 cdn/.r2-credentials
 cdn/.env
+output/

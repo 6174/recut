@@ -39,13 +39,13 @@
 
 - `apps/editor/ui/src/runtime/motion-presets.ts` 提供内置 catalog、参数校验、`enter/exit/loop` 编译与不可变绑定操作。
 - `TimelineElement.motion` / `textMotion` 保存语义绑定；`buildWorld` 透传，`VisualRuntime.evaluate()` 在局部时间求值为 `MotionProgram`。
-- P0 catalog 覆盖淡入淡出、四向滑入、缩放、旋入、弹跳、pulse/float/sway、shader progress，以及 grapheme/word 文本 reveal。
+- P0 catalog 覆盖淡入淡出、四向滑入、缩放、旋入、弹跳、pulse/float/sway、canonical Effect Loop，以及 grapheme/word 文本 reveal。
 - `tests/e2e/ai-component.spec.ts` 使用带 `CanvasDrawElement` 的 Chromium 覆盖 Three 预设和 HTML-in-Canvas 文本预设；纯函数边界由 `motion-presets.test.ts` 覆盖。
-- Shader 预设案例包括 `shader-reveal-burst`、`shader-intensity-pulse`、`shader-ripple-burst`、`shader-displacement-pop`；它们分别复用现有效果组件常见的 `uProgress`、`uIntensity`、`uStrength`、`uAmount` uniform。
+- Shader 动画统一通过 `EffectDefinition` 的 canonical Texture implementation 接入；当前内置 Loop 预设为 `effect-glitch-loop`、`effect-ripple-loop`、`effect-crt-loop`、`effect-vhs-loop`，Motion 只写入 `effects.<id>.<parameter>` 语义路径。
 
-### Shader 局部特效原则
+### Shader 动画原则
 
-Shader 预设不是替换整段 fragment shader，而是绑定到局部组件材质的 uniform 通道。预设定义可声明 `shaderUniforms` 兼容列表；运行时以 material 实际 uniforms 为最终真相，只编译存在的通道。这样同一个 Reveal Burst 可以作用于粒子、字符化、解密等已有组件，而不会把不支持该 uniform 的组件打成错误占位块。基础 uniform update 先执行，MotionProgram 随后 seek，确保预设覆盖局部动画而不被组件自身刷新逻辑抹掉。
+动画预设不携带 fragment shader，也不创建动画专用 material。`runtime/shader-effects` 中的 `EffectDefinition` 是唯一视觉入口：2D 元素与全局 Effect 复用 canonical Texture pass；Shape/Spline 等 3D 元素在没有高保真 Capture 前不展示 Shader 动画；MotionProgram 只驱动语义参数。
 
 ## 2. 证据与边界：从剪映界面能推断什么
 
