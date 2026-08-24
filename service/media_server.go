@@ -255,22 +255,74 @@ func (s *Server) deleteMediaCredential(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) saveMediaCredential(w http.ResponseWriter, r *http.Request) {
 	input := struct {
-		ID       string `json:"id"`
-		Provider string `json:"provider"`
-		Name     string `json:"name"`
-		APIBase  string `json:"apiBase"`
-		APIKey   string `json:"apiKey"`
+		ID             string            `json:"id"`
+		Provider       string            `json:"provider"`
+		Name           string            `json:"name"`
+		APIBase        string            `json:"apiBase"`
+		APIKey         string            `json:"apiKey"`
+		ModelOverrides map[string]string `json:"modelOverrides"`
 	}{}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
 		return
 	}
-	credential, err := s.media.SaveCredential(MediaCredential{ID: input.ID, Provider: input.Provider, Name: input.Name, APIBase: input.APIBase}, input.APIKey)
+	credential, err := s.media.SaveCredential(MediaCredential{ID: input.ID, Provider: input.Provider, Name: input.Name, APIBase: input.APIBase, ModelOverrides: input.ModelOverrides}, input.APIKey)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, credential)
+}
+
+// createMediaShare publishes one completed Asset as a temporary public URL
+// (7-day default TTL, unguessable token). Provider reference publishing goes
+// through the same path internally.
+func (s *Server) createMediaShare(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		AssetID string `json:"assetId"`
+		TTLDays int    `json:"ttlDays"`
+	}{}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || strings.TrimSpace(input.AssetID) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("assetId is required"))
+		return
+	}
+	asset, err := s.media.GetAsset(strings.TrimSpace(input.AssetID))
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("media asset not found"))
+		return
+	}
+	share, err := s.media.SharePublish(asset, input.TTLDays)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, share)
+}
+
+func (s *Server) listMediaShares(w http.ResponseWriter, r *http.Request) {
+	assetID := strings.TrimSpace(r.URL.Query().Get("assetId"))
+	if assetID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("assetId is required"))
+		return
+	}
+	shares, err := s.media.ListShares(assetID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, shares)
+}
+
+func (s *Server) deleteMediaShare(w http.ResponseWriter, r *http.Request) {
+	if err := s.media.RevokeShare(r.PathValue("id")); err != nil {
+		if errors.Is(err, ErrShareNotFound) {
+			writeError(w, http.StatusNotFound, err)
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) saveMediaRoute(w http.ResponseWriter, r *http.Request) {

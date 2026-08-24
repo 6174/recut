@@ -48,7 +48,7 @@ agent_cli.go: Agent CLI 可执行文件解析器；先使用常规 PATH，再通
 agent_server.go: 提供通用 scope Agent Session 的创建、Codex 会话模型/推理强度更新、OpenCode 的实时 TUI 模型目录、只携带文本、媒体资产引用与泛化上下文（`contexts: [{type, source, payload}]`，兼容 `assetIds` 糖）的待发送消息入队、停止、查询与 SSE 事件 API，以及全局与按项目解析的新对话引导 API；`scope=general` 列出全部不绑定项目的会话，项目/App scope 过滤恒为空；仅对当前进程真实运行的回复接受停止，并准确区分会话不存在与存储暂时读取失败。
 agent_server_test.go: 锁定全局 onboarding 的保存、会话不绑定项目/App 且通用列表最新优先、以及 App/全局按项目解析 HTTP 契约；不启动真实 Agent CLI。
 media_adapter.go: 根服务与 media 子包的窄 Store 适配器和兼容类型别名；不承载任何媒体业务。
-media/: 独立媒体领域包；按类型、模型目录、配置凭据、资产和任务拆分，Provider 协议位于 `providers/` 子目录。
+media/: 独立媒体领域包；按类型、模型目录、配置凭据、资产和任务拆分，Provider 协议位于 `providers/` 子目录，临时公网分享（media_shares 账本 + 自研 R2/S3 SigV4 客户端）位于 `shares.go`。
 media_server.go: 素材库、图片/视频/音频导入、模型、凭据、路由、任务、资产内容及基于 SQLite 事件账本的 Asset SSE HTTP API；Asset 可安全重命名或删除（生成中的 Asset 拒绝删除），已完成 Asset 内容标记为不可变缓存，避免重复媒体读取。
 item_mutation_test.go: 锁定项目和素材的重命名、删除及项目文件清理契约，保护工作台卡片的实体操作。
 media_test.go: 验证媒体凭据不泄漏、Provider 模型归属、Atlas 异步 prediction 原位回收、生成耗时和模型/凭据直连校验。

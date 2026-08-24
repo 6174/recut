@@ -66,6 +66,10 @@ func (m *MediaService) GenerateSync(input GenerateMediaInput) (MediaJob, error) 
 			if job, err = m.submitAtlasVideo(job, credential, true); err != nil {
 				return job, err
 			}
+		} else if isSkymindVideoJob(job, credential) {
+			if job, err = m.submitSkymindVideo(job, credential, true); err != nil {
+				return job, err
+			}
 		} else {
 			m.execute(job, credential)
 		}

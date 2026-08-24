@@ -484,6 +484,13 @@ create table if not exists media_asset_events (
 create table if not exists media_task_leases (
   job_id text primary key, owner_id text not null, expires_at_ms integer not null, updated_at text not null
 );
+create table if not exists media_shares (
+  id text primary key, asset_id text not null, content_hash text not null, token text not null unique,
+  url text not null, object_key text not null, expires_at text not null, revoked_at text,
+  created_at text not null, updated_at text not null
+);
+create index if not exists media_shares_asset on media_shares(asset_id);
+create index if not exists media_shares_hash on media_shares(content_hash, revoked_at);
 create table if not exists workspace_preferences (
   key text primary key, value_json text not null, updated_at text not null
 );
@@ -664,6 +671,7 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table project_covers add column source text not null default 'asset'",
 			"alter table project_covers add column file_path text not null default ''",
 			"alter table project_covers add column mime_type text not null default ''",
+			"alter table media_credentials add column model_overrides_json text not null default ''",
 		} {
 			if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 				return err

@@ -22,6 +22,7 @@ type MediaCredential = media.MediaCredential
 type MediaRoute = media.MediaRoute
 type MediaAsset = media.MediaAsset
 type MediaJob = media.MediaJob
+type MediaShare = media.MediaShare
 type GenerateMediaInput = media.GenerateMediaInput
 type TimelineClip = media.TimelineClip
 type CompositionSettings = media.CompositionSettings
@@ -38,6 +39,9 @@ const (
 
 const interruptedMediaJobMessage = media.InterruptedMediaJobMessage
 
+var ErrShareNotFound = media.ErrShareNotFound
+var ErrShareUnavailable = media.ErrShareUnavailable
+
 type mediaStoreAdapter struct{ store *Store }
 
 func (a mediaStoreAdapter) WorkspaceDatabase() (*sql.DB, error) {
@@ -53,6 +57,12 @@ func NewMediaService(store *Store) *MediaService {
 	media := media.NewMediaService(mediaStoreAdapter{store: store})
 	media.SetNotifyMediaChange(func() { store.mediaEvents.notify() })
 	return media
+}
+
+// NewShareClientFromEnv resolves the R2 temporary-share credentials (env or
+// <data-dir>/share-credentials); nil means the share capability is off.
+func NewShareClientFromEnv(dataDir string) *media.ShareClient {
+	return media.NewShareClientFromEnv(dataDir)
 }
 
 func providerByID(id string) (MediaProvider, bool) { return media.ProviderByID(id) }

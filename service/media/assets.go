@@ -249,6 +249,9 @@ func (m *MediaService) DeleteAsset(id string) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	// 级联吊销该素材的全部未过期临时公开分享：素材已删除，公开 URL 不应继续存活；
+	// R2 删除失败不阻塞素材删除（R2 生命周期仍会兑底过期）。
+	m.revokeAssetShares(asset.ID)
 	m.removeContentIfUnreferenced(asset)
 	m.publishAssetChange()
 	return nil

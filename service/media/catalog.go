@@ -16,6 +16,14 @@ import (
 
 const seedanceVideoReferenceMaxBytes = 50 << 20
 
+// skymindSeedance20 / skymindSeedance25 是平台侧稳定的模型 ID；上游 APIModelID
+// （doubao-seedance-2.0 / doubao-seedance-2-5-260628）会随网关渠道版本漂移，
+// 凭据级 modelOverrides 是唯一稳定的覆盖面。
+const (
+	skymindSeedance20 = "skymind-token/seedance-2.0"
+	skymindSeedance25 = "skymind-token/seedance-2.5"
+)
+
 var mediaProviders = []MediaProvider{
 	{ID: "atlas-cloud", Name: "Atlas Cloud", Protocol: "atlas", DefaultAPIBase: atlas.DefaultAPIBase, Models: []MediaModel{
 		{ID: "atlas-cloud/openai/gpt-image-2", Provider: "atlas-cloud", Name: "GPT Image 2 · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2/text-to-image", EditModelID: "openai/gpt-image-2/edit", InputModes: []string{"text"}, Available: true, Configurable: true},
@@ -24,6 +32,11 @@ var mediaProviders = []MediaProvider{
 		{ID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", Provider: "atlas-cloud", Name: "Seedance 2.0 Mini · 多参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0-mini/reference-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "bitrateMode", "generateAudio", "seed", "watermark", "returnLastFrame"}, Available: true, Configurable: true},
 		{ID: "atlas-cloud/google/gemini-omni-flash-reference-to-video", Provider: "atlas-cloud", Name: "Gemini Omni Flash · 参考图视频", Capability: VideoGenerate, APIModelID: "google/gemini-omni-flash/reference-to-video", InputModes: []string{"text", "image"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "thinkingLevel", "seed"}, Available: true, Configurable: true},
 		{ID: "atlas-cloud/xai/tts-v1", Provider: "atlas-cloud", Name: "xAI TTS v1", Capability: SpeechGenerate, APIModelID: "xai/tts-v1", InputModes: []string{"text"}, Configurable: true},
+	}},
+	{ID: "skymind-token", Name: "Skymind Token API", Protocol: "skymind", DefaultAPIBase: "https://token-api.skymind.pro", Models: []MediaModel{
+		{ID: "skymind-token/gpt-image-2", Provider: "skymind-token", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true},
+		{ID: skymindSeedance20, Provider: "skymind-token", Name: "Seedance 2.0 · 文/参考视频", Capability: VideoGenerate, APIModelID: "doubao-seedance-2.0", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "generateAudio", "seed"}, Available: true, Configurable: true},
+		{ID: skymindSeedance25, Provider: "skymind-token", Name: "Seedance 2.5 · 文/参考视频", Capability: VideoGenerate, APIModelID: "doubao-seedance-2-5-260628", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "generateAudio", "seed"}, Available: true, Configurable: true},
 	}},
 	{ID: "openai", Name: "OpenAI", Protocol: "openai", DefaultAPIBase: "https://api.openai.com/v1", Models: []MediaModel{{ID: "openai/gpt-image-2", Provider: "openai", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true}}},
 	{ID: "openai-compatible", Name: "OpenAI Compatible", Protocol: "openai-compatible", Models: []MediaModel{{ID: "openai-compatible/image", Provider: "openai-compatible", Name: "GPT Image 2 · OpenAI-compatible", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true}}},
@@ -153,6 +166,12 @@ func validateModelReferences(model MediaModel, images, videos, audios int) error
 		if images == 0 || images > 10 || videos != 0 || audios != 0 {
 			return errors.New("Gemini Omni Flash requires 1-10 reference images and accepts no audio or video references")
 		}
+	case skymindSeedance20, skymindSeedance25:
+		// 统一任务端点：无参考 = 文生视频（允许），有参考 = 图/视频/音频参考；
+		// 参考数量上限对齐 Seedance 既有契约，上限外直接拒绝避免上游收费后失败。
+		if images > 9 || videos > 3 || audios > 3 {
+			return errors.New("Seedance accepts at most 9 image, 3 video and 3 audio references")
+		}
 	}
 	return nil
 }
@@ -168,6 +187,10 @@ func validateModelReferenceAssets(model MediaModel, assets []MediaAsset) error {
 		case "atlas-cloud/google/gemini-omni-flash-reference-to-video":
 			if asset.Kind != "image" || asset.SizeBytes > 20<<20 || !oneOf(mimeType, "image/png", "image/jpeg", "image/jpg", "image/webp") {
 				return fmt.Errorf("Gemini Omni Flash cannot use reference image %q", asset.Name)
+			}
+		case skymindSeedance20, skymindSeedance25:
+			if !validSeedanceReference(asset.Kind, mimeType, asset.SizeBytes) {
+				return fmt.Errorf("Seedance cannot use %s reference %q", asset.Kind, asset.Name)
 			}
 		}
 	}

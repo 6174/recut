@@ -53,6 +53,10 @@ func (m *MediaService) reconcileDurableJobs() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	skymindIDs, err := m.runningSkymindJobIDs()
+	if err != nil {
+		return 0, err
+	}
 	queuedIDs, err := m.queuedJobIDs()
 	if err != nil {
 		return 0, err
@@ -60,10 +64,13 @@ func (m *MediaService) reconcileDurableJobs() (int64, error) {
 	for _, id := range atlasIDs {
 		m.startAtlasReconciliation(id)
 	}
+	for _, id := range skymindIDs {
+		m.startSkymindReconciliation(id)
+	}
 	for _, id := range queuedIDs {
 		m.startQueuedExecution(id)
 	}
-	return repaired + uncertain + unavailable + int64(len(atlasIDs)+len(queuedIDs)), nil
+	return repaired + uncertain + unavailable + int64(len(atlasIDs)+len(skymindIDs)+len(queuedIDs)), nil
 }
 
 // StartReconciler runs only inside the long-lived Daemon. Each tick is an
@@ -109,6 +116,19 @@ func (m *MediaService) runningAtlasJobIDs() ([]string, error) {
 		return nil, err
 	}
 	rows, err := db.Query(`select distinct j.id from media_jobs j join media_assets a on a.job_id = j.id join media_credentials c on c.id = j.credential_id where j.status = 'running' and j.remote_id != '' and a.status = 'running' and c.provider = 'atlas-cloud'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanJobIDs(rows)
+}
+
+func (m *MediaService) runningSkymindJobIDs() ([]string, error) {
+	db, err := m.database()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`select distinct j.id from media_jobs j join media_assets a on a.job_id = j.id join media_credentials c on c.id = j.credential_id where j.status = 'running' and j.remote_id != '' and a.status = 'running' and c.provider = 'skymind-token'`)
 	if err != nil {
 		return nil, err
 	}
@@ -324,6 +344,16 @@ func (m *MediaService) startAtlasReconciliation(jobID string) {
 	})
 }
 
+func (m *MediaService) startSkymindReconciliation(jobID string) {
+	m.startTask(jobID, func() {
+		task, active := m.skymindTask(jobID)
+		if !active {
+			return
+		}
+		_ = m.reconcileSkymindTask(task)
+	})
+}
+
 func (m *MediaService) executeQueuedTask(jobID string) {
 	job, credential, active, err := m.queuedTask(jobID)
 	if err != nil || !active {
@@ -332,15 +362,19 @@ func (m *MediaService) executeQueuedTask(jobID string) {
 		}
 		return
 	}
-	if isAtlasVideoJob(job, credential) {
+	if isAtlasVideoJob(job, credential) || isSkymindVideoJob(job, credential) {
 		job, active, err = m.checkpointQueuedSubmission(job)
 		if err != nil || !active {
 			if err != nil {
-				log.Printf("WARN media Atlas submission checkpoint failed job_id=%s: %v", jobID, err)
+				log.Printf("WARN media async submission checkpoint failed job_id=%s: %v", jobID, err)
 			}
 			return
 		}
-		_, _ = m.submitAtlasVideo(job, credential, false)
+		if isAtlasVideoJob(job, credential) {
+			_, _ = m.submitAtlasVideo(job, credential, false)
+		} else {
+			_, _ = m.submitSkymindVideo(job, credential, false)
+		}
 		return
 	}
 	gate := m.oneRequestGate(credential.ID)
@@ -636,6 +670,9 @@ func (m *MediaService) failUncertainUnboundTasks() (int64, error) {
 		message := "媒体提交结果不确定，请用新任务重试。"
 		if strings.HasPrefix(task.modelID, "atlas-cloud/") {
 			message = "Atlas 提交结果不确定，请用新任务重试。"
+		}
+		if strings.HasPrefix(task.modelID, "skymind-token/") {
+			message = "Skymind 提交结果不确定，请用新任务重试。"
 		}
 		if task.status == "queued" {
 			m.failQueuedAsset(task.jobID, task.assetID, message)

@@ -33,6 +33,10 @@ type MediaService struct {
 	// 创建 MediaService 后注入（因为 MediaService 早于 AppHost 构建）；MCP 直连等
 	// 短命进程保持 nil，此时本地路由提交会得到引导错误（走 audio-studio MCP）。
 	localSpeechExec func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error)
+	// shareClient 是临时公网分享（R2 + CDN）的线协议客户端；nil 表示分享能力
+	// 不可用（凭据缺失），此时带参考素材的 Skymind 视频任务会给出可操作错误，
+	// 纯文生视频与其他 Provider 不受影响。
+	shareClient *ShareClient
 }
 
 // SetLocalSpeechExecutor wires the local-audio provider to an execution backend.

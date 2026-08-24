@@ -94,6 +94,14 @@ func main() {
 	bridge := NewAgentBridge(store)
 	bridge.SetDesignSystemManager(designSystemManager)
 	host := NewAppHost(apps, store, media)
+	// 临时公网分享（R2 + CDN）：凭据来自 env 或 <data-dir>/share-credentials；
+	// 缺失时分享能力不可用（带参考素材的 Skymind 视频任务给出可操作错误）。
+	if client := NewShareClientFromEnv(*dataDir); client != nil {
+		media.SetShareClient(client)
+		log.Printf("INFO media share enabled bucket=%s prefix=%s base=%s", client.Bucket, client.Prefix, client.BaseURL)
+	} else {
+		log.Printf("WARN media share unavailable (R2 credentials missing)")
+	}
 	// 本地 TTS 路由（Audio Studio 本机 CosyVoice2）：media 早于 AppHost 构建，
 	// 因此执行桥在 AppHost 就绪后注入（Audio Studio 已安装时 recut.speech.generate
 	// 的 local-audio 路由才可执行；未安装则本地路由提交得到引导错误）。

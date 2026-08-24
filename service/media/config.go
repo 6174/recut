@@ -133,7 +133,7 @@ func (m *MediaService) ListCredentials() ([]MediaCredential, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query("select id, provider, name, api_base, secret_ciphertext, created_at, updated_at from media_credentials order by updated_at desc")
+	rows, err := db.Query("select id, provider, name, api_base, secret_ciphertext, model_overrides_json, created_at, updated_at from media_credentials order by updated_at desc")
 	if err != nil {
 		return nil, err
 	}
@@ -141,12 +141,15 @@ func (m *MediaService) ListCredentials() ([]MediaCredential, error) {
 	items := []MediaCredential{}
 	for rows.Next() {
 		var item MediaCredential
-		var ciphertext, created, updated string
-		if err := rows.Scan(&item.ID, &item.Provider, &item.Name, &item.APIBase, &ciphertext, &created, &updated); err != nil {
+		var ciphertext, overrides, created, updated string
+		if err := rows.Scan(&item.ID, &item.Provider, &item.Name, &item.APIBase, &ciphertext, &overrides, &created, &updated); err != nil {
 			return nil, err
 		}
 		item.SecretSet = ciphertext != ""
 		item.APIBase = apiBaseFor(item)
+		if strings.TrimSpace(overrides) != "" {
+			_ = json.Unmarshal([]byte(overrides), &item.ModelOverrides)
+		}
 		item.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
 		item.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
 		items = append(items, item)
@@ -168,6 +171,9 @@ func (m *MediaService) SaveCredential(input MediaCredential, secret string) (Med
 	if strings.TrimSpace(secret) == "" {
 		return MediaCredential{}, errors.New("API key is required")
 	}
+	if err := validateModelOverrides(input.Provider, input.ModelOverrides); err != nil {
+		return MediaCredential{}, err
+	}
 	ciphertext, err := m.encrypt(secret)
 	if err != nil {
 		return MediaCredential{}, err
@@ -179,6 +185,10 @@ func (m *MediaService) SaveCredential(input MediaCredential, secret string) (Med
 		}
 	}
 	input.APIBase = apiBaseFor(input)
+	overrides, err := json.Marshal(input.ModelOverrides)
+	if err != nil {
+		return MediaCredential{}, err
+	}
 	now := time.Now().UTC()
 	input.CreatedAt = now
 	input.UpdatedAt = now
@@ -187,9 +197,9 @@ func (m *MediaService) SaveCredential(input MediaCredential, secret string) (Med
 	if err != nil {
 		return MediaCredential{}, err
 	}
-	_, err = db.Exec(`insert into media_credentials (id, provider, name, api_base, secret_ciphertext, created_at, updated_at)
-values (?, ?, ?, ?, ?, ?, ?)
-on conflict(id) do update set provider=excluded.provider, name=excluded.name, api_base=excluded.api_base, secret_ciphertext=excluded.secret_ciphertext, updated_at=excluded.updated_at`, input.ID, input.Provider, input.Name, strings.TrimRight(input.APIBase, "/"), ciphertext, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+	_, err = db.Exec(`insert into media_credentials (id, provider, name, api_base, secret_ciphertext, model_overrides_json, created_at, updated_at)
+values (?, ?, ?, ?, ?, ?, ?, ?)
+on conflict(id) do update set provider=excluded.provider, name=excluded.name, api_base=excluded.api_base, secret_ciphertext=excluded.secret_ciphertext, model_overrides_json=excluded.model_overrides_json, updated_at=excluded.updated_at`, input.ID, input.Provider, input.Name, strings.TrimRight(input.APIBase, "/"), ciphertext, string(overrides), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	return input, err
 }
 
@@ -228,6 +238,34 @@ func apiBaseFor(credential MediaCredential) string {
 	}
 	provider, _ := providerByID(credential.Provider)
 	return strings.TrimRight(provider.DefaultAPIBase, "/")
+}
+
+// apiModelIDFor resolves the upstream model ID for one job: credential-level
+// override first (gateway model IDs drift with dated releases and channel
+// variants), catalog default second.
+func apiModelIDFor(model MediaModel, credential MediaCredential) string {
+	if override := strings.TrimSpace(credential.ModelOverrides[model.ID]); override != "" {
+		return override
+	}
+	return model.APIModelID
+}
+
+// validateModelOverrides keeps credential overrides scoped to their own
+// provider so a typo cannot point one provider's request at another protocol.
+func validateModelOverrides(provider string, overrides map[string]string) error {
+	for modelID, apiModelID := range overrides {
+		model, ok := modelByID(modelID)
+		if !ok {
+			return fmt.Errorf("unknown media model %q in model overrides", modelID)
+		}
+		if model.Provider != provider {
+			return fmt.Errorf("model %q belongs to provider %q, not %q", modelID, model.Provider, provider)
+		}
+		if strings.TrimSpace(apiModelID) == "" {
+			return fmt.Errorf("model override for %q must not be empty", modelID)
+		}
+	}
+	return nil
 }
 
 func (m *MediaService) ListRoutes() ([]MediaRoute, error) {

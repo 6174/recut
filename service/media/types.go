@@ -54,13 +54,18 @@ type MediaVoice struct {
 }
 
 type MediaCredential struct {
-	ID        string    `json:"id"`
-	Provider  string    `json:"provider"`
-	Name      string    `json:"name"`
-	APIBase   string    `json:"apiBase"`
-	SecretSet bool      `json:"secretSet"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string `json:"id"`
+	Provider  string `json:"provider"`
+	Name      string `json:"name"`
+	APIBase   string `json:"apiBase"`
+	SecretSet bool   `json:"secretSet"`
+	// ModelOverrides maps platform model ID -> upstream API model ID for this
+	// credential only. Gateway model IDs drift (dated releases, channel
+	// variants), so a per-credential override is the stable configuration
+	// surface; it wins over the catalog default when present.
+	ModelOverrides map[string]string `json:"modelOverrides,omitempty"`
+	CreatedAt      time.Time         `json:"createdAt"`
+	UpdatedAt      time.Time         `json:"updatedAt"`
 }
 
 type MediaRoute struct {
@@ -133,6 +138,19 @@ type ReferenceAssetInput struct {
 	DurationSec float64 `json:"durationSeconds,omitempty"`
 	ViewCount   int64   `json:"viewCount,omitempty"`
 	LikeCount   int64   `json:"likeCount,omitempty"`
+}
+
+type MediaShare struct {
+	ID          string     `json:"id"`
+	AssetID     string     `json:"assetId"`
+	ContentHash string     `json:"contentHash"`
+	Token       string     `json:"token"`
+	URL         string     `json:"url"`
+	ObjectKey   string     `json:"objectKey"`
+	ExpiresAt   time.Time  `json:"expiresAt"`
+	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 type MediaJob struct {
