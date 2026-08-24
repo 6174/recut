@@ -24,7 +24,7 @@ function useProductMotion(rootRef: RefObject<HTMLDivElement | null>, appId: stri
       if (appId === "recut.cover-studio") motionCover(tl, q);
       if (appId === "recut.depth-anything") motionDepth(tl, q);
       if (appId === "recut.remotion-studio") motionRemotion(tl, q);
-      if (appId === "recut.vox-broll") motionBroll(tl, q);
+      if (appId === "recut.ai-short-film") motionBroll(tl, q);
     }, root);
     return () => ctx.revert();
   }, [appId, rootRef]);
@@ -62,7 +62,7 @@ function visualFor(appId: string) {
   if (appId === "recut.cover-studio") return <CoverVisual />;
   if (appId === "recut.depth-anything") return <DepthVisual />;
   if (appId === "recut.remotion-studio") return <RemotionVisual />;
-  if (appId === "recut.vox-broll") return <BrollVisual />;
+  if (appId === "recut.ai-short-film") return <BrollVisual />;
   return <GenericVisual />;
 }
 

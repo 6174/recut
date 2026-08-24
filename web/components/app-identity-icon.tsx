@@ -7,7 +7,7 @@
 import { AppWindow, Box, Clapperboard, ImageIcon, Music2, Video, type LucideIcon } from "lucide-react";
 
 export function appIcon(appID: string): LucideIcon {
-  if (appID === "recut.vox-broll") return Clapperboard;
+  if (appID === "recut.ai-short-film") return Clapperboard;
   if (appID === "recut.remotion-studio") return Video;
   if (appID === "recut.audio-studio") return Music2;
   if (appID === "recut.cover-studio") return ImageIcon;

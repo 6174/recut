@@ -11,11 +11,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/dop251/goja"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dop251/goja"
 )
 
 func TestComposeMediaInputKeepsCamelCaseTimelineFields(t *testing.T) {
@@ -295,7 +296,7 @@ func TestProjectSetCoverImage(t *testing.T) {
 }
 
 func TestProjectAppsPromoteCompletedDeliveryToCover(t *testing.T) {
-	for _, app := range []string{"remotion-studio", "vox-broll"} {
+	for _, app := range []string{"remotion-studio", "ai-short-film"} {
 		source, err := os.ReadFile(filepath.Join("..", "apps", app, "background.js"))
 		if err != nil {
 			t.Fatal(err)
@@ -306,7 +307,7 @@ func TestProjectAppsPromoteCompletedDeliveryToCover(t *testing.T) {
 	}
 }
 
-func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
+func TestAIShortFilmManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 	apps, err := LoadCatalog(filepath.Join("..", "apps"))
 	if err != nil {
 		t.Fatal(err)
@@ -315,12 +316,12 @@ func TestVoxBrollManifestOperationsRunOnDeclaredSurfaces(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	project, err := store.Create(CreateInput{Name: "Vox operation test", AppID: "recut.vox-broll"})
+	project, err := store.Create(CreateInput{Name: "Vox operation test", AppID: "recut.ai-short-film"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	host := NewAppHost(apps, store)
-	appID := "recut.vox-broll"
+	appID := "recut.ai-short-film"
 
 	if _, err := host.InvokeAPI(Target{ProjectID: project.ID, AppID: appID}, appID, "brief.create", map[string]any{"topic": "测试统一 operation"}); err != nil {
 		t.Fatalf("brief.create API: %v", err)
@@ -481,11 +482,11 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	project, err := store.Create(CreateInput{Name: "Vox media route", AppID: "recut.vox-broll"})
+	project, err := store.Create(CreateInput{Name: "Vox media route", AppID: "recut.ai-short-film"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workflow, err := NewAppHost(apps, store).InvokeAPI(Target{ProjectID: project.ID, AppID: "recut.vox-broll"}, "recut.vox-broll", "workflow.context", map[string]any{})
+	workflow, err := NewAppHost(apps, store).InvokeAPI(Target{ProjectID: project.ID, AppID: "recut.ai-short-film"}, "recut.ai-short-film", "workflow.context", map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,10 +495,10 @@ func TestVoxWorkflowDeclaresPlatformMediaExecution(t *testing.T) {
 	if scenes["kind"] != "平台媒体生成" || scenes["generate"] != "recut.video.generate" {
 		t.Fatalf("scene media route = %#v", scenes)
 	}
-	if _, err := NewAppHost(apps, store).InvokeAPI(Target{ProjectID: project.ID, AppID: "recut.vox-broll"}, "recut.vox-broll", "resource.prepare", map[string]any{"kind": "scenes"}); err == nil {
+	if _, err := NewAppHost(apps, store).InvokeAPI(Target{ProjectID: project.ID, AppID: "recut.ai-short-film"}, "recut.ai-short-film", "resource.prepare", map[string]any{"kind": "scenes"}); err == nil {
 		t.Fatal("resource.prepare scenes must reject an out-of-order stage")
 	}
-	workflowSource, err := os.ReadFile(filepath.Join("..", "apps", "vox-broll", "background.js"))
+	workflowSource, err := os.ReadFile(filepath.Join("..", "apps", "ai-short-film", "background.js"))
 	if err != nil {
 		t.Fatal(err)
 	}

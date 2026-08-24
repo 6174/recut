@@ -53,7 +53,7 @@
 | D5 | **aiLock 锁**：AI 进入多步编辑会话时对 project 打 `aiLock`，iframe 收 `project:locked` 进入只读提示或自动 reload；AI 显式 unlock 或空闲超时解锁。确定性高，避免并发观感问题 |
 | D6 | **同步双档**：P1 广播版本号（`project.document.changed {version}`）+ 前端整份 reload（REST `project.load` 兜底）；P2 升级为 op 描述符增量广播（前端平滑重放，无需 reload） |
 | D7 | **双模导出**：`export.start({ mode: "ui" })`（现有 iframe 编码）与 `export.start({ mode: "headless" })`（Playwright 无头 Chromium 跑共享 Visual Runtime + ffmpeg，复用数据模型 RFC Phase G 基建）。返回平台 jobId，用 `recut.job.*` 观察终态 |
-| D8 | **Skill 分层**：`SKILL.md` 骨架 + `references/` 按需子文档（对齐 remotion-studio/vox-broll 的 references 模式） |
+| D8 | **Skill 分层**：`SKILL.md` 骨架 + `references/` 按需子文档（对齐 remotion-studio/ai-short-film 的 references 模式） |
 | D9 | **冲突防护**：每条写（含 UI save 与 AI op）携带 `baseVersion`；后台 `update ... where version = base_version`（sqlite 条件更新保证原子）；不中返回 `{ conflict: true, currentVersion, opsSince }`，调用方 reload 或重放 |
 
 ### 3.1 决策间的联动
@@ -325,7 +325,7 @@ skills/recut-editor/
     └── preview-export.md     preview.frame 视觉验收、headless/ui 双模导出、封面设置
 ```
 
-- `SKILL.md` 只放骨架；数据字典/params/关键帧语义拆进 references 按需加载（`recut.skills.read`/`recut.skills.reference`），对齐 remotion-studio/vox-broll 模式（D8）。
+- `SKILL.md` 只放骨架；数据字典/params/关键帧语义拆进 references 按需加载（`recut.skills.read`/`recut.skills.reference`），对齐 remotion-studio/ai-short-film 模式（D8）。
 - **同步删除 SKILL 中一切对 `project.load`/`project.save` 的手写 JSON 指引**——那是 mcp 不可达路径，替换为对 Model API 工具的调用。
 
 ## 10. 分阶段实施路线

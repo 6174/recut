@@ -24,7 +24,7 @@
 ## 2. 现状与问题
 
 - 服务端暴露 6 个长连接端点；其中 project(WS)/media(SSE)/agent(SSE) 3 条各自用 1s ticker 直接查 DB（`changeHubPollInterval`）。
-- 宿主页常驻 3 条（app SSE + media SSE + agent SSE），项目页再加 1 条 project WS，共 4 条；iframe App（vox-broll/cover-studio）各再开 1 条 media SSE。
+- 宿主页常驻 3 条（app SSE + media SSE + agent SSE），项目页再加 1 条 project WS，共 4 条；iframe App（ai-short-film/cover-studio）各再开 1 条 media SSE。
 - 同样数据被多处重复推送；每连接每秒轮询 DB，连接越多开销越大。
 - 首屏数据绑在长连接 snapshot 里，出现"正在读取资源…"卡死（已加 REST 兜底缓解，但设计仍是混合）。
 
@@ -148,14 +148,14 @@ RealtimeChannel（接口，iframe 内统一消费）
 ## 9. 分阶段实施
 
 - **Phase 1（media + project + app）**：服务端 EventBus + forwarders + `/v1/events` 泛化；web 端 media/app/project 三个消费方切到共享单例；`use-media-asset-events` 改 REST 首屏。可独立验收（素材库/选择器/项目事件不再多连接）。
-- **Phase 2（agent/cli/terminal）**：agent、cli、terminal 收编进 channels；宿主 web 全部消费方切到单 WS，页面 EventSource 归零。旧 SSE 端点保留供 iframe App（vox-broll/cover-studio 的 media）与 remotion-studio（terminal）使用，标记为 legacy。
-- **Phase 3（iframe 传输抽象）**：`RealtimeChannel` 接口 + 宿主桥转发 + 直连 WS 客户端；vox-broll/cover-studio 迁移；移除旧 SSE 路由与每连接 1s 轮询（若 forwarders 已覆盖）。
+- **Phase 2（agent/cli/terminal）**：agent、cli、terminal 收编进 channels；宿主 web 全部消费方切到单 WS，页面 EventSource 归零。旧 SSE 端点保留供 iframe App（ai-short-film/cover-studio 的 media）与 remotion-studio（terminal）使用，标记为 legacy。
+- **Phase 3（iframe 传输抽象）**：`RealtimeChannel` 接口 + 宿主桥转发 + 直连 WS 客户端；ai-short-film/cover-studio 迁移；移除旧 SSE 路由与每连接 1s 轮询（若 forwarders 已覆盖）。
 
 ## 10. 测试与验证
 
 - Go：`EventBus` 并发扇出、订阅/退订、心跳超时断开、重连重订阅、forwarder 账本增量、跨进程（MCP）写入经 1s ticker 兜底送达。
 - web（Playwright）：素材库页/选择器/项目页各只开 1 条 WS（Network 断言无 EventSource 且 `ws` 连接数=1）；断线重连后 `ready` 恢复且数据不丢；心跳无死链。
-- 回归：编辑器从 Recut assets 导入、Agent 对话事件、终端输出、App 安装刷新、vox-broll/cover-studio 素材展示。
+- 回归：编辑器从 Recut assets 导入、Agent 对话事件、终端输出、App 安装刷新、ai-short-film/cover-studio 素材展示。
 
 ## 11. 风险与取舍
 

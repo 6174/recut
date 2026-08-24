@@ -9,7 +9,7 @@ audio-studio-landing.tsx: 基于 ASR 转写、SRT/ASS、声音角色与本地配
 cover-studio-landing.tsx: 基于渠道尺寸、参考图、参考封面与系列画板的封面工作流 Landing。
 depth-anything-landing.tsx: 基于 Small/Base/Large、图片/视频推理、伪彩/灰度与保存入库的深度工作流 Landing。
 remotion-studio-landing.tsx: 基于 Brief、模板、workspace composition、Vite 预览与本地 MP4 渲染的代码视频 Landing。
-vox-broll-landing.tsx: 基于立项、资料研究、创作方案、脚本/场景、B-roll 与确定性交付的 AI 短片 Landing。
+ai-short-film-landing.tsx: 基于立项、资料研究、创作方案、脚本/场景、B-roll 与确定性交付的 AI 短片 Landing。
 index.ts: 唯一静态 appId → 独立 Landing 组件注册表，只负责分发。
 
 设计边界

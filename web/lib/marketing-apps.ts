@@ -414,7 +414,7 @@ Export renders locally to MP4, archives automatically as an asset and sets the p
 - Render and export MP4 locally, archived automatically as an asset and cover
 - Media and project stay on your machine — local-first, no uploads`,
   },
-  "recut.vox-broll": {
+  "recut.ai-short-film": {
     name: "AI Short Films",
     tagline: "Hand a topic to AI and get a reviewable, further-editable B-roll narration short film",
     description: "An AI narration video tool: input a topic and it automatically structures the narrative and storyboard, producing a reviewable narration script with matching B-roll; picture, voice-over and pacing are arranged on a local timeline, the finished video exports, the project keeps going, and no media uploads. Built for knowledge and opinion creators and narration channels — go from topic to finished video in one flow, free to try.",

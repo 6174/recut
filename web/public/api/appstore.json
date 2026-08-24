@@ -2,10 +2,10 @@
   "version": 1,
   "apps": [
     {
-      "appId": "recut.vox-broll",
+      "appId": "recut.ai-short-film",
       "author": "6174",
       "kind": "project",
-      "repository": "https://github.com/6174/recut-vox-broll.git",
+      "repository": "https://github.com/6174/recut-ai-short-film.git",
       "name": { "zh": "AI 短片", "en": "AI Short Films" },
       "description": {
         "zh": "将一个主题制作成可审阅、可继续制作的 Vox 风格 B-roll 解说片。",

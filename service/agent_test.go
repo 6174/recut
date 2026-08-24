@@ -29,12 +29,12 @@ func TestAttachmentPromptPreservesAssetIdentity(t *testing.T) {
 
 func TestMaterializePageContextRendersStructuredPage(t *testing.T) {
 	manager := NewAgentManager(NewStore(t.TempDir(), nil), nil, nil)
-	payload := json.RawMessage(`{"title":"分镜编辑","path":"/workspace-app/vox-broll","selection":"scene-3 的镜头","content":"镜头 B-roll 素材"}`)
+	payload := json.RawMessage(`{"title":"分镜编辑","path":"/workspace-app/ai-short-film","selection":"scene-3 的镜头","content":"镜头 B-roll 素材"}`)
 	material, err := materializePageContext(manager, payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"[当前页面]", "标题=分镜编辑", "路径=/workspace-app/vox-broll", "选中内容=scene-3 的镜头", "页面内容=镜头 B-roll 素材"} {
+	for _, expected := range []string{"[当前页面]", "标题=分镜编辑", "路径=/workspace-app/ai-short-film", "选中内容=scene-3 的镜头", "页面内容=镜头 B-roll 素材"} {
 		if !strings.Contains(material.Text, expected) {
 			t.Fatalf("page material missing %q: %s", expected, material.Text)
 		}

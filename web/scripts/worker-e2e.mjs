@@ -56,8 +56,8 @@ const cases = [
   ["zh 浏览器文章深链 → 302 /zh/blog/…", "recut.video", "/blog/local-first-creative-workspace", { "accept-language": "zh-CN" }, { status: 302, location: "/zh/blog/local-first-creative-workspace/" }],
   ["/zh/blog/… 出中文正文", "recut.video", "/zh/blog/local-first-creative-workspace/", {}, { status: 200, bodyContains: "为什么 AI 视频创作应该本地优先" }],
   ["/blog/… 出英文正文", "recut.video", "/blog/local-first-creative-workspace/", {}, { status: 200, bodyContains: "Why AI video creation should be local-first" }],
-  ["/apps/:id 英文 App 详情", "recut.video", "/apps/recut.vox-broll/", {}, { status: 200, bodyContains: "AI Short Films" }],
-  ["/zh/apps/:id 中文 App 详情", "recut.video", "/zh/apps/recut.vox-broll/", {}, { status: 200, bodyContains: "AI 短片" }],
+  ["/apps/:id 英文 App 详情", "recut.video", "/apps/recut.ai-short-film/", {}, { status: 200, bodyContains: "AI Short Films" }],
+  ["/zh/apps/:id 中文 App 详情", "recut.video", "/zh/apps/recut.ai-short-film/", {}, { status: 200, bodyContains: "AI 短片" }],
   ["/zh/docs 出中文 Docs", "recut.video", "/zh/docs/", {}, { status: 200, bodyContains: "从第一支视频开始。" }],
   ["/docs 出英文 Docs", "recut.video", "/docs/", {}, { status: 200, bodyContains: "Start with your first video." }],
   ["App Host /docs → 404（官网语义不进入工作台）", "app.recut.video", "/docs", {}, { status: 404 }],
@@ -65,7 +65,7 @@ const cases = [
   ["www.recut.video → 301 裸域", "www.recut.video", "/docs", {}, { status: 301, location: "/docs" }],
   ["未知路径 /foo → 404", "recut.video", "/foo", {}, { status: 404 }],
   ["/zh/ 下未知 /zh/foo → 404", "recut.video", "/zh/foo", {}, { status: 404 }],
-  ["市场 API /api/appstore.json → 200 且带 CORS", "recut.video", "/api/appstore.json", { "accept-language": "en-US" }, { status: 200, bodyContains: "\"recut.vox-broll\"", header: { "Access-Control-Allow-Origin": "*" } }],
+  ["市场 API /api/appstore.json → 200 且带 CORS", "recut.video", "/api/appstore.json", { "accept-language": "en-US" }, { status: 200, bodyContains: "\"recut.ai-short-film\"", header: { "Access-Control-Allow-Origin": "*" } }],
 ];
 
 let pass = 0;

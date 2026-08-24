@@ -9,6 +9,6 @@ import { AudioStudioLanding } from "./audio-studio-landing";
 import { CoverStudioLanding } from "./cover-studio-landing";
 import { DepthAnythingLanding } from "./depth-anything-landing";
 import { RemotionStudioLanding } from "./remotion-studio-landing";
-import { VoxBrollLanding } from "./vox-broll-landing";
+import { AIShortFilmLanding } from "./ai-short-film-landing";
 type Landing = React.ComponentType<{ locale: Locale }>;
-export const appLandingRegistry: Record<string, Landing> = { "recut.audio-studio": AudioStudioLanding, "recut.cover-studio": CoverStudioLanding, "recut.depth-anything": DepthAnythingLanding, "recut.remotion-studio": RemotionStudioLanding, "recut.vox-broll": VoxBrollLanding };
+export const appLandingRegistry: Record<string, Landing> = { "recut.audio-studio": AudioStudioLanding, "recut.cover-studio": CoverStudioLanding, "recut.depth-anything": DepthAnythingLanding, "recut.remotion-studio": RemotionStudioLanding, "recut.ai-short-film": AIShortFilmLanding };

@@ -12,7 +12,7 @@ RECUT_HOME ?= $(HOME)/.recut
 APP ?=
 SERVICE_PORT ?= 17373
 STREAM_PORT ?= 17374
-RECUT_VERSION ?= 0.1.35
+RECUT_VERSION ?= 0.1.36
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -179,7 +179,7 @@ web-deploy: service-release cd-upload web-build-cloudflare ## Package the servic
 
 deploy: web-deploy ## Build macOS service release assets and deploy the complete web workspace to Cloudflare.
 
-app-link: ## Link one local App package (APP=apps/vox-broll) or every local package into ~/.recut/apps.
+app-link: ## Link one local App package (APP=apps/ai-short-film) or every local package into ~/.recut/apps.
 	@set -e; \
 	if [ -n "$(APP)" ]; then set -- "$(APP)"; else set -- apps/*; fi; \
 	mkdir -p "$(RECUT_HOME)/apps"; \

@@ -1,6 +1,6 @@
-[submodule "recut-vox-broll"]
-	path = apps/vox-broll
-	url = git@github.com:6174/recut-vox-broll.git
+[submodule "recut-ai-short-film"]
+	path = apps/ai-short-film
+	url = git@github.com:6174/recut-ai-short-film.git
 	branch = main
 [submodule "recut-depth-anything-v2"]
 	path = apps/depth-anything

@@ -1,10 +1,10 @@
 [
   {
-    "appId": "recut.vox-broll",
+    "appId": "recut.ai-short-film",
     "name": "AI 短片",
     "description": "把一个主题做成可研究、可审阅、可继续生产的 AI 短片（立项→资料研究→创作方案→剧本与场景方案→成片交付）。",
     "kind": "project",
-    "repository": "https://github.com/6174/recut-vox-broll.git",
+    "repository": "https://github.com/6174/recut-ai-short-film.git",
     "localized": {
       "en": {
         "name": "AI Short Films",

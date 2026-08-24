@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Locale 与 LandingStep；依据 Vox B-roll 的立项、研究、人工闸门、场景生成、确定性交付和交接包契约
- * [OUTPUT]: 对外提供 VoxBrollLanding
+ * [OUTPUT]: 对外提供 AIShortFilmLanding
  * [POS]: Vox B-roll 专属营销 Landing；用纵向创作闸门和双轨交付台表达真实短片工作流，不与其他 App 共享主体布局
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -9,7 +9,7 @@ import { LandingStep } from "./landing-primitives";
 
 const steps = ["立项", "资料研究", "创作方案", "剧本与场景", "视觉与声音", "场景视频"];
 
-export function VoxBrollLanding({ locale }: { locale: Locale }) {
+export function AIShortFilmLanding({ locale }: { locale: Locale }) {
   const zh = locale === "zh";
   return <section className="border-t border-white/10 pt-14">
     <header className="mx-auto max-w-3xl text-center">

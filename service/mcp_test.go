@@ -316,7 +316,7 @@ func TestMediaMCPToolsBypassAppToolBoundary(t *testing.T) {
 			t.Fatalf("platform media tool %q was not recognized", name)
 		}
 	}
-	if isMediaMCPTool("recut.vox-broll.create_resource") {
+	if isMediaMCPTool("recut.ai-short-film.create_resource") {
 		t.Fatal("App tool was misclassified as a platform media tool")
 	}
 }

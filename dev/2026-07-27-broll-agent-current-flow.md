@@ -27,7 +27,7 @@ flowchart TD
   H --> Q[workspace.sqlite: agent_turns queued]
   Q --> R[AgentManager 单会话 runner]
   R --> C[Codex CLI exec / resume]
-  C --> G[临时项目 AGENTS.md\n注入 platform guide + apps/vox-broll/AGENTS.md]
+  C --> G[临时项目 AGENTS.md\n注入 platform guide + apps/ai-short-film/AGENTS.md]
   C --> M[MCP stdio: recut-mcp]
   M --> P[recut.project_context]
   M --> L[tools/list]
@@ -41,7 +41,7 @@ flowchart TD
   W --> HTTP[Provider /images/generations]
   HTTP --> AS[保存 asset + attach project]
   AS --> DONE[media_jobs completed + assetIds]
-  DONE --> SAVE[recut.vox-broll.create_resource\nLook: assetId + exact prompt]
+  DONE --> SAVE[recut.ai-short-film.create_resource\nLook: assetId + exact prompt]
   SAVE --> ART[App SQLite resource + Artifact]
   H --> SSE[SSE agent events]
   SSE --> UI[project-agent-panel 时间线]
@@ -63,10 +63,10 @@ flowchart TD
 每次 Codex 回合会在项目临时目录写入：
 
 - 平台规则：先 `recut.project_context`，再 `tools/list`；生成前读取 `recut.media.configuration`；禁止直接读写项目文件。
-- `apps/vox-broll/AGENTS.md`：规定 `Brief → Beats → Look → Keyframes → Motion → Audio → Delivery`，Look 必须有图片 `assetId` 与原始 `prompt`。
+- `apps/ai-short-film/AGENTS.md`：规定 `Brief → Beats → Look → Keyframes → Motion → Audio → Delivery`，Look 必须有图片 `assetId` 与原始 `prompt`。
 - Recut MCP 配置：短生命周期 session token 通过子进程环境传入，MCP Host 按当前项目的 manifest 暴露工具。
 
-MCP `tools/list` 实际暴露两类能力：平台按意图划分的 `recut.image.generate`、`recut.video.generate_async`、`recut.speech.generate_async`，以及 `recut.media.*`（configuration / get_job / list_assets / attach）；App 侧为 `recut.vox-broll.*`（generate_brief / create_resource / retire_resource / delete_resource）。
+MCP `tools/list` 实际暴露两类能力：平台按意图划分的 `recut.image.generate`、`recut.video.generate_async`、`recut.speech.generate_async`，以及 `recut.media.*`（configuration / get_job / list_assets / attach）；App 侧为 `recut.ai-short-film.*`（generate_brief / create_resource / retire_resource / delete_resource）。
 
 这里的关键事实是：**注入的是行为说明，不是编排器**。`resource.prepare(kind=Look)` 只返回一段提示词，要求模型「依次生成 3 张图、轮询、保存资源、停下」。没有服务端状态机、没有循环预算、没有超时完成语义，也没有“一个 Look 计划”的父记录。
 
@@ -77,7 +77,7 @@ MCP `tools/list` 实际暴露两类能力：平台按意图划分的 `recut.imag
 1. 为候选 A/B/C 起草提示词。
 2. 调用 `recut.media.configuration`。
 3. 每个候选调用 `recut.image.generate(text, output)`；同步返回 `assetIds` 或终态错误。
-4. 仅当结果带有 `assetIds` 时，调用 `recut.vox-broll.create_resource` 保存 `{ assetId, prompt, ... }`。
+4. 仅当结果带有 `assetIds` 时，调用 `recut.ai-short-film.create_resource` 保存 `{ assetId, prompt, ... }`。
 5. 停下来等用户选择，才允许进入 Keyframes。
 
 这条规定避免了“无图 Look”进入后续阶段，但只把完整性责任推给了 LLM。真实聊天记录已经出现两种偏差：旧版提示词先创建文字 Look 再让用户选 A；新版才要求先生成图片。清理旧 Look 后，历史回答/Artifact 仍说 Look 已完成，而 App 当前资源表并不承认它。
@@ -148,7 +148,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | 项目 ID、App ID、版本 | `project.sqlite` | `recut.project_context` | 可见，但只是身份。|
 | Artifact 历史 | `project.sqlite` | `recut.project_context` 返回全部 | 包含已淘汰 Look，不能作为当前状态。|
-| Brief / Beats / Look 的当前有效资源 | `apps/recut.vox-broll/storage.sqlite` | **MCP 不可读** | 这是业务真相，但 Agent 无法用工具读取。|
+| Brief / Beats / Look 的当前有效资源 | `apps/recut.ai-short-film/storage.sqlite` | **MCP 不可读** | 这是业务真相，但 Agent 无法用工具读取。|
 | UI 中勾选的依赖 | iframe 内存 → `resource.prepare` | 被序列化为字符串 | 没有由平台验证它们是否是阶段所需的、仍有效的前置资源。|
 | 媒体 Job 状态 | `workspace.sqlite` | `recut.media.get_job` | 仅在 Agent 记得 `jobId` 时可读。|
 | 前次聊天 | native Codex thread | 隐式续聊 | 可能携带过期断言，不是状态真相。|
@@ -172,7 +172,7 @@ flowchart LR
 
 目标不是把所有项目数据库原样塞进 prompt，而是让 App 产生一份**唯一、紧凑、版本化、可验证的创作状态包**。它必须是 App capability 的返回值，不能让平台或 Agent 直接读取 App SQLite。
 
-建议新增只读 MCP 工具，例如 `recut.vox-broll.workflow_context`，返回固定结构：
+建议新增只读 MCP 工具，例如 `recut.ai-short-film.workflow_context`，返回固定结构：
 
 ```json
 {
@@ -272,7 +272,7 @@ flowchart TD
 
 App Guide 曾混入平台工具名、Job 轮询和保存实现，导致创作概念与执行机制互相污染。现已拆开：
 
-- `apps/vox-broll/AGENTS.md` 只描述 B-roll 的七阶段、阶段关系、媒体在叙事中的作用、审美标准和审批门。
+- `apps/ai-short-film/AGENTS.md` 只描述 B-roll 的七阶段、阶段关系、媒体在叙事中的作用、审美标准和审批门。
 - 平台 Guide 负责当前项目状态、默认媒体配置、工具发现、同步/异步调用和持久化。
 - App 生成的单次任务书只包含阶段、已有输入、用户意图和本阶段交付，不包含 `recut.*`、Job、轮询或内部 JSON 契约。
 
@@ -282,8 +282,8 @@ App Guide 曾混入平台工具名、Job 轮询和保存实现，导致创作概
 
 | 位置 | 当前职责 |
 | --- | --- |
-| `apps/vox-broll/background.js` | 业务资源表与 `resource.prepare`；Look 规则目前仅为给 Agent 的长提示词。|
-| `apps/vox-broll/AGENTS.md` | B-roll 阶段、审批门与 Look 完整性约束。|
+| `apps/ai-short-film/background.js` | 业务资源表与 `resource.prepare`；Look 规则目前仅为给 Agent 的长提示词。|
+| `apps/ai-short-film/AGENTS.md` | B-roll 阶段、审批门与 Look 完整性约束。|
 | `service/bridge.go` | 每回合向 Codex 写入平台规则、App Guide 与 MCP 配置。|
 | `service/mcp.go` | 将 `recut.media.*` 和 manifest MCP 工具按项目会话路由。|
 | `service/media.go` | 2 分钟 HTTP timeout、异步 goroutine Job、重启失败恢复。|

@@ -61,7 +61,7 @@ func TestSessionGuideIsPlatformOnlyAndVoxSkillIsDiscoverable(t *testing.T) {
 	if bytes.Contains(guide, []byte("Vox 提示词与导演语言")) {
 		t.Fatal("session guide must not embed any App's domain workflow")
 	}
-	vox, ok := apps.Get("recut.vox-broll")
+	vox, ok := apps.Get("recut.ai-short-film")
 	if !ok {
 		t.Fatal("Vox B-roll app is unavailable")
 	}
@@ -75,7 +75,7 @@ func TestSessionGuideIsPlatformOnlyAndVoxSkillIsDiscoverable(t *testing.T) {
 	if !bytes.Contains([]byte(skills[0].Body), []byte("关键画面：五段提示词结构")) {
 		t.Fatal("Vox skill body must retain the domain prompt language")
 	}
-	appGuide, err := os.ReadFile(filepath.Join(vox.Root, "skills", "vox-broll", "SKILL.md"))
+	appGuide, err := os.ReadFile(filepath.Join(vox.Root, "skills", "ai-short-film", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

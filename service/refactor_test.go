@@ -18,12 +18,12 @@ import (
 func TestSkillDiscoveryFromStandardTreeAndAgentsFallback(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, "apps", "example")
-	if err := os.MkdirAll(filepath.Join(appDir, "skills", "vox-broll", "references"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(appDir, "skills", "ai-short-film", "references"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
-	writeTestFile(t, filepath.Join(appDir, "skills", "vox-broll", "SKILL.md"), "---\nname: vox-broll\ndescription: Vox 风格解说片。\nreferences: [references/prompt-library.md]\n---\n# Vox 工作流\n关键画面：五段提示词结构")
-	writeTestFile(t, filepath.Join(appDir, "skills", "vox-broll", "references", "prompt-library.md"), "提示词库正文")
+	writeTestFile(t, filepath.Join(appDir, "skills", "ai-short-film", "SKILL.md"), "---\nname: ai-short-film\ndescription: Vox 风格解说片。\nreferences: [references/prompt-library.md]\n---\n# Vox 工作流\n关键画面：五段提示词结构")
+	writeTestFile(t, filepath.Join(appDir, "skills", "ai-short-film", "references", "prompt-library.md"), "提示词库正文")
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func TestSkillDiscoveryFromStandardTreeAndAgentsFallback(t *testing.T) {
 		t.Fatalf("skills = %#v, err = %v", skills, err)
 	}
 	skill := skills[0]
-	if skill.ID != "vox-broll" || !strings.Contains(skill.Body, "关键画面") || len(skill.References) != 1 {
+	if skill.ID != "ai-short-film" || !strings.Contains(skill.Body, "关键画面") || len(skill.References) != 1 {
 		t.Fatalf("skill = %#v", skill)
 	}
 
@@ -64,13 +64,13 @@ func TestSkillDiscoveryFromStandardTreeAndAgentsFallback(t *testing.T) {
 func TestMCPSkillToolsReadReference(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, "apps", "example")
-	if err := os.MkdirAll(filepath.Join(appDir, "skills", "vox-broll", "references"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(appDir, "skills", "ai-short-film", "references"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
-	writeTestFile(t, filepath.Join(appDir, "skills", "vox-broll", "SKILL.md"), "---\nname: vox-broll\ndescription: Vox 风格解说片。\nreferences: [notes.md, timeline-workflow.md]\n---\n# 正文")
-	writeTestFile(t, filepath.Join(appDir, "skills", "vox-broll", "notes.md"), "补充材料")
-	writeTestFile(t, filepath.Join(appDir, "skills", "vox-broll", "references", "timeline-workflow.md"), "时间线工作流")
+	writeTestFile(t, filepath.Join(appDir, "skills", "ai-short-film", "SKILL.md"), "---\nname: ai-short-film\ndescription: Vox 风格解说片。\nreferences: [notes.md, timeline-workflow.md]\n---\n# 正文")
+	writeTestFile(t, filepath.Join(appDir, "skills", "ai-short-film", "notes.md"), "补充材料")
+	writeTestFile(t, filepath.Join(appDir, "skills", "ai-short-film", "references", "timeline-workflow.md"), "时间线工作流")
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestMCPSkillToolsReadReference(t *testing.T) {
 	call := func(name string, args string) (any, error) {
 		return handleMCP(bridge, host, nil, session, mcpRequest{Method: "tools/call", Params: json.RawMessage(`{"name":"` + name + `","arguments":` + args + `}`)})
 	}
-	result, err := call("recut.skills.read", `{"appId":"example.app","skillId":"vox-broll"}`)
+	result, err := call("recut.skills.read", `{"appId":"example.app","skillId":"ai-short-film"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestMCPSkillToolsReadReference(t *testing.T) {
 	if !strings.Contains(read["body"].(string), "# 正文") {
 		t.Fatalf("skill body = %#v", read)
 	}
-	result, err = call("recut.skills.reference", `{"appId":"example.app","skillId":"vox-broll","path":"notes.md"}`)
+	result, err = call("recut.skills.reference", `{"appId":"example.app","skillId":"ai-short-film","path":"notes.md"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestMCPSkillToolsReadReference(t *testing.T) {
 	if !strings.Contains(ref["content"].(string), "补充材料") {
 		t.Fatalf("reference = %#v", ref)
 	}
-	result, err = call("recut.skills.reference", `{"appId":"example.app","skillId":"vox-broll","path":"timeline-workflow.md"}`)
+	result, err = call("recut.skills.reference", `{"appId":"example.app","skillId":"ai-short-film","path":"timeline-workflow.md"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestMCPSkillToolsReadReference(t *testing.T) {
 	if bare["path"] != "references/timeline-workflow.md" || bare["content"] != "时间线工作流" {
 		t.Fatalf("bare reference = %#v", bare)
 	}
-	if _, err := call("recut.skills.reference", `{"appId":"example.app","skillId":"vox-broll","path":"../manifest.json"}`); err == nil {
+	if _, err := call("recut.skills.reference", `{"appId":"example.app","skillId":"ai-short-film","path":"../manifest.json"}`); err == nil {
 		t.Fatal("skill reference escaped the skill directory")
 	}
 }
@@ -182,25 +182,25 @@ func TestVoxProjectIsolationAcrossSharedAppSqlite(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := NewAppHost(apps, store, NewMediaService(store))
-	first, err := store.Create(CreateInput{Name: "A", AppID: "recut.vox-broll"})
+	first, err := store.Create(CreateInput{Name: "A", AppID: "recut.ai-short-film"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.Create(CreateInput{Name: "B", AppID: "recut.vox-broll"})
+	second, err := store.Create(CreateInput{Name: "B", AppID: "recut.ai-short-film"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, project := range []Project{first, second} {
-		target := Target{ProjectID: project.ID, AppID: "recut.vox-broll"}
-		if _, err := host.InvokeMCP(target, "recut.vox-broll", "brief.create", map[string]any{"topic": "属于 " + project.Name}); err != nil {
+		target := Target{ProjectID: project.ID, AppID: "recut.ai-short-film"}
+		if _, err := host.InvokeMCP(target, "recut.ai-short-film", "brief.create", map[string]any{"topic": "属于 " + project.Name}); err != nil {
 			t.Fatalf("brief.create %s: %v", project.Name, err)
 		}
 	}
 	// Each project sees only its own brief even though all rows live in the
-	// same appstate/<recut.vox-broll>/storage.sqlite.
+	// same appstate/<recut.ai-short-film>/storage.sqlite.
 	for _, project := range []Project{first, second} {
-		target := Target{ProjectID: project.ID, AppID: "recut.vox-broll"}
-		result, err := host.InvokeMCP(target, "recut.vox-broll", "workflow.context", map[string]any{})
+		target := Target{ProjectID: project.ID, AppID: "recut.ai-short-film"}
+		result, err := host.InvokeMCP(target, "recut.ai-short-film", "workflow.context", map[string]any{})
 		if err != nil {
 			t.Fatalf("workflow.context %s: %v", project.Name, err)
 		}
@@ -258,7 +258,7 @@ func TestMCPAppManagementTools(t *testing.T) {
 	for _, entry := range storeItems {
 		storeAppIDs[entry["appId"].(string)] = true
 	}
-	for _, appID := range []string{"recut.vox-broll", "recut.remotion-studio", "recut.cover-studio", "recut.depth-anything", "recut.audio-studio"} {
+	for _, appID := range []string{"recut.ai-short-film", "recut.remotion-studio", "recut.cover-studio", "recut.depth-anything", "recut.audio-studio"} {
 		if !storeAppIDs[appID] {
 			t.Fatalf("app store omits %q: %#v", appID, storeItems)
 		}

@@ -244,7 +244,7 @@ func platformMCPToolDefinitions(locale Locale) []map[string]any {
 		platformTool("recut.apps.list", mcpDescription(locale, "recut.apps.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.apps.store", mcpDescription(locale, "recut.apps.store"), map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.apps.install", mcpDescription(locale, "recut.apps.install"), map[string]any{"type": "object", "required": []string{"repository"}, "properties": map[string]any{"repository": map[string]string{"type": "string", "description": "GitHub 仓库 URL（git@… 或 https://…）。"}}}),
-		platformTool("recut.apps.update", mcpDescription(locale, "recut.apps.update"), map[string]any{"type": "object", "properties": map[string]any{"package": map[string]string{"type": "string", "description": "可选：要更新的 App 包名（如 recut-vox-broll）；缺省更新全部。"}}}),
+		platformTool("recut.apps.update", mcpDescription(locale, "recut.apps.update"), map[string]any{"type": "object", "properties": map[string]any{"package": map[string]string{"type": "string", "description": "可选：要更新的 App 包名（如 recut-ai-short-film）；缺省更新全部。"}}}),
 		platformTool("recut.skills.list", mcpDescription(locale, "recut.skills.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.skills.read", mcpDescription(locale, "recut.skills.read"), map[string]any{"type": "object", "required": []string{"appId", "skillId"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}}}),
 		platformTool("recut.skills.reference", mcpDescription(locale, "recut.skills.reference"), map[string]any{"type": "object", "required": []string{"appId", "skillId", "path"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}, "path": map[string]string{"type": "string"}}}),
@@ -589,12 +589,12 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 func recutIntegrationContext(apps []App, storeApps []StoreApp) map[string]any {
 	result := map[string]any{}
 	audio := map[string]any{
-		"appId": "recut.audio-studio",
+		"appId":      "recut.audio-studio",
 		"capability": "transcription",
-		"installed": false,
-		"mcpReady": false,
-		"status": "not-installed",
-		"action": "Use recut.apps.install with the Audio Studio repository, then start a new Agent session.",
+		"installed":  false,
+		"mcpReady":   false,
+		"status":     "not-installed",
+		"action":     "Use recut.apps.install with the Audio Studio repository, then start a new Agent session.",
 	}
 	for _, app := range apps {
 		if app.Manifest.ID != "recut.audio-studio" {

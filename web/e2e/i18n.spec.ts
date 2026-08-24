@@ -66,9 +66,9 @@ test("文章深链 hydration 不落入 404，分享 URL 逐语言正确（zh 正
 });
 
 test("App 详情页双语言渲染", async ({ context, browser }) => {
-  const en = await openIn(context, "/apps/recut.vox-broll/");
+  const en = await openIn(context, "/apps/recut.ai-short-film/");
   await expect(en.locator("h1").first()).toContainText("AI Short Films");
-  const zh = await openIn(await browser.newContext({ locale: "zh-CN" }), "/zh/apps/recut.vox-broll/");
+  const zh = await openIn(await browser.newContext({ locale: "zh-CN" }), "/zh/apps/recut.ai-short-film/");
   await expect(zh.locator("h1").first()).toContainText("AI 短片");
 });
 
