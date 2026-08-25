@@ -98,8 +98,10 @@ func (m *MediaService) listAssets(projectID string) ([]MediaAsset, error) {
 	}
 	query := `select a.` + strings.ReplaceAll(assetColumns, ", ", ", a.") + ` from media_assets a`
 	args := []any{}
+	// 只排除被删除的墓碑，保留 queued/running/legacy 等仍在库里的素材。
+	query += " where coalesce(a.status, '') != 'deleted'"
 	if projectID != "" {
-		query += " join media_asset_projects p on p.asset_id = a.id where p.project_id = ?"
+		query += " and exists (select 1 from media_asset_projects p where p.asset_id = a.id and p.project_id = ?)"
 		args = append(args, projectID)
 	}
 	query += " order by a.created_at desc"
@@ -349,13 +351,12 @@ func (m *MediaService) Attach(assetID, projectID string) error {
 	if _, err := projectExists(m.store, projectID); err != nil {
 		return err
 	}
-	asset, err := m.GetAsset(assetID)
-	if err != nil {
+	if _, err := m.GetAsset(assetID); err != nil {
 		return err
 	}
-	if asset.Status == "deleted" {
-		return errors.New("deleted media cannot be attached")
-	}
+	// 媒体库是引用网络：attach 只建立 asset_id ↔ project_id 的引用连接。素材即使已删除
+	// （墓碑），时间线/registeredAssets 仍可能引用该 id，重新挂回项目是合法引用操作，
+	// 不应硬性报错。删除状态保留在素材本身，不会因此重新出现在库列表。
 	db, err := m.database()
 	if err != nil {
 		return err
@@ -366,6 +367,45 @@ func (m *MediaService) Attach(assetID, projectID string) error {
 	}
 	now := time.Now().UTC()
 	if err := attachTx(tx, assetID, projectID, now); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := recordAssetEvent(tx, assetID, now); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	m.publishAssetChange()
+	return nil
+}
+
+// DetachProjectAsset removes only the reference link between one Asset and one
+// Project. The Asset itself — its status, content file and attachments to any
+// other Project — is untouched. This is the correct semantics for deleting a
+// media card from a project's asset panel: the global media library is a shared
+// reference network, so removing a reference must never delete the shared Asset.
+func (m *MediaService) DetachProjectAsset(assetID, projectID string) error {
+	if _, err := projectExists(m.store, projectID); err != nil {
+		return err
+	}
+	if _, err := m.GetAsset(assetID); err != nil {
+		return err
+	}
+	db, err := m.database()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if _, err := tx.Exec(
+		"delete from media_asset_projects where asset_id = ? and project_id = ?",
+		assetID, projectID,
+	); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -1179,7 +1219,7 @@ func (m *MediaService) persistImportedFile(temporaryPath, contentHash string, si
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	existing, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where content_hash = ?", contentHash))
+	existing, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where content_hash = ? and status = 'completed'", contentHash))
 	if err == nil {
 		return existing, nil
 	}

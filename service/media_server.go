@@ -388,6 +388,15 @@ func (s *Server) updateMediaAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteMediaAsset(w http.ResponseWriter, r *http.Request) {
+	// 带 projectId 则是「从当前项目解除引用」，全局素材保留；不带才是真正全局删除素材。
+	if projectID := strings.TrimSpace(r.URL.Query().Get("projectId")); projectID != "" {
+		if err := s.media.DetachProjectAsset(r.PathValue("id"), projectID); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err := s.media.DeleteAsset(r.PathValue("id")); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

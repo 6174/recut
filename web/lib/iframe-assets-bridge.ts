@@ -132,8 +132,10 @@ export async function handleIframeAssetsRequest(
       return { handled: true, result: null };
     }
     case "assets.delete": {
+      assertProjectScope(input, options.projectID);
       const assetID = requireAssetID(input);
-      await responsePayload(await fetch(`${base}/v1/media/assets/${encodeURIComponent(assetID)}`, {
+      // 素材面板删除 = 从当前项目解除引用（全局素材保留），非全局删除。
+      await responsePayload(await fetch(`${base}/v1/media/assets/${encodeURIComponent(assetID)}?projectId=${encodeURIComponent(options.projectID)}`, {
         method: "DELETE",
         headers,
       }));

@@ -290,7 +290,8 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
           const incoming = frame.data as AgentEvent;
           setDetail((current) => {
             const next = current ? applyAgentEvent(current, incoming) : current;
-            if (next) upsertCachedSessionDetail(apiBase, next);
+            // updater 必须保持纯函数：缓存写入经微任务延迟，避免渲染期间更新 zustand store。
+            if (next) queueMicrotask(() => upsertCachedSessionDetail(apiBase, next));
             return next;
           });
           if (incoming.type === "turn.cancelled") setStopNotice(incoming.turnId ?? "");
@@ -498,7 +499,8 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     setStopNotice(t("agent.panel.stopping"));
     setDetail((current) => {
       const next = current ? { ...current, status: "stopping" } : current;
-      if (next) upsertCachedSessionDetail(apiBase, next);
+      // updater 必须保持纯函数：缓存写入经微任务延迟，避免渲染期间更新 zustand store。
+      if (next) queueMicrotask(() => upsertCachedSessionDetail(apiBase, next));
       return next;
     });
     const response = await fetch(

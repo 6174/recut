@@ -48,7 +48,9 @@ func (s *Server) runMediaForwarder(ctx context.Context) {
 			last = event.ID
 			asset, err := s.media.GetAsset(event.AssetID)
 			data := map[string]any{"id": event.ID}
-			if err != nil {
+			if err != nil || asset.Status == "deleted" {
+				// 真删除（行丢失）或墓碑删除都广播 asset.deleted：客户端应移除该素材，
+				// 而不是把状态为 deleted 的墓碑继续 upsert 回列表。
 				data["event"] = "asset.deleted"
 				data["assetId"] = event.AssetID
 			} else {
