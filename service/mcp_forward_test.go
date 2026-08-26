@@ -37,3 +37,21 @@ func TestMCPForwardAddsProtocolAndSessionHeaders(t *testing.T) {
 		t.Fatalf("forwarded response = %s", response)
 	}
 }
+
+func TestMCPForwardUsesBearerForExternalStdio(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("Authorization"); got != "Bearer device-token" {
+			t.Fatalf("authorization = %q", got)
+		}
+		if got := request.Header.Get("X-Recut-Session"); got != "" {
+			t.Fatalf("unexpected session header = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	}))
+	defer server.Close()
+
+	response := string(forwardMCPRequest(server.URL, "", "device-token", mcpRequest{ID: []byte("1"), Method: "initialize", Params: []byte("{}")}))
+	if !strings.Contains(response, `"result"`) {
+		t.Fatalf("forwarded response = %s", response)
+	}
+}

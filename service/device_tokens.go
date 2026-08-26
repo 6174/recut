@@ -29,7 +29,7 @@ type globalMCPTokenFile struct {
 }
 
 // EnsureGlobalMCPToken returns the daemon-owned credential used by global
-// Codex, Claude Code and OpenCode Streamable HTTP connections. The database
+// Codex's stdio adapter and Claude Code/OpenCode Streamable HTTP connections. The database
 // keeps only the hash; the local config file is 0600 and lets startup recover
 // the reusable secret without ever putting it in a command line.
 func (s *Store) EnsureGlobalMCPToken() (string, error) {

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖标准库 HTTP、JSON、IO 与 OS 环境；作为常驻 Daemon 的薄 stdio 转发器
- * [OUTPUT]: 对外提供 `recut-service --mcp`：把任意 stdio Agent（会话内 opencode/Codex/Claude 或外部 Codex）的 JSON-RPC 转发到 Daemon 的 POST /v1/mcp；补齐与 Host 一致的 MCP 协议版本，若进程携带 RECUT_AGENT_SESSION/RECUT_AGENT_TOKEN，则以会话身份 header 转发，daemon 侧据此解析真实会话
+ * [OUTPUT]: 对外提供 `recut-service --mcp`：把任意 stdio Agent（会话内 opencode/Codex/Claude 或外部 Codex）的 JSON-RPC 转发到 Daemon 的 POST /v1/mcp；补齐与 Host 一致的 MCP 协议版本，会话进程使用 session header，外部 Codex 使用 bearer token
  * [POS]: service 的 Agent 传输边界；不执行业务，只做协议转发。短生命周期、无状态，启动不初始化 store 也不做任何状态收敛，因此不会干扰常驻 daemon 管理的长驻任务
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -21,6 +21,11 @@ import (
 func RunMCPForward(target string, input io.Reader, output io.Writer) error {
 	sessionID := os.Getenv("RECUT_AGENT_SESSION")
 	sessionToken := os.Getenv("RECUT_AGENT_TOKEN")
+	bearerToken := os.Getenv("RECUT_MCP_TOKEN")
+	if sessionID == "" && bearerToken == "" {
+		// Keep older manually-authored Codex configs working.
+		bearerToken = sessionToken
+	}
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 4096), 2<<20)
 	var calls sync.WaitGroup
@@ -35,7 +40,11 @@ func RunMCPForward(target string, input io.Reader, output io.Writer) error {
 		calls.Add(1)
 		go func(request mcpRequest) {
 			defer calls.Done()
-			response := forwardMCPRequest(target, sessionID, sessionToken, request)
+			token := sessionToken
+			if sessionID == "" {
+				token = bearerToken
+			}
+			response := forwardMCPRequest(target, sessionID, token, request)
 			outputMu.Lock()
 			defer outputMu.Unlock()
 			if outputErr == nil {
@@ -67,6 +76,8 @@ func forwardMCPRequest(target, sessionID, sessionToken string, request mcpReques
 	if sessionID != "" {
 		httpRequest.Header.Set("X-Recut-Session", sessionID)
 		httpRequest.Header.Set("X-Recut-Token", sessionToken)
+	} else if sessionToken != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+sessionToken)
 	}
 	response, err := http.DefaultClient.Do(httpRequest)
 	if err != nil {

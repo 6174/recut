@@ -165,7 +165,7 @@ func TestRecutSkillPreservesExistingClaudeConfiguration(t *testing.T) {
 	}
 }
 
-func TestRecutSkillMigratesManagedCodexMCPToStreamableHTTP(t *testing.T) {
+func TestRecutSkillMigratesManagedCodexMCPToStdioAdapter(t *testing.T) {
 	manager := testRecutSkillManager(t)
 	path, _, err := manager.mcpConfig("codex")
 	if err != nil {
@@ -174,7 +174,7 @@ func TestRecutSkillMigratesManagedCodexMCPToStreamableHTTP(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	old := "model = \"test\"\n# Recut-managed MCP: keep this block so the Recut Skill can use local tools.\n[mcp_servers.recut]\ncommand = \"/tmp/go-build/recut-service\"\nargs = [\"--mcp\"]\n"
+	old := "model = \"test\"\n# Recut-managed MCP: direct Streamable HTTP connection to the local daemon.\n[mcp_servers.recut]\nurl = \"" + globalMCPEndpoint + "\"\nhttp_headers = { Authorization = \"Bearer stale\" }\n"
 	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -186,8 +186,8 @@ func TestRecutSkillMigratesManagedCodexMCPToStreamableHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	if !bytes.Contains(body, []byte("url = \""+globalMCPEndpoint+"\"")) || bytes.Contains(body, []byte("go-build")) {
-		t.Fatalf("Codex MCP was not migrated: %s", text)
+	if !bytes.Contains(body, []byte("command = \"")) || !bytes.Contains(body, []byte("--mcp-target")) || bytes.Contains(body, []byte("url = \"")) || bytes.Contains(body, []byte("stale")) {
+		t.Fatalf("Codex MCP was not migrated to the stdio adapter: %s", text)
 	}
 	if !bytes.Contains(body, []byte("model = \"test\"")) {
 		t.Fatalf("Codex user configuration was not preserved: %s", text)

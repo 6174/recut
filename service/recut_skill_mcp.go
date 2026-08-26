@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 RecutSkillManager 的安装路径、daemon-owned Device Token 与 Codex TOML、Claude Code/OpenCode JSON 全局配置格式
- * [OUTPUT]: 对外提供各 Agent 的 Recut Streamable HTTP MCP 注册、非破坏性配置检测与原子配置写入
- * [POS]: service 的 Skill-to-MCP 连接层；全局 Agent 直接共享常驻 daemon，不启动本地 stdio 转发器；内置 Agent 的 session bridge 保持独立兼容
+ * [INPUT]: 依赖 RecutSkillManager 的安装路径、daemon-owned Device Token 与各 Agent 的全局配置格式
+ * [OUTPUT]: 对外提供各 Agent 的 Recut MCP 注册、非破坏性配置检测与原子配置写入
+ * [POS]: service 的 Skill-to-MCP 连接层；Codex 使用兼容旧桌面端的 stdio 适配器，Claude Code/OpenCode 直接共享常驻 daemon 的 Streamable HTTP
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -23,6 +24,17 @@ const (
 )
 
 const globalMCPEndpoint = defaultMCPTarget + "/v1/mcp"
+
+func (m *RecutSkillManager) mcpCommand() string {
+	name := "recut-service"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if executable, err := m.execPath(); err == nil && filepath.Base(executable) == name {
+		return executable
+	}
+	return filepath.Join(m.dataDir, "bin", name)
+}
 
 func (m *RecutSkillManager) mcpStatus(targetID string) string {
 	path, format, err := m.mcpConfig(targetID)
@@ -37,7 +49,7 @@ func (m *RecutSkillManager) mcpStatus(targetID string) string {
 		if readErr != nil {
 			return recutMCPUnavailable
 		}
-		if strings.Contains(string(body), "[mcp_servers.recut]") && strings.Contains(string(body), "url = \""+globalMCPEndpoint+"\"") {
+		if strings.Contains(string(body), "[mcp_servers.recut]") && strings.Contains(string(body), "command = \"") {
 			return recutMCPConfigured
 		}
 		return recutMCPNotConfigured
@@ -119,7 +131,7 @@ func (m *RecutSkillManager) configureCodexMCP(path, secret string) error {
 		return errors.New("Codex uses an inline mcp_servers configuration; add Recut MCP manually to avoid overwriting it")
 	}
 	text = removeManagedCodexMCP(text)
-	block := fmt.Sprintf("\n# Recut-managed MCP: direct Streamable HTTP connection to the local daemon.\n[mcp_servers.recut]\nurl = %q\nhttp_headers = { Authorization = %q }\n", globalMCPEndpoint, "Bearer "+secret)
+	block := fmt.Sprintf("\n# Recut-managed MCP: stdio adapter for Codex Desktop compatibility.\n[mcp_servers.recut]\ncommand = %q\nargs = [\"--mcp\", \"--mcp-target\", %q]\nenv = { RECUT_MCP_TOKEN = %q }\n", m.mcpCommand(), defaultMCPTarget, secret)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create Codex configuration directory: %w", err)
 	}

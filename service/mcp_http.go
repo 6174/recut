@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 MCP Host 的 handleMCP、AgentBridge 会话鉴权、Device Token 与标准库 HTTP JSON-RPC 协议
- * [OUTPUT]: 对外提供符合 Streamable HTTP 语义的唯一 loopback MCP 入口、设备 token 生命周期管理 API 与只读的按全局/App 分组的 MCP 工具清单（GET /v1/mcp/tools）；全局 Agent 以 Bearer token 鉴权，stdio bridge 以会话 header 透传身份
- * [POS]: service 的传输边界；全局 Codex、Claude Code、OpenCode 直接连接本端点，内置 Agent 暂经无状态 --mcp 适配器接入，工具执行与长驻任务状态全部由常驻 daemon 统一管理
+ * [OUTPUT]: 对外提供符合 Streamable HTTP 语义的唯一 loopback MCP 入口、设备 token 生命周期管理 API 与只读的按全局/App 分组的 MCP 工具清单（GET /v1/mcp/tools）；HTTP Agent 与无会话 stdio bridge 以 Bearer token 鉴权，会话 stdio bridge 以会话 header 透传身份
+ * [POS]: service 的传输边界；Claude Code/OpenCode 直接连接本端点，Codex 与内置 Agent 经无状态 --mcp 适配器接入，工具执行与长驻任务状态全部由常驻 daemon 统一管理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  *
  * 错误面架构（rfc/2026-08-19 P2）：mcpError 信封。业务/校验/冲突错误 = *mcpError 且 Kind ≠ transport，
