@@ -1,7 +1,7 @@
 #!/bin/sh
 # [INPUT]: 依赖 POSIX shell、curl、tar、SHA-256 工具、公开的 cdn.recut.video 发布包（R2）和用户级服务管理器
 # [OUTPUT]: 带阶段日志地安装或原子升级 ~/.recut/bin/recut-service，并预置受管 Python 3.11、venv、FFmpeg 后注册/验证当前用户的常驻 service
-# [POS]: web/public 的无源码安装入口；当前发布仅覆盖 macOS（Apple 芯片）与 Windows，Linux、FreeBSD 与 Intel Mac 暂不提供发布包，绝不读取或删除用户项目数据
+# [POS]: web/public 的无源码安装入口；当前发布覆盖 macOS（Apple 芯片与 Intel）与 Windows，Linux、FreeBSD 暂不提供发布包，绝不读取或删除用户项目数据
 # [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 set -eu
 
@@ -38,10 +38,29 @@ case "$(uname -s)" in
   *) fail "暂不支持 $(uname -s)；可用 make service-build TARGET=<os>-<arch> 交叉编译" ;;
 esac
 
-case "$(uname -m)" in
+machine=$(uname -m)
+case "$machine" in
   arm64|aarch64) arch=arm64 ;;
-  x86_64|amd64) [ "$os" = darwin ] && fail "暂不支持 Intel Mac；请使用 Apple 芯片的 Mac 或参考源码构建" || arch=amd64 ;;
-  *) fail "暂不支持 $(uname -m) CPU" ;;
+  x86_64|amd64)
+    if [ "$os" = darwin ]; then
+      # Rosetta 2 makes uname report x86_64 even on Apple Silicon. Ask the
+      # kernel for the native capability before rejecting the machine.
+      arm64_capable=0
+      if command -v sysctl >/dev/null 2>&1 && [ "$(sysctl -in hw.optional.arm64 2>/dev/null || true)" = "1" ]; then
+        arm64_capable=1
+      fi
+      if [ "$arm64_capable" = 1 ]; then
+        arch=arm64
+        log "检测到 Rosetta 2；使用原生 darwin/arm64 发布包"
+      else
+        arch=amd64
+        log "检测到 Intel Mac；使用 darwin/amd64 发布包"
+      fi
+    else
+      arch=amd64
+    fi
+    ;;
+  *) fail "暂不支持 $machine CPU" ;;
 esac
 
 download_base=${RECUT_DOWNLOAD_BASE_URL:-https://cdn.recut.video}
