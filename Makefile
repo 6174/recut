@@ -5,14 +5,14 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test transcribe-e2e
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test transcribe-e2e worlds-check worlds-build worlds-seed worlds-upload worlds-publish worlds-status
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
 APP ?=
 SERVICE_PORT ?= 17373
 STREAM_PORT ?= 17374
-RECUT_VERSION ?= 0.1.39
+RECUT_VERSION ?= 0.1.40
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -223,3 +223,23 @@ check: service-test service-vet web-build editor-model-test editor-frame-render-
 
 transcribe-e2e: ## 真实接口转写 E2E（不经 UI）：editor subtitle.generate → audio.transcribe → subtitle.status 轮询到完成。
 	cd service && RECUT_E2E_TRANSCRIBE=1 go test -run TestTranscriptionE2E -count=1 -v .
+
+worlds-check: ## 校验 World 源格式（预算/ID/schema）并打印 manifest hash 预览（CI 防漂移）。
+	node scripts/worlds-publish.mjs --check
+
+worlds-build: ## 构建 World 发布产物（cdn/buckets/worlds/ + catalog.json）。
+	node scripts/worlds-publish.mjs
+
+worlds-seed: ## 构建 + 生成 service/worldcatalog/ 嵌入种子（随二进制发布，首启/离线兜底）。
+	node scripts/worlds-publish.mjs --seed
+
+worlds-upload: ## 增量上传 World 到 R2（只传新版本目录 + catalog；MD5 比对跳过未变更对象）。
+	node scripts/worlds-publish.mjs --upload
+
+worlds-publish: ## 完整发布流程：构建 + seed + 增量上传 R2（历史版本不可变，重复执行幂等）。
+	node scripts/worlds-publish.mjs --seed --upload
+
+worlds-status: ## 查看 CDN 上的 World 目录与 catalog。
+	@node cdn/scripts/cli.mjs list worlds 2>/dev/null || echo "  (尚未上传或凭据缺失)"
+	@echo "--- catalog.json ---"
+	@curl -sf "$(CURDIR)/cdn/buckets/worlds/catalog.json" 2>/dev/null | head -30 || cat cdn/buckets/worlds/catalog.json 2>/dev/null | head -30 || echo "  (本地 catalog 未构建，先跑 make worlds-build)"

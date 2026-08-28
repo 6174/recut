@@ -30,7 +30,7 @@ import (
 
 const formatVersion = 3
 const layoutVersionKey = "layout_version"
-const currentLayoutVersion = "3"
+const currentLayoutVersion = "4"
 const workspaceBusyTimeoutMilliseconds = 15000
 const sqlitePoolMaxOpenConnections = 8
 const databaseHealthCheckTimeout = 100 * time.Millisecond
@@ -550,6 +550,9 @@ create table if not exists worlds (
   type text not null,
   description text not null default '',
   identity_json text not null default '{}',
+  origin text not null default 'local',
+  origin_meta_json text not null default '{}',
+  skill_md text not null default '',
   cover_asset_id text,
   current_revision_id text,
   created_at text not null,
@@ -590,19 +593,20 @@ create table if not exists world_asset_refs (
   id text primary key,
   world_id text not null references worlds(id) on delete cascade,
   entity_id text references world_entities(id) on delete cascade,
-  asset_id text not null,
+  asset_id text not null default '',
+  url text not null default '',
   asset_content_hash text not null default '',
   modality text not null default '',
   purpose text not null default '',
   evidence_status text not null default 'supporting',
   collection_name text not null default '',
   segment_json text not null default '',
-  role text not null,
+  role text not null default '',
   label text not null default '',
   sort_order integer not null default 0,
   created_at text not null,
   archived_at text,
-  unique(world_id, entity_id, asset_id, role)
+  unique(world_id, entity_id, asset_id, url, role)
 );
 create index if not exists world_asset_refs_world on world_asset_refs(world_id, entity_id, sort_order);
 create index if not exists world_asset_refs_asset on world_asset_refs(asset_id);
@@ -672,12 +676,18 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table project_covers add column file_path text not null default ''",
 			"alter table project_covers add column mime_type text not null default ''",
 			"alter table media_credentials add column model_overrides_json text not null default ''",
+			"alter table worlds add column origin text not null default 'local'",
+			"alter table worlds add column origin_meta_json text not null default '{}'",
+			"alter table worlds add column skill_md text not null default ''",
 		} {
 			if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 				return err
 			}
 		}
 		if _, err := db.Exec("update media_assets set updated_at = created_at where updated_at = ''"); err != nil {
+			return err
+		}
+		if err := migrateWorldAssetRefsURL(db); err != nil {
 			return err
 		}
 		if _, err := db.Exec("update media_assets set status = 'completed' where coalesce(trim(status), '') = '' or (status in ('queued', 'running') and job_id = '')"); err != nil {
@@ -693,6 +703,57 @@ create index if not exists creation_context_bindings_world on creation_context_b
 	}
 	s.workspaceReady = true
 	return db, nil
+}
+
+// migrateWorldAssetRefsURL performs the layout v4 one-shot rebuild of
+// world_asset_refs: the legacy unique key (world_id, entity_id, asset_id, role)
+// cannot host URL evidence rows where asset_id is empty, so the small table is
+// recreated with the url column and the wider unique key. Data is copied as-is
+// (url = '') inside one transaction; fresh installs already carry the v2 shape
+// and skip the rebuild.
+func migrateWorldAssetRefsURL(db *sql.DB) error {
+	var hasURLColumn int
+	if err := db.QueryRow("select count(*) from pragma_table_info('world_asset_refs') where name = 'url'").Scan(&hasURLColumn); err != nil {
+		return err
+	}
+	if hasURLColumn > 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`
+create table world_asset_refs_v2 (
+  id text primary key,
+  world_id text not null references worlds(id) on delete cascade,
+  entity_id text references world_entities(id) on delete cascade,
+  asset_id text not null default '',
+  url text not null default '',
+  asset_content_hash text not null default '',
+  modality text not null default '',
+  purpose text not null default '',
+  evidence_status text not null default 'supporting',
+  collection_name text not null default '',
+  segment_json text not null default '',
+  role text not null default '',
+  label text not null default '',
+  sort_order integer not null default 0,
+  created_at text not null,
+  archived_at text,
+  unique(world_id, entity_id, asset_id, url, role)
+);
+insert into world_asset_refs_v2 (id, world_id, entity_id, asset_id, url, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, sort_order, created_at, archived_at)
+  select id, world_id, entity_id, asset_id, '', asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, sort_order, created_at, archived_at from world_asset_refs;
+drop table world_asset_refs;
+alter table world_asset_refs_v2 rename to world_asset_refs;
+create index world_asset_refs_world on world_asset_refs(world_id, entity_id, sort_order);
+create index world_asset_refs_asset on world_asset_refs(asset_id);
+`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) database(path string, initialize func(*sql.DB) error) (*sql.DB, error) {

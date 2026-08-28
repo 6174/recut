@@ -102,6 +102,10 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleZh: "取消一个 queued / running 的本地 App shell job 或子 Agent job（sub-agent job 取消会传播到子 CLI 进程；已提交的部分结果仍会被 finalize 并以 interrupted 终态呈现）。",
 		LocaleEn: "Cancel a queued or running local App shell job or a sub-agent job (cancellation propagates to the child CLI process; already committed partial results are still finalized and surfaced as an interrupted terminal state).",
 	},
+	"recut.files.fetch": {
+		LocaleZh: "把绝对 http(s) URL 映射为本地文件路径（统一远程缓存 <dataRoot>/files/cdn，内容寻址、重复访问零网络、≤100MB、拒绝内网/回环地址）。需要本地文件时使用（查看、处理、传给只收本地路径的工具）；只想要素材库 Asset 用 recut.media.import_url；生成参考（imageAssetIds 等）可直接传 URL，无需先调用本工具。",
+		LocaleEn: "Map an absolute http(s) URL to a local file path (unified remote cache <dataRoot>/files/cdn, content-addressed, repeat access is a filesystem hit, ≤100MB, private/loopback addresses refused). Use it when a local file is needed (viewing, processing, or feeding a local-path-only tool); use recut.media.import_url when an Asset-library entry is wanted; generation references (imageAssetIds, ...) accept URLs directly, so this tool is not required for them.",
+	},
 	"recut.image.generate": {
 		LocaleZh: "提交图片生成任务。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 完成后将同一 Asset 原位转为 completed 或 failed。可立刻用 assetId 建立项目引用，再用 recut.media.wait_for_job 等待终态。",
 		LocaleEn: "Submit an image generation job. It immediately returns a stable queued jobId and assetIds; the persistent Daemon moves the same Asset to completed or failed in place. You may create project references with the assetId right away, then use recut.media.wait_for_job to await the terminal state.",
@@ -141,6 +145,10 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 	"recut.media.attach": {
 		LocaleZh: "把现有媒体 assetId 引用到目标项目。",
 		LocaleEn: "Attach an existing media assetId to a target project.",
+	},
+	"recut.media.import_url": {
+		LocaleZh: "把一个绝对 http(s) URL 的媒体（图片/视频/音频，≤25MB）下载到本地素材库，返回 assetId。用于把 World 的 url 证据、网页资源收进用户自己的素材库；同一内容按哈希去重。不抓取正文或网页内容。",
+		LocaleEn: "Download an absolute http(s) media URL (image/video/audio, ≤25MB) into the local media library and return its assetId. Use it to pull a World's url evidence or a web resource into the user's own library; identical content is deduplicated by hash. It never fetches article or webpage content.",
 	},
 }
 
@@ -264,6 +272,7 @@ func platformMCPToolDefinitions(locale Locale) []map[string]any {
 		platformTool("recut.job.wait", mcpDescription(locale, "recut.job.wait"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 15, "description": "单次最多阻塞 15 秒（Streamable HTTP 兼容，避免长阻塞连接被断开）；超时返回当前状态，需用 recut.job.status 继续轮询。长任务请用短轮询，不要设接近 300 秒。"}}}),
 		platformTool("recut.job.logs", mcpDescription(locale, "recut.job.logs"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 2000, "description": "只返回最近 N 行，默认 300。"}}}),
 		platformTool("recut.job.cancel", mcpDescription(locale, "recut.job.cancel"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
+		platformTool("recut.files.fetch", mcpDescription(locale, "recut.files.fetch"), map[string]any{"type": "object", "required": []string{"url"}, "properties": map[string]any{"url": map[string]string{"type": "string", "description": "绝对 http(s) URL（限公网地址，≤100MB）。"}, "name": map[string]string{"type": "string", "description": "可选：返回结果中的显示名称。"}}}),
 	)
 	tools = append(tools, mediaMCPToolDefinitions(locale)...)
 	tools = append(tools, worldsMCPToolDefinitions(locale)...)
@@ -440,6 +449,16 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 		return designSystemGetTool(bridge.designSystems, arguments)
 	case "recut.agent.run":
 		return agentRunMCPTool(bridge, host, session, arguments, locale)
+	case "recut.files.fetch":
+		if media == nil {
+			return nil, errors.New("media service is unavailable")
+		}
+		result, err := fetchRemoteFileTool(media.RemoteCache(), arguments)
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.Marshal(result)
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 	}
 	if isMediaMCPTool(name) {
 		return mediaMCPTool(bridge.store, media, session, name, arguments)
@@ -788,6 +807,18 @@ func skillsListTool(bridge *AgentBridge) (any, error) {
 func skillReadTool(bridge *AgentBridge, arguments map[string]any) (any, error) {
 	appID, _ := arguments["appId"].(string)
 	skillID, _ := arguments["skillId"].(string)
+	// The platform recut skill is daemon-owned (not an installed App): resolve
+	// it from the skill source tree so Agents can read it like any App skill.
+	if appID == platformSkillAppID && skillID == recutSkillID && bridge.store != nil {
+		body, err := os.ReadFile(filepath.Join(bridge.store.root, "skills", recutSkillID, "SKILL.md"))
+		if err != nil {
+			return nil, fmt.Errorf("read platform recut skill: %w", err)
+		}
+		name, description, references, resources := parseSkillFrontmatter(string(body))
+		result := map[string]any{"id": recutSkillID, "appId": platformSkillAppID, "name": name, "description": description, "body": string(body), "references": references, "resources": resources}
+		data, _ := json.Marshal(result)
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+	}
 	app, ok := bridge.store.catalog.Get(appID)
 	if !ok {
 		return nil, fmt.Errorf("app %q is unavailable", appID)
@@ -809,6 +840,40 @@ func skillReferenceTool(bridge *AgentBridge, arguments map[string]any) (any, err
 	appID, _ := arguments["appId"].(string)
 	skillID, _ := arguments["skillId"].(string)
 	path, _ := arguments["path"].(string)
+	// Platform recut skill references resolve from the daemon-owned source dir
+	// (Ensure() deploys SKILL.md + references/ there; targets symlink it).
+	if appID == platformSkillAppID && skillID == recutSkillID && bridge.store != nil {
+		root := filepath.Join(bridge.store.root, "skills", recutSkillID)
+		resolvedRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			return nil, fmt.Errorf("resolve platform skill root: %w", err)
+		}
+		for _, candidate := range skillReferenceCandidates(path) {
+			resolved, resolveErr := filepath.EvalSymlinks(filepath.Join(root, candidate))
+			if errors.Is(resolveErr, os.ErrNotExist) {
+				continue
+			}
+			if resolveErr != nil {
+				return nil, fmt.Errorf("resolve skill reference: %w", resolveErr)
+			}
+			relative, relativeErr := filepath.Rel(resolvedRoot, resolved)
+			if relativeErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				return nil, fmt.Errorf("skill reference escapes the skill directory")
+			}
+			info, statErr := os.Stat(resolved)
+			if statErr != nil || info.IsDir() {
+				continue
+			}
+			content, readErr := os.ReadFile(resolved)
+			if readErr != nil {
+				return nil, readErr
+			}
+			result := map[string]any{"appId": appID, "skillId": skillID, "path": filepath.ToSlash(relative), "content": string(content)}
+			data, _ := json.Marshal(result)
+			return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+		}
+		return nil, fmt.Errorf("skill reference is unavailable")
+	}
 	app, ok := bridge.store.catalog.Get(appID)
 	if !ok {
 		return nil, fmt.Errorf("app %q is unavailable", appID)
@@ -944,6 +1009,8 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		id, _ := input["assetId"].(string)
 		err = media.Attach(id, requestedProjectID(input))
 		result = map[string]any{"assetId": id, "projectId": requestedProjectID(input), "attached": err == nil}
+	case "recut.media.import_url":
+		result, err = importMediaURL(media, input)
 	default:
 		return nil, fmt.Errorf("unknown media tool %q", name)
 	}
@@ -997,6 +1064,7 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.media.import_image", "description": mcpDescription(locale, "recut.media.import_image"), "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "会话工作区内的相对图片路径。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
 		{"name": "recut.media.create_reference", "description": mcpDescription(locale, "recut.media.create_reference"), "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL；作为全局去重身份。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、web、youtube、xiaohongshu、douyin、image。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "description": map[string]string{"type": "string", "description": "来源自身的简介或视频简介。"}, "excerpt": map[string]string{"type": "string", "description": "直接引用的原文片段，便于审阅。"}, "author": map[string]string{"type": "string", "description": "作者或发布者名称。"}, "publishedAt": map[string]string{"type": "string", "description": "发布时间（ISO-8601）。"}, "siteName": map[string]string{"type": "string", "description": "站点名称，如 The New York Times。"}, "language": map[string]string{"type": "string", "description": "内容语言代码，如 zh、en。"}, "thumbnailUrl": map[string]string{"type": "string", "description": "来源封面/缩略图 URL。"}, "content": map[string]string{"type": "string", "description": "文章或网页的完整正文（真实文章数据）；保存为 content part，默认 text/markdown。"}, "contentMimeType": map[string]string{"type": "string", "description": "正文 part 的 MIME 类型，缺省 text/markdown；限 text/*、application/json、application/xml。"}, "imageData": map[string]string{"type": "string", "description": "图片内容（base64 或 data: URL）；保存为不可变的 image part，限 20MB。"}, "imageMimeType": map[string]string{"type": "string", "description": "图片 MIME 类型，如 image/png、image/jpeg。"}, "channelName": map[string]string{"type": "string", "description": "YouTube 等视频平台的频道/账号名。"}, "channelUrl": map[string]string{"type": "string", "description": "频道主页 URL。"}, "durationSeconds": map[string]any{"type": "number", "description": "视频时长（秒）。"}, "viewCount": map[string]any{"type": "integer", "description": "播放量。"}, "likeCount": map[string]any{"type": "integer", "description": "点赞数。"}}}},
 		{"name": "recut.media.attach", "description": mcpDescription(locale, "recut.media.attach"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "projectId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},
+		{"name": "recut.media.import_url", "description": mcpDescription(locale, "recut.media.import_url"), "inputSchema": map[string]any{"type": "object", "required": []string{"url"}, "properties": map[string]any{"url": map[string]string{"type": "string", "description": "绝对 http(s) URL，限 image/video/audio、≤25MB。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称；缺省取 URL 末段。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；提供时同时关联到该项目。"}}}},
 	}
 }
 

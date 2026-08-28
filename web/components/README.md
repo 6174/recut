@@ -47,7 +47,7 @@ use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧�
 terminal-panel.tsx: 基于 xterm.js 的可恢复 CLI 终端面板，负责 Daemon 引导、CLI 探测、一键启动、失败反馈，以及展示最新输出摘要、只读历史与原生 Agent 恢复入口的会话浮层。
 Agent 调试流：`project-agent-panel.tsx` 的右上角终端入口订阅当前会话 `/cli-stream`；弹框只显示 Agent runner 已捕获的有界内存 stdout/stderr，不能附着或重放服务重启前的进程，也不取代结构化对话时间线。每个发送 Turn 固定保存 Work Surface；Focus 在同一 Turn 内是完整但可独立移除的选择态。
 ai-short-film-workflow.tsx: 已废弃的 AI 短片纵向资源管理器；当前短片流程由 App iframe 自己承载，此文件仅保留历史说明。
-world-card.tsx: Worlds 列表与 Studio 区域的 World 卡片；显示名称、类型、定位、最近更新与实体计数摘要，可选渲染已完成素材封面，点击整卡进入 `/worlds/{id}`；卡片只消费摘要，不请求实体正文。
+world-card.tsx: Worlds 列表与 Studio 区域的 World 卡片；显示名称、类型、定位、最近更新与实体计数摘要，封面缺失时用摘要里的 `previewAssetIds`（本地世界图片证据）拼画廊预览，点击整卡进入 `/worlds/{id}`；卡片只消费摘要，不请求实体正文。
 world-picker.tsx: World picker 弹框；搜索与类型筛选后选择只发出结构化 `{ type: "creation_world", worldId }` 引用，供 Chat attachment 与生产 App 的 World 选择使用，绝不把 Canon 复制进消息。
 world-entity-picker.tsx: Entity picker 弹框；先选定 World 再按 kind/搜索过滤实体，选择发出 `{ type: "creation_entity", worldId, entityId }`；entityId 永远与 worldId 一起验证，绝不跨 World 复用。
 ui/: 按 shadcn/Mira 契约实现的可复用交互原子组件。

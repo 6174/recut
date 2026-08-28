@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 Store 的工作区 SQLite、受控本地文件根和按请求类别分隔的 HTTP 客户端
- * [OUTPUT]: 对外提供按 SHA-256 内容哈希去重的媒体资产、提供商凭据、能力路由、动态音色目录及同步/异步生成任务；同一凭据的一次请求生成有界串行执行
+ * [OUTPUT]: 对外提供按 SHA-256 内容哈希去重的媒体资产、提供商凭据、能力路由、动态音色目录及同步/异步生成任务；
+ * 统一远程资源缓存 RemoteFileCache（<dataRoot>/files/cdn，URL → 本地文件）；同一凭据的一次请求生成有界串行执行
  * [POS]: service 的 Media Platform 核心；普通 App 只通过 assetId 和 MCP/HTTP 使用，不持有供应商密钥
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -12,6 +13,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -24,6 +26,7 @@ type Workspace interface {
 
 type MediaService struct {
 	store             Workspace
+	remoteCache       *RemoteFileCache
 	dedupeMu          sync.Mutex
 	pollers           sync.Map
 	oneRequestGates   sync.Map
@@ -78,7 +81,21 @@ func NewMediaService(store Workspace) *MediaService {
 	if err != nil {
 		id = fmt.Sprintf("fallback-%d", time.Now().UTC().UnixNano())
 	}
-	return &MediaService{store: store, schedulerID: "media-reconciler-" + id, notifyMediaChange: func() {}}
+	service := &MediaService{store: store, schedulerID: "media-reconciler-" + id, notifyMediaChange: func() {}}
+	// 统一远程资源缓存：<dataRoot>/files/cdn（内容寻址）。World url 证据、
+	// 生成参考等云端资源的本地映射都走它；不产生 Asset 行。store 为 nil 的
+	// 纯校验用例不落盘，跳过缓存初始化。
+	if store != nil {
+		service.remoteCache = NewRemoteFileCache(filepath.Join(store.MediaRoot(), "files", "cdn"))
+		service.remoteCache.LoadIndex()
+	}
+	return service
+}
+
+// RemoteCache exposes the unified remote-file cache (URL → local path) for the
+// daemon's other layers (MCP recut.files.fetch, HTTP /v1/files/remote).
+func (m *MediaService) RemoteCache() *RemoteFileCache {
+	return m.remoteCache
 }
 
 // SetNotifyMediaChange wires the durable media_asset_events table to an

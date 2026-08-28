@@ -1,0 +1,17 @@
+{
+  "catalogVersion": 1,
+  "updated": "2026-08-28T11:21:30Z",
+  "worlds": [
+    {
+      "bytes": 19281,
+      "id": "pgc.xiaohei",
+      "kind": "platform",
+      "manifestUrl": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/world.json",
+      "order": 1,
+      "publisher": "recut",
+      "sha256": "ed109be27a1208beff73edb87bf8d99aab54b3533e2bf80a325d602795e035d5",
+      "status": "active",
+      "version": "0.1.0"
+    }
+  ]
+}

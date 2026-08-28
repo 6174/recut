@@ -160,6 +160,7 @@ type MediaJob struct {
 	Prompt       string          `json:"prompt"`
 	ModelID      string          `json:"modelId"`
 	ProjectID    string          `json:"projectId,omitempty"`
+	References   MediaReferences `json:"references,omitempty"`
 	ReferenceIDs []string        `json:"referenceIds"`
 	Output       map[string]any  `json:"output"`
 	AssetIDs     []string        `json:"assetIds"`
@@ -175,6 +176,7 @@ type GenerateMediaInput struct {
 	ModelID        string          `json:"modelId"`
 	CredentialID   string          `json:"credentialId"`
 	Prompt         string          `json:"prompt"`
+	References     MediaReferences `json:"references,omitempty"`
 	ReferenceIDs   []string        `json:"referenceIds"`
 	Output         map[string]any  `json:"output"`
 	ProjectID      string          `json:"projectId"`

@@ -4,9 +4,10 @@
 
 成员清单
 page.tsx: 世界详情路由的服务端壳；静态导出只需 `/worlds/app/` 一个占位路径，Worker 在边缘把任意 `/worlds/<id>` 映射到它，浏览器地址保留真实 id。
-world-detail-client.tsx: 世界详情页面编排容器；从真实 worldId/revisionId 签发 Work Surface，并将当前 Entity 的完整状态上报为 Focus；负责结构化设定、资源库与从故事创建视频。
+world-detail-client.tsx: 世界详情页面编排容器；从真实 worldId/revisionId 签发 Work Surface，并将当前 Entity 的完整状态上报为 Focus；World 技能为首个 Tab，负责结构化设定、资源库与从故事创建视频。
 world-detail-settings.tsx: 设定领域表单；一个编辑面板同时维护角色、故事、风格、规则和场景的文字字段与所属多模态证据，带 expectedRevisionId 安全保存且不展示 JSON。
-world-detail-panels.tsx: 设定展示分区；主设定弹框只摘要多模态资料，二级管理弹框复用系统素材选择器处理单份资料；隐藏 revision/hash 等系统细节。
+world-detail-panels.tsx: 设定展示分区；设定卡片内嵌图片画廊并可整卡点开只读详情对话框（含完整字段与全部多模态资料画廊），二级管理弹框复用系统素材选择器处理单份资料；隐藏 revision/hash 等系统细节。
+world-onboarding.tsx: Onboarding 引导卡（仅 local 世界）；消费 readiness 投影展示就绪度进度与最值得先做的缺失项，可展开完整清单，「让 AI 帮我完善」只预填 composer 草稿（绝不自动发送、绝不自动写入）。
 
 依赖边界
 

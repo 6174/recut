@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Store、WorldStore、MediaService 与标准库 net/http JSON 编码
- * [OUTPUT]: 对外提供 RESTful /v1/worlds 资源路由：World/Entity 分页读取、创建/修改/Reference/Resolve 与
- * 项目 World Context 的读与写；结构化 WorldsError 信封与 HTTP 状态映射；处理器只解码/校验/调用 store，不含 Canonical 逻辑
+ * [OUTPUT]: 对外提供 RESTful /v1/worlds 资源路由：World/Entity 分页读取、创建/修改/Reference/Resolve、
+ * readiness 就绪度投影（Onboarding RFC）与项目 World Context 的读与写；结构化 WorldsError 信封与 HTTP 状态映射；处理器只解码/校验/调用 store，不含 Canonical 逻辑
  * [POS]: service 的 Creation Worlds HTTP 传输层；路由拼写是 RESTful（/v1/worlds），SDK 与 MCP 用 recut.worlds.*
  * 命名能力；系统 Worlds UI 与 App 背景都经本 facade，绝不直接访问 world_* 表
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -73,6 +73,7 @@ func (s *Server) updateWorld(w http.ResponseWriter, r *http.Request) {
 		Name               *string        `json:"name"`
 		Description        *string        `json:"description"`
 		Identity           map[string]any `json:"identity"`
+		SkillMd            *string        `json:"skillMd"`
 		ExpectedRevisionID string         `json:"expectedRevisionId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -81,13 +82,69 @@ func (s *Server) updateWorld(w http.ResponseWriter, r *http.Request) {
 	}
 	world, err := s.worldsStore().UpdateWorld(UpdateWorldInput{
 		WorldID: r.PathValue("worldID"), Name: input.Name, Description: input.Description,
-		Identity: input.Identity, ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+		Identity: input.Identity, SkillMd: input.SkillMd, ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
 	})
 	if err != nil {
 		writeWorldsError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, world)
+}
+
+func (s *Server) forkWorld(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil && err.Error() != "EOF" {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	world, err := s.worldsStore().ForkWorld(ForkWorldInput{WorldID: r.PathValue("worldID"), Name: input.Name})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, world)
+}
+
+func (s *Server) briefWorld(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		RevisionID string         `json:"revisionId"`
+		Selection  WorldSelection `json:"selection"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil && err.Error() != "EOF" {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	brief, err := s.worldsStore().Brief(BriefInput{WorldID: r.PathValue("worldID"), RevisionID: input.RevisionID, Selection: input.Selection})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, brief)
+}
+
+func (s *Server) getWorldReadiness(w http.ResponseWriter, r *http.Request) {
+	readiness, err := s.worldsStore().Readiness(r.PathValue("worldID"), r.URL.Query().Get("scenario"))
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, readiness)
+}
+
+func (s *Server) getWorldsCatalog(w http.ResponseWriter, r *http.Request) {
+	syncer := s.worldCatalog
+	if syncer == nil {
+		// No daemon-owned syncer (tests / App-side servers): resolve on demand.
+		syncer = NewWorldCatalogSyncer(s.store.root, s.worldsStore())
+	}
+	catalog := syncer.CachedCatalog()
+	if catalog == nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "world catalog is not available yet"))
+		return
+	}
+	writeJSON(w, http.StatusOK, catalog)
 }
 
 func (s *Server) listWorldEntities(w http.ResponseWriter, r *http.Request) {
@@ -178,6 +235,7 @@ func (s *Server) attachWorldEvidence(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		EntityID           string                `json:"entityId"`
 		AssetID            string                `json:"assetId"`
+		URL                string                `json:"url"`
 		Role               string                `json:"role"`
 		Label              string                `json:"label"`
 		Purpose            string                `json:"purpose"`
@@ -192,7 +250,7 @@ func (s *Server) attachWorldEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reference, err := s.worldsStore().AttachReference(AttachReferenceInput{
-		WorldID: r.PathValue("worldID"), EntityID: input.EntityID, AssetID: input.AssetID,
+		WorldID: r.PathValue("worldID"), EntityID: input.EntityID, AssetID: input.AssetID, URL: input.URL,
 		Role: input.Role, Label: input.Label, Purpose: input.Purpose, Status: input.Status,
 		Collection: input.Collection, Modality: input.Modality, Segment: input.Segment,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
@@ -301,7 +359,7 @@ func writeWorldsError(w http.ResponseWriter, err error) {
 		switch worldErr.Code {
 		case WorldsErrNotFound, WorldsErrEntityNotFound, WorldsErrRevisionNotFound, WorldsErrAssetNotFound:
 			status = http.StatusNotFound
-		case WorldsErrRevisionConflict, WorldsErrProjectAlreadyBound:
+		case WorldsErrRevisionConflict, WorldsErrProjectAlreadyBound, WorldsErrReadOnly:
 			status = http.StatusConflict
 		case WorldsErrAccessDenied:
 			status = http.StatusForbidden

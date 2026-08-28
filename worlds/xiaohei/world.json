@@ -1,0 +1,79 @@
+{
+  "world": {
+    "id": "pgc.xiaohei",
+    "name": "小黑怪诞正文配图",
+    "type": "character_ip",
+    "description": "为中文文章生成白底手绘、怪诞清爽的 16:9 正文配图：小黑 IP + 风格 DNA + 完整生产工作流，@ 一下即可产出风格一致的系列图。",
+    "identity": {
+      "positioning": "中文知识型内容的正文配图体系",
+      "audience": ["写中文文章、方法论、工作流内容的创作者"],
+      "tone": "怪诞、克制、手绘、清爽"
+    }
+  },
+  "entities": [
+    {
+      "id": "xiaohei",
+      "kind": "character",
+      "title": "小黑",
+      "summary": "黑色实心、白点眼、细腿、空表情的荒诞工作者；必须参与画面核心动作。",
+      "content": {
+        "appearance": "黑色实心小怪物；白色圆点眼睛；细腿，偶尔有细胳膊；轮廓略不规则有手绘感；表情空、呆、冷静、认真",
+        "personality": "很认真但做的事有点荒诞；低调系统操作员；冷幽默不卖萌",
+        "voice": "无台词；以动作叙事",
+        "body": { "$file": "references/xiaohei-ip.md" }
+      }
+    },
+    {
+      "id": "style-dna",
+      "kind": "style",
+      "title": "风格 DNA",
+      "summary": "纯白背景、黑色手绘线稿、少量红橙蓝中文批注、大量留白；怪诞但不说明书。",
+      "content": {
+        "kind": "visual",
+        "guidance": "纯白背景（无米色/纸纹/渐变/阴影）；细线轻微抖动；主体占 40%-60%，≥35% 留白；批注 5-8 处、每处 2-8 字；一图一核心结构",
+        "body": { "$file": "references/style-dna.md" }
+      }
+    },
+    {
+      "id": "rule-format",
+      "kind": "rule",
+      "title": "16:9 横版",
+      "content": { "type": "always", "text": "16:9 横版中文正文配图；每张单独生成，不把多张图拼在一张里" }
+    },
+    {
+      "id": "rule-no-ppt",
+      "kind": "rule",
+      "title": "禁止 PPT 感",
+      "content": { "type": "never", "text": "不要商业插画、PPT 信息图、正式流程图、课程课件、可爱卡通海报、复杂架构图、科技感 UI、真实 App 截图；不要左上角写类型标题" }
+    },
+    {
+      "id": "rule-color",
+      "kind": "rule",
+      "title": "颜色克制",
+      "content": { "type": "prefer", "text": "黑色主体线稿；橙色只用于主路径/箭头；红色只用于重点/问题/结果；蓝色只用于补充说明/系统状态；宁可少不要多" }
+    }
+  ],
+  "evidence": [
+    { "entityId": "xiaohei", "url": "examples/01-two-breakpoints.png", "modality": "image", "purpose": "appearance", "status": "supporting", "collection": "风格示例", "label": "两个断点" },
+    { "entityId": "xiaohei", "url": "examples/02-minimum-loop.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "最小闭环" },
+    { "entityId": "xiaohei", "url": "examples/03-sort-by-purpose.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "按用途分拣" },
+    { "entityId": "xiaohei", "url": "examples/04-one-fish-many-uses.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "一鱼多吃" },
+    { "entityId": "xiaohei", "url": "examples/05-handoff-path.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "承接路径" },
+    { "entityId": "xiaohei", "url": "examples/06-three-sources.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "三个信息源" },
+    { "entityId": "xiaohei", "url": "examples/07-three-content-jobs.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "三种内容工作" },
+    { "entityId": "xiaohei", "url": "examples/08-handoff-copy-toolbox.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "承接话术工具箱" },
+    { "entityId": "xiaohei", "url": "examples/09-common-pits-no-title.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "常见坑（无标题示范）" },
+    { "entityId": "xiaohei", "url": "examples/10-information-well.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "信息井" },
+    { "entityId": "xiaohei", "url": "examples/11-idea-press.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "想法压榨机" },
+    { "entityId": "xiaohei", "url": "examples/12-content-fermentation.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "内容发酵" },
+    { "entityId": "xiaohei", "url": "examples/13-system-bearing.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "系统承重" },
+    { "entityId": "xiaohei", "url": "examples/14-trust-bridge.png", "modality": "image", "purpose": "visual_style", "status": "supporting", "collection": "风格示例", "label": "信任桥" }
+  ],
+  "provenance": {
+    "author": "helloianneo",
+    "license": "MIT",
+    "repository": "https://github.com/helloianneo/ian-xiaohei-illustrations",
+    "sourceRevision": "cbf5ee2",
+    "publishedAt": "2026-08-28T00:00:00Z"
+  }
+}

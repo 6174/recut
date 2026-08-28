@@ -230,10 +230,37 @@ type atlasReferences struct {
 	Audios []string
 }
 
+// atlasReferenceData resolves every reference to provider bytes: asset
+// references read the media store, url references flow through the unified
+// remote cache (first use downloads, later uses are filesystem hits).
 func (m *MediaService) atlasReferenceData(job MediaJob) (atlasReferences, error) {
 	references := atlasReferences{}
-	for _, id := range job.ReferenceIDs {
-		asset, err := m.GetAsset(id)
+	refs, err := m.jobReferences(job)
+	if err != nil {
+		return atlasReferences{}, err
+	}
+	for _, ref := range refs {
+		if ref.Source == "url" {
+			filePath, mimeType, name, err := m.referenceFile(ref)
+			if err != nil {
+				return atlasReferences{}, err
+			}
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return atlasReferences{}, fmt.Errorf("reference %q cannot be read", ref.Value)
+			}
+			encoded := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(content)
+			switch ref.Kind {
+			case "image":
+				references.Images = append(references.Images, encoded)
+			case "audio":
+				references.Audios = append(references.Audios, encoded)
+			case "video":
+				references.Videos = append(references.Videos, atlas.MediaUpload{Name: name, ContentType: mimeType, Content: content})
+			}
+			continue
+		}
+		asset, err := m.GetAsset(ref.Value)
 		if err != nil {
 			return atlasReferences{}, err
 		}

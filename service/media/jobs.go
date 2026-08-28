@@ -185,9 +185,11 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 			}
 		}
 	}
-	if err := m.validateReferences(input); err != nil {
+	normalized, err := m.validateReferences(input)
+	if err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
 	}
+	input.References = normalized
 	db, err := m.database()
 	if err != nil {
 		return MediaJob{}, MediaCredential{}, false, err
@@ -200,8 +202,11 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 		return MediaJob{}, MediaCredential{}, false, err
 	}
 	now := time.Now().UTC()
-	job := MediaJob{ID: id, Capability: input.Capability, Status: "queued", Prompt: input.Prompt, ModelID: route.ModelID, ProjectID: input.ProjectID, ReferenceIDs: input.ReferenceIDs, Output: input.Output, AssetIDs: []string{}, CreatedAt: now, UpdatedAt: now}
-	refs, _ := json.Marshal(job.ReferenceIDs)
+	job := MediaJob{ID: id, Capability: input.Capability, Status: "queued", Prompt: input.Prompt, ModelID: route.ModelID, ProjectID: input.ProjectID, References: input.References, ReferenceIDs: input.ReferenceIDs, Output: input.Output, AssetIDs: []string{}, CreatedAt: now, UpdatedAt: now}
+	if !input.References.Empty() {
+		job.ReferenceIDs = input.References.Flat()
+	}
+	refs, _ := json.Marshal(job.ReferencesForStorage())
 	output, _ := json.Marshal(job.Output)
 	assets, _ := json.Marshal(job.AssetIDs)
 	_, err = db.Exec(`insert into media_jobs (id, idempotency_key, capability, status, prompt, model_id, credential_id, project_id, reference_ids_json, output_json, asset_ids_json, remote_id, remote_poll_url, error, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, job.ID, input.IdempotencyKey, job.Capability, job.Status, job.Prompt, job.ModelID, credential.ID, job.ProjectID, string(refs), string(output), string(assets), "", "", "", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
@@ -464,26 +469,29 @@ func (m *MediaService) generateImage(job MediaJob, credential MediaCredential, m
 	})
 }
 
-// imageReferences decodes a job's reference assets into the byte form a
-// provider strategy consumes. Reference files are content-addressed in the
-// media root; strategies serialize them (data URL, multipart, ...) per their
-// own protocol.
+// imageReferences decodes a job's image references into the byte form a
+// provider strategy consumes. Asset references read the content-addressed
+// media store; url references resolve through the unified remote cache. Both
+// sources converge on one local file per reference.
 func (m *MediaService) imageReferences(job MediaJob) ([]model_providers.ImageReference, error) {
 	references := []model_providers.ImageReference{}
-	for _, id := range job.ReferenceIDs {
-		asset, err := m.GetAsset(id)
+	refs, err := m.jobReferences(job)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range refs {
+		if ref.Kind != "image" {
+			continue
+		}
+		filePath, mimeType, name, err := m.referenceFile(ref)
 		if err != nil {
 			return nil, err
 		}
-		if asset.Kind != "image" {
-			continue
-		}
-		path, _ := asset.Metadata["path"].(string)
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(filePath)
 		if err != nil {
-			return nil, fmt.Errorf("reference asset %q cannot be read", id)
+			return nil, fmt.Errorf("reference %q cannot be read", ref.Value)
 		}
-		references = append(references, model_providers.ImageReference{Kind: asset.Kind, Name: asset.Name, MimeType: asset.MimeType, Content: content})
+		references = append(references, model_providers.ImageReference{Kind: ref.Kind, Name: name, MimeType: mimeType, Content: content})
 	}
 	return references, nil
 }
@@ -578,17 +586,20 @@ func (m *MediaService) openAIImageBody(job MediaJob, model MediaModel) (io.Reade
 			return nil, "", "", err
 		}
 	}
-	for _, id := range job.ReferenceIDs {
-		asset, err := m.GetAsset(id)
+	refs, err := m.jobReferences(job)
+	if err != nil {
+		return nil, "", "", err
+	}
+	for _, ref := range refs {
+		filePath, _, name, err := m.referenceFile(ref)
 		if err != nil {
 			return nil, "", "", err
 		}
-		path, _ := asset.Metadata["path"].(string)
-		file, err := os.Open(path)
+		file, err := os.Open(filePath)
 		if err != nil {
-			return nil, "", "", fmt.Errorf("reference asset %q cannot be read", id)
+			return nil, "", "", fmt.Errorf("reference %q cannot be read", ref.Value)
 		}
-		part, err := writer.CreateFormFile("image[]", asset.Name)
+		part, err := writer.CreateFormFile("image[]", name)
 		if err == nil {
 			_, err = io.Copy(part, file)
 		}
@@ -722,7 +733,9 @@ func scanJob(row mediaScanner) (MediaJob, error) {
 		return MediaJob{}, err
 	}
 	job.Capability = MediaCapability(capability)
-	_ = json.Unmarshal([]byte(refs), &job.ReferenceIDs)
+	typedRefs, flatRefs := ParseJobReferences(refs)
+	job.References = typedRefs
+	job.ReferenceIDs = flatRefs
 	_ = json.Unmarshal([]byte(output), &job.Output)
 	_ = json.Unmarshal([]byte(assets), &job.AssetIDs)
 	job.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)

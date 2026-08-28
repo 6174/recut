@@ -1,0 +1,206 @@
+{
+  "entities": [
+    {
+      "content": {
+        "appearance": "黑色实心小怪物；白色圆点眼睛；细腿，偶尔有细胳膊；轮廓略不规则有手绘感；表情空、呆、冷静、认真",
+        "body": "# 小黑 IP\n\n## 角色定义\n\n小黑是 Ian 中文正文配图的固定视觉 IP。\n\n默认每张图都要出现小黑。小黑不是吉祥物，不是贴纸，不是可爱装饰，而是正在认真参与系统运转的荒诞工作者。\n\n## 外形\n\n- 黑色实心小怪物。\n- 白色圆点眼睛。\n- 细腿，偶尔有细胳膊。\n- 身体可以是圆柱、黑豆、黑盒、漏斗、影子、洞口、机器内部黑块。\n- 轮廓略微不规则，有手绘感。\n- 表情空、呆、冷静、认真。\n\n## 性格\n\n- 很认真，但做的事有点荒诞。\n- 像一个低调的系统操作员。\n- 冷幽默，不卖萌。\n- 有点笨拙，但不蠢。\n- 像在白板草图里真的负责某个工作。\n\n## 常见职责\n\n让小黑承担核心动作：\n\n- 搬运素材。\n- 拉线汇聚信息源。\n- 卡在断点里。\n- 在机器里操作“判断”杆。\n- 变成筛选漏斗。\n- 切开“素材鱼”。\n- 盖章承接话术。\n- 牵着承接路径。\n- 举警告牌看坑。\n- 从洞里伸手但接不住内容。\n- 在旁边搬砖、搭桥、开门、分拣、记录。\n\n## 禁止\n\n- 不要把小黑画成过度可爱的吉祥物。\n- 不要画成儿童卡通角色。\n- 不要给小黑复杂服装、表情包、闪亮眼睛。\n- 不要让小黑只是站在角落里看。\n- 不要让小黑抢走结构表达。\n- 不要把小黑画得太商业、太圆润、太精致。\n\n## 判断标准\n\n如果去掉小黑，图的核心隐喻还能完全成立，说明小黑太装饰了；要重写提示词，让小黑成为动作主体。\n",
+        "personality": "很认真但做的事有点荒诞；低调系统操作员；冷幽默不卖萌",
+        "voice": "无台词；以动作叙事"
+      },
+      "id": "xiaohei",
+      "kind": "character",
+      "summary": "黑色实心、白点眼、细腿、空表情的荒诞工作者；必须参与画面核心动作。",
+      "title": "小黑"
+    },
+    {
+      "content": {
+        "body": "# 风格 DNA\n\n## 一句话\n\n纯白、极简、手绘、留白、克制、怪诞、产品草图感、中文手写感、结构清楚但不说明书。\n\n像一个长期做 AI、产品、设计、开发工具的人，在白纸上随手画出来的一张解释草图。\n\n## 必须\n\n- 16:9 横版正文配图。\n- 纯白背景：不要米色、暖灰、纸张纹理、渐变、阴影、噪点、复古纸感。\n- 黑色手绘线稿为主：细线、轻微抖动、不机械、不矢量、不厚重描边。\n- 大量留白：主体占画面约 40%-60%，至少 35% 空白，最好有一整块安静区域。\n- 少量中文手写批注：最多 5-8 处，每处尽量 2-8 个字。\n- 一张图只讲一个核心动作、结构、状态或隐喻。\n- 结构要自然表达，不要在图上写结构类型名称。\n\n## 颜色\n\n- 黑色：主体线稿、角色、框线、结构、主要文字、主体物件。\n- 红色：重点批注、问题、情绪点、关键提醒、结果。\n- 橙色：主流程、路径、箭头、自动化流向、从 A 到 B 的移动关系。\n- 蓝色：补充说明、脑内状态、系统状态、第二层解释、AI/assistant/自动化提示。\n\n蓝色不是每张都必须用。颜色要克制，宁可少不要多。\n\n## 绝对不要\n\n- 不要商业插画。\n- 不要 PPT 信息图。\n- 不要正式流程图。\n- 不要课程课件。\n- 不要可爱卡通海报。\n- 不要儿童插画。\n- 不要复杂架构图。\n- 不要精致扁平插画。\n- 不要科技感 UI。\n- 不要真实 App 截图。\n- 不要复杂背景、渐变、阴影、纹理。\n- 不要把每个节点都解释清楚。\n- 不要左上角写“Workflow 流程图 / 系统架构图 / 常见坑 / 路线图”等类型标题。\n\n## 审美方向\n\n要怪诞、创意、有意思、简洁清爽、天马行空。\n\n不要可爱、幼稚、很复杂、死板。\n",
+        "guidance": "纯白背景（无米色/纸纹/渐变/阴影）；细线轻微抖动；主体占 40%-60%，≥35% 留白；批注 5-8 处、每处 2-8 字；一图一核心结构",
+        "kind": "visual"
+      },
+      "id": "style-dna",
+      "kind": "style",
+      "summary": "纯白背景、黑色手绘线稿、少量红橙蓝中文批注、大量留白；怪诞但不说明书。",
+      "title": "风格 DNA"
+    },
+    {
+      "content": {
+        "text": "16:9 横版中文正文配图；每张单独生成，不把多张图拼在一张里",
+        "type": "always"
+      },
+      "id": "rule-format",
+      "kind": "rule",
+      "title": "16:9 横版"
+    },
+    {
+      "content": {
+        "text": "不要商业插画、PPT 信息图、正式流程图、课程课件、可爱卡通海报、复杂架构图、科技感 UI、真实 App 截图；不要左上角写类型标题",
+        "type": "never"
+      },
+      "id": "rule-no-ppt",
+      "kind": "rule",
+      "title": "禁止 PPT 感"
+    },
+    {
+      "content": {
+        "text": "黑色主体线稿；橙色只用于主路径/箭头；红色只用于重点/问题/结果；蓝色只用于补充说明/系统状态；宁可少不要多",
+        "type": "prefer"
+      },
+      "id": "rule-color",
+      "kind": "rule",
+      "title": "颜色克制"
+    }
+  ],
+  "evidence": [
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "两个断点",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/01-two-breakpoints.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "最小闭环",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/02-minimum-loop.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "按用途分拣",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/03-sort-by-purpose.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "一鱼多吃",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/04-one-fish-many-uses.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "承接路径",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/05-handoff-path.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "三个信息源",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/06-three-sources.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "三种内容工作",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/07-three-content-jobs.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "承接话术工具箱",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/08-handoff-copy-toolbox.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "常见坑（无标题示范）",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/09-common-pits-no-title.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "信息井",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/10-information-well.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "想法压榨机",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/11-idea-press.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "内容发酵",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/12-content-fermentation.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "系统承重",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/13-system-bearing.png"
+    },
+    {
+      "collection": "风格示例",
+      "entityId": "xiaohei",
+      "label": "信任桥",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohei/0.1.0/examples/14-trust-bridge.png"
+    }
+  ],
+  "manifestVersion": 1,
+  "provenance": {
+    "author": "helloianneo",
+    "license": "MIT",
+    "publishedAt": "2026-08-28T00:00:00Z",
+    "repository": "https://github.com/helloianneo/ian-xiaohei-illustrations",
+    "sourceRevision": "cbf5ee2"
+  },
+  "relations": [],
+  "world": {
+    "coverUrl": "",
+    "description": "为中文文章生成白底手绘、怪诞清爽的 16:9 正文配图：小黑 IP + 风格 DNA + 完整生产工作流，@ 一下即可产出风格一致的系列图。",
+    "id": "pgc.xiaohei",
+    "identity": {
+      "audience": [
+        "写中文文章、方法论、工作流内容的创作者"
+      ],
+      "positioning": "中文知识型内容的正文配图体系",
+      "tone": "怪诞、克制、手绘、清爽"
+    },
+    "name": "小黑怪诞正文配图",
+    "skillMd": "# 小黑怪诞正文配图\n\n## 核心定位\n\n为中文文章设计和生成 16:9 横版正文配图。目标不是做商业插画、PPT 信息图或可爱卡通，而是把文章里的关键判断、流程、结构、状态或隐喻，变成一张清爽、怪诞、有创意、可读但不说明书的手绘解释图。\n\n默认视觉 IP 是「小黑」：黑色实心、白点眼、细腿、空表情，认真做一件荒诞但成立的事。小黑必须参与画面的核心动作，不能只是站在旁边当装饰。完整角色设定见「小黑」角色（含 body 全文），风格规则见「风格 DNA」（含 body 全文）与规则实体。\n\n## 工作流\n\n### 1. 消化正文\n\n先读用户给的正文、链接、页面、Markdown 文件或截图内容。提炼：\n\n- 核心观点是什么\n- 哪些段落承担认知转折\n- 哪些内容适合用图解释\n- 哪些地方只适合文字，不需要图\n\n不要平均配图。优先选择「认知锚点」，例如：核心判断、两个断点、输入输出闭环、分流、前后对比、一鱼多吃、承接路径、常见坑、角色状态变化。\n\n### 2. 先出配图策略（shot list）\n\n如果用户只是说「分析怎么配图 / 思考哪些地方需要配图」，先给 shot list。每张图写清楚：\n\n- 放在哪个段落后\n- 图的主题\n- 核心意思\n- 结构类型\n- 小黑在图里做什么\n- 建议元素\n- 建议中文标注词\n\n默认 4-8 张。文章很短时 1-3 张；长文也不要轻易超过 9 张。够用就好，避免把正文做成画册。\n\n### 3. 单张生成\n\n如果用户明确要求「生成 / 输出 / 做图 / 帮我生成」，不要停下来等确认；用当前宿主的图片生成工具（在 Recut 中为 `recut.image.generate`）每张单独生成。不要把多张图拼在一张里。\n\n每张图只讲一个核心结构。提示词必须包含：\n\n- 16:9 横版中文正文配图\n- 纯白背景\n- 黑色手绘线稿\n- 少量红色/橙色/蓝色中文手写批注\n- 大量留白\n- 小黑作为核心动作主体\n- 禁止 PPT、商业插画、幼稚可爱、复杂架构、左上角类型标题\n\n不要复刻过往案例。案例只提供风格密度和小黑参与方式，不能直接复用「传送带断点 / 小黑拉线 / 素材鱼 / 盖章工具箱 / 常见坑路径」等已有构图，除非用户明确要求复刻某张图。每次都要从当前文章重新发明一个奇怪但成立的隐喻。\n\n### 4. 检查与迭代\n\n按下方「生成后检查」口径复核。发现问题优先重生成或局部编辑，不要把问题图直接交付。\n\n### 5. 交付\n\n生成结果入库 Recut 素材库（在 Recut 中经 `recut.image.generate` 产物自动入库，或把图交给素材库导入）。交付说明要短而准：\n\n- 生成了几张\n- 每张图的用途\n- 哪些图最稳，哪些图是可选\n\n不要长篇解释风格理论；让图自己说话。\n\n## 生图提示词模板\n\n每张图单独生成。根据正文内容替换变量，不要把多张图拼在一起。\n\n```text\nGenerate one standalone 16:9 horizontal Chinese article illustration.\n\nVisual DNA:\nPure white background. Minimalist black hand-drawn line art. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean absurd product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no cute mascot poster, no children's illustration, no realistic UI.\n\nRecurring IP character required:\n小黑, a small solid-black absurd creature with white dot eyes, tiny thin legs, blank serious expression, slightly uneven hand-drawn body shape. 小黑 must perform the core conceptual action, not decorate the scene. Make 小黑 serious, deadpan, and slightly bizarre, not cute.\n\nTheme:\n{正文配图主题}\n\nStructure type:\n{结构类型：Workflow / 系统局部 / 前后对比 / 角色状态 / 概念隐喻 / 方法分层 / 地图路线 / 小漫画分镜}\n\nCore idea:\n{这张图要表达的核心意思}\n\nComposition:\n{具体画面：小黑在哪里、正在做什么、主要物件是什么、信息如何流动}\n\nSuggested elements:\n{元素1} / {元素2} / {元素3} / {元素4}\n\nChinese handwritten labels:\n{标注词1} / {标注词2} / {标注词3} / {标注词4} / {可选标注词5}\n\nColor use:\nBlack for main line art and 小黑. Orange for main flow/path/arrows. Red only for key warnings/problems/results. Blue only for secondary notes or feedback/system state.\n\nConstraints:\nOne image explains only one core structure. Keep the main subject around 40%-60% of the canvas. Preserve at least 35% blank white space. Use at most 5-8 short handwritten Chinese labels. Do not write a title in the top-left corner. Do not write the structure type on the image. Do not make it a formal diagram, course slide, or dense explainer. Do not copy prior examples or reuse known case compositions unless explicitly requested; invent a fresh visual metaphor for this specific article. It should be clear but not instructional, interesting but not childish, strange but clean.\n```\n\n## 结构类型与隐喻方法\n\n选择一种结构即可，不要混太多：\n\n- **Workflow 流程**：输入 → 处理 → 输出。左侧输入，中间小黑或怪机器处理，右侧输出，橙色箭头表达主流向。\n- **系统局部**：只画 3-5 个核心模块，小黑参与其中一个关键动作。\n- **前后对比**：左混乱，右稳定，中间橙色箭头。角色可以更夸张。\n- **角色状态**：2-4 个小状态，每个状态一个短标注。\n- **概念隐喻**：一个大的怪物件或机器，少量输入，一个输出。要有记忆点。\n- **方法分层**：一层层盒子，不要正式金字塔；小黑在旁边搬砖或搭建。\n- **地图路线**：一条弯曲路径，少量节点，小黑牵线或走路。\n- **小漫画分镜**：2-4 个小场景，每格只表达一个动作。\n\n原创隐喻三步法（每次都从当前文章重新发明隐喻，不能照搬旧图）：\n\n1. 把抽象概念换成一个物理动作：卡住、漏掉、变重、分拣、沉淀、发酵、开门、折叠、拆包、回流。\n2. 把系统结构换成一个低科技物件：坏掉的机器、纸箱、抽屉、水管、邮筒、怪表盘、秤、井、梯子、奇怪工位。用时只选 1-2 个，不要堆满。\n3. 让小黑承担动作：不是站旁边，而是卡在机器里、拉错线、守门、搬运、修补、称重、扶梯子、记录、把东西塞进某个怪装置。动作要服务核心意思，不要为了怪而怪。\n\n## 生成后检查\n\n必过项：16:9 横版；干净白底；有小黑且承担核心动作；没有复刻旧案例构图；怪诞、有创意；简洁清爽（主体 ≤ 约 60%）；一图一核心结构；中文标注少、短、能读；橙色只用于主路径/箭头，红色只用于重点/问题/结果，蓝色只用于补充说明/系统状态。\n\n出现以下问题优先重生成或局部编辑：左上角出现「常见坑/流程图/系统架构图/路线图」等标题；小黑像吉祥物或可爱卡通；画面像 PPT、课件、正式流程图；元素/箭头/节点太多；文字变成大段解释；背景有纸纹、阴影、渐变、米色、噪点；真实 UI 截图；中文错字严重；画面太死板没有荒诞隐喻；与示例图构图过于相似。\n\n迭代口径：太普通 → 让小黑成为动作主体，加入奇怪但成立的隐喻；太复杂 → 删节点，只保留一个动作和 3-5 个短标注；太可爱 → 强调 deadpan、not cute、not mascot；太 PPT → 去掉标题、边框、整齐网格和过多箭头，改成手绘场景；太像旧案例 → 保留核心意思，换掉主物件和小黑动作；文字错 → 优先局部编辑，错得多就重生成并减少标注数量。\n\n高质量图应该让读者先觉得「有点怪」，然后 1 秒内看懂结构。如果第一眼像教程页而不是白纸上的怪诞产品草图，就不合格。\n\n## 资源口径\n\n- 「风格示例」证据集（examples/ 镜像）仅作**低频视觉校准**：线条密度、留白比例、颜色克制、小黑气质。**不进入默认生成路径**，不复刻其中任何案例的构图、物件或标注。\n- 角色外形与职责以「小黑」角色实体（含 body 全文）为准；风格规则以「风格 DNA」实体（含 body 全文）与规则实体（16:9 横版 / 禁止 PPT 感 / 颜色克制）为准。\n- 需要参考本地文件时，把示例图 URL 交给宿主文件工具或导入素材库；不要把示例图直接作为生成参考图喂给图片模型。\n",
+    "type": "character_ip"
+  }
+}

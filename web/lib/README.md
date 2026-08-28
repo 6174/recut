@@ -16,7 +16,7 @@ agent-panel-context.ts: 全局 Agent 面板上下文的内存状态；保存根�
 marketing-posts.ts: 官网 Blog 的 MDX 加载器；用 gray-matter 读取 `content/marketing/<locale>/*.mdx`，导出 `MarketingPost`（date/slug/title/description/content/locale）与 `marketingPosts`/`getMarketingPost`，按日期降序；只在服务端模块导入，客户端组件一律经 props 接收数据，避免 `node:fs` 进入浏览器包；内容覆盖产品理念、使用教程与技术关键词碰瓷（CosyVoice / Qwen ASR / Depth Anything / AI 封面等自部署难的高搜索词，落点到免配置 App 方案）。
 media-configuration-store.ts: Provider、脱敏 Credential 与用途 Route 的按 endpoint 配置缓存；Settings、素材创建和 iframe App 宿主共享，绝不保存 API Key 输入草稿。
 workspace-store.ts: 含可选 image/video `cover` 的项目、App、已安装 App、项目详情和独立 App scope 的内存目录缓存；App、项目与安装列表分别保留读取状态和服务端失败原因，安装列表成功返回空数组即是“尚未安装”，首次读取和写操作后显式刷新，禁止页面级轮询。
-recut-worlds-client.ts: Creation Worlds 的浏览器传输适配器；请求/响应与全局 SDK 及 MCP 同构，World/Entity、可冻结的多模态 Evidence、Resolve 与项目 World Context 读写；错误统一解包为结构化 `RecutWorldsError`；只被原生 Recut 页面使用，App iframe 永不经它。
+recut-worlds-client.ts: Creation Worlds 的浏览器传输适配器；请求/响应与全局 SDK 及 MCP 同构，World/Entity、可冻结的多模态 Evidence、Resolve、readiness 就绪度投影与项目 World Context 读写；错误统一解包为结构化 `RecutWorldsError`；只被原生 Recut 页面使用，App iframe 永不经它。
 worlds-store.ts: Creation Worlds 的跨路由内存缓存；World 列表分页、详情、Entity 列表/详情快照分别保留读取状态与失败原因，缓存键按 `{endpoint, text, type, cursor}` / `{endpoint, worldId}` / `{endpoint, worldId, kind, cursor}` 划分，任何写或绑定成功后显式失效，禁止页面级轮询。
 iframe-assets-bridge.ts: iframe `recut.assets` 与 `recut.clipboard.writeText` 的宿主实现；以当前 project scope 代理全局 Asset 查询、上传、绑定、删除和内容 URL，并在顶层文档执行 Clipboard 写入，iframe 不发现 Service 或拼接 API。
 agent-panel-context.ts: 路由签发的 Work Surface 与 App/页面补充的完整 Focus 的全局状态；路由变更立刻清理 Focus，禁止选区跨项目、App 或 World 泄漏。

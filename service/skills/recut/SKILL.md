@@ -2,6 +2,7 @@
 name: recut
 appId: recut.platform
 description: Recut 视频创作平台：素材库、媒体生成（图片/视频/语音）与已安装 App 的创作工作流，经 Recut MCP 使用。
+references: world-onboarding.md
 ---
 
 # Recut 平台 Skill
@@ -78,7 +79,13 @@ App 操作按以下顺序解析状态命名空间：
 
 ## Creation Worlds 上下文
 
-`recut.worlds.*` 是全局只读工具：`recut.worlds.list` 发现 Worlds，`recut.worlds.get` 确认身份，`recut.worlds.entities.list/get` 浏览角色/故事/风格/规则，`recut.worlds.resolve` 在固定 revision 上投影稳定的 `CreationContext`（身份、实体、约束、引用）。**不存在隐式当前 World**：每次调用都要显式传 `worldId`，`entityId` 只在它的 `worldId` 内有效。当消息携带 World/Entity 引用，或 Project 的 `workflow.context`/`ctx.creationContext` 报出 `creationContext` 时，在该次工作期间把它当作权威 Canon：遵守 `constraints.always/never`、优先使用被引用的 `assetId`、绝不凭空捏造 Canon。**不要**调用写入类工具（`recut.worlds.create/update/entities.upsert/references.attach/bind_project`），除非用户明确要求记录或改动 World；先提出新设置，经用户确认后再写回。
+`recut.worlds.*` 是全局工具：**`recut.worlds.brief` 是读取 World 的默认单次入口**——一次获得身份、世界技能（`skill`/world.md 全文）、角色/故事/场景/风格事实（含 `body` 长文）、规则约束与证据（`assetId` 或 `url` 双源）。`recut.worlds.list` 发现 Worlds，`recut.worlds.get` 确认身份，`recut.worlds.entities.list/get` 浏览实体，`recut.worlds.resolve` 保留给 App/运行时（固定 revision 的 `CreationContext`）。**不存在隐式当前 World**：每次调用都要显式传 `worldId`，`entityId` 只在它的 `worldId` 内有效。
+
+World 分三类来源（`origin`）：`local`（用户自建，可编辑）、`platform`（平台内置，daemon 自动同步）、`published`（发布安装，P4）。**非 local 世界只读**：任何写工具（update/entities.upsert/evidence.*/skill_md）会返回 `WORLD_READ_ONLY`——这是边界不是失败，按错误 details 向用户说明并**提议 `recut.worlds.fork`**，经用户确认在本地副本上继续。平台世界的 world.md 是该垂直能力的**生产工作流**（如小黑配图：先出 shot list → 逐张生成 → 按质检口径复核 → 交付），必须按其执行；技能中的「资源口径」章节约束证据的使用方式（如“风格示例仅作低频视觉校准，不进入默认生成路径”）。
+
+证据双源：`source: "asset"` 走素材库 assetId；`source: "url"` 是绝对 http(s) 远程资源——provider 接受 URL 时直接引用，需要本地文件或入库时调用 `recut.media.import_url`（≤25MB，内容寻址去重）。当消息携带 World/Entity 引用，或 Project 的 `workflow.context`/`ctx.creationContext` 报出 `creationContext` 时，在该次工作期间把它当作权威 Canon：遵守 `constraints.always/never`、优先使用被引用的证据、绝不凭空捏造 Canon。**不要**调用写入类工具（`recut.worlds.create/update/fork/entities.upsert/references.attach/evidence.*/bind_project`），除非用户明确要求；非 local 世界的修改诉求走 Fork。
+
+**新世界从空开始（无模板空壳实体）**：`recut.worlds.readiness({ worldId })` 返回就绪度（skeleton/draft/ready）、分数与按优先级排序的缺失清单（含原因与建议动作），并按世界类型推荐起点场景蓝图（小说改编 / IP 账号 / 风格体系 / 品牌指南 / 从零开始）。用户要求完善或搭建一个 World 时，按 onboarding 标准工作流执行：readiness 取工作清单 → 消化用户素材（链接用 `recut.media.create_reference` 登记）→ research 补全（只依据素材，未覆盖项标注"需要你补充"）→ 生成候选图交用户挑选 → 结构化提案 → 用户确认后逐条写回（携带 `expectedRevisionId`，冲突即停）。完整工作流经 `recut.skills.reference({ appId: "recut.platform", skillId: "recut", path: "references/world-onboarding.md" })` 读取。
 
 ## 文件系统与原生文件工具
 

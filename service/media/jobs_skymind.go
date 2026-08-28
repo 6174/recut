@@ -103,13 +103,30 @@ type skymindReferences struct {
 	Audios []string
 }
 
-// skymindReferenceURLs publishes every reference asset as a temporary public
-// URL and groups the URLs by kind. Publishing is deduplicated by content hash,
-// so prompt-iteration re-submissions do not re-upload.
+// skymindReferenceURLs groups the job's references by kind as public URLs.
+// Asset references are published as temporary public URLs (deduplicated by
+// content hash, so prompt-iteration re-submissions do not re-upload); URL
+// references are passed through directly — the remote resource (e.g. a World
+// evidence image on the platform CDN) is already public.
 func (m *MediaService) skymindReferenceURLs(job MediaJob) (skymindReferences, error) {
 	references := skymindReferences{}
-	for _, id := range job.ReferenceIDs {
-		asset, err := m.GetAsset(id)
+	refs, err := m.jobReferences(job)
+	if err != nil {
+		return skymindReferences{}, err
+	}
+	for _, ref := range refs {
+		if ref.Source == "url" {
+			switch ref.Kind {
+			case "image":
+				references.Images = append(references.Images, ref.Value)
+			case "video":
+				references.Videos = append(references.Videos, ref.Value)
+			case "audio":
+				references.Audios = append(references.Audios, ref.Value)
+			}
+			continue
+		}
+		asset, err := m.GetAsset(ref.Value)
 		if err != nil {
 			return skymindReferences{}, err
 		}

@@ -35,6 +35,7 @@ type Server struct {
 	updater   *ServiceUpdater
 	skill     *RecutSkillManager
 	worlds    *WorldStore
+	worldCatalog *WorldCatalogSyncer
 	bus       *EventBus
 }
 
@@ -52,6 +53,13 @@ func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *
 		server.skill = NewRecutSkillManager(store.root)
 	}
 	return server
+}
+
+// SetWorldCatalog wires the catalog syncer for the GET /v1/worlds/catalog
+// passthrough. It is injected after construction because the syncer is owned
+// by the daemon bootstrap.
+func (s *Server) SetWorldCatalog(syncer *WorldCatalogSyncer) {
+	s.worldCatalog = syncer
 }
 
 func (s *Server) HTTPServer(address string) *http.Server {
@@ -114,8 +122,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /v1/projects/{projectID}/world-context", s.putProjectWorldContext)
 	mux.HandleFunc("GET /v1/worlds", s.listWorlds)
 	mux.HandleFunc("POST /v1/worlds", s.createWorld)
+	mux.HandleFunc("GET /v1/worlds/catalog", s.getWorldsCatalog)
 	mux.HandleFunc("GET /v1/worlds/{worldID}", s.getWorld)
 	mux.HandleFunc("PATCH /v1/worlds/{worldID}", s.updateWorld)
+	mux.HandleFunc("POST /v1/worlds/{worldID}/fork", s.forkWorld)
+	mux.HandleFunc("POST /v1/worlds/{worldID}/brief", s.briefWorld)
+	mux.HandleFunc("GET /v1/worlds/{worldID}/readiness", s.getWorldReadiness)
 	mux.HandleFunc("GET /v1/worlds/{worldID}/entities", s.listWorldEntities)
 	mux.HandleFunc("POST /v1/worlds/{worldID}/entities", s.createWorldEntity)
 	mux.HandleFunc("GET /v1/worlds/{worldID}/entities/{entityID}", s.getWorldEntity)

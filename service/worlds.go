@@ -1,7 +1,8 @@
 /*
  * [INPUT]: 依赖 Store 的 workspace.sqlite、MediaService 的 Asset 校验与标准库 SQLite/JSON 能力
  * [OUTPUT]: 对外提供 Creation Worlds 的平台拥有 WorldStore：World/Entity/Relation/AssetRef/Revision 的读写、
- * 分页与乐观并发、确定性 Canon 序列化与 SHA-256 哈希、CreationContext 投影、Project/Job 绑定与结构化 WorldsError
+ * 分页与乐观并发、确定性 Canon 序列化与 SHA-256 哈希、CreationContext 投影、Project/Job 绑定与结构化 WorldsError；
+ * 创建不再 seed 模板空壳实体（Onboarding RFC），新世界从空开始由 readiness 驱动引导
  * [POS]: service 的 Creation Worlds 存储边界；world_* 与 creation_context_bindings 表归平台 WorldStore 独占，
  * 普通 App 的 ctx.sqlite 永远看不到它们；所有跨 App 读取必须经 WorldsFacade（HTTP/MCP/ctx.worlds）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -16,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +27,17 @@ import (
 // WorldKind is the closed set of World creation templates. Templates only
 // influence seed entities and defaults; the underlying model stays identical.
 type WorldKind string
+
+// WorldOrigin is the closed set of World provenance. Local worlds are user
+// authored and writable; platform worlds are daemon-synced from the platform
+// catalog; published worlds are user-installed copies (P4). Origin is fixed at
+// creation and never changes: non-local worlds are read-only and updates only
+// arrive through their catalog-driven lifecycle.
+const (
+	WorldLocal     = "local"
+	WorldPlatform  = "platform"
+	WorldPublished = "published"
+)
 
 const (
 	WorldCharacterIP  WorldKind = "character_ip"
@@ -93,7 +106,11 @@ type WorldSummary struct {
 	Name              string                  `json:"name"`
 	Type              WorldKind               `json:"type"`
 	Description       string                  `json:"description"`
+	Origin            string                  `json:"origin"`
+	OriginMeta        *WorldOriginMeta        `json:"originMeta,omitempty"`
 	CoverAssetID      string                  `json:"coverAssetId,omitempty"`
+	PreviewAssetIDs   []string                `json:"previewAssetIds,omitempty"`
+	PreviewURLs       []string                `json:"previewUrls,omitempty"`
 	CurrentRevisionID string                  `json:"currentRevisionId"`
 	EntityCounts      map[WorldEntityKind]int `json:"entityCounts"`
 	UpdatedAt         string                  `json:"updatedAt"`
@@ -108,8 +125,45 @@ type WorldRevisionView struct {
 type WorldDetail struct {
 	WorldSummary
 	Identity             map[string]any    `json:"identity"`
+	SkillMd              string            `json:"skillMd"`
 	Revision             WorldRevisionView `json:"revision"`
 	AvailableEntityKinds []WorldEntityKind `json:"availableEntityKinds"`
+}
+
+// WorldOriginMeta records where a World came from and how its lifecycle is
+// managed. kind/publisher/version/manifestHash/catalogOrder/syncedAt are used
+// by platform worlds; installedAt/uninstalled by published worlds (P4);
+// forkedFrom only appears on local worlds forked from a non-local source;
+// coverUrl/provenance carry the manifest's public presentation facts.
+type WorldOriginMeta struct {
+	Kind         string       `json:"kind,omitempty"`
+	Publisher    string       `json:"publisher,omitempty"`
+	Version      string       `json:"version,omitempty"`
+	ManifestHash string       `json:"manifestHash,omitempty"`
+	CatalogOrder int          `json:"catalogOrder,omitempty"`
+	CoverURL     string       `json:"coverUrl,omitempty"`
+	Provenance   *Provenance  `json:"provenance,omitempty"`
+	PublishedAt  string       `json:"publishedAt,omitempty"`
+	SyncedAt     string       `json:"syncedAt,omitempty"`
+	InstalledAt  string       `json:"installedAt,omitempty"`
+	Uninstalled  bool         `json:"uninstalled,omitempty"`
+	ForkedFrom   *ForkSource  `json:"forkedFrom,omitempty"`
+}
+
+// Provenance is the attribution block every platform manifest must carry: the
+// World content is redistributed, so its upstream source stays auditable.
+type Provenance struct {
+	Author         string `json:"author,omitempty"`
+	License        string `json:"license,omitempty"`
+	Repository     string `json:"repository,omitempty"`
+	SourceRevision string `json:"sourceRevision,omitempty"`
+	PublishedAt    string `json:"publishedAt,omitempty"`
+}
+
+// ForkSource pins the exact upstream revision a local World was forked from.
+type ForkSource struct {
+	WorldID    string `json:"worldId"`
+	RevisionID string `json:"revisionId"`
 }
 
 type WorldEntitySummary struct {
@@ -130,7 +184,9 @@ type WorldEntityRelation struct {
 
 type WorldAssetReference struct {
 	ID               string                `json:"id,omitempty"`
-	AssetID          string                `json:"assetId"`
+	Source           string                `json:"source"`
+	AssetID          string                `json:"assetId,omitempty"`
+	URL              string                `json:"url,omitempty"`
 	AssetContentHash string                `json:"assetContentHash,omitempty"`
 	Modality         string                `json:"modality"`
 	Purpose          string                `json:"purpose"`
@@ -141,6 +197,14 @@ type WorldAssetReference struct {
 	Label            string                `json:"label,omitempty"`
 	EntityID         string                `json:"entityId,omitempty"`
 }
+
+// Evidence sources: exactly one of asset (local, completed media) or url
+// (remote, absolute http(s)) is populated per reference. URL evidence keeps
+// the remote resource as truth and never pollutes the user's media library.
+const (
+	EvidenceSourceAsset = "asset"
+	EvidenceSourceURL   = "url"
+)
 
 // WorldEvidenceSegment pins the meaningful part of a long audio or video
 // asset. A revision therefore freezes both bytes and the chosen moment.
@@ -164,6 +228,7 @@ type WorldEntity struct {
 type WorldContextIdentity struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
+	Origin        string `json:"origin"`
 	RevisionID    string `json:"revisionId"`
 	CanonicalHash string `json:"canonicalHash"`
 }
@@ -187,6 +252,7 @@ type CreationContext struct {
 	World       WorldContextIdentity  `json:"world"`
 	Selection   WorldSelection        `json:"selection"`
 	Identity    map[string]any        `json:"identity"`
+	Skill       string                `json:"skill,omitempty"`
 	Entities    ResolvedWorldEntities `json:"entities"`
 	Constraints WorldConstraints      `json:"constraints"`
 	References  []WorldAssetReference `json:"references"`
@@ -224,6 +290,10 @@ const (
 	WorldsErrAssetNotReady       = "ASSET_NOT_READY"
 	WorldsErrProjectAlreadyBound = "PROJECT_WORLD_ALREADY_BOUND"
 	WorldsErrAccessDenied        = "WORLD_ACCESS_DENIED"
+	// WorldsErrReadOnly is the hard write boundary for non-local worlds. The
+	// error details always carry the fork escape hatch (hint + forkOperation)
+	// so Agents can propose the legal exit instead of failing silently.
+	WorldsErrReadOnly            = "WORLD_READ_ONLY"
 )
 
 func worldsError(code, message string) *WorldsError {
@@ -311,16 +381,17 @@ func (w *WorldStore) ListWorlds(input ListWorldsInput) ([]WorldSummary, string, 
 
 func (w *WorldStore) summary(db *sql.DB, worldID string) (WorldSummary, error) {
 	var summary WorldSummary
-	var createdAt, updatedAt string
+	var createdAt, updatedAt, origin, originMetaJSON string
 	var coverAssetID sql.NullString
 	var currentRevisionID sql.NullString
-	row := db.QueryRow("select id, name, type, description, cover_asset_id, current_revision_id, created_at, updated_at from worlds where id = ?", worldID)
-	if err := row.Scan(&summary.ID, &summary.Name, &summary.Type, &summary.Description, &coverAssetID, &currentRevisionID, &createdAt, &updatedAt); err != nil {
+	row := db.QueryRow("select id, name, type, description, origin, origin_meta_json, cover_asset_id, current_revision_id, created_at, updated_at from worlds where id = ?", worldID)
+	if err := row.Scan(&summary.ID, &summary.Name, &summary.Type, &summary.Description, &origin, &originMetaJSON, &coverAssetID, &currentRevisionID, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return WorldSummary{}, worldsError(WorldsErrNotFound, "world not found")
 		}
 		return WorldSummary{}, err
 	}
+	summary.Origin = originOrDefault(origin)
 	summary.EntityCounts = map[WorldEntityKind]int{}
 	countRows, err := db.Query("select kind, count(*) from world_entities where world_id = ? and archived_at is null group by kind", worldID)
 	if err != nil {
@@ -341,11 +412,46 @@ func (w *WorldStore) summary(db *sql.DB, worldID string) (WorldSummary, error) {
 	if coverAssetID.Valid {
 		summary.CoverAssetID = coverAssetID.String
 	}
+	// 卡片预览：取世界内前几张图片证据（本地素材取 assetId，平台世界取 CDN url），
+	// 无显式封面时前端用它拼画廊。
+	previewRows, err := db.Query("select asset_id, url from world_asset_refs where world_id = ? and archived_at is null and modality = 'image' and (asset_id != '' or url != '') order by sort_order, created_at limit 3", worldID)
+	if err != nil {
+		return WorldSummary{}, err
+	}
+	defer previewRows.Close()
+	for previewRows.Next() {
+		var assetID, evidenceURL string
+		if err := previewRows.Scan(&assetID, &evidenceURL); err != nil {
+			return WorldSummary{}, err
+		}
+		if assetID != "" {
+			summary.PreviewAssetIDs = append(summary.PreviewAssetIDs, assetID)
+		} else {
+			summary.PreviewURLs = append(summary.PreviewURLs, evidenceURL)
+		}
+	}
+	if err := previewRows.Err(); err != nil {
+		return WorldSummary{}, err
+	}
 	if currentRevisionID.Valid {
 		summary.CurrentRevisionID = currentRevisionID.String
 	}
 	summary.UpdatedAt = updatedAt
+	if originMetaJSON != "" && originMetaJSON != "{}" {
+		meta := WorldOriginMeta{}
+		if err := json.Unmarshal([]byte(originMetaJSON), &meta); err == nil {
+			summary.OriginMeta = &meta
+		}
+	}
 	return summary, nil
+}
+
+// originOrDefault normalizes rows written before layout v4 (empty origin).
+func originOrDefault(origin string) string {
+	if origin == "" {
+		return WorldLocal
+	}
+	return origin
 }
 
 func (w *WorldStore) GetWorld(worldID string) (WorldDetail, error) {
@@ -359,11 +465,11 @@ func (w *WorldStore) GetWorld(worldID string) (WorldDetail, error) {
 		return WorldDetail{}, err
 	}
 	detail.WorldSummary = summary
-	var identityJSON string
+	var identityJSON, skillMd string
 	var revisionID, canonicalHash, revisionCreatedAt string
 	var cover sql.NullString
-	row := db.QueryRow("select identity_json, current_revision_id, cover_asset_id from worlds where id = ?", worldID)
-	if err := row.Scan(&identityJSON, &revisionID, &cover); err != nil {
+	row := db.QueryRow("select identity_json, skill_md, current_revision_id, cover_asset_id from worlds where id = ?", worldID)
+	if err := row.Scan(&identityJSON, &skillMd, &revisionID, &cover); err != nil {
 		return WorldDetail{}, err
 	}
 	if err := json.Unmarshal([]byte(identityJSON), &detail.Identity); err != nil {
@@ -372,6 +478,7 @@ func (w *WorldStore) GetWorld(worldID string) (WorldDetail, error) {
 	if detail.Identity == nil {
 		detail.Identity = map[string]any{}
 	}
+	detail.SkillMd = skillMd
 	if revisionID != "" {
 		revRow := db.QueryRow("select id, canonical_hash, created_at from world_revisions where id = ?", revisionID)
 		if err := revRow.Scan(&revisionID, &canonicalHash, &revisionCreatedAt); err != nil {
@@ -437,17 +544,10 @@ func (w *WorldStore) CreateWorld(input CreateWorldInput) (WorldDetail, error) {
 		worldID, strings.TrimSpace(input.Name), string(input.Type), strings.TrimSpace(input.Description), string(identityJSON), input.CoverAssetID, now, now); err != nil {
 		return WorldDetail{}, err
 	}
-	for _, template := range templateEntities(input.Type) {
-		entityID, err := newID()
-		if err != nil {
-			return WorldDetail{}, err
-		}
-		contentJSON, _ := json.Marshal(template.Content)
-		if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-			entityID, worldID, string(template.Kind), template.Title, template.Summary, string(contentJSON), now, now); err != nil {
-			return WorldDetail{}, err
-		}
-	}
+	// Onboarding RFC (2026-08-28): worlds no longer seed template entities.
+	// An empty shell that pretends to be a finished character was the single
+	// worst first-run signal; a new world starts truly empty and the readiness
+	// projection (worlds_readiness.go) drives the onboarding loop instead.
 	if _, err := w.commitRevision(tx, worldID, "world.created", "system"); err != nil {
 		return WorldDetail{}, err
 	}
@@ -456,51 +556,6 @@ func (w *WorldStore) CreateWorld(input CreateWorldInput) (WorldDetail, error) {
 	}
 	logWorldEvent("world.created", map[string]string{"worldId": worldID})
 	return w.GetWorld(worldID)
-}
-
-func templateEntities(kind WorldKind) []struct {
-	Kind    WorldEntityKind
-	Title   string
-	Summary string
-	Content map[string]any
-} {
-	switch kind {
-	case WorldCharacterIP:
-		return []struct {
-			Kind    WorldEntityKind
-			Title   string
-			Summary string
-			Content map[string]any
-		}{{Kind: EntityCharacter, Title: "主角角色", Summary: "角色的身份中心：性格、外观与声音的不可变事实。", Content: map[string]any{"appearance": "", "personality": "", "voice": ""}}}
-	case WorldCreatorBrand:
-		return []struct {
-			Kind    WorldEntityKind
-			Title   string
-			Summary string
-			Content map[string]any
-		}{{Kind: EntityStyle, Title: "内容风格", Summary: "账号的编辑规范与表达风格。", Content: map[string]any{"kind": "text", "guidance": ""}}}
-	case WorldBrand:
-		return []struct {
-			Kind    WorldEntityKind
-			Title   string
-			Summary string
-			Content map[string]any
-		}{{Kind: EntityStyle, Title: "视觉系统", Summary: "品牌的视觉与文案规范。", Content: map[string]any{"kind": "visual", "guidance": ""}}}
-	case WorldFiction:
-		return []struct {
-			Kind    WorldEntityKind
-			Title   string
-			Summary string
-			Content map[string]any
-		}{{Kind: EntityLocation, Title: "初始地点", Summary: "世界观发生的初始地点。", Content: map[string]any{"description": ""}}}
-	default:
-		return []struct {
-			Kind    WorldEntityKind
-			Title   string
-			Summary string
-			Content map[string]any
-		}{{Kind: EntityRule, Title: "核心规则", Summary: "这个世界最重要的约束。", Content: map[string]any{"type": "always", "text": ""}}}
-	}
 }
 
 func (w *WorldStore) UpdateWorld(input UpdateWorldInput) (WorldDetail, error) {
@@ -514,6 +569,9 @@ func (w *WorldStore) UpdateWorld(input UpdateWorldInput) (WorldDetail, error) {
 		return WorldDetail{}, err
 	}
 	defer tx.Rollback()
+	if err := w.checkWritable(tx, input.WorldID); err != nil {
+		return WorldDetail{}, err
+	}
 	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
 		return WorldDetail{}, err
 	}
@@ -540,6 +598,12 @@ func (w *WorldStore) UpdateWorld(input UpdateWorldInput) (WorldDetail, error) {
 			return WorldDetail{}, err
 		}
 		if _, err := tx.Exec("update worlds set identity_json = ?, updated_at = ? where id = ?", string(identityJSON), now, input.WorldID); err != nil {
+			return WorldDetail{}, err
+		}
+		changed = true
+	}
+	if input.SkillMd != nil {
+		if _, err := tx.Exec("update worlds set skill_md = ?, updated_at = ? where id = ?", *input.SkillMd, now, input.WorldID); err != nil {
 			return WorldDetail{}, err
 		}
 		changed = true
@@ -648,7 +712,7 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 	if err := relationRows.Err(); err != nil {
 		return WorldEntity{}, err
 	}
-	refRows, err := db.Query("select id, asset_id, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, entity_id from world_asset_refs where world_id = ? and entity_id = ? and archived_at is null order by sort_order, created_at", worldID, entityID)
+	refRows, err := db.Query("select "+worldEvidenceColumns+" from world_asset_refs where world_id = ? and entity_id = ? and archived_at is null order by sort_order, created_at", worldID, entityID)
 	if err != nil {
 		return WorldEntity{}, err
 	}
@@ -704,6 +768,9 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 		return WorldEntity{}, err
 	}
 	defer tx.Rollback()
+	if err := w.checkWritable(tx, input.WorldID); err != nil {
+		return WorldEntity{}, err
+	}
 	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
 		return WorldEntity{}, err
 	}
@@ -755,8 +822,10 @@ func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetRefe
 	if !assetReferenceRoles[input.Role] && !strings.HasPrefix(input.Role, "evidence:") {
 		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid asset reference role %q", input.Role))
 	}
-	if strings.TrimSpace(input.AssetID) == "" {
-		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "assetId is required")
+	hasAsset := strings.TrimSpace(input.AssetID) != ""
+	hasURL := strings.TrimSpace(input.URL) != ""
+	if hasAsset == hasURL {
+		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "exactly one of assetId or url is required")
 	}
 	db, err := w.database()
 	if err != nil {
@@ -770,12 +839,27 @@ func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetRefe
 			return WorldAssetReference{}, err
 		}
 	}
-	modality, contentHash, err := w.validateEvidenceAsset(input.AssetID)
-	if err != nil {
-		return WorldAssetReference{}, err
-	}
-	if input.Modality != "" && input.Modality != modality {
-		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "evidence modality must match the selected asset")
+	var modality, contentHash string
+	if hasAsset {
+		modality, contentHash, err = w.validateEvidenceAsset(input.AssetID)
+		if err != nil {
+			return WorldAssetReference{}, err
+		}
+		if input.Modality != "" && input.Modality != modality {
+			return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "evidence modality must match the selected asset")
+		}
+	} else {
+		// URL evidence keeps the remote resource as truth: absolute http(s) only,
+		// and the modality is a closed-set fact (CDN resources are already
+		// validated at publish time, so no HEAD here).
+		parsed, err := url.Parse(strings.TrimSpace(input.URL))
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "evidence url must be an absolute http(s) URL")
+		}
+		if !evidenceModalities[input.Modality] {
+			return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid evidence modality %q for url evidence", input.Modality))
+		}
+		modality = input.Modality
 	}
 	if input.Segment != nil && (modality != "audio" && modality != "video" || input.Segment.StartSec < 0 || input.Segment.EndSec <= input.Segment.StartSec) {
 		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "a segment must be a valid audio or video time range")
@@ -785,6 +869,9 @@ func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetRefe
 		return WorldAssetReference{}, err
 	}
 	defer tx.Rollback()
+	if err := w.checkWritable(tx, input.WorldID); err != nil {
+		return WorldAssetReference{}, err
+	}
 	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
 		return WorldAssetReference{}, err
 	}
@@ -805,15 +892,20 @@ func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetRefe
 		}
 		segmentJSON = string(encoded)
 	}
-	reference := WorldAssetReference{AssetID: input.AssetID, AssetContentHash: contentHash, Modality: modality,
+	reference := WorldAssetReference{Source: EvidenceSourceAsset, AssetID: input.AssetID, AssetContentHash: contentHash, Modality: modality,
 		Purpose: input.Purpose, Status: input.Status, Collection: strings.TrimSpace(input.Collection), Segment: input.Segment,
 		Role: input.Role, Label: strings.TrimSpace(input.Label), EntityID: input.EntityID}
+	if hasURL {
+		reference = WorldAssetReference{Source: EvidenceSourceURL, URL: strings.TrimSpace(input.URL), Modality: modality,
+			Purpose: input.Purpose, Status: input.Status, Collection: strings.TrimSpace(input.Collection), Segment: input.Segment,
+			Role: input.Role, Label: strings.TrimSpace(input.Label), EntityID: input.EntityID}
+	}
 	reference.ID, err = newID()
 	if err != nil {
 		return WorldAssetReference{}, err
 	}
-	if _, err := tx.Exec("insert into world_asset_refs (id, world_id, entity_id, asset_id, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, sort_order, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		reference.ID, input.WorldID, reference.EntityID, reference.AssetID, reference.AssetContentHash, reference.Modality, reference.Purpose, reference.Status, reference.Collection, segmentJSON, reference.Role, reference.Label, sortOrder, now); err != nil {
+	if _, err := tx.Exec("insert into world_asset_refs (id, world_id, entity_id, asset_id, url, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, sort_order, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		reference.ID, input.WorldID, reference.EntityID, reference.AssetID, reference.URL, reference.AssetContentHash, reference.Modality, reference.Purpose, reference.Status, reference.Collection, segmentJSON, reference.Role, reference.Label, sortOrder, now); err != nil {
 		return WorldAssetReference{}, err
 	}
 	revisionID, err := w.commitRevision(tx, input.WorldID, "reference.attached", input.CreatedBy)
@@ -870,12 +962,21 @@ func legacyPurpose(role string) string {
 	}
 }
 
+// worldEvidenceColumns is the single canonical column list every evidence
+// reader scans, so the asset/url dual source can never drift between paths.
+const worldEvidenceColumns = "id, asset_id, url, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, entity_id"
+
 func scanWorldEvidence(row interface{ Scan(...any) error }) (WorldEvidence, error) {
 	var evidence WorldEvidence
 	var segmentJSON string
 	var entityID sql.NullString
-	if err := row.Scan(&evidence.ID, &evidence.AssetID, &evidence.AssetContentHash, &evidence.Modality, &evidence.Purpose, &evidence.Status, &evidence.Collection, &segmentJSON, &evidence.Role, &evidence.Label, &entityID); err != nil {
+	if err := row.Scan(&evidence.ID, &evidence.AssetID, &evidence.URL, &evidence.AssetContentHash, &evidence.Modality, &evidence.Purpose, &evidence.Status, &evidence.Collection, &segmentJSON, &evidence.Role, &evidence.Label, &entityID); err != nil {
 		return WorldEvidence{}, err
+	}
+	if strings.TrimSpace(evidence.URL) != "" {
+		evidence.Source = EvidenceSourceURL
+	} else {
+		evidence.Source = EvidenceSourceAsset
 	}
 	if evidence.Purpose == "" {
 		evidence.Purpose = legacyPurpose(evidence.Role)
@@ -896,6 +997,29 @@ func scanWorldEvidence(row interface{ Scan(...any) error }) (WorldEvidence, erro
 // checks can run inside the write transaction that applies the mutation.
 type rowQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
+}
+
+// checkWritable enforces the platform write boundary inside the write
+// transaction: any non-local World (platform/published) rejects every mutation
+// with WORLD_READ_ONLY, whose details carry the fork escape hatch. Reads and
+// bindings stay unrestricted.
+func (w *WorldStore) checkWritable(db rowQuerier, worldID string) error {
+	var origin string
+	row := db.QueryRow("select origin from worlds where id = ?", worldID)
+	if err := row.Scan(&origin); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return worldsError(WorldsErrNotFound, "world not found")
+		}
+		return err
+	}
+	if originOrDefault(origin) != WorldLocal {
+		return &WorldsError{
+			Code:    WorldsErrReadOnly,
+			Message: "this world is owned by the platform catalog and is read-only",
+			Details: map[string]any{"origin": originOrDefault(origin), "hint": "fork", "forkOperation": "recut.worlds.fork"},
+		}
+	}
+	return nil
 }
 
 // checkWorldRevision enforces optimistic concurrency: an expected revision that
@@ -979,8 +1103,8 @@ func (w *WorldStore) commitRevision(tx *sql.Tx, worldID, reason, createdBy strin
 // Canon always matches exactly what is about to be committed.
 func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, string, error) {
 	identity := map[string]any{}
-	var name, description, worldType, identityJSON string
-	if err := tx.QueryRow("select name, type, description, identity_json from worlds where id = ?", worldID).Scan(&name, &worldType, &description, &identityJSON); err != nil {
+	var name, description, worldType, identityJSON, skillMd string
+	if err := tx.QueryRow("select name, type, description, identity_json, skill_md from worlds where id = ?", worldID).Scan(&name, &worldType, &description, &identityJSON, &skillMd); err != nil {
 		return "", "", err
 	}
 	_ = json.Unmarshal([]byte(identityJSON), &identity)
@@ -1030,7 +1154,7 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 	}
 
 	references := []map[string]any{}
-	refRows, err := tx.Query("select id, asset_id, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, entity_id from world_asset_refs where world_id = ? and archived_at is null order by id", worldID)
+	refRows, err := tx.Query("select "+worldEvidenceColumns+" from world_asset_refs where world_id = ? and archived_at is null order by id", worldID)
 	if err != nil {
 		return "", "", err
 	}
@@ -1049,6 +1173,10 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 		if evidence.EntityID != "" {
 			record["entityId"] = evidence.EntityID
 		}
+		if evidence.URL != "" {
+			record["url"] = evidence.URL
+			record["source"] = evidence.Source
+		}
 		references = append(references, record)
 	}
 	refRows.Close()
@@ -1056,12 +1184,16 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 		return "", "", err
 	}
 
+	// skill (world.md) is a first-class World field: the vertical production
+	// workflow of this world. It enters the canonical like identity so
+	// platform/local revisions stay fully isomorphic.
 	canonical := map[string]any{
 		"world": map[string]any{
 			"name":        name,
 			"type":        worldType,
 			"description": description,
 		},
+		"skill":      skillMd,
 		"identity":   identity,
 		"entities":   entityMap(entities),
 		"relations":  relations,
@@ -1246,11 +1378,14 @@ func (w *WorldStore) validateSelection(db *sql.DB, worldID string, selection Wor
 func (w *WorldStore) projectContext(world WorldDetail, canonical map[string]any, revisionID, canonicalHash string, selection WorldSelection) CreationContext {
 	context := CreationContext{
 		World: WorldContextIdentity{
-			ID: world.ID, Name: world.Name, RevisionID: revisionID, CanonicalHash: canonicalHash,
+			ID: world.ID, Name: world.Name, Origin: originOrDefault(world.Origin), RevisionID: revisionID, CanonicalHash: canonicalHash,
 		},
 		Selection:  selection,
 		Identity:   world.Identity,
 		References: []WorldAssetReference{},
+	}
+	if skill, ok := canonical["skill"].(string); ok {
+		context.Skill = skill
 	}
 	entities, _ := canonical["entities"].(map[string]any)
 	references, _ := canonical["references"].([]any)
@@ -1329,7 +1464,7 @@ func (w *WorldStore) ListEvidence(worldID string) ([]WorldEvidence, error) {
 	if _, err := w.summary(db, worldID); err != nil {
 		return nil, err
 	}
-	rows, err := db.Query("select id, asset_id, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, entity_id from world_asset_refs where world_id = ? and archived_at is null order by collection_name, sort_order, created_at", worldID)
+	rows, err := db.Query("select "+worldEvidenceColumns+" from world_asset_refs where world_id = ? and archived_at is null order by collection_name, sort_order, created_at", worldID)
 	if err != nil {
 		return nil, err
 	}
@@ -1374,6 +1509,10 @@ func (w *WorldStore) ArchiveEvidenceForAsset(assetID string) error {
 		if err != nil {
 			return err
 		}
+		if err := w.checkWritable(tx, worldID); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
 		now := iso(time.Now().UTC())
 		if _, err = tx.Exec("update world_asset_refs set evidence_status = 'archived', archived_at = ? where world_id = ? and asset_id = ? and archived_at is null", now, worldID, assetID); err == nil {
 			_, err = w.commitRevision(tx, worldID, "evidence.archived", "media")
@@ -1402,6 +1541,9 @@ func (w *WorldStore) ArchiveEvidence(input ArchiveEvidenceInput) error {
 		return err
 	}
 	defer tx.Rollback()
+	if err := w.checkWritable(tx, input.WorldID); err != nil {
+		return err
+	}
 	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
 		return err
 	}
@@ -1445,6 +1587,9 @@ func (w *WorldStore) UpdateEvidence(input UpdateEvidenceInput) (WorldEvidence, e
 		return WorldEvidence{}, err
 	}
 	defer tx.Rollback()
+	if err := w.checkWritable(tx, input.WorldID); err != nil {
+		return WorldEvidence{}, err
+	}
 	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
 		return WorldEvidence{}, err
 	}
@@ -1465,7 +1610,7 @@ func (w *WorldStore) UpdateEvidence(input UpdateEvidenceInput) (WorldEvidence, e
 	if err := tx.Commit(); err != nil {
 		return WorldEvidence{}, err
 	}
-	row := db.QueryRow("select id, asset_id, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, entity_id from world_asset_refs where id = ? and world_id = ?", input.EvidenceID, input.WorldID)
+	row := db.QueryRow("select "+worldEvidenceColumns+" from world_asset_refs where id = ? and world_id = ?", input.EvidenceID, input.WorldID)
 	evidence, err := scanWorldEvidence(row)
 	if err != nil {
 		return WorldEvidence{}, err
@@ -1721,6 +1866,7 @@ type UpdateWorldInput struct {
 	Name               *string
 	Description        *string
 	Identity           map[string]any
+	SkillMd            *string
 	ExpectedRevisionID string
 	CreatedBy          string
 }
@@ -1737,11 +1883,13 @@ type UpsertEntityInput struct {
 	CreatedBy          string
 }
 
-// AttachReferenceInput is the typed input of reference.attach.
+// AttachReferenceInput is the typed input of reference.attach. Exactly one of
+// AssetID (local completed media) or URL (absolute http(s)) must be set.
 type AttachReferenceInput struct {
 	WorldID            string
 	EntityID           string
 	AssetID            string
+	URL                string
 	Role               string
 	Label              string
 	Purpose            string

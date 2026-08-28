@@ -120,40 +120,84 @@ func (m *MediaService) configuredModelFor(route MediaRoute) (MediaConfiguration,
 	return configuration, true
 }
 
-func (m *MediaService) validateReferences(input GenerateMediaInput) error {
+// validateReferences checks every reference of one generation input and
+// returns the normalized typed references. Each entry is an asset (library
+// truth: exists, completed, kind matches) or an absolute http(s) URL
+// (SSRF-safe; kind from its typed list). Per-model reference budgets apply to
+// both sources; URL size/mime come from a HEAD probe when the server exposes
+// one. Callers must persist the returned references — normalizing twice would
+// repeat the URL HEAD probes.
+func (m *MediaService) validateReferences(input GenerateMediaInput) (MediaReferences, error) {
+	refs, err := m.normalizeReferences(input)
+	if err != nil {
+		return MediaReferences{}, err
+	}
 	allowed := referenceKindsFor(input.Capability)
 	imageCount, videoCount, audioCount := 0, 0, 0
-	assets := make([]MediaAsset, 0, len(input.ReferenceIDs))
-	for _, id := range input.ReferenceIDs {
-		asset, err := m.GetAsset(id)
-		if err != nil {
-			return fmt.Errorf("reference asset %q is unavailable", id)
+	assets := make([]MediaAsset, 0)
+	urlRefs := make([]MediaReference, 0)
+	for _, ref := range refs.List() {
+		if !allowed[ref.Kind] {
+			return MediaReferences{}, fmt.Errorf("%s cannot use %s as reference context", input.Capability, ref.Kind)
 		}
-		if asset.Status != "completed" {
-			return fmt.Errorf("reference asset %q is still %s", id, asset.Status)
-		}
-		if !allowed[asset.Kind] {
-			return fmt.Errorf("%s cannot use %s as reference context", input.Capability, asset.Kind)
-		}
-		assets = append(assets, asset)
-		if asset.Kind == "image" {
+		switch ref.Kind {
+		case "image":
 			imageCount++
-		}
-		if asset.Kind == "video" {
+		case "video":
 			videoCount++
-		}
-		if asset.Kind == "audio" {
+		case "audio":
 			audioCount++
 		}
+		if ref.Source == "url" {
+			if _, err := ValidateRemoteFetchURL(ref.Value); err != nil {
+				return MediaReferences{}, err
+			}
+			urlRefs = append(urlRefs, ref)
+			continue
+		}
+		asset, err := m.GetAsset(ref.Value)
+		if err != nil {
+			return MediaReferences{}, fmt.Errorf("reference asset %q is unavailable", ref.Value)
+		}
+		if asset.Status != "completed" {
+			return MediaReferences{}, fmt.Errorf("reference asset %q is still %s", ref.Value, asset.Status)
+		}
+		if asset.Kind != ref.Kind {
+			return MediaReferences{}, fmt.Errorf("reference asset %q is %s but was declared as %s", asset.Name, asset.Kind, ref.Kind)
+		}
+		assets = append(assets, asset)
 	}
 	model, ok := modelByID(input.ModelID)
 	if !ok {
-		return nil
+		return refs, nil
 	}
 	if err := validateModelReferences(model, imageCount, videoCount, audioCount); err != nil {
-		return err
+		return MediaReferences{}, err
 	}
-	return validateModelReferenceAssets(model, assets)
+	if err := validateModelReferenceAssets(model, assets); err != nil {
+		return MediaReferences{}, err
+	}
+	if err := m.validateModelReferenceURLs(model, urlRefs); err != nil {
+		return MediaReferences{}, err
+	}
+	return refs, nil
+}
+
+// validateModelReferenceURLs enforces per-model reference budgets for URL
+// references using a HEAD probe. Servers that expose no size (or block HEAD)
+// are checked by the provider upstream instead of being rejected here.
+func (m *MediaService) validateModelReferenceURLs(model MediaModel, refs []MediaReference) error {
+	for _, ref := range refs {
+		contentType, size, ok, err := m.remoteCache.HeadInfo(ref.Value)
+		if err != nil || !ok {
+			continue
+		}
+		mimeType := strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+		if err := validateModelReferenceSpec(model, ref.Kind, mimeType, size); err != nil {
+			return fmt.Errorf("url reference %s: %s", ref.Value, err)
+		}
+	}
+	return nil
 }
 
 func validateModelReferences(model MediaModel, images, videos, audios int) error {
@@ -179,19 +223,28 @@ func validateModelReferences(model MediaModel, images, videos, audios int) error
 func validateModelReferenceAssets(model MediaModel, assets []MediaAsset) error {
 	for _, asset := range assets {
 		mimeType := strings.ToLower(strings.Split(asset.MimeType, ";")[0])
-		switch model.ID {
-		case "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video":
-			if !validSeedanceReference(asset.Kind, mimeType, asset.SizeBytes) {
-				return fmt.Errorf("Seedance 2.0 Mini cannot use %s reference %q", asset.Kind, asset.Name)
-			}
-		case "atlas-cloud/google/gemini-omni-flash-reference-to-video":
-			if asset.Kind != "image" || asset.SizeBytes > 20<<20 || !oneOf(mimeType, "image/png", "image/jpeg", "image/jpg", "image/webp") {
-				return fmt.Errorf("Gemini Omni Flash cannot use reference image %q", asset.Name)
-			}
-		case skymindSeedance20, skymindSeedance25:
-			if !validSeedanceReference(asset.Kind, mimeType, asset.SizeBytes) {
-				return fmt.Errorf("Seedance cannot use %s reference %q", asset.Kind, asset.Name)
-			}
+		if err := validateModelReferenceSpec(model, asset.Kind, mimeType, asset.SizeBytes); err != nil {
+			return fmt.Errorf("%s reference %q: %s", asset.Kind, asset.Name, err)
+		}
+	}
+	return nil
+}
+
+// validateModelReferenceSpec is the per-model budget for one (kind, mime,
+// size) triple, shared by asset and URL references.
+func validateModelReferenceSpec(model MediaModel, kind, mimeType string, size int64) error {
+	switch model.ID {
+	case "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video":
+		if !validSeedanceReference(kind, mimeType, size) {
+			return errors.New("not a supported Seedance 2.0 Mini reference")
+		}
+	case "atlas-cloud/google/gemini-omni-flash-reference-to-video":
+		if kind != "image" || size > 20<<20 || !oneOf(mimeType, "image/png", "image/jpeg", "image/jpg", "image/webp") {
+			return errors.New("not a supported Gemini Omni Flash reference image")
+		}
+	case skymindSeedance20, skymindSeedance25:
+		if !validSeedanceReference(kind, mimeType, size) {
+			return errors.New("not a supported Seedance reference")
 		}
 	}
 	return nil

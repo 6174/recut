@@ -85,7 +85,10 @@ func TestWorldsAreIsolatedAcrossSameNamedEntities(t *testing.T) {
 	}
 }
 
-func TestWorldCreateSeedsTemplateEntitiesAndRevision(t *testing.T) {
+// Onboarding RFC: creation no longer seeds template shell entities — a new
+// world starts truly empty (no fake completion) but still commits its initial
+// revision so bindings and hashes behave identically to any other world.
+func TestWorldCreateStartsEmptyWithRevision(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Future City 2049", Type: WorldFiction, Description: "霓虹未来"})
 	if err != nil {
@@ -94,11 +97,13 @@ func TestWorldCreateSeedsTemplateEntitiesAndRevision(t *testing.T) {
 	if world.CurrentRevisionID == "" || world.Revision.ID == "" || world.Revision.CanonicalHash == "" {
 		t.Fatalf("world revision = %#v", world.Revision)
 	}
-	if world.EntityCounts[EntityLocation] != 1 {
-		t.Fatalf("seeded location count = %d", world.EntityCounts[EntityLocation])
+	for kind := range world.EntityCounts {
+		if world.EntityCounts[kind] != 0 {
+			t.Fatalf("seeded %s count = %d, want 0 (no template shells)", kind, world.EntityCounts[kind])
+		}
 	}
 	entities, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: world.ID})
-	if err != nil || len(entities) != 1 {
+	if err != nil || len(entities) != 0 {
 		t.Fatalf("template entities = %#v, %v", entities, err)
 	}
 }
@@ -448,7 +453,7 @@ func TestCreationWorldAndEntityContextMaterializers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(worldMaterial) != 1 || !strings.Contains(worldMaterial[0].Text, "recut.worlds.get") || !strings.Contains(worldMaterial[0].Text, world.ID) {
+	if len(worldMaterial) != 1 || !strings.Contains(worldMaterial[0].Text, "recut.worlds.brief") || !strings.Contains(worldMaterial[0].Text, world.ID) {
 		t.Fatalf("world material = %#v", worldMaterial)
 	}
 	entityMaterial, err := manager.contextMaterials([]ChatContext{{Type: "creation_entity", Source: "user", Payload: map[string]any{"worldId": world.ID, "entityId": character.ID}}})

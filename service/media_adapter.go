@@ -47,7 +47,12 @@ type mediaStoreAdapter struct{ store *Store }
 func (a mediaStoreAdapter) WorkspaceDatabase() (*sql.DB, error) {
 	return a.store.WorkspaceDatabase()
 }
-func (a mediaStoreAdapter) MediaRoot() string { return a.store.root }
+func (a mediaStoreAdapter) MediaRoot() string {
+	if a.store == nil {
+		return ""
+	}
+	return a.store.root
+}
 func (a mediaStoreAdapter) ProjectExists(id string) error {
 	_, err := a.store.Get(id)
 	return err

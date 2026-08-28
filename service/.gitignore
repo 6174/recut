@@ -1,0 +1,5 @@
+# 小黑示例图：真实 PNG 只存在于官方仓库（worlds/xiaohei/examples）与 CDN。
+# 嵌入种子中的发布 manifest 仅携带 URL 清单（物化零图片下载）；构建脚本
+# `--seed` 会用占位文件重建本目录（daemon 同步不下载示例图，UI/Agent 经 CDN 按需加载）。
+service/worldcatalog/**/examples/*
+!service/worldcatalog/**/examples/.placeholder

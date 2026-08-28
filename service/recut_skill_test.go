@@ -352,3 +352,50 @@ func TestSkillsHTTPLinksAppSkillWithoutMCP(t *testing.T) {
 		}
 	}
 }
+
+// Onboarding RFC: the platform skill ships a world-onboarding reference that
+// Ensure() deploys next to SKILL.md, and recut.skills.reference serves it for
+// the virtual recut.platform app even though it is not an installed App.
+func TestRecutSkillShipsAndServesOnboardingReference(t *testing.T) {
+	dataDir := t.TempDir()
+	manager := NewRecutSkillManager(dataDir)
+	manager.homeDir = func() (string, error) { return filepath.Join(dataDir, "home"), nil }
+	manager.config = func() (string, error) { return filepath.Join(dataDir, "config"), nil }
+	if err := manager.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	reference, err := os.ReadFile(filepath.Join(manager.sourceDir(), "references", "world-onboarding.md"))
+	if err != nil {
+		t.Fatalf("onboarding reference not deployed: %v", err)
+	}
+	for _, required := range []string{"recut.worlds.readiness", "expectedRevisionId", "WORLD_READ_ONLY"} {
+		if !bytes.Contains(reference, []byte(required)) {
+			t.Fatalf("onboarding reference is missing %q", required)
+		}
+	}
+	if !bytes.Contains(recutSkillBody, []byte("world-onboarding.md")) {
+		t.Fatal("SKILL.md does not link the onboarding reference")
+	}
+
+	store := NewStore(dataDir, nil)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	bridge := &AgentBridge{store: store}
+	result, err := skillReferenceTool(bridge, map[string]any{"appId": platformSkillAppID, "skillId": recutSkillID, "path": "references/world-onboarding.md"})
+	if err != nil {
+		t.Fatalf("skills.reference for platform skill = %v", err)
+	}
+	encoded, _ := json.Marshal(result)
+	if !bytes.Contains(encoded, []byte("recut.worlds.readiness")) {
+		t.Fatalf("reference tool result missing workflow content: %s", encoded)
+	}
+	read, err := skillReadTool(bridge, map[string]any{"appId": platformSkillAppID, "skillId": recutSkillID})
+	if err != nil {
+		t.Fatalf("skills.read for platform skill = %v", err)
+	}
+	encoded, _ = json.Marshal(read)
+	if !bytes.Contains(encoded, []byte("world-onboarding.md")) {
+		t.Fatalf("skills.read result missing references list: %s", encoded)
+	}
+}

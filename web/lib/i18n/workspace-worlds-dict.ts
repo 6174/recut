@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 locales.ts 的 Locale；由 worlds 面实施方扩充
- * [OUTPUT]: 工作台 Worlds（列表与子页）文案的逐语言字典；en 必须覆盖 zh 全部 key（Record<keyof typeof zh, string> 编译期保证）
+ * [OUTPUT]: 工作台 Worlds（列表与子页）文案的逐语言字典；en 必须覆盖 zh 全部 key（Record<keyof typeof zh, string> 编译期保证）；含 Onboarding 起点场景与引导卡词条
  * [POS]: web/lib/i18n 的 worlds 命名空间；合并进 workspaceDictionary，worlds 相关组件消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -27,7 +27,7 @@ const zh = {
 
   // 新建 World 弹框
   "worlds.create.title": "创建新的 Creation World",
-  "worlds.create.desc": "模板只决定初始设定；你可以在世界里自由添加角色、故事、风格与规则。",
+  "worlds.create.desc": "世界从空开始：选择一个起点场景，AI 会按它帮你搭建，你随时可以自由调整。",
   "worlds.create.close.aria": "关闭新建 World",
   "worlds.create.name": "名称",
   "worlds.create.name.placeholder": "例如：Future City 2049",
@@ -55,6 +55,26 @@ const zh = {
   "worlds.detail.videoProject.failed.status": "创建项目失败（{status}）",
   "worlds.detail.fallbackDesc": "从角色、故事、风格与素材开始，让每一次创作都保持同一个世界。",
   "worlds.detail.tabs.aria": "创作设定分类",
+
+  // 平台世界（PGC）
+  "worlds.badge.platform": "平台",
+  "worlds.badge.published": "发布",
+  "worlds.list.section.platform": "平台世界",
+  "worlds.list.section.mine": "我的世界",
+  "worlds.list.section.mine.empty": "还没有自己的世界。Fork 平台世界或新建一个，开始你的创作设定。",
+  "worlds.detail.readonly.banner": "此世界来自平台目录，只读。Fork 为我的世界后即可自由编辑，且不再随平台更新。",
+  "worlds.detail.fork": "Fork 为我的世界",
+  "worlds.detail.fork.failed": "Fork 失败",
+  "worlds.detail.skill.title": "世界技能",
+  "worlds.detail.skill.desc": "这个世界的生产工作流（world.md）：它规定如何使用世界内的实体与资源完成创作。",
+  "worlds.detail.skill.desc.readonly": "此世界的生产工作流（world.md），只读。",
+  "worlds.detail.skill.empty": "这个世界还没有世界技能（world.md）。",
+  "worlds.detail.skill.edit": "编辑技能",
+  "worlds.detail.skill.edit.title": "编辑世界技能",
+  "worlds.detail.skill.edit.desc": "整篇覆盖 world.md；保存后产出新的不可变 revision。",
+  "worlds.detail.skill.save": "保存",
+  "worlds.detail.skill.saving": "保存中…",
+  "worlds.detail.skill.save.failed": "保存世界技能失败",
   "worlds.detail.resource.title": "资源",
   "worlds.detail.resource.desc": "这个世界下的文档、研究与其他非结构化资料。",
   "worlds.detail.resource.action": "添加资源",
@@ -122,6 +142,7 @@ const zh = {
   "worlds.settings.field.description.placeholder": "空间、时间、可见元素与氛围",
   "worlds.settings.field.atmosphere.label": "氛围",
   "worlds.settings.field.atmosphere.placeholder": "例如：雨后、潮湿、安静但并不冷清",
+  "worlds.settings.field.body.label": "设定正文",
 
   // 设定编辑弹框
   "worlds.settings.dialog.eyebrow": "创作设定",
@@ -155,6 +176,9 @@ const zh = {
   "worlds.entity.completion.hint": "补充几个具体细节，AI 才能在创作中稳定地使用它。",
   "worlds.entity.media.title": "图像、视频与声音",
   "worlds.entity.media.hint": "在“编辑设定”中补充多模态信息。",
+  "worlds.entity.detail.close.aria": "关闭详情",
+  "worlds.entity.gallery.prev": "上一张",
+  "worlds.entity.gallery.next": "下一张",
   "worlds.entity.video": "制作视频",
   "worlds.entity.edit": "编辑设定",
   "worlds.entity.modality.audio": "声音",
@@ -232,6 +256,38 @@ const zh = {
   "worlds.entity.picker.noSummary": "暂无摘要",
   "worlds.entity.picker.choose": "选择",
   "worlds.entity.picker.empty": "没有匹配的设定",
+
+  // Onboarding：起点场景与就绪度引导
+  "worlds.create.scenario": "起点场景",
+  "worlds.scenario.novel-adaptation.label": "小说 / 故事改编",
+  "worlds.scenario.novel-adaptation.desc": "从一部小说或故事文本出发，建立角色群、故事线、场景与世界观规则。",
+  "worlds.scenario.ip-account.label": "IP / 社媒账号",
+  "worlds.scenario.ip-account.desc": "从一个账号或 IP 出发，建立人设、内容风格、语言规范与代表作资产。",
+  "worlds.scenario.style-system.label": "风格表达体系",
+  "worlds.scenario.style-system.desc": "从一套风格出发，建立风格 DNA、创作规则、示例证据与生产工作流。",
+  "worlds.scenario.brand-guide.label": "品牌指南",
+  "worlds.scenario.brand-guide.desc": "从品牌手册或 VI 出发，建立视觉系统、文案规范与品牌规则。",
+  "worlds.scenario.blank.label": "从零开始",
+  "worlds.scenario.blank.desc": "先不假设结构，让 AI 通过几个问题帮你把想法整理成世界。",
+  "worlds.onboard.card.title": "这个世界还可以更完整",
+  "worlds.onboard.level.skeleton": "尚未形成可用设定",
+  "worlds.onboard.level.draft": "可用于创作 · 建议补充",
+  "worlds.onboard.level.ready": "已就绪",
+  "worlds.onboard.skeleton.desc": "这个世界还没有任何 AI 可用的设定。上传素材、粘贴链接或让 AI 追问你，从起点搭建它。",
+  "worlds.onboard.next.label": "最值得先做：",
+  "worlds.onboard.action.ai": "让 AI 帮我完善",
+  "worlds.onboard.action.all": "查看全部 {count} 项缺失",
+  "worlds.onboard.action.hide": "收起",
+  "worlds.onboard.hint.confirm": "AI 的提案只在用户确认后写入",
+  "worlds.onboard.kind.entity": "设定",
+  "worlds.onboard.kind.field": "字段",
+  "worlds.onboard.kind.evidence": "素材",
+  "worlds.onboard.kind.skill": "工作流",
+  "worlds.onboard.kind.identity": "定位",
+  "worlds.onboard.prompt.intro": "请帮我完善创作设定「{name}」。",
+  "worlds.onboard.prompt.next": "最值得先做的一项：{title}。",
+  "worlds.onboard.prompt.steps": "请先调用 recut.worlds.readiness 获取完整缺失清单和场景蓝图建议，然后按建议逐项起草提案给我确认。",
+  "worlds.onboard.prompt.boundary": "纪律：只依据我提供的素材与明确授权推进；AI 生成的候选图先展示给我挑选，绝不直接写入证据。",
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
@@ -255,7 +311,7 @@ const en: Record<keyof typeof zh, string> = {
 
   // New World dialog
   "worlds.create.title": "Create a new Creation World",
-  "worlds.create.desc": "The template only sets the starting state; you can freely add characters, stories, styles and rules to your world.",
+  "worlds.create.desc": "Worlds start empty: pick a starting scenario and AI will help you build it out; you can adjust anything at any time.",
   "worlds.create.close.aria": "Close new World",
   "worlds.create.name": "Name",
   "worlds.create.name.placeholder": "e.g. Future City 2049",
@@ -283,6 +339,26 @@ const en: Record<keyof typeof zh, string> = {
   "worlds.detail.videoProject.failed.status": "Failed to create project ({status})",
   "worlds.detail.fallbackDesc": "Start with characters, stories, styles and media, and keep every creation in the same world.",
   "worlds.detail.tabs.aria": "World setting sections",
+
+  // Platform worlds (PGC)
+  "worlds.badge.platform": "Platform",
+  "worlds.badge.published": "Published",
+  "worlds.list.section.platform": "Platform Worlds",
+  "worlds.list.section.mine": "My Worlds",
+  "worlds.list.section.mine.empty": "No personal worlds yet. Fork a platform world or create one to start your canon.",
+  "worlds.detail.readonly.banner": "This world comes from the platform catalog and is read-only. Fork it into My Worlds to edit freely; forks no longer follow platform updates.",
+  "worlds.detail.fork": "Fork to My Worlds",
+  "worlds.detail.fork.failed": "Fork failed",
+  "worlds.detail.skill.title": "World Skill",
+  "worlds.detail.skill.desc": "The production workflow of this world (world.md): how to use its entities and resources to create.",
+  "worlds.detail.skill.desc.readonly": "The production workflow of this world (world.md), read-only.",
+  "worlds.detail.skill.empty": "This world has no world skill (world.md) yet.",
+  "worlds.detail.skill.edit": "Edit skill",
+  "worlds.detail.skill.edit.title": "Edit World Skill",
+  "worlds.detail.skill.edit.desc": "Replaces the whole world.md; saving produces a new immutable revision.",
+  "worlds.detail.skill.save": "Save",
+  "worlds.detail.skill.saving": "Saving…",
+  "worlds.detail.skill.save.failed": "Failed to save the world skill",
   "worlds.detail.resource.title": "Resources",
   "worlds.detail.resource.desc": "Documents, research and other unstructured material for this world.",
   "worlds.detail.resource.action": "Add resource",
@@ -350,6 +426,7 @@ const en: Record<keyof typeof zh, string> = {
   "worlds.settings.field.description.placeholder": "Space, time, visible elements and mood",
   "worlds.settings.field.atmosphere.label": "Atmosphere",
   "worlds.settings.field.atmosphere.placeholder": "e.g. After rain, damp, quiet but not empty",
+  "worlds.settings.field.body.label": "Setting body",
 
   // Setting editor dialog
   "worlds.settings.dialog.eyebrow": "World setting",
@@ -383,6 +460,9 @@ const en: Record<keyof typeof zh, string> = {
   "worlds.entity.completion.hint": "Add a few concrete details so AI can use it consistently in creation.",
   "worlds.entity.media.title": "Images, video & audio",
   "worlds.entity.media.hint": "Add multimodal information under \"Edit setting\".",
+  "worlds.entity.detail.close.aria": "Close details",
+  "worlds.entity.gallery.prev": "Previous image",
+  "worlds.entity.gallery.next": "Next image",
   "worlds.entity.video": "Make video",
   "worlds.entity.edit": "Edit setting",
   "worlds.entity.modality.audio": "Audio",
@@ -460,6 +540,38 @@ const en: Record<keyof typeof zh, string> = {
   "worlds.entity.picker.noSummary": "No summary",
   "worlds.entity.picker.choose": "Select",
   "worlds.entity.picker.empty": "No matching settings",
+
+  // Onboarding: starting scenarios & readiness guide
+  "worlds.create.scenario": "Starting point",
+  "worlds.scenario.novel-adaptation.label": "Novel / story adaptation",
+  "worlds.scenario.novel-adaptation.desc": "Start from a novel or story text to build a cast, storylines, locations and worldview rules.",
+  "worlds.scenario.ip-account.label": "IP / social account",
+  "worlds.scenario.ip-account.desc": "Start from an account or IP to build a persona, content style, voice rules and signature assets.",
+  "worlds.scenario.style-system.label": "Style system",
+  "worlds.scenario.style-system.desc": "Start from a style to build style DNA, creation rules, example evidence and a production workflow.",
+  "worlds.scenario.brand-guide.label": "Brand guide",
+  "worlds.scenario.brand-guide.desc": "Start from a brand book or VI to build a visual system, copy rules and brand constraints.",
+  "worlds.scenario.blank.label": "Start from scratch",
+  "worlds.scenario.blank.desc": "No structural assumptions yet — let AI interview you and shape your idea into a world.",
+  "worlds.onboard.card.title": "This world could be more complete",
+  "worlds.onboard.level.skeleton": "Not yet usable by AI",
+  "worlds.onboard.level.draft": "Usable · additions suggested",
+  "worlds.onboard.level.ready": "Ready",
+  "worlds.onboard.skeleton.desc": "This world has no AI-usable settings yet. Upload material, paste a link, or let AI interview you to start building it.",
+  "worlds.onboard.next.label": "Do this first:",
+  "worlds.onboard.action.ai": "Let AI help complete it",
+  "worlds.onboard.action.all": "Show all {count} gaps",
+  "worlds.onboard.action.hide": "Collapse",
+  "worlds.onboard.hint.confirm": "AI proposals are written only after your confirmation",
+  "worlds.onboard.kind.entity": "Setting",
+  "worlds.onboard.kind.field": "Field",
+  "worlds.onboard.kind.evidence": "Media",
+  "worlds.onboard.kind.skill": "Workflow",
+  "worlds.onboard.kind.identity": "Identity",
+  "worlds.onboard.prompt.intro": "Please help me complete the world \"{name}\".",
+  "worlds.onboard.prompt.next": "The most valuable next step: {title}.",
+  "worlds.onboard.prompt.steps": "First call recut.worlds.readiness for the full gap list and scenario blueprint advice, then draft proposals item by item for my confirmation.",
+  "worlds.onboard.prompt.boundary": "Discipline: work only from material I provide and explicit authorization; show AI-generated candidate images for my review first — never write them into evidence directly.",
 };
 
 export const worldsZh = zh;

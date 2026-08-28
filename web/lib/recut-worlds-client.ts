@@ -11,12 +11,42 @@ export type EntityKind = "character" | "location" | "story" | "style" | "rule" |
 export type WorldPurpose = "chat" | "video" | "voice" | "image" | "cover" | "agent";
 export type Page<T> = { items: T[]; nextCursor?: string };
 
+// World provenance (RFC 2026-08-28 PGC Platform Worlds): local worlds are
+// user-authored and writable; platform worlds are daemon-synced from the
+// platform catalog and read-only; published worlds are user-installed (P4).
+export type WorldOrigin = "local" | "platform" | "published";
+
+export type WorldOriginMeta = {
+  kind?: string;
+  publisher?: string;
+  version?: string;
+  manifestHash?: string;
+  catalogOrder?: number;
+  coverUrl?: string;
+  provenance?: { author?: string; license?: string; repository?: string; sourceRevision?: string; publishedAt?: string };
+  publishedAt?: string;
+  syncedAt?: string;
+  forkedFrom?: { worldId: string; revisionId: string };
+};
+
+export function worldOrigin(world: { origin?: WorldOrigin }): WorldOrigin {
+  return world.origin ?? "local";
+}
+
+export function worldReadOnly(world: { origin?: WorldOrigin }): boolean {
+  return worldOrigin(world) !== "local";
+}
+
 export type WorldSummary = {
   id: string;
   name: string;
   type: WorldKind;
   description: string;
+  origin?: WorldOrigin;
+  originMeta?: WorldOriginMeta;
   coverAssetId?: string;
+  previewAssetIds?: string[];
+  previewUrls?: string[];
   currentRevisionId: string;
   entityCounts: Partial<Record<EntityKind, number>>;
   updatedAt: string;
@@ -26,6 +56,7 @@ export type WorldRevisionView = { id: string; canonicalHash: string; createdAt: 
 
 export type WorldDetail = WorldSummary & {
   identity: Record<string, unknown>;
+  skillMd?: string;
   revision: WorldRevisionView;
   availableEntityKinds: EntityKind[];
 };
@@ -44,10 +75,13 @@ export type WorldEntityRelation = { id: string; type: string; fromEntityId: stri
 export type WorldEvidenceSegment = { startSec: number; endSec: number };
 
 // A World remembers media as evidence, rather than treating it as an opaque
-// attachment. `role` remains optional for legacy App callers only.
+// attachment. `source`/`url` carry the dual evidence source: asset rows point
+// into the media library, url rows keep the remote resource as truth.
 export type WorldEvidence = {
   id?: string;
-  assetId: string;
+  source?: "asset" | "url";
+  url?: string;
+  assetId?: string;
   assetContentHash?: string;
   modality: "image" | "video" | "audio" | "text" | "research";
   purpose: WorldEvidencePurpose;
@@ -100,6 +134,42 @@ export type CreationContextBinding = {
   selection: WorldSelection;
   role: string;
   createdAt: string;
+};
+
+// World Onboarding (RFC 2026-08-28): start-point scenarios and the readiness
+// projection. Scenarios only shape suggestions; Canon stays free-form.
+export type WorldScenario = "novel-adaptation" | "ip-account" | "style-system" | "brand-guide" | "blank";
+
+// Mirrors the service's defaultScenarioForType mapping: the recommended
+// start-point scenario per world type. Labels live in the i18n dictionaries
+// under `worlds.scenario.<id>.label` / `.desc`.
+export const worldScenarioDefaults: Record<WorldKind, WorldScenario> = {
+  fiction_world: "novel-adaptation",
+  creator_brand: "ip-account",
+  character_ip: "style-system",
+  brand: "brand-guide",
+  custom: "blank",
+};
+
+export function worldScenarios(): WorldScenario[] {
+  return ["novel-adaptation", "ip-account", "style-system", "brand-guide", "blank"];
+}
+
+export type WorldReadinessLevel = "skeleton" | "draft" | "ready";
+
+export type WorldMissingItem = {
+  id: string;
+  kind: "entity" | "field" | "evidence" | "skill" | "identity";
+  title: string;
+  reason?: string;
+  suggestion?: string;
+};
+
+export type WorldReadiness = {
+  scenarioId: WorldScenario;
+  level: WorldReadinessLevel;
+  score: number;
+  missing: WorldMissingItem[];
 };
 
 export type RecutWorldsErrorCode =
@@ -169,7 +239,9 @@ export type RecutWorldsClient = {
   list(input?: { text?: string; type?: WorldKind; cursor?: string; limit?: number }): Promise<Page<WorldSummary>>;
   get(input: { worldId: string }): Promise<WorldDetail>;
   create(input: { name: string; type: WorldKind; description?: string; identity?: Record<string, unknown>; coverAssetId?: string }): Promise<WorldDetail>;
-  update(input: { worldId: string; name?: string; description?: string; identity?: Record<string, unknown>; expectedRevisionId?: string }): Promise<WorldDetail>;
+  update(input: { worldId: string; name?: string; description?: string; identity?: Record<string, unknown>; skillMd?: string; expectedRevisionId?: string }): Promise<WorldDetail>;
+  fork(input: { worldId: string; name?: string }): Promise<WorldDetail>;
+  readiness(input: { worldId: string; scenario?: WorldScenario }): Promise<WorldReadiness>;
   entities: {
     list(input: { worldId: string; kind?: EntityKind; text?: string; cursor?: string; limit?: number }): Promise<Page<WorldEntitySummary>>;
     get(input: { worldId: string; entityId: string }): Promise<WorldEntity>;
@@ -204,6 +276,13 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
     get: ({ worldId }) => requestJSON<WorldDetail>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}`),
     create: (input) => requestJSON<WorldDetail>(`${apiBase}/v1/worlds`, { method: "POST", body: input }),
     update: ({ worldId, ...rest }) => requestJSON<WorldDetail>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}`, { method: "PATCH", body: rest }),
+    fork: ({ worldId, name }: { worldId: string; name?: string }) =>
+      requestJSON<WorldDetail>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/fork`, { method: "POST", body: { name } }),
+    readiness: ({ worldId, scenario }: { worldId: string; scenario?: WorldScenario }) => {
+      const query = new URLSearchParams();
+      if (scenario) query.set("scenario", scenario);
+      return requestJSON<WorldReadiness>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/readiness${query.size ? `?${query}` : ""}`);
+    },
     entities: {
       list: ({ worldId, kind, text, cursor, limit }) => {
         const query = new URLSearchParams();

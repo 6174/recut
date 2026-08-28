@@ -1618,8 +1618,8 @@ func materializePageContext(_ *AgentManager, payload json.RawMessage) (contextMa
 
 // materializeCreationWorldContext validates a creation_world attachment and
 // renders a prompt line that tells the Agent to read live content via the
-// global recut.worlds.* tools. The turn only persists structured IDs, never a
-// Canon copy.
+// global recut.worlds.brief single-call entry. The turn only persists
+// structured IDs, never a Canon copy.
 func materializeCreationWorldContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
 	var input struct {
 		WorldID    string `json:"worldId"`
@@ -1637,10 +1637,12 @@ func materializeCreationWorldContext(m *AgentManager, payload json.RawMessage) (
 	if revision == "" {
 		revision = world.CurrentRevisionID
 	}
+	origin := originOrDefault(world.Origin)
 	return contextMaterial{
 		Label: world.Name,
 		Kind:  "creation_world",
-		Text:  "[Creation World] worldId=" + world.ID + " name=" + world.Name + " revisionId=" + revision + " —— 调用 recut.worlds.get({ worldId: \"" + world.ID + "\" }) 确认身份；需要实体时用 recut.worlds.entities.list/get；把这条消息相关的内容用 recut.worlds.resolve 解析为 CreationContext。不要凭聊天记忆假定世界当前状态，也不要调用写工具。",
+		Text:  fmt.Sprintf("[Creation World] worldId=%s name=%s origin=%s revisionId=%s —— 调用 recut.worlds.brief({ worldId: %q }) 一次获取身份、世界技能（world.md）、事实、规则与证据。非 local 世界只读：用户要求修改时提议 recut.worlds.fork。世界技能是该世界的生产工作流：按其执行（先策略后生成、逐张生成、按质检口径复核后再交付）。",
+			world.ID, world.Name, origin, revision, world.ID),
 	}, nil
 }
 

@@ -91,6 +91,10 @@ func main() {
 		log.Fatalf("ERROR initialize workspace store: %v", err)
 	}
 	media := NewMediaService(store)
+	worlds := NewWorldStore(store, media)
+	// 平台 World 内容层：单一 Catalog（本地覆盖 > 远端 CDN > 嵌入种子），
+	// 启动时同步一次 + 每 24h 一次；非致命——离线时降级到种子/上次同步内容。
+	worldCatalog := NewWorldCatalogSyncer(*dataDir, worlds)
 	bridge := NewAgentBridge(store)
 	bridge.SetDesignSystemManager(designSystemManager)
 	host := NewAppHost(apps, store, media)
@@ -133,6 +137,9 @@ func main() {
 		log.Printf("INFO reconciled interrupted agent turns count=%d", recovered)
 	}
 	service := NewServer(apps, store, terminals, bridge, agents, host, media, NewServiceUpdater())
+	service.worlds = worlds
+	service.SetWorldCatalog(worldCatalog)
+	worldCatalog.StartSync(context.Background())
 	service.StartRealtimeForwarders(context.Background())
 	// deferred Handle（async_ops）过期收敛：启动时清扫一次 + 周期性兜底。
 	if swept, err := host.async.SweepExpired(); err != nil {

@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖编译内嵌的 Recut Skill 正文（OutputFormat: url 第三方变体）、data-dir 与当前用户的 Agent 配置目录
- * [OUTPUT]: 对外提供 Recut Skill 的启动同步、跨 Agent 安全软链接、状态查询，以及任意全局/App Skill 的通用链接能力与 HTTP 请求模型；SKILL.md 是独立文本（OutputFormat: url 第三方约定），与 core-agents.md.tmpl（OutputFormat: xml 内建约定）不是同一来源，靠测试不变量保持平台规则一致
+ * [INPUT]: 依赖编译内嵌的 Recut Skill 正文（OutputFormat: url 第三方变体）与 references/world-onboarding.md、data-dir 与当前用户的 Agent 配置目录
+ * [OUTPUT]: 对外提供 Recut Skill 的启动同步（SKILL.md + references/ 一并原子写入唯一来源目录）、跨 Agent 安全软链接、状态查询，以及任意全局/App Skill 的通用链接能力与 HTTP 请求模型；SKILL.md 是独立文本（OutputFormat: url 第三方约定），与 core-agents.md.tmpl（OutputFormat: xml 内建约定）不是同一来源，靠测试不变量保持平台规则一致
  * [POS]: service 的平台 Skill 分发边界；唯一正文写入 `~/.recut/skills/recut`，外部 Agent 只能链接它而不持有副本
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -24,6 +24,9 @@ const platformSkillAppID = "recut.platform"
 
 //go:embed skills/recut/SKILL.md
 var recutSkillBody []byte
+
+//go:embed skills/recut/references/world-onboarding.md
+var recutSkillWorldOnboarding []byte
 
 type RecutSkillTarget struct {
 	ID     string `json:"id"`
@@ -68,7 +71,16 @@ func (m *RecutSkillManager) Ensure() error {
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return fmt.Errorf("create Recut Skill directory: %w", err)
 	}
-	return writeRecutSkillFile(m.sourcePath(), recutSkillBody)
+	if err := writeRecutSkillFile(m.sourcePath(), recutSkillBody); err != nil {
+		return err
+	}
+	// Skill references live in a references/ subdirectory; targets symlink the
+	// whole source directory, so writing it here serves every Agent host.
+	referencesDir := filepath.Join(directory, "references")
+	if err := os.MkdirAll(referencesDir, 0o755); err != nil {
+		return fmt.Errorf("create Recut Skill references directory: %w", err)
+	}
+	return writeRecutSkillFile(filepath.Join(referencesDir, "world-onboarding.md"), recutSkillWorldOnboarding)
 }
 
 // EnableDefaultTargets installs the platform Skill at every supported global

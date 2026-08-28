@@ -1,12 +1,12 @@
 /*
  * [INPUT]: 依赖 World Entity、平台素材选择器、媒体 API 与多模态 Evidence 契约
- * [OUTPUT]: 对外提供设定卡片、空态与对象内嵌的图片/视频/声音/文字证据面板
+ * [OUTPUT]: 对外提供设定卡片（图片画廊预览 + 整卡点击详情）、详情对话框、空态与对象内嵌的图片/视频/声音/文字证据面板
  * [POS]: worlds/[worldID] 的展示区；将 Canon 投影为用户可读、可感知的创作状态，不显示 JSON、revision 或 hash
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { Clapperboard, ImagePlus, Pencil, Plus, Trash2, Volume2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clapperboard, ImagePlus, Pencil, Plus, Trash2, Volume2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -46,21 +46,87 @@ const evidencePurposeValues: WorldEvidencePurpose[] = [
   "rule_evidence",
 ];
 
+function isImageEvidence(item: WorldEvidence) {
+  return item.modality === "image";
+}
+
+function detailEntries(entity: WorldEntity) {
+  return Object.entries(entity.content ?? {}).filter(
+    ([key, value]) => key !== "type" && typeof value === "string" && value.trim(),
+  ) as Array<[string, string]>;
+}
+
 export function SettingCard({
+  apiBase,
   entity,
   onCreateVideo,
   onEdit,
+  onView,
 }: {
+  apiBase: string;
   entity: WorldEntity;
   onCreateVideo?: () => void;
-  onEdit: () => void;
+  onEdit?: () => void;
+  onView?: (entity: WorldEntity) => void;
 }) {
   const { t } = useI18n();
+  const [imageIndex, setImageIndex] = useState(0);
   const entries = contentEntries(entity);
   const evidence = entity.references ?? [];
+  const images = evidence.filter(isImageEvidence);
+  const others = evidence.filter((item) => !isImageEvidence(item));
+  const current = images.length ? Math.min(imageIndex, images.length - 1) : 0;
 
   return (
-    <Card className="flex min-h-56 flex-col p-5">
+    <Card
+      className={`flex min-h-56 cursor-pointer flex-col overflow-hidden p-0 transition-shadow hover:shadow-[var(--shadow-overlay)]`}
+      onClick={() => onView?.(entity)}
+    >
+      {images.length ? (
+        <div
+          className="relative h-44 shrink-0 overflow-hidden border-b bg-muted"
+          onClick={(event) => {
+            event.stopPropagation();
+            onView?.(entity);
+          }}
+        >
+          <img
+            alt={images[current].label || entity.title}
+            className="h-full w-full object-cover"
+            src={evidenceSource(apiBase, images[current])}
+          />
+          {images.length > 1 && (
+            <>
+              <button
+                aria-label={t("worlds.entity.gallery.prev")}
+                className="absolute left-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full bg-background/70 shadow-sm backdrop-blur hover:bg-background"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setImageIndex((current - 1 + images.length) % images.length);
+                }}
+                type="button"
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <button
+                aria-label={t("worlds.entity.gallery.next")}
+                className="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full bg-background/70 shadow-sm backdrop-blur hover:bg-background"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setImageIndex((current + 1) % images.length);
+                }}
+                type="button"
+              >
+                <ChevronRight className="size-4" />
+              </button>
+              <span className="absolute bottom-2 right-2 rounded-full bg-background/80 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                {current + 1}/{images.length}
+              </span>
+            </>
+          )}
+        </div>
+      ) : null}
+      <div className="flex min-w-0 flex-1 flex-col p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-base font-semibold">{entity.title}</p>
@@ -90,32 +156,118 @@ export function SettingCard({
           {t("worlds.entity.completion.hint")}
         </p>
       )}
-      <div className="mt-4 border-t pt-3">
-        <p className="text-xs font-medium">{t("worlds.entity.media.title")}</p>
-        {evidence.length ? (
+      {others.length ? (
+        <div className="mt-4 border-t pt-3">
+          <p className="text-xs font-medium">{t("worlds.entity.media.title")}</p>
           <div className="mt-2 flex items-center gap-1.5">
-            {evidence.slice(0, 4).map((item) => (
+            {others.slice(0, 4).map((item) => (
               <EvidenceToken evidence={item} key={item.id ?? item.assetId} />
             ))}
-            {evidence.length > 4 && (
-              <span className="text-[10px] text-muted-foreground">+{evidence.length - 4}</span>
+            {others.length > 4 && (
+              <span className="text-[10px] text-muted-foreground">+{others.length - 4}</span>
             )}
           </div>
-        ) : (
+        </div>
+      ) : !images.length ? (
+        <div className="mt-4 border-t pt-3">
+          <p className="text-xs font-medium">{t("worlds.entity.media.title")}</p>
           <p className="mt-2 text-xs text-muted-foreground">{t("worlds.entity.media.hint")}</p>
-        )}
-      </div>
+        </div>
+      ) : null}
       <div className="mt-auto flex items-center gap-2 pt-4">
         {onCreateVideo && (
-          <Button className="h-8" onClick={onCreateVideo} type="button">
+          <Button className="h-8" onClick={(event) => { event.stopPropagation(); onCreateVideo(); }} type="button">
             <Clapperboard className="size-3" />{t("worlds.entity.video")}
           </Button>
         )}
-        <Button className="h-8" onClick={onEdit} type="button" variant="outline">
-          <Pencil className="size-3" />{t("worlds.entity.edit")}
-        </Button>
+        {onEdit && (
+          <Button className="h-8" onClick={(event) => { event.stopPropagation(); onEdit(); }} type="button" variant="outline">
+            <Pencil className="size-3" />{t("worlds.entity.edit")}
+          </Button>
+        )}
+      </div>
       </div>
     </Card>
+  );
+}
+
+// 设定详情对话框：只读查看完整结构化字段与全部多模态资料；编辑走原有 SettingDialog。
+export function EntityDetailDialog({
+  apiBase,
+  entity,
+  onClose,
+  onEdit,
+}: {
+  apiBase: string;
+  entity: WorldEntity;
+  onClose: () => void;
+  onEdit?: (entity: WorldEntity) => void;
+}) {
+  const { t } = useI18n();
+  const [assets, setAssets] = useState<WorldAsset[]>([]);
+  const entries = detailEntries(entity);
+  const evidence = entity.references ?? [];
+  useEffect(() => {
+    void fetch(`${apiBase}/v1/media/assets`, { cache: "no-store" })
+      .then(async (response) => {
+        if (response.ok) setAssets((await response.json()) as WorldAsset[]);
+      })
+      .catch(() => {});
+  }, [apiBase]);
+  return (
+    <div aria-modal="true" className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="entity-detail-title">
+      <section className="flex max-h-[min(760px,calc(100vh-3rem))] w-full max-w-2xl flex-col overflow-hidden rounded-md border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-primary">{t(`worlds.entity.${entity.kind}`)}</p>
+            <h2 className="mt-1 truncate text-lg font-semibold" id="entity-detail-title">{entity.title}</h2>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{entity.summary || t("worlds.entity.summary.empty")}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {onEdit && (
+              <Button className="h-8" onClick={() => onEdit(entity)} type="button" variant="outline">
+                <Pencil className="size-3" />{t("worlds.entity.edit")}
+              </Button>
+            )}
+            <button aria-label={t("worlds.entity.detail.close.aria")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button">
+              <X className="size-4" />
+            </button>
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {entries.length ? (
+            <dl className="space-y-3">
+              {entries.map(([key, value]) => (
+                <div key={key}>
+                  <dt className="text-[11px] font-medium text-muted-foreground">{fieldLabel(key, t)}</dt>
+                  <dd className="mt-0.5 whitespace-pre-wrap text-sm leading-6">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t("worlds.entity.completion.hint")}</p>
+          )}
+          <div className="mt-5 border-t pt-4">
+            <p className="text-sm font-semibold">{t("worlds.entity.media.title")}</p>
+            {evidence.length ? (
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {evidence.map((item) => (
+                  <div className="overflow-hidden rounded-sm border" key={item.id ?? item.assetId ?? item.url}>
+                    <EvidencePreview
+                      asset={item.assetId ? assets.find((asset) => asset.id === item.assetId) : undefined}
+                      source={evidenceSource(apiBase, item)}
+                    />
+                    <p className="truncate p-2 text-[11px] text-muted-foreground">{item.label || t(`worlds.evidence.${item.purpose}`)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">{interpolate(t("worlds.entity.media.empty"), { title: entity.title })}</p>
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -125,7 +277,7 @@ function EvidenceToken({ evidence }: { evidence: WorldEvidence }) {
   return <span className="rounded-sm bg-muted px-1.5 py-1 text-[10px] text-muted-foreground">{label}</span>;
 }
 
-export function EmptySetting({ kind, onCreate }: { kind: EntityKind; onCreate: () => void }) {
+export function EmptySetting({ kind, onCreate }: { kind: EntityKind; onCreate?: () => void }) {
   const { t } = useI18n();
   const section = settingSection(kind, t);
   return (
@@ -133,9 +285,11 @@ export function EmptySetting({ kind, onCreate }: { kind: EntityKind; onCreate: (
       <div className="flex min-h-28 flex-col items-center justify-center text-center">
         <p className="text-sm font-medium">{interpolate(t("worlds.entity.empty.title"), { title: section?.title ?? "" })}</p>
         <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">{section?.description}</p>
-        <Button className="mt-4" onClick={onCreate} type="button">
-          <Plus className="size-3.5" />{section?.action}
-        </Button>
+        {onCreate && (
+          <Button className="mt-4" onClick={onCreate} type="button">
+            <Plus className="size-3.5" />{section?.action}
+          </Button>
+        )}
       </div>
     </Card>
   );
@@ -278,15 +432,18 @@ function ObjectEvidenceManager({
       {evidence.length ? (
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {evidence.map((item) => (
-            <div className="overflow-hidden rounded-sm border" key={item.id ?? item.assetId}>
-              <EvidencePreview asset={assets.find((asset) => asset.id === item.assetId)} source={`${apiBase}/v1/media/assets/${encodeURIComponent(item.assetId)}/content`} />
+            <div className="overflow-hidden rounded-sm border" key={item.id ?? item.assetId ?? item.url}>
+              <EvidencePreview
+                asset={item.assetId ? assets.find((asset) => asset.id === item.assetId) : undefined}
+                source={evidenceSource(apiBase, item)}
+              />
               <div className="flex items-center justify-between gap-2 p-2">
                 <span className="truncate text-[11px] text-muted-foreground">{item.label || t(`worlds.evidence.${item.purpose}`)}</span>
                 <span className="flex items-center gap-1">
                   <button aria-label={t("worlds.entity.manager.edit.aria")} className="text-muted-foreground hover:text-foreground" onClick={() => {
                     setEditingEvidence(item);
-                    setAssetID(item.assetId);
-                    setPickedAsset({ id: item.assetId, kind: item.modality, name: assets.find((asset) => asset.id === item.assetId)?.name ?? t("worlds.entity.manager.currentAsset") });
+                    setAssetID(item.assetId ?? "");
+                    setPickedAsset(item.assetId ? { id: item.assetId, kind: item.modality, name: assets.find((asset) => asset.id === item.assetId)?.name ?? t("worlds.entity.manager.currentAsset") } : null);
                     setPurpose(item.purpose);
                     setStatus(item.status === "archived" ? "supporting" : item.status);
                     setLabel(item.label ?? "");
@@ -351,7 +508,16 @@ function EvidencePreview({ asset, source }: { asset?: WorldAsset; source: string
   if (asset?.kind === "image") return <img alt={asset.name} className="h-36 w-full object-cover" src={source} />;
   if (asset?.kind === "video") return <video className="h-36 w-full bg-black object-cover" controls muted preload="metadata" src={source} />;
   if (asset?.kind === "audio") return <div className="flex h-36 flex-col justify-between bg-muted p-3"><Volume2 className="size-5 text-primary" /><audio className="w-full" controls preload="metadata" src={source} /></div>;
+  if (!asset && source) return <img alt="" className="h-36 w-full object-cover" src={source} />;
   return <div className="flex h-36 items-end bg-muted p-3 text-xs text-muted-foreground">{t("worlds.entity.preview.fallback")}</div>;
+}
+
+// Evidence source resolves both dual sources to a renderable URL: asset rows
+// stream from the media library; url rows point at the remote resource
+// (platform CDN) directly.
+function evidenceSource(apiBase: string, item: WorldEvidence): string {
+  if (item.source === "url" || (!item.assetId && item.url)) return item.url ?? "";
+  return item.assetId ? `${apiBase}/v1/media/assets/${encodeURIComponent(item.assetId)}/content` : "";
 }
 
 function purposeFor(kind: EntityKind): WorldEvidencePurpose {
