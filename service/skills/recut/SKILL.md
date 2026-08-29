@@ -21,7 +21,7 @@ references: world-onboarding.md
 
 ## 连接检查
 
-新建 Agent / native session 时，先确认工具列表中存在 `recut.context`，再调用它确认本机 service 可用。已经成功确认过的同一 native session，在 15 分钟内不得为每条新消息重复检查。只有 MCP 工具成功响应后，才能声称已经读取、创建或生成了 Recut 内容。
+新建 Agent / native session 时，先确认工具列表中存在 `recut.context`，再调用它确认本机 service 可用。已经成功确认过的同一 native session（包括 resume 续跑）不得为每条新消息重复检查。只有 MCP 工具成功响应后，才能声称已经读取、创建或生成了 Recut 内容。
 
 若 `recut.context` 不在工具列表、MCP 启动失败，或调用显示本机 service 无法连接，不要猜测平台状态，也不要用本地渲染冒充 Recut 功能。直接告诉用户：
 
@@ -33,11 +33,32 @@ references: world-onboarding.md
 
 ## 上下文新鲜度协议
 
-`recut.context` 是能力快照，不是每轮的仪式。新建 native session 时调用一次，读取已安装 App、Skill 元数据、媒体配置与 `media.readiness`。同一 native session 在 15 分钟内复用已确认的快照，不能因为用户发来下一条消息就重读。
+`recut.context` 是能力快照，不是每轮的仪式。新建 native session 时调用一次，读取已安装 App、Skill 元数据、媒体配置与 `media.readiness`。同一 native session（包括 resume 续跑）内，整段会话生命周期都复用已确认的快照，不能因为用户发来下一条消息、暂停后恢复或跨天再打开就重读。
 
-只有下列情况才刷新：距离上次成功 `recut.context` 超过 15 分钟；用户说明刚改了 Provider、默认模型、App 安装或 App 更新；本会话刚执行了这类变更；任务切换到快照未覆盖的 App 或 Project；或者工具返回表明先前状态已失效。会话不绑定任何项目，需要项目信息时用 `recut.project.list` / `recut.project_context` 显式获取。
+只有下列情况才刷新：用户说明刚改了 Provider、默认模型、App 安装或 App 更新；本会话刚执行了这类变更；任务切换到快照未覆盖的 App 或 Project；或者工具返回表明先前状态已失效。会话不绑定任何项目，需要项目信息时用 `recut.project.list` / `recut.project_context` 显式获取。
 
 `recut.context.skills` 已包含所有已安装 Skill 的 `appId`、`id`、名称和描述。直接从该结果选择匹配的 App Skill；只有当前 native-session 历史中还没读取该 App 的工作流、或任务切换到其他 App/领域时，才调用 `recut.skills.read`。只有 `recut.context` 缺少所需 Skill 元数据或确实需要刷新目录时，才调用 `recut.skills.list`；它不是例行预检。Skill 正文对对应 App 的工具契约与决策门有权威性；仅在它要求时读取 `recut.skills.reference`。
+
+同样的「整段会话复用」规则适用于其余相对稳定的上下文类调用，按变更来源分两档：
+
+**会话冻结档**（同一 native session 含 resume 续跑只读一次，不因跨天或新消息重读）：
+
+- `recut.apps.list` / `recut.apps.store`：App 目录随安装/更新走，且 `recut.context.apps` 已内嵌已安装清单，禁止例行调用；只在用户明确要求安装、更新或浏览商店时使用。
+- `recut.skills.read`：每个 App 的 Skill 正文每个会话只读一次，任务切到其他 App/领域才读新的。
+- `recut.design_system.list` / `recut.design_system.get`：全局设计系统随 service 版本走，会话内不可变。
+- `recut.media.list_voices`：音色随 Provider 凭据走，只在用户说明改了 Provider/凭据、或本会话执行了此类变更后刷新。
+- `audio.status` / `depth.status` / `subtitle.capabilities`：环境与模型就绪状态，会话内不变；个别字段如 `activeJob` 是动态的，按对应 jobId 用 job 观察工具轮询，不靠重读 status。
+
+**事件失效档**（基线在会话内冻结，但自己动手变更或用户说明变更后做增量维护，而不是整表重读）：
+
+- `recut.project.list` / `recut.project.get`：基线冻结；自己 `recut.project.create` 后把新项目并入已知列表。
+- `recut.media.list_assets`：基线冻结；自己 import/attach 后追加已知条目，用户说「刚传了素材」才重读。
+- `audio.characters` / `audio.syntheses`：同上，自己 create/remove/synthesize 后增量维护。
+- `recut.worlds.list` / `recut.worlds.get` / `recut.worlds.entities.list` / `recut.worlds.evidence.list`：Canon 相对稳定；自己 upsert/attach 后增量，且这些写入本就要求用户明确授权，天然带失效信号。
+
+**不适用冻结**（随工作进展变化，按各 App Skill 的现有节奏读）：各 App 的 `workflow.context`（stage 门禁，节拍推进就变；Editor 已规定连续编辑会话读一次、外部变化/冲突/失效才回读）、`recut.project_context`（含已产出 Artifact，随产出增长）、`project.get` / `timeline.read`（Editor 走 `baseVersion` 增量同步，缓存 version 而非快照）、`recut.context.integrations`（App 安装/更新动作前后会变）、`cover.context`。
+
+「不适用冻结」不等于每轮重读。这一档同样遵守 resume 续跑不重读，且状态变化从**写操作的返回值**观察：每次写入返回的 version、stage、产物 ID 就是权威增量，用它滚动更新已知状态，绝不为了「确认」或「安心」而重读。回读只由事件触发——写入报阶段/版本冲突、用户说明在 UI 或其他会话里改过、切换目标 Project/App。时间间隔（包括跨天空闲）本身不是失效信号；跨天新开 native session 才从头读。若状态真过期，workflow 的阶段门禁与 `baseVersion` 冲突会给出真实状态，按返回值修正即可，不要预防性重读。
 
 `tools/list` 返回平台工具与所有已安装 App 的 `appId.operation` 工具。只调用已加载 Skill 的 App 工具。项目是单一 owner App 的类型化 Doc。要操作某个项目，在其 App 工具参数里传 `__recut.target.projectId`；没有显式 target 时操作该 App 的全局状态（appstate），媒体工具无项目时操作 workspace 素材库。用户要求新建或正式化创作时，先 `recut.project.list` 复用，或 `recut.project.create` 传入 name 与 owner App ID。
 
@@ -55,6 +76,8 @@ references: world-onboarding.md
 ## 媒体
 
 平台媒体任务使用 `recut.image.generate`、`recut.video.generate`、`recut.speech.generate`、`recut.media.get_job`、`recut.media.wait_for_job`。调用前必须检查 `recut.context.media.readiness[capability].status`：只有 `ready` 才调用对应 Recut 生成工具；`not-configured` 时直接说明用户需要在 Recut 设置中连接 Provider 并为该用途选择默认模型；当语音 route 报告 `provider:"local-audio"` 时本机 TTS 已配置，先看音频/转写是否由 Audio Studio 承载（`audio.transcribe`/`audio.synthesize`/`audio.characters`/`audio.save`），`recut.speech.generate` 的本地路由仅在 daemon 已接 Audio Studio 桥时可用；图片为 `codex-native` 时使用宿主原生生图、不调用 `recut.image.generate`，把生成文件写入当前会话工作区根目录（如 `cover.png`），再按上文 OutputFormat: url 一节以深链引用，需要挂到项目时用 `recut.media.import_image` 传入工作区相对路径与目标 `projectId` 换取真实 `assetId`。三种生成工具都是异步 job：提交即返回稳定 jobId 与 assetIds（先 queued，Daemon 原位推进到 completed/failed）。**提交不等于成功**——必须用返回的 jobId 等待，`completed` 才能声称素材可用；`failed` 要如实报告 provider 错误，`queued`/`running` 是仍在进行而非完成。禁止用 HyperFrames、ffmpeg、浏览器自动化或本地渲染替代平台生成。你从不读取其他 App 的私有数据库；跨 App 理解走 owner App 声明的 read operation。
+
+素材发现用 `recut.media.list_assets`，永远不要全量拉取：已知 ID 用 `ids` 精确取回，否则用 `kind` / `query` / `limit` / `offset` 过滤分页，按返回的 `total` 判断是否翻页。平台对任何工具输出执行 48KB 预算：超限结果会被截断为 `{truncated, totalBytes, preview, fullOutputPath}` 信封——把它当作数据来决策（缩小查询参数或读文件），不要重复提交同样的全量调用。
 
 ## 任务观察（统一）
 

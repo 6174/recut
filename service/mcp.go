@@ -31,8 +31,8 @@ type mcpRequest struct {
 // yet; see D12.
 var mcpToolDescriptions = map[string]map[Locale]string{
 	"recut.context": {
-		LocaleZh: "读取当前 Recut 会话上下文：已安装 App（含绝对路径 root）、Skill 元数据、媒体配置、可选集成能力状态与 .recut 文件系统路径（paths）。新 native session 或能力状态可能变化时调用；同一会话 15 分钟内复用已确认快照。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。",
-		LocaleEn: "Read the current Recut session context: installed Apps (including absolute root paths), Skill metadata, media configuration, optional integration readiness, and .recut filesystem paths (paths). Call it for a new native session or when capability state may have changed; reuse a confirmed snapshot for 15 minutes within the same session. The session is not bound to a Project; use recut.project.list / recut.project.get or recut.project_context when you need project information.",
+		LocaleZh: "读取当前 Recut 会话上下文：已安装 App（含绝对路径 root）、Skill 元数据、媒体配置、可选集成能力状态与 .recut 文件系统路径（paths）。每个 native session（含 resume 续跑）只调用一次；同一会话的整段生命周期内复用已确认快照，仅在用户说明或本会话执行了 Provider/模型/App 变更、任务切换到快照未覆盖的 App/Project、或工具报告状态失效时刷新。会话不绑定任何项目；需要项目信息时用 recut.project.list / recut.project.get 或 recut.project_context。",
+		LocaleEn: "Read the current Recut session context: installed Apps (including absolute root paths), Skill metadata, media configuration, optional integration readiness, and .recut filesystem paths (paths). Call it once per native session (including resumed runs); reuse the confirmed snapshot for the entire session lifetime, refreshing only when the user states or this session performs Provider/model/App changes, the task moves to an App or Project not covered by the snapshot, or a tool reports stale state. The session is not bound to a Project; use recut.project.list / recut.project.get or recut.project_context when you need project information.",
 	},
 	"recut.apps.list": {
 		LocaleZh: "列出已安装 App（含 kind、skill 目录、Git 仓库、可更新状态与安装状态）。",

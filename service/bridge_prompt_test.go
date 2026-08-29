@@ -37,7 +37,7 @@ func TestSessionGuideIsPlatformOnlyAndVoxSkillIsDiscoverable(t *testing.T) {
 	for _, required := range []string{
 		"recut.context",
 		"recut.skills.read",
-		"15 minutes",
+		"entire session lifetime",
 		"not a turn-by-turn ritual",
 		"never call it as a routine preflight",
 		"recut.video.generate",
@@ -391,7 +391,7 @@ func TestAgentGuideDefaultAndEnRenderEnglish(t *testing.T) {
 		}
 		for _, required := range []string{
 			"recut.context",
-			"15 minutes",
+			"entire session lifetime",
 			"not a turn-by-turn ritual",
 			"never call it as a routine preflight",
 			"recut.video.generate",
