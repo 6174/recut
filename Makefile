@@ -12,7 +12,7 @@ RECUT_HOME ?= $(HOME)/.recut
 APP ?=
 SERVICE_PORT ?= 17373
 STREAM_PORT ?= 17374
-RECUT_VERSION ?= 0.1.43
+RECUT_VERSION ?= 0.1.45
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -242,4 +242,4 @@ worlds-publish: ## 完整发布流程：构建 + seed + 增量上传 R2（历史
 worlds-status: ## 查看 CDN 上的 World 目录与 catalog。
 	@node cdn/scripts/cli.mjs list worlds 2>/dev/null || echo "  (尚未上传或凭据缺失)"
 	@echo "--- catalog.json ---"
-	@curl -sf "$(CURDIR)/cdn/buckets/worlds/catalog.json" 2>/dev/null | head -30 || cat cdn/buckets/worlds/catalog.json 2>/dev/null | head -30 || echo "  (本地 catalog 未构建，先跑 make worlds-build)"
+	@curl -sf "https://cdn.recut.video/worlds/catalog.json" 2>/dev/null | head -30 || cat cdn/buckets/worlds/catalog.json 2>/dev/null | head -30 || echo "  (本地 catalog 未构建，先跑 make worlds-build)"

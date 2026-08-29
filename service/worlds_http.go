@@ -113,6 +113,22 @@ func (s *Server) forkWorld(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, world)
 }
 
+func (s *Server) archiveWorld(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil && err.Error() != "EOF" {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	changed, err := s.worldsStore().ArchiveWorldForUser(r.PathValue("worldID"), "http")
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"archived": true, "changed": changed})
+}
+
 func (s *Server) briefWorld(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		RevisionID string         `json:"revisionId"`

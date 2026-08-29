@@ -1,0 +1,142 @@
+{
+  "version": "0.1.0",
+  "world": {
+    "id": "pgc.chengzi",
+    "name": "橙子一家",
+    "type": "character_ip",
+    "description": "2.5D 风格家庭教育故事世界：9 岁男孩橙子 + 2 岁半弟弟柚子 + 爸爸妈妈 + 三室一厅与城市互动场景（学校/菜市场/商场/车里），单张四人设定拼图作一致性锚点，@ 一下即可产出角色与场景一致的教育故事短片关键帧。",
+    "identity": {
+      "positioning": "2.5D 视角的家庭教育故事宇宙：真实生活现场 + 卡通孩子视角",
+      "audience": ["有 3-10 岁孩子的家长", "做家庭教育/亲子内容的创作者"],
+      "tone": "温暖、真实、不说教、带一点家庭幽默"
+    }
+  },
+  "entities": [
+    {
+      "id": "chengzi",
+      "kind": "character",
+      "title": "橙子",
+      "summary": "9 岁男孩主角：黑色刺头、湖蓝卫衣、橙色书包和靴子；好奇精力旺、嘴硬心软，每集完成一个成长课题的小闭环。",
+      "content": {
+        "appearance": "9 岁男孩，黑色刺刺短发（几撮翘起），圆脸带一点小雀斑，粗黑描边；湖蓝色连帽卫衣、卡其色短裤、橙色小靴子、橙色双肩书包；2.5D 贴纸感：手绘赛璐璐上色角色浮在写实摄影背景上，带细白描边",
+        "personality": "好奇、精力旺、嘴硬心软；会犯错但每集成长一小步",
+        "voice": "暂不配置（后续补充）；叙事以画面与旁白为主",
+        "body": { "$file": "references/chengzi-ip.md" }
+      }
+    },
+    {
+      "id": "youzi",
+      "kind": "character",
+      "title": "柚子",
+      "summary": "2 岁半弟弟：整齐短发、黄 T 恤小运动鞋，能跑能跳；会说短句（咬字微不清但完全能表达）；爱说「我自己来」。",
+      "content": {
+        "appearance": "2 岁半幼儿：圆脸蛋，黑色整齐的短发（不是婴儿稀疏毛），眼睛大而亮；黄色小 T 恤（胸前小黄鸭印花）、深色短裤、小运动鞋；跑跳自如；2.5D 贴纸感同橙子",
+        "personality": "精力旺、固执小模式、爱模仿哥哥；会说短句但咬字不清",
+        "voice": "暂不配置（后续补充）；台词为幼儿短句，咬字微不清但完全能表达",
+        "body": { "$file": "references/youzi.md" }
+      }
+    },
+    {
+      "id": "mama",
+      "kind": "character",
+      "title": "妈妈",
+      "summary": "妈妈：齐肩深棕发、米色针织衫；温柔稳定、规则清晰，批评对事不对人，是教育闭环的觉察者。",
+      "content": {
+        "appearance": "30 代妈妈，齐肩深棕发，粗黑描边手绘风；常穿米色针织衫或围裙便装、深色长裤；表情基准温柔但认真",
+        "personality": "温柔而稳定，规则清晰，不吼不叫",
+        "voice": "暂不配置（后续补充）",
+        "body": { "$file": "references/mama.md" }
+      }
+    },
+    {
+      "id": "baba",
+      "kind": "character",
+      "title": "爸爸",
+      "summary": "爸爸：短黑发微胡茬、深藏青 POLO（无眼镜）；话少行动派，会修东西会认错，车里戏固定司机。",
+      "content": {
+        "appearance": "30 代爸爸，短黑发、微胡茬，粗黑描边手绘风；常穿深藏青 POLO 衫、卡其长裤、运动鞋",
+        "personality": "话少行动派，幽默，会认错",
+        "voice": "暂不配置（后续补充）",
+        "body": { "$file": "references/baba.md" }
+      }
+    },
+    {
+      "id": "home",
+      "kind": "location",
+      "title": "橙子的家（三室一厅）",
+      "summary": "三室一厅主舞台：客厅、餐桌、厨房、三间卧室、阳台、卫生间、书架；每集起点与归宿。",
+      "content": {
+        "description": "客厅布艺沙发+电视+茶几、木质餐桌四椅、L 型厨房+冰箱贴、三间卧室、阳台（晾衣架+盆栽）、卫生间、书架阅读角。",
+        "body": { "$file": "references/home.md" }
+      }
+    },
+    {
+      "id": "city-scenes",
+      "kind": "location",
+      "title": "外出场景体系（学校/菜市场/商场/车里）",
+      "summary": "学校（教室/操场/校门口）、菜市场、商场、车里四大互动场景；写实底+贴纸角色，每集聚焦一个子场景。",
+      "content": {
+        "description": "不具名的中国大城市。所有外出场景保持写实摄影底 + 手绘贴纸角色，每次只聚焦一个子场景。",
+        "body": { "$file": "references/city-scenes.md" }
+      }
+    },
+    {
+      "id": "story-arc",
+      "kind": "story",
+      "title": "成长一小步",
+      "summary": "教育叙事主线：每集一个成长课题，走「麻烦出现→拧巴与觉察→一小步被接住」三幕；不说教，道理从情节里长出来。",
+      "content": {
+        "premise": "橙子是孩子观众代入的镜子：会犯错、会狡辩、会嫉妒弟弟，但每集都往前挪一小步。柚子会说话会讲自己的道理，爸妈也会犯错并示范道歉。",
+        "body": { "$file": "references/story-arc.md" }
+      }
+    },
+    {
+      "id": "style-dna",
+      "kind": "style",
+      "title": "风格 DNA（2.5D）",
+      "summary": "2.5D 合成风：手绘赛璐璐角色（粗黑描边+细白贴纸边）浮在写实摄影背景上；角色色恒定、背景永远真实感。",
+      "content": {
+        "kind": "visual",
+        "guidance": "手绘赛璐璐角色+粗黑描边+细白贴纸外描边；背景写实摄影质感；角色服装色恒定；亮度与背景匹配；禁止角色写实化/背景卡通化；柚子不是婴儿；爸爸无眼镜",
+        "body": { "$file": "references/style-dna.md" }
+      }
+    },
+    {
+      "id": "rule-reference",
+      "kind": "rule",
+      "title": "参考图纪律",
+      "content": { "type": "always", "text": "多人同框只传 assets/family-sheet-grid-v2.png 一张参考图（四角色设定页 2x2 合拼）；单角色戏传对应设定页一张；提示词开头声明「角色必须 1:1 复制参考图设定（禁止改动发型/服装/配色）」；禁止用四张散图作参考（会平均化角色）" }
+    },
+    {
+      "id": "rule-frame",
+      "kind": "rule",
+      "title": "画面与镜头纪律",
+      "content": { "type": "always", "text": "9:16 竖屏为主；角色保持贴纸感、背景保持摄影感；每帧一个信息点；台词口语化、每集最多一句点题放结尾卡；音频预留（角色暂不配音）" }
+    },
+    {
+      "id": "rule-no-cute",
+      "kind": "rule",
+      "title": "禁止写实化与说教",
+      "content": { "type": "never", "text": "不要把角色写实照片化/3D 化，不要把背景卡通化；不要说教大字、口号横幅、品牌 logo；不要给爸爸加眼镜；不要把柚子画成婴儿（稀疏胎毛/奶瓶/口水兜）" }
+    }
+  ],
+  "evidence": [
+    { "entityId": "chengzi", "url": "assets/character-sheet-chengzi.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "橙子角色设定页（三视图+表情+色板）" },
+    { "entityId": "youzi", "url": "assets/character-sheet-youzi-v2.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "柚子角色设定页 v2（2岁半·整齐短发·会说短句）" },
+    { "entityId": "mama", "url": "assets/character-sheet-mama.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "妈妈角色设定页（三视图+表情+色板）" },
+    { "entityId": "baba", "url": "assets/character-sheet-baba.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "爸爸角色设定页（三视图+表情+色板）" },
+    { "entityId": "story-arc", "url": "assets/family-sheet-grid-v2.png", "modality": "image", "purpose": "mood", "status": "primary", "collection": "角色设定", "label": "四人设定页合拼图 v2（全家唯一参考锚点）" },
+    { "entityId": "home", "url": "examples/scene-home-panorama.png", "modality": "image", "purpose": "scene", "status": "primary", "collection": "场景设定", "label": "三室一厅全景（16:9 场景锚点）" },
+    { "entityId": "chengzi", "url": "examples/scene-family-sofa.png", "modality": "image", "purpose": "mood", "status": "primary", "collection": "输出范例", "label": "全家沙发互动关键帧（9:16 成品范例）" },
+    { "entityId": "city-scenes", "url": "examples/scene-classroom.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "教室关键帧（9:16 场景范例）" },
+    { "entityId": "city-scenes", "url": "examples/scene-market.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "菜市场关键帧（9:16 场景范例）" },
+    { "entityId": "city-scenes", "url": "examples/scene-mall.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "商场玩具店关键帧（9:16 场景范例）" },
+    { "entityId": "city-scenes", "url": "examples/scene-car.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "车里关键帧（9:16 场景范例）" }
+  ],
+  "provenance": {
+    "author": "chenxuejia",
+    "license": "MIT",
+    "repository": "https://github.com/6174/recut",
+    "publishedAt": "2026-08-29T00:00:00Z"
+  }
+}

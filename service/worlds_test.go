@@ -470,3 +470,28 @@ func TestCreationWorldAndEntityContextMaterializers(t *testing.T) {
 		t.Fatal("missing world attachment was accepted")
 	}
 }
+
+func TestArchiveWorldForUserHidesLocalWorldFromList(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "橙子一家", Type: WorldCustom})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := worlds.ArchiveWorldForUser(world.ID, "test")
+	if err != nil || !changed {
+		t.Fatalf("ArchiveWorldForUser = %v, %v", changed, err)
+	}
+	if listContains(worlds, t, world.ID) {
+		t.Fatal("archived local world must disappear from ListWorlds")
+	}
+	if changed, err := worlds.ArchiveWorldForUser(world.ID, "test"); err != nil || changed {
+		t.Fatalf("second archive = %v, %v", changed, err)
+	}
+	if _, err := worlds.GetWorld(world.ID); err != nil {
+		t.Fatalf("GetWorld after archive: %v", err)
+	}
+	// platform 世界不能被用户归档。
+	if _, err := worlds.ArchiveWorldForUser("pgc.xiaohei", "test"); err == nil {
+		t.Fatal("platform world must not be user-archivable")
+	}
+}

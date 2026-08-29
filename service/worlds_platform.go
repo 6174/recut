@@ -400,6 +400,34 @@ func nullIfEmpty(value string) any {
 // row is never hard-deleted: Project bindings pinned to its revisions keep
 // resolving. It is idempotent for an already-archived world.
 func (w *WorldStore) ArchiveWorld(worldID, reason, createdBy string) (bool, error) {
+	return w.archiveWorld(worldID, reason, createdBy, false)
+}
+
+// ArchiveWorldForUser archives a world on explicit user request. Only local
+// worlds (the user's own) can be archived: platform worlds are owned by the
+// catalog lifecycle (delisted via sync), and published worlds are frozen for
+// P4 manual install/uninstall. The row is never hard-deleted: Project
+// bindings pinned to its revisions keep resolving. It is idempotent for an
+// already-archived world.
+func (w *WorldStore) ArchiveWorldForUser(worldID, createdBy string) (bool, error) {
+	db, err := w.database()
+	if err != nil {
+		return false, err
+	}
+	var origin string
+	if err := db.QueryRow("select origin from worlds where id = ?", worldID).Scan(&origin); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, worldsError(WorldsErrNotFound, "world not found")
+		}
+		return false, err
+	}
+	if originOrDefault(origin) != WorldLocal {
+		return false, worldsError(WorldsErrContextInvalid, "only local worlds can be archived by the user")
+	}
+	return w.archiveWorld(worldID, "user", createdBy, true)
+}
+
+func (w *WorldStore) archiveWorld(worldID, reason, createdBy string, allowLocal bool) (bool, error) {
 	db, err := w.database()
 	if err != nil {
 		return false, err
@@ -414,7 +442,7 @@ func (w *WorldStore) ArchiveWorld(worldID, reason, createdBy string) (bool, erro
 		}
 		return false, err
 	}
-	if originOrDefault(origin) == WorldLocal {
+	if !allowLocal && originOrDefault(origin) == WorldLocal {
 		return false, worldsError(WorldsErrContextInvalid, "local worlds cannot be archived through the catalog lifecycle")
 	}
 	if archivedAt != "" {

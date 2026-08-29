@@ -241,6 +241,7 @@ export type RecutWorldsClient = {
   create(input: { name: string; type: WorldKind; description?: string; identity?: Record<string, unknown>; coverAssetId?: string }): Promise<WorldDetail>;
   update(input: { worldId: string; name?: string; description?: string; identity?: Record<string, unknown>; skillMd?: string; expectedRevisionId?: string }): Promise<WorldDetail>;
   fork(input: { worldId: string; name?: string }): Promise<WorldDetail>;
+  archive(input: { worldId: string; expectedRevisionId?: string }): Promise<void>;
   readiness(input: { worldId: string; scenario?: WorldScenario }): Promise<WorldReadiness>;
   entities: {
     list(input: { worldId: string; kind?: EntityKind; text?: string; cursor?: string; limit?: number }): Promise<Page<WorldEntitySummary>>;
@@ -278,6 +279,9 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
     update: ({ worldId, ...rest }) => requestJSON<WorldDetail>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}`, { method: "PATCH", body: rest }),
     fork: ({ worldId, name }: { worldId: string; name?: string }) =>
       requestJSON<WorldDetail>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/fork`, { method: "POST", body: { name } }),
+    archive: async ({ worldId, expectedRevisionId }: { worldId: string; expectedRevisionId?: string }) => {
+      await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevisionId }) });
+    },
     readiness: ({ worldId, scenario }: { worldId: string; scenario?: WorldScenario }) => {
       const query = new URLSearchParams();
       if (scenario) query.set("scenario", scenario);

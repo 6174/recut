@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 WorldStore 的 materialize/archive 原语、标准库 HTTP/JSON 与内嵌世界种子（service/worldcatalog/）
- * [OUTPUT]: 对外提供单一 World Catalog 的解析（本地覆盖 > 远端 CDN > 嵌入种子）与 daemon 自动同步：
+ * [OUTPUT]: 对外提供单一 World Catalog 的解析（远程 CDN > 嵌入种子，E2E 经 RECUT_WORLD_CATALOG_URL
+ * 指向本地 catalog）与 daemon 自动同步：
  * 仅处理 kind=platform 条目（启动后台 pass + 每 24h + UI 触发的节流 Touch，幂等单飞），delisted 自动归档，
  * published 条目一律跳过（P4 手动策略）；网络请求不持状态锁，同步绝不阻塞 daemon 启动与 /v1/worlds/catalog
  * [POS]: service 的平台 World 内容同步边界；"自动同步"与未来"安装/更新"是同一组物化原语的两种策略，
@@ -37,7 +38,6 @@ const defaultWorldCatalogURL = "https://cdn.recut.video/worlds/catalog.json"
 
 const worldCatalogSyncInterval = 24 * time.Hour
 const worldCatalogTouchMinInterval = 5 * time.Minute
-const worldCatalogLocalOverrideName = "world-catalog.json"
 
 // WorldCatalogEntry is one catalog row. kind=platform entries auto-sync with
 // pgc.* IDs; kind=published entries (pub.* IDs) are frozen for P4 manual
@@ -65,8 +65,7 @@ type WorldCatalog struct {
 type catalogSource int
 
 const (
-	catalogSourceLocal catalogSource = iota
-	catalogSourceRemote
+	catalogSourceRemote catalogSource = iota
 	catalogSourceEmbedded
 )
 
@@ -108,19 +107,11 @@ func (s *WorldCatalogSyncer) catalogURL() string {
 	return defaultWorldCatalogURL
 }
 
-// loadCatalog resolves the catalog: a local <dataRoot>/world-catalog.json
-// override wins wholesale (same convention as appstore.json), then the remote
-// CDN, then the embedded seed.
+// loadCatalog resolves the catalog: the remote CDN first (E2E/dev can point it
+// elsewhere via RECUT_WORLD_CATALOG_URL), then the embedded seed for offline
+// first launch. The remote catalog is always authoritative; a stale local
+// fixture can never shadow newly published worlds.
 func (s *WorldCatalogSyncer) loadCatalog() (*WorldCatalog, catalogSource, error) {
-	if data, err := os.ReadFile(filepath.Join(s.root, worldCatalogLocalOverrideName)); err == nil {
-		catalog := WorldCatalog{}
-		if err := json.Unmarshal(data, &catalog); err != nil {
-			return nil, catalogSourceLocal, fmt.Errorf("parse local world catalog override: %w", err)
-		}
-		return &catalog, catalogSourceLocal, nil
-	} else if !os.IsNotExist(err) {
-		return nil, catalogSourceLocal, fmt.Errorf("read local world catalog override: %w", err)
-	}
 	requestURL := s.catalogURL()
 	response, err := s.http.Get(requestURL)
 	if err == nil {
@@ -136,7 +127,7 @@ func (s *WorldCatalogSyncer) loadCatalog() (*WorldCatalog, catalogSource, error)
 			}
 			return &catalog, catalogSourceRemote, nil
 		}
-		// Non-200 (catalog not published yet) falls through to the embedded seed.
+		// Non-200 falls through to the embedded seed.
 	}
 	data, err := embeddedWorldCatalogFS.ReadFile("worldcatalog/catalog.json")
 	if err != nil {

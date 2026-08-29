@@ -1,7 +1,29 @@
 {
   "catalogVersion": 1,
-  "updated": "2026-08-29T09:57:44Z",
+  "updated": "2026-08-29T12:21:52Z",
   "worlds": [
+    {
+      "bytes": 17240,
+      "id": "pgc.adan",
+      "kind": "platform",
+      "manifestUrl": "https://cdn.recut.video/worlds/pgc.adan/0.1.0/world.json",
+      "order": 1,
+      "publisher": "recut",
+      "sha256": "33da33dc24f39116f367c1e4513f8e7004842f0955142b95b24d481565e3db5f",
+      "status": "active",
+      "version": "0.1.0"
+    },
+    {
+      "bytes": 22397,
+      "id": "pgc.chengzi",
+      "kind": "platform",
+      "manifestUrl": "https://cdn.recut.video/worlds/pgc.chengzi/0.1.0/world.json",
+      "order": 1,
+      "publisher": "recut",
+      "sha256": "b2cff9dabf18cffcc458a928c860eb49430e3677c9025447a3952cd463adfb94",
+      "status": "active",
+      "version": "0.1.0"
+    },
     {
       "bytes": 19281,
       "id": "pgc.xiaohei",

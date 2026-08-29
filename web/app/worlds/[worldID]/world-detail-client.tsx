@@ -7,10 +7,12 @@
 "use client";
 
 import {
+  Archive,
   ArrowLeft,
   Check,
   Clapperboard,
   Globe2,
+  MoreHorizontal,
   NotebookPen,
   Pencil,
   Plus,
@@ -22,6 +24,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PlatformMediaPicker } from "@/components/platform-media-picker";
 import { useAgentPanelContext, useReportWorkSurface } from "@/lib/agent-panel-context";
 import {
@@ -79,6 +82,9 @@ function WorldDetailContent() {
   const [metaName, setMetaName] = useState("");
   const [metaDesc, setMetaDesc] = useState("");
   const [savingMeta, setSavingMeta] = useState(false);
+  const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useReportWorkSurface(
     useMemo(
@@ -174,8 +180,21 @@ function WorldDetailContent() {
       setForking(false);
     }
   }
-  async function saveSkill() {
-    if (savingSkill) return;
+  async function archiveWorld() {
+    if (archiving) return;
+    setArchiving(true);
+    setNotice("");
+    try {
+      await createRecutWorldsClient(apiBase).archive({ worldId: worldId });
+      invalidate(worldId);
+      window.location.assign("/worlds");
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : t("worlds.detail.archive.failed"));
+      setArchiving(false);
+    }
+  }
+
+  async function saveSkill() {    if (savingSkill) return;
     setSavingSkill(true);
     setNotice("");
     try {
@@ -262,6 +281,21 @@ function WorldDetailContent() {
                   )}
                   <Badge className="shrink-0 border-primary/20 bg-accent/60 text-accent-foreground">{t(`worlds.kind.${detail.type}`)}</Badge>
                   {readOnly && detail.originMeta?.version && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">v{detail.originMeta.version}</span>}
+                  {!readOnly && (
+                    <Popover onOpenChange={setMoreOpen} open={moreOpen}>
+                      <PopoverTrigger asChild>
+                        <button aria-label={t("worlds.detail.more.aria")} className="ml-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" type="button">
+                          <MoreHorizontal className="size-4" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-44 p-1">
+                        <button className="flex w-full items-center gap-2 rounded-xs px-2 py-1.5 text-left text-xs text-warning hover:bg-warning/10" onClick={() => { setMoreOpen(false); setArchiveConfirm(true); }} type="button">
+                          <Archive className="size-3.5" />
+                          {t("worlds.detail.archive")}
+                        </button>
+                      </PopoverContent>
+                    </Popover>
+                  )}
                 </div>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{detail.description || t("worlds.detail.fallbackDesc")}</p>
               </>
@@ -366,6 +400,21 @@ function WorldDetailContent() {
           onClose={() => setViewing(null)}
           onEdit={readOnly ? undefined : (entity) => { setViewing(null); setEditing(entity); }}
         />
+      )}
+      {archiveConfirm && (
+        <div aria-modal="true" className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6" role="dialog">
+          <div className="w-full max-w-md rounded-md border bg-card p-5 shadow-2xl">
+            <h3 className="text-base font-semibold">{interpolate(t("worlds.detail.archive.confirm.title"), { name: detail.name })}</h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("worlds.detail.archive.confirm.desc")}</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button disabled={archiving} onClick={() => setArchiveConfirm(false)} type="button" variant="outline">{t("worlds.detail.archive.confirm.cancel")}</Button>
+              <Button className="bg-warning text-warning-foreground hover:bg-warning/90" disabled={archiving} onClick={() => void archiveWorld()} type="button">
+                <Archive className="size-3.5" />
+                {archiving ? t("worlds.detail.archive.confirm.archiving") : t("worlds.detail.archive.confirm.action")}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

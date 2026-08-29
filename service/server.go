@@ -126,6 +126,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/worlds/{worldID}", s.getWorld)
 	mux.HandleFunc("PATCH /v1/worlds/{worldID}", s.updateWorld)
 	mux.HandleFunc("POST /v1/worlds/{worldID}/fork", s.forkWorld)
+	mux.HandleFunc("POST /v1/worlds/{worldID}/archive", s.archiveWorld)
 	mux.HandleFunc("POST /v1/worlds/{worldID}/brief", s.briefWorld)
 	mux.HandleFunc("GET /v1/worlds/{worldID}/readiness", s.getWorldReadiness)
 	mux.HandleFunc("GET /v1/worlds/{worldID}/entities", s.listWorldEntities)

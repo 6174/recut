@@ -1,0 +1,102 @@
+{
+  "version": "0.1.0",
+  "world": {
+    "id": "pgc.adan",
+    "name": "阿蛋的深夜客厅",
+    "type": "character_ip",
+    "description": "为中文深夜独处/情绪治愈类内容生成风格一致的 9:16 竖屏短片：阿蛋 IP + 深夜客厅主场 + 深夜城市场景体系 + 风格 DNA + 视频生产工作流，@ 一下即可产出风格一致的情绪短片关键帧。",
+    "identity": {
+      "positioning": "深夜独处情绪短片的 9:16 竖屏视频宇宙",
+      "audience": ["深夜刷手机的都市年轻人", "做情绪治愈/陪伴类短视频内容的创作者"],
+      "tone": "安静、丧而温柔、自嘲、克制"
+    }
+  },
+  "entities": [
+    {
+      "id": "adan",
+      "kind": "character",
+      "title": "阿蛋",
+      "summary": "圆白蛋形头、两点小眼、红色连帽卫衣、黑色细腿；深夜独处的都市年轻人，安静、有点丧但温柔，靠场景与微表情讲故事。",
+      "content": {
+        "appearance": "圆白蛋形头，光滑无发型无鼻子无嘴（或极小一笔嘴）；两只小黑点眼，默认平静放空；oversized 红色连帽卫衣（帽子常塌在背后），黑色火柴状细腿；手绘粗黑线稿、轻微抖动；红是全画面最亮的颜色",
+        "personality": "安静、丧而温柔、自嘲式冷幽默、深夜型选手",
+        "voice": "极少台词，每集最多一句内心独白；语气平静、自嘲、留白",
+        "body": { "$file": "references/adan-ip.md" }
+      }
+    },
+    {
+      "id": "living-room",
+      "kind": "location",
+      "title": "深夜客厅（主场）",
+      "summary": "蓝色旧布艺沙发 + 大面积黑夜星空 + 咖啡杯与书；阿蛋的固定座标，80% 的镜头发生在这里。",
+      "content": {
+        "description": "大面积纯黑夜空（稀疏星点）+ 蓝色旧布艺三人沙发；左扶手黄马克杯冒热气（温度锚点），右扶手几本书（独处锚点）；可选落地灯、毯子、绿植、手机屏光。",
+        "body": { "$file": "references/living-room.md" }
+      }
+    },
+    {
+      "id": "city-scenes",
+      "kind": "location",
+      "title": "深夜城市场景体系",
+      "summary": "阿蛋走出客厅会去的地方：楼下便利店、末班地铁、雨夜公交站、天台、深夜街头；统一公式「深夜 + 一个人 + 一盏光源」。",
+      "content": {
+        "description": "不具名的中国大城市。每个场景只保留 2-3 个视觉元素，其余留给黑色；所有场景都是「路过的地方」，故事最终回到深夜客厅。",
+        "body": { "$file": "references/city-scenes.md" }
+      }
+    },
+    {
+      "id": "story-arc",
+      "kind": "story",
+      "title": "深夜独处切片",
+      "summary": "叙事主线：每支短片是阿蛋与一个具体情绪瞬间的一次独处——陷入、觉察、松开一点；不治愈完结，只给诚实的进度条。",
+      "content": {
+        "premise": "阿蛋是每个深夜醒着的人的镜子：等一条没来的消息、给泡面等三分钟、和楼下的猫对视。物件是配角——咖啡杯、书、手机、猫，它们替观众接住阿蛋。",
+        "body": { "$file": "references/story-arc.md" }
+      }
+    },
+    {
+      "id": "style-dna",
+      "kind": "style",
+      "title": "风格 DNA",
+      "summary": "黑夜底 + 黑色粗手绘线 + 扁平色块（白/蓝/红三色）；红卫衣是全画面唯一主角色；丧但温柔，绝不动漫画。",
+      "content": {
+        "kind": "visual",
+        "guidance": "纯黑或近黑背景；黑色粗手绘线轻微抖动；扁平色块只有白、蓝、红、少量暖黄；红卫衣是唯一主角色；一图一情绪；黑色留白 ≥50%；禁止动漫画/吉祥物/鸡汤大字",
+        "body": { "$file": "references/style-dna.md" }
+      }
+    },
+    {
+      "id": "rule-video-format",
+      "kind": "rule",
+      "title": "视频产出形式",
+      "content": { "type": "always", "text": "主产出为 9:16 竖屏情绪短片 30-60 秒，由关键帧 + 微动作生成视频；设定/情绪/表情参考集 1:1 九宫格（3x3、不画面板边框）；场景全景 16:9；每张单独生成，不拼图" }
+    },
+    {
+      "id": "rule-camera",
+      "kind": "rule",
+      "title": "色彩与镜头纪律",
+      "content": { "type": "always", "text": "竖屏下 1/3 放主体（阿蛋+沙发/光源），上 2/3 留给夜空；红卫衣每帧必须可见；暖黄每帧最多一处；只用固定/慢推/慢拉，禁止快切与转场特效" }
+    },
+    {
+      "id": "rule-no-cute",
+      "kind": "rule",
+      "title": "禁止吉祥物感",
+      "content": { "type": "never", "text": "不要可爱吉祥物贴纸、儿童卡通、日系动漫画风、厚涂、渐变光效、毛绒质感、鸡汤励志大字；不要给阿蛋加头发、大嘴、腮红" }
+    }
+  ],
+  "evidence": [
+    { "entityId": "adan", "url": "assets/character-sheet.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "角色设定集（主参考·三视图+道具）" },
+    { "entityId": "adan", "url": "assets/emotion-grid.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "IP 情绪版九宫格（A-G 状态锚点）" },
+    { "entityId": "adan", "url": "assets/expression-grid.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "表情九宫格（眼睛微表情库）" },
+    { "entityId": "living-room", "url": "assets/living-room-panorama.png", "modality": "image", "purpose": "scene", "status": "primary", "collection": "场景设定", "label": "深夜客厅全景（16:9 场景锚点）" },
+    { "entityId": "adan", "url": "examples/scene-living-room.png", "modality": "image", "purpose": "mood", "status": "primary", "collection": "输出范例", "label": "客厅放空关键帧（9:16 成品范例）" },
+    { "entityId": "city-scenes", "url": "examples/scene-convenience-store.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "便利店关键帧（9:16 场景范例）" },
+    { "entityId": "city-scenes", "url": "examples/scene-subway.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "末班地铁关键帧（9:16 场景范例）" }
+  ],
+  "provenance": {
+    "author": "chenxuejia",
+    "license": "MIT",
+    "repository": "https://github.com/6174/recut",
+    "publishedAt": "2026-08-29T00:00:00Z"
+  }
+}
