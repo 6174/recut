@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 marketing-site 的完整官网 Landing 编排与 Marketing JSON-LD、lib/i18n 字典
- * [OUTPUT]: 对外提供 / 与 /zh/ 的逐语言 Landing（Hero、核心应用、创作底座、文章与 CTA）及 Organization/WebSite/SoftwareApplication 结构化数据；canonical/hreflang/og 逐语言
+ * [OUTPUT]: 对外提供 / 与 /zh/ 的逐语言 Landing（Hero、核心应用、创作底座、世界观、文章与 CTA，世界观数据构建期经 lib/marketing-worlds 从 CDN 抓取）及 Organization/WebSite/SoftwareApplication 结构化数据；canonical/hreflang/og 逐语言
  * [POS]: web/app/marketing/[locale] 的官网首页；经 Cloudflare Worker / server.cjs 的 Host 路由对外暴露为无前缀或 /zh/ 前缀
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -10,6 +10,7 @@ import { t, type Locale } from "@/lib/i18n";
 import { MarketingLanding, MarketingShell } from "@/components/marketing-site";
 import { HomeFaqJsonLd, MarketingAppsItemListJsonLd, OrganizationJsonLd, SoftwareApplicationJsonLd, WebSiteJsonLd } from "@/components/marketing-jsonld";
 import { marketingPosts } from "@/lib/marketing-posts";
+import { fetchMarketingWorlds } from "@/lib/marketing-worlds";
 import { buildAlternates, buildOpenGraph, buildTwitter } from "./seo";
 import { marketingEnabled } from "../mode";
 
@@ -36,12 +37,13 @@ export default async function MarketingHomePage({ params }: { params: Promise<{ 
   if (!marketingEnabled()) notFound();
   const { locale } = await params;
   const current = locale as Locale;
+  const worlds = await fetchMarketingWorlds();
   return <>
     <OrganizationJsonLd />
     <WebSiteJsonLd locale={current} />
     <SoftwareApplicationJsonLd locale={current} />
     <MarketingAppsItemListJsonLd locale={current} />
     <HomeFaqJsonLd locale={current} />
-    <MarketingShell locale={current}><MarketingLanding posts={marketingPosts} /></MarketingShell>
+    <MarketingShell locale={current}><MarketingLanding posts={marketingPosts} worlds={worlds} /></MarketingShell>
   </>;
 }

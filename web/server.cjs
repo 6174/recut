@@ -13,7 +13,7 @@ const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
-const topLevelPages = new Set(["docs", "blog", "apps"]);
+const topLevelPages = new Set(["docs", "blog", "apps", "worlds"]);
 
 function hostName(request) {
   return (request.headers.host ?? "").split(":", 1)[0].toLowerCase();
@@ -42,12 +42,12 @@ function resolveLocale(request) {
   return "en";
 }
 
-// 已知官网路径（无前缀形态）：/、/docs、/blog、/blog/<slug>、/apps、/apps/<id>（可带尾斜杠）。
+// 已知官网路径（无前缀形态）：/、/docs、/blog、/blog/<slug>、/apps、/apps/<id>、/worlds（可带尾斜杠）。
 function isKnownPath(pathname) {
   if (pathname === "/") return true;
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 1) return topLevelPages.has(segments[0]);
-  if (segments.length === 2) return (segments[0] === "blog" || segments[0] === "apps") && Boolean(segments[1]);
+  if (segments.length === 2) return (segments[0] === "blog" || segments[0] === "apps" || segments[0] === "worlds") && Boolean(segments[1]);
   return false;
 }
 

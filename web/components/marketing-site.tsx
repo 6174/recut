@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 usePathname、lib/i18n（Locale/localizeURL/t）、lib/marketing-home 双语言数据、MDX 文章/App 正文（以 props 传入）、构建时的 Recut App URL 与浏览器当前 Host
- * [OUTPUT]: 对外提供官网 Header 与 Footer（均含语言切换）、按 Hero→核心应用→创作底座→三步开始→适合谁→对比→文章→FAQ→CTA 编排的 Landing、Docs 与 Blog 的共享展示组件；Hero 挂载可交互的 Agent + 剪辑器工作台演示，并以 GSAP 轮换 Codex、Claude Code、OpenCode 模型高亮；
+ * [OUTPUT]: 对外提供官网 Header 与 Footer（均含语言切换，导航含世界观 /worlds）、按 Hero→核心应用→创作底座→世界观→三步开始→适合谁→对比→文章→FAQ→CTA 编排的 Landing（世界观区块数据经 worlds props 注入）、Docs 与 Blog 的共享展示组件；Hero 挂载可交互的 Agent + 剪辑器工作台演示，并以 GSAP 轮换 Codex、Claude Code、OpenCode 模型高亮；
  *           MarketingLocaleContext 供 client 组件读 locale；Blog 与 App 详情共用 MarkdownContent 渲染 MDX 正文并提供分享条；localhost 下的工作台链接统一指向同端口 app.localhost；
  *           官网内部导航一律用 <a> 全页跳转：营销浏览器 URL（无前缀 / /zh/ 前缀）与 Next 客户端路由树（/marketing/[locale]/…）不一致，<a> 保证每次导航都经 Worker/server.cjs 的正确重写
  * [POS]: web/components 的公开官网视觉层；服务 recut.video 与 localhost，不读取本地 service 或工作台状态；文章/应用数据一律由服务端页面经 props 注入，本文件不引入内容加载器
@@ -20,6 +20,8 @@ import { trackEvent } from "@/components/posthog-analytics";
 import { MarketingEditorDemo } from "@/components/marketing-editor-demo";
 import { MarketingHeroAtmosphere } from "@/components/marketing-hero-atmosphere";
 import { MarketingFeatureIllustration, type MarketingFeatureKind } from "@/components/marketing-feature-illustrations";
+import { MarketingWorldsSection } from "@/components/marketing-worlds";
+import type { MarketingWorld } from "@/lib/marketing-worlds";
 
 const defaultAppURL = process.env.NEXT_PUBLIC_RECUT_APP_URL ?? "https://app.recut.video";
 const MarketingAppURLContext = createContext(defaultAppURL);
@@ -145,6 +147,7 @@ export function MarketingHeader() {
         </a>
         <nav aria-label={t("marketing", locale, "nav.ariaMain")} className="hidden items-center gap-1 md:flex">
           <MarketingNav href={localizeURL("/#product", locale)}>{t("marketing", locale, "nav.product")}</MarketingNav>
+          <MarketingNav href={localizeURL("/worlds", locale)}>{t("marketing", locale, "nav.worlds")}</MarketingNav>
           <MarketingNav href={localizeURL("/apps", locale)}>{t("marketing", locale, "nav.apps")}</MarketingNav>
           <MarketingNav href={localizeURL("/docs", locale)}>{t("marketing", locale, "nav.docs")}</MarketingNav>
           <MarketingNav href={localizeURL("/blog", locale)}>{t("marketing", locale, "nav.blog")}</MarketingNav>
@@ -175,7 +178,7 @@ export function MarketingFooter() {
           </div>
           <p className="mt-3 max-w-xs text-sm leading-6 text-muted-foreground">{t("marketing", locale, "footer.tagline")}</p>
         </div>
-        <FooterLinks title={t("marketing", locale, "footer.product")} links={[{ href: localizeURL("/#product", locale), label: t("marketing", locale, "nav.product") }, { href: localizeURL("/apps", locale), label: t("marketing", locale, "nav.apps") }, { href: localizeURL("/docs", locale), label: t("marketing", locale, "nav.docs") }, { href: appURL, label: t("marketing", locale, "footer.openWorkspace") }]} />
+        <FooterLinks title={t("marketing", locale, "footer.product")} links={[{ href: localizeURL("/#product", locale), label: t("marketing", locale, "nav.product") }, { href: localizeURL("/worlds", locale), label: t("marketing", locale, "nav.worlds") }, { href: localizeURL("/apps", locale), label: t("marketing", locale, "nav.apps") }, { href: localizeURL("/docs", locale), label: t("marketing", locale, "nav.docs") }, { href: appURL, label: t("marketing", locale, "footer.openWorkspace") }]} />
         <FooterLinks title={t("marketing", locale, "footer.resources")} links={[{ href: localizeURL("/blog", locale), label: t("marketing", locale, "nav.blog") }, { href: "https://github.com/6174/recut", label: t("marketing", locale, "footer.github") }]} />
       </div>
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 border-t px-5 py-5 sm:flex-row sm:px-8">
@@ -245,8 +248,8 @@ export function MarketingHero() {
   );
 }
 
-export function MarketingLanding({ posts }: { posts: MarketingPost[] }) {
-  return <><MarketingHero /><FeaturedApplications /><ProductSection /><HowItWorks /><AudienceSection /><CompareSection /><LatestPosts posts={posts} /><HomeFaqSection /><FinalCTA /></>;
+export function MarketingLanding({ posts, worlds = [] }: { posts: MarketingPost[]; worlds?: MarketingWorld[] }) {
+  return <><MarketingHero /><MarketingWorldsSection worlds={worlds} /><FeaturedApplications /><ProductSection /><HowItWorks /><AudienceSection /><CompareSection /><LatestPosts posts={posts} /><HomeFaqSection /><FinalCTA /></>;
 }
 
 function HowItWorks() {

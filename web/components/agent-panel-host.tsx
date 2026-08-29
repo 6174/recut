@@ -55,7 +55,7 @@ export function AgentPanelHost({ apps, children, docs, posts }: Readonly<{ apps:
 }
 
 function isPublicSitePath(pathname: string | null) {
-  return pathname === "/marketing" || pathname?.startsWith("/marketing/") || pathname === "/docs" || pathname?.startsWith("/docs/") || pathname === "/blog" || pathname?.startsWith("/blog/");
+  return pathname === "/marketing" || pathname?.startsWith("/marketing/") || pathname === "/docs" || pathname?.startsWith("/docs/") || pathname === "/blog" || pathname?.startsWith("/blog/") || pathname === "/worlds" || pathname?.startsWith("/worlds/");
 }
 
 // 营销 Host 客户端路由：浏览器 URL（无前缀 en / /zh/ 前缀 zh）与 Next 客户端路由树
@@ -67,7 +67,8 @@ function MarketingHostRoute({ apps, children, docs, pathname, posts }: { apps: M
 
   const render = (content: React.ReactNode) => <MarketingLocaleProvider locale={locale}>{content}</MarketingLocaleProvider>;
 
-  if (rest === "/") return render(<MarketingShell locale={locale}><MarketingLanding posts={posts} /></MarketingShell>);
+  // "/" and "/worlds" are server-rendered with CDN worlds data via page.tsx — delegate to children to avoid client flash with empty worlds.
+  if (rest === "/" || rest === "/worlds" || rest === "/worlds/") return <>{children}</>;
   const appPath = rest?.match(/^\/apps\/([^/]+)\/?$/);
   if (appPath) {
     const app = apps.find((item) => item.id === decodeURIComponent(appPath[1]));

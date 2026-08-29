@@ -17,7 +17,7 @@ type Locale = "zh" | "en";
 
 const appHosts = new Set(["app.recut.video", "www.app.recut.video", "app.localhost"]);
 const marketingHosts = new Set(["recut.video", "www.recut.video", "localhost"]);
-const topLevelPages = new Set(["docs", "blog", "apps"]);
+const topLevelPages = new Set(["docs", "blog", "apps", "worlds"]);
 
 function hostname(url: URL) {
   return url.hostname.toLowerCase();
@@ -49,12 +49,12 @@ function resolveLocale(request: Request, hasZhPrefix: boolean): Locale {
   return "en";
 }
 
-// 已知官网路径（无前缀形态）：/、/docs、/blog、/blog/<slug>、/apps、/apps/<id>（可带尾斜杠）。
+// 已知官网路径（无前缀形态）：/、/docs、/blog、/blog/<slug>、/apps、/apps/<id>、/worlds（可带尾斜杠）。
 function isKnownMarketingPath(rest: string): boolean {
   if (rest === "/") return true;
   const segments = rest.split("/").filter(Boolean);
   if (segments.length === 1) return topLevelPages.has(segments[0]);
-  if (segments.length === 2) return (segments[0] === "blog" || segments[0] === "apps") && Boolean(segments[1]);
+  if (segments.length === 2) return (segments[0] === "blog" || segments[0] === "apps" || segments[0] === "worlds") && Boolean(segments[1]);
   return false;
 }
 
