@@ -189,7 +189,7 @@ func scanSubagentEvents(bridge *AgentBridge, childSessionID, runtime string, std
 		return
 	}
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), cliStreamScanLimit)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		_, _ = tail.Write(line)
@@ -204,6 +204,9 @@ func scanSubagentEvents(bridge *AgentBridge, childSessionID, runtime string, std
 		case "opencode":
 			bridge.agents.handleOpencodeEvent(childSessionID, "", raw)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("WARN subagent %s stdout scan stopped: %v", childSessionID, cliScanError(err))
 	}
 }
 

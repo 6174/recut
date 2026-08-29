@@ -324,7 +324,7 @@ func (m *ShellJobManager) finishCancelled(job ShellJob) {
 
 func (m *ShellJobManager) capture(job ShellJob, stream string, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 4096), 1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), cliStreamScanLimit)
 	for scanner.Scan() {
 		m.appendLog(job, stream, scanner.Text()+"\n")
 	}
@@ -487,7 +487,7 @@ func (m *ShellJobManager) Logs(projectID, id string) ([]ShellJobLog, error) {
 	defer file.Close()
 	logs := []ShellJobLog{}
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4096), 1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), cliStreamScanLimit)
 	for scanner.Scan() {
 		entry := ShellJobLog{}
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {

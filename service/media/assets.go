@@ -91,20 +91,146 @@ func (m *MediaService) ListAssets(projectID string) ([]MediaAsset, error) {
 	return m.listAssets(projectID)
 }
 
+// MediaAssetFilter narrows asset listing so an Agent can query the exact assets
+// it needs instead of pulling the whole library into its context. IDs is an
+// exact lookup and wins over the other predicates; Query does a name LIKE
+// match; Limit/Offset paginate with Limit capped at mediaAssetListLimitMax.
+type MediaAssetFilter struct {
+	IDs    []string
+	Kind   string
+	Status string
+	Query  string
+	Limit  int
+	Offset int
+}
+
+const (
+	mediaAssetListLimitDefault = 200
+	mediaAssetListLimitMax     = 500
+)
+
+// MediaAssetPage wraps a filtered listing with pagination facts so the caller
+// knows whether more pages exist without re-querying.
+type MediaAssetPage struct {
+	Items  []MediaAsset `json:"items"`
+	Total  int          `json:"total"`
+	Limit  int          `json:"limit"`
+	Offset int          `json:"offset"`
+}
+
+// ListAssetsFiltered lists assets under the project (or workspace when
+// projectID is empty) narrowed by filter, with SQL-side filtering and
+// pagination. Total counts the full filtered set before Limit/Offset.
+func (m *MediaService) ListAssetsFiltered(projectID string, filter MediaAssetFilter) (MediaAssetPage, error) {
+	db, err := m.database()
+	if err != nil {
+		return MediaAssetPage{}, err
+	}
+	where, args := assetListWhere(projectID, filter)
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = mediaAssetListLimitDefault
+	}
+	if limit > mediaAssetListLimitMax {
+		limit = mediaAssetListLimitMax
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	var total int
+	if err := db.QueryRow("select count(*) from media_assets a where "+where, args...).Scan(&total); err != nil {
+		return MediaAssetPage{}, err
+	}
+
+	query := `select a.` + strings.ReplaceAll(assetColumns, ", ", ", a.") + ` from media_assets a where ` + where +
+		" order by a.created_at desc limit ? offset ?"
+	queryArgs := append(append([]any{}, args...), limit, offset)
+	rows, err := db.Query(query, queryArgs...)
+	if err != nil {
+		return MediaAssetPage{}, err
+	}
+	assets := []MediaAsset{}
+	for rows.Next() {
+		asset, err := scanAssetRow(rows)
+		if err != nil {
+			_ = rows.Close()
+			return MediaAssetPage{}, err
+		}
+		assets = append(assets, asset)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return MediaAssetPage{}, err
+	}
+	if err := rows.Close(); err != nil {
+		return MediaAssetPage{}, err
+	}
+	// Project attachments are loaded in one batched query after the result set
+	// is closed, mirroring listAssets; see the comment there for the pooling
+	// rationale.
+	if err := loadAssetsProjects(db, assets); err != nil {
+		return MediaAssetPage{}, err
+	}
+	return MediaAssetPage{Items: assets, Total: total, Limit: limit, Offset: offset}, nil
+}
+
+// assetListWhere builds the shared WHERE clause (and bound args) for asset
+// listing. Deleted tombstones stay excluded unless an explicit status filter
+// asks for them.
+func assetListWhere(projectID string, filter MediaAssetFilter) (string, []any) {
+	conditions := []string{}
+	args := []any{}
+	if filter.Status != "" {
+		conditions = append(conditions, "coalesce(a.status, '') = ?")
+		args = append(args, filter.Status)
+	} else {
+		// 只排除被删除的墓碑，保留 queued/running/legacy 等仍在库里的素材。
+		conditions = append(conditions, "coalesce(a.status, '') != 'deleted'")
+	}
+	if projectID != "" {
+		conditions = append(conditions, "exists (select 1 from media_asset_projects p where p.asset_id = a.id and p.project_id = ?)")
+		args = append(args, projectID)
+	}
+	// Exact lookup by contract: ids wins over kind/query predicates.
+	if len(filter.IDs) > 0 {
+		filter.Kind = ""
+		filter.Query = ""
+		placeholders := make([]string, 0, len(filter.IDs))
+		for _, id := range filter.IDs {
+			if id == "" {
+				continue
+			}
+			placeholders = append(placeholders, "?")
+			args = append(args, id)
+		}
+		if len(placeholders) > 0 {
+			conditions = append(conditions, "a.id in ("+strings.Join(placeholders, ", ")+")")
+		}
+	}
+	if filter.Kind != "" {
+		conditions = append(conditions, "a.kind = ?")
+		args = append(args, filter.Kind)
+	}
+	if filter.Query != "" {
+		conditions = append(conditions, "a.name like ?")
+		args = append(args, "%"+filter.Query+"%")
+	}
+	if len(conditions) == 0 {
+		return "1=1", args
+	}
+	return strings.Join(conditions, " and "), args
+}
+
 func (m *MediaService) listAssets(projectID string) ([]MediaAsset, error) {
 	db, err := m.database()
 	if err != nil {
 		return nil, err
 	}
-	query := `select a.` + strings.ReplaceAll(assetColumns, ", ", ", a.") + ` from media_assets a`
-	args := []any{}
-	// 只排除被删除的墓碑，保留 queued/running/legacy 等仍在库里的素材。
-	query += " where coalesce(a.status, '') != 'deleted'"
-	if projectID != "" {
-		query += " and exists (select 1 from media_asset_projects p where p.asset_id = a.id and p.project_id = ?)"
-		args = append(args, projectID)
-	}
-	query += " order by a.created_at desc"
+	where, args := assetListWhere(projectID, MediaAssetFilter{})
+	query := `select a.` + strings.ReplaceAll(assetColumns, ", ", ", a.") + ` from media_assets a where ` + where +
+		" order by a.created_at desc"
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err

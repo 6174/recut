@@ -7,10 +7,12 @@
 package main
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -131,8 +133,8 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Wait for a media job submitted to the local Daemon to reach completed or failed.",
 	},
 	"recut.media.list_assets": {
-		LocaleZh: "检索工作区或指定项目的可复用媒体素材。",
-		LocaleEn: "Search reusable media assets in the workspace or a specific project.",
+		LocaleZh: "检索工作区或指定项目的可复用媒体素材。优先用 ids 精确取回，或用 kind/query/limit 过滤分页；不要全量拉取素材库。",
+		LocaleEn: "Search reusable media assets in the workspace or a specific project. Prefer ids for exact lookup, or kind/query/limit for filtered pages; never pull the whole library.",
 	},
 	"recut.media.import_image": {
 		LocaleZh: "将 Codex 原生生成后已写入会话工作区的图片归档为 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。",
@@ -184,7 +186,11 @@ func handleMCP(bridge *AgentBridge, host *AppHost, media *MediaService, session 
 		if err := json.Unmarshal(request.Params, &input); err != nil {
 			return nil, err
 		}
-		return mcpToolCall(bridge, host, media, session, input.Name, input.Arguments, locale)
+		result, err := mcpToolCall(bridge, host, media, session, input.Name, input.Arguments, locale)
+		if err != nil {
+			return nil, err
+		}
+		return truncateMCPToolResult(result), nil
 	default:
 		return nil, fmt.Errorf("unsupported MCP method %q", request.Method)
 	}
@@ -957,6 +963,39 @@ func projectMCPTool(store *Store, input map[string]any) (any, error) {
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(project)}, nil
 }
 
+// mediaAssetFilterFromInput maps list_assets tool arguments onto the SQL-side
+// MediaAssetFilter. ids accepts an array or a comma-separated string; kind/
+// status/query narrow the set; limit/offset paginate. An exact ids lookup
+// ignores the other predicates by contract (see MediaAssetFilter).
+func mediaAssetFilterFromInput(input map[string]any) MediaAssetFilter {
+	filter := MediaAssetFilter{
+		Kind:   stringValue(input["kind"]),
+		Status: stringValue(input["status"]),
+		Query:  stringValue(input["query"]),
+	}
+	switch ids := input["ids"].(type) {
+	case []any:
+		for _, raw := range ids {
+			if id, ok := raw.(string); ok && id != "" {
+				filter.IDs = append(filter.IDs, id)
+			}
+		}
+	case string:
+		for _, id := range strings.Split(ids, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				filter.IDs = append(filter.IDs, id)
+			}
+		}
+	}
+	if limit := numericValue(input["limit"]); limit > 0 {
+		filter.Limit = int(limit)
+	}
+	if offset := numericValue(input["offset"]); offset > 0 {
+		filter.Offset = int(offset)
+	}
+	return filter
+}
+
 func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name string, input map[string]any) (any, error) {
 	var result any
 	var err error
@@ -991,7 +1030,7 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		if workspace {
 			projectID = ""
 		}
-		result, err = media.ListAssets(projectID)
+		result, err = media.ListAssetsFiltered(projectID, mediaAssetFilterFromInput(input))
 	case "recut.media.import_image":
 		result, err = importNativeImage(store, media, session, input)
 	case "recut.media.create_reference":
@@ -1034,6 +1073,87 @@ func structuredMCPContent(result any) any {
 	return result
 }
 
+// mcpToolTextBudget caps the JSON text payload of any single tools/call result.
+// A tool that dumps an unbounded list (e.g. the whole media library) must never
+// flood the Agent context or overflow a line-oriented transport downstream.
+// Oversized payloads are spilled to a deterministic temp file and returned as a
+// structured truncation envelope, so the size is data the Agent can act on —
+// query with filter parameters or read the spilled file — not a silent failure.
+const mcpToolTextBudget = 48 << 10
+
+// mcpToolPreviewBytes keeps a readable prefix of the oversized payload in the
+// envelope itself; it is a byte prefix of the JSON text, not valid JSON.
+const mcpToolPreviewBytes = 8 << 10
+
+// truncateMCPToolResult enforces mcpToolTextBudget on the text content of a
+// tools/call envelope. Results at or under budget pass through untouched; the
+// platform tools and every installed App's MCP tool share this single funnel.
+func truncateMCPToolResult(result any) any {
+	envelope, ok := result.(map[string]any)
+	if !ok {
+		return result
+	}
+	text := mcpEnvelopeText(envelope)
+	if len(text) <= mcpToolTextBudget {
+		return result
+	}
+	path, err := writeMCPToolOverflow([]byte(text))
+	if err != nil {
+		log.Printf("WARN mcp tool output overflow spill failed: %v", err)
+		path = ""
+	}
+	preview := text
+	if len(preview) > mcpToolPreviewBytes {
+		preview = preview[:mcpToolPreviewBytes]
+	}
+	notice := map[string]any{
+		"truncated":      true,
+		"totalBytes":     len(text),
+		"preview":        preview,
+		"fullOutputPath": path,
+		"hint":           "工具输出超过 48KB 已截断。优先用查询/过滤/分页参数缩小结果重新调用；确需完整数据时用本地文件工具读取 fullOutputPath。",
+	}
+	data, err := json.Marshal(notice)
+	if err != nil {
+		return result
+	}
+	return map[string]any{
+		"content":           []map[string]string{{"type": "text", "text": string(data)}},
+		"structuredContent": structuredMCPContent(notice),
+	}
+}
+
+// mcpEnvelopeText extracts the first text content string from a tools/call
+// result envelope. Both content shapes used in this service are supported; an
+// unrecognized shape returns "" and passes through unmodified.
+func mcpEnvelopeText(envelope map[string]any) string {
+	switch content := envelope["content"].(type) {
+	case []map[string]string:
+		if len(content) > 0 {
+			return content[0]["text"]
+		}
+	case []any:
+		if len(content) > 0 {
+			if item, ok := content[0].(map[string]string); ok {
+				return item["text"]
+			}
+		}
+	}
+	return ""
+}
+
+// writeMCPToolOverflow spills an oversized tool payload to a content-addressed
+// temp file and returns its absolute path. The hash-based name dedupes repeats
+// of the same oversized output within a boot.
+func writeMCPToolOverflow(data []byte) (string, error) {
+	sum := sha256.Sum256(data)
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("recut-tool-output-%x.json", sum))
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+	return path, os.WriteFile(path, data, 0o600)
+}
+
 // mediaJobView exposes an async generation job under the explicit `jobId` key
 // that wait_for_job / get_job / recut.job.* accept, so an Agent never has to
 // guess that the job's `id` field is its jobId. assetIds stay the stable
@@ -1060,7 +1180,7 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.media.list_voices", "description": mcpDescription(locale, "recut.media.list_voices"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"credentialId": map[string]string{"type": "string", "description": "云端语音 provider 的凭据 ID；本机 TTS 可传 local-audio 或留空返回 Audio Studio 默认音。"}}}},
 		{"name": "recut.media.get_job", "description": mcpDescription(locale, "recut.media.get_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.wait_for_job", "description": mcpDescription(locale, "recut.media.wait_for_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 15, "description": "单次最多阻塞 15 秒（Streamable HTTP 兼容，避免长阻塞连接被断开）；超时返回当前状态，需继续轮询。长任务请用短轮询，不要设接近 300 秒。"}}}},
-		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}}}},
+		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}, "ids": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "精确 assetId 列表（也接受逗号分隔字符串）；用于按已知 ID 取回完整记录，给定时忽略 kind/query 等其他过滤。"}, "kind": map[string]string{"type": "string", "description": "按素材类型过滤：image / video / audio / transcript 等。"}, "status": map[string]string{"type": "string", "description": "按状态过滤（如 completed / queued / running）；缺省排除 deleted。"}, "query": map[string]string{"type": "string", "description": "按名称模糊匹配。"}, "limit": map[string]any{"type": "integer", "description": "分页大小，默认 200，上限 500。"}, "offset": map[string]any{"type": "integer", "description": "分页偏移；结合返回的 total 判断是否还有下一页。"}}}},
 		{"name": "recut.media.import_image", "description": mcpDescription(locale, "recut.media.import_image"), "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "会话工作区内的相对图片路径。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
 		{"name": "recut.media.create_reference", "description": mcpDescription(locale, "recut.media.create_reference"), "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL；作为全局去重身份。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、web、youtube、xiaohongshu、douyin、image。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "description": map[string]string{"type": "string", "description": "来源自身的简介或视频简介。"}, "excerpt": map[string]string{"type": "string", "description": "直接引用的原文片段，便于审阅。"}, "author": map[string]string{"type": "string", "description": "作者或发布者名称。"}, "publishedAt": map[string]string{"type": "string", "description": "发布时间（ISO-8601）。"}, "siteName": map[string]string{"type": "string", "description": "站点名称，如 The New York Times。"}, "language": map[string]string{"type": "string", "description": "内容语言代码，如 zh、en。"}, "thumbnailUrl": map[string]string{"type": "string", "description": "来源封面/缩略图 URL。"}, "content": map[string]string{"type": "string", "description": "文章或网页的完整正文（真实文章数据）；保存为 content part，默认 text/markdown。"}, "contentMimeType": map[string]string{"type": "string", "description": "正文 part 的 MIME 类型，缺省 text/markdown；限 text/*、application/json、application/xml。"}, "imageData": map[string]string{"type": "string", "description": "图片内容（base64 或 data: URL）；保存为不可变的 image part，限 20MB。"}, "imageMimeType": map[string]string{"type": "string", "description": "图片 MIME 类型，如 image/png、image/jpeg。"}, "channelName": map[string]string{"type": "string", "description": "YouTube 等视频平台的频道/账号名。"}, "channelUrl": map[string]string{"type": "string", "description": "频道主页 URL。"}, "durationSeconds": map[string]any{"type": "number", "description": "视频时长（秒）。"}, "viewCount": map[string]any{"type": "integer", "description": "播放量。"}, "likeCount": map[string]any{"type": "integer", "description": "点赞数。"}}}},
 		{"name": "recut.media.attach", "description": mcpDescription(locale, "recut.media.attach"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "projectId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},

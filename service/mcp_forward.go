@@ -27,7 +27,7 @@ func RunMCPForward(target string, input io.Reader, output io.Writer) error {
 		bearerToken = sessionToken
 	}
 	scanner := bufio.NewScanner(input)
-	scanner.Buffer(make([]byte, 4096), 2<<20)
+	scanner.Buffer(make([]byte, 64*1024), cliStreamScanLimit)
 	var calls sync.WaitGroup
 	var outputMu sync.Mutex
 	var outputErr error
@@ -54,7 +54,7 @@ func RunMCPForward(target string, input io.Reader, output io.Writer) error {
 	}
 	calls.Wait()
 	if err := scanner.Err(); err != nil {
-		return err
+		return cliScanError(err)
 	}
 	return outputErr
 }

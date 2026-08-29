@@ -24,6 +24,24 @@ import (
 )
 
 const localProfileID = "local"
+
+// cliStreamScanLimit caps one scanned line of a CLI stdout/stderr JSONL stream.
+// CLI events embed whole tool outputs (a single tool.completed event can carry
+// tens of KB or more), which far exceeds bufio.Scanner's 64KB default; hitting
+// that cap aborts the whole turn with "bufio.Scanner: token too long", so keep
+// the cap generous. Oversized tool output must be truncated at the tool layer
+// (see truncateMCPToolResult), never by crashing the transport.
+const cliStreamScanLimit = 16 << 20
+
+// cliScanError turns the raw bufio "token too long" failure into a message that
+// names the actual cause instead of leaking a scanner internals string.
+func cliScanError(err error) error {
+	if errors.Is(err, bufio.ErrTooLong) {
+		return fmt.Errorf("CLI 输出出现超过单行上限（%d 字节）的行，已终止本次回合；请检查是否把超长工具输出内联进了事件流", cliStreamScanLimit)
+	}
+	return err
+}
+
 const defaultOpencodeModel = "opencode-go/deepseek-v4-flash"
 
 type OpencodeModel struct {
@@ -1070,7 +1088,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 	var stderrText strings.Builder
 	go func() {
 		scanner := bufio.NewScanner(stderr)
-		scanner.Buffer(make([]byte, 1024), 64*1024)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			m.captureCLIOutput(session.ID, "stderr", scanner.Text())
 			if stderrText.Len() < 4096 {
@@ -1079,7 +1097,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		}
 	}()
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), cliStreamScanLimit)
 	var terminalErr error
 	for scanner.Scan() {
 		m.captureCLIOutput(session.ID, "stdout", scanner.Text())
@@ -1093,7 +1111,7 @@ func (m *AgentManager) runCodex(ctx context.Context, session ChatSession, userTu
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return err
+		return cliScanError(err)
 	}
 	if err := cmd.Wait(); err != nil {
 		if ctx.Err() != nil {
@@ -1149,6 +1167,7 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 	var stderrText strings.Builder
 	go func() {
 		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			m.captureCLIOutput(session.ID, "stderr", scanner.Text())
 			if stderrText.Len() < 4096 {
@@ -1157,7 +1176,7 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 		}
 	}()
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), cliStreamScanLimit)
 	for scanner.Scan() {
 		m.captureCLIOutput(session.ID, "stdout", scanner.Text())
 		var raw map[string]any
@@ -1166,7 +1185,7 @@ func (m *AgentManager) runClaude(ctx context.Context, session ChatSession, userT
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return err
+		return cliScanError(err)
 	}
 	if err := cmd.Wait(); err != nil {
 		if ctx.Err() != nil {
@@ -1231,6 +1250,7 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 	var stderrText strings.Builder
 	go func() {
 		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
 			watchdog.Touch()
@@ -1244,7 +1264,7 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 		}
 	}()
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), cliStreamScanLimit)
 	for scanner.Scan() {
 		line := scanner.Text()
 		watchdog.Touch()
@@ -1255,7 +1275,7 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return err
+		return cliScanError(err)
 	}
 	if err := cmd.Wait(); err != nil {
 		if watchdog.TimedOut() {
