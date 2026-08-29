@@ -8,6 +8,7 @@
 
 import { AppWindow, ArrowRight, Blocks, Box, Captions, Check, Clapperboard, Code2, Copy, Download, ExternalLink, FileImage, FolderOpen, FolderPlus, Globe2, HardDrive, ImageIcon, Link2, LoaderCircle, Mic2, Music2, Plus, Scissors, Sparkles, Terminal, Video, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { FormEvent, MouseEvent, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 import { AssetPreviewDialog } from "@/components/asset-preview-dialog";
@@ -90,14 +91,11 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
     void loadMarketplace();
   }, [loadMarketplace]);
 
+  const pathname = usePathname();
   useEffect(() => {
-    function syncTabFromHistory() {
-      const next = tabFromPath(window.location.pathname);
-      if (next) setTab(next);
-    }
-    window.addEventListener("popstate", syncTabFromHistory);
-    return () => window.removeEventListener("popstate", syncTabFromHistory);
-  }, []);
+    const next = tabFromPath(pathname ?? "/");
+    if (next && next !== tab) setTab(next);
+  }, [pathname, tab]);
 
   async function reloadWorkspace() {
     await loadWorkspace(apiBase, true);
@@ -142,11 +140,13 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
     if (tab !== "assets") setInitialAssetID("");
   }, [tab]);
 
+  const router = useRouter();
   function navigateTab(next: WorkspaceTab, href: string, event: MouseEvent<HTMLAnchorElement>) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    if (window.location.pathname !== href) window.history.pushState(null, "", href);
-    setTab(next);
+    // All workspace tabs go through Next router to keep URL and rendered route in sync
+    // (fixes: detail route -> tab click kept stale appDetail, and home -> worlds via Link vs pushState mismatch)
+    router.push(href);
   }
 
   const detail = appDetail?.({ onConnectService: openServiceSettings, serviceOnline: online });

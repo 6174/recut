@@ -205,6 +205,7 @@ export function EntityDetailDialog({
 }) {
   const { t } = useI18n();
   const [assets, setAssets] = useState<WorldAsset[]>([]);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const entries = detailEntries(entity);
   const evidence = entity.references ?? [];
   useEffect(() => {
@@ -251,15 +252,21 @@ export function EntityDetailDialog({
             <p className="text-sm font-semibold">{t("worlds.entity.media.title")}</p>
             {evidence.length ? (
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {evidence.map((item) => (
-                  <div className="overflow-hidden rounded-sm border" key={item.id ?? item.assetId ?? item.url}>
-                    <EvidencePreview
-                      asset={item.assetId ? assets.find((asset) => asset.id === item.assetId) : undefined}
-                      source={evidenceSource(apiBase, item)}
-                    />
-                    <p className="truncate p-2 text-[11px] text-muted-foreground">{item.label || t(`worlds.evidence.${item.purpose}`)}</p>
-                  </div>
-                ))}
+                {evidence.map((item) => {
+                  const source = evidenceSource(apiBase, item);
+                  const isImage = item.modality === "image" || (!item.modality && Boolean(source));
+                  return (
+                    <div className="overflow-hidden rounded-sm border" key={item.id ?? item.assetId ?? item.url}>
+                      <div className={isImage ? "cursor-zoom-in" : undefined} onClick={isImage && source ? () => setLightbox(source) : undefined}>
+                        <EvidencePreview
+                          asset={item.assetId ? assets.find((asset) => asset.id === item.assetId) : undefined}
+                          source={source}
+                        />
+                      </div>
+                      <p className="truncate p-2 text-[11px] text-muted-foreground">{item.label || t(`worlds.evidence.${item.purpose}`)}</p>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p className="mt-2 text-xs text-muted-foreground">{interpolate(t("worlds.entity.media.empty"), { title: entity.title })}</p>
@@ -267,6 +274,12 @@ export function EntityDetailDialog({
           </div>
         </div>
       </section>
+      {lightbox && (
+        <div className="fixed inset-0 z-[70] grid place-items-center bg-black/80 p-8 backdrop-blur" onMouseDown={(e) => { e.stopPropagation(); setLightbox(null); }}>
+          <button aria-label={t("worlds.entity.detail.close.aria")} className="absolute right-4 top-4 grid size-8 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20" onClick={(e) => { e.stopPropagation(); setLightbox(null); }} type="button"><X className="size-4" /></button>
+          <img alt="" className="max-h-[90vh] max-w-[90vw] object-contain" src={lightbox} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }

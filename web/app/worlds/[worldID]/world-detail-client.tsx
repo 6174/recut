@@ -8,12 +8,16 @@
 
 import {
   ArrowLeft,
+  Check,
   Clapperboard,
   Globe2,
   NotebookPen,
+  Pencil,
   Plus,
+  X,
 } from "lucide-react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -71,6 +75,10 @@ function WorldDetailContent() {
   const [skillDraft, setSkillDraft] = useState("");
   const [savingSkill, setSavingSkill] = useState(false);
   const [scenario, setScenario] = useState<WorldScenario | null>(null);
+  const [editingMeta, setEditingMeta] = useState(false);
+  const [metaName, setMetaName] = useState("");
+  const [metaDesc, setMetaDesc] = useState("");
+  const [savingMeta, setSavingMeta] = useState(false);
 
   useReportWorkSurface(
     useMemo(
@@ -91,17 +99,15 @@ function WorldDetailContent() {
       summary: editing ? `正在编辑 ${editing.title}` : `查看 ${activeKind}`,
     });
   }, [activeKind, detail, editing, worldID]);
+  const params = useParams<{ worldID?: string }>();
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
+    const paramID = params.worldID && params.worldID !== "app" ? params.worldID : null;
     const queryID = query.get("id");
-    const segments = window.location.pathname.split("/").filter(Boolean);
-    setWorldID(
-      window.location.pathname.startsWith("/worlds/")
-        ? (segments[1] ?? queryID)
-        : queryID,
-    );
+    // /worlds/app fallback is static export shell, real id stays in query
+    setWorldID(paramID ?? queryID);
     setScenario((query.get("scenario") as WorldScenario | null) ?? null);
-  }, []);
+  }, [params.worldID]);
   useEffect(() => {
     if (!apiBase || !worldID) return;
     let active = true;
@@ -234,26 +240,32 @@ function WorldDetailContent() {
           <span className="grid size-16 shrink-0 place-items-center rounded-2xl bg-accent text-accent-foreground">
             <Globe2 className="size-7" />
           </span>
-          <div className="min-w-0 pt-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-3xl font-semibold tracking-tight">
-                {detail.name}
-              </h1>
-              {readOnly && (
-                <Badge className="shrink-0 border-primary/25 bg-primary/10 text-primary">
-                  {origin === "platform" ? t("worlds.badge.platform") : t("worlds.badge.published")}
-                </Badge>
-              )}
-              <Badge className="shrink-0 border-primary/20 bg-accent/60 text-accent-foreground">
-                {t(`worlds.kind.${detail.type}`)}
-              </Badge>
-              {readOnly && detail.originMeta?.version && (
-                <span className="shrink-0 font-mono text-[10px] text-muted-foreground">v{detail.originMeta.version}</span>
-              )}
-            </div>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              {detail.description || t("worlds.detail.fallbackDesc")}
-            </p>
+          <div className="min-w-0 flex-1 pt-1">
+            {editingMeta ? (
+              <div className="space-y-2">
+                <Input className="h-9 max-w-lg bg-background text-base font-semibold" value={metaName} onChange={(e) => setMetaName(e.target.value)} placeholder={t("worlds.detail.name.placeholder")} />
+                <textarea className="min-h-20 w-full max-w-2xl rounded-md border bg-background p-2 text-sm leading-6 focus-visible:ring-2 focus-visible:ring-ring/30" value={metaDesc} onChange={(e) => setMetaDesc(e.target.value)} placeholder={t("worlds.detail.fallbackDesc")} />
+                <div className="flex items-center gap-2">
+                  <Button className="h-7 text-xs" disabled={savingMeta || !metaName.trim()} onClick={async () => { setSavingMeta(true); setNotice(""); try { const next = await createRecutWorldsClient(apiBase).update({ worldId: worldId, name: metaName.trim(), description: metaDesc.trim(), expectedRevisionId: detail.revision.id }); setDetail(next); invalidate(worldId); setEditingMeta(false); } catch (cause) { setNotice(cause instanceof Error ? cause.message : t("worlds.detail.save.failed")); } finally { setSavingMeta(false); } }} type="button"><Check className="size-3" />{savingMeta ? t("worlds.detail.saving") : t("worlds.create.save")}</Button>
+                  <Button className="h-7 text-xs" variant="outline" onClick={() => setEditingMeta(false)} type="button"><X className="size-3" />{t("worlds.create.cancel")}</Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex min-w-0 items-center gap-2">
+                  <h1 className="truncate text-3xl font-semibold tracking-tight">{detail.name}</h1>
+                  {!readOnly && (
+                    <button aria-label={t("worlds.detail.edit.aria")} className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => { setMetaName(detail.name); setMetaDesc(detail.description ?? ""); setEditingMeta(true); }} type="button"><Pencil className="size-3.5" /></button>
+                  )}
+                  {readOnly && (
+                    <Badge className="shrink-0 border-primary/25 bg-primary/10 text-primary">{origin === "platform" ? t("worlds.badge.platform") : t("worlds.badge.published")}</Badge>
+                  )}
+                  <Badge className="shrink-0 border-primary/20 bg-accent/60 text-accent-foreground">{t(`worlds.kind.${detail.type}`)}</Badge>
+                  {readOnly && detail.originMeta?.version && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">v{detail.originMeta.version}</span>}
+                </div>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{detail.description || t("worlds.detail.fallbackDesc")}</p>
+              </>
+            )}
             {readOnly && (
               <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-primary/15 bg-primary/5 px-3 py-2">
                 <p className="text-xs text-muted-foreground">{t("worlds.detail.readonly.banner")}</p>
