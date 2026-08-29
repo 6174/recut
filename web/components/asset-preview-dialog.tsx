@@ -1,12 +1,6 @@
-/*
- * [INPUT]: 依赖共享 Asset SSE 缓存、素材元数据/内容 API、GenerationDuration、VideoFrame、AudioWaveformPlayer 与 lucide-react 图标
- * [OUTPUT]: 对外提供 AssetPreviewDialog 统一素材详情模态框；运行中素材按 assetId 从共享缓存原位更新并显示实时/最终生成耗时，同时预览完成的图片、按需视频播放器、可先播放后补波形的音频与转写 bundle（源声音播放 + 分段 + SRT/JSON parts）
- * [POS]: web 的跨页面素材查看入口；素材库与 Agent 对话通过同一视图查看资产，不轮询单个 Asset 或依赖父视图刷新
- * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
- */
 "use client";
 
-import { Check, Copy, Download, FileText, Link2, LoaderCircle, Music2, RotateCcw, Video, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Copy, Download, FileText, Link2, LoaderCircle, Music2, RotateCcw, Video, X, ZoomIn } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
 import { GenerationDuration } from "@/components/generation-duration";
@@ -55,7 +49,6 @@ export type PreviewAsset = {
 };
 
 export function mediaContext(asset: PreviewAsset) {
-  // 历史导入素材没有 generation metadata；复制上下文也必须和预览一样可用。
   const metadata = asset.metadata ?? {};
   const prompt = typeof metadata.prompt === "string" && metadata.prompt.trim();
   const transcript = transcriptMetadata(asset);
@@ -92,10 +85,9 @@ export function mediaContext(asset: PreviewAsset) {
 
 export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], onClose, onRegenerate }: { apiBase: string; asset: PreviewAsset; assets?: PreviewAsset[]; onClose: () => void; onRegenerate?: (asset: PreviewAsset) => void }) {
   const [copied, setCopied] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const { assetByID, assets: liveAssets } = useMediaAssetEvents();
   const asset = (assetByID[initialAsset.id] as unknown as PreviewAsset | undefined) ?? initialAsset;
-  // Older workspaces predate Asset lifecycle fields. Keep their records
-  // previewable instead of trusting an upgraded UI type at runtime.
   const status = asset.status || "completed";
   const origin = asset.origin || "imported";
   const metadata = asset.metadata || {};
@@ -111,20 +103,88 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   }
-  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-8 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog"><section className="w-full max-w-4xl overflow-hidden rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-center justify-between border-b px-5 py-3"><div><p className="text-sm font-medium">{asset.name || "未命名素材"}</p><p className="mt-1 font-mono text-[10px] text-muted-foreground">{(asset.kind || "media").toUpperCase()} · {origin.toUpperCase()} · {status.toUpperCase()}</p></div><button aria-label="关闭预览" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><div className="grid max-h-[78vh] overflow-y-auto md:grid-cols-[minmax(0,1fr)_280px]"><div className="grid min-h-80 place-items-center bg-muted/30 p-5"><AssetContent apiBase={apiBase} asset={asset} status={status} /></div><aside className="border-l p-5"><div className="flex items-center justify-between gap-3"><p className="text-xs font-medium">生成信息</p>{ready && metadata.prompt && onRegenerate && <button className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted" onClick={() => onRegenerate(asset)} type="button"><RotateCcw className="size-3" />再次生成</button>}</div><button className="mt-3 flex h-8 w-full items-center justify-center gap-1.5 rounded-xs border text-xs hover:bg-muted" onClick={() => void copyContext()} type="button">{copied ? <Check className="size-3.5 text-primary" /> : <Copy className="size-3.5" />}{copied ? "已复制，可粘贴给 AI" : "复制素材上下文"}</button><p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">复制受控资源引用和素材信息，直接粘贴到 Agent 对话即可。</p><dl className="mt-4 space-y-4 text-xs"><div><dt className="text-muted-foreground">状态</dt><dd className="mt-1 flex items-center gap-1.5">{!ready && status !== "failed" && <LoaderCircle className="size-3 animate-spin text-primary" />}{ready && <Video className="size-3 text-primary" />}{statusLabel}</dd>{asset.error && <dd className="mt-1 leading-5 text-destructive">{asset.error}</dd>}</div><div><dt className="text-muted-foreground">提示词</dt><dd className="mt-1 leading-5">{metadata.prompt ?? "无"}</dd></div>{referenceIDs.length > 0 && <div><dt className="text-muted-foreground">参考素材</dt><dd className="mt-2 grid grid-cols-2 gap-2">{references.map((reference) => <ReferencePreview apiBase={apiBase} key={reference.id} reference={reference} />)}{references.length < referenceIDs.length && <p className="col-span-2 text-[11px] text-muted-foreground">部分参考素材已不可用。</p>}</dd></div>}<div><dt className="text-muted-foreground">创建时间</dt><dd className="mt-1">{asset.createdAt ? new Date(asset.createdAt).toLocaleString() : "未知"}</dd></div></dl></aside></div></section></div>;
+  const onImageClick = (src: string) => setLightbox(src);
+  return (
+    <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-8 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog">
+      <section className="flex w-full max-w-5xl flex-col overflow-hidden rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="flex items-center justify-between border-b px-5 py-3">
+          <div>
+            <p className="text-sm font-medium">{asset.name || "未命名素材"}</p>
+            <p className="mt-1 font-mono text-[10px] text-muted-foreground">{(asset.kind || "media").toUpperCase()} · {origin.toUpperCase()} · {status.toUpperCase()}</p>
+          </div>
+          <button aria-label="关闭预览" className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button>
+        </header>
+        <div className="grid max-h-[78vh] min-h-0 overflow-hidden md:grid-cols-[1.55fr_340px]">
+          <div className="grid min-h-0 place-items-center overflow-auto bg-muted/40 p-5">
+            <AssetContent apiBase={apiBase} asset={asset} status={status} onImageClick={onImageClick} />
+          </div>
+          <aside className="min-h-0 overflow-y-auto border-l p-5">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-medium">生成信息</p>
+              {ready && metadata.prompt && onRegenerate && <button className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted" onClick={() => onRegenerate(asset)} type="button"><RotateCcw className="size-3" />再次生成</button>}
+            </div>
+            <button className="mt-3 flex h-8 w-full items-center justify-center gap-1.5 rounded-xs border text-xs hover:bg-muted" onClick={() => void copyContext()} type="button">{copied ? <Check className="size-3.5 text-primary" /> : <Copy className="size-3.5" />}{copied ? "已复制，可粘贴给 AI" : "复制素材上下文"}</button>
+            <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">复制受控资源引用和素材信息，直接粘贴到 Agent 对话即可。</p>
+            <dl className="mt-4 space-y-4 text-xs">
+              <div><dt className="text-muted-foreground">状态</dt><dd className="mt-1 flex items-center gap-1.5">{!ready && status !== "failed" && <LoaderCircle className="size-3 animate-spin text-primary" />}{statusLabel}</dd>{asset.error && <dd className="mt-1 text-[11px] text-destructive">{asset.error}</dd>}</div>
+              {metadata.prompt !== undefined && <PromptSection prompt={String(metadata.prompt ?? "")} />}
+              {references.length > 0 && <div><dt className="text-muted-foreground">参考素材</dt><dd className="mt-2 grid grid-cols-3 gap-2">{references.map((ref) => <ReferencePreview key={ref.id} apiBase={apiBase} reference={ref} />)}</dd></div>}
+            </dl>
+          </aside>
+        </div>
+      </section>
+      {lightbox && (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-black/80 p-8 backdrop-blur" onMouseDown={() => setLightbox(null)}>
+          <button aria-label="关闭大图" className="absolute right-4 top-4 grid size-8 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20" onClick={() => setLightbox(null)} type="button"><X className="size-4" /></button>
+          <img alt="preview" className="max-h-[90vh] max-w-[90vw] object-contain" src={lightbox} onMouseDown={(e) => e.stopPropagation()} />
+        </div>
+      )}
+    </div>
+  );
 }
 
-function AssetContent({ apiBase, asset, status }: { apiBase: string; asset: PreviewAsset; status: string }) {
+function PromptSection({ prompt }: { prompt: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const isLong = prompt.length > 300;
+  async function copyPrompt() {
+    await navigator.clipboard.writeText(prompt);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+  if (!isLong) {
+    return (
+      <div>
+        <dt className="flex items-center justify-between text-muted-foreground"><span>提示词</span><button className="grid size-6 place-items-center rounded-xs hover:bg-muted" onClick={() => void copyPrompt()} type="button">{copied ? <Check className="size-3 text-primary" /> : <Copy className="size-3" />}</button></dt>
+        <dd className="mt-1 whitespace-pre-wrap break-words text-xs leading-5">{prompt || "（无）"}</dd>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <dt className="flex items-center justify-between text-muted-foreground"><span>提示词</span><button className="grid size-6 place-items-center rounded-xs hover:bg-muted" onClick={() => void copyPrompt()} type="button">{copied ? <Check className="size-3 text-primary" /> : <Copy className="size-3" />}</button></dt>
+      <dd className={`relative mt-1 rounded-md border p-2.5 ${expanded ? "max-h-[45vh] overflow-y-auto" : "max-h-32 overflow-hidden"}`}>
+        <p className="whitespace-pre-wrap break-words text-xs leading-5">{prompt}</p>
+        {!expanded && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-card to-transparent" />}
+      </dd>
+      <button className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground" onClick={() => setExpanded((v) => !v)} type="button">
+        {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}{expanded ? "收起" : "展开全部"}
+      </button>
+    </div>
+  );
+}
+
+function AssetContent({ apiBase, asset, status, onImageClick }: { apiBase: string; asset: PreviewAsset; status: string; onImageClick?: (src: string) => void }) {
   if (status !== "completed") return <PendingAssetContent asset={asset} status={status} />;
   const source = mediaContentURL(apiBase, asset.id);
-  if (asset.kind === "image") return <img alt={asset.name} className="max-h-[65vh] max-w-full object-contain" src={source} />;
+  if (asset.kind === "image") return <button className="group relative" onClick={() => onImageClick?.(source)} type="button"><img alt={asset.name} className="max-h-[65vh] max-w-full cursor-zoom-in object-contain" src={source} /><span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/10 group-hover:opacity-100"><ZoomIn className="size-6 text-white drop-shadow" /></span></button>;
   if (asset.kind === "audio") return <AudioWaveformPlayer name={asset.name || "音频素材"} src={source} />;
   if (asset.kind === "transcript") return <TranscriptAssetContent apiBase={apiBase} asset={asset} />;
-  if (asset.kind === "reference") return <ReferenceAssetContent apiBase={apiBase} asset={asset} />;
+  if (asset.kind === "reference") return <ReferenceAssetContent apiBase={apiBase} asset={asset} onImageClick={onImageClick} />;
   return <VideoFrame alt={asset.name || "视频素材"} className="w-full max-w-4xl rounded-xs bg-black" controls src={source} videoClassName="max-h-[65vh] object-contain" />;
 }
 
-function ReferenceAssetContent({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
+function ReferenceAssetContent({ apiBase, asset, onImageClick }: { apiBase: string; asset: PreviewAsset; onImageClick?: (src: string) => void }) {
   const reference = asset.metadata?.reference as ReferenceMetadata | undefined;
   const url = typeof reference?.url === "string" ? reference.url : "";
   const mediaMeta = reference?.media;
@@ -137,7 +197,8 @@ function ReferenceAssetContent({ apiBase, asset }: { apiBase: string; asset: Pre
   if (typeof mediaMeta?.viewCount === "number") rows.push({ label: "播放量", value: mediaMeta.viewCount.toLocaleString() });
   if (typeof mediaMeta?.likeCount === "number") rows.push({ label: "点赞", value: mediaMeta.likeCount.toLocaleString() });
   if (typeof reference?.contentWordCount === "number") rows.push({ label: "正文", value: `${reference.contentWordCount} 词` });
-  return <div className="grid w-full max-w-2xl gap-4 rounded-sm border bg-card p-6 text-left"><span className="grid size-10 place-items-center rounded-sm bg-primary/10 text-primary"><Link2 className="size-5" /></span><div><p className="text-sm font-medium">{asset.name}</p><p className="mt-1 text-xs text-muted-foreground">{reference?.sourceKind || "web"} · 可跨项目复用的研究资料</p></div>{reference?.parts?.image && <img alt={`${asset.name} 图片资料`} className="max-h-72 w-full rounded-xs border bg-muted/40 object-contain" src={transcriptPartURL(apiBase, asset.id, "image")} />}{reference?.description && <p className="text-xs leading-5 text-muted-foreground">{reference.description}</p>}{reference?.summary && <p className="text-sm leading-6">{reference.summary}</p>}{reference?.excerpt && <blockquote className="border-l-2 border-primary/40 pl-3 text-xs leading-5 italic">{reference.excerpt}</blockquote>}{rows.length > 0 && <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t pt-3 text-xs">{rows.map((row) => <div key={row.label}><dt className="text-muted-foreground">{row.label}</dt><dd className="mt-0.5 truncate" title={row.value}>{row.value}</dd></div>)}</dl>}{reference?.parts?.content && <ArticleContent apiBase={apiBase} assetID={asset.id} mimeType={reference.contentMimeType || "text/markdown"} />}{url ? <a className="truncate text-sm text-primary underline underline-offset-4" href={url} rel="noreferrer" target="_blank">打开原始资料</a> : <p className="text-sm text-destructive">资料链接缺失</p>}</div>;
+  const imageSrc = transcriptPartURL(apiBase, asset.id, "image");
+  return <div className="grid w-full max-w-2xl gap-4 rounded-sm border bg-card p-6 text-left"><span className="grid size-10 place-items-center rounded-sm bg-primary/10 text-primary"><Link2 className="size-5" /></span><div><p className="text-sm font-medium">{asset.name}</p><p className="mt-1 text-xs text-muted-foreground">{reference?.sourceKind || "web"} · 可跨项目复用的研究资料</p></div>{reference?.parts?.image && <button className="group relative" onClick={() => onImageClick?.(imageSrc)} type="button"><img alt={`${asset.name} 图片资料`} className="max-h-72 w-full cursor-zoom-in rounded-xs border bg-muted/40 object-contain" src={imageSrc} /><span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/10 group-hover:opacity-100"><ZoomIn className="size-6 text-white drop-shadow" /></span></button>}{reference?.description && <p className="text-xs leading-5 text-muted-foreground">{reference.description}</p>}{reference?.summary && <p className="text-sm leading-6">{reference.summary}</p>}{reference?.excerpt && <blockquote className="border-l-2 border-primary/40 pl-3 text-xs leading-5 italic">{reference.excerpt}</blockquote>}{rows.length > 0 && <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t pt-3 text-xs">{rows.map((row) => <div key={row.label}><dt className="text-muted-foreground">{row.label}</dt><dd className="mt-0.5 truncate" title={row.value}>{row.value}</dd></div>)}</dl>}{reference?.parts?.content && <ArticleContent apiBase={apiBase} assetID={asset.id} mimeType={reference.contentMimeType || "text/markdown"} />}{url ? <a className="truncate text-sm text-primary underline underline-offset-4" href={url} rel="noreferrer" target="_blank">打开原始资料</a> : <p className="text-sm text-destructive">资料链接缺失</p>}</div>;
 }
 
 function ArticleContent({ apiBase, assetID, mimeType }: { apiBase: string; assetID: string; mimeType: string }) {

@@ -1,7 +1,7 @@
 ---
 name: recut-design-system
 appId: recut.platform
-description: Recut 全局设计系统参考库：业务无关的抽象视觉风格定义，直接复用 Open Design（nexu-io/open-design）的包格式与内容。供任何视频创作 App（remotion-studio 等）的 Agent 按风格 ID 读取 DESIGN.md / tokens.css 作为视觉参考。先调用 recut.design_system.list 枚举，再 recut.design_system.get 读取单套。
+description: Recut 全局设计系统参考库：业务无关的抽象视觉风格定义，直接复用 Open Design（nexu-io/open-design）的包格式与内容。供任何视频创作 App（remotion-studio 等）的 Agent 按风格 ID 读取 DESIGN.md / tokens.css 作为视觉参考。先调用 recut.skills.reference 读取 design-systems/catalog.json 枚举，再按风格 id 读取单套包文件。
 ---
 
 # Recut 全局设计系统（recut-design-system）
@@ -19,13 +19,13 @@ design-systems/<id>/
 └── tailwind-v4.css  # 派生的 Tailwind v4 映射（tokens 的工具类视图）
 ```
 
-Agent 以**风格 ID** 定位：`recut.design_system.get({ styleId })` 返回该包的 DESIGN.md + tokens.css + tailwind-v4.css。
+Agent 以**风格 ID** 定位：用 `recut.skills.reference`（`appId: recut.platform`、`skillId: recut-design-system`）按相对路径读取包文件，如 `design-systems/<id>/DESIGN.md`、`design-systems/<id>/tokens.css`、`design-systems/<id>/tailwind-v4.css`。
 
 ## 使用方式
 
-1. **枚举**：先 `recut.design_system.list` 看全部可用风格（id / name / category / origin）。
+1. **枚举**：先 `recut.skills.reference` 读取 `design-systems/catalog.json`，看全部可用风格（id / name / origin）。
 2. **选定**：按用户偏好与内容调性选一个风格 ID（如 `neobrutalism`、`glassmorphism`、`clean-editorial`）。
-3. **读取**：`recut.design_system.get({ styleId })` 读取完整视觉契约。
+3. **读取**：`recut.skills.reference` 依次读取该风格 ID 的 DESIGN.md、tokens.css 与 tailwind-v4.css，拼出完整视觉契约。
 4. **实施**：把 DESIGN.md 的颜色/字体/表面语言、tokens.css 的语义值**落进你正在创作的作品**（写进该 App 的 palette 内联样式或工具类），不手写无关的十六进制色值。
 
 ## 设计系统的边界

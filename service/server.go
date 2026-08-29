@@ -33,7 +33,7 @@ type Server struct {
 	media     *MediaService
 	fonts     *FontService
 	updater   *ServiceUpdater
-	skill     *RecutSkillManager
+	skills    *RecutSkillsManager
 	worlds    *WorldStore
 	worldCatalog *WorldCatalogSyncer
 	bus       *EventBus
@@ -50,7 +50,7 @@ func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *
 		server.updater = updater[0]
 	}
 	if store != nil {
-		server.skill = NewRecutSkillManager(store.root)
+		server.skills = NewRecutSkillsManager(store.root)
 	}
 	return server
 }

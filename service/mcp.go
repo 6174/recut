@@ -64,14 +64,6 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleZh: "读取一个 skill 声明的引用/资源子文档。路径必须是该 skill 目录内前置声明的相对路径。",
 		LocaleEn: "Read a reference/resource sub-document declared by a skill. The path must be a relative path declared inside that skill's directory.",
 	},
-	"recut.design_system.list": {
-		LocaleZh: "列出 Recut 全局设计系统的全部可用风格（id / name / category / origin / description）。设计系统是业务无关的抽象视觉风格定义，直接复用 Open Design。",
-		LocaleEn: "List all available styles in the Recut global design system (id / name / category / origin / description). The design system defines business-agnostic abstract visual styles, reused from Open Design.",
-	},
-	"recut.design_system.get": {
-		LocaleZh: "读取一套全局设计系统的完整视觉契约（DESIGN.md + tokens.css + 可用的 USAGE.md / manifest）。用返回的语义值实施风格，不手写无关十六进制。",
-		LocaleEn: "Read the complete visual contract of a global design system (DESIGN.md + tokens.css + available USAGE.md / manifest). Implement the style with the returned semantic values; do not hand-write unrelated hex codes.",
-	},
 	"recut.project.create": {
 		LocaleZh: "创建一个真实的 Recut Project Doc。仅当用户明确要求新建项目时调用；成功返回的 projectId 会出现在项目桌面。它不会创建 Brief、Artifact 或工作流资源。",
 		LocaleEn: "Create a real Recut Project Doc. Call it only when the user explicitly asks to create a project; the returned projectId appears on the project desktop. It does not create Brief, Artifact, or workflow resources.",
@@ -262,8 +254,6 @@ func platformMCPToolDefinitions(locale Locale) []map[string]any {
 		platformTool("recut.skills.list", mcpDescription(locale, "recut.skills.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.skills.read", mcpDescription(locale, "recut.skills.read"), map[string]any{"type": "object", "required": []string{"appId", "skillId"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}}}),
 		platformTool("recut.skills.reference", mcpDescription(locale, "recut.skills.reference"), map[string]any{"type": "object", "required": []string{"appId", "skillId", "path"}, "properties": map[string]any{"appId": map[string]string{"type": "string"}, "skillId": map[string]string{"type": "string"}, "path": map[string]string{"type": "string"}}}),
-		platformTool("recut.design_system.list", mcpDescription(locale, "recut.design_system.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
-		platformTool("recut.design_system.get", mcpDescription(locale, "recut.design_system.get"), map[string]any{"type": "object", "required": []string{"styleId"}, "properties": map[string]any{"styleId": map[string]string{"type": "string", "description": "设计系统 id，如 neobrutalism / glassmorphism / clean-editorial。"}}}),
 		projectMCPToolDefinition(locale),
 		platformTool("recut.project.list", mcpDescription(locale, "recut.project.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.project.get", mcpDescription(locale, "recut.project.get"), map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}}}),
@@ -443,16 +433,6 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 		return skillReadTool(bridge, arguments)
 	case "recut.skills.reference":
 		return skillReferenceTool(bridge, arguments)
-	case "recut.design_system.list":
-		if bridge.designSystems == nil {
-			return nil, errors.New("design-system skill is unavailable")
-		}
-		return designSystemListTool(bridge.designSystems)
-	case "recut.design_system.get":
-		if bridge.designSystems == nil {
-			return nil, errors.New("design-system skill is unavailable")
-		}
-		return designSystemGetTool(bridge.designSystems, arguments)
 	case "recut.agent.run":
 		return agentRunMCPTool(bridge, host, session, arguments, locale)
 	case "recut.files.fetch":
@@ -792,11 +772,16 @@ func appsUpdateTool(bridge *AgentBridge, arguments map[string]any) (any, error) 
 }
 
 func skillsListTool(bridge *AgentBridge) (any, error) {
+	result := []map[string]any{}
+	if platformSkills, err := NewRecutSkillsManager(bridge.store.root).Skills(); err == nil {
+		for _, skill := range platformSkills {
+			result = append(result, map[string]any{"id": skill.ID, "appId": platformSkillAppID, "name": skill.Name, "description": skill.Description})
+		}
+	}
 	apps, err := bridge.store.catalog.List()
 	if err != nil {
 		return nil, err
 	}
-	result := []map[string]any{}
 	for _, app := range apps {
 		skills, err := app.Skills()
 		if err != nil {
@@ -813,15 +798,16 @@ func skillsListTool(bridge *AgentBridge) (any, error) {
 func skillReadTool(bridge *AgentBridge, arguments map[string]any) (any, error) {
 	appID, _ := arguments["appId"].(string)
 	skillID, _ := arguments["skillId"].(string)
-	// The platform recut skill is daemon-owned (not an installed App): resolve
-	// it from the skill source tree so Agents can read it like any App skill.
-	if appID == platformSkillAppID && skillID == recutSkillID && bridge.store != nil {
-		body, err := os.ReadFile(filepath.Join(bridge.store.root, "skills", recutSkillID, "SKILL.md"))
+	// Platform skills are daemon-owned (not installed Apps): resolve them from
+	// the synced skill source tree so Agents can read them like any App skill.
+	if appID == platformSkillAppID && bridge.store != nil {
+		root := filepath.Join(bridge.store.root, "skills", filepath.Base(skillID))
+		body, err := os.ReadFile(filepath.Join(root, "SKILL.md"))
 		if err != nil {
-			return nil, fmt.Errorf("read platform recut skill: %w", err)
+			return nil, fmt.Errorf("read platform skill %q: %w", skillID, err)
 		}
 		name, description, references, resources := parseSkillFrontmatter(string(body))
-		result := map[string]any{"id": recutSkillID, "appId": platformSkillAppID, "name": name, "description": description, "body": string(body), "references": references, "resources": resources}
+		result := map[string]any{"id": skillID, "appId": platformSkillAppID, "name": name, "description": description, "body": string(body), "references": references, "resources": resources}
 		data, _ := json.Marshal(result)
 		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 	}
@@ -846,10 +832,10 @@ func skillReferenceTool(bridge *AgentBridge, arguments map[string]any) (any, err
 	appID, _ := arguments["appId"].(string)
 	skillID, _ := arguments["skillId"].(string)
 	path, _ := arguments["path"].(string)
-	// Platform recut skill references resolve from the daemon-owned source dir
-	// (Ensure() deploys SKILL.md + references/ there; targets symlink it).
-	if appID == platformSkillAppID && skillID == recutSkillID && bridge.store != nil {
-		root := filepath.Join(bridge.store.root, "skills", recutSkillID)
+	// Platform skill references resolve from the daemon-owned source dir
+	// (Ensure() deploys each skill tree there; targets symlink it).
+	if appID == platformSkillAppID && bridge.store != nil {
+		root := filepath.Join(bridge.store.root, "skills", filepath.Base(skillID))
 		resolvedRoot, err := filepath.EvalSymlinks(root)
 		if err != nil {
 			return nil, fmt.Errorf("resolve platform skill root: %w", err)

@@ -25,7 +25,7 @@ const (
 
 const globalMCPEndpoint = defaultMCPTarget + "/v1/mcp"
 
-func (m *RecutSkillManager) mcpCommand() string {
+func (m *RecutSkillsManager) mcpCommand() string {
 	name := "recut-service"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
@@ -36,7 +36,7 @@ func (m *RecutSkillManager) mcpCommand() string {
 	return filepath.Join(m.dataDir, "bin", name)
 }
 
-func (m *RecutSkillManager) mcpStatus(targetID string) string {
+func (m *RecutSkillsManager) mcpStatus(skillID, targetID string) string {
 	path, format, err := m.mcpConfig(targetID)
 	if err != nil {
 		return recutMCPNotApplicable
@@ -69,13 +69,16 @@ func (m *RecutSkillManager) mcpStatus(targetID string) string {
 	if !ok {
 		return recutMCPNotConfigured
 	}
-	if server, ok := servers[recutSkillID].(map[string]any); ok && server["url"] == globalMCPEndpoint {
+	if server, ok := servers[skillID].(map[string]any); ok && server["url"] == globalMCPEndpoint {
 		return recutMCPConfigured
 	}
 	return recutMCPNotConfigured
 }
 
-func (m *RecutSkillManager) configureMCP(targetID string) error {
+func (m *RecutSkillsManager) configureMCP(skillID, targetID string) error {
+	if !m.mcpEnabled(skillID) {
+		return nil
+	}
 	path, format, err := m.mcpConfig(targetID)
 	if err != nil {
 		return nil
@@ -87,10 +90,16 @@ func (m *RecutSkillManager) configureMCP(targetID string) error {
 	if format == "toml" {
 		return m.configureCodexMCP(path, secret)
 	}
-	return m.configureJSONMCP(targetID, path, secret)
+	return m.configureJSONMCP(skillID, targetID, path, secret)
 }
 
-func (m *RecutSkillManager) globalMCPToken() (string, error) {
+// configureMCPFor returns the per-target MCP registration callback for one
+// skill, suitable for linkSkillTargets.
+func (m *RecutSkillsManager) configureMCPFor(skillID string) func(string) error {
+	return func(targetID string) error { return m.configureMCP(skillID, targetID) }
+}
+
+func (m *RecutSkillsManager) globalMCPToken() (string, error) {
 	apps, err := LoadCatalog(filepath.Join(m.dataDir, "apps"))
 	if err != nil {
 		return "", err
@@ -102,7 +111,7 @@ func (m *RecutSkillManager) globalMCPToken() (string, error) {
 	return store.EnsureGlobalMCPToken()
 }
 
-func (m *RecutSkillManager) mcpConfig(targetID string) (path, format string, err error) {
+func (m *RecutSkillsManager) mcpConfig(targetID string) (path, format string, err error) {
 	home, homeErr := m.homeDir()
 	if homeErr != nil {
 		return "", "", homeErr
@@ -113,13 +122,13 @@ func (m *RecutSkillManager) mcpConfig(targetID string) (path, format string, err
 	case "claude":
 		return filepath.Join(home, ".claude.json"), "json", nil
 	case "opencode":
-		return filepath.Join(m.openCodeConfigDir(home), "opencode", "opencode.jsonc"), "json", nil
+		return filepath.Join(openCodeConfigDir(home), "opencode", "opencode.jsonc"), "json", nil
 	default:
 		return "", "", errors.New("Agent does not expose a supported global MCP configuration")
 	}
 }
 
-func (m *RecutSkillManager) configureCodexMCP(path, secret string) error {
+func (m *RecutSkillsManager) configureCodexMCP(path, secret string) error {
 	body, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		body = nil
@@ -154,7 +163,7 @@ func removeManagedCodexMCP(text string) string {
 	return strings.TrimRight(text[:start]+text[end:], "\n")
 }
 
-func (m *RecutSkillManager) configureJSONMCP(targetID, path, secret string) error {
+func (m *RecutSkillsManager) configureJSONMCP(skillID, targetID, path, secret string) error {
 	config, err := readRecutJSONConfig(path)
 	if errors.Is(err, os.ErrNotExist) {
 		config = map[string]any{}
@@ -176,10 +185,10 @@ func (m *RecutSkillManager) configureJSONMCP(targetID, path, secret string) erro
 	if !ok {
 		return fmt.Errorf("%s configuration has a non-object %s field", targetID, key)
 	}
-	if existing, exists := values[recutSkillID].(map[string]any); exists && !isRecutManagedMCP(targetID, existing) {
+	if existing, exists := values[skillID].(map[string]any); exists && !isRecutManagedMCP(targetID, existing) {
 		return fmt.Errorf("%s already has a user-managed Recut MCP; Recut will not overwrite it", targetID)
 	}
-	values[recutSkillID] = server
+	values[skillID] = server
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create %s configuration directory: %w", targetID, err)
 	}

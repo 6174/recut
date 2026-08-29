@@ -1,0 +1,765 @@
+{
+  "version": 1,
+  "styles": [
+    {
+      "id": "_schema",
+      "name": "_schema",
+      "origin": "open-design"
+    },
+    {
+      "id": "agentic",
+      "name": "Design System Inspired by Agentic",
+      "origin": "open-design"
+    },
+    {
+      "id": "airbnb",
+      "name": "Design System Inspired by Airbnb",
+      "origin": "open-design"
+    },
+    {
+      "id": "airtable",
+      "name": "Design System Inspired by Airtable",
+      "origin": "open-design"
+    },
+    {
+      "id": "ant",
+      "name": "Design System Inspired by Ant",
+      "origin": "open-design"
+    },
+    {
+      "id": "apple",
+      "name": "Design System Inspired by Apple",
+      "origin": "open-design"
+    },
+    {
+      "id": "application",
+      "name": "Design System Inspired by Application",
+      "origin": "open-design"
+    },
+    {
+      "id": "arc",
+      "name": "Design System Inspired by Arc Browser",
+      "origin": "open-design"
+    },
+    {
+      "id": "artistic",
+      "name": "Design System Inspired by Artistic",
+      "origin": "open-design"
+    },
+    {
+      "id": "atelier-zero",
+      "name": "Atelier Zero",
+      "origin": "open-design"
+    },
+    {
+      "id": "bento",
+      "name": "Design System Inspired by Bento",
+      "origin": "open-design"
+    },
+    {
+      "id": "binance",
+      "name": "Design System Inspired by Binance.US",
+      "origin": "open-design"
+    },
+    {
+      "id": "bmw",
+      "name": "Design System Inspired by BMW",
+      "origin": "open-design"
+    },
+    {
+      "id": "bmw-m",
+      "name": "Design System Inspired by BMW M",
+      "origin": "open-design"
+    },
+    {
+      "id": "bold",
+      "name": "Design System Inspired by Bold",
+      "origin": "open-design"
+    },
+    {
+      "id": "brutalism",
+      "name": "Design System Inspired by Brutalism",
+      "origin": "open-design"
+    },
+    {
+      "id": "bugatti",
+      "name": "Design System Inspired by Bugatti",
+      "origin": "open-design"
+    },
+    {
+      "id": "cafe",
+      "name": "Design System Inspired by Cafe",
+      "origin": "open-design"
+    },
+    {
+      "id": "cal",
+      "name": "Design System Inspired by Cal.com",
+      "origin": "open-design"
+    },
+    {
+      "id": "canva",
+      "name": "Design System Inspired by Canva",
+      "origin": "open-design"
+    },
+    {
+      "id": "cisco",
+      "name": "Design System Inspired by Cisco",
+      "origin": "open-design"
+    },
+    {
+      "id": "claude",
+      "name": "Design System Inspired by Claude (Anthropic)",
+      "origin": "open-design"
+    },
+    {
+      "id": "clay",
+      "name": "Design System Inspired by Clay",
+      "origin": "open-design"
+    },
+    {
+      "id": "claymorphism",
+      "name": "Design System Inspired by Claymorphism",
+      "origin": "open-design"
+    },
+    {
+      "id": "clean",
+      "name": "Design System Inspired by Clean",
+      "origin": "open-design"
+    },
+    {
+      "id": "clickhouse",
+      "name": "Design System Inspired by ClickHouse",
+      "origin": "open-design"
+    },
+    {
+      "id": "cohere",
+      "name": "Design System Inspired by Cohere",
+      "origin": "open-design"
+    },
+    {
+      "id": "coinbase",
+      "name": "Design System Inspired by Coinbase",
+      "origin": "open-design"
+    },
+    {
+      "id": "colorful",
+      "name": "Design System Inspired by Colorful",
+      "origin": "open-design"
+    },
+    {
+      "id": "composio",
+      "name": "Design System Inspired by Composio",
+      "origin": "open-design"
+    },
+    {
+      "id": "contemporary",
+      "name": "Design System Inspired by Contemporary",
+      "origin": "open-design"
+    },
+    {
+      "id": "corporate",
+      "name": "Design System Inspired by Corporate",
+      "origin": "open-design"
+    },
+    {
+      "id": "cosmic",
+      "name": "Design System Inspired by Cosmic",
+      "origin": "open-design"
+    },
+    {
+      "id": "creative",
+      "name": "Design System Inspired by Creative",
+      "origin": "open-design"
+    },
+    {
+      "id": "cursor",
+      "name": "Design System Inspired by Cursor",
+      "origin": "open-design"
+    },
+    {
+      "id": "dashboard",
+      "name": "Design System Inspired by Dashboard",
+      "origin": "open-design"
+    },
+    {
+      "id": "default",
+      "name": "Neutral Modern",
+      "origin": "open-design"
+    },
+    {
+      "id": "discord",
+      "name": "Design System Inspired by Discord",
+      "origin": "open-design"
+    },
+    {
+      "id": "dithered",
+      "name": "Design System Inspired by Dithered",
+      "origin": "open-design"
+    },
+    {
+      "id": "doodle",
+      "name": "Design System Inspired by Doodle",
+      "origin": "open-design"
+    },
+    {
+      "id": "dramatic",
+      "name": "Design System Inspired by Dramatic",
+      "origin": "open-design"
+    },
+    {
+      "id": "duolingo",
+      "name": "Design System Inspired by Duolingo",
+      "origin": "open-design"
+    },
+    {
+      "id": "editorial",
+      "name": "Design System Inspired by Editorial",
+      "origin": "open-design"
+    },
+    {
+      "id": "elegant",
+      "name": "Design System Inspired by Elegant",
+      "origin": "open-design"
+    },
+    {
+      "id": "elevenlabs",
+      "name": "Design System Inspired by ElevenLabs",
+      "origin": "open-design"
+    },
+    {
+      "id": "energetic",
+      "name": "Design System Inspired by Energetic",
+      "origin": "open-design"
+    },
+    {
+      "id": "enterprise",
+      "name": "Design System Inspired by Enterprise",
+      "origin": "open-design"
+    },
+    {
+      "id": "expo",
+      "name": "Design System Inspired by Expo",
+      "origin": "open-design"
+    },
+    {
+      "id": "expressive",
+      "name": "Design System Inspired by Expressive",
+      "origin": "open-design"
+    },
+    {
+      "id": "fantasy",
+      "name": "Design System Inspired by Fantasy",
+      "origin": "open-design"
+    },
+    {
+      "id": "ferrari",
+      "name": "Design System Inspired by Ferrari",
+      "origin": "open-design"
+    },
+    {
+      "id": "figma",
+      "name": "Design System Inspired by Figma",
+      "origin": "open-design"
+    },
+    {
+      "id": "flat",
+      "name": "Design System Inspired by Flat",
+      "origin": "open-design"
+    },
+    {
+      "id": "framer",
+      "name": "Design System Inspired by Framer",
+      "origin": "open-design"
+    },
+    {
+      "id": "friendly",
+      "name": "Design System Inspired by Friendly",
+      "origin": "open-design"
+    },
+    {
+      "id": "futuristic",
+      "name": "Design System Inspired by Futuristic",
+      "origin": "open-design"
+    },
+    {
+      "id": "github",
+      "name": "Design System Inspired by GitHub",
+      "origin": "open-design"
+    },
+    {
+      "id": "glassmorphism",
+      "name": "Design System Inspired by Glassmorphism",
+      "origin": "open-design"
+    },
+    {
+      "id": "gradient",
+      "name": "Design System Inspired by Gradient",
+      "origin": "open-design"
+    },
+    {
+      "id": "hashicorp",
+      "name": "Design System Inspired by HashiCorp",
+      "origin": "open-design"
+    },
+    {
+      "id": "hud",
+      "name": "HUD Design System",
+      "origin": "open-design"
+    },
+    {
+      "id": "huggingface",
+      "name": "Design System Inspired by Hugging Face",
+      "origin": "open-design"
+    },
+    {
+      "id": "ibm",
+      "name": "Design System Inspired by IBM",
+      "origin": "open-design"
+    },
+    {
+      "id": "intercom",
+      "name": "Design System Inspired by Intercom",
+      "origin": "open-design"
+    },
+    {
+      "id": "kami",
+      "name": "Design System Inspired by kami (紙 / 纸)",
+      "origin": "open-design"
+    },
+    {
+      "id": "kraken",
+      "name": "Design System Inspired by Kraken",
+      "origin": "open-design"
+    },
+    {
+      "id": "lamborghini",
+      "name": "Design System Inspired by Lamborghini",
+      "origin": "open-design"
+    },
+    {
+      "id": "levels",
+      "name": "Design System Inspired by Levels",
+      "origin": "open-design"
+    },
+    {
+      "id": "linear-app",
+      "name": "Design System Inspired by Linear",
+      "origin": "open-design"
+    },
+    {
+      "id": "lingo",
+      "name": "Design System Inspired by Lingo",
+      "origin": "open-design"
+    },
+    {
+      "id": "loom",
+      "name": "Loom Design System",
+      "origin": "open-design"
+    },
+    {
+      "id": "lovable",
+      "name": "Design System Inspired by Lovable",
+      "origin": "open-design"
+    },
+    {
+      "id": "luxury",
+      "name": "Design System Inspired by Luxury",
+      "origin": "open-design"
+    },
+    {
+      "id": "mastercard",
+      "name": "Design System Inspired by Mastercard",
+      "origin": "open-design"
+    },
+    {
+      "id": "material",
+      "name": "Design System Inspired by Material",
+      "origin": "open-design"
+    },
+    {
+      "id": "meta",
+      "name": "Design System Inspired by Meta (Store)",
+      "origin": "open-design"
+    },
+    {
+      "id": "minimal",
+      "name": "Design System Inspired by Minimal",
+      "origin": "open-design"
+    },
+    {
+      "id": "minimax",
+      "name": "Design System Inspired by MiniMax",
+      "origin": "open-design"
+    },
+    {
+      "id": "mintlify",
+      "name": "Design System Inspired by Mintlify",
+      "origin": "open-design"
+    },
+    {
+      "id": "miro",
+      "name": "Design System Inspired by Miro",
+      "origin": "open-design"
+    },
+    {
+      "id": "mission-control",
+      "name": "Mission Control Design System",
+      "origin": "open-design"
+    },
+    {
+      "id": "mistral-ai",
+      "name": "Design System Inspired by Mistral AI",
+      "origin": "open-design"
+    },
+    {
+      "id": "modern",
+      "name": "Design System Inspired by Modern",
+      "origin": "open-design"
+    },
+    {
+      "id": "mongodb",
+      "name": "Design System Inspired by MongoDB",
+      "origin": "open-design"
+    },
+    {
+      "id": "mono",
+      "name": "Design System Inspired by Mono",
+      "origin": "open-design"
+    },
+    {
+      "id": "neobrutalism",
+      "name": "Design System Inspired by Neobrutalism",
+      "origin": "open-design"
+    },
+    {
+      "id": "neon",
+      "name": "Design System Inspired by Neon",
+      "origin": "open-design"
+    },
+    {
+      "id": "neumorphism",
+      "name": "Design System Inspired by Neumorphism",
+      "origin": "open-design"
+    },
+    {
+      "id": "nike",
+      "name": "Design System Inspired by Nike",
+      "origin": "open-design"
+    },
+    {
+      "id": "notion",
+      "name": "Design System Inspired by Notion",
+      "origin": "open-design"
+    },
+    {
+      "id": "nvidia",
+      "name": "Design System Inspired by NVIDIA",
+      "origin": "open-design"
+    },
+    {
+      "id": "ollama",
+      "name": "Design System Inspired by Ollama",
+      "origin": "open-design"
+    },
+    {
+      "id": "openai",
+      "name": "Design System Inspired by OpenAI",
+      "origin": "open-design"
+    },
+    {
+      "id": "opencode-ai",
+      "name": "Design System Inspired by OpenCode",
+      "origin": "open-design"
+    },
+    {
+      "id": "pacman",
+      "name": "Design System Inspired by Pacman",
+      "origin": "open-design"
+    },
+    {
+      "id": "paper",
+      "name": "Design System Inspired by Paper",
+      "origin": "open-design"
+    },
+    {
+      "id": "perplexity",
+      "name": "Design System Inspired by Perplexity AI",
+      "origin": "open-design"
+    },
+    {
+      "id": "perspective",
+      "name": "Design System Inspired by Perspective",
+      "origin": "open-design"
+    },
+    {
+      "id": "pinterest",
+      "name": "Design System Inspired by Pinterest",
+      "origin": "open-design"
+    },
+    {
+      "id": "playstation",
+      "name": "Design System Inspired by PlayStation",
+      "origin": "open-design"
+    },
+    {
+      "id": "posthog",
+      "name": "Design System Inspired by PostHog",
+      "origin": "open-design"
+    },
+    {
+      "id": "premium",
+      "name": "Design System Inspired by Premium",
+      "origin": "open-design"
+    },
+    {
+      "id": "professional",
+      "name": "Design System Inspired by Professional",
+      "origin": "open-design"
+    },
+    {
+      "id": "publication",
+      "name": "Design System Inspired by Publication",
+      "origin": "open-design"
+    },
+    {
+      "id": "raycast",
+      "name": "Design System Inspired by Raycast",
+      "origin": "open-design"
+    },
+    {
+      "id": "refined",
+      "name": "Design System Inspired by Refined",
+      "origin": "open-design"
+    },
+    {
+      "id": "renault",
+      "name": "Design System Inspired by Renault",
+      "origin": "open-design"
+    },
+    {
+      "id": "replicate",
+      "name": "Design System Inspired by Replicate",
+      "origin": "open-design"
+    },
+    {
+      "id": "resend",
+      "name": "Design System Inspired by Resend",
+      "origin": "open-design"
+    },
+    {
+      "id": "retro",
+      "name": "Design System Inspired by Retro",
+      "origin": "open-design"
+    },
+    {
+      "id": "revolut",
+      "name": "Design System Inspired by Revolut",
+      "origin": "open-design"
+    },
+    {
+      "id": "runwayml",
+      "name": "Design System Inspired by Runway",
+      "origin": "open-design"
+    },
+    {
+      "id": "sanity",
+      "name": "Design System Inspired by Sanity",
+      "origin": "open-design"
+    },
+    {
+      "id": "sentry",
+      "name": "Design System Inspired by Sentry",
+      "origin": "open-design"
+    },
+    {
+      "id": "shadcn",
+      "name": "Design System Inspired by Shadcn",
+      "origin": "open-design"
+    },
+    {
+      "id": "shopify",
+      "name": "Design System Inspired by Shopify",
+      "origin": "open-design"
+    },
+    {
+      "id": "simple",
+      "name": "Design System Inspired by Simple",
+      "origin": "open-design"
+    },
+    {
+      "id": "skeumorphism",
+      "name": "Design System Inspired by Skeumorphism",
+      "origin": "open-design"
+    },
+    {
+      "id": "slack",
+      "name": "Design System Inspired by Slack",
+      "origin": "open-design"
+    },
+    {
+      "id": "sleek",
+      "name": "Design System Inspired by Sleek",
+      "origin": "open-design"
+    },
+    {
+      "id": "spacex",
+      "name": "Design System Inspired by SpaceX",
+      "origin": "open-design"
+    },
+    {
+      "id": "spacious",
+      "name": "Design System Inspired by Spacious",
+      "origin": "open-design"
+    },
+    {
+      "id": "spotify",
+      "name": "Design System Inspired by Spotify",
+      "origin": "open-design"
+    },
+    {
+      "id": "starbucks",
+      "name": "Design System Inspired by Starbucks",
+      "origin": "open-design"
+    },
+    {
+      "id": "storytelling",
+      "name": "Design System Inspired by Storytelling",
+      "origin": "open-design"
+    },
+    {
+      "id": "stripe",
+      "name": "Design System Inspired by Stripe",
+      "origin": "open-design"
+    },
+    {
+      "id": "supabase",
+      "name": "Design System Inspired by Supabase",
+      "origin": "open-design"
+    },
+    {
+      "id": "superhuman",
+      "name": "Design System Inspired by Superhuman",
+      "origin": "open-design"
+    },
+    {
+      "id": "tesla",
+      "name": "Design System Inspired by Tesla",
+      "origin": "open-design"
+    },
+    {
+      "id": "tetris",
+      "name": "Design System Inspired by Tetris",
+      "origin": "open-design"
+    },
+    {
+      "id": "theverge",
+      "name": "Design System Inspired by The Verge",
+      "origin": "open-design"
+    },
+    {
+      "id": "together-ai",
+      "name": "Design System Inspired by Together AI",
+      "origin": "open-design"
+    },
+    {
+      "id": "tom-modern",
+      "name": "Tom Modern Design",
+      "origin": "open-design"
+    },
+    {
+      "id": "totality-festival",
+      "name": "Design System Inspired by Totality Festival",
+      "origin": "open-design"
+    },
+    {
+      "id": "trading-terminal",
+      "name": "Trading Terminal Design System",
+      "origin": "open-design"
+    },
+    {
+      "id": "uber",
+      "name": "Design System Inspired by Uber",
+      "origin": "open-design"
+    },
+    {
+      "id": "urdu",
+      "name": "Urdu Modern (Indus Script System)",
+      "origin": "open-design"
+    },
+    {
+      "id": "vercel",
+      "name": "Design System Inspired by Vercel",
+      "origin": "open-design"
+    },
+    {
+      "id": "vibrant",
+      "name": "Design System Inspired by Vibrant",
+      "origin": "open-design"
+    },
+    {
+      "id": "vintage",
+      "name": "Design System Inspired by Vintage",
+      "origin": "open-design"
+    },
+    {
+      "id": "vodafone",
+      "name": "Design System Inspired by Vodafone",
+      "origin": "open-design"
+    },
+    {
+      "id": "voltagent",
+      "name": "Design System Inspired by VoltAgent",
+      "origin": "open-design"
+    },
+    {
+      "id": "warm-editorial",
+      "name": "Warm Editorial",
+      "origin": "open-design"
+    },
+    {
+      "id": "warp",
+      "name": "Design System Inspired by Warp",
+      "origin": "open-design"
+    },
+    {
+      "id": "webex",
+      "name": "Design System Inspired by Webex",
+      "origin": "open-design"
+    },
+    {
+      "id": "webflow",
+      "name": "Design System Inspired by Webflow",
+      "origin": "open-design"
+    },
+    {
+      "id": "wechat",
+      "name": "WeChat Design System",
+      "origin": "open-design"
+    },
+    {
+      "id": "wired",
+      "name": "Design System Inspired by WIRED",
+      "origin": "open-design"
+    },
+    {
+      "id": "wise",
+      "name": "Design System Inspired by Wise",
+      "origin": "open-design"
+    },
+    {
+      "id": "x-ai",
+      "name": "Design System Inspired by xAI",
+      "origin": "open-design"
+    },
+    {
+      "id": "xiaohongshu",
+      "name": "Design System Inspired by Xiaohongshu",
+      "origin": "open-design"
+    },
+    {
+      "id": "zapier",
+      "name": "Design System Inspired by Zapier",
+      "origin": "open-design"
+    }
+  ]
+}

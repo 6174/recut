@@ -16,12 +16,11 @@ import (
 	"testing"
 )
 
-func testRecutSkillManager(t *testing.T) *RecutSkillManager {
+func testRecutSkillManager(t *testing.T) *RecutSkillsManager {
 	t.Helper()
 	root := t.TempDir()
-	manager := NewRecutSkillManager(filepath.Join(root, "data"))
+	manager := NewRecutSkillsManager(filepath.Join(root, "data"))
 	manager.homeDir = func() (string, error) { return filepath.Join(root, "home"), nil }
-	manager.config = func() (string, error) { return filepath.Join(root, "config"), nil }
 	return manager
 }
 
@@ -218,7 +217,7 @@ func TestRecutSkillHTTPLinksRequestedTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := NewServer(nil, nil, nil, nil, nil, nil, nil)
-	server.skill = manager
+	server.skills = manager
 	handler := server.routes()
 
 	initial := httptest.NewRecorder()
@@ -271,7 +270,7 @@ func TestSkillsHTTPCatalogGroupsGlobalAndApps(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := NewServer(apps, nil, nil, nil, nil, nil, nil)
-	server.skill = manager
+	server.skills = manager
 	handler := server.routes()
 
 	recorder := httptest.NewRecorder()
@@ -324,7 +323,7 @@ func TestSkillsHTTPLinksAppSkillWithoutMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := NewServer(apps, nil, nil, nil, nil, nil, nil)
-	server.skill = manager
+	server.skills = manager
 	handler := server.routes()
 
 	recorder := httptest.NewRecorder()
@@ -358,9 +357,8 @@ func TestSkillsHTTPLinksAppSkillWithoutMCP(t *testing.T) {
 // the virtual recut.platform app even though it is not an installed App.
 func TestRecutSkillShipsAndServesOnboardingReference(t *testing.T) {
 	dataDir := t.TempDir()
-	manager := NewRecutSkillManager(dataDir)
+	manager := NewRecutSkillsManager(dataDir)
 	manager.homeDir = func() (string, error) { return filepath.Join(dataDir, "home"), nil }
-	manager.config = func() (string, error) { return filepath.Join(dataDir, "config"), nil }
 	if err := manager.Ensure(); err != nil {
 		t.Fatal(err)
 	}

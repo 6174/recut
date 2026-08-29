@@ -61,26 +61,16 @@ func main() {
 	if err := builtinApps.Ensure(); err != nil {
 		log.Fatalf("ERROR synchronize built-in Apps: %v", err)
 	}
-	skillManager := NewRecutSkillManager(*dataDir)
+	// 平台 Skill 统一分发（recut_skills）：service/skills/<id>/SKILL.md 的目录
+	// 会被自动发现、原子同步到 <data-dir>/skills/<id> 并软链接到所有支持的
+	// Agent 目录；frontmatter 声明 `mcp:` 的 Skill 额外注册各 Agent 的 MCP。
+	// 新增平台 Skill 无需改 Go 代码。
+	skillManager := NewRecutSkillsManager(*dataDir)
 	if err := skillManager.Ensure(); err != nil {
-		log.Fatalf("ERROR synchronize Recut Skill: %v", err)
+		log.Fatalf("ERROR synchronize Recut Skills: %v", err)
 	}
 	if err := skillManager.EnableDefaultTargets(); err != nil {
 		log.Printf("WARN enable Recut Skill targets: %v", err)
-	}
-	designSystemManager := NewDesignSystemManager(*dataDir)
-	if err := designSystemManager.Ensure(); err != nil {
-		log.Printf("WARN synchronize design-system Skill: %v", err)
-	}
-	if err := designSystemManager.EnableDefaultTargets(); err != nil {
-		log.Printf("WARN enable design-system Skill targets: %v", err)
-	}
-	createAppSkillManager := NewCreateAppSkillManager(*dataDir)
-	if err := createAppSkillManager.Ensure(); err != nil {
-		log.Printf("WARN synchronize create-app Skill: %v", err)
-	}
-	if err := createAppSkillManager.EnableDefaultTargets(); err != nil {
-		log.Printf("WARN enable create-app Skill targets: %v", err)
 	}
 	apps, err := LoadCatalog(*appsDir)
 	if err != nil {
@@ -96,7 +86,6 @@ func main() {
 	// 启动时同步一次 + 每 24h 一次；非致命——离线时降级到种子/上次同步内容。
 	worldCatalog := NewWorldCatalogSyncer(*dataDir, worlds)
 	bridge := NewAgentBridge(store)
-	bridge.SetDesignSystemManager(designSystemManager)
 	host := NewAppHost(apps, store, media)
 	// 临时公网分享（R2 + CDN）：凭据来自 env 或 <data-dir>/share-credentials；
 	// 缺失时分享能力不可用（带参考素材的 Skymind 视频任务给出可操作错误）。

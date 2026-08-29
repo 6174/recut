@@ -2002,8 +2002,6 @@ var mcpToolLabels = map[string]string{
 		"recut.skills.list":                         "读取技能目录",
 		"recut.skills.read":                         "读取技能说明",
 		"recut.skills.reference":                    "读取技能参考资料",
-		"recut.design_system.list":                  "浏览设计系统",
-		"recut.design_system.get":                   "读取设计系统",
 		"recut.project.create":                      "创建项目",
 		"recut.project.list":                        "读取项目列表",
 		"recut.project.get":                         "读取项目",

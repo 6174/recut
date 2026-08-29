@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 RecutSkillManager、HTTP JSON 边界与请求体大小限制
- * [OUTPUT]: 对外提供 Recut Skill 安装状态、显式创建 Agent 软链接，以及按全局/App 分组列出全部 Skill 并链接任意 Skill 的 HTTP API
+ * [INPUT]: 依赖 RecutSkillsManager、HTTP JSON 边界与请求体大小限制
+ * [OUTPUT]: 对外提供平台 Recut Skill 的安装状态与显式创建 Agent 软链接，以及按全局/App 分组列出全部 Skill 并链接任意 Skill 的 HTTP API
  * [POS]: service 的 Recut Skill 传输层；浏览器只声明目标，路径判定与不覆盖保护始终留在 daemon
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strings"
 )
 
@@ -51,11 +50,11 @@ type skillLinksRequest struct {
 }
 
 func (s *Server) recutSkillStatus(w http.ResponseWriter, _ *http.Request) {
-	if s.skill == nil {
+	if s.skills == nil {
 		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("Recut Skill manager is unavailable"))
 		return
 	}
-	status, err := s.skill.Status()
+	status, err := s.skills.Status()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -64,7 +63,7 @@ func (s *Server) recutSkillStatus(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) linkRecutSkill(w http.ResponseWriter, r *http.Request) {
-	if s.skill == nil {
+	if s.skills == nil {
 		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("Recut Skill manager is unavailable"))
 		return
 	}
@@ -73,7 +72,7 @@ func (s *Server) linkRecutSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("read Recut Skill targets: %w", err))
 		return
 	}
-	status, err := s.skill.Link(request.Targets)
+	status, err := s.skills.Link(request.Targets)
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
 		return
@@ -81,40 +80,29 @@ func (s *Server) linkRecutSkill(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
-// skillsStatus lists every discoverable skill grouped by owning App. The
-// platform Recut Skill, the global design-system skill and the global create-app
-// skill form the "全局" group; each installed App forms its own group.
+// skillsStatus lists every discoverable skill grouped by owning App. Every
+// platform skill discovered under service/skills forms the "全局" group; each
+// installed App forms its own group.
 func (s *Server) skillsStatus(w http.ResponseWriter, _ *http.Request) {
-	if s.skill == nil {
+	if s.skills == nil {
 		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("Recut Skill manager is unavailable"))
 		return
 	}
-	recutStatus, err := s.skill.Status()
+	skills, err := s.skills.Skills()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	global := []skillLinkSummary{{
-		ID: recutStatus.ID, AppID: platformSkillAppID, Name: "recut", Description: "Recut 视频创作平台：素材库、媒体生成（图片/视频/语音）与已安装 App 的创作工作流，经 Recut MCP 使用。",
-		Source: recutStatus.Source, Version: recutStatus.Version, Targets: recutStatus.Targets,
-	}}
-	if s.store != nil {
-		designSource := filepath.Join(s.store.root, "skills", designSystemSkillID)
-		if targets, designErr := s.skill.skillStatus(designSource, designSystemSkillID); designErr == nil {
-			global = append(global, skillLinkSummary{
-				ID: designSystemSkillID, AppID: platformSkillAppID, Name: "recut-design-system",
-				Description: "Recut 全局设计系统参考库：业务无关的抽象视觉风格定义，直接复用 Open Design 的包格式与内容。",
-				Source:      designSource, Targets: targets,
-			})
+	global := make([]skillLinkSummary, 0, len(skills))
+	for _, skill := range skills {
+		status, statusErr := s.skills.SkillStatus(skill.ID)
+		if statusErr != nil {
+			continue
 		}
-		createAppSource := filepath.Join(s.store.root, "skills", createAppSkillID)
-		if targets, createErr := s.skill.skillStatus(createAppSource, createAppSkillID); createErr == nil {
-			global = append(global, skillLinkSummary{
-				ID: createAppSkillID, AppID: platformSkillAppID, Name: "recut-create-app",
-				Description: "Recut 全局「创建 App」工作流：从零打造标准 Recut App（manifest + background + 可选 iframe UI + 平台通讯契约），可安装、可测试、可随 Git 分发。",
-				Source:      createAppSource, Targets: targets,
-			})
-		}
+		global = append(global, skillLinkSummary{
+			ID: skill.ID, AppID: platformSkillAppID, Name: skill.Name, Description: skill.Description,
+			Source: status.Source, Version: status.Version, Targets: status.Targets,
+		})
 	}
 	catalog := skillCatalogStatus{Global: global}
 	if s.apps != nil {
@@ -130,7 +118,7 @@ func (s *Server) skillsStatus(w http.ResponseWriter, _ *http.Request) {
 			}
 			group := skillGroup{AppID: app.Manifest.ID, Name: app.Manifest.Name, Kind: string(app.Manifest.Kind), Description: app.Manifest.Description}
 			for _, skill := range skills {
-				targets, targetErr := s.skill.skillStatus(skill.Root, skill.ID)
+				targets, targetErr := s.skills.skillStatus(skill.Root, skill.ID)
 				if targetErr != nil {
 					continue
 				}
@@ -148,10 +136,10 @@ func (s *Server) skillsStatus(w http.ResponseWriter, _ *http.Request) {
 }
 
 // linkSkill enables an arbitrary skill (platform or App-owned) for the
-// requested Agent targets. The platform Recut Skill keeps its MCP registration;
-// every other skill is linked as a file only.
+// requested Agent targets. MCP-enabled platform skills keep their MCP
+// registration; every other skill is linked as a file only.
 func (s *Server) linkSkill(w http.ResponseWriter, r *http.Request) {
-	if s.skill == nil {
+	if s.skills == nil {
 		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("Recut Skill manager is unavailable"))
 		return
 	}
@@ -165,8 +153,8 @@ func (s *Server) linkSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	if request.AppID == platformSkillAppID && request.SkillID == recutSkillID {
-		status, linkErr := s.skill.Link(request.Targets)
+	if request.AppID == platformSkillAppID && s.skills.mcpEnabled(request.SkillID) {
+		status, linkErr := s.skills.Link(request.Targets)
 		if linkErr != nil {
 			writeError(w, http.StatusConflict, linkErr)
 			return
@@ -177,7 +165,7 @@ func (s *Server) linkSkill(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, summary)
 		return
 	}
-	targets, linkErr := s.skill.LinkSkill(source, request.SkillID, request.Targets)
+	targets, linkErr := s.skills.LinkSkill(source, request.SkillID, request.Targets)
 	if linkErr != nil {
 		writeError(w, http.StatusConflict, linkErr)
 		return
@@ -195,16 +183,14 @@ func (s *Server) resolveSkillSource(appID, skillID string) (string, skillLinkSum
 		return "", skillLinkSummary{}, fmt.Errorf("skillId is required")
 	}
 	if appID == platformSkillAppID {
-		if skillID == recutSkillID {
-			return s.skill.sourceDir(), skillLinkSummary{ID: skillID, AppID: appID, Name: "recut", Description: "Recut 视频创作平台：素材库、媒体生成（图片/视频/语音）与已安装 App 的创作工作流，经 Recut MCP 使用。"}, nil
+		skills, err := s.skills.Skills()
+		if err != nil {
+			return "", skillLinkSummary{}, err
 		}
-		if skillID == designSystemSkillID && s.store != nil {
-			source := filepath.Join(s.store.root, "skills", designSystemSkillID)
-			return source, skillLinkSummary{ID: skillID, AppID: appID, Name: "recut-design-system", Description: "Recut 全局设计系统参考库：业务无关的抽象视觉风格定义，直接复用 Open Design 的包格式与内容。"}, nil
-		}
-		if skillID == createAppSkillID && s.store != nil {
-			source := filepath.Join(s.store.root, "skills", createAppSkillID)
-			return source, skillLinkSummary{ID: skillID, AppID: appID, Name: "recut-create-app", Description: "Recut 全局「创建 App」工作流：从零打造标准 Recut App（manifest + background + 可选 iframe UI + 平台通讯契约），可安装、可测试、可随 Git 分发。"}, nil
+		for _, skill := range skills {
+			if skill.ID == skillID {
+				return s.skills.SourceDir(skill.ID), skillLinkSummary{ID: skill.ID, AppID: appID, Name: skill.Name, Description: skill.Description}, nil
+			}
 		}
 		return "", skillLinkSummary{}, fmt.Errorf("unknown platform skill %q", skillID)
 	}

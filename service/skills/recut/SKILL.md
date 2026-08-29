@@ -1,6 +1,7 @@
 ---
 name: recut
 appId: recut.platform
+mcp: platform
 description: Recut 视频创作平台：素材库、媒体生成（图片/视频/语音）与已安装 App 的创作工作流，经 Recut MCP 使用。
 references: world-onboarding.md
 ---
@@ -45,7 +46,7 @@ references: world-onboarding.md
 
 - `recut.apps.list` / `recut.apps.store`：App 目录随安装/更新走，且 `recut.context.apps` 已内嵌已安装清单，禁止例行调用；只在用户明确要求安装、更新或浏览商店时使用。
 - `recut.skills.read`：每个 App 的 Skill 正文每个会话只读一次，任务切到其他 App/领域才读新的。
-- `recut.design_system.list` / `recut.design_system.get`：全局设计系统随 service 版本走，会话内不可变。
+- `recut.skills.reference`（`skillId: recut-design-system`）：全局设计系统随 service 版本走，会话内不可变；风格清单在 `design-systems/catalog.json`。
 - `recut.media.list_voices`：音色随 Provider 凭据走，只在用户说明改了 Provider/凭据、或本会话执行了此类变更后刷新。
 - `audio.status` / `depth.status` / `subtitle.capabilities`：环境与模型就绪状态，会话内不变；个别字段如 `activeJob` 是动态的，按对应 jobId 用 job 观察工具轮询，不靠重读 status。
 

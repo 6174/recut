@@ -60,7 +60,6 @@ type AgentBridge struct {
 	sessions       map[string]AgentSession
 	agentToolCalls map[string][]agentToolCall
 	agentJobs      map[string]*AgentJob
-	designSystems  *DesignSystemManager
 	mcpTarget      string
 	mcpExecutable  string
 	// agents 是 AgentManager 的后向引用（创建后经 SetAgentManager 注入）：用于子 Agent 会话持久化、
@@ -114,12 +113,6 @@ func (b *AgentBridge) SetAgentManager(agents *AgentManager) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.agents = agents
-}
-
-func (b *AgentBridge) SetDesignSystemManager(manager *DesignSystemManager) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.designSystems = manager
 }
 
 // SetMCPForwarder is a test seam for isolated daemon instances. Production

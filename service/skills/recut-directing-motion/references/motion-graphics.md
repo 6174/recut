@@ -1,7 +1,7 @@
 > 来源: recut/recut — apps/editor/skills/recut-editor/references/motion-graphics.md (Recut 自有，内部复用)
 
 <!--
- [INPUT]: 依赖 recut.design_system 的视觉契约、Editor timeline.read/preview.frame 与 component.create/timeline.placeComponents。
+ [INPUT]: 依赖 recut-design-system skill 的视觉契约、Editor timeline.read/preview.frame 与 component.create/timeline.placeComponents。
  [OUTPUT]: Motion Graphics 的 style gate、代表性组件、逐镜头决策、摆放与验证规则。
  [POS]: motion-graphics route 的导演与组件编排参考；不替代 components.md 的 SDK/构建契约。
  [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -35,7 +35,7 @@ Motion Graphic 的目标是让观众看见关系、节奏和视觉隐喻，而�
 
 如果请求是对已有 motion graphic 的调整，先把它当作局部视觉修订：读取目标 frame 和现有 component/source，沿用原有视觉语言与 placement，只修改用户点名的内容、参数或动效。只有现有形式无法承载新 viewer job 时，才创建新 component；不要因为一个局部改动重做整组 motion graphics。
 
-没有 active style 时：用户已给出具体风格就照用；用户说“直接做/不要问”则从内容和素材选择一套明确但可更换的 Recut design system，并把它标为 provisional；否则先从 `recut.design_system.list` 选 2–4 个合理方向，说明差异后再开始批量制作。generic 的“高级、现代、干净、专业”不是视觉语言，不能直接拿来生成组件。
+没有 active style 时：用户已给出具体风格就照用；用户说“直接做/不要问”则从内容和素材选择一套明确但可更换的 Recut design system，并把它标为 provisional；否则先读取 recut-design-system 的 `design-systems/catalog.json`，选 2–4 个合理方向，说明差异后再开始批量制作。generic 的“高级、现代、干净、专业”不是视觉语言，不能直接拿来生成组件。
 
 ## 统一的 motion graphic 生产链
 
