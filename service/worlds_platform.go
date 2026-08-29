@@ -1,7 +1,8 @@
 /*
  * [INPUT]: 依赖 WorldStore 的既有 worlds/world_entities/world_relations/world_asset_refs/world_revisions 表、
  * 确定性 canonical 序列化与 SHA-256 哈希
- * [OUTPUT]: 对外提供平台 World 内容层的领域原语：manifest 校验与确定性物化（materialize）、目录驱动的
+ * [OUTPUT]: 对外提供平台 World 内容层的领域原语：manifest 校验与确定性物化（materialize，manifest 实体/关系
+ * ID 按 world 命名空间化存储，规避全局主键跨世界碰撞）、目录驱动的
  * 归档（archive）、brief v1 只读投影（skill/实体 body 内联）、Fork（非 local → local 可编辑副本）
  * [POS]: service 的 WorldStore 平台维度；物化/归档是 Catalog 同步器与未来 P4 install/update/uninstall
  * 共用的同一组原语，差异只在触发策略；运行时读取仍全部走既有单一路径
@@ -312,26 +313,35 @@ func (w *WorldStore) MaterializeWorld(entryID, entryKind, publisher, version, sh
 	if _, err := tx.Exec("delete from world_asset_refs where world_id = ? and archived_at is null", manifest.World.ID); err != nil {
 		return "", false, err
 	}
-	if _, err := tx.Exec("delete from world_entities where world_id = ? and archived_at is null", manifest.World.ID); err != nil {
+	// Manifest rows are replaced wholesale, including archived ones: stale
+	// archived rows would collide with re-inserted IDs on a re-activated
+	// entry (world_entities.id is a global primary key).
+	if _, err := tx.Exec("delete from world_entities where world_id = ?", manifest.World.ID); err != nil {
 		return "", false, err
 	}
 	if _, err := tx.Exec("delete from world_relations where world_id = ?", manifest.World.ID); err != nil {
 		return "", false, err
 	}
+	// Manifest entity/relation IDs are unique per manifest, not globally:
+	// generic ids like "style-dna" recur across platform worlds while the
+	// storage PK is global. The stored form namespaces them with the world
+	// id; every read API is world-scoped, so consumers only ever see the
+	// stored form and the mapping is transparent.
+	storedEntityID := func(entityID string) string { return manifest.World.ID + ":" + entityID }
 	for index, entity := range manifest.Entities {
 		contentJSON, err := json.Marshal(entity.Content)
 		if err != nil {
 			return "", false, err
 		}
 		if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-			entity.ID, manifest.World.ID, string(entity.Kind), strings.TrimSpace(entity.Title), strings.TrimSpace(entity.Summary), string(contentJSON), now, now); err != nil {
+			storedEntityID(entity.ID), manifest.World.ID, string(entity.Kind), strings.TrimSpace(entity.Title), strings.TrimSpace(entity.Summary), string(contentJSON), now, now); err != nil {
 			return "", false, err
 		}
 		_ = index
 	}
 	for _, relation := range manifest.Relations {
 		if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, created_at) values (?, ?, ?, ?, ?, '{}', ?)",
-			relation.ID, manifest.World.ID, relation.From, relation.To, relation.Type, now); err != nil {
+			storedEntityID(relation.ID), manifest.World.ID, storedEntityID(relation.From), storedEntityID(relation.To), relation.Type, now); err != nil {
 			return "", false, err
 		}
 	}
@@ -342,8 +352,12 @@ func (w *WorldStore) MaterializeWorld(entryID, entryKind, publisher, version, sh
 			status = "supporting"
 		}
 		evidenceID := worldEvidenceRowID(manifest.World.ID, evidence.EntityID, evidence.URL, role, evidence.Label)
+		entityRef := any(nil)
+		if evidence.EntityID != "" {
+			entityRef = storedEntityID(evidence.EntityID)
+		}
 		if _, err := tx.Exec("insert into world_asset_refs (id, world_id, entity_id, asset_id, url, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, sort_order, created_at) values (?, ?, ?, '', ?, '', ?, ?, ?, ?, '', ?, ?, ?, ?)",
-			evidenceID, manifest.World.ID, nullIfEmpty(evidence.EntityID), evidence.URL, evidence.Modality, evidence.Purpose, status, evidence.Collection, role, evidence.Label, index+1, now); err != nil {
+			evidenceID, manifest.World.ID, entityRef, evidence.URL, evidence.Modality, evidence.Purpose, status, evidence.Collection, role, evidence.Label, index+1, now); err != nil {
 			return "", false, err
 		}
 	}

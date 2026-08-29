@@ -1,6 +1,6 @@
 {
   "catalogVersion": 1,
-  "updated": "2026-08-28T11:21:30Z",
+  "updated": "2026-08-29T09:57:44Z",
   "worlds": [
     {
       "bytes": 19281,
@@ -10,6 +10,17 @@
       "order": 1,
       "publisher": "recut",
       "sha256": "ed109be27a1208beff73edb87bf8d99aab54b3533e2bf80a325d602795e035d5",
+      "status": "active",
+      "version": "0.1.0"
+    },
+    {
+      "bytes": 25801,
+      "id": "pgc.xiaohuige",
+      "kind": "platform",
+      "manifestUrl": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/world.json",
+      "order": 1,
+      "publisher": "recut",
+      "sha256": "72914d3758267f6c2810daa0b659f8f93a92e295c22867a75a5c92c04952c629",
       "status": "active",
       "version": "0.1.0"
     }

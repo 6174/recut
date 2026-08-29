@@ -1,8 +1,8 @@
 /*
  * [INPUT]: 依赖 WorldStore 的 materialize/archive 原语、标准库 HTTP/JSON 与内嵌世界种子（service/worldcatalog/）
  * [OUTPUT]: 对外提供单一 World Catalog 的解析（本地覆盖 > 远端 CDN > 嵌入种子）与 daemon 自动同步：
- * 仅处理 kind=platform 条目（启动后台 pass + 每 24h，幂等单飞），delisted 自动归档，published 条目一律
- * 跳过（P4 手动策略）；网络请求不持状态锁，同步绝不阻塞 daemon 启动与 /v1/worlds/catalog
+ * 仅处理 kind=platform 条目（启动后台 pass + 每 24h + UI 触发的节流 Touch，幂等单飞），delisted 自动归档，
+ * published 条目一律跳过（P4 手动策略）；网络请求不持状态锁，同步绝不阻塞 daemon 启动与 /v1/worlds/catalog
  * [POS]: service 的平台 World 内容同步边界；"自动同步"与未来"安装/更新"是同一组物化原语的两种策略，
  * 本地 store 永远是运行时唯一事实源，同步失败静默降级到种子/上次同步内容
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -36,6 +36,7 @@ var embeddedWorldCatalogFS embed.FS
 const defaultWorldCatalogURL = "https://cdn.recut.video/worlds/catalog.json"
 
 const worldCatalogSyncInterval = 24 * time.Hour
+const worldCatalogTouchMinInterval = 5 * time.Minute
 const worldCatalogLocalOverrideName = "world-catalog.json"
 
 // WorldCatalogEntry is one catalog row. kind=platform entries auto-sync with
@@ -84,7 +85,8 @@ type WorldCatalogSyncer struct {
 	cached   *WorldCatalog
 	source   catalogSource
 	lastErr  string
-	started  bool
+	started   bool
+	lastTouch time.Time
 }
 
 func NewWorldCatalogSyncer(root string, worlds *WorldStore) *WorldCatalogSyncer {
@@ -296,6 +298,22 @@ func (s *WorldCatalogSyncer) Sync() {
 		"kind": WorldPlatform, "added": fmt.Sprintf("%d", added), "updated": fmt.Sprintf("%d", updated),
 		"delisted": fmt.Sprintf("%d", delisted), "skipped": fmt.Sprintf("%d", skipped),
 	})
+}
+
+// Touch requests one background sync pass on behalf of a UI surface (worlds
+// list, catalog passthrough). It is throttled to one trigger per
+// worldCatalogTouchMinInterval and single-flight via Sync itself, so UI
+// polling can never hammer the CDN; the pass runs in the background and the
+// caller's response is served from current local state.
+func (s *WorldCatalogSyncer) Touch() {
+	s.mu.Lock()
+	elapsed := time.Since(s.lastTouch)
+	s.lastTouch = time.Now()
+	s.mu.Unlock()
+	if elapsed < worldCatalogTouchMinInterval {
+		return
+	}
+	go s.Sync()
 }
 
 // StartSync schedules the 24h refresh for the daemon's lifetime and fires the

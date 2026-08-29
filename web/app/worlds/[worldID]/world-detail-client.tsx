@@ -327,11 +327,7 @@ function WorldDetailContent() {
                   apiBase={apiBase}
                   entity={entity}
                   key={entity.id}
-                  onCreateVideo={
-                    activeKind === "story"
-                      ? () => void createVideoFromStory(entity.id)
-                      : undefined
-                  }
+                  onCreateVideo={undefined}
                   onEdit={readOnly ? undefined : () => setEditing(entity)}
                   onView={setViewing}
                 />

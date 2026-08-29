@@ -1,0 +1,286 @@
+{
+  "entities": [
+    {
+      "content": {
+        "appearance": "圆头白色小人，光滑圆头无发型；小点眼，默认疲惫死鱼眼；深灰色 oversized 连帽卫衣、宽松深色长裤；永远挂着白色有线耳机，耳机线连到口袋里的手机；全灰画面中唯一纯白元素是耳机线",
+        "body": "# 小灰哥 IP\n\n## 角色定义\n\n小灰哥是思考、情绪、认知类内容的固定视觉主角。他不是吉祥物，而是读者的镜子：一个独居的普通都市年轻人，安静、内耗、敏感、想太多，但始终温柔。\n\n默认每张漫画都出现小灰哥。他必须承担画面的情绪与动作主体，不能只是站桩。\n\n## 外形\n\n- 圆头白色小人，头是光滑的圆，没有发型。\n- 小点眼，默认状态是疲惫的死鱼眼。\n- 深灰色 oversized 连帽卫衣 + 宽松深色长裤。\n- 永远挂着白色有线耳机，耳机线连到口袋里的手机——耳机线是他的生命线，是与世界保持距离的连接方式。\n- 线条粗、轻微抖动、手绘感；几乎全灰，唯一的纯白元素是耳机线。\n\n## 性格\n\n- 安静、丧而温柔；不卖惨、不鸡汤。\n- 内耗但自我觉察，正在慢慢想明白一些事。\n- 自嘲式冷幽默。\n- 独居，有自己的两室一厅和一只柯基（馒头）。\n- 女朋友小暖偶尔来，是他情绪系统里的外部变量。\n\n## 核心视觉语言（必须遵守）\n\n- **思想泡泡 = 内心可视化**：他的内心活动全部画在头顶的思想泡泡里。\n- **乱线团 = 情绪噪音/内耗**：焦虑、反刍、想太多都画成缠乱的黑色涂鸦线。\n- **从乱到清 = 认知转变**：思考类主题用「乱线 → 逐渐解开 → 一个简单的圆/灯泡」表达洞见。\n- **唯一亮色 = 洞见/希望**：全灰画面里只允许一处微小的暖色（灯泡光、远处一扇亮窗）。\n\n## 常见状态库\n\n- 躺床上戴耳机盯天花板，头顶乱线团。\n- 趴在桌上装死。\n- 深夜街头/末班地铁里放空。\n- 盘腿坐地，思想泡泡从乱线解成灯泡。\n- 深夜开冰箱门发呆。\n- 被馒头默默陪着。\n- 被小暖轻拍、投喂、念叨。\n\n## 禁止\n\n- 不要画成可爱吉祥物、贴纸、儿童卡通。\n- 不要给小灰哥加头发、加表情包式夸张五官。\n- 不要鸡汤大字、励志海报感。\n- 不要让画面变成商业插画或精致动漫画风。\n- 不要让小灰哥只是站桩背景板。\n\n## 判断标准\n\n去掉思想泡泡或乱线团后，如果画面失去了「内心戏」，说明这张图没有抓住 IP 的核心语言。\n",
+        "personality": "安静、内耗、敏感、想太多但自我觉察；丧而温柔；自嘲式冷幽默",
+        "voice": "极少台词；内心独白放在思想泡泡里；语气自嘲、平静"
+      },
+      "id": "xiaohuige",
+      "kind": "character",
+      "summary": "圆头白色小人、死鱼眼、深灰卫衣、白色有线耳机；独居都市年轻人，内耗但温柔，正在慢慢想明白。",
+      "title": "小灰哥"
+    },
+    {
+      "content": {
+        "appearance": "与 小灰哥 同款圆头，头顶一个小圆丸子头；简单点眼，眼神比 小灰哥 更有神；深色短外套 + 浅色连衣裙 + 平底鞋；不戴耳机",
+        "body": "# 小暖\n\n## 定位\n\n小灰哥的女朋友。**不常驻**：不住在一起，偶尔出现，专门承担「外部温度」与「外部视角」的配戏功能。她出现的那几格，通常是故事的情绪转折点。\n\n## 外形\n\n- 与小灰哥同款光滑圆头，头顶一个小圆丸子头，不留碎发。\n- 简单点眼，眼神比小灰哥更有神、更亮。\n- 深色短外套 + 浅色连衣裙 + 平底鞋。\n- 不戴耳机——她不需要隔着一层与世界相处。\n\n## 性格与功能\n\n- 温暖、明快、务实；会念叨但不唠叨。\n- 她是少数能把他从乱线团里拉出来的人，但她不负责「治愈」他——她只是提出具体的生活动作：吃饭、出门、睡觉。\n- 配戏模式：递汤、拍背、叉腰念叨、从背后抱住、在门口挥手告别。\n\n## 台词风格\n\n直白、生活化、短句：\n\n- 「吃饭了。」\n- 「又躺一天？」\n- 「走，出去转转。」\n- 「想不明白就先不想了。」\n\n## 禁止\n\n- 不要画成精致动漫少女。\n- 不要让小暖变成「拯救者」或说教者；她的台词永远是动作层面的，不讲道理。\n- 不要让她常驻每一格；她缺席时小灰哥才是常态。\n",
+        "personality": "温暖、明快、务实；会念叨但不唠叨；是少数能把他从乱线团里拉出来的人",
+        "voice": "台词直白生活化：'吃饭了''又躺一天？''走，出去转转'"
+      },
+      "id": "xiaonuan",
+      "kind": "character",
+      "summary": "小灰哥的女朋友：圆头小丸子头、深色外套配浅色连衣裙；不常驻，偶尔来配戏，带来温度与外部视角。",
+      "title": "小暖"
+    },
+    {
+      "content": {
+        "appearance": "极简扁平柯基：短棍腿、圆角长方身体、大三角直立耳、点眼、短线嘴、小 Stub 尾；纯黑粗线勾边 + 扁平浅灰/白填充，无毛发质感",
+        "body": "# 馒头（柯基）\n\n## 定位\n\n小灰哥的宠物柯基，常驻公寓。情绪线里的「活在当下」对照组：小灰哥在反刍过去、焦虑未来时，馒头永远在处理眼前这一口饭、这一个玩具。\n\n## 外形\n\n- 极简扁平柯基，和小灰哥同一套线条语言：\n  - 短棍腿、圆角长方形身体。\n  - 大三角直立耳、点眼、短线嘴、小 stub 尾。\n- 纯黑粗线勾边 + 扁平浅灰/白填充，**无毛发质感、无绒毛阴影**。\n- 表情默认是平静微呆，和小灰哥共享「空」的气质。\n\n## 性格与功能\n\n- 没心没肺、当下导向：饿了吃、困了睡、有玩具就玩。\n- 叙事功能三种：\n  1. **对照**：小灰哥头顶乱线团，馒头在旁边呼呼大睡。\n  2. **接住**：小灰哥瘫在地上时，馒头默默走过来坐在旁边。\n  3. **搅局**：偷吃泡面、叼走耳机线、在他终于想明白时过来讨摸。\n\n## 动作库\n\n歪头、四脚朝天躺、叼玩具、偷吃泡面、蜷成甜甜圈睡、门后探头、陪坐。\n\n## 禁止\n\n- 不要画成毛绒绒的写实柯基或 Kawaii 贴纸风。\n- 不要给馒头加拟人衣服、表情夸张化。\n- 不要让馒头抢走小灰哥的情绪主体位置；它是配角。\n",
+        "personality": "没心没肺、当下导向；饿了吃困了睡，是小灰哥反刍思维的天然反义词",
+        "voice": "无台词；以动作叙事：歪头、叼玩具、偷吃泡面、默默坐在旁边"
+      },
+      "id": "mantu",
+      "kind": "character",
+      "summary": "小灰哥的宠物柯基：短腿长身三角耳；情绪线里的'活在当下'对照组，常以身体语言接住小灰哥的丧。",
+      "title": "馒头（柯基）"
+    },
+    {
+      "content": {
+        "body": "# 小灰哥的两室一厅\n\n## 定位\n\n故事的主舞台。一个普通城郊老小区的两室一厅：安静、略乱、但完整——这是他自己撑起来的生活，也是他所有内心戏发生的地方。\n\n## 房间清单与叙事功能\n\n### 客厅\n\n- 布艺沙发（有搭毯）、茶几（马克杯+纸巾盒）、电视柜、电视、书架、小盆栽。\n- 功能：沙发瘫、外卖、和小暖一起看电视的少数温暖场景。\n\n### 开放厨房 + 小餐桌\n\n- 冰箱（贴纸）、灶台、油烟机、烧水壶、泡面囤货；双人小餐桌。\n- 功能：深夜开冰箱门发呆的经典机位；泡面是主食叙事。\n\n### 卧室\n\n- 床（乱被子）、枕头、衣柜、床头柜（台灯+闹钟）、窗帘窗。\n- 手机在地板上充电，白色耳机线从床头垂到地面——生命线的具象化。\n- 功能：躺着盯天花板 + 头顶乱线团的默认场景。\n\n### 工作房\n\n- 书桌、办公椅、笔记本+外接显示器、台灯、马克杯、墙面 pinboard（几张纸）、书架。\n- 功能：白天上班/晚上干副业；趴桌装死机位。\n\n### 阳台\n\n- 盆栽、落地晾衣架、推拉玻璃门、护栏。\n- 功能：唯一有「外面感」的地方；晾衣服 = 生活还在继续的隐喻。\n\n## 氛围规则\n\n- 全图扁平灰，不画光线渐变；夜与昼靠窗外细节区分（星空/楼窗 vs 留白）。\n- 略乱是刻意的：地上的衣服、囤的泡面——但不脏乱，没有蟑螂垃圾式的破败。\n- 公寓全景图（examples/08）是空间关系的权威参考；单房间图（examples/07）是细节密度参考。\n",
+        "description": "标准中国式两室一厅：中间客厅（布艺沙发+茶几+电视柜+书架），一端开放厨房（冰箱、灶台、油烟机、小餐桌），一间卧室（床、衣柜、床头柜、窗帘窗），一间小工作房（书桌、办公椅、笔记本+显示器、墙面 pinboard），一个阳台（盆栽、晾衣架、推拉玻璃门）。小灰哥大部分时间瘫在卧室床上或工作房桌前。"
+      },
+      "id": "apartment",
+      "kind": "location",
+      "summary": "城郊老小区的两室一厅：客厅、开放厨房、卧室、工作房、阳台；故事的主舞台，安静、略乱、但完整。",
+      "title": "小灰哥的两室一厅"
+    },
+    {
+      "content": {
+        "body": "# 叙事主线：慢慢想明白\n\n## 前提\n\n小灰哥是每个都市年轻人的镜子：同样会内耗、反刍、深夜 emo、自我怀疑、想太多。但他不是待拯救的可怜人——他每次都试着把脑子里的乱线团解开一点点。\n\n每一篇漫画 = 小灰哥与一个具体情绪/认知命题的一次交手。\n\n## 命题域\n\n- **情绪类**：内耗、焦虑、拖延、孤独、比较心、拒绝、告别、深夜 emo。\n- **认知类**：反刍思维、灾难化、非黑即白、注意力破碎、完美主义、意义感。\n- **思考类**：想清楚一件事的过程、观点的松动、自我觉察的瞬间。\n\n## 三幕微结构（单幅或短篇通用）\n\n1. **陷入**：小灰哥 + 具体生活情境（床上/桌上/地铁/街头），头顶乱线团。\n2. **外力或觉察**：馒头的当下感、小暖的一句生活化台词、或他自己看见乱线的瞬间。\n3. **一点点解开**：不是治愈完结，是乱线松了一截、或出现那个小灯泡——诚实的进度条。\n\n## 配角的使用时机\n\n- **馒头**：常驻。负责对照（你焦虑它睡觉）、接住（默默陪坐）、搅局（偷吃泡面打断反刍）。\n- **小暖**：偶尔来。负责把抽象情绪拉回具体生活：吃饭、出门、睡觉。她出现 = 情绪转折点临近。\n\n## 语调\n\n自嘲、平静、不控诉；可以好笑，但不拿痛苦开玩笑；结尾不给答案，给「松了一口气」或「至少看清了一点」。\n",
+        "premise": "小灰哥是每个都市年轻人的镜子：同样会内耗、反刍、深夜 emo、自我怀疑，但每次都试着把脑子里的乱线团解开一点点。女友小暖与柯基馒头是他的两根外部锚点——一个提供人的温度，一个提供狗的当下感。"
+      },
+      "id": "story-arc",
+      "kind": "story",
+      "summary": "叙事主线：每一篇漫画是小灰哥与一个具体情绪/认知命题的一次交手，从乱线团到一点点解开；不追求治愈完结，只追求诚实的进度条。",
+      "title": "慢慢想明白"
+    },
+    {
+      "content": {
+        "body": "# 风格 DNA\n\n## 一句话\n\n扁平灰底、黑色粗手绘线、极简灰阶、思想泡泡与乱线团；丧但干净，安静但准确——像深夜一个人在平板上随手画给自己的情绪速写。\n\n## 必须\n\n- 扁平纯灰背景：单一灰度铺满，无纸纹、无渐变、无阴影、无噪点。\n- 黑色粗手绘线稿：线宽均匀偏粗、轻微抖动、不机械、不矢量。\n- 角色扁平灰阶填充：深灰卫衣、浅灰皮肤、白色耳机线；只有 2-3 档灰度。\n- 一张图只讲一个情绪瞬间或一个认知动作。\n- 内心戏必画：思想泡泡 / 乱线团 / 解线过程，三选一起码一个。\n- 角色线条语言全宇宙统一：小灰哥、小暖、馒头必须在同一张「手」下画出来。\n\n## 颜色\n\n- 全图灰阶 + 黑白。\n- 唯一允许的彩色：一处微小暖色（暖黄灯泡光、远处一扇亮窗、一点烛光）。\n- 亮色只出现在「洞见 / 希望 / 温度」的时刻，一张图最多一处；情绪图通常干脆全灰。\n\n## 产出形式\n\n- 单幅情绪漫画：3:4 竖版。\n- 角色设定 / 表情集 / 姿态集 / 配角集：1:1 九宫格（3x3，不画面板边框，靠留白分格）。\n- 公寓全景等空间图：16:9 横版。\n- 每张单独生成，不把多张内容图拼在一张里。\n\n## 绝对不要\n\n- 不要可爱吉祥物海报、儿童卡通。\n- 不要日系动漫画风、精致阴影、厚涂、渐变光效。\n- 不要毛绒质感（柯基也是扁平的）。\n- 不要鸡汤励志大字、成功学海报感。\n- 不要真实 App 截图、复杂背景细节。\n- 不要给小灰哥加头发或夸张五官。\n\n## 参考图口径\n\n`examples/` 里的设定集与九宫格是**角色一致性的权威锚点**（低频校准：头型、五官密度、线条粗细、灰度档位）；单幅范式图（乱线团/解线灯泡）定义单张内容图的情绪密度。不照抄构图，不复刻案例里的具体命题。\n",
+        "guidance": "扁平纯灰背景（无纸纹/渐变/阴影）；黑色粗线轻微抖动；角色扁平灰阶填充；一图一情绪/一认知动作；唯一亮色只给洞见/希望；禁止毛绒质感与精致动漫画",
+        "kind": "visual"
+      },
+      "id": "style-dna",
+      "kind": "style",
+      "summary": "扁平灰底、黑色粗手绘线、极简灰阶、思想泡泡与乱线团语言；丧但干净，绝不精致动漫画。",
+      "title": "风格 DNA"
+    },
+    {
+      "content": {
+        "text": "单幅情绪漫画 3:4 竖版；角色/表情/姿态参考集 1:1 九宫格（3x3、不画面板边框）；公寓全景 16:9；每张单独生成，不把多张内容图拼在一张里",
+        "type": "always"
+      },
+      "id": "rule-format",
+      "kind": "rule",
+      "title": "画幅与产出形式"
+    },
+    {
+      "content": {
+        "text": "内心活动必须画在思想泡泡里；乱线团 = 情绪噪音/内耗；从乱到清的解线过程 = 认知转变；去掉思想泡泡后画面若失去内心戏即不合格",
+        "type": "always"
+      },
+      "id": "rule-inner-voice",
+      "kind": "rule",
+      "title": "内心可视化语言"
+    },
+    {
+      "content": {
+        "text": "不要可爱吉祥物海报、儿童卡通、日系动漫画风、商业插画、毛绒质感、精致阴影渐变、鸡汤励志大字、表情包式夸张五官；不要给小灰哥加头发",
+        "type": "never"
+      },
+      "id": "rule-no-cute",
+      "kind": "rule",
+      "title": "禁止吉祥物感"
+    },
+    {
+      "content": {
+        "text": "整图灰阶；唯一允许的彩色是一处微小暖色（灯泡光、远处一扇亮窗、一点烛光），只用于洞见/希望/温度的时刻；宁可不用也不用多",
+        "type": "prefer"
+      },
+      "id": "rule-color",
+      "kind": "rule",
+      "title": "全灰 + 唯一亮色"
+    }
+  ],
+  "evidence": [
+    {
+      "collection": "角色设定",
+      "entityId": "xiaohuige",
+      "label": "角色设定集（主参考）",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/assets/character-sheet.png"
+    },
+    {
+      "collection": "角色设定",
+      "entityId": "xiaohuige",
+      "label": "九宫表情集",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/assets/expression-grid.png"
+    },
+    {
+      "collection": "角色设定",
+      "entityId": "xiaohuige",
+      "label": "九宫姿态集",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/assets/pose-grid.png"
+    },
+    {
+      "collection": "角色设定",
+      "entityId": "xiaohuige",
+      "label": "日常物件互动集",
+      "modality": "image",
+      "purpose": "motion",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/assets/object-interaction-grid.png"
+    },
+    {
+      "collection": "输出范例",
+      "entityId": "xiaohuige",
+      "label": "乱线团 = 内耗（单幅成品）",
+      "modality": "image",
+      "purpose": "mood",
+      "status": "primary",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/examples/overthinking-scribble.png"
+    },
+    {
+      "collection": "输出范例",
+      "entityId": "xiaohuige",
+      "label": "从乱到清 + 唯一亮色（单幅成品）",
+      "modality": "image",
+      "purpose": "mood",
+      "status": "primary",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/examples/clarity-bulb.png"
+    },
+    {
+      "collection": "场景设定",
+      "entityId": "apartment",
+      "label": "两室一厅全景（参考）",
+      "modality": "image",
+      "purpose": "scene",
+      "status": "primary",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/assets/apartment-panorama.png"
+    },
+    {
+      "collection": "场景设定",
+      "entityId": "apartment",
+      "label": "卧室（参考）",
+      "modality": "image",
+      "purpose": "scene",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/assets/bedroom.png"
+    },
+    {
+      "collection": "输出范例",
+      "entityId": "xiaohuige",
+      "label": "深夜街头（单幅成品）",
+      "modality": "image",
+      "purpose": "scene",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/examples/street-night.png"
+    },
+    {
+      "collection": "输出范例",
+      "entityId": "xiaohuige",
+      "label": "末班地铁（移动端成品·带文字）",
+      "modality": "image",
+      "purpose": "scene",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/examples/scene-subway-caption.png"
+    },
+    {
+      "collection": "输出范例",
+      "entityId": "xiaohuige",
+      "label": "失眠反刍（移动端成品·带文字）",
+      "modality": "image",
+      "purpose": "mood",
+      "status": "primary",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/examples/scene-insomnia.png"
+    },
+    {
+      "collection": "输出范例",
+      "entityId": "xiaohuige",
+      "label": "周日傍晚焦虑（移动端成品·带文字）",
+      "modality": "image",
+      "purpose": "mood",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/examples/scene-sunday-evening.png"
+    },
+    {
+      "collection": "输出范例",
+      "entityId": "xiaohuige",
+      "label": "深夜冰箱发呆（移动端成品·带文字）",
+      "modality": "image",
+      "purpose": "mood",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/examples/scene-fridge-midnight.png"
+    },
+    {
+      "collection": "输出范例",
+      "entityId": "xiaohuige",
+      "label": "怕开始·解线见灯泡（移动端成品·带文字）",
+      "modality": "image",
+      "purpose": "mood",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/examples/scene-fear-of-starting.png"
+    },
+    {
+      "collection": "输出范例",
+      "entityId": "mantu",
+      "label": "馒头陪坐（移动端成品·带文字）",
+      "modality": "image",
+      "purpose": "mood",
+      "status": "supporting",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/examples/scene-corgi-company.png"
+    },
+    {
+      "collection": "角色设定",
+      "entityId": "xiaonuan",
+      "label": "小暖九宫配戏集（参考）",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/assets/xiaonuan-grid.png"
+    },
+    {
+      "collection": "角色设定",
+      "entityId": "mantu",
+      "label": "馒头九宫动作集（参考）",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "url": "https://cdn.recut.video/worlds/pgc.xiaohuige/0.1.0/assets/corgi-mantu-grid.png"
+    }
+  ],
+  "manifestVersion": 1,
+  "provenance": {
+    "author": "recut",
+    "license": "MIT",
+    "publishedAt": "2026-08-29T00:00:00Z",
+    "repository": "https://github.com/6174/recut"
+  },
+  "relations": [],
+  "world": {
+    "coverUrl": "",
+    "description": "为中文思考/情绪/认知类内容生成灰阶涂鸦漫画：小灰哥 IP + 女友小暖 + 柯基馒头 + 公寓场景体系 + 风格 DNA + 完整生产工作流，@ 一下即可产出风格一致的情绪叙事漫画。",
+    "id": "pgc.xiaohuige",
+    "identity": {
+      "audience": [
+        "做思考、情绪、认知类中文内容的创作者",
+        "内耗、敏感、深夜想太多的都市年轻人"
+      ],
+      "positioning": "思考、情绪、认知类内容的灰阶涂鸦漫画宇宙",
+      "tone": "安静、丧而温柔、自嘲、克制"
+    },
+    "name": "小灰哥情绪漫画",
+    "skillMd": "# 小灰哥情绪漫画\n\n## 核心定位\n\n为中文思考、情绪、认知类内容设计和生成灰阶涂鸦漫画。目标不是治愈系插画、表情包或动漫画，而是把一个具体的情绪瞬间或认知动作，画成一张安静、丧而温柔、可代入的涂鸦漫画。\n\n默认视觉 IP 是「小灰哥」：圆头白色小人、死鱼眼、深灰卫衣、永远挂着的白色有线耳机。配角：女友「小暖」（偶尔出场，负责温度与外部视角）、柯基「馒头」（常驻，负责当下感）。舞台：小灰哥的两室一厅与深夜城市。\n\n## 核心视觉语言\n\n- 思想泡泡 = 内心可视化；乱线团 = 情绪噪音/内耗；解线过程 = 认知转变。\n- 全图灰阶；唯一亮色只给洞见/希望/温暖的时刻。\n- 扁平纯灰背景 + 黑色粗手绘线 + 2-3 档灰度；绝不动漫画、绝不毛绒质感、绝不鸡汤大字。\n\n## 先读这些参考\n\n按任务需要读取，不要一次塞满上下文：\n\n- `references/style-dna.md`：风格 DNA、颜色、产出形式、禁忌。\n- `references/xiaohuige-ip.md`：小灰哥的形象、性格、状态库、禁忌。\n- `references/xiaonuan.md` / `references/mantu.md`：配角设定与配戏时机。\n- `references/apartment.md`：主舞台房间清单与叙事功能。\n- `references/story-arc.md`：叙事主线与三幕微结构。\n- `references/prompt-template.md`：单幅/九宫格/场景三类提示词模板。\n- `references/qa-checklist.md`：生成后检查与迭代口径。\n- `assets/character-sheet.png` 等设定图：**角色一致性的权威锚点**，生成时作为参考图传入；也是低频校准基准，不照抄构图。\n\n## 工作流\n\n### 1. 消化选题\n\n读用户给的正文、链接或主题。提炼：\n\n- 核心情绪/认知命题是什么（内耗、反刍、拖延、比较心、想明白的一瞬间…）\n- 哪个瞬间适合画成「陷入 → 觉察 → 松开一点」的三幕微结构\n- 需要单幅漫画还是一组；配角是否出场、谁出场\n\n### 2. 先出策略（shot list）\n\n用户只要分析时，先给 shot list。每张写清：\n\n- 放在哪个段落后 / 承担哪个命题\n- 核心内心戏（思想泡泡里画什么）\n- 场景与身体姿态\n- 配角使用（馒头/小暖，还是独处）\n- 是否用唯一亮色\n\n默认一篇 3-6 张；短内容 1 张即可。够用就好。\n\n### 3. 生成\n\n用户明确要求生成时，不要停下来等确认，按 `references/prompt-template.md` 每张单独生成：\n\n- **涉及角色的每一张，都必须把对应设定图作为参考图传入**（小灰哥→assets/character-sheet.png；小暖→assets/xiaonuan-grid.png；馒头→assets/corgi-mantu-grid.png），并声明参考图仅作风格与角色锚点。\n- 单幅情绪漫画 3:4；九宫格参考集 1:1；空间全景 16:9。\n- 不要复刻已有案例构图；每次从当前命题重新发明画面。\n\n### 4. 检查与迭代\n\n按 `references/qa-checklist.md` 逐项复核。重点：角色一致性、内心戏存在性、灰阶纪律、亮色纪律。不合格优先重生成，不把问题图直接交付。\n\n### 5. 交付\n\n交付说明短而准：生成了几张、每张的命题与用途、哪些最稳哪些可选。不解释风格理论，让图自己说话。\n\n## 资源口径\n\n- `assets/` 的角色设定集（primary）：生成时的**一致性锚点**，必须随参考图传入；同时是低频校准基准（头型、五官密度、线条粗细、灰度档位）。\n- `examples/` 的单幅成品（乱线团/解线灯泡）：定义情绪密度与解线画法，**不复刻构图与命题**。\n- `assets/` 的场景参考（公寓全景/卧室）；`examples/` 的街头/地铁成品兼作场景情绪参考：空间关系与细节密度参考。\n- 角色外形以「小灰哥」「小暖」「馒头」实体（含 body 全文）为准；风格以「风格 DNA」与规则实体为准。\n",
+    "type": "character_ip"
+  }
+}

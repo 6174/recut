@@ -1,0 +1,132 @@
+{
+  "version": "0.1.0",
+  "world": {
+    "id": "pgc.xiaohuige",
+    "name": "小灰哥情绪漫画",
+    "type": "character_ip",
+    "description": "为中文思考/情绪/认知类内容生成灰阶涂鸦漫画：小灰哥 IP + 女友小暖 + 柯基馒头 + 公寓场景体系 + 风格 DNA + 完整生产工作流，@ 一下即可产出风格一致的情绪叙事漫画。",
+    "identity": {
+      "positioning": "思考、情绪、认知类内容的灰阶涂鸦漫画宇宙",
+      "audience": ["做思考、情绪、认知类中文内容的创作者", "内耗、敏感、深夜想太多的都市年轻人"],
+      "tone": "安静、丧而温柔、自嘲、克制"
+    }
+  },
+  "entities": [
+    {
+      "id": "xiaohuige",
+      "kind": "character",
+      "title": "小灰哥",
+      "summary": "圆头白色小人、死鱼眼、深灰卫衣、白色有线耳机；独居都市年轻人，内耗但温柔，正在慢慢想明白。",
+      "content": {
+        "appearance": "圆头白色小人，光滑圆头无发型；小点眼，默认疲惫死鱼眼；深灰色 oversized 连帽卫衣、宽松深色长裤；永远挂着白色有线耳机，耳机线连到口袋里的手机；全灰画面中唯一纯白元素是耳机线",
+        "personality": "安静、内耗、敏感、想太多但自我觉察；丧而温柔；自嘲式冷幽默",
+        "voice": "极少台词；内心独白放在思想泡泡里；语气自嘲、平静",
+        "body": { "$file": "references/xiaohuige-ip.md" }
+      }
+    },
+    {
+      "id": "xiaonuan",
+      "kind": "character",
+      "title": "小暖",
+      "summary": "小灰哥的女朋友：圆头小丸子头、深色外套配浅色连衣裙；不常驻，偶尔来配戏，带来温度与外部视角。",
+      "content": {
+        "appearance": "与 小灰哥 同款圆头，头顶一个小圆丸子头；简单点眼，眼神比 小灰哥 更有神；深色短外套 + 浅色连衣裙 + 平底鞋；不戴耳机",
+        "personality": "温暖、明快、务实；会念叨但不唠叨；是少数能把他从乱线团里拉出来的人",
+        "voice": "台词直白生活化：'吃饭了''又躺一天？''走，出去转转'",
+        "body": { "$file": "references/xiaonuan.md" }
+      }
+    },
+    {
+      "id": "mantu",
+      "kind": "character",
+      "title": "馒头（柯基）",
+      "summary": "小灰哥的宠物柯基：短腿长身三角耳；情绪线里的'活在当下'对照组，常以身体语言接住小灰哥的丧。",
+      "content": {
+        "appearance": "极简扁平柯基：短棍腿、圆角长方身体、大三角直立耳、点眼、短线嘴、小 Stub 尾；纯黑粗线勾边 + 扁平浅灰/白填充，无毛发质感",
+        "personality": "没心没肺、当下导向；饿了吃困了睡，是小灰哥反刍思维的天然反义词",
+        "voice": "无台词；以动作叙事：歪头、叼玩具、偷吃泡面、默默坐在旁边",
+        "body": { "$file": "references/mantu.md" }
+      }
+    },
+    {
+      "id": "apartment",
+      "kind": "location",
+      "title": "小灰哥的两室一厅",
+      "summary": "城郊老小区的两室一厅：客厅、开放厨房、卧室、工作房、阳台；故事的主舞台，安静、略乱、但完整。",
+      "content": {
+        "description": "标准中国式两室一厅：中间客厅（布艺沙发+茶几+电视柜+书架），一端开放厨房（冰箱、灶台、油烟机、小餐桌），一间卧室（床、衣柜、床头柜、窗帘窗），一间小工作房（书桌、办公椅、笔记本+显示器、墙面 pinboard），一个阳台（盆栽、晾衣架、推拉玻璃门）。小灰哥大部分时间瘫在卧室床上或工作房桌前。",
+        "body": { "$file": "references/apartment.md" }
+      }
+    },
+    {
+      "id": "story-arc",
+      "kind": "story",
+      "title": "慢慢想明白",
+      "summary": "叙事主线：每一篇漫画是小灰哥与一个具体情绪/认知命题的一次交手，从乱线团到一点点解开；不追求治愈完结，只追求诚实的进度条。",
+      "content": {
+        "premise": "小灰哥是每个都市年轻人的镜子：同样会内耗、反刍、深夜 emo、自我怀疑，但每次都试着把脑子里的乱线团解开一点点。女友小暖与柯基馒头是他的两根外部锚点——一个提供人的温度，一个提供狗的当下感。",
+        "body": { "$file": "references/story-arc.md" }
+      }
+    },
+    {
+      "id": "style-dna",
+      "kind": "style",
+      "title": "风格 DNA",
+      "summary": "扁平灰底、黑色粗手绘线、极简灰阶、思想泡泡与乱线团语言；丧但干净，绝不精致动漫画。",
+      "content": {
+        "kind": "visual",
+        "guidance": "扁平纯灰背景（无纸纹/渐变/阴影）；黑色粗线轻微抖动；角色扁平灰阶填充；一图一情绪/一认知动作；唯一亮色只给洞见/希望；禁止毛绒质感与精致动漫画",
+        "body": { "$file": "references/style-dna.md" }
+      }
+    },
+    {
+      "id": "rule-format",
+      "kind": "rule",
+      "title": "画幅与产出形式",
+      "content": { "type": "always", "text": "单幅情绪漫画 3:4 竖版；角色/表情/姿态参考集 1:1 九宫格（3x3、不画面板边框）；公寓全景 16:9；每张单独生成，不把多张内容图拼在一张里" }
+    },
+    {
+      "id": "rule-inner-voice",
+      "kind": "rule",
+      "title": "内心可视化语言",
+      "content": { "type": "always", "text": "内心活动必须画在思想泡泡里；乱线团 = 情绪噪音/内耗；从乱到清的解线过程 = 认知转变；去掉思想泡泡后画面若失去内心戏即不合格" }
+    },
+    {
+      "id": "rule-no-cute",
+      "kind": "rule",
+      "title": "禁止吉祥物感",
+      "content": { "type": "never", "text": "不要可爱吉祥物海报、儿童卡通、日系动漫画风、商业插画、毛绒质感、精致阴影渐变、鸡汤励志大字、表情包式夸张五官；不要给小灰哥加头发" }
+    },
+    {
+      "id": "rule-color",
+      "kind": "rule",
+      "title": "全灰 + 唯一亮色",
+      "content": { "type": "prefer", "text": "整图灰阶；唯一允许的彩色是一处微小暖色（灯泡光、远处一扇亮窗、一点烛光），只用于洞见/希望/温度的时刻；宁可不用也不用多" }
+    }
+  ],
+  "evidence": [
+    { "entityId": "xiaohuige", "url": "assets/character-sheet.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "角色设定集（主参考）" },
+    { "entityId": "xiaohuige", "url": "assets/expression-grid.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "九宫表情集" },
+    { "entityId": "xiaohuige", "url": "assets/pose-grid.png", "modality": "image", "purpose": "appearance", "status": "supporting", "collection": "角色设定", "label": "九宫姿态集" },
+    { "entityId": "xiaohuige", "url": "assets/object-interaction-grid.png", "modality": "image", "purpose": "motion", "status": "supporting", "collection": "角色设定", "label": "日常物件互动集" },
+    { "entityId": "xiaohuige", "url": "examples/overthinking-scribble.png", "modality": "image", "purpose": "mood", "status": "primary", "collection": "输出范例", "label": "乱线团 = 内耗（单幅成品）" },
+    { "entityId": "xiaohuige", "url": "examples/clarity-bulb.png", "modality": "image", "purpose": "mood", "status": "primary", "collection": "输出范例", "label": "从乱到清 + 唯一亮色（单幅成品）" },
+    { "entityId": "apartment", "url": "assets/apartment-panorama.png", "modality": "image", "purpose": "scene", "status": "primary", "collection": "场景设定", "label": "两室一厅全景（参考）" },
+    { "entityId": "apartment", "url": "assets/bedroom.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "场景设定", "label": "卧室（参考）" },
+    { "entityId": "xiaohuige", "url": "examples/street-night.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "深夜街头（单幅成品）" },
+    { "entityId": "xiaohuige", "url": "examples/scene-subway-caption.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "末班地铁（移动端成品·带文字）" },
+    { "entityId": "xiaohuige", "url": "examples/scene-insomnia.png", "modality": "image", "purpose": "mood", "status": "primary", "collection": "输出范例", "label": "失眠反刍（移动端成品·带文字）" },
+    { "entityId": "xiaohuige", "url": "examples/scene-sunday-evening.png", "modality": "image", "purpose": "mood", "status": "supporting", "collection": "输出范例", "label": "周日傍晚焦虑（移动端成品·带文字）" },
+    { "entityId": "xiaohuige", "url": "examples/scene-fridge-midnight.png", "modality": "image", "purpose": "mood", "status": "supporting", "collection": "输出范例", "label": "深夜冰箱发呆（移动端成品·带文字）" },
+    { "entityId": "xiaohuige", "url": "examples/scene-fear-of-starting.png", "modality": "image", "purpose": "mood", "status": "supporting", "collection": "输出范例", "label": "怕开始·解线见灯泡（移动端成品·带文字）" },
+    { "entityId": "mantu", "url": "examples/scene-corgi-company.png", "modality": "image", "purpose": "mood", "status": "supporting", "collection": "输出范例", "label": "馒头陪坐（移动端成品·带文字）" },
+    { "entityId": "xiaonuan", "url": "assets/xiaonuan-grid.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "小暖九宫配戏集（参考）" },
+    { "entityId": "mantu", "url": "assets/corgi-mantu-grid.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "馒头九宫动作集（参考）" }
+  ],
+  "provenance": {
+    "author": "recut",
+    "license": "MIT",
+    "repository": "https://github.com/6174/recut",
+    "publishedAt": "2026-08-29T00:00:00Z"
+  }
+}

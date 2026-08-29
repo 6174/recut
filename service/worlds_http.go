@@ -24,6 +24,12 @@ func (s *Server) worldsStore() *WorldStore {
 }
 
 func (s *Server) listWorlds(w http.ResponseWriter, r *http.Request) {
+	// UI opened the worlds page: opportunistically refresh the platform
+	// catalog in the background (throttled + single-flight) so newly
+	// published entries appear without waiting for the 24h ticker.
+	if s.worldCatalog != nil {
+		s.worldCatalog.Touch()
+	}
 	input := ListWorldsInput{Text: r.URL.Query().Get("text"), Type: WorldKind(r.URL.Query().Get("type")), Cursor: r.URL.Query().Get("cursor")}
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		input.Limit, _ = strconv.Atoi(raw)
@@ -138,6 +144,10 @@ func (s *Server) getWorldsCatalog(w http.ResponseWriter, r *http.Request) {
 	if syncer == nil {
 		// No daemon-owned syncer (tests / App-side servers): resolve on demand.
 		syncer = NewWorldCatalogSyncer(s.store.root, s.worldsStore())
+	} else {
+		// Same double-guarantee as listWorlds: keep the cached catalog fresh
+		// whenever a client reads it, without blocking the response.
+		syncer.Touch()
 	}
 	catalog := syncer.CachedCatalog()
 	if catalog == nil {

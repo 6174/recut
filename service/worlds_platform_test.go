@@ -245,6 +245,40 @@ func catalogEntry(id, kind, version, sha string, status string, base string) map
 	return map[string]any{"id": id, "kind": kind, "publisher": "recut", "version": version, "manifestUrl": base + "/" + id + "/world.json", "sha256": sha, "status": status, "order": 1}
 }
 
+func TestMaterializeNamespacesEntityIDsAcrossWorlds(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	// 两个平台世界使用相同的通用实体/关系 ID：全局主键下必须互不碰撞。
+	manifest := testManifest("pgc.one", "")
+	manifest["relations"] = []any{
+		map[string]any{"id": "rel-main", "type": "uses", "from": "hero", "to": "rule-16-9"},
+	}
+	materializeTest(t, worlds, "pgc.one", manifest)
+	other := testManifest("pgc.two", "")
+	other["relations"] = []any{
+		map[string]any{"id": "rel-main", "type": "uses", "from": "hero", "to": "rule-16-9"},
+	}
+	materializeTest(t, worlds, "pgc.two", other)
+	for _, id := range []string{"pgc.one", "pgc.two"} {
+		entities, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entities) != 2 {
+			t.Fatalf("%s entities = %d, want 2", id, len(entities))
+		}
+		brief, err := worlds.Brief(BriefInput{WorldID: id})
+		if err != nil {
+			t.Fatalf("%s brief: %v", id, err)
+		}
+		if len(brief.Facts.Characters) != 1 || brief.Facts.Characters[0]["body"] != "full body doc" {
+			t.Fatalf("%s character facts drifted: %#v", id, brief.Facts.Characters)
+		}
+	}
+	// 同一世界内容更新（全量替换含归档行）依然幂等推进。
+	updated := testManifest("pgc.one", "v2")
+	materializeTest(t, worlds, "pgc.one", updated)
+}
+
 func TestCatalogSyncerMaterializesSkipsPublishedAndArchivesDelisted(t *testing.T) {
 	worlds, store, _ := newTestWorldStore(t)
 	active := marshalManifest(t, testManifest("pgc.sync", "synced"))
