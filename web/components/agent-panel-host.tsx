@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Next 路径、marketing-site / marketing-apps 公开页面、service-store 的 endpoint/连接阶段、agent-panel-context 的全局 projectID/草稿/Work Surface/Focus、固定 Header 与 ProjectAgentPanel
- * [OUTPUT]: 对外提供根布局挂载的全局 Host 路由边界与工作台壳：SSR 与浏览器 Host 未确认时透明输出页面 children；Marketing Host 在客户端按路径渲染逐语言官网 Home / Apps / App 详情 / Docs / Blog / 文章或 404（locale 从 /zh 前缀解析），绝不挂载工作台页面；App Host 才渲染固定桌面 Agent 壳，左右两栏与拖动手柄共同读取 `--side-panel-width`
+ * [OUTPUT]: 对外提供根布局挂载的全局 Host 路由边界与工作台壳：SSR 与浏览器 Host 未确认时透明输出页面 children；Marketing Host 在客户端按路径渲染逐语言官网 Home / Apps / App 详情 / Docs / Blog / 文章或 404（locale 从 /zh 前缀解析），绝不挂载工作台页面；App Host 才渲染固定桌面 Agent 壳（所有工作台页面含 /worlds 默认带全局 chat 左栏），左右两栏与拖动手柄共同读取 `--side-panel-width`
  * [POS]: components 的域名级路由边界与工作台全局壳；所有正常 App Host 路由共享一个 Agent 面板，同时把当前工作面原样传入
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -55,7 +55,7 @@ export function AgentPanelHost({ apps, children, docs, posts }: Readonly<{ apps:
 }
 
 function isPublicSitePath(pathname: string | null) {
-  return pathname === "/marketing" || pathname?.startsWith("/marketing/") || pathname === "/docs" || pathname?.startsWith("/docs/") || pathname === "/blog" || pathname?.startsWith("/blog/") || pathname === "/worlds" || pathname?.startsWith("/worlds/");
+  return pathname === "/marketing" || pathname?.startsWith("/marketing/") || pathname === "/docs" || pathname?.startsWith("/docs/") || pathname === "/blog" || pathname?.startsWith("/blog/");
 }
 
 // 营销 Host 客户端路由：浏览器 URL（无前缀 en / /zh/ 前缀 zh）与 Next 客户端路由树

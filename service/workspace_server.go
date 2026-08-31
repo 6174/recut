@@ -62,5 +62,14 @@ func localWorkspaceAssetPath(requestPath string) string {
 
 func localWorkspaceDynamicRoute(requestPath, prefix string) bool {
 	segment := strings.TrimPrefix(requestPath, prefix)
-	return segment != requestPath && segment != "" && !strings.Contains(segment, "/")
+	if segment == requestPath || segment == "" || strings.Contains(segment, "/") {
+		return false
+	}
+	// Next 16 segment cache fetches RSC payloads as real files like
+	// /worlds/__next.worlds.txt; serving the app shell HTML for them makes the
+	// client router fall back to full page navigations.
+	if strings.HasPrefix(segment, "__next.") || strings.HasSuffix(segment, ".txt") {
+		return false
+	}
+	return true
 }

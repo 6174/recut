@@ -50,6 +50,14 @@ import { settingSections, SettingDialog } from "./world-detail-settings";
 import { WorldOnboardingCard } from "./world-onboarding";
 import { Workspace } from "../../page";
 
+function worldIDFromLocation(routeID: string | undefined) {
+  const queryID = new URLSearchParams(window.location.search).get("id");
+  if (queryID) return queryID;
+  // /worlds/app fallback is static export shell, real id stays in the URL path
+  const match = window.location.pathname.match(/^\/worlds\/([^/]+)\/?$/);
+  return match?.[1] === "app" ? (routeID === "app" ? null : routeID) ?? null : match?.[1] ?? null;
+}
+
 export default function WorldDetailClient() {
   return (
     <Workspace appDetail={() => <WorldDetailContent />} contentTab="worlds" />
@@ -107,11 +115,8 @@ function WorldDetailContent() {
   }, [activeKind, detail, editing, worldID]);
   const params = useParams<{ worldID?: string }>();
   useEffect(() => {
+    setWorldID(worldIDFromLocation(params.worldID));
     const query = new URLSearchParams(window.location.search);
-    const paramID = params.worldID && params.worldID !== "app" ? params.worldID : null;
-    const queryID = query.get("id");
-    // /worlds/app fallback is static export shell, real id stays in query
-    setWorldID(paramID ?? queryID);
     setScenario((query.get("scenario") as WorldScenario | null) ?? null);
   }, [params.worldID]);
   useEffect(() => {

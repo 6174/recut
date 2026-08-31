@@ -140,22 +140,26 @@ export default {
     // App Host：工作台；官网语义路径显式 404，Deep-link 映射到唯一静态壳后仍保留真实 URL。
     if (appHosts.has(host)) {
       if (url.pathname === "/docs" || url.pathname.startsWith("/docs/") || url.pathname === "/blog" || url.pathname.startsWith("/blog/") || url.pathname === "/marketing" || url.pathname.startsWith("/marketing/")) return new Response("Not Found", { status: 404 });
+      // Next 16 segment cache fetches RSC payloads as real files like
+      // /worlds/__next.worlds.txt; they must reach ASSETS untouched, or the
+      // router receives HTML and falls back to full page navigations.
+      const isRSCSegment = (segment: string) => segment.startsWith("__next.") || segment.endsWith(".txt");
       const worldMatch = url.pathname.match(/^\/worlds\/([^/]+)\/?$/);
-      if (worldMatch && worldMatch[1] !== "app") {
+      if (worldMatch && worldMatch[1] !== "app" && !isRSCSegment(worldMatch[1])) {
         // Static export only materializes /worlds/app/. Preserve the real World
         // id in the visible URL while serving the one generated route shell.
         const shell = new URL("/worlds/app/", url);
         return env.ASSETS.fetch(new Request(shell, request));
       }
       const projectMatch = url.pathname.match(/^\/projects\/([^/]+)\/?$/);
-      if (projectMatch && projectMatch[1] !== "app") {
+      if (projectMatch && projectMatch[1] !== "app" && !isRSCSegment(projectMatch[1])) {
         // Static export only materializes /projects/app/. Serve that asset
         // internally while leaving the real project URL in the browser bar.
         const shell = new URL("/projects/app/", url);
         return env.ASSETS.fetch(new Request(shell, request));
       }
       const appMatch = url.pathname.match(/^\/apps\/([^/]+)\/?$/);
-      if (appMatch && appMatch[1] !== "app") {
+      if (appMatch && appMatch[1] !== "app" && !isRSCSegment(appMatch[1])) {
         // Static export only materializes /apps/app/. Preserve the semantic App
         // id in the visible URL while serving the one generated route shell.
         const shell = new URL("/apps/app/", url);
