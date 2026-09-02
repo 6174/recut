@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖构建时的工作台模式、默认 Daemon 端口与浏览器地址，以及 i18n 的 locale 真相（Accept-Language 传递）
- * [OUTPUT]: 对外提供 service endpoint 的默认值、工作台模式、格式校验、短请求隔离的事件流地址能力、统一请求头与 JSON 包装
+ * [OUTPUT]: 对外提供 service endpoint 的默认值、工作台模式、格式校验、短请求隔离的事件流地址能力、统一请求头与 JSON 包装（204 等空 body 成功响应返回 null）
  * [POS]: web/lib 的 service 连接配置边界；嵌入模式固定同源，LAN 开发模式使用当前主机的 service 端口，Cloudflare 模式可持久化本地或远程 service；recutHeaders/fetchRecutJSON 为全部 /v1 请求附加 Accept-Language
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -41,14 +41,17 @@ export type RecutRequestOptions = {
   messageKey?: string;
 };
 
-// 轻量 JSON 包装：自动附加 Accept-Language，禁用缓存；失败时本地化消息并保留服务端原因。
+// 轻量 JSON 包装：自动附加 Accept-Language，禁用缓存；失败时本地化消息并保留服务端原因。204 等空 body 的成功响应返回 null。
 export async function fetchRecutJSON<T>(endpoint: string, path: string, init?: RequestInit, options?: RecutRequestOptions): Promise<T> {
   const response = await fetch(`${endpoint}${path}`, {
     cache: "no-store",
     ...init,
     headers: { ...recutHeaders(), ...(init?.headers ?? {}) },
   });
-  if (response.ok) return response.json() as Promise<T>;
+  if (response.ok) {
+    const text = await response.text();
+    return (text ? JSON.parse(text) : null) as T;
+  }
   const locale = useLocaleStore.getState().locale;
   const body = await response.json().catch(() => ({})) as { error?: string };
   const reason = body.error ?? response.statusText ?? t("workspace", locale, "store.noReason");

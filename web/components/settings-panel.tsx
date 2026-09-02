@@ -1,12 +1,12 @@
 /*
- * [INPUT]: 依赖 service endpoint 配置、Recut Skill 状态、media-configuration-store 的 Provider/Credential/Route 快照、工作台 UI 原子组件、i18n 字典与 /v1/preferences 语言偏好持久化
- * [OUTPUT]: 对外提供全局设置面板，以及通用设置（界面语言）、本机/LAN service 连接、Recut Skill 软链接、Recut MCP 工具清单、Provider 连接/删除和用途模型配置体验；连接 Provider 走二级弹框，只列出需要密钥的服务商，Audio Studio 本机 TTS 作为语音生成的免密钥特殊选项直接出现在用途模型里；只展示已可用的设置项，加载完成前保留明确等待态，图片用途可选择无需密钥的 Codex 原生生图，表单字段均有可见标签
+ * [INPUT]: 依赖 service endpoint 配置、Recut Skill 状态、media-configuration-store 的 Provider/Credential/Route 快照、工作台 UI 原子组件（含 CustomSelect 全局下拉）、i18n 字典与 /v1/preferences 语言偏好持久化
+ * [OUTPUT]: 对外提供全局设置面板，以及通用设置（界面语言）、本机/LAN service 连接、Recut Skill 软链接、Recut MCP 工具清单、Provider 连接/删除和用途模型配置体验；连接 Provider 走二级弹框，只列出需要密钥的服务商，Audio Studio 本机 TTS 作为语音生成的免密钥特殊选项直接出现在用途模型里；只展示已可用的设置项，加载完成前保留明确等待态，图片用途可选择无需密钥的 Codex 原生生图，表单字段均有可见标签，服务商与用途模型下拉统一复用 CustomSelect（Radix Popover Portal，避免重叠/裁剪）
  * [POS]: web/components 的工作台级设置入口；通用偏好（语言）、service 地址、Recut Skill、Provider、Codex 原生图片与用途模型的唯一用户配置界面，不暴露尚未实现的应用管理入口，API Key 草稿不外泄到全局缓存；打开时从 /v1/preferences 载入语言偏好
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { Check, ChevronDown, Copy, Image, Link2, Mic2, Plug, Plus, Server, Settings, SlidersHorizontal, Sparkles, Trash2, Video, X } from "lucide-react";
+import { Check, Copy, Image, Link2, Mic2, Plug, Plus, Server, Settings, SlidersHorizontal, Sparkles, Trash2, Video, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import { RecutMCPSettings } from "@/components/recut-mcp-settings";
 import { RecutSkillSettings } from "@/components/recut-skill-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CustomSelect } from "@/components/ui/select-field";
 import { useI18n, type Locale } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 import { useLocaleStore } from "@/lib/i18n/locale-store";
@@ -197,17 +198,15 @@ function ProviderConnectDialog({ apiBaseValue, apiKey, name, onCancel, onProvide
 
 function ProviderPicker({ onChoose, providers, selectedID }: { onChoose: (id: string) => void; providers: Provider[]; selectedID: string }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
   const selectableProviders = providers.filter((item) => item.id !== codexImageProvider.id && item.id !== localAudioProviderId);
-  const selected = selectableProviders.find((item) => item.id === selectedID);
-  return <div className="relative mt-2"><button aria-expanded={open} className="flex h-10 w-full items-center justify-between border bg-background px-3 text-left text-xs hover:bg-muted" onClick={() => setOpen((value) => !value)} type="button"><span>{selected?.name ?? t("settings.provider.form.choose")}</span><ChevronDown className="size-3.5 text-muted-foreground" /></button>{open && <div className="absolute z-30 mt-1 w-full border bg-popover p-1 shadow-xl">{selectableProviders.map((provider) => { const info = providerInfo(t, provider.id); return <button className={`block w-full px-3 py-2.5 text-left hover:bg-muted ${provider.id === selectedID ? "bg-accent" : ""}`} key={provider.id} onClick={() => { onChoose(provider.id); setOpen(false); }} type="button"><span className="flex items-center justify-between text-xs font-medium">{provider.name}{provider.id === selectedID && <Check className="size-3.5 text-primary" />}</span><span className="mt-1 block text-[11px] leading-4 text-muted-foreground">{info.use}</span></button>; })}</div>}</div>;
+  return <div className="mt-2"><CustomSelect id="provider-picker" onChange={onChoose} options={selectableProviders.map((provider) => ({ label: provider.name, value: provider.id, description: providerInfo(t, provider.id).use }))} value={selectedID} /></div>;
 }
 
 function ModelRouteCard({ capability, models, onChoose, onConnect, providerName, selectedID }: { capability: (typeof capabilities)[number]; models: Model[]; onChoose: (capability: string, modelID: string) => void; onConnect: (provider?: string) => void; providerName: (id: string) => string; selectedID?: string }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false); const selected = models.find((model) => model.id === selectedID); const Icon = capability.icon;
+  const Icon = capability.icon;
   const label = t(capability.labelKey);
   function modelTitle(model: Model) { return model.provider === localAudioProviderId ? t("settings.route.local.title") : model.name; }
   function modelSubtitle(model: Model) { return model.provider === localAudioProviderId ? t("settings.route.local.desc") : `${providerName(model.provider)} · ${label}`; }
-  return <article className="grid gap-4 border bg-card p-4 md:grid-cols-[210px_minmax(0,1fr)]"><div><div className="flex items-center gap-2"><span className="grid size-7 place-items-center border bg-muted/40"><Icon className="size-3.5" /></span><p className="text-xs font-medium">{label}</p></div><p className="mt-2 text-[11px] leading-4 text-muted-foreground">{t(capability.descriptionKey)}</p></div><div className="relative">{models.length ? <><button aria-expanded={open} className="flex min-h-12 w-full items-center justify-between border bg-background px-3 text-left hover:bg-muted" onClick={() => setOpen((value) => !value)} type="button"><span><span className="block text-xs font-medium">{selected ? modelTitle(selected) : t("settings.model.choose")}</span><span className="mt-1 block text-[10px] text-muted-foreground">{selected ? modelSubtitle(selected) : t("settings.model.prompt")}</span></span><ChevronDown className="size-3.5 text-muted-foreground" /></button>{open && <div className="absolute z-20 mt-1 w-full border bg-popover p-1 shadow-xl">{models.map((model) => <button className={`block w-full px-3 py-2.5 text-left hover:bg-muted ${model.id === selectedID ? "bg-accent" : ""}`} key={model.id} onClick={() => { void onChoose(capability.id, model.id); setOpen(false); }} type="button"><span className="flex items-center justify-between text-xs font-medium">{modelTitle(model)}{model.id === selectedID && <Check className="size-3.5 text-primary" />}</span><span className="mt-1 block text-[10px] text-muted-foreground">{modelSubtitle(model)}</span></button>)}</div>}</> : <div className="flex min-h-12 items-center justify-between border border-dashed px-3"><span className="text-xs text-muted-foreground">{interpolate(t("settings.model.empty"), { capability: label })}</span><Button onClick={() => onConnect(capability.id === "speech.generate" ? "elevenlabs" : undefined)} type="button" variant="outline">{t("settings.model.connect")}</Button></div>}</div></article>;
+  return <article className="grid gap-4 border bg-card p-4 md:grid-cols-[210px_minmax(0,1fr)]"><div><div className="flex items-center gap-2"><span className="grid size-7 place-items-center border bg-muted/40"><Icon className="size-3.5" /></span><p className="text-xs font-medium">{label}</p></div><p className="mt-2 text-[11px] leading-4 text-muted-foreground">{t(capability.descriptionKey)}</p></div><div>{models.length ? <CustomSelect id={`model-route-${capability.id}`} onChange={(modelID) => void onChoose(capability.id, modelID)} options={models.map((model) => ({ label: modelTitle(model), value: model.id, description: modelSubtitle(model) }))} value={selectedID ?? ""} /> : <div className="flex min-h-12 items-center justify-between border border-dashed px-3"><span className="text-xs text-muted-foreground">{interpolate(t("settings.model.empty"), { capability: label })}</span><Button onClick={() => onConnect(capability.id === "speech.generate" ? "elevenlabs" : undefined)} type="button" variant="outline">{t("settings.model.connect")}</Button></div>}</div></article>;
 }

@@ -1,0 +1,113 @@
+{
+  "version": "0.2.0",
+  "world": {
+    "id": "pgc.xiaomo",
+    "name": "墨咖啡工作室（阿墨的墨色日常）",
+    "type": "character_ip",
+    "description": "为网站配图、产品介绍与功能演示视频生成风格一致的手绘单色丝网版画风网页插画：墨咖啡工作室角色体系——阿墨（松弛主理人）、豆豆（着急搭档）、小点（萌新实习生）、炭炭（黑猫），置身奶油纸底 + 炭黑蜡笔笔触 + 印刷颗粒的世界。@ 一下即可产出风格一致的网页插画关键帧。",
+    "identity": {
+      "positioning": "手绘单色版画 × 网页插画的墨咖啡工作室宇宙",
+      "audience": ["做产品官网/SaaS 落地页的设计师与开发者", "做产品介绍/功能演示视频的创作者"],
+      "tone": "松弛、幽默、手绘纸感、一点自嘲"
+    }
+  },
+  "entities": [
+    {
+      "id": "xiaomo",
+      "kind": "character",
+      "title": "阿墨",
+      "summary": "松弛系主理人：乱翘黑色丸子头、大圆脸眯眯眼「w」弧线、整块黑色剪影身躯；一手端着冒蒸汽墨云的咖啡，一手比 OK——口头禅「都行，先喝口咖啡」。",
+      "content": {
+        "appearance": "乱翘黑色丸子头（发丝飞出、黑发内部涂抹排线露白）、大圆脸纸底色、细弯眉 + 眯眯眼「w」形弧线、耳廓一个「e」形小卷；身躯为整块纯黑剪影（无衣纹）；手是纸底色块从黑色身躯中抠出，指尖圆润；标配冒大块波浪蒸汽墨云的马克杯",
+        "personality": "松弛、随性、手上有活、心里不慌；deadline 和 bug 都难不倒他——先喝一口咖啡再说",
+        "voice": "短句、口语、冷幽默；常用「都行」「问题不大」「先喝口咖啡」收尾",
+        "body": { "$file": "references/xiaomo-ip.md" }
+      }
+    },
+    {
+      "id": "cast",
+      "kind": "character",
+      "title": "墨咖啡工作室全员（豆豆/小点/炭炭）",
+      "summary": "阿墨的搭档体系：豆豆——打圈卷发+圆框眼镜+斑马网点灰条衣的着急担当；小点——密点圆寸+oversized 黑卫衣的萌新担当；炭炭——纯黑涂抹剪影猫，气氛与事故担当。",
+      "content": {
+        "appearance": "豆豆：短卷发打圈笔触、圆框眼镜两个圈、网点灰斑马横条衣、身旁常伴粗笔感叹号。小点：最矮、圆寸头密点笔触、腮红两个网点灰圆、oversized 黑卫衣只露两只圆手、身旁常伴问号。炭炭：一团黑色椭圆剪影猫、通体涂抹笔触、仅眯眯眼与竖起粗尾巴是纸底色、耳朵两个小三角",
+        "personality": "豆豆充满干劲负责着急，小点什么都不懂什么都想试，炭炭睡在路由器上并兼职一切小事故的元凶",
+        "voice": "豆豆语速快爱喊 deadline；小点提问「这是什么？」；炭炭只「喵」",
+        "body": { "$file": "references/xiaomo-ip.md" }
+      }
+    },
+    {
+      "id": "style-dna",
+      "kind": "style",
+      "title": "风格 DNA",
+      "summary": "奶油纸底 + 炭黑两阶 + halftone 网点灰；最高优先级是蜡笔/软炭笔的手绘笔触：飞白断墨、短笔触叠加、涂抹排线、涂出界；保留丝网印刷颗粒与套印偏移，禁止矢量匀线。",
+      "content": {
+        "kind": "visual",
+        "guidance": "米黄/奶油纸色为底（#F0E4C8 附近），全部图形只用炭黑油墨与纸底两阶表达；灰色仅以细密网点 halftone 出现；笔触是最高优先级——蜡笔/软炭笔在糙纸上的摩擦痕迹，线条由多段短笔触叠成、接头深浅重叠，大面积黑色用来回涂抹排线与打圈笔触填出并保留露白点，偶尔溢出轮廓像涂出界；保留纸张纤维、油墨不匀与轻微套印偏移；画面四周纸色留白",
+        "body": { "$file": "references/style-dna.md" }
+      }
+    },
+    {
+      "id": "layout-modes",
+      "kind": "style",
+      "title": "版式双模式",
+      "summary": "模式 A 贴纸涂鸦（手绘涂鸦感 + 手写短句落款）与模式 B 海报版式（气泡体大标题 + 干净细线插画 + 底部信息栏）；视频关键帧/网页大图用 B，氛围点缀用 A。",
+      "content": {
+        "kind": "visual",
+        "guidance": "模式 A：纯手绘涂鸦感、蒸汽墨云与点缀符号丰富、底部两行手写短句。模式 B：顶部粗壮气泡体大标题 + 左右副标、中部干净细线插画、底部特粗大写标语 + 小号说明文 + 左右落款；两种模式共用同一角色外形与纸底墨色",
+        "body": { "$file": "references/layout-modes.md" }
+      }
+    },
+    {
+      "id": "scene-system",
+      "kind": "location",
+      "title": "墨咖啡工作室场景体系",
+      "summary": "全员共用的工作台舞台：咖啡角、屏幕前、便签墙、绿植角落、深夜加班、部署成功；群像以工作台横线为共同地平线，每个角色有固定功能位。",
+      "content": {
+        "description": "场景围绕工作室与桌面展开：马克杯、手冲壶、笔记本电脑、便签墙、路由器上的猫、大叶绿植剪影；群像组合场景（发布日/断网之夜/手冲事故/全员摸鱼）按角色叙事分工编排；产品化场景含 hero、功能演示、对比图、新手引导。",
+        "body": { "$file": "references/scene-system.md" }
+      }
+    },
+    {
+      "id": "story-arc",
+      "kind": "story",
+      "title": "问题不大，先喝口咖啡",
+      "summary": "叙事主线：豆豆/小点/炭炭发起小岔子，阿墨用三拍节奏化解——遇事 → 喝一口 → 问题不大；角色分工明确：豆豆着急、小点提问、炭炭闯祸、阿墨松弛。",
+      "content": {
+        "premise": "墨咖啡工作室里事情总会出小岔子，但阿墨从不慌：抿一口咖啡，敲两下键盘，弹出一片星星。产品替他解决问题，他负责示范怎么松弛地把事做完。",
+        "body": { "$file": "references/story-arc.md" }
+      }
+    },
+    {
+      "id": "rule-format",
+      "kind": "rule",
+      "title": "产出形式",
+      "content": { "type": "always", "text": "网站配图/横幅 16:9 或 1:1；产品介绍视频关键帧 16:9；IP-system 角色体系总图与表情集 1:1；每张单独生成，不拼图（总图/九宫格除外）；网页插画需预留四边留白" }
+    },
+    {
+      "id": "rule-mono",
+      "kind": "rule",
+      "title": "单色与笔触纪律",
+      "content": { "type": "always", "text": "全图只用黑墨 + 纸底两阶，灰色只允许以 halftone 网点出现；笔触必须有蜡笔/软炭的飞白断墨、短笔触叠加与涂抹排线，禁止矢量匀线与光滑描边；多人同图时必须把 IP-system 总图作为参考图传入，并靠发型笔触语言区分角色" }
+    },
+    {
+      "id": "rule-no-anti-style",
+      "kind": "rule",
+      "title": "禁止精致化",
+      "content": { "type": "never", "text": "不要多彩色、不要厚涂/3D 渲染/赛博感；不要精细勾勒的衣纹与手指关节；不要瞳孔；背景不要写实照片质感；不要鸡汤大字标语压在画面上" }
+    }
+  ],
+  "evidence": [
+    { "entityId": "xiaomo", "url": "assets/character-sheet.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "阿墨表情九宫格（主参考）" },
+    { "entityId": "cast", "url": "assets/ip-system.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "IP-system 全员角色体系总图（主参考）" },
+    { "entityId": "style-dna", "url": "examples/web-hero-coffee.png", "modality": "image", "purpose": "visual_style", "status": "primary", "collection": "输出范例", "label": "模式 A 贴纸涂鸦范例（1:1）" },
+    { "entityId": "layout-modes", "url": "examples/product-poster.png", "modality": "image", "purpose": "visual_style", "status": "primary", "collection": "输出范例", "label": "模式 B 海报版式范例" },
+    { "entityId": "scene-system", "url": "examples/studio-group.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "工作室群像组合场景范例（16:9）" }
+  ],
+  "provenance": {
+    "author": "chenxuejia",
+    "license": "MIT",
+    "repository": "https://github.com/6174/recut",
+    "publishedAt": "2026-09-02T00:00:00Z"
+  }
+}
