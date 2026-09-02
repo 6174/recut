@@ -1,0 +1,88 @@
+{
+  "version": "0.1.0",
+  "world": {
+    "id": "pgc.xiaochai",
+    "name": "小柴的暖夜手记",
+    "type": "character_ip",
+    "description": "为中文独处/生活观察/心理陪伴类内容生成风格一致的 9:16 插画短片：经典火柴人小柴置身暖褐色手绘氛围场景（烛光/台灯/深夜室内）+ 风格 DNA + 视频生产工作流，@ 一下即可产出风格一致的暖夜短片关键帧。",
+    "identity": {
+      "positioning": "暖调手绘插画 × 火柴人的 9:16 情绪短片宇宙",
+      "audience": ["做心理/情绪/生活哲学类短视频的创作者", "深夜陪伴类内容创作者"],
+      "tone": "安静、温润、认真、一点怀旧"
+    }
+  },
+  "entities": [
+    {
+      "id": "xiaochai",
+      "kind": "character",
+      "title": "小柴",
+      "summary": "经典黑色火柴人：纯黑线条圆头、火柴身躯；认真而安静地摆弄物件，全部情绪靠头部的眼睛与眉毛表达。",
+      "content": {
+        "appearance": "黑色粗细均匀的圆圈头（内部留纸面底色），短弧线嘴或无嘴；两点眼+短眉（情绪全靠这两组）；躯干一条微弯黑线，胳膊腿均为黑线、肘膝可弯；脚是两个小黑短横或圆点",
+        "personality": "认真、安静、韧性强；停电了就点蜡烛，天冷了就修收音机——他是把自己照顾好的那种人",
+        "voice": "极少台词；情绪全部通过眼神方向、眉毛角度和手的动作传递",
+        "body": { "$file": "references/xiaochai-ip.md" }
+      }
+    },
+    {
+      "id": "style-dna",
+      "kind": "style",
+      "title": "风格 DNA",
+      "summary": "深褐近黑的暖夜底色 + 手绘插画质感 + 单一暖光源（烛光/台灯/油灯）；火柴人与物件都是黑线绘制，光晕柔和晕染，情绪克制温润。",
+      "content": {
+        "kind": "visual",
+        "guidance": "整体深褐/焦糖/暗琥珀色域，画面四周压暗成 vignette；唯一暖光源居中偏下照亮小柴与手边物件，光晕柔和渐隐；小柴为黑色线稿（头内留底色），物件写实但手绘质感；一图一光源一情绪",
+        "body": { "$file": "references/style-dna.md" }
+      }
+    },
+    {
+      "id": "scene-system",
+      "kind": "location",
+      "title": "暖夜场景体系",
+      "summary": "小柴的暖夜世界：烛光桌前、停电的客厅、深夜厨房、窗边雨夜、阁楼工作台；统一公式「一个暖光源 + 一件被认真对待的小事」。",
+      "content": {
+        "description": "室内为主的老房子空间：木桌木地板、旧家具剪影沉在暗部；光源决定氛围（蜡烛=停电的镇定，台灯=深夜的专注，油灯=旧时光）；物件是小柴的配角——蜡烛、火柴、手电、收音机、电池、茶杯。",
+        "body": { "$file": "references/scene-system.md" }
+      }
+    },
+    {
+      "id": "story-arc",
+      "kind": "story",
+      "title": "把一件小事做好",
+      "summary": "叙事主线：每支短片是小柴在暗处认真做好一件小事——点灯、修物、泡茶、等天亮；不安慰谁，只示范怎么把日子过下去。",
+      "content": {
+        "premise": "小柴的世界常常停电、常常夜深，但他从不慌：划一根火柴、换一节电池、把光调到刚刚好。物件替他说话，光晕替他拥抱。",
+        "body": { "$file": "references/story-arc.md" }
+      }
+    },
+    {
+      "id": "rule-format",
+      "kind": "rule",
+      "title": "视频产出形式",
+      "content": { "type": "always", "text": "主产出为 9:16 竖屏插画短片 30-60 秒，由关键帧 + 微动作生成视频；角色设定/表情集 1:1 九宫格（3x3）；场景关键帧 9:16；每张单独生成，不拼图" }
+    },
+    {
+      "id": "rule-light",
+      "kind": "rule",
+      "title": "光源纪律",
+      "content": { "type": "always", "text": "每帧只有一个暖光源；光源必须参与叙事（被点燃/被打开/被调亮）；火柴人与物件受同一光源照射，光晕柔和渐隐入深褐暗部；四周 vignette 压暗" }
+    },
+    {
+      "id": "rule-no-cute",
+      "kind": "rule",
+      "title": "禁止可爱化",
+      "content": { "type": "never", "text": "不给火柴人加衣服、头发、手指细节、3D 体积感；背景不要二次元/厚涂/赛博感；不要冷色主光、不要白天强光场景；不要鸡汤励志大字" }
+    }
+  ],
+  "evidence": [
+    { "entityId": "xiaochai", "url": "assets/character-sheet.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "角色设定九宫格（主参考）" },
+    { "entityId": "xiaochai", "url": "examples/scene-candle-table.png", "modality": "image", "purpose": "mood", "status": "primary", "collection": "输出范例", "label": "烛光桌前关键帧（9:16 成品范例）" },
+    { "entityId": "scene-system", "url": "examples/scene-living-room.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "停电客厅关键帧（9:16 场景范例）" }
+  ],
+  "provenance": {
+    "author": "chenxuejia",
+    "license": "MIT",
+    "repository": "https://github.com/6174/recut",
+    "publishedAt": "2026-09-02T00:00:00Z"
+  }
+}

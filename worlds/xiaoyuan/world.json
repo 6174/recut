@@ -1,0 +1,88 @@
+{
+  "version": "0.1.0",
+  "world": {
+    "id": "pgc.xiaoyuan",
+    "name": "小圆的写实世界",
+    "type": "character_ip",
+    "description": "为中文职场/生活情绪类内容生成风格一致的 9:16 短片关键帧：极简卡通小人小圆（肤色圆头+白T恤）合成在写实暗调摄影场景上 + 风格 DNA + 视频生产工作流，@ 一下即可产出风格一致的混搭情绪短片。",
+    "identity": {
+      "positioning": "极简卡通 × 写实摄影混搭的 9:16 情绪短片宇宙",
+      "audience": ["做职场/生活观察类短视频的创作者", "深夜情绪陪伴类内容创作者"],
+      "tone": "反差、幽默、真实感、微丧"
+    }
+  },
+  "entities": [
+    {
+      "id": "xiaoyuan",
+      "kind": "character",
+      "title": "小圆",
+      "summary": "肤色圆头、两点眼、白T恤、黑色细线手脚的极简卡通小人；被合成进真实摄影场景，用反差制造幽默与共情。",
+      "content": {
+        "appearance": "圆润的浅肤色圆头（扁平色块、无发型），黑色小点眼，简单弧线嘴（可咧嘴露齿笑）；纯白色短袖T恤（微梯形色块）；黑色细线胳膊与腿，末端简单小手小脚；全身只有头肤色+白T+黑线三种元素",
+        "personality": "普通打工人化身：白天撑着笑，深夜独自放空；自嘲、温和、有点轴",
+        "voice": "每帧最多一句英文短句大写字幕（如 WHILE WORKING,）或一句中文内心独白；克制、留白",
+        "body": { "$file": "references/xiaoyuan-ip.md" }
+      }
+    },
+    {
+      "id": "style-dna",
+      "kind": "style",
+      "title": "风格 DNA",
+      "summary": "写实摄影场景底（暗调、电影感布光）+ 极简扁平卡通小人正面居中；混搭反差是唯一识别度，绝不把背景画成插画。",
+      "content": {
+        "kind": "visual",
+        "guidance": "背景必须是写实照片质感：真实房间/地铁/便利店/办公室，暖光或冷调暗部、浅景深、胶片颗粒；小圆以扁平矢量贴纸感立在画面中下 1/3 居中，与背景光影形成违和但可信的合成；字幕大写无衬线白字置顶",
+        "body": { "$file": "references/style-dna.md" }
+      }
+    },
+    {
+      "id": "scene-system",
+      "kind": "location",
+      "title": "写实场景体系",
+      "summary": "小圆出现的真实世界：深夜卧室、办公室工位、末班地铁、便利店、出租屋厨房；统一公式「真实场景 + 一盏光源 + 一个小圆」。",
+      "content": {
+        "description": "所有场景都是摄影实拍质感的中国都市空间；每张图只保留 2-3 个可读物件，暗部大面积留黑；光源决定情绪（暖黄=疲惫的安慰，冷蓝=清醒的孤独）。",
+        "body": { "$file": "references/scene-system.md" }
+      }
+    },
+    {
+      "id": "story-arc",
+      "kind": "story",
+      "title": "打工人情绪切片",
+      "summary": "叙事主线：每支短片是小圆与一个具体生活瞬间的一次照面——硬撑、走神、自愈；不解决问题，只确认感受。",
+      "content": {
+        "premise": "小圆是每个「还在撑着」的普通人的替身：改不完的方案、深夜的出租屋、末班地铁的窗。真实场景负责把观众拽进来，扁平的小圆负责替观众说出来。",
+        "body": { "$file": "references/story-arc.md" }
+      }
+    },
+    {
+      "id": "rule-format",
+      "kind": "rule",
+      "title": "视频产出形式",
+      "content": { "type": "always", "text": "主产出为 9:16 竖屏情绪短片 15-45 秒，由关键帧 + 微动作生成视频；角色设定/表情集 1:1 九宫格（3x3）；场景关键帧 9:16；每张单独生成，不拼图" }
+    },
+    {
+      "id": "rule-composite",
+      "kind": "rule",
+      "title": "混搭纪律",
+      "content": { "type": "always", "text": "背景必须摄影写实、小圆必须极简扁平，两者反差不可调和；小圆不受背景透视影响但受光源方向影响（轮廓可带一点点同色 rim light）；每帧只有小圆一个卡通元素" }
+    },
+    {
+      "id": "rule-no-manga",
+      "kind": "rule",
+      "title": "禁止动漫画",
+      "content": { "type": "never", "text": "背景不要插画化/卡通化/二次元化；不要给小圆加头发、鼻子、腮红、衣服褶皱；不要厚涂或渐变光效；字幕不要超过一行" }
+    }
+  ],
+  "evidence": [
+    { "entityId": "xiaoyuan", "url": "assets/character-sheet.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "角色设定九宫格（主参考）" },
+    { "entityId": "xiaoyuan", "url": "examples/scene-bedroom.png", "modality": "image", "purpose": "mood", "status": "primary", "collection": "输出范例", "label": "深夜卧室关键帧（9:16 成品范例）" },
+    { "entityId": "scene-system", "url": "examples/scene-office.png", "modality": "image", "purpose": "scene", "status": "supporting", "collection": "输出范例", "label": "深夜办公室关键帧（9:16 场景范例）" }
+  ],
+  "provenance": {
+    "author": "chenxuejia",
+    "license": "MIT",
+    "repository": "https://github.com/6174/recut",
+    "publishedAt": "2026-09-02T00:00:00Z"
+  }
+}

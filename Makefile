@@ -27,6 +27,8 @@ RELEASE_PUBLIC ?= $(CURDIR)/cdn/buckets/releases/$(RECUT_VERSION)
 RELEASE_LATEST ?= $(CURDIR)/cdn/buckets/releases/latest
 BUILTIN_REMOTION_ARCHIVE := $(CURDIR)/service/builtin_apps/remotion-studio.tar.gz
 BUILTIN_EDITOR_ARCHIVE := $(CURDIR)/service/builtin_apps/editor.tar.gz
+# audio-studio voxcpm 专用 venv（发布声音预设 / Voice Design 用；主 ASR venv 由 runner 自行解析）。
+VOXCPM_PYTHON ?= $(firstword $(wildcard $(HOME)/.recut/python/envs/recut.audio-studio/audio-studio/*-voxcpm/bin/python))
 # 发布平台覆盖 macOS（Apple Silicon 与 Intel）及 Windows，不产出 linux-* / freebsd-* 包。
 SERVICE_RELEASE_TARGETS := darwin-arm64 darwin-amd64 windows-arm64 windows-amd64
 
@@ -243,3 +245,10 @@ worlds-status: ## 查看 CDN 上的 World 目录与 catalog。
 	@node cdn/scripts/cli.mjs list worlds 2>/dev/null || echo "  (尚未上传或凭据缺失)"
 	@echo "--- catalog.json ---"
 	@curl -sf "https://cdn.recut.video/worlds/catalog.json" 2>/dev/null | head -30 || cat cdn/buckets/worlds/catalog.json 2>/dev/null | head -30 || echo "  (本地 catalog 未构建，先跑 make worlds-build)"
+
+voices-sync: ## 同步声音预设单一信息源：再生成 background.js 兜底块 + 暂存 cdn/buckets/voices/（apps/audio-studio/python/publish_presets.py --sync）
+	RECUT_MODELS_DIR=$(HOME)/.recut/models $(VOXCPM_PYTHON) apps/audio-studio/python/publish_presets.py --sync
+
+voices-upload: ## 增量上传声音预设到 R2（https://cdn.recut.video/voices/，MD5 比对跳过未变更对象）+ 清 CDN 缓存的版本指针
+	node cdn/scripts/cli.mjs upload voices --skip-existing
+	node cdn/scripts/cli.mjs purge voices manifest.json

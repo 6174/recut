@@ -1,6 +1,6 @@
 {
   "catalogVersion": 1,
-  "updated": "2026-08-29T12:21:52Z",
+  "updated": "2026-09-02T01:05:58Z",
   "worlds": [
     {
       "bytes": 17240,
@@ -25,6 +25,17 @@
       "version": "0.1.0"
     },
     {
+      "bytes": 12939,
+      "id": "pgc.xiaochai",
+      "kind": "platform",
+      "manifestUrl": "https://cdn.recut.video/worlds/pgc.xiaochai/0.1.0/world.json",
+      "order": 1,
+      "publisher": "recut",
+      "sha256": "fc053730129a8d313019d55f864b6b67fb14850bb4fdf7a2c3ca1b49164fd0d2",
+      "status": "active",
+      "version": "0.1.0"
+    },
+    {
       "bytes": 19281,
       "id": "pgc.xiaohei",
       "kind": "platform",
@@ -43,6 +54,17 @@
       "order": 1,
       "publisher": "recut",
       "sha256": "72914d3758267f6c2810daa0b659f8f93a92e295c22867a75a5c92c04952c629",
+      "status": "active",
+      "version": "0.1.0"
+    },
+    {
+      "bytes": 13168,
+      "id": "pgc.xiaoyuan",
+      "kind": "platform",
+      "manifestUrl": "https://cdn.recut.video/worlds/pgc.xiaoyuan/0.1.0/world.json",
+      "order": 1,
+      "publisher": "recut",
+      "sha256": "33964931e03567bfee5bbd3cc1bf99d196b99d2c79de5df6d016fd3fff323887",
       "status": "active",
       "version": "0.1.0"
     }
