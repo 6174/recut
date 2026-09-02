@@ -50,18 +50,5 @@
         "description": "Run depth estimation on an image or video and save the resulting depth map."
       }
     }
-  },
-  {
-    "appId": "recut.audio-studio",
-    "name": "声音工坊",
-    "description": "本地转写、声音角色与配音：将音视频转成可编辑文稿和字幕，再以声音角色合成配音。",
-    "kind": "standalone",
-    "repository": "https://github.com/6174/recut-audio-studio.git",
-    "localized": {
-      "en": {
-        "name": "Audio Studio",
-        "description": "Local transcription, voice characters, and dubbing: turn audio and video into editable transcripts and subtitles, then synthesize voice with a voice character."
-      }
-    }
   }
 ]

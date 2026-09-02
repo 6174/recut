@@ -258,13 +258,16 @@ func TestMCPAppManagementTools(t *testing.T) {
 	for _, entry := range storeItems {
 		storeAppIDs[entry["appId"].(string)] = true
 	}
-	for _, appID := range []string{"recut.ai-short-film", "recut.remotion-studio", "recut.cover-studio", "recut.depth-anything", "recut.audio-studio"} {
+	for _, appID := range []string{"recut.ai-short-film", "recut.remotion-studio", "recut.cover-studio", "recut.depth-anything"} {
 		if !storeAppIDs[appID] {
 			t.Fatalf("app store omits %q: %#v", appID, storeItems)
 		}
 	}
-	if len(storeAppIDs) != 5 {
-		t.Fatalf("app store has %d entries, want 5: %#v", len(storeAppIDs), storeItems)
+	if storeAppIDs["recut.audio-studio"] {
+		t.Fatalf("builtin audio-studio must not be listed in the app store: %#v", storeItems)
+	}
+	if len(storeAppIDs) != 4 {
+		t.Fatalf("app store has %d entries, want 4: %#v", len(storeAppIDs), storeItems)
 	}
 	for _, entry := range storeItems {
 		for _, field := range []string{"appId", "name", "repository", "installed"} {

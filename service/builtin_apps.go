@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖编译内嵌的 App 发布归档、Catalog 的运行时 apps 目录与标准 tar/gzip 文件能力
- * [OUTPUT]: 对外提供内置 App 清单及启动时原子同步；当前将 Remotion Studio 与剪辑器安装到 apps 目录
+ * [OUTPUT]: 对外提供内置 App 清单及启动时原子同步；当前将 Remotion Studio、剪辑器与声音工坊安装到 apps 目录
  * [POS]: service 的首启体验边界；内置 App 与 Git App 使用同一个 Catalog，开发期本地软链接优先
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -26,6 +26,9 @@ var embeddedRemotionStudio []byte
 //go:embed builtin_apps/editor.tar.gz
 var embeddedEditor []byte
 
+//go:embed builtin_apps/audio-studio.tar.gz
+var embeddedAudioStudio []byte
+
 type BuiltinApp struct {
 	Package string
 	AppID   string
@@ -38,6 +41,7 @@ type BuiltinApp struct {
 var builtinAppList = []BuiltinApp{
 	{Package: "remotion-studio", AppID: "recut.remotion-studio", Archive: embeddedRemotionStudio},
 	{Package: "editor", AppID: "recut.editor", Archive: embeddedEditor},
+	{Package: "audio-studio", AppID: "recut.audio-studio", Archive: embeddedAudioStudio},
 }
 
 type BuiltinAppManager struct {

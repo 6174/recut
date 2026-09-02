@@ -12,7 +12,7 @@ RECUT_HOME ?= $(HOME)/.recut
 APP ?=
 SERVICE_PORT ?= 17373
 STREAM_PORT ?= 17374
-RECUT_VERSION ?= 0.1.45
+RECUT_VERSION ?= 0.1.46
 WEB_SERVICE_VERSION ?= $(RECUT_VERSION)
 TARGET ?=
 BUILD_GOOS := $(if $(TARGET),$(word 1,$(subst -, ,$(TARGET))),$(if $(GOOS),$(GOOS),$(shell go env GOOS)))
@@ -27,6 +27,7 @@ RELEASE_PUBLIC ?= $(CURDIR)/cdn/buckets/releases/$(RECUT_VERSION)
 RELEASE_LATEST ?= $(CURDIR)/cdn/buckets/releases/latest
 BUILTIN_REMOTION_ARCHIVE := $(CURDIR)/service/builtin_apps/remotion-studio.tar.gz
 BUILTIN_EDITOR_ARCHIVE := $(CURDIR)/service/builtin_apps/editor.tar.gz
+BUILTIN_AUDIO_STUDIO_ARCHIVE := $(CURDIR)/service/builtin_apps/audio-studio.tar.gz
 # audio-studio voxcpm 专用 venv（发布声音预设 / Voice Design 用；主 ASR venv 由 runner 自行解析）。
 VOXCPM_PYTHON ?= $(firstword $(wildcard $(HOME)/.recut/python/envs/recut.audio-studio/audio-studio/*-voxcpm/bin/python))
 # 发布平台覆盖 macOS（Apple Silicon 与 Intel）及 Windows，不产出 linux-* / freebsd-* 包。
@@ -83,7 +84,7 @@ stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never an
 
 service-dev: stop-stale-service ## Start only the LAN Go service for the port 3000 workspace (API 17373, event streams 17374). Built-in App archives build only once; rebuild them via `make builtin-apps` or `make deploy`.
 	@set -e; \
-	if [ ! -f "$(BUILTIN_REMOTION_ARCHIVE)" ] || [ ! -f "$(BUILTIN_EDITOR_ARCHIVE)" ]; then \
+	if [ ! -f "$(BUILTIN_REMOTION_ARCHIVE)" ] || [ ! -f "$(BUILTIN_EDITOR_ARCHIVE)" ] || [ ! -f "$(BUILTIN_AUDIO_STUDIO_ARCHIVE)" ]; then \
 		echo "Built-in App archives missing; building them once."; \
 		$(MAKE) builtin-apps; \
 	fi; \
@@ -200,6 +201,7 @@ builtin-apps: editor-ui-build ## Package the App sources that ship inside every 
 	@mkdir -p "$(dir $(BUILTIN_REMOTION_ARCHIVE))"
 	node scripts/package-builtin-app.mjs apps/remotion-studio "$(BUILTIN_REMOTION_ARCHIVE)"
 	node scripts/package-builtin-app.mjs apps/editor "$(BUILTIN_EDITOR_ARCHIVE)"
+	node scripts/package-builtin-app.mjs apps/audio-studio "$(BUILTIN_AUDIO_STUDIO_ARCHIVE)"
 
 editor-ui-build: ## Build the editor UI bundle included in the builtin editor App.
 	@set -e; \
