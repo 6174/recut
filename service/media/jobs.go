@@ -446,16 +446,24 @@ func (m *MediaService) generateImage(job MediaJob, credential MediaCredential, m
 		// model variant (…/edit) distinct from text-to-image (…/text-to-image).
 		apiModelID = model.EditModelID
 	}
+	var recordPrediction func(string, string) error
+	if len(job.AssetIDs) == 1 {
+		assetID := job.AssetIDs[0]
+		recordPrediction = func(remoteID, pollURL string) error {
+			return m.bindRunningAtlasPrediction(job.ID, assetID, remoteID, pollURL)
+		}
+	}
 	result, err := provider.GenerateImage(model_providers.ImageInput{
-		Model:       apiModelID,
-		Prompt:      job.Prompt,
-		Output:      job.Output,
-		References:  references,
-		APIBase:     apiBaseFor(credential),
-		Secret:      secret,
-		HTTPClient:  mediaHTTPClient,
-		PollClient:  atlasPollingHTTPClient,
-		PollRetries: atlasImagePollRetries,
+		Model:            apiModelID,
+		Prompt:           job.Prompt,
+		Output:           job.Output,
+		References:       references,
+		APIBase:          apiBaseFor(credential),
+		Secret:           secret,
+		HTTPClient:       mediaHTTPClient,
+		PollClient:       atlasPollingHTTPClient,
+		PollRetries:      atlasImagePollRetries,
+		RecordPrediction: recordPrediction,
 	})
 	if err != nil {
 		return MediaAsset{}, err

@@ -53,6 +53,11 @@ func (atlasCloudProvider) GenerateImage(input ImageInput) (ImageResult, error) {
 	if err != nil {
 		return ImageResult{}, err
 	}
+	if input.RecordPrediction != nil {
+		if err := input.RecordPrediction(prediction.ID, prediction.PollURL); err != nil {
+			return ImageResult{}, err
+		}
+	}
 	pollClient := input.PollClient
 	if pollClient == nil {
 		pollClient = client
@@ -74,7 +79,7 @@ func (atlasCloudProvider) GenerateImage(input ImageInput) (ImageResult, error) {
 			if url == "" {
 				return ImageResult{}, errors.New("Atlas Cloud image completed without an output URL")
 			}
-			return downloadImage(pollClient, url)
+			return downloadImage(client, url)
 		}
 		time.Sleep(atlasPollDelay(attempt))
 	}
@@ -92,7 +97,37 @@ func atlasPollDelay(attempt int) time.Duration {
 	return delay
 }
 
+const (
+	atlasImageDownloadAttempts = 5
+	// One attempt must finish within this budget; a slow body read resets it
+	// on the next attempt instead of holding one connection for minutes.
+	atlasImageDownloadTimeout = 60 * time.Second
+	atlasImageDownloadDelay   = 2 * time.Second
+)
+
+// downloadImage fetches the completed prediction output with bounded retries.
+// Only transport errors and 5xx responses retry; 4xx failures are terminal.
 func downloadImage(client *http.Client, url string) (ImageResult, error) {
+	var lastErr error
+	for attempt := 0; attempt < atlasImageDownloadAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(atlasImageDownloadDelay)
+		}
+		attemptClient := *client
+		attemptClient.Timeout = atlasImageDownloadTimeout
+		result, err := downloadImageOnce(&attemptClient, url)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if strings.Contains(err.Error(), "image download returned 4") || strings.Contains(err.Error(), "image download returned 3") {
+			return ImageResult{}, err
+		}
+	}
+	return ImageResult{}, lastErr
+}
+
+func downloadImageOnce(client *http.Client, url string) (ImageResult, error) {
 	response, err := client.Get(url)
 	if err != nil {
 		return ImageResult{}, err

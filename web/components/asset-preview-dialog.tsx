@@ -175,7 +175,7 @@ function PromptSection({ prompt }: { prompt: string }) {
 }
 
 function AssetContent({ apiBase, asset, status, onImageClick }: { apiBase: string; asset: PreviewAsset; status: string; onImageClick?: (src: string) => void }) {
-  if (status !== "completed") return <PendingAssetContent asset={asset} status={status} />;
+  if (status !== "completed") return <PendingAssetContent apiBase={apiBase} asset={asset} status={status} />;
   const source = mediaContentURL(apiBase, asset.id);
   if (asset.kind === "image") return <button className="group relative" onClick={() => onImageClick?.(source)} type="button"><img alt={asset.name} className="max-h-[65vh] max-w-full cursor-zoom-in object-contain" src={source} /><span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/10 group-hover:opacity-100"><ZoomIn className="size-6 text-white drop-shadow" /></span></button>;
   if (asset.kind === "audio") return <AudioWaveformPlayer name={asset.name || "音频素材"} src={source} />;
@@ -300,8 +300,30 @@ function TranscriptAssetContent({ apiBase, asset }: { apiBase: string; asset: Pr
   </div>;
 }
 
-function PendingAssetContent({ asset, status }: { asset: PreviewAsset; status: string }) {
-  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground"><LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} /><div><p className="text-sm font-medium text-foreground">{status === "failed" ? "生成失败" : "生成中"}</p><GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} /><p className="mt-1 text-xs leading-5">素材引用已经建立；完成后会在这里原位可预览。</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}</div></div>;
+function PendingAssetContent({ apiBase, asset, status }: { apiBase: string; asset: PreviewAsset; status: string }) {
+  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground"><LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} /><div><p className="text-sm font-medium text-foreground">{status === "failed" ? "生成失败" : "生成中"}</p><GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} /><p className="mt-1 text-xs leading-5">素材引用已经建立；完成后会在这里原位可预览。</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryDownloadButton apiBase={apiBase} asset={asset} />}</div></div>;
+}
+
+function RetryDownloadButton({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  if (!asset.jobId) return null;
+  async function retry() {
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/retry-download`, { method: "POST" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "重新下载失败，请稍后重试。");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "重新下载失败，请稍后重试。");
+    } finally {
+      setPending(false);
+    }
+  }
+  return <div className="grid gap-1.5"><button className="mx-auto flex h-8 items-center gap-1.5 rounded-xs border px-3 text-xs hover:bg-muted disabled:opacity-60" disabled={pending} onClick={() => void retry()} type="button">{pending ? <LoaderCircle className="size-3.5 animate-spin text-primary" /> : <RotateCcw className="size-3.5" />}{pending ? "正在重新下载…" : "重新下载"}</button>{error && <p className="text-xs text-destructive">{error}</p>}</div>;
 }
 
 function ReferencePreview({ apiBase, reference }: { apiBase: string; reference: PreviewAsset }) {

@@ -29,6 +29,10 @@ type ImageInput struct {
 	HTTPClient  *http.Client
 	PollClient  *http.Client
 	PollRetries int
+	// RecordPrediction checkpoints the remote task ID as soon as the provider
+	// accepted the submission, so a later download failure can be retried
+	// without resubmitting the generation.
+	RecordPrediction func(remoteID, pollURL string) error
 }
 
 // ImageResult is the final bytes a provider returned for an image job.

@@ -9,6 +9,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -208,5 +209,25 @@ func writeTestFile(t *testing.T, path, data string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSQLiteDSNWindowsPath 锁定 Windows DSN 回归契约：盘符路径必须转成
+// file:///C:/... 绝对 URI，绝不允许出现 %5C 或缺前导 "/"（会被 SQLite 误判
+// 为 authority 导致 service 启动即退出）。
+func TestSQLiteDSNWindowsPath(t *testing.T) {
+	dsn := sqliteDSN("C:/Users/chen/.recut/index.db")
+	if strings.Contains(dsn, "%5C") || strings.Contains(dsn, "%5c") {
+		t.Fatalf("DSN percent-escaped a path separator: %s", dsn)
+	}
+	if !strings.HasPrefix(dsn, "file:///C:/") {
+		t.Fatalf("DSN must be an absolute file URI (file:///C:/...), got %s", dsn)
+	}
+	if !strings.Contains(dsn, "index.db") || !strings.Contains(dsn, "_txlock=immediate") {
+		t.Fatalf("DSN lost path or query parameters: %s", dsn)
+	}
+	posix := sqliteDSN("/Users/chen/.recut/index.db")
+	if !strings.HasPrefix(posix, "file:///Users/") {
+		t.Fatalf("POSIX path DSN changed: %s", posix)
 	}
 }

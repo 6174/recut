@@ -1389,9 +1389,9 @@ func importNativeImage(store *Store, media *MediaService, session AgentSession, 
 	if trimmed == "" {
 		return MediaAsset{}, fmt.Errorf("path must be a non-empty file path")
 	}
-	if strings.HasPrefix(trimmed, "~/") {
+	if strings.HasPrefix(trimmed, "~/") || strings.HasPrefix(trimmed, `~\`) {
 		if home, err := os.UserHomeDir(); err == nil {
-			trimmed = filepath.Join(home, strings.TrimPrefix(trimmed, "~/"))
+			trimmed = filepath.Join(home, strings.TrimPrefix(trimmed[1:], string(filepath.Separator)))
 		}
 	}
 	// The import base is always the session workspace. Native images are

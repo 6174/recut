@@ -437,7 +437,7 @@ func linkSkillPath(target, source string) error {
 		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove broken skill link: %w", err)
 		}
-		if err := os.Symlink(source, target); err != nil {
+		if err := createSkillLink(source, target); err != nil {
 			return fmt.Errorf("create skill link: %w", err)
 		}
 		return nil

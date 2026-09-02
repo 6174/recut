@@ -805,7 +805,14 @@ func sqliteDSN(path string) string {
 	query.Add("_pragma", "journal_mode(WAL)")
 	query.Add("_pragma", "synchronous(NORMAL)")
 	query.Add("_txlock", "immediate")
-	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
+	// Windows 盘符路径（C:\...）放进 url.URL.Path 会被转义成 %5C，且缺少前导
+	// "/" 使 SQLite 把整段 DSN 误判为 authority。统一转成 file:///C:/... 的
+	// 绝对 URI 路径；POSIX 路径本身已带前导 "/"，保持不变。
+	uriPath := filepath.ToSlash(path)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	return (&url.URL{Scheme: "file", Path: uriPath, RawQuery: query.Encode()}).String()
 }
 
 func (s *Store) PublishArtifact(projectID, appID, artifactType string, value any) (Artifact, error) {

@@ -286,15 +286,23 @@ func resolveShellCommand(name string, environment []string) string {
 			extensions = []string{".com", ".exe", ".bat", ".cmd"}
 		}
 	}
+	// Windows 系统与 venv 只提供 python.exe（python3 常被商店别名截胡），
+	// App 代码里的 python3 回退解析到 python。
+	names := []string{name}
+	if runtime.GOOS == "windows" && name == "python3" {
+		names = append(names, "python")
+	}
 	for _, directory := range filepath.SplitList(path) {
 		if directory == "" {
 			directory = "."
 		}
-		for _, extension := range extensions {
-			candidate := filepath.Join(directory, name+extension)
-			info, err := os.Stat(candidate)
-			if err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
-				return candidate
+		for _, candidate := range names {
+			for _, extension := range extensions {
+				executable := filepath.Join(directory, candidate+extension)
+				info, err := os.Stat(executable)
+				if err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+					return executable
+				}
 			}
 		}
 	}

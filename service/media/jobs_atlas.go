@@ -8,15 +8,27 @@ package media
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"recut-service/media/providers/atlas"
 )
 
 var errAtlasVideoOutputMissing = errors.New("Atlas Cloud completed without a video output")
+
+const (
+	atlasDownloadAttempts = 5
+	// One attempt must finish within this budget; a slow body read retries on
+	// a fresh connection instead of holding one for minutes.
+	atlasDownloadTimeout = 60 * time.Second
+	atlasDownloadDelay   = 2 * time.Second
+)
 
 const atlasPollingRetryLimit = 5
 
@@ -323,4 +335,152 @@ func uploadAtlasVideos(baseURL, secret string, uploads []atlas.MediaUpload) ([]s
 		urls = append(urls, url)
 	}
 	return urls, nil
+}
+
+// bindRunningAtlasPrediction checkpoints the Atlas prediction ID onto an
+// already-running image job/asset (activateQueuedTask path) so a failed
+// output download can be retried without resubmitting the generation.
+func (m *MediaService) bindRunningAtlasPrediction(jobID, assetID, remoteID, pollURL string) error {
+	db, err := m.database()
+	if err != nil {
+		return err
+	}
+	asset, err := m.getAsset(assetID)
+	if err != nil {
+		return err
+	}
+	if asset.JobID != jobID {
+		return errors.New("running asset does not belong to this job")
+	}
+	metadata := asset.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["atlasPredictionId"] = remoteID
+	serialized, _ := json.Marshal(metadata)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	rollback := func(cause error) error { _ = tx.Rollback(); return cause }
+	if _, err := tx.Exec("update media_assets set remote_id = ?, remote_poll_url = ?, metadata_json = ?, updated_at = ? where id = ? and status = 'running' and remote_id = ''", remoteID, pollURL, string(serialized), now, assetID); err != nil {
+		return rollback(err)
+	}
+	if _, err := tx.Exec("update media_jobs set remote_id = ?, remote_poll_url = ?, updated_at = ? where id = ? and status = 'running' and remote_id = ''", remoteID, pollURL, now, jobID); err != nil {
+		return rollback(err)
+	}
+	return tx.Commit()
+}
+
+// RetryAssetDownload re-collects the output of a failed generated asset whose
+// remote prediction may already be completed (e.g. the image download timed
+// out after Atlas Cloud finished). The remote task itself is never resubmitted.
+func (m *MediaService) RetryAssetDownload(assetID string) (MediaAsset, error) {
+	db, err := m.database()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where id = ?", assetID))
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if asset.Status != "failed" {
+		return MediaAsset{}, errors.New("只有失败的素材可以重新下载")
+	}
+	if asset.JobID == "" {
+		return MediaAsset{}, errors.New("该素材没有关联的生成任务")
+	}
+	job, err := m.getJob(asset.JobID)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if job.RemoteID == "" || !strings.HasPrefix(job.ModelID, "atlas-cloud/") {
+		return MediaAsset{}, errors.New("该任务没有可恢复的远端输出")
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	tx, err := db.Begin()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	rollback := func(cause error) (MediaAsset, error) { _ = tx.Rollback(); return MediaAsset{}, cause }
+	if _, err := tx.Exec("update media_assets set status = 'running', error = '', updated_at = ? where id = ? and status = 'failed'", now, asset.ID); err != nil {
+		return rollback(err)
+	}
+	if _, err := tx.Exec("update media_jobs set status = 'running', error = '', updated_at = ? where id = ? and status = 'failed'", now, job.ID); err != nil {
+		return rollback(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return MediaAsset{}, err
+	}
+	m.publishAssetChange()
+	task, ok := m.atlasTask(job.ID)
+	if !ok {
+		cause := errors.New("远端任务暂不可恢复，请稍后重试")
+		m.failRemoteAsset(job.ID, asset.ID, cause.Error())
+		return MediaAsset{}, cause
+	}
+	content, mimeType, err := m.redownloadAtlasOutput(task)
+	if err != nil {
+		m.failRemoteAsset(job.ID, asset.ID, err.Error())
+		return MediaAsset{}, err
+	}
+	return m.completeRemoteAsset(job.ID, asset.ID, content, mimeType)
+}
+
+// redownloadAtlasOutput re-fetches a completed prediction's output with
+// bounded retries. Only transport errors and 5xx responses retry; 3xx/4xx
+// failures are terminal.
+func (m *MediaService) redownloadAtlasOutput(task atlasTask) ([]byte, string, error) {
+	prediction, err := atlas.Poll(atlasPollingHTTPClient, apiBaseFor(task.credential), task.secret, atlas.Prediction{ID: task.asset.RemoteID, PollURL: task.pollURL})
+	if err != nil {
+		return nil, "", err
+	}
+	if prediction.Failed() {
+		return nil, "", errors.New("Atlas Cloud image generation failed: " + prediction.FailureMessage())
+	}
+	if !prediction.Completed() {
+		return nil, "", errors.New("Atlas Cloud prediction is not completed yet")
+	}
+	url := prediction.FirstOutput()
+	if url == "" {
+		return nil, "", errors.New("Atlas Cloud prediction completed without an output URL")
+	}
+	var lastErr error
+	for attempt := 0; attempt < atlasDownloadAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(atlasDownloadDelay)
+		}
+		client := *mediaHTTPClient
+		client.Timeout = atlasDownloadTimeout
+		content, mimeType, err := fetchMediaDetect(&client, url)
+		if err == nil {
+			return content, mimeType, nil
+		}
+		lastErr = err
+		if strings.HasPrefix(err.Error(), "media download returned 2") || strings.HasPrefix(err.Error(), "media download returned 3") || strings.HasPrefix(err.Error(), "media download returned 4") {
+			return nil, "", err
+		}
+	}
+	return nil, "", lastErr
+}
+
+func fetchMediaDetect(client *http.Client, url string) ([]byte, string, error) {
+	response, err := client.Get(url)
+	if err != nil {
+		return nil, "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("media download returned %s", response.Status)
+	}
+	content, err := io.ReadAll(io.LimitReader(response.Body, 128<<20))
+	if err != nil {
+		return nil, "", err
+	}
+	mimeType := strings.TrimSpace(response.Header.Get("Content-Type"))
+	if mimeType == "" || strings.HasPrefix(mimeType, "application/octet-stream") {
+		mimeType = http.DetectContentType(content)
+	}
+	return content, mimeType, nil
 }

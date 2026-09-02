@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -70,7 +71,7 @@ type ShareClient struct {
 // capability is then cleanly unavailable.
 func NewShareClientFromEnv(dataDir string) *ShareClient {
 	if dataDir != "" {
-		loadShareCredentialsFile(path.Join(dataDir, "share-credentials"))
+		loadShareCredentialsFile(filepath.Join(dataDir, "share-credentials"))
 	}
 	accessKey := firstEnv("RECUT_SHARE_R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID")
 	secretKey := firstEnv("RECUT_SHARE_R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY")
