@@ -7,7 +7,11 @@
     "description": "为网站配图、产品介绍与功能演示视频生成风格一致的手绘单色丝网版画风网页插画：墨咖啡工作室——四个年轻人合伙经营的小型互联网运营公司（阿墨主理人、茉茉设计、豆豆运营、小点技术实习，黑猫炭炭是吉祥物兼事故元凶），奶油纸底 + 炭黑蜡笔笔触 + 喷点颗粒。@ 一下即可产出风格一致的网页插画关键帧。",
     "identity": {
       "positioning": "手绘单色版画 × 网页插画的四人运营公司日常宇宙",
-      "audience": ["做产品官网/SaaS 落地页的设计师与开发者", "做产品介绍/功能演示视频的创作者", "做互联网职场/创业日常内容的创作者"],
+      "audience": [
+        "做产品官网/SaaS 落地页的设计师与开发者",
+        "做产品介绍/功能演示视频的创作者",
+        "做互联网职场/创业日常内容的创作者"
+      ],
       "tone": "松弛、幽默、手绘纸感、年轻创业气"
     }
   },
@@ -21,7 +25,9 @@
         "appearance": "头身比约 1:2.5~1:3 中间态：夸张蓬乱黑色高丸子头（一大团卷发堆在头顶、碎发飞出、涂抹排线露白）、下巴两腮一圈淡络腮胡茬（细密点状笔触、成人感）、波浪眯眼「w」弧线（闭眼微笑）、短弧线小鼻、粗短眉、浅浅得意微笑；深色圆领落肩卫衣外系咖啡师帆布围裙（胸袋插木柄咖啡勺，专属配件）；肩宽体厚、站姿放松微驼；一手端超大咖啡杯（大块波浪蒸汽墨云专属符号）一手比 OK",
         "personality": "松弛、随性、手上有活、心里不慌；deadline 和 bug 都难不倒他——先喝一口咖啡再说",
         "voice": "短句、口语、冷幽默；「都行」「问题不大」「先喝口咖啡」",
-        "body": { "$file": "references/xiaomo-ip.md" }
+        "body": {
+          "$file": "references/xiaomo-ip.md"
+        }
       }
     },
     {
@@ -33,7 +39,9 @@
         "appearance": "全员头身比 1:2.5~1:3 年轻职场感，禁止低幼。茉茉：乌黑低马尾（发簪横插、簪尾圆球）、斜刘海、细长上挑眯眼、小圆点耳环、黑色高领毛衣剪影，捧日式茶杯（细蒸汽）+ 画笔，专属符号四瓣小花。豆豆：油亮背头（一撮翘起）、圆框眼镜、眉心八字紧锁、小尖鼻、细竖纹衬衫外搭深色针织背心、体态前倾像随时要冲出去，叉腰举粗笔感叹号，身边常有汗滴与乱线。小点：服帖直发锅盖头（耳朵旁翘两撮）、全员唯一圆点眼、polo 领工装背心（口袋插铅笔）、瘦高，抱旧笔记本电脑，专属符号大问号。炭炭：敦实纯黑剪影猫、大圆头小三角耳、眯眯眼+「w」猫嘴、粗尾末端卷成螺旋卷",
         "personality": "茉茉是设计合伙人，安静笃定、审美就是公司的护城河；豆豆是运营合伙人，KPI 和热点追着跑、风风火火；小点是技术实习生，天真勤快，修 bug 和服务器都敢上手；炭炭睡在机房路由器上，兼职断网事故的元凶",
         "voice": "茉茉少言、「茶还挺稳」；豆豆语速快；小点「这是什么？」「i can fix it」；炭炭只「喵」",
-        "body": { "$file": "references/xiaomo-ip.md" }
+        "body": {
+          "$file": "references/xiaomo-ip.md"
+        }
       }
     },
     {
@@ -44,7 +52,9 @@
       "content": {
         "kind": "visual",
         "guidance": "米黄纸底（#F0E4C8 附近），全部图形只用炭黑油墨与纸底两阶，灰色仅以 halftone 喷点/网点出现；笔触是蜡笔/软炭笔在糙纸上的摩擦痕迹，线条由短笔触叠成、接头深浅重叠，大面积黑色用涂抹排线与打圈笔触填出保留露白点；人物身后一圈细密喷点灰晕把人物托出纸底；头身比约 1:2.5~1:3 的年轻职场中间态，禁止 Q 版婴儿比例与拉长爵士身材；保留纸张纤维、油墨不匀与轻微套印偏移",
-        "body": { "$file": "references/style-dna.md" }
+        "body": {
+          "$file": "references/style-dna.md"
+        }
       }
     },
     {
@@ -55,7 +65,9 @@
       "content": {
         "kind": "visual",
         "guidance": "模式 A：手绘涂鸦感、蒸汽墨云与点缀符号丰富、底部两行手写短句，用于社媒配图与彩蛋。模式 B：顶部粗壮气泡体大标题 + 左右副标、中部干净细线插画、底部特粗大写标语 + 小号说明文 + 左右落款，用于 hero 图与产品视频关键帧；两种模式共用同一角色与纸底墨色",
-        "body": { "$file": "references/layout-modes.md" }
+        "body": {
+          "$file": "references/layout-modes.md"
+        }
       }
     },
     {
@@ -65,7 +77,9 @@
       "summary": "互联网运营公司的合伙办公室：吧台咖啡角、设计工位数位板、白板与需求便签墙、机房路由器角落、深夜加班的台灯；群像以工位长桌横线为共同地平线，每人一个职能位。",
       "content": {
         "description": "场景围绕运营公司的合伙办公室展开：吧台咖啡角（阿墨的主场）、设计工位与数位板（茉茉）、贴满需求便签与数据图表的白板墙（豆豆的战场）、机房角落的路由器与网线（小点和炭炭）、龟背竹绿植剪影；群像组合场景（客户改稿八版/热点半夜爆发/服务器挂了/项目准时交付）按职能编排；产品化场景含 hero、功能演示、对比图、新手引导",
-        "body": { "$file": "references/scene-system.md" }
+        "body": {
+          "$file": "references/scene-system.md"
+        }
       }
     },
     {
@@ -75,41 +89,94 @@
       "summary": "四人合伙经营的小型互联网运营公司「墨咖啡工作室」：接客户单、追热点、做内容与投放，办公室日常与项目交付构成全部戏剧；三拍节奏——接活（遇事）→ 喝一口 → 交付（问题不大）。",
       "content": {
         "premise": "墨咖啡工作室是一间四个年轻人合伙经营的小型互联网运营公司：接客户的需求单，做品牌设计、内容运营和投放。事情总会出小岔子——需求改了八版、热点半夜爆了、服务器挂了（通常是炭炭的锅）——但阿墨从不慌：抿一口咖啡，敲两下键盘，准时交付，弹出一片星星。产品替他们解决问题，这支团队负责示范怎么松弛地把公司开下去：茉茉负责定力，豆豆负责着急，小点负责提问，炭炭负责当事故原因",
-        "body": { "$file": "references/story-arc.md" }
+        "body": {
+          "$file": "references/story-arc.md"
+        }
       }
     },
     {
       "id": "rule-format",
       "kind": "rule",
       "title": "产出形式",
-      "content": { "type": "always", "text": "网站配图/横幅 16:9 或 1:1；产品介绍视频关键帧 16:9；角色设定图与表情集 1:1；每张单独生成，不拼图；网页插画预留四边留白" }
+      "content": {
+        "type": "always",
+        "text": "网站配图/横幅 16:9 或 1:1；产品介绍视频关键帧 16:9；角色设定图与表情集 1:1；每张单独生成，不拼图；网页插画预留四边留白"
+      }
     },
     {
       "id": "rule-consistency",
       "kind": "rule",
       "title": "一致性与参考图纪律",
-      "content": { "type": "always", "text": "生成任何角色的图，必须把该角色的 assets/ 设定图（amo/momo/doudou/xiaodian/tantan.png）作为参考图传入，而不是只靠 prompt 描述；多人同图时传入全部出场角色设定图；检查头身比 1:2.5~1:3、发型轮廓语言、专属符号是否到位" }
+      "content": {
+        "type": "always",
+        "text": "生成任何角色的图，必须把该角色的 assets/ 设定图（amo/momo/doudou/xiaodian/tantan.png）作为参考图传入，而不是只靠 prompt 描述；多人同图时传入全部出场角色设定图；检查头身比 1:2.5~1:3、发型轮廓语言、专属符号是否到位"
+      }
     },
     {
       "id": "rule-mono",
       "kind": "rule",
       "title": "单色与笔触纪律",
-      "content": { "type": "always", "text": "全图只用黑墨 + 纸底两阶，灰色仅以 halftone 喷点/网点出现；笔触必须有蜡笔/软炭的飞白断墨与涂抹排线，禁止矢量匀线与光滑描边" }
+      "content": {
+        "type": "always",
+        "text": "全图只用黑墨 + 纸底两阶，灰色仅以 halftone 喷点/网点出现；笔触必须有蜡笔/软炭的飞白断墨与涂抹排线，禁止矢量匀线与光滑描边"
+      }
     },
     {
       "id": "rule-no-anti-style",
       "kind": "rule",
       "title": "禁止低幼与精致化",
-      "content": { "type": "never", "text": "不要婴儿比例/Q 版头身、不要腮红、不要多彩色、不要厚涂/3D 渲染；不要精细衣纹与指节（瞳孔仅小点例外）；背景不要写实照片质感；不要鸡汤大字标语" }
+      "content": {
+        "type": "never",
+        "text": "不要婴儿比例/Q 版头身、不要腮红、不要多彩色、不要厚涂/3D 渲染；不要精细衣纹与指节（瞳孔仅小点例外）；背景不要写实照片质感；不要鸡汤大字标语"
+      }
     }
   ],
   "evidence": [
-    { "entityId": "xiaomo", "url": "assets/amo.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "阿墨设定图（主参考）" },
-    { "entityId": "cast", "url": "assets/momo.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "茉茉设定图（主参考）" },
-    { "entityId": "cast", "url": "assets/doudou.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "豆豆设定图（主参考）" },
-    { "entityId": "cast", "url": "assets/xiaodian.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "小点设定图（主参考）" },
-    { "entityId": "cast", "url": "assets/tantan.png", "modality": "image", "purpose": "appearance", "status": "primary", "collection": "角色设定", "label": "炭炭设定图（主参考）" },
-    { "entityId": "scene-system", "url": "examples/studio-group.png", "modality": "image", "purpose": "scene", "status": "primary", "collection": "输出范例", "label": "工作室团队群像范例（16:9）" }
+    {
+      "entityId": "xiaomo",
+      "url": "assets/amo.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "阿墨设定图（主参考）"
+    },
+    {
+      "entityId": "cast",
+      "url": "assets/momo.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "茉茉设定图（主参考）"
+    },
+    {
+      "entityId": "cast",
+      "url": "assets/doudou.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "豆豆设定图（主参考）"
+    },
+    {
+      "entityId": "cast",
+      "url": "assets/xiaodian.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "小点设定图（主参考）"
+    },
+    {
+      "entityId": "cast",
+      "url": "assets/tantan.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "炭炭设定图（主参考）"
+    }
   ],
   "provenance": {
     "author": "chenxuejia",
