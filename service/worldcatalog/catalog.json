@@ -1,6 +1,6 @@
 {
   "catalogVersion": 1,
-  "updated": "2026-09-02T01:05:58Z",
+  "updated": "2026-09-03T02:49:03Z",
   "worlds": [
     {
       "bytes": 17240,
@@ -21,6 +21,17 @@
       "order": 1,
       "publisher": "recut",
       "sha256": "b2cff9dabf18cffcc458a928c860eb49430e3677c9025447a3952cd463adfb94",
+      "status": "active",
+      "version": "0.1.0"
+    },
+    {
+      "bytes": 34236,
+      "id": "pgc.tinyearth",
+      "kind": "platform",
+      "manifestUrl": "https://cdn.recut.video/worlds/pgc.tinyearth/0.1.0/world.json",
+      "order": 1,
+      "publisher": "recut",
+      "sha256": "0b72ac6805a2ba76c6d091ea9c03d55c3cbb963206d6ce12e557a1a54e0c13ef",
       "status": "active",
       "version": "0.1.0"
     },
@@ -56,6 +67,17 @@
       "sha256": "72914d3758267f6c2810daa0b659f8f93a92e295c22867a75a5c92c04952c629",
       "status": "active",
       "version": "0.1.0"
+    },
+    {
+      "bytes": 30001,
+      "id": "pgc.xiaomo",
+      "kind": "platform",
+      "manifestUrl": "https://cdn.recut.video/worlds/pgc.xiaomo/0.3.0/world.json",
+      "order": 1,
+      "publisher": "recut",
+      "sha256": "bc9fbc0cb29c3b1829e04757d1e2fa1ac3ecee706c1d4793aeadfb1b820906a2",
+      "status": "active",
+      "version": "0.3.0"
     },
     {
       "bytes": 13168,

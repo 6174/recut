@@ -1,0 +1,377 @@
+{
+  "version": "0.1.0",
+  "world": {
+    "id": "pgc.tinyearth",
+    "name": "小小地球事务所",
+    "type": "character_ip",
+    "description": "隐藏在人类现实世界背后的微型社会：水豚、螳螂、章鱼、云等小小员工用普通上班族的日常，维护人类看到的地球前台。为「现实事件 × 后台视角 × 日常反应 × 意外反差」的治愈系职场内容提供统一的世界观、角色与视觉体系。",
+    "identity": {
+      "positioning": "地球后台职场观察的绘本式内容宇宙",
+      "audience": [
+        "喜欢治愈系日常短内容的都市年轻人",
+        "做职场观察/社会观察/科普向内容的创作者"
+      ],
+      "tone": "可爱、温暖、轻松、日常、荒诞、观察性强"
+    }
+  },
+  "entities": [
+    {
+      "id": "world-rules",
+      "kind": "rule",
+      "title": "世界第一至第三规则",
+      "content": {
+        "type": "always",
+        "text": "1）人类不知道他们存在：两个世界是同一颗地球的不同尺度与视角，他们借用人类世界的物体作为设施（纸箱=仓库、电线=高速、下水道=城市、服务器=写字楼）。2）他们不是神：只能维护、协调、修复、传递、观察和处理问题，会出错、会把事情搞得更糟。3）巨大的地球对他们只是普通工作日：暴雨=天气部门加班，热点=信息部门彻夜处理工单。"
+      }
+    },
+    {
+      "id": "world-time-scale",
+      "kind": "rule",
+      "title": "世界的时间与尺度体系",
+      "content": {
+        "type": "always",
+        "text": "时间：与人类同一时间流速，太阳升起=上班、城市亮灯=晚班、午夜=多数部门下班，但某些部门永远有人值班——因为地球不会下班。尺度：水豚≈人类手掌大，手机=墙、汽车=移动建筑、下水道入口=城门、服务器=大型建筑、一棵树=一片森林。同一现实空间在不同尺度下意义完全不同。"
+      }
+    },
+    {
+      "id": "world-zoom",
+      "kind": "rule",
+      "title": "Zoom In / Zoom Out 双视角",
+      "content": {
+        "type": "always",
+        "text": "Zoom Out：事务所只是遍布全球的「地球后台」中一个很小的单位，全球城市/森林/海洋/天空/地下/网络都有居民和工作系统，没有中央政府与最高存在，天气/交通/网络/城市/生态/信息系统彼此联动、偶尔失控。Zoom In：办公室小得不可思议——几张桌子、旧电脑、冰箱、任务公告板、塞不满的储物柜、一张很大的地球地图；任务单非常简单（【天气】东区 18:40—19:10 小雨），他们只会问「谁负责东区？」。"
+      }
+    },
+    {
+      "id": "office-history",
+      "kind": "story",
+      "title": "事务所的历史",
+      "summary": "人类城市扩张使分散的小型自治系统无法应付跨区域问题，一些居民建立跨区域协作机构——事务所由此诞生；它始终保持着「小小」的规模。",
+      "content": {
+        "premise": "成立初期没有办公室，只有一张旧木桌、一块写满任务的黑板、几个不同物种的居民，处理没人注意的小问题：修断线、找迷路动物、处理异常降雨、修信号节点。世界没有最终任务、没有最终 Boss、没有最终结局——今天的问题解决了，明天又会出现新的问题。"
+      }
+    },
+    {
+      "id": "hidden-truth",
+      "kind": "rule",
+      "title": "世界的隐藏真相（长线悬念）",
+      "content": {
+        "type": "sometimes",
+        "text": "小小世界不能完全确定人类是否真的不知道他们存在：照片里不该出现的影子、孩子说见过「墙角的小办公室」、摄像头偶尔拍到奇怪身影。事务所内部没有统一答案，甚至有人猜测人类世界里同样存在一个观察他们的「后台」。目前没有任何证据——日常内容只做极偶尔的暗示，不当主线。"
+      }
+    },
+    {
+      "id": "core-spirit",
+      "kind": "rule",
+      "title": "世界的核心精神",
+      "content": {
+        "type": "always",
+        "text": "这个世界真正讲述的是：一群很小的生命，如何认真地生活在一个非常大的世界里。他们无法解决所有问题、经常把事情搞砸，但依然每天上班、帮助别人、修好坏掉的东西、在下班前完成最后一张任务单。他们很小，地球很大，但他们觉得：把眼前的事情做好，就已经很重要了。"
+      }
+    },
+    {
+      "id": "perspective",
+      "kind": "story",
+      "title": "核心叙事视角：后台解释",
+      "summary": "所有故事从小动物社会的角度重新解释人类世界——不解释科学原理，而是创造有趣的「后台解释」。",
+      "content": {
+        "premise": "人类看到「今天下雨了」，他们看到「天气系统发布了降雨任务」；人类看到「网络变慢」，他们看到「某个网络节点坏了」。宏大现实 = 具体而琐碎的工作。",
+        "body": {
+          "$file": "references/perspective.md"
+        }
+      }
+    },
+    {
+      "id": "tuantuan",
+      "kind": "character",
+      "title": "团团",
+      "summary": "水豚 / 事务协调员。平静、善良、随和、慢半拍的普通上班族，总能用最普通的方式把事情做完。",
+      "content": {
+        "species": "水豚",
+        "role": "事务协调员 / 普通员工",
+        "personality": "平静、善良、随和、慢半拍；不是天才也不是领导者，是被卷入各种任务的普通人",
+        "function": "日常生活、职场观察、社会观察、情绪、人与人之间的关系",
+        "body": {
+          "$file": "references/char-团团.md"
+        }
+      }
+    },
+    {
+      "id": "shanshan",
+      "kind": "character",
+      "title": "闪闪",
+      "summary": "螳螂 / 城市工程师。认真专业效率至上，口头禅「拆开看看」，常为修一个小问题拆掉一整套设备。",
+      "content": {
+        "species": "螳螂",
+        "role": "城市工程师",
+        "personality": "认真、专业、效率至上；面对任何问题第一反应都是「拆开看看」",
+        "function": "科技、工程、城市、机械、问题解决、荒诞喜剧",
+        "body": {
+          "$file": "references/char-闪闪.md"
+        }
+      }
+    },
+    {
+      "id": "douya",
+      "kind": "character",
+      "title": "豆芽",
+      "summary": "小章鱼 / 信息与通讯员。八条触手同时处理不同事情，几乎永远处于忙碌状态。",
+      "content": {
+        "species": "小章鱼",
+        "role": "信息与通讯员",
+        "personality": "忙碌、敏捷、信息量巨大；一只手接电话一只手打字一只手看屏幕一只手记录",
+        "function": "新闻、热点、互联网、社交媒体、信息流、时代变化",
+        "body": {
+          "$file": "references/char-豆芽.md"
+        }
+      }
+    },
+    {
+      "id": "aya",
+      "kind": "character",
+      "title": "阿芽",
+      "summary": "叶甲虫 / 生态与天气工作人员。身体像一片小叶子，对天气变化极敏感，常是办公室里第一个发现问题的人。",
+      "content": {
+        "species": "叶甲虫",
+        "role": "生态与天气工作人员",
+        "personality": "认真、谨慎、有一点紧张；经常携带各种自然数据",
+        "function": "天气、环境、生态、自然科学、气候",
+        "body": {
+          "$file": "references/char-阿芽.md"
+        }
+      }
+    },
+    {
+      "id": "paopao",
+      "kind": "character",
+      "title": "泡泡",
+      "summary": "水獭 / 公共服务工作人员。随和贪吃，工作时认真，对吃饭休息下班同样认真。",
+      "content": {
+        "species": "水獭",
+        "role": "公共服务工作人员",
+        "personality": "随和、贪吃、实际、喜欢生活；常在执行任务中发现与工作无关但非常重要的事情",
+        "function": "城市生活、公共服务、美食、消费、生活方式、情绪",
+        "body": {
+          "$file": "references/char-泡泡.md"
+        }
+      }
+    },
+    {
+      "id": "xiaoyan",
+      "kind": "character",
+      "title": "小岩",
+      "summary": "寄居蟹 / 地下基础设施工程师。沉默可靠耐心，背着可不断更换的房子，知道城市里很多不为人知的秘密。",
+      "content": {
+        "species": "寄居蟹",
+        "role": "地下基础设施工程师",
+        "personality": "沉默、可靠、耐心；长期生活在地下",
+        "signature": "背上的「房子」不断更换：废弃金属盒、旧服务器、工具箱、小型设备、甚至一块奇怪的石头",
+        "function": "城市基础设施、地下世界、工程、交通、维修",
+        "body": {
+          "$file": "references/char-小岩.md"
+        }
+      }
+    },
+    {
+      "id": "xiaoyun",
+      "kind": "character",
+      "title": "小云",
+      "summary": "有意识的云 / 天气实习生。迷糊天真容易走错方向，常把雨下到不该下的地方；是自然居民与事务所之间的连接。",
+      "content": {
+        "species": "有意识的云（自然居民）",
+        "role": "天气实习生",
+        "personality": "迷糊、天真、容易走错方向；经常因搞错任务跑到不应该下雨的地方",
+        "function": "天气、自然、意外、童趣、视觉变化",
+        "body": {
+          "$file": "references/char-小云.md"
+        }
+      }
+    },
+    {
+      "id": "office",
+      "kind": "location",
+      "title": "小小地球事务所（主场）",
+      "summary": "隐藏在人类城市中的小型办公楼：前台、工作区、会议室、任务公告板、茶水间、实验室、档案室。像一家规模不大的普通公司。",
+      "content": {
+        "description": "办公室不高级：桌子不一定整齐、文件常堆在一起、设备偶尔坏、公告板贴满任务、员工会聊天抱怨摸鱼。整个世界最重要的日常场景。",
+        "body": {
+          "$file": "references/locations.md"
+        }
+      }
+    },
+    {
+      "id": "city-underground-nature",
+      "kind": "location",
+      "title": "城市·地下·自然场景体系",
+      "summary": "与现实城市重叠的小型城市、复杂的地下基础设施网络、以及作为社会成员存在的自然世界。",
+      "content": {
+        "description": "城市（商业区/居住区/科技区/新闻区/交通）是巨大的工作场；地下（电力/水/网络/地铁/排水）是地面问题的最终工单去向；自然（森林/河流/天空/海洋/天气）拥有自己的工作与生活。",
+        "body": {
+          "$file": "references/locations.md"
+        }
+      }
+    },
+    {
+      "id": "departments",
+      "kind": "rule",
+      "title": "社会结构与居民构成",
+      "content": {
+        "type": "always",
+        "text": "八大部门：地球事务所（跨部门协调）、天气系统、城市工程部门、信息部门、科技实验室、地下基础设施部门、公共服务部门、生态部门。部门不封闭，角色可跨部门合作。居民三类：生物居民（动物昆虫植物）、自然居民（云风雨阳光拟人）、人工居民（机器人设备服务器）。"
+      }
+    },
+    {
+      "id": "task-system",
+      "kind": "story",
+      "title": "任务系统与故事公式",
+      "summary": "核心叙事机制是任务：任务出现→接到任务→前往现场→发现问题→意外发生→解决问题→回到日常（然后发现明天还有新任务）。",
+      "content": {
+        "premise": "内容公式 = 现实世界事件 × 小小世界的后台视角 × 角色的日常反应 × 意外与反差。故事可以从一杯咖啡、一条断网、一场雨开始，也可以放大到城市故障与全球新闻。"
+      }
+    },
+    {
+      "id": "style-dna",
+      "kind": "style",
+      "title": "风格 DNA",
+      "summary": "扁平、可爱、简单、温暖、手绘感；一本会动的现代绘本。角色首先像自己的生物，轮廓圆润、形体简单、大面积纯色或低饱和色块。",
+      "content": {
+        "kind": "visual",
+        "guidance": "温暖克制轻松的生活系童话 + 微缩世界感（Soft Miniature World / Diorama）。造型：极简圆润软糯几何形体，大头小身体短肢体，清晰轮廓略带手工感；生物特征适度简化拟人化但不人类化。表情克制呆萌微妙，情绪靠眼睛嘴巴和身体姿态。色彩：低饱和奶油质感，暖色为主+少量冷色，禁止高纯度霓虹；角色间有明确体型颜色性格差异。材质：哑光柔软，纸张/粘土/绒面触感，轻微颗粒手工痕迹，避免真实皮肤毛发金属玻璃。光影：柔和大面积环境光，阴影浅而软，无强明暗对比。空间：miniature/玩具屋感，日常空间被缩小童话化，道具玩具比例，大量留白，角色是视觉中心。构图：稳定平衡，正/侧/三四分之视角，偶尔俯视玩具屋视角。细节少而集中，靠轮廓+色块+明暗+小道具建立信息。永远保持「巨大人类世界 × 很小角色」尺度关系。禁止：写实材质、厚涂、三维渲染、夸张卡通、强对比、复杂光影"
+      }
+    },
+    {
+      "id": "rule-humor",
+      "kind": "rule",
+      "title": "喜剧机制",
+      "content": {
+        "type": "always",
+        "text": "六种反差：尺度反差（人类大问题=他们小任务）、认知反差（人类以为自然发生，他们知道有人在处理）、工作反差（宏大世界问题当普通工作处理）、生物反差（身体特征即工作能力）、现实反差（他们同样犯错摸鱼迟到抱怨加班）、意外反差（小问题引发巨大连锁反应）。"
+      }
+    },
+    {
+      "id": "rule-visual",
+      "kind": "rule",
+      "title": "视觉与镜头纪律",
+      "content": {
+        "type": "never",
+        "text": "禁止写实材质、电影级光影、复杂三维渲染、暗黑恐怖氛围、超级英雄叙事、史诗感配乐画面；角色不得失去生物可识别性（不能画成无差别圆球）；不要把角色画得比人类设施更大（尺度关系必须保持：城市很大、角色很小）。"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "entityId": "tuantuan",
+      "url": "assets/family.jpg",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "全员主视觉（角色全家福+事务所门头·一致性锚点）"
+    },
+    {
+      "entityId": "tuantuan",
+      "url": "assets/char-tuantuan.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "团团设定集（三视图+表情+动作）"
+    },
+    {
+      "entityId": "shanshan",
+      "url": "assets/char-shanshan.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "闪闪设定集（三视图+表情+动作）"
+    },
+    {
+      "entityId": "douya",
+      "url": "assets/char-douya.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "豆芽设定集（三视图+表情+动作）"
+    },
+    {
+      "entityId": "aya",
+      "url": "assets/char-aya.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "阿芽设定集（三视图+表情+动作）"
+    },
+    {
+      "entityId": "paopao",
+      "url": "assets/char-paopao.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "泡泡设定集（三视图+表情+动作）"
+    },
+    {
+      "entityId": "xiaoyan",
+      "url": "assets/char-xiaoyan.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "小岩设定集（三视图+可更换壳方案）"
+    },
+    {
+      "entityId": "xiaoyun",
+      "url": "assets/char-xiaoyun.png",
+      "modality": "image",
+      "purpose": "appearance",
+      "status": "primary",
+      "collection": "角色设定",
+      "label": "小云设定集（表情+情绪状态变化）"
+    },
+    {
+      "entityId": "office",
+      "url": "assets/scene-office.png",
+      "modality": "image",
+      "purpose": "scene",
+      "status": "primary",
+      "collection": "场景设定",
+      "label": "事务所办公室内部全景（16:9 主场锚点）"
+    },
+    {
+      "entityId": "city-underground-nature",
+      "url": "assets/scene-underground.png",
+      "modality": "image",
+      "purpose": "scene",
+      "status": "primary",
+      "collection": "场景设定",
+      "label": "地下基础设施世界全景（16:9）"
+    },
+    {
+      "entityId": "city-underground-nature",
+      "url": "assets/scene-weather.png",
+      "modality": "image",
+      "purpose": "scene",
+      "status": "supporting",
+      "collection": "场景设定",
+      "label": "天空天气系统工作站全景（16:9）"
+    },
+    {
+      "entityId": "style-dna",
+      "url": "assets/scene-city-scale.png",
+      "modality": "image",
+      "purpose": "visual_style",
+      "status": "primary",
+      "collection": "风格锚点",
+      "label": "尺度关系风格锚点（信息墙+键盘广场+咖啡杯水塔）"
+    }
+  ],
+  "provenance": {
+    "author": "chenxuejia",
+    "license": "MIT",
+    "repository": "https://github.com/6174/recut",
+    "publishedAt": "2026-09-03T00:00:00Z"
+  }
+}
