@@ -22,7 +22,3 @@
 	path = apps/audio-studio
 	url = git@github.com:6174/recut-audio-studio.git
 	branch = main
-[submodule "recut-editor"]
-	path = apps/editor
-	url = git@github.com:6174/recut-editor.git
-	branch = main
