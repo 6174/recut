@@ -1,0 +1,123 @@
+# Recut 软件授权条款
+
+**个人免费使用 · 团队与商业使用需另行授权**
+
+Copyright (c) 2026 Recut（以下简称“我们”或“授权方”）
+
+## 范围与接受
+
+本授权条款（下称“本授权”）所覆盖的 Recut 软件，包括 Recut 平台（service、App Host、媒体平台、官网与安装脚本）以及全部官方 App 及其文档（包括但不限于 AI 短片、声音工坊、封面生成、深度图、时间线剪辑、Remotion 视频）（合称“软件”）。
+
+你使用、复制、修改或分发软件，即表示接受本授权；若不接受本授权的条款，请勿使用软件。
+
+## 1. 个人免费授权
+
+对于**个人、非商业、自用**目的，你获得如下免费、永久、不可撤销、免版税、非独占、不可转让的权利：
+
+1. 安装、运行和使用软件，包括在多台设备上安装用于个人使用；
+2. 阅读、审阅与学习软件源码；
+3. 为你的个人使用创建修改件；
+4. 出于非商业目的，复制和分发未修改的软件，且必须随附本授权条款全文与版权声明。
+
+“个人使用”指单一自然人为自己的学习、研究或个人创作等非商业目的使用软件，成果由自己使用或在自己不营利的个人空间中分享，且不属于任何组织、团队或商业活动的一部分。
+
+即使你是个人用户，将软件或其产出用于任何商业目的，均不属于本条个人免费授权的范围（见第 2 条）。
+
+## 2. 团队使用与商业化场景需要商业授权
+
+下列任一情形均不属于第 1 条的个人免费授权，须事先联系我们获取商业授权：
+
+- **团队使用**：组织（公司、工作室、机构、学校、政府单位等）的任何使用；或以团队、工作室名义进行的内容创作；
+- **商业化场景**：将软件或软件的产出用于任何商业目的，包括但不限于：
+  - 商业内容生产：商业订单、广告与营销、电商内容、付费课程、付费订阅内容、任何以营利为目的的发布；
+  - 将软件或其组件嵌入、集成到商业产品、服务或工作流中；
+  - 将软件作为服务的一部分提供给第三方（SaaS、代运营、外包制作等）；
+  - 转售、出租或有偿分发软件及其修改件。
+
+商业授权的形式（个人 / 团队 / 企业，按席位或按项目）与价格，由双方在商业授权协议中约定。
+
+联系我们：license@recut.video ｜ https://recut.video
+
+## 3. 源码公开不等于开源许可
+
+我们公开软件源码，以便你审阅、理解与本地部署。源码公开不构成开源许可（如 MIT、Apache-2.0、GPL 等 OSI 认可的许可证）；除本授权明确授予的权利外，不授予任何其他权利。
+
+## 4. 第三方组件
+
+软件可能依赖、引用或按需下载第三方代码、模型权重、字体与音频素材（例如 Whisper、CosyVoice、Depth Anything、Remotion 及其模型权重）。这些组件仍受其原始许可证约束；本授权不改变其许可条款，商用前请以对应组件的许可证为准。
+
+## 5. 商标
+
+本授权不授予任何使用 “Recut” 名称、Logo 或其他标识的权利，除非仅用于如实说明软件来源。
+
+## 6. 免责声明
+
+软件按“现状”提供，不附有任何明示或暗示的保证。在法律允许的范围内，我们对因使用或无法使用软件而产生的任何直接或间接损失不承担责任。
+
+## 7. 联系
+
+团队与商业授权、授权咨询：license@recut.video
+官网：https://recut.video
+
+---
+
+# Recut Software License
+
+**Free personal use · Team & commercial use requires a separate license**
+
+Copyright (c) 2026 Recut ("we" / "Licensor")
+
+## Scope and acceptance
+
+This license (the "License") covers the Recut software, including the Recut platform (service, App Host, media platform, website and install scripts) and all official Apps and their documentation (including but not limited to AI Short Film, Audio Studio, Cover Studio, Depth Maps, the timeline Editor and Remotion Studio) (together, the "Software").
+
+By using, copying, modifying or distributing the Software, you accept this License. If you do not accept the terms of this License, you may not use the Software.
+
+## 1. Free personal license
+
+For **personal, non-commercial, self-use** purposes, you are granted the following free, perpetual, irrevocable, royalty-free, non-exclusive, non-transferable rights:
+
+1. To install, run and use the Software, including installing it on multiple devices for your personal use;
+2. To read, review and study the Software's source code;
+3. To create derivatives for your personal use;
+4. To copy and distribute unmodified copies of the Software for non-commercial purposes, provided that the full text of this License and the copyright notice are included.
+
+"Personal use" means a single natural person using the Software for their own non-commercial purposes such as learning, research or personal creation, where the results are used by them or shared in a non-monetized personal space, and are not part of any organization, team or commercial activity.
+
+Even as an individual user, any commercial use of the Software or its output is not covered by the free personal license in Section 1 (see Section 2).
+
+## 2. Team use and commercial scenarios require a commercial license
+
+Any of the following is not covered by the free personal license in Section 1 and requires prior contact with us to obtain a commercial license:
+
+- **Team use**: any use by an organization (company, studio, institution, school, government body, etc.); or content production carried out under a team or studio name;
+- **Commercial scenarios**: using the Software or its output for any commercial purpose, including but not limited to:
+  - Commercial content production: commercial commissions, advertising and marketing, e-commerce content, paid courses, paid subscription content, or any distribution intended for profit;
+  - Embedding or integrating the Software or its components into a commercial product, service or workflow;
+  - Providing the Software to third parties as part of a service (SaaS, managed operations, outsourced production, etc.);
+  - Reselling, leasing or paid distribution of the Software or its derivatives.
+
+The form (individual / team / enterprise, per-seat or per-project) and pricing of the commercial license shall be set out in a commercial license agreement between the parties.
+
+Contact: license@recut.video | https://recut.video
+
+## 3. Public source is not an open-source license
+
+We publish the Software's source code so you can review, understand and deploy it locally. Source availability does not constitute an open-source license (such as MIT, Apache-2.0, GPL or other OSI-approved licenses); except for the rights expressly granted by this License, no other rights are granted.
+
+## 4. Third-party components
+
+The Software may depend on, reference or download on demand third-party code, model weights, fonts and audio assets (for example Whisper, CosyVoice, Depth Anything, Remotion and their model weights). Those components remain governed by their original licenses; this License does not alter their terms. For commercial use, please comply with each component's own license.
+
+## 5. Trademarks
+
+This License does not grant any right to use the name "Recut", its logo or other identifiers, except solely to truthfully indicate the origin of the Software.
+
+## 6. Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE ARE NOT LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES ARISING FROM THE USE OF, OR INABILITY TO USE, THE SOFTWARE.
+
+## 7. Contact
+
+Team and commercial licensing, license inquiries: license@recut.video
+Website: https://recut.video

@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "useDefineForClassFields": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "types": ["vite/client", "node"],
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@/*": ["./src/*"],
+      "opencut-wasm": ["./src/wasm/index.ts"],
+      "next": ["./src/shims/next/index.ts"],
+      "next/navigation": ["./src/shims/next/navigation.ts"],
+      "next/link": ["./src/shims/next/link.tsx"],
+      "next/image": ["./src/shims/next/image.tsx"]
+    }
+  },
+  "include": ["src"]
+}

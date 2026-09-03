@@ -1,0 +1,451 @@
+/**
+ * [INPUT]: 依赖 Tailwind CSS v4、Editor 组件语义类与 ThemeProvider 的 dark class
+ * [OUTPUT]: 对外提供编辑器全局深色设计令牌、基础排版、控件可读性和导出动效样式
+ * [POS]: editor/ui 的视觉基础层，被时间线、预览、素材和属性面板共同消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+ */
+@import "tailwindcss";
+
+@property --export-neon-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 60deg;
+}
+
+.ai-editing-border {
+  border: 1px solid color-mix(in oklab, var(--constructive) 72%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--constructive) 16%, transparent);
+}
+
+.ai-editing-border__label {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: 1px solid color-mix(in oklab, var(--constructive) 72%, transparent);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--constructive);
+  padding: 0.2rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+}
+
+/* 只让渐变角度移动，边框本身始终被胶囊遮罩裁切。 */
+.export-neon-ring {
+  --export-neon-angle: 60deg;
+  background: conic-gradient(
+    from var(--export-neon-angle),
+    transparent 0deg,
+    transparent 12deg,
+    #00e5d4 22deg,
+    transparent 42deg,
+    transparent 180deg,
+    #7df7eb 202deg,
+    transparent 222deg,
+    transparent 360deg
+  );
+  filter: drop-shadow(0 0 2px rgb(0 229 212 / 0.9));
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  padding: 1px;
+  transition: --export-neon-angle 2s ease-in-out;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+}
+
+.export-neon-glow {
+  filter: blur(4px);
+  opacity: 0.45;
+}
+
+.export-neon-button:hover .export-neon-ring,
+.export-neon-button:focus-visible .export-neon-ring {
+  --export-neon-angle: -120deg;
+}
+
+.export-neon-button:hover .export-neon-glow,
+.export-neon-button:focus-visible .export-neon-glow {
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .export-neon-ring {
+    transition: none;
+  }
+
+}
+
+/* Custom variant for dark mode */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Plugins */
+@plugin "@tailwindcss/typography";
+@plugin "tailwindcss-animate";
+
+/*
+ * Recut Design System: dark-first canvas, decisive green, low-radius tool surfaces.
+ * Ported from the Recut platform (web/app/globals.css) so the editor matches
+ * the host iframe look. Palette is a single green hue family (oklch ~150-151).
+ */
+:root {
+  --background: oklch(0.145 0.012 150);
+  --foreground: oklch(0.95 0.008 150);
+  --card: oklch(0.185 0.012 150);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.205 0.014 150);
+  --popover-hover: oklch(0.235 0.016 150);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.68 0.18 151);
+  --primary-foreground: oklch(0.12 0.012 150);
+  --secondary: oklch(0.235 0.016 150);
+  --secondary-border: oklch(0.32 0.02 151);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.225 0.012 150);
+  --muted-foreground: oklch(0.68 0.012 150);
+  --accent: oklch(0.28 0.06 151);
+  --accent-foreground: oklch(0.9 0.025 151);
+  --destructive: oklch(0.58 0.18 28);
+  --destructive-foreground: oklch(1 0 0);
+  --constructive: oklch(0.64 0.16 151);
+  --constructive-foreground: oklch(1 0 0);
+  --success: var(--constructive);
+  --caution: oklch(0.77 0.16 82);
+  --caution-foreground: oklch(0.1 0.01 82);
+  --warning: var(--caution);
+  --border: oklch(0.32 0.014 150);
+  --input: oklch(0.3 0.014 150);
+  --ring: oklch(0.68 0.18 151);
+  --terminal: oklch(0.12 0.008 150);
+  --shadow-overlay: 0 14px 36px oklch(0.19 0.008 150 / 0.1);
+  --chart-1: oklch(0.66 0.17 151);
+  --chart-2: oklch(0.64 0.16 151);
+  --chart-3: oklch(0.77 0.16 82);
+  --chart-4: oklch(0.52 0.18 28);
+  --chart-5: oklch(0.48 0.014 150);
+  --sidebar-background: oklch(0.16 0.01 150);
+  --sidebar-foreground: oklch(0.93 0.01 150);
+  --sidebar-primary: oklch(0.93 0.01 150);
+  --sidebar-primary-foreground: oklch(0.2 0.012 150);
+  --sidebar-accent: oklch(0.24 0.014 150);
+  --sidebar-accent-foreground: oklch(0.93 0.01 150);
+  --sidebar-border: oklch(0.24 0.012 150);
+  --sidebar-ring: oklch(0.68 0.18 151);
+  --sidebar: oklch(0.15 0.01 150);
+  color-scheme: dark;
+}
+
+.panel {
+  --background: oklch(0.185 0.012 150);
+  --foreground: oklch(0.93 0.01 150);
+  --card: oklch(0.2 0.012 150);
+  --card-foreground: oklch(0.93 0.01 150);
+  --primary-foreground: oklch(0.12 0.012 150);
+  --secondary: oklch(0.235 0.016 150);
+  --secondary-border: oklch(0.32 0.02 151);
+  --secondary-foreground: oklch(0.85 0.05 151);
+  --muted: oklch(0.225 0.012 150);
+  --muted-foreground: oklch(0.68 0.012 150);
+  --accent: oklch(0.28 0.06 151);
+  --accent-foreground: oklch(0.9 0.025 151);
+  --destructive-foreground: oklch(1 0 0);
+  --constructive-foreground: oklch(1 0 0);
+  --border: oklch(0.32 0.014 150);
+  --input: oklch(0.3 0.014 150);
+  --ring: oklch(0.68 0.18 151);
+}
+
+.dark {
+  --background: oklch(0.14 0.01 150);
+  --foreground: oklch(0.87 0.012 150);
+  --card: oklch(0.16 0.01 150);
+  --card-foreground: oklch(0.87 0.012 150);
+  --popover: oklch(0.18 0.01 150);
+  --popover-hover: oklch(0.22 0.012 150);
+  --popover-foreground: oklch(0.93 0.01 150);
+  --primary: oklch(0.66 0.17 151);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.2 0.015 150);
+  --secondary-border: oklch(0.28 0.02 151);
+  --secondary-foreground: oklch(0.85 0.05 151);
+  --muted: oklch(0.22 0.012 150);
+  --muted-foreground: oklch(0.62 0.015 150);
+  --accent: oklch(0.25 0.03 151);
+  --accent-foreground: oklch(0.85 0.07 151);
+  --destructive: oklch(0.58 0.18 28);
+  --destructive-foreground: oklch(1 0 0);
+  --constructive: oklch(0.68 0.16 151);
+  --constructive-foreground: oklch(0.98 0.01 150);
+  --caution: oklch(0.78 0.16 82);
+  --caution-foreground: oklch(0.12 0.01 82);
+  --border: oklch(0.24 0.012 150);
+  --input: oklch(0.26 0.014 150);
+  --ring: oklch(0.69 0.17 151);
+  --terminal: oklch(0.12 0.008 150);
+  --shadow-overlay: 0 14px 36px oklch(0.03 0.005 150 / 0.45);
+  --sidebar-background: oklch(0.16 0.01 150);
+  --sidebar-foreground: oklch(0.93 0.01 150);
+  --sidebar-primary: oklch(0.93 0.01 150);
+  --sidebar-primary-foreground: oklch(0.2 0.012 150);
+  --sidebar-accent: oklch(0.24 0.014 150);
+  --sidebar-accent-foreground: oklch(0.93 0.01 150);
+  --sidebar-border: oklch(0.24 0.012 150);
+  --sidebar-ring: oklch(0.69 0.17 151);
+  --sidebar: oklch(0.15 0.01 150);
+}
+
+.dark .panel {
+  --background: oklch(0.18 0.012 150);
+  --foreground: oklch(0.93 0.01 150);
+  --card: oklch(0.19 0.012 150);
+  --card-foreground: oklch(0.93 0.01 150);
+  --secondary: oklch(0.22 0.02 151);
+  --secondary-border: oklch(0.28 0.02 151);
+  --secondary-foreground: oklch(0.9 0.04 151);
+  --muted: oklch(0.23 0.014 150);
+  --muted-foreground: oklch(0.76 0.012 150);
+  --accent: oklch(0.26 0.03 151);
+  --accent-foreground: oklch(0.94 0.06 151);
+  --border: oklch(0.26 0.014 150);
+  --input: oklch(0.26 0.014 150);
+  --ring: oklch(0.69 0.17 151);
+}
+
+@layer base {
+  /*
+    The default border color has changed to `currentcolor` in Tailwind CSS v4,
+    so we've added these compatibility styles to make sure everything still
+    looks the same as it did with Tailwind CSS v3.
+
+    If we ever want to remove these styles, we need to add an explicit border
+    color utility to any element that depends on these defaults.
+  */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+  /* Other default base styles */
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Prevent back/forward swipe */
+    overscroll-behavior-x: contain;
+  }
+  .panel input::placeholder,
+  .panel textarea::placeholder {
+    color: oklch(0.7 0.012 150);
+    opacity: 1;
+  }
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+}
+
+@theme inline {
+  /* Responsive breakpoints */
+  --breakpoint-xs: 30rem;
+
+  /* Typography (Recut platform stack: Inter with CJK fallbacks) */
+  --font-sans: Inter, "PingFang SC", "Noto Sans SC", Arial, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  /* Font sizes */
+  --text-xs: 0.72rem;
+  --text-sm: 0.79rem;
+  --text-base: 0.92rem;
+  --text-base--line-height: calc(1.5 / 0.95);
+  --text-xs--line-height: calc(1 / 0.8);
+
+  /* Border radius (low-radius tool surfaces) */
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+
+  /* Palette mapped to root design tokens */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-hover: var(--popover-hover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-border: var(--secondary-border);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-constructive: var(--constructive);
+  --color-constructive-foreground: var(--constructive-foreground);
+
+  --color-caution: var(--caution);
+  --color-caution-foreground: var(--caution-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Chart colors */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar-background);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Animations */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+/* Dark editor contrast floor: weak utility roles must remain legible on tool surfaces. */
+button,
+[role="button"],
+[role="tab"],
+[role="combobox"] {
+  color: oklch(0.93 0.01 150);
+}
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: oklch(0.94 0.01 150);
+}
+.text-muted-foreground,
+.text-muted-foreground\/75,
+.text-muted-foreground\/85,
+.text-muted-foreground\/60,
+.text-muted-foreground\/50,
+.text-muted-foreground\/40 {
+  color: oklch(0.78 0.012 150) !important;
+}
+.text-foreground\/50,
+.text-foreground\/75,
+.text-foreground\/80,
+.text-foreground\/85 {
+  color: oklch(0.9 0.01 150) !important;
+}
+input,
+textarea,
+select {
+  color: oklch(0.93 0.01 150);
+}
+input::placeholder,
+textarea::placeholder {
+  color: oklch(0.72 0.012 150) !important;
+  opacity: 1;
+}
+input:disabled,
+textarea:disabled,
+select:disabled,
+input:disabled::placeholder,
+textarea:disabled::placeholder {
+  color: oklch(0.82 0.012 150) !important;
+  opacity: 0.92 !important;
+  -webkit-text-fill-color: oklch(0.82 0.012 150);
+}
+button:disabled,
+[aria-disabled="true"] {
+  opacity: 0.72 !important;
+}
+
+@utility scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility scrollbar-x-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar:horizontal {
+    display: none;
+  }
+}
+
+@utility scrollbar-y-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar:vertical {
+    display: none;
+  }
+}
+
+@utility scrollbar-thin {
+  &::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

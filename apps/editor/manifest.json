@@ -1,0 +1,818 @@
+{
+  "manifestVersion": 1,
+  "id": "recut.editor",
+  "name": "剪辑器",
+  "author": "recut",
+  "description": "Recut 核心时间线剪辑器：把素材库、AI 短片与程序化视频编排成最终成片。CapCut 风格时间线，支持 R3F GPU 合成、3D 特效与 html-in-canvas 文字。",
+  "localized": {
+    "en": {
+      "name": "Editor",
+      "description": "Recut's core timeline editor: assemble the asset library, AI short films, and procedural videos into a final cut. CapCut-style timeline with R3F GPU compositing, 3D effects, and html-in-canvas text.",
+      "onboarding": [
+        {
+          "id": "start-editing",
+          "title": "Start editing from a clip",
+          "description": "Place library assets on the timeline in the editor and assemble them into a final cut.",
+          "prompt": "Use the Editor for this request【describe the change or video idea here】. First read workflow.context and timeline.read. Decide whether this is a new video, a timeline revision, a visual revision, an audio revision, an asset replacement, or delivery-only work. For an existing timeline, identify the exact scenes/elements to change and preserve everything else. Only if new visual content is needed, choose the relevant speech-led, media-led, generated-video, motion-graphics, voice-led, or timeline-edit route; keep motion graphics in one visual language, use real media or verified components as visual subjects, make the smallest necessary timeline edits, preview affected settled frames, validate, and export only when requested."
+        }
+      ]
+    }
+  },
+  "repository": "https://github.com/opencut-app/opencut",
+  "version": "0.1.3",
+  "type": "project",
+  "agentSurface": {
+    "domain": "timeline-editor",
+    "defaultIntent": "project_edit",
+    "requiredSkill": "recut-editor"
+  },
+  "background": "background.js",
+  "backgroundModules": [
+    "background/model-base.js",
+    "background/subtitles.js",
+    "background/script-model.js",
+    "background/op-engine.js",
+    "background/project-store.js",
+    "background/assets.js",
+    "background/project-operations.js",
+    "background/subtitle-generate.js",
+    "background/catalog-export.js",
+    "background/components.js",
+    "background/frame-render.js"
+  ],
+  "ui": { "projectView": "ui/dist/index.html" },
+  "permissions": ["sqlite", "files", "media.read", "media.write", "artifacts.publish", "shell", "http"],
+  "distribution": {
+    "builtin": {
+      "include": ["."],
+      "exclude": [
+        ".git",
+        "node_modules",
+        "ui/node_modules",
+        "ui/src",
+        "ui/package-lock.json",
+        "ui/package.json",
+        "ui/tsconfig.json",
+        "ui/vite.config.ts",
+        "scripts/node_modules",
+        "ui/test-results"
+      ]
+    }
+  },
+  "onboarding": [
+    {
+      "id": "start-editing",
+      "title": "从一段剪辑开始",
+      "description": "在剪辑器里放置素材库 assets 并编排成最终成片。",
+      "prompt": "用剪辑器处理这个请求【请填写要修改的内容或视频想法】。先读取 workflow.context 和 timeline.read。判断这是从零创作、时间线调整、画面调整、音频调整、素材替换，还是只预览/校验/导出。已有时间线时先确定要改的 scene/元素，未点名的内容保持不动。只有需要新增画面时，才选择 speech-led、media-led、generated-video、motion-graphics、voice-led 或 timeline-edit 路由；motion graphics 保持统一视觉语言，每个非转场场景使用真实媒体或已验证组件作为画面主体，使用最小必要的时间线修改，预览受影响的 settled frame，通过校验后按请求导出。"
+    }
+  ],
+  "operations": [
+    {
+      "name": "project.create",
+      "surfaces": ["api", "mcp"],
+      "description": "创建剪辑项目：初始化默认场景与主轨、可选设置（fps/画布/背景）与素材 assetId 列表。仅在尚无项目或用户明确要求重做时调用。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "fps": { "type": "object", "properties": { "numerator": { "type": "number" }, "denominator": { "type": "number" } } },
+              "canvasSize": { "type": "object", "properties": { "width": { "type": "number" }, "height": { "type": "number" } } },
+              "background": { "type": "object" }
+            }
+          },
+          "materialAssetIds": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    {
+      "name": "project.load",
+      "surfaces": ["api"],
+      "description": "读取当前剪辑项目的完整 TProject（时间线、场景、元素、参数与关键帧），供编辑器 iframe 装载。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "project.save",
+      "surfaces": ["api"],
+      "description": "持久化当前剪辑项目的完整 TProject 快照（编辑器防抖自动调用）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["project"],
+        "properties": {
+          "project": { "type": "object" },
+          "version": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "workflow.context",
+      "surfaces": ["api", "mcp"],
+      "description": "进入连续编辑会话时调用一次。返回项目设置、时间线摘要（元素/轨道计数）、已登记素材、version、aiLock、authoring/capabilities（增量同步、work 单元、preview/export 是否仅 UI、headless 未实现）、可用动作与路径 paths。同一会话（含 resume 续跑）复用快照，不因新消息重复调用；后续状态以写操作返回的 version 与结果滚动更新，仅在版本/冲突报告、外部变化、用户纠正或状态失效时回读。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "timeline.assets",
+      "surfaces": ["api", "mcp"],
+      "description": "登记时间线引用的所有素材 assetId（覆盖式）。每次保存时间线后调用，导出时才能物化这些素材。",
+      "inputSchema": { "type": "object", "required": ["assetIds"], "properties": { "assetIds": { "type": "array", "items": { "type": "string" } } } }
+    },
+    {
+      "name": "asset.list",
+      "surfaces": ["api", "mcp"],
+      "description": "读取项目素材引用索引。组件素材只返回 asset 引用与当前版本投影，组件源码仍由 component.source 按需读取。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "asset.archive",
+      "surfaces": ["api", "mcp"],
+      "description": "归档项目素材引用。对 component 类型只隐藏素材引用，保留组件数据与已有时间线引用。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["type", "refId"],
+        "properties": {
+          "type": { "type": "string", "description": "素材引用类型，例如 component。" },
+          "refId": { "type": "string", "description": "被引用实体 ID。" }
+        }
+      }
+    },
+    {
+      "name": "subtitle.import",
+      "surfaces": ["api", "mcp"],
+      "description": "把 SRT/ASS 字幕文本导入为字幕轨：每条 cue 是带 subtitle 标记的独立 text 元素，轨道持有共享样式 captionStyle（文字外观统一，编辑任一 cue 会广播到全轨）。可指定 style（全轨样式 params）、trackId（复用已有字幕轨）、startSec（整体偏移）与 source（srt/ass/transcript）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": { "type": "string", "description": "SRT（或 ASS）字幕文本。" },
+          "fileName": { "type": "string", "description": "可选，用于按扩展名选择解析器。" },
+          "style": { "type": "object", "description": "全轨共享样式 params（fontSize/color/background.* 等，不含 content/位置）。" },
+          "trackId": { "type": "string", "description": "可选；复用已有字幕轨（text 轨将被升级为字幕轨）。" },
+          "startSec": { "type": "number", "description": "可选；全部 cue 的整体起始偏移（秒）。" },
+          "source": { "type": "string", "enum": ["srt", "ass", "transcript"], "description": "来源标记，默认 srt。" }
+        }
+      }
+    },
+    {
+      "name": "subtitle.export",
+      "surfaces": ["api", "mcp"],
+      "description": "把当前项目字幕轨（text 轨 + captionStyle）序列化为 SRT 文本返回。可指定 trackId；缺省取第一个字幕轨。无字幕轨返回 ok:false + reason:no-caption-track。",
+      "inputSchema": { "type": "object", "properties": { "trackId": { "type": "string" } } }
+    },
+    {
+      "name": "subtitle.capabilities",
+      "surfaces": ["api", "mcp"],
+      "description": "读取字幕生成所需的 audio-studio 能力面：ready/envReady（转写环境就绪）、asrModels/languages 候选、installedModels、以及未安装/未就绪时的安装引导信息（install.repository）。UI 生成前置调用，未就绪时禁用并引导安装。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "subtitle.generate",
+      "surfaces": ["api", "mcp"],
+      "description": "生成字幕：经平台通用能力桥一次调用 audio-studio 的 audio.transcribe（saveToLibrary:true，转写+授权入库），返回 jobId 与可选 transcriptId。同目标+模型+语言幂等去重：进行中复用既有 job，已完成直接返回产物。目标素材通过 targetAssetId + kind(audio/video) 指定。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["targetAssetId"],
+        "properties": {
+          "targetAssetId": { "type": "string", "description": "时间线上要转写的有声素材全局 assetId。" },
+          "kind": { "type": "string", "enum": ["audio", "video"], "description": "素材类型，默认 video。" },
+          "model": { "type": "string", "enum": ["qwen3-asr-0.6b", "qwen3-asr-1.7b", "whisper-small", "whisper-medium", "whisper-large-v3"], "description": "ASR 模型，默认 whisper-small。" },
+          "language": { "type": "string", "enum": ["auto", "zh", "en"], "description": "语言，默认 auto。" }
+        }
+      }
+    },
+    {
+      "name": "subtitle.status",
+      "surfaces": ["api", "mcp"],
+      "description": "轮询字幕生成任务：经能力桥问 audio-studio 当前状态；转写完成且 saveToLibrary 时懒终态自动入库，返回 status=completed + transcriptAssetId + segments/srt。终端状态 completed/failed/cancelled。",
+      "inputSchema": { "type": "object", "required": ["jobId"], "properties": { "jobId": { "type": "string" } } }
+    },
+    {
+      "name": "subtitle.commit",
+      "surfaces": ["api", "mcp"],
+      "description": "把字幕生成的全局 transcript 资产登记进项目 registeredAssets（覆盖式合并），可选把同一资产 script.attach 到说话元素（trackId+elementId），让字幕与可编辑文稿同源。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["transcriptAssetId"],
+        "properties": {
+          "transcriptAssetId": { "type": "string", "description": "subtitle.status/subtitle.generate 返回的全局 transcript 资产。" },
+          "trackId": { "type": "string", "description": "可选；把同一资产绑定到说话元素的轨道。" },
+          "elementId": { "type": "string", "description": "可选；把同一资产绑定到说话元素。" },
+          "language": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "subtitle.cancel",
+      "surfaces": ["api", "mcp"],
+      "description": "取消一个进行中的字幕生成任务：确认它是 audio-studio 当前活动 job 后经能力桥调 audio.cancel，并把本地 subtitle_jobs 标记为 cancelled。已终态的任务幂等返回。",
+      "inputSchema": { "type": "object", "required": ["jobId"], "properties": { "jobId": { "type": "string" } } }
+    },
+    {
+      "name": "subtitle.retry-save",
+      "surfaces": ["api", "mcp"],
+      "description": "部分成功 repair：转写已完成但懒终态入库失败时，重读提供方记录补一次 save，返回 transcriptAssetId 并更新本地 subtitle_jobs 为 completed。",
+      "inputSchema": { "type": "object", "required": ["jobId"], "properties": { "jobId": { "type": "string" } } }
+    },
+    {
+      "name": "project.get",
+      "surfaces": ["mcp"],
+      "description": "读取项目设置（fps/画布/背景）、version、durationSec、materialAssetIds、registeredAssets 与 aiLock 状态。只读。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "project.updateSettings",
+      "surfaces": ["mcp"],
+      "description": "更新项目设置（fps/canvasSize/background）。可 undo（作为 timeline.command settings op 落统一日志）；可带 baseVersion 乐观锁。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fps": { "type": "object", "properties": { "numerator": { "type": "number" }, "denominator": { "type": "number" } } },
+          "canvasSize": { "type": "object", "properties": { "width": { "type": "number" }, "height": { "type": "number" } } },
+          "background": { "type": "object" },
+          "baseVersion": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "project.lock",
+      "surfaces": ["mcp"],
+      "description": "进入 AI 独占编辑会话并签发 lock token。多步编辑前调用；结束时把 owner/token 传给 project.unlock，或等待超时自动解锁。",
+      "inputSchema": { "type": "object", "properties": { "owner": { "type": "string" } } }
+    },
+    {
+      "name": "project.unlock",
+      "surfaces": ["mcp"],
+      "description": "结束 AI 独占编辑会话；提供 project.lock 返回的 owner/token，避免误解锁其他 Agent 的会话。",
+      "inputSchema": { "type": "object", "properties": { "owner": { "type": "string" }, "token": { "type": "string" } } }
+    },
+    {
+      "name": "timeline.read",
+      "surfaces": ["mcp"],
+      "description": "读取时间线 condensed 摘要：轨道列表 + clips（type/name/startSec/durationSec/trimSec + transform/opacity/volume/blendMode/text 子集 + keyframe/effect/mask 计数）+ durationSec + settings + version。token 高效，AI 编缉的只读入口。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "element.get",
+      "surfaces": ["mcp"],
+      "description": "读取单个元素的完整 params/animations/effects/masks 与秒/ticks 双返回。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["trackId", "elementId"],
+        "properties": { "trackId": { "type": "string" }, "elementId": { "type": "string" } }
+      }
+    },
+    {
+      "name": "timeline.delta",
+      "surfaces": ["api", "mcp"],
+      "description": "从 fromVersion 拉取增量：返回 operations（command-log 自该版本之后）与当前 document 快照。iframe 版本 gap 或事件未带 document 时使用，避免 loadProject。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fromVersion": { "type": "number", "description": "iframe 已知 version；返回 result_version > fromVersion 的 ops。" }
+        }
+      }
+    },
+    {
+      "name": "timeline.validate",
+      "surfaces": ["mcp"],
+      "description": "校验时间线不变式：asset-exists/track-type/overlap/out-of-range/duration>0/component-def/param-valid/transcript-src。返回 violations；export 前应自检为零。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "timeline.command",
+      "surfaces": ["api", "mcp"],
+      "description": "统一 op 日志入口：执行一个可 undo 的时间线 op（insert/delete/trim/split/retime/param/keyframe-upsert/keyframe-remove/track-*/scene-*/bookmark-*/settings/caption-style/subtitle-import）。op 落 editor_command_log，version 递增；baseVersion 过期返回 conflict + opsSince。UI 与 AI 共用同一写入口。insert 的 text 元素可带 subtitle:true 标记为字幕 cue（自动继承字幕轨共享样式）；param 修改字幕 cue 时广播到全轨；caption-style 设置字幕轨共享样式；subtitle-import 批量铺字幕 cue（详见 references/captions.md）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["op"],
+        "properties": {
+          "op": {
+            "type": "object",
+            "description": "{ type, payload, baseVersion? }；payload 字段见 references/timeline-workflow.md。"
+          }
+        }
+      }
+    },
+    {
+      "name": "history.undo",
+      "surfaces": ["mcp"],
+      "description": "回退统一 op 日志的最后一条（snapshot 恢复），version 递增。无内容可回退返回 {ok:false, reason:nothing-to-undo}。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "work.checkpoint",
+      "surfaces": ["mcp"],
+      "description": "记下当前 command-log 的 done seq 作为工作单元检查点。多步编辑在 project.lock 后调用；用户打断时 work.cancel 按 seq undo（不能按 version，因为 undo 会递增 version）。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "work.cancel",
+      "surfaces": ["mcp"],
+      "description": "仅回滚当前锁 owner 创建的 checkpointSeq；循环 undoLast 直到 done seq <= 检查点。超过保护上限或归属不匹配会返回 ok:false。编码已开始的 preview/export 不能用此取消。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "checkpointSeq": { "type": "number", "description": "work.checkpoint 返回的 seq。" },
+          "owner": { "type": "string" },
+          "token": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "timeline.placeComponents",
+      "surfaces": ["mcp"],
+      "description": "原子放置一组已验证的 component asset 到时间线。使用 component.create/revise 完成 job 后返回的 components[].assetId；后台解析该引用得到 componentId 并把 assetId 写入 clip。默认 graphic + firstAvailable：同一时间段自动分配不同轨，非重叠组件复用轨；单次写入只递增一个 project version。仅在用户明确要求把组件放进视频时调用。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "baseVersion": { "type": "number" },
+          "sceneId": { "type": "string" },
+          "trackType": { "type": "string", "enum": ["graphic", "text", "video", "audio"], "description": "缺省 graphic。" },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["startSec", "durationSec"],
+              "properties": {
+                "assetId": { "type": "string", "description": "component.create/revise job 完成结果中 components[].assetId；AI 放置组件时应传此字段。" },
+                "componentId": { "type": "string", "description": "兼容旧调用；新调用使用 assetId。若同时给出，必须与 assetId 指向同一组件。" },
+                "name": { "type": "string" },
+                "startSec": { "type": "number" },
+                "durationSec": { "type": "number", "exclusiveMinimum": 0 },
+                "params": { "type": "object" },
+                "trackId": { "type": "string", "description": "可选；显式层级意图，允许调用方指定轨道。" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "timeline.placeAudio",
+      "surfaces": ["mcp"],
+      "description": "原子批量放置一组音频素材（媒体素材）到时间线。AI 只需给 platform 媒体 assetId + start/duration；source 语义（sourceType:upload + mediaId）由后端推导，避免 AI 拼错 library/sourceUrl。放置前自动把媒体素材登记进 registeredAssets 并 attach 到项目，且广播 project.assets.changed 让前端素材面板实时刷新并切到素材视图。默认 audio + firstAvailable 避碰，一次写入只递增一个 project version。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "baseVersion": { "type": "number" },
+          "sceneId": { "type": "string" },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["assetId", "startSec", "durationSec"],
+              "properties": {
+                "assetId": { "type": "string", "description": "平台媒体素材的 assetId（如音频/旁白素材）；也可为项目音频引用 audio:<mediaAssetId>。" },
+                "name": { "type": "string" },
+                "startSec": { "type": "number" },
+                "durationSec": { "type": "number", "exclusiveMinimum": 0 },
+                "trackId": { "type": "string", "description": "可选；显式指定轨道。" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "history.redo",
+      "surfaces": ["mcp"],
+      "description": "重放最近一条 undone 的 op。新 command 会清空 redo 栈。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "preview.frame",
+      "surfaces": ["mcp", "api"],
+      "description": "读取 timeline 在 timeSec 时刻的真实渲染画面（UI 快路径）。返回统一异步 Handle jobId；Agent 用 recut.job.wait 观察终态，结果含 imageUrl（app 文件 CDN 地址）与可选 assetId。仅当编辑器 iframe 在线（心跳 <30s）时可用；无前端场景待 P2 无头渲染。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["timeSec"],
+        "properties": {
+          "timeSec": { "type": "number", "description": "时间线时刻（秒，>=0）。" },
+          "mode": { "type": "string", "enum": ["auto", "ui", "headless"], "description": "缺省 auto；headless 尚未实现（P2）。" },
+          "width": { "type": "number", "description": "可选；输出宽度，缺省项目画布宽。" },
+          "height": { "type": "number", "description": "可选；输出高度，缺省项目画布高。" },
+          "pixelRatio": { "type": "number", "description": "可选；输出像素比，缺省 1。" },
+          "saveToLibrary": { "type": "boolean", "description": "可选；默认 false（帧只写项目文件，不污染素材库）；true 时另导入为 image Asset 返回 assetId。" }
+        }
+      }
+    },
+    {
+      "name": "preview.batch",
+      "surfaces": ["mcp", "api"],
+      "description": "批量读取多个 settled time 的真实画面，返回多个异步 frame job；用于 scene contact-sheet/视觉证据收集，不重载编辑器项目。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["times"],
+        "properties": {
+          "times": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "number", "minimum": 0 } },
+          "purpose": { "type": "string" },
+          "width": { "type": "number" },
+          "height": { "type": "number" },
+          "pixelRatio": { "type": "number" },
+          "saveToLibrary": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "preview.contact-sheet",
+      "surfaces": ["mcp", "api"],
+      "description": "把多个 settled time 合成为一张 contact sheet，返回异步 frame job；用于快速审阅场景主体、可读性与视觉重复。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["times"],
+        "properties": {
+          "times": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "type": "number", "minimum": 0 } },
+          "width": { "type": "number" },
+          "height": { "type": "number" },
+          "pixelRatio": { "type": "number" },
+          "saveToLibrary": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "frame.heartbeat",
+      "surfaces": ["api"],
+      "description": "编辑器 iframe 存活性心跳（挂载后每 10s 上报），preview.frame 据此判断前端是否在线。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "frame.finalize",
+      "surfaces": ["api"],
+      "description": "preview.frame 的 completeOp 收尾：写入 frames/<id>.png、生成 app 文件 CDN 地址、按需导入素材库。由平台 rpc.reply 按 completeOp 调用，普通调用方不直接使用。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "export.start",
+      "surfaces": ["api", "mcp"],
+      "description": "开始导出成片，返回统一异步 Handle jobId。iframe 在线时经 callUI(export.encode) 编码，completeOp=export.finalize 落盘入库。mode=headless 返回 headless-unavailable；编辑器未打开返回 editor-not-open。Agent 用 recut.job.wait 观察终态后再声称交付。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "width": { "type": "number" },
+          "height": { "type": "number" },
+          "fps": { "type": "number" },
+          "mode": { "type": "string", "enum": ["auto", "ui", "headless"], "description": "缺省 auto（UI 路径）；headless 尚未实现。" }
+        }
+      }
+    },
+    {
+      "name": "export.finalize",
+      "surfaces": ["api"],
+      "description": "export.start 的 completeOp 收尾：解码 MP4、导入素材库、按封面偏好设封面。由平台 rpc.reply 调用，普通调用方不直接使用。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "export.progress",
+      "surfaces": ["api"],
+      "description": "编辑器 iframe 上报导出进度（0-1），转发为项目事件。",
+      "inputSchema": { "type": "object", "required": ["exportId", "progress"], "properties": { "exportId": { "type": "string" }, "progress": { "type": "number" } } }
+    },
+    {
+      "name": "export.complete",
+      "surfaces": ["api"],
+      "description": "接收编辑器编码的成片字节（base64），解码落盘，导入素材库为 video Asset。auto 封面模式下设为项目封面；用户手动选过封面帧/素材时保留手动封面。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["exportId", "fileBase64"],
+        "properties": {
+          "exportId": { "type": "string" },
+          "fileBase64": { "type": "string" },
+          "name": { "type": "string" },
+          "mimeType": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "cover.update",
+      "surfaces": ["api"],
+      "description": "接收编辑器渲染的首帧图片（base64），写入项目文件根并设为项目封面（不产生 media Asset，可频繁更新）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["fileBase64"],
+        "properties": {
+          "fileBase64": { "type": "string" },
+          "mimeType": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "cover.get",
+      "surfaces": ["api", "mcp"],
+      "description": "读取当前封面选择模式（auto/frame/asset）、手动帧时间与素材 assetId，以及平台当前封面。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "cover.set-frame",
+      "surfaces": ["api", "mcp"],
+      "description": "用指定时间线的某一帧作为封面：接收编辑器渲染的 PNG base64 与帧时间（秒），落盘登记为 file 封面并切到 frame 模式（停止自动首帧同步）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["fileBase64"],
+        "properties": {
+          "fileBase64": { "type": "string" },
+          "mimeType": { "type": "string" },
+          "frameSec": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "cover.set-asset",
+      "surfaces": ["api", "mcp"],
+      "description": "用全局素材库中的图片/视频 Asset 作为封面并切到 asset 模式（停止自动首帧同步）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["assetId"],
+        "properties": { "assetId": { "type": "string" } }
+      }
+    },
+    {
+      "name": "cover.set-auto",
+      "surfaces": ["api", "mcp"],
+      "description": "恢复自动首帧封面模式，清除手动选帧/素材记录。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "export.list",
+      "surfaces": ["api"],
+      "description": "读取当前项目所有导出记录（含产物 assetId 与设置）。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "film.package.import",
+      "surfaces": ["api", "mcp"],
+      "description": "导入 AI 短片交接包（recut.ai-short-film.package@1 或等价结构）为时间线草稿：scenes→轨道、script→文字元素、assetIds→媒体元素。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pkg": { "type": "object", "description": "film.package 内容：{brief, script, look, keyframes, audio, scenes} 及其 assetIds。" }
+        }
+      }
+    },
+    {
+      "name": "component.create",
+      "surfaces": ["api", "mcp"],
+      "subAgent": true,
+      "description": "创建组件素材的唯一入口（异步 job）。传入一组 items（每项含 brief/role 等），平台通用 runner 执行；构建 + 轻量验证后发布为 verified 素材并自动创建 type=component asset 引用。job 完成结果同时返回 assetIds[] 与 components[]（每项含 assetId/componentId/versionId）；用户明确要求放置时，把 assetId 传给 timeline.placeComponents.items[]。创建本身绝不插入时间线。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["brief"],
+              "properties": {
+                "nameHint": { "type": "string", "description": "建议的组件名。" },
+                "brief": { "type": "string", "description": "组件的视觉、数据输入和动效要求。" },
+                "mode": { "type": "string", "enum": ["fullscreen", "local"], "description": "fullscreen：铺满整张画布的组件（平台注入画布宽高上下文，getBaseSize 对齐画布）；local：画布局部装饰件（如 chip/badge，按自身尺寸）。缺省 local。" },
+                "role": { "type": "string", "description": "可选；用于选 skeleton，如 bottom-feature-chip。" },
+                "template": { "type": "string", "description": "可选；显式指定 skeleton（如 feature-chip）；不指定则按 role/brief 选择。" }
+              }
+            }
+          },
+          "references": {
+            "type": "object",
+            "description": "可选的参考组件/素材，供子 Agent 参考。",
+            "properties": {
+              "componentIds": { "type": "array", "items": { "type": "string" } },
+              "assetIds": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "design": {
+            "type": "object",
+            "description": "可选的画布/语言上下文。",
+            "properties": {
+              "canvas": {
+                "type": "object",
+                "properties": {
+                  "width": { "type": "number" },
+                  "height": { "type": "number" }
+                }
+              },
+              "locale": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "component.revise",
+      "surfaces": ["api", "mcp"],
+      "subAgent": true,
+      "description": "修复或调整已有组件的唯一入口。传入 componentId 与 instruction；构建 + 轻量验证后生成新 head，并返回同一条 component asset 的 assetId。旧 verified head 在 job 失败前保持不变，绝不插入时间线。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["componentId", "instruction"],
+        "properties": {
+          "componentId": { "type": "string", "description": "要修复的组件素材 ID。" },
+          "instruction": { "type": "string", "description": "具体视觉调整、Bug 现象和验收条件。" }
+        }
+      }
+    },
+    {
+      "name": "component.define",
+      "surfaces": ["api"],
+      "description": "新建 AI 临时组件或已有组件的新版本（带 componentId = 二次调整）。源码经 esbuild+tsc+确定性扫描构建，输出 {componentId, versionId, version, status}；构建成功只生成 draft 素材，必须 component.verify 成为组件库 verified 条目后，才能由独立 timeline.command 插入时间线。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["source"],
+        "properties": {
+          "componentId": { "type": "string", "description": "可选；带此值 = 在已有组件上开新版本（迭代）。" },
+          "baseVersionId": { "type": "string", "description": "受管 revise 使用的 verified head 版本；不匹配时拒绝覆盖新 head。" },
+          "name": { "type": "string" },
+          "surface": { "enum": ["html", "react", "r3f"] },
+          "keywords": { "type": "array", "items": { "type": "string" } },
+          "inputs": { "type": "array", "description": "ParamDefinition[]，驱动参数面板。" },
+          "source": { "type": "string", "description": "单文件 TS/TSX 源码；唯一允许的外部 import 是 @recut/runtime。" }
+        }
+      }
+    },
+    {
+      "name": "component.verify",
+      "surfaces": ["api"],
+      "description": "受管组件版本验证 API：报告为“能构建、能跑”的轻量验证，报告 ok 即发布 verified head；不要求真实渲染（视觉质量由人判断）。封面可选。普通 Agent 不直接调用。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["versionId"],
+        "properties": {
+          "versionId": { "type": "string" },
+          "revealLibrary": { "type": "boolean", "description": "仅受管 Author 验证使用；verified 后发布 library.tab=media 聚焦素材库事件。浏览器封面回写不得传此值。" },
+          "report": { "type": "object", "description": "harness 验证报告 {ok, checks, frames, cover?:{fileBase64,mimeType,width,height}, error?}。cover 会作为组件素材封面写入项目私有文件。" }
+        }
+      }
+    },
+    {
+      "name": "component.list",
+      "surfaces": ["api", "mcp"],
+      "description": "项目内组件数据列表（含 verified head 状态、inputs 与对应 assetId）；素材发现与放置优先使用 asset.list 和 timeline.placeComponents.assetId。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "component.source",
+      "surfaces": ["api", "mcp"],
+      "description": "读某版本源码（AI 二次调整 / 主 Agent 审查的权威输入）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["componentId"],
+        "properties": {
+          "componentId": { "type": "string" },
+          "versionId": { "type": "string", "description": "可选；缺省取最新版本。" }
+        }
+      }
+    },
+    {
+      "name": "component.update",
+      "surfaces": ["mcp"],
+      "description": "主 Agent 直接提交组件源码的新版本（绕过受限子 Agent 的受管入口）。传入 componentId 与完整 source；平台基于当前 verified head 开新版本，构建 + 轻量“能跑通”验证后成为新 verified head，进入素材库；不插入时间线。先 component.source 读当前源码再改。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["componentId", "source"],
+        "properties": {
+          "componentId": { "type": "string", "description": "要更新的组件素材 ID。" },
+          "source": { "type": "string", "description": "单文件 TS/TSX 源码；唯一允许的外部 import 是 @recut/runtime。" }
+        }
+      }
+    },
+    {
+      "name": "component.resolve",
+      "surfaces": ["api"],
+      "description": "解析组件 bundle 供 iframe loader：按 versionId 解析精确版本（harness 验证）；按 ids 解析各 head（时间线渲染，无 head 跳过=占位）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": { "type": "array", "items": { "type": "string" } },
+          "versionId": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "component.archive",
+      "surfaces": ["mcp"],
+      "description": "归档组件素材：从素材库隐藏但保留版本和已有时间线引用，不修改时间线。",
+      "inputSchema": { "type": "object", "required": ["componentId"], "properties": { "componentId": { "type": "string" } } }
+    },
+    {
+      "name": "script.attach",
+      "surfaces": ["mcp"],
+      "description": "给说话元素（video/audio）绑定转写素材：el.transcript.assetId 指向 audio-studio 转写产物（或平台 transcript 素材）。绑定后 script.read 才能物化文稿。可 undo（transcript-attach op）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["trackId", "elementId", "assetId"],
+        "properties": {
+          "trackId": { "type": "string" },
+          "elementId": { "type": "string" },
+          "assetId": { "type": "string", "description": "transcript 素材 assetId（recut.media.list_assets 发现的 kind=transcript 或 audio-studio 导入产物）。" },
+          "source": { "type": "string", "enum": ["transcript", "srt", "ass"] },
+          "language": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "script.read",
+      "surfaces": ["mcp"],
+      "description": "把说话元素（speech-track，video/audio + transcript）的说话内容物化为可编辑 markdown（scripts/timeline.md + baseline）并写入项目文件根，返回 path/content/version。AI 用原生编辑工具改文件后 script.apply 落时间线。可传 trackId/elementId 指定目标；showSilence 时输出段间停顿标记 [gap=Xs]。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "trackId": { "type": "string" },
+          "elementId": { "type": "string" },
+          "showSilence": { "type": "boolean", "description": "输出 [gap=Xs] 停顿标记，便于压缩停顿。" }
+        }
+      }
+    },
+    {
+      "name": "script.apply",
+      "surfaces": ["mcp"],
+      "description": "把编辑后的文稿（content 或 scripts/timeline.md）翻译成 op 批落时间线：行内 ~~x~~=删子区间（按字符比例切源）、整行删除=删整段、行移动=改顺序、[gap=Xs→Ys]=压缩停顿。逐条 timeline.command 可 undo；无变化返回 noop。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string", "description": "编辑后的 markdown；缺省读 scripts/timeline.md。" }
+        }
+      }
+    },
+    {
+      "name": "script.clean",
+      "surfaces": ["mcp"],
+      "description": "机械清口癖 + 压停顿（固定无语义 filler：呃/额/um/uh/er/ah；silence 规则 compress:N/restore:N/normalize:N/range:min-max，秒/千分位如 compress:300）。只做机械层，语境相关 filler/重拍交给 script.apply 人工判断。翻译为 op 批，可 undo。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "trackId": { "type": "string" },
+          "elementId": { "type": "string" },
+          "fillers": { "type": "boolean", "description": "删除固定无语义 filler。" },
+          "silence": { "type": "string", "description": "停顿规则：compress:300 / restore:500 / normalize:500 / range:300-800。" }
+        }
+      }
+    },
+    {
+      "name": "script.find",
+      "surfaces": ["mcp"],
+      "description": "在说话元素的转录分段里按文本定位（带时间戳）。只定位不编辑；要删说话内容转 script.apply。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["text"],
+        "properties": { "text": { "type": "string" } }
+      }
+    },
+    {
+      "name": "script.fix-transcript",
+      "surfaces": ["mcp"],
+      "description": "只修转录文本本身（ASR 错听词/说话人归属）：写入 el.transcript.overrides[segmentIndex]，不产生时间线 op、不改变观众听到的音频。需要改音频的是 script.apply 的活，两者边界不互换。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["trackId", "elementId", "segmentIndex", "text"],
+        "properties": {
+          "trackId": { "type": "string" },
+          "elementId": { "type": "string" },
+          "segmentIndex": { "type": "number", "description": "script.read 的 seg 行 idx。" },
+          "text": { "type": "string", "description": "修正后的文本。" }
+        }
+      }
+    },
+    {
+      "name": "track.role",
+      "surfaces": ["mcp"],
+      "description": "设置音频轨角色，驱动 auto-duck：anchor（口播/旁白轨，其它轨 duck 到它）/ follower（音乐/氛围底，自动 duck）/ none（SFX 不参与）。duckDepthDb 缺省由 anchor 响度自动初始化（buildDuckEnvelope 纯函数，Preview==Export 同源）。可 undo（track-role op）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["trackId", "role"],
+        "properties": {
+          "trackId": { "type": "string" },
+          "role": { "enum": ["anchor", "follower", "none"] },
+          "duckDepthDb": { "type": "number", "description": "可选；follower 在 anchor 出声时的下压幅度（dB），缺省自动初始化。" }
+        }
+      }
+    },
+    {
+      "name": "audio.smooth",
+      "surfaces": ["mcp"],
+      "description": "对每个硬切边界做 ~120ms 微淡入/淡出（volume 关键帧），并淡掉暴露边缘。幂等（已有边界 fade 不重复）；作为结构定稿后的最后一个音频步骤，结构再动需重跑。全部可 undo。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fadeMs": { "type": "number", "description": "可选；边界淡入淡出时长（毫秒），默认 120。" }
+        }
+      }
+    },
+    {
+      "name": "library.browse",
+      "surfaces": ["mcp"],
+      "description": "浏览内置效果 / 音乐 / 音效目录（catalog-first，先找现成货再生成）。目录动态加载：优先 CDN（https://cdn.recut.video/effects/catalog.json 与 audio/catalog.json），回退随包 catalog/ 文件，再回退内嵌最小集。效果 = 渲染器真实支持的 effect.*（effect.glass/magnify/glitch/…，附 inputs 参数）；音乐/音效 = CDN 音频库（附 url，插为 sourceType:library 的 audio 元素）。category 过滤，query 模糊匹配 id/name/keywords。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": { "enum": ["effects", "transitions", "luts", "sound-effects", "music"] },
+          "query": { "type": "string", "description": "可选；对 id/name/keywords 的模糊匹配。" }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+node_modules/
+.remotion/
+.DS_Store
+*.log
+ui/dist/
+test-results/*
+ui/test-results/
+output
