@@ -362,7 +362,7 @@ func (m *MediaService) executeQueuedTask(jobID string) {
 		}
 		return
 	}
-	if isAtlasVideoJob(job, credential) || isSkymindVideoJob(job, credential) {
+	if isAtlasVideoJob(job, credential) || isSkymindVideoJob(job, credential) || isAtlasSpeechJob(job, credential) {
 		job, active, err = m.checkpointQueuedSubmission(job)
 		if err != nil || !active {
 			if err != nil {
@@ -372,6 +372,8 @@ func (m *MediaService) executeQueuedTask(jobID string) {
 		}
 		if isAtlasVideoJob(job, credential) {
 			_, _ = m.submitAtlasVideo(job, credential, false)
+		} else if isAtlasSpeechJob(job, credential) {
+			_, _ = m.submitAtlasSpeech(job, credential, false)
 		} else {
 			_, _ = m.submitSkymindVideo(job, credential, false)
 		}

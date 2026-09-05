@@ -81,6 +81,10 @@ func main() {
 		log.Fatalf("ERROR initialize workspace store: %v", err)
 	}
 	media := NewMediaService(store)
+	// CDN-first Provider 模型目录（rfc/2026-09-03-provider-model-catalog-cdn.md §4）：
+	// 本地缓存立即生效 + 后台 CDN 刷新（首发 + 6h 周期），失败静默保留当前目录，
+	// 绝不因目录失败阻断生成。只在 daemon 启动路径开启；测试与 MCP 短命进程走种子。
+	media.StartProviderCatalogLoader()
 	worlds := NewWorldStore(store, media)
 	// 平台 World 内容层：单一 Catalog（本地覆盖 > 远端 CDN > 嵌入种子），
 	// 启动时同步一次 + 每 24h 一次；非致命——离线时降级到种子/上次同步内容。

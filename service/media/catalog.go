@@ -1,51 +1,58 @@
 /*
- * [INPUT]: 依赖媒体 DTO、凭据和资产查询
- * [OUTPUT]: Provider/模型目录（Atlas 图片使用原生 prediction 模型 ID，协议为 atlas）、无凭据 Codex 原生图片路由、模型配置和引用能力校验
- * [POS]: media 的声明式模型契约层；Codex 图片能力仅供 Agent 指令选择，不经 Provider 调度
+ * [INPUT]: 依赖媒体 DTO、凭据和资产查询；种子目录（catalog_seed.go）
+ * [OUTPUT]: 原子快照化的 Provider/模型目录索引（modelByID/providerByID）、通用参考预算校验器、
+ *          无凭据 Codex 原生图片路由、模型配置和引用能力校验
+ * [POS]: media 的声明式模型契约层；种子目录可被 CDN catalog（providers/<id>.catalog.json）按 provider 整体覆盖；
+ *        Codex 图片能力仅供 Agent 指令选择，不经 Provider 调度
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media
 
 import (
-	"errors"
 	"fmt"
+	"strconv"
 	"strings"
-
-	"recut-service/media/providers/atlas"
+	"sync/atomic"
 )
 
-const seedanceVideoReferenceMaxBytes = 50 << 20
-
-// skymindSeedance20 / skymindSeedance25 是平台侧稳定的模型 ID；上游 APIModelID
-// （doubao-seedance-2.0 / doubao-seedance-2-5-260628）会随网关渠道版本漂移，
-// 凭据级 modelOverrides 是唯一稳定的覆盖面。
-const (
-	skymindSeedance20 = "skymind-token/seedance-2.0"
-	skymindSeedance25 = "skymind-token/seedance-2.5"
-)
-
-var mediaProviders = []MediaProvider{
-	{ID: "atlas-cloud", Name: "Atlas Cloud", Protocol: "atlas", DefaultAPIBase: atlas.DefaultAPIBase, Models: []MediaModel{
-		{ID: "atlas-cloud/openai/gpt-image-2", Provider: "atlas-cloud", Name: "GPT Image 2 · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2/text-to-image", EditModelID: "openai/gpt-image-2/edit", InputModes: []string{"text"}, Available: true, Configurable: true},
-		{ID: "atlas-cloud/bytedance/seedream-v5.0-pro", Provider: "atlas-cloud", Name: "Seedream 5.0 Pro · 文生图", Capability: ImageGenerate, APIModelID: "bytedance/seedream-v5.0-pro/text-to-image", EditModelID: "bytedance/seedream-v5.0-pro/edit", InputModes: []string{"text", "image"}, Available: true, Configurable: true},
-		{ID: "atlas-cloud/xai/grok-imagine-image", Provider: "atlas-cloud", Name: "Grok Imagine · 文生图", Capability: ImageGenerate, APIModelID: "xai/grok-imagine-image/text-to-image", EditModelID: "xai/grok-imagine-image/edit", InputModes: []string{"text"}, Available: true, Configurable: true},
-		{ID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", Provider: "atlas-cloud", Name: "Seedance 2.0 Mini · 多参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0-mini/reference-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "bitrateMode", "generateAudio", "seed", "watermark", "returnLastFrame"}, Available: true, Configurable: true},
-		{ID: "atlas-cloud/google/gemini-omni-flash-reference-to-video", Provider: "atlas-cloud", Name: "Gemini Omni Flash · 参考图视频", Capability: VideoGenerate, APIModelID: "google/gemini-omni-flash/reference-to-video", InputModes: []string{"text", "image"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "thinkingLevel", "seed"}, Available: true, Configurable: true},
-		{ID: "atlas-cloud/xai/tts-v1", Provider: "atlas-cloud", Name: "xAI TTS v1", Capability: SpeechGenerate, APIModelID: "xai/tts-v1", InputModes: []string{"text"}, Configurable: true},
-	}},
-	{ID: "skymind-token", Name: "Skymind Token API", Protocol: "skymind", DefaultAPIBase: "https://token-api.skymind.pro", Models: []MediaModel{
-		{ID: "skymind-token/gpt-image-2", Provider: "skymind-token", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true},
-		{ID: skymindSeedance20, Provider: "skymind-token", Name: "Seedance 2.0 · 文/参考视频", Capability: VideoGenerate, APIModelID: "doubao-seedance-2.0", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "generateAudio", "seed"}, Available: true, Configurable: true},
-		{ID: skymindSeedance25, Provider: "skymind-token", Name: "Seedance 2.5 · 文/参考视频", Capability: VideoGenerate, APIModelID: "doubao-seedance-2-5-260628", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "generateAudio", "seed"}, Available: true, Configurable: true},
-	}},
-	{ID: "openai", Name: "OpenAI", Protocol: "openai", DefaultAPIBase: "https://api.openai.com/v1", Models: []MediaModel{{ID: "openai/gpt-image-2", Provider: "openai", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true}}},
-	{ID: "openai-compatible", Name: "OpenAI Compatible", Protocol: "openai-compatible", Models: []MediaModel{{ID: "openai-compatible/image", Provider: "openai-compatible", Name: "GPT Image 2 · OpenAI-compatible", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true}}},
-	{ID: "gemini", Name: "Google Gemini", Protocol: "gemini", Models: []MediaModel{{ID: "gemini/image", Provider: "gemini", Name: "Gemini Image", Capability: ImageGenerate, APIModelID: "", InputModes: []string{"text", "image"}, Configurable: true}, {ID: "gemini/video", Provider: "gemini", Name: "Gemini Video", Capability: VideoGenerate, APIModelID: "", InputModes: []string{"text", "image"}, Configurable: true}}},
-	{ID: "grok", Name: "xAI Grok", Protocol: "xai", Models: []MediaModel{{ID: "grok/image", Provider: "grok", Name: "Grok Image", Capability: ImageGenerate, APIModelID: "", InputModes: []string{"text", "image"}, Configurable: true}, {ID: "grok/video", Provider: "grok", Name: "Grok Video", Capability: VideoGenerate, APIModelID: "", InputModes: []string{"text", "image"}, Configurable: true}}},
-	{ID: "elevenlabs", Name: "ElevenLabs", Protocol: "elevenlabs", DefaultAPIBase: "https://api.elevenlabs.io", Models: []MediaModel{{ID: "elevenlabs/eleven-multilingual-v2", Provider: "elevenlabs", Name: "Eleven Multilingual v2", Capability: SpeechGenerate, APIModelID: "eleven_multilingual_v2", InputModes: []string{"text"}, Available: true, Configurable: true}}},
-	{ID: "minimax", Name: "MiniMax", Protocol: "minimax", DefaultAPIBase: "https://api.minimaxi.com", Models: []MediaModel{{ID: "minimax/speech-2.8-hd", Provider: "minimax", Name: "MiniMax Speech 2.8 HD", Capability: SpeechGenerate, APIModelID: "speech-2.8-hd", InputModes: []string{"text"}, Available: true, Configurable: true}}},
-	{ID: "local-audio", Name: "Audio Studio（本机）", Protocol: "local", DefaultAPIBase: "", Models: []MediaModel{{ID: "local-audio/cosyvoice2", Provider: "local-audio", Name: "CosyVoice2 · 本机 TTS", Capability: SpeechGenerate, APIModelID: "cosyvoice2", InputModes: []string{"text"}, Available: true, Configurable: false}}},
+// catalogIndex is one immutable snapshot of the model catalog: the flat lists
+// plus by-ID indexes. Lookups read the current snapshot atomically so a CDN
+// refresh can swap the whole catalog without locking readers.
+type catalogIndex struct {
+	providers     []MediaProvider
+	providersByID map[string]MediaProvider
+	modelsByID    map[string]MediaModel
 }
+
+var catalogCurrent atomic.Pointer[catalogIndex]
+
+func init() {
+	catalogCurrent.Store(buildCatalogIndex(seedProviders))
+}
+
+func buildCatalogIndex(providers []MediaProvider) *catalogIndex {
+	index := &catalogIndex{
+		providers:     append([]MediaProvider(nil), providers...),
+		providersByID: make(map[string]MediaProvider, len(providers)),
+		modelsByID:    make(map[string]MediaModel),
+	}
+	for _, provider := range index.providers {
+		index.providersByID[provider.ID] = provider
+		for _, model := range provider.Models {
+			index.modelsByID[model.ID] = model
+		}
+	}
+	return index
+}
+
+// swapCatalog atomically replaces the in-memory catalog; the CDN loader (P1)
+// is the only intended caller. An in-flight job holds its resolved MediaModel
+// value copy, so a refresh never mutates a running generation.
+func swapCatalog(providers []MediaProvider) {
+	catalogCurrent.Store(buildCatalogIndex(providers))
+}
+
+func currentCatalog() *catalogIndex { return catalogCurrent.Load() }
 
 const CodexImageModelID = "codex/image"
 
@@ -67,12 +74,12 @@ var codexImageProvider = MediaProvider{
 }
 
 func (m *MediaService) Providers() []MediaProvider {
-	return append([]MediaProvider(nil), mediaProviders...)
+	return append([]MediaProvider(nil), currentCatalog().providers...)
 }
 
 func (m *MediaService) Models() []MediaModel {
 	models := []MediaModel{}
-	for _, provider := range mediaProviders {
+	for _, provider := range currentCatalog().providers {
 		models = append(models, provider.Models...)
 	}
 	return models
@@ -200,21 +207,28 @@ func (m *MediaService) validateModelReferenceURLs(model MediaModel, refs []Media
 	return nil
 }
 
+// validateModelReferences enforces the model's declarative reference budgets
+// (catalog data, not per-model switches). A model without budgets accepts any
+// counts; capability-level kind rules are enforced separately by the caller.
 func validateModelReferences(model MediaModel, images, videos, audios int) error {
-	switch model.ID {
-	case "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video":
-		if (images == 0 && videos == 0) || images > 9 || videos > 3 || audios > 3 {
-			return errors.New("Seedance 2.0 Mini requires 1-9 images or 1-3 reference videos and accepts at most 3 audio references")
+	for _, budget := range model.ReferenceBudgets {
+		for _, requirement := range budget.Requirements {
+			ok, err := evalReferenceRequirement(requirement, images, videos, audios)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("reference counts (%d image, %d video, %d audio) violate model budget %q", images, videos, audios, requirement)
+			}
 		}
-	case "atlas-cloud/google/gemini-omni-flash-reference-to-video":
-		if images == 0 || images > 10 || videos != 0 || audios != 0 {
-			return errors.New("Gemini Omni Flash requires 1-10 reference images and accepts no audio or video references")
+		if budget.MaxImages > 0 && images > budget.MaxImages {
+			return fmt.Errorf("%s accepts at most %d image references", model.Name, budget.MaxImages)
 		}
-	case skymindSeedance20, skymindSeedance25:
-		// 统一任务端点：无参考 = 文生视频（允许），有参考 = 图/视频/音频参考；
-		// 参考数量上限对齐 Seedance 既有契约，上限外直接拒绝避免上游收费后失败。
-		if images > 9 || videos > 3 || audios > 3 {
-			return errors.New("Seedance accepts at most 9 image, 3 video and 3 audio references")
+		if budget.MaxVideos > 0 && videos > budget.MaxVideos {
+			return fmt.Errorf("%s accepts at most %d video references", model.Name, budget.MaxVideos)
+		}
+		if budget.MaxAudios > 0 && audios > budget.MaxAudios {
+			return fmt.Errorf("%s accepts at most %d audio references", model.Name, budget.MaxAudios)
 		}
 	}
 	return nil
@@ -230,37 +244,74 @@ func validateModelReferenceAssets(model MediaModel, assets []MediaAsset) error {
 	return nil
 }
 
-// validateModelReferenceSpec is the per-model budget for one (kind, mime,
-// size) triple, shared by asset and URL references.
+// evalReferenceRequirement evaluates one budget predicate like
+// "images+videos>=1" or "videos==0" against the reference counts. Parse
+// failures fail closed so a broken catalog entry cannot widen the budget.
+func evalReferenceRequirement(requirement string, images, videos, audios int) (bool, error) {
+	trimmed := strings.TrimSpace(requirement)
+	invalid := fmt.Errorf("invalid model reference budget requirement %q", requirement)
+	for _, op := range []string{">=", "<=", "=="} {
+		index := strings.Index(trimmed, op)
+		if index < 0 {
+			continue
+		}
+		rhs, err := strconv.Atoi(strings.TrimSpace(trimmed[index+len(op):]))
+		if err != nil {
+			return false, invalid
+		}
+		total := 0
+		for _, term := range strings.Split(trimmed[:index], "+") {
+			switch strings.TrimSpace(term) {
+			case "images":
+				total += images
+			case "videos":
+				total += videos
+			case "audios":
+				total += audios
+			default:
+				return false, invalid
+			}
+		}
+		switch op {
+		case ">=":
+			return total >= rhs, nil
+		case "<=":
+			return total <= rhs, nil
+		default:
+			return total == rhs, nil
+		}
+	}
+	return false, invalid
+}
+
+// validateModelReferenceSpec is the per-(kind, mime, size) constraint from the
+// model's declarative budgets, shared by asset and URL references. When a
+// budget declares kind specs at all, kinds without a spec are rejected.
 func validateModelReferenceSpec(model MediaModel, kind, mimeType string, size int64) error {
-	switch model.ID {
-	case "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video":
-		if !validSeedanceReference(kind, mimeType, size) {
-			return errors.New("not a supported Seedance 2.0 Mini reference")
+	for _, budget := range model.ReferenceBudgets {
+		var spec *ReferenceKindSpec
+		switch kind {
+		case "image":
+			spec = budget.Image
+		case "video":
+			spec = budget.Video
+		case "audio":
+			spec = budget.Audio
 		}
-	case "atlas-cloud/google/gemini-omni-flash-reference-to-video":
-		if kind != "image" || size > 20<<20 || !oneOf(mimeType, "image/png", "image/jpeg", "image/jpg", "image/webp") {
-			return errors.New("not a supported Gemini Omni Flash reference image")
+		if spec == nil {
+			if budget.Image != nil || budget.Video != nil || budget.Audio != nil {
+				return fmt.Errorf("%s references are not accepted by %s", kind, model.Name)
+			}
+			continue
 		}
-	case skymindSeedance20, skymindSeedance25:
-		if !validSeedanceReference(kind, mimeType, size) {
-			return errors.New("not a supported Seedance reference")
+		if spec.MaxBytes > 0 && size > spec.MaxBytes {
+			return fmt.Errorf("%s reference of %s exceeds the %d byte limit", kind, model.Name, spec.MaxBytes)
+		}
+		if len(spec.Mimes) > 0 && !oneOf(mimeType, spec.Mimes...) {
+			return fmt.Errorf("%s reference mime %q is not a supported %s reference", kind, mimeType, model.Name)
 		}
 	}
 	return nil
-}
-
-func validSeedanceReference(kind, mimeType string, size int64) bool {
-	switch kind {
-	case "image":
-		return size < 30<<20 && oneOf(mimeType, "image/jpeg", "image/jpg", "image/png", "image/webp", "image/bmp", "image/tiff", "image/gif", "image/heic", "image/heif")
-	case "video":
-		return size <= seedanceVideoReferenceMaxBytes && oneOf(mimeType, "video/mp4", "video/quicktime")
-	case "audio":
-		return size <= 15<<20 && oneOf(mimeType, "audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3")
-	default:
-		return false
-	}
 }
 
 func oneOf(value string, options ...string) bool {
@@ -293,25 +344,15 @@ func providerByID(id string) (MediaProvider, bool) {
 	if id == codexImageProvider.ID {
 		return codexImageProvider, true
 	}
-	for _, provider := range mediaProviders {
-		if provider.ID == id {
-			return provider, true
-		}
-	}
-	return MediaProvider{}, false
+	provider, ok := currentCatalog().providersByID[id]
+	return provider, ok
 }
 func modelByID(id string) (MediaModel, bool) {
 	if id == CodexImageModelID {
 		return codexImageModel, true
 	}
-	for _, provider := range mediaProviders {
-		for _, model := range provider.Models {
-			if model.ID == id {
-				return model, true
-			}
-		}
-	}
-	return MediaModel{}, false
+	model, ok := currentCatalog().modelsByID[id]
+	return model, ok
 }
 func providerUsesOpenAIProtocol(id string) bool {
 	provider, ok := providerByID(id)

@@ -197,4 +197,11 @@
   * { @apply border-border outline-ring/50; }
   body { @apply min-h-screen bg-background font-sans text-foreground antialiased; letter-spacing: 0; }
   ::selection { background: var(--accent); color: var(--accent-foreground); }
+  /* 细滚动条：透明轨道贴边、小圆角滑块，避免原生深色粗滚动条侵入内容内边距。 */
+  * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+  ::-webkit-scrollbar-corner { background: transparent; }
 }

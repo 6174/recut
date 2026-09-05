@@ -6,7 +6,10 @@
  */
 package media
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type MediaCapability string
 
@@ -15,6 +18,36 @@ const (
 	VideoGenerate  MediaCapability = "video.generate"
 	SpeechGenerate MediaCapability = "speech.generate"
 )
+
+// ReferenceKindSpec is the per-reference-kind constraint of one budget: an
+// optional size ceiling and a mime allowlist. Both fields are optional; a spec
+// with neither accepts everything of its kind.
+type ReferenceKindSpec struct {
+	MaxBytes int64    `json:"maxBytes,omitempty"`
+	Mimes    []string `json:"mimes,omitempty"`
+}
+
+// ReferenceBudget is one declarative constraint block for a model's reference
+// inputs, carried by the catalog instead of per-model code switches. Count
+// ceilings of zero mean "no ceiling"; Requirements are simple predicates over
+// the reference counts (e.g. "images+videos>=1", "videos==0").
+type ReferenceBudget struct {
+	Requirements []string           `json:"requirements,omitempty"`
+	MaxImages    int                `json:"maxImages,omitempty"`
+	MaxVideos    int                `json:"maxVideos,omitempty"`
+	MaxAudios    int                `json:"maxAudios,omitempty"`
+	Image        *ReferenceKindSpec `json:"image,omitempty"`
+	Video        *ReferenceKindSpec `json:"video,omitempty"`
+	Audio        *ReferenceKindSpec `json:"audio,omitempty"`
+}
+
+// MediaModelMeta is display-only catalog data (never consumed by generation).
+type MediaModelMeta struct {
+	DocsURL string   `json:"docsUrl,omitempty"`
+	Summary string   `json:"summary,omitempty"`
+	Pricing string   `json:"pricing,omitempty"`
+	Tags    []string `json:"tags,omitempty"`
+}
 
 type MediaModel struct {
 	ID           string          `json:"id"`
@@ -27,6 +60,15 @@ type MediaModel struct {
 	OutputModes  []string        `json:"outputModes"`
 	Available    bool            `json:"available"`
 	Configurable bool            `json:"configurable"`
+	// Status is the catalog lifecycle marker: stable (default when empty) |
+	// new | deprecated | retired. Retired models keep resolving for existing
+	// routes but reject new route assignments.
+	Status           string            `json:"status,omitempty"`
+	ReferenceBudgets []ReferenceBudget `json:"referenceBudgets,omitempty"`
+	Meta             *MediaModelMeta   `json:"meta,omitempty"`
+	// Voices 是该模型自己的内置音色清单（如 Atlas 各 TTS 模型 schema 的 voice 枚举）。
+	// 空表示模型不声明 per-model 音色：调用方回退到 provider 级动态 voices 或扩展清单。
+	Voices []MediaVoice `json:"voices,omitempty"`
 }
 
 type MediaProvider struct {
@@ -35,6 +77,15 @@ type MediaProvider struct {
 	Protocol       string       `json:"protocol"`
 	DefaultAPIBase string       `json:"defaultApiBase"`
 	Models         []MediaModel `json:"models"`
+	// Catalog provenance, filled by the CDN catalog loader; seed entries leave
+	// them empty. Source is "cdn" or "seed".
+	Revision  int    `json:"revision,omitempty"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
+	Source    string `json:"source,omitempty"`
+	// Extensions carries per-provider catalog extension data (e.g. MiniMax
+	// voice previews). The schema does not constrain the internals; consumers
+	// parse what they need and broken payloads never block the model catalog.
+	Extensions map[string]json.RawMessage `json:"extensions,omitempty"`
 }
 type MediaConfiguration struct {
 	Route           MediaRoute    `json:"route"`
@@ -51,6 +102,12 @@ type MediaVoice struct {
 	Description string `json:"description,omitempty"`
 	Provider    string `json:"provider"`
 	Category    string `json:"category,omitempty"`
+	// PreviewURL 是 provider 直接提供的试听音频地址（如 ElevenLabs preview_url）；
+	// 缺失时 UI 走平台的懒生成预览端点补一段短句试听。
+	PreviewURL string `json:"previewUrl,omitempty"`
+	// ModelID 是该音色归属的平台模型 ID（voices 随模型走，不同 TTS 模型的音色集不通用）。
+	// 空表示 provider 级音色（如动态 voices API 拉取的清单），对该 provider 所有语音模型可用。
+	ModelID string `json:"modelId,omitempty"`
 }
 
 type MediaCredential struct {

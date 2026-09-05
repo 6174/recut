@@ -275,6 +275,56 @@ func (p Prediction) FirstOutput() string {
 	return ""
 }
 
+// SubmitSpeech performs Atlas' POST /generateAudio request (async prediction,
+// e.g. xAI TTS v1). A successful response contains a prediction ID that
+// callers persist and poll, matching the video prediction lifecycle.
+func SubmitSpeech(client *http.Client, baseURL, secret string, input SpeechInput) (Prediction, error) {
+	if strings.TrimSpace(input.Text) == "" {
+		return Prediction{}, errors.New("Atlas Cloud speech text is required")
+	}
+	payload := map[string]any{"model": input.Model, "text": input.Text, "language": input.Language, "codec": input.Codec, "sample_rate": input.SampleRate, "bit_rate": input.BitRate}
+	if payload["language"] == "" || payload["language"] == nil {
+		payload["language"] = "auto"
+	}
+	if payload["codec"] == "" || payload["codec"] == nil {
+		payload["codec"] = "mp3"
+	}
+	if payload["sample_rate"].(int) == 0 {
+		payload["sample_rate"] = 24000
+	}
+	if payload["bit_rate"].(int) == 0 {
+		payload["bit_rate"] = 128000
+	}
+	if input.VoiceID != "" {
+		payload["voice_id"] = input.VoiceID
+	}
+	if input.Speed > 0 {
+		payload["speed"] = input.Speed
+	}
+	body, _ := json.Marshal(payload)
+	baseURL = normalizedBaseURL(baseURL)
+	prediction, err := request(client, baseURL, secret, http.MethodPost, "/api/v1/model/generateAudio", bytes.NewReader(body))
+	if err != nil {
+		return Prediction{}, err
+	}
+	if strings.TrimSpace(prediction.ID) == "" {
+		return Prediction{}, errors.New("Atlas Cloud speech submission returned no prediction ID")
+	}
+	return prediction, nil
+}
+
+// SpeechInput carries an Atlas speech generation request (xAI TTS v1 schema).
+type SpeechInput struct {
+	Model      string
+	Text       string
+	Language   string
+	VoiceID    string
+	Codec      string
+	SampleRate int
+	BitRate    int
+	Speed      float64
+}
+
 func payloadFor(input GenerateInput) (map[string]any, error) {
 	if strings.TrimSpace(input.Prompt) == "" {
 		return nil, errors.New("Atlas Cloud video prompt is required")

@@ -147,6 +147,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/media/credentials", s.saveMediaCredential)
 	mux.HandleFunc("DELETE /v1/media/credentials/{id}", s.deleteMediaCredential)
 	mux.HandleFunc("GET /v1/media/credentials/{id}/voices", s.listMediaVoices)
+	mux.HandleFunc("GET /v1/media/credentials/{id}/voices/{voiceId}/preview", s.getVoicePreview)
+	mux.HandleFunc("GET /v1/media/capabilities/{capability}/voices", s.listCapabilityVoices)
 	mux.HandleFunc("GET /v1/media/routes", s.listMediaRoutes)
 	mux.HandleFunc("POST /v1/media/routes", s.saveMediaRoute)
 	mux.HandleFunc("GET /v1/media/events", s.streamMediaAssetEvents)

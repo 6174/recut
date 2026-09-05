@@ -81,6 +81,17 @@ export type Model = {
   available: boolean;
   inputModes: ModelInputMode[];
   outputModes?: string[];
+  status?: "stable" | "new" | "deprecated" | "retired";
+  meta?: { docsUrl?: string; summary?: string; pricing?: string; tags?: string[] };
+  referenceBudgets?: {
+    requirements?: string[];
+    maxImages?: number;
+    maxVideos?: number;
+    maxAudios?: number;
+    image?: { maxBytes?: number; mimes?: string[] };
+    video?: { maxBytes?: number; mimes?: string[] };
+    audio?: { maxBytes?: number; mimes?: string[] };
+  }[];
 };
 export type Provider = { id: string; name: string; models: Model[] };
 export type Credential = { id: string; name: string; provider: string };

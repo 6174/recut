@@ -36,6 +36,65 @@ func isAtlasVideoJob(job MediaJob, credential MediaCredential) bool {
 	return job.Capability == VideoGenerate && credential.Provider == "atlas-cloud"
 }
 
+// isAtlasSpeechJob 命中 Atlas Cloud 的异步语音生成（如 xAI TTS v1）。
+func isAtlasSpeechJob(job MediaJob, credential MediaCredential) bool {
+	return job.Capability == SpeechGenerate && credential.Provider == "atlas-cloud"
+}
+
+// submitAtlasSpeech 与 submitAtlasVideo 同构：提交 generateAudio prediction，
+// 把排队 Asset 原位绑定为 running 并记录 prediction ID，随后由 poller 或同步调用方回收。
+func (m *MediaService) submitAtlasSpeech(job MediaJob, credential MediaCredential, pollLocally bool) (MediaJob, error) {
+	model, ok := modelByID(job.ModelID)
+	if !ok || !model.Available {
+		return m.failSubmittedJob(job, errors.New("this provider model adapter is not available yet"))
+	}
+	secret, err := m.secret(credential.ID)
+	if err != nil {
+		return m.failSubmittedJob(job, err)
+	}
+	codec := outputString(job.Output, "codec", "mp3")
+	prediction, err := atlas.SubmitSpeech(mediaHTTPClient, apiBaseFor(credential), secret, atlas.SpeechInput{
+		Model: model.APIModelID, Text: job.Prompt, Language: outputString(job.Output, "language", "auto"),
+		VoiceID: speechVoiceID(job), Codec: codec,
+		SampleRate: int(outputNumber(job.Output, "sampleRate", 24000)),
+		BitRate:    int(outputNumber(job.Output, "bitRate", 128000)),
+		Speed:      outputNumber(job.Output, "speed", 0),
+	})
+	if err != nil {
+		return m.failSubmittedJob(job, err)
+	}
+	var asset MediaAsset
+	if len(job.AssetIDs) == 1 {
+		asset, err = m.bindQueuedAtlasPrediction(job, job.AssetIDs[0], prediction.ID, prediction.PollURL)
+	} else {
+		asset, err = m.createRemoteAsset(job, credential.Provider, prediction.ID, prediction.PollURL)
+	}
+	if err != nil {
+		return MediaJob{}, err
+	}
+	job, err = m.getJob(job.ID)
+	if err != nil {
+		return MediaJob{}, err
+	}
+	if prediction.Failed() {
+		m.failRemoteAsset(job.ID, asset.ID, prediction.FailureMessage())
+		return m.getJob(job.ID)
+	}
+	if prediction.Completed() {
+		task := atlasTask{job: job, asset: asset, credential: credential, secret: secret, pollURL: prediction.PollURL}
+		if err := m.collectAtlasOutput(task, prediction); err != nil {
+			if terminal, _ := m.retryAtlasOutputCollection(task, err); !terminal && pollLocally {
+				m.startAtlasPolling(job.ID)
+			}
+		}
+		return m.getJob(job.ID)
+	}
+	if pollLocally {
+		m.startAtlasPolling(job.ID)
+	}
+	return job, nil
+}
+
 // submitAtlasVideo runs under the daemon's task lease. Async jobs already own
 // a queued Asset; Atlas acceptance promotes that same Asset to running and
 // records the prediction ID in one local transaction. Synchronous callers do
@@ -224,6 +283,18 @@ func (m *MediaService) atlasTask(jobID string) (atlasTask, bool) {
 }
 
 func (m *MediaService) collectAtlasOutput(task atlasTask, prediction atlas.Prediction) error {
+	if task.job.Capability == SpeechGenerate {
+		url := prediction.FirstOutput()
+		if url == "" {
+			return errAtlasVideoOutputMissing
+		}
+		content, err := fetchMedia(url)
+		if err != nil {
+			return err
+		}
+		_, err = m.completeRemoteAsset(task.job.ID, task.asset.ID, content, "audio/mpeg")
+		return err
+	}
 	url := prediction.VideoURL()
 	if url == "" {
 		return errAtlasVideoOutputMissing

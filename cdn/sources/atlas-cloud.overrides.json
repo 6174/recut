@@ -1,0 +1,8 @@
+{
+  "_comment": "Atlas Cloud 人工修正面：只允许修正 capability/inputModes（推断纠错）、name/summary/docsUrl/tags（展示）与 status（下架/灰度）。key 为平台模型 ID。推断失败落 status=new 的条目在这里补正后即为正式上架。",
+  "atlas-cloud/xai/grok-imagine-image": {
+    "name": "Grok Imagine · 文生图",
+    "capability": "image.generate",
+    "inputModes": ["text"]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "_comment": "Atlas Cloud 模型价格表（人工兜底；上游 API 若返回价格字段则优先）。key 为平台模型 ID 或上游 apiModelId，value 为设置面板展示串，多行写「输入/输出」两个价。缺失价格的模型照常上架，UI 隐藏计费行。",
+  "atlas-cloud/bytedance/seedream-v5.0-pro": "≈ $0.03 / 张",
+  "atlas-cloud/openai/gpt-image-2": "输入 $0.05/M tokens\n输出 $0.05/M tokens"
+}

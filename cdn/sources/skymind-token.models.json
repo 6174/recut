@@ -1,0 +1,20 @@
+[
+  {
+    "id": "skymind-token/seedance-2.0",
+    "apiModelId": "doubao-seedance-2.0",
+    "name": "Seedance 2.0 · 文/参考视频",
+    "capability": "video.generate",
+    "inputModes": ["text", "image", "video", "audio"],
+    "outputModes": ["durationSeconds", "aspectRatio", "resolution", "generateAudio", "seed"],
+    "referenceBudgets": [{ "maxImages": 9, "maxVideos": 3, "maxAudios": 3, "image": { "maxBytes": 31457280, "mimes": ["image/jpeg", "image/png", "image/webp"] }, "video": { "maxBytes": 52428800, "mimes": ["video/mp4", "video/quicktime"] }, "audio": { "maxBytes": 15728640, "mimes": ["audio/wav", "audio/mpeg"] } }]
+  },
+  {
+    "id": "skymind-token/seedance-2.5",
+    "apiModelId": "doubao-seedance-2-5-260628",
+    "name": "Seedance 2.5 · 文/参考视频",
+    "capability": "video.generate",
+    "inputModes": ["text", "image", "video", "audio"],
+    "outputModes": ["durationSeconds", "aspectRatio", "resolution", "generateAudio", "seed"],
+    "referenceBudgets": [{ "maxImages": 9, "maxVideos": 3, "maxAudios": 3, "image": { "maxBytes": 31457280, "mimes": ["image/jpeg", "image/png", "image/webp"] }, "video": { "maxBytes": 52428800, "mimes": ["video/mp4", "video/quicktime"] }, "audio": { "maxBytes": 15728640, "mimes": ["audio/wav", "audio/mpeg"] } }]
+  }
+]

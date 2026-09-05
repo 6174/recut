@@ -46,8 +46,73 @@ func (m *MediaService) ListVoices(credentialID string) ([]MediaVoice, error) {
 	case "elevenlabs":
 		return m.listElevenLabsVoices(credential, secret)
 	default:
+		// 没有动态 voices API 的 provider 优先用模型目录的 per-model voices
+		// （如 Atlas 各 TTS 模型 schema 的 voice 枚举，音色随模型走）；
+		// 再回退 provider 级 extensions.voices 静态清单（legacy）。
+		if voices := catalogModelVoices(credential.Provider); len(voices) > 0 {
+			return voices, nil
+		}
+		if voices, ok := catalogExtensionVoices(credential.Provider); ok {
+			return voices, nil
+		}
 		return nil, fmt.Errorf("provider %q does not expose speech voices", credential.Provider)
 	}
+}
+
+// catalogModelVoices 汇总 provider 目录中每个语音模型自带的 voices 清单，
+// 并给每条音色打上所属平台模型 ID（modelId）——音色集随模型走，UI 按选中模型过滤。
+func catalogModelVoices(providerID string) []MediaVoice {
+	provider, ok := providerByID(providerID)
+	if !ok {
+		return nil
+	}
+	voices := []MediaVoice{}
+	for _, model := range provider.Models {
+		if model.Capability != SpeechGenerate || !model.Available || !isTextToSpeechModel(model) {
+			continue
+		}
+		for _, voice := range model.Voices {
+			if voice.ID == "" {
+				continue
+			}
+			tagged := voice
+			tagged.Provider = providerID
+			tagged.ModelID = model.ID
+			voices = append(voices, tagged)
+		}
+	}
+	return voices
+}
+
+// catalogExtensionVoices 读取模型目录中 provider 的 extensions.voices 静态音色清单。
+// 清单项契约：{id, name, category?, description?, previewUrl?}；解析失败视为无清单。
+func catalogExtensionVoices(providerID string) ([]MediaVoice, bool) {
+	provider, ok := providerByID(providerID)
+	if !ok {
+		return nil, false
+	}
+	raw, ok := provider.Extensions["voices"]
+	if !ok || len(raw) == 0 {
+		return nil, false
+	}
+	var items []struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Category    string `json:"category"`
+		Description string `json:"description"`
+		PreviewURL  string `json:"previewUrl"`
+	}
+	if err := json.Unmarshal(raw, &items); err != nil || len(items) == 0 {
+		return nil, false
+	}
+	voices := make([]MediaVoice, 0, len(items))
+	for _, item := range items {
+		if item.ID == "" {
+			continue
+		}
+		voices = append(voices, MediaVoice{ID: item.ID, Name: item.Name, Description: item.Description, Provider: providerID, Category: item.Category, PreviewURL: item.PreviewURL})
+	}
+	return voices, len(voices) > 0
 }
 
 func (m *MediaService) listMiniMaxVoices(credential MediaCredential, secret string) ([]MediaVoice, error) {
@@ -111,6 +176,7 @@ func (m *MediaService) listElevenLabsVoices(credential MediaCredential, secret s
 			Name        string            `json:"name"`
 			Category    string            `json:"category"`
 			Description string            `json:"description"`
+			PreviewURL  string            `json:"preview_url"`
 			Labels      map[string]string `json:"labels"`
 		} `json:"voices"`
 	}{}
@@ -123,7 +189,7 @@ func (m *MediaService) listElevenLabsVoices(credential MediaCredential, secret s
 		if description == "" {
 			description = strings.Join([]string{voice.Labels["gender"], voice.Labels["accent"], voice.Labels["use_case"]}, " · ")
 		}
-		voices = append(voices, MediaVoice{ID: voice.ID, Name: voice.Name, Description: strings.Trim(description, " ·"), Provider: credential.Provider, Category: voice.Category})
+		voices = append(voices, MediaVoice{ID: voice.ID, Name: voice.Name, Description: strings.Trim(description, " ·"), Provider: credential.Provider, Category: voice.Category, PreviewURL: voice.PreviewURL})
 	}
 	return voices, nil
 }

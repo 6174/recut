@@ -1,0 +1,20 @@
+[
+  {
+    "id": "minimax/speech-2.8-hd",
+    "apiModelId": "speech-2.8-hd",
+    "name": "MiniMax Speech 2.8 HD",
+    "capability": "speech.generate",
+    "inputModes": ["text"],
+    "outputModes": ["voice", "language", "speed", "format"],
+    "meta": { "pricing": "≈ $100 / 百万字符（HD）", "summary": "中文旁白主力，HD 音质按字符计费", "tags": ["zh", "narration"] }
+  },
+  {
+    "id": "minimax/speech-2.8-turbo",
+    "apiModelId": "speech-2.8-turbo",
+    "name": "MiniMax Speech 2.8 Turbo",
+    "capability": "speech.generate",
+    "inputModes": ["text"],
+    "outputModes": ["voice", "language", "speed", "format"],
+    "meta": { "pricing": "≈ $60 / 百万字符（Turbo）", "summary": "低延迟低价位，适合草稿与试听", "tags": ["zh", "draft"] }
+  }
+]

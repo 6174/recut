@@ -83,6 +83,32 @@ func (s *Server) listMediaVoices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, voices)
 }
 
+// listCapabilityVoices 聚合某能力（如 speech.generate）下所有可用声音分组：
+// 本地 provider 一组、云端每个凭据一组、未配置凭据的 provider 返回占位组供 UI 引导。
+func (s *Server) listCapabilityVoices(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.media.CapabilityVoiceGroups(MediaCapability(r.PathValue("capability")))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, groups)
+}
+
+// getVoicePreview 解析云端 voice 试听：provider 原生 previewUrl 直接返回；
+// 否则幂等提交一段短句语音生成任务，UI 按媒体任务轮询后用 asset content 播放。
+func (s *Server) getVoicePreview(w http.ResponseWriter, r *http.Request) {
+	previewURL, job, err := s.media.VoicePreview(r.PathValue("id"), r.PathValue("voiceId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if previewURL != "" {
+		writeJSON(w, http.StatusOK, map[string]string{"previewUrl": previewURL})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, mediaJobView(job))
+}
+
 func (s *Server) listMediaRoutes(w http.ResponseWriter, _ *http.Request) {
 	items, err := s.media.ListRoutes()
 	if err != nil {

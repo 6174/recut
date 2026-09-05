@@ -66,6 +66,10 @@ func (m *MediaService) GenerateSync(input GenerateMediaInput) (MediaJob, error) 
 			if job, err = m.submitAtlasVideo(job, credential, true); err != nil {
 				return job, err
 			}
+		} else if isAtlasSpeechJob(job, credential) {
+			if job, err = m.submitAtlasSpeech(job, credential, true); err != nil {
+				return job, err
+			}
 		} else if isSkymindVideoJob(job, credential) {
 			if job, err = m.submitSkymindVideo(job, credential, true); err != nil {
 				return job, err
@@ -344,7 +348,7 @@ func (m *MediaService) execute(job MediaJob, credential MediaCredential) {
 		m.completeExecution(job, asset)
 		return
 	}
-	if job.Capability != SpeechGenerate || (credential.Provider != "minimax" && credential.Provider != "elevenlabs") {
+	if job.Capability != SpeechGenerate || (credential.Provider != "minimax" && credential.Provider != "elevenlabs" && credential.Provider != "atlas-cloud") {
 		m.failExecution(job, errors.New("this provider capability adapter is not available yet"))
 		return
 	}

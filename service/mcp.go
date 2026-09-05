@@ -116,6 +116,10 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleZh: "读取当前可用音色：云端凭据（MiniMax/ElevenLabs）的音色，或本机 TTS 的 Audio Studio 默认音（credentialId 传 local-audio 或留空）。",
 		LocaleEn: "Read currently available voices: those of a cloud credential (MiniMax/ElevenLabs), or the Audio Studio default voice for local TTS (pass credentialId local-audio or leave it empty).",
 	},
+	"recut.media.list_capability_voices": {
+		LocaleZh: "按能力聚合所有可用的声音分组：本地 provider 一组、云端每个凭据一组、未配置凭据的 provider 返回占位组（带 error）供引导设置。用于跨 provider 声音选择，不依赖默认路由。",
+		LocaleEn: "Aggregate all available voice groups for one capability: one group per local provider, one per cloud credential, and placeholder groups (with error) for unconfigured providers to guide setup. Use it to select voices across providers without depending on the default route.",
+	},
 	"recut.media.get_job": {
 		LocaleZh: "读取媒体生成任务状态。",
 		LocaleEn: "Read a media generation job's status.",
@@ -996,6 +1000,9 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 	case "recut.media.list_voices":
 		credentialID, _ := input["credentialId"].(string)
 		result, err = media.ListVoices(credentialID)
+	case "recut.media.list_capability_voices":
+		capability, _ := input["capability"].(string)
+		result, err = media.CapabilityVoiceGroups(MediaCapability(capability))
 	case "recut.media.get_job":
 		id, _ := input["jobId"].(string)
 		job, getErr := media.GetJob(id)
@@ -1164,6 +1171,7 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.video.generate", "description": mcpDescription(locale, "recut.video.generate"), "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
 		{"name": "recut.speech.generate", "description": mcpDescription(locale, "recut.speech.generate"), "inputSchema": speechGenerationSchema()},
 		{"name": "recut.media.list_voices", "description": mcpDescription(locale, "recut.media.list_voices"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"credentialId": map[string]string{"type": "string", "description": "云端语音 provider 的凭据 ID；本机 TTS 可传 local-audio 或留空返回 Audio Studio 默认音。"}}}},
+		{"name": "recut.media.list_capability_voices", "description": mcpDescription(locale, "recut.media.list_capability_voices"), "inputSchema": map[string]any{"type": "object", "required": []string{"capability"}, "properties": map[string]any{"capability": map[string]any{"type": "string", "enum": []string{"speech.generate"}, "description": "要聚合声音的能力；当前 speech.generate 提供动态 voices，其他能力返回空列表。"}}}},
 		{"name": "recut.media.get_job", "description": mcpDescription(locale, "recut.media.get_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.wait_for_job", "description": mcpDescription(locale, "recut.media.wait_for_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 15, "description": "单次最多阻塞 15 秒（Streamable HTTP 兼容，避免长阻塞连接被断开）；超时返回当前状态，需继续轮询。长任务请用短轮询，不要设接近 300 秒。"}}}},
 		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}, "ids": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "精确 assetId 列表（也接受逗号分隔字符串）；用于按已知 ID 取回完整记录，给定时忽略 kind/query 等其他过滤。"}, "kind": map[string]string{"type": "string", "description": "按素材类型过滤：image / video / audio / transcript 等。"}, "status": map[string]string{"type": "string", "description": "按状态过滤（如 completed / queued / running）；缺省排除 deleted。"}, "query": map[string]string{"type": "string", "description": "按名称模糊匹配。"}, "limit": map[string]any{"type": "integer", "description": "分页大小，默认 200，上限 500。"}, "offset": map[string]any{"type": "integer", "description": "分页偏移；结合返回的 total 判断是否还有下一页。"}}}},
@@ -1490,9 +1498,11 @@ func mediaGenerationSchema(textDescription string, imageReferences, videoReferen
 
 func speechGenerationSchema() map[string]any {
 	schema := mediaGenerationSchema("需要朗读的旁白文本。", false, false, false)
-	schema["required"] = []string{"text", "voiceId"}
+	schema["required"] = []string{"text"}
 	properties := schema["properties"].(map[string]any)
-	properties["voiceId"] = map[string]any{"type": "string", "description": "由 recut.media.list_voices 返回的当前 Provider 音色 ID。"}
+	properties["voiceId"] = map[string]any{"type": "string", "description": "由 recut.media.list_voices 返回的当前 Provider 音色 ID；本地路由可省略（用默认音）。"}
+	properties["modelId"] = map[string]any{"type": "string", "description": "可选；与 credentialId 成对传入时直连该模型+凭据路由（如用非默认 provider 的声音），缺省走 speech.generate 默认路由。"}
+	properties["credentialId"] = map[string]any{"type": "string", "description": "可选；与 modelId 成对传入时生效，指定云端凭据。"}
 	return schema
 }
 
@@ -1513,7 +1523,10 @@ func mediaGenerationInput(input map[string]any, capability MediaCapability) Gene
 	if voiceID, _ := input["voiceId"].(string); voiceID != "" {
 		output["voiceId"] = voiceID
 	}
-	return GenerateMediaInput{Capability: capability, Prompt: prompt, Route: route, ReferenceIDs: mediaReferenceIDs(input), Output: output, ProjectID: requestedProjectID(input), IdempotencyKey: key}
+	// modelId + credentialId 成对出现时直连该路由（绕过默认路由），供跨 provider 声音选择。
+	modelID, _ := input["modelId"].(string)
+	credentialID, _ := input["credentialId"].(string)
+	return GenerateMediaInput{Capability: capability, Prompt: prompt, Route: route, ModelID: modelID, CredentialID: credentialID, ReferenceIDs: mediaReferenceIDs(input), Output: output, ProjectID: requestedProjectID(input), IdempotencyKey: key}
 }
 
 func stringsFromAny(value any) []string {

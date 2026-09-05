@@ -1,0 +1,21 @@
+[
+  {
+    "_comment": "Atlas Cloud 策展段：上游 /v1/models 缺失的模型（视频网关走 prediction API 不在列表里）与推断纠错，人工维护，优先级最高。",
+    "id": "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video",
+    "apiModelId": "bytedance/seedance-2.0-mini/reference-to-video",
+    "name": "Seedance 2.0 Mini · 多参考视频",
+    "capability": "video.generate",
+    "inputModes": ["text", "image", "video", "audio"],
+    "outputModes": ["durationSeconds", "resolution", "aspectRatio", "bitrateMode", "generateAudio", "seed", "watermark", "returnLastFrame"],
+    "referenceBudgets": [{ "requirements": ["images+videos>=1"], "maxImages": 9, "maxVideos": 3, "maxAudios": 3, "image": { "maxBytes": 31457280, "mimes": ["image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff", "image/gif", "image/heic", "image/heif"] }, "video": { "maxBytes": 52428800, "mimes": ["video/mp4", "video/quicktime"] }, "audio": { "maxBytes": 15728640, "mimes": ["audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3"] } }]
+  },
+  {
+    "id": "atlas-cloud/google/gemini-omni-flash-reference-to-video",
+    "apiModelId": "google/gemini-omni-flash/reference-to-video",
+    "name": "Gemini Omni Flash · 参考图视频",
+    "capability": "video.generate",
+    "inputModes": ["text", "image"],
+    "outputModes": ["durationSeconds", "aspectRatio", "resolution", "thinkingLevel", "seed"],
+    "referenceBudgets": [{ "requirements": ["images>=1", "videos==0", "audios==0"], "maxImages": 10, "image": { "maxBytes": 20971520, "mimes": ["image/png", "image/jpeg", "image/webp"] } }]
+  }
+]
