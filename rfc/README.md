@@ -3,6 +3,7 @@
 > L2 | 父级: /README.md
 
 成员清单
+2026-09-07-recursive-world-canvas.md: Recut World 无限画布演化：把 World 从表单设定本升级为递归语义世界画布（Entity 即可进入容器、Reference≠Relationship、Exploration/Canonical 分层、tldraw 投影）；数据结构按「基石」从零设计、不为早期用户做兼容约束——可扩展 entity type 目录（world_entity_types 预设+自定义+base_kind）、递归容器（parent_id/is_provisional）、局部子图（scope_entity_id）、world_canvas 承载「Entity 骨干+自由表达元素（文本/图片/形状/便签）」、坚持「边≠关系」（语义关系只存 world_relations）；含 MVP 执行计划（约 6 天：骨架→数据→递归容器→画布→Promote 闭环）。
 2026-08-12-creation-worlds.md: Creation Worlds 顶级工作台、创作上下文绑定、版本化 Canon、跨 App / MCP 契约与 Remotion MVP 的实施 RFC。
 2026-08-12-creation-worlds-technical-design.md: Creation Worlds 的 workspace SQLite、Go service facade、SDK/MCP、权限、Web/Remotion 接入、迁移与测试的技术实施 RFC。
 2026-08-13-visual-runtime-component-system.md: Recut Visual Runtime 与 Component System：世界（场景图）+ 时间线创作表面、R3F 全权渲染、组件即代码对象、材质混合与排序规则、Preview/Export 统一与分阶段实施路线。
