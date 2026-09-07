@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { CheckCircle2, ChevronDown, CircleAlert, Download, FileText, RotateCw, Server, Wrench } from "lucide-react";
+import { CheckCircle2, CircleAlert, Download, FileText, RotateCw, Server, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -58,12 +58,14 @@ export function ServiceControl() {
 
   const triggerClassName = updateAvailable
     ? "flex h-8 items-center gap-1.5 rounded-xs bg-primary px-2.5 font-sans text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:ring-2 focus-visible:ring-ring"
-    : "flex h-8 items-center gap-2 rounded-xs px-2 font-mono text-[10px] text-muted-foreground transition hover:bg-muted hover:text-foreground";
+    : "relative grid size-8 place-items-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground";
+  const statusLabel = localEndpoint ? "LOCAL" : "REMOTE";
   return <Popover onOpenChange={setOpen} open={open}>
     <PopoverTrigger asChild>
-      <button aria-label={updateAvailable ? interpolate(t("service.upgrade.aria"), { version: latestVersion }) : t("service.manage.aria")} className={triggerClassName} title={updateAvailable ? interpolate(t("service.upgrade.title"), { version: latestVersion }) : undefined} type="button">
-      <span className={online ? "size-1.5 rounded-full bg-success" : service.phase === "checking" ? "size-1.5 animate-pulse rounded-full bg-muted-foreground" : "size-1.5 rounded-full bg-warning"} />
-      {updateAvailable ? <><Download className="size-3.5" /><span>{interpolate(t("service.update"), { version: latestVersion })}</span></> : <><span>{localEndpoint ? "LOCAL" : "REMOTE"} SERVICE {online ? service.version : service.phase === "checking" ? "CONNECTING" : "OFFLINE"}</span><ChevronDown className="size-3" /></>}
+      <button aria-label={updateAvailable ? interpolate(t("service.upgrade.aria"), { version: latestVersion }) : `${statusLabel} SERVICE ${online ? service.version : service.phase === "checking" ? "CONNECTING" : "OFFLINE"}`} className={triggerClassName} title={updateAvailable ? interpolate(t("service.upgrade.title"), { version: latestVersion }) : `${statusLabel} SERVICE · ${online ? service.version : service.phase}`} type="button">
+      <Server className="size-4" />
+      <span className={online ? "absolute right-1.5 top-1.5 size-1.5 rounded-full bg-success" : service.phase === "checking" ? "absolute right-1.5 top-1.5 size-1.5 animate-pulse rounded-full bg-muted-foreground" : "absolute right-1.5 top-1.5 size-1.5 rounded-full bg-warning"} />
+      {updateAvailable && <><Download className="size-3.5" /></>}
       </button>
     </PopoverTrigger>
     <PopoverContent align="end" aria-label={t("service.manage.aria")} className="w-80 p-4 font-sans text-xs">

@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖元素选择、属性注册表和属性面板 Store。
- * [OUTPUT]: 对外提供带“画面/动画”真正 Tab 切换的 PropertiesPanel。
- * [POS]: properties 的根容器；画面与动画内容互斥渲染，动画 Tab 内再按 Enter/Exit/Loop 分组。
+ * [INPUT]: 依赖元素选择、属性注册表、项目全局设置视图和属性面板 Store。
+ * [OUTPUT]: 对外提供 PropertiesPanel：未选中元素时展示项目全局设置，单选中时提供带“画面/动画”真正 Tab 切换的属性编辑。
+ * [POS]: properties 的根容器；未选中态是项目全局设置（名称/导出/帧率/比例/背景），画面与动画内容互斥渲染，动画 Tab 内再按 Enter/Exit/Loop 分组。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -12,7 +12,7 @@ import { useEditor } from "@/editor/use-editor";
 import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
 import { getPropertiesConfig } from "./registry";
 import { cn } from "@/utils/ui";
-import { EmptyView } from "./empty-view";
+import { ProjectSettingsPanel } from "./project-settings";
 import { t, useRecutLocale } from "@/i18n";
 
 export function PropertiesPanel() {
@@ -24,11 +24,7 @@ export function PropertiesPanel() {
 	const locale = useRecutLocale();
 
 	if (selectedElements.length === 0) {
-		return (
-			<div className="panel bg-background flex h-full flex-col items-center justify-center overflow-hidden rounded-sm border">
-				<EmptyView />
-			</div>
-		);
+		return <ProjectSettingsPanel />;
 	}
 
 	if (selectedElements.length > 1) {

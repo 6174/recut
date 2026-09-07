@@ -11,7 +11,6 @@ import { type Tab, useAssetsPanelStore } from "@/components/editor/panels/assets
 import { TopNavigation } from "./tabbar";
 import { Captions } from "@/subtitles/components/assets-view";
 import { MediaView } from "./views/assets";
-import { SettingsView } from "./views/settings";
 import { TextView } from "@/text/components/assets-view";
 import { AudioLibraryView } from "@/audio-library/components/audio-library-view";
 import { ComponentLibraryView, EffectLibraryView } from "./views/component-library";
@@ -26,7 +25,6 @@ export function AssetsPanel() {
 		effects: <EffectLibraryView />,
 		components: <ComponentLibraryView />,
 		captions: <Captions />,
-		settings: <SettingsView />,
 	};
 
 	return (

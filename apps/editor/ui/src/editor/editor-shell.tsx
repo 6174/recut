@@ -7,7 +7,6 @@
 import { useEffect, useMemo } from "react";
 import { ThemeProvider } from "next-themes";
 import { EditorProvider } from "@/components/providers/editor-provider";
-import { EditorHeader } from "@/components/editor/editor-header";
 import { AssetsPanel } from "@/components/editor/panels/assets";
 import { PropertiesPanel } from "@/components/editor/panels/properties";
 import { Timeline } from "@/timeline/components";
@@ -149,9 +148,8 @@ export function EditorShell({ projectId }: { projectId: string }) {
 				<Toaster />
 				<EditorProvider projectId={projectId}>
 					<div className="bg-background flex h-screen w-screen flex-col overflow-hidden">
-						<EditorHeader />
 						<HtmlInCanvasBanner />
-						<div className="min-h-0 min-w-0 flex-1">
+						<div className="min-h-0 min-w-0 flex-1 pt-2">
 							<EditorLayout />
 						</div>
 					</div>

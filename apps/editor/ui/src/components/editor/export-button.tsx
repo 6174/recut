@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖编辑器项目状态、导出服务、Popover 表单与基础 UI 控件
- * [OUTPUT]: 对外提供 ExportButton，使用霓虹发光触发器打开并控制项目导出流程
- * [POS]: components/editor 的导出入口；只负责导出交互，不承载项目名称或宿主导航
+ * [OUTPUT]: 对外提供 ExportButton，紧凑霓虹发光触发器打开并控制项目导出流程
+ * [POS]: components/editor 的导出入口，常驻右侧项目全局设置 Header 右侧；只负责导出交互，不承载项目名称或宿主导航
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -96,9 +96,9 @@ export function ExportButton() {
 					<button
 						type="button"
 						className={cn(
-							"export-neon-button group relative isolate inline-flex rounded-full p-px text-white transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.97]",
+							"export-neon-button group relative isolate inline-flex shrink-0 rounded-full p-px text-white transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.97]",
 							hasProject
-								? "cursor-pointer hover:scale-[1.02]"
+								? "cursor-pointer hover:scale-[1.03]"
 								: "cursor-not-allowed opacity-50",
 						)}
 						onClick={hasProject ? () => setIsExportPopoverOpen(true) : undefined}
@@ -118,7 +118,8 @@ export function ExportButton() {
 							aria-hidden="true"
 							className="export-neon-ring absolute inset-0 -z-10 rounded-full"
 						/>
-						<span className="relative z-10 flex h-8 items-center rounded-full border border-[#00e5d4]/70 bg-black px-5 text-[0.875rem] font-medium text-[#ebe8ff] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-300 group-hover:border-[#7df7eb] group-hover:text-[#e8d9ff]">
+						<span className="relative z-10 flex h-8 items-center justify-center gap-1.5 rounded-full border border-[#00e5d4]/70 bg-black px-3 text-[0.8125rem] font-medium text-[#ebe8ff] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition duration-300 group-hover:border-[#7df7eb] group-hover:text-[#e8d9ff]">
+							<Download className="size-3.5" />
 							<span>{t(locale, "export.export")}</span>
 						</span>
 					</button>
@@ -250,7 +251,12 @@ function ExportPopover({
 	};
 
 	return (
-		<PopoverContent className="bg-background mr-4 flex w-80 flex-col p-0">
+		<PopoverContent
+			align="start"
+			side="left"
+			sideOffset={8}
+			className="bg-background flex w-80 flex-col p-0"
+		>
 			<div className="flex items-center justify-between p-3 border-b">
 				<h3 className="font-medium text-sm">{t(locale, "export.exportProject")}</h3>
 			</div>

@@ -6,6 +6,7 @@
 sdk.ts: 编辑器 iframe 与 Recut Host 的 API、事件、导航和 `focus.report` 桥；时间线完整选区只能补充 Host 签发的项目 Work Surface。
 use-project-sync.ts: 订阅项目、组件与 AI 锁事件，优先以带文档的增量事件或 `timeline.delta` 应用变更，只有无法增量同步时才重载；rAF 合并事件、reload 期间保留最新事件，成功快照一次确认并避免回显事件造成刷新风暴，失败不自旋等待下一次外部事件。带 `library.tab=components` 的新组件发布事件聚焦组件库，其余变更不抢占用户标签。
 use-cover-sync.ts: 同步项目封面相关的 Host 事件与编辑器状态；尊重用户手动封面（cover.get mode != auto 时停止自动首帧）。
+use-host-project.ts: 宿主项目名数据源；iframe 与 service 同源，经 GET /v1/projects/:id 读取最新宿主名、PATCH 写回重命名（与顶栏同一接口）；项目名称的唯一真相源是宿主项目而非编辑器内部文档名，demo 模式返回空值由调用方回退文档名。
 components.ts: 只按 asset.list 的 active component 引用或已有时间线 componentId 同步 runtime 定义；组件 Tab 不参与 AI 组件加载；无宿主测试 seam（aiComponents）时以注入数据服务列表与 bundle 解析。
 component-cover.ts: 仅在组件素材库实际挂载时，以完整 viewport 的隐藏 component-harness 验证版本并将 HTML-in-Canvas PNG 封面回传；后台不生成缩略图；无宿主测试 seam 时跳过。
 ai-components.ts: 组件 asset 引用与 AI 组件元数据的前端契约；通过 asset.list 发现素材、component.source 读取源码、asset.archive 隐藏引用；对外暴露 getTestSeam 供同步/封面链感知无宿主测试注入。

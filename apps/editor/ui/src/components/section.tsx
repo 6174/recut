@@ -236,15 +236,20 @@ export function SectionField({
 	return (
 		<div
 			className={cn(
-				"grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)_auto] items-center gap-2",
+				"grid min-w-0 items-center gap-2",
+				trailing
+					? "grid-cols-[5.5rem_minmax(0,1fr)_auto]"
+					: "grid-cols-[5.5rem_minmax(0,1fr)]",
 				className,
 			)}
 		>
 			<Label className="min-w-0 truncate text-muted-foreground">{label}</Label>
 			<div className="min-w-0">{children}</div>
-			<div className="flex min-h-7 min-w-7 items-center justify-end">
-				{trailing}
-			</div>
+			{trailing && (
+				<div className="flex min-h-7 min-w-7 items-center justify-end">
+					{trailing}
+				</div>
+			)}
 		</div>
 	);
 }

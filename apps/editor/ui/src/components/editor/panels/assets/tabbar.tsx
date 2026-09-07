@@ -159,7 +159,5 @@ function tabLabelKey(tabKey: Tab): I18nKey {
 			return "panel.tab.components";
 		case "captions":
 			return "panel.tab.captions";
-		case "settings":
-			return "panel.tab.settings";
 	}
 }

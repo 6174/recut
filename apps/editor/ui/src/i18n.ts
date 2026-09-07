@@ -42,16 +42,12 @@ export function applyRecutLocale() {
 }
 
 const zh = {
-	"header.appName": "Recut 剪辑器",
-	"header.openAppDetail": "打开 Recut 剪辑器应用详情",
-
 	"panel.tab.media": "素材",
 	"panel.tab.sounds": "音频",
 	"panel.tab.text": "文本",
 	"panel.tab.effects": "特效",
 	"panel.tab.components": "组件",
 	"panel.tab.captions": "字幕",
-	"panel.tab.settings": "设置",
 	"panel.tabbar.coreCategories": "素材面板核心分类",
 	"panel.tabbar.moreCategories": "更多分类",
 	"panel.component.loading": "加载组件…",
@@ -248,8 +244,6 @@ const zh = {
 	"prop.effects.remove": "删除 {name}",
 
 	"prop.elementsSelected": "已选择 {count} 个元素",
-	"prop.emptyTitle": "这里空空的",
-	"prop.emptyHint": "点击时间线上的元素以编辑其属性",
 	"prop.toggleKeyframe": "切换 {label} 关键帧",
 	"prop.capturePadding": "安全边距",
 	"prop.range": "范围",
@@ -296,8 +290,8 @@ const zh = {
 	"assets.dropHint": "拖放视频、图片和音频文件到这里",
 	"assets.addToTimelineHint": "添加到时间线，或拖拽到对应位置",
 
-	"settings.projectInfo": "项目信息",
-	"settings.background": "背景",
+	"settings.name": "项目名称",
+	"settings.projectSettings": "项目设置",
 	"settings.frameRate": "帧率",
 	"settings.selectFrameRate": "选择帧率",
 	"settings.aspectRatio": "画面比例",
@@ -787,16 +781,12 @@ const zh = {
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
-	"header.appName": "Recut Editor",
-	"header.openAppDetail": "Open Recut editor app details",
-
 	"panel.tab.media": "Media",
 	"panel.tab.sounds": "Audio",
 	"panel.tab.text": "Text",
 	"panel.tab.effects": "Effects",
 	"panel.tab.components": "Components",
 	"panel.tab.captions": "Captions",
-	"panel.tab.settings": "Settings",
 	"panel.tabbar.coreCategories": "Core asset categories",
 	"panel.tabbar.moreCategories": "More categories",
 	"panel.component.loading": "Loading component…",
@@ -995,8 +985,6 @@ const en: Record<keyof typeof zh, string> = {
 	"prop.effects.remove": "Remove {name}",
 
 	"prop.elementsSelected": "{count} elements selected",
-	"prop.emptyTitle": "It's empty here",
-	"prop.emptyHint": "Click an element on the timeline to edit its properties",
 	"prop.toggleKeyframe": "Toggle {label} keyframe",
 	"prop.capturePadding": "Capture padding",
 	"prop.range": "range",
@@ -1043,8 +1031,8 @@ const en: Record<keyof typeof zh, string> = {
 	"assets.dropHint": "Drag and drop videos, photos, and audio files here",
 	"assets.addToTimelineHint": "Add to timeline or drag to position",
 
-	"settings.projectInfo": "Project info",
-	"settings.background": "Background",
+	"settings.name": "Project name",
+	"settings.projectSettings": "Project settings",
 	"settings.frameRate": "Frame rate",
 	"settings.selectFrameRate": "Select a frame rate",
 	"settings.aspectRatio": "Aspect ratio",

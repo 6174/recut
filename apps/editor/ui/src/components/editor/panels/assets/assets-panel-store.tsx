@@ -14,7 +14,6 @@ import {
 	Folder03Icon,
 	MagicWand05Icon,
 	MusicNote03Icon,
-	Settings01Icon,
 	CursorTextIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -26,7 +25,6 @@ export const TAB_KEYS = [
 	"components",
 	"sounds",
 	"captions",
-	"settings",
 ] as const;
 
 export type Tab = (typeof TAB_KEYS)[number];
@@ -62,10 +60,6 @@ export const tabs = {
 	captions: {
 		icon: createHugeiconsIcon({ icon: ClosedCaptionIcon }),
 		label: "字幕",
-	},
-	settings: {
-		icon: createHugeiconsIcon({ icon: Settings01Icon }),
-		label: "设置",
 	},
 } satisfies Record<
 	Tab,
