@@ -96,7 +96,7 @@ function EditorLayout() {
 			<EditorWorkFocusReporter />
 			<ResizablePanelGroup
 			direction="vertical"
-			className="size-full gap-[0.18rem]"
+			className="size-full gap-0"
 			onLayout={(sizes) => {
 				setPanel({ panel: "mainContent", size: sizes[0] ?? panels.mainContent });
 				setPanel({ panel: "timeline", size: sizes[1] ?? panels.timeline });
@@ -105,7 +105,7 @@ function EditorLayout() {
 			<ResizablePanel defaultSize={panels.mainContent} minSize={30} maxSize={85} className="min-h-0">
 				<ResizablePanelGroup
 					direction="horizontal"
-					className="size-full gap-[0.19rem] px-3"
+					className="size-full gap-0"
 					onLayout={(sizes) => {
 						setPanel({ panel: "tools", size: sizes[0] ?? panels.tools });
 						setPanel({ panel: "preview", size: sizes[1] ?? panels.preview });
@@ -128,7 +128,7 @@ function EditorLayout() {
 
 			<ResizableHandle withHandle />
 
-			<ResizablePanel defaultSize={panels.timeline} minSize={15} maxSize={70} className="min-h-0 px-3 pb-3">
+			<ResizablePanel defaultSize={panels.timeline} minSize={15} maxSize={70} className="min-h-0">
 				<Timeline />
 			</ResizablePanel>
 			</ResizablePanelGroup>
@@ -149,7 +149,7 @@ export function EditorShell({ projectId }: { projectId: string }) {
 				<EditorProvider projectId={projectId}>
 					<div className="bg-background flex h-screen w-screen flex-col overflow-hidden">
 						<HtmlInCanvasBanner />
-						<div className="min-h-0 min-w-0 flex-1 pt-2">
+						<div className="min-h-0 min-w-0 flex-1">
 							<EditorLayout />
 						</div>
 					</div>

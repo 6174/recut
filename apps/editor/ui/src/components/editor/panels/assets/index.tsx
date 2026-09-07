@@ -28,7 +28,7 @@ export function AssetsPanel() {
 	};
 
 	return (
-		<div className="panel bg-background flex h-full flex-col overflow-hidden rounded-sm border">
+		<div className="panel bg-panel flex h-full flex-col overflow-hidden rounded-none border-0">
 			<TopNavigation />
 			<div className="min-w-0 flex-1 overflow-hidden">{viewMap[activeTab]}</div>
 		</div>

@@ -156,7 +156,7 @@ export function ProjectSettingsPanel() {
 	};
 
 	return (
-		<div className="panel bg-background flex h-full flex-col overflow-hidden rounded-sm border">
+		<div className="panel bg-panel flex h-full flex-col overflow-hidden rounded-none border-0">
 			<div className="bg-background flex h-11 shrink-0 items-center justify-between border-b pl-3.5 pr-2">
 				<span className="text-[13px] font-semibold tracking-wide text-foreground">
 					{t(locale, "settings.projectSettings")}

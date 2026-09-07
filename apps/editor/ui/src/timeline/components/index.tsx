@@ -442,7 +442,7 @@ export function Timeline() {
 	return (
 		<section
 			className={
-				"panel bg-background relative flex h-full flex-col overflow-hidden rounded-sm border"
+				"panel bg-panel relative flex h-full flex-col overflow-hidden rounded-none border-0"
 			}
 			{...dragProps}
 			aria-label={t(locale, "timeline.timeline")}

@@ -29,7 +29,7 @@ export function PropertiesPanel() {
 
 	if (selectedElements.length > 1) {
 		return (
-			<div className="panel bg-background flex h-full flex-col items-center justify-center overflow-hidden rounded-sm border">
+			<div className="panel bg-panel flex h-full flex-col items-center justify-center overflow-hidden rounded-none border-0">
 				<p className="text-muted-foreground text-sm">
 					{t(locale, "prop.elementsSelected", {
 						count: selectedElements.length,
@@ -57,7 +57,7 @@ export function PropertiesPanel() {
 	const activeMotionTab = activeTab === "motion" ? motionTab : undefined;
 
 	return (
-		<div className="panel bg-background flex h-full flex-col overflow-hidden rounded-sm border">
+		<div className="panel bg-panel flex h-full flex-col overflow-hidden rounded-none border-0">
 			<div className="flex h-10 shrink-0 items-center gap-1 border-b bg-background/95 p-1" role="tablist" aria-label="属性面板" data-properties-nav>
 				<button
 					type="button"
