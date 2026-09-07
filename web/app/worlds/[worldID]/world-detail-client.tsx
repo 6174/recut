@@ -13,12 +13,14 @@ import {
   Clapperboard,
   Globe2,
   MoreHorizontal,
+  Network,
   NotebookPen,
   Pencil,
   Plus,
   X,
 } from "lucide-react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +52,9 @@ import { settingSections, SettingDialog } from "./world-detail-settings";
 import { WorldOnboardingCard } from "./world-onboarding";
 import { Workspace } from "../../page";
 
+// 画布模式：tldraw 依赖浏览器 API，仅客户端挂载。
+const WorldCanvas = dynamic(() => import("./canvas").then((mod) => mod.default), { ssr: false });
+
 function worldIDFromLocation(routeID: string | undefined) {
   const queryID = new URLSearchParams(window.location.search).get("id");
   if (queryID) return queryID;
@@ -78,6 +83,8 @@ function WorldDetailContent() {
     Record<string, WorldEntity[]>
   >({});
   const [activeKind, setActiveKind] = useState<EntityKind | "resource" | "skill">("skill");
+  // 进入 World 默认即画布模式；左上角按钮可切回表单模式。
+  const [viewMode, setViewMode] = useState<"form" | "canvas">("canvas");
   const [editing, setEditing] = useState<WorldEntity | null>(null);
   const [viewing, setViewing] = useState<WorldEntity | null>(null);
   const [creating, setCreating] = useState(false);
@@ -260,6 +267,17 @@ function WorldDetailContent() {
         >
           <ArrowLeft className="size-4" />
         </Link>
+        {/* 表单/画布模式切换（左上角） */}
+        <button
+          aria-label="切换到画布模式"
+          aria-pressed={viewMode === "canvas"}
+          className="absolute -left-12 top-12 grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={() => setViewMode(viewMode === "canvas" ? "form" : "canvas")}
+          title={viewMode === "canvas" ? "返回设定模式" : "进入画布模式"}
+          type="button"
+        >
+          <Network className={viewMode === "canvas" ? "size-4 text-primary" : "size-4"} />
+        </button>
         <div className="flex min-w-0 items-start gap-4">
           <span className="grid size-16 shrink-0 place-items-center rounded-2xl bg-accent text-accent-foreground">
             <Globe2 className="size-7" />
@@ -407,8 +425,7 @@ function WorldDetailContent() {
         />
       )}
       {archiveConfirm && (
-        <div aria-modal="true" className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6" role="dialog">
-          <div className="w-full max-w-md rounded-md border bg-card p-5 shadow-2xl">
+        <div aria-modal="true" className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6" role="dialog">          <div className="w-full max-w-md rounded-md border bg-card p-5 shadow-2xl">
             <h3 className="text-base font-semibold">{interpolate(t("worlds.detail.archive.confirm.title"), { name: detail.name })}</h3>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("worlds.detail.archive.confirm.desc")}</p>
             <div className="mt-4 flex justify-end gap-2">
@@ -420,6 +437,17 @@ function WorldDetailContent() {
             </div>
           </div>
         </div>
+      )}
+      {/* 画布模式：全屏覆盖设定视图 */}
+      {viewMode === "canvas" && (
+        <WorldCanvas
+          apiBase={apiBase}
+          onClose={() => setViewMode("form")}
+          readOnly={readOnly}
+          revisionId={detail.revision.id}
+          worldId={worldId}
+          worldName={detail.name}
+        />
       )}
     </>
   );

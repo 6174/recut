@@ -31,11 +31,11 @@ class DefaultLayoutStrategy implements LayoutStrategy {
 
 export abstract class PomeloRendererAdapter {
   renderedBlockMap: Map<string, PomeloBlock> = new Map();
-  editor: PomeloEditor;
-  renderer: PomeloRenderer;
-  cachedVNode: VNode;
-  mountpointBlock: MountPointBlock;
-  blockPatcher: BlockPatcher;
+  editor: PomeloEditor = null!;
+  renderer: PomeloRenderer = null!;
+  cachedVNode: VNode = null!;
+  mountpointBlock: MountPointBlock = null!;
+  blockPatcher: BlockPatcher = null!;
   layoutStrategies: Map<string, LayoutStrategy> = new Map();
   transform: { x: number, y: number, scale: number } = { x: 0, y: 0, scale: 1 };
   containerSize: { width: number, height: number } = { width: 800, height: 600 };
@@ -71,7 +71,7 @@ export abstract class PomeloRendererAdapter {
   }
 
   render() {
-    const rootBlockRecord = this.editor.state.getRootBlock();
+    const rootBlockRecord = this.editor.state.getRootBlock()!;
     const blockRecords = rootBlockRecord.children || [];
     const newVNode = this.createVNodeTree(blockRecords);
     const patches = VirtualDOM.diff(this.cachedVNode, newVNode, MOUNTPOINT_ROOT_ID);
@@ -111,13 +111,13 @@ export abstract class PomeloRendererAdapter {
   }
 
   layoutBlock(block: PomeloBlock) {
-    const layoutStrategy = this.layoutStrategies.get(block.type) || this.layoutStrategies.get('default');
+    const layoutStrategy = this.layoutStrategies.get(block.type) ?? this.layoutStrategies.get('default');
     const childrenBlocks = block.children;
     // 递归布局子节点
     for (const childBlock of childrenBlocks) {
       this.layoutBlock(childBlock);
     }
-    layoutStrategy.layout(block, childrenBlocks);
+    layoutStrategy?.layout(block, childrenBlocks);
   }
 
   registerLayoutStrategy(blockType: string, strategy: LayoutStrategy) {

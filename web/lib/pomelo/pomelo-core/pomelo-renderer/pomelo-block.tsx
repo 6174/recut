@@ -1,5 +1,5 @@
 // pomelo-block.ts
-import { createContext, useContext } from "react";
+import React, { createContext, useContext } from "react";
 import { ElementTypes, IElement } from "../pomelo-types/render.types";
 import { PomeloRendererAdapter } from "./pomelo-renderer-adapter";
 import * as Y from "yjs";
@@ -68,7 +68,7 @@ export abstract class PomeloBlock {
    */
   abstract render(): void;
 
-  renderBlockReact?(): JSX.Element;
+  renderBlockReact?(): React.ReactElement;
   renderBlock?(): any;
 
   get parent() {

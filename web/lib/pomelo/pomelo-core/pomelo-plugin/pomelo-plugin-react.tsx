@@ -1,14 +1,14 @@
 import { PomeloPlugin } from "./pomelo-plugin";
 import { createRoot } from 'react-dom/client';
-import { Root } from 'react-dom/client';
+
 import { elem } from "../pomelo-common/dom";
-import { createContext, useContext } from "react";
+import React, { createContext, useContext } from "react";
 import { PomeloEditor } from "../pomelo-editor";
 
 export abstract class PomeloReactPlugin extends PomeloPlugin {
   Name: string = PomeloReactPlugin.name;
   #domContainer: HTMLDivElement | null = null;
-  #root?: Root;
+  #root?: ReturnType<typeof createRoot>;
 
   onEditorDidMount() {
     const container = this.editor.getPluginDom();
@@ -45,7 +45,7 @@ export abstract class PomeloReactPlugin extends PomeloPlugin {
   /**
    * render react blocks
    */
-  abstract render(): JSX.Element;
+  abstract render(): React.ReactElement;
 }
 
 // 因为 context 必须要有默认值，所以这里先用 null 代替

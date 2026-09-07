@@ -45,9 +45,9 @@ export interface IPomeloPlugin {
 }
 
 export abstract class PomeloPlugin extends Diposables implements IPomeloPlugin {
-  Name: string;
+  Name: string = "";
   blocks?: IPomeloBlockConstructor[];
-  editor: PomeloEditor;
+  editor: PomeloEditor = null!;
   abstract onEditorDidMount(editor?: PomeloEditor): void;
   // onBlockSelectionChange?(selectionState: SelectionState): void;
 

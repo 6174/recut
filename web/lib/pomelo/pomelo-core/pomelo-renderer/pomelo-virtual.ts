@@ -1,4 +1,6 @@
 // virtual-dom.ts
+import { PomeloBlockRecord } from "./pomelo-block";
+
 export interface VNode {
   type: string;
   props: Record<string, any>;
@@ -79,7 +81,6 @@ export class VirtualDOM {
   }
 }
 
-import { PomeloBlockRecord } from './pomelo-block';
 // block-patcher.ts
 import { PomeloRendererAdapter } from './pomelo-renderer-adapter';
 
@@ -109,9 +110,9 @@ export class BlockPatcher {
     const blockMap = adapter.renderedBlockMap;
     const parentBlock = blockMap.get(patch.blockId);
     if (parentBlock) {
-      const newBlock = adapter.createBlock(patch.vNode.record);
-      parentBlock.insertChild(newBlock, patch.index);
-      blockMap.set(patch.vNode.key as string, newBlock);
+      const newBlock = adapter.createBlock(patch.vNode!.record);
+      parentBlock.insertChild(newBlock, patch.index ?? 0);
+      blockMap.set(patch.vNode!.key as string, newBlock);
       newBlock.render()
     }
   }
@@ -121,7 +122,7 @@ export class BlockPatcher {
     const blockMap = adapter.renderedBlockMap;
     const block = blockMap.get(patch.blockId);
     if (block) {
-      block.updateProps(patch.vNode.props);
+      block.updateProps(patch.vNode!.props);
       block.render()
     }
   }
@@ -140,9 +141,9 @@ export class BlockPatcher {
       parent.removeChild(index);
 
       // Create and insert new block
-      const newBlock = adapter.createBlock(patch.vNode.record);
+      const newBlock = adapter.createBlock(patch.vNode!.record);
       parent.insertChild(newBlock, index);
-      blockMap.set(patch.vNode.key as string, newBlock);
+      blockMap.set(patch.vNode!.key as string, newBlock);
     }
   }
 

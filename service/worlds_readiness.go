@@ -195,8 +195,9 @@ const (
 
 // readinessEntitySnapshot is the minimal entity view the pure function needs.
 type readinessEntitySnapshot struct {
-	Kind    WorldEntityKind
-	Content map[string]any
+	Kind          WorldEntityKind
+	Content       map[string]any
+	IsProvisional bool
 }
 
 type readinessEvidenceSnapshot struct {
@@ -254,6 +255,10 @@ func computeReadiness(snapshot readinessSnapshot, scenarioID string) WorldReadin
 	substantive := map[WorldEntityKind][]readinessEntitySnapshot{}
 	substantiveCount := 0
 	for _, entity := range snapshot.Entities {
+		// Exploration drafts are not facts: readiness never measures them.
+		if entity.IsProvisional {
+			continue
+		}
 		if !entitySubstantive(entity) {
 			continue
 		}
@@ -409,17 +414,18 @@ func (w *WorldStore) Readiness(worldID, scenarioID string) (WorldReadiness, erro
 		return WorldReadiness{}, err
 	}
 	snapshot := readinessSnapshot{WorldType: detail.Type, SkillMd: detail.SkillMd, Identity: detail.Identity}
-	entityRows, err := db.Query("select kind, content_json from world_entities where world_id = ? and archived_at is null order by created_at", worldID)
+	entityRows, err := db.Query("select kind, content_json, is_provisional from world_entities where world_id = ? and archived_at is null order by created_at", worldID)
 	if err != nil {
 		return WorldReadiness{}, err
 	}
 	defer entityRows.Close()
 	for entityRows.Next() {
 		var kind, contentJSON string
-		if err := entityRows.Scan(&kind, &contentJSON); err != nil {
+		var provisional int
+		if err := entityRows.Scan(&kind, &contentJSON, &provisional); err != nil {
 			return WorldReadiness{}, err
 		}
-		entity := readinessEntitySnapshot{Kind: WorldEntityKind(kind), Content: map[string]any{}}
+		entity := readinessEntitySnapshot{Kind: WorldEntityKind(kind), Content: map[string]any{}, IsProvisional: provisional != 0}
 		if contentJSON != "" {
 			_ = json.Unmarshal([]byte(contentJSON), &entity.Content)
 		}

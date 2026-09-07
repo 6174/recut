@@ -30,7 +30,7 @@ import (
 
 const formatVersion = 3
 const layoutVersionKey = "layout_version"
-const currentLayoutVersion = "4"
+const currentLayoutVersion = "5"
 const workspaceBusyTimeoutMilliseconds = 15000
 const sqlitePoolMaxOpenConnections = 8
 const databaseHealthCheckTimeout = 100 * time.Millisecond
@@ -569,6 +569,9 @@ create table if not exists world_entities (
   title text not null,
   summary text not null default '',
   content_json text not null,
+  parent_id text references world_entities(id) on delete cascade,
+  container_role text not null default '',
+  is_provisional integer not null default 0,
   created_at text not null,
   updated_at text not null,
   archived_at text
@@ -583,11 +586,48 @@ create table if not exists world_relations (
   to_entity_id text not null references world_entities(id) on delete cascade,
   relation_type text not null,
   metadata_json text not null default '{}',
+  scope_entity_id text references world_entities(id) on delete cascade,
   created_at text not null,
   unique(world_id, from_entity_id, to_entity_id, relation_type)
 );
 create index if not exists world_relations_world_from on world_relations(world_id, from_entity_id);
 create index if not exists world_relations_world_to on world_relations(world_id, to_entity_id);
+
+create table if not exists world_entity_types (
+  id text not null,
+  world_id text not null references worlds(id) on delete cascade,
+  scope text not null default 'preset',
+  name text not null,
+  icon text not null default '',
+  color text not null default '',
+  base_kind text not null default '',
+  fields_json text not null default '[]',
+  extends_id text not null default '',
+  builtin integer not null default 0,
+  archived_at text,
+  created_at text not null,
+  updated_at text not null,
+  primary key (world_id, id)
+);
+create index if not exists world_entity_types_world on world_entity_types(world_id);
+
+create table if not exists world_canvas (
+  id text not null,
+  world_id text not null references worlds(id) on delete cascade,
+  context_id text not null default '',
+  kind text not null,
+  ref_kind text not null default '',
+  ref_id text not null default '',
+  name text not null default '',
+  props_json text not null default '{}',
+  geometry_json text not null,
+  style_json text not null default '{}',
+  layer text not null default '0',
+  created_at text not null,
+  updated_at text not null,
+  primary key (world_id, id)
+);
+create index if not exists world_canvas_world_ctx on world_canvas(world_id, context_id, layer);
 
 create table if not exists world_asset_refs (
   id text primary key,
@@ -679,6 +719,11 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table worlds add column origin text not null default 'local'",
 			"alter table worlds add column origin_meta_json text not null default '{}'",
 			"alter table worlds add column skill_md text not null default ''",
+			"alter table world_entities add column parent_id text",
+			"alter table world_entities add column container_role text not null default ''",
+			"alter table world_entities add column is_provisional integer not null default 0",
+			"alter table world_relations add column scope_entity_id text",
+			"create index if not exists world_entities_parent on world_entities(world_id, parent_id)",
 		} {
 			if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 				return err

@@ -3,7 +3,7 @@ import { PomeloEditorState } from "./pomelo-state/pomelo-state";
 import { IPomeloBlockConstructor, PomeloBlock } from "./pomelo-renderer/pomelo-block";
 import { PomeloRenderer } from "./pomelo-renderer/pomelo-renderer";
 import { PomeloRendererAdapter } from "./pomelo-renderer/pomelo-renderer-adapter";
-import { PomeloPlugin } from "./pomelo-plugin";
+import { PomeloPlugin, IPomeloPlugin } from "./pomelo-plugin";
 import { IDisposable, Slot } from "./pomelo-common";
 
 export enum EditorEvents {
@@ -23,6 +23,8 @@ export class PomeloEditor {
   pluginRegistry: Map<string, PomeloPlugin> = new Map();
   #container: HTMLElement;
   #pluginDOM: HTMLElement;
+  #resizeObserver: ResizeObserver | null = null;
+  #destroyed = false;
   #plugins: PomeloPlugin[] = [];
   #renderer: PomeloRenderer;
   renderAdapter: PomeloRendererAdapter;
@@ -47,7 +49,7 @@ export class PomeloEditor {
     this.#container = container;
     this.#pluginDOM = elem("div", "plugin-container");
     this.#container.appendChild(this.#pluginDOM);
-    const defaultPlugins = [];
+    const defaultPlugins: PomeloPlugin[] = [];
     this.#plugins = [...defaultPlugins, ...plugins];
     this.#plugins.forEach(plugin => {
       this.pluginRegistry.set(plugin.Name, plugin);
@@ -72,18 +74,19 @@ export class PomeloEditor {
    */
   async onInit() {
     await this.#renderer.adapter.onInit(this.#renderer);
+    if (this.#destroyed) return;
     const container = this.getContainerDom();
     this.renderAdapter.setContainerSize(container.clientWidth, container.clientHeight);
 
     // Listen for container size changes and update renderer
-    const resizeObserver = new ResizeObserver(entries => {
+    this.#resizeObserver = new ResizeObserver(entries => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         this.renderAdapter.setContainerSize(width, height);
       }
     });
 
-    resizeObserver.observe(this.#container);
+    this.#resizeObserver?.observe(this.#container);
 
     for (let plugin of this.#plugins) {
       await plugin.onInitialized?.(this);
@@ -121,6 +124,16 @@ export class PomeloEditor {
   }
 
   destroy() {
+    this.#destroyed = true;
+    this.#resizeObserver?.disconnect();
+    this.#resizeObserver = null;
+    this.#plugins.forEach(plugin => {
+      (plugin as IPomeloPlugin).onEditorWillUnmount?.(this);
+      (plugin as IPomeloPlugin).dispose?.();
+    });
+    // pixi adapter 持有 WebGL context，需要随编辑器销毁
+    const adapter = this.renderAdapter as { app?: { destroy: (removeView?: boolean, options?: unknown) => void } };
+    adapter?.app?.destroy?.(true);
     while (this.#container.firstChild) {
       this.#container.removeChild(this.#container.firstChild);
     }

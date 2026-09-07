@@ -5,7 +5,7 @@ export class DependencyManager {
     if (!this.dependencies.has(blockId)) {
       this.dependencies.set(blockId, new Set());
     }
-    this.dependencies.get(blockId).add(dependsOnId);
+    this.dependencies.get(blockId)!.add(dependsOnId);
   }
 
   resolveDependencies(changedBlockIds: Set<string>): string[] {

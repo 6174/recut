@@ -15,7 +15,7 @@ export abstract class PixiBlock extends PomeloBlock {
       // 兼容两种返回：IElement（原版 antv 路径）与裸 PIXI.Container（原版 pixi demo 路径）
       const target = (result as IElement).el ? result : ({ el: result } as IElement);
       this.contentElement.el.removeChildren();
-      this.contentElement.el.appendChild(target.el);
+      this.contentElement.el.addChild(target.el);
     }
   }
 }

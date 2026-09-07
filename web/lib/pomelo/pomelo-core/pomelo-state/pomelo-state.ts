@@ -52,7 +52,7 @@ export class PomeloEditorState {
   editorModes: Map<string, any> = new Map();
 
   // 选区状态
-  selection: string[];
+  selection: string[] = [];
   onSelectionChangeEvent = new Slot<PomeloSelectionChangeEvent>();
   onModeChangeEvent = new Slot<PomeloModeChangeEvent>();
 
@@ -113,7 +113,7 @@ export class PomeloEditorState {
         transactionUpdates.removedBlocks.push(blockId);
         this.#removeBlock(blockId);
       },
-      updateBlockState(blockId, state) {
+      updateBlockState: (blockId: string, state: any) => {
         transactionUpdates.updatedBlockStates.push({ id: blockId, state });
         this.blockLocalAttrsState.set(blockId, {
           ...this.blockLocalAttrsState.get(blockId),
@@ -124,7 +124,7 @@ export class PomeloEditorState {
 
     this.ydoc.transact(tr => {
       callback(transactionHook);
-    })
+    });
 
     // 如果有发现 update 的话，就触发事件
     if ( transactionUpdates.removedBlocks.length > 0 || 
@@ -299,7 +299,10 @@ export class PomeloEditorState {
    * @param parentId 
    */
   #addBlock(block: PomeloBlockRecord, parentId?: string) {
-    const parentMap = parentId ? this.blockMap.get(parentId) : this.ydoc.getMap("document");
+    // 迁移修复：parentId 缺省时挂到当前 root（fromJSON 可能改写 rootBlockId），并记录正确的父子关系，
+    // 原实现把关系记成 null，导致 #removeBlock 找不到父数组、文档越滚越大
+    const parentIdResolved = parentId ?? this.rootBlockId;
+    const parentMap = (this.blockMap.get(parentIdResolved) ?? this.ydoc.getMap("document")) as Y.Map<any>;
     if (!parentMap) throw new Error(`Parent block with id ${parentId} not found`);
 
     const newBlockMap = new Y.Map();
@@ -315,14 +318,14 @@ export class PomeloEditorState {
       });
       newBlockMap.set("children", childrenArray);
     }
-    let parentChildren = parentMap.get("children") as Y.Array<any>;
+    let parentChildren = parentMap.get("children") as Y.Array<any> | undefined;
     if (!parentChildren) {
       parentChildren = new Y.Array();
       parentMap.set("children", parentChildren);
     }
-    parentChildren.push([newBlockMap]);
+    (parentChildren as Y.Array<any>).push([newBlockMap]);
     this.blockMap.set(block.id, newBlockMap);
-    this.#updateParentChildRelation(block.id, parentId || null);
+    this.#updateParentChildRelation(block.id, parentIdResolved);
   }
 
   /**
@@ -405,7 +408,7 @@ export class PomeloEditorState {
 
   #updateBlockRecordMap() {
     this.blockRecordMap.clear();
-    const rootBlock = this.blockMap.get(this.rootBlockId).toJSON() as PomeloBlockRecord;
+    const rootBlock = this.blockMap.get(this.rootBlockId)!.toJSON() as PomeloBlockRecord;
     // 使用箭头函数来保持正确的 this 绑定
     const traverse = (block: PomeloBlockRecord) => {
       this.blockRecordMap.set(block.id, block);

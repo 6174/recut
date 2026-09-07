@@ -167,19 +167,23 @@ type ForkSource struct {
 }
 
 type WorldEntitySummary struct {
-	ID        string          `json:"id"`
-	WorldID   string          `json:"worldId"`
-	Kind      WorldEntityKind `json:"kind"`
-	Title     string          `json:"title"`
-	Summary   string          `json:"summary"`
-	UpdatedAt string          `json:"updatedAt"`
+	ID            string          `json:"id"`
+	WorldID       string          `json:"worldId"`
+	Kind          WorldEntityKind `json:"kind"`
+	Title         string          `json:"title"`
+	Summary       string          `json:"summary"`
+	ParentID      string          `json:"parentId,omitempty"`
+	ContainerRole string          `json:"containerRole,omitempty"`
+	IsProvisional bool            `json:"isProvisional,omitempty"`
+	UpdatedAt     string          `json:"updatedAt"`
 }
 
 type WorldEntityRelation struct {
-	ID           string `json:"id"`
-	Type         string `json:"type"`
-	FromEntityID string `json:"fromEntityId"`
-	ToEntityID   string `json:"toEntityId"`
+	ID            string `json:"id"`
+	Type          string `json:"type"`
+	FromEntityID  string `json:"fromEntityId"`
+	ToEntityID    string `json:"toEntityId"`
+	ScopeEntityID string `json:"scopeEntityId,omitempty"`
 }
 
 type WorldAssetReference struct {
@@ -223,6 +227,7 @@ type WorldEntity struct {
 	Content    map[string]any        `json:"content"`
 	Relations  []WorldEntityRelation `json:"relations"`
 	References []WorldAssetReference `json:"references"`
+	Children   []WorldEntitySummary  `json:"children,omitempty"`
 }
 
 type WorldContextIdentity struct {
@@ -554,6 +559,9 @@ func (w *WorldStore) CreateWorld(input CreateWorldInput) (WorldDetail, error) {
 	if err := tx.Commit(); err != nil {
 		return WorldDetail{}, err
 	}
+	// Seed the per-world preset entity type directory (best-effort; the type
+	// surface lazily re-seeds on first access if this ever races).
+	_ = w.EnsurePresetEntityTypes(worldID)
 	logWorldEvent("world.created", map[string]string{"worldId": worldID})
 	return w.GetWorld(worldID)
 }
@@ -632,10 +640,10 @@ func (w *WorldStore) ListEntities(input ListEntitiesInput) ([]WorldEntitySummary
 	offset, limit := resolvePage(input.Cursor, input.Limit)
 	where := "world_id = ? and archived_at is null"
 	args := []any{input.WorldID}
+	if !input.IncludeProvisional {
+		where += " and is_provisional = 0"
+	}
 	if input.Kind != "" {
-		if !worldEntityKinds[input.Kind] {
-			return nil, "", worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid entity kind %q", input.Kind))
-		}
 		where += " and kind = ?"
 		args = append(args, string(input.Kind))
 	}
@@ -645,7 +653,7 @@ func (w *WorldStore) ListEntities(input ListEntitiesInput) ([]WorldEntitySummary
 		args = append(args, pattern, pattern)
 	}
 	args = append(args, limit, offset)
-	rows, err := db.Query("select id, kind, title, summary, updated_at from world_entities where "+where+" order by updated_at desc limit ? offset ?", args...)
+	rows, err := db.Query("select id, kind, title, summary, parent_id, container_role, is_provisional, updated_at from world_entities where "+where+" order by updated_at desc limit ? offset ?", args...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -653,10 +661,15 @@ func (w *WorldStore) ListEntities(input ListEntitiesInput) ([]WorldEntitySummary
 	items := make([]WorldEntitySummary, 0)
 	for rows.Next() {
 		var item WorldEntitySummary
+		var parentID, containerRole sql.NullString
+		var provisional int
 		item.WorldID = input.WorldID
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Summary, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Summary, &parentID, &containerRole, &provisional, &item.UpdatedAt); err != nil {
 			return nil, "", err
 		}
+		item.ParentID = nullStringValue(parentID)
+		item.ContainerRole = nullStringValue(containerRole)
+		item.IsProvisional = provisional != 0
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -681,8 +694,10 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 	var entity WorldEntity
 	var contentJSON string
 	var createdAt, updatedAt string
-	row := db.QueryRow("select id, kind, title, summary, content_json, created_at, updated_at from world_entities where id = ? and world_id = ? and archived_at is null", entityID, worldID)
-	if err := row.Scan(&entity.ID, &entity.Kind, &entity.Title, &entity.Summary, &contentJSON, &createdAt, &updatedAt); err != nil {
+	var parentID, containerRole sql.NullString
+	var provisional int
+	row := db.QueryRow("select id, kind, title, summary, content_json, parent_id, container_role, is_provisional, created_at, updated_at from world_entities where id = ? and world_id = ? and archived_at is null", entityID, worldID)
+	if err := row.Scan(&entity.ID, &entity.Kind, &entity.Title, &entity.Summary, &contentJSON, &parentID, &containerRole, &provisional, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return WorldEntity{}, worldsError(WorldsErrEntityNotFound, "entity not found in world")
 		}
@@ -690,13 +705,21 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 	}
 	entity.WorldID = worldID
 	entity.UpdatedAt = updatedAt
+	entity.ParentID = nullStringValue(parentID)
+	entity.ContainerRole = nullStringValue(containerRole)
+	entity.IsProvisional = provisional != 0
 	if err := json.Unmarshal([]byte(contentJSON), &entity.Content); err != nil {
 		return WorldEntity{}, err
 	}
 	if entity.Content == nil {
 		entity.Content = map[string]any{}
 	}
-	relationRows, err := db.Query("select id, relation_type, from_entity_id, to_entity_id from world_relations where world_id = ? and (from_entity_id = ? or to_entity_id = ?) order by created_at", worldID, entityID, entityID)
+	children, err := w.listChildren(db, worldID, entityID)
+	if err != nil {
+		return WorldEntity{}, err
+	}
+	entity.Children = children
+	relationRows, err := db.Query("select id, relation_type, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? and (from_entity_id = ? or to_entity_id = ?) and (scope_entity_id is null or scope_entity_id = ?) order by created_at", worldID, entityID, entityID, entityID)
 	if err != nil {
 		return WorldEntity{}, err
 	}
@@ -704,9 +727,11 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 	entity.Relations = []WorldEntityRelation{}
 	for relationRows.Next() {
 		var relation WorldEntityRelation
-		if err := relationRows.Scan(&relation.ID, &relation.Type, &relation.FromEntityID, &relation.ToEntityID); err != nil {
+		var scopeEntityID sql.NullString
+		if err := relationRows.Scan(&relation.ID, &relation.Type, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
 			return WorldEntity{}, err
 		}
+		relation.ScopeEntityID = nullStringValue(scopeEntityID)
 		entity.Relations = append(entity.Relations, relation)
 	}
 	if err := relationRows.Err(); err != nil {
@@ -732,9 +757,6 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 }
 
 func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) {
-	if input.Kind != "" && !worldEntityKinds[input.Kind] {
-		return WorldEntity{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid entity kind %q", input.Kind))
-	}
 	if input.Content == nil {
 		input.Content = map[string]any{}
 	}
@@ -774,14 +796,29 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
 		return WorldEntity{}, err
 	}
+	// Entity kind is an extensible type directory entry: preset kinds are
+	// seeded as builtin rows, unknown kinds auto-create a minimal custom type
+	// so "create on the canvas" never blocks on a missing type (RFC §5.4).
+	if err := w.ensureEntityType(tx, input.WorldID, string(input.Kind)); err != nil {
+		return WorldEntity{}, err
+	}
+	if input.ParentID != "" {
+		if err := w.checkParent(tx, input.WorldID, input.ParentID); err != nil {
+			return WorldEntity{}, err
+		}
+	}
 	entityID := input.EntityID
+	provisional := 0
+	if input.IsProvisional {
+		provisional = 1
+	}
 	if entityID == "" {
 		entityID, err = newID()
 		if err != nil {
 			return WorldEntity{}, err
 		}
-		if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-			entityID, input.WorldID, string(input.Kind), strings.TrimSpace(input.Title), strings.TrimSpace(input.Summary), string(contentJSON), now, now); err != nil {
+		if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			entityID, input.WorldID, string(input.Kind), strings.TrimSpace(input.Title), strings.TrimSpace(input.Summary), string(contentJSON), nullIfEmpty(input.ParentID), input.ContainerRole, provisional, now, now); err != nil {
 			return WorldEntity{}, err
 		}
 	} else {
@@ -790,8 +827,11 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 			return WorldEntity{}, err
 		}
 	}
-	if _, err := w.commitRevision(tx, input.WorldID, "entity.upserted", input.CreatedBy); err != nil {
-		return WorldEntity{}, err
+	// Exploration drafts are not facts: only canonical writes produce a revision.
+	if !input.IsProvisional {
+		if _, err := w.commitRevision(tx, input.WorldID, "entity.upserted", input.CreatedBy); err != nil {
+			return WorldEntity{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return WorldEntity{}, err
@@ -1110,19 +1150,23 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 	_ = json.Unmarshal([]byte(identityJSON), &identity)
 
 	entities := map[WorldEntityKind][]map[string]any{}
-	rows, err := tx.Query("select id, kind, title, summary, content_json from world_entities where world_id = ? and archived_at is null order by kind, id", worldID)
+	rows, err := tx.Query("select id, kind, title, summary, content_json, parent_id from world_entities where world_id = ? and archived_at is null and is_provisional = 0 order by kind, id", worldID)
 	if err != nil {
 		return "", "", err
 	}
 	for rows.Next() {
 		var id, kind, title, summary, contentJSON string
-		if err := rows.Scan(&id, &kind, &title, &summary, &contentJSON); err != nil {
+		var parentID sql.NullString
+		if err := rows.Scan(&id, &kind, &title, &summary, &contentJSON, &parentID); err != nil {
 			rows.Close()
 			return "", "", err
 		}
 		content := map[string]any{}
 		_ = json.Unmarshal([]byte(contentJSON), &content)
 		record := map[string]any{"id": id, "title": title, "summary": summary}
+		if parentID.Valid && parentID.String != "" {
+			record["parentId"] = parentID.String
+		}
 		for key, value := range content {
 			record[key] = value
 		}
@@ -1134,7 +1178,7 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 	}
 
 	relations := []map[string]any{}
-	relationRows, err := tx.Query("select id, relation_type, from_entity_id, to_entity_id, metadata_json from world_relations where world_id = ? order by id", worldID)
+	relationRows, err := tx.Query("select id, relation_type, from_entity_id, to_entity_id, metadata_json from world_relations where world_id = ? and scope_entity_id is null order by id", worldID)
 	if err != nil {
 		return "", "", err
 	}
@@ -1843,11 +1887,12 @@ type ListWorldsInput struct {
 
 // ListEntitiesInput is the typed input of entity.list.
 type ListEntitiesInput struct {
-	WorldID string
-	Kind    WorldEntityKind
-	Text    string
-	Cursor  string
-	Limit   int
+	WorldID           string
+	Kind              WorldEntityKind
+	Text              string
+	Cursor            string
+	Limit             int
+	IncludeProvisional bool
 }
 
 // CreateWorldInput is the typed input of world.create.
@@ -1879,6 +1924,9 @@ type UpsertEntityInput struct {
 	Title              string
 	Summary            string
 	Content            map[string]any
+	ParentID           string
+	ContainerRole      string
+	IsProvisional      bool
 	ExpectedRevisionID string
 	CreatedBy          string
 }

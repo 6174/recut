@@ -770,25 +770,28 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 		newWorldID, newName, string(worldType), description, identityJSON, WorldLocal, string(forkMeta), skillMd, now, now); err != nil {
 		return WorldDetail{}, err
 	}
-	entityRows, err := tx.Query("select id, kind, title, summary, content_json from world_entities where world_id = ? and archived_at is null", input.WorldID)
+	entityRows, err := tx.Query("select id, kind, title, summary, content_json, parent_id, container_role, is_provisional from world_entities where world_id = ? and archived_at is null", input.WorldID)
 	if err != nil {
 		return WorldDetail{}, err
 	}
 	idMap := map[string]string{}
 	for entityRows.Next() {
-		var oldID, kind, title, summary, contentJSON string
-		if err := entityRows.Scan(&oldID, &kind, &title, &summary, &contentJSON); err != nil {
+		var oldID, kind, title, summary, contentJSON, parentID, containerRole string
+		var provisional int
+		var parentNull sql.NullString
+		if err := entityRows.Scan(&oldID, &kind, &title, &summary, &contentJSON, &parentNull, &containerRole, &provisional); err != nil {
 			entityRows.Close()
 			return WorldDetail{}, err
 		}
+		parentID = parentNull.String
 		newEntityID, err := newID()
 		if err != nil {
 			entityRows.Close()
 			return WorldDetail{}, err
 		}
 		idMap[oldID] = newEntityID
-		if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-			newEntityID, newWorldID, kind, title, summary, contentJSON, now, now); err != nil {
+		if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			newEntityID, newWorldID, kind, title, summary, contentJSON, nullIfEmpty(parentID), containerRole, provisional, now, now); err != nil {
 			entityRows.Close()
 			return WorldDetail{}, err
 		}
@@ -797,16 +800,40 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 	if err := entityRows.Err(); err != nil {
 		return WorldDetail{}, err
 	}
-	relationRows, err := tx.Query("select relation_type, from_entity_id, to_entity_id, metadata_json, created_at from world_relations where world_id = ?", input.WorldID)
+	// Container parents are remapped in a second pass (a parent can appear
+	// after its child in scan order, so idMap must be complete first).
+	parentRows, err := tx.Query("select id, parent_id from world_entities where world_id = ? and parent_id is not null", newWorldID)
+	if err != nil {
+		return WorldDetail{}, err
+	}
+	type parentRemap struct{ id, parent string }
+	remaps := []parentRemap{}
+	for parentRows.Next() {
+		var id, parent string
+		if err := parentRows.Scan(&id, &parent); err != nil {
+			parentRows.Close()
+			return WorldDetail{}, err
+		}
+		remaps = append(remaps, parentRemap{id: id, parent: parent})
+	}
+	parentRows.Close()
+	for _, remap := range remaps {
+		if _, err := tx.Exec("update world_entities set parent_id = ? where id = ? and world_id = ?", nullIfEmpty(remap.parent), remap.id, newWorldID); err != nil {
+			return WorldDetail{}, err
+		}
+	}
+	relationRows, err := tx.Query("select relation_type, from_entity_id, to_entity_id, metadata_json, scope_entity_id, created_at from world_relations where world_id = ?", input.WorldID)
 	if err != nil {
 		return WorldDetail{}, err
 	}
 	for relationRows.Next() {
-		var relationType, fromID, toID, metadataJSON, createdAt string
-		if err := relationRows.Scan(&relationType, &fromID, &toID, &metadataJSON, &createdAt); err != nil {
+		var relationType, fromID, toID, metadataJSON, scopeID, createdAt string
+		var scopeNull sql.NullString
+		if err := relationRows.Scan(&relationType, &fromID, &toID, &metadataJSON, &scopeNull, &createdAt); err != nil {
 			relationRows.Close()
 			return WorldDetail{}, err
 		}
+		scopeID = scopeNull.String
 		newRelationID, err := newID()
 		if err != nil {
 			relationRows.Close()
@@ -814,8 +841,12 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 		}
 		if newFrom, ok := idMap[fromID]; ok {
 			if newTo, ok := idMap[toID]; ok {
-				if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, created_at) values (?, ?, ?, ?, ?, ?, ?)",
-					newRelationID, newWorldID, newFrom, newTo, relationType, metadataJSON, createdAt); err != nil {
+				newScope := ""
+				if remapped, ok := idMap[scopeID]; ok {
+					newScope = remapped
+				}
+				if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+					newRelationID, newWorldID, newFrom, newTo, relationType, metadataJSON, nullIfEmpty(newScope), createdAt); err != nil {
 					relationRows.Close()
 					return WorldDetail{}, err
 				}
@@ -824,6 +855,52 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 	}
 	relationRows.Close()
 	if err := relationRows.Err(); err != nil {
+		return WorldDetail{}, err
+	}
+	// Entity type directory travels with the world so custom types survive fork.
+	typeRows, err := tx.Query("select id, scope, name, icon, color, base_kind, fields_json, builtin from world_entity_types where world_id = ?", input.WorldID)
+	if err != nil {
+		return WorldDetail{}, err
+	}
+	for typeRows.Next() {
+		var id, scope, name, icon, color, baseKind, fieldsJSON string
+		var builtin int
+		if err := typeRows.Scan(&id, &scope, &name, &icon, &color, &baseKind, &fieldsJSON, &builtin); err != nil {
+			typeRows.Close()
+			return WorldDetail{}, err
+		}
+		if _, err := tx.Exec("insert into world_entity_types (id, world_id, scope, name, icon, color, base_kind, fields_json, builtin, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			id, newWorldID, scope, name, icon, color, baseKind, fieldsJSON, builtin, now, now); err != nil {
+			typeRows.Close()
+			return WorldDetail{}, err
+		}
+	}
+	typeRows.Close()
+	if err := typeRows.Err(); err != nil {
+		return WorldDetail{}, err
+	}
+	// Canvas elements travel too; entity refs are remapped to the fork ids.
+	canvasRows, err := tx.Query("select id, context_id, kind, ref_kind, ref_id, name, props_json, geometry_json, style_json, layer, created_at from world_canvas where world_id = ?", input.WorldID)
+	if err != nil {
+		return WorldDetail{}, err
+	}
+	for canvasRows.Next() {
+		var id, contextID, kind, refKind, refID, name, propsJSON, geometryJSON, styleJSON, layer, createdAt string
+		if err := canvasRows.Scan(&id, &contextID, &kind, &refKind, &refID, &name, &propsJSON, &geometryJSON, &styleJSON, &layer, &createdAt); err != nil {
+			canvasRows.Close()
+			return WorldDetail{}, err
+		}
+		if remapped, ok := idMap[refID]; ok {
+			refID = remapped
+		}
+		if _, err := tx.Exec("insert into world_canvas (id, world_id, context_id, kind, ref_kind, ref_id, name, props_json, geometry_json, style_json, layer, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			id, newWorldID, contextID, kind, refKind, refID, name, propsJSON, geometryJSON, styleJSON, layer, createdAt, now); err != nil {
+			canvasRows.Close()
+			return WorldDetail{}, err
+		}
+	}
+	canvasRows.Close()
+	if err := canvasRows.Err(); err != nil {
 		return WorldDetail{}, err
 	}
 	refRows, err := tx.Query("select "+worldEvidenceColumns+" from world_asset_refs where world_id = ? and archived_at is null order by sort_order, created_at", input.WorldID)
@@ -868,6 +945,7 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 	if err := tx.Commit(); err != nil {
 		return WorldDetail{}, err
 	}
+	_ = w.EnsurePresetEntityTypes(newWorldID)
 	logWorldEvent("world.forked", map[string]string{"fromWorldId": input.WorldID, "toWorldId": newWorldID, "fromRevisionId": revisionID})
 	return w.GetWorld(newWorldID)
 }

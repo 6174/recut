@@ -37,6 +37,7 @@ const zh = {
   "worlds.create.cancel": "取消",
   "worlds.create.submitting": "正在创建…",
   "worlds.create.submit": "创建并进入",
+  "worlds.create.newEntity": "新建实体",
 
   // 世界类型
   "worlds.kind.character_ip": "角色 IP",
@@ -327,6 +328,7 @@ const en: Record<keyof typeof zh, string> = {
   "worlds.create.role": "Purpose",
   "worlds.create.role.placeholder": "Who this world is and why it exists…",
   "worlds.create.cancel": "Cancel",
+  "worlds.create.newEntity": "New entity",
   "worlds.create.submitting": "Creating…",
   "worlds.create.submit": "Create & open",
 

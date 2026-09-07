@@ -36,6 +36,10 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    // pomelo 迁移：依赖 @pixi/react 的存量 demo/插件（React 19 兼容后再启用）
+    "lib/pomelo/pomelo-apps/**",
+    "lib/pomelo/pomelo-plugins/**",
+    "lib/pomelo/pomelo-core/pomelo-rich-text/**"
   ]
 }

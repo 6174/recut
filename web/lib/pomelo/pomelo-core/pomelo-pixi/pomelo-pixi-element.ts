@@ -7,7 +7,7 @@ export class PixiElement implements IElement<PIXI.Container> {
   props: Record<string, any>;
   children: PixiElement[] = [];
   parentElement: PixiElement | null = null;
-  el: PIXI.Container;
+  el: PIXI.Container = null!;
   block: PomeloBlock;
 
   constructor(type: string, block: PomeloBlock, props: Record<string, any> = {}) {

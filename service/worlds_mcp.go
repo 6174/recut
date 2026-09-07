@@ -33,7 +33,16 @@ func worldsMCPToolDefinitions(_ Locale) []map[string]any {
 		{"name": "recut.worlds.readiness", "description": "读取一个 World 的就绪度投影（纯计算，无副作用）：skeleton/draft/ready 三档、分数与按优先级排序的 missing 清单（每项含缺失原因与建议动作）。scenarioId 缺省按 world type 自动选择场景蓝图；可选 novel-adaptation / ip-account / style-system / brand-guide / blank。用户要求完善或搭建一个 World 时，先调用本工具获取工作清单，再按建议逐项起草提案，确认后写回。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string", "description": "World ID，entityId 只在同一个 worldId 内有效。"}, "scenarioId": map[string]any{"type": "string", "enum": []string{"novel-adaptation", "ip-account", "style-system", "brand-guide", "blank"}, "description": "可选：起点场景蓝图；缺省按世界类型推荐。"}}}},
 		{"name": "recut.worlds.create", "description": "创建一个 Creation World。新世界从空开始（不再写入模板空壳实体）；创建后引导用户走 Onboarding（上传素材/粘贴链接/口述），并可用 recut.worlds.readiness 获取工作清单。只在用户明确要求创建 World 时调用；这是 Canon 写入，Agent 不得因推测有帮助而自动创建。", "inputSchema": map[string]any{"type": "object", "required": []string{"name", "type"}, "properties": map[string]any{"name": map[string]string{"type": "string"}, "type": worldKindSchema(), "description": map[string]string{"type": "string"}, "identity": map[string]any{"type": "object"}}}},
 		{"name": "recut.worlds.update", "description": "修改 World 的身份、元数据或世界技能（skillMd/world.md，仅 local 世界；非 local 只读会返回 WORLD_READ_ONLY）并按需产出新 revision。expectedRevisionId 提供乐观并发门；过期时返回 WORLD_REVISION_CONFLICT，绝不静默覆盖。只在用户明确要求修改时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "name": map[string]string{"type": "string"}, "description": map[string]string{"type": "string"}, "identity": map[string]any{"type": "object"}, "skillMd": map[string]string{"type": "string", "description": "可选：世界技能全文（world.md）。仅 local 世界可写。"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
-		{"name": "recut.worlds.entities.upsert", "description": "新增或修改 World 内的 Character、Story、Style、Rule 等实体。entityId 缺省为新建；提供后更新。每次语义写入都会产出新的不可变 revision。只在用户明确要求记录或修改设定时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "kind", "title"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string", "description": "缺省为新建实体；提供后更新该实体。"}, "kind": worldEntityKindSchema(), "title": map[string]string{"type": "string"}, "summary": map[string]string{"type": "string"}, "content": map[string]any{"type": "object", "description": "结构化属性；不同 kind 有不同的 JSON 契约。"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.entities.upsert", "description": "新增或修改 World 内的 Character、Story、Style、Rule 等实体。entityId 缺省为新建；提供后更新。每次语义写入都会产出新的不可变 revision。只在用户明确要求记录或修改设定时调用。kind 是可扩展 type 目录：内置预设之外的自定义 type 会被自动以极简字段创建。isProvisional=true 创建探索草稿（不产 revision）；parentId/containerRole 把实体放进某实体的递归容器。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "kind", "title"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string", "description": "缺省为新建实体；提供后更新该实体。"}, "kind": map[string]any{"type": "string", "description": "实体 type id：character/location/story/style/rule/reference 预设，或任意自定义 type（自动创建极简 schema）。"}, "title": map[string]string{"type": "string"}, "summary": map[string]string{"type": "string"}, "content": map[string]any{"type": "object", "description": "结构化属性；不同 kind 有不同的 JSON 契约。"}, "parentId": map[string]string{"type": "string", "description": "可选：父实体 id，把该实体放进父实体的局部容器。"}, "containerRole": map[string]string{"type": "string", "description": "可选：容器角色，如 family/life/thought/creative_notes。"}, "isProvisional": map[string]string{"type": "boolean", "description": "可选：true 创建探索草稿，不进入 Canon 也不产 revision；用 entities.promote 转正式。"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.entities.create_child", "description": "在指定实体下创建局部子实体（递归容器）。子实体只出现在父实体的 Entity View / Subgraph，不进入 Global Graph。isProvisional=true 时创建探索草稿不产 revision。只在用户明确要求记录子实体时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "parentId", "kind", "title"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "parentId": map[string]string{"type": "string"}, "containerRole": map[string]string{"type": "string"}, "kind": map[string]any{"type": "string", "description": "实体 type id：预设或任意自定义 type。"}, "title": map[string]string{"type": "string"}, "summary": map[string]string{"type": "string"}, "content": map[string]any{"type": "object"}, "isProvisional": map[string]string{"type": "boolean"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.entities.promote", "description": "把探索草稿实体（isProvisional=true）转为正式实体并产出 revision。这是 Canon 写入，草稿转正式是显式用户确认动作。只在用户明确要求提升草稿时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "entityId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.entityTypes.list", "description": "列出一个 World 的 entity type 目录（预设 + 自定义）：type 是 schema，实体是实例。目录含字段 schema、图标与配色，驱动画布卡片与详情表单。另附内置受控关系词表。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.entityTypes.upsert", "description": "定义或覆盖一个 entity type（含 fields_json 字段 schema）。预设 id（character 等）更新本世界的内置副本；其他 id 创建世界级自定义 type。type 是 schema，不产出 revision。只在用户明确要求定义类型时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "id", "name"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "id": map[string]string{"type": "string", "description": "type 标识，如 'mecha' 或预设 'character'。"}, "name": map[string]string{"type": "string"}, "icon": map[string]string{"type": "string"}, "color": map[string]string{"type": "string"}, "baseKind": map[string]string{"type": "string", "description": "可选：归属的语义大类（character/location/...），用于 readiness 归类。"}, "fields": map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "字段 schema 数组：[{key,label,type,required,placeholder,options,invariant}]。"}}}},
+		{"name": "recut.worlds.relations.create", "description": "创建一条受控语义关系（有向边）。relationType 优先用内置词表（people/world/video/story 四组）；scopeEntityId 可选，设置后该关系只在该实体局部上下文内有效，不进全局 Canon。每次创建产出 revision。只在用户明确要求建立关系时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "fromEntityId", "toEntityId", "relationType"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "fromEntityId": map[string]string{"type": "string"}, "toEntityId": map[string]string{"type": "string"}, "relationType": map[string]string{"type": "string", "description": "受控词表：father/mother/child/spouse/partner/friend/teacher/student/colleague/enemy/belongs_to/located_in/owns/contains/created_by/appears_in/followed_by/precedes/adapted_from/causes/references/depends_on/part_of；也可用自定义字符串。"}, "scopeEntityId": map[string]string{"type": "string", "description": "可选：局部关系归属的实体 id。"}, "metadata": map[string]any{"type": "object"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.relations.list", "description": "按实体列出关系：全局关系（touch 该实体）+ 该实体为 scope 的局部关系。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "entityId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.canvas.list", "description": "读取一个画布上下文（''=全局画布，否则为某实体 id）的画布元素：entity 骨干（refId 指向实体）+ 自由元素（text/image/shape/arrow/note/link）。画布是表达层，不承载语义真相，也不产出 revision。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "contextId": map[string]string{"type": "string", "description": "可选：缺省 '' 全局画布。"}}}},
+		{"name": "recut.worlds.canvas.upsert", "description": "写一个画布元素：kind='entity' 的骨干（refId 指向实体，props 只存视图偏好）或自由元素（text/image/shape/arrow/note/link，内容在 props）。画布元素永不产 revision，删除实体时级联删除其投影。只在用户明确要求摆放画布元素时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "id", "kind", "geometry"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "id": map[string]string{"type": "string", "description": "元素 id（= 前端 shape id 的镜像）。"}, "contextId": map[string]string{"type": "string"}, "kind": map[string]string{"type": "string"}, "refKind": map[string]string{"type": "string"}, "refId": map[string]string{"type": "string"}, "name": map[string]string{"type": "string"}, "props": map[string]any{"type": "object"}, "geometry": map[string]any{"type": "object"}, "style": map[string]any{"type": "object"}, "layer": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.canvas.promote", "description": "把画布草稿提升为正式语义对象并产出 revision：note/text → Entity（可用 kind 指定 type），箭头（连到两个 entity 元素）→ world_relations。提升后原画布元素保留为投影。这是 Canon 写入，必须显式用户确认。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "elementId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "elementId": map[string]string{"type": "string"}, "kind": map[string]string{"type": "string", "description": "可选：便签→实体时的 type id。"}, "relationType": map[string]string{"type": "string", "description": "可选：箭头→关系时的 relation_type。"}, "title": map[string]string{"type": "string", "description": "可选：便签→实体时的实体标题。"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.references.attach", "description": "以语义 role 把一个已完成的全局 Asset（assetId）或绝对 http(s) URL 资源（url，二选一）引用到 World（可选绑定到实体）。只记录来源与语义，不复制二进制。只在用户明确要求把素材登记为参考时调用；不能自动把生成结果写进 Canon。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "role"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}, "assetId": map[string]string{"type": "string", "description": "与 url 二选一：全局素材库中的 Asset ID。"}, "url": map[string]string{"type": "string", "description": "与 assetId 二选一：绝对 http(s) URL，作为世界自带的远程资源真相。"}, "role": worldReferenceRoleSchema(), "label": map[string]string{"type": "string"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.evidence.attach", "description": "将用户确认的媒体或文字资料收录为多模态 Canon。来源二选一：assetId（服务推导 modality 和内容哈希）或 url（绝对 http(s)，modality 必填且属于封闭集合）。purpose、status、collection 与可选 segment 决定 AI 如何使用它。不得自动将生成结果写入。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "purpose"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}, "assetId": map[string]string{"type": "string", "description": "与 url 二选一：全局素材库中的 Asset ID。"}, "url": map[string]string{"type": "string", "description": "与 assetId 二选一：绝对 http(s) URL。"}, "modality": map[string]any{"type": "string", "enum": []string{"image", "video", "audio", "text", "research"}, "description": "url 来源时必填。"}, "purpose": worldEvidencePurposeSchema(), "status": worldEvidenceStatusSchema(), "collection": map[string]string{"type": "string"}, "label": map[string]string{"type": "string"}, "segment": map[string]any{"type": "object", "properties": map[string]any{"startSec": map[string]any{"type": "number"}, "endSec": map[string]any{"type": "number"}}}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.evidence.update", "description": "修改一份已收录资料的用途、参考强度或说明，不替换原始素材且会产出新的 Canon revision。仅在用户明确要求编辑该资料时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "evidenceId", "purpose", "status"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "evidenceId": map[string]string{"type": "string"}, "purpose": worldEvidencePurposeSchema(), "status": worldEvidenceStatusSchema(), "label": map[string]string{"type": "string"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
@@ -138,6 +147,80 @@ func worldsMCPTool(worlds *WorldStore, name string, input map[string]any) (any, 
 			WorldID: stringValue(input["worldId"]), EntityID: stringValue(input["entityId"]),
 			Kind: WorldEntityKind(stringValue(input["kind"])), Title: stringValue(input["title"]),
 			Summary: stringValue(input["summary"]), Content: content,
+			ParentID: stringValue(input["parentId"]), ContainerRole: stringValue(input["containerRole"]),
+			IsProvisional: boolValue(input["isProvisional"]),
+			ExpectedRevisionID: stringValue(input["expectedRevisionId"]), CreatedBy: "mcp",
+		})
+	case "recut.worlds.entities.create_child":
+		content := map[string]any{}
+		_ = decodeJSONMap(inputMap(input["content"]), &content)
+		result, err = worlds.CreateChildEntity(CreateChildEntityInput{
+			WorldID: stringValue(input["worldId"]), ParentID: stringValue(input["parentId"]),
+			ContainerRole: stringValue(input["containerRole"]), Kind: WorldEntityKind(stringValue(input["kind"])),
+			Title: stringValue(input["title"]), Summary: stringValue(input["summary"]), Content: content,
+			IsProvisional: boolValue(input["isProvisional"]),
+			ExpectedRevisionID: stringValue(input["expectedRevisionId"]), CreatedBy: "mcp",
+		})
+	case "recut.worlds.entities.promote":
+		result, err = worlds.PromoteEntity(stringValue(input["worldId"]), stringValue(input["entityId"]), stringValue(input["expectedRevisionId"]), "mcp")
+	case "recut.worlds.entityTypes.list":
+		items, listErr := worlds.ListEntityTypes(stringValue(input["worldId"]))
+		if listErr != nil {
+			err = listErr
+			break
+		}
+		result = map[string]any{"items": items, "relations": ListWorldRelationTypes()}
+	case "recut.worlds.entityTypes.upsert":
+		fields := []EntityTypeField{}
+		if raw := input["fields"]; raw != nil {
+			encoded, marshalErr := json.Marshal(raw)
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			if unmarshalErr := json.Unmarshal(encoded, &fields); unmarshalErr != nil {
+				return nil, unmarshalErr
+			}
+		}
+		result, err = worlds.UpsertEntityType(UpsertEntityTypeInput{
+			WorldID: stringValue(input["worldId"]), TypeID: stringValue(input["id"]),
+			Name: stringValue(input["name"]), Icon: stringValue(input["icon"]), Color: stringValue(input["color"]),
+			BaseKind: stringValue(input["baseKind"]), Fields: fields, CreatedBy: "mcp",
+		})
+	case "recut.worlds.relations.create":
+		metadata := map[string]any{}
+		_ = decodeJSONMap(inputMap(input["metadata"]), &metadata)
+		result, err = worlds.CreateRelation(CreateRelationInput{
+			WorldID: stringValue(input["worldId"]), FromEntityID: stringValue(input["fromEntityId"]),
+			ToEntityID: stringValue(input["toEntityId"]), RelationType: stringValue(input["relationType"]),
+			ScopeEntityID: stringValue(input["scopeEntityId"]), Metadata: metadata,
+			ExpectedRevisionID: stringValue(input["expectedRevisionId"]), CreatedBy: "mcp",
+		})
+	case "recut.worlds.relations.list":
+		var items []WorldEntityRelation
+		items, err = worlds.ListRelations(stringValue(input["worldId"]), stringValue(input["entityId"]))
+		result = map[string]any{"items": items}
+	case "recut.worlds.canvas.list":
+		var items []WorldCanvasElement
+		items, err = worlds.ListCanvasElements(stringValue(input["worldId"]), stringValue(input["contextId"]))
+		result = map[string]any{"items": items}
+	case "recut.worlds.canvas.upsert":
+		props := map[string]any{}
+		geometry := map[string]any{}
+		style := map[string]any{}
+		_ = decodeJSONMap(inputMap(input["props"]), &props)
+		_ = decodeJSONMap(inputMap(input["geometry"]), &geometry)
+		_ = decodeJSONMap(inputMap(input["style"]), &style)
+		result, err = worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+			WorldID: stringValue(input["worldId"]), ElementID: stringValue(input["id"]),
+			ContextID: stringValue(input["contextId"]), Kind: stringValue(input["kind"]),
+			RefKind: stringValue(input["refKind"]), RefID: stringValue(input["refId"]), Name: stringValue(input["name"]),
+			Props: props, Geometry: geometry, Style: style, Layer: stringValue(input["layer"]), CreatedBy: "mcp",
+		})
+	case "recut.worlds.canvas.promote":
+		result, err = worlds.PromoteCanvasElement(PromoteCanvasElementInput{
+			WorldID: stringValue(input["worldId"]), ElementID: stringValue(input["elementId"]),
+			Kind: stringValue(input["kind"]), RelationType: stringValue(input["relationType"]),
+			Title: stringValue(input["title"]),
 			ExpectedRevisionID: stringValue(input["expectedRevisionId"]), CreatedBy: "mcp",
 		})
 	case "recut.worlds.references.attach":

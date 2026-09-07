@@ -94,7 +94,7 @@
 :root {
   --background: oklch(0.145 0.012 150);
   --foreground: oklch(0.95 0.008 150);
-  --panel: #0f140f;
+  --panel: lab(2.83213% -1.69843 1.05832);
   --card: oklch(0.185 0.012 150);
   --card-foreground: var(--foreground);
   --popover: oklch(0.205 0.014 150);
@@ -162,7 +162,7 @@
 .dark {
   --background: oklch(0.14 0.01 150);
   --foreground: oklch(0.87 0.012 150);
-  --panel: #0f140f;
+  --panel: lab(2.83213% -1.69843 1.05832);
   --card: oklch(0.16 0.01 150);
   --card-foreground: oklch(0.87 0.012 150);
   --popover: oklch(0.18 0.01 150);

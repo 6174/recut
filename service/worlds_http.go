@@ -195,6 +195,9 @@ func (s *Server) createWorldEntity(w http.ResponseWriter, r *http.Request) {
 		Title              string         `json:"title"`
 		Summary            string         `json:"summary"`
 		Content            map[string]any `json:"content"`
+		ParentID           string         `json:"parentId"`
+		ContainerRole      string         `json:"containerRole"`
+		IsProvisional      bool           `json:"isProvisional"`
 		ExpectedRevisionID string         `json:"expectedRevisionId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -203,7 +206,9 @@ func (s *Server) createWorldEntity(w http.ResponseWriter, r *http.Request) {
 	}
 	entity, err := s.worldsStore().UpsertEntity(UpsertEntityInput{
 		WorldID: r.PathValue("worldID"), Kind: WorldEntityKind(input.Kind), Title: input.Title,
-		Summary: input.Summary, Content: input.Content, ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+		Summary: input.Summary, Content: input.Content, ParentID: input.ParentID,
+		ContainerRole: input.ContainerRole, IsProvisional: input.IsProvisional,
+		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
 	})
 	if err != nil {
 		writeWorldsError(w, err)
@@ -226,6 +231,7 @@ func (s *Server) updateWorldEntity(w http.ResponseWriter, r *http.Request) {
 		Title              string         `json:"title"`
 		Summary            string         `json:"summary"`
 		Content            map[string]any `json:"content"`
+		ContainerRole      string         `json:"containerRole"`
 		ExpectedRevisionID string         `json:"expectedRevisionId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -234,7 +240,7 @@ func (s *Server) updateWorldEntity(w http.ResponseWriter, r *http.Request) {
 	}
 	entity, err := s.worldsStore().UpsertEntity(UpsertEntityInput{
 		WorldID: r.PathValue("worldID"), EntityID: r.PathValue("entityID"),
-		Title: input.Title, Summary: input.Summary, Content: input.Content,
+		Title: input.Title, Summary: input.Summary, Content: input.Content, ContainerRole: input.ContainerRole,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
 	})
 	if err != nil {
@@ -376,6 +382,205 @@ func (s *Server) putProjectWorldContext(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusCreated, binding)
+}
+
+func (s *Server) listWorldRelations(w http.ResponseWriter, r *http.Request) {
+	worldID := r.PathValue("worldID")
+	entityID := r.URL.Query().Get("entityId")
+	if entityID != "" {
+		items, err := s.worldsStore().ListRelations(worldID, entityID)
+		if err != nil {
+			writeWorldsError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+		return
+	}
+	writeWorldsError(w, worldsError(WorldsErrContextInvalid, "entityId query is required"))
+}
+
+func (s *Server) createWorldRelation(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		FromEntityID       string         `json:"fromEntityId"`
+		ToEntityID         string         `json:"toEntityId"`
+		RelationType       string         `json:"relationType"`
+		ScopeEntityID      string         `json:"scopeEntityId"`
+		Metadata           map[string]any `json:"metadata"`
+		ExpectedRevisionID string         `json:"expectedRevisionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	relation, err := s.worldsStore().CreateRelation(CreateRelationInput{
+		WorldID: r.PathValue("worldID"), FromEntityID: input.FromEntityID, ToEntityID: input.ToEntityID,
+		RelationType: input.RelationType, ScopeEntityID: input.ScopeEntityID, Metadata: input.Metadata,
+		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+	})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, relation)
+}
+
+func (s *Server) deleteWorldRelation(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	if err := s.worldsStore().DeleteRelation(r.PathValue("worldID"), r.PathValue("relationID"), input.ExpectedRevisionID, "http"); err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) getWorldEntityTypes(w http.ResponseWriter, r *http.Request) {
+	items, err := s.worldsStore().ListEntityTypes(r.PathValue("worldID"))
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "relations": ListWorldRelationTypes()})
+}
+
+func (s *Server) upsertWorldEntityType(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		TypeID   string              `json:"id"`
+		Name     string              `json:"name"`
+		Icon     string              `json:"icon"`
+		Color    string              `json:"color"`
+		BaseKind string              `json:"baseKind"`
+		Fields   []EntityTypeField   `json:"fields"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	item, err := s.worldsStore().UpsertEntityType(UpsertEntityTypeInput{
+		WorldID: r.PathValue("worldID"), TypeID: input.TypeID, Name: input.Name, Icon: input.Icon,
+		Color: input.Color, BaseKind: input.BaseKind, Fields: input.Fields, CreatedBy: "http",
+	})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) listWorldCanvas(w http.ResponseWriter, r *http.Request) {
+	items, err := s.worldsStore().ListCanvasElements(r.PathValue("worldID"), r.URL.Query().Get("contextId"))
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) upsertWorldCanvas(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ElementID string         `json:"id"`
+		ContextID string         `json:"contextId"`
+		Kind      string         `json:"kind"`
+		RefKind   string         `json:"refKind"`
+		RefID     string         `json:"refId"`
+		Name      string         `json:"name"`
+		Props     map[string]any `json:"props"`
+		Geometry  map[string]any `json:"geometry"`
+		Style     map[string]any `json:"style"`
+		Layer     string         `json:"layer"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	item, err := s.worldsStore().UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: r.PathValue("worldID"), ElementID: input.ElementID, ContextID: input.ContextID,
+		Kind: input.Kind, RefKind: input.RefKind, RefID: input.RefID, Name: input.Name,
+		Props: input.Props, Geometry: input.Geometry, Style: input.Style, Layer: input.Layer, CreatedBy: "http",
+	})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) deleteWorldCanvas(w http.ResponseWriter, r *http.Request) {
+	if err := s.worldsStore().DeleteCanvasElement(r.PathValue("worldID"), r.PathValue("elementID"), "http"); err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) promoteWorldCanvas(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Kind               string `json:"kind"`
+		RelationType       string `json:"relationType"`
+		Title              string `json:"title"`
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	result, err := s.worldsStore().PromoteCanvasElement(PromoteCanvasElementInput{
+		WorldID: r.PathValue("worldID"), ElementID: r.PathValue("elementID"), Kind: input.Kind,
+		RelationType: input.RelationType, Title: input.Title,
+		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+	})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) createWorldEntityChild(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ContainerRole      string         `json:"containerRole"`
+		Kind               string         `json:"kind"`
+		Title              string         `json:"title"`
+		Summary            string         `json:"summary"`
+		Content            map[string]any `json:"content"`
+		IsProvisional      bool           `json:"isProvisional"`
+		ExpectedRevisionID string         `json:"expectedRevisionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	entity, err := s.worldsStore().CreateChildEntity(CreateChildEntityInput{
+		WorldID: r.PathValue("worldID"), ParentID: r.PathValue("entityID"), ContainerRole: input.ContainerRole,
+		Kind: WorldEntityKind(input.Kind), Title: input.Title, Summary: input.Summary, Content: input.Content,
+		IsProvisional: input.IsProvisional, ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+	})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, entity)
+}
+
+func (s *Server) promoteWorldEntity(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	entity, err := s.worldsStore().PromoteEntity(r.PathValue("worldID"), r.PathValue("entityID"), input.ExpectedRevisionID, "http")
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, entity)
 }
 
 func writeWorldsError(w http.ResponseWriter, err error) {
