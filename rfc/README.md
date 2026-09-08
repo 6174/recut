@@ -3,6 +3,8 @@
 > L2 | 父级: /README.md
 
 成员清单
+2026-09-08-canvas-pixi-tiles-implementation.md: 方案二落地文档（上游 RFC 0831）：不改上层调用体验、全部收敛在 pomelo pixi adapter/ticker 层的瓦片渲染实施设计——demand-driven flush（autoStart:false + 脏标记合并每帧一次 GPU 提交）、dev/demo-pencil 算法验证页（TileScheduler 直译常量与优先级/双代取消/EMA 成本/RT 池）、M1 拖拽会话全屏快照（beginContentSession(excludedBlockIds) 把受影响元素问题折成插件传参）、M2 瓦片调度（块级 chunk RT + 瓦片拼贴 + 5ms 预算 + LRU 显存常数化 ~25-30MB）、落地文件清单与风险逃生门。
+2026-09-08-canvas-rendering-skia-vs-tiles.md: World 画布渲染引擎升级路径对比：完整迁移 open-pencil（CanvasKit/Skia）core 渲染层进 pomelo（方案一）对比保留 pixi v7 并吸收其 tile 系统思想（方案二）；读码梳理 open-pencil 四层还原缓存（SkPicture/retained backing/TiledSceneController+TileScheduler 5ms 帧预算+positionPreview 拖拽机制），给出方案二起步、方案一留档的决策建议与 M0-M3 里程碑（dev/demo-pencil 验证页起步）、GPU ≤3ms 验收口径。
 2026-09-07-recursive-world-canvas.md: Recut World 无限画布演化：把 World 从表单设定本升级为递归语义世界画布（Entity 即可进入容器、Reference≠Relationship、Exploration/Canonical 分层、tldraw 投影）；数据结构按「基石」从零设计、不为早期用户做兼容约束——可扩展 entity type 目录（world_entity_types 预设+自定义+base_kind）、递归容器（parent_id/is_provisional）、局部子图（scope_entity_id）、world_canvas 承载「Entity 骨干+自由表达元素（文本/图片/形状/便签）」、坚持「边≠关系」（语义关系只存 world_relations）；含 MVP 执行计划（约 6 天：骨架→数据→递归容器→画布→Promote 闭环）。
 2026-08-12-creation-worlds.md: Creation Worlds 顶级工作台、创作上下文绑定、版本化 Canon、跨 App / MCP 契约与 Remotion MVP 的实施 RFC。
 2026-08-12-creation-worlds-technical-design.md: Creation Worlds 的 workspace SQLite、Go service facade、SDK/MCP、权限、Web/Remotion 接入、迁移与测试的技术实施 RFC。

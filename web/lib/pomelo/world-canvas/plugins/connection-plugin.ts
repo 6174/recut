@@ -62,6 +62,8 @@ export class ConnectionPlugin extends PomeloPlugin {
 
     const onPointerMove = (event: PointerEvent) => {
       if (!drafting || event.pointerId !== drafting.pointerId) return;
+      // 连线草稿是纯 Graphics 改动（不经过 transact）：demand-driven 渲染必须显式置脏
+      (editor.renderAdapter as PixiRendererAdapter).invalidate?.();
       const world = toWorld(event);
       const target = hitEntity(world);
       // tldraw 的 updateArrowTerminal：终点吸附到命中 shape
@@ -135,6 +137,7 @@ export class ConnectionPlugin extends PomeloPlugin {
       }
       this.#draft.clear();
       this.#highlight.clear();
+      (editor.renderAdapter as PixiRendererAdapter).invalidate?.();
       view.releasePointerCapture?.(event.pointerId);
       drafting = null;
     };

@@ -95,6 +95,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
   // 拖拽合帧：pointermove 暂存的最新事件，经 editor.ticker 一帧至多 apply 一次
   #pendingMoveEvent: PointerEvent | null = null;
   static readonly #DRAG_KEY = "canvas-binds-drag";
+  // 拖拽会话（adapter 级快照）：被拖块 + 相连箭头留在活层，其余场景冻结为一张快照
+  #sessionActive = false;
   // 标识编辑器画布 DOM（供宿主 overlay 定位/事件穿透判断）
   #view?: HTMLCanvasElement;
 
@@ -276,6 +278,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
 
     // 「+」引导拖拽：从 + 手柄出发，拖到另一实体卡开关系确认；落空/点击 = 属性引导菜单
     const drawGuide = () => {
+      // 引导线是纯 Graphics 改动（不经过 transact）：demand-driven 渲染必须显式置脏
+      (editor.renderAdapter as PixiRendererAdapter).invalidate();
       const g = this.#draft;
       g.clear();
       const guide = this.#guide;
@@ -374,7 +378,36 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       view.setPointerCapture(event.pointerId);
     };
 
+    // 拖拽会话：首次 move 时让 adapter 冻结场景；excluded = 被拖块 + 绑定它的箭头
+    // （箭头几何由两端节点解析，留在快照里会跟丢，必须随被拖块每帧活渲染）
+    const beginSessionIfPending = () => {
+      if (this.#sessionActive || !dragging) return;
+      const ids: string[] = [];
+      if (isResize(dragging) || isLinkDrag(dragging)) ids.push(dragging.blockId);
+      else ids.push(...dragging.moved.keys());
+      const keySet = new Set(ids);
+      const arrowIds = editor.state
+        .getAllBlocks((record) => record.type === "relation-arrow" && (keySet.has(String(record.attrs.fromId ?? "")) || keySet.has(String(record.attrs.toId ?? ""))))
+        .map((record) => record.id);
+      this.#sessionActive = true;
+      try {
+        (editor.renderAdapter as PixiRendererAdapter).beginContentSession([...ids, ...arrowIds]);
+      } catch (error) {
+        console.warn("[CanvasBindsPlugin] content session failed", error);
+      }
+    };
+    const endSession = () => {
+      if (!this.#sessionActive) return;
+      this.#sessionActive = false;
+      try {
+        (editor.renderAdapter as PixiRendererAdapter).endContentSession();
+      } catch (error) {
+        console.warn("[CanvasBindsPlugin] end content session failed", error);
+      }
+    };
+
     const applyDragMove = (event: PointerEvent) => {
+      beginSessionIfPending();
       if (this.#guide && event.pointerId === this.#guide.pointerId) {
         const guide = this.#guide;
         const pointerWorld = toWorld(event);
@@ -477,6 +510,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const onPointerUp = (event: PointerEvent) => {
       // 补齐最后一次未上帧的 move，保证提交位置=指针位置
       flushPendingMove();
+      endSession();
       // 三控制点拖拽收尾：吸附回中心的清除锚点覆盖，回落默认中心
       if (dragging && isLinkDrag(dragging) && event.pointerId === dragging.pointerId) {
         const linkDrag = dragging;
@@ -658,6 +692,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
   // 节点/便签 = 矩形选框 + 四角 resize 手柄；关系线 = 曲线高亮覆盖 + 三控制点；
   // 所有节点右缘中点绘制「+」手柄（创建连线 / 属性引导入口）
   drawOverlay(editor: PomeloEditor) {
+    // 选区/手柄/试试 hover 是纯 Graphics 改动（不经过 transact）：demand-driven 渲染必须显式置脏
+    (editor.renderAdapter as PixiRendererAdapter).invalidate?.();
     pomeloPerf.time("overlay.draw", () => this.#drawOverlay(editor));
   }
 

@@ -435,7 +435,7 @@ export function CanvasPomeloHost() {
       container,
       plugins: [new GridPlugin(), new ViewportPlugin(), bindsPlugin],
       blockTypes: [EntityCardBlock, NoteBlock, WorldNodeBlock, RelationArrowBlock, FreeElementBlock],
-      renderAdapter: new PixiRendererAdapter({ transparentBackground: true }),
+      renderAdapter: new PixiRendererAdapter({ transparentBackground: true, antialias: true }),
     });
     editorRef.current = editor;
     pluginRef.current = bindsPlugin;

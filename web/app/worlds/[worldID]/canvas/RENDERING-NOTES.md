@@ -124,6 +124,16 @@ mac ProMotion 120Hz 下每帧预算只有 **8.3ms**（不是 16.7ms）。DevTool
 
 ### 其他定位记录
 
+- **问题 5：adapter 级 demand flush + 拖拽会话快照（M1 已上线）**：
+  1. **需求驱动 flush**：`autoStart:false`，`render()/setTransform/setContainerSize` 只置 `#dirty`；
+     `editor.ticker` `update` 相统一 GPU 提交（`adapter.flush` 打点）。空闲零 GPU，每帧至多 1 次提交。
+  2. **拖拽会话快照**：`PixiRendererAdapter.beginContentSession(excludedBlockIds)`——首次 pointermove
+     时（插件传「被拖块 + 绑定箭头」），场景内容渲成一张全屏 RT（实测 alloc 0.1ms + raster 1.1ms@真实
+     GPU），excluded 块放入还原世界变换的 LiveLayer 继续每帧重画；拖拽帧 GPU = 1 个快照 quad +
+     LiveLayer 小范围。pointerup / 结构重建（validateSession 兜底，孤儿引用即回退全量路径）恢复。
+     headless(SwiftShader) 下快照那帧是恒数百 ms 的 CPU 栅格化，性能不可信 → e2e 阈值按 PERF_HEADED 分档。
+  3. e2e 还修了「历次拖动卡位漂移」：脚本先幂等网格化实体位置再 fit（bounds 只按实体卡算）。
+
 - 选中区域和渲染错位：实体卡高度内容自适应（≥内容固有高度），但命中/选区/「+」手柄/箭头锚点
   读的是 attrs 存储尺寸（旧数据更小）。→ `entityCardRect()` 作为「有效渲染矩形」单一实现，
   命中/选区/连线几何（`arrow-geometry` 经 `setNodeRectResolver` 注册）共用。

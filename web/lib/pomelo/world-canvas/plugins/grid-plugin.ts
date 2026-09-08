@@ -47,6 +47,9 @@ export class GridPlugin extends PomeloPlugin {
         g.endFill();
       }
     }
+    // 点阵数量可达数千个圆：栅格化为位图缓存，拖拽等无 transform 变化的帧
+    // GPU 只需提交 1 个 quad 采样，不再逐圆重绘（transform 变化时本函数重画即重建缓存）
+    // g.cacheAsBitmap = true;
   }
 
   onEditorWillUnmount() {

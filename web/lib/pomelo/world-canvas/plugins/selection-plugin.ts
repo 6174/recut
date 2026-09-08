@@ -424,6 +424,8 @@ export class SelectionPlugin extends PomeloPlugin {
   // 选区 overlay：屏幕空间绘制（stage 直挂），节点=矩形选框+四角 resize 手柄，
   // link=曲线覆盖线（节点内短虚线 + 节点外双描边高亮）+ 三控制点
   drawOverlay(editor: PomeloEditor) {
+    // 选区/手柄是纯 Graphics 改动（不经过 transact）：demand-driven 渲染必须显式置脏
+    (editor.renderAdapter as PixiRendererAdapter).invalidate?.();
     const g = this.#overlay;
     g.clear();
     const adapter = editor.renderAdapter as PixiRendererAdapter;
