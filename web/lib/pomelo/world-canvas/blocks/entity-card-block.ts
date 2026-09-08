@@ -14,7 +14,7 @@ import * as PIXI from "pixi.js";
 import { PixiBlock } from "../../pomelo-core/pomelo-pixi/pomelo-pixi-block";
 import { setNodeRectResolver } from "../arrow-geometry";
 import { truncateText, drawElementCaption } from "../truncate-text";
-import { CARD_RADIUS, TEXT_PRIMARY, TEXT_SECONDARY, drawShadowCard, drawTile } from "../canvas-theme";
+import { CARD_RADIUS, TEXT_PRIMARY, TEXT_SECONDARY, drawShadowCard, drawTile, loadPixiTexture, coverSprite } from "../canvas-theme";
 import { kindLabel } from "../demo-store";
 
 const FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
@@ -77,22 +77,20 @@ function loadTextureInto(
   radius: number,
   topRounded: boolean,
 ): void {
-  void PIXI.Assets.load<PIXI.Texture>(url)
-    .catch(() => null)
-    .then((texture) => {
-      if (!texture || block.isDestroyed()) return;
-      const sprite = new PIXI.Sprite(texture);
-      const scale = Math.max(w / (texture.width || 1), h / (texture.height || 1));
-      sprite.scale.set(scale);
-      const mask = new PIXI.Graphics();
-      if (topRounded) topRoundedPath(mask, w, h, radius);
-      else mask.drawRoundedRect(0, 0, w, h, radius);
-      mask.position.set(x, y);
-      sprite.position.set(x + (w - texture.width * scale) / 2, y + (h - texture.height * scale) / 2);
-      container.addChild(mask);
-      sprite.mask = mask;
-      container.addChild(sprite);
-    });
+  loadPixiTexture(url, (texture) => {
+    if (!texture || block.isDestroyed()) return;
+    const sprite = coverSprite(texture, w, h);
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0xffffff);
+    if (topRounded) topRoundedPath(mask, w, h, radius);
+    else mask.drawRoundedRect(0, 0, w, h, radius);
+    mask.endFill();
+    mask.position.set(x, y);
+    sprite.position.set(x + sprite.x, y + sprite.y);
+    container.addChild(mask);
+    sprite.mask = mask;
+    container.addChild(sprite);
+  });
 }
 
 export class EntityCardBlock extends PixiBlock {

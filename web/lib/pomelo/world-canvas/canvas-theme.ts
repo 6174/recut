@@ -65,3 +65,37 @@ export function drawTile(
   container.addChild(tile);
   return tile;
 }
+
+// ---- 真实图片纹理加载：Image 元素 + crossOrigin（不依赖扩展名，PIXI.Assets 对无后缀 URL 无法选解析器） ----
+
+const texturePromises = new Map<string, Promise<PIXI.Texture | null>>();
+
+export function loadPixiTexture(url: string, onLoad: (texture: PIXI.Texture | null) => void): void {
+  let promise = texturePromises.get(url);
+  if (!promise) {
+    promise = new Promise((resolve) => {
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.onload = () => {
+        try {
+          resolve(PIXI.Texture.from(image));
+        } catch {
+          resolve(null);
+        }
+      };
+      image.onerror = () => resolve(null);
+      image.src = url;
+    });
+    texturePromises.set(url, promise);
+  }
+  void promise.then(onLoad);
+}
+
+// cover-fit：等比铺满目标矩形后居中裁切
+export function coverSprite(texture: PIXI.Texture, w: number, h: number): PIXI.Sprite {
+  const sprite = new PIXI.Sprite(texture);
+  const scale = Math.max(w / (texture.width || 1), h / (texture.height || 1));
+  sprite.scale.set(scale);
+  sprite.position.set((w - texture.width * scale) / 2, (h - texture.height * scale) / 2);
+  return sprite;
+}

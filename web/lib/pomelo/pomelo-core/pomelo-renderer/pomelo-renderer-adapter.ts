@@ -6,6 +6,7 @@ import { PomeloBlock, PomeloBlockRecord } from "./pomelo-block";
 import { MountPointBlock } from "./pomelo-block-mountpoint";
 import { PomeloRenderer } from "./pomelo-renderer";
 import { VirtualDOM, VNode, BlockPatcher, Patch } from "./pomelo-virtual";
+import { pomeloPerf } from "../pomelo-perf";
 
 const MOUNTPOINT_ROOT_ID = "virtual-root";
 const VIRTUAL_ROOT_RECORD: PomeloBlockRecord = {
@@ -63,21 +64,29 @@ export abstract class PomeloRendererAdapter {
   }
 
   handleBlockUpdate() {
-    for (const block of this.renderedBlockMap.values()) {
-      if (block.computeBlockState(this.editor.state)) {
-        block.render();
+    pomeloPerf.time("block.update", () => {
+      let rerendered = 0;
+      const scanned = this.renderedBlockMap.size;
+      for (const block of this.renderedBlockMap.values()) {
+        if (block.computeBlockState(this.editor.state)) {
+          block.render();
+          rerendered += 1;
+        }
       }
-    }
+      if (rerendered > 0) pomeloPerf.event("block.update.scan", { scanned, rerendered });
+    });
   }
 
   render() {
-    const rootBlockRecord = this.editor.state.getRootBlock()!;
-    const blockRecords = rootBlockRecord.children || [];
-    const newVNode = this.createVNodeTree(blockRecords);
-    const patches = VirtualDOM.diff(this.cachedVNode, newVNode, MOUNTPOINT_ROOT_ID);
-    this.cachedVNode = newVNode;
-    this.blockPatcher.applyPatches(patches);
-    this.layoutBlocks();
+    pomeloPerf.time("adapter.render", () => {
+      const rootBlockRecord = this.editor.state.getRootBlock()!;
+      const blockRecords = rootBlockRecord.children || [];
+      const newVNode = this.createVNodeTree(blockRecords);
+      const patches = VirtualDOM.diff(this.cachedVNode, newVNode, MOUNTPOINT_ROOT_ID);
+      this.cachedVNode = newVNode;
+      this.blockPatcher.applyPatches(patches);
+      this.layoutBlocks();
+    });
   }
 
   createBlock(record: PomeloBlockRecord): PomeloBlock {

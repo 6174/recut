@@ -3,6 +3,7 @@ import { PomeloRendererAdapter } from '../pomelo-renderer/pomelo-renderer-adapte
 import { IElement } from '../pomelo-types/render.types';
 import { PixiElement } from './pomelo-pixi-element';
 import { PomeloBlock, PomeloRenderer } from '../pomelo-renderer';
+import { pomeloPerf } from '../pomelo-perf';
 
 export class PixiRendererAdapter extends PomeloRendererAdapter {
   app: PIXI.Application = null!;
@@ -48,17 +49,19 @@ export class PixiRendererAdapter extends PomeloRendererAdapter {
    */
   refreshTextResolution() {
     if (!this.app?.renderer) return;
-    const target = Math.min(4, Math.max(2, (window.devicePixelRatio || 1) * this.transform.scale));
-    const visit = (container: PIXI.Container) => {
-      for (const child of container.children as PIXI.Container[]) {
-        if (child instanceof PIXI.Text) {
-          if (child.resolution !== target) child.resolution = target;
-        } else if (child.children?.length > 0) {
-          visit(child);
+    pomeloPerf.time("text.refresh", () => {
+      const target = Math.min(4, Math.max(2, (window.devicePixelRatio || 1) * this.transform.scale));
+      const visit = (container: PIXI.Container) => {
+        for (const child of container.children as PIXI.Container[]) {
+          if (child instanceof PIXI.Text) {
+            if (child.resolution !== target) child.resolution = target;
+          } else if (child.children?.length > 0) {
+            visit(child);
+          }
         }
-      }
-    };
-    visit(this.mountpointBlock.hostElement.el);
+      };
+      visit(this.mountpointBlock.hostElement.el);
+    });
   }
 
   /**

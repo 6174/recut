@@ -14,9 +14,11 @@
 import * as PIXI from "pixi.js";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import type { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
+import type { PixiBlock } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-block";
 import { PomeloPlugin } from "@/lib/pomelo/pomelo-core/pomelo-plugin";
 import { WORLD_ELEMENT_ID, useWorldCanvasStore } from "./canvas-store";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
+import { pomeloPerf } from "@/lib/pomelo/pomelo-core/pomelo-perf";
 import {
   bezierPoint,
   bezierTangent,
@@ -77,6 +79,10 @@ type GuideDrag = {
 
 export class CanvasBindsPlugin extends PomeloPlugin {
   Name = "CanvasBindsPlugin";
+  // 拖拽会话的实时几何（canvasId → {x,y,width?,height?}）：拖拽/缩放中每次 move 同步写入，
+  // 供 syncDocFromCanvasStore 全量重建时优先采用（否则中途 dataVersion++ 的重建会用
+  // store 旧位置把正在拖拽的元素弹回去，表现为「不跟手、然后才追上鼠标」）
+  liveGeometry = new Map<string, { x: number; y: number; width?: number; height?: number }>();
   #overlay = new PIXI.Graphics();
   // 「+」引导草稿线（世界空间，挂在文档 mountpoint 下随 transform 同步）
   #draft = new PIXI.Graphics();
@@ -417,14 +423,14 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const fixedY = drag.kind === "sw" || drag.kind === "se" ? start.y : start.y + start.height;
         const record = editor.state.getBlockById(drag.blockId);
         if (!record) return;
+        const x = Math.round(Math.min(world.x, fixedX));
+        const y = Math.round(Math.min(world.y, fixedY));
+        const width = Math.round(Math.max(MIN_SIZE, Math.abs(world.x - fixedX)));
+        const height = Math.round(Math.max(MIN_SIZE, Math.abs(world.y - fixedY)));
         editor.state.transact((hook) => {
-          hook.updateBlock(drag.blockId, {
-            x: Math.round(Math.min(world.x, fixedX)),
-            y: Math.round(Math.min(world.y, fixedY)),
-            width: Math.round(Math.max(MIN_SIZE, Math.abs(world.x - fixedX))),
-            height: Math.round(Math.max(MIN_SIZE, Math.abs(world.y - fixedY))),
-          });
+          hook.updateBlock(drag.blockId, { x, y, width, height });
         });
+        this.liveGeometry.set(blockIdToCanvasId(drag.blockId), { x, y, width, height });
         this.drawOverlay(editor);
         return;
       }
@@ -432,7 +438,10 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       const dy = world.y - drag.startWorld.y;
       editor.state.transact((hook) => {
         for (const [blockId, origin] of drag.moved) {
-          hook.updateBlock(blockId, { x: Math.round(origin.x + dx), y: Math.round(origin.y + dy) });
+          const x = Math.round(origin.x + dx);
+          const y = Math.round(origin.y + dy);
+          hook.updateBlock(blockId, { x, y });
+          this.liveGeometry.set(blockIdToCanvasId(blockId), { x, y });
         }
       });
       this.drawOverlay(editor);
@@ -512,6 +521,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       const store = useWorldCanvasStore.getState();
       if (isLinkDrag(dragging)) return; // link 拖拽在上面独立收尾
       if (!store.readOnly) {
+        const liveIds: string[] = [];
         if (isResize(dragging)) {
           const record = editor.state.getBlockById(dragging.blockId);
           if (record) {
@@ -522,15 +532,27 @@ export class CanvasBindsPlugin extends PomeloPlugin {
               width: Math.round(Number(record.attrs.width) || 0),
               height: Math.round(Number(record.attrs.height) || 0),
             };
+            this.liveGeometry.set(canvasId, { x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height });
             commitGeometry(canvasId, geometry);
+            liveIds.push(dragging.blockId);
           }
         } else {
           for (const blockId of dragging.moved.keys()) {
             const record = editor.state.getBlockById(blockId);
             if (!record) continue;
-            commitGeometry(blockIdToCanvasId(blockId), { x: Number(record.attrs.x) || 0, y: Number(record.attrs.y) || 0 });
+            const canvasId = blockIdToCanvasId(blockId);
+            const x = Math.round(Number(record.attrs.x) || 0);
+            const y = Math.round(Number(record.attrs.y) || 0);
+            this.liveGeometry.set(canvasId, { x, y });
+            commitGeometry(canvasId, { x, y });
+            liveIds.push(blockId);
           }
         }
+        // 提交完成：稍后清除实时几何（等 persist/重建消化完，避免抖动窗口）
+        const live = this.liveGeometry;
+        setTimeout(() => {
+          for (const blockId of liveIds) live.delete(blockIdToCanvasId(blockId));
+        }, PERSIST_DEBOUNCE_MS + 200);
       }
       view.releasePointerCapture?.(event.pointerId);
       dragging = null;
@@ -606,6 +628,10 @@ export class CanvasBindsPlugin extends PomeloPlugin {
   // 节点/便签 = 矩形选框 + 四角 resize 手柄；关系线 = 曲线高亮覆盖 + 三控制点；
   // 所有节点右缘中点绘制「+」手柄（创建连线 / 属性引导入口）
   drawOverlay(editor: PomeloEditor) {
+    pomeloPerf.time("overlay.draw", () => this.#drawOverlay(editor));
+  }
+
+  #drawOverlay(editor: PomeloEditor) {
     const g = this.#overlay;
     g.clear();
     const adapter = editor.renderAdapter as PixiRendererAdapter;

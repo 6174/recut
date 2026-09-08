@@ -147,8 +147,18 @@ export class BlockPatcher {
     const blockMap = adapter.renderedBlockMap;
     const block = blockMap.get(patch.blockId);
     if (block) {
+      // 仅 x/y 变化时只重定位、不重建内容容器（拖拽高频路径：
+      // renderBlock 全量重建 + 文本重栅格代价大且视觉无差异）
+      const changed = Object.keys(patch.vNode!.record.attrs).filter(
+        (key) => block.record.attrs[key] !== patch.vNode!.record.attrs[key],
+      );
       block.updateProps(patch.vNode!.props);
-      block.render()
+      const positionOnly = changed.length > 0 && changed.every((key) => key === "x" || key === "y");
+      if (positionOnly && typeof (block as unknown as { reposition?: () => void }).reposition === "function") {
+        (block as unknown as { reposition: () => void }).reposition();
+      } else {
+        block.render();
+      }
     }
   }
 

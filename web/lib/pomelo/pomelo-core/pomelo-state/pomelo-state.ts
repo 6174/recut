@@ -2,6 +2,7 @@ import * as Y from "yjs";
 import { PomeloDoc, PomeloTransform } from "../pomelo-types/doc.types";
 import { Slot } from "../pomelo-common";
 import { PomeloBlockRecord } from "../pomelo-renderer";
+import { pomeloPerf } from "../pomelo-perf";
 export type PomeloTransactionHook = {
   addBlock: (block: PomeloBlockRecord, parentId?: string) => void;
   updateBlock: (blockId: string, updates: Partial<PomeloBlockRecord["attrs"]>) => void;
@@ -92,6 +93,7 @@ export class PomeloEditorState {
    * @param callback 
    */
   transact(callback: (transactionHook: PomeloTransactionHook) => void) {
+    const perfStart = performance.now();
     const transactionUpdates = {
       removedBlocks: [] as string[],
       addedBlocks: [] as PomeloBlockRecord[],
@@ -127,10 +129,15 @@ export class PomeloEditorState {
     });
 
     // 如果有发现 update 的话，就触发事件
-    if ( transactionUpdates.removedBlocks.length > 0 || 
-         transactionUpdates.addedBlocks.length > 0 || 
+    if ( transactionUpdates.removedBlocks.length > 0 ||
+         transactionUpdates.addedBlocks.length > 0 ||
          transactionUpdates.updatedBlocks.length > 0) {
       this.#updateBlockRecordMap();
+      pomeloPerf.record("transact", performance.now() - perfStart, {
+        updated: transactionUpdates.updatedBlocks.length,
+        added: transactionUpdates.addedBlocks.length,
+        removed: transactionUpdates.removedBlocks.length,
+      });
       this.onDocUpdateEvent.emit({
         payload: transactionUpdates
       });

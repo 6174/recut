@@ -2,6 +2,7 @@
 import { PomeloEditor } from "../pomelo-editor";
 import { Diposables, Slot } from "../pomelo-common";
 import { PomeloRendererAdapter } from "./pomelo-renderer-adapter";
+import { pomeloPerf } from "../pomelo-perf";
 
 export class PomeloRenderer extends Diposables {
   onRenderEvent = new Slot();
@@ -16,7 +17,7 @@ export class PomeloRenderer extends Diposables {
   }
 
   render() {
-    this.adapter.render();
+    pomeloPerf.time("renderer.render", () => this.adapter.render());
     this.onRenderEvent.emit();
   }
 

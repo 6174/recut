@@ -26,8 +26,7 @@ import { TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, drawShadowCard } from "@/l
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { drawElementCaption } from "@/lib/pomelo/world-canvas/truncate-text";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
-import { entityImageUrls } from "./canvas-image";
-import { type AttrCreator, type AttrMedia, DEFAULT_ENTITY_SIZE, NOTE_SIZE, WORLD_ELEMENT_ID, WORLD_NODE_SIZE, elementPosition, useWorldCanvasStore } from "./canvas-store";
+import { entityImageUrls } from "./canvas-image";import { type AttrCreator, type AttrMedia, DEFAULT_ENTITY_SIZE, NOTE_SIZE, WORLD_ELEMENT_ID, WORLD_NODE_SIZE, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
 
 // ---------- 自由元素 Block：text（纯文本）/ shape（几何轮廓） ----------
@@ -151,12 +150,31 @@ export class FreeElementBlock extends PixiBlock {
 
 type PomeloRecord = { id: string; type: string; attrs: Record<string, unknown> };
 
-function buildPomeloRecords(state: ReturnType<typeof useWorldCanvasStore.getState>) {
+// 拖拽/缩放会话中的实时几何（由 CanvasBindsPlugin.liveGeometry 提供）：
+// 全量重建时优先采用，避免中途 dataVersion++ 的重建把正在拖拽的元素弹回 store 旧位置
+function livePosOf(live: Map<string, { x: number; y: number }> | undefined, canvasId: string): Point | null {
+  const value = live?.get(canvasId);
+  return value ? { x: value.x, y: value.y } : null;
+}
+
+function buildPomeloRecords(
+  state: ReturnType<typeof useWorldCanvasStore.getState>,
+  liveGeometry?: Map<string, { x: number; y: number; width?: number; height?: number }>,
+) {
   const records: PomeloRecord[] = [];
+  // canvasId → 实时尺寸（拖拽/缩放中的 width/height 覆盖）
+  const liveSizes = new Map<string, { width: number; height: number }>();
+  if (liveGeometry) {
+    for (const [canvasId, geo] of liveGeometry) {
+      if (Number.isFinite(geo.width) && Number.isFinite(geo.height)) liveSizes.set(canvasId, { width: geo.width!, height: geo.height! });
+    }
+  }
 
   state.entities.forEach((entity: WorldEntity, index: number) => {
-    const pos = elementPosition(state.elements, `shape:${entity.id}`, index);
-    const element = state.elements.find((item) => item.id === `shape:${entity.id}`);
+    const canvasId = `shape:${entity.id}`;
+    const pos = livePosOf(liveGeometry, canvasId) ?? elementPosition(state.elements, canvasId, index);
+    const element = state.elements.find((item) => item.id === canvasId);
+    const liveSize = liveSizes.get(canvasId);
     const imageUrls = entityImageUrls(state.apiBase, entity);
     records.push({
       id: `entity:${entity.id}`,
@@ -164,8 +182,8 @@ function buildPomeloRecords(state: ReturnType<typeof useWorldCanvasStore.getStat
       attrs: {
         x: pos.x,
         y: pos.y,
-        width: Number(element?.geometry?.width) || DEFAULT_ENTITY_SIZE.width,
-        height: Number(element?.geometry?.height) || DEFAULT_ENTITY_SIZE.height,
+        width: liveSize?.width ?? (Number(element?.geometry?.width) || DEFAULT_ENTITY_SIZE.width),
+        height: liveSize?.height ?? (Number(element?.geometry?.height) || DEFAULT_ENTITY_SIZE.height),
         title: entity.title,
         subtitle: "",
         tags: [],
@@ -184,7 +202,7 @@ function buildPomeloRecords(state: ReturnType<typeof useWorldCanvasStore.getStat
     const worldElement = state.elements.find((element) => element.id === WORLD_ELEMENT_ID);
     const x = Number(worldElement?.geometry?.x);
     const y = Number(worldElement?.geometry?.y);
-    const pos = worldElement && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : { x: 360, y: 40 };
+    const pos = livePosOf(liveGeometry, WORLD_ELEMENT_ID) ?? (worldElement && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : { x: 360, y: 40 });
     records.push({
       id: WORLD_ELEMENT_ID,
       type: "world-node",
@@ -194,9 +212,10 @@ function buildPomeloRecords(state: ReturnType<typeof useWorldCanvasStore.getStat
 
   state.elements.forEach((element: WorldCanvasElement, index: number) => {
     if (element.kind === "entity" || element.id === WORLD_ELEMENT_ID) return;
-    const pos = elementPosition(state.elements, element.id, index);
-    const width = Number(element.geometry?.width) || NOTE_SIZE.width;
-    const height = Number(element.geometry?.height) || NOTE_SIZE.height;
+    const pos = livePosOf(liveGeometry, element.id) ?? elementPosition(state.elements, element.id, index);
+    const liveSize = liveSizes.get(element.id);
+    const width = liveSize?.width ?? (Number(element.geometry?.width) || NOTE_SIZE.width);
+    const height = liveSize?.height ?? (Number(element.geometry?.height) || NOTE_SIZE.height);
     if (element.kind === "attr") {
       // 属性节点：文本/图片/音频/视频预览卡（AI 生成/上传内容承载物）
       const media = String(element.props?.media ?? "text");
@@ -320,7 +339,7 @@ function buildPomeloRecords(state: ReturnType<typeof useWorldCanvasStore.getStat
 }
 
 function syncDocFromCanvasStore(editor: PomeloEditor) {
-  const records = buildPomeloRecords(useWorldCanvasStore.getState());
+  const records = buildPomeloRecords(useWorldCanvasStore.getState(), (editor.pluginRegistry.get("CanvasBindsPlugin") as CanvasBindsPlugin | undefined)?.liveGeometry);
   editor.state.transact((hook) => {
     const existing = editor.state.getAllBlocks((record) => !record.isRoot).map((record) => record.id);
     existing.forEach((id) => hook.removeBlock(id));
@@ -430,7 +449,7 @@ export function CanvasPomeloHost() {
       setReady(true);
       // e2e/调试句柄（仅 dev 构建暴露）
       if (process.env.NODE_ENV !== "production") {
-        (window as unknown as Record<string, unknown>).__worldCanvasDebug = { editor, store: useWorldCanvasStore };
+        (window as unknown as Record<string, unknown>).__worldCanvasDebug = { editor, store: useWorldCanvasStore, rebuild: () => syncDocFromCanvasStore(editor) };
       }
     });
     return () => {
