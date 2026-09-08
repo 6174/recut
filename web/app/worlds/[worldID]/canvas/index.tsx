@@ -19,7 +19,25 @@ import { CanvasDialogs } from "./canvas-dialogs";
 // pomelo 底座依赖浏览器 API，仅客户端挂载（tldraw → pomelo 替换，旧 canvas-tldraw.tsx 保留为历史参考）。
 const CanvasPomeloHost = dynamic(() => import("./canvas-pomelo").then((mod) => mod.CanvasPomeloHost), {
   ssr: false,
-  loading: () => <div className="grid h-full place-items-center text-sm text-muted-foreground">画布加载中…</div>,
+  // 画布骨架：与真实画布同构（点阵底 + 居中卡片占位），刷新时默认视图即画布 skeleton
+  loading: () => (
+    <div
+      aria-hidden
+      className="h-full w-full"
+      style={{
+        backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1px)",
+        backgroundSize: "26px 26px",
+      }}
+    >
+      <div className="grid h-full place-items-center">
+        <div className="flex w-64 animate-pulse flex-col gap-3 rounded-xl border border-border/60 bg-card/60 p-4">
+          <div className="h-16 w-16 rounded-lg bg-muted" />
+          <div className="h-4 w-3/4 rounded bg-muted" />
+          <div className="h-3 w-1/2 rounded bg-muted" />
+        </div>
+      </div>
+    </div>
+  ),
 });
 
 export type WorldCanvasProps = {

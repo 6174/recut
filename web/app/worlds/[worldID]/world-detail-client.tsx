@@ -51,6 +51,8 @@ import {
 import { settingSections, SettingDialog } from "./world-detail-settings";
 import { WorldOnboardingCard } from "./world-onboarding";
 import { Workspace } from "../../page";
+import { useWorldCanvasTopBarStore } from "./canvas/canvas-top-bar";
+import { useWorldCanvasStore } from "./canvas/canvas-store";
 
 // 画布模式：tldraw 依赖浏览器 API，仅客户端挂载。
 const WorldCanvas = dynamic(() => import("./canvas").then((mod) => mod.default), { ssr: false });
@@ -153,6 +155,39 @@ function WorldDetailContent() {
     };
   }, [apiBase, loadEntities, loadEntity, worldID]);
 
+  // 顶层工具栏行（全局 Header）在两种视图下同构，且在 WorldCanvas chunk 加载前就注册：
+  // canvas 是默认视图 → 挂载即注册 canvas variant（避免 Header 先闪全局导航再跳成工具栏行）；
+  // 设定视图注册 form variant（右侧「画布视图」与画布视图的「设定视图」位置一致）。
+  const setTopBarActive = useWorldCanvasTopBarStore((state) => state.setActive);
+  const setTopBarFormMode = useWorldCanvasTopBarStore((state) => state.setFormMode);
+  useEffect(() => {
+    if (!worldID) return;
+    if (viewMode === "form") {
+      setTopBarFormMode(true, () => setViewMode("canvas"));
+      return () => setTopBarFormMode(false);
+    }
+    setTopBarActive(true, () => setViewMode("form"));
+  }, [viewMode, worldID, setTopBarActive, setTopBarFormMode]);
+
+  // 世界名提前进 canvas-store：面包屑在 WorldCanvas/open 之前就显示最终名称，避免文字跳动
+  const worldName = detail?.name ?? "";
+  useEffect(() => {
+    if (worldName) useWorldCanvasStore.setState({ worldName });
+  }, [worldName]);
+
+  // 画布视图是默认视图：不等 detail 加载完成即挂载（canvas store 自行加载数据），
+  // 刷新时先看到画布 skeleton 而不是设定视图。
+  const canvasNode = worldID ? (
+    <WorldCanvas
+      apiBase={apiBase}
+      onClose={() => setViewMode("form")}
+      readOnly={detail ? worldReadOnly(detail) : false}
+      revisionId={detail?.revision.id ?? ""}
+      worldId={worldID}
+      worldName={detail?.name ?? ""}
+    />
+  ) : null;
+
   const activeEntities = useMemo(
     () => entitiesByKind[activeKind] ?? [],
     [activeKind, entitiesByKind],
@@ -163,17 +198,17 @@ function WorldDetailContent() {
         {t("worlds.detail.noWorld")}
       </p>
     );
-  if (error && !detail)
-    return <p className="py-10 text-center text-sm text-warning">{error}</p>;
-  if (!detail)
-    return (
+  if (error && !detail) return canvasNode;
+  if (!detail) {
+    // 画布是默认视图：detail 未加载时直接给出画布 skeleton（内部自带加载态），不闪设定视图
+    return viewMode === "canvas" ? canvasNode : (
       <div className="space-y-4 py-6">
         <div className="h-8 w-64 animate-pulse rounded-sm bg-muted" />
         <div className="h-48 animate-pulse rounded-lg bg-muted" />
       </div>
     );
+  }
   const worldId = worldID;
-  const worldName = detail.name;
   const readOnly = worldReadOnly(detail);
   const origin = worldOrigin(detail);
   const currentSection = settingSections(t).find(
@@ -438,17 +473,8 @@ function WorldDetailContent() {
           </div>
         </div>
       )}
-      {/* 画布模式：全屏覆盖设定视图 */}
-      {viewMode === "canvas" && (
-        <WorldCanvas
-          apiBase={apiBase}
-          onClose={() => setViewMode("form")}
-          readOnly={readOnly}
-          revisionId={detail.revision.id}
-          worldId={worldId}
-          worldName={detail.name}
-        />
-      )}
+      {/* 画布模式：全屏覆盖设定视图（默认视图，不等 detail 加载） */}
+      {viewMode === "canvas" && canvasNode}
     </>
   );
 }

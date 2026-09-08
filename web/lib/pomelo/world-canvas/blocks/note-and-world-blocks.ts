@@ -77,14 +77,13 @@ export class WorldNodeBlock extends PixiBlock {
     glyph.position.set(16 + ICON / 2, h / 2);
     container.addChild(glyph);
 
-    const titleText = new PIXI.Text(truncateText(String(title), (w - 96) * s, 16), {
+    const titleText = new PIXI.Text(truncateText(String(title), w - 96, 16), {
       fontFamily: FONT,
       fontSize: 16,
       fontWeight: "600",
       fill: TEXT_PRIMARY,
     });
     titleText.position.set(72, h / 2 - 18);
-    titleText.scale.set(inv);
     container.addChild(titleText);
 
     const sub = new PIXI.Text("World 核心节点 · 点击查看", { fontFamily: FONT, fontSize: 11, fill: TEXT_SECONDARY });
