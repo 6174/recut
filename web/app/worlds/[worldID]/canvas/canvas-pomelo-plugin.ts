@@ -97,6 +97,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
   static readonly #DRAG_KEY = "canvas-binds-drag";
   // 拖拽会话（adapter 级快照）：被拖块 + 相连箭头留在活层，其余场景冻结为一张快照
   #sessionActive = false;
+  // hover 命中的节点（含周围热区）：决定「+」手柄是否出现（只 hover 才显示，非全画布常显）
+  #hoverBlockId: string | null = null;
   // 标识编辑器画布 DOM（供宿主 overlay 定位/事件穿透判断）
   #view?: HTMLCanvasElement;
 
@@ -129,9 +131,12 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     };
     type PlusHandle = { blockId: string; canvasId: string; anchorWorld: Point; screen: Point };
     const plusHandles = (): PlusHandle[] => {
-      const state = editor.state;
+      // 「+」手柄只对 hover 命中的节点（含周围热区）出现：绘制与命中同一来源（#hoverBlockId），不再全画布常显
       const handles: PlusHandle[] = [];
-      for (const record of state.getAllBlocks((item) => NODE_TYPES.has(item.type))) {
+      const records = this.#hoverBlockId
+        ? editor.state.getAllBlocks((item) => item.id === this.#hoverBlockId && NODE_TYPES.has(item.type))
+        : [];
+      for (const record of records) {
         const rect = rectOf(record);
         if (rect.width <= 0 || rect.height <= 0) continue;
         const anchorWorld = { x: rect.x + rect.width, y: rect.y + rect.height / 2 };
@@ -339,6 +344,24 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         }
       }
 
+      // 工具栏连线工具：linkMode 下点击任意节点即从该节点拖出引导线（复用「+」引导流程）
+      if (useWorldCanvasStore.getState().linkMode && !useWorldCanvasStore.getState().readOnly) {
+        const linkHit = hitTest(world);
+        if (linkHit && linkHit.kind === "node") {
+          const linkRecord = editor.state.getBlockById(linkHit.blockId);
+          if (linkRecord) {
+            const linkRect = rectOfRecord(linkRecord);
+            if (linkRect.width > 0 && linkRect.height > 0) {
+              const anchorWorld = { x: linkRect.x + linkRect.width, y: linkRect.y + linkRect.height / 2 };
+              this.#guide = { pointerId: event.pointerId, sourceBlockId: linkHit.blockId, anchorWorld, pointerWorld: world, hoverBlockId: null, screen: { x: event.clientX, y: event.clientY } };
+              view.setPointerCapture(event.pointerId);
+              drawGuide();
+              return;
+            }
+          }
+        }
+      }
+
       const linkHandle = activeLinkHandles().find((item) => Math.hypot(screen.x - item.screen.x, screen.y - item.screen.y) < 12);
       if (linkHandle && event.pointerId != null) {
         dragging = {
@@ -495,7 +518,33 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       if (pending) applyDragMove(pending);
     };
 
+    // hover 追踪：「+」手柄只在指针 hover 到节点（含矩形外 HOT_PAD 像素热区）时出现
+    const HOT_PAD = 26;
+    const updateHover = (event: PointerEvent, forceDraw = false): void => {
+      if (useWorldCanvasStore.getState().readOnly) return;
+      const world = toWorld(event);
+      let hoveredId: string | null = null;
+      const nodes = editor.state.getAllBlocks((record) => NODE_TYPES.has(record.type));
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        const rect = rectOfRecord(nodes[i]);
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        if (
+          world.x >= rect.x - HOT_PAD && world.x <= rect.x + rect.width + HOT_PAD &&
+          world.y >= rect.y - HOT_PAD && world.y <= rect.y + rect.height + HOT_PAD
+        ) {
+          hoveredId = nodes[i].id;
+          break;
+        }
+      }
+      if (hoveredId !== this.#hoverBlockId || forceDraw) {
+        this.#hoverBlockId = hoveredId;
+        this.drawOverlay(editor);
+      }
+    };
+
     const onPointerMove = (event: PointerEvent) => {
+      // 未在拖拽/引导时更新 hover（决定「+」手柄显隐）；拖拽中保持冻结避免手柄闪烁
+      if (!dragging && !this.#guide) updateHover(event);
       const relevant = dragging && event.pointerId === dragging.pointerId;
       const guiding = this.#guide && event.pointerId === this.#guide.pointerId;
       if (!relevant && !guiding) return;
@@ -578,6 +627,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         this.#guide = null;
         view.releasePointerCapture?.(event.pointerId);
         drawGuide();
+        // 连线工具一次性：引导结束后自动回到选择模式
+        if (useWorldCanvasStore.getState().linkMode) useWorldCanvasStore.getState().setLinkMode(false);
         return;
       }
       if (!dragging || event.pointerId !== dragging.pointerId) return;
@@ -662,6 +713,13 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     view.addEventListener("pointermove", onPointerMove);
     view.addEventListener("pointerup", onPointerUp);
     view.addEventListener("pointercancel", onPointerUp);
+    // 指针离开画布：手柄收起（hover 清空）
+    const onPointerLeave = () => {
+      this.#pendingMoveEvent = null;
+      this.#hoverBlockId = null;
+      this.drawOverlay(editor);
+    };
+    view.addEventListener("pointerleave", onPointerLeave);
     view.addEventListener("dblclick", onDoubleClick);
     window.addEventListener("keydown", onKeyDown);
     const unsubTransform = adapter.onTransformEvent.on(() => this.drawOverlay(editor));
@@ -671,6 +729,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       view.removeEventListener("pointermove", onPointerMove);
       view.removeEventListener("pointerup", onPointerUp);
       view.removeEventListener("pointercancel", onPointerUp);
+      view.removeEventListener("pointerleave", onPointerLeave);
       view.removeEventListener("dblclick", onDoubleClick);
       window.removeEventListener("keydown", onKeyDown);
       unsubTransform.dispose();
@@ -705,23 +764,23 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const toScreen = (world: Point): Point => ({ x: world.x * t.scale + t.x, y: world.y * t.scale + t.y });
     const readOnly = useWorldCanvasStore.getState().readOnly;
 
-    // 「+」手柄：节点右缘中点（屏幕空间，尺寸不随 zoom 变化）——只读态不绘制
-    if (!readOnly && !this.#guide) {
-      for (const record of editor.state.getAllBlocks((item) => NODE_TYPES.has(item.type))) {
+    // 「+」手柄：仅 hover 命中的节点右缘中点（屏幕空间，尺寸不随 zoom 变化）——只读态不绘制
+    if (!readOnly && !this.#guide && this.#hoverBlockId) {
+      const record = editor.state.getBlockById(this.#hoverBlockId);
+      if (record && NODE_TYPES.has(record.type)) {
         const rect = rectOfRecord(record);
-        if (rect.width <= 0 || rect.height <= 0) continue;
-        const anchor = toScreen({ x: rect.x + rect.width, y: rect.y + rect.height / 2 });
-        g.lineStyle(1.5, 0xd4d4d8, 0.85, 0.5);
-        g.beginFill(0x1c1d22);
-        g.drawCircle(anchor.x, anchor.y, 8);
-        g.endFill();
-        const glyph = `+`;
-        g.lineStyle(2, 0xd4d4d8, 1);
-        g.moveTo(anchor.x - 3.5, anchor.y);
-        g.lineTo(anchor.x + 3.5, anchor.y);
-        g.moveTo(anchor.x, anchor.y - 3.5);
-        g.lineTo(anchor.x, anchor.y + 3.5);
-        void glyph;
+        if (rect.width > 0 && rect.height > 0) {
+          const anchor = toScreen({ x: rect.x + rect.width, y: rect.y + rect.height / 2 });
+          g.lineStyle(1.5, 0xd4d4d8, 0.85, 0.5);
+          g.beginFill(0x1c1d22);
+          g.drawCircle(anchor.x, anchor.y, 8);
+          g.endFill();
+          g.lineStyle(2, 0xd4d4d8, 1);
+          g.moveTo(anchor.x - 3.5, anchor.y);
+          g.lineTo(anchor.x + 3.5, anchor.y);
+          g.moveTo(anchor.x, anchor.y - 3.5);
+          g.lineTo(anchor.x, anchor.y + 3.5);
+        }
       }
     }
 

@@ -5,7 +5,8 @@
  * 统一视觉（深色卡面 + 细边框 + 柔和投影）；排版为图先于文——头图通铺卡片顶部（不留 padding，
  * cover-fit 裁切，attrs.coverUrl 真图 / emoji 占位），下方为标题/副标题与资料缩略网格
  * （photoUrls 真图 / photos emoji 占位，最多 9 格，静态无动效）；卡片高度内容自适应，
- * entityCardRect 是命中/选区/连线锚点共用的有效渲染矩形
+ * entityCardRect 是命中/选区/连线锚点共用的有效渲染矩形；卡片标题与元素徽标为 zoom 常量
+ * （1/scale 反向补偿，缩放不改变字号）
  * [POS]: lib/pomelo/world-canvas 的实体卡 Block（demo 数据 → block record 的映射在 doc-sync.ts；
  * 真实画布 app/worlds/[worldID]/canvas 复用本 Block 并经 canvas-image.ts 传入真实图 URL）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -78,7 +79,7 @@ function loadTextureInto(
   topRounded: boolean,
 ): void {
   loadPixiTexture(url, (texture) => {
-    if (!texture || block.isDestroyed()) return;
+    if (!texture || block.isDestroyed() || container.destroyed) return;
     const sprite = coverSprite(texture, w, h);
     const mask = new PIXI.Graphics();
     mask.beginFill(0xffffff);
@@ -95,6 +96,8 @@ function loadTextureInto(
 
 export class EntityCardBlock extends PixiBlock {
   static type = "entity-card";
+  // zoom 常量：标题与元素徽标按屏幕像素渲染，缩放时重绘
+  override renderOnZoom = true;
   #destroyed = false;
 
   override destroy() {
@@ -117,8 +120,12 @@ export class EntityCardBlock extends PixiBlock {
 
     const container = new PIXI.Container();
 
+    // zoom 常量补偿：文字尺寸保持屏幕像素恒定（反向缩放），截断宽度按世界宽 × 视口缩放换算
+    const s = this.screenScale;
+    const inv = 1 / s;
+
     // 元素标题徽标（左上角，卡片外上方，统一中性色）
-    drawElementCaption(container, { title: String(title) || "实体", icon: "◍", maxWidth: w });
+    drawElementCaption(container, { title: String(title) || "实体", icon: "◍", maxWidth: w * s, scale: inv });
 
     // 统一底座：柔和投影 + 深色卡面 + 细边框
     drawShadowCard(container, w, cardH, { radius: CARD_RADIUS });
@@ -139,15 +146,16 @@ export class EntityCardBlock extends PixiBlock {
       loadTextureInto(this, header, coverUrl, 0, 0, w, imageH, CARD_RADIUS - 1, true);
     }
 
-    // 头部文本：标题 + 副标题（标签摘要优先，回退类型名）
+    // 头部文本：标题（zoom 常量）+ 副标题随卡片缩放
     const textTop = imageH + PAD;
-    const titleText = new PIXI.Text(truncateText(String(title), w - PAD * 2, 15), {
+    const titleText = new PIXI.Text(truncateText(String(title), (w - PAD * 2) * s, 15), {
       fontFamily: FONT,
       fontSize: 15,
       fontWeight: "600",
       fill: TEXT_PRIMARY,
     });
     titleText.position.set(PAD, textTop);
+    titleText.scale.set(inv);
     container.addChild(titleText);
 
     const tagList = Array.isArray(tags) ? (tags as string[]) : [];

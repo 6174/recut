@@ -7,6 +7,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { create } from "zustand";
+import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import {
   createRecutWorldsClient,
   type EntityKind,
@@ -106,6 +107,12 @@ type WorldCanvasState = {
   promotingId: string | null;
   dataVersion: number;
   attrCreator: AttrCreator;
+  // 工具栏连线工具：激活后点击任意节点即可拖出引导线（与「+」手柄同一引导流程）
+  linkMode: boolean;
+  // 工具栏抓手模式：CanvasPomeloHost 渲染全画布平移 overlay，截获指针拖拽平移视口
+  panMode: boolean;
+  // pomelo 编辑器实例（canvas-pomelo 挂载后登记，工具栏按钮经它驱动视口/undo/网格）
+  editor: PomeloEditor | null;
   pendingRelation: { fromEntityId: string; toEntityId: string; arrowCanvasId?: string } | null;
   open: (input: { apiBase: string; worldId: string; worldName: string; readOnly: boolean; revisionId: string }) => void;
   load: (force?: boolean) => Promise<void>;
@@ -119,6 +126,10 @@ type WorldCanvasState = {
   pickRelatingTarget: (entityId: string) => void;
   cancelRelating: () => void;
   setAttrCreator: (creator: AttrCreator) => void;
+  setLinkMode: (linkMode: boolean) => void;
+  setPanMode: (panMode: boolean) => void;
+  setEditor: (editor: PomeloEditor | null) => void;
+  addFreeElement: (kind: "text" | AttrMedia, pos: Point) => Promise<void>;
   createAttribute: (fromElementId: string, media: AttrMedia, pos: Point, initial?: { text?: string; fileName?: string }, edgeType?: string) => Promise<void>;
   // 关系锚点持久化：写固有 anchor 元素（shape:rel-<relationId>），语义由 relationId 关联
   persistRelationGeometry: (relationId: string, geometry: { fromAnchor?: { x: number; y: number }; toAnchor?: { x: number; y: number }; bend?: { dx: number; dy: number } }) => Promise<void>;
@@ -159,6 +170,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   dataVersion: 0,
   attrCreator: null,
   pendingRelation: null,
+  linkMode: false,
+  panMode: false,
+  editor: null,
 
   open: (input) => {
     const state = get();
@@ -184,6 +198,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       promotingId: null,
       attrCreator: null,
       pendingRelation: null,
+      linkMode: false,
+      panMode: false,
     });
     void get().load(true);
   },
@@ -256,6 +272,38 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
 
   // 「+」引导菜单锚点；宿主组件以屏幕坐标渲染引导面板
   setAttrCreator: (attrCreator) => set({ attrCreator }),
+
+  setLinkMode: (linkMode) => set({ linkMode, selection: linkMode ? null : get().selection }),
+
+  setPanMode: (panMode) => set({ panMode }),
+
+  setEditor: (editor) => set({ editor }),
+
+  // 工具栏独立插入：text=自由文本元素；image/audio/video=独立属性节点（kind=attr，无属性边）
+  addFreeElement: async (kind, pos) => {
+    const id = `shape:${kind}-${Date.now()}`;
+    const labels: Record<string, string> = { text: "文本", image: "图片", audio: "音频", video: "视频" };
+    try {
+      await get().upsertElement({
+        id,
+        contextId: get().context?.entityId ?? "",
+        kind: kind === "text" ? "text" : "attr",
+        refKind: "",
+        refId: "",
+        name: labels[kind] ?? kind,
+        props: kind === "text" ? { text: "" } : { media: kind, text: "" },
+        geometry:
+          kind === "text"
+            ? { x: Math.round(pos.x), y: Math.round(pos.y), width: 220, zIndex: 1 }
+            : { x: Math.round(pos.x), y: Math.round(pos.y), width: 220, height: 150, zIndex: 1 },
+        style: {},
+        layer: "0",
+      });
+      await get().load(true);
+    } catch (cause) {
+      set({ notice: messageOf(cause) });
+    }
+  },
 
   // 创建属性节点 + 属性边（两笔 world_canvas 写，均不产 revision）：
   // 属性元素 kind=attr（props.media 区分文本/图片/音频/视频），

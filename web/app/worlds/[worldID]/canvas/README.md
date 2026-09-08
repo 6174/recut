@@ -7,8 +7,8 @@ Recursive World Canvas（RFC 2026-09-07）的全屏画布模式：pomelo（pixi 
 成员清单
 
 canvas-store.ts: 画布 zustand 状态层；会话配置（open）、当前上下文（全局/实体容器）的实体/画布元素/关系/类型目录、视图状态（缩放/选中/连线草稿/对话框）与全部写动作；语义写带 revision 冲突重试，附几何工具函数与尺寸常量。
-canvas-toolbar.tsx 已移除：工具栏功能并入画布顶部同一行（canvas-pomelo.tsx 内 CanvasTopPanel/CanvasSharePanel 覆盖）。
-canvas-pomelo.tsx: pomelo 底座（替代 canvas-tldraw.tsx）：canvas-store → pomelo 文档全量重建（buildPomeloRecords，block id 与原 shape id 约定对齐）；ViewportPlugin 平移缩放 + CanvasBindsPlugin 交互绑定；顶部覆盖层结构沿用（TopPanel/SharePanel 同一行）；自由元素 note/text/shape→FreeElementBlock，绑定两实体的自由箭头复用 RelationArrowBlock 投影。canvas-tldraw.tsx 保留为历史参考（不再挂载）。
+canvas-toolbar.tsx: 画布工具组（CanvasToolbarItems，无浮动容器）：由 canvas-top-bar.tsx 渲染进页面最顶 Header 的世界画布行——选择/抓手模式（panMode 读自 canvas-store，全画布平移 overlay 由 canvas-pomelo.tsx 的 PanOverlay 承载）、连线工具（canvas-store.linkMode → CanvasBindsPlugin 点击节点拖出引导线，一次性后自动回选择模式）、独立插入（图片/音频/视频=无属性边的 attr 元素、文本=自由文本，经 addFreeElement 落在视口中心）、undo/redo（内存投影）、缩放菜单（放大/缩小/50%/100%/200%/适应项目/适应所选内容/对齐到网格开关）与帮助面板。pomelo 编辑器实例由 canvas-pomelo 挂载后经 setEditor 登记进 canvas-store。全局 Header 同时保留返回/面包屑与实体/便签创建。
+canvas-pomelo.tsx: pomelo 底座（替代 canvas-tldraw.tsx）：canvas-store → pomelo 文档全量重建（buildPomeloRecords，block id 与原 shape id 约定对齐）；ViewportPlugin 平移缩放 + CanvasBindsPlugin 交互绑定；底部浮动工具栏 CanvasFloatingToolbar；自由元素 note/text/shape→FreeElementBlock，绑定两实体的自由箭头复用 RelationArrowBlock 投影。canvas-tldraw.tsx 保留为历史参考（不再挂载）。
 canvas-pomelo-plugin.ts: 画布交互绑定层：点击命中 → CanvasSelection 解析（驱动右侧面板）；拖拽位移 + 四角 resize 经 moveElement + persistGeometry（400ms 去抖）持久化；双击实体卡进入容器；Delete/Backspace 删关系/草稿；选区 overlay 屏幕 space 绘制。
 canvas-detail-panel.tsx: 右侧详情面板（统一架构：选中即面板）；World 核心节点/实体节点/语义关系边/自由草稿四类选中体，含进入容器、建立关系、Promote 与删除操作。
 canvas-dialogs.tsx: 对话框层；新建实体（type 目录）、受控关系确认（RelateDialog）、Promote 确认。

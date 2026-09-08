@@ -3,7 +3,8 @@
  * [OUTPUT]: 对外提供 RelationArrowBlock（type: relation-arrow）：绑定两端的实体卡 Block，
  * 几何由 anchor（默认节点中心，可被控制点调整）+ bend（中间控制点，控制曲线）经 relationGeometry
  * 解析为二次贝塞尔曲线；渲染曲线 + 沿切线箭头 + 曲线中点关系标签；颜色按 attrs.relationType
- * 的关系语义色着色（relationColors，真实案例设计）
+ * 的关系语义色着色（relationColors，真实案例设计）；线宽/箭头/标签为 zoom 常量（1/scale 反向
+ * 补偿，缩放不改变屏幕像素尺寸，缩放重绘由 PixiBlock.renderOnZoom 驱动）
  * [POS]: lib/pomelo/world-canvas 的关系连线 Block（学习 tldraw ArrowBindingUtil 的绑定式连线思路：
  * 绑定关系存于 demo-store.relations，几何在每次渲染时解析）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -20,6 +21,8 @@ const LINE_COLOR = 0x8b93a7;
 
 export class RelationArrowBlock extends PixiBlock {
   static type = "relation-arrow";
+  // zoom 常量：线宽/箭头/标签按屏幕像素渲染（1/scale 反向补偿），缩放时重绘
+  override renderOnZoom = true;
 
   // 绑定期几何解析：每次文档更新都会对所有 block 重算 blockState，卡片/锚点/弯曲变化即触发重绘
   blockStateSelector = (state: PomeloEditorState) => {
@@ -43,36 +46,46 @@ export class RelationArrowBlock extends PixiBlock {
     // 统一中性色：连线/箭头/标签不再按 relationType 着色
     const color = LINE_COLOR;
 
+    // zoom 常量补偿：世界坐标几何随视口缩放，尺寸再乘 1/scale 保持屏幕像素恒定
+    const s = this.screenScale;
+    const inv = 1 / s;
+
     const container = new PIXI.Container();
     const g = new PIXI.Graphics();
 
     // 曲线主体：只画节点外段（[ta, tb]），节点内不画（未选中时 tldraw 同款）
     const segment = curveSegment(geo, geo.ta, geo.tb);
-    g.lineStyle(2, color, 0.95);
+    g.lineStyle(2 * inv, color, 0.95);
     g.moveTo(segment.p0.x, segment.p0.y);
     g.quadraticCurveTo(segment.cp.x, segment.cp.y, segment.p2.x, segment.p2.y);
+    container.addChild(g);
 
-    // 箭头：沿曲线在边界 b 处的切线方向
+    // 箭头：沿曲线在边界 b 处的切线方向（三角形在锚点局部坐标内画，容器整体反向缩放）
     const tangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.tb);
     const angle = Math.atan2(tangent.y, tangent.x);
     const headLength = 11;
     const headWidth = 9;
-    const perpX = -Math.sin(angle);
-    const perpY = Math.cos(angle);
-    const baseX = geo.b.x - headLength * Math.cos(angle);
-    const baseY = geo.b.y - headLength * Math.sin(angle);
-    g.lineStyle(0);
-    g.beginFill(color);
-    g.moveTo(geo.b.x, geo.b.y);
-    g.lineTo(baseX + (headWidth / 2) * perpX, baseY + (headWidth / 2) * perpY);
-    g.lineTo(baseX - (headWidth / 2) * perpX, baseY - (headWidth / 2) * perpY);
-    g.closePath();
-    g.endFill();
-
-    container.addChild(g);
+    const head = new PIXI.Container();
+    head.position.set(geo.b.x, geo.b.y);
+    head.rotation = angle;
+    head.scale.set(inv);
+    const headG = new PIXI.Graphics();
+    headG.lineStyle(0);
+    headG.beginFill(color);
+    headG.moveTo(0, 0);
+    headG.lineTo(-headLength, headWidth / 2);
+    headG.lineTo(-headLength, -headWidth / 2);
+    headG.closePath();
+    headG.endFill();
+    head.addChild(headG);
+    container.addChild(head);
 
     if (state?.label) {
+      // 标签层：以曲线中点为锚点整体反向缩放，字号/圆角/偏移保持屏幕像素恒定
       const mid = geo.mid;
+      const labelLayer = new PIXI.Container();
+      labelLayer.position.set(mid.x, mid.y);
+      labelLayer.scale.set(inv);
       const text = new PIXI.Text(truncateText(state.label, 120, 10), {
         fontFamily: FONT,
         fontSize: 10,
@@ -80,14 +93,15 @@ export class RelationArrowBlock extends PixiBlock {
         align: "center",
       });
       text.anchor.set(0.5, 0.5);
-      text.position.set(mid.x, mid.y - 8);
+      text.position.set(0, -8);
       const bg = new PIXI.Graphics();
       bg.beginFill(0x0f1410, 0.92);
       bg.lineStyle(1, 0xffffff, 0.1, 1);
-      bg.drawRoundedRect(mid.x - text.width / 2 - 7, mid.y - 17, text.width + 14, 18, 9);
+      bg.drawRoundedRect(-text.width / 2 - 7, -17, text.width + 14, 18, 9);
       bg.endFill();
-      container.addChild(bg);
-      container.addChild(text);
+      labelLayer.addChild(bg);
+      labelLayer.addChild(text);
+      container.addChild(labelLayer);
     }
 
     container.eventMode = "none";

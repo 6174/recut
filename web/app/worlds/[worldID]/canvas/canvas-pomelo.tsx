@@ -4,14 +4,15 @@
  * [OUTPUT]: 对外提供 CanvasPomeloHost：真实世界画布的 pomelo 底座（tldraw 方案的替换）——
  * canvas-store（world_entities/world_relations/world_canvas 唯一语义真相）→ pomelo 文档全量重建；
  * ViewportPlugin（平移/缩放）+ CanvasBindsPlugin（选中解析/拖拽位移与 resize 持久化/进入容器/删除）；
- * 世界工具栏与「设定视图」切换均上提到全局 Header（canvas-top-bar.tsx），画布内无顶部覆盖层；
+ * 画布工具（模式/连线/插入/undo/缩放菜单）由 CanvasToolbarItems 承载并合并进全局 Header（canvas-top-bar.tsx），
+ * 世界工具栏与「设定视图」切换仍上提到全局 Header（canvas-top-bar.tsx）；
  * 自由元素映射：note→NoteBlock、text/shape→FreeElementBlock、绑定两实体的自由箭头→复用
  * RelationArrowBlock 投影（未绑定箭头暂不渲染）；画面 delta 同步经 moveElement + persistGeometry
  * [POS]: worlds/[worldID]/canvas 的画布底座层（本组件经 index.tsx dynamic(ssr:false) 挂载）；
  * 语义真相只在 world_entities + world_relations，pomelo 文档是内存投影（canvas 变更永不产 revision）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import * as PIXI from "pixi.js";
 import { PixiBlock } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-block";
 import { PomeloEditorState } from "@/lib/pomelo/pomelo-core/pomelo-state";
@@ -20,13 +21,14 @@ import { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo
 import { EntityCardBlock } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
 import { NoteBlock, WorldNodeBlock } from "@/lib/pomelo/world-canvas/blocks/note-and-world-blocks";
 import { RelationArrowBlock } from "@/lib/pomelo/world-canvas/blocks/relation-arrow-block";
-import { ViewportPlugin, centerContent } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
+import { ViewportPlugin, centerContent, panBy } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
 import { TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, drawShadowCard } from "@/lib/pomelo/world-canvas/canvas-theme";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { drawElementCaption } from "@/lib/pomelo/world-canvas/truncate-text";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
 import { entityImageUrls } from "./canvas-image";import { type AttrCreator, type AttrMedia, DEFAULT_ENTITY_SIZE, NOTE_SIZE, WORLD_ELEMENT_ID, WORLD_NODE_SIZE, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
+import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
 
 // ---------- 自由元素 Block：text（纯文本）/ shape（几何轮廓） ----------
@@ -414,6 +416,44 @@ function AttrCreatorPanel() {
   );
 }
 
+// ---------- 抓手模式：panMode 时覆盖画布，截获指针拖拽平移视口（工具组在全局 Header） ----------
+
+function PanOverlay({ editorRef }: { editorRef: RefObject<PomeloEditor | null> }) {
+  const panMode = useWorldCanvasStore((state) => state.panMode);
+  const panDrag = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
+  if (!panMode) return null;
+  const applyPan = (dx: number, dy: number) => {
+    const editor = editorRef.current;
+    if (!editor || (dx === 0 && dy === 0)) return;
+    const adapter = editor.renderAdapter as PixiRendererAdapter;
+    const next = panBy({ ...adapter.transform }, dx, dy);
+    adapter.setTransform(next.x, next.y, next.scale);
+    useWorldCanvasDemoStore.getState().setTransform(next);
+  };
+  return (
+    <div
+      className="absolute inset-0 z-10 cursor-grab active:cursor-grabbing"
+      onPointerDown={(event) => {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        panDrag.current = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY };
+      }}
+      onPointerMove={(event) => {
+        const drag = panDrag.current;
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        applyPan(event.clientX - drag.lastX, event.clientY - drag.lastY);
+        drag.lastX = event.clientX;
+        drag.lastY = event.clientY;
+      }}
+      onPointerUp={() => {
+        panDrag.current = null;
+      }}
+      onPointerCancel={() => {
+        panDrag.current = null;
+      }}
+    />
+  );
+}
+
 // ---------- 宿主组件 ----------
 
 export function CanvasPomeloHost() {
@@ -446,6 +486,7 @@ export function CanvasPomeloHost() {
       // 点状网格由 GridPlugin 绘制
       syncDocFromCanvasStore(editor);
       centerContent(editor);
+      useWorldCanvasStore.getState().setEditor(editor);
       setReady(true);
       // e2e/调试句柄（仅 dev 构建暴露）
       if (process.env.NODE_ENV !== "production") {
@@ -460,6 +501,7 @@ export function CanvasPomeloHost() {
       editor.destroy();
       editorRef.current = null;
       pluginRef.current = null;
+      useWorldCanvasStore.getState().setEditor(null);
       setReady(false);
     };
   }, []);
@@ -481,6 +523,7 @@ export function CanvasPomeloHost() {
   return (
     <div className="relative h-full min-h-0 w-full bg-background">
       <div ref={containerRef} className="absolute inset-0 [&_canvas]:block" />
+      <PanOverlay editorRef={editorRef} />
       <AttrCreatorPanel />
     </div>
   );

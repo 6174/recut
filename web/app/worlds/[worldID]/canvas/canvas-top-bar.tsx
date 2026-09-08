@@ -1,17 +1,19 @@
 /*
- * [INPUT]: 依赖 canvas-store（context/worldName/readOnly/notice/relating 状态与 setContext/setCreating/addNote 动作）与 lucide-react
+ * [INPUT]: 依赖 canvas-store（context/worldName/notice/relating 状态与 setContext 动作）、
+ * canvas-toolbar（CanvasToolbarItems 工具组）与 lucide-react
  * [OUTPUT]: 对外提供 useWorldCanvasTopBarStore（画布激活时向全局 Header 注册自己）与 WorldCanvasTopBar：
- * 世界画布工具栏（返回设定视图 / 上下文面包屑 / +实体 / +便签 / 关系引导与 notice），
+ * 世界画布工具栏（返回设定视图 / 上下文面包屑 / 画布工具组 / 关系引导与 notice），
  * 由 Workspace 顶层 Header 左侧空间渲染（全局导航保留，用 | 分隔全局与 world 局部操作）
- * [POS]: worlds/[worldID]/canvas 的顶层工具栏；替代 canvas-pomelo 内嵌的 CanvasTopPanel 覆盖层
+ * [POS]: worlds/[worldID]/canvas 的顶层工具栏；实体/便签/工具（模式/连线/插入/undo/缩放）由 CanvasToolbarItems 承载
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { ArrowLeft, Box, ChevronLeft, Globe2, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, Box, ChevronLeft, Globe2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { create } from "zustand";
 import { useWorldCanvasStore } from "./canvas-store";
+import { CanvasToolbarItems } from "./canvas-toolbar";
 
 type WorldCanvasTopBarState = {
   active: boolean;
@@ -29,12 +31,10 @@ export function WorldCanvasTopBar() {
   const router = useRouter();
   const context = useWorldCanvasStore((state) => state.context);
   const worldName = useWorldCanvasStore((state) => state.worldName);
-  const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const notice = useWorldCanvasStore((state) => state.notice);
   const relatingFrom = useWorldCanvasStore((state) => state.relatingFrom);
   const relatingTo = useWorldCanvasStore((state) => state.relatingTo);
   const setContext = useWorldCanvasStore((state) => state.setContext);
-  const setCreating = useWorldCanvasStore((state) => state.setCreating);
   return (
     <div className="flex h-11 min-w-0 items-center gap-2 text-sm">
       <button
@@ -62,16 +62,8 @@ export function WorldCanvasTopBar() {
           <span className="shrink-0 text-xs text-muted-foreground">· 世界画布</span>
         </span>
       )}
-      {!readOnly && (
-        <span className="flex shrink-0 items-center gap-1.5">
-          <button className="flex h-7 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted" onClick={() => setCreating(true)} type="button">
-            <Plus className="size-3" /> 实体
-          </button>
-          <button className="flex h-7 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted" onClick={() => void useWorldCanvasStore.getState().addNote()} type="button">
-            <Pencil className="size-3" /> 便签
-          </button>
-        </span>
-      )}
+      <span className="mx-1 h-5 w-px bg-border" />
+      <CanvasToolbarItems />
       {relatingFrom && !relatingTo && <span className="shrink-0 text-xs text-primary">已选起点：点击目标实体建立关系</span>}
       {notice && <span className="truncate text-xs text-warning">{notice}</span>}
     </div>

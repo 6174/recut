@@ -15,15 +15,19 @@ const FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
 
 export class NoteBlock extends PixiBlock {
   static type = "note";
+  // zoom 常量：元素标题徽标按屏幕像素渲染
+  override renderOnZoom = true;
 
   renderBlock() {
     const { x = 0, y = 0, width = 160, height = 110, text = "" } = this.record.attrs;
     const w = Number(width);
     const h = Number(height);
+    const s = this.screenScale;
+    const inv = 1 / s;
 
     const container = new PIXI.Container();
 
-    drawElementCaption(container, { title: "便签", icon: "✒️", maxWidth: w });
+    drawElementCaption(container, { title: "便签", icon: "✒️", maxWidth: w * s, scale: inv });
 
     drawShadowCard(container, w, h, { radius: 12 });
 
@@ -47,15 +51,19 @@ export class NoteBlock extends PixiBlock {
 
 export class WorldNodeBlock extends PixiBlock {
   static type = "world-node";
+  // zoom 常量：标题与元素徽标按屏幕像素渲染
+  override renderOnZoom = true;
 
   renderBlock() {
     const { x = 0, y = 0, width = 260, height = 96, title = "" } = this.record.attrs;
     const w = Number(width);
     const h = Number(height);
+    const s = this.screenScale;
+    const inv = 1 / s;
 
     const container = new PIXI.Container();
 
-    drawElementCaption(container, { title: String(title) || "World", icon: "◍", maxWidth: w - 20 });
+    drawElementCaption(container, { title: String(title) || "World", icon: "◍", maxWidth: (w - 20) * s, scale: inv });
 
     // 略强边框：World 节点做轻量层级强调
     drawShadowCard(container, w, h, { radius: CARD_RADIUS, strokeAlpha: CARD_STROKE_STRONG_ALPHA });
@@ -69,13 +77,14 @@ export class WorldNodeBlock extends PixiBlock {
     glyph.position.set(16 + ICON / 2, h / 2);
     container.addChild(glyph);
 
-    const titleText = new PIXI.Text(truncateText(String(title), w - 96, 16), {
+    const titleText = new PIXI.Text(truncateText(String(title), (w - 96) * s, 16), {
       fontFamily: FONT,
       fontSize: 16,
       fontWeight: "600",
       fill: TEXT_PRIMARY,
     });
     titleText.position.set(72, h / 2 - 18);
+    titleText.scale.set(inv);
     container.addChild(titleText);
 
     const sub = new PIXI.Text("World 核心节点 · 点击查看", { fontFamily: FONT, fontSize: 11, fill: TEXT_SECONDARY });

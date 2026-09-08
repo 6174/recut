@@ -14,6 +14,8 @@ export const GRID_STEP = 26;
 
 export class GridPlugin extends PomeloPlugin {
   Name = "GridPlugin";
+  // 工具栏「对齐到网格」开关：false 时清空并不再绘制点阵（纯视觉，不影响命中/吸附）
+  enabled = true;
   #grid = new PIXI.Graphics();
   #cleanup?: () => void;
 
@@ -33,6 +35,7 @@ export class GridPlugin extends PomeloPlugin {
   draw(adapter: PixiRendererAdapter) {
     const g = this.#grid;
     g.clear();
+    if (!this.enabled) return;
     const t = adapter.transform;
     const step = GRID_STEP * t.scale;
     if (step < 10) return;
