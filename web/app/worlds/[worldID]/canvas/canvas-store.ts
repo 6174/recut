@@ -30,7 +30,13 @@ export type CanvasSelection =
   | { type: "canvas"; element: WorldCanvasElement; fromEntityId?: string; toEntityId?: string }
   | null;
 
-export const DEFAULT_ENTITY_SIZE = { width: 200, height: 110 };
+// 「+」引导层：从实体/World 节点的 + 手柄拖出后，要么连到另一实体开关系确认，
+// 要么在当前位置弹引导菜单创建属性节点（文本/图片/音频/视频）。
+// 属性边/属性元素归属当前上下文（Level）：全局=Level 0（World 的属性），实体容器=该实体的属性。
+export type AttrMedia = "text" | "image" | "audio" | "video";
+export type AttrCreator = { fromEntityId: string; fromEntityTitle: string; screenX: number; screenY: number; worldX?: number; worldY?: number } | null;
+
+export const DEFAULT_ENTITY_SIZE = { width: 264, height: 328 };
 export const NOTE_SIZE = { width: 150, height: 100 };
 export const WORLD_ELEMENT_ID = "shape:world";
 export const WORLD_NODE_SIZE = { width: 260, height: 100 };
@@ -99,6 +105,7 @@ type WorldCanvasState = {
   creating: boolean;
   promotingId: string | null;
   dataVersion: number;
+  attrCreator: AttrCreator;
   pendingRelation: { fromEntityId: string; toEntityId: string; arrowCanvasId?: string } | null;
   open: (input: { apiBase: string; worldId: string; worldName: string; readOnly: boolean; revisionId: string }) => void;
   load: (force?: boolean) => Promise<void>;
@@ -111,6 +118,10 @@ type WorldCanvasState = {
   startRelating: (entityId: string) => void;
   pickRelatingTarget: (entityId: string) => void;
   cancelRelating: () => void;
+  setAttrCreator: (creator: AttrCreator) => void;
+  createAttribute: (fromElementId: string, media: AttrMedia, pos: Point, initial?: { text?: string; fileName?: string }, edgeType?: string) => Promise<void>;
+  // 关系锚点持久化：写固有 anchor 元素（shape:rel-<relationId>），语义由 relationId 关联
+  persistRelationGeometry: (relationId: string, geometry: { fromAnchor?: { x: number; y: number }; toAnchor?: { x: number; y: number }; bend?: { dx: number; dy: number } }) => Promise<void>;
   moveElement: (id: string, x: number, y: number) => void;
   upsertElement: (input: CanvasElementInput) => Promise<WorldCanvasElement>;
   persistGeometry: (id: string, geometryOverride?: Record<string, unknown>, propsOverride?: Record<string, unknown>) => Promise<void>;
@@ -146,6 +157,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   creating: false,
   promotingId: null,
   dataVersion: 0,
+  attrCreator: null,
   pendingRelation: null,
 
   open: (input) => {
@@ -170,6 +182,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       relatingTo: null,
       creating: false,
       promotingId: null,
+      attrCreator: null,
       pendingRelation: null,
     });
     void get().load(true);
@@ -240,6 +253,51 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     set({ relatingTo: entityId });
   },
   cancelRelating: () => set({ relatingFrom: null, relatingTo: null }),
+
+  // 「+」引导菜单锚点；宿主组件以屏幕坐标渲染引导面板
+  setAttrCreator: (attrCreator) => set({ attrCreator }),
+
+  // 创建属性节点 + 属性边（两笔 world_canvas 写，均不产 revision）：
+  // 属性元素 kind=attr（props.media 区分文本/图片/音频/视频），
+  // 属性边 kind=arrow（props.fromElementId → toElementId + attrMedia + edgeType —— 边类型：
+  // attr=属性边；其他取受控关系词表的类型名做语义标签）。同处当前上下文（Level 语义由
+  // world_canvas 的 contextId 承担：全局=Level 0，实体容器=该实体的属性层）。
+  createAttribute: async (fromElementId, media, pos, initial, edgeType = "attr") => {
+    set({ attrCreator: null });
+    const attrId = `shape:attr-${Date.now()}`;
+    const arrowId = `shape:arrow-${Date.now()}`;
+    const contextId = get().context?.entityId ?? "";
+    const mediaLabels: Record<AttrMedia, string> = { text: "文本", image: "图片", audio: "音频", video: "视频" };
+    try {
+      await get().upsertElement({
+        id: attrId,
+        contextId,
+        kind: "attr",
+        refKind: "",
+        refId: "",
+        name: `属性 · ${mediaLabels[media]}`,
+        props: { media, text: initial?.text ?? "", fileName: initial?.fileName ?? "" },
+        geometry: { x: Math.round(pos.x), y: Math.round(pos.y), width: 260, height: 140, zIndex: 1 },
+        style: {},
+        layer: "0",
+      });
+      await get().upsertElement({
+        id: arrowId,
+        contextId,
+        kind: "arrow",
+        refKind: "",
+        refId: "",
+        name: `属性边 · ${mediaLabels[media]}`,
+        props: { fromElementId, toElementId: attrId, attrMedia: media, edgeType },
+        geometry: { x: Math.round(pos.x), y: Math.round(pos.y), zIndex: 1 },
+        style: {},
+        layer: "0",
+      });
+      await get().load(true);
+    } catch (cause) {
+      set({ notice: messageOf(cause) });
+    }
+  },
 
   moveElement: (id, x, y) =>
     set((state) => {
@@ -407,6 +465,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
 
   createRelation: async (fromEntityId, toEntityId, relationType) => {
+    // 同一双端/同类型去重（历史数据可能存在重复边，不再追加）
+    if (get().relations.some((relation) => relation.fromEntityId === fromEntityId && relation.toEntityId === toEntityId && relation.type === relationType)) return;
     const run = async (revisionId: string) =>
       createRecutWorldsClient(get().apiBase).relations.create({
         worldId: get().worldId,
@@ -443,6 +503,27 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         return run(get().revisionId);
       });
       await get().load(true);
+    } catch (cause) {
+      set({ notice: messageOf(cause) });
+    }
+  },
+
+  // 关系锚点持久化：落在固有 anchor 元素上（kind=arrow + relationId，不渲染为连线投影）；
+  // 传 undefined 即清除锚点覆盖（回落默认中心）。释放时清除 undefined 的 key 由 JSON 序列化自然裁剪。
+  persistRelationGeometry: async (relationId, geometry) => {
+    try {
+      await get().upsertElement({
+        id: `shape:rel-${relationId}`,
+        contextId: get().context?.entityId ?? "",
+        kind: "arrow",
+        refKind: "",
+        refId: relationId,
+        name: "关系锚点",
+        props: { relationId, fromAnchor: geometry.fromAnchor, toAnchor: geometry.toAnchor, bend: geometry.bend },
+        geometry: { x: 0, y: 0, zIndex: 0 },
+        style: {},
+        layer: "0",
+      });
     } catch (cause) {
       set({ notice: messageOf(cause) });
     }

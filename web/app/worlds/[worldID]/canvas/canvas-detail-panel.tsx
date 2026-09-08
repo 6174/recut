@@ -26,7 +26,7 @@ export function CanvasDetailPanel() {
 
   if (!selection) return null;
   return (
-    <aside className="flex w-80 shrink-0 flex-col overflow-hidden border-l bg-card">
+    <aside className="absolute right-0 top-0 z-20 flex h-full w-80 flex-col overflow-hidden border-l bg-card">
       <header className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-primary">

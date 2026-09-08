@@ -10,6 +10,7 @@
 import type { RefObject } from "react";
 import type { PomeloEditor } from "../pomelo-core/pomelo-editor";
 import { useWorldDemoStore, kindLabel } from "./demo-store";
+import { MEDIA_META } from "./blocks/media-node-block";
 
 type ToolbarProps = {
   kinds: string[];
@@ -34,6 +35,7 @@ export function Toolbar({ kinds, editor, editorReady, onZoomIn, onZoomOut, onCen
   const setMode = useWorldDemoStore((state) => state.setMode);
   const addEntity = useWorldDemoStore((state) => state.addEntity);
   const addNote = useWorldDemoStore((state) => state.addNote);
+  const addMediaNode = useWorldDemoStore((state) => state.addMediaNode);
   const worldName = useWorldDemoStore((state) => state.worldName);
   const setNotice = useWorldDemoStore((state) => state.setNotice);
 
@@ -71,6 +73,18 @@ export function Toolbar({ kinds, editor, editorReady, onZoomIn, onZoomOut, onCen
         <button className="flex h-7 items-center rounded-md border px-2 text-xs hover:bg-muted" onClick={addNote} type="button">
           便签
         </button>
+        {Object.entries(MEDIA_META).map(([media, meta]) => (
+          <button
+            key={media}
+            className="flex h-7 items-center gap-1 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={() => addMediaNode(media as Parameters<typeof addMediaNode>[0])}
+            type="button"
+            title={`新建基础${meta.label}节点`}
+          >
+            <span>{meta.icon}</span>
+            {meta.label}
+          </button>
+        ))}
       </span>
       <span className="mx-2 h-5 w-px bg-border" />
       <button

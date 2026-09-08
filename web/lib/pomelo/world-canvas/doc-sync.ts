@@ -12,6 +12,7 @@ import {
   NOTE_SIZE,
   WORLD_NODE_ID,
   WORLD_NODE_SIZE,
+  relationLabel,
   useWorldDemoStore,
 } from "./demo-store";
 
@@ -33,11 +34,15 @@ export function buildDemoBlocks(data: ReturnType<typeof useWorldDemoStore.getSta
       attrs: {
         x: entity.x,
         y: entity.y,
-        width: ENTITY_SIZE.width,
-        height: ENTITY_SIZE.height,
+        width: entity.width ?? ENTITY_SIZE.width,
+        height: entity.height ?? ENTITY_SIZE.height,
         title: entity.title,
+        subtitle: entity.subtitle ?? "",
+        tags: entity.tags ?? [],
+        desc: entity.desc,
+        cover: entity.cover ?? "",
+        photos: entity.photos ?? [],
         kind: entity.kind,
-        summary: entity.summary,
         isProvisional: entity.isProvisional ? true : undefined,
       },
     });
@@ -49,25 +54,33 @@ export function buildDemoBlocks(data: ReturnType<typeof useWorldDemoStore.getSta
       attrs: { x: note.x, y: note.y, width: note.width, height: note.height, text: note.text },
     });
   });
+  data.mediaNodes.forEach((mediaNode) => {
+    blocks.push({
+      id: `media:${mediaNode.id}`,
+      type: "media-node",
+      attrs: { x: mediaNode.x, y: mediaNode.y, width: mediaNode.width, height: mediaNode.height, media: mediaNode.media },
+    });
+  });
   data.relations.forEach((relation) => {
-    const label = relationLabelSafe(relation.relationType);
     blocks.push({
       id: `arrow:${relation.id}`,
       type: "relation-arrow",
-      attrs: { x: 0, y: 0, width: 0, height: 0, fromId: `entity:${relation.fromEntityId}`, toId: `entity:${relation.toEntityId}`, label },
+      attrs: {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        fromId: `entity:${relation.fromEntityId}`,
+        toId: `entity:${relation.toEntityId}`,
+        label: relationLabel(relation.relationType),
+        relationType: relation.relationType,
+        ...(relation.fromAnchor ? { fromAnchor: relation.fromAnchor } : {}),
+        ...(relation.toAnchor ? { toAnchor: relation.toAnchor } : {}),
+        ...(relation.bend ? { bend: relation.bend } : {}),
+      },
     });
   });
   return blocks;
-}
-
-function relationLabelSafe(relationType: string): string {
-  // 与 demo-store.relationLabel 保持同一份映射的入口（避免循环 import 从 store 引）
-  const labels: Record<string, string> = {
-    appears_in: "出现于",
-    located_in: "位于",
-    references: "引用",
-  };
-  return labels[relationType] ?? relationType;
 }
 
 // 全量重建：先删掉现有子 block，再按 store 数据添加（仅结构变化时调用，拖拽位移不重建）

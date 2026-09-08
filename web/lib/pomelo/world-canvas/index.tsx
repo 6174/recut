@@ -14,8 +14,10 @@ import { PixiRendererAdapter } from "../pomelo-core/pomelo-pixi/pomelo-pixi-adap
 import { PomeloEditor } from "../pomelo-core/pomelo-editor";
 import { PomeloEditorState } from "../pomelo-core/pomelo-state";
 import { EntityCardBlock } from "./blocks/entity-card-block";
+import { MediaNodeBlock } from "./blocks/media-node-block";
 import { NoteBlock, WorldNodeBlock } from "./blocks/note-and-world-blocks";
 import { RelationArrowBlock } from "./blocks/relation-arrow-block";
+import { GridPlugin } from "./plugins/grid-plugin";
 import { ConnectionPlugin } from "./plugins/connection-plugin";
 import { KeyboardPlugin } from "./plugins/keyboard-plugin";
 import { SelectionPlugin } from "./plugins/selection-plugin";
@@ -49,9 +51,9 @@ export default function PomeloWorldCanvasDemo() {
     const editor = new PomeloEditor({
       state,
       container,
-      plugins: [new ViewportPlugin(), selectionPlugin, new ConnectionPlugin(), new KeyboardPlugin()],
-      blockTypes: [EntityCardBlock, NoteBlock, WorldNodeBlock, RelationArrowBlock],
-      renderAdapter: new PixiRendererAdapter(),
+      plugins: [new GridPlugin(), new ViewportPlugin(), selectionPlugin, new ConnectionPlugin(), new KeyboardPlugin()],
+      blockTypes: [EntityCardBlock, NoteBlock, WorldNodeBlock, MediaNodeBlock, RelationArrowBlock],
+      renderAdapter: new PixiRendererAdapter({ transparentBackground: true }),
     });
     editorRef.current = editor;
     selectionPluginRef.current = selectionPlugin;
@@ -59,6 +61,9 @@ export default function PomeloWorldCanvasDemo() {
     void editor.onInit().then(() => {
       // StrictMode 下 editor1 可能在 onInit 恢复前已被销毁，避免对已销毁编辑器做初始化
       if (editorRef.current !== editor) return;
+      // 真实案例式浅色画布（demo 内覆盖 display 默认深色，不影响引擎其他编辑器）
+      const adapter = editor.renderAdapter as PixiRendererAdapter;
+      // 背景由容器 CSS var(--background) 提供（adapter 以 backgroundAlpha:0 初始化）
       syncDocFromStore(editor.state);
       centerContent(editor);
       setEditorReady(true);
@@ -94,7 +99,7 @@ export default function PomeloWorldCanvasDemo() {
   }, []);
 
   return (
-    <div className="flex h-dvh flex-col bg-[#0b0f19] text-foreground">
+    <div className="flex h-dvh flex-col bg-background text-foreground">
       <Toolbar
         kinds={KINDS}
         editor={editorRef}
@@ -107,11 +112,11 @@ export default function PomeloWorldCanvasDemo() {
         <div ref={containerRef} className="absolute inset-0 [&_canvas]:block" />
         <DetailPanel />
         {notice && (
-          <div className="absolute bottom-4 left-4 max-w-md rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+          <div className="absolute bottom-4 left-4 z-10 max-w-sm rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
             {notice}
           </div>
         )}
-        <div className="absolute bottom-4 right-4 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
+        <div className="absolute bottom-4 right-[21.5rem] z-10 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
           {(zoom * 100).toFixed(0)}%
         </div>
       </div>

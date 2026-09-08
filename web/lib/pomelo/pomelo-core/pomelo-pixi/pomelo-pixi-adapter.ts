@@ -6,7 +6,14 @@ import { PomeloBlock, PomeloRenderer } from '../pomelo-renderer';
 
 export class PixiRendererAdapter extends PomeloRendererAdapter {
   app: PIXI.Application = null!;
-  
+  // 透明背景：画布底色交给宿主容器 CSS（如 var(--background)），引擎不再涂 init 默认蓝黑色
+  #transparentBackground: boolean;
+
+  constructor(options: { transparentBackground?: boolean } = {}) {
+    super();
+    this.#transparentBackground = options.transparentBackground ?? false;
+  }
+
   /**
    * PIXI V7 初始化
    */
@@ -18,6 +25,7 @@ export class PixiRendererAdapter extends PomeloRendererAdapter {
       height: 600,
       resizeTo: container,
       backgroundColor: 0x0b0f19,
+      backgroundAlpha: this.#transparentBackground ? 0 : 1,
       autoDensity: true, // 添加 autoDensity 以更好地处理显示比例
       antialias: true,    // 添加抗锯齿
       resolution: window.devicePixelRatio || 1,  // 设置分辨率以匹配设备

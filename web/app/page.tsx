@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、统一 App 身份图标、Agent Session HTTP API 及全局 Agent 面板上下文、工作台 i18n 字典与 Accept-Language 统一请求包装
- * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Apps 工作台入口及保持根壳的一级 Tab 切换、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态；全部文案经 useI18n 迁移到 workspace 字典
+ * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Apps 工作台入口及保持根壳的一级 Tab 切换（世界画布激活时顶层 Header 左侧让位给 WorldCanvasTopBar，用 | 分隔全局与 world 局部操作）、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态；全部文案经 useI18n 迁移到 workspace 字典
  * [POS]: web/app 的应用工作台框架；Studio 是 app Host 的默认创作入口，世界观作为首个原生创作应用统一进入世界观管理，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -36,6 +36,7 @@ import { WebGLStudioHero } from "@/components/webgl-studio-hero";
 import type { Asset } from "./media/media-types";
 import { MediaLibraryPanel } from "./media/media-library-panel";
 import { WorldsClient } from "./worlds/worlds-client";
+import { WorldCanvasShareButton, WorldCanvasTopBar, useWorldCanvasTopBarStore } from "./worlds/[worldID]/canvas/canvas-top-bar";
 
 type AppDetailRenderer = (context: { onConnectService: () => void; serviceOnline: boolean }) => React.ReactNode;
 type WorkspaceTab = "studio" | "worlds" | "projects" | "assets" | "apps";
@@ -150,6 +151,8 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
   }
 
   const detail = appDetail?.({ onConnectService: openServiceSettings, serviceOnline: online });
+  // 世界画布激活时：顶层 Header 左侧空间让位给 world 工具栏（用 | 分隔全局导航与 world 局部操作），右侧全局状态不变。
+  const canvasTopBarActive = useWorldCanvasTopBarStore((state) => state.active);
   const appInstallationLoadState: InstallationLoadState = online ? installationsState : service.phase === "checking" ? "loading" : "offline";
   const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={installationsError} installationLoadState={appInstallationLoadState} marketplace={marketplace} onStartProject={openCreateProject} onUpdated={reloadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
@@ -160,8 +163,8 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
           : <MediaLibraryPanel initialAssetID={initialAssetID} onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-5">
-      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" /><nav aria-label={showLanding ? t("nav.aria.website") : t("nav.aria.workspace")} className="flex min-w-0 items-center gap-0.5 sm:gap-1">{showLanding ? <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">{t("nav.workspace")}</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">{t("nav.market")}</Tab></> : <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">{t("nav.studio")}</Tab><Tab active={tab === "worlds"} href="/worlds" onNavigate={navigateTab} tab="worlds">{t("nav.worlds")}</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">{t("nav.projects")}</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">{t("nav.assets")}</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">{t("nav.apps")}</Tab></>}</nav></div>
-      {!showLanding && <div className="hidden md:block"><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>}
+      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" />{canvasTopBarActive && <WorldCanvasTopBar />}{!canvasTopBarActive && <nav aria-label={showLanding ? t("nav.aria.website") : t("nav.aria.workspace")} className="flex min-w-0 items-center gap-0.5 sm:gap-1">{showLanding ? <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">{t("nav.workspace")}</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">{t("nav.market")}</Tab></> : <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">{t("nav.studio")}</Tab><Tab active={tab === "worlds"} href="/worlds" onNavigate={navigateTab} tab="worlds">{t("nav.worlds")}</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">{t("nav.projects")}</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">{t("nav.assets")}</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">{t("nav.apps")}</Tab></>}</nav>}</div>
+      {!showLanding && <div className="hidden md:flex items-center gap-3 md:gap-4">{canvasTopBarActive && <><WorldCanvasShareButton /><span className="h-5 w-px bg-border" /></>}<HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></div>}
     </header>
     <div id="workspace-content-region" className={`relative min-h-0 flex-1 overflow-hidden ${showAgentPanel ? "md:pl-[var(--side-panel-width)]" : ""}`}>
       {online && tab === "assets" ? content : <section className="h-full min-h-0 overflow-y-auto bg-background p-4 sm:p-6 md:p-8"><div className="mx-auto max-w-6xl">{content}</div></section>}

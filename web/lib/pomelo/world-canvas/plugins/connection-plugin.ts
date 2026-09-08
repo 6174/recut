@@ -68,9 +68,44 @@ export class ConnectionPlugin extends PomeloPlugin {
       const end = target && target.blockId !== drafting.from.blockId ? target.center : world;
       const g = this.#draft;
       g.clear();
-      g.lineStyle(2, 0x7c9cff, 0.9);
-      g.moveTo(drafting.from.center.x, drafting.from.center.y);
-      g.lineTo(end.x, end.y);
+      // 起点节点内段：虚线（与选中态一致：锚点默认在节点中心）
+      const fromRecord = editor.state.getBlockById(drafting.from.blockId);
+      const fromRect = {
+        x: Number(fromRecord?.attrs.x) || 0,
+        y: Number(fromRecord?.attrs.y) || 0,
+        width: Number(fromRecord?.attrs.width) || 200,
+        height: Number(fromRecord?.attrs.height) || 110,
+      };
+      const fromCenter = { x: fromRect.x + fromRect.width / 2, y: fromRect.y + fromRect.height / 2 };
+      const dx = end.x - fromCenter.x;
+      const dy = end.y - fromCenter.y;
+      let t = Infinity;
+      if (dx > 0) t = Math.min(t, (fromRect.x + fromRect.width - fromCenter.x) / dx);
+      else if (dx < 0) t = Math.min(t, (fromRect.x - fromCenter.x) / dx);
+      if (dy > 0) t = Math.min(t, (fromRect.y + fromRect.height - fromCenter.y) / dy);
+      else if (dy < 0) t = Math.min(t, (fromRect.y - fromCenter.y) / dy);
+      t = Math.max(0, t);
+      const edge = { x: fromCenter.x + dx * t, y: fromCenter.y + dy * t };
+      g.lineStyle({ width: 1.5, color: 0x8b93a7, alpha: 0.9 });
+      for (let i = 0; i < 6; i += 2) {
+        const s0 = i / 6;
+        const s1 = Math.min(1, (i + 1) / 6);
+        g.moveTo(fromCenter.x + (edge.x - fromCenter.x) * s0, fromCenter.y + (edge.y - fromCenter.y) * s0);
+        g.lineTo(fromCenter.x + (edge.x - fromCenter.x) * s1, fromCenter.y + (edge.y - fromCenter.y) * s1);
+      }
+      // 边缘 → 终点：实线（吸附目标时用高亮双描边）
+      if (target && target.blockId !== drafting.from.blockId) {
+        g.lineStyle({ width: 5, color: 0xffffff, alpha: 0.95 });
+        g.moveTo(edge.x, edge.y);
+        g.lineTo(end.x, end.y);
+        g.lineStyle({ width: 2, color: 0x4c8dff, alpha: 1 });
+        g.moveTo(edge.x, edge.y);
+        g.lineTo(end.x, end.y);
+      } else {
+        g.lineStyle(2, 0x7c9cff, 0.9);
+        g.moveTo(edge.x, edge.y);
+        g.lineTo(end.x, end.y);
+      }
       g.lineStyle(0);
       g.beginFill(0x7c9cff);
       g.drawCircle(end.x, end.y, 4);

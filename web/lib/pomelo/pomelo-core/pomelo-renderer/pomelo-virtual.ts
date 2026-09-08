@@ -45,19 +45,41 @@ export class VirtualDOM {
         patches.push({ type: 'UPDATE', vNode: newNode, blockId: currentId });
       }
 
+      // children 按 key 对账（不按下标）：列表中间插入/删除元素不会引发后续整段错位 REPLACE
       const oldChildren = oldNode.children;
       const newChildren = newNode.children;
-      const maxLength = Math.max(oldChildren.length, newChildren.length);
+      const oldKeyMap = new Map<string, { vnode: VNode; index: number }>();
+      oldChildren.forEach((child, index) => oldKeyMap.set(String(child.key), { vnode: child, index }));
 
-      for (let i = 0; i < maxLength; i++) {
-        if (i >= oldChildren.length) {
-          patches.push({ type: 'CREATE', vNode: newChildren[i], blockId: currentId, index: i });
-        } else if (i >= newChildren.length) {
-          patches.push({ type: 'REMOVE', vNode: null, blockId: oldChildren[i].key as string });
-        } else {
-          patches.push(...this.diff(oldChildren[i], newChildren[i], currentId, i));
+      // 先移除已消失的 key；维护模拟顺序 sim，保证 CREATE 插入 index 与逐 patch 应用后的真实位置一致
+      const sim: string[] = oldChildren.map((child) => String(child.key));
+      for (const key of sim.slice()) {
+        if (!newChildren.some((child) => String(child.key) === key)) {
+          patches.push({ type: 'REMOVE', vNode: null, blockId: key });
+          sim.splice(sim.indexOf(key), 1);
         }
       }
+
+      newChildren.forEach((child, index) => {
+        const key = String(child.key);
+        const oldChild = oldKeyMap.get(key);
+        if (oldChild) {
+          patches.push(...this.diff(oldChild.vnode, child, currentId, index));
+        } else {
+          // 插到新顺序里前一个已存在节点的后面
+          let insertIndex = sim.length;
+          for (let j = index - 1; j >= 0; j--) {
+            const prev = String(newChildren[j].key);
+            const position = sim.indexOf(prev);
+            if (position !== -1) {
+              insertIndex = position + 1;
+              break;
+            }
+          }
+          patches.push({ type: 'CREATE', vNode: child, blockId: currentId, index: insertIndex });
+          sim.splice(insertIndex, 0, key);
+        }
+      });
     }
 
     return patches;
@@ -113,7 +135,10 @@ export class BlockPatcher {
       const newBlock = adapter.createBlock(patch.vNode!.record);
       parentBlock.insertChild(newBlock, patch.index ?? 0);
       blockMap.set(patch.vNode!.key as string, newBlock);
-      newBlock.render()
+      // 构造期 blockState 由基类默认 selector 计算（子类字段尚未初始化），这里重算一次再渲染，
+      // 否则新 block 首帧渲染为空，要等下一次文档更新才出现
+      newBlock.computeBlockState(adapter.editor.state);
+      newBlock.render();
     }
   }
 
