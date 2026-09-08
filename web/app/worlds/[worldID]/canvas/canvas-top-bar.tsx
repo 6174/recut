@@ -74,7 +74,6 @@ export function WorldCanvasTopBar() {
         <span className="flex min-w-0 items-center gap-1.5 font-semibold">
           <Globe2 aria-hidden className="size-4 shrink-0 text-primary" />
           <span className="truncate">{worldName}</span>
-          <span className="shrink-0 text-xs font-normal text-muted-foreground">· {variant === "form" ? "设定视图" : "世界画布"}</span>
         </span>
       )}
       {variant === "canvas" && (

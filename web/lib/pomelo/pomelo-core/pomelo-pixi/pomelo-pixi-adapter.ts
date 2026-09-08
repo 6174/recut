@@ -108,7 +108,7 @@ export class PixiRendererAdapter extends PomeloRendererAdapter {
    * @returns
    */
   createIElement(tag: string, block: PomeloBlock, props?: any): IElement {
-    console.debug('Creating element', { tag, block, props });
+    // console.debug('Creating element', { tag, block, props });
     return new PixiElement(tag, block, props);
   }
 

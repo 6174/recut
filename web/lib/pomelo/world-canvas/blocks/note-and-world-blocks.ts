@@ -51,7 +51,7 @@ export class NoteBlock extends PixiBlock {
 
 export class WorldNodeBlock extends PixiBlock {
   static type = "world-node";
-  // zoom 常量：标题与元素徽标按屏幕像素渲染
+  // zoom 常量：仅元素徽标按屏幕像素渲染；卡内标题随卡片缩放
   override renderOnZoom = true;
 
   renderBlock() {

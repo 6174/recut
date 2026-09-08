@@ -2,7 +2,8 @@
  * [INPUT]: 无 pixi 依赖（纯几何），输入为 block record（attrs）与端点卡片记录
  * [OUTPUT]: 对外提供连线几何的单一实现：锚点解析（fromAnchor/toAnchor 归一化，默认节点中心）、
  * 端点在节点边界的裁剪（boundaryPoint）、二次贝塞尔（控制点 = 直线中点 + bend 偏移），
- * 以及 relationGeometry 汇总（t1/t2/a/b/cp/labelPos）；Block 渲染、选中 overlay、命中检测、
+ * 以及 relationGeometry 汇总（t1/t2/a/b/cp/labelPos；边界交点经二分细化，保证端点精确落在
+ * 节点矩形边缘，箭头头部不会被节点卡面盖住）；Block 渲染、选中 overlay、命中检测、
  * 连线草稿共用这一份几何，保证四者所见一致
  * [POS]: lib/pomelo/world-canvas 的连线几何模块（对应 tldraw 的 normalizedAnchor + bend 概念）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -119,6 +120,18 @@ export type RelationGeometry = {
   toRect: RectLike;
 };
 
+// 在 (lo, hi) 间二分细化曲线穿入/穿出矩形的边界参数：采样步长（1/96）在长曲线上可达十几 px，
+// 会让端点 a/b 与箭头头部埋进节点内部——节点 z 序高于箭头时头部被卡面盖住，表现为「箭头不到节点边缘」
+function refineBoundaryT(curve: QuadCurve, rect: RectLike, lo: number, hi: number, entering: boolean): number {
+  const insideAt = (t: number) => pointInRect(bezierPoint(curve.p0, curve.cp, curve.p2, t), rect);
+  for (let i = 0; i < 10; i++) {
+    const mid = (lo + hi) / 2;
+    if (insideAt(mid) === entering) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}
+
 export function relationGeometry(from: BlockLike, to: BlockLike, arrowAttrs?: { fromAnchor?: Anchor; toAnchor?: Anchor; bend?: { dx: number; dy: number } }): RelationGeometry | null {
   if (!from || !to) return null;
   const fromRect: RectLike = rectFor(from);
@@ -128,15 +141,15 @@ export function relationGeometry(from: BlockLike, to: BlockLike, arrowAttrs?: { 
   const bend = arrowAttrs?.bend ?? { dx: 0, dy: 0 };
   const cp = { x: (t1.x + t2.x) / 2 + bend.dx, y: (t1.y + t2.y) / 2 + bend.dy };
   const curve: QuadCurve = { p0: t1, cp, p2: t2 };
-  // 采样找曲线与两节点边界的交点参数
+  // 采样找曲线与两节点边界的交点参数，再二分细化到精确边界
   let ta = 0;
   let tb = 1;
   const samples = 96;
   for (let i = 1; i <= samples; i++) {
     const t = i / samples;
-    if (ta === 0 && !pointInRect(bezierPoint(t1, cp, t2, t), fromRect)) ta = t;
+    if (ta === 0 && !pointInRect(bezierPoint(t1, cp, t2, t), fromRect)) ta = refineBoundaryT(curve, fromRect, (i - 1) / samples, t, false);
     if (pointInRect(bezierPoint(t1, cp, t2, t), toRect)) {
-      tb = t;
+      tb = refineBoundaryT(curve, toRect, (i - 1) / samples, t, true);
       break;
     }
   }
