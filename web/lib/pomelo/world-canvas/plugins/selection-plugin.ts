@@ -4,6 +4,7 @@
  * [OUTPUT]: 对外提供 SelectionPlugin：
  * - 点击命中选择（实体卡/便签/World 节点/关系线），节点内部永远先响应节点；
  * - 拖拽位移（transact updateBlock 增量提交，pointerup 落回 demo-store）；
+ *   pointermove 经 editor.ticker 统一合帧（一帧至多一次 transact+重绘，对齐 vsync），pointerup 前 flush 最后一次 move；
  * - resize：节点选区四角控制点拖拽调整宽高（对角固定，屏幕像素手柄）；
  * - link 选中覆盖线高亮（曲线贯穿两端控制点，节点内段短虚线，节点外段白+蓝双描边），
  *   三控制点可拖：start/end 调锚点在节点内的比例位置，mid 调曲线弯曲；
@@ -66,6 +67,10 @@ export class SelectionPlugin extends PomeloPlugin {
   #cleanup?: () => void;
   // start/end 控制点拖拽时的中心热区吸附状态（drawOverlay 据此画热区指示圈）
   #snapZone: { kind: "start" | "end"; centerScreen: Point } | null = null;
+
+  // 拖拽合帧：pointermove 只记最新事件，经 editor.ticker 对齐 vsync，一帧至多一次 transact+重绘
+  #pendingMoveEvent: PointerEvent | null = null;
+  static readonly #DRAG_KEY = "selection-drag";
 
   onEditorDidMount(editor: PomeloEditor) {
     const adapter = editor.renderAdapter as PixiRendererAdapter;
@@ -244,7 +249,7 @@ export class SelectionPlugin extends PomeloPlugin {
 
     const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
-    const onPointerMove = (event: PointerEvent) => {
+    const applyDragMove = (event: PointerEvent) => {
       if (!dragging || event.pointerId !== dragging.pointerId) return;
       const world = toWorld(event);
       if (isLinkHandleDrag(dragging)) {
@@ -312,8 +317,33 @@ export class SelectionPlugin extends PomeloPlugin {
       this.drawOverlay(editor);
     };
 
+    const cancelPendingMove = () => {
+      this.editor.ticker.cancel(SelectionPlugin.#DRAG_KEY);
+      this.#pendingMoveEvent = null;
+    };
+
+    // pointerup 前补齐最后一次未上帧的 move，保证提交位置=指针位置
+    const flushPendingMove = () => {
+      const pending = this.#pendingMoveEvent;
+      this.editor.ticker.cancel(SelectionPlugin.#DRAG_KEY);
+      this.#pendingMoveEvent = null;
+      if (pending && dragging && pending.pointerId === dragging.pointerId) applyDragMove(pending);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!dragging || event.pointerId !== dragging.pointerId) return;
+      // 统一 ticker 合帧：只保留最新一次 move，对齐 vsync 渲染，避免事件驱动渲染错过帧截止
+      this.#pendingMoveEvent = event;
+      this.editor.ticker.schedule(SelectionPlugin.#DRAG_KEY, () => {
+        const pending = this.#pendingMoveEvent;
+        this.#pendingMoveEvent = null;
+        if (pending && dragging && pending.pointerId === dragging.pointerId) applyDragMove(pending);
+      });
+    };
+
     const onPointerUp = (event: PointerEvent) => {
       if (!dragging || event.pointerId !== dragging.pointerId) return;
+      flushPendingMove();
       const store = useWorldDemoStore.getState();
       if (isLinkHandleDrag(dragging)) {
         // 把拖拽中的锚点/弯曲落回 demo-store（dataVersion++ 触发文档对齐重建）
@@ -381,6 +411,7 @@ export class SelectionPlugin extends PomeloPlugin {
     // transform（缩放/平移）变化时重绘选区，保持屏幕空间尺寸不变
     const unsubTransform = adapter.onTransformEvent.on(() => this.drawOverlay(editor));
     this.#cleanup = () => {
+      cancelPendingMove();
       view.removeEventListener("pointerdown", onPointerDown);
       view.removeEventListener("pointermove", onPointerMove);
       view.removeEventListener("pointerup", onPointerUp);

@@ -4,7 +4,8 @@
  * [OUTPUT]: 对外提供 CanvasBindsPlugin：pomelo 画布与 canvas-store 的交互绑定层——
  * 点击命中选择（实体卡/便签/文本/形状/属性节点/World 节点/语义关系线/自由箭头）解析为
  * CanvasSelection 驱动右侧面板；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
- * canvas-store.moveElement + 去抖 persistGeometry）；「+」手柄拖出引导线：落到另一实体卡 =
+ * canvas-store.moveElement + 去抖 persistGeometry；pointermove 经 editor.ticker 统一合帧，
+ * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄拖出引导线：落到另一实体卡 =
  * 受控关系确认（setPendingRelation），落空 = 属性引导菜单（setAttrCreator，创建属性节点 +
  * 属性边）；双击实体卡进入容器；Delete/Backspace 删除关系/草稿；选区 overlay + 「+」手柄 +
  * 引导草稿线（overlay 屏幕空间 / draft 世界空间，transform 变化自动重绘）
@@ -91,6 +92,9 @@ export class CanvasBindsPlugin extends PomeloPlugin {
   // 连线三控制点拖拽时的节点中心热区吸附指示（drawOverlay 据此绘制）
   #snapZone: { kind: "start" | "end"; centerScreen: Point } | null = null;
   #cleanup?: () => void;
+  // 拖拽合帧：pointermove 暂存的最新事件，经 editor.ticker 一帧至多 apply 一次
+  #pendingMoveEvent: PointerEvent | null = null;
+  static readonly #DRAG_KEY = "canvas-binds-drag";
   // 标识编辑器画布 DOM（供宿主 overlay 定位/事件穿透判断）
   #view?: HTMLCanvasElement;
 
@@ -370,7 +374,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       view.setPointerCapture(event.pointerId);
     };
 
-    const onPointerMove = (event: PointerEvent) => {
+    const applyDragMove = (event: PointerEvent) => {
       if (this.#guide && event.pointerId === this.#guide.pointerId) {
         const guide = this.#guide;
         const pointerWorld = toWorld(event);
@@ -447,7 +451,32 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       this.drawOverlay(editor);
     };
 
+    // 拖拽合帧：pointermove 只记最新事件，经 editor.ticker 对齐 vsync，一帧至多一次 transact+重绘
+    const cancelPendingMove = () => {
+      this.editor.ticker.cancel(CanvasBindsPlugin.#DRAG_KEY);
+      this.#pendingMoveEvent = null;
+    };
+    const flushPendingMove = () => {
+      const pending = this.#pendingMoveEvent;
+      cancelPendingMove();
+      if (pending) applyDragMove(pending);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const relevant = dragging && event.pointerId === dragging.pointerId;
+      const guiding = this.#guide && event.pointerId === this.#guide.pointerId;
+      if (!relevant && !guiding) return;
+      this.#pendingMoveEvent = event;
+      this.editor.ticker.schedule(CanvasBindsPlugin.#DRAG_KEY, () => {
+        const pending = this.#pendingMoveEvent;
+        this.#pendingMoveEvent = null;
+        if (pending) applyDragMove(pending);
+      });
+    };
+
     const onPointerUp = (event: PointerEvent) => {
+      // 补齐最后一次未上帧的 move，保证提交位置=指针位置
+      flushPendingMove();
       // 三控制点拖拽收尾：吸附回中心的清除锚点覆盖，回落默认中心
       if (dragging && isLinkDrag(dragging) && event.pointerId === dragging.pointerId) {
         const linkDrag = dragging;
@@ -603,6 +632,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     window.addEventListener("keydown", onKeyDown);
     const unsubTransform = adapter.onTransformEvent.on(() => this.drawOverlay(editor));
     this.#cleanup = () => {
+      cancelPendingMove();
       view.removeEventListener("pointerdown", onPointerDown);
       view.removeEventListener("pointermove", onPointerMove);
       view.removeEventListener("pointerup", onPointerUp);

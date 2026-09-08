@@ -77,7 +77,8 @@ class PerfRecorder {
     if (this.ring.length > RING_SIZE) this.ring.splice(0, this.ring.length - RING_SIZE);
   }
 
-  // 帧率看门狗：rAF 间隔 >32ms（低于 ~30fps）记为 frame.gap 事件
+  // 帧率看门狗：rAF 间隔 >32ms（低于 ~30fps）记为 frame.gap 事件；
+  // 另记 frame.drift（>10ms 且 ≤32ms）用于诊断 120Hz 显示器上错过 vsync 的「半掉帧」节拍
   startFrameWatchdog() {
     if (this.frameGapRunning || typeof window === "undefined") return;
     this.frameGapRunning = true;
@@ -86,6 +87,8 @@ class PerfRecorder {
       const gap = now - last;
       last = now;
       if (this.enabled && gap > 32) this.record("frame.gap", gap);
+      // 120Hz 下正常 vsync 间隔 ~8.3ms；>10ms 说明该帧错过了当前 vsync（渲染太慢或被其它工作推迟）
+      else if (this.enabled && gap > 10) this.record("frame.drift", gap);
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);

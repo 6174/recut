@@ -4,7 +4,7 @@
  */
 import { chromium } from "playwright";
 
-const URL = "http://app.localhost:3000/worlds/ac5009d9fdc748643ebb06fe";
+const URL = process.env.E2E_URL || "http://app.localhost:3000/worlds/ac5009d9fdc748643ebb06fe";
 const results = [];
 const ok = (name, pass, detail = "") => {
   results.push({ name, pass, detail });

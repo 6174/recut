@@ -95,6 +95,27 @@ PERF_HEADED=1 node scripts/e2e-world-canvas.mjs  # 有头（真实 GPU，性能�
 | move → 上屏 | avg 2.3ms / max 25ms | avg 0.8ms / p50 0.2ms |
 | 帧间隔（有头真实 GPU） | — | 0 掉帧 / 0 longtask |
 
+### 问题 4：120Hz 显示器上拖拽偶尔隔帧掉一帧（统一 ticker）
+
+mac ProMotion 120Hz 下每帧预算只有 **8.3ms**（不是 16.7ms）。DevTools「帧」轨显示主线程
+~6.9-7.6ms/帧 + GPU 提交 → 贴线，偶发错过 vsync 就是截图里「漏掉的那个 frame」。
+
+两步修复 + 一个新底座设施：
+
+1. **pointermove 事件驱动渲染 → 合帧**：事件落在 vsync 窗口后半段时渲染完赶不上本次提交。
+   拖拽先只记最新事件，帧首统一 apply（`editor.ticker.schedule("selection-drag", ...)`），
+   pointerup 前 `flushAll` 语义补齐最后一次 move（提交位置=指针位置，不丢尾）。
+   效果：多余重复渲染消失（主线程出现空闲段），但**单次渲染成本 ~7ms 本身**仍是瓶颈。
+2. **统一帧驱动器 `PomeloTicker`（`pomelo-core/pomelo-ticker.ts`，挂 `editor.ticker`）**：
+   - `add(fn, phase)`：常驻帧回调，phase 保证顺序 `input(拖拽 transact) → update → overlay`；
+   - `schedule(key, fn)` / `cancel` / `flushAll`：合帧纪律——「事件写状态、帧才渲染」收进底座，
+     插件不再各写 rAF（selection-plugin 已迁移；其余每帧任务后续逐个迁）;
+   - 惰性驱动：有订阅者/任务才跑 rAF，空闲自停；随 editor.destroy 销毁（不做全局单例，避免多实例泄漏）；
+   - 每帧 `pomeloPerf.record("ticker.frame", ...)`，可看每帧主线程成本与任务数。
+3. **未竟事项**：6.9ms 单次渲染成本 = 拖一帧吃掉 84% 预算，GPU 余量不足。箭头 label 每 move
+   重栅格、`block.update` O(N) 扫描、`refreshTextResolution` 全树遍历是已知大头（见下节），
+   120Hz 顺滑需把每帧主线程压到 ~5ms 以下。
+
 ### 问题 3：readOnly 吞掉全部交互（「功能都丢了」的真相）
 
 `CanvasBindsPlugin` 原有设计：readOnly 时不画「+」手柄、命中后不进入拖拽。

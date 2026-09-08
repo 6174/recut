@@ -4,6 +4,7 @@ import { IPomeloBlockConstructor, PomeloBlock } from "./pomelo-renderer/pomelo-b
 import { PomeloRenderer } from "./pomelo-renderer/pomelo-renderer";
 import { PomeloRendererAdapter } from "./pomelo-renderer/pomelo-renderer-adapter";
 import { PomeloPlugin, IPomeloPlugin } from "./pomelo-plugin";
+import { PomeloTicker } from "./pomelo-ticker";
 import { IDisposable, Slot } from "./pomelo-common";
 
 export enum EditorEvents {
@@ -28,6 +29,9 @@ export class PomeloEditor {
   #plugins: PomeloPlugin[] = [];
   #renderer: PomeloRenderer;
   renderAdapter: PomeloRendererAdapter;
+
+  // 统一帧驱动器：插件的所有每帧/合帧任务都走它（见 pomelo-ticker.ts）
+  ticker: PomeloTicker = new PomeloTicker();
 
   state: PomeloEditorState;
 
@@ -125,6 +129,7 @@ export class PomeloEditor {
 
   destroy() {
     this.#destroyed = true;
+    this.ticker.destroy();
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = null;
     this.#plugins.forEach(plugin => {
