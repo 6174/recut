@@ -36,7 +36,7 @@ import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
 import { CanvasInlineEditor } from "./canvas-inline-editor";
 import { CanvasToasts } from "./canvas-toast";
 import { CanvasOutline } from "./canvas-outline";
-import { entityImageUrls } from "./canvas-image";
+import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, WORLD_NODE_SIZE, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
@@ -285,7 +285,8 @@ function buildPomeloRecords(
     const pos = livePosOf(liveGeometry, canvasId) ?? entityElementPosition(state, entity, canvasId, index);
     const element = state.elements.find((item) => item.id === canvasId);
     const liveSize = liveSizes.get(canvasId);
-    const imageUrls = entityImageUrls(state.apiBase, entity);
+    const cover = entityCoverMedia(state.apiBase, entity);
+    const photoUrls = entityPhotoUrls(state.apiBase, entity).slice(0, 9);
     records.push({
       id: `entity:${entity.id}`,
       type: "entity-card",
@@ -300,8 +301,10 @@ function buildPomeloRecords(
         desc: entity.summary || "",
         kind: entity.kind,
         cover: "",
-        coverUrl: imageUrls[0] ?? "",
-        photoUrls: imageUrls.slice(1, 10),
+        coverUrl: cover?.url ?? "",
+        coverKind: cover?.kind ?? undefined,
+        // photoUrls = 参考素材图片（头图取自参考素材时已剔除那张）
+        photoUrls,
         photos: [],
         isProvisional: entity.isProvisional ? true : undefined,
       },

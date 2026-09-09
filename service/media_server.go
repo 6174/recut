@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService 的平台级媒体边界与标准 HTTP JSON 协议
- * [OUTPUT]: 对外提供素材库、无固定大小上限的流式图片/视频/音频导入、可重命名/删除的 Asset、转写 bundle 与 reference 素材的 parts 交付、模型路由、BYOK 凭据、动态音色、生成任务及 durable Asset SSE 的本地 HTTP API
+ * [OUTPUT]: 对外提供素材库、无固定大小上限的流式图片/视频/音频导入、可重命名/删除的 Asset、转写 bundle 与 reference 素材的 parts 交付、远端媒体同源代理（/v1/files/remote）、模型路由、BYOK 凭据、动态音色、生成任务及 durable Asset SSE 的本地 HTTP API
  * [POS]: service 的 Media Platform 传输层；工作台和系统 MCP 使用同一业务服务，SSE 只传播本地 Asset 真相
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -481,6 +481,29 @@ func (s *Server) getMediaAssetPart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", completedMediaCacheControl)
 	w.Header().Set("Content-Type", part.MimeType)
 	w.Write(content)
+}
+
+func (s *Server) getRemoteFile(w http.ResponseWriter, r *http.Request) {
+	// 同源代理远端媒体（统一远程缓存）：画布纹理等 canvas 受 CORS 限制的消费者
+	// 经本端点把任意公网 http(s) 资源变为同源可加载；RemoteFileCache 负责校验
+	// （拒绝内网/回环）与内容寻址缓存（同一 URL 只回源一次）。
+	rawURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	if rawURL == "" {
+		writeError(w, http.StatusBadRequest, errors.New("url query parameter is required"))
+		return
+	}
+	result, err := s.media.RemoteCache().LocalPathFor(rawURL)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	contentType := result.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Cache-Control", completedMediaCacheControl)
+	w.Header().Set("Content-Type", contentType)
+	http.ServeFile(w, r, result.Path)
 }
 
 func (s *Server) getMediaAssetContent(w http.ResponseWriter, r *http.Request) {

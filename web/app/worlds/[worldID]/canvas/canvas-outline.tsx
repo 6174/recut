@@ -3,7 +3,8 @@
  * lucide-react
  * [OUTPUT]: 对外提供 CanvasOutline（T14 大纲/搜索侧栏）：搜索框 + 当前上下文的实体结构树
  * （kind 分组，子设定缩进；点击 = 选中定位）；画面已移除（hidden）的实体单独区（[放回画布]，T16）
- * [POS]: worlds/[worldID]/canvas 的导航侧栏（>50 实体后结构/搜索问题的 v1 解法）
+ * [POS]: worlds/[worldID]/canvas 的导航侧栏（>50 实体后结构/搜索问题的 v1 解法）；
+ * 详情面板停靠左侧时本侧栏右移避让（left-80）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -16,11 +17,12 @@ import { typeLabelOf } from "./panel/field-row";
 
 export function CanvasOutline() {
   const open = useWorldCanvasStore((state) => state.outlineOpen);
+  const panelSide = useWorldCanvasStore((state) => state.panelSide);
   if (!open) return null;
-  return <OutlineBody />;
+  return <OutlineBody panelSide={panelSide} />;
 }
 
-function OutlineBody() {
+function OutlineBody({ panelSide }: { panelSide: "left" | "right" }) {
   const setOutlineOpen = useWorldCanvasStore((state) => state.setOutlineOpen);
   const entities = useWorldCanvasStore((state) => state.entities);
   const elements = useWorldCanvasStore((state) => state.elements);
@@ -44,7 +46,7 @@ function OutlineBody() {
   const hiddenEntities = entities.filter((entity) => hiddenIds.has(entity.id));
   const isSelected = (entity: WorldEntity) => selection?.type === "entity" && selection.entity.id === entity.id;
   return (
-    <aside className="absolute left-0 top-0 z-20 flex h-full w-64 flex-col overflow-hidden border-r bg-card">
+    <aside className={`absolute top-0 z-20 flex h-full w-64 flex-col overflow-hidden border-r bg-card ${panelSide === "left" ? "left-80" : "left-0"}`}>
       <header className="flex shrink-0 items-center justify-between border-b px-3 py-2.5">
         <p className="flex items-center gap-1.5 text-xs font-semibold">
           <ListTree className="size-3.5" /> 大纲

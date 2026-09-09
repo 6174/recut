@@ -1,14 +1,15 @@
 /*
  * [INPUT]: 依赖 canvas-store（selection/context 动作）、panel/*（World/Entity/Relation/Element 态）、
  * canvas-dialogs（DeleteConfirmDialog/AddFieldDialog 由 CanvasDialogs 渲染）、worlds-store、lucide-react
- * [OUTPUT]: 对外提供 CanvasDetailPanel：右侧 320px 详情面板壳（B.3/B.8——空选 = World 态常显），
- * 按 selection 类型路由到 panel 子组件；实体态底部操作区（进入内部 / 删除设定）
+ * [OUTPUT]: 对外提供 CanvasDetailPanel：320px 详情面板壳（B.3/B.8——空选 = World 态常显），
+ * 停靠左/右可切（panelSide 持久化，头部切换按钮），按 selection 类型路由到 panel 子组件；
+ * 实体态底部操作区（进入内部 / 删除设定）
  * [POS]: worlds/[worldID]/canvas 的详情层组合根；内容编辑在 panel/* 各态组件内聚实现
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { X } from "lucide-react";
+import { PanelLeft, PanelRight, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { WorldDetail } from "@/lib/recut-worlds-client";
 import { useWorldsStore } from "@/lib/worlds-store";
@@ -26,6 +27,8 @@ export function CanvasDetailPanel() {
   const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const worldName = useWorldCanvasStore((state) => state.worldName);
   const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
+  const panelSide = useWorldCanvasStore((state) => state.panelSide);
+  const setPanelSide = useWorldCanvasStore((state) => state.setPanelSide);
   const detail = useWorldsStore((state) => state.detailsByID[worldId]) as WorldDetail | undefined;
   const loadDetail = useWorldsStore((state) => state.loadDetail);
 
@@ -59,17 +62,28 @@ export function CanvasDetailPanel() {
           : (detail?.name ?? worldName);
 
   return (
-    <aside className="absolute right-0 top-0 z-20 flex h-full w-80 flex-col overflow-hidden border-l bg-card">
+    <aside className={`absolute top-0 z-20 flex h-full w-80 flex-col overflow-hidden bg-card ${panelSide === "left" ? "left-0 border-r" : "right-0 border-l"}`}>
       <header className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-primary">{headerLabel}{loadingDetail ? " · 加载中" : ""}</p>
           <h3 className="mt-0.5 truncate text-base font-semibold">{headerTitle}</h3>
         </div>
-        {selection && (
-          <button aria-label="关闭详情" className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted" onClick={() => select(null)} type="button">
-            <X className="size-4" />
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            aria-label={panelSide === "left" ? "移到右侧" : "移到左侧"}
+            title={panelSide === "left" ? "移到右侧" : "移到左侧"}
+            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted"
+            onClick={() => setPanelSide(panelSide === "left" ? "right" : "left")}
+            type="button"
+          >
+            {panelSide === "left" ? <PanelRight className="size-4" /> : <PanelLeft className="size-4" />}
           </button>
-        )}
+          {selection && (
+            <button aria-label="关闭详情" className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted" onClick={() => select(null)} type="button">
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {selection?.type === "entity" ? (

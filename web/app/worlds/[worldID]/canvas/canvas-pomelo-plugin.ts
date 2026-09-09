@@ -5,7 +5,8 @@
  * 点击命中选择（实体卡/便签/文本/形状/属性节点/World 节点/语义关系线/自由箭头）解析为
  * CanvasSelection 驱动右侧面板；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
  * canvas-store.moveElement + 去抖 persistGeometry；pointermove 经 editor.ticker 统一合帧，
- * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（仅实体卡，自由元素不挂）拖出引导线：落到另一实体卡 =
+ * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡左右缘中点各一个，
+ * 自由元素不挂）拖出引导线：落到另一实体卡 =
  * 受控关系确认（setPendingRelation），落空 = 属性引导菜单（setAttrCreator，创建属性节点 +
  * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击空白 = 最近类型快捷建卡
  * （Alt = 创建菜单）；右键 = 实体/便签文本上下文菜单（T3）；Delete/Backspace 删除关系/草稿、
@@ -125,7 +126,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       return { x: world.x * t.scale + t.x, y: world.y * t.scale + t.y };
     };
 
-    // ---- 「+」手柄与引导层：只有实体卡右缘中点挂 + 手柄 ----
+    // ---- 「+」手柄与引导层：实体卡左右缘中点各挂一个 + 手柄 ----
     const blockIdToCanvasId = (blockId: string) => {
       if (blockId === "shape:world") return WORLD_ELEMENT_ID;
       if (blockId.startsWith("entity:")) return `shape:${blockId.slice("entity:".length)}`;
@@ -142,13 +143,17 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       for (const record of records) {
         const rect = rectOf(record);
         if (rect.width <= 0 || rect.height <= 0) continue;
-        const anchorWorld = { x: rect.x + rect.width, y: rect.y + rect.height / 2 };
-        handles.push({
-          blockId: record.id,
-          canvasId: blockIdToCanvasId(record.id),
-          anchorWorld,
-          screen: toScreen(anchorWorld),
-        });
+        for (const anchorWorld of [
+          { x: rect.x + rect.width, y: rect.y + rect.height / 2 },
+          { x: rect.x, y: rect.y + rect.height / 2 },
+        ]) {
+          handles.push({
+            blockId: record.id,
+            canvasId: blockIdToCanvasId(record.id),
+            anchorWorld,
+            screen: toScreen(anchorWorld),
+          });
+        }
       }
       return handles;
     };
@@ -864,7 +869,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
 
   // 选区 overlay：屏幕空间绘制（stage 直挂）；
   // 节点/便签 = 矩形选框 + 四角 resize 手柄；关系线 = 曲线高亮覆盖 + 三控制点；
-  // 所有节点右缘中点绘制「+」手柄（创建连线 / 属性引导入口）
+  // 所有节点左右缘中点各绘制「+」手柄（创建连线 / 属性引导入口）
   drawOverlay(editor: PomeloEditor) {
     // 选区/手柄/试试 hover 是纯 Graphics 改动（不经过 transact）：demand-driven 渲染必须显式置脏
     (editor.renderAdapter as PixiRendererAdapter).invalidate?.();
@@ -879,23 +884,28 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const toScreen = (world: Point): Point => ({ x: world.x * t.scale + t.x, y: world.y * t.scale + t.y });
     const readOnly = useWorldCanvasStore.getState().readOnly;
 
-    // 「+」手柄：仅 hover 命中的实体卡右缘中点（屏幕空间，尺寸不随 zoom 变化）——
+    // 「+」手柄：hover 命中的实体卡左右缘中点各一个（屏幕空间，尺寸不随 zoom 变化）——
     // 边必须有语义，自由元素不挂「+」（与 plusHandles 命中同一规则）；只读态不绘制
     if (!readOnly && !this.#guide && this.#hoverBlockId?.startsWith("entity:")) {
       const record = editor.state.getBlockById(this.#hoverBlockId);
       if (record && record.id.startsWith("entity:")) {
         const rect = rectOfRecord(record);
         if (rect.width > 0 && rect.height > 0) {
-          const anchor = toScreen({ x: rect.x + rect.width, y: rect.y + rect.height / 2 });
-          g.lineStyle(1.5, 0xd4d4d8, 0.85, 0.5);
-          g.beginFill(0x1c1d22);
-          g.drawCircle(anchor.x, anchor.y, 8);
-          g.endFill();
-          g.lineStyle(2, 0xd4d4d8, 1);
-          g.moveTo(anchor.x - 3.5, anchor.y);
-          g.lineTo(anchor.x + 3.5, anchor.y);
-          g.moveTo(anchor.x, anchor.y - 3.5);
-          g.lineTo(anchor.x, anchor.y + 3.5);
+          for (const world of [
+            { x: rect.x + rect.width, y: rect.y + rect.height / 2 },
+            { x: rect.x, y: rect.y + rect.height / 2 },
+          ]) {
+            const anchor = toScreen(world);
+            g.lineStyle(1.5, 0xd4d4d8, 0.85, 0.5);
+            g.beginFill(0x1c1d22);
+            g.drawCircle(anchor.x, anchor.y, 8);
+            g.endFill();
+            g.lineStyle(2, 0xd4d4d8, 1);
+            g.moveTo(anchor.x - 3.5, anchor.y);
+            g.lineTo(anchor.x + 3.5, anchor.y);
+            g.moveTo(anchor.x, anchor.y - 3.5);
+            g.lineTo(anchor.x, anchor.y + 3.5);
+          }
         }
       }
     }

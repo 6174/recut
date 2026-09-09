@@ -2,9 +2,11 @@
  * [INPUT]: 依赖 pixi.js、pomelo-core（PixiBlock）、arrow-geometry（节点矩形解析注册）、
  * canvas-theme/truncate-text/demo-store
  * [OUTPUT]: 对外提供 EntityCardBlock 与 entityCardRect：实体卡 Block（type: entity-card），
- * 统一视觉（深色卡面 + 细边框 + 柔和投影）；排版为图先于文——头图通铺卡片顶部（不留 padding，
- * cover-fit 裁切，attrs.coverUrl 真图 / emoji 占位），下方为标题/副标题与资料缩略网格
- * （photoUrls 真图 / photos emoji 占位，最多 9 格，静态无动效）；草稿态 = 虚线卡框 + 右上角徽标
+ * 统一视觉（深色卡面 + 细边框 + 柔和投影）；有头图时排版为图先于文——头图通铺卡片顶部（不留 padding，
+ * cover-fit 裁切，attrs.coverUrl 真图或视频（coverKind=image|video）/ emoji 占位），下方为标题/副标题
+ * 与资料缩略网格（photoUrls 真图 / photos emoji 占位，最多 9 格，静态无动效）；
+ * 无头图 = 文本优先排版（B.6 扩展）：不放头图区，标题放大（21px）为主视觉，副标题 11px；
+ * 草稿态 = 虚线卡框 + 右上角徽标
  * （B.6/D2），空简介 = 浅色「补充一句简介…」引导；卡片高度内容自适应，
  * entityCardRect 是命中/选区/连线锚点共用的有效渲染矩形；卡片左上角元素徽标为 zoom 常量
  * （1/scale 反向补偿，缩放不改变字号），卡内标题/副标题等仍随卡片内容缩放
@@ -16,7 +18,7 @@ import * as PIXI from "pixi.js";
 import { PixiBlock } from "../../pomelo-core/pomelo-pixi/pomelo-pixi-block";
 import { setNodeRectResolver } from "../arrow-geometry";
 import { truncateText, drawElementCaption } from "../truncate-text";
-import { CARD_RADIUS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, drawShadowCard, drawTile, loadPixiTexture, coverSprite } from "../canvas-theme";
+import { CARD_RADIUS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, drawShadowCard, drawTile, loadPixiTexture, loadPixiVideoTexture, coverSprite } from "../canvas-theme";
 
 const FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
 const PAD = 14;
@@ -32,13 +34,20 @@ function stringListOf(value: unknown): string[] {
   return Array.isArray(value) ? (value as string[]).filter((item) => typeof item === "string" && item) : [];
 }
 
-// 内容固有高度：头图 + 文本区（无资料）；有资料时追加缩略网格行
+// 无头图的文本优先排版：标题更大（B.6 扩展——没有头图时卡片以文本为主）
+const TITLE_SIZE_TEXT_FIRST = 21;
+const SUBTITLE_SIZE_TEXT_FIRST = 11;
+// 文本优先态的标题+副标题固有高度（比有图态的文字区更高，容纳大标题）
+const TEXT_BLOCK_H = 76;
+
+// 内容固有高度：有头图 = 头图 + 文本区；无头图 = 纯文本优先；有资料时追加缩略网格行
 export function entityCardContentHeight(attrs: Record<string, unknown>): number {
   const count = Math.max(stringListOf(attrs.photos).length, stringListOf(attrs.photoUrls).length);
-  const base = IMAGE_H + 52 + PAD;
-  if (count <= 0) return base;
+  const hasCover = Boolean(String(attrs.coverUrl ?? "") || String(attrs.cover ?? ""));
+  const textTop = (hasCover ? IMAGE_H + 52 : TEXT_BLOCK_H) + PAD;
+  if (count <= 0) return textTop;
   const rows = Math.ceil(Math.min(count, GRID_CAPACITY) / 3);
-  return IMAGE_H + 64 + rows * THUMB + (rows - 1) * THUMB_GAP + PAD;
+  return textTop + rows * THUMB + (rows - 1) * THUMB_GAP + PAD;
 }
 
 // 实体卡的有效渲染矩形（attrs 可能存有旧的更小尺寸；命中/选区/连线锚点必须与渲染一致）
@@ -110,13 +119,14 @@ export class EntityCardBlock extends PixiBlock {
   }
 
   renderBlock() {
-    const { x = 0, y = 0, width = 264, height = 328, title = "", cover = "", coverUrl = "", photos, photoUrls } = this.record.attrs;
+    const { x = 0, y = 0, width = 264, height = 328, title = "", cover = "", coverUrl = "", coverKind = "image", photos, photoUrls } = this.record.attrs;
     const w = Math.max(Number(width) || 264, MIN_W);
     const emojiPhotos = stringListOf(photos);
     const urlPhotos = stringListOf(photoUrls);
     const contentH = entityCardContentHeight(this.record.attrs as Record<string, unknown>);
     const cardH = Math.max(Number(height) || contentH, contentH);
-    const imageH = IMAGE_H + Math.max(0, cardH - contentH); // resize 变大时多余空间给头图
+    const hasCover = Boolean(String(coverUrl) || String(cover));
+    const imageH = hasCover ? IMAGE_H + Math.max(0, cardH - contentH) : 0; // resize 变大时多余空间给头图
 
     const container = new PIXI.Container();
 
@@ -169,27 +179,45 @@ export class EntityCardBlock extends PixiBlock {
       container.addChild(badge);
     }
 
-    // 头图：通铺卡片顶部（无 padding，cover-fit；真图异步加载，占位为瓦片底 + emoji）
-    const header = new PIXI.Container();
-    const headerBg = new PIXI.Graphics();
-    headerBg.beginFill(TILE_FILL);
-    topRoundedPath(headerBg, w, imageH, CARD_RADIUS - 1);
-    headerBg.endFill();
-    header.addChild(headerBg);
-    const placeholder = new PIXI.Text(cover || "🖼️", { fontFamily: FONT, fontSize: 40, fill: 0x6b7280 });
-    placeholder.anchor.set(0.5);
-    placeholder.position.set(w / 2, imageH / 2);
-    header.addChild(placeholder);
-    container.addChild(header);
-    if (coverUrl) {
-      loadTextureInto(this, header, coverUrl, 0, 0, w, imageH, CARD_RADIUS - 1, true);
+    // 头图：通铺卡片顶部（无 padding，cover-fit；真图异步加载，占位为瓦片底 + emoji；
+    // coverKind=video 走视频纹理静音循环）；无头图 = 文本优先排版（B.6 扩展）
+    const textTop = hasCover ? imageH + PAD : PAD;
+    if (hasCover) {
+      const header = new PIXI.Container();
+      const headerBg = new PIXI.Graphics();
+      headerBg.beginFill(TILE_FILL);
+      topRoundedPath(headerBg, w, imageH, CARD_RADIUS - 1);
+      headerBg.endFill();
+      header.addChild(headerBg);
+      const placeholder = new PIXI.Text(cover || "🖼️", { fontFamily: FONT, fontSize: 40, fill: 0x6b7280 });
+      placeholder.anchor.set(0.5);
+      placeholder.position.set(w / 2, imageH / 2);
+      header.addChild(placeholder);
+      container.addChild(header);
+      if (coverKind === "video") {
+        loadPixiVideoTexture(String(coverUrl), (texture) => {
+          if (!texture || this.isDestroyed() || header.destroyed) return;
+          const sprite = coverSprite(texture, w, imageH);
+          const mask = new PIXI.Graphics();
+          mask.beginFill(0xffffff);
+          topRoundedPath(mask, w, imageH, CARD_RADIUS - 1);
+          mask.endFill();
+          mask.position.set(0, 0);
+          sprite.position.set(sprite.x, sprite.y);
+          header.addChild(mask);
+          sprite.mask = mask;
+          header.addChild(sprite);
+          placeholder.visible = false;
+        });
+      } else {
+        loadTextureInto(this, header, String(coverUrl), 0, 0, w, imageH, CARD_RADIUS - 1, true);
+      }
     }
 
-    // 头部文本：标题 + 副标题（随卡片整体缩放，属卡片内容）
-    const textTop = imageH + PAD;
-    const titleText = new PIXI.Text(truncateText(String(title), w - PAD * 2, 15), {
+    // 头部文本：标题 + 副标题（随卡片整体缩放，属卡片内容）；无头图时标题放大
+    const titleText = new PIXI.Text(truncateText(String(title), w - PAD * 2, hasCover ? 15 : TITLE_SIZE_TEXT_FIRST), {
       fontFamily: FONT,
-      fontSize: 15,
+      fontSize: hasCover ? 15 : TITLE_SIZE_TEXT_FIRST,
       fontWeight: "600",
       fill: TEXT_PRIMARY,
     });
@@ -198,18 +226,19 @@ export class EntityCardBlock extends PixiBlock {
 
     // 副标题行：简介（desc）优先；空简介 = 浅色引导「补充一句简介」（B.6 空态引导）
     const summary = String(this.record.attrs.desc ?? "").trim();
+    const subtitleSize = hasCover ? 10 : SUBTITLE_SIZE_TEXT_FIRST;
     const subtitleText = new PIXI.Text(
-      truncateText(summary || "补充一句简介…", w - PAD * 2, 10),
-      { fontFamily: FONT, fontSize: 10, fill: summary ? TEXT_SECONDARY : TEXT_TERTIARY },
+      truncateText(summary || "补充一句简介…", w - PAD * 2, subtitleSize),
+      { fontFamily: FONT, fontSize: subtitleSize, fill: summary ? TEXT_SECONDARY : TEXT_TERTIARY },
     );
-    subtitleText.position.set(PAD, textTop + 24);
+    subtitleText.position.set(PAD, textTop + (hasCover ? 24 : 30));
     container.addChild(subtitleText);
 
     // 资料缩略网格：真图优先（cover-fit），emoji 兜底；最多 9 格，超出末格 +N
     const totalCount = Math.max(emojiPhotos.length, urlPhotos.length);
     if (totalCount > 0) {
       const tiles = Math.min(totalCount, GRID_CAPACITY);
-      const gridTop = textTop + 24 + 14 + GRID_GAP_Y;
+      const gridTop = textTop + (hasCover ? 24 + 14 : 30 + 18) + GRID_GAP_Y;
       for (let index = 0; index < tiles; index += 1) {
         const col = index % 3;
         const row = Math.floor(index / 3);

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 react、canvas-store（toasts 队列与 dismissToast）
- * [OUTPUT]: 对外提供 CanvasToasts：左下角 toast 队列（B.4 反馈分级）——结构性语义操作轻反馈，
+ * [OUTPUT]: 对外提供 CanvasToasts：底部 toast 队列（B.4 反馈分级，详情面板停靠对侧）——结构性语义操作轻反馈，
  * 3s 自消；错误态可带 [重试] 动作按钮
  * [POS]: worlds/[worldID]/canvas 的反馈层（T10 核心，T5 关系体验先行复用）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -11,9 +11,10 @@ import { useWorldCanvasStore } from "./canvas-store";
 
 export function CanvasToasts() {
   const toasts = useWorldCanvasStore((state) => state.toasts);
+  const panelSide = useWorldCanvasStore((state) => state.panelSide);
   if (!toasts.length) return null;
   return (
-    <div className="pointer-events-none absolute bottom-4 left-4 z-40 flex flex-col gap-2">
+    <div className={`pointer-events-none absolute bottom-4 z-40 flex flex-col gap-2 ${panelSide === "left" ? "right-4" : "left-4"}`}>
       {toasts.map((item) => (
         <div
           className={`pointer-events-auto flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${

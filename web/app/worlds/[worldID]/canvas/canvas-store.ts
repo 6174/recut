@@ -4,7 +4,8 @@
  * load(true)；T2 面板动作 saveEntityField/confirmEntity/deleteEntity/updateWorldMeta；T3 创建系统
  * createEntity/createChildEntity 草稿化 + 命名态 + 创建/右键菜单状态；T4 就地编辑 inlineEdit；T6 容器
  * 视图默认包含容器自身 entity（load 时把 context 实体 unshift 进 entities）：会话配置（open）、当前上下文的实体/画布元素/关系/
- * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框）与全部写动作；画布元素写 world_canvas 不产 revision，
+ * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框，含详情面板停靠侧 panelSide 左右可切并持久化）
+ * 与全部写动作；画布元素写 world_canvas 不产 revision，
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
  * 画布存储为文档粒度（RFC 2026-09-09）：一张画布 = 一个 Document，canvas.get/save 整包读写 + version 乐观锁；
  * 元素级动作（upsertElement/persistGeometry/moveElement/removeElement）只改本地文档 + 脏集合，去抖整包落库，
@@ -28,7 +29,7 @@ import {
 } from "@/lib/recut-worlds-client";
 import { defaultEvidencePurpose, evidencePurposeLabels } from "./canvas-media";
 import { applyCanvasError } from "./canvas-errors";
-import { entityImageUrls } from "./canvas-image";
+import { entityPhotoUrls } from "./canvas-image";
 
 export type Point = { x: number; y: number };
 
@@ -137,6 +138,26 @@ export function isDefaultEntityTitle(kind: string, title: string): boolean {
 // 最近使用类型（B.7 双击空白快捷创建）与最近自定义类型（创建菜单自定义区，至多 3 个）
 const LAST_KIND_KEY = "wc:lastKind";
 const RECENT_TYPES_KEY = "wc:recentTypes";
+
+// 详情面板停靠侧（左/右均可）：localStorage 持久化，默认右侧（兼容既有习惯）
+export type PanelSide = "left" | "right";
+const PANEL_SIDE_KEY = "wc:panelSide";
+
+export function readPanelSide(): PanelSide {
+  try {
+    return localStorage.getItem(PANEL_SIDE_KEY) === "left" ? "left" : "right";
+  } catch {
+    return "right";
+  }
+}
+
+function savePanelSide(side: PanelSide) {
+  try {
+    localStorage.setItem(PANEL_SIDE_KEY, side);
+  } catch {
+    // localStorage 不可用时静默（隐私模式等）
+  }
+}
 
 export function readLastKind(): string {
   try {
@@ -319,7 +340,7 @@ function startTitleInlineEdit(
   const y = Number(element?.geometry?.y) || pos.y;
   const width = Math.max(Number(element?.geometry?.width) || DEFAULT_ENTITY_SIZE.width, 240);
   const height = Number(element?.geometry?.height) || DEFAULT_ENTITY_SIZE.height;
-  const contentH = entityCardContentHeight({ photoUrls: entity ? entityImageUrls(state.apiBase, entity).slice(1, 10) : [] });
+  const contentH = entityCardContentHeight({ photoUrls: entity ? entityPhotoUrls(state.apiBase, entity).slice(0, 9) : [] });
   const cardH = Math.max(height, contentH);
   const imageH = ENTITY_CARD_IMAGE_H + Math.max(0, cardH - contentH);
   setState({ inlineEdit: null }); // 先清一次，保证连续创建时编辑器重新挂载
@@ -475,6 +496,9 @@ type WorldCanvasState = {
   // 大纲/搜索侧栏（T14）
   outlineOpen: boolean;
   setOutlineOpen: (open: boolean) => void;
+  // 详情面板停靠侧（左/右）；切换即时生效并持久化
+  panelSide: PanelSide;
+  setPanelSide: (side: PanelSide) => void;
   // AI 用描述添加设定（T13/B.16）：候选对话框
   aiDialogOpen: boolean;
   setAiDialogOpen: (open: boolean) => void;
@@ -523,6 +547,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   changeLog: [],
   historyOpen: false,
   outlineOpen: false,
+  panelSide: readPanelSide(),
   aiDialogOpen: false,
   relationTypePopover: null,
   linkMode: false,
@@ -1181,6 +1206,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
   setHistoryOpen: (historyOpen) => set({ historyOpen }),
   setOutlineOpen: (outlineOpen) => set({ outlineOpen }),
+
+  setPanelSide: (side) => {
+    savePanelSide(side);
+    set({ panelSide: side });
+  },
   setAiDialogOpen: (aiDialogOpen) => set({ aiDialogOpen }),
   setRelationTypePopover: (relationTypePopover) => set({ relationTypePopover }),
   // 回滚（T12）：非破坏指针回移；成功后全量刷新 + 更新 revisionId
@@ -1217,7 +1247,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const y = Number(element.geometry?.y) || 0;
     const width = Math.max(Number(element.geometry?.width) || DEFAULT_ENTITY_SIZE.width, 240);
     const height = Number(element.geometry?.height) || DEFAULT_ENTITY_SIZE.height;
-    const contentH = entityCardContentHeight({ photoUrls: entityImageUrls(state.apiBase, entity).slice(1, 10) });
+    const contentH = entityCardContentHeight({ photoUrls: entityPhotoUrls(state.apiBase, entity).slice(0, 9) });
     const imageH = ENTITY_CARD_IMAGE_H + Math.max(0, Math.max(height, contentH) - contentH);
     set({
       inlineEdit: {
