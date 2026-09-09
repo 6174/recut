@@ -407,6 +407,12 @@ function buildPomeloRecords(
       if (!fromElementId || !toElementId) return;
       const attrMedia = String(element.props?.attrMedia ?? "");
       const edgeType = String(element.props?.edgeType ?? "");
+      // 属性边标签 = 属性：具体属性名（attr 元素 props.label 优先，回退元素名/媒体类型）
+      const attrTarget = state.elements.find((item) => item.id === toElementId && item.kind === "attr");
+      const attrLabel =
+        String(attrTarget?.props?.label ?? "") ||
+        String(attrTarget?.name ?? "").replace(/^属性 · /, "") ||
+        (attrMedia ? attrMediaLabel(attrMedia) : "");
       // 挂接线（T8）：from 端是非实体元素（媒体卡等），其 block id 就是元素 id 本身；
       // 实体端仍走 shape:<id> → entity:<id> 映射
       const node = (ref: string) => {
@@ -420,6 +426,7 @@ function buildPomeloRecords(
         toAnchor: element.props?.toAnchor as { x: number; y: number } | undefined,
         bend: element.props?.bend as { dx: number; dy: number } | undefined,
       };
+      const draftTypeLabel = state.relationTypes.find((item) => item.id === edgeType)?.labelZh ?? edgeType;
       records.push({
         id: element.id,
         type: "relation-arrow",
@@ -430,7 +437,7 @@ function buildPomeloRecords(
           height: 0,
           fromId: node(fromElementId),
           toId: node(toElementId),
-          label: attrMedia ? `属性 · ${attrMediaLabel(attrMedia)}` : edgeType === "attach" ? "" : edgeType,
+          label: attrMedia ? `属性 · ${attrLabel || attrMediaLabel(attrMedia)}` : edgeType === "attach" ? "" : draftTypeLabel,
           relationType: attrMedia ? `attr_${attrMedia}` : edgeType,
           ...(draftAnchor.fromAnchor ? { fromAnchor: draftAnchor.fromAnchor } : {}),
           ...(draftAnchor.toAnchor ? { toAnchor: draftAnchor.toAnchor } : {}),

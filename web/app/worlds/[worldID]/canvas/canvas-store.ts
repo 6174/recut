@@ -432,6 +432,7 @@ type WorldCanvasState = {
   createAttribute: (fromElementId: string, media: AttrMedia, pos: Point, initial?: { text?: string; fileName?: string; label?: string }, edgeType?: string) => Promise<string | null>;
   // 属性值回写实体 content（label 映射 type schema 字段 key；否则 label 即 key）
   syncAttrValue: (element: WorldCanvasElement, text: string) => Promise<void>;
+  renameAttrLabel: (elementId: string, label: string) => Promise<void>;
   // 关系锚点持久化：写固有 anchor 元素（shape:rel-<relationId>），语义由 relationId 关联
   persistRelationGeometry: (relationId: string, geometry: { fromAnchor?: { x: number; y: number }; toAnchor?: { x: number; y: number }; bend?: { dx: number; dy: number } }) => Promise<void>;
   moveElement: (id: string, x: number, y: number) => void;
@@ -771,7 +772,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         kind: "arrow",
         refKind: "",
         refId: "",
-        name: `属性边 · ${mediaLabels[media]}`,
+        name: `属性边 · ${initial?.label || mediaLabels[media]}`,
         props: { fromElementId, toElementId: attrId, attrMedia: media, edgeType },
         geometry: { x: Math.round(pos.x), y: Math.round(pos.y), zIndex: 1 },
         style: {},
@@ -808,6 +809,25 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       ),
     }));
     scheduleCanvasSave();
+  },
+
+  // 属性重命名（画布命名态与右侧边面板共用）：写 props.label + 元素名，并同步属性边名与实体 content 字段；
+  // dataVersion 推进让投影层（卡片徽标/边标签）立即重建
+  renameAttrLabel: async (elementId, label) => {
+    const trimmed = label.trim() || "属性";
+    await get().persistGeometry(elementId, undefined, { label: trimmed });
+    set((state) => ({
+      elements: state.elements.map((item) => {
+        if (item.id === elementId) return { ...item, name: `属性 · ${trimmed}` };
+        if (item.kind === "arrow" && String(item.props?.toElementId ?? "") === elementId && String(item.props?.edgeType ?? "attr") === "attr") {
+          return { ...item, name: `属性边 · ${trimmed}` };
+        }
+        return item;
+      }),
+      dataVersion: state.dataVersion + 1,
+    }));
+    const named = get().elements.find((item) => item.id === elementId);
+    if (named) await get().syncAttrValue(named, String(named.props?.text ?? ""));
   },
 
   moveElement: (id, x, y) => {
@@ -1288,15 +1308,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
     const element = get().elements.find((item) => item.id === edit.elementId);
     if (!element) return;
-    // 属性命名态：写元素名 + props.label，并把当前文本（可能为空）登记为实体 content 字段
+    // 属性命名态：重命名属性（label + 元素名 + 属性边名），并把当前文本登记为实体 content 字段
     if (edit.kind === "attr-title") {
-      const label = value.trim() || "属性";
-      await get().persistGeometry(element.id, undefined, { label });
-      const named = get().elements.find((item) => item.id === element.id);
-      if (named) {
-        named.name = `属性 · ${label}`;
-        await get().syncAttrValue(named, String(named.props?.text ?? ""));
-      }
+      await get().renameAttrLabel(element.id, value);
       return;
     }
     // 属性文本编辑：持久化 text 并同步回实体 content 字段

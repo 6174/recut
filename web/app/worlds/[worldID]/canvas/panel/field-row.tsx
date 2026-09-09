@@ -1,6 +1,8 @@
 /*
  * [INPUT]: 依赖 react、canvas-store（saveEntityField 动作）、lucide-react
- * [OUTPUT]: 对外提供 FieldRow（单行/多行/开关字段就地编辑：blur 或 ⌘↵ 保存，行内「已保存」轻提示）、
+ * [OUTPUT]: 对外提供 FieldRow（统一文本编辑原语：单行/多行/开关字段就地编辑，blur 或 ⌘↵ 保存；
+ * 展示态长文本默认 line-clamp-4 折叠 + 展开/收起；编辑态多行限高（max-h-44）+「放大」全屏编辑器
+ * FullscreenTextEditor（复杂长文本的主编辑场，⌘↵ 保存））、
  * AssetFieldRow（type=media 素材字段：槽位 + 全局素材选择浮层选填 + 点击已填素材走全局素材弹框 AssetPreviewDialog，
  * content 统一存 {assetId,name,kind}）、parseAssetValue 与 typeLabelOf（type 目录 name → 面板/卡片统一类型文案，目录缺失回退 entityKindLabels）
  * [POS]: worlds/[worldID]/canvas/panel 的共享编辑原语（B.8 保存策略：单行 blur 即存、多行三通道）
@@ -8,7 +10,9 @@
  */
 "use client";
 
+import { Maximize2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
 import type { WorldEntity } from "@/lib/recut-worlds-client";
@@ -17,6 +21,14 @@ import { useWorldCanvasStore } from "../canvas-store";
 
 // 素材字段的 content 值：统一存 {assetId, name, kind}，kind 驱动缩略图与预览弹框
 export type AssetValue = { assetId: string; name?: string; kind?: "image" | "video" | "audio" };
+
+// 长文本展示钳制（3）：超过该长度/行数默认折叠，避免长文本吃掉面板高度
+const CLAMP_CHARS = 140;
+const CLAMP_LINES = 4;
+
+function needsClamp(value: string): boolean {
+  return value.length > CLAMP_CHARS || value.split("\n").length > CLAMP_LINES;
+}
 
 export function parseAssetValue(value: unknown): AssetValue | null {
   if (!value || typeof value !== "object") return null;
@@ -50,6 +62,8 @@ export function FieldRow({
   onSave: (value: string | boolean) => Promise<void> | void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState(value);
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const initialRef = useRef(value);
@@ -62,6 +76,7 @@ export function FieldRow({
 
   const commit = async () => {
     setEditing(false);
+    setFullscreen(false);
     if (draft === initialRef.current) return;
     setState("saving");
     try {
@@ -72,6 +87,20 @@ export function FieldRow({
     } catch {
       setState("error");
     }
+  };
+
+  const cancel = () => {
+    setDraft(initialRef.current);
+    setEditing(false);
+    setFullscreen(false);
+  };
+
+  // blur 分流：焦点移到本字段行内的其他控件（如「放大」按钮）时不提交；全屏编辑器打开期间
+  // 行内 textarea 的失焦也忽略（它的 autoFocus 会反复触发行内 blur）
+  const blurGuard = (event: React.FocusEvent) => {
+    if (fullscreen) return;
+    if (event.relatedTarget instanceof Node && event.currentTarget.parentElement?.contains(event.relatedTarget)) return;
+    void commit();
   };
 
   if (boolean) {
@@ -100,11 +129,19 @@ export function FieldRow({
     );
   }
 
+  const clamped = needsClamp(value) && !expanded;
   if (readOnly) {
     return (
       <div>
-        <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-        <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-6">{value || "—"}</p>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+          {needsClamp(value) && (
+            <button className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setExpanded(!expanded)} type="button">
+              {expanded ? "收起" : "展开"}
+            </button>
+          )}
+        </div>
+        <p className={`mt-0.5 break-words whitespace-pre-wrap text-sm leading-6 ${clamped ? "line-clamp-4 text-muted-foreground/80" : needsClamp(value) ? "max-h-[48vh] overflow-y-auto" : ""}`}>{value || "—"}</p>
       </div>
     );
   }
@@ -114,19 +151,27 @@ export function FieldRow({
       <div className="group/field">
         <div className="flex items-baseline justify-between gap-2">
           <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-          <button
-            aria-label={`编辑${label}`}
-            className="text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/field:opacity-100"
-            onClick={() => setEditing(true)}
-            type="button"
-          >
-            ✎
-          </button>
+          <span className="flex shrink-0 gap-2">
+            {needsClamp(value) && (
+              <button className="text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/field:opacity-100" onClick={() => setExpanded(!expanded)} type="button">
+                {expanded ? "收起" : "展开"}
+              </button>
+            )}
+            <button
+              aria-label={`编辑${label}`}
+              className="text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/field:opacity-100"
+              onClick={() => setEditing(true)}
+              type="button"
+            >
+              ✎
+            </button>
+          </span>
         </div>
         <button
-          className={`mt-0.5 block w-full whitespace-pre-wrap break-words rounded px-1 py-0.5 text-left text-sm leading-6 ${value ? "" : "text-muted-foreground/60"} hover:bg-muted/60`}
+          className={`mt-0.5 w-full break-words whitespace-pre-wrap rounded px-1 py-0.5 text-left text-sm leading-6 hover:bg-muted/60 ${value ? "" : "text-muted-foreground/60"} ${clamped ? "line-clamp-4" : `${expanded ? "max-h-[48vh] overflow-y-auto" : ""} block`}`}
           onClick={() => setEditing(true)}
           type="button"
+          title={needsClamp(value) ? "点击编辑（放大编辑可看全文）" : undefined}
         >
           {value || (placeholder ?? "点击填写")}
         </button>
@@ -139,11 +184,16 @@ export function FieldRow({
 
   return multiline ? (
     <div>
-      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+        <button aria-label={`放大编辑${label}`} className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setFullscreen(true)} title="放大编辑" type="button">
+          <Maximize2 className="size-3" /> 放大
+        </button>
+      </div>
       <textarea
         autoFocus
-        className="mt-1 min-h-16 w-full resize-y rounded-md border bg-background p-2 text-xs leading-5 outline-none focus:border-primary"
-        onBlur={commit}
+        className="mt-1 h-28 max-h-44 w-full resize-none overflow-y-auto rounded-md border bg-background p-2 text-xs leading-5 outline-none focus:border-primary"
+        onBlur={blurGuard}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -151,14 +201,14 @@ export function FieldRow({
             void commit();
           } else if (event.key === "Escape") {
             event.preventDefault();
-            setDraft(initialRef.current);
-            setEditing(false);
+            cancel();
           }
         }}
         placeholder={placeholder}
         value={draft}
       />
       <p className="mt-0.5 text-[10px] text-muted-foreground">⌘↵ 保存 · Esc 取消</p>
+      {fullscreen && <FullscreenTextEditor label={label} draft={draft} onDraft={setDraft} onCommit={commit} onCancel={cancel} />}
     </div>
   ) : (
     <div>
@@ -166,19 +216,58 @@ export function FieldRow({
       <input
         autoFocus
         className="mt-1 w-full rounded-md border bg-background p-1.5 text-sm outline-none focus:border-primary"
-        onBlur={commit}
+        onBlur={blurGuard}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") void commit();
-          else if (event.key === "Escape") {
-            setDraft(initialRef.current);
-            setEditing(false);
-          }
+          else if (event.key === "Escape") cancel();
         }}
         placeholder={placeholder}
         value={draft}
       />
     </div>
+  );
+}
+
+// 放大编辑（2）：全屏对话框，长文本/复杂 markdown 的主编辑场；⌘↵ 保存并关闭
+function FullscreenTextEditor({ label, draft, onDraft, onCommit, onCancel }: { label: string; draft: string; onDraft: (value: string) => void; onCommit: () => void; onCancel: () => void }) {
+  return createPortal(
+    <div aria-modal="true" className="fixed inset-0 z-[80] grid place-items-center bg-foreground/40 p-6 backdrop-blur-[1px]" onMouseDown={onCancel} role="dialog">
+      <section
+        className="flex h-[80vh] w-full max-w-3xl flex-col rounded-xl border bg-card shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="flex shrink-0 items-center justify-between border-b px-4 py-2.5">
+          <p className="text-xs font-medium text-muted-foreground">{label} · 放大编辑</p>
+          <div className="flex gap-2">
+            <button className="rounded-md border px-3 py-1 text-xs hover:bg-muted" onClick={onCancel} type="button">
+              取消
+            </button>
+            <button className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90" onClick={onCommit} type="button">
+              保存（⌘↵）
+            </button>
+          </div>
+        </header>
+        <textarea
+          autoFocus
+          className="min-h-0 w-full flex-1 resize-none bg-background p-4 text-sm leading-6 outline-none"
+          onChange={(event) => onDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              onCommit();
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              onCancel();
+            }
+          }}
+          placeholder={draft ? undefined : "输入内容…"}
+          value={draft}
+        />
+        <footer className="shrink-0 border-t px-4 py-1.5 text-[10px] text-muted-foreground">⌘↵ 保存 · Esc 取消 · 原文完整保留</footer>
+      </section>
+    </div>,
+    document.body,
   );
 }
 

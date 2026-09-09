@@ -71,23 +71,11 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
         </div>
       )}
 
-      {/* 标题（blur 保存 → renameEntity） */}
-      <div>
-        <p className="text-[11px] font-medium text-muted-foreground">{typeLabelOf(entity, entityTypes)}</p>
-        <input
-          className="mt-1 w-full rounded-md border bg-background p-1.5 text-sm font-semibold outline-none focus:border-primary"
-          defaultValue={entity.title}
-          key={`${entity.id}:${entity.title}`}
-          onBlur={(event) => void store.renameEntity(entity, event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") (event.target as HTMLInputElement).blur();
-          }}
-          readOnly={readOnly}
-        />
-      </div>
+      {/* 标题：与其他字段同一编辑原语（FieldRow 点击进入编辑，blur/⌘↵ 保存 → renameEntity） */}
+      <FieldRow label={typeLabelOf(entity, entityTypes)} value={entity.title} onSave={(value) => store.renameEntity(entity, String(value))} readOnly={readOnly} />
 
       {/* 简介 → 正文（body）：固定顺序，正文紧随简介，存 content.body */}
-      <FieldRow label="简介" placeholder="一句话简介…" value={entity.summary ?? ""} onSave={(value) => store.saveEntityField(entity, { summary: String(value) })} />
+      <FieldRow label="简介" multiline value={entity.summary ?? ""} placeholder="一句话简介…" onSave={(value) => store.saveEntityField(entity, { summary: String(value) })} />
       <FieldRow
         label="正文"
         multiline

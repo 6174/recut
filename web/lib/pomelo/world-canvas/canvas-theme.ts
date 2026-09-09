@@ -74,6 +74,14 @@ const textureCache = new Map<string, PIXI.Texture>();
 const texturePromises = new Map<string, Promise<PIXI.Texture | null>>();
 const TEXTURE_RETRY_DELAYS_MS = [2000, 6000];
 
+// 画布纹理专用缓存键：与面板裸 <img>（无 crossorigin）共享 HTTP 缓存条目时，
+// 浏览器会复用缺 Access-Control-Allow-Origin 的记录导致 crossOrigin 加载必现失败
+// （Chromium/Safari 已知行为，且该失败是确定性的——先被 <img> 看过的图全挂）。
+// 加标记 query 隔离缓存条目；Go http.ServeFile 忽略 query，内容不变。
+function textureURL(url: string): string {
+  return url.includes("?") ? `${url}&t=pixi` : `${url}?t=pixi`;
+}
+
 function loadTextureOnce(url: string): Promise<PIXI.Texture | null> {
   const cached = textureCache.get(url);
   if (cached) return Promise.resolve(cached);
@@ -92,7 +100,7 @@ function loadTextureOnce(url: string): Promise<PIXI.Texture | null> {
         }
       };
       image.onerror = () => resolve(null);
-      image.src = url;
+      image.src = textureURL(url);
     });
     // 结算后剔除 in-flight 记录：null 也要剔除，保证重试能重新发起加载
     void promise.then(() => texturePromises.delete(url));
@@ -152,7 +160,7 @@ function loadVideoOnce(url: string): Promise<PIXI.Texture | null> {
         }
       };
       video.onerror = () => resolve(null);
-      video.src = url;
+      video.src = textureURL(url);
     });
     void promise.then(() => videoTexturePromises.delete(url));
     videoTexturePromises.set(url, promise);
