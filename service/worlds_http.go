@@ -181,6 +181,7 @@ func (s *Server) listWorldEntities(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		input.Limit, _ = strconv.Atoi(raw)
 	}
+	input.IncludeProvisional = r.URL.Query().Get("includeProvisional") == "true"
 	items, nextCursor, err := s.worldsStore().ListEntities(input)
 	if err != nil {
 		writeWorldsError(w, err)
@@ -472,8 +473,40 @@ func (s *Server) upsertWorldEntityType(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
-func (s *Server) listWorldCanvas(w http.ResponseWriter, r *http.Request) {
-	items, err := s.worldsStore().ListCanvasElements(r.PathValue("worldID"), r.URL.Query().Get("contextId"))
+// getCanvasDocument serves canvas.get: one whole document (root when no
+// contextId), lazily migrating legacy element rows on first touch.
+func (s *Server) getCanvasDocument(w http.ResponseWriter, r *http.Request) {
+	doc, err := s.worldsStore().GetCanvasDocument(r.PathValue("worldID"), r.URL.Query().Get("contextId"))
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
+}
+
+// saveCanvasDocument serves canvas.save: whole-document write with optimistic
+// version check (CANVAS_VERSION_CONFLICT on stale reads).
+func (s *Server) saveCanvasDocument(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ContextID       string               `json:"contextId"`
+		Elements        []WorldCanvasElement `json:"elements"`
+		ExpectedVersion int                  `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	doc, err := s.worldsStore().SaveCanvasDocument(r.PathValue("worldID"), input.ContextID, input.Elements, input.ExpectedVersion)
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
+}
+
+// listCanvasDocuments serves canvas.docs: the world's document index.
+func (s *Server) listCanvasDocuments(w http.ResponseWriter, r *http.Request) {
+	items, err := s.worldsStore().ListCanvasDocuments(r.PathValue("worldID"))
 	if err != nil {
 		writeWorldsError(w, err)
 		return
@@ -481,47 +514,30 @@ func (s *Server) listWorldCanvas(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
-func (s *Server) upsertWorldCanvas(w http.ResponseWriter, r *http.Request) {
+// updateCanvasDocumentOps serves canvas.doc.update: element-level ops applied
+// inside one document (AI/MCP parity with the legacy upsert/remove).
+func (s *Server) updateCanvasDocumentOps(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		ElementID string         `json:"id"`
-		ContextID string         `json:"contextId"`
-		Kind      string         `json:"kind"`
-		RefKind   string         `json:"refKind"`
-		RefID     string         `json:"refId"`
-		Name      string         `json:"name"`
-		Props     map[string]any `json:"props"`
-		Geometry  map[string]any `json:"geometry"`
-		Style     map[string]any `json:"style"`
-		Layer     string         `json:"layer"`
+		ContextID string        `json:"contextId"`
+		Ops       []CanvasDocOp `json:"ops"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
 		return
 	}
-	item, err := s.worldsStore().UpsertCanvasElement(UpsertCanvasElementInput{
-		WorldID: r.PathValue("worldID"), ElementID: input.ElementID, ContextID: input.ContextID,
-		Kind: input.Kind, RefKind: input.RefKind, RefID: input.RefID, Name: input.Name,
-		Props: input.Props, Geometry: input.Geometry, Style: input.Style, Layer: input.Layer, CreatedBy: "http",
-	})
+	doc, err := s.worldsStore().UpdateCanvasDocumentOps(r.PathValue("worldID"), input.ContextID, input.Ops)
 	if err != nil {
 		writeWorldsError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, item)
-}
-
-func (s *Server) deleteWorldCanvas(w http.ResponseWriter, r *http.Request) {
-	if err := s.worldsStore().DeleteCanvasElement(r.PathValue("worldID"), r.PathValue("elementID"), "http"); err != nil {
-		writeWorldsError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, doc)
 }
 
 func (s *Server) promoteWorldCanvas(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Kind               string `json:"kind"`
 		RelationType       string `json:"relationType"`
+		Field              string `json:"field"`
 		Title              string `json:"title"`
 		ExpectedRevisionID string `json:"expectedRevisionId"`
 	}
@@ -531,7 +547,7 @@ func (s *Server) promoteWorldCanvas(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.worldsStore().PromoteCanvasElement(PromoteCanvasElementInput{
 		WorldID: r.PathValue("worldID"), ElementID: r.PathValue("elementID"), Kind: input.Kind,
-		RelationType: input.RelationType, Title: input.Title,
+		RelationType: input.RelationType, Field: input.Field, Title: input.Title,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
 	})
 	if err != nil {
@@ -581,6 +597,60 @@ func (s *Server) promoteWorldEntity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, entity)
+}
+
+// 删除实体（T2）：归档实体与子图 + 级联清理关系/证据/画布投影；回传影响范围统计。
+func (s *Server) deleteWorldEntity(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&input)
+	}
+	result, err := s.worldsStore().DeleteEntity(DeleteEntityInput{
+		WorldID: r.PathValue("worldID"), EntityID: r.PathValue("entityID"),
+		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+	})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// 版本历史（T12）：最近 50 条 revision 摘要。
+func (s *Server) listWorldRevisions(w http.ResponseWriter, r *http.Request) {
+	items, err := s.worldsStore().ListRevisions(r.PathValue("worldID"))
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// AI 候选实体（T13/B.16，契约先行）：POST { text, limit } → { candidates: [{kind,title,summary,content}] }。
+// 候选生成依赖 LLM 通道（复用 agent 基建），v1 尚未接线：固定返回 501 + AI_NOT_CONFIGURED，
+// 前端契约与 UI 已按此实现，后端接入后无需再改前端。
+func (s *Server) suggestWorldEntities(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusNotImplemented)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "AI_NOT_CONFIGURED", "message": "AI entity suggestion is not wired to an LLM channel yet"}})
+}
+
+// 回滚（T12）：非破坏指针回移，语义状态按目标 revision 的 canonical 重建。
+func (s *Server) revertWorldRevision(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&input)
+	}
+	detail, err := s.worldsStore().RevertToRevision(r.PathValue("worldID"), r.PathValue("revisionID"), input.ExpectedRevisionID, "http")
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func writeWorldsError(w http.ResponseWriter, err error) {

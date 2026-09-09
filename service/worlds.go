@@ -295,6 +295,7 @@ const (
 	WorldsErrAssetNotReady       = "ASSET_NOT_READY"
 	WorldsErrProjectAlreadyBound = "PROJECT_WORLD_ALREADY_BOUND"
 	WorldsErrAccessDenied        = "WORLD_ACCESS_DENIED"
+	WorldsErrCanvasConflict      = "CANVAS_VERSION_CONFLICT"
 	// WorldsErrReadOnly is the hard write boundary for non-local worlds. The
 	// error details always carry the fork escape hatch (hint + forkOperation)
 	// so Agents can propose the legal exit instead of failing silently.
@@ -837,7 +838,172 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 		return WorldEntity{}, err
 	}
 	logWorldEvent("world.entity.upserted", map[string]string{"worldId": input.WorldID, "entityId": entityID})
+	// Property-binding sync (panel → canvas): entity.content is the shared
+	// data source; refresh every attr projection bound to this entity.
+	w.syncAttrProjections(input.WorldID, entityID, input.Content)
 	return w.getEntity(db, input.WorldID, entityID)
+}
+
+type DeleteEntityInput struct {
+	WorldID            string
+	EntityID           string
+	ExpectedRevisionID string
+	CreatedBy          string
+}
+
+// DeleteEntityResult 回传删除影响范围，供确认对话框展示（「将一并删除 N 个子设定 / M 条关系 / K 份素材」）。
+type DeleteEntityResult struct {
+	Deleted       int `json:"deleted"`
+	Children      int `json:"children"`
+	Relations     int `json:"relations"`
+	Evidences     int `json:"evidences"`
+}
+
+// DeleteEntity 归档实体及其整个子图（Q1：归档而非物理删除，恢复功能 P1）：
+// 子实体级联归档；触及的关系物理删除（world_relations 无归档列）；证据引用归档；
+// 画布实体投影与关系锚点元素删除；产 1 条 revision。
+func (w *WorldStore) DeleteEntity(input DeleteEntityInput) (DeleteEntityResult, error) {
+	db, err := w.database()
+	if err != nil {
+		return DeleteEntityResult{}, err
+	}
+	if _, err := w.summary(db, input.WorldID); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return DeleteEntityResult{}, err
+	}
+	defer tx.Rollback()
+	if err := w.checkWritable(tx, input.WorldID); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	// 宽搜收集整个后代子图（仅未归档行）
+	ids := map[string]bool{input.EntityID: true}
+	frontier := []string{input.EntityID}
+	for len(frontier) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(frontier)), ",")
+		args := make([]any, 0, len(frontier)+1)
+		args = append(args, input.WorldID)
+		for _, id := range frontier {
+			args = append(args, id)
+		}
+		rows, err := tx.Query("select id from world_entities where world_id = ? and archived_at is null and parent_id in ("+placeholders+")", args...)
+		if err != nil {
+			return DeleteEntityResult{}, err
+		}
+		next := []string{}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return DeleteEntityResult{}, err
+			}
+			if !ids[id] {
+				ids[id] = true
+				next = append(next, id)
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return DeleteEntityResult{}, err
+		}
+		frontier = next
+	}
+	if !ids[input.EntityID] {
+		return DeleteEntityResult{}, worldsError(WorldsErrEntityNotFound, "entity not found in world")
+	}
+	idList := make([]string, 0, len(ids))
+	for id := range ids {
+		idList = append(idList, id)
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(idList)), ",")
+	args := make([]any, 0, len(idList))
+	for _, id := range idList {
+		args = append(args, id)
+	}
+
+	var childrenCount, relationCount, evidenceCount int
+	if err := tx.QueryRow("select count(*) from world_entities where world_id = ? and archived_at is null and parent_id in ("+placeholders+")", append([]any{input.WorldID}, args...)...).Scan(&childrenCount); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	if err := tx.QueryRow("select count(*) from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{input.WorldID}, args...), args...)...).Scan(&relationCount); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	if err := tx.QueryRow("select count(*) from world_asset_refs where world_id = ? and archived_at is null and entity_id in ("+placeholders+")", append([]any{input.WorldID}, args...)...).Scan(&evidenceCount); err != nil {
+		return DeleteEntityResult{}, err
+	}
+
+	// 画布投影：实体元素（refKind=entity）与关系锚点（shape:rel-<relationId>，refId=relationId）一并删除；
+	// 必须在删除关系行之前收集 relationID（锚点元素按 refId=relationId 清理）
+	relationIDs := []string{}
+	relationRows, err := tx.Query("select id from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{input.WorldID}, args...), args...)...)
+	if err != nil {
+		return DeleteEntityResult{}, err
+	}
+	for relationRows.Next() {
+		var id string
+		if err := relationRows.Scan(&id); err != nil {
+			relationRows.Close()
+			return DeleteEntityResult{}, err
+		}
+		relationIDs = append(relationIDs, id)
+	}
+	relationRows.Close()
+	if err := relationRows.Err(); err != nil {
+		return DeleteEntityResult{}, err
+	}
+
+	now := iso(time.Now().UTC())
+	if _, err := tx.Exec("update world_entities set archived_at = ?, updated_at = ? where world_id = ? and archived_at is null and id in ("+placeholders+")", append([]any{now, now, input.WorldID}, args...)...); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	// 关系触达被删实体即删除（无 archived_at 列；词表关系可重建，成本可接受）
+	if _, err := tx.Exec("delete from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{input.WorldID}, args...), args...)...); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	if _, err := tx.Exec("update world_asset_refs set archived_at = ? where world_id = ? and archived_at is null and entity_id in ("+placeholders+")", append([]any{now, input.WorldID}, args...)...); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	// 画布投影清理（文档版）：实体投影 + 指向被删关系的边从所有文档移除
+	idSet := map[string]bool{}
+	for _, arg := range args {
+		if id, ok := arg.(string); ok {
+			idSet[id] = true
+		}
+	}
+	relationSet := map[string]bool{}
+	for _, id := range relationIDs {
+		relationSet[id] = true
+	}
+	if err := mutateCanvasDocsInTx(tx, input.WorldID, func(element WorldCanvasElement) bool {
+		if element.RefKind == "entity" && idSet[element.RefID] {
+			return true
+		}
+		return relationSet[element.RefID]
+	}); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	// 被删实体的内层画布文档级联移除（RFC §1.4：实体删除不留下悬空文档）
+	if len(idSet) > 0 {
+		ctxPlaceholders := strings.TrimRight(strings.Repeat("?,", len(idSet)), ",")
+		ctxArgs := append([]any{input.WorldID}, args...)
+		if _, err := tx.Exec("delete from world_canvases where world_id = ? and context_id in ("+ctxPlaceholders+")", ctxArgs...); err != nil {
+			return DeleteEntityResult{}, err
+		}
+	}
+
+	if _, err := w.commitRevision(tx, input.WorldID, "entity.deleted", input.CreatedBy); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	logWorldEvent("world.entity.deleted", map[string]string{"worldId": input.WorldID, "entityId": input.EntityID, "cascade": fmt.Sprintf("%d", len(idList)-1)})
+	return DeleteEntityResult{Deleted: len(idList), Children: childrenCount, Relations: relationCount, Evidences: evidenceCount}, nil
 }
 
 func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetReference, error) {
@@ -1816,8 +1982,219 @@ func (w *WorldStore) resolveRevision(db *sql.DB, worldID, revisionID string) (Wo
 
 // GetProjectBinding returns the primary binding of a Project, or nil when the
 // Project is unbound. A missing binding is a value, never an error.
-func (w *WorldStore) GetProjectBinding(projectID string) (*CreationContextBinding, error) {
+// WorldRevisionSummary is one row of the revision history (T12 快照/回滚面板).
+type WorldRevisionSummary struct {
+	ID        string `json:"id"`
+	Hash      string `json:"hash"`
+	Reason    string `json:"reason"`
+	CreatedBy string `json:"createdBy"`
+	CreatedAt string `json:"createdAt"`
+}
+
+// ListRevisions returns the world's revision history, newest first (limit 50).
+func (w *WorldStore) ListRevisions(worldID string) ([]WorldRevisionSummary, error) {
 	db, err := w.database()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.summary(db, worldID); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query("select id, canonical_hash, reason, created_by, created_at from world_revisions where world_id = ? order by created_at desc, id desc limit 50", worldID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorldRevisionSummary{}
+	for rows.Next() {
+		var item WorldRevisionSummary
+		if err := rows.Scan(&item.ID, &item.Hash, &item.Reason, &item.CreatedBy, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// RevertToRevision 回滚到历史版本（T12）：非破坏 —— 指针移到目标 revision（同 hash 不新建行），
+// 实体/关系/证据按 canonical_json 重建（id 保留），画布投影不动；产前置冲突检查。
+func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, createdBy string) (WorldDetail, error) {
+	db, err := w.database()
+	if err != nil {
+		return WorldDetail{}, err
+	}
+	if _, err := w.summary(db, worldID); err != nil {
+		return WorldDetail{}, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return WorldDetail{}, err
+	}
+	defer tx.Rollback()
+	if err := w.checkWritable(tx, worldID); err != nil {
+		return WorldDetail{}, err
+	}
+	if err := w.checkWorldRevision(tx, worldID, expectedRevisionID); err != nil {
+		return WorldDetail{}, err
+	}
+	var canonical string
+	if err := tx.QueryRow("select canonical_json from world_revisions where id = ? and world_id = ?", revisionID, worldID).Scan(&canonical); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return WorldDetail{}, worldsError(WorldsErrRevisionNotFound, "revision not found in world")
+		}
+		return WorldDetail{}, err
+	}
+	var payload struct {
+		World struct {
+			Name        string         `json:"name"`
+			Description string         `json:"description"`
+		} `json:"world"`
+		Skill      string                            `json:"skill"`
+		Identity   map[string]any                    `json:"identity"`
+		Entities   map[string][]map[string]any       `json:"entities"`
+		Relations  []map[string]any                  `json:"relations"`
+		References []map[string]any                  `json:"references"`
+	}
+	if err := json.Unmarshal([]byte(canonical), &payload); err != nil {
+		return WorldDetail{}, err
+	}
+	now := iso(time.Now().UTC())
+	// 语义表按 canonical 重建（历史冻结在该指针指向的 revision 里）；画布投影保留（实体 id 不变）。
+	// 语义关系边的画布锚点清理（文档版）：kind=arrow 且 ref_id 指向旧 world_relations 的元素移除
+	relationIDs := []string{}
+	relationRows, err := tx.Query("select id from world_relations where world_id = ?", worldID)
+	if err != nil {
+		return WorldDetail{}, err
+	}
+	for relationRows.Next() {
+		var id string
+		if err := relationRows.Scan(&id); err != nil {
+			relationRows.Close()
+			return WorldDetail{}, err
+		}
+		relationIDs = append(relationIDs, id)
+	}
+	relationRows.Close()
+	if err := relationRows.Err(); err != nil {
+		return WorldDetail{}, err
+	}
+	relationSet := map[string]bool{}
+	for _, id := range relationIDs {
+		relationSet[id] = true
+	}
+	if err := mutateCanvasDocsInTx(tx, worldID, func(element WorldCanvasElement) bool {
+		return element.Kind == "arrow" && relationSet[element.RefID]
+	}); err != nil {
+		return WorldDetail{}, err
+	}
+	if _, err := tx.Exec("delete from world_relations where world_id = ?", worldID); err != nil {
+		return WorldDetail{}, err
+	}
+	if _, err := tx.Exec("delete from world_asset_refs where world_id = ?", worldID); err != nil {
+		return WorldDetail{}, err
+	}
+	if _, err := tx.Exec("delete from world_entities where world_id = ?", worldID); err != nil {
+		return WorldDetail{}, err
+	}
+	identityJSON, err := json.Marshal(payload.Identity)
+	if err != nil {
+		return WorldDetail{}, err
+	}
+	if _, err := tx.Exec("update worlds set name = ?, description = ?, identity_json = ?, skill_md = ?, current_revision_id = ?, updated_at = ? where id = ?",
+		payload.World.Name, payload.World.Description, string(identityJSON), payload.Skill, revisionID, now, worldID); err != nil {
+		return WorldDetail{}, err
+	}
+	// 实体：bucket key = kind；record = id/title/summary/parentId + 其余为 content
+	for kind, records := range payload.Entities {
+		for _, record := range records {
+			id, _ := record["id"].(string)
+			title, _ := record["title"].(string)
+			summary, _ := record["summary"].(string)
+			if id == "" {
+				continue
+			}
+			parentID, _ := record["parentId"].(string)
+			content := map[string]any{}
+			for key, value := range record {
+				switch key {
+				case "id", "title", "summary", "parentId":
+					continue
+				default:
+					content[key] = value
+				}
+			}
+			contentJSON, err := json.Marshal(content)
+			if err != nil {
+				return WorldDetail{}, err
+			}
+			if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, '', 0, ?, ?)",
+				id, worldID, kind, title, summary, string(contentJSON), nullIfEmpty(parentID), now, now); err != nil {
+				return WorldDetail{}, err
+			}
+		}
+	}
+	// 关系（全局关系；局部关系不进 canonical，无法从历史恢复）
+	for _, record := range payload.Relations {
+		id, _ := record["id"].(string)
+		relationType, _ := record["type"].(string)
+		fromID, _ := record["from"].(string)
+		toID, _ := record["to"].(string)
+		if id == "" || relationType == "" || fromID == "" || toID == "" {
+			continue
+		}
+		metadataJSON, err := json.Marshal(record["metadata"])
+		if err != nil {
+			return WorldDetail{}, err
+		}
+		if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, created_at) values (?, ?, ?, ?, ?, ?, ?)",
+			id, worldID, fromID, toID, relationType, string(metadataJSON), now); err != nil {
+			return WorldDetail{}, err
+		}
+	}
+	// 证据：unique(world_id, entity_id, asset_id, url, role) —— 旧行已物理删除，直接重插
+	for _, record := range payload.References {
+		id, _ := record["id"].(string)
+		if id == "" {
+			continue
+		}
+		assetID, _ := record["assetId"].(string)
+		url, _ := record["url"].(string)
+		contentHash, _ := record["assetContentHash"].(string)
+		modality, _ := record["modality"].(string)
+		purpose, _ := record["purpose"].(string)
+		status, _ := record["status"].(string)
+		collection, _ := record["collection"].(string)
+		role, _ := record["role"].(string)
+		label, _ := record["label"].(string)
+		entityID, _ := record["entityId"].(string)
+		source := record["source"]
+		if source == nil {
+			if assetID != "" {
+				source = "asset"
+			} else {
+				source = "url"
+			}
+		}
+		segmentJSON := ""
+		if segment, ok := record["segment"].(map[string]any); ok {
+			encoded, err := json.Marshal(segment)
+			if err == nil {
+				segmentJSON = string(encoded)
+			}
+		}
+		if _, err := tx.Exec("insert into world_asset_refs (id, world_id, entity_id, asset_id, url, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, sort_order, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+			id, worldID, nullIfEmpty(entityID), assetID, url, contentHash, modality, purpose, status, collection, segmentJSON, role, label, now); err != nil {
+			return WorldDetail{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return WorldDetail{}, err
+	}
+	logWorldEvent("world.reverted", map[string]string{"worldId": worldID, "revisionId": revisionID})
+	return w.GetWorld(worldID)
+}
+
+func (w *WorldStore) GetProjectBinding(projectID string) (*CreationContextBinding, error) {	db, err := w.database()
 	if err != nil {
 		return nil, err
 	}

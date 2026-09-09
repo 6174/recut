@@ -353,10 +353,27 @@ export class PomeloEditorState {
    */
   #removeBlock(blockId: string) {
     const blockMap = this.blockMap.get(blockId);
-    if (!blockMap) throw new Error(`Block with id ${blockId} not found`);
-
+    // 幂等：块不存在或父子关系缺失（历史 addBlock 脏数据）不再抛错——
+    // 抛错会中止调用方整个 transact，画布 diff 同步整体失效，只能靠整页刷新恢复
+    if (!blockMap) {
+      this.parentChildMap.delete(blockId);
+      return;
+    }
     const relation = this.parentChildMap.get(blockId);
-    if (!relation) throw new Error(`Relation for block with id ${blockId} not found`);
+    if (!relation) {
+      // 兜底：按根块子数组移除 Y 记录，避免文档越滚越大
+      const rootMap = this.blockMap.get(this.rootBlockId);
+      const rootChildren = rootMap?.get("children") as Y.Array<any> | undefined;
+      if (rootChildren) {
+        const index = rootChildren.toArray().findIndex((child) => child.get("id") === blockId);
+        if (index !== -1) {
+          rootChildren.delete(index, 1);
+        }
+      }
+      this.blockMap.delete(blockId);
+      this.parentChildMap.delete(blockId);
+      return;
+    }
 
     const parentId = relation.parentId;
     if (parentId) {

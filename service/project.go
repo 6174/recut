@@ -629,6 +629,18 @@ create table if not exists world_canvas (
 );
 create index if not exists world_canvas_world_ctx on world_canvas(world_id, context_id, layer);
 
+create table if not exists world_canvases (
+  id text primary key,
+  world_id text not null references worlds(id) on delete cascade,
+  context_id text not null default '',
+  doc_json text not null default '{"docVersion":1,"elements":[]}',
+  version integer not null default 1,
+  created_at text not null,
+  updated_at text not null,
+  unique(world_id, context_id)
+);
+create index if not exists world_canvases_world on world_canvases(world_id, context_id);
+
 create table if not exists world_asset_refs (
   id text primary key,
   world_id text not null references worlds(id) on delete cascade,

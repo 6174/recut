@@ -54,7 +54,7 @@ import { Workspace } from "../../page";
 import { useWorldCanvasTopBarStore } from "./canvas/canvas-top-bar";
 import { useWorldCanvasStore } from "./canvas/canvas-store";
 
-// 画布模式：tldraw 依赖浏览器 API，仅客户端挂载。
+// 画布模式：依赖浏览器 API，仅客户端挂载。
 const WorldCanvas = dynamic(() => import("./canvas").then((mod) => mod.default), { ssr: false });
 
 function worldIDFromLocation(routeID: string | undefined) {

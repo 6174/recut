@@ -40,9 +40,9 @@ func worldsMCPToolDefinitions(_ Locale) []map[string]any {
 		{"name": "recut.worlds.entityTypes.upsert", "description": "定义或覆盖一个 entity type（含 fields_json 字段 schema）。预设 id（character 等）更新本世界的内置副本；其他 id 创建世界级自定义 type。type 是 schema，不产出 revision。只在用户明确要求定义类型时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "id", "name"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "id": map[string]string{"type": "string", "description": "type 标识，如 'mecha' 或预设 'character'。"}, "name": map[string]string{"type": "string"}, "icon": map[string]string{"type": "string"}, "color": map[string]string{"type": "string"}, "baseKind": map[string]string{"type": "string", "description": "可选：归属的语义大类（character/location/...），用于 readiness 归类。"}, "fields": map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "字段 schema 数组：[{key,label,type,required,placeholder,options,invariant}]。"}}}},
 		{"name": "recut.worlds.relations.create", "description": "创建一条受控语义关系（有向边）。relationType 优先用内置词表（people/world/video/story 四组）；scopeEntityId 可选，设置后该关系只在该实体局部上下文内有效，不进全局 Canon。每次创建产出 revision。只在用户明确要求建立关系时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "fromEntityId", "toEntityId", "relationType"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "fromEntityId": map[string]string{"type": "string"}, "toEntityId": map[string]string{"type": "string"}, "relationType": map[string]string{"type": "string", "description": "受控词表：father/mother/child/spouse/partner/friend/teacher/student/colleague/enemy/belongs_to/located_in/owns/contains/created_by/appears_in/followed_by/precedes/adapted_from/causes/references/depends_on/part_of；也可用自定义字符串。"}, "scopeEntityId": map[string]string{"type": "string", "description": "可选：局部关系归属的实体 id。"}, "metadata": map[string]any{"type": "object"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.relations.list", "description": "按实体列出关系：全局关系（touch 该实体）+ 该实体为 scope 的局部关系。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "entityId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}}}},
-		{"name": "recut.worlds.canvas.list", "description": "读取一个画布上下文（''=全局画布，否则为某实体 id）的画布元素：entity 骨干（refId 指向实体）+ 自由元素（text/image/shape/arrow/note/link）。画布是表达层，不承载语义真相，也不产出 revision。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "contextId": map[string]string{"type": "string", "description": "可选：缺省 '' 全局画布。"}}}},
-		{"name": "recut.worlds.canvas.upsert", "description": "写一个画布元素：kind='entity' 的骨干（refId 指向实体，props 只存视图偏好）或自由元素（text/image/shape/arrow/note/link，内容在 props）。画布元素永不产 revision，删除实体时级联删除其投影。只在用户明确要求摆放画布元素时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "id", "kind", "geometry"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "id": map[string]string{"type": "string", "description": "元素 id（= 前端 shape id 的镜像）。"}, "contextId": map[string]string{"type": "string"}, "kind": map[string]string{"type": "string"}, "refKind": map[string]string{"type": "string"}, "refId": map[string]string{"type": "string"}, "name": map[string]string{"type": "string"}, "props": map[string]any{"type": "object"}, "geometry": map[string]any{"type": "object"}, "style": map[string]any{"type": "object"}, "layer": map[string]string{"type": "string"}}}},
-		{"name": "recut.worlds.canvas.promote", "description": "把画布草稿提升为正式语义对象并产出 revision：note/text → Entity（可用 kind 指定 type），箭头（连到两个 entity 元素）→ world_relations。提升后原画布元素保留为投影。这是 Canon 写入，必须显式用户确认。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "elementId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "elementId": map[string]string{"type": "string"}, "kind": map[string]string{"type": "string", "description": "可选：便签→实体时的 type id。"}, "relationType": map[string]string{"type": "string", "description": "可选：箭头→关系时的 relation_type。"}, "title": map[string]string{"type": "string", "description": "可选：便签→实体时的实体标题。"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.canvas.doc", "description": "读取一个画布 Document（''=全局画布根文档，否则为某实体 id 的内层文档）：返回 {elements, version, contextId}。一张画布 = 一个文档，内层画布是独立文档，实体/关系语义数据共享。画布是表达层，不承载语义真相，也不产出 revision。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "contextId": map[string]string{"type": "string", "description": "可选：缺省 '' 根画布。"}}}},
+		{"name": "recut.worlds.canvas.doc.update", "description": "在一个画布 Document 内应用元素级 ops（insert/update/remove）：kind='entity' 的骨干（refId 指向实体，props 只存视图偏好）或自由元素（text/image/shape/arrow/note/link，内容在 props；arrow/link 是语义边：fromElementId 必须指向同文档内的 entity 元素，只有 entity 能作为出发点）。返回更新后的 {elements, version}。画布元素永不产 revision。只在用户明确要求摆放画布元素时调用。", "inputSchema": canvasDocUpdateSchema()},
+		{"name": "recut.worlds.canvas.promote", "description": "把画布草稿提升为正式语义对象并产出 revision：note/text → Entity（可用 kind 指定 type）；箭头/link 是有语义的边，出发点必须是 entity 元素：entity→entity 变成 world_relations（relationType），entity→自由元素变成属性绑定（field 绑定到实体属性，自由元素标记为引用投影并生成 attr 锚点元素，值与右侧属性面板共享 entity.content 单一数据源）。提升后原画布元素保留为投影。这是 Canon 写入，必须显式用户确认。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "elementId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "elementId": map[string]string{"type": "string"}, "kind": map[string]string{"type": "string", "description": "可选：便签→实体时的 type id。"}, "relationType": map[string]string{"type": "string", "description": "可选：箭头→关系时的 relation_type。"}, "field": map[string]string{"type": "string", "description": "可选：箭头→属性绑定时的实体属性 key。"}, "title": map[string]string{"type": "string", "description": "可选：便签→实体时的实体标题。"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.references.attach", "description": "以语义 role 把一个已完成的全局 Asset（assetId）或绝对 http(s) URL 资源（url，二选一）引用到 World（可选绑定到实体）。只记录来源与语义，不复制二进制。只在用户明确要求把素材登记为参考时调用；不能自动把生成结果写进 Canon。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "role"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}, "assetId": map[string]string{"type": "string", "description": "与 url 二选一：全局素材库中的 Asset ID。"}, "url": map[string]string{"type": "string", "description": "与 assetId 二选一：绝对 http(s) URL，作为世界自带的远程资源真相。"}, "role": worldReferenceRoleSchema(), "label": map[string]string{"type": "string"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.evidence.attach", "description": "将用户确认的媒体或文字资料收录为多模态 Canon。来源二选一：assetId（服务推导 modality 和内容哈希）或 url（绝对 http(s)，modality 必填且属于封闭集合）。purpose、status、collection 与可选 segment 决定 AI 如何使用它。不得自动将生成结果写入。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "purpose"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}, "assetId": map[string]string{"type": "string", "description": "与 url 二选一：全局素材库中的 Asset ID。"}, "url": map[string]string{"type": "string", "description": "与 assetId 二选一：绝对 http(s) URL。"}, "modality": map[string]any{"type": "string", "enum": []string{"image", "video", "audio", "text", "research"}, "description": "url 来源时必填。"}, "purpose": worldEvidencePurposeSchema(), "status": worldEvidenceStatusSchema(), "collection": map[string]string{"type": "string"}, "label": map[string]string{"type": "string"}, "segment": map[string]any{"type": "object", "properties": map[string]any{"startSec": map[string]any{"type": "number"}, "endSec": map[string]any{"type": "number"}}}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.evidence.update", "description": "修改一份已收录资料的用途、参考强度或说明，不替换原始素材且会产出新的 Canon revision。仅在用户明确要求编辑该资料时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "evidenceId", "purpose", "status"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "evidenceId": map[string]string{"type": "string"}, "purpose": worldEvidencePurposeSchema(), "status": worldEvidenceStatusSchema(), "label": map[string]string{"type": "string"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
@@ -54,6 +54,47 @@ func worldsMCPToolDefinitions(_ Locale) []map[string]any {
 
 func worldKindSchema() map[string]any {
 	return map[string]any{"type": "string", "enum": []string{"character_ip", "creator_brand", "brand", "fiction_world", "custom"}}
+}
+
+// canvasDocUpdateSchema is the input schema of recut.worlds.canvas.doc.update:
+// element-level ops applied inside one canvas document.
+func canvasDocUpdateSchema() map[string]any {
+	elementSchema := func(required []string) map[string]any {
+		return map[string]any{
+			"type": "object",
+			"required": required,
+			"properties": map[string]any{
+				"id":       map[string]string{"type": "string", "description": "元素 id（= 前端 shape id 的镜像）。"},
+				"kind":     map[string]string{"type": "string"},
+				"refKind":  map[string]string{"type": "string"},
+				"refId":    map[string]string{"type": "string"},
+				"name":     map[string]string{"type": "string"},
+				"props":    map[string]any{"type": "object"},
+				"geometry": map[string]any{"type": "object"},
+				"style":    map[string]any{"type": "object"},
+				"layer":    map[string]string{"type": "string"},
+			},
+		}
+	}
+	return map[string]any{
+		"type": "object",
+		"required": []string{"worldId", "contextId", "ops"},
+		"properties": map[string]any{
+			"worldId":   map[string]string{"type": "string"},
+			"contextId": map[string]string{"type": "string", "description": "''=根画布，否则为某实体 id 的内层文档。"},
+			"ops": map[string]any{
+				"type": "array",
+				"description": "insert/update/remove 元素操作；remove 只需 element.id",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"op": map[string]string{"type": "string", "description": "insert | update | remove"},
+						"element": elementSchema(nil),
+					},
+				},
+			},
+		},
+	}
 }
 
 func worldEntityKindSchema() map[string]any {
@@ -199,23 +240,44 @@ func worldsMCPTool(worlds *WorldStore, name string, input map[string]any) (any, 
 		var items []WorldEntityRelation
 		items, err = worlds.ListRelations(stringValue(input["worldId"]), stringValue(input["entityId"]))
 		result = map[string]any{"items": items}
-	case "recut.worlds.canvas.list":
-		var items []WorldCanvasElement
-		items, err = worlds.ListCanvasElements(stringValue(input["worldId"]), stringValue(input["contextId"]))
-		result = map[string]any{"items": items}
-	case "recut.worlds.canvas.upsert":
-		props := map[string]any{}
-		geometry := map[string]any{}
-		style := map[string]any{}
-		_ = decodeJSONMap(inputMap(input["props"]), &props)
-		_ = decodeJSONMap(inputMap(input["geometry"]), &geometry)
-		_ = decodeJSONMap(inputMap(input["style"]), &style)
-		result, err = worlds.UpsertCanvasElement(UpsertCanvasElementInput{
-			WorldID: stringValue(input["worldId"]), ElementID: stringValue(input["id"]),
-			ContextID: stringValue(input["contextId"]), Kind: stringValue(input["kind"]),
-			RefKind: stringValue(input["refKind"]), RefID: stringValue(input["refId"]), Name: stringValue(input["name"]),
-			Props: props, Geometry: geometry, Style: style, Layer: stringValue(input["layer"]), CreatedBy: "mcp",
-		})
+	case "recut.worlds.canvas.doc":
+		doc, docErr := worlds.GetCanvasDocument(stringValue(input["worldId"]), stringValue(input["contextId"]))
+		if docErr != nil {
+			err = docErr
+		} else {
+			result = map[string]any{"elements": doc.Elements, "version": doc.Version, "contextId": doc.ContextID}
+		}
+	case "recut.worlds.canvas.doc.update":
+		ops := []CanvasDocOp{}
+		if rawOps, ok := input["ops"].([]any); ok {
+			for _, rawOp := range rawOps {
+				opMap, _ := rawOp.(map[string]any)
+				if opMap == nil {
+					continue
+				}
+				op := CanvasDocOp{Op: stringValue(opMap["op"])}
+				if elementMap := inputMap(opMap["element"]); len(elementMap) > 0 {
+					props := map[string]any{}
+					geometry := map[string]any{}
+					style := map[string]any{}
+					_ = decodeJSONMap(inputMap(elementMap["props"]), &props)
+					_ = decodeJSONMap(inputMap(elementMap["geometry"]), &geometry)
+					_ = decodeJSONMap(inputMap(elementMap["style"]), &style)
+					op.Element = &UpsertCanvasElementInput{
+						WorldID: stringValue(input["worldId"]), ElementID: stringValue(elementMap["id"]),
+						ContextID: stringValue(input["contextId"]), Kind: stringValue(elementMap["kind"]),
+						RefKind: stringValue(elementMap["refKind"]), RefID: stringValue(elementMap["refId"]), Name: stringValue(elementMap["name"]),
+						Props: props, Geometry: geometry, Style: style, Layer: stringValue(elementMap["layer"]), CreatedBy: "mcp",
+					}
+				}
+				ops = append(ops, op)
+			}
+		}
+		var doc WorldCanvasDocument
+		doc, err = worlds.UpdateCanvasDocumentOps(stringValue(input["worldId"]), stringValue(input["contextId"]), ops)
+		if err == nil {
+			result = map[string]any{"elements": doc.Elements, "version": doc.Version, "contextId": doc.ContextID}
+		}
 	case "recut.worlds.canvas.promote":
 		result, err = worlds.PromoteCanvasElement(PromoteCanvasElementInput{
 			WorldID: stringValue(input["worldId"]), ElementID: stringValue(input["elementId"]),

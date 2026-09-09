@@ -1,8 +1,9 @@
 /*
  * [INPUT]: 依赖 WorldStore 与临时工作区（同 worlds_test.go 的测试基建）
  * [OUTPUT]: 验证 Recursive World Canvas 数据结构落地：entity type 目录（预设 seed / 自定义自动创建 / 覆盖）、
- * world_canvas 元素读写不产 revision、递归容器（create_child / promote / parent 归属）、局部关系
- * （scope_entity_id 不进全局 canonical）、受控关系词表、promote 闭环（便签→实体、箭头→关系）
+ * world_canvas 元素读写不产 revision（arrow/link 出发点必须是 entity 元素）、递归容器（create_child / promote /
+ * parent 归属）、局部关系（scope_entity_id 不进全局 canonical）、受控关系词表、promote 闭环（便签→实体、
+ * 箭头→关系 / 箭头→属性绑定与画布↔属性面板同步纪律）
  * [POS]: service 的 Recursive World Canvas 回归测试；不调用真实模型提供商，全部使用临时 SQLite
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -10,6 +11,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -363,13 +365,30 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	arrow, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
-		WorldID: worldID, ElementID: "shape:arrow-1", Kind: "arrow",
-		Props: map[string]any{"fromElementId": "shape:entity-0", "toElementId": "shape:entity-1"},
+	// Link start gate: an arrow drawn before its endpoints exist is rejected,
+	// and a free element can never be the start point.
+	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "shape:arrow-bad", Kind: "arrow",
+		Props: map[string]any{"fromElementId": "shape:note-1", "toElementId": "shape:entity-0"},
 		Geometry: map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}, Layer: "0",
-	})
-	if err != nil {
-		t.Fatal(err)
+	}); err == nil {
+		t.Fatal("arrow from a free element must be rejected")
+	}
+	// Link start gate: an arrow drawn before its endpoints exist is rejected,
+	// and a free element can never be the start point.
+	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "shape:arrow-bad", Kind: "arrow",
+		Props: map[string]any{"fromElementId": "shape:note-1", "toElementId": "shape:entity-0"},
+		Geometry: map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}, Layer: "0",
+	}); err == nil {
+		t.Fatal("arrow from a free element must be rejected")
+	}
+	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "shape:arrow-missing", Kind: "arrow",
+		Props: map[string]any{"fromElementId": "shape:ghost", "toElementId": "shape:entity-0"},
+		Geometry: map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}, Layer: "0",
+	}); err == nil {
+		t.Fatal("arrow with a missing start element must be rejected")
 	}
 	entityEl, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
 		WorldID: worldID, ElementID: "shape:entity-0", Kind: "entity", RefKind: "entity", RefID: entity.ID,
@@ -385,6 +404,15 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 	secondEl, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
 		WorldID: worldID, ElementID: "shape:entity-1", Kind: "entity", RefKind: "entity", RefID: second.ID,
 		Geometry: map[string]any{"x": 300, "y": 0, "width": 220, "height": 120}, Layer: "0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A semantic link may only be drawn once the entity start point exists.
+	arrow, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "shape:arrow-1", Kind: "arrow",
+		Props: map[string]any{"fromElementId": "shape:entity-0", "toElementId": "shape:entity-1"},
+		Geometry: map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}, Layer: "0",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -449,6 +477,153 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 	}
 }
 
+// TestCanvasPropertyBindingAndSync：entity→自由元素的箭头是属性绑定；
+// 自由元素标记为引用投影（title 标注属性），attr 锚点元素与右侧属性面板
+// 共享 entity.content 单一数据源；画布可创建/更新值，但永远无法删除。
+func TestCanvasPropertyBindingAndSync(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+	entity, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: EntityCharacter, Title: "林徽因"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "shape:entity-0", Kind: "entity", RefKind: "entity", RefID: entity.ID,
+		Geometry: map[string]any{"x": 0, "y": 0, "width": 220, "height": 120}, Layer: "0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "shape:note-1", Kind: "note", Name: "外貌便签",
+		Props: map[string]any{"text": "建筑学家"}, Geometry: map[string]any{"x": 300, "y": 0, "width": 160, "height": 100}, Layer: "0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "shape:arrow-1", Kind: "arrow",
+		Props: map[string]any{"fromElementId": "shape:entity-0", "toElementId": "shape:note-1"},
+		Geometry: map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}, Layer: "0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := worlds.GetWorld(worldID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := worlds.PromoteCanvasElement(PromoteCanvasElementInput{
+		WorldID: worldID, ElementID: "shape:arrow-1", Field: "appearance",
+		ExpectedRevisionID: before.Revision.ID, CreatedBy: "test",
+	})
+	if err != nil {
+		t.Fatalf("promote property binding: %v", err)
+	}
+	if result["promoted"] != "property" {
+		t.Fatalf("property promote result = %v", result["promoted"])
+	}
+	// Canvas-side creation: the empty property seeded from the note text.
+	updated, err := worlds.GetEntity(worldID, entity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Content["appearance"] != "建筑学家" {
+		t.Fatalf("property should be seeded from the note, got %#v", updated.Content["appearance"])
+	}
+	// The target element is marked as a reference projection with the bound
+	// property in its title.
+	elements, err := worlds.ListCanvasElements(worldID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var attrFound bool
+	for _, element := range elements {
+		if element.ID == "shape:note-1" {
+			if element.Props["binding"] != "property" || element.Props["boundField"] != "appearance" || element.Props["boundEntityId"] != entity.ID {
+				t.Fatalf("note should be marked as a property reference: %#v", element.Props)
+			}
+			if !strings.Contains(element.Name, "外貌与标志") {
+				t.Fatalf("note title should carry the bound property label, got %q", element.Name)
+			}
+		}
+		if element.ID == "attr:shape:note-1" {
+			attrFound = true
+			if element.Kind != "attr" || element.RefID != entity.ID || element.Name != "属性 · 外貌与标志" {
+				t.Fatalf("attr anchor element wrong: %#v", element)
+			}
+		}
+	}
+	if !attrFound {
+		t.Fatal("attr anchor element missing")
+	}
+	// Canvas update writes through to the shared data source.
+	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "attr:shape:note-1", Kind: "attr",
+		RefKind: "entity", RefID: entity.ID, Name: "属性 · 外貌与标志",
+		Props: map[string]any{"field": "appearance", "sourceElementId": "shape:note-1", "value": "近代建筑之父"},
+		Geometry: map[string]any{"x": 300, "y": 0}, Layer: "0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err = worlds.GetEntity(worldID, entity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Content["appearance"] != "近代建筑之父" {
+		t.Fatalf("canvas value should sync into entity content, got %#v", updated.Content["appearance"])
+	}
+	// Panel → canvas: a right-panel edit flows into the attr projection, which
+	// only stores a reference to the shared data source.
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: entity.ID, Kind: entity.Kind, Title: entity.Title,
+		Content: map[string]any{"appearance": "中国第一位女建筑师"}, CreatedBy: "panel",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	elements, err = worlds.ListCanvasElements(worldID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, element := range elements {
+		if element.ID == "attr:shape:note-1" && element.Props["value"] != "中国第一位女建筑师" {
+			t.Fatalf("panel edit should refresh the attr projection, got %#v", element.Props["value"])
+		}
+	}
+	// Canvas cannot delete: an empty value is ignored, panel data survives.
+	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "attr:shape:note-1", Kind: "attr",
+		RefKind: "entity", RefID: entity.ID, Name: "属性 · 外貌与标志",
+		Props: map[string]any{"field": "appearance", "sourceElementId": "shape:note-1", "value": ""},
+		Geometry: map[string]any{"x": 300, "y": 0}, Layer: "0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err = worlds.GetEntity(worldID, entity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Content["appearance"] != "中国第一位女建筑师" {
+		t.Fatalf("canvas must not delete panel-side property data, got %#v", updated.Content["appearance"])
+	}
+	// Panel-side deletion is authoritative: removing the property empties the
+	// projection instead of leaving a stale copy.
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: entity.ID, Kind: entity.Kind, Title: entity.Title,
+		Content: map[string]any{}, CreatedBy: "panel",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	elements, err = worlds.ListCanvasElements(worldID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, element := range elements {
+		if element.ID == "attr:shape:note-1" {
+			if value, ok := element.Props["value"]; ok && value != nil {
+				t.Fatalf("panel deletion should empty the attr projection, got %#v", value)
+			}
+		}
+	}
+}
+
 func TestForkCarriesCanvasTypesAndContainer(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	worldID := createTestWorld(t, worlds)
@@ -494,5 +669,182 @@ func TestForkCarriesCanvasTypesAndContainer(t *testing.T) {
 		if item.ID == liang.ID || item.ID == child.ID {
 			t.Fatal("fork should remap entity ids")
 		}
+	}
+}
+// TestDeleteEntityArchivesSubgraphAndCascade（T2）：删除实体归档整个子图，
+// 触达关系物理删除、证据归档、画布实体投影清理，产 1 条 revision。
+func TestDeleteEntityArchivesSubgraphAndCascade(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+	person, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "character", Title: "林小满", Summary: "电台主播"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	station, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "location", Title: "北平路电台"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	necklace, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "object", Title: "项链", ParentID: person.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, RelationType: "located_in"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.AttachReference(AttachReferenceInput{WorldID: worldID, EntityID: person.ID, URL: "https://example.com/portrait.png", Modality: "image", Role: "character_reference"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "shape:" + person.ID, Kind: "entity", RefKind: "entity", RefID: person.ID,
+		Name: "林小满", Geometry: map[string]any{"x": 40, "y": 40},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
+		WorldID: worldID, ElementID: "shape:attr-" + person.ID, Kind: "attr", RefKind: "", RefID: "",
+		Name: "属性 · 图片", Geometry: map[string]any{"x": 300, "y": 40},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	revisionBefore, err := worlds.GetWorld(worldID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := worlds.DeleteEntity(DeleteEntityInput{WorldID: worldID, EntityID: person.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Deleted != 2 || result.Children != 1 || result.Relations != 1 || result.Evidences != 1 {
+		t.Fatalf("delete impact = %+v", result)
+	}
+	if _, err := worlds.GetEntity(worldID, person.ID); err == nil {
+		t.Fatal("deleted entity should not be gettable")
+	}
+	items, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: worldID, Limit: 100, IncludeProvisional: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != station.ID {
+		t.Fatalf("station should survive: %+v", items)
+	}
+	if _, err := worlds.GetEntity(worldID, necklace.ID); err == nil {
+		t.Fatal("child entity should be archived with the parent")
+	}
+	db, err := worlds.database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var relations int
+	if err := db.QueryRow("select count(*) from world_relations where world_id = ?", worldID).Scan(&relations); err != nil {
+		t.Fatal(err)
+	}
+	if relations != 0 {
+		t.Fatalf("relations should be cascaded, got %d", relations)
+	}
+	// 文档粒度存储（RFC 2026-09-09）：投影清理从文档正文统计
+	rootDoc, err := worlds.GetCanvasDocument(worldID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entityElements, attrElements := 0, 0
+	for _, element := range rootDoc.Elements {
+		if element.RefKind == "entity" {
+			entityElements++
+		}
+		if element.Kind == "attr" {
+			attrElements++
+		}
+	}
+	if entityElements != 0 {
+		t.Fatalf("entity canvas projections should be removed, got %d", entityElements)
+	}
+	if attrElements != 1 {
+		t.Fatalf("unrelated attr element should survive, got %d", attrElements)
+	}
+	revisionAfter, err := worlds.GetWorld(worldID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revisionAfter.Revision.ID == revisionBefore.Revision.ID {
+		t.Fatal("delete should produce a new revision")
+	}
+	evidence, err := worlds.ListEvidence(worldID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range evidence {
+		if item.EntityID == person.ID && item.Status != "archived" {
+			t.Fatalf("evidence of deleted entity should be archived: %+v", item)
+		}
+	}
+}
+
+// TestRevertToRevisionRebuildsSemantics（T12）：回滚 = 非破坏指针回移；
+// 目标 revision 之后新增的实体/关系/证据消失，目标点之前的状态按 canonical 重建（id 保留）。
+func TestRevertToRevisionRebuildsSemantics(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+	person, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "character", Title: "林小满", Summary: "电台主播"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := worlds.ListRevisions(worldID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) < 2 {
+		t.Fatalf("history should have multiple revisions, got %d", len(history))
+	}
+	target := history[0]
+	station, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "location", Title: "北平路电台"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, RelationType: "located_in"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.AttachReference(AttachReferenceInput{WorldID: worldID, EntityID: person.ID, URL: "https://example.com/p.png", Modality: "image"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "object", Title: "项链"}); err != nil {
+		t.Fatal(err)
+	}
+	reverted, err := worlds.RevertToRevision(worldID, target.ID, "", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reverted.Revision.ID != target.ID {
+		t.Fatalf("revert should point at target revision, got %s want %s", reverted.Revision.ID, target.ID)
+	}
+	items, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: worldID, Limit: 100, IncludeProvisional: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != person.ID {
+		t.Fatalf("only the pre-revision entity should survive revert: %+v", items)
+	}
+	if items[0].Summary != "电台主播" {
+		t.Fatalf("entity fields should be rebuilt from canonical: %+v", items[0])
+	}
+	db, err := worlds.database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var relations, evidence int
+	if err := db.QueryRow("select count(*) from world_relations where world_id = ?", worldID).Scan(&relations); err != nil {
+		t.Fatal(err)
+	}
+	if relations != 0 {
+		t.Fatalf("relations added after target should be gone, got %d", relations)
+	}
+	if err := db.QueryRow("select count(*) from world_asset_refs where world_id = ?", worldID).Scan(&evidence); err != nil {
+		t.Fatal(err)
+	}
+	if evidence != 0 {
+		t.Fatalf("evidence added after target should be gone, got %d", evidence)
+	}
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "story", Title: "新故事"}); err != nil {
+		t.Fatalf("writes after revert should work: %v", err)
 	}
 }

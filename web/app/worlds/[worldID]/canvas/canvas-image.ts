@@ -13,11 +13,12 @@ export function evidenceSource(apiBase: string, item: WorldEvidence): string {
   return item.assetId ? `${apiBase}/v1/media/assets/${encodeURIComponent(item.assetId)}/content` : "";
 }
 
-// 实体图片证据 → URL 列表（primary/appearance 优先，archived 排除）
+// 实体图片证据 → URL 列表（封面规则 B.6/B.9：identity 优先，其次 primary/appearance；archived 排除）
 export function entityImageUrls(apiBase: string, entity: WorldEntity): string[] {
   const images = (entity.references ?? []).filter(
     (item) => item.modality === "image" && item.status !== "archived" && evidenceSource(apiBase, item),
   );
-  const rank = (item: WorldEvidence) => (item.status === "primary" ? 0 : 1) * 10 + (item.purpose === "appearance" ? 0 : 1);
+  const rank = (item: WorldEvidence) =>
+    (item.purpose === "identity" ? 0 : 10) + (item.status === "primary" ? 0 : 1) * 2 + (item.purpose === "appearance" ? 0 : 1);
   return images.sort((a, b) => rank(a) - rank(b)).map((item) => evidenceSource(apiBase, item));
 }

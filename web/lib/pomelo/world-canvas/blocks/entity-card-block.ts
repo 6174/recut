@@ -4,7 +4,8 @@
  * [OUTPUT]: 对外提供 EntityCardBlock 与 entityCardRect：实体卡 Block（type: entity-card），
  * 统一视觉（深色卡面 + 细边框 + 柔和投影）；排版为图先于文——头图通铺卡片顶部（不留 padding，
  * cover-fit 裁切，attrs.coverUrl 真图 / emoji 占位），下方为标题/副标题与资料缩略网格
- * （photoUrls 真图 / photos emoji 占位，最多 9 格，静态无动效）；卡片高度内容自适应，
+ * （photoUrls 真图 / photos emoji 占位，最多 9 格，静态无动效）；草稿态 = 虚线卡框 + 右上角徽标
+ * （B.6/D2），空简介 = 浅色「补充一句简介…」引导；卡片高度内容自适应，
  * entityCardRect 是命中/选区/连线锚点共用的有效渲染矩形；卡片左上角元素徽标为 zoom 常量
  * （1/scale 反向补偿，缩放不改变字号），卡内标题/副标题等仍随卡片内容缩放
  * [POS]: lib/pomelo/world-canvas 的实体卡 Block（demo 数据 → block record 的映射在 doc-sync.ts；
@@ -15,8 +16,7 @@ import * as PIXI from "pixi.js";
 import { PixiBlock } from "../../pomelo-core/pomelo-pixi/pomelo-pixi-block";
 import { setNodeRectResolver } from "../arrow-geometry";
 import { truncateText, drawElementCaption } from "../truncate-text";
-import { CARD_RADIUS, TEXT_PRIMARY, TEXT_SECONDARY, drawShadowCard, drawTile, loadPixiTexture, coverSprite } from "../canvas-theme";
-import { kindLabel } from "../demo-store";
+import { CARD_RADIUS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, drawShadowCard, drawTile, loadPixiTexture, coverSprite } from "../canvas-theme";
 
 const FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
 const PAD = 14;
@@ -110,7 +110,7 @@ export class EntityCardBlock extends PixiBlock {
   }
 
   renderBlock() {
-    const { x = 0, y = 0, width = 264, height = 328, title = "", subtitle = "", kind = "", tags, cover = "", coverUrl = "", photos, photoUrls } = this.record.attrs;
+    const { x = 0, y = 0, width = 264, height = 328, title = "", cover = "", coverUrl = "", photos, photoUrls } = this.record.attrs;
     const w = Math.max(Number(width) || 264, MIN_W);
     const emojiPhotos = stringListOf(photos);
     const urlPhotos = stringListOf(photoUrls);
@@ -129,6 +129,45 @@ export class EntityCardBlock extends PixiBlock {
 
     // 统一底座：柔和投影 + 深色卡面 + 细边框
     drawShadowCard(container, w, cardH, { radius: CARD_RADIUS });
+
+    // 草稿态（B.6/D2）：虚线卡框 + 右上角「草稿」徽标（屏幕像素恒定）
+    if (this.record.attrs.isProvisional) {
+      // 手绘虚线矩形：沿周长等分短线（dash/gap 屏幕像素恒定）
+      const dashed = new PIXI.Graphics();
+      dashed.lineStyle(1 * inv, 0xfbbf24, 0.9);
+      const perimeter = 2 * (w - 2 + cardH - 2);
+      const dash = 6 * inv;
+      const gap = 4 * inv;
+      const pointAt = (dist: number): PIXI.Point => {
+        const dd = ((dist % perimeter) + perimeter) % perimeter;
+        const edgeW = w - 2;
+        const edgeH = cardH - 2;
+        if (dd < edgeW) return new PIXI.Point(1 + dd, 1);
+        if (dd < edgeW + edgeH) return new PIXI.Point(w - 1, 1 + (dd - edgeW));
+        if (dd < edgeW * 2 + edgeH) return new PIXI.Point(w - 1 - (dd - edgeW - edgeH), cardH - 1);
+        return new PIXI.Point(1, cardH - 1 - (dd - edgeW * 2 - edgeH));
+      };
+      for (let cursor = 0; cursor < perimeter; cursor += dash + gap) {
+        const a = pointAt(cursor);
+        const b = pointAt(Math.min(cursor + dash, perimeter));
+        dashed.moveTo(a.x, a.y);
+        dashed.lineTo(b.x, b.y);
+      }
+      container.addChild(dashed);
+      const badge = new PIXI.Text("草稿", {
+        fontFamily: FONT,
+        fontSize: 9,
+        fill: 0xfbbf24,
+      });
+      const badgeBg = new PIXI.Graphics();
+      badgeBg.beginFill(0x0f1410, 0.95);
+      badgeBg.lineStyle(1, 0xfbbf24, 0.6, 1);
+      badgeBg.drawRoundedRect(w - 44, 8, 34, 16, 8);
+      badgeBg.endFill();
+      badge.position.set(w - 37, 12);
+      container.addChild(badgeBg);
+      container.addChild(badge);
+    }
 
     // 头图：通铺卡片顶部（无 padding，cover-fit；真图异步加载，占位为瓦片底 + emoji）
     const header = new PIXI.Container();
@@ -157,14 +196,11 @@ export class EntityCardBlock extends PixiBlock {
     titleText.position.set(PAD, textTop);
     container.addChild(titleText);
 
-    const tagList = Array.isArray(tags) ? (tags as string[]) : [];
+    // 副标题行：简介（desc）优先；空简介 = 浅色引导「补充一句简介」（B.6 空态引导）
+    const summary = String(this.record.attrs.desc ?? "").trim();
     const subtitleText = new PIXI.Text(
-      truncateText(
-        String(subtitle) || (tagList.length ? tagList.slice(0, 3).join(" · ") : kindLabel(String(kind))) + (this.record.attrs.isProvisional ? " · 草稿" : ""),
-        w - PAD * 2,
-        10,
-      ),
-      { fontFamily: FONT, fontSize: 10, fill: TEXT_SECONDARY },
+      truncateText(summary || "补充一句简介…", w - PAD * 2, 10),
+      { fontFamily: FONT, fontSize: 10, fill: summary ? TEXT_SECONDARY : TEXT_TERTIARY },
     );
     subtitleText.position.set(PAD, textTop + 24);
     container.addChild(subtitleText);

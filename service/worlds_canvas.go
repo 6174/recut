@@ -1,8 +1,12 @@
 /*
- * [INPUT]: 依赖 WorldStore 的 worlds/world_entities/world_relations 表、既有受控词表与 commitRevision 协议
+ * [INPUT]: 依赖 WorldStore 的 worlds/world_entities/world_relations 表、world_canvases 文档表（存储真相在
+ * worlds_canvas_doc.go，本文件的元素级 API 是文档存储上的适配层）、既有受控词表与 commitRevision 协议
  * [OUTPUT]: 对外提供 Recursive World Canvas 的能力面：受控关系词表、可扩展 entity type 目录（预设 seed + 自定义
- * 自动创建）、world_canvas 元素读写（entity 骨干 + 自由元素，均不产 revision）、递归容器（create_child/promote）
- * 与局部子图关系（scope_entity_id）。语义真相只落在 world_entities + world_relations；画布/类型是表达层，不进 Canon
+ * 自动创建）、world_canvas 元素读写（entity 骨干 + 自由元素，均不产 revision；arrow/link 是语义边，出发点必须是
+ * entity 元素）、递归容器（create_child/promote）与局部子图关系（scope_entity_id）。箭头提升按终点分派：
+ * entity→entity 成关系绑定（world_relations），entity→自由元素成属性绑定（attr 锚点 + 引用投影，值与右侧属性
+ * 面板共享 entity.content 单一数据源（面板为准：面板编辑经 UpsertEntity 回刷 attr 投影，画布可创建/更新但无法删除））。语义真相只落在 world_entities +
+ * world_relations；画布/类型是表达层，不进 Canon
  * [POS]: service 的 Recursive World Canvas 领域层；与 worlds_http.go（REST）、worlds_mcp.go（MCP）共同构成
  * recut.worlds.* 的增量能力，不改变既有 Canon 读取面
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -99,8 +103,16 @@ type EntityTypeField struct {
 }
 
 // presetEntityTypeFields returns the first-phase preset field schemas, aligned
-// with the existing kind semantics (RFC §5.4 table).
+// with the existing kind semantics (RFC §5.4 table); object preset added in T7
+// (描述/材质/来历/用途/重要时刻)。
 var presetEntityTypeFields = map[string][]EntityTypeField{
+	"object": {
+		{Key: "description", Label: "描述", Type: "textarea"},
+		{Key: "material", Label: "材质", Type: "text"},
+		{Key: "origin", Label: "来历", Type: "textarea"},
+		{Key: "usage", Label: "用途", Type: "textarea"},
+		{Key: "moment", Label: "重要时刻", Type: "textarea"},
+	},
 	"character": {
 		{Key: "appearance", Label: "外貌与标志", Type: "textarea"},
 		{Key: "personality", Label: "性格", Type: "textarea"},
@@ -129,13 +141,15 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 
 // presetEntityTypeNames maps a preset id to its zh display name.
 var presetEntityTypeNames = map[string]string{
-	"character": "人物", "location": "场景", "story": "故事",
+	"character": "人物", "location": "场景", "object": "物件", "story": "故事",
 	"style": "风格", "rule": "规则", "reference": "参考",
 }
 
 // ensurePresetEntityTypesInTx lazily seeds the preset directory rows into a
 // world as scope='builtin' copies the first time the world's type surface is
-// touched. Idempotent: worlds that already carry rows are left untouched.
+// touched. Idempotent per preset id: missing rows (e.g. the object preset added
+// after a world was first seeded) are inserted; rows the world already carries
+// (possibly overridden) are left untouched.
 func ensurePresetEntityTypesInTx(tx *sql.Tx, worldID string) error {
 	var count int
 	if err := tx.QueryRow("select count(*) from world_entity_types where world_id = ?", worldID).Scan(&count); err != nil {
@@ -145,8 +159,17 @@ func ensurePresetEntityTypesInTx(tx *sql.Tx, worldID string) error {
 		return nil
 	}
 	now := isoTimeNow()
-	order := []string{"character", "location", "story", "style", "rule", "reference"}
+	order := []string{"character", "location", "object", "story", "style", "rule", "reference"}
 	for _, id := range order {
+		// 幂等升级：已有类型目录的世界（旧 seed 无 object）补插缺失的预设行，
+		// 已存在的行（可能被本世界覆盖过）保持原样
+		var exists int
+		if err := tx.QueryRow("select count(*) from world_entity_types where world_id = ? and id = ?", worldID, id).Scan(&exists); err != nil {
+			return err
+		}
+		if exists > 0 {
+			continue
+		}
 		fields := presetEntityTypeFields[id]
 		encoded, err := json.Marshal(fields)
 		if err != nil {
@@ -390,105 +413,74 @@ type UpsertCanvasElementInput struct {
 	CreatedBy string
 }
 
-// UpsertCanvasElement writes one canvas element. Element ids mirror the
-// front-end shape ids. Entity references are validated against the world; free
-// elements carry their own props. No revision is produced: canvas is expression.
-func (w *WorldStore) UpsertCanvasElement(input UpsertCanvasElementInput) (WorldCanvasElement, error) {
-	if strings.TrimSpace(input.WorldID) == "" {
-		return WorldCanvasElement{}, worldsError(WorldsErrContextInvalid, "worldId is required")
+
+// validateCanvasLinkStart enforces that a canvas link/arrow starts from an
+// entity element. Arrows drawn from free elements are rejected: edges carry
+// semantics, so the start point must be a semantic subject.
+func validateCanvasLinkStart(tx *sql.Tx, worldID string, props map[string]any) error {
+	fromID := stringProp(props, "fromElementId")
+	if strings.TrimSpace(fromID) == "" {
+		return worldsError(WorldsErrContextInvalid, "link needs a fromElementId start point")
 	}
-	if strings.TrimSpace(input.Kind) == "" {
-		return WorldCanvasElement{}, worldsError(WorldsErrContextInvalid, "canvas element kind is required")
+	var kind string
+	var refID string
+	err := tx.QueryRow("select kind, ref_id from world_canvas where world_id = ? and id = ?", worldID, fromID).Scan(&kind, &refID)
+	if err == sql.ErrNoRows {
+		return worldsError(WorldsErrContextInvalid, "link start element not found")
 	}
-	if input.Props == nil {
-		input.Props = map[string]any{}
-	}
-	if input.Geometry == nil {
-		input.Geometry = map[string]any{}
-	}
-	if input.Style == nil {
-		input.Style = map[string]any{}
-	}
-	db, err := w.database()
 	if err != nil {
-		return WorldCanvasElement{}, err
+		return err
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return WorldCanvasElement{}, err
+	if kind != "entity" || refID == "" {
+		return worldsError(WorldsErrContextInvalid, "only entity elements can be a link start point")
 	}
-	defer tx.Rollback()
-	if err := w.checkWritable(tx, input.WorldID); err != nil {
-		return WorldCanvasElement{}, err
-	}
-	if input.RefID != "" && input.RefKind != "" {
-		var count int
-		if err := tx.QueryRow("select count(*) from world_entities where id = ? and world_id = ? and archived_at is null", input.RefID, input.WorldID).Scan(&count); err != nil {
-			return WorldCanvasElement{}, err
-		}
-		if count == 0 {
-			return WorldCanvasElement{}, worldsError(WorldsErrEntityNotFound, "referenced entity does not belong to the world")
-		}
-	}
-	propsJSON, err := json.Marshal(input.Props)
-	if err != nil {
-		return WorldCanvasElement{}, err
-	}
-	geometryJSON, err := json.Marshal(input.Geometry)
-	if err != nil {
-		return WorldCanvasElement{}, err
-	}
-	styleJSON, err := json.Marshal(input.Style)
-	if err != nil {
-		return WorldCanvasElement{}, err
-	}
-	now := isoTimeNow()
-	elementID := input.ElementID
-	if elementID == "" {
-		elementID, err = newID()
-		if err != nil {
-			return WorldCanvasElement{}, err
-		}
-	}
-	_, err = tx.Exec(`insert into world_canvas (id, world_id, context_id, kind, ref_kind, ref_id, name, props_json, geometry_json, style_json, layer, created_at, updated_at)
-		values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		on conflict(world_id, id) do update set context_id = excluded.context_id, kind = excluded.kind, ref_kind = excluded.ref_kind, ref_id = excluded.ref_id,
-		name = excluded.name, props_json = excluded.props_json, geometry_json = excluded.geometry_json, style_json = excluded.style_json, layer = excluded.layer, updated_at = excluded.updated_at`,
-		elementID, input.WorldID, input.ContextID, input.Kind, input.RefKind, input.RefID, input.Name,
-		string(propsJSON), string(geometryJSON), string(styleJSON), input.Layer, now, now)
-	if err != nil {
-		return WorldCanvasElement{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return WorldCanvasElement{}, err
-	}
-	return w.getCanvasElement(db, input.WorldID, elementID)
+	return nil
 }
 
-// ListCanvasElements returns all canvas elements of one context ('') = global.
-func (w *WorldStore) ListCanvasElements(worldID, contextID string) ([]WorldCanvasElement, error) {
+// syncAttrElementValue writes a canvas-edited property value back into the
+// bound entity's content. Empty values are ignored on purpose: deletion of an
+// entity property is reserved for the right property panel.
+func (w *WorldStore) syncAttrElementValue(worldID, entityID string, props map[string]any) error {
+	field := strings.TrimSpace(stringProp(props, "field"))
+	value, hasValue := props["value"]
+	if field == "" || !hasValue {
+		return nil
+	}
+	if text, ok := value.(string); ok && strings.TrimSpace(text) == "" {
+		return nil
+	}
 	db, err := w.database()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if _, err := w.summary(db, worldID); err != nil {
-		return nil, err
-	}
-	rows, err := db.Query("select id, world_id, context_id, kind, ref_kind, ref_id, name, props_json, geometry_json, style_json, layer, created_at, updated_at from world_canvas where world_id = ? and context_id = ? order by layer, created_at", worldID, contextID)
+	entity, err := w.getEntity(db, worldID, entityID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	defer rows.Close()
-	items := make([]WorldCanvasElement, 0)
-	for rows.Next() {
-		item, err := scanCanvasElement(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
+	if entity.Content[field] == value {
+		return nil
 	}
-	return items, rows.Err()
+	content := map[string]any{}
+	for key, item := range entity.Content {
+		content[key] = item
+	}
+	content[field] = value
+	_, err = w.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: entityID, Kind: entity.Kind, Title: entity.Title,
+		Summary: entity.Summary, Content: content, CreatedBy: "canvas",
+	})
+	return err
 }
+
+// syncAttrProjections is the panel → canvas half of the property-binding sync.
+// entity.content is the single shared data source; every attr element bound to
+// the entity only holds a reference projection (props.value) that is refreshed
+// here after each canonical write. A property removed on the panel side
+// (content[field] gone) empties the projection instead of leaving a stale copy.
+func (w *WorldStore) syncAttrProjections(worldID, entityID string, content map[string]any) {
+	w.syncAttrDocProjections(worldID, entityID, content)
+}
+
 
 func (w *WorldStore) getCanvasElement(db *sql.DB, worldID, elementID string) (WorldCanvasElement, error) {
 	row := db.QueryRow("select id, world_id, context_id, kind, ref_kind, ref_id, name, props_json, geometry_json, style_json, layer, created_at, updated_at from world_canvas where world_id = ? and id = ?", worldID, elementID)
@@ -516,34 +508,6 @@ func scanCanvasElement(row rowScanner) (WorldCanvasElement, error) {
 	return item, nil
 }
 
-// DeleteCanvasElement removes a free-expression canvas element (or the visual
-// projection of an entity). It never deletes the underlying semantic object.
-func (w *WorldStore) DeleteCanvasElement(worldID, elementID, createdBy string) error {
-	db, err := w.database()
-	if err != nil {
-		return err
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := w.checkWritable(tx, worldID); err != nil {
-		return err
-	}
-	result, err := tx.Exec("delete from world_canvas where world_id = ? and id = ?", worldID, elementID)
-	if err != nil {
-		return err
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return worldsError(WorldsErrContextInvalid, "canvas element not found")
-	}
-	return tx.Commit()
-}
 
 // CreateChildEntityInput is the typed input of entities.create_child.
 type CreateChildEntityInput struct {
@@ -796,6 +760,7 @@ type PromoteCanvasElementInput struct {
 	ElementID          string
 	Kind               string // optional; used when a note becomes an entity
 	RelationType       string // optional; used when an arrow becomes a relation
+	Field              string // optional; used when an arrow becomes a property binding
 	Title              string // optional; overrides the derived note title
 	ExpectedRevisionID string
 	CreatedBy          string
@@ -811,7 +776,7 @@ func (w *WorldStore) PromoteCanvasElement(input PromoteCanvasElementInput) (map[
 	if err != nil {
 		return nil, err
 	}
-	element, err := w.getCanvasElement(db, input.WorldID, input.ElementID)
+	elementContext, element, err := w.findCanvasDocElement(db, input.WorldID, input.ElementID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, worldsError(WorldsErrContextInvalid, "canvas element not found")
@@ -820,15 +785,17 @@ func (w *WorldStore) PromoteCanvasElement(input PromoteCanvasElementInput) (map[
 	}
 	switch element.Kind {
 	case "note", "text":
-		return w.promoteNoteToEntity(db, element, input)
-	case "arrow":
-		return w.promoteArrowToRelation(db, element, input)
+		return w.promoteNoteToEntity(db, elementContext, element, input)
+	case "arrow", "link":
+		// Edge semantics: entity → entity is a relation binding; entity →
+		// free element is a property binding onto the entity's field.
+		return w.promoteArrow(db, elementContext, element, input)
 	default:
 		return nil, worldsError(WorldsErrContextInvalid, fmt.Sprintf("canvas element kind %q cannot be promoted", element.Kind))
 	}
 }
 
-func (w *WorldStore) promoteNoteToEntity(db *sql.DB, element WorldCanvasElement, input PromoteCanvasElementInput) (map[string]any, error) {
+func (w *WorldStore) promoteNoteToEntity(db *sql.DB, elementContext string, element WorldCanvasElement, input PromoteCanvasElementInput) (map[string]any, error) {
 	text := stringProp(element.Props, "text")
 	if strings.TrimSpace(text) == "" {
 		text = stringProp(element.Props, "title")
@@ -840,9 +807,16 @@ func (w *WorldStore) promoteNoteToEntity(db *sql.DB, element WorldCanvasElement,
 	if kind == "" {
 		kind = "reference"
 	}
+	// B.5/T3：提升产出「草稿」实体（不进 Canon，用户在画布上确认设定后转正）；
+	// 文本拆分为 第一行 → title、其余 → summary（正文保留在 content.body）
 	title := strings.TrimSpace(input.Title)
+	summary := ""
 	if title == "" {
-		title = strings.TrimSpace(text)
+		lines := strings.SplitN(strings.TrimSpace(text), "\n", 2)
+		title = strings.TrimSpace(lines[0])
+		if len(lines) == 2 {
+			summary = strings.TrimSpace(lines[1])
+		}
 		if title == "" {
 			title = element.Name
 		}
@@ -854,18 +828,19 @@ func (w *WorldStore) promoteNoteToEntity(db *sql.DB, element WorldCanvasElement,
 		title = "便签"
 	}
 	entity, err := w.UpsertEntity(UpsertEntityInput{
-		WorldID: input.WorldID, Kind: WorldEntityKind(kind), Title: title,
+		WorldID: input.WorldID, Kind: WorldEntityKind(kind), Title: title, Summary: summary,
 		Content: map[string]any{"body": text},
+		IsProvisional: true,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: input.CreatedBy,
 	})
 	if err != nil {
 		return nil, err
 	}
 	// Keep the canvas element as the projection, now bound to the entity.
-	if _, err := w.UpsertCanvasElement(UpsertCanvasElementInput{
-		WorldID: input.WorldID, ElementID: element.ID, ContextID: element.ContextID, Kind: "entity",
+	if err := w.writeCanvasDocElement(input.WorldID, elementContext, WorldCanvasElement{
+		ID: element.ID, ContextID: elementContext, Kind: "entity",
 		RefKind: "entity", RefID: entity.ID, Name: entity.Title,
-		Props: element.Props, Geometry: element.Geometry, Style: element.Style, Layer: element.Layer, CreatedBy: input.CreatedBy,
+		Props: element.Props, Geometry: element.Geometry, Style: element.Style, Layer: element.Layer,
 	}); err != nil {
 		return nil, err
 	}
@@ -873,17 +848,35 @@ func (w *WorldStore) promoteNoteToEntity(db *sql.DB, element WorldCanvasElement,
 	return map[string]any{"promoted": "entity", "entity": entity}, nil
 }
 
-func (w *WorldStore) promoteArrowToRelation(db *sql.DB, element WorldCanvasElement, input PromoteCanvasElementInput) (map[string]any, error) {
+// promoteArrow resolves the arrow endpoints and picks the semantic binding:
+// entity → entity creates a world_relations edge; entity → free element binds
+// the free element as a reference projection of one of the entity's properties.
+func (w *WorldStore) promoteArrow(db *sql.DB, elementContext string, element WorldCanvasElement, input PromoteCanvasElementInput) (map[string]any, error) {
+	toID := stringProp(element.Props, "toElementId")
+	if strings.TrimSpace(toID) == "" {
+		return nil, worldsError(WorldsErrContextInvalid, "arrow needs a toElementId target")
+	}
+	toContext, to, err := w.findCanvasDocElement(db, input.WorldID, toID)
+	if err != nil {
+		return nil, worldsError(WorldsErrContextInvalid, "arrow target element not found")
+	}
+	if to.Kind == "entity" && to.RefID != "" {
+		return w.promoteArrowToRelation(db, elementContext, element, input)
+	}
+	return w.promoteArrowToPropertyBinding(db, toContext, element, to, input)
+}
+
+func (w *WorldStore) promoteArrowToRelation(db *sql.DB, elementContext string, element WorldCanvasElement, input PromoteCanvasElementInput) (map[string]any, error) {
 	fromID := stringProp(element.Props, "fromElementId")
 	toID := stringProp(element.Props, "toElementId")
 	if fromID == "" || toID == "" {
 		return nil, worldsError(WorldsErrContextInvalid, "arrow needs from and to element references")
 	}
-	from, err := w.getCanvasElement(db, input.WorldID, fromID)
+	_, from, err := w.findCanvasDocElement(db, input.WorldID, fromID)
 	if err != nil {
 		return nil, worldsError(WorldsErrContextInvalid, "arrow source element not found")
 	}
-	to, err := w.getCanvasElement(db, input.WorldID, toID)
+	_, to, err := w.findCanvasDocElement(db, input.WorldID, toID)
 	if err != nil {
 		return nil, worldsError(WorldsErrContextInvalid, "arrow target element not found")
 	}
@@ -899,7 +892,7 @@ func (w *WorldStore) promoteArrowToRelation(db *sql.DB, element WorldCanvasEleme
 	}
 	relation, err := w.CreateRelation(CreateRelationInput{
 		WorldID: input.WorldID, FromEntityID: from.RefID, ToEntityID: to.RefID,
-		RelationType: relationType, ScopeEntityID: element.ContextID,
+		RelationType: relationType, ScopeEntityID: elementContext,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: input.CreatedBy,
 	})
 	if err != nil {
@@ -909,6 +902,125 @@ func (w *WorldStore) promoteArrowToRelation(db *sql.DB, element WorldCanvasEleme
 	// truth and the front-end renders it as a binding projection.
 	logWorldEvent("world.canvas.promoted", map[string]string{"worldId": input.WorldID, "elementId": element.ID, "relationId": relation.ID})
 	return map[string]any{"promoted": "relation", "relation": relation}, nil
+}
+
+// promoteArrowToPropertyBinding turns an entity → free-element arrow into a
+// property binding: the free element becomes a reference projection of one of
+// the entity's properties. The property value's single source of truth is
+// entity.content[field] (shared with the right property panel); the canvas
+// element only projects it and can create/update the value, never delete it.
+func (w *WorldStore) promoteArrowToPropertyBinding(db *sql.DB, toContext string, element WorldCanvasElement, to WorldCanvasElement, input PromoteCanvasElementInput) (map[string]any, error) {
+	fromID := stringProp(element.Props, "fromElementId")
+	if strings.TrimSpace(fromID) == "" {
+		return nil, worldsError(WorldsErrContextInvalid, "property binding needs an entity start point")
+	}
+	_, from, err := w.findCanvasDocElement(db, input.WorldID, fromID)
+	if err != nil {
+		return nil, worldsError(WorldsErrContextInvalid, "property binding source element not found")
+	}
+	if from.Kind != "entity" || from.RefID == "" {
+		return nil, worldsError(WorldsErrContextInvalid, "property binding must start from an entity element")
+	}
+	entity, err := w.getEntity(db, input.WorldID, from.RefID)
+	if err != nil {
+		return nil, err
+	}
+	field := strings.TrimSpace(input.Field)
+	if field == "" {
+		field = strings.TrimSpace(stringProp(element.Props, "field"))
+	}
+	if field == "" {
+		field = strings.TrimSpace(stringProp(to.Props, "field"))
+	}
+	if field == "" {
+		return nil, worldsError(WorldsErrContextInvalid, "property binding needs a field key")
+	}
+	// Canvas-side creation: an empty property seeds from the free element's
+	// content (first line of the note text, else its title). Existing values
+	// stay untouched — the property panel wins on conflict.
+	current, _ := entity.Content[field].(string)
+	if strings.TrimSpace(current) == "" {
+		seed := stringProp(to.Props, "text")
+		if seed == "" {
+			seed = stringProp(to.Props, "title")
+		}
+		if strings.TrimSpace(seed) != "" {
+			content := map[string]any{}
+			for key, item := range entity.Content {
+				content[key] = item
+			}
+			content[field] = seed
+			entity, err = w.UpsertEntity(UpsertEntityInput{
+				WorldID: input.WorldID, EntityID: entity.ID, Kind: entity.Kind, Title: entity.Title,
+				Summary: entity.Summary, Content: content, CreatedBy: input.CreatedBy,
+			})
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	label := w.entityFieldLabel(db, input.WorldID, string(entity.Kind), field)
+	// Mark the target element as a property reference: its title carries the
+	// bound property and props record the binding for sync.
+	sourceTitle := to.Name
+	if strings.TrimSpace(sourceTitle) == "" {
+		sourceTitle = stringProp(to.Props, "title")
+	}
+	toProps := map[string]any{}
+	for key, item := range to.Props {
+		toProps[key] = item
+	}
+	toProps["binding"] = "property"
+	toProps["boundEntityId"] = entity.ID
+	toProps["boundField"] = field
+	toProps["sourceTitle"] = sourceTitle
+	boundTitle := strings.TrimSpace(sourceTitle)
+	if boundTitle == "" {
+		boundTitle = "引用"
+	}
+	if err := w.writeCanvasDocElement(input.WorldID, toContext, WorldCanvasElement{
+		ID: to.ID, ContextID: toContext, Kind: to.Kind,
+		RefKind: to.RefKind, RefID: to.RefID, Name: boundTitle + "（引用 · " + label + "）",
+		Props: toProps, Geometry: to.Geometry, Style: to.Style, Layer: to.Layer,
+	}); err != nil {
+		return nil, err
+	}
+	// Attr element: the visible property edge anchor projecting the shared
+	// value onto the canvas.
+	attrID := "attr:" + to.ID
+	if err := w.writeCanvasDocElement(input.WorldID, toContext, WorldCanvasElement{
+		ID: attrID, ContextID: toContext, Kind: "attr",
+		RefKind: "entity", RefID: entity.ID, Name: "属性 · " + label,
+		Props: map[string]any{"field": field, "sourceElementId": to.ID, "value": entity.Content[field]},
+		Geometry: to.Geometry, Layer: to.Layer,
+	}); err != nil {
+		return nil, err
+	}
+	logWorldEvent("world.canvas.promoted", map[string]string{"worldId": input.WorldID, "elementId": element.ID, "entityId": entity.ID, "field": field})
+	return map[string]any{"promoted": "property", "entityId": entity.ID, "field": field, "attrElementId": attrID, "value": entity.Content[field]}, nil
+}
+
+// entityFieldLabel resolves a human label for a bound property from the
+// entity's type field schema; unknown fields fall back to the key itself.
+func (w *WorldStore) entityFieldLabel(db *sql.DB, worldID, kind, field string) string {
+	var fieldsJSON string
+	err := db.QueryRow("select fields_json from world_entity_types where world_id = ? and id = ? and archived_at is null", worldID, kind).Scan(&fieldsJSON)
+	if err != nil {
+		return field
+	}
+	var fields []EntityTypeField
+	if err := json.Unmarshal([]byte(fieldsJSON), &fields); err != nil {
+		return field
+	}
+	for _, item := range fields {
+		if item.Key == field {
+			if strings.TrimSpace(item.Label) != "" {
+				return item.Label
+			}
+			return field
+		}
+	}
+	return field
 }
 
 func stringProp(props map[string]any, key string) string {

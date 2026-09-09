@@ -53,3 +53,20 @@ export function attrMediaLabel(media: string): string {
   const labels: Record<string, string> = { text: "文本", image: "图片", audio: "音频", video: "视频" };
   return labels[media] ?? "属性";
 }
+
+// 关系分组色（T5/B.10）：people/world/story/video 四组 + 其他灰；
+// app 层的候选映射表（canvas-relation-candidates.ts）复用本函数
+export function relationGroupColor(group: string): number {
+  switch (group) {
+    case "people":
+      return 0xe879f9;
+    case "world":
+      return 0x60a5fa;
+    case "story":
+      return 0xf59e0b;
+    case "video":
+      return 0xa78bfa;
+    default:
+      return 0x94a3b8;
+  }
+}

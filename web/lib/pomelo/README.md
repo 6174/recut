@@ -7,7 +7,7 @@
 - `pomelo-core/`：编辑器内核（原样迁移 + strict TS 适配）
   - `pomelo-editor.ts`：Editor 封装（container/plugin DOM/renderer/状态层/插件生命周期）
   - `pomelo-state/`：yjs 数据层（BlockTree、transact、undo/redo）
-  - `pomelo-renderer/`：渲染协调（virtual-dom diff + BlockPatcher 增量挂载/更新/删除）
+  - `pomelo-renderer/`：渲染协调（virtual-dom diff + BlockPatcher 增量挂载/更新/删除；注意顶层块 record.pid 为空，removeBlock/replaceBlock 需回退 mountpoint 取父，否则容器切换后舞台残留旧块——见 pomelo-virtual.ts 头部修复记录）
   - `pomelo-pixi/`：PixiRendererAdapter + PixiElement + PixiBlock（渲染底层适配器）
   - `pomelo-plugin/`：插件机制（PomeloPlugin / PomeloReactPlugin）
 - `pomelo-world-canvas/`（`world-canvas/`）：Recursive World Canvas 的 pomelo 实现（demo）

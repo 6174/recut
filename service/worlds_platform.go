@@ -903,6 +903,43 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 	if err := canvasRows.Err(); err != nil {
 		return WorldDetail{}, err
 	}
+	// Canvas documents travel too; entity refs are remapped to the fork ids.
+	docRows, err := tx.Query("select context_id, doc_json, version, created_at from world_canvases where world_id = ?", input.WorldID)
+	if err != nil {
+		return WorldDetail{}, err
+	}
+	for docRows.Next() {
+		var contextID, raw, createdAt string
+		var version int
+		if err := docRows.Scan(&contextID, &raw, &version, &createdAt); err != nil {
+			docRows.Close()
+			return WorldDetail{}, err
+		}
+		payload, err := decodeCanvasDocPayload(raw)
+		if err != nil {
+			docRows.Close()
+			return WorldDetail{}, err
+		}
+		for i := range payload.Elements {
+			if remapped, ok := idMap[payload.Elements[i].RefID]; ok {
+				payload.Elements[i].RefID = remapped
+			}
+		}
+		encoded, err := encodeCanvasDocPayload(payload)
+		if err != nil {
+			docRows.Close()
+			return WorldDetail{}, err
+		}
+		if _, err := tx.Exec("insert into world_canvases (id, world_id, context_id, doc_json, version, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?)",
+			canvasDocID(newWorldID, contextID), newWorldID, contextID, encoded, version, createdAt, now); err != nil {
+			docRows.Close()
+			return WorldDetail{}, err
+		}
+	}
+	docRows.Close()
+	if err := docRows.Err(); err != nil {
+		return WorldDetail{}, err
+	}
 	refRows, err := tx.Query("select "+worldEvidenceColumns+" from world_asset_refs where world_id = ? and archived_at is null order by sort_order, created_at", input.WorldID)
 	if err != nil {
 		return WorldDetail{}, err

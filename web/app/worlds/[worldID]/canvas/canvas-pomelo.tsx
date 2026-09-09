@@ -1,13 +1,17 @@
 /*
  * [INPUT]: 依赖 pomelo-core（PomeloEditor / PixiRendererAdapter / PomeloEditorState.fromJSON）、
  * world-canvas 的 blocks / ViewportPlugin、canvas-store、pixi.js 与 lucide-react
- * [OUTPUT]: 对外提供 CanvasPomeloHost：真实世界画布的 pomelo 底座（tldraw 方案的替换）——
- * canvas-store（world_entities/world_relations/world_canvas 唯一语义真相）→ pomelo 文档全量重建；
+ * [OUTPUT]: 对外提供 CanvasPomeloHost：真实世界画布的 pomelo 底座——
+ * canvas-store（world_entities/world_relations/world_canvas 唯一语义真相）→ pomelo 文档按 block id diff
+ * 增量同步（T1-c：新增 addRecord / 删除 removeRecord / 属性变化 updateRecord，不再全量重建）；
  * ViewportPlugin（平移/缩放）+ CanvasBindsPlugin（选中解析/拖拽位移与 resize 持久化/进入容器/删除）；
  * 画布工具（模式/连线/插入/undo/缩放菜单）由 CanvasToolbarItems 承载并合并进全局 Header（canvas-top-bar.tsx），
  * 世界工具栏与「设定视图」切换仍上提到全局 Header（canvas-top-bar.tsx）；
  * 自由元素映射：note→NoteBlock、text/shape→FreeElementBlock、绑定两实体的自由箭头→复用
  * RelationArrowBlock 投影（未绑定箭头暂不渲染）；画面 delta 同步经 moveElement + persistGeometry
+ * 另含 MediaBlock（T8 媒体元素）/ 空世界与空容器引导（T9）/ CanvasOutline / toast / 文件拖放（B.12）；
+ * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
+ * `wc:vp:<worldId>:<contextId>`，进出容器先存回来源再恢复目标，无快照才 fit）
  * [POS]: worlds/[worldID]/canvas 的画布底座层（本组件经 index.tsx dynamic(ssr:false) 挂载）；
  * 语义真相只在 world_entities + world_relations，pomelo 文档是内存投影（canvas 变更永不产 revision）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -26,8 +30,14 @@ import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
 import { TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, drawShadowCard } from "@/lib/pomelo/world-canvas/canvas-theme";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { drawElementCaption } from "@/lib/pomelo/world-canvas/truncate-text";
+import { loadPixiTexture, coverSprite, TILE_FILL } from "@/lib/pomelo/world-canvas/canvas-theme";
+import { mediaSource, modalityOfKind, defaultEvidencePurpose } from "./canvas-media";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
-import { entityImageUrls } from "./canvas-image";import { type AttrCreator, type AttrMedia, DEFAULT_ENTITY_SIZE, NOTE_SIZE, WORLD_ELEMENT_ID, WORLD_NODE_SIZE, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
+import { CanvasInlineEditor } from "./canvas-inline-editor";
+import { CanvasToasts } from "./canvas-toast";
+import { CanvasOutline } from "./canvas-outline";
+import { entityImageUrls } from "./canvas-image";
+import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, WORLD_NODE_SIZE, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
 
@@ -148,7 +158,89 @@ export class FreeElementBlock extends PixiBlock {
   }
 }
 
-// ---------- canvas-store → pomelo document 映射（block id 约定与 tldraw shape id 对齐） ----------
+// ---------- 媒体元素 Block（T8/B.12）：图片 cover-fit 缩略 / 视频-音频占位卡 + 挂接角标 ----------
+
+export class MediaBlock extends PixiBlock {
+  static type = "media";
+  override renderOnZoom = true;
+  #destroyed = false;
+
+  override destroy() {
+    this.#destroyed = true;
+    super.destroy();
+  }
+
+  isDestroyed(): boolean {
+    return this.#destroyed;
+  }
+
+  renderBlock() {
+    const { x = 0, y = 0, width = 220, height = 150, modality = "image", src = "", attached, label = "" } = this.record.attrs;
+    const w = Number(width);
+    const h = Number(height);
+    const s = this.screenScale;
+    const inv = 1 / s;
+
+    const container = new PIXI.Container();
+    drawElementCaption(container, { title: String(label) || "媒体", icon: modality === "image" ? "🖼️" : modality === "video" ? "🎬" : "🎵", maxWidth: w * s, scale: inv });
+
+    drawShadowCard(container, w, h, { radius: 12 });
+
+    if (modality === "image" && src) {
+      const imageH = h - (attached ? 18 : 0);
+      const placeholder = new PIXI.Graphics();
+      placeholder.beginFill(TILE_FILL);
+      placeholder.drawRoundedRect(6, 6, w - 12, imageH - 12, 8);
+      placeholder.endFill();
+      container.addChild(placeholder);
+      loadPixiTexture(String(src), (texture) => {
+        if (!texture || this.#destroyed || container.destroyed) return;
+        const sprite = coverSprite(texture, w - 12, imageH - 12);
+        const mask = new PIXI.Graphics();
+        mask.beginFill(0xffffff);
+        mask.drawRoundedRect(6, 6, w - 12, imageH - 12, 8);
+        mask.endFill();
+        mask.position.set(6, 6);
+        sprite.position.set(6 + sprite.x, 6 + sprite.y);
+        sprite.mask = mask;
+        container.addChild(mask);
+        container.addChild(sprite);
+      });
+    } else {
+      const glyph = new PIXI.Text(modality === "video" ? "🎬" : "🎵", {
+        fontFamily: 'system-ui, -apple-system, "PingFang SC", sans-serif',
+        fontSize: Math.min(44, h / 2.4),
+        fill: TEXT_TERTIARY,
+      });
+      glyph.anchor.set(0.5);
+      glyph.position.set(w / 2, (h - (attached ? 18 : 0)) / 2);
+      container.addChild(glyph);
+      const hint = new PIXI.Text(modality === "video" ? "视频 · 双击预览" : "音频 · 双击预览", {
+        fontFamily: FONT,
+        fontSize: 10,
+        fill: TEXT_SECONDARY,
+      });
+      hint.anchor.set(0.5);
+      hint.position.set(w / 2, (h - (attached ? 18 : 0)) / 2 + Math.min(44, h / 2.4) / 1.4);
+      container.addChild(hint);
+    }
+
+    // 挂接角标（B.12）：已挂接 = 卡底「参考素材」小条
+    if (attached) {
+      const badge = new PIXI.Text("◈ 参考素材", { fontFamily: FONT, fontSize: 9, fill: TEXT_SECONDARY });
+      badge.position.set(10, h - 15);
+      container.addChild(badge);
+    }
+
+    container.position.set(Number(x), Number(y));
+    container.eventMode = "none";
+    return container;
+  }
+}
+
+// ---------- canvas-store → pomelo document 映射（block id 约定） ----------
+
+const FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
 
 type PomeloRecord = { id: string; type: string; attrs: Record<string, unknown> };
 
@@ -157,6 +249,17 @@ type PomeloRecord = { id: string; type: string; attrs: Record<string, unknown> }
 function livePosOf(live: Map<string, { x: number; y: number }> | undefined, canvasId: string): Point | null {
   const value = live?.get(canvasId);
   return value ? { x: value.x, y: value.y } : null;
+}
+
+// 实体位置：优先按 `shape:<entityId>` 元素（本文档自己的记录，跨层互不影响）；
+// promote 后元素 id 保留原名但已改绑该实体（refKind=entity + refId），按 refId 兜底找回，
+// 保证提升卡片「原位成卡」而非跳到网格位
+function entityElementPosition(state: ReturnType<typeof useWorldCanvasStore.getState>, entity: WorldEntity, canvasId: string, fallbackIndex: number): Point {
+  const element = state.elements.find((item) => item.refKind === "entity" && item.refId === entity.id);
+  const x = Number(element?.geometry?.x);
+  const y = Number(element?.geometry?.y);
+  if (element && Number.isFinite(x) && Number.isFinite(y)) return { x, y };
+  return elementPosition(state.elements, canvasId, fallbackIndex);
 }
 
 function buildPomeloRecords(
@@ -172,9 +275,14 @@ function buildPomeloRecords(
     }
   }
 
+  const hiddenEntityIds = new Set(
+    state.elements.filter((element) => element.refKind === "entity" && element.props?.hidden).map((element) => String(element.refId)),
+  );
   state.entities.forEach((entity: WorldEntity, index: number) => {
+    // 画面删除（T16）：props.hidden 的实体投影不渲染（设定保留，大纲面板可放回）
+    if (hiddenEntityIds.has(entity.id)) return;
     const canvasId = `shape:${entity.id}`;
-    const pos = livePosOf(liveGeometry, canvasId) ?? elementPosition(state.elements, canvasId, index);
+    const pos = livePosOf(liveGeometry, canvasId) ?? entityElementPosition(state, entity, canvasId, index);
     const element = state.elements.find((item) => item.id === canvasId);
     const liveSize = liveSizes.get(canvasId);
     const imageUrls = entityImageUrls(state.apiBase, entity);
@@ -218,6 +326,27 @@ function buildPomeloRecords(
     const liveSize = liveSizes.get(element.id);
     const width = liveSize?.width ?? (Number(element.geometry?.width) || NOTE_SIZE.width);
     const height = liveSize?.height ?? (Number(element.geometry?.height) || NOTE_SIZE.height);
+    if (element.kind === "media") {
+      // 媒体元素（T8/B.12）：图片 cover-fit 缩略 / 视频音频占位卡；挂接后带「参考素材」角标
+      const modality = String(element.props?.modality ?? "image");
+      const assetId = String(element.props?.assetId ?? "");
+      const url = String(element.props?.url ?? "");
+      records.push({
+        id: element.id,
+        type: "media",
+        attrs: {
+          x: pos.x,
+          y: pos.y,
+          width: liveSize?.width ?? (Number(element.geometry?.width) || 220),
+          height: liveSize?.height ?? (Number(element.geometry?.height) || 150),
+          modality,
+          src: mediaSource(state.apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }),
+          attached: element.props?.evidenceId ? true : undefined,
+          label: String(element.name ?? ""),
+        },
+      });
+      return;
+    }
     if (element.kind === "attr") {
       // 属性节点：文本/图片/音频/视频预览卡（AI 生成/上传内容承载物）
       const media = String(element.props?.media ?? "text");
@@ -275,7 +404,14 @@ function buildPomeloRecords(
       if (!fromElementId || !toElementId) return;
       const attrMedia = String(element.props?.attrMedia ?? "");
       const edgeType = String(element.props?.edgeType ?? "");
-      const node = (ref: string) => (ref === WORLD_ELEMENT_ID ? ref : ref.replace(/^shape:/, "entity:"));
+      // 挂接线（T8）：from 端是非实体元素（媒体卡等），其 block id 就是元素 id 本身；
+      // 实体端仍走 shape:<id> → entity:<id> 映射
+      const node = (ref: string) => {
+        if (ref === WORLD_ELEMENT_ID) return ref;
+        const element = state.elements.find((item) => item.id === ref);
+        if (element && element.kind !== "entity") return ref;
+        return ref.replace(/^shape:/, "entity:");
+      };
       const draftAnchor = {
         fromAnchor: element.props?.fromAnchor as { x: number; y: number } | undefined,
         toAnchor: element.props?.toAnchor as { x: number; y: number } | undefined,
@@ -291,7 +427,7 @@ function buildPomeloRecords(
           height: 0,
           fromId: node(fromElementId),
           toId: node(toElementId),
-          label: attrMedia ? `属性 · ${attrMediaLabel(attrMedia)}` : edgeType || "",
+          label: attrMedia ? `属性 · ${attrMediaLabel(attrMedia)}` : edgeType === "attach" ? "" : edgeType,
           relationType: attrMedia ? `attr_${attrMedia}` : edgeType,
           ...(draftAnchor.fromAnchor ? { fromAnchor: draftAnchor.fromAnchor } : {}),
           ...(draftAnchor.toAnchor ? { toAnchor: draftAnchor.toAnchor } : {}),
@@ -303,6 +439,8 @@ function buildPomeloRecords(
 
   const entityById = new Map(state.entities.map((entity) => [entity.id, entity]));
   const seenRelations = new Set<string>();
+  // 标签重叠（T5/B.10）：同一对节点的多条边标签沿法向 ±10px 错开（pairKey → 已出现序号）
+  const pairLabelIndex = new Map<string, number>();
   // 关系锚点覆盖：shape:rel-<relationId> anchor 元素（kind=arrow + props.relationId）
   const anchorOverrides = new Map<string, Record<string, unknown>>();
   for (const element of state.elements) {
@@ -315,6 +453,10 @@ function buildPomeloRecords(
     const key = `${relation.fromEntityId}→${relation.toEntityId}·${relation.type}`;
     if (seenRelations.has(key)) continue;
     seenRelations.add(key);
+    const typeInfo = state.relationTypes.find((item) => item.id === relation.type);
+    const pairKey = [relation.fromEntityId, relation.toEntityId].sort().join("~");
+    const labelIndex = pairLabelIndex.get(pairKey) ?? 0;
+    pairLabelIndex.set(pairKey, labelIndex + 1);
     const anchorProp = anchorOverrides.get(relation.id) ?? {};
     const fromAnchor = anchorProp?.fromAnchor as { x: number; y: number } | undefined;
     const toAnchor = anchorProp?.toAnchor as { x: number; y: number } | undefined;
@@ -329,8 +471,10 @@ function buildPomeloRecords(
         height: 0,
         fromId: `entity:${relation.fromEntityId}`,
         toId: `entity:${relation.toEntityId}`,
-        label: relation.type,
+        label: typeInfo?.labelZh ?? relation.type,
         relationType: relation.type,
+        group: typeInfo?.group ?? "",
+        ...(labelIndex > 0 ? { labelOffsetIndex: labelIndex } : {}),
         ...(fromAnchor ? { fromAnchor } : {}),
         ...(toAnchor ? { toAnchor } : {}),
         ...(bend ? { bend } : {}),
@@ -342,66 +486,177 @@ function buildPomeloRecords(
 
 function syncDocFromCanvasStore(editor: PomeloEditor) {
   const records = buildPomeloRecords(useWorldCanvasStore.getState(), (editor.pluginRegistry.get("CanvasBindsPlugin") as CanvasBindsPlugin | undefined)?.liveGeometry);
+  // 增量文档 diff（T1-c）：按 block id 对账——消失的 removeBlock、新增的 addBlock、
+  // attrs 变化的 updateBlock；不再全量 remove+add，避免整画布重渲染与封面纹理重复加载
+  const desired = new Map(records.map((record) => [record.id, record]));
   editor.state.transact((hook) => {
-    const existing = editor.state.getAllBlocks((record) => !record.isRoot).map((record) => record.id);
-    existing.forEach((id) => hook.removeBlock(id));
-    records.forEach((record) => hook.addBlock({ id: record.id, type: record.type, attrs: record.attrs } as never));
+    for (const existing of editor.state.getAllBlocks((record) => !record.isRoot)) {
+      const target = desired.get(existing.id);
+      desired.delete(existing.id);
+      if (!target) {
+        // 幂等容错：单个脏块 remove/update 抛错不得中止整个 diff 事务（否则只能整页刷新恢复）
+        try {
+          hook.removeBlock(existing.id);
+        } catch {
+          // ignore
+        }
+        continue;
+      }
+      // updateBlock 是合并语义：旧 attrs 中目标已不存在的 key 显式置 undefined 清除
+      const updates: Record<string, unknown> = { ...target.attrs };
+      for (const key of Object.keys(existing.attrs)) {
+        if (!(key in updates)) updates[key] = undefined;
+      }
+      if (JSON.stringify(existing.attrs) !== JSON.stringify(stripUndefined(updates))) {
+        try {
+          hook.updateBlock(existing.id, updates as never);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    for (const record of desired.values()) {
+      hook.addBlock({ id: record.id, type: record.type, attrs: record.attrs } as never);
+    }
   });
+}
+
+// JSON 对比辅助：undefined 值视为缺省（updateAttributes 会把 undefined 写进 Y.Map，
+// 与「key 缺失」在渲染上等价，但 JSON.stringify 视角不同）
+function stripUndefined(attrs: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
 }
 
 // ---------- 世界工具栏已全部上提到全局 Header（canvas-top-bar.tsx），画布内不再保留顶部覆盖层 ----------
 
-// ---------- 「+」属性引导面板（极简两步：edge 类型 + 节点类型，点节点类型即创建） ----------
+// ---------- 视口持久化（T12，按世界+上下文分键）：root 沿用旧键 `wc:vp:<worldId>`，
+// 容器上下文 `wc:vp:<worldId>:<contextId>`——进出容器各自恢复，不互相覆盖 ----------
+
+function viewportKey(context: ReturnType<typeof useWorldCanvasStore.getState>["context"]): string {
+  const worldId = useWorldCanvasStore.getState().worldId;
+  return context ? `wc:vp:${worldId}:${context.entityId}` : `wc:vp:${worldId}`;
+}
+
+function restoreViewport(editor: PomeloEditor, key: string): boolean {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) ?? "null") as { x: number; y: number; scale: number } | null;
+    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) && saved.scale > 0) {
+      (editor.renderAdapter as PixiRendererAdapter).setTransform(saved.x, saved.y, saved.scale);
+      return true;
+    }
+  } catch {
+    // 无视口快照时保持原状
+  }
+  return false;
+}
+
+
+// ---------- 「+」生成引导面板（两区：属性 / 实体）----------
+// 属性区：默认给出来源实体 type schema 的建议字段（点即建对应文本属性）+ 空白属性（四种媒体）；
+// 实体区：直接列预设/自定义实体类型，点即建草稿卡（「空白」用最近使用类型）。
+// 边类型不在此选：创建后点击边，右侧边属性面板直接调整。
 
 function AttrCreatorPanel() {
   const creator = useWorldCanvasStore((state) => state.attrCreator);
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const setAttrCreator = useWorldCanvasStore((state) => state.setAttrCreator);
   const createAttribute = useWorldCanvasStore((state) => state.createAttribute);
-  const relationTypes = useWorldCanvasStore((state) => state.relationTypes);
-  // edge 类型：属性边（默认，画布层 edges）+ 受控关系词表类型（语义标签）
-  const [edgeType, setEdgeType] = useState("attr");
+  const createEntity = useWorldCanvasStore((state) => state.createEntity);
+  const startInlineEdit = useWorldCanvasStore((state) => state.startInlineEdit);
+  const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
+  const entities = useWorldCanvasStore((state) => state.entities);
   if (!creator || readOnly) return null;
-  const edgeOptions = [{ id: "attr", label: "属性" }, ...relationTypes.map((item: { id: string; labelZh?: string }) => ({ id: item.id, label: item.labelZh ?? item.id }))];
-  const mediaOptions: Array<{ media: AttrMedia; label: string; icon: string }> = [
+  // creator.fromEntityId 是元素 id（shape:<entityId>），按两种形态解析实体
+  const sourceEntityId = creator.fromEntityId.replace(/^shape:/, "");
+  const fromEntity = entities.find((entity) => entity.id === sourceEntityId);
+  const sourceType = fromEntity ? entityTypes.find((item) => item.id === fromEntity.kind) : undefined;
+  // 建议属性 = 来源实体 type schema 的字段（已填值的直接带值显示；media 字段按 options 定媒体）
+  const suggestedFields = (sourceType?.fields ?? []).map((field) => {
+    const value = fromEntity?.content?.[field.key];
+    return { ...field, value: value == null ? "" : String(value) };
+  });
+  const filledFields = suggestedFields.filter((field) => field.value.trim());
+  const pos = {
+    x: Number.isFinite(creator.worldX) ? creator.worldX! : 420,
+    y: Number.isFinite(creator.worldY) ? creator.worldY! : 300,
+  };
+  const blankMediaOptions: Array<{ media: AttrMedia; label: string; icon: string }> = [
     { media: "text", label: "文本", icon: "≡" },
     { media: "image", label: "图片", icon: "🖼" },
     { media: "audio", label: "音频", icon: "♪" },
     { media: "video", label: "视频", icon: "▶" },
   ];
-  const create = (media: AttrMedia) => {
-    void createAttribute(
-      creator.fromEntityId,
-      media,
-      { x: Number.isFinite(creator.worldX) ? creator.worldX! : 420, y: Number.isFinite(creator.worldY) ? creator.worldY! : 300 },
-      undefined,
-      edgeType,
-    );
+  const entityPos = { x: pos.x + 300, y: pos.y };
+  const createEntityAt = (kind: string) => {
+    void createEntity(kind, { pos: entityPos });
     setAttrCreator(null);
   };
   return (
-    <div className="fixed z-40 w-64 rounded-xl border border-border bg-card p-3 text-sm shadow-2xl" style={{ left: Math.min(Math.max(16, creator.screenX), (typeof window !== "undefined" ? window.innerWidth - 280 : 800)), top: Math.min(Math.max(16, creator.screenY), (typeof window !== "undefined" ? window.innerHeight - 240 : 600)) }} onMouseDown={(event) => event.stopPropagation()}>
+    <div className="fixed z-40 w-72 rounded-xl border border-border bg-card p-3 text-sm shadow-2xl" style={{ left: Math.min(Math.max(16, creator.screenX), (typeof window !== "undefined" ? window.innerWidth - 300 : 800)), top: Math.min(Math.max(16, creator.screenY), (typeof window !== "undefined" ? window.innerHeight - 280 : 600)) }} onMouseDown={(event) => event.stopPropagation()}>
       <p className="mb-2 truncate text-xs text-muted-foreground">从 {creator.fromEntityTitle} 生成</p>
-      <p className="mb-1 text-[10px] text-muted-foreground">边类型</p>
+      <p className="mb-1 text-[10px] text-muted-foreground">属性{sourceType ? ` · ${sourceType.name}已填的带值可选` : ""}</p>
+      {filledFields.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {filledFields.map((field) => (
+            <button
+              key={field.key}
+              className="max-w-full rounded-md border border-primary/50 bg-primary/5 px-2 py-1 text-left text-xs hover:border-primary hover:bg-primary/10"
+              onClick={() => {
+                void createAttribute(creator.fromEntityId, "text", pos, { label: field.label ?? field.key, text: field.value }, "attr");
+                setAttrCreator(null);
+              }}
+              title={`${field.label ?? field.key}：${field.value} · 点击生成属性并挂边（边即属性关联）`}
+              type="button"
+            >
+              <span className="font-medium">{field.label ?? field.key}</span>
+              <span className="ml-1 text-[10px] text-muted-foreground">{field.value.length > 12 ? `${field.value.slice(0, 12)}…` : field.value}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mb-2 flex flex-wrap gap-1.5">
-        {edgeOptions.map((option) => (
+        {suggestedFields.filter((field) => !field.value.trim()).map((field) => (
           <button
-            key={option.id}
-            className={`rounded-md border px-2 py-1 text-xs ${edgeType === option.id ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted"}`}
-            onClick={() => setEdgeType(option.id)}
+            key={field.key}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary/60 hover:bg-primary/5"
+            onClick={() => {
+              const media = field.type === "media" ? ((field.options?.[0] as AttrMedia) ?? "image") : "text";
+              void createAttribute(creator.fromEntityId, media, pos, { label: field.label ?? field.key, text: "" }, "attr");
+              setAttrCreator(null);
+            }}
+            title="创建该属性"
             type="button"
           >
-            {option.label}
+            {field.label ?? field.key}
           </button>
         ))}
+        {!suggestedFields.length && <p className="text-[10px] text-muted-foreground">暂无建议字段，可用下方空白属性。</p>}
       </div>
-      <p className="mb-1 text-[10px] text-muted-foreground">节点类型 · 点击即创建</p>
-      <div className="grid grid-cols-4 gap-1.5">
-        {mediaOptions.map((option) => (
+      <p className="mb-1 text-[10px] text-muted-foreground">空白属性 · 点击即创建</p>
+      <div className="mb-2 grid grid-cols-4 gap-1.5">
+        {blankMediaOptions.map((option) => (
           <button
             key={option.media}
             className="flex items-center justify-center gap-1 rounded-md border border-border px-1.5 py-2 text-xs hover:border-primary/60 hover:bg-primary/5"
-            onClick={() => create(option.media)}
+            onClick={() => {
+              void (async () => {
+                // 空白属性：创建后进入命名态（填写属性名称），值提交时同步到实体 content 字段
+                const attrId = await createAttribute(creator.fromEntityId, option.media, pos, undefined, "attr");
+                if (attrId) {
+                  startInlineEdit({
+                    kind: "attr-title",
+                    elementId: attrId,
+                    rect: { x: pos.x, y: pos.y, width: 260, height: 28 },
+                    value: "",
+                  });
+                }
+              })();
+              setAttrCreator(null);
+            }}
             type="button"
           >
             <span aria-hidden>{option.icon}</span>
@@ -409,9 +664,101 @@ function AttrCreatorPanel() {
           </button>
         ))}
       </div>
+      <p className="mb-1 text-[10px] text-muted-foreground">实体 · 点击即创建</p>
+      <div className="flex flex-wrap gap-1.5">
+        {entityTypes.map((item) => (
+          <button
+            key={item.id}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary/60 hover:bg-primary/5"
+            onClick={() => createEntityAt(item.id)}
+            type="button"
+          >
+            {item.name}
+          </button>
+        ))}
+        <button
+          className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary/60 hover:bg-primary/5 hover:text-foreground"
+          onClick={() => createEntityAt(readLastKind())}
+          type="button"
+        >
+          空白
+        </button>
+      </div>
       <button className="mt-2 w-full rounded-md px-2 py-1 text-center text-xs text-muted-foreground hover:bg-muted" onClick={() => setAttrCreator(null)} type="button">
         取消
       </button>
+    </div>
+  );
+}
+
+// ---------- 空世界引导（T9/B.5）：三步说明 + 一键出第一张人物卡；首 3 次进入显示 ----------
+
+const ONBOARDING_KEY = "wc:onboardingVisits";
+
+function EmptyWorldGuide() {
+  const context = useWorldCanvasStore((state) => state.context);
+  const entityCount = useWorldCanvasStore((state) => state.entities.length);
+  const elementCount = useWorldCanvasStore((state) => state.elements.length);
+  const readOnly = useWorldCanvasStore((state) => state.readOnly);
+  const setCreating = useWorldCanvasStore((state) => state.setCreating);
+  const [dismissed, setDismissed] = useState(true);
+  useEffect(() => {
+    // 首访引导：进画布累计 <3 次时显示（localStorage 计数，可跳过；帮助面板可找回）
+    try {
+      const visits = Number(localStorage.getItem(ONBOARDING_KEY) ?? "0") + 1;
+      localStorage.setItem(ONBOARDING_KEY, String(visits));
+      setDismissed(visits > 3);
+    } catch {
+      setDismissed(true);
+    }
+  }, []);
+  if (context || entityCount > 0 || elementCount > 1 || readOnly || dismissed) return null;
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+      <div className="pointer-events-auto flex w-80 flex-col items-center gap-3 rounded-xl border bg-card/90 p-6 text-center shadow-xl">
+        <p className="text-base font-semibold">开始搭建这个世界</p>
+        <ul className="space-y-1.5 text-left text-xs text-muted-foreground">
+          <li>① ＋ 或双击空白 → 放下人物 / 地点 / 物件</li>
+          <li>② 悬停卡片拖「＋」手柄 → 连出关系</li>
+          <li>③ 拖入图片 → 挂为参考素材（封面/外貌）</li>
+        </ul>
+        <button
+          className="rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+          onClick={() => setCreating(true)}
+          type="button"
+        >
+          创建第一个设定
+        </button>
+        <button className="text-[10px] text-muted-foreground hover:underline" onClick={() => setDismissed(true)} type="button">
+          跳过
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- 空容器引导（T6/B.11）：进入无子设定的实体时，画布中央 CTA ----------
+
+function EmptyContainerGuide() {
+  const context = useWorldCanvasStore((state) => state.context);
+  const entityCount = useWorldCanvasStore((state) => state.entities.length);
+  const elementCount = useWorldCanvasStore((state) => state.elements.length);
+  const readOnly = useWorldCanvasStore((state) => state.readOnly);
+  const setCreating = useWorldCanvasStore((state) => state.setCreating);
+  if (!context || entityCount > 0 || elementCount > 0 || readOnly) return null;
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+      <div className="pointer-events-auto flex w-72 flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card/80 p-5 text-center">
+        <p className="text-sm font-medium">「{context.title}」下还没有子设定</p>
+        <p className="text-xs text-muted-foreground">子设定只在这个实体内部可见（如道具、细节、章节）。</p>
+        <button
+          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+          onClick={() => setCreating(true)}
+          type="button"
+        >
+          ＋ 添加子设定
+        </button>
+      </div>
     </div>
   );
 }
@@ -460,10 +807,16 @@ export function CanvasPomeloHost() {
   const dataVersion = useWorldCanvasStore((state) => state.dataVersion);
   const context = useWorldCanvasStore((state) => state.context);
   const worldName = useWorldCanvasStore((state) => state.worldName);
+  const worldId = useWorldCanvasStore((state) => state.worldId);
   const selection = useWorldCanvasStore((state) => state.selection);
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<PomeloEditor | null>(null);
   const pluginRef = useRef<CanvasBindsPlugin | null>(null);
+  // 进入容器时自动换视口（B.11/T12）：context 变化置位，文档同步后执行一次
+  const fitOnNextSync = useRef(false);
+  // 视口持久化订阅（T12）：卸载时释放；lastViewportKeyRef 记录「来源上下文键」供切换时存回
+  const viewportUnsubRef = useRef<{ dispose: () => void } | null>(null);
+  const lastViewportKeyRef = useRef<string | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -474,7 +827,7 @@ export function CanvasPomeloHost() {
       state: PomeloEditorState.fromJSON({ id: "world-canvas", children: [] }),
       container,
       plugins: [new GridPlugin(), new ViewportPlugin(), bindsPlugin],
-      blockTypes: [EntityCardBlock, NoteBlock, WorldNodeBlock, RelationArrowBlock, FreeElementBlock],
+      blockTypes: [EntityCardBlock, NoteBlock, WorldNodeBlock, RelationArrowBlock, FreeElementBlock, MediaBlock],
       renderAdapter: new PixiRendererAdapter({ transparentBackground: true, antialias: true }),
     });
     editorRef.current = editor;
@@ -486,6 +839,25 @@ export function CanvasPomeloHost() {
       // 点状网格由 GridPlugin 绘制
       syncDocFromCanvasStore(editor);
       centerContent(editor);
+      // 视口状态持久化（T12）：按「世界+上下文」分键存取（见模块级 viewportKey/restoreViewport）
+      let viewportTimer: ReturnType<typeof setTimeout> | null = null;
+      const unsubViewport = (editor.renderAdapter as PixiRendererAdapter).onTransformEvent.on(() => {
+        if (viewportTimer) clearTimeout(viewportTimer);
+        viewportTimer = setTimeout(() => {
+          try {
+            // 写入时以「当前」上下文为准（400ms 去抖期间恰好切容器，快照应落新上下文）
+            const t = (editor.renderAdapter as PixiRendererAdapter).transform;
+            localStorage.setItem(viewportKey(useWorldCanvasStore.getState().context), JSON.stringify(t));
+          } catch {
+            // localStorage 不可用时静默
+          }
+        }, 400);
+      });
+      viewportUnsubRef.current = unsubViewport;
+      lastViewportKeyRef.current = viewportKey(null);
+      if (!restoreViewport(editor, lastViewportKeyRef.current)) {
+        centerContent(editor);
+      }
       useWorldCanvasStore.getState().setEditor(editor);
       setReady(true);
       // e2e/调试句柄（仅 dev 构建暴露）
@@ -498,6 +870,8 @@ export function CanvasPomeloHost() {
       if (process.env.NODE_ENV !== "production") {
         delete (window as unknown as Record<string, unknown>).__worldCanvasDebug;
       }
+      viewportUnsubRef.current?.dispose();
+      viewportUnsubRef.current = null;
       editor.destroy();
       editorRef.current = null;
       pluginRef.current = null;
@@ -511,7 +885,35 @@ export function CanvasPomeloHost() {
     const editor = editorRef.current;
     if (!editor || !ready) return;
     syncDocFromCanvasStore(editor);
+    if (fitOnNextSync.current) {
+      fitOnNextSync.current = false;
+      viewportSwitch(editor, context);
+    }
   }, [dataVersion, context, worldName, ready]);
+
+  // 进入容器自动换视口（B.11 + T12）：先把手头 transform 存回来源键，再恢复目标键
+  // （无目标快照 = fit 子内容一次）；exit 也要做（回到 root 的上次视口）
+  const viewportSwitch = (editor: PomeloEditor, context: CanvasContext | null) => {
+    const adapter = editor.renderAdapter as PixiRendererAdapter;
+    const fromKey = lastViewportKeyRef.current;
+    const toKey = viewportKey(context);
+    if (fromKey && fromKey !== toKey) {
+      try {
+        localStorage.setItem(fromKey, JSON.stringify(adapter.transform));
+      } catch {
+        // 静默
+      }
+    }
+    if (!restoreViewport(editor, toKey)) {
+      centerContent(editor);
+    }
+    lastViewportKeyRef.current = toKey;
+  };
+
+  // context 变化 → 下一次同步后换视口（进入/退出容器，B.11 + T12）
+  useEffect(() => {
+    if (context !== undefined) fitOnNextSync.current = true;
+  }, [context]);
 
   // 选中变化 → 重绘选区 overlay
   useEffect(() => {
@@ -520,9 +922,59 @@ export function CanvasPomeloHost() {
     pluginRef.current?.drawOverlay(editor);
   }, [selection, dataVersion, ready]);
 
+  // T8 文件拖放（B.12 矩阵）：文件 → 实体卡 = 直接挂接为证据（不建画布元素）；
+  // 文件 → 空白 = 独立 media 元素（落点处）
+  const onDragOver = (event: React.DragEvent) => {
+    if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+  };
+  const onDrop = (event: React.DragEvent) => {
+    if (!event.dataTransfer.files.length) return;
+    event.preventDefault();
+    const plugin = pluginRef.current;
+    const editor = editorRef.current;
+    if (!plugin || !editor) return;
+    const container = containerRef.current;
+    const rect = container?.getBoundingClientRect();
+    if (!rect) return;
+    const adapter = editor.renderAdapter as PixiRendererAdapter;
+    const t = adapter.transform;
+    const world = { x: (event.clientX - rect.left - t.x) / t.scale, y: (event.clientY - rect.top - t.y) / t.scale };
+    const store = useWorldCanvasStore.getState();
+    if (store.readOnly) return;
+    const targetEntityId = plugin.hitEntityAt(world);
+    void (async () => {
+      for (const file of Array.from(event.dataTransfer.files)) {
+        const modality = modalityOfKind(file.type);
+        if (!modality) continue;
+        try {
+          const form = new FormData();
+          form.append("file", file);
+          const response = await fetch(`${store.apiBase}/v1/media/assets`, { method: "POST", body: form });
+          if (!response.ok) throw new Error("素材导入失败");
+          const asset = (await response.json()) as { id: string };
+          if (targetEntityId) {
+            const purpose = defaultEvidencePurpose(modality, true);
+            await useWorldCanvasStore.getState().attachEvidenceRun(targetEntityId, modality, asset.id, "", purpose);
+            const target = useWorldCanvasStore.getState().entities.find((item) => item.id === targetEntityId);
+            useWorldCanvasStore.getState().toast(`已将「${file.name}」挂为「${target?.title ?? "设定"}」的参考素材`, "success");
+          } else {
+            await useWorldCanvasStore.getState().addMediaElement({ modality, assetId: asset.id, name: file.name }, world);
+          }
+        } catch (cause) {
+          useWorldCanvasStore.getState().toast(cause instanceof Error ? cause.message : "素材导入失败", "error");
+        }
+      }
+    })();
+  };
+
   return (
     <div className="relative h-full min-h-0 w-full bg-background">
-      <div ref={containerRef} className="absolute inset-0 [&_canvas]:block" />
+      <div ref={containerRef} className="absolute inset-0 [&_canvas]:block" onDragOver={onDragOver} onDrop={onDrop} />
+      <CanvasInlineEditor />
+      <EmptyWorldGuide />
+      <EmptyContainerGuide />
+      <CanvasOutline />
+      <CanvasToasts />
       <PanOverlay editorRef={editorRef} />
       <AttrCreatorPanel />
     </div>

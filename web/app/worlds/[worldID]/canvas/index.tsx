@@ -16,7 +16,7 @@ import { useWorldCanvasTopBarStore } from "./canvas-top-bar";
 import { CanvasDetailPanel } from "./canvas-detail-panel";
 import { CanvasDialogs } from "./canvas-dialogs";
 
-// pomelo 底座依赖浏览器 API，仅客户端挂载（tldraw → pomelo 替换，旧 canvas-tldraw.tsx 保留为历史参考）。
+// pomelo 底座依赖浏览器 API，仅客户端挂载。
 const CanvasPomeloHost = dynamic(() => import("./canvas-pomelo").then((mod) => mod.CanvasPomeloHost), {
   ssr: false,
   // 画布骨架：与真实画布同构（点阵底 + 居中卡片占位），刷新时默认视图即画布 skeleton
@@ -70,6 +70,23 @@ export default function WorldCanvas({ apiBase, worldId, worldName, readOnly, rev
     // 仅在会话标识变化时重新 open；worldName 变化由订阅方各自响应。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiBase, worldId, readOnly]);
+
+  // 子世界深链（?ctx=<entityId>）：挂载时从 URL 恢复进入的容器；context 变化时
+  // replaceState 回写（不触发路由重渲）。放在 open effect 之后，保证 store 已就绪。
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ctx = params.get("ctx");
+    if (ctx) void useWorldCanvasStore.getState().restoreContext(ctx);
+    let prev = useWorldCanvasStore.getState().context;
+    return useWorldCanvasStore.subscribe((state) => {
+      if (state.context === prev) return;
+      prev = state.context;
+      const url = new URL(window.location.href);
+      if (state.context) url.searchParams.set("ctx", state.context.entityId);
+      else url.searchParams.delete("ctx");
+      window.history.replaceState(null, "", url.toString());
+    });
+  }, []);
 
   if (!host) return null;
   return createPortal(

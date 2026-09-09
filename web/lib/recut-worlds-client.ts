@@ -7,7 +7,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 export type WorldKind = "character_ip" | "creator_brand" | "brand" | "fiction_world" | "custom";
-export type EntityKind = "character" | "location" | "story" | "style" | "rule" | "reference";
+export type EntityKind = "character" | "location" | "object" | "story" | "style" | "rule" | "reference";
 export type WorldPurpose = "chat" | "video" | "voice" | "image" | "cover" | "agent";
 export type Page<T> = { items: T[]; nextCursor?: string };
 
@@ -207,9 +207,11 @@ export const worldKindLabels: Record<WorldKind, string> = {
   custom: "自定义",
 };
 
+// 与服务端 type 目录 name 统一文案（T11：「角色」→「人物」；目录缺失时兜底）
 export const entityKindLabels: Record<EntityKind, string> = {
-  character: "角色",
+  character: "人物",
   location: "地点",
+  object: "物件",
   story: "故事",
   style: "风格",
   rule: "规则",
@@ -236,7 +238,7 @@ export function worldTypes(): WorldKind[] {
 }
 
 export function entityKinds(): EntityKind[] {
-  return ["character", "location", "story", "style", "rule", "reference"];
+  return ["character", "location", "object", "story", "style", "rule", "reference"];
 }
 
 export type EntityTypeField = {
@@ -297,12 +299,37 @@ export type CanvasUpsertInput = {
   layer?: string;
 };
 
+// 文档粒度画布（RFC 2026-09-09）：一张画布 = 一个 Document，get/save 整包读写
+export type WorldCanvasDocument = {
+  worldId: string;
+  contextId: string;
+  version: number;
+  elements: WorldCanvasElement[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CanvasDocOp = {
+  op: "insert" | "update" | "remove";
+  element?: Partial<CanvasUpsertInput>;
+};
+
 export type CanvasPromoteResult =
   | { promoted: "entity"; entity: WorldEntity }
   | { promoted: "relation"; relation: WorldEntityRelation };
 
+// 实体删除的影响范围统计（后端 DeleteEntityResult）
+export type WorldEntityDeleteResult = { deleted: number; children: number; relations: number; evidences: number };
+// 版本历史摘要（T12 快照/回滚面板）
+export type WorldRevisionSummary = { id: string; hash: string; reason: string; createdBy: string; createdAt: string };
+
 export type RecutWorldsClient = {
   list(input?: { text?: string; type?: WorldKind; cursor?: string; limit?: number }): Promise<Page<WorldSummary>>;
+  requestAI(path: string, body: unknown): Promise<Record<string, unknown>>;
+  revisions: {
+    list(input: { worldId: string }): Promise<WorldRevisionSummary[]>;
+    revert(input: { worldId: string; revisionId: string; expectedRevisionId?: string }): Promise<WorldDetail>;
+  };
   get(input: { worldId: string }): Promise<WorldDetail>;
   create(input: { name: string; type: WorldKind; description?: string; identity?: Record<string, unknown>; coverAssetId?: string }): Promise<WorldDetail>;
   update(input: { worldId: string; name?: string; description?: string; identity?: Record<string, unknown>; skillMd?: string; expectedRevisionId?: string }): Promise<WorldDetail>;
@@ -315,13 +342,14 @@ export type RecutWorldsClient = {
     upsert(input: { worldId: string; entityId?: string; kind: EntityKind; title: string; summary?: string; content: Record<string, unknown>; parentId?: string; containerRole?: string; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
     children(input: { worldId: string; entityId: string; kind: EntityKind; title: string; containerRole?: string; summary?: string; content?: Record<string, unknown>; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
     promote(input: { worldId: string; entityId: string; expectedRevisionId?: string }): Promise<WorldEntity>;
+    remove(input: { worldId: string; entityId: string; expectedRevisionId?: string }): Promise<WorldEntityDeleteResult>;
   };
   references: {
     attach(input: { worldId: string; entityId?: string; assetId: string; role: string; label?: string; expectedRevisionId?: string }): Promise<WorldEvidence>;
   };
   evidence: {
     list(input: { worldId: string }): Promise<WorldEvidence[]>;
-    attach(input: { worldId: string; entityId?: string; assetId: string; purpose: WorldEvidencePurpose; status?: Exclude<WorldEvidenceStatus, "archived">; collection?: string; label?: string; segment?: WorldEvidenceSegment; expectedRevisionId?: string }): Promise<WorldEvidence>;
+    attach(input: { worldId: string; entityId?: string; assetId?: string; url?: string; modality?: string; purpose: WorldEvidencePurpose; status?: Exclude<WorldEvidenceStatus, "archived">; collection?: string; label?: string; segment?: WorldEvidenceSegment; expectedRevisionId?: string }): Promise<WorldEvidence>;
     update(input: { worldId: string; evidenceId: string; purpose: WorldEvidencePurpose; status: Exclude<WorldEvidenceStatus, "archived">; label?: string; expectedRevisionId?: string }): Promise<WorldEvidence>;
     archive(input: { worldId: string; evidenceId: string; expectedRevisionId?: string }): Promise<void>;
   };
@@ -331,9 +359,10 @@ export type RecutWorldsClient = {
     upsert(input: { worldId: string; id: string; name: string; icon?: string; color?: string; baseKind?: string; fields?: EntityTypeField[] }): Promise<WorldEntityType>;
   };
   canvas: {
-    list(input: { worldId: string; contextId?: string }): Promise<WorldCanvasElement[]>;
-    upsert(input: CanvasUpsertInput): Promise<WorldCanvasElement>;
-    remove(input: { worldId: string; elementId: string }): Promise<void>;
+    get(input: { worldId: string; contextId?: string }): Promise<WorldCanvasDocument>;
+    save(input: { worldId: string; contextId?: string; elements: WorldCanvasElement[]; version: number }): Promise<WorldCanvasDocument>;
+    docs(input: { worldId: string }): Promise<Array<{ contextId: string; version: number; updatedAt: string; elementCount: number }>>;
+    docUpdate(input: { worldId: string; contextId?: string; ops: CanvasDocOp[] }): Promise<WorldCanvasDocument>;
     promote(input: { worldId: string; elementId: string; kind?: string; relationType?: string; title?: string; expectedRevisionId?: string }): Promise<CanvasPromoteResult>;
   };
   relations: {
@@ -365,18 +394,28 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
     archive: async ({ worldId, expectedRevisionId }: { worldId: string; expectedRevisionId?: string }) => {
       await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevisionId }) });
     },
+    requestAI: (path, body) => requestJSON<Record<string, unknown>>(`${apiBase}${path}`, { method: "POST", body }),
+    revisions: {
+      list: async ({ worldId }) => {
+        const body = await requestJSON<{ items: WorldRevisionSummary[] }>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/revisions`);
+        return body.items;
+      },
+      revert: ({ worldId, revisionId, expectedRevisionId }) =>
+        requestJSON<WorldDetail>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/revisions/${encodeURIComponent(revisionId)}/revert`, { method: "POST", body: { expectedRevisionId } }),
+    },
     readiness: ({ worldId, scenario }: { worldId: string; scenario?: WorldScenario }) => {
       const query = new URLSearchParams();
       if (scenario) query.set("scenario", scenario);
       return requestJSON<WorldReadiness>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/readiness${query.size ? `?${query}` : ""}`);
     },
     entities: {
-      list: ({ worldId, kind, text, cursor, limit }) => {
+      list: ({ worldId, kind, text, cursor, limit, includeProvisional }) => {
         const query = new URLSearchParams();
         if (kind) query.set("kind", kind);
         if (text) query.set("text", text);
         if (cursor) query.set("cursor", cursor);
         if (limit != null) query.set("limit", String(limit));
+        if (includeProvisional) query.set("includeProvisional", "true");
         return requestJSON<Page<WorldEntitySummary>>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities${query.size ? `?${query}` : ""}`);
       },
       get: ({ worldId, entityId }) => requestJSON<WorldEntity>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities/${encodeURIComponent(entityId)}`),
@@ -390,6 +429,11 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
         requestJSON<WorldEntity>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities/${encodeURIComponent(entityId)}/children`, { method: "POST", body: rest }),
       promote: ({ worldId, entityId, ...rest }) =>
         requestJSON<WorldEntity>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities/${encodeURIComponent(entityId)}/promote`, { method: "POST", body: rest }),
+      remove: async ({ worldId, entityId, expectedRevisionId }) => {
+        const response = await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities/${encodeURIComponent(entityId)}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevisionId }) });
+        if (!response.ok) throw await errorFrom(response);
+        return (await response.json()) as WorldEntityDeleteResult;
+      },
     },
     entityTypes: {
       list: async ({ worldId }) => {
@@ -399,17 +443,24 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
       upsert: ({ worldId, ...rest }) => requestJSON<WorldEntityType>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entity-types`, { method: "POST", body: rest }),
     },
     canvas: {
-      list: async ({ worldId, contextId }) => {
+      get: ({ worldId, contextId }) => {
         const query = contextId ? `?contextId=${encodeURIComponent(contextId)}` : "";
-        const body = await requestJSON<{ items: WorldCanvasElement[] }>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas${query}`);
+        return requestJSON<WorldCanvasDocument>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/doc${query}`);
+      },
+      save: ({ worldId, contextId, elements, version }) =>
+        requestJSON<WorldCanvasDocument>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/doc`, {
+          method: "POST",
+          body: { contextId: contextId ?? "", elements, version },
+        }),
+      docs: async ({ worldId }) => {
+        const body = await requestJSON<{ items: Array<{ contextId: string; version: number; updatedAt: string; elementCount: number }> }>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/docs`);
         return body.items;
       },
-      upsert: ({ worldId, id, ...rest }) =>
-        requestJSON<WorldCanvasElement>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas`, { method: "POST", body: { id, ...rest } }),
-      remove: async ({ worldId, elementId }) => {
-        const response = await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/${encodeURIComponent(elementId)}`, { method: "DELETE" });
-        if (!response.ok) throw await errorFrom(response);
-      },
+      docUpdate: ({ worldId, contextId, ops }) =>
+        requestJSON<WorldCanvasDocument>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/doc/ops`, {
+          method: "POST",
+          body: { contextId: contextId ?? "", ops },
+        }),
       promote: ({ worldId, elementId, ...rest }) =>
         requestJSON<CanvasPromoteResult>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/${encodeURIComponent(elementId)}/promote`, { method: "POST", body: rest }),
     },

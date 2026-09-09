@@ -5,11 +5,13 @@
  * 点击命中选择（实体卡/便签/文本/形状/属性节点/World 节点/语义关系线/自由箭头）解析为
  * CanvasSelection 驱动右侧面板；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
  * canvas-store.moveElement + 去抖 persistGeometry；pointermove 经 editor.ticker 统一合帧，
- * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄拖出引导线：落到另一实体卡 =
+ * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（仅实体卡，自由元素不挂）拖出引导线：落到另一实体卡 =
  * 受控关系确认（setPendingRelation），落空 = 属性引导菜单（setAttrCreator，创建属性节点 +
- * 属性边）；双击实体卡进入容器；Delete/Backspace 删除关系/草稿；选区 overlay + 「+」手柄 +
+ * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击空白 = 最近类型快捷建卡
+ * （Alt = 创建菜单）；右键 = 实体/便签文本上下文菜单（T3）；Delete/Backspace 删除关系/草稿、
+ * 实体走删除确认（B.6）；选区 overlay + 「+」手柄 +
  * 引导草稿线（overlay 屏幕空间 / draft 世界空间，transform 变化自动重绘）
- * [POS]: worlds/[worldID]/canvas 的画布交互绑定层（tldraw syncFromTldraw / resolveSelection 的 pomelo 版）
+ * [POS]: worlds/[worldID]/canvas 的画布交互绑定层（resolveSelection / store↔document 同步）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import * as PIXI from "pixi.js";
@@ -17,7 +19,7 @@ import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import type { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
 import type { PixiBlock } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-block";
 import { PomeloPlugin } from "@/lib/pomelo/pomelo-core/pomelo-plugin";
-import { WORLD_ELEMENT_ID, useWorldCanvasStore } from "./canvas-store";
+import { WORLD_ELEMENT_ID, readLastKind, useWorldCanvasStore } from "./canvas-store";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
 import { pomeloPerf } from "@/lib/pomelo/pomelo-core/pomelo-perf";
 import {
@@ -123,7 +125,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       return { x: world.x * t.scale + t.x, y: world.y * t.scale + t.y };
     };
 
-    // ---- 「+」手柄与引导层：任何节点右缘中点都挂一个 + 手柄 ----
+    // ---- 「+」手柄与引导层：只有实体卡右缘中点挂 + 手柄 ----
     const blockIdToCanvasId = (blockId: string) => {
       if (blockId === "shape:world") return WORLD_ELEMENT_ID;
       if (blockId.startsWith("entity:")) return `shape:${blockId.slice("entity:".length)}`;
@@ -131,10 +133,11 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     };
     type PlusHandle = { blockId: string; canvasId: string; anchorWorld: Point; screen: Point };
     const plusHandles = (): PlusHandle[] => {
-      // 「+」手柄只对 hover 命中的节点（含周围热区）出现：绘制与命中同一来源（#hoverBlockId），不再全画布常显
+      // 边必须有语义：出发点只能是 entity（与后端 validateCanvasLinkStart 对齐），
+      // 便签/文本/形状/attr 等自由元素不再挂「+」；仍只对 hover 命中的实体卡出现
       const handles: PlusHandle[] = [];
       const records = this.#hoverBlockId
-        ? editor.state.getAllBlocks((item) => item.id === this.#hoverBlockId && NODE_TYPES.has(item.type))
+        ? editor.state.getAllBlocks((item) => item.id === this.#hoverBlockId && item.id.startsWith("entity:"))
         : [];
       for (const record of records) {
         const rect = rectOf(record);
@@ -290,14 +293,10 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       const guide = this.#guide;
       if (!guide) return;
       const endWorld = guide.hoverBlockId ? centerWorld(guide.hoverBlockId) : guide.pointerWorld;
-      // 两段式：直出锚点 + 贝塞尔弯至终点（与选中 hook 视觉一致）
-      const cp = {
-        x: guide.anchorWorld.x + (endWorld.x - guide.anchorWorld.x) * 0.5,
-        y: endWorld.y,
-      };
+      // 两段式：起锚点虚线段同选中态；主段直线（与确认后创建的连线一致：bend=0）
       g.lineStyle(2, 0x8b93a7, 0.9);
       g.moveTo(guide.anchorWorld.x, guide.anchorWorld.y);
-      g.quadraticCurveTo(cp.x, cp.y, endWorld.x, endWorld.y);
+      g.lineTo(endWorld.x, endWorld.y);
       g.lineStyle(0);
       g.beginFill(0x8b93a7);
       g.drawCircle(endWorld.x, endWorld.y, 4);
@@ -344,10 +343,11 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         }
       }
 
-      // 工具栏连线工具：linkMode 下点击任意节点即从该节点拖出引导线（复用「+」引导流程）
+      // 工具栏连线工具：linkMode 下点击实体卡即从该实体拖出引导线（复用「+」引导流程）；
+      // 边必须有语义，自由元素不能作为连线起点
       if (useWorldCanvasStore.getState().linkMode && !useWorldCanvasStore.getState().readOnly) {
         const linkHit = hitTest(world);
-        if (linkHit && linkHit.kind === "node") {
+        if (linkHit && linkHit.kind === "node" && linkHit.blockId.startsWith("entity:")) {
           const linkRecord = editor.state.getBlockById(linkHit.blockId);
           if (linkRecord) {
             const linkRect = rectOfRecord(linkRecord);
@@ -612,23 +612,21 @@ export class CanvasBindsPlugin extends PomeloPlugin {
             toEntityId: guide.hoverBlockId.slice("entity:".length),
           });
         } else {
-          // 属性节点放置：紧贴源元素右侧（gap 90，顶部对齐，参考真实案例的配色排版），与拖拽落点无关
-          const sourceRecord = editor.state.getBlockById(guide.sourceBlockId);
-          const sourceRect = sourceRecord ? rectOf(sourceRecord) : { x: 400, y: 300, width: 0, height: 0 };
+          // 属性节点放置：跟随拖拽落点（指针世界坐标），所见即所得
+          const dropWorld = toWorld(event);
           store.setAttrCreator({
             fromEntityId: source.canvasId,
             fromEntityTitle: source.title,
             screenX: event.clientX,
             screenY: event.clientY,
-            worldX: sourceRect.x + sourceRect.width + 90,
-            worldY: sourceRect.y,
+            worldX: Math.round(dropWorld.x),
+            worldY: Math.round(dropWorld.y),
           });
         }
         this.#guide = null;
         view.releasePointerCapture?.(event.pointerId);
         drawGuide();
-        // 连线工具一次性：引导结束后自动回到选择模式
-        if (useWorldCanvasStore.getState().linkMode) useWorldCanvasStore.getState().setLinkMode(false);
+        // 连线工具连续多条（T5/B.10）：引导结束后保持 linkMode，回到「点击起点」态；Esc/选择模式退出
         return;
       }
       if (!dragging || event.pointerId !== dragging.pointerId) return;
@@ -667,13 +665,36 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         setTimeout(() => {
           for (const blockId of liveIds) live.delete(blockIdToCanvasId(blockId));
         }, PERSIST_DEBOUNCE_MS + 200);
+        // 拖媒体元素到实体卡 = 挂接/换挂（B.12 拖放矩阵，T8）
+        const movedIds = isResize(dragging) ? [dragging.blockId] : [...dragging.moved.keys()];
+        if (!isResize(dragging) && movedIds.length === 1) {
+          const world = toWorld(event);
+          const blockId = movedIds[0];
+          const element = store.elements.find((item) => item.id === blockIdToCanvasId(blockId));
+          const targetEntityId = this.hitEntityAt(world);
+          if (element && element.kind === "media" && targetEntityId) {
+            const currentEntityId = String(element.props?.entityId ?? "");
+            if (targetEntityId !== currentEntityId) {
+              const target = store.entities.find((item) => item.id === targetEntityId);
+              if (currentEntityId && target) {
+                // 换挂确认：归档旧证据后挂新
+                if (window.confirm(`把这份素材从「${store.entities.find((item) => item.id === currentEntityId)?.title ?? "…"}」移到「${target.title}」？`)) {
+                  void store.attachMediaElement(element.id, targetEntityId);
+                }
+              } else {
+                void store.attachMediaElement(element.id, targetEntityId);
+              }
+            }
+          }
+        }
       }
       view.releasePointerCapture?.(event.pointerId);
       dragging = null;
       this.drawOverlay(editor);
     };
 
-    // 双击：实体卡有子实体 → 进入容器（面板入口之外的第二交互路径）
+    // 双击：实体卡进入容器（T6 后放开任何实体，此处先行退出命名态）；便签/文本 → 就地编辑（T4）；
+    // 空白 → 最近类型快捷建卡（B.7），Alt = 弹创建菜单
     const onDoubleClick = (event: MouseEvent) => {
       const rect = view.getBoundingClientRect();
       const world = toWorld({ clientX: event.clientX, clientY: event.clientY } as unknown as PointerEvent);
@@ -684,11 +705,80 @@ export class CanvasBindsPlugin extends PomeloPlugin {
           const rect = rectOf(record);
           return world.x >= rect.x && world.x <= rect.x + rect.width && world.y >= rect.y && world.y <= rect.y + rect.height;
         });
-      if (!hitRecord || hitRecord.type !== "entity-card") return;
-      const entityId = hitRecord.id.slice("entity:".length);
-      const entity = useWorldCanvasStore.getState().entities.find((item) => item.id === entityId);
-      if (!entity || !(entity.children?.length ?? 0)) return;
-      useWorldCanvasStore.getState().setContext({ entityId, title: entity.title });
+      const store = useWorldCanvasStore.getState();
+      if (!hitRecord) {
+        // 关系线/标签双击 = 就地换类型 popover（T15）
+        const arrows = editor.state.getAllBlocks((record) => record.type === "relation-arrow");
+        for (const arrowRecord of arrows.reverse()) {
+          const from = editor.state.getBlockById(String(arrowRecord.attrs.fromId ?? ""));
+          const to = editor.state.getBlockById(String(arrowRecord.attrs.toId ?? ""));
+          const geo = relationGeometry(from, to, arrowRecord.attrs as never);
+          if (!geo) continue;
+          if (distanceToRelation(geo, world) < 8) {
+            if (store.readOnly || !arrowRecord.id.startsWith(RELATION_PREFIX)) return;
+            store.setRelationTypePopover({ relationId: arrowRecord.id.slice(RELATION_PREFIX.length), screenX: event.clientX, screenY: event.clientY });
+            return;
+          }
+        }
+        if (store.readOnly) return;
+        if (event.altKey) {
+          store.setCreating(true, { screenX: event.clientX, screenY: event.clientY });
+        } else {
+          void store.createEntity(readLastKind(), { pos: { x: Math.round(world.x), y: Math.round(world.y) } });
+        }
+        return;
+      }
+      if (hitRecord.type === "entity-card") {
+        // 双击任何实体 = 进入容器（T6/D3：含空容器，空态引导由宿主渲染）
+        const entityId = hitRecord.id.slice("entity:".length);
+        const entity = store.entities.find((item) => item.id === entityId);
+        if (!entity) return;
+        store.cancelInlineEdit(); // 命名态再次双击 = 退出命名并进入容器（B.7）
+        store.setContext({ entityId, title: entity.title });
+        return;
+      }
+      if (store.readOnly) return;
+      if (hitRecord.type === "note" || (hitRecord.type === "free-element" && String(hitRecord.attrs.elementKind ?? "") === "text")) {
+        store.startElementBodyEdit(
+          hitRecord.id,
+          hitRecord.type === "note" ? "note-body" : "text-body",
+        );
+        return;
+      }
+      // 属性元素双击 = 编辑文本值（提交时同步回实体 content 字段）
+      if (hitRecord.type === "free-element" && String(hitRecord.attrs.elementKind ?? "") === "attr" && String(hitRecord.attrs.attrMedia ?? "text") === "text") {
+        store.startElementBodyEdit(hitRecord.id, "attr-body");
+        return;
+      }
+      // 媒体元素双击 = 预览（T8）
+      if (hitRecord.type === "media") {
+        const element = store.elements.find((item) => item.id === hitRecord.id);
+        if (!element) return;
+        const assetId = String(element.props?.assetId ?? "");
+        const url = String(element.props?.url ?? "");
+        const src = assetId ? `${store.apiBase}/v1/media/assets/${encodeURIComponent(assetId)}/content` : url;
+        if (src) store.setMediaPreview({ src, modality: String(element.props?.modality ?? "image"), name: element.name ?? "媒体" });
+      }
+    };
+
+    // 右键菜单（T3）：实体 / 便签文本元素 → CanvasContextMenu；空白 = 关闭即可（浏览器默认菜单保留无妨）
+    const onContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      const rect = view.getBoundingClientRect();
+      const world = toWorld({ clientX: event.clientX, clientY: event.clientY } as unknown as PointerEvent);
+      const hit = hitTest(world);
+      const store = useWorldCanvasStore.getState();
+      if (!hit || hit.kind !== "node") {
+        store.setContextMenu(null);
+        return;
+      }
+      if (hit.blockId.startsWith("entity:")) {
+        store.setContextMenu({ kind: "entity", entityId: hit.blockId.slice("entity:".length), screenX: event.clientX, screenY: event.clientY });
+      } else if (hit.blockId.startsWith("shape:note-") || hit.blockId.startsWith("shape:text-")) {
+        store.setContextMenu({ kind: "element", elementId: hit.blockId, screenX: event.clientX, screenY: event.clientY });
+      } else {
+        store.setContextMenu(null);
+      }
     };
 
     // Delete/Backspace：只作用于可删对象（关系/自由草稿）；实体与世界节点是投影，不可删
@@ -698,7 +788,15 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       const store = useWorldCanvasStore.getState();
       if (event.key === "Escape") {
         store.setAttrCreator(null);
+        store.setContextMenu(null);
+        if (store.linkMode) store.setLinkMode(false);
         store.select(null);
+        return;
+      }
+      // Cmd/Ctrl + [ = 上一层容器（B.11/T6）
+      if (event.key === "[" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        store.exitContext();
         return;
       }
       if ((event.key === "Delete" || event.key === "Backspace") && !store.readOnly) {
@@ -706,6 +804,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         if (!selection) return;
         if (selection.type === "relation") void store.removeRelation(selection.relation.id);
         else if (selection.type === "canvas") void store.removeElement(selection.element.id);
+        else if (selection.type === "entity") store.setDeleteTarget(selection.entity); // 实体 = 删除确认（B.6）
       }
     };
 
@@ -721,6 +820,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     };
     view.addEventListener("pointerleave", onPointerLeave);
     view.addEventListener("dblclick", onDoubleClick);
+    view.addEventListener("contextmenu", onContextMenu);
     window.addEventListener("keydown", onKeyDown);
     const unsubTransform = adapter.onTransformEvent.on(() => this.drawOverlay(editor));
     this.#cleanup = () => {
@@ -731,6 +831,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       view.removeEventListener("pointercancel", onPointerUp);
       view.removeEventListener("pointerleave", onPointerLeave);
       view.removeEventListener("dblclick", onDoubleClick);
+      view.removeEventListener("contextmenu", onContextMenu);
       window.removeEventListener("keydown", onKeyDown);
       unsubTransform.dispose();
       this.#overlay.destroy();
@@ -745,6 +846,20 @@ export class CanvasBindsPlugin extends PomeloPlugin {
 
   dispose() {
     this.#cleanup?.();
+  }
+
+  // 公开命中查询（T8 文件拖放）：世界坐标 → 实体 blockId（仅实体卡）
+  hitEntityAt(world: Point): string | null {
+    const editor = this.editor;
+    if (!editor) return null;
+    const hit = editor.state
+      .getAllBlocks((record) => NODE_TYPES.has(record.type))
+      .reverse()
+      .find((record) => {
+        const rect = rectOfRecord(record);
+        return record.type === "entity-card" && rect.width > 0 && world.x >= rect.x && world.x <= rect.x + rect.width && world.y >= rect.y && world.y <= rect.y + rect.height;
+      });
+    return hit ? hit.id.slice("entity:".length) : null;
   }
 
   // 选区 overlay：屏幕空间绘制（stage 直挂）；
@@ -764,10 +879,11 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const toScreen = (world: Point): Point => ({ x: world.x * t.scale + t.x, y: world.y * t.scale + t.y });
     const readOnly = useWorldCanvasStore.getState().readOnly;
 
-    // 「+」手柄：仅 hover 命中的节点右缘中点（屏幕空间，尺寸不随 zoom 变化）——只读态不绘制
-    if (!readOnly && !this.#guide && this.#hoverBlockId) {
+    // 「+」手柄：仅 hover 命中的实体卡右缘中点（屏幕空间，尺寸不随 zoom 变化）——
+    // 边必须有语义，自由元素不挂「+」（与 plusHandles 命中同一规则）；只读态不绘制
+    if (!readOnly && !this.#guide && this.#hoverBlockId?.startsWith("entity:")) {
       const record = editor.state.getBlockById(this.#hoverBlockId);
-      if (record && NODE_TYPES.has(record.type)) {
+      if (record && record.id.startsWith("entity:")) {
         const rect = rectOfRecord(record);
         if (rect.width > 0 && rect.height > 0) {
           const anchor = toScreen({ x: rect.x + rect.width, y: rect.y + rect.height / 2 });

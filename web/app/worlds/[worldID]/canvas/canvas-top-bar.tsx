@@ -45,11 +45,18 @@ export function WorldCanvasTopBar() {
   const router = useRouter();
   const variant = useWorldCanvasTopBarStore((state) => state.variant);
   const context = useWorldCanvasStore((state) => state.context);
+  const contextTrail = useWorldCanvasStore((state) => state.contextTrail);
   const worldName = useWorldCanvasStore((state) => state.worldName);
   const notice = useWorldCanvasStore((state) => state.notice);
   const relatingFrom = useWorldCanvasStore((state) => state.relatingFrom);
   const relatingTo = useWorldCanvasStore((state) => state.relatingTo);
   const setContext = useWorldCanvasStore((state) => state.setContext);
+  const readOnly = useWorldCanvasStore((state) => state.readOnly);
+  const exitContext = useWorldCanvasStore((state) => state.exitContext);
+  // 面包屑（B.11/D6 唯一导航真相）：全局画布 ▸ 实体 ▸ …；>3 级折叠「…」，
+  // 点任意一级回到该层（截断 trail）
+  const collapsed = contextTrail.length > 3;
+  const visibleTrail = collapsed ? contextTrail.slice(-2) : contextTrail;
   return (
     <div className="flex h-11 min-w-0 items-center gap-2 text-sm">
       <button
@@ -61,15 +68,35 @@ export function WorldCanvasTopBar() {
         <ArrowLeft className="size-4" />
       </button>
       {context && variant === "canvas" ? (
-        <>
+        <nav aria-label="容器导航" className="flex min-w-0 items-center gap-1">
           <button className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted" onClick={() => setContext(null)} type="button">
             <ChevronLeft className="size-3" /> 全局画布
           </button>
-          <span className="flex min-w-0 items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs text-accent-foreground">
-            <Box className="size-3 shrink-0" />
-            <span className="truncate">{context.title}</span>
-          </span>
-        </>
+          {collapsed && <span className="px-0.5 text-xs text-muted-foreground">…</span>}
+          {visibleTrail.map((item, index) => {
+            const isLast = item.entityId === context.entityId;
+            return (
+              <span className="flex min-w-0 items-center gap-1" key={item.entityId}>
+                <span className="text-xs text-muted-foreground">▸</span>
+                {isLast ? (
+                  <span className="flex min-w-0 items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs text-accent-foreground">
+                    <Box className="size-3 shrink-0" />
+                    <span className="truncate">{item.title}</span>
+                  </span>
+                ) : (
+                  <button className="flex h-7 min-w-0 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted" onClick={() => setContext(item)} type="button">
+                    <span className="truncate">{item.title}</span>
+                  </button>
+                )}
+              </span>
+            );
+          })}
+          {contextTrail.length > 1 && (
+            <button aria-label="上一层" className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" onClick={exitContext} title="上一层（⌘[）" type="button">
+              <ChevronLeft className="size-4" />
+            </button>
+          )}
+        </nav>
       ) : (
         <span className="flex min-w-0 items-center gap-1.5 font-semibold">
           <Globe2 aria-hidden className="size-4 shrink-0 text-primary" />
@@ -78,6 +105,7 @@ export function WorldCanvasTopBar() {
       )}
       {variant === "canvas" && (
         <>
+          {readOnly && <span className="shrink-0 rounded-md bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">只读</span>}
           <span className="mx-1 h-5 w-px bg-border" />
           <CanvasToolbarItems />
           {relatingFrom && !relatingTo && <span className="shrink-0 text-xs text-primary">已选起点：点击目标实体建立关系</span>}

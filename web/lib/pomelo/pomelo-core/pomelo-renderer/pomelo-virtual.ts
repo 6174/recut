@@ -1,4 +1,9 @@
 // virtual-dom.ts
+// Bug 修复记录（2026-09-09）：容器切换后画布全是外层 context 的残留块——根因是
+// BlockPatcher.removeBlock/replaceBlock 用 block.parent（get: renderedBlockMap.get(record.pid)）
+// 解析父块，但顶层块 record.pid 为空 → parent undefined → 删除分支整体跳过：
+// 块既不销毁也不从 renderedBlockMap 移除，Pixi 舞台留下全部旧块。
+// 修复：parent 为空时回退 mountpointBlock（顶层块都挂在挂载点下），删除/替换真正生效。
 import { PomeloBlockRecord } from "./pomelo-block";
 
 export interface VNode {
@@ -166,32 +171,39 @@ export class BlockPatcher {
     const adapter = this.adapter;
     const blockMap = adapter.renderedBlockMap;
     const oldBlock = blockMap.get(patch.blockId);
-    if (oldBlock && oldBlock.parent) {
-      const parent = oldBlock.parent;
-      const index = parent.children.indexOf(oldBlock);
+    if (!oldBlock) return;
+    // 顶层块的 record.pid 不指向真实父块（pid 为空），parent getter 会取不到；
+    // 回退到挂载点，否则旧块永远不会被移除（容器切换时新 context 里全是外层残留）
+    const parent = oldBlock.parent ?? adapter.mountpointBlock;
+    const index = parent.children.indexOf(oldBlock);
 
-      // Remove old block
+    // Remove old block
+    blockMap.delete(patch.blockId);
+    if (index !== -1) {
       oldBlock.destroy();
-      blockMap.delete(patch.blockId);
       parent.removeChild(index);
-
-      // Create and insert new block
-      const newBlock = adapter.createBlock(patch.vNode!.record);
-      parent.insertChild(newBlock, index);
-      blockMap.set(patch.vNode!.key as string, newBlock);
+    } else {
+      oldBlock.destroy();
     }
+
+    // Create and insert new block
+    const newBlock = adapter.createBlock(patch.vNode!.record);
+    parent.insertChild(newBlock, index === -1 ? parent.children.length : index);
+    blockMap.set(patch.vNode!.key as string, newBlock);
   }
 
   removeBlock(patch: Patch) {
     const adapter = this.adapter;
-    const blockMap = adapter.renderedBlockMap;
-    const block = blockMap.get(patch.blockId);
-    if (block && block.parent) {
-      const parent = block.parent;
-      const index = parent.children.indexOf(block);
-      block.destroy();
-      blockMap.delete(patch.blockId);
+    const block = adapter.renderedBlockMap.get(patch.blockId);
+    if (!block) return;
+    // 同 replaceBlock：顶层块 pid 为空时回退挂载点，保证删除真正生效
+    const parent = block.parent ?? adapter.mountpointBlock;
+    const index = parent.children.indexOf(block);
+    adapter.renderedBlockMap.delete(patch.blockId);
+    if (index !== -1) {
       parent.removeChild(index);
+    } else {
+      block.destroy();
     }
   }
 }

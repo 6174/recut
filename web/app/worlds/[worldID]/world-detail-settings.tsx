@@ -62,6 +62,13 @@ const fieldDefinitions: Record<EntityKind, FieldDefinition[]> = {
     { key: "description", multiline: true },
     { key: "atmosphere" },
   ],
+  object: [
+    { key: "description", multiline: true },
+    { key: "material" },
+    { key: "origin", multiline: true },
+    { key: "usage", multiline: true },
+    { key: "moment", multiline: true },
+  ],
   reference: [],
 };
 
