@@ -169,7 +169,9 @@ export function readRecentCustomTypes(): string[] {
 // 本地编辑（upsert/remove/persistGeometry/moveElement）只改 store 内的文档，
 // 脏元素记入 canvasSaveState，去抖整包 canvas.save 落库；version 冲突时
 // 拉远端文档按 id 合并脏集重试一次。非响应式状态：放 zustand 外的模块单例。
-const CANVAS_SAVE_DEBOUNCE_MS = 1200;
+// 去抖很短（150ms）：元素变更都发生在交互收尾（pointerup/文本提交），标脏即调度，
+// 本地服务下几乎即时落库；批量/连发由去抖合并成一次整包保存。
+const CANVAS_SAVE_DEBOUNCE_MS = 150;
 
 const canvasSaveState = {
   timer: null as ReturnType<typeof setTimeout> | null,
@@ -181,6 +183,7 @@ const canvasSaveState = {
 function markCanvasDirty(id: string, removed = false) {
   canvasSaveState.dirty.add(id);
   if (removed) canvasSaveState.removed.add(id);
+  scheduleCanvasSave();
 }
 
 function scheduleCanvasSave() {
