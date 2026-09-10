@@ -24,9 +24,9 @@ index.tsx: 组合根；经 portal 挂载到工作台内容区（#workspace-conte
 - 画布元素写入不产 revision；实体/关系/Promote 写入产出 revision，冲突时 refreshRevision 重试一次。
 - pomelo host 经 index.tsx 的 next/dynamic（ssr:false）挂载，禁止在服务端组件直接 import canvas-pomelo。
 - 已知 v1 差异：未绑定两端实体的自由箭头暂不渲染；连线锚点/弯曲拖拽只在内存投影内，不持久化。
-- panel/ 子目录：World/Entity/Relation/Element 四态面板与共享 FieldRow（B.8）；Entity 态固定顺序 标题→简介→正文（content.body）→字段（+/− 折叠 Section）→参考素材（统一素材模式：asset 源点击走全局 AssetPreviewDialog，url 源走轻量灯箱）→子设定→关系；FieldRow 支持 boolean 开关，media 素材字段走 AssetFieldRow（content 存 {assetId,name,kind}，选择走 AssetReferenceDialog，点击已填素材走全局素材弹框）。
+- panel/ 子目录：World/Relation/Element 三态自有面板；Entity 态与设定视图共用 web/components/world-entity/ 的 EntityEditor + FieldRow/AssetFieldRow（RFC 统一 Entity 模型 P1：一套编辑器，两个宿主）——panel/field-row.tsx 只是兼容 shim（AssetFieldRow 注入画布 apiBase），EntityPanel 是共享编辑器的画布薄壳，画布特有部分仅草稿确认条、子设定导航与页脚动作；编辑器固定顺序 标题→简介→正文（detail 一等字段）→字段（schema + 动态属性续排 + 添加属性/添加字段，media 属性/动态媒体属性同字段路径渲染，独立「参考素材」网格/封面按钮/A 虚线挂接线已退役——卡面图源 = 遍历 media attrs 的统一投影）→关系（词表内联建立）；panel/media-editor.tsx：媒体元素编辑器（element-panel 路由 kind=media 与 kind=attr 媒体卡）——预览区＋来源区（AI 生成 / 素材库（浮层内可上传）/ 本地上传 / 清除）+ 生成配方区（prompt/模型/当前图作底图回填，改后可再生成/复制配方，POST /v1/media/jobs + GET 轮询自适应采用）+ 素材历史区（element-asset-history-store：「当前 asset 是什么」的指针历史——任何来源换图即记一条，点缩略图设为当前（配方继承），删除历史项 = 删除该 asset）；画布写通道 setMediaElementAsset / setAttrMediaAsset（attr 卡若有属性边连到实体则按字段映射回写 media 属性值）。
 - canvas-inline-editor.tsx：就地编辑器（命名态/便签正文共用）；EDITOR_METRICS 逐形态对齐各 Block 的画布排版（note 11/16 @10,10、text 13/20 无内边距、attr 值 11/17 @10,30、实体标题 15/semibold @PAD14、属性命名 11 徽标位），尺寸体验与画布渲染一致；canvas-relation-candidates.ts：关系候选 Top4 映射（B.10）。
-- 媒体（T8）：canvas-media.ts（source/purpose 辅助）+ canvas-media-dialogs.tsx（素材来源浮层/预览）+ MediaBlock（媒体元素渲染）+ 拖放矩阵（文件→卡=直接挂证据；文件→空白=独立元素；媒体卡→卡=挂接/换挂）。
+- 媒体（T8）：canvas-media.ts（source/purpose 辅助）+ canvas-media-dialogs.tsx（独立素材来源浮层/预览，无目标实体通道）+ MediaBlock（媒体元素渲染）+ 拖放矩阵（文件→卡=media 属性（attachMediaAttr，无 A 线）；文件→空白=独立元素；媒体卡→卡=media 属性换挂）。
 - canvas-errors.ts：B.4 错误映射集中函数（applyCanvasError，写动作 catch 统一出口）；canvas-toast.tsx：toast 队列。
 - 增量投影（T1）：语义写后合并返回对象进 store（不 load(true)）；dataVersion 仅推进文档 diff；全量 load 保留于首挂/进容器/冲突刷新。
 - 容器导航（T6）：contextTrail 多级面包屑（>3 级折叠）+ Cmd/[ 上一层 + 进入自动换视口（有该上下文视口快照则恢复，无则 fit 子内容）+ 容器视图默认包含容器自身 entity（load 注入 context 实体）+ 空容器/空世界引导卡（T9）。

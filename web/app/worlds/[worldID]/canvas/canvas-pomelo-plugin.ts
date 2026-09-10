@@ -20,7 +20,7 @@ import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import type { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
 import type { PixiBlock } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-block";
 import { PomeloPlugin } from "@/lib/pomelo/pomelo-core/pomelo-plugin";
-import { WORLD_ELEMENT_ID, readLastKind, useWorldCanvasStore } from "./canvas-store";
+import { WORLD_ELEMENT_ID, useWorldCanvasStore } from "./canvas-store";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
 import { pomeloPerf } from "@/lib/pomelo/pomelo-core/pomelo-perf";
 import {
@@ -63,6 +63,8 @@ type ResizeDrag = {
   kind: "nw" | "ne" | "sw" | "se";
   blockId: string;
   startRect: Rect;
+  // 图像媒体卡锁定纵横比（采纳时按素材 naturalWidth/Height 适配过）：height = width * aspect
+  aspect?: number;
 };
 type LinkHandleDrag = {
   pointerId: number;
@@ -383,11 +385,28 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       const corner = activeCorners().find((item) => Math.hypot(screen.x - item.screen.x, screen.y - item.screen.y) < 10);
       if (corner) {
         const record = editor.state.getBlockById(corner.blockId);
-        if (record && !useWorldCanvasStore.getState().readOnly) {
-          dragging = { pointerId: event.pointerId, kind: corner.kind, blockId: corner.blockId, startRect: rectOf(record) };
-          view.setPointerCapture(event.pointerId);
-          return;
+        const canvasId = blockIdToCanvasId(corner.blockId);
+        const source = useWorldCanvasStore.getState().elements.find((item) => item.id === canvasId);
+        // 图片媒体卡（独立 media 或属性卡）锁定纵横比；其余元素自由 resize
+        const isImageMedia = Boolean(
+          source &&
+            ((source.kind === "media" && String(source.props?.modality ?? "image") === "image") ||
+              (source.kind === "attr" && String(source.props?.media ?? "text") === "image")),
+        );
+        if (record) {
+          const startRect = rectOf(record);
+          dragging = {
+            pointerId: event.pointerId,
+            kind: corner.kind,
+            blockId: corner.blockId,
+            startRect,
+            aspect: isImageMedia && startRect.width > 0 && startRect.height > 0 ? startRect.height / startRect.width : undefined,
+          };
+        } else {
+          dragging = null;
         }
+        view.setPointerCapture(event.pointerId);
+        return;
       }
 
       const hit = hitTest(world);
@@ -491,7 +510,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const x = Math.round(Math.min(world.x, fixedX));
         const y = Math.round(Math.min(world.y, fixedY));
         const width = Math.round(Math.max(MIN_SIZE, Math.abs(world.x - fixedX)));
-        const height = Math.round(Math.max(MIN_SIZE, Math.abs(world.y - fixedY)));
+        const height = Math.round(Math.max(MIN_SIZE, drag.aspect ? Math.max(MIN_SIZE, width * drag.aspect) : Math.abs(world.y - fixedY)));
         editor.state.transact((hook) => {
           hook.updateBlock(drag.blockId, { x, y, width, height });
         });
@@ -699,7 +718,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     };
 
     // 双击：实体卡进入容器（T6 后放开任何实体，此处先行退出命名态）；便签/文本 → 就地编辑（T4）；
-    // 空白 → 最近类型快捷建卡（B.7），Alt = 弹创建菜单
+    // 空白 → 在光标处弹创建菜单（B.7）
     const onDoubleClick = (event: MouseEvent) => {
       const rect = view.getBoundingClientRect();
       const world = toWorld({ clientX: event.clientX, clientY: event.clientY } as unknown as PointerEvent);
@@ -726,11 +745,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
           }
         }
         if (store.readOnly) return;
-        if (event.altKey) {
-          store.setCreating(true, { screenX: event.clientX, screenY: event.clientY });
-        } else {
-          void store.createEntity(readLastKind(), { pos: { x: Math.round(world.x), y: Math.round(world.y) } });
-        }
+        // 双击空白 = 在光标处弹创建菜单（Alt 兼容保留）
+        store.setCreating(true, { screenX: event.clientX, screenY: event.clientY });
         return;
       }
       if (hitRecord.type === "entity-card") {

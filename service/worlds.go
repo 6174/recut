@@ -100,18 +100,18 @@ type WorldSelection struct {
 var worldPurposeKinds = map[string]bool{"chat": true, "video": true, "voice": true, "image": true, "cover": true, "agent": true}
 
 type WorldSummary struct {
-	ID                string                  `json:"id"`
-	Name              string                  `json:"name"`
-	Type              WorldKind               `json:"type"`
-	Description       string                  `json:"description"`
-	Origin            string                  `json:"origin"`
-	OriginMeta        *WorldOriginMeta        `json:"originMeta,omitempty"`
-	CoverAssetID      string                  `json:"coverAssetId,omitempty"`
-	PreviewAssetIDs   []string                `json:"previewAssetIds,omitempty"`
-	PreviewURLs       []string                `json:"previewUrls,omitempty"`
-	CurrentRevisionID string                  `json:"currentRevisionId"`
-	EntityCounts      map[string]int `json:"entityCounts"`
-	UpdatedAt         string                  `json:"updatedAt"`
+	ID                string           `json:"id"`
+	Name              string           `json:"name"`
+	Type              WorldKind        `json:"type"`
+	Description       string           `json:"description"`
+	Origin            string           `json:"origin"`
+	OriginMeta        *WorldOriginMeta `json:"originMeta,omitempty"`
+	CoverAssetID      string           `json:"coverAssetId,omitempty"`
+	PreviewAssetIDs   []string         `json:"previewAssetIds,omitempty"`
+	PreviewURLs       []string         `json:"previewUrls,omitempty"`
+	CurrentRevisionID string           `json:"currentRevisionId"`
+	EntityCounts      map[string]int   `json:"entityCounts"`
+	UpdatedAt         string           `json:"updatedAt"`
 }
 
 type WorldRevisionView struct {
@@ -125,7 +125,7 @@ type WorldDetail struct {
 	Identity             map[string]any    `json:"identity"`
 	SkillMd              string            `json:"skillMd"`
 	Revision             WorldRevisionView `json:"revision"`
-	AvailableEntityKinds []string `json:"availableEntityKinds"`
+	AvailableEntityKinds []string          `json:"availableEntityKinds"`
 }
 
 // WorldOriginMeta records where a World came from and how its lifecycle is
@@ -134,18 +134,18 @@ type WorldDetail struct {
 // forkedFrom only appears on local worlds forked from a non-local source;
 // coverUrl/provenance carry the manifest's public presentation facts.
 type WorldOriginMeta struct {
-	Kind         string       `json:"kind,omitempty"`
-	Publisher    string       `json:"publisher,omitempty"`
-	Version      string       `json:"version,omitempty"`
-	ManifestHash string       `json:"manifestHash,omitempty"`
-	CatalogOrder int          `json:"catalogOrder,omitempty"`
-	CoverURL     string       `json:"coverUrl,omitempty"`
-	Provenance   *Provenance  `json:"provenance,omitempty"`
-	PublishedAt  string       `json:"publishedAt,omitempty"`
-	SyncedAt     string       `json:"syncedAt,omitempty"`
-	InstalledAt  string       `json:"installedAt,omitempty"`
-	Uninstalled  bool         `json:"uninstalled,omitempty"`
-	ForkedFrom   *ForkSource  `json:"forkedFrom,omitempty"`
+	Kind         string      `json:"kind,omitempty"`
+	Publisher    string      `json:"publisher,omitempty"`
+	Version      string      `json:"version,omitempty"`
+	ManifestHash string      `json:"manifestHash,omitempty"`
+	CatalogOrder int         `json:"catalogOrder,omitempty"`
+	CoverURL     string      `json:"coverUrl,omitempty"`
+	Provenance   *Provenance `json:"provenance,omitempty"`
+	PublishedAt  string      `json:"publishedAt,omitempty"`
+	SyncedAt     string      `json:"syncedAt,omitempty"`
+	InstalledAt  string      `json:"installedAt,omitempty"`
+	Uninstalled  bool        `json:"uninstalled,omitempty"`
+	ForkedFrom   *ForkSource `json:"forkedFrom,omitempty"`
 }
 
 // Provenance is the attribution block every platform manifest must carry: the
@@ -171,12 +171,12 @@ type ForkSource struct {
 // type-preset attr: its structure (label/type) is pinned by the type schema,
 // the value stays user-editable (RFC 统一 Entity 模型).
 type EntityAttr struct {
-	Key     string          `json:"key"`
-	Label   string          `json:"label"`
-	Type    string          `json:"type"`
-	Value   any             `json:"value,omitempty"`
-	Options []string        `json:"options,omitempty"`
-	Locked  bool            `json:"locked,omitempty"`
+	Key     string            `json:"key"`
+	Label   string            `json:"label"`
+	Type    string            `json:"type"`
+	Value   any               `json:"value,omitempty"`
+	Options []string          `json:"options,omitempty"`
+	Locked  bool              `json:"locked,omitempty"`
 	Segment *AttrMediaSegment `json:"segment,omitempty"`
 }
 
@@ -333,7 +333,7 @@ const (
 	// WorldsErrReadOnly is the hard write boundary for non-local worlds. The
 	// error details always carry the fork escape hatch (hint + forkOperation)
 	// so Agents can propose the legal exit instead of failing silently.
-	WorldsErrReadOnly            = "WORLD_READ_ONLY"
+	WorldsErrReadOnly = "WORLD_READ_ONLY"
 )
 
 func worldsError(code, message string) *WorldsError {
@@ -452,9 +452,10 @@ func (w *WorldStore) summary(db *sql.DB, worldID string) (WorldSummary, error) {
 	if coverAssetID.Valid {
 		summary.CoverAssetID = coverAssetID.String
 	}
-	// 卡片预览：取世界内前几张图片证据（本地素材取 assetId，平台世界取 CDN url），
+	// 卡片预览：世界级图片证据（平台世界走 CDN url）+ 实体 media attrs 里的
+	// 图片（evidence 已冻结并回收进 attrs，素材真相在 attrs，RFC 统一 Entity 模型），
 	// 无显式封面时前端用它拼画廊。
-	previewRows, err := db.Query("select asset_id, url from world_asset_refs where world_id = ? and archived_at is null and modality = 'image' and (asset_id != '' or url != '') order by sort_order, created_at limit 3", worldID)
+	previewRows, err := db.Query("select asset_id, url from world_asset_refs where world_id = ? and archived_at is null and entity_id is null and modality = 'image' and (asset_id != '' or url != '') order by sort_order, created_at limit 3", worldID)
 	if err != nil {
 		return WorldSummary{}, err
 	}
@@ -472,6 +473,11 @@ func (w *WorldStore) summary(db *sql.DB, worldID string) (WorldSummary, error) {
 	}
 	if err := previewRows.Err(); err != nil {
 		return WorldSummary{}, err
+	}
+	if len(summary.PreviewAssetIDs)+len(summary.PreviewURLs) < 3 {
+		if err := w.summaryPreviewsFromAttrs(db, worldID, &summary); err != nil {
+			return WorldSummary{}, err
+		}
 	}
 	if currentRevisionID.Valid {
 		summary.CurrentRevisionID = currentRevisionID.String
@@ -1069,10 +1075,10 @@ type DeleteEntityInput struct {
 
 // DeleteEntityResult 回传删除影响范围，供确认对话框展示（「将一并删除 N 个子设定 / M 条关系 / K 份素材」）。
 type DeleteEntityResult struct {
-	Deleted       int `json:"deleted"`
-	Children      int `json:"children"`
-	Relations     int `json:"relations"`
-	Evidences     int `json:"evidences"`
+	Deleted   int `json:"deleted"`
+	Children  int `json:"children"`
+	Relations int `json:"relations"`
+	Evidences int `json:"evidences"`
 }
 
 // DeleteEntity 归档实体及其整个子图（Q1：归档而非物理删除，恢复功能 P1）：
@@ -2170,14 +2176,14 @@ func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, c
 	}
 	var payload struct {
 		World struct {
-			Name        string         `json:"name"`
-			Description string         `json:"description"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
 		} `json:"world"`
-		Skill      string                            `json:"skill"`
-		Identity   map[string]any                    `json:"identity"`
-		Entities   map[string][]map[string]any       `json:"entities"`
-		Relations  []map[string]any                  `json:"relations"`
-		References []map[string]any                  `json:"references"`
+		Skill      string                      `json:"skill"`
+		Identity   map[string]any              `json:"identity"`
+		Entities   map[string][]map[string]any `json:"entities"`
+		Relations  []map[string]any            `json:"relations"`
+		References []map[string]any            `json:"references"`
 	}
 	if err := json.Unmarshal([]byte(canonical), &payload); err != nil {
 		return WorldDetail{}, err
@@ -2314,7 +2320,8 @@ func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, c
 	return w.GetWorld(worldID)
 }
 
-func (w *WorldStore) GetProjectBinding(projectID string) (*CreationContextBinding, error) {	db, err := w.database()
+func (w *WorldStore) GetProjectBinding(projectID string) (*CreationContextBinding, error) {
+	db, err := w.database()
 	if err != nil {
 		return nil, err
 	}
@@ -2514,4 +2521,56 @@ func logWorldEvent(event string, fields map[string]string) {
 		parts = append(parts, fmt.Sprintf("%s=%s", key, fields[key]))
 	}
 	log.Printf("INFO %s", strings.Join(parts, " "))
+}
+
+// summaryPreviewsFromAttrs tops up the world card preview with image media
+// attrs from the world's entities (RFC 统一 Entity 模型: 素材真相在 attrs)。
+func (w *WorldStore) summaryPreviewsFromAttrs(db *sql.DB, worldID string, summary *WorldSummary) error {
+	rows, err := db.Query("select attrs_json from world_entities where world_id = ? and archived_at is null order by updated_at desc limit 40", worldID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var attrsJSON string
+		if err := rows.Scan(&attrsJSON); err != nil {
+			return err
+		}
+		attrs := []EntityAttr{}
+		if attrsJSON != "" {
+			_ = json.Unmarshal([]byte(attrsJSON), &attrs)
+		}
+		for _, attr := range attrs {
+			if attr.Type != "media" {
+				continue
+			}
+			payload, ok := attr.Value.(map[string]any)
+			if !ok {
+				continue
+			}
+			kind, _ := payload["kind"].(string)
+			assetID, _ := payload["assetId"].(string)
+			if kind != "" && kind != "image" {
+				continue
+			}
+			if assetID == "" {
+				continue
+			}
+			duplicate := false
+			for _, seen := range summary.PreviewAssetIDs {
+				if seen == assetID {
+					duplicate = true
+					break
+				}
+			}
+			if duplicate {
+				continue
+			}
+			summary.PreviewAssetIDs = append(summary.PreviewAssetIDs, assetID)
+			if len(summary.PreviewAssetIDs)+len(summary.PreviewURLs) >= 3 {
+				return nil
+			}
+		}
+	}
+	return rows.Err()
 }

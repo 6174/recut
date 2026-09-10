@@ -125,7 +125,7 @@ export function CanvasToolbarItems() {
     active?: boolean;
     disabled?: boolean;
     label: string;
-    onClick?: () => void;
+    onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
     children: React.ReactNode;
   }) => (
     <button
@@ -160,8 +160,16 @@ export function CanvasToolbarItems() {
         <Spline className="size-4" />
       </ToolButton>
       <Divider />
-      {/* ＋ 创建菜单（D12/B.7）：最显眼按钮；锚点 = 视口中心 */}
-      <ToolButton active={creating} disabled={readOnly} label="新建：设定 / 便签 / 文本（双击空白按最近类型快捷创建）" onClick={() => setCreating(true)}>
+      {/* ＋ 创建菜单（D12/B.7）：最显眼按钮；锚点 = 按钮正下方 */}
+      <ToolButton
+        active={creating}
+        disabled={readOnly}
+        label="新建：设定 / 便签 / 文本（双击空白按最近类型快捷创建）"
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setCreating(true, { screenX: rect.left, screenY: rect.bottom + 8 });
+        }}
+      >
         <Plus className="size-4" />
       </ToolButton>
       <div className="relative">
@@ -259,7 +267,7 @@ export function CanvasToolbarItems() {
               <li>• 双击空白：按最近类型建卡（Alt = 创建菜单）</li>
               <li>• 悬停卡拖「＋」手柄：连到实体 = 建关系，落空 = 加属性</li>
               <li>• 连线工具：点起点 → 点终点，可连续多条，Esc 退出</li>
-              <li>• 拖文件到卡：直接挂为参考素材；拖到空白：独立素材</li>
+              <li>• 拖文件到卡：添加为该设定的媒体属性；拖到空白：独立素材</li>
               <li>• Del：删草稿/关系；实体走删除确认</li>
               <li>• ⌘Z 撤销布局（不含语义）；⌘[ 返回上一层</li>
               <li>• 新建设定先成为「草稿」，面板确认后转正</li>

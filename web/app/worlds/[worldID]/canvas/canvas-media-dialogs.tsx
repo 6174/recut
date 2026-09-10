@@ -1,8 +1,8 @@
 /*
- * [INPUT]: 依赖 react、canvas-store（mediaSource/mediaPreview 状态与媒体动作/attachMediaAttr）、
- * canvas-media 辅助、recut-worlds-client 类型
- * [OUTPUT]: 对外提供 MediaSourceDialog（T8/B.12 素材来源浮层：上传文件 / 素材库 / URL 三源）与
- * MediaPreviewDialog（图片 lightbox / video / audio 播放）；挂接目标 = 入口给定的实体，无实体 = 独立元素
+ * [INPUT]: 依赖 react、canvas-store（mediaSource/mediaPreview 状态与媒体动作）、canvas-media 辅助
+ * [OUTPUT]: 对外提供 MediaSourceDialog（T8 独立素材来源浮层：上传文件 / 素材库 / URL 三源，落为
+ * 独立媒体元素）与 MediaPreviewDialog（图片 lightbox / video / audio 播放）；实体媒体走 media 属性
+ * （拖到实体卡 / 属性字段），不再有「挂接目标实体」通道
  * [POS]: worlds/[worldID]/canvas 的媒体对话框层（上传走 /v1/media/assets multipart，素材库走列表接口）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -12,7 +12,6 @@ import { Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
-import type { WorldEntity } from "@/lib/recut-worlds-client";
 import { assetModality, mediaSource, modalityOfKind } from "./canvas-media";
 import { useWorldCanvasStore } from "./canvas-store";
 
@@ -22,10 +21,10 @@ export function MediaSourceDialog() {
   const mediaSource = useWorldCanvasStore((state) => state.mediaSource);
   const setMediaSource = useWorldCanvasStore((state) => state.setMediaSource);
   if (!mediaSource) return null;
-  return <SourceDialogBody target={mediaSource.entity} onClose={() => setMediaSource(null)} />;
+  return <SourceDialogBody onClose={() => setMediaSource(null)} />;
 }
 
-function SourceDialogBody({ target, onClose }: { target: WorldEntity | null; onClose: () => void }) {
+function SourceDialogBody({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<"upload" | "library" | "url">("upload");
   const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const [assets, setAssets] = useState<LibraryAsset[]>([]);
@@ -43,24 +42,12 @@ function SourceDialogBody({ target, onClose }: { target: WorldEntity | null; onC
       .catch(() => setAssets([]));
   }, [apiBase, assets.length, tab]);
 
-  // 统一出口：有目标实体 = 直接挂为 media 属性（统一 Entity 模型，assetId 必填；url 素材无稳定
-  // assetId 落为独立元素）；否则 = 独立媒体元素落视口中心
+  // 统一出口：独立媒体元素落视口中心（实体媒体 = media 属性，由拖拽到实体卡 / 属性字段承担）
   const deliver = async (modality: string, assetId: string | undefined, urlValue: string | undefined, name?: string) => {
     const store = useWorldCanvasStore.getState();
     setBusy(true);
     setError("");
     try {
-      if (target && assetId) {
-        const attrKey = await store.attachMediaAttr(target.id, { assetId, name: name || undefined, kind: modality });
-        if (attrKey) {
-          store.toast(`已将${name || "素材"}挂为「${target.name}」的参考素材`, "success");
-          onClose();
-          return;
-        }
-      }
-      if (target && !assetId) {
-        store.toast("URL 素材暂不支持挂接为设定字段，已添加为独立素材", "info");
-      }
       const center = store.editor
         ? viewportCenterWorld(store.editor)
         : { x: 300, y: 240 };
@@ -104,7 +91,7 @@ function SourceDialogBody({ target, onClose }: { target: WorldEntity | null; onC
     <div aria-modal="true" className="fixed inset-0 z-[70] grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog">
       <div className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-md border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b px-4 py-3">
-          <h3 className="text-sm font-semibold">添加素材{target ? ` → ${target.name}` : "（独立素材）"}</h3>
+          <h3 className="text-sm font-semibold">添加素材（独立素材）</h3>
           <div className="flex gap-1">
             {(["upload", "library", "url"] as const).map((item) => (
               <button

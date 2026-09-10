@@ -12,8 +12,9 @@
  * 冲突时拉远端按 id 合并脏集重试一次；内层画布是独立文档，实体投影位置跨层天然隔离。
  * 统一 Entity 模型（RFC 2026-09-09）：实体字段 = title/kind/content → name/typeId/intro/detail/attrs；
  * saveEntityField 签名改为 {name?, intro?, detail?, attrKey?, value?} 单字段 patch（attrs 全量替换语义，
- * 按 attrKey 原位 patch 当前 full attrs 后整包 upsert）；实体素材 = media 属性（attachMediaAttr/
- * removeMediaAttr/setMediaCover），evidence.attach/update 写通道退役，evidence.archive 仅留 legacy 解挂兼容
+  * 按 attrKey 原位 patch 当前 full attrs 后整包 upsert）；实体素材 = media 属性（attachMediaAttr/
+  * attachMediaElement），「参考素材」网格/封面按钮/A 虚线挂接线已退役——卡面图源 = 遍历 media
+  * attrs 的统一投影；evidence.attach/update 写通道退役，evidence.archive 仅留 legacy 解挂兼容
  * [POS]: worlds/[worldID]/canvas 的 zustand 状态层；组件层只读 store 快照并触发动作，不各自持有画布数据
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -309,35 +310,9 @@ function modalityLabelOf(modality: string): string {
   return labels[modality] ?? "素材";
 }
 
-// 命名态定位：实体卡标题行的世界坐标——与 EntityCardBlock 渲染同一公式// （cardH = max(元素高, 内容固有高)；imageH = 160 + max(0, cardH - contentH)；标题在其下 PAD 处）
+// 命名态定位（已不再于创建时启动；EntityCardBlock 渲染公式参考值）
 const ENTITY_CARD_IMAGE_H = 160;
 const ENTITY_CARD_PAD = 14;
-function startTitleInlineEdit(
-  getState: () => WorldCanvasState,
-  setState: (partial: Partial<WorldCanvasState>) => void,
-  entityId: string,
-  pos: Point,
-) {
-  const state = getState();
-  const entity = state.entities.find((item) => item.id === entityId);
-  const element = state.elements.find((item) => item.refKind === "entity" && item.refId === entityId);
-  const x = Number(element?.geometry?.x) || pos.x;
-  const y = Number(element?.geometry?.y) || pos.y;
-  const width = Math.max(Number(element?.geometry?.width) || DEFAULT_ENTITY_SIZE.width, 240);
-  const height = Number(element?.geometry?.height) || DEFAULT_ENTITY_SIZE.height;
-  const contentH = entityCardContentHeight({ photoUrls: entity ? entityPhotoUrls(state.apiBase, entity).slice(0, 9) : [] });
-  const cardH = Math.max(height, contentH);
-  const imageH = ENTITY_CARD_IMAGE_H + Math.max(0, cardH - contentH);
-  setState({ inlineEdit: null }); // 先清一次，保证连续创建时编辑器重新挂载
-  setState({
-    inlineEdit: {
-      kind: "entity-title",
-      entityId,
-      rect: { x, y: y + imageH + ENTITY_CARD_PAD - 2, width: width - ENTITY_CARD_PAD * 2, height: 24 },
-      value: element?.name ?? "",
-    },
-  });
-}
 
 export type CanvasElementInput = {
   id: string;
@@ -414,7 +389,7 @@ type WorldCanvasState = {
   setPanMode: (panMode: boolean) => void;
   setEditor: (editor: PomeloEditor | null) => void;
   addFreeElement: (kind: "text" | AttrMedia, pos: Point) => Promise<void>;
-  createAttribute: (fromElementId: string, media: AttrMedia, pos: Point, initial?: { text?: string; fileName?: string; label?: string }, edgeType?: string) => Promise<string | null>;
+  createAttribute: (fromElementId: string, media: AttrMedia, pos: Point, initial?: { text?: string; fileName?: string; label?: string; assetId?: string; assetName?: string }, edgeType?: string) => Promise<string | null>;
   // 属性值回写实体 content（label 映射 type schema 字段 key；否则 label 即 key）
   syncAttrValue: (element: WorldCanvasElement, text: string) => Promise<void>;
   renameAttrLabel: (elementId: string, label: string) => Promise<void>;
@@ -447,7 +422,7 @@ type WorldCanvasState = {
   // 正式实体产 revision，草稿不产。media 属性值 = {assetId, name?, kind?}
   saveEntityField: (
     entity: WorldEntity,
-    patch: { name?: string; intro?: string; detail?: string; attrKey?: string; attrLabel?: string; attrType?: EntityAttr["type"]; value?: unknown },
+    patch: { name?: string; intro?: string; detail?: string; attrKey?: string; attrLabel?: string; attrType?: EntityAttr["type"]; attrOptions?: string[]; value?: unknown },
   ) => Promise<void>;
   // 确认设定（草稿 → 正式，产 revision）
   confirmEntity: (entityId: string) => Promise<void>;
@@ -457,21 +432,24 @@ type WorldCanvasState = {
   updateWorldMeta: (patch: { name?: string; description?: string }) => Promise<void>;
   setDeleteTarget: (entity: WorldEntity | null) => void;
   setAddFieldFor: (kind: string | null) => void;
-  // T8 媒体：素材来源浮层目标（entity=挂接目标；null=独立元素）与预览浮层
-  mediaSource: { entity: WorldEntity | null } | null;
+  // T8 媒体：素材来源浮层（仅独立素材；实体媒体 = media 属性，无独立「挂接目标」状态）与预览浮层
+  mediaSource: Record<string, never> | null;
   mediaPreview: { src: string; modality: string; name: string } | null;
-  setMediaSource: (input: { entity: WorldEntity | null } | null) => void;
+  setMediaSource: (input: Record<string, never> | null) => void;
   // 画面删除（T16/D7 P1）：实体卡从画布移除，设定本身保留；outline 面板可放回
   hideEntityFromCanvas: (entityId: string) => Promise<void>;
   unhideEntity: (entityId: string) => Promise<void>;
   setMediaPreview: (preview: { src: string; modality: string; name: string } | null) => void;
   // 独立媒体元素落画布（assetId/url 二选一）
   addMediaElement: (props: { modality: string; assetId?: string; url?: string; name?: string }, pos: Point) => Promise<void>;
-  // 挂接：evidence attach + 元素保留为投影 + A 虚线（arrow 元素两笔写）；已挂接换挂走 detach 后再挂
+  // 面板换图（媒体元素）：persist props.assetId/name（画布投影随 dataVersion 重建）
+  setMediaElementAsset: (elementId: string, media: { assetId: string; name?: string } | null) => Promise<void>;
+  // 面板换图（attr 属性元素）：persist props.assetId/name；若有属性边连到实体，按字段映射回写 media 属性值
+  setAttrMediaAsset: (elementId: string, media: { assetId: string; name?: string } | null) => Promise<void>;
+  // 挂接（统一 Entity 模型）：media 属性写入（url 素材不支持），元素保留为独立投影（A 虚线/封面
+  // 通道已退役——卡面图源改为遍历 media attrs 的统一投影）
   attachMediaElement: (elementId: string, entityId: string, opts?: { keepElement?: boolean }) => Promise<void>;
   detachMediaElement: (elementId: string) => Promise<void>;
-  // 面板素材区动作（B.9）：设为封面（把该属性值写入显式 background media 属性）
-  setMediaCover: (entity: WorldEntity, attrKey: string) => Promise<void>;
   // 素材挂为实体 media 属性（统一 Entity 模型写通道；assetId 必填，url 素材不支持挂接）；返回新 attrKey
   attachMediaAttr: (entityId: string, media: { assetId: string; name?: string; kind: string }, label?: string) => Promise<string | null>;
   // 删除实体上的 media 属性（attrKey 精确删除；其余 attrs 保持）
@@ -750,7 +728,13 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         refKind: "",
         refId: "",
         name: initial?.label ? `属性 · ${initial.label}` : `属性 · ${mediaLabels[media]}`,
-        props: { media, text: initial?.text ?? "", fileName: initial?.fileName ?? "", label: initial?.label ?? "" },
+        props: {
+          media,
+          text: initial?.text ?? "",
+          fileName: initial?.fileName ?? "",
+          label: initial?.label ?? "",
+          ...(initial?.assetId ? { assetId: initial.assetId, assetName: initial.assetName ?? "" } : {}),
+        },
         geometry: { x: Math.round(pos.x), y: Math.round(pos.y), width: 260, height: 140, zIndex: 1 },
         style: {},
         layer: "0",
@@ -816,7 +800,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       dataVersion: state.dataVersion + 1,
     }));
     const named = get().elements.find((item) => item.id === elementId);
-    if (named) await get().syncAttrValue(named, String(named.props?.text ?? ""));
+    // 媒体属性卡（props.media≠text）props.text 恒为空，同步空值会把实体 media 属性值冲掉——跳过
+    if (named && String(named.props?.media ?? "text") === "text") await get().syncAttrValue(named, String(named.props?.text ?? ""));
   },
 
   moveElement: (id, x, y) => {
@@ -898,8 +883,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     return Promise.resolve();
   },
 
-  // T3 创建系统：一切新设定 = 草稿（B.5）；标题缺省用类型默认名；创建即写库（草稿免费），
-  // 卡落点后进入命名态（inlineEdit entity-title，Enter/blur 提交改名，Esc 保留默认名）
+  // T3 创建系统：标题缺省用类型默认名；创建即写库（无草稿流程，直接落正式实体），
+  // 直接落默认标题卡片，不进入命名态（改名走双击实体卡/右侧面板）
   createEntity: async (kind, opts = {}) => {
     const { apiBase, worldId } = get();
     const title = opts.title?.trim() || DEFAULT_ENTITY_TITLES[kind] || "新设定";
@@ -910,7 +895,6 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         name: title,
         // 容器内创建 = 该实体的子设定（递归容器）：不挂 parent 会落回全局，进子世界后过滤不到
         ...(get().context?.entityId ? { parentId: get().context!.entityId } : {}),
-        isProvisional: true,
         expectedRevisionId: revisionId,
       });
       return entity;
@@ -934,16 +918,20 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         style: {},
         layer: "0",
       });
-      // 增量投影：合并返回对象，不再 load(true)（T1-a）；选中 + 命名态
+      // 增量投影：合并返回对象（entity 卡由 entities 驱动渲染，dataVersion 必须在合并后推进，
+      // 否则与 upsertElement 之间的 await 边界会让文档重建跑在实体合并之前 → 卡片不出现）
       set((state) => ({
         entities: upsertById(state.entities, entity),
+        elements: state.elements.map((element) =>
+          element.refKind === "entity" && element.refId === entity.id ? { ...element, name: entity.name } : element,
+        ),
+        dataVersion: state.dataVersion + 1,
         creating: false,
         creatingAt: null,
         selection: { type: "entity", entity },
       }));
       saveLastKind(kind);
       get().logChange(`创建「${entity.name}」`, () => void get().deleteEntity(entity.id));
-      startTitleInlineEdit(get, set, entity.id, pos);
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -958,7 +946,6 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         entityId: parentId,
         typeId: kind as EntityKind,
         name: title,
-        isProvisional: true,
         expectedRevisionId: revisionId,
       });
     try {
@@ -979,7 +966,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         style: {},
         layer: "0",
       });
-      // 增量投影：合并子实体并同步父实体的 children 摘要（T1-a）；选中 + 命名态
+      // 增量投影：合并子实体并同步父实体的 children 摘要（T1-a）；dataVersion 在合并后推进
       set((state) => ({
         entities: upsertById(
           state.entities.map((entity) =>
@@ -989,13 +976,13 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           ),
           child,
         ),
+        dataVersion: state.dataVersion + 1,
         creating: false,
         creatingAt: null,
         selection: { type: "entity", entity: child },
       }));
       saveLastKind(kind);
       get().logChange(`创建「${child.name}」`, () => void get().deleteEntity(child.id));
-      startTitleInlineEdit(get, set, child.id, { x: 40, y: 40 });
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1357,7 +1344,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     if (patch.attrKey !== undefined) {
       attrIndex = attrs.findIndex((attr) => attr.key === patch.attrKey);
       if (attrIndex >= 0) attrs[attrIndex] = { ...attrs[attrIndex], value: patch.value };
-      else attrs.push({ key: patch.attrKey, label: patch.attrLabel ?? patch.attrKey, type: patch.attrType ?? "text", ...(patch.value !== undefined ? { value: patch.value as unknown } : {}) });
+      else attrs.push({ key: patch.attrKey, label: patch.attrLabel ?? patch.attrKey, type: patch.attrType ?? "text", ...(patch.attrOptions?.length ? { options: [...patch.attrOptions] } : {}), ...(patch.value !== undefined ? { value: patch.value as unknown } : {}) });
     }
     const name = patch.name !== undefined ? patch.name : entity.name;
     const intro = patch.intro !== undefined ? patch.intro : entity.intro;
@@ -1398,11 +1385,6 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         undoPatch.value = attrIndex >= 0 ? entity.attrs?.[attrIndex]?.value : undefined;
       }
       get().logChange(`修改「${name}」`, () => void get().saveEntityField(entity, undoPatch));
-      // 自动确认设定（B.5）：名称非默认名 且 简介非空 → 转正
-      const draft = get().entities.find((item) => item.id === entity.id);
-      if (draft?.isProvisional && !isDefaultEntityTitle(draft.typeId, draft.name) && draft.intro.trim()) {
-        await get().confirmEntity(draft.id);
-      }
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1536,6 +1518,47 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
   setMediaPreview: (mediaPreview) => set({ mediaPreview }),
 
+  // 面板换图（媒体元素）：null = 清除（保留元素骨架，待用户重新选择来源）
+  setMediaElementAsset: async (elementId, media) => {
+    try {
+      await get().persistGeometry(elementId, undefined, media ? { assetId: media.assetId, name: media.name ?? "" } : { assetId: "", name: "" });
+      set((state) => ({ dataVersion: state.dataVersion + 1 }));
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
+  },
+
+  // 面板换图（attr 属性元素）：props 持久化 + （若挂到实体）字段值回写 = 统一 Entity 模型的 media 属性
+  setAttrMediaAsset: async (elementId, media) => {
+    try {
+      await get().persistGeometry(elementId, undefined, media ? { assetId: media.assetId, assetName: media.name ?? "" } : { assetId: "", assetName: "" });
+      set((state) => ({ dataVersion: state.dataVersion + 1 }));
+      const element = get().elements.find((item) => item.id === elementId);
+      if (element && media) {
+        // 属性边即属性关联：解析实体与字段映射，media 属性值 = {assetId,name,kind}（与 AssetFieldRow 同构）
+        const arrow = get().elements.find(
+          (item) => item.kind === "arrow" && String(item.props?.toElementId ?? "") === element.id && String(item.props?.edgeType ?? "attr") === "attr",
+        );
+        const entityId = String(arrow?.props?.fromElementId ?? "").replace(/^shape:/, "");
+        const entity = get().entities.find((item) => item.id === entityId);
+        if (entity) {
+          const label = String(element.props?.label ?? "") || String(element.name ?? "").replace(/^属性 · /, "");
+          const kind = String(element.props?.media ?? "image");
+          const entityType = get().entityTypes.find((item) => item.id === entity.typeId);
+          const matched = (entityType?.fields ?? []).find((field) => (field.label ?? field.key) === label || field.key === label);
+          await get().saveEntityField(entity, {
+            attrKey: matched?.key ?? label,
+            attrLabel: label,
+            attrType: "media",
+            value: { assetId: media.assetId, ...(media.name ? { name: media.name } : {}), kind },
+          });
+        }
+      }
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
+  },
+
   // 独立媒体元素落画布（kind='media'；不产 revision）
   addMediaElement: async (props, pos) => {
     try {
@@ -1619,8 +1642,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
 
-  // 挂接（B.12）：media 属性 + 元素保留为投影 + A 虚线（arrow 元素，media→entity）+ 卡角角标；
-  // url 素材没有稳定 assetId，不支持挂接为字段（保留为独立元素）
+  // 挂接（统一 Entity 模型）：写入 media 属性 + 元素 props 记 attrKey（换挂先删旧属性）；不再画
+  // A 虚线、不再有封面通道——卡面图源 = 实体 attrs 中 media 的统一投影
   attachMediaElement: async (elementId, entityId) => {
     const element = get().elements.find((item) => item.id === elementId);
     if (!element) return;
@@ -1631,13 +1654,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       get().toast("URL 素材暂不支持挂接为设定字段，已保留为独立素材", "info");
       return;
     }
-    // 换挂：移除旧 A 线（素材属性保留，不删用户数据）
-    const oldLine = get().elements.find((item) => item.kind === "arrow" && item.props?.fromElementId === elementId && item.props?.edgeType === "attach");
-    if (oldLine) {
-      markCanvasDirty(oldLine.id, true);
-      set((state) => ({ elements: state.elements.filter((item) => item.id !== oldLine.id) }));
-      scheduleCanvasSave();
-    }
+    // 换挂：先前已挂过的旧 media 属性解除引用（不删用户数据）
+    const prevAttrKey = element.props?.attrKey ? String(element.props.attrKey) : "";
+    const prevEntityId = element.props?.entityId ? String(element.props.entityId) : "";
     try {
       const kind = String(element.props?.modality ?? "image");
       const attrKey = await get().attachMediaAttr(entityId, {
@@ -1646,27 +1665,14 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         kind,
       });
       if (!attrKey) return;
-      // A 虚线：from = 媒体元素 id（free 块可直接作为几何端点），to = 实体投影
-      const lineId = `shape:aline-${Date.now()}`;
-      await get().upsertElement({
-        id: lineId,
-        contextId: get().context?.entityId ?? "",
-        kind: "arrow",
-        refKind: "",
-        refId: "",
-        name: "挂接线",
-        props: { fromElementId: elementId, toElementId: `shape:${entityId}`, attrKey, edgeType: "attach" },
-        geometry: { x: 0, y: 0, zIndex: 1 },
-        style: {},
-        layer: "0",
-      });
       set((state) => ({
         elements: state.elements.map((item) =>
           item.id === elementId ? { ...item, props: { ...(item.props ?? {}), attrKey, entityId } } : item,
         ),
       }));
-      get().logChange(`挂接素材到「${entity.name}」`, () => void get().removeMediaAttr(entityId, attrKey));
-      get().toast(`已将${modalityLabelOf(kind)}挂为「${entity.name}」的参考素材`, "success");
+      if (prevAttrKey && prevAttrKey !== attrKey && prevEntityId === entityId) await get().removeMediaAttr(entityId, prevAttrKey);
+      get().logChange(`添加「${entity.name}」的媒体属性`, () => void get().removeMediaAttr(entityId, attrKey));
+      get().toast(`已将${modalityLabelOf(kind)}添加为「${entity.name}」的媒体属性`, "success");
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1706,15 +1712,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
 
-  // 设为封面（B.6/B.9 统一 Entity 模型）：把该素材属性值写入显式 background media 属性
-  setMediaCover: async (entity, attrKey) => {
-    try {
-      await get().saveEntityField(entity, { attrKey: "background", attrLabel: "封面", attrType: "media", value: attrValueOf(entity, attrKey) });
-      get().toast("已设为封面", "success");
-    } catch (cause) {
-      applyCanvasError(cause);
-    }
-  },
+  // 设为封面已退役（统一 Entity 模型：卡面图源 = 遍历 media attrs 的统一投影，首个 image attr
+  // 即封面；显式 background attr 若存在仍优先）——setMediaCover / 「封面」按钮一并移除
 }));
 
 export type WorldCanvasStore = ReturnType<typeof useWorldCanvasStore.getState>;

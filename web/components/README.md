@@ -52,6 +52,7 @@ world-card.tsx: Worlds 列表与 Studio 区域的 World 卡片；显示名称、
 world-picker.tsx: World picker 弹框；搜索与类型筛选后选择只发出结构化 `{ type: "creation_world", worldId }` 引用，供 Chat attachment 与生产 App 的 World 选择使用，绝不把 Canon 复制进消息。
 world-entity-picker.tsx: Entity picker 弹框；先选定 World 再按 kind/搜索过滤实体，选择发出 `{ type: "creation_entity", worldId, entityId }`；entityId 永远与 worldId 一起验证，绝不跨 World 复用。
 ui/: 按 shadcn/Mira 契约实现的可复用交互原子组件。
+world-entity/: 统一 Entity 模型的共享编辑器模块（RFC 2026-09-09 P1「一套编辑器，两个宿主」）——`EntityEditor`（身份区 name/intro/detail + 类型 schema 字段 + schema 外「其他」+ 添加属性（媒体拍平 素材（图片/视频/音频），无通用「素材」选项）+ 参考素材网格（封面=写显式 background 属性/删除/添加）+ 双向关系（受控词表内联建立））与 `FieldRow`/`AssetFieldRow` 编辑原语；模块不依赖 store，画布 EntityPanel 与设定视图 EntitySettingsPanel 各注入 saveField/removeAttr 等宿主钩子；`useEntityEditorSaver` 统一保存器（局部 patch + revision 冲突刷新重试）。
 app-demo/: App 的 UI 演示体系；`AppDemo` 按 `appId` 从 `registry` 选择专属演示 module，并据 `mode` 渲染整体 UI（full）、局部 UI（panel）或集合用的极简 skeleton，未注册 App 按 `kind` 推断 layout 走通用骨架；`app-demo-editor.tsx` 是第一个完整实现的 App（homepage hero、App Store、App 详情与营销页共用），新增 App 只需在 `registry.ts` 登记自己的 module。
 app-showcase/: App 的「小官网」式模块展示；`AppShowcaseView` 按 `appId` 从 `registry` 直接渲染整体 App UI（复用 AppDemo full、自身是唯一工作台 frame）加逐节功能模块（每节标题/描述 + 局部 UI 演示，左右交替），未注册 App 回退 `fallback`（blog/文档模式）；`showcases/editor-showcase.tsx` 列出 editor 的资源模块、自定义组件、字体与排版、AI 导演等特性，新增 App 只在 `registry.ts` 登记自己的 showcase。
 

@@ -3,8 +3,8 @@
  * addFreeElement/setCreating/load 动作）、recut-worlds-client、readLastKind/readRecentCustomTypes
  * [OUTPUT]: 对外提供 CreateMenu（B.7 创建菜单，替代旧「类型下拉+标题」弹窗）：类型目录驱动的
  * 2 列网格（预设 + 最近自定义类型）、便签/文本行、[＋ 新建设定类型…]（名称+emoji，最小
- * 「描述」字段 schema，创建后可选落第一张草稿卡）；锚点 = creatingAt（双击空白/Alt）或视口中心
- * [POS]: worlds/[worldID]/canvas 的创建系统菜单层；选类型即落草稿卡并进入命名态
+ * 「描述」字段 schema，创建后可选落第一张草稿卡）；锚点 = creatingAt（双击空白 / Header ＋ 按钮正下方）或视口中心
+ * [POS]: worlds/[worldID]/canvas 的创建系统菜单层；选类型即在锚点处落正式卡片并进入命名态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -140,7 +140,7 @@ export function CreateMenu() {
               key={modality}
               onClick={() => {
                 close();
-                useWorldCanvasStore.getState().setMediaSource({ entity: null });
+                useWorldCanvasStore.getState().setMediaSource(null);
               }}
               type="button"
             >

@@ -15,7 +15,7 @@ import type { WorldDetail } from "@/lib/recut-worlds-client";
 import { useWorldsStore } from "@/lib/worlds-store";
 import { useWorldCanvasStore } from "./canvas-store";
 import { typeLabelOf } from "./panel/field-row";
-import { EntityPanel, EntityPanelFooter } from "./panel/entity-panel";
+import { EntityDraftBanner, EntityPanel, EntityPanelFooter } from "./panel/entity-panel";
 import { ElementPanel } from "./panel/element-panel";
 import { RelationPanel } from "./panel/relation-panel";
 import { WorldPanel } from "./panel/world-panel";
@@ -29,6 +29,7 @@ export function CanvasDetailPanel() {
   const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
   const panelSide = useWorldCanvasStore((state) => state.panelSide);
   const setPanelSide = useWorldCanvasStore((state) => state.setPanelSide);
+  const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const detail = useWorldsStore((state) => state.detailsByID[worldId]) as WorldDetail | undefined;
   const loadDetail = useWorldsStore((state) => state.loadDetail);
 
@@ -87,7 +88,10 @@ export function CanvasDetailPanel() {
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {selection?.type === "entity" ? (
-          <EntityPanel entity={selection.entity} entityTypes={entityTypes} />
+          <div className="space-y-4">
+            <EntityDraftBanner entity={selection.entity} readOnly={readOnly} />
+            <EntityPanel entity={selection.entity} entityTypes={entityTypes} />
+          </div>
         ) : selection?.type === "relation" ? (
           <RelationPanel relation={selection.relation} />
         ) : selection?.type === "canvas" ? (

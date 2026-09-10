@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -751,6 +752,9 @@ create index if not exists creation_context_bindings_world on creation_context_b
 		if err := migrateWorldEntitiesToUnified(db); err != nil {
 			return err
 		}
+		if err := migrateWorldEvidenceToMediaAttrs(db); err != nil {
+			return err
+		}
 		if _, err := db.Exec("update media_assets set updated_at = created_at where updated_at = ''"); err != nil {
 			return err
 		}
@@ -776,7 +780,7 @@ create index if not exists creation_context_bindings_world on creation_context_b
 // world_asset_refs: the legacy unique key (world_id, entity_id, asset_id, role)
 // cannot host URL evidence rows where asset_id is empty, so the small table is
 // recreated with the url column and the wider unique key. Data is copied as-is
-// (url = '') inside one transaction; fresh installs already carry the v2 shape
+// (url = ”) inside one transaction; fresh installs already carry the v2 shape
 // and skip the rebuild.
 func migrateWorldAssetRefsURL(db *sql.DB) error {
 	var hasURLColumn int
@@ -1160,6 +1164,186 @@ func migrateWorldEntitiesToUnified(db *sql.DB) error {
 	// fall back to the legacy kind column.
 	if _, err := tx.Exec("update world_entities set type_id = kind where type_id = ''"); err != nil {
 		return err
+	}
+	return tx.Commit()
+}
+
+// evidencePurposeAttrLabels map frozen evidence purposes to user-facing media
+// attr labels during the recycling migration.
+var evidencePurposeAttrLabels = map[string]string{
+	"identity": "形象参考", "appearance": "外貌参考", "wardrobe": "服装参考",
+	"voice": "声音参考", "motion": "动作参考", "scene": "场景参考",
+	"mood": "氛围参考", "visual_style": "视觉参考", "sound_style": "声音风格",
+	"narrative": "叙事参考", "rule_evidence": "规则参考",
+}
+
+var evidenceModalityAttrLabels = map[string]string{
+	"image": "图片", "video": "视频", "audio": "音频", "text": "文本", "research": "资料",
+}
+
+// migrateWorldEvidenceToMediaAttrs performs the one-shot recycling of frozen
+// evidence rows (RFC 统一 Entity 模型 迁移 §3): entity-attached asset rows
+// become media attrs on the entity, then the row is archived so no channel
+// double-represents the same media. Rows without an assetId (url-sourced or
+// world-level rows) are archived without conversion: url media is not
+// attachable to attrs by contract; world-level rows keep conceptually only in
+// old revisions. Idempotent — archived rows are skipped, converted attrs are
+// deduped against the entity's existing attrs by assetId.
+func migrateWorldEvidenceToMediaAttrs(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query("select id, world_id, entity_id, asset_id, modality, purpose, label, sort_order from world_asset_refs where archived_at is null and entity_id is not null and entity_id != '' and asset_id != ''")
+	if err != nil {
+		return err
+	}
+	type row struct {
+		id, worldID, entityID, assetID, modality, purpose, label string
+		sort                                                     int
+	}
+	converted := []row{}
+	for rows.Next() {
+		var item row
+		if err := rows.Scan(&item.id, &item.worldID, &item.entityID, &item.assetID, &item.modality, &item.purpose, &item.label, &item.sort); err != nil {
+			rows.Close()
+			return err
+		}
+		converted = append(converted, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(converted) == 0 {
+		return tx.Commit()
+	}
+	// Convert in deterministic order (sort_order then id) so append order is
+	// stable across re-runs.
+	sort.Slice(converted, func(i, j int) bool {
+		if converted[i].sort != converted[j].sort {
+			return converted[i].sort < converted[j].sort
+		}
+		return converted[i].id < converted[j].id
+	})
+	entityIDs := make([]string, 0, len(converted))
+	seenEntities := map[string]bool{}
+	for _, item := range converted {
+		if seenEntities[item.entityID] {
+			continue
+		}
+		seenEntities[item.entityID] = true
+		entityIDs = append(entityIDs, item.entityID)
+	}
+	sort.Strings(entityIDs)
+	for _, entityID := range entityIDs {
+		var attrsJSON string
+		if err := tx.QueryRow("select attrs_json from world_entities where id = ? and archived_at is null", entityID).Scan(&attrsJSON); err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			return err
+		}
+		attrs := []EntityAttr{}
+		if attrsJSON != "" {
+			_ = json.Unmarshal([]byte(attrsJSON), &attrs)
+		}
+		knownAssets := map[string]bool{}
+		for _, attr := range attrs {
+			if attr.Type == "media" {
+				if payload, ok := attr.Value.(map[string]any); ok {
+					if assetID, _ := payload["assetId"].(string); assetID != "" {
+						knownAssets[assetID] = true
+					}
+				}
+			}
+		}
+		changed := false
+		for _, item := range converted {
+			if item.entityID != entityID || knownAssets[item.assetID] {
+				continue
+			}
+			knownAssets[item.assetID] = true
+			label := strings.TrimSpace(item.label)
+			if label == "" {
+				if purpose, ok := evidencePurposeAttrLabels[item.purpose]; ok {
+					label = purpose
+				} else {
+					label = evidenceModalityAttrLabels[item.modality]
+				}
+			}
+			if label == "" {
+				label = "参考图"
+			}
+			value := map[string]any{"assetId": item.assetID}
+			if item.modality != "" {
+				value["kind"] = item.modality
+			}
+			attrs = append(attrs, EntityAttr{Key: "a_ref_" + item.id, Label: label, Type: "media", Value: value})
+			changed = true
+		}
+		if !changed {
+			continue
+		}
+		encoded, err := json.Marshal(attrs)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec("update world_entities set attrs_json = ? where id = ?", string(encoded), entityID); err != nil {
+			return err
+		}
+	}
+	now := iso(time.Now().UTC())
+	if _, err := tx.Exec("update world_asset_refs set archived_at = ? where archived_at is null and entity_id is not null and entity_id != '' and asset_id != ''", now); err != nil {
+		return err
+	}
+	// The retired feature keeps no live rows: remaining url / world-level rows
+	// are archived too; they stay readable inside old revisions' canonical.
+	platform := map[string]bool{}
+	worldRows, err := tx.Query("select id, origin from worlds")
+	if err != nil {
+		return err
+	}
+	platformWorlds := []string{}
+	for worldRows.Next() {
+		var id, origin string
+		if err := worldRows.Scan(&id, &origin); err != nil {
+			worldRows.Close()
+			return err
+		}
+		if origin != "local" {
+			platform[id] = true
+			platformWorlds = append(platformWorlds, id)
+		}
+	}
+	worldRows.Close()
+	if err := worldRows.Err(); err != nil {
+		return err
+	}
+	remaining, err := tx.Query("select id, world_id from world_asset_refs where archived_at is null")
+	if err != nil {
+		return err
+	}
+	archiveIDs := []string{}
+	for remaining.Next() {
+		var id, worldID string
+		if err := remaining.Scan(&id, &worldID); err != nil {
+			remaining.Close()
+			return err
+		}
+		if !platform[worldID] {
+			archiveIDs = append(archiveIDs, id)
+		}
+	}
+	remaining.Close()
+	if err := remaining.Err(); err != nil {
+		return err
+	}
+	for _, id := range archiveIDs {
+		if _, err := tx.Exec("update world_asset_refs set archived_at = ? where id = ?", now, id); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

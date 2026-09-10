@@ -7,7 +7,7 @@
 
 # RFC: 统一 Entity 模型——设定视图与画布共享同一套实体定义
 
-- 状态：草案（Draft）
+- 状态：落地中（P0/P1/P2 已实现；P3 清理进行中）
 - 作者：Recut
 - 日期：2026-09-09
 - 关联：[递归世界画布 RFC](./2026-09-07-recursive-world-canvas.md)、[画布文档存储](./2026-09-09-world-canvas-document-storage.md)、[产品重构](./2026-08-14-creation-worlds-product-reframe.md)
@@ -196,6 +196,8 @@ EntityEditor          -- 统一容器：身份区(name/intro/detail) + AttrsSect
 2. **P1 共享编辑器**：抽 `web/components/world-entity/`，画布 EntityPanel 先切过去（回归最小），FieldRow/useEntitySaver 提升；EntityPanel 素材网格并入 AttrsSection 的 media attr。
 3. **P2 设定视图切换**：类型分组列表 + EntityEditor + SettingCard 统一投影；删除 SettingDialog/fieldDefinitions/ObjectEvidenceManager。
 4. **P3 清理**：删 `world_asset_refs` 表与 `evidence.*` API/MCP 工具；EntityCardBlock emoji 双通道、`content.type` 幽灵字段、双份 purpose 常量表、demo doc-sync 遗留 attrs；readiness 改 requiredKeys。
+
+> 落地记录（2026-09-10）：P1/P2 已按本 RFC 实现 —— `web/components/world-entity/{entity-editor,field-row}.tsx` 共享编辑器；画布 `EntityPanel` 与设定视图 `EntitySettingsPanel`（右侧 320px 面板，替代原整表单 EntityDialog）为两个宿主；通用「素材」属性选项已移除（媒体拍平为素材（图片/视频/音频））；设定视图补齐关系（词表）与删除；§2.1 再确认：独立「参考素材」网格/封面按钮/A 虚线挂接线/素材来源浮层的实体目标通道已全部移除，媒体唯一表示 = media attrs（卡面图源 = 遍历 media attrs 的投影），拖素材到实体卡 = 写 media 属性。残留见 P3。
 
 ## 非目标
 

@@ -456,7 +456,7 @@ func entityAttr(entity WorldEntity, key string) (EntityAttr, bool) {
 }
 
 // 统一实体模型：preset type 的 locked 字段由服务端自动物化并固定结构
-//（label/type 按字段 schema 钉死，value 用户可编辑）；用户自定义 attr 通过；
+// （label/type 按字段 schema 钉死，value 用户可编辑）；用户自定义 attr 通过；
 // 非法 type / 缺 options 的 select / 值类型不符被拒绝。
 func TestEntityAttrsPresetLockedFieldsAndValidation(t *testing.T) {
 	worlds, _, media := newTestWorldStore(t)
@@ -670,7 +670,7 @@ func TestListRelationsDirectionOutAndIn(t *testing.T) {
 	}
 }
 
-// 迁移：legacy 行（type_id='' + content_json）折叠为统一实体模型：
+// 迁移：legacy 行（type_id=” + content_json）折叠为统一实体模型：
 // body→detail、其余 key→text attrs、"type" ghost key 丢弃、type_id=kind。
 func TestMigrationCollapsesLegacyEntityRowsToUnified(t *testing.T) {
 	worlds, store, _ := newTestWorldStore(t)
@@ -762,5 +762,71 @@ func TestCanonicalFlattensAttrsIntoResolvedFacts(t *testing.T) {
 	}
 	if len(context.Entities.Characters) != 1 || context.Entities.Characters[0]["appearance"] != "银发红瞳" {
 		t.Fatalf("resolve characters = %#v", context.Entities.Characters)
+	}
+}
+
+func TestMigrationRecyclesEntityEvidenceIntoMediaAttrs(t *testing.T) {
+	worlds, store, _ := newTestWorldStore(t)
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Legacy", Type: WorldFiction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	character, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: world.ID, TypeID: "character", Name: "Mina", Intro: "主角",
+		CreatedBy: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("insert into world_asset_refs (id, world_id, entity_id, asset_id, modality, purpose, label, created_at) values (?, ?, ?, 'asset_img_1', 'image', 'appearance', '', ?)",
+		"ev_1", world.ID, character.ID, "2026-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	// World-level row without an entity: no conversion, archived only.
+	if _, err := db.Exec("insert into world_asset_refs (id, world_id, entity_id, asset_id, modality, purpose, label, created_at) values (?, ?, NULL, 'asset_logo_1', 'image', 'visual_style', '标志', ?)",
+		"ev_world", world.ID, "2026-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateWorldEvidenceToMediaAttrs(db); err != nil {
+		t.Fatal(err)
+	}
+	entity, err := worlds.GetEntity(world.ID, character.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := []EntityAttr{}
+	for _, attr := range entity.Attrs {
+		if attr.Type == "media" {
+			media = append(media, attr)
+		}
+	}
+	if len(media) != 1 {
+		t.Fatalf("evidence row must become one media attr, got %#v", entity.Attrs)
+	}
+	if media[0].Label != "外貌参考" {
+		t.Fatalf("purpose must map to the attr label, got %q", media[0].Label)
+	}
+	payload, _ := media[0].Value.(map[string]any)
+	if payload["assetId"] != "asset_img_1" || payload["kind"] != "image" {
+		t.Fatalf("media attr value = %#v", payload)
+	}
+	var archived int
+	if err := db.QueryRow("select count(*) from world_asset_refs where archived_at is null and world_id = ?", world.ID).Scan(&archived); err != nil {
+		t.Fatal(err)
+	}
+	if archived != 0 {
+		t.Fatalf("recycled rows must be archived, %d remain live", archived)
+	}
+	// Re-running is a no-op for attrs (rows are archived).
+	if err := migrateWorldEvidenceToMediaAttrs(db); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := worlds.GetEntity(world.ID, character.ID)
+	if err != nil || len(reloaded.Attrs) != len(entity.Attrs) {
+		t.Fatalf("second migration pass mutated attrs: %#v", reloaded)
 	}
 }

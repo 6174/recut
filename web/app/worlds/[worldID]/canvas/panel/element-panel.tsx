@@ -4,7 +4,8 @@
  * [OUTPUT]: 对外提供 ElementPanel（B.8 Canvas 元素态）：便签/文本正文就地编辑（T4 面板侧）、
  * 箭头（草稿）可编辑——属性边改属性名（renameAttrLabel 同步实体字段）与文本值、实体间草稿边改关系类型
  * （persist edgeType+relationType，提升时沿用）、提升为设定 / 提升为语义关系、删除；
- * 媒体元素态（预览/挂接）随 T8 扩展
+ * 媒体元素态（图片/视频：kind=media 独立媒体 或 kind=attr 媒体属性卡）路由到
+ * panel/media-editor 的 MediaElementEditor（预览/来源三选/生成配方/素材指针历史，RFC 2026-09-10）
  * [POS]: worlds/[worldID]/canvas 的自由画布元素面板
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,9 +15,71 @@ import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useWorldCanvasStore } from "../canvas-store";
 import { FieldRow } from "./field-row";
+import { MediaElementEditor } from "./media-editor";
 
-export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEntityIdProp }: { fromEntityId?: string; toEntityId?: string }) {
-  const element = useWorldCanvasStore((state) => (state.selection?.type === "canvas" ? state.selection.element : null));
+// attr 媒体卡（kind=attr 且 props.media≠text）与独立媒体元素（kind=media）的类型标签
+function mediaLabelOf(media: string): string {
+  return ({ image: "图片", video: "视频", audio: "音频" } as Record<string, string>)[media] ?? media;
+}
+
+// attr 媒体卡的属性名称编辑（与文本卡同一 renameAttrLabel 通道：label + 元素名 + 边名 + 实体字段映射）
+function AttrLabelEditor({ attrId, initialLabel }: { attrId: string; initialLabel: string }) {
+  const readOnly = useWorldCanvasStore((state) => state.readOnly);
+  const renameAttrLabel = useWorldCanvasStore((state) => state.renameAttrLabel);
+  return <FieldRow label="属性名称" value={initialLabel} placeholder="属性名…" readOnly={readOnly} onSave={(value) => renameAttrLabel(attrId, String(value))} />;
+}
+
+// attr 文本卡（kind=attr 且 props.media=text）：属性名称 + 面板正文编辑（FieldRow：blur/⌘↵ 保存与全屏放大）。
+// 保存通道与画布就地编辑同源：persistGeometry 写 props.text，再 syncAttrValue 按字段映射回写实体；
+// 名称走 renameAttrLabel（label 元素名+边名+实体字段一次完成）
+function AttrTextCardEditor({ attrId, initialText }: { attrId: string; initialText: string }) {
+  const readOnly = useWorldCanvasStore((state) => state.readOnly);
+  const renameAttrLabel = useWorldCanvasStore((state) => state.renameAttrLabel);
+  const persistGeometry = useWorldCanvasStore((state) => state.persistGeometry);
+  const syncAttrValue = useWorldCanvasStore((state) => state.syncAttrValue);
+  const elements = useWorldCanvasStore((state) => state.elements);
+  const label = String(elements.find((item) => item.id === attrId)?.props?.label ?? "") || String(elements.find((item) => item.id === attrId)?.name ?? "").replace(/^属性 · /, "");
+  const save = (value: string) => {
+    const attr = useWorldCanvasStore.getState().elements.find((item) => item.id === attrId);
+    if (!attr) return;
+    return persistGeometry(attrId, undefined, { text: value }).then(() => {
+      const named = useWorldCanvasStore.getState().elements.find((item) => item.id === attrId);
+      if (named) return syncAttrValue(named, value);
+    });
+  };
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+        <span>{initialText.length} 字</span>
+        <button
+          className="rounded-md border px-2 py-0.5 hover:bg-muted"
+          onClick={() => void navigator.clipboard.writeText(initialText)}
+          title="复制正文"
+          type="button"
+        >
+          复制
+        </button>
+      </div>
+      <FieldRow
+        label="属性名称"
+        value={label}
+        placeholder="属性名…"
+        readOnly={readOnly}
+        onSave={(value) => renameAttrLabel(attrId, String(value))}
+      />
+      <FieldRow
+        label="正文"
+        multiline
+        value={initialText}
+        placeholder="点击填写（放大编辑可看全文）"
+        readOnly={readOnly}
+        onSave={(value) => save(String(value))}
+      />
+    </div>
+  );
+}
+
+export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEntityIdProp }: { fromEntityId?: string; toEntityId?: string }) {  const element = useWorldCanvasStore((state) => (state.selection?.type === "canvas" ? state.selection.element : null));
   const entities = useWorldCanvasStore((state) => state.entities);
   const elements = useWorldCanvasStore((state) => state.elements);
   const relationTypes = useWorldCanvasStore((state) => state.relationTypes);
@@ -26,8 +89,11 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
   const titleOf = (id?: string) => (id ? entities.find((item) => item.id === id)?.name ?? "…" : "—");
   if (!element) return null;
   const isArrow = element.kind === "arrow";
+  const isMediaElement = element.kind === "media";
   const isNote = element.kind === "note";
   const isText = element.kind === "text";
+  const isAttrCard = element.kind === "attr" && String(element.props?.media ?? "text") !== "text";
+  const isAttrTextCard = element.kind === "attr" && String(element.props?.media ?? "text") === "text";
   // 箭头端点（原始元素 id）：属性边 to 端是 attr 元素，实体边两端都是实体元素
   const fromRaw = String(element.props?.fromElementId ?? "");
   const toRaw = String(element.props?.toElementId ?? "");
@@ -42,9 +108,12 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
     <div className="space-y-4 text-sm">
       <div>
         <p className="text-[11px] font-medium text-muted-foreground">元素类型</p>
-        <p className="mt-0.5 text-sm">{isNote ? "便签" : isText ? "文本" : isArrow ? (isAttrEdge ? "属性边" : "关系边（草稿）") : element.kind === "shape" ? "形状" : element.kind}</p>
+        <p className="mt-0.5 text-sm">{isMediaElement ? "媒体" : isAttrCard ? `${mediaLabelOf(String(element.props?.media ?? "image"))}属性` : isAttrTextCard ? "文本属性" : isNote ? "便签" : isText ? "文本" : isArrow ? (isAttrEdge ? "属性边" : "关系边（草稿）") : element.kind === "shape" ? "形状" : element.kind}</p>
       </div>
+      {(isMediaElement || isAttrCard) && <MediaElementEditor element={element} />}
+      {isAttrCard && <AttrLabelEditor attrId={element.id} initialLabel={String(element.props?.label ?? "") || String(element.name ?? "").replace(/^属性 · /, "")} />}
       {(isNote || isText) && <ElementBodyEditor elementId={element.id} initialText={String(element.props?.text ?? "")} />}
+      {isAttrTextCard && <AttrTextCardEditor attrId={element.id} initialText={String(element.props?.text ?? "")} />}
       {isArrow && (
         <div>
           <p className="text-[11px] font-medium text-muted-foreground">连接</p>

@@ -377,8 +377,7 @@ export type RecutWorldsClient = {
     remove(input: { worldId: string; entityId: string; expectedRevisionId?: string }): Promise<WorldEntityDeleteResult>;
   };
   evidence: {
-    /** Read-only legacy projection; entity media lives in attrs now. */
-    list(input: { worldId: string }): Promise<WorldEvidence[]>;
+    /** Legacy archive only (unbinding canvas evidenceId anchors); list/attach are retired. */
     archive(input: { worldId: string; evidenceId: string; expectedRevisionId?: string }): Promise<void>;
   };
   resolve(input: { worldId: string; revisionId?: string; selection: WorldSelection }): Promise<CreationContext>;
@@ -504,10 +503,6 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
       },
     },
     evidence: {
-      list: async ({ worldId }) => {
-        const page = await requestJSON<{ items: WorldEvidence[] }>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/evidence`);
-        return page.items;
-      },
       archive: async ({ worldId, evidenceId, expectedRevisionId }) => {
         const response = await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/evidence/${encodeURIComponent(evidenceId)}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevisionId }) });
         if (!response.ok) throw await errorFrom(response);

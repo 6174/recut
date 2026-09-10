@@ -30,8 +30,8 @@ import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
 import { TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, drawShadowCard } from "@/lib/pomelo/world-canvas/canvas-theme";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { drawElementCaption } from "@/lib/pomelo/world-canvas/truncate-text";
-import { loadPixiTexture, coverSprite, TILE_FILL } from "@/lib/pomelo/world-canvas/canvas-theme";
-import { mediaSource, modalityOfKind } from "./canvas-media";
+import { loadPixiTexture, coverSprite, TILE_FILL, CARD_STROKE, CARD_STROKE_ALPHA } from "@/lib/pomelo/world-canvas/canvas-theme";
+import { fitElementToAsset, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
 import { CanvasInlineEditor } from "./canvas-inline-editor";
 import { CanvasToasts } from "./canvas-toast";
@@ -54,6 +54,7 @@ export class FreeElementBlock extends PixiBlock {
     const elementKind = String(attrs.elementKind ?? "shape");
     const shapeType = String(attrs.shapeType ?? "rectangle");
     const text = String(attrs.text ?? "");
+    const mediaSrc = String(attrs.mediaSrc ?? "");
     const width = Number(attrs.width) || 120;
     const height = Number(attrs.height) || 60;
     const FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
@@ -87,39 +88,58 @@ export class FreeElementBlock extends PixiBlock {
       textObj.position.set(0, 0);
       container.addChild(textObj);
     } else if (elementKind === "attr") {
-      // 属性预览卡：统一视觉（深色卡面 + 细边框 + 柔和投影），左上小图标+类型名，中间大图标占位
+      // 属性预览卡：统一视觉（深色卡面 + 细边框 + 柔和投影）；媒体卡有图时整卡渲染真实图，
+      // 标题只保留卡外 caption（卡内不再叠「图标+类型名」，避免双标题）
       const media = String(attrs.attrMedia ?? "text");
+      const hasImage = Boolean(mediaSrc) && media === "image";
       drawShadowCard(container, width, height, { radius: 12 });
 
-      const mediaIcons: Record<string, string> = { text: "📄", image: "🖼️", audio: "🎵", video: "🎬" };
-      const badge = new PIXI.Text(mediaIcons[media] ?? "◍", { fontFamily: FONT, fontSize: 11 });
-      badge.position.set(10, 8);
-      container.addChild(badge);
-      const title = new PIXI.Text(attrMediaLabel(media), { fontFamily: FONT, fontSize: 11, fill: TEXT_SECONDARY });
-      title.position.set(28, 9);
-      container.addChild(title);
-
-      if (media === "text" && text) {
-        const body = new PIXI.Text(text, {
-          fontFamily: FONT,
-          fontSize: 11,
-          lineHeight: 17,
-          fill: TEXT_PRIMARY,
-          wordWrap: true,
-          wordWrapWidth: Math.max(20, width - 20),
-          breakWords: true,
+      if (hasImage) {
+        // 整卡显示图：图几乎满铺（inset 2，遮住卡面填充避免「三层背景」），mask 圆角防溢出；
+        // 标题条画在最上层保住描边（drawShadowCard 的 surface 会被图覆盖）
+        drawShadowCard(container, width, height, { radius: 12 });
+        const mask = new PIXI.Graphics();
+        mask.beginFill(0xffffff);
+        mask.drawRoundedRect(0, 0, width, height, 11);
+        mask.endFill();
+        container.addChild(mask);
+        mask.renderable = false;
+        loadPixiTexture(String(mediaSrc), (texture) => {
+          if (!texture || container.destroyed) return;
+          const sprite = coverSprite(texture, width - 2, height - 2);
+          sprite.position.set(1, 1);
+          sprite.mask = mask;
+          container.addChild(sprite);
+          const edge = new PIXI.Graphics();
+          edge.lineStyle(1, CARD_STROKE, CARD_STROKE_ALPHA, 1);
+          edge.drawRoundedRect(0, 0, width, height, 12);
+          container.addChild(edge);
         });
-        body.position.set(10, 30);
-        container.addChild(body);
       } else {
-        const hero = new PIXI.Text(mediaIcons[media] ?? "◍", {
-          fontFamily: FONT,
-          fontSize: Math.min(48, height / 2),
-          fill: TEXT_TERTIARY,
-        });
-        hero.anchor.set(0.5);
-        hero.position.set(width / 2, height / 2 + 6);
-        container.addChild(hero);
+        const mediaIcons: Record<string, string> = { text: "📄", image: "🖼️", audio: "🎵", video: "🎬" };
+
+        if (media === "text" && text) {
+          const body = new PIXI.Text(text, {
+            fontFamily: FONT,
+            fontSize: 11,
+            lineHeight: 17,
+            fill: TEXT_PRIMARY,
+            wordWrap: true,
+            wordWrapWidth: Math.max(20, width - 20),
+            breakWords: true,
+          });
+          body.position.set(10, 10);
+          container.addChild(body);
+        } else {
+          const hero = new PIXI.Text(mediaIcons[media] ?? "◍", {
+            fontFamily: FONT,
+            fontSize: Math.min(48, height / 2),
+            fill: TEXT_TERTIARY,
+          });
+          hero.anchor.set(0.5);
+          hero.position.set(width / 2, height / 2 + 6);
+          container.addChild(hero);
+        }
       }
     } else {
       const g = new PIXI.Graphics();
@@ -352,8 +372,9 @@ function buildPomeloRecords(
       return;
     }
     if (element.kind === "attr") {
-      // 属性节点：文本/图片/音频/视频预览卡（AI 生成/上传内容承载物）
+      // 属性节点：文本/图片/音频/视频预览卡（AI 生成/上传内容承载物）；媒体卡带 assetId → 渲染真实图
       const media = String(element.props?.media ?? "text");
+      const mediaAssetId = media !== "text" && element.props?.assetId ? String(element.props.assetId) : "";
       records.push({
         id: element.id,
         type: "free-element",
@@ -365,6 +386,7 @@ function buildPomeloRecords(
           elementKind: "attr",
           attrMedia: media,
           text: String(element.props?.text ?? ""),
+          mediaSrc: mediaAssetId ? mediaSource(state.apiBase, { assetId: mediaAssetId }) : "",
         },
       });
       return;
@@ -585,12 +607,14 @@ function AttrCreatorPanel() {
   const sourceEntityId = creator.fromEntityId.replace(/^shape:/, "");
   const fromEntity = entities.find((entity) => entity.id === sourceEntityId);
   const sourceType = fromEntity ? entityTypes.find((item) => item.id === fromEntity.typeId) : undefined;
-  // 建议属性 = 来源实体 type schema 的字段（已填值的直接带值显示；media 字段按 options 定媒体）
+  // 建议属性 = 来源实体 type schema 的字段（已填值的直接带值显示；media 字段带 assetId 建媒体卡，
+  // 不落对象字符串——文本化 media 值只会得到 "[object Object]"）
   const suggestedFields = (sourceType?.fields ?? []).map((field) => {
     const value = fromEntity ? attrValueOf(fromEntity, field.key) : undefined;
-    return { ...field, value: value == null ? "" : String(value) };
+    const mediaValue = value && typeof value === "object" ? (value as { assetId?: string; name?: string; kind?: string }) : null;
+    return { ...field, rawValue: value, mediaValue, value: mediaValue ? "" : value == null ? "" : String(value) };
   });
-  const filledFields = suggestedFields.filter((field) => field.value.trim());
+  const filledFields = suggestedFields.filter((field) => field.value.trim() || (field.type === "media" && field.mediaValue && field.mediaValue.assetId));
   const pos = {
     x: Number.isFinite(creator.worldX) ? creator.worldX! : 420,
     y: Number.isFinite(creator.worldY) ? creator.worldY! : 300,
@@ -612,25 +636,41 @@ function AttrCreatorPanel() {
       <p className="mb-1 text-[10px] text-muted-foreground">属性{sourceType ? ` · ${sourceType.name}已填的带值可选` : ""}</p>
       {filledFields.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
-          {filledFields.map((field) => (
-            <button
-              key={field.key}
-              className="max-w-full rounded-md border border-primary/50 bg-primary/5 px-2 py-1 text-left text-xs hover:border-primary hover:bg-primary/10"
-              onClick={() => {
-                void createAttribute(creator.fromEntityId, "text", pos, { label: field.label ?? field.key, text: field.value }, "attr");
-                setAttrCreator(null);
-              }}
-              title={`${field.label ?? field.key}：${field.value} · 点击生成属性并挂边（边即属性关联）`}
-              type="button"
-            >
-              <span className="font-medium">{field.label ?? field.key}</span>
-              <span className="ml-1 text-[10px] text-muted-foreground">{field.value.length > 12 ? `${field.value.slice(0, 12)}…` : field.value}</span>
-            </button>
-          ))}
+          {filledFields.map((field) => {
+            const mediaPreview = field.mediaValue && field.mediaValue.assetId ? field.mediaValue : null;
+            const mediaKind: MediaModality = ((field.options?.[0] as MediaModality) ?? (mediaPreview?.kind as MediaModality) ?? "image");
+            const summary = mediaPreview
+              ? mediaPreview.name || (mediaKind === "image" ? "图片" : mediaKind === "video" ? "视频" : mediaKind === "audio" ? "音频" : "媒体")
+              : String(field.value);
+            return (
+              <button
+                key={field.key}
+                className="max-w-full rounded-md border border-primary/50 bg-primary/5 px-2 py-1 text-left text-xs hover:border-primary hover:bg-primary/10"
+                onClick={() => {
+                  if (mediaPreview && mediaPreview.assetId) {
+                    const assetId = mediaPreview.assetId;
+                    void (async () => {
+                      const attrId = await createAttribute(creator.fromEntityId, mediaKind, pos, { label: field.label ?? field.key, assetId, assetName: mediaPreview.name }, "attr");
+                      // 建卡后按素材 naturalWidth/Height 适配纵横比（与面板采纳同一规则）
+                      if (attrId) fitElementToAsset(attrId, useWorldCanvasStore.getState().apiBase, assetId, mediaKind);
+                    })();
+                  } else {
+                    void createAttribute(creator.fromEntityId, "text", pos, { label: field.label ?? field.key, text: String(field.rawValue ?? field.value) }, "attr");
+                  }
+                  setAttrCreator(null);
+                }}
+                title={`${field.label ?? field.key}：${summary} · 点击生成属性并挂边（边即属性关联）`}
+                type="button"
+              >
+                <span className="font-medium">{field.label ?? field.key}</span>
+                <span className="ml-1 text-[10px] text-muted-foreground">{summary.length > 12 ? `${summary.slice(0, 12)}…` : summary}</span>
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="mb-2 flex flex-wrap gap-1.5">
-        {suggestedFields.filter((field) => !field.value.trim()).map((field) => (
+        {suggestedFields.filter((field) => !field.value.trim() && !(field.mediaValue?.assetId)).map((field) => (
           <button
             key={field.key}
             className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary/60 hover:bg-primary/5"
@@ -731,7 +771,7 @@ function EmptyWorldGuide() {
         <ul className="space-y-1.5 text-left text-xs text-muted-foreground">
           <li>① ＋ 或双击空白 → 放下人物 / 地点 / 物件</li>
           <li>② 悬停卡片拖「＋」手柄 → 连出关系</li>
-          <li>③ 拖入图片 → 挂为参考素材（封面/外貌）</li>
+          <li>③ 拖入图片 → 添加为「媒体属性」（卡面图源随之更新）</li>
         </ul>
         <button
           className="rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
@@ -933,7 +973,7 @@ export function CanvasPomeloHost() {
     pluginRef.current?.drawOverlay(editor);
   }, [selection, dataVersion, ready]);
 
-  // T8 文件拖放（B.12 矩阵）：文件 → 实体卡 = 直接挂接为证据（不建画布元素）；
+  // T8 文件拖放（B.12 矩阵）：文件 → 实体卡 = 直接写为 media 属性（attachMediaAttr，不建画布元素）；
   // 文件 → 空白 = 独立 media 元素（落点处）
   const onDragOver = (event: React.DragEvent) => {
     if (event.dataTransfer.types.includes("Files")) event.preventDefault();
@@ -966,7 +1006,7 @@ export function CanvasPomeloHost() {
           if (targetEntityId) {
             await useWorldCanvasStore.getState().attachMediaAttr(targetEntityId, { assetId: asset.id, name: file.name, kind: modality });
             const target = useWorldCanvasStore.getState().entities.find((item) => item.id === targetEntityId);
-            useWorldCanvasStore.getState().toast(`已将「${file.name}」挂为「${target?.name ?? "设定"}」的参考素材`, "success");
+            useWorldCanvasStore.getState().toast(`已将「${file.name}」添加为「${target?.name ?? "设定"}」的媒体属性`, "success");
           } else {
             await useWorldCanvasStore.getState().addMediaElement({ modality, assetId: asset.id, name: file.name }, world);
           }

@@ -36,29 +36,29 @@ type WorldRelationSpec struct {
 // relation_type stays open for free extension, but UI prefers these entries so
 // the graph stays readable. Groups mirror the user draft: people/world/video/story.
 var worldRelationTypes = map[string]WorldRelationSpec{
-	"father":      {LabelZh: "父亲", Group: "people", Inverse: "child"},
-	"mother":      {LabelZh: "母亲", Group: "people", Inverse: "child"},
-	"child":       {LabelZh: "子女", Group: "people", Inverse: "father"},
-	"spouse":      {LabelZh: "配偶", Group: "people"},
-	"partner":     {LabelZh: "伴侣", Group: "people"},
-	"friend":      {LabelZh: "朋友", Group: "people"},
-	"teacher":     {LabelZh: "老师", Group: "people", Inverse: "student"},
-	"student":     {LabelZh: "学生", Group: "people", Inverse: "teacher"},
-	"colleague":   {LabelZh: "同事", Group: "people"},
-	"enemy":       {LabelZh: "敌人", Group: "people"},
-	"belongs_to":  {LabelZh: "属于", Group: "world", Inverse: "owns"},
-	"located_in":  {LabelZh: "位于", Group: "world", Inverse: "contains"},
-	"owns":        {LabelZh: "拥有", Group: "world", Inverse: "belongs_to"},
-	"contains":    {LabelZh: "包含", Group: "world", Inverse: "located_in"},
-	"created_by":  {LabelZh: "由…创作", Group: "world"},
-	"appears_in":  {LabelZh: "出现在", Group: "video"},
-	"followed_by": {LabelZh: "接续", Group: "video", Inverse: "precedes"},
-	"precedes":    {LabelZh: "先于", Group: "video", Inverse: "followed_by"},
+	"father":       {LabelZh: "父亲", Group: "people", Inverse: "child"},
+	"mother":       {LabelZh: "母亲", Group: "people", Inverse: "child"},
+	"child":        {LabelZh: "子女", Group: "people", Inverse: "father"},
+	"spouse":       {LabelZh: "配偶", Group: "people"},
+	"partner":      {LabelZh: "伴侣", Group: "people"},
+	"friend":       {LabelZh: "朋友", Group: "people"},
+	"teacher":      {LabelZh: "老师", Group: "people", Inverse: "student"},
+	"student":      {LabelZh: "学生", Group: "people", Inverse: "teacher"},
+	"colleague":    {LabelZh: "同事", Group: "people"},
+	"enemy":        {LabelZh: "敌人", Group: "people"},
+	"belongs_to":   {LabelZh: "属于", Group: "world", Inverse: "owns"},
+	"located_in":   {LabelZh: "位于", Group: "world", Inverse: "contains"},
+	"owns":         {LabelZh: "拥有", Group: "world", Inverse: "belongs_to"},
+	"contains":     {LabelZh: "包含", Group: "world", Inverse: "located_in"},
+	"created_by":   {LabelZh: "由…创作", Group: "world"},
+	"appears_in":   {LabelZh: "出现在", Group: "video"},
+	"followed_by":  {LabelZh: "接续", Group: "video", Inverse: "precedes"},
+	"precedes":     {LabelZh: "先于", Group: "video", Inverse: "followed_by"},
 	"adapted_from": {LabelZh: "改编自", Group: "story"},
-	"causes":      {LabelZh: "导致", Group: "story"},
-	"references":  {LabelZh: "引用", Group: "story"},
-	"depends_on":  {LabelZh: "依赖", Group: "story"},
-	"part_of":     {LabelZh: "属于一部分", Group: "story"},
+	"causes":       {LabelZh: "导致", Group: "story"},
+	"references":   {LabelZh: "引用", Group: "story"},
+	"depends_on":   {LabelZh: "依赖", Group: "story"},
+	"part_of":      {LabelZh: "属于一部分", Group: "story"},
 }
 
 // ListWorldRelationTypes returns the controlled vocabulary as a stable list.
@@ -84,29 +84,29 @@ func ListWorldRelationTypes() []map[string]any {
 // an entity is its instance. Custom types live per-world; presets are copied in
 // as builtin rows and can be overridden in place (RFC §5.4).
 type WorldEntityType struct {
-	ID         string            `json:"id"`
-	WorldID    string            `json:"worldId"`
-	Scope      string            `json:"scope"` // preset | builtin | custom
-	Name       string            `json:"name"`
-	Icon       string            `json:"icon,omitempty"`
-	Color      string            `json:"color,omitempty"`
-	BaseKind   string            `json:"baseKind,omitempty"`
-	Fields     []EntityTypeField `json:"fields"`
-	ExtendsID  string            `json:"extendsId,omitempty"`
-	Builtin    bool              `json:"builtin"`
-	CreatedAt  string            `json:"createdAt"`
-	UpdatedAt  string            `json:"updatedAt"`
+	ID        string            `json:"id"`
+	WorldID   string            `json:"worldId"`
+	Scope     string            `json:"scope"` // preset | builtin | custom
+	Name      string            `json:"name"`
+	Icon      string            `json:"icon,omitempty"`
+	Color     string            `json:"color,omitempty"`
+	BaseKind  string            `json:"baseKind,omitempty"`
+	Fields    []EntityTypeField `json:"fields"`
+	ExtendsID string            `json:"extendsId,omitempty"`
+	Builtin   bool              `json:"builtin"`
+	CreatedAt string            `json:"createdAt"`
+	UpdatedAt string            `json:"updatedAt"`
 }
 
 // EntityTypeField is one field schema entry inside a type's fields_json.
 type EntityTypeField struct {
-	Key         string            `json:"key"`
-	Label       string            `json:"label"`
-	Type        string            `json:"type"` // text | textarea | number | boolean | select | media
-	Required    bool              `json:"required,omitempty"`
-	Placeholder string            `json:"placeholder,omitempty"`
-	Options     []string          `json:"options,omitempty"`
-	Invariant   bool              `json:"invariant,omitempty"`
+	Key         string   `json:"key"`
+	Label       string   `json:"label"`
+	Type        string   `json:"type"` // text | textarea | number | boolean | select | media
+	Required    bool     `json:"required,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty"`
+	Options     []string `json:"options,omitempty"`
+	Invariant   bool     `json:"invariant,omitempty"`
 	// Locked pins the attr structure (label/type/removal): preset fields are
 	// locked, user-added fields are not. Value stays user-editable either way.
 	Locked bool              `json:"locked,omitempty"`
@@ -443,7 +443,7 @@ func scanEntityType(row rowScanner) (WorldEntityType, error) {
 	return item, nil
 }
 
-// WorldCanvasElement is one element of a canvas context ('' = global canvas).
+// WorldCanvasElement is one element of a canvas context (” = global canvas).
 // kind='entity' elements project a semantic entity (ref_id = entity id, props
 // only carry view preferences); every other kind is a free-expression element
 // whose typed content lives in props_json. Canvas never enters the Canon.
@@ -478,7 +478,6 @@ type UpsertCanvasElementInput struct {
 	Layer     string
 	CreatedBy string
 }
-
 
 // validateCanvasLinkStart enforces that a canvas link/arrow starts from an
 // entity element. Arrows drawn from free elements are rejected: edges carry
@@ -543,7 +542,6 @@ func (w *WorldStore) syncAttrProjections(worldID, entityID string, content map[s
 	w.syncAttrDocProjections(worldID, entityID, content)
 }
 
-
 func (w *WorldStore) getCanvasElement(db *sql.DB, worldID, elementID string) (WorldCanvasElement, error) {
 	row := db.QueryRow("select id, world_id, context_id, kind, ref_kind, ref_id, name, props_json, geometry_json, style_json, layer, created_at, updated_at from world_canvas where world_id = ? and id = ?", worldID, elementID)
 	return scanCanvasElement(row)
@@ -569,7 +567,6 @@ func scanCanvasElement(row rowScanner) (WorldCanvasElement, error) {
 	}
 	return item, nil
 }
-
 
 // CreateChildEntityInput is the typed input of entities.create_child.
 type CreateChildEntityInput struct {
@@ -902,7 +899,7 @@ func (w *WorldStore) promoteNoteToEntity(db *sql.DB, elementContext string, elem
 	}
 	entity, err := w.UpsertEntity(UpsertEntityInput{
 		WorldID: input.WorldID, TypeID: typeID, Name: name, Intro: intro, Detail: text,
-		IsProvisional: true,
+		IsProvisional:      true,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: input.CreatedBy,
 	})
 	if err != nil {
@@ -1061,7 +1058,7 @@ func (w *WorldStore) promoteArrowToPropertyBinding(db *sql.DB, toContext string,
 	if err := w.writeCanvasDocElement(input.WorldID, toContext, WorldCanvasElement{
 		ID: attrID, ContextID: toContext, Kind: "attr",
 		RefKind: "entity", RefID: entity.ID, Name: "属性 · " + label,
-		Props: map[string]any{"field": field, "sourceElementId": to.ID, "value": boundValue},
+		Props:    map[string]any{"field": field, "sourceElementId": to.ID, "value": boundValue},
 		Geometry: to.Geometry, Layer: to.Layer,
 	}); err != nil {
 		return nil, err
@@ -1110,6 +1107,7 @@ func nullStringValue(value sql.NullString) string {
 func isoTimeNow() string {
 	return iso(time.Now().UTC())
 }
+
 // getEntityTypeQuerier reads one type row through any rowQuerier (*sql.DB or
 // *sql.Tx) so callers inside an open transaction see their own writes.
 func getEntityTypeQuerier(db rowQuerier, worldID, typeID string) (WorldEntityType, error) {

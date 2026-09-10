@@ -39,7 +39,7 @@ import {
   type WorldDetail,
   type WorldEntity,
   type WorldEntityType,
-  type WorldEvidence,
+  type WorldRelationType,
   type WorldScenario,
 } from "@/lib/recut-worlds-client";
 import { useServiceStore } from "@/lib/service-store";
@@ -48,10 +48,9 @@ import { useI18n, useLocaleStore, t as plainT } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 import {
   EmptySetting,
-  EntityDetailDialog,
   SettingCard,
 } from "./world-detail-panels";
-import { SettingDialog } from "./world-detail-settings";
+import { EntitySettingsPanel } from "./world-detail-settings";
 import { WorldOnboardingCard } from "./world-onboarding";
 import { Workspace } from "../../page";
 import { useWorldCanvasTopBarStore } from "./canvas/canvas-top-bar";
@@ -88,11 +87,12 @@ function WorldDetailContent() {
     Record<string, WorldEntity[]>
   >({});
   const [entityTypes, setEntityTypes] = useState<WorldEntityType[]>([]);
-  const [activeKind, setActiveKind] = useState<EntityKind | "resource" | "skill">("skill");
+  const [relationTypes, setRelationTypes] = useState<WorldRelationType[]>([]);
+  const [activeKind, setActiveKind] = useState<EntityKind | "skill">("skill");
   // 进入 World 默认即画布模式；左上角按钮可切回表单模式。
   const [viewMode, setViewMode] = useState<"form" | "canvas">("canvas");
-  const [editing, setEditing] = useState<WorldEntity | null>(null);
-  const [viewing, setViewing] = useState<WorldEntity | null>(null);
+  // 点卡片 = 右侧实体面板（与画布共用 EntityEditor；RFC 统一 Entity 模型）
+  const [selected, setSelected] = useState<WorldEntity | null>(null);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
   const [forking, setForking] = useState(false);
@@ -121,11 +121,11 @@ function WorldDetailContent() {
     useAgentPanelContext.getState().setWorkFocus({
       version: 1,
       view: activeKind,
-      selection: editing ? { refs: [{ kind: "world_entity", id: editing.id }], primaryRef: { kind: "world_entity", id: editing.id }, state: { entity: editing } } : { refs: [], state: { entity: null } },
+      selection: selected ? { refs: [{ kind: "world_entity", id: selected.id }], primaryRef: { kind: "world_entity", id: selected.id }, state: { entity: selected } } : { refs: [], state: { entity: null } },
       state: { activeKind, entityCounts: detail.entityCounts, revision: detail.revision },
-      summary: editing ? `正在编辑 ${editing.name}` : `查看 ${activeKind}`,
+      summary: selected ? `正在编辑 ${selected.name}` : `查看 ${activeKind}`,
     });
-  }, [activeKind, detail, editing, worldID]);
+  }, [activeKind, detail, selected, worldID]);
   const params = useParams<{ worldID?: string }>();
   useEffect(() => {
     setWorldID(worldIDFromLocation(params.worldID));
@@ -163,7 +163,10 @@ function WorldDetailContent() {
     let active = true;
     void loadEntityTypes(apiBase, worldID)
       .then((types) => {
-        if (active) setEntityTypes(types);
+        if (active) {
+          setEntityTypes(types);
+          setRelationTypes(typeRelationsCache.get(`${apiBase}:${worldID}`) ?? []);
+        }
       })
       .catch(() => {});
     return () => {
@@ -277,7 +280,10 @@ function WorldDetailContent() {
     ]);
     setDetail(next);
     setEntitiesByType(grouped);
-    void loadEntityTypes(apiBase, worldId, true).then(setEntityTypes).catch(() => {});
+    void loadEntityTypes(apiBase, worldId, true).then((types) => {
+      setEntityTypes(types);
+      setRelationTypes(typeRelationsCache.get(`${apiBase}:${worldId}`) ?? []);
+    }).catch(() => {});
   }
   async function createVideoFromStory(storyID: string) {
     setNotice("");
@@ -396,7 +402,7 @@ function WorldDetailContent() {
         aria-label={t("worlds.detail.tabs.aria")}
         className="mb-6 flex flex-wrap items-center gap-1.5"
       >
-        {[{ kind: "skill" as const, title: t("worlds.detail.skill.title") }, ...entityTypeTabs(entityTypes), { kind: "resource" as const, title: t("worlds.detail.resource.title") }].map((section) => (
+        {[{ kind: "skill" as const, title: t("worlds.detail.skill.title") }, ...entityTypeTabs(entityTypes)].map((section) => (
           <button
             aria-pressed={activeKind === section.kind}
             className={tabClass(activeKind === section.kind)}
@@ -412,7 +418,7 @@ function WorldDetailContent() {
         ))}
       </nav>
       {activeKind === "skill" ? <WorldSkillPanel readOnly={readOnly} saving={savingSkill} skill={detail.skillMd ?? ""} onDraftChange={setSkillDraft} onSave={() => void saveSkill()} />
-        : activeKind === "resource" ? <WorldResourcesPanel apiBase={apiBase} worldID={worldId} /> : <section className="flex flex-col items-start gap-5">
+        : <section className="flex flex-col items-start gap-5">
           <div className="flex w-full items-end justify-between gap-4">
             <div>
               <h2 className="text-xl font-semibold">{currentSection?.title}</h2>
@@ -435,8 +441,7 @@ function WorldDetailContent() {
                   entity={entity}
                   key={entity.id}
                   onCreateVideo={undefined}
-                  onEdit={readOnly ? undefined : () => setEditing(entity)}
-                  onView={setViewing}
+                  onOpen={setSelected}
                 />
               ))}
             </div>
@@ -447,30 +452,46 @@ function WorldDetailContent() {
             />
           )}
       </section>}
-      {activeKind !== "resource" && activeKind !== "skill" && (creating || editing) && (
-        <SettingDialog
+      {activeKind !== "skill" && (selected || creating) && (
+        <EntitySettingsPanel
           apiBase={apiBase}
-          entity={editing}
-          expectedRevisionID={detail.revision.id}
+          candidates={Object.values(entitiesByType).flat()}
+          entityType={entityTypes.find((type) => type.id === (selected?.typeId ?? activeKind))}
+          entity={selected}
+          entityTypes={entityTypes}
+          key={selected?.id ?? "creating"}
+          readOnly={readOnly}
+          relationTypes={relationTypes}
+          typeId={activeKind}
+          typeName={entityTypes.find((type) => type.id === activeKind)?.name || entityKindLabel(activeKind)}
+          worldId={worldId}
           onClose={() => {
             setCreating(false);
-            setEditing(null);
-          }}
-          onSaved={() => {
-            setCreating(false);
-            setEditing(null);
+            setSelected(null);
             void reloadWorld();
           }}
-          typeId={activeKind}
-          worldID={worldId}
-        />
-      )}
-      {activeKind !== "resource" && activeKind !== "skill" && viewing && (
-        <EntityDetailDialog
-          apiBase={apiBase}
-          entity={viewing}
-          onClose={() => setViewing(null)}
-          onEdit={readOnly ? undefined : (entity) => { setViewing(null); setEditing(entity); }}
+          onChanged={(saved) => {
+            if (!saved) {
+              setEntitiesByType((current) => {
+                const next = { ...current };
+                for (const key of Object.keys(next)) next[key] = next[key].filter((item) => item.id !== selected?.id);
+                return next;
+              });
+              return;
+            }
+            if (creating) {
+              setCreating(false);
+              setSelected(saved);
+            }
+            setEntitiesByType((current) => {
+              const group = current[saved.typeId] ?? [];
+              const exists = group.some((item) => item.id === saved.id);
+              return {
+                ...current,
+                [saved.typeId]: exists ? group.map((item) => (item.id === saved.id ? saved : item)) : [...group, saved],
+              };
+            });
+          }}
         />
       )}
       {archiveConfirm && (
@@ -491,16 +512,6 @@ function WorldDetailContent() {
       {viewMode === "canvas" && canvasNode}
     </>
   );
-}
-
-function WorldResourcesPanel({ apiBase, worldID }: { apiBase: string; expectedRevisionID?: string; onChanged?: () => void; worldID: string; readOnly?: boolean }) {
-  // evidence 写入已冻结（RFC 统一实体模型）：资源库降级为只读列表；
-  // 世界级资料的新增路径待服务端开放后恢复（contract gap）。
-  const { t } = useI18n();
-  const [items, setItems] = useState<WorldEvidence[]>([]);
-  const [error, setError] = useState("");
-  useEffect(() => { void createRecutWorldsClient(apiBase).evidence.list({ worldId: worldID }).then((all) => setItems(all.filter((item) => !item.entityId))).catch(() => setError(t("worlds.detail.resource.load.failed"))); }, [apiBase, worldID]);
-  return <section className="flex w-full flex-col items-start gap-5"><div className="flex w-full items-end justify-between gap-4"><div><h2 className="text-xl font-semibold">{t("worlds.detail.resource.title")}</h2><p className="mt-1 text-sm text-muted-foreground">{t("worlds.detail.resource.fullDesc")}</p></div></div>{error ? <div className="w-full rounded-md border border-warning/30 bg-warning/10 p-4 text-sm text-warning">{error}</div> : items.length ? <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-4">{items.map((item) => <div className="rounded-md border p-4" key={item.id ?? item.assetId ?? item.url}><p className="text-sm font-medium">{item.label || t("worlds.detail.resource.unnamed")}</p><p className="mt-1 text-xs text-muted-foreground">{item.modality === "research" ? t("worlds.detail.resource.kind.document") : item.modality === "text" ? t("worlds.detail.resource.kind.text") : item.modality === "audio" ? t("worlds.detail.resource.kind.audio") : item.modality === "video" ? t("worlds.detail.resource.kind.video") : t("worlds.detail.resource.kind.image")}</p></div>)}</div> : <div className="w-full rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">{t("worlds.detail.resource.empty")}</div>}</section>;
 }
 
 // 世界技能（world.md）是该世界的生产工作流：独立 Tab 展示。非 local 世界
@@ -598,25 +609,31 @@ function typeSectionText(typeId: EntityKind, types: WorldEntityType[], t: (key: 
   };
 }
 
-// entityTypes.list 的模块级缓存：设定页在 tab 重渲染间复用，写入后 force 刷新
+// entityTypes.list 的模块级缓存：设定页在 tab 重渲染间复用，写入后 force 刷新；relations 同源缓存（词表建关系）
 const entityTypeCache = new Map<string, WorldEntityType[]>();
+const typeRelationsCache = new Map<string, WorldRelationType[]>();
 const entityTypeRequests = new Map<string, Promise<WorldEntityType[]>>();
 
 function loadEntityTypes(apiBase: string, worldId: string, force = false): Promise<WorldEntityType[]> {
   const key = `${apiBase}:${worldId}`;
-  const cached = entityTypeCache.get(key);
-  if (!force && cached) return Promise.resolve(cached);
+  if (!force) {
+    const cached = entityTypeCache.get(key);
+    if (cached) return Promise.resolve(cached);
+  }
   const current = entityTypeRequests.get(key);
-  if (current) return current;
-  const pending = createRecutWorldsClient(apiBase)
-    .entityTypes.list({ worldId })
-    .then((body) => {
-      entityTypeCache.set(key, body.items);
-      return body.items;
-    })
-    .finally(() => entityTypeRequests.delete(key));
-  entityTypeRequests.set(key, pending);
-  return pending;
+  if (force || !current) {
+    const pending = createRecutWorldsClient(apiBase)
+      .entityTypes.list({ worldId })
+      .then((body) => {
+        entityTypeCache.set(key, body.items);
+        typeRelationsCache.set(key, body.relations ?? []);
+        return body.items;
+      })
+      .finally(() => entityTypeRequests.delete(key));
+    entityTypeRequests.set(key, pending);
+    return pending;
+  }
+  return current;
 }
 
 function tabClass(active: boolean) {

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 canvas-store（会话配置 open）、canvas-toolbar、canvas-pomelo（dynamic ssr:false 挂载）、
- * canvas-detail-panel 与 canvas-dialogs
+ * canvas-detail-panel、canvas-dialogs 与 ui/use-media-asset-events（MediaAssetEventsProvider）
  * [OUTPUT]: 对外提供 Recursive World Canvas 全屏模式根组件：挂载时 open(store) 加载数据并向全局 Header
  * 注册顶层工具栏（canvas-top-bar），组合 pomelo 画布底座、右侧详情面板与对话框；onClose 返回设定视图
  * [POS]: worlds/[worldID]/canvas 的组合根；WorldCanvas 的唯一出口（world-detail-client 仅引用本文件）
@@ -11,6 +11,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { MediaAssetEventsProvider } from "@/components/use-media-asset-events";
 import { useWorldCanvasStore } from "./canvas-store";
 import { useWorldCanvasTopBarStore } from "./canvas-top-bar";
 import { CanvasDetailPanel } from "./canvas-detail-panel";
@@ -90,15 +91,20 @@ export default function WorldCanvas({ apiBase, worldId, worldName, readOnly, rev
 
   if (!host) return null;
   return createPortal(
-    // 与内容区的 md:pl-[--side-panel-width] 避让一致：md 以上从 Chat 面板右侧起排，Chat 保持可见。
-    <div className="absolute bottom-0 right-0 top-0 z-30 flex flex-col bg-background md:left-[var(--side-panel-width)]">
-      <div className="relative min-h-0 min-w-0 flex-1">
-        <CanvasPomeloHost />
-        {/* 详情面板是绝对浮层：开合不改变画布宽度，pixi 容器不做 resize（否则每次闪一帧） */}
-        <CanvasDetailPanel />
+    // MediaAssetEventsProvider：素材选择器/预览共享同一条 asset 实时缓存
+    // （SSE 首屏 REST + WS 增量）；画布页面原来不在任何 Provider 内，AssetReferenceDialog
+    // 会永远停在"正在读取资源…"。
+    <MediaAssetEventsProvider apiBase={apiBase}>
+      {/* 与内容区的 md:pl-[--side-panel-width] 避让一致：md 以上从 Chat 面板右侧起排，Chat 保持可见。 */}
+      <div className="absolute bottom-0 right-0 top-0 z-30 flex flex-col bg-background md:left-[var(--side-panel-width)]">
+        <div className="relative min-h-0 min-w-0 flex-1">
+          <CanvasPomeloHost />
+          {/* 详情面板是绝对浮层：开合不改变画布宽度，pixi 容器不做 resize（否则每次闪一帧） */}
+          <CanvasDetailPanel />
+        </div>
+        <CanvasDialogs />
       </div>
-      <CanvasDialogs />
-    </div>,
+    </MediaAssetEventsProvider>,
     host,
   );
 }
