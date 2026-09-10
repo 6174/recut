@@ -5,9 +5,9 @@
  * 点击命中选择（实体卡/便签/文本/形状/属性节点/World 节点/语义关系线/自由箭头）解析为
  * CanvasSelection 驱动右侧面板；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
  * canvas-store.moveElement + 去抖 persistGeometry；pointermove 经 editor.ticker 统一合帧，
- * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡左右缘中点各一个，
- * 自由元素不挂）拖出引导线：落到另一实体卡 =
- * 受控关系确认（setPendingRelation），落空 = 属性引导菜单（setAttrCreator，创建属性节点 +
+ * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡与 World 根节点
+ * 左右缘中点各一个，自由元素不挂）拖出引导线：实体 → 实体 =
+ * 受控关系确认（setPendingRelation），其余落点（含 World 节点）= 属性引导菜单（setAttrCreator，创建属性节点 +
  * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击空白 = 最近类型快捷建卡
  * （Alt = 创建菜单）；右键 = 实体/便签文本上下文菜单（T3）；Delete/Backspace 删除关系/草稿、
  * 实体走删除确认（B.6）；选区 overlay + 「+」手柄 +
@@ -36,7 +36,7 @@ import {
 type Point = { x: number; y: number };
 type Rect = { x: number; y: number; width: number; height: number };
 
-const NODE_TYPES = new Set(["entity-card", "note", "free-element", "world-node"]);
+const NODE_TYPES = new Set(["entity-card", "note", "free-element"]);
 const RELATION_PREFIX = "arrow:";
 const MIN_SIZE = 60;
 const PERSIST_DEBOUNCE_MS = 400;
@@ -136,8 +136,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     };
     type PlusHandle = { blockId: string; canvasId: string; anchorWorld: Point; screen: Point };
     const plusHandles = (): PlusHandle[] => {
-      // 边必须有语义：出发点只能是 entity（与后端 validateCanvasLinkStart 对齐），
-      // 便签/文本/形状/attr 等自由元素不再挂「+」；仍只对 hover 命中的实体卡出现
+      // 边必须有语义：受控关系只允许实体 ⇄ 实体（与后端 CreateRelation 的实体端点校验对齐）；
+      // 便签/文本/形状/attr 等自由元素不挂「+」；只对 hover 命中的实体卡出现
       const handles: PlusHandle[] = [];
       const records = this.#hoverBlockId
         ? editor.state.getAllBlocks((item) => item.id === this.#hoverBlockId && item.id.startsWith("entity:"))
@@ -336,6 +336,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
+      // 属性引导面板打开时：点击画布任意处（面板自身 mousedown 已 stopPropagation）即关闭
+      if (useWorldCanvasStore.getState().attrCreator) useWorldCanvasStore.getState().setAttrCreator(null);
       const screen = { x: event.clientX - view.getBoundingClientRect().left, y: event.clientY - view.getBoundingClientRect().top };
       const world = toWorld(event);
 
@@ -629,7 +631,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const store = useWorldCanvasStore.getState();
         const guide = this.#guide;
         const source = nodeTitleOf(guide.sourceBlockId);
-        if (guide.hoverBlockId && guide.sourceBlockId.startsWith("entity:")) {
+        // 关系创建：仅实体 → 实体（World 节点不是语义端点）
+        if (guide.hoverBlockId?.startsWith("entity:") && guide.sourceBlockId.startsWith("entity:")) {
           // 关系创建：实体 → 实体，打开受控关系确认对话框
           store.setPendingRelation({
             fromEntityId: guide.sourceBlockId.slice("entity:".length),
@@ -900,8 +903,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const toScreen = (world: Point): Point => ({ x: world.x * t.scale + t.x, y: world.y * t.scale + t.y });
     const readOnly = useWorldCanvasStore.getState().readOnly;
 
-    // 「+」手柄：hover 命中的实体卡左右缘中点各一个（屏幕空间，尺寸不随 zoom 变化）——
-    // 边必须有语义，自由元素不挂「+」（与 plusHandles 命中同一规则）；只读态不绘制
+    // 「+」手柄：hover 命中的实体卡/World 根节点左右缘中点各一个（屏幕空间，尺寸不随 zoom 变化）——
+    // 关系只许实体⇄实体，World 节点拖出 = 属性引导；自由元素不挂「+」（与 plusHandles 命中同一规则）；只读态不绘制
     if (!readOnly && !this.#guide && this.#hoverBlockId?.startsWith("entity:")) {
       const record = editor.state.getBlockById(this.#hoverBlockId);
       if (record && record.id.startsWith("entity:")) {

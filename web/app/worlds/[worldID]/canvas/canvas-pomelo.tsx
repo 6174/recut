@@ -38,7 +38,7 @@ import { CanvasToasts } from "./canvas-toast";
 import { CanvasOutline } from "./canvas-outline";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrValueOf } from "./entity-attrs";
-import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, WORLD_NODE_SIZE, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
+import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
 
@@ -332,17 +332,7 @@ function buildPomeloRecords(
     });
   });
 
-  if (!state.context) {
-    const worldElement = state.elements.find((element) => element.id === WORLD_ELEMENT_ID);
-    const x = Number(worldElement?.geometry?.x);
-    const y = Number(worldElement?.geometry?.y);
-    const pos = livePosOf(liveGeometry, WORLD_ELEMENT_ID) ?? (worldElement && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : { x: 360, y: 40 });
-    records.push({
-      id: WORLD_ELEMENT_ID,
-      type: "world-node",
-      attrs: { x: pos.x, y: pos.y, width: WORLD_NODE_SIZE.width, height: WORLD_NODE_SIZE.height, title: state.worldName },
-    });
-  }
+  // 世界根节点不再画在画布上（T17 重构）：全局上下文入口收进 Header icon + 右侧属性面板
 
   state.elements.forEach((element: WorldCanvasElement, index: number) => {
     if (element.kind === "entity" || element.id === WORLD_ELEMENT_ID) return;
@@ -618,14 +608,13 @@ function AttrCreatorPanel() {
   const pos = {
     x: Number.isFinite(creator.worldX) ? creator.worldX! : 420,
     y: Number.isFinite(creator.worldY) ? creator.worldY! : 300,
-  };
-  const blankMediaOptions: Array<{ media: AttrMedia; label: string; icon: string }> = [
+  };  const blankMediaOptions: Array<{ media: AttrMedia; label: string; icon: string }> = [
     { media: "text", label: "文本", icon: "≡" },
     { media: "image", label: "图片", icon: "🖼" },
     { media: "audio", label: "音频", icon: "♪" },
     { media: "video", label: "视频", icon: "▶" },
   ];
-  const entityPos = { x: pos.x + 300, y: pos.y };
+  const entityPos = pos;
   const createEntityAt = (kind: string) => {
     void createEntity(kind, { pos: entityPos });
     setAttrCreator(null);

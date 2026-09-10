@@ -18,9 +18,17 @@ import { FieldRow, typeLabelOf } from "./field-row";
 
 export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefined }) {
   const store = useWorldCanvasStore();
+  const apiBase = useWorldCanvasStore((state) => state.apiBase);
+  const worldId = useWorldCanvasStore((state) => state.worldId);
+  const loadDetail = useWorldsStore((state) => state.loadDetail);
   const entities = useWorldCanvasStore((state) => state.entities);
   const relations = useWorldCanvasStore((state) => state.relations);
   const setCreating = useWorldCanvasStore((state) => state.setCreating);
+  // 保存后强制刷新 detail（updateWorldMeta 不回写 worlds-store 缓存，面板值需立即落位）
+  const saveMeta = async (patch: { name?: string; description?: string; skillMd?: string }) => {
+    await store.updateWorldMeta(patch);
+    void loadDetail(apiBase, worldId, true);
+  };
 
   // 待关注（至多 5 条）：当前上下文内 缺简介 / 缺素材 / 待确认草稿（B.8；快照为全世界计数）
   const attention: Array<{ key: string; text: string; entity?: WorldEntity }> = [];
@@ -40,13 +48,20 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
 
   return (
     <div className="space-y-4 text-sm">
-      <FieldRow label="名称" value={store.worldName} onSave={(value) => store.updateWorldMeta({ name: String(value) })} />
+      <FieldRow label="名称" value={store.worldName} onSave={(value) => void saveMeta({ name: String(value) })} />
       <FieldRow
         label="简介"
         value={worldDetail?.description ?? ""}
         multiline
         placeholder="一句话描述这个世界…"
-        onSave={(value) => store.updateWorldMeta({ description: String(value) })}
+        onSave={(value) => void saveMeta({ description: String(value) })}
+      />
+      <FieldRow
+        label="Skill"
+        value={worldDetail?.skillMd ?? ""}
+        multiline
+        placeholder="这个世界的创作技能说明（Agent 会读取）…"
+        onSave={(value) => void saveMeta({ skillMd: String(value) })}
       />
       <div className="border-t pt-3">
         <p className="text-[11px] font-medium text-muted-foreground">世界快照</p>

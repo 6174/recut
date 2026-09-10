@@ -8,6 +8,7 @@
  */
 "use client";
 
+import { useState } from "react";
 import { useWorldCanvasStore } from "./canvas-store";
 import { relationCandidatesOf } from "./canvas-relation-candidates";
 
@@ -76,7 +77,8 @@ function startElementEdit(elementId: string, kind: "note-body" | "text-body") {
   useWorldCanvasStore.getState().startElementBodyEdit(elementId, kind);
 }
 
-// 关系类型就地切换 popover（T15）：双击关系线/标签弹出；Top4 候选 + 全量词表 → changeRelationType
+// 关系类型就地切换 popover（T15）：双击关系线/标签弹出；Top4 候选 + 全量词表 → changeRelationType；
+// 末尾「＋ 自定义关系…」就地输入任意关系名（relation_type 对自由扩展开放，服务端不校验词表）
 export function RelationTypePopover() {
   const popover = useWorldCanvasStore((state) => state.relationTypePopover);
   const setRelationTypePopover = useWorldCanvasStore((state) => state.setRelationTypePopover);
@@ -135,7 +137,37 @@ export function RelationTypePopover() {
               </button>
             ))}
         </div>
+        <CustomRelationRow current={relation.type} onConfirm={(relationType) => { close(); void changeRelationType(relation, relationType); }} />
       </div>
+    </div>
+  );
+}
+
+// 自定义关系类型（RFC：relation_type 对自由扩展开放）：就地输入关系名，提交 changeRelationType
+function CustomRelationRow({ current, onConfirm }: { current: string; onConfirm: (relationType: string) => void }) {
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customType, setCustomType] = useState("");
+  if (!customOpen) {
+    return (
+      <button className="mt-1 block w-full rounded px-2 py-1 text-left text-xs text-primary hover:bg-muted" onClick={() => setCustomOpen(true)} type="button">
+        ＋ 自定义关系…
+      </button>
+    );
+  }
+  return (
+    <div className="mt-1 flex gap-1">
+      <input
+        autoFocus
+        className="min-w-0 flex-1 rounded border bg-background px-1.5 py-0.5 text-xs outline-none focus:border-primary"
+        onBlur={() => setCustomOpen(false)}
+        onChange={(event) => setCustomType(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && customType.trim()) onConfirm(customType.trim());
+          if (event.key === "Escape") setCustomOpen(false);
+        }}
+        placeholder={`自定义（当前：${current}）`}
+        value={customType}
+      />
     </div>
   );
 }

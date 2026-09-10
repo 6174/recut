@@ -82,7 +82,7 @@ export type CanvasChange = { id: number; label: string; at: string; undo: () => 
 export const DEFAULT_ENTITY_SIZE = { width: 264, height: 328 };
 export const NOTE_SIZE = { width: 150, height: 100 };
 export const WORLD_ELEMENT_ID = "shape:world";
-export const WORLD_NODE_SIZE = { width: 260, height: 100 };
+export const WORLD_NODE_SIZE = { width: 200, height: 200 };
 
 // 实体类型 → 卡片描边色；颜色只表达类型，不承载关系语义（RFC 视觉语言）。
 export const typeColors: Record<string, string> = {
@@ -160,6 +160,9 @@ function savePanelSide(side: PanelSide) {
     // localStorage 不可用时静默（隐私模式等）
   }
 }
+
+// 属性面板显隐（T17 重构）：默认打开；Header icon 切换；选中元素自动打开，空选回落 World 态
+export type PanelOpenState = boolean;
 
 export function readLastKind(): string {
   try {
@@ -429,7 +432,7 @@ type WorldCanvasState = {
   // 删除设定（影响范围确认后调用；后端级联子图/关系/证据/画布投影）
   deleteEntity: (entityId: string) => Promise<void>;
   // World 名称/简介编辑（World 态面板）
-  updateWorldMeta: (patch: { name?: string; description?: string }) => Promise<void>;
+  updateWorldMeta: (patch: { name?: string; description?: string; skillMd?: string }) => Promise<void>;
   setDeleteTarget: (entity: WorldEntity | null) => void;
   setAddFieldFor: (kind: string | null) => void;
   // T8 媒体：素材来源浮层（仅独立素材；实体媒体 = media 属性，无独立「挂接目标」状态）与预览浮层
@@ -466,7 +469,9 @@ type WorldCanvasState = {
   setOutlineOpen: (open: boolean) => void;
   // 详情面板停靠侧（左/右）；切换即时生效并持久化
   panelSide: PanelSide;
+  panelOpen: boolean;
   setPanelSide: (side: PanelSide) => void;
+  setPanelOpen: (panelOpen: boolean) => void;
   // AI 用描述添加设定（T13/B.16）：候选对话框
   aiDialogOpen: boolean;
   setAiDialogOpen: (open: boolean) => void;
@@ -516,6 +521,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   historyOpen: false,
   outlineOpen: false,
   panelSide: readPanelSide(),
+  panelOpen: true,
   aiDialogOpen: false,
   relationTypePopover: null,
   linkMode: false,
@@ -666,7 +672,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   zoomIn: () => set((state) => ({ zoom: Math.min(2, state.zoom + 0.2) })),
   zoomOut: () => set((state) => ({ zoom: Math.max(0.4, state.zoom - 0.2) })),
   resetZoom: () => set({ zoom: 1 }),
-  select: (selection) => set({ selection }),
+  // 选中元素 = 自动打开属性面板（T17：空选回落 World 态属性）；点空白清选不关面板
+  select: (selection) =>
+    set((state) => ({ selection, panelOpen: selection ? true : state.panelOpen })),
   startRelating: (entityId) => set({ relatingFrom: entityId, relatingTo: null, selection: null }),
   pickRelatingTarget: (entityId) => {
     const { relatingFrom } = get();
@@ -1205,6 +1213,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     savePanelSide(side);
     set({ panelSide: side });
   },
+  setPanelOpen: (panelOpen) => set({ panelOpen }),
   setAiDialogOpen: (aiDialogOpen) => set({ aiDialogOpen }),
   setRelationTypePopover: (relationTypePopover) => set({ relationTypePopover }),
   // 回滚（T12）：非破坏指针回移；成功后全量刷新 + 更新 revisionId

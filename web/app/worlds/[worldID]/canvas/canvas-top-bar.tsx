@@ -10,7 +10,7 @@
  */
 "use client";
 
-import { ArrowLeft, Box, ChevronLeft, Globe2, Network } from "lucide-react";
+import { ArrowLeft, Box, ChevronLeft, Globe2, Info, Network } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { create } from "zustand";
 import { useWorldCanvasStore } from "./canvas-store";
@@ -112,7 +112,26 @@ export function WorldCanvasTopBar() {
         </>
       )}
       {notice && variant === "canvas" && <span className="truncate text-xs text-warning">{notice}</span>}
+      {/* 属性面板开关（T17 重构）：空选 = 全局上下文属性（名称/简介/Skill），选中 = 实体/关系/元素详情 */}
+      {variant === "canvas" && <PanelToggleButton />}
     </div>
+  );
+}
+
+function PanelToggleButton() {
+  const panelOpen = useWorldCanvasStore((state) => state.panelOpen);
+  const setPanelOpen = useWorldCanvasStore((state) => state.setPanelOpen);
+  return (
+    <button
+      aria-label={panelOpen ? "收起属性面板" : "打开属性面板"}
+      title={panelOpen ? "收起属性面板" : "属性面板（空选 = 世界属性）"}
+      aria-pressed={panelOpen}
+      className={`grid size-7 shrink-0 place-items-center rounded-md hover:bg-muted ${panelOpen ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
+      onClick={() => setPanelOpen(!panelOpen)}
+      type="button"
+    >
+      <Info className="size-4" />
+    </button>
   );
 }
 

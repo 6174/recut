@@ -23,6 +23,7 @@ import { WorldPanel } from "./panel/world-panel";
 export function CanvasDetailPanel() {
   const selection = useWorldCanvasStore((state) => state.selection);
   const select = useWorldCanvasStore((state) => state.select);
+  const panelOpen = useWorldCanvasStore((state) => state.panelOpen);
   const worldId = useWorldCanvasStore((state) => state.worldId);
   const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const worldName = useWorldCanvasStore((state) => state.worldName);
@@ -62,6 +63,7 @@ export function CanvasDetailPanel() {
           ? selection.element.name || "画布元素"
           : (detail?.name ?? worldName);
 
+  if (!panelOpen) return null;
   return (
     <aside className={`absolute top-0 z-20 flex h-full w-80 flex-col overflow-hidden bg-card ${panelSide === "left" ? "left-0 border-r" : "right-0 border-l"}`}>
       <header className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
