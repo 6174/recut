@@ -565,10 +565,13 @@ create index if not exists worlds_type on worlds(type, updated_at desc);
 create table if not exists world_entities (
   id text primary key,
   world_id text not null references worlds(id) on delete cascade,
+  type_id text not null default '',
   kind text not null,
   title text not null,
   summary text not null default '',
-  content_json text not null,
+  detail text not null default '',
+  attrs_json text not null default '[]',
+  content_json text not null default '{}',
   parent_id text references world_entities(id) on delete cascade,
   container_role text not null default '',
   is_provisional integer not null default 0,
@@ -734,12 +737,19 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table world_entities add column parent_id text",
 			"alter table world_entities add column container_role text not null default ''",
 			"alter table world_entities add column is_provisional integer not null default 0",
+			"alter table world_entities add column type_id text not null default ''",
+			"alter table world_entities add column detail text not null default ''",
+			"alter table world_entities add column attrs_json text not null default '[]'",
 			"alter table world_relations add column scope_entity_id text",
 			"create index if not exists world_entities_parent on world_entities(world_id, parent_id)",
+			"create index if not exists world_entities_world_type on world_entities(world_id, type_id, updated_at desc)",
 		} {
 			if _, err := db.Exec(statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 				return err
 			}
+		}
+		if err := migrateWorldEntitiesToUnified(db); err != nil {
+			return err
 		}
 		if _, err := db.Exec("update media_assets set updated_at = created_at where updated_at = ''"); err != nil {
 			return err
@@ -1071,4 +1081,85 @@ func readProjectJSON(path string, target any) error {
 		return err
 	}
 	return json.Unmarshal(data, target)
+}
+
+// migrateWorldEntitiesToUnified performs the one-shot collapse of the legacy
+// entity row (kind/title/summary/content_json) into the unified entity model
+// (type_id/name/intro/detail/attrs_json) of RFC 统一 Entity 模型. Column names
+// are kept as storage names (title=name, summary=intro, detail is new); the
+// migration moves content_json into detail + attrs and pins each row's type_id.
+// Rows already carrying a type_id are untouched, so re-running is a no-op.
+func migrateWorldEntitiesToUnified(db *sql.DB) error {
+	var pending int
+	if err := db.QueryRow("select count(*) from world_entities where type_id = ''").Scan(&pending); err != nil {
+		return err
+	}
+	if pending == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query("select id, world_id, kind, content_json from world_entities where type_id = '' and archived_at is null")
+	if err != nil {
+		return err
+	}
+	type row struct {
+		id, worldID, kind, contentJSON string
+	}
+	pendingRows := []row{}
+	for rows.Next() {
+		var item row
+		if err := rows.Scan(&item.id, &item.worldID, &item.kind, &item.contentJSON); err != nil {
+			rows.Close()
+			return err
+		}
+		pendingRows = append(pendingRows, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, item := range pendingRows {
+		typeID := item.kind
+		if err := ensureEntityTypeInTx(tx, item.worldID, typeID); err != nil {
+			return err
+		}
+		content := map[string]any{}
+		_ = json.Unmarshal([]byte(item.contentJSON), &content)
+		detail, _ := content["body"].(string)
+		attrs := []EntityAttr{}
+		for key, value := range content {
+			if key == "body" {
+				continue
+			}
+			// Known ghost structural keys are dropped (they were UI-hidden
+			// legacy fields); everything else becomes a text attr.
+			if key == "type" {
+				continue
+			}
+			text, _ := value.(string)
+			if text == "" {
+				if encoded, err := json.Marshal(value); err == nil {
+					text = string(encoded)
+				}
+			}
+			attrs = append(attrs, EntityAttr{Key: key, Label: key, Type: "text", Value: text})
+		}
+		attrsJSON, err := json.Marshal(attrs)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec("update world_entities set type_id = ?, kind = ?, detail = ?, attrs_json = ?, content_json = '{}' where id = ?", typeID, typeID, detail, string(attrsJSON), item.id); err != nil {
+			return err
+		}
+	}
+	// Archived rows without type_id get the same type pinning so reads never
+	// fall back to the legacy kind column.
+	if _, err := tx.Exec("update world_entities set type_id = kind where type_id = ''"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

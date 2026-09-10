@@ -29,14 +29,18 @@ func TestWorldsMCPToolsAreAlwaysRegistered(t *testing.T) {
 		"recut.worlds.create",
 		"recut.worlds.update",
 		"recut.worlds.entities.upsert",
-		"recut.worlds.references.attach",
-		"recut.worlds.evidence.attach",
-		"recut.worlds.evidence.update",
 		"recut.worlds.evidence.archive",
 		"recut.worlds.bind_project",
 	} {
 		if !names[expected] {
 			t.Fatalf("global Worlds tool %q is missing", expected)
+		}
+	}
+	// Evidence/reference writes are frozen (统一实体模型): the attach/update
+	// tools are removed from the MCP surface; media lives in entity attrs.
+	for _, removed := range []string{"recut.worlds.references.attach", "recut.worlds.evidence.attach", "recut.worlds.evidence.update"} {
+		if names[removed] {
+			t.Fatalf("frozen tool %q must be removed from the MCP surface", removed)
 		}
 	}
 }

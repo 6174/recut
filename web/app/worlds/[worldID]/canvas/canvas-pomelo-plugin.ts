@@ -163,7 +163,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       if (blockId === WORLD_ELEMENT_ID) return { title: store.worldName, canvasId };
       if (blockId.startsWith("entity:")) {
         const entity = store.entities.find((item) => item.id === blockId.slice("entity:".length));
-        return { title: entity?.title ?? "实体", canvasId };
+        return { title: entity?.name ?? "实体", canvasId };
       }
       const element = store.elements.find((item) => item.id === blockId);
       const name = element?.name;
@@ -683,7 +683,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
               const target = store.entities.find((item) => item.id === targetEntityId);
               if (currentEntityId && target) {
                 // 换挂确认：归档旧证据后挂新
-                if (window.confirm(`把这份素材从「${store.entities.find((item) => item.id === currentEntityId)?.title ?? "…"}」移到「${target.title}」？`)) {
+                if (window.confirm(`把这份素材从「${store.entities.find((item) => item.id === currentEntityId)?.name ?? "…"}」移到「${target.name}」？`)) {
                   void store.attachMediaElement(element.id, targetEntityId);
                 }
               } else {
@@ -739,7 +739,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const entity = store.entities.find((item) => item.id === entityId);
         if (!entity) return;
         store.cancelInlineEdit(); // 命名态再次双击 = 退出命名并进入容器（B.7）
-        store.setContext({ entityId, title: entity.title });
+        store.setContext({ entityId, title: entity.name });
         return;
       }
       if (store.readOnly) return;

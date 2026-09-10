@@ -1,11 +1,13 @@
 /*
- * [INPUT]: 依赖 react、canvas-store（saveEntityField/renameEntity/confirmEntity/deleteEntity/select）、
- * recut-worlds-client 类型、panel/field-row、lucide-react
- * [OUTPUT]: 对外提供 EntityPanel（B.8 Entity 态，编辑主场）：标题/简介/正文（content.body）就地编辑、按 type schema 渲染字段
- * （label 映射 + 保存策略 + media 素材字段走 AssetFieldRow + boolean 开关 + [＋ 添加字段] 类型级对话框入口）、
- * Section 折叠 section（+/−）、草稿徽标 → [确认设定]、参考素材统一素材模式（点击 → 全局素材弹框）、
- * 子设定列表（[进入]）、关系列表与 [建立关系…]、[进入内部]/[删除设定…]
- * [POS]: worlds/[worldID]/canvas/panel 的 Entity 态面板；schema 外 content key（body 除外）归入「其他」区
+ * [INPUT]: 依赖 react、canvas-store（saveEntityField/renameEntity/confirmEntity/deleteEntity/select/
+ * setMediaCover/removeMediaAttr）、recut-worlds-client 类型、canvas/entity-attrs、panel/field-row、
+ * lucide-react
+ * [OUTPUT]: 对外提供 EntityPanel（B.8 Entity 态，编辑主场）：名称/简介/正文（detail）就地编辑、按
+ * type schema 渲染字段（label 映射 + 保存策略 + media 素材字段走 AssetFieldRow + boolean 开关 +
+ * [＋ 添加字段] 类型级对话框入口）、Section 折叠 section（+/−）、草稿徽标 → [确认设定]、
+ * 素材区（统一 Entity 模型：media 属性列表，[封面]=写入显式 background 属性 / [删除]=删属性，
+ * label 即属性 label）、子设定列表（[进入]）、关系列表与 [建立关系…]、[进入内部]/[删除设定…]
+ * [POS]: worlds/[worldID]/canvas/panel 的 Entity 态面板；schema 外属性归入「其他」区
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -13,8 +15,9 @@
 import { ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
-import type { WorldEntity, WorldEntityType, WorldEvidencePurpose } from "@/lib/recut-worlds-client";
-import { evidencePurposeLabels, evidencePurposeOrder } from "../canvas-media";
+import type { WorldEntity, WorldEntityType } from "@/lib/recut-worlds-client";
+import { parseAssetValue } from "./field-row";
+import { attrListOf, attrMediaValueOf, attrTextOf, attrValueOf, entityMediaAttrs } from "../entity-attrs";
 import { useWorldCanvasStore } from "../canvas-store";
 import { AssetFieldRow, FieldRow, typeLabelOf, useEntityFieldSaver } from "./field-row";
 
@@ -41,11 +44,11 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
   const saveField = useEntityFieldSaver();
   const [pickingTarget, setPickingTarget] = useState(false);
   const [previewRef, setPreviewRef] = useState<PreviewAsset | null>(null);
-  const type = entityTypes.find((item) => item.id === entity.kind);
+  const type = entityTypes.find((item) => item.id === entity.typeId);
   const schemaKeys = new Set((type?.fields ?? []).map((field) => field.key));
-  const extraKeys = Object.entries(entity.content ?? {}).filter(
-    ([key, value]) => key !== "body" && !schemaKeys.has(key) && ["string", "number", "boolean"].includes(typeof value),
-  );
+  // schema 外属性（统一 Entity 模型：attrs 为属性列表；非 media 的原始值归入「其他」区，同样可编辑）
+  const extraAttrs = attrListOf(entity).filter((attr) => !schemaKeys.has(attr.key) && attr.type !== "media");
+  const mediaAttrs = entityMediaAttrs(entity);
   const childEntities = (entity.children ?? []).map((child) => store.entities.find((item) => item.id === child.id) ?? null);
   const relations = (entity.relations ?? []).filter((relation) => {
     // 面板关系列表与画布同源：scope 为全局或当前 context
@@ -53,7 +56,7 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
     return !relation.scopeEntityId || relation.scopeEntityId === contextId;
   });
   const entities = useWorldCanvasStore((state) => state.entities);
-  const titleOf = (id: string) => entities.find((item) => item.id === id)?.title ?? "…";
+  const titleOf = (id: string) => entities.find((item) => item.id === id)?.name ?? "…";
 
   return (
     <div className="space-y-4 text-sm">
@@ -71,24 +74,24 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
         </div>
       )}
 
-      {/* 标题：与其他字段同一编辑原语（FieldRow 点击进入编辑，blur/⌘↵ 保存 → renameEntity） */}
-      <FieldRow label={typeLabelOf(entity, entityTypes)} value={entity.title} onSave={(value) => store.renameEntity(entity, String(value))} readOnly={readOnly} />
+      {/* 名称：与其他字段同一编辑原语（FieldRow 点击进入编辑，blur/⌘↵ 保存 → renameEntity） */}
+      <FieldRow label={typeLabelOf(entity, entityTypes)} value={entity.name} onSave={(value) => store.renameEntity(entity, String(value))} readOnly={readOnly} />
 
-      {/* 简介 → 正文（body）：固定顺序，正文紧随简介，存 content.body */}
-      <FieldRow label="简介" multiline value={entity.summary ?? ""} placeholder="一句话简介…" onSave={(value) => store.saveEntityField(entity, { summary: String(value) })} />
+      {/* 简介 → 正文（detail）：固定顺序，正文紧随简介（统一 Entity 模型：detail 为一等字段） */}
+      <FieldRow label="简介" multiline value={entity.intro ?? ""} placeholder="一句话简介…" onSave={(value) => store.saveEntityField(entity, { intro: String(value) })} />
       <FieldRow
         label="正文"
         multiline
         placeholder="详细内容…"
-        value={typeof entity.content?.body === "string" ? entity.content.body : ""}
-        onSave={(value) => store.saveEntityField(entity, { contentPatch: { body: value } })}
+        value={entity.detail ?? ""}
+        onSave={(value) => store.saveEntityField(entity, { detail: String(value) })}
       />
 
       {/* 字段（按 type schema；B.9/D9 类型级字段；支持 media 素材 / boolean 开关 / 多行） */}
       <Section
         title={`字段（${(type?.fields ?? []).length}）`}
         action={!readOnly ? (
-          <button className="text-[10px] text-primary hover:underline" onClick={() => store.setAddFieldFor(entity.kind)} type="button">
+          <button className="text-[10px] text-primary hover:underline" onClick={() => store.setAddFieldFor(entity.typeId)} type="button">
             ＋ 添加字段
           </button>
         ) : undefined}
@@ -103,7 +106,7 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
                 label={field.label ?? field.key}
                 onSave={saveField(entity, field.key)}
                 readOnly={readOnly}
-                value={entity.content?.[field.key]}
+                value={attrValueOf(entity, field.key)}
               />
             );
           }
@@ -115,7 +118,7 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
                 label={field.label ?? field.key}
                 readOnly={readOnly}
                 onSave={saveField(entity, field.key)}
-                value={entity.content?.[field.key] === true ? "true" : "false"}
+                value={attrValueOf(entity, field.key) === true ? "true" : "false"}
               />
             );
           }
@@ -127,96 +130,82 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
               placeholder={field.placeholder}
               readOnly={readOnly}
               onSave={saveField(entity, field.key)}
-              value={String(entity.content?.[field.key] ?? "")}
+              value={attrTextOf(entity, field.key)}
             />
           );
         })}
-        {/* schema 外的 content key（body 已提升为正文）：归入「其他」区，同样可编辑 */}
-        {extraKeys.length > 0 && (
+        {/* schema 外的属性（detail 已提升为正文）：归入「其他」区，同样可编辑 */}
+        {extraAttrs.length > 0 && (
           <div className="space-y-3 pt-1">
             <p className="text-[11px] font-medium text-muted-foreground/70">其他</p>
-            {extraKeys.map(([key, value]) => (
+            {extraAttrs.map((attr) => (
               <FieldRow
-                key={key}
-                label={key}
-                value={String(value)}
+                key={attr.key}
+                label={attr.label ?? attr.key}
+                value={attrTextOf(entity, attr.key)}
                 readOnly={readOnly}
-                onSave={saveField(entity, key)}
+                onSave={saveField(entity, attr.key)}
               />
             ))}
           </div>
         )}
       </Section>
 
-      {/* 参考素材（统一素材模式）：所有素材点击 → 全局素材弹框；asset 源走 AssetPreviewDialog，url 源走轻量灯箱；[＋ 添加] 打开源浮层 */}
+      {/* 素材（统一 Entity 模型）：media 属性列表，label 即属性 label；asset 源点击 → 全局素材弹框；
+      [封面] = 写入显式 background media 属性；[删除] = 删除该属性；[＋ 添加] 打开源浮层 */}
       <Section
-        title={`参考素材（${(entity.references ?? []).length}）`}
+        title={`参考素材（${mediaAttrs.length}）`}
         action={!readOnly ? (
           <button className="text-[10px] text-primary hover:underline" onClick={() => store.setMediaSource({ entity })} type="button">
             ＋ 添加
           </button>
         ) : undefined}
       >
-        {(entity.references ?? []).length === 0 ? (
+        {mediaAttrs.length === 0 ? (
           <p className="text-xs text-muted-foreground">还没有参考素材。把图片拖到卡片上即可。</p>
         ) : (
           <div className="grid grid-cols-3 gap-2">
-            {(entity.references ?? []).map((item) => {
-              const src = item.source === "url" || (!item.assetId && item.url) ? item.url ?? "" : item.assetId ? `${store.apiBase}/v1/media/assets/${encodeURIComponent(item.assetId)}/content` : "";
-              if (!src) return null;
-              const isImage = item.modality === "image";
-              const isUrlSource = item.source === "url" || (!item.assetId && item.url);
+            {mediaAttrs.map((attr) => {
+              const media = attrMediaValueOf(entity, attr.key);
+              if (!media) return null;
+              const asset = parseAssetValue(media);
+              const kind = asset?.kind ?? "image";
+              const label = attr.label ?? attr.key;
               return (
-                <div className="overflow-hidden rounded-md border" key={item.id ?? item.assetId ?? item.url}>
+                <div className="overflow-hidden rounded-md border" key={attr.key}>
                   <button
                     className="block h-14 w-full"
                     onClick={() => {
-                      if (isUrlSource) {
-                        store.setMediaPreview({ src, modality: item.modality, name: item.label ?? evidencePurposeLabels[item.purpose] ?? "素材" });
-                      } else {
-                        setPreviewRef({
-                          id: item.assetId ?? "",
-                          kind: item.modality === "audio" ? "audio" : item.modality === "video" ? "video" : "image",
-                          name: item.label ?? evidencePurposeLabels[item.purpose] ?? "素材",
-                          origin: "素材库",
-                          status: "completed",
-                          createdAt: "",
-                          updatedAt: "",
-                          metadata: {},
-                        });
-                      }
+                      setPreviewRef({
+                        id: media.assetId,
+                        kind,
+                        name: media.name ?? label,
+                        origin: "素材库",
+                        status: "completed",
+                        createdAt: "",
+                        updatedAt: "",
+                        metadata: {},
+                      });
                     }}
                     title="点击查看素材详情"
                     type="button"
                   >
-                    {isImage ? (
+                    {kind === "image" ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img alt={item.label ?? item.purpose} className="h-14 w-full object-cover" src={src} />
+                      <img alt={media.name ?? label} className="h-14 w-full object-cover" src={`${store.apiBase}/v1/media/assets/${encodeURIComponent(media.assetId)}/content`} />
                     ) : (
-                      <span className="grid h-14 w-full place-items-center bg-muted text-lg">{item.modality === "video" ? "🎬" : item.modality === "audio" ? "🎵" : "📄"}</span>
+                      <span className="grid h-14 w-full place-items-center bg-muted text-lg">{kind === "video" ? "🎬" : kind === "audio" ? "🎵" : "📄"}</span>
                     )}
                   </button>
                   <div className="flex items-center justify-between gap-1 px-1 py-0.5">
                     <span className="truncate text-[9px] text-muted-foreground">
-                      {evidencePurposeLabels[item.purpose] ?? item.purpose}
-                      {item.status === "primary" ? " · 封面" : ""}
+                      {label}
+                      {attr.key === "background" ? " · 封面" : ""}
                     </span>
                     {!readOnly && (
                       <span className="flex shrink-0 gap-0.5">
-                        <button className="rounded px-1 text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => void store.setEvidenceCover(entity, item.id!)} title="设为封面" type="button">封面</button>
-                        <select
-                          aria-label="改用途"
-                          className="w-4 cursor-pointer text-[9px] text-muted-foreground outline-none"
-                          onChange={(event) => void store.updateEvidencePurpose(entity, item.id!, event.target.value as WorldEvidencePurpose)}
-                          onClick={(event) => event.stopPropagation()}
-                          title="改用途"
-                          value={item.purpose}
-                        >
-                          {evidencePurposeOrder.map((purpose) => (
-                            <option key={purpose} value={purpose}>{evidencePurposeLabels[purpose]}</option>
-                          ))}
-                        </select>
-                        <button className="rounded px-1 text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => void store.archiveEvidence(entity, item.id!)} title="归档" type="button">归档</button>
+                        <button className="rounded px-1 text-[9px] text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => void store.setMediaCover(entity, attr.key)} title="设为封面" type="button">封面</button>
+                        <button className="rounded px-1 text-[9px] text-muted-foreground hover:bg-muted hover:text-destructive" onClick={() => void store.removeMediaAttr(entity.id, attr.key)} title="删除素材" type="button">删除</button>
                       </span>
                     )}
                   </div>
@@ -235,11 +224,11 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
           <ul className="mt-1 space-y-1">
             {childEntities.map((child, index) => (
               <li className="flex items-center justify-between gap-2 rounded bg-muted/50 px-2 py-1.5 text-xs" key={child?.id ?? index}>
-                <span className="truncate">⤷ {child?.title ?? "…"}</span>
+                <span className="truncate">⤷ {child?.name ?? "…"}</span>
                 {child && (
                   <button
                     className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    onClick={() => store.setContext({ entityId: child.id, title: child.title })}
+                    onClick={() => store.setContext({ entityId: child.id, title: child.name })}
                     type="button"
                   >
                     进入
@@ -276,7 +265,7 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
                   }}
                   type="button"
                 >
-                  <span className="truncate">{item.title}</span>
+                  <span className="truncate">{item.name}</span>
                   <span className="text-muted-foreground">{typeLabelOf(item, entityTypes)}</span>
                 </button>
               ))}
@@ -310,7 +299,7 @@ export function EntityPanelFooter({ entity }: { entity: WorldEntity }) {
     <div className="flex gap-2">
       <button
         className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border text-xs hover:bg-muted"
-        onClick={() => store.setContext({ entityId: entity.id, title: entity.title })}
+        onClick={() => store.setContext({ entityId: entity.id, title: entity.name })}
         type="button"
       >
         <ChevronRight className="size-3.5" /> 进入内部

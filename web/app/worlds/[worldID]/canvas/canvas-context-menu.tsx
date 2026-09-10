@@ -27,7 +27,7 @@ export function CanvasContextMenu() {
   if (entity) {
     items.push(
       { label: "重命名", action: () => run(() => startRename(entity.id)) },
-      { label: "进入内部", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setContext({ entityId: entity.id, title: entity.title })) },
+      { label: "进入内部", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setContext({ entityId: entity.id, title: entity.name })) },
       { label: "建立关系…", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().startRelating(entity.id)) },
       { label: "删除…", danger: true, disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setDeleteTarget(entity)) },
     );
@@ -91,8 +91,8 @@ export function RelationTypePopover() {
   const close = () => setRelationTypePopover(null);
   const from = entities.find((entity) => entity.id === relation.fromEntityId);
   const to = entities.find((entity) => entity.id === relation.toEntityId);
-  const fromKind = entityTypes.find((item) => item.id === from?.kind)?.baseKind || from?.kind || "";
-  const toKind = entityTypes.find((item) => item.id === to?.kind)?.baseKind || to?.kind || "";
+  const fromKind = entityTypes.find((item) => item.id === from?.typeId)?.baseKind || from?.typeId || "";
+  const toKind = entityTypes.find((item) => item.id === to?.typeId)?.baseKind || to?.typeId || "";
   const top4 = relationCandidatesOf(fromKind, toKind).filter((id) => relationTypes.some((item) => item.id === id));
   return (
     <div className="fixed inset-0 z-[70]" onPointerDown={close}>

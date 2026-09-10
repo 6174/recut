@@ -31,11 +31,14 @@ import { PlatformMediaPicker } from "@/components/platform-media-picker";
 import { useAgentPanelContext, useReportWorkSurface } from "@/lib/agent-panel-context";
 import {
   createRecutWorldsClient,
+  entityKindLabel,
+  entityKinds,
   worldOrigin,
   worldReadOnly,
   type EntityKind,
   type WorldDetail,
   type WorldEntity,
+  type WorldEntityType,
   type WorldEvidence,
   type WorldScenario,
 } from "@/lib/recut-worlds-client";
@@ -48,7 +51,7 @@ import {
   EntityDetailDialog,
   SettingCard,
 } from "./world-detail-panels";
-import { settingSections, SettingDialog } from "./world-detail-settings";
+import { SettingDialog } from "./world-detail-settings";
 import { WorldOnboardingCard } from "./world-onboarding";
 import { Workspace } from "../../page";
 import { useWorldCanvasTopBarStore } from "./canvas/canvas-top-bar";
@@ -81,9 +84,10 @@ function WorldDetailContent() {
   const [worldID, setWorldID] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorldDetail | null>(null);
   const [error, setError] = useState("");
-  const [entitiesByKind, setEntitiesByKind] = useState<
+  const [entitiesByType, setEntitiesByType] = useState<
     Record<string, WorldEntity[]>
   >({});
+  const [entityTypes, setEntityTypes] = useState<WorldEntityType[]>([]);
   const [activeKind, setActiveKind] = useState<EntityKind | "resource" | "skill">("skill");
   // 进入 World 默认即画布模式；左上角按钮可切回表单模式。
   const [viewMode, setViewMode] = useState<"form" | "canvas">("canvas");
@@ -119,7 +123,7 @@ function WorldDetailContent() {
       view: activeKind,
       selection: editing ? { refs: [{ kind: "world_entity", id: editing.id }], primaryRef: { kind: "world_entity", id: editing.id }, state: { entity: editing } } : { refs: [], state: { entity: null } },
       state: { activeKind, entityCounts: detail.entityCounts, revision: detail.revision },
-      summary: editing ? `正在编辑 ${editing.title}` : `查看 ${activeKind}`,
+      summary: editing ? `正在编辑 ${editing.name}` : `查看 ${activeKind}`,
     });
   }, [activeKind, detail, editing, worldID]);
   const params = useParams<{ worldID?: string }>();
@@ -147,13 +151,25 @@ function WorldDetailContent() {
     let active = true;
     void loadWorldEntities(apiBase, worldID, loadEntities, loadEntity).then(
       (grouped) => {
-        if (active) setEntitiesByKind(grouped);
+        if (active) setEntitiesByType(grouped);
       },
     );
     return () => {
       active = false;
     };
   }, [apiBase, loadEntities, loadEntity, worldID]);
+  useEffect(() => {
+    if (!apiBase || !worldID) return;
+    let active = true;
+    void loadEntityTypes(apiBase, worldID)
+      .then((types) => {
+        if (active) setEntityTypes(types);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [apiBase, worldID]);
 
   // 顶层工具栏行（全局 Header）在两种视图下同构，且在 WorldCanvas chunk 加载前就注册：
   // canvas 是默认视图 → 挂载即注册 canvas variant（避免 Header 先闪全局导航再跳成工具栏行）；
@@ -189,8 +205,8 @@ function WorldDetailContent() {
   ) : null;
 
   const activeEntities = useMemo(
-    () => entitiesByKind[activeKind] ?? [],
-    [activeKind, entitiesByKind],
+    () => entitiesByType[activeKind] ?? [],
+    [activeKind, entitiesByType],
   );
   if (!worldID)
     return (
@@ -211,9 +227,7 @@ function WorldDetailContent() {
   const worldId = worldID;
   const readOnly = worldReadOnly(detail);
   const origin = worldOrigin(detail);
-  const currentSection = settingSections(t).find(
-    (section) => section.kind === activeKind,
-  );
+  const currentSection = typeSectionText(activeKind, entityTypes, t);
 
   async function forkWorld() {
     if (forking) return;
@@ -262,7 +276,8 @@ function WorldDetailContent() {
       loadWorldEntities(apiBase, worldId, loadEntities, loadEntity, true),
     ]);
     setDetail(next);
-    setEntitiesByKind(grouped);
+    setEntitiesByType(grouped);
+    void loadEntityTypes(apiBase, worldId, true).then(setEntityTypes).catch(() => {});
   }
   async function createVideoFromStory(storyID: string) {
     setNotice("");
@@ -381,7 +396,7 @@ function WorldDetailContent() {
         aria-label={t("worlds.detail.tabs.aria")}
         className="mb-6 flex flex-wrap items-center gap-1.5"
       >
-        {[{ kind: "skill" as const, title: t("worlds.detail.skill.title"), description: t("worlds.detail.skill.desc"), action: "" }, ...settingSections(t), { kind: "resource" as const, title: t("worlds.detail.resource.title"), description: t("worlds.detail.resource.desc"), action: t("worlds.detail.resource.action") }].map((section) => (
+        {[{ kind: "skill" as const, title: t("worlds.detail.skill.title") }, ...entityTypeTabs(entityTypes), { kind: "resource" as const, title: t("worlds.detail.resource.title") }].map((section) => (
           <button
             aria-pressed={activeKind === section.kind}
             className={tabClass(activeKind === section.kind)}
@@ -397,7 +412,7 @@ function WorldDetailContent() {
         ))}
       </nav>
       {activeKind === "skill" ? <WorldSkillPanel readOnly={readOnly} saving={savingSkill} skill={detail.skillMd ?? ""} onDraftChange={setSkillDraft} onSave={() => void saveSkill()} />
-        : activeKind === "resource" ? <WorldResourcesPanel apiBase={apiBase} expectedRevisionID={detail.revision.id} onChanged={() => void reloadWorld()} readOnly={readOnly} worldID={worldId} /> : <section className="flex flex-col items-start gap-5">
+        : activeKind === "resource" ? <WorldResourcesPanel apiBase={apiBase} worldID={worldId} /> : <section className="flex flex-col items-start gap-5">
           <div className="flex w-full items-end justify-between gap-4">
             <div>
               <h2 className="text-xl font-semibold">{currentSection?.title}</h2>
@@ -427,7 +442,7 @@ function WorldDetailContent() {
             </div>
           ) : (
             <EmptySetting
-              kind={activeKind}
+              title={currentSection.title}
               onCreate={readOnly ? undefined : () => setCreating(true)}
             />
           )}
@@ -437,17 +452,16 @@ function WorldDetailContent() {
           apiBase={apiBase}
           entity={editing}
           expectedRevisionID={detail.revision.id}
-          kind={activeKind}
           onClose={() => {
             setCreating(false);
             setEditing(null);
           }}
-          onEvidenceChanged={() => void reloadWorld()}
           onSaved={() => {
             setCreating(false);
             setEditing(null);
             void reloadWorld();
           }}
+          typeId={activeKind}
           worldID={worldId}
         />
       )}
@@ -479,15 +493,14 @@ function WorldDetailContent() {
   );
 }
 
-function WorldResourcesPanel({ apiBase, expectedRevisionID, onChanged, worldID, readOnly = false }: { apiBase: string; expectedRevisionID: string; onChanged: () => void; worldID: string; readOnly?: boolean }) {
+function WorldResourcesPanel({ apiBase, worldID }: { apiBase: string; expectedRevisionID?: string; onChanged?: () => void; worldID: string; readOnly?: boolean }) {
+  // evidence 写入已冻结（RFC 统一实体模型）：资源库降级为只读列表；
+  // 世界级资料的新增路径待服务端开放后恢复（contract gap）。
   const { t } = useI18n();
   const [items, setItems] = useState<WorldEvidence[]>([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [selectedAsset, setSelectedAsset] = useState<{ id: string; name: string } | null>(null);
-  const [description, setDescription] = useState("");
   const [error, setError] = useState("");
   useEffect(() => { void createRecutWorldsClient(apiBase).evidence.list({ worldId: worldID }).then((all) => setItems(all.filter((item) => !item.entityId))).catch(() => setError(t("worlds.detail.resource.load.failed"))); }, [apiBase, worldID]);
-  return <section className="flex w-full flex-col items-start gap-5"><div className="flex w-full items-end justify-between gap-4"><div><h2 className="text-xl font-semibold">{t("worlds.detail.resource.title")}</h2><p className="mt-1 text-sm text-muted-foreground">{t("worlds.detail.resource.fullDesc")}</p></div>{readOnly ? null : <Button onClick={() => setPickerOpen(true)} type="button">{t("worlds.detail.resource.action")}</Button>}</div>{error ? <div className="w-full rounded-md border border-warning/30 bg-warning/10 p-4 text-sm text-warning">{error}</div> : items.length ? <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-4">{items.map((item) => <div className="rounded-md border p-4" key={item.id ?? item.assetId ?? item.url}><p className="text-sm font-medium">{item.label || t("worlds.detail.resource.unnamed")}</p><p className="mt-1 text-xs text-muted-foreground">{item.modality === "research" ? t("worlds.detail.resource.kind.document") : item.modality === "text" ? t("worlds.detail.resource.kind.text") : item.modality === "audio" ? t("worlds.detail.resource.kind.audio") : item.modality === "video" ? t("worlds.detail.resource.kind.video") : t("worlds.detail.resource.kind.image")}</p></div>)}</div> : <div className="w-full rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">{t("worlds.detail.resource.empty")}</div>}<PlatformMediaPicker apiBase={apiBase} onCancel={() => setPickerOpen(false)} onPick={(selection) => { const asset = Array.isArray(selection) ? selection[0] : selection; if (!asset) return; setSelectedAsset(asset); setDescription(""); setPickerOpen(false); }} request={pickerOpen ? { kinds: [] } : null} />{selectedAsset && <div aria-modal="true" className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6" role="dialog"><form className="w-full max-w-lg rounded-md border bg-card p-5 shadow-2xl" onSubmit={(event) => { event.preventDefault(); void createRecutWorldsClient(apiBase).evidence.attach({ worldId: worldID, assetId: selectedAsset.id, purpose: "narrative", status: "supporting", label: description.trim() || selectedAsset.name, expectedRevisionId: expectedRevisionID }).then(() => { setSelectedAsset(null); onChanged(); }).catch(() => setError(t("worlds.detail.resource.save.failed"))); }}><h3 className="text-lg font-semibold">{t("worlds.detail.resource.attach.title")}</h3><p className="mt-1 text-sm text-muted-foreground">{selectedAsset.name}</p><label className="mt-5 block text-xs font-medium" htmlFor="world-resource-description">{t("worlds.detail.resource.attach.label")}<Input autoFocus className="mt-1" id="world-resource-description" onChange={(event) => setDescription(event.target.value)} placeholder={t("worlds.detail.resource.attach.placeholder")} value={description} /></label><div className="mt-5 flex justify-end gap-2"><Button onClick={() => setSelectedAsset(null)} type="button" variant="ghost">{t("worlds.detail.resource.attach.cancel")}</Button><Button type="submit">{t("worlds.detail.resource.attach.submit")}</Button></div></form></div>}</section>;
+  return <section className="flex w-full flex-col items-start gap-5"><div className="flex w-full items-end justify-between gap-4"><div><h2 className="text-xl font-semibold">{t("worlds.detail.resource.title")}</h2><p className="mt-1 text-sm text-muted-foreground">{t("worlds.detail.resource.fullDesc")}</p></div></div>{error ? <div className="w-full rounded-md border border-warning/30 bg-warning/10 p-4 text-sm text-warning">{error}</div> : items.length ? <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-4">{items.map((item) => <div className="rounded-md border p-4" key={item.id ?? item.assetId ?? item.url}><p className="text-sm font-medium">{item.label || t("worlds.detail.resource.unnamed")}</p><p className="mt-1 text-xs text-muted-foreground">{item.modality === "research" ? t("worlds.detail.resource.kind.document") : item.modality === "text" ? t("worlds.detail.resource.kind.text") : item.modality === "audio" ? t("worlds.detail.resource.kind.audio") : item.modality === "video" ? t("worlds.detail.resource.kind.video") : t("worlds.detail.resource.kind.image")}</p></div>)}</div> : <div className="w-full rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">{t("worlds.detail.resource.empty")}</div>}</section>;
 }
 
 // 世界技能（world.md）是该世界的生产工作流：独立 Tab 展示。非 local 世界
@@ -558,8 +571,52 @@ async function loadWorldEntities(
     ),
   );
   for (const entity of full)
-    if (entity) (grouped[entity.kind] ??= []).push(entity);
+    if (entity) (grouped[entity.typeId] ??= []).push(entity);
   return grouped;
+}
+
+// 预设类型 + 已有自定义类型（type 目录开放；"reference" 已退役）
+function entityTypeTabs(types: WorldEntityType[]): Array<{ kind: EntityKind; title: string }> {
+  const nameOf = (typeId: EntityKind) => types.find((type) => type.id === typeId)?.name || entityKindLabel(typeId);
+  const presetTabs = entityKinds().map((kind) => ({ kind, title: nameOf(kind) }));
+  const customTabs = types
+    .filter((type) => type.scope === "custom" && !entityKinds().includes(type.id as EntityKind))
+    .map((type) => ({ kind: type.id as EntityKind, title: type.name || entityKindLabel(type.id) }));
+  return [...presetTabs, ...customTabs];
+}
+
+function typeSectionText(typeId: EntityKind, types: WorldEntityType[], t: (key: string) => string) {
+  const title = types.find((type) => type.id === typeId)?.name || entityKindLabel(typeId);
+  const descKey = `worlds.settings.${typeId}.desc`;
+  const desc = t(descKey);
+  const actionKey = `worlds.settings.${typeId}.action`;
+  const action = t(actionKey);
+  return {
+    title,
+    description: desc === descKey ? t("worlds.settings.dialog.desc") : desc,
+    action: action === actionKey ? t("worlds.create.newEntity") : action,
+  };
+}
+
+// entityTypes.list 的模块级缓存：设定页在 tab 重渲染间复用，写入后 force 刷新
+const entityTypeCache = new Map<string, WorldEntityType[]>();
+const entityTypeRequests = new Map<string, Promise<WorldEntityType[]>>();
+
+function loadEntityTypes(apiBase: string, worldId: string, force = false): Promise<WorldEntityType[]> {
+  const key = `${apiBase}:${worldId}`;
+  const cached = entityTypeCache.get(key);
+  if (!force && cached) return Promise.resolve(cached);
+  const current = entityTypeRequests.get(key);
+  if (current) return current;
+  const pending = createRecutWorldsClient(apiBase)
+    .entityTypes.list({ worldId })
+    .then((body) => {
+      entityTypeCache.set(key, body.items);
+      return body.items;
+    })
+    .finally(() => entityTypeRequests.delete(key));
+  entityTypeRequests.set(key, pending);
+  return pending;
 }
 
 function tabClass(active: boolean) {

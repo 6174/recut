@@ -58,11 +58,11 @@ type WorldManifestWorld struct {
 }
 
 type WorldManifestEntity struct {
-	ID      string          `json:"id"`
-	Kind    WorldEntityKind `json:"kind"`
-	Title   string          `json:"title"`
-	Summary string          `json:"summary"`
-	Content map[string]any  `json:"content"`
+	ID      string         `json:"id"`
+	Kind    string         `json:"kind"`
+	Title   string         `json:"title"`
+	Summary string         `json:"summary"`
+	Content map[string]any `json:"content"`
 }
 
 type WorldManifestRelation struct {
@@ -134,8 +134,8 @@ func validateWorldManifest(kind string, entryID string, manifest *WorldManifest)
 			return fmt.Errorf("duplicate entity id %q", entity.ID)
 		}
 		seenEntity[entity.ID] = true
-		if !worldEntityKinds[entity.Kind] {
-			return fmt.Errorf("invalid entity kind %q", entity.Kind)
+		if strings.TrimSpace(entity.Kind) == "" {
+			return fmt.Errorf("entity %q kind is required", entity.ID)
 		}
 		if strings.TrimSpace(entity.Title) == "" {
 			return fmt.Errorf("entity %q title is required", entity.ID)
@@ -328,13 +328,38 @@ func (w *WorldStore) MaterializeWorld(entryID, entryKind, publisher, version, sh
 	// id; every read API is world-scoped, so consumers only ever see the
 	// stored form and the mapping is transparent.
 	storedEntityID := func(entityID string) string { return manifest.World.ID + ":" + entityID }
+	if err := ensurePresetEntityTypesInTx(tx, manifest.World.ID); err != nil {
+		return "", false, err
+	}
 	for index, entity := range manifest.Entities {
-		contentJSON, err := json.Marshal(entity.Content)
+		// Manifest wire format stays v1 (kind/title/summary/content); the
+		// storage side is the unified entity model (typeId/name/intro/detail/
+		// attrs). content.body → detail, remaining keys → text attrs.
+		typeID := strings.TrimSpace(entity.Kind)
+		if err := ensureEntityTypeInTx(tx, manifest.World.ID, typeID); err != nil {
+			return "", false, err
+		}
+		detail := ""
+		attrs := []EntityAttr{}
+		for key, value := range entity.Content {
+			if key == "body" {
+				detail, _ = value.(string)
+				continue
+			}
+			text, _ := value.(string)
+			if text == "" {
+				if encoded, err := json.Marshal(value); err == nil {
+					text = string(encoded)
+				}
+			}
+			attrs = append(attrs, EntityAttr{Key: key, Label: key, Type: "text", Value: text})
+		}
+		attrsJSON, err := json.Marshal(attrs)
 		if err != nil {
 			return "", false, err
 		}
-		if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-			storedEntityID(entity.ID), manifest.World.ID, string(entity.Kind), strings.TrimSpace(entity.Title), strings.TrimSpace(entity.Summary), string(contentJSON), now, now); err != nil {
+		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)",
+			storedEntityID(entity.ID), manifest.World.ID, typeID, typeID, strings.TrimSpace(entity.Title), strings.TrimSpace(entity.Summary), detail, string(attrsJSON), now, now); err != nil {
 			return "", false, err
 		}
 		_ = index
@@ -619,20 +644,23 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 			if !includeAll && !selected[id] {
 				continue
 			}
-			view := map[string]any{}
-			for key, value := range record {
-				view[key] = value
+			// Brief facts share the Resolve entity projection: attrs are
+			// flattened key→value so generation prompts read natural fields.
+			view := w.entityView(record, "name")
+			baseKind, _ := record["baseKind"].(string)
+			if baseKind == "" {
+				baseKind = kind
 			}
-			switch WorldEntityKind(kind) {
-			case EntityCharacter:
+			switch baseKind {
+			case "character":
 				brief.Facts.Characters = append(brief.Facts.Characters, view)
-			case EntityStory:
+			case "story":
 				brief.Facts.Stories = append(brief.Facts.Stories, view)
-			case EntityLocation:
+			case "location":
 				brief.Facts.Locations = append(brief.Facts.Locations, view)
-			case EntityStyle:
+			case "style":
 				brief.Facts.Styles = append(brief.Facts.Styles, view)
-			case EntityRule:
+			case "rule":
 				text := ruleText(record)
 				switch ruleType(record) {
 				case "never":
@@ -692,7 +720,25 @@ func briefMissingFromCanonical(canonical map[string]any, world WorldDetail) []Wo
 		records, _ := bucket.([]any)
 		for _, raw := range records {
 			record, _ := raw.(map[string]any)
-			snapshot.Entities = append(snapshot.Entities, readinessEntitySnapshot{Kind: WorldEntityKind(kind), Content: record})
+			baseKind, _ := record["baseKind"].(string)
+			if baseKind == "" {
+				baseKind = kind
+			}
+			// Readiness measures the same content projection as the live
+			// Readiness endpoint: body = detail + flattened attrs (key→value).
+			content := map[string]any{}
+			if detail, ok := record["detail"].(string); ok {
+				content["body"] = detail
+			}
+			if attrs, ok := record["attrs"].([]any); ok {
+				for _, rawAttr := range attrs {
+					attr, _ := rawAttr.(map[string]any)
+					if key, _ := attr["key"].(string); key != "" {
+						content[key] = attr["value"]
+					}
+				}
+			}
+			snapshot.Entities = append(snapshot.Entities, readinessEntitySnapshot{Kind: baseKind, Content: content})
 		}
 	}
 	refs, _ := canonical["references"].([]any)
@@ -770,16 +816,16 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 		newWorldID, newName, string(worldType), description, identityJSON, WorldLocal, string(forkMeta), skillMd, now, now); err != nil {
 		return WorldDetail{}, err
 	}
-	entityRows, err := tx.Query("select id, kind, title, summary, content_json, parent_id, container_role, is_provisional from world_entities where world_id = ? and archived_at is null", input.WorldID)
+	entityRows, err := tx.Query("select id, coalesce(nullif(type_id, ''), kind), detail, attrs_json, parent_id, container_role, is_provisional from world_entities where world_id = ? and archived_at is null", input.WorldID)
 	if err != nil {
 		return WorldDetail{}, err
 	}
 	idMap := map[string]string{}
 	for entityRows.Next() {
-		var oldID, kind, title, summary, contentJSON, parentID, containerRole string
+		var oldID, typeID, detail, attrsJSON, parentID, containerRole string
 		var provisional int
 		var parentNull sql.NullString
-		if err := entityRows.Scan(&oldID, &kind, &title, &summary, &contentJSON, &parentNull, &containerRole, &provisional); err != nil {
+		if err := entityRows.Scan(&oldID, &typeID, &detail, &attrsJSON, &parentNull, &containerRole, &provisional); err != nil {
 			entityRows.Close()
 			return WorldDetail{}, err
 		}
@@ -790,8 +836,8 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 			return WorldDetail{}, err
 		}
 		idMap[oldID] = newEntityID
-		if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			newEntityID, newWorldID, kind, title, summary, contentJSON, nullIfEmpty(parentID), containerRole, provisional, now, now); err != nil {
+		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) select ?, ?, ?, ?, title, summary, ?, ?, '{}', ?, ?, ?, ?, ? from world_entities where id = ?",
+			newEntityID, newWorldID, typeID, typeID, detail, attrsJSON, nullIfEmpty(parentID), containerRole, provisional, now, now, oldID); err != nil {
 			entityRows.Close()
 			return WorldDetail{}, err
 		}

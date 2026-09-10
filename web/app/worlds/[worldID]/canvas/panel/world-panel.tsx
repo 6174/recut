@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import type { WorldDetail, WorldEntity } from "@/lib/recut-worlds-client";
 import { useWorldsStore } from "@/lib/worlds-store";
 import { useWorldCanvasStore } from "../canvas-store";
+import { entityMediaAttrs } from "../entity-attrs";
 import { FieldRow, typeLabelOf } from "./field-row";
 
 export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefined }) {
@@ -24,15 +25,15 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
   // 待关注（至多 5 条）：当前上下文内 缺简介 / 缺素材 / 待确认草稿（B.8；快照为全世界计数）
   const attention: Array<{ key: string; text: string; entity?: WorldEntity }> = [];
   for (const entity of entities) {
-    if (!entity.summary.trim()) attention.push({ key: `${entity.id}-summary`, text: `${entity.title} 还没有简介`, entity });
-    if (!(entity.references ?? []).length) attention.push({ key: `${entity.id}-evidence`, text: `${entity.title} 还没有参考素材`, entity });
-    if (entity.isProvisional) attention.push({ key: `${entity.id}-draft`, text: `${entity.title} 待确认设定`, entity });
+    if (!entity.intro.trim()) attention.push({ key: `${entity.id}-summary`, text: `${entity.name} 还没有简介`, entity });
+    if (!entityMediaAttrs(entity).length) attention.push({ key: `${entity.id}-media`, text: `${entity.name} 还没有参考素材`, entity });
+    if (entity.isProvisional) attention.push({ key: `${entity.id}-draft`, text: `${entity.name} 待确认设定`, entity });
   }
   const counts = worldDetail?.entityCounts;
   const snapshot = counts
     ? Object.entries(counts)
-        .filter(([, count]) => count > 0)
-        .map(([kind, count]) => `${count} 个${typeLabelOf({ kind } as WorldEntity, store.entityTypes)}`)
+        .filter(([, count]) => (count ?? 0) > 0)
+        .map(([kind, count]) => `${count} 个${typeLabelOf({ typeId: kind }, store.entityTypes)}`)
         .join(" · ")
     : "";
   const summary = [snapshot, `${relations.length} 条关系`].filter(Boolean).join(" · ");

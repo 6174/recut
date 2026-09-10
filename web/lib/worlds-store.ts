@@ -3,7 +3,7 @@
  * [OUTPUT]: 对外提供 Creation Worlds 的跨路由内存缓存：World 列表分页、World 详情、Entity 列表/详情快照、
  * 各自独立的读取状态与失败原因、请求去重与写操作后的显式失效刷新；禁止页面级轮询
  * [POS]: web/lib 的 Worlds 目录缓存；缓存键按 {endpoint, text, type, cursor} / {endpoint, worldId} /
- * {endpoint, worldId, kind, cursor} 划分，任何写或绑定成功后显式失效
+ * {endpoint, worldId, typeId, cursor} 划分，任何写或绑定成功后显式失效
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { create } from "zustand";
@@ -21,7 +21,7 @@ type WorldsStore = {
   entityByKey: Record<string, WorldEntity>;
   loadPage: (endpoint: string, input?: { text?: string; type?: WorldKind; cursor?: string; limit?: number }, force?: boolean) => Promise<WorldSummary[]>;
   loadDetail: (endpoint: string, worldId: string, force?: boolean) => Promise<WorldDetail>;
-  loadEntities: (endpoint: string, worldId: string, input?: { kind?: EntityKind; text?: string; cursor?: string; limit?: number }, force?: boolean) => Promise<WorldEntitySummary[]>;
+  loadEntities: (endpoint: string, worldId: string, input?: { typeId?: EntityKind; text?: string; cursor?: string; limit?: number }, force?: boolean) => Promise<WorldEntitySummary[]>;
   loadEntity: (endpoint: string, worldId: string, entityId: string, force?: boolean) => Promise<WorldEntity>;
   invalidate: (worldId?: string) => void;
 };
@@ -32,7 +32,7 @@ const entitiesRequests = new Map<string, Promise<WorldEntitySummary[]>>();
 const entityRequests = new Map<string, Promise<WorldEntity>>();
 
 const pageKey = (input?: { text?: string; type?: WorldKind; cursor?: string; limit?: number }) => `${input?.text ?? ""}|${input?.type ?? ""}|${input?.cursor ?? ""}|${input?.limit ?? 50}`;
-const entitiesKey = (input?: { kind?: EntityKind; text?: string; cursor?: string; limit?: number }) => `${input?.kind ?? ""}|${input?.text ?? ""}|${input?.cursor ?? ""}|${input?.limit ?? 50}`;
+const entitiesKey = (input?: { typeId?: EntityKind; text?: string; cursor?: string; limit?: number }) => `${input?.typeId ?? ""}|${input?.text ?? ""}|${input?.cursor ?? ""}|${input?.limit ?? 50}`;
 
 function emptyWorlds(endpoint: string) {
   return {

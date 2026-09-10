@@ -94,10 +94,15 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 	for _, item := range types {
 		byID[item.ID] = item
 	}
-	for _, id := range []string{"character", "location", "story", "style", "rule", "reference"} {
+	for _, id := range []string{"character", "location", "object", "story", "style", "rule"} {
 		if _, ok := byID[id]; !ok {
 			t.Fatalf("preset type %q not seeded", id)
 		}
+	}
+	// The reference preset is retired (media attrs cover it): its unused
+	// builtin row must be archived out of the directory.
+	if _, ok := byID["reference"]; ok {
+		t.Fatal("retired reference preset must not appear in the type directory")
 	}
 	character := byID["character"]
 	if character.Scope != "builtin" || !character.Builtin {
@@ -105,6 +110,36 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 	}
 	if len(character.Fields) == 0 {
 		t.Fatal("character preset should carry field schemas")
+	}
+	// Preset fields are locked (structure pinned); every preset carries an
+	// unlocked background media field for card backgrounds.
+	locked := map[string]bool{}
+	for _, field := range character.Fields {
+		locked[field.Key] = field.Locked
+	}
+	for _, key := range []string{"appearance", "personality", "voice", "invariants"} {
+		if !locked[key] {
+			t.Fatalf("character preset field %q must be locked: %#v", key, character.Fields)
+		}
+	}
+	if locked["background"] {
+		t.Fatal("background field must stay unlocked")
+	}
+	for _, field := range character.Fields {
+		if field.Type == "media" && field.Key != "background" {
+			t.Fatalf("unexpected media field %q", field.Key)
+		}
+	}
+	for _, id := range []string{"location", "object", "story", "style"} {
+		hasBackground := false
+		for _, field := range byID[id].Fields {
+			if field.Key == "background" && field.Type == "media" && !field.Locked {
+				hasBackground = true
+			}
+		}
+		if !hasBackground {
+			t.Fatalf("preset %q must carry an unlocked background media field: %#v", id, byID[id].Fields)
+		}
 	}
 	if ListWorldRelationTypes() == nil {
 		t.Fatal("relation vocabulary should be listable")
@@ -119,14 +154,14 @@ func TestCustomEntityTypeAutoCreatedAndCanonical(t *testing.T) {
 		t.Fatal(err)
 	}
 	entity, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: worldID, Kind: "mecha", Title: "初号机",
-		Content: map[string]any{"能源类型": "核动力"},
+		WorldID: worldID, TypeID: "mecha", Name: "初号机",
+		Attrs: []EntityAttr{{Key: "能源类型", Type: "text", Value: "核动力"}},
 	})
 	if err != nil {
 		t.Fatalf("unknown kind should auto-create a minimal type: %v", err)
 	}
-	if entity.Kind != "mecha" {
-		t.Fatalf("entity kind = %q", entity.Kind)
+	if entity.TypeID != "mecha" {
+		t.Fatalf("entity typeId = %q", entity.TypeID)
 	}
 	types, err := worlds.ListEntityTypes(worldID)
 	if err != nil {
@@ -159,8 +194,8 @@ func TestProvisionalDraftSkipsRevisionAndCanonical(t *testing.T) {
 		t.Fatal(err)
 	}
 	draft, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: worldID, Kind: EntityCharacter, Title: "草稿角色",
-		Content: map[string]any{"appearance": "未定"}, IsProvisional: true,
+		WorldID: worldID, TypeID: EntityTypeCharacter, Name: "草稿角色",
+		Attrs: []EntityAttr{{Key: "appearance", Type: "textarea", Value: "未定"}}, IsProvisional: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -200,7 +235,7 @@ func TestProvisionalDraftSkipsRevisionAndCanonical(t *testing.T) {
 func TestCanvasElementsDoNotProduceRevisions(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	worldID := createTestWorld(t, worlds)
-	entity, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: EntityCharacter, Title: "梁启超"})
+	entity, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "梁启超"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,13 +288,13 @@ func TestCanvasElementsDoNotProduceRevisions(t *testing.T) {
 func TestRecursiveContainerCreateChild(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	worldID := createTestWorld(t, worlds)
-	liang, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: EntityCharacter, Title: "梁启超"})
+	liang, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "梁启超"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	family, err := worlds.CreateChildEntity(CreateChildEntityInput{
 		WorldID: worldID, ParentID: liang.ID, ContainerRole: "family",
-		Kind: EntityStory, Title: "家族",
+		TypeID: EntityTypeStory, Name: "家族",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +303,7 @@ func TestRecursiveContainerCreateChild(t *testing.T) {
 		t.Fatalf("child parent = %q role = %q", family.ParentID, family.ContainerRole)
 	}
 	child, err := worlds.CreateChildEntity(CreateChildEntityInput{
-		WorldID: worldID, ParentID: family.ID, Kind: EntityCharacter, Title: "梁思成",
+		WorldID: worldID, ParentID: family.ID, TypeID: EntityTypeCharacter, Name: "梁思成",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -301,11 +336,11 @@ func TestRecursiveContainerCreateChild(t *testing.T) {
 func TestScopedRelationStaysOutOfGlobalCanonical(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	worldID := createTestWorld(t, worlds)
-	liang, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: EntityCharacter, Title: "梁启超"})
+	liang, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "梁启超"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	liangsi, err := worlds.CreateChildEntity(CreateChildEntityInput{WorldID: worldID, ParentID: liang.ID, Kind: EntityCharacter, Title: "梁思成"})
+	liangsi, err := worlds.CreateChildEntity(CreateChildEntityInput{WorldID: worldID, ParentID: liang.ID, TypeID: EntityTypeCharacter, Name: "梁思成"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +389,7 @@ func TestScopedRelationStaysOutOfGlobalCanonical(t *testing.T) {
 func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	worldID := createTestWorld(t, worlds)
-	entity, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: EntityCharacter, Title: "林徽因"})
+	entity, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "林徽因"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +432,7 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: EntityCharacter, Title: "梁思成"})
+	second, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "梁思成"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +461,7 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 		t.Fatal(err)
 	}
 	noteResult, err := worlds.PromoteCanvasElement(PromoteCanvasElementInput{
-		WorldID: worldID, ElementID: "shape:note-1", Kind: "character", Title: "林徽因2",
+		WorldID: worldID, ElementID: "shape:note-1", TypeID: "character", Title: "林徽因2",
 		ExpectedRevisionID: before.Revision.ID, CreatedBy: "test",
 	})
 	if err != nil {
@@ -483,7 +518,7 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 func TestCanvasPropertyBindingAndSync(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	worldID := createTestWorld(t, worlds)
-	entity, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: EntityCharacter, Title: "林徽因"})
+	entity, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "林徽因"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -525,8 +560,8 @@ func TestCanvasPropertyBindingAndSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Content["appearance"] != "建筑学家" {
-		t.Fatalf("property should be seeded from the note, got %#v", updated.Content["appearance"])
+	if entityAttrValue(updated, "appearance") != "建筑学家" {
+		t.Fatalf("property should be seeded from the note, got %#v", entityAttrValue(updated, "appearance"))
 	}
 	// The target element is marked as a reference projection with the bound
 	// property in its title.
@@ -567,14 +602,14 @@ func TestCanvasPropertyBindingAndSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Content["appearance"] != "近代建筑之父" {
-		t.Fatalf("canvas value should sync into entity content, got %#v", updated.Content["appearance"])
+	if entityAttrValue(updated, "appearance") != "近代建筑之父" {
+		t.Fatalf("canvas value should sync into entity content, got %#v", entityAttrValue(updated, "appearance"))
 	}
 	// Panel → canvas: a right-panel edit flows into the attr projection, which
 	// only stores a reference to the shared data source.
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: worldID, EntityID: entity.ID, Kind: entity.Kind, Title: entity.Title,
-		Content: map[string]any{"appearance": "中国第一位女建筑师"}, CreatedBy: "panel",
+		WorldID: worldID, EntityID: entity.ID, Name: entity.Name,
+		Attrs: patchEntityAttr(updated.Attrs, "appearance", "中国第一位女建筑师"), CreatedBy: "panel",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -600,14 +635,16 @@ func TestCanvasPropertyBindingAndSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Content["appearance"] != "中国第一位女建筑师" {
-		t.Fatalf("canvas must not delete panel-side property data, got %#v", updated.Content["appearance"])
+	if entityAttrValue(updated, "appearance") != "中国第一位女建筑师" {
+		t.Fatalf("canvas must not delete panel-side property data, got %#v", entityAttrValue(updated, "appearance"))
 	}
 	// Panel-side deletion is authoritative: removing the property empties the
 	// projection instead of leaving a stale copy.
+	// attrs=[] empties the user attrs; the locked appearance field is
+	// re-materialized by schema with a nil value.
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: worldID, EntityID: entity.ID, Kind: entity.Kind, Title: entity.Title,
-		Content: map[string]any{}, CreatedBy: "panel",
+		WorldID: worldID, EntityID: entity.ID, Name: entity.Name,
+		Attrs: []EntityAttr{}, CreatedBy: "panel",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -627,11 +664,11 @@ func TestCanvasPropertyBindingAndSync(t *testing.T) {
 func TestForkCarriesCanvasTypesAndContainer(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	worldID := createTestWorld(t, worlds)
-	liang, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "mecha", Title: "初号机"})
+	liang, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "mecha", Name: "初号机"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := worlds.CreateChildEntity(CreateChildEntityInput{WorldID: worldID, ParentID: liang.ID, Kind: "mecha", Title: "改二号"})
+	child, err := worlds.CreateChildEntity(CreateChildEntityInput{WorldID: worldID, ParentID: liang.ID, TypeID: "mecha", Name: "改二号"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,22 +713,19 @@ func TestForkCarriesCanvasTypesAndContainer(t *testing.T) {
 func TestDeleteEntityArchivesSubgraphAndCascade(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	worldID := createTestWorld(t, worlds)
-	person, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "character", Title: "林小满", Summary: "电台主播"})
+	person, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "character", Name: "林小满", Intro: "电台主播"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	station, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "location", Title: "北平路电台"})
+	station, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "location", Name: "北平路电台"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	necklace, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "object", Title: "项链", ParentID: person.ID})
+	necklace, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "object", Name: "项链", ParentID: person.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, RelationType: "located_in"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := worlds.AttachReference(AttachReferenceInput{WorldID: worldID, EntityID: person.ID, URL: "https://example.com/portrait.png", Modality: "image", Role: "character_reference"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
@@ -715,7 +749,7 @@ func TestDeleteEntityArchivesSubgraphAndCascade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Deleted != 2 || result.Children != 1 || result.Relations != 1 || result.Evidences != 1 {
+	if result.Deleted != 2 || result.Children != 1 || result.Relations != 1 || result.Evidences != 0 {
 		t.Fatalf("delete impact = %+v", result)
 	}
 	if _, err := worlds.GetEntity(worldID, person.ID); err == nil {
@@ -769,14 +803,11 @@ func TestDeleteEntityArchivesSubgraphAndCascade(t *testing.T) {
 	if revisionAfter.Revision.ID == revisionBefore.Revision.ID {
 		t.Fatal("delete should produce a new revision")
 	}
+	// Evidence writes are frozen (统一实体模型): media lives in entity attrs,
+	// so the subgraph delete has no legacy evidence rows to archive.
 	evidence, err := worlds.ListEvidence(worldID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range evidence {
-		if item.EntityID == person.ID && item.Status != "archived" {
-			t.Fatalf("evidence of deleted entity should be archived: %+v", item)
-		}
+	if err != nil || len(evidence) != 0 {
+		t.Fatalf("list evidence = %#v, %v", evidence, err)
 	}
 }
 
@@ -785,7 +816,7 @@ func TestDeleteEntityArchivesSubgraphAndCascade(t *testing.T) {
 func TestRevertToRevisionRebuildsSemantics(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	worldID := createTestWorld(t, worlds)
-	person, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "character", Title: "林小满", Summary: "电台主播"})
+	person, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "character", Name: "林小满", Intro: "电台主播"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -797,17 +828,14 @@ func TestRevertToRevisionRebuildsSemantics(t *testing.T) {
 		t.Fatalf("history should have multiple revisions, got %d", len(history))
 	}
 	target := history[0]
-	station, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "location", Title: "北平路电台"})
+	station, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "location", Name: "北平路电台"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, RelationType: "located_in"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worlds.AttachReference(AttachReferenceInput{WorldID: worldID, EntityID: person.ID, URL: "https://example.com/p.png", Modality: "image"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "object", Title: "项链"}); err != nil {
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "object", Name: "项链"}); err != nil {
 		t.Fatal(err)
 	}
 	reverted, err := worlds.RevertToRevision(worldID, target.ID, "", "test")
@@ -824,7 +852,7 @@ func TestRevertToRevisionRebuildsSemantics(t *testing.T) {
 	if len(items) != 1 || items[0].ID != person.ID {
 		t.Fatalf("only the pre-revision entity should survive revert: %+v", items)
 	}
-	if items[0].Summary != "电台主播" {
+	if items[0].Intro != "电台主播" {
 		t.Fatalf("entity fields should be rebuilt from canonical: %+v", items[0])
 	}
 	db, err := worlds.database()
@@ -844,7 +872,7 @@ func TestRevertToRevisionRebuildsSemantics(t *testing.T) {
 	if evidence != 0 {
 		t.Fatalf("evidence added after target should be gone, got %d", evidence)
 	}
-	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, Kind: "story", Title: "新故事"}); err != nil {
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "story", Name: "新故事"}); err != nil {
 		t.Fatalf("writes after revert should work: %v", err)
 	}
 }

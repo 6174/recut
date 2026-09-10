@@ -31,16 +31,16 @@ function OutlineBody({ panelSide }: { panelSide: "left" | "right" }) {
   const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
   const [query, setQuery] = useState("");
   const filtered = useMemo(
-    () => entities.filter((item) => !query.trim() || item.title.toLowerCase().includes(query.trim().toLowerCase())),
+    () => entities.filter((item) => !query.trim() || item.name.toLowerCase().includes(query.trim().toLowerCase())),
     [entities, query],
   );
   // kind 分组（保持 store 顺序）；子实体缩进展示在父项下
   const groups = new Map<string, WorldEntity[]>();
   for (const entity of filtered) {
     if (entity.parentId) continue;
-    const list = groups.get(entity.kind) ?? [];
+    const list = groups.get(entity.typeId) ?? [];
     list.push(entity);
-    groups.set(entity.kind, list);
+    groups.set(entity.typeId, list);
   }
   const hiddenIds = new Set(elements.filter((element) => element.refKind === "entity" && element.props?.hidden).map((element) => String(element.refId)));
   const hiddenEntities = entities.filter((entity) => hiddenIds.has(entity.id));
@@ -70,7 +70,7 @@ function OutlineBody({ panelSide }: { panelSide: "left" | "right" }) {
         {[...groups.entries()].map(([kind, items]) => (
           <div key={kind} className="mb-3">
             <p className="px-1 pb-1 text-[10px] font-medium text-muted-foreground">
-              {typeLabelOf({ kind } as WorldEntity, entityTypes)} · {items.length}
+              {typeLabelOf({ typeId: kind }, entityTypes)} · {items.length}
             </p>
             <ul className="space-y-0.5">
               {items.map((entity) => (
@@ -80,7 +80,7 @@ function OutlineBody({ panelSide }: { panelSide: "left" | "right" }) {
                     onClick={() => select({ type: "entity", entity })}
                     type="button"
                   >
-                    {entity.title}
+                    {entity.name}
                     {entity.isProvisional ? <span className="ml-1 text-[9px] text-warning">草稿</span> : null}
                   </button>
                   {(entity.children ?? []).length > 0 && (
@@ -95,7 +95,7 @@ function OutlineBody({ panelSide }: { panelSide: "left" | "right" }) {
                               onClick={() => select({ type: "entity", entity: childEntity })}
                               type="button"
                             >
-                              ⤷ {child.title}
+                              ⤷ {child.name}
                             </button>
                           </li>
                         );
@@ -114,7 +114,7 @@ function OutlineBody({ panelSide }: { panelSide: "left" | "right" }) {
             <ul className="space-y-0.5">
               {hiddenEntities.map((entity) => (
                 <li className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-muted" key={entity.id}>
-                  <span className="truncate">{entity.title}</span>
+                  <span className="truncate">{entity.name}</span>
                   <button
                     className="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
                     onClick={() => void useWorldCanvasStore.getState().unhideEntity(entity.id)}

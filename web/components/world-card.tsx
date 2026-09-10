@@ -22,7 +22,7 @@ export function WorldCard({ apiBase, world }: { apiBase: string; world: WorldSum
   const [previewIndex, setPreviewIndex] = useState(0);
   const origin = worldOrigin(world);
   const isRemote = origin !== "local";
-  const counts = Object.entries(world.entityCounts ?? {}).filter(([, count]) => count > 0).slice(0, 3);
+  const counts = Object.entries(world.entityCounts ?? {}).filter(([, count]) => (count ?? 0) > 0).slice(0, 3);
   const cover = world.coverAssetId ?? "";
   const remoteCover = isRemote ? world.originMeta?.coverUrl ?? "" : "";
   const previews = [

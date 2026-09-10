@@ -49,8 +49,12 @@ func TestReadinessProgressesToDraftThenReady(t *testing.T) {
 	}
 	// Character with all blueprint fields → field gaps disappear, level draft.
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: world.ID, Kind: EntityCharacter, Title: "叶文洁",
-		Content: map[string]any{"appearance": "银发", "personality": "冷静", "voice": "低缓"},
+		WorldID: world.ID, TypeID: EntityTypeCharacter, Name: "叶文洁",
+		Attrs: []EntityAttr{
+			{Key: "appearance", Type: "textarea", Value: "银发"},
+			{Key: "personality", Type: "textarea", Value: "冷静"},
+			{Key: "voice", Type: "textarea", Value: "低缓"},
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -66,12 +70,12 @@ func TestReadinessProgressesToDraftThenReady(t *testing.T) {
 	}
 	// Story + location complete the entity expectations.
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: world.ID, Kind: EntityStory, Title: "红岸", Content: map[string]any{"premise": "红岸基地的来信"},
+		WorldID: world.ID, TypeID: EntityTypeStory, Name: "红岸", Attrs: []EntityAttr{{Key: "premise", Type: "textarea", Value: "红岸基地的来信"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: world.ID, Kind: EntityLocation, Title: "雷达峰", Content: map[string]any{"description": "大兴安岭雷达峰"},
+		WorldID: world.ID, TypeID: EntityTypeLocation, Name: "雷达峰", Attrs: []EntityAttr{{Key: "description", Type: "textarea", Value: "大兴安岭雷达峰"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -97,8 +101,12 @@ func TestReadinessIgnoresLegacyShellEntities(t *testing.T) {
 	}
 	// A legacy template shell: title exists, every registered field empty.
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: world.ID, Kind: EntityCharacter, Title: "主角角色",
-		Content: map[string]any{"appearance": "", "personality": "", "voice": ""},
+		WorldID: world.ID, TypeID: EntityTypeCharacter, Name: "主角角色",
+		Attrs: []EntityAttr{
+			{Key: "appearance", Type: "textarea", Value: ""},
+			{Key: "personality", Type: "textarea", Value: ""},
+			{Key: "voice", Type: "textarea", Value: ""},
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +145,7 @@ func TestReadinessScenarioOverrideAndEvidenceExpectation(t *testing.T) {
 	}
 	// Blank + one substantive entity → ready (blank expects nothing else).
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: world.ID, Kind: EntityRule, Title: "核心规则", Content: map[string]any{"type": "always", "text": "黑白为主"},
+		WorldID: world.ID, TypeID: EntityTypeRule, Name: "核心规则", Attrs: []EntityAttr{{Key: "type", Type: "text", Value: "always"}, {Key: "text", Type: "textarea", Value: "黑白为主"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -156,11 +164,19 @@ func TestReadinessScenarioOverrideAndEvidenceExpectation(t *testing.T) {
 	if readiness.ScenarioID != ScenarioStyleSystem {
 		t.Fatalf("unknown scenario resolved to %q, want style-system", readiness.ScenarioID)
 	}
-	// style-system expects evidence: attach images and the gap closes.
-	assetID := newTestAsset(t, media, "example.png")
+	// Evidence writes are frozen (统一实体模型), so attach must refuse; the
+	// readiness evidence expectation is measured against existing rows instead
+	// (seeded directly, e.g. by a pre-freeze world or a platform materialize).
 	if _, err := worlds.AttachReference(AttachReferenceInput{
-		WorldID: world.ID, AssetID: assetID, Role: "style_reference", Purpose: "visual_style", Status: "supporting",
-	}); err != nil {
+		WorldID: world.ID, AssetID: newTestAsset(t, media, "example.png"), Purpose: "visual_style", Status: "supporting",
+	}); err == nil {
+		t.Fatal("frozen evidence write must be refused")
+	}
+	db, err := worlds.database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("insert into world_asset_refs (id, world_id, asset_id, url, modality, purpose, evidence_status, created_at) values ('ev-seed-1', ?, '', 'https://cdn.example.test/s1.png', 'image', 'visual_style', 'supporting', '2026-01-01T00:00:00Z')", world.ID); err != nil {
 		t.Fatal(err)
 	}
 	readiness, err = worlds.Readiness(world.ID, "")
@@ -185,8 +201,12 @@ func TestBriefMissingMatchesReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: world.ID, Kind: EntityCharacter, Title: "Mina",
-		Content: map[string]any{"appearance": "短发", "personality": "克制", "voice": "平稳"},
+		WorldID: world.ID, TypeID: EntityTypeCharacter, Name: "Mina",
+		Attrs: []EntityAttr{
+			{Key: "appearance", Type: "textarea", Value: "短发"},
+			{Key: "personality", Type: "textarea", Value: "克制"},
+			{Key: "voice", Type: "textarea", Value: "平稳"},
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -9,7 +9,11 @@
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
  * 画布存储为文档粒度（RFC 2026-09-09）：一张画布 = 一个 Document，canvas.get/save 整包读写 + version 乐观锁；
  * 元素级动作（upsertElement/persistGeometry/moveElement/removeElement）只改本地文档 + 脏集合，去抖整包落库，
- * 冲突时拉远端按 id 合并脏集重试一次；内层画布是独立文档，实体投影位置跨层天然隔离
+ * 冲突时拉远端按 id 合并脏集重试一次；内层画布是独立文档，实体投影位置跨层天然隔离。
+ * 统一 Entity 模型（RFC 2026-09-09）：实体字段 = title/kind/content → name/typeId/intro/detail/attrs；
+ * saveEntityField 签名改为 {name?, intro?, detail?, attrKey?, value?} 单字段 patch（attrs 全量替换语义，
+ * 按 attrKey 原位 patch 当前 full attrs 后整包 upsert）；实体素材 = media 属性（attachMediaAttr/
+ * removeMediaAttr/setMediaCover），evidence.attach/update 写通道退役，evidence.archive 仅留 legacy 解挂兼容
  * [POS]: worlds/[worldID]/canvas 的 zustand 状态层；组件层只读 store 快照并触发动作，不各自持有画布数据
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -18,18 +22,17 @@ import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { entityCardContentHeight } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
 import {
   createRecutWorldsClient,
+  type EntityAttr,
   type EntityKind,
   type WorldCanvasElement,
   type WorldEntity,
   type WorldEntityRelation,
   type WorldEntityType,
-  type WorldEvidence,
-  type WorldEvidencePurpose,
   type WorldRelationType,
 } from "@/lib/recut-worlds-client";
-import { defaultEvidencePurpose, evidencePurposeLabels } from "./canvas-media";
 import { applyCanvasError } from "./canvas-errors";
 import { entityPhotoUrls } from "./canvas-image";
+import { attrValueOf } from "./entity-attrs";
 
 export type Point = { x: number; y: number };
 
@@ -88,7 +91,6 @@ export const typeColors: Record<string, string> = {
   story: "#f59e0b",
   style: "#34d399",
   rule: "#a78bfa",
-  reference: "#94a3b8",
 };
 
 export function gridPosition(index: number): Point {
@@ -120,7 +122,7 @@ function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
     : [...list, item];
 }
 
-// 默认实体标题（B.5 自动确认规则的「非默认名」判定；B.7 命名态预填同名）
+// 默认实体名（B.5 自动确认规则的「非默认名」判定；B.7 命名态预填同名）；reference 预设已退役
 export const DEFAULT_ENTITY_TITLES: Record<string, string> = {
   character: "新人物",
   location: "新地点",
@@ -128,11 +130,10 @@ export const DEFAULT_ENTITY_TITLES: Record<string, string> = {
   story: "新故事",
   style: "新风格",
   rule: "新规则",
-  reference: "新参考",
 };
 
-export function isDefaultEntityTitle(kind: string, title: string): boolean {
-  return title.trim() === (DEFAULT_ENTITY_TITLES[kind] ?? "新设定");
+export function isDefaultEntityTitle(typeId: string, title: string): boolean {
+  return title.trim() === (DEFAULT_ENTITY_TITLES[typeId] ?? "新设定");
 }
 
 // 最近使用类型（B.7 双击空白快捷创建）与最近自定义类型（创建菜单自定义区，至多 3 个）
@@ -300,24 +301,8 @@ if (typeof window !== "undefined") {
   });
 }
 
-// 证据更新后合并回实体（references 就地替换），封面/用途变更即时反映（T1 增量投影约定）
-function mergeEntityReference(entityId: string, evidence: WorldEvidence) {
-  const state = useWorldCanvasStore.getState();
-  if (!evidence.id) return;
-  useWorldCanvasStore.setState((prev) => ({
-    entities: prev.entities.map((entity) =>
-      entity.id === entityId
-        ? {
-            ...entity,
-            references: (entity.references ?? []).some((item) => item.id === evidence.id)
-              ? (entity.references ?? []).map((item) => (item.id === evidence.id ? evidence : item))
-              : [...(entity.references ?? []), evidence],
-          }
-        : entity,
-    ),
-    dataVersion: state.dataVersion + 1,
-  }));
-}
+// 统一 Entity 模型（RFC 2026-09-09）：实体素材 = media 属性，不再有 evidence.attach 写通道；
+// references 为 legacy 只读投影，仅渲染。
 
 function modalityLabelOf(modality: string): string {
   const labels: Record<string, string> = { image: "图片", video: "视频", audio: "音频", text: "文本" };
@@ -447,7 +432,7 @@ type WorldCanvasState = {
   removeRelation: (relationId: string) => Promise<void>;
   // 换类型（T5 面板就地换）：relations.update 未排期，v1 以删+建兜底（保留原 scope）
   changeRelationType: (relation: WorldEntityRelation, relationType: string) => Promise<void>;
-  promote: (elementId: string, input?: { kind?: string; title?: string; relationType?: string }) => Promise<void>;
+  promote: (elementId: string, input?: { typeId?: string; name?: string; relationType?: string }) => Promise<void>;
   setPromoting: (elementId: string | null) => void;
   setPendingRelation: (pendingRelation: { fromEntityId: string; toEntityId: string; arrowCanvasId?: string } | null) => void;
   startInlineEdit: (edit: NonNullable<InlineEdit>) => void;
@@ -456,10 +441,14 @@ type WorldCanvasState = {
   startEntityRename: (entityId: string, anchor?: { screenX: number; screenY: number }) => void;
   startElementBodyEdit: (elementId: string, kind: "note-body" | "text-body" | "attr-body") => void;
   commitInlineEdit: (value: string) => Promise<void>;
-  // 实体标题重命名（面板输入框 / 就地重命名共用）：冲突重试一次 + 合并返回实体（T1 语义）
+  // 实体名重命名（面板输入框 / 就地重命名共用）：冲突重试一次 + 合并返回实体（T1 语义）
   renameEntity: (entity: WorldEntity, title: string) => Promise<void>;
-  // 字段/简介保存（T2 面板）：patch.title/summary/contentPatch 任一组合；正式实体产 revision，草稿不产
-  saveEntityField: (entity: WorldEntity, patch: { title?: string; summary?: string; contentPatch?: Record<string, unknown> }) => Promise<void>;
+  // 字段保存（T2 面板）：单字段 patch（attrKey+value 全量 attrs 替换语义）或 name/intro/detail；
+  // 正式实体产 revision，草稿不产。media 属性值 = {assetId, name?, kind?}
+  saveEntityField: (
+    entity: WorldEntity,
+    patch: { name?: string; intro?: string; detail?: string; attrKey?: string; attrLabel?: string; attrType?: EntityAttr["type"]; value?: unknown },
+  ) => Promise<void>;
   // 确认设定（草稿 → 正式，产 revision）
   confirmEntity: (entityId: string) => Promise<void>;
   // 删除设定（影响范围确认后调用；后端级联子图/关系/证据/画布投影）
@@ -481,12 +470,12 @@ type WorldCanvasState = {
   // 挂接：evidence attach + 元素保留为投影 + A 虚线（arrow 元素两笔写）；已挂接换挂走 detach 后再挂
   attachMediaElement: (elementId: string, entityId: string, opts?: { keepElement?: boolean }) => Promise<void>;
   detachMediaElement: (elementId: string) => Promise<void>;
-  // 面板证据区动作（B.9）：设为封面（purpose=identity + status=primary）/ 改用途 / 归档
-  setEvidenceCover: (entity: WorldEntity, evidenceId: string) => Promise<void>;
-  updateEvidencePurpose: (entity: WorldEntity, evidenceId: string, purpose: WorldEvidencePurpose) => Promise<void>;
-  archiveEvidence: (entity: WorldEntity, evidenceId: string) => Promise<void>;
-  // 证据 attach 原始通道（冲突重试一次；media 挂接与拖文件挂卡共用）
-  attachEvidenceRun: (entityId: string, modality: string, assetId: string, url: string, purpose: WorldEvidencePurpose) => Promise<WorldEvidence>;
+  // 面板素材区动作（B.9）：设为封面（把该属性值写入显式 background media 属性）
+  setMediaCover: (entity: WorldEntity, attrKey: string) => Promise<void>;
+  // 素材挂为实体 media 属性（统一 Entity 模型写通道；assetId 必填，url 素材不支持挂接）；返回新 attrKey
+  attachMediaAttr: (entityId: string, media: { assetId: string; name?: string; kind: string }, label?: string) => Promise<string | null>;
+  // 删除实体上的 media 属性（attrKey 精确删除；其余 attrs 保持）
+  removeMediaAttr: (entityId: string, attrKey: string) => Promise<void>;
   // 最近变更（T12 语义撤销）：最近 10 条语义操作，逐条撤销
   changeLog: CanvasChange[];
   logChange: (label: string, undo: () => Promise<void> | void) => void;
@@ -681,7 +670,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     try {
       const entity = await createRecutWorldsClient(apiBase).entities.get({ worldId, entityId });
       if (get().context || get().worldId !== worldId) return;
-      get().setContext({ entityId: entity.id, title: entity.title });
+      get().setContext({ entityId: entity.id, title: entity.name });
     } catch {
       // 深链可能过期（实体已删/已换世界）：静默留在根画布
     }
@@ -796,9 +785,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const entityId = String(arrow?.props?.fromElementId ?? "").replace(/^shape:/, "");
     const entity = get().entities.find((item) => item.id === entityId);
     if (!entity) return;
-    const entityType = get().entityTypes.find((item) => item.id === entity.kind);
+    const entityType = get().entityTypes.find((item) => item.id === entity.typeId);
     const matched = (entityType?.fields ?? []).find((field) => (field.label ?? field.key) === label || field.key === label);
-    await get().saveEntityField(entity, { contentPatch: { [matched?.key ?? label]: text } });
+    await get().saveEntityField(entity, { attrKey: matched?.key ?? label, value: text });
     // 属性投影同步（文档版）：attr 元素 props.value 回写进本地文档，随统一保存落库
     markCanvasDirty(element.id);
     set((state) => ({
@@ -917,9 +906,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const run = async (revisionId: string) => {
       const entity = await createRecutWorldsClient(apiBase).entities.upsert({
         worldId,
-        kind: kind as EntityKind,
-        title,
-        content: {},
+        typeId: kind as EntityKind,
+        name: title,
         // 容器内创建 = 该实体的子设定（递归容器）：不挂 parent 会落回全局，进子世界后过滤不到
         ...(get().context?.entityId ? { parentId: get().context!.entityId } : {}),
         isProvisional: true,
@@ -940,7 +928,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         kind: "entity",
         refKind: "entity",
         refId: entity.id,
-        name: entity.title,
+        name: entity.name,
         props: { collapsed: false },
         geometry: { ...pos, ...DEFAULT_ENTITY_SIZE, zIndex: 1 },
         style: {},
@@ -954,7 +942,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         selection: { type: "entity", entity },
       }));
       saveLastKind(kind);
-      get().logChange(`创建「${entity.title}」`, () => void get().deleteEntity(entity.id));
+      get().logChange(`创建「${entity.name}」`, () => void get().deleteEntity(entity.id));
       startTitleInlineEdit(get, set, entity.id, pos);
     } catch (cause) {
       applyCanvasError(cause);
@@ -968,9 +956,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       createRecutWorldsClient(apiBase).entities.children({
         worldId,
         entityId: parentId,
-        kind: kind as EntityKind,
-        title,
-        content: {},
+        typeId: kind as EntityKind,
+        name: title,
         isProvisional: true,
         expectedRevisionId: revisionId,
       });
@@ -986,7 +973,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         kind: "entity",
         refKind: "entity",
         refId: child.id,
-        name: child.title,
+        name: child.name,
         props: { collapsed: false },
         geometry: { x: 40, y: 40, ...DEFAULT_ENTITY_SIZE, zIndex: 1 },
         style: {},
@@ -997,7 +984,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         entities: upsertById(
           state.entities.map((entity) =>
             entity.id === parentId && entity.children && !entity.children.some((item) => item.id === child.id)
-              ? { ...entity, children: [...entity.children, { id: child.id, title: child.title, kind: child.kind, worldId: child.worldId, summary: child.summary, updatedAt: child.updatedAt }] }
+              ? { ...entity, children: [...entity.children, { id: child.id, typeId: child.typeId, name: child.name, intro: child.intro, worldId: child.worldId, parentId: child.parentId, containerRole: child.containerRole, isProvisional: child.isProvisional, updatedAt: child.updatedAt }] }
               : entity,
           ),
           child,
@@ -1007,7 +994,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         selection: { type: "entity", entity: child },
       }));
       saveLastKind(kind);
-      get().logChange(`创建「${child.title}」`, () => void get().deleteEntity(child.id));
+      get().logChange(`创建「${child.name}」`, () => void get().deleteEntity(child.id));
       startTitleInlineEdit(get, set, child.id, { x: 40, y: 40 });
     } catch (cause) {
       applyCanvasError(cause);
@@ -1103,7 +1090,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         set((state) => ({ relations: upsertById(state.relations, relation), dataVersion: state.dataVersion + 1 }));
       }
       // 结构性轻反馈（B.4）
-      const titleOf = (id: string) => get().entities.find((entity) => entity.id === id)?.title ?? id;
+      const titleOf = (id: string) => get().entities.find((entity) => entity.id === id)?.name ?? id;
       const scopeSuffix = relation.scopeEntityId ? "（局部）" : "";
       get().toast(`已建立关系：${titleOf(relation.fromEntityId)} → ${titleOf(relation.toEntityId)}${scopeSuffix}`, "success");
       get().logChange(`建立关系 ${titleOf(relation.fromEntityId)}→${titleOf(relation.toEntityId)}`, () => void get().removeRelation(relation.id));
@@ -1187,7 +1174,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           entities: upsertById(state.entities, result.entity),
           elements: state.elements.map((element) =>
             element.id === elementId
-              ? { ...element, kind: "entity", refKind: "entity", refId: result.entity.id, name: result.entity.title }
+              ? { ...element, kind: "entity", refKind: "entity", refId: result.entity.id, name: result.entity.name }
               : element,
           ),
         }));
@@ -1274,7 +1261,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         kind: "entity-title",
         entityId,
         rect: { x, y: y + imageH + ENTITY_CARD_PAD - 2, width: width - ENTITY_CARD_PAD * 2, height: 24 },
-        value: entity.title,
+        value: entity.name,
       },
     });
   },
@@ -1327,15 +1314,18 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
 
   renameEntity: async (entity, title) => {
     const trimmed = title.trim();
-    if (!trimmed || trimmed === entity.title) return;
+    if (!trimmed || trimmed === entity.name) return;
     const { apiBase, worldId } = get();
+    // 统一 Entity 模型（RFC 2026-09-09）：upsert = 全量字段语义，携带当前 full attrs + name/intro/detail
     const run = (revisionId: string) =>
       createRecutWorldsClient(apiBase).entities.upsert({
         worldId,
         entityId: entity.id,
-        kind: entity.kind as EntityKind,
-        title: trimmed,
-        content: entity.content ?? {},
+        typeId: entity.typeId,
+        name: trimmed,
+        intro: entity.intro,
+        detail: entity.detail,
+        attrs: entity.attrs,
         expectedRevisionId: revisionId,
       });
     try {
@@ -1348,30 +1338,39 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       set((state) => ({
         entities: upsertById(state.entities, saved),
         elements: state.elements.map((element) =>
-          element.refKind === "entity" && element.refId === saved.id ? { ...element, name: saved.title } : element,
+          element.refKind === "entity" && element.refId === saved.id ? { ...element, name: saved.name } : element,
         ),
         dataVersion: state.dataVersion + 1,
       }));
-      get().logChange(`重命名「${saved.title}」`, () => void get().renameEntity(saved, entity.title));
+      get().logChange(`重命名「${saved.name}」`, () => void get().renameEntity(saved, entity.name));
     } catch (cause) {
       applyCanvasError(cause);
     }
   },
 
-  // 字段/简介保存（T2）：单次 upsert 原子写全部 patch；草稿不产 revision（B.5 免费草稿区）
+  // 字段保存（T2，统一 Entity 模型）：单字段 patch（attrKey+value）或 name/intro/detail；
+  // attrs 为全量替换语义 —— 取当前 full attrs 拷贝、按 attrKey 原位 patch 后整包 upsert；草稿不产 revision（B.5）
   saveEntityField: async (entity, patch) => {
     const { apiBase, worldId } = get();
-    const content: Record<string, unknown> = { ...(entity.content ?? {}), ...(patch.contentPatch ?? {}) };
-    const title = patch.title !== undefined ? patch.title : entity.title;
-    const summary = patch.summary !== undefined ? patch.summary : entity.summary;
+    const attrs: EntityAttr[] = (entity.attrs ?? []).map((attr) => ({ ...attr }));
+    let attrIndex = -1;
+    if (patch.attrKey !== undefined) {
+      attrIndex = attrs.findIndex((attr) => attr.key === patch.attrKey);
+      if (attrIndex >= 0) attrs[attrIndex] = { ...attrs[attrIndex], value: patch.value };
+      else attrs.push({ key: patch.attrKey, label: patch.attrLabel ?? patch.attrKey, type: patch.attrType ?? "text", ...(patch.value !== undefined ? { value: patch.value as unknown } : {}) });
+    }
+    const name = patch.name !== undefined ? patch.name : entity.name;
+    const intro = patch.intro !== undefined ? patch.intro : entity.intro;
+    const detail = patch.detail !== undefined ? patch.detail : entity.detail;
     const run = (revisionId: string) =>
       createRecutWorldsClient(apiBase).entities.upsert({
         worldId,
         entityId: entity.id,
-        kind: entity.kind as EntityKind,
-        title,
-        summary,
-        content,
+        typeId: entity.typeId,
+        name,
+        intro,
+        detail,
+        attrs,
         expectedRevisionId: revisionId,
       });
     try {
@@ -1383,18 +1382,25 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       set((state) => ({
         entities: upsertById(state.entities, saved),
         elements: state.elements.map((element) =>
-          element.refKind === "entity" && element.refId === saved.id ? { ...element, name: saved.title } : element,
+          element.refKind === "entity" && element.refId === saved.id ? { ...element, name: saved.name } : element,
         ),
         dataVersion: state.dataVersion + 1,
       }));
-      const oldPatch = { title: entity.title, summary: entity.summary, contentPatch: undefined as Record<string, unknown> | undefined };
-      for (const key of Object.keys(patch.contentPatch ?? {})) {
-        oldPatch.contentPatch = { [key]: entity.content?.[key] };
+      // 语义撤销（T12）：单字段回写旧值；attr 新建撤销 = 旧值 undefined
+      const undoPatch: { name?: string; intro?: string; detail?: string; attrKey?: string; attrLabel?: string; attrType?: EntityAttr["type"]; value?: unknown } = {};
+      if (patch.name !== undefined) undoPatch.name = entity.name;
+      if (patch.intro !== undefined) undoPatch.intro = entity.intro;
+      if (patch.detail !== undefined) undoPatch.detail = entity.detail;
+      if (patch.attrKey !== undefined) {
+        undoPatch.attrKey = patch.attrKey;
+        undoPatch.attrLabel = patch.attrLabel;
+        undoPatch.attrType = patch.attrType;
+        undoPatch.value = attrIndex >= 0 ? entity.attrs?.[attrIndex]?.value : undefined;
       }
-      get().logChange(`修改「${title}」`, () => void get().saveEntityField(entity, { title: patch.title !== undefined ? entity.title : undefined, summary: patch.summary !== undefined ? entity.summary : undefined, contentPatch: oldPatch.contentPatch }));
-      // 自动确认设定（B.5）：标题非默认名 且 简介非空 → 转正
+      get().logChange(`修改「${name}」`, () => void get().saveEntityField(entity, undoPatch));
+      // 自动确认设定（B.5）：名称非默认名 且 简介非空 → 转正
       const draft = get().entities.find((item) => item.id === entity.id);
-      if (draft?.isProvisional && !isDefaultEntityTitle(draft.kind, draft.title) && draft.summary.trim()) {
+      if (draft?.isProvisional && !isDefaultEntityTitle(draft.typeId, draft.name) && draft.intro.trim()) {
         await get().confirmEntity(draft.id);
       }
     } catch (cause) {
@@ -1414,11 +1420,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       set((state) => ({
         entities: upsertById(state.entities, entity),
         elements: state.elements.map((element) =>
-          element.refKind === "entity" && element.refId === entity.id ? { ...element, name: entity.title } : element,
+          element.refKind === "entity" && element.refId === entity.id ? { ...element, name: entity.name } : element,
         ),
         dataVersion: state.dataVersion + 1,
       }));
-      get().logChange(`确认设定「${entity.title}」`, () => {});
+      get().logChange(`确认设定「${entity.name}」`, () => {});
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1517,7 +1523,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           kind: "entity",
           refKind: "entity",
           refId: entityId,
-          name: entity.title,
+          name: entity.name,
           props: { collapsed: false },
           geometry: { ...gridPosition(state.elements.length), ...DEFAULT_ENTITY_SIZE, zIndex: 1 },
           style: {},
@@ -1550,40 +1556,96 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
 
-  // 证据 attach（冲突重试一次），返回 evidence
-  attachEvidenceRun: async (entityId, modality, assetId, url, purpose) => {
-    const run = (revisionId: string) =>
-      createRecutWorldsClient(get().apiBase).evidence.attach({
-        worldId: get().worldId,
-        entityId: entityId || undefined,
-        assetId: assetId || undefined,
-        url: url || undefined,
-        modality,
-        purpose,
-        status: "supporting",
-        expectedRevisionId: revisionId,
+  // 素材挂为实体 media 属性（统一 Entity 模型）：attrKey 生成 `a_<ts>`，全量 attrs 替换语义；
+  // 冲突重试一次（复用 saveEntityField 的 upsert 约定），返回新 attrKey（失败 = null）
+  attachMediaAttr: async (entityId, media, label) => {
+    const entity = get().entities.find((item) => item.id === entityId);
+    if (!entity) return null;
+    const attrKey = `a_${Date.now().toString(36)}`;
+    try {
+      await get().saveEntityField(entity, {
+        attrKey,
+        attrLabel: label ?? modalityLabelOf(media.kind),
+        attrType: "media",
+        value: { assetId: media.assetId, ...(media.name ? { name: media.name } : {}), kind: media.kind },
       });
-    return run(get().revisionId).catch(async (cause) => {
-      if (!isRevisionConflict(cause)) throw cause;
-      await get().refreshRevision();
-      return run(get().revisionId);
-    });
+      return attrKey;
+    } catch (cause) {
+      applyCanvasError(cause);
+      return null;
+    }
   },
 
-  // 挂接（B.12）：evidence attach + 元素保留为投影 + A 虚线（arrow 元素，media→entity）+ 卡角角标
+  // 删除实体 media 属性：全量 attrs 过滤后 upsert（冲突重试一次）
+  removeMediaAttr: async (entityId, attrKey) => {
+    const entity = get().entities.find((item) => item.id === entityId);
+    if (!entity) return;
+    const removedValue = attrValueOf(entity, attrKey);
+    const attrs = (entity.attrs ?? []).filter((attr) => attr.key !== attrKey);
+    const { apiBase, worldId } = get();
+    const run = (revisionId: string) =>
+      createRecutWorldsClient(apiBase).entities.upsert({
+        worldId,
+        entityId: entity.id,
+        typeId: entity.typeId,
+        name: entity.name,
+        intro: entity.intro,
+        detail: entity.detail,
+        attrs,
+        expectedRevisionId: revisionId,
+      });
+    try {
+      const saved = await run(get().revisionId).catch(async (cause) => {
+        if (!isRevisionConflict(cause)) throw cause;
+        await get().refreshRevision();
+        return run(get().revisionId);
+      });
+      const attrIndex = (entity.attrs ?? []).findIndex((attr) => attr.key === attrKey);
+      set((state) => ({ entities: upsertById(state.entities, saved), dataVersion: state.dataVersion + 1 }));
+      // 语义撤销：把被删属性原样塞回（saveEntityField 按 key patch，属性已不存在 → 重建）
+      get().logChange("删除素材属性", () => {
+        const current = useWorldCanvasStore.getState().entities.find((item) => item.id === entity.id);
+        if (current) {
+          void get().saveEntityField(current, {
+            attrKey,
+            attrLabel: entity.attrs?.[attrIndex]?.label ?? attrKey,
+            attrType: entity.attrs?.[attrIndex]?.type ?? "media",
+            value: removedValue,
+          });
+        }
+      });
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
+  },
+
+  // 挂接（B.12）：media 属性 + 元素保留为投影 + A 虚线（arrow 元素，media→entity）+ 卡角角标；
+  // url 素材没有稳定 assetId，不支持挂接为字段（保留为独立元素）
   attachMediaElement: async (elementId, entityId) => {
     const element = get().elements.find((item) => item.id === elementId);
     if (!element) return;
     const entity = get().entities.find((item) => item.id === entityId);
     if (!entity) return;
-    // 换挂：先归档旧证据并移除旧 A 线
-    if (element.props?.evidenceId) {
-      await get().detachMediaElement(elementId);
+    const assetId = String(element.props?.assetId ?? "");
+    if (!assetId) {
+      get().toast("URL 素材暂不支持挂接为设定字段，已保留为独立素材", "info");
+      return;
+    }
+    // 换挂：移除旧 A 线（素材属性保留，不删用户数据）
+    const oldLine = get().elements.find((item) => item.kind === "arrow" && item.props?.fromElementId === elementId && item.props?.edgeType === "attach");
+    if (oldLine) {
+      markCanvasDirty(oldLine.id, true);
+      set((state) => ({ elements: state.elements.filter((item) => item.id !== oldLine.id) }));
+      scheduleCanvasSave();
     }
     try {
-      const modality = String(element.props?.modality ?? "image");
-      const purpose = defaultEvidencePurpose(modality, true);
-      const evidence = await get().attachEvidenceRun(entityId, modality, String(element.props?.assetId ?? ""), String(element.props?.url ?? ""), purpose);
+      const kind = String(element.props?.modality ?? "image");
+      const attrKey = await get().attachMediaAttr(entityId, {
+        assetId,
+        name: typeof element.name === "string" && element.name ? element.name : undefined,
+        kind,
+      });
+      if (!attrKey) return;
       // A 虚线：from = 媒体元素 id（free 块可直接作为几何端点），to = 实体投影
       const lineId = `shape:aline-${Date.now()}`;
       await get().upsertElement({
@@ -1593,28 +1655,29 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         refKind: "",
         refId: "",
         name: "挂接线",
-        props: { fromElementId: elementId, toElementId: `shape:${entityId}`, evidenceId: evidence.id ?? "", edgeType: "attach" },
+        props: { fromElementId: elementId, toElementId: `shape:${entityId}`, attrKey, edgeType: "attach" },
         geometry: { x: 0, y: 0, zIndex: 1 },
         style: {},
         layer: "0",
       });
       set((state) => ({
         elements: state.elements.map((item) =>
-          item.id === elementId ? { ...item, props: { ...(item.props ?? {}), evidenceId: evidence.id ?? "", entityId } } : item,
+          item.id === elementId ? { ...item, props: { ...(item.props ?? {}), attrKey, entityId } } : item,
         ),
       }));
-      get().logChange(`挂接素材到「${entity.title}」`, () => void get().archiveEvidence(entity, evidence.id ?? ""));
-      get().toast(`已将${modalityLabelOf(modality)}挂为「${entity.title}」的参考素材（${evidencePurposeLabels[purpose]}）`, "success");
+      get().logChange(`挂接素材到「${entity.name}」`, () => void get().removeMediaAttr(entityId, attrKey));
+      get().toast(`已将${modalityLabelOf(kind)}挂为「${entity.name}」的参考素材`, "success");
     } catch (cause) {
       applyCanvasError(cause);
     }
   },
 
-  // 解挂：归档证据 + 移除 A 线元素
+  // 解挂：移除 A 线 + 删除实体上的 media 属性（legacy evidenceId 证据仍走 archive 只读兼容通道）
   detachMediaElement: async (elementId) => {
     const element = get().elements.find((item) => item.id === elementId);
+    const attrKey = element?.props?.attrKey ? String(element.props.attrKey) : "";
     const evidenceId = element?.props?.evidenceId;
-    const entityId = element?.props?.entityId;
+    const entityId = element?.props?.entityId ? String(element.props.entityId) : "";
     try {
       const line = get().elements.find((item) => item.kind === "arrow" && item.props?.fromElementId === elementId && item.props?.edgeType === "attach");
       if (line) {
@@ -1623,11 +1686,6 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       }
       set((state) => ({
         elements: state.elements.filter((item) => item.id !== line?.id),
-        entities: state.entities.map((entity) =>
-          entity.id === entityId
-            ? { ...entity, references: (entity.references ?? []).filter((item) => item.id !== evidenceId) }
-            : entity,
-        ),
       }));
       if (evidenceId) {
         await createRecutWorldsClient(get().apiBase).evidence.archive({
@@ -1635,10 +1693,12 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           evidenceId: evidenceId as string,
           expectedRevisionId: get().revisionId,
         });
+      } else if (attrKey && entityId) {
+        await get().removeMediaAttr(entityId, attrKey);
       }
       set((state) => ({
         elements: state.elements.map((item) =>
-          item.id === elementId ? { ...item, props: { ...(item.props ?? {}), evidenceId: "", entityId: "" } } : item,
+          item.id === elementId ? { ...item, props: { ...(item.props ?? {}), attrKey: "", evidenceId: "", entityId: "" } } : item,
         ),
       }));
     } catch (cause) {
@@ -1646,51 +1706,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
 
-  // 设为封面（B.6/B.9）：purpose=identity + status=primary；本地合并 references（封面即时切换）
-  setEvidenceCover: async (entity, evidenceId) => {
+  // 设为封面（B.6/B.9 统一 Entity 模型）：把该素材属性值写入显式 background media 属性
+  setMediaCover: async (entity, attrKey) => {
     try {
-      const evidence = await createRecutWorldsClient(get().apiBase).evidence.update({
-        worldId: get().worldId,
-        evidenceId,
-        purpose: "identity",
-        status: "primary",
-        expectedRevisionId: get().revisionId,
-      });
-      mergeEntityReference(entity.id, evidence);
+      await get().saveEntityField(entity, { attrKey: "background", attrLabel: "封面", attrType: "media", value: attrValueOf(entity, attrKey) });
       get().toast("已设为封面", "success");
-    } catch (cause) {
-      applyCanvasError(cause);
-    }
-  },
-
-  updateEvidencePurpose: async (entity, evidenceId, purpose) => {
-    try {
-      const evidence = await createRecutWorldsClient(get().apiBase).evidence.update({
-        worldId: get().worldId,
-        evidenceId,
-        purpose,
-        status: "supporting",
-        expectedRevisionId: get().revisionId,
-      });
-      mergeEntityReference(entity.id, evidence);
-    } catch (cause) {
-      applyCanvasError(cause);
-    }
-  },
-
-  archiveEvidence: async (entity, evidenceId) => {
-    try {
-      await createRecutWorldsClient(get().apiBase).evidence.archive({
-        worldId: get().worldId,
-        evidenceId,
-        expectedRevisionId: get().revisionId,
-      });
-      set((state) => ({
-        entities: state.entities.map((item) =>
-          item.id === entity.id ? { ...item, references: (item.references ?? []).filter((ref) => ref.id !== evidenceId) } : item,
-        ),
-      }));
-      get().toast("已归档该素材", "success");
     } catch (cause) {
       applyCanvasError(cause);
     }

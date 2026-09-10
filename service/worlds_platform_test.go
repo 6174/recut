@@ -146,10 +146,16 @@ func TestNonLocalWorldIsReadOnlyWithForkHint(t *testing.T) {
 	}
 	_, err := worlds.UpdateWorld(UpdateWorldInput{WorldID: id, Name: strPtr("renamed")})
 	assertReadOnly(err, "update world")
-	_, err = worlds.UpsertEntity(UpsertEntityInput{WorldID: id, Kind: "character", Title: "New"})
+	_, err = worlds.UpsertEntity(UpsertEntityInput{WorldID: id, TypeID: "character", Name: "New"})
 	assertReadOnly(err, "upsert entity")
+	// Evidence writes are frozen (统一实体模型): the frozen error wins over
+	// the read-only gate, so the attach surfaces the migration hint instead.
 	_, err = worlds.AttachReference(AttachReferenceInput{WorldID: id, AssetID: assetID, Role: "evidence:visual_style"})
-	assertReadOnly(err, "attach reference")
+	var frozen *WorldsError
+	if !errors.As(err, &frozen) || frozen.Code != WorldsErrContextInvalid {
+		t.Fatalf("frozen evidence write: expected WORLD_CONTEXT_INVALID, got %v", err)
+	}
+	_ = assetID
 	_, err = worlds.UpdateWorld(UpdateWorldInput{WorldID: id, SkillMd: strPtr("edited")})
 	assertReadOnly(err, "skill md")
 	// 只读不限制读取与解析。
@@ -214,8 +220,8 @@ func TestBriefInlinesSkillBodyAndPinsRevision(t *testing.T) {
 	if len(brief.Facts.Characters) != 1 {
 		t.Fatalf("characters = %d", len(brief.Facts.Characters))
 	}
-	if brief.Facts.Characters[0]["body"] != "full body doc" {
-		t.Fatalf("body not inlined: %#v", brief.Facts.Characters[0])
+	if brief.Facts.Characters[0]["detail"] != "full body doc" {
+		t.Fatalf("detail not inlined: %#v", brief.Facts.Characters[0])
 	}
 	if len(brief.Constraints.Always) != 1 || brief.Constraints.Always[0] != "16:9 only" {
 		t.Fatalf("constraints = %#v", brief.Constraints)
@@ -270,7 +276,7 @@ func TestMaterializeNamespacesEntityIDsAcrossWorlds(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s brief: %v", id, err)
 		}
-		if len(brief.Facts.Characters) != 1 || brief.Facts.Characters[0]["body"] != "full body doc" {
+		if len(brief.Facts.Characters) != 1 || brief.Facts.Characters[0]["detail"] != "full body doc" {
 			t.Fatalf("%s character facts drifted: %#v", id, brief.Facts.Characters)
 		}
 	}

@@ -31,12 +31,13 @@ import { TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, drawShadowCard } from "@/l
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { drawElementCaption } from "@/lib/pomelo/world-canvas/truncate-text";
 import { loadPixiTexture, coverSprite, TILE_FILL } from "@/lib/pomelo/world-canvas/canvas-theme";
-import { mediaSource, modalityOfKind, defaultEvidencePurpose } from "./canvas-media";
+import { mediaSource, modalityOfKind } from "./canvas-media";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
 import { CanvasInlineEditor } from "./canvas-inline-editor";
 import { CanvasToasts } from "./canvas-toast";
 import { CanvasOutline } from "./canvas-outline";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
+import { attrValueOf } from "./entity-attrs";
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, WORLD_NODE_SIZE, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
@@ -295,11 +296,11 @@ function buildPomeloRecords(
         y: pos.y,
         width: liveSize?.width ?? (Number(element?.geometry?.width) || DEFAULT_ENTITY_SIZE.width),
         height: liveSize?.height ?? (Number(element?.geometry?.height) || DEFAULT_ENTITY_SIZE.height),
-        title: entity.title,
+        title: entity.name,
         subtitle: "",
         tags: [],
-        desc: entity.summary || "",
-        kind: entity.kind,
+        desc: entity.intro || "",
+        kind: entity.typeId,
         cover: "",
         coverUrl: cover?.url ?? "",
         coverKind: cover?.kind ?? undefined,
@@ -583,10 +584,10 @@ function AttrCreatorPanel() {
   // creator.fromEntityId 是元素 id（shape:<entityId>），按两种形态解析实体
   const sourceEntityId = creator.fromEntityId.replace(/^shape:/, "");
   const fromEntity = entities.find((entity) => entity.id === sourceEntityId);
-  const sourceType = fromEntity ? entityTypes.find((item) => item.id === fromEntity.kind) : undefined;
+  const sourceType = fromEntity ? entityTypes.find((item) => item.id === fromEntity.typeId) : undefined;
   // 建议属性 = 来源实体 type schema 的字段（已填值的直接带值显示；media 字段按 options 定媒体）
   const suggestedFields = (sourceType?.fields ?? []).map((field) => {
-    const value = fromEntity?.content?.[field.key];
+    const value = fromEntity ? attrValueOf(fromEntity, field.key) : undefined;
     return { ...field, value: value == null ? "" : String(value) };
   });
   const filledFields = suggestedFields.filter((field) => field.value.trim());
@@ -963,10 +964,9 @@ export function CanvasPomeloHost() {
           if (!response.ok) throw new Error("素材导入失败");
           const asset = (await response.json()) as { id: string };
           if (targetEntityId) {
-            const purpose = defaultEvidencePurpose(modality, true);
-            await useWorldCanvasStore.getState().attachEvidenceRun(targetEntityId, modality, asset.id, "", purpose);
+            await useWorldCanvasStore.getState().attachMediaAttr(targetEntityId, { assetId: asset.id, name: file.name, kind: modality });
             const target = useWorldCanvasStore.getState().entities.find((item) => item.id === targetEntityId);
-            useWorldCanvasStore.getState().toast(`已将「${file.name}」挂为「${target?.title ?? "设定"}」的参考素材`, "success");
+            useWorldCanvasStore.getState().toast(`已将「${file.name}」挂为「${target?.name ?? "设定"}」的参考素材`, "success");
           } else {
             await useWorldCanvasStore.getState().addMediaElement({ modality, assetId: asset.id, name: file.name }, world);
           }

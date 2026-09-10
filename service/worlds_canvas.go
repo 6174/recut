@@ -26,30 +26,34 @@ import (
 type WorldRelationSpec struct {
 	LabelZh string `json:"labelZh"`
 	Group   string `json:"group"`
+	// Inverse is the id of the opposite-direction edge (father ↔ child). The
+	// storage stays a single directed row; the inverse only drives the UI's
+	// bidirectional phrasing (RFC: 双向关系构成图).
+	Inverse string `json:"inverse,omitempty"`
 }
 
 // worldRelationTypes is the built-in read-only relation directory (RFC §5.3):
 // relation_type stays open for free extension, but UI prefers these entries so
 // the graph stays readable. Groups mirror the user draft: people/world/video/story.
 var worldRelationTypes = map[string]WorldRelationSpec{
-	"father":      {LabelZh: "父亲", Group: "people"},
-	"mother":      {LabelZh: "母亲", Group: "people"},
-	"child":       {LabelZh: "子女", Group: "people"},
+	"father":      {LabelZh: "父亲", Group: "people", Inverse: "child"},
+	"mother":      {LabelZh: "母亲", Group: "people", Inverse: "child"},
+	"child":       {LabelZh: "子女", Group: "people", Inverse: "father"},
 	"spouse":      {LabelZh: "配偶", Group: "people"},
 	"partner":     {LabelZh: "伴侣", Group: "people"},
 	"friend":      {LabelZh: "朋友", Group: "people"},
-	"teacher":     {LabelZh: "老师", Group: "people"},
-	"student":     {LabelZh: "学生", Group: "people"},
+	"teacher":     {LabelZh: "老师", Group: "people", Inverse: "student"},
+	"student":     {LabelZh: "学生", Group: "people", Inverse: "teacher"},
 	"colleague":   {LabelZh: "同事", Group: "people"},
 	"enemy":       {LabelZh: "敌人", Group: "people"},
-	"belongs_to":  {LabelZh: "属于", Group: "world"},
-	"located_in":  {LabelZh: "位于", Group: "world"},
-	"owns":        {LabelZh: "拥有", Group: "world"},
-	"contains":    {LabelZh: "包含", Group: "world"},
+	"belongs_to":  {LabelZh: "属于", Group: "world", Inverse: "owns"},
+	"located_in":  {LabelZh: "位于", Group: "world", Inverse: "contains"},
+	"owns":        {LabelZh: "拥有", Group: "world", Inverse: "belongs_to"},
+	"contains":    {LabelZh: "包含", Group: "world", Inverse: "located_in"},
 	"created_by":  {LabelZh: "由…创作", Group: "world"},
 	"appears_in":  {LabelZh: "出现在", Group: "video"},
-	"followed_by": {LabelZh: "接续", Group: "video"},
-	"precedes":    {LabelZh: "先于", Group: "video"},
+	"followed_by": {LabelZh: "接续", Group: "video", Inverse: "precedes"},
+	"precedes":    {LabelZh: "先于", Group: "video", Inverse: "followed_by"},
 	"adapted_from": {LabelZh: "改编自", Group: "story"},
 	"causes":      {LabelZh: "导致", Group: "story"},
 	"references":  {LabelZh: "引用", Group: "story"},
@@ -66,7 +70,11 @@ func ListWorldRelationTypes() []map[string]any {
 			if spec.Group != group {
 				continue
 			}
-			items = append(items, map[string]any{"id": id, "labelZh": spec.LabelZh, "group": spec.Group})
+			item := map[string]any{"id": id, "labelZh": spec.LabelZh, "group": spec.Group}
+			if spec.Inverse != "" {
+				item["inverseId"] = spec.Inverse
+			}
+			items = append(items, item)
 		}
 	}
 	return items
@@ -94,91 +102,141 @@ type WorldEntityType struct {
 type EntityTypeField struct {
 	Key         string            `json:"key"`
 	Label       string            `json:"label"`
-	Type        string            `json:"type"` // text | textarea | number | boolean | select | multi | media
+	Type        string            `json:"type"` // text | textarea | number | boolean | select | media
 	Required    bool              `json:"required,omitempty"`
 	Placeholder string            `json:"placeholder,omitempty"`
 	Options     []string          `json:"options,omitempty"`
 	Invariant   bool              `json:"invariant,omitempty"`
-	I18n        map[string]string `json:"i18n,omitempty"`
+	// Locked pins the attr structure (label/type/removal): preset fields are
+	// locked, user-added fields are not. Value stays user-editable either way.
+	Locked bool              `json:"locked,omitempty"`
+	I18n   map[string]string `json:"i18n,omitempty"`
 }
 
-// presetEntityTypeFields returns the first-phase preset field schemas, aligned
-// with the existing kind semantics (RFC §5.4 table); object preset added in T7
-// (描述/材质/来历/用途/重要时刻)。
+// presetEntityTypeFields returns the preset field schemas. Preset fields are
+// locked (structure pinned) except the explicit background field, which every
+// preset carries unlocked: when set it overrides the entity card's default
+// media-attrs carousel background (RFC 统一 Entity 模型 §背景).
+// The reference preset is intentionally gone: media attrs cover it.
 var presetEntityTypeFields = map[string][]EntityTypeField{
 	"object": {
-		{Key: "description", Label: "描述", Type: "textarea"},
-		{Key: "material", Label: "材质", Type: "text"},
-		{Key: "origin", Label: "来历", Type: "textarea"},
-		{Key: "usage", Label: "用途", Type: "textarea"},
-		{Key: "moment", Label: "重要时刻", Type: "textarea"},
+		{Key: "description", Label: "描述", Type: "textarea", Locked: true},
+		{Key: "material", Label: "材质", Type: "text", Locked: true},
+		{Key: "origin", Label: "来历", Type: "textarea", Locked: true},
+		{Key: "usage", Label: "用途", Type: "textarea", Locked: true},
+		{Key: "moment", Label: "重要时刻", Type: "textarea", Locked: true},
+		{Key: "background", Label: "背景", Type: "media"},
 	},
 	"character": {
-		{Key: "appearance", Label: "外貌与标志", Type: "textarea"},
-		{Key: "personality", Label: "性格", Type: "textarea"},
-		{Key: "voice", Label: "声音", Type: "textarea"},
-		{Key: "invariants", Label: "不可变特征", Type: "textarea", Invariant: true},
+		{Key: "appearance", Label: "外貌与标志", Type: "textarea", Locked: true},
+		{Key: "personality", Label: "性格", Type: "textarea", Locked: true},
+		{Key: "voice", Label: "声音", Type: "textarea", Locked: true},
+		{Key: "invariants", Label: "不可变特征", Type: "textarea", Invariant: true, Locked: true},
+		{Key: "background", Label: "背景", Type: "media"},
 	},
 	"location": {
-		{Key: "description", Label: "描述", Type: "textarea"},
-		{Key: "atmosphere", Label: "氛围", Type: "textarea"},
+		{Key: "description", Label: "描述", Type: "textarea", Locked: true},
+		{Key: "atmosphere", Label: "氛围", Type: "textarea", Locked: true},
+		{Key: "background", Label: "背景", Type: "media"},
 	},
 	"story": {
-		{Key: "premise", Label: "前提", Type: "textarea"},
-		{Key: "moment", Label: "关键时刻", Type: "textarea"},
-		{Key: "emotion", Label: "情绪", Type: "textarea"},
+		{Key: "premise", Label: "前提", Type: "textarea", Locked: true},
+		{Key: "moment", Label: "关键时刻", Type: "textarea", Locked: true},
+		{Key: "emotion", Label: "情绪", Type: "textarea", Locked: true},
+		{Key: "background", Label: "背景", Type: "media"},
 	},
 	"style": {
-		{Key: "visual", Label: "视觉", Type: "textarea"},
-		{Key: "guidance", Label: "guidance", Type: "textarea"},
-		{Key: "avoid", Label: "避免", Type: "textarea"},
+		{Key: "visual", Label: "视觉", Type: "textarea", Locked: true},
+		{Key: "guidance", Label: "guidance", Type: "textarea", Locked: true},
+		{Key: "avoid", Label: "避免", Type: "textarea", Locked: true},
+		{Key: "background", Label: "背景", Type: "media"},
 	},
 	"rule": {
-		{Key: "text", Label: "规则文本", Type: "textarea"},
+		{Key: "text", Label: "规则文本", Type: "textarea", Locked: true},
 	},
-	"reference": {},
 }
+
+// presetEntityTypeOrder is the seed order for the preset directory.
+var presetEntityTypeOrder = []string{"character", "location", "object", "story", "style", "rule"}
 
 // presetEntityTypeNames maps a preset id to its zh display name.
 var presetEntityTypeNames = map[string]string{
 	"character": "人物", "location": "场景", "object": "物件", "story": "故事",
-	"style": "风格", "rule": "规则", "reference": "参考",
+	"style": "风格", "rule": "规则",
 }
 
 // ensurePresetEntityTypesInTx lazily seeds the preset directory rows into a
 // world as scope='builtin' copies the first time the world's type surface is
-// touched. Idempotent per preset id: missing rows (e.g. the object preset added
-// after a world was first seeded) are inserted; rows the world already carries
-// (possibly overridden) are left untouched.
+// touched. Idempotent: missing rows (e.g. a preset added after a world was
+// first seeded) are inserted; rows the world already carries are upgraded in
+// place so a new preset field (locked flags, background) reaches old worlds
+// without touching user-added custom fields.
 func ensurePresetEntityTypesInTx(tx *sql.Tx, worldID string) error {
-	var count int
-	if err := tx.QueryRow("select count(*) from world_entity_types where world_id = ?", worldID).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
 	now := isoTimeNow()
-	order := []string{"character", "location", "object", "story", "style", "rule", "reference"}
-	for _, id := range order {
-		// 幂等升级：已有类型目录的世界（旧 seed 无 object）补插缺失的预设行，
-		// 已存在的行（可能被本世界覆盖过）保持原样
-		var exists int
-		if err := tx.QueryRow("select count(*) from world_entity_types where world_id = ? and id = ?", worldID, id).Scan(&exists); err != nil {
-			return err
-		}
-		if exists > 0 {
+	for _, id := range presetEntityTypeOrder {
+		var fieldsJSON string
+		var scope string
+		err := tx.QueryRow("select scope, fields_json from world_entity_types where world_id = ? and id = ?", worldID, id).Scan(&scope, &fieldsJSON)
+		presetFields := presetEntityTypeFields[id]
+		if err == sql.ErrNoRows {
+			encoded, err := json.Marshal(presetFields)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec("insert into world_entity_types (id, world_id, scope, name, icon, color, base_kind, fields_json, builtin, created_at, updated_at) values (?, ?, 'builtin', ?, '', '', ?, ?, 1, ?, ?)",
+				id, worldID, presetEntityTypeNames[id], baseKindForPreset(id), string(encoded), now, now); err != nil {
+				return err
+			}
 			continue
 		}
-		fields := presetEntityTypeFields[id]
-		encoded, err := json.Marshal(fields)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec("insert into world_entity_types (id, world_id, scope, name, icon, color, base_kind, fields_json, builtin, created_at, updated_at) values (?, ?, 'builtin', ?, '', '', ?, ?, 1, ?, ?)",
-			id, worldID, presetEntityTypeNames[id], baseKindForPreset(id), string(encoded), now, now); err != nil {
+		// Idempotent upgrade of an existing builtin row: merge preset locked
+		// flags into existing fields by key and append preset fields the row
+		// does not carry yet (e.g. background). Custom rows are never touched.
+		if scope != "builtin" {
+			continue
+		}
+		existing := []EntityTypeField{}
+		if fieldsJSON != "" {
+			_ = json.Unmarshal([]byte(fieldsJSON), &existing)
+		}
+		byKey := map[string]*EntityTypeField{}
+		for index := range existing {
+			byKey[existing[index].Key] = &existing[index]
+		}
+		changed := false
+		for _, preset := range presetFields {
+			if field, ok := byKey[preset.Key]; ok {
+				if field.Locked != preset.Locked || field.Label != preset.Label {
+					field.Locked = preset.Locked
+					field.Label = preset.Label
+					changed = true
+				}
+				continue
+			}
+			appended := preset
+			existing = append(existing, appended)
+			byKey[preset.Key] = &existing[len(existing)-1]
+			changed = true
+		}
+		if !changed {
+			continue
+		}
+		encoded, err := json.Marshal(existing)
+		if err != nil {
 			return err
 		}
+		if _, err := tx.Exec("update world_entity_types set fields_json = ?, updated_at = ? where world_id = ? and id = ?", string(encoded), now, worldID, id); err != nil {
+			return err
+		}
+	}
+	// The reference preset is retired (media attrs cover it): archive unused
+	// builtin rows; worlds that still hold reference entities keep the row.
+	if _, err := tx.Exec("update world_entity_types set archived_at = ?, updated_at = ? where world_id = ? and id = 'reference' and scope = 'builtin' and archived_at is null and not exists (select 1 from world_entities where world_id = ? and (kind = 'reference' or type_id = 'reference') and archived_at is null)",
+		now, now, worldID, worldID); err != nil {
+		return err
 	}
 	return nil
 }
@@ -212,15 +270,23 @@ func (w *WorldStore) EnsurePresetEntityTypes(worldID string) error {
 // type directory. Preset kinds get their seeded builtin row; unknown kinds
 // auto-create a minimal custom type (name + description) so canvas creation
 // never blocks on a missing schema (RFC §5.4 "type 成本极低").
-func (w *WorldStore) ensureEntityType(tx *sql.Tx, worldID, kind string) error {
-	if kind == "" {
+func (w *WorldStore) ensureEntityType(tx *sql.Tx, worldID, typeID string) error {
+	return ensureEntityTypeInTx(tx, worldID, typeID)
+}
+
+// ensureEntityTypeInTx makes sure the given type id resolves inside the world's
+// type directory. Preset ids get their seeded builtin row; unknown ids
+// auto-create a minimal custom type (name + description) so canvas creation
+// never blocks on a missing schema (RFC §5.4 "type 成本极低").
+func ensureEntityTypeInTx(tx *sql.Tx, worldID, typeID string) error {
+	if typeID == "" {
 		return nil
 	}
 	if err := ensurePresetEntityTypesInTx(tx, worldID); err != nil {
 		return err
 	}
 	var id string
-	err := tx.QueryRow("select id from world_entity_types where world_id = ? and id = ? and archived_at is null", worldID, kind).Scan(&id)
+	err := tx.QueryRow("select id from world_entity_types where world_id = ? and id = ? and archived_at is null", worldID, typeID).Scan(&id)
 	if err == nil {
 		return nil
 	}
@@ -230,7 +296,7 @@ func (w *WorldStore) ensureEntityType(tx *sql.Tx, worldID, kind string) error {
 	now := isoTimeNow()
 	fields, _ := json.Marshal([]EntityTypeField{{Key: "description", Label: "描述", Type: "textarea"}})
 	if _, err := tx.Exec("insert into world_entity_types (id, world_id, scope, name, icon, color, base_kind, fields_json, created_at, updated_at) values (?, ?, 'custom', ?, '', '', '', ?, ?, ?)",
-		kind, worldID, kind, string(fields), now, now); err != nil {
+		typeID, worldID, typeID, string(fields), now, now); err != nil {
 		return err
 	}
 	return nil
@@ -438,7 +504,7 @@ func validateCanvasLinkStart(tx *sql.Tx, worldID string, props map[string]any) e
 }
 
 // syncAttrElementValue writes a canvas-edited property value back into the
-// bound entity's content. Empty values are ignored on purpose: deletion of an
+// bound entity's attrs. Empty values are ignored on purpose: deletion of an
 // entity property is reserved for the right property panel.
 func (w *WorldStore) syncAttrElementValue(worldID, entityID string, props map[string]any) error {
 	field := strings.TrimSpace(stringProp(props, "field"))
@@ -457,17 +523,13 @@ func (w *WorldStore) syncAttrElementValue(worldID, entityID string, props map[st
 	if err != nil {
 		return err
 	}
-	if entity.Content[field] == value {
+	if existing, ok := attrValueMap(entity.Attrs)[field]; ok && existing == value {
 		return nil
 	}
-	content := map[string]any{}
-	for key, item := range entity.Content {
-		content[key] = item
-	}
-	content[field] = value
 	_, err = w.UpsertEntity(UpsertEntityInput{
-		WorldID: worldID, EntityID: entityID, Kind: entity.Kind, Title: entity.Title,
-		Summary: entity.Summary, Content: content, CreatedBy: "canvas",
+		WorldID: worldID, EntityID: entityID, Name: entity.Name,
+		Intro: entity.Intro, Detail: entity.Detail, Attrs: patchEntityAttr(entity.Attrs, field, value),
+		CreatedBy: "canvas",
 	})
 	return err
 }
@@ -511,16 +573,17 @@ func scanCanvasElement(row rowScanner) (WorldCanvasElement, error) {
 
 // CreateChildEntityInput is the typed input of entities.create_child.
 type CreateChildEntityInput struct {
-	WorldID            string
-	ParentID           string
-	ContainerRole      string
-	Kind               WorldEntityKind
-	Title              string
-	Summary            string
-	Content            map[string]any
-	IsProvisional      bool
-	ExpectedRevisionID string
-	CreatedBy          string
+	WorldID            string       `json:"worldId"`
+	ParentID           string       `json:"parentId"`
+	ContainerRole      string       `json:"containerRole"`
+	TypeID             string       `json:"typeId"`
+	Name               string       `json:"name"`
+	Intro              string       `json:"intro"`
+	Detail             string       `json:"detail"`
+	Attrs              []EntityAttr `json:"attrs"`
+	IsProvisional      bool         `json:"isProvisional"`
+	ExpectedRevisionID string       `json:"expectedRevisionId"`
+	CreatedBy          string       `json:"createdBy"`
 }
 
 // CreateChildEntity creates an entity inside a parent entity's local context
@@ -531,8 +594,8 @@ func (w *WorldStore) CreateChildEntity(input CreateChildEntityInput) (WorldEntit
 		return WorldEntity{}, worldsError(WorldsErrContextInvalid, "parent entity is required")
 	}
 	return w.UpsertEntity(UpsertEntityInput{
-		WorldID: input.WorldID, Kind: input.Kind, Title: input.Title, Summary: input.Summary,
-		Content: input.Content, ParentID: input.ParentID, ContainerRole: input.ContainerRole,
+		WorldID: input.WorldID, TypeID: input.TypeID, Name: input.Name, Intro: input.Intro,
+		Detail: input.Detail, Attrs: input.Attrs, ParentID: input.ParentID, ContainerRole: input.ContainerRole,
 		IsProvisional: input.IsProvisional, ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: input.CreatedBy,
 	})
 }
@@ -656,7 +719,9 @@ func (w *WorldStore) CreateRelation(input CreateRelationInput) (WorldEntityRelat
 }
 
 // ListRelations returns the relations of one entity: global relations touching
-// it plus relations scoped to that entity's local context (RFC §5.2).
+// it plus relations scoped to that entity's local context (RFC §5.2). Every
+// item carries a `direction` projection (out | in | scope) so the UI can phrase
+// the bidirectional relation without caring about storage direction.
 func (w *WorldStore) ListRelations(worldID, entityID string) ([]WorldEntityRelation, error) {
 	db, err := w.database()
 	if err != nil {
@@ -678,6 +743,14 @@ func (w *WorldStore) ListRelations(worldID, entityID string) ([]WorldEntityRelat
 			return nil, err
 		}
 		relation.ScopeEntityID = nullStringValue(scopeEntityID)
+		switch {
+		case relation.ScopeEntityID == entityID && relation.FromEntityID != entityID && relation.ToEntityID != entityID:
+			relation.Direction = "scope"
+		case relation.FromEntityID == entityID:
+			relation.Direction = "out"
+		default:
+			relation.Direction = "in"
+		}
 		items = append(items, relation)
 	}
 	return items, rows.Err()
@@ -732,7 +805,7 @@ func (w *WorldStore) checkParent(tx *sql.Tx, worldID, parentID string) error {
 }
 
 func (w *WorldStore) listChildren(db *sql.DB, worldID, parentID string) ([]WorldEntitySummary, error) {
-	rows, err := db.Query("select id, kind, title, summary, parent_id, container_role, is_provisional, updated_at from world_entities where world_id = ? and parent_id = ? and archived_at is null order by updated_at desc", worldID, parentID)
+	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, parent_id, container_role, is_provisional, updated_at from world_entities where world_id = ? and parent_id = ? and archived_at is null order by updated_at desc", worldID, parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -744,7 +817,7 @@ func (w *WorldStore) listChildren(db *sql.DB, worldID, parentID string) ([]World
 		var provisional int
 		item.WorldID = worldID
 		item.ParentID = parentID
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Summary, &item.ParentID, &containerRole, &provisional, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.TypeID, &item.Name, &item.Intro, &item.ParentID, &containerRole, &provisional, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.ContainerRole = nullStringValue(containerRole)
@@ -758,7 +831,7 @@ func (w *WorldStore) listChildren(db *sql.DB, worldID, parentID string) ([]World
 type PromoteCanvasElementInput struct {
 	WorldID            string
 	ElementID          string
-	Kind               string // optional; used when a note becomes an entity
+	TypeID             string // optional; used when a note becomes an entity
 	RelationType       string // optional; used when an arrow becomes a relation
 	Field              string // optional; used when an arrow becomes a property binding
 	Title              string // optional; overrides the derived note title
@@ -800,36 +873,35 @@ func (w *WorldStore) promoteNoteToEntity(db *sql.DB, elementContext string, elem
 	if strings.TrimSpace(text) == "" {
 		text = stringProp(element.Props, "title")
 	}
-	kind := strings.TrimSpace(input.Kind)
-	if kind == "" {
-		kind = strings.TrimSpace(stringProp(element.Props, "kind"))
+	typeID := strings.TrimSpace(input.TypeID)
+	if typeID == "" {
+		typeID = strings.TrimSpace(stringProp(element.Props, "typeId"))
 	}
-	if kind == "" {
-		kind = "reference"
+	if typeID == "" {
+		typeID = EntityTypeObject
 	}
 	// B.5/T3：提升产出「草稿」实体（不进 Canon，用户在画布上确认设定后转正）；
-	// 文本拆分为 第一行 → title、其余 → summary（正文保留在 content.body）
-	title := strings.TrimSpace(input.Title)
-	summary := ""
-	if title == "" {
+	// 文本拆分为 第一行 → name、其余 → intro（全文保留在 detail）
+	name := strings.TrimSpace(input.Title)
+	intro := ""
+	if name == "" {
 		lines := strings.SplitN(strings.TrimSpace(text), "\n", 2)
-		title = strings.TrimSpace(lines[0])
+		name = strings.TrimSpace(lines[0])
 		if len(lines) == 2 {
-			summary = strings.TrimSpace(lines[1])
+			intro = strings.TrimSpace(lines[1])
 		}
-		if title == "" {
-			title = element.Name
+		if name == "" {
+			name = element.Name
 		}
 	}
-	if len(title) > 120 {
-		title = title[:120]
+	if len(name) > 120 {
+		name = name[:120]
 	}
-	if title == "" {
-		title = "便签"
+	if name == "" {
+		name = "便签"
 	}
 	entity, err := w.UpsertEntity(UpsertEntityInput{
-		WorldID: input.WorldID, Kind: WorldEntityKind(kind), Title: title, Summary: summary,
-		Content: map[string]any{"body": text},
+		WorldID: input.WorldID, TypeID: typeID, Name: name, Intro: intro, Detail: text,
 		IsProvisional: true,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: input.CreatedBy,
 	})
@@ -839,7 +911,7 @@ func (w *WorldStore) promoteNoteToEntity(db *sql.DB, elementContext string, elem
 	// Keep the canvas element as the projection, now bound to the entity.
 	if err := w.writeCanvasDocElement(input.WorldID, elementContext, WorldCanvasElement{
 		ID: element.ID, ContextID: elementContext, Kind: "entity",
-		RefKind: "entity", RefID: entity.ID, Name: entity.Title,
+		RefKind: "entity", RefID: entity.ID, Name: entity.Name,
 		Props: element.Props, Geometry: element.Geometry, Style: element.Style, Layer: element.Layer,
 	}); err != nil {
 		return nil, err
@@ -938,28 +1010,25 @@ func (w *WorldStore) promoteArrowToPropertyBinding(db *sql.DB, toContext string,
 	// Canvas-side creation: an empty property seeds from the free element's
 	// content (first line of the note text, else its title). Existing values
 	// stay untouched — the property panel wins on conflict.
-	current, _ := entity.Content[field].(string)
+	valueMap := attrValueMap(entity.Attrs)
+	current, _ := valueMap[field].(string)
 	if strings.TrimSpace(current) == "" {
 		seed := stringProp(to.Props, "text")
 		if seed == "" {
 			seed = stringProp(to.Props, "title")
 		}
 		if strings.TrimSpace(seed) != "" {
-			content := map[string]any{}
-			for key, item := range entity.Content {
-				content[key] = item
-			}
-			content[field] = seed
 			entity, err = w.UpsertEntity(UpsertEntityInput{
-				WorldID: input.WorldID, EntityID: entity.ID, Kind: entity.Kind, Title: entity.Title,
-				Summary: entity.Summary, Content: content, CreatedBy: input.CreatedBy,
+				WorldID: input.WorldID, EntityID: entity.ID, Name: entity.Name,
+				Intro: entity.Intro, Detail: entity.Detail,
+				Attrs: patchEntityAttr(entity.Attrs, field, seed), CreatedBy: input.CreatedBy,
 			})
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
-	label := w.entityFieldLabel(db, input.WorldID, string(entity.Kind), field)
+	label := w.entityFieldLabel(db, input.WorldID, entity.TypeID, field)
 	// Mark the target element as a property reference: its title carries the
 	// bound property and props record the binding for sync.
 	sourceTitle := to.Name
@@ -988,16 +1057,17 @@ func (w *WorldStore) promoteArrowToPropertyBinding(db *sql.DB, toContext string,
 	// Attr element: the visible property edge anchor projecting the shared
 	// value onto the canvas.
 	attrID := "attr:" + to.ID
+	boundValue := attrValueMap(entity.Attrs)[field]
 	if err := w.writeCanvasDocElement(input.WorldID, toContext, WorldCanvasElement{
 		ID: attrID, ContextID: toContext, Kind: "attr",
 		RefKind: "entity", RefID: entity.ID, Name: "属性 · " + label,
-		Props: map[string]any{"field": field, "sourceElementId": to.ID, "value": entity.Content[field]},
+		Props: map[string]any{"field": field, "sourceElementId": to.ID, "value": boundValue},
 		Geometry: to.Geometry, Layer: to.Layer,
 	}); err != nil {
 		return nil, err
 	}
 	logWorldEvent("world.canvas.promoted", map[string]string{"worldId": input.WorldID, "elementId": element.ID, "entityId": entity.ID, "field": field})
-	return map[string]any{"promoted": "property", "entityId": entity.ID, "field": field, "attrElementId": attrID, "value": entity.Content[field]}, nil
+	return map[string]any{"promoted": "property", "entityId": entity.ID, "field": field, "attrElementId": attrID, "value": boundValue}, nil
 }
 
 // entityFieldLabel resolves a human label for a bound property from the
@@ -1039,4 +1109,9 @@ func nullStringValue(value sql.NullString) string {
 // isoTimeNow mirrors the project-level iso() helper for canvas/type timestamps.
 func isoTimeNow() string {
 	return iso(time.Now().UTC())
+}
+// getEntityTypeQuerier reads one type row through any rowQuerier (*sql.DB or
+// *sql.Tx) so callers inside an open transaction see their own writes.
+func getEntityTypeQuerier(db rowQuerier, worldID, typeID string) (WorldEntityType, error) {
+	return scanEntityType(db.QueryRow("select id, world_id, scope, name, icon, color, base_kind, fields_json, extends_id, builtin, created_at, updated_at from world_entity_types where world_id = ? and id = ? and archived_at is null", worldID, typeID))
 }

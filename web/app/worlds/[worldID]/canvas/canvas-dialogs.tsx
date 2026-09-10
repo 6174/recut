@@ -61,7 +61,7 @@ function DeleteConfirmDialog() {
   return (
     <div aria-modal="true" className="fixed inset-0 z-[70] grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={() => setDeleteTarget(null)} role="dialog">
       <div className="w-full max-w-sm rounded-md border bg-card p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
-        <h3 className="text-base font-semibold">删除「{target.title}」？</h3>
+        <h3 className="text-base font-semibold">删除「{target.name}」？</h3>
         <p className="mt-2 text-sm text-muted-foreground">{impacts.length ? `将一并删除：${impacts.join(" · ")}` : "该设定没有关联的子设定、关系或素材。"}</p>
         <div className="mt-3 flex items-center justify-end gap-2">
           <button
@@ -107,7 +107,7 @@ function AddFieldDialog() {
   if (!kind) return null;
   const type = entityTypes.find((item) => item.id === kind);
   const typeName = type?.name ?? kind;
-  const sample = entities.find((entity) => entity.kind === kind);
+  const sample = entities.find((entity) => entity.typeId === kind);
   const keyFromLabel = () => {
     const existing = new Set((type?.fields ?? []).map((field) => field.key));
     const base = label.trim() || `field_${Date.now()}`;
@@ -144,7 +144,7 @@ function AddFieldDialog() {
     <div aria-modal="true" className="fixed inset-0 z-[70] grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={() => setAddFieldFor(null)} role="dialog">
       <div className="w-full max-w-sm rounded-md border bg-card p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <h3 className="text-base font-semibold">添加字段「{typeName}」</h3>
-        <p className="mt-1 text-xs text-warning">该字段将出现在所有「{typeName}」设定上{sample ? `（如「${sample.title}」）` : ""}。</p>
+        <p className="mt-1 text-xs text-warning">该字段将出现在所有「{typeName}」设定上{sample ? `（如「${sample.name}」）` : ""}。</p>
         <div className="mt-3 space-y-3">
           <input autoFocus className="w-full rounded-md border bg-background p-2 text-sm outline-none focus:border-primary" onChange={(event) => setLabel(event.target.value)} placeholder="字段名（如：职业）" value={label} />
           <select className="w-full rounded-md border bg-background p-2 text-sm" onChange={(event) => setFieldType(event.target.value as typeof fieldType)} value={fieldType}>
@@ -182,11 +182,11 @@ function RelateDialog() {
   const store = useWorldCanvasStore.getState();
   const from = store.entities.find((entity) => entity.id === pendingRelation.fromEntityId);
   const to = store.entities.find((entity) => entity.id === pendingRelation.toEntityId);
-  const titleOf = (id: string) => store.entities.find((entity) => entity.id === id)?.title ?? id.slice(0, 10);
+  const titleOf = (id: string) => store.entities.find((entity) => entity.id === id)?.name ?? id.slice(0, 10);
   const typeLabel = (id: string) => relationTypes.find((item) => item.id === id)?.labelZh ?? id;
   // Top4 候选（B.10 映射表；自定义类型按 base_kind 查表）
-  const fromKind = entityTypes.find((item) => item.id === from?.kind)?.baseKind || from?.kind || "";
-  const toKind = entityTypes.find((item) => item.id === to?.kind)?.baseKind || to?.kind || "";
+  const fromKind = entityTypes.find((item) => item.id === from?.typeId)?.baseKind || from?.typeId || "";
+  const toKind = entityTypes.find((item) => item.id === to?.typeId)?.baseKind || to?.typeId || "";
   const top4 = relationCandidatesOf(fromKind, toKind).filter((id) => relationTypes.some((item) => item.id === id));
   // 全量分组（搜索过滤）
   const groups = new Map<string, WorldRelationType[]>();
@@ -296,7 +296,8 @@ function PromoteDialog({ elementKind }: { elementKind: string }) {
   const promote = useWorldCanvasStore((state) => state.promote);
   const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
   const relationTypes = useWorldCanvasStore((state) => state.relationTypes);
-  const [kind, setKind] = useState(elementKind === "note" ? "reference" : "references");
+  // reference 预设已退役（统一 Entity 模型）：默认取目录首个类型/关系类型
+  const [kind, setKind] = useState(elementKind === "note" ? entityTypes[0]?.id ?? "character" : relationTypes[0]?.id ?? "");
   const isNote = elementKind === "note";
   return (
     <div aria-modal="true" className="fixed inset-0 z-[70] grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={() => setPromoting(null)} role="dialog">
@@ -328,7 +329,7 @@ function PromoteDialog({ elementKind }: { elementKind: string }) {
             className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
             onClick={() => {
               if (!promotingId) return;
-              void (isNote ? promote(promotingId, { kind }) : promote(promotingId, { relationType: kind }));
+              void (isNote ? promote(promotingId, { typeId: kind }) : promote(promotingId, { relationType: kind }));
             }}
             type="button"
           >

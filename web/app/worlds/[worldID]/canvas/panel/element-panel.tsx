@@ -23,7 +23,7 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const removeElement = useWorldCanvasStore((state) => state.removeElement);
   const setPromoting = useWorldCanvasStore((state) => state.setPromoting);
-  const titleOf = (id?: string) => (id ? entities.find((item) => item.id === id)?.title ?? "…" : "—");
+  const titleOf = (id?: string) => (id ? entities.find((item) => item.id === id)?.name ?? "…" : "—");
   if (!element) return null;
   const isArrow = element.kind === "arrow";
   const isNote = element.kind === "note";

@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,24 +46,23 @@ const (
 	WorldCustom       WorldKind = "custom"
 )
 
-// WorldEntityKind is the closed set of Entity kinds every World may hold.
-type WorldEntityKind string
+// WorldEntityTypeID names an entity's type inside the world's type directory.
+// It is an open id: preset ids (character/location/object/story/style/rule) are
+// seeded as builtin rows, any other string resolves to a world-local custom
+// type. The old closed kind enum is gone (RFC 统一 Entity 模型).
+type WorldEntityTypeID = string
 
 const (
-	EntityCharacter WorldEntityKind = "character"
-	EntityLocation  WorldEntityKind = "location"
-	EntityStory     WorldEntityKind = "story"
-	EntityStyle     WorldEntityKind = "style"
-	EntityRule      WorldEntityKind = "rule"
-	EntityReference WorldEntityKind = "reference"
+	EntityTypeCharacter = "character"
+	EntityTypeLocation  = "location"
+	EntityTypeObject    = "object"
+	EntityTypeStory     = "story"
+	EntityTypeStyle     = "style"
+	EntityTypeRule      = "rule"
 )
 
 var worldKinds = map[WorldKind]bool{
 	WorldCharacterIP: true, WorldCreatorBrand: true, WorldBrand: true, WorldFiction: true, WorldCustom: true,
-}
-
-var worldEntityKinds = map[WorldEntityKind]bool{
-	EntityCharacter: true, EntityLocation: true, EntityStory: true, EntityStyle: true, EntityRule: true, EntityReference: true,
 }
 
 // assetReferenceRoles is the first-version closed set of semantic roles a
@@ -112,7 +110,7 @@ type WorldSummary struct {
 	PreviewAssetIDs   []string                `json:"previewAssetIds,omitempty"`
 	PreviewURLs       []string                `json:"previewUrls,omitempty"`
 	CurrentRevisionID string                  `json:"currentRevisionId"`
-	EntityCounts      map[WorldEntityKind]int `json:"entityCounts"`
+	EntityCounts      map[string]int `json:"entityCounts"`
 	UpdatedAt         string                  `json:"updatedAt"`
 }
 
@@ -127,7 +125,7 @@ type WorldDetail struct {
 	Identity             map[string]any    `json:"identity"`
 	SkillMd              string            `json:"skillMd"`
 	Revision             WorldRevisionView `json:"revision"`
-	AvailableEntityKinds []WorldEntityKind `json:"availableEntityKinds"`
+	AvailableEntityKinds []string `json:"availableEntityKinds"`
 }
 
 // WorldOriginMeta records where a World came from and how its lifecycle is
@@ -166,16 +164,48 @@ type ForkSource struct {
 	RevisionID string `json:"revisionId"`
 }
 
+// EntityAttr is one entry of an entity's ordered attribute list. Type is one
+// of text | textarea | number | boolean | select | media; media values carry
+// {assetId, name?, kind?, segment?} referencing a platform Asset. Key is a
+// stable generated id (label renames never break references). Locked marks a
+// type-preset attr: its structure (label/type) is pinned by the type schema,
+// the value stays user-editable (RFC 统一 Entity 模型).
+type EntityAttr struct {
+	Key     string          `json:"key"`
+	Label   string          `json:"label"`
+	Type    string          `json:"type"`
+	Value   any             `json:"value,omitempty"`
+	Options []string        `json:"options,omitempty"`
+	Locked  bool            `json:"locked,omitempty"`
+	Segment *AttrMediaSegment `json:"segment,omitempty"`
+}
+
+// AttrMediaSegment pins the meaningful part of a long media asset (carried
+// over from the retired evidence segment semantics).
+type AttrMediaSegment struct {
+	StartSec float64 `json:"startSec"`
+	EndSec   float64 `json:"endSec"`
+}
+
+// attrTypeSet is the closed set of attr value types.
+var attrTypes = map[string]bool{
+	"text": true, "textarea": true, "number": true, "boolean": true, "select": true, "media": true,
+}
+
+// attrMediaKinds narrows media attrs to the modalities a card can render.
+var attrMediaKinds = map[string]bool{"image": true, "video": true, "audio": true}
+
+// WorldEntitySummary is the list-row projection of an entity.
 type WorldEntitySummary struct {
-	ID            string          `json:"id"`
-	WorldID       string          `json:"worldId"`
-	Kind          WorldEntityKind `json:"kind"`
-	Title         string          `json:"title"`
-	Summary       string          `json:"summary"`
-	ParentID      string          `json:"parentId,omitempty"`
-	ContainerRole string          `json:"containerRole,omitempty"`
-	IsProvisional bool            `json:"isProvisional,omitempty"`
-	UpdatedAt     string          `json:"updatedAt"`
+	ID            string `json:"id"`
+	WorldID       string `json:"worldId"`
+	TypeID        string `json:"typeId"`
+	Name          string `json:"name"`
+	Intro         string `json:"intro"`
+	ParentID      string `json:"parentId,omitempty"`
+	ContainerRole string `json:"containerRole,omitempty"`
+	IsProvisional bool   `json:"isProvisional,omitempty"`
+	UpdatedAt     string `json:"updatedAt"`
 }
 
 type WorldEntityRelation struct {
@@ -184,6 +214,9 @@ type WorldEntityRelation struct {
 	FromEntityID  string `json:"fromEntityId"`
 	ToEntityID    string `json:"toEntityId"`
 	ScopeEntityID string `json:"scopeEntityId,omitempty"`
+	// Direction is a read projection (out | in | scope) from the touched
+	// entity's point of view; only ListRelations fills it.
+	Direction string `json:"direction,omitempty"`
 }
 
 type WorldAssetReference struct {
@@ -224,7 +257,8 @@ type WorldEvidence = WorldAssetReference
 
 type WorldEntity struct {
 	WorldEntitySummary
-	Content    map[string]any        `json:"content"`
+	Detail     string                `json:"detail"`
+	Attrs      []EntityAttr          `json:"attrs"`
 	Relations  []WorldEntityRelation `json:"relations"`
 	References []WorldAssetReference `json:"references"`
 	Children   []WorldEntitySummary  `json:"children,omitempty"`
@@ -398,19 +432,19 @@ func (w *WorldStore) summary(db *sql.DB, worldID string) (WorldSummary, error) {
 		return WorldSummary{}, err
 	}
 	summary.Origin = originOrDefault(origin)
-	summary.EntityCounts = map[WorldEntityKind]int{}
-	countRows, err := db.Query("select kind, count(*) from world_entities where world_id = ? and archived_at is null group by kind", worldID)
+	summary.EntityCounts = map[string]int{}
+	countRows, err := db.Query("select coalesce(nullif(type_id, ''), kind) as type_id, count(*) from world_entities where world_id = ? and archived_at is null group by type_id", worldID)
 	if err != nil {
 		return WorldSummary{}, err
 	}
 	defer countRows.Close()
 	for countRows.Next() {
-		var kind WorldEntityKind
+		var typeID string
 		var count int
-		if err := countRows.Scan(&kind, &count); err != nil {
+		if err := countRows.Scan(&typeID, &count); err != nil {
 			return WorldSummary{}, err
 		}
-		summary.EntityCounts[kind] = count
+		summary.EntityCounts[typeID] = count
 	}
 	if err := countRows.Err(); err != nil {
 		return WorldSummary{}, err
@@ -498,18 +532,20 @@ func (w *WorldStore) GetWorld(worldID string) (WorldDetail, error) {
 	return detail, nil
 }
 
-func availableEntityKinds(kind WorldKind) []WorldEntityKind {
+// availableEntityKinds returns the preset type ids a World type surfaces first
+// in its UI; the directory itself stays open (custom types always allowed).
+func availableEntityKinds(kind WorldKind) []string {
 	switch kind {
 	case WorldCharacterIP:
-		return []WorldEntityKind{EntityCharacter, EntityStory, EntityStyle, EntityRule, EntityReference, EntityLocation}
+		return []string{EntityTypeCharacter, EntityTypeStory, EntityTypeStyle, EntityTypeRule, EntityTypeLocation, EntityTypeObject}
 	case WorldCreatorBrand:
-		return []WorldEntityKind{EntityStyle, EntityStory, EntityRule, EntityReference, EntityCharacter}
+		return []string{EntityTypeStyle, EntityTypeStory, EntityTypeRule, EntityTypeCharacter, EntityTypeObject}
 	case WorldBrand:
-		return []WorldEntityKind{EntityStyle, EntityRule, EntityStory, EntityReference, EntityCharacter}
+		return []string{EntityTypeStyle, EntityTypeRule, EntityTypeStory, EntityTypeCharacter, EntityTypeObject}
 	case WorldFiction:
-		return []WorldEntityKind{EntityCharacter, EntityLocation, EntityStory, EntityStyle, EntityRule, EntityReference}
+		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeStory, EntityTypeStyle, EntityTypeRule, EntityTypeObject}
 	default:
-		return []WorldEntityKind{EntityCharacter, EntityLocation, EntityStory, EntityStyle, EntityRule, EntityReference}
+		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeStory, EntityTypeStyle, EntityTypeRule, EntityTypeObject}
 	}
 }
 
@@ -644,9 +680,9 @@ func (w *WorldStore) ListEntities(input ListEntitiesInput) ([]WorldEntitySummary
 	if !input.IncludeProvisional {
 		where += " and is_provisional = 0"
 	}
-	if input.Kind != "" {
-		where += " and kind = ?"
-		args = append(args, string(input.Kind))
+	if input.TypeID != "" {
+		where += " and coalesce(nullif(type_id, ''), kind) = ?"
+		args = append(args, input.TypeID)
 	}
 	if input.Text != "" {
 		where += " and (title like ? or summary like ?)"
@@ -654,7 +690,7 @@ func (w *WorldStore) ListEntities(input ListEntitiesInput) ([]WorldEntitySummary
 		args = append(args, pattern, pattern)
 	}
 	args = append(args, limit, offset)
-	rows, err := db.Query("select id, kind, title, summary, parent_id, container_role, is_provisional, updated_at from world_entities where "+where+" order by updated_at desc limit ? offset ?", args...)
+	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, parent_id, container_role, is_provisional, updated_at from world_entities where "+where+" order by updated_at desc limit ? offset ?", args...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -665,7 +701,7 @@ func (w *WorldStore) ListEntities(input ListEntitiesInput) ([]WorldEntitySummary
 		var parentID, containerRole sql.NullString
 		var provisional int
 		item.WorldID = input.WorldID
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Summary, &parentID, &containerRole, &provisional, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.TypeID, &item.Name, &item.Intro, &parentID, &containerRole, &provisional, &item.UpdatedAt); err != nil {
 			return nil, "", err
 		}
 		item.ParentID = nullStringValue(parentID)
@@ -693,27 +729,29 @@ func (w *WorldStore) GetEntity(worldID, entityID string) (WorldEntity, error) {
 
 func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntity, error) {
 	var entity WorldEntity
-	var contentJSON string
+	var detail string
+	var attrsJSON string
 	var createdAt, updatedAt string
 	var parentID, containerRole sql.NullString
 	var provisional int
-	row := db.QueryRow("select id, kind, title, summary, content_json, parent_id, container_role, is_provisional, created_at, updated_at from world_entities where id = ? and world_id = ? and archived_at is null", entityID, worldID)
-	if err := row.Scan(&entity.ID, &entity.Kind, &entity.Title, &entity.Summary, &contentJSON, &parentID, &containerRole, &provisional, &createdAt, &updatedAt); err != nil {
+	row := db.QueryRow("select id, coalesce(nullif(type_id, ''), kind), title, summary, detail, attrs_json, parent_id, container_role, is_provisional, created_at, updated_at from world_entities where id = ? and world_id = ? and archived_at is null", entityID, worldID)
+	if err := row.Scan(&entity.ID, &entity.TypeID, &entity.Name, &entity.Intro, &detail, &attrsJSON, &parentID, &containerRole, &provisional, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return WorldEntity{}, worldsError(WorldsErrEntityNotFound, "entity not found in world")
 		}
 		return WorldEntity{}, err
 	}
 	entity.WorldID = worldID
+	entity.Detail = detail
 	entity.UpdatedAt = updatedAt
 	entity.ParentID = nullStringValue(parentID)
 	entity.ContainerRole = nullStringValue(containerRole)
 	entity.IsProvisional = provisional != 0
-	if err := json.Unmarshal([]byte(contentJSON), &entity.Content); err != nil {
-		return WorldEntity{}, err
-	}
-	if entity.Content == nil {
-		entity.Content = map[string]any{}
+	entity.Attrs = []EntityAttr{}
+	if attrsJSON != "" {
+		if err := json.Unmarshal([]byte(attrsJSON), &entity.Attrs); err != nil {
+			return WorldEntity{}, err
+		}
 	}
 	children, err := w.listChildren(db, worldID, entityID)
 	if err != nil {
@@ -758,9 +796,6 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 }
 
 func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) {
-	if input.Content == nil {
-		input.Content = map[string]any{}
-	}
 	db, err := w.database()
 	if err != nil {
 		return WorldEntity{}, err
@@ -768,24 +803,23 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 	if _, err := w.summary(db, input.WorldID); err != nil {
 		return WorldEntity{}, err
 	}
+	var existing WorldEntity
 	if input.EntityID != "" {
-		var existing WorldEntity
 		existing, err = w.getEntity(db, input.WorldID, input.EntityID)
 		if err != nil {
 			return WorldEntity{}, err
 		}
-		if input.Kind != "" && input.Kind != existing.Kind {
-			return WorldEntity{}, worldsError(WorldsErrContextInvalid, "entity kind cannot change on update")
+		if input.TypeID != "" && input.TypeID != existing.TypeID {
+			return WorldEntity{}, worldsError(WorldsErrContextInvalid, "entity type cannot change on update")
 		}
-		input.Kind = existing.Kind
-	} else if input.Kind == "" {
-		return WorldEntity{}, worldsError(WorldsErrContextInvalid, "entity kind is required when creating an entity")
+		input.TypeID = existing.TypeID
+	} else {
+		input.TypeID = strings.TrimSpace(input.TypeID)
+		if input.TypeID == "" {
+			return WorldEntity{}, worldsError(WorldsErrContextInvalid, "entity typeId is required when creating an entity")
+		}
 	}
 	now := iso(time.Now().UTC())
-	contentJSON, err := json.Marshal(input.Content)
-	if err != nil {
-		return WorldEntity{}, err
-	}
 	tx, err := db.Begin()
 	if err != nil {
 		return WorldEntity{}, err
@@ -797,16 +831,36 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
 		return WorldEntity{}, err
 	}
-	// Entity kind is an extensible type directory entry: preset kinds are
-	// seeded as builtin rows, unknown kinds auto-create a minimal custom type
-	// so "create on the canvas" never blocks on a missing type (RFC §5.4).
-	if err := w.ensureEntityType(tx, input.WorldID, string(input.Kind)); err != nil {
+	// Entity type is an extensible type directory entry: preset ids are seeded
+	// as builtin rows, unknown ids auto-create a minimal custom type so "create
+	// on the canvas" never blocks on a missing type (RFC §5.4).
+	if err := w.ensureEntityType(tx, input.WorldID, input.TypeID); err != nil {
 		return WorldEntity{}, err
 	}
 	if input.ParentID != "" {
 		if err := w.checkParent(tx, input.WorldID, input.ParentID); err != nil {
 			return WorldEntity{}, err
 		}
+	}
+	// Attr merge: locked preset fields of the type are enforced from the schema
+	// (label/type pinned, value free); user attrs pass through validated.
+	// The type row may have been created inside this transaction (a custom
+	// type auto-created above), so it must be read through the tx.
+	entityType, err := getEntityTypeQuerier(tx, input.WorldID, input.TypeID)
+	if err != nil {
+		return WorldEntity{}, err
+	}
+	attrs := existing.Attrs
+	if input.Attrs != nil {
+		attrs = input.Attrs
+	}
+	merged, err := w.mergeEntityAttrs(input.WorldID, entityType, attrs)
+	if err != nil {
+		return WorldEntity{}, err
+	}
+	attrsJSON, err := json.Marshal(merged)
+	if err != nil {
+		return WorldEntity{}, err
 	}
 	entityID := input.EntityID
 	provisional := 0
@@ -818,13 +872,13 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 		if err != nil {
 			return WorldEntity{}, err
 		}
-		if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			entityID, input.WorldID, string(input.Kind), strings.TrimSpace(input.Title), strings.TrimSpace(input.Summary), string(contentJSON), nullIfEmpty(input.ParentID), input.ContainerRole, provisional, now, now); err != nil {
+		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
+			entityID, input.WorldID, input.TypeID, input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, string(attrsJSON), nullIfEmpty(input.ParentID), input.ContainerRole, provisional, now, now); err != nil {
 			return WorldEntity{}, err
 		}
 	} else {
-		if _, err := tx.Exec("update world_entities set title = ?, summary = ?, content_json = ?, updated_at = ? where id = ? and world_id = ?",
-			strings.TrimSpace(input.Title), strings.TrimSpace(input.Summary), string(contentJSON), now, entityID, input.WorldID); err != nil {
+		if _, err := tx.Exec("update world_entities set type_id = ?, title = ?, summary = ?, detail = ?, attrs_json = ?, updated_at = ? where id = ? and world_id = ?",
+			input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, string(attrsJSON), now, entityID, input.WorldID); err != nil {
 			return WorldEntity{}, err
 		}
 	}
@@ -838,10 +892,172 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 		return WorldEntity{}, err
 	}
 	logWorldEvent("world.entity.upserted", map[string]string{"worldId": input.WorldID, "entityId": entityID})
-	// Property-binding sync (panel → canvas): entity.content is the shared
-	// data source; refresh every attr projection bound to this entity.
-	w.syncAttrProjections(input.WorldID, entityID, input.Content)
+	// Property-binding sync (panel → canvas): entity attrs are the shared data
+	// source; refresh every attr projection bound to this entity.
+	w.syncAttrProjections(input.WorldID, entityID, attrValueMap(merged))
 	return w.getEntity(db, input.WorldID, entityID)
+}
+
+// mergeEntityAttrs applies the type schema to a candidate attr list:
+// every locked preset field of the type is present with schema-pinned
+// label/type; user attrs keep their own structure but must carry a valid,
+// type-consistent value. Media values are verified against the platform
+// asset library (assetId required, asset completed, modality renderable).
+func (w *WorldStore) mergeEntityAttrs(worldID string, entityType WorldEntityType, candidate []EntityAttr) ([]EntityAttr, error) {
+	merged := make([]EntityAttr, 0, len(candidate)+len(entityType.Fields))
+	normalized := make([]EntityAttr, 0, len(candidate))
+	byKey := map[string]EntityAttr{}
+	for _, attr := range candidate {
+		attr.Key = strings.TrimSpace(attr.Key)
+		if attr.Key == "" {
+			// Anonymous client attrs get a stable generated key so later
+			// renames/updates address the same slot.
+			id, err := newID()
+			if err != nil {
+				return nil, err
+			}
+			attr.Key = "a_" + id
+		}
+		attr.Label = strings.TrimSpace(attr.Label)
+		if attr.Label == "" {
+			attr.Label = attr.Key
+		}
+		if attr.Type == "" {
+			attr.Type = "text"
+		}
+		if !attrTypes[attr.Type] {
+			return nil, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid attr type %q", attr.Type))
+		}
+		if attr.Type == "select" && len(attr.Options) == 0 {
+			return nil, worldsError(WorldsErrContextInvalid, "select attr needs options")
+		}
+		if _, dup := byKey[attr.Key]; dup {
+			continue
+		}
+		normalized = append(normalized, attr)
+		byKey[attr.Key] = attr
+	}
+	// Schema pass: locked preset fields exist and carry schema structure.
+	for _, field := range entityType.Fields {
+		if !field.Locked {
+			continue
+		}
+		attr, ok := byKey[field.Key]
+		if !ok {
+			attr = EntityAttr{Value: nil}
+		}
+		attr.Key = field.Key
+		attr.Label = field.Label
+		attr.Type = field.Type
+		attr.Locked = true
+		attr.Options = field.Options
+		byKey[field.Key] = attr
+	}
+	// Emit in candidate order first, then schema fields missing from it.
+	seen := map[string]bool{}
+	for _, attr := range normalized {
+		if seen[attr.Key] {
+			continue
+		}
+		merged = append(merged, byKey[attr.Key])
+		seen[attr.Key] = true
+	}
+	for _, field := range entityType.Fields {
+		if field.Locked && !seen[field.Key] {
+			merged = append(merged, byKey[field.Key])
+			seen[field.Key] = true
+		}
+	}
+	for _, attr := range merged {
+		if err := w.validateAttrValue(attr); err != nil {
+			return nil, err
+		}
+	}
+	return merged, nil
+}
+
+// validateAttrValue checks a single attr value against its declared type.
+func (w *WorldStore) validateAttrValue(attr EntityAttr) error {
+	switch attr.Type {
+	case "text", "textarea":
+		if attr.Value != nil {
+			if _, ok := attr.Value.(string); !ok {
+				return worldsError(WorldsErrContextInvalid, fmt.Sprintf("attr %q expects a text value", attr.Key))
+			}
+		}
+	case "number":
+		if attr.Value != nil {
+			if _, ok := attr.Value.(float64); !ok {
+				return worldsError(WorldsErrContextInvalid, fmt.Sprintf("attr %q expects a number value", attr.Key))
+			}
+		}
+	case "boolean":
+		if attr.Value != nil {
+			if _, ok := attr.Value.(bool); !ok {
+				return worldsError(WorldsErrContextInvalid, fmt.Sprintf("attr %q expects a boolean value", attr.Key))
+			}
+		}
+	case "select":
+		if attr.Value != nil {
+			text, ok := attr.Value.(string)
+			if !ok {
+				return worldsError(WorldsErrContextInvalid, fmt.Sprintf("attr %q expects a select option", attr.Key))
+			}
+			matched := false
+			for _, option := range attr.Options {
+				if option == text {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return worldsError(WorldsErrContextInvalid, fmt.Sprintf("attr %q value is not one of its options", attr.Key))
+			}
+		}
+	case "media":
+		if attr.Value == nil {
+			return nil
+		}
+		payload, ok := attr.Value.(map[string]any)
+		if !ok {
+			return worldsError(WorldsErrContextInvalid, fmt.Sprintf("attr %q expects a media value {assetId}", attr.Key))
+		}
+		assetID, _ := payload["assetId"].(string)
+		if strings.TrimSpace(assetID) == "" {
+			return worldsError(WorldsErrContextInvalid, fmt.Sprintf("media attr %q needs an assetId", attr.Key))
+		}
+		if _, _, err := w.validateEvidenceAsset(assetID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// attrValueMap flattens attrs into key→value for canvas attr projections.
+func attrValueMap(attrs []EntityAttr) map[string]any {
+	result := map[string]any{}
+	for _, attr := range attrs {
+		result[attr.Key] = attr.Value
+	}
+	return result
+}
+
+// patchEntityAttr returns a copy of attrs with one attr's value set, creating
+// a plain text attr when the key is new (canvas-side creation path).
+func patchEntityAttr(attrs []EntityAttr, key string, value any) []EntityAttr {
+	result := make([]EntityAttr, 0, len(attrs)+1)
+	found := false
+	for _, attr := range attrs {
+		if attr.Key == key {
+			attr.Value = value
+			found = true
+		}
+		result = append(result, attr)
+	}
+	if !found {
+		result = append(result, EntityAttr{Key: key, Label: key, Type: "text", Value: value})
+	}
+	return result
 }
 
 type DeleteEntityInput struct {
@@ -1007,127 +1223,11 @@ func (w *WorldStore) DeleteEntity(input DeleteEntityInput) (DeleteEntityResult, 
 }
 
 func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetReference, error) {
-	if input.Purpose == "" {
-		input.Purpose = legacyPurpose(input.Role)
-	}
-	if input.Status == "" {
-		input.Status = "supporting"
-	}
-	if !evidencePurposes[input.Purpose] {
-		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid evidence purpose %q", input.Purpose))
-	}
-	if !evidenceStatuses[input.Status] {
-		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid evidence status %q", input.Status))
-	}
-	if input.Role == "" {
-		// The old unique key includes role. Make the invisible storage key follow
-		// purpose so one asset can honestly serve, for example, both appearance
-		// and wardrobe evidence without pretending those are the same fact.
-		input.Role = "evidence:" + input.Purpose
-	}
-	if !assetReferenceRoles[input.Role] && !strings.HasPrefix(input.Role, "evidence:") {
-		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid asset reference role %q", input.Role))
-	}
-	hasAsset := strings.TrimSpace(input.AssetID) != ""
-	hasURL := strings.TrimSpace(input.URL) != ""
-	if hasAsset == hasURL {
-		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "exactly one of assetId or url is required")
-	}
-	db, err := w.database()
-	if err != nil {
-		return WorldAssetReference{}, err
-	}
-	if _, err := w.summary(db, input.WorldID); err != nil {
-		return WorldAssetReference{}, err
-	}
-	if input.EntityID != "" {
-		if _, err := w.getEntity(db, input.WorldID, input.EntityID); err != nil {
-			return WorldAssetReference{}, err
-		}
-	}
-	var modality, contentHash string
-	if hasAsset {
-		modality, contentHash, err = w.validateEvidenceAsset(input.AssetID)
-		if err != nil {
-			return WorldAssetReference{}, err
-		}
-		if input.Modality != "" && input.Modality != modality {
-			return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "evidence modality must match the selected asset")
-		}
-	} else {
-		// URL evidence keeps the remote resource as truth: absolute http(s) only,
-		// and the modality is a closed-set fact (CDN resources are already
-		// validated at publish time, so no HEAD here).
-		parsed, err := url.Parse(strings.TrimSpace(input.URL))
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "evidence url must be an absolute http(s) URL")
-		}
-		if !evidenceModalities[input.Modality] {
-			return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid evidence modality %q for url evidence", input.Modality))
-		}
-		modality = input.Modality
-	}
-	if input.Segment != nil && (modality != "audio" && modality != "video" || input.Segment.StartSec < 0 || input.Segment.EndSec <= input.Segment.StartSec) {
-		return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "a segment must be a valid audio or video time range")
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return WorldAssetReference{}, err
-	}
-	defer tx.Rollback()
-	if err := w.checkWritable(tx, input.WorldID); err != nil {
-		return WorldAssetReference{}, err
-	}
-	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
-		return WorldAssetReference{}, err
-	}
-	now := iso(time.Now().UTC())
-	var nextSort sql.NullInt64
-	if err := tx.QueryRow("select max(sort_order) + 1 from world_asset_refs where world_id = ?", input.WorldID).Scan(&nextSort); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return WorldAssetReference{}, err
-	}
-	sortOrder := 0
-	if nextSort.Valid {
-		sortOrder = int(nextSort.Int64)
-	}
-	segmentJSON := ""
-	if input.Segment != nil {
-		encoded, err := json.Marshal(input.Segment)
-		if err != nil {
-			return WorldAssetReference{}, err
-		}
-		segmentJSON = string(encoded)
-	}
-	reference := WorldAssetReference{Source: EvidenceSourceAsset, AssetID: input.AssetID, AssetContentHash: contentHash, Modality: modality,
-		Purpose: input.Purpose, Status: input.Status, Collection: strings.TrimSpace(input.Collection), Segment: input.Segment,
-		Role: input.Role, Label: strings.TrimSpace(input.Label), EntityID: input.EntityID}
-	if hasURL {
-		reference = WorldAssetReference{Source: EvidenceSourceURL, URL: strings.TrimSpace(input.URL), Modality: modality,
-			Purpose: input.Purpose, Status: input.Status, Collection: strings.TrimSpace(input.Collection), Segment: input.Segment,
-			Role: input.Role, Label: strings.TrimSpace(input.Label), EntityID: input.EntityID}
-	}
-	reference.ID, err = newID()
-	if err != nil {
-		return WorldAssetReference{}, err
-	}
-	if _, err := tx.Exec("insert into world_asset_refs (id, world_id, entity_id, asset_id, url, asset_content_hash, modality, purpose, evidence_status, collection_name, segment_json, role, label, sort_order, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		reference.ID, input.WorldID, reference.EntityID, reference.AssetID, reference.URL, reference.AssetContentHash, reference.Modality, reference.Purpose, reference.Status, reference.Collection, segmentJSON, reference.Role, reference.Label, sortOrder, now); err != nil {
-		return WorldAssetReference{}, err
-	}
-	revisionID, err := w.commitRevision(tx, input.WorldID, "reference.attached", input.CreatedBy)
-	if err != nil {
-		return WorldAssetReference{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return WorldAssetReference{}, err
-	}
-	logWorldEvent("world.reference.attached", map[string]string{"worldId": input.WorldID, "assetId": reference.AssetID})
-	_ = revisionID
-	return reference, nil
+	// Evidence writes are frozen (RFC 统一 Entity 模型): entity media lives in
+	// media attrs now. Reads keep working so existing worlds and old revisions
+	// stay browsable during the transition.
+	return WorldAssetReference{}, worldsError(WorldsErrContextInvalid, "evidence writes are frozen: attach media to an entity as a media attr instead")
 }
-
-// validateEvidenceAsset freezes the immutable binary identity and derives the
-// modality from the Asset truth; clients never get to claim one arbitrarily.
 func (w *WorldStore) validateEvidenceAsset(assetID string) (string, string, error) {
 	if w.media == nil {
 		return "", "", worldsError(WorldsErrAccessDenied, "media service is unavailable")
@@ -1315,28 +1415,58 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 	}
 	_ = json.Unmarshal([]byte(identityJSON), &identity)
 
-	entities := map[WorldEntityKind][]map[string]any{}
-	rows, err := tx.Query("select id, kind, title, summary, content_json, parent_id from world_entities where world_id = ? and archived_at is null and is_provisional = 0 order by kind, id", worldID)
+	entities := map[string][]map[string]any{}
+	rows, err := tx.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, detail, attrs_json, parent_id from world_entities where world_id = ? and archived_at is null and is_provisional = 0 order by coalesce(nullif(type_id, ''), kind), id", worldID)
 	if err != nil {
 		return "", "", err
 	}
+	// base_kind per type id drives the CreationContext buckets (character/
+	// location/...); custom types fall back to their own id.
+	baseKinds := map[string]string{}
+	typeRows, err := tx.Query("select id, base_kind from world_entity_types where world_id = ? and archived_at is null", worldID)
+	if err != nil {
+		return "", "", err
+	}
+	for typeRows.Next() {
+		var id, baseKind string
+		if err := typeRows.Scan(&id, &baseKind); err != nil {
+			typeRows.Close()
+			return "", "", err
+		}
+		baseKinds[id] = baseKind
+	}
+	typeRows.Close()
+	if err := typeRows.Err(); err != nil {
+		return "", "", err
+	}
 	for rows.Next() {
-		var id, kind, title, summary, contentJSON string
+		var id, typeID, name, intro, detail, attrsJSON string
 		var parentID sql.NullString
-		if err := rows.Scan(&id, &kind, &title, &summary, &contentJSON, &parentID); err != nil {
+		if err := rows.Scan(&id, &typeID, &name, &intro, &detail, &attrsJSON, &parentID); err != nil {
 			rows.Close()
 			return "", "", err
 		}
-		content := map[string]any{}
-		_ = json.Unmarshal([]byte(contentJSON), &content)
-		record := map[string]any{"id": id, "title": title, "summary": summary}
+		attrs := []EntityAttr{}
+		if attrsJSON != "" {
+			_ = json.Unmarshal([]byte(attrsJSON), &attrs)
+		}
+		encodedAttrs, err := json.Marshal(attrs)
+		if err != nil {
+			rows.Close()
+			return "", "", err
+		}
+		var decodedAttrs []any
+		_ = json.Unmarshal(encodedAttrs, &decodedAttrs)
+		baseKind := baseKinds[typeID]
+		if baseKind == "" {
+			baseKind = typeID
+		}
+		record := map[string]any{"id": id, "name": name, "intro": intro, "detail": detail,
+			"typeId": typeID, "baseKind": baseKind, "attrs": decodedAttrs}
 		if parentID.Valid && parentID.String != "" {
 			record["parentId"] = parentID.String
 		}
-		for key, value := range content {
-			record[key] = value
-		}
-		entities[WorldEntityKind(kind)] = append(entities[WorldEntityKind(kind)], record)
+		entities[typeID] = append(entities[typeID], record)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -1417,15 +1547,15 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 	return string(encoded), "sha256:" + hex.EncodeToString(hash[:]), nil
 }
 
-func entityMap(entities map[WorldEntityKind][]map[string]any) map[string]any {
+func entityMap(entities map[string][]map[string]any) map[string]any {
 	result := map[string]any{}
-	kinds := make([]string, 0, len(entities))
-	for kind := range entities {
-		kinds = append(kinds, string(kind))
+	typeIDs := make([]string, 0, len(entities))
+	for typeID := range entities {
+		typeIDs = append(typeIDs, typeID)
 	}
-	sort.Strings(kinds)
-	for _, kind := range kinds {
-		result[kind] = entities[WorldEntityKind(kind)]
+	sort.Strings(typeIDs)
+	for _, typeID := range typeIDs {
+		result[typeID] = entities[typeID]
 	}
 	return result
 }
@@ -1617,21 +1747,27 @@ func (w *WorldStore) projectContext(world WorldDetail, canonical map[string]any,
 			if !includeAll && !selected[id] {
 				continue
 			}
-			switch WorldEntityKind(kind) {
-			case EntityCharacter:
+			// Canonical records carry their type's baseKind; the bucket key is
+			// the (possibly custom) typeId.
+			baseKind, _ := record["baseKind"].(string)
+			if baseKind == "" {
+				baseKind = kind
+			}
+			switch baseKind {
+			case "character":
 				context.Entities.Characters = append(context.Entities.Characters, w.entityView(record, "name"))
-			case EntityLocation:
+			case "location":
 				context.Entities.Locations = append(context.Entities.Locations, w.entityView(record, "name"))
-			case EntityStory:
+			case "story":
 				view := w.entityView(record, "name")
 				if selection.StoryID != "" && id == selection.StoryID {
 					context.Entities.Story = view
 				} else {
 					context.Entities.Stories = append(context.Entities.Stories, view)
 				}
-			case EntityStyle:
+			case "style":
 				context.Entities.Styles = append(context.Entities.Styles, w.entityView(record, "name"))
-			case EntityRule:
+			case "rule":
 				view := w.entityView(record, "title")
 				context.Entities.Rules = append(context.Entities.Rules, view)
 				text := ruleText(record)
@@ -1782,88 +1918,76 @@ func (w *WorldStore) ArchiveEvidence(input ArchiveEvidenceInput) error {
 // UpdateEvidence changes how an existing piece of media describes a World.
 // The media bytes and its frozen content hash remain untouched.
 func (w *WorldStore) UpdateEvidence(input UpdateEvidenceInput) (WorldEvidence, error) {
-	if !evidencePurposes[input.Purpose] {
-		return WorldEvidence{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid evidence purpose %q", input.Purpose))
-	}
-	if !evidenceStatuses[input.Status] {
-		return WorldEvidence{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid evidence status %q", input.Status))
-	}
-	db, err := w.database()
-	if err != nil {
-		return WorldEvidence{}, err
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return WorldEvidence{}, err
-	}
-	defer tx.Rollback()
-	if err := w.checkWritable(tx, input.WorldID); err != nil {
-		return WorldEvidence{}, err
-	}
-	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
-		return WorldEvidence{}, err
-	}
-	result, err := tx.Exec("update world_asset_refs set purpose = ?, evidence_status = ?, role = ?, label = ? where id = ? and world_id = ? and archived_at is null", input.Purpose, input.Status, "evidence:"+input.Purpose, strings.TrimSpace(input.Label), input.EvidenceID, input.WorldID)
-	if err != nil {
-		return WorldEvidence{}, err
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		return WorldEvidence{}, err
-	}
-	if changed == 0 {
-		return WorldEvidence{}, worldsError(WorldsErrNotFound, "world evidence not found")
-	}
-	if _, err := w.commitRevision(tx, input.WorldID, "evidence.updated", input.CreatedBy); err != nil {
-		return WorldEvidence{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return WorldEvidence{}, err
-	}
-	row := db.QueryRow("select "+worldEvidenceColumns+" from world_asset_refs where id = ? and world_id = ?", input.EvidenceID, input.WorldID)
-	evidence, err := scanWorldEvidence(row)
-	if err != nil {
-		return WorldEvidence{}, err
-	}
-	logWorldEvent("world.evidence.updated", map[string]string{"worldId": input.WorldID, "evidenceId": input.EvidenceID})
-	return evidence, nil
+	// Evidence writes are frozen (RFC 统一 Entity 模型); see AttachReference.
+	return WorldEvidence{}, worldsError(WorldsErrContextInvalid, "evidence writes are frozen: entity media lives in media attrs now")
 }
 
+// entityView projects a canonical record into the consumer-facing shape: the
+// attrs are flattened to key→value so generation prompts read natural fields
+// (appearance, voice, ...), name/intro/detail ride along as first-class keys.
 func (w *WorldStore) entityView(record map[string]any, nameKey string) map[string]any {
 	view := map[string]any{}
 	if id, ok := record["id"].(string); ok {
 		view["id"] = id
 	}
-	if title, ok := record["title"].(string); ok {
-		view[nameKey] = title
+	if name, ok := record["name"].(string); ok {
+		view[nameKey] = name
 	}
 	for key, value := range record {
-		if key == "id" || key == "title" || key == "summary" {
+		if key == "id" || key == "name" || key == "attrs" {
 			continue
 		}
 		view[key] = value
+	}
+	if attrs, ok := record["attrs"].([]any); ok {
+		for _, raw := range attrs {
+			attr, _ := raw.(map[string]any)
+			key, _ := attr["key"].(string)
+			if key == "" {
+				continue
+			}
+			view[key] = attr["value"]
+		}
 	}
 	return view
 }
 
 func ruleType(record map[string]any) string {
-	switch typed := record["type"].(string); typed {
-	case "never", "prefer", "always":
-		return typed
-	default:
-		return "always"
+	if typed := attrRecordValue(record, "type"); typed != "" {
+		switch typed {
+		case "never", "prefer", "always":
+			return typed
+		}
 	}
+	return "always"
 }
 
 func ruleText(record map[string]any) string {
-	if text, ok := record["text"].(string); ok && strings.TrimSpace(text) != "" {
+	if text := attrRecordValue(record, "text"); strings.TrimSpace(text) != "" {
 		return text
 	}
-	if guidance, ok := record["guidance"].(string); ok && strings.TrimSpace(guidance) != "" {
-		return guidance
+	if text := attrRecordValue(record, "guidance"); strings.TrimSpace(text) != "" {
+		return text
 	}
-	title, _ := record["title"].(string)
-	return title
+	if detail, ok := record["detail"].(string); ok && strings.TrimSpace(detail) != "" {
+		return detail
+	}
+	name, _ := record["name"].(string)
+	return name
+}
+
+// attrRecordValue reads one flattened attr value from a canonical record.
+func attrRecordValue(record map[string]any, key string) string {
+	attrs, _ := record["attrs"].([]any)
+	for _, raw := range attrs {
+		attr, _ := raw.(map[string]any)
+		if attrKey, _ := attr["key"].(string); attrKey == key {
+			value, _ := attr["value"].(string)
+			return value
+		}
+	}
+	value, _ := record[key].(string)
+	return value
 }
 
 // BindMediaJob freezes a World revision to a media generation Job target so
@@ -2104,31 +2228,27 @@ func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, c
 		payload.World.Name, payload.World.Description, string(identityJSON), payload.Skill, revisionID, now, worldID); err != nil {
 		return WorldDetail{}, err
 	}
-	// 实体：bucket key = kind；record = id/title/summary/parentId + 其余为 content
-	for kind, records := range payload.Entities {
+	// 实体：bucket key = typeId；record = id/name/intro/detail/typeId/attrs（统一实体模型）
+	for typeID, records := range payload.Entities {
 		for _, record := range records {
 			id, _ := record["id"].(string)
-			title, _ := record["title"].(string)
-			summary, _ := record["summary"].(string)
+			name, _ := record["name"].(string)
+			intro, _ := record["intro"].(string)
+			detail, _ := record["detail"].(string)
+			rowTypeID, _ := record["typeId"].(string)
+			if rowTypeID == "" {
+				rowTypeID = typeID
+			}
 			if id == "" {
 				continue
 			}
 			parentID, _ := record["parentId"].(string)
-			content := map[string]any{}
-			for key, value := range record {
-				switch key {
-				case "id", "title", "summary", "parentId":
-					continue
-				default:
-					content[key] = value
-				}
-			}
-			contentJSON, err := json.Marshal(content)
+			attrs, err := json.Marshal(record["attrs"])
 			if err != nil {
 				return WorldDetail{}, err
 			}
-			if _, err := tx.Exec("insert into world_entities (id, world_id, kind, title, summary, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, '', 0, ?, ?)",
-				id, worldID, kind, title, summary, string(contentJSON), nullIfEmpty(parentID), now, now); err != nil {
+			if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, '', 0, ?, ?)",
+				id, worldID, rowTypeID, rowTypeID, name, intro, detail, string(attrs), nullIfEmpty(parentID), now, now); err != nil {
 				return WorldDetail{}, err
 			}
 		}
@@ -2264,12 +2384,12 @@ type ListWorldsInput struct {
 
 // ListEntitiesInput is the typed input of entity.list.
 type ListEntitiesInput struct {
-	WorldID           string
-	Kind              WorldEntityKind
-	Text              string
-	Cursor            string
-	Limit             int
-	IncludeProvisional bool
+	WorldID            string
+	TypeID             string `json:"typeId"`
+	Text               string `json:"text"`
+	Cursor             string `json:"cursor"`
+	Limit              int    `json:"limit"`
+	IncludeProvisional bool   `json:"includeProvisional"`
 }
 
 // CreateWorldInput is the typed input of world.create.
@@ -2293,19 +2413,24 @@ type UpdateWorldInput struct {
 	CreatedBy          string
 }
 
-// UpsertEntityInput is the typed input of entity.upsert.
+// UpsertEntityInput is the typed input of entity.upsert (RFC 统一 Entity 模型):
+// name/intro/detail are the shared base; attrs is an ordered typed key-value
+// list. A nil attrs list keeps the stored attrs untouched (partial updates
+// from agents); a non-nil list replaces it wholesale (panel/canvas always hold
+// the full entity).
 type UpsertEntityInput struct {
-	WorldID            string
-	EntityID           string
-	Kind               WorldEntityKind
-	Title              string
-	Summary            string
-	Content            map[string]any
-	ParentID           string
-	ContainerRole      string
-	IsProvisional      bool
-	ExpectedRevisionID string
-	CreatedBy          string
+	WorldID            string       `json:"worldId"`
+	EntityID           string       `json:"entityId"`
+	TypeID             string       `json:"typeId"`
+	Name               string       `json:"name"`
+	Intro              string       `json:"intro"`
+	Detail             string       `json:"detail"`
+	Attrs              []EntityAttr `json:"attrs"`
+	ParentID           string       `json:"parentId"`
+	ContainerRole      string       `json:"containerRole"`
+	IsProvisional      bool         `json:"isProvisional"`
+	ExpectedRevisionID string       `json:"expectedRevisionId"`
+	CreatedBy          string       `json:"createdBy"`
 }
 
 // AttachReferenceInput is the typed input of reference.attach. Exactly one of

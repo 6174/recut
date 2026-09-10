@@ -1,35 +1,28 @@
 /*
- * [INPUT]: 依赖 World Entity 类型、Worlds HTTP client、Input/Button 原子与当前 revision
- * [OUTPUT]: 对外提供创作设定分类、内容字段定义、内容完整度判断和 SettingDialog 类型化编辑器
- * [POS]: worlds/[worldID] 的表单边界；把底层 content 结构转译为创作者填写的领域字段，保存必须携带 expectedRevisionId
+ * [INPUT]: 依赖统一 Entity 模型（attrs 自带 schema）、Worlds HTTP client、Input/Button/CustomSelect/PlatformMediaPicker 与当前 revision
+ * [OUTPUT]: 对外提供基于 attrs 的通用设定编辑器 SettingDialog（name/intro/detail + 属性编辑列表，media 属性走素材选择器）、
+ * attrs 驱动的卡片投影助手（非空文本条目 / 完整度 / 媒体值）；保存 = 单次 entities.upsert 携带 expectedRevisionId
+ * [POS]: worlds/[worldID] 的表单边界；字段真相 = 实体 attrs（locked 属性锁 label/type、值可改），不再有 kind 硬编码字段定义
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { X } from "lucide-react";
+import { Lock, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CustomSelect } from "@/components/ui/select-field";
-import { ObjectEvidencePanel } from "./world-detail-panels";
+import { PlatformMediaPicker } from "@/components/platform-media-picker";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 import {
   createRecutWorldsClient,
+  type EntityAttr,
+  type EntityAttrMediaValue,
   type EntityKind,
   type WorldEntity,
 } from "@/lib/recut-worlds-client";
 
-type SettingField = {
-  key: string;
-  label: string;
-  placeholder: string;
-  multiline?: boolean;
-  options?: Array<{ label: string; value: string }>;
-};
-type FieldDefinition = Omit<SettingField, "label" | "placeholder" | "options"> & {
-  options?: Array<{ value: string }>;
-};
 export type SettingSection = {
   kind: EntityKind;
   title: string;
@@ -37,153 +30,113 @@ export type SettingSection = {
   action: string;
 };
 
-const fieldDefinitions: Record<EntityKind, FieldDefinition[]> = {
-  character: [
-    { key: "appearance", multiline: true },
-    { key: "personality", multiline: true },
-    { key: "voice", multiline: true },
-    { key: "invariants", multiline: true },
-  ],
-  story: [
-    { key: "premise", multiline: true },
-    { key: "moment", multiline: true },
-    { key: "emotion" },
-  ],
-  style: [
-    { key: "visual", multiline: true },
-    { key: "guidance", multiline: true },
-    { key: "avoid", multiline: true },
-  ],
-  rule: [
-    { key: "type", options: [{ value: "always" }, { value: "never" }, { value: "prefer" }] },
-    { key: "text", multiline: true },
-  ],
-  location: [
-    { key: "description", multiline: true },
-    { key: "atmosphere" },
-  ],
-  object: [
-    { key: "description", multiline: true },
-    { key: "material" },
-    { key: "origin", multiline: true },
-    { key: "usage", multiline: true },
-    { key: "moment", multiline: true },
-  ],
-  reference: [],
+const attrTypeLabels: Record<EntityAttr["type"], string> = {
+  text: "文本",
+  textarea: "长文本",
+  number: "数字",
+  boolean: "开关",
+  select: "单选",
+  media: "素材",
 };
 
-export function settingSections(t: (key: string) => string): SettingSection[] {
-  return [
-    {
-      kind: "character",
-      title: t("worlds.settings.character.title"),
-      description: t("worlds.settings.character.desc"),
-      action: t("worlds.settings.character.action"),
-    },
-    {
-      kind: "story",
-      title: t("worlds.settings.story.title"),
-      description: t("worlds.settings.story.desc"),
-      action: t("worlds.settings.story.action"),
-    },
-    {
-      kind: "style",
-      title: t("worlds.settings.style.title"),
-      description: t("worlds.settings.style.desc"),
-      action: t("worlds.settings.style.action"),
-    },
-    {
-      kind: "rule",
-      title: t("worlds.settings.rule.title"),
-      description: t("worlds.settings.rule.desc"),
-      action: t("worlds.settings.rule.action"),
-    },
-    {
-      kind: "location",
-      title: t("worlds.settings.location.title"),
-      description: t("worlds.settings.location.desc"),
-      action: t("worlds.settings.location.action"),
-    },
-  ];
+export function isMediaAttrValue(value: unknown): value is EntityAttrMediaValue {
+  return typeof value === "object" && value !== null && typeof (value as EntityAttrMediaValue).assetId === "string";
 }
 
-export function fieldsFor(kind: EntityKind, t: (key: string) => string): SettingField[] {
-  return fieldDefinitions[kind].map((def) => {
-    const base = `worlds.settings.field.${def.key}`;
-    return {
-      ...def,
-      label: t(`${base}.label`),
-      placeholder: t(`${base}.placeholder`),
-      options: def.options?.map((option) => ({ value: option.value, label: t(`${base}.option.${option.value}`) })),
-    };
-  });
+// 卡片投影：非 media、值非空的文本属性条目（key → 可读文本）
+export function contentEntries(entity: WorldEntity): Array<{ key: string; label: string; value: string }> {
+  return (entity.attrs ?? [])
+    .filter((attr) => attr.type !== "media" && !isMediaAttrValue(attr.value))
+    .map((attr) => ({ key: attr.key, label: attr.label, value: attrValueText(attr.value) }))
+    .filter((entry) => entry.value.trim().length > 0);
 }
 
-export function settingSection(kind: EntityKind, t: (key: string) => string) {
-  return settingSections(t).find((item) => item.kind === kind);
+export function attrValueText(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
 }
-export function contentEntries(entity: WorldEntity) {
-  return Object.entries(entity.content ?? {})
-    .filter(
-      ([key, value]) =>
-        key !== "type" && typeof value === "string" && value.trim(),
-    )
-    .slice(0, 3) as Array<[string, string]>;
+
+export function mediaAttrs(entity: WorldEntity): Array<EntityAttr & { value: EntityAttrMediaValue }> {
+  return (entity.attrs ?? []).filter(
+    (attr): attr is EntityAttr & { value: EntityAttrMediaValue } => attr.type === "media" && isMediaAttrValue(attr.value),
+  );
 }
+
+export function mediaAssetUrl(apiBase: string, assetId: string): string {
+  return `${apiBase}/v1/media/assets/${encodeURIComponent(assetId)}/content`;
+}
+
 export function hasUsefulContent(entity: WorldEntity) {
-  return contentEntries(entity).length > 0;
+  return contentEntries(entity).length > 0 || mediaAttrs(entity).length > 0;
 }
-export function fieldLabel(key: string, t: (k: string) => string) {
-  return t(`worlds.settings.field.${key}.label`);
+
+// 完整度：非空属性数 / 属性总数（readiness 投影的轻量客户端近似）
+export function attrsCompleteness(entity: WorldEntity): { filled: number; total: number } {
+  const attrs = entity.attrs ?? [];
+  const filled = attrs.filter((attr) => attr.type === "media" ? isMediaAttrValue(attr.value) : attrValueText(attr.value).trim().length > 0).length;
+  return { filled, total: attrs.length };
 }
 
 export function SettingDialog({
   apiBase,
   entity,
   expectedRevisionID,
-  kind,
+  typeId,
   worldID,
   onClose,
-  onEvidenceChanged,
   onSaved,
 }: {
   apiBase: string;
   entity: WorldEntity | null;
   expectedRevisionID: string;
   worldID: string;
-  kind: EntityKind;
+  typeId: EntityKind;
   onClose: () => void;
-  onEvidenceChanged: () => void;
   onSaved: () => void;
 }) {
   const { t } = useI18n();
-  const [title, setTitle] = useState(entity?.title ?? "");
-  const [summary, setSummary] = useState(entity?.summary ?? "");
-  const [content, setContent] = useState<Record<string, unknown>>(() => ({
-    ...(kind === "rule" ? { type: "always", text: "" } : {}),
-    ...(entity?.content ?? {}),
-  }));
+  const [name, setName] = useState(entity?.name ?? "");
+  const [intro, setIntro] = useState(entity?.intro ?? "");
+  const [detail, setDetail] = useState(entity?.detail ?? "");
+  const [attrs, setAttrs] = useState<EntityAttr[]>(() => (entity?.attrs ?? []).map((attr) => ({ ...attr })));
+  const [newAttrType, setNewAttrType] = useState<EntityAttr["type"]>("text");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const section = settingSection(kind, t);
-  const nameExample =
-    kind === "character"
-      ? t("worlds.settings.dialog.name.example.character")
-      : kind === "story"
-        ? t("worlds.settings.dialog.name.example.story")
-        : (section?.title ?? t("worlds.settings.dialog.newSetting"));
+  const nameExample = typeId === "character"
+    ? t("worlds.settings.dialog.name.example.character")
+    : typeId === "story"
+      ? t("worlds.settings.dialog.name.example.story")
+      : t("worlds.settings.dialog.newSetting");
+
+  function updateAttr(key: string, patch: Partial<EntityAttr>) {
+    setAttrs((current) => current.map((attr) => (attr.key === key ? { ...attr, ...patch } : attr)));
+  }
+  function addAttr() {
+    setAttrs((current) => [
+      ...current,
+      {
+        key: `a_${Date.now()}${Math.floor(Math.random() * 1000)}`,
+        label: attrTypeLabels[newAttrType],
+        type: newAttrType,
+        ...(newAttrType === "boolean" ? { value: false } : {}),
+      },
+    ]);
+  }
   async function submit() {
-    if (!title.trim() || saving) return;
+    if (!name.trim() || saving) return;
     setSaving(true);
     setError("");
     try {
       await createRecutWorldsClient(apiBase).entities.upsert({
         worldId: worldID,
         entityId: entity?.id,
-        kind,
-        title: title.trim(),
-        summary: summary.trim(),
-        content,
+        ...(entity ? {} : { typeId }),
+        name: name.trim(),
+        intro: intro.trim(),
+        detail,
+        attrs,
         expectedRevisionId: expectedRevisionID,
       });
       onSaved();
@@ -215,7 +168,7 @@ export function SettingDialog({
               className="mt-1 text-lg font-semibold"
               id="setting-dialog-title"
             >
-              {entity ? interpolate(t("worlds.settings.dialog.title.edit"), { title: section?.title ?? "" }) : section?.action}
+              {entity ? t("worlds.settings.dialog.title.edit").replace("{title}", "") : t("worlds.create.newEntity")}
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
               {t("worlds.settings.dialog.desc")}
@@ -237,40 +190,55 @@ export function SettingDialog({
               autoFocus
               className="mt-1 h-9 bg-background"
               id="setting-title"
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => setName(event.target.value)}
               placeholder={interpolate(t("worlds.settings.dialog.name.placeholder"), { example: nameExample })}
-              value={title}
+              value={name}
             />
           </label>
-          <label className="text-xs font-medium" htmlFor="setting-summary">
+          <label className="text-xs font-medium" htmlFor="setting-intro">
             {t("worlds.settings.dialog.summary")}
             <Input
               className="mt-1 h-9 bg-background"
-              id="setting-summary"
-              onChange={(event) => setSummary(event.target.value)}
+              id="setting-intro"
+              onChange={(event) => setIntro(event.target.value)}
               placeholder={t("worlds.settings.dialog.summary.placeholder")}
-              value={summary}
+              value={intro}
             />
           </label>
-          {fieldsFor(kind, t).map((field) => (
-            <FieldInput
-              field={field}
-              key={field.key}
-              onChange={(value) =>
-                setContent((current) => ({ ...current, [field.key]: value }))
-              }
-              value={stringContent(content[field.key])}
+          <label className="text-xs font-medium" htmlFor="setting-detail">
+            {t("worlds.settings.field.body.label")}
+            <textarea
+              className="mt-1 min-h-24 w-full rounded-sm border bg-background px-2.5 py-2 text-xs leading-5 focus-visible:ring-2 focus-visible:ring-ring/30"
+              id="setting-detail"
+              onChange={(event) => setDetail(event.target.value)}
+              value={detail}
             />
-          ))}
-          {entity && (
-            <ObjectEvidencePanel
-              apiBase={apiBase}
-              entity={entity}
-              expectedRevisionID={expectedRevisionID}
-              onChanged={onEvidenceChanged}
-              worldID={worldID}
-            />
-          )}
+          </label>
+          <div className="space-y-3">
+            <p className="text-xs font-semibold">属性</p>
+            {attrs.map((attr) => (
+              <AttrEditor
+                apiBase={apiBase}
+                attr={attr}
+                key={attr.key}
+                onChange={(patch) => updateAttr(attr.key, patch)}
+                onRemove={() => setAttrs((current) => current.filter((candidate) => candidate.key !== attr.key))}
+              />
+            ))}
+            <div className="flex items-end gap-2">
+              <CustomSelect
+                id="setting-attr-new-type"
+                label="添加属性"
+                onChange={(value) => setNewAttrType(value as EntityAttr["type"])}
+                options={(Object.keys(attrTypeLabels) as EntityAttr["type"][]).map((type) => ({ label: attrTypeLabels[type], value: type }))}
+                value={newAttrType}
+              />
+              <Button className="shrink-0" onClick={addAttr} type="button" variant="outline">
+                <Plus className="size-3.5" />
+                {"添加属性"}
+              </Button>
+            </div>
+          </div>
           {error && <p className="text-xs text-warning">{error}</p>}
         </div>
         <footer className="flex items-center justify-end gap-2 border-t px-5 py-3">
@@ -278,7 +246,7 @@ export function SettingDialog({
             {t("worlds.settings.dialog.cancel")}
           </Button>
           <Button
-            disabled={!title.trim() || saving}
+            disabled={!name.trim() || saving}
             onClick={() => void submit()}
             type="button"
           >
@@ -290,50 +258,153 @@ export function SettingDialog({
   );
 }
 
-function FieldInput({
-  field,
+function AttrEditor({
+  apiBase,
+  attr,
   onChange,
-  value,
+  onRemove,
 }: {
-  field: SettingField;
-  onChange: (value: string) => void;
-  value: string;
+  apiBase: string;
+  attr: EntityAttr;
+  onChange: (patch: Partial<EntityAttr>) => void;
+  onRemove: () => void;
 }) {
-  const id = `setting-${field.key}`;
-  if (field.options)
-    return (
-      <CustomSelect
-        id={id}
-        label={field.label}
-        onChange={onChange}
-        options={field.options}
-        value={value}
+  const { t } = useI18n();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const locked = Boolean(attr.locked);
+  const label = (
+    <span className="flex items-center gap-1 text-xs font-medium">
+      {locked && <Lock aria-label="预设属性：结构与标签由类型锁定，仅可修改值" className="size-3 text-muted-foreground" />}
+      <input
+        className="w-full rounded-xs bg-transparent px-1 py-0.5 focus-visible:ring-2 focus-visible:ring-ring/30 disabled:text-muted-foreground"
+        disabled={locked}
+        onChange={(event) => onChange({ label: event.target.value })}
+        placeholder="属性标签"
+        value={attr.label}
       />
-    );
+    </span>
+  );
   return (
-    <label className="text-xs font-medium" htmlFor={id}>
-      {field.label}
-      {field.multiline ? (
-        <textarea
-          className="mt-1 min-h-24 w-full rounded-sm border bg-background px-2.5 py-2 text-xs leading-5 focus-visible:ring-2 focus-visible:ring-ring/30"
-          id={id}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={field.placeholder}
-          value={value}
-        />
-      ) : (
-        <Input
-          className="mt-1 h-9 bg-background"
-          id={id}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={field.placeholder}
-          value={value}
-        />
-      )}
-    </label>
+    <div className="rounded-sm border p-3">
+      <div className="flex items-center justify-between gap-2">
+        {label}
+        {!locked && (
+          <button
+            aria-label="移除属性"
+            className="grid size-6 shrink-0 place-items-center rounded-xs text-muted-foreground hover:text-destructive"
+            onClick={onRemove}
+            type="button"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="mt-2">
+        <AttrValueInput apiBase={apiBase} attr={attr} onChange={(value) => onChange({ value })} pickerOpen={pickerOpen} setPickerOpen={setPickerOpen} />
+      </div>
+    </div>
   );
 }
 
-function stringContent(value: unknown) {
-  return typeof value === "string" ? value : "";
+function AttrValueInput({
+  apiBase,
+  attr,
+  onChange,
+  pickerOpen,
+  setPickerOpen,
+}: {
+  apiBase: string;
+  attr: EntityAttr;
+  onChange: (value: unknown) => void;
+  pickerOpen: boolean;
+  setPickerOpen: (open: boolean) => void;
+}) {
+  const { t } = useI18n();
+  const id = `setting-attr-${attr.key}`;
+  if (attr.type === "boolean")
+    return (
+      <button
+        aria-pressed={Boolean(attr.value)}
+        className={`rounded-sm border px-2 py-1 text-xs ${attr.value ? "border-primary/40 bg-primary/10 text-primary" : "bg-background text-muted-foreground"}`}
+        onClick={() => onChange(!attr.value)}
+        type="button"
+      >
+        {attr.value ? "开" : "关"}
+      </button>
+    );
+  if (attr.type === "select" && attr.options?.length)
+    return (
+      <CustomSelect
+        id={id}
+        label="取值"
+        onChange={(value) => onChange(value)}
+        options={attr.options.map((option) => ({ label: option, value: option }))}
+        value={typeof attr.value === "string" ? attr.value : ""}
+      />
+    );
+  if (attr.type === "number")
+    return (
+      <Input
+        className="h-9 bg-background"
+        id={id}
+        inputMode="decimal"
+        onChange={(event) => {
+          const parsed = Number(event.target.value);
+          onChange(event.target.value === "" || Number.isNaN(parsed) ? event.target.value : parsed);
+        }}
+        value={attrValueText(attr.value)}
+      />
+    );
+  if (attr.type === "textarea")
+    return (
+      <textarea
+        className="min-h-20 w-full rounded-sm border bg-background px-2.5 py-2 text-xs leading-5 focus-visible:ring-2 focus-visible:ring-ring/30"
+        id={id}
+        onChange={(event) => onChange(event.target.value)}
+        value={attrValueText(attr.value)}
+      />
+    );
+  if (attr.type === "media") {
+    const media = isMediaAttrValue(attr.value) ? attr.value : null;
+    return (
+      <div className="flex items-center gap-2">
+        {media && media.kind !== "audio" && media.kind !== "video" ? (
+          <img alt={media.name ?? ""} className="size-10 rounded-xs border object-cover" src={mediaAssetUrl(apiBase, media.assetId)} />
+        ) : null}
+        <Button className="flex-1 justify-start" onClick={() => setPickerOpen(true)} type="button" variant="outline">
+          {media ? media.name || media.assetId : t("worlds.entity.manager.choose.placeholder")}
+        </Button>
+        {media && (
+          <button
+            aria-label="移除属性"
+            className="grid size-8 shrink-0 place-items-center rounded-xs text-muted-foreground hover:text-destructive"
+            onClick={() => onChange(null)}
+            type="button"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        )}
+        <PlatformMediaPicker
+          apiBase={apiBase}
+          onCancel={() => setPickerOpen(false)}
+          onPick={(selection) => {
+            const asset = Array.isArray(selection) ? selection[0] : selection;
+            if (!asset) return;
+            onChange({ assetId: asset.id, name: asset.name, kind: asset.kind });
+            setPickerOpen(false);
+          }}
+          request={pickerOpen ? { kinds: ["image", "video", "audio"] } : null}
+        />
+      </div>
+    );
+  }
+  return (
+    <Input
+      className="h-9 bg-background"
+      id={id}
+      onChange={(event) => onChange(event.target.value)}
+      value={attrValueText(attr.value)}
+    />
+  );
 }
+

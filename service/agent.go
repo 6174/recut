@@ -1683,9 +1683,9 @@ func materializeCreationEntityContext(m *AgentManager, payload json.RawMessage) 
 		return contextMaterial{}, errors.New("creation entity attachment is unavailable")
 	}
 	return contextMaterial{
-		Label: entity.Title,
+		Label: entity.Name,
 		Kind:  "creation_entity",
-		Text:  "[Creation Entity] worldId=" + input.WorldID + " entityId=" + entity.ID + " kind=" + string(entity.Kind) + " title=" + entity.Title + " —— 调用 recut.worlds.entities.get({ worldId: \"" + input.WorldID + "\", entityId: \"" + entity.ID + "\" }) 读取完整内容；关联的世界用 recut.worlds.resolve 解析。不要凭聊天记忆假定设定当前状态。",
+		Text:  "[Creation Entity] worldId=" + input.WorldID + " entityId=" + entity.ID + " kind=" + string(entity.TypeID) + " title=" + entity.Name + " —— 调用 recut.worlds.entities.get({ worldId: \"" + input.WorldID + "\", entityId: \"" + entity.ID + "\" }) 读取完整内容；关联的世界用 recut.worlds.resolve 解析。不要凭聊天记忆假定设定当前状态。",
 	}, nil
 }
 

@@ -65,10 +65,13 @@ function AiDialogBody() {
           title: titles[index] || item.title,
           pos: { x: 200 + (index % 2) * 300, y: 120 + Math.floor(index / 2) * 220 },
         });
-        // 候选简介/字段预填：创建后写 summary 与 schema 内字段
-        const created = useWorldCanvasStore.getState().entities.find((entity) => entity.title === (titles[index] || item.title));
+        // 候选简介/字段预填：创建后写 intro 与 schema 内字段（统一 Entity 模型：字段 = media/文本属性）
+        const created = useWorldCanvasStore.getState().entities.find((entity) => entity.name === (titles[index] || item.title));
         if (created && (item.summary || item.content)) {
-          await store.saveEntityField(created, { summary: item.summary ?? created.summary, contentPatch: item.content ?? {} });
+          await store.saveEntityField(created, { intro: item.summary ?? created.intro });
+          for (const [key, value] of Object.entries(item.content ?? {})) {
+            await store.saveEntityField(created, { attrKey: key, value });
+          }
         }
       }
       useWorldCanvasStore.getState().toast(`已放置 ${list.length} 个草稿设定`, "success");

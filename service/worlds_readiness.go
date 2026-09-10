@@ -65,7 +65,7 @@ type readinessFieldSpec struct {
 // readinessEntitySpec declares how many substantive entities of one kind the
 // blueprint expects, and which fields matter on them.
 type readinessEntitySpec struct {
-	kind     WorldEntityKind
+	kind     string
 	title    string
 	count    int // required substantive entities (0 = optional, measured only)
 	fields   []readinessFieldSpec
@@ -92,15 +92,15 @@ var scenarioBlueprints = map[string]scenarioBlueprint{
 	// 小说/故事 → 故事世界：角色群、故事线、场景与世界观规则。
 	ScenarioNovelAdaptation: {
 		entities: []readinessEntitySpec{
-			{kind: EntityCharacter, title: "主角角色", count: 1, fields: []readinessFieldSpec{
+			{kind: "character", title: "主角角色", count: 1, fields: []readinessFieldSpec{
 				{key: "appearance", title: "外貌与标志", reason: "AI 生成画面时不知道这个角色长什么样"},
 				{key: "personality", title: "性格与行为", reason: "没有性格依据，故事与对白会失真"},
 				{key: "voice", title: "声音与说话方式", reason: "配音与对白没有语气基准"},
 			}},
-			{kind: EntityStory, title: "故事线", count: 1, fields: []readinessFieldSpec{
+			{kind: "story", title: "故事线", count: 1, fields: []readinessFieldSpec{
 				{key: "premise", title: "故事前提", reason: "AI 不知道这个世界想讲什么"},
 			}},
-			{kind: EntityLocation, title: "主要场景", count: 1, fields: []readinessFieldSpec{
+			{kind: "location", title: "主要场景", count: 1, fields: []readinessFieldSpec{
 				{key: "description", title: "场景描述", reason: "画面没有可依赖的空间与氛围依据"},
 			}},
 		},
@@ -108,11 +108,11 @@ var scenarioBlueprints = map[string]scenarioBlueprint{
 	// IP/社媒账号 → 内容账号世界：人设、内容风格与代表作证据。
 	ScenarioIPAccount: {
 		entities: []readinessEntitySpec{
-			{kind: EntityCharacter, title: "账号人设", count: 1, fields: []readinessFieldSpec{
+			{kind: "character", title: "账号人设", count: 1, fields: []readinessFieldSpec{
 				{key: "personality", title: "人设与语气", reason: "没有语气基准，AI 写出的内容会不像这个账号"},
 				{key: "voice", title: "表达方式", reason: "句式与表达习惯缺少可执行描述"},
 			}},
-			{kind: EntityStyle, title: "内容风格", count: 1, fields: []readinessFieldSpec{
+			{kind: "style", title: "内容风格", count: 1, fields: []readinessFieldSpec{
 				{key: "guidance", title: "内容风格规范", reason: "选题域与语言规范缺失，产出会漂移"},
 			}},
 		},
@@ -124,10 +124,10 @@ var scenarioBlueprints = map[string]scenarioBlueprint{
 	// 风格表达 → 风格生产世界（小黑同款）：风格 DNA、规则集、示例证据与生产工作流。
 	ScenarioStyleSystem: {
 		entities: []readinessEntitySpec{
-			{kind: EntityStyle, title: "风格 DNA", count: 1, fields: []readinessFieldSpec{
+			{kind: "style", title: "风格 DNA", count: 1, fields: []readinessFieldSpec{
 				{key: "guidance", title: "风格 guidance", reason: "AI 生成时没有可执行的风格口径"},
 			}},
-			{kind: EntityRule, title: "创作规则", count: 1},
+			{kind: "rule", title: "创作规则", count: 1},
 		},
 		evidence: []readinessEvidenceSpec{
 			{purpose: "visual_style", modality: "image", count: 3, title: "风格示例图", suggestion: "上传示例图集，或让 AI 生成候选后挑选采纳"},
@@ -137,10 +137,10 @@ var scenarioBlueprints = map[string]scenarioBlueprint{
 	// 品牌手册 → 品牌世界：视觉系统、规则与 VI 证据。
 	ScenarioBrandGuide: {
 		entities: []readinessEntitySpec{
-			{kind: EntityStyle, title: "视觉系统", count: 1, fields: []readinessFieldSpec{
+			{kind: "style", title: "视觉系统", count: 1, fields: []readinessFieldSpec{
 				{key: "guidance", title: "视觉与文案规范", reason: "色板、字体与用法缺少可执行描述"},
 			}},
-			{kind: EntityRule, title: "品牌规则", count: 1},
+			{kind: "rule", title: "品牌规则", count: 1},
 		},
 		evidence: []readinessEvidenceSpec{
 			{purpose: "visual_style", modality: "image", count: 1, title: "Logo 与 VI 资产", suggestion: "上传品牌手册或 logo 源文件"},
@@ -154,13 +154,12 @@ var scenarioBlueprints = map[string]scenarioBlueprint{
 
 // requiredFieldsByKind is the substance registry: which content fields make an
 // entity "real" for readiness purposes. Mirrors the web form field registry.
-var requiredFieldsByKind = map[WorldEntityKind][]string{
-	EntityCharacter: {"appearance", "personality", "voice", "invariants"},
-	EntityStory:     {"premise", "moment", "emotion"},
-	EntityStyle:     {"visual", "guidance", "avoid"},
-	EntityRule:      {"text"},
-	EntityLocation:  {"description", "atmosphere"},
-	EntityReference: {},
+var requiredFieldsByKind = map[string][]string{
+	EntityTypeCharacter: {"appearance", "personality", "voice", "invariants"},
+	EntityTypeStory:     {"premise", "moment", "emotion"},
+	EntityTypeStyle:     {"visual", "guidance", "avoid"},
+	EntityTypeRule:      {"text"},
+	EntityTypeLocation:  {"description", "atmosphere"},
 }
 
 // entityContentFields ignored when judging substance: structural metadata keys
@@ -195,7 +194,7 @@ const (
 
 // readinessEntitySnapshot is the minimal entity view the pure function needs.
 type readinessEntitySnapshot struct {
-	Kind          WorldEntityKind
+	Kind          string
 	Content       map[string]any
 	IsProvisional bool
 }
@@ -252,7 +251,7 @@ func computeReadiness(snapshot readinessSnapshot, scenarioID string) WorldReadin
 	missing := []MissingItem{}
 
 	// Index substantive entities by kind, preserving store order.
-	substantive := map[WorldEntityKind][]readinessEntitySnapshot{}
+	substantive := map[string][]readinessEntitySnapshot{}
 	substantiveCount := 0
 	for _, entity := range snapshot.Entities {
 		// Exploration drafts are not facts: readiness never measures them.
@@ -414,20 +413,27 @@ func (w *WorldStore) Readiness(worldID, scenarioID string) (WorldReadiness, erro
 		return WorldReadiness{}, err
 	}
 	snapshot := readinessSnapshot{WorldType: detail.Type, SkillMd: detail.SkillMd, Identity: detail.Identity}
-	entityRows, err := db.Query("select kind, content_json, is_provisional from world_entities where world_id = ? and archived_at is null order by created_at", worldID)
+	entityRows, err := db.Query("select coalesce(nullif(type_id, ''), kind), detail, attrs_json, is_provisional from world_entities where world_id = ? and archived_at is null order by created_at", worldID)
 	if err != nil {
 		return WorldReadiness{}, err
 	}
 	defer entityRows.Close()
 	for entityRows.Next() {
-		var kind, contentJSON string
+		var typeID, detail, attrsJSON string
 		var provisional int
-		if err := entityRows.Scan(&kind, &contentJSON, &provisional); err != nil {
+		if err := entityRows.Scan(&typeID, &detail, &attrsJSON, &provisional); err != nil {
 			return WorldReadiness{}, err
 		}
-		entity := readinessEntitySnapshot{Kind: WorldEntityKind(kind), Content: map[string]any{}, IsProvisional: provisional != 0}
-		if contentJSON != "" {
-			_ = json.Unmarshal([]byte(contentJSON), &entity.Content)
+		// Readiness works on the same projection as before: content map = body
+		// (detail) + flattened attr values.
+		entity := readinessEntitySnapshot{Kind: typeID, Content: map[string]any{}, IsProvisional: provisional != 0}
+		entity.Content["body"] = detail
+		attrs := []EntityAttr{}
+		if attrsJSON != "" {
+			_ = json.Unmarshal([]byte(attrsJSON), &attrs)
+		}
+		for _, attr := range attrs {
+			entity.Content[attr.Key] = attr.Value
 		}
 		snapshot.Entities = append(snapshot.Entities, entity)
 	}

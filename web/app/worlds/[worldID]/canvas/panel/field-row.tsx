@@ -15,8 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
-import type { WorldEntity } from "@/lib/recut-worlds-client";
-import { entityKindLabels } from "@/lib/recut-worlds-client";
+import { entityKindLabel, type WorldEntity, type WorldEntitySummary } from "@/lib/recut-worlds-client";
 import { useWorldCanvasStore } from "../canvas-store";
 
 // 素材字段的 content 值：统一存 {assetId, name, kind}，kind 驱动缩略图与预览弹框
@@ -40,8 +39,8 @@ export function parseAssetValue(value: unknown): AssetValue | null {
 }
 
 // 类型标签：type 目录的 name 优先（B.2 用户语言），目录缺失回退静态 label
-export function typeLabelOf(entity: Pick<WorldEntity, "kind">, entityTypes: { id: string; name: string }[]): string {
-  return entityTypes.find((item) => item.id === entity.kind)?.name ?? entityKindLabels[entity.kind as keyof typeof entityKindLabels] ?? entity.kind;
+export function typeLabelOf(entity: Pick<WorldEntitySummary, "typeId">, entityTypes: { id: string; name: string }[]): string {
+  return entityTypes.find((item) => item.id === entity.typeId)?.name ?? entityKindLabel(entity.typeId);
 }
 
 export function FieldRow({
@@ -271,11 +270,11 @@ function FullscreenTextEditor({ label, draft, onDraft, onCommit, onCancel }: { l
   );
 }
 
-// 面板字段保存的统一入口：一次 contentPatch 写库（store 负责冲突重试与自动确认）
+// 面板字段保存的统一入口：按 attrKey 单属性 patch（attrs 全量替换语义；store 负责冲突重试与自动确认）
 export function useEntityFieldSaver() {
   const saveEntityField = useWorldCanvasStore((state) => state.saveEntityField);
   return (entity: WorldEntity, key: string) => (value: unknown) =>
-    saveEntityField(entity, { contentPatch: { [key]: value } });
+    saveEntityField(entity, { attrKey: key, value });
 }
 
 // 素材字段（type=media）：槽位展示缩略图；点击已填素材 → 全局统一素材弹框（AssetPreviewDialog）；

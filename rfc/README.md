@@ -3,6 +3,7 @@
 > L2 | 父级: /README.md
 
 成员清单
+2026-09-09-unified-entity-model.md: 统一 Entity 模型：Entity = 名称/介绍/详情/属性列表/类型 + 双向关系图；attrs 有序 typed key-value（preset locked 字段 + 用户可扩展），素材统一为 media attr 并废弃 evidence 层（含「参考」类型），删除 kind enum、content_json 散装字段与设定视图硬编码 fieldDefinitions，设定视图与画布共享一套 EntityEditor；含迁移脚本与 P0-P3 落地计划。
 2026-09-09-world-canvas-document-storage.md: World Canvas 存储粒度重构：一张画布 = 一个 Document（world_canvases 文档表，context_id 区分根/内层，doc_json 不透明正文 + version 乐观锁），内层画布独立成档、实体/关系语义层保持共享；解决实体投影卡跨层复用一行导致「内层调位置写穿外层」的结构问题；含 get/save/docs/doc.update 读写契约（存储文档粒度、操作面保留元素粒度 ops）、文档粒度取舍记录（写放大/并发/attr 投影同步对策）与 M1-M4 迁移回滚。
 2026-09-08-canvas-pixi-tiles-implementation.md: 方案二落地文档（上游 RFC 0831）：不改上层调用体验、全部收敛在 pomelo pixi adapter/ticker 层的瓦片渲染实施设计——demand-driven flush（autoStart:false + 脏标记合并每帧一次 GPU 提交）、dev/demo-pencil 算法验证页（TileScheduler 直译常量与优先级/双代取消/EMA 成本/RT 池）、M1 拖拽会话全屏快照（beginContentSession(excludedBlockIds) 把受影响元素问题折成插件传参）、M2 瓦片调度（块级 chunk RT + 瓦片拼贴 + 5ms 预算 + LRU 显存常数化 ~25-30MB）、落地文件清单与风险逃生门。
 2026-09-08-canvas-rendering-skia-vs-tiles.md: World 画布渲染引擎升级路径对比：完整迁移 open-pencil（CanvasKit/Skia）core 渲染层进 pomelo（方案一）对比保留 pixi v7 并吸收其 tile 系统思想（方案二）；读码梳理 open-pencil 四层还原缓存（SkPicture/retained backing/TiledSceneController+TileScheduler 5ms 帧预算+positionPreview 拖拽机制），给出方案二起步、方案一留档的决策建议与 M0-M3 里程碑（dev/demo-pencil 验证页起步）、GPU ≤3ms 验收口径。

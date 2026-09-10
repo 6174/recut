@@ -7,7 +7,9 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 export type WorldKind = "character_ip" | "creator_brand" | "brand" | "fiction_world" | "custom";
-export type EntityKind = "character" | "location" | "object" | "story" | "style" | "rule" | "reference";
+// Entity type id: preset ids autocomplete, any custom id allowed (type 目录开放)。
+// The legacy "reference" preset is retired — media attrs cover it.
+export type EntityKind = "character" | "location" | "object" | "story" | "style" | "rule" | (string & {});
 export type WorldPurpose = "chat" | "video" | "voice" | "image" | "cover" | "agent";
 export type Page<T> = { items: T[]; nextCursor?: string };
 
@@ -64,16 +66,39 @@ export type WorldDetail = WorldSummary & {
 export type WorldEntitySummary = {
   id: string;
   worldId: string;
-  kind: EntityKind;
-  title: string;
-  summary: string;
+  typeId: EntityKind;
+  name: string;
+  intro: string;
   parentId?: string;
   containerRole?: string;
   isProvisional?: boolean;
   updatedAt: string;
 };
 
-export type WorldEntityRelation = { id: string; type: string; fromEntityId: string; toEntityId: string; scopeEntityId?: string };
+export type WorldEntityRelation = {
+  id: string;
+  type: string;
+  fromEntityId: string;
+  toEntityId: string;
+  scopeEntityId?: string;
+  /** Read projection from the touched entity's point of view: out | in | scope. */
+  direction?: "out" | "in" | "scope";
+};
+
+// EntityAttr is one entry of an entity's ordered attribute list (统一 Entity 模型).
+export type EntityAttr = {
+  key: string;
+  label: string;
+  type: "text" | "textarea" | "number" | "boolean" | "select" | "media";
+  value?: unknown;
+  options?: string[];
+  /** Type-preset attr: structure (label/type) is pinned by the schema, value stays editable. */
+  locked?: boolean;
+  segment?: { startSec: number; endSec: number };
+};
+
+// Media attr value: {assetId, name?, kind?, segment?} referencing a platform Asset.
+export type EntityAttrMediaValue = { assetId: string; name?: string; kind?: string; segment?: { startSec: number; endSec: number } };
 
 export type WorldEvidenceSegment = { startSec: number; endSec: number };
 
@@ -100,8 +125,10 @@ export type WorldEvidencePurpose = "identity" | "appearance" | "wardrobe" | "voi
 export type WorldEvidenceStatus = "primary" | "supporting" | "counterexample" | "archived";
 
 export type WorldEntity = WorldEntitySummary & {
-  content: Record<string, unknown>;
+  detail: string;
+  attrs: EntityAttr[];
   relations: WorldEntityRelation[];
+  /** Legacy read-only projection; entity media lives in attrs now. */
   references: WorldAssetReference[];
   children?: WorldEntitySummary[];
 };
@@ -210,13 +237,16 @@ export const worldKindLabels: Record<WorldKind, string> = {
 // 与服务端 type 目录 name 统一文案（T11：「角色」→「人物」；目录缺失时兜底）
 export const entityKindLabels: Record<EntityKind, string> = {
   character: "人物",
-  location: "地点",
+  location: "场景",
   object: "物件",
   story: "故事",
   style: "风格",
   rule: "规则",
-  reference: "参考",
 };
+
+export function entityKindLabel(typeId: string): string {
+  return entityKindLabels[typeId] ?? typeId;
+}
 
 const referenceRoles = ["character_reference", "voice_reference", "location_reference", "style_reference", "story_reference", "brand_reference"];
 
@@ -238,7 +268,7 @@ export function worldTypes(): WorldKind[] {
 }
 
 export function entityKinds(): EntityKind[] {
-  return ["character", "location", "object", "story", "style", "rule", "reference"];
+  return ["character", "location", "object", "story", "style", "rule"];
 }
 
 export type EntityTypeField = {
@@ -249,6 +279,8 @@ export type EntityTypeField = {
   placeholder?: string;
   options?: string[];
   invariant?: boolean;
+  /** Locked preset field: label/type/removal pinned by the schema; value editable. */
+  locked?: boolean;
   i18n?: Record<string, string>;
 };
 
@@ -267,7 +299,7 @@ export type WorldEntityType = {
   updatedAt: string;
 };
 
-export type WorldRelationType = { id: string; labelZh: string; group: string };
+export type WorldRelationType = { id: string; labelZh: string; group: string; inverseId?: string };
 
 export type WorldCanvasElement = {
   id: string;
@@ -337,20 +369,16 @@ export type RecutWorldsClient = {
   archive(input: { worldId: string; expectedRevisionId?: string }): Promise<void>;
   readiness(input: { worldId: string; scenario?: WorldScenario }): Promise<WorldReadiness>;
   entities: {
-    list(input: { worldId: string; kind?: EntityKind; text?: string; cursor?: string; limit?: number; includeProvisional?: boolean }): Promise<Page<WorldEntitySummary>>;
+    list(input: { worldId: string; typeId?: EntityKind; text?: string; cursor?: string; limit?: number; includeProvisional?: boolean }): Promise<Page<WorldEntitySummary>>;
     get(input: { worldId: string; entityId: string }): Promise<WorldEntity>;
-    upsert(input: { worldId: string; entityId?: string; kind: EntityKind; title: string; summary?: string; content: Record<string, unknown>; parentId?: string; containerRole?: string; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
-    children(input: { worldId: string; entityId: string; kind: EntityKind; title: string; containerRole?: string; summary?: string; content?: Record<string, unknown>; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
+    upsert(input: { worldId: string; entityId?: string; typeId?: EntityKind; name: string; intro?: string; detail?: string; attrs?: EntityAttr[] | null; parentId?: string; containerRole?: string; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
+    children(input: { worldId: string; entityId: string; typeId: EntityKind; name: string; containerRole?: string; intro?: string; detail?: string; attrs?: EntityAttr[]; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
     promote(input: { worldId: string; entityId: string; expectedRevisionId?: string }): Promise<WorldEntity>;
     remove(input: { worldId: string; entityId: string; expectedRevisionId?: string }): Promise<WorldEntityDeleteResult>;
   };
-  references: {
-    attach(input: { worldId: string; entityId?: string; assetId: string; role: string; label?: string; expectedRevisionId?: string }): Promise<WorldEvidence>;
-  };
   evidence: {
+    /** Read-only legacy projection; entity media lives in attrs now. */
     list(input: { worldId: string }): Promise<WorldEvidence[]>;
-    attach(input: { worldId: string; entityId?: string; assetId?: string; url?: string; modality?: string; purpose: WorldEvidencePurpose; status?: Exclude<WorldEvidenceStatus, "archived">; collection?: string; label?: string; segment?: WorldEvidenceSegment; expectedRevisionId?: string }): Promise<WorldEvidence>;
-    update(input: { worldId: string; evidenceId: string; purpose: WorldEvidencePurpose; status: Exclude<WorldEvidenceStatus, "archived">; label?: string; expectedRevisionId?: string }): Promise<WorldEvidence>;
     archive(input: { worldId: string; evidenceId: string; expectedRevisionId?: string }): Promise<void>;
   };
   resolve(input: { worldId: string; revisionId?: string; selection: WorldSelection }): Promise<CreationContext>;
@@ -363,7 +391,7 @@ export type RecutWorldsClient = {
     save(input: { worldId: string; contextId?: string; elements: WorldCanvasElement[]; version: number }): Promise<WorldCanvasDocument>;
     docs(input: { worldId: string }): Promise<Array<{ contextId: string; version: number; updatedAt: string; elementCount: number }>>;
     docUpdate(input: { worldId: string; contextId?: string; ops: CanvasDocOp[] }): Promise<WorldCanvasDocument>;
-    promote(input: { worldId: string; elementId: string; kind?: string; relationType?: string; title?: string; expectedRevisionId?: string }): Promise<CanvasPromoteResult>;
+    promote(input: { worldId: string; elementId: string; typeId?: string; relationType?: string; title?: string; expectedRevisionId?: string }): Promise<CanvasPromoteResult>;
   };
   relations: {
     create(input: { worldId: string; fromEntityId: string; toEntityId: string; relationType: string; scopeEntityId?: string; expectedRevisionId?: string }): Promise<WorldEntityRelation>;
@@ -409,9 +437,9 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
       return requestJSON<WorldReadiness>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/readiness${query.size ? `?${query}` : ""}`);
     },
     entities: {
-      list: ({ worldId, kind, text, cursor, limit, includeProvisional }) => {
+      list: ({ worldId, typeId, text, cursor, limit, includeProvisional }) => {
         const query = new URLSearchParams();
-        if (kind) query.set("kind", kind);
+        if (typeId) query.set("typeId", typeId);
         if (text) query.set("text", text);
         if (cursor) query.set("cursor", cursor);
         if (limit != null) query.set("limit", String(limit));
@@ -475,16 +503,11 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
         if (!response.ok) throw await errorFrom(response);
       },
     },
-    references: {
-      attach: ({ worldId, ...rest }) => requestJSON<WorldAssetReference>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/references`, { method: "POST", body: rest }),
-    },
     evidence: {
       list: async ({ worldId }) => {
         const page = await requestJSON<{ items: WorldEvidence[] }>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/evidence`);
         return page.items;
       },
-      attach: ({ worldId, ...rest }) => requestJSON<WorldEvidence>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/evidence`, { method: "POST", body: rest }),
-      update: ({ worldId, evidenceId, ...rest }) => requestJSON<WorldEvidence>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/evidence/${encodeURIComponent(evidenceId)}`, { method: "PATCH", body: rest }),
       archive: async ({ worldId, evidenceId, expectedRevisionId }) => {
         const response = await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/evidence/${encodeURIComponent(evidenceId)}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevisionId }) });
         if (!response.ok) throw await errorFrom(response);

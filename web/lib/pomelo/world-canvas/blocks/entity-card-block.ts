@@ -181,6 +181,11 @@ export class EntityCardBlock extends PixiBlock {
 
     // 头图：通铺卡片顶部（无 padding，cover-fit；真图异步加载，占位为瓦片底 + emoji；
     // coverKind=video 走视频纹理静音循环）；无头图 = 文本优先排版（B.6 扩展）
+    // TODO(RFC 背景): 统一 Entity 模型下，卡面背景默认以实体 media 属性（image/video，6–8s/张）
+    // 做慢轮播、显式 `background` media 属性覆盖为静态单图。当前 renderBlock 为静态单次绘制契约
+    // （无 ticker/时间驱动重绘入口），轮播需在 Block 层引入逐帧切换（如 ticker 或 re-render 调度）
+    // 并由 canvas-pomelo 的 buildPomeloRecords 把 media 属性 URL 列表经 attrs（如 bgUrls）传入；
+    // 本次仅落 cover fallback（background 属性 → 首个 image media 属性 → video）+ 资料格。
     const textTop = hasCover ? imageH + PAD : PAD;
     if (hasCover) {
       const header = new PIXI.Container();

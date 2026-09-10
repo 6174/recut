@@ -21,7 +21,7 @@ export function RelationPanel({ relation }: { relation: WorldEntityRelation }) {
   const removeRelation = useWorldCanvasStore((state) => state.removeRelation);
   const select = useWorldCanvasStore((state) => state.select);
   const [armed, setArmed] = useState(false);
-  const titleOf = (id: string) => entities.find((item) => item.id === id)?.title ?? "…";
+  const titleOf = (id: string) => entities.find((item) => item.id === id)?.name ?? "…";
   return (
     <div className="space-y-4 text-sm">
       <div>

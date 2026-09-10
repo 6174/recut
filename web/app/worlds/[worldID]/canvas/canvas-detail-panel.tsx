@@ -54,7 +54,7 @@ export function CanvasDetailPanel() {
             : "世界";
   const headerTitle =
     selection?.type === "entity"
-      ? selection.entity.title
+      ? selection.entity.name
       : selection?.type === "relation"
         ? selection.relation.type
         : selection?.type === "canvas"
