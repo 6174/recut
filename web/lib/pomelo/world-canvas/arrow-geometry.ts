@@ -1,5 +1,5 @@
 /*
- * [INPUT]: 无 pixi 依赖（纯几何），输入为 block record（attrs）与端点卡片记录
+ * [INPUT]: 无渲染器依赖（纯几何），输入为 block record（attrs）与端点卡片记录
  * [OUTPUT]: 对外提供连线几何的单一实现：锚点解析（fromAnchor/toAnchor 归一化，默认节点中心）、
  * 端点在节点边界的裁剪（boundaryPoint）、二次贝塞尔（控制点 = 直线中点 + bend 偏移），
  * 以及 relationGeometry 汇总（t1/t2/a/b/cp/labelPos；边界交点经二分细化，保证端点精确落在

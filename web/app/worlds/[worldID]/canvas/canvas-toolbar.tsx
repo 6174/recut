@@ -24,11 +24,11 @@ import {
   Spline,
   Undo2,
 } from "lucide-react";
-import { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
+import { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
 import { centerContent, zoomAt } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
 import { useWorldDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
-import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
+import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import { WORLD_ELEMENT_ID, useWorldCanvasStore, type AttrMedia } from "./canvas-store";
 import { createRecutWorldsClient, type WorldRevisionSummary } from "@/lib/recut-worlds-client";
 
@@ -53,8 +53,9 @@ export function CanvasToolbarItems() {
   // 以画布中心为锚点缩放到指定比例（clamp 与 ViewportPlugin 一致）
   const zoomTo = (scale: number) => {
     if (!editor) return;
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
-    const view = adapter.app.view as HTMLCanvasElement;
+    const adapter = editor.renderAdapter as PomeloRendererAdapter;
+    const view = adapter.getView();
+    if (!view) return;
     const rect = view.getBoundingClientRect();
     const next = zoomAt({ ...adapter.transform }, { x: rect.width / 2, y: rect.height / 2 }, scale);
     adapter.setTransform(next.x, next.y, next.scale);
@@ -66,7 +67,7 @@ export function CanvasToolbarItems() {
   // 缩放以适应所选内容：无选中则不动
   const fitSelection = () => {
     if (!editor) return;
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
+    const adapter = editor.renderAdapter as PomeloRendererAdapter;
     const selection = useWorldCanvasStore.getState().selection;
     const blockId =
       selection?.type === "entity"
@@ -88,7 +89,8 @@ export function CanvasToolbarItems() {
             height: Number(record.attrs.height) || 200,
           };
     if (rect.width <= 0 || rect.height <= 0) return;
-    const view = adapter.app.view as HTMLCanvasElement;
+    const view = adapter.getView();
+    if (!view) return;
     const viewRect = view.getBoundingClientRect();
     const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min((viewRect.width - 160) / rect.width, (viewRect.height - 160) / rect.height, 1)));
     const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
@@ -99,8 +101,9 @@ export function CanvasToolbarItems() {
   // 视口中心的世界坐标：独立插入元素的落点
   const centerWorldPos = () => {
     if (!editor) return { x: 420, y: 300 };
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
-    const view = adapter.app.view as HTMLCanvasElement;
+    const adapter = editor.renderAdapter as PomeloRendererAdapter;
+    const view = adapter.getView();
+    if (!view) return { x: 420, y: 300 };
     const rect = view.getBoundingClientRect();
     const t = adapter.transform;
     return { x: (rect.width / 2 - t.x) / t.scale, y: (rect.height / 2 - t.y) / t.scale };
@@ -111,7 +114,7 @@ export function CanvasToolbarItems() {
     const plugin = editor.pluginRegistry.get("GridPlugin") as GridPlugin | undefined;
     if (!plugin) return;
     plugin.enabled = !gridOn;
-    plugin.draw(editor.renderAdapter as PixiRendererAdapter);
+    plugin.draw(editor.renderAdapter);
     setGridOn(!gridOn);
   };
 

@@ -20,7 +20,7 @@
  */
 import { create } from "zustand";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
-import { entityCardContentHeight } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
+import { entityCardContentHeight } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import {
   createRecutWorldsClient,
   type EntityAttr,
@@ -313,7 +313,7 @@ function modalityLabelOf(modality: string): string {
   return labels[modality] ?? "素材";
 }
 
-// 命名态定位（已不再于创建时启动；EntityCardBlock 渲染公式参考值）
+// 命名态定位（已不再于创建时启动；EntityCardBlockV 渲染公式参考值）
 const ENTITY_CARD_IMAGE_H = 160;
 const ENTITY_CARD_PAD = 14;
 

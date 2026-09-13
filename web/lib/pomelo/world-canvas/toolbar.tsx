@@ -10,7 +10,7 @@
 import type { RefObject } from "react";
 import type { PomeloEditor } from "../pomelo-core/pomelo-editor";
 import { useWorldDemoStore, kindLabel } from "./demo-store";
-import { MEDIA_META } from "./blocks/media-node-block";
+import { MEDIA_META } from "./blocks/media-meta";
 
 type ToolbarProps = {
   kinds: string[];

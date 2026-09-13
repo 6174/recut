@@ -1,12 +1,12 @@
 /*
- * [INPUT]: 依赖 pomelo-core（PomeloPlugin / PomeloEditor）与 PixiRendererAdapter
+ * [INPUT]: 依赖 pomelo-core（PomeloPlugin / PomeloEditor / PomeloRendererAdapter）
  * [OUTPUT]: 对外提供 ViewportPlugin：wheel 平移、ctrl/⌘+wheel 以指针为锚点缩放、空格拖拽与中键拖拽平移；
- * transform 经 adapter.setTransform 写入 pixi 舞台并镜像到 demo-store；附 zoomAt/centerContent 辅助
+ * transform 经 adapter.setTransform 写入渲染器并镜像到 demo-store；附 zoomAt/centerContent 辅助
  * [POS]: lib/pomelo/world-canvas 的视口插件（pomelo plugin 机制的第一个控制层扩展示例）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { PomeloEditor } from "../../pomelo-core/pomelo-editor";
-import type { PixiRendererAdapter } from "../../pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
+import type { PomeloRendererAdapter } from "../../pomelo-core/pomelo-renderer";
 import { PomeloPlugin } from "../../pomelo-core/pomelo-plugin";
 import { useWorldDemoStore, type Transform } from "../demo-store";
 
@@ -35,7 +35,7 @@ export class ViewportPlugin extends PomeloPlugin {
   #cleanup?: () => void;
 
   onEditorDidMount(editor: PomeloEditor) {
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
+    const adapter = editor.renderAdapter as PomeloRendererAdapter;
     const view = adapter.getView() ?? undefined;
     if (!view) throw new Error("[viewport] view missing");
     const disposables: Array<() => void> = [];
@@ -122,7 +122,7 @@ export class ViewportPlugin extends PomeloPlugin {
 
 // 初始视口：把内容包围盒居中到画布
 export function centerContent(editor: PomeloEditor) {
-  const adapter = editor.renderAdapter as PixiRendererAdapter;
+  const adapter = editor.renderAdapter as PomeloRendererAdapter;
   const state = editor.state;
   const blocks = state.getAllBlocks((record) => !record.isRoot && record.type !== "relation-arrow");
   if (!blocks.length) return;
@@ -151,7 +151,7 @@ export function centerContent(editor: PomeloEditor) {
 
 // 工具栏缩放按钮：以画布中心为锚点
 export function zoomByCenter(editor: PomeloEditor, factor: number) {
-  const adapter = editor.renderAdapter as PixiRendererAdapter;
+  const adapter = editor.renderAdapter as PomeloRendererAdapter;
   const view = adapter.getView();
   if (!view) return;
   const rect = view.getBoundingClientRect();

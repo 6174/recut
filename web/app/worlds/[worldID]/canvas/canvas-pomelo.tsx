@@ -1,15 +1,15 @@
 /*
- * [INPUT]: 依赖 pomelo-core（PomeloEditor / PixiRendererAdapter / PomeloEditorState.fromJSON）、
- * world-canvas 的 blocks / ViewportPlugin、canvas-store、pixi.js 与 lucide-react
+ * [INPUT]: 依赖 pomelo-core（PomeloEditor / PomeloEditorState.fromJSON）、pomelo-vello（VelloRendererAdapter）、
+ * world-canvas 的 vello blocks / ViewportPlugin、canvas-store 与 lucide-react
  * [OUTPUT]: 对外提供 CanvasPomeloHost：真实世界画布的 pomelo 底座——
  * canvas-store（world_entities/world_relations/world_canvas 唯一语义真相）→ pomelo 文档按 block id diff
  * 增量同步（T1-c：新增 addRecord / 删除 removeRecord / 属性变化 updateRecord，不再全量重建）；
  * ViewportPlugin（平移/缩放）+ CanvasBindsPlugin（选中解析/拖拽位移与 resize 持久化/进入容器/删除）；
  * 画布工具（模式/连线/插入/undo/缩放菜单）由 CanvasToolbarItems 承载并合并进全局 Header（canvas-top-bar.tsx），
  * 世界工具栏与「设定视图」切换仍上提到全局 Header（canvas-top-bar.tsx）；
- * 自由元素映射：note→NoteBlock、text/shape→FreeElementBlock、绑定两实体的自由箭头→复用
- * RelationArrowBlock 投影（未绑定箭头暂不渲染）；画面 delta 同步经 moveElement + persistGeometry
- * 另含 MediaBlock（T8 媒体元素）/ 空世界与空容器引导（T9）/ CanvasOutline / toast / 文件拖放（B.12）；
+ * 自由元素映射：note→NoteBlockV、text/shape→FreeElementBlockV、绑定两实体的自由箭头→复用
+ * RelationArrowBlockV 投影（未绑定箭头暂不渲染）；画面 delta 同步经 moveElement + persistGeometry
+ * 另含 RealMediaBlockV（T8 媒体元素）/ 空世界与空容器引导（T9）/ CanvasOutline / toast / 文件拖放（B.12）；
  * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
  * `wc:vp:<worldId>:<contextId>`，进出容器先存回来源再恢复目标，无快照才 fit）
  * [POS]: worlds/[worldID]/canvas 的画布底座层（本组件经 index.tsx dynamic(ssr:false) 挂载）；
@@ -17,22 +17,13 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useEffect, useRef, useState, type RefObject } from "react";
-import * as PIXI from "pixi.js";
-import { PixiBlock } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-block";
 import { PomeloEditorState } from "@/lib/pomelo/pomelo-core/pomelo-state";
 import { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
-import { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
 import { VelloRendererAdapter } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
 import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/world-canvas/blocks/vello-world-blocks";
-import { EntityCardBlock } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
-import { NoteBlock, WorldNodeBlock } from "@/lib/pomelo/world-canvas/blocks/note-and-world-blocks";
-import { RelationArrowBlock } from "@/lib/pomelo/world-canvas/blocks/relation-arrow-block";
 import { ViewportPlugin, centerContent, panBy } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
-import { TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, drawShadowCard } from "@/lib/pomelo/world-canvas/canvas-theme";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
-import { drawElementCaption } from "@/lib/pomelo/world-canvas/truncate-text";
-import { loadPixiTexture, coverSprite, TILE_FILL, CARD_STROKE, CARD_STROKE_ALPHA } from "@/lib/pomelo/world-canvas/canvas-theme";
 import { fitElementToAsset, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
 import { CanvasInlineEditor } from "./canvas-inline-editor";
@@ -44,226 +35,7 @@ import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SI
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
 
-// ---------- 自由元素 Block：text（纯文本）/ shape（几何轮廓） ----------
-
-export class FreeElementBlock extends PixiBlock {
-  static type = "free-element";
-
-  renderBlock() {
-    const attrs = this.record.attrs as Record<string, unknown>;
-    const x = Number(attrs.x) || 0;
-    const y = Number(attrs.y) || 0;
-    const elementKind = String(attrs.elementKind ?? "shape");
-    const shapeType = String(attrs.shapeType ?? "rectangle");
-    const text = String(attrs.text ?? "");
-    const mediaSrc = String(attrs.mediaSrc ?? "");
-    const width = Number(attrs.width) || 120;
-    const height = Number(attrs.height) || 60;
-    const FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
-
-    const container = new PIXI.Container();
-    drawElementCaption(container, {
-      title:
-        elementKind === "attr"
-          ? `${attrMediaLabel(String(attrs.attrMedia ?? "text"))}${text ? ` · ${text.slice(0, 12)}` : ""}`
-          : elementKind === "text"
-            ? "文本"
-            : "形状",
-      icon:
-        elementKind === "attr"
-          ? ({ text: "📄", image: "🖼️", audio: "🎵", video: "🎬" } as Record<string, string>)[String(attrs.attrMedia ?? "text")] ?? "◍"
-          : elementKind === "text"
-            ? "📄"
-            : "◆",
-      maxWidth: 180,
-    });
-    if (elementKind === "text") {
-      const textObj = new PIXI.Text(text || "（空文本）", {
-        fontFamily: FONT,
-        fontSize: 13,
-        lineHeight: 20,
-        fill: 0xd4d4d8,
-        wordWrap: true,
-        wordWrapWidth: Math.max(40, width),
-        breakWords: true,
-      });
-      textObj.position.set(0, 0);
-      container.addChild(textObj);
-    } else if (elementKind === "attr") {
-      // 属性预览卡：统一视觉（深色卡面 + 细边框 + 柔和投影）；媒体卡有图时整卡渲染真实图，
-      // 标题只保留卡外 caption（卡内不再叠「图标+类型名」，避免双标题）
-      const media = String(attrs.attrMedia ?? "text");
-      const hasImage = Boolean(mediaSrc) && media === "image";
-      drawShadowCard(container, width, height, { radius: 12 });
-
-      if (hasImage) {
-        // 整卡显示图：图几乎满铺（inset 2，遮住卡面填充避免「三层背景」），mask 圆角防溢出；
-        // 标题条画在最上层保住描边（drawShadowCard 的 surface 会被图覆盖）
-        drawShadowCard(container, width, height, { radius: 12 });
-        const mask = new PIXI.Graphics();
-        mask.beginFill(0xffffff);
-        mask.drawRoundedRect(0, 0, width, height, 11);
-        mask.endFill();
-        container.addChild(mask);
-        mask.renderable = false;
-        loadPixiTexture(String(mediaSrc), (texture) => {
-          if (!texture || container.destroyed) return;
-          const sprite = coverSprite(texture, width - 2, height - 2);
-          sprite.position.set(1, 1);
-          sprite.mask = mask;
-          container.addChild(sprite);
-          const edge = new PIXI.Graphics();
-          edge.lineStyle(1, CARD_STROKE, CARD_STROKE_ALPHA, 1);
-          edge.drawRoundedRect(0, 0, width, height, 12);
-          container.addChild(edge);
-        });
-      } else {
-        const mediaIcons: Record<string, string> = { text: "📄", image: "🖼️", audio: "🎵", video: "🎬" };
-
-        if (media === "text" && text) {
-          const body = new PIXI.Text(text, {
-            fontFamily: FONT,
-            fontSize: 11,
-            lineHeight: 17,
-            fill: TEXT_PRIMARY,
-            wordWrap: true,
-            wordWrapWidth: Math.max(20, width - 20),
-            breakWords: true,
-          });
-          body.position.set(10, 10);
-          container.addChild(body);
-        } else {
-          const hero = new PIXI.Text(mediaIcons[media] ?? "◍", {
-            fontFamily: FONT,
-            fontSize: Math.min(48, height / 2),
-            fill: TEXT_TERTIARY,
-          });
-          hero.anchor.set(0.5);
-          hero.position.set(width / 2, height / 2 + 6);
-          container.addChild(hero);
-        }
-      }
-    } else {
-      const g = new PIXI.Graphics();
-      g.beginFill(0xffffff, 0.03);
-      g.lineStyle(1.5, 0x52525b, 1, 1);
-      if (shapeType === "ellipse") {
-        g.drawEllipse(width / 2, height / 2, width / 2, height / 2);
-      } else if (shapeType === "diamond") {
-        g.moveTo(width / 2, 0);
-        g.lineTo(width, height / 2);
-        g.lineTo(width / 2, height);
-        g.lineTo(0, height / 2);
-        g.closePath();
-      } else {
-        g.drawRoundedRect(0, 0, width, height, 8);
-      }
-      g.endFill();
-      container.addChild(g);
-      if (text) {
-        const label = new PIXI.Text(text, {
-          fontFamily: 'system-ui, -apple-system, "PingFang SC", sans-serif',
-          fontSize: 11,
-          lineHeight: 16,
-          fill: 0xa1a1aa,
-          wordWrap: true,
-          wordWrapWidth: Math.max(20, width - 16),
-          breakWords: true,
-        });
-        label.position.set(10, 10);
-        container.addChild(label);
-      }
-    }
-
-    container.position.set(x, y);
-    container.eventMode = "none";
-    return container;
-  }
-}
-
-// ---------- 媒体元素 Block（T8/B.12）：图片 cover-fit 缩略 / 视频-音频占位卡 + 挂接角标 ----------
-
-export class MediaBlock extends PixiBlock {
-  static type = "media";
-  override renderOnZoom = true;
-  #destroyed = false;
-
-  override destroy() {
-    this.#destroyed = true;
-    super.destroy();
-  }
-
-  isDestroyed(): boolean {
-    return this.#destroyed;
-  }
-
-  renderBlock() {
-    const { x = 0, y = 0, width = 220, height = 150, modality = "image", src = "", attached, label = "" } = this.record.attrs;
-    const w = Number(width);
-    const h = Number(height);
-    const s = this.screenScale;
-    const inv = 1 / s;
-
-    const container = new PIXI.Container();
-    drawElementCaption(container, { title: String(label) || "媒体", icon: modality === "image" ? "🖼️" : modality === "video" ? "🎬" : "🎵", maxWidth: w * s, scale: inv });
-
-    drawShadowCard(container, w, h, { radius: 12 });
-
-    if (modality === "image" && src) {
-      const imageH = h - (attached ? 18 : 0);
-      const placeholder = new PIXI.Graphics();
-      placeholder.beginFill(TILE_FILL);
-      placeholder.drawRoundedRect(6, 6, w - 12, imageH - 12, 8);
-      placeholder.endFill();
-      container.addChild(placeholder);
-      loadPixiTexture(String(src), (texture) => {
-        if (!texture || this.#destroyed || container.destroyed) return;
-        const sprite = coverSprite(texture, w - 12, imageH - 12);
-        const mask = new PIXI.Graphics();
-        mask.beginFill(0xffffff);
-        mask.drawRoundedRect(6, 6, w - 12, imageH - 12, 8);
-        mask.endFill();
-        mask.position.set(6, 6);
-        sprite.position.set(6 + sprite.x, 6 + sprite.y);
-        sprite.mask = mask;
-        container.addChild(mask);
-        container.addChild(sprite);
-      });
-    } else {
-      const glyph = new PIXI.Text(modality === "video" ? "🎬" : "🎵", {
-        fontFamily: 'system-ui, -apple-system, "PingFang SC", sans-serif',
-        fontSize: Math.min(44, h / 2.4),
-        fill: TEXT_TERTIARY,
-      });
-      glyph.anchor.set(0.5);
-      glyph.position.set(w / 2, (h - (attached ? 18 : 0)) / 2);
-      container.addChild(glyph);
-      const hint = new PIXI.Text(modality === "video" ? "视频 · 双击预览" : "音频 · 双击预览", {
-        fontFamily: FONT,
-        fontSize: 10,
-        fill: TEXT_SECONDARY,
-      });
-      hint.anchor.set(0.5);
-      hint.position.set(w / 2, (h - (attached ? 18 : 0)) / 2 + Math.min(44, h / 2.4) / 1.4);
-      container.addChild(hint);
-    }
-
-    // 挂接角标（B.12）：已挂接 = 卡底「参考素材」小条
-    if (attached) {
-      const badge = new PIXI.Text("◈ 参考素材", { fontFamily: FONT, fontSize: 9, fill: TEXT_SECONDARY });
-      badge.position.set(10, h - 15);
-      container.addChild(badge);
-    }
-
-    container.position.set(Number(x), Number(y));
-    container.eventMode = "none";
-    return container;
-  }
-}
-
 // ---------- canvas-store → pomelo document 映射（block id 约定） ----------
-
-const FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
 
 type PomeloRecord = { id: string; type: string; attrs: Record<string, unknown> };
 
@@ -570,7 +342,7 @@ function restoreViewport(editor: PomeloEditor, key: string): boolean {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? "null") as { x: number; y: number; scale: number } | null;
     if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) && saved.scale > 0) {
-      (editor.renderAdapter as PixiRendererAdapter).setTransform(saved.x, saved.y, saved.scale);
+      (editor.renderAdapter as VelloRendererAdapter).setTransform(saved.x, saved.y, saved.scale);
       return true;
     }
   } catch {
@@ -814,7 +586,7 @@ function PanOverlay({ editorRef }: { editorRef: RefObject<PomeloEditor | null> }
   const applyPan = (dx: number, dy: number) => {
     const editor = editorRef.current;
     if (!editor || (dx === 0 && dy === 0)) return;
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
+    const adapter = editor.renderAdapter as VelloRendererAdapter;
     const next = panBy({ ...adapter.transform }, dx, dy);
     adapter.setTransform(next.x, next.y, next.scale);
     useWorldCanvasDemoStore.getState().setTransform(next);
@@ -865,18 +637,12 @@ export function CanvasPomeloHost() {
     const container = containerRef.current;
     if (!container || editorRef.current) return;
     const bindsPlugin = new CanvasBindsPlugin();
-    // 渲染器开关（默认 pixi）：?renderer=vello 使用 vello-native 适配器 + VelloBlock 版本
-    const useVello = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("renderer") === "vello";
     const editor = new PomeloEditor({
       state: PomeloEditorState.fromJSON({ id: "world-canvas", children: [] }),
       container,
       plugins: [new GridPlugin(), new ViewportPlugin(), bindsPlugin],
-      blockTypes: useVello
-        ? WORLD_VELLO_BLOCKS
-        : [EntityCardBlock, NoteBlock, WorldNodeBlock, RelationArrowBlock, FreeElementBlock, MediaBlock],
-      renderAdapter: useVello
-        ? new VelloRendererAdapter({ preferGpu: true })
-        : new PixiRendererAdapter({ transparentBackground: true, antialias: true }),
+      blockTypes: WORLD_VELLO_BLOCKS,
+      renderAdapter: new VelloRendererAdapter({ preferGpu: true }),
     });
     editorRef.current = editor;
     pluginRef.current = bindsPlugin;
@@ -889,12 +655,12 @@ export function CanvasPomeloHost() {
       centerContent(editor);
       // 视口状态持久化（T12）：按「世界+上下文」分键存取（见模块级 viewportKey/restoreViewport）
       let viewportTimer: ReturnType<typeof setTimeout> | null = null;
-      const unsubViewport = (editor.renderAdapter as PixiRendererAdapter).onTransformEvent.on(() => {
+      const unsubViewport = (editor.renderAdapter as VelloRendererAdapter).onTransformEvent.on(() => {
         if (viewportTimer) clearTimeout(viewportTimer);
         viewportTimer = setTimeout(() => {
           try {
             // 写入时以「当前」上下文为准（400ms 去抖期间恰好切容器，快照应落新上下文）
-            const t = (editor.renderAdapter as PixiRendererAdapter).transform;
+            const t = (editor.renderAdapter as VelloRendererAdapter).transform;
             localStorage.setItem(viewportKey(useWorldCanvasStore.getState().context), JSON.stringify(t));
           } catch {
             // localStorage 不可用时静默
@@ -913,7 +679,7 @@ export function CanvasPomeloHost() {
         (window as unknown as Record<string, unknown>).__worldCanvasDebug = {
           editor,
           store: useWorldCanvasStore,
-          renderer: useVello ? "vello" : "pixi",
+          renderer: "vello",
           fit: () => centerContent(editor),
           rebuild: () => syncDocFromCanvasStore(editor),
         };
@@ -948,7 +714,7 @@ export function CanvasPomeloHost() {
   // 进入容器自动换视口（B.11 + T12）：先把手头 transform 存回来源键，再恢复目标键
   // （无目标快照 = fit 子内容一次）；exit 也要做（回到 root 的上次视口）
   const viewportSwitch = (editor: PomeloEditor, context: CanvasContext | null) => {
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
+    const adapter = editor.renderAdapter as VelloRendererAdapter;
     const fromKey = lastViewportKeyRef.current;
     const toKey = viewportKey(context);
     if (fromKey && fromKey !== toKey) {
@@ -990,7 +756,7 @@ export function CanvasPomeloHost() {
     const container = containerRef.current;
     const rect = container?.getBoundingClientRect();
     if (!rect) return;
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
+    const adapter = editor.renderAdapter as VelloRendererAdapter;
     const t = adapter.transform;
     const world = { x: (event.clientX - rect.left - t.x) / t.scale, y: (event.clientY - rect.top - t.y) / t.scale };
     const store = useWorldCanvasStore.getState();

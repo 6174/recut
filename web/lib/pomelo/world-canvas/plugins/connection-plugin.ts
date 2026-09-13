@@ -1,86 +1,75 @@
 /*
- * [INPUT]: 依赖 pixi.js、pomelo-core（PomeloPlugin / PixiRendererAdapter）与 demo-store
+ * [INPUT]: 依赖 pomelo-core（PomeloPlugin / PomeloEditor）、pomelo-vello/overlay-dom（DomOverlay/cssColor）、
+ * demo-store 与 world-canvas/blocks/entity-card-metrics（entityCardRect）
  * [OUTPUT]: 对外提供 ConnectionPlugin：connect 模式下从实体卡按下拖拽出一条草稿连线，
  * 移动时命中探测并吸附到目标卡中心（对应 tldraw ArrowShapeTool → updateArrowTerminal 的
  * 「拖拽终点 → 命中 shape → 绑定」流程的简化版），松手在另一张卡上即 createRelation；
- * 草稿绘制在 mountpoint host 内随 transform 同步，含目标卡高亮
+ * 草稿绘制在渲染器无关的 DomOverlay（屏幕空间 SVG），含目标卡高亮
  * [POS]: lib/pomelo/world-canvas 的连线插件（学习自 tldraw 的 arrow/binding 代码路径）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import * as PIXI from "pixi.js";
 import type { PomeloEditor } from "../../pomelo-core/pomelo-editor";
-import type { PixiRendererAdapter } from "../../pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
 import { PomeloPlugin } from "../../pomelo-core/pomelo-plugin";
+import { DomOverlay, cssColor } from "../../pomelo-vello/overlay-dom";
 import { useWorldDemoStore } from "../demo-store";
+import { entityCardRect } from "../blocks/entity-card-metrics";
+
+type Point = { x: number; y: number };
+
+type EntityHit = { blockId: string; entityId: string; center: Point; rect: { x: number; y: number; width: number; height: number } };
+
+type Draft = {
+  pointerId: number;
+  from: EntityHit;
+  end: Point;
+  target: EntityHit | null;
+};
 
 export class ConnectionPlugin extends PomeloPlugin {
   Name = "ConnectionPlugin";
-  #draft = new PIXI.Graphics();
-  #highlight = new PIXI.Graphics();
+  #overlay: DomOverlay | null = null;
+  #draft: Draft | null = null;
   #cleanup?: () => void;
 
   onEditorDidMount(editor: PomeloEditor) {
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
-    const view = adapter.app.view as HTMLCanvasElement;
-    const host = adapter.mountpointBlock.hostElement.el;
-    host.addChild(this.#draft);
-    host.addChild(this.#highlight);
+    const adapter = editor.renderAdapter;
+    const view = adapter.getView();
+    if (!view) return;
+    const overlay = new DomOverlay(editor.getContainerDom());
+    this.#overlay = overlay;
 
-    const toWorld = (event: PointerEvent) => {
+    const toWorld = (event: PointerEvent): Point => {
       const rect = view.getBoundingClientRect();
       const t = adapter.transform;
       return { x: (event.clientX - rect.left - t.x) / t.scale, y: (event.clientY - rect.top - t.y) / t.scale };
     };
+    const toScreen = (world: Point): Point => {
+      const t = adapter.transform;
+      return { x: world.x * t.scale + t.x, y: world.y * t.scale + t.y };
+    };
 
     // 命中实体卡（不含 World 节点/便签——语义关系只连实体）
-    const hitEntity = (world: { x: number; y: number }) => {
+    const hitEntity = (world: Point): EntityHit | null => {
       const blocks = editor.state.getAllBlocks((record) => record.type === "entity-card").reverse();
       for (const record of blocks) {
-        const x = Number(record.attrs.x) || 0;
-        const y = Number(record.attrs.y) || 0;
-        const width = Number(record.attrs.width) || 200;
-        const height = Number(record.attrs.height) || 110;
-        if (world.x >= x && world.x <= x + width && world.y >= y && world.y <= y + height) {
-          return { blockId: record.id, entityId: record.id.slice("entity:".length), center: { x: x + width / 2, y: y + height / 2 } };
+        const r = entityCardRect(record.attrs as Record<string, unknown>);
+        if (world.x >= r.x && world.x <= r.x + r.width && world.y >= r.y && world.y <= r.y + r.height) {
+          return { blockId: record.id, entityId: record.id.slice("entity:".length), center: { x: r.x + r.width / 2, y: r.y + r.height / 2 }, rect: r };
         }
       }
       return null;
     };
 
-    let drafting: { pointerId: number; from: { blockId: string; entityId: string; center: { x: number; y: number } } } | null = null;
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) return;
-      if (useWorldDemoStore.getState().mode !== "connect") return;
-      const world = toWorld(event);
-      const hit = hitEntity(world);
-      if (!hit) return;
-      drafting = { pointerId: event.pointerId, from: hit };
-      view.setPointerCapture(event.pointerId);
-      useWorldDemoStore.getState().select(null);
-    };
-
-    const onPointerMove = (event: PointerEvent) => {
-      if (!drafting || event.pointerId !== drafting.pointerId) return;
-      // 连线草稿是纯 Graphics 改动（不经过 transact）：demand-driven 渲染必须显式置脏
-      (editor.renderAdapter as PixiRendererAdapter).invalidate?.();
-      const world = toWorld(event);
-      const target = hitEntity(world);
-      // tldraw 的 updateArrowTerminal：终点吸附到命中 shape
-      const end = target && target.blockId !== drafting.from.blockId ? target.center : world;
-      const g = this.#draft;
-      g.clear();
-      // 起点节点内段：虚线（与选中态一致：锚点默认在节点中心）
-      const fromRecord = editor.state.getBlockById(drafting.from.blockId);
-      const fromRect = {
-        x: Number(fromRecord?.attrs.x) || 0,
-        y: Number(fromRecord?.attrs.y) || 0,
-        width: Number(fromRecord?.attrs.width) || 200,
-        height: Number(fromRecord?.attrs.height) || 110,
-      };
+    // 草稿绘制（屏幕空间 SVG）：起点节点内段虚线，边缘→终点实线（吸附目标时高亮双描边 + 目标卡高亮框）
+    const paint = () => {
+      const draft = this.#draft;
+      overlay.setSize(adapter.getScreenSize().width, adapter.getScreenSize().height);
+      overlay.clearAll();
+      if (!draft) return;
+      const fromRect = draft.from.rect;
       const fromCenter = { x: fromRect.x + fromRect.width / 2, y: fromRect.y + fromRect.height / 2 };
-      const dx = end.x - fromCenter.x;
-      const dy = end.y - fromCenter.y;
+      const dx = draft.end.x - fromCenter.x;
+      const dy = draft.end.y - fromCenter.y;
       let t = Infinity;
       if (dx > 0) t = Math.min(t, (fromRect.x + fromRect.width - fromCenter.x) / dx);
       else if (dx < 0) t = Math.min(t, (fromRect.x - fromCenter.x) / dx);
@@ -88,71 +77,80 @@ export class ConnectionPlugin extends PomeloPlugin {
       else if (dy < 0) t = Math.min(t, (fromRect.y - fromCenter.y) / dy);
       t = Math.max(0, t);
       const edge = { x: fromCenter.x + dx * t, y: fromCenter.y + dy * t };
-      g.lineStyle({ width: 1.5, color: 0x8b93a7, alpha: 0.9 });
-      for (let i = 0; i < 6; i += 2) {
-        const s0 = i / 6;
-        const s1 = Math.min(1, (i + 1) / 6);
-        g.moveTo(fromCenter.x + (edge.x - fromCenter.x) * s0, fromCenter.y + (edge.y - fromCenter.y) * s0);
-        g.lineTo(fromCenter.x + (edge.x - fromCenter.x) * s1, fromCenter.y + (edge.y - fromCenter.y) * s1);
-      }
+      const a = toScreen(fromCenter);
+      const e = toScreen(edge);
+      const end = toScreen(draft.end);
+      // 起点节点内段：虚线（与选中态一致：锚点默认在节点中心）
+      overlay.line(a.x, a.y, e.x, e.y, { stroke: cssColor(0x8b93a7, 0.9), strokeWidth: 1.5, dash: "6 4" });
       // 边缘 → 终点：实线（吸附目标时用高亮双描边）
-      if (target && target.blockId !== drafting.from.blockId) {
-        g.lineStyle({ width: 5, color: 0xffffff, alpha: 0.95 });
-        g.moveTo(edge.x, edge.y);
-        g.lineTo(end.x, end.y);
-        g.lineStyle({ width: 2, color: 0x4c8dff, alpha: 1 });
-        g.moveTo(edge.x, edge.y);
-        g.lineTo(end.x, end.y);
+      if (draft.target) {
+        overlay.line(e.x, e.y, end.x, end.y, { stroke: cssColor(0xffffff, 0.95), strokeWidth: 5 });
+        overlay.line(e.x, e.y, end.x, end.y, { stroke: cssColor(0x4c8dff), strokeWidth: 2 });
       } else {
-        g.lineStyle(2, 0x7c9cff, 0.9);
-        g.moveTo(edge.x, edge.y);
-        g.lineTo(end.x, end.y);
+        overlay.line(e.x, e.y, end.x, end.y, { stroke: cssColor(0x7c9cff, 0.9), strokeWidth: 2 });
       }
-      g.lineStyle(0);
-      g.beginFill(0x7c9cff);
-      g.drawCircle(end.x, end.y, 4);
-      g.endFill();
-
-      const hl = this.#highlight;
-      hl.clear();
-      if (target && target.blockId !== drafting.from.blockId) {
-        const record = editor.state.getBlockById(target.blockId);
-        const x = Number(record?.attrs.x) || 0;
-        const y = Number(record?.attrs.y) || 0;
-        const width = Number(record?.attrs.width) || 200;
-        const height = Number(record?.attrs.height) || 110;
-        hl.lineStyle(2, 0x34d399, 0.9, 1);
-        hl.drawRoundedRect(x - 5, y - 5, width + 10, height + 10, 12);
+      overlay.circle(end.x, end.y, 4, { fill: cssColor(0x7c9cff) });
+      if (draft.target) {
+        const r = draft.target.rect;
+        const tl = toScreen({ x: r.x, y: r.y });
+        const br = toScreen({ x: r.x + r.width, y: r.y + r.height });
+        overlay.roundedRect({ x: tl.x - 5, y: tl.y - 5, width: br.x - tl.x + 10, height: br.y - tl.y + 10 }, 12, { stroke: cssColor(0x34d399, 0.9), strokeWidth: 2 });
       }
     };
 
-    const onPointerUp = (event: PointerEvent) => {
-      if (!drafting || event.pointerId !== drafting.pointerId) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      if (useWorldDemoStore.getState().mode !== "connect") return;
+      const world = toWorld(event);
+      const hit = hitEntity(world);
+      if (!hit) return;
+      this.#draft = { pointerId: event.pointerId, from: hit, end: hit.center, target: null };
+      view.setPointerCapture(event.pointerId);
+      useWorldDemoStore.getState().select(null);
+      editor.renderAdapter.invalidate();
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const draft = this.#draft;
+      if (!draft || event.pointerId !== draft.pointerId) return;
       const world = toWorld(event);
       const target = hitEntity(world);
+      // tldraw 的 updateArrowTerminal：终点吸附到命中 shape
+      const end = target && target.blockId !== draft.from.blockId ? target.center : world;
+      this.#draft = { ...draft, end, target: target && target.blockId !== draft.from.blockId ? target : null };
+      paint();
+      editor.renderAdapter.invalidate();
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      const draft = this.#draft;
+      if (!draft || event.pointerId !== draft.pointerId) return;
       const store = useWorldDemoStore.getState();
-      if (target && target.blockId !== drafting.from.blockId) {
-        store.createRelation(drafting.from.entityId, target.entityId);
+      if (draft.target && draft.target.blockId !== draft.from.blockId) {
+        store.createRelation(draft.from.entityId, draft.target.entityId);
         store.setMode("select");
       }
-      this.#draft.clear();
-      this.#highlight.clear();
-      (editor.renderAdapter as PixiRendererAdapter).invalidate?.();
+      this.#draft = null;
+      paint();
+      editor.renderAdapter.invalidate();
       view.releasePointerCapture?.(event.pointerId);
-      drafting = null;
     };
 
     view.addEventListener("pointerdown", onPointerDown);
     view.addEventListener("pointermove", onPointerMove);
     view.addEventListener("pointerup", onPointerUp);
     view.addEventListener("pointercancel", onPointerUp);
+    // transform（缩放/平移）变化时重绘草稿，保持屏幕空间几何正确
+    const unsubTransform = adapter.onTransformEvent.on(() => paint());
     this.#cleanup = () => {
       view.removeEventListener("pointerdown", onPointerDown);
       view.removeEventListener("pointermove", onPointerMove);
       view.removeEventListener("pointerup", onPointerUp);
       view.removeEventListener("pointercancel", onPointerUp);
-      this.#draft.destroy();
-      this.#highlight.destroy();
+      unsubTransform.dispose();
+      this.#draft = null;
+      overlay.destroy();
+      this.#overlay = null;
     };
   }
 

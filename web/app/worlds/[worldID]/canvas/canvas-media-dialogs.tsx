@@ -10,7 +10,7 @@
 
 import { Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
+import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { assetModality, mediaSource, modalityOfKind } from "./canvas-media";
 import { useWorldCanvasStore } from "./canvas-store";
@@ -216,8 +216,9 @@ export function MediaPreviewDialog() {
 
 // 视口中心的世界坐标（独立媒体元素落点）
 function viewportCenterWorld(editor: PomeloEditor): { x: number; y: number } {
-  const adapter = editor.renderAdapter as PixiRendererAdapter;
-  const view = adapter.app.view as HTMLCanvasElement;
+  const adapter = editor.renderAdapter as PomeloRendererAdapter;
+  const view = adapter.getView();
+  if (!view) return { x: 420, y: 300 };
   const rect = view.getBoundingClientRect();
   const t = adapter.transform;
   return { x: (rect.width / 2 - t.x) / t.scale, y: (rect.height / 2 - t.y) / t.scale };

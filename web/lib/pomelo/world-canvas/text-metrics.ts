@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 无外部依赖（document 测量 canvas）
  * [OUTPUT]: 对外提供 truncateText / measureTextWidth：按目标宽度截断加省略号。
- * [POS]: lib/pomelo/world-canvas 的纯文本测量（pixi 无关；pixi 与 vello 两套 block 共用）。
+ * [POS]: lib/pomelo/world-canvas 的纯文本测量（渲染器无关，各 vello block 共用）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 const FONT_STACK = 'system-ui, -apple-system, "PingFang SC", sans-serif';

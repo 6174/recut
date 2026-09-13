@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 pomelo-core（PomeloEditor / PixiRendererAdapter / PomeloEditorState.fromJSON）、
- * world-canvas 的 blocks / plugins / doc-sync / demo-store
- * [OUTPUT]: 对外提供 PomeloWorldCanvasDemo：tldraw 替代方案的 demo 宿主——pomelo core + pixi 渲染 +
+ * [INPUT]: 依赖 pomelo-core（PomeloEditor / PomeloEditorState.fromJSON）、pomelo-vello（VelloRendererAdapter）、
+ * world-canvas 的 vello blocks / plugins / doc-sync / demo-store
+ * [OUTPUT]: 对外提供 PomeloWorldCanvasDemo：tldraw 替代方案的 demo 宿主——pomelo core + vello 渲染 +
  * plugins 机制的无限画布；组合顶部工具栏（新建/连线模式/undo/redo/缩放）、右侧详情面板（loomic 交互结构：
  * 选中 → 面板编辑）、左下提示与底部缩放指示；结构变化经 syncDocFromStore 重建文档
  * [POS]: lib/pomelo/world-canvas 的组合根（demo 路由 app/dev/pomelo-canvas/page.tsx dynamic(ssr:false) 引用）
@@ -10,13 +10,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PixiRendererAdapter } from "../pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
+import { VelloRendererAdapter } from "../pomelo-vello/pomelo-vello-adapter";
 import { PomeloEditor } from "../pomelo-core/pomelo-editor";
 import { PomeloEditorState } from "../pomelo-core/pomelo-state";
-import { EntityCardBlock } from "./blocks/entity-card-block";
-import { MediaNodeBlock } from "./blocks/media-node-block";
-import { NoteBlock, WorldNodeBlock } from "./blocks/note-and-world-blocks";
-import { RelationArrowBlock } from "./blocks/relation-arrow-block";
+import { WORLD_VELLO_BLOCKS } from "./blocks/vello-world-blocks";
 import { GridPlugin } from "./plugins/grid-plugin";
 import { ConnectionPlugin } from "./plugins/connection-plugin";
 import { KeyboardPlugin } from "./plugins/keyboard-plugin";
@@ -52,8 +49,8 @@ export default function PomeloWorldCanvasDemo() {
       state,
       container,
       plugins: [new GridPlugin(), new ViewportPlugin(), selectionPlugin, new ConnectionPlugin(), new KeyboardPlugin()],
-      blockTypes: [EntityCardBlock, NoteBlock, WorldNodeBlock, MediaNodeBlock, RelationArrowBlock],
-      renderAdapter: new PixiRendererAdapter({ transparentBackground: true }),
+      blockTypes: WORLD_VELLO_BLOCKS,
+      renderAdapter: new VelloRendererAdapter({ preferGpu: true }),
     });
     editorRef.current = editor;
     selectionPluginRef.current = selectionPlugin;
@@ -62,8 +59,7 @@ export default function PomeloWorldCanvasDemo() {
       // StrictMode 下 editor1 可能在 onInit 恢复前已被销毁，避免对已销毁编辑器做初始化
       if (editorRef.current !== editor) return;
       // 真实案例式浅色画布（demo 内覆盖 display 默认深色，不影响引擎其他编辑器）
-      const adapter = editor.renderAdapter as PixiRendererAdapter;
-      // 背景由容器 CSS var(--background) 提供（adapter 以 backgroundAlpha:0 初始化）
+      // 背景由容器 CSS var(--background) 提供
       syncDocFromStore(editor.state);
       centerContent(editor);
       setEditorReady(true);

@@ -10,7 +10,7 @@
 "use client";
 
 import { useState } from "react";
-import type { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
+import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import type { WorldEntityType } from "@/lib/recut-worlds-client";
 import { createRecutWorldsClient, entityKindLabels } from "@/lib/recut-worlds-client";
 import { readRecentCustomTypes, useWorldCanvasStore } from "./canvas-store";
@@ -19,8 +19,9 @@ import { readRecentCustomTypes, useWorldCanvasStore } from "./canvas-store";
 function viewportCenterWorld(): { x: number; y: number } {
   const editor = useWorldCanvasStore.getState().editor;
   if (!editor) return { x: 300, y: 240 };
-  const adapter = editor.renderAdapter as PixiRendererAdapter;
-  const view = adapter.app.view as HTMLCanvasElement;
+  const adapter = editor.renderAdapter as PomeloRendererAdapter;
+  const view = adapter.getView();
+  if (!view) return { x: 300, y: 240 };
   const rect = view.getBoundingClientRect();
   const t = adapter.transform;
   return { x: (rect.width / 2 - t.x) / t.scale, y: (rect.height / 2 - t.y) / t.scale };
@@ -31,8 +32,9 @@ function cursorWorld(at: { screenX: number; screenY: number } | null): { x: numb
   if (!at) return viewportCenterWorld();
   const editor = useWorldCanvasStore.getState().editor;
   if (!editor) return viewportCenterWorld();
-  const adapter = editor.renderAdapter as PixiRendererAdapter;
-  const view = adapter.app.view as HTMLCanvasElement;
+  const adapter = editor.renderAdapter as PomeloRendererAdapter;
+  const view = adapter.getView();
+  if (!view) return viewportCenterWorld();
   const rect = view.getBoundingClientRect();
   const t = adapter.transform;
   return { x: (at.screenX - rect.left - t.x) / t.scale, y: (at.screenY - rect.top - t.y) / t.scale };

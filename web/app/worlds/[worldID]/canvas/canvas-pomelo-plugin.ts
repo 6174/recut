@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 pixi.js、pomelo-core（PomeloPlugin / PomeloEditor / PixiRendererAdapter）、
- * canvas-store 与 arrow-geometry（共享几何）
+ * [INPUT]: 依赖 pomelo-core（PomeloPlugin / PomeloEditor）、pomelo-vello/overlay-dom（DomOverlay/cssColor）、
+ * canvas-store、world-canvas/blocks/entity-card-metrics（entityCardRect）与 arrow-geometry（共享几何）
  * [OUTPUT]: 对外提供 CanvasBindsPlugin：pomelo 画布与 canvas-store 的交互绑定层——
  * 点击命中选择（实体卡/便签/文本/形状/属性节点/World 节点/语义关系线/自由箭头）解析为
  * CanvasSelection 驱动右侧面板；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
@@ -19,7 +19,7 @@ import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { PomeloPlugin } from "@/lib/pomelo/pomelo-core/pomelo-plugin";
 import { DomOverlay, cssColor } from "@/lib/pomelo/pomelo-vello/overlay-dom";
 import { WORLD_ELEMENT_ID, useWorldCanvasStore } from "./canvas-store";
-import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
+import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import { pomeloPerf } from "@/lib/pomelo/pomelo-core/pomelo-perf";
 import {
   bezierPoint,

@@ -5,7 +5,7 @@
  * entityMediaUrls（media 属性 assetId → URL 列表）、entityCoverMedia（头图解析：显式 background media
  * 属性优先 → 其余 media 属性 kind=image → kind=video）与 entityPhotoUrls（资料网格 URL，
  * 头图取自非 background 属性时剔除那张）
- * [POS]: worlds/[worldID]/canvas 的画布图片辅助（canvas-pomelo.tsx 组装 attrs，EntityCardBlock 渲染）
+ * [POS]: worlds/[worldID]/canvas 的画布图片辅助（canvas-pomelo.tsx 组装 attrs，EntityCardBlockV 渲染）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { WorldEntity, WorldEvidence } from "@/lib/recut-worlds-client";
@@ -59,8 +59,8 @@ export function entityPhotoUrls(apiBase: string, entity: WorldEntity): string[] 
 
 // 实体头图解析（统一 Entity 模型）：① 显式 background media 属性 ② 其余 media 属性（image 先于 video）。
 // TODO(RFC 背景): 卡片背景默认以实体 media 属性（image/video）做 6–8s 慢轮播、background 属性覆盖为
-// 静态单图；轮播需要 EntityCardBlock 提供 ticker/时间驱动重绘，当前 render 契约为静态单次绘制，
-// 故先落 cover fallback + 资料格，轮播在 EntityCardBlock.renderBlock 的头图段接入。
+// 静态单图；轮播需要 EntityCardBlockV 提供 ticker/时间驱动重绘，当前 render 契约为静态单次绘制，
+// 故先落 cover fallback + 资料格，轮播在 EntityCardBlockV.renderBlock 的头图段接入。
 export function entityCoverMedia(apiBase: string, entity: WorldEntity): CoverMedia | null {
   const background = attrMediaValueOf(entity, "background");
   const values = entityMediaAttrs(entity)

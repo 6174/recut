@@ -1,23 +1,22 @@
 /*
- * [INPUT]: 依赖 pixi.js、pomelo-core（PomeloPlugin / PomeloEditor / PixiRendererAdapter）、
- * demo-store 与 arrow-geometry（共享几何）
+ * [INPUT]: 依赖 pomelo-core（PomeloPlugin / PomeloEditor）、pomelo-vello/overlay-dom（DomOverlay/cssColor）、
+ * demo-store、world-canvas/blocks/entity-card-metrics（entityCardRect）与 arrow-geometry（共享几何）
  * [OUTPUT]: 对外提供 SelectionPlugin：
- * - 点击命中选择（实体卡/便签/World 节点/关系线），节点内部永远先响应节点；
+ * - 点击命中选择（实体卡/便签/World 节点/媒体节点/关系线），节点内部永远先响应节点；
  * - 拖拽位移（transact updateBlock 增量提交，pointerup 落回 demo-store）；
  *   pointermove 经 editor.ticker 统一合帧（一帧至多一次 transact+重绘，对齐 vsync），pointerup 前 flush 最后一次 move；
  * - resize：节点选区四角控制点拖拽调整宽高（对角固定，屏幕像素手柄）；
  * - link 选中覆盖线高亮（曲线贯穿两端控制点，节点内段短虚线，节点外段白+蓝双描边），
  *   三控制点可拖：start/end 调锚点在节点内的比例位置，mid 调曲线弯曲；
- * - 选区 overlay 画在 stage（屏幕空间）：线宽/手柄尺寸不随 zoom 变化，transform 变化自动重绘
+ * - 选区 overlay 用渲染器无关的 DomOverlay（屏幕空间 SVG）：线宽/手柄尺寸不随 zoom 变化，transform 变化自动重绘
  * [POS]: lib/pomelo/world-canvas 的选择插件（connect 模式下让位给 ConnectionPlugin）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import * as PIXI from "pixi.js";
 import type { PomeloEditor } from "../../pomelo-core/pomelo-editor";
-import type { PixiRendererAdapter } from "../../pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
 import { PomeloPlugin } from "../../pomelo-core/pomelo-plugin";
+import { DomOverlay, cssColor } from "../../pomelo-vello/overlay-dom";
 import { useWorldDemoStore } from "../demo-store";
-import { entityCardRect } from "../blocks/entity-card-block";
+import { entityCardRect } from "../blocks/entity-card-metrics";
 import {
   bezierPoint,
   bezierTangent,
@@ -63,9 +62,10 @@ const MIN_SIZE = 80;
 
 export class SelectionPlugin extends PomeloPlugin {
   Name = "SelectionPlugin";
-  #overlay = new PIXI.Graphics();
+  #overlay: DomOverlay | null = null;
+  #paint?: () => void;
   #cleanup?: () => void;
-  // start/end 控制点拖拽时的中心热区吸附状态（drawOverlay 据此画热区指示圈）
+  // start/end 控制点拖拽时的中心热区吸附状态（overlay 据此画热区指示圈）
   #snapZone: { kind: "start" | "end"; centerScreen: Point } | null = null;
 
   // 拖拽合帧：pointermove 只记最新事件，经 editor.ticker 对齐 vsync，一帧至多一次 transact+重绘
@@ -73,10 +73,12 @@ export class SelectionPlugin extends PomeloPlugin {
   static readonly #DRAG_KEY = "selection-drag";
 
   onEditorDidMount(editor: PomeloEditor) {
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
-    const view = adapter.app.view as HTMLCanvasElement;
-    // 选区 overlay 画在 stage（屏幕空间）：线宽/手柄尺寸不随 zoom 变化（tldraw 同款）
-    adapter.app.stage.addChild(this.#overlay);
+    const adapter = editor.renderAdapter;
+    const view = adapter.getView();
+    if (!view) return;
+    // 选区 overlay：渲染器无关的 DOM/SVG 覆盖层（屏幕空间），线宽/手柄尺寸不随 zoom 变化
+    const overlay = new DomOverlay(editor.getContainerDom());
+    this.#overlay = overlay;
 
     const toWorld = (event: PointerEvent): Point => {
       const rect = view.getBoundingClientRect();
@@ -404,6 +406,104 @@ export class SelectionPlugin extends PomeloPlugin {
       this.drawOverlay(editor);
     };
 
+    // 选区 overlay 绘制（屏幕空间 SVG）：节点=矩形选框+四角 resize 手柄，
+    // link=曲线覆盖线（节点内短虚线 + 节点外双描边高亮）+ 三控制点
+    this.#paint = () => {
+      const screen = adapter.getScreenSize();
+      overlay.setSize(screen.width, screen.height);
+      overlay.clearAll();
+      const t = adapter.transform;
+      const selectedId = useWorldDemoStore.getState().selectedId;
+      if (!selectedId) return;
+      const toScreenRect = (rect: Rect): Rect => {
+        const tl = toScreen({ x: rect.x, y: rect.y });
+        const br = toScreen({ x: rect.x + rect.width, y: rect.y + rect.height });
+        return { x: tl.x, y: tl.y, width: br.x - tl.x, height: br.y - tl.y };
+      };
+      const dashedWriter = () => {
+        let last = { x: 0, y: 0 };
+        return {
+          moveTo: (x: number, y: number) => {
+            last = { x, y };
+          },
+          lineTo: (x: number, y: number) => {
+            overlay.line(last.x, last.y, x, y, { stroke: cssColor(0x8b93a7, 0.9), strokeWidth: 1.5 });
+            last = { x, y };
+          },
+        };
+      };
+
+      // link 选中：覆盖线高亮
+      const arrowRecord = editor.state.getBlockById(`arrow:${selectedId}`);
+      if (arrowRecord) {
+        const from = editor.state.getBlockById(String(arrowRecord.attrs.fromId ?? ""));
+        const to = editor.state.getBlockById(String(arrowRecord.attrs.toId ?? ""));
+        const geo = relationGeometry(from, to, arrowRecord.attrs as never);
+        if (!from || !to || !geo) return;
+        // 拖拽 start/end 时的节点中心热区指示圈
+        if (this.#snapZone) {
+          overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 14, { stroke: cssColor(0x4c8dff, 0.6), strokeWidth: 1.5 });
+          overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 22, { stroke: cssColor(0x4c8dff, 0.25), strokeWidth: 1 });
+        }
+        // 节点内段：短虚线（曲线贯穿两端控制点）；拆分子曲线保证与 line 本体同一几何
+        const leftPart = geo.ta > 0 ? splitQuadratic(geo.curve, geo.ta).left : geo.curve;
+        const rightPart = geo.tb < 1 ? splitQuadratic(geo.curve, geo.tb).right : geo.curve;
+        for (const part of [leftPart, rightPart]) {
+          drawDashedCurve(dashedWriter(), { p0: toScreen(part.p0), cp: toScreen(part.cp), p2: toScreen(part.p2) });
+        }
+        // 节点外段：白色外描边 + 蓝色内描边（用拆分后的子曲线，与 line 本体完全重合）
+        const midPart = curveSegment(geo, geo.ta, geo.tb);
+        const a = toScreen(midPart.p0);
+        const b = toScreen(midPart.p2);
+        const cp = toScreen(midPart.cp);
+        overlay.quad(a, cp, b, { stroke: cssColor(0xffffff, 0.95), strokeWidth: 5 });
+        overlay.quad(a, cp, b, { stroke: cssColor(0x4c8dff), strokeWidth: 2 });
+        // 箭头高亮：沿曲线在边界 b 处的切线
+        const tangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.tb);
+        const angle = Math.atan2(tangent.y, tangent.x);
+        overlay.polygon(
+          [
+            { x: b.x + Math.cos(angle) * 4, y: b.y + Math.sin(angle) * 4 },
+            { x: b.x - 8 * Math.cos(angle) - 4 * Math.sin(angle), y: b.y - 8 * Math.sin(angle) + 4 * Math.cos(angle) },
+            { x: b.x - 8 * Math.cos(angle) + 4 * Math.sin(angle), y: b.y - 8 * Math.sin(angle) - 4 * Math.cos(angle) },
+          ],
+          { fill: cssColor(0xffffff) },
+        );
+        // 三控制点：start（默认节点中心）/ 中点 / end
+        const mid = bezierPoint(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
+        for (const world of [geo.t1, mid, geo.t2]) {
+          const point = toScreen(world);
+          overlay.circle(point.x, point.y, 4.5, { stroke: cssColor(0x4c8dff), strokeWidth: 2, fill: cssColor(0xffffff) });
+        }
+        return;
+      }
+
+      // 节点/便签选中：矩形选框 + 四角 resize 手柄
+      const blockId = selectedId === "world" ? "world" : `entity:${selectedId}`;
+      for (const candidate of [blockId, `note:${selectedId}`, `media:${selectedId}`]) {
+        const record = editor.state.getBlockById(candidate);
+        if (!record || record.isRoot) continue;
+        const localRect: Rect = record.type === "entity-card" ? entityCardRect(record.attrs as Record<string, unknown>) : {
+          x: Number(record.attrs.x) || 0,
+          y: Number(record.attrs.y) || 0,
+          width: Number(record.attrs.width) || 0,
+          height: Number(record.attrs.height) || 0,
+        };
+        if (localRect.width <= 0 || localRect.height <= 0) continue;
+        const rect = toScreenRect(localRect);
+        overlay.roundedRect({ x: rect.x - 4, y: rect.y - 4, width: rect.width + 8, height: rect.height + 8 }, 6, { stroke: cssColor(0x4c8dff, 0.5), strokeWidth: 2 });
+        for (const [hx, hy] of [
+          [rect.x - 4, rect.y - 4],
+          [rect.x + rect.width + 4, rect.y - 4],
+          [rect.x - 4, rect.y + rect.height + 4],
+          [rect.x + rect.width + 4, rect.y + rect.height + 4],
+        ]) {
+          overlay.roundedRect({ x: hx - 4, y: hy - 4, width: 8, height: 8 }, 1, { stroke: cssColor(0x4c8dff), strokeWidth: 2, fill: cssColor(0xffffff) });
+        }
+        break;
+      }
+    };
+
     view.addEventListener("pointerdown", onPointerDown);
     view.addEventListener("pointermove", onPointerMove);
     view.addEventListener("pointerup", onPointerUp);
@@ -417,110 +517,15 @@ export class SelectionPlugin extends PomeloPlugin {
       view.removeEventListener("pointerup", onPointerUp);
       view.removeEventListener("pointercancel", onPointerUp);
       unsubTransform.dispose();
-      this.#overlay.destroy();
+      overlay.destroy();
+      this.#overlay = null;
     };
   }
 
-  // 选区 overlay：屏幕空间绘制（stage 直挂），节点=矩形选框+四角 resize 手柄，
-  // link=曲线覆盖线（节点内短虚线 + 节点外双描边高亮）+ 三控制点
+  // 选区 overlay 是纯 DOM/SVG 改动（不经过 transact）：demand-driven 渲染需显式置脏
   drawOverlay(editor: PomeloEditor) {
-    // 选区/手柄是纯 Graphics 改动（不经过 transact）：demand-driven 渲染必须显式置脏
-    (editor.renderAdapter as PixiRendererAdapter).invalidate?.();
-    const g = this.#overlay;
-    g.clear();
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
-    const t = adapter.transform;
-    const selectedId = useWorldDemoStore.getState().selectedId;
-    if (!selectedId) return;
-    const toScreen = (world: Point): Point => ({ x: world.x * t.scale + t.x, y: world.y * t.scale + t.y });
-    const toScreenRect = (rect: Rect): Rect => {
-      const tl = toScreen({ x: rect.x, y: rect.y });
-      const br = toScreen({ x: rect.x + rect.width, y: rect.y + rect.height });
-      return { x: tl.x, y: tl.y, width: br.x - tl.x, height: br.y - tl.y };
-    };
-
-    // link 选中：覆盖线高亮
-    const arrowRecord = editor.state.getBlockById(`arrow:${selectedId}`);
-    if (arrowRecord) {
-      const from = editor.state.getBlockById(String(arrowRecord.attrs.fromId ?? ""));
-      const to = editor.state.getBlockById(String(arrowRecord.attrs.toId ?? ""));
-      const geo = relationGeometry(from, to, arrowRecord.attrs as never);
-      if (!from || !to || !geo) return;
-      // 拖拽 start/end 时的节点中心热区指示圈
-      if (this.#snapZone) {
-        g.lineStyle({ width: 1.5, color: 0x4c8dff, alpha: 0.6, alignment: 0.5 });
-        g.drawCircle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 14);
-        g.lineStyle({ width: 1, color: 0x4c8dff, alpha: 0.25, alignment: 0.5 });
-        g.drawCircle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 22);
-      }
-      // 节点内段：短虚线（曲线贯穿两端控制点）；拆分子曲线保证与 line 本体同一几何
-      g.lineStyle({ width: 1.5, color: 0x8b93a7, alpha: 0.9, alignment: 0.5 });
-      const leftPart = geo.ta > 0 ? splitQuadratic(geo.curve, geo.ta).left : geo.curve;
-      const rightPart = geo.tb < 1 ? splitQuadratic(geo.curve, geo.tb).right : geo.curve;
-      for (const part of [leftPart, rightPart]) {
-        drawDashedCurve(g, { p0: toScreen(part.p0), cp: toScreen(part.cp), p2: toScreen(part.p2) });
-      }
-      // 节点外段：白色外描边 + 蓝色内描边（用拆分后的子曲线，与 line 本体完全重合）
-      const midPart = curveSegment(geo, geo.ta, geo.tb);
-      const a = toScreen(midPart.p0);
-      const b = toScreen(midPart.p2);
-      const cp = toScreen(midPart.cp);
-      g.lineStyle({ width: 5, color: 0xffffff, alpha: 0.95, alignment: 0.5 });
-      g.moveTo(a.x, a.y);
-      g.quadraticCurveTo(cp.x, cp.y, b.x, b.y);
-      g.lineStyle({ width: 2, color: 0x4c8dff, alpha: 1, alignment: 0.5 });
-      g.moveTo(a.x, a.y);
-      g.quadraticCurveTo(cp.x, cp.y, b.x, b.y);
-      // 箭头高亮：沿曲线在边界 b 处的切线
-      const tangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.tb);
-      const angle = Math.atan2(tangent.y, tangent.x);
-      g.lineStyle(0);
-      g.beginFill(0xffffff);
-      g.moveTo(b.x + Math.cos(angle) * 4, b.y + Math.sin(angle) * 4);
-      g.lineTo(b.x - 8 * Math.cos(angle) - 4 * Math.sin(angle), b.y - 8 * Math.sin(angle) + 4 * Math.cos(angle));
-      g.lineTo(b.x - 8 * Math.cos(angle) + 4 * Math.sin(angle), b.y - 8 * Math.sin(angle) - 4 * Math.cos(angle));
-      g.closePath();
-      g.endFill();
-      // 三控制点：start（默认节点中心）/ 中点 / end
-      const mid = bezierPoint(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
-      for (const world of [geo.t1, mid, geo.t2]) {
-        const point = toScreen(world);
-        g.lineStyle(2, 0x4c8dff, 1);
-        g.beginFill(0xffffff);
-        g.drawCircle(point.x, point.y, 4.5);
-        g.endFill();
-      }
-      return;
-    }
-
-    // 节点/便签选中：矩形选框 + 四角 resize 手柄
-    const blockId = selectedId === "world" ? "world" : `entity:${selectedId}`;
-    for (const candidate of [blockId, `note:${selectedId}`, `media:${selectedId}`]) {
-      const record = editor.state.getBlockById(candidate);
-      if (!record || record.isRoot) continue;
-      const localRect: Rect = record.type === "entity-card" ? entityCardRect(record.attrs as Record<string, unknown>) : {
-        x: Number(record.attrs.x) || 0,
-        y: Number(record.attrs.y) || 0,
-        width: Number(record.attrs.width) || 0,
-        height: Number(record.attrs.height) || 0,
-      };
-      if (localRect.width <= 0 || localRect.height <= 0) continue;
-      const rect = toScreenRect(localRect);
-      g.lineStyle(2, 0x4c8dff, 1, 0.5);
-      g.drawRoundedRect(rect.x - 4, rect.y - 4, rect.width + 8, rect.height + 8, 6);
-      g.lineStyle(2, 0x4c8dff, 1);
-      g.beginFill(0xffffff);
-      for (const [hx, hy] of [
-        [rect.x - 4, rect.y - 4],
-        [rect.x + rect.width + 4, rect.y - 4],
-        [rect.x - 4, rect.y + rect.height + 4],
-        [rect.x + rect.width + 4, rect.y + rect.height + 4],
-      ]) {
-        g.drawRect(hx - 4, hy - 4, 8, 8);
-      }
-      g.endFill();
-      break;
-    }
+    editor.renderAdapter.invalidate();
+    this.#paint?.();
   }
 
   onEditorWillUnmount() {

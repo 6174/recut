@@ -10,7 +10,7 @@
 "use client";
 
 import { useWorldDemoStore, kindLabel, relationLabel, typeColors, type DemoRelation } from "./demo-store";
-import { mediaMeta } from "./blocks/media-node-block";
+import { mediaMeta } from "./blocks/media-meta";
 
 export function DetailPanel() {
   const selectedId = useWorldDemoStore((state) => state.selectedId);

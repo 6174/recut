@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 pomelo-core（PomeloPlugin / PomeloRendererAdapter）
  * [OUTPUT]: 对外提供 GridPlugin：世界坐标对齐的点状网格背景，绘制在**独立的 plain canvas 层**
- *           （插入编辑器容器最底层，与主渲染器完全解耦——pixi/vello 均可），transform/resize 变化重绘，
+ *           （插入编辑器容器最底层，与主渲染器完全解耦），transform/resize 变化重绘，
  *           zoom 过小时自动隐藏避免摩尔纹。
  * [POS]: lib/pomelo/world-canvas 的背景网格插件（独立图层，不进入主渲染栈）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md

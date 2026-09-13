@@ -99,7 +99,7 @@ export default function WorldCanvas({ apiBase, worldId, worldName, readOnly, rev
       <div className="absolute bottom-0 right-0 top-0 z-30 flex flex-col bg-background md:left-[var(--side-panel-width)]">
         <div className="relative min-h-0 min-w-0 flex-1">
           <CanvasPomeloHost />
-          {/* 详情面板是绝对浮层：开合不改变画布宽度，pixi 容器不做 resize（否则每次闪一帧） */}
+          {/* 详情面板是绝对浮层：开合不改变画布宽度，画布容器不做 resize（否则每次闪一帧） */}
           <CanvasDetailPanel />
         </div>
         <CanvasDialogs />

@@ -88,6 +88,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   /** 实际 renderFrame 次数（调试/验证用）。 */
   private renderCount = 0;
   private dirty = true;
+  /** 缩放变化待重绘 zoom 常量 block（合并到帧内一次，见 setTransform）。 */
+  private zoomBlocksDirty = false;
 
   constructor(options: VelloRendererAdapterOptions = {}) {
     super();
@@ -213,8 +215,9 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     this.transform = { x, y, scale };
     // 渲染器无关：overlay/宿主依赖此事件同步屏幕空间（选区框在缩放时必须立即跟随）
     this.onTransformEvent.emit({ x, y, scale });
-    // zoom 常量 block（元素徽标等）在缩放变化时重绘，保持屏幕像素尺寸
-    if (scaleChanged && this.rerenderZoomBlocks()) this.syncChunks();
+    // zoom 常量 block（元素徽标等）需按新缩放重绘；此处只打标，合并到 ticker 帧内执行一次，
+    // 避免每个 wheel/pointermove 事件都同步重编码全部 renderOnZoom block（主线程被占满 → 丢事件）。
+    if (scaleChanged) this.zoomBlocksDirty = true;
     this.navigationGeneration++;
     // 导航期（平移/缩放）defer 瓦片重栅格：先贴旧瓦片缩放过渡，落定后再补高清，避免每次 wheel 重渲全部瓦片
     this.navigationActive = true;
@@ -328,6 +331,12 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     // 未 covered 也继续渲染（补偿确定性），直到瓦片补齐
     if (!this.dirty && controller.scheduler.pending() === 0 && this.isCovered()) return;
     this.lastFlushFrame = frame;
+    // 缩放变化：帧内一次重绘 zoom 常量 block 并把 drawVersion 变化同步成 chunk（此前分散在事件回调里逐次执行）
+    if (this.zoomBlocksDirty) {
+      this.zoomBlocksDirty = false;
+      this.rerenderZoomBlocks();
+      this.syncChunks();
+    }
     this.renderCount++;
     controller.renderFrame({
       viewport: this.viewport,
