@@ -13,6 +13,13 @@ const WASM_JS_URL = "/vello-wasm/pomelo_vello_wasm.js";
 const WASM_BIN_URL = "/vello-wasm/pomelo_vello_wasm_bg.wasm";
 const TILE_DEVICE_SIZE = 256;
 
+function hashChunk(id: string, ops: Uint8Array): number {
+  let hash = 2166136261 ^ id.length;
+  for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
+  for (let i = 0; i < ops.length; i += 7) hash = Math.imul(hash ^ ops[i], 16777619);
+  return hash >>> 0;
+}
+
 /** 由 chunk id 生成稳定且不与字体/图像 id 冲突的 u32。 */
 function atomicImageId(id: string): number {
   let hash = 2166136261;
@@ -36,6 +43,7 @@ interface WasmRuntime {
   set_font_fallback(id: number, fallbackId: number): void;
   render_atomic_chunk(imageId: number, ops: Uint8Array, level: number, minX: number, minY: number, width: number, height: number): void;
   render_direct(ops: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
+  render_frame(chunks: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
   debug_image_test(): void;
   debug_tile_test(): number;
   debug_ops_test(ops: Uint8Array, level: number, minX: number, minY: number): number;
@@ -228,6 +236,32 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
       Math.max(1, Math.round(viewport.width * dpr)),
       Math.max(1, Math.round(viewport.height * dpr)),
     );
+    return true;
+  }
+
+  renderFrame(chunks: RenderChunk[], viewport: Viewport): boolean {
+    // 每 chunk 记录 [u64 key][u32 len][bytes]；key 含内容哈希，内容变则缓存失效
+    let total = 0;
+    const parts: Array<{ key: number; ops: Uint8Array }> = [];
+    for (const chunk of chunks) {
+      const payload = chunk.payload as { velloOps?: Uint8Array } | undefined;
+      const ops = payload?.velloOps;
+      if (!ops || ops.length === 0) continue;
+      parts.push({ key: hashChunk(chunk.id, ops), ops });
+      total += 12 + ops.length;
+    }
+    if (parts.length === 0) return true;
+    const stream = new Uint8Array(total);
+    const view = new DataView(stream.buffer);
+    let offset = 0;
+    for (const part of parts) {
+      view.setBigUint64(offset, BigInt(part.key), true);
+      view.setUint32(offset + 8, part.ops.length, true);
+      stream.set(part.ops, offset + 12);
+      offset += 12 + part.ops.length;
+    }
+    const dpr = this.dpr;
+    this.runtime.render_frame(stream, viewport.panX * dpr, viewport.panY * dpr, viewport.zoom * dpr, Math.max(1, Math.round(viewport.width * dpr)), Math.max(1, Math.round(viewport.height * dpr)));
     return true;
   }
 

@@ -38,6 +38,7 @@ export interface TileControllerOptions<TTarget, THandle> {
   budgetMs?: number;
   maxJobsPerFrame?: number;
   overscanTiles?: number;
+  direct?: boolean;
 }
 
 export interface RenderFrameInput {
@@ -69,6 +70,7 @@ export class TileController<TTarget, THandle> {
   private readonly pageId: string;
   private readonly rasterizer: TileRasterizer<TTarget, THandle>;
   private readonly overscanTiles: number;
+  private readonly direct: boolean;
   private readonly budgetMs: number;
   private readonly measuredCosts = new Map<string, number>();
   private readonly pendingInvalidations: PendingInvalidation[] = [];
@@ -81,6 +83,7 @@ export class TileController<TTarget, THandle> {
     this.pageId = options.pageId;
     this.rasterizer = options.rasterizer;
     this.overscanTiles = options.overscanTiles ?? 1;
+    this.direct = options.direct ?? false;
     this.budgetMs = options.budgetMs ?? 5;
     this.cache = new TileImageCache<THandle>(
       options.maxCacheBytes ?? DEFAULT_MAX_TILE_BYTES,
@@ -151,6 +154,23 @@ export class TileController<TTarget, THandle> {
     const { viewport } = input;
     const level = tileLevel(viewport.zoom * viewport.dpr);
     const worldBounds = viewportWorldBounds(viewport.panX, viewport.panY, viewport.zoom, viewport.width, viewport.height);
+
+    // 直绘模式：每帧整场渲染（chunk Scene 缓存 + 单次 render pass）；无瓦片边界/丢图问题
+    if (this.direct && this.rasterizer.renderFrame) {
+      const chunks = this.index.search(worldBounds);
+      this.rasterizer.beginFrame(viewport);
+      const handled = this.rasterizer.renderFrame(chunks, viewport);
+      this.rasterizer.endFrame(viewport);
+      if (handled) {
+        this.scheduler.clear();
+        const metrics = emptyTileSchedulerMetrics();
+        this.telemetry.record(
+          { contentGeneration: input.contentGeneration, navigationGeneration: input.navigationGeneration, navigationActive: input.navigationActive, metrics, tileCacheBytes: 0, tileCacheEntries: 0, visibleTileCount: chunks.length, presentedTileCount: chunks.length, covered: true, frameMs: performance.now() - frameStart },
+          chunks.length,
+        );
+        return { covered: true, pending: false, presented: chunks.length, rendered: 0, metrics };
+      }
+    }
 
     // 导航期优先整场直绘兜底（无空洞）；瓦片在落定后（navigationActive=false）再补齐
     if (input.navigationActive && this.rasterizer.renderDirect) {

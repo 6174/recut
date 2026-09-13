@@ -404,12 +404,14 @@ export async function mountTileDemo(canvas: HTMLCanvasElement): Promise<TileDemo
   }
 
   const scene = buildScene();
+  const direct = new URLSearchParams(window.location.search).get("direct") !== "0";
   const controller = new TileController<unknown, unknown>({
     pageId: "demo-page",
     rasterizer,
     maxCacheBytes: 64 * 1024 * 1024,
     budgetMs: 5,
     maxJobsPerFrame: 32,
+    direct,
   });
   for (const chunk of scene.chunks) controller.addChunk(chunk);
 

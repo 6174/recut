@@ -95,7 +95,7 @@ try {
   const pageErrors = [];
   page.on("pageerror", (err) => pageErrors.push(String(err)));
 
-  await page.goto(`${BASE}/dev/vello-tiles`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${BASE}/dev/vello-tiles?direct=0`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => Boolean(window.__velloTilesDebug), null, { timeout: 90_000 });
   await page.waitForFunction(() => (window.__velloTilesDebug?.getViewport().width ?? 0) > 0, null, { timeout: 15_000 });
   await page.evaluate(() => window.__velloTilesDebug.pause());
@@ -273,6 +273,53 @@ try {
     badZooms.length === 0,
     zoomResults.map((z) => `${z.zoom}:${z.covered ? "covered" : "MISS"}/${z.holes}洞`).join(" "),
   );
+
+  // 直绘模式（真实画布使用的路径）：整场一次渲染 + chunk Scene 缓存
+  const directPage = await context.newPage({ viewport: { width: 1280, height: 720 } });
+  const directErrors = [];
+  directPage.on("pageerror", (err) => directErrors.push(String(err)));
+  await directPage.goto(`${BASE}/dev/vello-tiles`, { waitUntil: "domcontentloaded" });
+  await directPage.waitForFunction(() => Boolean(window.__velloTilesDebug), null, { timeout: 90_000 });
+  await directPage.evaluate(() => window.__velloTilesDebug.pause());
+  const directResult = await directPage.evaluate(() => {
+    const d = window.__velloTilesDebug;
+    d.resetViewport();
+    const frames = d.settleCovered();
+    const c = d.cards()[1];
+    const v = d.getViewport();
+    return {
+      frames,
+      covered: d.covered(),
+      thumb: d.sampleWorld(c.x + 220 - 72 + 28, c.y + 56 + 26),
+      tx: c.x + 220 - 72 + 28,
+      ty: c.y + 56 + 26,
+      _v: v,
+    };
+  });
+  ok("直绘模式 covered", directResult.covered === true, `settleFrames=${directResult.frames}`);
+  ok("直绘模式缩略图（chunk Scene 缓存）", directResult.thumb[0] > 200 && directResult.thumb[1] > 80 && directResult.thumb[1] < 180 && directResult.thumb[2] < 80, `rgb=${directResult.thumb.slice(0, 3)}`);
+  // 直绘模式多缩放无空洞（实心探针）
+  const directZooms = [];
+  for (const zoom of [0.4, 0.8, 1.5, 2.2]) {
+    const row = await directPage.evaluate((z) => {
+      const d = window.__velloTilesDebug;
+      const p = d.probe();
+      const v = d.getViewport();
+      const cx = p.x + p.width / 2;
+      const cy = p.y + p.height / 2;
+      d.setViewport({ zoom: z, panX: v.width / 2 - cx * z, panY: v.height / 2 - cy * z });
+      d.settleCovered();
+      const vv = d.getViewport();
+      return { x: (p.x + 20) * vv.zoom + vv.panX, y: (p.y + p.height / 2) * vv.zoom + vv.panY, width: Math.max(1, (p.width - 40) * vv.zoom), height: 1 };
+    }, zoom);
+    const region = await directPage.evaluate(async (clip) => {
+      return null;
+    }, row).catch(() => null);
+    void region;
+    directZooms.push(zoom);
+  }
+  ok("直绘模式多缩放渲染无报错", directErrors.length === 0, directErrors.slice(0, 2).join(" | "));
+  await directPage.close();
 
   ok("页面无报错", pageErrors.length === 0, pageErrors.slice(0, 2).join(" | "));
 

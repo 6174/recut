@@ -139,6 +139,10 @@ export class Canvas2DRasterizer implements TileRasterizer<CanvasTileTarget, Canv
     return true;
   }
 
+  renderFrame(chunks: RenderChunk[], viewport: Viewport): boolean {
+    return this.renderDirect(chunks, viewport);
+  }
+
   present(tiles: CachedTile<CanvasTileHandle>[], viewport: Viewport): void {
     const ctx = this.display;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);

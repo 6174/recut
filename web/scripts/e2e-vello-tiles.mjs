@@ -19,7 +19,7 @@ const pageErrors = [];
 page.on("pageerror", (err) => pageErrors.push(String(err)));
 
 try {
-  await page.goto(`${BASE}/dev/vello-tiles`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${BASE}/dev/vello-tiles?direct=0`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => Boolean(window.__velloTilesDebug), null, { timeout: 90_000 });
   await page.waitForFunction(() => (window.__velloTilesDebug?.getViewport().width ?? 0) > 0, null, { timeout: 10_000 });
   await page.evaluate(() => window.__velloTilesDebug.pause());

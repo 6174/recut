@@ -40,6 +40,7 @@ pub struct VelloRuntime {
     fonts: HashMap<u32, FontData>,
     fallbacks: HashMap<u32, u32>,
     images: HashMap<u32, ImageData>,
+    chunk_scenes: HashMap<u64, Scene>,
     next_handle: u32,
     clear: wgpu::Color,
     clear_color: Color,
@@ -117,6 +118,7 @@ impl VelloRuntime {
             fonts: HashMap::new(),
             fallbacks: HashMap::new(),
             images: HashMap::new(),
+            chunk_scenes: HashMap::new(),
             next_handle: 1,
             clear: wgpu::Color { r: 11.0 / 255.0, g: 15.0 / 255.0, b: 25.0 / 255.0, a: 1.0 },
             clear_color: Color::from_rgba8(11, 15, 25, 255),
@@ -293,6 +295,65 @@ impl VelloRuntime {
             })
             .collect();
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &draws)
+    }
+
+    /// 每帧整场渲染（open-pencil layer-1 思路）：对每个 chunk，命中缓存则复用其 Scene，
+    /// 否则解码构建（世界坐标）并缓存；全部 append 进一个 Scene，按视口变换一次渲染并整屏贴。
+    /// 入参 chunks 为 `[u64 key][u32 len][bytes...]` 重复的记录流。
+    pub fn render_frame(&mut self, chunks: Vec<u8>, pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32) -> Result<(), JsValue> {
+        let width = width.max(1);
+        let height = height.max(1);
+        let mut cursor = 0usize;
+        let mut seen: Vec<u64> = Vec::new();
+        let mut scene = Scene::new();
+        let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
+        while cursor + 12 <= chunks.len() {
+            let key = u64::from_le_bytes(chunks[cursor..cursor + 8].try_into().unwrap());
+            let len = u32::from_le_bytes(chunks[cursor + 8..cursor + 12].try_into().unwrap()) as usize;
+            cursor += 12;
+            if cursor + len > chunks.len() { break; }
+            let ops = &chunks[cursor..cursor + len];
+            cursor += len;
+            seen.push(key);
+            if !self.chunk_scenes.contains_key(&key) {
+                let decoded = decode_ops(ops).map_err(|e| JsValue::from_str(&format!("decode ops: {e}")))?;
+                let mut chunk_scene = Scene::new();
+                // chunk 用世界坐标 + 单位变换录制；瓦片/视口变换在 append 时施加
+                build_scene(&decoded, Affine::IDENTITY, 1.0e6, 1.0e6, &self.fonts, &self.fallbacks, &self.images, &mut chunk_scene);
+                if self.chunk_scenes.len() < 4096 {
+                    self.chunk_scenes.insert(key, chunk_scene);
+                } else {
+                    scene.append(&chunk_scene, Some(transform));
+                    continue;
+                }
+            }
+            if let Some(chunk_scene) = self.chunk_scenes.get(&key) {
+                scene.append(chunk_scene, Some(transform));
+            }
+        }
+        // 清理本帧未出现的 chunk 缓存（简单 LRU：只保留最近使用）
+        if self.chunk_scenes.len() > 2048 {
+            let keep: std::collections::HashSet<u64> = seen.into_iter().collect();
+            self.chunk_scenes.retain(|k, _| keep.contains(k));
+        }
+
+        let texture = self.device.create_texture(&TextureDescriptor {
+            label: Some("pomelo-vello-frame"),
+            size: Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &RenderParams {
+            base_color: Color::from_rgba8(0, 0, 0, 0), width, height, antialiasing_method: AaConfig::Area,
+        }).map_err(js_err)?;
+        let handle = self.next_handle; self.next_handle += 1;
+        let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0] };
+        present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])?;
+        self.compositor.dispose(handle);
+        Ok(())
     }
 
     /// 导航期整场直绘：把所有可见 chunk 的 op 合成一个 Scene，按视口变换一次渲染到离屏纹理，

@@ -98,6 +98,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       rasterizer,
       budgetMs: 5,
       maxJobsPerFrame: 32,
+      direct: true,
     });
     // BlockPatcher 广播失效 → 只处理受影响的 block（增量），避免全量扫描比对
     this.onBlockInvalidated = (blockId, kind) => {
