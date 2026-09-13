@@ -238,6 +238,42 @@ try {
   }
   ok("atomic chunk 跨瓦片无接缝（blur 阴影）", darkPixels > 20 && maxJump < 60, `暗像素=${darkPixels} 最大相邻跳变=${maxJump}`);
 
+  // 多缩放级别：全覆盖 + 跨瓦片实心矩形无空洞（验证 tile/合成层充分）
+  const zooms = [0.3, 0.5, 0.75, 1.0, 1.5, 2.0];
+  const zoomResults = [];
+  for (const zoom of zooms) {
+    const strip = await page.evaluate((z) => {
+      const d = window.__velloTilesDebug;
+      const probe = d.probe();
+      const v = d.getViewport();
+      const cx = probe.x + probe.width / 2;
+      const cy = probe.y + probe.height / 2;
+      d.setViewport({ zoom: z, panX: v.width / 2 - cx * z, panY: v.height / 2 - cy * z });
+      d.settleCovered();
+      const vv = d.getViewport();
+      return {
+        covered: d.covered(),
+        x: (probe.x + 20) * vv.zoom + vv.panX,
+        y: (probe.y + probe.height / 2) * vv.zoom + vv.panY,
+        width: Math.max(1, (probe.width - 40) * vv.zoom),
+        height: 1,
+      };
+    }, zoom);
+    const row = await sampleRegion(page, { x: strip.x, y: strip.y, width: strip.width, height: strip.height });
+    let holes = 0;
+    for (let x = 0; x < row.width; x++) {
+      const [r, g, b] = pixelAt(row, x, 0);
+      if (!(g > 150 && r < 120 && b < 170)) holes++;
+    }
+    zoomResults.push({ zoom, covered: strip.covered, holes, width: row.width });
+  }
+  const badZooms = zoomResults.filter((z) => !z.covered || z.holes > 0);
+  ok(
+    "多缩放级别全覆盖且无空洞",
+    badZooms.length === 0,
+    zoomResults.map((z) => `${z.zoom}:${z.covered ? "covered" : "MISS"}/${z.holes}洞`).join(" "),
+  );
+
   ok("页面无报错", pageErrors.length === 0, pageErrors.slice(0, 2).join(" | "));
 
   await page.screenshot({ path: "scripts/e2e-vello-gpu.png" }).catch(() => {});

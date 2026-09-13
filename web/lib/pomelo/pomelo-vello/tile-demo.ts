@@ -64,6 +64,8 @@ export interface VelloTilesDebug {
   resetTelemetry(): void;
   isRasterizer(name: string): boolean;
   rasterizerName(): string;
+  covered(): boolean;
+  settleCovered(maxFrames?: number): number;
   fontRegistered(): boolean;
   cjkRegistered(): boolean;
   cjkProbe(): { x: number; y: number; width: number; height: number };
@@ -602,6 +604,15 @@ export async function mountTileDemo(canvas: HTMLCanvasElement): Promise<TileDemo
     resetTelemetry: () => controller.telemetry.reset(),
     isRasterizer: (name) => rasterizer.name === name,
     rasterizerName: () => rasterizer.name,
+    covered: () => controller.telemetry.snapshot().lastTrace?.covered ?? false,
+    settleCovered: (maxFrames = 90) => {
+      for (let frame = 0; frame < maxFrames; frame++) {
+        controller.renderFrame({ viewport, contentGeneration, navigationGeneration, navigationActive: false });
+        const covered = controller.telemetry.snapshot().lastTrace?.covered ?? false;
+        if (covered && controller.scheduler.pending() === 0) return frame + 1;
+      }
+      return maxFrames;
+    },
     fontRegistered: () => fontRegistered,
     cjkRegistered: () => cjkRegistered,
     cjkProbe: () => ({ ...CJK_PROBE }),

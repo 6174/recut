@@ -169,13 +169,25 @@ export class TileController<TTarget, THandle> {
     metrics.cancelledJobs += this.cancelledJobs;
     this.cancelledJobs = 0;
 
+    // 关键：任务执行后重新查询缓存得到「当前可见瓦片」的真实状态；
+    // 若沿用执行前的 plan.visible（那时 tile 多为 null），会把刚渲染好的瓦片当成缺失 → 空洞/残缺。
+    const presentPlan = planTiles(this.cache, {
+      pageId: this.pageId,
+      level,
+      viewport: worldBounds,
+      overscanTiles: 0,
+      navigationGeneration: input.navigationGeneration,
+      contentGeneration: input.contentGeneration,
+      estimateCost: () => 0,
+    }, input.navigationActive);
+
     this.rasterizer.beginFrame(viewport);
-    const { fallback, fresh } = this.collectPresentTiles(plan.visible);
+    const { fallback, fresh } = this.collectPresentTiles(presentPlan.visible);
     const presented = fallback.length + fresh.length;
     this.rasterizer.present([...fallback, ...fresh], viewport);
     this.rasterizer.endFrame(viewport);
 
-    const covered = plan.visible.every(({ tile }) => tile?.contentGeneration === input.contentGeneration);
+    const covered = presentPlan.visible.every(({ tile }) => tile?.contentGeneration === input.contentGeneration);
     const pending = this.scheduler.pending() > 0 || (!covered && !input.navigationActive);
 
     const frameMs = performance.now() - frameStart;
@@ -187,7 +199,7 @@ export class TileController<TTarget, THandle> {
         metrics,
         tileCacheBytes: this.cache.byteSize(),
         tileCacheEntries: this.cache.size(),
-        visibleTileCount: plan.visible.length,
+        visibleTileCount: presentPlan.visible.length,
         presentedTileCount: presented,
         covered,
         frameMs,
