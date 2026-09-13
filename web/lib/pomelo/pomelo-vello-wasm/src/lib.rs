@@ -6,6 +6,8 @@
 mod ops;
 
 #[cfg(target_arch = "wasm32")]
+mod compositor;
+#[cfg(target_arch = "wasm32")]
 mod runtime;
 
 #[cfg(target_arch = "wasm32")]

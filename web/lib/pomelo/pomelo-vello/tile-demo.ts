@@ -60,6 +60,7 @@ export interface VelloTilesDebug {
   resume(): void;
   debugImageTest(): void;
   debugTileTest(): void;
+  debugPairTest(): void;
   renderChunkOps(id: string, level: number, minX: number, minY: number): void;
   presentCached(panX: number, panY: number, zoom: number): number;
   presentTileByKey(key: string, panX: number, panY: number, zoom: number): boolean;
@@ -471,6 +472,9 @@ export async function mountTileDemo(canvas: HTMLCanvasElement): Promise<TileDemo
     },
     debugTileTest: () => {
       if (rasterizer.name === "vello") (rasterizer as unknown as VelloGpuRasterizer).debugTileTest();
+    },
+    debugPairTest: () => {
+      if (rasterizer.name === "vello") (rasterizer as unknown as VelloGpuRasterizer).debugPairTest();
     },
     renderChunkOps: (id, level, minX, minY) => {
       if (rasterizer.name !== "vello") return;

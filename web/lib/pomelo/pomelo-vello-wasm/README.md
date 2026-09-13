@@ -11,10 +11,10 @@ vello(WASM/WebGPU) 光栅器运行时，实现 `pomelo-vello` 的 `VelloRuntime`
 - ✅ `runtime.rs`：`create_runtime(canvas)`（wgpu device + vello Renderer）、`resize`、
   `render_tile(ops, level, minX, minY)`（渲到 256×256 `Rgba8Unorm` 纹理并 `register_texture`）、
   `present(handles, panX, panY, zoom)`（合成 + `TextureBlitter` 上屏）、`dispose_tile`。
-- ⚠️ **已知问题（待 M1 收口）**：多瓦片合成经 vello `draw_image` + image atlas 时，缓存瓦片表现为空
-  （单瓦片 fresh 渲染正常，见 `scripts/e2e-vello-gpu.mjs` 的像素断言失败）。根因是 RFC §2 修正 1 指出的
-  「`register_texture` 每帧拷入 atlas / 多纹理合成不可靠」。
-  **修复方向：自建 wgpu instanced-quad 合成 pass（blit 瓦片纹理），不再经 vello draw_image。**
+- ✅ **自建 wgpu quad 合成器**（`compositor.rs`）：每瓦片一个 32B uniform + bind group，draw 6 顶点采样瓦片纹理；
+  不再经 vello `draw_image`/image atlas（正是 RFC §2 修正 1 的落地）。
+- ✅ **GPU e2e 9/9**：`node scripts/e2e-vello-gpu.mjs`（系统 Chrome + WebGPU）验证合成正确、跨瓦片无缝、
+  平移不重光栅、拖拽只重渲相交瓦片。
 - ⏳ 待实现：文本 shaping（skrifa + CJK 回退）、图片/媒体、atomic chunk 效果的独立纹理路径。
 
 ## 构建与同步

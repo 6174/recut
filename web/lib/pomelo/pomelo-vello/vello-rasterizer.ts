@@ -23,6 +23,7 @@ interface WasmRuntime {
   debug_image_test(): void;
   debug_tile_test(): number;
   debug_ops_test(ops: Uint8Array, level: number, minX: number, minY: number): number;
+  debug_pair_test(): void;
 }
 
 interface WasmModule {
@@ -157,6 +158,10 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
 
   debugRenderOps(ops: Uint8Array, level: number, minX: number, minY: number): number {
     return this.runtime.debug_ops_test(ops, level, minX, minY);
+  }
+
+  debugPairTest(): void {
+    this.runtime.debug_pair_test();
   }
 
   stats(): { name: string; lastOpsLength: number; lastChunkCount: number; maxOpsLength: number; nonEmptyTiles: number; totalTiles: number } {
