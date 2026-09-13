@@ -235,11 +235,7 @@ impl VelloRuntime {
         let transform = tile_transform(level, min_x, min_y, BLEED);
         build_scene(&decoded, transform, size as f32, size as f32, &self.fonts, &self.fallbacks, &self.images, &mut scene);
 
-        let texture = self
-            .tile_pool
-            .pop()
-            .filter(|t| t.width() == size && t.height() == size)
-            .unwrap_or_else(|| self.device.create_texture(&TextureDescriptor {
+        let texture = self.device.create_texture(&TextureDescriptor {
             label: Some("pomelo-vello-tile"),
             size: Extent3d { width: size, height: size, depth_or_array_layers: 1 },
             mip_level_count: 1,
@@ -248,7 +244,7 @@ impl VelloRuntime {
             format: TextureFormat::Rgba8Unorm,
             usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC,
             view_formats: &[],
-        }));
+        });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.renderer
             .render_to_texture(
@@ -273,12 +269,7 @@ impl VelloRuntime {
 
     pub fn dispose_tile(&mut self, handle: u32) {
         self.compositor.dispose(handle);
-        if let Some(entry) = self.tiles.remove(&handle) {
-            let bleed_size = TILE_DEVICE_SIZE + (BLEED * 2.0) as u32;
-            if entry._texture.width() == bleed_size && entry._texture.height() == bleed_size && self.tile_pool.len() < 64 {
-                self.tile_pool.push(entry._texture);
-            }
-        }
+        self.tiles.remove(&handle);
     }
 
     /// 合成命中瓦片并呈现到 surface。

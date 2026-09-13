@@ -160,12 +160,21 @@ export class TileController<TTarget, THandle> {
       navigationGeneration: input.navigationGeneration,
       contentGeneration: input.contentGeneration,
       estimateCost: (key) => this.estimateCost(key),
-      globalFallbackAvailable: true,
-    }, input.navigationActive);
+      // 导航期没有全局底图可用 → 缺失瓦片标为 mandatory 立即补，避免整块空洞
+      globalFallbackAvailable: !input.navigationActive,
+    }, false);
 
-    if (!input.navigationActive) this.scheduler.enqueue(plan.jobs);
-
-    const metrics = input.navigationActive ? this.deferActiveJobs(plan.jobs) : this.runScheduledFrame(level, input);
+    let metrics: TileSchedulerMetrics;
+    if (input.navigationActive) {
+      // 只立即执行「无 fallback 的缺失瓦片」（mandatory，通常少数）；有旧瓦片可贴的继续 defer
+      const mandatory = plan.jobs.filter((job) => job.priority === "mandatory");
+      this.scheduler.enqueue(mandatory);
+      metrics = this.runScheduledFrame(level, input);
+      metrics.skippedWithFallback += plan.jobs.length - mandatory.length;
+    } else {
+      this.scheduler.enqueue(plan.jobs);
+      metrics = this.runScheduledFrame(level, input);
+    }
     metrics.cancelledJobs += this.cancelledJobs;
     this.cancelledJobs = 0;
 
