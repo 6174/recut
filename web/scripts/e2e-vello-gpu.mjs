@@ -165,6 +165,24 @@ try {
   }
   ok("跨瓦片无接缝", badSeams === 0, `采样 ${row.width} 点，异常 ${badSeams}${badSeams ? `: ${JSON.stringify(seamSamples)}` : ""}`);
 
+  const fontRegistered = await page.evaluate(() => window.__velloTilesDebug.fontRegistered());
+  ok("字体已注册", fontRegistered === true, `fontRegistered=${fontRegistered}`);
+
+  // 文本：把 text probe 移入视图，扫描亮度断言有字形像素
+  const textRegion = await page.evaluate(() => {
+    const d = window.__velloTilesDebug;
+    d.setViewport({ zoom: 1, panX: 100, panY: 100 - 4200 });
+    d.settle();
+    const v = d.getViewport();
+    return { x: 100, y: (4200 + 60) * v.zoom + v.panY, width: 900, height: 200 };
+  });
+  const textRow = await sampleRegion(page, textRegion);
+  let brightPixels = 0;
+  for (let i = 0; i < textRow.data.length; i += 4) {
+    if (textRow.data[i] > 180 && textRow.data[i + 1] > 180 && textRow.data[i + 2] > 180) brightPixels++;
+  }
+  ok("文本渲染（GPU 字形）", brightPixels > 50, `亮点像素=${brightPixels}`);
+
   ok("页面无报错", pageErrors.length === 0, pageErrors.slice(0, 2).join(" | "));
 
   await page.screenshot({ path: "scripts/e2e-vello-gpu.png" }).catch(() => {});

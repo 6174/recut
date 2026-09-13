@@ -22,6 +22,8 @@ const GAP_Y = 70;
 const COLS = 6;
 const ROWS = 8;
 const PROBE = { x: 0, y: 3200, width: 1400, height: 700 };
+const TEXT_PROBE = { x: 0, y: 4200, width: 1400, height: 400 };
+const FONT_ID = 1;
 
 interface DemoCard {
   id: string;
@@ -56,6 +58,7 @@ export interface VelloTilesDebug {
   resetTelemetry(): void;
   isRasterizer(name: string): boolean;
   rasterizerName(): string;
+  fontRegistered(): boolean;
   pause(): void;
   resume(): void;
   debugImageTest(): void;
@@ -123,6 +126,8 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
       const velloOps = encodeOps([
         { kind: "roundRect", x, y, width: CARD_W, height: CARD_H, radius: 14, fill: [20, 21, 26, 255], stroke: accent, strokeWidth: 2 },
         { kind: "rectFill", x, y, width: CARD_W, height: 42, fill: [accent[0], accent[1], accent[2], 46] },
+        { kind: "text", fontId: FONT_ID, x: x + 16, y: y + 12, size: 16, maxWidth: CARD_W - 32, align: "left", fill: [229, 231, 235, 255], text: card.title },
+        { kind: "text", fontId: FONT_ID, x: x + 16, y: y + 62, size: 12, maxWidth: CARD_W - 32, align: "left", fill: [156, 163, 175, 255], text: "world canvas tile" },
       ]);
       chunks.push({
         id: card.id,
@@ -229,6 +234,27 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
     } satisfies ChunkPayload,
   });
 
+  chunks.push({
+    id: "text-probe",
+    nodeIds: ["text-probe"],
+    bounds: { minX: TEXT_PROBE.x, minY: TEXT_PROBE.y, maxX: TEXT_PROBE.x + TEXT_PROBE.width, maxY: TEXT_PROBE.y + TEXT_PROBE.height },
+    estimatedCost: TEXT_PROBE.width + TEXT_PROBE.height,
+    payload: {
+      canvas: (ctx) => {
+        ctx.fillStyle = "#0a0c12";
+        ctx.fillRect(TEXT_PROBE.x, TEXT_PROBE.y, TEXT_PROBE.width, TEXT_PROBE.height);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "600 160px ui-sans-serif, system-ui, sans-serif";
+        ctx.textBaseline = "top";
+        ctx.fillText("VOICE 2026", TEXT_PROBE.x + 40, TEXT_PROBE.y + 60);
+      },
+      velloOps: encodeOps([
+        { kind: "rectFill", x: TEXT_PROBE.x, y: TEXT_PROBE.y, width: TEXT_PROBE.width, height: TEXT_PROBE.height, fill: [10, 12, 18, 255] },
+        { kind: "text", fontId: FONT_ID, x: TEXT_PROBE.x + 40, y: TEXT_PROBE.y + 60, size: 160, fill: [255, 255, 255, 255], text: "VOICE 2026" },
+      ]),
+    } satisfies ChunkPayload,
+  });
+
   return { chunks, cards, arrows };
 }
 
@@ -252,6 +278,18 @@ export async function mountTileDemo(canvas: HTMLCanvasElement): Promise<TileDemo
   }
   if (!rasterizer) rasterizer = new Canvas2DRasterizer(canvas, "#0b0f19", dpr) as unknown as TileRasterizer<unknown, unknown>;
   rasterizer.resize(width, height, dpr);
+
+  let fontRegistered = false;
+  if (rasterizer.name === "vello") {
+    try {
+      const response = await fetch("/vello-wasm/space-grotesk.ttf");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      (rasterizer as unknown as VelloGpuRasterizer).registerFont(FONT_ID, bytes);
+      fontRegistered = true;
+    } catch (error) {
+      console.warn("[vello-tiles] font load failed", error);
+    }
+  }
 
   const scene = buildScene();
   const controller = new TileController<unknown, unknown>({
@@ -459,6 +497,7 @@ export async function mountTileDemo(canvas: HTMLCanvasElement): Promise<TileDemo
     resetTelemetry: () => controller.telemetry.reset(),
     isRasterizer: (name) => rasterizer.name === name,
     rasterizerName: () => rasterizer.name,
+    fontRegistered: () => fontRegistered,
     pause: () => {
       paused = true;
     },

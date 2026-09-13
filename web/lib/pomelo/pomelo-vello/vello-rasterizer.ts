@@ -20,6 +20,7 @@ interface WasmRuntime {
   set_clear_color(r: number, g: number, b: number, a: number): void;
   width(): number;
   height(): number;
+  register_font(id: number, bytes: Uint8Array): void;
   debug_image_test(): void;
   debug_tile_test(): number;
   debug_ops_test(ops: Uint8Array, level: number, minX: number, minY: number): number;
@@ -80,6 +81,10 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
     const runtime = await mod.create_runtime(canvas);
     runtime.set_clear_color(background[0], background[1], background[2], background[3]);
     return new VelloGpuRasterizer(runtime, canvas, dpr);
+  }
+
+  registerFont(id: number, bytes: Uint8Array): void {
+    this.runtime.register_font(id, bytes);
   }
 
   resize(width: number, height: number, dpr: number): void {

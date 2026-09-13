@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 vello = { version = "0.10", default-features = false, features = ["wgpu"] }
 # 直接依赖 wgpu 仅为启用 web 后端（SurfaceTarget::Canvas）；版本需与 vello 一致以复用同一 crate
 wgpu = { version = "29", default-features = false, features = ["webgpu"] }
+skrifa = "0.44"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

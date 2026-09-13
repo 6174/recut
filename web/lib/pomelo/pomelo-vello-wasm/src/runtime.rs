@@ -1,8 +1,9 @@
 //! 持有 wgpu 设备/队列/surface 与 vello Renderer，提供瓦片光栅（render_tile）与自建 quad 合成（present）。
 //! 仅 wasm32 编译；op 解码与 Scene 构建在 `crate::ops`（host 可测）。
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use vello::peniko::Color;
+use vello::peniko::{Blob, Color, FontData};
 use vello::wgpu::{self, Extent3d, TextureDescriptor, TextureFormat, TextureUsages};
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene};
 use wasm_bindgen::prelude::*;
@@ -31,6 +32,7 @@ pub struct VelloRuntime {
     renderer: Renderer,
     compositor: Compositor,
     tiles: HashMap<u32, TileEntry>,
+    fonts: HashMap<u32, FontData>,
     next_handle: u32,
     clear: wgpu::Color,
     clear_color: Color,
@@ -105,6 +107,7 @@ impl VelloRuntime {
             renderer,
             compositor,
             tiles: HashMap::new(),
+            fonts: HashMap::new(),
             next_handle: 1,
             clear: wgpu::Color { r: 11.0 / 255.0, g: 15.0 / 255.0, b: 25.0 / 255.0, a: 1.0 },
             clear_color: Color::from_rgba8(11, 15, 25, 255),
@@ -132,13 +135,19 @@ impl VelloRuntime {
         self.compositor.set_clear(color);
     }
 
+    /// 注册一张字体（font_id → 原始 TTF/OTF 字节）。TEXT op 通过 font_id 引用。
+    pub fn register_font(&mut self, id: u32, bytes: Vec<u8>) {
+        let blob = Blob::new(Arc::new(bytes));
+        self.fonts.insert(id, FontData::new(blob, 0));
+    }
+
     /// 把一个瓦片的绘制 op（世界坐标，可拼接多条 chunk 的记录流）光栅到 256×256 纹理。
     pub fn render_tile(&mut self, ops: Vec<u8>, level: f32, min_x: f32, min_y: f32) -> Result<u32, JsValue> {
         let decoded = decode_ops(&ops).map_err(|e| JsValue::from_str(&format!("decode ops: {e}")))?;
         let size = TILE_DEVICE_SIZE;
         let mut scene = Scene::new();
         let transform = tile_transform(level, min_x, min_y, BLEED);
-        build_scene(&decoded, transform, size as f32, &mut scene);
+        build_scene(&decoded, transform, size as f32, &self.fonts, &mut scene);
 
         let texture = self.device.create_texture(&TextureDescriptor {
             label: Some("pomelo-vello-tile"),
@@ -209,7 +218,7 @@ impl VelloRuntime {
             let mut scene = Scene::new();
             let transform = tile_transform(0.5, min_x, min_y, 0.0);
             let ops = vec![crate::ops::DrawOp::RectFill { x: min_x, y: min_y, w: 100.0, h: 100.0, fill }];
-            build_scene(&ops, transform, size as f32, &mut scene);
+            build_scene(&ops, transform, size as f32, &self.fonts, &mut scene);
             let texture = self.device.create_texture(&TextureDescriptor {
                 label: Some("pomelo-vello-debug-pair"),
                 size: Extent3d { width: size, height: size, depth_or_array_layers: 1 },
@@ -235,7 +244,7 @@ impl VelloRuntime {
         let mut scene = Scene::new();
         let transform = tile_transform(1.0, 0.0, 0.0, 0.0);
         let ops = vec![crate::ops::DrawOp::RectFill { x: 0.0, y: 0.0, w: 200.0, h: 100.0, fill: [255, 0, 0, 255] }];
-        build_scene(&ops, transform, size as f32, &mut scene);
+        build_scene(&ops, transform, size as f32, &self.fonts, &mut scene);
         let texture = self.device.create_texture(&TextureDescriptor {
             label: Some("pomelo-vello-debug-tile"),
             size: Extent3d { width: size, height: size, depth_or_array_layers: 1 },

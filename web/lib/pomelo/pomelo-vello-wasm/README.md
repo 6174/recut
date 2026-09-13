@@ -13,8 +13,11 @@ vello(WASM/WebGPU) 光栅器运行时，实现 `pomelo-vello` 的 `VelloRuntime`
   `present(handles, panX, panY, zoom)`（合成 + `TextureBlitter` 上屏）、`dispose_tile`。
 - ✅ **自建 wgpu quad 合成器**（`compositor.rs`）：每瓦片一个 32B uniform + bind group，draw 6 顶点采样瓦片纹理；
   不再经 vello `draw_image`/image atlas（正是 RFC §2 修正 1 的落地）。
-- ✅ **GPU e2e 9/9**：`node scripts/e2e-vello-gpu.mjs`（系统 Chrome + WebGPU）验证合成正确、跨瓦片无缝、
-  平移不重光栅、拖拽只重渲相交瓦片。
+- ✅ **文本**：`register_font(id, ttf)` + `ops.rs` TEXT op，skrifa 取 charmap/metrics 做按字符 advance 布局，
+  vello `draw_glyphs` 绘制。测试字体 `assets/space-grotesk.ttf`（OFL）。GPU e2e 已验证拉丁字形渲染。
+  ⚠️ CJK 走同一路径，但需**原始 TTF/OTF**（recut 现网是切片 woff2，skrifa 不支持 woff2，需补原始字体供给）。
+- ✅ **GPU e2e 11/11**：`node scripts/e2e-vello-gpu.mjs`（系统 Chrome + WebGPU）验证合成正确、跨瓦片无缝、
+  平移不重光栅、拖拽只重渲相交瓦片、文本字形渲染。
 - ⏳ 待实现：文本 shaping（skrifa + CJK 回退）、图片/媒体、atomic chunk 效果的独立纹理路径。
 
 ## 构建与同步

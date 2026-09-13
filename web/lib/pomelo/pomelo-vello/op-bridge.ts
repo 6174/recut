@@ -10,6 +10,7 @@ export const OP_KIND = {
   QuadStroke: 2,
   TriangleFill: 3,
   RectFill: 4,
+  Text: 5,
 } as const;
 
 export type Rgba = [number, number, number, number];
@@ -36,9 +37,23 @@ export type VelloOp =
       strokeWidth: number;
     }
   | { kind: "triangleFill"; points: [Vec2, Vec2, Vec2]; fill: Rgba }
-  | { kind: "rectFill"; x: number; y: number; width: number; height: number; fill: Rgba };
+  | { kind: "rectFill"; x: number; y: number; width: number; height: number; fill: Rgba }
+  | {
+      kind: "text";
+      fontId: number;
+      x: number;
+      y: number;
+      size: number;
+      maxWidth?: number;
+      lineHeight?: number;
+      align?: "left" | "center" | "right";
+      fill: Rgba;
+      text: string;
+    };
 
 const TRANSPARENT: Rgba = [0, 0, 0, 0];
+const TEXT_ENCODER = new TextEncoder();
+const ALIGN_CODE: Record<string, number> = { left: 0, center: 1, right: 2 };
 
 export function encodeOps(ops: VelloOp[]): Uint8Array {
   const out: number[] = [];
@@ -89,6 +104,21 @@ export function encodeOps(ops: VelloOp[]): Uint8Array {
         pushF32(op.height);
         pushRgba(op.fill);
         break;
+      case "text": {
+        out.push(OP_KIND.Text);
+        out.push(op.fontId & 0xff, (op.fontId >>> 8) & 0xff, (op.fontId >>> 16) & 0xff, (op.fontId >>> 24) & 0xff);
+        pushF32(op.x);
+        pushF32(op.y);
+        pushF32(op.size);
+        pushF32(op.maxWidth ?? 0);
+        pushF32(op.lineHeight ?? 0);
+        out.push(ALIGN_CODE[op.align ?? "left"] ?? 0);
+        pushRgba(op.fill);
+        const encoded = TEXT_ENCODER.encode(op.text);
+        out.push(encoded.length & 0xff, (encoded.length >>> 8) & 0xff, (encoded.length >>> 16) & 0xff, (encoded.length >>> 24) & 0xff);
+        for (const byte of encoded) out.push(byte);
+        break;
+      }
     }
   }
   return new Uint8Array(out);
