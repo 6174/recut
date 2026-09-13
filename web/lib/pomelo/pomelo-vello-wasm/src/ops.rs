@@ -28,6 +28,8 @@ pub const KIND_RECT_FILL: u8 = 4;
 pub const KIND_TEXT: u8 = 5;
 pub const KIND_IMAGE: u8 = 6;
 pub const KIND_BLUR_RECT: u8 = 7;
+pub const KIND_PUSH_CLIP_ROUND_RECT: u8 = 8;
+pub const KIND_POP_CLIP: u8 = 9;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawOp {
@@ -86,6 +88,8 @@ pub enum DrawOp {
         std_dev: f32,
         fill: [u8; 4],
     },
+    PushClipRoundRect { x: f32, y: f32, w: f32, h: f32, radius: f32 },
+    PopClip,
 }
 
 struct Cursor<'a> {
@@ -198,6 +202,14 @@ pub fn decode_ops(bytes: &[u8]) -> Result<Vec<DrawOp>, String> {
                 std_dev: cursor.f32()?,
                 fill: cursor.rgba()?,
             },
+            KIND_PUSH_CLIP_ROUND_RECT => DrawOp::PushClipRoundRect {
+                x: cursor.f32()?,
+                y: cursor.f32()?,
+                w: cursor.f32()?,
+                h: cursor.f32()?,
+                radius: cursor.f32()?,
+            },
+            KIND_POP_CLIP => DrawOp::PopClip,
             other => return Err(format!("unknown op kind {other}")),
         };
         ops.push(op);
@@ -235,6 +247,14 @@ pub fn build_scene(
     scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &Rect::new(0.0, 0.0, clip_width as f64, clip_height as f64));
     for op in ops {
         match op {
+            DrawOp::PushClipRoundRect { x, y, w, h, radius } => {
+                let rect = Rect::new(*x as f64, *y as f64, (*x + *w) as f64, (*y + *h) as f64);
+                let shape = RoundedRect::from_rect(rect, *radius as f64);
+                scene.push_clip_layer(Fill::NonZero, transform, &shape);
+            }
+            DrawOp::PopClip => {
+                scene.pop_layer();
+            }
             DrawOp::RoundRect { x, y, w, h, radius, fill, stroke, stroke_width } => {
                 let rect = Rect::new(*x as f64, *y as f64, (*x + *w) as f64, (*y + *h) as f64);
                 let shape = RoundedRect::from_rect(rect, *radius as f64);

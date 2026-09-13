@@ -13,6 +13,8 @@ export const OP_KIND = {
   Text: 5,
   Image: 6,
   BlurRect: 7,
+  PushClipRoundRect: 8,
+  PopClip: 9,
 } as const;
 
 export type Rgba = [number, number, number, number];
@@ -53,7 +55,9 @@ export type VelloOp =
       text: string;
     }
   | { kind: "image"; imageId: number; x: number; y: number; width: number; height: number }
-  | { kind: "blurRect"; x: number; y: number; width: number; height: number; radius: number; stdDev: number; fill: Rgba };
+  | { kind: "blurRect"; x: number; y: number; width: number; height: number; radius: number; stdDev: number; fill: Rgba }
+  | { kind: "pushClipRoundRect"; x: number; y: number; width: number; height: number; radius: number }
+  | { kind: "popClip" };
 
 const TRANSPARENT: Rgba = [0, 0, 0, 0];
 const TEXT_ENCODER = new TextEncoder();
@@ -107,6 +111,17 @@ export function encodeOps(ops: VelloOp[]): Uint8Array {
         pushF32(op.width);
         pushF32(op.height);
         pushRgba(op.fill);
+        break;
+      case "pushClipRoundRect":
+        out.push(OP_KIND.PushClipRoundRect);
+        pushF32(op.x);
+        pushF32(op.y);
+        pushF32(op.width);
+        pushF32(op.height);
+        pushF32(op.radius);
+        break;
+      case "popClip":
+        out.push(OP_KIND.PopClip);
         break;
       case "blurRect":
         out.push(OP_KIND.BlurRect);

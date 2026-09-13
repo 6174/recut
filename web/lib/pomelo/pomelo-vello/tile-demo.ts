@@ -137,11 +137,17 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
       cards.push(card);
       const accent = hexToRgba(card.color);
       const velloOps = encodeOps([
-        { kind: "roundRect", x, y, width: CARD_W, height: CARD_H, radius: 14, fill: [20, 21, 26, 255], stroke: accent, strokeWidth: 2 },
+        { kind: "roundRect", x, y, width: CARD_W, height: CARD_H, radius: 14, fill: [20, 21, 26, 255], stroke: [0, 0, 0, 0], strokeWidth: 0 },
+        // 表头与缩略图裁剪到圆角内（否则直角 fill 会盖住圆角）
+        { kind: "pushClipRoundRect", x, y, width: CARD_W, height: CARD_H, radius: 14 },
         { kind: "rectFill", x, y, width: CARD_W, height: 42, fill: [accent[0], accent[1], accent[2], 46] },
+        { kind: "popClip" },
+        { kind: "pushClipRoundRect", x: x + CARD_W - 72, y: y + 56, width: 56, height: 52, radius: 8 },
+        { kind: "image", imageId: IMAGE_ID, x: x + CARD_W - 72, y: y + 56, width: 56, height: 52 },
+        { kind: "popClip" },
+        { kind: "roundRect", x: x + 1, y: y + 1, width: CARD_W - 2, height: CARD_H - 2, radius: 14, fill: [0, 0, 0, 0], stroke: accent, strokeWidth: 2 },
         { kind: "text", fontId: FONT_ID, x: x + 16, y: y + 12, size: 16, maxWidth: CARD_W - 32, align: "left", fill: [229, 231, 235, 255], text: card.title },
         { kind: "text", fontId: FONT_ID, x: x + 16, y: y + 62, size: 12, maxWidth: CARD_W - 32, align: "left", fill: [156, 163, 175, 255], text: "world canvas tile" },
-        { kind: "image", imageId: IMAGE_ID, x: x + CARD_W - 72, y: y + 56, width: 56, height: 52 },
       ]);
       chunks.push({
         id: card.id,

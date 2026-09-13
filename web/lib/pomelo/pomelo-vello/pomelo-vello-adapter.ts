@@ -49,6 +49,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private disposeTicker: { dispose(): void } | null = null;
   private contentGeneration = 0;
   private initialSettled = false;
+  private navigationActive = false;
+  private navTimer: ReturnType<typeof setTimeout> | null = null;
   private navigationGeneration = 0;
   private dirty = true;
 
@@ -163,6 +165,15 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     this.viewport = { ...this.viewport, panX: x, panY: y, zoom: scale };
     this.transform = { x, y, scale };
     this.navigationGeneration++;
+    // 导航期（平移/缩放）defer 瓦片重栅格：先贴旧瓦片缩放过渡，落定后再补高清，避免每次 wheel 重渲全部瓦片
+    this.navigationActive = true;
+    if (this.navTimer) clearTimeout(this.navTimer);
+    this.navTimer = setTimeout(() => {
+      this.navigationActive = false;
+      this.navTimer = null;
+      this.dirty = true;
+      this.flush();
+    }, 180);
     this.dirty = true;
   }
 
@@ -245,7 +256,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       viewport: this.viewport,
       contentGeneration: this.contentGeneration,
       navigationGeneration: this.navigationGeneration,
-      navigationActive: false,
+      navigationActive: this.navigationActive,
     });
     this.dirty = false;
   }
@@ -342,6 +353,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   }
 
   destroy(): void {
+    if (this.navTimer) clearTimeout(this.navTimer);
+    this.navTimer = null;
     this.disposeTicker?.dispose();
     this.disposeTicker = null;
     this.rasterizer?.destroy();
