@@ -11,6 +11,8 @@ export const OP_KIND = {
   TriangleFill: 3,
   RectFill: 4,
   Text: 5,
+  Image: 6,
+  BlurRect: 7,
 } as const;
 
 export type Rgba = [number, number, number, number];
@@ -49,7 +51,9 @@ export type VelloOp =
       align?: "left" | "center" | "right";
       fill: Rgba;
       text: string;
-    };
+    }
+  | { kind: "image"; imageId: number; x: number; y: number; width: number; height: number }
+  | { kind: "blurRect"; x: number; y: number; width: number; height: number; radius: number; stdDev: number; fill: Rgba };
 
 const TRANSPARENT: Rgba = [0, 0, 0, 0];
 const TEXT_ENCODER = new TextEncoder();
@@ -103,6 +107,24 @@ export function encodeOps(ops: VelloOp[]): Uint8Array {
         pushF32(op.width);
         pushF32(op.height);
         pushRgba(op.fill);
+        break;
+      case "blurRect":
+        out.push(OP_KIND.BlurRect);
+        pushF32(op.x);
+        pushF32(op.y);
+        pushF32(op.width);
+        pushF32(op.height);
+        pushF32(op.radius);
+        pushF32(op.stdDev);
+        pushRgba(op.fill);
+        break;
+      case "image":
+        out.push(OP_KIND.Image);
+        out.push(op.imageId & 0xff, (op.imageId >>> 8) & 0xff, (op.imageId >>> 16) & 0xff, (op.imageId >>> 24) & 0xff);
+        pushF32(op.x);
+        pushF32(op.y);
+        pushF32(op.width);
+        pushF32(op.height);
         break;
       case "text": {
         out.push(OP_KIND.Text);

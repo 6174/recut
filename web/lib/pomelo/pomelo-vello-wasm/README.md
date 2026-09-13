@@ -16,8 +16,12 @@ vello(WASM/WebGPU) 光栅器运行时，实现 `pomelo-vello` 的 `VelloRuntime`
 - ✅ **文本**：`register_font(id, ttf)` + `ops.rs` TEXT op，skrifa 取 charmap/metrics 做按字符 advance 布局，
   vello `draw_glyphs` 绘制。测试字体 `assets/space-grotesk.ttf`（OFL）。GPU e2e 已验证拉丁字形渲染。
   ⚠️ CJK 走同一路径，但需**原始 TTF/OTF**（recut 现网是切片 woff2，skrifa 不支持 woff2，需补原始字体供给）。
-- ✅ **GPU e2e 11/11**：`node scripts/e2e-vello-gpu.mjs`（系统 Chrome + WebGPU）验证合成正确、跨瓦片无缝、
-  平移不重光栅、拖拽只重渲相交瓦片、文本字形渲染。
+- ✅ **图像**：`register_image(id, w, h, rgba)` + IMAGE op（vello `draw_image`）。
+- ✅ **atomic chunk（跨瓦片效果）**：`atomic` chunk 经 `render_atomic_chunk` 整块渲到自己的纹理并注册为 image，
+  各相交瓦片以 IMAGE op 引用；BLUR_RECT op 用 vello `draw_blurred_rounded_rect`。解决 blur 跨瓦片被裁出接缝。
+- ✅ **CJK**：`set_font_fallback(primary, fallback)`；主字体缺字用回退字体（demo 用 Noto Sans CJK SC 子集，OFL）。
+- ✅ **GPU e2e 16/16**：`node scripts/e2e-vello-gpu.mjs`（系统 Chrome + WebGPU）验证合成、跨瓦片无缝、
+  平移不重光栅、拖拽只重渲相交瓦片、文本、CJK fallback、图像、atomic blur 跨瓦片无接缝。
 - ⏳ 待实现：文本 shaping（skrifa + CJK 回退）、图片/媒体、atomic chunk 效果的独立纹理路径。
 
 ## 构建与同步

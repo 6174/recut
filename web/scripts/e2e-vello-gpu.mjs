@@ -125,6 +125,20 @@ try {
   const card = pixelAt(cardRegion, 0, 0);
   ok("卡片中心有内容", card[0] + card[1] + card[2] > 40, `rgb=${card.slice(0, 3)}`);
 
+  const imageRegistered = await page.evaluate(() => window.__velloTilesDebug.imageRegistered());
+  ok("图像已注册", imageRegistered === true, `imageRegistered=${imageRegistered}`);
+
+  // 图像：采样卡片缩略图（controller 渲染路径中的 image op）
+  const thumbPixel = await page.evaluate(() => {
+    const d = window.__velloTilesDebug;
+    const c = d.cards()[1];
+    const v = d.getViewport();
+    return { x: (c.x + 220 - 72 + 28) * v.zoom + v.panX, y: (c.y + 56 + 26) * v.zoom + v.panY };
+  });
+  const thumbRegion = await sampleRegion(page, { x: thumbPixel.x, y: thumbPixel.y, width: 1, height: 1 });
+  const thumbColor = pixelAt(thumbRegion, 0, 0);
+  ok("图像渲染（GPU 纹理）", thumbColor[0] > 200 && thumbColor[1] > 80 && thumbColor[1] < 180 && thumbColor[2] < 80, `rgb=${thumbColor.slice(0, 3)}`);
+
   const afterPan = await page.evaluate(() => {
     const d = window.__velloTilesDebug;
     d.resetTelemetry();
@@ -182,6 +196,47 @@ try {
     if (textRow.data[i] > 180 && textRow.data[i + 1] > 180 && textRow.data[i + 2] > 180) brightPixels++;
   }
   ok("文本渲染（GPU 字形）", brightPixels > 50, `亮点像素=${brightPixels}`);
+
+  const cjkRegistered = await page.evaluate(() => window.__velloTilesDebug.cjkRegistered());
+  ok("CJK 字体已注册", cjkRegistered === true, `cjkRegistered=${cjkRegistered}`);
+
+  // CJK：主字体缺字经 fallback（Noto CJK 子集）绘制
+  const cjkRegion = await page.evaluate(() => {
+    const d = window.__velloTilesDebug;
+    const p = d.cjkProbe();
+    d.setViewport({ zoom: 1, panX: 100, panY: 100 - p.y });
+    d.settle();
+    const v = d.getViewport();
+    return { x: 100, y: (p.y + 60) * v.zoom + v.panY, width: 1100, height: 180 };
+  });
+  const cjkRow = await sampleRegion(page, cjkRegion);
+  let cjkBright = 0;
+  for (let i = 0; i < cjkRow.data.length; i += 4) {
+    if (cjkRow.data[i] > 180 && cjkRow.data[i + 1] > 180 && cjkRow.data[i + 2] > 180) cjkBright++;
+  }
+  ok("CJK 文本渲染（font fallback）", cjkBright > 50, `亮点像素=${cjkBright}`);
+
+  // atomic chunk：blur 阴影跨越瓦片边界（x=256），扫描该行不应出现接缝/背景带
+  const shadowRow = await page.evaluate(() => {
+    const d = window.__velloTilesDebug;
+    const p = d.shadowProbe();
+    d.setViewport({ zoom: 1, panX: 100, panY: 100 - p.y });
+    d.settle();
+    const v = d.getViewport();
+    return { x: 150 * v.zoom + v.panX, y: 5965 * v.zoom + v.panY, width: 300, height: 1 };
+  });
+  const shadow = await sampleRegion(page, shadowRow);
+  let maxJump = 0;
+  let darkPixels = 0;
+  let prev = null;
+  for (let x = 0; x < shadow.width; x++) {
+    const [r, g, b] = pixelAt(shadow, x, 0);
+    const lum = r + g + b;
+    if (lum < 60) darkPixels++;
+    if (prev !== null) maxJump = Math.max(maxJump, Math.abs(lum - prev));
+    prev = lum;
+  }
+  ok("atomic chunk 跨瓦片无接缝（blur 阴影）", darkPixels > 20 && maxJump < 60, `暗像素=${darkPixels} 最大相邻跳变=${maxJump}`);
 
   ok("页面无报错", pageErrors.length === 0, pageErrors.slice(0, 2).join(" | "));
 

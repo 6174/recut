@@ -10,7 +10,7 @@
     "lint": "next lint",
     "test:e2e": "playwright test",
     "test:e2e:worker": "node scripts/worker-e2e.mjs",
-    "wasm:build:vello": "cd lib/pomelo/pomelo-vello-wasm && wasm-pack build --target web --dev && mkdir -p ../../../public/vello-wasm && cp pkg/pomelo_vello_wasm.js pkg/pomelo_vello_wasm_bg.wasm assets/space-grotesk.ttf ../../../public/vello-wasm/"
+    "wasm:build:vello": "cd lib/pomelo/pomelo-vello-wasm && wasm-pack build --target web --dev && mkdir -p ../../../public/vello-wasm && cp pkg/pomelo_vello_wasm.js pkg/pomelo_vello_wasm_bg.wasm assets/space-grotesk.ttf assets/noto-cjk-subset.otf ../../../public/vello-wasm/"
   },
   "dependencies": {
     "@radix-ui/react-popover": "^1.1.23",

@@ -24,6 +24,11 @@ const ROWS = 8;
 const PROBE = { x: 0, y: 3200, width: 1400, height: 700 };
 const TEXT_PROBE = { x: 0, y: 4200, width: 1400, height: 400 };
 const FONT_ID = 1;
+const IMAGE_ID = 2;
+const CJK_FONT_ID = 3;
+const CJK_PROBE = { x: 0, y: 5300, width: 1400, height: 400 };
+const SHADOW_PROBE = { x: 0, y: 5700, width: 512, height: 320 };
+const IMAGE_PROBE = { x: 0, y: 4700, width: 400, height: 400 };
 
 interface DemoCard {
   id: string;
@@ -54,16 +59,22 @@ export interface VelloTilesDebug {
   sceneCounts(): { chunks: number; cards: number; arrows: number };
   moveCard(id: string, dx: number, dy: number): void;
   probe(): { x: number; y: number; width: number; height: number };
+  imageProbe(): { x: number; y: number; width: number; height: number };
   settle(maxFrames?: number): number;
   resetTelemetry(): void;
   isRasterizer(name: string): boolean;
   rasterizerName(): string;
   fontRegistered(): boolean;
+  cjkRegistered(): boolean;
+  cjkProbe(): { x: number; y: number; width: number; height: number };
+  shadowProbe(): { x: number; y: number; width: number; height: number };
+  imageRegistered(): boolean;
   pause(): void;
   resume(): void;
   debugImageTest(): void;
   debugTileTest(): void;
   debugPairTest(): void;
+  debugRegisteredImageTest(): void;
   renderChunkOps(id: string, level: number, minX: number, minY: number): void;
   presentCached(panX: number, panY: number, zoom: number): number;
   presentTileByKey(key: string, panX: number, panY: number, zoom: number): boolean;
@@ -128,6 +139,7 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
         { kind: "rectFill", x, y, width: CARD_W, height: 42, fill: [accent[0], accent[1], accent[2], 46] },
         { kind: "text", fontId: FONT_ID, x: x + 16, y: y + 12, size: 16, maxWidth: CARD_W - 32, align: "left", fill: [229, 231, 235, 255], text: card.title },
         { kind: "text", fontId: FONT_ID, x: x + 16, y: y + 62, size: 12, maxWidth: CARD_W - 32, align: "left", fill: [156, 163, 175, 255], text: "world canvas tile" },
+        { kind: "image", imageId: IMAGE_ID, x: x + CARD_W - 72, y: y + 56, width: 56, height: 52 },
       ]);
       chunks.push({
         id: card.id,
@@ -255,6 +267,71 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
     } satisfies ChunkPayload,
   });
 
+  chunks.push({
+    id: "image-probe",
+    nodeIds: ["image-probe"],
+    bounds: { minX: IMAGE_PROBE.x, minY: IMAGE_PROBE.y, maxX: IMAGE_PROBE.x + IMAGE_PROBE.width, maxY: IMAGE_PROBE.y + IMAGE_PROBE.height },
+    estimatedCost: IMAGE_PROBE.width + IMAGE_PROBE.height,
+    payload: {
+      canvas: (ctx) => {
+        ctx.fillStyle = "#ff8000";
+        ctx.fillRect(IMAGE_PROBE.x, IMAGE_PROBE.y, IMAGE_PROBE.width, IMAGE_PROBE.height);
+      },
+      velloOps: encodeOps([
+        { kind: "rectFill", x: IMAGE_PROBE.x, y: IMAGE_PROBE.y, width: IMAGE_PROBE.width, height: IMAGE_PROBE.height, fill: [20, 20, 20, 255] },
+        { kind: "image", imageId: IMAGE_ID, x: IMAGE_PROBE.x + 20, y: IMAGE_PROBE.y + 20, width: 360, height: 360 },
+      ]),
+    } satisfies ChunkPayload,
+  });
+
+  chunks.push({
+    id: "cjk-probe",
+    nodeIds: ["cjk-probe"],
+    bounds: { minX: CJK_PROBE.x, minY: CJK_PROBE.y, maxX: CJK_PROBE.x + CJK_PROBE.width, maxY: CJK_PROBE.y + CJK_PROBE.height },
+    estimatedCost: CJK_PROBE.width + CJK_PROBE.height,
+    payload: {
+      canvas: (ctx) => {
+        ctx.fillStyle = "#0a0c12";
+        ctx.fillRect(CJK_PROBE.x, CJK_PROBE.y, CJK_PROBE.width, CJK_PROBE.height);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "140px sans-serif";
+        ctx.textBaseline = "top";
+        ctx.fillText("世界画布 中文测试 语音创作", CJK_PROBE.x + 40, CJK_PROBE.y + 60);
+      },
+      velloOps: encodeOps([
+        { kind: "rectFill", x: CJK_PROBE.x, y: CJK_PROBE.y, width: CJK_PROBE.width, height: CJK_PROBE.height, fill: [10, 12, 18, 255] },
+        // 主字体用拉丁 Space Grotesk（无 CJK），经 fallback(1→3) 用 Noto CJK 子集绘制
+        { kind: "text", fontId: FONT_ID, x: CJK_PROBE.x + 40, y: CJK_PROBE.y + 60, size: 140, fill: [255, 255, 255, 255], text: "世界画布 中文测试 语音创作" },
+      ]),
+    } satisfies ChunkPayload,
+  });
+
+  // atomic chunk：blur 阴影跨越瓦片边界，必须整块渲染再贴（否则边界被裁出接缝）
+  chunks.push({
+    id: "shadow-probe",
+    nodeIds: ["shadow-probe"],
+    bounds: { minX: SHADOW_PROBE.x, minY: SHADOW_PROBE.y, maxX: SHADOW_PROBE.x + SHADOW_PROBE.width, maxY: SHADOW_PROBE.y + SHADOW_PROBE.height },
+    atomic: true,
+    atomicPadding: 90,
+    estimatedCost: 600,
+    payload: {
+      canvas: (ctx) => {
+        ctx.save();
+        ctx.shadowColor = "rgba(0,0,0,0.9)";
+        ctx.shadowBlur = 60;
+        ctx.shadowOffsetY = 20;
+        roundRect(ctx, 150, 5760, 260, 180, 24);
+        ctx.fillStyle = "#f8fafc";
+        ctx.fill();
+        ctx.restore();
+      },
+      velloOps: encodeOps([
+        { kind: "blurRect", x: 150, y: 5760, width: 260, height: 180, radius: 24, stdDev: 30, fill: [0, 0, 0, 200] },
+        { kind: "roundRect", x: 150, y: 5760, width: 260, height: 180, radius: 24, fill: [248, 250, 252, 255], stroke: [0, 0, 0, 0], strokeWidth: 0 },
+      ]),
+    } satisfies ChunkPayload,
+  });
+
   return { chunks, cards, arrows };
 }
 
@@ -289,6 +366,33 @@ export async function mountTileDemo(canvas: HTMLCanvasElement): Promise<TileDemo
     } catch (error) {
       console.warn("[vello-tiles] font load failed", error);
     }
+  }
+
+  let cjkRegistered = false;
+  if (rasterizer.name === "vello" && fontRegistered) {
+    try {
+      const response = await fetch("/vello-wasm/noto-cjk-subset.otf");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      (rasterizer as unknown as VelloGpuRasterizer).registerFont(CJK_FONT_ID, bytes);
+      (rasterizer as unknown as VelloGpuRasterizer).setFontFallback(FONT_ID, CJK_FONT_ID);
+      cjkRegistered = true;
+    } catch (error) {
+      console.warn("[vello-tiles] cjk font load failed", error);
+    }
+  }
+
+  let imageRegistered = false;
+  if (rasterizer.name === "vello") {
+    const size = 16;
+    const rgba = new Uint8Array(size * size * 4);
+    for (let i = 0; i < size * size; i++) {
+      rgba[i * 4] = 255;
+      rgba[i * 4 + 1] = 128;
+      rgba[i * 4 + 2] = 0;
+      rgba[i * 4 + 3] = 255;
+    }
+    (rasterizer as unknown as VelloGpuRasterizer).registerImage(IMAGE_ID, size, size, rgba);
+    imageRegistered = true;
   }
 
   const scene = buildScene();
@@ -493,11 +597,16 @@ export async function mountTileDemo(canvas: HTMLCanvasElement): Promise<TileDemo
       dirty = true;
     },
     probe: () => ({ ...PROBE }),
+    imageProbe: () => ({ ...IMAGE_PROBE }),
     settle,
     resetTelemetry: () => controller.telemetry.reset(),
     isRasterizer: (name) => rasterizer.name === name,
     rasterizerName: () => rasterizer.name,
     fontRegistered: () => fontRegistered,
+    cjkRegistered: () => cjkRegistered,
+    cjkProbe: () => ({ ...CJK_PROBE }),
+    shadowProbe: () => ({ ...SHADOW_PROBE }),
+    imageRegistered: () => imageRegistered,
     pause: () => {
       paused = true;
     },
@@ -514,6 +623,9 @@ export async function mountTileDemo(canvas: HTMLCanvasElement): Promise<TileDemo
     },
     debugPairTest: () => {
       if (rasterizer.name === "vello") (rasterizer as unknown as VelloGpuRasterizer).debugPairTest();
+    },
+    debugRegisteredImageTest: () => {
+      if (rasterizer.name === "vello") (rasterizer as unknown as VelloGpuRasterizer).debugRegisteredImageTest();
     },
     renderChunkOps: (id, level, minX, minY) => {
       if (rasterizer.name !== "vello") return;

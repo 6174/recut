@@ -77,6 +77,8 @@ export interface RenderChunk {
   nodeIds: string[];
   bounds: TileWorldBounds;
   atomic?: boolean;
+  /** atomic chunk 的世界单位外扩（如 blur 溢出），渲染整块纹理时用。 */
+  atomicPadding?: number;
   estimatedCost: number;
   payload: unknown;
 }
@@ -116,6 +118,8 @@ export interface TileRasterizer<TTarget, THandle> {
   endTile(target: TTarget): RenderedTile<THandle>;
   /** 释放产物（缓存淘汰时调用）。 */
   disposeTile(handle: THandle): void;
+  /** 可选：chunk 内容变化时的缓存失效（atomic chunk 纹理缓存等）。 */
+  invalidateChunk?(id: string): void;
   /** 合成：把命中的瓦片（含 stale-zoom 缩放）贴到显示目标。 */
   present(tiles: CachedTile<THandle>[], viewport: Viewport): void;
   /** resize 显示目标。 */

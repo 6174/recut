@@ -102,6 +102,7 @@ export class TileController<TTarget, THandle> {
   removeChunk(id: string): void {
     const chunk = this.index.getChunk(id);
     if (!chunk) return;
+    this.rasterizer.invalidateChunk?.(id);
     this.pendingInvalidations.push({ nodeId: chunk.nodeIds[0] ?? id, previousBounds: [chunk.bounds] });
     this.index.removeChunk(id);
   }
@@ -110,6 +111,7 @@ export class TileController<TTarget, THandle> {
   invalidateChunk(id: string, patch: Partial<Pick<RenderChunk, "bounds" | "nodeIds" | "atomic" | "estimatedCost" | "payload">>): void {
     const chunk = this.index.getChunk(id);
     if (!chunk) return;
+    this.rasterizer.invalidateChunk?.(id);
     this.pendingInvalidations.push({ nodeId: chunk.nodeIds[0] ?? id, previousBounds: [{ ...chunk.bounds }] });
     this.index.updateChunk(id, patch);
   }

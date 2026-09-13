@@ -6,11 +6,22 @@
  * [POS]: pomelo-vello 的 GPU 光栅器实现（M1）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
+import { encodeOps } from "./op-bridge";
 import type { RenderChunk, RenderedTile, TileKey, TileRasterizer, TileWorldBounds, Viewport } from "../pomelo-core/pomelo-tiles/types";
 
 const WASM_JS_URL = "/vello-wasm/pomelo_vello_wasm.js";
 const WASM_BIN_URL = "/vello-wasm/pomelo_vello_wasm_bg.wasm";
 const TILE_DEVICE_SIZE = 256;
+
+/** 由 chunk id 生成稳定且不与字体/图像 id 冲突的 u32。 */
+function atomicImageId(id: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    hash ^= id.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) % 1_000_000) + 100_000;
+}
 
 interface WasmRuntime {
   render_tile(ops: Uint8Array, level: number, minX: number, minY: number): number;
@@ -21,10 +32,14 @@ interface WasmRuntime {
   width(): number;
   height(): number;
   register_font(id: number, bytes: Uint8Array): void;
+  register_image(id: number, width: number, height: number, rgba: Uint8Array): void;
+  set_font_fallback(id: number, fallbackId: number): void;
+  render_atomic_chunk(imageId: number, ops: Uint8Array, level: number, minX: number, minY: number, width: number, height: number): void;
   debug_image_test(): void;
   debug_tile_test(): number;
   debug_ops_test(ops: Uint8Array, level: number, minX: number, minY: number): number;
   debug_pair_test(): void;
+  debug_registered_image_test(): number;
 }
 
 interface WasmModule {
@@ -54,6 +69,7 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
   private readonly runtime: WasmRuntime;
   private readonly canvas: HTMLCanvasElement;
   private dpr: number;
+  private readonly atomicCache = new Map<string, number>();
   private lastOpsLength = 0;
   private lastChunkCount = 0;
   private maxOpsLength = 0;
@@ -87,6 +103,14 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
     this.runtime.register_font(id, bytes);
   }
 
+  registerImage(id: number, width: number, height: number, rgba: Uint8Array): void {
+    this.runtime.register_image(id, width, height, rgba);
+  }
+
+  setFontFallback(id: number, fallbackId: number): void {
+    this.runtime.set_font_fallback(id, fallbackId);
+  }
+
   resize(width: number, height: number, dpr: number): void {
     this.dpr = dpr;
     const deviceWidth = Math.max(1, Math.round(width * dpr));
@@ -110,7 +134,40 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
 
   drawChunk(target: VelloTarget, chunk: RenderChunk): void {
     const payload = chunk.payload as { velloOps?: Uint8Array } | undefined;
-    if (payload?.velloOps && payload.velloOps.length > 0) target.buffers.push(payload.velloOps);
+    if (!payload?.velloOps || payload.velloOps.length === 0) return;
+    if (chunk.atomic) {
+      const padding = chunk.atomicPadding ?? 0;
+      const key = `${chunk.id}@${target.level}`;
+      let imageId = this.atomicCache.get(key);
+      const boundWidth = chunk.bounds.maxX - chunk.bounds.minX + padding * 2;
+      const boundHeight = chunk.bounds.maxY - chunk.bounds.minY + padding * 2;
+      const minX = chunk.bounds.minX - padding;
+      const minY = chunk.bounds.minY - padding;
+      if (imageId === undefined) {
+        imageId = atomicImageId(chunk.id);
+        this.runtime.render_atomic_chunk(
+          imageId,
+          payload.velloOps,
+          target.level,
+          minX,
+          minY,
+          Math.max(1, Math.round(boundWidth * target.level)),
+          Math.max(1, Math.round(boundHeight * target.level)),
+        );
+        this.atomicCache.set(key, imageId);
+      }
+      target.buffers.push(
+        encodeOps([{ kind: "image", imageId, x: minX, y: minY, width: boundWidth, height: boundHeight }]),
+      );
+      return;
+    }
+    target.buffers.push(payload.velloOps);
+  }
+
+  invalidateChunk(id: string): void {
+    for (const key of Array.from(this.atomicCache.keys())) {
+      if (key.startsWith(`${id}@`)) this.atomicCache.delete(key);
+    }
   }
 
   endTile(target: VelloTarget): RenderedTile<number> {
@@ -167,6 +224,10 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
 
   debugPairTest(): void {
     this.runtime.debug_pair_test();
+  }
+
+  debugRegisteredImageTest(): number {
+    return this.runtime.debug_registered_image_test();
   }
 
   stats(): { name: string; lastOpsLength: number; lastChunkCount: number; maxOpsLength: number; nonEmptyTiles: number; totalTiles: number } {
