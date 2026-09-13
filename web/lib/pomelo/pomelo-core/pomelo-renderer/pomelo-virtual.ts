@@ -144,6 +144,7 @@ export class BlockPatcher {
       // 否则新 block 首帧渲染为空，要等下一次文档更新才出现
       newBlock.computeBlockState(adapter.editor.state);
       newBlock.render();
+      adapter.onBlockInvalidated?.(patch.vNode!.key as string, "content");
     }
   }
 
@@ -158,11 +159,17 @@ export class BlockPatcher {
         (key) => block.record.attrs[key] !== patch.vNode!.record.attrs[key],
       );
       block.updateProps(patch.vNode!.props);
+      // attrs 落地后必须重算 blockState：子类 selector 会读取自身 attrs（如 RelationArrowBlock
+      // 的 fromId/toId/label），而 onDocUpdateEvent 的 handleBlockUpdate 在 updateProps 之前
+      // 已经扫过一遍，此处不重算会让连线按上一帧属性渲染（换类型/换方向后画布不更新）。
+      const stateChanged = block.computeBlockState(adapter.editor.state);
       const positionOnly = changed.length > 0 && changed.every((key) => key === "x" || key === "y");
-      if (positionOnly && typeof (block as unknown as { reposition?: () => void }).reposition === "function") {
+      if (positionOnly && !stateChanged && typeof (block as unknown as { reposition?: () => void }).reposition === "function") {
         (block as unknown as { reposition: () => void }).reposition();
+        adapter.onBlockInvalidated?.(patch.blockId, "position");
       } else {
         block.render();
+        adapter.onBlockInvalidated?.(patch.blockId, "content");
       }
     }
   }
@@ -190,6 +197,8 @@ export class BlockPatcher {
     const newBlock = adapter.createBlock(patch.vNode!.record);
     parent.insertChild(newBlock, index === -1 ? parent.children.length : index);
     blockMap.set(patch.vNode!.key as string, newBlock);
+    adapter.onBlockInvalidated?.(oldBlock.record.id, "removed");
+    adapter.onBlockInvalidated?.(patch.vNode!.key as string, "content");
   }
 
   removeBlock(patch: Patch) {

@@ -43,6 +43,8 @@ export abstract class PomeloRendererAdapter {
 
   onResizeEvent = new Slot<{ width: number, height: number }>();
   onTransformEvent = new Slot<{ x: number, y: number, scale: number }>();
+  /** 可选钩子：block 内容/位置变更或移除时由 BlockPatcher 广播（渲染器无关的失效信号）。 */
+  onBlockInvalidated: ((blockId: string, kind: "content" | "position" | "removed") => void) | null = null;
 
   constructor() {
   }

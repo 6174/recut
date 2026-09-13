@@ -39,6 +39,9 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
 
   private rasterizer: TileRasterizer<unknown, unknown> | null = null;
   private readonly synced = new Map<string, SyncedBlock>();
+  private readonly dirtyBlocks = new Set<string>();
+  private readonly movedBlocks = new Set<string>();
+  private readonly removedBlocks = new Set<string>();
   private readonly options: VelloRendererAdapterOptions;
   private disposeTicker: { dispose(): void } | null = null;
   private contentGeneration = 0;
@@ -90,6 +93,13 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       budgetMs: 5,
       maxJobsPerFrame: 32,
     });
+    // BlockPatcher 广播失效 → 只处理受影响的 block（增量），避免全量扫描比对
+    this.onBlockInvalidated = (blockId, kind) => {
+      if (kind === "content") this.dirtyBlocks.add(blockId);
+      else if (kind === "position") this.movedBlocks.add(blockId);
+      else this.removedBlocks.add(blockId);
+      this.dirty = true;
+    };
     this.disposeTicker = this.editor.ticker.add(() => this.flush(), "update");
   }
 
@@ -138,40 +148,51 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private syncChunks(): void {
     const controller = this.controller;
     if (!controller) return;
-    const active = new Set<string>();
     let changed = false;
 
+    for (const id of this.removedBlocks) {
+      if (this.synced.has(id)) {
+        controller.removeChunk(id);
+        this.synced.delete(id);
+        changed = true;
+      }
+    }
+    this.removedBlocks.clear();
+
+    const active = new Set<string>();
     for (const block of this.renderedBlockMap.values()) {
       if (!(block instanceof VelloBlock)) continue;
       const id = block.record.id;
       active.add(id);
       const entry = this.synced.get(id);
-      const payload = { velloOps: encodeOps(block.ops), canvas: block.canvasPainter } as { velloOps: Uint8Array; canvas?: (ctx: CanvasRenderingContext2D) => void };
-      if (!entry) {
-        controller.addChunk({
-          id,
-          nodeIds: [id],
-          bounds: block.bounds,
-          estimatedCost: block.bounds.maxX - block.bounds.minX + (block.bounds.maxY - block.bounds.minY),
-          payload,
-        });
-        this.synced.set(id, { draw: block.drawVersion, position: block.boundsVersion });
+      const contentDirty = !entry || this.dirtyBlocks.has(id) || entry.draw !== block.drawVersion;
+      const boundsChanged = entry ? entry.position !== block.boundsVersion : false;
+      const posDirty = !contentDirty && (boundsChanged || this.movedBlocks.has(id));
+      const bounds = block.bounds;
+      const estimatedCost = bounds.maxX - bounds.minX + (bounds.maxY - bounds.minY);
+
+      if (contentDirty) {
+        const payload = { velloOps: encodeOps(block.ops), canvas: block.canvasPainter } as {
+          velloOps: Uint8Array;
+          canvas?: (ctx: CanvasRenderingContext2D) => void;
+        };
+        if (!entry) {
+          controller.addChunk({ id, nodeIds: [id], bounds, estimatedCost, payload });
+          this.synced.set(id, { draw: block.drawVersion, position: block.boundsVersion });
+        } else {
+          controller.invalidateChunk(id, { bounds, estimatedCost, payload });
+          entry.draw = block.drawVersion;
+          entry.position = block.boundsVersion;
+        }
         changed = true;
-      } else if (entry.draw !== block.drawVersion) {
-        controller.invalidateChunk(id, {
-          bounds: block.bounds,
-          estimatedCost: block.bounds.maxX - block.bounds.minX + (block.bounds.maxY - block.bounds.minY),
-          payload,
-        });
-        entry.draw = block.drawVersion;
-        entry.position = block.boundsVersion;
-        changed = true;
-      } else if (entry.position !== block.boundsVersion) {
-        controller.invalidateChunk(id, { bounds: block.bounds });
+      } else if (posDirty && entry) {
+        controller.invalidateChunk(id, { bounds });
         entry.position = block.boundsVersion;
         changed = true;
       }
     }
+    this.dirtyBlocks.clear();
+    this.movedBlocks.clear();
 
     for (const id of Array.from(this.synced.keys())) {
       if (!active.has(id)) {
