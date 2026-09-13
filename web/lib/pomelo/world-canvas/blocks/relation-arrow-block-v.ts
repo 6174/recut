@@ -3,7 +3,7 @@
  *          world-canvas/arrow-geometry（共享几何）、world-canvas/text-metrics（truncateText/measureTextWidth）、
  *          world-canvas/blocks/vello-shared
  * [OUTPUT]: 对外提供 RelationArrowBlockV（type: relation-arrow）：复用 arrow-geometry 的二次贝塞尔，
- *           曲线 + 箭头 + 标签；线宽/箭头/标签/边框均按屏幕像素恒定。
+ *           曲线 + 箭头 + 标签；线宽/箭头/标签/边框均按屏幕像素恒定；zIndex=-1 永远画在内容节点下层。
  * [POS]: lib/pomelo/world-canvas/blocks 的关系连线 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -25,6 +25,8 @@ function hexToRgba(hex: string, alpha = 255): Rgba {
 export class RelationArrowBlockV extends VelloBlock {
   static type = "relation-arrow";
   override renderOnZoom = true;
+  /** 连线永远在最底层：低于所有内容节点（entity/note/media/free-element）。 */
+  override zIndex = -1;
 
   override blockStateSelector = (state: PomeloEditorState) => {
     const fromId = String(this.record.attrs.fromId ?? "");

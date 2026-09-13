@@ -76,6 +76,8 @@ export interface RenderChunk {
   id: string;
   nodeIds: string[];
   bounds: TileWorldBounds;
+  /** 绘制层级：小者先画（在下层），缺省 0；同值时保持注册顺序（后注册在上层）。 */
+  zIndex?: number;
   atomic?: boolean;
   /** atomic chunk 的世界单位外扩（如 blur 溢出），渲染整块纹理时用。 */
   atomicPadding?: number;

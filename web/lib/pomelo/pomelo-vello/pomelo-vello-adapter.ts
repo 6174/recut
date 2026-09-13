@@ -286,20 +286,21 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       const posDirty = !contentDirty && (boundsChanged || this.movedBlocks.has(id));
       const bounds = block.bounds;
       const estimatedCost = bounds.maxX - bounds.minX + (bounds.maxY - bounds.minY);
+      const zIndex = block.zIndex;
 
       if (contentDirty) {
         const payload = { velloOps: encodeOps(block.ops) } as { velloOps: Uint8Array };
         if (!entry) {
-          controller.addChunk({ id, nodeIds: [id], bounds, estimatedCost, payload });
+          controller.addChunk({ id, nodeIds: [id], bounds, zIndex, estimatedCost, payload });
           this.synced.set(id, { draw: block.drawVersion, position: block.boundsVersion });
         } else {
-          controller.invalidateChunk(id, { bounds, estimatedCost, payload });
+          controller.invalidateChunk(id, { bounds, zIndex, estimatedCost, payload });
           entry.draw = block.drawVersion;
           entry.position = block.boundsVersion;
         }
         changed = true;
       } else if (posDirty && entry) {
-        controller.invalidateChunk(id, { bounds });
+        controller.invalidateChunk(id, { bounds, zIndex });
         entry.position = block.boundsVersion;
         changed = true;
       }

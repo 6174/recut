@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 types、geometry
- * [OUTPUT]: 对外提供 SpatialChunkIndex：chunk 注册/查询（按世界矩形求相交 chunk）与
- *           节点→chunk 反查（失效用）。v1 采用线性扫描（数百 chunk 量级足够），后续可换网格索引。
+ * [OUTPUT]: 对外提供 SpatialChunkIndex：chunk 注册/查询（按世界矩形求相交 chunk，结果按 zIndex 升序、
+ *           同层保持注册顺序）；节点→chunk 反查（失效用）。v1 采用线性扫描（数百 chunk 量级足够），后续可换网格索引。
  * [POS]: pomelo-tiles 的空间索引，对应 open-pencil chunks/RenderChunkIndex。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -19,7 +19,7 @@ export class SpatialChunkIndex {
     this.chunks.delete(id);
   }
 
-  updateChunk(id: string, patch: Partial<Pick<RenderChunk, "bounds" | "nodeIds" | "atomic" | "estimatedCost" | "payload">>): RenderChunk | null {
+  updateChunk(id: string, patch: Partial<Pick<RenderChunk, "bounds" | "nodeIds" | "atomic" | "estimatedCost" | "payload" | "zIndex">>): RenderChunk | null {
     const chunk = this.chunks.get(id);
     if (!chunk) return null;
     const next: RenderChunk = { ...chunk, ...patch };
@@ -31,11 +31,15 @@ export class SpatialChunkIndex {
     return this.chunks.get(id) ?? null;
   }
 
-  /** 与给定世界矩形相交的 chunks（保持注册顺序）。 */
+  /** 与给定世界矩形相交的 chunks（按 zIndex 升序，同 zIndex 保持注册顺序）。 */
   search(bounds: TileWorldBounds): RenderChunk[] {
     const hits: RenderChunk[] = [];
     for (const chunk of this.chunks.values()) {
       if (boundsIntersect(chunk.bounds, bounds)) hits.push(chunk);
+    }
+    // 稳定排序：zIndex 小者先绘制（位于下层）；Array.sort 在现代引擎中稳定，同值保持注册顺序。
+    if (hits.length > 1 && hits.some((chunk) => (chunk.zIndex ?? 0) !== 0)) {
+      hits.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
     }
     return hits;
   }

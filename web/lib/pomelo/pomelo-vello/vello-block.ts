@@ -4,6 +4,7 @@
  *           render()/reposition() 分别标记内容/位置版本，供适配器做增量失效。
  *           reposition() 对 op 做平移（vello op 内嵌世界坐标，不能只挪 bounds），
  *           避免拖拽高频路径下画面滞后/闪动；纯 x/y 变化不触发全量 renderBlock（blockStateSelector 忽略 x/y）。
+ *           zIndex 决定 chunk 绘制层级（小者在下层），随 chunk 上报给瓦片索引。
  * [POS]: pomelo-vello 的 block 基类（替代 PixiBlock），world-canvas 各 block 迁移目标。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -60,6 +61,8 @@ export abstract class VelloBlock extends PomeloBlock {
   boundsVersion = 0;
   /** true 时视口缩放变化触发重绘（用于屏幕像素恒定的徽标/文字）。 */
   renderOnZoom = false;
+  /** 绘制层级：小者在下层（先绘制）；缺省 0，同层按注册顺序（后注册在上层）。 */
+  zIndex = 0;
   ops: VelloOp[] = [];
   bounds: TileWorldBounds = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 

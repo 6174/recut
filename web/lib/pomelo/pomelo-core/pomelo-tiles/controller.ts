@@ -111,7 +111,7 @@ export class TileController<TTarget, THandle> {
   }
 
   /** 内容变更：重编码 chunk payload 后调用，失效其 bounds 相交的瓦片。 */
-  invalidateChunk(id: string, patch: Partial<Pick<RenderChunk, "bounds" | "nodeIds" | "atomic" | "estimatedCost" | "payload">>): void {
+  invalidateChunk(id: string, patch: Partial<Pick<RenderChunk, "bounds" | "nodeIds" | "atomic" | "estimatedCost" | "payload" | "zIndex">>): void {
     const chunk = this.index.getChunk(id);
     if (!chunk) return;
     this.rasterizer.invalidateChunk?.(id);
