@@ -463,6 +463,21 @@ func TestMaterializeV2UnifiedEntitiesAndCanvas(t *testing.T) {
 	if mediaURL != "https://cdn.example.test/a.png" {
 		t.Fatalf("media attr url not preserved: %q (attrs=%#v)", mediaURL, hero.Attrs)
 	}
+	// Platform v2 media is url-only (no assetId); the card preview must still be
+	// topped up from the CDN url so platform world cards render a header image.
+	detail, err := worlds.GetWorld(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundPreview := false
+	for _, preview := range detail.PreviewURLs {
+		if preview == "https://cdn.example.test/a.png" {
+			foundPreview = true
+		}
+	}
+	if !foundPreview {
+		t.Fatalf("url-only media must top up card preview: %#v", detail.PreviewURLs)
+	}
 	// Custom type directory row lands.
 	types, err := worlds.ListEntityTypes(id)
 	if err != nil {

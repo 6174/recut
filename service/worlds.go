@@ -2862,10 +2862,14 @@ func (w *WorldStore) summaryPreviewsFromAttrs(db *sql.DB, worldID string, summar
 			}
 			kind, _ := payload["kind"].(string)
 			assetID, _ := payload["assetId"].(string)
+			mediaURL, _ := payload["url"].(string)
 			if kind != "" && kind != "image" {
 				continue
 			}
-			if assetID == "" {
+			// Platform (v2) manifests carry entity images as url-only media
+			// (assetId empty, CDN absolute url); local worlds reference assets.
+			// Either source tops up the card preview.
+			if assetID == "" && mediaURL == "" {
 				continue
 			}
 			duplicate := false
@@ -2875,10 +2879,22 @@ func (w *WorldStore) summaryPreviewsFromAttrs(db *sql.DB, worldID string, summar
 					break
 				}
 			}
+			if !duplicate {
+				for _, seen := range summary.PreviewURLs {
+					if seen == mediaURL {
+						duplicate = true
+						break
+					}
+				}
+			}
 			if duplicate {
 				continue
 			}
-			summary.PreviewAssetIDs = append(summary.PreviewAssetIDs, assetID)
+			if assetID != "" {
+				summary.PreviewAssetIDs = append(summary.PreviewAssetIDs, assetID)
+			} else {
+				summary.PreviewURLs = append(summary.PreviewURLs, mediaURL)
+			}
 			if len(summary.PreviewAssetIDs)+len(summary.PreviewURLs) >= 3 {
 				return nil
 			}

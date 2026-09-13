@@ -1,8 +1,8 @@
 /*
  * [INPUT]: 依赖全局 fetch 与 CDN 上的 World 发布目录（https://cdn.recut.video/worlds/catalog.json）及各 world.json manifest
- *   （v2：entityTypes + 统一 entities[attrs/media] + canvases；旧 v1 evidence 仍兼容读取）
+ *   （v2：entityTypes + 统一 entities[attrs/media] + canvases + relations；旧 v1 evidence 仍兼容读取）
  * [OUTPUT]: 对外提供官网营销用的静态 World 目录数据 MarketingWorld（名称/类型/定位/语气/受众/封面/图片/实体摘要/
- *   只读画布投影 canvas）与 fetchMarketingWorlds()；CDN 不可达时返回空数组降级，不抛错
+ *   只读画布投影 canvas：实体/媒体/便签元素 + 两端都在画布上的语义关系）与 fetchMarketingWorlds()；CDN 不可达时返回空数组降级，不抛错
  * [POS]: web/lib 的公开营销内容加载器；只在服务端页面（首页 /worlds）构建期导入，客户端组件一律经 props 接收数据；
  *   绝不读取本地 service 或工作台状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -10,11 +10,14 @@
 export type MarketingWorldEntity = { id: string; kind: string; title: string; summary: string; imageUrl?: string };
 
 export type MarketingCanvasElement =
-  | { kind: "entity"; key: string; x: number; y: number; width: number; height: number; name: string; imageUrl: string; typeLabel: string }
+  | { kind: "entity"; key: string; entityId: string; x: number; y: number; width: number; height: number; name: string; imageUrl: string; typeLabel: string }
   | { kind: "media"; key: string; x: number; y: number; width: number; height: number; url: string; name: string }
   | { kind: "note"; key: string; x: number; y: number; width: number; height: number; text: string };
 
-export type MarketingWorldCanvas = { width: number; height: number; elements: MarketingCanvasElement[] };
+/** 画布上两端都有实体的语义关系（连线）；from/to 为实体语义 id。 */
+export type MarketingCanvasRelation = { id: string; from: string; to: string; type: string };
+
+export type MarketingWorldCanvas = { width: number; height: number; elements: MarketingCanvasElement[]; relations: MarketingCanvasRelation[] };
 
 export type MarketingWorld = {
   id: string;
@@ -67,6 +70,7 @@ type ManifestCanvasElement = {
   geometry?: { x?: number; y?: number; width?: number; height?: number };
 };
 type ManifestCanvas = { contextId?: string; elements?: ManifestCanvasElement[] };
+type ManifestRelation = { id?: string; from?: string; to?: string; type?: string };
 
 type WorldManifest = {
   manifestVersion?: number;
@@ -74,6 +78,7 @@ type WorldManifest = {
   entities?: ManifestEntity[];
   evidence?: ManifestEvidence[];
   canvases?: ManifestCanvas[];
+  relations?: ManifestRelation[];
 };
 
 const MARKETING_ENTITY_KINDS = new Set(["character", "location", "object", "story", "style", "rule"]);
@@ -145,12 +150,13 @@ function entityID(entity: ManifestEntity): string {
   return entity.id ?? "";
 }
 
-/** v2 manifest → 只读画布投影（根文档）；实体元素解析为实体卡（名称/封面/类型）。 */
+/** v2 manifest → 只读画布投影（根文档）；实体元素解析为实体卡（名称/封面/类型），并附两端都在画布上的语义关系。 */
 function buildCanvas(manifest: WorldManifest, imagesById: Map<string, string>): MarketingWorldCanvas | null {
   const root = (manifest.canvases ?? []).find((canvas) => !canvas.contextId) ?? (manifest.canvases ?? [])[0];
   if (!root?.elements?.length) return null;
   const byId = new Map((manifest.entities ?? []).map((entity) => [entityID(entity), entity]));
   const elements: MarketingCanvasElement[] = [];
+  const entityIds = new Set<string>();
   let maxX = 0;
   let maxY = 0;
   for (const element of root.elements.slice(0, MAX_CANVAS_ELEMENTS)) {
@@ -164,9 +170,12 @@ function buildCanvas(manifest: WorldManifest, imagesById: Map<string, string>): 
       const rawRef = element.refId ?? "";
       const localRef = rawRef.includes(":") ? rawRef.slice(rawRef.indexOf(":") + 1) : rawRef;
       const entity = byId.get(rawRef) ?? byId.get(localRef);
+      const entityId = entityID(entity ?? {}) || localRef;
+      if (entityId) entityIds.add(entityId);
       elements.push({
         kind: "entity",
         key: element.id ?? rawRef,
+        entityId,
         x, y, width, height,
         name: entity?.name ?? entity?.title ?? element.name ?? localRef,
         imageUrl: entity ? imagesById.get(entityID(entity)) ?? "" : "",
@@ -184,7 +193,20 @@ function buildCanvas(manifest: WorldManifest, imagesById: Map<string, string>): 
     if (text) elements.push({ kind: "note", key: element.id ?? text, x, y, width, height, text });
   }
   if (!elements.length) return null;
-  return { width: maxX + 40, height: maxY + 40, elements };
+  // 语义关系连线：仅保留两端实体都在本画布上的（同名去重，与工作台一致）
+  const relations: MarketingCanvasRelation[] = [];
+  const seenRelations = new Set<string>();
+  for (const relation of manifest.relations ?? []) {
+    const from = relation.from ?? "";
+    const to = relation.to ?? "";
+    if (!from || !to || !entityIds.has(from) || !entityIds.has(to)) continue;
+    const type = relation.type ?? "";
+    const key = `${from}→${to}·${type}`;
+    if (seenRelations.has(key)) continue;
+    seenRelations.add(key);
+    relations.push({ id: relation.id ?? key, from, to, type });
+  }
+  return { width: maxX + 40, height: maxY + 40, elements, relations };
 }
 
 async function fetchWorld(entry: CatalogEntry): Promise<MarketingWorld | null> {
