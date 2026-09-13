@@ -1,0 +1,26 @@
+[package]
+name = "pomelo-vello-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "vello (WASM/WebGPU) rasterizer runtime for pomelo-vello GPU seam"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vello = { version = "0.10", default-features = false, features = ["wgpu"] }
+# 直接依赖 wgpu 仅为启用 web 后端（SurfaceTarget::Canvas）；版本需与 vello 一致以复用同一 crate
+wgpu = { version = "29", default-features = false, features = ["webgpu"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = { version = "0.1", optional = true }
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+
+[features]
+default = ["console_error_panic_hook"]
+
+[profile.release]
+opt-level = "s"
+lto = true

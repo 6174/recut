@@ -1,0 +1,161 @@
+/*
+ * [INPUT]: 依赖 types
+ * [OUTPUT]: 对外提供 TileScheduler：5ms 预算 / 32 job 上限 / mandatory·visible·overscan 优先级 /
+ *           navigation+content 双代作废 / 执行后成本 EMA。
+ * [POS]: pomelo-tiles 的调度层，open-pencil tiles/scheduler.ts 直译。
+ * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+ */
+import type { TileJob, TileJobPriority, TileSchedulerMetrics } from "./types";
+
+export interface TileSchedulerOptions {
+  now?: () => number;
+  budgetMs: number;
+  maximumJobsPerFrame?: number;
+}
+
+const PRIORITY_ORDER: Record<TileJobPriority, number> = {
+  mandatory: 0,
+  visible: 1,
+  overscan: 2,
+};
+
+export function emptyTileSchedulerMetrics(): TileSchedulerMetrics {
+  return {
+    mandatoryCompleted: 0,
+    interruptibleCompleted: 0,
+    remaining: 0,
+    skippedWithFallback: 0,
+    deadlineOverrunMs: 0,
+    overBudgetJobs: 0,
+    maximumJobRenderMs: 0,
+    staleJobsDiscarded: 0,
+    cancelledJobs: 0,
+    totalAllocationMs: 0,
+    totalDrawMs: 0,
+    totalFlushMs: 0,
+    totalChunks: 0,
+  };
+}
+
+function addJobMetrics(metrics: TileSchedulerMetrics, result: TileJobResultLike): void {
+  metrics.maximumJobRenderMs = Math.max(metrics.maximumJobRenderMs, result.renderMs);
+  metrics.totalAllocationMs += result.allocationMs ?? 0;
+  metrics.totalDrawMs += result.drawMs ?? 0;
+  metrics.totalFlushMs += result.flushMs ?? 0;
+  metrics.totalChunks += result.chunkCount ?? 0;
+}
+
+interface TileJobResultLike {
+  renderMs: number;
+  overBudget: boolean;
+  allocationMs?: number;
+  drawMs?: number;
+  flushMs?: number;
+  chunkCount?: number;
+}
+
+export class TileScheduler {
+  private navigationGeneration = 0;
+  private contentGeneration = 0;
+  private jobs: TileJob[] = [];
+  private readonly now: () => number;
+  private readonly budgetMs: number;
+  private readonly maximumJobsPerFrame: number;
+
+  constructor(options: TileSchedulerOptions) {
+    this.now = options.now ?? (() => performance.now());
+    this.budgetMs = options.budgetMs;
+    this.maximumJobsPerFrame = options.maximumJobsPerFrame ?? Number.POSITIVE_INFINITY;
+  }
+
+  /** 推进代并作废 stale job，返回被丢弃数量。 */
+  setGeneration(navigationGeneration: number, contentGeneration: number): number {
+    const previousCount = this.jobs.length;
+    this.navigationGeneration = navigationGeneration;
+    this.contentGeneration = contentGeneration;
+    this.jobs = this.jobs.filter(
+      (job) => job.navigationGeneration === navigationGeneration && job.contentGeneration === contentGeneration,
+    );
+    return previousCount - this.jobs.length;
+  }
+
+  enqueue(jobs: TileJob[]): void {
+    const existing = new Set(this.jobs.map((job) => this.identity(job)));
+    for (const job of jobs) {
+      if (
+        job.navigationGeneration !== this.navigationGeneration ||
+        job.contentGeneration !== this.contentGeneration ||
+        existing.has(this.identity(job))
+      ) {
+        continue;
+      }
+      this.jobs.push(job);
+      existing.add(this.identity(job));
+    }
+    this.jobs.sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
+  }
+
+  /** 按预算执行任务；execute 返回耗时与是否超预算。 */
+  runFrame(execute: (job: TileJob) => TileJobResultLike): TileSchedulerMetrics {
+    const frameStart = this.now();
+    const metrics = emptyTileSchedulerMetrics();
+
+    let jobsExecuted = 0;
+    while (this.jobs.length > 0) {
+      if (jobsExecuted >= this.maximumJobsPerFrame) break;
+      const job = this.jobs[0];
+      const elapsed = this.now() - frameStart;
+      const mandatory = job.priority === "mandatory" && !job.fallbackAvailable;
+      if (jobsExecuted > 0 && elapsed >= this.budgetMs) break;
+      if (this.isStale(job)) {
+        this.jobs.shift();
+        metrics.staleJobsDiscarded++;
+        continue;
+      }
+      if (!mandatory && job.fallbackAvailable && elapsed + job.estimatedCost > this.budgetMs) {
+        if (jobsExecuted === 0) {
+          const result = execute(job);
+          this.jobs.shift();
+          metrics.interruptibleCompleted++;
+          addJobMetrics(metrics, result);
+          if (result.overBudget || result.renderMs > this.budgetMs) metrics.overBudgetJobs++;
+          const overrun = this.now() - frameStart - this.budgetMs;
+          if (overrun > metrics.deadlineOverrunMs) metrics.deadlineOverrunMs = overrun;
+        } else {
+          metrics.skippedWithFallback++;
+        }
+        break;
+      }
+      this.jobs.shift();
+      const result = execute(job);
+      jobsExecuted++;
+      addJobMetrics(metrics, result);
+      if (result.overBudget || result.renderMs > this.budgetMs) metrics.overBudgetJobs++;
+      if (mandatory) metrics.mandatoryCompleted++;
+      else metrics.interruptibleCompleted++;
+      const overrun = this.now() - frameStart - this.budgetMs;
+      if (overrun > metrics.deadlineOverrunMs) metrics.deadlineOverrunMs = overrun;
+    }
+    metrics.remaining = this.jobs.length;
+    return metrics;
+  }
+
+  clear(): number {
+    const count = this.jobs.length;
+    this.jobs = [];
+    return count;
+  }
+
+  pending(): number {
+    return this.jobs.length;
+  }
+
+  private identity(job: TileJob): string {
+    const { key } = job;
+    return `${key.pageId}:${key.level}:${key.x}:${key.y}:${job.contentGeneration}`;
+  }
+
+  private isStale(job: TileJob): boolean {
+    return job.navigationGeneration !== this.navigationGeneration || job.contentGeneration !== this.contentGeneration;
+  }
+}
