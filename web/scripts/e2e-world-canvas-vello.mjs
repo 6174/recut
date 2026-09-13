@@ -29,11 +29,12 @@ const profile = mkdtempSync(join(tmpdir(), "world-vello-"));
 const chrome = spawn(CHROME, [
   `--remote-debugging-port=${PORT}`,
   `--user-data-dir=${profile}`,
-  "--headless=new",
+  ...(process.env.VELLO_HEADLESS ? ["--headless=new"] : []),
   "--enable-unsafe-webgpu",
   "--ignore-gpu-blocklist",
   "--no-first-run",
   "--no-default-browser-check",
+  "--window-size=1600,900",
   "about:blank",
 ], { stdio: "ignore" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -83,7 +84,10 @@ try {
   const entities = await page.evaluate(() => window.__worldCanvasDebug.store.getState().entities.length);
   ok("世界数据加载", entities > 0, `entities=${entities}`);
 
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(3000);
+  const viewport = await page.evaluate(() => window.__worldCanvasDebug.editor.renderAdapter.viewport);
+  ok("画布尺寸有效", (viewport?.width ?? 0) > 100, `width=${viewport?.width}`);
+  await page.waitForTimeout(4000);
   // 内容像素：采样画布中部区域，统计非背景像素
   const region = await sampleRegion(page, { x: 500, y: 120, width: 700, height: 600 });
   let content = 0;
@@ -91,7 +95,7 @@ try {
     const r = region.data[i], g = region.data[i + 1], b = region.data[i + 2];
     if (!(r < 24 && g < 28 && b < 40)) content++;
   }
-  ok("vello 渲染出内容", content > 2000, `非背景像素=${content}`);
+  ok("vello 渲染出内容（图+文）", content > 20000, `非背景像素=${content}`);
 
   const layers = await page.evaluate(() => ({
     grid: Boolean(document.querySelector('[data-grid-layer="true"]')),

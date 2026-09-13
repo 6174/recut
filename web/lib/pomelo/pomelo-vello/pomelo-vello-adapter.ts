@@ -114,9 +114,11 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
         latin = new Uint8Array(await latinResponse.arrayBuffer());
         gpu.registerFont(FONT_ID, latin);
       }
-      const cjkResponse = await fetch("/vello-wasm/noto-cjk-subset.otf");
-      if (cjkResponse.ok) {
-        gpu.registerFont(CJK_FONT_ID, new Uint8Array(await cjkResponse.arrayBuffer()));
+      // 优先完整 CJK 字体（真实世界内容为中文）；缺失时回退到内置子集（仅 demo 字符）
+      let cjk = await fetch("/vello-wasm/noto-sans-sc.otf");
+      if (!cjk.ok) cjk = await fetch("/vello-wasm/noto-cjk-subset.otf");
+      if (cjk.ok) {
+        gpu.registerFont(CJK_FONT_ID, new Uint8Array(await cjk.arrayBuffer()));
         if (latin) gpu.setFontFallback(FONT_ID, CJK_FONT_ID);
       }
     } catch (error) {
@@ -248,31 +250,36 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     const id = this.nextImageId++;
     void (async () => {
       try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`image fetch ${response.status}`);
-        const bitmap = await createImageBitmap(await response.blob());
+        // 用 Image + canvas 加载（与 pixi 路径一致，避免 fetch/CORS 差异），再取 RGBA 注册为 image
+        const image = new Image();
+        image.crossOrigin = "anonymous";
+        image.decoding = "async";
+        await new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = () => reject(new Error("image decode failed"));
+          image.src = url;
+        });
         const maxSide = 512;
-        const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-        const width = Math.max(1, Math.round(bitmap.width * scale));
-        const height = Math.max(1, Math.round(bitmap.height * scale));
+        const scale = Math.min(1, maxSide / Math.max(image.naturalWidth || 1, image.naturalHeight || 1));
+        const width = Math.max(1, Math.round((image.naturalWidth || 1) * scale));
+        const height = Math.max(1, Math.round((image.naturalHeight || 1) * scale));
         const canvas = document.createElement("canvas");
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("no 2d context");
-        ctx.drawImage(bitmap, 0, 0, width, height);
+        ctx.drawImage(image, 0, 0, width, height);
         const rgba = new Uint8Array(ctx.getImageData(0, 0, width, height).data);
         (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, width, height, rgba);
         this.imageIds.set(url, id);
-      } catch (error) {
-        console.warn("[pomelo-vello-adapter] image load failed", url, error);
       } finally {
         this.imagePending.delete(url);
-        // 图就绪后重跑所有 VelloBlock.render()（ensureImage 现在能返回 id），drawVersion++ 触发 chunk 重编码
+        // 图就绪后重跑所有 VelloBlock.render()（ensureImage 现在能返回 id），
+        // 再 syncChunks 把 drawVersion 变化同步成 chunk（否则瓦片不会重编码，图不显示）
         for (const block of this.renderedBlockMap.values()) {
           if (block instanceof VelloBlock) block.render();
         }
-        this.contentGeneration++;
+        this.syncChunks();
         this.dirty = true;
       }
     })();
