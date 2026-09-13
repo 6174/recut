@@ -143,5 +143,18 @@ export interface TileRasterizer<TTarget, THandle> {
   renderContentSession?(liveChunks: RenderChunk[], viewport: Viewport): boolean;
   /** 可选：结束内容会话，释放静态快照。 */
   endContentSession?(): void;
+  /**
+   * 可选：构建保留场景底图——把 backingViewport（视口 × 缩放预算 + margin，设备像素）内的
+   * 整场渲成一张保留纹理，不呈现。之后用 presentSceneBacking 按 transform 贴。
+   */
+  buildSceneBacking?(chunks: RenderChunk[], backingViewport: Viewport): void;
+  /** 可选：用保留底图呈现当前视口（单 quad，不重编码）；返回是否覆盖（false 表示调用方需重渲）。 */
+  presentSceneBacking?(viewport: Viewport, allowStaleZoom: boolean): boolean;
+  /** 可选：分帧构建底图（新建累积目标，保留旧底图用于构建期间呈现）。 */
+  beginSceneBacking?(chunks: RenderChunk[], backingViewport: Viewport): void;
+  /** 可选：推进底图构建；返回是否完成。 */
+  stepSceneBacking?(budgetMs: number): boolean;
+  /** 可选：释放保留场景底图（含构建中的）。 */
+  endSceneBacking?(): void;
   destroy(): void;
 }

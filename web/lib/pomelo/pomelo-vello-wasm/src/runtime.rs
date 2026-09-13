@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use vello::kurbo::Affine;
 use vello::peniko::{Blob, Color, FontData, ImageData};
-use vello::wgpu::{self, Extent3d, TextureDescriptor, TextureFormat, TextureUsages};
+use vello::wgpu::{
+    self, Extent3d, LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TextureDescriptor, TextureFormat, TextureUsages,
+};
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
@@ -39,6 +41,61 @@ struct ContentSession {
     _texture: wgpu::Texture,
 }
 
+/// 保留场景底图（对齐 open-pencil `sceneBacking`）：整场渲成一张按像素预算放大的纹理
+/// （视口 × scale + margin）。内容不变时，平移/缩放只需按新 transform 贴这张纹理（单 quad、
+/// 不再重编码整场）；覆盖不足或内容变化才重渲。是「永不空白/残缺」的兜底。
+struct SceneBacking {
+    handle: u32,
+    view: wgpu::TextureView,
+    _texture: wgpu::Texture,
+    /// 渲染 backing 时的视口参数与尺寸（均为设备像素）
+    pan_x: f32,
+    pan_y: f32,
+    zoom: f32,
+    width: f32,
+    height: f32,
+}
+
+/// 分帧构建中的底图：把 chunk 分批渲到 `batch` 纹理，再累积（LoadOp::Load）到 `target` 纹理。
+/// 构建期间旧的已提交底图继续用于呈现，避免单帧 spike。
+struct SceneBackingBuild {
+    target_texture: wgpu::Texture,
+    target_view: wgpu::TextureView,
+    _batch_texture: wgpu::Texture,
+    batch_view: wgpu::TextureView,
+    batch_handle: u32,
+    pan_x: f32,
+    pan_y: f32,
+    zoom: f32,
+    width: f32,
+    height: f32,
+    stream: Vec<u8>,
+    cursor: usize,
+}
+
+/// 单个 batch 覆盖的 chunk 记录数（每条 `[u64 key][u32 len][bytes]`）。
+const BACKING_BUILD_BATCH_CHUNKS: usize = 6;
+
+fn now_ms() -> f32 {
+    js_sys::Date::now() as f32
+}
+
+/// 从 `cursor` 起取一个 batch 的字节范围 `(start, end)`；`end == stream.len()` 表示已到末尾。
+fn next_batch_bounds(stream: &[u8], cursor: usize) -> (usize, usize) {
+    let mut p = cursor;
+    let mut count = 0usize;
+    while p + 12 <= stream.len() && count < BACKING_BUILD_BATCH_CHUNKS {
+        let len = u32::from_le_bytes(stream[p + 8..p + 12].try_into().unwrap()) as usize;
+        p += 12 + len;
+        if p > stream.len() {
+            p = stream.len();
+            break;
+        }
+        count += 1;
+    }
+    (cursor, p)
+}
+
 #[wasm_bindgen]
 pub struct VelloRuntime {
     device: wgpu::Device,
@@ -53,6 +110,8 @@ pub struct VelloRuntime {
     images: HashMap<u32, ImageData>,
     chunk_scenes: HashMap<u64, Scene>,
     content_session: Option<ContentSession>,
+    scene_backing: Option<SceneBacking>,
+    scene_backing_build: Option<SceneBackingBuild>,
     next_handle: u32,
     clear: wgpu::Color,
     clear_color: Color,
@@ -132,6 +191,8 @@ impl VelloRuntime {
             images: HashMap::new(),
             chunk_scenes: HashMap::new(),
             content_session: None,
+            scene_backing: None,
+            scene_backing_build: None,
             next_handle: 1,
             clear: wgpu::Color { r: 11.0 / 255.0, g: 15.0 / 255.0, b: 25.0 / 255.0, a: 1.0 },
             clear_color: Color::from_rgba8(11, 15, 25, 255),
@@ -348,8 +409,8 @@ impl VelloRuntime {
         Ok(scene)
     }
 
-    /// 把 Scene 光栅到一张新的离屏纹理（透明底），返回纹理与其 view。
-    fn render_scene_to_texture(&mut self, scene: &Scene, width: u32, height: u32) -> Result<(wgpu::Texture, wgpu::TextureView), JsValue> {
+    /// 创建一张可供 vello 光栅（STORAGE_BINDING）的离屏纹理。
+    fn create_render_texture(&self, width: u32, height: u32) -> (wgpu::Texture, wgpu::TextureView) {
         let texture = self.device.create_texture(&TextureDescriptor {
             label: Some("pomelo-vello-frame"),
             size: Extent3d { width, height, depth_or_array_layers: 1 },
@@ -359,10 +420,67 @@ impl VelloRuntime {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.renderer.render_to_texture(&self.device, &self.queue, scene, &view, &RenderParams {
+        (texture, view)
+    }
+
+    /// 把 Scene 光栅进已有 view（透明底）。
+    fn render_scene_into(&mut self, view: &wgpu::TextureView, scene: &Scene, width: u32, height: u32) -> Result<(), JsValue> {
+        self.renderer.render_to_texture(&self.device, &self.queue, scene, view, &RenderParams {
             base_color: Color::from_rgba8(0, 0, 0, 0), width, height, antialiasing_method: AaConfig::Area,
         }).map_err(js_err)?;
+        Ok(())
+    }
+
+    /// 把 Scene 光栅到一张新的离屏纹理（透明底），返回纹理与其 view。
+    fn render_scene_to_texture(&mut self, scene: &Scene, width: u32, height: u32) -> Result<(wgpu::Texture, wgpu::TextureView), JsValue> {
+        let (texture, view) = self.create_render_texture(width, height);
+        self.render_scene_into(&view, scene, width, height)?;
         Ok((texture, view))
+    }
+
+    /// 创建底图目标纹理（供 compositor 累积渲染 + 采样呈现）。
+    /// 必须用 **surface 的 format**：compositor pipeline 的 target format 就是它，否则
+    /// 往底图累积时 pipeline/attachment 格式不匹配，wgpu 会静默跳过该 pass（底图全空）。
+    fn create_backing_target(&self, width: u32, height: u32) -> (wgpu::Texture, wgpu::TextureView) {
+        let texture = self.device.create_texture(&TextureDescriptor {
+            label: Some("pomelo-vello-backing"),
+            size: Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
+            format: self.config.format,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        (texture, view)
+    }
+
+    /// 用 compositor 把 draws 累积渲染进 view（LoadOp::Load，不清屏）。
+    fn accumulate_into_view(&mut self, view: &wgpu::TextureView, width: u32, height: u32, draws: &[QuadDraw<'_>]) -> Result<(), JsValue> {
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pomelo-vello-backing-batch") });
+        self.compositor.render(&self.device, &self.queue, &mut encoder, view, width, height, draws, true);
+        self.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// 把 view 清成透明（底图累积前使用）。
+    fn clear_view_transparent(&self, view: &wgpu::TextureView) {
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pomelo-vello-backing-clear") });
+        {
+            let _pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("pomelo-vello-backing-clear-pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations { load: LoadOp::Clear(wgpu::Color::TRANSPARENT), store: StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+        self.queue.submit(Some(encoder.finish()));
     }
 
     /// 每帧整场渲染（open-pencil layer-1 思路）：命中缓存复用 chunk Scene，全部 append 进一个
@@ -425,6 +543,170 @@ impl VelloRuntime {
     pub fn end_content_session(&mut self) {
         if let Some(session) = self.content_session.take() {
             self.compositor.dispose(session.handle);
+        }
+    }
+
+    /// 构建保留场景底图：把整场按 `(pan/zoom)` 渲到一张 `width×height`（设备像素）纹理并保留。
+    /// JS 侧按像素预算算好 backingViewport（视口 × scale + margin）后调用。
+    pub fn build_scene_backing(&mut self, chunks: Vec<u8>, pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32) -> Result<(), JsValue> {
+        self.end_scene_backing();
+        let width = width.max(1);
+        let height = height.max(1);
+        let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
+        let scene = self.build_stream_scene(&chunks, transform)?;
+        let (texture, view) = self.render_scene_to_texture(&scene, width, height)?;
+        let handle = self.next_handle;
+        self.next_handle += 1;
+        self.scene_backing = Some(SceneBacking { handle, view, _texture: texture, pan_x, pan_y, zoom, width: width as f32, height: height as f32 });
+        Ok(())
+    }
+
+    /// 用底图呈现当前视口：按新 transform 贴 backing 纹理（单 quad，不重编码）。
+    /// `allow_stale_zoom` 为 true 时（导航中）只要底图屏幕矩形仍覆盖视口就贴（允许缩放发虚）；
+    /// 为 false 时要求 zoom 一致且世界矩形包含视口（crisp，否则返回 false 让调用方重渲）。
+    pub fn present_backing(&mut self, pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32, allow_stale_zoom: bool) -> Result<bool, JsValue> {
+        let backing = match self.scene_backing.as_ref() {
+            Some(backing) => backing,
+            None => return Ok(false),
+        };
+        let w = width.max(1) as f32;
+        let h = height.max(1) as f32;
+        let scale = zoom / backing.zoom;
+        let sx = pan_x - backing.pan_x * scale;
+        let sy = pan_y - backing.pan_y * scale;
+        let sw = backing.width * scale;
+        let sh = backing.height * scale;
+        let zoom_match = (zoom - backing.zoom).abs() <= 1e-4;
+        let world_covers = {
+            let bx0 = -backing.pan_x / backing.zoom;
+            let by0 = -backing.pan_y / backing.zoom;
+            let bx1 = (-backing.pan_x + backing.width) / backing.zoom;
+            let by1 = (-backing.pan_y + backing.height) / backing.zoom;
+            let lx0 = -pan_x / zoom;
+            let ly0 = -pan_y / zoom;
+            let lx1 = (-pan_x + w) / zoom;
+            let ly1 = (-pan_y + h) / zoom;
+            lx0 >= bx0 && ly0 >= by0 && lx1 <= bx1 && ly1 <= by1
+        };
+        let screen_covers = sx <= 0.0 && sy <= 0.0 && sx + sw >= w && sy + sh >= h;
+        let covered = (zoom_match && world_covers) || (allow_stale_zoom && screen_covers);
+        if !covered {
+            return Ok(false);
+        }
+        let draw = QuadDraw { handle: backing.handle, view: &backing.view, rect: [sx, sy, sw, sh], uv: [0.0, 0.0, 1.0, 1.0] };
+        present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])?;
+        Ok(true)
+    }
+
+    /// 开始分帧构建底图：新建累积目标 + 复用 batch 纹理；**保留已提交底图**（构建期间继续用于呈现）。
+    pub fn begin_scene_backing(&mut self, chunks: Vec<u8>, pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32) -> Result<(), JsValue> {
+        self.cancel_scene_backing_build();
+        let width = width.max(1);
+        let height = height.max(1);
+        let (target_texture, target_view) = self.create_backing_target(width, height);
+        self.clear_view_transparent(&target_view);
+        let (batch_texture, batch_view) = self.create_render_texture(width, height);
+        let batch_handle = self.next_handle;
+        self.next_handle += 1;
+        self.scene_backing_build = Some(SceneBackingBuild {
+            target_texture,
+            target_view,
+            _batch_texture: batch_texture,
+            batch_view,
+            batch_handle,
+            pan_x,
+            pan_y,
+            zoom,
+            width: width as f32,
+            height: height as f32,
+            stream: chunks,
+            cursor: 0,
+        });
+        Ok(())
+    }
+
+    /// 分帧推进底图构建：在 `budget_ms` 内尽量多渲几个 batch；返回是否构建完成。
+    /// 完成时把新底图提交（替换旧的），旧的已提交底图在此之前一直可用。
+    pub fn step_scene_backing(&mut self, budget_ms: f32) -> Result<bool, JsValue> {
+        let started = now_ms();
+        let mut build = match self.scene_backing_build.take() {
+            Some(build) => build,
+            None => return Ok(true),
+        };
+        let total = build.stream.len();
+        // 每帧最多推进的 batch 数：vello 单个 batch 是一次整幅离屏渲染（GPU 排队），
+        // 靠 wall-clock CPU 预算无法限制 GPU 工作，故用硬上限把 GPU 分摊到多帧。
+        const MAX_BATCHES_PER_STEP: usize = 1;
+        let mut batches = 0usize;
+        let result: Result<bool, JsValue> = loop {
+            let (batch_start, batch_end) = next_batch_bounds(&build.stream, build.cursor);
+            if batch_start < batch_end {
+                let transform = Affine::translate((build.pan_x as f64, build.pan_y as f64)) * Affine::scale(build.zoom as f64);
+                let scene = match self.build_stream_scene(&build.stream[batch_start..batch_end], transform) {
+                    Ok(scene) => scene,
+                    Err(error) => break Err(error),
+                };
+                let width = build.width as u32;
+                let height = build.height as u32;
+                if let Err(error) = self.render_scene_into(&build.batch_view, &scene, width, height) {
+                    break Err(error);
+                }
+                let draw = QuadDraw { handle: build.batch_handle, view: &build.batch_view, rect: [0.0, 0.0, build.width, build.height], uv: [0.0, 0.0, 1.0, 1.0] };
+                if let Err(error) = self.accumulate_into_view(&build.target_view, width, height, &[draw]) {
+                    break Err(error);
+                }
+            }
+            build.cursor = batch_end;
+            batches += 1;
+            if batch_end >= total {
+                break Ok(true);
+            }
+            if batches >= MAX_BATCHES_PER_STEP || now_ms() - started >= budget_ms {
+                break Ok(false);
+            }
+        };
+        match result {
+            Ok(true) => {
+                if let Some(old) = self.scene_backing.take() {
+                    self.compositor.dispose(old.handle);
+                }
+                let handle = self.next_handle;
+                self.next_handle += 1;
+                self.compositor.dispose(build.batch_handle);
+                self.scene_backing = Some(SceneBacking {
+                    handle,
+                    view: build.target_view,
+                    _texture: build.target_texture,
+                    pan_x: build.pan_x,
+                    pan_y: build.pan_y,
+                    zoom: build.zoom,
+                    width: build.width,
+                    height: build.height,
+                });
+                Ok(true)
+            }
+            Ok(false) => {
+                self.scene_backing_build = Some(build);
+                Ok(false)
+            }
+            Err(error) => {
+                self.compositor.dispose(build.batch_handle);
+                Err(error)
+            }
+        }
+    }
+
+    fn cancel_scene_backing_build(&mut self) {
+        if let Some(build) = self.scene_backing_build.take() {
+            self.compositor.dispose(build.batch_handle);
+        }
+    }
+
+    /// 释放保留场景底图（含构建中的）与其合成绑定。
+    pub fn end_scene_backing(&mut self) {
+        self.cancel_scene_backing_build();
+        if let Some(backing) = self.scene_backing.take() {
+            self.compositor.dispose(backing.handle);
         }
     }
 
@@ -643,7 +925,7 @@ fn present_draws(
     };
     let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pomelo-vello-present") });
-    compositor.render(device, queue, &mut encoder, &frame_view, config.width, config.height, draws);
+    compositor.render(device, queue, &mut encoder, &frame_view, config.width, config.height, draws, false);
     queue.submit(Some(encoder.finish()));
     frame.present();
     Ok(())

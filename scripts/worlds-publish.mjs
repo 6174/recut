@@ -6,9 +6,8 @@
  *   确定性序列化）+ 镜像资源 + cdn/buckets/worlds/catalog.json。
  *
  * 用法：
- *   node scripts/worlds-publish.mjs [--check] [--seed] [--upload]
+ *   node scripts/worlds-publish.mjs [--check] [--upload]
  *     --check        只校验并打印 canonical/manifest hash 预览（CI 防漂移；不发 CDN）
- *     --seed         同时把最新 pgc.* 发布产物与 catalog 写入 service/worldcatalog/
  *     --upload       构建后增量上传到 R2（只传新版本目录 + catalog；--skip-existing）
  *
  * 构建期硬校验：schema、closed 集合、ID/引用完整性（parentId/relations/media asset id/
@@ -35,7 +34,6 @@ const repoRoot = join(here, "..");
 
 const args = process.argv.slice(2);
 const checkOnly = args.includes("--check");
-const withSeed = args.includes("--seed");
 const withUpload = args.includes("--upload");
 
 // --- budgets（与 service 物化器一致）---------------------------------------
@@ -393,7 +391,7 @@ async function buildWorld(worldDir, cdnBase) {
 async function main() {
   const { CDN } = await import(join(repoRoot, "cdn", "config.mjs"));
   const cdnBase = CDN.baseUrl.replace(/\/$/, "");
-  console.log(`worlds publish v2 — cdn=${cdnBase} check=${checkOnly} seed=${withSeed} upload=${withUpload}`);
+  console.log(`worlds publish v2 — cdn=${cdnBase} check=${checkOnly} upload=${withUpload}`);
 
   const worldsRoot = join(repoRoot, "worlds");
   if (!existsSync(worldsRoot)) {
@@ -425,26 +423,6 @@ async function main() {
     console.log(`\n✓ catalog cdn/buckets/worlds/catalog.json（${catalog.worlds.length} 条）`);
   } else {
     console.log(`\n✓ catalog 预览（--check 不落盘）`);
-  }
-
-  if (withSeed) {
-    const seedRoot = join(repoRoot, "service", "worldcatalog");
-    rmSync(seedRoot, { recursive: true, force: true });
-    mkdirSync(seedRoot, { recursive: true });
-    writeFileSync(join(seedRoot, "catalog.json"), catalogBytes);
-    for (const entry of built) {
-      const targetDir = join(seedRoot, entry.id, entry.version);
-      mkdirSync(targetDir, { recursive: true });
-      const stagedDir = join(repoRoot, "cdn", "buckets", entry.stagedRel);
-      writeFileSync(join(targetDir, "world.json"), readFileSync(join(stagedDir, "world.json")));
-      const assetsDir = join(stagedDir, "assets");
-      if (existsSync(assetsDir)) {
-        mkdirSync(join(targetDir, "assets"), { recursive: true });
-        writeFileSync(join(targetDir, "assets", ".placeholder"), "素材不随二进制发布，见仓库 worlds/ 与 CDN\n");
-      }
-      console.log(`  ✓ seed ${relative(repoRoot, targetDir)}/`);
-    }
-    console.log(`✓ 种子 service/worldcatalog/（首启/离线兜底）`);
   }
 
   if (withUpload) {

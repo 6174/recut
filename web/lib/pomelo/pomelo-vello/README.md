@@ -15,7 +15,7 @@ pomelo 的 vello-native 渲染适配层：把 pomelo 的 vdom/block 生命周期
 | `vello-block.ts` | `VelloBlock extends PomeloBlock`：`renderBlock()` 产出 vello op；`render()`/`reposition()` 分别标记内容/位置版本供增量失效；`reposition()` 对内嵌世界坐标做平移（拖拽不滞后/闪动；文本 op 按 `glyphScale` 预乘坐标反算），`blockStateSelector` 忽略 x/y。**内核不感知任何业务 block** |
 | `demo-blocks.ts` | 示例 `DemoCardBlock`（M2 验证用） |
 | `op-bridge.ts` | JS→WASM 绘制 op 编码（与 `pomelo-vello-wasm/src/ops.rs` 对齐）；TEXT op 含 `embolden`（合成加粗 em 比例）与 `glyphScale`（屏幕恒定文本：font_size 保持屏幕 ppem 由轮廓高精度生成，配 1/scale 抵消视口缩放，坐标预乘 scale） |
-| `vello-rasterizer.ts` | `TileRasterizer` 的 vello(WebGPU/WASM) 实现 |
+| `vello-rasterizer.ts` | `TileRasterizer` 的 vello(WebGPU/WASM) 实现；保留场景底图（`buildSceneBacking`/`presentSceneBacking`/`beginSceneBacking`/`stepSceneBacking`/`endSceneBacking`，平移/缩放贴底图不重编码，覆盖不足分帧增量重建）与内容会话（`beginContentSession`/`renderContentSession`/`endContentSession`） |
 
 > 业务 block（实体卡/便签/World 节点/媒体/关系线等）不再放在内核里：位于
 > `world-canvas/blocks/vello-world-blocks.ts`（`EntityCardBlockV` 等 + `entityCardRectV`），

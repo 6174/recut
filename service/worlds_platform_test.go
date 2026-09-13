@@ -14,7 +14,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -522,45 +521,5 @@ func numberValue(value any) float64 {
 		return float64(typed)
 	default:
 		return 0
-	}
-}
-
-// TestEmbeddedSeedManifestsMaterialize guards the shipped seed content: every
-// embedded platform manifest must pass the v2 validator and materialize into a
-// clean store. It catches source-format drift between the publish script and the
-// materializer at test time instead of at first daemon start.
-func TestEmbeddedSeedManifestsMaterialize(t *testing.T) {
-	entries, err := fs.ReadDir(embeddedWorldCatalogFS, "worldcatalog")
-	if err != nil {
-		t.Fatalf("read embedded worldcatalog: %v", err)
-	}
-	found := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		versions, err := fs.ReadDir(embeddedWorldCatalogFS, "worldcatalog/"+entry.Name())
-		if err != nil {
-			t.Fatalf("read seed world %s: %v", entry.Name(), err)
-		}
-		for _, version := range versions {
-			if !version.IsDir() {
-				continue
-			}
-			rel := "worldcatalog/" + entry.Name() + "/" + version.Name() + "/world.json"
-			data, err := fs.ReadFile(embeddedWorldCatalogFS, rel)
-			if err != nil {
-				continue
-			}
-			worlds, _, _ := newTestWorldStore(t)
-			sum := sha256.Sum256(data)
-			if _, _, err := worlds.MaterializeWorld(entry.Name(), WorldPlatform, "recut", version.Name(), hex.EncodeToString(sum[:]), 1, data); err != nil {
-				t.Fatalf("embedded manifest %s is invalid: %v", rel, err)
-			}
-			found++
-		}
-	}
-	if found == 0 {
-		t.Fatal("no embedded world manifests found")
 	}
 }

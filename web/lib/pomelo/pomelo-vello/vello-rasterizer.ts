@@ -1,8 +1,12 @@
 /*
  * [INPUT]: 依赖 pomelo-tiles/types、op-bridge
  * [OUTPUT]: 对外提供 VelloGpuRasterizer：TileRasterizer 的 vello(WASM/WebGPU) 实现。
- *           direct 整场渲染之外提供内容会话（beginContentSession/renderContentSession/endContentSession）：
- *           静态 chunk 渲成保留纹理，会话帧只重渲 live chunks 并合成，避免逐帧重编码整场。
+ *           direct 整场渲染之外提供：
+ *           - 保留场景底图（buildSceneBacking/presentSceneBacking/beginSceneBacking/stepSceneBacking/
+ *             endSceneBacking）：整场渲成一张按像素预算放大的纹理，平移/缩放按新 transform 贴；
+ *             覆盖不足时可分帧（begin/step）增量重建，避免逐帧重编码整场；
+ *           - 内容会话（beginContentSession/renderContentSession/endContentSession）：
+ *             静态 chunk 渲成保留纹理，会话帧只重渲 live chunks 并合成。
  *           运行时经 /vello-wasm/*（wasm-pack 产物）动态加载；`isAvailable()` 检测 navigator.gpu + adapter。
  *           不可用时由宿主抛出 RendererUnsupportedError（不降级）。
  * [POS]: pomelo-vello 的 GPU 光栅器实现（M1）。
@@ -11,8 +15,11 @@
 import { encodeOps } from "./op-bridge";
 import type { RenderChunk, RenderedTile, TileKey, TileRasterizer, TileWorldBounds, Viewport } from "../pomelo-core/pomelo-tiles/types";
 
-const WASM_JS_URL = "/vello-wasm/pomelo_vello_wasm.js";
-const WASM_BIN_URL = "/vello-wasm/pomelo_vello_wasm_bg.wasm";
+// dev 下给 wasm 资源加 cache-bust：wasm-pack 重建后刷新页面即可生效，避免浏览器缓存旧 wasm
+// （旧产物缺新导出会报 "xxx is not a function"）；生产用固定 URL 走正常缓存。
+const WASM_CACHE_BUST = process.env.NODE_ENV === "production" ? "" : `?v=${Date.now().toString(36)}`;
+const WASM_JS_URL = `/vello-wasm/pomelo_vello_wasm.js${WASM_CACHE_BUST}`;
+const WASM_BIN_URL = `/vello-wasm/pomelo_vello_wasm_bg.wasm${WASM_CACHE_BUST}`;
 const TILE_DEVICE_SIZE = 256;
 
 function hashChunk(id: string, ops: Uint8Array): number {
@@ -51,6 +58,11 @@ interface WasmRuntime {
   begin_content_session(chunks: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
   render_content_session(chunks: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
   end_content_session(): void;
+  build_scene_backing(chunks: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
+  begin_scene_backing(chunks: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
+  step_scene_backing(budgetMs: number): boolean;
+  present_backing(panX: number, panY: number, zoom: number, width: number, height: number, allowStaleZoom: boolean): boolean;
+  end_scene_backing(): void;
   debug_image_test(): void;
   debug_tile_test(): number;
   debug_ops_test(ops: Uint8Array, level: number, minX: number, minY: number): number;
@@ -303,6 +315,33 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
 
   endContentSession(): void {
     this.runtime.end_content_session();
+  }
+
+  /** 保留场景底图：把 backingViewport（视口 × 像素预算 + margin）内的整场渲成保留纹理。 */
+  buildSceneBacking(chunks: RenderChunk[], backingViewport: Viewport): void {
+    const [px, py, pz, w, h] = this.deviceViewport(backingViewport);
+    this.runtime.build_scene_backing(this.encodeStream(chunks), px, py, pz, w, h);
+  }
+
+  /** 用保留底图呈现当前视口；返回是否覆盖（false 表示需要重建底图）。 */
+  presentSceneBacking(viewport: Viewport, allowStaleZoom: boolean): boolean {
+    const [px, py, pz, w, h] = this.deviceViewport(viewport);
+    return this.runtime.present_backing(px, py, pz, w, h, allowStaleZoom);
+  }
+
+  /** 分帧构建底图：新建累积目标（保留旧底图用于构建期间呈现）。 */
+  beginSceneBacking(chunks: RenderChunk[], backingViewport: Viewport): void {
+    const [px, py, pz, w, h] = this.deviceViewport(backingViewport);
+    this.runtime.begin_scene_backing(this.encodeStream(chunks), px, py, pz, w, h);
+  }
+
+  /** 推进底图构建；返回是否完成。 */
+  stepSceneBacking(budgetMs: number): boolean {
+    return this.runtime.step_scene_backing(budgetMs);
+  }
+
+  endSceneBacking(): void {
+    this.runtime.end_scene_backing();
   }
 
   present(tiles: Array<{ handle: number }>, viewport: Viewport): void {

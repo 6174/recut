@@ -22,7 +22,6 @@ node scripts/worlds-migrate-v2.mjs --check  # 校验 v1 → v2 迁移计划（�
 node scripts/worlds-migrate-v2.mjs          # 迁移 v1 源目录（拆分实体 / 素材协议 / 自动画布）
 node scripts/worlds-publish.mjs --check     # 只校验 + 打印 manifest hash 预览（CI 防漂移）
 node scripts/worlds-publish.mjs             # 构建 + 镜像资源到 cdn/buckets/worlds/ + catalog
-node scripts/worlds-publish.mjs --seed      # 同时生成 service/worldcatalog/ 嵌入种子
 ```
 
 产物：
@@ -54,7 +53,6 @@ World 的导入/导出是**产品能力**（service + 工作台 UI），不是�
 node scripts/worlds-inspect.mjs --all          # 布局/连线/重叠/悬空引用，非零退出=有结构问题
 node scripts/worlds-publish.mjs --check        # manifest 校验 + hash
 node scripts/worlds-migrate-v2.mjs --canvas    # 改了实体后按类型分带重排 canvas.json
-cd service && go test . -run TestEmbeddedSeedManifestsMaterialize   # 真实种子全部可物化
 ```
 
 ## 画布与连线（link）

@@ -1,11 +1,11 @@
 /*
- * [INPUT]: 依赖 WorldStore 的 materialize/archive 原语、标准库 HTTP/JSON 与内嵌世界种子（service/worldcatalog/）
- * [OUTPUT]: 对外提供单一 World Catalog 的解析（远程 CDN > 嵌入种子，E2E 经 RECUT_WORLD_CATALOG_URL
- * 指向本地 catalog）与 daemon 自动同步：
+ * [INPUT]: 依赖 WorldStore 的 materialize/archive 原语、标准库 HTTP/JSON 与远程 World Catalog CDN
+ * [OUTPUT]: 对外提供单一 World Catalog 的远程解析（E2E 经 RECUT_WORLD_CATALOG_URL 指向本地 catalog）
+ * 与 daemon 自动同步：
  * 仅处理 kind=platform 条目（启动后台 pass + 每 24h + UI 触发的节流 Touch，幂等单飞），delisted 自动归档，
  * published 条目一律跳过（P4 手动策略）；网络请求不持状态锁，同步绝不阻塞 daemon 启动与 /v1/worlds/catalog
  * [POS]: service 的平台 World 内容同步边界；"自动同步"与未来"安装/更新"是同一组物化原语的两种策略，
- * 本地 store 永远是运行时唯一事实源，同步失败静默降级到种子/上次同步内容
+ * 本地 store 永远是运行时唯一事实源，同步失败静默降级到本地已物化内容
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -14,7 +14,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,15 +21,11 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
-
-//go:embed worldcatalog
-var embeddedWorldCatalogFS embed.FS
 
 // defaultWorldCatalogURL is the platform CDN catalog location (same bucket and
 // upload chain as fonts/effects/releases).
@@ -62,13 +57,6 @@ type WorldCatalog struct {
 	Worlds         []WorldCatalogEntry `json:"worlds"`
 }
 
-type catalogSource int
-
-const (
-	catalogSourceRemote catalogSource = iota
-	catalogSourceEmbedded
-)
-
 // WorldCatalogSyncer owns catalog resolution and the platform auto-sync
 // strategy. It is idempotent and single-flight: repeated passes against the
 // same catalog produce zero revisions. Network work (catalog + manifest
@@ -76,14 +64,13 @@ const (
 // catalog snapshot, so slow CDNs never block the /v1/worlds/catalog
 // passthrough or daemon startup.
 type WorldCatalogSyncer struct {
-	root     string
-	worlds   *WorldStore
-	http     *http.Client
-	mu       sync.Mutex
-	inflight int32
-	cached   *WorldCatalog
-	source   catalogSource
-	lastErr  string
+	root      string
+	worlds    *WorldStore
+	http      *http.Client
+	mu        sync.Mutex
+	inflight  int32
+	cached    *WorldCatalog
+	lastErr   string
 	started   bool
 	lastTouch time.Time
 }
@@ -93,7 +80,6 @@ func NewWorldCatalogSyncer(root string, worlds *WorldStore) *WorldCatalogSyncer 
 		root:   root,
 		worlds: worlds,
 		http:   &http.Client{Timeout: 60 * time.Second},
-		source: catalogSourceEmbedded,
 	}
 }
 
@@ -107,50 +93,29 @@ func (s *WorldCatalogSyncer) catalogURL() string {
 	return defaultWorldCatalogURL
 }
 
-// loadCatalog resolves the catalog: the remote CDN first (E2E/dev can point it
-// elsewhere via RECUT_WORLD_CATALOG_URL), then the embedded seed for offline
-// first launch. The remote catalog is always authoritative; a stale local
-// fixture can never shadow newly published worlds.
-func (s *WorldCatalogSyncer) loadCatalog() (*WorldCatalog, catalogSource, error) {
+// loadCatalog resolves the catalog from the platform CDN. The env override
+// exists so development and E2E can point the daemon at a local catalog
+// without touching the user's data directory. The remote catalog is the only
+// source; there is no embedded fallback.
+func (s *WorldCatalogSyncer) loadCatalog() (*WorldCatalog, error) {
 	requestURL := s.catalogURL()
 	response, err := s.http.Get(requestURL)
-	if err == nil {
-		defer response.Body.Close()
-		if response.StatusCode == http.StatusOK {
-			data, readErr := io.ReadAll(io.LimitReader(response.Body, 4<<20))
-			if readErr != nil {
-				return nil, catalogSourceRemote, fmt.Errorf("read remote world catalog: %w", readErr)
-			}
-			catalog := WorldCatalog{}
-			if err := json.Unmarshal(data, &catalog); err != nil {
-				return nil, catalogSourceRemote, fmt.Errorf("parse remote world catalog: %w", err)
-			}
-			return &catalog, catalogSourceRemote, nil
-		}
-		// Non-200 falls through to the embedded seed.
-	}
-	data, err := embeddedWorldCatalogFS.ReadFile("worldcatalog/catalog.json")
 	if err != nil {
-		return nil, catalogSourceEmbedded, fmt.Errorf("read embedded world catalog: %w", err)
+		return nil, fmt.Errorf("fetch remote world catalog: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("remote world catalog returned HTTP %d", response.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read remote world catalog: %w", err)
 	}
 	catalog := WorldCatalog{}
 	if err := json.Unmarshal(data, &catalog); err != nil {
-		return nil, catalogSourceEmbedded, fmt.Errorf("parse embedded world catalog: %w", err)
+		return nil, fmt.Errorf("parse remote world catalog: %w", err)
 	}
-	return &catalog, catalogSourceEmbedded, nil
-}
-
-// embeddedManifest returns the seed bytes for one entry when the catalog came
-// from the embedded layer (offline first launch).
-func (s *WorldCatalogSyncer) embeddedManifest(entry WorldCatalogEntry) ([]byte, bool) {
-	if entry.ID == "" || entry.Version == "" {
-		return nil, false
-	}
-	data, err := embeddedWorldCatalogFS.ReadFile(filepath.Join("worldcatalog", entry.ID, entry.Version, "world.json"))
-	if err != nil {
-		return nil, false
-	}
-	return data, true
+	return &catalog, nil
 }
 
 // fetchManifest downloads one published manifest (≤2MB, 60s budget).
@@ -210,7 +175,7 @@ func (s *WorldCatalogSyncer) Sync() {
 		return
 	}
 	defer atomic.StoreInt32(&s.inflight, 0)
-	catalog, source, err := s.loadCatalog()
+	catalog, err := s.loadCatalog()
 	if err != nil {
 		s.mu.Lock()
 		s.lastErr = err.Error()
@@ -238,21 +203,10 @@ func (s *WorldCatalogSyncer) Sync() {
 			skipped++
 			continue
 		}
-		var data []byte
-		if source == catalogSourceEmbedded {
-			bytes, ok := s.embeddedManifest(entry)
-			if !ok {
-				logWorldEvent("world.catalog.sync_failed", map[string]string{"reason": "invalid_manifest", "worldId": entry.ID, "error": "embedded seed manifest missing"})
-				continue
-			}
-			data = bytes
-		} else {
-			bytes, fetchErr := s.fetchManifest(entry)
-			if fetchErr != nil {
-				logWorldEvent("world.catalog.sync_failed", map[string]string{"reason": "network", "worldId": entry.ID, "error": fetchErr.Error()})
-				continue
-			}
-			data = bytes
+		data, fetchErr := s.fetchManifest(entry)
+		if fetchErr != nil {
+			logWorldEvent("world.catalog.sync_failed", map[string]string{"reason": "network", "worldId": entry.ID, "error": fetchErr.Error()})
+			continue
 		}
 		if !manifestMatches(entry, data) {
 			sum := sha256.Sum256(data)
@@ -282,7 +236,6 @@ func (s *WorldCatalogSyncer) Sync() {
 	}
 	s.mu.Lock()
 	s.cached = catalog
-	s.source = source
 	s.lastErr = ""
 	s.mu.Unlock()
 	logWorldEvent("world.catalog.synced", map[string]string{
@@ -344,6 +297,6 @@ func (s *WorldCatalogSyncer) CachedCatalog() *WorldCatalog {
 	if cached != nil {
 		return cached
 	}
-	catalog, _, _ := s.loadCatalog()
+	catalog, _ := s.loadCatalog()
 	return catalog
 }

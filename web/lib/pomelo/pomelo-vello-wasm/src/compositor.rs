@@ -179,6 +179,8 @@ impl Compositor {
         self.entries.remove(&handle);
     }
 
+    /// 把 draws 合成到 target。`load=true` 时保留目标已有内容（用于把底图分帧累积到同一纹理），
+    /// `load=false` 时先 clear 成背景色。
     pub fn render(
         &mut self,
         device: &Device,
@@ -188,6 +190,7 @@ impl Compositor {
         surface_width: u32,
         surface_height: u32,
         draws: &[QuadDraw<'_>],
+        load: bool,
     ) {
         let w = surface_width.max(1) as f32;
         let h = surface_height.max(1) as f32;
@@ -243,7 +246,7 @@ impl Compositor {
                 view: target,
                 depth_slice: None,
                 resolve_target: None,
-                ops: Operations { load: LoadOp::Clear(self.clear), store: StoreOp::Store },
+                ops: Operations { load: if load { LoadOp::Load } else { LoadOp::Clear(self.clear) }, store: StoreOp::Store },
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,

@@ -5,6 +5,7 @@
  *           把 VelloBlock 的绘制 op 汇总成 chunk 交给 TileController 渲染（仅 vello/WebGPU）。
  *           拖拽内容会话（beginContentSession/endContentSession）：被拖块+随动箭头走 live 层，
  *           静态内容只在会话开始时渲染一次；视口/尺寸/结构变化自动结束会话回退整场渲染。
+ *           direct 模式另有保留场景底图（controller.buildSceneBacking）：内容不变时平移/缩放贴底图。
  *           WebGPU 不可用时不降级，抛 RendererUnsupportedError，由宿主提示用户升级浏览器。
  * [POS]: pomelo-vello 的适配器实现（M2 接入层）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -73,6 +74,11 @@ interface SyncedBlock {
 
 export interface VelloRendererAdapterOptions {
   background?: string;
+  /**
+   * 直绘模式：true = 每帧整场单 pass（无瓦片缝，但每帧整场重编码）；
+   * false（缺省）= 瓦片管线：平移/缩放贴缓存旧瓦片（stale-zoom，<1ms）、落定后按预算补清晰层。
+   */
+  direct?: boolean;
 }
 
 export class VelloRendererAdapter extends PomeloRendererAdapter {
@@ -158,7 +164,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       rasterizer,
       budgetMs: 5,
       maxJobsPerFrame: 32,
-      direct: false,
+      direct: this.options.direct ?? true,
     });
     // BlockPatcher 广播失效 → 只处理受影响的 block（增量），避免全量扫描比对
     this.onBlockInvalidated = (blockId, kind) => {
@@ -371,13 +377,14 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       this.syncChunks();
     }
     this.renderCount++;
-    controller.renderFrame({
+    const result = controller.renderFrame({
       viewport: this.viewport,
       contentGeneration: this.contentGeneration,
       navigationGeneration: this.navigationGeneration,
       navigationActive: this.navigationActive,
     });
-    this.dirty = false;
+    // 底图分帧构建未完成时保持置脏，下一帧继续推进（避免一次性长任务）
+    this.dirty = result.pending === true;
   }
 
   /** 把 http 图片异步注册为 image id（缓存）。未就绪返回 null；就绪后触发一帧重绘。 */
@@ -479,9 +486,13 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   /** 循环渲染直到可见瓦片全覆盖（或上限）。用于首屏/导航结束/图片就绪后的确定性补偿。 */
   private settle(maxFrames = 120): void {
     if (!this.controller || !this.viewport) return;
+    const direct = this.options.direct ?? false;
+    const start = performance.now();
     for (let i = 0; i < maxFrames; i++) {
       this.flush(true);
       if (this.isCovered() && this.controller.scheduler.pending() === 0) return;
+      // 瓦片模式：同步 settle 以约一帧预算为界，其余交给 ticker 逐帧补，避免首屏/导航落定长时间占满主线程
+      if (!direct && performance.now() - start > 16) return;
     }
   }
 
@@ -512,6 +523,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     this.navTimer = null;
     this.disposeTicker?.dispose();
     this.disposeTicker = null;
+    // 释放保留场景底图（纹理与合成绑定）
+    (this.rasterizer as { endSceneBacking?: () => void } | null)?.endSceneBacking?.();
     this.rasterizer?.destroy();
     this.rasterizer = null;
     this.controller = null;

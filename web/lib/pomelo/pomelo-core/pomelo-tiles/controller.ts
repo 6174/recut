@@ -1,8 +1,11 @@
 /*
  * [INPUT]: 依赖 types、geometry、planner、scheduler、tile-cache、chunk-index、telemetry
  * [OUTPUT]: 对外提供 TileController：每帧编排（双代推进/失效应用/plan/enqueue/按预算执行/合成），
- *           以及 chunk 增删改与 position/content 失效；direct 模式下支持拖拽内容会话
- *           （beginContentSession/endContentSession：静态内容只渲一次，会话帧只重渲 live chunks）。
+ *           以及 chunk 增删改与 position/content 失效；direct 模式下支持：
+ *           - 保留场景底图（buildSceneBacking/presentSceneBacking/beginSceneBacking/stepSceneBacking：
+ *             内容不变时平移/缩放只贴一张自适应底图纹理；覆盖不足时贴旧底图占位并**分帧增量**重建，
+ *             内容变化时**一次性**重建以避免闪现旧画面；对齐 open-pencil sceneBacking）；
+ *           - 拖拽内容会话（beginContentSession/endContentSession：静态内容只渲一次，会话帧只重渲 live chunks）。
  *           open-pencil tiles/controller.ts 直译，光栅器经 TileRasterizer seam 注入（vello）。
  * [POS]: pomelo-tiles 的编排核心；对上只暴露 renderFrame 与 chunk 操作，renderer 无关。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -81,6 +84,15 @@ export class TileController<TTarget, THandle> {
   private renderedThisFrame = 0;
   /** 拖拽内容会话：静态内容渲染一次后复用；会话帧只重渲被拖块（含随动箭头）。 */
   private contentSession: { excluded: Set<string>; started: boolean } | null = null;
+  /** 保留场景底图对应的 contentGeneration；用于判断底图是否可复用。 */
+  private backingGeneration = -1;
+  /** 分帧底图构建状态（构建期间旧底图继续用于呈现）。 */
+  private backingBuildActive = false;
+  private backingBuildGeneration = -1;
+  /** 底图设备像素预算（对齐 open-pencil 16M）与最大超采样倍率、每帧构建预算。 */
+  private static readonly BACKING_MAX_DEVICE_PIXELS = 16_000_000;
+  private static readonly BACKING_MAX_SCALE = 3;
+  private static readonly BACKING_BUILD_BUDGET_MS = 2;
 
   constructor(options: TileControllerOptions<TTarget, THandle>) {
     this.pageId = options.pageId;
@@ -140,11 +152,39 @@ export class TileController<TTarget, THandle> {
 
   invalidateStructure(): void {
     this.endContentSession();
+    this.rasterizer.endSceneBacking?.();
+    this.backingGeneration = -1;
+    this.backingBuildActive = false;
+    this.backingBuildGeneration = -1;
     this.cancelledJobs += this.scheduler.clear();
     this.measuredCosts.clear();
     this.cache.clear();
     this.pendingInvalidations.length = 0;
     this.contentGeneration = -1;
+  }
+
+  /**
+   * 底图视口：以当前视口为中心，按像素预算放大（scale = clamp(sqrt(16M/视口设备像素), 1, 3)），
+   * 多出的一圈作为平移 margin。对齐 open-pencil `sceneBackingGeometry`。
+   */
+  private backingViewport(viewport: Viewport): Viewport {
+    const viewportPixels = Math.max(1, viewport.width * viewport.height * viewport.dpr * viewport.dpr);
+    const scale = Math.min(
+      TileController.BACKING_MAX_SCALE,
+      Math.max(1, Math.sqrt(TileController.BACKING_MAX_DEVICE_PIXELS / viewportPixels)),
+    );
+    const marginX = (viewport.width * scale - viewport.width) / 2;
+    const marginY = (viewport.height * scale - viewport.height) / 2;
+    // backing 是「以当前视口为中心、向四周扩 margin」的更大窗口：局部 x=0 对应 live 的 -margin，
+    // 故 pan 要 +margin（世界可见范围随之向两侧扩张），present 时再按 backing.pan 反算贴回。
+    return {
+      panX: viewport.panX + marginX,
+      panY: viewport.panY + marginY,
+      zoom: viewport.zoom,
+      width: viewport.width * scale,
+      height: viewport.height * scale,
+      dpr: viewport.dpr,
+    };
   }
 
   // ---- 拖拽内容会话 ----
@@ -210,8 +250,76 @@ export class TileController<TTarget, THandle> {
       }
     }
 
-    // 直绘模式：每帧整场渲染（chunk Scene 缓存 + 单次 render pass）；无瓦片边界/丢图问题
+    // 直绘模式：优先用「保留场景底图」——内容不变时平移/缩放只贴一张底图纹理（单 quad，
+    // 不再逐帧重编码整场）；覆盖不足或内容变化才重建底图。对齐 open-pencil `sceneBacking`。
     if (this.direct && this.rasterizer.renderFrame) {
+      const oneShotBacking = this.rasterizer.buildSceneBacking?.bind(this.rasterizer);
+      const presentBacking = this.rasterizer.presentSceneBacking?.bind(this.rasterizer);
+      const beginBacking = this.rasterizer.beginSceneBacking?.bind(this.rasterizer);
+      const stepBacking = this.rasterizer.stepSceneBacking?.bind(this.rasterizer);
+      if (oneShotBacking && presentBacking && beginBacking && stepBacking) {
+        const gen = input.contentGeneration;
+        const finish = (visible: number, pending: boolean): TileFrameResult => {
+          this.scheduler.clear();
+          const metrics = emptyTileSchedulerMetrics();
+          this.telemetry.record(
+            { contentGeneration: gen, navigationGeneration: input.navigationGeneration, navigationActive: input.navigationActive, metrics, tileCacheBytes: 0, tileCacheEntries: 0, visibleTileCount: visible, presentedTileCount: 1, covered: true, frameMs: performance.now() - frameStart },
+            0,
+          );
+          return { covered: true, pending, presented: 1, rendered: 0, metrics };
+        };
+        const searchBackingChunks = (): { bv: Viewport; chunks: RenderChunk[] } => {
+          const bv = this.backingViewport(viewport);
+          return { bv, chunks: this.index.search(viewportWorldBounds(bv.panX, bv.panY, bv.zoom, bv.width, bv.height)) };
+        };
+        const buildOneShot = (): TileFrameResult => {
+          const { bv, chunks } = searchBackingChunks();
+          oneShotBacking(chunks, bv);
+          this.backingGeneration = gen;
+          presentBacking(viewport, false);
+          return finish(chunks.length, false);
+        };
+
+        // 1) 命中底图且覆盖 → 单 quad 贴（导航期允许 stale-zoom）
+        if (this.backingGeneration === gen && presentBacking(viewport, input.navigationActive)) {
+          return finish(1, false);
+        }
+        // 2) 构建中：仅当内容未再变、且旧底图仍覆盖时才贴旧底图续建；
+        //    否则回到一次性构建（立即呈新内容，避免闪现旧内容）
+        if (this.backingBuildActive) {
+          if (this.backingBuildGeneration !== gen || !presentBacking(viewport, true)) {
+            this.backingBuildActive = false;
+            return buildOneShot();
+          }
+          if (stepBacking(TileController.BACKING_BUILD_BUDGET_MS)) {
+            this.backingBuildActive = false;
+            this.backingGeneration = this.backingBuildGeneration;
+            presentBacking(viewport, false);
+            return finish(1, false);
+          }
+          return finish(1, true);
+        }
+        // 3) 内容变化（generation 不符）→ 一次性重建：贴旧底图会闪现改动前的内容，
+        //    这里直接重渲新内容（一次性 spike 换来正确画面）。
+        if (this.backingGeneration !== gen) return buildOneShot();
+        // 4) 覆盖不足但内容不变（平移/缩放出余量）→ 旧底图内容仍正确，贴它占位 + 分帧增量重建
+        if (presentBacking(viewport, true)) {
+          const { bv, chunks } = searchBackingChunks();
+          beginBacking(chunks, bv);
+          this.backingBuildActive = true;
+          this.backingBuildGeneration = gen;
+          if (stepBacking(TileController.BACKING_BUILD_BUDGET_MS)) {
+            this.backingBuildActive = false;
+            this.backingGeneration = gen;
+            presentBacking(viewport, false);
+            return finish(1, false);
+          }
+          return finish(1, true);
+        }
+        return buildOneShot();
+      }
+
+      // 兜底：光栅器无底图能力时每帧整场渲染
       const chunks = this.index.search(worldBounds);
       this.rasterizer.beginFrame(viewport);
       const handled = this.rasterizer.renderFrame(chunks, viewport);
@@ -227,20 +335,47 @@ export class TileController<TTarget, THandle> {
       }
     }
 
-    // [EXPERIMENT] 关闭 renderDirect 兜底，强制走瓦片缓存/更新策略
-    if (false && input.navigationActive && this.rasterizer.renderDirect) {
-      const chunks = this.index.search(worldBounds);
-      this.rasterizer.beginFrame(viewport);
-      const handled = this.rasterizer.renderDirect(chunks, viewport);
-      this.rasterizer.endFrame(viewport);
-      if (handled) {
-        this.scheduler.clear();
+    // 导航期（平移/缩放）：不跑 tile job，优先贴「任意 level 的旧瓦片」做 stale-zoom 预览合成
+    // （热缓存 <1ms/帧）；仅当视口完全无缓存覆盖（冷）时才整场直绘兜底，避免空白。
+    // 清晰瓦片留到落定（navigationActive=false）后按预算逐帧补齐。
+    if (input.navigationActive) {
+      const presentPlan = planTiles(this.cache, {
+        pageId: this.pageId,
+        level,
+        viewport: worldBounds,
+        overscanTiles: 0,
+        navigationGeneration: input.navigationGeneration,
+        contentGeneration: input.contentGeneration,
+        estimateCost: () => 0,
+      }, true);
+      const { fallback, fresh } = this.collectPresentTiles(presentPlan.visible);
+      const presented = fallback.length + fresh.length;
+      if (presented === 0 && this.rasterizer.renderDirect) {
+        // 冷缓存：无任何旧瓦片可贴，整场直绘兜底一次
+        const chunks = this.index.search(worldBounds);
+        this.rasterizer.beginFrame(viewport);
+        const handled = this.rasterizer.renderDirect(chunks, viewport);
+        this.rasterizer.endFrame(viewport);
+        if (handled) {
+          this.scheduler.clear();
+          const metrics = emptyTileSchedulerMetrics();
+          this.telemetry.record(
+            { contentGeneration: input.contentGeneration, navigationGeneration: input.navigationGeneration, navigationActive: true, metrics, tileCacheBytes: this.cache.byteSize(), tileCacheEntries: this.cache.size(), visibleTileCount: presentPlan.visible.length, presentedTileCount: 0, covered: false, frameMs: performance.now() - frameStart },
+            0,
+          );
+          return { covered: false, pending: true, presented: 0, rendered: 0, metrics };
+        }
+      } else {
+        // 热缓存：贴旧瓦片（可能跨 level 缩放），不重栅
+        this.rasterizer.beginFrame(viewport);
+        this.rasterizer.present([...fallback, ...fresh], viewport);
+        this.rasterizer.endFrame(viewport);
         const metrics = emptyTileSchedulerMetrics();
         this.telemetry.record(
-          { contentGeneration: input.contentGeneration, navigationGeneration: input.navigationGeneration, navigationActive: true, metrics, tileCacheBytes: this.cache.byteSize(), tileCacheEntries: this.cache.size(), visibleTileCount: 0, presentedTileCount: 0, covered: false, frameMs: performance.now() - frameStart },
+          { contentGeneration: input.contentGeneration, navigationGeneration: input.navigationGeneration, navigationActive: true, metrics, tileCacheBytes: this.cache.byteSize(), tileCacheEntries: this.cache.size(), visibleTileCount: presentPlan.visible.length, presentedTileCount: presented, covered: false, frameMs: performance.now() - frameStart },
           0,
         );
-        return { covered: false, pending: true, presented: 0, rendered: 0, metrics };
+        return { covered: false, pending: true, presented, rendered: 0, metrics };
       }
     }
 
