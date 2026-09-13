@@ -11,7 +11,7 @@
 //! kind=3 TRIANGLE_FILL: f32 x0,y0,x1,y1,x2,y2; u8[4] fill
 //! kind=4 RECT_FILL:    f32 x,y,w,h; u8[4] fill
 //! kind=5 TEXT:         u32 font_id; f32 x,y,size,max_width,line_height; u8 align; u8[4] fill;
-//!                      f32 embolden; u32 text_len; utf8[text_len]
+//!                      f32 embolden; f32 glyph_scale; u32 text_len; utf8[text_len]
 //! ```
 use std::collections::HashMap;
 
@@ -70,6 +70,7 @@ pub enum DrawOp {
         line_height: f32,
         align: u8,
         embolden: f32,
+        glyph_scale: f32,
         fill: [u8; 4],
         text: String,
     },
@@ -184,9 +185,10 @@ pub fn decode_ops(bytes: &[u8]) -> Result<Vec<DrawOp>, String> {
                 let align = cursor.u8()?;
                 let fill = cursor.rgba()?;
                 let embolden = cursor.f32()?;
+                let glyph_scale = cursor.f32()?;
                 let text_len = cursor.u32()? as usize;
                 let text = String::from_utf8_lossy(cursor.take(text_len)?).into_owned();
-                DrawOp::Text { font_id, x, y, size, max_width, line_height, align, embolden, fill, text }
+                DrawOp::Text { font_id, x, y, size, max_width, line_height, align, embolden, glyph_scale, fill, text }
             }
             KIND_IMAGE => DrawOp::Image {
                 image_id: cursor.u32()?,
@@ -341,14 +343,14 @@ fn draw_ops(
                     * Affine::scale_non_uniform(*w as f64 / image.width as f64, *h as f64 / image.height as f64);
                 scene.draw_image(image, transform * local);
             }
-            DrawOp::Text { font_id, x, y, size, max_width, line_height, align, embolden, fill, text } => {
+            DrawOp::Text { font_id, x, y, size, max_width, line_height, align, embolden, glyph_scale, fill, text } => {
                 if fill[3] == 0 || text.is_empty() {
                     continue;
                 }
                 let Some(font) = fonts.get(font_id) else { continue };
                 let fallback_id = fallbacks.get(font_id).copied();
                 let fallback = fallback_id.and_then(|id| fonts.get(&id));
-                draw_text(*font_id, fallback_id, font, fallback, *x, *y, *size, *max_width, *line_height, *align, *embolden, color(*fill), text, transform, scene);
+                draw_text(*font_id, fallback_id, font, fallback, *x, *y, *size, *max_width, *line_height, *align, *embolden, *glyph_scale, color(*fill), text, transform, scene);
             }
         }
     }
@@ -383,18 +385,19 @@ fn text_hash(text: &str) -> u64 {
 }
 
 thread_local! {
-    /// key = (font_id, fallback_id, size bits, text hash) → TextLayout。
+    /// key = (font_id, fallback_id, size bits, max_width bits, text hash) → TextLayout。
     /// Copy 键避免每帧为查询分配/哈希 String；同一文本在多个 chunk/瓦片/帧渲染时复用。
-    static TEXT_LAYOUT: std::cell::RefCell<std::collections::HashMap<(u32, u32, u32, u64), TextLayout>> =
+    static TEXT_LAYOUT: std::cell::RefCell<std::collections::HashMap<(u32, u32, u32, u32, u64), TextLayout>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-/// 解析字体表并 shaping（仅在缓存 miss 时调用）。
+/// 解析字体表并 shaping（仅在缓存 miss 时调用）。max_width > 0 时按宽度贪心换行（CJK 逐字符，对齐 pixi breakWords）。
 fn build_text_layout(
     primary: &FontData,
     fallback: Option<&FontData>,
     size: f32,
     line_height: f32,
+    max_width: f32,
     text: &str,
 ) -> Option<TextLayout> {
     let primary_ref = FontRef::from_index(primary.data.as_ref(), primary.index).ok()?;
@@ -427,29 +430,37 @@ fn build_text_layout(
         .unwrap_or(primary_fallback_advance);
 
     let mut lines: Vec<Vec<LaidGlyph>> = Vec::new();
-    for line in text.split('\n') {
-        let mut entries = Vec::new();
-        for ch in line.chars() {
-            match primary_charmap.map(ch) {
-                Some(glyph_id) => entries.push(LaidGlyph {
+    for raw_line in text.split('\n') {
+        let mut current: Vec<LaidGlyph> = Vec::new();
+        let mut current_width = 0.0f32;
+        for ch in raw_line.chars() {
+            let glyph = match primary_charmap.map(ch) {
+                Some(glyph_id) => LaidGlyph {
                     fallback: false,
                     gid: glyph_id.to_u32(),
                     advance: primary_glyph_metrics.advance_width(glyph_id).unwrap_or(primary_fallback_advance),
-                }),
+                },
                 None => match &fallback_data {
                     Some((charmap, metrics)) => {
                         let glyph_id = charmap.map(ch).unwrap_or(GlyphId::NOTDEF);
-                        entries.push(LaidGlyph {
+                        LaidGlyph {
                             fallback: true,
                             gid: glyph_id.to_u32(),
                             advance: metrics.advance_width(glyph_id).unwrap_or(fallback_avg),
-                        });
+                        }
                     }
-                    None => entries.push(LaidGlyph { fallback: false, gid: GlyphId::NOTDEF.to_u32(), advance: primary_fallback_advance }),
+                    None => LaidGlyph { fallback: false, gid: GlyphId::NOTDEF.to_u32(), advance: primary_fallback_advance },
                 },
+            };
+            // 贪心换行（CJK 逐字符，对齐 pixi breakWords）；max_width <= 0 不换行
+            if max_width > 0.0 && !current.is_empty() && current_width + glyph.advance > max_width {
+                lines.push(std::mem::take(&mut current));
+                current_width = 0.0;
             }
+            current_width += glyph.advance;
+            current.push(glyph);
         }
-        lines.push(entries);
+        lines.push(current);
     }
     Some(TextLayout { lines, ascent, leading, text: text.to_string() })
 }
@@ -499,6 +510,7 @@ fn draw_text(
     line_height: f32,
     align: u8,
     embolden: f32,
+    glyph_scale: f32,
     fill: Color,
     text: &str,
     transform: Affine,
@@ -507,7 +519,7 @@ fn draw_text(
     if text.is_empty() {
         return;
     }
-    let cache_key = (font_id, fallback_id.unwrap_or(0), size.to_bits(), text_hash(text));
+    let cache_key = (font_id, fallback_id.unwrap_or(0), size.to_bits(), max_width.to_bits(), text_hash(text));
     let mut primary_glyphs: Vec<Glyph> = Vec::new();
     let mut fallback_glyphs: Vec<Glyph> = Vec::new();
     let mut done = false;
@@ -525,7 +537,7 @@ fn draw_text(
             if map.len() >= 1024 {
                 map.clear();
             }
-            if let Some(layout) = build_text_layout(primary, fallback, size, line_height, text) {
+            if let Some(layout) = build_text_layout(primary, fallback, size, line_height, max_width, text) {
                 emit_glyphs(&layout, x, y, max_width, align, &mut primary_glyphs, &mut fallback_glyphs);
                 map.insert(cache_key, layout);
             }
@@ -538,14 +550,16 @@ fn draw_text(
     } else {
         None
     };
+    // run 级附加缩放：屏幕恒定文本用 font_size=屏幕 ppem（轮廓高精度）再乘 1/scale 抵消视口缩放
+    let run_transform = if (glyph_scale - 1.0).abs() > 1e-6 { transform * Affine::scale(glyph_scale as f64) } else { transform };
     if !primary_glyphs.is_empty() {
-        let run = scene.draw_glyphs(primary).font_size(size).transform(transform);
+        let run = scene.draw_glyphs(primary).font_size(size).transform(run_transform);
         let run = if let Some(embolden) = embolden { run.font_embolden(embolden) } else { run };
         run.brush(&Brush::Solid(fill)).draw(Fill::NonZero, primary_glyphs.into_iter());
     }
     if let Some(font) = fallback {
         if !fallback_glyphs.is_empty() {
-            let run = scene.draw_glyphs(font).font_size(size).transform(transform);
+            let run = scene.draw_glyphs(font).font_size(size).transform(run_transform);
             let run = if let Some(embolden) = embolden { run.font_embolden(embolden) } else { run };
             run.brush(&Brush::Solid(fill)).draw(Fill::NonZero, fallback_glyphs.into_iter());
         }
@@ -614,16 +628,18 @@ mod tests {
             b.push(1); // align center
             b.extend_from_slice(&[229, 231, 235, 255]);
             b.extend_from_slice(&f32b(0.035)); // embolden (em ratio)
+            b.extend_from_slice(&f32b(1.0)); // glyph_scale
             let text = "Entity 1".as_bytes();
             b.extend_from_slice(&(text.len() as u32).to_le_bytes());
             b.extend_from_slice(text);
         });
         let ops = decode_ops(&bytes).expect("decode");
         match &ops[0] {
-            DrawOp::Text { font_id, x, y, size, align, embolden, fill, text, .. } => {
+            DrawOp::Text { font_id, x, y, size, align, embolden, glyph_scale, fill, text, .. } => {
                 assert_eq!(*font_id, 7);
                 assert_eq!((*x, *y, *size, *align), (3.0, 4.0, 16.0, 1));
                 assert_eq!(*embolden, 0.035);
+                assert_eq!(*glyph_scale, 1.0);
                 assert_eq!(*fill, [229, 231, 235, 255]);
                 assert_eq!(text, "Entity 1");
             }

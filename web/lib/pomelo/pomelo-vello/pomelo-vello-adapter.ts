@@ -20,6 +20,35 @@ import { VelloBlock } from "./vello-block";
 const FONT_ID = 1;
 const CJK_FONT_ID = 3;
 
+/** 把任意 CSS 颜色（含 oklch）解析为 RGBA 字节；无效时回退深色。 */
+function cssColorToRgba(color: string, fallback: [number, number, number, number] = [11, 15, 25, 255]): [number, number, number, number] {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return fallback;
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, 1, 1);
+    const data = ctx.getImageData(0, 0, 1, 1).data;
+    return [data[0], data[1], data[2], data[3]];
+  } catch {
+    return fallback;
+  }
+}
+
+/** 解析容器祖先链上第一个非透明背景色（对齐 pixi 透明画布透出的主题背景）。 */
+function resolveBackgroundColor(container: HTMLElement): string {
+  let node: HTMLElement | null = container;
+  while (node) {
+    const color = getComputedStyle(node).backgroundColor;
+    const rgba = cssColorToRgba(color, [0, 0, 0, 0]);
+    if (rgba[3] > 0) return color;
+    node = node.parentElement;
+  }
+  return "#0b0f19";
+}
+
 interface SyncedBlock {
   draw: number;
   position: number;
@@ -54,6 +83,10 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private navigationActive = false;
   private navTimer: ReturnType<typeof setTimeout> | null = null;
   private navigationGeneration = 0;
+  /** 最近一次实际渲染所在 ticker 帧（同帧去重）。 */
+  private lastFlushFrame = -1;
+  /** 实际 renderFrame 次数（调试/验证用）。 */
+  private renderCount = 0;
   private dirty = true;
 
   constructor(options: VelloRendererAdapterOptions = {}) {
@@ -71,12 +104,26 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     container.appendChild(canvas);
     this.canvas = canvas;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // 超采样：vello 的 Area AA 在低 DPI 下对细线/小字边缘偏硬，直接放大画布背板
+    // （渲染分辨率 = CSS × dpr，浏览器按 CSS 尺寸显示时做线性降采样）以获得平滑边缘。
+    // ?ss=1 可关闭（省 GPU），?ss=3 可更强。
+    const superSample = (() => {
+      try {
+        const value = Number(new URLSearchParams(window.location.search).get("ss"));
+        if (Number.isFinite(value) && value >= 1 && value <= 4) return value;
+      } catch {
+        // ignore
+      }
+      return 2;
+    })();
+    const dpr = Math.min((window.devicePixelRatio || 1) * superSample, 3);
+    // 背景色对齐 pixi（透明画布透出主题背景）：解析容器祖先链的有效背景色
+    const background = this.options.background ?? resolveBackgroundColor(container);
     let rasterizer: TileRasterizer<unknown, unknown> | null = null;
     if (this.options.preferGpu !== false) {
       try {
         if (await VelloGpuRasterizer.isAvailable()) {
-          const gpu = await VelloGpuRasterizer.create(canvas, dpr);
+          const gpu = await VelloGpuRasterizer.create(canvas, dpr, cssColorToRgba(background));
           await this.registerFonts(gpu);
           rasterizer = gpu as unknown as TileRasterizer<unknown, unknown>;
         }
@@ -86,7 +133,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       }
     }
     if (!rasterizer) {
-      rasterizer = new Canvas2DRasterizer(canvas, this.options.background ?? "#0b0f19", dpr) as unknown as TileRasterizer<unknown, unknown>;
+      rasterizer = new Canvas2DRasterizer(canvas, background, dpr) as unknown as TileRasterizer<unknown, unknown>;
     }
     this.rasterizer = rasterizer;
     this.rasterizerName = rasterizer.name;
@@ -199,6 +246,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     this.rasterizer.resize(width, height, this.viewport.dpr);
     this.viewport = { ...this.viewport, width, height };
     this.dirty = true;
+    // 同步补一帧：resize 会清空画布背板，若等下一个 rAF 才绘制，窗口缩放时会闪一帧空白
+    this.renderNow();
   }
 
   /** vdom patch 后，把 VelloBlock 的绘制同步成 chunk（增量：区分内容变更与位置变更）。 */
@@ -269,11 +318,17 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     return this.controller?.telemetry.snapshot().lastTrace?.covered ?? false;
   }
 
-  private flush(): void {
+  private flush(force = false): void {
     const controller = this.controller;
     if (!controller || !this.viewport) return;
+    // 帧节流：同一 ticker 帧内无论被触发多少次（doc 变更 / transform / 图片就绪 / invalidate），
+    // 只渲染最新一次。force=true 用于初始化/导航落定/resize 等确定性路径。
+    const frame = this.editor.ticker.frameId;
+    if (!force && this.lastFlushFrame === frame) return;
     // 未 covered 也继续渲染（补偿确定性），直到瓦片补齐
     if (!this.dirty && controller.scheduler.pending() === 0 && this.isCovered()) return;
+    this.lastFlushFrame = frame;
+    this.renderCount++;
     controller.renderFrame({
       viewport: this.viewport,
       contentGeneration: this.contentGeneration,
@@ -374,15 +429,15 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private settle(maxFrames = 120): void {
     if (!this.controller || !this.viewport) return;
     for (let i = 0; i < maxFrames; i++) {
-      this.flush();
+      this.flush(true);
       if (this.isCovered() && this.controller.scheduler.pending() === 0) return;
     }
   }
 
-  /** 调试：立即渲染一帧（跳过 ticker 合帧）。 */
+  /** 调试/测试：立即强制渲染一帧（跳过同帧节流）。 */
   renderNow(): void {
     this.dirty = true;
-    this.flush();
+    this.flush(true);
   }
 
   /** 调试/测试钩子。 */
@@ -396,6 +451,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       imagePending: this.imagePending.size,
       tiles: this.controller?.debugState().tiles ?? 0,
       telemetry: this.controller?.telemetry.snapshot() ?? null,
+      frameId: this.editor.ticker.frameId,
+      renderCount: this.renderCount,
     };
   }
 

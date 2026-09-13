@@ -9,11 +9,11 @@ pomelo 的 vello-native 渲染适配层：把 pomelo 的 vdom/block 生命周期
 
 | 文件 | 职责 |
 |---|---|
-| `pomelo-vello-adapter.ts` | `VelloRendererAdapter extends PomeloRendererAdapter`：接管 vdom diff/patch 后的 block 树，汇总 `VelloBlock` 绘制为 chunk，驱动 `TileController`；优先 vello，回退 Canvas2D；`ensureImage`/`getImageSize`/`getImageElement` 提供图片注册与 cover-fit 所需尺寸/元素；`setTransform` 广播 `onTransformEvent` 并按 `renderOnZoom` 重绘 |
+| `pomelo-vello-adapter.ts` | `VelloRendererAdapter extends PomeloRendererAdapter`：接管 vdom diff/patch 后的 block 树，汇总 `VelloBlock` 绘制为 chunk，驱动 `TileController`；优先 vello，回退 Canvas2D；`ensureImage`/`getImageSize`/`getImageElement` 提供图片注册与 cover-fit 所需尺寸/元素；`setTransform` 广播 `onTransformEvent` 并按 `renderOnZoom` 重绘；默认超采样 `ss=2`（`?ss=1` 关闭）——按 `CSS×dpr` 放大画布背板，浏览器降采样以获得平滑边缘 |
 | `vello-element.ts` | `VelloElement implements IElement`（block 树容器，不做绘制） |
-| `vello-block.ts` | `VelloBlock extends PomeloBlock`：`renderBlock()` 产出 vello op（+ 可选 Canvas2D painter）；`render()`/`reposition()` 分别标记内容/位置版本供增量失效；`reposition()` 对内嵌世界坐标做平移（拖拽不滞后/闪动），`blockStateSelector` 忽略 x/y。**内核不感知任何业务 block** |
+| `vello-block.ts` | `VelloBlock extends PomeloBlock`：`renderBlock()` 产出 vello op（+ 可选 Canvas2D painter）；`render()`/`reposition()` 分别标记内容/位置版本供增量失效；`reposition()` 对内嵌世界坐标做平移（拖拽不滞后/闪动；文本 op 按 `glyphScale` 预乘坐标反算），`blockStateSelector` 忽略 x/y。**内核不感知任何业务 block** |
 | `demo-blocks.ts` | 示例 `DemoCardBlock`（M2 验证用） |
-| `op-bridge.ts` | JS→WASM 绘制 op 编码（与 `pomelo-vello-wasm/src/ops.rs` 对齐） |
+| `op-bridge.ts` | JS→WASM 绘制 op 编码（与 `pomelo-vello-wasm/src/ops.rs` 对齐）；TEXT op 含 `embolden`（合成加粗 em 比例）与 `glyphScale`（屏幕恒定文本：font_size 保持屏幕 ppem 由轮廓高精度生成，配 1/scale 抵消视口缩放，坐标预乘 scale） |
 | `canvas2d-rasterizer.ts` / `vello-rasterizer.ts` | `TileRasterizer` 的两种实现 |
 
 > 业务 block（实体卡/便签/World 节点/媒体/关系线等）不再放在内核里：位于

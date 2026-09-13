@@ -99,7 +99,7 @@ impl VelloRuntime {
         let renderer = Renderer::new(
             &device,
             RendererOptions {
-                antialiasing_support: AaSupport::all(),
+                antialiasing_support: AaSupport::area_only(),
                 ..Default::default()
             },
         )
@@ -193,7 +193,7 @@ impl VelloRuntime {
                 &self.queue,
                 &scene,
                 &view,
-                &RenderParams { base_color: Color::from_rgba8(0, 0, 0, 0), width, height, antialiasing_method: AaConfig::Msaa16 },
+                &RenderParams { base_color: Color::from_rgba8(0, 0, 0, 0), width, height, antialiasing_method: AaConfig::Area },
             )
             .map_err(js_err)?;
         let image = self.renderer.register_texture(texture);
@@ -262,7 +262,7 @@ impl VelloRuntime {
                     base_color: Color::from_rgba8(0, 0, 0, 0),
                     width: size,
                     height: size,
-                    antialiasing_method: AaConfig::Msaa16,
+                    antialiasing_method: AaConfig::Area,
                 },
             )
             .map_err(js_err)?;
@@ -347,7 +347,7 @@ impl VelloRuntime {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &RenderParams {
-            base_color: Color::from_rgba8(0, 0, 0, 0), width, height, antialiasing_method: AaConfig::Msaa16,
+            base_color: Color::from_rgba8(0, 0, 0, 0), width, height, antialiasing_method: AaConfig::Area,
         }).map_err(js_err)?;
         let handle = self.next_handle; self.next_handle += 1;
         let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0] };
@@ -392,7 +392,7 @@ impl VelloRuntime {
                 &self.queue,
                 &scene,
                 &view,
-                &RenderParams { base_color: Color::from_rgba8(0, 0, 0, 0), width, height, antialiasing_method: AaConfig::Msaa16 },
+                &RenderParams { base_color: Color::from_rgba8(0, 0, 0, 0), width, height, antialiasing_method: AaConfig::Area },
             )
             .map_err(js_err)?;
 
@@ -431,7 +431,7 @@ impl VelloRuntime {
             });
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &RenderParams {
-                base_color: self.clear_color, width: size, height: size, antialiasing_method: AaConfig::Msaa16,
+                base_color: self.clear_color, width: size, height: size, antialiasing_method: AaConfig::Area,
             }).map_err(js_err)?;
             let handle = 1_000_000 + handles.len() as u32;
             self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x, min_y, level: 0.5, tex_size: size as f32, bleed: 0.0 });
@@ -457,7 +457,7 @@ impl VelloRuntime {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &RenderParams {
-            base_color: Color::from_rgba8(0, 0, 0, 0), width: size, height: size, antialiasing_method: AaConfig::Msaa16,
+            base_color: Color::from_rgba8(0, 0, 0, 0), width: size, height: size, antialiasing_method: AaConfig::Area,
         }).map_err(js_err)?;
         let handle = self.next_handle; self.next_handle += 1;
         self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x: 0.0, min_y: 0.0, level: 1.0, tex_size: size as f32, bleed: 0.0 });
@@ -486,7 +486,7 @@ impl VelloRuntime {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &RenderParams {
-            base_color: Color::from_rgba8(0, 0, 0, 0), width: size, height: size, antialiasing_method: AaConfig::Msaa16,
+            base_color: Color::from_rgba8(0, 0, 0, 0), width: size, height: size, antialiasing_method: AaConfig::Area,
         }).map_err(js_err)?;
         let handle = self.next_handle; self.next_handle += 1;
         self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x, min_y, level, tex_size: size as f32, bleed: BLEED });
@@ -515,7 +515,7 @@ impl VelloRuntime {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &RenderParams {
-            base_color: Color::from_rgba8(0, 0, 0, 0), width: size, height: size, antialiasing_method: AaConfig::Msaa16,
+            base_color: Color::from_rgba8(0, 0, 0, 0), width: size, height: size, antialiasing_method: AaConfig::Area,
         }).map_err(js_err)?;
         let handle = self.next_handle; self.next_handle += 1;
         self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x: 0.0, min_y: 0.0, level: 1.0, tex_size: size as f32, bleed: 0.0 });

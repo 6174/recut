@@ -12,9 +12,10 @@ import type { PomeloEditorState } from "../../pomelo-core/pomelo-state";
 import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block";
 import type { Rgba, VelloOp } from "../../pomelo-vello/op-bridge";
 import type { PomeloRendererAdapter } from "../../pomelo-core/pomelo-renderer";
+import { drawScreenTextCanvas, drawTextCanvas, screenTextOp, textOp } from "../../pomelo-vello/vello-text";
 import { bezierTangent, curveSegment, relationGeometry, type RelationGeometry } from "../arrow-geometry";
 import { attrMediaLabel } from "../entity-color";
-import { truncateText } from "../text-metrics";
+import { measureTextWidth, truncateText } from "../text-metrics";
 
 const PAD = 14;
 const CARD_RADIUS = 14;
@@ -32,13 +33,18 @@ const CAPTION_GAP = 16;
 const CAPTION_SIZE = 11;
 
 const FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
-const CARD_FILL: Rgba = [20, 21, 26, 255];
-const CARD_STROKE: Rgba = [58, 61, 70, 255];
+// 统一视觉对齐 pixi 的 canvas-theme：CARD_FILL=#0f1410（主题绿黑），描边=白色低透明，瓦片=#1d231e
+const CARD_FILL: Rgba = [15, 20, 16, 255];
+const CARD_STROKE: Rgba = [255, 255, 255, 20];
+const CARD_STROKE_STRONG: Rgba = [255, 255, 255, 41];
 const TILE_FILL: Rgba = [29, 35, 30, 255];
-const TEXT_PRIMARY: Rgba = [229, 231, 235, 255];
-const TEXT_SECONDARY: Rgba = [156, 163, 175, 255];
-const TEXT_TERTIARY: Rgba = [161, 161, 170, 255];
+const SHADOW_FILL: Rgba = [0, 0, 0, 71];
+const WORLD_ACCENT: Rgba = [93, 157, 117, 255];
+const TEXT_PRIMARY: Rgba = [244, 244, 245, 255];
+const TEXT_SECONDARY: Rgba = [139, 147, 167, 255];
+const TEXT_TERTIARY: Rgba = [107, 114, 128, 255];
 const CAPTION_FILL: Rgba = [212, 212, 216, 255];
+const LABEL_FILL: Rgba = [161, 161, 170, 255];
 const FALLBACK_ARROW: Rgba = [139, 147, 167, 255];
 
 function hexToRgba(hex: string, alpha = 255): Rgba {
@@ -112,26 +118,19 @@ function drawCoverImageCanvas(ctx: CanvasRenderingContext2D, adapter: PomeloRend
   ctx.restore();
 }
 
-/** 元素标题徽标（◍ 名称）：画在卡片外上方，按屏幕像素恒定（world 尺寸 = 屏幕尺寸 / 视口缩放）。 */
+/** 元素标题徽标（● 名称）：画在卡片外上方，按屏幕像素恒定（委托 vello-text 的 screenTextOp）。 */
 function captionOpsV(adapter: PomeloRendererAdapter, x: number, y: number, width: number, title: string): { ops: VelloOp[]; top: number } {
   if (!title) return { ops: [], top: y };
   const scale = screenScaleOf(adapter);
-  const size = CAPTION_SIZE / scale;
   const top = y - (CAPTION_GAP + CAPTION_SIZE + 2) / scale;
-  return {
-    top,
-    ops: [{ kind: "text", fontId: 1, x, y: top, size, maxWidth: width, align: "left", fill: CAPTION_FILL, text: truncateText(`◍ ${title}`, width, size) }],
-  };
+  const text = truncateText(`● ${title}`, width * scale, CAPTION_SIZE);
+  return { top, ops: [screenTextOp(adapter, { text, x, y: top, screenSize: CAPTION_SIZE, maxScreenWidth: width * scale, align: "left", fill: CAPTION_FILL })] };
 }
 
 function drawCaptionCanvas(ctx: CanvasRenderingContext2D, adapter: PomeloRendererAdapter, x: number, top: number, width: number, title: string): void {
-  if (!title || top === undefined) return;
+  if (!title) return;
   const scale = screenScaleOf(adapter);
-  const size = CAPTION_SIZE / scale;
-  ctx.fillStyle = "#d4d4d8";
-  ctx.font = `${size}px ${FONT}`;
-  ctx.textBaseline = "top";
-  ctx.fillText(truncateText(`◍ ${title}`, width, size), x, top);
+  drawScreenTextCanvas(ctx, adapter, { text: truncateText(`● ${title}`, width * scale, CAPTION_SIZE), x, y: top, screenSize: CAPTION_SIZE, maxScreenWidth: width * scale, align: "left", fill: CAPTION_FILL });
 }
 
 function entityContentHeight(attrs: Record<string, unknown>): number {
@@ -181,15 +180,15 @@ export class EntityCardBlockV extends VelloBlock {
     const caption = captionOpsV(this.adapter, x, y, w, title);
 
     const ops: VelloOp[] = [
-      { kind: "roundRect", x: x + 2, y: y + 6, width: w, height: h, radius: CARD_RADIUS, fill: [0, 0, 0, 90], stroke: [0, 0, 0, 0], strokeWidth: 0 },
+      { kind: "blurRect", x: x + 3, y: y + 7, width: w, height: h, radius: CARD_RADIUS, stdDev: 6, fill: SHADOW_FILL },
       { kind: "roundRect", x, y, width: w, height: h, radius: CARD_RADIUS, fill: CARD_FILL, stroke: CARD_STROKE, strokeWidth: 1 },
       ...caption.ops,
     ];
     if (hasCover) {
       ops.push(...coverImageOpsV(this.adapter, coverUrl, { x, y, width: w, height: imageH }, { x, y, width: w, height: h, radius: CARD_RADIUS }));
     }
-    ops.push({ kind: "text", fontId: 1, x: x + PAD, y: y + textTop, size: titleSize, maxWidth: w - PAD * 2, align: "left", embolden: 0.035, fill: TEXT_PRIMARY, text: truncateText(title, w - PAD * 2, titleSize) });
-    ops.push({ kind: "text", fontId: 1, x: x + PAD, y: y + textTop + (hasCover ? 24 : 30), size: summarySize, maxWidth: w - PAD * 2, align: "left", fill: TEXT_SECONDARY, text: truncateText(summary, w - PAD * 2, summarySize) });
+    ops.push(textOp({ text: truncateText(title, w - PAD * 2, titleSize), x: x + PAD, y: y + textTop, size: titleSize, maxWidth: w - PAD * 2, embolden: 0.035, fill: TEXT_PRIMARY }));
+    ops.push(textOp({ text: truncateText(summary, w - PAD * 2, summarySize), x: x + PAD, y: y + textTop + (hasCover ? 24 : 30), size: summarySize, maxWidth: w - PAD * 2, fill: TEXT_SECONDARY }));
 
     const tiles = Math.min(totalCount, GRID_CAPACITY);
     const urlPhotos = stringListOf(attrs.photoUrls);
@@ -204,16 +203,17 @@ export class EntityCardBlockV extends VelloBlock {
 
     const canvas = (ctx: CanvasRenderingContext2D) => {
       ctx.save();
-      ctx.globalAlpha = 0.35;
-      roundRect(ctx, x + 2, y + 6, w, h, CARD_RADIUS);
-      ctx.fillStyle = "#000000";
+      ctx.shadowColor = "rgba(0,0,0,0.28)";
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetX = 3;
+      ctx.shadowOffsetY = 7;
+      roundRect(ctx, x, y, w, h, CARD_RADIUS);
+      ctx.fillStyle = "#0f1410";
       ctx.fill();
       ctx.restore();
       roundRect(ctx, x, y, w, h, CARD_RADIUS);
-      ctx.fillStyle = "#14151a";
-      ctx.fill();
       ctx.lineWidth = 1;
-      ctx.strokeStyle = "#3a3d46";
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
       ctx.stroke();
       if (hasCover) {
         ctx.fillStyle = "#1d231e";
@@ -221,13 +221,8 @@ export class EntityCardBlockV extends VelloBlock {
         drawCoverImageCanvas(ctx, this.adapter, coverUrl, { x, y, width: w, height: imageH }, { x, y, width: w, height: h, radius: CARD_RADIUS });
       }
       drawCaptionCanvas(ctx, this.adapter, x, caption.top, w, title);
-      ctx.fillStyle = "#e5e7eb";
-      ctx.font = `600 ${titleSize}px ${FONT}`;
-      ctx.textBaseline = "top";
-      ctx.fillText(truncateText(title, w - PAD * 2, titleSize), x + PAD, y + textTop);
-      ctx.fillStyle = "#9ca3af";
-      ctx.font = `${summarySize}px ${FONT}`;
-      ctx.fillText(truncateText(summary, w - PAD * 2, summarySize), x + PAD, y + textTop + (hasCover ? 24 : 30));
+      drawTextCanvas(ctx, { text: truncateText(title, w - PAD * 2, titleSize), x: x + PAD, y: y + textTop, size: titleSize, maxWidth: w - PAD * 2, embolden: 0.035, fill: TEXT_PRIMARY });
+      drawTextCanvas(ctx, { text: truncateText(summary, w - PAD * 2, summarySize), x: x + PAD, y: y + textTop + (hasCover ? 24 : 30), size: summarySize, maxWidth: w - PAD * 2, fill: TEXT_SECONDARY });
       for (let index = 0; index < tiles; index++) {
         const tile = tileRects[index];
         roundRect(ctx, tile.x, tile.y, THUMB, THUMB, 8);
@@ -241,7 +236,7 @@ export class EntityCardBlockV extends VelloBlock {
   }
 }
 
-/** 便签/文本：浅色底 + 文本。 */
+/** 便签/文本：与 pixi 一致（深色卡面 + 白 8% 细边 + 次级文字），圆角 12。 */
 export class NoteBlockV extends VelloBlock {
   static type = "note";
 
@@ -252,24 +247,25 @@ export class NoteBlockV extends VelloBlock {
     const w = Number(attrs.width) || 200;
     const h = Number(attrs.height) || 120;
     const text = String(attrs.text ?? "便签");
+    const noteText: Rgba = [156, 163, 175, 255];
     const ops: VelloOp[] = [
-      { kind: "roundRect", x, y, width: w, height: h, radius: 8, fill: [250, 240, 180, 255], stroke: [0, 0, 0, 0], strokeWidth: 0 },
-      { kind: "text", fontId: 1, x: x + 12, y: y + 12, size: 16, maxWidth: w - 24, align: "left", fill: [40, 40, 40, 255], text: truncateText(text, w - 24, 16) },
+      { kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: CARD_STROKE, strokeWidth: 1 },
+      textOp({ text, x: x + 10, y: y + 10, size: 11, maxWidth: Math.max(20, w - 20), lineHeight: 16, fill: noteText }),
     ];
     const canvas = (ctx: CanvasRenderingContext2D) => {
-      roundRect(ctx, x, y, w, h, 8);
-      ctx.fillStyle = "#faf0b4";
+      roundRect(ctx, x, y, w, h, 12);
+      ctx.fillStyle = "#0f1410";
       ctx.fill();
-      ctx.fillStyle = "#282828";
-      ctx.font = `16px ${FONT}`;
-      ctx.textBaseline = "top";
-      ctx.fillText(truncateText(text, w - 24, 16), x + 12, y + 12);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.stroke();
+      drawTextCanvas(ctx, { text, x: x + 10, y: y + 10, size: 11, maxWidth: Math.max(20, w - 20), lineHeight: 16, fill: noteText });
     };
     return { ops, bounds: { minX: x, minY: y, maxX: x + w, maxY: y + h }, canvas };
   }
 }
 
-/** World 根节点：椭圆 + 名称。 */
+/** World 根节点：深色卡面 + 白 16% 细边 + 主题绿光环 + 名称（对齐 pixi 主题色）。 */
 export class WorldNodeBlockV extends VelloBlock {
   static type = "world-node";
 
@@ -280,23 +276,26 @@ export class WorldNodeBlockV extends VelloBlock {
     const w = Number(attrs.width) || 200;
     const h = Number(attrs.height) || 80;
     const title = String(attrs.title ?? "World");
+    const worldText = truncateText(title, w - 40, 15);
     const ops: VelloOp[] = [
-      { kind: "roundRect", x, y, width: w, height: h, radius: h / 2, fill: [30, 41, 59, 255], stroke: [96, 165, 250, 255], strokeWidth: 2 },
-      { kind: "text", fontId: 1, x: x + 20, y: y + h / 2 - 12, size: 18, maxWidth: w - 40, align: "center", fill: [219, 234, 254, 255], text: truncateText(title, w - 40, 18) },
+      { kind: "roundRect", x: x - 3, y: y - 3, width: w + 6, height: h + 6, radius: (h + 6) / 2, fill: [0, 0, 0, 0], stroke: [WORLD_ACCENT[0], WORLD_ACCENT[1], WORLD_ACCENT[2], 102], strokeWidth: 1.5 },
+      { kind: "roundRect", x, y, width: w, height: h, radius: h / 2, fill: CARD_FILL, stroke: CARD_STROKE_STRONG, strokeWidth: 1 },
+      textOp({ text: worldText, x: x + w / 2, y: y + h / 2 - 11, size: 15, maxWidth: w - 40, align: "center", embolden: 0.03, fill: TEXT_PRIMARY }),
     ];
     const canvas = (ctx: CanvasRenderingContext2D) => {
-      roundRect(ctx, x, y, w, h, h / 2);
-      ctx.fillStyle = "#1e293b";
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "#60a5fa";
+      roundRect(ctx, x - 3, y - 3, w + 6, h + 6, (h + 6) / 2);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "rgba(93,157,117,0.4)";
       ctx.stroke();
-      ctx.fillStyle = "#dbeafe";
-      ctx.font = `18px ${FONT}`;
-      ctx.textBaseline = "top";
-      ctx.fillText(truncateText(title, w - 40, 18), x + 20, y + h / 2 - 12);
+      roundRect(ctx, x, y, w, h, h / 2);
+      ctx.fillStyle = "#0f1410";
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255,255,255,0.16)";
+      ctx.stroke();
+      drawTextCanvas(ctx, { text: worldText, x: x + w / 2, y: y + h / 2 - 11, size: 15, maxWidth: w - 40, align: "center", embolden: 0.03, fill: TEXT_PRIMARY });
     };
-    return { ops, bounds: { minX: x, minY: y, maxX: x + w, maxY: y + h }, canvas };
+    return { ops, bounds: { minX: x - 3, minY: y - 3, maxX: x + w + 3, maxY: y + h + 3 }, canvas };
   }
 }
 
@@ -312,7 +311,7 @@ export class MediaNodeBlockV extends VelloBlock {
     const h = Number(attrs.height) || 160;
     const ops: VelloOp[] = [
       { kind: "roundRect", x, y, width: w, height: h, radius: 10, fill: TILE_FILL, stroke: [75, 85, 99, 255], strokeWidth: 1 },
-      { kind: "text", fontId: 1, x: x + 12, y: y + h - 26, size: 12, maxWidth: w - 24, align: "left", fill: TEXT_SECONDARY, text: "media" },
+      textOp({ text: "media", x: x + 12, y: y + h - 26, size: 12, maxWidth: w - 24, fill: TEXT_SECONDARY }),
     ];
     const canvas = (ctx: CanvasRenderingContext2D) => {
       roundRect(ctx, x, y, w, h, 10);
@@ -326,9 +325,10 @@ export class MediaNodeBlockV extends VelloBlock {
   }
 }
 
-/** 关系连线：复用 arrow-geometry 的二次贝塞尔，曲线 + 箭头 + 标签。 */
+/** 关系连线：复用 arrow-geometry 的二次贝塞尔，曲线 + 箭头 + 标签（线宽/箭头/标签按屏幕像素恒定，对齐 pixi）。 */
 export class RelationArrowBlockV extends VelloBlock {
   static type = "relation-arrow";
+  override renderOnZoom = true;
 
   override blockStateSelector = (state: PomeloEditorState) => {
     const fromId = String(this.record.attrs.fromId ?? "");
@@ -344,11 +344,15 @@ export class RelationArrowBlockV extends VelloBlock {
     const geo = state?.geo;
     if (!geo) return { ops: [], bounds: this.blockBounds() };
     const color = hexToRgba(String(this.record.attrs.color ?? "#8b93a7"));
+    // zoom 常量补偿：线条/箭头/标签尺寸乘 1/scale，屏幕上保持恒定像素（否则低缩放下细线发虚/锯齿明显）
+    const scale = screenScaleOf(this.adapter);
+    const inv = 1 / scale;
     const segment = curveSegment(geo, geo.ta, geo.tb);
     const tangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.tb);
     const angle = Math.atan2(tangent.y, tangent.x);
-    const headLength = 11;
-    const headWidth = 9;
+    const headLength = 11 * inv;
+    const headWidth = 9 * inv;
+    const strokeWidth = 2 * inv;
 
     const ops: VelloOp[] = [
       {
@@ -357,7 +361,7 @@ export class RelationArrowBlockV extends VelloBlock {
         cp: [segment.cp.x, segment.cp.y],
         p1: [segment.p2.x, segment.p2.y],
         stroke: color,
-        strokeWidth: 2,
+        strokeWidth,
       },
       {
         kind: "triangleFill",
@@ -369,21 +373,47 @@ export class RelationArrowBlockV extends VelloBlock {
         fill: color,
       },
     ];
+
+    // 标签：曲线中点（多条边沿法向 ±14 屏幕像素错开）；字号/药丸/偏移均按屏幕像素恒定。
+    // 文本 op 用屏幕 ppem（10）+ glyphScale=1/scale 保证轮廓清晰（同 caption）。
+    let label = "";
+    let labelTextW = 0;
+    let labelX = geo.mid.x;
+    let labelY = geo.mid.y;
+    let pillW = 0;
+    let pillH = 0;
     if (state?.label) {
-      ops.push({ kind: "text", fontId: 1, x: geo.mid.x - 40, y: geo.mid.y - 18, size: 11, maxWidth: 80, align: "center", fill: TEXT_TERTIARY, text: state.label });
+      label = truncateText(state.label, 120, 10);
+      labelTextW = measureTextWidth(label, 10);
+      const offsetIndex = Number(this.record.attrs.labelOffsetIndex ?? 0);
+      if (offsetIndex > 0) {
+        const midTangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
+        const length = Math.hypot(midTangent.x, midTangent.y) || 1;
+        const side = offsetIndex % 2 === 1 ? 1 : -1;
+        const level = Math.ceil(offsetIndex / 2);
+        const px = ((level * 14 * side) / length) * inv;
+        labelX = geo.mid.x - midTangent.y * px;
+        labelY = geo.mid.y + midTangent.x * px;
+      }
+      pillW = (labelTextW + 14) * inv;
+      pillH = 18 * inv;
+      // 边框也按屏幕恒定（strokeWidth 乘 1/scale）：否则缩小时 <1px，描边发虚/断续
+      ops.push({ kind: "roundRect", x: labelX - pillW / 2, y: labelY - pillH / 2, width: pillW, height: pillH, radius: 9 * inv, fill: [15, 20, 16, 235], stroke: [255, 255, 255, 40], strokeWidth: inv });
+      ops.push(screenTextOp(this.adapter, { text: label, x: labelX - labelTextW / 2 / scale, y: labelY - 7 / scale, screenSize: 10, maxScreenWidth: labelTextW, align: "left", fill: LABEL_FILL }));
     }
 
-    const minX = Math.min(segment.p0.x, segment.cp.x, segment.p2.x) - 20;
-    const minY = Math.min(segment.p0.y, segment.cp.y, segment.p2.y) - 20;
-    const maxX = Math.max(segment.p0.x, segment.cp.x, segment.p2.x) + 20;
-    const maxY = Math.max(segment.p0.y, segment.cp.y, segment.p2.y) + 20;
+    const pad = 24 * inv + (state?.label ? 60 * inv : 0);
+    const minX = Math.min(segment.p0.x, segment.cp.x, segment.p2.x, labelX) - pad;
+    const minY = Math.min(segment.p0.y, segment.cp.y, segment.p2.y, labelY) - pad;
+    const maxX = Math.max(segment.p0.x, segment.cp.x, segment.p2.x, labelX) + pad;
+    const maxY = Math.max(segment.p0.y, segment.cp.y, segment.p2.y, labelY) + pad;
 
     const canvas = (ctx: CanvasRenderingContext2D) => {
       ctx.beginPath();
       ctx.moveTo(segment.p0.x, segment.p0.y);
       ctx.quadraticCurveTo(segment.cp.x, segment.cp.y, segment.p2.x, segment.p2.y);
       ctx.strokeStyle = `rgba(${color[0]},${color[1]},${color[2]},0.95)`;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = strokeWidth;
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(geo.b.x, geo.b.y);
@@ -392,6 +422,17 @@ export class RelationArrowBlockV extends VelloBlock {
       ctx.closePath();
       ctx.fillStyle = `rgb(${color[0]},${color[1]},${color[2]})`;
       ctx.fill();
+      if (label) {
+        const w = (labelTextW + 14) * inv;
+        const h = 18 * inv;
+        roundRect(ctx, labelX - w / 2, labelY - h / 2, w, h, 9 * inv);
+        ctx.fillStyle = "rgba(15,20,16,0.92)";
+        ctx.fill();
+        ctx.lineWidth = inv;
+        ctx.strokeStyle = "rgba(255,255,255,0.16)";
+        ctx.stroke();
+        drawScreenTextCanvas(ctx, this.adapter, { text: label, x: labelX - labelTextW / 2 / scale, y: labelY - 7 / scale, screenSize: 10, maxScreenWidth: labelTextW, align: "left", fill: LABEL_FILL });
+      }
     };
 
     return { ops, bounds: { minX, minY, maxX, maxY }, canvas };
@@ -427,28 +468,28 @@ export class RealMediaBlockV extends VelloBlock {
     const caption = captionOpsV(this.adapter, x, y, w, label);
 
     const ops: VelloOp[] = [
-      { kind: "roundRect", x: x + 2, y: y + 6, width: w, height: h, radius: 12, fill: [0, 0, 0, 90], stroke: [0, 0, 0, 0], strokeWidth: 0 },
+      { kind: "roundRect", x: x + 2, y: y + 6, width: w, height: h, radius: 12, fill: SHADOW_FILL, stroke: [0, 0, 0, 0], strokeWidth: 0 },
       { kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: CARD_STROKE, strokeWidth: 1 },
       ...caption.ops,
     ];
     if (modality === "image" && src) {
       ops.push(...coverImageOpsV(this.adapter, src, { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12 }, { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12, radius: 8 }));
     } else {
-      ops.push({ kind: "text", fontId: 1, x: x + 12, y: y + innerH / 2 - 10, size: 14, maxWidth: w - 24, align: "left", fill: TEXT_TERTIARY, text: modality === "video" ? "视频 · 双击预览" : "音频 · 双击预览" });
+      ops.push(textOp({ text: modality === "video" ? "视频 · 双击预览" : "音频 · 双击预览", x: x + 12, y: y + innerH / 2 - 10, size: 14, maxWidth: w - 24, fill: TEXT_TERTIARY }));
     }
-    if (attached) ops.push({ kind: "text", fontId: 1, x: x + 10, y: y + h - 16, size: 9, maxWidth: w - 20, align: "left", fill: TEXT_SECONDARY, text: "◈ 参考素材" });
+    if (attached) ops.push(textOp({ text: "◈ 参考素材", x: x + 10, y: y + h - 16, size: 9, maxWidth: w - 20, fill: TEXT_SECONDARY }));
 
     const canvas = (ctx: CanvasRenderingContext2D) => {
       ctx.save();
-      ctx.globalAlpha = 0.35;
+      ctx.globalAlpha = 0.28;
       roundRect(ctx, x + 2, y + 6, w, h, 12);
       ctx.fillStyle = "#000";
       ctx.fill();
       ctx.restore();
       roundRect(ctx, x, y, w, h, 12);
-      ctx.fillStyle = "#14151a";
+      ctx.fillStyle = "#0f1410";
       ctx.fill();
-      ctx.strokeStyle = "#3a3d46";
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
       ctx.lineWidth = 1;
       ctx.stroke();
       if (modality === "image" && src) {
@@ -497,7 +538,7 @@ export class FreeElementBlockV extends VelloBlock {
 
     const ops: VelloOp[] = [];
     if (elementKind === "text") {
-      ops.push({ kind: "text", fontId: 1, x, y, size: 13, maxWidth: Math.max(40, w), align: "left", fill: [212, 212, 216, 255], text: truncateText(text || "（空文本）", Math.max(40, w), 13) });
+      ops.push(textOp({ text: text || "（空文本）", x, y, size: 13, maxWidth: Math.max(40, w), fill: [212, 212, 216, 255] }));
     } else if (elementKind === "attr") {
       const label = `${attrMediaLabel(media)}${text ? ` · ${text.slice(0, 12)}` : ""}`;
       const caption = captionOpsV(this.adapter, x, y, w, label);
@@ -506,28 +547,25 @@ export class FreeElementBlockV extends VelloBlock {
       if (media === "image" && mediaSrc) {
         ops.push(...coverImageOpsV(this.adapter, mediaSrc, { x, y, width: w, height: h }, { x, y, width: w, height: h, radius: 12 }));
       } else if (text) {
-        ops.push({ kind: "text", fontId: 1, x: x + 10, y: y + 10, size: 11, maxWidth: w - 20, align: "left", fill: TEXT_PRIMARY, text: truncateText(text, w - 20, 11) });
+        ops.push(textOp({ text, x: x + 10, y: y + 10, size: 11, maxWidth: w - 20, fill: TEXT_PRIMARY }));
       }
     } else {
       const radius = shapeType === "ellipse" || shapeType === "diamond" ? Math.min(w, h) / 2 : 8;
       ops.push({ kind: "roundRect", x, y, width: w, height: h, radius, fill: [255, 255, 255, 8], stroke: [82, 82, 91, 255], strokeWidth: 1.5 });
-      if (text) ops.push({ kind: "text", fontId: 1, x: x + 10, y: y + 10, size: 11, maxWidth: w - 16, align: "left", fill: TEXT_TERTIARY, text: truncateText(text, w - 16, 11) });
+      if (text) ops.push(textOp({ text, x: x + 10, y: y + 10, size: 11, maxWidth: w - 16, fill: TEXT_TERTIARY }));
     }
 
     const canvas = (ctx: CanvasRenderingContext2D) => {
       roundRect(ctx, x, y, w, h, elementKind === "attr" ? 12 : 8);
-      ctx.fillStyle = elementKind === "attr" ? "#14151a" : "rgba(255,255,255,0.03)";
+      ctx.fillStyle = elementKind === "attr" ? "#0f1410" : "rgba(255,255,255,0.03)";
       ctx.fill();
-      ctx.strokeStyle = elementKind === "attr" ? "#3a3d46" : "#52525b";
+      ctx.strokeStyle = elementKind === "attr" ? "rgba(255,255,255,0.08)" : "#52525b";
       ctx.lineWidth = 1.5;
       ctx.stroke();
       if (elementKind === "attr" && media === "image" && mediaSrc) {
         drawCoverImageCanvas(ctx, this.adapter, mediaSrc, { x, y, width: w, height: h }, { x, y, width: w, height: h, radius: 12 });
       } else {
-        ctx.fillStyle = elementKind === "attr" ? "#e5e7eb" : "#a1a1aa";
-        ctx.font = `12px ${FONT}`;
-        ctx.textBaseline = "top";
-        ctx.fillText(truncateText(text, w - 16, 12), x + 10, y + 10);
+        drawTextCanvas(ctx, { text, x: x + 10, y: y + 10, size: elementKind === "attr" ? 11 : 12, maxWidth: w - (elementKind === "attr" ? 20 : 16), fill: elementKind === "attr" ? TEXT_PRIMARY : [161, 161, 170, 255] });
       }
       if (elementKind === "attr") {
         const label = `${attrMediaLabel(media)}${text ? ` · ${text.slice(0, 12)}` : ""}`;

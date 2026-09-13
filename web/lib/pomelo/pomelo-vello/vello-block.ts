@@ -26,11 +26,16 @@ export function translateVelloOps(ops: VelloOp[], dx: number, dy: number): Vello
     switch (op.kind) {
       case "roundRect":
       case "rectFill":
-      case "text":
       case "image":
       case "blurRect":
       case "pushClipRoundRect":
         return { ...op, x: op.x + dx, y: op.y + dy };
+      case "text": {
+        // 屏幕恒定文本（glyphScale = 1/scale）的 x/y 是「世界坐标 × scale」的预乘值，
+        // 平移世界 delta 时需除以 glyphScale；普通文本 glyphScale=1，行为不变。
+        const gs = op.glyphScale && op.glyphScale > 0 ? op.glyphScale : 1;
+        return { ...op, x: op.x + dx / gs, y: op.y + dy / gs };
+      }
       case "quadStroke":
         return {
           ...op,

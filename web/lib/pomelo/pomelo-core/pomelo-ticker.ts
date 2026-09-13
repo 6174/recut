@@ -23,6 +23,8 @@ export class PomeloTicker {
   #rafId = 0;
   #lastTime = 0;
   #destroyed = false;
+  /** 单调递增的帧序号（每次 #tick +1），供渲染层做「同帧只渲染一次」合并。 */
+  frameId = 0;
 
   /**
    * 注册常驻帧回调；返回 disposer。同一 phase 内按注册顺序执行。
@@ -84,6 +86,7 @@ export class PomeloTicker {
 
   #tick = (now: number) => {
     this.#rafId = 0;
+    this.frameId++;
     const deltaMS = now - this.#lastTime;
     this.#lastTime = now;
 

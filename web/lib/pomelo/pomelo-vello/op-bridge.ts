@@ -53,6 +53,12 @@ export type VelloOp =
       align?: "left" | "center" | "right";
       /** 合成加粗量（相对字号的 em 比例，0/缺省 = 不加粗）。 */
       embolden?: number;
+      /**
+       * 字形 run 的额外缩放（缺省 1）。用于「屏幕像素恒定」文本：让 font_size 保持屏幕 ppem
+       * （轮廓在高 ppem 生成，避免小字号放大发虚），再用 1/scale 抵消视口缩放；调用方需把
+       * x/y 预先乘以 scale。
+       */
+      glyphScale?: number;
       fill: Rgba;
       text: string;
     }
@@ -154,6 +160,7 @@ export function encodeOps(ops: VelloOp[]): Uint8Array {
         out.push(ALIGN_CODE[op.align ?? "left"] ?? 0);
         pushRgba(op.fill);
         pushF32(op.embolden ?? 0);
+        pushF32(op.glyphScale ?? 1);
         const encoded = TEXT_ENCODER.encode(op.text);
         out.push(encoded.length & 0xff, (encoded.length >>> 8) & 0xff, (encoded.length >>> 16) & 0xff, (encoded.length >>> 24) & 0xff);
         for (const byte of encoded) out.push(byte);
