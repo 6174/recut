@@ -910,7 +910,13 @@ export function CanvasPomeloHost() {
       setReady(true);
       // e2e/调试句柄（仅 dev 构建暴露）
       if (process.env.NODE_ENV !== "production") {
-        (window as unknown as Record<string, unknown>).__worldCanvasDebug = { editor, store: useWorldCanvasStore, renderer: useVello ? "vello" : "pixi", rebuild: () => syncDocFromCanvasStore(editor) };
+        (window as unknown as Record<string, unknown>).__worldCanvasDebug = {
+          editor,
+          store: useWorldCanvasStore,
+          renderer: useVello ? "vello" : "pixi",
+          fit: () => centerContent(editor),
+          rebuild: () => syncDocFromCanvasStore(editor),
+        };
       }
     });
     return () => {

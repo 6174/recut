@@ -48,6 +48,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private readonly options: VelloRendererAdapterOptions;
   private disposeTicker: { dispose(): void } | null = null;
   private contentGeneration = 0;
+  private initialSettled = false;
   private navigationGeneration = 0;
   private dirty = true;
 
@@ -133,6 +134,16 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   render(): void {
     super.render();
     this.syncChunks();
+    // 首次挂载做一次有界「settle」：循环渲染直到可见瓦片全覆盖（或上限），保证首屏完整，
+    // 不依赖 ticker 是否被触发（此前首屏可能只画了部分瓦片）。
+    if (!this.initialSettled && this.controller && this.viewport) {
+      this.initialSettled = true;
+      for (let i = 0; i < 60; i++) {
+        this.flush();
+        const trace = this.controller.telemetry.snapshot().lastTrace;
+        if (trace?.covered && this.controller.scheduler.pending() === 0) break;
+      }
+    }
   }
 
   getView(): HTMLCanvasElement | null {
@@ -299,6 +310,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       viewport: this.viewport,
       contentGeneration: this.contentGeneration,
       chunks: this.controller?.index.size() ?? 0,
+      images: this.imageIds.size,
+      imagePending: this.imagePending.size,
       tiles: this.controller?.debugState().tiles ?? 0,
       telemetry: this.controller?.telemetry.snapshot() ?? null,
     };
