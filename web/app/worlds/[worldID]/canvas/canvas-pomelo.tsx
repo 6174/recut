@@ -22,6 +22,8 @@ import { PixiBlock } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-bloc
 import { PomeloEditorState } from "@/lib/pomelo/pomelo-core/pomelo-state";
 import { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
+import { VelloRendererAdapter } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
+import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/pomelo-vello/world-blocks";
 import { EntityCardBlock } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
 import { NoteBlock, WorldNodeBlock } from "@/lib/pomelo/world-canvas/blocks/note-and-world-blocks";
 import { RelationArrowBlock } from "@/lib/pomelo/world-canvas/blocks/relation-arrow-block";
@@ -863,12 +865,18 @@ export function CanvasPomeloHost() {
     const container = containerRef.current;
     if (!container || editorRef.current) return;
     const bindsPlugin = new CanvasBindsPlugin();
+    // 渲染器开关（默认 pixi）：?renderer=vello 使用 vello-native 适配器 + VelloBlock 版本
+    const useVello = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("renderer") === "vello";
     const editor = new PomeloEditor({
       state: PomeloEditorState.fromJSON({ id: "world-canvas", children: [] }),
       container,
       plugins: [new GridPlugin(), new ViewportPlugin(), bindsPlugin],
-      blockTypes: [EntityCardBlock, NoteBlock, WorldNodeBlock, RelationArrowBlock, FreeElementBlock, MediaBlock],
-      renderAdapter: new PixiRendererAdapter({ transparentBackground: true, antialias: true }),
+      blockTypes: useVello
+        ? WORLD_VELLO_BLOCKS
+        : [EntityCardBlock, NoteBlock, WorldNodeBlock, RelationArrowBlock, FreeElementBlock, MediaBlock],
+      renderAdapter: useVello
+        ? new VelloRendererAdapter({ preferGpu: true })
+        : new PixiRendererAdapter({ transparentBackground: true, antialias: true }),
     });
     editorRef.current = editor;
     pluginRef.current = bindsPlugin;
@@ -902,7 +910,7 @@ export function CanvasPomeloHost() {
       setReady(true);
       // e2e/调试句柄（仅 dev 构建暴露）
       if (process.env.NODE_ENV !== "production") {
-        (window as unknown as Record<string, unknown>).__worldCanvasDebug = { editor, store: useWorldCanvasStore, rebuild: () => syncDocFromCanvasStore(editor) };
+        (window as unknown as Record<string, unknown>).__worldCanvasDebug = { editor, store: useWorldCanvasStore, renderer: useVello ? "vello" : "pixi", rebuild: () => syncDocFromCanvasStore(editor) };
       }
     });
     return () => {

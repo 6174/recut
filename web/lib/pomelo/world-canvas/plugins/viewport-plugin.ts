@@ -36,8 +36,8 @@ export class ViewportPlugin extends PomeloPlugin {
 
   onEditorDidMount(editor: PomeloEditor) {
     const adapter = editor.renderAdapter as PixiRendererAdapter;
-    const view = (adapter.app?.view ?? undefined) as HTMLCanvasElement | undefined;
-    if (!view) throw new Error("[viewport] pixi view missing");
+    const view = adapter.getView() ?? undefined;
+    if (!view) throw new Error("[viewport] view missing");
     const disposables: Array<() => void> = [];
 
     const apply = (transform: Transform) => {
@@ -140,7 +140,8 @@ export function centerContent(editor: PomeloEditor) {
     maxX = Math.max(maxX, x + width);
     maxY = Math.max(maxY, y + height);
   }
-  const view = adapter.app.view as HTMLCanvasElement;
+  const view = adapter.getView();
+  if (!view) return;
   const rect = view.getBoundingClientRect();
   const scale = clampScale(Math.min((rect.width / (maxX - minX + 160)) as number, (rect.height / (maxY - minY + 160)) as number, 1));
   const contentCenter = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
@@ -151,7 +152,8 @@ export function centerContent(editor: PomeloEditor) {
 // 工具栏缩放按钮：以画布中心为锚点
 export function zoomByCenter(editor: PomeloEditor, factor: number) {
   const adapter = editor.renderAdapter as PixiRendererAdapter;
-  const view = adapter.app.view as HTMLCanvasElement;
+  const view = adapter.getView();
+  if (!view) return;
   const rect = view.getBoundingClientRect();
   const transform = { ...adapter.transform };
   const next = zoomAt(transform, { x: rect.width / 2, y: rect.height / 2 }, transform.scale * factor);

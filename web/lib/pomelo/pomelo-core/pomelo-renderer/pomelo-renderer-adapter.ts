@@ -70,6 +70,11 @@ export abstract class PomeloRendererAdapter {
     // 默认无操作
   }
 
+  /** 可选：把 http 图片注册为渲染器可用的 image id；缺省渲染器不支持（返回 null）。异步加载完成后应触发一帧重绘。 */
+  ensureImage(_url: string): number | null {
+    return null;
+  }
+
   onInit(renderer: PomeloRenderer) {
     this.renderer = renderer;
     this.editor = renderer.editor;

@@ -42,6 +42,9 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private readonly dirtyBlocks = new Set<string>();
   private readonly movedBlocks = new Set<string>();
   private readonly removedBlocks = new Set<string>();
+  private readonly imageIds = new Map<string, number>();
+  private readonly imagePending = new Set<string>();
+  private nextImageId = 10_000;
   private readonly options: VelloRendererAdapterOptions;
   private disposeTicker: { dispose(): void } | null = null;
   private contentGeneration = 0;
@@ -232,6 +235,48 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       navigationActive: false,
     });
     this.dirty = false;
+  }
+
+  /** 把 http 图片异步注册为 image id（缓存）。未就绪返回 null；就绪后触发一帧重绘。 */
+  ensureImage(url: string): number | null {
+    if (!url) return null;
+    const cached = this.imageIds.get(url);
+    if (cached !== undefined) return cached;
+    if (this.imagePending.has(url)) return null;
+    if (this.rasterizerName !== "vello") return null;
+    this.imagePending.add(url);
+    const id = this.nextImageId++;
+    void (async () => {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`image fetch ${response.status}`);
+        const bitmap = await createImageBitmap(await response.blob());
+        const maxSide = 512;
+        const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+        const width = Math.max(1, Math.round(bitmap.width * scale));
+        const height = Math.max(1, Math.round(bitmap.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("no 2d context");
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        const rgba = new Uint8Array(ctx.getImageData(0, 0, width, height).data);
+        (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, width, height, rgba);
+        this.imageIds.set(url, id);
+      } catch (error) {
+        console.warn("[pomelo-vello-adapter] image load failed", url, error);
+      } finally {
+        this.imagePending.delete(url);
+        // 图就绪后重跑所有 VelloBlock.render()（ensureImage 现在能返回 id），drawVersion++ 触发 chunk 重编码
+        for (const block of this.renderedBlockMap.values()) {
+          if (block instanceof VelloBlock) block.render();
+        }
+        this.contentGeneration++;
+        this.dirty = true;
+      }
+    })();
+    return null;
   }
 
   /** 调试：立即渲染一帧（跳过 ticker 合帧）。 */

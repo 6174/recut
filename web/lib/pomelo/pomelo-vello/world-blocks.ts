@@ -88,17 +88,26 @@ export class EntityCardBlockV extends VelloBlock {
       ...(hasCover
         ? [{ kind: "rectFill" as const, x: x + 1, y: y + 1, width: w - 2, height: imageH, fill: [29, 35, 30, 255] as Rgba }]
         : []),
+      ...(hasCover
+        ? (() => {
+            const coverId = this.adapter.ensureImage(String(attrs.coverUrl ?? ""));
+            return coverId === null ? [] : [{ kind: "image" as const, imageId: coverId, x: x + 1, y: y + 1, width: w - 2, height: imageH }];
+          })()
+        : []),
       { kind: "text" as const, fontId: 1, x: x + PAD, y: y + textTop, size: hasCover ? 15 : 21, maxWidth: w - PAD * 2, align: "left" as const, fill: TEXT_PRIMARY, text: title },
       { kind: "text" as const, fontId: 1, x: x + PAD, y: y + textTop + (hasCover ? 24 : 30), size: hasCover ? 10 : 12, maxWidth: w - PAD * 2, align: "left" as const, fill: TEXT_SECONDARY, text: summary },
     ];
 
     const tiles = Math.min(totalCount, GRID_CAPACITY);
+    const urlPhotos = stringListOf(attrs.photoUrls);
     for (let index = 0; index < tiles; index++) {
       const col = index % 3;
       const row = Math.floor(index / 3);
       const tx = x + PAD + col * (THUMB + THUMB_GAP);
       const ty = y + textTop + (hasCover ? 24 + 14 : 30 + 18) + GRID_GAP_Y + row * (THUMB + THUMB_GAP);
       ops.push({ kind: "roundRect", x: tx, y: ty, width: THUMB, height: THUMB, radius: 8, fill: [29, 35, 30, 255], stroke: [0, 0, 0, 0], strokeWidth: 0 });
+      const photoId = this.adapter.ensureImage(urlPhotos[index] ?? "");
+      if (photoId !== null) ops.push({ kind: "image", imageId: photoId, x: tx + 1, y: ty + 1, width: THUMB - 2, height: THUMB - 2 });
     }
 
     const canvas = (ctx: CanvasRenderingContext2D) => {
@@ -295,4 +304,111 @@ export class RelationArrowBlockV extends VelloBlock {
   }
 }
 
-export const WORLD_VELLO_BLOCKS = [EntityCardBlockV, NoteBlockV, WorldNodeBlockV, MediaNodeBlockV, RelationArrowBlockV];
+/** 媒体元素（type: media）：图 cover-fit / 视频音频占位。 */
+export class RealMediaBlockV extends VelloBlock {
+  static type = "media";
+
+  protected renderBlock(): VelloBlockDraw {
+    const attrs = this.record.attrs as Record<string, unknown>;
+    const x = Number(attrs.x) || 0;
+    const y = Number(attrs.y) || 0;
+    const w = Number(attrs.width) || 220;
+    const h = Number(attrs.height) || 150;
+    const modality = String(attrs.modality ?? "image");
+    const src = String(attrs.src ?? "");
+    const label = String(attrs.label ?? "媒体");
+    const attached = Boolean(attrs.attached);
+    const innerH = h - (attached ? 18 : 0);
+
+    const ops: VelloOp[] = [
+      { kind: "roundRect", x: x + 2, y: y + 6, width: w, height: h, radius: 12, fill: [0, 0, 0, 90], stroke: [0, 0, 0, 0], strokeWidth: 0 },
+      { kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: [20, 21, 26, 255], stroke: [58, 61, 70, 255], strokeWidth: 1 },
+    ];
+    if (modality === "image" && src) {
+      const id = this.adapter.ensureImage(src);
+      if (id !== null) ops.push({ kind: "image", imageId: id, x: x + 6, y: y + 6, width: w - 12, height: innerH - 12 });
+    } else {
+      ops.push({ kind: "text", fontId: 1, x: x + 12, y: y + innerH / 2 - 10, size: 14, maxWidth: w - 24, align: "left", fill: [161, 161, 170, 255], text: modality === "video" ? "视频 · 双击预览" : "音频 · 双击预览" });
+    }
+    if (attached) ops.push({ kind: "text", fontId: 1, x: x + 10, y: y + h - 16, size: 9, maxWidth: w - 20, align: "left", fill: [156, 163, 175, 255], text: "◈ 参考素材" });
+
+    const canvas = (ctx: CanvasRenderingContext2D) => {
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      roundRect(ctx, x + 2, y + 6, w, h, 12);
+      ctx.fillStyle = "#000";
+      ctx.fill();
+      ctx.restore();
+      roundRect(ctx, x, y, w, h, 12);
+      ctx.fillStyle = "#14151a";
+      ctx.fill();
+      ctx.strokeStyle = "#3a3d46";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = "#a1a1aa";
+      ctx.font = "14px ui-sans-serif, system-ui, sans-serif";
+      ctx.textBaseline = "top";
+      ctx.fillText(modality === "video" ? "视频 · 双击预览" : "音频 · 双击预览", x + 12, y + innerH / 2 - 10);
+    };
+    return { ops, bounds: { minX: x, minY: y, maxX: x + w, maxY: y + h }, canvas };
+  }
+}
+
+/** 自由元素（type: free-element）：文本 / 形状 / 属性预览卡（v1 简化视觉）。 */
+export class FreeElementBlockV extends VelloBlock {
+  static type = "free-element";
+
+  protected renderBlock(): VelloBlockDraw {
+    const attrs = this.record.attrs as Record<string, unknown>;
+    const x = Number(attrs.x) || 0;
+    const y = Number(attrs.y) || 0;
+    const w = Number(attrs.width) || 120;
+    const h = Number(attrs.height) || 60;
+    const elementKind = String(attrs.elementKind ?? "shape");
+    const shapeType = String(attrs.shapeType ?? "rectangle");
+    const text = String(attrs.text ?? "");
+    const media = String(attrs.attrMedia ?? "text");
+    const mediaSrc = String(attrs.mediaSrc ?? "");
+
+    const ops: VelloOp[] = [];
+    if (elementKind === "text") {
+      ops.push({ kind: "text", fontId: 1, x, y, size: 13, maxWidth: Math.max(40, w), align: "left", fill: [212, 212, 216, 255], text: text || "（空文本）" });
+    } else if (elementKind === "attr") {
+      ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: [20, 21, 26, 255], stroke: [58, 61, 70, 255], strokeWidth: 1 });
+      if (media === "image" && mediaSrc) {
+        const id = this.adapter.ensureImage(mediaSrc);
+        if (id !== null) ops.push({ kind: "image", imageId: id, x: x + 1, y: y + 1, width: w - 2, height: h - 2 });
+      } else if (text) {
+        ops.push({ kind: "text", fontId: 1, x: x + 10, y: y + 10, size: 11, maxWidth: w - 20, align: "left", fill: [229, 231, 235, 255], text });
+      }
+    } else {
+      const radius = shapeType === "ellipse" || shapeType === "diamond" ? Math.min(w, h) / 2 : 8;
+      ops.push({ kind: "roundRect", x, y, width: w, height: h, radius, fill: [255, 255, 255, 8], stroke: [82, 82, 91, 255], strokeWidth: 1.5 });
+      if (text) ops.push({ kind: "text", fontId: 1, x: x + 10, y: y + 10, size: 11, maxWidth: w - 16, align: "left", fill: [161, 161, 170, 255], text });
+    }
+
+    const canvas = (ctx: CanvasRenderingContext2D) => {
+      roundRect(ctx, x, y, w, h, elementKind === "attr" ? 12 : 8);
+      ctx.fillStyle = elementKind === "attr" ? "#14151a" : "rgba(255,255,255,0.03)";
+      ctx.fill();
+      ctx.strokeStyle = elementKind === "attr" ? "#3a3d46" : "#52525b";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = elementKind === "attr" ? "#e5e7eb" : "#a1a1aa";
+      ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
+      ctx.textBaseline = "top";
+      ctx.fillText(text, x + 10, y + 10);
+    };
+    return { ops, bounds: { minX: x, minY: y, maxX: x + w, maxY: y + h }, canvas };
+  }
+}
+
+export const WORLD_VELLO_BLOCKS = [
+  EntityCardBlockV,
+  NoteBlockV,
+  WorldNodeBlockV,
+  MediaNodeBlockV,
+  RelationArrowBlockV,
+  RealMediaBlockV,
+  FreeElementBlockV,
+];
