@@ -1,0 +1,95 @@
+/*
+ * [INPUT]: 无外部依赖
+ * [OUTPUT]: 对外提供 VelloOp 词汇与 encodeOps()：把 chunk 的绘制编码为小端字节流，
+ *           与 pomelo-vello-wasm/src/ops.rs 的格式一一对应（无总数头，可拼接）。
+ * [POS]: pomelo-vello 的 JS→WASM 绘制 op 桥。
+ * [PROTOCOL]: 变更时更新此头部；修改格式必须同步 Rust ops.rs。
+ */
+export const OP_KIND = {
+  RoundRect: 1,
+  QuadStroke: 2,
+  TriangleFill: 3,
+  RectFill: 4,
+} as const;
+
+export type Rgba = [number, number, number, number];
+export type Vec2 = [number, number];
+
+export type VelloOp =
+  | {
+      kind: "roundRect";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      radius: number;
+      fill: Rgba;
+      stroke: Rgba;
+      strokeWidth: number;
+    }
+  | {
+      kind: "quadStroke";
+      p0: Vec2;
+      cp: Vec2;
+      p1: Vec2;
+      stroke: Rgba;
+      strokeWidth: number;
+    }
+  | { kind: "triangleFill"; points: [Vec2, Vec2, Vec2]; fill: Rgba }
+  | { kind: "rectFill"; x: number; y: number; width: number; height: number; fill: Rgba };
+
+const TRANSPARENT: Rgba = [0, 0, 0, 0];
+
+export function encodeOps(ops: VelloOp[]): Uint8Array {
+  const out: number[] = [];
+  const view = new DataView(new ArrayBuffer(4));
+  const pushF32 = (value: number) => {
+    view.setFloat32(0, value, true);
+    out.push(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+  };
+  const pushRgba = (color: Rgba) => out.push(color[0], color[1], color[2], color[3]);
+  const pushPair = (p: Vec2) => {
+    pushF32(p[0]);
+    pushF32(p[1]);
+  };
+
+  for (const op of ops) {
+    switch (op.kind) {
+      case "roundRect":
+        out.push(OP_KIND.RoundRect);
+        pushF32(op.x);
+        pushF32(op.y);
+        pushF32(op.width);
+        pushF32(op.height);
+        pushF32(op.radius);
+        pushRgba(op.fill);
+        pushRgba(op.stroke ?? TRANSPARENT);
+        pushF32(op.strokeWidth ?? 0);
+        break;
+      case "quadStroke":
+        out.push(OP_KIND.QuadStroke);
+        pushPair(op.p0);
+        pushPair(op.cp);
+        pushPair(op.p1);
+        pushRgba(op.stroke);
+        pushF32(op.strokeWidth);
+        break;
+      case "triangleFill":
+        out.push(OP_KIND.TriangleFill);
+        pushPair(op.points[0]);
+        pushPair(op.points[1]);
+        pushPair(op.points[2]);
+        pushRgba(op.fill);
+        break;
+      case "rectFill":
+        out.push(OP_KIND.RectFill);
+        pushF32(op.x);
+        pushF32(op.y);
+        pushF32(op.width);
+        pushF32(op.height);
+        pushRgba(op.fill);
+        break;
+    }
+  }
+  return new Uint8Array(out);
+}

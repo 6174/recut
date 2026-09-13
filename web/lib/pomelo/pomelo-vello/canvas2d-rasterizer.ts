@@ -86,7 +86,8 @@ export class Canvas2DRasterizer implements TileRasterizer<CanvasTileTarget, Canv
   }
 
   drawChunk(target: CanvasTileTarget, chunk: RenderChunk): void {
-    const paint = chunk.payload as ((ctx: CanvasRenderingContext2D) => void) | undefined;
+    const payload = chunk.payload as { canvas?: (ctx: CanvasRenderingContext2D) => void } | ((ctx: CanvasRenderingContext2D) => void) | undefined;
+    const paint = typeof payload === "function" ? payload : payload?.canvas;
     if (typeof paint !== "function") return;
     target.ctx.save();
     try {

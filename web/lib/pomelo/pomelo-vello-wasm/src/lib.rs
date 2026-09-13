@@ -1,16 +1,26 @@
 //! pomelo-vello-wasm：vello(WASM/WebGPU) 光栅器运行时。
-//! v1 只落地「设备初始化 + 尺寸配置」；瓦片光栅/合成待 M1 后续接入（见 rfc/2026-09-13-vello-native-rendering-implementation.md）。
-use wasm_bindgen::prelude::*;
-use web_sys::HtmlCanvasElement;
+//! - `ops`：JS op 字节流解码 + vello `Scene` 构建（可在 host 上单元测试，见 `cargo test`）。
+//! - `runtime`：wgpu 设备/瓦片光栅/合成（仅 wasm32 编译）。
+//! 见 rfc/2026-09-13-vello-native-rendering-implementation.md。
+#[allow(dead_code)]
+mod ops;
 
+#[cfg(target_arch = "wasm32")]
 mod runtime;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn version() -> String {
     "pomelo-vello-wasm 0.1.0".to_string()
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub async fn create_runtime(canvas: HtmlCanvasElement) -> Result<runtime::VelloRuntime, JsValue> {
+pub async fn create_runtime(
+    canvas: web_sys::HtmlCanvasElement,
+) -> Result<runtime::VelloRuntime, JsValue> {
     runtime::VelloRuntime::create(canvas).await
 }
