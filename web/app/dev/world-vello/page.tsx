@@ -1,8 +1,8 @@
 /*
- * [INPUT]: 依赖 pomelo-core（PomeloEditor/PomeloEditorState）、pomelo-vello（VelloRendererAdapter/world-blocks）
- * [OUTPUT]: 对外提供 /dev/world-vello：world-canvas 四类 block 的 vello-native 版本渲染验证页；
- *           暴露 window.__worldVelloDebug。
- * [POS]: pomelo-vello 的 world block 迁移验证入口（M2）。
+ * [INPUT]: 依赖 pomelo-core（PomeloEditor/PomeloEditorState）、pomelo-vello（VelloRendererAdapter/world-blocks/overlay-dom）
+ * [OUTPUT]: 对外提供 /dev/world-vello：world-canvas 四类 block 的 vello-native 版本渲染 + DOM/SVG overlay 验证页；
+ *           暴露 window.__worldVelloDebug（含 select/clearOverlay）。
+ * [POS]: pomelo-vello 的 world block + overlay 迁移验证入口（M2）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -11,6 +11,7 @@ import { useEffect, useRef } from "react";
 import { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { PomeloEditorState } from "@/lib/pomelo/pomelo-core/pomelo-state";
 import { VelloRendererAdapter } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
+import { DomOverlay } from "@/lib/pomelo/pomelo-vello/overlay-dom";
 import {
   EntityCardBlockV,
   MediaNodeBlockV,
@@ -18,6 +19,7 @@ import {
   RelationArrowBlockV,
   WorldNodeBlockV,
   WORLD_VELLO_BLOCKS,
+  entityCardRectV,
 } from "@/lib/pomelo/pomelo-vello/world-blocks";
 
 declare global {
@@ -29,16 +31,20 @@ declare global {
       renderNow(): void;
       moveBlock(id: string, dx: number, dy: number): void;
       cardRect(id: string): { x: number; y: number; width: number; height: number } | null;
+      select(id: string): boolean;
+      clearOverlay(): void;
     };
   }
 }
 
 export default function WorldVelloDemoPage() {
+  const wrapRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const wrap = wrapRef.current;
     const container = containerRef.current;
-    if (!container) return;
+    if (!wrap || !container) return;
     const state = PomeloEditorState.fromJSON({
       id: "world-vello-demo",
       children: [
@@ -58,12 +64,14 @@ export default function WorldVelloDemoPage() {
       blockTypes: WORLD_VELLO_BLOCKS,
       renderAdapter: adapter,
     });
+    const overlay = new DomOverlay(wrap);
     let disposed = false;
     void (async () => {
       await editor.onInit();
       if (disposed) return;
       const vp = adapter.viewport;
       if (vp) {
+        overlay.setSize(vp.width, vp.height);
         adapter.setTransform((vp.width - 660 * vp.zoom) / 2, (vp.height - 460 * vp.zoom) / 2, vp.zoom);
         adapter.renderNow();
       }
@@ -82,19 +90,32 @@ export default function WorldVelloDemoPage() {
         },
         cardRect: (id) => {
           const record = state.getBlockById(id);
-          return record ? entityCardRectFor(record.attrs as Record<string, unknown>) : null;
+          return record ? entityCardRectV(record.attrs as Record<string, unknown>) : null;
         },
+        select: (id) => {
+          const record = state.getBlockById(id);
+          const viewport = adapter.viewport;
+          if (!record || !viewport) return false;
+          const rect = entityCardRectV(record.attrs as Record<string, unknown>);
+          overlay.setSize(viewport.width, viewport.height);
+          overlay.drawSelection(rect, { x: viewport.panX, y: viewport.panY, scale: viewport.zoom });
+          return true;
+        },
+        clearOverlay: () => overlay.clear(),
       };
     })();
     return () => {
       disposed = true;
       delete window.__worldVelloDebug;
+      overlay.destroy();
       adapter.destroy();
       editor.destroy();
     };
   }, []);
 
-  return <div ref={containerRef} className="h-dvh w-full overflow-hidden bg-[#0b0f19]" />;
+  return (
+    <div ref={wrapRef} className="relative h-dvh w-full overflow-hidden bg-[#0b0f19]">
+      <div ref={containerRef} className="absolute inset-0" />
+    </div>
+  );
 }
-
-import { entityCardRectV as entityCardRectFor } from "@/lib/pomelo/pomelo-vello/world-blocks";

@@ -60,6 +60,25 @@ try {
   ok("transact 位移生效", Math.abs(after - before - 80) < 1, `dx=${(after - before).toFixed(1)}`);
   ok("位移后 chunk 数不变", afterState.chunks === 6, `chunks=${afterState.chunks}`);
 
+  // DOM/SVG overlay：选区框 + 4 个手柄
+  const overlay = await page.evaluate(() => {
+    const d = window.__worldVelloDebug;
+    const okSelect = d.select("e1");
+    const selection = document.querySelector('[data-overlay-selection="true"]');
+    const handles = document.querySelectorAll('[data-overlay-handle="true"]');
+    const visible = selection && selection.style.display !== "none";
+    return { okSelect, visible, handles: handles.length };
+  });
+  ok("DOM/SVG overlay 选区可见", overlay.okSelect && overlay.visible, `handles=${overlay.handles}`);
+  ok("DOM/SVG overlay 四角手柄", overlay.handles === 4, `handles=${overlay.handles}`);
+
+  const cleared = await page.evaluate(() => {
+    window.__worldVelloDebug.clearOverlay();
+    const selection = document.querySelector('[data-overlay-selection="true"]');
+    return selection ? selection.style.display === "none" : true;
+  });
+  ok("overlay 可清除", cleared, "");
+
   ok("页面无报错", pageErrors.length === 0, pageErrors.slice(0, 2).join(" | "));
   await page.screenshot({ path: "scripts/e2e-world-vello.png" }).catch(() => {});
 } catch (error) {

@@ -11,3 +11,5 @@ export * from "./vello-element";
 export * from "./vello-block";
 export * from "./pomelo-vello-adapter";
 export * from "./demo-blocks";
+export * from "./overlay-dom";
+export * from "./world-blocks";
