@@ -440,7 +440,8 @@ export async function mountTileDemo(canvas: HTMLCanvasElement): Promise<TileDemo
 
   const loop = () => {
     if (destroyed) return;
-    if (!paused && (navigationActive || dirty || controller.scheduler.pending() > 0)) renderOnce();
+    const covered = controller.telemetry.snapshot().lastTrace?.covered ?? false;
+    if (!paused && (navigationActive || dirty || controller.scheduler.pending() > 0 || !covered)) renderOnce();
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);

@@ -140,11 +140,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     // 不依赖 ticker 是否被触发（此前首屏可能只画了部分瓦片）。
     if (!this.initialSettled && this.controller && this.viewport) {
       this.initialSettled = true;
-      for (let i = 0; i < 60; i++) {
-        this.flush();
-        const trace = this.controller.telemetry.snapshot().lastTrace;
-        if (trace?.covered && this.controller.scheduler.pending() === 0) break;
-      }
+      this.settle();
     }
   }
 
@@ -172,7 +168,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       this.navigationActive = false;
       this.navTimer = null;
       this.dirty = true;
-      this.flush();
+      // 导航结束：确定性补齐所有瓦片（不依赖 ticker 时机）
+      this.settle();
     }, 180);
     this.dirty = true;
   }
@@ -248,10 +245,15 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     }
   }
 
+  private isCovered(): boolean {
+    return this.controller?.telemetry.snapshot().lastTrace?.covered ?? false;
+  }
+
   private flush(): void {
     const controller = this.controller;
     if (!controller || !this.viewport) return;
-    if (!this.dirty && controller.scheduler.pending() === 0) return;
+    // 未 covered 也继续渲染（补偿确定性），直到瓦片补齐
+    if (!this.dirty && controller.scheduler.pending() === 0 && this.isCovered()) return;
     controller.renderFrame({
       viewport: this.viewport,
       contentGeneration: this.contentGeneration,
@@ -289,6 +291,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
             if (block instanceof VelloBlock) block.render();
           }
           this.syncChunks();
+          this.settle();
         } catch (error) {
           console.warn("[pomelo-vello-adapter] image re-render failed", error);
         }
@@ -330,6 +333,15 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     if (!ctx) return null;
     ctx.drawImage(image, 0, 0, width, height);
     return { width, height, data: new Uint8Array(ctx.getImageData(0, 0, width, height).data) };
+  }
+
+  /** 循环渲染直到可见瓦片全覆盖（或上限）。用于首屏/导航结束/图片就绪后的确定性补偿。 */
+  private settle(maxFrames = 120): void {
+    if (!this.controller || !this.viewport) return;
+    for (let i = 0; i < maxFrames; i++) {
+      this.flush();
+      if (this.isCovered() && this.controller.scheduler.pending() === 0) return;
+    }
   }
 
   /** 调试：立即渲染一帧（跳过 ticker 合帧）。 */

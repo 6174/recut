@@ -128,5 +128,7 @@ export interface TileRasterizer<TTarget, THandle> {
   beginFrame(viewport: Viewport): void;
   /** 每帧合成结束。 */
   endFrame(viewport: Viewport): void;
+  /** 可选：导航期整场直绘兜底（返回 true 表示已自行上屏，跳过瓦片合成）。 */
+  renderDirect?(chunks: RenderChunk[], viewport: Viewport): boolean;
   destroy(): void;
 }

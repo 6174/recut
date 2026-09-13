@@ -152,6 +152,23 @@ export class TileController<TTarget, THandle> {
     const level = tileLevel(viewport.zoom * viewport.dpr);
     const worldBounds = viewportWorldBounds(viewport.panX, viewport.panY, viewport.zoom, viewport.width, viewport.height);
 
+    // 导航期优先整场直绘兜底（无空洞）；瓦片在落定后（navigationActive=false）再补齐
+    if (input.navigationActive && this.rasterizer.renderDirect) {
+      const chunks = this.index.search(worldBounds);
+      this.rasterizer.beginFrame(viewport);
+      const handled = this.rasterizer.renderDirect(chunks, viewport);
+      this.rasterizer.endFrame(viewport);
+      if (handled) {
+        this.scheduler.clear();
+        const metrics = emptyTileSchedulerMetrics();
+        this.telemetry.record(
+          { contentGeneration: input.contentGeneration, navigationGeneration: input.navigationGeneration, navigationActive: true, metrics, tileCacheBytes: this.cache.byteSize(), tileCacheEntries: this.cache.size(), visibleTileCount: 0, presentedTileCount: 0, covered: false, frameMs: performance.now() - frameStart },
+          0,
+        );
+        return { covered: false, pending: true, presented: 0, rendered: 0, metrics };
+      }
+    }
+
     const plan = planTiles(this.cache, {
       pageId: this.pageId,
       level,

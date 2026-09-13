@@ -121,6 +121,24 @@ export class Canvas2DRasterizer implements TileRasterizer<CanvasTileTarget, Canv
     handle.canvas.height = 1;
   }
 
+  renderDirect(chunks: RenderChunk[], viewport: Viewport): boolean {
+    const ctx = this.display;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.fillStyle = this.background;
+    ctx.fillRect(0, 0, this.viewportWidth, this.viewportHeight);
+    ctx.save();
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.translate(viewport.panX, viewport.panY);
+    ctx.scale(viewport.zoom, viewport.zoom);
+    for (const chunk of chunks) {
+      const payload = chunk.payload as { canvas?: (c: CanvasRenderingContext2D) => void } | undefined;
+      if (typeof payload?.canvas === "function") payload.canvas(ctx);
+    }
+    ctx.restore();
+    return true;
+  }
+
   present(tiles: CachedTile<CanvasTileHandle>[], viewport: Viewport): void {
     const ctx = this.display;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);

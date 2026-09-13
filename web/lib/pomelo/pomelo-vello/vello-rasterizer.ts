@@ -35,11 +35,13 @@ interface WasmRuntime {
   register_image(id: number, width: number, height: number, rgba: Uint8Array): void;
   set_font_fallback(id: number, fallbackId: number): void;
   render_atomic_chunk(imageId: number, ops: Uint8Array, level: number, minX: number, minY: number, width: number, height: number): void;
+  render_direct(ops: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
   debug_image_test(): void;
   debug_tile_test(): number;
   debug_ops_test(ops: Uint8Array, level: number, minX: number, minY: number): number;
   debug_pair_test(): void;
   debug_registered_image_test(): number;
+  debug_image_scene_at(level: number, minX: number, minY: number): number;
 }
 
 interface WasmModule {
@@ -200,6 +202,35 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
     this.runtime.dispose_tile(handle);
   }
 
+  renderDirect(chunks: RenderChunk[], viewport: Viewport): boolean {
+    let length = 0;
+    const buffers: Uint8Array[] = [];
+    for (const chunk of chunks) {
+      const payload = chunk.payload as { velloOps?: Uint8Array } | undefined;
+      if (payload?.velloOps && payload.velloOps.length > 0) {
+        buffers.push(payload.velloOps);
+        length += payload.velloOps.length;
+      }
+    }
+    if (length === 0) return true;
+    const ops = new Uint8Array(length);
+    let offset = 0;
+    for (const buffer of buffers) {
+      ops.set(buffer, offset);
+      offset += buffer.length;
+    }
+    const dpr = this.dpr;
+    this.runtime.render_direct(
+      ops,
+      viewport.panX * dpr,
+      viewport.panY * dpr,
+      viewport.zoom * dpr,
+      Math.max(1, Math.round(viewport.width * dpr)),
+      Math.max(1, Math.round(viewport.height * dpr)),
+    );
+    return true;
+  }
+
   present(tiles: Array<{ handle: number }>, viewport: Viewport): void {
     this.presentHandles(tiles.map((tile) => tile.handle), viewport);
   }
@@ -228,6 +259,10 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
 
   debugRegisteredImageTest(): number {
     return this.runtime.debug_registered_image_test();
+  }
+
+  debugImageSceneAt(level: number, minX: number, minY: number): number {
+    return this.runtime.debug_image_scene_at(level, minX, minY);
   }
 
   stats(): { name: string; lastOpsLength: number; lastChunkCount: number; maxOpsLength: number; nonEmptyTiles: number; totalTiles: number } {

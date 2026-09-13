@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use vello::kurbo::Affine;
 use vello::peniko::{Blob, Color, FontData, ImageData};
 use vello::wgpu::{self, Extent3d, TextureDescriptor, TextureFormat, TextureUsages};
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene};
@@ -40,7 +41,6 @@ pub struct VelloRuntime {
     fallbacks: HashMap<u32, u32>,
     images: HashMap<u32, ImageData>,
     next_handle: u32,
-    tile_pool: Vec<wgpu::Texture>,
     clear: wgpu::Color,
     clear_color: Color,
 }
@@ -118,7 +118,6 @@ impl VelloRuntime {
             fallbacks: HashMap::new(),
             images: HashMap::new(),
             next_handle: 1,
-            tile_pool: Vec::new(),
             clear: wgpu::Color { r: 11.0 / 255.0, g: 15.0 / 255.0, b: 25.0 / 255.0, a: 1.0 },
             clear_color: Color::from_rgba8(11, 15, 25, 255),
         })
@@ -196,7 +195,10 @@ impl VelloRuntime {
             )
             .map_err(js_err)?;
         let image = self.renderer.register_texture(texture);
-        self.images.insert(image_id, image);
+        if let Some(old) = self.images.insert(image_id, image) {
+            // 替换时注销旧纹理，避免 vello image atlas 泄漏/驱逐
+            self.renderer.unregister_texture(old);
+        }
         Ok(())
     }
 
@@ -222,7 +224,9 @@ impl VelloRuntime {
             Extent3d { width, height, depth_or_array_layers: 1 },
         );
         let image = self.renderer.register_texture(texture);
-        self.images.insert(id, image);
+        if let Some(old) = self.images.insert(id, image) {
+            self.renderer.unregister_texture(old);
+        }
         Ok(())
     }
 
@@ -291,10 +295,59 @@ impl VelloRuntime {
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &draws)
     }
 
+    /// 导航期整场直绘：把所有可见 chunk 的 op 合成一个 Scene，按视口变换一次渲染到离屏纹理，
+    /// 再整屏贴到 surface。用于交互期兜底，避免瓦片未就绪导致的空洞（open-pencil 的 global fallback 角色）。
+    pub fn render_direct(
+        &mut self,
+        ops: Vec<u8>,
+        pan_x: f32,
+        pan_y: f32,
+        zoom: f32,
+        width: u32,
+        height: u32,
+    ) -> Result<(), JsValue> {
+        let width = width.max(1);
+        let height = height.max(1);
+        let decoded = decode_ops(&ops).map_err(|e| JsValue::from_str(&format!("decode ops: {e}")))?;
+        let mut scene = Scene::new();
+        // ops 为世界坐标；pan 已换算到设备像素，zoom 为 zoom*dpr
+        let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
+        build_scene(&decoded, transform, width as f32, height as f32, &self.fonts, &self.fallbacks, &self.images, &mut scene);
+
+        let texture = self.device.create_texture(&TextureDescriptor {
+            label: Some("pomelo-vello-direct"),
+            size: Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.renderer
+            .render_to_texture(
+                &self.device,
+                &self.queue,
+                &scene,
+                &view,
+                &RenderParams { base_color: Color::from_rgba8(0, 0, 0, 0), width, height, antialiasing_method: AaConfig::Area },
+            )
+            .map_err(js_err)?;
+
+        let handle = self.next_handle;
+        self.next_handle += 1;
+        let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0] };
+        present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])?;
+        self.compositor.dispose(handle);
+        Ok(())
+    }
+
     /// 调试：直接渲染 JS 编码的 op 字节流（经 decode_ops）并 present。
     pub fn debug_ops_test(&mut self, ops: Vec<u8>, level: f32, min_x: f32, min_y: f32) -> Result<u32, JsValue> {
         let handle = self.render_tile(ops, level, min_x, min_y)?;
-        self.present(vec![handle], 0.0, 0.0, level)?;
+        // 把 tile 平移到屏幕原点，便于任意 min 的瓦片取样
+        self.present(vec![handle], -min_x * level, -min_y * level, level)?;
         Ok(handle)
     }
 
@@ -347,6 +400,36 @@ impl VelloRuntime {
         }).map_err(js_err)?;
         let handle = self.next_handle; self.next_handle += 1;
         self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x: 0.0, min_y: 0.0, level: 1.0, tex_size: size as f32, bleed: 0.0 });
+        Ok(handle)
+    }
+
+    /// 调试：在任意 tile（min 可为非 0）里画 rectFill + image，present 时平移回原点。
+    pub fn debug_image_scene_at(&mut self, level: f32, min_x: f32, min_y: f32) -> Result<u32, JsValue> {
+        use vello::peniko::Fill;
+        let size = TILE_DEVICE_SIZE + (BLEED * 2.0) as u32;
+        let mut scene = Scene::new();
+        let transform = tile_transform(level, min_x, min_y, BLEED);
+        let ops = vec![
+            crate::ops::DrawOp::RectFill { x: min_x + 10.0, y: min_y + 10.0, w: 120.0, h: 120.0, fill: [0, 0, 0, 255] },
+            crate::ops::DrawOp::Image { image_id: 2, x: min_x + 20.0, y: min_y + 20.0, w: 100.0, h: 100.0 },
+        ];
+        build_scene(&ops, transform, size as f32, size as f32, &self.fonts, &self.fallbacks, &self.images, &mut scene);
+        let _ = Fill::NonZero;
+        let texture = self.device.create_texture(&TextureDescriptor {
+            label: Some("pomelo-vello-debug-img-at"),
+            size: Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+            mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &RenderParams {
+            base_color: Color::from_rgba8(0, 0, 0, 0), width: size, height: size, antialiasing_method: AaConfig::Area,
+        }).map_err(js_err)?;
+        let handle = self.next_handle; self.next_handle += 1;
+        self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x, min_y, level, tex_size: size as f32, bleed: BLEED });
+        self.present(vec![handle], -min_x * level, -min_y * level, level)?;
         Ok(handle)
     }
 
