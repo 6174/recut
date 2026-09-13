@@ -1,0 +1,31 @@
+{
+  "id": "example-whiteboard-doudou",
+  "typeId": "example",
+  "name": "白板墙",
+  "intro": "豆豆对着贴满便签的白板原地转圈。",
+  "detail": "职能位场景：白板墙贴满需求便签与数据曲线，豆豆举着便签前倾、周围冒出感叹号；炭黑粗线 + halftone 灰晕。示范「冲突发起者」的喜剧张力。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-whiteboard-doudou",
+        "kind": "image",
+        "name": "白板墙"
+      }
+    }
+  ]
+}

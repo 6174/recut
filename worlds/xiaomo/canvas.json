@@ -193,6 +193,120 @@
           },
           "style": {},
           "layer": "0"
+        },
+        {
+          "id": "shape:example-bar-amo",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-bar-amo",
+          "name": "吧台咖啡角",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-design-desk-momo",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-design-desk-momo",
+          "name": "设计工位",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-late-night",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-late-night",
+          "name": "热点半夜爆",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-server-corner",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-server-corner",
+          "name": "机房角落",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-ship-day",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-ship-day",
+          "name": "交付日",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2848,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-whiteboard-doudou",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-whiteboard-doudou",
+          "name": "白板墙",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2848,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
         }
       ]
     }

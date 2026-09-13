@@ -1,0 +1,31 @@
+{
+  "id": "example-10-information-well",
+  "typeId": "example",
+  "name": "信息井",
+  "intro": "把信息源画成一口井，小黑在井口打水。",
+  "detail": "一口黑色手绘井，井口挂着桶；小黑摇着辘轳把「信息」一桶桶提上来，井边堆着几个贴短标注的桶。橙色箭头标出从井到用户的流向。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "概念隐喻"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "构图参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "10-information-well",
+        "kind": "image",
+        "name": "信息井"
+      }
+    }
+  ]
+}

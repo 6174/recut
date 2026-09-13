@@ -15,8 +15,252 @@
       "tone": "安静、丧而温柔、自嘲、克制"
     }
   },
-  "entityTypes": [],
-  "relations": [],
+  "entityTypes": [
+    {
+      "id": "example",
+      "scope": "custom",
+      "name": "示例",
+      "icon": "image",
+      "color": "#f59e0b",
+      "baseKind": "object",
+      "fields": [
+        {
+          "key": "structure",
+          "label": "结构类型",
+          "type": "text"
+        },
+        {
+          "key": "role",
+          "label": "用途",
+          "type": "text"
+        },
+        {
+          "key": "image",
+          "label": "示例图",
+          "type": "media"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "r-01",
+      "type": "appears_in",
+      "from": "xiaohuige",
+      "to": "example-overthinking-scribble",
+      "scope": null
+    },
+    {
+      "id": "r-02",
+      "type": "appears_in",
+      "from": "xiaohuige",
+      "to": "example-clarity-bulb",
+      "scope": null
+    },
+    {
+      "id": "r-03",
+      "type": "appears_in",
+      "from": "xiaohuige",
+      "to": "example-street-night",
+      "scope": null
+    },
+    {
+      "id": "r-04",
+      "type": "appears_in",
+      "from": "xiaohuige",
+      "to": "example-scene-subway-caption",
+      "scope": null
+    },
+    {
+      "id": "r-05",
+      "type": "appears_in",
+      "from": "xiaohuige",
+      "to": "example-scene-insomnia",
+      "scope": null
+    },
+    {
+      "id": "r-06",
+      "type": "appears_in",
+      "from": "xiaohuige",
+      "to": "example-scene-sunday-evening",
+      "scope": null
+    },
+    {
+      "id": "r-07",
+      "type": "appears_in",
+      "from": "xiaohuige",
+      "to": "example-scene-fridge-midnight",
+      "scope": null
+    },
+    {
+      "id": "r-08",
+      "type": "appears_in",
+      "from": "xiaohuige",
+      "to": "example-scene-fear-of-starting",
+      "scope": null
+    },
+    {
+      "id": "r-09",
+      "type": "appears_in",
+      "from": "xiaohuige",
+      "to": "example-scene-corgi-company",
+      "scope": null
+    },
+    {
+      "id": "r-10",
+      "type": "appears_in",
+      "from": "mantu",
+      "to": "example-scene-corgi-company",
+      "scope": null
+    },
+    {
+      "id": "r-11",
+      "type": "references",
+      "from": "example-overthinking-scribble",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-12",
+      "type": "references",
+      "from": "example-clarity-bulb",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-13",
+      "type": "references",
+      "from": "example-street-night",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-14",
+      "type": "references",
+      "from": "example-scene-subway-caption",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-15",
+      "type": "references",
+      "from": "example-scene-insomnia",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-16",
+      "type": "references",
+      "from": "example-scene-sunday-evening",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-17",
+      "type": "references",
+      "from": "example-scene-fridge-midnight",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-18",
+      "type": "references",
+      "from": "example-scene-fear-of-starting",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-19",
+      "type": "references",
+      "from": "example-scene-corgi-company",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-20",
+      "type": "located_in",
+      "from": "example-scene-corgi-company",
+      "to": "apartment",
+      "scope": null
+    },
+    {
+      "id": "r-21",
+      "type": "located_in",
+      "from": "example-scene-insomnia",
+      "to": "apartment",
+      "scope": null
+    },
+    {
+      "id": "r-22",
+      "type": "located_in",
+      "from": "example-scene-fridge-midnight",
+      "to": "apartment",
+      "scope": null
+    },
+    {
+      "id": "r-23",
+      "type": "located_in",
+      "from": "example-scene-sunday-evening",
+      "to": "apartment",
+      "scope": null
+    },
+    {
+      "id": "r-24",
+      "type": "located_in",
+      "from": "xiaohuige",
+      "to": "apartment",
+      "scope": null
+    },
+    {
+      "id": "r-25",
+      "type": "located_in",
+      "from": "mantu",
+      "to": "apartment",
+      "scope": null
+    },
+    {
+      "id": "r-26",
+      "type": "located_in",
+      "from": "xiaonuan",
+      "to": "apartment",
+      "scope": null
+    },
+    {
+      "id": "r-27",
+      "type": "part_of",
+      "from": "rule-color",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-28",
+      "type": "part_of",
+      "from": "rule-format",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-29",
+      "type": "part_of",
+      "from": "rule-inner-voice",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-30",
+      "type": "part_of",
+      "from": "rule-no-cute",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-31",
+      "type": "references",
+      "from": "story-arc",
+      "to": "xiaohuige",
+      "scope": null
+    }
+  ],
   "provenance": {
     "author": "recut",
     "license": "MIT",

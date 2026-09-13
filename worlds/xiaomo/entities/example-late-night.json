@@ -1,0 +1,31 @@
+{
+  "id": "example-late-night",
+  "typeId": "example",
+  "name": "热点半夜爆",
+  "intro": "凌晨一点，豆豆炸醒全家，阿墨披着围裙写文案。",
+  "detail": "群像场景：深夜办公室压成深灰纸底，一盏台灯一圈纸色光斑；豆豆举着手机炸毛，阿墨披着围裙敲字，小点抱着电脑待命，炭炭继续睡。示范深夜赶热点的群像配合。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "群像场景"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-late-night-crew",
+        "kind": "image",
+        "name": "热点半夜爆"
+      }
+    }
+  ]
+}

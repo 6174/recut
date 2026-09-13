@@ -1,0 +1,31 @@
+{
+  "id": "example-11-idea-press",
+  "typeId": "example",
+  "name": "想法压榨机",
+  "intro": "把想法塞进压榨机，小黑在机器里操作压杆。",
+  "detail": "一台低科技手绘压榨机，顶上塞入一团乱画「想法」，底下出来一张平整的卡片；小黑卡在机器内部操作压杆。红色标出被压掉的多余部分。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "概念隐喻"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "构图参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "11-idea-press",
+        "kind": "image",
+        "name": "想法压榨机"
+      }
+    }
+  ]
+}

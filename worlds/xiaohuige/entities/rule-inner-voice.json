@@ -2,20 +2,14 @@
   "id": "rule-inner-voice",
   "typeId": "rule",
   "name": "内心可视化语言",
-  "intro": "",
+  "intro": "内心活动必须画在思想泡泡里；乱线团 = 内耗，解线 = 认知转变。",
   "attrs": [
     {
       "key": "type",
-      "label": "type",
+      "label": "规则类型",
       "type": "text",
       "value": "always"
-    },
-    {
-      "key": "text",
-      "label": "规则文本",
-      "type": "textarea",
-      "locked": true,
-      "value": "内心活动必须画在思想泡泡里；乱线团 = 情绪噪音/内耗；从乱到清的解线过程 = 认知转变；去掉思想泡泡后画面若失去内心戏即不合格"
     }
-  ]
+  ],
+  "detail": "内心活动必须画在思想泡泡里；乱线团 = 情绪噪音 / 内耗；从乱到清的解线过程 = 认知转变；去掉思想泡泡后画面若失去内心戏即不合格。"
 }

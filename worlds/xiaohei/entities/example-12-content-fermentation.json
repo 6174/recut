@@ -1,0 +1,31 @@
+{
+  "id": "example-12-content-fermentation",
+  "typeId": "example",
+  "name": "内容发酵",
+  "intro": "让内容在罐子里发酵，小黑守着罐子记录时间。",
+  "detail": "一个带盖的玻璃罐，罐里冒出手绘小气泡；小黑坐在旁边拿本子记录，蓝色标出时间轴。橙色箭头指向出罐的成品。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "概念隐喻"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "构图参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "12-content-fermentation",
+        "kind": "image",
+        "name": "内容发酵"
+      }
+    }
+  ]
+}

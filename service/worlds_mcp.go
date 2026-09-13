@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 WorldStore 与标准库 JSON 编码
  * [OUTPUT]: 对外提供全局 recut.worlds.* MCP 工具：只读 list/get/brief/readiness/entities.list/entities.get/
- * entityTypes.list/relations.list/canvas.doc/canvas.docs 无条件可发现，写 create/update/entities.upsert/
+ * entityTypes.list/relations.list/canvas.doc/canvas.docs 无条件可发现，写 create/update/delete/entities.upsert/
  * entities.create_child/entities.promote/entityTypes.upsert/relations.create/relations.update/canvas.doc.update/
  * canvas.promote 与 canvas.lock/unlock 常注册但仅在用户明确要求时调用；evidence/references 写入已冻结（媒体统一为实体 media attr）。
  * 返回同构 structuredContent，列表按主机规则包装为 {items:[...]}；canvas.doc/canvas.doc.update 附带 layout 只读回执。
@@ -52,6 +52,7 @@ func worldsMCPToolDefinitions(_ Locale) []map[string]any {
 		{"name": "recut.worlds.canvas.unlock", "description": "释放 recut.worlds.canvas.lock 建立的 AI 画布锁。传入 lock 返回的 token 避免误释放他人会话。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "token": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.evidence.archive", "description": "把一份证据从当前 Canon 归档，不删除源素材或旧作品使用的历史版本。仅在用户明确要求移除时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "evidenceId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "evidenceId": map[string]string{"type": "string"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.fork", "description": "把任意 World（平台/发布/本地）在其当前 revision 上复制为一个全新的本地可编辑 World（origin=local），返回新 World 详情。非 local 世界是只读的，用户要求修改平台世界时先说明再经用户确认调用本工具，之后在副本上继续。仅在用户明确要求 Fork/副本/基于某世界修改时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "name": map[string]string{"type": "string", "description": "可选：新 World 名称；缺省为源名称加“副本”。"}}}},
+		{"name": "recut.worlds.delete", "description": "永久删除一个本地 World：实体、关系、类型目录、画布文档与版本全部移除，且不可恢复。name 必须与 world.name 完全一致，作为防误删的二次确认（不是查找键）。素材库中的媒体 Asset 不受影响，只解除与世界的引用；已绑定该世界的 Project/媒体 Job 会变为未绑定而不是悬空，Artifact/Job 上的绑定指针会被清空。非 local 世界（平台/发布）由目录生命周期管理，拒绝删除，需先 Fork 再删副本。仅在用户明确要求删除并确认名称时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "name"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "name": map[string]string{"type": "string", "description": "防误删二次确认：必须与 World 名称完全一致。"}}}},
 		{"name": "recut.worlds.bind_project", "description": "把 World 的固定 revision 绑定到当前 Project。必须是用户动作、当前 Project owner App 或获得用户确认的 Agent 调用；绑定是跨系统可观察的状态变化。Project 已有 primary binding 时默认替换需提供 replace: true，否则返回 PROJECT_WORLD_ALREADY_BOUND。绑定非 local World 不受只读门禁限制。", "inputSchema": map[string]any{"type": "object", "required": []string{"projectId", "worldId", "selection"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}, "worldId": map[string]string{"type": "string"}, "revisionId": map[string]string{"type": "string"}, "selection": map[string]any{"type": "object", "required": []string{"purpose"}, "properties": map[string]any{"storyId": map[string]string{"type": "string"}, "entityIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "assetRoles": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "purpose": worldPurposeSchema()}}, "replace": map[string]string{"type": "boolean"}}}},
 	}
 }
@@ -331,6 +332,12 @@ func worldsMCPTool(worlds *WorldStore, name string, input map[string]any) (any, 
 		result = map[string]bool{"archived": err == nil}
 	case "recut.worlds.fork":
 		result, err = worlds.ForkWorld(ForkWorldInput{WorldID: stringValue(input["worldId"]), Name: stringValue(input["name"])})
+	case "recut.worlds.delete":
+		var deleted WorldDeleteResult
+		deleted, err = worlds.DeleteWorld(DeleteWorldInput{
+			WorldID: stringValue(input["worldId"]), ConfirmName: stringValue(input["name"]), CreatedBy: "mcp",
+		})
+		result = map[string]any{"deleted": true, "world": deleted}
 	case "recut.worlds.bind_project":
 		selection := WorldSelection{}
 		if err = decodeJSONMap(inputMap(input["selection"]), &selection); err != nil {

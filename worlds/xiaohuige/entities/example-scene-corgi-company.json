@@ -1,0 +1,31 @@
+{
+  "id": "example-scene-corgi-company",
+  "typeId": "example",
+  "name": "馒头陪坐",
+  "intro": "小灰哥低落时，柯基馒头默默坐在旁边陪他。",
+  "detail": "移动端成品：室内一角，小灰哥抱膝坐着，柯基馒头安静地靠在他旁边；画面几乎全灰，只有一处极小暖色；底部一行手写短句。示范配角「接住」的功能。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "角色状态"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "版式参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-corgi-company",
+        "kind": "image",
+        "name": "馒头陪坐"
+      }
+    }
+  ]
+}

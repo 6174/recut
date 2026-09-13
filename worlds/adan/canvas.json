@@ -155,6 +155,63 @@
           },
           "style": {},
           "layer": "0"
+        },
+        {
+          "id": "shape:example-convenience-store",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-convenience-store",
+          "name": "便利店关东煮",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-living-room",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-living-room",
+          "name": "客厅放空",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-subway",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-subway",
+          "name": "末班地铁",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
         }
       ]
     }

@@ -18,6 +18,7 @@ import {
   NotebookPen,
   Pencil,
   Plus,
+  Trash2,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -84,6 +85,7 @@ function WorldDetailContent() {
   const [worldID, setWorldID] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorldDetail | null>(null);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [entitiesByType, setEntitiesByType] = useState<
     Record<string, WorldEntity[]>
   >({});
@@ -106,6 +108,9 @@ function WorldDetailContent() {
   const [savingMeta, setSavingMeta] = useState(false);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteNameInput, setDeleteNameInput] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
   const [exportingWorld, setExportingWorld] = useState(false);
 
@@ -142,8 +147,12 @@ function WorldDetailContent() {
       .then((value) => {
         if (active) setDetail(value);
       })
-      .catch(() => {
-        if (active) setError(t("worlds.detail.load.failed"));
+      .catch((cause) => {
+        if (active) {
+          // 世界可能已被删除：保留结构化 code 以渲染兜底页而不是无限重试画布。
+          setError(cause instanceof Error ? cause.message : t("worlds.detail.load.failed"));
+          setErrorCode((cause as { code?: string } | null)?.code ?? "");
+        }
       });
     return () => {
       active = false;
@@ -220,7 +229,24 @@ function WorldDetailContent() {
         {t("worlds.detail.noWorld")}
       </p>
     );
-  if (error && !detail) return canvasNode;
+  if (!detail && errorCode === "WORLD_NOT_FOUND") {
+    // 世界已被永久删除：给出明确兜底，而不是继续加载一个不存在的画布。
+    return (
+      <div className="mx-auto max-w-md py-16 text-center">
+        <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">
+          <Trash2 className="size-5" />
+        </span>
+        <h1 className="mt-4 text-lg font-semibold">{t("worlds.detail.gone.title")}</h1>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {error || t("worlds.detail.gone.desc")}
+        </p>
+        <Link className="mt-5 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90" href="/worlds">
+          <ArrowLeft className="size-3.5" />
+          {t("worlds.detail.gone.back")}
+        </Link>
+      </div>
+    );
+  }
   if (!detail) {
     // 画布是默认视图：detail 未加载时直接给出画布 skeleton（内部自带加载态），不闪设定视图
     return viewMode === "canvas" ? canvasNode : (
@@ -258,6 +284,21 @@ function WorldDetailContent() {
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : t("worlds.detail.archive.failed"));
       setArchiving(false);
+    }
+  }
+
+  async function deleteWorldForever() {
+    if (!detail || deleting) return;
+    if (deleteNameInput.trim() !== detail.name.trim()) return;
+    setDeleting(true);
+    setNotice("");
+    try {
+      await createRecutWorldsClient(apiBase).deleteWorld({ worldId: worldId, name: deleteNameInput.trim() });
+      invalidate(worldId);
+      window.location.assign("/worlds");
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : t("worlds.detail.delete.failed"));
+      setDeleting(false);
     }
   }
 
@@ -400,6 +441,10 @@ function WorldDetailContent() {
                           <Archive className="size-3.5" />
                           {t("worlds.detail.archive")}
                         </button>
+                        <button className="flex w-full items-center gap-2 rounded-xs px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10" onClick={() => { setMoreOpen(false); setDeleteNameInput(""); setDeleteConfirm(true); }} type="button">
+                          <Trash2 className="size-3.5" />
+                          {t("worlds.detail.delete")}
+                        </button>
                       </PopoverContent>
                     </Popover>
                   )}
@@ -531,6 +576,37 @@ function WorldDetailContent() {
               <Button className="bg-warning text-warning-foreground hover:bg-warning/90" disabled={archiving} onClick={() => void archiveWorld()} type="button">
                 <Archive className="size-3.5" />
                 {archiving ? t("worlds.detail.archive.confirm.archiving") : t("worlds.detail.archive.confirm.action")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {deleteConfirm && (
+        <div aria-modal="true" className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6" role="dialog">
+          <div className="w-full max-w-md rounded-md border bg-card p-5 shadow-2xl">
+            <h3 className="text-base font-semibold">{interpolate(t("worlds.detail.delete.confirm.title"), { name: detail.name })}</h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("worlds.detail.delete.confirm.desc")}</p>
+            <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="world-delete-confirm">
+              {interpolate(t("worlds.detail.delete.confirm.inputLabel"), { name: detail.name })}
+            </label>
+            <Input
+              autoFocus
+              className="mt-1.5 h-9 bg-background"
+              id="world-delete-confirm"
+              onChange={(event) => setDeleteNameInput(event.target.value)}
+              placeholder={detail.name}
+              value={deleteNameInput}
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button disabled={deleting} onClick={() => setDeleteConfirm(false)} type="button" variant="outline">{t("worlds.detail.delete.confirm.cancel")}</Button>
+              <Button
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleting || deleteNameInput.trim() !== detail.name.trim()}
+                onClick={() => void deleteWorldForever()}
+                type="button"
+              >
+                <Trash2 className="size-3.5" />
+                {deleting ? t("worlds.detail.delete.confirm.deleting") : t("worlds.detail.delete.confirm.action")}
               </Button>
             </div>
           </div>

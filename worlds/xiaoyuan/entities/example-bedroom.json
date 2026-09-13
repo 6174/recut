@@ -1,0 +1,31 @@
+{
+  "id": "example-bedroom",
+  "typeId": "example",
+  "name": "深夜卧室",
+  "intro": "暖黄台灯下，小圆坐在旧床上。",
+  "detail": "写实摄影底的深夜卧室：木地板、旧床（暗红或灰蓝被子）、床头柜上的红色数字钟、一盏暖黄台灯或门缝光；极简扁平的小圆居中下 1/3，轮廓带随光源方向的 rim light。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-bedroom",
+        "kind": "image",
+        "name": "深夜卧室"
+      }
+    }
+  ]
+}

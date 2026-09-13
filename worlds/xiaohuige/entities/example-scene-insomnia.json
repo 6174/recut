@@ -1,0 +1,31 @@
+{
+  "id": "example-scene-insomnia",
+  "typeId": "example",
+  "name": "失眠反刍",
+  "intro": "深夜床上盯天花板，头顶乱线团转个不停。",
+  "detail": "移动端成品：卧室床上，小灰哥躺着戴耳机盯天花板，手机冷光照在脸上；头顶思想泡泡里乱线团旋转，下方一行手写短句。示范「失眠 / 反刍」的情绪命题。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "版式参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-insomnia",
+        "kind": "image",
+        "name": "失眠反刍"
+      }
+    }
+  ]
+}

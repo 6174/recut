@@ -2,8 +2,9 @@
  * [INPUT]: 依赖 react、canvas-store（apiBase/mediaSource 辅助/setMediaElementAsset/setAttrMediaAsset）、
  * pane./element-asset-history-store、media-types（Asset/normalizeAsset/MediaJob）、
  * media-configuration-store、components/asset-reference-picker、canvas-media、lucide-react
- * [OUTPUT]: 对外提供 MediaElementEditor（B.8 媒体元素态，RFC 2026-09-10）：预览区（图片/视频/音频 +
- * 大图预览）、来源区（AI 生成 / 素材库选择——浮层内可上传 / 本地上传 / 清除）、生成配方区
+ * [OUTPUT]: 对外提供 MediaElementEditor（B.8 媒体元素态，RFC 2026-09-10）：预览区（图片单击打开
+ * 素材详情弹框 AssetPreviewDialog；视频/音频 controls）、来源区（AI 生成 / 素材库选择——浮层内可上传 /
+ * 本地上传 / 清除）、生成配方区
  * （prompt+模型+参考底图回填，改后可再生成 / 复制配方，job 轮询自适应采用）、素材历史区
  * （历史即素材：元素上下文 指针历史（换图即记指针），删除资产 + 删除资产 + 重生成）。
  * 适配两类载体：独立媒体元素（kind=media）与 attr 属性元素（kind=attr 且 props.media≠text）
@@ -77,22 +78,29 @@ export function MediaElementEditor({ element }: { element: { id: string; kind: s
       }
     : null;
   const [sourceView, setSourceView] = useState<"none" | "library">("none");
+  // 预览区图片单击 → 全局素材详情弹框（AssetPreviewDialog，与实体属性字段 AssetFieldRow 同源）
+  const [detailOpen, setDetailOpen] = useState(false);
   // 「AI 生成」按钮：配方区常驻，按钮只负责把焦点带回配方输入（不再用显隐切换）
   const [recipeFocus, setRecipeFocus] = useState(0);
   return (
     <div className="space-y-4">
-      {/* A. 预览区 */}
+      {/* A. 预览区：图片单击 = 素材详情弹框（AssetPreviewDialog） */}
       <div className="overflow-hidden rounded-md border bg-muted/30">
         {url ? (
           modality === "video" ? <video className="max-h-56 w-full" controls src={url} /> : <img className="max-h-56 w-full bg-muted/40 object-contain" src={url} />
         ) : assetId ? (
-          modality === "video" ? <video className="max-h-56 w-full" controls src={mediaContentURL(apiBase, assetId)} /> : (
-            <img className="max-h-56 w-full bg-muted/40 object-contain" src={mediaContentURL(apiBase, assetId)} alt={assetName || "素材"} />
+          modality === "video" ? (
+            <video className="max-h-56 w-full" controls src={mediaContentURL(apiBase, assetId)} />
+          ) : (
+            <button className="block w-full cursor-zoom-in" onClick={() => setDetailOpen(true)} title="点击查看素材详情" type="button">
+              <img className="max-h-56 w-full bg-muted/40 object-contain" src={mediaContentURL(apiBase, assetId)} alt={assetName || "素材"} />
+            </button>
           )
         ) : (
           <div className="grid h-28 place-items-center text-xs text-muted-foreground">尚未选择素材</div>
         )}
       </div>
+      {assetId && modality !== "video" && <p className="-mt-2 text-[10px] text-muted-foreground">点击图片查看素材详情</p>}
       {/* B. 来源区 */}
       <div className="space-y-1.5">
         <p className="text-[11px] font-medium text-muted-foreground">更换素材</p>
@@ -128,10 +136,8 @@ export function MediaElementEditor({ element }: { element: { id: string; kind: s
           title={`选择${CONTRIBUTED_LABELS[modality]}素材`}
         />
       )}
-      {/* 当前 asset 大图预览（配方详情同源复用，复用全局素材弹框） */}
-      {current && (
-        <CurrentAssetPreview apiBase={apiBase} asset={fetched ? toPreviewAsset(fetched) : null} id={assetId} fallbackName={assetName || "素材"} />
-      )}
+      {/* 当前 asset 素材详情弹框（预览区图片单击 / 与实体属性字段同一弹框） */}
+      {detailOpen && current && <AssetPreviewDialog apiBase={apiBase} asset={current} onClose={() => setDetailOpen(false)} />}
     </div>
   );
 }
@@ -523,32 +529,4 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
   );
 }
 
-function toPreviewAsset(asset: Asset): PreviewAsset {
-  return { ...asset, kind: asset.kind as PreviewAsset["kind"] } as PreviewAsset;
-}
 
-function CurrentAssetPreview({ apiBase, asset, id, fallbackName }: { apiBase: string; asset: Asset | null; id: string; fallbackName: string }) {
-  const [open, setOpen] = useState(false);
-  const preview: PreviewAsset = asset
-    ? toPreviewAsset(asset)
-    : {
-        id,
-        kind: "image",
-        name: fallbackName,
-        origin: "",
-        status: "completed",
-        createdAt: "",
-        updatedAt: "",
-        metadata: {},
-      };
-  return (
-    <>
-      <button className="text-left text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setOpen(true)} type="button">
-        查看大图与生成信息
-      </button>
-      {open && (
-        <AssetPreviewDialog apiBase={apiBase} asset={preview} onClose={() => setOpen(false)} />
-      )}
-    </>
-  );
-}

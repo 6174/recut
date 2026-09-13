@@ -2,20 +2,14 @@
   "id": "rule-composite",
   "typeId": "rule",
   "name": "混搭纪律",
-  "intro": "",
+  "intro": "背景摄影写实、小圆极简扁平，每帧只有小圆一个卡通元素。",
   "attrs": [
     {
       "key": "type",
-      "label": "type",
+      "label": "规则类型",
       "type": "text",
       "value": "always"
-    },
-    {
-      "key": "text",
-      "label": "规则文本",
-      "type": "textarea",
-      "locked": true,
-      "value": "背景必须摄影写实、小圆必须极简扁平，两者反差不可调和；小圆不受背景透视影响但受光源方向影响（轮廓可带一点点同色 rim light）；每帧只有小圆一个卡通元素"
     }
-  ]
+  ],
+  "detail": "背景必须摄影写实、小圆必须极简扁平，两者反差不可调和；小圆不受背景透视影响但受光源方向影响（轮廓可带一点点同色 rim light）；每帧只有小圆一个卡通元素。"
 }

@@ -8,9 +8,142 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
+	"io"
 	"strings"
 	"testing"
 )
+
+// wrapZip re-packs a bundle under a top-level folder and adds macOS junk,
+// mimicking `zip -r slug.zip slug/` on a Mac.
+func wrapZip(t *testing.T, data []byte, folder string) []byte {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buffer := &bytes.Buffer{}
+	writer := zip.NewWriter(buffer)
+	write := func(name string, content []byte) {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, file := range reader.File {
+		handle, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		content, err := io.ReadAll(handle)
+		handle.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(folder+"/"+file.Name, content)
+	}
+	write("__MACOSX/._"+folder, []byte("junk"))
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func TestWorldBundleImportSourceLayout(t *testing.T) {
+	worlds, _, media := newTestWorldStore(t)
+	files := map[string]string{
+		"world.json":         `{"sourceVersion":2,"world":{"id":"pgc.test","name":"Source Layout","type":"character_ip","description":"d","identity":{"tone":"calm"}},"entityTypes":[],"relations":[],"provenance":{"author":"a","license":"MIT","repository":"https://example.test"}}`,
+		"world.md":           "## skill body",
+		"entities/hero.json": `{"id":"hero","typeId":"character","name":"Hero","intro":"i","detail":{"$file":"../references/hero.md"},"attrs":[{"key":"background","label":"背景","type":"media","value":{"asset":"cover","kind":"image","name":"封面"}}]}`,
+		"references/hero.md": "the full long body",
+		"assets/cover.json":  `{"id":"cover","name":"封面","kind":"image","file":"../examples/cover.png"}`,
+		"examples/cover.png": "\x89PNG\r\n\x1a\nfake-bytes",
+	}
+	imported, err := worlds.ImportWorldBundle(zipFromMap(t, files), "", "test")
+	if err != nil {
+		t.Fatalf("import source layout: %v", err)
+	}
+	if imported.SkillMd != "## skill body" {
+		t.Fatalf("skill = %q", imported.SkillMd)
+	}
+	entities, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: imported.ID})
+	if err != nil || len(entities) != 1 {
+		t.Fatalf("entities = %#v err=%v", entities, err)
+	}
+	hero, err := worlds.GetEntity(imported.ID, entities[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hero.Detail != "the full long body" {
+		t.Fatalf("detail $file not resolved: %q", hero.Detail)
+	}
+	var assetID string
+	for _, attr := range hero.Attrs {
+		if attr.Key == "background" {
+			if value, ok := attr.Value.(map[string]any); ok {
+				assetID, _ = value["assetId"].(string)
+			}
+		}
+	}
+	if assetID == "" {
+		t.Fatalf("media attr not mapped to an asset: %#v", hero.Attrs)
+	}
+	if _, err := media.GetAsset(assetID); err != nil {
+		t.Fatalf("imported asset missing: %v", err)
+	}
+}
+
+func zipFromMap(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	buffer := &bytes.Buffer{}
+	writer := zip.NewWriter(buffer)
+	for name, content := range files {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func TestWorldBundleImportAcceptsWrappedZip(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	created, err := worlds.CreateWorld(CreateWorldInput{Name: "Wrapped", Type: WorldCustom})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: created.ID, TypeID: "character", Name: "Hero"}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	data, _, err := worlds.ExportWorldBundle(created.ID)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	// Flat zip imports fine; wrapped zip (top-level folder) must too.
+	for _, wrapped := range [][]byte{data, wrapZip(t, data, "wrapped")} {
+		imported, err := worlds.ImportWorldBundle(wrapped, "Wrapped Import", "test")
+		if err != nil {
+			t.Fatalf("import wrapped: %v", err)
+		}
+		entities, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: imported.ID})
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if len(entities) != 1 || entities[0].Name != "Hero" {
+			t.Fatalf("imported entities = %#v", entities)
+		}
+	}
+}
 
 func TestWorldBundleExportImportRoundTrip(t *testing.T) {
 	worlds, _, media := newTestWorldStore(t)

@@ -30,6 +30,7 @@ func TestWorldsMCPToolsAreAlwaysRegistered(t *testing.T) {
 		"recut.worlds.update",
 		"recut.worlds.entities.upsert",
 		"recut.worlds.evidence.archive",
+		"recut.worlds.delete",
 		"recut.worlds.bind_project",
 	} {
 		if !names[expected] {
@@ -82,6 +83,43 @@ func TestWorldsMCPReadFlowAndStructuredContent(t *testing.T) {
 	context := result.(map[string]any)["structuredContent"].(CreationContext)
 	if context.World.ID != world.ID || context.World.RevisionID == "" {
 		t.Fatalf("resolved context = %#v", context)
+	}
+}
+
+func TestWorldsMCPDeleteRequiresNameConfirmation(t *testing.T) {
+	_, store, _ := newTestWorldStore(t)
+	bridge := NewAgentBridge(store)
+	media := NewMediaService(store)
+	result, err := handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"recut.worlds.create","arguments":{"name":"Doomed","type":"custom"}}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	world := result.(map[string]any)["structuredContent"].(WorldDetail)
+	if _, err := handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"recut.worlds.delete","arguments":{"worldId":"` + world.ID + `","name":"Wrong"}}`),
+	}); err == nil {
+		t.Fatal("delete accepted a mismatched name")
+	}
+	result, err = handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"recut.worlds.delete","arguments":{"worldId":"` + world.ID + `","name":"Doomed"}}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	structured := result.(map[string]any)["structuredContent"].(map[string]any)
+	if deleted, _ := structured["deleted"].(bool); !deleted {
+		t.Fatalf("delete structuredContent = %#v", structured)
+	}
+	if _, err := handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"recut.worlds.get","arguments":{"worldId":"` + world.ID + `"}}`),
+	}); err == nil {
+		t.Fatal("deleted world is still readable")
 	}
 }
 

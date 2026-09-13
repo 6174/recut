@@ -1,8 +1,9 @@
 /*
  * [INPUT]: 依赖 react、canvas-store（mediaSource/mediaPreview 状态与媒体动作）、canvas-media 辅助
  * [OUTPUT]: 对外提供 MediaSourceDialog（T8 独立素材来源浮层：上传文件 / 素材库 / URL 三源，落为
- * 独立媒体元素）与 MediaPreviewDialog（图片 lightbox / video / audio 播放）；实体媒体走 media 属性
- * （拖到实体卡 / 属性字段），不再有「挂接目标实体」通道
+ * 独立媒体元素）、MediaAssetPickerDialog（画布图片节点双击 → 全局素材弹框换图，复用
+ * AssetReferenceDialog）与 MediaPreviewDialog（图片 lightbox / video / audio 播放）；实体媒体走 media
+ * 属性（拖到实体卡 / 属性字段），不再有「挂接目标实体」通道
  * [POS]: worlds/[worldID]/canvas 的媒体对话框层（上传走 /v1/media/assets multipart，素材库走列表接口）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -10,10 +11,12 @@
 
 import { Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
-import { assetModality, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
+import { assetModality, fitElementToAsset, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
 import { useWorldCanvasStore } from "./canvas-store";
+import { useElementAssetHistoryStore } from "./panel/element-asset-history-store";
 
 type LibraryAsset = { id: string; name: string; kind: string; mimeType: string; status: string };
 
@@ -25,6 +28,42 @@ export function MediaSourceDialog() {
 }
 
 const MODALITY_LABEL: Record<MediaModality, string> = { image: "图片", video: "视频", audio: "音频" };
+
+// 画布图片节点（独立媒体卡 / 图片属性卡）双击打开的全局素材弹框：选中即换图。
+// 与面板「素材库」同一条 adopt 通道：写 props.assetId + 记元素素材历史 + 图片按 naturalSize 适配卡面；
+// attr 卡若有属性边连到实体，store.setAttrMediaAsset 会按字段映射回写 media 属性值。
+export function MediaAssetPickerDialog() {
+  const mediaPicker = useWorldCanvasStore((state) => state.mediaPicker);
+  const setMediaPicker = useWorldCanvasStore((state) => state.setMediaPicker);
+  const apiBase = useWorldCanvasStore((state) => state.apiBase);
+  const element = useWorldCanvasStore((state) => (mediaPicker ? state.elements.find((item) => item.id === mediaPicker.elementId) ?? null : null));
+  if (!mediaPicker || !element) return null;
+  const isAttr = element.kind === "attr";
+  const modality = ((isAttr ? element.props?.media : element.props?.modality) ?? "image") as MediaModality;
+  // 仅图片节点双击换素材；其余（视频/音频）不在本通道内
+  if (modality !== "image") return null;
+  const currentAssetId = String(element.props?.assetId ?? "");
+  return (
+    <AssetReferenceDialog
+      apiBase={apiBase}
+      description="选择后替换该图片节点的素材；也可以在这里直接上传。"
+      kinds={[modality] as MediaPickerKind[]}
+      onClose={() => setMediaPicker(null)}
+      onPick={(picked) => {
+        void (isAttr
+          ? useWorldCanvasStore.getState().setAttrMediaAsset(element.id, { assetId: picked.id, name: picked.name })
+          : useWorldCanvasStore.getState().setMediaElementAsset(element.id, { assetId: picked.id, name: picked.name }));
+        useElementAssetHistoryStore.getState().record(element.id, picked.id);
+        fitElementToAsset(element.id, apiBase, picked.id, modality);
+        setMediaPicker(null);
+      }}
+      open
+      projectID={null}
+      selectedIDs={currentAssetId ? [currentAssetId] : []}
+      title={`选择${MODALITY_LABEL[modality]}素材`}
+    />
+  );
+}
 
 function SourceDialogBody({ onClose, modality: preferred }: { onClose: () => void; modality?: MediaModality }) {
   const [tab, setTab] = useState<"upload" | "library" | "url">("upload");

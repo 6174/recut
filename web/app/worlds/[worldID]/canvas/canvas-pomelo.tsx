@@ -85,7 +85,7 @@ function buildPomeloRecords(
     const element = state.elements.find((item) => item.id === canvasId);
     const liveSize = liveSizes.get(canvasId);
     const cover = entityCoverMedia(state.apiBase, entity);
-    const photoUrls = entityPhotoUrls(state.apiBase, entity).slice(0, 9);
+    const photoUrls = entityPhotoUrls(state.apiBase, entity);
     records.push({
       id: `entity:${entity.id}`,
       type: "entity-card",
@@ -382,13 +382,30 @@ function AttrCreatorPanel() {
   const sourceEntityId = creator.fromEntityId.replace(/^shape:/, "");
   const fromEntity = entities.find((entity) => entity.id === sourceEntityId);
   const sourceType = fromEntity ? entityTypes.find((item) => item.id === fromEntity.typeId) : undefined;
-  // 建议属性 = 来源实体 type schema 的字段（已填值的直接带值显示；media 字段带 assetId 建媒体卡，
-  // 不落对象字符串——文本化 media 值只会得到 "[object Object]"）
-  const suggestedFields = (sourceType?.fields ?? []).map((field) => {
+  // 建议属性 = 来源实体 type schema 的字段 + 实体自身已有但不在 schema 的属性（如拖入图片生成的
+  // media-01…/自定义属性）。已填值的直接带值显示；media 字段带 assetId 建媒体卡，
+  // 不落对象字符串——文本化 media 值只会得到 "[object Object]"
+  const schemaSuggestions = (sourceType?.fields ?? []).map((field) => {
     const value = fromEntity ? attrValueOf(fromEntity, field.key) : undefined;
     const mediaValue = field.type === "media" ? entityAttrMediaRef(value) : null;
     return { ...field, rawValue: value, mediaValue, value: mediaValue ? "" : value == null ? "" : String(value) };
   });
+  const schemaKeys = new Set(schemaSuggestions.map((field) => field.key));
+  const entityAttrSuggestions = (fromEntity?.attrs ?? [])
+    .filter((attr) => !schemaKeys.has(attr.key))
+    .map((attr) => {
+      const mediaValue = attr.type === "media" ? entityAttrMediaRef(attr.value) : null;
+      return {
+        key: attr.key,
+        label: attr.label ?? attr.key,
+        type: attr.type,
+        options: attr.options,
+        rawValue: attr.value,
+        mediaValue,
+        value: mediaValue ? "" : attr.value == null ? "" : String(attr.value),
+      };
+    });
+  const suggestedFields = [...schemaSuggestions, ...entityAttrSuggestions];
   // 一等实体字段（简介/正文）也能作为画布关联放到这里：预填实体当前值，点即建属性卡并挂边；
   // 编辑卡片正文经 syncAttrValue 回写 entity.intro/detail（保留标签映射见 entity-attrs）。
   const entityFieldSuggestions = ENTITY_FIELD_ASSOCIATIONS.map((field) => {

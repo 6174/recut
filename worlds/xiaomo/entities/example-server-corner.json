@@ -1,0 +1,31 @@
+{
+  "id": "example-server-corner",
+  "typeId": "example",
+  "name": "机房角落",
+  "intro": "机房角落里，小点蹲着接线，炭炭睡在路由器上。",
+  "detail": "职能位场景：机房角落，路由器、缠绕的网线、炭炭的睡窝；小点蹲着修东西，旁边一个问号变对勾；背景 halftone 灰晕。示范「技术担当 + 单点故障」的双人场景。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-server-corner-xiaodian-tantan",
+        "kind": "image",
+        "name": "机房角落"
+      }
+    }
+  ]
+}

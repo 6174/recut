@@ -1,0 +1,31 @@
+{
+  "id": "example-09-common-pits-no-title",
+  "typeId": "example",
+  "name": "常见坑（无标题示范）",
+  "intro": "用一条路径上的几个坑，示范「常见坑」且左上角不写标题。",
+  "detail": "一条橙色路径上挖了三个大小不一的坑，小黑牵着路径绕坑走，每个坑旁一个短标注。整张图没有任何标题、边框或类型名称。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "前后对比"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "风格校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "09-common-pits-no-title",
+        "kind": "image",
+        "name": "常见坑（无标题示范）"
+      }
+    }
+  ]
+}

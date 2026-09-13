@@ -1236,6 +1236,140 @@ func (w *WorldStore) DeleteEntity(input DeleteEntityInput) (DeleteEntityResult, 
 	return DeleteEntityResult{Deleted: len(idList), Children: childrenCount, Relations: relationCount, Evidences: evidenceCount}, nil
 }
 
+// DeleteWorldInput is the typed input of world.delete. ConfirmName must equal
+// the stored world name; it is the destructive-action gate, not a lookup key.
+type DeleteWorldInput struct {
+	WorldID     string
+	ConfirmName string
+	CreatedBy   string
+}
+
+// WorldDeleteResult reports the scope a hard delete removed. Media Assets are
+// deliberately absent: the workspace library outlives any World.
+type WorldDeleteResult struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Entities   int    `json:"entities"`
+	Relations  int    `json:"relations"`
+	CanvasDocs int    `json:"canvasDocs"`
+	Bindings   int    `json:"bindings"`
+}
+
+// DeleteWorld hard-deletes a local World on explicit user request after an
+// exact world-name confirmation. world_* child rows are removed explicitly
+// (SQLite foreign keys stay off in the workspace DSN, so a bare delete would
+// orphan them); Media Assets are never touched. Cross-system references
+// degrade gracefully: bindings pinned to the World are deleted and Artifact /
+// Job binding pointers are cleared, so consumers resolve to "unbound" instead
+// of dangling. Non-local worlds stay under their catalog lifecycle and are
+// rejected (fork is the legal exit).
+func (w *WorldStore) DeleteWorld(input DeleteWorldInput) (WorldDeleteResult, error) {
+	confirmName := strings.TrimSpace(input.ConfirmName)
+	if confirmName == "" {
+		return WorldDeleteResult{}, worldsError(WorldsErrContextInvalid, "world name confirmation is required")
+	}
+	db, err := w.database()
+	if err != nil {
+		return WorldDeleteResult{}, err
+	}
+	var storedName, origin string
+	if err := db.QueryRow("select name, origin from worlds where id = ?", input.WorldID).Scan(&storedName, &origin); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return WorldDeleteResult{}, worldsError(WorldsErrNotFound, "world not found")
+		}
+		return WorldDeleteResult{}, err
+	}
+	if originOrDefault(origin) != WorldLocal {
+		return WorldDeleteResult{}, worldsError(WorldsErrReadOnly, "only local worlds can be deleted")
+	}
+	if confirmName != strings.TrimSpace(storedName) {
+		return WorldDeleteResult{}, worldsError(WorldsErrContextInvalid, "world name does not match")
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return WorldDeleteResult{}, err
+	}
+	defer tx.Rollback()
+
+	var entities, relations, canvasDocs int
+	if err := tx.QueryRow("select count(*) from world_entities where world_id = ?", input.WorldID).Scan(&entities); err != nil {
+		return WorldDeleteResult{}, err
+	}
+	if err := tx.QueryRow("select count(*) from world_relations where world_id = ?", input.WorldID).Scan(&relations); err != nil {
+		return WorldDeleteResult{}, err
+	}
+	if err := tx.QueryRow("select count(*) from world_canvases where world_id = ?", input.WorldID).Scan(&canvasDocs); err != nil {
+		return WorldDeleteResult{}, err
+	}
+
+	// Graceful fallback for external references: delete the World's bindings,
+	// first clearing Artifact / Job pointers that named them, so no consumer
+	// ever resolves a vanished World.
+	bindingRows, err := tx.Query("select id from creation_context_bindings where world_id = ?", input.WorldID)
+	if err != nil {
+		return WorldDeleteResult{}, err
+	}
+	bindingIDs := []string{}
+	for bindingRows.Next() {
+		var id string
+		if err := bindingRows.Scan(&id); err != nil {
+			bindingRows.Close()
+			return WorldDeleteResult{}, err
+		}
+		bindingIDs = append(bindingIDs, id)
+	}
+	bindingRows.Close()
+	if err := bindingRows.Err(); err != nil {
+		return WorldDeleteResult{}, err
+	}
+	if len(bindingIDs) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(bindingIDs)), ",")
+		args := make([]any, 0, len(bindingIDs))
+		for _, id := range bindingIDs {
+			args = append(args, id)
+		}
+		for _, statement := range []string{
+			"update artifacts set creation_context_binding_id = null where creation_context_binding_id in (" + placeholders + ")",
+			"update media_jobs set creation_context_binding_id = null where creation_context_binding_id in (" + placeholders + ")",
+		} {
+			if _, err := tx.Exec(statement, args...); err != nil {
+				return WorldDeleteResult{}, err
+			}
+		}
+		if _, err := tx.Exec("delete from creation_context_bindings where world_id = ?", input.WorldID); err != nil {
+			return WorldDeleteResult{}, err
+		}
+	}
+
+	// Children before the worlds row so a future foreign_keys pragma stays safe.
+	for _, statement := range []string{
+		"delete from world_asset_refs where world_id = ?",
+		"delete from world_relations where world_id = ?",
+		"delete from world_canvas where world_id = ?",
+		"delete from world_canvases where world_id = ?",
+		"delete from world_entities where world_id = ?",
+		"delete from world_entity_types where world_id = ?",
+		"delete from world_revisions where world_id = ?",
+		"delete from worlds where id = ?",
+	} {
+		if _, err := tx.Exec(statement, input.WorldID); err != nil {
+			return WorldDeleteResult{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return WorldDeleteResult{}, err
+	}
+	// Drop any advisory AI canvas lock and tell open clients the world is gone.
+	w.releaseCanvasLock(input.WorldID, "")
+	w.publishWorldDeleted(input.WorldID, storedName)
+	logWorldEvent("world.deleted", map[string]string{"worldId": input.WorldID, "createdBy": input.CreatedBy})
+	return WorldDeleteResult{
+		ID: input.WorldID, Name: storedName, Entities: entities, Relations: relations,
+		CanvasDocs: canvasDocs, Bindings: len(bindingIDs),
+	}, nil
+}
+
 func (w *WorldStore) AttachReference(input AttachReferenceInput) (WorldAssetReference, error) {
 	// Evidence writes are frozen (RFC 统一 Entity 模型): entity media lives in
 	// media attrs now. Reads keep working so existing worlds and old revisions

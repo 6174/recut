@@ -2,20 +2,14 @@
   "id": "rule-format",
   "typeId": "rule",
   "name": "16:9 横版",
-  "intro": "",
+  "intro": "固定 16:9 横版，每张单独生成，不把多张图拼在一张里。",
   "attrs": [
     {
       "key": "type",
-      "label": "type",
+      "label": "规则类型",
       "type": "text",
       "value": "always"
-    },
-    {
-      "key": "text",
-      "label": "规则文本",
-      "type": "textarea",
-      "locked": true,
-      "value": "16:9 横版中文正文配图；每张单独生成，不把多张图拼在一张里"
     }
-  ]
+  ],
+  "detail": "16:9 横版中文正文配图；每张单独生成，不把多张图拼在一张里。"
 }

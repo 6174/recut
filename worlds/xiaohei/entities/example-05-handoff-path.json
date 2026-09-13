@@ -1,0 +1,31 @@
+{
+  "id": "example-05-handoff-path",
+  "typeId": "example",
+  "name": "承接路径",
+  "intro": "用一条弯曲路径加小黑牵线，画出内容从 A 到 B 的承接。",
+  "detail": "一条橙色弯曲路径穿过画面，起点与终点各一个小方块；小黑牵着线沿路径走，线在中间打了一个结。红色标出路径最易断的那一段。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "地图路线"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "构图参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "05-handoff-path",
+        "kind": "image",
+        "name": "承接路径"
+      }
+    }
+  ]
+}

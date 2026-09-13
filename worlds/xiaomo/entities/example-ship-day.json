@@ -1,0 +1,31 @@
+{
+  "id": "example-ship-day",
+  "typeId": "example",
+  "name": "交付日",
+  "intro": "全员围着屏幕看进度条，只有阿墨还端着杯子比 OK。",
+  "detail": "群像场景：四人围着一块屏幕看进度条走到 100%，发布成功的星星炸开；其他三人瘫倒，只有阿墨端着杯子比 OK；底部手写短句落款。示范「问题不大，先交付」的收尾节拍。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "群像场景"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-ship-day-crew",
+        "kind": "image",
+        "name": "交付日"
+      }
+    }
+  ]
+}

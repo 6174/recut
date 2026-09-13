@@ -1,0 +1,31 @@
+{
+  "id": "example-06-three-sources",
+  "typeId": "example",
+  "name": "三个信息源",
+  "intro": "三个输入源汇入一个处理点，小黑在汇合处拉线。",
+  "detail": "左上、左中、左下三个手绘盒子代表三个来源，橙色箭头汇向中间一个圆；小黑站在汇合处拉三根线，蓝色标注一个「自动汇总」。右侧大片留白。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "系统局部"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "风格校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "06-three-sources",
+        "kind": "image",
+        "name": "三个信息源"
+      }
+    }
+  ]
+}

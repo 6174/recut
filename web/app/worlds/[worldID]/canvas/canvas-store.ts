@@ -10,6 +10,8 @@
  * 画布存储为文档粒度（RFC 2026-09-09）：一张画布 = 一个 Document，canvas.get/save 整包读写 + version 乐观锁；
  * 元素级动作（upsertElement/persistGeometry/moveElement/removeElement）只改本地文档 + 脏集合，去抖整包落库，
  * 冲突时拉远端按 id 合并脏集重试一次；内层画布是独立文档，实体投影位置跨层天然隔离。
+ * canonicalizeCanvasElements：load 时把导入 bundle 的实体元素 id 归一为 shape:<entityId>（源世界沿用
+ * shape:<sourceId>）、重映射箭头端点并去重，修复导入世界拖拽后位置回退（一次性迁移落库）。
  * 统一 Entity 模型（RFC 2026-09-09）：实体字段 = title/kind/content → name/typeId/intro/detail/attrs；
  * saveEntityField 签名改为 {name?, intro?, detail?, attrKey?, value?} 单字段 patch（attrs 全量替换语义，
   * 按 attrKey 原位 patch 当前 full attrs 后整包 upsert）；实体素材 = media 属性（attachMediaAttr/
@@ -109,6 +111,61 @@ export function elementPosition(elements: WorldCanvasElement[], id: string, fall
   const y = Number(element?.geometry?.y);
   if (element && Number.isFinite(x) && Number.isFinite(y)) return { x, y };
   return gridPosition(fallbackIndex);
+}
+
+// 导入 bundle 的画布元素：实体元素沿用源世界 id（`shape:<sourceId>`，refId 才做世界命名空间），
+// 而运行时统一按 `shape:<entityId>`（entityId 已带世界前缀）读写。若不归一，首次拖拽会新建
+// 重复投影，刷新后 entityElementPosition 又先命中旧导入元素，位置/尺寸即回退。这里把实体元素的
+// id/refId 统一为 `shape:<entityId>`，同步重映射箭头 props.fromElementId/toElementId；同一实体的
+// 重复投影保留 updatedAt 最新的一条（用户后来拖拽的影子胜出）。
+export function canonicalizeCanvasElements(
+  elements: WorldCanvasElement[],
+  resolveEntityId: (raw: string) => string | null,
+): { elements: WorldCanvasElement[]; changed: boolean } {
+  let changed = false;
+  const idMap = new Map<string, string>();
+  const winners = new Map<string, WorldCanvasElement>();
+  const entityIdOf = (element: WorldCanvasElement): string | null => {
+    if (element.kind !== "entity" && element.refKind !== "entity") return null;
+    const direct = resolveEntityId(String(element.refId ?? ""));
+    if (direct) return direct;
+    const id = String(element.id ?? "");
+    return id.startsWith("shape:") ? resolveEntityId(id.slice("shape:".length)) : null;
+  };
+  for (const element of elements) {
+    const entityId = entityIdOf(element);
+    if (!entityId) continue;
+    const nextId = `shape:${entityId}`;
+    if (element.id !== nextId || element.refId !== entityId) changed = true;
+    idMap.set(element.id, nextId);
+    const candidate: WorldCanvasElement = { ...element, id: nextId, refKind: "entity", refId: entityId };
+    const current = winners.get(nextId);
+    if (!current || String(candidate.updatedAt ?? "") >= String(current.updatedAt ?? "")) winners.set(nextId, candidate);
+  }
+  const output: WorldCanvasElement[] = [];
+  const placed = new Set<string>();
+  for (const element of elements) {
+    const boundEntityId = entityIdOf(element);
+    if (boundEntityId) {
+      const winner = winners.get(`shape:${boundEntityId}`);
+      if (winner && !placed.has(winner.id)) {
+        output.push(winner);
+        placed.add(winner.id);
+      }
+      continue;
+    }
+    const props = element.props ?? {};
+    const nextFrom = idMap.get(String(props.fromElementId ?? ""));
+    const nextTo = idMap.get(String(props.toElementId ?? ""));
+    if (nextFrom || nextTo) {
+      changed = true;
+      output.push({ ...element, props: { ...props, ...(nextFrom ? { fromElementId: nextFrom } : {}), ...(nextTo ? { toElementId: nextTo } : {}) } });
+    } else {
+      output.push(element);
+    }
+  }
+  for (const winner of winners.values()) if (!placed.has(winner.id)) output.push(winner);
+  return { elements: output, changed };
 }
 
 export function messageOf(cause: unknown) {
@@ -492,7 +549,10 @@ type WorldCanvasState = {
   // T8 媒体：素材来源浮层（仅独立素材；实体媒体 = media 属性，无独立「挂接目标」状态）与预览浮层
   mediaSource: { modality?: "image" | "video" | "audio" } | null;
   mediaPreview: { src: string; modality: string; name: string } | null;
+  // 画布图片节点双击 → 全局素材弹框（AssetReferenceDialog）换图；只存元素 id，媒体类型按元素推导
+  mediaPicker: { elementId: string } | null;
   setMediaSource: (input: { modality?: "image" | "video" | "audio" } | null) => void;
+  setMediaPicker: (input: { elementId: string } | null) => void;
   // 画面删除（T16/D7 P1）：实体卡从画布移除，设定本身保留；outline 面板可放回
   hideEntityFromCanvas: (entityId: string) => Promise<void>;
   unhideEntity: (entityId: string) => Promise<void>;
@@ -569,6 +629,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   addFieldFor: null,
   mediaSource: null,
   mediaPreview: null,
+  mediaPicker: null,
   creatingAt: null,
   contextMenu: null,
   toasts: [],
@@ -616,6 +677,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       addFieldFor: null,
       mediaSource: null,
       mediaPreview: null,
+      mediaPicker: null,
       creatingAt: null,
       contextMenu: null,
       toasts: [],
@@ -661,15 +723,27 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         }
       }
       const visibleRelations = relations.filter((relation) => ids.has(relation.fromEntityId) && ids.has(relation.toEntityId));
+      // 导入 bundle 的实体元素 id 未带世界前缀：加载时归一为 shape:<entityId>（并重映射箭头端点），
+      // 否则拖拽会新建重复投影、刷新回退到旧位置（见 canonicalizeCanvasElements）。
+      const canonical = canonicalizeCanvasElements(doc.elements, (raw) => {
+        const value = raw.trim();
+        if (!value) return null;
+        if (ids.has(value)) return value;
+        const prefixed = `${worldId}:${value}`;
+        return ids.has(prefixed) ? prefixed : null;
+      });
       // AI 锁期内本地保存被暂停：远端回拉时保留本地脏元素/删除覆盖，避免用户未落盘的改动被覆盖。
-      let nextElements = doc.elements;
+      let nextElements = canonical.elements;
       if (get().aiLocked && (canvasSaveState.dirty.size || canvasSaveState.removed.size)) {
-        const byId = new Map(doc.elements.map((element) => [element.id, element]));
+        const byId = new Map(canonical.elements.map((element) => [element.id, element]));
         for (const id of canvasSaveState.removed) byId.delete(id);
         for (const element of get().elements) {
           if (canvasSaveState.dirty.has(element.id)) byId.set(element.id, element);
         }
         nextElements = [...byId.values()];
+      } else if (canonical.changed) {
+        // 一次性迁移：归一后的文档立即落库，避免每次加载重复归一。
+        for (const element of nextElements) markCanvasDirty(element.id);
       }
       // 远端刷新（AI/另一端的写）后按 id 重新解析当前选中，避免面板继续指向旧快照。
       const currentSelection = get().selection;
@@ -1391,7 +1465,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const y = Number(element.geometry?.y) || 0;
     const width = Math.max(Number(element.geometry?.width) || DEFAULT_ENTITY_SIZE.width, 240);
     const height = Number(element.geometry?.height) || DEFAULT_ENTITY_SIZE.height;
-    const contentH = entityCardContentHeight({ photoUrls: entityPhotoUrls(state.apiBase, entity).slice(0, 9) });
+    const contentH = entityCardContentHeight({ width, photoUrls: entityPhotoUrls(state.apiBase, entity) });
     const imageH = ENTITY_CARD_IMAGE_H + Math.max(0, Math.max(height, contentH) - contentH);
     set({
       inlineEdit: {
@@ -1604,6 +1678,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   // ---------- T8 媒体元素与证据 ----------
 
   setMediaSource: (mediaSource) => set({ mediaSource }),
+
+  // 画布图片节点双击 → 全局素材弹框（只存元素 id；媒体类型/当前 asset 在对话框内按元素推导）
+  setMediaPicker: (mediaPicker) => set({ mediaPicker }),
 
   // 画面删除（T16）：实体投影元素 props.hidden = true（元素保留，设定不动，不产 revision）
   hideEntityFromCanvas: async (entityId) => {

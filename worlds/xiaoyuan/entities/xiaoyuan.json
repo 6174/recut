@@ -37,16 +37,6 @@
         "kind": "image",
         "name": "角色设定九宫格（主参考）"
       }
-    },
-    {
-      "key": "media-scene-bedroom",
-      "label": "深夜卧室关键帧（9:16 成品范例）",
-      "type": "media",
-      "value": {
-        "asset": "scene-bedroom",
-        "kind": "image",
-        "name": "深夜卧室关键帧（9:16 成品范例）"
-      }
     }
   ]
 }

@@ -2,20 +2,14 @@
   "id": "rule-no-anti-style",
   "typeId": "rule",
   "name": "禁止低幼与精致化",
-  "intro": "",
+  "intro": "不要婴儿比例 / Q 版、腮红、多彩、厚涂 3D 与写实背景。",
   "attrs": [
     {
       "key": "type",
-      "label": "type",
+      "label": "规则类型",
       "type": "text",
       "value": "never"
-    },
-    {
-      "key": "text",
-      "label": "规则文本",
-      "type": "textarea",
-      "locked": true,
-      "value": "不要婴儿比例/Q 版头身、不要腮红、不要多彩色、不要厚涂/3D 渲染；不要精细衣纹与指节（瞳孔仅小点例外）；背景不要写实照片质感；不要鸡汤大字标语"
     }
-  ]
+  ],
+  "detail": "不要婴儿比例 / Q 版头身、不要腮红、不要多彩色、不要厚涂 / 3D 渲染；不要精细衣纹与指节（瞳孔仅小点例外）；背景不要写实照片质感；不要鸡汤大字标语。"
 }

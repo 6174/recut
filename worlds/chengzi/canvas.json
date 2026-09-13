@@ -212,6 +212,101 @@
           },
           "style": {},
           "layer": "0"
+        },
+        {
+          "id": "shape:example-car",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-car",
+          "name": "车里",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-classroom",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-classroom",
+          "name": "教室",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-family-sofa",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-family-sofa",
+          "name": "全家沙发互动",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-mall",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-mall",
+          "name": "商场玩具店",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-market",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-market",
+          "name": "菜市场",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2848,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
         }
       ]
     }

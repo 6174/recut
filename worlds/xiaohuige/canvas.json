@@ -193,6 +193,177 @@
           },
           "style": {},
           "layer": "0"
+        },
+        {
+          "id": "shape:example-clarity-bulb",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-clarity-bulb",
+          "name": "从乱到清 + 唯一亮色",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-overthinking-scribble",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-overthinking-scribble",
+          "name": "乱线团 = 内耗",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-scene-corgi-company",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-scene-corgi-company",
+          "name": "馒头陪坐",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-scene-fear-of-starting",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-scene-fear-of-starting",
+          "name": "怕开始·解线见灯泡",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-scene-fridge-midnight",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-scene-fridge-midnight",
+          "name": "深夜冰箱发呆",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2848,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-scene-insomnia",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-scene-insomnia",
+          "name": "失眠反刍",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2848,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-scene-subway-caption",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-scene-subway-caption",
+          "name": "末班地铁",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 2848,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-scene-sunday-evening",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-scene-sunday-evening",
+          "name": "周日傍晚焦虑",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 2848,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-street-night",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-street-night",
+          "name": "深夜街头",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 3236,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
         }
       ]
     }

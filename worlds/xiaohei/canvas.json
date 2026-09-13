@@ -98,6 +98,272 @@
           },
           "style": {},
           "layer": "0"
+        },
+        {
+          "id": "shape:example-01-two-breakpoints",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-01-two-breakpoints",
+          "name": "两个断点",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1492,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-02-minimum-loop",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-02-minimum-loop",
+          "name": "最小闭环",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 1492,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-03-sort-by-purpose",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-03-sort-by-purpose",
+          "name": "按用途分拣",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 1492,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-04-one-fish-many-uses",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-04-one-fish-many-uses",
+          "name": "一鱼多吃",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 1492,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-05-handoff-path",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-05-handoff-path",
+          "name": "承接路径",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1880,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-06-three-sources",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-06-three-sources",
+          "name": "三个信息源",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 1880,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-07-three-content-jobs",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-07-three-content-jobs",
+          "name": "三种内容工作",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 1880,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-08-handoff-copy-toolbox",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-08-handoff-copy-toolbox",
+          "name": "承接话术工具箱",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 1880,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-09-common-pits-no-title",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-09-common-pits-no-title",
+          "name": "常见坑（无标题示范）",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2268,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-10-information-well",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-10-information-well",
+          "name": "信息井",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2268,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-11-idea-press",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-11-idea-press",
+          "name": "想法压榨机",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 2268,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-12-content-fermentation",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-12-content-fermentation",
+          "name": "内容发酵",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 2268,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-13-system-bearing",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-13-system-bearing",
+          "name": "系统承重",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2656,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-14-trust-bridge",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-14-trust-bridge",
+          "name": "信任桥",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2656,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
         }
       ]
     }

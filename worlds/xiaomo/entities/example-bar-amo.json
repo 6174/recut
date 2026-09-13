@@ -1,0 +1,31 @@
+{
+  "id": "example-bar-amo",
+  "typeId": "example",
+  "name": "吧台咖啡角",
+  "intro": "吧台前的阿墨端着咖啡，蒸汽墨云从杯口升起。",
+  "detail": "职能位场景：吧台咖啡角，手冲壶与马克杯，阿墨端杯，蒸汽墨云在他周围；奶油纸底 + 炭黑两阶 + halftone 喷点灰晕。示范阿墨主场的松弛节拍。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-bar-amo",
+        "kind": "image",
+        "name": "吧台咖啡角"
+      }
+    }
+  ]
+}

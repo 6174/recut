@@ -16,8 +16,217 @@
       "tone": "松弛、幽默、手绘纸感、年轻创业气"
     }
   },
-  "entityTypes": [],
-  "relations": [],
+  "entityTypes": [
+    {
+      "id": "example",
+      "scope": "custom",
+      "name": "示例",
+      "icon": "image",
+      "color": "#f59e0b",
+      "baseKind": "object",
+      "fields": [
+        {
+          "key": "structure",
+          "label": "结构类型",
+          "type": "text"
+        },
+        {
+          "key": "role",
+          "label": "用途",
+          "type": "text"
+        },
+        {
+          "key": "image",
+          "label": "示例图",
+          "type": "media"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "r-01",
+      "type": "appears_in",
+      "from": "xiaomo",
+      "to": "example-bar-amo",
+      "scope": null
+    },
+    {
+      "id": "r-02",
+      "type": "appears_in",
+      "from": "cast",
+      "to": "example-design-desk-momo",
+      "scope": null
+    },
+    {
+      "id": "r-03",
+      "type": "appears_in",
+      "from": "cast",
+      "to": "example-whiteboard-doudou",
+      "scope": null
+    },
+    {
+      "id": "r-04",
+      "type": "appears_in",
+      "from": "cast",
+      "to": "example-server-corner",
+      "scope": null
+    },
+    {
+      "id": "r-05",
+      "type": "appears_in",
+      "from": "cast",
+      "to": "example-ship-day",
+      "scope": null
+    },
+    {
+      "id": "r-06",
+      "type": "appears_in",
+      "from": "cast",
+      "to": "example-late-night",
+      "scope": null
+    },
+    {
+      "id": "r-07",
+      "type": "references",
+      "from": "example-bar-amo",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-08",
+      "type": "references",
+      "from": "example-design-desk-momo",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-09",
+      "type": "references",
+      "from": "example-whiteboard-doudou",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-10",
+      "type": "references",
+      "from": "example-server-corner",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-11",
+      "type": "references",
+      "from": "example-ship-day",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-12",
+      "type": "references",
+      "from": "example-late-night",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-13",
+      "type": "located_in",
+      "from": "xiaomo",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-14",
+      "type": "located_in",
+      "from": "cast",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-15",
+      "type": "located_in",
+      "from": "example-bar-amo",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-16",
+      "type": "located_in",
+      "from": "example-design-desk-momo",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-17",
+      "type": "located_in",
+      "from": "example-whiteboard-doudou",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-18",
+      "type": "located_in",
+      "from": "example-server-corner",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-19",
+      "type": "located_in",
+      "from": "example-ship-day",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-20",
+      "type": "located_in",
+      "from": "example-late-night",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-21",
+      "type": "part_of",
+      "from": "rule-consistency",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-22",
+      "type": "part_of",
+      "from": "rule-format",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-23",
+      "type": "part_of",
+      "from": "rule-mono",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-24",
+      "type": "part_of",
+      "from": "rule-no-anti-style",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-25",
+      "type": "part_of",
+      "from": "layout-modes",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-26",
+      "type": "references",
+      "from": "story-arc",
+      "to": "scene-system",
+      "scope": null
+    }
+  ],
   "provenance": {
     "author": "chenxuejia",
     "license": "MIT",

@@ -1,0 +1,31 @@
+{
+  "id": "example-office",
+  "typeId": "example",
+  "name": "办公室工位",
+  "intro": "双屏冷光前，小圆坐在工位上一动不动。",
+  "detail": "写实摄影底的办公室工位：双屏冷光、键盘、马克杯、椅背，百叶窗切割路灯光；小圆扁平地坐在工位上，冷蓝光源主导，rim light 跟冷光走。示范「被照管的麻木」。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-office",
+        "kind": "image",
+        "name": "办公室工位"
+      }
+    }
+  ]
+}

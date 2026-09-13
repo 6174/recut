@@ -8,7 +8,8 @@
  * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡与 World 根节点
  * 左右缘中点各一个，自由元素不挂）拖出引导线：实体 → 实体 =
  * 受控关系确认（setPendingRelation），其余落点（含 World 节点）= 属性引导菜单（setAttrCreator，创建属性节点 +
- * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击空白 = 最近类型快捷建卡
+ * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击图片节点（独立媒体卡 / 图片属性卡）
+ * = 全局素材弹框（setMediaPicker）换图；双击空白 = 最近类型快捷建卡
  * （Alt = 创建菜单）；右键 = 实体/便签文本上下文菜单（T3）；Delete/Backspace 删除关系/草稿、
  * 实体走删除确认（B.6）；选区 overlay + 「+」手柄 +
  * 引导草稿线（overlay 屏幕空间 / draft 世界空间，transform 变化自动重绘）
@@ -865,6 +866,14 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       // 属性元素双击 = 编辑文本值（提交时同步回实体 content 字段）
       if (hitRecord.type === "free-element" && String(hitRecord.attrs.elementKind ?? "") === "attr" && String(hitRecord.attrs.attrMedia ?? "text") === "text") {
         store.startElementBodyEdit(hitRecord.id, "attr-body");
+        return;
+      }
+      // 图片节点（独立媒体卡 / 图片属性卡）双击 = 打开全局素材弹框换图（与面板「素材库」同源）
+      const isImageMediaNode =
+        (hitRecord.type === "media" && String(hitRecord.attrs.modality ?? "image") === "image") ||
+        (hitRecord.type === "free-element" && String(hitRecord.attrs.elementKind ?? "") === "attr" && String(hitRecord.attrs.attrMedia ?? "text") === "image");
+      if (isImageMediaNode) {
+        store.setMediaPicker({ elementId: hitRecord.id });
         return;
       }
       // 媒体元素双击 = 预览（T8）

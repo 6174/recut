@@ -1,0 +1,31 @@
+{
+  "id": "example-classroom",
+  "typeId": "example",
+  "name": "教室",
+  "intro": "教室靠窗倒数第二排，橙子的一个课堂瞬间。",
+  "detail": "写实摄影底的教室：蓝色课桌椅、黑板，橙子的橙色书包挂在桌钩上；角色保持手绘贴纸感浮在写实背景上。一个镜头只讲一个课堂瞬间。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-classroom",
+        "kind": "image",
+        "name": "教室"
+      }
+    }
+  ]
+}

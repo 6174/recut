@@ -1,0 +1,31 @@
+{
+  "id": "example-14-trust-bridge",
+  "typeId": "example",
+  "name": "信任桥",
+  "intro": "在两岸之间搭一座桥，小黑搬砖搭桥建立信任。",
+  "detail": "左右两岸各一个小平台，中间是一道缝；小黑抱着砖把桥一块块搭过去，橙色箭头标出通路，蓝色标一个「长期」。留白与那道缝是画面重点。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "概念隐喻"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "构图参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "14-trust-bridge",
+        "kind": "image",
+        "name": "信任桥"
+      }
+    }
+  ]
+}

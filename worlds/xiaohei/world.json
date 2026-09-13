@@ -13,8 +13,252 @@
       "tone": "怪诞、克制、手绘、清爽"
     }
   },
-  "entityTypes": [],
-  "relations": [],
+  "entityTypes": [
+    {
+      "id": "example",
+      "scope": "custom",
+      "name": "示例",
+      "icon": "image",
+      "color": "#f59e0b",
+      "baseKind": "object",
+      "fields": [
+        {
+          "key": "structure",
+          "label": "结构类型",
+          "type": "text"
+        },
+        {
+          "key": "role",
+          "label": "用途",
+          "type": "text"
+        },
+        {
+          "key": "image",
+          "label": "示例图",
+          "type": "media"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "r-01",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-01-two-breakpoints",
+      "scope": null
+    },
+    {
+      "id": "r-02",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-02-minimum-loop",
+      "scope": null
+    },
+    {
+      "id": "r-03",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-03-sort-by-purpose",
+      "scope": null
+    },
+    {
+      "id": "r-04",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-04-one-fish-many-uses",
+      "scope": null
+    },
+    {
+      "id": "r-05",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-05-handoff-path",
+      "scope": null
+    },
+    {
+      "id": "r-06",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-06-three-sources",
+      "scope": null
+    },
+    {
+      "id": "r-07",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-07-three-content-jobs",
+      "scope": null
+    },
+    {
+      "id": "r-08",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-08-handoff-copy-toolbox",
+      "scope": null
+    },
+    {
+      "id": "r-09",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-09-common-pits-no-title",
+      "scope": null
+    },
+    {
+      "id": "r-10",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-10-information-well",
+      "scope": null
+    },
+    {
+      "id": "r-11",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-11-idea-press",
+      "scope": null
+    },
+    {
+      "id": "r-12",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-12-content-fermentation",
+      "scope": null
+    },
+    {
+      "id": "r-13",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-13-system-bearing",
+      "scope": null
+    },
+    {
+      "id": "r-14",
+      "type": "appears_in",
+      "from": "xiaohei",
+      "to": "example-14-trust-bridge",
+      "scope": null
+    },
+    {
+      "id": "r-15",
+      "type": "references",
+      "from": "example-01-two-breakpoints",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-16",
+      "type": "references",
+      "from": "example-02-minimum-loop",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-17",
+      "type": "references",
+      "from": "example-03-sort-by-purpose",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-18",
+      "type": "references",
+      "from": "example-04-one-fish-many-uses",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-19",
+      "type": "references",
+      "from": "example-05-handoff-path",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-20",
+      "type": "references",
+      "from": "example-06-three-sources",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-21",
+      "type": "references",
+      "from": "example-07-three-content-jobs",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-22",
+      "type": "references",
+      "from": "example-08-handoff-copy-toolbox",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-23",
+      "type": "references",
+      "from": "example-09-common-pits-no-title",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-24",
+      "type": "references",
+      "from": "example-10-information-well",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-25",
+      "type": "references",
+      "from": "example-11-idea-press",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-26",
+      "type": "references",
+      "from": "example-12-content-fermentation",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-27",
+      "type": "references",
+      "from": "example-13-system-bearing",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-28",
+      "type": "references",
+      "from": "example-14-trust-bridge",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-29",
+      "type": "part_of",
+      "from": "rule-color",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-30",
+      "type": "part_of",
+      "from": "rule-no-ppt",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-31",
+      "type": "part_of",
+      "from": "rule-format",
+      "to": "style-dna",
+      "scope": null
+    }
+  ],
   "provenance": {
     "author": "helloianneo",
     "license": "MIT",

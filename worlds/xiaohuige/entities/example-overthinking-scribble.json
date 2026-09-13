@@ -1,0 +1,31 @@
+{
+  "id": "example-overthinking-scribble",
+  "typeId": "example",
+  "name": "乱线团 = 内耗",
+  "intro": "头顶的乱线团越缠越大，几乎把小灰哥整个人压住。",
+  "detail": "全灰画面：小灰哥蜷坐或趴着，头顶思想泡泡里是一团缠乱的黑色涂鸦线，线团大到快盖住他；画面无彩色。示范「乱线团 = 情绪噪音 / 内耗」的核心视觉语言。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "概念隐喻"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "风格校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "overthinking-scribble",
+        "kind": "image",
+        "name": "乱线团 = 内耗"
+      }
+    }
+  ]
+}

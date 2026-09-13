@@ -57,16 +57,6 @@
         "kind": "image",
         "name": "表情九宫格（眼睛微表情库）"
       }
-    },
-    {
-      "key": "media-scene-living-room",
-      "label": "客厅放空关键帧（9:16 成品范例）",
-      "type": "media",
-      "value": {
-        "asset": "scene-living-room",
-        "kind": "image",
-        "name": "客厅放空关键帧（9:16 成品范例）"
-      }
     }
   ]
 }

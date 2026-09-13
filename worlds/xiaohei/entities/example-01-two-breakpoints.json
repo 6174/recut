@@ -1,0 +1,31 @@
+{
+  "id": "example-01-two-breakpoints",
+  "typeId": "example",
+  "name": "两个断点",
+  "intro": "用一条主路径上的两个断点，把「关键卡点」画成一个物理堵塞。",
+  "detail": "一条橙色主路径从左向右延伸，途中并排出现两个断点：一处是裂口，一处是岔口；小黑卡在第一个断点里只露出白点眼，另一只手伸向第二个断点。其余留白，只保留 3-4 个短标注。示范「流程里有两个卡点」时的构图密度与小黑的参与方式。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "概念隐喻"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "风格校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "01-two-breakpoints",
+        "kind": "image",
+        "name": "两个断点"
+      }
+    }
+  ]
+}

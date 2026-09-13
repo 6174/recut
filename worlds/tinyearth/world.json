@@ -16,7 +16,148 @@
     }
   },
   "entityTypes": [],
-  "relations": [],
+  "relations": [
+    {
+      "id": "r-01",
+      "type": "located_in",
+      "from": "aya",
+      "to": "office",
+      "scope": null
+    },
+    {
+      "id": "r-02",
+      "type": "located_in",
+      "from": "douya",
+      "to": "office",
+      "scope": null
+    },
+    {
+      "id": "r-03",
+      "type": "located_in",
+      "from": "paopao",
+      "to": "office",
+      "scope": null
+    },
+    {
+      "id": "r-04",
+      "type": "located_in",
+      "from": "shanshan",
+      "to": "office",
+      "scope": null
+    },
+    {
+      "id": "r-05",
+      "type": "located_in",
+      "from": "tuantuan",
+      "to": "office",
+      "scope": null
+    },
+    {
+      "id": "r-06",
+      "type": "located_in",
+      "from": "xiaoyan",
+      "to": "office",
+      "scope": null
+    },
+    {
+      "id": "r-07",
+      "type": "located_in",
+      "from": "xiaoyun",
+      "to": "office",
+      "scope": null
+    },
+    {
+      "id": "r-08",
+      "type": "located_in",
+      "from": "office",
+      "to": "city-underground-nature",
+      "scope": null
+    },
+    {
+      "id": "r-09",
+      "type": "part_of",
+      "from": "core-spirit",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-10",
+      "type": "part_of",
+      "from": "departments",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-11",
+      "type": "part_of",
+      "from": "hidden-truth",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-12",
+      "type": "part_of",
+      "from": "rule-humor",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-13",
+      "type": "part_of",
+      "from": "rule-visual",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-14",
+      "type": "part_of",
+      "from": "world-rules",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-15",
+      "type": "part_of",
+      "from": "world-time-scale",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-16",
+      "type": "part_of",
+      "from": "world-zoom",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-17",
+      "type": "references",
+      "from": "office-history",
+      "to": "office",
+      "scope": null
+    },
+    {
+      "id": "r-18",
+      "type": "references",
+      "from": "perspective",
+      "to": "office-history",
+      "scope": null
+    },
+    {
+      "id": "r-19",
+      "type": "references",
+      "from": "task-system",
+      "to": "office",
+      "scope": null
+    },
+    {
+      "id": "r-20",
+      "type": "references",
+      "from": "task-system",
+      "to": "tuantuan",
+      "scope": null
+    }
+  ],
   "provenance": {
     "author": "chenxuejia",
     "license": "MIT",

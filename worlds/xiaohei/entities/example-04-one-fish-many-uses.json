@@ -1,0 +1,31 @@
+{
+  "id": "example-04-one-fish-many-uses",
+  "typeId": "example",
+  "name": "一鱼多吃",
+  "intro": "把一份素材切分成多种用途，用小黑切鱼的动作表达。",
+  "detail": "一条被剖开的手绘「素材鱼」躺在案板上，小黑举刀切下几块，每一块旁边一个短标注（图文 / 视频 / 清单）。留白多，鱼是唯一主体。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "角色状态"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "构图参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "04-one-fish-many-uses",
+        "kind": "image",
+        "name": "一鱼多吃"
+      }
+    }
+  ]
+}

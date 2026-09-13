@@ -136,6 +136,44 @@
           },
           "style": {},
           "layer": "0"
+        },
+        {
+          "id": "shape:example-bedroom",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-bedroom",
+          "name": "深夜卧室",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-office",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-office",
+          "name": "办公室工位",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
         }
       ]
     }

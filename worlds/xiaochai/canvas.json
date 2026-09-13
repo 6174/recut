@@ -136,6 +136,44 @@
           },
           "style": {},
           "layer": "0"
+        },
+        {
+          "id": "shape:example-candle-table",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-candle-table",
+          "name": "烛光桌前",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:example-living-room",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "example-living-room",
+          "name": "停电的客厅",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2460,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
         }
       ]
     }

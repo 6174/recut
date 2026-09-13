@@ -435,6 +435,106 @@ func TestArchiveWorldForUserHidesLocalWorldFromList(t *testing.T) {
 	}
 }
 
+// TestDeleteWorldRequiresExactNameAndRemovesEverything covers the hard-delete
+// contract: name double-check, explicit child-row removal (FKs are off in the
+// workspace DSN), Media Asset survival, and graceful binding cleanup.
+func TestDeleteWorldRequiresExactNameAndRemovesEverything(t *testing.T) {
+	worlds, store, media := newTestWorldStoreWithApp(t)
+	project, err := store.Create(CreateInput{Name: "Video", AppID: "example.app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "橙子一家", Type: WorldCustom})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assetID := newTestAsset(t, media, "hero.png")
+	hero, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: world.ID, TypeID: EntityTypeCharacter, Name: "Hero",
+		Attrs: []EntityAttr{{Key: "background", Type: "media", Value: map[string]any{"assetId": assetID, "kind": "image"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: world.ID, TypeID: EntityTypeRule, Name: "Rule"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: world.ID, FromEntityID: hero.ID, ToEntityID: rule.ID, RelationType: "references"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.SaveCanvasDocument(world.ID, "", []WorldCanvasElement{
+		{ID: "shape:" + hero.ID, Kind: "entity", RefKind: "entity", RefID: hero.ID, Name: "Hero", Props: map[string]any{}, Geometry: map[string]any{"x": 0, "y": 0, "width": 100, "height": 100}},
+	}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.BindProject(BindProjectInput{ProjectID: project.ID, WorldID: world.ID, Selection: WorldSelection{Purpose: "video"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wrong confirmation name must never delete.
+	if _, err := worlds.DeleteWorld(DeleteWorldInput{WorldID: world.ID, ConfirmName: "橙子两家"}); err == nil {
+		t.Fatal("delete accepted a mismatched world name")
+	}
+	if _, err := worlds.GetWorld(world.ID); err != nil {
+		t.Fatalf("world vanished after rejected delete: %v", err)
+	}
+
+	result, err := worlds.DeleteWorld(DeleteWorldInput{WorldID: world.ID, ConfirmName: "橙子一家", CreatedBy: "test"})
+	if err != nil {
+		t.Fatalf("delete = %v", err)
+	}
+	if result.Entities != 2 || result.Relations != 1 || result.CanvasDocs != 1 || result.Bindings != 1 {
+		t.Fatalf("delete result = %#v", result)
+	}
+
+	var worldErr *WorldsError
+	if _, err := worlds.GetWorld(world.ID); !errors.As(err, &worldErr) || worldErr.Code != WorldsErrNotFound {
+		t.Fatalf("GetWorld after delete = %v", err)
+	}
+	if listContains(worlds, t, world.ID) {
+		t.Fatal("deleted world still appears in ListWorlds")
+	}
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"world_entities", "world_relations", "world_canvases", "world_entity_types", "world_revisions", "creation_context_bindings"} {
+		var count int
+		if err := db.QueryRow("select count(*) from "+table+" where world_id = ?", world.ID).Scan(&count); err != nil {
+			t.Fatalf("count %s = %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("%s left %d rows after world delete", table, count)
+		}
+	}
+	// The bound project degrades to "unbound" rather than dangling.
+	context, err := worlds.GetProjectContext(project.ID)
+	if err != nil {
+		t.Fatalf("GetProjectContext after delete = %v", err)
+	}
+	if context != nil {
+		t.Fatalf("deleted world still resolves for a bound project: %#v", context)
+	}
+	// Media Assets outlive the World.
+	asset, err := media.GetAsset(assetID)
+	if err != nil || asset.Status != "completed" {
+		t.Fatalf("asset after world delete = %#v, %v", asset, err)
+	}
+
+	// Non-local worlds are lifecycle-managed: fork is the legal exit.
+	managed, err := worlds.CreateWorld(CreateWorldInput{Name: "Managed", Type: WorldCustom})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("update worlds set origin = 'platform' where id = ?", managed.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.DeleteWorld(DeleteWorldInput{WorldID: managed.ID, ConfirmName: "Managed"}); !errors.As(err, &worldErr) || worldErr.Code != WorldsErrReadOnly {
+		t.Fatalf("non-local delete = %v", err)
+	}
+}
+
 // entityAttrValue returns one attr's value from an entity's ordered attr list.
 func entityAttrValue(entity WorldEntity, key string) any {
 	for _, attr := range entity.Attrs {

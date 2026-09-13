@@ -1,0 +1,31 @@
+{
+  "id": "example-convenience-store",
+  "typeId": "example",
+  "name": "便利店关东煮",
+  "intro": "楼下便利店的冷白灯光下，阿蛋在关东煮前哈气。",
+  "detail": "深夜便利店，货架与顶灯是白花花的冷光，玻璃上倒映黑夜；阿蛋小小地站在关东煮柜台前，白汽从锅里升起，红卫衣是画面里唯一的暖色。示范「一盏光源 + 一个具体小事」的深夜场景构图。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-convenience-store",
+        "kind": "image",
+        "name": "便利店关东煮"
+      }
+    }
+  ]
+}

@@ -10,7 +10,7 @@ import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block"
 import type { VelloOp } from "../../pomelo-vello/op-bridge";
 import { textOp } from "../../pomelo-vello/vello-text";
 import { truncateText } from "../text-metrics";
-import { entityCardContentHeight, entityCardRect } from "./entity-card-metrics";
+import { entityCardContentHeight, entityCardRect, entityCardThumbColumns } from "./entity-card-metrics";
 import {
   CAPTION_TOP_OFFSET,
   CARD_FILL,
@@ -30,7 +30,6 @@ const IMAGE_H = 160;
 const THUMB = 30;
 const THUMB_GAP = 5;
 const GRID_GAP_Y = 12;
-const GRID_CAPACITY = 9;
 const TITLE_SIZE_TEXT_FIRST = 21;
 const SUBTITLE_SIZE_TEXT_FIRST = 11;
 
@@ -80,12 +79,13 @@ export class EntityCardBlockV extends VelloBlock {
     ops.push(textOp({ text: truncateText(title, w - PAD * 2, titleSize), x: x + PAD, y: y + textTop, size: titleSize, maxWidth: w - PAD * 2, embolden: 0.035, fill: TEXT_PRIMARY }));
     ops.push(textOp({ text: truncateText(summary, w - PAD * 2, summarySize), x: x + PAD, y: y + textTop + (hasCover ? 24 : 30), size: summarySize, maxWidth: w - PAD * 2, fill: TEXT_SECONDARY }));
 
-    const tiles = Math.min(totalCount, GRID_CAPACITY);
+    // 按卡片宽度自适应换行（不再固定九宫格、不再截断到 9 张）
+    const columns = entityCardThumbColumns(attrs);
     const urlPhotos = stringListOf(attrs.photoUrls);
     const tileRects: Array<{ x: number; y: number }> = [];
-    for (let index = 0; index < tiles; index++) {
-      const tx = x + PAD + (index % 3) * (THUMB + THUMB_GAP);
-      const ty = y + gridTop + Math.floor(index / 3) * (THUMB + THUMB_GAP);
+    for (let index = 0; index < totalCount; index++) {
+      const tx = x + PAD + (index % columns) * (THUMB + THUMB_GAP);
+      const ty = y + gridTop + Math.floor(index / columns) * (THUMB + THUMB_GAP);
       tileRects.push({ x: tx, y: ty });
       ops.push({ kind: "roundRect", x: tx, y: ty, width: THUMB, height: THUMB, radius: 8, fill: TILE_FILL, stroke: [0, 0, 0, 0], strokeWidth: 0 });
       ops.push(...coverImageOpsV(this.adapter, urlPhotos[index] ?? "", { x: tx, y: ty, width: THUMB, height: THUMB }, { x: tx, y: ty, width: THUMB, height: THUMB, radius: 8 }));

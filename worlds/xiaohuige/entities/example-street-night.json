@@ -1,0 +1,31 @@
+{
+  "id": "example-street-night",
+  "typeId": "example",
+  "name": "深夜街头",
+  "intro": "一盏路灯一池光，小灰哥走在光与光的间隙里。",
+  "detail": "竖版深夜街头：只有一盏路灯和一圈光斑，其余是灰暗；小灰哥戴着耳机走过光与光的间隙，远处一扇亮窗是唯一暖色。示范独处与放空的氛围。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "角色状态"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "构图参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "street-night",
+        "kind": "image",
+        "name": "深夜街头"
+      }
+    }
+  ]
+}

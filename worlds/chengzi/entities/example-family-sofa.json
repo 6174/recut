@@ -1,0 +1,31 @@
+{
+  "id": "example-family-sofa",
+  "typeId": "example",
+  "name": "全家沙发互动",
+  "intro": "客厅沙发上，一家四口挤在一起的关键帧。",
+  "detail": "写实摄影底的客厅：布艺沙发 + 电视 + 茶几；橙子、柚子、妈妈、爸爸四个贴纸角色挤在沙发上，沙发与餐桌木色等一致性锚点保持一致。示范多人同框与家庭会议氛围。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-family-sofa",
+        "kind": "image",
+        "name": "全家沙发互动"
+      }
+    }
+  ]
+}

@@ -2,20 +2,14 @@
   "id": "rule-no-manga",
   "typeId": "rule",
   "name": "禁止动漫画",
-  "intro": "",
+  "intro": "背景不插画化 / 卡通化，不给小圆加头发、鼻子、腮红与衣服褶皱。",
   "attrs": [
     {
       "key": "type",
-      "label": "type",
+      "label": "规则类型",
       "type": "text",
       "value": "never"
-    },
-    {
-      "key": "text",
-      "label": "规则文本",
-      "type": "textarea",
-      "locked": true,
-      "value": "背景不要插画化/卡通化/二次元化；不要给小圆加头发、鼻子、腮红、衣服褶皱；不要厚涂或渐变光效；字幕不要超过一行"
     }
-  ]
+  ],
+  "detail": "背景不要插画化 / 卡通化 / 二次元化；不要给小圆加头发、鼻子、腮红、衣服褶皱；不要厚涂或渐变光效；字幕不要超过一行。"
 }

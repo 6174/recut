@@ -1,0 +1,31 @@
+{
+  "id": "example-13-system-bearing",
+  "typeId": "example",
+  "name": "系统承重",
+  "intro": "用小黑顶住一块承重板，表达系统结构在承重。",
+  "detail": "几块叠起的板与砖构成一个简单结构，最下方小黑用身体顶住，红色标出最吃力的接触点。只画 3-5 块，不要复杂架构。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "系统局部"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "风格校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "13-system-bearing",
+        "kind": "image",
+        "name": "系统承重"
+      }
+    }
+  ]
+}

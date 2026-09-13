@@ -1,0 +1,31 @@
+{
+  "id": "example-scene-fridge-midnight",
+  "typeId": "example",
+  "name": "深夜冰箱发呆",
+  "intro": "打开冰箱门，冷光照亮小灰哥发呆的脸。",
+  "detail": "移动端成品：深夜厨房，冰箱门打开，冷白光照亮小灰哥；他对着冰箱放空，思想泡泡里几缕乱线，底部一行手写短句。示范「深夜 emo」的日常场景。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "角色状态"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "版式参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-fridge-midnight",
+        "kind": "image",
+        "name": "深夜冰箱发呆"
+      }
+    }
+  ]
+}

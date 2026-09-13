@@ -29,16 +29,6 @@
       "value": "无台词；以动作叙事：歪头、叼玩具、偷吃泡面、默默坐在旁边"
     },
     {
-      "key": "media-scene-corgi-company",
-      "label": "馒头陪坐（移动端成品·带文字）",
-      "type": "media",
-      "value": {
-        "asset": "scene-corgi-company",
-        "kind": "image",
-        "name": "馒头陪坐（移动端成品·带文字）"
-      }
-    },
-    {
       "key": "media-corgi-mantu-grid",
       "label": "馒头九宫动作集（参考）",
       "type": "media",

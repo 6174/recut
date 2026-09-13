@@ -1,0 +1,31 @@
+{
+  "id": "example-scene-sunday-evening",
+  "typeId": "example",
+  "name": "周日傍晚焦虑",
+  "intro": "周日傍晚，小灰哥坐在沙发边，窗外天色将暗。",
+  "detail": "移动端成品：公寓客厅，窗外是周日傍晚的灰蓝天色；小灰哥坐在沙发边放空，思想泡泡里是淡淡的乱线，底部一行手写短句。示范「周末落差感」。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "版式参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-sunday-evening",
+        "kind": "image",
+        "name": "周日傍晚焦虑"
+      }
+    }
+  ]
+}

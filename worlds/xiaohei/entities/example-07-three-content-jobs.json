@@ -1,0 +1,31 @@
+{
+  "id": "example-07-three-content-jobs",
+  "typeId": "example",
+  "name": "三种内容工作",
+  "intro": "三种内容工作并排，各自配一个小黑动作。",
+  "detail": "画面横向分成三格，每格一个小黑分别在做不同的动作（写、剪、发），格与格之间用橙色箭头串起，每格一个短标注。示范「内容工作三分法」。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "方法分层"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "构图参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "07-three-content-jobs",
+        "kind": "image",
+        "name": "三种内容工作"
+      }
+    }
+  ]
+}

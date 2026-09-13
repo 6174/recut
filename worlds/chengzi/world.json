@@ -15,8 +15,245 @@
       "tone": "温暖、真实、不说教、带一点家庭幽默"
     }
   },
-  "entityTypes": [],
-  "relations": [],
+  "entityTypes": [
+    {
+      "id": "example",
+      "scope": "custom",
+      "name": "示例",
+      "icon": "image",
+      "color": "#f59e0b",
+      "baseKind": "object",
+      "fields": [
+        {
+          "key": "structure",
+          "label": "结构类型",
+          "type": "text"
+        },
+        {
+          "key": "role",
+          "label": "用途",
+          "type": "text"
+        },
+        {
+          "key": "image",
+          "label": "示例图",
+          "type": "media"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "r-01",
+      "type": "appears_in",
+      "from": "chengzi",
+      "to": "example-family-sofa",
+      "scope": null
+    },
+    {
+      "id": "r-02",
+      "type": "appears_in",
+      "from": "mama",
+      "to": "example-family-sofa",
+      "scope": null
+    },
+    {
+      "id": "r-03",
+      "type": "appears_in",
+      "from": "baba",
+      "to": "example-family-sofa",
+      "scope": null
+    },
+    {
+      "id": "r-04",
+      "type": "appears_in",
+      "from": "youzi",
+      "to": "example-family-sofa",
+      "scope": null
+    },
+    {
+      "id": "r-05",
+      "type": "appears_in",
+      "from": "chengzi",
+      "to": "example-classroom",
+      "scope": null
+    },
+    {
+      "id": "r-06",
+      "type": "appears_in",
+      "from": "chengzi",
+      "to": "example-market",
+      "scope": null
+    },
+    {
+      "id": "r-07",
+      "type": "appears_in",
+      "from": "mama",
+      "to": "example-market",
+      "scope": null
+    },
+    {
+      "id": "r-08",
+      "type": "appears_in",
+      "from": "chengzi",
+      "to": "example-mall",
+      "scope": null
+    },
+    {
+      "id": "r-09",
+      "type": "appears_in",
+      "from": "youzi",
+      "to": "example-mall",
+      "scope": null
+    },
+    {
+      "id": "r-10",
+      "type": "appears_in",
+      "from": "chengzi",
+      "to": "example-car",
+      "scope": null
+    },
+    {
+      "id": "r-11",
+      "type": "appears_in",
+      "from": "baba",
+      "to": "example-car",
+      "scope": null
+    },
+    {
+      "id": "r-12",
+      "type": "appears_in",
+      "from": "youzi",
+      "to": "example-car",
+      "scope": null
+    },
+    {
+      "id": "r-13",
+      "type": "references",
+      "from": "example-classroom",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-14",
+      "type": "references",
+      "from": "example-market",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-15",
+      "type": "references",
+      "from": "example-mall",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-16",
+      "type": "references",
+      "from": "example-car",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-17",
+      "type": "references",
+      "from": "example-family-sofa",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-18",
+      "type": "located_in",
+      "from": "example-family-sofa",
+      "to": "home",
+      "scope": null
+    },
+    {
+      "id": "r-19",
+      "type": "located_in",
+      "from": "example-classroom",
+      "to": "city-scenes",
+      "scope": null
+    },
+    {
+      "id": "r-20",
+      "type": "located_in",
+      "from": "example-market",
+      "to": "city-scenes",
+      "scope": null
+    },
+    {
+      "id": "r-21",
+      "type": "located_in",
+      "from": "example-mall",
+      "to": "city-scenes",
+      "scope": null
+    },
+    {
+      "id": "r-22",
+      "type": "located_in",
+      "from": "example-car",
+      "to": "city-scenes",
+      "scope": null
+    },
+    {
+      "id": "r-23",
+      "type": "located_in",
+      "from": "chengzi",
+      "to": "home",
+      "scope": null
+    },
+    {
+      "id": "r-24",
+      "type": "located_in",
+      "from": "mama",
+      "to": "home",
+      "scope": null
+    },
+    {
+      "id": "r-25",
+      "type": "located_in",
+      "from": "baba",
+      "to": "home",
+      "scope": null
+    },
+    {
+      "id": "r-26",
+      "type": "located_in",
+      "from": "youzi",
+      "to": "home",
+      "scope": null
+    },
+    {
+      "id": "r-27",
+      "type": "part_of",
+      "from": "rule-frame",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-28",
+      "type": "part_of",
+      "from": "rule-no-cute",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-29",
+      "type": "part_of",
+      "from": "rule-reference",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-30",
+      "type": "references",
+      "from": "story-arc",
+      "to": "chengzi",
+      "scope": null
+    }
+  ],
   "provenance": {
     "author": "chenxuejia",
     "license": "MIT",

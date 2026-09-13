@@ -1,0 +1,31 @@
+{
+  "id": "example-03-sort-by-purpose",
+  "typeId": "example",
+  "name": "按用途分拣",
+  "intro": "用小黑在分拣台前，把混在一起的东西按用途丢进不同格子。",
+  "detail": "一张歪斜的木桌，桌上堆着一团杂乱的手绘物件；小黑站在桌后，把物件分别丢进三个标着短词的格子。橙色箭头标出分拣动作，红色只标一个「容易混」的物件。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "方法分层"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "构图参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "03-sort-by-purpose",
+        "kind": "image",
+        "name": "按用途分拣"
+      }
+    }
+  ]
+}

@@ -2,20 +2,14 @@
   "id": "rule-color",
   "typeId": "rule",
   "name": "颜色克制",
-  "intro": "",
+  "intro": "黑为主体线稿；橙 = 主路径，红 = 重点 / 问题，蓝 = 补充 / 系统状态；宁可少不要多。",
   "attrs": [
     {
       "key": "type",
-      "label": "type",
+      "label": "规则类型",
       "type": "text",
       "value": "prefer"
-    },
-    {
-      "key": "text",
-      "label": "规则文本",
-      "type": "textarea",
-      "locked": true,
-      "value": "黑色主体线稿；橙色只用于主路径/箭头；红色只用于重点/问题/结果；蓝色只用于补充说明/系统状态；宁可少不要多"
     }
-  ]
+  ],
+  "detail": "黑为主体线稿；橙只用于主路径 / 箭头，红只用于重点 / 问题 / 结果，蓝只用于补充说明 / 系统状态；宁可少不要多。"
 }

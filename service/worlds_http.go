@@ -130,6 +130,25 @@ func (s *Server) archiveWorld(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"archived": true, "changed": changed})
 }
 
+// deleteWorld serves DELETE /v1/worlds/{worldID}: a hard delete gated by an
+// exact world-name confirmation in the body. Assets are never deleted.
+func (s *Server) deleteWorld(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Name string `json:"name"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&input)
+	}
+	result, err := s.worldsStore().DeleteWorld(DeleteWorldInput{
+		WorldID: r.PathValue("worldID"), ConfirmName: input.Name, CreatedBy: "http",
+	})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) briefWorld(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		RevisionID string         `json:"revisionId"`

@@ -1,0 +1,31 @@
+{
+  "id": "example-market",
+  "typeId": "example",
+  "name": "菜市场",
+  "intro": "菜市场摊位前，橙子拎着小袋子跟在妈妈侧后方。",
+  "detail": "写实摄影底的菜市场：摊位棚顶、塑料袋、秤；橙子拎着小袋子跟在妈妈侧后方，人物为贴纸质感。示范「生活教育课」的场景与人物关系。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-market",
+        "kind": "image",
+        "name": "菜市场"
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "example-clarity-bulb",
+  "typeId": "example",
+  "name": "从乱到清 + 唯一亮色",
+  "intro": "乱线一点点解开，末端亮起一颗小灯泡。",
+  "detail": "全灰画面：左侧是解开的乱线，逐渐收束成一条简单的圆，末端一颗小灯泡亮起——这是全图唯一的暖色；小灰哥盘腿坐地看着它。示范「从乱到清 = 认知转变」与唯一亮色纪律。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "前后对比"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "风格校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "clarity-bulb",
+        "kind": "image",
+        "name": "从乱到清 + 唯一亮色"
+      }
+    }
+  ]
+}

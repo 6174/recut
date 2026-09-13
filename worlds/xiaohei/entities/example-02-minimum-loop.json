@@ -1,0 +1,31 @@
+{
+  "id": "example-02-minimum-loop",
+  "typeId": "example",
+  "name": "最小闭环",
+  "intro": "把一个能自转的最小闭环，画成小黑推着轮子转圈的怪装置。",
+  "detail": "画面中央一个手绘的小轮与回环箭头，小黑站在轮子底部认真推它；橙色箭头首尾相接，输入端与输出端各挂一个短标注。示范「先跑通最小闭环」的隐喻与小黑的荒诞认真感。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "小漫画分镜"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "风格校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "02-minimum-loop",
+        "kind": "image",
+        "name": "最小闭环"
+      }
+    }
+  ]
+}

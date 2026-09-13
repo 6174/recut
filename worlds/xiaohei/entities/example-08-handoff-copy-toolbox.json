@@ -1,0 +1,31 @@
+{
+  "id": "example-08-handoff-copy-toolbox",
+  "typeId": "example",
+  "name": "承接话术工具箱",
+  "intro": "把承接话术画成一个被小黑打开、盖章取用的怪工具箱。",
+  "detail": "一只手绘工具箱，箱盖打开，里面几个带短词的印章与卡片；小黑伸手取出并盖章，红色只标一枚常用话术。留白为主，工具是唯一主体。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "概念隐喻"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "构图参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "08-handoff-copy-toolbox",
+        "kind": "image",
+        "name": "承接话术工具箱"
+      }
+    }
+  ]
+}

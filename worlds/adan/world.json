@@ -15,8 +15,133 @@
       "tone": "安静、丧而温柔、自嘲、克制"
     }
   },
-  "entityTypes": [],
-  "relations": [],
+  "entityTypes": [
+    {
+      "id": "example",
+      "scope": "custom",
+      "name": "示例",
+      "icon": "image",
+      "color": "#f59e0b",
+      "baseKind": "object",
+      "fields": [
+        {
+          "key": "structure",
+          "label": "结构类型",
+          "type": "text"
+        },
+        {
+          "key": "role",
+          "label": "用途",
+          "type": "text"
+        },
+        {
+          "key": "image",
+          "label": "示例图",
+          "type": "media"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "r-01",
+      "type": "appears_in",
+      "from": "adan",
+      "to": "example-living-room",
+      "scope": null
+    },
+    {
+      "id": "r-02",
+      "type": "appears_in",
+      "from": "adan",
+      "to": "example-convenience-store",
+      "scope": null
+    },
+    {
+      "id": "r-03",
+      "type": "appears_in",
+      "from": "adan",
+      "to": "example-subway",
+      "scope": null
+    },
+    {
+      "id": "r-04",
+      "type": "located_in",
+      "from": "adan",
+      "to": "living-room",
+      "scope": null
+    },
+    {
+      "id": "r-05",
+      "type": "references",
+      "from": "example-convenience-store",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-06",
+      "type": "references",
+      "from": "example-living-room",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-07",
+      "type": "references",
+      "from": "example-subway",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-08",
+      "type": "located_in",
+      "from": "example-living-room",
+      "to": "living-room",
+      "scope": null
+    },
+    {
+      "id": "r-09",
+      "type": "located_in",
+      "from": "example-convenience-store",
+      "to": "city-scenes",
+      "scope": null
+    },
+    {
+      "id": "r-10",
+      "type": "located_in",
+      "from": "example-subway",
+      "to": "city-scenes",
+      "scope": null
+    },
+    {
+      "id": "r-11",
+      "type": "part_of",
+      "from": "rule-camera",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-12",
+      "type": "part_of",
+      "from": "rule-no-cute",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-13",
+      "type": "part_of",
+      "from": "rule-video-format",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-14",
+      "type": "references",
+      "from": "story-arc",
+      "to": "adan",
+      "scope": null
+    }
+  ],
   "provenance": {
     "author": "chenxuejia",
     "license": "MIT",

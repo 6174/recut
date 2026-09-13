@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 WorldStore 的写路径（worlds_mcp.go / worlds_canvas_doc.go 等）与标准库
  * [OUTPUT]: 对外提供 WorldEventPublisher 契约与 WorldStore 的写事件出口：把 AI/Agent 经 MCP 完成的
  *           World 变更汇聚成一条粗粒度 world.changed 通知（携带 worldId/contextId/tool），
- *           由 daemon 组合根接到实时 EventBus 的 "world" channel
+ *           以及在硬删除时发出一条 world.deleted；由 daemon 组合根接到实时 EventBus 的 "world" channel
  * [POS]: service 的 World 写事件层；补齐「headless MCP 写后已打开画布无反馈」的实时缺口，
  *        只做通知不做状态复制（客户端据此走既有 REST 重新拉取）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -72,6 +72,17 @@ func (w *WorldStore) publishCanvasLock(worldID string, locked bool, owner string
 	}
 	w.publish(worldID, map[string]any{
 		"event": event, "worldId": worldID, "key": worldID, "locked": locked, "owner": owner,
+	})
+}
+
+// publishWorldDeleted 广播一个 World 已被硬删除。已打开的画布据此卸载该世界，
+// 而不是继续轮询一个 404。
+func (w *WorldStore) publishWorldDeleted(worldID, name string) {
+	if w == nil || w.publish == nil || worldID == "" {
+		return
+	}
+	w.publish(worldID, map[string]any{
+		"event": "world.deleted", "worldId": worldID, "key": worldID, "name": name,
 	})
 }
 

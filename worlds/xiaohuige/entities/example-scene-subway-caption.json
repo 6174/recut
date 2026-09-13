@@ -1,0 +1,31 @@
+{
+  "id": "example-scene-subway-caption",
+  "typeId": "example",
+  "name": "末班地铁",
+  "intro": "末班地铁车厢里，小灰哥放空，底部一行手写短句。",
+  "detail": "移动端成品：空车厢、拉环虚化、窗外黑色隧道；小灰哥戴着耳机坐着放空，画面底部一行手写字幕作落款。示范带文字成品的版式与留白。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "版式参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-subway-caption",
+        "kind": "image",
+        "name": "末班地铁"
+      }
+    }
+  ]
+}

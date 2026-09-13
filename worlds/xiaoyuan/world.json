@@ -15,8 +15,112 @@
       "tone": "反差、幽默、真实感、微丧"
     }
   },
-  "entityTypes": [],
-  "relations": [],
+  "entityTypes": [
+    {
+      "id": "example",
+      "scope": "custom",
+      "name": "示例",
+      "icon": "image",
+      "color": "#f59e0b",
+      "baseKind": "object",
+      "fields": [
+        {
+          "key": "structure",
+          "label": "结构类型",
+          "type": "text"
+        },
+        {
+          "key": "role",
+          "label": "用途",
+          "type": "text"
+        },
+        {
+          "key": "image",
+          "label": "示例图",
+          "type": "media"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "r-01",
+      "type": "appears_in",
+      "from": "xiaoyuan",
+      "to": "example-bedroom",
+      "scope": null
+    },
+    {
+      "id": "r-02",
+      "type": "appears_in",
+      "from": "xiaoyuan",
+      "to": "example-office",
+      "scope": null
+    },
+    {
+      "id": "r-03",
+      "type": "references",
+      "from": "example-bedroom",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-04",
+      "type": "references",
+      "from": "example-office",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-05",
+      "type": "located_in",
+      "from": "xiaoyuan",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-06",
+      "type": "located_in",
+      "from": "example-bedroom",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-07",
+      "type": "located_in",
+      "from": "example-office",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-08",
+      "type": "part_of",
+      "from": "rule-composite",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-09",
+      "type": "part_of",
+      "from": "rule-format",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-10",
+      "type": "part_of",
+      "from": "rule-no-manga",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-11",
+      "type": "references",
+      "from": "story-arc",
+      "to": "xiaoyuan",
+      "scope": null
+    }
+  ],
   "provenance": {
     "author": "chenxuejia",
     "license": "MIT",

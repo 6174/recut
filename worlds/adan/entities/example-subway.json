@@ -1,0 +1,31 @@
+{
+  "id": "example-subway",
+  "typeId": "example",
+  "name": "末班地铁",
+  "intro": "空车厢里，阿蛋小小地坐在一排蓝色座椅中间。",
+  "detail": "末班地铁空车厢，蓝色座椅一排排延伸，车窗一片黑；阿蛋坐在座位正中间，身体缩成小小一团，红卫衣是唯一亮色。示范城市里「路过的地方」的构图。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-subway",
+        "kind": "image",
+        "name": "末班地铁"
+      }
+    }
+  ]
+}

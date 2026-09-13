@@ -1,0 +1,31 @@
+{
+  "id": "example-mall",
+  "typeId": "example",
+  "name": "商场玩具店",
+  "intro": "玩具柜台前，橙子抬头仰望，柚子坐在购物车里。",
+  "detail": "写实摄影底的商场玩具店：玻璃橱窗、扶梯、货架；镜头用玩具柜台前的抬头仰望视角，橙子抬头，柚子坐在购物车里。示范「想要 vs 需要」的舞台。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-mall",
+        "kind": "image",
+        "name": "商场玩具店"
+      }
+    }
+  ]
+}

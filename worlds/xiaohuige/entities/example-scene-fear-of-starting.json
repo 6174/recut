@@ -1,0 +1,31 @@
+{
+  "id": "example-scene-fear-of-starting",
+  "typeId": "example",
+  "name": "怕开始·解线见灯泡",
+  "intro": "面对一件没开始的事，乱线在最后一刻解出一颗灯泡。",
+  "detail": "移动端成品：小灰哥面对桌上一件未开始的事（笔记本 / 待办），头顶乱线；画面右侧乱线逐渐解开露出小灯泡，是唯一暖色；底部一行手写短句。示范「怕开始 → 迈出一步」。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "前后对比"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "版式参考"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-fear-of-starting",
+        "kind": "image",
+        "name": "怕开始·解线见灯泡"
+      }
+    }
+  ]
+}

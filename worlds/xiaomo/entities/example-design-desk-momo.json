@@ -1,0 +1,31 @@
+{
+  "id": "example-design-desk-momo",
+  "typeId": "example",
+  "name": "设计工位",
+  "intro": "茉茉的数位板前，安静得能听见笔尖。",
+  "detail": "职能位场景：设计工位，茉茉坐在数位板与日式茶杯前，桌上一支画笔筒；背景用喷点灰晕而非平涂，周围点缀少量蜡笔排线。示范「审美护城河」的安静状态。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-design-desk-momo",
+        "kind": "image",
+        "name": "设计工位"
+      }
+    }
+  ]
+}

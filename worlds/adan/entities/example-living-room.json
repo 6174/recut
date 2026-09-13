@@ -1,0 +1,31 @@
+{
+  "id": "example-living-room",
+  "typeId": "example",
+  "name": "客厅放空",
+  "intro": "蓝色旧沙发上，阿蛋放空，窗外是一整片黑夜星空。",
+  "detail": "深夜客厅：蓝色旧布艺沙发 + 大面积黑夜星空窗；阿蛋盘腿坐在沙发一角，面前一杯咖啡、一本摊开的书，只有一盏冷白小灯。示范主场氛围与留白比例。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-living-room",
+        "kind": "image",
+        "name": "客厅放空"
+      }
+    }
+  ]
+}

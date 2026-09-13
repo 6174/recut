@@ -460,7 +460,39 @@ func (w *WorldStore) ImportWorldBundle(data []byte, nameOverride, createdBy stri
 	}
 	files := map[string]*zip.File{}
 	for _, file := range reader.File {
-		files[strings.TrimPrefix(path.Clean("/"+file.Name), "/")] = file
+		name := strings.TrimPrefix(path.Clean("/"+file.Name), "/")
+		if name == "" || file.FileInfo().IsDir() {
+			continue
+		}
+		// Ignore macOS resource forks and hidden metadata files.
+		if strings.HasPrefix(name, "__MACOSX/") || name == "__MACOSX" || strings.HasPrefix(path.Base(name), ".") {
+			continue
+		}
+		files[name] = file
+	}
+	// Tolerate archives that wrap the bundle in a top-level folder
+	// (`zip -r xiaohei.zip xiaohei/`): strip the shallowest directory that
+	// contains world.json so both layouts import identically.
+	if _, ok := files["world.json"]; !ok {
+		prefix := ""
+		for name := range files {
+			if !strings.HasSuffix(name, "/world.json") {
+				continue
+			}
+			candidate := strings.TrimSuffix(name, "world.json")
+			if prefix == "" || len(candidate) < len(prefix) {
+				prefix = candidate
+			}
+		}
+		if prefix != "" {
+			stripped := map[string]*zip.File{}
+			for name, file := range files {
+				if strings.HasPrefix(name, prefix) {
+					stripped[strings.TrimPrefix(name, prefix)] = file
+				}
+			}
+			files = stripped
+		}
 	}
 	readFile := func(name string) ([]byte, bool) {
 		file, ok := files[name]
@@ -522,7 +554,8 @@ func (w *WorldStore) ImportWorldBundle(data []byte, nameOverride, createdBy stri
 		sidecars = append(sidecars, sidecar)
 	}
 	for _, sidecar := range sidecars {
-		binary, ok := readFile("assets/" + sidecar.File)
+		binaryPath := strings.TrimPrefix(path.Clean("/"+path.Join("assets", sidecar.File)), "/")
+		binary, ok := readFile(binaryPath)
 		if !ok {
 			continue
 		}
@@ -583,15 +616,29 @@ func (w *WorldStore) ImportWorldBundle(data []byte, nameOverride, createdBy stri
 	sort.Strings(entityFiles)
 	for _, fileName := range entityFiles {
 		raw, _ := readFile(fileName)
-		entity := WorldManifestEntityV2{}
-		if err := json.Unmarshal(raw, &entity); err != nil {
+		var bundleEntity struct {
+			ID            string          `json:"id"`
+			TypeID        string          `json:"typeId"`
+			Name          string          `json:"name"`
+			Intro         string          `json:"intro"`
+			Detail        json.RawMessage `json:"detail"`
+			ParentID      string          `json:"parentId"`
+			ContainerRole string          `json:"containerRole"`
+			IsProvisional bool            `json:"isProvisional"`
+			Attrs         []EntityAttr    `json:"attrs"`
+		}
+		if err := json.Unmarshal(raw, &bundleEntity); err != nil {
 			return WorldDetail{}, worldsError(WorldsErrContextInvalid, "invalid entity "+fileName)
 		}
-		if entity.ID == "" {
-			entity.ID = strings.TrimSuffix(path.Base(fileName), ".json")
+		if bundleEntity.ID == "" {
+			bundleEntity.ID = strings.TrimSuffix(path.Base(fileName), ".json")
 		}
-		attrs := make([]EntityAttr, 0, len(entity.Attrs))
-		for _, attr := range entity.Attrs {
+		detail, err := resolveBundleTextRef(bundleEntity.Detail, path.Dir(fileName), files)
+		if err != nil {
+			return WorldDetail{}, worldsError(WorldsErrContextInvalid, "invalid detail in "+fileName)
+		}
+		attrs := make([]EntityAttr, 0, len(bundleEntity.Attrs))
+		for _, attr := range bundleEntity.Attrs {
 			if attr.Type == "media" {
 				if value, ok := attr.Value.(map[string]any); ok {
 					attr.Value = resolveMedia(value)
@@ -599,8 +646,11 @@ func (w *WorldStore) ImportWorldBundle(data []byte, nameOverride, createdBy stri
 			}
 			attrs = append(attrs, attr)
 		}
-		entity.Attrs = attrs
-		manifest.Entities = append(manifest.Entities, entity)
+		manifest.Entities = append(manifest.Entities, WorldManifestEntityV2{
+			ID: bundleEntity.ID, TypeID: bundleEntity.TypeID, Name: bundleEntity.Name, Intro: bundleEntity.Intro,
+			Detail: detail, ParentID: bundleEntity.ParentID, ContainerRole: bundleEntity.ContainerRole,
+			IsProvisional: bundleEntity.IsProvisional, Attrs: attrs,
+		})
 	}
 
 	if canvasRaw, ok := readFile("canvas.json"); ok {
@@ -668,6 +718,44 @@ func (w *WorldStore) ImportWorldBundle(data []byte, nameOverride, createdBy stri
 	}
 	logWorldEvent("world.imported", map[string]string{"worldId": worldID})
 	return w.GetWorld(worldID)
+}
+
+// resolveBundleTextRef resolves a source text field that may be a plain string
+// or a {$file: "<relative path>"} reference, reading the referenced markdown
+// from the zip (paths resolve within the bundle only).
+func resolveBundleTextRef(raw json.RawMessage, baseDir string, files map[string]*zip.File) (string, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return "", nil
+	}
+	if trimmed[0] == '"' {
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil {
+			return "", err
+		}
+		return text, nil
+	}
+	var ref struct {
+		File string `json:"$file"`
+	}
+	if err := json.Unmarshal(trimmed, &ref); err != nil {
+		return "", err
+	}
+	if ref.File == "" {
+		return "", nil
+	}
+	target := strings.TrimPrefix(path.Clean("/"+path.Join(baseDir, ref.File)), "/")
+	file, ok := files[target]
+	if !ok {
+		return "", nil
+	}
+	reader, err := file.Open()
+	if err != nil {
+		return "", err
+	}
+	defer reader.Close()
+	content, err := io.ReadAll(io.LimitReader(reader, worldBundleMaxBytes))
+	return string(content), err
 }
 
 func mimeTypeByExtension(name string) string {

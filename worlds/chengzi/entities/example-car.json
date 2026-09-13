@@ -1,0 +1,31 @@
+{
+  "id": "example-car",
+  "typeId": "example",
+  "name": "车里",
+  "intro": "家用轿车后排，橙子从后视镜里看爸爸的眼睛。",
+  "detail": "写实摄影底的家用车内部：橙子坐后排、柚子坐安全座椅、爸爸在驾驶位；后视镜里能看到爸爸的眼睛，车窗外街景流动。角色为手绘贴纸质感。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-car",
+        "kind": "image",
+        "name": "车里"
+      }
+    }
+  ]
+}

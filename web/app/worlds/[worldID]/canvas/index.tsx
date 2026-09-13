@@ -1,8 +1,8 @@
 /*
  * [INPUT]: 依赖 canvas-store（会话配置 open）、canvas-toolbar、canvas-pomelo（dynamic ssr:false 挂载）、
  * canvas-detail-panel、canvas-dialogs 与 ui/use-media-asset-events（MediaAssetEventsProvider）
- * 并订阅 "world" 实时 channel（写事件 world.changed 去抖重载、world.canvas.lock/unlock 暂停保存并提示）、
- * 把画布选中/所在容器上报为 Agent WorkFocus
+ * 并订阅 "world" 实时 channel（写事件 world.changed 去抖重载、world.canvas.lock/unlock 暂停保存并提示、
+ * world.deleted 离开已删除世界）、把画布选中/所在容器上报为 Agent WorkFocus
  * [OUTPUT]: 对外提供 Recursive World Canvas 全屏模式根组件：挂载时 open(store) 加载数据并向全局 Header
  * 注册顶层工具栏（canvas-top-bar），组合 pomelo 画布底座、右侧详情面板与对话框；onClose 返回设定视图
  * [POS]: worlds/[worldID]/canvas 的组合根；WorldCanvas 的唯一出口（world-detail-client 仅引用本文件）
@@ -156,6 +156,12 @@ export default function WorldCanvas({ apiBase, worldId, worldName, readOnly, rev
           return;
         }
         scheduleWorldReload();
+        return;
+      }
+      if (data.event === "world.deleted") {
+        // 世界已被硬删除（本客户端或其它客户端）：离开画布，不再对 404 文档续写。
+        setCanvasAiLocked(false);
+        window.location.assign("/worlds");
       }
     });
     return unsubscribe;

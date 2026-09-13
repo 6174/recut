@@ -2,20 +2,14 @@
   "id": "rule-no-ppt",
   "typeId": "rule",
   "name": "禁止 PPT 感",
-  "intro": "",
+  "intro": "不出现 PPT 信息图、正式流程图、课程课件与左上角类型标题。",
   "attrs": [
     {
       "key": "type",
-      "label": "type",
+      "label": "规则类型",
       "type": "text",
       "value": "never"
-    },
-    {
-      "key": "text",
-      "label": "规则文本",
-      "type": "textarea",
-      "locked": true,
-      "value": "不要商业插画、PPT 信息图、正式流程图、课程课件、可爱卡通海报、复杂架构图、科技感 UI、真实 App 截图；不要左上角写类型标题"
     }
-  ]
+  ],
+  "detail": "不要商业插画、PPT 信息图、正式流程图、课程课件、可爱卡通海报、复杂架构图、科技感 UI、真实 App 截图；不要左上角写类型标题。"
 }

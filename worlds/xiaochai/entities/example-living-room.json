@@ -1,0 +1,31 @@
+{
+  "id": "example-living-room",
+  "typeId": "example",
+  "name": "停电的客厅",
+  "intro": "停电的客厅里，小柴手里的手电是唯一的主光。",
+  "detail": "停电客厅：家具沉在暗部剪影里，窗户透进一丝冷夜色作陪衬；小柴手中的手电或烛台是主光，火柴人与物件受同一光源照射，光晕柔和渐隐入深褐暗部。",
+  "attrs": [
+    {
+      "key": "structure",
+      "label": "结构类型",
+      "type": "text",
+      "value": "场景范例"
+    },
+    {
+      "key": "role",
+      "label": "用途",
+      "type": "text",
+      "value": "场景校准"
+    },
+    {
+      "key": "image",
+      "label": "示例图",
+      "type": "media",
+      "value": {
+        "asset": "scene-living-room",
+        "kind": "image",
+        "name": "停电的客厅"
+      }
+    }
+  ]
+}

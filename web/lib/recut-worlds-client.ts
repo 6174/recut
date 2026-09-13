@@ -248,7 +248,8 @@ export type RecutWorldsErrorCode =
   | "ASSET_NOT_FOUND"
   | "ASSET_NOT_READY"
   | "PROJECT_WORLD_ALREADY_BOUND"
-  | "WORLD_ACCESS_DENIED";
+  | "WORLD_ACCESS_DENIED"
+  | "WORLD_READ_ONLY";
 
 export class RecutWorldsError extends Error {
   readonly code: RecutWorldsErrorCode;
@@ -387,6 +388,8 @@ export type CanvasPromoteResult =
 
 // 实体删除的影响范围统计（后端 DeleteEntityResult）
 export type WorldEntityDeleteResult = { deleted: number; children: number; relations: number; evidences: number };
+// World 硬删除的影响范围回执（后端 WorldDeleteResult）。Asset 不在其中：素材库永不被世界删除。
+export type WorldDeleteResult = { id: string; name: string; entities: number; relations: number; canvasDocs: number; bindings: number };
 // 版本历史摘要（T12 快照/回滚面板）
 export type WorldRevisionSummary = { id: string; hash: string; reason: string; createdBy: string; createdAt: string };
 
@@ -402,6 +405,8 @@ export type RecutWorldsClient = {
   update(input: { worldId: string; name?: string; description?: string; identity?: Record<string, unknown>; skillMd?: string; expectedRevisionId?: string }): Promise<WorldDetail>;
   fork(input: { worldId: string; name?: string }): Promise<WorldDetail>;
   archive(input: { worldId: string; expectedRevisionId?: string }): Promise<void>;
+  /** 永久删除本地世界：name 必须与 world.name 完全一致（防误删二次确认）。素材库不受影响。 */
+  deleteWorld(input: { worldId: string; name: string }): Promise<WorldDeleteResult>;
   /** 导出世界为 v2 源格式 zip（world.json/entities/assets/canvas/world.md，媒体内嵌）。 */
   exportWorld(input: { worldId: string }): Promise<{ blob: Blob; filename: string }>;
   /** 从 v2 源 zip 导入为一个新的本地可编辑世界（素材按内容哈希去重）。 */
@@ -460,6 +465,15 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
       requestJSON<WorldDetail>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/fork`, { method: "POST", body: { name } }),
     archive: async ({ worldId, expectedRevisionId }: { worldId: string; expectedRevisionId?: string }) => {
       await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevisionId }) });
+    },
+    deleteWorld: async ({ worldId, name }) => {
+      const response = await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!response.ok) throw await errorFrom(response);
+      return (await response.json()) as WorldDeleteResult;
     },
     exportWorld: async ({ worldId }) => {
       const response = await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/export`);

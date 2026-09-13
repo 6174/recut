@@ -2029,6 +2029,7 @@ var mcpToolLabels = map[string]string{
 		"recut.worlds.create":                       "创建世界",
 		"recut.worlds.update":                       "更新世界",
 		"recut.worlds.fork":                         "复制世界",
+		"recut.worlds.delete":                       "删除世界",
 		"recut.worlds.entities.list":                "读取世界实体",
 		"recut.worlds.entities.get":                 "读取世界实体详情",
 		"recut.worlds.entities.upsert":              "保存世界实体",

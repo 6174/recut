@@ -15,8 +15,112 @@
       "tone": "安静、温润、认真、一点怀旧"
     }
   },
-  "entityTypes": [],
-  "relations": [],
+  "entityTypes": [
+    {
+      "id": "example",
+      "scope": "custom",
+      "name": "示例",
+      "icon": "image",
+      "color": "#f59e0b",
+      "baseKind": "object",
+      "fields": [
+        {
+          "key": "structure",
+          "label": "结构类型",
+          "type": "text"
+        },
+        {
+          "key": "role",
+          "label": "用途",
+          "type": "text"
+        },
+        {
+          "key": "image",
+          "label": "示例图",
+          "type": "media"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "r-01",
+      "type": "appears_in",
+      "from": "xiaochai",
+      "to": "example-candle-table",
+      "scope": null
+    },
+    {
+      "id": "r-02",
+      "type": "appears_in",
+      "from": "xiaochai",
+      "to": "example-living-room",
+      "scope": null
+    },
+    {
+      "id": "r-03",
+      "type": "references",
+      "from": "example-candle-table",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-04",
+      "type": "references",
+      "from": "example-living-room",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-05",
+      "type": "located_in",
+      "from": "xiaochai",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-06",
+      "type": "located_in",
+      "from": "example-candle-table",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-07",
+      "type": "located_in",
+      "from": "example-living-room",
+      "to": "scene-system",
+      "scope": null
+    },
+    {
+      "id": "r-08",
+      "type": "part_of",
+      "from": "rule-format",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-09",
+      "type": "part_of",
+      "from": "rule-light",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-10",
+      "type": "part_of",
+      "from": "rule-no-cute",
+      "to": "style-dna",
+      "scope": null
+    },
+    {
+      "id": "r-11",
+      "type": "references",
+      "from": "story-arc",
+      "to": "xiaochai",
+      "scope": null
+    }
+  ],
   "provenance": {
     "author": "chenxuejia",
     "license": "MIT",

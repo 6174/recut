@@ -37,16 +37,6 @@
         "kind": "image",
         "name": "橙子角色设定页（三视图+表情+色板）"
       }
-    },
-    {
-      "key": "media-scene-family-sofa",
-      "label": "全家沙发互动关键帧（9:16 成品范例）",
-      "type": "media",
-      "value": {
-        "asset": "scene-family-sofa",
-        "kind": "image",
-        "name": "全家沙发互动关键帧（9:16 成品范例）"
-      }
     }
   ]
 }
