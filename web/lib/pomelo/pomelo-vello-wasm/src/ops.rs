@@ -319,16 +319,33 @@ pub fn build_scene(
                     continue;
                 }
                 let Some(font) = fonts.get(font_id) else { continue };
-                let fallback = fallbacks.get(font_id).and_then(|id| fonts.get(id));
-                draw_text(font, fallback, *x, *y, *size, *max_width, *line_height, *align, color(*fill), text, transform, scene);
+                let fallback_id = fallbacks.get(font_id).copied();
+                let fallback = fallback_id.and_then(|id| fonts.get(&id));
+                draw_text(*font_id, fallback_id, font, fallback, *x, *y, *size, *max_width, *line_height, *align, color(*fill), text, transform, scene);
             }
         }
     }
     scene.pop_layer();
 }
 
+#[derive(Clone)]
+struct LaidGlyph {
+    fallback: bool,
+    gid: u32,
+    advance: f32,
+}
+
+thread_local! {
+    /// 文本 shaping 结果缓存：key = (font_id, fallback_id, size bits, text) → 每行的 (字形, 前进量)。
+    /// 同一 chunk 的文本在多个瓦片/帧渲染时复用，避免每瓦片重复 shaping（settle 慢的主因）。
+    static TEXT_LAYOUT: std::cell::RefCell<std::collections::HashMap<(u32, u32, u32, String), Vec<Vec<LaidGlyph>>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_text(
+    _font_id: u32,
+    fallback_id: Option<u32>,
     primary: &FontData,
     fallback: Option<&FontData>,
     x: f32,
@@ -362,71 +379,74 @@ fn draw_text(
         .filter(|w| w.is_finite() && *w > 0.0)
         .unwrap_or(size * 0.5);
 
-    // fallback 字体（可选）：主字体缺字时回退
     let fallback_data = fallback.and_then(|data| {
         let font_ref = FontRef::from_index(data.data.as_ref(), data.index).ok()?;
         let charmap = font_ref.charmap();
         let metrics = font_ref.glyph_metrics(s, LocationRef::default());
-        let average = font_ref
-            .metrics(s, LocationRef::default())
-            .average_width
-            .filter(|w| w.is_finite() && *w > 0.0)
-            .unwrap_or(size * 0.5);
-        let font: &FontData = data;
-        Some((font, charmap, metrics, average))
+        Some((data, charmap, metrics))
+    });
+    let fallback_avg = fallback_data
+        .as_ref()
+        .and_then(|(_, _, metrics)| metrics.advance_width(GlyphId::NOTDEF))
+        .unwrap_or(primary_fallback_advance);
+
+    // shaping（带缓存）——只算每行字形与前进量，位置在算好后再定
+    let cache_key = (_font_id, fallback_id.unwrap_or(0), size.to_bits(), text.to_string());
+    let cached = TEXT_LAYOUT.with(|c| c.borrow().get(&cache_key).cloned());
+    let lines = cached.unwrap_or_else(|| {
+        let mut lines: Vec<Vec<LaidGlyph>> = Vec::new();
+        for line in text.split('\n') {
+            let mut entries = Vec::new();
+            for ch in line.chars() {
+                match primary_charmap.map(ch) {
+                    Some(glyph_id) => entries.push(LaidGlyph {
+                        fallback: false,
+                        gid: glyph_id.to_u32(),
+                        advance: primary_glyph_metrics.advance_width(glyph_id).unwrap_or(primary_fallback_advance),
+                    }),
+                    None => match &fallback_data {
+                        Some((_, charmap, metrics)) => {
+                            let glyph_id = charmap.map(ch).unwrap_or(GlyphId::NOTDEF);
+                            entries.push(LaidGlyph {
+                                fallback: true,
+                                gid: glyph_id.to_u32(),
+                                advance: metrics.advance_width(glyph_id).unwrap_or(fallback_avg),
+                            });
+                        }
+                        None => entries.push(LaidGlyph { fallback: false, gid: GlyphId::NOTDEF.to_u32(), advance: primary_fallback_advance }),
+                    },
+                }
+            }
+            lines.push(entries);
+        }
+        TEXT_LAYOUT.with(|c| {
+            let mut map = c.borrow_mut();
+            if map.len() < 1024 {
+                map.insert(cache_key, lines.clone());
+            }
+        });
+        lines
     });
 
     let mut primary_glyphs: Vec<Glyph> = Vec::new();
     let mut fallback_glyphs: Vec<Glyph> = Vec::new();
     let mut cursor_y = 0.0f32;
-    for line in text.split('\n') {
-        let mut entries: Vec<(bool, Glyph)> = Vec::new();
-        let mut line_width = 0.0f32;
-        for ch in line.chars() {
-            let (is_fallback, glyph, advance) = match primary_charmap.map(ch) {
-                Some(glyph_id) => (
-                    false,
-                    Glyph { id: glyph_id.to_u32(), x: 0.0, y: 0.0 },
-                    primary_glyph_metrics.advance_width(glyph_id).unwrap_or(primary_fallback_advance),
-                ),
-                None => match &fallback_data {
-                    Some((_, charmap, metrics, average)) => {
-                        let glyph_id = charmap.map(ch).unwrap_or(GlyphId::NOTDEF);
-                        (true, Glyph { id: glyph_id.to_u32(), x: 0.0, y: 0.0 }, metrics.advance_width(glyph_id).unwrap_or(*average))
-                    }
-                    None => {
-                        let glyph_id = GlyphId::NOTDEF;
-                        (false, Glyph { id: glyph_id.to_u32(), x: 0.0, y: 0.0 }, primary_fallback_advance)
-                    }
-                },
-            };
-            entries.push((is_fallback, glyph));
-            line_width += advance;
-        }
+    for entries in &lines {
+        let line_width: f32 = entries.iter().map(|e| e.advance).sum();
         let offset_x = match align {
             1 => (max_width - line_width) * 0.5,
             2 => max_width - line_width,
             _ => 0.0,
         };
         let mut cursor_x = x + offset_x;
-        for (is_fallback, glyph) in entries {
-            let mut placed = glyph;
-            placed.x = cursor_x;
-            placed.y = y + ascent + cursor_y;
-            let advance = if is_fallback {
-                fallback_data
-                    .as_ref()
-                    .and_then(|(_, _, metrics, average)| metrics.advance_width(GlyphId::new(placed.id)).or(Some(*average)))
-                    .unwrap_or(primary_fallback_advance)
+        for entry in entries {
+            let glyph = Glyph { id: entry.gid, x: cursor_x, y: y + ascent + cursor_y };
+            if entry.fallback {
+                fallback_glyphs.push(glyph);
             } else {
-                primary_glyph_metrics.advance_width(GlyphId::new(placed.id)).unwrap_or(primary_fallback_advance)
-            };
-            if is_fallback {
-                fallback_glyphs.push(placed);
-            } else {
-                primary_glyphs.push(placed);
+                primary_glyphs.push(glyph);
             }
-            cursor_x += advance;
+            cursor_x += entry.advance;
         }
         cursor_y += leading;
     }
@@ -434,7 +454,7 @@ fn draw_text(
     if !primary_glyphs.is_empty() {
         scene.draw_glyphs(primary).font_size(size).transform(transform).brush(&Brush::Solid(fill)).draw(Fill::NonZero, primary_glyphs.into_iter());
     }
-    if let Some((font, _, _, _)) = &fallback_data {
+    if let Some((font, _, _)) = &fallback_data {
         if !fallback_glyphs.is_empty() {
             scene.draw_glyphs(font).font_size(size).transform(transform).brush(&Brush::Solid(fill)).draw(Fill::NonZero, fallback_glyphs.into_iter());
         }
