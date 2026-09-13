@@ -33,7 +33,7 @@ import {
 } from "@/lib/recut-worlds-client";
 import { applyCanvasError } from "./canvas-errors";
 import { entityPhotoUrls } from "./canvas-image";
-import { attrValueOf } from "./entity-attrs";
+import { attrValueOf, entityFieldKeyOfLabel } from "./entity-attrs";
 
 export type Point = { x: number; y: number };
 
@@ -772,7 +772,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
 
   // 属性值同步（边即属性关联）：attr 元素 → 找到挂到它的属性边 → fromElementId 解析实体；
-  // label 优先映射 type schema 字段 key（右侧面板落在「字段」区），否则以 label 为 content key
+  // 保留标签（简介/正文）直接回写 entity.intro/detail，否则 label 优先映射 type schema 字段 key，
+  // 落不到 schema 时以 label 为 attrs key
   syncAttrValue: async (element, text) => {
     const label = String(element.props?.label ?? "") || String(element.name ?? "").replace(/^属性 · /, "");
     if (!label) return;
@@ -782,9 +783,15 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const entityId = String(arrow?.props?.fromElementId ?? "").replace(/^shape:/, "");
     const entity = get().entities.find((item) => item.id === entityId);
     if (!entity) return;
-    const entityType = get().entityTypes.find((item) => item.id === entity.typeId);
-    const matched = (entityType?.fields ?? []).find((field) => (field.label ?? field.key) === label || field.key === label);
-    await get().saveEntityField(entity, { attrKey: matched?.key ?? label, value: text });
+    // 保留标签（简介/正文）：直接回写一等实体字段，不落到 attrs
+    const entityFieldKey = entityFieldKeyOfLabel(label);
+    if (entityFieldKey === "intro") await get().saveEntityField(entity, { intro: text });
+    else if (entityFieldKey === "detail") await get().saveEntityField(entity, { detail: text });
+    else {
+      const entityType = get().entityTypes.find((item) => item.id === entity.typeId);
+      const matched = (entityType?.fields ?? []).find((field) => (field.label ?? field.key) === label || field.key === label);
+      await get().saveEntityField(entity, { attrKey: matched?.key ?? label, value: text });
+    }
     // 属性投影同步（文档版）：attr 元素 props.value 回写进本地文档，随统一保存落库
     markCanvasDirty(element.id);
     set((state) => ({

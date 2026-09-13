@@ -10,6 +10,8 @@
  * 自由元素映射：note→NoteBlockV、text/shape→FreeElementBlockV、绑定两实体的自由箭头→复用
  * RelationArrowBlockV 投影（未绑定箭头暂不渲染）；画面 delta 同步经 moveElement + persistGeometry
  * 另含 RealMediaBlockV（T8 媒体元素）/ 空世界与空容器引导（T9）/ CanvasOutline / toast / 文件拖放（B.12）；
+ * 「+」引导面板支持把实体简介/正文作为关联拖出；文本属性卡高度服从几何 box（渲染侧裁剪溢出，
+ * 不随内容自增长），双击就地编辑内滚动并支持全屏放大；
  * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
  * `wc:vp:<worldId>:<contextId>`，进出容器先存回来源再恢复目标，无快照才 fit）
  * [POS]: worlds/[worldID]/canvas 的画布底座层（本组件经 index.tsx dynamic(ssr:false) 挂载）；
@@ -31,7 +33,7 @@ import { CanvasInlineEditor } from "./canvas-inline-editor";
 import { CanvasToasts } from "./canvas-toast";
 import { CanvasOutline } from "./canvas-outline";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
-import { attrValueOf } from "./entity-attrs";
+import { attrValueOf, ENTITY_FIELD_ASSOCIATIONS } from "./entity-attrs";
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
@@ -137,7 +139,8 @@ function buildPomeloRecords(
       return;
     }
     if (element.kind === "attr") {
-      // 属性节点：文本/图片/音频/视频预览卡（AI 生成/上传内容承载物）；媒体卡带 assetId → 渲染真实图
+      // 属性节点：文本/图片/音频/视频预览卡（AI 生成/上传内容承载物）；媒体卡带 assetId → 渲染真实图。
+      // 文本高度服从几何 box（渲染侧裁剪溢出，见 free-element-block-v），不随内容自增长。
       const media = String(element.props?.media ?? "text");
       const mediaAssetId = media !== "text" && element.props?.assetId ? String(element.props.assetId) : "";
       records.push({
@@ -354,9 +357,10 @@ function restoreViewport(editor: PomeloEditor, key: string): boolean {
 
 
 // ---------- 「+」生成引导面板（两区：属性 / 实体）----------
-// 属性区：默认给出来源实体 type schema 的建议字段（点即建对应文本属性）+ 空白属性（四种媒体）；
-// 实体区：直接列预设/自定义实体类型，点即建草稿卡（「空白」用最近使用类型），并自动补一条默认关系
-// （候选 Top1；边类型不在面板选：创建后点击边，右侧边属性面板直接调整）。
+// 属性区：来源实体 type schema 建议字段 + 一等实体字段「简介/正文」（预填 entity.intro/detail，
+// 编辑即回写字段）+ 空白属性（四种媒体）；实体区：直接列预设/自定义实体类型，点即建草稿卡
+// （「空白」用最近使用类型），并自动补一条默认关系（候选 Top1；边类型不在面板选：创建后点击边，
+// 右侧边属性面板直接调整）。
 
 function AttrCreatorPanel() {
   const creator = useWorldCanvasStore((state) => state.attrCreator);
@@ -381,7 +385,14 @@ function AttrCreatorPanel() {
     const mediaValue = value && typeof value === "object" ? (value as { assetId?: string; name?: string; kind?: string }) : null;
     return { ...field, rawValue: value, mediaValue, value: mediaValue ? "" : value == null ? "" : String(value) };
   });
-  const filledFields = suggestedFields.filter((field) => field.value.trim() || (field.type === "media" && field.mediaValue && field.mediaValue.assetId));
+  // 一等实体字段（简介/正文）也能作为画布关联放到这里：预填实体当前值，点即建属性卡并挂边；
+  // 编辑卡片正文经 syncAttrValue 回写 entity.intro/detail（保留标签映射见 entity-attrs）。
+  const entityFieldSuggestions = ENTITY_FIELD_ASSOCIATIONS.map((field) => {
+    const value = fromEntity ? fromEntity[field.key] ?? "" : "";
+    return { key: field.key, label: field.label, type: "text" as const, options: undefined as string[] | undefined, rawValue: value, mediaValue: null, value: value };
+  });
+  const attributeSuggestions = [...entityFieldSuggestions, ...suggestedFields];
+  const filledFields = attributeSuggestions.filter((field) => field.value.trim() || (field.type === "media" && field.mediaValue && field.mediaValue.assetId));
   const pos = {
     x: Number.isFinite(creator.worldX) ? creator.worldX! : 420,
     y: Number.isFinite(creator.worldY) ? creator.worldY! : 300,
@@ -448,7 +459,7 @@ function AttrCreatorPanel() {
         </div>
       )}
       <div className="mb-2 flex flex-wrap gap-1.5">
-        {suggestedFields.filter((field) => !field.value.trim() && !(field.mediaValue?.assetId)).map((field) => (
+        {attributeSuggestions.filter((field) => !field.value.trim() && !(field.mediaValue?.assetId)).map((field) => (
           <button
             key={field.key}
             className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary/60 hover:bg-primary/5"
@@ -463,7 +474,7 @@ function AttrCreatorPanel() {
             {field.label ?? field.key}
           </button>
         ))}
-        {!suggestedFields.length && <p className="text-[10px] text-muted-foreground">暂无建议字段，可用下方空白属性。</p>}
+        {!attributeSuggestions.length && <p className="text-[10px] text-muted-foreground">暂无建议字段，可用下方空白属性。</p>}
       </div>
       <p className="mb-1 text-[10px] text-muted-foreground">空白属性 · 点击即创建</p>
       <div className="mb-2 grid grid-cols-4 gap-1.5">

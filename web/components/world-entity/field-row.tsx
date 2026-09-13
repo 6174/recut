@@ -4,7 +4,7 @@
  * FieldRow（单行/多行/开关字段就地编辑，blur 或 ⌘↵ 保存；展示态长文本 line-clamp-4 折叠 + 展开/收起；
  * 编辑态多行限高 + 放大全屏编辑器 FullscreenTextEditor）、AssetFieldRow（type=media 素材字段：槽位 +
  * 全局素材选择浮层 + 点击已填素材走 AssetPreviewDialog，值统一存 {assetId,name,kind}）、
- * parseAssetValue / typeLabelOf（type 目录 name → 统一类型文案）
+ * parseAssetValue / typeLabelOf（type 目录 name → 统一类型文案）；FullscreenTextEditor 亦供画布就地编辑器复用
  * [POS]: web/components/world-entity 的字段级编辑原语（保存策略：单行 blur 即存、多行三通道）；
  * 不依赖任何 store，宿主以 apiBase / onSave 注入数据面
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -228,8 +228,9 @@ export function FieldRow({
   );
 }
 
-// 放大编辑（2）：全屏对话框，长文本/复杂 markdown 的主编辑场；⌘↵ 保存并关闭
-function FullscreenTextEditor({ label, draft, onDraft, onCommit, onCancel }: { label: string; draft: string; onDraft: (value: string) => void; onCommit: () => void; onCancel: () => void }) {
+// 放大编辑（2）：全屏对话框，长文本/复杂 markdown 的主编辑场；⌘↵ 保存并关闭。
+// 画布就地编辑器复用同一组件，保证「画布内编辑 = 属性面板编辑」的一致体验。
+export function FullscreenTextEditor({ label, draft, onDraft, onCommit, onCancel }: { label: string; draft: string; onDraft: (value: string) => void; onCommit: () => void; onCancel: () => void }) {
   return createPortal(
     <div aria-modal="true" className="fixed inset-0 z-[80] grid place-items-center bg-foreground/40 p-6 backdrop-blur-[1px]" onMouseDown={onCancel} role="dialog">
       <section

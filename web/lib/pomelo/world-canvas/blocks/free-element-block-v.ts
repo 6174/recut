@@ -1,7 +1,8 @@
 /*
  * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/entity-color（attrMediaLabel）、
  *          world-canvas/blocks/vello-shared
- * [OUTPUT]: 对外提供 FreeElementBlockV（type: free-element）：文本 / 形状 / 属性预览卡。
+ * [OUTPUT]: 对外提供 FreeElementBlockV（type: free-element）：文本 / 形状 / 属性预览卡；
+ * 属性文本卡用 pushClipRoundRect 裁剪到几何 box（文本服从 box，溢出截断）。
  * [POS]: lib/pomelo/world-canvas/blocks 的自由元素 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -61,7 +62,10 @@ export class FreeElementBlockV extends VelloBlock {
       if (media === "image" && mediaSrc) {
         ops.push(...coverImageOpsV(this.adapter, mediaSrc, { x, y, width: w, height: h }, { x, y, width: w, height: h, radius: 12 }));
       } else if (text) {
+        // 文本服从 box：裁剪到卡片圆角内，溢出直接截断（双击就地编辑改为内滚动 + 全屏放大）
+        ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: 12 });
         ops.push(textOp({ text, x: x + 10, y: y + 10, size: 11, maxWidth: w - 20, lineHeight: 17, fill: TEXT_PRIMARY }));
+        ops.push({ kind: "popClip" });
       }
     } else {
       const radius = shapeType === "ellipse" || shapeType === "diamond" ? Math.min(w, h) / 2 : 8;

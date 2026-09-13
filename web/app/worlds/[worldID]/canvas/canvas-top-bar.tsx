@@ -2,9 +2,9 @@
  * [INPUT]: 依赖 canvas-store（context/worldName/notice/relating 状态与 setContext 动作）、
  * canvas-toolbar（CanvasToolbarItems 工具组）与 lucide-react
  * [OUTPUT]: 对外提供 useWorldCanvasTopBarStore（画布/设定两种视图都向全局 Header 注册同一条工具栏行，
- * variant 区分）、WorldCanvasTopBar（返回 Worlds / 上下文面包屑 / 画布工具组（仅 canvas variant）/
- * 关系引导与 notice）与 WorldCanvasShareButton（右侧视图切换：canvas→设定视图，form→画布视图），
- * 由 Workspace 顶层 Header 渲染；切换按钮位置在两种视图下保持一致
+ * variant 区分）、WorldCanvasTopBar（左侧返回 / 上下文面包屑 / notice）、WorldCanvasToolbar（画布工具组，
+ * 由 Workspace 顶层 Header 居中渲染，仅 canvas variant；只读徽标与关系引导随行）与
+ * WorldCanvasShareButton（右侧视图切换：canvas→设定视图，form→画布视图），切换按钮位置在两种视图下保持一致
  * [POS]: worlds/[worldID]/canvas 的顶层工具栏；画布工具（模式/连线/插入/undo/缩放）由 CanvasToolbarItems 承载
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -48,10 +48,7 @@ export function WorldCanvasTopBar() {
   const contextTrail = useWorldCanvasStore((state) => state.contextTrail);
   const worldName = useWorldCanvasStore((state) => state.worldName);
   const notice = useWorldCanvasStore((state) => state.notice);
-  const relatingFrom = useWorldCanvasStore((state) => state.relatingFrom);
-  const relatingTo = useWorldCanvasStore((state) => state.relatingTo);
   const setContext = useWorldCanvasStore((state) => state.setContext);
-  const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const exitContext = useWorldCanvasStore((state) => state.exitContext);
   // 面包屑（B.11/D6 唯一导航真相）：全局画布 ▸ 实体 ▸ …；>3 级折叠「…」，
   // 点任意一级回到该层（截断 trail）
@@ -103,17 +100,27 @@ export function WorldCanvasTopBar() {
           <span className="truncate">{worldName}</span>
         </span>
       )}
-      {variant === "canvas" && (
-        <>
-          {readOnly && <span className="shrink-0 rounded-md bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">只读</span>}
-          <span className="mx-1 h-5 w-px bg-border" />
-          <CanvasToolbarItems />
-          {relatingFrom && !relatingTo && <span className="shrink-0 text-xs text-primary">已选起点：点击目标实体建立关系</span>}
-        </>
-      )}
       {notice && variant === "canvas" && <span className="truncate text-xs text-warning">{notice}</span>}
       {/* 属性面板开关（T17 重构）：空选 = 全局上下文属性（名称/简介/Skill），选中 = 实体/关系/元素详情 */}
       {variant === "canvas" && <PanelToggleButton />}
+    </div>
+  );
+}
+
+// 画布工具组（居中于全局 Header）：与左侧面包屑/notice、右侧全局操作解耦；
+// 只读徽标与关系引导随工具组同行居中，仅 canvas variant 显示。
+export function WorldCanvasToolbar() {
+  const active = useWorldCanvasTopBarStore((state) => state.active);
+  const variant = useWorldCanvasTopBarStore((state) => state.variant);
+  const readOnly = useWorldCanvasStore((state) => state.readOnly);
+  const relatingFrom = useWorldCanvasStore((state) => state.relatingFrom);
+  const relatingTo = useWorldCanvasStore((state) => state.relatingTo);
+  if (!active || variant !== "canvas") return null;
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      {readOnly && <span className="shrink-0 rounded-md bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">只读</span>}
+      <CanvasToolbarItems />
+      {relatingFrom && !relatingTo && <span className="shrink-0 text-xs text-primary">已选起点：点击目标实体建立关系</span>}
     </div>
   );
 }
