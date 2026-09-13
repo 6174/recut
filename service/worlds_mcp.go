@@ -57,9 +57,10 @@ func worldKindSchema() map[string]any {
 // element-level ops applied inside one canvas document.
 func canvasDocUpdateSchema() map[string]any {
 	elementSchema := func(required []string) map[string]any {
-		return map[string]any{
+		// "required" 为空时必须省略而不是 null：OpenAI 系 provider 的 function
+		// schema 校验要求 required 要么缺省、要么是字符串数组，null 会被拒绝。
+		schema := map[string]any{
 			"type": "object",
-			"required": required,
 			"properties": map[string]any{
 				"id":       map[string]string{"type": "string", "description": "元素 id（= 前端 shape id 的镜像）。"},
 				"kind":     map[string]string{"type": "string"},
@@ -72,6 +73,10 @@ func canvasDocUpdateSchema() map[string]any {
 				"layer":    map[string]string{"type": "string"},
 			},
 		}
+		if len(required) > 0 {
+			schema["required"] = required
+		}
+		return schema
 	}
 	return map[string]any{
 		"type": "object",
