@@ -261,40 +261,64 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     const id = this.nextImageId++;
     void (async () => {
       try {
-        // 用 Image + canvas 加载（与 pixi 路径一致，避免 fetch/CORS 差异），再取 RGBA 注册为 image
-        const image = new Image();
-        image.crossOrigin = "anonymous";
-        image.decoding = "async";
-        await new Promise<void>((resolve, reject) => {
-          image.onload = () => resolve();
-          image.onerror = () => reject(new Error("image decode failed"));
-          image.src = url;
-        });
-        const maxSide = 512;
-        const scale = Math.min(1, maxSide / Math.max(image.naturalWidth || 1, image.naturalHeight || 1));
-        const width = Math.max(1, Math.round((image.naturalWidth || 1) * scale));
-        const height = Math.max(1, Math.round((image.naturalHeight || 1) * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) throw new Error("no 2d context");
-        ctx.drawImage(image, 0, 0, width, height);
-        const rgba = new Uint8Array(ctx.getImageData(0, 0, width, height).data);
-        (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, width, height, rgba);
-        this.imageIds.set(url, id);
+        const rgba = await this.loadImageRgba(url);
+        if (rgba) {
+          (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, rgba.width, rgba.height, rgba.data);
+          this.imageIds.set(url, id);
+        }
+      } catch (error) {
+        // 单张图失败不应影响渲染（可能 404 / CORS / 非图片），静默降级为占位
+        console.warn("[pomelo-vello-adapter] image load failed", url, error);
       } finally {
         this.imagePending.delete(url);
-        // 图就绪后重跑所有 VelloBlock.render()（ensureImage 现在能返回 id），
-        // 再 syncChunks 把 drawVersion 变化同步成 chunk（否则瓦片不会重编码，图不显示）
-        for (const block of this.renderedBlockMap.values()) {
-          if (block instanceof VelloBlock) block.render();
+        try {
+          // 图就绪后重跑所有 VelloBlock.render()（ensureImage 现在能返回 id），
+          // 再 syncChunks 把 drawVersion 变化同步成 chunk（否则瓦片不会重编码，图不显示）
+          for (const block of this.renderedBlockMap.values()) {
+            if (block instanceof VelloBlock) block.render();
+          }
+          this.syncChunks();
+        } catch (error) {
+          console.warn("[pomelo-vello-adapter] image re-render failed", error);
         }
-        this.syncChunks();
         this.dirty = true;
       }
-    })();
+    })().catch(() => undefined);
     return null;
+  }
+
+  /** 用 Image + canvas 取 RGBA（同源/跨域均先按 anonymous 尝试，失败再退化为普通加载）。 */
+  private async loadImageRgba(url: string): Promise<{ width: number; height: number; data: Uint8Array } | null> {
+    const load = (crossOrigin: boolean) =>
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        if (crossOrigin) image.crossOrigin = "anonymous";
+        image.decoding = "async";
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error(`image load failed: ${url}`));
+        image.src = url;
+      });
+
+    let image: HTMLImageElement;
+    try {
+      image = await load(true);
+    } catch {
+      // 某些 URL 不接受 CORS 头时退化为普通加载（若画布因此被污染则下方 getImageData 会抛错并被吞掉）
+      image = await load(false);
+    }
+    const maxSide = 512;
+    const naturalW = image.naturalWidth || image.width || 1;
+    const naturalH = image.naturalHeight || image.height || 1;
+    const scale = Math.min(1, maxSide / Math.max(naturalW, naturalH));
+    const width = Math.max(1, Math.round(naturalW * scale));
+    const height = Math.max(1, Math.round(naturalH * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(image, 0, 0, width, height);
+    return { width, height, data: new Uint8Array(ctx.getImageData(0, 0, width, height).data) };
   }
 
   /** 调试：立即渲染一帧（跳过 ticker 合帧）。 */

@@ -97,7 +97,7 @@ export function runSelfTests(): SelfTestResult[] {
   check("geometry: LOD 量化与瓦片世界尺寸", () => {
     assert(Math.abs(tileLevel(1) - 1) < 1e-9, `tileLevel(1)=${tileLevel(1)}`);
     assert(Math.abs(tileLevel(0.75) - 0.75) < 1e-9, `tileLevel(0.75)=${tileLevel(0.75)}`);
-    assert(Math.abs(tileLevel(0.6) - 0.75) < 1e-9, `tileLevel(0.6)=${tileLevel(0.6)}`);
+    assert(Math.abs(tileLevel(0.6) - 0.625) < 1e-9, `tileLevel(0.6)=${tileLevel(0.6)}`);
     assert(tileLevel(0.1) < 0.25 && tileLevel(0.1) > 0, `tileLevel(0.1)=${tileLevel(0.1)}`);
     for (const level of [0.25, 0.5, 1, 2, 4]) {
       assert(Math.abs(tileWorldSize(level) * level - 256) < 1e-9, `worldSize*level != 256 @${level}`);

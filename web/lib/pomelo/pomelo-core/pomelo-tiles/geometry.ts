@@ -8,8 +8,8 @@ import type { TileKey, TileWorldBounds } from "./types";
 
 /** 瓦片设备像素尺寸（open-pencil 原值 256，不得改动）。 */
 export const TILE_DEVICE_SIZE = 256;
-/** LOD 量化步长（open-pencil 原值 0.25）。 */
-export const TILE_LEVEL_STEP = 0.25;
+/** LOD 量化步长。open-pencil 用 0.25；此处收细到 0.125，把 ceil 过采样造成的最坏缩放从 ~2x 降到 ~1.14x，避免缩放后文本发虚。 */
+export const TILE_LEVEL_STEP = 0.125;
 export const MIN_TILE_LEVEL = TILE_LEVEL_STEP / 16;
 /** 瓦片渲染外扩像素，消除解析 AA 在裁剪边界的覆盖率缝。 */
 export const TILE_BLEED_PX = 2;

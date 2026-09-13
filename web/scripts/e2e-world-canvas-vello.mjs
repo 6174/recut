@@ -10,7 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const WORLD = process.env.WORLD_ID || "ac5009d9fdc748643ebb06fe";
-const URL = `http://app.localhost:3000/worlds/${WORLD}?renderer=vello`;
+const APP_BASE = process.env.APP_BASE || "http://app.localhost:3000";
+const URL = `${APP_BASE}/worlds/${WORLD}?renderer=vello`;
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = Number(process.env.CDP_PORT || 9370);
 

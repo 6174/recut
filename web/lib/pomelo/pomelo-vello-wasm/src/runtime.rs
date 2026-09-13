@@ -13,7 +13,7 @@ use crate::compositor::{Compositor, QuadDraw};
 use crate::ops::{build_scene, decode_ops, tile_transform};
 
 const TILE_DEVICE_SIZE: u32 = 256;
-const BLEED: f32 = 0.0;
+const BLEED: f32 = 2.0;
 
 struct TileEntry {
     _texture: wgpu::Texture,
@@ -21,6 +21,10 @@ struct TileEntry {
     min_x: f32,
     min_y: f32,
     level: f32,
+    /// 纹理边长（含 bleed）
+    tex_size: f32,
+    /// 边缘外扩像素
+    bleed: f32,
 }
 
 #[wasm_bindgen]
@@ -223,7 +227,8 @@ impl VelloRuntime {
     /// 把一个瓦片的绘制 op（世界坐标，可拼接多条 chunk 的记录流）光栅到 256×256 纹理。
     pub fn render_tile(&mut self, ops: Vec<u8>, level: f32, min_x: f32, min_y: f32) -> Result<u32, JsValue> {
         let decoded = decode_ops(&ops).map_err(|e| JsValue::from_str(&format!("decode ops: {e}")))?;
-        let size = TILE_DEVICE_SIZE;
+        // 含 bleed 的渲染边长；瓦片内容超出内区的部分供合成时线性采样，消除边缘缝/发虚
+        let size = TILE_DEVICE_SIZE + (BLEED * 2.0) as u32;
         let mut scene = Scene::new();
         let transform = tile_transform(level, min_x, min_y, BLEED);
         build_scene(&decoded, transform, size as f32, size as f32, &self.fonts, &self.fallbacks, &self.images, &mut scene);
@@ -256,7 +261,7 @@ impl VelloRuntime {
 
         let handle = self.next_handle;
         self.next_handle += 1;
-        self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x, min_y, level });
+        self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x, min_y, level, tex_size: size as f32, bleed: BLEED });
         Ok(handle)
     }
 
@@ -275,7 +280,9 @@ impl VelloRuntime {
                     let sx = tile.min_x * zoom + pan_x;
                     let sy = tile.min_y * zoom + pan_y;
                     let size = (TILE_DEVICE_SIZE as f32) * scale;
-                    QuadDraw { handle: *handle, view: &tile.view, rect: [sx, sy, size, size] }
+                    let inner0 = tile.bleed / tile.tex_size;
+                    let inner1 = (tile.bleed + TILE_DEVICE_SIZE as f32) / tile.tex_size;
+                    QuadDraw { handle: *handle, view: &tile.view, rect: [sx, sy, size, size], uv: [inner0, inner0, inner1, inner1] }
                 })
             })
             .collect();
@@ -311,7 +318,7 @@ impl VelloRuntime {
                 base_color: self.clear_color, width: size, height: size, antialiasing_method: AaConfig::Area,
             }).map_err(js_err)?;
             let handle = 1_000_000 + handles.len() as u32;
-            self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x, min_y, level: 0.5 });
+            self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x, min_y, level: 0.5, tex_size: size as f32, bleed: 0.0 });
             handles.push(handle);
         }
         self.present(handles, 0.0, 0.0, 0.5)
@@ -337,7 +344,7 @@ impl VelloRuntime {
             base_color: Color::from_rgba8(0, 0, 0, 0), width: size, height: size, antialiasing_method: AaConfig::Area,
         }).map_err(js_err)?;
         let handle = self.next_handle; self.next_handle += 1;
-        self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x: 0.0, min_y: 0.0, level: 1.0 });
+        self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x: 0.0, min_y: 0.0, level: 1.0, tex_size: size as f32, bleed: 0.0 });
         Ok(handle)
     }
 
@@ -365,7 +372,7 @@ impl VelloRuntime {
             base_color: Color::from_rgba8(0, 0, 0, 0), width: size, height: size, antialiasing_method: AaConfig::Area,
         }).map_err(js_err)?;
         let handle = self.next_handle; self.next_handle += 1;
-        self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x: 0.0, min_y: 0.0, level: 1.0 });
+        self.tiles.insert(handle, TileEntry { _texture: texture, view, min_x: 0.0, min_y: 0.0, level: 1.0, tex_size: size as f32, bleed: 0.0 });
         self.present(vec![handle], 0.0, 0.0, 1.0)?;
         Ok(handle)
     }
@@ -393,7 +400,7 @@ impl VelloRuntime {
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         // 直接以固定屏幕矩形合成这张 4×4 纹理（不进入瓦片世界坐标体系）
-        let draw = QuadDraw { handle: u32::MAX, view: &view, rect: [200.0, 200.0, 160.0, 160.0] };
+        let draw = QuadDraw { handle: u32::MAX, view: &view, rect: [200.0, 200.0, 160.0, 160.0], uv: [0.0, 0.0, 1.0, 1.0] };
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])
     }
 }

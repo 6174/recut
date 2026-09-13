@@ -58,6 +58,8 @@ pub struct QuadDraw<'a> {
     pub view: &'a TextureView,
     /// 设备像素的目标矩形 (x, y, width, height)
     pub rect: [f32; 4],
+    /// 纹理采样 UV 矩形 (u0, v0, u1, v1)（bleed 瓦片取内区）
+    pub uv: [f32; 4],
 }
 
 struct TileBinding {
@@ -191,15 +193,16 @@ impl Compositor {
         // 1) 确保每个瓦片有 uniform buffer + bind group，并写入本帧目标矩形
         for draw in draws {
             let [sx, sy, sw, sh] = draw.rect;
+            let [u0, v0, u1, v1] = draw.uv;
             let uniforms: [f32; 8] = [
                 sx / w * 2.0 - 1.0,
                 1.0 - sy / h * 2.0,
                 sw / w * 2.0,
                 -(sh / h * 2.0),
-                0.0,
-                0.0,
-                1.0,
-                1.0,
+                u0,
+                v0,
+                u1,
+                v1,
             ];
             let entry = self.entries.entry(draw.handle).or_insert_with(|| {
                 let buffer = device.create_buffer(&BufferDescriptor {
