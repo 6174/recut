@@ -55,7 +55,7 @@ export class FreeElementBlockV extends VelloBlock {
 
     const ops: VelloOp[] = [];
     if (elementKind === "text") {
-      ops.push(textOp({ text: text || "（空文本）", x, y, size: 13, maxWidth: Math.max(40, w), fill: [212, 212, 216, 255] }));
+      ops.push(textOp({ text: text || "（空文本）", x, y, size: 13, maxWidth: Math.max(40, w), lineHeight: 20, fill: [212, 212, 216, 255] }));
     } else if (elementKind === "attr") {
       const label = `${attrMediaLabel(media)}${text ? ` · ${text.slice(0, 12)}` : ""}`;
       const caption = captionOpsV(this.adapter, x, y, w, label);
@@ -64,7 +64,7 @@ export class FreeElementBlockV extends VelloBlock {
       if (media === "image" && mediaSrc) {
         ops.push(...coverImageOpsV(this.adapter, mediaSrc, { x, y, width: w, height: h }, { x, y, width: w, height: h, radius: 12 }));
       } else if (text) {
-        ops.push(textOp({ text, x: x + 10, y: y + 10, size: 11, maxWidth: w - 20, fill: TEXT_PRIMARY }));
+        ops.push(textOp({ text, x: x + 10, y: y + 10, size: 11, maxWidth: w - 20, lineHeight: 17, fill: TEXT_PRIMARY }));
       }
     } else {
       const radius = shapeType === "ellipse" || shapeType === "diamond" ? Math.min(w, h) / 2 : 8;
@@ -81,8 +81,10 @@ export class FreeElementBlockV extends VelloBlock {
       ctx.stroke();
       if (elementKind === "attr" && media === "image" && mediaSrc) {
         drawCoverImageCanvas(ctx, this.adapter, mediaSrc, { x, y, width: w, height: h }, { x, y, width: w, height: h, radius: 12 });
+      } else if (elementKind === "text") {
+        drawTextCanvas(ctx, { text: text || "（空文本）", x, y, size: 13, lineHeight: 20, maxWidth: Math.max(40, w), fill: [212, 212, 216, 255] });
       } else {
-        drawTextCanvas(ctx, { text, x: x + 10, y: y + 10, size: elementKind === "attr" ? 11 : 12, maxWidth: w - (elementKind === "attr" ? 20 : 16), fill: elementKind === "attr" ? TEXT_PRIMARY : [161, 161, 170, 255] });
+        drawTextCanvas(ctx, { text, x: x + 10, y: y + 10, size: 11, maxWidth: w - 16, fill: TEXT_TERTIARY });
       }
       if (elementKind === "attr") {
         const label = `${attrMediaLabel(media)}${text ? ` · ${text.slice(0, 12)}` : ""}`;

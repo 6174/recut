@@ -401,8 +401,9 @@ type WorldCanvasState = {
   moveElement: (id: string, x: number, y: number) => void;
   upsertElement: (input: CanvasElementInput) => Promise<WorldCanvasElement>;
   persistGeometry: (id: string, geometryOverride?: Record<string, unknown>, propsOverride?: Record<string, unknown>) => Promise<void>;
-  // T3 创建：落点可选（默认网格位）；标题缺省 = 类型默认名 + isProvisional 草稿 + 进入命名态
-  createEntity: (kind: string, opts?: { title?: string; pos?: Point }) => Promise<void>;
+  // T3 创建：落点可选（默认网格位）；标题缺省 = 类型默认名 + isProvisional 草稿 + 进入命名态。
+  // 返回新实体 id（失败 null），供「+」引导在同一流程内补建默认关系。
+  createEntity: (kind: string, opts?: { title?: string; pos?: Point }) => Promise<string | null>;
   createChildEntity: (parentId: string, kind: string, opts?: { title?: string }) => Promise<void>;
   addNote: (pos?: Point) => Promise<void>;
   removeElement: (id: string) => Promise<void>;
@@ -944,8 +945,10 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       }));
       saveLastKind(kind);
       get().logChange(`创建「${entity.name}」`, () => void get().deleteEntity(entity.id));
+      return entity.id;
     } catch (cause) {
       applyCanvasError(cause);
+      return null;
     }
   },
 
@@ -1323,7 +1326,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const x = Number(element.geometry?.x) || 0;
     const y = Number(element.geometry?.y) || 0;
     const width = Math.max(Number(element.geometry?.width) || NOTE_SIZE.width, 120);
-    const height = Math.max(Number(element.geometry?.height) || NOTE_SIZE.height, 44);
+    // 各形态的默认高度与画布 Block 对齐：文本块默认 24；便签/属性沿用几何高度（缺省为便签高）
+    const fallbackHeight = kind === "text-body" ? 24 : NOTE_SIZE.height;
+    const height = Math.max(Number(element.geometry?.height) || fallbackHeight, 24);
     set({
       inlineEdit: {
         kind,

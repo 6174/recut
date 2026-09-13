@@ -15,11 +15,12 @@ import { useWorldCanvasStore } from "./canvas-store";
 
 // 各编辑形态与画布渲染的排版对齐表（字号/行高/内边距/颜色均为世界单位，随视口缩放；
 // 来源：NoteBlockV 11/16 + offset(10,10)（note-block-v.ts）、FreeElementBlockV text 13/20 无内边距、
-// attr 文本 11/17 + offset(10,30)（free-element-block-v.ts）、EntityCardBlockV 标题 15/semibold @PAD=14、attr 徽标 11）
+// attr 文本 11/17 + offset(10,10)（free-element-block-v.ts）、EntityCardBlockV 标题 15 @PAD=14、attr 徽标 11）。
+// 画布 Block 侧必须使用同一组数值（字号/行高/内边距），否则两种渲染模式会错位。
 const EDITOR_METRICS = {
   "note-body": { fontSize: 11, lineHeight: 16, padX: 10, padTop: 10, color: "#9ca3af", semibold: false },
   "text-body": { fontSize: 13, lineHeight: 20, padX: 0, padTop: 0, color: "#d4d4d8", semibold: false },
-  "attr-body": { fontSize: 11, lineHeight: 17, padX: 10, padTop: 30, color: "#f4f4f5", semibold: false },
+  "attr-body": { fontSize: 11, lineHeight: 17, padX: 10, padTop: 10, color: "#f4f4f5", semibold: false },
   "entity-title": { fontSize: 15, lineHeight: 20, padX: 14, padTop: 0, color: "#f4f4f5", semibold: true },
   "attr-title": { fontSize: 11, lineHeight: 18, padX: 28, padTop: 8, color: "#8b93a7", semibold: false },
 } as const;
@@ -79,7 +80,7 @@ export function CanvasInlineEditor() {
   return (
     <textarea
       ref={areaRef}
-      className={`absolute z-30 resize-none rounded-md border border-primary/60 bg-card/95 text-foreground shadow-lg outline-none ${m.semibold ? "font-semibold" : ""}`}
+      className={`absolute z-30 resize-none border-0 bg-card/95 text-foreground shadow-lg outline outline-1 outline-primary/60 break-all ${m.semibold ? "font-semibold" : ""}`}
       style={{
         left: screen.x,
         top: screen.y,
@@ -89,7 +90,9 @@ export function CanvasInlineEditor() {
         fontFamily: 'system-ui, -apple-system, "PingFang SC", sans-serif',
         fontSize: `${m.fontSize * fontScale}px`,
         lineHeight: `${m.lineHeight * fontScale}px`,
-        padding: `${Math.max(2, m.padTop * fontScale)}px ${Math.max(2, m.padX * fontScale)}px`,
+        // 内边距与画布 Block 严格同值（world 单位 × 缩放）：text-body 的 0 不能再被 Math.max 抬到 2px，
+        // 否则 DOM 文本相对画布整体偏移；outline 不占布局，故内容原点与元素原点一致。
+        padding: `${m.padTop * fontScale}px ${m.padX * fontScale}px`,
       }}
       placeholder={edit.kind === "attr-title" ? "输入属性名称…" : undefined}
       value={value}

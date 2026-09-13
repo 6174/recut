@@ -26,6 +26,7 @@ import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { fitElementToAsset, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
+import { relationCandidatesOf } from "./canvas-relation-candidates";
 import { CanvasInlineEditor } from "./canvas-inline-editor";
 import { CanvasToasts } from "./canvas-toast";
 import { CanvasOutline } from "./canvas-outline";
@@ -167,7 +168,7 @@ function buildPomeloRecords(
       records.push({
         id: element.id,
         type: "free-element",
-        attrs: { x: pos.x, y: pos.y, width: Number(element.geometry?.width) || 120, height: 24, elementKind: "text", text: String(element.props?.text ?? "") },
+        attrs: { x: pos.x, y: pos.y, width: Number(element.geometry?.width) || 120, height: Number(element.geometry?.height) || 24, elementKind: "text", text: String(element.props?.text ?? "") },
       });
       return;
     }
@@ -354,8 +355,8 @@ function restoreViewport(editor: PomeloEditor, key: string): boolean {
 
 // ---------- 「+」生成引导面板（两区：属性 / 实体）----------
 // 属性区：默认给出来源实体 type schema 的建议字段（点即建对应文本属性）+ 空白属性（四种媒体）；
-// 实体区：直接列预设/自定义实体类型，点即建草稿卡（「空白」用最近使用类型）。
-// 边类型不在此选：创建后点击边，右侧边属性面板直接调整。
+// 实体区：直接列预设/自定义实体类型，点即建草稿卡（「空白」用最近使用类型），并自动补一条默认关系
+// （候选 Top1；边类型不在面板选：创建后点击边，右侧边属性面板直接调整）。
 
 function AttrCreatorPanel() {
   const creator = useWorldCanvasStore((state) => state.attrCreator);
@@ -363,8 +364,10 @@ function AttrCreatorPanel() {
   const setAttrCreator = useWorldCanvasStore((state) => state.setAttrCreator);
   const createAttribute = useWorldCanvasStore((state) => state.createAttribute);
   const createEntity = useWorldCanvasStore((state) => state.createEntity);
+  const createRelation = useWorldCanvasStore((state) => state.createRelation);
   const startInlineEdit = useWorldCanvasStore((state) => state.startInlineEdit);
   const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
+  const relationTypes = useWorldCanvasStore((state) => state.relationTypes);
   const entities = useWorldCanvasStore((state) => state.entities);
   if (!creator || readOnly) return null;
   // creator.fromEntityId 是元素 id（shape:<entityId>），按两种形态解析实体
@@ -390,8 +393,20 @@ function AttrCreatorPanel() {
   ];
   const entityPos = pos;
   const createEntityAt = (kind: string) => {
-    void createEntity(kind, { pos: entityPos });
-    setAttrCreator(null);
+    void (async () => {
+      const newId = await createEntity(kind, { pos: entityPos });
+      setAttrCreator(null);
+      // 「+」引导建出的新实体：补一条默认关系（边类型不在面板选，落卡后点边在右侧面板调整）。
+      // World 节点（无对应实体）不是语义端点，不连线。
+      if (!newId || !fromEntity || fromEntity.id === newId) return;
+      const fromBase = sourceType?.baseKind || fromEntity.typeId || "";
+      const toBase = entityTypes.find((item) => item.id === kind)?.baseKind || kind || "";
+      const relationType =
+        relationCandidatesOf(fromBase, toBase).find((id) => relationTypes.some((item) => item.id === id)) ??
+        relationTypes[0]?.id ??
+        "references";
+      await createRelation(fromEntity.id, newId, relationType);
+    })();
   };
   return (
     <div className="fixed z-40 w-72 rounded-xl border border-border bg-card p-3 text-sm shadow-2xl" style={{ left: Math.min(Math.max(16, creator.screenX), (typeof window !== "undefined" ? window.innerWidth - 300 : 800)), top: Math.min(Math.max(16, creator.screenY), (typeof window !== "undefined" ? window.innerHeight - 280 : 600)) }} onMouseDown={(event) => event.stopPropagation()}>
