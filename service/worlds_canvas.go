@@ -856,8 +856,10 @@ func (w *WorldStore) ListRelations(worldID, entityID string) ([]WorldEntityRelat
 	return items, rows.Err()
 }
 
-// DeleteRelation removes a semantic edge and the canvas projection derived
-// from it disappears on the next sync. It produces a new revision.
+// DeleteRelation soft-deletes a semantic edge by moving it into
+// world_relation_tombstones (same id, so entity.restore / relation.restore can
+// rebuild it and the shape:rel-<id> canvas anchor re-binds). The projection
+// disappears on the next sync. It produces a new revision.
 func (w *WorldStore) DeleteRelation(worldID, relationID, expectedRevisionID, createdBy string) error {
 	db, err := w.database()
 	if err != nil {
@@ -874,7 +876,8 @@ func (w *WorldStore) DeleteRelation(worldID, relationID, expectedRevisionID, cre
 	if err := w.checkWorldRevision(tx, worldID, expectedRevisionID); err != nil {
 		return err
 	}
-	result, err := tx.Exec("delete from world_relations where id = ? and world_id = ?", relationID, worldID)
+	now := iso(time.Now().UTC())
+	result, err := tx.Exec("insert or replace into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, ?, '' from world_relations where id = ? and world_id = ?", now, relationID, worldID)
 	if err != nil {
 		return err
 	}
@@ -884,6 +887,9 @@ func (w *WorldStore) DeleteRelation(worldID, relationID, expectedRevisionID, cre
 	}
 	if affected == 0 {
 		return worldsError(WorldsErrContextInvalid, "relation not found")
+	}
+	if _, err := tx.Exec("delete from world_relations where id = ? and world_id = ?", relationID, worldID); err != nil {
+		return err
 	}
 	if _, err := w.commitRevision(tx, worldID, "relation.deleted", createdBy); err != nil {
 		return err

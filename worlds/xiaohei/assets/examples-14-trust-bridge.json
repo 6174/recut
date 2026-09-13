@@ -1,0 +1,9 @@
+{
+  "id": "examples-14-trust-bridge",
+  "name": "信任桥",
+  "kind": "image",
+  "file": "examples-14-trust-bridge.png",
+  "provenance": {
+    "contentHash": "381194efc7d3fd6a9c7db9d6d3cf361ae3508aa6614727e0b0615d9f83afe522"
+  }
+}

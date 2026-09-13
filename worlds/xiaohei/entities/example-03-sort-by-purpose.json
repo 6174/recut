@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "03-sort-by-purpose",
-        "kind": "image",
-        "name": "按用途分拣"
+        "asset": "examples-03-sort-by-purpose"
       }
     }
   ]

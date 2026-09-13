@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "09-common-pits-no-title",
-        "kind": "image",
-        "name": "常见坑（无标题示范）"
+        "asset": "examples-09-common-pits-no-title"
       }
     }
   ]

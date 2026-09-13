@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "07-three-content-jobs",
-        "kind": "image",
-        "name": "三种内容工作"
+        "asset": "examples-07-three-content-jobs"
       }
     }
   ]

@@ -3,6 +3,7 @@
  * 与 lucide-react
  * [OUTPUT]: 对外提供画布对话框层：受控关系确认 RelateDialog（T5 重设计：Top4 候选映射 + 搜索 +
  * 分组全量 + 新建关系类型）、Promote 确认（便签→设定 / 箭头→关系）、删除设定确认（影响范围）、
+ * 多选批量删除确认（DeleteSelectionConfirmDialog，按类型展示影响 + 可仅从画布移除设定）、
  * 添加字段（类型级）与创建菜单/右键菜单的组合挂载（T2/T3）
  * [POS]: worlds/[worldID]/canvas 的对话框层；只读快照 + store 动作，语义写全部产出 revision
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -23,6 +24,7 @@ export function CanvasDialogs() {
   const promotingId = useWorldCanvasStore((state) => state.promotingId);
   const promotingElement = useWorldCanvasStore((state) => state.elements.find((element) => element.id === promotingId));
   const deleteTarget = useWorldCanvasStore((state) => state.deleteTarget);
+  const deleteSelectionIds = useWorldCanvasStore((state) => state.deleteSelectionIds);
   const addFieldFor = useWorldCanvasStore((state) => state.addFieldFor);
   return (
     <>
@@ -32,6 +34,7 @@ export function CanvasDialogs() {
       {pendingRelation && <RelateDialog />}
       {promotingElement && <PromoteDialog elementKind={promotingElement.kind} />}
       {deleteTarget && <DeleteConfirmDialog />}
+      {deleteSelectionIds && deleteSelectionIds.length > 0 && <DeleteSelectionConfirmDialog />}
       {addFieldFor && <AddFieldDialog />}
       <MediaSourceDialog />
       <MediaAssetPickerDialog />
@@ -87,6 +90,65 @@ function DeleteConfirmDialog() {
             type="button"
           >
             删除设定
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 多选删除确认（框选/Shift 点选 + Del）：与单设定删除同款弹框（不用 window.confirm）；
+// 按类型展示影响范围，含设定时提供「仅从画布移除（设定保留）」次选项。
+function DeleteSelectionConfirmDialog() {
+  const ids = useWorldCanvasStore((state) => state.deleteSelectionIds) ?? [];
+  const setDeleteSelectionIds = useWorldCanvasStore((state) => state.setDeleteSelectionIds);
+  const deleteSelection = useWorldCanvasStore((state) => state.deleteSelection);
+  const entities = useWorldCanvasStore((state) => state.entities);
+  const relations = useWorldCanvasStore((state) => state.relations);
+  if (!ids.length) return null;
+  const entityIds = ids.filter((id) => id.startsWith("entity:")).map((id) => id.slice("entity:".length));
+  const relationCount = ids.filter((id) => id.startsWith("arrow:")).length;
+  const elementCount = ids.length - entityIds.length - relationCount;
+  const cascadeRelations = relations.filter((relation) => entityIds.includes(relation.fromEntityId) || entityIds.includes(relation.toEntityId)).length;
+  const impacts = [
+    entityIds.length > 0 ? `${entityIds.length} 个设定` : "",
+    relationCount > 0 ? `${relationCount} 条关系` : "",
+    elementCount > 0 ? `${elementCount} 个元素` : "",
+  ].filter(Boolean);
+  const names = entityIds
+    .map((id) => entities.find((entity) => entity.id === id)?.name)
+    .filter((name): name is string => Boolean(name));
+  return (
+    <div aria-modal="true" className="fixed inset-0 z-[70] grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={() => setDeleteSelectionIds(null)} role="dialog">
+      <div className="w-full max-w-sm rounded-md border bg-card p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <h3 className="text-base font-semibold">删除所选的 {ids.length} 项？</h3>
+        <p className="mt-2 text-sm text-muted-foreground">{impacts.length ? `将一并删除：${impacts.join(" · ")}` : "所选对象将一并删除。"}</p>
+        {names.length > 0 && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            含设定：{names.slice(0, 3).join("、")}
+            {names.length > 3 ? ` 等 ${names.length} 个` : ""}
+          </p>
+        )}
+        {entityIds.length > 0 && cascadeRelations > 0 && (
+          <p className="mt-1 text-xs text-warning">删除设定会同时移除其画布投影与相关关系（约 {cascadeRelations} 条）。</p>
+        )}
+        <div className="mt-3 flex items-center justify-end gap-2">
+          {entityIds.length > 0 && (
+            <button
+              className="mr-auto text-xs text-muted-foreground hover:underline"
+              onClick={() => void deleteSelection(ids, { hideEntities: true })}
+              type="button"
+            >
+              仅从画布移除设定（设定保留）
+            </button>
+          )}
+          <button className="rounded-md border px-3 py-1.5 text-xs hover:bg-muted" onClick={() => setDeleteSelectionIds(null)} type="button">取消</button>
+          <button
+            className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => void deleteSelection(ids)}
+            type="button"
+          >
+            {entityIds.length > 0 ? "删除设定" : "删除"}
           </button>
         </div>
       </div>

@@ -1,19 +1,67 @@
 {
   "sourceVersion": 2,
   "world": {
-    "id": "pgc.xiaohei",
+    "id": "f97fce5d58dd500dd2d1d150",
     "name": "小黑怪诞正文配图",
     "type": "character_ip",
     "description": "为中文文章生成白底手绘、怪诞清爽的 16:9 正文配图：小黑 IP + 风格 DNA + 完整生产工作流，@ 一下即可产出风格一致的系列图。",
+    "coverUrl": "",
+    "skillMd": "",
     "identity": {
-      "positioning": "中文知识型内容的正文配图体系",
       "audience": [
         "写中文文章、方法论、工作流内容的创作者"
       ],
+      "positioning": "中文知识型内容的正文配图体系",
       "tone": "怪诞、克制、手绘、清爽"
     }
   },
   "entityTypes": [
+    {
+      "id": "character",
+      "scope": "builtin",
+      "name": "人物",
+      "baseKind": "character",
+      "fields": [
+        {
+          "key": "appearance",
+          "label": "外貌与标志",
+          "type": "textarea",
+          "locked": true
+        },
+        {
+          "key": "personality",
+          "label": "性格",
+          "type": "textarea",
+          "locked": true
+        },
+        {
+          "key": "voice",
+          "label": "声音",
+          "type": "textarea",
+          "locked": true
+        },
+        {
+          "key": "invariants",
+          "label": "不可变特征",
+          "type": "textarea",
+          "invariant": true,
+          "locked": true
+        },
+        {
+          "key": "background",
+          "label": "背景",
+          "type": "media"
+        },
+        {
+          "key": "头像",
+          "label": "头像",
+          "type": "media",
+          "options": [
+            "image"
+          ]
+        }
+      ]
+    },
     {
       "id": "example",
       "scope": "custom",
@@ -42,221 +90,112 @@
   ],
   "relations": [
     {
-      "id": "r-01",
+      "id": "f97fce5d58dd500dd2d1d150:r-01",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-01-two-breakpoints",
-      "scope": null
+      "to": "example-01-two-breakpoints"
     },
     {
-      "id": "r-02",
+      "id": "f97fce5d58dd500dd2d1d150:r-02",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-02-minimum-loop",
-      "scope": null
+      "to": "example-02-minimum-loop"
     },
     {
-      "id": "r-03",
+      "id": "f97fce5d58dd500dd2d1d150:r-03",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-03-sort-by-purpose",
-      "scope": null
+      "to": "example-03-sort-by-purpose"
     },
     {
-      "id": "r-04",
+      "id": "f97fce5d58dd500dd2d1d150:r-04",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-04-one-fish-many-uses",
-      "scope": null
+      "to": "example-04-one-fish-many-uses"
     },
     {
-      "id": "r-05",
+      "id": "f97fce5d58dd500dd2d1d150:r-05",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-05-handoff-path",
-      "scope": null
+      "to": "example-05-handoff-path"
     },
     {
-      "id": "r-06",
+      "id": "f97fce5d58dd500dd2d1d150:r-06",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-06-three-sources",
-      "scope": null
+      "to": "example-06-three-sources"
     },
     {
-      "id": "r-07",
+      "id": "f97fce5d58dd500dd2d1d150:r-07",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-07-three-content-jobs",
-      "scope": null
+      "to": "example-07-three-content-jobs"
     },
     {
-      "id": "r-08",
+      "id": "f97fce5d58dd500dd2d1d150:r-08",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-08-handoff-copy-toolbox",
-      "scope": null
+      "to": "example-08-handoff-copy-toolbox"
     },
     {
-      "id": "r-09",
+      "id": "f97fce5d58dd500dd2d1d150:r-09",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-09-common-pits-no-title",
-      "scope": null
+      "to": "example-09-common-pits-no-title"
     },
     {
-      "id": "r-10",
+      "id": "f97fce5d58dd500dd2d1d150:r-10",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-10-information-well",
-      "scope": null
+      "to": "example-10-information-well"
     },
     {
-      "id": "r-11",
+      "id": "f97fce5d58dd500dd2d1d150:r-11",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-11-idea-press",
-      "scope": null
+      "to": "example-11-idea-press"
     },
     {
-      "id": "r-12",
+      "id": "f97fce5d58dd500dd2d1d150:r-12",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-12-content-fermentation",
-      "scope": null
+      "to": "example-12-content-fermentation"
     },
     {
-      "id": "r-13",
+      "id": "f97fce5d58dd500dd2d1d150:r-13",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-13-system-bearing",
-      "scope": null
+      "to": "example-13-system-bearing"
     },
     {
-      "id": "r-14",
+      "id": "f97fce5d58dd500dd2d1d150:r-14",
       "type": "appears_in",
       "from": "xiaohei",
-      "to": "example-14-trust-bridge",
-      "scope": null
+      "to": "example-14-trust-bridge"
     },
     {
-      "id": "r-15",
-      "type": "references",
-      "from": "example-01-two-breakpoints",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-16",
-      "type": "references",
-      "from": "example-02-minimum-loop",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-17",
-      "type": "references",
-      "from": "example-03-sort-by-purpose",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-18",
-      "type": "references",
-      "from": "example-04-one-fish-many-uses",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-19",
-      "type": "references",
-      "from": "example-05-handoff-path",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-20",
-      "type": "references",
-      "from": "example-06-three-sources",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-21",
-      "type": "references",
-      "from": "example-07-three-content-jobs",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-22",
-      "type": "references",
-      "from": "example-08-handoff-copy-toolbox",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-23",
-      "type": "references",
-      "from": "example-09-common-pits-no-title",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-24",
-      "type": "references",
-      "from": "example-10-information-well",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-25",
-      "type": "references",
-      "from": "example-11-idea-press",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-26",
-      "type": "references",
-      "from": "example-12-content-fermentation",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-27",
-      "type": "references",
-      "from": "example-13-system-bearing",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-28",
-      "type": "references",
-      "from": "example-14-trust-bridge",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-29",
+      "id": "f97fce5d58dd500dd2d1d150:r-29",
       "type": "part_of",
       "from": "rule-color",
-      "to": "style-dna",
-      "scope": null
+      "to": "style-dna"
     },
     {
-      "id": "r-30",
+      "id": "f97fce5d58dd500dd2d1d150:r-30",
       "type": "part_of",
       "from": "rule-no-ppt",
-      "to": "style-dna",
-      "scope": null
+      "to": "style-dna"
     },
     {
-      "id": "r-31",
+      "id": "f97fce5d58dd500dd2d1d150:r-31",
       "type": "part_of",
       "from": "rule-format",
-      "to": "style-dna",
-      "scope": null
+      "to": "style-dna"
+    },
+    {
+      "id": "229e8d848cbed5b4d521b656",
+      "type": "风格",
+      "from": "xiaohei",
+      "to": "style-dna"
     }
   ],
   "provenance": {

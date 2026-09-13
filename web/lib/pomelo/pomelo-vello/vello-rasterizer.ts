@@ -1,6 +1,8 @@
 /*
  * [INPUT]: 依赖 pomelo-tiles/types、op-bridge
  * [OUTPUT]: 对外提供 VelloGpuRasterizer：TileRasterizer 的 vello(WASM/WebGPU) 实现。
+ *           direct 整场渲染之外提供内容会话（beginContentSession/renderContentSession/endContentSession）：
+ *           静态 chunk 渲成保留纹理，会话帧只重渲 live chunks 并合成，避免逐帧重编码整场。
  *           运行时经 /vello-wasm/*（wasm-pack 产物）动态加载；`isAvailable()` 检测 navigator.gpu + adapter。
  *           不可用时由宿主抛出 RendererUnsupportedError（不降级）。
  * [POS]: pomelo-vello 的 GPU 光栅器实现（M1）。
@@ -46,6 +48,9 @@ interface WasmRuntime {
   render_atomic_chunk(imageId: number, ops: Uint8Array, level: number, minX: number, minY: number, width: number, height: number): void;
   render_direct(ops: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
   render_frame(chunks: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
+  begin_content_session(chunks: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
+  render_content_session(chunks: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
+  end_content_session(): void;
   debug_image_test(): void;
   debug_tile_test(): number;
   debug_ops_test(ops: Uint8Array, level: number, minX: number, minY: number): number;
@@ -241,8 +246,8 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
     return true;
   }
 
-  renderFrame(chunks: RenderChunk[], viewport: Viewport): boolean {
-    // 每 chunk 记录 [u64 key][u32 len][bytes]；key 含内容哈希，内容变则缓存失效
+  /** 把 chunks 编码为 `[u64 key][u32 len][bytes]` 记录流；无绘制 op 时返回空流。 */
+  private encodeStream(chunks: RenderChunk[]): Uint8Array {
     let total = 0;
     const parts: Array<{ key: number; ops: Uint8Array }> = [];
     for (const chunk of chunks) {
@@ -252,7 +257,6 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
       parts.push({ key: hashChunk(chunk.id, ops), ops });
       total += 12 + ops.length;
     }
-    if (parts.length === 0) return true;
     const stream = new Uint8Array(total);
     const view = new DataView(stream.buffer);
     let offset = 0;
@@ -262,9 +266,43 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
       stream.set(part.ops, offset + 12);
       offset += 12 + part.ops.length;
     }
+    return stream;
+  }
+
+  private deviceViewport(viewport: Viewport): [number, number, number, number, number] {
     const dpr = this.dpr;
-    this.runtime.render_frame(stream, viewport.panX * dpr, viewport.panY * dpr, viewport.zoom * dpr, Math.max(1, Math.round(viewport.width * dpr)), Math.max(1, Math.round(viewport.height * dpr)));
+    return [
+      viewport.panX * dpr,
+      viewport.panY * dpr,
+      viewport.zoom * dpr,
+      Math.max(1, Math.round(viewport.width * dpr)),
+      Math.max(1, Math.round(viewport.height * dpr)),
+    ];
+  }
+
+  renderFrame(chunks: RenderChunk[], viewport: Viewport): boolean {
+    const stream = this.encodeStream(chunks);
+    if (stream.length === 0) return true;
+    const [px, py, pz, w, h] = this.deviceViewport(viewport);
+    this.runtime.render_frame(stream, px, py, pz, w, h);
     return true;
+  }
+
+  /** 拖拽内容会话：静态 chunks（JS 侧已排除被拖块/箭头）渲成保留纹理。 */
+  beginContentSession(staticChunks: RenderChunk[], viewport: Viewport): void {
+    const [px, py, pz, w, h] = this.deviceViewport(viewport);
+    this.runtime.begin_content_session(this.encodeStream(staticChunks), px, py, pz, w, h);
+  }
+
+  /** 会话帧：只重渲 live chunks，与静态快照合成上屏。 */
+  renderContentSession(liveChunks: RenderChunk[], viewport: Viewport): boolean {
+    const [px, py, pz, w, h] = this.deviceViewport(viewport);
+    this.runtime.render_content_session(this.encodeStream(liveChunks), px, py, pz, w, h);
+    return true;
+  }
+
+  endContentSession(): void {
+    this.runtime.end_content_session();
   }
 
   present(tiles: Array<{ handle: number }>, viewport: Viewport): void {

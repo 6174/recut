@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "05-handoff-path",
-        "kind": "image",
-        "name": "承接路径"
+        "asset": "examples-05-handoff-path"
       }
     }
   ]

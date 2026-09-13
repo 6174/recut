@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "11-idea-press",
-        "kind": "image",
-        "name": "想法压榨机"
+        "asset": "examples-11-idea-press"
       }
     }
   ]

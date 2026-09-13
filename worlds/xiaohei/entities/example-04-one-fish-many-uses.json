@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "04-one-fish-many-uses",
-        "kind": "image",
-        "name": "一鱼多吃"
+        "asset": "examples-04-one-fish-many-uses"
       }
     }
   ]

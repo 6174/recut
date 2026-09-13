@@ -2,7 +2,9 @@
  * [INPUT]: 依赖 pomelo-core（PomeloRendererAdapter / PomeloBlock）、pomelo-tiles（TileController）、
  *          vello-rasterizer、op-bridge
  * [OUTPUT]: 对外提供 VelloRendererAdapter：pomelo 的渲染器适配层——接管 vdom diff/patch 后的 block 树，
- *           把 VelloBlock 的绘制 op 汇总成 chunk 交给 TileController 瓦片渲染（仅 vello/WebGPU）。
+ *           把 VelloBlock 的绘制 op 汇总成 chunk 交给 TileController 渲染（仅 vello/WebGPU）。
+ *           拖拽内容会话（beginContentSession/endContentSession）：被拖块+随动箭头走 live 层，
+ *           静态内容只在会话开始时渲染一次；视口/尺寸/结构变化自动结束会话回退整场渲染。
  *           WebGPU 不可用时不降级，抛 RendererUnsupportedError，由宿主提示用户升级浏览器。
  * [POS]: pomelo-vello 的适配器实现（M2 接入层）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -156,7 +158,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       rasterizer,
       budgetMs: 5,
       maxJobsPerFrame: 32,
-      direct: true,
+      direct: false,
     });
     // BlockPatcher 广播失效 → 只处理受影响的 block（增量），避免全量扫描比对
     this.onBlockInvalidated = (blockId, kind) => {
@@ -215,8 +217,25 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     this.dirty = true;
   }
 
+  /**
+   * 拖拽内容会话：excludedBlockIds（被拖块 + 随动箭头）每帧走 live 层，
+   * 其余静态内容只在会话开始时渲染一次。视口/尺寸/结构变化会自动结束会话。
+   */
+  beginContentSession(excludedBlockIds: string[]): void {
+    this.controller?.beginContentSession(excludedBlockIds);
+    this.dirty = true;
+  }
+
+  endContentSession(): void {
+    if (!this.controller) return;
+    this.controller.endContentSession();
+    this.dirty = true;
+  }
+
   setTransform(x: number, y: number, scale: number): void {
     if (!this.viewport) return;
+    // 视口一动，静态快照失效：先结束内容会话，本帧回退整场渲染
+    this.endContentSession();
     const scaleChanged = this.transform.scale !== scale;
     this.viewport = { ...this.viewport, panX: x, panY: y, zoom: scale };
     this.transform = { x, y, scale };
@@ -253,6 +272,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
 
   setContainerSize(width: number, height: number): void {
     if (!this.rasterizer || !this.viewport) return;
+    // 尺寸变化会让静态快照的整屏 quad 不再匹配，先结束会话
+    this.endContentSession();
     this.rasterizer.resize(width, height, this.viewport.dpr);
     this.viewport = { ...this.viewport, width, height };
     this.dirty = true;
@@ -265,12 +286,15 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     const controller = this.controller;
     if (!controller) return;
     let changed = false;
+    // 结构变化（增/删 chunk）会让会话静态快照失效：结束后本帧回退整场渲染
+    let structural = false;
 
     for (const id of this.removedBlocks) {
       if (this.synced.has(id)) {
         controller.removeChunk(id);
         this.synced.delete(id);
         changed = true;
+        structural = true;
       }
     }
     this.removedBlocks.clear();
@@ -293,6 +317,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
         if (!entry) {
           controller.addChunk({ id, nodeIds: [id], bounds, zIndex, estimatedCost, payload });
           this.synced.set(id, { draw: block.drawVersion, position: block.boundsVersion });
+          structural = true;
         } else {
           controller.invalidateChunk(id, { bounds, zIndex, estimatedCost, payload });
           entry.draw = block.drawVersion;
@@ -313,8 +338,11 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
         controller.removeChunk(id);
         this.synced.delete(id);
         changed = true;
+        structural = true;
       }
     }
+
+    if (structural) this.controller?.endContentSession();
 
     if (changed) {
       this.contentGeneration++;

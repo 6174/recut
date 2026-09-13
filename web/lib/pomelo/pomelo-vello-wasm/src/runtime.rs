@@ -28,6 +28,17 @@ struct TileEntry {
     bleed: f32,
 }
 
+/// 拖拽内容会话：会话开始时把「静态 chunk（不含被拖块及随动箭头）」渲成一张保留全屏纹理；
+/// 会话期间每帧只重渲 live chunk，再与静态快照合成上屏。避免 direct 模式逐帧重编码整场
+/// （vello `resolve_patches` 的 glyph/blur patch 解析是按整场内容线性、每帧重来）。
+struct ContentSession {
+    /// 合成器句柄（静态快照全屏 quad）
+    handle: u32,
+    view: wgpu::TextureView,
+    /// 显式持有纹理，保证其在会话期间存活
+    _texture: wgpu::Texture,
+}
+
 #[wasm_bindgen]
 pub struct VelloRuntime {
     device: wgpu::Device,
@@ -41,6 +52,7 @@ pub struct VelloRuntime {
     fallbacks: HashMap<u32, u32>,
     images: HashMap<u32, ImageData>,
     chunk_scenes: HashMap<u64, Scene>,
+    content_session: Option<ContentSession>,
     next_handle: u32,
     clear: wgpu::Color,
     clear_color: Color,
@@ -119,6 +131,7 @@ impl VelloRuntime {
             fallbacks: HashMap::new(),
             images: HashMap::new(),
             chunk_scenes: HashMap::new(),
+            content_session: None,
             next_handle: 1,
             clear: wgpu::Color { r: 11.0 / 255.0, g: 15.0 / 255.0, b: 25.0 / 255.0, a: 1.0 },
             clear_color: Color::from_rgba8(11, 15, 25, 255),
@@ -297,16 +310,12 @@ impl VelloRuntime {
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &draws)
     }
 
-    /// 每帧整场渲染（open-pencil layer-1 思路）：对每个 chunk，命中缓存则复用其 Scene，
-    /// 否则解码构建（世界坐标）并缓存；全部 append 进一个 Scene，按视口变换一次渲染并整屏贴。
-    /// 入参 chunks 为 `[u64 key][u32 len][bytes...]` 重复的记录流。
-    pub fn render_frame(&mut self, chunks: Vec<u8>, pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32) -> Result<(), JsValue> {
-        let width = width.max(1);
-        let height = height.max(1);
+    /// 由 `[u64 key][u32 len][bytes...]` chunk 记录流构建一个 Scene：每个 chunk 命中缓存则复用
+    /// 其 Scene（世界坐标），否则解码构建并缓存；统一按 `transform` 施加视口变换。
+    fn build_stream_scene(&mut self, chunks: &[u8], transform: Affine) -> Result<Scene, JsValue> {
         let mut cursor = 0usize;
         let mut seen: Vec<u64> = Vec::new();
         let mut scene = Scene::new();
-        let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
         while cursor + 12 <= chunks.len() {
             let key = u64::from_le_bytes(chunks[cursor..cursor + 8].try_into().unwrap());
             let len = u32::from_le_bytes(chunks[cursor + 8..cursor + 12].try_into().unwrap()) as usize;
@@ -336,7 +345,11 @@ impl VelloRuntime {
             let keep: std::collections::HashSet<u64> = seen.into_iter().collect();
             self.chunk_scenes.retain(|k, _| keep.contains(k));
         }
+        Ok(scene)
+    }
 
+    /// 把 Scene 光栅到一张新的离屏纹理（透明底），返回纹理与其 view。
+    fn render_scene_to_texture(&mut self, scene: &Scene, width: u32, height: u32) -> Result<(wgpu::Texture, wgpu::TextureView), JsValue> {
         let texture = self.device.create_texture(&TextureDescriptor {
             label: Some("pomelo-vello-frame"),
             size: Extent3d { width, height, depth_or_array_layers: 1 },
@@ -346,14 +359,73 @@ impl VelloRuntime {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &RenderParams {
+        self.renderer.render_to_texture(&self.device, &self.queue, scene, &view, &RenderParams {
             base_color: Color::from_rgba8(0, 0, 0, 0), width, height, antialiasing_method: AaConfig::Area,
         }).map_err(js_err)?;
+        Ok((texture, view))
+    }
+
+    /// 每帧整场渲染（open-pencil layer-1 思路）：命中缓存复用 chunk Scene，全部 append 进一个
+    /// Scene，按视口变换一次渲染并整屏贴。入参 chunks 为 `[u64 key][u32 len][bytes...]` 记录流。
+    pub fn render_frame(&mut self, chunks: Vec<u8>, pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32) -> Result<(), JsValue> {
+        let width = width.max(1);
+        let height = height.max(1);
+        let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
+        let scene = self.build_stream_scene(&chunks, transform)?;
+        let (texture, view) = self.render_scene_to_texture(&scene, width, height)?;
         let handle = self.next_handle; self.next_handle += 1;
         let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0] };
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])?;
         self.compositor.dispose(handle);
+        drop(texture);
         Ok(())
+    }
+
+    /// 开启拖拽内容会话：把静态 chunk（不含被拖块及随动箭头，JS 侧已过滤）渲成一张保留全屏纹理。
+    /// 会话期间不逐帧重编码静态内容，`resolve_patches` 不再按整场重复解析。
+    pub fn begin_content_session(&mut self, chunks: Vec<u8>, pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32) -> Result<(), JsValue> {
+        self.end_content_session();
+        let width = width.max(1);
+        let height = height.max(1);
+        let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
+        let scene = self.build_stream_scene(&chunks, transform)?;
+        let (texture, view) = self.render_scene_to_texture(&scene, width, height)?;
+        let handle = self.next_handle;
+        self.next_handle += 1;
+        self.content_session = Some(ContentSession { handle, view, _texture: texture });
+        Ok(())
+    }
+
+    /// 会话帧：只重渲 live chunk，再与静态快照一起合成上屏（背景 clear + 快照 quad + live quad）。
+    pub fn render_content_session(&mut self, live_chunks: Vec<u8>, pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32) -> Result<(), JsValue> {
+        let width = width.max(1);
+        let height = height.max(1);
+        let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
+        let live_scene = self.build_stream_scene(&live_chunks, transform)?;
+        let (live_texture, live_view) = self.render_scene_to_texture(&live_scene, width, height)?;
+        let live_handle = self.next_handle;
+        self.next_handle += 1;
+        let session = match self.content_session.as_ref() {
+            Some(session) => session,
+            None => return Err(JsValue::from_str("render_content_session: no active content session")),
+        };
+        let rect = [0.0f32, 0.0f32, width as f32, height as f32];
+        let uv = [0.0f32, 0.0f32, 1.0f32, 1.0f32];
+        let draws = [
+            QuadDraw { handle: session.handle, view: &session.view, rect, uv },
+            QuadDraw { handle: live_handle, view: &live_view, rect, uv },
+        ];
+        present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &draws)?;
+        self.compositor.dispose(live_handle);
+        drop(live_texture);
+        Ok(())
+    }
+
+    /// 结束内容会话并释放静态快照纹理与其合成绑定。
+    pub fn end_content_session(&mut self) {
+        if let Some(session) = self.content_session.take() {
+            self.compositor.dispose(session.handle);
+        }
     }
 
     /// 导航期整场直绘：把所有可见 chunk 的 op 合成一个 Scene，按视口变换一次渲染到离屏纹理，

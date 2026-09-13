@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "02-minimum-loop",
-        "kind": "image",
-        "name": "最小闭环"
+        "asset": "examples-02-minimum-loop"
       }
     }
   ]

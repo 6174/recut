@@ -4,7 +4,8 @@
  * load(true)；T2 面板动作 saveEntityField/confirmEntity/deleteEntity/updateWorldMeta；T3 创建系统
  * createEntity/createChildEntity 草稿化 + 命名态 + 创建/右键菜单状态；T4 就地编辑 inlineEdit；T6 容器
  * 视图默认包含容器自身 entity（load 时把 context 实体 unshift 进 entities）：会话配置（open）、当前上下文的实体/画布元素/关系/
- * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框，含详情面板停靠侧 panelSide 左右可切并持久化）
+ * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框，含详情面板停靠侧 panelSide 左右可切并持久化；
+ * 多选 selectedIds 为 pomelo block id 集合，select 单选/selectMany 框选保持同步）
  * 与全部写动作（关系原位改 updateRelation：类型/方向 patch，保留 id/scope 与画布锚点）；画布元素写 world_canvas 不产 revision，
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
  * 画布存储为文档粒度（RFC 2026-09-09）：一张画布 = 一个 Document，canvas.get/save 整包读写 + version 乐观锁；
@@ -88,6 +89,43 @@ export const DEFAULT_ENTITY_SIZE = { width: 264, height: 328 };
 export const NOTE_SIZE = { width: 150, height: 100 };
 export const WORLD_ELEMENT_ID = "shape:world";
 export const WORLD_NODE_SIZE = { width: 200, height: 200 };
+
+// 多选集以 pomelo block id 为准（`entity:<entityId>` / `shape:world` / 自由元素 id / `arrow:<relationId>`），
+// 与 CanvasBindsPlugin 的命中空间一致；单选用 CanvasSelection 承载，二者由 select/selectMany 保持同步。
+export function canvasSelectionBlockId(selection: CanvasSelection): string | null {
+  if (!selection) return null;
+  if (selection.type === "entity") return `entity:${selection.entity.id}`;
+  if (selection.type === "world") return WORLD_ELEMENT_ID;
+  if (selection.type === "relation") return `arrow:${selection.relation.id}`;
+  return selection.element.id;
+}
+
+// block id → CanvasSelection（框选/Shift 点选落回单选的解析出口）；对象已不在当前层时返回 null。
+function resolveBlockSelection(
+  state: Pick<WorldCanvasState, "entities" | "elements" | "relations">,
+  blockId: string,
+): CanvasSelection {
+  if (blockId === WORLD_ELEMENT_ID) return { type: "world" };
+  if (blockId.startsWith("arrow:")) {
+    const relation = state.relations.find((item) => item.id === blockId.slice("arrow:".length));
+    return relation ? { type: "relation", relation } : null;
+  }
+  if (blockId.startsWith("entity:")) {
+    const entity = state.entities.find((item) => item.id === blockId.slice("entity:".length));
+    return entity ? { type: "entity", entity } : null;
+  }
+  const element = state.elements.find((item) => item.id === blockId);
+  if (!element) return null;
+  // 自由箭头两端的实体引用（props.fromElementId/toElementId 可能是元素 id，需按 entities 成员判定）
+  const entityRef = (value: unknown): string | undefined => {
+    const text = typeof value === "string" ? value : "";
+    const id = text.replace(/^(shape|entity):/, "");
+    return id !== text && state.entities.some((item) => item.id === id) ? id : undefined;
+  };
+  const fromEntityId = element.kind === "arrow" ? entityRef(element.props?.fromElementId) : undefined;
+  const toEntityId = element.kind === "arrow" ? entityRef(element.props?.toElementId) : undefined;
+  return { type: "canvas", element, ...(fromEntityId ? { fromEntityId } : {}), ...(toEntityId ? { toEntityId } : {}) };
+}
 
 // 实体类型 → 卡片描边色；颜色只表达类型，不承载关系语义（RFC 视觉语言）。
 export const typeColors: Record<string, string> = {
@@ -455,6 +493,8 @@ type WorldCanvasState = {
   notice: string;
   zoom: number;
   selection: CanvasSelection;
+  // 多选集（pomelo block id）：框选 / Shift 点选写入；length>1 时详情面板显示汇总，拖拽/删除按集合批量执行。
+  selectedIds: string[];
   relatingFrom: string | null;
   relatingTo: string | null;
   creating: boolean;
@@ -471,6 +511,8 @@ type WorldCanvasState = {
   inlineEdit: InlineEdit;
   // 删除确认对话框目标（T2：展示影响范围后确认）
   deleteTarget: WorldEntity | null;
+  // 多选删除确认（框选/Shift 点选）：非空时对话框层渲染批量删除确认（与单设定删除同款弹框，不用 window.confirm）
+  deleteSelectionIds: string[] | null;
   // 「添加字段」对话框目标 kind（类型级字段，T2）
   addFieldFor: string | null;
   // 创建菜单锚点（T3）：screen 坐标；null = 视口中心（顶栏 + 按钮）
@@ -490,6 +532,8 @@ type WorldCanvasState = {
   zoomOut: () => void;
   resetZoom: () => void;
   select: (selection: CanvasSelection) => void;
+  // 框选/多选入口：写入 block id 集合；恰好一项时解析为单选（面板/手柄按单选工作），多项时 selection 置空。
+  selectMany: (blockIds: string[]) => void;
   startRelating: (entityId: string) => void;
   pickRelatingTarget: (entityId: string) => void;
   cancelRelating: () => void;
@@ -545,6 +589,10 @@ type WorldCanvasState = {
   // World 名称/简介编辑（World 态面板）
   updateWorldMeta: (patch: { name?: string; description?: string; skillMd?: string }) => Promise<void>;
   setDeleteTarget: (entity: WorldEntity | null) => void;
+  // 打开/关闭多选删除确认弹框
+  setDeleteSelectionIds: (ids: string[] | null) => void;
+  // 执行多选删除：关系/自由元素直接删；设定默认 deleteEntity（hideEntities=true 时仅从画布移除）；完成后清空多选集
+  deleteSelection: (ids: string[], opts?: { hideEntities?: boolean }) => Promise<void>;
   setAddFieldFor: (kind: string | null) => void;
   // T8 媒体：素材来源浮层（仅独立素材；实体媒体 = media 属性，无独立「挂接目标」状态）与预览浮层
   mediaSource: { modality?: "image" | "video" | "audio" } | null;
@@ -616,6 +664,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   notice: "",
   zoom: 1,
   selection: null,
+  selectedIds: [],
   relatingFrom: null,
   relatingTo: null,
   creating: false,
@@ -626,6 +675,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   pendingRelation: null,
   inlineEdit: null,
   deleteTarget: null,
+  deleteSelectionIds: null,
   addFieldFor: null,
   mediaSource: null,
   mediaPreview: null,
@@ -666,6 +716,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       zoom: 1,
       aiLocked: false,
       selection: null,
+      selectedIds: [],
       relatingFrom: null,
       relatingTo: null,
       creating: false,
@@ -674,6 +725,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       pendingRelation: null,
       inlineEdit: null,
       deleteTarget: null,
+      deleteSelectionIds: null,
       addFieldFor: null,
       mediaSource: null,
       mediaPreview: null,
@@ -760,6 +812,10 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           ? { type: "canvas", element: matched, ...(currentSelection.fromEntityId ? { fromEntityId: currentSelection.fromEntityId } : {}), ...(currentSelection.toEntityId ? { toEntityId: currentSelection.toEntityId } : {}) }
           : null;
       }
+      // 多选集同样按 id 过滤：远端刷新后已消失的条目从集合剔除，避免指向旧快照
+      const nextSelectedIds = get().selectedIds.filter(
+        (id) => resolveBlockSelection({ entities, elements: nextElements, relations: visibleRelations }, id) !== null,
+      );
       set({
         entities,
         elements: nextElements,
@@ -769,6 +825,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         entityTypes: entityTypeData.items ?? [],
         dataVersion: get().dataVersion + 1,
         selection: nextSelection,
+        selectedIds: nextSelectedIds,
         ...(force ? { notice: "" } : {}),
       });
     } catch (cause) {
@@ -800,7 +857,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       // 已在路径中 = 向上（面包屑点击）截断；否则 = 向下进入，追加一级
       nextTrail = idx >= 0 ? trail.slice(0, idx + 1) : [...trail, context];
     }
-    set({ context, contextTrail: nextTrail, selection: null, relatingFrom: null, relatingTo: null, inlineEdit: null });
+    set({ context, contextTrail: nextTrail, selection: null, selectedIds: [], relatingFrom: null, relatingTo: null, inlineEdit: null });
     void get().load(true);
   },
 
@@ -823,16 +880,31 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     if (!trail.length) return;
     const nextTrail = trail.slice(0, -1);
     const context = nextTrail.length ? nextTrail[nextTrail.length - 1] : null;
-    set({ context, contextTrail: nextTrail, selection: null, relatingFrom: null, relatingTo: null, inlineEdit: null });
+    set({ context, contextTrail: nextTrail, selection: null, selectedIds: [], relatingFrom: null, relatingTo: null, inlineEdit: null });
     void get().load(true);
   },
   zoomIn: () => set((state) => ({ zoom: Math.min(2, state.zoom + 0.2) })),
   zoomOut: () => set((state) => ({ zoom: Math.max(0.4, state.zoom - 0.2) })),
   resetZoom: () => set({ zoom: 1 }),
-  // 选中元素 = 自动打开属性面板（T17：空选回落 World 态属性）；点空白清选不关面板
+  // 选中元素 = 自动打开属性面板（T17：空选回落 World 态属性）；点空白清选不关面板。
+  // 单选取代多选：selectedIds 归一为该项（无则清空），保证 overlay/批量操作以单选为准。
   select: (selection) =>
-    set((state) => ({ selection, panelOpen: selection ? true : state.panelOpen })),
-  startRelating: (entityId) => set({ relatingFrom: entityId, relatingTo: null, selection: null }),
+    set((state) => ({
+      selection,
+      selectedIds: selection ? ([canvasSelectionBlockId(selection)].filter(Boolean) as string[]) : [],
+      panelOpen: selection ? true : state.panelOpen,
+    })),
+  // 框选落点：集合去重后，恰好一项解析为单选，多项时 selection 置空由面板汇总呈现
+  selectMany: (blockIds) =>
+    set((state) => {
+      const unique = [...new Set(blockIds)];
+      return {
+        selectedIds: unique,
+        selection: unique.length === 1 ? resolveBlockSelection(state, unique[0]) : null,
+        panelOpen: unique.length > 0 ? true : state.panelOpen,
+      };
+    }),
+  startRelating: (entityId) => set({ relatingFrom: entityId, relatingTo: null, selection: null, selectedIds: [] }),
   pickRelatingTarget: (entityId) => {
     const { relatingFrom } = get();
     if (!relatingFrom || relatingFrom === entityId) return;
@@ -843,7 +915,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   // 「+」引导菜单锚点；宿主组件以屏幕坐标渲染引导面板
   setAttrCreator: (attrCreator) => set({ attrCreator }),
 
-  setLinkMode: (linkMode) => set({ linkMode, selection: linkMode ? null : get().selection }),
+  setLinkMode: (linkMode) => set({ linkMode, ...(linkMode ? { selection: null, selectedIds: [] } : {}) }),
 
   setPanMode: (panMode) => set({ panMode }),
 
@@ -1101,6 +1173,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         creating: false,
         creatingAt: null,
         selection: { type: "entity", entity },
+        selectedIds: [`entity:${entity.id}`],
       }));
       saveLastKind(kind);
       get().logChange(`创建「${entity.name}」`, () => void get().deleteEntity(entity.id));
@@ -1154,6 +1227,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         creating: false,
         creatingAt: null,
         selection: { type: "entity", entity: child },
+        selectedIds: [`entity:${child.id}`],
       }));
       saveLastKind(kind);
       get().logChange(`创建「${child.name}」`, () => void get().deleteEntity(child.id));
@@ -1203,8 +1277,13 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     set((state) => ({
       elements: state.elements.filter((element) => element.id !== id),
       dataVersion: state.dataVersion + 1,
+      selectedIds: state.selectedIds.filter((item) => item !== id),
       selection:
-        state.selection?.type === "entity" && id === `shape:${state.selection.entity.id}` ? null : state.selection,
+        state.selection?.type === "canvas" && state.selection.element.id === id
+          ? null
+          : state.selection?.type === "entity" && id === `shape:${state.selection.entity.id}`
+            ? null
+            : state.selection,
     }));
     scheduleCanvasSave();
   },
@@ -1331,6 +1410,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       set((state) => ({
         relations: state.relations.filter((relation) => relation.id !== relationId),
         dataVersion: state.dataVersion + 1,
+        selectedIds: state.selectedIds.filter((item) => item !== `arrow:${relationId}`),
+        selection:
+          state.selection?.type === "relation" && state.selection.relation.id === relationId ? null : state.selection,
       }));
       const removed = get().relations.find((relation) => relation.id === relationId);
       if (removed) {
@@ -1449,6 +1531,27 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   setPromoting: (promotingId) => set({ promotingId }),
   setPendingRelation: (pendingRelation) => set({ pendingRelation }),
   setDeleteTarget: (deleteTarget) => set({ deleteTarget }),
+  setDeleteSelectionIds: (deleteSelectionIds) => set({ deleteSelectionIds }),
+  // 多选删除执行（确认弹框触发）：按序执行规避 revision 冲突；hideEntities 时设定仅从画布移除。
+  deleteSelection: async (ids, opts = {}) => {
+    set({ deleteSelectionIds: null });
+    const unique = [...new Set(ids)];
+    const relationIds = unique.filter((id) => id.startsWith("arrow:")).map((id) => id.slice("arrow:".length));
+    const entityIds = unique.filter((id) => id.startsWith("entity:")).map((id) => id.slice("entity:".length));
+    const elementIds = unique.filter((id) => !id.startsWith("arrow:") && !id.startsWith("entity:") && id !== WORLD_ELEMENT_ID);
+    for (const id of relationIds) await get().removeRelation(id);
+    for (const id of elementIds) await get().removeElement(id);
+    for (const id of entityIds) {
+      if (opts.hideEntities) await get().hideEntityFromCanvas(id);
+      else await get().deleteEntity(id);
+    }
+    get().selectMany([]);
+    if (opts.hideEntities && entityIds.length > 0) {
+      get().toast(`已从画布移除 ${entityIds.length} 个设定（设定保留），并删除其余 ${unique.length - entityIds.length} 项`, "success");
+    } else {
+      get().toast(`已删除 ${unique.length} 项`, "success");
+    }
+  },
   setAddFieldFor: (addFieldFor) => set({ addFieldFor }),
 
   // 就地编辑（T4）：状态由插件双击写入，宿主渲染 DOM 编辑器；提交经 persistGeometry（props.text）
@@ -1652,6 +1755,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         elements: state.elements.filter((element) => !(element.refKind === "entity" && element.refId === entityId)),
         relations: state.relations.filter((relation) => relation.fromEntityId !== entityId && relation.toEntityId !== entityId),
         selection: state.selection?.type === "entity" && state.selection.entity.id === entityId ? null : state.selection,
+        selectedIds: state.selectedIds.filter((item) => item !== `entity:${entityId}` && item !== `shape:${entityId}`),
         dataVersion: state.dataVersion + 1,
       }));
     } catch (cause) {
@@ -1701,6 +1805,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       });
       set((state) => ({
         selection: state.selection?.type === "entity" && state.selection.entity.id === entityId ? null : state.selection,
+        selectedIds: state.selectedIds.filter((item) => item !== `entity:${entityId}` && item !== `shape:${entityId}`),
       }));
     } catch (cause) {
       applyCanvasError(cause);

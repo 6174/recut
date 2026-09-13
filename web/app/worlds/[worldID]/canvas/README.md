@@ -6,12 +6,12 @@ Recursive World Canvas（RFC 2026-09-07）的全屏画布模式：pomelo（pixi 
 
 成员清单
 
-canvas-store.ts: 画布 zustand 状态层；会话配置（open）、当前上下文（全局/实体容器）的实体/画布元素/关系/类型目录、视图状态（缩放/选中/连线草稿/对话框）与全部写动作；语义写带 revision 冲突重试，附几何工具函数与尺寸常量。
+canvas-store.ts: 画布 zustand 状态层；会话配置（open）、当前上下文（全局/实体容器）的实体/画布元素/关系/类型目录、视图状态（缩放/选中/多选 selectedIds/连线草稿/对话框）与全部写动作；`selection`（单选 CanvasSelection）与 `selectedIds`（多选 pomelo block id 集合）由 `select`/`selectMany` 保持同步（恰好一项回落单选，多项时 selection 置空由面板汇总），删除/重载时按 id 清理集合；语义写带 revision 冲突重试，附几何工具函数与尺寸常量。
 canvas-top-bar.tsx: 世界画布顶层工具栏行（渲染进 Workspace 全局 Header）：useWorldCanvasTopBarStore 以 variant=canvas|form 双视图注册——画布挂载经 setActive 注册 canvas variant（左侧返回/面包屑/notice），world-detail-client 在设定视图经 setFormMode 注册 form variant（同一行结构、无画布工具）；WorldCanvasToolbar 包装画布工具组 + 只读徽标 + 关系引导，仅 canvas variant，由 page.tsx 的 Header 居中列渲染（三列 grid，工具组相对于整个 Header 居中，与左侧面包屑、右侧全局操作解耦）；WorldCanvasShareButton 在右侧渲染视图切换（canvas→「设定视图」、form→「画布视图」），两种视图切换位置一致。
 canvas-toolbar.tsx: 画布工具组（CanvasToolbarItems，无浮动容器）：由 canvas-top-bar.tsx 的 WorldCanvasToolbar 包装后居中渲染进页面最顶 Header——选择/抓手模式（panMode 读自 canvas-store，全画布平移 overlay 由 canvas-pomelo.tsx 的 PanOverlay 承载）、连线工具（canvas-store.linkMode → CanvasBindsPlugin 点击节点拖出引导线，一次性后自动回选择模式）、「＋」创建菜单入口（B.7，独立插入按钮已收敛进创建菜单）、undo/redo（内存投影）、缩放菜单（放大/缩小/50%/100%/200%/适应项目/适应所选内容/对齐到网格开关）与帮助面板。pomelo 编辑器实例由 canvas-pomelo 挂载后经 setEditor 登记进 canvas-store。
 canvas-pomelo.tsx: pomelo 底座：canvas-store → pomelo 文档按 block id diff 增量同步（T1：新增/删除/属性更新三路对账，不再全量重建，消除写后闪烁与重复图片请求；buildPomeloRecords）；ViewportPlugin 平移缩放 + CanvasBindsPlugin 交互绑定；底部浮动工具栏 CanvasFloatingToolbar；自由元素 note/text/shape→FreeElementBlock，绑定两实体的自由箭头复用 RelationArrowBlock 投影。
-canvas-pomelo-plugin.ts: 画布交互绑定层：点击命中 → CanvasSelection 解析（驱动右侧面板）；拖拽位移 + 四角 resize 经 moveElement + persistGeometry（400ms 去抖）持久化；双击实体卡进入容器、双击空白 = 最近类型快捷建卡（Alt = 创建菜单）、双击便签/文本 = 就地编辑、双击图片节点（独立媒体卡 / 图片属性卡）= 全局素材弹框换图（setMediaPicker，与面板「素材库」同源）；右键 = 上下文菜单；Delete/Backspace 删关系/草稿（实体走删除确认）；选区 overlay 屏幕 space 绘制。
-canvas-detail-panel.tsx: 右侧详情面板壳（空选 = World 态常显）；四类选中体路由到 panel/ 子组件（world/entity/relation/element），编辑主场在 panel/* 内聚实现（B.8）。
+canvas-pomelo-plugin.ts: 画布交互绑定层：点击命中 → CanvasSelection 解析（驱动右侧面板）；空白拖拽 = 框选（与选框有交集即选中：节点按矩形重叠、关系/自由箭头按曲线与选框相交；Shift 追加框选、Shift 点选增删），命中写入 store.selectMany（恰好一项回落单选）；多选下拖拽整体位移、Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，与单设定删除同款，不用 window.confirm）；拖拽位移 + 四角 resize 经 moveElement + persistGeometry（400ms 去抖）持久化；双击实体卡进入容器、双击空白 = 最近类型快捷建卡（Alt = 创建菜单）、双击便签/文本 = 就地编辑、双击图片节点（独立媒体卡 / 图片属性卡）= 全局素材弹框换图（setMediaPicker，与面板「素材库」同源）；右键 = 上下文菜单；Delete/Backspace 删关系/草稿（实体走删除确认）；选区/框选 overlay 屏幕 space 绘制。
+canvas-detail-panel.tsx: 右侧详情面板壳（空选 = World 态常显）；四类选中体路由到 panel/ 子组件（world/entity/relation/element），编辑主场在 panel/* 内聚实现（B.8）；多选（selectedIds.length>1）时渲染 MultiSelectionSummary 汇总（设定/关系/元素计数 + 逐项列表，点击回单选，底部清空）。
 canvas-dialogs.tsx: 对话框层；受控关系确认（RelateDialog，T5：Top4 候选/搜索/分组/自定义类型）、Promote 确认、删除设定确认（影响范围）、添加字段（类型级，类型：单行/多行/数字/开关/素材（media，assetKind 经 options 携带））与创建菜单/右键菜单挂载（canvas-create-menu.tsx / canvas-context-menu.tsx）。
 canvas-relation-candidates.ts: 关系候选 Top4 映射表（B.10 产品资产）与分组色转出；canvas-toast.tsx: 左下 toast 队列（B.4 反馈分级，3s 自消）。
 index.tsx: 组合根；经 portal 挂载到工作台内容区（#workspace-content-region，避让全局 Header 与左侧 Chat），组合 toolbar + pomelo host + panel + dialogs，WorldCanvas 唯一出口。
@@ -21,6 +21,7 @@ index.tsx: 组合根；经 portal 挂载到工作台内容区（#workspace-conte
 - 数据流：组件只读 `useWorldCanvasStore` 快照并触发动作，绝不直接调用 recut-worlds-client 写接口。
 - pomelo block id 约定：实体 `entity:<entityId>`（元素 id 仍为 `shape:<entityId>`）、World 节点 `shape:world`、自由元素直接用 world_canvas 元素 id、语义关系边 block id = `arrow:<relationId>`。
 - pomelo 文档是内存投影：拖拽/resize 增量提交仅在文档内，pointerup 落回 canvas-store 持久化，异常时可随时全量重建。
+- 多选/框选：空白拖拽拉框，与选框有交集即命中——节点按矩形重叠、关系/自由箭头按贝塞尔曲线采样成折线与选框相交；`store.selectedIds` 存 block id，恰好一项时解析为单选（面板/手柄按单选工作），多项时面板显示汇总；批量位移沿用 MoveDrag 的 `Map<blockId, origin>`；批量删除经 `deleteSelectionIds` 打开 DeleteSelectionConfirmDialog（按类型展示影响，含设定时可仅从画布移除），确认后 `deleteSelection` 按序执行。
 - 画布元素写入不产 revision；实体/关系/Promote 写入产出 revision，冲突时 refreshRevision 重试一次。
 - pomelo host 经 index.tsx 的 next/dynamic（ssr:false）挂载，禁止在服务端组件直接 import canvas-pomelo。
 - 已知 v1 差异：未绑定两端实体的自由箭头暂不渲染；连线锚点/弯曲拖拽只在内存投影内，不持久化。

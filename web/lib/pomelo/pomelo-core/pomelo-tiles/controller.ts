@@ -1,8 +1,9 @@
 /*
  * [INPUT]: 依赖 types、geometry、planner、scheduler、tile-cache、chunk-index、telemetry
  * [OUTPUT]: 对外提供 TileController：每帧编排（双代推进/失效应用/plan/enqueue/按预算执行/合成），
- *           以及 chunk 增删改与 position/content 失效。open-pencil tiles/controller.ts 直译，
- *           光栅器经 TileRasterizer seam 注入（vello）。
+ *           以及 chunk 增删改与 position/content 失效；direct 模式下支持拖拽内容会话
+ *           （beginContentSession/endContentSession：静态内容只渲一次，会话帧只重渲 live chunks）。
+ *           open-pencil tiles/controller.ts 直译，光栅器经 TileRasterizer seam 注入（vello）。
  * [POS]: pomelo-tiles 的编排核心；对上只暴露 renderFrame 与 chunk 操作，renderer 无关。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -78,6 +79,8 @@ export class TileController<TTarget, THandle> {
   private navigationGeneration = -1;
   private cancelledJobs = 0;
   private renderedThisFrame = 0;
+  /** 拖拽内容会话：静态内容渲染一次后复用；会话帧只重渲被拖块（含随动箭头）。 */
+  private contentSession: { excluded: Set<string>; started: boolean } | null = null;
 
   constructor(options: TileControllerOptions<TTarget, THandle>) {
     this.pageId = options.pageId;
@@ -136,11 +139,33 @@ export class TileController<TTarget, THandle> {
   }
 
   invalidateStructure(): void {
+    this.endContentSession();
     this.cancelledJobs += this.scheduler.clear();
     this.measuredCosts.clear();
     this.cache.clear();
     this.pendingInvalidations.length = 0;
     this.contentGeneration = -1;
+  }
+
+  // ---- 拖拽内容会话 ----
+
+  /**
+   * 开启内容会话：excludedIds 为「被拖块 + 随动箭头」，它们每帧重渲；其余静态内容只在会话开始时
+   * 渲染一次并复用。仅在 direct + 光栅器支持时生效。
+   */
+  beginContentSession(excludedIds: string[]): void {
+    if (!this.direct) return;
+    if (!this.rasterizer.beginContentSession || !this.rasterizer.renderContentSession) return;
+    const ids = excludedIds.filter(Boolean);
+    if (ids.length === 0) return;
+    this.contentSession = { excluded: new Set(ids), started: false };
+  }
+
+  /** 结束内容会话并释放静态快照。 */
+  endContentSession(): void {
+    if (!this.contentSession) return;
+    this.contentSession = null;
+    this.rasterizer.endContentSession?.();
   }
 
   // ---- 每帧 ----
@@ -154,6 +179,36 @@ export class TileController<TTarget, THandle> {
     const { viewport } = input;
     const level = tileLevel(viewport.zoom * viewport.dpr);
     const worldBounds = viewportWorldBounds(viewport.panX, viewport.panY, viewport.zoom, viewport.width, viewport.height);
+
+    // 拖拽内容会话：静态内容仅在会话开始时渲染一次；会话帧只重渲 live chunks 并合成静态快照。
+    // 避免 direct 模式逐帧把整场 chunk 重新 append/编码（vello resolve_patches 按整场内容每帧重复解析）。
+    if (this.direct && this.contentSession) {
+      const begin = this.rasterizer.beginContentSession?.bind(this.rasterizer);
+      const render = this.rasterizer.renderContentSession?.bind(this.rasterizer);
+      if (begin && render) {
+        const session = this.contentSession;
+        const chunks = this.index.search(worldBounds);
+        const isLive = (chunk: RenderChunk): boolean =>
+          session.excluded.has(chunk.id) || chunk.nodeIds.some((id) => session.excluded.has(id));
+        const live: RenderChunk[] = [];
+        if (!session.started) {
+          const statics: RenderChunk[] = [];
+          for (const chunk of chunks) (isLive(chunk) ? live : statics).push(chunk);
+          begin(statics, viewport);
+          session.started = true;
+        } else {
+          for (const chunk of chunks) if (isLive(chunk)) live.push(chunk);
+        }
+        render(live, viewport);
+        this.scheduler.clear();
+        const metrics = emptyTileSchedulerMetrics();
+        this.telemetry.record(
+          { contentGeneration: input.contentGeneration, navigationGeneration: input.navigationGeneration, navigationActive: input.navigationActive, metrics, tileCacheBytes: 0, tileCacheEntries: 0, visibleTileCount: chunks.length, presentedTileCount: live.length, covered: true, frameMs: performance.now() - frameStart },
+          live.length,
+        );
+        return { covered: true, pending: false, presented: live.length, rendered: live.length, metrics };
+      }
+    }
 
     // 直绘模式：每帧整场渲染（chunk Scene 缓存 + 单次 render pass）；无瓦片边界/丢图问题
     if (this.direct && this.rasterizer.renderFrame) {
@@ -172,8 +227,8 @@ export class TileController<TTarget, THandle> {
       }
     }
 
-    // 导航期优先整场直绘兜底（无空洞）；瓦片在落定后（navigationActive=false）再补齐
-    if (input.navigationActive && this.rasterizer.renderDirect) {
+    // [EXPERIMENT] 关闭 renderDirect 兜底，强制走瓦片缓存/更新策略
+    if (false && input.navigationActive && this.rasterizer.renderDirect) {
       const chunks = this.index.search(worldBounds);
       this.rasterizer.beginFrame(viewport);
       const handled = this.rasterizer.renderDirect(chunks, viewport);

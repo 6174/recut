@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "08-handoff-copy-toolbox",
-        "kind": "image",
-        "name": "承接话术工具箱"
+        "asset": "examples-08-handoff-copy-toolbox"
       }
     }
   ]

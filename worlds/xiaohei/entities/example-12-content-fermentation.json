@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "12-content-fermentation",
-        "kind": "image",
-        "name": "内容发酵"
+        "asset": "examples-12-content-fermentation"
       }
     }
   ]

@@ -3,7 +3,9 @@
  * canvas-store、world-canvas/blocks/entity-card-metrics（entityCardRect）与 arrow-geometry（共享几何）
  * [OUTPUT]: 对外提供 CanvasBindsPlugin：pomelo 画布与 canvas-store 的交互绑定层——
  * 点击命中选择（实体卡/便签/文本/形状/属性节点/World 节点/语义关系线/自由箭头）解析为
- * CanvasSelection 驱动右侧面板；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
+ * CanvasSelection 驱动右侧面板；空白拖拽 = 框选（与选框有交集即选中：节点按矩形重叠、关系/自由箭头
+ * 按曲线相交；Shift 追加、Shift 点选增删），命中写入 store.selectedIds（恰好一项回落单选）；
+ * 多选下拖拽整体位移、Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
  * canvas-store.moveElement + 去抖 persistGeometry；pointermove 经 editor.ticker 统一合帧，
  * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡与 World 根节点
  * 左右缘中点各一个，自由元素不挂）拖出引导线：实体 → 实体 =
@@ -37,9 +39,14 @@ type Point = { x: number; y: number };
 type Rect = { x: number; y: number; width: number; height: number };
 
 const NODE_TYPES = new Set(["entity-card", "note", "free-element"]);
+// 框选命中：凡有矩形几何的节点类型都参与（含 media / media-node / world-node），
+// 关系/自由箭头不按矩形命中，改由「两端节点都被框中」判定。
+const MARQUEE_NODE_TYPES = new Set(["entity-card", "note", "free-element", "media", "media-node", "world-node"]);
 const RELATION_PREFIX = "arrow:";
 const MIN_SIZE = 60;
 const PERSIST_DEBOUNCE_MS = 400;
+// 空白拖拽超过该屏幕像素才视为框选（否则按点击清选处理）
+const MARQUEE_MIN_SCREEN = 4;
 
 // block record 的有效矩形：实体卡用渲染固有尺寸（旧数据可能存了更小的 width/height，
 // 命中/选区/「+」手柄必须与实际渲染一致）
@@ -51,6 +58,39 @@ function rectOfRecord(record: { type: string; attrs: Record<string, unknown> }):
     width: Number(record.attrs.width) || 0,
     height: Number(record.attrs.height) || 0,
   };
+}
+
+// 两矩形是否有正面积交集（框选命中：只要与选框有交集即算选中）
+function rectsIntersect(a: Rect, b: Rect): boolean {
+  return a.width > 0 && a.height > 0 && a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+function pointInRect(point: Point, rect: Rect): boolean {
+  return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
+}
+
+function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
+  const cross = (o: Point, p: Point, q: Point) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  const d1 = cross(c, d, a);
+  const d2 = cross(c, d, b);
+  const d3 = cross(a, b, c);
+  const d4 = cross(a, b, d);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+// 线段与矩形相交：端点落入矩形，或线段穿过多边形任一边
+function segmentIntersectsRect(p: Point, q: Point, rect: Rect): boolean {
+  if (pointInRect(p, rect) || pointInRect(q, rect)) return true;
+  const corners: Point[] = [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x, y: rect.y + rect.height },
+  ];
+  for (let i = 0; i < 4; i++) {
+    if (segmentsIntersect(p, q, corners[i], corners[(i + 1) % 4])) return true;
+  }
+  return false;
 }
 
 type MoveDrag = {
@@ -82,6 +122,16 @@ type GuideDrag = {
   hoverBlockId: string | null;
   screen: { x: number; y: number };
 };
+// 框选（空白处拖拽）：世界矩形求交；additive = Shift 追加（不清选、并入 baseIds）
+type MarqueeDrag = {
+  pointerId: number;
+  startWorld: Point;
+  startScreen: Point;
+  currentWorld: Point;
+  additive: boolean;
+  moved: boolean;
+  baseIds: string[];
+};
 
 export class CanvasBindsPlugin extends PomeloPlugin {
   Name = "CanvasBindsPlugin";
@@ -100,10 +150,16 @@ export class CanvasBindsPlugin extends PomeloPlugin {
   // 拖拽合帧：pointermove 暂存的最新事件，经 editor.ticker 一帧至多 apply 一次
   #pendingMoveEvent: PointerEvent | null = null;
   static readonly #DRAG_KEY = "canvas-binds-drag";
+  // 框选 overlay 合帧键：pointermove 只置脏，一帧至多重绘一次（与拖拽一致）
+  static readonly #MARQUEE_KEY = "canvas-binds-marquee";
   // 拖拽会话（adapter 级快照）：被拖块 + 相连箭头留在活层，其余场景冻结为一张快照
   #sessionActive = false;
   // hover 命中的节点（含周围热区）：决定「+」手柄是否出现（只 hover 才显示，非全画布常显）
   #hoverBlockId: string | null = null;
+  // 进行中的框选（overlay 绘制矩形；pointerup 结算 selectedIds）
+  #marquee: MarqueeDrag | null = null;
+  // 空格按下 = 平移（ViewportPlugin），空白拖拽不进入框选
+  #spaceDown = false;
   // 标识编辑器画布 DOM（供宿主 overlay 定位/事件穿透判断）
   #view?: HTMLCanvasElement;
 
@@ -320,7 +376,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         overlay.circle(b.x, b.y, 4, { fill: cssColor(0x8b93a7) });
       }
 
-      if (!readOnly && !this.#guide && this.#hoverBlockId?.startsWith("entity:")) {
+      if (!readOnly && !this.#guide && !this.#marquee && this.#hoverBlockId?.startsWith("entity:")) {
         const record = editor.state.getBlockById(this.#hoverBlockId);
         if (record && record.id.startsWith("entity:")) {
           const rect = rectOfRecord(record);
@@ -338,7 +394,45 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         }
       }
 
+      // 框选矩形：屏幕空间半透明填充 + 描边
+      if (this.#marquee?.moved) {
+        const a = toScreen(this.#marquee.startWorld);
+        const b = toScreen(this.#marquee.currentWorld);
+        overlay.roundedRect(
+          { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) },
+          2,
+          { stroke: cssColor(0x4c8dff, 0.9), strokeWidth: 1, fill: cssColor(0x4c8dff, 0.08) },
+        );
+      }
+
       const selection = useWorldCanvasStore.getState().selection;
+      // 多选：逐个绘制高亮（节点矩形 / 关系曲线），不显示 resize 手柄
+      const selectedIds = useWorldCanvasStore.getState().selectedIds;
+      if (!selection && selectedIds.length > 1) {
+        for (const blockId of selectedIds) {
+          const record = editor.state.getBlockById(blockId);
+          if (!record || record.isRoot) continue;
+          if (record.type === "relation-arrow") {
+            const from = editor.state.getBlockById(String(record.attrs.fromId ?? ""));
+            const to = editor.state.getBlockById(String(record.attrs.toId ?? ""));
+            const geo = relationGeometry(from, to, record.attrs as never);
+            if (geo) {
+              const part = curveSegment(geo, geo.ta, geo.tb);
+              overlay.quad(toScreen(part.p0), toScreen(part.cp), toScreen(part.p2), { stroke: cssColor(0x4c8dff), strokeWidth: 2.5 });
+            }
+            continue;
+          }
+          const world = rectOfRecord(record);
+          if (world.width <= 0 || world.height <= 0) continue;
+          const tl = toScreen({ x: world.x, y: world.y });
+          overlay.roundedRect(
+            { x: tl.x - 3, y: tl.y - 3, width: world.width * t.scale + 6, height: world.height * t.scale + 6 },
+            6,
+            { stroke: cssColor(0x4c8dff, 0.7), strokeWidth: 2 },
+          );
+        }
+        return;
+      }
       if (!selection) return;
 
       let relationArrowId: string | null = null;
@@ -430,6 +524,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
+      // 空格 = 平移（ViewportPlugin）：画布交互整体让位，避免与平移并发
+      if (this.#spaceDown) return;
       // 属性引导面板打开时：点击画布任意处（面板自身 mousedown 已 stopPropagation）即关闭
       if (useWorldCanvasStore.getState().attrCreator) useWorldCanvasStore.getState().setAttrCreator(null);
       const screen = { x: event.clientX - view.getBoundingClientRect().left, y: event.clientY - view.getBoundingClientRect().top };
@@ -507,17 +603,52 @@ export class CanvasBindsPlugin extends PomeloPlugin {
 
       const hit = hitTest(world);
       if (!hit) {
-        useWorldCanvasStore.getState().select(null);
+        const store = useWorldCanvasStore.getState();
+        if (store.linkMode) {
+          store.select(null);
+          return;
+        }
+        // 空白拖拽 = 框选；非追加先清选（拖动结束按框选结果重选），Shift = 追加
+        const additive = event.shiftKey;
+        if (!additive) store.select(null);
+        this.#marquee = {
+          pointerId: event.pointerId,
+          startWorld: world,
+          startScreen: screen,
+          currentWorld: world,
+          additive,
+          moved: false,
+          baseIds: additive ? [...store.selectedIds] : [],
+        };
+        view.setPointerCapture(event.pointerId);
         return;
       }
-      selectBlock(hit.blockId);
+      const store = useWorldCanvasStore.getState();
+      // Shift 点选：在多选集里增删该项（不进入拖拽）
+      if (event.shiftKey) {
+        const next = store.selectedIds.includes(hit.blockId)
+          ? store.selectedIds.filter((item) => item !== hit.blockId)
+          : [...store.selectedIds, hit.blockId];
+        store.selectMany(next);
+        return;
+      }
+      // 命中已在多选集内：保持多选（拖拽整体位移，不塌缩为单选）
+      const inMulti = store.selectedIds.length > 1 && store.selectedIds.includes(hit.blockId);
+      if (!inMulti) selectBlock(hit.blockId);
       // 关系线/自由箭头不拖拽位移（几何派生自两端节点）
       if (hit.kind === "link") return;
-      if (useWorldCanvasStore.getState().readOnly) return;
-      const record = editor.state.getBlockById(hit.blockId);
-      if (!record) return;
-      const rect = rectOf(record);
-      dragging = { pointerId: event.pointerId, startWorld: world, moved: new Map([[hit.blockId, { x: rect.x, y: rect.y }]]) };
+      if (store.readOnly) return;
+      const moved = new Map<string, Point>();
+      for (const blockId of inMulti ? store.selectedIds : [hit.blockId]) {
+        if (blockId.startsWith(RELATION_PREFIX)) continue;
+        const record = editor.state.getBlockById(blockId);
+        if (!record || record.isRoot) continue;
+        const rect = rectOf(record);
+        if (rect.width <= 0 && rect.height <= 0) continue; // 无几何块（自由箭头等）不参与位移
+        moved.set(blockId, { x: rect.x, y: rect.y });
+      }
+      if (moved.size === 0) return;
+      dragging = { pointerId: event.pointerId, startWorld: world, moved };
       view.setPointerCapture(event.pointerId);
     };
 
@@ -663,6 +794,17 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     };
 
     const onPointerMove = (event: PointerEvent) => {
+      // 框选：只更新选框矩形与 overlay；位移结算在 pointerup
+      const marquee = this.#marquee;
+      if (marquee && event.pointerId === marquee.pointerId) {
+        const rect = view.getBoundingClientRect();
+        const screen = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+        const moved = marquee.moved || Math.hypot(screen.x - marquee.startScreen.x, screen.y - marquee.startScreen.y) > MARQUEE_MIN_SCREEN;
+        this.#marquee = { ...marquee, currentWorld: toWorld(event), moved };
+        event.preventDefault();
+        this.editor.ticker.schedule(CanvasBindsPlugin.#MARQUEE_KEY, () => this.drawOverlay(editor));
+        return;
+      }
       // 未在拖拽/引导时更新 hover（决定「+」手柄显隐）；拖拽中保持冻结避免手柄闪烁
       if (!dragging && !this.#guide) updateHover(event);
       const relevant = dragging && event.pointerId === dragging.pointerId;
@@ -677,6 +819,20 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     };
 
     const onPointerUp = (event: PointerEvent) => {
+      // 框选收尾：结算命中集合（Shift = 并入原有选择），未拖动则按空白点击处理（非追加时已在 pointerdown 清选）
+      const marquee = this.#marquee;
+      if (marquee && event.pointerId === marquee.pointerId) {
+        this.editor.ticker.cancel(CanvasBindsPlugin.#MARQUEE_KEY);
+        this.#marquee = null;
+        view.releasePointerCapture?.(event.pointerId);
+        if (marquee.moved) {
+          const hits = this.#marqueeBlockIds(editor, marquee);
+          const store = useWorldCanvasStore.getState();
+          store.selectMany(marquee.additive ? [...new Set([...marquee.baseIds, ...hits])] : hits);
+        }
+        this.drawOverlay(editor);
+        return;
+      }
       // 补齐最后一次未上帧的 move，保证提交位置=指针位置
       flushPendingMove();
       endSession();
@@ -905,10 +1061,12 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       }
     };
 
-    // Delete/Backspace：只作用于可删对象（关系/自由草稿）；实体与世界节点是投影，不可删
+    // Delete/Backspace：只作用于可删对象（关系/自由草稿）；实体与世界节点是投影，不可删。
+    // 多选（selectedIds.length>1）时批量删除：关系/自由元素直接删，含设定先确认。
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (event.code === "Space") this.#spaceDown = true;
       const store = useWorldCanvasStore.getState();
       if (event.key === "Escape") {
         store.setAttrCreator(null);
@@ -924,6 +1082,11 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         return;
       }
       if ((event.key === "Delete" || event.key === "Backspace") && !store.readOnly) {
+        if (store.selectedIds.length > 1) {
+          // 多选删除统一走应用内确认弹框（DeleteSelectionConfirmDialog），不用 window.confirm
+          store.setDeleteSelectionIds([...store.selectedIds]);
+          return;
+        }
         const selection = store.selection;
         if (!selection) return;
         if (selection.type === "relation") void store.removeRelation(selection.relation.id);
@@ -931,6 +1094,10 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         else if (selection.type === "entity") store.setDeleteTarget(selection.entity); // 实体 = 删除确认（B.6）
       }
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code === "Space") this.#spaceDown = false;
+    };
+    window.addEventListener("keyup", onKeyUp);
 
     view.addEventListener("pointerdown", onPointerDown);
     view.addEventListener("pointermove", onPointerMove);
@@ -949,6 +1116,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const unsubTransform = adapter.onTransformEvent.on(() => this.drawOverlay(editor));
     this.#cleanup = () => {
       cancelPendingMove();
+      this.editor.ticker.cancel(CanvasBindsPlugin.#MARQUEE_KEY);
       view.removeEventListener("pointerdown", onPointerDown);
       view.removeEventListener("pointermove", onPointerMove);
       view.removeEventListener("pointerup", onPointerUp);
@@ -957,6 +1125,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       view.removeEventListener("dblclick", onDoubleClick);
       view.removeEventListener("contextmenu", onContextMenu);
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
       unsubTransform.dispose();
       this.#overlay?.destroy();
       this.#overlay = null;
@@ -994,6 +1163,38 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     editor.renderAdapter.invalidate();
     pomeloPerf.time("overlay.draw", () => this.#paint?.());
   }
+
+  // 框选命中：与选框有交集即选中——节点按矩形重叠，关系/自由箭头按曲线与选框相交
+  // （贝塞尔采样成折线做线段-矩形相交；与「点选按线体距离」语义不同，框选是区域命中）。
+  #marqueeBlockIds(editor: PomeloEditor, marquee: MarqueeDrag): string[] {
+    const rect: Rect = {
+      x: Math.min(marquee.startWorld.x, marquee.currentWorld.x),
+      y: Math.min(marquee.startWorld.y, marquee.currentWorld.y),
+      width: Math.abs(marquee.currentWorld.x - marquee.startWorld.x),
+      height: Math.abs(marquee.currentWorld.y - marquee.startWorld.y),
+    };
+    const ids: string[] = [];
+    for (const record of editor.state.getAllBlocks((item) => !item.isRoot && MARQUEE_NODE_TYPES.has(item.type))) {
+      if (rectsIntersect(rectOfRecord(record), rect)) ids.push(record.id);
+    }
+    for (const record of editor.state.getAllBlocks((item) => item.type === "relation-arrow")) {
+      const from = editor.state.getBlockById(String(record.attrs.fromId ?? ""));
+      const to = editor.state.getBlockById(String(record.attrs.toId ?? ""));
+      const geo = relationGeometry(from, to, record.attrs as never);
+      if (!geo) continue;
+      const segments = 16;
+      let prev = geo.curve.p0;
+      let hit = false;
+      for (let i = 1; i <= segments && !hit; i++) {
+        const point = bezierPoint(geo.curve.p0, geo.curve.cp, geo.curve.p2, i / segments);
+        if (segmentIntersectsRect(prev, point, rect)) hit = true;
+        prev = point;
+      }
+      if (hit) ids.push(record.id);
+    }
+    return ids;
+  }
+
 }
 
 // 自由箭头绑定：world_canvas props { fromElementId: 'shape:<entityId>' } → 实体 id

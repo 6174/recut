@@ -4,7 +4,7 @@
  * [OUTPUT]: 对外提供 CanvasToolbarItems：世界画布工具组（由 canvas-top-bar.tsx 的 WorldCanvasToolbar 包装，
  * 居中渲染于全局 Header，无浮动容器）——选择/抓手模式、大纲开关（T14）、连线工具、历史菜单（T12：最近变更逐条撤销 /
  * 版本快照回滚）、独立插入（图片/音频/视频/文本 + 扩展占位）、undo/redo、
- * 缩放菜单（放大/缩小/50%/100%/200%/适应项目/适应所选内容/对齐到网格开关）与帮助面板；
+ * 缩放菜单（放大/缩小/50%/100%/200%/适应项目/适应所选内容——按 selectedIds 求多选并集包围盒/对齐到网格开关）与帮助面板；
  * 抓手模式的全画布平移 overlay 由 canvas-pomelo.tsx 宿主渲染（panMode 读自 canvas-store）
  * [POS]: worlds/[worldID]/canvas 的工具组；由 canvas-top-bar.tsx 包装后进页面最顶 Header 居中位
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -29,7 +29,7 @@ import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
 import { centerContent, zoomAt } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
 import { useWorldDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
-import { WORLD_ELEMENT_ID, useWorldCanvasStore, type AttrMedia } from "./canvas-store";
+import { useWorldCanvasStore, type AttrMedia } from "./canvas-store";
 import { createRecutWorldsClient, type WorldRevisionSummary } from "@/lib/recut-worlds-client";
 
 const MIN_SCALE = 0.3;
@@ -64,36 +64,40 @@ export function CanvasToolbarItems() {
 
   const zoomBy = (factor: number) => zoomTo((useWorldDemoStore.getState().transform.scale || 1) * factor);
 
-  // 缩放以适应所选内容：无选中则不动
+  // 缩放以适应所选内容：按 selectedIds 求节点并集包围盒（多选即框选整体），关系线不参与；无选中则不动
   const fitSelection = () => {
     if (!editor) return;
     const adapter = editor.renderAdapter as PomeloRendererAdapter;
-    const selection = useWorldCanvasStore.getState().selection;
-    const blockId =
-      selection?.type === "entity"
-        ? `entity:${selection.entity.id}`
-        : selection?.type === "world"
-          ? WORLD_ELEMENT_ID
-          : selection?.type === "canvas" && selection.element.kind !== "arrow"
-            ? selection.element.id
-            : null;
-    const record = blockId ? editor.state.getBlockById(blockId) : null;
-    if (!record) return;
-    const rect =
-      record.type === "entity-card"
-        ? entityCardRect(record.attrs)
-        : {
-            x: Number(record.attrs.x) || 0,
-            y: Number(record.attrs.y) || 0,
-            width: Number(record.attrs.width) || 264,
-            height: Number(record.attrs.height) || 200,
-          };
-    if (rect.width <= 0 || rect.height <= 0) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const blockId of useWorldCanvasStore.getState().selectedIds) {
+      const record = editor.state.getBlockById(blockId);
+      if (!record || record.isRoot || record.type === "relation-arrow") continue;
+      const rect =
+        record.type === "entity-card"
+          ? entityCardRect(record.attrs)
+          : {
+              x: Number(record.attrs.x) || 0,
+              y: Number(record.attrs.y) || 0,
+              width: Number(record.attrs.width) || 0,
+              height: Number(record.attrs.height) || 0,
+            };
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      minX = Math.min(minX, rect.x);
+      minY = Math.min(minY, rect.y);
+      maxX = Math.max(maxX, rect.x + rect.width);
+      maxY = Math.max(maxY, rect.y + rect.height);
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return;
+    const width = maxX - minX;
+    const height = maxY - minY;
     const view = adapter.getView();
     if (!view) return;
     const viewRect = view.getBoundingClientRect();
-    const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min((viewRect.width - 160) / rect.width, (viewRect.height - 160) / rect.height, 1)));
-    const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min((viewRect.width - 160) / width, (viewRect.height - 160) / height, 1)));
+    const center = { x: minX + width / 2, y: minY + height / 2 };
     adapter.setTransform(viewRect.width / 2 - center.x * scale, viewRect.height / 2 - center.y * scale, scale);
     useWorldDemoStore.getState().setTransform({ x: adapter.transform.x, y: adapter.transform.y, scale });
   };
@@ -147,7 +151,7 @@ export function CanvasToolbarItems() {
 
   const Divider = () => <span className="mx-1 h-5 w-px bg-zinc-700" />;
 
-  const hasSelection = useWorldCanvasStore((state) => !!state.selection);
+  const hasSelection = useWorldCanvasStore((state) => !!state.selection || state.selectedIds.length > 0);
   if (!editor) return null;
 
   return (
@@ -266,6 +270,8 @@ export function CanvasToolbarItems() {
             <p className="mb-2 text-sm font-semibold text-zinc-100">画布操作</p>
             <ul className="space-y-1.5 text-zinc-300">
               <li>• 单击卡/元素/线：选中（右侧面板）</li>
+              <li>• 空白拖拽：框选多个元素/关系；Shift 拖拽：追加框选</li>
+              <li>• Shift 点选：在多选集合中增删；多选后拖拽整体位移、Del 批量删除</li>
               <li>• 双击实体卡：进入内部；双击便签/文本：就地编辑</li>
               <li>• 双击空白：按最近类型建卡（Alt = 创建菜单）</li>
               <li>• 悬停卡拖「＋」手柄：连到实体 = 建关系，落空 = 加属性</li>

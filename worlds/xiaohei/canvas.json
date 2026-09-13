@@ -5,7 +5,8 @@
       "contextId": "",
       "elements": [
         {
-          "id": "shape:xiaohei",
+          "id": "shape:f97fce5d58dd500dd2d1d150:xiaohei",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "xiaohei",
@@ -14,17 +15,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 40,
-            "y": 40,
-            "width": 264,
-            "height": 328,
+            "height": 454,
+            "width": 551,
+            "x": -870,
+            "y": 1378,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:29:34.654Z"
         },
         {
-          "id": "shape:style-dna",
+          "id": "shape:f97fce5d58dd500dd2d1d150:style-dna",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "style-dna",
@@ -33,17 +36,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 40,
-            "y": 524,
-            "width": 264,
-            "height": 328,
+            "height": 86,
+            "width": 219,
+            "x": -1180,
+            "y": 1472,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:29:00.584Z"
         },
         {
-          "id": "shape:rule-color",
+          "id": "shape:f97fce5d58dd500dd2d1d150:rule-color",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "rule-color",
@@ -52,17 +57,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 40,
-            "y": 1008,
-            "width": 264,
-            "height": 328,
+            "height": 93,
+            "width": 217,
+            "x": -1684,
+            "y": 1704,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:17:17.724Z"
         },
         {
-          "id": "shape:rule-format",
+          "id": "shape:f97fce5d58dd500dd2d1d150:rule-format",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "rule-format",
@@ -71,17 +78,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 360,
-            "y": 1008,
-            "width": 264,
-            "height": 328,
+            "height": 72,
+            "width": 241,
+            "x": -1686,
+            "y": 1554,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:17:17.730Z"
         },
         {
-          "id": "shape:rule-no-ppt",
+          "id": "shape:f97fce5d58dd500dd2d1d150:rule-no-ppt",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "rule-no-ppt",
@@ -90,17 +99,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 680,
-            "y": 1008,
-            "width": 264,
-            "height": 328,
+            "height": 112,
+            "width": 188,
+            "x": -1686,
+            "y": 1365,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:17:17.734Z"
         },
         {
-          "id": "shape:example-01-two-breakpoints",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-01-two-breakpoints",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-01-two-breakpoints",
@@ -109,17 +120,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 40,
-            "y": 1492,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 480,
+            "y": 848,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.387Z"
         },
         {
-          "id": "shape:example-02-minimum-loop",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-02-minimum-loop",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-02-minimum-loop",
@@ -128,17 +141,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 360,
-            "y": 1492,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 790,
+            "y": 858,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.393Z"
         },
         {
-          "id": "shape:example-03-sort-by-purpose",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-03-sort-by-purpose",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-03-sort-by-purpose",
@@ -147,17 +162,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 680,
-            "y": 1492,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 1110,
+            "y": 857,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.398Z"
         },
         {
-          "id": "shape:example-04-one-fish-many-uses",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-04-one-fish-many-uses",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-04-one-fish-many-uses",
@@ -166,17 +183,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 1000,
-            "y": 1492,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 1430,
+            "y": 858,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.403Z"
         },
         {
-          "id": "shape:example-05-handoff-path",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-05-handoff-path",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-05-handoff-path",
@@ -185,17 +204,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 40,
-            "y": 1880,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 470,
+            "y": 1246,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.408Z"
         },
         {
-          "id": "shape:example-06-three-sources",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-06-three-sources",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-06-three-sources",
@@ -204,17 +225,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 360,
-            "y": 1880,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 790,
+            "y": 1246,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.442Z"
         },
         {
-          "id": "shape:example-07-three-content-jobs",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-07-three-content-jobs",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-07-three-content-jobs",
@@ -223,17 +246,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 680,
-            "y": 1880,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 1110,
+            "y": 1246,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.447Z"
         },
         {
-          "id": "shape:example-08-handoff-copy-toolbox",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-08-handoff-copy-toolbox",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-08-handoff-copy-toolbox",
@@ -242,17 +267,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 1000,
-            "y": 1880,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 1430,
+            "y": 1246,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.452Z"
         },
         {
-          "id": "shape:example-09-common-pits-no-title",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-09-common-pits-no-title",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-09-common-pits-no-title",
@@ -261,17 +288,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 40,
-            "y": 2268,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 470,
+            "y": 1634,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.456Z"
         },
         {
-          "id": "shape:example-10-information-well",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-10-information-well",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-10-information-well",
@@ -280,17 +309,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 360,
-            "y": 2268,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 790,
+            "y": 1634,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.461Z"
         },
         {
-          "id": "shape:example-11-idea-press",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-11-idea-press",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-11-idea-press",
@@ -299,17 +330,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 680,
-            "y": 2268,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 1110,
+            "y": 1634,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.465Z"
         },
         {
-          "id": "shape:example-12-content-fermentation",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-12-content-fermentation",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-12-content-fermentation",
@@ -318,17 +351,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 1000,
-            "y": 2268,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 1430,
+            "y": 1634,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.469Z"
         },
         {
-          "id": "shape:example-13-system-bearing",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-13-system-bearing",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-13-system-bearing",
@@ -337,17 +372,19 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 40,
-            "y": 2656,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 470,
+            "y": 2022,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:28:43.473Z"
         },
         {
-          "id": "shape:example-14-trust-bridge",
+          "id": "shape:f97fce5d58dd500dd2d1d150:example-14-trust-bridge",
+          "worldId": "f97fce5d58dd500dd2d1d150",
           "kind": "entity",
           "refKind": "entity",
           "refId": "example-14-trust-bridge",
@@ -356,14 +393,141 @@
             "collapsed": false
           },
           "geometry": {
-            "x": 360,
-            "y": 2656,
-            "width": 264,
             "height": 328,
+            "width": 264,
+            "x": 790,
+            "y": 2009,
             "zIndex": 1
           },
-          "style": {},
-          "layer": "0"
+          "layer": "0",
+          "createdAt": "",
+          "updatedAt": "2026-09-13T13:30:38.547Z"
+        },
+        {
+          "id": "shape:attr-1789303867970",
+          "worldId": "f97fce5d58dd500dd2d1d150",
+          "kind": "attr",
+          "name": "属性 · 正文",
+          "props": {
+            "fileName": "",
+            "label": "正文",
+            "media": "text",
+            "text": "不要商业插画、PPT 信息图、正式流程图、课程课件、可爱卡通海报、复杂架构图、科技感 UI、真实 App 截图；不要左上角写类型标题。"
+          },
+          "geometry": {
+            "height": 140,
+            "width": 260,
+            "x": -2096,
+            "y": 1325,
+            "zIndex": 1
+          },
+          "layer": "0",
+          "createdAt": "2026-09-13T12:51:07.971Z",
+          "updatedAt": "2026-09-13T13:17:17.742Z"
+        },
+        {
+          "id": "shape:arrow-1789303867970",
+          "worldId": "f97fce5d58dd500dd2d1d150",
+          "kind": "arrow",
+          "name": "属性边 · 正文",
+          "props": {
+            "attrMedia": "text",
+            "edgeType": "attr",
+            "fromElementId": "shape:f97fce5d58dd500dd2d1d150:rule-no-ppt",
+            "toElementId": "shape:attr-1789303867970"
+          },
+          "geometry": {
+            "x": -1477,
+            "y": 1935,
+            "zIndex": 1
+          },
+          "layer": "0",
+          "createdAt": "2026-09-13T12:51:07.983Z",
+          "updatedAt": "2026-09-13T12:51:07.983Z"
+        },
+        {
+          "id": "shape:attr-1789303872697",
+          "worldId": "f97fce5d58dd500dd2d1d150",
+          "kind": "attr",
+          "name": "属性 · 正文",
+          "props": {
+            "fileName": "",
+            "label": "正文",
+            "media": "text",
+            "text": "16:9 横版中文正文配图；每张单独生成，不把多张图拼在一张里。"
+          },
+          "geometry": {
+            "height": 140,
+            "width": 260,
+            "x": -2093,
+            "y": 1523,
+            "zIndex": 1
+          },
+          "layer": "0",
+          "createdAt": "2026-09-13T12:51:12.697Z",
+          "updatedAt": "2026-09-13T13:17:17.746Z"
+        },
+        {
+          "id": "shape:arrow-1789303872697",
+          "worldId": "f97fce5d58dd500dd2d1d150",
+          "kind": "arrow",
+          "name": "属性边 · 正文",
+          "props": {
+            "attrMedia": "text",
+            "edgeType": "attr",
+            "fromElementId": "shape:f97fce5d58dd500dd2d1d150:rule-format",
+            "toElementId": "shape:attr-1789303872697"
+          },
+          "geometry": {
+            "x": -1472,
+            "y": 2192,
+            "zIndex": 1
+          },
+          "layer": "0",
+          "createdAt": "2026-09-13T12:51:12.708Z",
+          "updatedAt": "2026-09-13T12:51:12.708Z"
+        },
+        {
+          "id": "shape:attr-1789303879902",
+          "worldId": "f97fce5d58dd500dd2d1d150",
+          "kind": "attr",
+          "name": "属性 · 正文",
+          "props": {
+            "fileName": "",
+            "label": "正文",
+            "media": "text",
+            "text": "黑为主体线稿；橙只用于主路径 / 箭头，红只用于重点 / 问题 / 结果，蓝只用于补充说明 / 系统状态；宁可少不要多。"
+          },
+          "geometry": {
+            "height": 140,
+            "width": 260,
+            "x": -2090,
+            "y": 1712,
+            "zIndex": 1
+          },
+          "layer": "0",
+          "createdAt": "2026-09-13T12:51:19.902Z",
+          "updatedAt": "2026-09-13T13:17:17.750Z"
+        },
+        {
+          "id": "shape:arrow-1789303879902",
+          "worldId": "f97fce5d58dd500dd2d1d150",
+          "kind": "arrow",
+          "name": "属性边 · 正文",
+          "props": {
+            "attrMedia": "text",
+            "edgeType": "attr",
+            "fromElementId": "shape:f97fce5d58dd500dd2d1d150:rule-color",
+            "toElementId": "shape:attr-1789303879902"
+          },
+          "geometry": {
+            "x": -1440,
+            "y": 2349,
+            "zIndex": 1
+          },
+          "layer": "0",
+          "createdAt": "2026-09-13T12:51:19.911Z",
+          "updatedAt": "2026-09-13T12:51:19.911Z"
         }
       ]
     }

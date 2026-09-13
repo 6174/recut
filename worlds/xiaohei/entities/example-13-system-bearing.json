@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "13-system-bearing",
-        "kind": "image",
-        "name": "系统承重"
+        "asset": "examples-13-system-bearing"
       }
     }
   ]

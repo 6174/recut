@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "10-information-well",
-        "kind": "image",
-        "name": "信息井"
+        "asset": "examples-10-information-well"
       }
     }
   ]

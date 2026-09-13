@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "14-trust-bridge",
-        "kind": "image",
-        "name": "信任桥"
+        "asset": "examples-14-trust-bridge"
       }
     }
   ]

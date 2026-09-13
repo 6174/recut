@@ -134,5 +134,14 @@ export interface TileRasterizer<TTarget, THandle> {
   renderDirect?(chunks: RenderChunk[], viewport: Viewport): boolean;
   /** 可选：每帧整场渲染（含 chunk Scene 缓存），返回 true 表示已自行上屏。 */
   renderFrame?(chunks: RenderChunk[], viewport: Viewport): boolean;
+  /**
+   * 可选：开启拖拽内容会话——把静态 chunks（不含被拖块及随动箭头）渲染为一张保留纹理，不呈现。
+   * 会话期间 renderContentSession 只重渲 live chunks 并合成静态快照，避免 direct 模式逐帧重编码整场。
+   */
+  beginContentSession?(staticChunks: RenderChunk[], viewport: Viewport): void;
+  /** 可选：会话帧——只重渲 liveChunks 并与静态快照合成上屏（返回 true 表示已自行上屏）。 */
+  renderContentSession?(liveChunks: RenderChunk[], viewport: Viewport): boolean;
+  /** 可选：结束内容会话，释放静态快照。 */
+  endContentSession?(): void;
   destroy(): void;
 }

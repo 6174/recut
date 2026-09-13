@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 canvas-store（会话配置 open）、canvas-toolbar、canvas-pomelo（dynamic ssr:false 挂载）、
  * canvas-detail-panel、canvas-dialogs 与 ui/use-media-asset-events（MediaAssetEventsProvider）
  * 并订阅 "world" 实时 channel（写事件 world.changed 去抖重载、world.canvas.lock/unlock 暂停保存并提示、
- * world.deleted 离开已删除世界）、把画布选中/所在容器上报为 Agent WorkFocus
+ * world.deleted 离开已删除世界）、把画布选中（含框选多选的 selectedIds 逐项 refs）/所在容器上报为 Agent WorkFocus
  * [OUTPUT]: 对外提供 Recursive World Canvas 全屏模式根组件：挂载时 open(store) 加载数据并向全局 Header
  * 注册顶层工具栏（canvas-top-bar），组合 pomelo 画布底座、右侧详情面板与对话框；onClose 返回设定视图
  * [POS]: worlds/[worldID]/canvas 的组合根；WorldCanvas 的唯一出口（world-detail-client 仅引用本文件）
@@ -17,7 +17,7 @@ import { MediaAssetEventsProvider } from "@/components/use-media-asset-events";
 import type { ContextRef, WorkFocusContext } from "@/components/agent-panel-types";
 import { useAgentPanelContext } from "@/lib/agent-panel-context";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
-import { scheduleWorldReload, setCanvasAiLocked, useWorldCanvasStore } from "./canvas-store";
+import { scheduleWorldReload, setCanvasAiLocked, useWorldCanvasStore, WORLD_ELEMENT_ID } from "./canvas-store";
 import { useWorldCanvasTopBarStore } from "./canvas-top-bar";
 import { CanvasDetailPanel } from "./canvas-detail-panel";
 import { CanvasDialogs } from "./canvas-dialogs";
@@ -80,6 +80,7 @@ export default function WorldCanvas({ apiBase, worldId, worldName, readOnly, rev
   // 画布选中/所在容器上报为 Agent 面板的 WorkFocus：AI 据此知道"用户此刻在看哪个元素、哪一层画布"。
   // 只有画布视图挂载本组件时才上报，避免覆盖表单视图的选中焦点。
   const selection = useWorldCanvasStore((state) => state.selection);
+  const selectedIds = useWorldCanvasStore((state) => state.selectedIds);
   const context = useWorldCanvasStore((state) => state.context);
   const contextTrail = useWorldCanvasStore((state) => state.contextTrail);
   const storeWorldId = useWorldCanvasStore((state) => state.worldId);
@@ -91,7 +92,16 @@ export default function WorldCanvas({ apiBase, worldId, worldName, readOnly, rev
     let primaryRef: ContextRef | undefined;
     let selectionState: Record<string, unknown> = {};
     let summary = `画布 · ${context?.title ?? "全局"}`;
-    if (selection?.type === "entity") {
+    if (selectedIds.length > 1) {
+      // 多选：逐项上报 refs，AI 可据此对整组对象做批量操作；primaryRef 留空表示无唯一焦点。
+      selectionState = { selectedIds };
+      summary = `画布中框选 ${selectedIds.length} 项`;
+      for (const id of selectedIds) {
+        if (id.startsWith("arrow:")) refs.push({ kind: "world_relation", id: id.slice("arrow:".length) });
+        else if (id.startsWith("entity:")) refs.push({ kind: "world_entity", id: id.slice("entity:".length) });
+        else if (id !== WORLD_ELEMENT_ID) refs.push({ kind: "world_canvas_element", id });
+      }
+    } else if (selection?.type === "entity") {
       primaryRef = { kind: "world_entity", id: selection.entity.id };
       refs.push(primaryRef);
       selectionState = { entity: selection.entity };
@@ -129,7 +139,7 @@ export default function WorldCanvas({ apiBase, worldId, worldName, readOnly, rev
       summary,
     };
     useAgentPanelContext.getState().setWorkFocus(focus);
-  }, [selection, context, contextTrail, storeWorldId, storeReadOnly]);
+  }, [selection, selectedIds, context, contextTrail, storeWorldId, storeReadOnly]);
 
   // AI/Agent 经 MCP 写世界（canvas.doc.update / entities.upsert / relations.* 等）后，
   // daemon 在 "world" channel（key=worldId）广播 world.changed；此处去抖重载当前文档。

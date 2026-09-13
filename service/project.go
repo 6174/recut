@@ -582,7 +582,8 @@ create table if not exists world_entities (
   is_provisional integer not null default 0,
   created_at text not null,
   updated_at text not null,
-  archived_at text
+  archived_at text,
+  archive_batch_id text
 );
 create index if not exists world_entities_world_kind on world_entities(world_id, kind, updated_at desc);
 create index if not exists world_entities_world_title on world_entities(world_id, title collate nocase);
@@ -600,6 +601,22 @@ create table if not exists world_relations (
 );
 create index if not exists world_relations_world_from on world_relations(world_id, from_entity_id);
 create index if not exists world_relations_world_to on world_relations(world_id, to_entity_id);
+
+-- 关系墓碑：软删除的语义关系移入此表（保留 id/端点/类型/锚点归属），
+-- 使「删除设定」可逆且不占用 world_relations 的唯一约束（同端点/类型可重建后再删除）。
+create table if not exists world_relation_tombstones (
+  id text primary key,
+  world_id text not null,
+  from_entity_id text not null,
+  to_entity_id text not null,
+  relation_type text not null,
+  metadata_json text not null default '{}',
+  scope_entity_id text,
+  created_at text not null,
+  archived_at text not null,
+  batch_id text not null default ''
+);
+create index if not exists world_relation_tombstones_world on world_relation_tombstones(world_id, batch_id);
 
 create table if not exists world_entity_types (
   id text not null,
@@ -745,6 +762,10 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table world_entities add column type_id text not null default ''",
 			"alter table world_entities add column detail text not null default ''",
 			"alter table world_entities add column attrs_json text not null default '[]'",
+			"alter table world_entities add column archived_at text",
+			"alter table world_entities add column archive_batch_id text",
+			"alter table world_entity_types add column archived_at text",
+			"alter table worlds add column archived_at text",
 			"alter table world_relations add column scope_entity_id text",
 			"create index if not exists world_entities_parent on world_entities(world_id, parent_id)",
 			"create index if not exists world_entities_world_type on world_entities(world_id, type_id, updated_at desc)",

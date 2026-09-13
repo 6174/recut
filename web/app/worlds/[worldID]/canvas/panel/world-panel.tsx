@@ -3,13 +3,14 @@
  * recut-worlds-client（永久删除世界）与 worlds-store（删除后失效缓存）
  * [OUTPUT]: 对外提供 WorldPanel：空选/选中 World 节点时的详情面板（B.8 World 态）——
  * 名称与简介就地编辑、世界快照（类型计数）、待关注列表（无简介/无素材/待确认草稿，[定位]）、
- * [＋ 添加设定…] 打开创建菜单，以及 local 世界的永久删除（名称二次确认，素材库不受影响）
+ * [导出为 zip]（复用 exportWorld，只读世界同样可导出）、[＋ 添加设定…] 打开创建菜单，
+ * 以及 local 世界的永久删除（名称二次确认，素材库不受影响）
  * [POS]: worlds/[worldID]/canvas/panel 的 World 态面板（不暴露 revision/canonical/hash，B.2）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { Plus, Crosshair, Trash2 } from "lucide-react";
+import { Plus, Crosshair, Download, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
   const [deleteName, setDeleteName] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [exporting, setExporting] = useState(false);
   // 保存后强制刷新 detail（updateWorldMeta 不回写 worlds-store 缓存，面板值需立即落位）
   const saveMeta = async (patch: { name?: string; description?: string; skillMd?: string }) => {
     await store.updateWorldMeta(patch);
@@ -52,6 +54,27 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
     } catch (cause) {
       setDeleteError(cause instanceof Error ? cause.message : "删除失败");
       setDeleting(false);
+    }
+  }
+
+  async function exportWorldBundle() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { blob, filename } = await createRecutWorldsClient(apiBase).exportWorld({ worldId });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      store.toast("已导出为 zip", "success");
+    } catch (cause) {
+      store.toast(cause instanceof Error ? cause.message : "导出失败", "error");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -123,6 +146,14 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
           <Plus className="size-3.5" /> 添加设定…
         </button>
       )}
+      <button
+        className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border text-xs font-medium hover:bg-muted disabled:opacity-50"
+        disabled={exporting}
+        onClick={() => void exportWorldBundle()}
+        type="button"
+      >
+        <Download className="size-3.5" /> {exporting ? "导出中…" : "导出为 zip"}
+      </button>
       {!store.readOnly && (
         <button
           className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-destructive/40 text-xs text-destructive hover:bg-destructive/10"

@@ -14,7 +14,7 @@ renderer 无关的瓦片渲染算法层。逐模块直译 open-pencil 的 produc
 | `planner.ts` | `planTiles`：fresh 判定 + mandatory/visible/overscan + cachedOnly（导航期） |
 | `scheduler.ts` | 5ms 预算 / 32 job 上限 / 优先级 / navigation+content 双代 / 成本 EMA |
 | `chunk-index.ts` | chunk 注册与按世界矩形查询 + 节点→chunk 反查 |
-| `controller.ts` | `TileController.renderFrame` 编排（失效应用/plan/执行/合成） |
+| `controller.ts` | `TileController.renderFrame` 编排（失效应用/plan/执行/合成）；direct 模式拖拽内容会话（静态内容只渲一次，会话帧只重渲 live chunks） |
 | `telemetry.ts` | 帧指标与全局计数（供 e2e 读取） |
 
 ## 约定

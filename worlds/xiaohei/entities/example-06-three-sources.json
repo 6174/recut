@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "06-three-sources",
-        "kind": "image",
-        "name": "三个信息源"
+        "asset": "examples-06-three-sources"
       }
     }
   ]

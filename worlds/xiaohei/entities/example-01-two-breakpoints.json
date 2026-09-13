@@ -22,9 +22,7 @@
       "label": "示例图",
       "type": "media",
       "value": {
-        "asset": "01-two-breakpoints",
-        "kind": "image",
-        "name": "两个断点"
+        "asset": "examples-01-two-breakpoints"
       }
     }
   ]
