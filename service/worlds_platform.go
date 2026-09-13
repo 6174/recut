@@ -555,6 +555,9 @@ func (w *WorldStore) MaterializeWorld(entryID, entryKind, publisher, version, sh
 		if _, err := tx.Exec("delete from world_relations where world_id = ?", manifest.World.ID); err != nil {
 			return "", false, err
 		}
+		if _, err := tx.Exec("delete from world_relation_tombstones where world_id = ?", manifest.World.ID); err != nil {
+			return "", false, err
+		}
 		if err := ensurePresetEntityTypesInTx(tx, manifest.World.ID); err != nil {
 			return "", false, err
 		}
@@ -645,6 +648,7 @@ func insertManifestV2Tx(tx *sql.Tx, worldID string, manifest *WorldManifestV2, n
 		"delete from world_asset_refs where world_id = ?",
 		"delete from world_entities where world_id = ?",
 		"delete from world_relations where world_id = ?",
+		"delete from world_relation_tombstones where world_id = ?",
 		"delete from world_canvases where world_id = ?",
 	} {
 		if _, err := tx.Exec(statement, worldID); err != nil {

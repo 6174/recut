@@ -634,6 +634,40 @@ func (s *Server) deleteWorldEntity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// 恢复实体（软删除撤销）：把同批次归档的实体子图与关系墓碑原样复原；产 revision。
+func (s *Server) restoreWorldEntity(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&input)
+	}
+	result, err := s.worldsStore().RestoreEntity(RestoreEntityInput{
+		WorldID: r.PathValue("worldID"), EntityID: r.PathValue("entityID"),
+		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+	})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// 恢复关系（软删除撤销）：从墓碑按原 id 重建；产 revision。
+func (s *Server) restoreWorldRelation(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&input)
+	}
+	if err := s.worldsStore().RestoreRelation(r.PathValue("worldID"), r.PathValue("relationID"), input.ExpectedRevisionID, "http"); err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // 版本历史（T12）：最近 50 条 revision 摘要。
 func (s *Server) listWorldRevisions(w http.ResponseWriter, r *http.Request) {
 	items, err := s.worldsStore().ListRevisions(r.PathValue("worldID"))

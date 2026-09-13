@@ -82,7 +82,9 @@ export type CanvasContextMenu = {
 export type CanvasToast = { id: number; text: string; kind: "info" | "success" | "error"; action?: { label: string; run: () => void } };
 
 // 最近变更（T12/B.14 语义撤销）：建/删实体、建/删关系、改字段、挂接/确认设定等；
-// undo 为闭包（回写旧值 / 删除 / 重建），v1 不含「删除实体」的恢复（回收站 P2）
+// undo 为闭包（回写旧值 / 删除 / 重建）；删除设定/关系/元素均已可撤销——
+// 实体走后端软删除 + entity.restore（复位归档标记、按 batch 重建关系墓碑并保留画布投影），
+// 关系走 relation.restore（墓碑原 id 重建），画布元素走 restoreElement（快照 upsert）
 export type CanvasChange = { id: number; label: string; at: string; undo: () => Promise<void> | void };
 
 export const DEFAULT_ENTITY_SIZE = { width: 264, height: 328 };
@@ -557,8 +559,12 @@ type WorldCanvasState = {
   createChildEntity: (parentId: string, kind: string, opts?: { title?: string }) => Promise<void>;
   addNote: (pos?: Point) => Promise<void>;
   removeElement: (id: string) => Promise<void>;
+  // 画布元素删除的撤销：按删除时快照原样 upsert（world_canvas 不产 revision）
+  restoreElement: (snapshot: WorldCanvasElement) => Promise<void>;
   createRelation: (fromEntityId: string, toEntityId: string, relationType: string, opts?: { scopeEntityId?: string }) => Promise<void>;
   removeRelation: (relationId: string) => Promise<void>;
+  // 关系软删除的撤销：从墓碑按原 id 重建（画布锚点自动重绑）
+  restoreRelation: (relationId: string) => Promise<void>;
   // 原位改关系（T5）：类型与方向 patch，保留 relation id、scope 与画布锚点（relations.update）
   updateRelation: (relation: WorldEntityRelation, patch: { relationType?: string; fromEntityId?: string; toEntityId?: string }) => Promise<void>;
   // 换类型（面板/标签就地换）：updateRelation 的语义别名
@@ -584,8 +590,10 @@ type WorldCanvasState = {
   ) => Promise<void>;
   // 确认设定（草稿 → 正式，产 revision）
   confirmEntity: (entityId: string) => Promise<void>;
-  // 删除设定（影响范围确认后调用；后端级联子图/关系/证据/画布投影）
+  // 删除设定（影响范围确认后调用；后端软删除：归档子图 + 关系入墓碑，可 restoreEntity 撤销）
   deleteEntity: (entityId: string) => Promise<void>;
+  // 撤销设定删除：复位归档标记并把关系墓碑原样重建，随后重载当前层
+  restoreEntity: (entityId: string) => Promise<void>;
   // World 名称/简介编辑（World 态面板）
   updateWorldMeta: (patch: { name?: string; description?: string; skillMd?: string }) => Promise<void>;
   setDeleteTarget: (entity: WorldEntity | null) => void;
@@ -1286,6 +1294,32 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
             : state.selection,
     }));
     scheduleCanvasSave();
+    // 元素是 world_canvas 投影（不产 revision）：撤销 = 按删除时快照原样写回
+    if (element) {
+      const label = element.name || element.kind || "元素";
+      get().logChange(`删除元素「${label}」`, () => void get().restoreElement(element));
+    }
+  },
+
+  // 画布元素恢复（软删除撤销）：按快照 upsert，几何/属性原样
+  restoreElement: async (snapshot) => {
+    try {
+      await get().upsertElement({
+        id: snapshot.id,
+        contextId: snapshot.contextId ?? "",
+        kind: snapshot.kind,
+        refKind: snapshot.refKind ?? "",
+        refId: snapshot.refId ?? "",
+        name: snapshot.name ?? "",
+        props: snapshot.props ?? {},
+        geometry: snapshot.geometry ?? {},
+        style: snapshot.style ?? {},
+        layer: snapshot.layer ?? "0",
+      });
+      get().toast("已恢复元素", "success");
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
   },
 
   createRelation: async (fromEntityId, toEntityId, relationType, opts = {}) => {
@@ -1395,6 +1429,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
 
   removeRelation: async (relationId) => {
+    // 删除前先取快照（下面 set 之后原对象已不在 store 里，历史撤销需要它做标签）
+    const removed = get().relations.find((relation) => relation.id === relationId) ?? null;
     const run = async (revisionId: string) =>
       createRecutWorldsClient(get().apiBase).relations.remove({
         worldId: get().worldId,
@@ -1414,11 +1450,32 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         selection:
           state.selection?.type === "relation" && state.selection.relation.id === relationId ? null : state.selection,
       }));
-      const removed = get().relations.find((relation) => relation.id === relationId);
+      // 软删除：撤销 = 从墓碑按原 id 重建（保留锚点/方向），不是新建关系
       if (removed) {
-        get().logChange(`删除关系 ${removed.type}`, () => void get().createRelation(removed.fromEntityId, removed.toEntityId, removed.type, { scopeEntityId: removed.scopeEntityId ?? undefined }));
+        get().logChange(`删除关系 ${removed.type}`, () => void get().restoreRelation(relationId));
       }
       get().toast("已删除此关系", "success");
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
+  },
+
+  // 关系恢复（软删除撤销）：后端从墓碑按原 id 写回，前端增量合并返回对象
+  restoreRelation: async (relationId) => {
+    const run = async (revisionId: string) =>
+      createRecutWorldsClient(get().apiBase).relations.restore({
+        worldId: get().worldId,
+        relationId,
+        expectedRevisionId: revisionId,
+      });
+    try {
+      await run(get().revisionId).catch(async (cause) => {
+        if (!isRevisionConflict(cause)) throw cause;
+        await get().refreshRevision();
+        return run(get().revisionId);
+      });
+      await get().load(false);
+      get().toast("已恢复关系", "success");
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1742,6 +1799,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
 
   deleteEntity: async (entityId) => {
+    // 删除前先取名字，供历史菜单展示与撤销溯源
+    const removed = get().entities.find((entity) => entity.id === entityId) ?? null;
     const run = (revisionId: string) =>
       createRecutWorldsClient(get().apiBase).entities.remove({ worldId: get().worldId, entityId, expectedRevisionId: revisionId });
     try {
@@ -1752,12 +1811,35 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       });
       set((state) => ({
         entities: state.entities.filter((entity) => entity.id !== entityId),
-        elements: state.elements.filter((element) => !(element.refKind === "entity" && element.refId === entityId)),
+        // 投影元素/关系锚点保留（后端软删除同样保留，前端按 state.entities 不渲染）：
+        // 文档粒度整包保存会把本地 elements 原样写回，删掉投影会永久丢失恢复所需的位置。
         relations: state.relations.filter((relation) => relation.fromEntityId !== entityId && relation.toEntityId !== entityId),
         selection: state.selection?.type === "entity" && state.selection.entity.id === entityId ? null : state.selection,
         selectedIds: state.selectedIds.filter((item) => item !== `entity:${entityId}` && item !== `shape:${entityId}`),
         dataVersion: state.dataVersion + 1,
       }));
+      // 后端软删除（归档 + 关系入墓碑）：撤销 = 复位标记并重建关系墓碑
+      if (removed) {
+        get().logChange(`删除「${removed.name}」`, () => void get().restoreEntity(entityId));
+      }
+      get().toast("已删除设定", "success");
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
+  },
+
+  // 撤销设定软删除：后端复位归档标记 + 按 batch 重建关系墓碑，前端重载当前层
+  restoreEntity: async (entityId) => {
+    const run = (revisionId: string) =>
+      createRecutWorldsClient(get().apiBase).entities.restore({ worldId: get().worldId, entityId, expectedRevisionId: revisionId });
+    try {
+      await run(get().revisionId).catch(async (cause) => {
+        if (!isRevisionConflict(cause)) throw cause;
+        await get().refreshRevision();
+        return run(get().revisionId);
+      });
+      await get().load(false);
+      get().toast("已恢复设定", "success");
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1807,6 +1889,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         selection: state.selection?.type === "entity" && state.selection.entity.id === entityId ? null : state.selection,
         selectedIds: state.selectedIds.filter((item) => item !== `entity:${entityId}` && item !== `shape:${entityId}`),
       }));
+      const name = get().entities.find((item) => item.id === entityId)?.name;
+      get().logChange(`从画布移除「${name ?? "设定"}」`, () => void get().unhideEntity(entityId));
     } catch (cause) {
       applyCanvasError(cause);
     }

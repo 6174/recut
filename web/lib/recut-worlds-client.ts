@@ -386,8 +386,10 @@ export type CanvasPromoteResult =
   | { promoted: "entity"; entity: WorldEntity }
   | { promoted: "relation"; relation: WorldEntityRelation };
 
-// 实体删除的影响范围统计（后端 DeleteEntityResult）
+// 实体删除的影响范围统计（后端 DeleteEntityResult）；软删除，可由 restore 撤销
 export type WorldEntityDeleteResult = { deleted: number; children: number; relations: number; evidences: number };
+// 实体恢复回执（后端 RestoreEntityResult）：restored = 复位标记的实体数，relations = 从墓碑重建的关系数
+export type WorldEntityRestoreResult = { restored: number; relations: number };
 // World 硬删除的影响范围回执（后端 WorldDeleteResult）。Asset 不在其中：素材库永不被世界删除。
 export type WorldDeleteResult = { id: string; name: string; entities: number; relations: number; canvasDocs: number; bindings: number };
 // 版本历史摘要（T12 快照/回滚面板）
@@ -418,7 +420,10 @@ export type RecutWorldsClient = {
     upsert(input: { worldId: string; entityId?: string; typeId?: EntityKind; name: string; intro?: string; detail?: string; attrs?: EntityAttr[] | null; parentId?: string; containerRole?: string; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
     children(input: { worldId: string; entityId: string; typeId: EntityKind; name: string; containerRole?: string; intro?: string; detail?: string; attrs?: EntityAttr[]; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
     promote(input: { worldId: string; entityId: string; expectedRevisionId?: string }): Promise<WorldEntity>;
+    /** 软删除设定（归档子图 + 关系入墓碑）；底层 Media Asset 不受影响。 */
     remove(input: { worldId: string; entityId: string; expectedRevisionId?: string }): Promise<WorldEntityDeleteResult>;
+    /** 撤销软删除：复位归档标记并原样重建关系墓碑。 */
+    restore(input: { worldId: string; entityId: string; expectedRevisionId?: string }): Promise<WorldEntityRestoreResult>;
   };
   evidence: {
     /** Legacy archive only (unbinding canvas evidenceId anchors); list/attach are retired. */
@@ -441,6 +446,8 @@ export type RecutWorldsClient = {
     update(input: { worldId: string; relationId: string; fromEntityId?: string; toEntityId?: string; relationType?: string; expectedRevisionId?: string }): Promise<WorldEntityRelation>;
     list(input: { worldId: string; entityId: string }): Promise<WorldEntityRelation[]>;
     remove(input: { worldId: string; relationId: string; expectedRevisionId?: string }): Promise<void>;
+    /** 撤销软删除：从墓碑按原 id 重建关系（画布锚点自动重新绑定）。 */
+    restore(input: { worldId: string; relationId: string; expectedRevisionId?: string }): Promise<void>;
   };
   project: {
     get(projectId: string): Promise<CreationContext | null>;
@@ -531,6 +538,8 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
         if (!response.ok) throw await errorFrom(response);
         return (await response.json()) as WorldEntityDeleteResult;
       },
+      restore: ({ worldId, entityId, expectedRevisionId }) =>
+        requestJSON<WorldEntityRestoreResult>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities/${encodeURIComponent(entityId)}/restore`, { method: "POST", body: { expectedRevisionId } }),
     },
     entityTypes: {
       list: async ({ worldId }) => {
@@ -570,6 +579,10 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
       },
       remove: async ({ worldId, relationId, expectedRevisionId }) => {
         const response = await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/relations/${encodeURIComponent(relationId)}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevisionId }) });
+        if (!response.ok) throw await errorFrom(response);
+      },
+      restore: async ({ worldId, relationId, expectedRevisionId }) => {
+        const response = await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/relations/${encodeURIComponent(relationId)}/restore`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevisionId }) });
         if (!response.ok) throw await errorFrom(response);
       },
     },

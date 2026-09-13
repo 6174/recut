@@ -203,7 +203,7 @@ function UploadButton({ modality, onAdopt }: { modality: MediaModality; onAdopt:
 }
 
 // D. 素材历史（历史即素材）：展开时逐 id 拉取 asset 详情；点缩略图设为当前（指针写回 + 配方继承）；
-// 删除历史项 = 删除该 asset（素材库同源）
+// 移除历史项 = 仅解除本元素的引用指针，绝不删除底层 asset（素材库跨世界长期保活）
 function GenerationHistory({ apiBase, elementId, modality, currentId, onAdopt }: { apiBase: string; elementId: string; modality: MediaModality; currentId: string; onAdopt: (asset: { id: string; name?: string }) => void }) {
   const ids = useElementAssetHistoryStore((state) => state.histories[elementId] ?? EMPTY_HISTORY);
   const removeHistory = useElementAssetHistoryStore((state) => state.remove);
@@ -258,12 +258,10 @@ function GenerationHistory({ apiBase, elementId, modality, currentId, onAdopt }:
                   )}
                 </button>
                 <button
-                  aria-label={`删除历史素材 ${asset?.name ?? id}`}
+                  aria-label={`从历史移除 ${asset?.name ?? id}（不删除素材）`}
                   className="absolute right-1 top-1 hidden rounded bg-card/90 p-0.5 text-muted-foreground hover:text-destructive group-hover/hist:block"
-                  onClick={() => {
-                    void fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(id)}`, { method: "DELETE" });
-                    removeHistory(elementId, id);
-                  }}
+                  onClick={() => removeHistory(elementId, id)}
+                  title="从历史移除（素材库保留）"
                   type="button"
                 >
                   <Trash2 className="size-3" />

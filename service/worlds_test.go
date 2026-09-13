@@ -930,3 +930,44 @@ func TestMigrationRecyclesEntityEvidenceIntoMediaAttrs(t *testing.T) {
 		t.Fatalf("second migration pass mutated attrs: %#v", reloaded)
 	}
 }
+
+// TestDeleteEntityNeverDeletesMediaAsset：删除设定只归档画布/引用，底层 media_assets 与其文件必须保留。
+func TestDeleteEntityNeverDeletesMediaAsset(t *testing.T) {
+	worlds, _, media := newTestWorldStore(t)
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "IP", Type: WorldCharacterIP})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assetID := newTestAsset(t, media, "hero.png")
+	hero, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: world.ID, TypeID: EntityTypeCharacter, Name: "Hero",
+		Attrs: []EntityAttr{{Key: "background", Type: "media", Value: map[string]any{"assetId": assetID, "kind": "image"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.DeleteEntity(DeleteEntityInput{WorldID: world.ID, EntityID: hero.ID}); err != nil {
+		t.Fatal(err)
+	}
+	asset, err := media.GetAsset(assetID)
+	if err != nil || asset.Status != "completed" {
+		t.Fatalf("asset after entity delete = %#v, %v", asset, err)
+	}
+	// 恢复后素材引用仍在（软删除可逆）
+	if _, err := worlds.RestoreEntity(RestoreEntityInput{WorldID: world.ID, EntityID: hero.ID}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := worlds.GetEntity(world.ID, hero.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	survived := false
+	for _, attr := range reloaded.Attrs {
+		if attr.Key == "background" {
+			survived = true
+		}
+	}
+	if !survived {
+		t.Fatalf("media attr should survive delete+restore: %#v", reloaded.Attrs)
+	}
+}

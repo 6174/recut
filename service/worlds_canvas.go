@@ -877,7 +877,11 @@ func (w *WorldStore) DeleteRelation(worldID, relationID, expectedRevisionID, cre
 		return err
 	}
 	now := iso(time.Now().UTC())
-	result, err := tx.Exec("insert or replace into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, ?, '' from world_relations where id = ? and world_id = ?", now, relationID, worldID)
+	// 同 id 陈旧墓碑（revert 后可能「墓碑 + 存活」共存）先清，写当前存活行保证最新
+	if _, err := tx.Exec("delete from world_relation_tombstones where id = ? and world_id = ?", relationID, worldID); err != nil {
+		return err
+	}
+	result, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, ?, '' from world_relations where id = ? and world_id = ?", now, relationID, worldID)
 	if err != nil {
 		return err
 	}

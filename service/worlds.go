@@ -1112,6 +1112,14 @@ func (w *WorldStore) DeleteEntity(input DeleteEntityInput) (DeleteEntityResult, 
 	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
 		return DeleteEntityResult{}, err
 	}
+	// 目标必须存在且未归档：否则不应产出「什么都没删」的 revision（历史会污染撤销栈）
+	var targetExists int
+	if err := tx.QueryRow("select count(*) from world_entities where id = ? and world_id = ? and archived_at is null", input.EntityID, input.WorldID).Scan(&targetExists); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	if targetExists == 0 {
+		return DeleteEntityResult{}, worldsError(WorldsErrEntityNotFound, "entity not found in world")
+	}
 	// 宽搜收集整个后代子图（仅未归档行）
 	ids := map[string]bool{input.EntityID: true}
 	frontier := []string{input.EntityID}
@@ -1179,7 +1187,12 @@ func (w *WorldStore) DeleteEntity(input DeleteEntityInput) (DeleteEntityResult, 
 	}
 	// 触及被删实体的关系移入墓碑表（保留 id/端点/类型/锚点归属，撤销时按 batch 原样重建）；
 	// 不清理画布锚点元素——投影随实体归档不可见，恢复后按 id 自动复用（画布几何不丢）。
-	if _, err := tx.Exec("insert or replace into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, ?, ? from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{now, batchID, input.WorldID}, args...), args...)...); err != nil {
+	// 先清同 id 陈旧墓碑（如 revert 后「墓碑 + 存活」曾共存），再写当前存活行，保证墓碑是最新的；
+	// 只处理「当前存活」的关系，单独删除留下、已不在 world_relations 的墓碑不受影响。
+	if _, err := tx.Exec("delete from world_relation_tombstones where world_id = ? and id in (select id from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+")))", append(append([]any{input.WorldID, input.WorldID}, args...), args...)...); err != nil {
+		return DeleteEntityResult{}, err
+	}
+	if _, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, ?, ? from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{now, batchID, input.WorldID}, args...), args...)...); err != nil {
 		return DeleteEntityResult{}, err
 	}
 	if _, err := tx.Exec("delete from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{input.WorldID}, args...), args...)...); err != nil {
@@ -1248,19 +1261,51 @@ func (w *WorldStore) RestoreEntity(input RestoreEntityInput) (RestoreEntityResul
 	now := iso(time.Now().UTC())
 	var restored, relationCount int64
 	if batchID != "" {
+		// 先取本批次实体 id 集合（含级联子图），用于跨批次关系的恢复判定
+		idRows, err := tx.Query("select id from world_entities where world_id = ? and archive_batch_id = ?", input.WorldID, batchID)
+		if err != nil {
+			return RestoreEntityResult{}, err
+		}
+		restoredIDs := []string{}
+		for idRows.Next() {
+			var id string
+			if err := idRows.Scan(&id); err != nil {
+				idRows.Close()
+				return RestoreEntityResult{}, err
+			}
+			restoredIDs = append(restoredIDs, id)
+		}
+		idRows.Close()
+		if err := idRows.Err(); err != nil {
+			return RestoreEntityResult{}, err
+		}
 		res, err := tx.Exec("update world_entities set archived_at = null, archive_batch_id = null, updated_at = ? where world_id = ? and archive_batch_id = ?", now, input.WorldID, batchID)
 		if err != nil {
 			return RestoreEntityResult{}, err
 		}
 		restored, _ = res.RowsAffected()
-		// 仅恢复两端都已存活的墓碑关系，避免复活指向仍未恢复实体的边
-		res, err = tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.metadata_json, t.scope_entity_id, t.created_at from world_relation_tombstones t where t.world_id = ? and t.batch_id = ? and exists (select 1 from world_entities e where e.id = t.from_entity_id and e.world_id = t.world_id and e.archived_at is null) and exists (select 1 from world_entities e where e.id = t.to_entity_id and e.world_id = t.world_id and e.archived_at is null)", input.WorldID, batchID)
-		if err != nil {
-			return RestoreEntityResult{}, err
-		}
-		relationCount, _ = res.RowsAffected()
-		if _, err := tx.Exec("delete from world_relation_tombstones where world_id = ? and batch_id = ?", input.WorldID, batchID); err != nil {
-			return RestoreEntityResult{}, err
+		// 重建关系：只恢复「由某次设定删除归档（batch<>''，区别于单独删边）」、
+		// 两端已存活、且触及本批次任一实体的墓碑。跨批次（先后删两个端点）也能复原；
+		// 单独删除的关系（batch='')保持删除，不因恢复实体而被复活。
+		if len(restoredIDs) > 0 {
+			placeholders := strings.TrimRight(strings.Repeat("?,", len(restoredIDs)), ",")
+			cond := "(t.from_entity_id in (" + placeholders + ") or t.to_entity_id in (" + placeholders + "))"
+			alive := "exists (select 1 from world_entities e where e.id = t.from_entity_id and e.world_id = t.world_id and e.archived_at is null) and exists (select 1 from world_entities e where e.id = t.to_entity_id and e.world_id = t.world_id and e.archived_at is null)"
+			args := []any{input.WorldID}
+			for _, id := range restoredIDs {
+				args = append(args, id)
+			}
+			for _, id := range restoredIDs {
+				args = append(args, id)
+			}
+			res, err = tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.metadata_json, t.scope_entity_id, t.created_at from world_relation_tombstones t where t.world_id = ? and t.batch_id <> '' and "+cond+" and "+alive, args...)
+			if err != nil {
+				return RestoreEntityResult{}, err
+			}
+			relationCount, _ = res.RowsAffected()
+			if _, err := tx.Exec("delete from world_relation_tombstones where id in (select t.id from world_relation_tombstones t where t.world_id = ? and t.batch_id <> '' and "+cond+" and "+alive+")", args...); err != nil {
+				return RestoreEntityResult{}, err
+			}
 		}
 	} else {
 		// 兼容迁移前的旧归档行（无 batch）：只恢复该实体与其已归档后代，关系沿用各自墓碑
@@ -1339,7 +1384,8 @@ func (w *WorldStore) RestoreRelation(worldID, relationID, expectedRevisionID, cr
 	if err := w.checkWorldRevision(tx, worldID, expectedRevisionID); err != nil {
 		return err
 	}
-	res, err := tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) select id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at from world_relation_tombstones where id = ? and world_id = ?", relationID, worldID)
+	// 两端都必须存活才允许重建（避免恢复出指向已归档实体的悬空边）
+	res, err := tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.metadata_json, t.scope_entity_id, t.created_at from world_relation_tombstones t where t.id = ? and t.world_id = ? and exists (select 1 from world_entities e where e.id = t.from_entity_id and e.world_id = t.world_id and e.archived_at is null) and exists (select 1 from world_entities e where e.id = t.to_entity_id and e.world_id = t.world_id and e.archived_at is null)", relationID, worldID)
 	if err != nil {
 		return err
 	}
@@ -1475,6 +1521,7 @@ func (w *WorldStore) DeleteWorld(input DeleteWorldInput) (WorldDeleteResult, err
 	for _, statement := range []string{
 		"delete from world_asset_refs where world_id = ?",
 		"delete from world_relations where world_id = ?",
+		"delete from world_relation_tombstones where world_id = ?",
 		"delete from world_canvas where world_id = ?",
 		"delete from world_canvases where world_id = ?",
 		"delete from world_entities where world_id = ?",
@@ -2460,41 +2507,24 @@ func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, c
 		return WorldDetail{}, err
 	}
 	now := iso(time.Now().UTC())
-	// 语义表按 canonical 重建（历史冻结在该指针指向的 revision 里）；画布投影保留（实体 id 不变）。
-	// 语义关系边的画布锚点清理（文档版）：kind=arrow 且 ref_id 指向旧 world_relations 的元素移除
-	relationIDs := []string{}
-	relationRows, err := tx.Query("select id from world_relations where world_id = ?", worldID)
-	if err != nil {
+	// 语义表按 canonical 重建（历史冻结在该指针指向的 revision 里）；画布投影与锚点保留（实体/关系 id 不变）。
+	// 软删除语义：当前存活行「归档/移入墓碑」而非物理删除——已删除设定的墓碑不被回滚清掉，
+	// 仅目标 revision 的 canonical 重新激活（entity/relation 用 insert or replace/ignore 复位归档位）。
+	if _, err := tx.Exec("update world_entities set archived_at = ?, archive_batch_id = '' where world_id = ? and archived_at is null", now, worldID); err != nil {
 		return WorldDetail{}, err
 	}
-	for relationRows.Next() {
-		var id string
-		if err := relationRows.Scan(&id); err != nil {
-			relationRows.Close()
-			return WorldDetail{}, err
-		}
-		relationIDs = append(relationIDs, id)
-	}
-	relationRows.Close()
-	if err := relationRows.Err(); err != nil {
+	// 同 id 陈旧墓碑先清，避免「墓碑 + 存活」长期共存后被后续删除写进过期端点
+	if _, err := tx.Exec("delete from world_relation_tombstones where world_id = ? and id in (select id from world_relations where world_id = ?)", worldID, worldID); err != nil {
 		return WorldDetail{}, err
 	}
-	relationSet := map[string]bool{}
-	for _, id := range relationIDs {
-		relationSet[id] = true
-	}
-	if err := mutateCanvasDocsInTx(tx, worldID, func(element WorldCanvasElement) bool {
-		return element.Kind == "arrow" && relationSet[element.RefID]
-	}); err != nil {
+	if _, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, ?, '' from world_relations where world_id = ?", now, worldID); err != nil {
 		return WorldDetail{}, err
 	}
 	if _, err := tx.Exec("delete from world_relations where world_id = ?", worldID); err != nil {
 		return WorldDetail{}, err
 	}
+	// 证据引用为冻结的 legacy 投影：整表重建（unique 约束下不做 tombstone，素材文件本就不受影响）
 	if _, err := tx.Exec("delete from world_asset_refs where world_id = ?", worldID); err != nil {
-		return WorldDetail{}, err
-	}
-	if _, err := tx.Exec("delete from world_entities where world_id = ?", worldID); err != nil {
 		return WorldDetail{}, err
 	}
 	identityJSON, err := json.Marshal(payload.Identity)
@@ -2524,9 +2554,20 @@ func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, c
 			if err != nil {
 				return WorldDetail{}, err
 			}
-			if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, '', 0, ?, ?)",
-				id, worldID, rowTypeID, rowTypeID, name, intro, detail, string(attrs), nullIfEmpty(parentID), now, now); err != nil {
+			// 软删除模型：已存在的行只做「标记调整 + 字段复位」（保留 is_provisional/container_role/created_at），
+			// 仅历史遗留（早期回滚物理删过）的缺失 id 才真正 INSERT 补行。
+			res, err := tx.Exec("update world_entities set type_id = ?, kind = ?, title = ?, summary = ?, detail = ?, attrs_json = ?, parent_id = ?, archived_at = null, archive_batch_id = null, updated_at = ? where id = ? and world_id = ?",
+				rowTypeID, rowTypeID, name, intro, detail, string(attrs), nullIfEmpty(parentID), now, id, worldID)
+			if err != nil {
 				return WorldDetail{}, err
+			}
+			if affected, err := res.RowsAffected(); err != nil {
+				return WorldDetail{}, err
+			} else if affected == 0 {
+				if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at, archived_at, archive_batch_id) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, '', 0, ?, ?, null, null)",
+					id, worldID, rowTypeID, rowTypeID, name, intro, detail, string(attrs), nullIfEmpty(parentID), now, now); err != nil {
+					return WorldDetail{}, err
+				}
 			}
 		}
 	}

@@ -832,7 +832,8 @@ func TestDeleteEntityArchivesSubgraphAndCascade(t *testing.T) {
 	if relations != 0 {
 		t.Fatalf("relations should be cascaded, got %d", relations)
 	}
-	// 文档粒度存储（RFC 2026-09-09）：投影清理从文档正文统计
+	// 软删除模型：实体投影元素随实体归档不参与渲染（前端按 state.entities 投影），
+	// 但文档正文保留，恢复后原位复用（不重排、不丢几何）。
 	rootDoc, err := worlds.GetCanvasDocument(worldID, "")
 	if err != nil {
 		t.Fatal(err)
@@ -846,8 +847,8 @@ func TestDeleteEntityArchivesSubgraphAndCascade(t *testing.T) {
 			attrElements++
 		}
 	}
-	if entityElements != 0 {
-		t.Fatalf("entity canvas projections should be removed, got %d", entityElements)
+	if entityElements != 1 {
+		t.Fatalf("entity canvas projection should be preserved for restore, got %d", entityElements)
 	}
 	if attrElements != 1 {
 		t.Fatalf("unrelated attr element should survive, got %d", attrElements)
@@ -930,5 +931,151 @@ func TestRevertToRevisionRebuildsSemantics(t *testing.T) {
 	}
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "story", Name: "新故事"}); err != nil {
 		t.Fatalf("writes after revert should work: %v", err)
+	}
+}
+
+// TestRestoreEntityRevivesSubgraphAndRelations：软删除 + 撤销（entity.restore）只做标记复位；
+// 关系从墓碑按原 id 回来，画布投影始终在文档中（位置不丢）。
+func TestRestoreEntityRevivesSubgraphAndRelations(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+	person, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "character", Name: "阿墨"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	station, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "location", Name: "电台"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	relation, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, RelationType: "located_in"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.SaveCanvasDocument(worldID, "", []WorldCanvasElement{
+		{ID: "shape:" + person.ID, Kind: "entity", RefKind: "entity", RefID: person.ID, Name: "阿墨", Props: map[string]any{}, Geometry: map[string]any{"x": 10, "y": 20, "width": 264, "height": 328}},
+	}, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := worlds.DeleteEntity(DeleteEntityInput{WorldID: worldID, EntityID: person.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.GetEntity(worldID, person.ID); err == nil {
+		t.Fatal("deleted entity should be archived")
+	}
+	db, err := worlds.database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tombstones int
+	if err := db.QueryRow("select count(*) from world_relation_tombstones where world_id = ? and batch_id <> ''", worldID).Scan(&tombstones); err != nil {
+		t.Fatal(err)
+	}
+	if tombstones != 1 {
+		t.Fatalf("relation should be tombstoned, got %d", tombstones)
+	}
+
+	result, err := worlds.RestoreEntity(RestoreEntityInput{WorldID: worldID, EntityID: person.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Restored < 1 || result.Relations != 1 {
+		t.Fatalf("restore result = %#v", result)
+	}
+	restored, err := worlds.GetEntity(worldID, person.ID)
+	if err != nil || restored.Name != "阿墨" {
+		t.Fatalf("restored entity = %#v, %v", restored, err)
+	}
+	found := false
+	for _, item := range restored.Relations {
+		if item.ID == relation.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("relation should be restored with the same id: %#v", restored.Relations)
+	}
+	doc, err := worlds.GetCanvasDocument(worldID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Elements) != 1 || doc.Elements[0].RefID != person.ID {
+		t.Fatalf("projection should survive restore: %#v", doc.Elements)
+	}
+	// 取消删除的关系也能单独恢复（墓碑按 id 重建）
+	person2, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "character", Name: "阿墨二号"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: person2.ID, RelationType: "friend"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worlds.DeleteRelation(worldID, edge.ID, "", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := worlds.RestoreRelation(worldID, edge.ID, "", "test"); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := worlds.GetEntity(worldID, person.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, item := range reloaded.Relations {
+		if item.ID == edge.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("standalone relation restore failed: %#v", reloaded.Relations)
+	}
+}
+
+// TestRestoreEntityRevivesCrossBatchRelations：两个端点先后被删（各自 batch），
+// 恢复第二个端点时，之前 tombstone 的边应因两端都已存活而复原。
+func TestRestoreEntityRevivesCrossBatchRelations(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+	a, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "character", Name: "甲"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "character", Name: "乙"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: a.ID, ToEntityID: b.ID, RelationType: "friend"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.DeleteEntity(DeleteEntityInput{WorldID: worldID, EntityID: a.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.DeleteEntity(DeleteEntityInput{WorldID: worldID, EntityID: b.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.RestoreEntity(RestoreEntityInput{WorldID: worldID, EntityID: a.ID}); err != nil {
+		t.Fatal(err)
+	}
+	// b 仍归档：边不应复活
+	if err := worlds.RestoreRelation(worldID, edge.ID, "", "test"); err == nil {
+		t.Fatal("edge should stay tombstoned while the other endpoint is archived")
+	}
+	if _, err := worlds.RestoreEntity(RestoreEntityInput{WorldID: worldID, EntityID: b.ID}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := worlds.GetEntity(worldID, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range reloaded.Relations {
+		if item.ID == edge.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("cross-batch edge should be restored: %#v", reloaded.Relations)
 	}
 }
