@@ -258,14 +258,19 @@ export function runSelfTests(): SelfTestResult[] {
     return "平移命中缓存，0 光栅";
   });
 
-  check("controller: 导航期 defer 不执行 tile job", () => {
+  check("controller: 导航期冷缓存仍渲染缺失瓦片（防空洞），热缓存 defer", () => {
     const rasterizer = new FakeRasterizer();
     const controller = new TileController<FakeTarget, number>({ pageId: "p", rasterizer, budgetMs: 1000, maxJobsPerFrame: 1000 });
     controller.addChunk({ id: "c1", nodeIds: ["c1"], bounds: { minX: 100, minY: 100, maxX: 300, maxY: 220 }, estimatedCost: 1, payload: null });
-    const result = controller.renderFrame({ viewport: VP, contentGeneration: 0, navigationGeneration: 1, navigationActive: true });
-    assert(result.rendered === 0, `导航期不应光栅，实得 ${result.rendered}`);
-    assert(result.metrics.skippedWithFallback >= 0, "指标可用");
-    return "导航期 defer 生效";
+    // 冷缓存导航：缺失瓦片无 fallback，按 mandatory 立即渲染，避免空洞
+    const cold = controller.renderFrame({ viewport: VP, contentGeneration: 0, navigationGeneration: 1, navigationActive: true });
+    assert(cold.rendered > 0, `冷缓存导航应渲染缺失瓦片，实得 ${cold.rendered}`);
+    // 热缓存导航：全部命中（有 fallback 可贴）→ 不重光栅
+    settle(controller, VP, 0);
+    rasterizer.renders = 0;
+    const warm = controller.renderFrame({ viewport: VP, contentGeneration: 0, navigationGeneration: 2, navigationActive: true });
+    assert(warm.rendered === 0, `热缓存导航不应重光栅，实得 ${warm.rendered}`);
+    return "冷导航补缺 / 热导航 defer";
   });
 
   return results;
