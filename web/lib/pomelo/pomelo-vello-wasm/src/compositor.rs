@@ -130,9 +130,11 @@ impl Compositor {
             source: ShaderSource::Wgsl(SHADER.into()),
         });
 
-        // 预乘 alpha 混合（vello 输出为 premultiplied）
+        // straight（未预乘）alpha 混合：vello `render_to_texture` 的目标纹理输出为未预乘 alpha
+        // （fine.wgsl 末尾写目标前做 1/a 反预乘 → `rgba_sep`），必须用 SrcAlpha/OneMinusSrcAlpha。
+        // 若按预乘混合，半透明像素的 rgb（仍是原色，如白边 255）会被直接叠加 → 节点白边、文字发白。
         let blend = BlendState {
-            color: BlendComponent { src_factor: BlendFactor::One, dst_factor: BlendFactor::OneMinusSrcAlpha, operation: BlendOperation::Add },
+            color: BlendComponent { src_factor: BlendFactor::SrcAlpha, dst_factor: BlendFactor::OneMinusSrcAlpha, operation: BlendOperation::Add },
             alpha: BlendComponent { src_factor: BlendFactor::One, dst_factor: BlendFactor::OneMinusSrcAlpha, operation: BlendOperation::Add },
         };
 

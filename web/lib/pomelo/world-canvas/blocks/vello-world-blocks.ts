@@ -28,8 +28,10 @@ const MIN_W = 240;
 const TITLE_SIZE_TEXT_FIRST = 21;
 const SUBTITLE_SIZE_TEXT_FIRST = 11;
 const TEXT_BLOCK_H = 76;
-// 元素标题徽标（卡片外上方）：屏幕像素恒定
-const CAPTION_GAP = 16;
+// 元素标题徽标（卡片外上方）：屏幕像素恒定。
+// CAPTION_TOP_OFFSET = 徽标文字顶边到卡片上缘的屏幕像素距离（对齐 pixi drawElementCaption 的 CAPTION_Y=-16，
+// 即徽标底边距卡面约 5px）；CAPTION_SIZE = 屏幕字号。
+const CAPTION_TOP_OFFSET = 16;
 const CAPTION_SIZE = 11;
 
 const FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
