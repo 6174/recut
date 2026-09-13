@@ -12,15 +12,18 @@ pomelo 的 vello-native 渲染适配层：把 pomelo 的 vdom/block 生命周期
 | `pomelo-vello-adapter.ts` | `VelloRendererAdapter extends PomeloRendererAdapter`：接管 vdom diff/patch 后的 block 树，汇总 `VelloBlock` 绘制为 chunk，驱动 `TileController`；优先 vello，回退 Canvas2D |
 | `vello-element.ts` | `VelloElement implements IElement`（block 树容器，不做绘制） |
 | `vello-block.ts` | `VelloBlock extends PomeloBlock`：`renderBlock()` 产出 vello op（+ 可选 Canvas2D painter）；`render()`/`reposition()` 标记内容/位置版本供增量失效 |
+| `world-blocks.ts` | world-canvas 四类 block 的 vello-native 版本（`EntityCardBlockV`/`NoteBlockV`/`WorldNodeBlockV`/`MediaNodeBlockV`/`RelationArrowBlockV`），复用 `arrow-geometry`；同一份绘制产出 vello op 与 Canvas2D painter |
 | `demo-blocks.ts` | 示例 `DemoCardBlock`（M2 验证用） |
 | `op-bridge.ts` | JS→WASM 绘制 op 编码（与 `pomelo-vello-wasm/src/ops.rs` 对齐） |
 | `canvas2d-rasterizer.ts` / `vello-rasterizer.ts` | `TileRasterizer` 的两种实现 |
 
 ## 增量协议
 
-`VelloBlock.render()` 递增 `drawVersion`（内容变），`reposition()` 递增 `boundsVersion`（仅位置变）。
-适配器 `syncChunks()` 据此：内容变 → `invalidateChunk(payload+bounds)`；位置变 → `invalidateChunk(bounds)`；
-新增/移除 → `addChunk`/`removeChunk`；任一变化 `contentGeneration++`。瓦片失效仍按 bounds 相交精确到块。
+- 首选：`PomeloRendererAdapter.onBlockInvalidated(blockId, "content"|"position"|"removed")` 钩子由
+  `BlockPatcher`（`pomelo-virtual.ts`）在 create/update/replace/remove 时广播；适配器收集 dirty/moved/removed
+  集合做**精确增量**失效。
+- 兜底：`VelloBlock.render()`/`reposition()` 递增 `drawVersion`/`boundsVersion`，适配器在 `syncChunks()` 比对版本。
+- chunk 变更 → `contentGeneration++`；瓦片失效按 bounds 相交精确到块。
 
 ## 验证
 
@@ -30,5 +33,9 @@ pomelo 的 vello-native 渲染适配层：把 pomelo 的 vdom/block 生命周期
 
 ## 尚未迁移
 
-正式 World Canvas 仍走 `PixiRendererAdapter`；M2 后续：4 个 world-canvas block 迁移为 `VelloBlock`、
-`onBlockInvalidated` 接 pomelo diff、Overlay 走 DOM/SVG、`canvas-pomelo.tsx` 切换 adapter。
+正式 World Canvas 仍走 `PixiRendererAdapter`。剩余两项需要解耦 PIXI：
+1. **Overlay 走 DOM/SVG**：`CanvasBindsPlugin` 的选区/手柄/引导线现为 `PIXI.Graphics`，需改为 DOM/SVG 覆盖层。
+2. **`canvas-pomelo.tsx` 切换 adapter**：`canvas-pomelo.tsx`（约 1k 行）与 5 个插件（Grid/Viewport/Selection/
+   Connection/Keyboard）目前直接依赖 pixi 类型与 `adapter.app.stage`；切换前需先完成第 1 项与插件解耦。
+
+验证入口：`/dev/pomelo-vello`、`/dev/world-vello`；`scripts/e2e-pomelo-vello.mjs`、`scripts/e2e-world-vello.mjs`。
