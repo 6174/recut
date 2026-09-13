@@ -23,7 +23,7 @@ import { PomeloEditorState } from "@/lib/pomelo/pomelo-core/pomelo-state";
 import { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
 import { VelloRendererAdapter } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
-import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/pomelo-vello/world-blocks";
+import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/world-canvas/blocks/vello-world-blocks";
 import { EntityCardBlock } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
 import { NoteBlock, WorldNodeBlock } from "@/lib/pomelo/world-canvas/blocks/note-and-world-blocks";
 import { RelationArrowBlock } from "@/lib/pomelo/world-canvas/blocks/relation-arrow-block";

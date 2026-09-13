@@ -143,6 +143,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/worlds/{worldID}/entity-types", s.upsertWorldEntityType)
 	mux.HandleFunc("GET /v1/worlds/{worldID}/relations", s.listWorldRelations)
 	mux.HandleFunc("POST /v1/worlds/{worldID}/relations", s.createWorldRelation)
+	mux.HandleFunc("PATCH /v1/worlds/{worldID}/relations/{relationID}", s.updateWorldRelation)
 	mux.HandleFunc("DELETE /v1/worlds/{worldID}/relations/{relationID}", s.deleteWorldRelation)
 	mux.HandleFunc("GET /v1/worlds/{worldID}/canvas/doc", s.getCanvasDocument)
 	mux.HandleFunc("POST /v1/worlds/{worldID}/canvas/doc", s.saveCanvasDocument)

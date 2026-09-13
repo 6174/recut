@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 WorldStore 与标准库 JSON 编码
  * [OUTPUT]: 对外提供全局 recut.worlds.* MCP 工具：只读 list/get/entities.list/entities.get/resolve 无条件可发现，
- * 写 create/update/entities.upsert/entityTypes.upsert/relations.create 与 bind_project 常注册但仅在用户明确要求时调用；evidence/references 写入已冻结（媒体统一为实体 media attr）
+ * 写 create/update/entities.upsert/entityTypes.upsert/relations.create/relations.update 与 bind_project 常注册但仅在用户明确要求时调用；evidence/references 写入已冻结（媒体统一为实体 media attr）
  * 返回同构 structuredContent，列表按主机规则包装为 {items:[...]}
  * [POS]: service 的 Creation Worlds MCP 面；工具属于全局平台组，与 recut.project 及 recut.media 系列工具并列，
  * 不进入 per-App 工具组，Chat 与外部 Agent 在选择 App 之前即可发现
@@ -39,6 +39,7 @@ func worldsMCPToolDefinitions(_ Locale) []map[string]any {
 		{"name": "recut.worlds.entityTypes.list", "description": "列出一个 World 的 entity type 目录（预设 + 自定义）：type 是 schema，实体是实例。目录含字段 schema、图标与配色，驱动画布卡片与详情表单。另附内置受控关系词表。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.entityTypes.upsert", "description": "定义或覆盖一个 entity type（含 fields_json 字段 schema）。预设 id（character 等）更新本世界的内置副本；其他 id 创建世界级自定义 type。type 是 schema，不产出 revision。只在用户明确要求定义类型时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "id", "name"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "id": map[string]string{"type": "string", "description": "type 标识，如 'mecha' 或预设 'character'。"}, "name": map[string]string{"type": "string"}, "icon": map[string]string{"type": "string"}, "color": map[string]string{"type": "string"}, "baseKind": map[string]string{"type": "string", "description": "可选：归属的语义大类（character/location/...），用于 readiness 归类。"}, "fields": map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "字段 schema 数组：[{key,label,type,required,placeholder,options,invariant}]。"}}}},
 		{"name": "recut.worlds.relations.create", "description": "创建一条受控语义关系（有向边）。relationType 优先用内置词表（people/world/video/story 四组）；scopeEntityId 可选，设置后该关系只在该实体局部上下文内有效，不进全局 Canon。每次创建产出 revision。只在用户明确要求建立关系时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "fromEntityId", "toEntityId", "relationType"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "fromEntityId": map[string]string{"type": "string"}, "toEntityId": map[string]string{"type": "string"}, "relationType": map[string]string{"type": "string", "description": "受控词表：father/mother/child/spouse/partner/friend/teacher/student/colleague/enemy/belongs_to/located_in/owns/contains/created_by/appears_in/followed_by/precedes/adapted_from/causes/references/depends_on/part_of；也可用自定义字符串。"}, "scopeEntityId": map[string]string{"type": "string", "description": "可选：局部关系归属的实体 id。"}, "metadata": map[string]any{"type": "object"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.relations.update", "description": "原位修改一条已存在的语义关系：relationType 与 fromEntityId/toEntityId 均为可选 patch（缺省保持原值），可换类型或换方向。关系 id 与 scope 保留，画布锚点不丢；每次实际变化产出 revision。只在用户明确要求修改关系时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "relationId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "relationId": map[string]string{"type": "string"}, "fromEntityId": map[string]string{"type": "string", "description": "可选：新的起点实体 id（换方向时与 toEntityId 交换）。"}, "toEntityId": map[string]string{"type": "string", "description": "可选：新的终点实体 id。"}, "relationType": map[string]string{"type": "string", "description": "可选：新的关系类型（受控词表 id 或自定义字符串）。"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.relations.list", "description": "按实体列出关系：全局关系（touch 该实体）+ 该实体为 scope 的局部关系。每条带 direction（out/in/scope）与受控词表的 inverse 投影，产品语义上关系是双向的。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "entityId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.canvas.doc", "description": "读取一个画布 Document（''=全局画布根文档，否则为某实体 id 的内层文档）：返回 {elements, version, contextId}。一张画布 = 一个文档，内层画布是独立文档，实体/关系语义数据共享。画布是表达层，不承载语义真相，也不产出 revision。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "contextId": map[string]string{"type": "string", "description": "可选：缺省 '' 根画布。"}}}},
 		{"name": "recut.worlds.canvas.doc.update", "description": "在一个画布 Document 内应用元素级 ops（insert/update/remove）：kind='entity' 的骨干（refId 指向实体，props 只存视图偏好）或自由元素（text/image/shape/arrow/note/link，内容在 props；arrow/link 是语义边：fromElementId 必须指向同文档内的 entity 元素，只有 entity 能作为出发点）。返回更新后的 {elements, version}。画布元素永不产 revision。只在用户明确要求摆放画布元素时调用。", "inputSchema": canvasDocUpdateSchema()},
@@ -227,6 +228,13 @@ func worldsMCPTool(worlds *WorldStore, name string, input map[string]any) (any, 
 			WorldID: stringValue(input["worldId"]), FromEntityID: stringValue(input["fromEntityId"]),
 			ToEntityID: stringValue(input["toEntityId"]), RelationType: stringValue(input["relationType"]),
 			ScopeEntityID: stringValue(input["scopeEntityId"]), Metadata: metadata,
+			ExpectedRevisionID: stringValue(input["expectedRevisionId"]), CreatedBy: "mcp",
+		})
+	case "recut.worlds.relations.update":
+		result, err = worlds.UpdateRelation(UpdateRelationInput{
+			WorldID: stringValue(input["worldId"]), RelationID: stringValue(input["relationId"]),
+			FromEntityID: stringValue(input["fromEntityId"]), ToEntityID: stringValue(input["toEntityId"]),
+			RelationType: stringValue(input["relationType"]),
 			ExpectedRevisionID: stringValue(input["expectedRevisionId"]), CreatedBy: "mcp",
 		})
 	case "recut.worlds.relations.list":

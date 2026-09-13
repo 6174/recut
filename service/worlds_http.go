@@ -406,6 +406,29 @@ func (s *Server) createWorldRelation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, relation)
 }
 
+func (s *Server) updateWorldRelation(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		FromEntityID       string `json:"fromEntityId"`
+		ToEntityID         string `json:"toEntityId"`
+		RelationType       string `json:"relationType"`
+		ExpectedRevisionID string `json:"expectedRevisionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	relation, err := s.worldsStore().UpdateRelation(UpdateRelationInput{
+		WorldID: r.PathValue("worldID"), RelationID: r.PathValue("relationID"),
+		FromEntityID: input.FromEntityID, ToEntityID: input.ToEntityID, RelationType: input.RelationType,
+		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+	})
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, relation)
+}
+
 func (s *Server) deleteWorldRelation(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ExpectedRevisionID string `json:"expectedRevisionId"`

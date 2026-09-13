@@ -5,7 +5,7 @@
  * createEntity/createChildEntity 草稿化 + 命名态 + 创建/右键菜单状态；T4 就地编辑 inlineEdit；T6 容器
  * 视图默认包含容器自身 entity（load 时把 context 实体 unshift 进 entities）：会话配置（open）、当前上下文的实体/画布元素/关系/
  * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框，含详情面板停靠侧 panelSide 左右可切并持久化）
- * 与全部写动作；画布元素写 world_canvas 不产 revision，
+ * 与全部写动作（关系原位改 updateRelation：类型/方向 patch，保留 id/scope 与画布锚点）；画布元素写 world_canvas 不产 revision，
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
  * 画布存储为文档粒度（RFC 2026-09-09）：一张画布 = 一个 Document，canvas.get/save 整包读写 + version 乐观锁；
  * 元素级动作（upsertElement/persistGeometry/moveElement/removeElement）只改本地文档 + 脏集合，去抖整包落库，
@@ -408,8 +408,12 @@ type WorldCanvasState = {
   removeElement: (id: string) => Promise<void>;
   createRelation: (fromEntityId: string, toEntityId: string, relationType: string, opts?: { scopeEntityId?: string }) => Promise<void>;
   removeRelation: (relationId: string) => Promise<void>;
-  // 换类型（T5 面板就地换）：relations.update 未排期，v1 以删+建兜底（保留原 scope）
+  // 原位改关系（T5）：类型与方向 patch，保留 relation id、scope 与画布锚点（relations.update）
+  updateRelation: (relation: WorldEntityRelation, patch: { relationType?: string; fromEntityId?: string; toEntityId?: string }) => Promise<void>;
+  // 换类型（面板/标签就地换）：updateRelation 的语义别名
   changeRelationType: (relation: WorldEntityRelation, relationType: string) => Promise<void>;
+  // 交换方向（A → B 变 B → A）：等价 updateRelation 交换两端
+  swapRelationDirection: (relation: WorldEntityRelation) => Promise<void>;
   promote: (elementId: string, input?: { typeId?: string; name?: string; relationType?: string }) => Promise<void>;
   setPromoting: (elementId: string | null) => void;
   setPendingRelation: (pendingRelation: { fromEntityId: string; toEntityId: string; arrowCanvasId?: string } | null) => void;
@@ -1094,10 +1098,60 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
 
+  updateRelation: async (relation, patch) => {
+    const nextType = patch.relationType?.trim() || relation.type;
+    const nextFrom = patch.fromEntityId || relation.fromEntityId;
+    const nextTo = patch.toEntityId || relation.toEntityId;
+    if (nextType === relation.type && nextFrom === relation.fromEntityId && nextTo === relation.toEntityId) return;
+    if (nextFrom === nextTo) {
+      get().toast("不能与自身建立关系", "error");
+      return;
+    }
+    const run = async (revisionId: string) =>
+      createRecutWorldsClient(get().apiBase).relations.update({
+        worldId: get().worldId,
+        relationId: relation.id,
+        ...(nextType !== relation.type ? { relationType: nextType } : {}),
+        ...(nextFrom !== relation.fromEntityId ? { fromEntityId: nextFrom } : {}),
+        ...(nextTo !== relation.toEntityId ? { toEntityId: nextTo } : {}),
+        expectedRevisionId: revisionId,
+      });
+    try {
+      const saved = await run(get().revisionId).catch(async (cause) => {
+        if (!isRevisionConflict(cause)) throw cause;
+        await get().refreshRevision();
+        return run(get().revisionId);
+      });
+      set((state) => ({
+        relations: state.relations.map((item) => (item.id === saved.id ? saved : item)),
+        selection:
+          state.selection?.type === "relation" && state.selection.relation.id === saved.id
+            ? { type: "relation", relation: saved }
+            : state.selection,
+        dataVersion: state.dataVersion + 1,
+      }));
+      const titleOf = (id: string) => get().entities.find((entity) => entity.id === id)?.name ?? id;
+      if (nextFrom === relation.fromEntityId && nextTo === relation.toEntityId) {
+        get().toast(`关系类型已改为 ${nextType}`, "success");
+      } else {
+        get().toast(`关系方向已改为 ${titleOf(nextFrom)} → ${titleOf(nextTo)}`, "success");
+      }
+      get().logChange(
+        `修改关系 ${titleOf(relation.fromEntityId)}→${titleOf(relation.toEntityId)}`,
+        () => void get().updateRelation(saved, { relationType: relation.type, fromEntityId: relation.fromEntityId, toEntityId: relation.toEntityId }),
+      );
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
+  },
+
   changeRelationType: async (relation, relationType) => {
     if (relation.type === relationType) return;
-    await get().removeRelation(relation.id);
-    await get().createRelation(relation.fromEntityId, relation.toEntityId, relationType, { scopeEntityId: relation.scopeEntityId ?? undefined });
+    await get().updateRelation(relation, { relationType });
+  },
+
+  swapRelationDirection: async (relation) => {
+    await get().updateRelation(relation, { fromEntityId: relation.toEntityId, toEntityId: relation.fromEntityId });
   },
 
   removeRelation: async (relationId) => {

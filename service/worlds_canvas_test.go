@@ -386,6 +386,62 @@ func TestScopedRelationStaysOutOfGlobalCanonical(t *testing.T) {
 	}
 }
 
+func TestUpdateRelationChangesTypeAndDirectionInPlace(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+	from, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "梁启超"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	to, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "梁思成"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	relation, err := worlds.CreateRelation(CreateRelationInput{
+		WorldID: worldID, FromEntityID: from.ID, ToEntityID: to.ID, RelationType: "father",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Type-only patch keeps the id and both endpoints.
+	updated, err := worlds.UpdateRelation(UpdateRelationInput{WorldID: worldID, RelationID: relation.ID, RelationType: "teacher"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != relation.ID || updated.Type != "teacher" || updated.FromEntityID != from.ID || updated.ToEntityID != to.ID {
+		t.Fatalf("type update = %#v", updated)
+	}
+	// Direction swap keeps the id and the previously patched type.
+	swapped, err := worlds.UpdateRelation(UpdateRelationInput{WorldID: worldID, RelationID: relation.ID, FromEntityID: to.ID, ToEntityID: from.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if swapped.ID != relation.ID || swapped.Type != "teacher" || swapped.FromEntityID != to.ID || swapped.ToEntityID != from.ID {
+		t.Fatalf("direction update = %#v", swapped)
+	}
+	// Canonical freezes one relation with the updated type and direction.
+	rels := revRelations(currentCanonical(t, worlds, worldID))
+	if len(rels) != 1 {
+		t.Fatalf("canonical relations = %d", len(rels))
+	}
+	if rels[0]["type"] != "teacher" || rels[0]["from"] != to.ID || rels[0]["to"] != from.ID {
+		t.Fatalf("canonical relation = %#v", rels[0])
+	}
+	// A self-loop is rejected instead of colliding with the unique constraint.
+	if _, err := worlds.UpdateRelation(UpdateRelationInput{WorldID: worldID, RelationID: relation.ID, ToEntityID: to.ID}); err == nil {
+		t.Fatal("self-loop update must be rejected")
+	}
+	// A patch that would duplicate another edge is rejected (same from/to/type
+	// as the relation updated above: to → from, teacher).
+	other, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: to.ID, ToEntityID: from.ID, RelationType: "friend"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpdateRelation(UpdateRelationInput{WorldID: worldID, RelationID: other.ID, RelationType: "teacher"}); err == nil {
+		t.Fatal("duplicate relation update must be rejected")
+	}
+}
+
 func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	worldID := createTestWorld(t, worlds)

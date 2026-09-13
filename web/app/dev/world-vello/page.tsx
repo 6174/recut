@@ -20,7 +20,7 @@ import {
   WorldNodeBlockV,
   WORLD_VELLO_BLOCKS,
   entityCardRectV,
-} from "@/lib/pomelo/pomelo-vello/world-blocks";
+} from "@/lib/pomelo/world-canvas/blocks/vello-world-blocks";
 
 declare global {
   interface Window {
@@ -53,7 +53,7 @@ export default function WorldVelloDemoPage() {
         { id: "e2", type: EntityCardBlockV.type, attrs: { x: 360, y: 40, width: 264, height: 0, title: "旧城", desc: "地点 · 故事起点" } },
         { id: "n1", type: NoteBlockV.type, attrs: { x: 0, y: 260, width: 220, height: 120, text: "便签：开场钩子" } },
         { id: "m1", type: MediaNodeBlockV.type, attrs: { x: 360, y: 280, width: 200, height: 150 } },
-        { id: "r1", type: RelationArrowBlockV.type, attrs: { fromId: "e1", toId: "e2", label: "生活在", color: "#60a5fa" } },
+        { id: "r1", type: RelationArrowBlockV.type, attrs: { x: 0, y: 0, width: 0, height: 0, fromId: "e1", toId: "e2", label: "生活在", color: "#60a5fa" } },
       ],
     });
     const adapter = new VelloRendererAdapter({ preferGpu: true });

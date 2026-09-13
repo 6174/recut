@@ -132,7 +132,7 @@ export function runSelfTests(): SelfTestResult[] {
   });
 
   check("scheduler: 双代作废 stale 任务", () => {
-    const scheduler = new TileScheduler({ budgetMs: 1000, maxJobsPerFrame: 10, now: () => 0 });
+    const scheduler = new TileScheduler({ budgetMs: 1000, maximumJobsPerFrame: 10, now: () => 0 });
     scheduler.setGeneration(0, 0);
     scheduler.enqueue([
       { key: { pageId: "p", level: 1, x: 0, y: 0 }, navigationGeneration: 0, contentGeneration: 0, priority: "visible", fallbackAvailable: true, estimatedCost: 1 },
@@ -144,7 +144,7 @@ export function runSelfTests(): SelfTestResult[] {
   });
 
   check("scheduler: 优先级排序（mandatory 先于 overscan）", () => {
-    const scheduler = new TileScheduler({ budgetMs: 1000, maxJobsPerFrame: 10, now: () => 0 });
+    const scheduler = new TileScheduler({ budgetMs: 1000, maximumJobsPerFrame: 10, now: () => 0 });
     scheduler.setGeneration(0, 0);
     const order: string[] = [];
     scheduler.enqueue([

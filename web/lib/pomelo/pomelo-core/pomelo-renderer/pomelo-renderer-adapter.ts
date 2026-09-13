@@ -75,6 +75,16 @@ export abstract class PomeloRendererAdapter {
     return null;
   }
 
+  /** 可选：已注册 image 的像素尺寸（cover-fit 布局用）；缺省渲染器不支持（返回 null）。 */
+  getImageSize(_imageId: number): { width: number; height: number } | null {
+    return null;
+  }
+
+  /** 可选：已加载的图片元素（Canvas2D 回退绘制用）；缺省渲染器不支持（返回 null）。 */
+  getImageElement(_imageId: number): CanvasImageSource | null {
+    return null;
+  }
+
   onInit(renderer: PomeloRenderer) {
     this.renderer = renderer;
     this.editor = renderer.editor;

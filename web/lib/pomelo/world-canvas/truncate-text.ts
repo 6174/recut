@@ -1,25 +1,14 @@
 /*
- * [INPUT]: 依赖 pixi.js 与 document 测量 canvas
- * [OUTPUT]: 对外提供 truncateText（画布文本截断省略号）与 drawElementCaption（元素左上角标题徽标：
+ * [INPUT]: 依赖 pixi.js、text-metrics（truncateText）
+ * [OUTPUT]: 对外提供 truncateText（re-export，画布文本截断省略号）与 drawElementCaption（元素左上角标题徽标：
  * 图标 + 名称，画在卡片外上方，所有元素统一；可选 scale 传入 1/视口缩放时徽标按屏幕像素恒定）
  * [POS]: lib/pomelo/world-canvas 的渲染辅助（实体卡标题/简述、连线标签、元素徽标共用）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import * as PIXI from "pixi.js";
+import { truncateText } from "./text-metrics";
 
-const measureCanvas = typeof document !== "undefined" ? document.createElement("canvas") : null;
-const measureCtx = measureCanvas?.getContext("2d") ?? null;
-
-export function truncateText(text: string, maxWidth: number, fontSize = 12): string {
-  if (!measureCtx) return text;
-  measureCtx.font = `${fontSize}px system-ui, -apple-system, "PingFang SC", sans-serif`;
-  if (measureCtx.measureText(text).width <= maxWidth) return text;
-  let end = text.length;
-  while (end > 0 && measureCtx.measureText(`${text.slice(0, end)}…`).width > maxWidth) {
-    end -= 1;
-  }
-  return `${text.slice(0, end)}…`;
-}
+export { truncateText };
 
 const CAPTION_FONT = 'system-ui, -apple-system, "PingFang SC", sans-serif';
 // 徽标基线：图标/标题文字底边贴着卡片上缘（fontSize 11，文字向上 ~16px）

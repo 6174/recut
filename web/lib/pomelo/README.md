@@ -10,6 +10,9 @@
   - `pomelo-renderer/`：渲染协调（virtual-dom diff + BlockPatcher 增量挂载/更新/删除；注意顶层块 record.pid 为空，removeBlock/replaceBlock 需回退 mountpoint 取父，否则容器切换后舞台残留旧块——见 pomelo-virtual.ts 头部修复记录）
   - `pomelo-pixi/`：PixiRendererAdapter + PixiElement + PixiBlock（渲染底层适配器）
   - `pomelo-plugin/`：插件机制（PomeloPlugin / PomeloReactPlugin）
+- `pomelo-vello/`：vello-native 渲染内核（`VelloRendererAdapter` + 光栅器 seam + `VelloBlock` 基类 + `overlay-dom`）。
+  **内核不感知业务**：world-canvas 的 vello 业务 block 位于 `world-canvas/blocks/vello-world-blocks.ts`，
+  由 app 组合根注入 `blockTypes`；内核目录不得反向 import `world-canvas`/`app`。
 - `pomelo-world-canvas/`（`world-canvas/`）：Recursive World Canvas 的 pomelo 实现（demo）
   - `blocks/`：entity-card / note / world-node / relation-arrow（tldraw arrow-binding 思路的简化实现：绑定关系存 store，几何在渲染期解析）
   - `plugins/`：viewport（滚轮平移/⌘滚轮缩放/空格拖拽）、selection（点选/拖拽位移/连线命中）、connection（连线模式）、keyboard（Delete/Escape/⌘Z）

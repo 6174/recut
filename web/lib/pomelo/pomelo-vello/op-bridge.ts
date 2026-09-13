@@ -51,6 +51,8 @@ export type VelloOp =
       maxWidth?: number;
       lineHeight?: number;
       align?: "left" | "center" | "right";
+      /** 合成加粗量（相对字号的 em 比例，0/缺省 = 不加粗）。 */
+      embolden?: number;
       fill: Rgba;
       text: string;
     }
@@ -151,6 +153,7 @@ export function encodeOps(ops: VelloOp[]): Uint8Array {
         pushF32(op.lineHeight ?? 0);
         out.push(ALIGN_CODE[op.align ?? "left"] ?? 0);
         pushRgba(op.fill);
+        pushF32(op.embolden ?? 0);
         const encoded = TEXT_ENCODER.encode(op.text);
         out.push(encoded.length & 0xff, (encoded.length >>> 8) & 0xff, (encoded.length >>> 16) & 0xff, (encoded.length >>> 24) & 0xff);
         for (const byte of encoded) out.push(byte);

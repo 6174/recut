@@ -30,7 +30,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 export class DemoCardBlock extends VelloBlock {
   static type = "demo-card";
 
-  protected renderBlock(): VelloBlockDraw {
+  renderBlock(): VelloBlockDraw {
     const attrs = this.record.attrs as Record<string, unknown>;
     const x = Number(attrs.x) || 0;
     const y = Number(attrs.y) || 0;

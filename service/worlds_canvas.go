@@ -5,7 +5,8 @@
  * 自动创建）、world_canvas 元素读写（entity 骨干 + 自由元素，均不产 revision；arrow/link 是语义边，出发点必须是
  * entity 元素）、递归容器（create_child/promote）与局部子图关系（scope_entity_id）。箭头提升按终点分派：
  * entity→entity 成关系绑定（world_relations），entity→自由元素成属性绑定（attr 锚点 + 引用投影，值与右侧属性
- * 面板共享 entity.content 单一数据源（面板为准：面板编辑经 UpsertEntity 回刷 attr 投影，画布可创建/更新但无法删除））。语义真相只落在 world_entities +
+ * 面板共享 entity.content 单一数据源（面板为准：面板编辑经 UpsertEntity 回刷 attr 投影，画布可创建/更新但无法删除））。
+ * 关系支持原位更新（UpdateRelation：类型/方向 patch，保留 id 与画布锚点）。语义真相只落在 world_entities +
  * world_relations；画布/类型是表达层，不进 Canon
  * [POS]: service 的 Recursive World Canvas 领域层；与 worlds_http.go（REST）、worlds_mcp.go（MCP）共同构成
  * recut.worlds.* 的增量能力，不改变既有 Canon 读取面
@@ -713,6 +714,108 @@ func (w *WorldStore) CreateRelation(input CreateRelationInput) (WorldEntityRelat
 	}
 	logWorldEvent("world.relation.created", map[string]string{"worldId": input.WorldID, "relationId": relationID})
 	return WorldEntityRelation{ID: relationID, Type: input.RelationType, FromEntityID: input.FromEntityID, ToEntityID: input.ToEntityID, ScopeEntityID: input.ScopeEntityID}, nil
+}
+
+// UpdateRelationInput is the typed input of relations.update. Empty fields are
+// left unchanged (patch semantics); the relation id and scope are preserved so
+// canvas anchors (shape:rel-<relationId>) survive a type or direction edit.
+type UpdateRelationInput struct {
+	WorldID            string
+	RelationID         string
+	RelationType       string
+	FromEntityID       string
+	ToEntityID         string
+	ExpectedRevisionID string
+	CreatedBy          string
+}
+
+// UpdateRelation edits an existing directed edge in place: relation_type and/or
+// the endpoints (direction) can change. It produces a revision only when the
+// Canon actually differs. A self-loop or a duplicate of another edge (same
+// world/from/to/type) is rejected instead of silently colliding with the unique
+// constraint.
+func (w *WorldStore) UpdateRelation(input UpdateRelationInput) (WorldEntityRelation, error) {
+	if strings.TrimSpace(input.WorldID) == "" {
+		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "worldId is required")
+	}
+	if strings.TrimSpace(input.RelationID) == "" {
+		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "relationId is required")
+	}
+	db, err := w.database()
+	if err != nil {
+		return WorldEntityRelation{}, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return WorldEntityRelation{}, err
+	}
+	defer tx.Rollback()
+	if err := w.checkWritable(tx, input.WorldID); err != nil {
+		return WorldEntityRelation{}, err
+	}
+	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
+		return WorldEntityRelation{}, err
+	}
+	current := WorldEntityRelation{ID: input.RelationID}
+	var scopeEntityID sql.NullString
+	err = tx.QueryRow("select relation_type, from_entity_id, to_entity_id, scope_entity_id from world_relations where id = ? and world_id = ?", input.RelationID, input.WorldID).
+		Scan(&current.Type, &current.FromEntityID, &current.ToEntityID, &scopeEntityID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "relation not found")
+	}
+	if err != nil {
+		return WorldEntityRelation{}, err
+	}
+	current.ScopeEntityID = nullStringValue(scopeEntityID)
+
+	next := current
+	if value := strings.TrimSpace(input.RelationType); value != "" {
+		next.Type = value
+	}
+	if value := strings.TrimSpace(input.FromEntityID); value != "" {
+		next.FromEntityID = value
+	}
+	if value := strings.TrimSpace(input.ToEntityID); value != "" {
+		next.ToEntityID = value
+	}
+	if next.Type == "" {
+		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "relation type is required")
+	}
+	if next.FromEntityID == next.ToEntityID {
+		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "relation cannot point to itself")
+	}
+	for _, entityID := range []string{next.FromEntityID, next.ToEntityID, next.ScopeEntityID} {
+		if entityID == "" {
+			continue
+		}
+		var count int
+		if err := tx.QueryRow("select count(*) from world_entities where id = ? and world_id = ? and archived_at is null", entityID, input.WorldID).Scan(&count); err != nil {
+			return WorldEntityRelation{}, err
+		}
+		if count == 0 {
+			return WorldEntityRelation{}, worldsError(WorldsErrEntityNotFound, "relation endpoint does not belong to the world")
+		}
+	}
+	var duplicate int
+	if err := tx.QueryRow("select count(*) from world_relations where world_id = ? and from_entity_id = ? and to_entity_id = ? and relation_type = ? and id <> ?",
+		input.WorldID, next.FromEntityID, next.ToEntityID, next.Type, input.RelationID).Scan(&duplicate); err != nil {
+		return WorldEntityRelation{}, err
+	}
+	if duplicate > 0 {
+		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "an identical relation already exists")
+	}
+	if _, err := tx.Exec("update world_relations set from_entity_id = ?, to_entity_id = ?, relation_type = ? where id = ? and world_id = ?",
+		next.FromEntityID, next.ToEntityID, next.Type, input.RelationID, input.WorldID); err != nil {
+		return WorldEntityRelation{}, err
+	}
+	if _, err := w.commitRevision(tx, input.WorldID, "relation.updated", input.CreatedBy); err != nil {
+		return WorldEntityRelation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorldEntityRelation{}, err
+	}
+	logWorldEvent("world.relation.updated", map[string]string{"worldId": input.WorldID, "relationId": input.RelationID})
+	return next, nil
 }
 
 // ListRelations returns the relations of one entity: global relations touching

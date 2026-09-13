@@ -16,7 +16,9 @@ const TILE_DEVICE_SIZE = 256;
 function hashChunk(id: string, ops: Uint8Array): number {
   let hash = 2166136261 ^ id.length;
   for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
-  for (let i = 0; i < ops.length; i += 7) hash = Math.imul(hash ^ ops[i], 16777619);
+  // 必须哈希全部字节：此前按 i += 7 抽样，坐标浮点的字节常落在采样点之外，
+  // 平移/缩放后 key 不变 → WASM chunk_scenes 复用旧位置的 Scene，画面「抖到别处」。
+  for (let i = 0; i < ops.length; i++) hash = Math.imul(hash ^ ops[i], 16777619);
   return hash >>> 0;
 }
 

@@ -44,6 +44,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private readonly removedBlocks = new Set<string>();
   private readonly imageIds = new Map<string, number>();
   private readonly imagePending = new Set<string>();
+  private readonly imageSizes = new Map<number, { width: number; height: number }>();
+  private readonly imageElements = new Map<number, HTMLImageElement>();
   private nextImageId = 10_000;
   private readonly options: VelloRendererAdapterOptions;
   private disposeTicker: { dispose(): void } | null = null;
@@ -159,8 +161,13 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
 
   setTransform(x: number, y: number, scale: number): void {
     if (!this.viewport) return;
+    const scaleChanged = this.transform.scale !== scale;
     this.viewport = { ...this.viewport, panX: x, panY: y, zoom: scale };
     this.transform = { x, y, scale };
+    // 渲染器无关：overlay/宿主依赖此事件同步屏幕空间（选区框在缩放时必须立即跟随）
+    this.onTransformEvent.emit({ x, y, scale });
+    // zoom 常量 block（元素徽标等）在缩放变化时重绘，保持屏幕像素尺寸
+    if (scaleChanged && this.rerenderZoomBlocks()) this.syncChunks();
     this.navigationGeneration++;
     // 导航期（平移/缩放）defer 瓦片重栅格：先贴旧瓦片缩放过渡，落定后再补高清，避免每次 wheel 重渲全部瓦片
     this.navigationActive = true;
@@ -173,6 +180,18 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       this.settle();
     }, 180);
     this.dirty = true;
+  }
+
+  /** 缩放变化时重绘声明了 renderOnZoom 的 block（供 zoom 常量视觉）。 */
+  private rerenderZoomBlocks(): boolean {
+    let rerendered = false;
+    for (const block of this.renderedBlockMap.values()) {
+      if (block instanceof VelloBlock && block.renderOnZoom) {
+        block.render();
+        rerendered = true;
+      }
+    }
+    return rerendered;
   }
 
   setContainerSize(width: number, height: number): void {
@@ -270,14 +289,18 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     const cached = this.imageIds.get(url);
     if (cached !== undefined) return cached;
     if (this.imagePending.has(url)) return null;
-    if (this.rasterizerName !== "vello") return null;
     this.imagePending.add(url);
     const id = this.nextImageId++;
     void (async () => {
       try {
-        const rgba = await this.loadImageRgba(url);
-        if (rgba) {
-          (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, rgba.width, rgba.height, rgba.data);
+        // vello(GPU) 需要 RGBA 上传纹理；Canvas2D 回退只需图片元素即可 drawImage
+        const loaded = await this.loadImage(url, this.rasterizerName === "vello");
+        if (loaded) {
+          this.imageSizes.set(id, { width: loaded.width, height: loaded.height });
+          this.imageElements.set(id, loaded.element);
+          if (loaded.data) {
+            (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, loaded.width, loaded.height, loaded.data);
+          }
           this.imageIds.set(url, id);
         }
       } catch (error) {
@@ -287,12 +310,12 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
         this.imagePending.delete(url);
         try {
           // 图就绪后重跑所有 VelloBlock.render()（ensureImage 现在能返回 id），
-          // 再 syncChunks 把 drawVersion 变化同步成 chunk（否则瓦片不会重编码，图不显示）
+          // 再 syncChunks 把 drawVersion 变化同步成 chunk（否则瓦片不会重编码，图不显示）。
+          // 不在此显式 settle：ticker 每帧会 flush，多个图片同帧就绪只渲染一次，避免单帧多次整场渲染。
           for (const block of this.renderedBlockMap.values()) {
             if (block instanceof VelloBlock) block.render();
           }
           this.syncChunks();
-          this.settle();
         } catch (error) {
           console.warn("[pomelo-vello-adapter] image re-render failed", error);
         }
@@ -302,8 +325,18 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     return null;
   }
 
+  /** cover-fit 布局用的已注册图片尺寸。 */
+  getImageSize(imageId: number): { width: number; height: number } | null {
+    return this.imageSizes.get(imageId) ?? null;
+  }
+
+  /** Canvas2D 回退绘制用的已加载图片元素。 */
+  getImageElement(imageId: number): CanvasImageSource | null {
+    return this.imageElements.get(imageId) ?? null;
+  }
+
   /** 用 Image + canvas 取 RGBA（同源/跨域均先按 anonymous 尝试，失败再退化为普通加载）。 */
-  private async loadImageRgba(url: string): Promise<{ width: number; height: number; data: Uint8Array } | null> {
+  private async loadImage(url: string, needRgba: boolean): Promise<{ element: HTMLImageElement; width: number; height: number; data: Uint8Array | null } | null> {
     const load = (crossOrigin: boolean) =>
       new Promise<HTMLImageElement>((resolve, reject) => {
         const image = new Image();
@@ -327,13 +360,14 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     const scale = Math.min(1, maxSide / Math.max(naturalW, naturalH));
     const width = Math.max(1, Math.round(naturalW * scale));
     const height = Math.max(1, Math.round(naturalH * scale));
+    if (!needRgba) return { element: image, width, height, data: null };
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
+    if (!ctx) return { element: image, width, height, data: null };
     ctx.drawImage(image, 0, 0, width, height);
-    return { width, height, data: new Uint8Array(ctx.getImageData(0, 0, width, height).data) };
+    return { element: image, width, height, data: new Uint8Array(ctx.getImageData(0, 0, width, height).data) };
   }
 
   /** 循环渲染直到可见瓦片全覆盖（或上限）。用于首屏/导航结束/图片就绪后的确定性补偿。 */

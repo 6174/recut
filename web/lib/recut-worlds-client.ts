@@ -394,6 +394,7 @@ export type RecutWorldsClient = {
   };
   relations: {
     create(input: { worldId: string; fromEntityId: string; toEntityId: string; relationType: string; scopeEntityId?: string; expectedRevisionId?: string }): Promise<WorldEntityRelation>;
+    update(input: { worldId: string; relationId: string; fromEntityId?: string; toEntityId?: string; relationType?: string; expectedRevisionId?: string }): Promise<WorldEntityRelation>;
     list(input: { worldId: string; entityId: string }): Promise<WorldEntityRelation[]>;
     remove(input: { worldId: string; relationId: string; expectedRevisionId?: string }): Promise<void>;
   };
@@ -493,6 +494,7 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
     },
     relations: {
       create: ({ worldId, ...rest }) => requestJSON<WorldEntityRelation>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/relations`, { method: "POST", body: rest }),
+      update: ({ worldId, relationId, ...rest }) => requestJSON<WorldEntityRelation>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/relations/${encodeURIComponent(relationId)}`, { method: "PATCH", body: rest }),
       list: async ({ worldId, entityId }) => {
         const body = await requestJSON<{ items: WorldEntityRelation[] }>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/relations?entityId=${encodeURIComponent(entityId)}`);
         return body.items;
