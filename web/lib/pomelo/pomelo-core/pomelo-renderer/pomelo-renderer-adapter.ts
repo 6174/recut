@@ -55,6 +55,21 @@ export abstract class PomeloRendererAdapter {
 
   abstract createIElement(tag: string, block: PomeloBlock, props?: any): IElement;
 
+  /** 渲染器无关：底层 canvas 元素（供插件做屏幕空间 overlay/命中）。 */
+  getView(): HTMLCanvasElement | null {
+    return null;
+  }
+
+  /** 渲染器无关：屏幕尺寸（CSS 像素）。 */
+  getScreenSize(): { width: number; height: number } {
+    return { width: this.containerSize.width, height: this.containerSize.height };
+  }
+
+  /** 渲染器无关：请求一帧渲染（overlay 改动等 demand-driven 场景）。 */
+  invalidate(): void {
+    // 默认无操作
+  }
+
   onInit(renderer: PomeloRenderer) {
     this.renderer = renderer;
     this.editor = renderer.editor;

@@ -66,6 +66,14 @@ export class PixiRendererAdapter extends PomeloRendererAdapter {
     this.editor?.ticker?.add?.(() => this.#flushFrame(), "update");
   }
 
+  getView(): HTMLCanvasElement | null {
+    return (this.app?.view as HTMLCanvasElement) ?? null;
+  }
+
+  getScreenSize(): { width: number; height: number } {
+    return { width: this.app?.screen.width ?? this.containerSize.width, height: this.app?.screen.height ?? this.containerSize.height };
+  }
+
   // 上层任何数据/变换变化后调用的最终 API；这里只标记脏，不等下一帧不执行 GPU 工作
   invalidate() {
     this.#dirty = true;

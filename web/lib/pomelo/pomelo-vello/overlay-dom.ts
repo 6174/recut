@@ -1,8 +1,10 @@
 /*
  * [INPUT]: 无外部依赖（DOM/SVG）
- * [OUTPUT]: 对外提供 DomOverlay：渲染器无关的屏幕空间覆盖层（选区框 + 四角手柄 + 引导线），
- *           挂在画布容器之上，按适配器 transform（pan/zoom）把世界矩形映射到屏幕。
- * [POS]: pomelo-vello 的 overlay 层（替代 PIXI.Graphics overlay），供 CanvasBindsPlugin 迁移使用。
+ * [OUTPUT]: 对外提供 DomOverlay：渲染器无关的屏幕空间覆盖层。
+ *           - 语义化：drawSelection（选框+四角手柄）、drawGuide（引导线）；
+ *           - 通用图元：clear/clearAll/circle/line/roundedRect/quad/polygon，供 CanvasBindsPlugin 迁移 PIXI.Graphics overlay。
+ *           一切坐标均为屏幕空间（世界→屏幕由调用方按适配器 transform 换算）。
+ * [POS]: pomelo-vello / world-canvas 的 overlay 层（替代 PIXI.Graphics overlay）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 export interface OverlayTransform {
@@ -18,9 +20,27 @@ export interface OverlayRect {
   height: number;
 }
 
+export interface ShapeStyle {
+  stroke?: string;
+  strokeWidth?: number;
+  fill?: string;
+  opacity?: number;
+  dash?: string;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+export function cssColor(hex: number, alpha = 1): string {
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 export class DomOverlay {
   readonly root: HTMLDivElement;
   private readonly svg: SVGSVGElement;
+  private readonly dynamic: SVGGElement;
   private readonly selection: SVGRectElement;
   private readonly handles: SVGRectElement[] = [];
   private readonly guide: SVGLineElement;
@@ -29,21 +49,21 @@ export class DomOverlay {
   constructor(container: HTMLElement) {
     const root = document.createElement("div");
     root.dataset.overlayRoot = "true";
-    Object.assign(root.style, {
-      position: "absolute",
-      inset: "0",
-      pointerEvents: "none",
-      overflow: "hidden",
-    } as CSSStyleDeclaration);
+    Object.assign(root.style, { position: "absolute", inset: "0", pointerEvents: "none", overflow: "hidden" } as CSSStyleDeclaration);
     this.root = root;
 
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = document.createElementNS(SVG_NS, "svg");
     svg.setAttribute("width", "100%");
     svg.setAttribute("height", "100%");
     Object.assign(svg.style, { position: "absolute", inset: "0", overflow: "visible" } as CSSStyleDeclaration);
     this.svg = svg;
 
-    const selection = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    const dynamic = document.createElementNS(SVG_NS, "g");
+    dynamic.dataset.overlayDynamic = "true";
+    this.dynamic = dynamic;
+    svg.appendChild(dynamic);
+
+    const selection = document.createElementNS(SVG_NS, "rect");
     selection.setAttribute("fill", "none");
     selection.setAttribute("stroke", "#4c8dff");
     selection.setAttribute("stroke-width", "2");
@@ -54,7 +74,7 @@ export class DomOverlay {
     svg.appendChild(selection);
 
     for (let i = 0; i < 4; i++) {
-      const handle = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      const handle = document.createElementNS(SVG_NS, "rect");
       handle.setAttribute("width", "8");
       handle.setAttribute("height", "8");
       handle.setAttribute("fill", "#ffffff");
@@ -66,7 +86,7 @@ export class DomOverlay {
       svg.appendChild(handle);
     }
 
-    const guide = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    const guide = document.createElementNS(SVG_NS, "line");
     guide.setAttribute("stroke", "#8b93a7");
     guide.setAttribute("stroke-width", "2");
     guide.setAttribute("stroke-dasharray", "6 4");
@@ -75,7 +95,7 @@ export class DomOverlay {
     this.guide = guide;
     svg.appendChild(guide);
 
-    const guideDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    const guideDot = document.createElementNS(SVG_NS, "circle");
     guideDot.setAttribute("r", "4");
     guideDot.setAttribute("fill", "#8b93a7");
     guideDot.style.display = "none";
@@ -90,11 +110,88 @@ export class DomOverlay {
     this.svg.setAttribute("viewBox", `0 0 ${Math.max(1, width)} ${Math.max(1, height)}`);
   }
 
-  clear(): void {
+  /** 清空通用图元 + 隐藏语义化元素。 */
+  clearAll(): void {
+    this.clearDynamic();
     this.selection.style.display = "none";
     for (const handle of this.handles) handle.style.display = "none";
     this.guide.style.display = "none";
     this.guideDot.style.display = "none";
+  }
+
+  clear(): void {
+    this.clearAll();
+  }
+
+  clearDynamic(): void {
+    while (this.dynamic.firstChild) this.dynamic.removeChild(this.dynamic.firstChild);
+  }
+
+  private create<K extends keyof SVGElementTagNameMap>(tag: K): SVGElementTagNameMap[K] {
+    return document.createElementNS(SVG_NS, tag);
+  }
+
+  private applyStyle(el: SVGElement, style: ShapeStyle): void {
+    el.setAttribute("stroke", style.stroke ?? "none");
+    if (style.strokeWidth !== undefined) el.setAttribute("stroke-width", String(style.strokeWidth));
+    el.setAttribute("fill", style.fill ?? "none");
+    if (style.opacity !== undefined) el.setAttribute("opacity", String(style.opacity));
+    if (style.dash) el.setAttribute("stroke-dasharray", style.dash);
+  }
+
+  circle(cx: number, cy: number, r: number, style: ShapeStyle): SVGCircleElement {
+    const el = this.create("circle");
+    el.setAttribute("cx", String(cx));
+    el.setAttribute("cy", String(cy));
+    el.setAttribute("r", String(r));
+    this.applyStyle(el, style);
+    this.dynamic.appendChild(el);
+    return el;
+  }
+
+  line(x1: number, y1: number, x2: number, y2: number, style: ShapeStyle): SVGLineElement {
+    const el = this.create("line");
+    el.setAttribute("x1", String(x1));
+    el.setAttribute("y1", String(y1));
+    el.setAttribute("x2", String(x2));
+    el.setAttribute("y2", String(y2));
+    el.setAttribute("stroke-linecap", "round");
+    this.applyStyle(el, style);
+    this.dynamic.appendChild(el);
+    return el;
+  }
+
+  roundedRect(rect: OverlayRect, radius: number, style: ShapeStyle): SVGRectElement {
+    const el = this.create("rect");
+    el.setAttribute("x", String(rect.x));
+    el.setAttribute("y", String(rect.y));
+    el.setAttribute("width", String(Math.max(0, rect.width)));
+    el.setAttribute("height", String(Math.max(0, rect.height)));
+    el.setAttribute("rx", String(radius));
+    this.applyStyle(el, style);
+    this.dynamic.appendChild(el);
+    return el;
+  }
+
+  path(d: string, style: ShapeStyle): SVGPathElement {
+    const el = this.create("path");
+    el.setAttribute("d", d);
+    el.setAttribute("stroke-linecap", "round");
+    this.applyStyle(el, style);
+    this.dynamic.appendChild(el);
+    return el;
+  }
+
+  quad(p0: { x: number; y: number }, cp: { x: number; y: number }, p2: { x: number; y: number }, style: ShapeStyle): SVGPathElement {
+    return this.path(`M ${p0.x} ${p0.y} Q ${cp.x} ${cp.y} ${p2.x} ${p2.y}`, style);
+  }
+
+  polygon(points: Array<{ x: number; y: number }>, style: ShapeStyle): SVGPolygonElement {
+    const el = this.create("polygon");
+    el.setAttribute("points", points.map((p) => `${p.x},${p.y}`).join(" "));
+    this.applyStyle(el, style);
+    this.dynamic.appendChild(el);
+    return el;
   }
 
   /** 画选区框 + 四角手柄（世界矩形 → 屏幕）。 */

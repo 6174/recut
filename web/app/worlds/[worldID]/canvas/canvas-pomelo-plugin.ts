@@ -15,11 +15,9 @@
  * [POS]: worlds/[worldID]/canvas 的画布交互绑定层（resolveSelection / store↔document 同步）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import * as PIXI from "pixi.js";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
-import type { PixiRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-adapter";
-import type { PixiBlock } from "@/lib/pomelo/pomelo-core/pomelo-pixi/pomelo-pixi-block";
 import { PomeloPlugin } from "@/lib/pomelo/pomelo-core/pomelo-plugin";
+import { DomOverlay, cssColor } from "@/lib/pomelo/pomelo-vello/overlay-dom";
 import { WORLD_ELEMENT_ID, useWorldCanvasStore } from "./canvas-store";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-block";
 import { pomeloPerf } from "@/lib/pomelo/pomelo-core/pomelo-perf";
@@ -89,9 +87,9 @@ export class CanvasBindsPlugin extends PomeloPlugin {
   // 供 syncDocFromCanvasStore 全量重建时优先采用（否则中途 dataVersion++ 的重建会用
   // store 旧位置把正在拖拽的元素弹回去，表现为「不跟手、然后才追上鼠标」）
   liveGeometry = new Map<string, { x: number; y: number; width?: number; height?: number }>();
-  #overlay = new PIXI.Graphics();
-  // 「+」引导草稿线（世界空间，挂在文档 mountpoint 下随 transform 同步）
-  #draft = new PIXI.Graphics();
+  #overlay: DomOverlay | null = null;
+  // 每帧 overlay 绘制（闭包，定义于 onEditorDidMount，可访问 toScreen/centerWorld 等）
+  #paint?: () => void;
   // 进行中的 + 引导拖拽（drawOverlay 读取以隐藏手柄/绘制 hover 高亮）
   #guide: GuideDrag | null = null;
   // 连线三控制点拖拽时的节点中心热区吸附指示（drawOverlay 据此绘制）
@@ -112,11 +110,11 @@ export class CanvasBindsPlugin extends PomeloPlugin {
   }
 
   onEditorDidMount(editor: PomeloEditor) {
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
-    const view = adapter.app.view as HTMLCanvasElement;
+    const adapter = editor.renderAdapter;
+    const view = adapter.getView();
+    if (!view) return;
     this.#view = view;
-    adapter.app.stage.addChild(this.#overlay);
-    (adapter.mountpointBlock.hostElement.el as PIXI.Container).addChild(this.#draft);
+    this.#overlay = new DomOverlay(editor.getContainerDom());
 
     const toWorld = (event: PointerEvent): Point => {
       const rect = view.getBoundingClientRect();
@@ -293,21 +291,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
 
     // 「+」引导拖拽：从 + 手柄出发，拖到另一实体卡开关系确认；落空/点击 = 属性引导菜单
     const drawGuide = () => {
-      // 引导线是纯 Graphics 改动（不经过 transact）：demand-driven 渲染必须显式置脏
-      (editor.renderAdapter as PixiRendererAdapter).invalidate();
-      const g = this.#draft;
-      g.clear();
-      const guide = this.#guide;
-      if (!guide) return;
-      const endWorld = guide.hoverBlockId ? centerWorld(guide.hoverBlockId) : guide.pointerWorld;
-      // 两段式：起锚点虚线段同选中态；主段直线（与确认后创建的连线一致：bend=0）
-      g.lineStyle(2, 0x8b93a7, 0.9);
-      g.moveTo(guide.anchorWorld.x, guide.anchorWorld.y);
-      g.lineTo(endWorld.x, endWorld.y);
-      g.lineStyle(0);
-      g.beginFill(0x8b93a7);
-      g.drawCircle(endWorld.x, endWorld.y, 4);
-      g.endFill();
+      this.drawOverlay(editor);
     };
     // 引导线终点吸附用的节点中心（世界坐标）
     const centerWorld = (blockId: string): Point => {
@@ -315,6 +299,114 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       if (!record) return { x: 0, y: 0 };
       const rect = rectOf(record);
       return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    };
+    // 覆盖层绘制：屏幕空间（guide 草稿线 + 「+」手柄 + 选区/关系高亮）
+    this.#paint = () => {
+      const overlay = this.#overlay;
+      if (!overlay) return;
+      const screen = adapter.getScreenSize();
+      overlay.setSize(screen.width, screen.height);
+      overlay.clearAll();
+      const t = adapter.transform;
+      const readOnly = useWorldCanvasStore.getState().readOnly;
+
+      if (this.#guide) {
+        const endWorld = this.#guide.hoverBlockId ? centerWorld(this.#guide.hoverBlockId) : this.#guide.pointerWorld;
+        const a = toScreen(this.#guide.anchorWorld);
+        const b = toScreen(endWorld);
+        overlay.line(a.x, a.y, b.x, b.y, { stroke: cssColor(0x8b93a7, 0.9), strokeWidth: 2, dash: "6 4" });
+        overlay.circle(b.x, b.y, 4, { fill: cssColor(0x8b93a7) });
+      }
+
+      if (!readOnly && !this.#guide && this.#hoverBlockId?.startsWith("entity:")) {
+        const record = editor.state.getBlockById(this.#hoverBlockId);
+        if (record && record.id.startsWith("entity:")) {
+          const rect = rectOfRecord(record);
+          if (rect.width > 0 && rect.height > 0) {
+            for (const world of [
+              { x: rect.x + rect.width, y: rect.y + rect.height / 2 },
+              { x: rect.x, y: rect.y + rect.height / 2 },
+            ]) {
+              const anchorPoint = toScreen(world);
+              overlay.circle(anchorPoint.x, anchorPoint.y, 8, { stroke: cssColor(0xd4d4d8, 0.85), strokeWidth: 1.5, fill: cssColor(0x1c1d22) });
+              overlay.line(anchorPoint.x - 3.5, anchorPoint.y, anchorPoint.x + 3.5, anchorPoint.y, { stroke: cssColor(0xd4d4d8), strokeWidth: 2 });
+              overlay.line(anchorPoint.x, anchorPoint.y - 3.5, anchorPoint.x, anchorPoint.y + 3.5, { stroke: cssColor(0xd4d4d8), strokeWidth: 2 });
+            }
+          }
+        }
+      }
+
+      const selection = useWorldCanvasStore.getState().selection;
+      if (!selection) return;
+
+      let relationArrowId: string | null = null;
+      if (selection.type === "relation") relationArrowId = `${RELATION_PREFIX}${selection.relation.id}`;
+      else if (selection.type === "canvas" && selection.element.kind === "arrow") relationArrowId = selection.element.id;
+      if (relationArrowId) {
+        const arrowRecord = editor.state.getBlockById(relationArrowId);
+        if (arrowRecord) {
+          const from = editor.state.getBlockById(String(arrowRecord.attrs.fromId ?? ""));
+          const to = editor.state.getBlockById(String(arrowRecord.attrs.toId ?? ""));
+          const geo = relationGeometry(from, to, arrowRecord.attrs as never);
+          if (from && to && geo) {
+            if (this.#snapZone) {
+              overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 14, { stroke: cssColor(0x4c8dff, 0.6), strokeWidth: 1.5 });
+              overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 22, { stroke: cssColor(0x4c8dff, 0.25), strokeWidth: 1 });
+            }
+            const leftPart = geo.ta > 0 ? splitQuadratic(geo.curve, geo.ta).left : geo.curve;
+            const rightPart = geo.tb < 1 ? splitQuadratic(geo.curve, geo.tb).right : geo.curve;
+            for (const part of [leftPart, rightPart]) {
+              overlay.quad(toScreen(part.p0), toScreen(part.cp), toScreen(part.p2), { stroke: cssColor(0x8b93a7, 0.9), strokeWidth: 1.5, dash: "6 4" });
+            }
+            const midPart = curveSegment(geo, geo.ta, geo.tb);
+            const a = toScreen(midPart.p0);
+            const b = toScreen(midPart.p2);
+            const cpScreen = toScreen(midPart.cp);
+            overlay.quad(a, cpScreen, b, { stroke: cssColor(0xffffff, 0.95), strokeWidth: 5 });
+            overlay.quad(a, cpScreen, b, { stroke: cssColor(0x4c8dff), strokeWidth: 2 });
+            const tangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.tb);
+            const angle = Math.atan2(tangent.y, tangent.x);
+            overlay.polygon(
+              [
+                { x: b.x + Math.cos(angle) * 4, y: b.y + Math.sin(angle) * 4 },
+                { x: b.x - 8 * Math.cos(angle) - 4 * Math.sin(angle), y: b.y - 8 * Math.sin(angle) + 4 * Math.cos(angle) },
+                { x: b.x - 8 * Math.cos(angle) + 4 * Math.sin(angle), y: b.y - 8 * Math.sin(angle) - 4 * Math.cos(angle) },
+              ],
+              { fill: cssColor(0xffffff) },
+            );
+            const mid = bezierPoint(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
+            for (const world of [geo.t1, mid, geo.t2]) {
+              const point = toScreen(world);
+              overlay.circle(point.x, point.y, 4.5, { stroke: cssColor(0x4c8dff), strokeWidth: 2, fill: cssColor(0xffffff) });
+            }
+          }
+        }
+        return;
+      }
+
+      const candidates: string[] = [];
+      if (selection.type === "entity") candidates.push(`entity:${selection.entity.id}`);
+      else if (selection.type === "world") candidates.push("shape:world");
+      else if (selection.type === "canvas") candidates.push(selection.element.id);
+      for (const blockId of candidates) {
+        const record = editor.state.getBlockById(blockId);
+        if (!record || record.isRoot) continue;
+        const world = rectOfRecord(record);
+        const width = world.width;
+        const height = world.height;
+        if (width <= 0 || height <= 0) continue;
+        const tl = toScreen({ x: world.x, y: world.y });
+        overlay.roundedRect({ x: tl.x - 4, y: tl.y - 4, width: width * t.scale + 8, height: height * t.scale + 8 }, 8, { stroke: cssColor(0x4c8dff, 0.5), strokeWidth: 2 });
+        for (const [hx, hy] of [
+          [tl.x - 4, tl.y - 4],
+          [tl.x + width * t.scale + 4, tl.y - 4],
+          [tl.x - 4, tl.y + height * t.scale + 4],
+          [tl.x + width * t.scale + 4, tl.y + height * t.scale + 4],
+        ]) {
+          overlay.roundedRect({ x: hx - 4, y: hy - 4, width: 8, height: 8 }, 1, { stroke: cssColor(0x4c8dff), strokeWidth: 2, fill: cssColor(0xffffff) });
+        }
+        break;
+      }
     };
 
     // 拖拽/resize 提交：moveElement 本地影子 + persistGeometry 去抖
@@ -440,7 +532,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         .map((record) => record.id);
       this.#sessionActive = true;
       try {
-        (editor.renderAdapter as PixiRendererAdapter).beginContentSession([...ids, ...arrowIds]);
+        (editor.renderAdapter as { beginContentSession?: (ids: string[]) => void }).beginContentSession?.([...ids, ...arrowIds]);
       } catch (error) {
         console.warn("[CanvasBindsPlugin] content session failed", error);
       }
@@ -449,7 +541,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       if (!this.#sessionActive) return;
       this.#sessionActive = false;
       try {
-        (editor.renderAdapter as PixiRendererAdapter).endContentSession();
+        (editor.renderAdapter as { endContentSession?: () => void }).endContentSession?.();
       } catch (error) {
         console.warn("[CanvasBindsPlugin] end content session failed", error);
       }
@@ -858,8 +950,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       view.removeEventListener("contextmenu", onContextMenu);
       window.removeEventListener("keydown", onKeyDown);
       unsubTransform.dispose();
-      this.#overlay.destroy();
-      this.#draft.destroy();
+      this.#overlay?.destroy();
+      this.#overlay = null;
     };
   }
 
@@ -890,136 +982,9 @@ export class CanvasBindsPlugin extends PomeloPlugin {
   // 节点/便签 = 矩形选框 + 四角 resize 手柄；关系线 = 曲线高亮覆盖 + 三控制点；
   // 所有节点左右缘中点各绘制「+」手柄（创建连线 / 属性引导入口）
   drawOverlay(editor: PomeloEditor) {
-    // 选区/手柄/试试 hover 是纯 Graphics 改动（不经过 transact）：demand-driven 渲染必须显式置脏
-    (editor.renderAdapter as PixiRendererAdapter).invalidate?.();
-    pomeloPerf.time("overlay.draw", () => this.#drawOverlay(editor));
-  }
-
-  #drawOverlay(editor: PomeloEditor) {
-    const g = this.#overlay;
-    g.clear();
-    const adapter = editor.renderAdapter as PixiRendererAdapter;
-    const t = adapter.transform;
-    const toScreen = (world: Point): Point => ({ x: world.x * t.scale + t.x, y: world.y * t.scale + t.y });
-    const readOnly = useWorldCanvasStore.getState().readOnly;
-
-    // 「+」手柄：hover 命中的实体卡/World 根节点左右缘中点各一个（屏幕空间，尺寸不随 zoom 变化）——
-    // 关系只许实体⇄实体，World 节点拖出 = 属性引导；自由元素不挂「+」（与 plusHandles 命中同一规则）；只读态不绘制
-    if (!readOnly && !this.#guide && this.#hoverBlockId?.startsWith("entity:")) {
-      const record = editor.state.getBlockById(this.#hoverBlockId);
-      if (record && record.id.startsWith("entity:")) {
-        const rect = rectOfRecord(record);
-        if (rect.width > 0 && rect.height > 0) {
-          for (const world of [
-            { x: rect.x + rect.width, y: rect.y + rect.height / 2 },
-            { x: rect.x, y: rect.y + rect.height / 2 },
-          ]) {
-            const anchor = toScreen(world);
-            g.lineStyle(1.5, 0xd4d4d8, 0.85, 0.5);
-            g.beginFill(0x1c1d22);
-            g.drawCircle(anchor.x, anchor.y, 8);
-            g.endFill();
-            g.lineStyle(2, 0xd4d4d8, 1);
-            g.moveTo(anchor.x - 3.5, anchor.y);
-            g.lineTo(anchor.x + 3.5, anchor.y);
-            g.moveTo(anchor.x, anchor.y - 3.5);
-            g.lineTo(anchor.x, anchor.y + 3.5);
-          }
-        }
-      }
-    }
-
-    const selection = useWorldCanvasStore.getState().selection;
-    if (!selection) return;
-
-    let relationArrowId: string | null = null;
-    if (selection.type === "relation") relationArrowId = `${RELATION_PREFIX}${selection.relation.id}`;
-    else if (selection.type === "canvas" && selection.element.kind === "arrow") relationArrowId = selection.element.id;
-    if (relationArrowId) {
-      const arrowRecord = editor.state.getBlockById(relationArrowId);
-      if (arrowRecord) {
-        const from = editor.state.getBlockById(String(arrowRecord.attrs.fromId ?? ""));
-        const to = editor.state.getBlockById(String(arrowRecord.attrs.toId ?? ""));
-        const geo = relationGeometry(from, to, arrowRecord.attrs as never);
-        if (from && to && geo) {
-          // 拖拽 start/end 控制点时的节点中心热区吸附指示圈（demo 版同款）
-          if (this.#snapZone) {
-            g.lineStyle({ width: 1.5, color: 0x4c8dff, alpha: 0.6, alignment: 0.5 });
-            g.drawCircle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 14);
-            g.lineStyle({ width: 1, color: 0x4c8dff, alpha: 0.25, alignment: 0.5 });
-            g.drawCircle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 22);
-          }
-          // 节点内段：短虚线（曲线贯穿两端控制点，与 line 本体同一几何，demo 版同款）
-          g.lineStyle({ width: 1.5, color: 0x8b93a7, alpha: 0.9, alignment: 0.5 });
-          const leftPart = geo.ta > 0 ? splitQuadratic(geo.curve, geo.ta).left : geo.curve;
-          const rightPart = geo.tb < 1 ? splitQuadratic(geo.curve, geo.tb).right : geo.curve;
-          for (const part of [leftPart, rightPart]) {
-            drawDashedCurve(g, { p0: toScreen(part.p0), cp: toScreen(part.cp), p2: toScreen(part.p2) });
-          }
-          // 节点外段：白色外描边 + 蓝色内描边（节点边界段）+ 三控制点
-          const midPart = curveSegment(geo, geo.ta, geo.tb);
-          const a = toScreen(midPart.p0);
-          const b = toScreen(midPart.p2);
-          const cpScreen = toScreen(midPart.cp);
-          g.lineStyle({ width: 5, color: 0xffffff, alpha: 0.95, alignment: 0.5 });
-          g.moveTo(a.x, a.y);
-          g.quadraticCurveTo(cpScreen.x, cpScreen.y, b.x, b.y);
-          g.lineStyle({ width: 2, color: 0x4c8dff, alpha: 1, alignment: 0.5 });
-          g.moveTo(a.x, a.y);
-          g.quadraticCurveTo(cpScreen.x, cpScreen.y, b.x, b.y);
-          // 箭头高亮：沿曲线在边界 b 处的切线
-          const tangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.tb);
-          const angle = Math.atan2(tangent.y, tangent.x);
-          g.lineStyle(0);
-          g.beginFill(0xffffff);
-          g.moveTo(b.x + Math.cos(angle) * 4, b.y + Math.sin(angle) * 4);
-          g.lineTo(b.x - 8 * Math.cos(angle) - 4 * Math.sin(angle), b.y - 8 * Math.sin(angle) + 4 * Math.cos(angle));
-          g.lineTo(b.x - 8 * Math.cos(angle) + 4 * Math.sin(angle), b.y - 8 * Math.sin(angle) - 4 * Math.cos(angle));
-          g.closePath();
-          g.endFill();
-          // 三控制点：exit 锚点 / 曲线中点 / enter 锚点
-          const mid = bezierPoint(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
-          for (const world of [geo.t1, mid, geo.t2]) {
-            const point = toScreen(world);
-            g.lineStyle(2, 0x4c8dff, 1);
-            g.beginFill(0xffffff);
-            g.drawCircle(point.x, point.y, 4.5);
-            g.endFill();
-          }
-        }
-      }
-      return;
-    }
-
-    // 实体/World/便签/文本/形状/自由箭头 → 四角手把手选框（对齐实体卡/便签/形状/自由箭头的 bounds）
-    const candidates: string[] = [];
-    if (selection.type === "entity") candidates.push(`entity:${selection.entity.id}`);
-    else if (selection.type === "world") candidates.push("shape:world");
-    else if (selection.type === "canvas") candidates.push(selection.element.id);
-    for (const blockId of candidates) {
-      const record = editor.state.getBlockById(blockId);
-      if (!record || record.isRoot) continue;
-      const world = rectOfRecord(record);
-      const width = world.width;
-      const height = world.height;
-      if (width <= 0 || height <= 0) continue;
-      const tl = toScreen({ x: world.x, y: world.y });
-      const rect = { x: tl.x, y: tl.y, width: width * t.scale, height: height * t.scale };
-      g.lineStyle(2, 0x4c8dff, 1, 0.5);
-      g.drawRoundedRect(rect.x - 4, rect.y - 4, rect.width + 8, rect.height + 8, 8);
-      g.lineStyle(2, 0x4c8dff, 1);
-      g.beginFill(0xffffff);
-      for (const [hx, hy] of [
-        [rect.x - 4, rect.y - 4],
-        [rect.x + rect.width + 4, rect.y - 4],
-        [rect.x - 4, rect.y + rect.height + 4],
-        [rect.x + rect.width + 4, rect.y + rect.height + 4],
-      ]) {
-        g.drawRect(hx - 4, hy - 4, 8, 8);
-      }
-      g.endFill();
-      break;
-    }
+    // 覆盖层是纯 DOM/SVG 改动（不经过 transact）：demand-driven 渲染需显式置脏
+    editor.renderAdapter.invalidate();
+    pomeloPerf.time("overlay.draw", () => this.#paint?.());
   }
 }
 

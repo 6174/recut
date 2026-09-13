@@ -130,9 +130,22 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     this.syncChunks();
   }
 
+  getView(): HTMLCanvasElement | null {
+    return this.canvas;
+  }
+
+  getScreenSize(): { width: number; height: number } {
+    return { width: this.viewport?.width ?? this.containerSize.width, height: this.viewport?.height ?? this.containerSize.height };
+  }
+
+  invalidate(): void {
+    this.dirty = true;
+  }
+
   setTransform(x: number, y: number, scale: number): void {
     if (!this.viewport) return;
     this.viewport = { ...this.viewport, panX: x, panY: y, zoom: scale };
+    this.transform = { x, y, scale };
     this.navigationGeneration++;
     this.dirty = true;
   }
