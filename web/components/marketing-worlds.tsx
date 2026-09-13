@@ -66,6 +66,49 @@ export function MarketingWorldsContent({ worlds }: { worlds: MarketingWorld[] })
   );
 }
 
+export function MarketingWorldCanvasPreview({ world }: { world: MarketingWorld }) {
+  const locale = useMarketingLocale();
+  const canvas = world.canvas;
+  if (!canvas || !canvas.elements.length) return null;
+  return (
+    <section className="mt-12">
+      <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "worlds.canvas.eyebrow")}</p>
+      <div className="relative mt-4 w-full overflow-hidden rounded-2xl border bg-muted/40" style={{ aspectRatio: `${canvas.width} / ${canvas.height}` }}>
+        {canvas.elements.map((element) => {
+          const style = {
+            left: `${(element.x / canvas.width) * 100}%`,
+            top: `${(element.y / canvas.height) * 100}%`,
+            width: `${(element.width / canvas.width) * 100}%`,
+            height: `${(element.height / canvas.height) * 100}%`,
+          };
+          if (element.kind === "entity") {
+            return (
+              <div className="absolute flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm" key={element.key} style={style}>
+                {element.imageUrl
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img alt={element.name} className="h-1/2 w-full object-cover" loading="lazy" src={element.imageUrl} />
+                  : <div className="h-1/2 w-full bg-muted" />}
+                <div className="min-h-0 flex-1 p-1.5">
+                  <p className="truncate text-[9px] font-semibold leading-tight sm:text-[11px]">{element.name}</p>
+                </div>
+              </div>
+            );
+          }
+          if (element.kind === "media") {
+            // eslint-disable-next-line @next/next/no-img-element
+            return <img alt={element.name} className="absolute rounded-lg object-cover" key={element.key} loading="lazy" src={element.url} style={style} />;
+          }
+          return (
+            <div className="absolute overflow-hidden rounded-lg border border-amber-300/60 bg-amber-100/90 p-1.5 text-[8px] leading-tight text-amber-950 sm:text-[10px]" key={element.key} style={style}>
+              {element.text}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function MarketingWorldDetailContent({ world }: { world: MarketingWorld }) {
   const locale = useMarketingLocale();
   const appURL = useMarketingAppURL();
@@ -84,6 +127,7 @@ export function MarketingWorldDetailContent({ world }: { world: MarketingWorld }
         {world.audience.length > 0 && <p className="mt-3 text-sm leading-6 text-muted-foreground"><span className="font-semibold text-foreground/80">{t("marketing", locale, "worlds.detail.audience")}</span>{world.audience.join(locale === "zh" ? "、" : ", ")}</p>}
         <a className="mt-6 inline-flex h-10 items-center rounded-lg border bg-card px-4 text-sm font-semibold transition hover:border-primary/35 hover:text-foreground" href={`${appURL}/worlds`} onClick={() => trackEvent("recut_workspace_clicked", { location: "world_detail", world_id: world.id })}>{t("marketing", locale, "worlds.openInWorkspace")} <span aria-hidden="true" className="ml-1">↗</span></a>
       </article>
+      <MarketingWorldCanvasPreview world={world} />
       <div className="mt-10 grid gap-3 sm:grid-cols-2">
         {world.images.map((url) => <img alt={world.name} className="w-full rounded-xl border bg-muted object-cover" height={480} loading="lazy" key={url} src={url} width={640} />)}
       </div>

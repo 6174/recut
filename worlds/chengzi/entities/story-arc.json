@@ -1,0 +1,28 @@
+{
+  "id": "story-arc",
+  "typeId": "story",
+  "name": "成长一小步",
+  "intro": "教育叙事主线：每集一个成长课题，走「麻烦出现→拧巴与觉察→一小步被接住」三幕；不说教，道理从情节里长出来。",
+  "detail": {
+    "$file": "../references/story-arc.md"
+  },
+  "attrs": [
+    {
+      "key": "premise",
+      "label": "前提",
+      "type": "textarea",
+      "locked": true,
+      "value": "橙子是孩子观众代入的镜子：会犯错、会狡辩、会嫉妒弟弟，但每集都往前挪一小步。柚子会说话会讲自己的道理，爸妈也会犯错并示范道歉。"
+    },
+    {
+      "key": "media-family-sheet-grid-v2",
+      "label": "四人设定页合拼图 v2（全家唯一参考锚点）",
+      "type": "media",
+      "value": {
+        "asset": "family-sheet-grid-v2",
+        "kind": "image",
+        "name": "四人设定页合拼图 v2（全家唯一参考锚点）"
+      }
+    }
+  ]
+}

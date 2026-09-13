@@ -37,6 +37,7 @@ import { attrValueOf, ENTITY_FIELD_ASSOCIATIONS } from "./entity-attrs";
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
+import { entityAttrMediaRef } from "@/lib/recut-worlds-client";
 
 // ---------- canvas-store → pomelo document 映射（block id 约定） ----------
 
@@ -139,10 +140,13 @@ function buildPomeloRecords(
       return;
     }
     if (element.kind === "attr") {
-      // 属性节点：文本/图片/音频/视频预览卡（AI 生成/上传内容承载物）；媒体卡带 assetId → 渲染真实图。
+      // 属性节点：文本/图片/音频/视频预览卡（AI 生成/上传内容承载物）；媒体卡带 assetId|url → 渲染真实图。
       // 文本高度服从几何 box（渲染侧裁剪溢出，见 free-element-block-v），不随内容自增长。
       const media = String(element.props?.media ?? "text");
-      const mediaAssetId = media !== "text" && element.props?.assetId ? String(element.props.assetId) : "";
+      const mediaSrc = media !== "text" ? mediaSource(state.apiBase, {
+        assetId: element.props?.assetId ? String(element.props.assetId) : undefined,
+        url: element.props?.url ? String(element.props.url) : undefined,
+      }) : "";
       records.push({
         id: element.id,
         type: "free-element",
@@ -154,7 +158,7 @@ function buildPomeloRecords(
           elementKind: "attr",
           attrMedia: media,
           text: String(element.props?.text ?? ""),
-          mediaSrc: mediaAssetId ? mediaSource(state.apiBase, { assetId: mediaAssetId }) : "",
+          mediaSrc,
         },
       });
       return;
@@ -382,7 +386,7 @@ function AttrCreatorPanel() {
   // 不落对象字符串——文本化 media 值只会得到 "[object Object]"）
   const suggestedFields = (sourceType?.fields ?? []).map((field) => {
     const value = fromEntity ? attrValueOf(fromEntity, field.key) : undefined;
-    const mediaValue = value && typeof value === "object" ? (value as { assetId?: string; name?: string; kind?: string }) : null;
+    const mediaValue = field.type === "media" ? entityAttrMediaRef(value) : null;
     return { ...field, rawValue: value, mediaValue, value: mediaValue ? "" : value == null ? "" : String(value) };
   });
   // 一等实体字段（简介/正文）也能作为画布关联放到这里：预填实体当前值，点即建属性卡并挂边；

@@ -1,0 +1,42 @@
+{
+  "id": "mama",
+  "typeId": "character",
+  "name": "妈妈",
+  "intro": "妈妈：齐肩深棕发、米色针织衫；温柔稳定、规则清晰，批评对事不对人，是教育闭环的觉察者。",
+  "detail": {
+    "$file": "../references/mama.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "30 代妈妈，齐肩深棕发，粗黑描边手绘风；常穿米色针织衫或围裙便装、深色长裤；表情基准温柔但认真"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "温柔而稳定，规则清晰，不吼不叫"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "暂不配置（后续补充）"
+    },
+    {
+      "key": "media-character-sheet-mama",
+      "label": "妈妈角色设定页（三视图+表情+色板）",
+      "type": "media",
+      "value": {
+        "asset": "character-sheet-mama",
+        "kind": "image",
+        "name": "妈妈角色设定页（三视图+表情+色板）"
+      }
+    }
+  ]
+}

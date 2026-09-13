@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -382,5 +383,184 @@ func TestImportMediaURLRejectsPrivateAndNonMedia(t *testing.T) {
 	}
 	if _, err := importMediaURL(media, map[string]any{"url": "http://user:pass@internal/x.png"}); err == nil {
 		t.Fatal("unresolvable/internal host must be refused")
+	}
+}
+
+// testManifestV2 builds a unified-content manifest (RFC world-content-format-v2):
+// entity types + entities with media attrs + relations + a canvas document.
+func testManifestV2(id string) map[string]any {
+	return map[string]any{
+		"manifestVersion": 2,
+		"world": map[string]any{
+			"id": id, "name": "V2 World", "type": "character_ip",
+			"description": "desc", "skillMd": "## v2 skill", "identity": map[string]any{"tone": "calm"},
+		},
+		"entityTypes": []any{
+			map[string]any{
+				"id": "mecha", "scope": "custom", "name": "机甲", "baseKind": "object",
+				"fields": []any{map[string]any{"key": "energy", "label": "能源", "type": "text"}},
+			},
+		},
+		"entities": []any{
+			map[string]any{
+				"id": "hero", "typeId": "character", "name": "Hero", "intro": "intro", "detail": "full body",
+				"attrs": []any{
+					map[string]any{"key": "appearance", "label": "外貌与标志", "type": "textarea", "value": "black"},
+					map[string]any{"key": "background", "label": "背景", "type": "media", "value": map[string]any{"url": "https://cdn.example.test/a.png", "kind": "image"}},
+				},
+			},
+			map[string]any{
+				"id": "mech", "typeId": "mecha", "name": "Mech",
+				"attrs": []any{map[string]any{"key": "energy", "label": "能源", "type": "text", "value": "nuclear"}},
+			},
+		},
+		"relations": []any{
+			map[string]any{"id": "r1", "type": "appears_in", "from": "hero", "to": "mech"},
+		},
+		"canvases": []any{
+			map[string]any{
+				"contextId": "",
+				"elements": []any{
+					map[string]any{"id": "shape:hero", "kind": "entity", "refKind": "entity", "refId": "hero", "name": "Hero", "props": map[string]any{"collapsed": false}, "geometry": map[string]any{"x": 10, "y": 20, "width": 100, "height": 100}, "style": map[string]any{}, "layer": "0"},
+					map[string]any{"id": "shape:note-1", "kind": "note", "props": map[string]any{"text": "hi"}, "geometry": map[string]any{"x": 200, "y": 20}},
+					map[string]any{"id": "shape:arrow-1", "kind": "arrow", "props": map[string]any{"fromElementId": "shape:hero", "toElementId": "shape:note-1"}},
+				},
+			},
+		},
+		"provenance": map[string]any{"author": "recut", "license": "MIT", "repository": "https://github.com/recut/test"},
+	}
+}
+
+func TestMaterializeV2UnifiedEntitiesAndCanvas(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	const id = "pgc.v2x"
+	rev, changed := materializeTest(t, worlds, id, testManifestV2(id))
+	if !changed || rev == "" {
+		t.Fatalf("v2 materialize changed=%v rev=%q", changed, rev)
+	}
+	// Unified entities land with namespaced ids.
+	entities, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entities) != 2 {
+		t.Fatalf("entities = %d, want 2", len(entities))
+	}
+	hero, err := worlds.GetEntity(id, id+":hero")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hero.TypeID != "character" || hero.Name != "Hero" || hero.Detail != "full body" {
+		t.Fatalf("hero projection drifted: %#v", hero)
+	}
+	var mediaURL string
+	for _, attr := range hero.Attrs {
+		if attr.Key == "background" {
+			if value, ok := attr.Value.(map[string]any); ok {
+				mediaURL, _ = value["url"].(string)
+			}
+		}
+	}
+	if mediaURL != "https://cdn.example.test/a.png" {
+		t.Fatalf("media attr url not preserved: %q (attrs=%#v)", mediaURL, hero.Attrs)
+	}
+	// Custom type directory row lands.
+	types, err := worlds.ListEntityTypes(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundMecha := false
+	for _, entityType := range types {
+		if entityType.ID == "mecha" && entityType.Scope == "custom" {
+			foundMecha = true
+		}
+	}
+	if !foundMecha {
+		t.Fatalf("custom type mecha missing: %#v", types)
+	}
+	// Canvas document materialized with namespaced entity ref.
+	doc, err := worlds.GetCanvasDocument(id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Elements) != 3 {
+		t.Fatalf("canvas elements = %d, want 3", len(doc.Elements))
+	}
+	for _, element := range doc.Elements {
+		if element.ID == "shape:hero" && element.RefID != id+":hero" {
+			t.Fatalf("canvas entity ref not namespaced: %q", element.RefID)
+		}
+	}
+	// Idempotent: same manifest → no writes.
+	if _, changed := materializeTest(t, worlds, id, testManifestV2(id)); changed {
+		t.Fatal("repeat v2 materialize must be a no-op")
+	}
+	// Only-layout change produces a new revision but keeps the canvas fresh.
+	updated := testManifestV2(id)
+	updated["canvases"].([]any)[0].(map[string]any)["elements"].([]any)[0].(map[string]any)["geometry"] = map[string]any{"x": 999, "y": 20, "width": 100, "height": 100}
+	if _, changed := materializeTest(t, worlds, id, updated); !changed {
+		t.Fatal("canvas change must still re-materialize (new revision)")
+	}
+	doc, err = worlds.GetCanvasDocument(id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, element := range doc.Elements {
+		if element.ID == "shape:hero" && numberValue(element.Geometry["x"]) != 999 {
+			t.Fatalf("canvas layout did not persist: %#v", element.Geometry)
+		}
+	}
+}
+
+func numberValue(value any) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	default:
+		return 0
+	}
+}
+
+// TestEmbeddedSeedManifestsMaterialize guards the shipped seed content: every
+// embedded platform manifest must pass the v2 validator and materialize into a
+// clean store. It catches source-format drift between the publish script and the
+// materializer at test time instead of at first daemon start.
+func TestEmbeddedSeedManifestsMaterialize(t *testing.T) {
+	entries, err := fs.ReadDir(embeddedWorldCatalogFS, "worldcatalog")
+	if err != nil {
+		t.Fatalf("read embedded worldcatalog: %v", err)
+	}
+	found := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		versions, err := fs.ReadDir(embeddedWorldCatalogFS, "worldcatalog/"+entry.Name())
+		if err != nil {
+			t.Fatalf("read seed world %s: %v", entry.Name(), err)
+		}
+		for _, version := range versions {
+			if !version.IsDir() {
+				continue
+			}
+			rel := "worldcatalog/" + entry.Name() + "/" + version.Name() + "/world.json"
+			data, err := fs.ReadFile(embeddedWorldCatalogFS, rel)
+			if err != nil {
+				continue
+			}
+			worlds, _, _ := newTestWorldStore(t)
+			sum := sha256.Sum256(data)
+			if _, _, err := worlds.MaterializeWorld(entry.Name(), WorldPlatform, "recut", version.Name(), hex.EncodeToString(sum[:]), 1, data); err != nil {
+				t.Fatalf("embedded manifest %s is invalid: %v", rel, err)
+			}
+			found++
+		}
+	}
+	if found == 0 {
+		t.Fatal("no embedded world manifests found")
 	}
 }

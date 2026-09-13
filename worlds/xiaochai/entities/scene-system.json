@@ -1,0 +1,28 @@
+{
+  "id": "scene-system",
+  "typeId": "location",
+  "name": "暖夜场景体系",
+  "intro": "小柴的暖夜世界：烛光桌前、停电的客厅、深夜厨房、窗边雨夜、阁楼工作台；统一公式「一个暖光源 + 一件被认真对待的小事」。",
+  "detail": {
+    "$file": "../references/scene-system.md"
+  },
+  "attrs": [
+    {
+      "key": "description",
+      "label": "描述",
+      "type": "textarea",
+      "locked": true,
+      "value": "室内为主的老房子空间：木桌木地板、旧家具剪影沉在暗部；光源决定氛围（蜡烛=停电的镇定，台灯=深夜的专注，油灯=旧时光）；物件是小柴的配角——蜡烛、火柴、手电、收音机、电池、茶杯。"
+    },
+    {
+      "key": "media-scene-living-room",
+      "label": "停电客厅关键帧（9:16 场景范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-living-room",
+        "kind": "image",
+        "name": "停电客厅关键帧（9:16 场景范例）"
+      }
+    }
+  ]
+}

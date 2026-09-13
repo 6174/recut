@@ -1,0 +1,46 @@
+{
+  "id": "douya",
+  "typeId": "character",
+  "name": "豆芽",
+  "intro": "小章鱼 / 信息与通讯员。八条触手同时处理不同事情，几乎永远处于忙碌状态。",
+  "detail": {
+    "$file": "../references/char-豆芽.md"
+  },
+  "attrs": [
+    {
+      "key": "species",
+      "label": "species",
+      "type": "text",
+      "value": "小章鱼"
+    },
+    {
+      "key": "role",
+      "label": "role",
+      "type": "text",
+      "value": "信息与通讯员"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "忙碌、敏捷、信息量巨大；一只手接电话一只手打字一只手看屏幕一只手记录"
+    },
+    {
+      "key": "function",
+      "label": "function",
+      "type": "text",
+      "value": "新闻、热点、互联网、社交媒体、信息流、时代变化"
+    },
+    {
+      "key": "media-char-douya",
+      "label": "豆芽设定集（三视图+表情+动作）",
+      "type": "media",
+      "value": {
+        "asset": "char-douya",
+        "kind": "image",
+        "name": "豆芽设定集（三视图+表情+动作）"
+      }
+    }
+  ]
+}

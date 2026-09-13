@@ -354,10 +354,18 @@ func asWorldsError(err error) *WorldsError {
 type WorldStore struct {
 	store *Store
 	media *MediaService
+	// publish 是可选的世界写事件出口（见 world_events.go）：由 daemon 组合根
+	// 注入实时 EventBus，使 headless MCP 写入后已打开的画布能刷新。测试与短命
+	// 进程不注入时为 nil，写路径退化为无副作用。
+	publish WorldEventPublisher
 }
 
-func NewWorldStore(store *Store, media *MediaService) *WorldStore {
-	return &WorldStore{store: store, media: media}
+func NewWorldStore(store *Store, media *MediaService, publishers ...WorldEventPublisher) *WorldStore {
+	instance := &WorldStore{store: store, media: media}
+	if len(publishers) > 0 {
+		instance.publish = publishers[0]
+	}
+	return instance
 }
 
 func (w *WorldStore) database() (*sql.DB, error) {

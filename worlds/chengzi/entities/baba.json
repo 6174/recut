@@ -1,0 +1,42 @@
+{
+  "id": "baba",
+  "typeId": "character",
+  "name": "爸爸",
+  "intro": "爸爸：短黑发微胡茬、深藏青 POLO（无眼镜）；话少行动派，会修东西会认错，车里戏固定司机。",
+  "detail": {
+    "$file": "../references/baba.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "30 代爸爸，短黑发、微胡茬，粗黑描边手绘风；常穿深藏青 POLO 衫、卡其长裤、运动鞋"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "话少行动派，幽默，会认错"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "暂不配置（后续补充）"
+    },
+    {
+      "key": "media-character-sheet-baba",
+      "label": "爸爸角色设定页（三视图+表情+色板）",
+      "type": "media",
+      "value": {
+        "asset": "character-sheet-baba",
+        "kind": "image",
+        "name": "爸爸角色设定页（三视图+表情+色板）"
+      }
+    }
+  ]
+}

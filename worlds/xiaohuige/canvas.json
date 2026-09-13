@@ -1,0 +1,200 @@
+{
+  "docVersion": 1,
+  "canvases": [
+    {
+      "contextId": "",
+      "elements": [
+        {
+          "id": "shape:mantu",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "mantu",
+          "name": "馒头（柯基）",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:xiaohuige",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "xiaohuige",
+          "name": "小灰哥",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:xiaonuan",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "xiaonuan",
+          "name": "小暖",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:apartment",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "apartment",
+          "name": "小灰哥的两室一厅",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 524,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:story-arc",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "story-arc",
+          "name": "慢慢想明白",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1008,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:style-dna",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "style-dna",
+          "name": "风格 DNA",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1492,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-color",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-color",
+          "name": "全灰 + 唯一亮色",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-format",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-format",
+          "name": "画幅与产出形式",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-inner-voice",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-inner-voice",
+          "name": "内心可视化语言",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-no-cute",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-no-cute",
+          "name": "禁止吉祥物感",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        }
+      ]
+    }
+  ]
+}

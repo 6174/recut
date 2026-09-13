@@ -1,0 +1,28 @@
+{
+  "id": "office",
+  "typeId": "location",
+  "name": "小小地球事务所（主场）",
+  "intro": "隐藏在人类城市中的小型办公楼：前台、工作区、会议室、任务公告板、茶水间、实验室、档案室。像一家规模不大的普通公司。",
+  "detail": {
+    "$file": "../references/locations.md"
+  },
+  "attrs": [
+    {
+      "key": "description",
+      "label": "描述",
+      "type": "textarea",
+      "locked": true,
+      "value": "办公室不高级：桌子不一定整齐、文件常堆在一起、设备偶尔坏、公告板贴满任务、员工会聊天抱怨摸鱼。整个世界最重要的日常场景。"
+    },
+    {
+      "key": "media-scene-office",
+      "label": "事务所办公室内部全景（16:9 主场锚点）",
+      "type": "media",
+      "value": {
+        "asset": "scene-office",
+        "kind": "image",
+        "name": "事务所办公室内部全景（16:9 主场锚点）"
+      }
+    }
+  ]
+}

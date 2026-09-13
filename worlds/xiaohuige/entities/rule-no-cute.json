@@ -1,0 +1,21 @@
+{
+  "id": "rule-no-cute",
+  "typeId": "rule",
+  "name": "禁止吉祥物感",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "never"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "不要可爱吉祥物海报、儿童卡通、日系动漫画风、商业插画、毛绒质感、精致阴影渐变、鸡汤励志大字、表情包式夸张五官；不要给小灰哥加头发"
+    }
+  ]
+}

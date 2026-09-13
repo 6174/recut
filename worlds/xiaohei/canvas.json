@@ -1,0 +1,105 @@
+{
+  "docVersion": 1,
+  "canvases": [
+    {
+      "contextId": "",
+      "elements": [
+        {
+          "id": "shape:xiaohei",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "xiaohei",
+          "name": "小黑",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:style-dna",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "style-dna",
+          "name": "风格 DNA",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 524,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-color",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-color",
+          "name": "颜色克制",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1008,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-format",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-format",
+          "name": "16:9 横版",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 1008,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-no-ppt",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-no-ppt",
+          "name": "禁止 PPT 感",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 1008,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        }
+      ]
+    }
+  ]
+}

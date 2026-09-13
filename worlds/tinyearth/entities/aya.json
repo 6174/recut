@@ -1,0 +1,46 @@
+{
+  "id": "aya",
+  "typeId": "character",
+  "name": "阿芽",
+  "intro": "叶甲虫 / 生态与天气工作人员。身体像一片小叶子，对天气变化极敏感，常是办公室里第一个发现问题的人。",
+  "detail": {
+    "$file": "../references/char-阿芽.md"
+  },
+  "attrs": [
+    {
+      "key": "species",
+      "label": "species",
+      "type": "text",
+      "value": "叶甲虫"
+    },
+    {
+      "key": "role",
+      "label": "role",
+      "type": "text",
+      "value": "生态与天气工作人员"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "认真、谨慎、有一点紧张；经常携带各种自然数据"
+    },
+    {
+      "key": "function",
+      "label": "function",
+      "type": "text",
+      "value": "天气、环境、生态、自然科学、气候"
+    },
+    {
+      "key": "media-char-aya",
+      "label": "阿芽设定集（三视图+表情+动作）",
+      "type": "media",
+      "value": {
+        "asset": "char-aya",
+        "kind": "image",
+        "name": "阿芽设定集（三视图+表情+动作）"
+      }
+    }
+  ]
+}

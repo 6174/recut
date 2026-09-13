@@ -1,0 +1,409 @@
+{
+  "docVersion": 1,
+  "canvases": [
+    {
+      "contextId": "",
+      "elements": [
+        {
+          "id": "shape:aya",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "aya",
+          "name": "阿芽",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:douya",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "douya",
+          "name": "豆芽",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:paopao",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "paopao",
+          "name": "泡泡",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:shanshan",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "shanshan",
+          "name": "闪闪",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:tuantuan",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "tuantuan",
+          "name": "团团",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 428,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:xiaoyan",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "xiaoyan",
+          "name": "小岩",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 428,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:xiaoyun",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "xiaoyun",
+          "name": "小云",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 428,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:city-underground-nature",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "city-underground-nature",
+          "name": "城市·地下·自然场景体系",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 912,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:office",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "office",
+          "name": "小小地球事务所（主场）",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 912,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:office-history",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "office-history",
+          "name": "事务所的历史",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1396,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:perspective",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "perspective",
+          "name": "核心叙事视角：后台解释",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 1396,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:task-system",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "task-system",
+          "name": "任务系统与故事公式",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 1396,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:style-dna",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "style-dna",
+          "name": "风格 DNA",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1880,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:core-spirit",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "core-spirit",
+          "name": "世界的核心精神",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2364,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:departments",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "departments",
+          "name": "社会结构与居民构成",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2364,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:hidden-truth",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "hidden-truth",
+          "name": "世界的隐藏真相（长线悬念）",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 2364,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-humor",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-humor",
+          "name": "喜剧机制",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 2364,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-visual",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-visual",
+          "name": "视觉与镜头纪律",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 2752,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:world-rules",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "world-rules",
+          "name": "世界第一至第三规则",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 2752,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:world-time-scale",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "world-time-scale",
+          "name": "世界的时间与尺度体系",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 2752,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:world-zoom",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "world-zoom",
+          "name": "Zoom In / Zoom Out 双视角",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 2752,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        }
+      ]
+    }
+  ]
+}

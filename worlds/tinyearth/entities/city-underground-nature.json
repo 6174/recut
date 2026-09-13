@@ -1,0 +1,38 @@
+{
+  "id": "city-underground-nature",
+  "typeId": "location",
+  "name": "城市·地下·自然场景体系",
+  "intro": "与现实城市重叠的小型城市、复杂的地下基础设施网络、以及作为社会成员存在的自然世界。",
+  "detail": {
+    "$file": "../references/locations.md"
+  },
+  "attrs": [
+    {
+      "key": "description",
+      "label": "描述",
+      "type": "textarea",
+      "locked": true,
+      "value": "城市（商业区/居住区/科技区/新闻区/交通）是巨大的工作场；地下（电力/水/网络/地铁/排水）是地面问题的最终工单去向；自然（森林/河流/天空/海洋/天气）拥有自己的工作与生活。"
+    },
+    {
+      "key": "media-scene-underground",
+      "label": "地下基础设施世界全景（16:9）",
+      "type": "media",
+      "value": {
+        "asset": "scene-underground",
+        "kind": "image",
+        "name": "地下基础设施世界全景（16:9）"
+      }
+    },
+    {
+      "key": "media-scene-weather",
+      "label": "天空天气系统工作站全景（16:9）",
+      "type": "media",
+      "value": {
+        "asset": "scene-weather",
+        "kind": "image",
+        "name": "天空天气系统工作站全景（16:9）"
+      }
+    }
+  ]
+}

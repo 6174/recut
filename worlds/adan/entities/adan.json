@@ -1,0 +1,72 @@
+{
+  "id": "adan",
+  "typeId": "character",
+  "name": "阿蛋",
+  "intro": "圆白蛋形头、两点小眼、红色连帽卫衣、黑色细腿；深夜独处的都市年轻人，安静、有点丧但温柔，靠场景与微表情讲故事。",
+  "detail": {
+    "$file": "../references/adan-ip.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "圆白蛋形头，光滑无发型无鼻子无嘴（或极小一笔嘴）；两只小黑点眼，默认平静放空；oversized 红色连帽卫衣（帽子常塌在背后），黑色火柴状细腿；手绘粗黑线稿、轻微抖动；红是全画面最亮的颜色"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "安静、丧而温柔、自嘲式冷幽默、深夜型选手"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "极少台词，每集最多一句内心独白；语气平静、自嘲、留白"
+    },
+    {
+      "key": "media-character-sheet",
+      "label": "角色设定集（主参考·三视图+道具）",
+      "type": "media",
+      "value": {
+        "asset": "character-sheet",
+        "kind": "image",
+        "name": "角色设定集（主参考·三视图+道具）"
+      }
+    },
+    {
+      "key": "media-emotion-grid",
+      "label": "IP 情绪版九宫格（A-G 状态锚点）",
+      "type": "media",
+      "value": {
+        "asset": "emotion-grid",
+        "kind": "image",
+        "name": "IP 情绪版九宫格（A-G 状态锚点）"
+      }
+    },
+    {
+      "key": "media-expression-grid",
+      "label": "表情九宫格（眼睛微表情库）",
+      "type": "media",
+      "value": {
+        "asset": "expression-grid",
+        "kind": "image",
+        "name": "表情九宫格（眼睛微表情库）"
+      }
+    },
+    {
+      "key": "media-scene-living-room",
+      "label": "客厅放空关键帧（9:16 成品范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-living-room",
+        "kind": "image",
+        "name": "客厅放空关键帧（9:16 成品范例）"
+      }
+    }
+  ]
+}

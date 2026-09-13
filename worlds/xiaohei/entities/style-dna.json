@@ -1,0 +1,24 @@
+{
+  "id": "style-dna",
+  "typeId": "style",
+  "name": "风格 DNA",
+  "intro": "纯白背景、黑色手绘线稿、少量红橙蓝中文批注、大量留白；怪诞但不说明书。",
+  "detail": {
+    "$file": "../references/style-dna.md"
+  },
+  "attrs": [
+    {
+      "key": "kind",
+      "label": "kind",
+      "type": "text",
+      "value": "visual"
+    },
+    {
+      "key": "guidance",
+      "label": "guidance",
+      "type": "textarea",
+      "locked": true,
+      "value": "纯白背景（无米色/纸纹/渐变/阴影）；细线轻微抖动；主体占 40%-60%，≥35% 留白；批注 5-8 处、每处 2-8 字；一图一核心结构"
+    }
+  ]
+}

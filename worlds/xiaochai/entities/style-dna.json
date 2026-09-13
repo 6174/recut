@@ -1,0 +1,24 @@
+{
+  "id": "style-dna",
+  "typeId": "style",
+  "name": "风格 DNA",
+  "intro": "深褐近黑的暖夜底色 + 手绘插画质感 + 单一暖光源（烛光/台灯/油灯）；火柴人与物件都是黑线绘制，光晕柔和晕染，情绪克制温润。",
+  "detail": {
+    "$file": "../references/style-dna.md"
+  },
+  "attrs": [
+    {
+      "key": "kind",
+      "label": "kind",
+      "type": "text",
+      "value": "visual"
+    },
+    {
+      "key": "guidance",
+      "label": "guidance",
+      "type": "textarea",
+      "locked": true,
+      "value": "整体深褐/焦糖/暗琥珀色域，画面四周压暗成 vignette；唯一暖光源居中偏下照亮小柴与手边物件，光晕柔和渐隐；小柴为黑色线稿（头内留底色），物件写实但手绘质感；一图一光源一情绪"
+    }
+  ]
+}

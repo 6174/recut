@@ -1,0 +1,46 @@
+{
+  "id": "paopao",
+  "typeId": "character",
+  "name": "泡泡",
+  "intro": "水獭 / 公共服务工作人员。随和贪吃，工作时认真，对吃饭休息下班同样认真。",
+  "detail": {
+    "$file": "../references/char-泡泡.md"
+  },
+  "attrs": [
+    {
+      "key": "species",
+      "label": "species",
+      "type": "text",
+      "value": "水獭"
+    },
+    {
+      "key": "role",
+      "label": "role",
+      "type": "text",
+      "value": "公共服务工作人员"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "随和、贪吃、实际、喜欢生活；常在执行任务中发现与工作无关但非常重要的事情"
+    },
+    {
+      "key": "function",
+      "label": "function",
+      "type": "text",
+      "value": "城市生活、公共服务、美食、消费、生活方式、情绪"
+    },
+    {
+      "key": "media-char-paopao",
+      "label": "泡泡设定集（三视图+表情+动作）",
+      "type": "media",
+      "value": {
+        "asset": "char-paopao",
+        "kind": "image",
+        "name": "泡泡设定集（三视图+表情+动作）"
+      }
+    }
+  ]
+}

@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 )
@@ -455,12 +456,12 @@ func (s *Server) getWorldEntityTypes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) upsertWorldEntityType(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		TypeID   string              `json:"id"`
-		Name     string              `json:"name"`
-		Icon     string              `json:"icon"`
-		Color    string              `json:"color"`
-		BaseKind string              `json:"baseKind"`
-		Fields   []EntityTypeField   `json:"fields"`
+		TypeID   string            `json:"id"`
+		Name     string            `json:"name"`
+		Icon     string            `json:"icon"`
+		Color    string            `json:"color"`
+		BaseKind string            `json:"baseKind"`
+		Fields   []EntityTypeField `json:"fields"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
@@ -673,4 +674,51 @@ func writeWorldsError(w http.ResponseWriter, err error) {
 
 func optionalCursor(cursor string) string {
 	return cursor
+}
+
+// exportWorld serves GET /v1/worlds/{worldID}/export: the World as a v2 source
+// zip (world.json + entities/ + assets/ + canvas.json + world.md), media
+// embedded. Works for local and non-local worlds alike.
+func (s *Server) exportWorld(w http.ResponseWriter, r *http.Request) {
+	data, name, err := s.worldsStore().ExportWorldBundle(r.PathValue("worldID"))
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	_, _ = w.Write(data)
+}
+
+// importWorld serves POST /v1/worlds/import (multipart field "file"): a v2
+// source zip becomes a fresh local, editable World. Assets are deduplicated by
+// content hash; the body lands in one revision.
+func (s *Server) importWorld(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid multipart form"))
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "bundle file is required"))
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, worldBundleMaxBytes+1))
+	if err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "could not read bundle"))
+		return
+	}
+	if int64(len(data)) > worldBundleMaxBytes {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "bundle is too large"))
+		return
+	}
+	detail, err := s.worldsStore().ImportWorldBundle(data, r.FormValue("name"), "http")
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, detail)
 }

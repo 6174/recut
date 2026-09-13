@@ -1,0 +1,152 @@
+{
+  "id": "xiaohuige",
+  "typeId": "character",
+  "name": "小灰哥",
+  "intro": "圆头白色小人、死鱼眼、深灰卫衣、白色有线耳机；独居都市年轻人，内耗但温柔，正在慢慢想明白。",
+  "detail": {
+    "$file": "../references/xiaohuige-ip.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "圆头白色小人，光滑圆头无发型；小点眼，默认疲惫死鱼眼；深灰色 oversized 连帽卫衣、宽松深色长裤；永远挂着白色有线耳机，耳机线连到口袋里的手机；全灰画面中唯一纯白元素是耳机线"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "安静、内耗、敏感、想太多但自我觉察；丧而温柔；自嘲式冷幽默"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "极少台词；内心独白放在思想泡泡里；语气自嘲、平静"
+    },
+    {
+      "key": "media-character-sheet",
+      "label": "角色设定集（主参考）",
+      "type": "media",
+      "value": {
+        "asset": "character-sheet",
+        "kind": "image",
+        "name": "角色设定集（主参考）"
+      }
+    },
+    {
+      "key": "media-expression-grid",
+      "label": "九宫表情集",
+      "type": "media",
+      "value": {
+        "asset": "expression-grid",
+        "kind": "image",
+        "name": "九宫表情集"
+      }
+    },
+    {
+      "key": "media-pose-grid",
+      "label": "九宫姿态集",
+      "type": "media",
+      "value": {
+        "asset": "pose-grid",
+        "kind": "image",
+        "name": "九宫姿态集"
+      }
+    },
+    {
+      "key": "media-object-interaction-grid",
+      "label": "日常物件互动集",
+      "type": "media",
+      "value": {
+        "asset": "object-interaction-grid",
+        "kind": "image",
+        "name": "日常物件互动集"
+      }
+    },
+    {
+      "key": "media-overthinking-scribble",
+      "label": "乱线团 = 内耗（单幅成品）",
+      "type": "media",
+      "value": {
+        "asset": "overthinking-scribble",
+        "kind": "image",
+        "name": "乱线团 = 内耗（单幅成品）"
+      }
+    },
+    {
+      "key": "media-clarity-bulb",
+      "label": "从乱到清 + 唯一亮色（单幅成品）",
+      "type": "media",
+      "value": {
+        "asset": "clarity-bulb",
+        "kind": "image",
+        "name": "从乱到清 + 唯一亮色（单幅成品）"
+      }
+    },
+    {
+      "key": "media-street-night",
+      "label": "深夜街头（单幅成品）",
+      "type": "media",
+      "value": {
+        "asset": "street-night",
+        "kind": "image",
+        "name": "深夜街头（单幅成品）"
+      }
+    },
+    {
+      "key": "media-scene-subway-caption",
+      "label": "末班地铁（移动端成品·带文字）",
+      "type": "media",
+      "value": {
+        "asset": "scene-subway-caption",
+        "kind": "image",
+        "name": "末班地铁（移动端成品·带文字）"
+      }
+    },
+    {
+      "key": "media-scene-insomnia",
+      "label": "失眠反刍（移动端成品·带文字）",
+      "type": "media",
+      "value": {
+        "asset": "scene-insomnia",
+        "kind": "image",
+        "name": "失眠反刍（移动端成品·带文字）"
+      }
+    },
+    {
+      "key": "media-scene-sunday-evening",
+      "label": "周日傍晚焦虑（移动端成品·带文字）",
+      "type": "media",
+      "value": {
+        "asset": "scene-sunday-evening",
+        "kind": "image",
+        "name": "周日傍晚焦虑（移动端成品·带文字）"
+      }
+    },
+    {
+      "key": "media-scene-fridge-midnight",
+      "label": "深夜冰箱发呆（移动端成品·带文字）",
+      "type": "media",
+      "value": {
+        "asset": "scene-fridge-midnight",
+        "kind": "image",
+        "name": "深夜冰箱发呆（移动端成品·带文字）"
+      }
+    },
+    {
+      "key": "media-scene-fear-of-starting",
+      "label": "怕开始·解线见灯泡（移动端成品·带文字）",
+      "type": "media",
+      "value": {
+        "asset": "scene-fear-of-starting",
+        "kind": "image",
+        "name": "怕开始·解线见灯泡（移动端成品·带文字）"
+      }
+    }
+  ]
+}

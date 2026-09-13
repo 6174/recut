@@ -1,0 +1,72 @@
+{
+  "id": "cast",
+  "typeId": "character",
+  "name": "墨咖啡团队（茉茉/豆豆/小点/炭炭）",
+  "intro": "一个四人合伙的小型互联网运营公司，不是一家人而是各怀绝技的合伙人：茉茉——低马尾+发簪的设计合伙人，负责品牌与视觉；豆豆——背头+圆框眼镜的运营合伙人，负责投放与 KPI；小点——锅盖头+圆点眼的技术实习生，负责修 bug 和插网线；炭炭——螺旋卷尾黑猫，公司吉祥物兼事故元凶。",
+  "detail": {
+    "$file": "../references/xiaomo-ip.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "全员头身比 1:2.5~1:3 年轻职场感，禁止低幼。茉茉：乌黑低马尾（发簪横插、簪尾圆球）、斜刘海、细长上挑眯眼、小圆点耳环、黑色高领毛衣剪影，捧日式茶杯（细蒸汽）+ 画笔，专属符号四瓣小花。豆豆：油亮背头（一撮翘起）、圆框眼镜、眉心八字紧锁、小尖鼻、细竖纹衬衫外搭深色针织背心、体态前倾像随时要冲出去，叉腰举粗笔感叹号，身边常有汗滴与乱线。小点：服帖直发锅盖头（耳朵旁翘两撮）、全员唯一圆点眼、polo 领工装背心（口袋插铅笔）、瘦高，抱旧笔记本电脑，专属符号大问号。炭炭：敦实纯黑剪影猫、大圆头小三角耳、眯眯眼+「w」猫嘴、粗尾末端卷成螺旋卷"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "茉茉是设计合伙人，安静笃定、审美就是公司的护城河；豆豆是运营合伙人，KPI 和热点追着跑、风风火火；小点是技术实习生，天真勤快，修 bug 和服务器都敢上手；炭炭睡在机房路由器上，兼职断网事故的元凶"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "茉茉少言、「茶还挺稳」；豆豆语速快；小点「这是什么？」「i can fix it」；炭炭只「喵」"
+    },
+    {
+      "key": "media-momo",
+      "label": "茉茉设定图（主参考）",
+      "type": "media",
+      "value": {
+        "asset": "momo",
+        "kind": "image",
+        "name": "茉茉设定图（主参考）"
+      }
+    },
+    {
+      "key": "media-doudou",
+      "label": "豆豆设定图（主参考）",
+      "type": "media",
+      "value": {
+        "asset": "doudou",
+        "kind": "image",
+        "name": "豆豆设定图（主参考）"
+      }
+    },
+    {
+      "key": "media-xiaodian",
+      "label": "小点设定图（主参考）",
+      "type": "media",
+      "value": {
+        "asset": "xiaodian",
+        "kind": "image",
+        "name": "小点设定图（主参考）"
+      }
+    },
+    {
+      "key": "media-tantan",
+      "label": "炭炭设定图（主参考）",
+      "type": "media",
+      "value": {
+        "asset": "tantan",
+        "kind": "image",
+        "name": "炭炭设定图（主参考）"
+      }
+    }
+  ]
+}

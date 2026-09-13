@@ -1,21 +1,19 @@
 /**
- * 平台 World 发布构建脚本（PGC Platform Worlds RFC, P3）。
+ * 平台 World 发布构建脚本（v2，RFC 2026-09-13 world-content-format-v2）。
  *
- * 源格式 worlds/<slug>/（world.json + world.md + references/ + 资源目录）
- * → 发布格式 cdn/buckets/worlds/<id>/<version>/world.json（单文件自包含
- * manifest，确定性序列化）+ 镜像资源 + cdn/buckets/worlds/catalog.json。
+ * 源格式 worlds/<slug>/（world.json + entities/*.json + assets/*.json + canvas.json + world.md）
+ * → 发布格式 cdn/buckets/worlds/<id>/<version>/world.json（单文件自包含 manifest v2，
+ *   确定性序列化）+ 镜像资源 + cdn/buckets/worlds/catalog.json。
  *
  * 用法：
- *   node scripts/worlds-publish.mjs [--check] [--seed] [--upload] [--only-updates]
+ *   node scripts/worlds-publish.mjs [--check] [--seed] [--upload]
  *     --check        只校验并打印 canonical/manifest hash 预览（CI 防漂移；不发 CDN）
  *     --seed         同时把最新 pgc.* 发布产物与 catalog 写入 service/worldcatalog/
- *                    （//go:embed 种子，随二进制发布）
  *     --upload       构建后增量上传到 R2（只传新版本目录 + catalog；--skip-existing）
- *     --only-updates 仅上传有变更的部分（需要 --upload）；跳过未变更世界
  *
- * 构建期硬校验（物化期会复核）：schema、closed 集合、ID 前缀、预算
- * （skillMd ≤16KB / body 合计 ≤16KB / evidence ≤200 / manifest ≤2MB）、
- * $file 与相对路径必须位于世界目录内（禁止 .. 逃逸）、绝对 URL 资源 HEAD 验证。
+ * 构建期硬校验：schema、closed 集合、ID/引用完整性（parentId/relations/media asset id/
+ * canvas refId）、预算（skillMd ≤16KB / detail 合计 ≤16KB / attrs ≤200/实体 / canvases
+ * 元素 ≤2000 / manifest ≤2MB）、$file 与资源路径必须位于世界目录内、媒体引用展开为 CDN 绝对 URL。
  */
 
 import { createHash } from "node:crypto";
@@ -29,7 +27,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -39,23 +37,18 @@ const args = process.argv.slice(2);
 const checkOnly = args.includes("--check");
 const withSeed = args.includes("--seed");
 const withUpload = args.includes("--upload");
-const onlyUpdates = args.includes("--only-updates");
 
 // --- budgets（与 service 物化器一致）---------------------------------------
 const MANIFEST_MAX_BYTES = 2 * 1024 * 1024;
 const SKILL_MD_MAX_BYTES = 16 * 1024;
-const ENTITY_BODY_MAX_BYTES = 16 * 1024;
-const EVIDENCE_MAX_ROWS = 200;
+const ENTITY_DETAIL_MAX_BYTES = 16 * 1024;
+const ENTITY_ATTR_MAX = 200;
+const CANVAS_ELEMENT_MAX = 2000;
 
 const WORLD_TYPES = new Set(["character_ip", "creator_brand", "brand", "fiction_world", "custom"]);
-const ENTITY_KINDS = new Set(["character", "location", "story", "style", "rule", "reference"]);
-const MODALITIES = new Set(["image", "video", "audio", "text", "research"]);
-const PURPOSES = new Set([
-  "identity", "appearance", "wardrobe", "voice", "motion", "scene", "mood",
-  "visual_style", "sound_style", "narrative", "rule_evidence",
-]);
-const STATUSES = new Set(["primary", "supporting", "counterexample"]);
+const ATTR_TYPES = new Set(["text", "textarea", "number", "boolean", "select", "media"]);
 const ENTITY_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+const IS_ABSOLUTE_URL = /^https?:\/\//i;
 
 const errors = [];
 function fail(message) {
@@ -80,14 +73,14 @@ function sha256hex(data) {
   return createHash("sha256").update(data).digest("hex");
 }
 
-/** 世界目录内相对路径解析（禁止 .. 逃逸）。 */
-function resolveInWorldDir(worldDir, rawPath, what) {
+/** 世界目录内相对路径解析（禁止 .. 逃逸）。baseDir 为引用所在文件的目录。 */
+function resolveInDir(worldDir, baseDir, rawPath, what) {
   const normalized = String(rawPath).trim();
   if (normalized.includes("\0") || normalized.startsWith("/") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(normalized)) {
     fail(`${what} 必须是世界目录内的相对路径: ${normalized}`);
     return null;
   }
-  const abs = join(worldDir, normalized);
+  const abs = join(baseDir, normalized);
   const rel = relative(worldDir, abs);
   if (rel.startsWith("..") || rel.split(sep).includes("..")) {
     fail(`${what} 不能逃出世界目录: ${normalized}`);
@@ -96,33 +89,94 @@ function resolveInWorldDir(worldDir, rawPath, what) {
   return abs;
 }
 
-/** 解析 $file 引用（实体 body 长文）。 */
-function resolveFileRefs(value, worldDir, entityID) {
+/** 递归解析 $file 引用（长文本），baseDir 为当前文件目录。 */
+function resolveFileRefs(value, baseDir, worldDir, what) {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     if (typeof value.$file === "string") {
-      const abs = resolveInWorldDir(worldDir, value.$file, `实体 ${entityID} 的 $file`);
+      const abs = resolveInDir(worldDir, baseDir, value.$file, `${what} 的 $file`);
       if (!abs || !existsSync(abs) || !statSync(abs).isFile()) {
-        fail(`实体 ${entityID} 的 $file 不存在: ${value.$file}`);
+        fail(`${what} 的 $file 不存在: ${value.$file}`);
         return "";
       }
       return readFileSync(abs, "utf8");
     }
     const out = {};
-    for (const [key, nested] of Object.entries(value)) out[key] = resolveFileRefs(nested, worldDir, entityID);
+    for (const [key, nested] of Object.entries(value)) out[key] = resolveFileRefs(nested, baseDir, worldDir, what);
     return out;
   }
-  if (Array.isArray(value)) return value.map((item) => resolveFileRefs(item, worldDir, entityID));
+  if (Array.isArray(value)) return value.map((item) => resolveFileRefs(item, baseDir, worldDir, what));
   return value;
 }
 
-/** 绝对 http(s) URL HEAD 验证（已发布的 CDN 资源）。 */
-async function headVerify(url) {
-  try {
-    const response = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(15000) });
-    if (!response.ok) fail(`绝对 URL 资源验证失败 HTTP ${response.status}: ${url}`);
-  } catch (err) {
-    fail(`绝对 URL 资源不可达: ${url}（${err.message}）`);
+function readJSON(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+/** 读取 assets/ 目录下所有 sidecar：id → { id, name, kind, file, recipe?, provenance? }。 */
+function readAssetProtocol(worldDir) {
+  const dir = join(worldDir, "assets");
+  const assets = new Map();
+  if (!existsSync(dir)) return assets;
+  for (const entry of readdirSync(dir)) {
+    if (!entry.endsWith(".json")) continue;
+    const sidecar = readJSON(join(dir, entry));
+    const id = String(sidecar.id ?? entry.replace(/\.json$/, ""));
+    if (assets.has(id)) fail(`素材 id 重复: ${id}`);
+    assets.set(id, { ...sidecar, id });
   }
+  return assets;
+}
+
+/** 素材 sidecar → 镜像到 stagedDir/assets/<id><ext>，返回 manifest 内的 url+meta。 */
+function mirrorAsset(worldDir, stagedDir, cdnBase, worldId, version, sidecar) {
+  const abs = resolveInDir(worldDir, join(worldDir, "assets"), sidecar.file ?? `${sidecar.id}.png`, `素材 ${sidecar.id} 的 file`);
+  if (!abs || !existsSync(abs) || !statSync(abs).isFile()) {
+    fail(`素材 ${sidecar.id} 文件不存在: ${sidecar.file}`);
+    return null;
+  }
+  const ext = abs.includes(".") ? abs.slice(abs.lastIndexOf(".")) : "";
+  const targetRel = `assets/${sidecar.id}${ext}`;
+  const targetPath = join(stagedDir, targetRel);
+  mkdirSync(dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, readFileSync(abs));
+  const out = {
+    url: `${cdnBase}/worlds/${worldId}/${version}/${targetRel}`,
+    kind: sidecar.kind ?? "image",
+    name: sidecar.name ?? sidecar.id,
+  };
+  if (sidecar.recipe) out.recipe = sidecar.recipe;
+  return out;
+}
+
+/** 媒体引用 {asset:id} → 展开后的 {url,kind,name,recipe?}；已是 {url} 的原样返回。 */
+function expandMediaValue(value, assetProtocol, mirrored, what) {
+  if (!value || typeof value !== "object") {
+    fail(`${what} 的 media 值必须是对象`);
+    return value;
+  }
+  if (value.url) {
+    if (!IS_ABSOLUTE_URL.test(String(value.url))) {
+      fail(`${what} 的 media url 必须是绝对 http(s): ${value.url}`);
+    }
+    const { asset: _asset, ...rest } = value;
+    return rest;
+  }
+  const assetId = value.asset;
+  if (!assetId) {
+    fail(`${what} 的 media 值必须含 asset 或 url`);
+    return value;
+  }
+  if (!assetProtocol.has(assetId)) {
+    fail(`${what} 引用未知素材: ${assetId}`);
+    return value;
+  }
+  const resolved = mirrored.get(assetId);
+  if (!resolved) {
+    fail(`${what} 的素材未镜像成功: ${assetId}`);
+    return value;
+  }
+  const { asset: _asset, kind: _kind, name: _name, ...rest } = value;
+  return { ...resolved, ...rest };
 }
 
 function validateManifest(manifest) {
@@ -134,50 +188,68 @@ function validateManifest(manifest) {
   if (!world.name || !world.name.trim()) fail("world.name 必填");
   if (!WORLD_TYPES.has(world.type)) fail(`world.type 非法: ${world.type}`);
   if (typeof world.skillMd !== "string") fail("world.skillMd 必须是字符串（可空）");
-  else if (Buffer.byteLength(world.skillMd) > SKILL_MD_MAX_BYTES) {
-    fail(`skillMd 超过 ${SKILL_MD_MAX_BYTES} 字节`);
+  else if (Buffer.byteLength(world.skillMd) > SKILL_MD_MAX_BYTES) fail(`skillMd 超过 ${SKILL_MD_MAX_BYTES} 字节`);
+
+  const declaration = new Set();
+  for (const entityType of manifest.entityTypes ?? []) {
+    if (!entityType.id || declaration.has(entityType.id)) fail(`entityType id 缺失或重复: ${entityType.id}`);
+    declaration.add(entityType.id);
+    if (!entityType.name) fail(`entityType ${entityType.id} name 必填`);
+    for (const field of entityType.fields ?? []) {
+      if (!field.key || !ATTR_TYPES.has(field.type)) fail(`entityType ${entityType.id} 字段非法: ${field.key}/${field.type}`);
+    }
   }
 
   const seen = new Set();
-  let bodyTotal = 0;
+  let detailTotal = 0;
   for (const entity of manifest.entities ?? []) {
     if (!ENTITY_ID_PATTERN.test(entity.id)) fail(`实体 ID 不是稳定 slug: ${entity.id}`);
     if (seen.has(entity.id)) fail(`实体 ID 重复: ${entity.id}`);
     seen.add(entity.id);
-    if (!ENTITY_KINDS.has(entity.kind)) fail(`实体 kind 非法: ${entity.kind}`);
-    if (!entity.title || !entity.title.trim()) fail(`实体 ${entity.id} title 必填`);
-    const body = entity.content && typeof entity.content.body === "string" ? entity.content.body : "";
-    bodyTotal += Buffer.byteLength(body);
+    if (!entity.typeId) fail(`实体 ${entity.id} typeId 必填`);
+    if (!entity.name || !entity.name.trim()) fail(`实体 ${entity.id} name 必填`);
+    detailTotal += Buffer.byteLength(typeof entity.detail === "string" ? entity.detail : "");
+    if ((entity.attrs ?? []).length > ENTITY_ATTR_MAX) fail(`实体 ${entity.id} attrs 超过 ${ENTITY_ATTR_MAX}`);
+    for (const attr of entity.attrs ?? []) {
+      if (!attr.key || !ATTR_TYPES.has(attr.type)) fail(`实体 ${entity.id} 属性非法: ${attr.key}/${attr.type}`);
+      if (attr.type === "media" && attr.value && !(attr.value.url && IS_ABSOLUTE_URL.test(String(attr.value.url)))) {
+        fail(`实体 ${entity.id} 媒体属性 ${attr.key} 缺 CDN url`);
+      }
+    }
   }
-  if (bodyTotal > ENTITY_BODY_MAX_BYTES) fail(`实体 body 合计超过 ${ENTITY_BODY_MAX_BYTES} 字节`);
+  if (detailTotal > ENTITY_DETAIL_MAX_BYTES) fail(`实体 detail 合计超过 ${ENTITY_DETAIL_MAX_BYTES} 字节`);
 
-  if ((manifest.evidence ?? []).length > EVIDENCE_MAX_ROWS) fail(`evidence 条目超过 ${EVIDENCE_MAX_ROWS}`);
-  const seenEvidence = new Set();
-  for (const evidence of manifest.evidence ?? []) {
-    if (!/^https?:\/\/[^/]+\/.+/i.test(evidence.url ?? "")) fail(`evidence url 必须是绝对 http(s) URL: ${evidence.url}`);
-    if (!MODALITIES.has(evidence.modality)) fail(`evidence modality 非法: ${evidence.modality}`);
-    if (!PURPOSES.has(evidence.purpose)) fail(`evidence purpose 非法: ${evidence.purpose}`);
-    if (!STATUSES.has(evidence.status)) fail(`evidence status 非法: ${evidence.status}`);
-    if (evidence.entityId && !seen.has(evidence.entityId)) fail(`evidence 引用未知实体: ${evidence.entityId}`);
-    // 物化器按 (entityId, url, role) 派生确定性行 ID：重复三元组会在物化时
-    // 主键碰撞导致整个世界拒绝物化，构建期直接拒绝。
-    const triple = `${evidence.entityId ?? ""}|${evidence.url}|evidence:${evidence.purpose}`;
-    if (seenEvidence.has(triple)) fail(`evidence 重复（entity/url/purpose 相同）: ${triple}`);
-    seenEvidence.add(triple);
-  }
-  for (const relation of manifest.relations ?? []) {
+  for (const [index, relation] of (manifest.relations ?? []).entries()) {
     if (!relation.id || !relation.type) fail(`relation 缺 id/type`);
-    if (!seen.has(relation.from) || !seen.has(relation.to)) fail(`relation ${relation.id} 引用未知实体`);
+    if (!seen.has(relation.from) || !seen.has(relation.to)) fail(`relation ${relation.id ?? index} 引用未知实体`);
+    if (relation.scope && !seen.has(relation.scope)) fail(`relation ${relation.id} scope 引用未知实体`);
   }
+
+  let elementCount = 0;
+  for (const canvas of manifest.canvases ?? []) {
+    if (canvas.contextId && !seen.has(canvas.contextId)) fail(`canvas context 引用未知实体: ${canvas.contextId}`);
+    const elementIDs = new Set((canvas.elements ?? []).map((element) => element.id));
+    for (const element of canvas.elements ?? []) {
+      elementCount += 1;
+      if (!element.id || !element.kind) fail(`canvas ${canvas.contextId} 元素缺 id/kind`);
+      if ((element.kind === "entity" || element.refKind === "entity") && element.refId && !seen.has(element.refId)) {
+        fail(`canvas 实体元素引用未知实体: ${element.refId}`);
+      }
+      for (const key of ["fromElementId", "toElementId"]) {
+        const ref = element.props?.[key];
+        if (ref && !elementIDs.has(ref)) fail(`canvas 元素 ${element.id} 的 ${key} 引用缺失元素`);
+      }
+      if (element.props?.url && !IS_ABSOLUTE_URL.test(String(element.props.url))) {
+        fail(`canvas 元素 ${element.id} 的 url 必须是绝对 http(s)`);
+      }
+    }
+  }
+  if (elementCount > CANVAS_ELEMENT_MAX) fail(`canvas 元素合计超过 ${CANVAS_ELEMENT_MAX}`);
+
   const provenance = manifest.provenance ?? {};
   for (const key of ["author", "license", "repository"]) {
     if (!provenance[key]) fail(`provenance.${key} 必填`);
   }
-}
-
-function contentAddressedName(relPath, bytes) {
-  const ext = relPath.includes(".") ? relPath.slice(relPath.lastIndexOf(".")) : "";
-  return sha256hex(bytes).slice(0, 16) + ext;
 }
 
 async function buildWorld(worldDir, cdnBase) {
@@ -186,66 +258,113 @@ async function buildWorld(worldDir, cdnBase) {
     fail(`缺少 world.json: ${worldDir}`);
     return null;
   }
-  const source = JSON.parse(readFileSync(worldJsonPath, "utf8"));
+  const source = readJSON(worldJsonPath);
+  if (source.sourceVersion !== 2) {
+    fail(`${source.world?.id ?? worldDir}: 源格式不是 v2，请先运行 node scripts/worlds-migrate-v2.mjs`);
+    return null;
+  }
   const world = source.world;
   if (!world?.id) return null;
-  console.log(`\n→ ${world.id} (${source.version ?? "0.1.0"})`);
-
-  // 1. world.md → skillMd（目录约定；不存在则为空）
-  const skillMdPath = join(worldDir, "world.md");
-  const skillMd = existsSync(skillMdPath) ? readFileSync(skillMdPath, "utf8") : "";
-
-  // 2. 实体 $file 解析
-  const entities = (source.entities ?? []).map((entity) => ({
-    ...entity,
-    content: entity.content ? resolveFileRefs(entity.content, worldDir, entity.id) : entity.content,
-  }));
-
-  // 3. 证据：相对路径 → 镜像到 cdn/buckets/worlds/<id>/<version>/examples/；绝对 URL → HEAD 验证
   const version = source.version ?? world.version ?? "0.1.0";
+  console.log(`\n→ ${world.id} (${version})`);
+
   const stagedDir = join(repoRoot, "cdn", "buckets", "worlds", world.id, version);
   rmSync(stagedDir, { recursive: true, force: true });
   mkdirSync(stagedDir, { recursive: true });
 
-  const evidence = [];
-  for (const item of source.evidence ?? []) {
-    const url = String(item.url ?? "").trim();
-    if (/^https?:\/\//i.test(url)) {
-      evidence.push(item);
-      void headVerify(url);
-      continue;
-    }
-    const abs = resolveInWorldDir(worldDir, url, "evidence 相对路径");
-    if (!abs || !existsSync(abs) || !statSync(abs).isFile()) {
-      fail(`evidence 相对资源不存在: ${url}`);
-      continue;
-    }
-    const bytes = readFileSync(abs);
-    const relativeToStaged = url.split("/").map((segment) => segment).join("/");
-    const targetRel = relativeToStaged.includes("/")
-      ? relativeToStaged
-      : `examples/${relativeToStaged}`;
-    const targetPath = join(stagedDir, targetRel);
-    mkdirSync(dirname(targetPath), { recursive: true });
-    writeFileSync(targetPath, bytes);
-    evidence.push({ ...item, url: `${cdnBase}/worlds/${world.id}/${version}/${targetRel}` });
+  // 1. world.md → skillMd
+  const skillMdPath = join(worldDir, "world.md");
+  const skillMd = existsSync(skillMdPath) ? readFileSync(skillMdPath, "utf8") : "";
+
+  // 2. 素材协议 + 镜像
+  const assetProtocol = readAssetProtocol(worldDir);
+  const mirrored = new Map();
+  const mirrorAll = (asset) =>
+    mirrorAsset(worldDir, stagedDir, cdnBase, world.id, version, asset);
+  for (const asset of assetProtocol.values()) {
+    const resolved = mirrorAll(asset);
+    if (resolved) mirrored.set(asset.id, resolved);
   }
 
-  // 4. 发布 manifest（canonical-complete，确定性序列化）
+  // 3. entities/*.json → 展开 detail $file 与 media 引用
+  const entitiesDir = join(worldDir, "entities");
+  const entities = [];
+  if (existsSync(entitiesDir)) {
+    for (const entry of readdirSync(entitiesDir).filter((name) => name.endsWith(".json")).sort()) {
+      const record = readJSON(join(entitiesDir, entry));
+      const expectedId = entry.replace(/\.json$/, "");
+      if (!record.id) record.id = expectedId;
+      if (record.id !== expectedId) fail(`实体文件名 ${entry} 与 id ${record.id} 不一致`);
+      const resolvedDetail = record.detail ? resolveFileRefs(record.detail, entitiesDir, worldDir, `实体 ${record.id}`) : "";
+      const attrs = (record.attrs ?? []).map((attr) => {
+        if (attr.type !== "media" || !attr.value) return attr;
+        return { ...attr, value: expandMediaValue(attr.value, assetProtocol, mirrored, `实体 ${record.id} 属性 ${attr.key}`) };
+      });
+      entities.push({
+        id: record.id,
+        typeId: record.typeId,
+        name: record.name,
+        intro: record.intro ?? "",
+        detail: typeof resolvedDetail === "string" ? resolvedDetail : String(resolvedDetail ?? ""),
+        ...(record.parentId ? { parentId: record.parentId } : {}),
+        ...(record.containerRole ? { containerRole: record.containerRole } : {}),
+        ...(record.isProvisional ? { isProvisional: true } : {}),
+        attrs,
+      });
+    }
+  }
+
+  // 4. canvas.json → 展开媒体元素 props
+  const canvasPath = join(worldDir, "canvas.json");
+  const canvases = [];
+  if (existsSync(canvasPath)) {
+    const canvasSource = readJSON(canvasPath);
+    for (const canvas of canvasSource.canvases ?? []) {
+      const elements = (canvas.elements ?? []).map((element) => {
+        if (!element.props) return element;
+        const props = { ...element.props };
+        if (props.asset) {
+          const expanded = expandMediaValue({ asset: props.asset }, assetProtocol, mirrored, `canvas 元素 ${element.id}`);
+          delete props.asset;
+          if (expanded?.url) props.url = expanded.url;
+          if (!props.kind && expanded?.kind) props.kind = expanded.kind;
+        }
+        return { ...element, props };
+      });
+      canvases.push({ contextId: canvas.contextId ?? "", elements });
+    }
+  }
+
+  // 5. coverUrl 相对路径镜像（可选）
+  let coverUrl = world.coverUrl ?? "";
+  if (coverUrl && !IS_ABSOLUTE_URL.test(coverUrl)) {
+    const abs = resolveInDir(worldDir, worldDir, coverUrl, "world.coverUrl");
+    if (abs && existsSync(abs)) {
+      const ext = abs.slice(abs.lastIndexOf("."));
+      const targetRel = `cover${ext}`;
+      writeFileSync(join(stagedDir, targetRel), readFileSync(abs));
+      coverUrl = `${cdnBase}/worlds/${world.id}/${version}/${targetRel}`;
+    } else {
+      coverUrl = "";
+    }
+  }
+
+  // 6. manifest v2（确定性序列化）
   const manifest = {
-    manifestVersion: 1,
+    manifestVersion: 2,
     world: {
       id: world.id,
       name: (world.name ?? "").trim(),
       type: world.type,
       description: (world.description ?? "").trim(),
-      coverUrl: world.coverUrl ?? "",
+      coverUrl,
       skillMd,
       identity: world.identity ?? {},
     },
+    entityTypes: source.entityTypes ?? [],
     entities,
     relations: source.relations ?? [],
-    evidence,
+    canvases,
     provenance: source.provenance,
   };
   validateManifest(manifest);
@@ -274,7 +393,7 @@ async function buildWorld(worldDir, cdnBase) {
 async function main() {
   const { CDN } = await import(join(repoRoot, "cdn", "config.mjs"));
   const cdnBase = CDN.baseUrl.replace(/\/$/, "");
-  console.log(`worlds publish — cdn=${cdnBase} check=${checkOnly} seed=${withSeed} upload=${withUpload}`);
+  console.log(`worlds publish v2 — cdn=${cdnBase} check=${checkOnly} seed=${withSeed} upload=${withUpload}`);
 
   const worldsRoot = join(repoRoot, "worlds");
   if (!existsSync(worldsRoot)) {
@@ -292,8 +411,6 @@ async function main() {
     if (result) built.push(result);
   }
 
-  // 5. catalog（platform 按 order 排序；published 条目 P4 追加）。
-  //    stagedRel/manifestRel 是构建内部字段，不进入对外目录契约。
   const publicEntries = built
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .map(({ stagedRel: _s, manifestRel: _m, ...entry }) => entry);
@@ -310,8 +427,6 @@ async function main() {
     console.log(`\n✓ catalog 预览（--check 不落盘）`);
   }
 
-  // 6. 嵌入种子 service/worldcatalog/（示例图不随二进制发布：发布 manifest 仅携带
-  //    URL 清单，占位文件保留目录形态；真实 PNG 由官方仓库与 CDN 承担）
   if (withSeed) {
     const seedRoot = join(repoRoot, "service", "worldcatalog");
     rmSync(seedRoot, { recursive: true, force: true });
@@ -322,18 +437,16 @@ async function main() {
       mkdirSync(targetDir, { recursive: true });
       const stagedDir = join(repoRoot, "cdn", "buckets", entry.stagedRel);
       writeFileSync(join(targetDir, "world.json"), readFileSync(join(stagedDir, "world.json")));
-      const examplesDir = join(stagedDir, "examples");
-      if (existsSync(examplesDir)) {
-        mkdirSync(join(targetDir, "examples"), { recursive: true });
-        writeFileSync(join(targetDir, "examples", ".placeholder"), "PNG 不随二进制发布，见仓库 worlds/ 与 CDN\n");
+      const assetsDir = join(stagedDir, "assets");
+      if (existsSync(assetsDir)) {
+        mkdirSync(join(targetDir, "assets"), { recursive: true });
+        writeFileSync(join(targetDir, "assets", ".placeholder"), "素材不随二进制发布，见仓库 worlds/ 与 CDN\n");
       }
       console.log(`  ✓ seed ${relative(repoRoot, targetDir)}/`);
     }
     console.log(`✓ 种子 service/worldcatalog/（首启/离线兜底）`);
   }
 
-  // 7. CDN 增量上传（与 releases 同链路：cli.mjs upload --skip-existing）
-  //    只传本次构建的版本目录 + catalog.json；旧版本对象不可变，不重复上传。
   if (withUpload) {
     const cli = join(repoRoot, "cdn", "scripts", "cli.mjs");
     const onlyArgs = [];

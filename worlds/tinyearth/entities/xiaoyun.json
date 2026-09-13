@@ -1,0 +1,46 @@
+{
+  "id": "xiaoyun",
+  "typeId": "character",
+  "name": "小云",
+  "intro": "有意识的云 / 天气实习生。迷糊天真容易走错方向，常把雨下到不该下的地方；是自然居民与事务所之间的连接。",
+  "detail": {
+    "$file": "../references/char-小云.md"
+  },
+  "attrs": [
+    {
+      "key": "species",
+      "label": "species",
+      "type": "text",
+      "value": "有意识的云（自然居民）"
+    },
+    {
+      "key": "role",
+      "label": "role",
+      "type": "text",
+      "value": "天气实习生"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "迷糊、天真、容易走错方向；经常因搞错任务跑到不应该下雨的地方"
+    },
+    {
+      "key": "function",
+      "label": "function",
+      "type": "text",
+      "value": "天气、自然、意外、童趣、视觉变化"
+    },
+    {
+      "key": "media-char-xiaoyun",
+      "label": "小云设定集（表情+情绪状态变化）",
+      "type": "media",
+      "value": {
+        "asset": "char-xiaoyun",
+        "kind": "image",
+        "name": "小云设定集（表情+情绪状态变化）"
+      }
+    }
+  ]
+}

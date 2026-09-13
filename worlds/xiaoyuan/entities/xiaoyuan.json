@@ -1,0 +1,52 @@
+{
+  "id": "xiaoyuan",
+  "typeId": "character",
+  "name": "小圆",
+  "intro": "肤色圆头、两点眼、白T恤、黑色细线手脚的极简卡通小人；被合成进真实摄影场景，用反差制造幽默与共情。",
+  "detail": {
+    "$file": "../references/xiaoyuan-ip.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "圆润的浅肤色圆头（扁平色块、无发型），黑色小点眼，简单弧线嘴（可咧嘴露齿笑）；纯白色短袖T恤（微梯形色块）；黑色细线胳膊与腿，末端简单小手小脚；全身只有头肤色+白T+黑线三种元素"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "普通打工人化身：白天撑着笑，深夜独自放空；自嘲、温和、有点轴"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "每帧最多一句英文短句大写字幕（如 WHILE WORKING,）或一句中文内心独白；克制、留白"
+    },
+    {
+      "key": "media-character-sheet",
+      "label": "角色设定九宫格（主参考）",
+      "type": "media",
+      "value": {
+        "asset": "character-sheet",
+        "kind": "image",
+        "name": "角色设定九宫格（主参考）"
+      }
+    },
+    {
+      "key": "media-scene-bedroom",
+      "label": "深夜卧室关键帧（9:16 成品范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-bedroom",
+        "kind": "image",
+        "name": "深夜卧室关键帧（9:16 成品范例）"
+      }
+    }
+  ]
+}

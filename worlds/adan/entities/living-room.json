@@ -1,0 +1,28 @@
+{
+  "id": "living-room",
+  "typeId": "location",
+  "name": "深夜客厅（主场）",
+  "intro": "蓝色旧布艺沙发 + 大面积黑夜星空 + 咖啡杯与书；阿蛋的固定座标，80% 的镜头发生在这里。",
+  "detail": {
+    "$file": "../references/living-room.md"
+  },
+  "attrs": [
+    {
+      "key": "description",
+      "label": "描述",
+      "type": "textarea",
+      "locked": true,
+      "value": "大面积纯黑夜空（稀疏星点）+ 蓝色旧布艺三人沙发；左扶手黄马克杯冒热气（温度锚点），右扶手几本书（独处锚点）；可选落地灯、毯子、绿植、手机屏光。"
+    },
+    {
+      "key": "media-living-room-panorama",
+      "label": "深夜客厅全景（16:9 场景锚点）",
+      "type": "media",
+      "value": {
+        "asset": "living-room-panorama",
+        "kind": "image",
+        "name": "深夜客厅全景（16:9 场景锚点）"
+      }
+    }
+  ]
+}

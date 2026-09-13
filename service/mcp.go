@@ -454,7 +454,7 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 		return mediaMCPTool(bridge.store, media, session, name, arguments)
 	}
 	if strings.HasPrefix(name, "recut.worlds.") {
-		return worldsMCPTool(NewWorldStore(bridge.store, media), name, arguments)
+		return worldsMCPTool(NewWorldStore(bridge.store, media, bridge.worldPublisher()), name, arguments)
 	}
 	if strings.HasPrefix(name, "recut.job.") {
 		return jobMCPTool(bridge, host.jobs, host.async, media, name, arguments)

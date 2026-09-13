@@ -1,0 +1,46 @@
+{
+  "id": "shanshan",
+  "typeId": "character",
+  "name": "闪闪",
+  "intro": "螳螂 / 城市工程师。认真专业效率至上，口头禅「拆开看看」，常为修一个小问题拆掉一整套设备。",
+  "detail": {
+    "$file": "../references/char-闪闪.md"
+  },
+  "attrs": [
+    {
+      "key": "species",
+      "label": "species",
+      "type": "text",
+      "value": "螳螂"
+    },
+    {
+      "key": "role",
+      "label": "role",
+      "type": "text",
+      "value": "城市工程师"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "认真、专业、效率至上；面对任何问题第一反应都是「拆开看看」"
+    },
+    {
+      "key": "function",
+      "label": "function",
+      "type": "text",
+      "value": "科技、工程、城市、机械、问题解决、荒诞喜剧"
+    },
+    {
+      "key": "media-char-shanshan",
+      "label": "闪闪设定集（三视图+表情+动作）",
+      "type": "media",
+      "value": {
+        "asset": "char-shanshan",
+        "kind": "image",
+        "name": "闪闪设定集（三视图+表情+动作）"
+      }
+    }
+  ]
+}

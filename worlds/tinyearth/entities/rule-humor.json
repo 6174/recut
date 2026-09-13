@@ -1,0 +1,21 @@
+{
+  "id": "rule-humor",
+  "typeId": "rule",
+  "name": "喜剧机制",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "六种反差：尺度反差（人类大问题=他们小任务）、认知反差（人类以为自然发生，他们知道有人在处理）、工作反差（宏大世界问题当普通工作处理）、生物反差（身体特征即工作能力）、现实反差（他们同样犯错摸鱼迟到抱怨加班）、意外反差（小问题引发巨大连锁反应）。"
+    }
+  ]
+}

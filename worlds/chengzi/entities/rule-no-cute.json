@@ -1,0 +1,21 @@
+{
+  "id": "rule-no-cute",
+  "typeId": "rule",
+  "name": "禁止写实化与说教",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "never"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "不要把角色写实照片化/3D 化，不要把背景卡通化；不要说教大字、口号横幅、品牌 logo；不要给爸爸加眼镜；不要把柚子画成婴儿（稀疏胎毛/奶瓶/口水兜）"
+    }
+  ]
+}

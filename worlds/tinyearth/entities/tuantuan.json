@@ -1,0 +1,56 @@
+{
+  "id": "tuantuan",
+  "typeId": "character",
+  "name": "团团",
+  "intro": "水豚 / 事务协调员。平静、善良、随和、慢半拍的普通上班族，总能用最普通的方式把事情做完。",
+  "detail": {
+    "$file": "../references/char-团团.md"
+  },
+  "attrs": [
+    {
+      "key": "species",
+      "label": "species",
+      "type": "text",
+      "value": "水豚"
+    },
+    {
+      "key": "role",
+      "label": "role",
+      "type": "text",
+      "value": "事务协调员 / 普通员工"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "平静、善良、随和、慢半拍；不是天才也不是领导者，是被卷入各种任务的普通人"
+    },
+    {
+      "key": "function",
+      "label": "function",
+      "type": "text",
+      "value": "日常生活、职场观察、社会观察、情绪、人与人之间的关系"
+    },
+    {
+      "key": "media-family",
+      "label": "全员主视觉（角色全家福+事务所门头·一致性锚点）",
+      "type": "media",
+      "value": {
+        "asset": "family",
+        "kind": "image",
+        "name": "全员主视觉（角色全家福+事务所门头·一致性锚点）"
+      }
+    },
+    {
+      "key": "media-char-tuantuan",
+      "label": "团团设定集（三视图+表情+动作）",
+      "type": "media",
+      "value": {
+        "asset": "char-tuantuan",
+        "kind": "image",
+        "name": "团团设定集（三视图+表情+动作）"
+      }
+    }
+  ]
+}

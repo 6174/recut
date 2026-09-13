@@ -1,0 +1,38 @@
+{
+  "id": "apartment",
+  "typeId": "location",
+  "name": "小灰哥的两室一厅",
+  "intro": "城郊老小区的两室一厅：客厅、开放厨房、卧室、工作房、阳台；故事的主舞台，安静、略乱、但完整。",
+  "detail": {
+    "$file": "../references/apartment.md"
+  },
+  "attrs": [
+    {
+      "key": "description",
+      "label": "描述",
+      "type": "textarea",
+      "locked": true,
+      "value": "标准中国式两室一厅：中间客厅（布艺沙发+茶几+电视柜+书架），一端开放厨房（冰箱、灶台、油烟机、小餐桌），一间卧室（床、衣柜、床头柜、窗帘窗），一间小工作房（书桌、办公椅、笔记本+显示器、墙面 pinboard），一个阳台（盆栽、晾衣架、推拉玻璃门）。小灰哥大部分时间瘫在卧室床上或工作房桌前。"
+    },
+    {
+      "key": "media-apartment-panorama",
+      "label": "两室一厅全景（参考）",
+      "type": "media",
+      "value": {
+        "asset": "apartment-panorama",
+        "kind": "image",
+        "name": "两室一厅全景（参考）"
+      }
+    },
+    {
+      "key": "media-bedroom",
+      "label": "卧室（参考）",
+      "type": "media",
+      "value": {
+        "asset": "bedroom",
+        "kind": "image",
+        "name": "卧室（参考）"
+      }
+    }
+  ]
+}

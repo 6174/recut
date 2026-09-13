@@ -1,0 +1,24 @@
+{
+  "id": "style-dna",
+  "typeId": "style",
+  "name": "风格 DNA",
+  "intro": "扁平灰底、黑色粗手绘线、极简灰阶、思想泡泡与乱线团语言；丧但干净，绝不精致动漫画。",
+  "detail": {
+    "$file": "../references/style-dna.md"
+  },
+  "attrs": [
+    {
+      "key": "kind",
+      "label": "kind",
+      "type": "text",
+      "value": "visual"
+    },
+    {
+      "key": "guidance",
+      "label": "guidance",
+      "type": "textarea",
+      "locked": true,
+      "value": "扁平纯灰背景（无纸纹/渐变/阴影）；黑色粗线轻微抖动；角色扁平灰阶填充；一图一情绪/一认知动作；唯一亮色只给洞见/希望；禁止毛绒质感与精致动漫画"
+    }
+  ]
+}

@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   Check,
   Clapperboard,
+  Download,
   Globe2,
   MoreHorizontal,
   Network,
@@ -106,6 +107,7 @@ function WorldDetailContent() {
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [exportingWorld, setExportingWorld] = useState(false);
 
   useReportWorkSurface(
     useMemo(
@@ -117,7 +119,8 @@ function WorldDetailContent() {
     ),
   );
   useEffect(() => {
-    if (!detail || !worldID) return;
+    // 画布视图由 WorldCanvas 自己上报 WorkFocus（含画布选中/所在容器）；表单视图才用此处的选中实体。
+    if (!detail || !worldID || viewMode === "canvas") return;
     useAgentPanelContext.getState().setWorkFocus({
       version: 1,
       view: activeKind,
@@ -125,7 +128,7 @@ function WorldDetailContent() {
       state: { activeKind, entityCounts: detail.entityCounts, revision: detail.revision },
       summary: selected ? `正在编辑 ${selected.name}` : `查看 ${activeKind}`,
     });
-  }, [activeKind, detail, selected, worldID]);
+  }, [activeKind, detail, selected, viewMode, worldID]);
   const params = useParams<{ worldID?: string }>();
   useEffect(() => {
     setWorldID(worldIDFromLocation(params.worldID));
@@ -258,7 +261,29 @@ function WorldDetailContent() {
     }
   }
 
-  async function saveSkill() {    if (savingSkill) return;
+  async function exportWorldBundle() {
+    if (exportingWorld) return;
+    setExportingWorld(true);
+    setNotice("");
+    try {
+      const { blob, filename } = await createRecutWorldsClient(apiBase).exportWorld({ worldId });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : t("worlds.detail.export.failed"));
+    } finally {
+      setExportingWorld(false);
+    }
+  }
+
+  async function saveSkill() {
+    if (savingSkill) return;
     setSavingSkill(true);
     setNotice("");
     try {
@@ -360,6 +385,9 @@ function WorldDetailContent() {
                   )}
                   <Badge className="shrink-0 border-primary/20 bg-accent/60 text-accent-foreground">{t(`worlds.kind.${detail.type}`)}</Badge>
                   {readOnly && detail.originMeta?.version && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">v{detail.originMeta.version}</span>}
+                  <button aria-label={t("worlds.detail.export.aria")} className="ml-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50" disabled={exportingWorld} onClick={() => void exportWorldBundle()} title={t("worlds.detail.export")} type="button">
+                    <Download className="size-3.5" />
+                  </button>
                   {!readOnly && (
                     <Popover onOpenChange={setMoreOpen} open={moreOpen}>
                       <PopoverTrigger asChild>

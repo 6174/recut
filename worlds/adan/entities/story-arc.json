@@ -1,0 +1,18 @@
+{
+  "id": "story-arc",
+  "typeId": "story",
+  "name": "深夜独处切片",
+  "intro": "叙事主线：每支短片是阿蛋与一个具体情绪瞬间的一次独处——陷入、觉察、松开一点；不治愈完结，只给诚实的进度条。",
+  "detail": {
+    "$file": "../references/story-arc.md"
+  },
+  "attrs": [
+    {
+      "key": "premise",
+      "label": "前提",
+      "type": "textarea",
+      "locked": true,
+      "value": "阿蛋是每个深夜醒着的人的镜子：等一条没来的消息、给泡面等三分钟、和楼下的猫对视。物件是配角——咖啡杯、书、手机、猫，它们替观众接住阿蛋。"
+    }
+  ]
+}

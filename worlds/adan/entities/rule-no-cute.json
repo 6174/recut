@@ -1,0 +1,21 @@
+{
+  "id": "rule-no-cute",
+  "typeId": "rule",
+  "name": "禁止吉祥物感",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "never"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "不要可爱吉祥物贴纸、儿童卡通、日系动漫画风、厚涂、渐变光效、毛绒质感、鸡汤励志大字；不要给阿蛋加头发、大嘴、腮红"
+    }
+  ]
+}

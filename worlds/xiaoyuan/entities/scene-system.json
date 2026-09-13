@@ -1,0 +1,28 @@
+{
+  "id": "scene-system",
+  "typeId": "location",
+  "name": "写实场景体系",
+  "intro": "小圆出现的真实世界：深夜卧室、办公室工位、末班地铁、便利店、出租屋厨房；统一公式「真实场景 + 一盏光源 + 一个小圆」。",
+  "detail": {
+    "$file": "../references/scene-system.md"
+  },
+  "attrs": [
+    {
+      "key": "description",
+      "label": "描述",
+      "type": "textarea",
+      "locked": true,
+      "value": "所有场景都是摄影实拍质感的中国都市空间；每张图只保留 2-3 个可读物件，暗部大面积留黑；光源决定情绪（暖黄=疲惫的安慰，冷蓝=清醒的孤独）。"
+    },
+    {
+      "key": "media-scene-office",
+      "label": "深夜办公室关键帧（9:16 场景范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-office",
+        "kind": "image",
+        "name": "深夜办公室关键帧（9:16 场景范例）"
+      }
+    }
+  ]
+}

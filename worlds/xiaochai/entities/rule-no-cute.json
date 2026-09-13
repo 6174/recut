@@ -1,0 +1,21 @@
+{
+  "id": "rule-no-cute",
+  "typeId": "rule",
+  "name": "禁止可爱化",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "never"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "不给火柴人加衣服、头发、手指细节、3D 体积感；背景不要二次元/厚涂/赛博感；不要冷色主光、不要白天强光场景；不要鸡汤励志大字"
+    }
+  ]
+}

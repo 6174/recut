@@ -1,0 +1,21 @@
+{
+  "id": "rule-camera",
+  "typeId": "rule",
+  "name": "色彩与镜头纪律",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "竖屏下 1/3 放主体（阿蛋+沙发/光源），上 2/3 留给夜空；红卫衣每帧必须可见；暖黄每帧最多一处；只用固定/慢推/慢拉，禁止快切与转场特效"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "id": "xiaoyan",
+  "typeId": "character",
+  "name": "小岩",
+  "intro": "寄居蟹 / 地下基础设施工程师。沉默可靠耐心，背着可不断更换的房子，知道城市里很多不为人知的秘密。",
+  "detail": {
+    "$file": "../references/char-小岩.md"
+  },
+  "attrs": [
+    {
+      "key": "species",
+      "label": "species",
+      "type": "text",
+      "value": "寄居蟹"
+    },
+    {
+      "key": "role",
+      "label": "role",
+      "type": "text",
+      "value": "地下基础设施工程师"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "沉默、可靠、耐心；长期生活在地下"
+    },
+    {
+      "key": "signature",
+      "label": "signature",
+      "type": "text",
+      "value": "背上的「房子」不断更换：废弃金属盒、旧服务器、工具箱、小型设备、甚至一块奇怪的石头"
+    },
+    {
+      "key": "function",
+      "label": "function",
+      "type": "text",
+      "value": "城市基础设施、地下世界、工程、交通、维修"
+    },
+    {
+      "key": "media-char-xiaoyan",
+      "label": "小岩设定集（三视图+可更换壳方案）",
+      "type": "media",
+      "value": {
+        "asset": "char-xiaoyan",
+        "kind": "image",
+        "name": "小岩设定集（三视图+可更换壳方案）"
+      }
+    }
+  ]
+}

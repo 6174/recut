@@ -78,7 +78,9 @@ export type ContextRef =
   | { kind: "component"; id: string }
   | { kind: "asset"; id: string }
   | { kind: "world_entity"; id: string }
-  | { kind: "world_evidence"; id: string };
+  | { kind: "world_evidence"; id: string }
+  | { kind: "world_canvas_element"; id: string }
+  | { kind: "world_relation"; id: string };
 
 // WorkFocusContext is app-owned, ephemeral state. State intentionally carries
 // the complete user-visible selection snapshot so the Agent does not re-read
@@ -141,7 +143,7 @@ function stringField(value: unknown): string | undefined {
 function isContextRef(value: unknown): value is ContextRef {
   if (!value || typeof value !== "object") return false;
   const ref = value as Record<string, unknown>;
-  return typeof ref.id === "string" && typeof ref.kind === "string" && ["timeline_element", "timeline_track", "component", "asset", "world_entity", "world_evidence"].includes(ref.kind);
+  return typeof ref.id === "string" && typeof ref.kind === "string" && ["timeline_element", "timeline_track", "component", "asset", "world_entity", "world_evidence", "world_canvas_element", "world_relation"].includes(ref.kind);
 }
 export function contextLabel(context: MessageContext): string {
   if (context.type === "media")

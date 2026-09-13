@@ -1,0 +1,21 @@
+{
+  "id": "rule-format",
+  "typeId": "rule",
+  "name": "产出形式",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "网站配图/横幅 16:9 或 1:1；产品介绍视频关键帧 16:9；角色设定图与表情集 1:1；每张单独生成，不拼图；网页插画预留四边留白"
+    }
+  ]
+}

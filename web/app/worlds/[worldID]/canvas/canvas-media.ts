@@ -10,12 +10,12 @@
  */
 export type MediaModality = "image" | "video" | "audio";
 
+import { resolveMediaPropsSrc } from "@/lib/world-media";
 import { useWorldCanvasStore } from "./canvas-store";
 
-// 媒体元素 props → 可渲染 URL（与 evidenceSource 同一约定：asset 行走媒体库 content 流）
+// 媒体元素 props → 可渲染 URL（统一走 world-media 解析：asset 走媒体库 content 流；url 直连或同源代理）
 export function mediaSource(apiBase: string, props: { assetId?: string; url?: string }): string {
-  if (props.url) return props.url;
-  return props.assetId ? `${apiBase}/v1/media/assets/${encodeURIComponent(props.assetId)}/content` : "";
+  return resolveMediaPropsSrc(apiBase, props);
 }
 
 // 文件 MIME → modality（上传拖放入口用）

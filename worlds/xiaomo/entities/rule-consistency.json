@@ -1,0 +1,21 @@
+{
+  "id": "rule-consistency",
+  "typeId": "rule",
+  "name": "一致性与参考图纪律",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "生成任何角色的图，必须把该角色的 assets/ 设定图（amo/momo/doudou/xiaodian/tantan.png）作为参考图传入，而不是只靠 prompt 描述；多人同图时传入全部出场角色设定图；检查头身比 1:2.5~1:3、发型轮廓语言、专属符号是否到位"
+    }
+  ]
+}

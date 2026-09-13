@@ -1,0 +1,200 @@
+{
+  "docVersion": 1,
+  "canvases": [
+    {
+      "contextId": "",
+      "elements": [
+        {
+          "id": "shape:cast",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "cast",
+          "name": "墨咖啡团队（茉茉/豆豆/小点/炭炭）",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:xiaomo",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "xiaomo",
+          "name": "阿墨",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:scene-system",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "scene-system",
+          "name": "墨咖啡工作室场景体系",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 524,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:story-arc",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "story-arc",
+          "name": "问题不大，先喝口咖啡",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1008,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:layout-modes",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "layout-modes",
+          "name": "版式双模式",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1492,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:style-dna",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "style-dna",
+          "name": "风格 DNA",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 1492,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-consistency",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-consistency",
+          "name": "一致性与参考图纪律",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-format",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-format",
+          "name": "产出形式",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-mono",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-mono",
+          "name": "单色与笔触纪律",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-no-anti-style",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-no-anti-style",
+          "name": "禁止低幼与精致化",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        }
+      ]
+    }
+  ]
+}

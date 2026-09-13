@@ -1,0 +1,21 @@
+{
+  "id": "rule-reference",
+  "typeId": "rule",
+  "name": "参考图纪律",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "多人同框只传 assets/family-sheet-grid-v2.png 一张参考图（四角色设定页 2x2 合拼）；单角色戏传对应设定页一张；提示词开头声明「角色必须 1:1 复制参考图设定（禁止改动发型/服装/配色）」；禁止用四张散图作参考（会平均化角色）"
+    }
+  ]
+}

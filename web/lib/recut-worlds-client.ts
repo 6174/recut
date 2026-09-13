@@ -97,8 +97,43 @@ export type EntityAttr = {
   segment?: { startSec: number; endSec: number };
 };
 
-// Media attr value: {assetId, name?, kind?, segment?} referencing a platform Asset.
-export type EntityAttrMediaValue = { assetId: string; name?: string; kind?: string; segment?: { startSec: number; endSec: number } };
+// Media attr value: exactly one of {assetId | url} plus optional name/kind/segment.
+// assetId references a platform Asset (local/uploaded); url is a remote resource
+// (PGC CDN or an external URL) — the unified dual source of RFC world-content-format-v2.
+export type EntityAttrMediaRecipe = {
+  provider?: string;
+  model?: string;
+  prompt?: string;
+  params?: Record<string, unknown>;
+  /** Reference resources, flattened to their own media values. */
+  references?: EntityAttrMediaValue[];
+};
+
+export type EntityAttrMediaValue = {
+  assetId?: string;
+  url?: string;
+  name?: string;
+  kind?: string;
+  segment?: { startSec: number; endSec: number };
+  /** Generation recipe carried from an exported bundle (prompt/references/model). */
+  recipe?: EntityAttrMediaRecipe;
+};
+
+export function entityAttrMediaRef(value: unknown): EntityAttrMediaValue | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const assetId = typeof record.assetId === "string" && record.assetId ? record.assetId : undefined;
+  const url = typeof record.url === "string" && record.url ? record.url : undefined;
+  if (!assetId && !url) return null;
+  return {
+    ...(assetId ? { assetId } : {}),
+    ...(url ? { url } : {}),
+    name: typeof record.name === "string" ? record.name : undefined,
+    kind: typeof record.kind === "string" ? record.kind : undefined,
+    segment: (record.segment as EntityAttrMediaValue["segment"]) ?? undefined,
+    recipe: (record.recipe as EntityAttrMediaValue["recipe"]) ?? undefined,
+  };
+}
 
 export type WorldEvidenceSegment = { startSec: number; endSec: number };
 
@@ -367,6 +402,10 @@ export type RecutWorldsClient = {
   update(input: { worldId: string; name?: string; description?: string; identity?: Record<string, unknown>; skillMd?: string; expectedRevisionId?: string }): Promise<WorldDetail>;
   fork(input: { worldId: string; name?: string }): Promise<WorldDetail>;
   archive(input: { worldId: string; expectedRevisionId?: string }): Promise<void>;
+  /** 导出世界为 v2 源格式 zip（world.json/entities/assets/canvas/world.md，媒体内嵌）。 */
+  exportWorld(input: { worldId: string }): Promise<{ blob: Blob; filename: string }>;
+  /** 从 v2 源 zip 导入为一个新的本地可编辑世界（素材按内容哈希去重）。 */
+  importWorld(input: { file: File; name?: string }): Promise<WorldDetail>;
   readiness(input: { worldId: string; scenario?: WorldScenario }): Promise<WorldReadiness>;
   entities: {
     list(input: { worldId: string; typeId?: EntityKind; text?: string; cursor?: string; limit?: number; includeProvisional?: boolean }): Promise<Page<WorldEntitySummary>>;
@@ -421,6 +460,22 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
       requestJSON<WorldDetail>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/fork`, { method: "POST", body: { name } }),
     archive: async ({ worldId, expectedRevisionId }: { worldId: string; expectedRevisionId?: string }) => {
       await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevisionId }) });
+    },
+    exportWorld: async ({ worldId }) => {
+      const response = await fetch(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/export`);
+      if (!response.ok) throw await errorFrom(response);
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      return { blob, filename: match?.[1] ?? `${worldId}.zip` };
+    },
+    importWorld: async ({ file, name }) => {
+      const form = new FormData();
+      form.append("file", file);
+      if (name) form.append("name", name);
+      const response = await fetch(`${apiBase}/v1/worlds/import`, { method: "POST", body: form });
+      if (!response.ok) throw await errorFrom(response);
+      return (await response.json()) as WorldDetail;
     },
     requestAI: (path, body) => requestJSON<Record<string, unknown>>(`${apiBase}${path}`, { method: "POST", body }),
     revisions: {

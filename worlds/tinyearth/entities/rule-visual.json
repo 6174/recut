@@ -1,0 +1,21 @@
+{
+  "id": "rule-visual",
+  "typeId": "rule",
+  "name": "视觉与镜头纪律",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "never"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "禁止写实材质、电影级光影、复杂三维渲染、暗黑恐怖氛围、超级英雄叙事、史诗感配乐画面；角色不得失去生物可识别性（不能画成无差别圆球）；不要把角色画得比人类设施更大（尺度关系必须保持：城市很大、角色很小）。"
+    }
+  ]
+}

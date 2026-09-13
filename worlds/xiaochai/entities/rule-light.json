@@ -1,0 +1,21 @@
+{
+  "id": "rule-light",
+  "typeId": "rule",
+  "name": "光源纪律",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "每帧只有一个暖光源；光源必须参与叙事（被点燃/被打开/被调亮）；火柴人与物件受同一光源照射，光晕柔和渐隐入深褐暗部；四周 vignette 压暗"
+    }
+  ]
+}

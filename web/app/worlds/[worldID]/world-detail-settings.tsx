@@ -14,11 +14,12 @@
 
 import { useCallback, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { createRecutWorldsClient, entityKindLabel, type EntityAttr, type EntityAttrMediaValue, type EntityKind, type WorldEntityType, type WorldEntity, type WorldRelationType } from "@/lib/recut-worlds-client";
+import { createRecutWorldsClient, entityAttrMediaRef, entityKindLabel, type EntityAttr, type EntityAttrMediaValue, type EntityKind, type WorldEntityType, type WorldEntity, type WorldRelationType } from "@/lib/recut-worlds-client";
+import { resolveMediaSrc } from "@/lib/world-media";
 import { EntityEditor, useEntityEditorSaver, type RelationItem } from "@/components/world-entity/entity-editor";
 
 export function isMediaAttrValue(value: unknown): value is EntityAttrMediaValue {
-  return typeof value === "object" && value !== null && typeof (value as EntityAttrMediaValue).assetId === "string";
+  return entityAttrMediaRef(value) !== null;
 }
 
 // 卡片投影：非 media、值非空的文本属性条目（key → 可读文本）
@@ -42,8 +43,8 @@ export function mediaAttrs(entity: WorldEntity): Array<EntityAttr & { value: Ent
   );
 }
 
-export function mediaAssetUrl(apiBase: string, assetId: string): string {
-  return `${apiBase}/v1/media/assets/${encodeURIComponent(assetId)}/content`;
+export function mediaAssetUrl(apiBase: string, value: EntityAttrMediaValue): string {
+  return resolveMediaSrc(apiBase, value);
 }
 
 export function hasUsefulContent(entity: WorldEntity) {

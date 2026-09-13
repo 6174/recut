@@ -1,0 +1,21 @@
+{
+  "id": "rule-no-anti-style",
+  "typeId": "rule",
+  "name": "禁止低幼与精致化",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "never"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "不要婴儿比例/Q 版头身、不要腮红、不要多彩色、不要厚涂/3D 渲染；不要精细衣纹与指节（瞳孔仅小点例外）；背景不要写实照片质感；不要鸡汤大字标语"
+    }
+  ]
+}

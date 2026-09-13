@@ -19,6 +19,7 @@ import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { PomeloPlugin } from "@/lib/pomelo/pomelo-core/pomelo-plugin";
 import { DomOverlay, cssColor } from "@/lib/pomelo/pomelo-vello/overlay-dom";
 import { WORLD_ELEMENT_ID, useWorldCanvasStore } from "./canvas-store";
+import { resolveMediaPropsSrc } from "@/lib/world-media";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import { pomeloPerf } from "@/lib/pomelo/pomelo-core/pomelo-perf";
 import {
@@ -870,9 +871,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       if (hitRecord.type === "media") {
         const element = store.elements.find((item) => item.id === hitRecord.id);
         if (!element) return;
-        const assetId = String(element.props?.assetId ?? "");
-        const url = String(element.props?.url ?? "");
-        const src = assetId ? `${store.apiBase}/v1/media/assets/${encodeURIComponent(assetId)}/content` : url;
+        const src = resolveMediaPropsSrc(store.apiBase, { assetId: element.props?.assetId ? String(element.props.assetId) : undefined, url: element.props?.url ? String(element.props.url) : undefined });
         if (src) store.setMediaPreview({ src, modality: String(element.props?.modality ?? "image"), name: element.name ?? "媒体" });
       }
     };

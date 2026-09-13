@@ -16,10 +16,11 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
-import { entityKindLabel, type WorldEntity, type WorldEntitySummary } from "@/lib/recut-worlds-client";
+import { entityAttrMediaRef, entityKindLabel, type WorldEntity, type WorldEntitySummary } from "@/lib/recut-worlds-client";
+import { resolveMediaSrc } from "@/lib/world-media";
 
-// 素材字段的值：统一存 {assetId, name, kind}，kind 驱动缩略图与预览弹框
-export type AssetValue = { assetId: string; name?: string; kind?: "image" | "video" | "audio" };
+// 素材字段的值：{assetId|url} 双源（统一 Entity 模型 + PGC CDN url），kind 驱动缩略图与预览弹框
+export type AssetValue = { assetId?: string; url?: string; name?: string; kind?: "image" | "video" | "audio" };
 
 // 长文本展示钳制（3）：超过该长度/行数默认折叠，避免长文本吃掉面板高度
 const CLAMP_CHARS = 140;
@@ -30,12 +31,10 @@ function needsClamp(value: string): boolean {
 }
 
 export function parseAssetValue(value: unknown): AssetValue | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  const assetId = typeof record.assetId === "string" ? record.assetId : "";
-  if (!assetId) return null;
-  const kind = record.kind === "video" || record.kind === "audio" ? record.kind : "image";
-  return { assetId, name: typeof record.name === "string" ? record.name : undefined, kind };
+  const ref = entityAttrMediaRef(value);
+  if (!ref) return null;
+  const kind = ref.kind === "video" || ref.kind === "audio" ? ref.kind : "image";
+  return { ...(ref.assetId ? { assetId: ref.assetId } : {}), ...(ref.url ? { url: ref.url } : {}), name: ref.name, kind };
 }
 
 // 类型标签：type 目录的 name 优先（B.2 用户语言），目录缺失回退静态 label
@@ -291,8 +290,8 @@ export function AssetFieldRow({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const asset = parseAssetValue(value);
-  const source = asset ? `${apiBase}/v1/media/assets/${encodeURIComponent(asset.assetId)}/content` : "";
-  const preview: PreviewAsset | null = asset
+  const source = asset ? resolveMediaSrc(apiBase, asset) : "";
+  const preview: PreviewAsset | null = asset?.assetId
     ? {
         id: asset.assetId,
         kind: asset.kind ?? "image",
@@ -304,6 +303,13 @@ export function AssetFieldRow({
         metadata: {},
       }
     : null;
+  const openMedia = () => {
+    if (asset?.assetId) {
+      setPreviewOpen(true);
+    } else if (asset?.url) {
+      window.open(asset.url, "_blank", "noopener,noreferrer");
+    }
+  };
   const save = (assetId: string, name: string, kind: AssetValue["kind"]) => {
     void onSave({ assetId, name, kind });
     setPickerOpen(false);
@@ -320,7 +326,7 @@ export function AssetFieldRow({
         )}
       </div>
       {asset ? (
-        <button className="group relative mt-1 block h-20 w-full overflow-hidden rounded-md border" onClick={() => setPreviewOpen(true)} title={`${asset.name ?? label} · 点击查看详情`} type="button">
+        <button className="group relative mt-1 block h-20 w-full overflow-hidden rounded-md border" onClick={openMedia} title={`${asset.name ?? label} · 点击查看详情`} type="button">
           {asset.kind === "image" ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img alt={asset.name ?? label} className="h-20 w-full object-cover" src={source} />
@@ -343,7 +349,7 @@ export function AssetFieldRow({
         onPick={(picked) => save(picked.id, picked.name, picked.kind === "video" || picked.kind === "audio" ? picked.kind : "image")}
         open={pickerOpen}
         projectID={null}
-        selectedIDs={asset ? [asset.assetId] : []}
+        selectedIDs={asset?.assetId ? [asset.assetId] : []}
         title={`选择「${label}」素材`}
       />
       {preview && previewOpen && <AssetPreviewDialog apiBase={apiBase} asset={preview} onClose={() => setPreviewOpen(false)} />}

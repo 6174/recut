@@ -1,0 +1,38 @@
+{
+  "id": "city-scenes",
+  "typeId": "location",
+  "name": "深夜城市场景体系",
+  "intro": "阿蛋走出客厅会去的地方：楼下便利店、末班地铁、雨夜公交站、天台、深夜街头；统一公式「深夜 + 一个人 + 一盏光源」。",
+  "detail": {
+    "$file": "../references/city-scenes.md"
+  },
+  "attrs": [
+    {
+      "key": "description",
+      "label": "描述",
+      "type": "textarea",
+      "locked": true,
+      "value": "不具名的中国大城市。每个场景只保留 2-3 个视觉元素，其余留给黑色；所有场景都是「路过的地方」，故事最终回到深夜客厅。"
+    },
+    {
+      "key": "media-scene-convenience-store",
+      "label": "便利店关键帧（9:16 场景范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-convenience-store",
+        "kind": "image",
+        "name": "便利店关键帧（9:16 场景范例）"
+      }
+    },
+    {
+      "key": "media-scene-subway",
+      "label": "末班地铁关键帧（9:16 场景范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-subway",
+        "kind": "image",
+        "name": "末班地铁关键帧（9:16 场景范例）"
+      }
+    }
+  ]
+}

@@ -58,7 +58,7 @@ export function SettingCard({
               alt={attr.value.name || attr.label}
               className="h-full min-w-0 flex-1 object-cover"
               key={attr.key}
-              src={mediaAssetUrl(apiBase, attr.value.assetId)}
+              src={mediaAssetUrl(apiBase, attr.value)}
             />
           ))}
         </div>

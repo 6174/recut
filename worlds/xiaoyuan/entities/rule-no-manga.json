@@ -1,0 +1,21 @@
+{
+  "id": "rule-no-manga",
+  "typeId": "rule",
+  "name": "禁止动漫画",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "never"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "背景不要插画化/卡通化/二次元化；不要给小圆加头发、鼻子、腮红、衣服褶皱；不要厚涂或渐变光效；字幕不要超过一行"
+    }
+  ]
+}

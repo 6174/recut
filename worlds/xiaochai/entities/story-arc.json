@@ -1,0 +1,18 @@
+{
+  "id": "story-arc",
+  "typeId": "story",
+  "name": "把一件小事做好",
+  "intro": "叙事主线：每支短片是小柴在暗处认真做好一件小事——点灯、修物、泡茶、等天亮；不安慰谁，只示范怎么把日子过下去。",
+  "detail": {
+    "$file": "../references/story-arc.md"
+  },
+  "attrs": [
+    {
+      "key": "premise",
+      "label": "前提",
+      "type": "textarea",
+      "locked": true,
+      "value": "小柴的世界常常停电、常常夜深，但他从不慌：划一根火柴、换一节电池、把光调到刚刚好。物件替他说话，光晕替他拥抱。"
+    }
+  ]
+}

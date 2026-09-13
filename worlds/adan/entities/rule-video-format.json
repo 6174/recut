@@ -1,0 +1,21 @@
+{
+  "id": "rule-video-format",
+  "typeId": "rule",
+  "name": "视频产出形式",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "主产出为 9:16 竖屏情绪短片 30-60 秒，由关键帧 + 微动作生成视频；设定/情绪/表情参考集 1:1 九宫格（3x3、不画面板边框）；场景全景 16:9；每张单独生成，不拼图"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "id": "xiaonuan",
+  "typeId": "character",
+  "name": "小暖",
+  "intro": "小灰哥的女朋友：圆头小丸子头、深色外套配浅色连衣裙；不常驻，偶尔来配戏，带来温度与外部视角。",
+  "detail": {
+    "$file": "../references/xiaonuan.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "与 小灰哥 同款圆头，头顶一个小圆丸子头；简单点眼，眼神比 小灰哥 更有神；深色短外套 + 浅色连衣裙 + 平底鞋；不戴耳机"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "温暖、明快、务实；会念叨但不唠叨；是少数能把他从乱线团里拉出来的人"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "台词直白生活化：'吃饭了''又躺一天？''走，出去转转'"
+    },
+    {
+      "key": "media-xiaonuan-grid",
+      "label": "小暖九宫配戏集（参考）",
+      "type": "media",
+      "value": {
+        "asset": "xiaonuan-grid",
+        "kind": "image",
+        "name": "小暖九宫配戏集（参考）"
+      }
+    }
+  ]
+}

@@ -3,7 +3,8 @@
  * 与 checkWritable/summary 协议
  * [OUTPUT]: 对外提供文档粒度画布能力面（RFC 2026-09-09）：GetCanvasDocument（读 + 惰性迁移 + 懒创建）、
  * SaveCanvasDocument（整包保存 + version 乐观锁）、ListCanvasDocuments（文档索引）、UpdateCanvasDocumentOps
- * （元素级 ops 操作面，AI/MCP 用）；并承载语义侧的画布联动（promote 投影写回、实体删除投影清理、
+ * （元素级 ops 操作面，AI/MCP 用：实体卡只给 refId 即补 shape:<entityId>/名称/默认几何，非实体元素补默认几何，
+ * 并提供 canvasLayoutSummary 只读回执）；并承载语义侧的画布联动（promote 投影写回、实体删除投影清理、
  * attr 投影同步、fork 文档复制）
  * [POS]: service 的 World Canvas 文档存储层；world_canvas element 级表保留只读作迁移源，30 天后清理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -253,6 +254,99 @@ func normalizeCanvasElements(elements []WorldCanvasElement) []WorldCanvasElement
 	return normalized
 }
 
+// fillCanvasElementGeometry fills the frontend-mirrored defaults an AI-placed
+// element needs to render like an interactively-created one: entity cards get
+// 264x328 (RFC 统一 Entity 模型 card size) and a grid slot when x/y are absent.
+// Explicit geometry always wins, so partial updates (e.g. only x/y) are safe.
+func fillCanvasElementGeometry(element *WorldCanvasElement, index int) {
+	if element.Geometry == nil {
+		element.Geometry = map[string]any{}
+	}
+	if element.Kind != "entity" {
+		return
+	}
+	if _, ok := element.Geometry["width"]; !ok {
+		element.Geometry["width"] = float64(264)
+	}
+	if _, ok := element.Geometry["height"]; !ok {
+		element.Geometry["height"] = float64(328)
+	}
+	if _, ok := element.Geometry["x"]; !ok {
+		element.Geometry["x"] = float64(40 + (index%4)*260)
+	}
+	if _, ok := element.Geometry["y"]; !ok {
+		element.Geometry["y"] = float64(40 + (index/4)*180)
+	}
+	if _, ok := element.Geometry["zIndex"]; !ok {
+		element.Geometry["zIndex"] = float64(1)
+	}
+}
+
+// canvasLayoutSummary is a cheap, render-free receipt of a document's layout so
+// a headless Agent can sanity-check what it just wrote: element count, kind
+// distribution, overall bounding box, and how many elements lack usable
+// geometry. It is a projection, not truth.
+func canvasLayoutSummary(elements []WorldCanvasElement) map[string]any {
+	kinds := map[string]int{}
+	missingGeometry := 0
+	minX, minY := 0.0, 0.0
+	maxX, maxY := 0.0, 0.0
+	hasBounds := false
+	for _, element := range elements {
+		kinds[element.Kind]++
+		x, okX := numericGeometry(element.Geometry["x"])
+		y, okY := numericGeometry(element.Geometry["y"])
+		w, okW := numericGeometry(element.Geometry["width"])
+		h, okH := numericGeometry(element.Geometry["height"])
+		if !okX || !okY || !okW || !okH {
+			missingGeometry++
+			continue
+		}
+		if !hasBounds {
+			minX, minY, maxX, maxY = x, y, x+w, y+h
+			hasBounds = true
+			continue
+		}
+		if x < minX {
+			minX = x
+		}
+		if y < minY {
+			minY = y
+		}
+		if x+w > maxX {
+			maxX = x + w
+		}
+		if y+h > maxY {
+			maxY = y + h
+		}
+	}
+	summary := map[string]any{
+		"elementCount":    len(elements),
+		"kinds":           kinds,
+		"missingGeometry": missingGeometry,
+	}
+	if hasBounds {
+		summary["bounds"] = map[string]float64{"minX": minX, "minY": minY, "maxX": maxX, "maxY": maxY, "width": maxX - minX, "height": maxY - minY}
+	}
+	return summary
+}
+
+func numericGeometry(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
+
 // ListCanvasDocuments returns the document index of one world (no bodies).
 func (w *WorldStore) ListCanvasDocuments(worldID string) ([]map[string]any, error) {
 	db, err := w.database()
@@ -323,6 +417,27 @@ func (w *WorldStore) UpdateCanvasDocumentOps(worldID, contextID string, ops []Ca
 				Props: op.Element.Props, Geometry: op.Element.Geometry, Style: op.Element.Style,
 				Layer: op.Element.Layer,
 			}
+			if element.Kind == "" {
+				return WorldCanvasDocument{}, worldsError(WorldsErrContextInvalid, "canvas op element needs a kind")
+			}
+			// 实体投影卡：id/name 可由 refId 推导，AI 只给 {kind:"entity", refId} 即可放卡
+			// （id = `shape:<entityId>` 是前端与 vello block 约定的镜像 id）。
+			if element.Kind == "entity" && element.RefID != "" {
+				if element.ID == "" {
+					element.ID = "shape:" + element.RefID
+				}
+				var entityName string
+				nameErr := tx.QueryRow("select title from world_entities where id = ? and world_id = ? and archived_at is null", element.RefID, worldID).Scan(&entityName)
+				if nameErr == sql.ErrNoRows {
+					return WorldCanvasDocument{}, worldsError(WorldsErrEntityNotFound, "referenced entity does not belong to the world")
+				}
+				if nameErr != nil {
+					return WorldCanvasDocument{}, nameErr
+				}
+				if strings.TrimSpace(element.Name) == "" {
+					element.Name = entityName
+				}
+			}
 			if element.ID == "" {
 				id, idErr := newID()
 				if idErr != nil {
@@ -330,15 +445,13 @@ func (w *WorldStore) UpdateCanvasDocumentOps(worldID, contextID string, ops []Ca
 				}
 				element.ID = id
 			}
-			if element.Kind == "" {
-				return WorldCanvasDocument{}, worldsError(WorldsErrContextInvalid, "canvas op element needs a kind")
-			}
 			if element.Kind == "arrow" || element.Kind == "link" {
 				if err := validateCanvasDocLinkStart(elements, element); err != nil {
 					return WorldCanvasDocument{}, err
 				}
 			}
-			if op.Element.RefID != "" && op.Element.RefKind != "" {
+			// 非实体引用（如 attr 绑定实体）保持既有存活校验。
+			if element.Kind != "entity" && op.Element.RefID != "" && op.Element.RefKind != "" {
 				var count int
 				if err := tx.QueryRow("select count(*) from world_entities where id = ? and world_id = ? and archived_at is null", op.Element.RefID, worldID).Scan(&count); err != nil {
 					return WorldCanvasDocument{}, err
@@ -347,6 +460,7 @@ func (w *WorldStore) UpdateCanvasDocumentOps(worldID, contextID string, ops []Ca
 					return WorldCanvasDocument{}, worldsError(WorldsErrEntityNotFound, "referenced entity does not belong to the world")
 				}
 			}
+			fillCanvasElementGeometry(&element, len(elements))
 			replaced := false
 			for i, existing := range elements {
 				if existing.ID == element.ID {

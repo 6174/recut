@@ -1,0 +1,52 @@
+{
+  "id": "xiaochai",
+  "typeId": "character",
+  "name": "小柴",
+  "intro": "经典黑色火柴人：纯黑线条圆头、火柴身躯；认真而安静地摆弄物件，全部情绪靠头部的眼睛与眉毛表达。",
+  "detail": {
+    "$file": "../references/xiaochai-ip.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "黑色粗细均匀的圆圈头（内部留纸面底色），短弧线嘴或无嘴；两点眼+短眉（情绪全靠这两组）；躯干一条微弯黑线，胳膊腿均为黑线、肘膝可弯；脚是两个小黑短横或圆点"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "认真、安静、韧性强；停电了就点蜡烛，天冷了就修收音机——他是把自己照顾好的那种人"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "极少台词；情绪全部通过眼神方向、眉毛角度和手的动作传递"
+    },
+    {
+      "key": "media-character-sheet",
+      "label": "角色设定九宫格（主参考）",
+      "type": "media",
+      "value": {
+        "asset": "character-sheet",
+        "kind": "image",
+        "name": "角色设定九宫格（主参考）"
+      }
+    },
+    {
+      "key": "media-scene-candle-table",
+      "label": "烛光桌前关键帧（9:16 成品范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-candle-table",
+        "kind": "image",
+        "name": "烛光桌前关键帧（9:16 成品范例）"
+      }
+    }
+  ]
+}

@@ -57,6 +57,13 @@ function resolveBackgroundColor(container: HTMLElement): string {
   return "#0b0f19";
 }
 
+/** http(s) URL 追加一次性 cache-bust 查询参数；data:/blob: 等保持原样。 */
+function withCacheBust(url: string): string {
+  if (!/^https?:/i.test(url)) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}pomeloImageBust=${Date.now().toString(36)}`;
+}
+
 interface SyncedBlock {
   draw: number;
   position: number;
@@ -358,10 +365,10 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
         const loaded = await this.loadImage(url);
         if (loaded) {
           this.imageSizes.set(id, { width: loaded.width, height: loaded.height });
-          if (loaded.data) {
-            (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, loaded.width, loaded.height, loaded.data);
-          }
+          (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, loaded.width, loaded.height, loaded.data);
           this.imageIds.set(url, id);
+        } else {
+          console.warn("[pomelo-vello-adapter] image load failed", url);
         }
       } catch (error) {
         // 单张图失败不应影响渲染（可能 404 / CORS / 非图片），静默降级为占位
@@ -390,38 +397,54 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     return this.imageSizes.get(imageId) ?? null;
   }
 
-  /** 用 Image + canvas 取 RGBA（同源/跨域均先按 anonymous 尝试，失败再退化为普通加载）。 */
-  private async loadImage(url: string): Promise<{ width: number; height: number; data: Uint8Array | null } | null> {
-    const load = (crossOrigin: boolean) =>
+  /**
+   * 用 Image + canvas 取 RGBA。按序尝试：① 正常 CORS 加载；② CORS + cache-bust；
+   * ③ 普通加载 + cache-bust。
+   * ② 用于绕过被「无 ACAO 响应」污染的 HTTP 长缓存（面板 <img> 无 crossOrigin 会先写入
+   * 不带 Access-Control-Allow-Origin 的缓存，随后画布 crossOrigin 请求命中即 CORS 失败；
+   * service 已用 Vary: Origin 根治，这里对旧缓存做兼容恢复）。
+   * ③ 覆盖本就不返回 CORS 头的来源；若画布被污染 getImageData 抛错，返回 null 降级为占位。
+   */
+  private async loadImage(url: string): Promise<{ width: number; height: number; data: Uint8Array } | null> {
+    const load = (crossOrigin: boolean, target: string) =>
       new Promise<HTMLImageElement>((resolve, reject) => {
         const image = new Image();
         if (crossOrigin) image.crossOrigin = "anonymous";
         image.decoding = "async";
         image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error(`image load failed: ${url}`));
-        image.src = url;
+        image.onerror = () => reject(new Error(`image load failed: ${target}`));
+        image.src = target;
       });
-
-    let image: HTMLImageElement;
-    try {
-      image = await load(true);
-    } catch {
-      // 某些 URL 不接受 CORS 头时退化为普通加载（若画布因此被污染则下方 getImageData 会抛错并被吞掉）
-      image = await load(false);
+    const read = (image: HTMLImageElement): { width: number; height: number; data: Uint8Array } | null => {
+      const maxSide = 512;
+      const naturalW = image.naturalWidth || image.width || 1;
+      const naturalH = image.naturalHeight || image.height || 1;
+      const scale = Math.min(1, maxSide / Math.max(naturalW, naturalH));
+      const width = Math.max(1, Math.round(naturalW * scale));
+      const height = Math.max(1, Math.round(naturalH * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(image, 0, 0, width, height);
+      return { width, height, data: new Uint8Array(ctx.getImageData(0, 0, width, height).data) };
+    };
+    const attempts: Array<{ crossOrigin: boolean; target: string }> = [
+      { crossOrigin: true, target: url },
+      { crossOrigin: true, target: withCacheBust(url) },
+      { crossOrigin: false, target: withCacheBust(url) },
+    ];
+    for (const attempt of attempts) {
+      try {
+        const image = await load(attempt.crossOrigin, attempt.target);
+        const data = read(image);
+        if (data) return data;
+      } catch {
+        // 尝试下一种加载方式
+      }
     }
-    const maxSide = 512;
-    const naturalW = image.naturalWidth || image.width || 1;
-    const naturalH = image.naturalHeight || image.height || 1;
-    const scale = Math.min(1, maxSide / Math.max(naturalW, naturalH));
-    const width = Math.max(1, Math.round(naturalW * scale));
-    const height = Math.max(1, Math.round(naturalH * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return { width, height, data: null };
-    ctx.drawImage(image, 0, 0, width, height);
-    return { width, height, data: new Uint8Array(ctx.getImageData(0, 0, width, height).data) };
+    return null;
   }
 
   /** 循环渲染直到可见瓦片全覆盖（或上限）。用于首屏/导航结束/图片就绪后的确定性补偿。 */

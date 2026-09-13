@@ -85,6 +85,9 @@ type Store struct {
 	projectEvents  *changeHub
 	agentEvents    *changeHub
 	mediaEvents    *changeHub
+	// worldLocks 是 World Canvas 的 AI 会话 advisory lock（进程内共享）：AI 经 MCP
+	// 进入多步画布编辑时上锁，前台画布据此暂停本地写并提示；空闲超时自动解锁。
+	worldLocks *worldLockManager
 }
 
 func NewStore(root string, apps *Catalog) *Store {
@@ -96,6 +99,7 @@ func NewStore(root string, apps *Catalog) *Store {
 		projectEvents: newChangeHub(),
 		agentEvents:   newChangeHub(),
 		mediaEvents:   newChangeHub(),
+		worldLocks:    newWorldLockManager(),
 	}
 }
 

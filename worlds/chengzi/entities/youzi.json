@@ -1,0 +1,42 @@
+{
+  "id": "youzi",
+  "typeId": "character",
+  "name": "柚子",
+  "intro": "2 岁半弟弟：整齐短发、黄 T 恤小运动鞋，能跑能跳；会说短句（咬字微不清但完全能表达）；爱说「我自己来」。",
+  "detail": {
+    "$file": "../references/youzi.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "2 岁半幼儿：圆脸蛋，黑色整齐的短发（不是婴儿稀疏毛），眼睛大而亮；黄色小 T 恤（胸前小黄鸭印花）、深色短裤、小运动鞋；跑跳自如；2.5D 贴纸感同橙子"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "精力旺、固执小模式、爱模仿哥哥；会说短句但咬字不清"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "暂不配置（后续补充）；台词为幼儿短句，咬字微不清但完全能表达"
+    },
+    {
+      "key": "media-character-sheet-youzi-v2",
+      "label": "柚子角色设定页 v2（2岁半·整齐短发·会说短句）",
+      "type": "media",
+      "value": {
+        "asset": "character-sheet-youzi-v2",
+        "kind": "image",
+        "name": "柚子角色设定页 v2（2岁半·整齐短发·会说短句）"
+      }
+    }
+  ]
+}

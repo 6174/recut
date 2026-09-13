@@ -1,0 +1,21 @@
+{
+  "id": "departments",
+  "typeId": "rule",
+  "name": "社会结构与居民构成",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "八大部门：地球事务所（跨部门协调）、天气系统、城市工程部门、信息部门、科技实验室、地下基础设施部门、公共服务部门、生态部门。部门不封闭，角色可跨部门合作。居民三类：生物居民（动物昆虫植物）、自然居民（云风雨阳光拟人）、人工居民（机器人设备服务器）。"
+    }
+  ]
+}

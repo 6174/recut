@@ -8,6 +8,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { EntityAttr, EntityAttrMediaValue, WorldEntity } from "@/lib/recut-worlds-client";
+import { entityAttrMediaRef } from "@/lib/recut-worlds-client";
 
 // 一等实体字段（简介/正文）也能作为画布「关联」：属性卡 label ↔ entity 字段的保留映射。
 // 创建属性卡时 label 用中文名，编辑其正文即回写 entity.intro / entity.detail（见 canvas-store.syncAttrValue）。
@@ -47,17 +48,9 @@ export function attrTextOf(entity: Pick<WorldEntity, "attrs">, key: string): str
   return typeof value === "string" ? value : String(value);
 }
 
-// media 属性值 → {assetId, name?, kind?}；无有效 assetId = null
+// media 属性值 → {assetId|url, name?, kind?, recipe?}；无有效引用 = null
 export function attrMediaValueOf(entity: Pick<WorldEntity, "attrs">, key: string): EntityAttrMediaValue | null {
-  const value = attrValueOf(entity, key);
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  if (typeof record.assetId !== "string" || !record.assetId) return null;
-  return {
-    assetId: record.assetId,
-    name: typeof record.name === "string" ? record.name : undefined,
-    kind: typeof record.kind === "string" ? record.kind : undefined,
-  };
+  return entityAttrMediaRef(attrValueOf(entity, key));
 }
 
 // 有素材值的 media 属性（素材区网格 / 卡片封面与资料格的来源）

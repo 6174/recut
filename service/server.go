@@ -41,8 +41,13 @@ type Server struct {
 
 func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, agents *AgentManager, host *AppHost, media *MediaService, updater ...*ServiceUpdater) *Server {
 	server := &Server{apps: apps, store: store, terminals: terminals, bridge: bridge, agents: agents, host: host, media: media, bus: newEventBus()}
+	if bridge != nil {
+		// headless MCP 的 recut.worlds.* 写工具与实时通道的桥接：写成功后广播
+		// "world" channel，已打开画布据此重新拉取（P0 反馈闭环）。
+		bridge.SetWorldEventPublisher(server.publishWorldEvent)
+	}
 	if store != nil {
-		server.worlds = NewWorldStore(store, media)
+		server.worlds = NewWorldStore(store, media, server.publishWorldEvent)
 		server.fonts = NewFontService(store.root)
 		server.fonts.loadCacheIndex()
 	}
@@ -122,8 +127,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /v1/projects/{projectID}/world-context", s.putProjectWorldContext)
 	mux.HandleFunc("GET /v1/worlds", s.listWorlds)
 	mux.HandleFunc("POST /v1/worlds", s.createWorld)
+	mux.HandleFunc("POST /v1/worlds/import", s.importWorld)
 	mux.HandleFunc("GET /v1/worlds/catalog", s.getWorldsCatalog)
 	mux.HandleFunc("GET /v1/worlds/{worldID}", s.getWorld)
+	mux.HandleFunc("GET /v1/worlds/{worldID}/export", s.exportWorld)
 	mux.HandleFunc("PATCH /v1/worlds/{worldID}", s.updateWorld)
 	mux.HandleFunc("POST /v1/worlds/{worldID}/fork", s.forkWorld)
 	mux.HandleFunc("POST /v1/worlds/{worldID}/archive", s.archiveWorld)
@@ -332,6 +339,10 @@ func isLocalNetworkRequest(r *http.Request) bool {
 
 func withLocalCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// CORS 响应随 Origin 变化；缺 Vary 时，无 Origin 的请求（如面板 <img> 预览）
+		// 会把不带 ACAO 的响应写入 HTTP 缓存，随后画布的 crossOrigin 请求命中该缓存 →
+		// CORS 校验失败（同一张图面板可见、画布不渲染）。Vary: Origin 让缓存按 Origin 分桶。
+		w.Header().Add("Vary", "Origin")
 		if strings.HasPrefix(r.URL.Path, "/v1/") && !isAppUIPath(r.URL.Path) {
 			w.Header().Set("Cache-Control", "no-store")
 		}

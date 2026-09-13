@@ -1,0 +1,24 @@
+{
+  "id": "style-dna",
+  "typeId": "style",
+  "name": "风格 DNA",
+  "intro": "黑夜底 + 黑色粗手绘线 + 扁平色块（白/蓝/红三色）；红卫衣是全画面唯一主角色；丧但温柔，绝不动漫画。",
+  "detail": {
+    "$file": "../references/style-dna.md"
+  },
+  "attrs": [
+    {
+      "key": "kind",
+      "label": "kind",
+      "type": "text",
+      "value": "visual"
+    },
+    {
+      "key": "guidance",
+      "label": "guidance",
+      "type": "textarea",
+      "locked": true,
+      "value": "纯黑或近黑背景；黑色粗手绘线轻微抖动；扁平色块只有白、蓝、红、少量暖黄；红卫衣是唯一主角色；一图一情绪；黑色留白 ≥50%；禁止动漫画/吉祥物/鸡汤大字"
+    }
+  ]
+}

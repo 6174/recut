@@ -5,7 +5,7 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test transcribe-e2e worlds-check worlds-build worlds-seed worlds-upload worlds-publish worlds-status
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test transcribe-e2e worlds-check worlds-build worlds-seed worlds-upload worlds-publish worlds-status worlds-inspect
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
@@ -247,6 +247,10 @@ worlds-status: ## 查看 CDN 上的 World 目录与 catalog。
 	@node cdn/scripts/cli.mjs list worlds 2>/dev/null || echo "  (尚未上传或凭据缺失)"
 	@echo "--- catalog.json ---"
 	@curl -sf "https://cdn.recut.video/worlds/catalog.json" 2>/dev/null | head -30 || cat cdn/buckets/worlds/catalog.json 2>/dev/null | head -30 || echo "  (本地 catalog 未构建，先跑 make worlds-build)"
+
+worlds-inspect: ## 本地校验 World 画布 layout/连线（无浏览器，非零退出=有结构问题）。
+	node scripts/worlds-inspect.mjs --all
+
 
 voices-sync: ## 同步声音预设单一信息源：再生成 background.js 兜底块 + 暂存 cdn/buckets/voices/（apps/audio-studio/python/publish_presets.py --sync）
 	RECUT_MODELS_DIR=$(HOME)/.recut/models $(VOXCPM_PYTHON) apps/audio-studio/python/publish_presets.py --sync

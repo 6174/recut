@@ -1,0 +1,58 @@
+{
+  "id": "city-scenes",
+  "typeId": "location",
+  "name": "外出场景体系（学校/菜市场/商场/车里）",
+  "intro": "学校（教室/操场/校门口）、菜市场、商场、车里四大互动场景；写实底+贴纸角色，每集聚焦一个子场景。",
+  "detail": {
+    "$file": "../references/city-scenes.md"
+  },
+  "attrs": [
+    {
+      "key": "description",
+      "label": "描述",
+      "type": "textarea",
+      "locked": true,
+      "value": "不具名的中国大城市。所有外出场景保持写实摄影底 + 手绘贴纸角色，每次只聚焦一个子场景。"
+    },
+    {
+      "key": "media-scene-classroom",
+      "label": "教室关键帧（9:16 场景范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-classroom",
+        "kind": "image",
+        "name": "教室关键帧（9:16 场景范例）"
+      }
+    },
+    {
+      "key": "media-scene-market",
+      "label": "菜市场关键帧（9:16 场景范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-market",
+        "kind": "image",
+        "name": "菜市场关键帧（9:16 场景范例）"
+      }
+    },
+    {
+      "key": "media-scene-mall",
+      "label": "商场玩具店关键帧（9:16 场景范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-mall",
+        "kind": "image",
+        "name": "商场玩具店关键帧（9:16 场景范例）"
+      }
+    },
+    {
+      "key": "media-scene-car",
+      "label": "车里关键帧（9:16 场景范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-car",
+        "kind": "image",
+        "name": "车里关键帧（9:16 场景范例）"
+      }
+    }
+  ]
+}

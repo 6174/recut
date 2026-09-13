@@ -1,0 +1,219 @@
+{
+  "docVersion": 1,
+  "canvases": [
+    {
+      "contextId": "",
+      "elements": [
+        {
+          "id": "shape:baba",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "baba",
+          "name": "爸爸",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:chengzi",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "chengzi",
+          "name": "橙子",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:mama",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "mama",
+          "name": "妈妈",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:youzi",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "youzi",
+          "name": "柚子",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 1000,
+            "y": 40,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:city-scenes",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "city-scenes",
+          "name": "外出场景体系（学校/菜市场/商场/车里）",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 524,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:home",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "home",
+          "name": "橙子的家（三室一厅）",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 524,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:story-arc",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "story-arc",
+          "name": "成长一小步",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1008,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:style-dna",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "style-dna",
+          "name": "风格 DNA（2.5D）",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1492,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-frame",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-frame",
+          "name": "画面与镜头纪律",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-no-cute",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-no-cute",
+          "name": "禁止写实化与说教",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 360,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:rule-reference",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "rule-reference",
+          "name": "参考图纪律",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 680,
+            "y": 1976,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        }
+      ]
+    }
+  ]
+}

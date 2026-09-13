@@ -1,0 +1,21 @@
+{
+  "id": "rule-format",
+  "typeId": "rule",
+  "name": "画幅与产出形式",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "单幅情绪漫画 3:4 竖版；角色/表情/姿态参考集 1:1 九宫格（3x3、不画面板边框）；公寓全景 16:9；每张单独生成，不把多张内容图拼在一张里"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "id": "xiaomo",
+  "typeId": "character",
+  "name": "阿墨",
+  "intro": "松弛系主理人：蓬乱黑色大形发型、波浪眯眼、敦实剪影身躯；端着冒蒸汽墨云的大咖啡杯——口头禅「都行，先喝口咖啡」。",
+  "detail": {
+    "$file": "../references/xiaomo-ip.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "头身比约 1:2.5~1:3 中间态：夸张蓬乱黑色高丸子头（一大团卷发堆在头顶、碎发飞出、涂抹排线露白）、下巴两腮一圈淡络腮胡茬（细密点状笔触、成人感）、波浪眯眼「w」弧线（闭眼微笑）、短弧线小鼻、粗短眉、浅浅得意微笑；深色圆领落肩卫衣外系咖啡师帆布围裙（胸袋插木柄咖啡勺，专属配件）；肩宽体厚、站姿放松微驼；一手端超大咖啡杯（大块波浪蒸汽墨云专属符号）一手比 OK"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "松弛、随性、手上有活、心里不慌；deadline 和 bug 都难不倒他——先喝一口咖啡再说"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "短句、口语、冷幽默；「都行」「问题不大」「先喝口咖啡」"
+    },
+    {
+      "key": "media-amo",
+      "label": "阿墨设定图（主参考）",
+      "type": "media",
+      "value": {
+        "asset": "amo",
+        "kind": "image",
+        "name": "阿墨设定图（主参考）"
+      }
+    }
+  ]
+}

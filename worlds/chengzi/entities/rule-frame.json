@@ -1,0 +1,21 @@
+{
+  "id": "rule-frame",
+  "typeId": "rule",
+  "name": "画面与镜头纪律",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "9:16 竖屏为主；角色保持贴纸感、背景保持摄影感；每帧一个信息点；台词口语化、每集最多一句点题放结尾卡；音频预留（角色暂不配音）"
+    }
+  ]
+}

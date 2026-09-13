@@ -1,0 +1,24 @@
+{
+  "id": "layout-modes",
+  "typeId": "style",
+  "name": "版式双模式",
+  "intro": "模式 A 贴纸涂鸦（手绘涂鸦感 + 手写短句落款）与模式 B 海报版式（气泡体大标题 + 干净细线插画 + 底部信息栏）。",
+  "detail": {
+    "$file": "../references/layout-modes.md"
+  },
+  "attrs": [
+    {
+      "key": "kind",
+      "label": "kind",
+      "type": "text",
+      "value": "visual"
+    },
+    {
+      "key": "guidance",
+      "label": "guidance",
+      "type": "textarea",
+      "locked": true,
+      "value": "模式 A：手绘涂鸦感、蒸汽墨云与点缀符号丰富、底部两行手写短句，用于社媒配图与彩蛋。模式 B：顶部粗壮气泡体大标题 + 左右副标、中部干净细线插画、底部特粗大写标语 + 小号说明文 + 左右落款，用于 hero 图与产品视频关键帧；两种模式共用同一角色与纸底墨色"
+    }
+  ]
+}

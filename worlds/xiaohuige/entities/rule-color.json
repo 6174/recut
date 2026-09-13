@@ -1,0 +1,21 @@
+{
+  "id": "rule-color",
+  "typeId": "rule",
+  "name": "全灰 + 唯一亮色",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "prefer"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "整图灰阶；唯一允许的彩色是一处微小暖色（灯泡光、远处一扇亮窗、一点烛光），只用于洞见/希望/温度的时刻；宁可不用也不用多"
+    }
+  ]
+}

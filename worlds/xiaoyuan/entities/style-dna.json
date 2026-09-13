@@ -1,0 +1,24 @@
+{
+  "id": "style-dna",
+  "typeId": "style",
+  "name": "风格 DNA",
+  "intro": "写实摄影场景底（暗调、电影感布光）+ 极简扁平卡通小人正面居中；混搭反差是唯一识别度，绝不把背景画成插画。",
+  "detail": {
+    "$file": "../references/style-dna.md"
+  },
+  "attrs": [
+    {
+      "key": "kind",
+      "label": "kind",
+      "type": "text",
+      "value": "visual"
+    },
+    {
+      "key": "guidance",
+      "label": "guidance",
+      "type": "textarea",
+      "locked": true,
+      "value": "背景必须是写实照片质感：真实房间/地铁/便利店/办公室，暖光或冷调暗部、浅景深、胶片颗粒；小圆以扁平矢量贴纸感立在画面中下 1/3 居中，与背景光影形成违和但可信的合成；字幕大写无衬线白字置顶"
+    }
+  ]
+}

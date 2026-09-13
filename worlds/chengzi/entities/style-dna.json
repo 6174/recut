@@ -1,0 +1,24 @@
+{
+  "id": "style-dna",
+  "typeId": "style",
+  "name": "风格 DNA（2.5D）",
+  "intro": "2.5D 合成风：手绘赛璐璐角色（粗黑描边+细白贴纸边）浮在写实摄影背景上；角色色恒定、背景永远真实感。",
+  "detail": {
+    "$file": "../references/style-dna.md"
+  },
+  "attrs": [
+    {
+      "key": "kind",
+      "label": "kind",
+      "type": "text",
+      "value": "visual"
+    },
+    {
+      "key": "guidance",
+      "label": "guidance",
+      "type": "textarea",
+      "locked": true,
+      "value": "手绘赛璐璐角色+粗黑描边+细白贴纸外描边；背景写实摄影质感；角色服装色恒定；亮度与背景匹配；禁止角色写实化/背景卡通化；柚子不是婴儿；爸爸无眼镜"
+    }
+  ]
+}

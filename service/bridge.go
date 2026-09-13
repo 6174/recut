@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 Store 的工作区身份、全局 Agent guide 模板与标准库文件系统能力
- * [OUTPUT]: 对外提供 AgentBridge、会话独立工作区、CLI MCP 配置、鉴权与同模型 Component Author 的配置继承
+ * [OUTPUT]: 对外提供 AgentBridge、会话独立工作区、CLI MCP 配置、鉴权与同模型 Component Author 的配置继承；
+ * 并持有 daemon 注入的 WorldEventPublisher（MCP recut.worlds.* 写成功后广播 world.changed / 画布锁事件）
  * [POS]: service 的 native Agent 会话边界；会话不绑定项目，CLI 从中立会话工作区运行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -71,6 +72,23 @@ type AgentBridge struct {
 	// subagentMu / subagentStreams 是 subagent job 生命周期事件的实时流 hub（ws subagent channel）。
 	subagentMu      sync.Mutex
 	subagentStreams map[string]*subagentStream
+	// worldEventPublisher 由 daemon 组合根注入：MCP recut.worlds.* 写工具经它发出
+	// world.changed，供已打开的画布刷新。测试/短命进程为 nil（无副作用）。
+	worldEventPublisher WorldEventPublisher
+}
+
+// SetWorldEventPublisher 注入 World 写事件出口。组合根在装配 AgentBridge 后、
+// 处理 MCP 请求前调用；不注入时 recut.worlds.* 写工具不广播。
+func (b *AgentBridge) SetWorldEventPublisher(publish WorldEventPublisher) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.worldEventPublisher = publish
+}
+
+func (b *AgentBridge) worldPublisher() WorldEventPublisher {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.worldEventPublisher
 }
 
 // subagentInfo 是一次 subagent 工具调用在父会话事件流上的关联信息。

@@ -7,8 +7,8 @@
  */
 "use client";
 
-import { Globe2, Plus, Search, X } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Globe2, Plus, Search, Upload, X } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -32,6 +32,22 @@ export function WorldsClient() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<WorldKind | "">("");
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const importWorld = async (file: File) => {
+    if (!apiBase || importing) return;
+    setImporting(true);
+    setImportError("");
+    try {
+      const created = await createRecutWorldsClient(apiBase).importWorld({ file });
+      await loadPage(apiBase, { limit: 50 }, true);
+      window.location.assign(`/worlds/${encodeURIComponent(created.id)}`);
+    } catch (cause) {
+      setImportError(cause instanceof Error ? cause.message : t("worlds.list.import.failed"));
+      setImporting(false);
+    }
+  };
   useEffect(() => { if (apiBase) void loadPage(apiBase, { limit: 50 }); }, [apiBase, loadPage]);
   const visible = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -45,7 +61,8 @@ export function WorldsClient() {
   );
   const myWorlds = useMemo(() => visible.filter((world) => worldOrigin(world) !== "platform"), [visible]);
   return <><div className="mb-7 flex items-end justify-between"><div><p className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.16em] text-primary"><span className="size-1.5 rounded-full bg-primary" />DESKTOP</p><h1 className="text-3xl font-semibold tracking-tight">{t("worlds.list.title")}</h1><p className="mt-2 text-sm text-muted-foreground">{t("worlds.list.desc")}</p></div><Badge className="border-primary/25 bg-accent text-accent-foreground">{state === "loading" ? t("worlds.list.loading") : state === "failed" ? t("worlds.list.failed") : interpolate(t("worlds.list.count"), { count: page.length })}</Badge></div>
-    <div className="mb-5 flex items-end gap-3"><label className="relative block flex-1"><span className="sr-only">{t("worlds.list.search.aria")}</span><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><Input className="h-9 bg-background pl-8 text-xs" onChange={(event) => setQuery(event.target.value)} placeholder={t("worlds.list.search.placeholder")} type="search" value={query} /></label><div className="w-36"><CustomSelect id="world-type-filter" label={t("worlds.list.filter")} onChange={(value) => setFilter(value as WorldKind | "")} options={[{ label: t("worlds.list.filter.all"), value: "" }, ...worldTypes().map((kind) => ({ label: t(`worlds.kind.${kind}`), value: kind }))]} value={filter} /></div><Button className="h-9 shrink-0" onClick={() => setCreating(true)} type="button"><Plus className="size-3.5" />{t("worlds.list.new")}</Button></div>
+    <div className="mb-5 flex items-end gap-3"><label className="relative block flex-1"><span className="sr-only">{t("worlds.list.search.aria")}</span><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><Input className="h-9 bg-background pl-8 text-xs" onChange={(event) => setQuery(event.target.value)} placeholder={t("worlds.list.search.placeholder")} type="search" value={query} /></label><div className="w-36"><CustomSelect id="world-type-filter" label={t("worlds.list.filter")} onChange={(value) => setFilter(value as WorldKind | "")} options={[{ label: t("worlds.list.filter.all"), value: "" }, ...worldTypes().map((kind) => ({ label: t(`worlds.kind.${kind}`), value: kind }))]} value={filter} /></div><Button className="h-9 shrink-0" disabled={importing} onClick={() => importInputRef.current?.click()} type="button" variant="outline"><Upload className="size-3.5" />{importing ? t("worlds.list.importing") : t("worlds.list.import")}</Button><input accept=".zip,application/zip" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void importWorld(file); }} ref={importInputRef} type="file" /><Button className="h-9 shrink-0" onClick={() => setCreating(true)} type="button"><Plus className="size-3.5" />{t("worlds.list.new")}</Button></div>
+    {importError && <p className="-mt-3 mb-5 text-xs text-warning">{importError}</p>}
     {state === "loading" ? <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-4">{Array.from({ length: 6 }, (_, index) => <div className="h-56 animate-pulse rounded-lg border bg-card" key={index} />)}</div>
       : state === "failed" ? <Card><div className="flex min-h-36 flex-col items-center justify-center gap-3 text-center p-6"><Globe2 className="size-6 text-warning" /><p className="text-sm font-medium">{t("worlds.list.error.title")}</p><p className="text-xs text-muted-foreground">{error}</p><Button onClick={() => void loadPage(apiBase, { limit: 50 }, true)} type="button" variant="outline">{t("worlds.list.retry")}</Button></div></Card>
       : platformWorlds.length || myWorlds.length ? <>

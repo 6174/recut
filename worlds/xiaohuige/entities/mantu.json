@@ -1,0 +1,52 @@
+{
+  "id": "mantu",
+  "typeId": "character",
+  "name": "馒头（柯基）",
+  "intro": "小灰哥的宠物柯基：短腿长身三角耳；情绪线里的'活在当下'对照组，常以身体语言接住小灰哥的丧。",
+  "detail": {
+    "$file": "../references/mantu.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "极简扁平柯基：短棍腿、圆角长方身体、大三角直立耳、点眼、短线嘴、小 Stub 尾；纯黑粗线勾边 + 扁平浅灰/白填充，无毛发质感"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "没心没肺、当下导向；饿了吃困了睡，是小灰哥反刍思维的天然反义词"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "无台词；以动作叙事：歪头、叼玩具、偷吃泡面、默默坐在旁边"
+    },
+    {
+      "key": "media-scene-corgi-company",
+      "label": "馒头陪坐（移动端成品·带文字）",
+      "type": "media",
+      "value": {
+        "asset": "scene-corgi-company",
+        "kind": "image",
+        "name": "馒头陪坐（移动端成品·带文字）"
+      }
+    },
+    {
+      "key": "media-corgi-mantu-grid",
+      "label": "馒头九宫动作集（参考）",
+      "type": "media",
+      "value": {
+        "asset": "corgi-mantu-grid",
+        "kind": "image",
+        "name": "馒头九宫动作集（参考）"
+      }
+    }
+  ]
+}

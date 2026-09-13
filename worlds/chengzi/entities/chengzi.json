@@ -1,0 +1,52 @@
+{
+  "id": "chengzi",
+  "typeId": "character",
+  "name": "橙子",
+  "intro": "9 岁男孩主角：黑色刺头、湖蓝卫衣、橙色书包和靴子；好奇精力旺、嘴硬心软，每集完成一个成长课题的小闭环。",
+  "detail": {
+    "$file": "../references/chengzi-ip.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "9 岁男孩，黑色刺刺短发（几撮翘起），圆脸带一点小雀斑，粗黑描边；湖蓝色连帽卫衣、卡其色短裤、橙色小靴子、橙色双肩书包；2.5D 贴纸感：手绘赛璐璐上色角色浮在写实摄影背景上，带细白描边"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "好奇、精力旺、嘴硬心软；会犯错但每集成长一小步"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "暂不配置（后续补充）；叙事以画面与旁白为主"
+    },
+    {
+      "key": "media-character-sheet-chengzi",
+      "label": "橙子角色设定页（三视图+表情+色板）",
+      "type": "media",
+      "value": {
+        "asset": "character-sheet-chengzi",
+        "kind": "image",
+        "name": "橙子角色设定页（三视图+表情+色板）"
+      }
+    },
+    {
+      "key": "media-scene-family-sofa",
+      "label": "全家沙发互动关键帧（9:16 成品范例）",
+      "type": "media",
+      "value": {
+        "asset": "scene-family-sofa",
+        "kind": "image",
+        "name": "全家沙发互动关键帧（9:16 成品范例）"
+      }
+    }
+  ]
+}

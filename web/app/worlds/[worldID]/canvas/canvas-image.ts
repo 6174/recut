@@ -9,17 +9,18 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { WorldEntity, WorldEvidence } from "@/lib/recut-worlds-client";
+import { remoteProxySource, resolveMediaSrc } from "@/lib/world-media";
 import { attrMediaValueOf, attrOf, entityMediaAttrs } from "./entity-attrs";
 
 // url 行经同代理端点回源（RemoteFileCache 校验公网地址并缓存，内容寻址幂等）
-export function remoteProxySource(apiBase: string, url: string): string {
-  return `${apiBase}/v1/files/remote?url=${encodeURIComponent(url)}`;
-}
+export { remoteProxySource };
 
-// 旧证据双源解析为可渲染 URL（asset 行走媒体库 content 流，url 行走同源代理；references 为 legacy 只读）
+// 旧证据双源解析为可渲染 URL（assetId → 媒体库流；url → 统一解析：应用内同源代理 / 官网直连）
 export function evidenceSource(apiBase: string, item: WorldEvidence): string {
-  if (item.source === "url" || (!item.assetId && item.url)) return item.url ? remoteProxySource(apiBase, item.url) : "";
-  return item.assetId ? `${apiBase}/v1/media/assets/${encodeURIComponent(item.assetId)}/content` : "";
+  if (item.source === "url" || (!item.assetId && item.url)) {
+    return resolveMediaSrc(apiBase, { url: item.url });
+  }
+  return resolveMediaSrc(apiBase, { assetId: item.assetId });
 }
 
 // 旧证据图片 → URL 列表（legacy 只读投影；identity 优先，其次 primary/appearance；archived 排除）
@@ -32,17 +33,18 @@ export function entityImageUrls(apiBase: string, entity: WorldEntity): string[] 
   return images.sort((a, b) => rank(a) - rank(b)).map((item) => evidenceSource(apiBase, item));
 }
 
-// media 属性值 → 可渲染 URL（assetId 走媒体库 content 流）
-export function mediaAttrSource(apiBase: string, assetId: string): string {
-  return `${apiBase}/v1/media/assets/${encodeURIComponent(assetId)}/content`;
+// media 属性值 → 可渲染 URL（统一 Entity 模型：实体素材 = media attr，assetId|url 双源统一解析）
+export function mediaAttrSource(apiBase: string, value: { assetId?: string; url?: string }): string {
+  return resolveMediaSrc(apiBase, value);
 }
 
-// media 属性 assetId → URL 列表（统一 Entity 模型：实体素材 = media 属性）
+// media 属性 → URL 列表（统一 Entity 模型：实体素材 = media 属性）
 export function entityMediaUrls(apiBase: string, entity: WorldEntity): string[] {
   return entityMediaAttrs(entity)
     .map((attr) => attrMediaValueOf(entity, attr.key))
     .filter((value): value is NonNullable<typeof value> => value !== null)
-    .map((value) => mediaAttrSource(apiBase, value.assetId));
+    .map((value) => resolveMediaSrc(apiBase, value))
+    .filter((url) => url !== "");
 }
 
 // 头图媒体：image | video（video 走视频纹理加载）
@@ -58,21 +60,21 @@ export function entityPhotoUrls(apiBase: string, entity: WorldEntity): string[] 
 }
 
 // 实体头图解析（统一 Entity 模型）：① 显式 background media 属性 ② 其余 media 属性（image 先于 video）。
-// TODO(RFC 背景): 卡片背景默认以实体 media 属性（image/video）做 6–8s 慢轮播、background 属性覆盖为
-// 静态单图；轮播需要 EntityCardBlockV 提供 ticker/时间驱动重绘，当前 render 契约为静态单次绘制，
-// 故先落 cover fallback + 资料格，轮播在 EntityCardBlockV.renderBlock 的头图段接入。
+// 仅当命中的 media 值经统一解析得到非空 src 时返回；assetId|url 双源都支持。
 export function entityCoverMedia(apiBase: string, entity: WorldEntity): CoverMedia | null {
   const background = attrMediaValueOf(entity, "background");
   const values = entityMediaAttrs(entity)
     .map((attr) => attrMediaValueOf(entity, attr.key))
     .filter((value): value is NonNullable<typeof value> => value !== null);
   if (background) values.unshift(background);
-  const pick = (kind: "image" | "video") => values.find((value) => value.kind === kind);
+  const pick = (kind: "image" | "video") => values.find((value) => (value.kind ?? "image") === kind);
   const chosen = pick("image") ?? pick("video");
   if (!chosen) {
     // legacy 兜底：旧证据图片（references 只读投影随时可能被移除）
     const [firstImage] = entityImageUrls(apiBase, entity);
     return firstImage ? { url: firstImage, kind: "image" } : null;
   }
-  return { url: mediaAttrSource(apiBase, chosen.assetId), kind: chosen.kind === "video" ? "video" : "image" };
+  const url = resolveMediaSrc(apiBase, chosen);
+  if (!url) return null;
+  return { url, kind: (chosen.kind ?? "image") === "video" ? "video" : "image" };
 }

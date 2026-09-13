@@ -1,0 +1,18 @@
+{
+  "id": "perspective",
+  "typeId": "story",
+  "name": "核心叙事视角：后台解释",
+  "intro": "所有故事从小动物社会的角度重新解释人类世界——不解释科学原理，而是创造有趣的「后台解释」。",
+  "detail": {
+    "$file": "../references/perspective.md"
+  },
+  "attrs": [
+    {
+      "key": "premise",
+      "label": "前提",
+      "type": "textarea",
+      "locked": true,
+      "value": "人类看到「今天下雨了」，他们看到「天气系统发布了降雨任务」；人类看到「网络变慢」，他们看到「某个网络节点坏了」。宏大现实 = 具体而琐碎的工作。"
+    }
+  ]
+}

@@ -14,7 +14,10 @@
  * saveEntityField 签名改为 {name?, intro?, detail?, attrKey?, value?} 单字段 patch（attrs 全量替换语义，
   * 按 attrKey 原位 patch 当前 full attrs 后整包 upsert）；实体素材 = media 属性（attachMediaAttr/
   * attachMediaElement），「参考素材」网格/封面按钮/A 虚线挂接线已退役——卡面图源 = 遍历 media
-  * attrs 的统一投影；evidence.attach/update 写通道退役，evidence.archive 仅留 legacy 解挂兼容
+  * attrs 的统一投影；evidence.attach/update 写通道退役，evidence.archive 仅留 legacy 解挂兼容。
+ * AI 反馈闭环：scheduleWorldReload 由 "world" 实时 channel 的 world.changed 触发去抖重载；setCanvasAiLocked
+ * 响应 world.canvas.lock/unlock（aiLocked 期间暂停本地保存并保留脏集，解锁后续跑）；load 后按 id 重解析
+ * 当前选中，避免面板指向远端刷新前的旧快照
  * [POS]: worlds/[worldID]/canvas 的 zustand 状态层；组件层只读 store 快照并触发动作，不各自持有画布数据
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -116,6 +119,46 @@ function isRevisionConflict(cause: unknown) {
   return (cause as { code?: string } | null)?.code === "WORLD_REVISION_CONFLICT";
 }
 
+// AI/MCP 经 "world" 实时 channel 写世界后，去抖重载当前上下文（实体/文档/关系）。
+// 通知是"建议重拉"而非状态通道：load 内部先 flush 本地脏集，冲突走既有合并路径。
+let worldReloadTimer: number | null = null;
+export function scheduleWorldReload() {
+  if (typeof window === "undefined") return;
+  if (worldReloadTimer) window.clearTimeout(worldReloadTimer);
+  worldReloadTimer = window.setTimeout(() => {
+    worldReloadTimer = null;
+    void useWorldCanvasStore.getState().load(false);
+  }, 250);
+}
+
+// AI 画布锁的本地显隐：上锁前先把最后一个去抖窗口落盘（此时锁未暂停），随后暂停保存；
+// 解锁后续跑未落盘的脏集，由调用方负责再触发远端重载。
+// 看门狗：服务端锁空闲 5 分钟自动过期且不广播，若 AI 会话中途消失，UI 不能永远停在暂停态；
+// 超过宽限期未收到续期（每次 world.changed/lock 会重置）则本地自动解锁并回拉。
+const WORLD_LOCK_WATCHDOG_MS = 6 * 60 * 1000;
+let worldLockWatchdog: number | null = null;
+
+export function setCanvasAiLocked(locked: boolean) {
+  if (typeof window !== "undefined" && worldLockWatchdog) {
+    window.clearTimeout(worldLockWatchdog);
+    worldLockWatchdog = null;
+  }
+  if (locked) {
+    void flushCanvasSave();
+    useWorldCanvasStore.setState({ aiLocked: true });
+    if (typeof window !== "undefined") {
+      worldLockWatchdog = window.setTimeout(() => {
+        worldLockWatchdog = null;
+        setCanvasAiLocked(false);
+        scheduleWorldReload();
+      }, WORLD_LOCK_WATCHDOG_MS);
+    }
+    return;
+  }
+  useWorldCanvasStore.setState({ aiLocked: false });
+  if (canvasSaveState.dirty.size || canvasSaveState.removed.size) scheduleCanvasSave();
+}
+
 // 按 id 合并式替换/追加（T1 增量投影：语义写后不再 load(true) 全量拉取，直接合并 API 返回对象）
 function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
   return list.some((existing) => existing.id === item.id)
@@ -213,6 +256,8 @@ function markCanvasDirty(id: string, removed = false) {
 }
 
 function scheduleCanvasSave() {
+  // AI 会话锁期间暂停本地保存：脏集保留，解锁后由 setCanvasAiLocked(false) 续跑。
+  if (useWorldCanvasStore.getState().aiLocked) return;
   if (canvasSaveState.timer) clearTimeout(canvasSaveState.timer);
   canvasSaveState.timer = setTimeout(() => {
     canvasSaveState.timer = null;
@@ -227,6 +272,7 @@ async function flushCanvasSave(): Promise<void> {
     return;
   }
   const state = useWorldCanvasStore.getState();
+  if (state.aiLocked) return;
   if (!state.apiBase || !state.worldId || state.readOnly) return;
   if (!canvasSaveState.dirty.size && !canvasSaveState.removed.size) return;
   canvasSaveState.saving = true;
@@ -335,6 +381,9 @@ type WorldCanvasState = {
   worldId: string;
   worldName: string;
   readOnly: boolean;
+  // AI（MCP）多步画布会话锁：为真时暂停本地保存并提示，由 world channel 的
+  // world.canvas.lock/unlock 驱动。
+  aiLocked: boolean;
   revisionId: string;
   context: CanvasContext;
   // 容器导航路径（B.11）：面包屑唯一导航真相；contextTrail 最后一个 = 当前 context
@@ -495,6 +544,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   worldId: "",
   worldName: "",
   readOnly: false,
+  aiLocked: false,
   revisionId: "",
   context: null,
   contextTrail: [],
@@ -553,6 +603,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       entityTypes: [],
       notice: "",
       zoom: 1,
+      aiLocked: false,
       selection: null,
       relatingFrom: null,
       relatingTo: null,
@@ -609,14 +660,41 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           if (!relation.scopeEntityId || relation.scopeEntityId === contextId) relations.push(relation);
         }
       }
+      const visibleRelations = relations.filter((relation) => ids.has(relation.fromEntityId) && ids.has(relation.toEntityId));
+      // AI 锁期内本地保存被暂停：远端回拉时保留本地脏元素/删除覆盖，避免用户未落盘的改动被覆盖。
+      let nextElements = doc.elements;
+      if (get().aiLocked && (canvasSaveState.dirty.size || canvasSaveState.removed.size)) {
+        const byId = new Map(doc.elements.map((element) => [element.id, element]));
+        for (const id of canvasSaveState.removed) byId.delete(id);
+        for (const element of get().elements) {
+          if (canvasSaveState.dirty.has(element.id)) byId.set(element.id, element);
+        }
+        nextElements = [...byId.values()];
+      }
+      // 远端刷新（AI/另一端的写）后按 id 重新解析当前选中，避免面板继续指向旧快照。
+      const currentSelection = get().selection;
+      let nextSelection: CanvasSelection = currentSelection;
+      if (currentSelection?.type === "entity") {
+        const matched = entities.find((entity) => entity.id === currentSelection.entity.id) ?? null;
+        nextSelection = matched ? { type: "entity", entity: matched } : null;
+      } else if (currentSelection?.type === "relation") {
+        const matched = visibleRelations.find((relation) => relation.id === currentSelection.relation.id) ?? null;
+        nextSelection = matched ? { type: "relation", relation: matched } : null;
+      } else if (currentSelection?.type === "canvas") {
+        const matched = nextElements.find((element) => element.id === currentSelection.element.id) ?? null;
+        nextSelection = matched
+          ? { type: "canvas", element: matched, ...(currentSelection.fromEntityId ? { fromEntityId: currentSelection.fromEntityId } : {}), ...(currentSelection.toEntityId ? { toEntityId: currentSelection.toEntityId } : {}) }
+          : null;
+      }
       set({
         entities,
-        elements: doc.elements,
+        elements: nextElements,
         docVersion: doc.version,
-        relations: relations.filter((relation) => ids.has(relation.fromEntityId) && ids.has(relation.toEntityId)),
+        relations: visibleRelations,
         relationTypes: entityTypeData.relations ?? [],
         entityTypes: entityTypeData.items ?? [],
         dataVersion: get().dataVersion + 1,
+        selection: nextSelection,
         ...(force ? { notice: "" } : {}),
       });
     } catch (cause) {

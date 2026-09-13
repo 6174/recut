@@ -1,8 +1,11 @@
 /*
  * [INPUT]: 依赖 WorldStore 与标准库 JSON 编码
- * [OUTPUT]: 对外提供全局 recut.worlds.* MCP 工具：只读 list/get/entities.list/entities.get/resolve 无条件可发现，
- * 写 create/update/entities.upsert/entityTypes.upsert/relations.create/relations.update 与 bind_project 常注册但仅在用户明确要求时调用；evidence/references 写入已冻结（媒体统一为实体 media attr）
- * 返回同构 structuredContent，列表按主机规则包装为 {items:[...]}
+ * [OUTPUT]: 对外提供全局 recut.worlds.* MCP 工具：只读 list/get/brief/readiness/entities.list/entities.get/
+ * entityTypes.list/relations.list/canvas.doc/canvas.docs 无条件可发现，写 create/update/entities.upsert/
+ * entities.create_child/entities.promote/entityTypes.upsert/relations.create/relations.update/canvas.doc.update/
+ * canvas.promote 与 canvas.lock/unlock 常注册但仅在用户明确要求时调用；evidence/references 写入已冻结（媒体统一为实体 media attr）。
+ * 返回同构 structuredContent，列表按主机规则包装为 {items:[...]}；canvas.doc/canvas.doc.update 附带 layout 只读回执。
+ * 写工具成功后经 WorldEventPublisher 广播 world.changed（canvas.lock/unlock 广播对应锁事件），供已打开画布刷新
  * [POS]: service 的 Creation Worlds MCP 面；工具属于全局平台组，与 recut.project 及 recut.media 系列工具并列，
  * 不进入 per-App 工具组，Chat 与外部 Agent 在选择 App 之前即可发现
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -42,8 +45,11 @@ func worldsMCPToolDefinitions(_ Locale) []map[string]any {
 		{"name": "recut.worlds.relations.update", "description": "原位修改一条已存在的语义关系：relationType 与 fromEntityId/toEntityId 均为可选 patch（缺省保持原值），可换类型或换方向。关系 id 与 scope 保留，画布锚点不丢；每次实际变化产出 revision。只在用户明确要求修改关系时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "relationId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "relationId": map[string]string{"type": "string"}, "fromEntityId": map[string]string{"type": "string", "description": "可选：新的起点实体 id（换方向时与 toEntityId 交换）。"}, "toEntityId": map[string]string{"type": "string", "description": "可选：新的终点实体 id。"}, "relationType": map[string]string{"type": "string", "description": "可选：新的关系类型（受控词表 id 或自定义字符串）。"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.relations.list", "description": "按实体列出关系：全局关系（touch 该实体）+ 该实体为 scope 的局部关系。每条带 direction（out/in/scope）与受控词表的 inverse 投影，产品语义上关系是双向的。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "entityId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "entityId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.canvas.doc", "description": "读取一个画布 Document（''=全局画布根文档，否则为某实体 id 的内层文档）：返回 {elements, version, contextId}。一张画布 = 一个文档，内层画布是独立文档，实体/关系语义数据共享。画布是表达层，不承载语义真相，也不产出 revision。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "contextId": map[string]string{"type": "string", "description": "可选：缺省 '' 根画布。"}}}},
-		{"name": "recut.worlds.canvas.doc.update", "description": "在一个画布 Document 内应用元素级 ops（insert/update/remove）：kind='entity' 的骨干（refId 指向实体，props 只存视图偏好）或自由元素（text/image/shape/arrow/note/link，内容在 props；arrow/link 是语义边：fromElementId 必须指向同文档内的 entity 元素，只有 entity 能作为出发点）。返回更新后的 {elements, version}。画布元素永不产 revision。只在用户明确要求摆放画布元素时调用。", "inputSchema": canvasDocUpdateSchema()},
+		{"name": "recut.worlds.canvas.docs", "description": "列出一个 World 的画布文档索引（每个 contextId 一层的 version/elementCount/updatedAt）。用于编辑前发现存在哪些画布层：contextId ''=根画布，非空=该实体 id 的内层画布。只读。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.canvas.doc.update", "description": "在一个画布 Document 内应用元素级 ops（insert/update/remove）：kind='entity' 的骨干（refId 指向实体，props 只存视图偏好）或自由元素（text/image/shape/arrow/note/link，内容在 props；arrow/link 是语义边：fromElementId 必须指向同文档内的 entity 元素，只有 entity 能作为出发点）。放实体卡只需 {op:'insert', element:{kind:'entity', refKind:'entity', refId}}：服务端自动补 id=`shape:<entityId>`、名称与默认几何。返回更新后的 {elements, version}。画布元素永不产 revision。只在用户明确要求摆放画布元素时调用。改已有元素时先用 canvas.doc 读取真实 id。World 节点 id=`shape:world`。" + canvasElementConventions, "inputSchema": canvasDocUpdateSchema()},
 		{"name": "recut.worlds.canvas.promote", "description": "把画布草稿提升为正式语义对象并产出 revision：note/text → Entity（可用 typeId 指定 type）；箭头/link 是有语义的边，出发点必须是 entity 元素：entity→entity 变成 world_relations（relationType），entity→自由元素变成属性绑定（field 绑定到实体属性，自由元素标记为引用投影并生成 attr 锚点元素，值与右侧属性面板共享 entity.content 单一数据源）。提升后原画布元素保留为投影。这是 Canon 写入，必须显式用户确认。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "elementId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "elementId": map[string]string{"type": "string"}, "typeId": map[string]string{"type": "string", "description": "可选：便签→实体时的 type id。"}, "relationType": map[string]string{"type": "string", "description": "可选：箭头→关系时的 relation_type。"}, "field": map[string]string{"type": "string", "description": "可选：箭头→属性绑定时的实体属性 key。"}, "title": map[string]string{"type": "string", "description": "可选：便签→实体时的实体标题。"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
+		{"name": "recut.worlds.canvas.lock", "description": "进入「多步」World 画布 AI 编辑会话时调用一次，给该世界加 advisory AI 锁：前台画布会立即落盘当前改动、暂停本地保存并显示「AI 正在编辑」，避免并发覆盖。返回 {token}；会话结束务必调用 recut.worlds.canvas.unlock 释放（空闲 5 分钟也会自动释放）。单次只读或一次写入不要上锁。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "owner": map[string]string{"type": "string", "description": "可选：会话标识，缺省 mcp。"}}}},
+		{"name": "recut.worlds.canvas.unlock", "description": "释放 recut.worlds.canvas.lock 建立的 AI 画布锁。传入 lock 返回的 token 避免误释放他人会话。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "token": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.evidence.archive", "description": "把一份证据从当前 Canon 归档，不删除源素材或旧作品使用的历史版本。仅在用户明确要求移除时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId", "evidenceId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "evidenceId": map[string]string{"type": "string"}, "expectedRevisionId": map[string]string{"type": "string"}}}},
 		{"name": "recut.worlds.fork", "description": "把任意 World（平台/发布/本地）在其当前 revision 上复制为一个全新的本地可编辑 World（origin=local），返回新 World 详情。非 local 世界是只读的，用户要求修改平台世界时先说明再经用户确认调用本工具，之后在副本上继续。仅在用户明确要求 Fork/副本/基于某世界修改时调用。", "inputSchema": map[string]any{"type": "object", "required": []string{"worldId"}, "properties": map[string]any{"worldId": map[string]string{"type": "string"}, "name": map[string]string{"type": "string", "description": "可选：新 World 名称；缺省为源名称加“副本”。"}}}},
 		{"name": "recut.worlds.bind_project", "description": "把 World 的固定 revision 绑定到当前 Project。必须是用户动作、当前 Project owner App 或获得用户确认的 Agent 调用；绑定是跨系统可观察的状态变化。Project 已有 primary binding 时默认替换需提供 replace: true，否则返回 PROJECT_WORLD_ALREADY_BOUND。绑定非 local World 不受只读门禁限制。", "inputSchema": map[string]any{"type": "object", "required": []string{"projectId", "worldId", "selection"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}, "worldId": map[string]string{"type": "string"}, "revisionId": map[string]string{"type": "string"}, "selection": map[string]any{"type": "object", "required": []string{"purpose"}, "properties": map[string]any{"storyId": map[string]string{"type": "string"}, "entityIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "assetRoles": map[string]any{"type": "array", "items": map[string]string{"type": "string"}}, "purpose": worldPurposeSchema()}}, "replace": map[string]string{"type": "boolean"}}}},
@@ -53,6 +59,11 @@ func worldsMCPToolDefinitions(_ Locale) []map[string]any {
 func worldKindSchema() map[string]any {
 	return map[string]any{"type": "string", "enum": []string{"character_ip", "creator_brand", "brand", "fiction_world", "custom"}}
 }
+
+// canvasElementConventions documents the frontend-mirrored id/geometry
+// conventions the UI uses, so an AI placing elements by MCP produces cards that
+// render and select exactly like the ones created interactively.
+const canvasElementConventions = "几何约定（geometry 用 {x,y,width,height,zIndex}）：实体投影卡 264x328（服务端缺省自动补尺寸与网格位）、便签 150x100、World 节点 200x200（后两者需自行给尺寸）；自动排布可沿 x 每 260、y 每 180 起步。关系箭头由 world_relations 投影（id=`arrow:<relationId>`），不要手写；自由箭头/属性边用 props.fromElementId（`shape:<entityId>` 或元素 id）指向同文档的 entity 元素表达起点，props.toElementId 表达终点。"
 
 // canvasDocUpdateSchema is the input schema of recut.worlds.canvas.doc.update:
 // element-level ops applied inside one canvas document.
@@ -241,12 +252,38 @@ func worldsMCPTool(worlds *WorldStore, name string, input map[string]any) (any, 
 		var items []WorldEntityRelation
 		items, err = worlds.ListRelations(stringValue(input["worldId"]), stringValue(input["entityId"]))
 		result = map[string]any{"items": items}
+	case "recut.worlds.canvas.docs":
+		var items []map[string]any
+		items, err = worlds.ListCanvasDocuments(stringValue(input["worldId"]))
+		result = map[string]any{"items": items}
+	case "recut.worlds.canvas.lock":
+		owner := stringValue(input["owner"])
+		if owner == "" {
+			owner = "mcp"
+		}
+		token, acquired := worlds.canvasLock(stringValue(input["worldId"]), owner)
+		result = map[string]any{"locked": true, "token": token, "owner": owner, "acquired": acquired}
+		worlds.publishCanvasLock(stringValue(input["worldId"]), true, owner)
+	case "recut.worlds.canvas.unlock":
+		unlocked := worlds.releaseCanvasLock(stringValue(input["worldId"]), stringValue(input["token"]))
+		result = map[string]any{"unlocked": unlocked}
+		// 只有确实释放成功才广播：token 不匹配时锁仍在，误发 unlock 会让前台提前恢复保存。
+		if unlocked {
+			worlds.publishCanvasLock(stringValue(input["worldId"]), false, "")
+		}
 	case "recut.worlds.canvas.doc":
 		doc, docErr := worlds.GetCanvasDocument(stringValue(input["worldId"]), stringValue(input["contextId"]))
 		if docErr != nil {
 			err = docErr
 		} else {
-			result = map[string]any{"elements": doc.Elements, "version": doc.Version, "contextId": doc.ContextID}
+			result = map[string]any{
+				"elements": doc.Elements, "version": doc.Version, "contextId": doc.ContextID,
+				// 无渲染回执：headless Agent 据此自检刚写入的布局（元素数/类型分布/包围盒/缺几何）。
+				"layout": canvasLayoutSummary(doc.Elements),
+			}
+			if owner, _, locked := worlds.canvasLockStatus(stringValue(input["worldId"])); locked {
+				result.(map[string]any)["lock"] = map[string]any{"locked": true, "owner": owner}
+			}
 		}
 	case "recut.worlds.canvas.doc.update":
 		ops := []CanvasDocOp{}
@@ -277,7 +314,10 @@ func worldsMCPTool(worlds *WorldStore, name string, input map[string]any) (any, 
 		var doc WorldCanvasDocument
 		doc, err = worlds.UpdateCanvasDocumentOps(stringValue(input["worldId"]), stringValue(input["contextId"]), ops)
 		if err == nil {
-			result = map[string]any{"elements": doc.Elements, "version": doc.Version, "contextId": doc.ContextID}
+			result = map[string]any{
+				"elements": doc.Elements, "version": doc.Version, "contextId": doc.ContextID,
+				"layout": canvasLayoutSummary(doc.Elements),
+			}
 		}
 	case "recut.worlds.canvas.promote":
 		result, err = worlds.PromoteCanvasElement(PromoteCanvasElementInput{
@@ -306,6 +346,13 @@ func worldsMCPTool(worlds *WorldStore, name string, input map[string]any) (any, 
 	}
 	if err != nil {
 		return nil, err
+	}
+	// AI/Agent 写入成功后广播一条粗粒度变更通知：已打开的画布据此重新拉取，
+	// 消除「headless MCP 写完 UI 不刷新」。只对写工具发，读工具无副作用。
+	if worldMutatingTools[name] {
+		// 会话内的每次写都续期 AI 锁（未持锁时为 no-op）。
+		worlds.touchCanvasLock(stringValue(input["worldId"]))
+		worlds.publishWorldChanged(name, input)
 	}
 	data, _ := json.Marshal(result)
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil

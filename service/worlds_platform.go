@@ -66,10 +66,11 @@ type WorldManifestEntity struct {
 }
 
 type WorldManifestRelation struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
-	From string `json:"from"`
-	To   string `json:"to"`
+	ID    string `json:"id"`
+	Type  string `json:"type"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Scope string `json:"scope,omitempty"`
 }
 
 type WorldManifestEvidence struct {
@@ -81,6 +82,212 @@ type WorldManifestEvidence struct {
 	Collection string `json:"collection"`
 	Label      string `json:"label"`
 }
+
+// WorldManifestV2 is the unified content manifest (RFC world-content-format-v2):
+// entityTypes + unified entities (attrs) + canvases, no evidence layer. Media
+// attrs carry a CDN url and an optional generation recipe.
+type WorldManifestV2 struct {
+	ManifestVersion int                       `json:"manifestVersion"`
+	World           WorldManifestWorld        `json:"world"`
+	EntityTypes     []WorldManifestEntityType `json:"entityTypes,omitempty"`
+	Entities        []WorldManifestEntityV2   `json:"entities"`
+	Relations       []WorldManifestRelation   `json:"relations,omitempty"`
+	Canvases        []WorldManifestCanvas     `json:"canvases,omitempty"`
+	Provenance      *Provenance               `json:"provenance,omitempty"`
+}
+
+type WorldManifestEntityType struct {
+	ID       string            `json:"id"`
+	Scope    string            `json:"scope,omitempty"`
+	Name     string            `json:"name"`
+	Icon     string            `json:"icon,omitempty"`
+	Color    string            `json:"color,omitempty"`
+	BaseKind string            `json:"baseKind,omitempty"`
+	Fields   []EntityTypeField `json:"fields"`
+}
+
+type WorldManifestEntityV2 struct {
+	ID            string       `json:"id"`
+	TypeID        string       `json:"typeId"`
+	Name          string       `json:"name"`
+	Intro         string       `json:"intro"`
+	Detail        string       `json:"detail"`
+	ParentID      string       `json:"parentId,omitempty"`
+	ContainerRole string       `json:"containerRole,omitempty"`
+	IsProvisional bool         `json:"isProvisional,omitempty"`
+	Attrs         []EntityAttr `json:"attrs"`
+}
+
+type WorldManifestCanvas struct {
+	ContextID string               `json:"contextId"`
+	Elements  []WorldCanvasElement `json:"elements"`
+}
+
+// manifestVersionOf reads only the version header so MaterializeWorld can
+// dispatch before fully decoding either shape.
+func manifestVersionOf(data []byte) int {
+	var header struct {
+		ManifestVersion int `json:"manifestVersion"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return 0
+	}
+	return header.ManifestVersion
+}
+
+// worldMediaURLRef extracts the remote url from a media attr value ({url,...}).
+func worldMediaURLRef(value any) (string, bool) {
+	record, ok := value.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	raw, _ := record["url"].(string)
+	return strings.TrimSpace(raw), raw != ""
+}
+
+// validateWorldManifestV2 enforces the published-format v2 rules: unified
+// entities, media attrs referencing absolute CDN urls, canvases whose entity
+// refs resolve inside the same manifest. It is the materialization-time second
+// line of defense after the publish build script.
+func validateWorldManifestV2(kind string, entryID string, manifest *WorldManifestV2) error {
+	if manifest.ManifestVersion != 2 {
+		return fmt.Errorf("unsupported manifestVersion %d", manifest.ManifestVersion)
+	}
+	prefix := "pgc."
+	if kind == WorldPublished {
+		prefix = "pub."
+	}
+	if !strings.HasPrefix(manifest.World.ID, prefix) {
+		return fmt.Errorf("world id %q must start with %q for kind %q", manifest.World.ID, prefix, kind)
+	}
+	if manifest.World.ID != entryID {
+		return fmt.Errorf("manifest world id %q does not match catalog entry %q", manifest.World.ID, entryID)
+	}
+	if strings.TrimSpace(manifest.World.Name) == "" {
+		return errors.New("world name is required")
+	}
+	if !worldKinds[manifest.World.Type] {
+		return fmt.Errorf("invalid world type %q", manifest.World.Type)
+	}
+	if len(manifest.World.SkillMd) > skillMdMaxBytes {
+		return fmt.Errorf("skillMd exceeds %d bytes", skillMdMaxBytes)
+	}
+	seenType := map[string]bool{}
+	for _, entityType := range manifest.EntityTypes {
+		id := strings.TrimSpace(entityType.ID)
+		if id == "" || seenType[id] {
+			return fmt.Errorf("entity type id missing or duplicated: %q", entityType.ID)
+		}
+		if strings.TrimSpace(entityType.Name) == "" {
+			return fmt.Errorf("entity type %q name is required", id)
+		}
+		for _, field := range entityType.Fields {
+			if strings.TrimSpace(field.Key) == "" || !attrTypes[field.Type] {
+				return fmt.Errorf("entity type %q has an invalid field %q/%q", id, field.Key, field.Type)
+			}
+		}
+		seenType[id] = true
+	}
+	bodyTotal := 0
+	seenEntity := map[string]bool{}
+	for _, entity := range manifest.Entities {
+		if !worldEntityIDPattern.MatchString(entity.ID) {
+			return fmt.Errorf("entity id %q is not a stable slug", entity.ID)
+		}
+		if seenEntity[entity.ID] {
+			return fmt.Errorf("duplicate entity id %q", entity.ID)
+		}
+		seenEntity[entity.ID] = true
+		if strings.TrimSpace(entity.TypeID) == "" {
+			return fmt.Errorf("entity %q typeId is required", entity.ID)
+		}
+		if strings.TrimSpace(entity.Name) == "" {
+			return fmt.Errorf("entity %q name is required", entity.ID)
+		}
+		// A referenced type must be declared in the manifest or be a platform preset.
+		if !seenType[entity.TypeID] {
+			if _, preset := presetEntityTypeFields[entity.TypeID]; !preset {
+				return fmt.Errorf("entity %q references undeclared type %q", entity.ID, entity.TypeID)
+			}
+		}
+		bodyTotal += len(entity.Detail)
+		if len(entity.Attrs) > 200 {
+			return fmt.Errorf("entity %q has too many attrs (%d)", entity.ID, len(entity.Attrs))
+		}
+		for _, attr := range entity.Attrs {
+			if strings.TrimSpace(attr.Key) == "" || !attrTypes[attr.Type] {
+				return fmt.Errorf("entity %q attr %q has invalid type %q", entity.ID, attr.Key, attr.Type)
+			}
+			if attr.Type != "media" || attr.Value == nil {
+				continue
+			}
+			rawURL, ok := worldMediaURLRef(attr.Value)
+			if !ok {
+				return fmt.Errorf("entity %q media attr %q must carry a url", entity.ID, attr.Key)
+			}
+			if parsed, err := url.Parse(rawURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+				return fmt.Errorf("entity %q media attr %q url must be absolute http(s): %q", entity.ID, attr.Key, rawURL)
+			}
+		}
+	}
+	if bodyTotal > entityBodyMaxBytes {
+		return fmt.Errorf("entity detail total exceeds %d bytes", entityBodyMaxBytes)
+	}
+	seenRelation := map[string]bool{}
+	for _, relation := range manifest.Relations {
+		if relation.ID == "" || seenRelation[relation.ID] {
+			return fmt.Errorf("relation id missing or duplicated: %q", relation.ID)
+		}
+		seenRelation[relation.ID] = true
+		if relation.Type == "" {
+			return fmt.Errorf("relation %q type is required", relation.ID)
+		}
+		if !seenEntity[relation.From] || !seenEntity[relation.To] {
+			return fmt.Errorf("relation %q references unknown entities", relation.ID)
+		}
+	}
+	canvasElementCount := 0
+	for _, canvas := range manifest.Canvases {
+		if canvas.ContextID != "" && !seenEntity[canvas.ContextID] {
+			return fmt.Errorf("canvas context %q references an unknown entity", canvas.ContextID)
+		}
+		elementIDs := map[string]bool{}
+		for _, element := range canvas.Elements {
+			if strings.TrimSpace(element.ID) == "" || strings.TrimSpace(element.Kind) == "" {
+				return fmt.Errorf("canvas %q has an element without id/kind", canvas.ContextID)
+			}
+			if elementIDs[element.ID] {
+				return fmt.Errorf("canvas %q has a duplicate element id %q", canvas.ContextID, element.ID)
+			}
+			elementIDs[element.ID] = true
+		}
+		for _, element := range canvas.Elements {
+			canvasElementCount++
+			if element.Kind == "entity" || element.RefKind == "entity" {
+				if element.RefID != "" && !seenEntity[element.RefID] {
+					return fmt.Errorf("canvas %q entity element references unknown entity %q", canvas.ContextID, element.RefID)
+				}
+			}
+			for _, key := range []string{"fromElementId", "toElementId"} {
+				if ref, _ := element.Props[key].(string); ref != "" && !elementIDs[ref] {
+					return fmt.Errorf("canvas %q element %q props.%s references a missing element", canvas.ContextID, element.ID, key)
+				}
+			}
+			for _, key := range []string{"url"} {
+				if raw, _ := element.Props[key].(string); raw != "" {
+					if parsed, err := url.Parse(raw); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+						return fmt.Errorf("canvas %q element %q props.%s must be an absolute http(s) url: %q", canvas.ContextID, element.ID, key, raw)
+					}
+				}
+			}
+		}
+	}
+	if canvasElementCount > 2000 {
+		return fmt.Errorf("canvas elements %d exceed 2000", canvasElementCount)
+	}
+	return nil
+}
+
 
 // ManifestHash is the hex SHA-256 of the manifest bytes exactly as served on
 // the CDN. The catalog entry pins it; materialization is refused on mismatch.
@@ -216,7 +423,22 @@ func (w *WorldStore) MaterializeWorld(entryID, entryKind, publisher, version, sh
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return "", false, fmt.Errorf("parse manifest: %w", err)
 	}
-	if err := validateWorldManifest(entryKind, entryID, &manifest); err != nil {
+	// manifestVersion 2 is the unified document (entityTypes/attrs/canvases). The
+	// v1 shape stays supported in place (evidence rows), so existing platform
+	// content keeps materializing unchanged until the migration republishes it.
+	var v2 *WorldManifestV2
+	if manifest.ManifestVersion == 2 {
+		decoded := WorldManifestV2{}
+		if err := json.Unmarshal(manifestBytes, &decoded); err != nil {
+			return "", false, fmt.Errorf("parse manifest v2: %w", err)
+		}
+		if err := validateWorldManifestV2(entryKind, entryID, &decoded); err != nil {
+			return "", false, fmt.Errorf("invalid manifest v2: %w", err)
+		}
+		manifest.World = decoded.World
+		manifest.Provenance = decoded.Provenance
+		v2 = &decoded
+	} else if err := validateWorldManifest(entryKind, entryID, &manifest); err != nil {
 		return "", false, fmt.Errorf("invalid manifest: %w", err)
 	}
 	db, err := w.database()
@@ -310,64 +532,70 @@ func (w *WorldStore) MaterializeWorld(entryID, entryKind, publisher, version, sh
 			return "", false, err
 		}
 	}
-	if _, err := tx.Exec("delete from world_asset_refs where world_id = ? and archived_at is null", manifest.World.ID); err != nil {
-		return "", false, err
-	}
-	// Manifest rows are replaced wholesale, including archived ones: stale
-	// archived rows would collide with re-inserted IDs on a re-activated
-	// entry (world_entities.id is a global primary key).
-	if _, err := tx.Exec("delete from world_entities where world_id = ?", manifest.World.ID); err != nil {
-		return "", false, err
-	}
-	if _, err := tx.Exec("delete from world_relations where world_id = ?", manifest.World.ID); err != nil {
-		return "", false, err
-	}
 	// Manifest entity/relation IDs are unique per manifest, not globally:
 	// generic ids like "style-dna" recur across platform worlds while the
 	// storage PK is global. The stored form namespaces them with the world
 	// id; every read API is world-scoped, so consumers only ever see the
 	// stored form and the mapping is transparent.
 	storedEntityID := func(entityID string) string { return manifest.World.ID + ":" + entityID }
-	if err := ensurePresetEntityTypesInTx(tx, manifest.World.ID); err != nil {
-		return "", false, err
-	}
-	for index, entity := range manifest.Entities {
-		// Manifest wire format stays v1 (kind/title/summary/content); the
-		// storage side is the unified entity model (typeId/name/intro/detail/
-		// attrs). content.body → detail, remaining keys → text attrs.
-		typeID := strings.TrimSpace(entity.Kind)
-		if err := ensureEntityTypeInTx(tx, manifest.World.ID, typeID); err != nil {
+	if v2 != nil {
+		if err := insertManifestV2Tx(tx, manifest.World.ID, v2, now); err != nil {
 			return "", false, err
 		}
-		detail := ""
-		attrs := []EntityAttr{}
-		for key, value := range entity.Content {
-			if key == "body" {
-				detail, _ = value.(string)
-				continue
+	} else {
+		if _, err := tx.Exec("delete from world_asset_refs where world_id = ? and archived_at is null", manifest.World.ID); err != nil {
+			return "", false, err
+		}
+		// Manifest rows are replaced wholesale, including archived ones: stale
+		// archived rows would collide with re-inserted IDs on a re-activated
+		// entry (world_entities.id is a global primary key).
+		if _, err := tx.Exec("delete from world_entities where world_id = ?", manifest.World.ID); err != nil {
+			return "", false, err
+		}
+		if _, err := tx.Exec("delete from world_relations where world_id = ?", manifest.World.ID); err != nil {
+			return "", false, err
+		}
+		if err := ensurePresetEntityTypesInTx(tx, manifest.World.ID); err != nil {
+			return "", false, err
+		}
+		for index, entity := range manifest.Entities {
+			// Manifest wire format stays v1 (kind/title/summary/content); the
+			// storage side is the unified entity model (typeId/name/intro/detail/
+			// attrs). content.body → detail, remaining keys → text attrs.
+			typeID := strings.TrimSpace(entity.Kind)
+			if err := ensureEntityTypeInTx(tx, manifest.World.ID, typeID); err != nil {
+				return "", false, err
 			}
-			text, _ := value.(string)
-			if text == "" {
-				if encoded, err := json.Marshal(value); err == nil {
-					text = string(encoded)
+			detail := ""
+			attrs := []EntityAttr{}
+			for key, value := range entity.Content {
+				if key == "body" {
+					detail, _ = value.(string)
+					continue
 				}
+				text, _ := value.(string)
+				if text == "" {
+					if encoded, err := json.Marshal(value); err == nil {
+						text = string(encoded)
+					}
+				}
+				attrs = append(attrs, EntityAttr{Key: key, Label: key, Type: "text", Value: text})
 			}
-			attrs = append(attrs, EntityAttr{Key: key, Label: key, Type: "text", Value: text})
+			attrsJSON, err := json.Marshal(attrs)
+			if err != nil {
+				return "", false, err
+			}
+			if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)",
+				storedEntityID(entity.ID), manifest.World.ID, typeID, typeID, strings.TrimSpace(entity.Title), strings.TrimSpace(entity.Summary), detail, string(attrsJSON), now, now); err != nil {
+				return "", false, err
+			}
+			_ = index
 		}
-		attrsJSON, err := json.Marshal(attrs)
-		if err != nil {
-			return "", false, err
-		}
-		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)",
-			storedEntityID(entity.ID), manifest.World.ID, typeID, typeID, strings.TrimSpace(entity.Title), strings.TrimSpace(entity.Summary), detail, string(attrsJSON), now, now); err != nil {
-			return "", false, err
-		}
-		_ = index
-	}
-	for _, relation := range manifest.Relations {
-		if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, created_at) values (?, ?, ?, ?, ?, '{}', ?)",
-			storedEntityID(relation.ID), manifest.World.ID, storedEntityID(relation.From), storedEntityID(relation.To), relation.Type, now); err != nil {
-			return "", false, err
+		for _, relation := range manifest.Relations {
+			if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, created_at) values (?, ?, ?, ?, ?, '{}', ?)",
+				storedEntityID(relation.ID), manifest.World.ID, storedEntityID(relation.From), storedEntityID(relation.To), relation.Type, now); err != nil {
+				return "", false, err
+			}
 		}
 	}
 	for index, evidence := range manifest.Evidence {
@@ -398,6 +626,131 @@ func (w *WorldStore) MaterializeWorld(entryID, entryKind, publisher, version, sh
 		logWorldEvent("world.published.materialized", map[string]string{"worldId": manifest.World.ID, "version": version, "revisionId": revisionID, "op": "install"})
 	}
 	return revisionID, true, nil
+}
+
+// insertManifestV2Tx replaces a world's unified content inside the materialize
+// transaction: entity type directory, entities (attrs), relations and canvas
+// documents. IDs are namespaced with the world id exactly like the v1 path, so
+// cross-world generic slugs never collide. Canvas is the expression layer: it
+// is stored but never enters the Canon.
+func insertManifestV2Tx(tx *sql.Tx, worldID string, manifest *WorldManifestV2, now string) error {
+	storedID := func(id string) string { return worldID + ":" + id }
+	provisional := func(flag bool) int {
+		if flag {
+			return 1
+		}
+		return 0
+	}
+	for _, statement := range []string{
+		"delete from world_asset_refs where world_id = ?",
+		"delete from world_entities where world_id = ?",
+		"delete from world_relations where world_id = ?",
+		"delete from world_canvases where world_id = ?",
+	} {
+		if _, err := tx.Exec(statement, worldID); err != nil {
+			return err
+		}
+	}
+	if err := ensurePresetEntityTypesInTx(tx, worldID); err != nil {
+		return err
+	}
+	for _, entityType := range manifest.EntityTypes {
+		if err := upsertManifestEntityTypeInTx(tx, worldID, entityType, now); err != nil {
+			return err
+		}
+	}
+	for _, entity := range manifest.Entities {
+		if err := ensureEntityTypeInTx(tx, worldID, entity.TypeID); err != nil {
+			return err
+		}
+		attrs := entity.Attrs
+		if attrs == nil {
+			attrs = []EntityAttr{}
+		}
+		attrsJSON, err := json.Marshal(attrs)
+		if err != nil {
+			return err
+		}
+		var parent any
+		if strings.TrimSpace(entity.ParentID) != "" {
+			parent = storedID(entity.ParentID)
+		}
+		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
+			storedID(entity.ID), worldID, entity.TypeID, entity.TypeID, strings.TrimSpace(entity.Name), strings.TrimSpace(entity.Intro), entity.Detail, string(attrsJSON), parent, entity.ContainerRole, provisional(entity.IsProvisional), now, now); err != nil {
+			return err
+		}
+	}
+	for _, relation := range manifest.Relations {
+		var scope any
+		if strings.TrimSpace(relation.Scope) != "" {
+			scope = storedID(relation.Scope)
+		}
+		if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, '{}', ?, ?)",
+			storedID(relation.ID), worldID, storedID(relation.From), storedID(relation.To), relation.Type, scope, now); err != nil {
+			return err
+		}
+	}
+	for _, canvas := range manifest.Canvases {
+		contextID := ""
+		if strings.TrimSpace(canvas.ContextID) != "" {
+			contextID = storedID(canvas.ContextID)
+		}
+		elements := make([]WorldCanvasElement, 0, len(canvas.Elements))
+		for _, element := range canvas.Elements {
+			element.WorldID = worldID
+			element.ContextID = contextID
+			if element.Kind == "entity" || element.RefKind == "entity" {
+				if strings.TrimSpace(element.RefID) != "" {
+					element.RefID = storedID(element.RefID)
+				}
+			}
+			elements = append(elements, element)
+		}
+		payload, err := encodeCanvasDocPayload(canvasDocPayload{DocVersion: 1, Elements: normalizeCanvasElements(elements)})
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec("insert into world_canvases (id, world_id, context_id, doc_json, version, created_at, updated_at) values (?, ?, ?, ?, 1, ?, ?)",
+			canvasDocID(worldID, contextID), worldID, contextID, payload, now, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// upsertManifestEntityTypeInTx writes one manifest entity type into the world's
+// type directory. Preset ids stay builtin copies (overriding the seeded fields);
+// other ids are world-local custom types.
+func upsertManifestEntityTypeInTx(tx *sql.Tx, worldID string, entityType WorldManifestEntityType, now string) error {
+	fields := entityType.Fields
+	if fields == nil {
+		fields = []EntityTypeField{}
+	}
+	fieldsJSON, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	scope := "custom"
+	builtin := 0
+	if _, preset := presetEntityTypeFields[entityType.ID]; preset {
+		scope = "builtin"
+		builtin = 1
+	} else if entityType.Scope == "builtin" || entityType.Scope == "preset" {
+		scope = entityType.Scope
+	}
+	var existing string
+	err = tx.QueryRow("select id from world_entity_types where world_id = ? and id = ?", worldID, entityType.ID).Scan(&existing)
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = tx.Exec("insert into world_entity_types (id, world_id, scope, name, icon, color, base_kind, fields_json, builtin, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			entityType.ID, worldID, scope, entityType.Name, entityType.Icon, entityType.Color, entityType.BaseKind, string(fieldsJSON), builtin, now, now)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec("update world_entity_types set scope = ?, name = ?, icon = ?, color = ?, base_kind = ?, fields_json = ?, builtin = ?, updated_at = ? where world_id = ? and id = ?",
+		scope, entityType.Name, entityType.Icon, entityType.Color, entityType.BaseKind, string(fieldsJSON), builtin, now, worldID, entityType.ID)
+	return err
 }
 
 // isArchived reports whether the world row is currently archived.

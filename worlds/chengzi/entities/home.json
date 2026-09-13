@@ -1,0 +1,28 @@
+{
+  "id": "home",
+  "typeId": "location",
+  "name": "橙子的家（三室一厅）",
+  "intro": "三室一厅主舞台：客厅、餐桌、厨房、三间卧室、阳台、卫生间、书架；每集起点与归宿。",
+  "detail": {
+    "$file": "../references/home.md"
+  },
+  "attrs": [
+    {
+      "key": "description",
+      "label": "描述",
+      "type": "textarea",
+      "locked": true,
+      "value": "客厅布艺沙发+电视+茶几、木质餐桌四椅、L 型厨房+冰箱贴、三间卧室、阳台（晾衣架+盆栽）、卫生间、书架阅读角。"
+    },
+    {
+      "key": "media-scene-home-panorama",
+      "label": "三室一厅全景（16:9 场景锚点）",
+      "type": "media",
+      "value": {
+        "asset": "scene-home-panorama",
+        "kind": "image",
+        "name": "三室一厅全景（16:9 场景锚点）"
+      }
+    }
+  ]
+}

@@ -1,0 +1,172 @@
+{
+  "id": "xiaohei",
+  "typeId": "character",
+  "name": "小黑",
+  "intro": "黑色实心、白点眼、细腿、空表情的荒诞工作者；必须参与画面核心动作。",
+  "detail": {
+    "$file": "../references/xiaohei-ip.md"
+  },
+  "attrs": [
+    {
+      "key": "appearance",
+      "label": "外貌与标志",
+      "type": "textarea",
+      "locked": true,
+      "value": "黑色实心小怪物；白色圆点眼睛；细腿，偶尔有细胳膊；轮廓略不规则有手绘感；表情空、呆、冷静、认真"
+    },
+    {
+      "key": "personality",
+      "label": "性格",
+      "type": "textarea",
+      "locked": true,
+      "value": "很认真但做的事有点荒诞；低调系统操作员；冷幽默不卖萌"
+    },
+    {
+      "key": "voice",
+      "label": "声音",
+      "type": "textarea",
+      "locked": true,
+      "value": "无台词；以动作叙事"
+    },
+    {
+      "key": "media-01-two-breakpoints",
+      "label": "两个断点",
+      "type": "media",
+      "value": {
+        "asset": "01-two-breakpoints",
+        "kind": "image",
+        "name": "两个断点"
+      }
+    },
+    {
+      "key": "media-02-minimum-loop",
+      "label": "最小闭环",
+      "type": "media",
+      "value": {
+        "asset": "02-minimum-loop",
+        "kind": "image",
+        "name": "最小闭环"
+      }
+    },
+    {
+      "key": "media-03-sort-by-purpose",
+      "label": "按用途分拣",
+      "type": "media",
+      "value": {
+        "asset": "03-sort-by-purpose",
+        "kind": "image",
+        "name": "按用途分拣"
+      }
+    },
+    {
+      "key": "media-04-one-fish-many-uses",
+      "label": "一鱼多吃",
+      "type": "media",
+      "value": {
+        "asset": "04-one-fish-many-uses",
+        "kind": "image",
+        "name": "一鱼多吃"
+      }
+    },
+    {
+      "key": "media-05-handoff-path",
+      "label": "承接路径",
+      "type": "media",
+      "value": {
+        "asset": "05-handoff-path",
+        "kind": "image",
+        "name": "承接路径"
+      }
+    },
+    {
+      "key": "media-06-three-sources",
+      "label": "三个信息源",
+      "type": "media",
+      "value": {
+        "asset": "06-three-sources",
+        "kind": "image",
+        "name": "三个信息源"
+      }
+    },
+    {
+      "key": "media-07-three-content-jobs",
+      "label": "三种内容工作",
+      "type": "media",
+      "value": {
+        "asset": "07-three-content-jobs",
+        "kind": "image",
+        "name": "三种内容工作"
+      }
+    },
+    {
+      "key": "media-08-handoff-copy-toolbox",
+      "label": "承接话术工具箱",
+      "type": "media",
+      "value": {
+        "asset": "08-handoff-copy-toolbox",
+        "kind": "image",
+        "name": "承接话术工具箱"
+      }
+    },
+    {
+      "key": "media-09-common-pits-no-title",
+      "label": "常见坑（无标题示范）",
+      "type": "media",
+      "value": {
+        "asset": "09-common-pits-no-title",
+        "kind": "image",
+        "name": "常见坑（无标题示范）"
+      }
+    },
+    {
+      "key": "media-10-information-well",
+      "label": "信息井",
+      "type": "media",
+      "value": {
+        "asset": "10-information-well",
+        "kind": "image",
+        "name": "信息井"
+      }
+    },
+    {
+      "key": "media-11-idea-press",
+      "label": "想法压榨机",
+      "type": "media",
+      "value": {
+        "asset": "11-idea-press",
+        "kind": "image",
+        "name": "想法压榨机"
+      }
+    },
+    {
+      "key": "media-12-content-fermentation",
+      "label": "内容发酵",
+      "type": "media",
+      "value": {
+        "asset": "12-content-fermentation",
+        "kind": "image",
+        "name": "内容发酵"
+      }
+    },
+    {
+      "key": "media-13-system-bearing",
+      "label": "系统承重",
+      "type": "media",
+      "value": {
+        "asset": "13-system-bearing",
+        "kind": "image",
+        "name": "系统承重"
+      }
+    },
+    {
+      "key": "media-14-trust-bridge",
+      "label": "信任桥",
+      "type": "media",
+      "value": {
+        "asset": "14-trust-bridge",
+        "kind": "image",
+        "name": "信任桥"
+      }
+    }
+  ]
+}

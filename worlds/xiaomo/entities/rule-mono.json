@@ -1,0 +1,21 @@
+{
+  "id": "rule-mono",
+  "typeId": "rule",
+  "name": "单色与笔触纪律",
+  "intro": "",
+  "attrs": [
+    {
+      "key": "type",
+      "label": "type",
+      "type": "text",
+      "value": "always"
+    },
+    {
+      "key": "text",
+      "label": "规则文本",
+      "type": "textarea",
+      "locked": true,
+      "value": "全图只用黑墨 + 纸底两阶，灰色仅以 halftone 喷点/网点出现；笔触必须有蜡笔/软炭的飞白断墨与涂抹排线，禁止矢量匀线与光滑描边"
+    }
+  ]
+}
