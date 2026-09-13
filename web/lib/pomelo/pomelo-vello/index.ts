@@ -6,3 +6,8 @@
  */
 export * from "./canvas2d-rasterizer";
 export * from "./vello-rasterizer";
+export * from "./op-bridge";
+export * from "./vello-element";
+export * from "./vello-block";
+export * from "./pomelo-vello-adapter";
+export * from "./demo-blocks";
