@@ -1,13 +1,13 @@
 /*
  * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/entity-color（attrMediaLabel）、
  *          world-canvas/blocks/vello-shared
- * [OUTPUT]: 对外提供 FreeElementBlockV（type: free-element）：文本 / 形状 / 属性预览卡（vello op + Canvas2D 双实现）。
+ * [OUTPUT]: 对外提供 FreeElementBlockV（type: free-element）：文本 / 形状 / 属性预览卡。
  * [POS]: lib/pomelo/world-canvas/blocks 的自由元素 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block";
 import type { VelloOp } from "../../pomelo-vello/op-bridge";
-import { drawTextCanvas, textOp } from "../../pomelo-vello/vello-text";
+import { textOp } from "../../pomelo-vello/vello-text";
 import { attrMediaLabel } from "../entity-color";
 import {
   CAPTION_TOP_OFFSET,
@@ -17,9 +17,6 @@ import {
   TEXT_TERTIARY,
   captionOpsV,
   coverImageOpsV,
-  drawCaptionCanvas,
-  drawCoverImageCanvas,
-  roundRect,
   screenScaleOf,
 } from "./vello-shared";
 
@@ -72,26 +69,6 @@ export class FreeElementBlockV extends VelloBlock {
       if (text) ops.push(textOp({ text, x: x + 10, y: y + 10, size: 11, maxWidth: w - 16, fill: TEXT_TERTIARY }));
     }
 
-    const canvas = (ctx: CanvasRenderingContext2D) => {
-      roundRect(ctx, x, y, w, h, elementKind === "attr" ? 12 : 8);
-      ctx.fillStyle = elementKind === "attr" ? "#0f1410" : "rgba(255,255,255,0.03)";
-      ctx.fill();
-      ctx.strokeStyle = elementKind === "attr" ? "rgba(255,255,255,0.08)" : "#52525b";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      if (elementKind === "attr" && media === "image" && mediaSrc) {
-        drawCoverImageCanvas(ctx, this.adapter, mediaSrc, { x, y, width: w, height: h }, { x, y, width: w, height: h, radius: 12 });
-      } else if (elementKind === "text") {
-        drawTextCanvas(ctx, { text: text || "（空文本）", x, y, size: 13, lineHeight: 20, maxWidth: Math.max(40, w), fill: [212, 212, 216, 255] });
-      } else {
-        drawTextCanvas(ctx, { text, x: x + 10, y: y + 10, size: 11, maxWidth: w - 16, fill: TEXT_TERTIARY });
-      }
-      if (elementKind === "attr") {
-        const label = `${attrMediaLabel(media)}${text ? ` · ${text.slice(0, 12)}` : ""}`;
-        const scale = screenScaleOf(this.adapter);
-        drawCaptionCanvas(ctx, this.adapter, x, y - CAPTION_TOP_OFFSET / scale, w, label);
-      }
-    };
-    return { ops, bounds: this.blockBounds(), canvas };
+    return { ops, bounds: this.blockBounds() };
   }
 }

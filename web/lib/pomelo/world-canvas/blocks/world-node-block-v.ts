@@ -1,16 +1,15 @@
 /*
  * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/blocks/vello-shared、
  *          world-canvas/text-metrics（truncateText）
- * [OUTPUT]: 对外提供 WorldNodeBlockV（type: world-node）：深色卡面 + 白 16% 细边 + 主题绿光环 + 名称
- *           （vello op + Canvas2D 双实现）。
+ * [OUTPUT]: 对外提供 WorldNodeBlockV（type: world-node）：深色卡面 + 白 16% 细边 + 主题绿光环 + 名称。
  * [POS]: lib/pomelo/world-canvas/blocks 的 World 根节点 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block";
 import type { VelloOp } from "../../pomelo-vello/op-bridge";
-import { drawTextCanvas, textOp } from "../../pomelo-vello/vello-text";
+import { textOp } from "../../pomelo-vello/vello-text";
 import { truncateText } from "../text-metrics";
-import { CARD_FILL, CARD_STROKE_STRONG, TEXT_PRIMARY, WORLD_ACCENT, roundRect } from "./vello-shared";
+import { CARD_FILL, CARD_STROKE_STRONG, TEXT_PRIMARY, WORLD_ACCENT } from "./vello-shared";
 
 /** World 根节点：深色卡面 + 白 16% 细边 + 主题绿光环 + 名称。 */
 export class WorldNodeBlockV extends VelloBlock {
@@ -29,19 +28,6 @@ export class WorldNodeBlockV extends VelloBlock {
       { kind: "roundRect", x, y, width: w, height: h, radius: h / 2, fill: CARD_FILL, stroke: CARD_STROKE_STRONG, strokeWidth: 1 },
       textOp({ text: worldText, x: x + w / 2, y: y + h / 2 - 11, size: 15, maxWidth: w - 40, align: "center", embolden: 0.03, fill: TEXT_PRIMARY }),
     ];
-    const canvas = (ctx: CanvasRenderingContext2D) => {
-      roundRect(ctx, x - 3, y - 3, w + 6, h + 6, (h + 6) / 2);
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "rgba(93,157,117,0.4)";
-      ctx.stroke();
-      roundRect(ctx, x, y, w, h, h / 2);
-      ctx.fillStyle = "#0f1410";
-      ctx.fill();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(255,255,255,0.16)";
-      ctx.stroke();
-      drawTextCanvas(ctx, { text: worldText, x: x + w / 2, y: y + h / 2 - 11, size: 15, maxWidth: w - 40, align: "center", embolden: 0.03, fill: TEXT_PRIMARY });
-    };
-    return { ops, bounds: { minX: x - 3, minY: y - 3, maxX: x + w + 3, maxY: y + h + 3 }, canvas };
+    return { ops, bounds: { minX: x - 3, minY: y - 3, maxX: x + w + 3, maxY: y + h + 3 } };
   }
 }

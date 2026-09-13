@@ -19,7 +19,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { PomeloEditorState } from "@/lib/pomelo/pomelo-core/pomelo-state";
 import { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
-import { VelloRendererAdapter } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
+import { VelloRendererAdapter, RendererUnsupportedError } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
 import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/world-canvas/blocks/vello-world-blocks";
 import { ViewportPlugin, centerContent, panBy } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
@@ -647,6 +647,7 @@ export function CanvasPomeloHost() {
   const viewportUnsubRef = useRef<{ dispose: () => void } | null>(null);
   const lastViewportKeyRef = useRef<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [unsupported, setUnsupported] = useState<string | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -657,7 +658,7 @@ export function CanvasPomeloHost() {
       container,
       plugins: [new GridPlugin(), new ViewportPlugin(), bindsPlugin],
       blockTypes: WORLD_VELLO_BLOCKS,
-      renderAdapter: new VelloRendererAdapter({ preferGpu: true }),
+      renderAdapter: new VelloRendererAdapter(),
     });
     editorRef.current = editor;
     pluginRef.current = bindsPlugin;
@@ -699,6 +700,13 @@ export function CanvasPomeloHost() {
           rebuild: () => syncDocFromCanvasStore(editor),
         };
       }
+    }).catch((error) => {
+      if (cancelled || editorRef.current !== editor) return;
+      setUnsupported(
+        error instanceof RendererUnsupportedError
+          ? "当前浏览器不支持 WebGPU，世界画布渲染器（vello/wasm）无法启动。"
+          : `世界画布渲染器初始化失败：${error instanceof Error ? error.message : String(error)}`,
+      );
     });
     return () => {
       cancelled = true;
@@ -804,6 +812,18 @@ export function CanvasPomeloHost() {
   return (
     <div className="relative h-full min-h-0 w-full bg-background">
       <div ref={containerRef} className="absolute inset-0 [&_canvas]:block" onDragOver={onDragOver} onDrop={onDrop} />
+      {unsupported && (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-background/95 p-6">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 text-center shadow-xl">
+            <p className="text-sm font-semibold">无法渲染世界画布</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{unsupported}</p>
+            <p className="mt-3 text-[11px] leading-5 text-muted-foreground">
+              请升级到最新版 Chrome / Edge（桌面版 113+）或 Safari 18+。仍失败可在地址栏打开{" "}
+              <code className="rounded bg-muted px-1 py-0.5">chrome://gpu</code> 确认 WebGPU 未被禁用。
+            </p>
+          </div>
+        </div>
+      )}
       <CanvasInlineEditor />
       <EmptyWorldGuide />
       <EmptyContainerGuide />

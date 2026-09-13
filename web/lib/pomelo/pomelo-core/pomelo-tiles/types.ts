@@ -68,7 +68,7 @@ export interface Viewport {
 
 /**
  * 一个渲染块：世界坐标 bounds + 光栅器私有 payload。
- * - payload 对 Canvas2D 光栅器是 (ctx) => void；对 vello 光栅器是绘制 op 列表。
+ * - payload 由具体光栅器定义（vello 光栅器为绘制 op 列表）。
  * - nodeIds 用于「block/节点 → chunk」反查失效。
  * - atomic=true 的块不能跨瓦片切分（含跨瓦片效果），整块渲到独立纹理再作为瓦片内容。
  */
@@ -83,7 +83,7 @@ export interface RenderChunk {
   payload: unknown;
 }
 
-/** 光栅化产物：句柄由光栅器定义（Canvas2D 为离屏画布；vello 为纹理句柄）。 */
+/** 光栅化产物：句柄由光栅器定义（vello 为纹理句柄）。 */
 export interface RenderedTile<THandle> {
   key: TileKey;
   handle: THandle;
@@ -106,7 +106,7 @@ export interface CachedTile<THandle> {
 
 /**
  * 光栅器 seam：把瓦片算法与具体渲染后端解耦。
- * v1 实现 Canvas2D（dev/e2e + 无 WebGPU 降级）；vello 实现走同一接口。
+ * 当前实现为 vello(WebGPU/WASM)。
  */
 export interface TileRasterizer<TTarget, THandle> {
   readonly name: string;

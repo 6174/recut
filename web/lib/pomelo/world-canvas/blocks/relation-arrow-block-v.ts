@@ -3,17 +3,17 @@
  *          world-canvas/arrow-geometry（共享几何）、world-canvas/text-metrics（truncateText/measureTextWidth）、
  *          world-canvas/blocks/vello-shared
  * [OUTPUT]: 对外提供 RelationArrowBlockV（type: relation-arrow）：复用 arrow-geometry 的二次贝塞尔，
- *           曲线 + 箭头 + 标签；线宽/箭头/标签/边框均按屏幕像素恒定（vello op + Canvas2D 双实现）。
+ *           曲线 + 箭头 + 标签；线宽/箭头/标签/边框均按屏幕像素恒定。
  * [POS]: lib/pomelo/world-canvas/blocks 的关系连线 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { PomeloEditorState } from "../../pomelo-core/pomelo-state";
 import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block";
 import type { Rgba, VelloOp } from "../../pomelo-vello/op-bridge";
-import { drawScreenTextCanvas, screenTextOp } from "../../pomelo-vello/vello-text";
+import { screenTextOp } from "../../pomelo-vello/vello-text";
 import { bezierTangent, curveSegment, relationGeometry, type RelationGeometry } from "../arrow-geometry";
 import { measureTextWidth, truncateText } from "../text-metrics";
-import { LABEL_FILL, roundRect, screenScaleOf } from "./vello-shared";
+import { LABEL_FILL, screenScaleOf } from "./vello-shared";
 
 function hexToRgba(hex: string, alpha = 255): Rgba {
   const value = hex.replace("#", "");
@@ -104,33 +104,6 @@ export class RelationArrowBlockV extends VelloBlock {
     const maxX = Math.max(segment.p0.x, segment.cp.x, segment.p2.x, labelX) + pad;
     const maxY = Math.max(segment.p0.y, segment.cp.y, segment.p2.y, labelY) + pad;
 
-    const canvas = (ctx: CanvasRenderingContext2D) => {
-      ctx.beginPath();
-      ctx.moveTo(segment.p0.x, segment.p0.y);
-      ctx.quadraticCurveTo(segment.cp.x, segment.cp.y, segment.p2.x, segment.p2.y);
-      ctx.strokeStyle = `rgba(${color[0]},${color[1]},${color[2]},0.95)`;
-      ctx.lineWidth = strokeWidth;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(geo.b.x, geo.b.y);
-      ctx.lineTo(geo.b.x - headLength * Math.cos(angle) + (headWidth / 2) * Math.sin(angle), geo.b.y - headLength * Math.sin(angle) - (headWidth / 2) * Math.cos(angle));
-      ctx.lineTo(geo.b.x - headLength * Math.cos(angle) - (headWidth / 2) * Math.sin(angle), geo.b.y - headLength * Math.sin(angle) + (headWidth / 2) * Math.cos(angle));
-      ctx.closePath();
-      ctx.fillStyle = `rgb(${color[0]},${color[1]},${color[2]})`;
-      ctx.fill();
-      if (label) {
-        const w = (labelTextW + 14) * inv;
-        const h = 18 * inv;
-        roundRect(ctx, labelX - w / 2, labelY - h / 2, w, h, 9 * inv);
-        ctx.fillStyle = "rgba(15,20,16,0.92)";
-        ctx.fill();
-        ctx.lineWidth = inv;
-        ctx.strokeStyle = "rgba(255,255,255,0.16)";
-        ctx.stroke();
-        drawScreenTextCanvas(ctx, this.adapter, { text: label, x: labelX - labelTextW / 2 / scale, y: labelY - 7 / scale, screenSize: 10, maxScreenWidth: labelTextW, align: "left", fill: LABEL_FILL });
-      }
-    };
-
-    return { ops, bounds: { minX, minY, maxX, maxY }, canvas };
+    return { ops, bounds: { minX, minY, maxX, maxY } };
   }
 }

@@ -56,7 +56,7 @@ export default function WorldVelloDemoPage() {
         { id: "r1", type: RelationArrowBlockV.type, attrs: { x: 0, y: 0, width: 0, height: 0, fromId: "e1", toId: "e2", label: "生活在", color: "#60a5fa" } },
       ],
     });
-    const adapter = new VelloRendererAdapter({ preferGpu: true });
+    const adapter = new VelloRendererAdapter();
     const editor = new PomeloEditor({
       state,
       container,

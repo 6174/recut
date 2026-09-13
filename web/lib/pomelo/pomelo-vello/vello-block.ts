@@ -1,8 +1,8 @@
 /*
  * [INPUT]: 依赖 pomelo-core（PomeloBlock）、pomelo-tiles（TileWorldBounds）、op-bridge（VelloOp/Vec2）
- * [OUTPUT]: 对外提供 VelloBlock：pomelo 的 block 基类，renderBlock() 产出 vello op（+ 可选 Canvas2D painter，
- *           供软件光栅器回退）；render()/reposition() 分别标记内容/位置版本，供适配器做增量失效。
- *           reposition() 对 op 做平移（vello op 内嵌世界坐标，不能只挪 bounds），并同步包裹 Canvas2D painter，
+ * [OUTPUT]: 对外提供 VelloBlock：pomelo 的 block 基类，renderBlock() 产出 vello op；
+ *           render()/reposition() 分别标记内容/位置版本，供适配器做增量失效。
+ *           reposition() 对 op 做平移（vello op 内嵌世界坐标，不能只挪 bounds），
  *           避免拖拽高频路径下画面滞后/闪动；纯 x/y 变化不触发全量 renderBlock（blockStateSelector 忽略 x/y）。
  * [POS]: pomelo-vello 的 block 基类（替代 PixiBlock），world-canvas 各 block 迁移目标。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -15,8 +15,6 @@ import type { Vec2, VelloOp } from "./op-bridge";
 export interface VelloBlockDraw {
   ops: VelloOp[];
   bounds: TileWorldBounds;
-  /** 可选：Canvas2D 回退绘制（同一个 block 同时支持 vello 与软件光栅器）。 */
-  canvas?: (ctx: CanvasRenderingContext2D) => void;
 }
 
 /** 位置平移：vello op 内嵌世界坐标，拖拽时按 delta 平移全部坐标字段（O(n) 且不重跑文本/图片）。 */
@@ -64,11 +62,6 @@ export abstract class VelloBlock extends PomeloBlock {
   renderOnZoom = false;
   ops: VelloOp[] = [];
   bounds: TileWorldBounds = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-  canvasPainter?: (ctx: CanvasRenderingContext2D) => void;
-  /** render() 产出的原始 painter（未叠加位置偏移），reposition 时基于它重建包裹层。 */
-  private basePainter?: (ctx: CanvasRenderingContext2D) => void;
-  private offsetX = 0;
-  private offsetY = 0;
 
   /** 子类实现：由 attrs 产出绘制 op 与世界矩形。 */
   abstract renderBlock(): VelloBlockDraw;
@@ -87,15 +80,11 @@ export abstract class VelloBlock extends PomeloBlock {
     const draw = this.renderBlock();
     this.ops = draw.ops;
     this.bounds = draw.bounds;
-    this.basePainter = draw.canvas;
-    this.offsetX = 0;
-    this.offsetY = 0;
-    this.canvasPainter = draw.canvas;
     this.drawVersion++;
   }
 
   /**
-   * 仅位置变化（x/y）：attrs 已由 patch 更新，按 delta 平移已有 op 与 painter。
+   * 仅位置变化（x/y）：attrs 已由 patch 更新，按 delta 平移已有 op。
    * vello op 内嵌世界坐标，若只挪 bounds 会让画面停在旧位置（拖拽滞后/闪动）；
    * 平移 op 后必须递增 drawVersion，适配器才会重编码 chunk payload。
    */
@@ -107,17 +96,6 @@ export abstract class VelloBlock extends PomeloBlock {
     this.bounds = next;
     if (dx !== 0 || dy !== 0) {
       this.ops = translateVelloOps(this.ops, dx, dy);
-      this.offsetX += dx;
-      this.offsetY += dy;
-      const base = this.basePainter;
-      this.canvasPainter = base
-        ? (ctx: CanvasRenderingContext2D) => {
-            ctx.save();
-            ctx.translate(this.offsetX, this.offsetY);
-            base(ctx);
-            ctx.restore();
-          }
-        : undefined;
       this.drawVersion++;
     }
     this.boundsVersion++;

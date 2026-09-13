@@ -1,9 +1,9 @@
 /*
  * [INPUT]: 依赖 pomelo-core（PomeloRendererAdapter / PomeloBlock）、pomelo-tiles（TileController）、
- *          canvas2d-rasterizer、vello-rasterizer、op-bridge
+ *          vello-rasterizer、op-bridge
  * [OUTPUT]: 对外提供 VelloRendererAdapter：pomelo 的渲染器适配层——接管 vdom diff/patch 后的 block 树，
- *           把 VelloBlock 的绘制 op 汇总成 chunk 交给 TileController 瓦片渲染；vello(WebGPU) 可用时优先，
- *           否则回退 Canvas2DRasterizer。
+ *           把 VelloBlock 的绘制 op 汇总成 chunk 交给 TileController 瓦片渲染（仅 vello/WebGPU）。
+ *           WebGPU 不可用时不降级，抛 RendererUnsupportedError，由宿主提示用户升级浏览器。
  * [POS]: pomelo-vello 的适配器实现（M2 接入层）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,7 +11,6 @@ import { PomeloRendererAdapter } from "../pomelo-core/pomelo-renderer/pomelo-ren
 import type { IElement } from "../pomelo-core/pomelo-types/render.types";
 import { TileController } from "../pomelo-core/pomelo-tiles/controller";
 import type { RenderChunk, TileRasterizer, Viewport } from "../pomelo-core/pomelo-tiles/types";
-import { Canvas2DRasterizer } from "./canvas2d-rasterizer";
 import { VelloGpuRasterizer } from "./vello-rasterizer";
 import { encodeOps } from "./op-bridge";
 import { VelloElement } from "./vello-element";
@@ -19,6 +18,15 @@ import { VelloBlock } from "./vello-block";
 
 const FONT_ID = 1;
 const CJK_FONT_ID = 3;
+
+/** WebGPU/vello 运行环境不可用：不再降级 Canvas2D，宿主据此提示用户升级浏览器。 */
+export class RendererUnsupportedError extends Error {
+  readonly code = "RENDERER_UNSUPPORTED";
+  constructor(message = "当前浏览器不支持 WebGPU，无法运行世界画布渲染器") {
+    super(message);
+    this.name = "RendererUnsupportedError";
+  }
+}
 
 /** 把任意 CSS 颜色（含 oklch）解析为 RGBA 字节；无效时回退深色。 */
 function cssColorToRgba(color: string, fallback: [number, number, number, number] = [11, 15, 25, 255]): [number, number, number, number] {
@@ -55,8 +63,6 @@ interface SyncedBlock {
 }
 
 export interface VelloRendererAdapterOptions {
-  /** 优先尝试 vello(WebGPU)；不可用时回退 Canvas2D。默认 true。 */
-  preferGpu?: boolean;
   background?: string;
 }
 
@@ -74,7 +80,6 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private readonly imageIds = new Map<string, number>();
   private readonly imagePending = new Set<string>();
   private readonly imageSizes = new Map<number, { width: number; height: number }>();
-  private readonly imageElements = new Map<number, HTMLImageElement>();
   private nextImageId = 10_000;
   private readonly options: VelloRendererAdapterOptions;
   private disposeTicker: { dispose(): void } | null = null;
@@ -121,21 +126,16 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     const dpr = Math.min((window.devicePixelRatio || 1) * superSample, 3);
     // 背景色对齐 pixi（透明画布透出主题背景）：解析容器祖先链的有效背景色
     const background = this.options.background ?? resolveBackgroundColor(container);
-    let rasterizer: TileRasterizer<unknown, unknown> | null = null;
-    if (this.options.preferGpu !== false) {
-      try {
-        if (await VelloGpuRasterizer.isAvailable()) {
-          const gpu = await VelloGpuRasterizer.create(canvas, dpr, cssColorToRgba(background));
-          await this.registerFonts(gpu);
-          rasterizer = gpu as unknown as TileRasterizer<unknown, unknown>;
-        }
-      } catch (error) {
-        console.warn("[pomelo-vello-adapter] vello unavailable, falling back to Canvas2D", error);
-        rasterizer = null;
-      }
+    if (!(await VelloGpuRasterizer.isAvailable())) {
+      throw new RendererUnsupportedError();
     }
-    if (!rasterizer) {
-      rasterizer = new Canvas2DRasterizer(canvas, background, dpr) as unknown as TileRasterizer<unknown, unknown>;
+    let rasterizer: TileRasterizer<unknown, unknown>;
+    try {
+      const gpu = await VelloGpuRasterizer.create(canvas, dpr, cssColorToRgba(background));
+      await this.registerFonts(gpu);
+      rasterizer = gpu as unknown as TileRasterizer<unknown, unknown>;
+    } catch (error) {
+      throw new RendererUnsupportedError(`WebGPU 初始化失败：${error instanceof Error ? error.message : String(error)}`);
     }
     this.rasterizer = rasterizer;
     this.rasterizerName = rasterizer.name;
@@ -281,10 +281,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       const estimatedCost = bounds.maxX - bounds.minX + (bounds.maxY - bounds.minY);
 
       if (contentDirty) {
-        const payload = { velloOps: encodeOps(block.ops), canvas: block.canvasPainter } as {
-          velloOps: Uint8Array;
-          canvas?: (ctx: CanvasRenderingContext2D) => void;
-        };
+        const payload = { velloOps: encodeOps(block.ops) } as { velloOps: Uint8Array };
         if (!entry) {
           controller.addChunk({ id, nodeIds: [id], bounds, estimatedCost, payload });
           this.synced.set(id, { draw: block.drawVersion, position: block.boundsVersion });
@@ -357,11 +354,10 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     const id = this.nextImageId++;
     void (async () => {
       try {
-        // vello(GPU) 需要 RGBA 上传纹理；Canvas2D 回退只需图片元素即可 drawImage
-        const loaded = await this.loadImage(url, this.rasterizerName === "vello");
+        // vello(GPU) 需要 RGBA 上传纹理
+        const loaded = await this.loadImage(url);
         if (loaded) {
           this.imageSizes.set(id, { width: loaded.width, height: loaded.height });
-          this.imageElements.set(id, loaded.element);
           if (loaded.data) {
             (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, loaded.width, loaded.height, loaded.data);
           }
@@ -394,13 +390,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     return this.imageSizes.get(imageId) ?? null;
   }
 
-  /** Canvas2D 回退绘制用的已加载图片元素。 */
-  getImageElement(imageId: number): CanvasImageSource | null {
-    return this.imageElements.get(imageId) ?? null;
-  }
-
   /** 用 Image + canvas 取 RGBA（同源/跨域均先按 anonymous 尝试，失败再退化为普通加载）。 */
-  private async loadImage(url: string, needRgba: boolean): Promise<{ element: HTMLImageElement; width: number; height: number; data: Uint8Array | null } | null> {
+  private async loadImage(url: string): Promise<{ width: number; height: number; data: Uint8Array | null } | null> {
     const load = (crossOrigin: boolean) =>
       new Promise<HTMLImageElement>((resolve, reject) => {
         const image = new Image();
@@ -424,14 +415,13 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     const scale = Math.min(1, maxSide / Math.max(naturalW, naturalH));
     const width = Math.max(1, Math.round(naturalW * scale));
     const height = Math.max(1, Math.round(naturalH * scale));
-    if (!needRgba) return { element: image, width, height, data: null };
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return { element: image, width, height, data: null };
+    if (!ctx) return { width, height, data: null };
     ctx.drawImage(image, 0, 0, width, height);
-    return { element: image, width, height, data: new Uint8Array(ctx.getImageData(0, 0, width, height).data) };
+    return { width, height, data: new Uint8Array(ctx.getImageData(0, 0, width, height).data) };
   }
 
   /** 循环渲染直到可见瓦片全覆盖（或上限）。用于首屏/导航结束/图片就绪后的确定性补偿。 */

@@ -20,6 +20,6 @@ renderer 无关的瓦片渲染算法层。逐模块直译 open-pencil 的 produc
 ## 约定
 
 - 不 import vello / pixi / DOM；纯 TS，可在浏览器与 Node 测试环境运行。
-- 光栅器实现 `TileRasterizer<TTarget, THandle>`：v1 有 Canvas2D（dev/e2e + 无 WebGPU 降级），
-  vello 版走同一接口（见 `rfc/2026-09-13-vello-native-rendering-implementation.md`）。
-- `RenderChunk.payload` 是光栅器私有内容：Canvas2D 为绘制回调，vello 为 op 列表。
+- 光栅器实现 `TileRasterizer<TTarget, THandle>`：当前实现为 vello(WebGPU/WASM)，
+  接口保持渲染后端无关（见 `rfc/2026-09-13-vello-native-rendering-implementation.md`）。
+- `RenderChunk.payload` 是光栅器私有内容：vello 为绘制 op 列表。

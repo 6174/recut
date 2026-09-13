@@ -2,13 +2,13 @@
  * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/blocks/entity-card-metrics、
  *          world-canvas/blocks/vello-shared（公共绘制辅助/色板）、world-canvas/text-metrics（truncateText）
  * [OUTPUT]: 对外提供 EntityCardBlockV（type: entity-card）与 entityCardRectV：深色卡面 + 头图 center-cover +
- *           标题/副标题 + 资料格 + 元素徽标（vello op + Canvas2D 双实现）；有效矩形与业务命中/选区/连线共用。
+ *           标题/副标题 + 资料格 + 元素徽标；有效矩形与业务命中/选区/连线共用。
  * [POS]: lib/pomelo/world-canvas/blocks 的实体卡 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block";
 import type { VelloOp } from "../../pomelo-vello/op-bridge";
-import { drawTextCanvas, textOp } from "../../pomelo-vello/vello-text";
+import { textOp } from "../../pomelo-vello/vello-text";
 import { truncateText } from "../text-metrics";
 import { entityCardContentHeight, entityCardRect } from "./entity-card-metrics";
 import {
@@ -21,9 +21,6 @@ import {
   TILE_FILL,
   captionOpsV,
   coverImageOpsV,
-  drawCaptionCanvas,
-  drawCoverImageCanvas,
-  roundRect,
   screenScaleOf,
 } from "./vello-shared";
 
@@ -44,7 +41,7 @@ function stringListOf(value: unknown): string[] {
 /** 实体卡有效渲染矩形：与业务命中/选区/连线锚点共用同一实现（见 entity-card-metrics）。 */
 export const entityCardRectV = entityCardRect;
 
-/** 实体卡：深色卡面 + 头图 center-cover + 标题/副标题 + 资料格 + 元素徽标（vello op + Canvas2D 双实现）。 */
+/** 实体卡：深色卡面 + 头图 center-cover + 标题/副标题 + 资料格 + 元素徽标。 */
 export class EntityCardBlockV extends VelloBlock {
   static type = "entity-card";
   override renderOnZoom = true;
@@ -94,37 +91,6 @@ export class EntityCardBlockV extends VelloBlock {
       ops.push(...coverImageOpsV(this.adapter, urlPhotos[index] ?? "", { x: tx, y: ty, width: THUMB, height: THUMB }, { x: tx, y: ty, width: THUMB, height: THUMB, radius: 8 }));
     }
 
-    const canvas = (ctx: CanvasRenderingContext2D) => {
-      ctx.save();
-      ctx.shadowColor = "rgba(0,0,0,0.28)";
-      ctx.shadowBlur = 12;
-      ctx.shadowOffsetX = 3;
-      ctx.shadowOffsetY = 7;
-      roundRect(ctx, x, y, w, h, CARD_RADIUS);
-      ctx.fillStyle = "#0f1410";
-      ctx.fill();
-      ctx.restore();
-      roundRect(ctx, x, y, w, h, CARD_RADIUS);
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(255,255,255,0.08)";
-      ctx.stroke();
-      if (hasCover) {
-        ctx.fillStyle = "#1d231e";
-        ctx.fillRect(x, y, w, imageH);
-        drawCoverImageCanvas(ctx, this.adapter, coverUrl, { x, y, width: w, height: imageH }, { x, y, width: w, height: h, radius: CARD_RADIUS });
-      }
-      drawCaptionCanvas(ctx, this.adapter, x, caption.top, w, title);
-      drawTextCanvas(ctx, { text: truncateText(title, w - PAD * 2, titleSize), x: x + PAD, y: y + textTop, size: titleSize, maxWidth: w - PAD * 2, embolden: 0.035, fill: TEXT_PRIMARY });
-      drawTextCanvas(ctx, { text: truncateText(summary, w - PAD * 2, summarySize), x: x + PAD, y: y + textTop + (hasCover ? 24 : 30), size: summarySize, maxWidth: w - PAD * 2, fill: TEXT_SECONDARY });
-      for (let index = 0; index < tiles; index++) {
-        const tile = tileRects[index];
-        roundRect(ctx, tile.x, tile.y, THUMB, THUMB, 8);
-        ctx.fillStyle = "#1d231e";
-        ctx.fill();
-        drawCoverImageCanvas(ctx, this.adapter, urlPhotos[index] ?? "", { x: tile.x, y: tile.y, width: THUMB, height: THUMB }, { x: tile.x, y: tile.y, width: THUMB, height: THUMB, radius: 8 });
-      }
-    };
-
-    return { ops, bounds: this.blockBounds(), canvas };
+    return { ops, bounds: this.blockBounds() };
   }
 }

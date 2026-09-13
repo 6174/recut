@@ -32,7 +32,7 @@ pnpm wasm:build:vello     # wasm-pack build --target web + 拷贝到 public/vell
 ```
 
 产物 `public/vello-wasm/` 由 `.gitignore` 忽略（可重建）。dev 页 `/dev/vello-tiles` 在
-`navigator.gpu` 可用时自动使用 vello 光栅器，否则回退 Canvas2D；`?rasterizer=canvas` 可强制回退。
+`navigator.gpu` 不可用时直接报错提示升级浏览器（不再回退 Canvas2D）。
 
 ## 关键 API 事实（wgpu 29 / vello 0.10 已验证）
 

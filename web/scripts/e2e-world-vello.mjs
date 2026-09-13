@@ -41,7 +41,7 @@ try {
   ok("world-vello 适配器挂载", true);
 
   const state = await page.evaluate(() => window.__worldVelloDebug.debugState());
-  ok("光栅器就绪", state.rasterizer === "vello" || state.rasterizer === "canvas2d", `rasterizer=${state.rasterizer}`);
+  ok("光栅器就绪", state.rasterizer === "vello", `rasterizer=${state.rasterizer}`);
   ok("6 个 block chunk", state.chunks === 6, `chunks=${state.chunks}`);
 
   const pixel = await page.evaluate(() => {

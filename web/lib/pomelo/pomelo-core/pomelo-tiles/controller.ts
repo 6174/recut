@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 types、geometry、planner、scheduler、tile-cache、chunk-index、telemetry
  * [OUTPUT]: 对外提供 TileController：每帧编排（双代推进/失效应用/plan/enqueue/按预算执行/合成），
  *           以及 chunk 增删改与 position/content 失效。open-pencil tiles/controller.ts 直译，
- *           光栅器经 TileRasterizer seam 注入（Canvas2D 或 vello）。
+ *           光栅器经 TileRasterizer seam 注入（vello）。
  * [POS]: pomelo-tiles 的编排核心；对上只暴露 renderFrame 与 chunk 操作，renderer 无关。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */

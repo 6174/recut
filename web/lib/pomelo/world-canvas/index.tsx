@@ -50,7 +50,7 @@ export default function PomeloWorldCanvasDemo() {
       container,
       plugins: [new GridPlugin(), new ViewportPlugin(), selectionPlugin, new ConnectionPlugin(), new KeyboardPlugin()],
       blockTypes: WORLD_VELLO_BLOCKS,
-      renderAdapter: new VelloRendererAdapter({ preferGpu: true }),
+      renderAdapter: new VelloRendererAdapter(),
     });
     editorRef.current = editor;
     selectionPluginRef.current = selectionPlugin;
@@ -63,6 +63,8 @@ export default function PomeloWorldCanvasDemo() {
       syncDocFromStore(editor.state);
       centerContent(editor);
       setEditorReady(true);
+    }).catch((error) => {
+      console.warn("[world-canvas-demo] renderer unavailable (WebGPU required)", error);
     });
     return () => {
       editor.destroy();

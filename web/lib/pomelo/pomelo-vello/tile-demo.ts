@@ -1,13 +1,12 @@
 /*
- * [INPUT]: 依赖 pomelo-tiles（TileController/geometry/types）、canvas2d-rasterizer、vello-rasterizer、
+ * [INPUT]: 依赖 pomelo-tiles（TileController/geometry/types）、vello-rasterizer、
  *           op-bridge、self-tests
  * [OUTPUT]: 对外提供 mountTileDemo(canvas)：自包含瓦片渲染演示/验证宿主——生成卡片+箭头+接缝探针场景
- *           （每个 chunk 同时带 Canvas2D 绘制与 vello op 字节流），自动选择 vello(WebGPU) 或 Canvas2D 光栅器，
+ *           （每个 chunk 带 vello op 字节流），使用 vello(WebGPU) 光栅器（不支持即抛错），
  *           接管 pan/zoom/拖拽，暴露 window 调试句柄（供 Playwright 驱动）。
  * [POS]: pomelo-vello 的 dev/e2e 验证宿主；不接后端、不依赖 pomelo 编辑器。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { Canvas2DRasterizer } from "./canvas2d-rasterizer";
 import { VelloGpuRasterizer } from "./vello-rasterizer";
 import { encodeOps, type Rgba, type VelloOp } from "./op-bridge";
 import { runSelfTests, type SelfTestResult } from "./self-tests";
@@ -41,7 +40,6 @@ interface DemoCard {
 }
 
 interface ChunkPayload {
-  canvas: (ctx: CanvasRenderingContext2D) => void;
   velloOps: Uint8Array;
 }
 
@@ -107,16 +105,6 @@ function hexToRgba(hex: string, alpha = 255): Rgba {
   return [r, g, b, alpha];
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
 function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: number } {
   const chunks: RenderChunk[] = [];
   const cards: DemoCard[] = [];
@@ -155,30 +143,6 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
         bounds: { minX: x, minY: y, maxX: x + CARD_W, maxY: y + CARD_H },
         estimatedCost: CARD_W + CARD_H,
         payload: {
-          canvas: (ctx) => {
-            roundRect(ctx, x, y, CARD_W, CARD_H, 14);
-            ctx.fillStyle = "#14151a";
-            ctx.fill();
-            ctx.save();
-            ctx.clip();
-            ctx.globalAlpha = 0.18;
-            ctx.fillStyle = card.color;
-            ctx.fillRect(x, y, CARD_W, 42);
-            ctx.restore();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = card.color;
-            ctx.globalAlpha = 0.85;
-            roundRect(ctx, x + 1, y + 1, CARD_W - 2, CARD_H - 2, 14);
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = "#e5e7eb";
-            ctx.font = "600 16px ui-sans-serif, system-ui, sans-serif";
-            ctx.textBaseline = "top";
-            ctx.fillText(card.title, x + 16, y + 14);
-            ctx.fillStyle = "#9ca3af";
-            ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
-            ctx.fillText("world canvas tile", x + 16, y + 66);
-          },
           velloOps,
         } satisfies ChunkPayload,
       });
@@ -217,21 +181,6 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
       },
       estimatedCost: 160,
       payload: {
-        canvas: (ctx) => {
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.quadraticCurveTo(cxp, cyp, bx, by);
-          ctx.strokeStyle = "#8b93a7";
-          ctx.lineWidth = 2;
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(triangle.points[0][0], triangle.points[0][1]);
-          ctx.lineTo(triangle.points[1][0], triangle.points[1][1]);
-          ctx.lineTo(triangle.points[2][0], triangle.points[2][1]);
-          ctx.closePath();
-          ctx.fillStyle = "#8b93a7";
-          ctx.fill();
-        },
         velloOps: encodeOps([
           { kind: "quadStroke", p0: [ax, ay], cp: [cxp, cyp], p1: [bx, by], stroke: [139, 147, 167, 255], strokeWidth: 2 },
           triangle,
@@ -246,10 +195,6 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
     bounds: { minX: PROBE.x, minY: PROBE.y, maxX: PROBE.x + PROBE.width, maxY: PROBE.y + PROBE.height },
     estimatedCost: PROBE.width + PROBE.height,
     payload: {
-      canvas: (ctx) => {
-        ctx.fillStyle = "#22c55e";
-        ctx.fillRect(PROBE.x, PROBE.y, PROBE.width, PROBE.height);
-      },
       velloOps: encodeOps([{ kind: "rectFill", x: PROBE.x, y: PROBE.y, width: PROBE.width, height: PROBE.height, fill: [34, 197, 94, 255] }]),
     } satisfies ChunkPayload,
   });
@@ -260,14 +205,6 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
     bounds: { minX: TEXT_PROBE.x, minY: TEXT_PROBE.y, maxX: TEXT_PROBE.x + TEXT_PROBE.width, maxY: TEXT_PROBE.y + TEXT_PROBE.height },
     estimatedCost: TEXT_PROBE.width + TEXT_PROBE.height,
     payload: {
-      canvas: (ctx) => {
-        ctx.fillStyle = "#0a0c12";
-        ctx.fillRect(TEXT_PROBE.x, TEXT_PROBE.y, TEXT_PROBE.width, TEXT_PROBE.height);
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "600 160px ui-sans-serif, system-ui, sans-serif";
-        ctx.textBaseline = "top";
-        ctx.fillText("VOICE 2026", TEXT_PROBE.x + 40, TEXT_PROBE.y + 60);
-      },
       velloOps: encodeOps([
         { kind: "rectFill", x: TEXT_PROBE.x, y: TEXT_PROBE.y, width: TEXT_PROBE.width, height: TEXT_PROBE.height, fill: [10, 12, 18, 255] },
         { kind: "text", fontId: FONT_ID, x: TEXT_PROBE.x + 40, y: TEXT_PROBE.y + 60, size: 160, fill: [255, 255, 255, 255], text: "VOICE 2026" },
@@ -281,10 +218,6 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
     bounds: { minX: IMAGE_PROBE.x, minY: IMAGE_PROBE.y, maxX: IMAGE_PROBE.x + IMAGE_PROBE.width, maxY: IMAGE_PROBE.y + IMAGE_PROBE.height },
     estimatedCost: IMAGE_PROBE.width + IMAGE_PROBE.height,
     payload: {
-      canvas: (ctx) => {
-        ctx.fillStyle = "#ff8000";
-        ctx.fillRect(IMAGE_PROBE.x, IMAGE_PROBE.y, IMAGE_PROBE.width, IMAGE_PROBE.height);
-      },
       velloOps: encodeOps([
         { kind: "rectFill", x: IMAGE_PROBE.x, y: IMAGE_PROBE.y, width: IMAGE_PROBE.width, height: IMAGE_PROBE.height, fill: [20, 20, 20, 255] },
         { kind: "image", imageId: IMAGE_ID, x: IMAGE_PROBE.x + 20, y: IMAGE_PROBE.y + 20, width: 360, height: 360 },
@@ -298,14 +231,6 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
     bounds: { minX: CJK_PROBE.x, minY: CJK_PROBE.y, maxX: CJK_PROBE.x + CJK_PROBE.width, maxY: CJK_PROBE.y + CJK_PROBE.height },
     estimatedCost: CJK_PROBE.width + CJK_PROBE.height,
     payload: {
-      canvas: (ctx) => {
-        ctx.fillStyle = "#0a0c12";
-        ctx.fillRect(CJK_PROBE.x, CJK_PROBE.y, CJK_PROBE.width, CJK_PROBE.height);
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "140px sans-serif";
-        ctx.textBaseline = "top";
-        ctx.fillText("世界画布 中文测试 语音创作", CJK_PROBE.x + 40, CJK_PROBE.y + 60);
-      },
       velloOps: encodeOps([
         { kind: "rectFill", x: CJK_PROBE.x, y: CJK_PROBE.y, width: CJK_PROBE.width, height: CJK_PROBE.height, fill: [10, 12, 18, 255] },
         // 主字体用拉丁 Space Grotesk（无 CJK），经 fallback(1→3) 用 Noto CJK 子集绘制
@@ -323,16 +248,6 @@ function buildScene(): { chunks: RenderChunk[]; cards: DemoCard[]; arrows: numbe
     atomicPadding: 90,
     estimatedCost: 600,
     payload: {
-      canvas: (ctx) => {
-        ctx.save();
-        ctx.shadowColor = "rgba(0,0,0,0.9)";
-        ctx.shadowBlur = 60;
-        ctx.shadowOffsetY = 20;
-        roundRect(ctx, 150, 5760, 260, 180, 24);
-        ctx.fillStyle = "#f8fafc";
-        ctx.fill();
-        ctx.restore();
-      },
       velloOps: encodeOps([
         { kind: "blurRect", x: 150, y: 5760, width: 260, height: 180, radius: 24, stdDev: 30, fill: [0, 0, 0, 200] },
         { kind: "roundRect", x: 150, y: 5760, width: 260, height: 180, radius: 24, fill: [248, 250, 252, 255], stroke: [0, 0, 0, 0], strokeWidth: 0 },
@@ -349,19 +264,15 @@ export async function mountTileDemo(canvas: HTMLCanvasElement): Promise<TileDemo
   const width = Math.max(320, Math.round(rect.width || canvas.clientWidth || 800));
   const height = Math.max(240, Math.round(rect.height || canvas.clientHeight || 600));
 
-  const forced = new URLSearchParams(window.location.search).get("rasterizer");
-  let rasterizer: TileRasterizer<unknown, unknown> | null = null;
-  if (forced !== "canvas") {
-    try {
-      if (await VelloGpuRasterizer.isAvailable()) {
-        rasterizer = (await VelloGpuRasterizer.create(canvas, dpr)) as unknown as TileRasterizer<unknown, unknown>;
-      }
-    } catch (error) {
-      console.warn("[vello-tiles] vello rasterizer unavailable, falling back to Canvas2D", error);
-      rasterizer = null;
-    }
+  if (!(await VelloGpuRasterizer.isAvailable())) {
+    throw new Error("当前浏览器不支持 WebGPU，无法运行 vello 瓦片演示。请升级浏览器（Chrome/Edge 113+、Safari 18+）。");
   }
-  if (!rasterizer) rasterizer = new Canvas2DRasterizer(canvas, "#0b0f19", dpr) as unknown as TileRasterizer<unknown, unknown>;
+  let rasterizer: TileRasterizer<unknown, unknown>;
+  try {
+    rasterizer = (await VelloGpuRasterizer.create(canvas, dpr)) as unknown as TileRasterizer<unknown, unknown>;
+  } catch (error) {
+    throw new Error(`vello 光栅器初始化失败：${error instanceof Error ? error.message : String(error)}`);
+  }
   rasterizer.resize(width, height, dpr);
 
   let fontRegistered = false;

@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 pomelo-tiles/types、op-bridge
  * [OUTPUT]: 对外提供 VelloGpuRasterizer：TileRasterizer 的 vello(WASM/WebGPU) 实现。
  *           运行时经 /vello-wasm/*（wasm-pack 产物）动态加载；`isAvailable()` 检测 navigator.gpu + adapter。
- *           未就绪或加载失败时由宿主回退 Canvas2DRasterizer。
+ *           不可用时由宿主抛出 RendererUnsupportedError（不降级）。
  * [POS]: pomelo-vello 的 GPU 光栅器实现（M1）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */

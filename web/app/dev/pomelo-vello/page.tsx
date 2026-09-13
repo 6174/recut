@@ -40,7 +40,7 @@ export default function PomeloVelloDemoPage() {
         demoCardRecord("card-3", 160, 200, "Gamma", "#10b981"),
       ],
     });
-    const adapter = new VelloRendererAdapter({ preferGpu: true });
+    const adapter = new VelloRendererAdapter();
     const editor = new PomeloEditor({
       state,
       container,

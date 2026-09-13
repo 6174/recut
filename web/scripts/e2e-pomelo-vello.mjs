@@ -43,7 +43,7 @@ try {
   ok("适配器挂载 + 3 个 block", true);
 
   const state = await page.evaluate(() => window.__pomeloVelloDebug.debugState());
-  ok("光栅器就绪", state.rasterizer === "vello" || state.rasterizer === "canvas2d", `rasterizer=${state.rasterizer}`);
+  ok("光栅器就绪", state.rasterizer === "vello", `rasterizer=${state.rasterizer}`);
   ok("chunk 数正确", state.chunks === 3, `chunks=${state.chunks}`);
 
   const pixel = await page.evaluate(() => {
