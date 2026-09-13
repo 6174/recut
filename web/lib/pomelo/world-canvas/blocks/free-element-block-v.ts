@@ -66,6 +66,10 @@ export class FreeElementBlockV extends VelloBlock {
         ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: 12 });
         ops.push(textOp({ text, x: x + 10, y: y + 10, size: 11, maxWidth: w - 20, lineHeight: 17, fill: TEXT_PRIMARY }));
         ops.push({ kind: "popClip" });
+      } else if (media !== "text") {
+        // 空媒体属性卡 placeholder：点击选中后在右侧详情面板选来源
+        const placeholder = media === "video" ? "＋ 点击添加视频" : media === "audio" ? "＋ 点击添加音频" : "＋ 点击添加图片";
+        ops.push(textOp({ text: placeholder, x: x + 10, y: y + 10, size: 11, maxWidth: w - 20, fill: TEXT_TERTIARY }));
       }
     } else {
       const radius = shapeType === "ellipse" || shapeType === "diamond" ? Math.min(w, h) / 2 : 8;

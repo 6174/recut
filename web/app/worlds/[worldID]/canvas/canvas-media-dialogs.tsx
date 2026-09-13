@@ -12,7 +12,7 @@ import { Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
-import { assetModality, mediaSource, modalityOfKind } from "./canvas-media";
+import { assetModality, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
 import { useWorldCanvasStore } from "./canvas-store";
 
 type LibraryAsset = { id: string; name: string; kind: string; mimeType: string; status: string };
@@ -21,10 +21,12 @@ export function MediaSourceDialog() {
   const mediaSource = useWorldCanvasStore((state) => state.mediaSource);
   const setMediaSource = useWorldCanvasStore((state) => state.setMediaSource);
   if (!mediaSource) return null;
-  return <SourceDialogBody onClose={() => setMediaSource(null)} />;
+  return <SourceDialogBody modality={mediaSource.modality} onClose={() => setMediaSource(null)} />;
 }
 
-function SourceDialogBody({ onClose }: { onClose: () => void }) {
+const MODALITY_LABEL: Record<MediaModality, string> = { image: "图片", video: "视频", audio: "音频" };
+
+function SourceDialogBody({ onClose, modality: preferred }: { onClose: () => void; modality?: MediaModality }) {
   const [tab, setTab] = useState<"upload" | "library" | "url">("upload");
   const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const [assets, setAssets] = useState<LibraryAsset[]>([]);
@@ -66,6 +68,10 @@ function SourceDialogBody({ onClose }: { onClose: () => void }) {
         setError("仅支持图片 / 视频 / 音频文件");
         continue;
       }
+      if (preferred && modality !== preferred) {
+        setError(`此处仅支持${MODALITY_LABEL[preferred]}文件`);
+        continue;
+      }
       setBusy(true);
       try {
         const form = new FormData();
@@ -84,14 +90,17 @@ function SourceDialogBody({ onClose }: { onClose: () => void }) {
   };
 
   const filtered = assets.filter(
-    (item) => assetModality(item.kind) && (!query.trim() || item.name?.toLowerCase().includes(query.trim().toLowerCase())),
+    (item) =>
+      assetModality(item.kind) &&
+      (!preferred || assetModality(item.kind) === preferred) &&
+      (!query.trim() || item.name?.toLowerCase().includes(query.trim().toLowerCase())),
   );
 
   return (
     <div aria-modal="true" className="fixed inset-0 z-[70] grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog">
       <div className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-md border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b px-4 py-3">
-          <h3 className="text-sm font-semibold">添加素材（独立素材）</h3>
+          <h3 className="text-sm font-semibold">{preferred ? `添加${MODALITY_LABEL[preferred]}素材` : "添加素材（独立素材）"}</h3>
           <div className="flex gap-1">
             {(["upload", "library", "url"] as const).map((item) => (
               <button
@@ -116,11 +125,14 @@ function SourceDialogBody({ onClose }: { onClose: () => void }) {
               }}
             >
               <Upload className="size-5 text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">拖入或选择图片 / 视频 / 音频文件</p>
+              <p className="text-xs text-muted-foreground">
+                {preferred ? `拖入或选择${MODALITY_LABEL[preferred]}文件` : "拖入或选择图片 / 视频 / 音频文件"}
+              </p>
               <button className="rounded-md border px-3 py-1.5 text-xs hover:bg-muted" onClick={() => fileRef.current?.click()} type="button">
                 选择文件
               </button>
               <input
+                accept={preferred ? `${preferred}/*` : undefined}
                 className="hidden"
                 multiple
                 onChange={(event) => void uploadFiles(Array.from(event.target.files ?? []))}
@@ -175,7 +187,13 @@ function SourceDialogBody({ onClose }: { onClose: () => void }) {
               <button
                 className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
                 disabled={!/^https:\/\//.test(url) || busy}
-                onClick={() => void deliver(url.includes(".mp4") || url.includes("video") ? "video" : url.includes(".mp3") || url.includes("audio") ? "audio" : "image", undefined, url)}
+                onClick={() =>
+                  void deliver(
+                    preferred ?? (url.includes(".mp4") || url.includes("video") ? "video" : url.includes(".mp3") || url.includes("audio") ? "audio" : "image"),
+                    undefined,
+                    url,
+                  )
+                }
                 type="button"
               >
                 添加

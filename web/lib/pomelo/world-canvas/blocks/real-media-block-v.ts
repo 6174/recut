@@ -54,8 +54,13 @@ export class RealMediaBlockV extends VelloBlock {
     ];
     if (modality === "image" && src) {
       ops.push(...coverImageOpsV(this.adapter, src, { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12 }, { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12, radius: 8 }));
+    } else if (src) {
+      // 已有源的视频/音频：提示双击预览
+      ops.push(textOp({ text: modality === "video" ? "▶ 视频 · 双击预览" : "♪ 音频 · 双击预览", x: x + 12, y: y + innerH / 2 - 10, size: 14, maxWidth: w - 24, fill: TEXT_TERTIARY }));
     } else {
-      ops.push(textOp({ text: modality === "video" ? "视频 · 双击预览" : "音频 · 双击预览", x: x + 12, y: y + innerH / 2 - 10, size: 14, maxWidth: w - 24, fill: TEXT_TERTIARY }));
+      // 空素材 placeholder：点击选中后在右侧详情面板选来源 / 本地上传
+      const placeholder = modality === "video" ? "＋ 点击添加视频" : modality === "audio" ? "＋ 点击添加音频" : "＋ 点击添加图片";
+      ops.push(textOp({ text: placeholder, x: x + 12, y: y + innerH / 2 - 10, size: 13, maxWidth: w - 24, fill: TEXT_TERTIARY }));
     }
     if (attached) ops.push(textOp({ text: "◈ 参考素材", x: x + 10, y: y + h - 16, size: 9, maxWidth: w - 20, fill: TEXT_SECONDARY }));
 

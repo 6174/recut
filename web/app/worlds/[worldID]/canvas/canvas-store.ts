@@ -441,9 +441,9 @@ type WorldCanvasState = {
   setDeleteTarget: (entity: WorldEntity | null) => void;
   setAddFieldFor: (kind: string | null) => void;
   // T8 媒体：素材来源浮层（仅独立素材；实体媒体 = media 属性，无独立「挂接目标」状态）与预览浮层
-  mediaSource: Record<string, never> | null;
+  mediaSource: { modality?: "image" | "video" | "audio" } | null;
   mediaPreview: { src: string; modality: string; name: string } | null;
-  setMediaSource: (input: Record<string, never> | null) => void;
+  setMediaSource: (input: { modality?: "image" | "video" | "audio" } | null) => void;
   // 画面删除（T16/D7 P1）：实体卡从画布移除，设定本身保留；outline 面板可放回
   hideEntityFromCanvas: (entityId: string) => Promise<void>;
   unhideEntity: (entityId: string) => Promise<void>;
@@ -1027,7 +1027,6 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         style: { color: "#fde68a" },
         layer: "0",
       });
-      await get().load(true);
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1634,21 +1633,26 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
 
-  // 独立媒体元素落画布（kind='media'；不产 revision）
+  // 独立媒体元素落画布（kind='media'；不产 revision）。空素材 = placeholder 卡，
+  // 创建即选中 → 右侧详情面板承担来源选择（AI/素材库/本地上传），不再弹素材浮层。
   addMediaElement: async (props, pos) => {
+    const labels: Record<string, string> = { image: "图片", video: "视频", audio: "音频" };
+    const id = `shape:media-${Date.now()}`;
     try {
       await get().upsertElement({
-        id: `shape:media-${Date.now()}`,
+        id,
         contextId: get().context?.entityId ?? "",
         kind: "media",
         refKind: "",
         refId: "",
-        name: props.name ?? "媒体",
+        name: props.name ?? labels[props.modality] ?? "媒体",
         props: { modality: props.modality, assetId: props.assetId ?? "", url: props.url ?? "" },
         geometry: { x: Math.round(pos.x), y: Math.round(pos.y), width: 220, height: 150, zIndex: 1 },
         style: {},
         layer: "0",
       });
+      const created = get().elements.find((element) => element.id === id);
+      if (created) get().select({ type: "canvas", element: created });
     } catch (cause) {
       applyCanvasError(cause);
     }

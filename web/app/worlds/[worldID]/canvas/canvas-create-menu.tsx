@@ -135,14 +135,14 @@ export function CreateMenu() {
         </div>
         <div className="my-1.5 h-px bg-border" />
         <div className="grid grid-cols-3 gap-1">
-          {/* 媒体项（T8）：打开素材来源浮层（无目标实体 = 独立媒体元素） */}
+          {/* 媒体项（T8）：直接落一张空媒体卡（placeholder 引导），选中后由右侧详情面板选来源 */}
           {[["🖼", "图片", "image"], ["🎬", "视频", "video"], ["🎙", "音频", "audio"]] .map(([icon, label, modality]) => (
             <button
               className="flex items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-left text-xs hover:bg-muted"
               key={modality}
               onClick={() => {
                 close();
-                useWorldCanvasStore.getState().setMediaSource(null);
+                void useWorldCanvasStore.getState().addMediaElement({ modality: modality as "image" | "video" | "audio" }, cursorWorld(creatingAt));
               }}
               type="button"
             >

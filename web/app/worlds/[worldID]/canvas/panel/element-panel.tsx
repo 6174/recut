@@ -79,13 +79,16 @@ function AttrTextCardEditor({ attrId, initialText }: { attrId: string; initialTe
   );
 }
 
-export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEntityIdProp }: { fromEntityId?: string; toEntityId?: string }) {  const element = useWorldCanvasStore((state) => (state.selection?.type === "canvas" ? state.selection.element : null));
+export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEntityIdProp }: { fromEntityId?: string; toEntityId?: string }) {  const selected = useWorldCanvasStore((state) => (state.selection?.type === "canvas" ? state.selection.element : null));
   const entities = useWorldCanvasStore((state) => state.entities);
   const elements = useWorldCanvasStore((state) => state.elements);
   const relationTypes = useWorldCanvasStore((state) => state.relationTypes);
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const removeElement = useWorldCanvasStore((state) => state.removeElement);
   const setPromoting = useWorldCanvasStore((state) => state.setPromoting);
+  // selection.element 是选中时刻的快照；面板编辑（换图/改名）只更新 elements，
+  // 若直接读快照会永远停在旧值（媒体面板换图后预览不刷新、生成配方不继承）。
+  const element = selected ? (elements.find((item) => item.id === selected.id) ?? selected) : null;
   const titleOf = (id?: string) => (id ? entities.find((item) => item.id === id)?.name ?? "…" : "—");
   if (!element) return null;
   const isArrow = element.kind === "arrow";
