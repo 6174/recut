@@ -17,6 +17,9 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { createRecutWorldsClient, type EntityAttr, type EntityKind, type EntityTypeField, type WorldEntity, type WorldRelationType } from "@/lib/recut-worlds-client";
 import { AssetFieldRow, FieldRow, parseAssetValue } from "./field-row";
+import { RichFieldRow } from "./rich-field-row";
+
+const ENTITY_REF_TYPES = ["creation_entity", "creation_world", "media"];
 
 // 统一保存 patch（与画布 saveEntityField 同语义；attrKey 不存在时宿主负责新建该 attr）
 export type EntitySavePatch = {
@@ -133,9 +136,9 @@ export function EntityEditor({
         readOnly={readOnly}
       />
 
-      {/* 简介 → 正文（detail）：固定顺序，detail 为一等字段 */}
-      <FieldRow label="简介" multiline value={entity?.intro ?? ""} placeholder="一句话简介…" onSave={(value) => saveField({ intro: String(value) })} />
-      <FieldRow label="正文" multiline placeholder="详细内容…" value={entity?.detail ?? ""} onSave={(value) => saveField({ detail: String(value) })} />
+      {/* 简介 → 正文（detail）：rich 富文本 + 内联实体引用（复用验证，不产生 contexts） */}
+      <RichFieldRow apiBase={apiBase} allowedRefTypes={ENTITY_REF_TYPES} label="简介" minRows={1} onSave={(value) => saveField({ intro: value })} placeholder="一句话简介…" readOnly={readOnly} value={entity?.intro ?? ""} />
+      <RichFieldRow apiBase={apiBase} allowedRefTypes={ENTITY_REF_TYPES} label="正文" minRows={4} onSave={(value) => saveField({ detail: value })} placeholder="详细内容…" readOnly={readOnly} value={entity?.detail ?? ""} />
 
       {/* 字段（type schema + schema 外动态属性 + ＋添加属性 / ＋添加字段） */}
       <Section
@@ -173,11 +176,25 @@ export function EntityEditor({
               />
             );
           }
+          if (field.type !== "text" && field.type !== "number") {
+            return (
+              <RichFieldRow
+                apiBase={apiBase}
+                allowedRefTypes={ENTITY_REF_TYPES}
+                key={field.key}
+                label={field.label ?? field.key}
+                minRows={2}
+                onSave={(value) => saveField({ attrKey: field.key, value })}
+                placeholder={field.placeholder}
+                readOnly={readOnly}
+                value={entityAttrTextOf(entity, field.key)}
+              />
+            );
+          }
           return (
             <FieldRow
               key={field.key}
               label={field.label ?? field.key}
-              multiline={field.type !== "text" && field.type !== "number"}
               placeholder={field.placeholder}
               readOnly={readOnly}
               onSave={(value) => saveField({ attrKey: field.key, value: field.type === "number" && value !== "" && !Number.isNaN(Number(value)) ? Number(value) : value })}
@@ -195,6 +212,17 @@ export function EntityEditor({
               onSave={(value) => saveField({ attrKey: attr.key, attrType: "media", value })}
               readOnly={readOnly}
               value={entityAttrValueOf(entity, attr.key)}
+            />
+          ) : attr.type === "textarea" ? (
+            <RichFieldRow
+              apiBase={apiBase}
+              allowedRefTypes={ENTITY_REF_TYPES}
+              key={attr.key}
+              label={attr.label ?? attr.key}
+              minRows={2}
+              onSave={(value) => saveField({ attrKey: attr.key, value })}
+              readOnly={readOnly}
+              value={entityAttrTextOf(entity, attr.key)}
             />
           ) : (
             <FieldRow

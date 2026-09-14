@@ -8,6 +8,7 @@ import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block"
 import type { Rgba, VelloOp } from "../../pomelo-vello/op-bridge";
 import { textOp } from "../../pomelo-vello/vello-text";
 import { CARD_FILL, CARD_STROKE } from "./vello-shared";
+import { displayRefText } from "./ref-text";
 
 /** 便签/文本：深色卡面 + 白 8% 细边 + 次级文字，圆角 12。 */
 export class NoteBlockV extends VelloBlock {
@@ -19,7 +20,7 @@ export class NoteBlockV extends VelloBlock {
     const y = Number(attrs.y) || 0;
     const w = Number(attrs.width) || 200;
     const h = Number(attrs.height) || 120;
-    const text = String(attrs.text ?? "便签");
+    const text = displayRefText(String(attrs.text ?? "便签"));
     const noteText: Rgba = [156, 163, 175, 255];
     const ops: VelloOp[] = [
       { kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: CARD_STROKE, strokeWidth: 1 },

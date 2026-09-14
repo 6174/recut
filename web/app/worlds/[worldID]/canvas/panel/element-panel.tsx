@@ -12,10 +12,15 @@
 "use client";
 
 import { Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { RichComposer } from "@/components/rich-composer/rich-composer";
+import { RichFieldRow } from "@/components/world-entity/rich-field-row";
+import type { RichComposerValue } from "@/lib/rich-composer/value";
 import { useWorldCanvasStore } from "../canvas-store";
 import { FieldRow } from "./field-row";
 import { MediaElementEditor } from "./media-editor";
+
+const ELEMENT_REF_TYPES = ["creation_entity", "creation_world", "media"];
 
 // attr 媒体卡（kind=attr 且 props.media≠text）与独立媒体元素（kind=media）的类型标签
 function mediaLabelOf(media: string): string {
@@ -34,6 +39,7 @@ function AttrLabelEditor({ attrId, initialLabel }: { attrId: string; initialLabe
 // 名称走 renameAttrLabel（label 元素名+边名+实体字段一次完成）
 function AttrTextCardEditor({ attrId, initialText }: { attrId: string; initialText: string }) {
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
+  const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const renameAttrLabel = useWorldCanvasStore((state) => state.renameAttrLabel);
   const persistGeometry = useWorldCanvasStore((state) => state.persistGeometry);
   const syncAttrValue = useWorldCanvasStore((state) => state.syncAttrValue);
@@ -67,13 +73,15 @@ function AttrTextCardEditor({ attrId, initialText }: { attrId: string; initialTe
         readOnly={readOnly}
         onSave={(value) => renameAttrLabel(attrId, String(value))}
       />
-      <FieldRow
+      <RichFieldRow
+        apiBase={apiBase}
+        allowedRefTypes={ELEMENT_REF_TYPES}
         label="正文"
-        multiline
+        minRows={3}
         value={initialText}
-        placeholder="点击填写（放大编辑可看全文）"
+        placeholder="点击填写（@ 引用实体；放大编辑可看全文）"
         readOnly={readOnly}
-        onSave={(value) => save(String(value))}
+        onSave={(value) => save(value)}
       />
     </div>
   );
@@ -173,6 +181,7 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
 // 文本值（persistGeometry + syncAttrValue；媒体属性值走画布/素材流，不在面板编辑）
 function AttrEdgeEditor({ attrId, initialLabel, media, initialText }: { attrId: string; initialLabel: string; media: string; initialText: string }) {
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
+  const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const renameAttrLabel = useWorldCanvasStore((state) => state.renameAttrLabel);
   const persistGeometry = useWorldCanvasStore((state) => state.persistGeometry);
   const syncAttrValue = useWorldCanvasStore((state) => state.syncAttrValue);
@@ -181,18 +190,20 @@ function AttrEdgeEditor({ attrId, initialLabel, media, initialText }: { attrId: 
     <div className="space-y-3">
       <FieldRow label="属性名称" value={initialLabel} placeholder="属性名…" readOnly={readOnly} onSave={(value) => renameAttrLabel(attrId, String(value))} />
       {media === "text" && (
-        <FieldRow
+        <RichFieldRow
+          apiBase={apiBase}
+          allowedRefTypes={ELEMENT_REF_TYPES}
           label="值"
-          multiline
+          minRows={3}
           value={initialText}
-          placeholder="点击填写"
+          placeholder="点击填写（@ 引用实体）"
           readOnly={readOnly}
           onSave={(value) => {
             const attr = useWorldCanvasStore.getState().elements.find((item) => item.id === attrId);
             if (!attr) return;
-            return persistGeometry(attrId, undefined, { text: String(value) }).then(() => {
+            return persistGeometry(attrId, undefined, { text: value }).then(() => {
               const named = elements.find((item) => item.id === attrId);
-              if (named) return syncAttrValue(named, String(value));
+              if (named) return syncAttrValue(named, value);
             });
           }}
         />
@@ -247,36 +258,49 @@ function DraftRelationTypeEditor({ arrowId, currentType }: { arrowId: string; cu
   );
 }
 
-// 便签/文本正文编辑（T4 面板侧）：与画布就地编辑同一保存通道（persistGeometry props.text）
+// 便签/文本正文编辑（T4 面板侧）：富文本 + 内联实体引用，与画布就地编辑同一保存通道（persistGeometry props.text）
 function ElementBodyEditor({ elementId, initialText }: { elementId: string; initialText: string }) {
-  const [value, setValue] = useState(initialText);
+  const apiBase = useWorldCanvasStore((state) => state.apiBase);
+  const [value, setValue] = useState<RichComposerValue>(() => ({ text: initialText, refs: [], isEmpty: !initialText }));
   const [saved, setSaved] = useState(false);
+  const initialRef = useRef(initialText);
+  useEffect(() => {
+    setValue({ text: initialText, refs: [], isEmpty: !initialText });
+    initialRef.current = initialText;
+  }, [initialText]);
   const save = () => {
-    if (value === initialText) return;
+    if (value.text === initialRef.current) return;
     void useWorldCanvasStore
       .getState()
-      .persistGeometry(elementId, undefined, { text: value })
+      .persistGeometry(elementId, undefined, { text: value.text })
       .then(() => {
+        initialRef.current = value.text;
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
       });
   };
   return (
-    <div>
+    <div onKeyDownCapture={(event) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        save();
+      }
+    }}>
       <p className="text-[11px] font-medium text-muted-foreground">内容</p>
-      <textarea
-        className="mt-1 min-h-20 w-full resize-y rounded-md border bg-background p-2 text-xs leading-5 outline-none focus:border-primary"
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            save();
-          }
-        }}
-        value={value}
-      />
+      <div className="mt-1 rounded-md border bg-background p-2 focus-within:border-primary">
+        <RichComposer
+          apiBase={apiBase}
+          allowedRefTypes={ELEMENT_REF_TYPES}
+          minRows={3}
+          mode="referencing"
+          onChange={setValue}
+          placeholder="输入内容，@ 引用实体"
+          value={value}
+          variant="field"
+        />
+      </div>
       <div className="mt-1 flex items-center justify-between">
-        <span className="text-[10px] text-muted-foreground">⌘↵ 保存</span>
+        <span className="text-[10px] text-muted-foreground">⌘↵ 保存 · @ 引用实体</span>
         {saved ? (
           <span className="text-[10px] text-primary">已保存</span>
         ) : (

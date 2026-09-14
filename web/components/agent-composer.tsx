@@ -7,17 +7,17 @@
 "use client";
 
 import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleStop, FileText, Globe2, ImagePlus, SlidersHorizontal, X } from "lucide-react";
-import { type ClipboardEvent, type FormEvent, type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useMemo, useRef, useState } from "react";
 
 import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatus, type Runtime } from "@/components/agent-install-guide";
-import { AssetReferenceChip, AssetReferenceDialog, AssetReferenceMenu, mediaReferenceIDs, mediaReferenceText } from "@/components/asset-reference-picker";
-import { WorldPicker, type WorldPick } from "@/components/world-picker";
+import { AssetReferenceChip } from "@/components/asset-reference-picker";
+import { ContextMentionPopover } from "@/components/context-panel/context-mention-popover";
+import { RichComposer } from "@/components/rich-composer/rich-composer";
 import { Button } from "@/components/ui/button";
-import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, hasWorkFocusSelection, opencodeModelLabel, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
+import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, hasWorkFocusSelection, opencodeModelLabel, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PickedContext, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
+import type { ContextOption } from "@/lib/context-catalog/types";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
-
-const COMPOSER_TEXT_MAX_HEIGHT = 192;
 
 // reasoningLabel 的本地化包装：字典缺失时回退原始 effort 值。
 function localizedReasoningLabel(t: (key: string) => string, effort?: string): string {
@@ -35,9 +35,13 @@ export function Composer({
   disabled,
   firstTurn,
   onAddAsset,
+  onAddWorkFocus,
+  onAddWorkSurface,
   onAddWorld,
   onChange,
+  onPickContext,
   onRemoveAttachment,
+  onRemovePickedContext,
   onRemoveWorld,
   onRemoveWorkFocus,
   onRemoveWorkSurface,
@@ -48,6 +52,7 @@ export function Composer({
   onUpload,
   opencodeConfiguration,
   opencodeModels,
+  pickedContexts,
   workFocus,
   workFocusIncluded,
   workSurface,
@@ -66,9 +71,13 @@ export function Composer({
   disabled: boolean;
   firstTurn: boolean;
   onAddAsset: (asset: UploadedAsset) => void;
+  onAddWorkFocus: () => void;
+  onAddWorkSurface: () => void;
   onAddWorld: (world: WorldReference) => void;
   onChange: (value: string) => void;
+  onPickContext: (option: ContextOption) => void;
   onRemoveAttachment: (assetID: string) => void;
+  onRemovePickedContext: (key: string) => void;
   onRemoveWorld: (worldID: string) => void;
   onRemoveWorkFocus: () => void;
   onRemoveWorkSurface: () => void;
@@ -83,6 +92,7 @@ export function Composer({
   onUpload: (files: FileList | File[]) => void;
   opencodeConfiguration: OpencodeConfiguration;
   opencodeModels: OpencodeModel[];
+  pickedContexts: PickedContext[];
   workFocus: WorkFocusContext | null;
   workFocusIncluded: boolean;
   workSurface: WorkSurfaceContext | null;
@@ -96,46 +106,52 @@ export function Composer({
 }) {
   const { t } = useI18n();
   const fileInput = useRef<HTMLInputElement>(null);
-  const textInput = useRef<HTMLTextAreaElement>(null);
-  const composing = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const [configOpen, setConfigOpen] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(false);
-  const [worldPickerOpen, setWorldPickerOpen] = useState(false);
-  function pasteMedia(event: ClipboardEvent<HTMLTextAreaElement>) {
-    const text = event.clipboardData.getData("text/plain");
-    const ids = mediaReferenceIDs(text);
-    const files = [...event.clipboardData.files].filter((file) =>
-      /^(image|video|audio)\//.test(file.type),
-    );
-    if (ids.length || files.length) event.preventDefault();
-    if (files.length) onUpload(files);
-    if (ids.length) {
-      onChange(`${content}${mediaReferenceText(text)}`);
-      void Promise.all(
-        ids.map(async (id) => {
-          const response = await fetch(
-            `${apiBase}/v1/media/assets/${encodeURIComponent(id)}`,
-          );
-          if (!response.ok) return;
-          onAddAsset((await response.json()) as UploadedAsset);
-        }),
-      );
-    }
-  }
+  const [contextPanelOpen, setContextPanelOpen] = useState(false);
+  const composerValue = useMemo(
+    () => ({ text: content, refs: [], isEmpty: content.trim().length === 0 }),
+    [content],
+  );
   async function saveCodex(next: CodexConfiguration) {
     if (await onSaveCodexConfiguration(next)) setConfigOpen(false);
   }
   async function saveOpencode(next: OpencodeConfiguration) {
     if (await onSaveOpencodeConfiguration(next)) setConfigOpen(false);
   }
-  const mention = content.match(/@([^\s@]*)$/)?.[1];
   function pickAsset(asset: UploadedAsset) {
     onAddAsset(asset);
-    onChange(content.replace(/@([^\s@]*)$/, ""));
   }
-  function pickWorld(world: WorldPick) {
-    onAddWorld({ worldId: world.worldId, name: world.name });
-    onChange(content.replace(/@([^\s@]*)$/, ""));
+  // @ 面板选择分流：媒体/World 走既有芯片，work_surface/focus 走 toggle，其余走通用 contexts。
+  function handlePickContext(option: ContextOption) {
+    if (option.sourceType === "media" && option.data && typeof option.data === "object") {
+      const asset = option.data as UploadedAsset;
+      if (asset.id) {
+        pickAsset(asset);
+        return;
+      }
+    }
+    if (option.sourceType === "creation_world" && option.data && typeof option.data === "object") {
+      const world = option.data as { id?: string; name?: string };
+      if (world.id) {
+        onAddWorld({ worldId: world.id, name: world.name ?? world.id });
+        return;
+      }
+    }
+    if (option.sourceType === "work_surface") {
+      onAddWorkSurface();
+      return;
+    }
+    if (option.sourceType === "work_focus") {
+      onAddWorkFocus();
+      return;
+    }
+    if (option.context) onPickContext(option);
+  }
+  function closeContextPanel() {
+    setContextPanelOpen(false);
+    composerRef.current?.querySelector<HTMLElement>(".recut-rich-composer")?.focus();
   }
   const configButtonTitle =
     runtime === "codex"
@@ -153,20 +169,14 @@ export function Composer({
   const placeholder = firstTurn
     ? interpolate(t("agent.composer.placeholder.first"), { name: runtimeAgentName(runtime) })
     : t("agent.composer.placeholder");
-  function resizeTextInput() {
-    const input = textInput.current;
-    if (!input) return;
-    input.style.height = "auto";
-    input.style.height = `${Math.min(input.scrollHeight, COMPOSER_TEXT_MAX_HEIGHT)}px`;
-  }
-  useLayoutEffect(resizeTextInput, [content]);
   return (
     <form
       className="absolute inset-x-0 bottom-0 border-t bg-card p-3"
       onSubmit={onSend}
+      ref={formRef}
     >
-      <div className="relative rounded-md border bg-popover px-3 py-2 shadow-[var(--shadow-overlay)]">
-        {(attachments.length > 0 || worldReferences.length > 0 || (workSurface && workSurfaceIncluded) || (hasWorkFocusSelection(workFocus) && workFocusIncluded && workSurface && workSurfaceIncluded)) && (
+      <div className="relative rounded-md border bg-popover px-3 py-2 shadow-[var(--shadow-overlay)]" ref={composerRef}>
+        {(attachments.length > 0 || worldReferences.length > 0 || pickedContexts.length > 0 || (workSurface && workSurfaceIncluded) || (hasWorkFocusSelection(workFocus) && workFocusIncluded && workSurface && workSurfaceIncluded)) && (
           <div className="mb-2 flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {attachments.map((attachment) => (
               <AssetReferenceChip
@@ -185,48 +195,31 @@ export function Composer({
             ))}
             {workSurface && workSurfaceIncluded && <WorkSurfaceChip onRemove={onRemoveWorkSurface} surface={workSurface} />}
             {hasWorkFocusSelection(workFocus) && workFocus && workFocusIncluded && workSurface && workSurfaceIncluded && <WorkFocusChip focus={workFocus} onRemove={onRemoveWorkFocus} />}
+            {pickedContexts.map((picked) => (
+              <button className="inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" key={picked.key} onClick={() => onRemovePickedContext(picked.key)} title={`${picked.sourceType} · ${picked.title}`} type="button">
+                <AtSign className="size-3 text-primary" />
+                <span className="truncate">{picked.title}</span>
+                <X className="size-3 text-muted-foreground" />
+              </button>
+            ))}
           </div>
         )}
-        <textarea
-          className="block min-h-12 w-full resize-none overflow-y-auto bg-transparent py-0.5 text-xs leading-5 outline-none"
+        <RichComposer
+          apiBase={apiBase}
+          autoFocus={false}
           disabled={disabled}
-          onChange={(event) => {
-            resizeTextInput();
-            onChange(event.target.value);
-          }}
-          onCompositionEnd={() => {
-            composing.current = false;
-          }}
-          onCompositionStart={() => {
-            composing.current = true;
-          }}
-          onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              !event.shiftKey &&
-              !event.nativeEvent.isComposing &&
-              !composing.current
-            ) {
-              event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
-            }
-          }}
-          onPaste={pasteMedia}
+          minRows={3}
+          mode="referencing"
+          onChange={(next) => onChange(next.text)}
+          onPasteFiles={(files) => onUpload(files)}
+          onSubmit={() => formRef.current?.requestSubmit()}
           placeholder={placeholder}
-          ref={textInput}
-          value={content}
+          projectID={projectID}
+          value={composerValue}
+          variant="composer"
+          workFocus={workFocus}
+          workSurface={workSurface}
         />
-        {mention !== undefined && (
-          <AssetReferenceMenu
-            apiBase={apiBase}
-            onOpenLibrary={() => setLibraryOpen(true)}
-            onOpenWorlds={() => setWorldPickerOpen(true)}
-            onPick={pickAsset}
-            projectID={projectID}
-            query={mention}
-            selectedIDs={attachments.map((attachment) => attachment.assetId)}
-          />
-        )}
         <div className="mt-1 flex items-center justify-between">
           <div className="relative min-w-0 flex-1">
             <button
@@ -275,7 +268,7 @@ export function Composer({
             <Button
               className="size-6 rounded-full p-0"
               disabled={disabled || uploading}
-              onClick={() => setLibraryOpen(true)}
+              onClick={() => setContextPanelOpen((value) => !value)}
               title={t("agent.composer.reference")}
               type="button"
               variant="ghost"
@@ -311,6 +304,7 @@ export function Composer({
                 (!content.trim() &&
                   !attachments.length &&
                   !worldReferences.length &&
+                  !pickedContexts.length &&
                   !(workSurface && workSurfaceIncluded))
               }
               title={
@@ -327,18 +321,24 @@ export function Composer({
           </div>
         </div>
       </div>
-      <AssetReferenceDialog
-        apiBase={apiBase}
-        onClose={() => setLibraryOpen(false)}
-        onPick={(asset) => {
-          pickAsset(asset);
-          setLibraryOpen(false);
-        }}
-        open={libraryOpen}
-        projectID={projectID}
-        selectedIDs={attachments.map((attachment) => attachment.assetId)}
-      />
-      <WorldPicker apiBase={apiBase} onClose={() => setWorldPickerOpen(false)} onPick={(world) => { pickWorld(world); setWorldPickerOpen(false); }} open={worldPickerOpen} />
+      {contextPanelOpen && (
+        <ContextMentionPopover
+          allowedRefTypes={undefined}
+          anchor={composerRef.current}
+          apiBase={apiBase}
+          onCancel={closeContextPanel}
+          onDismiss={() => setContextPanelOpen(false)}
+          onPick={(option, keepOpen) => {
+            handlePickContext(option);
+            if (!keepOpen) closeContextPanel();
+          }}
+          open={contextPanelOpen}
+          projectID={projectID}
+          selectedKeys={new Set([...attachments.map((attachment) => `media:${attachment.assetId}`), ...worldReferences.map((world) => `creation_world:${world.worldId}`), ...pickedContexts.map((picked) => picked.key)])}
+          workFocus={workFocus}
+          workSurface={workSurface}
+        />
+      )}
     </form>
   );
 }

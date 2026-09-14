@@ -21,6 +21,8 @@ import { t, useI18n } from "@/lib/i18n/index";
 import { useLocaleStore } from "@/lib/i18n/locale-store";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
+import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
+import { referenceDisplayText } from "@/lib/rich-composer/protocol/parse";
 import { useSubagentJob } from "@/lib/subagent-store";
 
 export async function responseMessage(response: Response, fallback: string) {
@@ -203,7 +205,7 @@ export function Conversation({
                 )}
                 {user.content && (
                   <p className="rounded-sm bg-secondary px-3 py-2 text-left text-xs leading-5 break-words whitespace-pre-wrap">
-                    {user.content}
+                    {referenceDisplayText(user.content, contextProtocolRegistry())}
                   </p>
                 )}
                 {user.status === "queued" ? (

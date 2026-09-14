@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -643,6 +644,7 @@ func (m *AgentManager) StartTurn(sessionID, text string, assetIDs []string, inpu
 	for _, input := range inputContexts {
 		contexts = append(contexts, ChatContext{Type: strings.TrimSpace(input.Type), Source: defaultContextSource(input.Source), Payload: rawPayloadMap(input.Payload)})
 	}
+	contexts = mergeInlineRefContexts(text, contexts)
 	attachments, err := m.turnAttachments(contexts)
 	if err != nil {
 		return ChatTurn{}, err
@@ -1414,12 +1416,18 @@ type contextMaterial struct {
 // type (e.g. a project element reference) only needs a map entry plus its
 // payload contract; the prompt/CLI pipeline is shared.
 var contextMaterializers = map[string]func(m *AgentManager, payload json.RawMessage) (contextMaterial, error){
-	"media":           materializeMediaContext,
-	"page":            materializePageContext,
-	"work_surface":    materializeWorkSurfaceContext,
-	"work_focus":      materializeWorkFocusContext,
-	"creation_world":  materializeCreationWorldContext,
-	"creation_entity": materializeCreationEntityContext,
+	"media":             materializeMediaContext,
+	"page":              materializePageContext,
+	"work_surface":      materializeWorkSurfaceContext,
+	"work_focus":        materializeWorkFocusContext,
+	"creation_world":    materializeCreationWorldContext,
+	"creation_entity":   materializeCreationEntityContext,
+	"creation_evidence": materializeCreationEvidenceContext,
+	"world_evidence":    materializeCreationEvidenceContext,
+	"project":           materializeProjectContext,
+	"app":               materializeAppContext,
+	"skill":             materializeSkillContext,
+	"mcp_tool":          materializeMCPToolContext,
 }
 
 // workSurfaceContextPayload is the host-owned target binding for one turn.
@@ -1575,6 +1583,124 @@ func (m *AgentManager) contextMaterials(contexts []ChatContext) ([]contextMateri
 	return materials, nil
 }
 
+// inlineRefTagPattern / inlineRefAttrPattern scan the user message for registered
+// inline reference tags (RFC 2026-09-14 §6). 正文 XML 是主锚点，contexts 是投影。
+var inlineRefTagPattern = regexp.MustCompile(`<(media|creation_world|creation_entity|world_evidence|creation_evidence|project|app|skill|mcp_tool)\b([^>]*?)/?>`)
+var inlineRefAttrPattern = regexp.MustCompile(`([a-z]+)="([^"]*)"`)
+
+func inlineRefContexts(text string) []ChatContext {
+	if !strings.Contains(text, "<") {
+		return nil
+	}
+	var contexts []ChatContext
+	for _, match := range inlineRefTagPattern.FindAllStringSubmatch(text, -1) {
+		attrs := map[string]string{}
+		for _, attr := range inlineRefAttrPattern.FindAllStringSubmatch(match[2], -1) {
+			attrs[attr[1]] = attr[2]
+		}
+		if context, ok := inlineRefContext(match[1], attrs); ok {
+			contexts = append(contexts, context)
+		}
+	}
+	return contexts
+}
+
+func inlineRefContext(tagType string, attrs map[string]string) (ChatContext, bool) {
+	switch tagType {
+	case "media":
+		if attrs["assetid"] == "" {
+			return ChatContext{}, false
+		}
+		return ChatContext{Type: "media", Source: "inline", Payload: map[string]any{"assetId": attrs["assetid"]}}, true
+	case "creation_world":
+		if attrs["worldid"] == "" {
+			return ChatContext{}, false
+		}
+		return ChatContext{Type: "creation_world", Source: "inline", Payload: map[string]any{"worldId": attrs["worldid"]}}, true
+	case "creation_entity":
+		if attrs["worldid"] == "" || attrs["entityid"] == "" {
+			return ChatContext{}, false
+		}
+		return ChatContext{Type: "creation_entity", Source: "inline", Payload: map[string]any{"worldId": attrs["worldid"], "entityId": attrs["entityid"]}}, true
+	case "world_evidence", "creation_evidence":
+		if attrs["worldid"] == "" || attrs["evidenceid"] == "" {
+			return ChatContext{}, false
+		}
+		return ChatContext{Type: "creation_evidence", Source: "inline", Payload: map[string]any{"worldId": attrs["worldid"], "evidenceId": attrs["evidenceid"]}}, true
+	case "project":
+		if attrs["projectid"] == "" {
+			return ChatContext{}, false
+		}
+		return ChatContext{Type: "project", Source: "inline", Payload: map[string]any{"projectId": attrs["projectid"]}}, true
+	case "app":
+		if attrs["appid"] == "" {
+			return ChatContext{}, false
+		}
+		return ChatContext{Type: "app", Source: "inline", Payload: map[string]any{"appId": attrs["appid"]}}, true
+	case "skill":
+		if attrs["appid"] == "" || attrs["skillid"] == "" {
+			return ChatContext{}, false
+		}
+		return ChatContext{Type: "skill", Source: "inline", Payload: map[string]any{"appId": attrs["appid"], "skillId": attrs["skillid"]}}, true
+	case "mcp_tool":
+		if attrs["name"] == "" {
+			return ChatContext{}, false
+		}
+		payload := map[string]any{"toolName": attrs["name"]}
+		if attrs["appid"] != "" {
+			payload["appId"] = attrs["appid"]
+		}
+		return ChatContext{Type: "mcp_tool", Source: "inline", Payload: payload}, true
+	}
+	return ChatContext{}, false
+}
+
+// mergeInlineRefContexts supplements contexts with inline refs the frontend did
+// not send separately (RFC §7). Identity dedupe keeps the正文 authoritative.
+func mergeInlineRefContexts(text string, contexts []ChatContext) []ChatContext {
+	seen := make(map[string]bool, len(contexts))
+	for _, context := range contexts {
+		seen[contextIdentityKey(context)] = true
+	}
+	for _, inline := range inlineRefContexts(text) {
+		key := contextIdentityKey(inline)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		contexts = append(contexts, inline)
+	}
+	return contexts
+}
+
+func contextIdentityKey(context ChatContext) string {
+	value := func(key string) string {
+		if raw, ok := context.Payload[key]; ok {
+			return fmt.Sprint(raw)
+		}
+		return ""
+	}
+	switch context.Type {
+	case "media":
+		return "media:" + value("assetId")
+	case "creation_world":
+		return "creation_world:" + value("worldId")
+	case "creation_entity":
+		return "creation_entity:" + value("worldId") + ":" + value("entityId")
+	case "world_evidence", "creation_evidence":
+		return "creation_evidence:" + value("worldId") + ":" + value("evidenceId")
+	case "project":
+		return "project:" + value("projectId")
+	case "app":
+		return "app:" + value("appId")
+	case "skill":
+		return "skill:" + value("appId") + ":" + value("skillId")
+	case "mcp_tool":
+		return "mcp_tool:" + value("appId") + ":" + value("toolName")
+	}
+	return context.Type
+}
+
 // materializeMediaContext keeps the legacy assetIds contract: the media binary
 // stays in the library, the turn only carries the verified asset identity, and
 // the local path is exposed to this Agent run alone.
@@ -1661,7 +1787,7 @@ func materializeCreationWorldContext(m *AgentManager, payload json.RawMessage) (
 	return contextMaterial{
 		Label: world.Name,
 		Kind:  "creation_world",
-		Text:  fmt.Sprintf("[Creation World] worldId=%s name=%s origin=%s revisionId=%s —— 调用 recut.worlds.brief({ worldId: %q }) 一次获取身份、世界技能（world.md）、事实、规则与证据。非 local 世界只读：用户要求修改时提议 recut.worlds.fork。世界技能是该世界的生产工作流：按其执行（先策略后生成、逐张生成、按质检口径复核后再交付）。",
+		Text: fmt.Sprintf("[Creation World] worldId=%s name=%s origin=%s revisionId=%s —— 调用 recut.worlds.brief({ worldId: %q }) 一次获取身份、世界技能（world.md）、事实、规则与证据。非 local 世界只读：用户要求修改时提议 recut.worlds.fork。世界技能是该世界的生产工作流：按其执行（先策略后生成、逐张生成、按质检口径复核后再交付）。",
 			world.ID, world.Name, origin, revision, world.ID),
 	}, nil
 }
@@ -1686,6 +1812,129 @@ func materializeCreationEntityContext(m *AgentManager, payload json.RawMessage) 
 		Label: entity.Name,
 		Kind:  "creation_entity",
 		Text:  "[Creation Entity] worldId=" + input.WorldID + " entityId=" + entity.ID + " kind=" + string(entity.TypeID) + " title=" + entity.Name + " —— 调用 recut.worlds.entities.get({ worldId: \"" + input.WorldID + "\", entityId: \"" + entity.ID + "\" }) 读取完整内容；关联的世界用 recut.worlds.resolve 解析。不要凭聊天记忆假定设定当前状态。",
+	}, nil
+}
+
+// materializeCreationEvidenceContext validates a world_evidence attachment and
+// points the Agent at the World's live evidence rather than copying Canon.
+func materializeCreationEvidenceContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		WorldID    string `json:"worldId"`
+		EvidenceID string `json:"evidenceId"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || input.WorldID == "" || input.EvidenceID == "" {
+		return contextMaterial{}, errors.New("world_evidence context requires worldId and evidenceId")
+	}
+	world, err := NewWorldStore(m.store, m.media).GetWorld(input.WorldID)
+	if err != nil {
+		return contextMaterial{}, errors.New("world evidence attachment is unavailable")
+	}
+	return contextMaterial{
+		Label: world.Name,
+		Kind:  "world_evidence",
+		Text:  "[World Evidence] worldId=" + world.ID + " evidenceId=" + input.EvidenceID + " —— 用 recut.worlds.evidence.list({ worldId: \"" + world.ID + "\" }) 读取证据；不要复制 Canon。",
+	}, nil
+}
+
+// materializeProjectContext validates a project attachment and tells the Agent
+// to read live project/app truth via recut.project_context instead of guessing.
+func materializeProjectContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		ProjectID string `json:"projectId"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || strings.TrimSpace(input.ProjectID) == "" {
+		return contextMaterial{}, errors.New("project context requires projectId")
+	}
+	project, err := m.store.Get(input.ProjectID)
+	if err != nil {
+		return contextMaterial{}, errors.New("project context is unavailable")
+	}
+	return contextMaterial{
+		Label: project.Name,
+		Kind:  "project",
+		Text:  "[Project] projectId=" + project.ID + " name=" + project.Name + " appId=" + project.AppID + " —— 用 recut.project_context / recut.project.get 读取项目真相，不要凭标题猜。",
+	}, nil
+}
+
+// materializeAppContext validates an installed App attachment and surfaces its
+// identity plus agentSurface so the Agent loads the right App skill.
+func materializeAppContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		AppID string `json:"appId"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || strings.TrimSpace(input.AppID) == "" {
+		return contextMaterial{}, errors.New("app context requires appId")
+	}
+	if m.store.catalog == nil {
+		return contextMaterial{}, errors.New("app catalog is unavailable")
+	}
+	app, ok := m.store.catalog.Get(input.AppID)
+	if !ok {
+		return contextMaterial{}, errors.New("app context is unavailable")
+	}
+	text := "[App] appId=" + app.Manifest.ID + " name=" + app.Manifest.Name + " kind=" + string(app.Manifest.Kind)
+	if surface := app.Manifest.AgentSurface; surface != nil {
+		text += " domain=" + surface.Domain + " defaultIntent=" + string(surface.DefaultIntent)
+		if surface.RequiredSkill != "" {
+			text += " requiredSkill=" + surface.RequiredSkill
+		}
+	}
+	text += " —— 该 App 上下文约束本回合领域；按其 AgentSurface 加载对应 App Skill。"
+	return contextMaterial{Label: app.Manifest.Name, Kind: "app", Text: text}, nil
+}
+
+// materializeSkillContext validates that a skill exists and pins the workflow
+// the user explicitly asked this turn to follow.
+func materializeSkillContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		AppID   string `json:"appId"`
+		SkillID string `json:"skillId"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || input.AppID == "" || input.SkillID == "" {
+		return contextMaterial{}, errors.New("skill context requires appId and skillId")
+	}
+	if m.store.catalog == nil {
+		return contextMaterial{}, errors.New("skill catalog is unavailable")
+	}
+	app, ok := m.store.catalog.Get(input.AppID)
+	if !ok {
+		return contextMaterial{}, errors.New("skill app is unavailable")
+	}
+	skills, err := app.Skills()
+	if err != nil {
+		return contextMaterial{}, errors.New("skill catalog is unavailable")
+	}
+	for _, skill := range skills {
+		if skill.ID != input.SkillID {
+			continue
+		}
+		return contextMaterial{
+			Label: skill.Name,
+			Kind:  "skill",
+			Text:  "[Skill] appId=" + input.AppID + " skillId=" + input.SkillID + " name=" + skill.Name + " —— 本回合用户指定遵循该 skill 的工作流。",
+		}, nil
+	}
+	return contextMaterial{}, errors.New("skill context is unavailable")
+}
+
+// materializeMCPToolContext records a user-pinned MCP tool as a strong hint.
+func materializeMCPToolContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		ToolName string `json:"toolName"`
+		AppID    string `json:"appId"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || strings.TrimSpace(input.ToolName) == "" {
+		return contextMaterial{}, errors.New("mcp_tool context requires toolName")
+	}
+	if input.AppID != "" && m.store.catalog != nil {
+		if _, ok := m.store.catalog.Get(input.AppID); !ok {
+			return contextMaterial{}, errors.New("mcp_tool app is unavailable")
+		}
+	}
+	return contextMaterial{
+		Label: input.ToolName,
+		Kind:  "mcp_tool",
+		Text:  "[MCP Tool] name=" + input.ToolName + " —— 优先使用该工具完成相关步骤（强提示，非硬约束）。",
 	}, nil
 }
 
@@ -1994,70 +2243,70 @@ func toolResultFailed(value any) bool {
 }
 
 var mcpToolLabels = map[string]string{
-		"recut.context":                             "读取 Recut 上下文",
-		"recut.apps.list":                           "读取已安装应用",
-		"recut.apps.store":                          "浏览应用商店",
-		"recut.apps.install":                        "安装应用",
-		"recut.apps.update":                         "更新应用",
-		"recut.skills.list":                         "读取技能目录",
-		"recut.skills.read":                         "读取技能说明",
-		"recut.skills.reference":                    "读取技能参考资料",
-		"recut.project.create":                      "创建项目",
-		"recut.project.list":                        "读取项目列表",
-		"recut.project.get":                         "读取项目",
-		"recut.project_context":                     "读取 Recut 项目上下文",
-		"recut.job.status":                          "查询任务状态",
-		"recut.job.wait":                            "等待任务完成",
-		"recut.job.logs":                            "读取任务日志",
-		"recut.job.cancel":                          "取消任务",
-		"recut.image.generate":                      "提交图片生成任务",
-		"recut.video.generate":                      "提交视频生成任务",
-		"recut.speech.generate":                     "提交语音生成任务",
-		"recut.media.list_voices":                   "读取可用音色",
-		"recut.media.get_job":                       "查询媒体生成进度",
-		"recut.media.wait_for_job":                  "等待媒体生成结果",
-		"recut.media.list_assets":                   "读取素材库",
-		"recut.media.import_image":                  "归档 Codex 原生图片",
-		"recut.media.create_reference":              "登记参考资料",
-		"recut.media.attach":                        "将素材关联到项目",
-		"recut.worlds.list":                         "读取世界列表",
-		"recut.worlds.get":                          "读取世界",
-		"recut.worlds.brief":                        "读取世界制作上下文",
-		"recut.worlds.evidence.list":                "读取世界资料",
-		"recut.worlds.readiness":                    "读取世界就绪度",
-		"recut.worlds.resolve":                      "解析世界上下文",
-		"recut.worlds.create":                       "创建世界",
-		"recut.worlds.update":                       "更新世界",
-		"recut.worlds.fork":                         "复制世界",
-		"recut.worlds.delete":                       "删除世界",
-		"recut.worlds.entities.list":                "读取世界实体",
-		"recut.worlds.entities.get":                 "读取世界实体详情",
-		"recut.worlds.entities.upsert":              "保存世界实体",
-		"recut.worlds.entities.create_child":        "创建子设定",
-		"recut.worlds.entities.promote":             "确认世界实体",
-		"recut.worlds.entityTypes.list":             "读取世界类型目录",
-		"recut.worlds.entityTypes.upsert":           "保存世界类型",
-		"recut.worlds.relations.list":               "读取世界关系",
-		"recut.worlds.relations.create":             "创建世界关系",
-		"recut.worlds.relations.update":             "修改世界关系",
-		"recut.worlds.evidence.archive":             "归档世界资料",
-		"recut.worlds.canvas.doc":                   "读取世界画布",
-		"recut.worlds.canvas.docs":                  "读取世界画布层索引",
-		"recut.worlds.canvas.doc.update":            "编辑世界画布",
-		"recut.worlds.canvas.promote":               "提升画布元素为设定",
-		"recut.worlds.bind_project":                 "关联世界到项目",
-		"recut_recut_editor_project_create":         "创建剪辑项目",
-		"recut_recut_editor_workflow_context":       "读取剪辑工作流",
-		"recut_recut_editor_timeline_assets":        "登记时间线素材",
-		"recut_recut_editor_project_get":            "读取剪辑项目",
-		"recut_recut_editor_project_updateSettings": "更新剪辑设置",
-		"recut_recut_editor_project_lock":           "锁定剪辑项目",
-		"recut_recut_editor_project_unlock":         "解锁剪辑项目",
-		"recut_recut_editor_timeline_read":          "读取时间线",
-		"recut_recut_editor_element_get":            "读取时间线元素",
-		"recut_recut_editor_timeline_validate":      "校验时间线",
-		"recut_recut_editor_timeline_command":       "编辑时间线",
-	}
+	"recut.context":                             "读取 Recut 上下文",
+	"recut.apps.list":                           "读取已安装应用",
+	"recut.apps.store":                          "浏览应用商店",
+	"recut.apps.install":                        "安装应用",
+	"recut.apps.update":                         "更新应用",
+	"recut.skills.list":                         "读取技能目录",
+	"recut.skills.read":                         "读取技能说明",
+	"recut.skills.reference":                    "读取技能参考资料",
+	"recut.project.create":                      "创建项目",
+	"recut.project.list":                        "读取项目列表",
+	"recut.project.get":                         "读取项目",
+	"recut.project_context":                     "读取 Recut 项目上下文",
+	"recut.job.status":                          "查询任务状态",
+	"recut.job.wait":                            "等待任务完成",
+	"recut.job.logs":                            "读取任务日志",
+	"recut.job.cancel":                          "取消任务",
+	"recut.image.generate":                      "提交图片生成任务",
+	"recut.video.generate":                      "提交视频生成任务",
+	"recut.speech.generate":                     "提交语音生成任务",
+	"recut.media.list_voices":                   "读取可用音色",
+	"recut.media.get_job":                       "查询媒体生成进度",
+	"recut.media.wait_for_job":                  "等待媒体生成结果",
+	"recut.media.list_assets":                   "读取素材库",
+	"recut.media.import_image":                  "归档 Codex 原生图片",
+	"recut.media.create_reference":              "登记参考资料",
+	"recut.media.attach":                        "将素材关联到项目",
+	"recut.worlds.list":                         "读取世界列表",
+	"recut.worlds.get":                          "读取世界",
+	"recut.worlds.brief":                        "读取世界制作上下文",
+	"recut.worlds.evidence.list":                "读取世界资料",
+	"recut.worlds.readiness":                    "读取世界就绪度",
+	"recut.worlds.resolve":                      "解析世界上下文",
+	"recut.worlds.create":                       "创建世界",
+	"recut.worlds.update":                       "更新世界",
+	"recut.worlds.fork":                         "复制世界",
+	"recut.worlds.delete":                       "删除世界",
+	"recut.worlds.entities.list":                "读取世界实体",
+	"recut.worlds.entities.get":                 "读取世界实体详情",
+	"recut.worlds.entities.upsert":              "保存世界实体",
+	"recut.worlds.entities.create_child":        "创建子设定",
+	"recut.worlds.entities.promote":             "确认世界实体",
+	"recut.worlds.entityTypes.list":             "读取世界类型目录",
+	"recut.worlds.entityTypes.upsert":           "保存世界类型",
+	"recut.worlds.relations.list":               "读取世界关系",
+	"recut.worlds.relations.create":             "创建世界关系",
+	"recut.worlds.relations.update":             "修改世界关系",
+	"recut.worlds.evidence.archive":             "归档世界资料",
+	"recut.worlds.canvas.doc":                   "读取世界画布",
+	"recut.worlds.canvas.docs":                  "读取世界画布层索引",
+	"recut.worlds.canvas.doc.update":            "编辑世界画布",
+	"recut.worlds.canvas.promote":               "提升画布元素为设定",
+	"recut.worlds.bind_project":                 "关联世界到项目",
+	"recut_recut_editor_project_create":         "创建剪辑项目",
+	"recut_recut_editor_workflow_context":       "读取剪辑工作流",
+	"recut_recut_editor_timeline_assets":        "登记时间线素材",
+	"recut_recut_editor_project_get":            "读取剪辑项目",
+	"recut_recut_editor_project_updateSettings": "更新剪辑设置",
+	"recut_recut_editor_project_lock":           "锁定剪辑项目",
+	"recut_recut_editor_project_unlock":         "解锁剪辑项目",
+	"recut_recut_editor_timeline_read":          "读取时间线",
+	"recut_recut_editor_element_get":            "读取时间线元素",
+	"recut_recut_editor_timeline_validate":      "校验时间线",
+	"recut_recut_editor_timeline_command":       "编辑时间线",
+}
 
 func toolLabel(kind, name string, item map[string]any) string {
 	if kind != "mcp_tool_call" || name == "" {

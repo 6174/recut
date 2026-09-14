@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 pomelo-core（PomeloPlugin / PomeloEditor）、pomelo-vello/overlay-dom（DomOverlay/cssColor）、
  * canvas-store、world-canvas/blocks/entity-card-metrics（entityCardRect）与 arrow-geometry（共享几何）
  * [OUTPUT]: 对外提供 CanvasBindsPlugin：pomelo 画布与 canvas-store 的交互绑定层——
- * 点击命中选择（实体卡/便签/文本/形状/属性节点/World 节点/语义关系线/自由箭头）解析为
+ * 点击命中选择（实体卡/便签/文本/形状/属性节点/独立媒体卡/World 节点/语义关系线/自由箭头）解析为
  * CanvasSelection 驱动右侧面板；空白拖拽 = 框选（与选框有交集即选中：节点按矩形重叠、关系/自由箭头
  * 按曲线相交；Shift 追加、Shift 点选增删），命中写入 store.selectedIds（恰好一项回落单选）；
  * 多选下拖拽整体位移、Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
@@ -24,6 +24,7 @@ import { DomOverlay, cssColor } from "@/lib/pomelo/pomelo-vello/overlay-dom";
 import { WORLD_ELEMENT_ID, useWorldCanvasStore } from "./canvas-store";
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
+import { displayRefText } from "@/lib/pomelo/world-canvas/blocks/ref-text";
 import { pomeloPerf } from "@/lib/pomelo/pomelo-core/pomelo-perf";
 import {
   bezierPoint,
@@ -38,10 +39,10 @@ import {
 type Point = { x: number; y: number };
 type Rect = { x: number; y: number; width: number; height: number };
 
-const NODE_TYPES = new Set(["entity-card", "note", "free-element"]);
-// 框选命中：凡有矩形几何的节点类型都参与（含 media / media-node / world-node），
-// 关系/自由箭头不按矩形命中，改由「两端节点都被框中」判定。
-const MARQUEE_NODE_TYPES = new Set(["entity-card", "note", "free-element", "media", "media-node", "world-node"]);
+// 矩形节点类型：凡有矩形几何的节点类型都参与点选/双击/hover/框选命中（含 media / media-node /
+// world-node，与渲染的 block type 对齐）；关系/自由箭头不按矩形命中，改由「两端节点都被框中」判定。
+const NODE_TYPES = new Set(["entity-card", "note", "free-element", "media", "media-node", "world-node"]);
+const MARQUEE_NODE_TYPES = NODE_TYPES;
 const RELATION_PREFIX = "arrow:";
 const MIN_SIZE = 60;
 const PERSIST_DEBOUNCE_MS = 400;
@@ -225,7 +226,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       }
       const element = store.elements.find((item) => item.id === blockId);
       const name = element?.name;
-      const text = element?.props?.text;
+      const text = typeof element?.props?.text === "string" ? displayRefText(element.props.text) : element?.props?.text;
       return { title: (typeof name === "string" && name) || (typeof text === "string" && text) || "元素", canvasId: blockId };
     };
 

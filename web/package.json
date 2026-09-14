@@ -8,12 +8,19 @@
     "build:cloudflare": "RECUT_STATIC_EXPORT=1 next build",
     "start": "node server.cjs",
     "lint": "next lint",
+    "test": "tsx --tsconfig tsconfig.json --test \"lib/rich-composer/**/*.test.ts\" \"lib/context-catalog/**/*.test.ts\"",
     "test:e2e": "playwright test",
     "test:e2e:worker": "node scripts/worker-e2e.mjs",
     "wasm:build:vello": "cd lib/pomelo/pomelo-vello-wasm && wasm-pack build --target web --dev && mkdir -p ../../../public/vello-wasm && cp pkg/pomelo_vello_wasm.js pkg/pomelo_vello_wasm_bg.wasm assets/space-grotesk.ttf assets/noto-cjk-subset.otf ../../../public/vello-wasm/"
   },
   "dependencies": {
     "@radix-ui/react-popover": "^1.1.23",
+    "@tanstack/react-virtual": "^3.14.12",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-placeholder": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "class-variance-authority": "0.7.1",
@@ -42,6 +49,7 @@
     "@types/react-dom": "19.2.2",
     "@types/three": "^0.185.4",
     "tailwindcss": "4.1.17",
+    "tsx": "^4.23.13",
     "typescript": "5.9.3",
     "wrangler": "^3.114.9"
   }

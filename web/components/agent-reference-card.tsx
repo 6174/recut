@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useEffect } from "react";
 
 import { AppIdentityIcon, appIcon } from "@/components/app-identity-icon";
+import { contextSourceForType } from "@/lib/context-catalog/registry";
 import { useWorkspaceStore } from "@/lib/workspace-store";
 import { useI18n } from "@/lib/i18n/index";
 
@@ -47,5 +48,31 @@ export function AppReferenceCard({ apiBase, appId }: { apiBase: string; appId: s
       <span className="grid aspect-video place-items-center bg-muted text-muted-foreground">{app ? <AppIdentityIcon appID={app.manifest.id} /> : <LoaderCircle className="size-5 animate-spin text-primary" />}</span>
       <span className="flex items-center gap-1.5 border-t px-2 py-1.5 font-mono text-[10px] text-muted-foreground group-hover:text-foreground"><Icon className="size-3" />{app ? app.manifest.name : t("agent.reference.appLoading")} · {app ? (app.manifest.type === "standalone" ? t("agent.reference.appStandalone") : t("agent.reference.appProject")) : ""} · {t("agent.reference.open")}</span>
     </Link>
+  );
+}
+
+// GenericReferenceCard 渲染其余注册类型（World/Entity/Evidence/Skill/MCP 工具）为可点击 chip；
+// 图标与跳转均来自唯一注册表 descriptor，新增类型零改动（协议 RFC §9）。
+export function GenericReferenceCard({
+  sourceType,
+  attrs,
+}: {
+  sourceType: string;
+  attrs: Record<string, string>;
+}) {
+  const source = contextSourceForType(sourceType);
+  const label = source?.label(attrs) ?? attrs.name ?? attrs.title ?? sourceType;
+  const icon = source?.icon(attrs, { apiBase: "" }) ?? null;
+  return (
+    <button
+      className="inline-flex h-7 max-w-64 items-center gap-1.5 rounded-sm border bg-card px-2 text-[10px] text-foreground shadow-sm transition hover:border-primary"
+      onClick={() => source?.navigate?.(attrs, { apiBase: "" })}
+      title={`${sourceType} · ${label}`}
+      type="button"
+    >
+      <span className="grid size-3.5 shrink-0 place-items-center text-primary">{icon}</span>
+      <span className="truncate">{label}</span>
+      <span className="shrink-0 text-muted-foreground">{source?.type ?? sourceType}</span>
+    </button>
   );
 }

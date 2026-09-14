@@ -8,19 +8,23 @@
 
 import { Captions, ImageIcon, Link2, LoaderCircle, Music2, Video } from "lucide-react";
 import { useState } from "react";
-import { AppReferenceCard, ProjectReferenceCard } from "@/components/agent-reference-card";
+import { AppReferenceCard, GenericReferenceCard, ProjectReferenceCard } from "@/components/agent-reference-card";
 import { AssetPreviewDialog, mediaContentURL, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { GenerationDuration, type GenerationTiming } from "@/components/generation-duration";
 import { useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { VideoFrame } from "@/components/video-frame";
+import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
+import { parseInlineRefs } from "@/lib/rich-composer/protocol/parse";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 
 type MediaType = "image" | "video" | "audio" | "transcript" | "reference";
-type Segment = { kind: "text"; value: string } | { kind: "media"; assetID: string; type: MediaType } | { kind: "project"; projectId: string } | { kind: "app"; appId: string };
-
-const tagPattern = /<(media|project|app)\s+([^>]*?)\s*\/?>(?:<\/media>)?/gi;
-const attribute = /([\w-]+)\s*=\s*(["'])(.*?)\2/g;
+type Segment =
+  | { kind: "text"; value: string }
+  | { kind: "media"; assetID: string; type: MediaType }
+  | { kind: "project"; projectId: string }
+  | { kind: "app"; appId: string }
+  | { kind: "reference"; sourceType: string; attrs: Record<string, string> };
 
 export function AgentMessageContent({ apiBase, content }: { apiBase: string; content: string }) {
   const { t } = useI18n();
@@ -28,44 +32,36 @@ export function AgentMessageContent({ apiBase, content }: { apiBase: string; con
   const [error, setError] = useState("");
   const { assetByID, assets } = useMediaAssetEvents();
   const openPreview = async (assetID: string) => { setError(""); const cached = assetByID[assetID]; if (cached) { setPreview(cached as unknown as PreviewAsset); return; } try { const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(assetID)}`, { cache: "no-store" }); if (!response.ok) throw new Error(t("agent.message.assetUnavailable")); setPreview(await response.json() as PreviewAsset); } catch (cause) { setError(cause instanceof Error ? cause.message : t("agent.message.openFailed")); } };
-  return <><div className="flex flex-wrap items-start gap-2 text-xs leading-5">{parseMessage(content).map((segment, index) => segment.kind === "text" ? <p className="w-full whitespace-pre-wrap" key={index}>{segment.value}</p> : segment.kind === "media" ? <MediaPreview apiBase={apiBase} assetID={segment.assetID} key={`${segment.assetID}-${index}`} onOpen={() => void openPreview(segment.assetID)} type={segment.type} /> : segment.kind === "project" ? <ProjectReferenceCard apiBase={apiBase} key={`project-${segment.projectId}-${index}`} projectId={segment.projectId} /> : <AppReferenceCard apiBase={apiBase} key={`app-${segment.appId}-${index}`} appId={segment.appId} />)}{error && <p className="w-full text-destructive">{error}</p>}</div>{preview && <AssetPreviewDialog apiBase={apiBase} asset={preview} assets={assets as unknown as PreviewAsset[]} onClose={() => setPreview(null)} />}</>;
+  return <><div className="flex flex-wrap items-start gap-2 text-xs leading-5">{parseMessage(content).map((segment, index) => segment.kind === "text" ? <p className="w-full whitespace-pre-wrap" key={index}>{segment.value}</p> : segment.kind === "media" ? <MediaPreview apiBase={apiBase} assetID={segment.assetID} key={`${segment.assetID}-${index}`} onOpen={() => void openPreview(segment.assetID)} type={segment.type} /> : segment.kind === "project" ? <ProjectReferenceCard apiBase={apiBase} key={`project-${segment.projectId}-${index}`} projectId={segment.projectId} /> : segment.kind === "app" ? <AppReferenceCard apiBase={apiBase} key={`app-${segment.appId}-${index}`} appId={segment.appId} /> : <GenericReferenceCard attrs={segment.attrs} key={`${segment.sourceType}-${index}`} sourceType={segment.sourceType} />)}{error && <p className="w-full text-destructive">{error}</p>}</div>{preview && <AssetPreviewDialog apiBase={apiBase} asset={preview} assets={assets as unknown as PreviewAsset[]} onClose={() => setPreview(null)} />}</>;
 }
 
+// parseMessage 复用唯一注册表：任何已注册 type 的标签都渲染为对应卡片，未知标签原样保留为文本（前向兼容）。
 function parseMessage(content: string): Segment[] {
   if (!content) return [{ kind: "text", value: "" }];
   const segments: Segment[] = [];
   let cursor = 0;
   const push = (segment: Segment) => { if (segment.kind === "text" && segment.value === "") return; segments.push(segment); };
-  for (const match of content.matchAll(tagPattern)) {
-    const start = match.index ?? 0;
-    if (start > cursor) push({ kind: "text", value: content.slice(cursor, start) });
-    const raw = match[0];
-    const attrs = parseAttributes(match[2]);
-    if (match[1] === "media") {
-      const assetID = attrs.assetid ?? attrs.assetId;
+  for (const ref of parseInlineRefs(content, contextProtocolRegistry())) {
+    if (ref.start > cursor) push({ kind: "text", value: content.slice(cursor, ref.start) });
+    const attrs = ref.attrs;
+    if (ref.type === "media") {
+      const assetID = attrs.assetid;
       const type = attrs.type as MediaType;
       if (assetID && isMediaType(type)) push({ kind: "media", assetID, type });
-      else push({ kind: "text", value: raw });
-    } else if (match[1] === "project") {
-      const projectId = attrs.projectid ?? attrs.projectId;
-      if (projectId) push({ kind: "project", projectId });
-      else push({ kind: "text", value: raw });
+      else push({ kind: "text", value: ref.raw });
+    } else if (ref.type === "project") {
+      if (attrs.projectid) push({ kind: "project", projectId: attrs.projectid });
+      else push({ kind: "text", value: ref.raw });
+    } else if (ref.type === "app") {
+      if (attrs.appid) push({ kind: "app", appId: attrs.appid });
+      else push({ kind: "text", value: ref.raw });
     } else {
-      const appId = attrs.appid ?? attrs.appId;
-      if (appId) push({ kind: "app", appId });
-      else push({ kind: "text", value: raw });
+      push({ kind: "reference", sourceType: ref.type, attrs });
     }
-    cursor = start + raw.length;
+    cursor = ref.end;
   }
   if (cursor < content.length) push({ kind: "text", value: content.slice(cursor) });
   return segments.length ? segments : [{ kind: "text", value: content }];
-}
-
-function parseAttributes(source: string | undefined) {
-  const attrs: Record<string, string> = {};
-  if (!source) return attrs;
-  for (const match of source.matchAll(attribute)) attrs[match[1]] = match[3];
-  return attrs;
 }
 
 function isMediaType(value: string): value is MediaType {

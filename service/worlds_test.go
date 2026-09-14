@@ -410,6 +410,67 @@ func TestCreationWorldAndEntityContextMaterializers(t *testing.T) {
 	}
 }
 
+// TestMergeInlineRefContexts verifies the backend inline-ref safety net (RFC §7).
+func TestMergeInlineRefContexts(t *testing.T) {
+	text := `看 <creation_entity worldid="w1" entityid="e1" name="甲" /> 和 <media type="image" assetid="a1" name="图" />`
+	merged := mergeInlineRefContexts(text, []ChatContext{{Type: "media", Source: "user", Payload: map[string]any{"assetId": "a1"}}})
+	if len(merged) != 2 {
+		t.Fatalf("merged contexts = %#v", merged)
+	}
+	if merged[1].Type != "creation_entity" || merged[1].Source != "inline" {
+		t.Fatalf("inline entity context = %#v", merged[1])
+	}
+	if again := mergeInlineRefContexts(text, merged); len(again) != 2 {
+		t.Fatalf("inline merge was not idempotent: %#v", again)
+	}
+}
+
+// TestExtendedContextMaterializers covers world_evidence / project / app / skill / mcp_tool
+// validation and prompt text for the unified context panel (RFC 2026-09-14 §12).
+func TestExtendedContextMaterializers(t *testing.T) {
+	worlds, store, media := newTestWorldStore(t)
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Evidenceland", Type: WorldCustom})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewAgentManager(store, NewAgentBridge(store), media)
+
+	evidence, err := manager.contextMaterials([]ChatContext{{Type: "world_evidence", Source: "user", Payload: map[string]any{"worldId": world.ID, "evidenceId": "ev_1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evidence) != 1 || !strings.Contains(evidence[0].Text, "recut.worlds.evidence.list") || !strings.Contains(evidence[0].Text, "ev_1") {
+		t.Fatalf("world_evidence material = %#v", evidence)
+	}
+	if _, err := manager.contextMaterials([]ChatContext{{Type: "world_evidence", Source: "user", Payload: map[string]any{"worldId": world.ID}}}); err == nil {
+		t.Fatal("world_evidence without evidenceId was accepted")
+	}
+	if _, err := manager.contextMaterials([]ChatContext{{Type: "creation_evidence", Source: "user", Payload: map[string]any{"worldId": "missing", "evidenceId": "ev_1"}}}); err == nil {
+		t.Fatal("creation_evidence with missing world was accepted")
+	}
+
+	mcp, err := manager.contextMaterials([]ChatContext{{Type: "mcp_tool", Source: "user", Payload: map[string]any{"toolName": "recut.timeline.command"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mcp) != 1 || !strings.Contains(mcp[0].Text, "recut.timeline.command") {
+		t.Fatalf("mcp_tool material = %#v", mcp)
+	}
+	if _, err := manager.contextMaterials([]ChatContext{{Type: "mcp_tool", Source: "user", Payload: map[string]any{}}}); err == nil {
+		t.Fatal("mcp_tool without name was accepted")
+	}
+
+	if _, err := manager.contextMaterials([]ChatContext{{Type: "project", Source: "user", Payload: map[string]any{"projectId": "missing"}}}); err == nil {
+		t.Fatal("missing project context was accepted")
+	}
+	if _, err := manager.contextMaterials([]ChatContext{{Type: "app", Source: "user", Payload: map[string]any{"appId": "recut.missing"}}}); err == nil {
+		t.Fatal("missing app context was accepted")
+	}
+	if _, err := manager.contextMaterials([]ChatContext{{Type: "skill", Source: "user", Payload: map[string]any{"appId": "recut.missing", "skillId": "x"}}}); err == nil {
+		t.Fatal("missing skill app was accepted")
+	}
+}
+
 func TestArchiveWorldForUserHidesLocalWorldFromList(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	world, err := worlds.CreateWorld(CreateWorldInput{Name: "橙子一家", Type: WorldCustom})

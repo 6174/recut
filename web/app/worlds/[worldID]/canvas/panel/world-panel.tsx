@@ -19,6 +19,9 @@ import { useWorldsStore } from "@/lib/worlds-store";
 import { useWorldCanvasStore } from "../canvas-store";
 import { entityMediaAttrs } from "../entity-attrs";
 import { FieldRow, typeLabelOf } from "./field-row";
+import { RichFieldRow } from "@/components/world-entity/rich-field-row";
+
+const WORLD_REF_TYPES = ["creation_entity", "creation_world", "media"];
 
 export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefined }) {
   const store = useWorldCanvasStore();
@@ -97,19 +100,23 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
   return (
     <div className="space-y-4 text-sm">
       <FieldRow label="名称" value={store.worldName} onSave={(value) => void saveMeta({ name: String(value) })} />
-      <FieldRow
+      <RichFieldRow
+        apiBase={apiBase}
+        allowedRefTypes={WORLD_REF_TYPES}
         label="简介"
+        minRows={3}
         value={worldDetail?.description ?? ""}
-        multiline
         placeholder="一句话描述这个世界…"
-        onSave={(value) => void saveMeta({ description: String(value) })}
+        onSave={(value) => void saveMeta({ description: value })}
       />
-      <FieldRow
+      <RichFieldRow
+        apiBase={apiBase}
+        allowedRefTypes={WORLD_REF_TYPES}
         label="Skill"
+        minRows={6}
         value={worldDetail?.skillMd ?? ""}
-        multiline
         placeholder="这个世界的创作技能说明（Agent 会读取）…"
-        onSave={(value) => void saveMeta({ skillMd: String(value) })}
+        onSave={(value) => void saveMeta({ skillMd: value })}
       />
       <div className="border-t pt-3">
         <p className="text-[11px] font-medium text-muted-foreground">世界快照</p>

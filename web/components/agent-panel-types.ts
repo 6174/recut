@@ -108,11 +108,37 @@ export type MessageContext = {
   payload: Record<string, unknown>;
 };
 
+// PickedContext 是用户在 @ 面板中显式选中的一条上下文（非宿主签发、非素材芯片）。
+export type PickedContext = {
+  key: string;
+  sourceType: string;
+  title: string;
+  context: MessageContext;
+};
+
 export function mediaContextPayload(assetId: string): MessageContext {
   return { type: "media", source: "user", payload: { assetId } };
 }
 export function creationWorldContextPayload(worldId: string): MessageContext {
   return { type: "creation_world", source: "user", payload: { worldId } };
+}
+export function creationEntityContextPayload(worldId: string, entityId: string): MessageContext {
+  return { type: "creation_entity", source: "user", payload: { worldId, entityId } };
+}
+export function worldEvidenceContextPayload(worldId: string, evidenceId: string): MessageContext {
+  return { type: "creation_evidence", source: "user", payload: { worldId, evidenceId } };
+}
+export function projectContextPayload(projectId: string): MessageContext {
+  return { type: "project", source: "user", payload: { projectId } };
+}
+export function appContextPayload(appId: string): MessageContext {
+  return { type: "app", source: "user", payload: { appId } };
+}
+export function skillContextPayload(appId: string, skillId: string): MessageContext {
+  return { type: "skill", source: "user", payload: { appId, skillId } };
+}
+export function mcpToolContextPayload(toolName: string, appId?: string): MessageContext {
+  return { type: "mcp_tool", source: "user", payload: { toolName, ...(appId ? { appId } : {}) } };
 }
 export function workSurfaceContextPayload(context: WorkSurfaceContext): MessageContext {
   return { type: "work_surface", source: "host", payload: { ...context } };

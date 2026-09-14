@@ -1,21 +1,24 @@
 /*
- * [INPUT]: 依赖 react、lucide-react、components/world-entity/field-row（FullscreenTextEditor）、
- * canvas-store（inlineEdit/creatingAt 状态与 commit/cancel 动作、editor 句柄）、pomelo-core（PomeloRendererAdapter）
+ * [INPUT]: 依赖 react/dom createPortal、lucide-react、components/rich-composer（RichComposer）、
+ * canvas-store（inlineEdit 状态与 commit/cancel 动作、editor 句柄、apiBase）、pomelo-core（PomeloRendererAdapter）
  * [OUTPUT]: 对外提供 CanvasInlineEditor：画布就地编辑器宿主——把 inlineEdit 的世界坐标 rect 换算为
- * 屏幕位置渲染 DOM 编辑器（entity-title 单行 Enter 提交；正文 blur / ⌘↵ 提交，Esc 取消）；
- * 正文编辑器高度服从元素 box（内滚动，不随内容自增长），并支持全屏放大编辑（复用 FieldRow 的
- * FullscreenTextEditor，与属性面板一致）；视口平移/缩放时跟随重排；
- * EDITOR_METRICS 与各 Block 的画布排版逐形态对齐（字号/行高/内边距/颜色）
+ * 屏幕位置渲染 DOM 编辑器（标题为单行 textarea，Enter 提交；正文/文本/属性值为 RichComposer 富文本，
+ * 可 @ 引用实体，blur / ⌘↵ 提交，Esc 取消）；正文编辑器高度服从元素 box（内滚动，不随内容自增长），
+ * 并提供 RichComposer 全屏放大编辑；视口平移/缩放时跟随重排；
+ * EDITOR_METRICS 经 CSS 变量注入 RichComposer，与各 Block 的画布排版逐形态对齐（字号/行高/内边距/颜色）
  * [POS]: worlds/[worldID]/canvas 的就地编辑层（T4/T3 命名态共用）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { Maximize2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { FullscreenTextEditor } from "@/components/world-entity/field-row";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { RichComposer } from "@/components/rich-composer/rich-composer";
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import { useWorldCanvasStore } from "./canvas-store";
+
+const INLINE_REF_TYPES = ["creation_entity", "creation_world", "media"];
 
 // 各编辑形态与画布渲染的排版对齐表（字号/行高/内边距/颜色均为世界单位，随视口缩放；
 // 来源：NoteBlockV 11/16 + offset(10,10)（note-block-v.ts）、FreeElementBlockV text 13/20 无内边距、
@@ -41,6 +44,7 @@ const EDITOR_LABELS: Record<InlineEdit["kind"], string> = {
 export function CanvasInlineEditor() {
   const edit = useWorldCanvasStore((state) => state.inlineEdit);
   const editor = useWorldCanvasStore((state) => state.editor);
+  const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const [tick, setTick] = useState(0);
   const [value, setValue] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
@@ -90,6 +94,16 @@ export function CanvasInlineEditor() {
     cancelledRef.current = true;
     useWorldCanvasStore.getState().cancelInlineEdit();
   };
+  const richValue = { text: value, refs: [], isEmpty: value.length === 0 };
+  // 与画布 Block 同值度量（世界单位 × 缩放）：通过 CSS 变量让 RichComposer 内的 ProseMirror 跟随缩放。
+  const metricVars = {
+    "--rc-font-size": `${m.fontSize * fontScale}px`,
+    "--rc-line-height": `${m.lineHeight * fontScale}px`,
+    "--rc-pad-y": `${m.padTop * fontScale}px`,
+    "--rc-pad-x": `${m.padX * fontScale}px`,
+    "--rc-color": m.color,
+  } as CSSProperties;
+  const metricClass = "text-[length:var(--rc-font-size)] leading-[var(--rc-line-height)] py-[var(--rc-pad-y)] px-[var(--rc-pad-x)] text-[color:var(--rc-color)]";
 
   return (
     <div
@@ -98,46 +112,77 @@ export function CanvasInlineEditor() {
       onMouseDown={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
     >
-      <textarea
-        ref={areaRef}
-        className={`block w-full resize-none border-0 bg-card/95 text-foreground shadow-lg outline outline-1 outline-primary/60 break-all ${m.semibold ? "font-semibold" : ""}`}
-        style={{
-          height: isTitle ? undefined : "100%",
-          minHeight: screen.height,
-          // 文本服从 box：编辑器高度锁定为元素几何（内滚动，不再随内容自增长）
-          overflowY: isTitle ? "hidden" : "auto",
-          color: m.color,
-          fontFamily: 'system-ui, -apple-system, "PingFang SC", sans-serif',
-          fontSize: `${m.fontSize * fontScale}px`,
-          lineHeight: `${m.lineHeight * fontScale}px`,
-          // 内边距与画布 Block 严格同值（world 单位 × 缩放）：text-body 的 0 不能再被 Math.max 抬到 2px，
-          // 否则 DOM 文本相对画布整体偏移；outline 不占布局，故内容原点与元素原点一致。
-          padding: `${m.padTop * fontScale}px ${m.padX * fontScale}px`,
-        }}
-        placeholder={edit.kind === "attr-title" ? "输入属性名称…" : undefined}
-        value={value}
-        onBlur={(event) => {
-          // blur 分流（与 FieldRow 一致）：焦点落到本编辑器容器内的「放大」按钮时不提交；
-          // 全屏编辑器打开期间忽略行内 textarea 的失焦。
-          if (fullscreen) return;
-          if (event.relatedTarget instanceof Node && event.currentTarget.parentElement?.contains(event.relatedTarget)) return;
-          commit();
-        }}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            cancel();
-          } else if (event.key === "Enter" && (isTitle || event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            areaRef.current?.blur();
-          }
-        }}
-        onMouseDown={(event) => event.stopPropagation()}
-        onDoubleClick={(event) => event.stopPropagation()}
-      />
-      {/* 全屏放大编辑：与属性面板 FieldRow 的「放大」同一入口/同一对话框 */}
+      {isTitle ? (
+        <textarea
+          ref={areaRef}
+          className={`block w-full resize-none border-0 bg-card/95 text-foreground shadow-lg outline outline-1 outline-primary/60 break-all ${m.semibold ? "font-semibold" : ""}`}
+          style={{
+            height: screen.height,
+            minHeight: screen.height,
+            overflowY: "hidden",
+            color: m.color,
+            fontFamily: 'system-ui, -apple-system, "PingFang SC", sans-serif',
+            fontSize: `${m.fontSize * fontScale}px`,
+            lineHeight: `${m.lineHeight * fontScale}px`,
+            padding: `${m.padTop * fontScale}px ${m.padX * fontScale}px`,
+          }}
+          placeholder={edit.kind === "attr-title" ? "输入属性名称…" : undefined}
+          value={value}
+          onBlur={(event) => {
+            if (fullscreen) return;
+            if (event.relatedTarget instanceof Node && event.currentTarget.parentElement?.contains(event.relatedTarget)) return;
+            commit();
+          }}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              cancel();
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              areaRef.current?.blur();
+            }
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+        />
+      ) : (
+        <div
+          className="h-full w-full overflow-y-auto bg-card/95 shadow-lg outline outline-1 outline-primary/60"
+          onBlur={(event) => {
+            if (fullscreen) return;
+            if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+            commit();
+          }}
+          onKeyDownCapture={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              cancel();
+            } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              commit();
+            }
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          style={metricVars}
+        >
+          <RichComposer
+            allowedRefTypes={INLINE_REF_TYPES}
+            apiBase={apiBase}
+            autoFocus
+            className={metricClass}
+            minRows={1}
+            mode="referencing"
+            onChange={(next) => setValue(next.text)}
+            value={richValue}
+            variant="inline"
+          />
+        </div>
+      )}
+      {/* 全屏放大编辑：与属性面板 FieldRow 的「放大」同一入口语义 */}
       {!isTitle && (
         <button
           aria-label="放大编辑"
@@ -149,7 +194,45 @@ export function CanvasInlineEditor() {
           <Maximize2 className="size-3" />
         </button>
       )}
-      {fullscreen && <FullscreenTextEditor label={EDITOR_LABELS[edit.kind]} draft={value} onDraft={setValue} onCommit={commit} onCancel={cancel} />}
+      {fullscreen &&
+        createPortal(
+          <div aria-modal="true" className="fixed inset-0 z-[80] grid place-items-center bg-foreground/40 p-6 backdrop-blur-[1px]" onMouseDown={cancel} role="dialog">
+            <section className="flex h-[70vh] w-full max-w-2xl flex-col rounded-xl border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+              <header className="flex shrink-0 items-center justify-between border-b px-4 py-2.5">
+                <p className="text-xs font-medium text-muted-foreground">{EDITOR_LABELS[edit.kind]} · 放大编辑</p>
+                <div className="flex gap-2">
+                  <button className="rounded-md border px-3 py-1 text-xs hover:bg-muted" onClick={cancel} type="button">
+                    取消
+                  </button>
+                  <button
+                    className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                    onClick={() => {
+                      setFullscreen(false);
+                      commit();
+                    }}
+                    type="button"
+                  >
+                    保存（⌘↵）
+                  </button>
+                </div>
+              </header>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                <RichComposer
+                  allowedRefTypes={INLINE_REF_TYPES}
+                  apiBase={apiBase}
+                  autoFocus
+                  minRows={8}
+                  mode="referencing"
+                  onChange={(next) => setValue(next.text)}
+                  placeholder="输入内容，@ 引用实体"
+                  value={richValue}
+                  variant="field"
+                />
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

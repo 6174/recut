@@ -23,6 +23,7 @@ import {
   coverImageOpsV,
   screenScaleOf,
 } from "./vello-shared";
+import { displayRefText } from "./ref-text";
 
 const PAD = 14;
 const CARD_RADIUS = 14;
@@ -54,8 +55,8 @@ export class EntityCardBlockV extends VelloBlock {
   renderBlock(): VelloBlockDraw {
     const attrs = this.record.attrs as Record<string, unknown>;
     const { x, y, width: w, height: h } = entityCardRectV(attrs);
-    const title = String(attrs.title ?? "实体");
-    const summary = String(attrs.desc ?? "").trim() || "补充一句简介…";
+    const title = displayRefText(String(attrs.title ?? "实体"));
+    const summary = displayRefText(String(attrs.desc ?? "")).trim() || "补充一句简介…";
     const coverUrl = String(attrs.coverUrl ?? "");
     const hasCover = Boolean(coverUrl || String(attrs.cover ?? ""));
     const contentH = entityCardContentHeight(attrs);

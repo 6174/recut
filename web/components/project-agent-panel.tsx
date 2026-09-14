@@ -54,13 +54,16 @@ import {
   type MessageContext,
   type OpencodeConfiguration,
   type OpencodeModel,
+  type PickedContext,
   type Props,
   type Session,
   type UploadedAsset,
   type WorldReference,
 } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
+import { contextProtocolRegistry, contextSourceForType } from "@/lib/context-catalog/registry";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
+import { extractRefs } from "@/lib/rich-composer/protocol/parse";
 import { isDefaultServiceEndpoint, isLocalWorkspace } from "@/lib/service-endpoint";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
@@ -96,6 +99,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [worldReferences, setWorldReferences] = useState<WorldReference[]>([]);
+  const [pickedContexts, setPickedContexts] = useState<PickedContext[]>([]);
   const [workSurfaceIncluded, setWorkSurfaceIncluded] = useState(true);
   const [workFocusIncluded, setWorkFocusIncluded] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -176,6 +180,8 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     if (!draft?.text) return;
     setContent(draft.text);
     setAttachments([]);
+    setWorldReferences([]);
+    setPickedContexts([]);
     setError("");
   }, [draft]);
   useEffect(() => {
@@ -448,12 +454,13 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     if (
       creatingRuntime ||
       loadingSessions ||
-      (!content.trim() && !attachments.length && !worldReferences.length && !workSurfaceAttached)
+      (!content.trim() && !attachments.length && !worldReferences.length && !pickedContexts.length && !workSurfaceAttached)
     )
       return;
     const text = content.trim();
     const pendingAttachments = attachments;
     const pendingWorldReferences = worldReferences;
+    const pendingPickedContexts = pickedContexts;
     const session = activeID
       ? null
       : await createSession((detail?.runtime as Runtime) ?? "codex");
@@ -461,17 +468,24 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     if (!sessionID) return;
     const workSurfaceItem = workSurfaceAttached && workSurface ? [workSurfaceContextPayload(workSurface)] : [];
     const workFocusItem = workSurfaceAttached && hasWorkFocusSelection(workFocus) && workFocusIncluded && workFocus ? [workFocusContextPayload(workFocus)] : [];
-    const contexts: MessageContext[] = [
+    // 正文内联 XML 是主锚点：从 content 提取去重引用并物化为 contexts（RFC 协议 §7）。
+    const inlineContexts = extractRefs(text, contextProtocolRegistry())
+      .map((ref) => contextSourceForType(ref.type)?.toContext?.(ref.attrs) ?? null)
+      .filter((item): item is MessageContext => item !== null);
+    const contexts: MessageContext[] = dedupeContexts([
       ...pendingAttachments.map((attachment) =>
         mediaContextPayload(attachment.assetId),
       ),
+      ...inlineContexts,
       ...pendingWorldReferences.map((world) => creationWorldContextPayload(world.worldId)),
+      ...pendingPickedContexts.map((picked) => picked.context),
       ...workSurfaceItem,
       ...workFocusItem,
-    ];
+    ]);
     setContent("");
     setAttachments([]);
     setWorldReferences([]);
+    setPickedContexts([]);
     setError("");
     setStopNotice("");
     const response = await fetch(
@@ -489,6 +503,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
       setContent(text);
       setAttachments(pendingAttachments);
       setWorldReferences(pendingWorldReferences);
+      setPickedContexts(pendingPickedContexts);
       setError(interpolate(t("agent.panel.send.failed"), { message: await responseMessage(response, t("agent.panel.retry")) }));
       return;
     }
@@ -802,13 +817,25 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
               setError(cause instanceof Error ? cause.message : t("agent.panel.addAssetFailed")),
             )
           }
+          onAddWorkFocus={() => setWorkFocusIncluded(true)}
+          onAddWorkSurface={() => setWorkSurfaceIncluded(true)}
           onAddWorld={(world) => setWorldReferences((current) => current.some((item) => item.worldId === world.worldId) ? current : [...current, world])}
           onChange={setContent}
+          onPickContext={(option) => {
+            if (!option.context) return;
+            const context = option.context;
+            setPickedContexts((current) =>
+              current.some((picked) => picked.key === option.key)
+                ? current
+                : [...current, { key: option.key, sourceType: option.sourceType, title: option.title, context }],
+            );
+          }}
           onRemoveAttachment={(assetID) =>
             setAttachments((current) =>
               current.filter((attachment) => attachment.assetId !== assetID),
             )
           }
+          onRemovePickedContext={(key) => setPickedContexts((current) => current.filter((picked) => picked.key !== key))}
           onRemoveWorld={(worldID) => setWorldReferences((current) => current.filter((world) => world.worldId !== worldID))}
           onSaveCodexConfiguration={saveCodexConfiguration}
           onSaveOpencodeConfiguration={saveOpencodeConfiguration}
@@ -821,6 +848,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
               : pendingOpencodeConfig
           }
           opencodeModels={opencodeModels}
+          pickedContexts={pickedContexts}
           onRemoveWorkFocus={() => setWorkFocusIncluded(false)}
           onRemoveWorkSurface={() => setWorkSurfaceIncluded(false)}
           workFocus={workFocus ?? null}
@@ -852,6 +880,19 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
       )}
     </>
   );
+}
+
+// contexts 按 type + payload 去重：正文内联与宿主/附件可能指向同一对象（RFC 协议 §7.4）。
+function dedupeContexts(contexts: MessageContext[]): MessageContext[] {
+  const seen = new Set<string>();
+  const out: MessageContext[] = [];
+  for (const context of contexts) {
+    const key = `${context.type}:${JSON.stringify(context.payload)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(context);
+  }
+  return out;
 }
 
 function currentTurnHasReply(detail: Detail | null, turnID?: string) {

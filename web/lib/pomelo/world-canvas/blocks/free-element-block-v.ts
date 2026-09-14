@@ -20,6 +20,7 @@ import {
   coverImageOpsV,
   screenScaleOf,
 } from "./vello-shared";
+import { displayRefText } from "./ref-text";
 
 /** 自由元素（type: free-element）：文本 / 形状 / 属性预览卡（v1 简化视觉）。 */
 export class FreeElementBlockV extends VelloBlock {
@@ -47,7 +48,7 @@ export class FreeElementBlockV extends VelloBlock {
     const h = Number(attrs.height) || 60;
     const elementKind = String(attrs.elementKind ?? "shape");
     const shapeType = String(attrs.shapeType ?? "rectangle");
-    const text = String(attrs.text ?? "");
+    const text = displayRefText(String(attrs.text ?? ""));
     const media = String(attrs.attrMedia ?? "text");
     const mediaSrc = String(attrs.mediaSrc ?? "");
 
