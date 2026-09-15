@@ -1,11 +1,13 @@
 /*
  * [INPUT]: 依赖 pomelo-core（PomeloPlugin / PomeloEditor）、pomelo-vello/overlay-dom（DomOverlay/cssColor）、
- * canvas-store、world-canvas/blocks/entity-card-metrics（entityCardRect）与 arrow-geometry（共享几何）
+ * canvas-store、world-canvas/blocks/entity-card-metrics（entityCardRect）、arrow-geometry（共享几何/blockRect）
+ * 与 world-canvas/plugins/alignment-guide-plugin（拖拽对齐吸附与提示线）
  * [OUTPUT]: 对外提供 CanvasBindsPlugin：pomelo 画布与 canvas-store 的交互绑定层——
  * 点击命中选择（实体卡/便签/文本/形状/属性节点/独立媒体卡/World 节点/语义关系线/自由箭头）解析为
  * CanvasSelection 驱动右侧面板；空白拖拽 = 框选（与选框有交集即选中：节点按矩形重叠、关系/自由箭头
  * 按曲线相交；Shift 追加、Shift 点选增删），命中写入 store.selectedIds（恰好一项回落单选）；
- * 多选下拖拽整体位移、Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
+ * 多选下拖拽整体位移（并交给 AlignmentGuidePlugin 做边缘/中心对齐吸附与提示线，Alt 临时关闭）、
+ * Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
  * canvas-store.moveElement + 去抖 persistGeometry；pointermove 经 editor.ticker 统一合帧，
  * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡与 World 根节点
  * 左右缘中点各一个，自由元素不挂）拖出引导线：实体 → 实体 =
@@ -25,7 +27,9 @@ import { DomOverlay, cssColor } from "@/lib/pomelo/pomelo-vello/overlay-dom";
 import { WORLD_ELEMENT_ID, useWorldCanvasStore } from "./canvas-store";
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
+import { blockRect } from "@/lib/pomelo/world-canvas/arrow-geometry";
 import { displayRefText } from "@/lib/pomelo/world-canvas/blocks/ref-text";
+import { AlignmentGuidePlugin } from "@/lib/pomelo/world-canvas/plugins/alignment-guide-plugin";
 import { pomeloPerf } from "@/lib/pomelo/pomelo-core/pomelo-perf";
 import {
   bezierPoint,
@@ -749,10 +753,24 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       }
       const dx = world.x - drag.startWorld.x;
       const dy = world.y - drag.startWorld.y;
+      // 对齐吸附（alt 临时关闭）：把被拖集合的世界包围盒交给对齐插件，取回修正量后统一落位
+      const alignment = editor.pluginRegistry.get("AlignmentGuidePlugin") as AlignmentGuidePlugin | undefined;
+      let appliedDx = dx;
+      let appliedDy = dy;
+      if (alignment && !event.altKey) {
+        const bounds = this.#movingBounds(editor, drag.moved, dx, dy);
+        if (bounds) {
+          const correction = alignment.snap(new Set(drag.moved.keys()), bounds);
+          appliedDx += correction.dx;
+          appliedDy += correction.dy;
+        }
+      } else {
+        alignment?.clear();
+      }
       editor.state.transact((hook) => {
         for (const [blockId, origin] of drag.moved) {
-          const x = Math.round(origin.x + dx);
-          const y = Math.round(origin.y + dy);
+          const x = Math.round(origin.x + appliedDx);
+          const y = Math.round(origin.y + appliedDy);
           hook.updateBlock(blockId, { x, y });
           this.liveGeometry.set(blockIdToCanvasId(blockId), { x, y });
         }
@@ -969,6 +987,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       }
       view.releasePointerCapture?.(event.pointerId);
       dragging = null;
+      (editor.pluginRegistry.get("AlignmentGuidePlugin") as AlignmentGuidePlugin | undefined)?.clear();
       this.drawOverlay(editor);
     };
 
@@ -1170,6 +1189,28 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     // 覆盖层是纯 DOM/SVG 改动（不经过 transact）：demand-driven 渲染需显式置脏
     editor.renderAdapter.invalidate();
     pomeloPerf.time("overlay.draw", () => this.#paint?.());
+  }
+
+  // 被拖集合的世界包围盒（origin + 本次位移；尺寸取节点有效矩形，实体卡含渲染固有高度），
+  // 供对齐插件做与其余节点的成对边缘/中心比较
+  #movingBounds(editor: PomeloEditor, moved: Map<string, Point>, dx: number, dy: number): Rect | null {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const [blockId, origin] of moved) {
+      const record = editor.state.getBlockById(blockId);
+      if (!record) continue;
+      const rect = blockRect(record);
+      const x = origin.x + dx;
+      const y = origin.y + dy;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + rect.width);
+      maxY = Math.max(maxY, y + rect.height);
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
   // 框选命中：与选框有交集即选中——节点按矩形重叠，关系/自由箭头按曲线与选框相交

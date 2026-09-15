@@ -3,7 +3,8 @@
  * [OUTPUT]: 对外提供连线几何的单一实现：锚点解析（fromAnchor/toAnchor 归一化，默认节点中心）、
  * 端点在节点边界的裁剪（boundaryPoint）、二次贝塞尔（控制点 = 直线中点 + bend 偏移），
  * 以及 relationGeometry 汇总（t1/t2/a/b/cp/labelPos；边界交点经二分细化，保证端点精确落在
- * 节点矩形边缘，箭头头部不会被节点卡面盖住）；Block 渲染、选中 overlay、命中检测、
+ * 节点矩形边缘，箭头头部不会被节点卡面盖住）；blockRect 暴露节点有效矩形解析（对齐吸附等复用），
+ * Block 渲染、选中 overlay、命中检测、
  * 连线草稿共用这一份几何，保证四者所见一致
  * [POS]: lib/pomelo/world-canvas 的连线几何模块（对应 tldraw 的 normalizedAnchor + bend 概念）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -44,6 +45,11 @@ function rectFor(block: NonNullable<BlockLike>): RectLike {
     width: Number(block.attrs.width) || 200,
     height: Number(block.attrs.height) || 110,
   };
+}
+
+// 节点有效矩形：与连线几何/命中/选区共用同一解析（实体卡经 setNodeRectResolver 用渲染固有尺寸）
+export function blockRect(block: NonNullable<BlockLike>): RectLike {
+  return rectFor(block);
 }
 
 export function centerOf(block: BlockLike): Point | null {

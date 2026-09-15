@@ -4,7 +4,8 @@
  * [OUTPUT]: 对外提供 CanvasPomeloHost：真实世界画布的 pomelo 底座——
  * canvas-store（world_entities/world_relations/world_canvas 唯一语义真相）→ pomelo 文档按 block id diff
  * 增量同步（T1-c：新增 addRecord / 删除 removeRecord / 属性变化 updateRecord，不再全量重建）；
- * ViewportPlugin（平移/缩放）+ CanvasBindsPlugin（选中解析/拖拽位移与 resize 持久化/进入容器/删除）；
+ * ViewportPlugin（平移/缩放）+ CanvasBindsPlugin（选中解析/拖拽位移与 resize 持久化/进入容器/删除）
+ * + AlignmentGuidePlugin（拖拽对齐吸附与提示线）；
  * 画布工具（模式/连线/插入/undo/缩放菜单）由 CanvasToolbarItems 承载并合并进全局 Header（canvas-top-bar.tsx），
  * 世界工具栏与「设定视图」切换仍上提到全局 Header（canvas-top-bar.tsx）；
  * 自由元素映射：note→NoteBlockV、text/shape→FreeElementBlockV、绑定两实体的自由箭头→复用
@@ -26,6 +27,7 @@ import { VelloRendererAdapter, RendererUnsupportedError } from "@/lib/pomelo/pom
 import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/world-canvas/blocks/vello-world-blocks";
 import { ViewportPlugin, centerContent, panBy } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
+import { AlignmentGuidePlugin } from "@/lib/pomelo/world-canvas/plugins/alignment-guide-plugin";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { fitElementToAsset, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
@@ -689,7 +691,7 @@ export function CanvasPomeloHost() {
     const editor = new PomeloEditor({
       state: PomeloEditorState.fromJSON({ id: "world-canvas", children: [] }),
       container,
-      plugins: [new GridPlugin(), new ViewportPlugin(), bindsPlugin],
+      plugins: [new GridPlugin(), new ViewportPlugin(), bindsPlugin, new AlignmentGuidePlugin()],
       blockTypes: WORLD_VELLO_BLOCKS,
       renderAdapter: new VelloRendererAdapter(),
     });
