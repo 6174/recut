@@ -223,8 +223,9 @@ function md5File(path) {
  * 上传 cdn/buckets/{prefix}/ 下指定文件到 R2（对象 key = {prefix}/{rel}）。S3 并发上传。
  * options.only 限定上传子集：目录或文件相对路径，如 ["0.1.33", "latest/manifest.json"]；
  * 为空则上传整个目录树。历史版本目录不可变，发布时应只传新版本 + latest 指针。
+ * options.throwOnFailure 为 true 时有任一对象上传失败即抛错（供调用方保留本地产物后报错退出）。
  */
-export async function uploadPrefix(prefix, { concurrency = 16, retries = 3, skipExisting = false, only = [] } = {}) {
+export async function uploadPrefix(prefix, { concurrency = 16, retries = 3, skipExisting = false, only = [], throwOnFailure = false } = {}) {
   const dir = bucketDir(prefix);
   let files = listLocalFiles(dir);
   if (only.length > 0) {
@@ -324,6 +325,7 @@ const contentType = guessContentType(rel);
     console.warn(`[s3] ${prefix}: ${failures.length} uploads failed after ${retries} retries`);
     for (const f of failures.slice(0, 20)) console.warn(`  ✗ ${f}`);
     if (failures.length > 20) console.warn(`  … and ${failures.length - 20} more`);
+    if (throwOnFailure) throw new Error(`${prefix}: ${failures.length} uploads failed after ${retries} retries`);
     process.exitCode = 1;
   } else {
     console.log(`[s3] ${prefix}: done ok=${okCount} skip=${skipCount} in ${Math.round((Date.now() - started) / 1000)}s`);

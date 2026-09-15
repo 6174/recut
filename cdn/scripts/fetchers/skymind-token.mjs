@@ -6,7 +6,9 @@
  *                （无 key 返回 401 时快照记空）；
  *   transform —— 原始清单按 supported_endpoint_types / 模型 ID 形态映射能力 +
  *                sources/skymind-token.models.json 人工策展段（视频等 /v1/models
- *                拿不到的模型）合并，策展段优先。
+ *                拿不到的模型）合并，策展段优先。网关不返回参数 schema：图片/视频
+ *                分别引用 sources/templates/openai-image.json 与 skymind-video.json，
+ *                由 applyModelSurfaces 统一装配参数面。
  *
  * 环境变量：SKYMIND_API_KEY（可选）、SKYMIND_API_BASE。
  */
@@ -58,7 +60,8 @@ export default {
         capability: inferred.capability,
         apiModelId: entry.id,
         inputModes: inferred.inputModes,
-        outputModes: inferred.capability === "image.generate" ? ["size", "quality"] : ["durationSeconds", "aspectRatio", "resolution"],
+        // 网关不返回参数 schema：图片/视频分别套共享模板，参数面由 applyModelSurfaces 装配。
+        template: inferred.capability === "image.generate" ? "openai-image" : "skymind-video",
         available: true,
         configurable: true,
       });

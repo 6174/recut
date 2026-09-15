@@ -61,6 +61,83 @@ function stripCommentKeys(model) {
 }
 
 const mediaKinds = new Set(["text", "image", "video", "audio"]);
+const parameterTypes = new Set(["string", "integer", "number", "boolean", "array"]);
+
+/** 简单并发池：保持上游 schema 拉取并行但不过量。 */
+async function mapLimit(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+const schemaCache = new Map();
+
+/** 拉取并缓存一个模型的 OpenAPI schema（失败静默返回 null，模型照常上架）。 */
+function readSchema(url) {
+  if (!url) return Promise.resolve(null);
+  if (!schemaCache.has(url)) {
+    schemaCache.set(url, (async () => {
+      try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+        if (!response.ok) return null;
+        return await response.json();
+      } catch {
+        return null;
+      }
+    })());
+  }
+  return schemaCache.get(url);
+}
+
+/**
+ * 从模型 OpenAPI schema 提取 per-model 参数面：
+ *   - referenceFields：图片/视频/音频参考分别落到哪个上游字段（images/image 等）；
+ *   - parameters：其余可提交字段（name = providerKey = 上游字段名），带类型/enum/默认/范围/必填。
+ * model/prompt 与参考字段由平台统一承载，不作为用户参数暴露。
+ */
+function schemaSurface(schema) {
+  const input = schema?.components?.schemas?.Input;
+  const properties = input?.properties ?? {};
+  const required = new Set(input?.required ?? []);
+  const referenceFields = {};
+  const referenceNames = new Set();
+  const referenceSpecs = [
+    ["image", ["images", "image"]],
+    ["video", ["videos", "video"]],
+    ["audio", ["audios", "audio"]],
+  ];
+  for (const [kind, names] of referenceSpecs) {
+    const name = names.find((candidate) => properties[candidate]);
+    if (name) {
+      referenceFields[kind] = name;
+      referenceNames.add(name);
+    }
+  }
+  const parameters = [];
+  for (const [name, property] of Object.entries(properties)) {
+    if (name === "model" || name === "prompt" || name === "text" || referenceNames.has(name)) continue;
+    const type = property.type ?? "string";
+    if (!parameterTypes.has(type)) continue;
+    const parameter = { name, providerKey: name, type };
+    if (Array.isArray(property.enum) && property.enum.length) {
+      parameter.enum = property.enum.filter((value) => value !== null).map(String);
+    }
+    if ("default" in property && property.default !== null) parameter.default = property.default;
+    if (required.has(name)) parameter.required = true;
+    if (typeof property.minimum === "number") parameter.minimum = property.minimum;
+    if (typeof property.maximum === "number") parameter.maximum = property.maximum;
+    if (typeof property.description === "string" && property.description.trim()) parameter.description = property.description.trim();
+    parameters.push(parameter);
+  }
+  return { parameters, referenceFields };
+}
 
 /**
  * 从模型 schema（OpenAPI）提取 per-model 内置音色清单：voice/voice_id 参数的
@@ -138,7 +215,10 @@ export default {
         upstream.push({ entry, platformBase: entry.id });
       }
     }
-    for (const { entry, platformBase } of upstream) {
+    // 逐模型拉取上游 schema：参数面由 schema 驱动，新增模型零代码。
+    const schemas = await mapLimit(upstream, 12, ({ entry }) => readSchema(entry.schema_url));
+    for (let index = 0; index < upstream.length; index += 1) {
+      const { entry, platformBase } = upstream[index];
       const kind = entry.media_type ?? entry.type;
       const capability = capabilityByType[kind];
       if (!capability) continue; // chat 及未知类型排除
@@ -155,6 +235,12 @@ export default {
       if (extra.readme) meta.docsUrl = extra.readme;
       if (Array.isArray(entry.tags) && entry.tags.length) meta.tags = entry.tags;
       if (Number.isFinite(entry.context_length) && entry.context_length > 0) meta.contextLength = entry.context_length;
+      // 语音模型走平台 voice/engine 契约（output.voiceId + codec/sampleRate），
+      // 不暴露 schema 参数，避免与 reserved 键（format/speed…）冲突。
+      // 非语音：schema 抓到就落 parameters（即使为空数组 = 声明「无可调项」），
+      // 让 applyModelSurfaces 能区分「已解析为空」与「没有 schema」。
+      const schema = schemas[index];
+      const surface = capability === "speech.generate" || !schema ? null : schemaSurface(schema);
       const outputKey = capability === "image.generate" ? "image" : capability === "video.generate" ? "video" : "speech";
       models.set(platformID, {
         id: platformID,
@@ -166,6 +252,8 @@ export default {
         outputModes: defaultOutputs[outputKey],
         available: true,
         configurable: true,
+        ...(surface ? { parameters: surface.parameters } : {}),
+        ...(surface && Object.keys(surface.referenceFields).length ? { referenceFields: surface.referenceFields } : {}),
         ...(Object.keys(meta).length ? { meta } : {}),
       });
     }

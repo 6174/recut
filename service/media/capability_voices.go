@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 catalog（provider/model/能力查询）、凭据与 ListVoices、路由表与本地 provider 识别
- * [OUTPUT]: 对外提供 CapabilityVoiceGroups：按 capability 聚合所有可用声音分组（本地 provider + 每个云端凭据），含默认路由标记、provider 可选语音模型与逐组错误
+ * [OUTPUT]: 对外提供 CapabilityVoiceGroups：按 capability 聚合所有可用声音分组（本地 provider + 每个云端凭据），含默认路由标记、provider 可选语音模型、逐组错误；本地分组的声音由注入的 localVoiceProvider 提供（Audio Studio 预设/角色）
  * [POS]: media 的能力级声音聚合查询；只读无副作用，供平台 HTTP 与 MCP 工具共用；云端 voices 实时逐凭据拉取，单组失败不影响其他组
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -59,9 +59,13 @@ func (m *MediaService) CapabilityVoiceGroups(capability MediaCapability) ([]Capa
 		}
 		seenProvider[provider.ID] = true
 		if provider.Protocol == "local" {
+			voices := []MediaVoice{}
+			if m.localVoiceProvider != nil {
+				voices = m.localVoiceProvider()
+			}
 			groups = append(groups, CapabilityVoiceGroup{
 				Provider: provider.ID, Protocol: provider.Protocol, IsDefaultRoute: defaultProvider == provider.ID,
-				Models: models, Voices: []MediaVoice{}, VoiceSources: map[string]string{},
+				Models: models, Voices: voices, VoiceSources: map[string]string{},
 			})
 		}
 	}

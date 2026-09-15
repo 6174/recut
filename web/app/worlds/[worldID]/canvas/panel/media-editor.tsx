@@ -1,11 +1,13 @@
 /*
  * [INPUT]: 依赖 react、canvas-store（apiBase/mediaSource 辅助/setMediaElementAsset/setAttrMediaAsset）、
- * pane./element-asset-history-store、media-types（Asset/normalizeAsset/MediaJob）、
- * media-configuration-store、components/asset-reference-picker、canvas-media、lucide-react
+ * pane./element-asset-history-store、media-types（Asset/normalizeAsset/MediaJob/Capability/
+ * CapabilityVoiceGroup/Model/ModelParameter）、media-configuration-store、
+ * components/asset-reference-picker、canvas-media、lucide-react
  * [OUTPUT]: 对外提供 MediaElementEditor（B.8 媒体元素态，RFC 2026-09-10）：预览区（图片单击打开
  * 素材详情弹框 AssetPreviewDialog；视频/音频 controls）、来源区（AI 生成 / 素材库选择——浮层内可上传 /
- * 本地上传 / 清除）、生成配方区
- * （prompt+模型+参考底图回填，改后可再生成 / 复制配方，job 轮询自适应采用）、素材历史区
+ * 本地上传 / 清除）、生成配方区（RECIPE_CAPABILITY 决定生产链路：图片/视频走 image/video.generate，
+ * 参数控件由 catalog model.parameters 驱动；音频走 speech.generate，声音来自 capability voices——
+ * 云端凭据 + 本机 Audio Studio 预设/角色）、素材历史区
  * （历史即素材：元素上下文 指针历史（换图即记指针），删除资产 + 删除资产 + 重生成）。
  * 适配两类载体：独立媒体元素（kind=media）与 attr 属性元素（kind=attr 且 props.media≠text）
  * [POS]: worlds/[worldID]/canvas/panel 的媒体元素编辑器
@@ -19,7 +21,8 @@ import { AssetPreviewDialog, mediaContentURL, type PreviewAsset } from "@/compon
 import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
 import { ModelPicker } from "@/components/model-picker";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
-import { normalizeAsset, type Asset, type MediaJob } from "@/app/media/media-types";
+import { buildGenerationRequest } from "@/lib/media/generation-request";
+import { normalizeAsset, type Asset, type Capability, type CapabilityVoiceGroup, type MediaJob, type Model as MediaModel, type ModelParameter } from "@/app/media/media-types";
 import { useWorldCanvasStore } from "../canvas-store";
 import { fitElementToAsset } from "../canvas-media";
 import { useElementAssetHistoryStore } from "./element-asset-history-store";
@@ -28,6 +31,9 @@ type MediaModality = "image" | "video" | "audio";
 // 选择器缺省值共享同一引用：state.histories[elementId] 缺席时 ?? [] 会造新数组，getSnapshot 永不相等 → 无限循环
 const EMPTY_HISTORY: string[] = [];
 const CONTRIBUTED_LABELS: Record<MediaModality, string> = { image: "图片", video: "视频", audio: "音频" };
+// 每种媒体节点对应的生产 capability：音频走平台 speech.generate（云端 provider 与
+// 本机 Audio Studio 同一路由），不再误落到 image.generate。
+const RECIPE_CAPABILITY: Record<MediaModality, Capability> = { image: "image.generate", video: "video.generate", audio: "speech.generate" };
 
 // 图片素材采纳后卡片自适应比例：统一走 canvas-media 的 fitElementToAsset（media-editor 采纳与
 // AttrCreatorPanel 建卡共用同一适配规则）
@@ -119,7 +125,7 @@ export function MediaElementEditor({ element }: { element: { id: string; kind: s
       </div>
       {/* C. 生成配方区（常驻；AI 生成的素材自动回填 prompt/模型/参考）+ D. 素材历史区 */}
       <GenerationHistory apiBase={apiBase} elementId={element.id} modality={modality} currentId={assetId} onAdopt={adopt} />
-      <GenerationRecipe apiBase={apiBase} capability={modality === "video" ? "video.generate" : "image.generate"} elementId={element.id} current={current} modality={modality} onAdopt={adopt} focusSignal={recipeFocus} />
+      <GenerationRecipe apiBase={apiBase} capability={RECIPE_CAPABILITY[modality]} elementId={element.id} current={current} modality={modality} onAdopt={adopt} focusSignal={recipeFocus} />
       {sourceView === "library" && (
         <AssetReferenceDialog
           apiBase={apiBase}
@@ -280,14 +286,16 @@ function apiBaseAssetURL(apiBase: string, id: string): string {
   return mediaContentURL(apiBase, id);
 }
 
-// 生成配方表单：模型（按 capability，取已连接 provider 的凭据）+ prompt + 参考素材
-// （当前图可作底图，另可加图片/视频/音频参考）；提交 /v1/media/jobs → 轮询 → 自适应采用
-// 首个完成的产出；复制配方（复制 recipe）。配方区常驻，AI 生成素材的 prompt/模型/参考自动回填。
+// 生成配方表单（RFC 2026-09-10 + schema 驱动）：
+// - 图片/视频：模型参数由 catalog `model.parameters` 驱动（动态控件），提交 output；
+// - 音频：走平台 speech.generate，声音来自 capability voices（云端凭据 + 本机 Audio Studio
+//   预设/角色），提交 output.voiceId；
+// 提交 /v1/media/jobs → 轮询 → 自适应采用首个完成的产出；配方常驻并自动回填。
 type RecipeReference = { id: string; name?: string; kind?: string };
 
 function GenerationRecipe({ apiBase, capability, elementId, current, modality, onAdopt, focusSignal = 0 }: {
   apiBase: string;
-  capability: "image.generate" | "video.generate";
+  capability: Capability;
   elementId: string;
   current?: PreviewAsset | null;
   modality: MediaModality;
@@ -295,6 +303,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
   focusSignal?: number;
 }) {
   const configuration = useMediaConfigurationStore();
+  const isSpeech = capability === "speech.generate";
   const [prompt, setPrompt] = useState("");
   const [modelId, setModelId] = useState("");
   const [withCurrentRef, setWithCurrentRef] = useState(true);
@@ -303,28 +312,71 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
   const [job, setJob] = useState<MediaJob | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [params, setParams] = useState<Record<string, unknown>>({});
+  const [voiceId, setVoiceId] = useState("");
+  const [voiceGroups, setVoiceGroups] = useState<CapabilityVoiceGroup[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     void configuration.load(apiBase);
   }, [apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 音频：能力级声音分组（本地 provider 一组 + 云端每凭据一组），同时提供 TTS 模型清单
+  useEffect(() => {
+    if (!isSpeech) return;
+    let active = true;
+    void (async () => {
+      const response = await fetch(`${apiBase}/v1/media/capabilities/speech.generate/voices`, { cache: "no-store" }).catch(() => null);
+      if (!active || !response?.ok) return;
+      setVoiceGroups((await response.json()) as CapabilityVoiceGroup[]);
+    })();
+    return () => { active = false; };
+  }, [apiBase, isSpeech]);
   // 外部「AI 生成」按钮：配方常驻，只把焦点带回 prompt 输入
   useEffect(() => {
     if (focusSignal > 0) textareaRef.current?.focus();
   }, [focusSignal]);
-  const models = configuration.providers.flatMap((provider) => provider.models).filter((model) => model.capability === capability && model.available);
+  const models: MediaModel[] = isSpeech
+    ? Array.from(new Map(voiceGroups.flatMap((group) => group.models).map((model) => [model.id, model])).values())
+    : configuration.providers.flatMap((provider) => provider.models).filter((model) => model.capability === capability && model.available);
   const selectedModel = models.find((model) => model.id === modelId) ?? models[0];
+  const voiceGroup = isSpeech ? voiceGroups.find((group) => group.models.some((model) => model.id === selectedModel?.id)) : undefined;
   const credential = configuration.credentials.find((item) => item.provider === selectedModel?.provider);
+  // 本地 provider（Audio Studio）无需凭据：只给 modelId 直连即可
+  const keyless = selectedModel?.provider === "local-audio";
   useEffect(() => {
     if (!modelId && models[0]) setModelId(models[0].id);
   }, [modelId, models]);
-  // 换图即继承：当前 asset 的完整详情（含 recipe metadata）到位后回填 prompt/模型/参考；
+  // 参数与模型对齐：换模型时丢弃不属于新模型的键，并按 catalog 默认值补全
+  useEffect(() => {
+    const parameters = selectedModel?.parameters ?? [];
+    const allowed = new Set(parameters.map((parameter) => parameter.name));
+    setParams((prev) => {
+      const next: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(prev)) if (allowed.has(key)) next[key] = value;
+      for (const parameter of parameters) if (!(parameter.name in next) && parameter.default !== undefined) next[parameter.name] = parameter.default;
+      return next;
+    });
+  }, [selectedModel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const voices = voiceGroup?.voices ?? [];
+  const voiceKey = voices.map((voice) => voice.id).join(",");
+  useEffect(() => {
+    setVoiceId((prev) => (prev && voices.some((voice) => voice.id === prev) ? prev : voices[0]?.id ?? ""));
+  }, [voiceKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 换图即继承：当前 asset 的完整详情（含 recipe metadata）到位后回填 prompt/模型/参数/参考；
   // 依赖 current 而非 id——id 变更时 metadata 还在异步拉取，等详情到达再回填
   useEffect(() => {
     const metadata = current?.metadata;
     if (!metadata) return;
     if (typeof metadata.prompt === "string" && metadata.prompt) setPrompt(metadata.prompt);
     if (typeof metadata.modelId === "string" && metadata.modelId) setModelId(metadata.modelId);
+    const output = metadata.output;
+    if (output && typeof output === "object") {
+      if (isSpeech) {
+        if (typeof (output as Record<string, unknown>).voiceId === "string") setVoiceId((output as Record<string, unknown>).voiceId as string);
+      } else {
+        setParams((prev) => ({ ...prev, ...(output as Record<string, unknown>) }));
+      }
+    }
     // AI 生成素材：把它用过的参考素材一并显示出来（当前图作为底图另有开关，不重复入列）
     if (Array.isArray(metadata.referenceIds)) {
       const ids = (metadata.referenceIds as unknown[]).filter((id): id is string => typeof id === "string" && id !== current?.id);
@@ -351,24 +403,26 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
     return () => { active = false; };
   }, [apiBase, missingRefIds]);
   const referenceIds = Array.from(new Set([
-    ...(current && withCurrentRef ? [current.id] : []),
-    ...references.filter((item) => item.id !== current?.id).map((item) => item.id),
+    ...(!isSpeech && current && withCurrentRef ? [current.id] : []),
+    ...(isSpeech ? [] : references.filter((item) => item.id !== current?.id).map((item) => item.id)),
   ]));
-  const canSubmit = Boolean(selectedModel && credential && prompt.trim());
+  const canSubmit = Boolean(selectedModel && prompt.trim() && (keyless || credential));
   const jobRunning = Boolean(job && job.status !== "completed" && job.status !== "failed");
   const submit = async () => {
     if (!canSubmit || jobRunning) return;
     setError("");
+    const output: Record<string, unknown> = isSpeech ? (voiceId ? { voiceId } : {}) : { ...params };
     const response = await fetch(`${apiBase}/v1/media/jobs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      body: JSON.stringify(buildGenerationRequest({
         capability,
         modelId: selectedModel!.id,
-        credentialId: credential!.id,
-        prompt: prompt.trim(),
-        ...(referenceIds.length ? { referenceIds } : {}),
-      }),
+        credentialId: credential?.id,
+        prompt,
+        referenceIds,
+        output,
+      })),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { error?: string } | null;
@@ -413,6 +467,8 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
     const lines = [
       `modelId: ${selectedModel?.id ?? ""}`,
       `prompt: ${prompt.trim()}`,
+      isSpeech && voiceId ? `voiceId: ${voiceId}` : "",
+      !isSpeech && Object.keys(params).length ? `output: ${JSON.stringify(params)}` : "",
       referenceIds.length ? `referenceIds: [${referenceIds.join(", ")}]` : "",
     ].filter(Boolean);
     await navigator.clipboard.writeText(lines.join("\n"));
@@ -427,7 +483,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
       </div>
       {models.length && selectedModel ? (
         <ModelPicker
-          credentialConnected={(providerID) => configuration.credentials.some((item) => item.provider === providerID)}
+          credentialConnected={(providerID) => providerID === "local-audio" || configuration.credentials.some((item) => item.provider === providerID)}
           id={`canvas-recipe-${elementId}`}
           models={models}
           onChange={setModelId}
@@ -440,51 +496,74 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
       <textarea
         className="h-24 w-full resize-none rounded-md border bg-background p-2 text-xs leading-5 outline-none focus:border-primary"
         onChange={(event) => setPrompt(event.target.value)}
-        placeholder={modality === "video" ? "输入视频提示词…" : "输入画面描述，支持以当前图为底图改写…"}
+        placeholder={isSpeech ? "输入需要朗读的文本…" : modality === "video" ? "输入视频提示词…" : "输入画面描述，支持以当前图为底图改写…"}
         ref={textareaRef}
         value={prompt}
       />
-      {current && (
+      {isSpeech && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-medium text-muted-foreground">声音</p>
+          {voices.length ? (
+            <select
+              className="w-full rounded-md border bg-background p-2 text-xs outline-none focus:border-primary"
+              onChange={(event) => setVoiceId(event.target.value)}
+              value={voiceId}
+            >
+              {voices.map((voice) => (
+                <option key={voice.id} value={voice.id}>
+                  {voice.name}{voice.category ? ` · ${voice.category}` : ""}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-[10px] text-muted-foreground">{voiceGroup?.error ? "该声音来源不可用，请检查 Provider 配置。" : "使用默认声音，或先在声音工坊创建角色/预设。"}</p>
+          )}
+        </div>
+      )}
+      {!isSpeech && <RecipeParameters parameters={selectedModel?.parameters ?? []} values={params} onChange={(name, value) => setParams((prev) => ({ ...prev, [name]: value }))} />}
+      {!isSpeech && current && (
         <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <input checked={withCurrentRef} onChange={(event) => setWithCurrentRef(event.target.checked)} type="checkbox" />
           以当前图为参考底图
         </label>
       )}
-      {/* 参考素材：图片 / 视频 / 音频；可素材库选择或本地上传，随配方一起提交 */}
-      <div className="space-y-1.5">
-        <p className="text-[11px] font-medium text-muted-foreground">参考素材{references.filter((item) => item.id !== current?.id).length ? `（${references.filter((item) => item.id !== current?.id).length}）` : ""}</p>
-        <div className="flex flex-wrap gap-1.5">
-          {references.filter((item) => item.id !== current?.id).map((item) => (
-            <div className="group/ref relative size-12 overflow-hidden rounded-md border" key={item.id} title={item.name ?? item.id}>
-              {item.kind === "video" ? (
-                <video className="size-full object-cover" muted src={mediaContentURL(apiBase, item.id)} />
-              ) : item.kind === "audio" ? (
-                <div className="grid size-full place-items-center bg-muted/40 text-sm">🎵</div>
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img alt={item.name ?? ""} className="size-full object-cover" src={mediaContentURL(apiBase, item.id)} />
-              )}
-              <button
-                aria-label={`移除参考 ${item.name ?? item.id}`}
-                className="absolute right-0 top-0 hidden rounded bg-card/90 p-0.5 text-muted-foreground hover:text-destructive group-hover/ref:block"
-                onClick={() => setReferences((prev) => prev.filter((ref) => ref.id !== item.id))}
-                type="button"
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          ))}
-          <button
-            className="grid size-12 place-items-center rounded-md border border-dashed text-muted-foreground hover:bg-muted"
-            onClick={() => setPickerOpen(true)}
-            title="添加参考素材（图片 / 视频 / 音频）"
-            type="button"
-          >
-            ＋
-          </button>
+      {/* 参考素材：图片 / 视频 / 音频；可素材库选择或本地上传，随配方一起提交（音频走文本，不用参考） */}
+      {!isSpeech && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-medium text-muted-foreground">参考素材{references.filter((item) => item.id !== current?.id).length ? `（${references.filter((item) => item.id !== current?.id).length}）` : ""}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {references.filter((item) => item.id !== current?.id).map((item) => (
+              <div className="group/ref relative size-12 overflow-hidden rounded-md border" key={item.id} title={item.name ?? item.id}>
+                {item.kind === "video" ? (
+                  <video className="size-full object-cover" muted src={mediaContentURL(apiBase, item.id)} />
+                ) : item.kind === "audio" ? (
+                  <div className="grid size-full place-items-center bg-muted/40 text-sm">🎵</div>
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img alt={item.name ?? ""} className="size-full object-cover" src={mediaContentURL(apiBase, item.id)} />
+                )}
+                <button
+                  aria-label={`移除参考 ${item.name ?? item.id}`}
+                  className="absolute right-0 top-0 hidden rounded bg-card/90 p-0.5 text-muted-foreground hover:text-destructive group-hover/ref:block"
+                  onClick={() => setReferences((prev) => prev.filter((ref) => ref.id !== item.id))}
+                  type="button"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+            <button
+              className="grid size-12 place-items-center rounded-md border border-dashed text-muted-foreground hover:bg-muted"
+              onClick={() => setPickerOpen(true)}
+              title="添加参考素材（图片 / 视频 / 音频）"
+              type="button"
+            >
+              ＋
+            </button>
+          </div>
+          <p className="text-[10px] text-muted-foreground">支持图片 / 视频 / 音频参考，可素材库选择或本地上传。</p>
         </div>
-        <p className="text-[10px] text-muted-foreground">支持图片 / 视频 / 音频参考，可素材库选择或本地上传。</p>
-      </div>
+      )}
       {pickerOpen && (
         <AssetReferenceDialog
           apiBase={apiBase}
@@ -524,6 +603,62 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
       )}
       {error && <p className="text-[10px] text-destructive">{error}</p>}
     </div>
+  );
+}
+
+// 模型参数控件：由 catalog 的 per-model schema 驱动（bool 勾选 / enum 下拉 / 数值与文本输入），
+// 提交时随 output 一起发送，服务端按同一 schema 校验。
+function RecipeParameters({ parameters, values, onChange }: { parameters: ModelParameter[]; values: Record<string, unknown>; onChange: (name: string, value: unknown) => void }) {
+  if (!parameters.length) return null;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-medium text-muted-foreground">生成参数</p>
+      {parameters.map((parameter) => (
+        <ParameterRow key={parameter.name} parameter={parameter} value={values[parameter.name]} onChange={(value) => onChange(parameter.name, value)} />
+      ))}
+    </div>
+  );
+}
+
+function ParameterRow({ parameter, value, onChange }: { parameter: ModelParameter; value: unknown; onChange: (value: unknown) => void }) {
+  const label = parameter.label || parameter.name.replace(/_/g, " ");
+  const current = value ?? parameter.default;
+  if (parameter.type === "boolean") {
+    return (
+      <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground" title={parameter.description}>
+        <span className="truncate">{label}</span>
+        <input checked={Boolean(current)} onChange={(event) => onChange(event.target.checked)} type="checkbox" />
+      </label>
+    );
+  }
+  if (parameter.enum?.length) {
+    return (
+      <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground" title={parameter.description}>
+        <span className="shrink-0 truncate">{label}</span>
+        <select
+          className="min-w-0 flex-1 rounded-md border bg-background p-1 text-[11px] outline-none focus:border-primary"
+          onChange={(event) => onChange(event.target.value)}
+          value={String(current ?? "")}
+        >
+          {parameter.enum.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+      </label>
+    );
+  }
+  const numeric = parameter.type === "integer" || parameter.type === "number";
+  return (
+    <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground" title={parameter.description}>
+      <span className="shrink-0 truncate">{label}</span>
+      <input
+        className="min-w-0 flex-1 rounded-md border bg-background p-1 text-[11px] outline-none focus:border-primary"
+        max={parameter.maximum}
+        min={parameter.minimum}
+        onChange={(event) => onChange(numeric ? Number(event.target.value) : event.target.value)}
+        step={parameter.type === "integer" ? 1 : "any"}
+        type={numeric ? "number" : "text"}
+        value={current === undefined || current === null ? "" : String(current)}
+      />
+    </label>
   );
 }
 

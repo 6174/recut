@@ -36,10 +36,13 @@ export function screenScaleOf(adapter: PomeloRendererAdapter): number {
   return scale && scale > 0 ? scale : 1;
 }
 
-/** cover 填充的 op：等比放大铺满目标盒并居中，再按 clip 圆角裁剪（对齐 CSS background-size: cover; position: center）。 */
+/** cover 填充的 op：等比放大铺满目标盒并居中，再按 clip 圆角裁剪（对齐 CSS background-size: cover; position: center）。
+ *  纹理分辨率按视口缩放自适应：把盒子需要的设备像素传给 ensureImage，放大时升档避免发糊。 */
 export function coverImageOpsV(adapter: PomeloRendererAdapter, url: string, box: { x: number; y: number; width: number; height: number }, clip: { x: number; y: number; width: number; height: number; radius: number }): VelloOp[] {
   if (!url || box.width <= 0 || box.height <= 0) return [];
-  const imageId = adapter.ensureImage(url);
+  const ratio = adapter.getImagePixelRatio();
+  // 首次按盒子下界估算纹理档位（cover 绘制长边 ≥ 盒子长边），尺寸已知后再按实际绘制尺寸精修
+  let imageId = adapter.ensureImage(url, Math.max(box.width, box.height) * ratio);
   if (imageId === null) return [];
   const size = adapter.getImageSize(imageId);
   const ops: VelloOp[] = [
@@ -49,6 +52,9 @@ export function coverImageOpsV(adapter: PomeloRendererAdapter, url: string, box:
     const scale = Math.max(box.width / size.width, box.height / size.height);
     const drawW = size.width * scale;
     const drawH = size.height * scale;
+    // 已注册纹理分辨率不足时请求升档（异步；下一帧尺寸/纹理就绪后重绘）
+    const upgraded = adapter.ensureImage(url, Math.max(drawW, drawH) * ratio);
+    if (upgraded !== null) imageId = upgraded;
     ops.push({ kind: "image", imageId, x: box.x + (box.width - drawW) / 2, y: box.y + (box.height - drawH) / 2, width: drawW, height: drawH });
   } else {
     // 尺寸未知（图片仍在上传/加载）：先按目标盒拉伸占位，下一帧尺寸就绪后重绘为 cover

@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/blocks/entity-card-metrics、
  *          world-canvas/blocks/vello-shared（公共绘制辅助/色板）、world-canvas/text-metrics（truncateText）
  * [OUTPUT]: 对外提供 EntityCardBlockV（type: entity-card）与 entityCardRectV：深色卡面 + 头图 center-cover +
- *           标题/副标题 + 资料格 + 元素徽标；有效矩形与业务命中/选区/连线共用。
+ *           标题/副标题 + 资料格 + 元素徽标；头图区为 flex:1（剩余空间），底部固定标题/缩略图区；
+ *           有效矩形与业务命中/选区/连线共用。
  * [POS]: lib/pomelo/world-canvas/blocks 的实体卡 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -10,7 +11,16 @@ import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block"
 import type { VelloOp } from "../../pomelo-vello/op-bridge";
 import { textOp } from "../../pomelo-vello/vello-text";
 import { truncateText } from "../text-metrics";
-import { entityCardContentHeight, entityCardRect, entityCardThumbColumns } from "./entity-card-metrics";
+import {
+  ENTITY_CARD_PAD,
+  ENTITY_CARD_RADIUS,
+  entityCardImageHeight,
+  entityCardRect,
+  entityCardTextTop,
+  entityCardThumbColumns,
+  entityCardThumbTop,
+  entityCardTitleHeight,
+} from "./entity-card-metrics";
 import {
   CAPTION_TOP_OFFSET,
   CARD_FILL,
@@ -25,12 +35,8 @@ import {
 } from "./vello-shared";
 import { displayRefText } from "./ref-text";
 
-const PAD = 14;
-const CARD_RADIUS = 14;
-const IMAGE_H = 160;
 const THUMB = 30;
 const THUMB_GAP = 5;
-const GRID_GAP_Y = 12;
 const TITLE_SIZE_TEXT_FIRST = 21;
 const SUBTITLE_SIZE_TEXT_FIRST = 11;
 
@@ -58,36 +64,38 @@ export class EntityCardBlockV extends VelloBlock {
     const title = displayRefText(String(attrs.title ?? "实体"));
     const summary = displayRefText(String(attrs.desc ?? "")).trim() || "补充一句简介…";
     const coverUrl = String(attrs.coverUrl ?? "");
-    const hasCover = Boolean(coverUrl || String(attrs.cover ?? ""));
-    const contentH = entityCardContentHeight(attrs);
-    // resize 变大时多余高度给头图（避免卡底大片空白）
-    const imageH = hasCover ? IMAGE_H + Math.max(0, h - contentH) : 0;
-    const textTop = hasCover ? imageH + PAD : PAD;
+    // flex 布局：底部内容区（标题 + 副标题 + 缩略图）固定高度，剩余空间全部留给头图区。
+    const imageH = entityCardImageHeight(attrs, h);
+    const hasCover = imageH > 0;
+    const textTop = entityCardTextTop(attrs, h);
+    const titleH = entityCardTitleHeight(attrs);
     const totalCount = Math.max(stringListOf(attrs.photos).length, stringListOf(attrs.photoUrls).length);
     const titleSize = hasCover ? 15 : TITLE_SIZE_TEXT_FIRST;
     const summarySize = hasCover ? 10 : SUBTITLE_SIZE_TEXT_FIRST;
-    const gridTop = textTop + (hasCover ? 24 + 14 : 30 + 18) + GRID_GAP_Y;
+    const gridTop = entityCardThumbTop(attrs, h);
     const caption = captionOpsV(this.adapter, x, y, w, title);
 
     const ops: VelloOp[] = [
-      { kind: "blurRect", x: x + 3, y: y + 7, width: w, height: h, radius: CARD_RADIUS, stdDev: 6, fill: SHADOW_FILL },
-      { kind: "roundRect", x, y, width: w, height: h, radius: CARD_RADIUS, fill: CARD_FILL, stroke: CARD_STROKE, strokeWidth: 1 },
+      { kind: "blurRect", x: x + 3, y: y + 7, width: w, height: h, radius: ENTITY_CARD_RADIUS, stdDev: 6, fill: SHADOW_FILL },
+      { kind: "roundRect", x, y, width: w, height: h, radius: ENTITY_CARD_RADIUS, fill: CARD_FILL, stroke: CARD_STROKE, strokeWidth: 1 },
       ...caption.ops,
     ];
     if (hasCover) {
-      ops.push(...coverImageOpsV(this.adapter, coverUrl, { x, y, width: w, height: imageH }, { x, y, width: w, height: h, radius: CARD_RADIUS }));
+      // 头图区 = 剩余空间，仅在自身区域内 center-cover：先按卡面圆角裁剪（保留顶部圆角），
+      // 再裁到头图矩形，避免 cover 溢出污染下方文字/缩略图区。
+      ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: ENTITY_CARD_RADIUS });
+      ops.push(...coverImageOpsV(this.adapter, coverUrl, { x, y, width: w, height: imageH }, { x, y, width: w, height: imageH, radius: 0 }));
+      ops.push({ kind: "popClip" });
     }
-    ops.push(textOp({ text: truncateText(title, w - PAD * 2, titleSize), x: x + PAD, y: y + textTop, size: titleSize, maxWidth: w - PAD * 2, embolden: 0.035, fill: TEXT_PRIMARY }));
-    ops.push(textOp({ text: truncateText(summary, w - PAD * 2, summarySize), x: x + PAD, y: y + textTop + (hasCover ? 24 : 30), size: summarySize, maxWidth: w - PAD * 2, fill: TEXT_SECONDARY }));
+    ops.push(textOp({ text: truncateText(title, w - ENTITY_CARD_PAD * 2, titleSize), x: x + ENTITY_CARD_PAD, y: y + textTop, size: titleSize, maxWidth: w - ENTITY_CARD_PAD * 2, embolden: 0.035, fill: TEXT_PRIMARY }));
+    ops.push(textOp({ text: truncateText(summary, w - ENTITY_CARD_PAD * 2, summarySize), x: x + ENTITY_CARD_PAD, y: y + textTop + titleH, size: summarySize, maxWidth: w - ENTITY_CARD_PAD * 2, fill: TEXT_SECONDARY }));
 
     // 按卡片宽度自适应换行（不再固定九宫格、不再截断到 9 张）
     const columns = entityCardThumbColumns(attrs);
     const urlPhotos = stringListOf(attrs.photoUrls);
-    const tileRects: Array<{ x: number; y: number }> = [];
     for (let index = 0; index < totalCount; index++) {
-      const tx = x + PAD + (index % columns) * (THUMB + THUMB_GAP);
+      const tx = x + ENTITY_CARD_PAD + (index % columns) * (THUMB + THUMB_GAP);
       const ty = y + gridTop + Math.floor(index / columns) * (THUMB + THUMB_GAP);
-      tileRects.push({ x: tx, y: ty });
       ops.push({ kind: "roundRect", x: tx, y: ty, width: THUMB, height: THUMB, radius: 8, fill: TILE_FILL, stroke: [0, 0, 0, 0], strokeWidth: 0 });
       ops.push(...coverImageOpsV(this.adapter, urlPhotos[index] ?? "", { x: tx, y: ty, width: THUMB, height: THUMB }, { x: tx, y: ty, width: THUMB, height: THUMB, radius: 8 }));
     }

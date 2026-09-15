@@ -45,10 +45,11 @@ func (atlasCloudProvider) GenerateImage(input ImageInput) (ImageResult, error) {
 		client = http.DefaultClient
 	}
 	prediction, err := atlas.SubmitImage(client, input.APIBase, input.Secret, atlas.GenerateImageInput{
-		Model:  input.Model,
-		Prompt: input.Prompt,
-		Images: images,
-		Output: input.Output,
+		Model:           input.Model,
+		Prompt:          input.Prompt,
+		Images:          images,
+		Params:          input.Output,
+		ReferenceFields: input.ReferenceFields,
 	})
 	if err != nil {
 		return ImageResult{}, err

@@ -1,0 +1,12 @@
+{
+  "_comment": "Skymind Token API /openapi/v1/video/generations 的参数面。resolution/ratio/duration 走顶层；generate_audio/watermark/seed 走 metadata 子对象（providerKey 用点路径表达嵌套，由 media 层拆分）。",
+  "parameters": [
+    { "name": "resolution", "providerKey": "resolution", "type": "string", "default": "480p", "description": "480p 起步成本最低" },
+    { "name": "aspectRatio", "providerKey": "ratio", "type": "string", "default": "16:9" },
+    { "name": "durationSeconds", "providerKey": "duration", "type": "integer", "default": 5 },
+    { "name": "generateAudio", "providerKey": "metadata.generate_audio", "type": "boolean", "default": true },
+    { "name": "watermark", "providerKey": "metadata.watermark", "type": "boolean" },
+    { "name": "seed", "providerKey": "metadata.seed", "type": "integer", "minimum": 0 }
+  ],
+  "referenceFields": { "image": "images", "video": "videos", "audio": "audios" }
+}

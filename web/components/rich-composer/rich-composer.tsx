@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 @tiptap/react、@tiptap/starter-kit、@tiptap/extension-placeholder、reference 扩展/触发器、useContextCatalog 与 ReferenceChip
  * [OUTPUT]: 对外提供 RichComposer（plain/referencing、composer/field/inline 三变体、受控 RichComposerValue）+ useRichComposerValue
- * [POS]: web/components/rich-composer 的 L1 输入内核（协议 RFC §4）；referencing 模式下 @ 打开统一上下文面板（顶部搜索+类型过滤 / 虚拟列表 / 右侧预览 / 按类型分组），选择后插入 reference chip
+ * [POS]: web/components/rich-composer 的 L1 输入内核（协议 RFC §4）；referencing 模式下「新敲下 @」打开统一上下文面板（焦点留在编辑器，@ 后继续输入即过滤；光标移动到已有 @ 之后不弹），选择后插入 reference chip
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -18,7 +18,7 @@ import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import { extractRefsFromDoc, docToMarkdown } from "@/lib/rich-composer/protocol/serialize";
 import { stringToDoc } from "@/lib/rich-composer/protocol/parse";
 import { createReferenceExtension } from "@/lib/rich-composer/extensions/reference";
-import { resolveReferenceTriggerState } from "@/lib/rich-composer/extensions/reference-trigger";
+import { resolveReferenceTriggerState, didInsertTriggerChar } from "@/lib/rich-composer/extensions/reference-trigger";
 import type { RichComposerValue } from "@/lib/rich-composer/value";
 import { ReferenceChip } from "./reference-chip";
 import { ContextCatalogProvider } from "./catalog-context";
@@ -128,23 +128,43 @@ export function RichComposer({
   const referencing = mode === "referencing";
   const { runtime, sourceFor } = useContextCatalog({ apiBase, projectID, workSurface, workFocus, allowedRefTypes });
 
-  // maybeOpenPanel: 检测光标前的 @query 打开面板；触发失效（继续输入改了 query / 删掉 @ / 光标移开）时自动关闭。
-  // 触发文本保留在编辑器内，选择时整体替换为 chip，取消时安全清理（编辑失效不清正文）。
-  const maybeOpenPanel = useCallback((instance: Editor) => {
+  // syncPanel: 维护 @ 触发状态。
+  // - 打开：只在「本次输入真的敲下 @」时打开；光标移动到已有 @ 之后（selection）绝不打开。
+  // - 跟随：面板打开时，range/query/coords 始终以编辑器为准实时刷新，锚点跟着光标走。
+  // - 关闭：触发失效（删掉 @ / 光标移出 / 框选）时只收起，不碰正文。
+  // 焦点始终留在编辑器：查询由编辑器输入驱动，面板不抢焦点。
+  const syncPanel = useCallback((instance: Editor, source: "input" | "selection", insertedTrigger: boolean) => {
     if (!referencing) return;
     const state = resolveReferenceTriggerState(instance);
     const current = panelRef.current;
     if (current) {
-      const unchanged = Boolean(state.active && state.range) && state.range!.from === current.range.from && state.range!.to === current.range.to;
-      if (!unchanged) dismissRef.current();
+      if (!state.active || !state.range) {
+        dismissRef.current();
+        return;
+      }
+      const next = {
+        range: { from: state.range.from, to: state.range.to },
+        text: instance.state.doc.textBetween(state.range.from, state.range.to),
+        coords: state.coords ?? current.coords,
+        query: state.query,
+      };
+      const unchanged =
+        next.range.from === current.range.from &&
+        next.range.to === current.range.to &&
+        next.query === current.query &&
+        next.coords.top === current.coords.top &&
+        next.coords.left === current.coords.left;
+      if (unchanged) return;
+      panelRef.current = next;
+      setPanel(next);
       return;
     }
+    if (source !== "input" || !insertedTrigger) return;
     if (!state.active || !state.range) return;
-    const coords = state.coords ?? { top: 0, left: 0 };
     const next = {
       range: { from: state.range.from, to: state.range.to },
       text: instance.state.doc.textBetween(state.range.from, state.range.to),
-      coords,
+      coords: state.coords ?? { top: 0, left: 0 },
       query: state.query,
     };
     panelRef.current = next;
@@ -202,15 +222,15 @@ export function RichComposer({
         return false;
       },
     },
-    onUpdate({ editor: next }) {
+    onUpdate({ editor: next, transaction }) {
       const doc = next.getJSON();
       const text = docToMarkdown(doc, registry);
       lastTextRef.current = text;
       onChangeRef.current({ text, refs: extractRefsFromDoc(doc, registry), doc, isEmpty: text.length === 0 });
-      maybeOpenPanel(next);
+      syncPanel(next, "input", didInsertTriggerChar(transaction));
     },
     onSelectionUpdate({ editor: next }) {
-      maybeOpenPanel(next);
+      syncPanel(next, "selection", false);
     },
   });
 
@@ -223,8 +243,13 @@ export function RichComposer({
       return;
     }
     if (lastTextRef.current === value.text) return;
-    editor.commands.setContent(stringToDoc(value.text, registry) as JSONContent, { emitUpdate: false });
-    lastTextRef.current = value.text;
+    // 不能在 React 生命周期内同步 setContent：Tiptap 会在此调用 flushSync，
+    // 触发 "flushSync was called from inside a lifecycle method"。放到微任务里执行。
+    queueMicrotask(() => {
+      if (editor.isDestroyed || lastTextRef.current === value.text) return;
+      editor.commands.setContent(stringToDoc(value.text, registry) as JSONContent, { emitUpdate: false });
+      lastTextRef.current = value.text;
+    });
   }, [editor, registry, value.text]);
 
   const closePanel = useCallback(() => {
@@ -284,12 +309,21 @@ export function RichComposer({
             allowedRefTypes={allowedRefTypes}
             anchorRect={panel?.coords ?? null}
             apiBase={apiBase}
+            autoFocusSearch={false}
             initialQuery={panel?.query}
             onCancel={closePanel}
             onDismiss={dismissPanel}
             onPick={(option) => insertReference(option)}
+            onQuery={(value) => {
+              const current = panelRef.current;
+              if (!current) return;
+              const next = { ...current, query: value };
+              panelRef.current = next;
+              setPanel(next);
+            }}
             open={Boolean(panel)}
             projectID={projectID}
+            query={panel?.query}
             selectedKeys={EMPTY_SELECTED}
             workFocus={workFocus}
             workSurface={workSurface}

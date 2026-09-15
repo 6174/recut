@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖配置、资产、Provider 策略与 Provider 适配器
- * [OUTPUT]: 生成任务创建、同步执行、终态等待、结果持久化、无 prompt/凭据的状态审计与按策略分派的通用 Provider 调度；图片 job 带参考图时自动切换模型编辑变体；拒绝将 Codex 原生图片路由误送入 Provider
+ * [OUTPUT]: 生成任务创建、同步执行、终态等待、结果持久化、无 prompt/凭据的状态审计与按策略分派的通用 Provider 调度；图片 job 带参考图时自动切换模型编辑变体；拒绝将 Codex 原生图片路由误送入 Provider；输出参数按 catalog schema 规范化/校验（parameters.go），本地 provider 允许只给 modelId 无凭据直连
  * [POS]: media 的任务编排层；图片按 Provider ID 从 model_providers 注册表取策略执行，未注册的 OpenAI 协议 Provider 回退 OpenAI 兼容端点；scheduler 位于 jobs_scheduler，由其接管持久化异步任务，Codex 图片由 Agent 自行执行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -179,6 +179,13 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 	}
 	input.ModelID = route.ModelID
 	input.Output = normalizedGenerationOutput(input.Capability, input.ModelID, input.Output)
+	if model, ok := modelByID(input.ModelID); ok {
+		normalizedOutput, err := normalizeModelOutput(model, input.Output)
+		if err != nil {
+			return MediaJob{}, MediaCredential{}, false, err
+		}
+		input.Output = normalizedOutput
+	}
 	// 语音必需 voiceId：本地路由缺省用默认音；云端路由缺失则报错。
 	if input.Capability == SpeechGenerate {
 		if speechVoiceID(MediaJob{Output: input.Output}) == "" {
@@ -241,12 +248,20 @@ func (m *MediaService) getJob(id string) (MediaJob, error) {
 
 func (m *MediaService) resolveRoute(input GenerateMediaInput) (MediaRoute, MediaCredential, error) {
 	if input.ModelID != "" || input.CredentialID != "" {
-		if input.ModelID == "" || input.CredentialID == "" {
+		if input.ModelID == "" {
 			return MediaRoute{}, MediaCredential{}, errors.New("modelId and credentialId must be supplied together")
 		}
 		model, ok := modelByID(input.ModelID)
 		if !ok || model.Capability != input.Capability {
 			return MediaRoute{}, MediaCredential{}, errors.New("media model is unavailable for this capability")
+		}
+		// 本地 provider（Audio Studio）无需凭据：允许只给 modelId 直连，
+		// 让云端与本地声音能在同一次调用里被显式选择。
+		if input.CredentialID == "" {
+			if provider, ok := providerByID(model.Provider); ok && provider.Protocol == "local" {
+				return MediaRoute{ID: "direct", Capability: input.Capability, ModelID: model.ID, CredentialID: "", Enabled: true}, MediaCredential{Provider: model.Provider}, nil
+			}
+			return MediaRoute{}, MediaCredential{}, errors.New("modelId and credentialId must be supplied together")
 		}
 		credential, err := m.credential(input.CredentialID)
 		if err != nil || credential.Provider != model.Provider {
@@ -460,8 +475,9 @@ func (m *MediaService) generateImage(job MediaJob, credential MediaCredential, m
 	result, err := provider.GenerateImage(model_providers.ImageInput{
 		Model:            apiModelID,
 		Prompt:           job.Prompt,
-		Output:           job.Output,
+		Output:           providerOutput(model, job.Output),
 		References:       references,
+		ReferenceFields:  model.ReferenceFields,
 		APIBase:          apiBaseFor(credential),
 		Secret:           secret,
 		HTTPClient:       mediaHTTPClient,

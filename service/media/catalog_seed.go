@@ -78,6 +78,62 @@ func geminiOmniFlashReferenceBudget() []ReferenceBudget {
 	}}
 }
 
+func floatPtr(value float64) *float64 { return &value }
+
+// seedanceSeedParameters 是 Seedance 2.0 Mini 的 per-model 参数面：Name 为平台
+// 用户面 key（OutputModes 语义），ProviderKey 为上游字段。CDN 目录不可用时由种子
+// 提供；CDN 目录携带 parameters 后整体覆盖。
+func seedanceSeedParameters() []MediaParameter {
+	return []MediaParameter{
+		{Name: "durationSeconds", ProviderKey: "duration", Type: "integer", Default: float64(5), Minimum: floatPtr(-1), Maximum: floatPtr(15)},
+		{Name: "resolution", ProviderKey: "resolution", Type: "string", Enum: []string{"480p", "720p", "720p-SR", "1080p-SR", "1440p-SR"}, Default: "720p"},
+		{Name: "aspectRatio", ProviderKey: "ratio", Type: "string", Enum: []string{"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"}, Default: "adaptive"},
+		{Name: "bitrateMode", ProviderKey: "bitrate_mode", Type: "string", Enum: []string{"standard", "high"}, Default: "standard"},
+		{Name: "generateAudio", ProviderKey: "generate_audio", Type: "boolean", Default: true},
+		{Name: "watermark", ProviderKey: "watermark", Type: "boolean", Default: false},
+		{Name: "returnLastFrame", ProviderKey: "return_last_frame", Type: "boolean", Default: false},
+		{Name: "seed", ProviderKey: "seed", Type: "integer", Default: float64(-1), Minimum: floatPtr(-1), Maximum: floatPtr(4294967295)},
+	}
+}
+
+// openAIImageSeedParameters 是 openai-image 模板的 Go 种子镜像：OpenAI 兼容
+// /images/generations 的通用可调项。
+func openAIImageSeedParameters() []MediaParameter {
+	return []MediaParameter{
+		{Name: "size", Type: "string"},
+		{Name: "quality", Type: "string"},
+		{Name: "background", Type: "string"},
+	}
+}
+
+// skymindVideoSeedParameters 是 skymind-video 模板的 Go 种子镜像：与
+// cdn/sources/templates/skymind-video.json 保持一致，CDN 目录不可用时行为不变。
+func skymindVideoSeedParameters() []MediaParameter {
+	return []MediaParameter{
+		{Name: "resolution", ProviderKey: "resolution", Type: "string", Default: "480p"},
+		{Name: "aspectRatio", ProviderKey: "ratio", Type: "string", Default: "16:9"},
+		{Name: "durationSeconds", ProviderKey: "duration", Type: "integer", Default: float64(5)},
+		{Name: "generateAudio", ProviderKey: "metadata.generate_audio", Type: "boolean", Default: true},
+		{Name: "watermark", ProviderKey: "metadata.watermark", Type: "boolean"},
+		{Name: "seed", ProviderKey: "metadata.seed", Type: "integer", Minimum: floatPtr(0)},
+	}
+}
+
+// skymindVideoReferenceFields 与 skymind-video 模板一致：参考素材走网关公共字段
+// （图片 multipart/image[] 仅属于 OpenAI 图片协议，不在此）。
+var skymindVideoReferenceFields = map[string]string{"image": "images", "video": "videos", "audio": "audios"}
+
+// geminiSeedParameters 是 Gemini Omni Flash 的 per-model 参数面。
+func geminiSeedParameters() []MediaParameter {
+	return []MediaParameter{
+		{Name: "durationSeconds", ProviderKey: "duration", Type: "integer", Default: float64(10), Minimum: floatPtr(3), Maximum: floatPtr(10)},
+		{Name: "aspectRatio", ProviderKey: "aspect_ratio", Type: "string", Enum: []string{"16:9", "9:16"}, Default: "16:9"},
+		{Name: "resolution", ProviderKey: "resolution", Type: "string", Default: "720p"},
+		{Name: "thinkingLevel", ProviderKey: "thinking_level", Type: "string", Enum: []string{"default", "high", "low"}, Default: "default"},
+		{Name: "seed", ProviderKey: "seed", Type: "integer", Default: float64(-1), Minimum: floatPtr(-1)},
+	}
+}
+
 // seedProviders 是编译期内嵌种子目录：CDN providers/<id>.catalog.json 加载失败
 // 时的最终回退，契约与 CDN 目录一致（新增模型优先走 CDN，不再改这里发版）。
 var seedProviders = []MediaProvider{
@@ -85,8 +141,8 @@ var seedProviders = []MediaProvider{
 		{ID: "atlas-cloud/openai/gpt-image-2", Provider: "atlas-cloud", Name: "GPT Image 2 · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2/text-to-image", EditModelID: "openai/gpt-image-2/edit", InputModes: []string{"text"}, Available: true, Configurable: true},
 		{ID: "atlas-cloud/bytedance/seedream-v5.0-pro", Provider: "atlas-cloud", Name: "Seedream 5.0 Pro · 文生图", Capability: ImageGenerate, APIModelID: "bytedance/seedream-v5.0-pro/text-to-image", EditModelID: "bytedance/seedream-v5.0-pro/edit", InputModes: []string{"text", "image"}, Available: true, Configurable: true},
 		{ID: "atlas-cloud/xai/grok-imagine-image", Provider: "atlas-cloud", Name: "Grok Imagine · 文生图", Capability: ImageGenerate, APIModelID: "xai/grok-imagine-image/text-to-image", EditModelID: "xai/grok-imagine-image/edit", InputModes: []string{"text"}, Available: true, Configurable: true},
-		{ID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", Provider: "atlas-cloud", Name: "Seedance 2.0 Mini · 多参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0-mini/reference-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "bitrateMode", "generateAudio", "seed", "watermark", "returnLastFrame"}, Available: true, Configurable: true, ReferenceBudgets: seedanceReferenceBudget(true)},
-		{ID: "atlas-cloud/google/gemini-omni-flash-reference-to-video", Provider: "atlas-cloud", Name: "Gemini Omni Flash · 参考图视频", Capability: VideoGenerate, APIModelID: "google/gemini-omni-flash/reference-to-video", InputModes: []string{"text", "image"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "thinkingLevel", "seed"}, Available: true, Configurable: true, ReferenceBudgets: geminiOmniFlashReferenceBudget()},
+		{ID: "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video", Provider: "atlas-cloud", Name: "Seedance 2.0 Mini · 多参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0-mini/reference-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "bitrateMode", "generateAudio", "seed", "watermark", "returnLastFrame"}, Available: true, Configurable: true, ReferenceBudgets: seedanceReferenceBudget(true), Parameters: seedanceSeedParameters(), ReferenceFields: map[string]string{"image": "reference_images", "video": "reference_videos", "audio": "reference_audios"}},
+		{ID: "atlas-cloud/google/gemini-omni-flash-reference-to-video", Provider: "atlas-cloud", Name: "Gemini Omni Flash · 参考图视频", Capability: VideoGenerate, APIModelID: "google/gemini-omni-flash/reference-to-video", InputModes: []string{"text", "image"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "thinkingLevel", "seed"}, Available: true, Configurable: true, ReferenceBudgets: geminiOmniFlashReferenceBudget(), Parameters: geminiSeedParameters(), ReferenceFields: map[string]string{"image": "images"}},
 		// 音色随模型走：xAI TTS v1 的内置音色（schema voice_id 枚举）挂在该模型的
 		// Voices 上，与其他 TTS 模型（Gemini/MiniMax/ElevenLabs）互不通用；
 		// 清单在下方 init 里回填（规避 var 初始化顺序的不确定性，见 seedModelVoicesFor）。
@@ -94,12 +150,12 @@ var seedProviders = []MediaProvider{
 	},
 	},
 	{ID: "skymind-token", Name: "Skymind Token API", Protocol: "skymind", DefaultAPIBase: "https://token-api.skymind.pro", Models: []MediaModel{
-		{ID: "skymind-token/gpt-image-2", Provider: "skymind-token", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true},
-		{ID: skymindSeedance20, Provider: "skymind-token", Name: "Seedance 2.0 · 文/参考视频", Capability: VideoGenerate, APIModelID: "doubao-seedance-2.0", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "generateAudio", "seed"}, Available: true, Configurable: true, ReferenceBudgets: seedanceReferenceBudget(false)},
-		{ID: skymindSeedance25, Provider: "skymind-token", Name: "Seedance 2.5 · 文/参考视频", Capability: VideoGenerate, APIModelID: "doubao-seedance-2-5-260628", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "aspectRatio", "resolution", "generateAudio", "seed"}, Available: true, Configurable: true, ReferenceBudgets: seedanceReferenceBudget(false)},
+		{ID: "skymind-token/gpt-image-2", Provider: "skymind-token", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, OutputModes: []string{"size", "quality", "background"}, Available: true, Configurable: true, Parameters: openAIImageSeedParameters()},
+		{ID: skymindSeedance20, Provider: "skymind-token", Name: "Seedance 2.0 · 文/参考视频", Capability: VideoGenerate, APIModelID: "doubao-seedance-2.0", InputModes: []string{"text", "image", "video", "audio"}, Available: true, Configurable: true, ReferenceBudgets: seedanceReferenceBudget(false), Parameters: skymindVideoSeedParameters(), ReferenceFields: skymindVideoReferenceFields},
+		{ID: skymindSeedance25, Provider: "skymind-token", Name: "Seedance 2.5 · 文/参考视频", Capability: VideoGenerate, APIModelID: "doubao-seedance-2-5-260628", InputModes: []string{"text", "image", "video", "audio"}, Available: true, Configurable: true, ReferenceBudgets: seedanceReferenceBudget(false), Parameters: skymindVideoSeedParameters(), ReferenceFields: skymindVideoReferenceFields},
 	}},
-	{ID: "openai", Name: "OpenAI", Protocol: "openai", DefaultAPIBase: "https://api.openai.com/v1", Models: []MediaModel{{ID: "openai/gpt-image-2", Provider: "openai", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true}}},
-	{ID: "openai-compatible", Name: "OpenAI Compatible", Protocol: "openai-compatible", Models: []MediaModel{{ID: "openai-compatible/image", Provider: "openai-compatible", Name: "GPT Image 2 · OpenAI-compatible", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, Available: true, Configurable: true}}},
+	{ID: "openai", Name: "OpenAI", Protocol: "openai", DefaultAPIBase: "https://api.openai.com/v1", Models: []MediaModel{{ID: "openai/gpt-image-2", Provider: "openai", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, OutputModes: []string{"size", "quality", "background"}, Available: true, Configurable: true, Parameters: openAIImageSeedParameters()}}},
+	{ID: "openai-compatible", Name: "OpenAI Compatible", Protocol: "openai-compatible", Models: []MediaModel{{ID: "openai-compatible/image", Provider: "openai-compatible", Name: "GPT Image 2 · OpenAI-compatible", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, OutputModes: []string{"size", "quality", "background"}, Available: true, Configurable: true, Parameters: openAIImageSeedParameters()}}},
 	{ID: "gemini", Name: "Google Gemini", Protocol: "gemini", Models: []MediaModel{{ID: "gemini/image", Provider: "gemini", Name: "Gemini Image", Capability: ImageGenerate, APIModelID: "", InputModes: []string{"text", "image"}, Configurable: true}, {ID: "gemini/video", Provider: "gemini", Name: "Gemini Video", Capability: VideoGenerate, APIModelID: "", InputModes: []string{"text", "image"}, Configurable: true}}},
 	{ID: "grok", Name: "xAI Grok", Protocol: "xai", Models: []MediaModel{{ID: "grok/image", Provider: "grok", Name: "Grok Image", Capability: ImageGenerate, APIModelID: "", InputModes: []string{"text", "image"}, Configurable: true}, {ID: "grok/video", Provider: "grok", Name: "Grok Video", Capability: VideoGenerate, APIModelID: "", InputModes: []string{"text", "image"}, Configurable: true}}},
 	{ID: "elevenlabs", Name: "ElevenLabs", Protocol: "elevenlabs", DefaultAPIBase: "https://api.elevenlabs.io", Models: []MediaModel{{ID: "elevenlabs/eleven-multilingual-v2", Provider: "elevenlabs", Name: "Eleven Multilingual v2", Capability: SpeechGenerate, APIModelID: "eleven_multilingual_v2", InputModes: []string{"text"}, Available: true, Configurable: true}}},

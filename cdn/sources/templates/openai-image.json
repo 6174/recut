@@ -1,0 +1,9 @@
+{
+  "_comment": "OpenAI 兼容 /images/generations 的通用参数面（openai / openai-compatible / skymind-token 图片共用）。参考素材走 multipart image[]，由协议适配器拥有，不进 referenceFields。",
+  "parameters": [
+    { "name": "size", "providerKey": "size", "type": "string", "description": "输出尺寸，如 1024x1024" },
+    { "name": "quality", "providerKey": "quality", "type": "string", "description": "质量档位（由上游定义）" },
+    { "name": "background", "providerKey": "background", "type": "string", "description": "背景处理（transparent/opaque/auto）" }
+  ],
+  "referenceFields": {}
+}

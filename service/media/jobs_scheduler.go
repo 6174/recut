@@ -460,8 +460,26 @@ func (m *MediaService) queuedTask(jobID string) (MediaJob, MediaCredential, bool
 	if err == nil {
 		return job, credential, true, nil
 	}
+	// 本地 provider（Audio Studio）不持有凭据：空 credential_id 用 provider 合成。
+	if local, ok := localCredentialFor(job); ok {
+		return job, local, true, nil
+	}
 	m.failQueuedAsset(job.ID, asset.ID, err.Error())
 	return job, MediaCredential{}, false, nil
+}
+
+// localCredentialFor 为无凭据的本地 provider 任务合成一个只带 provider 的凭据，
+// 让本机 TTS 无需在凭据表里挂一行即可走调度器。
+func localCredentialFor(job MediaJob) (MediaCredential, bool) {
+	model, ok := modelByID(job.ModelID)
+	if !ok {
+		return MediaCredential{}, false
+	}
+	provider, ok := providerByID(model.Provider)
+	if !ok || provider.Protocol != "local" {
+		return MediaCredential{}, false
+	}
+	return MediaCredential{Provider: model.Provider}, true
 }
 
 // activateQueuedTask is used by providers that return final bytes in one
@@ -528,6 +546,9 @@ func (m *MediaService) activateQueuedTask(jobID string) (MediaJob, MediaCredenti
 	credential, err := m.credential(credentialID)
 	if err == nil {
 		return job, credential, true, nil
+	}
+	if local, ok := localCredentialFor(job); ok {
+		return job, local, true, nil
 	}
 	m.failRemoteAsset(job.ID, job.AssetIDs[0], err.Error())
 	return job, MediaCredential{}, false, nil

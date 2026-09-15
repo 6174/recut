@@ -18,11 +18,11 @@ fetch: ## Fetch the curated CC0 audio library into cdn/buckets/audio/ (music-onl
 fetch-fonts: ## Fetch the curated Google Fonts (incl. CJK) into cdn/buckets/fonts/google/ as self-hosted woff2 + css + catalog.
 	node scripts/fetch-fonts.mjs $(ARGS)
 
-sync-models: ## Sync provider model catalogs（两阶段：fetchRaw 原始清单落盘 raw/<id>.raw.json + transform 富 meta catalog；缺省全部 fetcher；PROVIDER=atlas-cloud 只跑单个；ARGS=--fetch-only/--transform-only 分阶段离线重跑）。
+sync-models: ## Sync + publish provider model catalogs（两阶段：fetchRaw 原始清单落盘 raw/<id>.raw.json + transform 富 meta catalog；生成后默认上传 providers 前缀（skip-existing），ARGS=--no-upload 只落盘；PROVIDER=atlas-cloud 只跑单个；ARGS=--fetch-only/--transform-only 分阶段离线重跑）。
 	node scripts/fetch-models.mjs $(PROVIDER) $(ARGS)
 
-reindex-providers: ## Recompute sha256 + rebuild providers/index.json（发布前最后一步，不触发 fetch）。
-	node scripts/fetch-models.mjs --reindex-only
+reindex-providers: ## Recompute sha256 + rebuild providers/index.json 并默认上传（不触发 fetch；ARGS=--no-upload 只落盘）。
+	node scripts/fetch-models.mjs --reindex-only $(ARGS)
 
 upload: ## Upload cdn/buckets/$(PREFIX)/ to R2 via S3 API（PREFIX=audio; ARGS=--skip-existing 仅跳大小相同的对象）。
 	@test -n "$(PREFIX)" || { echo "usage: make upload PREFIX=audio [ARGS=--skip-existing]"; exit 1; }

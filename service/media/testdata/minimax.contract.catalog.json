@@ -1,0 +1,73 @@
+{
+  "schema": "recut.provider-catalog@1",
+  "provider": {
+    "id": "minimax",
+    "name": "MiniMax",
+    "protocol": "minimax",
+    "defaultApiBase": "https://api.minimaxi.com"
+  },
+  "revision": 1,
+  "updatedAt": "fixture",
+  "models": [
+    {
+      "provider": "minimax",
+      "available": true,
+      "configurable": true,
+      "referenceBudgets": [],
+      "id": "minimax/speech-2.8-hd",
+      "apiModelId": "speech-2.8-hd",
+      "name": "MiniMax Speech 2.8 HD",
+      "capability": "speech.generate",
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "voice",
+        "language",
+        "speed",
+        "format"
+      ],
+      "meta": {
+        "pricing": "≈ $100 / 百万字符（HD）",
+        "summary": "中文旁白主力，HD 音质按字符计费",
+        "tags": [
+          "zh",
+          "narration"
+        ]
+      },
+      "parameters": [],
+      "referenceFields": {},
+      "status": "stable"
+    },
+    {
+      "provider": "minimax",
+      "available": true,
+      "configurable": true,
+      "referenceBudgets": [],
+      "id": "minimax/speech-2.8-turbo",
+      "apiModelId": "speech-2.8-turbo",
+      "name": "MiniMax Speech 2.8 Turbo",
+      "capability": "speech.generate",
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "voice",
+        "language",
+        "speed",
+        "format"
+      ],
+      "meta": {
+        "pricing": "≈ $60 / 百万字符（Turbo）",
+        "summary": "低延迟低价位，适合草稿与试听",
+        "tags": [
+          "zh",
+          "draft"
+        ]
+      },
+      "parameters": [],
+      "referenceFields": {},
+      "status": "stable"
+    }
+  ]
+}

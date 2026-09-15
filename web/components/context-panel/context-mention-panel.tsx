@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 react createPortal、useContextCatalog/useContextRuntime、ContextSearchField/ContextList/ContextPreviewPane、筛选与排序纯函数
- * [OUTPUT]: 对外提供 ContextMentionPanel：720×min(520,vh) 双栏面板，Portal 锚定 composer 上方，支持搜索/一级分组/二级类型/World scope/键盘导航/预览/插入
- * [POS]: web/components/context-panel 的双栏容器（选择面 RFC §6/§16）；由 agent-composer 的 @ 与 AtSign 触发，allowedRefTypes 可裁剪
+ * [OUTPUT]: 对外提供 ContextMentionPanel：720×min(520,vh) 双栏面板，Portal 锚定 composer 上方，支持搜索/一级分组/二级类型/World scope/键盘导航/预览/插入；受控 query + autoFocusSearch=false 时由编辑器驱动（焦点不离开编辑器）
+ * [POS]: web/components/context-panel 的双栏容器（选择面 RFC §6/§16）；由 agent-composer 的 @ 与 AtSign 触发、RichComposer 编辑器内 @ 触发，allowedRefTypes 可裁剪
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -17,12 +17,24 @@ import { ContextList } from "./context-list";
 import { ContextPreviewPane } from "./context-preview";
 import { ContextSearchField } from "./context-search-field";
 
+// 编辑器驱动模式（autoFocusSearch=false）下由 window 捕获阶段转发的键；其余按键留给编辑器。
+const PANEL_KEYS = new Set(["ArrowDown", "ArrowUp", "Home", "End", "Enter", "Escape", "Tab"]);
+
+/** 同时兼容 React 合成事件与编辑器转发的原生 KeyboardEvent。 */
+type PanelKeyEvent = Pick<
+  React.KeyboardEvent,
+  "key" | "shiftKey" | "metaKey" | "ctrlKey" | "altKey" | "preventDefault" | "stopPropagation"
+>;
+
 export function ContextMentionPanel({
   apiBase,
   projectID,
   workSurface,
   workFocus,
   initialQuery,
+  query: controlledQuery,
+  onQuery,
+  autoFocusSearch = true,
   selectedKeys,
   allowedRefTypes,
   onPick,
@@ -34,6 +46,11 @@ export function ContextMentionPanel({
   workFocus: WorkFocusContext | null;
   /** 打开时的初始查询（编辑器 @ 后已输入内容） */
   initialQuery?: string;
+  /** 受控查询；宿主在编辑器内继续输入时，用它驱动过滤，焦点无需离开编辑器 */
+  query?: string;
+  onQuery?: (value: string) => void;
+  /** 打开时是否聚焦面板搜索框；编辑器驱动模式传 false，避免抢焦点 */
+  autoFocusSearch?: boolean;
   selectedKeys: Set<string>;
   allowedRefTypes?: string[];
   onPick: (option: ContextOption, keepOpen: boolean) => void;
@@ -42,7 +59,16 @@ export function ContextMentionPanel({
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const searchCtxRef = useRef<ContextSearchContext | null>(null);
-  const [query, setQuery] = useState(initialQuery ?? "");
+  const controlled = controlledQuery !== undefined;
+  const [innerQuery, setInnerQuery] = useState(initialQuery ?? "");
+  const query: string = controlled ? (controlledQuery as string) : innerQuery;
+  const setQuery = useCallback(
+    (value: string) => {
+      if (controlled) onQuery?.(value);
+      else setInnerQuery(value);
+    },
+    [controlled, onQuery],
+  );
   const [group, setGroup] = useState<ContextGroupID | "all">("all");
   const [subKind, setSubKind] = useState<string | undefined>(undefined);
   const [scopeWorldId, setScopeWorldId] = useState<string | null>(null);
@@ -78,8 +104,8 @@ export function ContextMentionPanel({
   }, [group, scopeWorldId, workSurface]);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (autoFocusSearch) inputRef.current?.focus();
+  }, [autoFocusSearch]);
 
   // 查询生命周期：120ms debounce + AbortController 取消上一次。
   useEffect(() => {
@@ -190,7 +216,7 @@ export function ContextMentionPanel({
   const highlightedOption = optionRows.find((row) => row.option.key === highlightedKey)?.option;
   const highlightedSource = highlightedOption ? sourceFor(highlightedOption.sourceType) : undefined;
 
-  function handleKeyDown(event: React.KeyboardEvent) {
+  function handleKeyDown(event: PanelKeyEvent) {
     if (event.key === "Escape") {
       event.preventDefault();
       onClose();
@@ -235,6 +261,21 @@ export function ContextMentionPanel({
       setScopeWorldId(null);
     }
   }
+
+  // 编辑器驱动模式：焦点留在编辑器，键盘在 window 捕获阶段先于宿主（如全屏编辑器的 ⌘↵ 保存 / Esc 取消）消费。
+  const handleKeyDownRef = useRef(handleKeyDown);
+  handleKeyDownRef.current = handleKeyDown;
+  useEffect(() => {
+    if (autoFocusSearch) return;
+    function onWindowKeyDown(event: KeyboardEvent) {
+      if (event.isComposing || event.keyCode === 229) return;
+      if (!PANEL_KEYS.has(event.key)) return;
+      handleKeyDownRef.current(event);
+      if (event.defaultPrevented) event.stopPropagation();
+    }
+    window.addEventListener("keydown", onWindowKeyDown, true);
+    return () => window.removeEventListener("keydown", onWindowKeyDown, true);
+  }, [autoFocusSearch]);
 
   return (
     <section className="flex h-full flex-col overflow-hidden rounded-md border bg-popover text-foreground shadow-[var(--shadow-overlay)]" onKeyDown={handleKeyDown}>

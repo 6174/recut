@@ -26,7 +26,7 @@
  */
 import { create } from "zustand";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
-import { entityCardContentHeight } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
+import { ENTITY_CARD_PAD, entityCardContentHeight, entityCardImageHeight } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import {
   createRecutWorldsClient,
   type EntityAttr,
@@ -38,7 +38,7 @@ import {
   type WorldRelationType,
 } from "@/lib/recut-worlds-client";
 import { applyCanvasError } from "./canvas-errors";
-import { entityPhotoUrls } from "./canvas-image";
+import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrValueOf, entityFieldKeyOfLabel } from "./entity-attrs";
 
 export type Point = { x: number; y: number };
@@ -457,8 +457,6 @@ function modalityLabelOf(modality: string): string {
 }
 
 // 命名态定位（已不再于创建时启动；EntityCardBlockV 渲染公式参考值）
-const ENTITY_CARD_IMAGE_H = 160;
-const ENTITY_CARD_PAD = 14;
 
 export type CanvasElementInput = {
   id: string;
@@ -1643,8 +1641,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const y = Number(element.geometry?.y) || 0;
     const width = Math.max(Number(element.geometry?.width) || DEFAULT_ENTITY_SIZE.width, 240);
     const height = Number(element.geometry?.height) || DEFAULT_ENTITY_SIZE.height;
-    const contentH = entityCardContentHeight({ width, photoUrls: entityPhotoUrls(state.apiBase, entity) });
-    const imageH = ENTITY_CARD_IMAGE_H + Math.max(0, Math.max(height, contentH) - contentH);
+    const photoUrls = entityPhotoUrls(state.apiBase, entity);
+    const coverUrl = entityCoverMedia(state.apiBase, entity)?.url ?? "";
+    const metricsAttrs = { width, coverUrl, photoUrls };
+    const contentH = entityCardContentHeight(metricsAttrs);
+    const imageH = entityCardImageHeight(metricsAttrs, Math.max(height, contentH));
     set({
       inlineEdit: {
         kind: "entity-title",

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService、共享 SQLite Store 与可控 Atlas/MiniMax HTTP 测试服务
- * [OUTPUT]: 验证提交 checkpoint 不重放、one-request 任务原子激活及按凭据限流、Atlas 单边远端关联自愈和多 Daemon lease 独占提交
+ * [OUTPUT]: 验证提交 checkpoint 不重放、one-request 任务原子激活及按凭据限流、Atlas 单边远端关联自愈、多 Daemon lease 独占提交与本地 provider 无凭据直连
  * [POS]: service 的 durable scheduler 回归测试；补足媒体生命周期测试的跨进程安全边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -351,6 +351,34 @@ func TestTwoDaemonsSubmitQueuedAtlasTaskOnlyOnce(t *testing.T) {
 		t.Fatalf("single daemon bind = %#v", running)
 	}
 	waitForMediaTaskLeaseRelease(t, first, job.ID)
+}
+
+// 本地 TTS 无凭据直连：显式 modelId（local-audio/cosyvoice2）不带 credentialId
+// 也必须被 durable scheduler 选中并执行，voiceId 原样透传给本地执行桥。
+func TestLocalSpeechDirectRouteRunsWithoutCredential(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	service := NewMediaService(store)
+	executed := false
+	service.SetLocalSpeechExecutor(func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
+		executed = true
+		if voiceID != "preset:neutral-female" {
+			t.Fatalf("executor voiceID = %q, want preset:neutral-female", voiceID)
+		}
+		return service.SaveGeneratedAudio(job, []byte("RIFF...."), "audio/wav", nil)
+	})
+	job, err := service.Generate(GenerateMediaInput{Capability: SpeechGenerate, Prompt: "你好", ModelID: "local-audio/cosyvoice2", Output: map[string]any{"voiceId": "preset:neutral-female"}, IdempotencyKey: "local-direct-speech"})
+	if err != nil || job.Status != "queued" || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued local direct speech job = %#v, %v", job, err)
+	}
+	daemon := NewMediaService(store)
+	daemon.SetLocalSpeechExecutor(service.LocalSpeechExecutor())
+	if _, err := daemon.ReconcilePendingJobs(); err != nil {
+		t.Fatal(err)
+	}
+	completed := waitForMediaJobStatus(t, daemon, job.ID, "completed")
+	if !executed || len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != job.AssetIDs[0] {
+		t.Fatalf("local direct speech did not complete: %#v executed=%v", completed, executed)
+	}
 }
 
 func waitForMediaTaskLeaseRelease(t *testing.T, media *MediaService, jobID string) {

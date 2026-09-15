@@ -1,0 +1,1553 @@
+{
+  "schema": "recut.provider-catalog@1",
+  "provider": {
+    "id": "atlas-cloud",
+    "name": "Atlas Cloud",
+    "protocol": "atlas",
+    "defaultApiBase": "https://api.atlascloud.ai"
+  },
+  "revision": 1,
+  "updatedAt": "fixture",
+  "models": [
+    {
+      "id": "atlas-cloud/alibaba/qwen-image/text-to-image-max",
+      "provider": "atlas-cloud",
+      "name": "Qwen-Image Text-to-image Max",
+      "capability": "image.generate",
+      "apiModelId": "alibaba/qwen-image/text-to-image-max",
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "negative_prompt",
+        "enable_prompt_expansion",
+        "num_images",
+        "size",
+        "seed",
+        "enable_base64_output",
+        "enable_sync_mode"
+      ],
+      "available": true,
+      "configurable": true,
+      "parameters": [
+        {
+          "name": "negative_prompt",
+          "providerKey": "negative_prompt",
+          "type": "string",
+          "description": "Negative prompt for the generation."
+        },
+        {
+          "name": "enable_prompt_expansion",
+          "providerKey": "enable_prompt_expansion",
+          "type": "boolean",
+          "default": false,
+          "description": "If set to true, the prompt optimizer will be enabled."
+        },
+        {
+          "name": "num_images",
+          "providerKey": "num_images",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1,
+          "description": "Number of images to generate."
+        },
+        {
+          "name": "size",
+          "providerKey": "size",
+          "type": "string",
+          "enum": [
+            "1664*928",
+            "1472*1104",
+            "1328*1328",
+            "1104*1472",
+            "928*1664"
+          ],
+          "default": "1664*928",
+          "description": "The size of the generated image in pixels (width*height)."
+        },
+        {
+          "name": "seed",
+          "providerKey": "seed",
+          "type": "integer",
+          "default": -1,
+          "description": "The random seed to use for the generation. -1 means a random seed will be used."
+        },
+        {
+          "name": "enable_base64_output",
+          "providerKey": "enable_base64_output",
+          "type": "boolean",
+          "default": false,
+          "description": "If enabled, the output will be encoded into a BASE64 string instead of a URL. This property is only available through the API."
+        },
+        {
+          "name": "enable_sync_mode",
+          "providerKey": "enable_sync_mode",
+          "type": "boolean",
+          "default": false,
+          "description": "If set to true, the function will wait for the result to be generated and uploaded before returning the response. It allows you to get the result directly in the response. This property is only available through the API."
+        }
+      ],
+      "meta": {
+        "summary": "General-purpose image generation model that supports various art styles and is particularly good at rendering complex text.",
+        "pricing": "≈ $0.0525/张",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/alibaba-qwen-image-text-to-image-max.md",
+        "tags": [
+          "image",
+          "alibaba",
+          "text",
+          "text-to-image",
+          "text to image",
+          "qwen",
+          "to",
+          "max"
+        ]
+      },
+      "referenceFields": {},
+      "status": "new",
+      "referenceBudgets": []
+    },
+    {
+      "id": "atlas-cloud/bytedance/seedream-v5.0-pro/text-to-image",
+      "provider": "atlas-cloud",
+      "name": "Seedream v5.0 Pro Text-to-Image",
+      "capability": "image.generate",
+      "apiModelId": "bytedance/seedream-v5.0-pro/text-to-image",
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "enable_base64_output",
+        "size",
+        "output_format",
+        "thinking",
+        "prompt_optimization_mode"
+      ],
+      "available": true,
+      "configurable": true,
+      "parameters": [
+        {
+          "name": "enable_base64_output",
+          "providerKey": "enable_base64_output",
+          "type": "boolean",
+          "default": false,
+          "description": "If enabled, the output will be encoded into a BASE64 string instead of a URL. This property is only available through the API."
+        },
+        {
+          "name": "size",
+          "providerKey": "size",
+          "type": "string",
+          "enum": [
+            "2048*2048",
+            "2304*1728",
+            "1728*2304",
+            "2720*1530",
+            "1530*2720",
+            "2496*1664",
+            "1664*2496",
+            "1024*1024",
+            "1536*1536",
+            "1776*1328",
+            "1328*1776",
+            "2048*1152",
+            "1152*2048"
+          ],
+          "default": "2048*2048",
+          "description": "Output image size in 'WIDTH*HEIGHT' pixels. Total pixels must stay within [1,048,576 (1024*1024), 4,194,304 (2048*2048)] and aspect ratio within [1/16, 16]. Billing tier is by total output pixel count: <= 2.36M px bills at the 1.5K tier; larger sizes bill at the 2K tier."
+        },
+        {
+          "name": "output_format",
+          "providerKey": "output_format",
+          "type": "string",
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "default": "jpeg",
+          "description": "Output image file format. Seedream v5.0 Pro supports both JPEG and PNG output."
+        },
+        {
+          "name": "thinking",
+          "providerKey": "thinking",
+          "type": "string",
+          "enum": [
+            "enabled",
+            "disabled"
+          ],
+          "default": "enabled",
+          "description": "Controls the deep-thinking phase of automatic prompt optimization. Set to 'disabled' to skip prompt-optimization thinking for faster generation (text-to-image completes significantly faster; editing latency is largely unaffected)."
+        },
+        {
+          "name": "prompt_optimization_mode",
+          "providerKey": "prompt_optimization_mode",
+          "type": "string",
+          "enum": [
+            "standard",
+            "fast"
+          ],
+          "default": "standard",
+          "description": "Prompt optimization mode. 'standard' (default) produces higher-quality prompt optimization but takes longer. 'fast' takes significantly less time with slightly lower quality. Billing is identical in both modes. For the fastest generation set thinking to 'disabled' as well — when thinking is enabled, the deep-thinking phase still dominates latency."
+        }
+      ],
+      "meta": {
+        "summary": "ByteDance flagship next-generation image generation model with stronger prompt adherence, refined typography, and photorealistic detail. Single-image output at 1.5K and 2K tiers with JPEG and PNG support.",
+        "pricing": "≈ $0.0720/张",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/bytedance-seedream-v5.0-pro-text-to-image.md",
+        "tags": [
+          "image",
+          "bytedance",
+          "text",
+          "text-to-image",
+          "text to image",
+          "seedream",
+          "v5",
+          "pro",
+          "to"
+        ]
+      },
+      "referenceFields": {},
+      "status": "stable",
+      "referenceBudgets": []
+    },
+    {
+      "id": "atlas-cloud/black-forest-labs/flux-dev",
+      "provider": "atlas-cloud",
+      "name": "Flux Dev",
+      "capability": "image.generate",
+      "apiModelId": "black-forest-labs/flux-dev",
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "seed",
+        "size",
+        "strength",
+        "mask_image",
+        "num_images",
+        "guidance_scale",
+        "num_inference_steps",
+        "enable_base64_output",
+        "enable_safety_checker"
+      ],
+      "available": true,
+      "configurable": true,
+      "parameters": [
+        {
+          "name": "seed",
+          "providerKey": "seed",
+          "type": "integer",
+          "default": -1,
+          "description": "The same seed and the same prompt given to the same version of the model\n            will output the same image every time."
+        },
+        {
+          "name": "size",
+          "providerKey": "size",
+          "type": "string",
+          "default": "1024*1024",
+          "description": "The size of the generated image."
+        },
+        {
+          "name": "strength",
+          "providerKey": "strength",
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Strength indicates extent to transform the reference image"
+        },
+        {
+          "name": "mask_image",
+          "providerKey": "mask_image",
+          "type": "string",
+          "description": "The mask image tells the model where to generate new pixels (white) and where to preserve the original image (black). It acts as a stencil or guide for targeted image editing."
+        },
+        {
+          "name": "num_images",
+          "providerKey": "num_images",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 4,
+          "description": "The number of images to generate."
+        },
+        {
+          "name": "guidance_scale",
+          "providerKey": "guidance_scale",
+          "type": "number",
+          "default": 3.5,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Flux embedded guidance strength. Higher values make the image follow the prompt more closely. This is not True CFG and does not require a negative prompt. Default 3.5."
+        },
+        {
+          "name": "num_inference_steps",
+          "providerKey": "num_inference_steps",
+          "type": "integer",
+          "default": 28,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "The number of inference steps to perform."
+        },
+        {
+          "name": "enable_base64_output",
+          "providerKey": "enable_base64_output",
+          "type": "boolean",
+          "default": false,
+          "description": "If enabled, the output will be encoded into a BASE64 string instead of a URL."
+        },
+        {
+          "name": "enable_safety_checker",
+          "providerKey": "enable_safety_checker",
+          "type": "boolean",
+          "default": true,
+          "description": "If set to true, the safety checker will be enabled."
+        }
+      ],
+      "referenceFields": {
+        "image": "image"
+      },
+      "meta": {
+        "summary": "Flux-dev text to image model, 12 billion parameter rectified flow transformer.",
+        "pricing": "≈ $0.0120/张",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/black-forest-labs-flux-dev.md",
+        "tags": [
+          "image",
+          "black-forest-labs",
+          "text",
+          "black",
+          "forest",
+          "labs",
+          "flux",
+          "dev"
+        ]
+      },
+      "status": "new",
+      "referenceBudgets": []
+    },
+    {
+      "id": "atlas-cloud/alibaba/qwen-image/edit",
+      "provider": "atlas-cloud",
+      "name": "Qwen-Image Edit",
+      "capability": "image.generate",
+      "apiModelId": "alibaba/qwen-image/edit",
+      "inputModes": [
+        "text",
+        "image"
+      ],
+      "outputModes": [
+        "negative_prompt",
+        "num_images",
+        "seed",
+        "enable_sync_mode",
+        "enable_base64_output"
+      ],
+      "available": true,
+      "configurable": true,
+      "parameters": [
+        {
+          "name": "negative_prompt",
+          "providerKey": "negative_prompt",
+          "type": "string",
+          "description": "Description of content to exclude (max 500 characters)."
+        },
+        {
+          "name": "num_images",
+          "providerKey": "num_images",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1,
+          "description": "Number of output images. Fixed at 1."
+        },
+        {
+          "name": "seed",
+          "providerKey": "seed",
+          "type": "integer",
+          "default": -1,
+          "description": "The random seed to use for the generation. -1 means a random seed will be used."
+        },
+        {
+          "name": "enable_sync_mode",
+          "providerKey": "enable_sync_mode",
+          "type": "boolean",
+          "default": false,
+          "description": "If set to true, the function will wait for the result to be generated and uploaded before returning the response. It allows you to get the result directly in the response. This property is only available through the API."
+        },
+        {
+          "name": "enable_base64_output",
+          "providerKey": "enable_base64_output",
+          "type": "boolean",
+          "default": false,
+          "description": "If enabled, the output will be encoded into a BASE64 string instead of a URL. This property is only available through the API."
+        }
+      ],
+      "referenceFields": {
+        "image": "images"
+      },
+      "meta": {
+        "summary": "Supports multiple image inputs and outputs, allowing for precise modification of text within images, addition, deletion, or movement of objects, alteration of subject actions, transfer of image styles, and enhancement of image details.",
+        "pricing": "≈ $0.0315/张",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/alibaba-qwen-image-edit.md",
+        "tags": [
+          "image",
+          "alibaba",
+          "text",
+          "image edit",
+          "edit",
+          "qwen"
+        ]
+      },
+      "status": "stable",
+      "referenceBudgets": []
+    },
+    {
+      "id": "atlas-cloud/atlascloud/photo-cleanup",
+      "provider": "atlas-cloud",
+      "name": "Photo Cleanup",
+      "capability": "image.generate",
+      "apiModelId": "atlascloud/photo-cleanup",
+      "inputModes": [
+        "image"
+      ],
+      "outputModes": [
+        "output_format"
+      ],
+      "available": true,
+      "configurable": true,
+      "parameters": [
+        {
+          "name": "output_format",
+          "providerKey": "output_format",
+          "type": "string",
+          "enum": [
+            "png",
+            "jpeg",
+            "webp",
+            "jpg"
+          ],
+          "default": "png",
+          "description": "Output image format."
+        }
+      ],
+      "referenceFields": {
+        "image": "image"
+      },
+      "meta": {
+        "summary": "Restore single images by reducing dust, scratches, noise, and repeated micro-texture artifacts without changing the image content.",
+        "pricing": "≈ $0.0200/张",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/atlascloud-photo-cleanup.md",
+        "tags": [
+          "image",
+          "atlascloud",
+          "photo",
+          "cleanup"
+        ]
+      },
+      "status": "new",
+      "referenceBudgets": []
+    },
+    {
+      "id": "atlas-cloud/alibaba/wan-2.7/text-to-video",
+      "provider": "atlas-cloud",
+      "name": "Wan-2.7 Text-to-video",
+      "capability": "video.generate",
+      "apiModelId": "alibaba/wan-2.7/text-to-video",
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "negative_prompt",
+        "resolution",
+        "ratio",
+        "duration",
+        "prompt_extend",
+        "seed"
+      ],
+      "available": true,
+      "configurable": true,
+      "parameters": [
+        {
+          "name": "negative_prompt",
+          "providerKey": "negative_prompt",
+          "type": "string",
+          "description": "Text describing elements to exclude from the video. Maximum length is 500 characters."
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "720P",
+            "1080P"
+          ],
+          "default": "1080P",
+          "description": "Output video resolution. Higher resolution increases cost."
+        },
+        {
+          "name": "ratio",
+          "providerKey": "ratio",
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4"
+          ],
+          "default": "16:9",
+          "description": "Aspect ratio of the generated video."
+        },
+        {
+          "name": "duration",
+          "providerKey": "duration",
+          "type": "integer",
+          "default": 5,
+          "minimum": 2,
+          "maximum": 15,
+          "description": "Video duration in seconds. Longer duration increases cost."
+        },
+        {
+          "name": "prompt_extend",
+          "providerKey": "prompt_extend",
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to use AI to enhance the prompt for better video quality. Increases generation time."
+        },
+        {
+          "name": "seed",
+          "providerKey": "seed",
+          "type": "integer",
+          "default": -1,
+          "minimum": -1,
+          "maximum": 2147483647,
+          "description": "Random seed for video generation. Range: 0 to 2147483647. Use -1 for a random seed."
+        }
+      ],
+      "referenceFields": {
+        "audio": "audio"
+      },
+      "meta": {
+        "summary": "Generates videos from text prompts with multi-shot narrative, audio generation, and sound-image synchronization.",
+        "pricing": "≈ $0.10/秒（720p） – $0.15/秒（1080p） – $0.12/秒（1080p-sr） – $0.21/秒（1440p-sr）",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/alibaba-wan-2.7-text-to-video.md",
+        "tags": [
+          "video",
+          "alibaba",
+          "text",
+          "text-to-video",
+          "text to video",
+          "wan",
+          "to"
+        ]
+      },
+      "status": "new",
+      "referenceBudgets": []
+    },
+    {
+      "id": "atlas-cloud/alibaba/wan-2.5/image-to-video",
+      "provider": "atlas-cloud",
+      "name": "Wan-2.5 Image-to-video",
+      "capability": "video.generate",
+      "apiModelId": "alibaba/wan-2.5/image-to-video",
+      "inputModes": [
+        "text",
+        "image"
+      ],
+      "outputModes": [
+        "duration",
+        "enable_prompt_expansion",
+        "negative_prompt",
+        "resolution",
+        "generate_audio",
+        "seed"
+      ],
+      "available": true,
+      "configurable": true,
+      "parameters": [
+        {
+          "name": "duration",
+          "providerKey": "duration",
+          "type": "integer",
+          "enum": [
+            "5",
+            "10"
+          ],
+          "default": 5,
+          "description": "The duration of the generated media in seconds."
+        },
+        {
+          "name": "enable_prompt_expansion",
+          "providerKey": "enable_prompt_expansion",
+          "type": "boolean",
+          "default": false,
+          "description": "If set to true, the prompt optimizer will be enabled."
+        },
+        {
+          "name": "negative_prompt",
+          "providerKey": "negative_prompt",
+          "type": "string",
+          "description": "Negative prompt for the generation."
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "480p",
+            "720p",
+            "1080p"
+          ],
+          "default": "1080p",
+          "required": true,
+          "description": "The resolution of the generated video."
+        },
+        {
+          "name": "generate_audio",
+          "providerKey": "generate_audio",
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to automatically add audio to the generated video."
+        },
+        {
+          "name": "seed",
+          "providerKey": "seed",
+          "type": "integer",
+          "default": -1,
+          "description": "The random seed to use for the generation. -1 means a random seed will be used."
+        }
+      ],
+      "referenceFields": {
+        "image": "image",
+        "audio": "audio"
+      },
+      "meta": {
+        "summary": "Bring static images to life with dynamic motion, lighting consistency, and synchronized audio. This variant smoothly animates reference visuals into short video sequences.",
+        "pricing": "≈ $0.070/秒（720p） – $0.10/秒（1080p）",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/alibaba-wan-2.5-image-to-video.md",
+        "tags": [
+          "video",
+          "alibaba",
+          "text",
+          "image",
+          "image-to-video",
+          "image to video",
+          "wan",
+          "to"
+        ]
+      },
+      "status": "new",
+      "referenceBudgets": []
+    },
+    {
+      "id": "atlas-cloud/alibaba/wan-2.5/video-extend",
+      "provider": "atlas-cloud",
+      "name": "Wan-2.5 Video Extend",
+      "capability": "video.generate",
+      "apiModelId": "alibaba/wan-2.5/video-extend",
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "duration",
+        "negative_prompt",
+        "resolution",
+        "seed"
+      ],
+      "available": true,
+      "configurable": true,
+      "parameters": [
+        {
+          "name": "duration",
+          "providerKey": "duration",
+          "type": "integer",
+          "enum": [
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10"
+          ],
+          "default": 5,
+          "description": "The duration of the generated media in seconds."
+        },
+        {
+          "name": "negative_prompt",
+          "providerKey": "negative_prompt",
+          "type": "string",
+          "description": "The negative prompt for the generation."
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "480p",
+            "720p",
+            "1080p"
+          ],
+          "default": "720p",
+          "description": "The resolution of the generated media."
+        },
+        {
+          "name": "seed",
+          "providerKey": "seed",
+          "type": "integer",
+          "default": -1,
+          "description": "The random seed to use for the generation. -1 means a random seed will be used."
+        }
+      ],
+      "referenceFields": {
+        "video": "video",
+        "audio": "audio"
+      },
+      "meta": {
+        "summary": "Extend your videos with Alibaba WAN 2.5 video extender model with audio.",
+        "pricing": "≈ $0.10/秒（720p） – $0.16/秒（1080p）",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/alibaba-wan-2.5-video-extend.md",
+        "tags": [
+          "video",
+          "alibaba",
+          "text",
+          "wan",
+          "extend"
+        ]
+      },
+      "status": "new",
+      "referenceBudgets": []
+    },
+    {
+      "id": "atlas-cloud/alibaba/wan-2.6/video-to-video",
+      "provider": "atlas-cloud",
+      "name": "Wan-2.6 Video-to-video",
+      "capability": "video.generate",
+      "apiModelId": "alibaba/wan-2.6/video-to-video",
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "duration",
+        "enable_prompt_expansion",
+        "negative_prompt",
+        "seed",
+        "size",
+        "shot_type"
+      ],
+      "available": true,
+      "configurable": true,
+      "parameters": [
+        {
+          "name": "duration",
+          "providerKey": "duration",
+          "type": "integer",
+          "enum": [
+            "5",
+            "10"
+          ],
+          "default": 5,
+          "description": "The duration of the generated media in seconds."
+        },
+        {
+          "name": "enable_prompt_expansion",
+          "providerKey": "enable_prompt_expansion",
+          "type": "boolean",
+          "default": true,
+          "description": "If set to true, the prompt optimizer will be enabled."
+        },
+        {
+          "name": "negative_prompt",
+          "providerKey": "negative_prompt",
+          "type": "string",
+          "description": "Negative prompt for the generation."
+        },
+        {
+          "name": "seed",
+          "providerKey": "seed",
+          "type": "integer",
+          "default": -1,
+          "description": "The random seed to use for the generation. -1 means a random seed will be used."
+        },
+        {
+          "name": "size",
+          "providerKey": "size",
+          "type": "string",
+          "enum": [
+            "1280*720",
+            "720*1280",
+            "960*960",
+            "1088*832",
+            "832*1088",
+            "1920*1080",
+            "1080*1920",
+            "1440*1440",
+            "1632*1248",
+            "1248*1632"
+          ],
+          "default": "1280*720",
+          "required": true,
+          "description": "The size of the generated media in pixels (width*height)."
+        },
+        {
+          "name": "shot_type",
+          "providerKey": "shot_type",
+          "type": "string",
+          "enum": [
+            "multi",
+            "single"
+          ],
+          "default": "multi",
+          "description": "Generate video in multi camera angles, only works when set enable_prompt_expansion to true."
+        }
+      ],
+      "referenceFields": {
+        "video": "videos"
+      },
+      "meta": {
+        "summary": "A speed-optimized video-to-video option that prioritizes lower latency while retaining strong visual fidelity. Ideal for iteration, batch generation, and prompt testing.",
+        "pricing": "≈ $0.070/秒",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/alibaba-wan-2.6-video-to-video.md",
+        "tags": [
+          "video",
+          "alibaba",
+          "text",
+          "video-to-video",
+          "video to video",
+          "wan",
+          "to"
+        ]
+      },
+      "status": "new",
+      "referenceBudgets": []
+    },
+    {
+      "id": "atlas-cloud/kwaivgi/kling-v2.6-pro/avatar",
+      "provider": "atlas-cloud",
+      "name": "Kling v2.6 Pro Avatar",
+      "capability": "video.generate",
+      "apiModelId": "kwaivgi/kling-v2.6-pro/avatar",
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "durationSeconds",
+        "aspectRatio",
+        "resolution"
+      ],
+      "available": true,
+      "configurable": true,
+      "parameters": [],
+      "referenceFields": {
+        "image": "image",
+        "audio": "audio"
+      },
+      "meta": {
+        "summary": "Kling V2 AI Avatar Pro generates high-quality AI avatar videos with clean detail, stable motion, and strong identity consistency—ideal for profiles, intros, and social content.",
+        "pricing": "≈ $0.095/秒",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/kwaivgi-kling-v2.6-pro-avatar.md",
+        "tags": [
+          "video",
+          "kwaivgi",
+          "text",
+          "kling",
+          "v2",
+          "pro",
+          "avatar"
+        ]
+      },
+      "status": "new",
+      "referenceBudgets": []
+    },
+    {
+      "provider": "atlas-cloud",
+      "available": true,
+      "configurable": true,
+      "id": "atlas-cloud/bytedance/seedance-2.0-mini-reference-to-video",
+      "apiModelId": "bytedance/seedance-2.0-mini/reference-to-video",
+      "name": "Seedance 2.0 Mini · 多参考视频",
+      "capability": "video.generate",
+      "inputModes": [
+        "text",
+        "image",
+        "video",
+        "audio"
+      ],
+      "outputModes": [
+        "durationSeconds",
+        "resolution",
+        "aspectRatio",
+        "bitrateMode",
+        "generateAudio",
+        "watermark",
+        "returnLastFrame",
+        "seed"
+      ],
+      "referenceFields": {
+        "image": "reference_images",
+        "video": "reference_videos",
+        "audio": "reference_audios"
+      },
+      "parameters": [
+        {
+          "name": "durationSeconds",
+          "providerKey": "duration",
+          "type": "integer",
+          "default": 5,
+          "minimum": -1,
+          "maximum": 15,
+          "description": "视频时长（秒）；-1 由模型自适应"
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "480p",
+            "720p",
+            "720p-SR",
+            "1080p-SR",
+            "1440p-SR"
+          ],
+          "default": "720p"
+        },
+        {
+          "name": "aspectRatio",
+          "providerKey": "ratio",
+          "type": "string",
+          "enum": [
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16",
+            "21:9",
+            "adaptive"
+          ],
+          "default": "adaptive"
+        },
+        {
+          "name": "bitrateMode",
+          "providerKey": "bitrate_mode",
+          "type": "string",
+          "enum": [
+            "standard",
+            "high"
+          ],
+          "default": "standard"
+        },
+        {
+          "name": "generateAudio",
+          "providerKey": "generate_audio",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "name": "watermark",
+          "providerKey": "watermark",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "name": "returnLastFrame",
+          "providerKey": "return_last_frame",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "name": "seed",
+          "providerKey": "seed",
+          "type": "integer",
+          "default": -1,
+          "minimum": -1,
+          "maximum": 4294967295
+        }
+      ],
+      "referenceBudgets": [
+        {
+          "requirements": [
+            "images+videos>=1"
+          ],
+          "maxImages": 9,
+          "maxVideos": 3,
+          "maxAudios": 3,
+          "image": {
+            "maxBytes": 31457280,
+            "mimes": [
+              "image/jpeg",
+              "image/png",
+              "image/webp",
+              "image/bmp",
+              "image/tiff",
+              "image/gif",
+              "image/heic",
+              "image/heif"
+            ]
+          },
+          "video": {
+            "maxBytes": 52428800,
+            "mimes": [
+              "video/mp4",
+              "video/quicktime"
+            ]
+          },
+          "audio": {
+            "maxBytes": 15728640,
+            "mimes": [
+              "audio/wav",
+              "audio/x-wav",
+              "audio/mpeg",
+              "audio/mp3"
+            ]
+          }
+        }
+      ],
+      "status": "stable",
+      "meta": {
+        "summary": "人工摘要"
+      }
+    },
+    {
+      "provider": "atlas-cloud",
+      "available": true,
+      "configurable": true,
+      "id": "atlas-cloud/google/gemini-omni-flash-reference-to-video",
+      "apiModelId": "google/gemini-omni-flash/reference-to-video",
+      "name": "Gemini Omni Flash · 参考图视频",
+      "capability": "video.generate",
+      "inputModes": [
+        "text",
+        "image"
+      ],
+      "outputModes": [
+        "durationSeconds",
+        "aspectRatio",
+        "resolution",
+        "thinkingLevel",
+        "seed"
+      ],
+      "referenceFields": {
+        "image": "images"
+      },
+      "parameters": [
+        {
+          "name": "durationSeconds",
+          "providerKey": "duration",
+          "type": "integer",
+          "default": 10,
+          "minimum": 3,
+          "maximum": 10
+        },
+        {
+          "name": "aspectRatio",
+          "providerKey": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16"
+          ],
+          "default": "16:9"
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "default": "720p"
+        },
+        {
+          "name": "thinkingLevel",
+          "providerKey": "thinking_level",
+          "type": "string",
+          "enum": [
+            "default",
+            "high",
+            "low"
+          ],
+          "default": "default"
+        },
+        {
+          "name": "seed",
+          "providerKey": "seed",
+          "type": "integer",
+          "default": -1,
+          "minimum": -1
+        }
+      ],
+      "referenceBudgets": [
+        {
+          "requirements": [
+            "images>=1",
+            "videos==0",
+            "audios==0"
+          ],
+          "maxImages": 10,
+          "image": {
+            "maxBytes": 20971520,
+            "mimes": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ]
+          }
+        }
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "atlas-cloud/xai/tts-v1",
+      "provider": "atlas-cloud",
+      "name": "xAI TTS v1",
+      "capability": "speech.generate",
+      "apiModelId": "xai/tts-v1",
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "voice",
+        "speed"
+      ],
+      "available": true,
+      "configurable": true,
+      "meta": {
+        "summary": "xAI TTS v1 is a high-fidelity text-to-speech model that converts text into natural, expressive speech with sub-second latency, supporting 20 languages and 80+ voices with fine-grained delivery control.",
+        "docsUrl": "https://static.atlascloud.ai/model/readme/xai-tts-v1.md",
+        "tags": [
+          "audio",
+          "xai",
+          "tts",
+          "v1"
+        ]
+      },
+      "voices": [
+        {
+          "id": "ara",
+          "name": "Ara",
+          "category": "multilingual",
+          "previewUrl": "https://data.x.ai/audio-samples/voice_ara.mp3"
+        },
+        {
+          "id": "eve",
+          "name": "Eve",
+          "category": "multilingual",
+          "previewUrl": "https://data.x.ai/audio-samples/voice_eve.mp3"
+        },
+        {
+          "id": "leo",
+          "name": "Leo",
+          "category": "multilingual",
+          "previewUrl": "https://data.x.ai/audio-samples/voice_leo.mp3"
+        },
+        {
+          "id": "rex",
+          "name": "Rex",
+          "category": "multilingual",
+          "previewUrl": "https://data.x.ai/audio-samples/voice_rex.mp3"
+        },
+        {
+          "id": "sal",
+          "name": "Sal",
+          "category": "multilingual",
+          "previewUrl": "https://data.x.ai/audio-samples/voice_sal.mp3"
+        },
+        {
+          "id": "jpi39icg",
+          "name": "Jian",
+          "category": "zh-CN",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/5_Jian_jpi39icg.mp3"
+        },
+        {
+          "id": "d18jlf6v",
+          "name": "Hao",
+          "category": "zh-CN",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/6_Hao_d18jlf6v.mp3"
+        },
+        {
+          "id": "33g9t0jl",
+          "name": "Xia",
+          "category": "zh-CN",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/7_Xia_33g9t0jl.mp3"
+        },
+        {
+          "id": "26w6ihxi",
+          "name": "Pavel",
+          "category": "ru",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/8_Pavel_26w6ihxi.mp3"
+        },
+        {
+          "id": "dr8gqysu",
+          "name": "Andrei",
+          "category": "ru",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/9_Andrei_dr8gqysu.mp3"
+        },
+        {
+          "id": "wy0m9l5w",
+          "name": "Dmitri",
+          "category": "ru",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/10_Dmitri_wy0m9l5w.mp3"
+        },
+        {
+          "id": "om17cury",
+          "name": "Irina",
+          "category": "ru",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/11_Irina_om17cury.mp3"
+        },
+        {
+          "id": "x7avnu1k",
+          "name": "Enzo",
+          "category": "it",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/12_Enzo_x7avnu1k.mp3"
+        },
+        {
+          "id": "bcs7l2c3",
+          "name": "Matteo",
+          "category": "it",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/13_Matteo_bcs7l2c3.mp3"
+        },
+        {
+          "id": "hqxr4yub",
+          "name": "Luca",
+          "category": "it",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/14_Luca_hqxr4yub.mp3"
+        },
+        {
+          "id": "h27ltdnz",
+          "name": "Alessandro",
+          "category": "it",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/15_Alessandro_h27ltdnz.mp3"
+        },
+        {
+          "id": "89q2pnko",
+          "name": "Karan",
+          "category": "hi",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/16_Karan_89q2pnko.mp3"
+        },
+        {
+          "id": "73xd5dum",
+          "name": "Ananya",
+          "category": "hi",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/17_Ananya_73xd5dum.mp3"
+        },
+        {
+          "id": "0p0rt7o1",
+          "name": "Remi",
+          "category": "fr",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/18_Remi_0p0rt7o1.mp3"
+        },
+        {
+          "id": "hbxkrnwm",
+          "name": "Hugo",
+          "category": "fr",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/19_Hugo_hbxkrnwm.mp3"
+        },
+        {
+          "id": "69smp8rm",
+          "name": "Camille",
+          "category": "fr",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/20_Camille_69smp8rm.mp3"
+        },
+        {
+          "id": "yis75yfp",
+          "name": "Manuel",
+          "category": "es",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/21_Manuel_yis75yfp.mp3"
+        },
+        {
+          "id": "ekhwx401",
+          "name": "Javier",
+          "category": "es",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/22_Javier_ekhwx401.mp3"
+        },
+        {
+          "id": "jupvcf34",
+          "name": "Diego",
+          "category": "es",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/23_Diego_jupvcf34.mp3"
+        },
+        {
+          "id": "0hhfxxqq",
+          "name": "Andres",
+          "category": "es",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/24_Andres_0hhfxxqq.mp3"
+        },
+        {
+          "id": "0ih5oi34",
+          "name": "Kasper",
+          "category": "da",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/25_Kasper_0ih5oi34.mp3"
+        },
+        {
+          "id": "gwnexu6y",
+          "name": "Lars",
+          "category": "da",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/26_Lars_gwnexu6y.mp3"
+        },
+        {
+          "id": "97zmdc6s",
+          "name": "Ida",
+          "category": "da",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/27_Ida_97zmdc6s.mp3"
+        },
+        {
+          "id": "fc7de6afcf6c",
+          "name": "Duc",
+          "category": "vi",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/28_Duc_fc7de6afcf6c.mp3"
+        },
+        {
+          "id": "7a9ee820b342",
+          "name": "Minh",
+          "category": "vi",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/45_Minh_7a9ee820b342.mp3"
+        },
+        {
+          "id": "0895a5b8ce5c",
+          "name": "Mai",
+          "category": "vi",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/70_Mai_0895a5b8ce5c.mp3"
+        },
+        {
+          "id": "f8cf5c2c78d4",
+          "name": "Grace",
+          "category": "en",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/29_Grace_f8cf5c2c78d4.mp3"
+        },
+        {
+          "id": "96819d0bd28d",
+          "name": "Daniel",
+          "category": "en",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/42_Daniel_96819d0bd28d.mp3"
+        },
+        {
+          "id": "79f3a8b96d43",
+          "name": "Claire",
+          "category": "en",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/46_Claire_79f3a8b96d43.mp3"
+        },
+        {
+          "id": "78a495fdbb39",
+          "name": "James",
+          "category": "en",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/47_James_78a495fdbb39.mp3"
+        },
+        {
+          "id": "e22152e06fd8",
+          "name": "Axel",
+          "category": "sv-SE",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/30_Axel_e22152e06fd8.mp3"
+        },
+        {
+          "id": "490ea3be50b1",
+          "name": "Saga",
+          "category": "sv-SE",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/53_Saga_490ea3be50b1.mp3"
+        },
+        {
+          "id": "1f046a033914",
+          "name": "Erik",
+          "category": "sv-SE",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/67_Erik_1f046a033914.mp3"
+        },
+        {
+          "id": "dfe7b9e7d217",
+          "name": "Valtteri",
+          "category": "fi",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/31_Valtteri_dfe7b9e7d217.mp3"
+        },
+        {
+          "id": "c3a2c594479e",
+          "name": "Helmi",
+          "category": "fi",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/34_Helmi_c3a2c594479e.mp3"
+        },
+        {
+          "id": "83c6f4fea98e",
+          "name": "Eero",
+          "category": "fi",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/44_Eero_83c6f4fea98e.mp3"
+        },
+        {
+          "id": "34fd4dce1ba3",
+          "name": "Elina",
+          "category": "fi",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/61_Elina_34fd4dce1ba3.mp3"
+        },
+        {
+          "id": "d634b6da3d3b",
+          "name": "Aylin",
+          "category": "tr",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/32_Aylin_d634b6da3d3b.mp3"
+        },
+        {
+          "id": "670a0c3ac005",
+          "name": "Emre",
+          "category": "tr",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/50_Emre_670a0c3ac005.mp3"
+        },
+        {
+          "id": "182a91893636",
+          "name": "Kaan",
+          "category": "tr",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/69_Kaan_182a91893636.mp3"
+        },
+        {
+          "id": "d0cb9ff07d95",
+          "name": "Sakura",
+          "category": "ja",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/33_Sakura_d0cb9ff07d95.mp3"
+        },
+        {
+          "id": "b1a7441b97a1",
+          "name": "Ren",
+          "category": "ja",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/37_Ren_b1a7441b97a1.mp3"
+        },
+        {
+          "id": "bf9fe5b5f981",
+          "name": "Jun-seo",
+          "category": "ko",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/35_Jun-seo_bf9fe5b5f981.mp3"
+        },
+        {
+          "id": "b5ae17439907",
+          "name": "Min-jun",
+          "category": "ko",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/36_Min-jun_b5ae17439907.mp3"
+        },
+        {
+          "id": "a0401c9101f8",
+          "name": "Seo-yeon",
+          "category": "ko",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/40_Seo-yeon_a0401c9101f8.mp3"
+        },
+        {
+          "id": "23be42535a45",
+          "name": "Ji-yeon",
+          "category": "ko",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/65_Ji-yeon_23be42535a45.mp3"
+        },
+        {
+          "id": "abfbdf26f115",
+          "name": "Mateus",
+          "category": "pt",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/38_Mateus_abfbdf26f115.mp3"
+        },
+        {
+          "id": "6da5baee46d0",
+          "name": "Beatriz",
+          "category": "pt",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/49_Beatriz_6da5baee46d0.mp3"
+        },
+        {
+          "id": "3d030bc92a87",
+          "name": "Rafael",
+          "category": "pt",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/57_Rafael_3d030bc92a87.mp3"
+        },
+        {
+          "id": "a13662ba951c",
+          "name": "Thijs",
+          "category": "nl",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/39_Thijs_a13662ba951c.mp3"
+        },
+        {
+          "id": "58d27475085e",
+          "name": "Femke",
+          "category": "nl",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/51_Femke_58d27475085e.mp3"
+        },
+        {
+          "id": "247783ebdd51",
+          "name": "Noor",
+          "category": "nl",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/63_Noor_247783ebdd51.mp3"
+        },
+        {
+          "id": "244e27b39200",
+          "name": "Ruben",
+          "category": "nl",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/64_Ruben_244e27b39200.mp3"
+        },
+        {
+          "id": "97fabd54445f",
+          "name": "Katarzyna",
+          "category": "pl",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/41_Katarzyna_97fabd54445f.mp3"
+        },
+        {
+          "id": "37329fd8895a",
+          "name": "Mateusz",
+          "category": "pl",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/59_Mateusz_37329fd8895a.mp3"
+        },
+        {
+          "id": "2badb5f46b1e",
+          "name": "Jakub",
+          "category": "pl",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/62_Jakub_2badb5f46b1e.mp3"
+        },
+        {
+          "id": "1b12d5daee6b",
+          "name": "Aleksandra",
+          "category": "pl",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/68_Aleksandra_1b12d5daee6b.mp3"
+        },
+        {
+          "id": "908c4626660f",
+          "name": "Krit",
+          "category": "th",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/43_Krit_908c4626660f.mp3"
+        },
+        {
+          "id": "4ff93971bfdc",
+          "name": "Aroon",
+          "category": "th",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/52_Aroon_4ff93971bfdc.mp3"
+        },
+        {
+          "id": "70013edeb8e8",
+          "name": "Khalid",
+          "category": "ar",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/48_Khalid_70013edeb8e8.mp3"
+        },
+        {
+          "id": "35c8d7f60dc8",
+          "name": "Layla",
+          "category": "ar",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/60_Layla_35c8d7f60dc8.mp3"
+        },
+        {
+          "id": "23468361b4ef",
+          "name": "Tariq",
+          "category": "ar",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/66_Tariq_23468361b4ef.mp3"
+        },
+        {
+          "id": "458705c07139",
+          "name": "Clara",
+          "category": "de",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/54_Clara_458705c07139.mp3"
+        },
+        {
+          "id": "41321eb41295",
+          "name": "Moritz",
+          "category": "de",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/55_Moritz_41321eb41295.mp3"
+        },
+        {
+          "id": "40f31906b23d",
+          "name": "Niklas",
+          "category": "de",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/56_Niklas_40f31906b23d.mp3"
+        },
+        {
+          "id": "3a7889066fa2",
+          "name": "Lena",
+          "category": "de",
+          "previewUrl": "https://static.atlascloud.ai/media/audios/58_Lena_3a7889066fa2.mp3"
+        }
+      ],
+      "parameters": [],
+      "referenceFields": {},
+      "status": "new",
+      "referenceBudgets": []
+    }
+  ]
+}

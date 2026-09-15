@@ -3,7 +3,9 @@
  *          提交的 shell job）、MediaService（读取/挂载产物 Asset）与 media 包的本地执行契约。
  * [OUTPUT]: 把 media 服务的 local-audio（本机 TTS）路由接到已安装的 Audio Studio：通过其公开 MCP 面
  *          audio.synthesize（合成+ASR 回读验收）→ 等待 shell job 终态 → audio.save（平台授权的落库）
- *          → 返回平台 media Asset。Audio Studio 未安装时保持占位不接线，本地路由会得到引导错误。
+ *          → 返回平台 media Asset；并把 audio.presets/audio.characters 注入 SetLocalVoiceProvider，
+ *          以 preset:/character: 前缀编码声音来源供 capability voices 本地分组展示。
+ *          Audio Studio 未安装时保持占位不接线，本地路由会得到引导错误。
  * [POS]: service 的本地语音执行桥；只经 Audio Studio 公开 operation 契约，不触碰其私有 SQLite。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,6 +13,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"recut-service/media"
@@ -33,9 +36,15 @@ func wireLocalSpeechBridge(host *AppHost, platformMedia *media.MediaService) {
 		if !ok || !operationIsCapability(app.Manifest, "audio.synthesize") || !operationIsCapability(app.Manifest, "audio.save") {
 			return media.MediaAsset{}, fmt.Errorf("Audio Studio is not installed or its capabilities are unavailable; install Audio Studio or switch the speech default route to a cloud provider")
 		}
-		// audio.synthesize：未指定角色（默认音）不传 characterId；角色 ID 直接透传。
+		// audio.synthesize：voiceId 编码了声音来源——preset:<id> 走预设参考音、
+		// character:<id> 走克隆/设计角色、__cosyvoice_default__/空走官方默认音。
 		input := map[string]any{"text": job.Prompt}
-		if voiceID != "" && voiceID != "__cosyvoice_default__" {
+		switch {
+		case strings.HasPrefix(voiceID, "character:"):
+			input["characterId"] = strings.TrimPrefix(voiceID, "character:")
+		case strings.HasPrefix(voiceID, "preset:"):
+			input["presetId"] = strings.TrimPrefix(voiceID, "preset:")
+		case voiceID != "" && voiceID != "__cosyvoice_default__":
 			input["characterId"] = voiceID
 		}
 		raw, err := host.InvokeMCP(target, audioStudioAppID, "audio.synthesize", input)
@@ -88,6 +97,76 @@ func wireLocalSpeechBridge(host *AppHost, platformMedia *media.MediaService) {
 		}
 		return asset, nil
 	})
+	// 本地声音面：Audio Studio 的 20 个预设 + 用户角色并入 capability voices 本地分组，
+	// 让画布/素材库能在同一次选择里看到云端与本地声音。编码 preset:/character: 前缀，
+	// 执行桥按前缀还原成 audio.synthesize 的 presetId/characterId。
+	platformMedia.SetLocalVoiceProvider(func() []media.MediaVoice {
+		app, ok := host.catalog.Get(audioStudioAppID)
+		if !ok {
+			return nil
+		}
+		target := Target{AppID: audioStudioAppID}
+		voices := []media.MediaVoice{}
+		if operationIsCapability(app.Manifest, "audio.presets") {
+			if raw, err := host.InvokeMCP(target, audioStudioAppID, "audio.presets", map[string]any{}); err == nil {
+				for _, item := range sliceField(raw, "presets") {
+					id := mapString(jsonMap(item), "id")
+					if id == "" {
+						continue
+					}
+					voices = append(voices, media.MediaVoice{ID: "preset:" + id, Name: voiceName(jsonMap(item)["name"], id), Category: mapString(jsonMap(item), "scene"), Provider: localAudioProviderID})
+				}
+			}
+		}
+		if operationIsCapability(app.Manifest, "audio.characters") {
+			if raw, err := host.InvokeMCP(target, audioStudioAppID, "audio.characters", map[string]any{}); err == nil {
+				for _, item := range sliceField(raw, "characters") {
+					id := mapString(jsonMap(item), "id")
+					if id == "" {
+						continue
+					}
+					voices = append(voices, media.MediaVoice{ID: "character:" + id, Name: voiceName(jsonMap(item)["name"], id), Category: mapString(jsonMap(item), "origin"), Provider: localAudioProviderID})
+				}
+			}
+		}
+		return voices
+	})
+}
+
+// localAudioProviderID 是平台目录里的本机 TTS provider id（与 media 种子的 ID 一致）。
+const localAudioProviderID = "local-audio"
+
+// sliceField 读一个 result 负载里的数组：既接受裸数组，也接受 {key:[...]} / {items:[...]}。
+func sliceField(raw any, key string) []any {
+	if list, ok := raw.([]any); ok {
+		return list
+	}
+	if m := jsonMap(raw); m != nil {
+		if list, ok := m[key].([]any); ok {
+			return list
+		}
+		if list, ok := m["items"].([]any); ok {
+			return list
+		}
+	}
+	return nil
+}
+
+// voiceName 解析声音名称：字符串直接返回，{zh,en} 对象优先中文，缺省回退 id。
+func voiceName(value any, fallback string) string {
+	switch typed := value.(type) {
+	case string:
+		if strings.TrimSpace(typed) != "" {
+			return typed
+		}
+	case map[string]any:
+		for _, key := range []string{"zh", "en"} {
+			if text, ok := typed[key].(string); ok && strings.TrimSpace(text) != "" {
+				return text
+			}
+		}
+	}
+	return fallback
 }
 
 // boolMap 读 map 的布尔字段，缺省 false。

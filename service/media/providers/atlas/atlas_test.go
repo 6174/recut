@@ -15,21 +15,39 @@ import (
 	"time"
 )
 
-func TestGeminiPayloadUsesOnlyImageReferences(t *testing.T) {
-	payload, err := payloadFor(GenerateInput{Model: GeminiOmniReferenceToVideo, Prompt: "a moving doll", Images: []string{"data:image/png;base64,aW1hZ2U="}, Output: map[string]any{"durationSeconds": 3, "aspectRatio": "9:16", "thinkingLevel": "high"}})
+// Params arrive already validated and mapped to provider keys by the media
+// service; payloadFor only merges them and routes references through the
+// catalog-declared field mapping.
+func TestGeminiPayloadUsesDeclaredImageField(t *testing.T) {
+	payload, err := payloadFor(GenerateInput{
+		Model:           GeminiOmniReferenceToVideo,
+		Prompt:          "a moving doll",
+		Images:          []string{"data:image/png;base64,aW1hZ2U="},
+		Params:          map[string]any{"duration": 3, "aspect_ratio": "9:16", "thinking_level": "high"},
+		ReferenceFields: map[string]string{"image": "images"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if payload["model"] != GeminiOmniReferenceToVideo || len(payload["images"].([]string)) != 1 || payload["duration"] != 3 || payload["aspect_ratio"] != "9:16" || payload["thinking_level"] != "high" {
 		t.Fatalf("unexpected Gemini payload: %#v", payload)
 	}
-	if _, err := payloadFor(GenerateInput{Model: GeminiOmniReferenceToVideo, Prompt: "a moving doll", Images: []string{"image"}, Audios: []string{"audio"}}); err == nil {
-		t.Fatal("Gemini payload accepted an audio reference")
-	}
 }
 
 func TestSeedancePayloadMapsImagesVideosAndAudio(t *testing.T) {
-	payload, err := payloadFor(GenerateInput{Model: SeedanceMiniReferenceToVideo, Prompt: "make the cars move", Images: []string{"image-1", "image-2"}, Videos: []string{"https://atlas.example/reference.mp4"}, Audios: []string{"data:audio/mpeg;base64,YXVkaW8="}, Output: map[string]any{"durationSeconds": 4, "resolution": "1080p-SR", "aspectRatio": "16:9", "bitrateMode": "high", "generateAudio": false, "returnLastFrame": true, "seed": 7}})
+	payload, err := payloadFor(GenerateInput{
+		Model:  SeedanceMiniReferenceToVideo,
+		Prompt: "make the cars move",
+		Images: []string{"image-1", "image-2"},
+		Videos: []string{"https://atlas.example/reference.mp4"},
+		Audios: []string{"data:audio/mpeg;base64,YXVkaW8="},
+		Params: map[string]any{"duration": 4, "resolution": "1080p-SR", "ratio": "16:9", "bitrate_mode": "high", "generate_audio": false, "return_last_frame": true, "seed": 7},
+		ReferenceFields: map[string]string{
+			"image": "reference_images",
+			"video": "reference_videos",
+			"audio": "reference_audios",
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,27 +56,30 @@ func TestSeedancePayloadMapsImagesVideosAndAudio(t *testing.T) {
 	}
 }
 
-func TestSeedancePayloadEnablesSynchronizedAudioByDefault(t *testing.T) {
-	payload, err := payloadFor(GenerateInput{Model: SeedanceMiniReferenceToVideo, Prompt: "make the cars move", Images: []string{"image"}})
-	if err != nil {
-		t.Fatal(err)
+// Image edit variants split between plural images arrays and singular image
+// scalars; the catalog referenceFields decides which one the request uses.
+func TestImagePayloadHonorsDeclaredReferenceField(t *testing.T) {
+	plural := imagePayload(GenerateImageInput{Model: "alibaba/qwen-image/edit", Prompt: "edit", Images: []string{"a", "b"}, ReferenceFields: map[string]string{"image": "images"}})
+	if len(plural["images"].([]string)) != 2 {
+		t.Fatalf("plural image field not used: %#v", plural)
 	}
-	if payload["generate_audio"] != true {
-		t.Fatalf("generate_audio = %#v, want true", payload["generate_audio"])
+	singular := imagePayload(GenerateImageInput{Model: "mock/edit", Prompt: "edit", Images: []string{"a", "b"}, ReferenceFields: map[string]string{"image": "image"}})
+	if singular["image"] != "a" {
+		t.Fatalf("singular image field not used: %#v", singular)
+	}
+	fallback := imagePayload(GenerateImageInput{Model: "mock/edit", Prompt: "edit", Images: []string{"a"}})
+	if len(fallback["images"].([]string)) != 1 {
+		t.Fatalf("generic fallback not used: %#v", fallback)
 	}
 }
 
-func TestAtlasPayloadRejectsUnsupportedOutputOptions(t *testing.T) {
-	for _, input := range []GenerateInput{
-		{Model: SeedanceMiniReferenceToVideo, Prompt: "move", Images: []string{"image"}, Output: map[string]any{"durationSeconds": 3}},
-		{Model: SeedanceMiniReferenceToVideo, Prompt: "move", Images: []string{"image"}, Output: map[string]any{"resolution": "1080p"}},
-		{Model: GeminiOmniReferenceToVideo, Prompt: "move", Images: []string{"image"}, Output: map[string]any{"durationSeconds": 11}},
-		{Model: GeminiOmniReferenceToVideo, Prompt: "move", Images: []string{"image"}, Output: map[string]any{"aspectRatio": "1:1"}},
-		{Model: GeminiOmniReferenceToVideo, Prompt: "move", Images: []string{"image"}, Output: map[string]any{"thinkingLevel": "maximum"}},
-	} {
-		if _, err := payloadFor(input); err == nil {
-			t.Fatalf("unsupported output was accepted: %#v", input.Output)
-		}
+func TestPayloadFallsBackToGenericReferenceFields(t *testing.T) {
+	payload, err := payloadFor(GenerateInput{Model: "alibaba/wan/x", Prompt: "move", Images: []string{"image"}, Videos: []string{"https://atlas.example/v.mp4"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payload["images"].([]string)) != 1 || len(payload["videos"].([]string)) != 1 {
+		t.Fatalf("generic reference fields not used: %#v", payload)
 	}
 }
 

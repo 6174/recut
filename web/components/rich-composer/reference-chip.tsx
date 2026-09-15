@@ -89,11 +89,13 @@ export function ReferenceChip({ node, deleteNode, editor }: Pick<NodeViewProps, 
           <PopoverPrimitive.Content
             align="start"
             avoidCollisions
-            className="z-[210] max-h-[min(420px,calc(100vh-2rem))] w-72 overflow-y-auto p-0 outline-none"
+            className="z-[210] max-h-[min(420px,calc(100vh-2rem))] w-72 overflow-y-auto rounded-md border bg-popover p-0 text-popover-foreground shadow-[var(--shadow-overlay)] outline-none"
             collisionPadding={8}
             onCloseAutoFocus={(event) => event.preventDefault()}
             onEscapeKeyDown={(event) => event.preventDefault()}
             onInteractOutside={(event) => event.preventDefault()}
+            // 浮层挂在 body 上：按下不抢焦点，否则宿主的 blur 提交会退出编辑态。
+            onMouseDown={(event) => event.preventDefault()}
             onMouseEnter={show}
             onMouseLeave={scheduleHide}
             onOpenAutoFocus={(event) => event.preventDefault()}

@@ -1,8 +1,9 @@
 /*
  * [INPUT]: 依赖任务编排、Asset 持久化、凭据、临时公网分享（ShareClient）与 skymind 协议适配器
  * [OUTPUT]: 对外提供 Skymind 视频任务的提交（参考素材先发布为公网 URL）、任务绑定 checkpoint、
- *          短超时轮询与 /content 优先的结果回收；纪律与 Atlas 路径一致：远端 task id 与本地
- *          running 状态同事务落库，「未知提交」只查询不重发
+ *          短超时轮询与 /content 优先的结果回收；参数走 catalog providerKey（metadata.* 下沉到
+ *          metadata 子对象，其余顶层），纪律与 Atlas 路径一致：远端 task id 与本地 running 状态
+ *          同事务落库，「未知提交」只查询不重发
  * [POS]: media/jobs 的 skymind-token 专属适配层；将已持久化远端任务原位兑现为 Asset
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"recut-service/media/providers/skymind"
@@ -22,10 +22,6 @@ import (
 var errSkymindVideoOutputMissing = errors.New("Skymind completed without a video output")
 
 const skymindPollInterval = 15 * time.Second
-
-// skymindDefaultResolution keeps the first-run cost minimal (measured ≈¥5 per
-// 480p/5s video); users raise it via the job output parameter.
-const skymindDefaultResolution = "480p"
 
 func isSkymindVideoJob(job MediaJob, credential MediaCredential) bool {
 	return job.Capability == VideoGenerate && credential.Provider == "skymind-token"
@@ -47,16 +43,18 @@ func (m *MediaService) submitSkymindVideo(job MediaJob, credential MediaCredenti
 	if err != nil {
 		return m.failSubmittedJob(job, err)
 	}
+	// 参数面统一由 catalog providerKey 决定：metadata.* 前缀的下沉到 metadata 子对象，
+	// 其余进顶层；不再有 per-model 的 Go 分支。
+	top, metadata := splitMetadataParams(providerOutput(model, job.Output))
 	request := skymind.VideoRequest{
-		Model:      apiModelIDFor(model, credential),
-		Prompt:     job.Prompt,
-		Images:     references.Images,
-		Videos:     references.Videos,
-		Audios:     references.Audios,
-		Resolution: skymindOutputString(job.Output, "480p", "resolution"),
-		Ratio:      skymindOutputString(job.Output, "16:9", "aspectRatio", "ratio"),
-		Duration:   skymindOutputInteger(job.Output, 5, "durationSeconds", "duration"),
-		Metadata:   skymindMetadata(job),
+		Model:           apiModelIDFor(model, credential),
+		Prompt:          job.Prompt,
+		Images:          references.Images,
+		Videos:          references.Videos,
+		Audios:          references.Audios,
+		Params:          top,
+		ReferenceFields: model.ReferenceFields,
+		Metadata:        metadata,
 	}
 	base := apiBaseFor(credential)
 	task, err := skymind.SubmitVideo(mediaHTTPClient, base, secret, request)
@@ -144,20 +142,6 @@ func (m *MediaService) skymindReferenceURLs(job MediaJob) (skymindReferences, er
 		}
 	}
 	return references, nil
-}
-
-func skymindMetadata(job MediaJob) map[string]any {
-	metadata := map[string]any{}
-	if value, ok := job.Output["generateAudio"]; ok {
-		metadata["generate_audio"] = value
-	}
-	if value, ok := job.Output["watermark"]; ok {
-		metadata["watermark"] = value
-	}
-	if seed := skymindOutputInteger(job.Output, -1, "seed"); seed >= 0 {
-		metadata["seed"] = seed
-	}
-	return metadata
 }
 
 func skymindTaskFailureMessage(task skymind.VideoTask) string {
@@ -362,31 +346,4 @@ func (m *MediaService) clearSkymindPollingDiagnostic(jobID, assetID string) {
 	}
 	now := time.Now().UTC()
 	_, _ = db.Exec(`update media_assets set metadata_json = json_remove(coalesce(metadata_json, '{}'), '$.skymindPollError', '$.skymindPollErrorAt'), updated_at = ? where id = ? and job_id = ?`, now.Format(time.RFC3339Nano), assetID, jobID)
-}
-
-func skymindOutputString(output map[string]any, fallback string, names ...string) string {
-	for _, name := range names {
-		if value, ok := output[name].(string); ok && strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return fallback
-}
-
-func skymindOutputInteger(output map[string]any, fallback int, names ...string) int {
-	for _, name := range names {
-		value, ok := output[name]
-		if !ok {
-			continue
-		}
-		switch v := value.(type) {
-		case int:
-			return v
-		case float64:
-			if v == float64(int64(v)) {
-				return int(v)
-			}
-		}
-	}
-	return fallback
 }

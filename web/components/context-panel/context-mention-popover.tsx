@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 @radix-ui/react-popover（Portal + Anchor + 碰撞翻转 + outside/Esc 关闭）与 ContextMentionPanel
- * [OUTPUT]: 对外提供 ContextMentionPopover：把面板挂到全局 Portal，按锚点/光标定位，自带上下翻转与视口夹取；z-index 由 Popover 层统一管理
+ * [OUTPUT]: 对外提供 ContextMentionPopover：把面板挂到全局 Portal，按锚点/光标定位，自带上下翻转与视口夹取；可透传受控 query / autoFocusSearch
  * [POS]: web/components/context-panel 的浮层宿主；参考 antd Popover 的做法（独立 DOM 插到 body，相对锚点定位）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -21,6 +21,9 @@ export function ContextMentionPopover({
   workSurface,
   workFocus,
   initialQuery,
+  query,
+  onQuery,
+  autoFocusSearch,
   selectedKeys,
   allowedRefTypes,
   onPick,
@@ -37,6 +40,11 @@ export function ContextMentionPopover({
   workSurface: WorkSurfaceContext | null;
   workFocus: WorkFocusContext | null;
   initialQuery?: string;
+  /** 受控查询（编辑器驱动模式） */
+  query?: string;
+  onQuery?: (value: string) => void;
+  /** 打开时是否聚焦面板搜索框；编辑器驱动模式传 false */
+  autoFocusSearch?: boolean;
   selectedKeys: Set<string>;
   allowedRefTypes?: string[];
   onPick: (option: ContextOption, keepOpen: boolean) => void;
@@ -71,11 +79,13 @@ export function ContextMentionPopover({
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           align="start"
-          className="z-[200] h-[min(520px,calc(100vh-6rem))] w-[min(720px,calc(100vw-2rem))] p-0 outline-none"
+          className="z-[200] h-[min(520px,calc(100vh-6rem))] w-[min(720px,calc(100vw-2rem))] bg-popover p-0 text-popover-foreground outline-none"
           collisionPadding={8}
           onCloseAutoFocus={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => { event.preventDefault(); onCancel(); }}
           onInteractOutside={(event) => { event.preventDefault(); onDismiss(); }}
+          // 浮层挂在 body 上：按下不抢焦点，否则宿主的 blur 提交会退出编辑态。
+          onMouseDown={(event) => event.preventDefault()}
           onOpenAutoFocus={(event) => event.preventDefault()}
           side="bottom"
           sideOffset={8}
@@ -83,10 +93,13 @@ export function ContextMentionPopover({
           <ContextMentionPanel
             allowedRefTypes={allowedRefTypes}
             apiBase={apiBase}
+            autoFocusSearch={autoFocusSearch}
             initialQuery={initialQuery}
             onClose={onCancel}
             onPick={onPick}
+            onQuery={onQuery}
             projectID={projectID}
+            query={query}
             selectedKeys={selectedKeys}
             workFocus={workFocus}
             workSurface={workSurface}

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 无运行时依赖
- * [OUTPUT]: 媒体能力、含输入/输出参数能力的模型、配置、图片/视频/音频/转写/研究资料资产、任务和生成请求 JSON 契约
+ * [OUTPUT]: 媒体能力、含输入/输出参数能力与 per-model 参数 schema/参考字段映射的模型、配置、图片/视频/音频/转写/研究资料资产、任务和生成请求 JSON 契约
  * [POS]: media 的稳定 DTO 边界；被服务、HTTP/MCP 和 Provider 共同消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -49,6 +49,32 @@ type MediaModelMeta struct {
 	Tags    []string `json:"tags,omitempty"`
 }
 
+// MediaParameter is one model-specific request option carried by the catalog so
+// the UI can render a control and the service can validate without per-model
+// code. Name is the stable user-facing key (what GenerateMediaInput.Output
+// uses); ProviderKey is the exact upstream wire field the adapter must send.
+// Empty ProviderKey means the name is already the provider key.
+type MediaParameter struct {
+	Name        string   `json:"name"`
+	ProviderKey string   `json:"providerKey,omitempty"`
+	Label       string   `json:"label,omitempty"`
+	Type        string   `json:"type"` // string | integer | number | boolean | array
+	Enum        []string `json:"enum,omitempty"`
+	Default     any      `json:"default,omitempty"`
+	Required    bool     `json:"required,omitempty"`
+	Minimum     *float64 `json:"minimum,omitempty"`
+	Maximum     *float64 `json:"maximum,omitempty"`
+	Description string   `json:"description,omitempty"`
+}
+
+// providerKey returns the upstream field name the adapter must write.
+func (p MediaParameter) providerKey() string {
+	if p.ProviderKey != "" {
+		return p.ProviderKey
+	}
+	return p.Name
+}
+
 type MediaModel struct {
 	ID           string          `json:"id"`
 	Provider     string          `json:"provider"`
@@ -60,6 +86,14 @@ type MediaModel struct {
 	OutputModes  []string        `json:"outputModes"`
 	Available    bool            `json:"available"`
 	Configurable bool            `json:"configurable"`
+	// Parameters are the model-specific request options (provider schema).
+	// Empty means the model has no schema-driven surface and Output passes
+	// through unchanged for backward compatibility with speech/legacy routes.
+	Parameters []MediaParameter `json:"parameters,omitempty"`
+	// ReferenceFields maps a platform reference kind (image/video/audio) to the
+	// upstream request field carrying it (e.g. Seedance reference_images, Gemini
+	// images). Missing kinds fall back to images/videos/audios.
+	ReferenceFields map[string]string `json:"referenceFields,omitempty"`
 	// Status is the catalog lifecycle marker: stable (default when empty) |
 	// new | deprecated | retired. Retired models keep resolving for existing
 	// routes but reject new route assignments.

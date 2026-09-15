@@ -117,7 +117,7 @@ func (m *MediaService) submitAtlasVideo(job MediaJob, credential MediaCredential
 	if err != nil {
 		return m.failSubmittedJob(job, err)
 	}
-	prediction, err := atlas.Submit(mediaHTTPClient, baseURL, secret, atlas.GenerateInput{Model: model.APIModelID, Prompt: job.Prompt, Images: references.Images, Videos: videos, Audios: references.Audios, Output: job.Output})
+	prediction, err := atlas.Submit(mediaHTTPClient, baseURL, secret, atlas.GenerateInput{Model: model.APIModelID, Prompt: job.Prompt, Images: references.Images, Videos: videos, Audios: references.Audios, Params: providerOutput(model, job.Output), ReferenceFields: model.ReferenceFields})
 	if err != nil {
 		return m.failSubmittedJob(job, err)
 	}

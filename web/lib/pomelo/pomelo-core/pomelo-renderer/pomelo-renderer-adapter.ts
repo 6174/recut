@@ -70,14 +70,20 @@ export abstract class PomeloRendererAdapter {
     // 默认无操作
   }
 
-  /** 可选：把 http 图片注册为渲染器可用的 image id；缺省渲染器不支持（返回 null）。异步加载完成后应触发一帧重绘。 */
-  ensureImage(_url: string): number | null {
+  /** 可选：把 http 图片注册为渲染器可用的 image id；缺省渲染器不支持（返回 null）。
+   *  requiredPixels 为期望的纹理长边设备像素（按视口缩放自适应分辨率）；缺省用渲染器基准档。 */
+  ensureImage(_url: string, _requiredPixels?: number): number | null {
     return null;
   }
 
   /** 可选：已注册 image 的像素尺寸（cover-fit 布局用）；缺省渲染器不支持（返回 null）。 */
   getImageSize(_imageId: number): { width: number; height: number } | null {
     return null;
+  }
+
+  /** 可选：把世界单位换算为图片纹理所需设备像素的倍率（缩放 × dpr × 超采样）；缺省 1。 */
+  getImagePixelRatio(): number {
+    return 1;
   }
 
   onInit(renderer: PomeloRenderer) {

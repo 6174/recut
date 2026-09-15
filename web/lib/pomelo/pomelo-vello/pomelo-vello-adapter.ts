@@ -6,6 +6,8 @@
  *           拖拽内容会话（beginContentSession/endContentSession）：被拖块+随动箭头走 live 层，
  *           静态内容只在会话开始时渲染一次；视口/尺寸/结构变化自动结束会话回退整场渲染。
  *           direct 模式另有保留场景底图（controller.buildSceneBacking）：内容不变时平移/缩放贴底图。
+ *           图片纹理按视口缩放/元素尺寸自适应分辨率：首次基准档 512，放大时 512→1024→2048→4096
+ *           升档（复用缓存的源 Image 重栅格并原位替换纹理），避免放大发糊。
  *           WebGPU 不可用时不降级，抛 RendererUnsupportedError，由宿主提示用户升级浏览器。
  * [POS]: pomelo-vello 的适配器实现（M2 接入层）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -67,6 +69,43 @@ function withCacheBust(url: string): string {
   return `${url}${separator}pomeloImageBust=${Date.now().toString(36)}`;
 }
 
+// 图片纹理分辨率档位（长边设备像素）：首次按基准档快速上屏，放大时逐档升级。
+// 上限 4096 是 WebGPU 保证的最小 maxTextureDimension2D（8192）以内的安全值。
+const IMAGE_TIERS = [512, 1024, 2048, 4096] as const;
+const IMAGE_BASE_TIER = IMAGE_TIERS[0];
+
+/** 源图长边自然像素。 */
+function naturalLongSide(image: HTMLImageElement): number {
+  return Math.max(image.naturalWidth || 0, image.naturalHeight || 0);
+}
+
+/** 按期望设备像素选择纹理档位；可选 naturalSide 避免升到超过源图本身的档位。 */
+function imageTierFor(requiredPixels?: number, naturalSide?: number): number {
+  const wanted = requiredPixels && requiredPixels > 0 ? requiredPixels : IMAGE_BASE_TIER;
+  const cap = naturalSide && naturalSide > 0 ? Math.min(wanted, naturalSide) : wanted;
+  for (const tier of IMAGE_TIERS) {
+    if (cap <= tier) return tier;
+  }
+  return IMAGE_TIERS[IMAGE_TIERS.length - 1];
+}
+
+/** 把源图按目标长边档位画进 canvas 取 RGBA（不放大超过源图自身分辨率）。 */
+function rasterizeImage(image: HTMLImageElement, tier: number): { width: number; height: number; data: Uint8Array } | null {
+  const naturalW = image.naturalWidth || image.width || 1;
+  const naturalH = image.naturalHeight || image.height || 1;
+  const scale = Math.min(1, tier / Math.max(naturalW, naturalH));
+  const width = Math.max(1, Math.round(naturalW * scale));
+  const height = Math.max(1, Math.round(naturalH * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(image, 0, 0, width, height);
+  return { width, height, data: new Uint8Array(ctx.getImageData(0, 0, width, height).data) };
+}
+
+
 interface SyncedBlock {
   draw: number;
   position: number;
@@ -95,6 +134,10 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private readonly imageIds = new Map<string, number>();
   private readonly imagePending = new Set<string>();
   private readonly imageSizes = new Map<number, { width: number; height: number }>();
+  /** url → 已注册纹理的当前档位（长边设备像素）；用于按视口放大升档。 */
+  private readonly imageTier = new Map<string, number>();
+  /** url → 已解码的源 Image；升档时复用，避免重复下载。 */
+  private readonly imageSources = new Map<string, HTMLImageElement>();
   private nextImageId = 10_000;
   private readonly options: VelloRendererAdapterOptions;
   private disposeTicker: { dispose(): void } | null = null;
@@ -387,22 +430,39 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     this.dirty = result.pending === true;
   }
 
-  /** 把 http 图片异步注册为 image id（缓存）。未就绪返回 null；就绪后触发一帧重绘。 */
-  ensureImage(url: string): number | null {
+  /** 把 http 图片异步注册为 image id（缓存）。未就绪返回 null；就绪后触发一帧重绘。
+   *  requiredPixels：期望纹理长边设备像素。首次按基准档 512 快速上屏，随视口放大按档位
+   *  （512→1024→2048→4096）用缓存的源 Image 重新栅格并替换纹理，保证放大不糊。 */
+  ensureImage(url: string, requiredPixels?: number): number | null {
     if (!url) return null;
     const cached = this.imageIds.get(url);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      const source = this.imageSources.get(url);
+      const desired = imageTierFor(requiredPixels, source ? naturalLongSide(source) : undefined);
+      const current = this.imageTier.get(url) ?? 0;
+      // 只升不降：更高档位且当前空闲时，用已缓存的源图重栅格并替换纹理。
+      if (desired > current && !this.imagePending.has(url) && source) {
+        this.upgradeImage(url, cached, source, desired);
+      }
+      return cached;
+    }
     if (this.imagePending.has(url)) return null;
     this.imagePending.add(url);
     const id = this.nextImageId++;
     void (async () => {
       try {
         // vello(GPU) 需要 RGBA 上传纹理
-        const loaded = await this.loadImage(url);
-        if (loaded) {
-          this.imageSizes.set(id, { width: loaded.width, height: loaded.height });
-          (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, loaded.width, loaded.height, loaded.data);
-          this.imageIds.set(url, id);
+        const source = await this.loadSource(url);
+        if (source) {
+          const tier = imageTierFor(requiredPixels, naturalLongSide(source));
+          const loaded = rasterizeImage(source, tier);
+          if (loaded) {
+            this.imageSources.set(url, source);
+            this.imageSizes.set(id, { width: loaded.width, height: loaded.height });
+            this.imageTier.set(url, tier);
+            (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, loaded.width, loaded.height, loaded.data);
+            this.imageIds.set(url, id);
+          }
         } else {
           console.warn("[pomelo-vello-adapter] image load failed", url);
         }
@@ -411,26 +471,59 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
         console.warn("[pomelo-vello-adapter] image load failed", url, error);
       } finally {
         this.imagePending.delete(url);
-        try {
-          // 图就绪后重跑所有 VelloBlock.render()（ensureImage 现在能返回 id），
-          // 再 syncChunks 把 drawVersion 变化同步成 chunk（否则瓦片不会重编码，图不显示）。
-          // 不在此显式 settle：ticker 每帧会 flush，多个图片同帧就绪只渲染一次，避免单帧多次整场渲染。
-          for (const block of this.renderedBlockMap.values()) {
-            if (block instanceof VelloBlock) block.render();
-          }
-          this.syncChunks();
-        } catch (error) {
-          console.warn("[pomelo-vello-adapter] image re-render failed", error);
-        }
-        this.dirty = true;
+        this.refreshImageBlocks();
       }
     })().catch(() => undefined);
     return null;
   }
 
+  /** 已注册纹理随视口放大升档：重栅格并原位替换（registerImage 会注销旧纹理）。 */
+  private upgradeImage(url: string, id: number, source: HTMLImageElement, tier: number): void {
+    this.imagePending.add(url);
+    void (async () => {
+      // 让出当前调用栈：升档由 render 内同步触发，先挂起避免重入 refreshImageBlocks
+      await Promise.resolve();
+      try {
+        const loaded = rasterizeImage(source, tier);
+        if (loaded) {
+          this.imageSizes.set(id, { width: loaded.width, height: loaded.height });
+          this.imageTier.set(url, tier);
+          (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, loaded.width, loaded.height, loaded.data);
+        }
+      } catch (error) {
+        console.warn("[pomelo-vello-adapter] image upgrade failed", url, error);
+      } finally {
+        this.imagePending.delete(url);
+        this.refreshImageBlocks();
+      }
+    })().catch(() => undefined);
+  }
+
+  /** 图片就绪/升档后重跑所有 VelloBlock.render() 并同步 chunk（drawVersion 变化 → 瓦片重编码）。 */
+  private refreshImageBlocks(): void {
+    try {
+      // 不在此显式 settle：ticker 每帧会 flush，多个图片同帧就绪只渲染一次，避免单帧多次整场渲染。
+      for (const block of this.renderedBlockMap.values()) {
+        if (block instanceof VelloBlock) block.render();
+      }
+      this.syncChunks();
+    } catch (error) {
+      console.warn("[pomelo-vello-adapter] image re-render failed", error);
+    }
+    this.dirty = true;
+  }
+
+
   /** cover-fit 布局用的已注册图片尺寸。 */
   getImageSize(imageId: number): { width: number; height: number } | null {
     return this.imageSizes.get(imageId) ?? null;
+  }
+
+  /** 世界单位 → 图片纹理设备像素倍率（缩放 × 已含超采样的 dpr），供按视口自适应分辨率。 */
+  getImagePixelRatio(): number {
+    const dpr = this.viewport?.dpr ?? 1;
+    const scale = this.transform?.scale || 1;
+    return dpr * scale;
   }
 
   /**
@@ -441,7 +534,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
    * service 已用 Vary: Origin 根治，这里对旧缓存做兼容恢复）。
    * ③ 覆盖本就不返回 CORS 头的来源；若画布被污染 getImageData 抛错，返回 null 降级为占位。
    */
-  private async loadImage(url: string): Promise<{ width: number; height: number; data: Uint8Array } | null> {
+  private async loadSource(url: string): Promise<HTMLImageElement | null> {
     const load = (crossOrigin: boolean, target: string) =>
       new Promise<HTMLImageElement>((resolve, reject) => {
         const image = new Image();
@@ -451,21 +544,6 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
         image.onerror = () => reject(new Error(`image load failed: ${target}`));
         image.src = target;
       });
-    const read = (image: HTMLImageElement): { width: number; height: number; data: Uint8Array } | null => {
-      const maxSide = 512;
-      const naturalW = image.naturalWidth || image.width || 1;
-      const naturalH = image.naturalHeight || image.height || 1;
-      const scale = Math.min(1, maxSide / Math.max(naturalW, naturalH));
-      const width = Math.max(1, Math.round(naturalW * scale));
-      const height = Math.max(1, Math.round(naturalH * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.drawImage(image, 0, 0, width, height);
-      return { width, height, data: new Uint8Array(ctx.getImageData(0, 0, width, height).data) };
-    };
     const attempts: Array<{ crossOrigin: boolean; target: string }> = [
       { crossOrigin: true, target: url },
       { crossOrigin: true, target: withCacheBust(url) },
@@ -474,8 +552,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     for (const attempt of attempts) {
       try {
         const image = await load(attempt.crossOrigin, attempt.target);
-        const data = read(image);
-        if (data) return data;
+        if (image.naturalWidth > 0 && image.naturalHeight > 0) return image;
       } catch {
         // 尝试下一种加载方式
       }

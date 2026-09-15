@@ -1,0 +1,249 @@
+{
+  "schema": "recut.provider-catalog@1",
+  "provider": {
+    "id": "skymind-token",
+    "name": "Skymind Token API",
+    "protocol": "skymind",
+    "defaultApiBase": "https://token-api.skymind.pro"
+  },
+  "revision": 1,
+  "updatedAt": "fixture",
+  "models": [
+    {
+      "provider": "skymind-token",
+      "available": true,
+      "configurable": true,
+      "referenceBudgets": [
+        {
+          "maxImages": 9,
+          "maxVideos": 3,
+          "maxAudios": 3,
+          "image": {
+            "maxBytes": 31457280,
+            "mimes": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          },
+          "video": {
+            "maxBytes": 52428800,
+            "mimes": [
+              "video/mp4",
+              "video/quicktime"
+            ]
+          },
+          "audio": {
+            "maxBytes": 15728640,
+            "mimes": [
+              "audio/wav",
+              "audio/mpeg"
+            ]
+          }
+        }
+      ],
+      "id": "skymind-token/seedance-2.0",
+      "apiModelId": "doubao-seedance-2.0",
+      "name": "Seedance 2.0 · 文/参考视频",
+      "capability": "video.generate",
+      "inputModes": [
+        "text",
+        "image",
+        "video",
+        "audio"
+      ],
+      "template": "skymind-video",
+      "parameters": [
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "default": "480p",
+          "description": "480p 起步成本最低"
+        },
+        {
+          "name": "aspectRatio",
+          "providerKey": "ratio",
+          "type": "string",
+          "default": "16:9"
+        },
+        {
+          "name": "durationSeconds",
+          "providerKey": "duration",
+          "type": "integer",
+          "default": 5
+        },
+        {
+          "name": "generateAudio",
+          "providerKey": "metadata.generate_audio",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "name": "watermark",
+          "providerKey": "metadata.watermark",
+          "type": "boolean"
+        },
+        {
+          "name": "seed",
+          "providerKey": "metadata.seed",
+          "type": "integer",
+          "minimum": 0
+        }
+      ],
+      "referenceFields": {
+        "image": "images",
+        "video": "videos",
+        "audio": "audios"
+      },
+      "outputModes": [
+        "resolution",
+        "aspectRatio",
+        "durationSeconds",
+        "generateAudio",
+        "watermark",
+        "seed"
+      ],
+      "status": "stable"
+    },
+    {
+      "provider": "skymind-token",
+      "available": true,
+      "configurable": true,
+      "referenceBudgets": [
+        {
+          "maxImages": 9,
+          "maxVideos": 3,
+          "maxAudios": 3,
+          "image": {
+            "maxBytes": 31457280,
+            "mimes": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          },
+          "video": {
+            "maxBytes": 52428800,
+            "mimes": [
+              "video/mp4",
+              "video/quicktime"
+            ]
+          },
+          "audio": {
+            "maxBytes": 15728640,
+            "mimes": [
+              "audio/wav",
+              "audio/mpeg"
+            ]
+          }
+        }
+      ],
+      "id": "skymind-token/seedance-2.5",
+      "apiModelId": "doubao-seedance-2-5-260628",
+      "name": "Seedance 2.5 · 文/参考视频",
+      "capability": "video.generate",
+      "inputModes": [
+        "text",
+        "image",
+        "video",
+        "audio"
+      ],
+      "template": "skymind-video",
+      "parameters": [
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "default": "480p",
+          "description": "480p 起步成本最低"
+        },
+        {
+          "name": "aspectRatio",
+          "providerKey": "ratio",
+          "type": "string",
+          "default": "16:9"
+        },
+        {
+          "name": "durationSeconds",
+          "providerKey": "duration",
+          "type": "integer",
+          "default": 5
+        },
+        {
+          "name": "generateAudio",
+          "providerKey": "metadata.generate_audio",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "name": "watermark",
+          "providerKey": "metadata.watermark",
+          "type": "boolean"
+        },
+        {
+          "name": "seed",
+          "providerKey": "metadata.seed",
+          "type": "integer",
+          "minimum": 0
+        }
+      ],
+      "referenceFields": {
+        "image": "images",
+        "video": "videos",
+        "audio": "audios"
+      },
+      "outputModes": [
+        "resolution",
+        "aspectRatio",
+        "durationSeconds",
+        "generateAudio",
+        "watermark",
+        "seed"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "skymind-token/gpt-image-2",
+      "provider": "skymind-token",
+      "name": "gpt-image-2",
+      "capability": "image.generate",
+      "apiModelId": "gpt-image-2",
+      "inputModes": [
+        "text",
+        "image"
+      ],
+      "template": "openai-image",
+      "available": true,
+      "configurable": true,
+      "parameters": [
+        {
+          "name": "size",
+          "providerKey": "size",
+          "type": "string",
+          "description": "输出尺寸，如 1024x1024"
+        },
+        {
+          "name": "quality",
+          "providerKey": "quality",
+          "type": "string",
+          "description": "质量档位（由上游定义）"
+        },
+        {
+          "name": "background",
+          "providerKey": "background",
+          "type": "string",
+          "description": "背景处理（transparent/opaque/auto）"
+        }
+      ],
+      "referenceFields": {},
+      "outputModes": [
+        "size",
+        "quality",
+        "background"
+      ],
+      "status": "new",
+      "referenceBudgets": []
+    }
+  ]
+}

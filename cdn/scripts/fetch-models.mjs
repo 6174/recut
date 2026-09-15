@@ -8,17 +8,21 @@
  *   2. transform —— 原始清单 + sources/<id>.*.json 策展/价格/修正 → 富 meta（pricing/
  *                   summary/docsUrl/tags）catalog 候选，经人工字段保护合并后写
  *                   buckets/providers/<id>.catalog.json。
- * 本入口负责统一契约、人工字段保护、写盘与 index.json（sha256 完整性锚点）。
+ * 本入口负责统一契约、人工字段保护、参数面统一装配（catalog-surface.mjs：所有 provider 收敛为
+ * 同构的 parameters/referenceFields/outputModes，缺失只告警、--strict 失败）、写盘与 index.json
+ * （sha256 完整性锚点）。运行时只消费烘焙结果，绝不回源 provider schema。
  *
  * 用法：
  *   node scripts/fetch-models.mjs                  # 全部 fetcher：fetchRaw + transform（单个失败不阻塞其余）
  *   node scripts/fetch-models.mjs atlas-cloud      # 只跑单个 provider
  *   node scripts/fetch-models.mjs --fetch-only     # 只拉取/刷新原始快照，不 transform
  *   node scripts/fetch-models.mjs --transform-only # 不拉取，用现有原始快照离线 transform
- *   node scripts/fetch-models.mjs --reindex-only   # 不拉取，只重算 sha256 + index.json（发布前最后一步）
+ *   node scripts/fetch-models.mjs --reindex-only   # 不拉取，只重算 sha256 + index.json
+ *   node scripts/fetch-models.mjs --no-upload      # 只落盘，不发布（审阅 diff 前用）
  *
- * 脚本只生成候选，绝不自动上传；审阅 diff 后经 `make sync PREFIX=providers` 发布
- * （raw/ 与 catalog 一并随前缀上传，CDN 同时可取原始清单与转换结果）。
+ * 生成候选后默认发布到 R2 的 providers 前缀（skip-existing，仅上传缺失/变更对象；
+ * raw/ 与 catalog 一并上传，CDN 同时可取原始清单与转换结果）。发布失败会报错退出，
+ * 本地产物保留在 cdn/buckets/providers/，修复后重跑即可。用 --no-upload 只落盘待审阅。
  */
 
 import { createHash } from "node:crypto";
@@ -26,11 +30,15 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { applyModelSurfaces, loadTemplates } from "./catalog-surface.mjs";
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BUCKET_DIR = join(ROOT, "buckets", "providers");
 const RAW_DIR = join(BUCKET_DIR, "raw");
 const SOURCES_DIR = join(ROOT, "sources");
 const SCHEMA = "recut.provider-catalog@1";
+// 参数面未解析计数：--strict 时作为失败信号，避免 schema 缺失被静默发布。
+let unresolvedTotal = 0;
 
 export function readJSON(path, fallback) {
   if (!existsSync(path)) return fallback;
@@ -149,6 +157,13 @@ async function runFetcher(fetcherID, env, mode) {
   const bucketPath = join(BUCKET_DIR, `${fetcherID}.catalog.json`);
   const previous = readJSON(bucketPath, null);
   const candidate = await fetcher.transform({ env, sourcesDir: SOURCES_DIR, readJSON, raw, previous });
+  // 统一装配参数面：所有 provider（有/无上游 schema）在这里收敛为同构的
+  // parameters/referenceFields/outputModes；缺失只告警，不静默（--strict 时失败）。
+  const unresolved = applyModelSurfaces(candidate.models, { templates: loadTemplates(SOURCES_DIR) });
+  if (unresolved.length) {
+    unresolvedTotal += unresolved.length;
+    console.warn(`[${fetcherID}] ${unresolved.length} 个模型没有参数面（UI 将无可调项）: ${unresolved.slice(0, 8).join(", ")}${unresolved.length > 8 ? " …" : ""}`);
+  }
   candidate.schema = SCHEMA;
   candidate.updatedAt = new Date().toISOString();
   const catalog = validateCatalog(mergeCatalog(previous, candidate));
@@ -178,37 +193,62 @@ function reindex() {
 }
 
 const env = loadEnvFile(join(ROOT, ".env"));
-const arg = process.argv[2];
+const noUpload = process.argv.includes("--no-upload");
+const argv = process.argv.slice(2).filter((a) => a !== "--no-upload");
+const arg = argv[0];
 mkdirSync(BUCKET_DIR, { recursive: true });
 
-if (arg === "--reindex-only") {
-  reindex();
-} else {
-  let mode = "full";
-  let providerArg = arg;
-  if (arg === "--fetch-only" || arg === "--transform-only") {
-    mode = arg.slice(2);
-    providerArg = process.argv[3];
+/** 把 providers 前缀发布到 R2（skip-existing：只传缺失/变更）。失败抛错，由调用方保留本地产物后退出。 */
+async function publishProviders() {
+  if (noUpload) {
+    console.log("已跳过发布（--no-upload）。审阅 git diff 后执行 make sync-models 或 make upload PREFIX=providers ARGS=--skip-existing 上传。");
+    return;
   }
-  const discovered = readdirSync(join(ROOT, "scripts", "fetchers")).filter((name) => name.endsWith(".mjs")).map((name) => name.replace(/\.mjs$/, ""));
-  const targets = providerArg && !providerArg.startsWith("--") ? [providerArg] : discovered;
-  if (providerArg && !discovered.includes(providerArg)) {
-    console.error(`未知 provider "${providerArg}"；可用：${discovered.join(", ")}`);
-    process.exit(1);
-  }
-  const failures = [];
-  for (const id of targets) {
-    try {
-      await runFetcher(id, env, mode);
-    } catch (error) {
-      failures.push(id);
-      console.error(`[${id}] 失败：${error.message}`);
+  const { uploadPrefix } = await import("./r2.mjs");
+  console.log("发布 providers 前缀到 R2（skip-existing，仅传缺失/变更）…");
+  await uploadPrefix("providers", { skipExisting: true, throwOnFailure: true });
+}
+
+try {
+  if (arg === "--reindex-only") {
+    reindex();
+    await publishProviders();
+  } else {
+    let mode = "full";
+    let providerArg = arg;
+    if (arg === "--fetch-only" || arg === "--transform-only") {
+      mode = arg.slice(2);
+      providerArg = argv[1];
     }
+    const discovered = readdirSync(join(ROOT, "scripts", "fetchers")).filter((name) => name.endsWith(".mjs")).map((name) => name.replace(/\.mjs$/, ""));
+    const targets = providerArg && !providerArg.startsWith("--") ? [providerArg] : discovered;
+    if (providerArg && !discovered.includes(providerArg)) {
+      console.error(`未知 provider "${providerArg}"；可用：${discovered.join(", ")}`);
+      process.exit(1);
+    }
+    const failures = [];
+    for (const id of targets) {
+      try {
+        await runFetcher(id, env, mode);
+      } catch (error) {
+        failures.push(id);
+        console.error(`[${id}] 失败：${error.message}`);
+      }
+    }
+    reindex();
+    await publishProviders();
+    if (failures.length) {
+      console.error(`完成，但 ${failures.length} 个 fetcher 失败：${failures.join(", ")}`);
+      process.exit(1);
+    }
+    if (unresolvedTotal > 0 && process.argv.includes("--strict")) {
+      console.error(`--strict：${unresolvedTotal} 个模型没有参数面，拒绝视为完成`);
+      process.exit(1);
+    }
+    console.log(noUpload ? "完成（未发布）。" : "完成并已发布 providers。");
   }
-  reindex();
-  if (failures.length) {
-    console.error(`完成，但 ${failures.length} 个 fetcher 失败：${failures.join(", ")}`);
-    process.exit(1);
-  }
-  console.log("完成。审阅 git diff 后执行 make sync PREFIX=providers 发布。");
+} catch (error) {
+  console.error(`发布失败：${error.message}`);
+  console.error("本地产物已保留在 cdn/buckets/providers/，修复后重跑或执行 make upload PREFIX=providers ARGS=--skip-existing。");
+  process.exit(1);
 }

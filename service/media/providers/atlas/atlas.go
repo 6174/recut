@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -33,7 +32,13 @@ type GenerateInput struct {
 	Images []string
 	Videos []string
 	Audios []string
-	Output map[string]any
+	// Params are the model-native request fields already validated and mapped
+	// by the media service (e.g. duration, aspect_ratio, generate_audio).
+	Params map[string]any
+	// ReferenceFields maps platform reference kinds (image/video/audio) to the
+	// upstream request field carrying them. Missing kinds fall back to
+	// images/videos/audios.
+	ReferenceFields map[string]string
 }
 
 type MediaUpload struct {
@@ -54,7 +59,11 @@ type GenerateImageInput struct {
 	Model  string
 	Prompt string
 	Images []string
-	Output map[string]any
+	Params map[string]any
+	// ReferenceFields maps platform reference kinds to the upstream request
+	// field carrying them (edit variants split between images array and image
+	// scalar). Missing image kind falls back to images.
+	ReferenceFields map[string]string
 }
 
 // Prediction is the durable remote-task handle returned as soon as Atlas
@@ -167,6 +176,32 @@ func Submit(client *http.Client, baseURL, secret string, input GenerateInput) (P
 	return prediction, nil
 }
 
+// imagePayload builds the Atlas image request body: model/prompt, the
+// catalog-declared reference field (images array or image scalar), and any
+// already-validated provider parameters. Reference/model/prompt keys in Params
+// are ignored so a parameter can never hijack the primary inputs.
+func imagePayload(input GenerateImageInput) map[string]any {
+	payload := map[string]any{"model": input.Model, "prompt": input.Prompt}
+	if len(input.Images) > 0 {
+		assignReference(payload, referenceField(input.ReferenceFields, "image", "images"), input.Images)
+	}
+	for key, value := range input.Params {
+		switch key {
+		case "model", "prompt", "image", "images":
+			continue
+		}
+		payload[key] = value
+	}
+	return payload
+}
+
+// BuildImagePayload exposes the Atlas image request body for the media layer's
+// catalog→wire contract tests (no network call).
+func BuildImagePayload(input GenerateImageInput) map[string]any { return imagePayload(input) }
+
+// BuildVideoPayload exposes the Atlas video request body for contract tests.
+func BuildVideoPayload(input GenerateInput) (map[string]any, error) { return payloadFor(input) }
+
 // SubmitImage performs Atlas' POST /generateImage request. A successful
 // response contains a prediction ID that callers persist and poll, matching the
 // video prediction lifecycle.
@@ -174,16 +209,7 @@ func SubmitImage(client *http.Client, baseURL, secret string, input GenerateImag
 	if strings.TrimSpace(input.Prompt) == "" {
 		return Prediction{}, errors.New("Atlas Cloud image prompt is required")
 	}
-	payload := map[string]any{"model": input.Model, "prompt": input.Prompt}
-	if len(input.Images) > 0 {
-		payload["images"] = input.Images
-	}
-	for _, key := range []string{"size", "quality", "background"} {
-		if value, ok := input.Output[key]; ok {
-			payload[key] = value
-		}
-	}
-	body, _ := json.Marshal(payload)
+	body, _ := json.Marshal(imagePayload(input))
 	baseURL = normalizedBaseURL(baseURL)
 	prediction, err := request(client, baseURL, secret, http.MethodPost, "/api/v1/model/generateImage", bytes.NewReader(body))
 	if err != nil {
@@ -282,26 +308,7 @@ func SubmitSpeech(client *http.Client, baseURL, secret string, input SpeechInput
 	if strings.TrimSpace(input.Text) == "" {
 		return Prediction{}, errors.New("Atlas Cloud speech text is required")
 	}
-	payload := map[string]any{"model": input.Model, "text": input.Text, "language": input.Language, "codec": input.Codec, "sample_rate": input.SampleRate, "bit_rate": input.BitRate}
-	if payload["language"] == "" || payload["language"] == nil {
-		payload["language"] = "auto"
-	}
-	if payload["codec"] == "" || payload["codec"] == nil {
-		payload["codec"] = "mp3"
-	}
-	if payload["sample_rate"].(int) == 0 {
-		payload["sample_rate"] = 24000
-	}
-	if payload["bit_rate"].(int) == 0 {
-		payload["bit_rate"] = 128000
-	}
-	if input.VoiceID != "" {
-		payload["voice_id"] = input.VoiceID
-	}
-	if input.Speed > 0 {
-		payload["speed"] = input.Speed
-	}
-	body, _ := json.Marshal(payload)
+	body, _ := json.Marshal(BuildSpeechPayload(input))
 	baseURL = normalizedBaseURL(baseURL)
 	prediction, err := request(client, baseURL, secret, http.MethodPost, "/api/v1/model/generateAudio", bytes.NewReader(body))
 	if err != nil {
@@ -311,6 +318,32 @@ func SubmitSpeech(client *http.Client, baseURL, secret string, input SpeechInput
 		return Prediction{}, errors.New("Atlas Cloud speech submission returned no prediction ID")
 	}
 	return prediction, nil
+}
+
+// BuildSpeechPayload assembles the /api/v1/model/generateAudio body, applying
+// the platform defaults (language auto, codec mp3, 24kHz/128kbps). Exported for
+// contract tests.
+func BuildSpeechPayload(input SpeechInput) map[string]any {
+	payload := map[string]any{"model": input.Model, "text": input.Text, "language": input.Language, "codec": input.Codec, "sample_rate": input.SampleRate, "bit_rate": input.BitRate}
+	if text, _ := payload["language"].(string); strings.TrimSpace(text) == "" {
+		payload["language"] = "auto"
+	}
+	if text, _ := payload["codec"].(string); strings.TrimSpace(text) == "" {
+		payload["codec"] = "mp3"
+	}
+	if input.SampleRate == 0 {
+		payload["sample_rate"] = 24000
+	}
+	if input.BitRate == 0 {
+		payload["bit_rate"] = 128000
+	}
+	if input.VoiceID != "" {
+		payload["voice_id"] = input.VoiceID
+	}
+	if input.Speed > 0 {
+		payload["speed"] = input.Speed
+	}
+	return payload
 }
 
 // SpeechInput carries an Atlas speech generation request (xAI TTS v1 schema).
@@ -325,163 +358,53 @@ type SpeechInput struct {
 	Speed      float64
 }
 
+// payloadFor builds the upstream video request from already-validated,
+// model-native Params plus the reference field mapping. It does not switch on
+// the model ID: the media service owns per-model validation via the catalog
+// parameter schema, so a new Atlas video model needs catalog data, not code.
 func payloadFor(input GenerateInput) (map[string]any, error) {
 	if strings.TrimSpace(input.Prompt) == "" {
 		return nil, errors.New("Atlas Cloud video prompt is required")
 	}
 	payload := map[string]any{"model": input.Model, "prompt": input.Prompt}
-	switch input.Model {
-	case SeedanceMiniReferenceToVideo:
-		if err := validateSeedanceInput(input); err != nil {
-			return nil, err
+	for key, value := range input.Params {
+		switch key {
+		case "model", "prompt", "images", "videos", "audios":
+			continue
 		}
-		return seedancePayload(payload, input)
-	case GeminiOmniReferenceToVideo:
-		if err := validateGeminiInput(input); err != nil {
-			return nil, err
-		}
-		return geminiPayload(payload, input)
-	default:
-		return nil, fmt.Errorf("Atlas Cloud video adapter does not support %s", input.Model)
-	}
-}
-
-func seedancePayload(payload map[string]any, input GenerateInput) (map[string]any, error) {
-	duration, err := outputInteger(input.Output, 5, "duration", "durationSeconds")
-	if err != nil {
-		return nil, err
-	}
-	resolution, err := outputString(input.Output, "720p", "resolution")
-	if err != nil {
-		return nil, err
-	}
-	ratio, err := outputString(input.Output, "adaptive", "ratio", "aspectRatio")
-	if err != nil {
-		return nil, err
-	}
-	bitrate, err := outputString(input.Output, "standard", "bitrateMode")
-	if err != nil {
-		return nil, err
-	}
-	generateAudio, err := outputBool(input.Output, true, "generateAudio")
-	if err != nil {
-		return nil, err
-	}
-	watermark, err := outputBool(input.Output, false, "watermark")
-	if err != nil {
-		return nil, err
-	}
-	lastFrame, err := outputBool(input.Output, false, "returnLastFrame")
-	if err != nil {
-		return nil, err
-	}
-	seed, err := outputInteger(input.Output, -1, "seed")
-	if err != nil {
-		return nil, err
-	}
-	if err := validateSeedanceOutput(duration, resolution, ratio, bitrate, seed); err != nil {
-		return nil, err
+		payload[key] = value
 	}
 	if len(input.Images) > 0 {
-		payload["reference_images"] = input.Images
+		assignReference(payload, referenceField(input.ReferenceFields, "image", "images"), input.Images)
 	}
 	if len(input.Videos) > 0 {
-		payload["reference_videos"] = input.Videos
+		assignReference(payload, referenceField(input.ReferenceFields, "video", "videos"), input.Videos)
 	}
 	if len(input.Audios) > 0 {
-		payload["reference_audios"] = input.Audios
+		assignReference(payload, referenceField(input.ReferenceFields, "audio", "audios"), input.Audios)
 	}
-	payload["duration"] = duration
-	payload["resolution"] = resolution
-	payload["ratio"] = ratio
-	payload["bitrate_mode"] = bitrate
-	payload["generate_audio"] = generateAudio
-	payload["watermark"] = watermark
-	payload["return_last_frame"] = lastFrame
-	payload["seed"] = seed
 	return payload, nil
 }
 
-func geminiPayload(payload map[string]any, input GenerateInput) (map[string]any, error) {
-	duration, err := outputInteger(input.Output, 10, "duration", "durationSeconds")
-	if err != nil {
-		return nil, err
+// assignReference writes one reference kind. Upstream schemas split between a
+// singular scalar field (image/video/audio) and a plural array (images/…): the
+// singular form receives the first value, the plural form the whole list.
+func assignReference(payload map[string]any, field string, values []string) {
+	switch field {
+	case "image", "video", "audio":
+		payload[field] = values[0]
+	default:
+		payload[field] = values
 	}
-	aspectRatio, err := outputString(input.Output, "16:9", "aspectRatio")
-	if err != nil {
-		return nil, err
-	}
-	resolution, err := outputString(input.Output, "720p", "resolution")
-	if err != nil {
-		return nil, err
-	}
-	thinking, err := outputString(input.Output, "default", "thinkingLevel")
-	if err != nil {
-		return nil, err
-	}
-	seed, err := outputInteger(input.Output, -1, "seed")
-	if err != nil {
-		return nil, err
-	}
-	if err := validateGeminiOutput(duration, aspectRatio, resolution, thinking, seed); err != nil {
-		return nil, err
-	}
-	payload["images"] = input.Images
-	payload["duration"] = duration
-	payload["aspect_ratio"] = aspectRatio
-	payload["resolution"] = resolution
-	payload["thinking_level"] = thinking
-	payload["seed"] = seed
-	return payload, nil
 }
 
-func validateSeedanceInput(input GenerateInput) error {
-	if (len(input.Images) == 0 && len(input.Videos) == 0) || len(input.Images) > 9 || len(input.Videos) > 3 || len(input.Audios) > 3 {
-		return errors.New("Seedance 2.0 Mini requires 1-9 images or 1-3 reference videos and accepts at most 3 audio references")
+// referenceField returns the upstream field carrying one reference kind, or the
+// generic fallback when the catalog does not override it.
+func referenceField(fields map[string]string, kind, fallback string) string {
+	if key := strings.TrimSpace(fields[kind]); key != "" {
+		return key
 	}
-	return nil
-}
-
-func validateGeminiInput(input GenerateInput) error {
-	if len(input.Images) == 0 || len(input.Images) > 10 || len(input.Videos) > 0 || len(input.Audios) > 0 {
-		return errors.New("Gemini Omni Flash requires 1-10 reference images and accepts no audio or video references")
-	}
-	return nil
-}
-
-func validateSeedanceOutput(duration int, resolution, ratio, bitrate string, seed int) error {
-	if duration != -1 && (duration < 4 || duration > 15) {
-		return errors.New("Seedance 2.0 Mini duration must be -1 or 4-15 seconds")
-	}
-	if !oneOf(resolution, "480p", "720p", "720p-SR", "1080p-SR", "1440p-SR") {
-		return errors.New("Seedance 2.0 Mini resolution is unsupported")
-	}
-	if !oneOf(ratio, "16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive") || !oneOf(bitrate, "standard", "high") {
-		return errors.New("Seedance 2.0 Mini ratio or bitrate mode is unsupported")
-	}
-	if seed < -1 || seed > 4294967295 {
-		return errors.New("Seedance 2.0 Mini seed must be between -1 and 4294967295")
-	}
-	return nil
-}
-
-func validateGeminiOutput(duration int, aspectRatio, resolution, thinking string, seed int) error {
-	if duration < 3 || duration > 10 {
-		return errors.New("Gemini Omni Flash duration must be 3-10 seconds")
-	}
-	if !oneOf(aspectRatio, "16:9", "9:16") || resolution != "720p" || !oneOf(thinking, "default", "high", "low") || seed < -1 {
-		return errors.New("Gemini Omni Flash output option is unsupported")
-	}
-	return nil
-}
-
-func oneOf(value string, options ...string) bool {
-	for _, option := range options {
-		if value == option {
-			return true
-		}
-	}
-	return false
+	return fallback
 }
 
 func request(client *http.Client, baseURL, secret, method, endpoint string, body io.Reader) (Prediction, error) {
@@ -540,50 +463,4 @@ func isCompleted(status string) bool {
 func isVideoURL(value string) bool {
 	path := strings.ToLower(strings.Split(value, "?")[0])
 	return strings.HasSuffix(path, ".mp4") || strings.HasSuffix(path, ".mov") || strings.HasSuffix(path, ".webm")
-}
-func outputInteger(values map[string]any, fallback int, names ...string) (int, error) {
-	for _, name := range names {
-		value, ok := values[name]
-		if !ok {
-			continue
-		}
-		switch value := value.(type) {
-		case int:
-			return value, nil
-		case float64:
-			if math.Trunc(value) == value {
-				return int(value), nil
-			}
-		}
-		return 0, fmt.Errorf("%s must be an integer", name)
-	}
-	return fallback, nil
-}
-
-func outputString(values map[string]any, fallback string, names ...string) (string, error) {
-	for _, name := range names {
-		value, ok := values[name]
-		if !ok {
-			continue
-		}
-		if value, ok := value.(string); ok && strings.TrimSpace(value) != "" {
-			return value, nil
-		}
-		return "", fmt.Errorf("%s must be a non-empty string", name)
-	}
-	return fallback, nil
-}
-
-func outputBool(values map[string]any, fallback bool, names ...string) (bool, error) {
-	for _, name := range names {
-		value, ok := values[name]
-		if !ok {
-			continue
-		}
-		if value, ok := value.(bool); ok {
-			return value, nil
-		}
-		return false, fmt.Errorf("%s must be a boolean", name)
-	}
-	return fallback, nil
 }

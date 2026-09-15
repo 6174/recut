@@ -8,7 +8,7 @@
     "build:cloudflare": "RECUT_STATIC_EXPORT=1 next build",
     "start": "node server.cjs",
     "lint": "next lint",
-    "test": "tsx --tsconfig tsconfig.json --test \"lib/rich-composer/**/*.test.ts\" \"lib/context-catalog/**/*.test.ts\"",
+    "test": "tsx --tsconfig tsconfig.json --test \"lib/rich-composer/**/*.test.ts\" \"lib/context-catalog/**/*.test.ts\" \"lib/media/**/*.test.ts\"",
     "test:e2e": "playwright test",
     "test:e2e:worker": "node scripts/worker-e2e.mjs",
     "wasm:build:vello": "cd lib/pomelo/pomelo-vello-wasm && wasm-pack build --target web --dev && mkdir -p ../../../public/vello-wasm && cp pkg/pomelo_vello_wasm.js pkg/pomelo_vello_wasm_bg.wasm assets/space-grotesk.ttf assets/noto-cjk-subset.otf ../../../public/vello-wasm/"

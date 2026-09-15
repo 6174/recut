@@ -20,15 +20,18 @@ type ImageReference struct {
 
 // ImageInput carries everything a strategy needs to generate one image.
 type ImageInput struct {
-	Model       string
-	Prompt      string
-	Output      map[string]any
-	References  []ImageReference
-	APIBase     string
-	Secret      string
-	HTTPClient  *http.Client
-	PollClient  *http.Client
-	PollRetries int
+	Model      string
+	Prompt     string
+	Output     map[string]any
+	References []ImageReference
+	// ReferenceFields maps reference kinds (image/…) to the upstream request
+	// field carrying them; empty kinds fall back to the strategy's default.
+	ReferenceFields map[string]string
+	APIBase         string
+	Secret          string
+	HTTPClient      *http.Client
+	PollClient      *http.Client
+	PollRetries     int
 	// RecordPrediction checkpoints the remote task ID as soon as the provider
 	// accepted the submission, so a later download failure can be retried
 	// without resubmitting the generation.

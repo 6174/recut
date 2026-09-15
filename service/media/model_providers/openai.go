@@ -39,8 +39,12 @@ func (provider openAIProvider) GenerateImage(input ImageInput) (ImageResult, err
 		return ImageResult{}, fmt.Errorf("%s API address is required", provider.id)
 	}
 	payload := map[string]any{"model": input.Model, "prompt": input.Prompt, "n": 1, "response_format": "b64_json"}
-	for _, key := range []string{"size", "quality", "background"} {
-		if value, ok := input.Output[key]; ok {
+	for key, value := range input.Output {
+		// Only options the OpenAI images API accepts are forwarded; n and
+		// response_format stay platform-owned so a call can never override the
+		// response shape. Catalog-declared keys outside this set are ignored.
+		switch key {
+		case "size", "quality", "background", "style", "output_format", "moderation":
 			payload[key] = value
 		}
 	}

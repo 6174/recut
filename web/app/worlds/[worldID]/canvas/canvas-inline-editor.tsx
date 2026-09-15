@@ -188,6 +188,11 @@ export function CanvasInlineEditor() {
           aria-label="放大编辑"
           className="absolute right-1 top-1 flex items-center gap-0.5 rounded bg-card/85 px-1 py-0.5 text-[10px] text-muted-foreground shadow outline outline-1 outline-primary/40 hover:text-foreground"
           onClick={() => setFullscreen(true)}
+          onMouseDown={(event) => {
+            // 阻止按钮抢焦点导致编辑器 blur 提交（否则组件在 click 前被卸载，放大按钮失效）
+            event.preventDefault();
+            event.stopPropagation();
+          }}
           title="放大编辑"
           type="button"
         >

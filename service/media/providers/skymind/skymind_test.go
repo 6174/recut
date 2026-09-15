@@ -64,8 +64,8 @@ func TestSubmitVideoSendsUnifiedPayloadWithMetadata(t *testing.T) {
 	defer server.Close()
 	task, err := SubmitVideo(server.Client(), server.URL, "sk-test", VideoRequest{
 		Model: "doubao-seedance-2.0", Prompt: "a fox turning",
-		Images:     []string{"https://share.recut.video/tok/fox.png"},
-		Resolution: "480p", Ratio: "16:9", Duration: 5,
+		Images: []string{"https://share.recut.video/tok/fox.png"},
+		Params: map[string]any{"resolution": "480p", "ratio": "16:9", "duration": 5},
 		Metadata: map[string]any{"generate_audio": true, "seed": 42},
 	})
 	if err != nil {

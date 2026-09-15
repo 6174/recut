@@ -2,7 +2,8 @@
  * [INPUT]: 依赖标准 HTTP 客户端、Skymind Token API Bearer 凭据（sk- key）及公网参考素材 URL
  * [OUTPUT]: 对外提供统一任务协议的图片生成（OpenAI 兼容 /v1/images/generations）、视频任务
  *          提交/查询/下载（/openapi/v1/video/generations 族）与供应商错误归一（双错误信封 → 单一
- *          ProviderError + 可操作中文提示）
+ *          ProviderError + 可操作中文提示）；请求参数已是 catalog 映射后的通用 Params，参考素材
+ *          按 ReferenceFields 落字段，协议层不再硬编码任何模型名/字段
  * [POS]: media/providers/skymind 的协议适配器；只负责线协议与供应商响应归一化，不访问 Recut 的
  *        Store、任务或 Asset，不持有分享/上传能力（公网 URL 由 media 层发布后传入）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -88,16 +89,59 @@ func (t VideoTask) FailureMessage() string {
 // VideoRequest is the unified video-generation submission. Images/Videos/Audios
 // must already be public URLs (the gateway rejects data URLs with
 // invalid_reference_image_url); publishing them is the media layer's job.
+// Params carries already-validated, model-native top-level fields
+// (resolution/ratio/duration/…) so a catalog entry never needs adapter code.
 type VideoRequest struct {
-	Model      string
-	Prompt     string
-	Images     []string
-	Videos     []string
-	Audios     []string
-	Resolution string
-	Ratio      string
-	Duration   int
-	Metadata   map[string]any
+	Model           string
+	Prompt          string
+	Images          []string
+	Videos          []string
+	Audios          []string
+	Params          map[string]any
+	ReferenceFields map[string]string
+	Metadata        map[string]any
+}
+
+// BuildImagePayload assembles the OpenAI-compatible /v1/images/generations
+// body from already-validated provider params. Exported so the media layer's
+// catalog→wire contract can be verified without a network call.
+func BuildImagePayload(input ImageRequest) map[string]any {
+	payload := map[string]any{"model": input.Model, "prompt": input.Prompt, "n": 1, "response_format": "b64_json"}
+	for key, value := range input.Output {
+		switch key {
+		case "model", "prompt", "n", "response_format":
+			continue
+		}
+		payload[key] = value
+	}
+	return payload
+}
+
+// BuildVideoPayload assembles the unified /openapi/v1/video/generations body:
+// model/prompt, provider params at top level, references via ReferenceFields,
+// and the metadata sub-object.
+func BuildVideoPayload(input VideoRequest) map[string]any {
+	payload := map[string]any{"model": input.Model, "prompt": input.Prompt}
+	for key, value := range input.Params {
+		switch key {
+		case "model", "prompt", "images", "videos", "audios", "metadata":
+			continue
+		}
+		payload[key] = value
+	}
+	if len(input.Images) > 0 {
+		payload[referenceField(input.ReferenceFields, "image", "images")] = input.Images
+	}
+	if len(input.Videos) > 0 {
+		payload[referenceField(input.ReferenceFields, "video", "videos")] = input.Videos
+	}
+	if len(input.Audios) > 0 {
+		payload[referenceField(input.ReferenceFields, "audio", "audios")] = input.Audios
+	}
+	if len(input.Metadata) > 0 {
+		payload["metadata"] = input.Metadata
+	}
+	return payload
 }
 
 // SubmitImage performs POST /v1/images/generations and returns the final image
@@ -106,13 +150,7 @@ func SubmitImage(client *http.Client, baseURL, secret string, input ImageRequest
 	if strings.TrimSpace(input.Prompt) == "" {
 		return ImageResult{}, errors.New("skymind image prompt is required")
 	}
-	payload := map[string]any{"model": input.Model, "prompt": input.Prompt, "n": 1, "response_format": "b64_json"}
-	for _, key := range []string{"size", "quality", "background"} {
-		if value, ok := input.Output[key]; ok {
-			payload[key] = value
-		}
-	}
-	body, _ := json.Marshal(payload)
+	body, _ := json.Marshal(BuildImagePayload(input))
 	response, err := do(client, baseURL, secret, http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
 	if err != nil {
 		return ImageResult{}, err
@@ -154,29 +192,7 @@ func SubmitVideo(client *http.Client, baseURL, secret string, input VideoRequest
 	if strings.TrimSpace(input.Prompt) == "" {
 		return VideoTask{}, errors.New("skymind video prompt is required")
 	}
-	payload := map[string]any{"model": input.Model, "prompt": input.Prompt}
-	if len(input.Images) > 0 {
-		payload["images"] = input.Images
-	}
-	if len(input.Videos) > 0 {
-		payload["videos"] = input.Videos
-	}
-	if len(input.Audios) > 0 {
-		payload["audios"] = input.Audios
-	}
-	if input.Resolution != "" {
-		payload["resolution"] = input.Resolution
-	}
-	if input.Ratio != "" {
-		payload["ratio"] = input.Ratio
-	}
-	if input.Duration != 0 {
-		payload["duration"] = input.Duration
-	}
-	if len(input.Metadata) > 0 {
-		payload["metadata"] = input.Metadata
-	}
-	body, _ := json.Marshal(payload)
+	body, _ := json.Marshal(BuildVideoPayload(input))
 	response, err := do(client, baseURL, secret, http.MethodPost, "/openapi/v1/video/generations", bytes.NewReader(body))
 	if err != nil {
 		return VideoTask{}, err
@@ -404,6 +420,15 @@ func (t *taskWire) expiresValue() any {
 		return *t.ExecutionExpiresAfter
 	}
 	return nil
+}
+
+// referenceField returns the upstream field carrying one reference kind, or the
+// generic plural fallback when the catalog does not override it.
+func referenceField(fields map[string]string, kind, fallback string) string {
+	if key := strings.TrimSpace(fields[kind]); key != "" {
+		return key
+	}
+	return fallback
 }
 
 // do performs one authenticated request against the gateway.

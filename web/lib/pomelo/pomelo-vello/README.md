@@ -10,7 +10,7 @@ pomelo 的 vello-native 渲染适配层：把 pomelo 的 vdom/block 生命周期
 
 | 文件 | 职责 |
 |---|---|
-| `pomelo-vello-adapter.ts` | `VelloRendererAdapter extends PomeloRendererAdapter`：接管 vdom diff/patch 后的 block 树，汇总 `VelloBlock` 绘制为 chunk，驱动 `TileController`；拖拽内容会话（`beginContentSession`/`endContentSession`：被拖块+随动箭头走 live 层，静态内容只渲一次，视口/尺寸/结构变化自动结束）；仅 vello(WebGPU)，不可用即抛 `RendererUnsupportedError`；`ensureImage`/`getImageSize` 提供图片注册与 cover-fit 所需尺寸；`setTransform` 广播 `onTransformEvent` 并按 `renderOnZoom` 重绘；默认超采样 `ss=2`（`?ss=1` 关闭）——按 `CSS×dpr` 放大画布背板，浏览器降采样以获得平滑边缘 |
+| `pomelo-vello-adapter.ts` | `VelloRendererAdapter extends PomeloRendererAdapter`：接管 vdom diff/patch 后的 block 树，汇总 `VelloBlock` 绘制为 chunk，驱动 `TileController`；拖拽内容会话（`beginContentSession`/`endContentSession`：被拖块+随动箭头走 live 层，静态内容只渲一次，视口/尺寸/结构变化自动结束）；仅 vello(WebGPU)，不可用即抛 `RendererUnsupportedError`；`ensureImage(url, requiredPixels?)`/`getImageSize`/`getImagePixelRatio` 提供图片注册、cover-fit 尺寸与**按视口/尺寸自适应纹理分辨率**（首次基准档 512 快速上屏，放大时按 512→1024→2048→4096 升档并用缓存的源图重栅格替换纹理）；`setTransform` 广播 `onTransformEvent` 并按 `renderOnZoom` 重绘；默认超采样 `ss=2`（`?ss=1` 关闭）——按 `CSS×dpr` 放大画布背板，浏览器降采样以获得平滑边缘 |
 | `vello-element.ts` | `VelloElement implements IElement`（block 树容器，不做绘制） |
 | `vello-block.ts` | `VelloBlock extends PomeloBlock`：`renderBlock()` 产出 vello op；`render()`/`reposition()` 分别标记内容/位置版本供增量失效；`reposition()` 对内嵌世界坐标做平移（拖拽不滞后/闪动；文本 op 按 `glyphScale` 预乘坐标反算），`blockStateSelector` 忽略 x/y。**内核不感知任何业务 block** |
 | `demo-blocks.ts` | 示例 `DemoCardBlock`（M2 验证用） |

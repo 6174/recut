@@ -1,10 +1,12 @@
 /*
- * [INPUT]: 依赖 @tiptap/core 的 Editor/JSONContent 与 protocol 序列化
- * [OUTPUT]: 对外提供 ReferenceTriggerState 类型与 resolveReferenceTriggerState / replaceTriggerWithReference（搬运 brainloop mention-trigger）
+ * [INPUT]: 依赖 @tiptap/core 的 Editor/JSONContent、@tiptap/pm/model 的 Slice、@tiptap/pm/state 的 Transaction 与 protocol 序列化
+ * [OUTPUT]: 对外提供 ReferenceTriggerState 类型与 resolveReferenceTriggerState / replaceTriggerWithReference / didInsertTriggerChar（搬运 brainloop mention-trigger）
  * [POS]: web/lib/rich-composer/extensions 的 @ 触发辅助层；被 RichComposer 消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { Editor } from "@tiptap/core";
+import type { Slice } from "@tiptap/pm/model";
+import type { Transaction } from "@tiptap/pm/state";
 
 export type ReferenceTriggerState = {
   active: boolean;
@@ -33,6 +35,22 @@ export function resolveReferenceTriggerState(editor: Editor, triggerChar = "@"):
   return { active: true, query, range: { from: absoluteFrom, to }, coords: resolveMenuCoords(view, from) };
 }
 
+// didInsertTriggerChar：本次事务是否真的插入了触发字符（@）。
+// 只用于「打开」时机判断——避免光标移动到已有 @ 之后也弹出面板。
+export function didInsertTriggerChar(transaction: Transaction, triggerChar = "@"): boolean {
+  if (!transaction.docChanged) return false;
+  let found = false;
+  transaction.steps.forEach((step) => {
+    const slice = (step as unknown as { slice?: Slice }).slice;
+    if (!slice) return;
+    slice.content.descendants((node) => {
+      if (node.isText && node.text?.includes(triggerChar)) found = true;
+      return !found;
+    });
+  });
+  return found;
+}
+
 export function replaceTriggerWithReference(
   editor: Editor,
   state: ReferenceTriggerState,
@@ -52,15 +70,19 @@ export function inactiveState(): ReferenceTriggerState {
 }
 
 function resolveMenuCoords(view: Editor["view"], pos: number): { top: number; left: number } {
-  const domSelectionCoords = readDomSelectionCoords(view);
-  if (domSelectionCoords) return domSelectionCoords;
+  // 优先用 ProseMirror 自己的坐标换算：它按文档模型测量，不受原生 selection 延迟/失焦影响。
   try {
     const coords = view.coordsAtPos(pos);
-    return { top: coords.bottom + 6, left: coords.left };
+    if (coords && (coords.left || coords.top || coords.bottom)) {
+      return { top: coords.bottom, left: coords.left };
+    }
   } catch {
-    const rect = view.dom.getBoundingClientRect();
-    return { top: rect.bottom - 8, left: rect.left + 12 };
+    // 落到原生 selection / 容器兜底
   }
+  const domSelectionCoords = readDomSelectionCoords(view);
+  if (domSelectionCoords) return domSelectionCoords;
+  const rect = view.dom.getBoundingClientRect();
+  return { top: rect.bottom, left: rect.left + 12 };
 }
 
 function readDomSelectionCoords(view: Editor["view"]): { top: number; left: number } | null {
@@ -68,13 +90,15 @@ function readDomSelectionCoords(view: Editor["view"]): { top: number; left: numb
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
   const range = selection.getRangeAt(0);
+  // 只信折叠光标；非折叠（框选）会拿到整段 rect，导致面板飘到别处。
+  if (!range.collapsed) return null;
   const root = view.dom;
   const anchorNode = range.startContainer;
   if (!root.contains(anchorNode)) return null;
   const rects = range.getClientRects();
   const rect = rects.item(rects.length - 1) ?? range.getBoundingClientRect();
   if (!rect || (rect.width === 0 && rect.height === 0)) return null;
-  return { top: rect.bottom + 6, left: rect.left };
+  return { top: rect.bottom, left: rect.left };
 }
 
 function escapeRegex(input: string): string {
