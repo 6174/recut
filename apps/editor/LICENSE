@@ -1,71 +1,86 @@
 # Recut 软件授权条款
 
-**个人免费使用 · 团队与商业使用需另行授权**
+**个人与小型团队免费 · 超过规模的组织需公司授权**
 
-Copyright (c) 2026 Recut（以下简称“我们”或“授权方”）
+Copyright © 2026 Recut（以下简称“我们”或“授权方”）
+
+根据你的法律实体类型，你被授予使用 Recut 的相应权限。个人与小型公司可以免费使用 Recut 制作视频（包括商业用途），而达到一定规模的营利组织则需要公司授权。这套双层体系旨在为项目提供持续资金，同时保持源代码公开，并让大多数使用者免费使用。
+
+- [免费授权](#免费授权)
+- [公司授权](#公司授权)
 
 ## 范围与接受
 
-本授权条款（下称“本授权”）所覆盖的 Recut 软件，包括 Recut 平台（service、App Host、媒体平台、官网与安装脚本）以及全部官方 App 及其文档（包括但不限于 AI 短片、声音工坊、封面生成、深度图、时间线剪辑、Remotion 视频）（合称“软件”）。
+本授权条款（下称“本授权”）覆盖 Recut 软件，包括 Recut 平台（service、App Host、媒体平台、官网与安装脚本）以及全部官方 App 及其文档（包括但不限于 AI 短片、声音工坊、封面生成、深度图、时间线剪辑、Remotion 视频）（合称“软件”）。
 
 你使用、复制、修改或分发软件，即表示接受本授权；若不接受本授权的条款，请勿使用软件。
 
-## 1. 个人免费授权
+## 免费授权
 
-对于**个人、非商业、自用**目的，你获得如下免费、永久、不可撤销、免版税、非独占、不可转让的权利：
+### 资格
 
-1. 安装、运行和使用软件，包括在多台设备上安装用于个人使用；
-2. 阅读、审阅与学习软件源码；
-3. 为你的个人使用创建修改件；
-4. 出于非商业目的，复制和分发未修改的软件，且必须随附本授权条款全文与版权声明。
+符合下列任一情形，即可免费使用 Recut：
 
-“个人使用”指单一自然人为自己的学习、研究或个人创作等非商业目的使用软件，成果由自己使用或在自己不营利的个人空间中分享，且不属于任何组织、团队或商业活动的一部分。
+- 个人；
+- 员工不超过 3 人的营利组织；
+- 非营利或非以营利为目的的组织；
+- 正在评估 Recut 是否适合，且尚未将其用于商业用途。
 
-即使你是个人用户，将软件或其产出用于任何商业目的，均不属于本条个人免费授权的范围（见第 2 条）。
+### 允许的使用
 
-## 2. 团队使用与商业化场景需要商业授权
+对于符合“免费授权”资格的主体，在此免费授予非独占、免版税的权利：为创作视频和图像之目的，以非商业或商业方式使用软件，并为满足自身使用需求或回馈缺陷修复与改进而修改软件。
 
-下列任一情形均不属于第 1 条的个人免费授权，须事先联系我们获取商业授权：
+### 不允许的使用
 
-- **团队使用**：组织（公司、工作室、机构、学校、政府单位等）的任何使用；或以团队、工作室名义进行的内容创作；
-- **商业化场景**：将软件或软件的产出用于任何商业目的，包括但不限于：
-  - 商业内容生产：商业订单、广告与营销、电商内容、付费课程、付费订阅内容、任何以营利为目的的发布；
-  - 将软件或其组件嵌入、集成到商业产品、服务或工作流中；
-  - 将软件作为服务的一部分提供给第三方（SaaS、代运营、外包制作等）；
-  - 转售、出租或有偿分发软件及其修改件。
+不得为了销售、出租、许可、再许可或分许可你基于软件制作的衍生物，而复制或修改 Recut 代码。
 
-商业授权的形式（个人 / 团队 / 企业，按席位或按项目）与价格，由双方在商业授权协议中约定。
+### 保证声明
 
-联系我们：license@recut.video ｜ https://recut.video
+软件按“现状”提供，不附有任何明示或暗示的保证，包括但不限于对适销性、特定用途适用性及非侵权的保证。在任何情况下，作者或版权持有人均不对任何主张、损害或其他责任负责，无论该责任源于合同、侵权或其他方式，亦无论是否与软件或软件的使用或其他交易有关。
 
-## 3. 源码公开不等于开源许可
+### 支持
+
+支持通过 GitHub Issues 与官方社群以“尽力而为”的方式提供。
+
+## 公司授权
+
+如果你不属于可享受“免费授权”的主体范围，则必须获得公司授权。该授权将允许你在“免费授权”所列范围内使用 Recut，并提供优先支持。
+
+定价与购买：https://recut.video ｜ license@recut.video
+
+### 常见问题
+
+不确定你的情况是否属于需要公司授权的边缘情形？请来信 license@recut.video 咨询。
+
+## 源码公开不等于开源许可
 
 我们公开软件源码，以便你审阅、理解与本地部署。源码公开不构成开源许可（如 MIT、Apache-2.0、GPL 等 OSI 认可的许可证）；除本授权明确授予的权利外，不授予任何其他权利。
 
-## 4. 第三方组件
+## 第三方组件
 
-软件可能依赖、引用或按需下载第三方代码、模型权重、字体与音频素材（例如 Whisper、CosyVoice、Depth Anything、Remotion 及其模型权重）。这些组件仍受其原始许可证约束；本授权不改变其许可条款，商用前请以对应组件的许可证为准。
+软件可能依赖、引用或按需下载第三方代码、模型权重、字体与音频素材（例如 Remotion、Whisper、CosyVoice、Depth Anything 及其模型权重）。这些组件仍受其原始许可证约束，本授权不改变其许可条款，也不免除你遵守这些条款的义务。例如 Remotion 采用独立的双层授权（个人与小型团队可免费使用，达到一定规模的公司需购买 Remotion 公司授权）；商用前请以对应组件的官方许可证为准。
 
-## 5. 商标
+## 商标
 
 本授权不授予任何使用 “Recut” 名称、Logo 或其他标识的权利，除非仅用于如实说明软件来源。
 
-## 6. 免责声明
+## 联系
 
-软件按“现状”提供，不附有任何明示或暗示的保证。在法律允许的范围内，我们对因使用或无法使用软件而产生的任何直接或间接损失不承担责任。
-
-## 7. 联系
-
-团队与商业授权、授权咨询：license@recut.video
+公司授权、授权咨询：license@recut.video
 官网：https://recut.video
 
 ---
 
 # Recut Software License
 
-**Free personal use · Team & commercial use requires a separate license**
+**Free for individuals and small teams · Larger organizations require a company license**
 
-Copyright (c) 2026 Recut ("we" / "Licensor")
+Copyright © 2026 Recut ("we" / "Licensor")
+
+Depending on the type of your legal entity, you are granted permission to use Recut for your project. Individuals and small companies are allowed to use Recut to create videos for free (even commercially), while a company license is required for for-profit organizations of a certain size. This two-tier system was designed to ensure funding for this project while still keeping the source code available and the program free for most.
+
+- [Free License](#free-license)
+- [Company License](#company-license)
 
 ## Scope and acceptance
 
@@ -73,51 +88,56 @@ This license (the "License") covers the Recut software, including the Recut plat
 
 By using, copying, modifying or distributing the Software, you accept this License. If you do not accept the terms of this License, you may not use the Software.
 
-## 1. Free personal license
+## Free License
 
-For **personal, non-commercial, self-use** purposes, you are granted the following free, perpetual, irrevocable, royalty-free, non-exclusive, non-transferable rights:
+### Eligibility
 
-1. To install, run and use the Software, including installing it on multiple devices for your personal use;
-2. To read, review and study the Software's source code;
-3. To create derivatives for your personal use;
-4. To copy and distribute unmodified copies of the Software for non-commercial purposes, provided that the full text of this License and the copyright notice are included.
+You are eligible to use Recut for free if you are:
 
-"Personal use" means a single natural person using the Software for their own non-commercial purposes such as learning, research or personal creation, where the results are used by them or shared in a non-monetized personal space, and are not part of any organization, team or commercial activity.
+- an individual;
+- a for-profit organization with up to 3 employees;
+- a non-profit or not-for-profit organization;
+- evaluating whether Recut is a good fit, and not yet using it in a commercial way.
 
-Even as an individual user, any commercial use of the Software or its output is not covered by the free personal license in Section 1 (see Section 2).
+### Allowed use cases
 
-## 2. Team use and commercial scenarios require a commercial license
+Permission is hereby granted, free of charge, to any person eligible for the "Free License", to use the Software non-commercially or commercially for the purpose of creating videos and images, and to modify the Software to their own liking, for the purpose of fulfilling their custom use case or to contribute bug fixes or improvements back to Recut.
 
-Any of the following is not covered by the free personal license in Section 1 and requires prior contact with us to obtain a commercial license:
+### Disallowed use cases
 
-- **Team use**: any use by an organization (company, studio, institution, school, government body, etc.); or content production carried out under a team or studio name;
-- **Commercial scenarios**: using the Software or its output for any commercial purpose, including but not limited to:
-  - Commercial content production: commercial commissions, advertising and marketing, e-commerce content, paid courses, paid subscription content, or any distribution intended for profit;
-  - Embedding or integrating the Software or its components into a commercial product, service or workflow;
-  - Providing the Software to third parties as part of a service (SaaS, managed operations, outsourced production, etc.);
-  - Reselling, leasing or paid distribution of the Software or its derivatives.
+It is not allowed to copy or modify Recut code for the purpose of selling, renting, licensing, relicensing, or sublicensing your own derivative of Recut.
 
-The form (individual / team / enterprise, per-seat or per-project) and pricing of the commercial license shall be set out in a commercial license agreement between the parties.
+### Warranty notice
 
-Contact: license@recut.video | https://recut.video
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-## 3. Public source is not an open-source license
+### Support
+
+Support is provided on a best-we-can-do basis via GitHub Issues and the official community.
+
+## Company License
+
+You are required to obtain a Company License to use Recut if you are not within the group of entities eligible for the Free License. This license enables you to use Recut for the allowed use cases specified in the Free License, and gives you access to prioritized support.
+
+Pricing and purchase: https://recut.video | license@recut.video
+
+### FAQ
+
+Not sure whether you need a Company License because of an edge case? Contact us at license@recut.video.
+
+## Public source is not an open-source license
 
 We publish the Software's source code so you can review, understand and deploy it locally. Source availability does not constitute an open-source license (such as MIT, Apache-2.0, GPL or other OSI-approved licenses); except for the rights expressly granted by this License, no other rights are granted.
 
-## 4. Third-party components
+## Third-party components
 
-The Software may depend on, reference or download on demand third-party code, model weights, fonts and audio assets (for example Whisper, CosyVoice, Depth Anything, Remotion and their model weights). Those components remain governed by their original licenses; this License does not alter their terms. For commercial use, please comply with each component's own license.
+The Software may depend on, reference or download on demand third-party code, model weights, fonts and audio assets (for example Remotion, Whisper, CosyVoice, Depth Anything and their model weights). Those components remain governed by their original licenses; this License does not alter their terms and does not exempt you from complying with them. Remotion, for instance, uses its own two-tier license (free for individuals and small teams, with a company license required for larger companies); for commercial use, please comply with each component's official license.
 
-## 5. Trademarks
+## Trademarks
 
 This License does not grant any right to use the name "Recut", its logo or other identifiers, except solely to truthfully indicate the origin of the Software.
 
-## 6. Disclaimer
+## Contact
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE ARE NOT LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES ARISING FROM THE USE OF, OR INABILITY TO USE, THE SOFTWARE.
-
-## 7. Contact
-
-Team and commercial licensing, license inquiries: license@recut.video
+Company licensing, license inquiries: license@recut.video
 Website: https://recut.video
