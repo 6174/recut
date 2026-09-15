@@ -229,6 +229,16 @@ func TestBriefInlinesSkillBodyAndPinsRevision(t *testing.T) {
 	if len(brief.Evidence) != 1 || brief.Evidence[0].Source != EvidenceSourceURL || brief.Evidence[0].URL == "" {
 		t.Fatalf("evidence = %#v", brief.Evidence)
 	}
+	if len(brief.References) != 1 {
+		t.Fatalf("references = %#v", brief.References)
+	}
+	ref := brief.References[0]
+	if ref.Source != EvidenceSourceURL || ref.URL == "" || ref.ID != ref.URL {
+		t.Fatalf("evidence reference binding drifted: %#v", ref)
+	}
+	if ref.Kind != "image" || ref.Role != "character" || !ref.RoleInferred {
+		t.Fatalf("evidence reference role drifted: %#v", ref)
+	}
 	// 后续更新不改旧 revision 的 brief。
 	materializeTest(t, worlds, id, testManifest(id, "## brief skill v2"))
 	oldBrief, err := worlds.Brief(BriefInput{WorldID: id, RevisionID: rev1})
@@ -244,6 +254,38 @@ func TestBriefInlinesSkillBodyAndPinsRevision(t *testing.T) {
 	}
 	if newBrief.Skill != "## brief skill v2" {
 		t.Fatalf("new brief = %q", newBrief.Skill)
+	}
+}
+
+func TestBriefProjectsReferenceBindings(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	const id = "pgc.refv2"
+	materializeTest(t, worlds, id, testManifestV2(id))
+	brief, err := worlds.Brief(BriefInput{WorldID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 媒体唯一表示 = media attrs：background 的 url 应成为一条可引用项。
+	if len(brief.References) != 1 {
+		t.Fatalf("references = %#v", brief.References)
+	}
+	ref := brief.References[0]
+	if ref.Source != EvidenceSourceURL || ref.URL != "https://cdn.example.test/a.png" || ref.ID != ref.URL {
+		t.Fatalf("media reference binding drifted: %#v", ref)
+	}
+	if ref.Kind != "image" || ref.Role != "character" || !ref.RoleInferred {
+		t.Fatalf("media reference role drifted: %#v", ref)
+	}
+	if ref.EntityID == "" || ref.EntityName != "Hero" {
+		t.Fatalf("media reference entity drifted: %#v", ref)
+	}
+	// selection 只含 rule 实体：不应带出 hero 的媒体引用。
+	scoped, err := worlds.Brief(BriefInput{WorldID: id, Selection: WorldSelection{EntityIDs: []string{id + ":mech"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scoped.References) != 0 {
+		t.Fatalf("scoped references = %#v", scoped.References)
 	}
 }
 

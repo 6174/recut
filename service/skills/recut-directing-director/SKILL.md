@@ -26,6 +26,7 @@ description: 回答「这次创作走什么链、按什么顺序」的唯一路�
 | `recut-directing-platform` | 发给谁、什么规格、什么雷区 | 链中出现 platform 时移交 |
 | `recut-directing-remix` | 从已有视频反推并产出新片 | 链中出现 remix 时移交 |
 | `recut-directing-short-drama` | 剧情/短剧怎么编排生产 | 链中出现 short-drama 时移交 |
+| `recut-directing-generation-prompt` | 生成提示词怎么写（风格冻结、参考锚定、多镜连续段） | 需要把镜头意图落成图片/视频生成提示词时移交 |
 | `recut-directing-qc` | 哪里坏了、怎么修与验收门禁 | 每环节结束时移交 |
 
 本技能只输出链与顺序，不展开环节内的配方与检查清单；环节内的验收以各技能与 `recut-directing-qc` 的门禁为准。
@@ -62,7 +63,7 @@ description: 回答「这次创作走什么链、按什么顺序」的唯一路�
 | `sound` | 定“旁白/BGM/SFX 如何分层与避让” | 声音分层方案 |
 | `qc` | 定“哪里坏了、怎么修、是否可进下一环节” | F-code 诊断与门禁结果 |
 
-## 三、全局技能清单速查表（12 技能：11 已落地 + 本技能）
+## 三、全局技能清单速查表（15 技能：本路由 + 14 决策技能）
 
 > 以 `service/skills/recut-directing-*` 实际目录为准（2026-08-29 实测）。
 
@@ -82,8 +83,9 @@ description: 回答「这次创作走什么链、按什么顺序」的唯一路�
 | 11 | `recut-directing-sound` | 耳朵听到什么？ | 已落地 |
 | 12 | `recut-directing-story` | 讲什么、怎么编排？ | **pending（未落地，预留）** |
 | 13 | `recut-directing-short-drama` | 剧情/短剧怎么编排生产？ | **pending（未落地，预留）** |
+| 14 | `recut-directing-generation-prompt` | 生成提示词怎么写？ | 已落地 |
 
-注：`story` 与 `short-drama` 在本版全局库中尚未以独立目录落地；路由需经过它们时，标注 pending 并按“待实现”处理（见第六节）。表中 1–11 为当前已落地的 11 个技能，总数 12（含本技能）与任务要求的“11+1”一致。
+注：本表目录与状态以 2026-08-29 实测为准；`recut-directing-generation-prompt` 于 2026-09-15 新增。`story` 与 `short-drama` 现已在 `service/skills/` 中存在独立目录，其 pending 状态待复核（见第六节）。
 
 ## 四、流程纪律
 

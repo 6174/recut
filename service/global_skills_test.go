@@ -28,7 +28,7 @@ func TestGlobalSkillDiscoversEveryEmbeddedSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{recutSkillID, designSystemSkillID, "recut-create-app", "recut-directing-shot"} {
+	for _, required := range []string{recutSkillID, designSystemSkillID, "recut-create-app", "recut-worlds", "recut-directing-shot", "recut-directing-generation-prompt"} {
 		found := false
 		for _, id := range ids {
 			if id == required {
@@ -63,8 +63,11 @@ func TestGlobalSkillSyncsEmbeddedTree(t *testing.T) {
 		"recut/SKILL.md",
 		"recut/references/world-onboarding.md",
 		"recut-create-app/SKILL.md",
+		"recut-worlds/SKILL.md",
 		"recut-design-system/design-systems/minimal/DESIGN.md",
 		"recut-directing-shot/SKILL.md",
+		"recut-directing-generation-prompt/SKILL.md",
+		"recut-directing-generation-prompt/assets/generation-prompt-template.md",
 	} {
 		path := filepath.Join(manager.dataDir, "skills", required)
 		if _, err := os.Stat(path); err != nil {

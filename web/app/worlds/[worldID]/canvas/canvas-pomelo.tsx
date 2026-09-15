@@ -11,6 +11,8 @@
  * 自由元素映射：note→NoteBlockV、text/shape→FreeElementBlockV、绑定两实体的自由箭头→复用
  * RelationArrowBlockV 投影（未绑定箭头暂不渲染）；画面 delta 同步经 moveElement + persistGeometry
  * 另含 RealMediaBlockV（T8 媒体元素）/ 空世界与空容器引导（T9）/ CanvasOutline / toast / 文件拖放（B.12）；
+ * 生成提案态（proposal）：媒体元素与 attr 媒体卡的 props.proposal 映射为 proposalStatus/proposalPrompt/
+ * proposalRefs 等 attrs，供 block 渲染「待确认」态；
  * 「+」引导面板支持把实体简介/正文作为关联拖出；文本属性卡高度服从几何 box（渲染侧裁剪溢出，
  * 不随内容自增长），双击就地编辑内滚动并支持全屏放大；
  * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
@@ -37,6 +39,7 @@ import { CanvasToasts } from "./canvas-toast";
 import { CanvasOutline } from "./canvas-outline";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrValueOf, ENTITY_FIELD_ASSOCIATIONS } from "./entity-attrs";
+import { readProposal } from "./canvas-proposal";
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
@@ -122,10 +125,12 @@ function buildPomeloRecords(
     const width = liveSize?.width ?? (Number(element.geometry?.width) || NOTE_SIZE.width);
     const height = liveSize?.height ?? (Number(element.geometry?.height) || NOTE_SIZE.height);
     if (element.kind === "media") {
-      // 媒体元素（T8/B.12）：图片 cover-fit 缩略 / 视频音频占位卡；挂接后带「参考素材」角标
+      // 媒体元素（T8/B.12）：图片 cover-fit 缩略 / 视频音频占位卡；挂接后带「参考素材」角标。
+      // 生成提案（视频等高价媒体）：带 proposal 属性 → 卡片渲染为「待确认」态。
       const modality = String(element.props?.modality ?? "image");
       const assetId = String(element.props?.assetId ?? "");
       const url = String(element.props?.url ?? "");
+      const proposal = readProposal(element.props);
       records.push({
         id: element.id,
         type: "media",
@@ -138,6 +143,12 @@ function buildPomeloRecords(
           src: mediaSource(state.apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }),
           attached: element.props?.evidenceId ? true : undefined,
           label: String(element.name ?? ""),
+          ...(proposal ? {
+            proposalStatus: proposal.status,
+            proposalPrompt: proposal.prompt,
+            proposalRefs: proposal.references.length,
+            proposalModel: proposal.modelId ?? "",
+          } : {}),
         },
       });
       return;
@@ -150,6 +161,7 @@ function buildPomeloRecords(
         assetId: element.props?.assetId ? String(element.props.assetId) : undefined,
         url: element.props?.url ? String(element.props.url) : undefined,
       }) : "";
+      const proposal = readProposal(element.props);
       records.push({
         id: element.id,
         type: "free-element",
@@ -162,6 +174,11 @@ function buildPomeloRecords(
           attrMedia: media,
           text: String(element.props?.text ?? ""),
           mediaSrc,
+          ...(proposal ? {
+            proposalStatus: proposal.status,
+            proposalPrompt: proposal.prompt,
+            proposalRefs: proposal.references.length,
+          } : {}),
         },
       });
       return;

@@ -32,6 +32,7 @@ const (
 	entityBodyMaxBytes = 16 * 1024       // entity body 合计 ≤ 16KB
 	evidenceMaxRows    = 200             // evidence 条目 ≤ 200
 	briefEvidenceMax   = 100             // brief evidence ≤ 100 条
+	briefReferenceMax  = 100             // brief references（可引用项）≤ 100 条
 )
 
 var worldEntityIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -287,7 +288,6 @@ func validateWorldManifestV2(kind string, entryID string, manifest *WorldManifes
 	}
 	return nil
 }
-
 
 // ManifestHash is the hex SHA-256 of the manifest bytes exactly as served on
 // the CDN. The catalog entry pins it; materialization is refused on mismatch.
@@ -888,13 +888,36 @@ type BriefInput struct {
 // are the core PGC payload, and a second fetch would break "one call, can
 // produce". Selection semantics mirror Resolve.
 type WorldBrief struct {
-	World       WorldBriefWorld     `json:"world"`
-	Identity    map[string]any      `json:"identity"`
-	Skill       string              `json:"skill,omitempty"`
-	Facts       WorldBriefFacts     `json:"facts"`
-	Constraints WorldConstraints    `json:"constraints"`
-	Evidence    []WorldEvidence     `json:"evidence"`
-	Missing     []WorldBriefMissing `json:"missing"`
+	World       WorldBriefWorld       `json:"world"`
+	Identity    map[string]any        `json:"identity"`
+	Skill       string                `json:"skill,omitempty"`
+	Facts       WorldBriefFacts       `json:"facts"`
+	Constraints WorldConstraints      `json:"constraints"`
+	Evidence    []WorldEvidence       `json:"evidence"`
+	References  []WorldBriefReference `json:"references"`
+	Missing     []WorldBriefMissing   `json:"missing"`
+}
+
+// WorldBriefReference is one anchorable item an Agent can bind into a
+// generation prompt: a media attribute's assetId/url plus a suggested role
+// from the generation-reference vocabulary (pov / color-card / environment /
+// character / prop / style-ref / motion-ref / voice / sfx / music). It is a
+// suggestion, not a frozen binding — the prompt skill and the user confirm the
+// final role.
+type WorldBriefReference struct {
+	// ID is the binding identity: assetId for local assets, url for remote.
+	ID           string                `json:"id"`
+	Label        string                `json:"label"`
+	Kind         string                `json:"kind"` // image | video | audio | text
+	Role         string                `json:"role,omitempty"`
+	RoleInferred bool                  `json:"roleInferred,omitempty"` // true = suggested by inference, false = declared
+	Source       string                `json:"source"`                 // asset | url
+	AssetID      string                `json:"assetId,omitempty"`
+	URL          string                `json:"url,omitempty"`
+	EntityID     string                `json:"entityId,omitempty"`
+	EntityName   string                `json:"entityName,omitempty"`
+	Purpose      string                `json:"purpose,omitempty"`
+	Segment      *WorldEvidenceSegment `json:"segment,omitempty"`
 }
 
 type WorldBriefWorld struct {
@@ -973,11 +996,12 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 			RevisionID:    revisionID,
 			CanonicalHash: canonicalHash,
 		},
-		Identity: world.Identity,
-		Skill:    canonicalString(canonical, "skill"),
-		Facts:    WorldBriefFacts{Characters: []map[string]any{}, Stories: []map[string]any{}, Locations: []map[string]any{}, Styles: []map[string]any{}},
-		Evidence: []WorldEvidence{},
-		Missing:  []WorldBriefMissing{},
+		Identity:   world.Identity,
+		Skill:      canonicalString(canonical, "skill"),
+		Facts:      WorldBriefFacts{Characters: []map[string]any{}, Stories: []map[string]any{}, Locations: []map[string]any{}, Styles: []map[string]any{}},
+		Evidence:   []WorldEvidence{},
+		References: []WorldBriefReference{},
+		Missing:    []WorldBriefMissing{},
 	}
 	if world.OriginMeta != nil {
 		brief.World.Provenance = world.OriginMeta.Provenance
@@ -1008,6 +1032,8 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 			if baseKind == "" {
 				baseKind = kind
 			}
+			entityName, _ := view["name"].(string)
+			brief.References = append(brief.References, briefReferencesFromEntity(record, entityName, baseKind)...)
 			switch baseKind {
 			case "character":
 				brief.Facts.Characters = append(brief.Facts.Characters, view)
@@ -1051,14 +1077,233 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 		roleMatches := desiredRoles[evidence.Role] && evidence.EntityID == ""
 		if entityMatches || roleMatches {
 			brief.Evidence = append(brief.Evidence, evidence)
+			brief.References = append(brief.References, briefReferenceFromEvidence(evidence))
 		}
 	}
+	brief.References = normalizeBriefReferences(brief.References)
 	// brief.missing shares the readiness computation with the onboarding UI so
 	// Agent and UI never disagree. It is measured on this revision's canonical
 	// (not the live head): a pinned brief stays consistent with its facts.
 	brief.Missing = briefMissingFromCanonical(canonical, world)
 	logWorldEvent("world.brief", map[string]string{"worldId": input.WorldID, "revisionId": revisionID})
 	return brief, nil
+}
+
+// briefReferencesFromEntity derives anchorable items from one canonical
+// entity's media attrs. Attrs are the single channel for entity media
+// (evidence layer retired): each media attr pointing at an assetId or url
+// becomes one reference with a suggested generation role.
+func briefReferencesFromEntity(record map[string]any, entityName, baseKind string) []WorldBriefReference {
+	attrs, _ := record["attrs"].([]any)
+	if len(attrs) == 0 {
+		return nil
+	}
+	entityID, _ := record["id"].(string)
+	out := []WorldBriefReference{}
+	for _, raw := range attrs {
+		attr, ok := raw.(map[string]any)
+		if !ok || attr["type"] != "media" {
+			continue
+		}
+		value, ok := attr["value"].(map[string]any)
+		if !ok {
+			continue
+		}
+		assetID, _ := value["assetId"].(string)
+		url, _ := value["url"].(string)
+		if assetID == "" && url == "" {
+			continue
+		}
+		kind, _ := value["kind"].(string)
+		if kind == "" {
+			kind = "image"
+		}
+		key, _ := attr["key"].(string)
+		label, _ := attr["label"].(string)
+		if label == "" {
+			if name, _ := value["name"].(string); name != "" {
+				label = name
+			} else {
+				label = key
+			}
+		}
+		ref := WorldBriefReference{
+			Label:        label,
+			Kind:         kind,
+			EntityID:     entityID,
+			EntityName:   entityName,
+			Role:         inferMediaAttrRole(kind, label, key, baseKind),
+			RoleInferred: true,
+			Segment:      briefSegmentFromValue(value),
+		}
+		if assetID != "" {
+			ref.ID = assetID
+			ref.Source = EvidenceSourceAsset
+			ref.AssetID = assetID
+		} else {
+			ref.ID = url
+			ref.Source = EvidenceSourceURL
+			ref.URL = url
+		}
+		out = append(out, ref)
+	}
+	return out
+}
+
+// briefReferenceFromEvidence projects a legacy evidence row into the same
+// anchorable shape. A declared role is kept; otherwise one is inferred.
+func briefReferenceFromEvidence(evidence WorldEvidence) WorldBriefReference {
+	ref := WorldBriefReference{
+		Label:    evidence.Label,
+		Kind:     evidence.Modality,
+		Role:     evidence.Role,
+		EntityID: evidence.EntityID,
+		Purpose:  evidence.Purpose,
+		Segment:  evidence.Segment,
+	}
+	if ref.Kind == "" {
+		ref.Kind = "image"
+	}
+	if evidence.AssetID != "" && evidence.URL == "" {
+		ref.Source = EvidenceSourceAsset
+		ref.AssetID = evidence.AssetID
+		ref.ID = evidence.AssetID
+	} else {
+		ref.Source = EvidenceSourceURL
+		ref.URL = evidence.URL
+		ref.ID = evidence.URL
+	}
+	if ref.Role == "" || !isGenerationRole(ref.Role) {
+		ref.Role = inferEvidenceRole(evidence.Modality, evidence.Purpose)
+		ref.RoleInferred = ref.Role != ""
+	}
+	if ref.Label == "" {
+		ref.Label = evidence.Purpose
+	}
+	return ref
+}
+
+// isGenerationRole reports whether a declared role is part of the generation
+// reference vocabulary. Legacy evidence rows carry synthetic `evidence:<purpose>`
+// roles that are not generation roles and must be re-inferred.
+func isGenerationRole(role string) bool {
+	switch role {
+	case "pov", "color-card", "environment", "character", "prop", "style-ref",
+		"motion-ref", "voice", "sfx", "music":
+		return true
+	}
+	return false
+}
+
+// normalizeBriefReferences dedupes by binding id (assetId/url), preferring a
+// declared role over an inferred one, and caps the list.
+func normalizeBriefReferences(refs []WorldBriefReference) []WorldBriefReference {
+	out := make([]WorldBriefReference, 0, len(refs))
+	index := map[string]int{}
+	for _, ref := range refs {
+		if ref.ID == "" {
+			continue
+		}
+		if at, ok := index[ref.ID]; ok {
+			current := out[at]
+			better := ref.Role != "" && (current.Role == "" || (current.RoleInferred && !ref.RoleInferred))
+			if better {
+				out[at].Role = ref.Role
+				out[at].RoleInferred = ref.RoleInferred
+			}
+			if out[at].Label == "" {
+				out[at].Label = ref.Label
+			}
+			if out[at].EntityID == "" {
+				out[at].EntityID = ref.EntityID
+				out[at].EntityName = ref.EntityName
+			}
+			continue
+		}
+		index[ref.ID] = len(out)
+		out = append(out, ref)
+		if len(out) >= briefReferenceMax {
+			break
+		}
+	}
+	return out
+}
+
+// inferMediaAttrRole suggests a generation role for a media attr. Roles mirror
+// the generation-reference vocabulary; the prompt skill and the user confirm
+// the final role.
+func inferMediaAttrRole(kind, label, key, baseKind string) string {
+	text := strings.ToLower(strings.TrimSpace(label + " " + key))
+	switch kind {
+	case "audio":
+		switch {
+		case strings.Contains(text, "音效") || strings.Contains(text, "sfx"):
+			return "sfx"
+		case strings.Contains(text, "音乐") || strings.Contains(text, "music"):
+			return "music"
+		default:
+			return "voice"
+		}
+	case "video":
+		return "motion-ref"
+	case "image":
+		switch {
+		case strings.Contains(text, "色卡") || strings.Contains(text, "配色") || strings.Contains(text, "color") || strings.Contains(text, "palette"):
+			return "color-card"
+		case strings.Contains(text, "视角") || strings.Contains(text, "pov") || strings.Contains(text, "机位"):
+			return "pov"
+		case strings.Contains(text, "环境") || strings.Contains(text, "场景") || strings.Contains(text, "scene"):
+			return "environment"
+		}
+		switch baseKind {
+		case "character":
+			return "character"
+		case "style":
+			return "style-ref"
+		case "location":
+			return "environment"
+		case "object":
+			return "prop"
+		}
+		return "style-ref"
+	}
+	return ""
+}
+
+// inferEvidenceRole maps a legacy evidence purpose onto the same vocabulary.
+func inferEvidenceRole(modality, purpose string) string {
+	switch modality {
+	case "audio":
+		if purpose == "sound_style" {
+			return "music"
+		}
+		return "voice"
+	case "video":
+		return "motion-ref"
+	case "image":
+		switch purpose {
+		case "visual_style":
+			return "style-ref"
+		case "scene", "mood":
+			return "environment"
+		case "identity", "appearance", "wardrobe":
+			return "character"
+		}
+	}
+	return ""
+}
+
+func briefSegmentFromValue(value map[string]any) *WorldEvidenceSegment {
+	segment, ok := value["segment"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	start, startOK := segment["startSec"].(float64)
+	end, endOK := segment["endSec"].(float64)
+	if !startOK || !endOK {
+		return nil
+	}
+	return &WorldEvidenceSegment{StartSec: start, EndSec: end}
 }
 
 // briefMissingFromCanonical builds a readiness snapshot from the frozen

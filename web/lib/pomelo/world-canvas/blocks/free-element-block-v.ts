@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/entity-color（attrMediaLabel）、
  *          world-canvas/blocks/vello-shared
  * [OUTPUT]: 对外提供 FreeElementBlockV（type: free-element）：文本 / 形状 / 属性预览卡；
- * 属性文本卡用 pushClipRoundRect 裁剪到几何 box（文本服从 box，溢出截断）。
+ * 属性文本卡用 pushClipRoundRect 裁剪到几何 box（文本服从 box，溢出截断）；
+ * 属性媒体卡的生成提案态（proposalStatus）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要。
  * [POS]: lib/pomelo/world-canvas/blocks 的自由元素 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,7 +15,10 @@ import {
   CAPTION_TOP_OFFSET,
   CARD_FILL,
   CARD_STROKE,
+  PROPOSAL_ACCENT,
+  PROPOSAL_FILL,
   TEXT_PRIMARY,
+  TEXT_SECONDARY,
   TEXT_TERTIARY,
   captionOpsV,
   coverImageOpsV,
@@ -58,9 +62,21 @@ export class FreeElementBlockV extends VelloBlock {
     } else if (elementKind === "attr") {
       const label = `${attrMediaLabel(media)}${text ? ` · ${text.slice(0, 12)}` : ""}`;
       const caption = captionOpsV(this.adapter, x, y, w, label);
-      ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: CARD_STROKE, strokeWidth: 1 });
+      const proposalStatus = String(attrs.proposalStatus ?? "");
+      const isProposal = proposalStatus === "pending" || proposalStatus === "generating" || proposalStatus === "failed";
+      ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: isProposal ? PROPOSAL_ACCENT : CARD_STROKE, strokeWidth: isProposal ? 2 : 1 });
       ops.push(...caption.ops);
-      if (media === "image" && mediaSrc) {
+      if (isProposal) {
+        // 生成提案（待确认）：媒体属性卡的提案态
+        const refs = Number(attrs.proposalRefs ?? 0);
+        const prompt = String(attrs.proposalPrompt ?? "").replace(/\s+/g, " ").trim();
+        const snippet = prompt.length > 34 ? `${prompt.slice(0, 34)}…` : prompt || "（未填写提示词）";
+        ops.push({ kind: "roundRect", x: x + 8, y: y + 8, width: 48, height: 16, radius: 8, fill: PROPOSAL_FILL, stroke: PROPOSAL_ACCENT, strokeWidth: 1 });
+        ops.push(textOp({ text: "提案", x: x + 16, y: y + 11, size: 9, maxWidth: 36, fill: PROPOSAL_ACCENT }));
+        ops.push(textOp({ text: "待确认生成", x: x + 10, y: y + 32, size: 11, maxWidth: w - 20, fill: TEXT_PRIMARY }));
+        ops.push(textOp({ text: snippet, x: x + 10, y: y + 49, size: 10, lineHeight: 14, maxWidth: w - 20, fill: TEXT_SECONDARY }));
+        ops.push(textOp({ text: `${refs} 参考`, x: x + 10, y: y + h - 20, size: 9, maxWidth: w - 20, fill: TEXT_TERTIARY }));
+      } else if (media === "image" && mediaSrc) {
         ops.push(...coverImageOpsV(this.adapter, mediaSrc, { x, y, width: w, height: h }, { x, y, width: w, height: h, radius: 12 }));
       } else if (text) {
         // 文本服从 box：裁剪到卡片圆角内，溢出直接截断（双击就地编辑改为内滚动 + 全屏放大）

@@ -21,6 +21,11 @@
  * AI 反馈闭环：scheduleWorldReload 由 "world" 实时 channel 的 world.changed 触发去抖重载；setCanvasAiLocked
  * 响应 world.canvas.lock/unlock（aiLocked 期间暂停本地保存并保留脏集，解锁后续跑）；load 后按 id 重解析
  * 当前选中，避免面板指向远端刷新前的旧快照
+ * 生成提案（proposal gate）：视频等高价媒体节点可携带 props.proposal（draft/pending/generating/done/failed，
+ * 含 prompt/references/modelId/params 等）；saveProposalDraft 持久化编辑中的配方草稿（不触发门禁）、
+ * createProposal/updateProposal 为画布写（不产 revision），confirmProposal 是唯一触发真实生成的入口
+ * （过 proposalIssues 自检后提交 /v1/media/jobs 并轮询采纳产物，采纳走 setMediaElementAsset/setAttrMediaAsset
+ * 并记入素材指针历史），rejectProposal 退回配方草稿
  * [POS]: worlds/[worldID]/canvas 的 zustand 状态层；组件层只读 store 快照并触发动作，不各自持有画布数据
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -40,6 +45,10 @@ import {
 import { applyCanvasError } from "./canvas-errors";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrValueOf, entityFieldKeyOfLabel } from "./entity-attrs";
+import { generationCapabilityOf, isProposalGate, proposalIssues, proposalReferenceIds, readProposal, type GenerationProposal } from "./canvas-proposal";
+import { buildGenerationRequest } from "@/lib/media/generation-request";
+import { normalizeAsset, type Asset, type MediaJob } from "@/app/media/media-types";
+import { useElementAssetHistoryStore } from "./panel/element-asset-history-store";
 
 export type Point = { x: number; y: number };
 
@@ -261,6 +270,50 @@ function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
   return list.some((existing) => existing.id === item.id)
     ? list.map((existing) => (existing.id === item.id ? item : existing))
     : [...list, item];
+}
+
+// 生成提案：确认后轮询任务，完成后把首个可用产物采纳为节点素材并把提案置 done。
+// 节点被删 / 提案被清掉即停止轮询（用户已放弃）。
+async function pollProposalJob(elementId: string, jobId: string) {
+  const { apiBase } = useWorldCanvasStore.getState();
+  for (let attempt = 0; attempt < 450; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const response = await fetch(`${apiBase}/v1/media/jobs/${encodeURIComponent(jobId)}`, { cache: "no-store" }).catch(() => null);
+    if (!response?.ok) continue;
+    const job = (await response.json()) as MediaJob;
+    const element = useWorldCanvasStore.getState().elements.find((item) => item.id === elementId);
+    if (!element || !readProposal(element.props)) return;
+    if (job.status === "failed") {
+      await useWorldCanvasStore.getState().updateProposal(elementId, { status: "failed", error: job.error ?? "生成失败，请重试。" });
+      return;
+    }
+    if (job.status !== "completed") continue;
+    let adopted = false;
+    for (const assetId of job.assetIds) {
+      const assetResponse = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(assetId)}`, { cache: "no-store" }).catch(() => null);
+      const asset = assetResponse?.ok ? normalizeAsset((await assetResponse.json()) as Asset) : null;
+      if (!asset || asset.status !== "completed") continue;
+      useElementAssetHistoryStore.getState().record(elementId, asset.id);
+      if (!adopted) {
+        await adoptProposalAsset(elementId, asset.id, asset.name);
+        adopted = true;
+      }
+    }
+    if (!adopted) await useWorldCanvasStore.getState().updateProposal(elementId, { status: "failed", error: "生成完成，但未返回可用素材。" });
+    return;
+  }
+  await useWorldCanvasStore.getState().updateProposal(elementId, { status: "failed", error: "生成超时，请稍后在素材库或历史中查看结果。" });
+}
+
+// 采纳产物：媒体元素写 props.assetId（attr 媒体卡另走字段回写），并把提案置 done 保留为 provenance。
+async function adoptProposalAsset(elementId: string, assetId: string, name: string) {
+  const store = useWorldCanvasStore.getState();
+  const element = store.elements.find((item) => item.id === elementId);
+  if (!element) return;
+  if (element.kind === "attr") await store.setAttrMediaAsset(elementId, { assetId, name });
+  else await store.setMediaElementAsset(elementId, { assetId, name });
+  await useWorldCanvasStore.getState().updateProposal(elementId, { status: "done", error: "" });
+  useWorldCanvasStore.getState().toast("生成完成，已就绪", "success");
 }
 
 // 默认实体名（B.5 自动确认规则的「非默认名」判定；B.7 命名态预填同名）；reference 预设已退役
@@ -613,6 +666,17 @@ type WorldCanvasState = {
   setMediaPreview: (preview: { src: string; modality: string; name: string } | null) => void;
   // 独立媒体元素落画布（assetId/url 二选一）
   addMediaElement: (props: { modality: string; assetId?: string; url?: string; name?: string }, pos: Point) => Promise<void>;
+  // 生成提案（视频等高价媒体）：AI/用户先提交提案并等待确认，确认后才提交生成任务；提案写画布不产 revision
+  createProposal: (elementId: string, proposal: GenerationProposal) => Promise<void>;
+  // 提案局部更新（编辑提示词/参考/模型/参数，或状态机流转）
+  updateProposal: (elementId: string, patch: Partial<GenerationProposal>) => Promise<void>;
+  // 配方草稿：把用户正在编辑的生成配方落成 status="draft" 的提案以持久化输入（不触发确认门禁、
+  // 不渲染画布「提案」态）；已有已提交提案（pending/generating/failed）时不覆盖
+  saveProposalDraft: (elementId: string, patch: Partial<GenerationProposal>) => Promise<void>;
+  // 确认提案 = 唯一花钱动作：过自检后提交生成并轮询，完成后采纳产物
+  confirmProposal: (elementId: string) => Promise<void>;
+  // 放弃提案：退回配方草稿（保留输入），不删除节点
+  rejectProposal: (elementId: string) => Promise<void>;
   // 面板换图（媒体元素）：persist props.assetId/name（画布投影随 dataVersion 重建）
   setMediaElementAsset: (elementId: string, media: { assetId: string; name?: string } | null) => Promise<void>;
   // 面板换图（attr 属性元素）：persist props.assetId/name；若有属性边连到实体，按字段映射回写 media 属性值
@@ -1994,6 +2058,82 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     } catch (cause) {
       applyCanvasError(cause);
     }
+  },
+
+  // 生成提案：AI/用户提交待确认的生成单（提示词 + 参考 + 模型 + 参数）。写画布元素，不产 revision、不花钱。
+  createProposal: async (elementId, proposal) => {
+    await get().persistGeometry(elementId, undefined, {
+      proposal: { ...proposal, status: "pending", proposedAt: proposal.proposedAt ?? new Date().toISOString() },
+    });
+    set((state) => ({ dataVersion: state.dataVersion + 1 }));
+  },
+
+  // 提案局部更新：读取现有提案合并 patch（状态机流转与面板编辑共用）
+  updateProposal: async (elementId, patch) => {
+    const element = get().elements.find((item) => item.id === elementId);
+    if (!element) return;
+    const current = readProposal(element.props);
+    if (!current) return;
+    await get().persistGeometry(elementId, undefined, { proposal: { ...current, ...patch } });
+    set((state) => ({ dataVersion: state.dataVersion + 1 }));
+  },
+
+  // 配方草稿：持久化用户正在编辑的配方（关闭面板/刷新不丢输入）。只写 draft，不覆盖进行中的提案。
+  saveProposalDraft: async (elementId, patch) => {
+    const element = get().elements.find((item) => item.id === elementId);
+    if (!element) return;
+    const current = readProposal(element.props);
+    if (current && isProposalGate(current.status)) return;
+    const next: GenerationProposal = { status: "draft", prompt: "", references: [], ...(current ?? {}), ...patch };
+    await get().persistGeometry(elementId, undefined, { proposal: next });
+  },
+
+  // 确认提案 = 唯一花钱动作：先过自检（fail closed），再提交生成任务并轮询采纳产物
+  confirmProposal: async (elementId) => {
+    const element = get().elements.find((item) => item.id === elementId);
+    if (!element || get().readOnly) return;
+    const proposal = readProposal(element.props);
+    if (!proposal || proposal.status === "generating") return;
+    const errors = proposalIssues(proposal).filter((issue) => issue.level === "error");
+    if (errors.length) {
+      get().toast(errors[0].message, "error");
+      return;
+    }
+    const modality = String(element.props?.modality ?? element.props?.media ?? "video");
+    await get().updateProposal(elementId, { status: "generating", error: "" });
+    try {
+      const response = await fetch(`${get().apiBase}/v1/media/jobs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildGenerationRequest({
+          capability: generationCapabilityOf(modality),
+          modelId: proposal.modelId!,
+          credentialId: proposal.credentialId,
+          prompt: proposal.prompt,
+          referenceIds: proposalReferenceIds(proposal),
+          output: proposal.params ?? {},
+        })),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error ?? "创建任务失败，请检查 Provider 配置。");
+      }
+      const job = (await response.json()) as MediaJob;
+      await get().updateProposal(elementId, { jobId: job.id });
+      void pollProposalJob(elementId, job.id);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "生成失败，请重试。";
+      await get().updateProposal(elementId, { status: "failed", error: message });
+      get().toast(message, "error");
+    }
+  },
+
+  // 取消提案：退回配方草稿（保留提示词/参考等输入，回到常规编辑器），不删除节点
+  rejectProposal: async (elementId) => {
+    const element = get().elements.find((item) => item.id === elementId);
+    if (!element || !readProposal(element.props)) return;
+    await get().updateProposal(elementId, { status: "draft", error: "" });
+    get().toast("已取消提案，配方保留为草稿", "info");
   },
 
   // 独立媒体元素落画布（kind='media'；不产 revision）。空素材 = placeholder 卡，

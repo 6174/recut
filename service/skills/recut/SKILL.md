@@ -55,7 +55,7 @@ references: world-onboarding.md
 - `recut.project.list` / `recut.project.get`：基线冻结；自己 `recut.project.create` 后把新项目并入已知列表。
 - `recut.media.list_assets`：基线冻结；自己 import/attach 后追加已知条目，用户说「刚传了素材」才重读。
 - `audio.characters` / `audio.syntheses`：同上，自己 create/remove/synthesize 后增量维护。
-- `recut.worlds.list` / `recut.worlds.get` / `recut.worlds.entities.list` / `recut.worlds.evidence.list`：Canon 相对稳定；自己 upsert/attach 后增量，且这些写入本就要求用户明确授权，天然带失效信号。
+- `recut.worlds.list` / `recut.worlds.get` / `recut.worlds.entities.list` / `recut.worlds.evidence.list`：Canon 相对稳定；自己 upsert 后增量，且这些写入本就要求用户明确授权，天然带失效信号。
 
 **不适用冻结**（随工作进展变化，按各 App Skill 的现有节奏读）：各 App 的 `workflow.context`（stage 门禁，节拍推进就变；Editor 已规定连续编辑会话读一次、外部变化/冲突/失效才回读）、`recut.project_context`（含已产出 Artifact，随产出增长）、`project.get` / `timeline.read`（Editor 走 `baseVersion` 增量同步，缓存 version 而非快照）、`recut.context.integrations`（App 安装/更新动作前后会变）、`cover.context`。
 
@@ -103,11 +103,13 @@ App 操作按以下顺序解析状态命名空间：
 
 ## Creation Worlds 上下文
 
-`recut.worlds.*` 是全局工具：**`recut.worlds.brief` 是读取 World 的默认单次入口**——一次获得身份、世界技能（`skill`/world.md 全文）、角色/故事/场景/风格事实（含 `body` 长文）、规则约束与证据（`assetId` 或 `url` 双源）。`recut.worlds.list` 发现 Worlds，`recut.worlds.get` 确认身份，`recut.worlds.entities.list/get` 浏览实体，`recut.worlds.resolve` 保留给 App/运行时（固定 revision 的 `CreationContext`）。**不存在隐式当前 World**：每次调用都要显式传 `worldId`，`entityId` 只在它的 `worldId` 内有效。
+`recut.worlds.*` 是全局工具：**`recut.worlds.brief` 是读取 World 的默认单次入口**——一次获得身份、世界技能（`skill`/world.md 全文）、角色/故事/场景/风格事实（含 `body` 长文）、规则约束与证据（`assetId` 或 `url` 双源），以及可引用项 `references[]`（从实体 media 属性派生，含建议生成 role）。`recut.worlds.list` 发现 Worlds，`recut.worlds.get` 确认身份，`recut.worlds.entities.list/get` 浏览实体，`recut.worlds.resolve` 保留给 App/运行时（固定 revision 的 `CreationContext`）。**不存在隐式当前 World**：每次调用都要显式传 `worldId`，`entityId` 只在它的 `worldId` 内有效。
 
-World 分三类来源（`origin`）：`local`（用户自建，可编辑）、`platform`（平台内置，daemon 自动同步）、`published`（发布安装，P4）。**非 local 世界只读**：任何写工具（update/entities.upsert/evidence.*/skill_md）会返回 `WORLD_READ_ONLY`——这是边界不是失败，按错误 details 向用户说明并**提议 `recut.worlds.fork`**，经用户确认在本地副本上继续。平台世界的 world.md 是该垂直能力的**生产工作流**（如小黑配图：先出 shot list → 逐张生成 → 按质检口径复核 → 交付），必须按其执行；技能中的「资源口径」章节约束证据的使用方式（如“风格示例仅作低频视觉校准，不进入默认生成路径”）。
+**World 工具怎么调（写实体/关系/类型/证据、画布 ops 与 promote、世界内媒体生成）读全局技能 `recut-worlds`**——World Canvas 是没有独立安装包的第一公民 App，它有自己的操作技能。world.md 描述的是**某一个世界的内容与生产工作流**；`recut-worlds` 描述的是**通用工具操作**，两者不要混。
 
-证据双源：`source: "asset"` 走素材库 assetId；`source: "url"` 是绝对 http(s) 远程资源——provider 接受 URL 时直接引用，需要本地文件或入库时调用 `recut.media.import_url`（≤25MB，内容寻址去重）。当消息携带 World/Entity 引用，或 Project 的 `workflow.context`/`ctx.creationContext` 报出 `creationContext` 时，在该次工作期间把它当作权威 Canon：遵守 `constraints.always/never`、优先使用被引用的证据、绝不凭空捏造 Canon。**不要**调用写入类工具（`recut.worlds.create/update/fork/delete/entities.upsert/references.attach/evidence.*/bind_project`），除非用户明确要求；非 local 世界的修改诉求走 Fork。删除是永久操作：只在用户明确要求且确认了 World 名称时调用 `recut.worlds.delete`（素材库不受影响）。
+World 分三类来源（`origin`）：`local`（用户自建，可编辑）、`platform`（平台内置，daemon 自动同步）、`published`（发布安装，P4）。**非 local 世界只读**：任何写工具（update/entities.upsert/evidence.archive/skill_md）会返回 `WORLD_READ_ONLY`——这是边界不是失败，按错误 details 向用户说明并**提议 `recut.worlds.fork`**，经用户确认在本地副本上继续。平台世界的 world.md 是该垂直能力的**生产工作流**（如小黑配图：先出 shot list → 逐张生成 → 按质检口径复核 → 交付），必须按其执行；技能中的「资源口径」章节约束证据的使用方式（如“风格示例仅作低频视觉校准，不进入默认生成路径”）。
+
+证据双源：`source: "asset"` 走素材库 assetId；`source: "url"` 是绝对 http(s) 远程资源——provider 接受 URL 时直接引用，需要本地文件或入库时调用 `recut.media.import_url`（≤25MB，内容寻址去重）。当消息携带 World/Entity 引用，或 Project 的 `workflow.context`/`ctx.creationContext` 报出 `creationContext` 时，在该次工作期间把它当作权威 Canon：遵守 `constraints.always/never`、优先使用被引用的证据、绝不凭空捏造 Canon。**不要**调用写入类工具（`recut.worlds.create/update/fork/delete/entities.upsert/evidence.archive/bind_project`），除非用户明确要求；非 local 世界的修改诉求走 Fork。删除是永久操作：只在用户明确要求且确认了 World 名称时调用 `recut.worlds.delete`（素材库不受影响）。
 
 **新世界从空开始（无模板空壳实体）**：`recut.worlds.readiness({ worldId })` 返回就绪度（skeleton/draft/ready）、分数与按优先级排序的缺失清单（含原因与建议动作），并按世界类型推荐起点场景蓝图（小说改编 / IP 账号 / 风格体系 / 品牌指南 / 从零开始）。用户要求完善或搭建一个 World 时，按 onboarding 标准工作流执行：readiness 取工作清单 → 消化用户素材（链接用 `recut.media.create_reference` 登记）→ research 补全（只依据素材，未覆盖项标注"需要你补充"）→ 生成候选图交用户挑选 → 结构化提案 → 用户确认后逐条写回（携带 `expectedRevisionId`，冲突即停）。完整工作流经 `recut.skills.reference({ appId: "recut.platform", skillId: "recut", path: "references/world-onboarding.md" })` 读取。
 

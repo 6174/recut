@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/blocks/vello-shared
- * [OUTPUT]: 对外提供 RealMediaBlockV（type: media）：图 center-cover / 视频音频占位 + 元素徽标。
+ * [OUTPUT]: 对外提供 RealMediaBlockV（type: media）：图 center-cover / 视频音频占位 + 元素徽标；
+ * 生成提案态（proposalStatus）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要 + 参考/模型信息。
  * [POS]: lib/pomelo/world-canvas/blocks 的媒体元素 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,7 +12,10 @@ import {
   CAPTION_TOP_OFFSET,
   CARD_FILL,
   CARD_STROKE,
+  PROPOSAL_ACCENT,
+  PROPOSAL_FILL,
   SHADOW_FILL,
+  TEXT_PRIMARY,
   TEXT_SECONDARY,
   TEXT_TERTIARY,
   captionOpsV,
@@ -44,14 +48,29 @@ export class RealMediaBlockV extends VelloBlock {
     const src = String(attrs.src ?? "");
     const label = String(attrs.label ?? "媒体");
     const attached = Boolean(attrs.attached);
+    const proposalStatus = String(attrs.proposalStatus ?? "");
+    const isProposal = proposalStatus === "pending" || proposalStatus === "generating" || proposalStatus === "failed";
     const innerH = h - (attached ? 18 : 0);
     const caption = captionOpsV(this.adapter, x, y, w, label);
 
     const ops: VelloOp[] = [
       { kind: "roundRect", x: x + 2, y: y + 6, width: w, height: h, radius: 12, fill: SHADOW_FILL, stroke: [0, 0, 0, 0], strokeWidth: 0 },
-      { kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: CARD_STROKE, strokeWidth: 1 },
+      { kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: isProposal ? PROPOSAL_ACCENT : CARD_STROKE, strokeWidth: isProposal ? 2 : 1 },
       ...caption.ops,
     ];
+    if (isProposal) {
+      // 生成提案（待确认）：琥珀徽标 + 提示词摘要 + 参考/模型信息，提示用户确认后才生成
+      const refs = Number(attrs.proposalRefs ?? 0);
+      const model = String(attrs.proposalModel ?? "");
+      const prompt = String(attrs.proposalPrompt ?? "").replace(/\s+/g, " ").trim();
+      const snippet = prompt.length > 46 ? `${prompt.slice(0, 46)}…` : prompt || "（未填写提示词）";
+      ops.push({ kind: "roundRect", x: x + 10, y: y + 10, width: 56, height: 18, radius: 9, fill: PROPOSAL_FILL, stroke: PROPOSAL_ACCENT, strokeWidth: 1 });
+      ops.push(textOp({ text: "提案", x: x + 20, y: y + 14, size: 10, maxWidth: 40, fill: PROPOSAL_ACCENT }));
+      ops.push(textOp({ text: "待确认生成", x: x + 12, y: y + 38, size: 12, maxWidth: w - 24, fill: TEXT_PRIMARY }));
+      ops.push(textOp({ text: snippet, x: x + 12, y: y + 58, size: 10, lineHeight: 15, maxWidth: w - 24, fill: TEXT_SECONDARY }));
+      ops.push(textOp({ text: `${refs} 参考${model ? ` · ${model}` : ""}`, x: x + 12, y: y + h - 24, size: 9, maxWidth: w - 24, fill: TEXT_TERTIARY }));
+      return { ops, bounds: this.blockBounds() };
+    }
     if (modality === "image" && src) {
       ops.push(...coverImageOpsV(this.adapter, src, { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12 }, { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12, radius: 8 }));
     } else if (src) {

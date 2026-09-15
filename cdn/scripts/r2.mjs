@@ -219,13 +219,33 @@ function md5File(path) {
   });
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 上传失败时的退避时长：指数增长（1s→2s→4s→8s→16s→20s 封顶）+ ±25% 抖动，
+ * 避免多个并发 worker 在同一时刻同步重试再次打爆连接。
+ */
+function retryDelay(attempt) {
+  const base = Math.min(1000 * 2 ** (attempt - 1), 20000);
+  const jitter = base * 0.25 * (Math.random() * 2 - 1);
+  return Math.round(base + jitter);
+}
+
+/** 把 fetch 的 "fetch failed" 展开为底层 cause（如 UND_ERR_CONNECT_TIMEOUT），便于排障。 */
+function describeError(err) {
+  const code = err?.cause?.code ?? err?.cause?.message;
+  const message = (err?.message ?? String(err)).split("\n")[0];
+  return code && code !== message ? `${message} (${code})` : message;
+}
+
 /**
  * 上传 cdn/buckets/{prefix}/ 下指定文件到 R2（对象 key = {prefix}/{rel}）。S3 并发上传。
  * options.only 限定上传子集：目录或文件相对路径，如 ["0.1.33", "latest/manifest.json"]；
  * 为空则上传整个目录树。历史版本目录不可变，发布时应只传新版本 + latest 指针。
  * options.throwOnFailure 为 true 时有任一对象上传失败即抛错（供调用方保留本地产物后报错退出）。
+ * options.retries 默认 10：部分网络（如本机代理 TUN 模式）会偶发连接被掐，退避重试可自愈。
  */
-export async function uploadPrefix(prefix, { concurrency = 16, retries = 3, skipExisting = false, only = [], throwOnFailure = false } = {}) {
+export async function uploadPrefix(prefix, { concurrency = 16, retries = 10, skipExisting = false, only = [], throwOnFailure = false } = {}) {
   const dir = bucketDir(prefix);
   let files = listLocalFiles(dir);
   if (only.length > 0) {
@@ -265,7 +285,7 @@ export async function uploadPrefix(prefix, { concurrency = 16, retries = 3, skip
         return;
       }
     }
-const contentType = guessContentType(rel);
+    const contentType = guessContentType(rel);
     const body = readFileSync(localPath);
     let lastErr;
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -280,22 +300,33 @@ const contentType = guessContentType(rel);
           okCount += 1;
           return;
         }
+        const detail = (await res.text().catch(() => "")).slice(0, 120);
+        lastErr = new Error(`HTTP ${res.status} ${detail}`);
         if (res.status === 429 || res.status >= 500) {
-          lastErr = new Error(`HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 120)}`);
-          const delay = Math.min(500 * 2 ** (attempt - 1), 4000);
-          await new Promise((r) => setTimeout(r, delay));
+          // 429 优先遵循服务端 Retry-After（秒），否则指数退避。
+          const retryAfter = Number(res.headers.get("retry-after"));
+          const delay =
+            Number.isFinite(retryAfter) && retryAfter > 0
+              ? retryAfter * 1000
+              : retryDelay(attempt);
+          console.warn(
+            `[s3] ${prefix}: retry ${attempt}/${retries} for ${rel} in ${Math.round(delay / 1000)}s — ${describeError(lastErr)}`,
+          );
+          if (attempt < retries) await sleep(delay);
           continue;
         }
-        lastErr = new Error(`HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 120)}`);
         break; // 其它 4xx 不重试
       } catch (e) {
         lastErr = e;
-        const delay = Math.min(500 * 2 ** (attempt - 1), 4000);
-        await new Promise((r) => setTimeout(r, delay));
+        const delay = retryDelay(attempt);
+        console.warn(
+          `[s3] ${prefix}: retry ${attempt}/${retries} for ${rel} in ${Math.round(delay / 1000)}s — ${describeError(lastErr)}`,
+        );
+        if (attempt < retries) await sleep(delay);
       }
     }
     failCount += 1;
-    failures.push(`${key}: ${lastErr.message.split("\n")[0]}`);
+    failures.push(`${key}: ${describeError(lastErr)}`);
   };
 
   // 有界并发：固定 worker 数从队列取任务；进度按"完成数"上报（小批次逐文件、大批次每 250 个一批）

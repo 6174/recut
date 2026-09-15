@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 pomelo-core（PomeloRendererAdapter）、pomelo-vello（VelloOp/Rgba）、pomelo-vello/vello-text
  *          （screenTextOp）、world-canvas/text-metrics（truncateText）
  * [OUTPUT]: 对外提供 world-canvas vello block 的公共绘制辅助（cover 填充、元素徽标）与统一视觉色板
- *           （CARD_FILL/CARD_STROKE/TEXT_* 等）及屏幕像素常量（CAPTION_TOP_OFFSET/CAPTION_SIZE）。
+ *           （CARD_FILL/CARD_STROKE/TEXT_* 等，含生成提案态 PROPOSAL_ACCENT/PROPOSAL_FILL）及屏幕像素常量（CAPTION_TOP_OFFSET/CAPTION_SIZE）。
  * [POS]: lib/pomelo/world-canvas/blocks 的 vello block 共享层（无具体 Block，被各 *-block-v.ts 复用）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -29,6 +29,9 @@ export const TEXT_SECONDARY: Rgba = [139, 147, 167, 255];
 export const TEXT_TERTIARY: Rgba = [107, 114, 128, 255];
 export const CAPTION_FILL: Rgba = [212, 212, 216, 255];
 export const LABEL_FILL: Rgba = [161, 161, 170, 255];
+// 生成提案（待确认）态：琥珀色高亮，与常规卡面/选中态区分
+export const PROPOSAL_ACCENT: Rgba = [245, 158, 11, 255];
+export const PROPOSAL_FILL: Rgba = [245, 158, 11, 28];
 
 /** 适配器当前视口缩放（zoom 常量文字/徽标用）。 */
 export function screenScaleOf(adapter: PomeloRendererAdapter): number {

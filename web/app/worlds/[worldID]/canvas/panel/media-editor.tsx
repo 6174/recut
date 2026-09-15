@@ -3,7 +3,9 @@
  * pane./element-asset-history-store、media-types（Asset/normalizeAsset/MediaJob/Capability/
  * CapabilityVoiceGroup/Model/ModelParameter）、media-configuration-store、
  * components/asset-reference-picker、canvas-media、lucide-react
- * [OUTPUT]: 对外提供 MediaElementEditor（B.8 媒体元素态，RFC 2026-09-10）：预览区（图片单击打开
+ * [OUTPUT]: 对外提供 MediaElementEditor：带「待确认提案」的元素路由到 GenerationProposalEditor（提案审批台：
+ * 状态区 + 可编辑提示词/参考（含 role）/模型/参数 + 提交前自检 + 确认生成/放弃提案），其余走 MediaAssetEditor
+ * （B.8 媒体元素态，RFC 2026-09-10）：预览区（图片单击打开
  * 素材详情弹框 AssetPreviewDialog；视频/音频 controls）、来源区（AI 生成 / 素材库选择——浮层内可上传 /
  * 本地上传 / 清除）、生成配方区（RECIPE_CAPABILITY 决定生产链路：图片/视频走 image/video.generate，
  * 参数控件由 catalog model.parameters 驱动；音频走 speech.generate，声音来自 capability voices——
@@ -24,6 +26,7 @@ import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { buildGenerationRequest } from "@/lib/media/generation-request";
 import { normalizeAsset, type Asset, type Capability, type CapabilityVoiceGroup, type MediaJob, type Model as MediaModel, type ModelParameter } from "@/app/media/media-types";
 import { useWorldCanvasStore } from "../canvas-store";
+import { isProposalGate, proposalIssues, proposalRoleOptions, readProposal, type GenerationProposal, type ProposalReference } from "../canvas-proposal";
 import { fitElementToAsset } from "../canvas-media";
 import { useElementAssetHistoryStore } from "./element-asset-history-store";
 
@@ -38,7 +41,19 @@ const RECIPE_CAPABILITY: Record<MediaModality, Capability> = { image: "image.gen
 // 图片素材采纳后卡片自适应比例：统一走 canvas-media 的 fitElementToAsset（media-editor 采纳与
 // AttrCreatorPanel 建卡共用同一适配规则）
 
-export function MediaElementEditor({ element }: { element: { id: string; kind: string; props?: Record<string, unknown>; name?: string } }) {
+// 媒体元素编辑器出口：带「待确认提案」的元素路由到提案审批台，其余走常规素材编辑器。
+// 提案完成（done）后回落常规编辑器——配方已随 asset.metadata 继承。
+type MediaEditorElement = { id: string; kind: string; props?: Record<string, unknown>; name?: string };
+
+export function MediaElementEditor({ element }: { element: MediaEditorElement }) {
+  const proposal = readProposal(element.props);
+  if (proposal && isProposalGate(proposal.status)) {
+    return <GenerationProposalEditor element={element} proposal={proposal} />;
+  }
+  return <MediaAssetEditor element={element} />;
+}
+
+function MediaAssetEditor({ element }: { element: MediaEditorElement }) {
   const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const setMediaElementAsset = useWorldCanvasStore((state) => state.setMediaElementAsset);
   const setAttrMediaAsset = useWorldCanvasStore((state) => state.setAttrMediaAsset);
@@ -144,6 +159,206 @@ export function MediaElementEditor({ element }: { element: { id: string; kind: s
       )}
       {/* 当前 asset 素材详情弹框（预览区图片单击 / 与实体属性字段同一弹框） */}
       {detailOpen && current && <AssetPreviewDialog apiBase={apiBase} asset={current} onClose={() => setDetailOpen(false)} />}
+    </div>
+  );
+}
+
+// 生成提案审批台（视频等高价媒体）：AI/用户提交 proposal 后，用户在此核对提示词、参考（含 role）、
+// 模型与参数，过自检后点「确认生成」——这是唯一触发真实生成、花钱的动作。
+function GenerationProposalEditor({ element, proposal }: { element: MediaEditorElement; proposal: GenerationProposal }) {
+  const apiBase = useWorldCanvasStore((state) => state.apiBase);
+  const readOnly = useWorldCanvasStore((state) => state.readOnly);
+  const updateProposal = useWorldCanvasStore((state) => state.updateProposal);
+  const confirmProposal = useWorldCanvasStore((state) => state.confirmProposal);
+  const rejectProposal = useWorldCanvasStore((state) => state.rejectProposal);
+  const configuration = useMediaConfigurationStore();
+  const modality = ((element.props?.media ?? element.props?.modality ?? "video") as MediaModality);
+  const capability = RECIPE_CAPABILITY[modality];
+  const [prompt, setPrompt] = useState(proposal.prompt);
+  const [resolved, setResolved] = useState<Record<string, { kind?: string; name?: string }>>({});
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  useEffect(() => { setPrompt(proposal.prompt); }, [proposal.prompt]);
+  useEffect(() => {
+    void configuration.load(apiBase);
+  }, [apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const models = configuration.providers.flatMap((provider) => provider.models).filter((model) => model.capability === capability && model.available);
+  const selectedModel = models.find((model) => model.id === proposal.modelId) ?? models[0];
+  const credential = configuration.credentials.find((item) => item.provider === selectedModel?.provider);
+  const keyless = selectedModel?.provider === "local-audio";
+  const draft: GenerationProposal = { ...proposal, prompt };
+  const issues = proposalIssues(draft);
+  const canConfirm = !readOnly && Boolean(selectedModel) && (keyless || Boolean(credential)) && !issues.some((issue) => issue.level === "error") && proposal.status !== "generating";
+
+  // 模型缺省对齐：提案未带 modelId/credentialId 时按可用模型补全（不改用户已选项）
+  useEffect(() => {
+    if (!selectedModel) return;
+    const expectedCredential = keyless ? undefined : credential?.id;
+    if ((proposal.modelId ?? "") !== selectedModel.id || (proposal.credentialId ?? "") !== (expectedCredential ?? "")) {
+      void updateProposal(element.id, { modelId: selectedModel.id, credentialId: expectedCredential });
+    }
+  }, [selectedModel?.id, credential?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 参考素材 kind 缺失（AI 可能只给了 assetId）：懒补 kind/name 仅用于渲染，不回写提案
+  const missingRefIds = proposal.references.filter((reference) => !reference.kind && !resolved[reference.id]).map((reference) => reference.id).join(",");
+  useEffect(() => {
+    if (!missingRefIds) return;
+    let active = true;
+    for (const id of missingRefIds.split(",")) {
+      void (async () => {
+        const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(id)}`, { cache: "no-store" }).catch(() => null);
+        if (!active || !response?.ok) return;
+        const asset = normalizeAsset((await response.json()) as Asset);
+        setResolved((prev) => ({ ...prev, [id]: { kind: asset.kind, name: asset.name } }));
+      })();
+    }
+    return () => { active = false; };
+  }, [apiBase, missingRefIds]);
+
+  const referenceKind = (reference: ProposalReference) => reference.kind ?? resolved[reference.id]?.kind ?? "image";
+  const setReferenceRole = (id: string, role: string) =>
+    void updateProposal(element.id, { references: proposal.references.map((reference) => (reference.id === id ? { ...reference, ...(role ? { role } : { role: undefined }) } : reference)) });
+  const removeReference = (id: string) =>
+    void updateProposal(element.id, { references: proposal.references.filter((reference) => reference.id !== id) });
+
+  return (
+    <div className="space-y-4">
+      {/* A. 状态区 */}
+      <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5">
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-medium text-amber-500">生成提案 · {proposal.status === "generating" ? "生成中" : proposal.status === "failed" ? "生成失败" : "待确认"}</p>
+          {proposal.proposedBy === "agent" && <span className="text-[10px] text-muted-foreground">来自 AI</span>}
+        </div>
+        {proposal.note && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{proposal.note}</p>}
+        {proposal.status === "generating" && (
+          <p className="mt-1 flex items-center gap-1 text-[10px] text-primary"><RefreshCcw className="size-3 animate-spin" /> 已提交生成，完成后自动就绪…</p>
+        )}
+        {proposal.status === "failed" && proposal.error && <p className="mt-1 text-[10px] text-destructive">{proposal.error}</p>}
+      </div>
+      {/* B. 提示词 */}
+      <div className="space-y-1.5">
+        <p className="text-[11px] font-medium text-muted-foreground">提示词</p>
+        <textarea
+          className="h-28 w-full resize-none rounded-md border bg-background p-2 text-xs leading-5 outline-none focus:border-primary disabled:opacity-60"
+          disabled={readOnly || proposal.status === "generating"}
+          onBlur={() => { if (prompt !== proposal.prompt) void updateProposal(element.id, { prompt }); }}
+          onChange={(event) => setPrompt(event.target.value)}
+          placeholder="输入视频提示词…（参考素材可用 <reference id=… role=… /> 声明）"
+          value={prompt}
+        />
+      </div>
+      {/* C. 参考素材（含 role） */}
+      <div className="space-y-1.5">
+        <p className="text-[11px] font-medium text-muted-foreground">参考素材{proposal.references.length ? `（${proposal.references.length}）` : ""}</p>
+        <div className="space-y-1.5">
+          {proposal.references.map((reference) => {
+            const kind = referenceKind(reference);
+            return (
+              <div className="flex items-center gap-2 rounded-md border p-1.5" key={reference.id}>
+                <div className="size-10 shrink-0 overflow-hidden rounded border bg-muted/40">
+                  {kind === "image" ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img alt={reference.name ?? reference.label ?? ""} className="size-full object-cover" src={mediaContentURL(apiBase, reference.id)} />
+                  ) : kind === "video" ? (
+                    <video className="size-full object-cover" muted src={mediaContentURL(apiBase, reference.id)} />
+                  ) : (
+                    <div className="grid size-full place-items-center text-sm">🎵</div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11px]">{reference.label || reference.name || resolved[reference.id]?.name || reference.id}</p>
+                  <select
+                    className="mt-0.5 w-full rounded border bg-background px-1 py-0.5 text-[10px] outline-none focus:border-primary"
+                    disabled={readOnly}
+                    onChange={(event) => setReferenceRole(reference.id, event.target.value)}
+                    value={reference.role ?? ""}
+                  >
+                    <option value="">未声明 role</option>
+                    {proposalRoleOptions(kind).map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}
+                  </select>
+                </div>
+                {!readOnly && (
+                  <button aria-label="移除参考" className="rounded p-1 text-muted-foreground hover:text-destructive" onClick={() => removeReference(reference.id)} type="button">
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {!proposal.references.length && <p className="text-[10px] text-muted-foreground">没有参考素材。可添加人物形象、场景、色卡等锚定。</p>}
+        </div>
+        {!readOnly && (
+          <button className="grid h-8 w-full place-items-center rounded-md border border-dashed text-xs text-muted-foreground hover:bg-muted" onClick={() => setPickerOpen(true)} type="button">
+            ＋ 添加参考素材
+          </button>
+        )}
+      </div>
+      {/* D. 模型与参数 */}
+      <div className="space-y-1.5">
+        <p className="text-[11px] font-medium text-muted-foreground">生成模型</p>
+        {models.length && selectedModel ? (
+          <ModelPicker
+            credentialConnected={(providerID) => providerID === "local-audio" || configuration.credentials.some((item) => item.provider === providerID)}
+            id={`canvas-proposal-${element.id}`}
+            models={models}
+            onChange={(modelId) => void updateProposal(element.id, { modelId })}
+            providerName={(providerID) => configuration.providers.find((item) => item.id === providerID)?.name ?? providerID}
+            value={selectedModel.id}
+          />
+        ) : (
+          <p className="rounded-md bg-muted/50 px-2 py-2 text-[11px] text-muted-foreground">还没有可用的生成模型，请先在设置中连接 Provider。</p>
+        )}
+        {selectedModel && <RecipeParameters parameters={selectedModel.parameters ?? []} values={proposal.params ?? {}} onChange={(name, value) => void updateProposal(element.id, { params: { ...(proposal.params ?? {}), [name]: value } })} />}
+      </div>
+      {/* E. 提交前自检 */}
+      {issues.length > 0 && (
+        <ul className="space-y-0.5 rounded-md bg-muted/50 p-2 text-[10px]">
+          {issues.map((issue, index) => (
+            <li className={issue.level === "error" ? "text-destructive" : "text-muted-foreground"} key={index}>
+              {issue.level === "error" ? "✕" : "·"} {issue.message}
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* F. 动作 */}
+      {!readOnly && (
+        <div className="flex gap-1.5">
+          <button
+            className="h-9 flex-1 rounded-md bg-primary text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            disabled={!canConfirm}
+            onClick={() => void confirmProposal(element.id)}
+            type="button"
+          >
+            {proposal.status === "generating" ? "生成中…" : proposal.status === "failed" ? "重新生成" : "确认生成"}
+          </button>
+          <button className="h-9 rounded-md border px-3 text-xs hover:bg-muted" onClick={() => void rejectProposal(element.id)} type="button">
+            取消提案
+          </button>
+        </div>
+      )}
+      {pickerOpen && (
+        <AssetReferenceDialog
+          apiBase={apiBase}
+          allowUpload
+          description="作为生成参考的图片 / 视频 / 音频素材，可多选。"
+          kinds={["image", "video", "audio"] as MediaPickerKind[]}
+          multiple
+          onClose={() => setPickerOpen(false)}
+          onPick={() => {}}
+          onPickMany={(picked) => {
+            const existing = new Set(proposal.references.map((reference) => reference.id));
+            void updateProposal(element.id, {
+              references: [...proposal.references, ...picked.filter((asset) => !existing.has(asset.id)).map((asset) => ({ id: asset.id, kind: asset.kind, name: asset.name, label: asset.name }))],
+            });
+            setPickerOpen(false);
+          }}
+          open
+          projectID={null}
+          selectedIDs={proposal.references.map((reference) => reference.id)}
+          title="选择参考素材"
+        />
+      )}
     </div>
   );
 }
@@ -316,10 +531,53 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
   const [voiceId, setVoiceId] = useState("");
   const [voiceGroups, setVoiceGroups] = useState<CapabilityVoiceGroup[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const element = useWorldCanvasStore((state) => state.elements.find((item) => item.id === elementId));
+  const hasDraft = readProposal(element?.props)?.status === "draft";
+  // 配方草稿持久化：editedRef 区分「用户真的改了」与 metadata 程序化回填；draftRef 供卸载兜底 flush
+  const editedRef = useRef(false);
+  const draftRef = useRef<{ prompt: string; modelId: string; credentialId?: string; params: Record<string, unknown>; references: RecipeReference[] }>({ prompt: "", modelId: "", params: {}, references: [] });
 
   useEffect(() => {
     void configuration.load(apiBase);
   }, [apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 恢复配方草稿（proposal.status="draft"）：关闭面板/刷新后不丢用户输入（视频等高价媒体）
+  useEffect(() => {
+    const stored = readProposal(useWorldCanvasStore.getState().elements.find((item) => item.id === elementId)?.props);
+    if (!stored) return;
+    if (stored.prompt) setPrompt(stored.prompt);
+    if (stored.modelId) setModelId(stored.modelId);
+    if (stored.params && Object.keys(stored.params).length) setParams(stored.params);
+    if (stored.references.length) setReferences(stored.references.map((reference) => ({ id: reference.id, ...(reference.kind ? { kind: reference.kind } : {}), ...(reference.name || reference.label ? { name: reference.name ?? reference.label } : {}) })));
+  }, [elementId]);
+  // 视频：把正在编辑的配方自动落成草稿提案，关闭面板/刷新后不丢输入（进行中的提案不覆盖）
+  const draftSignature = JSON.stringify([prompt, modelId, params, references.map((item) => item.id)]);
+  useEffect(() => {
+    if (capability !== "video.generate" || !editedRef.current) return;
+    const timer = setTimeout(() => {
+      void useWorldCanvasStore.getState().saveProposalDraft(elementId, {
+        prompt: prompt.trim(),
+        modelId: modelId || undefined,
+        credentialId: credential?.id,
+        params: { ...params },
+        references: references.map((item) => ({ id: item.id, kind: item.kind, name: item.name, label: item.name })),
+      });
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [draftSignature, capability, elementId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 卸载兜底：去抖窗口内关闭面板会丢最后一次编辑，卸载时同步 flush
+  useEffect(() => {
+    return () => {
+      if (capability !== "video.generate" || !editedRef.current) return;
+      const payload = draftRef.current;
+      void useWorldCanvasStore.getState().saveProposalDraft(elementId, {
+        prompt: payload.prompt.trim(),
+        modelId: payload.modelId || undefined,
+        credentialId: payload.credentialId,
+        params: { ...payload.params },
+        references: payload.references.map((item) => ({ id: item.id, kind: item.kind, name: item.name, label: item.name })),
+      });
+    };
+  }, [capability, elementId]);
   // 音频：能力级声音分组（本地 provider 一组 + 云端每凭据一组），同时提供 TTS 模型清单
   useEffect(() => {
     if (!isSpeech) return;
@@ -343,6 +601,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
   const credential = configuration.credentials.find((item) => item.provider === selectedModel?.provider);
   // 本地 provider（Audio Studio）无需凭据：只给 modelId 直连即可
   const keyless = selectedModel?.provider === "local-audio";
+  draftRef.current = { prompt, modelId, credentialId: credential?.id, params, references };
   useEffect(() => {
     if (!modelId && models[0]) setModelId(models[0].id);
   }, [modelId, models]);
@@ -367,18 +626,20 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
   useEffect(() => {
     const metadata = current?.metadata;
     if (!metadata) return;
-    if (typeof metadata.prompt === "string" && metadata.prompt) setPrompt(metadata.prompt);
-    if (typeof metadata.modelId === "string" && metadata.modelId) setModelId(metadata.modelId);
+    // 已存在配方草稿时 metadata 只补空缺，不覆盖用户正在编辑的输入
+    const stored = readProposal(useWorldCanvasStore.getState().elements.find((item) => item.id === elementId)?.props);
+    if (!stored?.prompt && typeof metadata.prompt === "string" && metadata.prompt) setPrompt(metadata.prompt);
+    if (!stored?.modelId && typeof metadata.modelId === "string" && metadata.modelId) setModelId(metadata.modelId);
     const output = metadata.output;
     if (output && typeof output === "object") {
       if (isSpeech) {
         if (typeof (output as Record<string, unknown>).voiceId === "string") setVoiceId((output as Record<string, unknown>).voiceId as string);
-      } else {
+      } else if (!stored?.params || !Object.keys(stored.params).length) {
         setParams((prev) => ({ ...prev, ...(output as Record<string, unknown>) }));
       }
     }
     // AI 生成素材：把它用过的参考素材一并显示出来（当前图作为底图另有开关，不重复入列）
-    if (Array.isArray(metadata.referenceIds)) {
+    if (Array.isArray(metadata.referenceIds) && !stored?.references.length) {
       const ids = (metadata.referenceIds as unknown[]).filter((id): id is string => typeof id === "string" && id !== current?.id);
       setReferences((prev) => {
         const known = new Map(prev.map((item) => [item.id, item]));
@@ -481,12 +742,15 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
         <p className="text-[11px] font-medium text-muted-foreground">生成配方</p>
         {current?.metadata?.prompt && <button className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => void copyRecipe()} type="button">{copied ? "已复制" : "复制配方"}</button>}
       </div>
+      {capability === "video.generate" && hasDraft && (
+        <p className="text-[10px] text-muted-foreground">配方已自动保存为草稿，关闭面板后仍保留。</p>
+      )}
       {models.length && selectedModel ? (
         <ModelPicker
           credentialConnected={(providerID) => providerID === "local-audio" || configuration.credentials.some((item) => item.provider === providerID)}
           id={`canvas-recipe-${elementId}`}
           models={models}
-          onChange={setModelId}
+          onChange={(id) => { editedRef.current = true; setModelId(id); }}
           providerName={(providerID) => configuration.providers.find((item) => item.id === providerID)?.name ?? providerID}
           value={selectedModel.id}
         />
@@ -495,7 +759,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
       )}
       <textarea
         className="h-24 w-full resize-none rounded-md border bg-background p-2 text-xs leading-5 outline-none focus:border-primary"
-        onChange={(event) => setPrompt(event.target.value)}
+        onChange={(event) => { editedRef.current = true; setPrompt(event.target.value); }}
         placeholder={isSpeech ? "输入需要朗读的文本…" : modality === "video" ? "输入视频提示词…" : "输入画面描述，支持以当前图为底图改写…"}
         ref={textareaRef}
         value={prompt}
@@ -520,7 +784,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
           )}
         </div>
       )}
-      {!isSpeech && <RecipeParameters parameters={selectedModel?.parameters ?? []} values={params} onChange={(name, value) => setParams((prev) => ({ ...prev, [name]: value }))} />}
+      {!isSpeech && <RecipeParameters parameters={selectedModel?.parameters ?? []} values={params} onChange={(name, value) => { editedRef.current = true; setParams((prev) => ({ ...prev, [name]: value })); }} />}
       {!isSpeech && current && (
         <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <input checked={withCurrentRef} onChange={(event) => setWithCurrentRef(event.target.checked)} type="checkbox" />
@@ -545,7 +809,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
                 <button
                   aria-label={`移除参考 ${item.name ?? item.id}`}
                   className="absolute right-0 top-0 hidden rounded bg-card/90 p-0.5 text-muted-foreground hover:text-destructive group-hover/ref:block"
-                  onClick={() => setReferences((prev) => prev.filter((ref) => ref.id !== item.id))}
+                  onClick={() => { editedRef.current = true; setReferences((prev) => prev.filter((ref) => ref.id !== item.id)); }}
                   type="button"
                 >
                   <X className="size-3" />
@@ -574,6 +838,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
           onClose={() => setPickerOpen(false)}
           onPick={() => {}}
           onPickMany={(picked) => {
+            editedRef.current = true;
             setReferences((prev) => {
               const known = new Set(prev.map((item) => item.id));
               return [...prev, ...picked.filter((asset) => !known.has(asset.id)).map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind }))];
@@ -596,6 +861,30 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
           {jobRunning ? "生成中…" : current ? "再生成" : "生成"}
         </button>
       </div>
+      {/* 视频成本高：可先存为提案，待确认后再生成（提示词/参考/模型/参数随提案保存） */}
+      {capability === "video.generate" && (
+        <button
+          className="h-8 w-full rounded-md border text-xs text-muted-foreground hover:bg-muted disabled:opacity-50"
+          disabled={!prompt.trim() || !selectedModel || jobRunning}
+          onClick={() => {
+            void useWorldCanvasStore.getState().createProposal(elementId, {
+              status: "pending",
+              prompt: prompt.trim(),
+              references: [
+                ...(withCurrentRef && current ? [{ id: current.id, kind: current.kind, name: current.name, label: current.name }] : []),
+                ...references.filter((item) => item.id !== current?.id).map((item) => ({ id: item.id, kind: item.kind, name: item.name, label: item.name })),
+              ],
+              modelId: selectedModel?.id,
+              credentialId: credential?.id,
+              params: { ...params },
+              proposedBy: "user",
+            });
+          }}
+          type="button"
+        >
+          存为提案（待确认再生成）
+        </button>
+      )}
       {jobRunning && (
         <p className="flex items-center gap-1 text-[10px] text-primary">
           <RefreshCcw className="size-3 animate-spin" /> 生成中，完成后自动设为当前…
