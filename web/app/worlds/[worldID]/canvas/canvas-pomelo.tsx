@@ -14,8 +14,7 @@
  * 不随内容自增长），双击就地编辑内滚动并支持全屏放大；
  * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
  * `wc:vp:<worldId>:<contextId>`，进出容器先存回来源再恢复目标，无快照才 fit）；
- * undo/redo 后订阅 onDocSyncStateEvent 重载 store（canvas-store 是唯一真相，yjs 只回滚内存文档），
- * 避免「撤销后卡片可见却选不中、刷新又消失」的内存投影与真相层分叉
+ * 撤销 = 语义撤销（canvas-store changeLog 逆操作，经 Cmd/Ctrl+Z 与工具栏），不走 yjs UndoManager
  * [POS]: worlds/[worldID]/canvas 的画布底座层（本组件经 index.tsx dynamic(ssr:false) 挂载）；
  * 语义真相只在 world_entities + world_relations，pomelo 文档是内存投影（canvas 变更永不产 revision）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -680,9 +679,6 @@ export function CanvasPomeloHost() {
   // 视口持久化订阅（T12）：卸载时释放；lastViewportKeyRef 记录「来源上下文键」供切换时存回
   const viewportUnsubRef = useRef<{ dispose: () => void } | null>(null);
   const lastViewportKeyRef = useRef<string | null>(null);
-  // undo/redo 后重载 store 的订阅与合帧计时器：一次 undo/redo 只触发一次重载
-  const docSyncUnsubRef = useRef<{ dispose: () => void } | null>(null);
-  const undoReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ready, setReady] = useState(false);
   const [unsupported, setUnsupported] = useState<string | null>(null);
 
@@ -725,18 +721,6 @@ export function CanvasPomeloHost() {
       if (!restoreViewport(editor, lastViewportKeyRef.current)) {
         centerContent(editor);
       }
-      // undo/redo → 重载 store（真相层）：yjs UndoManager 只回滚内存文档，不碰 canvas-store
-      // （world_entities / 画布元素是唯一语义真相）。撤销后内存文档里被恢复的卡片在 store 中并不存在，
-      // 会表现为「看得见但选不中、刷新又消失」。这里在文档重建事件（undo/redo 后 #syncState 触发）里
-      // 重新拉取当前层，让内存投影回落真相层：语义删除（如删设定）的恢复仍以历史菜单 restoreEntity 为准。
-      const unsubDocSync = editor.state.onDocSyncStateEvent.on(() => {
-        if (undoReloadTimerRef.current) clearTimeout(undoReloadTimerRef.current);
-        undoReloadTimerRef.current = setTimeout(() => {
-          undoReloadTimerRef.current = null;
-          void useWorldCanvasStore.getState().load(false);
-        }, 0);
-      });
-      docSyncUnsubRef.current = unsubDocSync;
       useWorldCanvasStore.getState().setEditor(editor);
       setReady(true);
       // e2e/调试句柄（仅 dev 构建暴露）
@@ -764,12 +748,6 @@ export function CanvasPomeloHost() {
       }
       viewportUnsubRef.current?.dispose();
       viewportUnsubRef.current = null;
-      docSyncUnsubRef.current?.dispose();
-      docSyncUnsubRef.current = null;
-      if (undoReloadTimerRef.current) {
-        clearTimeout(undoReloadTimerRef.current);
-        undoReloadTimerRef.current = null;
-      }
       editor.destroy();
       editorRef.current = null;
       pluginRef.current = null;

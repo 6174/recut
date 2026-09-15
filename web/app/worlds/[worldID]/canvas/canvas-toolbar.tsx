@@ -186,10 +186,10 @@ export function CanvasToolbarItems() {
         {menu === "history" && <HistoryMenu onClose={() => setMenu(null)} />}
       </div>
       <Divider />
-      <ToolButton disabled={readOnly} label="撤销（仅内存投影，画布数据以服务器为准）" onClick={() => editor.state.undo()}>
+      <ToolButton disabled={readOnly} label="撤销：撤销最近一次语义操作（等同历史菜单逐条撤销）" onClick={() => void useWorldCanvasStore.getState().undoLastChange()}>
         <Undo2 className="size-4" />
       </ToolButton>
-      <ToolButton disabled={readOnly} label="重做" onClick={() => editor.state.redo()}>
+      <ToolButton disabled label="重做：暂不支持（语义操作不保留重做栈）">
         <Redo2 className="size-4" />
       </ToolButton>
       <Divider />

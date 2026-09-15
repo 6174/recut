@@ -44,6 +44,7 @@ export function ContextList({
     estimateSize: (index) => (rows[index]?.kind === "header" ? HEADER_HEIGHT : ROW_HEIGHT),
     overscan: 8,
     getItemKey: (index) => rows[index]?.key ?? index,
+    useFlushSync: false,
   });
   const groupTitle = (group: ContextGroupID) => t(contextGroupTitleKeys[group] ?? `agent.context.group.${group}`);
   return (

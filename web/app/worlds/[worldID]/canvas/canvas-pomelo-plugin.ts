@@ -13,7 +13,8 @@
  * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击图片节点（独立媒体卡 / 图片属性卡）
  * = 全局素材弹框（setMediaPicker）换图；双击空白 = 最近类型快捷建卡
  * （Alt = 创建菜单）；右键 = 实体/便签文本上下文菜单（T3）；Delete/Backspace 删除关系/草稿、
- * 实体走删除确认（B.6）；选区 overlay + 「+」手柄 +
+ * 实体走删除确认（B.6）；Cmd/Ctrl+Z = 语义撤销（store.undoLastChange，画布真相在 store/服务端）；
+ * 选区 overlay + 「+」手柄 +
  * 引导草稿线（overlay 屏幕空间 / draft 世界空间，transform 变化自动重绘）
  * [POS]: worlds/[worldID]/canvas 的画布交互绑定层（resolveSelection / store↔document 同步）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -1080,6 +1081,12 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       if (event.key === "[" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         store.exitContext();
+        return;
+      }
+      // Cmd/Ctrl + Z = 语义撤销（画布真相在 store/服务端，不碰 yjs 内存文档投影）
+      if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && !event.shiftKey && !store.readOnly) {
+        event.preventDefault();
+        void store.undoLastChange();
         return;
       }
       if ((event.key === "Delete" || event.key === "Backspace") && !store.readOnly) {

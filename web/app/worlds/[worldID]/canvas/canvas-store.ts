@@ -631,6 +631,8 @@ type WorldCanvasState = {
   changeLog: CanvasChange[];
   logChange: (label: string, undo: () => Promise<void> | void) => void;
   undoChange: (id: number) => Promise<void>;
+  // 撤销最近一次语义操作（Cmd/Ctrl+Z 与工具栏撤销的统一入口）
+  undoLastChange: () => Promise<void>;
   // 版本快照/回滚（T12）：快照列表 + 指针回移 + 面板开合
   historyOpen: boolean;
   setHistoryOpen: (open: boolean) => void;
@@ -1559,6 +1561,22 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     set((state) => ({ changeLog: state.changeLog.filter((item) => item.id !== id) }));
     await entry.undo();
     get().toast(`已撤销：${entry.label}`, "success");
+  },
+  // 撤销最近一次语义操作：取 changeLog 首条（LIFO）执行其逆操作。与 yjs UndoManager 无关——
+  // 画布真相在 canvas-store/服务端，内存文档只是投影。
+  undoLastChange: async () => {
+    const entry = get().changeLog[0];
+    if (!entry) {
+      get().toast("没有可撤销的操作", "info");
+      return;
+    }
+    set((state) => ({ changeLog: state.changeLog.filter((item) => item.id !== entry.id) }));
+    try {
+      await entry.undo();
+      get().toast(`已撤销：${entry.label}`, "success");
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
   },
   setHistoryOpen: (historyOpen) => set({ historyOpen }),
   setOutlineOpen: (outlineOpen) => set({ outlineOpen }),

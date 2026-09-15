@@ -214,6 +214,7 @@ function NewTypeDialog({ onClose }: { onClose: () => void }) {
           void submit();
         }}
         onMouseDown={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
       >
         <h3 className="text-base font-semibold">新建设定类型</h3>
         <div className="mt-3 space-y-3">
