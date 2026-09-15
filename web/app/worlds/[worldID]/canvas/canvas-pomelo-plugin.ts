@@ -7,7 +7,7 @@
  * CanvasSelection 驱动右侧面板；空白拖拽 = 框选（与选框有交集即选中：节点按矩形重叠、关系/自由箭头
  * 按曲线相交；Shift 追加、Shift 点选增删），命中写入 store.selectedIds（恰好一项回落单选）；
  * 多选下拖拽整体位移（并交给 AlignmentGuidePlugin 做边缘/中心对齐吸附与提示线，Alt 临时关闭）、
- * Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（transact 增量提交，pointerup 落回
+ * Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（同样对齐吸附；图片锁比例时仅横向吸附；transact 增量提交，pointerup 落回
  * canvas-store.moveElement + 去抖 persistGeometry；pointermove 经 editor.ticker 统一合帧，
  * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡与 World 根节点
  * 左右缘中点各一个，自由元素不挂）拖出引导线：实体 → 实体 =
@@ -740,10 +740,24 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const fixedY = drag.kind === "sw" || drag.kind === "se" ? start.y : start.y + start.height;
         const record = editor.state.getBlockById(drag.blockId);
         if (!record) return;
-        const x = Math.round(Math.min(world.x, fixedX));
-        const y = Math.round(Math.min(world.y, fixedY));
-        const width = Math.round(Math.max(MIN_SIZE, Math.abs(world.x - fixedX)));
-        const height = Math.round(Math.max(MIN_SIZE, drag.aspect ? Math.max(MIN_SIZE, width * drag.aspect) : Math.abs(world.y - fixedY)));
+        // 对齐吸附：被拖角以零尺寸矩形参与成对边缘/中心比较（对应 open-pencil resize snap 的
+        // activeEdgeBounds = 活动边/角）。锁比例（图片）时只有主轴能对齐（另一维由比例推导），
+        // 因此限制在 x 轴吸附，避免出现对不上的纵向提示线。
+        const alignment = editor.pluginRegistry.get("AlignmentGuidePlugin") as AlignmentGuidePlugin | undefined;
+        let pointerX = world.x;
+        let pointerY = world.y;
+        if (alignment && !event.altKey) {
+          const axes = drag.aspect ? (["x"] as const) : undefined;
+          const correction = alignment.snap(new Set([drag.blockId]), { x: pointerX, y: pointerY, width: 0, height: 0 }, axes);
+          pointerX += correction.dx;
+          pointerY += correction.dy;
+        } else {
+          alignment?.clear();
+        }
+        const x = Math.round(Math.min(pointerX, fixedX));
+        const y = Math.round(Math.min(pointerY, fixedY));
+        const width = Math.round(Math.max(MIN_SIZE, Math.abs(pointerX - fixedX)));
+        const height = Math.round(Math.max(MIN_SIZE, drag.aspect ? Math.max(MIN_SIZE, width * drag.aspect) : Math.abs(pointerY - fixedY)));
         editor.state.transact((hook) => {
           hook.updateBlock(drag.blockId, { x, y, width, height });
         });

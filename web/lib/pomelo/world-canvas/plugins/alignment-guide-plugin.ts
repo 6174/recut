@@ -4,9 +4,10 @@
  * [OUTPUT]: 对外提供 AlignmentGuidePlugin 与纯函数 computeAlignmentSnap：
  * - computeAlignmentSnap：open-pencil scene-graph/snap.ts 的对齐算法移植（无旋转、输入为矩形）——
  *   对被拖选区与其余节点做左/中/右、上/中/下成对比较，取每轴最近吸附量并生成跨两矩形的对齐提示线；
- * - AlignmentGuidePlugin：拖拽会话期间计算吸附修正（世界坐标 dx/dy）并在渲染器无关的 DomOverlay
- *   （屏幕空间 SVG）绘制对齐提示线；transform 变化自动重绘；enabled=false 直接旁路。
- * [POS]: lib/pomelo/world-canvas 的对齐提示插件（由 CanvasBindsPlugin 在拖拽位移时调用，不自行监听指针）
+ * - AlignmentGuidePlugin：拖拽位移/缩放会话期间计算吸附修正（世界坐标 dx/dy）并在渲染器无关的 DomOverlay
+ *   （屏幕空间 SVG）绘制对齐提示线（缩放传入零尺寸活动角矩形即可复用同一成对比较）；transform 变化自动重绘；
+ *   enabled=false 直接旁路。
+ * [POS]: lib/pomelo/world-canvas 的对齐提示插件（由 CanvasBindsPlugin 在拖拽位移/缩放时调用，不自行监听指针）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { PomeloEditor } from "../../pomelo-core/pomelo-editor";
@@ -146,18 +147,21 @@ export class AlignmentGuidePlugin extends PomeloPlugin {
     };
   }
 
-  // 拖拽位移时调用：movingIds = 本次一起位移的 block id；movingRect = 其世界包围盒（已含本次位移）。
+  // 拖拽位移/缩放时调用：movingIds = 参与位移的 block id；movingRect = 世界包围盒（已含本次位移；
+  // 缩放时传被拖角的零尺寸矩形）；axes 限制参与吸附/绘制提示的轴（锁比例缩放只有主轴能对齐）。
   // 返回世界坐标修正量（调用方加到原始 dx/dy 上），并更新提示线。
-  snap(movingIds: Set<string>, movingRect: GuideRect): { dx: number; dy: number } {
+  snap(movingIds: Set<string>, movingRect: GuideRect, axes: ReadonlyArray<"x" | "y"> = ["x", "y"]): { dx: number; dy: number } {
     if (!this.enabled) {
       this.clear();
       return { dx: 0, dy: 0 };
     }
     const threshold = this.thresholdScreenPx / Math.max(this.editor.renderAdapter.transform.scale, EPSILON);
     const result = computeAlignmentSnap(movingRect, this.targetRects(movingIds), threshold);
-    this.#guides = result.guides;
+    const useX = axes.includes("x");
+    const useY = axes.includes("y");
+    this.#guides = result.guides.filter((guide) => (guide.axis === "x" ? useX : useY));
     this.paint();
-    return { dx: result.dx, dy: result.dy };
+    return { dx: useX ? result.dx : 0, dy: useY ? result.dy : 0 };
   }
 
   // 结束拖拽 / 无吸附时清空提示线
