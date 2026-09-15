@@ -537,7 +537,7 @@ func (m *AgentManager) List(projectID, scope string) ([]ChatSession, error) {
 	case scope == "general":
 		query += " and (project_id is null or project_id = '') and coalesce(app_view, '') = ''"
 	}
-	// SQLite 对相同时间戳的行不保证顺序；rowid 是此表稳定的创建序号。
+	// iso() 产出定宽 9 位小数时间戳，字符串序即时间序；rowid 作为稳定 tiebreak。
 	query += " order by updated_at desc, agent_sessions.rowid desc"
 	rows, err := db.Query(query, args...)
 	if err != nil {
@@ -2281,20 +2281,22 @@ var mcpToolLabels = map[string]string{
 	"recut.worlds.delete":                       "删除世界",
 	"recut.worlds.entities.list":                "读取世界实体",
 	"recut.worlds.entities.get":                 "读取世界实体详情",
-	"recut.worlds.entities.upsert":              "保存世界实体",
-	"recut.worlds.entities.create_child":        "创建子设定",
-	"recut.worlds.entities.promote":             "确认世界实体",
+	"recut.worlds.entity":                       "世界实体（画布）",
+	"recut.worlds.entityType":                   "世界类型（画布）",
 	"recut.worlds.entityTypes.list":             "读取世界类型目录",
-	"recut.worlds.entityTypes.upsert":           "保存世界类型",
 	"recut.worlds.relations.list":               "读取世界关系",
-	"recut.worlds.relations.create":             "创建世界关系",
-	"recut.worlds.relations.update":             "修改世界关系",
+	"recut.worlds.relation":                     "世界关系（画布）",
 	"recut.worlds.evidence.archive":             "归档世界资料",
-	"recut.worlds.canvas.doc":                   "读取世界画布",
-	"recut.worlds.canvas.docs":                  "读取世界画布层索引",
-	"recut.worlds.canvas.doc.update":            "编辑世界画布",
-	"recut.worlds.canvas.promote":               "提升画布元素为设定",
+	"recut.worlds.doc":                          "读取世界画布",
+	"recut.worlds.docs":                         "读取世界画布层索引",
+	"recut.worlds.doc.update":                   "编辑世界画布",
+	"recut.worlds.promote":                      "提升画布元素为设定",
 	"recut.worlds.bind_project":                 "关联世界到项目",
+	"recut.worlds.revisions.list":               "读取世界版本历史",
+	"recut.worlds.revert":                       "回滚世界版本",
+	"recut.worlds.export":                       "导出世界 bundle",
+	"recut.worlds.import":                       "导入世界 bundle",
+	"recut.worlds.proposals.list":               "读取世界生成提案",
 	"recut_recut_editor_project_create":         "创建剪辑项目",
 	"recut_recut_editor_workflow_context":       "读取剪辑工作流",
 	"recut_recut_editor_timeline_assets":        "登记时间线素材",
@@ -2803,7 +2805,10 @@ func listChatEvents(db *sql.DB, sessionID string, after int64) ([]ChatEvent, err
 	}
 	return result, rows.Err()
 }
-func iso(value time.Time) string { return value.UTC().Format(time.RFC3339Nano) }
+
+// iso 固定输出 9 位小数（RFC3339 合法）：字符串比较即时间比较，
+// 规避 RFC3339Nano 裁剪尾零导致的字典序错序（如 ".9Z" < "Z"）。
+func iso(value time.Time) string { return value.UTC().Format("2006-01-02T15:04:05.000000000Z") }
 func shortTitle(text string) string {
 	runes := []rune(strings.Join(strings.Fields(text), " "))
 	if len(runes) > 28 {

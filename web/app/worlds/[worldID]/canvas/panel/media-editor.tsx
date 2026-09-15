@@ -4,7 +4,8 @@
  * CapabilityVoiceGroup/Model/ModelParameter）、media-configuration-store、
  * components/asset-reference-picker、canvas-media、lucide-react
  * [OUTPUT]: 对外提供 MediaElementEditor：带「待确认提案」的元素路由到 GenerationProposalEditor（提案审批台：
- * 状态区 + 可编辑提示词/参考（含 role）/模型/参数 + 提交前自检 + 确认生成/放弃提案），其余走 MediaAssetEditor
+ * 状态区 + 富文本提示词（@ 引用素材，写入 <reference> 锚点）+ 参考/模型/参数 + 提交前自检 + 确认生成/取消提案；
+ * AI 写入的锚定 role 只读展示），其余走 MediaAssetEditor
  * （B.8 媒体元素态，RFC 2026-09-10）：预览区（图片单击打开
  * 素材详情弹框 AssetPreviewDialog；视频/音频 controls）、来源区（AI 生成 / 素材库选择——浮层内可上传 /
  * 本地上传 / 清除）、生成配方区（RECIPE_CAPABILITY 决定生产链路：图片/视频走 image/video.generate，
@@ -17,18 +18,22 @@
  */
 "use client";
 
-import { ChevronDown, Image as ImageIcon, RefreshCcw, Sparkles, Trash2, Upload, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Image as ImageIcon, RefreshCcw, Trash2, Upload, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AssetPreviewDialog, mediaContentURL, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
 import { ModelPicker } from "@/components/model-picker";
+import { RichComposer } from "@/components/rich-composer/rich-composer";
+import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
+import { normalizeValue, type RichComposerValue } from "@/lib/rich-composer/value";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { buildGenerationRequest } from "@/lib/media/generation-request";
 import { normalizeAsset, type Asset, type Capability, type CapabilityVoiceGroup, type MediaJob, type Model as MediaModel, type ModelParameter } from "@/app/media/media-types";
 import { useWorldCanvasStore } from "../canvas-store";
-import { isProposalGate, proposalIssues, proposalRoleOptions, readProposal, type GenerationProposal, type ProposalReference } from "../canvas-proposal";
+import { isProposalGate, proposalIssues, proposalRoleLabel, readProposal, type GenerationProposal, type ProposalReference } from "../canvas-proposal";
 import { fitElementToAsset } from "../canvas-media";
 import { useElementAssetHistoryStore } from "./element-asset-history-store";
+import { PanelSection } from "@/components/panel-section";
 
 type MediaModality = "image" | "video" | "audio";
 // 选择器缺省值共享同一引用：state.histories[elementId] 缺席时 ?? [] 会造新数组，getSnapshot 永不相等 → 无限循环
@@ -37,6 +42,8 @@ const CONTRIBUTED_LABELS: Record<MediaModality, string> = { image: "图片", vid
 // 每种媒体节点对应的生产 capability：音频走平台 speech.generate（云端 provider 与
 // 本机 Audio Studio 同一路由），不再误落到 image.generate。
 const RECIPE_CAPABILITY: Record<MediaModality, Capability> = { image: "image.generate", video: "video.generate", audio: "speech.generate" };
+// 提案提示词的 @ 可引用类型：素材库媒体 + 世界/实体（生成参考锚定）
+const PROPOSAL_REF_TYPES = ["media", "creation_entity", "creation_world"];
 
 // 图片素材采纳后卡片自适应比例：统一走 canvas-media 的 fitElementToAsset（media-editor 采纳与
 // AttrCreatorPanel 建卡共用同一适配规则）
@@ -45,15 +52,15 @@ const RECIPE_CAPABILITY: Record<MediaModality, Capability> = { image: "image.gen
 // 提案完成（done）后回落常规编辑器——配方已随 asset.metadata 继承。
 type MediaEditorElement = { id: string; kind: string; props?: Record<string, unknown>; name?: string };
 
-export function MediaElementEditor({ element }: { element: MediaEditorElement }) {
+export function MediaElementEditor({ element, guided, identity }: { element: MediaEditorElement; guided?: ReactNode; identity?: ReactNode }) {
   const proposal = readProposal(element.props);
   if (proposal && isProposalGate(proposal.status)) {
     return <GenerationProposalEditor element={element} proposal={proposal} />;
   }
-  return <MediaAssetEditor element={element} />;
+  return <MediaAssetEditor element={element} guided={guided} identity={identity} />;
 }
 
-function MediaAssetEditor({ element }: { element: MediaEditorElement }) {
+function MediaAssetEditor({ element, guided, identity }: { element: MediaEditorElement; guided?: ReactNode; identity?: ReactNode }) {
   const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const setMediaElementAsset = useWorldCanvasStore((state) => state.setMediaElementAsset);
   const setAttrMediaAsset = useWorldCanvasStore((state) => state.setAttrMediaAsset);
@@ -101,32 +108,27 @@ function MediaAssetEditor({ element }: { element: MediaEditorElement }) {
   const [sourceView, setSourceView] = useState<"none" | "library">("none");
   // 预览区图片单击 → 全局素材详情弹框（AssetPreviewDialog，与实体属性字段 AssetFieldRow 同源）
   const [detailOpen, setDetailOpen] = useState(false);
-  // 「AI 生成」按钮：配方区常驻，按钮只负责把焦点带回配方输入（不再用显隐切换）
-  const [recipeFocus, setRecipeFocus] = useState(0);
   return (
-    <div className="space-y-4">
-      {/* A. 预览区：图片单击 = 素材详情弹框（AssetPreviewDialog） */}
-      <div className="overflow-hidden rounded-md border bg-muted/30">
-        {url ? (
-          modality === "video" ? <video className="max-h-56 w-full" controls src={url} /> : <img className="max-h-56 w-full bg-muted/40 object-contain" src={url} />
-        ) : assetId ? (
-          modality === "video" ? (
-            <video className="max-h-56 w-full" controls src={mediaContentURL(apiBase, assetId)} />
+    <div>
+      {/* 预览 + 素材来源合并为一组：图片单击 = 素材详情弹框，下面是「选 / 传 / 清」换素材 */}
+      <PanelSection first title="预览">
+        <div className="overflow-hidden rounded-md border bg-muted/30">
+          {url ? (
+            modality === "video" ? <video className="max-h-56 w-full" controls src={url} /> : <img className="max-h-56 w-full bg-muted/40 object-contain" src={url} />
+          ) : assetId ? (
+            modality === "video" ? (
+              <video className="max-h-56 w-full" controls src={mediaContentURL(apiBase, assetId)} />
+            ) : (
+              <button className="block w-full cursor-zoom-in" onClick={() => setDetailOpen(true)} title="点击查看素材详情" type="button">
+                <img className="max-h-56 w-full bg-muted/40 object-contain" src={mediaContentURL(apiBase, assetId)} alt={assetName || "素材"} />
+              </button>
+            )
           ) : (
-            <button className="block w-full cursor-zoom-in" onClick={() => setDetailOpen(true)} title="点击查看素材详情" type="button">
-              <img className="max-h-56 w-full bg-muted/40 object-contain" src={mediaContentURL(apiBase, assetId)} alt={assetName || "素材"} />
-            </button>
-          )
-        ) : (
-          <div className="grid h-28 place-items-center text-xs text-muted-foreground">尚未选择素材</div>
-        )}
-      </div>
-      {assetId && modality !== "video" && <p className="-mt-2 text-[10px] text-muted-foreground">点击图片查看素材详情</p>}
-      {/* B. 来源区 */}
-      <div className="space-y-1.5">
-        <p className="text-[11px] font-medium text-muted-foreground">更换素材</p>
+            <div className="grid h-28 place-items-center text-xs text-muted-foreground">尚未选择素材</div>
+          )}
+        </div>
+        {assetId && modality !== "video" && <p className="text-[10px] text-muted-foreground">点击图片查看素材详情</p>}
         <div className="grid grid-cols-2 gap-1.5">
-          <SourceButton icon={<Sparkles className="size-3.5" />} label="AI 生成" onClick={() => setRecipeFocus((n) => n + 1)} />
           <SourceButton icon={<ImageIcon className="size-3.5" />} label="素材库" onClick={() => setSourceView("library")} />
           <UploadButton modality={modality} onAdopt={adopt} />
           <SourceButton
@@ -137,10 +139,16 @@ function MediaAssetEditor({ element }: { element: MediaEditorElement }) {
             }}
           />
         </div>
-      </div>
-      {/* C. 生成配方区（常驻；AI 生成的素材自动回填 prompt/模型/参考）+ D. 素材历史区 */}
+      </PanelSection>
+      {/* 名称：媒体元素只有「名称」是重要的身份信息，独立成组紧接预览 */}
+      {identity && <PanelSection title="名称">{identity}</PanelSection>}
+      {/* 用 AI 完善（引导动作）——由宿主注入的分组 */}
+      {guided}
+      {/* 素材历史（默认收起）+ 手动生成（低层逐张生成） */}
       <GenerationHistory apiBase={apiBase} elementId={element.id} modality={modality} currentId={assetId} onAdopt={adopt} />
-      <GenerationRecipe apiBase={apiBase} capability={RECIPE_CAPABILITY[modality]} elementId={element.id} current={current} modality={modality} onAdopt={adopt} focusSignal={recipeFocus} />
+      <PanelSection title="手动生成">
+        <GenerationRecipe apiBase={apiBase} capability={RECIPE_CAPABILITY[modality]} elementId={element.id} current={current} modality={modality} onAdopt={adopt} />
+      </PanelSection>
       {sourceView === "library" && (
         <AssetReferenceDialog
           apiBase={apiBase}
@@ -163,8 +171,8 @@ function MediaAssetEditor({ element }: { element: MediaEditorElement }) {
   );
 }
 
-// 生成提案审批台（视频等高价媒体）：AI/用户提交 proposal 后，用户在此核对提示词、参考（含 role）、
-// 模型与参数，过自检后点「确认生成」——这是唯一触发真实生成、花钱的动作。
+// 生成提案审批台（视频等高价媒体）：AI/用户提交 proposal 后，用户在此核对富文本提示词（@ 引用素材）、
+// 参考、模型与参数，过自检后点「确认生成」——这是唯一触发真实生成、花钱的动作。
 function GenerationProposalEditor({ element, proposal }: { element: MediaEditorElement; proposal: GenerationProposal }) {
   const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
@@ -174,20 +182,60 @@ function GenerationProposalEditor({ element, proposal }: { element: MediaEditorE
   const configuration = useMediaConfigurationStore();
   const modality = ((element.props?.media ?? element.props?.modality ?? "video") as MediaModality);
   const capability = RECIPE_CAPABILITY[modality];
-  const [prompt, setPrompt] = useState(proposal.prompt);
+  const registry = useMemo(() => contextProtocolRegistry(), []);
+  const [promptValue, setPromptValue] = useState<RichComposerValue>(() => normalizeValue(proposal.prompt, registry));
   const [resolved, setResolved] = useState<Record<string, { kind?: string; name?: string }>>({});
   const [pickerOpen, setPickerOpen] = useState(false);
+  // 富文本提示词的未提交改动：去抖落盘 + 卸载兜底 + 确认前 flush
+  const promptDirtyRef = useRef(false);
+  const promptValueRef = useRef(promptValue);
+  promptValueRef.current = promptValue;
 
-  useEffect(() => { setPrompt(proposal.prompt); }, [proposal.prompt]);
+  // 切换所选元素时用最新提案重置编辑器（避免沿用上一个节点的输入）
+  useEffect(() => {
+    const stored = readProposal(useWorldCanvasStore.getState().elements.find((item) => item.id === element.id)?.props);
+    setPromptValue(normalizeValue(stored?.prompt ?? "", registry));
+    promptDirtyRef.current = false;
+  }, [element.id, registry]);
   useEffect(() => {
     void configuration.load(apiBase);
   }, [apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 提示词补丁：写回富文本正文，并把正文里 @ 引用的媒体并入 references（否则该图不会随请求发送）
+  const promptPatch = (): Partial<GenerationProposal> => {
+    const value = promptValueRef.current;
+    const current = readProposal(useWorldCanvasStore.getState().elements.find((item) => item.id === element.id)?.props) ?? proposal;
+    const known = new Set(current.references.map((reference) => reference.id));
+    const mentioned = value.refs
+      .filter((ref) => ref.type === "media" && ref.attrs.assetid && !known.has(ref.attrs.assetid))
+      .map((ref) => ({ id: ref.attrs.assetid, ...(ref.attrs.type ? { kind: ref.attrs.type } : {}), ...(ref.attrs.name ? { name: ref.attrs.name, label: ref.attrs.name } : {}) }));
+    return { prompt: value.text, ...(mentioned.length ? { references: [...current.references, ...mentioned] } : {}) };
+  };
+  const commitPrompt = async () => {
+    if (!promptDirtyRef.current) return;
+    promptDirtyRef.current = false;
+    await updateProposal(element.id, promptPatch());
+  };
+  // 去抖落盘：停止输入 800ms 后写回提案
+  useEffect(() => {
+    if (!promptDirtyRef.current) return;
+    const timer = setTimeout(() => { void commitPrompt(); }, 800);
+    return () => clearTimeout(timer);
+  }, [promptValue.text]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 卸载兜底：切换选中/关闭面板时 flush 最后一次编辑
+  useEffect(() => {
+    return () => {
+      if (!promptDirtyRef.current) return;
+      promptDirtyRef.current = false;
+      void useWorldCanvasStore.getState().updateProposal(element.id, promptPatch());
+    };
+  }, [element.id]);
 
   const models = configuration.providers.flatMap((provider) => provider.models).filter((model) => model.capability === capability && model.available);
   const selectedModel = models.find((model) => model.id === proposal.modelId) ?? models[0];
   const credential = configuration.credentials.find((item) => item.provider === selectedModel?.provider);
   const keyless = selectedModel?.provider === "local-audio";
-  const draft: GenerationProposal = { ...proposal, prompt };
+  const draft: GenerationProposal = { ...proposal, prompt: promptValue.text };
   const issues = proposalIssues(draft);
   const canConfirm = !readOnly && Boolean(selectedModel) && (keyless || Boolean(credential)) && !issues.some((issue) => issue.level === "error") && proposal.status !== "generating";
 
@@ -217,8 +265,6 @@ function GenerationProposalEditor({ element, proposal }: { element: MediaEditorE
   }, [apiBase, missingRefIds]);
 
   const referenceKind = (reference: ProposalReference) => reference.kind ?? resolved[reference.id]?.kind ?? "image";
-  const setReferenceRole = (id: string, role: string) =>
-    void updateProposal(element.id, { references: proposal.references.map((reference) => (reference.id === id ? { ...reference, ...(role ? { role } : { role: undefined }) } : reference)) });
   const removeReference = (id: string) =>
     void updateProposal(element.id, { references: proposal.references.filter((reference) => reference.id !== id) });
 
@@ -236,17 +282,24 @@ function GenerationProposalEditor({ element, proposal }: { element: MediaEditorE
         )}
         {proposal.status === "failed" && proposal.error && <p className="mt-1 text-[10px] text-destructive">{proposal.error}</p>}
       </div>
-      {/* B. 提示词 */}
+      {/* B. 提示词（富文本：@ 引用具体素材，写入 <reference> 锚点） */}
       <div className="space-y-1.5">
         <p className="text-[11px] font-medium text-muted-foreground">提示词</p>
-        <textarea
-          className="h-28 w-full resize-none rounded-md border bg-background p-2 text-xs leading-5 outline-none focus:border-primary disabled:opacity-60"
-          disabled={readOnly || proposal.status === "generating"}
-          onBlur={() => { if (prompt !== proposal.prompt) void updateProposal(element.id, { prompt }); }}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder="输入视频提示词…（参考素材可用 <reference id=… role=… /> 声明）"
-          value={prompt}
-        />
+        <div className="rounded-md border bg-background p-2 focus-within:border-primary">
+          <RichComposer
+            apiBase={apiBase}
+            allowedRefTypes={PROPOSAL_REF_TYPES}
+            maxRows={10}
+            minRows={4}
+            mode="referencing"
+            onChange={(value) => { promptDirtyRef.current = true; setPromptValue(value); }}
+            placeholder="输入视频提示词，输入 @ 可引用具体素材…"
+            readOnly={readOnly || proposal.status === "generating"}
+            value={promptValue}
+            variant="field"
+          />
+        </div>
+        <p className="text-[10px] text-muted-foreground">@ 可引用素材库的图片 / 视频，或世界里的实体作为生成参考。</p>
       </div>
       {/* C. 参考素材（含 role） */}
       <div className="space-y-1.5">
@@ -268,15 +321,7 @@ function GenerationProposalEditor({ element, proposal }: { element: MediaEditorE
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[11px]">{reference.label || reference.name || resolved[reference.id]?.name || reference.id}</p>
-                  <select
-                    className="mt-0.5 w-full rounded border bg-background px-1 py-0.5 text-[10px] outline-none focus:border-primary"
-                    disabled={readOnly}
-                    onChange={(event) => setReferenceRole(reference.id, event.target.value)}
-                    value={reference.role ?? ""}
-                  >
-                    <option value="">未声明 role</option>
-                    {proposalRoleOptions(kind).map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}
-                  </select>
+                  {reference.role && <p className="mt-0.5 text-[10px] text-muted-foreground">锚定：{proposalRoleLabel(reference.role)}</p>}
                 </div>
                 {!readOnly && (
                   <button aria-label="移除参考" className="rounded p-1 text-muted-foreground hover:text-destructive" onClick={() => removeReference(reference.id)} type="button">
@@ -327,7 +372,7 @@ function GenerationProposalEditor({ element, proposal }: { element: MediaEditorE
           <button
             className="h-9 flex-1 rounded-md bg-primary text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             disabled={!canConfirm}
-            onClick={() => void confirmProposal(element.id)}
+            onClick={() => void (async () => { await commitPrompt(); await confirmProposal(element.id); })()}
             type="button"
           >
             {proposal.status === "generating" ? "生成中…" : proposal.status === "failed" ? "重新生成" : "确认生成"}
@@ -429,7 +474,6 @@ function GenerationHistory({ apiBase, elementId, modality, currentId, onAdopt }:
   const ids = useElementAssetHistoryStore((state) => state.histories[elementId] ?? EMPTY_HISTORY);
   const removeHistory = useElementAssetHistoryStore((state) => state.remove);
   const [items, setItems] = useState<Record<string, Asset>>({});
-  const [open, setOpen] = useState(false);
   useEffect(() => {
     let active = true;
     for (const id of ids) {
@@ -450,14 +494,9 @@ function GenerationHistory({ apiBase, elementId, modality, currentId, onAdopt }:
   }, [apiBase, ids]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!ids.length) return null;
   return (
-    <div>
-      <button className="flex w-full items-center justify-between px-1 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground" onClick={() => setOpen(!open)} type="button">
-        <span>素材历史（{ids.length}）</span>
-        <ChevronDown className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <div className="grid grid-cols-3 gap-1.5 pt-1">
-          {ids.map((id) => {
+    <PanelSection defaultOpen={false} title={`素材历史（${ids.length}）`}>
+      <div className="grid grid-cols-3 gap-1.5">
+        {ids.map((id) => {
             const asset = items[id];
             const kind = asset?.kind ?? modality;
             const ready = asset?.status === "completed";
@@ -491,9 +530,8 @@ function GenerationHistory({ apiBase, elementId, modality, currentId, onAdopt }:
               </div>
             );
           })}
-        </div>
-      )}
-    </div>
+      </div>
+    </PanelSection>
   );
 }
 
@@ -737,7 +775,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
     setTimeout(() => setCopied(false), 1600);
   };
   return (
-    <div className="space-y-2 rounded-md border p-2.5">
+    <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] font-medium text-muted-foreground">生成配方</p>
         {current?.metadata?.prompt && <button className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => void copyRecipe()} type="button">{copied ? "已复制" : "复制配方"}</button>}

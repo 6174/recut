@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 @radix-ui/react-popover（Portal + Anchor + 碰撞翻转 + outside/Esc 关闭）与 ContextMentionPanel
- * [OUTPUT]: 对外提供 ContextMentionPopover：把面板挂到全局 Portal，按锚点/光标定位，自带上下翻转与视口夹取；可透传受控 query / autoFocusSearch
+ * [OUTPUT]: 对外提供 ContextMentionPopover：把面板挂到全局 Portal，按锚点/光标定位，自带上下翻转与视口夹取；可透传受控 query / autoFocusSearch / selectedKeys / selectedOptions
  * [POS]: web/components/context-panel 的浮层宿主；参考 antd Popover 的做法（独立 DOM 插到 body，相对锚点定位）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -25,6 +25,7 @@ export function ContextMentionPopover({
   onQuery,
   autoFocusSearch,
   selectedKeys,
+  selectedOptions,
   allowedRefTypes,
   onPick,
   onCancel,
@@ -46,6 +47,8 @@ export function ContextMentionPopover({
   /** 打开时是否聚焦面板搜索框；编辑器驱动模式传 false */
   autoFocusSearch?: boolean;
   selectedKeys: Set<string>;
+  /** 已引用条目（置顶为「当前引用」分组） */
+  selectedOptions?: ContextOption[];
   allowedRefTypes?: string[];
   onPick: (option: ContextOption, keepOpen: boolean) => void;
   /** 主动取消（Esc / 关闭按钮 / 选择后收起）：清理触发文本 */
@@ -101,6 +104,7 @@ export function ContextMentionPopover({
             projectID={projectID}
             query={query}
             selectedKeys={selectedKeys}
+            selectedOptions={selectedOptions}
             workFocus={workFocus}
             workSurface={workSurface}
           />

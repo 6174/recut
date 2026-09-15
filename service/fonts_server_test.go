@@ -63,7 +63,7 @@ func TestFontsCatalog(t *testing.T) {
 		t.Fatalf("GET /v1/fonts = %d", recorder.Code)
 	}
 	var body struct {
-		Version int `json:"version"`
+		Version int      `json:"version"`
 		Sources []string `json:"sources"`
 		Google  []struct {
 			ID      string   `json:"id"`

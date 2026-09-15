@@ -39,7 +39,7 @@ type streamHandle struct {
 // cursor-based channels (project/agent) hold the last delivered event id, while
 // event-driven channels (cli/terminal) hold a stop handle per active stream.
 type realtimeSubscriptions struct {
-	pollMu  sync.RWMutex
+	pollMu   sync.RWMutex
 	pollSubs map[string]map[string]int64
 	streamMu sync.Mutex
 	streams  map[string]*streamHandle

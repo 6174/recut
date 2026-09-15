@@ -47,7 +47,7 @@ func TestWorldCanvasPlacementDefaultsAndLayout(t *testing.T) {
 	}
 
 	// canvas.docs 层索引 + canvas.doc 的 layout 回执。
-	result, err := worldsMCPTool(worlds, "recut.worlds.canvas.docs", map[string]any{"worldId": world.ID})
+	result, err := worldsMCPTool(worlds, "recut.worlds.docs", map[string]any{"worldId": world.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestWorldCanvasPlacementDefaultsAndLayout(t *testing.T) {
 	if len(docs) != 1 || docs[0]["contextId"] != "" {
 		t.Fatalf("canvas.docs = %#v", docs)
 	}
-	result, err = worldsMCPTool(worlds, "recut.worlds.canvas.doc", map[string]any{"worldId": world.ID})
+	result, err = worldsMCPTool(worlds, "recut.worlds.doc", map[string]any{"worldId": world.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestWorldCanvasAdvisoryLockBroadcast(t *testing.T) {
 		events = append(events, data)
 	})
 
-	result, err := worldsMCPTool(worlds, "recut.worlds.canvas.lock", map[string]any{"worldId": world.ID, "owner": "agent"})
+	result, err := worldsMCPTool(worlds, "recut.worlds.lock", map[string]any{"worldId": world.ID, "owner": "agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestWorldCanvasAdvisoryLockBroadcast(t *testing.T) {
 	}
 
 	// canvas.doc 回执携带锁状态，供 AI 自检。
-	docResult, err := worldsMCPTool(worlds, "recut.worlds.canvas.doc", map[string]any{"worldId": world.ID})
+	docResult, err := worldsMCPTool(worlds, "recut.worlds.doc", map[string]any{"worldId": world.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestWorldCanvasAdvisoryLockBroadcast(t *testing.T) {
 		t.Fatalf("canvas.doc lock = %#v", docPayload["lock"])
 	}
 
-	if _, err := worldsMCPTool(worlds, "recut.worlds.canvas.unlock", map[string]any{"worldId": world.ID, "token": token}); err != nil {
+	if _, err := worldsMCPTool(worlds, "recut.worlds.unlock", map[string]any{"worldId": world.ID, "token": token}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, isLocked := worlds.canvasLockStatus(world.ID); isLocked {
@@ -127,7 +127,7 @@ func TestWorldCanvasDocUpdateBroadcastsChanged(t *testing.T) {
 	worlds.SetEventPublisher(func(_ string, data map[string]any) {
 		events = append(events, data)
 	})
-	_, err = worldsMCPTool(worlds, "recut.worlds.canvas.doc.update", map[string]any{
+	_, err = worldsMCPTool(worlds, "recut.worlds.doc.update", map[string]any{
 		"worldId":   world.ID,
 		"contextId": "",
 		"ops": []any{map[string]any{
@@ -138,7 +138,7 @@ func TestWorldCanvasDocUpdateBroadcastsChanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 || events[0]["event"] != "world.changed" || events[0]["tool"] != "recut.worlds.canvas.doc.update" {
+	if len(events) != 1 || events[0]["event"] != "world.changed" || events[0]["tool"] != "recut.worlds.doc.update" {
 		t.Fatalf("changed events = %#v", events)
 	}
 }

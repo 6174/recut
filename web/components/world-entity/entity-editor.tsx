@@ -16,7 +16,11 @@
 
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { createRecutWorldsClient, type EntityAttr, type EntityKind, type EntityTypeField, type WorldEntity, type WorldRelationType } from "@/lib/recut-worlds-client";
+import { useLocaleStore } from "@/lib/i18n/locale-store";
+import { buildEntityContext } from "@/lib/world-entity/guided";
+import { PanelSection } from "@/components/panel-section";
 import { AssetFieldRow, FieldRow, parseAssetValue } from "./field-row";
+import { GuidedAiSection } from "./guided-ai-section";
 import { RichFieldRow } from "./rich-field-row";
 
 const ENTITY_REF_TYPES = ["creation_entity", "creation_world", "media"];
@@ -51,23 +55,6 @@ export function entityAttrTextOf(entity: WorldEntity | null, key: string): strin
   return String(value);
 }
 
-// 面板通用折叠 section：标题行带 +/− 开关，收起后隐藏内容但保留 action 入口
-export function Section({ title, action, children, defaultOpen = true }: { title: ReactNode; action?: ReactNode; children: ReactNode; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="border-t pt-3">
-      <div className="flex items-center justify-between">
-        <button className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground" onClick={() => setOpen(!open)} type="button">
-          <span aria-hidden className="grid size-4 shrink-0 place-items-center rounded border text-[10px] leading-none">{open ? "−" : "+"}</span>
-          {title}
-        </button>
-        {action}
-      </div>
-      {open && <div className="mt-2 space-y-3">{children}</div>}
-    </div>
-  );
-}
-
 // 「添加属性」类型选项：通用「素材」移除，媒体拍平为 素材（图片/视频/音频）（与 AddFieldDialog 同约定）
 const ADD_ATTR_OPTIONS = [
   { label: "文本", type: "text" as const, kind: "", nameNote: "文本" },
@@ -90,6 +77,7 @@ export function EntityEditor({
   candidates = [],
   relations = [],
   readOnly = false,
+  guided,
   saveField,
   onAddTypeField,
   onCreateRelation,
@@ -111,6 +99,8 @@ export function EntityEditor({
   /** 已有关系（双向投影：out=false 表示 ← 对方指向我） */
   relations?: Array<RelationItem>;
   readOnly?: boolean;
+  /** 提供时在字段区之前渲染「用 AI 完善」动作区（预填全局 AI 输入框） */
+  guided?: { worldId: string; worldName: string; styleLock?: string } | null;
   /** 统一保存器：局部 patch → 宿主按 attrs 全量替换语义 upsert */
   saveField: (patch: EntitySavePatch) => Promise<void>;
   /** 类型级「添加字段」对话框（宿主实现；设定视图可不接） */
@@ -120,6 +110,7 @@ export function EntityEditor({
   tail?: ReactNode;
 }) {
   const schemaKeys = new Set(fields.map((field) => field.key));
+  const locale = useLocaleStore((state) => state.locale);
   // schema 外属性：无独立分区、无「其他」容器语义，直接续排在字段列表（动态属性与 schema 字段同一渲染路径）
   const extraAttrs = entityAttrListOf(entity).filter((attr) => !schemaKeys.has(attr.key));
   const [pickRelationTarget, setPickRelationTarget] = useState(false);
@@ -128,20 +119,30 @@ export function EntityEditor({
 
   return (
     <div className="space-y-4 text-sm">
-      {/* 名称：与其他字段同一编辑原语（点击进入编辑，blur/⌘↵ 或 Enter 保存） */}
-      <FieldRow
-        label={typeLabel}
-        value={entity?.name ?? ""}
-        onSave={(value) => (onRenameField ? onRenameField(String(value)) : saveField({ name: String(value) }))}
-        readOnly={readOnly}
-      />
+      {/* 引导提示动作：与其余分组同款（不特殊化颜色），置顶展示 */}
+      {guided && entity && (
+        <GuidedAiSection
+          ctx={buildEntityContext({ entity, typeLabel, worldId: guided.worldId, worldName: guided.worldName, locale, ...(guided.styleLock ? { styleLock: guided.styleLock } : {}) })}
+          first
+          readOnly={readOnly}
+          tone="section"
+        />
+      )}
 
-      {/* 简介 → 正文（detail）：rich 富文本 + 内联实体引用（复用验证，不产生 contexts） */}
-      <RichFieldRow apiBase={apiBase} allowedRefTypes={ENTITY_REF_TYPES} label="简介" minRows={1} onSave={(value) => saveField({ intro: value })} placeholder="一句话简介…" readOnly={readOnly} value={entity?.intro ?? ""} />
-      <RichFieldRow apiBase={apiBase} allowedRefTypes={ENTITY_REF_TYPES} label="正文" minRows={4} onSave={(value) => saveField({ detail: value })} placeholder="详细内容…" readOnly={readOnly} value={entity?.detail ?? ""} />
+      {/* 身份：名称 / 简介 / 正文 */}
+      <PanelSection first={!(guided && entity)} title="身份">
+        <FieldRow
+          label="名称"
+          value={entity?.name ?? ""}
+          onSave={(value) => (onRenameField ? onRenameField(String(value)) : saveField({ name: String(value) }))}
+          readOnly={readOnly}
+        />
+        <RichFieldRow apiBase={apiBase} allowedRefTypes={ENTITY_REF_TYPES} label="简介" minRows={1} onSave={(value) => saveField({ intro: value })} placeholder="一句话简介…" readOnly={readOnly} value={entity?.intro ?? ""} />
+        <RichFieldRow apiBase={apiBase} allowedRefTypes={ENTITY_REF_TYPES} label="正文" minRows={4} onSave={(value) => saveField({ detail: value })} placeholder="详细内容…" readOnly={readOnly} value={entity?.detail ?? ""} />
+      </PanelSection>
 
       {/* 字段（type schema + schema 外动态属性 + ＋添加属性 / ＋添加字段） */}
-      <Section
+      <PanelSection
         title={`字段（${fields.length}）`}
         action={!readOnly && onAddTypeField ? (
           <button className="text-[10px] text-primary hover:underline" onClick={onAddTypeField} type="button">
@@ -235,20 +236,19 @@ export function EntityEditor({
           ),
         )}
         {!readOnly && <AddAttrRow disabled={!entity} onSave={saveField} />}
-      </Section>
+      </PanelSection>
 
       {/* 关系（双向语义） */}
-      <div className="border-t pt-3">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-medium text-muted-foreground">关系（{relations.length}）</p>
-          {!readOnly && candidates.length > 0 && onCreateRelation && (
-            <button className="text-[10px] text-primary hover:underline" onClick={() => setPickRelationTarget((open) => !open)} type="button">
-              ＋ 建立关系…
-            </button>
-          )}
-        </div>
+      <PanelSection
+        title={`关系（${relations.length}）`}
+        action={!readOnly && candidates.length > 0 && onCreateRelation ? (
+          <button className="text-[10px] text-primary hover:underline" onClick={() => setPickRelationTarget((open) => !open)} type="button">
+            ＋ 建立关系…
+          </button>
+        ) : undefined}
+      >
         {pickRelationTarget ? (
-          <div className="mt-1 max-h-40 space-y-1 overflow-y-auto">
+          <div className="max-h-40 space-y-1 overflow-y-auto">
             {candidates
               .filter((item) => item.id !== entity?.id)
               .map((item) => (
@@ -284,7 +284,7 @@ export function EntityEditor({
             targetName={candidates.find((item) => item.id === pendingTargetId)?.name ?? ""}
           />
         ) : (
-          <ul className="mt-1 space-y-1">
+          <ul className="space-y-1">
             {relations.map((relation) => (
               <li className="truncate rounded bg-muted/50 px-2 py-1.5 text-xs" key={relation.id}>
                 {relation.out ? "→" : "←"} {relation.type} · {candidates.find((item) => item.id === relation.otherId)?.name ?? "…"}
@@ -294,7 +294,7 @@ export function EntityEditor({
             {!relations.length && <li className="text-xs text-muted-foreground">暂无关系</li>}
           </ul>
         )}
-      </div>
+      </PanelSection>
 
       {tail}
     </div>

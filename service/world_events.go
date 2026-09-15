@@ -24,17 +24,18 @@ func (w *WorldStore) SetEventPublisher(publish WorldEventPublisher) {
 }
 
 // worldMutatingTools 是经 MCP 能改变 World 内容/画布的工具集合。读工具不在其中。
+// 内容写入收口在画布接口（方案 A，World 即画布）：实体/关系/类型都经 entity/relation/entityType，语义 CRUD 已下线。
 var worldMutatingTools = map[string]bool{
-	"recut.worlds.create":                true,
-	"recut.worlds.update":                true,
-	"recut.worlds.entities.upsert":       true,
-	"recut.worlds.entities.create_child": true,
-	"recut.worlds.entities.promote":      true,
-	"recut.worlds.entityTypes.upsert":    true,
-	"recut.worlds.relations.create":      true,
-	"recut.worlds.relations.update":      true,
-	"recut.worlds.canvas.doc.update":     true,
-	"recut.worlds.canvas.promote":        true,
+	"recut.worlds.create":           true,
+	"recut.worlds.update":           true,
+	"recut.worlds.doc.update":       true,
+	"recut.worlds.promote":          true,
+	"recut.worlds.entity":           true,
+	"recut.worlds.relation":         true,
+	"recut.worlds.entityType":       true,
+	"recut.worlds.revert":           true,
+	"recut.worlds.import":           true,
+	"recut.worlds.evidence.archive": true,
 }
 
 // publishWorldChanged 在 MCP 写成功后发出一条世界变更通知。worldId 缺失（如新建

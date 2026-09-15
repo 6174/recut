@@ -41,7 +41,7 @@ type canvasDocPayload struct {
 // (canvas.doc.update). Storage is document-granularity; the operation surface
 // stays element-granularity for AI/MCP parity with the old upsert/remove.
 type CanvasDocOp struct {
-	Op      string                 `json:"op"` // insert | update | remove
+	Op      string                    `json:"op"` // insert | update | remove
 	Element *UpsertCanvasElementInput `json:"element"`
 }
 

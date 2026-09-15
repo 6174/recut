@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 @tiptap/react、@tiptap/starter-kit、@tiptap/extension-placeholder、reference 扩展/触发器、useContextCatalog 与 ReferenceChip
- * [OUTPUT]: 对外提供 RichComposer（plain/referencing、composer/field/inline 三变体、受控 RichComposerValue）+ useRichComposerValue
+ * [OUTPUT]: 对外提供 RichComposer（plain/referencing、composer/field/inline 三变体、受控 RichComposerValue，
+ * maxRows 生效为编辑器内滚动——超出高度不再撑高宿主）+ useRichComposerValue；referencing 模式下把正文已有引用（value.refs）解析为 selectedKeys/selectedOptions 交给面板置顶「当前引用」分组
  * [POS]: web/components/rich-composer 的 L1 输入内核（协议 RFC §4）；referencing 模式下「新敲下 @」打开统一上下文面板（焦点留在编辑器，@ 后继续输入即过滤；光标移动到已有 @ 之后不弹），选择后插入 reference chip
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkFocusContext, WorkSurfaceContext } from "@/components/agent-panel-types";
 import { ContextMentionPopover } from "@/components/context-panel/context-mention-popover";
 import { useContextCatalog } from "@/lib/context-catalog/runtime";
+import { resolveContextOption } from "@/lib/context-catalog/resolve";
 import type { ContextOption } from "@/lib/context-catalog/types";
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import { extractRefsFromDoc, docToMarkdown } from "@/lib/rich-composer/protocol/serialize";
@@ -127,6 +129,12 @@ export function RichComposer({
 
   const referencing = mode === "referencing";
   const { runtime, sourceFor } = useContextCatalog({ apiBase, projectID, workSurface, workFocus, allowedRefTypes });
+  // 当前正文里已引用的条目：面板据此置顶「当前引用」分组并标选，便于快速定位
+  const selectedKeys = useMemo(() => new Set(value.refs.map((ref) => ref.key)), [value.refs]);
+  const selectedOptions = useMemo(
+    () => value.refs.map((ref) => resolveContextOption(ref.type, ref.attrs, runtime)).filter((option): option is ContextOption => Boolean(option)),
+    [value.refs, runtime],
+  );
 
   // syncPanel: 维护 @ 触发状态。
   // - 打开：只在「本次输入真的敲下 @」时打开；光标移动到已有 @ 之后（selection）绝不打开。
@@ -191,6 +199,9 @@ export function RichComposer({
     return referencing ? [...base, extension] : base;
   }, [extension, placeholder, referencing]);
 
+  // maxRows：编辑态限高（按 leading-6 = 1.5rem/行），超出部分在编辑器内滚动，避免长文本把宿主面板撑成全高
+  const editorStyle = maxRows ? `max-height:${maxRows * 1.5}rem;overflow-y:auto` : undefined;
+
   const editor = useEditor({
     extensions,
     content: stringToDoc(value.text, registry) as JSONContent,
@@ -200,6 +211,7 @@ export function RichComposer({
     editorProps: {
       attributes: {
         class: `recut-rich-composer w-full resize-none bg-transparent outline-none ${VARIANT_PROSE[variant]}${className ? ` ${className}` : ""}`,
+        ...(editorStyle ? { style: editorStyle } : {}),
         ...(ariaLabel ? { "aria-label": ariaLabel } : {}),
       },
       handleKeyDown(_view, event) {
@@ -324,7 +336,8 @@ export function RichComposer({
             open={Boolean(panel)}
             projectID={projectID}
             query={panel?.query}
-            selectedKeys={EMPTY_SELECTED}
+            selectedKeys={selectedKeys}
+            selectedOptions={selectedOptions}
             workFocus={workFocus}
             workSurface={workSurface}
           />
@@ -333,8 +346,6 @@ export function RichComposer({
     </ReferenceRegistryProvider>
   );
 }
-
-const EMPTY_SELECTED: Set<string> = new Set();
 
 export function useRichComposerValue(initial = "") {
   const [value, setValue] = useState<RichComposerValue>(() => ({ text: initial, refs: [], isEmpty: initial.length === 0 }));

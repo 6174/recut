@@ -5,7 +5,7 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-vet web-install web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test transcribe-e2e worlds-check worlds-build worlds-upload worlds-publish worlds-status worlds-inspect
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-test-race service-vet web-install web-test web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test transcribe-e2e worlds-check worlds-build worlds-upload worlds-publish worlds-status worlds-inspect
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
@@ -147,8 +147,14 @@ service-resume: ## Resume the installed current-user production service after lo
 service-test: builtin-apps web-build-embedded ## Run the service test suite.
 	GOCACHE=$(GOCACHE) go -C service test .
 
+service-test-race: builtin-apps web-build-embedded ## Run the service test suite with the race detector (data-race gate).
+	GOCACHE=$(GOCACHE) go -C service test -race .
+
 service-vet: ## Run Go static analysis for the local service.
 	GOCACHE=$(GOCACHE) go -C service vet .
+
+web-test: ## Run web unit tests (rich-composer / context-catalog / media / world-entity).
+	cd web && npm test
 
 web-install: ## Install locked web workspace dependencies.
 	cd web && npm ci
@@ -223,7 +229,7 @@ effects-catalog: ## 从 runtime EFFECT_COMPONENTS 重新生成内置效果目录
 editor-e2e: ## 编辑器 UI Playwright 端到端（含 recut 项目实时同步）。
 	cd apps/editor/ui && npx playwright test
 
-check: service-test service-vet web-build editor-model-test editor-frame-render-test editor-authoring-quality-test ## Run all service and web verification.
+check: service-test service-test-race service-vet web-test web-build editor-model-test editor-frame-render-test editor-authoring-quality-test worlds-check ## Run all service and web verification.
 
 transcribe-e2e: ## 真实接口转写 E2E（不经 UI）：editor subtitle.generate → audio.transcribe → subtitle.status 轮询到完成。
 	cd service && RECUT_E2E_TRANSCRIBE=1 go test -run TestTranscriptionE2E -count=1 -v .

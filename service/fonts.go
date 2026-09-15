@@ -9,8 +9,8 @@
 package main
 
 import (
-	_ "embed"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -35,7 +35,7 @@ const (
 )
 
 type fontsCatalog struct {
-	Version int               `json:"version"`
+	Version int                `json:"version"`
 	Google  []fontsCatalogFont `json:"google"`
 }
 
@@ -56,8 +56,8 @@ type uploadedFont struct {
 }
 
 type FontService struct {
-	root    string   // <data>/fonts —— 缓存与上传字体落盘根
-	cdnBase string   // Recut 自有 CDN 字体前缀（测试可注入）
+	root    string // <data>/fonts —— 缓存与上传字体落盘根
+	cdnBase string // Recut 自有 CDN 字体前缀（测试可注入）
 	client  *http.Client
 	mu      sync.Mutex
 	// cssCache familyID -> 已重写为本服务的 @font-face CSS

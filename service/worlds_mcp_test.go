@@ -24,24 +24,51 @@ func TestWorldsMCPToolsAreAlwaysRegistered(t *testing.T) {
 		"recut.worlds.get",
 		"recut.worlds.entities.list",
 		"recut.worlds.entities.get",
+		"recut.worlds.entityTypes.list",
+		"recut.worlds.relations.list",
 		"recut.worlds.evidence.list",
+		"recut.worlds.brief",
 		"recut.worlds.resolve",
+		"recut.worlds.doc",
+		"recut.worlds.docs",
 		"recut.worlds.create",
 		"recut.worlds.update",
-		"recut.worlds.entities.upsert",
+		"recut.worlds.fork",
 		"recut.worlds.evidence.archive",
 		"recut.worlds.delete",
 		"recut.worlds.bind_project",
+		"recut.worlds.revisions.list",
+		"recut.worlds.revert",
+		"recut.worlds.export",
+		"recut.worlds.import",
+		"recut.worlds.proposals.list",
+		// 方案 A：内容写入收口在画布接口（无额外 canvas 层）。
+		"recut.worlds.entity",
+		"recut.worlds.relation",
+		"recut.worlds.entityType",
+		"recut.worlds.doc.update",
+		"recut.worlds.promote",
+		"recut.worlds.lock",
+		"recut.worlds.unlock",
 	} {
 		if !names[expected] {
 			t.Fatalf("global Worlds tool %q is missing", expected)
 		}
 	}
-	// Evidence/reference writes are frozen (统一实体模型): the attach/update
-	// tools are removed from the MCP surface; media lives in entity attrs.
-	for _, removed := range []string{"recut.worlds.references.attach", "recut.worlds.evidence.attach", "recut.worlds.evidence.update"} {
+	// 收口：语义 CRUD 写入面下线，内容只能经画布接口写。
+	for _, removed := range []string{
+		"recut.worlds.entities.upsert",
+		"recut.worlds.entities.create_child",
+		"recut.worlds.entities.promote",
+		"recut.worlds.relations.create",
+		"recut.worlds.relations.update",
+		"recut.worlds.entityTypes.upsert",
+		"recut.worlds.references.attach",
+		"recut.worlds.evidence.attach",
+		"recut.worlds.evidence.update",
+	} {
 		if names[removed] {
-			t.Fatalf("frozen tool %q must be removed from the MCP surface", removed)
+			t.Fatalf("retired tool %q must be removed from the MCP surface", removed)
 		}
 	}
 }
@@ -120,6 +147,193 @@ func TestWorldsMCPDeleteRequiresNameConfirmation(t *testing.T) {
 		Params: json.RawMessage(`{"name":"recut.worlds.get","arguments":{"worldId":"` + world.ID + `"}}`),
 	}); err == nil {
 		t.Fatal("deleted world is still readable")
+	}
+}
+
+func TestWorldsMCPCanvasWriteSurface(t *testing.T) {
+	_, store, _ := newTestWorldStore(t)
+	bridge := NewAgentBridge(store)
+	media := NewMediaService(store)
+	call := func(name, args string) (any, error) {
+		return handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
+			Method: "tools/call",
+			Params: json.RawMessage(`{"name":"` + name + `","arguments":` + args + `}`),
+		})
+	}
+	created, err := call("recut.worlds.create", `{"name":"Canvas World","type":"custom"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	world := created.(map[string]any)["structuredContent"].(WorldDetail)
+
+	// create 实体 + 在根画布自动放置投影卡。
+	res, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"create","typeId":"character","name":"Hero","intro":"s","contextId":""}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hero := res.(map[string]any)["structuredContent"].(WorldEntity)
+	if hero.ID == "" || hero.Name != "Hero" {
+		t.Fatalf("entity = %#v", hero)
+	}
+	docRes, err := call("recut.worlds.doc", `{"worldId":"`+world.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := docRes.(map[string]any)["structuredContent"].(map[string]any)
+	elements := doc["elements"].([]WorldCanvasElement)
+	placed := false
+	for _, element := range elements {
+		if element.Kind == "entity" && element.RefID == hero.ID {
+			placed = true
+		}
+	}
+	if !placed {
+		t.Fatalf("projection card not placed: %#v", elements)
+	}
+
+	// 一等字段经画布接口更新。
+	upd, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"update","entityId":"`+hero.ID+`","intro":"changed"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upd.(map[string]any)["structuredContent"].(WorldEntity).Intro != "changed" {
+		t.Fatalf("first-class field not updated")
+	}
+
+	// 子设定 + parentId 过滤。
+	if _, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"create","typeId":"object","name":"Item","parentId":"`+hero.ID+`"}`); err != nil {
+		t.Fatal(err)
+	}
+	childrenRes, err := call("recut.worlds.entities.list", `{"worldId":"`+world.ID+`","parentId":"`+hero.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	children := childrenRes.(map[string]any)["structuredContent"].(map[string]any)["items"].([]WorldEntitySummary)
+	if len(children) != 1 || children[0].Name != "Item" {
+		t.Fatalf("children = %#v", children)
+	}
+
+	// 归档 → 列表隐藏；恢复 → 可见。
+	if _, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"archive","entityId":"`+hero.ID+`"}`); err != nil {
+		t.Fatal(err)
+	}
+	listRes, err := call("recut.worlds.entities.list", `{"worldId":"`+world.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := listRes.(map[string]any)["structuredContent"].(map[string]any)["items"].([]WorldEntitySummary)
+	if len(items) != 0 {
+		t.Fatalf("archived entity still listed: %#v", items)
+	}
+	if _, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"restore","entityId":"`+hero.ID+`"}`); err != nil {
+		t.Fatal(err)
+	}
+	listRes, err = call("recut.worlds.entities.list", `{"worldId":"`+world.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items = listRes.(map[string]any)["structuredContent"].(map[string]any)["items"].([]WorldEntitySummary)
+	// 恢复会连带恢复同一归档批次的子设定；hero 必须带着原名回来。
+	foundHero := false
+	for _, item := range items {
+		if item.ID == hero.ID && item.Name == "Hero" {
+			foundHero = true
+		}
+	}
+	if !foundHero {
+		t.Fatalf("restored entity not listed or name lost: %#v", items)
+	}
+}
+
+func TestWorldsMCPRevisionsProposalsAndAttrPatch(t *testing.T) {
+	_, store, _ := newTestWorldStore(t)
+	bridge := NewAgentBridge(store)
+	media := NewMediaService(store)
+	call := func(name, args string) (any, error) {
+		return handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
+			Method: "tools/call",
+			Params: json.RawMessage(`{"name":"` + name + `","arguments":` + args + `}`),
+		})
+	}
+	created, err := call("recut.worlds.create", `{"name":"Rev World","type":"custom"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	world := created.(map[string]any)["structuredContent"].(WorldDetail)
+
+	// attrPatch：只按 key 合并单条属性，其余保持不变。
+	res, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"create","typeId":"character","name":"Hero","attrs":[{"key":"appearance","label":"外貌","type":"textarea","value":"old"}]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hero := res.(map[string]any)["structuredContent"].(WorldEntity)
+	if _, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"update","entityId":"`+hero.ID+`","attrPatch":[{"key":"appearance","value":"new"},{"key":"tag","label":"标签","type":"text","value":"x"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := call("recut.worlds.entities.get", `{"worldId":"`+world.ID+`","entityId":"`+hero.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entity := got.(map[string]any)["structuredContent"].(WorldEntity)
+	values := map[string]any{}
+	labels := map[string]string{}
+	for _, attr := range entity.Attrs {
+		values[attr.Key] = attr.Value
+		labels[attr.Key] = attr.Label
+	}
+	if values["appearance"] != "new" {
+		t.Fatalf("attrPatch did not update appearance: %#v", entity.Attrs)
+	}
+	if values["tag"] != "x" || labels["tag"] != "标签" {
+		t.Fatalf("attrPatch did not add attr: %#v", entity.Attrs)
+	}
+
+	// 版本历史 + 回滚 plumbing。
+	revRes, err := call("recut.worlds.revisions.list", `{"worldId":"`+world.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisions := revRes.(map[string]any)["structuredContent"].(map[string]any)["items"].([]WorldRevisionSummary)
+	if len(revisions) == 0 || revisions[0].ID == "" {
+		t.Fatalf("revisions = %#v", revisions)
+	}
+	if _, err := call("recut.worlds.revert", `{"worldId":"`+world.ID+`","revisionId":"`+revisions[0].ID+`"}`); err != nil {
+		t.Fatalf("revert: %v", err)
+	}
+
+	// 生成提案可观测。
+	if _, err := call("recut.worlds.doc.update", `{"worldId":"`+world.ID+`","contextId":"","ops":[{"op":"insert","element":{"id":"shape:media-1","kind":"media","name":"镜头","props":{"modality":"video","proposal":{"status":"pending","prompt":"p"}}}}]}`); err != nil {
+		t.Fatal(err)
+	}
+	proposalRes, err := call("recut.worlds.proposals.list", `{"worldId":"`+world.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposals := proposalRes.(map[string]any)["structuredContent"].(map[string]any)["items"].([]map[string]any)
+	if len(proposals) != 1 || proposals[0]["status"] != "pending" || proposals[0]["elementId"] != "shape:media-1" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+}
+
+func TestWorldsMCPDescriptionsLocalized(t *testing.T) {
+	zh := map[string]string{}
+	for _, tool := range worldsMCPToolDefinitions(LocaleZh) {
+		zh[tool["name"].(string)] = tool["description"].(string)
+	}
+	en := map[string]string{}
+	for _, tool := range worldsMCPToolDefinitions(LocaleEn) {
+		en[tool["name"].(string)] = tool["description"].(string)
+	}
+	if len(zh) != len(en) || len(zh) == 0 {
+		t.Fatalf("tool counts differ zh=%d en=%d", len(zh), len(en))
+	}
+	for name, text := range zh {
+		if en[name] == "" {
+			t.Fatalf("%s has no en description", name)
+		}
+		if en[name] == text {
+			t.Fatalf("%s en description equals zh (not localized)", name)
+		}
 	}
 }
 

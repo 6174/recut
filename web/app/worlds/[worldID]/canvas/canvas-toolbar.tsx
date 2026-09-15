@@ -202,55 +202,55 @@ export function CanvasToolbarItems() {
           {(zoom * 100).toFixed(0)}%
         </button>
         {menu === "zoom" && (
-          <div className="absolute left-1/2 top-full z-50 mt-2 w-56 -translate-x-1/2 rounded-xl border border-zinc-700 bg-zinc-900 p-1 text-sm shadow-2xl">
+          <div className="absolute left-1/2 top-full z-50 mt-2 w-56 -translate-x-1/2 rounded-xl border border-border bg-card p-1 text-sm text-foreground shadow-2xl">
             {[
               { label: "放大", hint: "⌘ +", action: () => zoomBy(1.2) },
               { label: "缩小", hint: "⌘ −", action: () => zoomBy(1 / 1.2) },
             ].map((item) => (
               <button
                 key={item.label}
-                className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-700/60"
+                className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left hover:bg-muted"
                 onClick={() => (item.action(), setMenu(null))}
                 type="button"
               >
                 {item.label}
-                <span className="text-xs text-zinc-500">{item.hint}</span>
+                <span className="text-xs text-muted-foreground">{item.hint}</span>
               </button>
             ))}
             {[50, 100, 200].map((percent) => (
               <button
                 key={percent}
-                className="block w-full rounded-lg px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-700/60"
+                className="block w-full rounded-lg px-3 py-1.5 text-left hover:bg-muted"
                 onClick={() => (zoomTo(percent / 100), setMenu(null))}
                 type="button"
               >
                 缩放至 {percent}%
               </button>
             ))}
-            <div className="my-1 h-px bg-zinc-700" />
+            <div className="my-1 h-px bg-border" />
             <button
-              className="block w-full rounded-lg px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-700/60"
+              className="block w-full rounded-lg px-3 py-1.5 text-left hover:bg-muted"
               onClick={() => (centerContent(editor), setMenu(null))}
               type="button"
             >
               缩放以适应项目
             </button>
             <button
-              className={`block w-full rounded-lg px-3 py-1.5 text-left hover:bg-zinc-700/60 ${hasSelection ? "text-zinc-200" : "text-zinc-500"}`}
+              className={`block w-full rounded-lg px-3 py-1.5 text-left hover:bg-muted ${hasSelection ? "" : "text-muted-foreground"}`}
               disabled={!hasSelection}
               onClick={() => (fitSelection(), setMenu(null))}
               type="button"
             >
               缩放以适应所选内容
             </button>
-            <div className="my-1 h-px bg-zinc-700" />
+            <div className="my-1 h-px bg-border" />
             <button
-              className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-700/60"
+              className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left hover:bg-muted"
               onClick={toggleGrid}
               type="button"
             >
               对齐到网格
-              <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${gridOn ? "bg-primary" : "bg-zinc-600"}`}>
+              <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${gridOn ? "bg-primary" : "bg-muted"}`}>
                 <span className={`absolute size-4 rounded-full bg-white transition-all ${gridOn ? "left-[1.125rem]" : "left-0.5"}`} />
               </span>
             </button>
@@ -266,9 +266,9 @@ export function CanvasToolbarItems() {
           <CircleHelp className="size-4" />
         </ToolButton>
         {menu === "help" && (
-          <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-xs shadow-2xl">
-            <p className="mb-2 text-sm font-semibold text-zinc-100">画布操作</p>
-            <ul className="space-y-1.5 text-zinc-300">
+          <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-border bg-card p-3 text-xs shadow-2xl">
+            <p className="mb-2 text-sm font-semibold text-foreground">画布操作</p>
+            <ul className="space-y-1.5 text-muted-foreground">
               <li>• 单击卡/元素/线：选中（右侧面板）</li>
               <li>• 空白拖拽：框选多个元素/关系；Shift 拖拽：追加框选</li>
               <li>• Shift 点选：在多选集合中增删；多选后拖拽整体位移、Del 批量删除</li>
@@ -304,34 +304,34 @@ function HistoryMenu({ onClose }: { onClose: () => void }) {
       .catch(() => setRevisions([]));
   }, [worldId, currentRevisionId]);
   return (
-    <div className="absolute left-0 top-full z-50 mt-2 w-80 rounded-xl border border-zinc-700 bg-zinc-900 p-2 text-sm shadow-2xl">
-      <p className="px-1.5 py-1 text-[10px] font-medium text-zinc-400">最近变更</p>
-      {changeLog.length === 0 && <p className="px-1.5 py-1 text-xs text-zinc-500">暂无语义操作记录</p>}
+    <div className="absolute left-0 top-full z-50 mt-2 w-80 rounded-xl border border-border bg-card p-2 text-sm shadow-2xl">
+      <p className="px-1.5 py-1 text-[10px] font-medium text-muted-foreground">最近变更</p>
+      {changeLog.length === 0 && <p className="px-1.5 py-1 text-xs text-muted-foreground">暂无语义操作记录</p>}
       <ul className="max-h-40 overflow-y-auto">
         {changeLog.map((item) => (
-          <li className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700/60" key={item.id}>
+          <li className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-muted" key={item.id}>
             <span className="min-w-0 truncate">
-              {item.label} <span className="text-zinc-500">{item.at}</span>
+              {item.label} <span className="text-muted-foreground">{item.at}</span>
             </span>
-            <button className="shrink-0 rounded border border-zinc-600 px-1.5 py-0.5 text-[10px] hover:bg-zinc-700" onClick={() => void undoChange(item.id)} type="button">
+            <button className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] hover:bg-muted" onClick={() => void undoChange(item.id)} type="button">
               撤销
             </button>
           </li>
         ))}
       </ul>
-      <div className="my-1.5 h-px bg-zinc-700" />
-      <p className="px-1.5 py-1 text-[10px] font-medium text-zinc-400">版本快照</p>
-      {!revisions && <p className="px-1.5 py-1 text-xs text-zinc-500">加载中…</p>}
+      <div className="my-1.5 h-px bg-border" />
+      <p className="px-1.5 py-1 text-[10px] font-medium text-muted-foreground">版本快照</p>
+      {!revisions && <p className="px-1.5 py-1 text-xs text-muted-foreground">加载中…</p>}
       <ul className="max-h-40 overflow-y-auto">
         {(revisions ?? []).slice(0, 5).map((item, index) => (
-          <li className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700/60" key={item.id}>
+          <li className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-muted" key={item.id}>
             <span className="min-w-0 truncate">
               {item.reason}
-              {index === 0 ? "（当前）" : ""} <span className="text-zinc-500">{item.createdAt.slice(5, 16).replace("T", " ")}</span>
+              {index === 0 ? "（当前）" : ""} <span className="text-muted-foreground">{item.createdAt.slice(5, 16).replace("T", " ")}</span>
             </span>
             {index > 0 && (
               <button
-                className="shrink-0 rounded border border-zinc-600 px-1.5 py-0.5 text-[10px] hover:bg-zinc-700"
+                className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] hover:bg-muted"
                 onClick={() => {
                   if (!window.confirm("回滚到该版本？此后的改动将被丢弃（版本仍保留在历史中）。")) return;
                   void revertToRevision(item.id);

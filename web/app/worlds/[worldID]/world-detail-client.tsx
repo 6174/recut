@@ -538,6 +538,7 @@ function WorldDetailContent() {
           typeId={activeKind}
           typeName={entityTypes.find((type) => type.id === activeKind)?.name || entityKindLabel(activeKind)}
           worldId={worldId}
+          worldName={detail.name}
           onClose={() => {
             setCreating(false);
             setSelected(null);

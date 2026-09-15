@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 react createPortal、useContextCatalog/useContextRuntime、ContextSearchField/ContextList/ContextPreviewPane、筛选与排序纯函数
- * [OUTPUT]: 对外提供 ContextMentionPanel：720×min(520,vh) 双栏面板，Portal 锚定 composer 上方，支持搜索/一级分组/二级类型/World scope/键盘导航/预览/插入；受控 query + autoFocusSearch=false 时由编辑器驱动（焦点不离开编辑器）
+ * [OUTPUT]: 对外提供 ContextMentionPanel：720×min(520,vh) 双栏面板，Portal 锚定 composer 上方，支持搜索/一级分组/二级类型/键盘导航/预览/插入；selectedOptions 置顶为「当前引用」分组（与搜索结果去重，便于快速定位）；受控 query + autoFocusSearch=false 时由编辑器驱动（焦点不离开编辑器）
  * [POS]: web/components/context-panel 的双栏容器（选择面 RFC §6/§16）；由 agent-composer 的 @ 与 AtSign 触发、RichComposer 编辑器内 @ 触发，allowedRefTypes 可裁剪
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -36,6 +36,7 @@ export function ContextMentionPanel({
   onQuery,
   autoFocusSearch = true,
   selectedKeys,
+  selectedOptions,
   allowedRefTypes,
   onPick,
   onClose,
@@ -52,6 +53,8 @@ export function ContextMentionPanel({
   /** 打开时是否聚焦面板搜索框；编辑器驱动模式传 false，避免抢焦点 */
   autoFocusSearch?: boolean;
   selectedKeys: Set<string>;
+  /** 已在编辑器中引用的条目：置顶为「当前引用」分组，便于快速定位（与搜索结果去重） */
+  selectedOptions?: ContextOption[];
   allowedRefTypes?: string[];
   onPick: (option: ContextOption, keepOpen: boolean) => void;
   onClose: () => void;
@@ -143,7 +146,21 @@ export function ContextMentionPanel({
     };
   }, [allowedRefTypes, group, projectID, query, scopeWorldId, search, subKind]);
 
-  const rows = useMemo<ContextRow[]>(() => buildContextRows(options), [options]);
+  // 已引用条目从搜索结果剔除（避免与置顶的「当前引用」重复）
+  const selectedKeySet = useMemo(() => new Set((selectedOptions ?? []).map((option) => option.key)), [selectedOptions]);
+  const visibleOptions = useMemo(
+    () => (selectedKeySet.size ? options.filter((option) => !selectedKeySet.has(option.key)) : options),
+    [options, selectedKeySet],
+  );
+  const rows = useMemo<ContextRow[]>(() => {
+    const base = buildContextRows(visibleOptions);
+    if (!selectedOptions?.length) return base;
+    return [
+      { kind: "header", key: "header:selected", group: "current", count: selectedOptions.length, label: t("agent.context.group.selected") },
+      ...selectedOptions.map((option): ContextRow => ({ kind: "option", key: option.key, option })),
+      ...base,
+    ];
+  }, [selectedOptions, t, visibleOptions]);
   const optionRows = useMemo(() => rows.filter((row): row is Extract<ContextRow, { kind: "option" }> => row.kind === "option"), [rows]);
   const subKinds = useMemo(() => {
     const set = new Set<string>();
@@ -257,9 +274,6 @@ export function ContextMentionPanel({
       setSubKind(undefined);
       return;
     }
-    if (event.key === "Backspace" && query === "" && scopeWorldId) {
-      setScopeWorldId(null);
-    }
   }
 
   // 编辑器驱动模式：焦点留在编辑器，键盘在 window 捕获阶段先于宿主（如全屏编辑器的 ⌘↵ 保存 / Esc 取消）消费。
@@ -296,13 +310,10 @@ export function ContextMentionPanel({
                 setSubKind(undefined);
               }}
               onQuery={setQuery}
-              onScopeWorld={setScopeWorldId}
               onSubKind={setSubKind}
               query={query}
-              scopeWorldId={scopeWorldId}
               subKind={subKind}
               subKinds={subKinds}
-              worlds={runtime.worlds}
             />
             <ContextList
               apiBase={apiBase}

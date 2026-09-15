@@ -13,7 +13,9 @@
 import { ChevronRight, Trash2 } from "lucide-react";
 import type { WorldEntity, WorldEntityType } from "@/lib/recut-worlds-client";
 import { EntityEditor, type RelationItem } from "@/components/world-entity/entity-editor";
+import { PanelSection } from "@/components/panel-section";
 import { typeLabelOf } from "@/components/world-entity/field-row";
+import { styleLockFromEntities } from "@/lib/world-entity/guided";
 import { useWorldCanvasStore } from "../canvas-store";
 
 export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; entityTypes: WorldEntityType[] }) {
@@ -41,6 +43,7 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
       entity={entity}
       entityTypes={entityTypes}
       fields={type?.fields ?? []}
+      guided={{ worldId: store.worldId, worldName: store.worldName, ...(styleLockFromEntities(store.entities) ? { styleLock: styleLockFromEntities(store.entities)! } : {}) }}
       readOnly={readOnly}
       relationTypes={store.relationTypes}
       relations={relations}
@@ -52,31 +55,27 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
       }}
       onRenameField={(value) => store.renameEntity(entity, value)}
       tail={
-        <>
-          {/* 子设定（画布特有：进入上下文导航） */}
-          {(childEntities.length > 0 || !readOnly) && (
-            <div className="border-t pt-3">
-              <p className="text-[11px] font-medium text-muted-foreground">子设定（{childEntities.length}）</p>
-              <ul className="mt-1 space-y-1">
-                {childEntities.map((child, index) => (
-                  <li className="flex items-center justify-between gap-2 rounded bg-muted/50 px-2 py-1.5 text-xs" key={child?.id ?? index}>
-                    <span className="truncate">⤷ {child?.name ?? "…"}</span>
-                    {child && (
-                      <button
-                        className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                        onClick={() => store.setContext({ entityId: child.id, title: child.name })}
-                        type="button"
-                      >
-                        进入
-                      </button>
-                    )}
-                  </li>
-                ))}
-                {!childEntities.length && <li className="text-xs text-muted-foreground">暂无子设定</li>}
-              </ul>
-            </div>
-          )}
-        </>
+        (childEntities.length > 0 || !readOnly) && (
+          <PanelSection title={`子设定（${childEntities.length}）`}>
+            <ul className="space-y-1">
+              {childEntities.map((child, index) => (
+                <li className="flex items-center justify-between gap-2 rounded bg-muted/50 px-2 py-1.5 text-xs" key={child?.id ?? index}>
+                  <span className="truncate">⤷ {child?.name ?? "…"}</span>
+                  {child && (
+                    <button
+                      className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      onClick={() => store.setContext({ entityId: child.id, title: child.name })}
+                      type="button"
+                    >
+                      进入
+                    </button>
+                  )}
+                </li>
+              ))}
+              {!childEntities.length && <li className="text-xs text-muted-foreground">暂无子设定</li>}
+            </ul>
+          </PanelSection>
+        )
       }
     />
   );

@@ -442,7 +442,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       const current = this.imageTier.get(url) ?? 0;
       // 只升不降：更高档位且当前空闲时，用已缓存的源图重栅格并替换纹理。
       if (desired > current && !this.imagePending.has(url) && source) {
-        this.upgradeImage(url, cached, source, desired);
+        this.upgradeImage(url, source, desired);
       }
       return cached;
     }
@@ -477,8 +477,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     return null;
   }
 
-  /** 已注册纹理随视口放大升档：重栅格并原位替换（registerImage 会注销旧纹理）。 */
-  private upgradeImage(url: string, id: number, source: HTMLImageElement, tier: number): void {
+  /** 已注册纹理随视口放大升档：重栅格后用**新 id** 注册（不注销旧纹理）。 */
+  private upgradeImage(url: string, source: HTMLImageElement, tier: number): void {
     this.imagePending.add(url);
     void (async () => {
       // 让出当前调用栈：升档由 render 内同步触发，先挂起避免重入 refreshImageBlocks
@@ -486,9 +486,16 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       try {
         const loaded = rasterizeImage(source, tier);
         if (loaded) {
-          this.imageSizes.set(id, { width: loaded.width, height: loaded.height });
+          // 关键：不要复用同一个 image id。runtime.register_image 对同 id 会
+          // renderer.unregister_texture(old)，而 WASM 运行时按 chunk 缓存了 Scene
+          // （其中持有旧 ImageData 引用）；旧纹理一注销，下一次 backing 渲染就会
+          // panic「invalid empty image (id: N)」。换新 id 让旧场景保持有效，旧纹理
+          // 由运行时缓存继续持有（升档档位有限，泄漏可忽略）。
+          const nextId = this.nextImageId++;
+          this.imageSizes.set(nextId, { width: loaded.width, height: loaded.height });
           this.imageTier.set(url, tier);
-          (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, loaded.width, loaded.height, loaded.data);
+          (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(nextId, loaded.width, loaded.height, loaded.data);
+          this.imageIds.set(url, nextId);
         }
       } catch (error) {
         console.warn("[pomelo-vello-adapter] image upgrade failed", url, error);

@@ -17,6 +17,7 @@ import { X } from "lucide-react";
 import { createRecutWorldsClient, entityAttrMediaRef, entityKindLabel, type EntityAttr, type EntityAttrMediaValue, type EntityKind, type WorldEntityType, type WorldEntity, type WorldRelationType } from "@/lib/recut-worlds-client";
 import { resolveMediaSrc } from "@/lib/world-media";
 import { EntityEditor, useEntityEditorSaver, type RelationItem } from "@/components/world-entity/entity-editor";
+import { styleLockFromEntities } from "@/lib/world-entity/guided";
 
 export function isMediaAttrValue(value: unknown): value is EntityAttrMediaValue {
   return entityAttrMediaRef(value) !== null;
@@ -64,6 +65,7 @@ export function attrsCompleteness(entity: WorldEntity): { filled: number; total:
 export function EntitySettingsPanel({
   apiBase,
   worldId,
+  worldName = "",
   typeId,
   typeName,
   entityType,
@@ -77,6 +79,8 @@ export function EntitySettingsPanel({
 }: {
   apiBase: string;
   worldId: string;
+  /** 世界名（引导提示动作的预填语境） */
+  worldName?: string;
   /** 当前 tab 的类型 id（新建态落地用） */
   typeId: EntityKind;
   /** 当前类型的用户语言名（目录缺失回退 entityKindLabel） */
@@ -187,6 +191,7 @@ export function EntitySettingsPanel({
           entity={live}
           entityTypes={entityTypes.map((item) => ({ id: item.id, name: item.name }))}
           fields={entityType?.fields ?? []}
+          guided={{ worldId, worldName, ...(styleLockFromEntities(candidates) ? { styleLock: styleLockFromEntities(candidates)! } : {}) }}
           readOnly={readOnly}
           relationTypes={relationTypes}
           relations={relations}

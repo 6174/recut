@@ -145,7 +145,7 @@ function buildPomeloRecords(
           label: String(element.name ?? ""),
           ...(proposal ? {
             proposalStatus: proposal.status,
-            proposalPrompt: proposal.prompt,
+            proposalPrompt: proposal.prompt.replace(/<[^>]*>/g, " "),
             proposalRefs: proposal.references.length,
             proposalModel: proposal.modelId ?? "",
           } : {}),
@@ -176,7 +176,7 @@ function buildPomeloRecords(
           mediaSrc,
           ...(proposal ? {
             proposalStatus: proposal.status,
-            proposalPrompt: proposal.prompt,
+            proposalPrompt: proposal.prompt.replace(/<[^>]*>/g, " "),
             proposalRefs: proposal.references.length,
           } : {}),
         },

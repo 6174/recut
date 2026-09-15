@@ -41,8 +41,8 @@ recut.worlds.readiness({ worldId, scenarioId? })
 
 - 角色参考图、风格示例等候选用宿主图片生成工具（Recut 中为 `recut.image.generate`）生成。
 - **产物是候选**：把 assetId 深链与画廊式清单交给用户挑选；用户勾选前不得把候选写入 Canon。
-  未勾选 = 未发生。注意 MCP 的证据/参考写入已冻结（媒体统一为**实体 media 属性**，经
-  `recut.worlds.entities.upsert` 落盘）；不存在 `recut.worlds.evidence.attach` / `references.attach` 工具。
+  未勾选 = 未发生。内容写入统一经画布接口 `recut.worlds.entity`（媒体作为实体 media 属性随 `attrs` 落盘）；
+  不存在 `recut.worlds.evidence.attach` / `references.attach` 工具。
 - 生成预算克制：首轮每类 2-3 张样张，确认方向后再补全。
 
 ## 5. 提案（等待用户确认）
@@ -59,9 +59,10 @@ recut.worlds.readiness({ worldId, scenarioId? })
 
 ## 6. 确认后写回
 
-- 逐条调用既有写工具：`recut.worlds.entities.upsert`（含用户勾选的候选媒体，写入实体 media 属性）、
-  `recut.worlds.update(skillMd)`，全部携带 `expectedRevisionId`（提案时的 revision）。证据/参考没有独立
-  写入工具，媒体一律走实体 media 属性；`recut.worlds.evidence.archive` 只在用户要求移除时调用。
+- 逐条调用画布接口：`recut.worlds.entity`（op=create/update；含用户勾选的候选媒体，写入实体 media 属性；给
+  `contextId` 时自动在画布落投影卡）、`recut.worlds.relation`（op=create）、`recut.worlds.update(skillMd)`，
+  全部携带 `expectedRevisionId`（提案时的 revision）。证据/参考没有独立写入工具，媒体一律走实体 media 属性；
+  `recut.worlds.evidence.archive` 只在用户要求移除时调用。
 - 任何一条返回 `WORLD_REVISION_CONFLICT`：**停止整批写回**，重读最新状态，刷新提案差异后再次请
   确认——绝不静默覆盖。
 - 非 local 世界只读（`WORLD_READ_ONLY`）：说明边界并提议 `recut.worlds.fork`，在副本上走本工作流。

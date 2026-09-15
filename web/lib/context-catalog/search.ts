@@ -96,7 +96,7 @@ export function dedupeOptions(options: ContextOption[]): ContextOption[] {
 }
 
 export type ContextRow =
-  | { kind: "header"; key: string; group: ContextGroupID; count: number }
+  | { kind: "header"; key: string; group: ContextGroupID; count: number; label?: string }
   | { kind: "option"; key: string; option: ContextOption };
 
 // buildContextRows 把选项扁平化为虚拟列表行（header + option），列内保留组顺序。

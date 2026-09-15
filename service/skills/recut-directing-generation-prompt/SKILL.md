@@ -67,7 +67,7 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 
 规则：
 
-1. **role 受控**：`pov / color-card / environment / character / prop / style-ref / motion-ref / voice / sfx / music`。生成链路每条引用必须有 role。
+1. **role 受控**：`pov / color-card / environment / character / prop / style-ref / motion-ref / voice / sfx / music`。生成链路每条引用必须有 role。**本表是 AI 侧唯一权威**；运行期镜像在 `canvas-proposal.ts` 的 `PROPOSAL_ROLES`，`recut.worlds.brief.references[].role` 也用它，三处必须同步。
 2. **格式与提交分离**：正文用 `<reference id …>`（身份、可由 Agent 校验）；提交给模型时由 resolver 改写为**组内编号别名**（`参考图1..N`、`音频1..N`，可配 `{{Mixed n}}`），并把同序 `referenceIds` 一并提交。
 3. **id 不进模型串**：模型不是 Agent，看不到也不该看到 assetId；它只看到别名 + 按顺序附着的媒体。
 4. **一图一 role**：需要一图多义时用 `label` 说明，不叠 role。

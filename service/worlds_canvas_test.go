@@ -460,7 +460,7 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 	// and a free element can never be the start point.
 	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
 		WorldID: worldID, ElementID: "shape:arrow-bad", Kind: "arrow",
-		Props: map[string]any{"fromElementId": "shape:note-1", "toElementId": "shape:entity-0"},
+		Props:    map[string]any{"fromElementId": "shape:note-1", "toElementId": "shape:entity-0"},
 		Geometry: map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}, Layer: "0",
 	}); err == nil {
 		t.Fatal("arrow from a free element must be rejected")
@@ -469,14 +469,14 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 	// and a free element can never be the start point.
 	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
 		WorldID: worldID, ElementID: "shape:arrow-bad", Kind: "arrow",
-		Props: map[string]any{"fromElementId": "shape:note-1", "toElementId": "shape:entity-0"},
+		Props:    map[string]any{"fromElementId": "shape:note-1", "toElementId": "shape:entity-0"},
 		Geometry: map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}, Layer: "0",
 	}); err == nil {
 		t.Fatal("arrow from a free element must be rejected")
 	}
 	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
 		WorldID: worldID, ElementID: "shape:arrow-missing", Kind: "arrow",
-		Props: map[string]any{"fromElementId": "shape:ghost", "toElementId": "shape:entity-0"},
+		Props:    map[string]any{"fromElementId": "shape:ghost", "toElementId": "shape:entity-0"},
 		Geometry: map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}, Layer: "0",
 	}); err == nil {
 		t.Fatal("arrow with a missing start element must be rejected")
@@ -502,7 +502,7 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 	// A semantic link may only be drawn once the entity start point exists.
 	arrow, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
 		WorldID: worldID, ElementID: "shape:arrow-1", Kind: "arrow",
-		Props: map[string]any{"fromElementId": "shape:entity-0", "toElementId": "shape:entity-1"},
+		Props:    map[string]any{"fromElementId": "shape:entity-0", "toElementId": "shape:entity-1"},
 		Geometry: map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}, Layer: "0",
 	})
 	if err != nil {
@@ -592,7 +592,7 @@ func TestCanvasPropertyBindingAndSync(t *testing.T) {
 	}
 	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
 		WorldID: worldID, ElementID: "shape:arrow-1", Kind: "arrow",
-		Props: map[string]any{"fromElementId": "shape:entity-0", "toElementId": "shape:note-1"},
+		Props:    map[string]any{"fromElementId": "shape:entity-0", "toElementId": "shape:note-1"},
 		Geometry: map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}, Layer: "0",
 	}); err != nil {
 		t.Fatal(err)
@@ -649,7 +649,7 @@ func TestCanvasPropertyBindingAndSync(t *testing.T) {
 	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
 		WorldID: worldID, ElementID: "attr:shape:note-1", Kind: "attr",
 		RefKind: "entity", RefID: entity.ID, Name: "属性 · 外貌与标志",
-		Props: map[string]any{"field": "appearance", "sourceElementId": "shape:note-1", "value": "近代建筑之父"},
+		Props:    map[string]any{"field": "appearance", "sourceElementId": "shape:note-1", "value": "近代建筑之父"},
 		Geometry: map[string]any{"x": 300, "y": 0}, Layer: "0",
 	}); err != nil {
 		t.Fatal(err)
@@ -682,7 +682,7 @@ func TestCanvasPropertyBindingAndSync(t *testing.T) {
 	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
 		WorldID: worldID, ElementID: "attr:shape:note-1", Kind: "attr",
 		RefKind: "entity", RefID: entity.ID, Name: "属性 · 外貌与标志",
-		Props: map[string]any{"field": "appearance", "sourceElementId": "shape:note-1", "value": ""},
+		Props:    map[string]any{"field": "appearance", "sourceElementId": "shape:note-1", "value": ""},
 		Geometry: map[string]any{"x": 300, "y": 0}, Layer: "0",
 	}); err != nil {
 		t.Fatal(err)
@@ -764,6 +764,7 @@ func TestForkCarriesCanvasTypesAndContainer(t *testing.T) {
 		}
 	}
 }
+
 // TestDeleteEntityArchivesSubgraphAndCascade（T2）：删除实体归档整个子图，
 // 触达关系物理删除、证据归档、画布实体投影清理，产 1 条 revision。
 func TestDeleteEntityArchivesSubgraphAndCascade(t *testing.T) {

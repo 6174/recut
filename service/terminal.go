@@ -110,8 +110,13 @@ func (m *TerminalManager) Start(input TerminalStart) (TerminalSession, error) {
 		_, _ = file.WriteString(input.InitialInput)
 	}
 	log.Printf("INFO terminal started terminal_id=%s project_id=%s command=%s", current.ID, current.ProjectID, current.Command)
+	// 先取快照再启动读取 goroutine：recordPreview 会在该 goroutine 内写 LastMessage，
+	// 未加锁地拷贝 TerminalSession 会与之数据竞争。
+	m.mu.RLock()
+	session := current.TerminalSession
+	m.mu.RUnlock()
 	go m.read(current, command)
-	return current.TerminalSession, nil
+	return session, nil
 }
 
 func (m *TerminalManager) List() []TerminalSession {
@@ -233,6 +238,8 @@ func (m *TerminalManager) recordOutput(current *terminal, chunk string) {
 }
 
 func (m *TerminalManager) recordPreview(current *terminal, chunk string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	lines, tail := terminalLines(current.previewBuffer + stripTerminalControlCodes(chunk))
 	current.previewBuffer = tail
 	if len(current.previewBuffer) > 512 {
@@ -245,8 +252,6 @@ func (m *TerminalManager) recordPreview(current *terminal, chunk string) bool {
 	if message == "" {
 		return false
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	if current.LastMessage == message {
 		return false
 	}

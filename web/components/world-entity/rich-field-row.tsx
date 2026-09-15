@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 RichComposer、createPortal、stripRefs/contextProtocolRegistry 与 i18n
- * [OUTPUT]: 对外提供 RichFieldRow：FieldRow 的富文本版（referencing/field），展示态剥离标签，编辑态 RichComposer，
- * 带「放大」全屏富文本编辑（⌘↵ 保存 / Esc 取消），⌘↵ 保存 / Esc 取消
+ * [INPUT]: 依赖 RichComposer、createPortal、stripRefs/contextProtocolRegistry、field-row（needsClamp）与 i18n
+ * [OUTPUT]: 对外提供 RichFieldRow：FieldRow 的富文本版（referencing/field），展示态剥离标签、长文本 line-clamp-4 折叠 +
+ * 展开/收起、编辑态 RichComposer，带「放大」全屏富文本编辑（⌘↵ 保存 / Esc 取消），⌘↵ 保存 / Esc 取消
  * [POS]: web/components/world-entity 的复用验证原语（协议 RFC §4.5/§8.2）；只把 value.text 存回实体字段，不产生 contexts
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,6 +14,7 @@ import { RichComposer } from "@/components/rich-composer/rich-composer";
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import { referenceDisplayText } from "@/lib/rich-composer/protocol/parse";
 import type { RichComposerValue } from "@/lib/rich-composer/value";
+import { needsClamp } from "./field-row";
 
 export function RichFieldRow({
   label,
@@ -37,6 +38,7 @@ export function RichFieldRow({
   const registry = useMemo(() => contextProtocolRegistry(), []);
   const [editing, setEditing] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState<RichComposerValue>(() => ({ text: value, refs: [], isEmpty: !value }));
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const initialRef = useRef(value);
@@ -68,12 +70,21 @@ export function RichFieldRow({
   };
 
   const display = referenceDisplayText(value, registry).trim();
+  const clamped = needsClamp(display) && !expanded;
+  const clampable = needsClamp(display);
 
   if (readOnly) {
     return (
       <div>
-        <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-        <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-6">{display || "—"}</p>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+          {clampable && (
+            <button className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setExpanded(!expanded)} type="button">
+              {expanded ? "收起" : "展开"}
+            </button>
+          )}
+        </div>
+        <p className={`mt-0.5 break-words whitespace-pre-wrap text-sm leading-6 ${clamped ? "line-clamp-4 text-muted-foreground/80" : expanded ? "max-h-[48vh] overflow-y-auto" : ""}`}>{display || "—"}</p>
       </div>
     );
   }
@@ -83,18 +94,26 @@ export function RichFieldRow({
       <div className="group/field">
         <div className="flex items-baseline justify-between gap-2">
           <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-          <button
-            aria-label={`编辑${label}`}
-            className="text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/field:opacity-100"
-            onClick={() => setEditing(true)}
-            type="button"
-          >
-            ✎
-          </button>
+          <span className="flex shrink-0 gap-2">
+            {clampable && (
+              <button className="text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/field:opacity-100" onClick={() => setExpanded(!expanded)} type="button">
+                {expanded ? "收起" : "展开"}
+              </button>
+            )}
+            <button
+              aria-label={`编辑${label}`}
+              className="text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/field:opacity-100"
+              onClick={() => setEditing(true)}
+              type="button"
+            >
+              ✎
+            </button>
+          </span>
         </div>
         <button
-          className={`mt-0.5 w-full break-words whitespace-pre-wrap rounded px-1 py-0.5 text-left text-sm leading-6 hover:bg-muted/60 ${display ? "" : "text-muted-foreground/60"}`}
+          className={`mt-0.5 w-full break-words whitespace-pre-wrap rounded px-1 py-0.5 text-left text-sm leading-6 hover:bg-muted/60 ${display ? "" : "text-muted-foreground/60"} ${clamped ? "line-clamp-4" : expanded ? "max-h-[48vh] overflow-y-auto" : ""}`}
           onClick={() => setEditing(true)}
+          title={clampable ? "点击编辑（放大编辑可看全文）" : undefined}
           type="button"
         >
           {display || (placeholder ?? "点击填写")}
@@ -137,6 +156,7 @@ export function RichFieldRow({
           allowedRefTypes={allowedRefTypes}
           apiBase={apiBase}
           autoFocus
+          maxRows={10}
           minRows={minRows}
           mode="referencing"
           onChange={setDraft}

@@ -57,26 +57,26 @@ func resolveScenario(worldType WorldKind, scenarioID string) string {
 
 // readinessFieldSpec names one required content field on an entity kind.
 type readinessFieldSpec struct {
-	key     string
-	title   string // zh, user-facing
-	reason  string
+	key    string
+	title  string // zh, user-facing
+	reason string
 }
 
 // readinessEntitySpec declares how many substantive entities of one kind the
 // blueprint expects, and which fields matter on them.
 type readinessEntitySpec struct {
-	kind     string
-	title    string
-	count    int // required substantive entities (0 = optional, measured only)
-	fields   []readinessFieldSpec
+	kind   string
+	title  string
+	count  int // required substantive entities (0 = optional, measured only)
+	fields []readinessFieldSpec
 }
 
 // readinessEvidenceSpec declares the evidence expectation of a blueprint.
 type readinessEvidenceSpec struct {
-	purpose  string
-	modality string
-	count    int
-	title    string
+	purpose    string
+	modality   string
+	count      int
+	title      string
 	suggestion string
 }
 

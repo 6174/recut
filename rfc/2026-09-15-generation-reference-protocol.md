@@ -214,7 +214,7 @@ World 与生成链路目前是**断开**的，需要在这里对齐。
 | --- | --- | --- | --- |
 | World 内容/生产 | `world.md`（世界技能） | `worlds/<slug>/world.md` → `recut.worlds.brief.skill` 全文内联 | 每世界一套生产工作流；xiaohei 已含「生图提示词模板」「资源口径」 |
 | World 读取 | platform `recut` skill §Creation Worlds（`service/skills/recut/SKILL.md`） | brief/get/list/entities.list/get/resolve | 只读入口 |
-| World 写/Onboarding | `recut` skill + `references/world-onboarding.md` | entities.upsert（media 属性）/ worlds.update(skillMd) | 确认后写回；素材唯一表示 = media 属性 |
+| World 写/Onboarding | `recut-worlds`（画布接口） | `recut.worlds.entity` / `relation` / `entityType`（内容）+ `worlds.update`（world.md） | 方案 A：内容写入统一经画布接口；语义 CRUD 已下线 |
 | World Canvas 操作 | **`recut-worlds`**（2026-09-15 新增） | `service/skills/recut-worlds/SKILL.md` | 属性模型、显示三层、边即关联、提升语义 |
 | 画布媒体生成 | **生成提案 gate 已实现** | `web/app/worlds/[worldID]/canvas/canvas-proposal.ts` + `recut-worlds` skill | 结构化 `proposal.references[]` + role 自检；视频强制提案 |
 

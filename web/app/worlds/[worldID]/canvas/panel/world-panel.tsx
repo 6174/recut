@@ -19,6 +19,7 @@ import { useWorldsStore } from "@/lib/worlds-store";
 import { useWorldCanvasStore } from "../canvas-store";
 import { entityMediaAttrs } from "../entity-attrs";
 import { FieldRow, typeLabelOf } from "./field-row";
+import { PanelSection } from "@/components/panel-section";
 import { RichFieldRow } from "@/components/world-entity/rich-field-row";
 
 const WORLD_REF_TYPES = ["creation_entity", "creation_world", "media"];
@@ -98,34 +99,34 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
   const summary = [snapshot, `${relations.length} 条关系`].filter(Boolean).join(" · ");
 
   return (
-    <div className="space-y-4 text-sm">
-      <FieldRow label="名称" value={store.worldName} onSave={(value) => void saveMeta({ name: String(value) })} />
-      <RichFieldRow
-        apiBase={apiBase}
-        allowedRefTypes={WORLD_REF_TYPES}
-        label="简介"
-        minRows={3}
-        value={worldDetail?.description ?? ""}
-        placeholder="一句话描述这个世界…"
-        onSave={(value) => void saveMeta({ description: value })}
-      />
-      <RichFieldRow
-        apiBase={apiBase}
-        allowedRefTypes={WORLD_REF_TYPES}
-        label="Skill"
-        minRows={6}
-        value={worldDetail?.skillMd ?? ""}
-        placeholder="这个世界的创作技能说明（Agent 会读取）…"
-        onSave={(value) => void saveMeta({ skillMd: value })}
-      />
-      <div className="border-t pt-3">
-        <p className="text-[11px] font-medium text-muted-foreground">世界快照</p>
-        <p className="mt-1 text-sm leading-6">{summary || "（空世界）"}</p>
-      </div>
+    <div className="text-sm">
+      <PanelSection first title="身份">
+        <FieldRow label="名称" value={store.worldName} onSave={(value) => void saveMeta({ name: String(value) })} />
+        <RichFieldRow
+          apiBase={apiBase}
+          allowedRefTypes={WORLD_REF_TYPES}
+          label="简介"
+          minRows={3}
+          value={worldDetail?.description ?? ""}
+          placeholder="一句话描述这个世界…"
+          onSave={(value) => void saveMeta({ description: value })}
+        />
+        <RichFieldRow
+          apiBase={apiBase}
+          allowedRefTypes={WORLD_REF_TYPES}
+          label="Skill"
+          minRows={6}
+          value={worldDetail?.skillMd ?? ""}
+          placeholder="这个世界的创作技能说明（Agent 会读取）…"
+          onSave={(value) => void saveMeta({ skillMd: value })}
+        />
+      </PanelSection>
+      <PanelSection title="世界快照">
+        <p className="text-sm leading-6">{summary || "（空世界）"}</p>
+      </PanelSection>
       {attention.length > 0 && (
-        <div className="border-t pt-3">
-          <p className="text-[11px] font-medium text-muted-foreground">待关注</p>
-          <ul className="mt-1 space-y-1">
+        <PanelSection title="待关注">
+          <ul className="space-y-1">
             {attention.slice(0, 5).map((item) => (
               <li className="flex items-center justify-between gap-2 rounded bg-muted/50 px-2 py-1.5 text-xs" key={item.key}>
                 <span className="truncate">{item.text}</span>
@@ -142,34 +143,36 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
               </li>
             ))}
           </ul>
-        </div>
+        </PanelSection>
       )}
-      {!store.readOnly && (
+      <div className="space-y-2 pt-3">
+        {!store.readOnly && (
+          <button
+            className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-primary text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            onClick={() => setCreating(true)}
+            type="button"
+          >
+            <Plus className="size-3.5" /> 添加设定…
+          </button>
+        )}
         <button
-          className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-primary text-xs font-medium text-primary-foreground hover:bg-primary/90"
-          onClick={() => setCreating(true)}
+          className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border text-xs font-medium hover:bg-muted disabled:opacity-50"
+          disabled={exporting}
+          onClick={() => void exportWorldBundle()}
           type="button"
         >
-          <Plus className="size-3.5" /> 添加设定…
+          <Download className="size-3.5" /> {exporting ? "导出中…" : "导出为 zip"}
         </button>
-      )}
-      <button
-        className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border text-xs font-medium hover:bg-muted disabled:opacity-50"
-        disabled={exporting}
-        onClick={() => void exportWorldBundle()}
-        type="button"
-      >
-        <Download className="size-3.5" /> {exporting ? "导出中…" : "导出为 zip"}
-      </button>
-      {!store.readOnly && (
-        <button
-          className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-destructive/40 text-xs text-destructive hover:bg-destructive/10"
-          onClick={() => { setDeleteName(""); setDeleteError(""); setDeleteOpen(true); }}
-          type="button"
-        >
-          <Trash2 className="size-3.5" /> 永久删除这个世界
-        </button>
-      )}
+        {!store.readOnly && (
+          <button
+            className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-destructive/40 text-xs text-destructive hover:bg-destructive/10"
+            onClick={() => { setDeleteName(""); setDeleteError(""); setDeleteOpen(true); }}
+            type="button"
+          >
+            <Trash2 className="size-3.5" /> 永久删除这个世界
+          </button>
+        )}
+      </div>
       {deleteOpen && (
         <div aria-modal="true" className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6" role="dialog">
           <div className="w-full max-w-md rounded-md border bg-card p-5 text-left shadow-2xl">

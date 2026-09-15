@@ -116,14 +116,11 @@ export function proposalIssues(proposal: GenerationProposal): Array<{ level: "er
   if (!proposal.prompt.trim()) issues.push({ level: "error", message: "提示词为空" });
   if (!proposal.modelId) issues.push({ level: "error", message: "未选择生成模型" });
   for (const reference of proposal.references) {
-    const kind = reference.kind;
-    if (!reference.role) {
-      issues.push({ level: "warn", message: `参考 ${reference.label || reference.id} 未声明 role` });
-      continue;
-    }
+    // role 是 Agent 侧的锚定语义（非模型接口字段），用户可不声明；仅在已声明时校验 role↔kind
+    if (!reference.role) continue;
     const spec = PROPOSAL_ROLES.find((item) => item.id === reference.role);
-    if (spec && kind && !spec.kinds.includes(kind)) {
-      issues.push({ level: "error", message: `参考「${reference.label || reference.id}」的 role（${spec.label}）与类型 ${kind} 不匹配` });
+    if (spec && reference.kind && !spec.kinds.includes(reference.kind)) {
+      issues.push({ level: "error", message: `参考「${reference.label || reference.id}」的 role（${spec.label}）与类型 ${reference.kind} 不匹配` });
     }
   }
   if (!proposal.references.length) issues.push({ level: "warn", message: "没有参考素材" });

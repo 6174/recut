@@ -698,6 +698,10 @@ func (w *WorldStore) ListEntities(input ListEntitiesInput) ([]WorldEntitySummary
 		where += " and coalesce(nullif(type_id, ''), kind) = ?"
 		args = append(args, input.TypeID)
 	}
+	if input.ParentID != "" {
+		where += " and parent_id = ?"
+		args = append(args, input.ParentID)
+	}
 	if input.Text != "" {
 		where += " and (title like ? or summary like ?)"
 		pattern := "%" + input.Text + "%"
@@ -2705,6 +2709,7 @@ type ListWorldsInput struct {
 type ListEntitiesInput struct {
 	WorldID            string
 	TypeID             string `json:"typeId"`
+	ParentID           string `json:"parentId"`
 	Text               string `json:"text"`
 	Cursor             string `json:"cursor"`
 	Limit              int    `json:"limit"`

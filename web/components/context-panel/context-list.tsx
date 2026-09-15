@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 @tanstack/react-virtual、context-catalog/search 的行模型与 context-option-row
- * [OUTPUT]: 对外提供 ContextList：虚拟化的分组列表（header + option 行），含空态与错误行
+ * [OUTPUT]: 对外提供 ContextList：虚拟化的分组列表（header + option 行），表头支持 label 覆盖，含空态与错误行
  * [POS]: web/components/context-panel 的虚拟列表；行高固定避免抖动，键盘高亮由容器回传
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -77,11 +77,11 @@ export function ContextList({
                 >
                   {row.kind === "header" ? (
                     <div
-                      aria-label={groupTitle(row.group)}
+                      aria-label={row.label ?? groupTitle(row.group)}
                       className="flex items-center justify-between px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
                       role="group"
                     >
-                      <span>{groupTitle(row.group)}</span>
+                      <span>{row.label ?? groupTitle(row.group)}</span>
                       <span>{row.count}</span>
                     </div>
                   ) : (

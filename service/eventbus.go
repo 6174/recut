@@ -36,8 +36,8 @@ func (c *wsClient) subscribesTo(channel, key string) bool {
 type EventBus struct {
 	mu      sync.RWMutex
 	clients map[*wsClient]struct{}
-	wild    map[string]map[*wsClient]struct{}      // channel -> clients subscribed with key ""
-	keyed   map[string]map[*wsClient]struct{}      // "channel\x00key" -> clients
+	wild    map[string]map[*wsClient]struct{} // channel -> clients subscribed with key ""
+	keyed   map[string]map[*wsClient]struct{} // "channel\x00key" -> clients
 }
 
 func newEventBus() *EventBus {

@@ -12,6 +12,7 @@
 import { ArrowLeftRight, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { WorldEntityRelation } from "@/lib/recut-worlds-client";
+import { PanelSection } from "@/components/panel-section";
 import { useWorldCanvasStore } from "../canvas-store";
 
 export function RelationPanel({ relation }: { relation: WorldEntityRelation }) {
@@ -25,15 +26,14 @@ export function RelationPanel({ relation }: { relation: WorldEntityRelation }) {
   const [armed, setArmed] = useState(false);
   const titleOf = (id: string) => entities.find((item) => item.id === id)?.name ?? "…";
   return (
-    <div className="space-y-4 text-sm">
-      <div>
-        <p className="text-[11px] font-medium text-muted-foreground">类型</p>
+    <div className="text-sm">
+      <PanelSection first title="类型">
         {readOnly ? (
-          <p className="mt-0.5 text-sm">{relation.type}</p>
+          <p className="text-sm">{relation.type}</p>
         ) : (
           <>
             <select
-              className="mt-1 w-full rounded-md border bg-background p-1.5 text-sm outline-none focus:border-primary"
+              className="w-full rounded-md border bg-background p-1.5 text-sm outline-none focus:border-primary"
               onChange={(event) => void changeRelationType(relation, event.target.value)}
               value={relationTypes.some((item) => item.id === relation.type) ? relation.type : ""}
             >
@@ -53,10 +53,9 @@ export function RelationPanel({ relation }: { relation: WorldEntityRelation }) {
             <CustomRelationType current={relation.type} onConfirm={(relationType) => void changeRelationType(relation, relationType)} />
           </>
         )}
-      </div>
-      <div>
-        <p className="text-[11px] font-medium text-muted-foreground">方向</p>
-        <p className="mt-0.5 flex items-center gap-1 text-sm">
+      </PanelSection>
+      <PanelSection title="方向">
+        <p className="flex items-center gap-1 text-sm">
           <button className="rounded px-1 hover:bg-muted" onClick={() => select({ type: "entity", entity: entities.find((item) => item.id === relation.fromEntityId)! })} type="button">
             {titleOf(relation.fromEntityId)}
           </button>
@@ -76,37 +75,38 @@ export function RelationPanel({ relation }: { relation: WorldEntityRelation }) {
             </button>
           )}
         </p>
-      </div>
-      <div>
-        <p className="text-[11px] font-medium text-muted-foreground">范围</p>
-        <p className="mt-0.5 text-sm">{relation.scopeEntityId ? `仅「${titleOf(relation.scopeEntityId)}」内部可见 · 局部` : "全局"}</p>
-      </div>
+      </PanelSection>
+      <PanelSection title="范围">
+        <p className="text-sm">{relation.scopeEntityId ? `仅「${titleOf(relation.scopeEntityId)}」内部可见 · 局部` : "全局"}</p>
+      </PanelSection>
       {!readOnly && (
-        armed ? (
-          <div className="flex gap-2">
-            <button className="h-8 flex-1 rounded-md border text-xs hover:bg-muted" onClick={() => setArmed(false)} type="button">
-              取消
-            </button>
+        <div className="pt-3">
+          {armed ? (
+            <div className="flex gap-2">
+              <button className="h-8 flex-1 rounded-md border text-xs hover:bg-muted" onClick={() => setArmed(false)} type="button">
+                取消
+              </button>
+              <button
+                className="h-8 flex-1 rounded-md bg-destructive text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  setArmed(false);
+                  void removeRelation(relation.id);
+                }}
+                type="button"
+              >
+                确认删除
+              </button>
+            </div>
+          ) : (
             <button
-              className="h-8 flex-1 rounded-md bg-destructive text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                setArmed(false);
-                void removeRelation(relation.id);
-              }}
+              className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-destructive/40 text-xs text-destructive hover:bg-destructive/10"
+              onClick={() => setArmed(true)}
               type="button"
             >
-              确认删除
+              <Trash2 className="size-3.5" /> 删除此关系
             </button>
-          </div>
-        ) : (
-          <button
-            className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-destructive/40 text-xs text-destructive hover:bg-destructive/10"
-            onClick={() => setArmed(true)}
-            type="button"
-          >
-            <Trash2 className="size-3.5" /> 删除此关系
-          </button>
-        )
+          )}
+        </div>
       )}
     </div>
   );

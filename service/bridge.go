@@ -28,18 +28,18 @@ var coreAgentsTemplate string
 var bridgeInstructions string
 
 type AgentSession struct {
-	ID              string    `json:"id"`
-	TaskID          string    `json:"taskId,omitempty"`
-	Runtime         string    `json:"-"`
-	Model           string    `json:"-"`
-	ReasoningEffort string    `json:"-"`
-	AllowedTools    []string  `json:"allowedTools,omitempty"`
-	ProjectID       string    `json:"projectId,omitempty"`
-	AppID           string    `json:"appId,omitempty"`
+	ID              string   `json:"id"`
+	TaskID          string   `json:"taskId,omitempty"`
+	Runtime         string   `json:"-"`
+	Model           string   `json:"-"`
+	ReasoningEffort string   `json:"-"`
+	AllowedTools    []string `json:"allowedTools,omitempty"`
+	ProjectID       string   `json:"projectId,omitempty"`
+	AppID           string   `json:"appId,omitempty"`
 	// Focused 是 App 声明的聚焦上下文（不透明 map），平台只透传，App 的受限工具消费它。
-	Focused    map[string]any `json:"-"`
-	TokenHash  string         `json:"tokenHash"`
-	CreatedAt  time.Time      `json:"createdAt"`
+	Focused   map[string]any `json:"-"`
+	TokenHash string         `json:"tokenHash"`
+	CreatedAt time.Time      `json:"createdAt"`
 }
 
 // SessionContext carries the Task identity for one CLI execution. A session

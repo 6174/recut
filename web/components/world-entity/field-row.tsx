@@ -4,7 +4,7 @@
  * FieldRow（单行/多行/开关字段就地编辑，blur 或 ⌘↵ 保存；展示态长文本 line-clamp-4 折叠 + 展开/收起；
  * 编辑态多行限高 + 放大全屏编辑器 FullscreenTextEditor）、AssetFieldRow（type=media 素材字段：槽位 +
  * 全局素材选择浮层 + 点击已填素材走 AssetPreviewDialog，值统一存 {assetId,name,kind}）、
- * parseAssetValue / typeLabelOf（type 目录 name → 统一类型文案）；FullscreenTextEditor 亦供画布就地编辑器复用
+ * parseAssetValue / typeLabelOf / needsClamp（type 目录 name → 统一类型文案；needsClamp 亦供富文本字段复用）；FullscreenTextEditor 亦供画布就地编辑器复用
  * [POS]: web/components/world-entity 的字段级编辑原语（保存策略：单行 blur 即存、多行三通道）；
  * 不依赖任何 store，宿主以 apiBase / onSave 注入数据面
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -26,7 +26,7 @@ export type AssetValue = { assetId?: string; url?: string; name?: string; kind?:
 const CLAMP_CHARS = 140;
 const CLAMP_LINES = 4;
 
-function needsClamp(value: string): boolean {
+export function needsClamp(value: string): boolean {
   return value.length > CLAMP_CHARS || value.split("\n").length > CLAMP_LINES;
 }
 
@@ -49,6 +49,7 @@ export function FieldRow({
   multiline,
   boolean,
   readOnly,
+  hideLabel,
   onSave,
 }: {
   label: string;
@@ -57,6 +58,8 @@ export function FieldRow({
   multiline?: boolean;
   boolean?: boolean;
   readOnly?: boolean;
+  /** 宿主已用分组标题表达字段名时隐藏行内 label（避免标题与字段名重复） */
+  hideLabel?: boolean;
   onSave: (value: string | boolean) => Promise<void> | void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -106,14 +109,14 @@ export function FieldRow({
     if (readOnly) {
       return (
         <div>
-          <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+          {hideLabel ? null : <p className="text-[11px] font-medium text-muted-foreground">{label}</p>}
           <p className="mt-0.5 text-sm">{on ? "是" : "否"}</p>
         </div>
       );
     }
     return (
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+        {hideLabel ? null : <p className="text-[11px] font-medium text-muted-foreground">{label}</p>}
         <button
           aria-label={`切换${label}`}
           aria-pressed={on}
@@ -131,42 +134,69 @@ export function FieldRow({
   if (readOnly) {
     return (
       <div>
-        <div className="flex items-baseline justify-between gap-2">
-          <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-          {needsClamp(value) && (
-            <button className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setExpanded(!expanded)} type="button">
-              {expanded ? "收起" : "展开"}
-            </button>
-          )}
-        </div>
-        <p className={`mt-0.5 break-words whitespace-pre-wrap text-sm leading-6 ${clamped ? "line-clamp-4 text-muted-foreground/80" : needsClamp(value) ? "max-h-[48vh] overflow-y-auto" : ""}`}>{value || "—"}</p>
+        {!hideLabel && (
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+            {needsClamp(value) && (
+              <button className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setExpanded(!expanded)} type="button">
+                {expanded ? "收起" : "展开"}
+              </button>
+            )}
+          </div>
+        )}
+        <p className={`${hideLabel ? "" : "mt-0.5 "}break-words whitespace-pre-wrap text-sm leading-6 ${clamped ? "line-clamp-4 text-muted-foreground/80" : needsClamp(value) ? "max-h-[48vh] overflow-y-auto" : ""}`}>{value || "—"}</p>
       </div>
     );
   }
 
   if (!editing) {
+    const controls = (
+      <span className="flex shrink-0 items-center gap-2">
+        {needsClamp(value) && (
+          <button className="text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/field:opacity-100" onClick={() => setExpanded(!expanded)} type="button">
+            {expanded ? "收起" : "展开"}
+          </button>
+        )}
+        <button
+          aria-label={`编辑${label}`}
+          className="text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/field:opacity-100"
+          onClick={() => setEditing(true)}
+          type="button"
+        >
+          ✎
+        </button>
+      </span>
+    );
+    const valueClass = `break-words whitespace-pre-wrap rounded px-1 py-0.5 text-left text-sm leading-6 hover:bg-muted/60 ${value ? "" : "text-muted-foreground/60"} ${clamped ? "line-clamp-4" : `${expanded ? "max-h-[48vh] overflow-y-auto" : ""} block`}`;
+    // hideLabel（宿主用分组标题表达字段名）：值 + 右侧编辑控件同一行，编辑 icon 不另起一行
+    if (hideLabel) {
+      return (
+        <div className="group/field">
+          <div className="flex items-center gap-2">
+            <button
+              className={`${valueClass} min-w-0 flex-1`}
+              onClick={() => setEditing(true)}
+              title={needsClamp(value) ? "点击编辑（放大编辑可看全文）" : undefined}
+              type="button"
+            >
+              {value || (placeholder ?? "点击填写")}
+            </button>
+            {controls}
+          </div>
+          {state === "saved" && <p className="text-[10px] text-primary">已保存</p>}
+          {state === "saving" && <p className="text-[10px] text-muted-foreground">保存中…</p>}
+          {state === "error" && <p className="text-[10px] text-destructive">保存失败，请重试</p>}
+        </div>
+      );
+    }
     return (
       <div className="group/field">
         <div className="flex items-baseline justify-between gap-2">
           <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-          <span className="flex shrink-0 gap-2">
-            {needsClamp(value) && (
-              <button className="text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/field:opacity-100" onClick={() => setExpanded(!expanded)} type="button">
-                {expanded ? "收起" : "展开"}
-              </button>
-            )}
-            <button
-              aria-label={`编辑${label}`}
-              className="text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/field:opacity-100"
-              onClick={() => setEditing(true)}
-              type="button"
-            >
-              ✎
-            </button>
-          </span>
+          {controls}
         </div>
         <button
-          className={`mt-0.5 w-full break-words whitespace-pre-wrap rounded px-1 py-0.5 text-left text-sm leading-6 hover:bg-muted/60 ${value ? "" : "text-muted-foreground/60"} ${clamped ? "line-clamp-4" : `${expanded ? "max-h-[48vh] overflow-y-auto" : ""} block`}`}
+          className={`mt-0.5 w-full ${valueClass}`}
           onClick={() => setEditing(true)}
           type="button"
           title={needsClamp(value) ? "点击编辑（放大编辑可看全文）" : undefined}
@@ -183,7 +213,7 @@ export function FieldRow({
   return multiline ? (
     <div>
       <div className="flex items-baseline justify-between gap-2">
-        <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+        {hideLabel ? null : <p className="text-[11px] font-medium text-muted-foreground">{label}</p>}
         <button aria-label={`放大编辑${label}`} className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setFullscreen(true)} title="放大编辑" type="button">
           <Maximize2 className="size-3" /> 放大
         </button>
@@ -210,7 +240,7 @@ export function FieldRow({
     </div>
   ) : (
     <div>
-      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+      {hideLabel ? null : <p className="text-[11px] font-medium text-muted-foreground">{label}</p>}
       <input
         autoFocus
         className="mt-1 w-full rounded-md border bg-background p-1.5 text-sm outline-none focus:border-primary"

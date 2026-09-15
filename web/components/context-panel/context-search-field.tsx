@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 lucide 图标、useI18n、context-catalog 分组与 WorldSummary
- * [OUTPUT]: 对外提供 ContextSearchField：搜索框 + 一级分组 chip + 二级类型 chip + Entity scope 面包屑（World 选择）
- * [POS]: web/components/context-panel 的搜索与过滤控制层；查询由面板受控，继续输入即实时过滤（debounce 在面板）
+ * [INPUT]: 依赖 lucide 图标、useI18n、context-catalog 分组
+ * [OUTPUT]: 对外提供 ContextSearchField：搜索框 + 一级分组 chip + 二级类型 chip；查询由面板受控，继续输入即实时过滤（debounce 在面板）
+ * [POS]: web/components/context-panel 的搜索与过滤控制层
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -10,7 +10,6 @@ import { Search } from "lucide-react";
 import { useI18n } from "@/lib/i18n/index";
 import { contextGroupTitleKeys } from "@/lib/context-catalog/registry";
 import type { ContextGroupID } from "@/lib/context-catalog/types";
-import type { WorldSummary } from "@/lib/recut-worlds-client";
 
 export function ContextSearchField({
   query,
@@ -22,9 +21,6 @@ export function ContextSearchField({
   subKind,
   subKinds,
   onSubKind,
-  scopeWorldId,
-  worlds,
-  onScopeWorld,
 }: {
   query: string;
   onQuery: (value: string) => void;
@@ -35,9 +31,6 @@ export function ContextSearchField({
   subKind?: string;
   subKinds: string[];
   onSubKind: (subKind?: string) => void;
-  scopeWorldId: string | null;
-  worlds: WorldSummary[];
-  onScopeWorld: (worldId: string | null) => void;
 }) {
   const { t } = useI18n();
   return (
@@ -71,24 +64,6 @@ export function ContextSearchField({
           {subKinds.map((kind) => (
             <GroupChip active={subKind === kind} key={kind} label={kind} onClick={() => onSubKind(kind)} />
           ))}
-        </div>
-      )}
-      {group === "world" && (scopeWorldId || worlds.length > 0) && (
-        <div className="flex items-center gap-1.5 border-t px-2.5 py-1.5 text-[10px] text-muted-foreground">
-          <span>{t("agent.context.scope.worldLabel")}</span>
-          <select
-            aria-label={t("agent.context.scope.worldLabel")}
-            className="min-w-0 flex-1 rounded-xs border bg-background px-1.5 py-1 text-[11px] text-foreground"
-            onChange={(event) => onScopeWorld(event.target.value || null)}
-            value={scopeWorldId ?? ""}
-          >
-            <option value="">{t("agent.context.scope.allWorlds")}</option>
-            {worlds.map((world) => (
-              <option key={world.id} value={world.id}>
-                {world.name}
-              </option>
-            ))}
-          </select>
         </div>
       )}
     </div>

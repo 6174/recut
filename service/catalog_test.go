@@ -55,16 +55,16 @@ func TestCatalogLoadsManifestOnlyApps(t *testing.T) {
 
 func TestCatalogValidatesBackgroundModules(t *testing.T) {
 	manifest := Manifest{
-		ManifestVersion: 1,
-		ID:              "example.modules",
-		Name:            "Modules",
-		Author:          "Test",
-		Description:     "Test App.",
-		Version:         "1.0.0",
-		Kind:            ProjectApp,
-		Background:      "background.js",
+		ManifestVersion:   1,
+		ID:                "example.modules",
+		Name:              "Modules",
+		Author:            "Test",
+		Description:       "Test App.",
+		Version:           "1.0.0",
+		Kind:              ProjectApp,
+		Background:        "background.js",
 		BackgroundModules: []string{"background/model.js"},
-		UI:              UIEntrypoints{ProjectView: "ui/index.html"},
+		UI:                UIEntrypoints{ProjectView: "ui/index.html"},
 	}
 	if err := validateManifest(manifest); err != nil {
 		t.Fatalf("valid backgroundModules rejected: %v", err)

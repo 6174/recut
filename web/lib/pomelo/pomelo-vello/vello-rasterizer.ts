@@ -31,15 +31,8 @@ function hashChunk(id: string, ops: Uint8Array): number {
   return hash >>> 0;
 }
 
-/** 由 chunk id 生成稳定且不与字体/图像 id 冲突的 u32。 */
-function atomicImageId(id: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < id.length; i++) {
-    hash ^= id.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return ((hash >>> 0) % 1_000_000) + 100_000;
-}
+/** atomic chunk 纹理的 image id 起点：远离字体/图像 id 段，避免冲突。 */
+const ATOMIC_IMAGE_ID_BASE = 10_000_000;
 
 interface WasmRuntime {
   render_tile(ops: Uint8Array, level: number, minX: number, minY: number): number;
@@ -99,6 +92,7 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
   private readonly canvas: HTMLCanvasElement;
   private dpr: number;
   private readonly atomicCache = new Map<string, number>();
+  private nextAtomicImageId = ATOMIC_IMAGE_ID_BASE;
   private lastOpsLength = 0;
   private lastChunkCount = 0;
   private maxOpsLength = 0;
@@ -173,7 +167,10 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
       const minX = chunk.bounds.minX - padding;
       const minY = chunk.bounds.minY - padding;
       if (imageId === undefined) {
-        imageId = atomicImageId(chunk.id);
+        // 每次重渲都用新 id：runtime.render_atomic_chunk 对同 id 会注销旧纹理，
+        // 而运行时缓存了引用旧 ImageData 的 Scene → 会 panic（invalid empty image）/
+        // 进而把 wasm 对象留在借用态（recursive use of an object）。换新 id 让旧场景保持有效。
+        imageId = this.nextAtomicImageId++;
         this.runtime.render_atomic_chunk(
           imageId,
           payload.velloOps,

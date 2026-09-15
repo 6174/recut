@@ -20,5 +20,6 @@ recut-worlds-client.ts: Creation Worlds 的浏览器传输适配器；请求/响
 worlds-store.ts: Creation Worlds 的跨路由内存缓存；World 列表分页、详情、Entity 列表/详情快照分别保留读取状态与失败原因，缓存键按 `{endpoint, text, type, cursor}` / `{endpoint, worldId}` / `{endpoint, worldId, kind, cursor}` 划分，任何写或绑定成功后显式失效，禁止页面级轮询。
 iframe-assets-bridge.ts: iframe `recut.assets` 与 `recut.clipboard.writeText` 的宿主实现；以当前 project scope 代理全局 Asset 查询、上传、绑定、删除和内容 URL，并在顶层文档执行 Clipboard 写入，iframe 不发现 Service 或拼接 API。
 agent-panel-context.ts: 路由签发的 Work Surface 与 App/页面补充的完整 Focus 的全局状态；路由变更立刻清理 Focus，禁止选区跨项目、App 或 World 泄漏。
+world-entity/guided/: World 详情面板的引导提示操作内核（RFC 2026-09-15-world-entity-guided-ai-actions）：类型/产出/动作契约、属性名→purpose/role 推断词表（`inferMediaPurpose`）、实体与媒体两套动作注册表（九类动作 × 四种产出）、上下文装配（`buildEntityContext`/`buildMediaContext`/`mediaRefsFromEntity`）与过滤/排序/门禁注册表（`actionsFor`/`rankActions`/`isActionEnabled`）；纯函数、无 React/无 I/O，`components/world-entity/guided-ai-section` 消费并把组装好的提示词交全局 AI 输入框。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

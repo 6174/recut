@@ -14,11 +14,15 @@
 import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { RichComposer } from "@/components/rich-composer/rich-composer";
+import { useLocaleStore } from "@/lib/i18n/locale-store";
+import { styleLockFromEntities, buildMediaContext, type MediaModality } from "@/lib/world-entity/guided";
 import { RichFieldRow } from "@/components/world-entity/rich-field-row";
+import { GuidedAiSection } from "@/components/world-entity/guided-ai-section";
 import type { RichComposerValue } from "@/lib/rich-composer/value";
 import { useWorldCanvasStore } from "../canvas-store";
 import { FieldRow } from "./field-row";
 import { MediaElementEditor } from "./media-editor";
+import { PanelSection } from "@/components/panel-section";
 
 const ELEMENT_REF_TYPES = ["creation_entity", "creation_world", "media"];
 
@@ -31,7 +35,7 @@ function mediaLabelOf(media: string): string {
 function AttrLabelEditor({ attrId, initialLabel }: { attrId: string; initialLabel: string }) {
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const renameAttrLabel = useWorldCanvasStore((state) => state.renameAttrLabel);
-  return <FieldRow label="属性名称" value={initialLabel} placeholder="属性名…" readOnly={readOnly} onSave={(value) => renameAttrLabel(attrId, String(value))} />;
+  return <FieldRow hideLabel label="名称" value={initialLabel} placeholder="属性名…" readOnly={readOnly} onSave={(value) => renameAttrLabel(attrId, String(value))} />;
 }
 
 // attr 文本卡（kind=attr 且 props.media=text）：属性名称 + 面板正文编辑（FieldRow：blur/⌘↵ 保存与全屏放大）。
@@ -94,6 +98,9 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const removeElement = useWorldCanvasStore((state) => state.removeElement);
   const setPromoting = useWorldCanvasStore((state) => state.setPromoting);
+  const worldId = useWorldCanvasStore((state) => state.worldId);
+  const worldName = useWorldCanvasStore((state) => state.worldName);
+  const locale = useLocaleStore((state) => state.locale);
   // selection.element 是选中时刻的快照；面板编辑（换图/改名）只更新 elements，
   // 若直接读快照会永远停在旧值（媒体面板换图后预览不刷新、生成配方不继承）。
   const element = selected ? (elements.find((item) => item.id === selected.id) ?? selected) : null;
@@ -115,37 +122,70 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
   const connectable = Boolean(fromEntityId && toEntityId && fromEntityId !== toEntityId);
   const fromTitle = titleOf(fromEntityId);
   const toTitle = attrTarget ? `「${String(attrTarget.props?.label ?? "") || String(attrTarget.name ?? "").replace(/^属性 · /, "")}」` : titleOf(toEntityId);
+  // 引导提示（媒体）：推断属性语义 → 组装动作上下文；所属实体用于写回与参考
+  const mediaModality = ((isAttrCard ? String(element.props?.media) : String(element.props?.modality)) || "image") as MediaModality;
+  const owningEntity = (() => {
+    const directId = String(element.props?.entityId ?? "").replace(/^shape:/, "");
+    if (directId) return entities.find((item) => item.id === directId) ?? null;
+    const edge = elements.find((item) => item.kind === "arrow" && item.props?.edgeType === "attr" && String(item.props?.toElementId ?? "") === element.id);
+    const fromId = String(edge?.props?.fromElementId ?? "").replace(/^shape:/, "");
+    return fromId ? entities.find((item) => item.id === fromId) ?? null : null;
+  })();
+  const mediaGuidedContext =
+    isMediaElement || isAttrCard
+      ? buildMediaContext({ element, modality: mediaModality, owningEntity, worldId, worldName, locale, ...(styleLockFromEntities(entities) ? { styleLock: styleLockFromEntities(entities)! } : {}) })
+      : null;
+  const typeText = isMediaElement ? "媒体" : isAttrCard ? `${mediaLabelOf(String(element.props?.media ?? "image"))}属性` : isAttrTextCard ? "文本属性" : isNote ? "便签" : isText ? "文本" : isArrow ? (isAttrEdge ? "属性边" : "关系边（草稿）") : element.kind === "shape" ? "形状" : element.kind;
+  const isMediaPanel = isMediaElement || isAttrCard;
   return (
-    <div className="space-y-4 text-sm">
-      <div>
-        <p className="text-[11px] font-medium text-muted-foreground">元素类型</p>
-        <p className="mt-0.5 text-sm">{isMediaElement ? "媒体" : isAttrCard ? `${mediaLabelOf(String(element.props?.media ?? "image"))}属性` : isAttrTextCard ? "文本属性" : isNote ? "便签" : isText ? "文本" : isArrow ? (isAttrEdge ? "属性边" : "关系边（草稿）") : element.kind === "shape" ? "形状" : element.kind}</p>
-      </div>
-      {(isMediaElement || isAttrCard) && <MediaElementEditor element={element} />}
-      {isAttrCard && <AttrLabelEditor attrId={element.id} initialLabel={String(element.props?.label ?? "") || String(element.name ?? "").replace(/^属性 · /, "")} />}
-      {(isNote || isText) && <ElementBodyEditor elementId={element.id} initialText={String(element.props?.text ?? "")} />}
-      {isAttrTextCard && <AttrTextCardEditor attrId={element.id} initialText={String(element.props?.text ?? "")} />}
+    <div className="text-sm">
+      {!isMediaPanel && (
+        <PanelSection first title="元素">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[10px] text-muted-foreground">类型</span>
+            <span className="text-sm">{typeText}</span>
+          </div>
+        </PanelSection>
+      )}
+      {isMediaPanel && (
+        <MediaElementEditor
+          element={element}
+          guided={mediaGuidedContext ? <GuidedAiSection ctx={mediaGuidedContext} divider={false} readOnly={readOnly} tone="section" /> : undefined}
+          identity={isAttrCard ? <AttrLabelEditor attrId={element.id} initialLabel={String(element.props?.label ?? "") || String(element.name ?? "").replace(/^属性 · /, "")} /> : undefined}
+        />
+      )}
+      {(isNote || isText) && (
+        <PanelSection title="内容">
+          <ElementBodyEditor elementId={element.id} initialText={String(element.props?.text ?? "")} />
+        </PanelSection>
+      )}
+      {isAttrTextCard && (
+        <PanelSection title="属性">
+          <AttrTextCardEditor attrId={element.id} initialText={String(element.props?.text ?? "")} />
+        </PanelSection>
+      )}
       {isArrow && (
-        <div>
-          <p className="text-[11px] font-medium text-muted-foreground">连接</p>
-          <p className="mt-0.5 text-sm">
+        <PanelSection title="连接">
+          <p className="text-sm">
             {fromTitle} → {toTitle}
           </p>
-        </div>
+        </PanelSection>
       )}
       {isAttrEdge && attrTarget && (
-        <AttrEdgeEditor attrId={attrTarget.id} initialLabel={String(attrTarget.props?.label ?? "") || String(attrTarget.name ?? "").replace(/^属性 · /, "")} media={String(attrTarget.props?.media ?? "text")} initialText={String(attrTarget.props?.text ?? "")} />
+        <PanelSection title="属性">
+          <AttrEdgeEditor attrId={attrTarget.id} initialLabel={String(attrTarget.props?.label ?? "") || String(attrTarget.name ?? "").replace(/^属性 · /, "")} media={String(attrTarget.props?.media ?? "text")} initialText={String(attrTarget.props?.text ?? "")} />
+        </PanelSection>
       )}
       {isArrow && !isAttrEdge && connectable && (
-        <DraftRelationTypeEditor arrowId={element.id} currentType={String(element.props?.relationType ?? element.props?.edgeType ?? "")} />
-      )}
-      {isArrow && !isAttrEdge && connectable && (
-        <p className="rounded-md bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground">
-          该箭头连接两个实体。提升后将写入语义关系（产出 revision），画布草稿保留为投影。
-        </p>
+        <PanelSection title="关系">
+          <DraftRelationTypeEditor arrowId={element.id} currentType={String(element.props?.relationType ?? element.props?.edgeType ?? "")} />
+          <p className="rounded-md bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground">
+            该箭头连接两个实体。提升后将写入语义关系（产出 revision），画布草稿保留为投影。
+          </p>
+        </PanelSection>
       )}
       {!readOnly && (
-        <div className="space-y-2">
+        <div className="space-y-2 pt-3">
           {isNote && (
             <button
               className="flex h-8 w-full items-center justify-center rounded-md bg-primary text-xs font-medium text-primary-foreground hover:bg-primary/90"
@@ -291,6 +331,7 @@ function ElementBodyEditor({ elementId, initialText }: { elementId: string; init
         <RichComposer
           apiBase={apiBase}
           allowedRefTypes={ELEMENT_REF_TYPES}
+          maxRows={10}
           minRows={3}
           mode="referencing"
           onChange={setValue}

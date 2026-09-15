@@ -24,19 +24,19 @@ import (
 )
 
 type Server struct {
-	apps      *Catalog
-	store     *Store
-	terminals *TerminalManager
-	bridge    *AgentBridge
-	agents    *AgentManager
-	host      *AppHost
-	media     *MediaService
-	fonts     *FontService
-	updater   *ServiceUpdater
-	skills    *RecutSkillsManager
-	worlds    *WorldStore
+	apps         *Catalog
+	store        *Store
+	terminals    *TerminalManager
+	bridge       *AgentBridge
+	agents       *AgentManager
+	host         *AppHost
+	media        *MediaService
+	fonts        *FontService
+	updater      *ServiceUpdater
+	skills       *RecutSkillsManager
+	worlds       *WorldStore
 	worldCatalog *WorldCatalogSyncer
-	bus       *EventBus
+	bus          *EventBus
 }
 
 func NewServer(apps *Catalog, store *Store, terminals *TerminalManager, bridge *AgentBridge, agents *AgentManager, host *AppHost, media *MediaService, updater ...*ServiceUpdater) *Server {
@@ -184,8 +184,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/media/assets/{id}", s.getMediaAsset)
 	mux.HandleFunc("PATCH /v1/media/assets/{id}", s.updateMediaAsset)
 	mux.HandleFunc("DELETE /v1/media/assets/{id}", s.deleteMediaAsset)
- 	mux.HandleFunc("GET /v1/media/assets/{id}/content", s.getMediaAssetContent)
- 	mux.HandleFunc("GET /v1/files/remote", s.getRemoteFile)
+	mux.HandleFunc("GET /v1/media/assets/{id}/content", s.getMediaAssetContent)
+	mux.HandleFunc("GET /v1/files/remote", s.getRemoteFile)
 	mux.HandleFunc("GET /v1/media/assets/{id}/parts/{part}", s.getMediaAssetPart)
 	mux.HandleFunc("POST /v1/media/assets/{id}/attach", s.attachMediaAsset)
 	mux.HandleFunc("POST /v1/media/assets/{id}/retry-download", s.retryMediaAssetDownload)

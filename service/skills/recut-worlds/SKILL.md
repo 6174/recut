@@ -56,33 +56,38 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 - **画布 → 实体**：编辑属性卡正文，按 label 映射回实体——`简介/介绍/intro → intro`、`正文/内容/detail → detail`，否则写同名 attr key（无则新建）。空值不回写；删除属性只在右侧面板做。
 - **实体 → 画布**：面板改字段后，绑定该字段的属性卡投影值自动刷新；字段被删则投影清空，不留陈旧副本。
 
-**提升（`canvas.promote`）决定边的语义**：
+**提升（`recut.worlds.promote`）决定边的语义**：
 
 - `entity → entity` = **关系**（`relationType`，写 `world_relations`）。
 - `entity → 自由元素` = **属性绑定**（`field` 绑定到实体属性；自由元素转为引用投影，并生成一个 attr 锚点元素，与右侧属性面板共享同一数据源）。
 - 便签/文本提升 = 变成**草稿实体**（`isProvisional`），原元素保留为投影。
 
-画布元素**永不产 revision**；只有 `canvas.promote` 与 Canon 写才产。
+画布元素**永不产 revision**；只有 `recut.worlds.promote` 与 Canon 写才产。
 
 ## 工具地图（意图 → 工具）
+
+**内容写入收口在画布接口（方案 A，World 即画布）**：MCP 不再有独立的语义 CRUD 工具，实体/关系/类型都经下列接口。
 
 | 意图 | 工具 | 说明 |
 |---|---|---|
 | 发现 / 读取世界 | `recut.worlds.list` / `get` / `brief` / `readiness` / `resolve` | `brief` 是默认单次可生产入口（身份 + world.md + 实体属性 + `references[]` 可引用项表） |
-| 浏览 Canon | `entities.list` / `entities.get` / `relations.list` / `entityTypes.list` / `evidence.list` | 只读；`evidence.list` 仅兼容读取，素材权威在 media 属性 |
-| 读画布 | `canvas.doc`（某层）/ `canvas.docs`（层索引） | `contextId=""` 为根画布 |
-| 写 Canon（产 revision） | `entities.upsert` / `entities.create_child` / `entities.promote` / `relations.create` / `relations.update` / `entityTypes.upsert` / `worlds.update`（skillMd）/ `worlds.create` / `worlds.fork` | 语义事实或 schema |
-| 写画布布局（不产 revision） | `canvas.doc.update` | 元素级 ops：insert / update / remove；自由元素含 `note` / `text` / `shape` / `arrow` / `link` / `attr` / `media` |
-| 提升草稿为 Canon | `canvas.promote` | 便签/文本→实体；箭头→关系 / 属性绑定 |
-| 门禁与绑定 | `worlds.bind_project` / `evidence.archive` / `worlds.delete` | 绑定 / 归档 / 删除 |
+| 读取内容 | `entities.list` / `entities.get` / `relations.list` / `entityTypes.list` / `evidence.list` | 只读；`entities.list` 支持 `parentId`（子设定）与 `includeProvisional`（草稿） |
+| 读画布 | `recut.worlds.doc`（某层）/ `recut.worlds.docs`（层索引） | `contextId=""` 为根画布 |
+| 写内容（画布接口） | `recut.worlds.entity` | op：`create`（可带 `contextId` 自动落投影卡）/ `update`（只覆盖显式字段）/ `archive` / `restore` / `confirm`（草稿转正） |
+| | `recut.worlds.relation` | op：`create` / `update` / `archive` / `restore`；`scopeEntityId` 非空为局部关系 |
+| | `recut.worlds.entityType` | 定义/覆盖类型 schema（不产 revision） |
+| 写画布布局（不产 revision） | `recut.worlds.doc.update` | 元素级 ops：insert / update / remove；自由元素含 `note` / `text` / `shape` / `arrow` / `link` / `attr` / `media` |
+| 提升草稿为 Canon | `recut.worlds.promote` | 便签/文本→草稿实体；箭头→关系 / 属性绑定 |
+| 多步会话 | `recut.worlds.lock` / `recut.worlds.unlock` | 多步画布编辑前上 advisory 锁，结束务必释放 |
+| World 生命周期 | `worlds.create` / `update`（world.md/identity）/ `fork` / `delete` / `bind_project` / `evidence.archive` | 世界级操作，不是内容编辑 |
 
 ## 门禁（违反会被拒绝或造成事故）
 
 1. **非 local 世界只读**：任何写工具返回 `WORLD_READ_ONLY` 是边界不是失败——说明并提议 `recut.worlds.fork`，经用户确认在副本上继续。
 2. **写 Canon 需要用户明确授权**：onboarding/画布 UI 的确认动作即明确授权；无用户请求绝不主动写。
 3. **乐观并发**：所有 Canon 写携带 `expectedRevisionId`；`WORLD_REVISION_CONFLICT` 时停止整批、重读、刷新提案，绝不静默覆盖。
-4. **草稿免费**：`isProvisional: true` 的实体是探索草稿，不产 revision、不进 Canon、不计入 readiness；用 `entities.promote` 转正。
-5. **删除是软删除**：设定/关系删除 = 归档（`archived_at` + 墓碑 + changeLog，可逐条撤销），画布元素删除 = 本地移除。`worlds.delete` 是永久操作，只在用户明确要求并确认世界名称时调用；`evidence.archive` 是归档不是删除；**底层 media asset 永不因世界内容删除而删除**。
+4. **草稿免费**：`isProvisional: true` 的实体是探索草稿，不产 revision、不进 Canon、不计入 readiness；用 `recut.worlds.entity` op=`confirm` 转正。
+5. **删除是软删除**：`recut.worlds.entity` op=`archive` / `relation` op=`archive` = 归档（`archived_at` + 墓碑 + changeLog，可 `restore` 恢复），画布元素删除 = 本地移除。`worlds.delete` 是永久操作，只在用户明确要求并确认世界名称时调用；`evidence.archive` 是归档不是删除；**底层 media asset 永不因世界内容删除而删除**。
 6. **生成产物默认不进 Canon**：见下。
 7. **视频先提案、用户确认**：画布上的视频只落 `proposal`（`props.proposal.status="pending"`），**绝不直接调用 `recut.video.generate`**；确认权只属于用户，Agent 不代确认。图片/语音成本低，可直接生成。
 
@@ -91,7 +96,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 在世界/画布语境里生成媒体，走「读世界 → 写提示词 → 落提案（视频）/ 直接生成（图音）→ 用户确认 → 落位」：
 
 1. **读**：`recut.worlds.brief({ worldId })` 取 `world.md` 全文、该世界实体属性，以及 **`references[]`**——从实体 media 属性派生的可引用项（`{id,label,kind,role,source,assetId/url,entityId}`，`role` 是建议值）。世界风格（风格实体、world.md 的视觉语言）就是 **STYLE LOCK 来源**；`references[]` 就是可直接锚定的候选清单，不必自己翻属性找图。
-2. **写提示词**：用 `recut-directing-generation-prompt` 的骨架——STYLE LOCK 逐字冻结；参考用受控 role 声明（`pov / color-card / environment / character / prop / style-ref / motion-ref / voice / sfx / music`），引用世界的角色、风格、示例图与音色。
+2. **写提示词**：用 `recut-directing-generation-prompt` 的骨架——STYLE LOCK 逐字冻结；参考用受控 role 声明（词表权威见该技能《参考锚点表达规则》），引用世界的角色、风格、示例图与音色。
 3. **解析绑定**：把参考导出为 `references: [{id, kind, role, label}]`（`id` = assetId），按**出现顺序**得到 `referenceIds`；任一 role 与 kind 不匹配、或 prompt/model 缺失即拒绝提交（fail closed）。
 4. **执行**：
    - **视频**：**不得直接调用 `recut.video.generate`**。视频成本高，必须先落「生成提案」，由用户在画布上确认后才真正生成（见下）。
@@ -103,7 +108,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 画布上的视频节点有两种状态：**提案态（未生成、不花钱）** 与 **结果态（已生成、可播放）**。生成命令的触发权只在用户手里——**Agent 只负责把提案放上画布，等用户点「确认生成」**。
 
-提案就是一个 `kind="media"` 的画布元素，`props.modality="video"` 且 `props.proposal` 描述这次生成意图。用 `canvas.doc.update` 的 `insert` 放它（画布元素不产 revision、不花钱）：
+提案就是一个 `kind="media"` 的画布元素，`props.modality="video"` 且 `props.proposal` 描述这次生成意图。用 `recut.worlds.doc.update` 的 `insert` 放它（画布元素不产 revision、不花钱）：
 
 ```json
 {
@@ -176,6 +181,10 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 ## 介质声明
 
 本技能是**操作层**，显式引用 `recut.worlds.*` 与媒体生成工具；它不定义任何业务内容，内容永远来自世界自身（world.md + 实体属性）。
+
+**面与消费者**：`recut.worlds.*` 的 **MCP 面是面向 AI 的唯一接口**（本技能描述的就是它）；App 内部的 `ctx.worlds.*` capability 是已安装 App 的便路，不由 AI 调用、也不在本技能范围。
+
+**模型权威**：属性/画布语义以 `rfc/2026-09-09-unified-entity-model.md` 与画布实现 README（`web/app/worlds/[worldID]/canvas/README.md`）为准；本技能只是操作摘要，冲突时以上述为准。
 
 ## 版本与来源
 
