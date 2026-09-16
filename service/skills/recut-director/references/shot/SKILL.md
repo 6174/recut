@@ -1,10 +1,10 @@
 ---
-name: recut-directing-shot
+name: references/shot
 appId: recut.platform
 description: 决定「一个镜头/一场怎么拍？」——景别、角度、焦段、运动、调度与分镜连续性的导演决策。
 ---
 
-# Recut 全局镜头与分镜技能（recut-directing-shot）
+# Recut 全局镜头与分镜技能（references/shot）
 
 本技能只回答一个决策问题：**一个镜头/一场怎么拍？** 含分镜。输入是一场戏的意图、人物与空间，输出是一组可执行的镜头方案与分镜表（起止构图、走位、光位、连续性锚点），供各 App 再落为各自的介质实现。
 
@@ -13,11 +13,11 @@ description: 决定「一个镜头/一场怎么拍？」——景别、角度、
 | 归属 | 内容 | 说明 |
 |---|---|---|
 | **本技能** | 镜头语法与分镜连续性 | 景别/角度/焦段/运动的叙事功能、调度几何、轴线与视线、分镜表与首尾帧连续性、首尾帧可生成性 |
-| **recut-directing-motion** | 元素动效 | 单个图文/图形/文字元素的缓动、转场动效、呼吸与落定等原子动效语法 |
-| **recut-directing-editing** | 剪辑节奏 | 节拍密度、切点落拍、转场选择、平均镜头长度（ASL）与节奏中断 |
-| **recut-directing-generation-prompt** | 生成提示词的形状与参考锚定 | 把本技能的「镜头意图」落成图片/视频生成提示词（STYLE LOCK、`<reference>` 锚定、多镜连续段、声画与负面合同） |
+| **references/motion** | 元素动效 | 单个图文/图形/文字元素的缓动、转场动效、呼吸与落定等原子动效语法 |
+| **references/editing** | 剪辑节奏 | 节拍密度、切点落拍、转场选择、平均镜头长度（ASL）与节奏中断 |
+| **references/generation-prompt** | 生成提示词的形状与参考锚定 | 把本技能的「镜头意图」落成图片/视频生成提示词（STYLE LOCK、`<reference>` 锚定、多镜连续段、声画与负面合同） |
 | **各 App 适配层** | AI 生成 prompt 的模型方言 | 把生成提示词译为具体模型的参数与控制面（`modeType`、负面字段、ratio/resolution、别名模板）；全局层只写意图与引用，不写 provider 语法 |
-| **recut-directing-lighting / sound / story 等** | 光、声、叙事结构 | 光比与调色、声音设计、故事因果链各自归口；本技能只在「镜头需要」时引用其结论 |
+| **`references/sound`、`references/story` 等** | 光、声、叙事结构 | 光比与调色、声音设计、故事因果链各自归口；本技能只在「镜头需要」时引用其结论 |
 
 未验证场景不冒充支持；单一 App 的介质语法（时间线 op、Remotion 组件、生成接口参数）不在此出现。
 
@@ -66,7 +66,7 @@ description: 决定「一个镜头/一场怎么拍？」——景别、角度、
 ## 使用时机
 
 - 用户问"这场怎么拍""这个镜头用什么景别/焦段/运动""分镜怎么拆"时加载本技能。
-- 已有节拍表时直接进入分镜流程；无节拍时先引导补节拍（见 `assets/beat-sheet-template.md`），不跳过节拍直接给镜头。
+- 已有节拍表时直接进入分镜流程；无节拍时先引导补节拍（见 `references/shot/assets/beat-sheet-template.md`），不跳过节拍直接给镜头。
 - 需要导演风格化时再按需加载对应风格文件，不为"随便拍"预载风格。
 
 ## 常见误用
@@ -80,20 +80,20 @@ description: 决定「一个镜头/一场怎么拍？」——景别、角度、
 
 | 问题 | 读什么 | 用途 |
 |---|---|---|
-| 选景别/角度/焦段/运镜与构图 | `references/cinematic-language.md` | 镜头功能、景别阶梯、角度与高度、焦段心理、焦点、轴线/30°/视线/出入画、覆盖模式、画幅与竖幅改写 |
-| 人物走位与场面调度 | `references/blocking-and-staging.md` |  proxemics、力量几何、14 套调度图示、纵深调度、出入画语义、走位记号与转译 |
-| 跨镜连续性与资产管理 | `references/continuity-bible.md` | 15 轴漂移检查、身份串、服装/道具/地点/光位/天气台账、首尾帧对齐与状态账本 |
-| 选词与落 prompt 的措辞 | `references/prompt-lexicon.md` | 抽象词→可观察行为转译、动词库、相机措辞、材质/文化名词、负面词库与 token 经济 |
-| 开场/运动/转场等配方卡 | `references/shot-library.md` + `references/shot-recipes/**` | 10 基础配方 + 八类 100+ 细分配方（camera/data/effects/interaction/opening/outro/rhythm/transition/typography/ui-entrance），按场景类型按需加载，不整库常驻 |
-| 20 位导演风格覆盖 | `references/director_styles/*.md` | 每位导演一文件，含镜头/灯光/色彩/剪辑/声音/表演偏好与可迁移清单 |
-| 分镜表怎么填 | `assets/shot-plan-template.md` | 15 列字段字典、风险定档与工作示例 |
-| 首尾帧怎么写 | `assets/keyframe-prompt-template.md` | 九槽位顺序、invariant 串用法与首/尾/板/表模板 |
-| 节拍怎么拆 | `assets/beat-sheet-template.md` | 节拍定义、压力记法与时长预算 |
+| 选景别/角度/焦段/运镜与构图 | `references/shot/references/cinematic-language.md` | 镜头功能、景别阶梯、角度与高度、焦段心理、焦点、轴线/30°/视线/出入画、覆盖模式、画幅与竖幅改写 |
+| 人物走位与场面调度 | `references/shot/references/blocking-and-staging.md` |  proxemics、力量几何、14 套调度图示、纵深调度、出入画语义、走位记号与转译 |
+| 跨镜连续性与资产管理 | `references/shot/references/continuity-bible.md` | 15 轴漂移检查、身份串、服装/道具/地点/光位/天气台账、首尾帧对齐与状态账本 |
+| 选词与落 prompt 的措辞 | `references/shot/references/prompt-lexicon.md` | 抽象词→可观察行为转译、动词库、相机措辞、材质/文化名词、负面词库与 token 经济 |
+| 开场/运动/转场等配方卡 | `references/shot/references/shot-library.md` + `references/shot/references/shot-recipes/**` | 10 基础配方 + 八类 100+ 细分配方（camera/data/effects/interaction/opening/outro/rhythm/transition/typography/ui-entrance），按场景类型按需加载，不整库常驻 |
+| 20 位导演风格覆盖 | `references/shot/references/director_styles/*.md` | 每位导演一文件，含镜头/灯光/色彩/剪辑/声音/表演偏好与可迁移清单 |
+| 分镜表怎么填 | `references/shot/assets/shot-plan-template.md` | 15 列字段字典、风险定档与工作示例 |
+| 首尾帧怎么写 | `references/shot/assets/keyframe-prompt-template.md` | 九槽位顺序、invariant 串用法与首/尾/板/表模板 |
+| 节拍怎么拆 | `references/shot/assets/beat-sheet-template.md` | 节拍定义、压力记法与时长预算 |
 
 ### 导演风格库使用说明
 
-- 仅当用户点名风格（如"王家卫风格""按侯孝贤拍"）或 `project.director_style` 显式指定时，才加载 `references/director_styles/` 下对应的单个文件；未点名时使用类型片与项目基调默认，不预载风格库。
-- 一次只激活一种风格；点名两位时选更贴合戏核的一位，另一位的变化在回复中用一句话说明对照（参见 `references/director_styles/README.md` 与 `example_comparisons.md`）。
+- 仅当用户点名风格（如"王家卫风格""按侯孝贤拍"）或 `project.director_style` 显式指定时，才加载 `references/shot/references/director_styles/` 下对应的单个文件；未点名时使用类型片与项目基调默认，不预载风格库。
+- 一次只激活一种风格；点名两位时选更贴合戏核的一位，另一位的变化在回复中用一句话说明对照（参见 `references/shot/references/director_styles/README.md` 与 `example_comparisons.md`）。
 - 风格文件是高层方法覆盖，不复制具体镜头、台词或受版权保护的表达；其 `风格参数` 块覆盖镜头、灯光、调色、节奏与负面词增量，优先级为：导演风格 > 类型片 > 项目基调 > 本技能默认。
 
 ## 介质中性声明

@@ -312,7 +312,7 @@ or re-exported before delivery.
 | **bounce** | Bangers | Bouncy scale, rotating bright colors | Entertainment, reactions, energy |
 | **clean** | Inter Bold | Minimal fade-in, white + shadow | Professional, calm, interviews |
 
-Load `references/caption-styles.md` for detailed visual specs and spring configs.
+Load `references/remix/references/caption-styles.md` for detailed visual specs and spring configs.
 
 ## Configurable Parameters
 

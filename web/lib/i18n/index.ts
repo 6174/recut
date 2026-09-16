@@ -1,9 +1,10 @@
 /*
  * [INPUT]: 依赖 locales.ts / url.ts / locale-store.ts 与 marketing/workspace 两本字典
- * [OUTPUT]: 全站 i18n 的对外入口：t(scope, locale, key) 纯函数（官网/服务端组件/事件回调可用）与 useI18n() 工作台 client hook；缺 key 回退默认语言，再回退 key 本身
+ * [OUTPUT]: 全站 i18n 的对外入口：t(scope, locale, key) 纯函数（官网/服务端组件/事件回调可用）与 useI18n() 工作台 client hook；缺 key 回退默认语言，再回退 key 本身；useI18n 的 t 按 locale 稳定，可安全进入 useMemo/useEffect 依赖
  * [POS]: web/lib/i18n 的统一出口；官网组件用 t("marketing", locale, key)，工作台组件用 useI18n()
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
+import { useCallback, useMemo } from "react";
 import { type Locale, defaultLocale } from "./locales";
 import { marketingDictionary } from "./marketing-dict";
 import { workspaceDictionary } from "./workspace-dict";
@@ -31,9 +32,7 @@ export function t(scope: I18nScope, locale: Locale, key: string): string {
 export function useI18n() {
   const locale = useLocaleStore((state) => state.locale);
   const setLocale = useLocaleStore((state) => state.setLocale);
-  return {
-    locale,
-    setLocale,
-    t: (key: string) => t("workspace", locale, key),
-  };
+  // t 必须按 locale 稳定，否则任何把 t 放进 useMemo/useEffect 依赖的组件都会每渲染重算并可能死循环。
+  const localize = useCallback((key: string) => t("workspace", locale, key), [locale]);
+  return useMemo(() => ({ locale, setLocale, t: localize }), [locale, setLocale, localize]);
 }

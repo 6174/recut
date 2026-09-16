@@ -1,6 +1,8 @@
 /*
- * [INPUT]: 依赖 Store 的工作区身份、全局 Agent guide 模板与标准库文件系统能力
+ * [INPUT]: 依赖 Store 的工作区身份、组合根注入的 MediaService、全局 Agent guide 模板与标准库文件系统能力
  * [OUTPUT]: 对外提供 AgentBridge、会话独立工作区、CLI MCP 配置、鉴权与同模型 Component Author 的配置继承；
+ * 会话 guide 内嵌能力快照（capabilitySnapshot：已安装 App、skills 元数据、媒体就绪、paths、integrations，
+ * 仅元数据不含 skill 正文），内建会话无需首轮 recut.context 即可发现能力；
  * 并持有 daemon 注入的 WorldEventPublisher（MCP recut.worlds.* 写成功后广播 world.changed / 画布锁事件）
  * [POS]: service 的 native Agent 会话边界；会话不绑定项目，CLI 从中立会话工作区运行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -12,10 +14,12 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"text/template"
 	"time"
@@ -63,6 +67,9 @@ type AgentBridge struct {
 	agentJobs      map[string]*AgentJob
 	mcpTarget      string
 	mcpExecutable  string
+	// media 由组合根注入（SetMediaService）：会话 guide 内嵌能力快照时需要媒体
+	// 就绪信息。测试/短命进程可为 nil，此时快照省略媒体字段。
+	media *MediaService
 	// agents 是 AgentManager 的后向引用（创建后经 SetAgentManager 注入）：用于子 Agent 会话持久化、
 	// 事件落账本与子会话状态同步。测试场景可为 nil（退化为无记录运行）。
 	agents *AgentManager
@@ -75,6 +82,14 @@ type AgentBridge struct {
 	// worldEventPublisher 由 daemon 组合根注入：MCP recut.worlds.* 写工具经它发出
 	// world.changed，供已打开的画布刷新。测试/短命进程为 nil（无副作用）。
 	worldEventPublisher WorldEventPublisher
+}
+
+// SetMediaService 注入媒体服务：会话 guide 内嵌能力快照时读取媒体就绪信息。
+// 组合根在装配 AgentBridge 后、处理任何会话前调用。
+func (b *AgentBridge) SetMediaService(media *MediaService) {
+	b.mu.Lock()
+	b.media = media
+	b.mu.Unlock()
 }
 
 // SetWorldEventPublisher 注入 World 写事件出口。组合根在装配 AgentBridge 后、
@@ -358,7 +373,7 @@ func (b *AgentBridge) materializeCodexWorkspace(dir string, session AgentSession
 	if err := os.MkdirAll(filepath.Join(dir, ".codex"), 0o700); err != nil {
 		return "", err
 	}
-	agents, err := b.renderSessionGuide()
+	agents, err := b.renderSessionGuide(session)
 	if err != nil {
 		return "", err
 	}
@@ -395,7 +410,7 @@ func (b *AgentBridge) writeOpencodeWorkspace(dir string, session AgentSession, t
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	agents, err := b.renderSessionGuide()
+	agents, err := b.renderSessionGuide(session)
 	if err != nil {
 		return "", err
 	}
@@ -451,7 +466,7 @@ func (b *AgentBridge) writeClaudeProfile(dir string, session AgentSession, execu
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	agents, err := b.renderSessionGuide()
+	agents, err := b.renderSessionGuide(session)
 	if err != nil {
 		return "", err
 	}
@@ -469,28 +484,100 @@ func (b *AgentBridge) writeClaudeProfile(dir string, session AgentSession, execu
 	return path, nil
 }
 
-// agentGuideData carries the render mode and the user language for the core
-// Agent guide template. The internal bridge always renders OutputFormat=xml:
-// the Recut chat UI parses the controlled tags into media previews and
-// clickable cards. The third-party Recut Skill (service/skills/recut/SKILL.md)
-// is a separate text document in the OutputFormat=url convention and must emit
-// plain recut.video deep links instead of XML tags; the two are kept consistent
-// by test invariants, not by a shared render source.
+// agentGuideData carries the render mode and the injected capability snapshot
+// for the core Agent guide template. The guide is Chinese-only (no bilingual
+// branch). The internal bridge always renders OutputFormat=xml: the Recut chat
+// UI parses the controlled tags into media previews and clickable cards. The
+// third-party Recut Skill (service/skills/recut/SKILL.md) is a separate text
+// document in the OutputFormat=url convention and must emit plain recut.video
+// deep links instead of XML tags; the two are kept consistent by test
+// invariants, not by a shared render source.
 type agentGuideData struct {
-	OutputFormat string // "xml" | "url"
-	Locale       string // "" | "zh" | "en"; empty renders the default language
+	OutputFormat   string // "xml" | "url"
+	CapabilityJSON string // injected capability snapshot (apps/skills/media/integrations); empty renders the guide without it
+	SystemJSON     string // injected current-system info (session + .recut paths); empty renders the guide without it
 }
 
-// renderSessionGuide renders the platform-only Agent guide. Domain workflow
-// lives in App skills, loaded on demand through recut.skills.read; no App guide
-// is injected into the session. The guide language follows the persisted user
-// preference because an Agent session has no Accept-Language header (D12).
-func (b *AgentBridge) renderSessionGuide() ([]byte, error) {
+// renderSessionGuide renders the platform-only, Chinese-only Agent guide.
+// Domain workflow lives in App skills, loaded on demand through
+// recut.skills.read; no App guide body is injected into the session. Built-in
+// bridge sessions additionally get a capability snapshot so the Agent does not
+// need a first-turn recut.context call just to discover installed Apps, skills,
+// media readiness, or paths. The stored user locale still selects the language
+// of App manifest metadata inside that snapshot.
+func (b *AgentBridge) renderSessionGuide(session AgentSession) ([]byte, error) {
 	locale := DefaultLocale
 	if b != nil && b.store != nil {
 		locale, _ = b.store.StoredLocale()
 	}
-	return renderAgentGuide(agentGuideData{OutputFormat: "xml", Locale: string(locale)})
+	data := agentGuideData{OutputFormat: "xml"}
+	if b != nil && b.store != nil {
+		if snapshot := capabilitySnapshot(b, b.mediaService(), session, locale); snapshot != nil {
+			// 动态内容按「配置」与「系统信息」分开注入，都放在 guide 末尾。
+			capability := map[string]any{
+				"apps":         snapshot["apps"],
+				"skills":       snapshot["skills"],
+				"media":        snapshot["media"],
+				"integrations": snapshot["integrations"],
+			}
+			system := map[string]any{
+				"session": map[string]any{"id": session.ID, "taskId": session.TaskID, "runtime": session.Runtime, "model": session.Model},
+				"paths":   snapshot["paths"],
+				"layout":  sessionLayout(snapshot),
+			}
+			if encoded, err := json.MarshalIndent(capability, "", "  "); err == nil {
+				data.CapabilityJSON = string(encoded)
+			}
+			if encoded, err := json.MarshalIndent(system, "", "  "); err == nil {
+				data.SystemJSON = string(encoded)
+			}
+		}
+	}
+	return renderAgentGuide(data)
+}
+
+// mediaService reads the injected media service under the bridge lock.
+func (b *AgentBridge) mediaService() *MediaService {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.media
+}
+
+// sessionLayout renders the concrete, absolute .recut directory layout for this
+// session so the Agent reads resolved paths instead of computing them from
+// recut.context or substituting placeholders. Every installed App is listed
+// with its resolved absolute root.
+func sessionLayout(snapshot map[string]any) string {
+	paths, _ := snapshot["paths"].(map[string]any)
+	str := func(key string) string {
+		value, _ := paths[key].(string)
+		return value
+	}
+	lines := []string{
+		str("dataRoot") + "/",
+		"  apps/                                        " + str("appsDir"),
+	}
+	if apps, ok := snapshot["apps"].([]map[string]any); ok {
+		for _, app := range apps {
+			id, _ := app["appId"].(string)
+			root, _ := app["root"].(string)
+			if id == "" || root == "" {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("    %-42s %s", id+"/", root))
+		}
+	}
+	lines = append(lines,
+		"  projects/                                    "+str("projectsDir"),
+		"  projects/<projectId>/files/",
+		"  projects/<projectId>/files/workspace/",
+		"  appstate/<appId>/",
+		"  sessions/agent-bridge/<sessionId>/workspace/  "+str("sessionWorkspace"),
+		"  media/                                       "+str("mediaDir"),
+		"  models/                                      "+str("modelsDir"),
+		"  skills/<skillId>/                            "+str("skillsDir"),
+	)
+	return strings.Join(lines, "\n")
 }
 
 // renderAgentGuide renders the core Agent guide template with an explicit

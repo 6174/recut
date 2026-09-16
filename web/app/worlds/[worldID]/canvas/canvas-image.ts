@@ -3,8 +3,8 @@
  * [OUTPUT]: 对外提供 remoteProxySource（远程 URL 同源代理）、evidenceSource（旧证据 → 可渲染 URL，
  * references 为 legacy 只读投影仍可渲染）、entityImageUrls（旧证据图片 URL，B.6 封面规则）、
  * entityMediaUrls（media 属性 assetId → URL 列表）、entityCoverMedia（头图解析：显式 background media
- * 属性优先 → 其余 media 属性 kind=image → kind=video）与 entityPhotoUrls（资料网格 URL，
- * 头图取自非 background 属性时剔除那张）
+ * 属性优先 → 其余 media 属性 kind=image → kind=video；返回含 assetId 供「生成中」等待态判定）与
+ * entityPhotoUrls（资料网格 URL，头图取自非 background 属性时剔除那张）
  * [POS]: worlds/[worldID]/canvas 的画布图片辅助（canvas-pomelo.tsx 组装 attrs，EntityCardBlockV 渲染）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -47,8 +47,8 @@ export function entityMediaUrls(apiBase: string, entity: WorldEntity): string[] 
     .filter((url) => url !== "");
 }
 
-// 头图媒体：image | video（video 走视频纹理加载）
-export type CoverMedia = { url: string; kind: "image" | "video" };
+// 头图媒体：image | video（video 走视频纹理加载）；assetId 供「素材生成中」等待态判定
+export type CoverMedia = { url: string; kind: "image" | "video"; assetId?: string };
 
 // 实体卡资料网格 URL：头图取自非 background 属性时剔除那张；background 封面不占资料格
 export function entityPhotoUrls(apiBase: string, entity: WorldEntity): string[] {
@@ -76,5 +76,9 @@ export function entityCoverMedia(apiBase: string, entity: WorldEntity): CoverMed
   }
   const url = resolveMediaSrc(apiBase, chosen);
   if (!url) return null;
-  return { url, kind: (chosen.kind ?? "image") === "video" ? "video" : "image" };
+  return {
+    url,
+    kind: (chosen.kind ?? "image") === "video" ? "video" : "image",
+    ...(chosen.assetId ? { assetId: chosen.assetId } : {}),
+  };
 }

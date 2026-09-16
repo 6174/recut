@@ -6,14 +6,15 @@
  */
 import type { ContextGroupID, ContextOption, ContextSearchContext, ContextSource } from "./types";
 
-export const CONTEXT_GROUP_ORDER: ContextGroupID[] = ["current", "world", "workspace", "media", "capability"];
+export const CONTEXT_GROUP_ORDER: ContextGroupID[] = ["current", "world", "workspace", "media", "skill", "tool"];
 
 const GROUP_WEIGHT: Record<ContextGroupID, number> = {
   current: 50,
   world: 40,
   workspace: 30,
   media: 20,
-  capability: 10,
+  skill: 10,
+  tool: 10,
 };
 
 export const SOURCE_TIMEOUT_MS = 4000;
@@ -121,7 +122,7 @@ export function buildContextRows(
 }
 
 export function groupCounts(options: ContextOption[]): Record<ContextGroupID, number> {
-  const counts = { current: 0, world: 0, workspace: 0, media: 0, capability: 0 } as Record<ContextGroupID, number>;
+  const counts = { current: 0, world: 0, workspace: 0, media: 0, skill: 0, tool: 0 } as Record<ContextGroupID, number>;
   for (const option of options) counts[option.group] += 1;
   return counts;
 }

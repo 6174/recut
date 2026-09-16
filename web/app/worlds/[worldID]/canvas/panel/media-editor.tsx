@@ -6,7 +6,7 @@
  * [OUTPUT]: 对外提供 MediaElementEditor：带「待确认提案」的元素路由到 GenerationProposalEditor（提案审批台：
  * 状态区 + 富文本提示词（@ 引用素材，写入 <reference> 锚点）+ 参考/模型/参数 + 提交前自检 + 确认生成/取消提案；
  * AI 写入的锚定 role 只读展示），其余走 MediaAssetEditor
- * （B.8 媒体元素态，RFC 2026-09-10）：预览区（图片单击打开
+ * （B.8 媒体元素态，RFC 2026-09-10）：预览区（素材仍在生成时显示等待态并轮询到终态；图片单击打开
  * 素材详情弹框 AssetPreviewDialog；视频/音频 controls）、来源区（AI 生成 / 素材库选择——浮层内可上传 /
  * 本地上传 / 清除）、生成配方区（RECIPE_CAPABILITY 决定生产链路：图片/视频走 image/video.generate，
  * 参数控件由 catalog model.parameters 驱动；音频走 speech.generate，声音来自 capability voices——
@@ -78,6 +78,7 @@ function MediaAssetEditor({ element, guided, identity }: { element: MediaEditorE
   const currentAssetId = assetId;
   // 当前 asset 的完整详情（含 recipe metadata）——配方继承与预览弹框共用
   const [fetched, setFetched] = useState<Asset | null>(null);
+  // AI 先落 assetId（素材仍在生成）时轮询到终态：预览区先显示等待态，就绪后自动切到真实图
   useEffect(() => {
     if (!assetId) {
       setFetched(null);
@@ -85,12 +86,22 @@ function MediaAssetEditor({ element, guided, identity }: { element: MediaEditorE
     }
     let active = true;
     void (async () => {
-      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(assetId)}`, { cache: "no-store" }).catch(() => null);
-      if (!active) return;
-      setFetched(response?.ok ? normalizeAsset((await response.json()) as Asset) : null);
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(assetId)}`, { cache: "no-store" }).catch(() => null);
+        if (!active) return;
+        const asset = response?.ok ? normalizeAsset((await response.json()) as Asset) : null;
+        if (!active) return;
+        setFetched(asset);
+        if (!asset || asset.status === "completed" || asset.status === "failed") return;
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        if (!active) return;
+      }
     })();
     return () => { active = false; };
   }, [apiBase, assetId]);
+  // 素材生成态：queued/running = 生成中，failed = 失败，其余（含未知/无 asset）按就绪渲染
+  const assetState: "generating" | "ready" | "failed" =
+    !assetId ? "ready" : fetched?.status === "failed" ? "failed" : fetched?.status === "running" || fetched?.status === "queued" ? "generating" : "ready";
   const current: PreviewAsset | null = assetId
     ? {
         id: assetId,
@@ -113,7 +124,14 @@ function MediaAssetEditor({ element, guided, identity }: { element: MediaEditorE
       {/* 预览 + 素材来源合并为一组：图片单击 = 素材详情弹框，下面是「选 / 传 / 清」换素材 */}
       <PanelSection first title="预览">
         <div className="overflow-hidden rounded-md border bg-muted/30">
-          {url ? (
+          {assetState === "generating" ? (
+            <div className="grid h-28 place-items-center gap-1 text-xs text-muted-foreground">
+              <RefreshCcw className="size-4 animate-spin" />
+              <span>生成中…完成后自动显示</span>
+            </div>
+          ) : assetState === "failed" ? (
+            <div className="grid h-28 place-items-center px-3 text-center text-xs text-destructive">生成失败{fetched?.error ? `：${fetched.error}` : "，可在下方重新生成"}</div>
+          ) : url ? (
             modality === "video" ? <video className="max-h-56 w-full" controls src={url} /> : <img className="max-h-56 w-full bg-muted/40 object-contain" src={url} />
           ) : assetId ? (
             modality === "video" ? (

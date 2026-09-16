@@ -1,6 +1,6 @@
 # 导演语言（recut.editor · 薄适配层）
 
-> 决策规则权威来源：`service/skills/recut-directing-motion`、`service/skills/recut-directing-editing`；本文件仅保留 `recut.editor` 介质映射（`timeline.command` op 语法、素材登记、验证与预览步骤）。
+> 决策规则权威来源：`service/skills/recut-director/references/motion`、`service/skills/recut-director/references/editing`；本文件仅保留 `recut.editor` 介质映射（`timeline.command` op 语法、素材登记、验证与预览步骤）。
 > 镜头配方见 `shot-library.md`，卡点见 `music-beat-sync.md`，字幕见 `captions.md`，口播/访谈剪辑见 `speech-editing.md`，B-roll/motion graphic 摆放见 `subject-protection.md`。文件名保持不变以维持交叉引用链。
 
 ## 定位与边界
@@ -15,11 +15,11 @@
 
 | 决策问题 | 权威来源 | 全局文件 |
 |---|---|---|
-| 动效嗓音（能量×调性两轴、预设表、过冲/squash） | `recut-directing-motion` | `SKILL.md` 一、`references/motion-graphics.md`、`references/aesthetic-rules.md` |
-| 一镜一动作、落定呼吸、确定性 | `recut-directing-motion` | `SKILL.md` 二/三/五 |
-| 5 秒节拍、段落结构、切点密度、转场选型 | `recut-directing-editing` | `SKILL.md` 一/二/四、`references/editing-and-assembly.md`、`references/pacing-zh.md` |
-| 镜头动词与运镜语法、推/拉/横移等时值与约束 | `recut-directing-shot` | `SKILL.md` 镜头动词表、`references/shot-library.md`、`references/cinematic-language.md` |
-| 卡点落拍纪律 | `recut-directing-editing` | `SKILL.md` 三、`references/music-beat-sync.md` |
+| 动效嗓音（能量×调性两轴、预设表、过冲/squash） | `recut-director（references/motion）` | `SKILL.md` 一、`references/motion-graphics.md`、`references/aesthetic-rules.md` |
+| 一镜一动作、落定呼吸、确定性 | `recut-director（references/motion）` | `SKILL.md` 二/三/五 |
+| 5 秒节拍、段落结构、切点密度、转场选型 | `recut-director（references/editing）` | `SKILL.md` 一/二/四、`references/editing-and-assembly.md`、`references/pacing-zh.md` |
+| 镜头动词与运镜语法、推/拉/横移等时值与约束 | `recut-director（references/shot）` | `SKILL.md` 镜头动词表、`references/shot-library.md`、`references/cinematic-language.md` |
+| 卡点落拍纪律 | `recut-director（references/editing）` | `SKILL.md` 三、`references/music-beat-sync.md` |
 
 ## 介质映射：动效如何落到时间线
 

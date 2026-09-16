@@ -1,22 +1,22 @@
 # music-beat-sync — 卡点方法论（recut.editor · 薄适配层）
 
-> 决策规则权威来源：`service/skills/recut-directing-editing`；本文件仅保留 `recut.editor` 介质映射（拍号获取的 App 实现与 `timeline.command` 落拍语法）。
-> 纪律规则（节拍密度、落拍阈值、转场选型、渲后回测门禁）以全局 `recut-directing-editing` 为准，本文件不重复定义。
+> 决策规则权威来源：`service/skills/recut-director/references/editing`；本文件仅保留 `recut.editor` 介质映射（拍号获取的 App 实现与 `timeline.command` 落拍语法）。
+> 纪律规则（节拍密度、落拍阈值、转场选型、渲后回测门禁）以全局 `recut-director（references/editing）` 为准，本文件不重复定义。
 
 ## 定位与边界
 
-本文件是 `recut.editor` 对 `recut-directing-editing` 的薄适配层，只回答“卡点如何用时间线 op 实现”。
+本文件是 `recut.editor` 对 `recut-director（references/editing）` 的薄适配层，只回答“卡点如何用时间线 op 实现”。
 是否卡点、卡多密、用什么转场由全局 editing 决策；本文件仅说明在 `recut.editor` 中如何测定拍号、产出 `beatT(n)` 秒表并用 `split`/`trim`/`keyframe-upsert` 精确落拍，以及 `track.role`/`audio.smooth` 的 App 混音实现。
 
 ## 决策路由表
 
 | 决策问题 | 权威来源 | 全局文件 |
 |---|---|---|
-| 5 秒节拍、段落结构、切点密度分层、动机检验 | `recut-directing-editing` | `SKILL.md` 一/二、`references/editing-and-assembly.md` |
-| 卡点纪律（何时启用、网格测定、音乐结构表、最强 hit、渲后回测门禁） | `recut-directing-editing` | `SKILL.md` 三、`references/music-beat-sync.md` |
-| 转场选型与硬切成立清单 | `recut-directing-editing` | `SKILL.md` 四、`references/editing-and-assembly.md` |
-| 竖幅节奏密度与版式进出 | `recut-directing-editing` | `references/pacing-zh.md` |
-| 镜头配方与卡点硬切的衔接 | `recut-directing-shot` | `references/shot-library.md`、`references/shot-recipes/rhythm/*` |
+| 5 秒节拍、段落结构、切点密度分层、动机检验 | `recut-director（references/editing）` | `SKILL.md` 一/二、`references/editing-and-assembly.md` |
+| 卡点纪律（何时启用、网格测定、音乐结构表、最强 hit、渲后回测门禁） | `recut-director（references/editing）` | `SKILL.md` 三、`references/music-beat-sync.md` |
+| 转场选型与硬切成立清单 | `recut-director（references/editing）` | `SKILL.md` 四、`references/editing-and-assembly.md` |
+| 竖幅节奏密度与版式进出 | `recut-director（references/editing）` | `references/pacing-zh.md` |
+| 镜头配方与卡点硬切的衔接 | `recut-director（references/shot）` | `references/shot-library.md`、`references/shot-recipes/rhythm/*` |
 
 ## 介质映射（App 特有，保留）
 
@@ -65,6 +65,6 @@ timeline.command { op: { type:"keyframe-upsert", payload:{ ref, path:"opacity", 
 ffmpeg -i export.mp4 -vn -acodec pcm_s16le /tmp/render-audio.wav
 ```
 
-对渲出音轨重跑第 1 步拟合（从视频里量，连编码/对齐偏移一起验），合格/理想/必修阈值与回改流程见全局 `recut-directing-editing` SKILL.md 三。
+对渲出音轨重跑第 1 步拟合（从视频里量，连编码/对齐偏移一起验），合格/理想/必修阈值与回改流程见全局 `recut-director（references/editing）` SKILL.md 三。
 
 > 何时启用：用户已指定强节奏 BGM → 测定网格并让每个切点/动效锚到拍号；未指定 BGM → 按内容节奏排，不强行卡点。工具备忘（`librosa.effects.hpss` 分离打击成分、变速曲分段拟合）与完整纪律见全局 `references/music-beat-sync.md`。

@@ -13,7 +13,7 @@ import type { RefAttrRecord, RefProtocol } from "@/lib/rich-composer/protocol/ty
 
 export type { RefAttrRecord };
 
-export type ContextGroupID = "current" | "world" | "workspace" | "media" | "capability";
+export type ContextGroupID = "current" | "world" | "workspace" | "media" | "skill" | "tool";
 
 export type ContextBadge = {
   key: string;

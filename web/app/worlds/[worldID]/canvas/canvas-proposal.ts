@@ -39,7 +39,7 @@ export function proposalRequiredFor(modality: string): boolean {
   return PROPOSAL_REQUIRED_MODALITIES.includes(modality);
 }
 
-// 生成链路 role 受控词表（与 recut-directing-generation-prompt / generation-reference-protocol 对齐）。
+// 生成链路 role 受控词表（与 recut-director（references/generation-prompt） / generation-reference-protocol 对齐）。
 export const PROPOSAL_ROLES: Array<{ id: string; label: string; kinds: string[] }> = [
   { id: "pov", label: "视角", kinds: ["image", "video"] },
   { id: "color-card", label: "色卡", kinds: ["image"] },
@@ -110,7 +110,7 @@ export function readProposal(props?: Record<string, unknown> | null): Generation
   };
 }
 
-// 提交前自检（映射 recut-directing-generation-prompt 的产出自检）：error 阻断确认，warn 仅提示。
+// 提交前自检（映射 recut-director（references/generation-prompt） 的产出自检）：error 阻断确认，warn 仅提示。
 export function proposalIssues(proposal: GenerationProposal): Array<{ level: "error" | "warn"; message: string }> {
   const issues: Array<{ level: "error" | "warn"; message: string }> = [];
   if (!proposal.prompt.trim()) issues.push({ level: "error", message: "提示词为空" });

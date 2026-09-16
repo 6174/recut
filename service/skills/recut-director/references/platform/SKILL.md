@@ -1,16 +1,16 @@
 ---
-name: recut-directing-platform
+name: references/platform
 appId: recut.platform
 description: 回答视频「发给谁、什么规格、什么雷区」的唯一决策问题，为跨平台分发提供画幅/时长/安全区/审核红线与发布纪律的权威判断标准。
 ---
 
-# Recut 全局导演技能：平台分发与规格纪律（recut-directing-platform）
+# Recut 全局导演技能：平台分发与规格纪律（references/platform）
 
 本技能是 Recut 平台 App 无关的全局导演技能，**只回答一个问题：发给谁、什么规格、什么雷区。** 以"这条片子面向哪个平台的哪类受众、以什么画幅时长与字幕形态上架、哪些审核与版权红线必须避开、如何安排封面标题与发布时间"为决策起点，先定受众与平台，再定规格纪律。
 
 ## 边界声明
 
-**本技能只管平台规格、算法机制、审核红线与发布纪律；钩子创意与开场留存归 `recut-directing-hooks`；封面构图与视觉风格归 `recut-design-system` 与各 App 的视觉适配层；剪辑节奏与转场语法归 `recut-directing-editing`；字幕动效与版式归 `recut-directing-captions`。**
+**本技能只管平台规格、算法机制、审核红线与发布纪律；钩子创意与开场留存归 `references/hooks`；封面构图与视觉风格归 `recut-design-system` 与各 App 的视觉适配层；剪辑节奏与转场语法归 `references/editing`；字幕动效与版式归 `references/captions`。**
 
 交界处以本技能为准的情形：画幅是否该切 9:16、时长是否该压到 30 秒内、安全区是否留够、标题是否触发绝对化用语审核——由本技能判定。交界处以他技能为准的情形：钩子那句口播怎么写更留人、封面用何种配色与字体、字幕逐词动效怎么跳——不在本技能内，请路由到对应技能。
 
@@ -114,13 +114,13 @@ description: 回答视频「发给谁、什么规格、什么雷区」的唯一�
 
 | 遇到什么问题 | 去读哪个文件 | 它解决什么 |
 |---|---|---|
-| TikTok 怎么起量、FYP 如何推流、怎么设计 1 秒钩子与循环 | `references/tiktok-script.md` | TikTok 发现引擎、信号权重、野性/真实感与搜索关键词布局 |
-| YouTube Shorts 为什么被划走、怎么按 Viewed vs Swiped Away 写脚本、双峰时长怎么选 | `references/youtube-shorts.md` | Shorts 与长视频解耦后的算法、Retention Ladder、发布与归因纪律 |
-| Instagram Reels 为什么看重分享、静音版怎么写、怎么过原创与水印门禁、封面与 Trial Reel 怎么用 | `references/reels-script.md` | Reels 发现引擎、sends 杠杆、静音优先、封面与网格、话题与搜索 |
-| 短视频脚本的通用母法、WATCH 框架、完播与循环的底层原理 | `references/short-form-video-script.md` | 跨平台通用的短视频脚本工艺、WATCH 五步、时长与字幕的通用基准 |
-| 钩子怎么写才不沦为标题党、机制与评分、格式截断 | `references/hook-writer.md` | 钩子机制分类、格式截断约束、评分与优选方法、反模式 |
+| TikTok 怎么起量、FYP 如何推流、怎么设计 1 秒钩子与循环 | `references/platform/references/tiktok-script.md` | TikTok 发现引擎、信号权重、野性/真实感与搜索关键词布局 |
+| YouTube Shorts 为什么被划走、怎么按 Viewed vs Swiped Away 写脚本、双峰时长怎么选 | `references/platform/references/youtube-shorts.md` | Shorts 与长视频解耦后的算法、Retention Ladder、发布与归因纪律 |
+| Instagram Reels 为什么看重分享、静音版怎么写、怎么过原创与水印门禁、封面与 Trial Reel 怎么用 | `references/platform/references/reels-script.md` | Reels 发现引擎、sends 杠杆、静音优先、封面与网格、话题与搜索 |
+| 短视频脚本的通用母法、WATCH 框架、完播与循环的底层原理 | `references/platform/references/short-form-video-script.md` | 跨平台通用的短视频脚本工艺、WATCH 五步、时长与字幕的通用基准 |
+| 钩子怎么写才不沦为标题党、机制与评分、格式截断 | `references/platform/references/hook-writer.md` | 钩子机制分类、格式截断约束、评分与优选方法、反模式 |
 
-> 使用顺序：先读本 SKILL.md 定平台与规格，再按上表深入对应平台的机制与脚本细节；钩子那一层的深化仍以 `recut-directing-hooks` 为准，本表仅指向平台侧的钩子要求。
+> 使用顺序：先读本 SKILL.md 定平台与规格，再按上表深入对应平台的机制与脚本细节；钩子那一层的深化仍以 `references/hooks` 为准，本表仅指向平台侧的钩子要求。
 
 ## 四、未验证与免责
 

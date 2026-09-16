@@ -23,9 +23,9 @@ description: 先理解剧本中的剧情因果、人物目的、关系变化、�
 
 制作、检查、修正或续接分镜前，按顺序完整读取：
 
-1. `references/shot-design-engine.md`：负责理解剧本并生成镜头设计；
-2. `references/production-contract.md`：原样沿用5.4.1的交付、空间、物理与连续性合同。
-3. `references/delivery-mode-guard.md`：修复5.4.2正式版的默认交付模式，防止提示词请求只返回分镜表或分析。
+1. `references/short-drama/references/ai-storyboard-director/references/shot-design-engine.md`：负责理解剧本并生成镜头设计；
+2. `references/short-drama/references/ai-storyboard-director/references/production-contract.md`：原样沿用5.4.1的交付、空间、物理与连续性合同。
+3. `references/short-drama/references/ai-storyboard-director/references/delivery-mode-guard.md`：修复5.4.2正式版的默认交付模式，防止提示词请求只返回分镜表或分析。
 
 5.4.2只能在5.4.1合同之上增加创作能力，不得削弱、重写或绕过原合同。
 

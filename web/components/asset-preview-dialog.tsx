@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown, ChevronUp, Copy, Download, FileText, Link2, LoaderCircle, Music2, RotateCcw, Video, X, ZoomIn } from "lucide-react";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
 import { GenerationDuration } from "@/components/generation-duration";
 import { useMediaAssetEvents } from "@/components/use-media-asset-events";
@@ -104,8 +105,12 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
     window.setTimeout(() => setCopied(false), 1600);
   }
   const onImageClick = (src: string) => setLightbox(src);
-  return (
-    <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-8 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog">
+  // 必须 portal 到 body：素材详情会从 Chat 侧栏（z-0 层叠上下文）与画布浮层内打开，
+  // 内联渲染会被困在所在层叠上下文里，被 world canvas（z-30）压住。
+  // z-[90] 高于所有应用内模态（z-[60]/[70]/[80]），保证在素材选择浮层之上也能正常显示。
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div aria-modal="true" className="fixed inset-0 z-[90] grid place-items-center bg-foreground/30 p-8 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog">
       <section className="flex w-full max-w-5xl flex-col overflow-hidden rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b px-5 py-3">
           <div>
@@ -139,7 +144,8 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
           <img alt="preview" className="max-h-[90vh] max-w-[90vw] object-contain" src={lightbox} onMouseDown={(e) => e.stopPropagation()} />
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 

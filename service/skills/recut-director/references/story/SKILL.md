@@ -1,10 +1,10 @@
 ---
-name: recut-directing-story
+name: references/story
 appId: recut.platform
 description: 回答「讲什么、怎么编排？」——故事因果、人物行动、对话与结构节拍的导演决策。
 ---
 
-# Recut 全局故事与结构技能（recut-directing-story）
+# Recut 全局故事与结构技能（references/story）
 
 本技能只回答一个决策问题：**讲什么、怎么编排？**
 
@@ -14,11 +14,11 @@ description: 回答「讲什么、怎么编排？」——故事因果、人物�
 
 | 归属 | 内容 | 本技能是否负责 |
 |---|---|---|
-| **本技能 recut-directing-story** | 故事因果、人物目标与行动链、对话目的与潜台词、结构与节拍、场景交易与转折、主题的行动化承载 | 是，唯一决策口 |
-| **recut-directing-hooks** | 0–3 秒钩子与留存/完播机制 | 否。本技能定结构位置与五段式中的 hook 占位，hooks 定开场的三层执行与话术落格 |
-| **recut-directing-short-drama** | 短剧/剧情类的生产编排合同（节拍表、资产库、调度图、布光图、动作账本、草图转镜头与生成前门禁） | 否。故事则是 short-drama 的上游输入 |
-| **recut-directing-shot** | 镜头怎么拍（景别/角度/运动/调度/分镜连续性） | 否。接收本技能的节拍与场景交易，再落为镜头方案 |
-| **recut-directing-editing / motion / b-roll / sound 等** | 剪辑节奏、动效、画面素材摆放、声音设计 | 否。仅在节拍需要时被引用 |
+| **本技能 references/story** | 故事因果、人物目标与行动链、对话目的与潜台词、结构与节拍、场景交易与转折、主题的行动化承载 | 是，唯一决策口 |
+| **references/hooks** | 0–3 秒钩子与留存/完播机制 | 否。本技能定结构位置与五段式中的 hook 占位，hooks 定开场的三层执行与话术落格 |
+| **references/short-drama** | 短剧/剧情类的生产编排合同（节拍表、资产库、调度图、布光图、动作账本、草图转镜头与生成前门禁） | 否。故事则是 short-drama 的上游输入 |
+| **references/shot** | 镜头怎么拍（景别/角度/运动/调度/分镜连续性） | 否。接收本技能的节拍与场景交易，再落为镜头方案 |
+| **references/editing / motion / b-roll / sound 等** | 剪辑节奏、动效、画面素材摆放、声音设计 | 否。仅在节拍需要时被引用 |
 
 未验证的长片类型、未锁定的世界规则、未授权的生成模型适配，不在本技能冒充支持；介质语法（时间线 op、Remotion 代码、生成接口参数）不在此出现。
 
@@ -52,7 +52,7 @@ description: 回答「讲什么、怎么编排？」——故事因果、人物�
 
 **五段式 hook–pain–turn–value–cta**：
 - 本技能负责在全片结构中**定位**五段的占位、节拍功能与因果衔接；每段必须有状态改变，否则可删。
-- `recut-directing-hooks` 负责其中 **hook 段（0–3 秒）的执行**——三层钩子（视觉/口播/文字）的落格与原型选型。本技能不写钩子话术，只写"此处需要一个结果前置型钩子，因后续将兑现代价"。
+- `references/hooks` 负责其中 **hook 段（0–3 秒）的执行**——三层钩子（视觉/口播/文字）的落格与原型选型。本技能不写钩子话术，只写"此处需要一个结果前置型钩子，因后续将兑现代价"。
 
 **节拍纪律**：
 - 每节拍一功能（want / resistance / discovery / cost / image），一情绪转向，一可视锚点；跨节拍的状态（事实、知情、关系、权力、道具位置与持有者）必须继承，不得重置。
@@ -73,63 +73,63 @@ description: 回答「讲什么、怎么编排？」——故事因果、人物�
 
 | 文件 | 何时读 | 用途 |
 |---|---|---|
-| `references/director-agent/SKILL.md` | 任何故事/剧本/导演分析任务的入口 | 总决策脑：区分"剧本模式 vs 导演模式"，给出五问、导演路径、可用性与反惰性合同的顶层路由 |
-| `references/director-agent/references/verified-director-logic.md` | 做导演分析或分镜前设计，且需要理论支点时 | 七大逻辑支柱（导演构想、形式、技术、表演、剪辑、声音、信息、物理化）与反默认检验 |
-| `references/director-agent/references/director-thinking-spine.md` | 需要十二维导演思维的精炼流程时 | 十二维（剧作解读/导演路径/可视化/场面调度/镜头语言/蒙太奇/时间/情绪节奏/声音/色彩/表演/主题）与操作流 |
-| `references/director-agent/references/anti-laziness-contract.md` | 任何多单元长任务交付前 | 覆盖账本、单元完成标准、续写锚 `▶ CONTINUE FROM`、禁用的笼统话术过滤 |
+| `references/story/references/director-agent/SKILL.md` | 任何故事/剧本/导演分析任务的入口 | 总决策脑：区分"剧本模式 vs 导演模式"，给出五问、导演路径、可用性与反惰性合同的顶层路由 |
+| `references/story/references/director-agent/references/verified-director-logic.md` | 做导演分析或分镜前设计，且需要理论支点时 | 七大逻辑支柱（导演构想、形式、技术、表演、剪辑、声音、信息、物理化）与反默认检验 |
+| `references/story/references/director-agent/references/director-thinking-spine.md` | 需要十二维导演思维的精炼流程时 | 十二维（剧作解读/导演路径/可视化/场面调度/镜头语言/蒙太奇/时间/情绪节奏/声音/色彩/表演/主题）与操作流 |
+| `references/story/references/director-agent/references/anti-laziness-contract.md` | 任何多单元长任务交付前 | 覆盖账本、单元完成标准、续写锚 `▶ CONTINUE FROM`、禁用的笼统话术过滤 |
 
 ### B. 剧本创作与改写（写/改/修场景与对白）
 
 | 文件 | 何时读 | 用途 |
 |---|---|---|
-| `references/director-agent/references/screenplay-writing-core.md` | 写剧本、改剧本、修场景、修对白时**必读首位** | A3 知识卡路由、纯语言故事先行、明显替代检验、行动建场、对话即行为、去生成腔与校准流程 |
-| `references/director-agent/references/screenplay-state-engine.md` | 上述写作完成后的**验证层** | 单源真相、因果脊、人物状态机、场景状态卡、沉默行动脊、对话回应链、信息/道具/母题生命周期与冷读门禁 |
-| `references/director-agent/references/screenplay-cold-read-protocol.md` | 独立审稿、交付前验收 | 冷读协议：重建因果链、复述测试、明显替代测试、阻断/重大失败分级、独立 verdict（LOGIC/STORY） |
-| `references/director-agent/references/screenplay-exemplar-benchmarks.md` | 要求"完整/优秀/高质量"剧本时 | 以《寄生虫》《逃出绝命镇》《社交网络》真实剧本做机制校准，禁抄情节/人物/对白 |
-| `references/screenplay-and-scene-writing/SKILL.md` | 写单场戏、节拍、情感转向与可视行动时 | 场景交易、节拍即动作、视角与信息差、Fountain 输出与压缩改写 |
-| `references/screenplay-and-scene-writing/references/scene_construction.md` | 搭场景结构时 | 场景五问与六步节拍（入场→首战术→抵抗→升级/揭示→承压选择→退场新状态）及可视写作 |
-| `references/screenplay-and-scene-writing/references/dialogue_and_subtext.md` | 修对白与潜台词时 | 对白的战术、施压与关系距离变化；每行战术标注与合并规则 |
-| `references/screenplay-and-scene-writing/references/screenplay_format.md` | 需标准剧本格式时 | 场景标题、动作行与角色对白的规范，以及交接块（视觉锚/连续性/镜头候选） |
-| `references/screenplay-and-scene-writing/references/fountain_workflow.md` | 需 Fountain 纯文本可导入稿时 | Fountain 语法、AI 辅助起草规则、页/时长与分镜交接纪律 |
-| `references/screenplay-and-scene-writing/templates/beat_sheet.md` | 落节拍表时 | 节拍表模板 |
-| `references/screenplay-and-scene-writing/templates/screenplay_scene.md` | 写场景初稿时 | 场景模板 |
-| `references/screenplay-and-scene-writing/templates/fountain_scene.md` | 输出 Fountain 时 | Fountain 场景模板 |
-| `references/screenplay-and-scene-writing/templates/dialogue_pass.md` | 专项对白轮次时 | 对白轮次模板 |
-| `references/screenplay-and-scene-writing/checklists/scene_quality_checklist.md` | 场景自检时 | 场景质量清单 |
-| `references/screenplay-and-scene-writing/examples/scene_to_screenplay_excerpt.md` | 需要范例对照时 | 场景到剧本摘录示例 |
-| `references/screenplay-and-scene-writing/tests/screenplay_scene_tests.md` | 验收场景稿时 | 场景测试用例 |
+| `references/story/references/director-agent/references/screenplay-writing-core.md` | 写剧本、改剧本、修场景、修对白时**必读首位** | A3 知识卡路由、纯语言故事先行、明显替代检验、行动建场、对话即行为、去生成腔与校准流程 |
+| `references/story/references/director-agent/references/screenplay-state-engine.md` | 上述写作完成后的**验证层** | 单源真相、因果脊、人物状态机、场景状态卡、沉默行动脊、对话回应链、信息/道具/母题生命周期与冷读门禁 |
+| `references/story/references/director-agent/references/screenplay-cold-read-protocol.md` | 独立审稿、交付前验收 | 冷读协议：重建因果链、复述测试、明显替代测试、阻断/重大失败分级、独立 verdict（LOGIC/STORY） |
+| `references/story/references/director-agent/references/screenplay-exemplar-benchmarks.md` | 要求"完整/优秀/高质量"剧本时 | 以《寄生虫》《逃出绝命镇》《社交网络》真实剧本做机制校准，禁抄情节/人物/对白 |
+| `references/story/references/screenplay-and-scene-writing/SKILL.md` | 写单场戏、节拍、情感转向与可视行动时 | 场景交易、节拍即动作、视角与信息差、Fountain 输出与压缩改写 |
+| `references/story/references/screenplay-and-scene-writing/references/scene_construction.md` | 搭场景结构时 | 场景五问与六步节拍（入场→首战术→抵抗→升级/揭示→承压选择→退场新状态）及可视写作 |
+| `references/story/references/screenplay-and-scene-writing/references/dialogue_and_subtext.md` | 修对白与潜台词时 | 对白的战术、施压与关系距离变化；每行战术标注与合并规则 |
+| `references/story/references/screenplay-and-scene-writing/references/screenplay_format.md` | 需标准剧本格式时 | 场景标题、动作行与角色对白的规范，以及交接块（视觉锚/连续性/镜头候选） |
+| `references/story/references/screenplay-and-scene-writing/references/fountain_workflow.md` | 需 Fountain 纯文本可导入稿时 | Fountain 语法、AI 辅助起草规则、页/时长与分镜交接纪律 |
+| `references/story/references/screenplay-and-scene-writing/templates/beat_sheet.md` | 落节拍表时 | 节拍表模板 |
+| `references/story/references/screenplay-and-scene-writing/templates/screenplay_scene.md` | 写场景初稿时 | 场景模板 |
+| `references/story/references/screenplay-and-scene-writing/templates/fountain_scene.md` | 输出 Fountain 时 | Fountain 场景模板 |
+| `references/story/references/screenplay-and-scene-writing/templates/dialogue_pass.md` | 专项对白轮次时 | 对白轮次模板 |
+| `references/story/references/screenplay-and-scene-writing/checklists/scene_quality_checklist.md` | 场景自检时 | 场景质量清单 |
+| `references/story/references/screenplay-and-scene-writing/examples/scene_to_screenplay_excerpt.md` | 需要范例对照时 | 场景到剧本摘录示例 |
+| `references/story/references/screenplay-and-scene-writing/tests/screenplay_scene_tests.md` | 验收场景稿时 | 场景测试用例 |
 
 ### C. 短片/短故事开发（从生想法到可拍概念包）
 
 | 文件 | 何时读 | 用途 |
 |---|---|---|
-| `references/short-film-development/SKILL.md` | 从生想法起步、做概念/梗概/结构时 | 创意意图层、发散选路、logline、概念包与结构选型 |
-| `references/short-film-development/references/story_development_workflow.md` | 做概念发散时 | 创意吸纳、概念扩张四定义（承诺/压力/矛盾/影像引擎）与短片形态 |
-| `references/short-film-development/references/ai_storytelling_workflow.md` | 用 AI 协作写故事时 | 九要素检验、AI 协作流程、结构选项（统一效果/危机曲线等）与 AI 腔风险 |
-| `references/short-film-development/references/screenplay_structure.md` | 定短片三幕/微结构时 | 微三幕、节拍类型与压缩规则（迟进早出、道具做功） |
-| `references/short-film-development/references/continuity_handoff.md` | 开发结束交接时 | 交给剧本/分镜/生成的连续性锚点（人物/地点/道具/视觉基调/场景清单） |
-| `references/short-film-development/templates/idea_intake.md` | 吸纳生想法时 | 想法吸纳模板 |
-| `references/short-film-development/templates/logline.md` | 写 logline 时 | Logline 模板与检验 |
-| `references/short-film-development/templates/story_premise.md` | 写前提与人物引擎时 | 前提、主题问、人物引擎与影像引擎模板 |
-| `references/short-film-development/templates/short_film_treatment.md` | 写梗概时 | 梗概模板 |
-| `references/short-film-development/templates/short_story_plan.md` | 写短故事计划时 | 短故事计划模板 |
-| `references/short-film-development/templates/beat_sheet.md` | 概念阶段的节拍表 | 节拍表模板（概念版） |
-| `references/short-film-development/templates/story_revision_audit.md` | 做修订计划时 | 修订审计模板 |
-| `references/short-film-development/checklists/concept_quality_checklist.md` | 概念自检时 | 概念质量清单 |
-| `references/short-film-development/examples/idea_to_logline.md` | 需要 logline 范例时 | 想法到 logline 示例 |
-| `references/short-film-development/examples/logline_to_outline.md` | 需要大纲范例时 | Logline 到大纲示例 |
-| `references/short-film-development/tests/output_format_tests.md` | 验收输出格式时 | 输出格式测试 |
-| `references/short-film-development/tests/routing_tests.md` | 校验路由时 | 路由测试 |
+| `references/story/references/short-film-development/SKILL.md` | 从生想法起步、做概念/梗概/结构时 | 创意意图层、发散选路、logline、概念包与结构选型 |
+| `references/story/references/short-film-development/references/story_development_workflow.md` | 做概念发散时 | 创意吸纳、概念扩张四定义（承诺/压力/矛盾/影像引擎）与短片形态 |
+| `references/story/references/short-film-development/references/ai_storytelling_workflow.md` | 用 AI 协作写故事时 | 九要素检验、AI 协作流程、结构选项（统一效果/危机曲线等）与 AI 腔风险 |
+| `references/story/references/short-film-development/references/screenplay_structure.md` | 定短片三幕/微结构时 | 微三幕、节拍类型与压缩规则（迟进早出、道具做功） |
+| `references/story/references/short-film-development/references/continuity_handoff.md` | 开发结束交接时 | 交给剧本/分镜/生成的连续性锚点（人物/地点/道具/视觉基调/场景清单） |
+| `references/story/references/short-film-development/templates/idea_intake.md` | 吸纳生想法时 | 想法吸纳模板 |
+| `references/story/references/short-film-development/templates/logline.md` | 写 logline 时 | Logline 模板与检验 |
+| `references/story/references/short-film-development/templates/story_premise.md` | 写前提与人物引擎时 | 前提、主题问、人物引擎与影像引擎模板 |
+| `references/story/references/short-film-development/templates/short_film_treatment.md` | 写梗概时 | 梗概模板 |
+| `references/story/references/short-film-development/templates/short_story_plan.md` | 写短故事计划时 | 短故事计划模板 |
+| `references/story/references/short-film-development/templates/beat_sheet.md` | 概念阶段的节拍表 | 节拍表模板（概念版） |
+| `references/story/references/short-film-development/templates/story_revision_audit.md` | 做修订计划时 | 修订审计模板 |
+| `references/story/references/short-film-development/checklists/concept_quality_checklist.md` | 概念自检时 | 概念质量清单 |
+| `references/story/references/short-film-development/examples/idea_to_logline.md` | 需要 logline 范例时 | 想法到 logline 示例 |
+| `references/story/references/short-film-development/examples/logline_to_outline.md` | 需要大纲范例时 | Logline 到大纲示例 |
+| `references/story/references/short-film-development/tests/output_format_tests.md` | 验收输出格式时 | 输出格式测试 |
+| `references/story/references/short-film-development/tests/routing_tests.md` | 校验路由时 | 路由测试 |
 
 ### D. 长片/多场景与工作台（规模化协作）
 
 | 文件 | 何时读 | 用途 |
 |---|---|---|
-| `references/director-agent/references/director-workbench-protocol.md` | 多场景/短片/短剧/全片/跨会话协作时 | 分阶段工作台（覆盖账本/项目卡/导演室/编剧室/制片约束/资产圣经/场景板/节奏检查/交接包）与续写锚 |
-| `references/director-agent/references/local-knowledge-map.md` | 需按 A3 卡精确路由时 | 本地 A3 知识库映射（A3-00 至 A3-21 的按需加载表），不视为运行时强依赖 |
-| `references/director-agent/references/github-project-watchlist.md` | 需复核外部项目模式时 | 已验证的 GitHub 项目观察清单与可借用模式 |
-| `references/director-agent/references/research-update-protocol.md` | 涉及真实导演/影片/史实/教材或模型能力主张时 | 联网核验与知识更新工作流，无法核验时标 `待查证` |
-| `references/director-agent/agents/openai.yaml` | 宿主 Agent 适配参考 | 原 skill 的宿主 Agent 配置（保留原文，不作执行依据） |
+| `references/story/references/director-agent/references/director-workbench-protocol.md` | 多场景/短片/短剧/全片/跨会话协作时 | 分阶段工作台（覆盖账本/项目卡/导演室/编剧室/制片约束/资产圣经/场景板/节奏检查/交接包）与续写锚 |
+| `references/story/references/director-agent/references/local-knowledge-map.md` | 需按 A3 卡精确路由时 | 本地 A3 知识库映射（A3-00 至 A3-21 的按需加载表），不视为运行时强依赖 |
+| `references/story/references/director-agent/references/github-project-watchlist.md` | 需复核外部项目模式时 | 已验证的 GitHub 项目观察清单与可借用模式 |
+| `references/story/references/director-agent/references/research-update-protocol.md` | 涉及真实导演/影片/史实/教材或模型能力主张时 | 联网核验与知识更新工作流，无法核验时标 `待查证` |
+| `references/story/references/director-agent/agents/openai.yaml` | 宿主 Agent 适配参考 | 原 skill 的宿主 Agent 配置（保留原文，不作执行依据） |
 
 ## 使用时机
 

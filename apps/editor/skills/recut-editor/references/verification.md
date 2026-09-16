@@ -42,7 +42,7 @@ Editor 的“完成”不是一个布尔值，而是三层证据：结构成立�
 
 - **状态/ID 失败**：stale id、version conflict、asset 未登记 → 重读上下文后重放；
 - **结构失败**：track/overlap/range/component/param violation → 修 op，不先修视觉；
-- **资产失败**：component build、媒体生成或 transcription 未就绪 → 处理 job 终态，禁止用 text-only 静默替代；
+- **资产失败**：component build、媒体生成或 transcription 的 job `failed` → 处理终态，禁止用 text-only 静默替代；图片/语音仍在生成中（queued/running）不算失败，已先落位、就绪后自动显示；
 - **构图失败**：主体被盖、fit 错、自然 box 溢出、文字不可读 → 先修 placement/form，再决定是否修 source；
 - **节奏失败**：read time 不够、旁白描述错画面、motion graphic 晚于 speech beat → 修 sync map、duration 或 scene 结构；
 - **交付失败**：export job 非终态、产物缺失或 version 不匹配 → 不声称交付，报告具体 blocker。

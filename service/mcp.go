@@ -53,12 +53,12 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Update one installed App (pass its package) or all installed Apps. Call it only when the user explicitly asks to update.",
 	},
 	"recut.skills.list": {
-		LocaleZh: "列出所有已安装 App 的 skill 目录（id、appId、name、description）。",
-		LocaleEn: "List the skill directories of all installed Apps (id, appId, name, description).",
+		LocaleZh: "列出所有可读 skill（平台技能 appId=`recut.platform` + 已安装 App 的技能）：id、appId、name、description。平台能力（World/画布、导演类等）的技能只在 `recut.platform` 下，做这些任务前先在这里发现对应 skill。",
+		LocaleEn: "List every readable skill (platform skills under appId=recut.platform plus installed App skills): id, appId, name, description. Platform capabilities (World/canvas, directing, ...) live only under recut.platform; discover them here before starting those tasks.",
 	},
 	"recut.skills.read": {
-		LocaleZh: "读取一个 App skill 的完整正文；该正文对对应 App 的工具契约与决策门有权威性。",
-		LocaleEn: "Read the full body of an App skill; it is authoritative for that App's tool contracts and decision gates.",
+		LocaleZh: "读取一个 skill 的完整正文（平台技能传 appId=`recut.platform`，其余传 App id）；该正文对对应能力的工具契约与决策门有权威性。",
+		LocaleEn: "Read the full body of a skill (pass appId=recut.platform for platform skills, otherwise the App id); it is authoritative for that capability's tool contracts and decision gates.",
 	},
 	"recut.skills.reference": {
 		LocaleZh: "读取一个 skill 声明的引用/资源子文档。路径必须是该 skill 目录内前置声明的相对路径。",
@@ -200,7 +200,7 @@ func mcpToolListForSession(bridge *AgentBridge, media *MediaService, session Age
 	tools := platformMCPToolDefinitions(locale)
 	apps, err := bridge.store.catalog.List()
 	if err != nil {
-		return map[string]any{"tools": filterSessionTools(tools, session)}
+		return map[string]any{"tools": visibleToolsForSession(tools, session)}
 	}
 	for _, app := range apps {
 		tools = append(tools, appMCPToolDefinitions(app)...)
@@ -208,7 +208,18 @@ func mcpToolListForSession(bridge *AgentBridge, media *MediaService, session Age
 	if session.AllowsTool("recut.editor.component.commit") && len(session.AllowedTools) > 0 {
 		tools = append(tools, componentCommitToolDefinition(locale))
 	}
-	return map[string]any{"tools": filterSessionTools(tools, session)}
+	return map[string]any{"tools": visibleToolsForSession(tools, session)}
+}
+
+// visibleToolsForSession applies per-session tool filtering: an explicit
+// AllowedTools allowlist wins, and built-in bridge sessions also drop the
+// external-only tools (they rely on the core guide instead).
+func visibleToolsForSession(tools []map[string]any, session AgentSession) []map[string]any {
+	visible := filterSessionTools(tools, session)
+	if isInternalBridgeSession(session) {
+		visible = excludeTools(visible, externalOnlyTools)
+	}
+	return visible
 }
 
 func filterSessionTools(tools []map[string]any, session AgentSession) []map[string]any {
@@ -432,7 +443,7 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 	case "recut.apps.update":
 		return appsUpdateTool(bridge, arguments)
 	case "recut.skills.list":
-		return skillsListTool(bridge)
+		return skillsListTool(bridge, session)
 	case "recut.skills.read":
 		return skillReadTool(bridge, arguments)
 	case "recut.skills.reference":
@@ -548,10 +559,73 @@ func requestedProjectID(arguments map[string]any) string {
 	return ""
 }
 
-func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSession, locale Locale) (any, error) {
-	apps, _ := bridge.store.catalog.List()
-	appSummaries := make([]map[string]any, 0, len(apps))
+// externalOnlyPlatformSkills lists platform skills that only make sense to an
+// external MCP Agent: they document the url output format and connection/install
+// steps (and carry the MCP registration). Built-in bridge sessions already get
+// that guidance from the core guide, so the interface must not surface them.
+var externalOnlyPlatformSkills = map[string]bool{"recut": true}
+
+// isExternalMCPSession reports whether the caller is an external MCP client
+// (device-token session, ID "external") rather than a built-in bridge session.
+func isExternalMCPSession(session AgentSession) bool {
+	return session.ID == "external"
+}
+
+// isInternalBridgeSession reports whether the caller is a built-in bridge
+// session (real session id). Empty sessions (generic tool listings) are not
+// treated as internal.
+func isInternalBridgeSession(session AgentSession) bool {
+	return session.ID != "" && session.ID != "external"
+}
+
+// externalOnlyTools are platform tools that only make sense to an external MCP
+// client. Built-in bridge sessions get everything from the core guide (which
+// already embeds the capability snapshot), so they must not see these - they
+// would only add noise or invite redundant calls.
+var externalOnlyTools = map[string]bool{"recut.context": true}
+
+// excludeTools drops the named tools from a tool list (audience filtering).
+func excludeTools(tools []map[string]any, hidden map[string]bool) []map[string]any {
+	filtered := make([]map[string]any, 0, len(tools))
+	for _, tool := range tools {
+		if name, _ := tool["name"].(string); hidden[name] {
+			continue
+		}
+		filtered = append(filtered, tool)
+	}
+	return filtered
+}
+
+// capabilitySnapshot is the decision-sized capability view shared by
+// recut.context and the built-in session guide: installed Apps and their
+// skills, platform skills, media routes/readiness, integrations, and .recut
+// paths. It carries metadata only (never skill bodies or the provider catalog).
+// A nil bridge/store yields nil so callers can render the locale-only guide.
+func capabilitySnapshot(bridge *AgentBridge, media *MediaService, session AgentSession, locale Locale) map[string]any {
+	if bridge == nil || bridge.store == nil {
+		return nil
+	}
+	// skills 是一张扁平清单：平台技能（appId=`recut.platform`）在前，已安装 App
+	// 的技能在后——对 Agent 都是同一种可加载工作流，appId 即来源。平台技能不属于
+	// 任何已安装 App，若不并入这里，World/画布这类平台能力就对 Agent 不可发现。
+	// 内建桥会话已有 core guide，不再暴露只服务外部 Agent 的平台技能。
+	internal := !isExternalMCPSession(session)
 	skillSummary := make([]map[string]any, 0)
+	if platformSkills, err := NewRecutSkillsManager(bridge.store.root).Skills(); err == nil {
+		for _, skill := range platformSkills {
+			if internal && externalOnlyPlatformSkills[skill.ID] {
+				continue
+			}
+			skillSummary = append(skillSummary, map[string]any{"id": skill.ID, "appId": platformSkillAppID, "name": skill.Name, "description": skill.Description})
+		}
+	}
+	appSummaries := make([]map[string]any, 0)
+	storeApps := []StoreApp{}
+	apps := []App{}
+	if bridge.store.catalog != nil {
+		apps, _ = bridge.store.catalog.List()
+		storeApps, _ = bridge.store.AppStoreFor(locale)
+	}
 	for _, app := range apps {
 		skills, err := app.Skills()
 		if err != nil {
@@ -568,15 +642,11 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 		appSummaries = append(appSummaries, summary)
 	}
 	mediaConfiguration, mediaReadiness := mediaContext(media)
-	result := map[string]any{
-		"session": map[string]any{"id": session.ID, "taskId": session.TaskID},
-		"apps":    appSummaries,
-		"skills":  skillSummary,
-		"media":   map[string]any{"defaultRoutes": mediaConfiguration, "readiness": mediaReadiness},
-		"integrations": recutIntegrationContext(apps, func() []StoreApp {
-			storeApps, _ := bridge.store.AppStoreFor(locale)
-			return storeApps
-		}()),
+	return map[string]any{
+		"apps":         appSummaries,
+		"skills":       skillSummary,
+		"media":        map[string]any{"defaultRoutes": mediaConfiguration, "readiness": mediaReadiness},
+		"integrations": recutIntegrationContext(apps, storeApps),
 		"paths": map[string]any{
 			"dataRoot":         bridge.store.root,
 			"appsDir":          filepath.Join(bridge.store.root, "apps"),
@@ -584,10 +654,30 @@ func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSes
 			"sessionWorkspace": bridge.store.SessionWorkspaceDir(session.ID),
 			"mediaDir":         filepath.Join(bridge.store.root, "media"),
 			"modelsDir":        filepath.Join(bridge.store.root, "models"),
+			"skillsDir":        filepath.Join(bridge.store.root, "skills"),
 			"designSystemsDir": filepath.Join(bridge.store.root, "skills", designSystemSkillID),
 		},
-		"instructions": bridgeInstructions,
 	}
+}
+
+func recutContextTool(bridge *AgentBridge, media *MediaService, session AgentSession, locale Locale) (any, error) {
+	// 内建桥会话：能力快照与系统信息已内嵌在会话 guide（动态配置 / 当前系统信息）
+	// 并由平台每轮重新注入，recut.context 只回会话身份，不再重复搬运能力载荷。
+	if !isExternalMCPSession(session) {
+		result := map[string]any{
+			"session": map[string]any{"id": session.ID, "taskId": session.TaskID},
+			"notice":  "内建会话的能力快照与系统信息已内嵌在会话 guide（动态配置 / 当前系统信息），平台每轮重新注入；无需调用 recut.context。",
+		}
+		data, _ := json.Marshal(result)
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+	}
+	// 外部 MCP 客户端没有 guide 注入点：recut.context 是其唯一能力入口，返回完整载荷。
+	result := capabilitySnapshot(bridge, media, session, locale)
+	if result == nil {
+		result = map[string]any{}
+	}
+	result["session"] = map[string]any{"id": session.ID, "taskId": session.TaskID}
+	result["instructions"] = bridgeInstructions
 	data, _ := json.Marshal(result)
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 }
@@ -641,6 +731,8 @@ func recutIntegrationContext(apps []App, storeApps []StoreApp) map[string]any {
 // mediaContext turns persisted routes into a decision-ready view for Agents.
 // Tool discovery is static, but a provider-backed generation call is only
 // possible after the user has configured its capability's default route.
+// defaultRoutes is a compact projection (see mediaRoutesView): the agent acts on
+// the configured default model, never the full provider catalog.
 func mediaContext(media *MediaService) (any, map[string]map[string]string) {
 	readiness := map[string]map[string]string{}
 	for _, capability := range []MediaCapability{ImageGenerate, VideoGenerate, SpeechGenerate} {
@@ -651,7 +743,7 @@ func mediaContext(media *MediaService) (any, map[string]map[string]string) {
 		}
 	}
 	if media == nil {
-		return []MediaConfiguration{}, readiness
+		return []map[string]any{}, readiness
 	}
 	configured, err := media.ConfiguredModels()
 	if err != nil {
@@ -659,7 +751,7 @@ func mediaContext(media *MediaService) (any, map[string]map[string]string) {
 			value["status"] = "unavailable"
 			value["action"] = "Reconnect to the local Recut service, then inspect its media settings."
 		}
-		return []MediaConfiguration{}, readiness
+		return []map[string]any{}, readiness
 	}
 	for _, configuration := range configured {
 		value := readiness[string(configuration.Route.Capability)]
@@ -687,7 +779,43 @@ func mediaContext(media *MediaService) (any, map[string]map[string]string) {
 		value["credentialName"] = configuration.CredentialName
 		value["action"] = ""
 	}
-	return configured, readiness
+	return mediaRoutesView(configured), readiness
+}
+
+// mediaRoutesView is the MCP-facing, decision-sized projection of the configured
+// default routes. The agent only acts on the globally configured default model per
+// capability, so the full provider catalog (every model plus its display meta,
+// parameter schema and voice lists) is deliberately excluded; shipping it turned
+// recut.context into a truncated ~48KB payload that cost the agent extra calls to
+// parse. Route identity, credential and the selected model's generation contract
+// are preserved so generation and voice lookups stay possible.
+func mediaRoutesView(configured []MediaConfiguration) []map[string]any {
+	view := make([]map[string]any, 0, len(configured))
+	for _, configuration := range configured {
+		model := map[string]any{
+			"id":          configuration.Model.ID,
+			"name":        configuration.Model.Name,
+			"provider":    configuration.Model.Provider,
+			"capability":  string(configuration.Model.Capability),
+			"inputModes":  configuration.Model.InputModes,
+			"outputModes": configuration.Model.OutputModes,
+		}
+		if len(configuration.Model.Parameters) > 0 {
+			model["parameters"] = configuration.Model.Parameters
+		}
+		view = append(view, map[string]any{
+			"routeId":         configuration.Route.ID,
+			"capability":      string(configuration.Route.Capability),
+			"modelId":         configuration.Route.ModelID,
+			"credentialId":    configuration.Route.CredentialID,
+			"credentialName":  configuration.CredentialName,
+			"providerName":    configuration.Provider.Name,
+			"model":           model,
+			"requiredInputs":  configuration.RequiredInputs,
+			"optionalOutputs": configuration.OptionalOutputs,
+		})
+	}
+	return view
 }
 
 func appsListTool(bridge *AgentBridge, locale Locale) (any, error) {
@@ -775,10 +903,14 @@ func appsUpdateTool(bridge *AgentBridge, arguments map[string]any) (any, error) 
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 }
 
-func skillsListTool(bridge *AgentBridge) (any, error) {
+func skillsListTool(bridge *AgentBridge, session AgentSession) (any, error) {
 	result := []map[string]any{}
+	internal := !isExternalMCPSession(session)
 	if platformSkills, err := NewRecutSkillsManager(bridge.store.root).Skills(); err == nil {
 		for _, skill := range platformSkills {
+			if internal && externalOnlyPlatformSkills[skill.ID] {
+				continue
+			}
 			result = append(result, map[string]any{"id": skill.ID, "appId": platformSkillAppID, "name": skill.Name, "description": skill.Description})
 		}
 	}
@@ -1578,7 +1710,7 @@ func projectContextTool(bridge *AgentBridge, host *AppHost, media *MediaService,
 	}
 	if media != nil {
 		if configured, err := media.ConfiguredModels(); err == nil {
-			result["media"] = map[string]any{"defaultRoutes": configured}
+			result["media"] = map[string]any{"defaultRoutes": mediaRoutesView(configured)}
 		}
 	}
 	data, _ := json.Marshal(result)

@@ -13,7 +13,7 @@ browser id with values from your own computer before running the skill.
 - Douyin browser-act browser id: get it with `browser-act browser list`
 
 Keep private machine notes in a separate file such as
-`references/local-setup.private.md`. That file is intentionally ignored by git.
+`references/remix/references/local-setup.private.md`. That file is intentionally ignored by git.
 
 ## Environment
 

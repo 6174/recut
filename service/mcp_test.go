@@ -139,7 +139,7 @@ func TestRecutContextReportsAppsWithoutProjectDefault(t *testing.T) {
 	if _, err := store.Create(CreateInput{Name: "Current page", AppID: "example.app"}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := recutContextTool(NewAgentBridge(store), NewMediaService(store), AgentSession{ID: "s1"}, DefaultLocale)
+	result, err := recutContextTool(NewAgentBridge(store), NewMediaService(store), AgentSession{ID: "external"}, DefaultLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,6 +150,18 @@ func TestRecutContextReportsAppsWithoutProjectDefault(t *testing.T) {
 	appsReported := structured["apps"].([]map[string]any)
 	if len(appsReported) != 1 || appsReported[0]["appId"] != "example.app" {
 		t.Fatalf("recut.context apps = %#v", appsReported)
+	}
+	// 平台技能不属于任何已安装 App，必须并入同一份 skills 清单（appId=recut.platform），
+	// 否则 World/画布等平台能力对 Agent 不可发现。
+	skillsReported := structured["skills"].([]map[string]any)
+	foundWorlds := false
+	for _, skill := range skillsReported {
+		if skill["id"] == "recut-worlds" && skill["appId"] == platformSkillAppID {
+			foundWorlds = true
+		}
+	}
+	if !foundWorlds {
+		t.Fatalf("recut.context skills missing platform skill recut-worlds: %#v", skillsReported)
 	}
 	readiness := structured["media"].(map[string]any)["readiness"].(map[string]map[string]string)
 	if readiness["image.generate"]["status"] != "not-configured" {
@@ -162,6 +174,91 @@ func TestRecutContextReportsAppsWithoutProjectDefault(t *testing.T) {
 	}
 	if audioStudio["repository"] == "" {
 		t.Fatalf("audio studio integration missing install repository: %#v", audioStudio)
+	}
+}
+
+// 内建桥会话直接走 core guide：recut.context 只回会话身份（能力载荷不重复搬运），
+// 且 tools/list 不暴露只服务外部的 recut.context；外部 MCP 会话才有完整载荷与 recut skill。
+func TestRecutContextAudienceSplit(t *testing.T) {
+	appsDir := filepath.Join(t.TempDir(), "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(t.TempDir(), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	bridge := NewAgentBridge(store)
+	structuredFor := func(session AgentSession) map[string]any {
+		result, err := recutContextTool(bridge, nil, session, DefaultLocale)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.(map[string]any)["structuredContent"].(map[string]any)
+	}
+	internal := structuredFor(AgentSession{ID: "ses_internal"})
+	if _, ok := internal["session"]; !ok {
+		t.Fatalf("internal recut.context must still return the session: %#v", internal)
+	}
+	if _, ok := internal["apps"]; ok {
+		t.Fatalf("internal recut.context must not carry the capability payload: %#v", internal)
+	}
+	if _, ok := internal["skills"]; ok {
+		t.Fatalf("internal recut.context must not carry skills: %#v", internal)
+	}
+	external := structuredFor(AgentSession{ID: "external"})
+	externSkills := map[string]bool{}
+	for _, skill := range external["skills"].([]map[string]any) {
+		if id, ok := skill["id"].(string); ok {
+			externSkills[id] = true
+		}
+	}
+	if !externSkills["recut"] || !externSkills["recut-worlds"] {
+		t.Fatalf("external recut.context must carry platform + recut skills: %#v", externSkills)
+	}
+
+	// skills.list 对内部同样过滤掉只服务外部的 recut skill。
+	listIDs := func(session AgentSession) map[string]bool {
+		result, err := skillsListTool(bridge, session)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items := result.(map[string]any)["structuredContent"].(map[string]any)["items"].([]map[string]any)
+		ids := map[string]bool{}
+		for _, item := range items {
+			if id, ok := item["id"].(string); ok {
+				ids[id] = true
+			}
+		}
+		return ids
+	}
+	internalList := listIDs(AgentSession{ID: "ses_internal"})
+	if internalList["recut"] || !internalList["recut-worlds"] {
+		t.Fatalf("internal skills.list audience filter wrong: %#v", internalList)
+	}
+	if !listIDs(AgentSession{ID: "external"})["recut"] {
+		t.Fatal("external skills.list must include the recut skill")
+	}
+
+	// 内建会话不再看到 recut.context 工具；外部与通用清单保留。
+	toolNames := func(session AgentSession) map[string]bool {
+		names := map[string]bool{}
+		for _, tool := range visibleToolsForSession(platformMCPToolDefinitions(DefaultLocale), session) {
+			if name, ok := tool["name"].(string); ok {
+				names[name] = true
+			}
+		}
+		return names
+	}
+	if toolNames(AgentSession{ID: "ses_internal"})["recut.context"] {
+		t.Fatal("built-in session tools/list must not expose recut.context")
+	}
+	if !toolNames(AgentSession{ID: "external"})["recut.context"] {
+		t.Fatal("external session tools/list must expose recut.context")
 	}
 }
 
@@ -182,7 +279,7 @@ func TestRecutContextReportsAudioStudioMCPReadiness(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := recutContextTool(NewAgentBridge(store), NewMediaService(store), AgentSession{ID: "s1"}, DefaultLocale)
+	result, err := recutContextTool(NewAgentBridge(store), NewMediaService(store), AgentSession{ID: "external"}, DefaultLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +308,7 @@ func TestRecutContextReportsConfiguredMediaReadiness(t *testing.T) {
 	if _, err := media.SaveRoute(MediaRoute{ID: "image.generate.default", Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := recutContextTool(NewAgentBridge(store), media, AgentSession{ID: "s1"}, DefaultLocale)
+	result, err := recutContextTool(NewAgentBridge(store), media, AgentSession{ID: "external"}, DefaultLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +360,7 @@ func TestLocalAudioRouteConfiguredReadinessAndDefaultVoice(t *testing.T) {
 	}
 
 	// readiness：ready + local + modelId
-	result, err := recutContextTool(NewAgentBridge(store), media, AgentSession{ID: "s1"}, DefaultLocale)
+	result, err := recutContextTool(NewAgentBridge(store), media, AgentSession{ID: "external"}, DefaultLocale)
 	if err != nil {
 		t.Fatal(err)
 	}

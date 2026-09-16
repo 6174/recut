@@ -1,16 +1,16 @@
 ---
-name: recut-directing-a-roll
+name: references/a-roll
 appId: recut.platform
 description: 回答口播与访谈中「说话内容留哪些、删哪些」的唯一决策问题，为 A-roll 的语音语义取舍提供权威判断标准。
 ---
 
-# Recut 全局导演技能：A-roll 语音取舍（recut-directing-a-roll）
+# Recut 全局导演技能：A-roll 语音取舍（references/a-roll）
 
 本技能是 Recut 平台 App 无关的全局导演技能，**只回答一个问题：说话内容留哪些、删哪些**。适用范围为说话驱动的成片——单人口播、访谈、播客、课程等。以“观众该听到什么”为决策起点，先在可编辑文稿上完成语义取舍，再统一落回时间线。
 
 ## 边界声明
 
-**本技能只管语音语义取舍；jump cut 的画面遮盖与 B-roll 归 recut-directing-b-roll；剪辑节奏归 recut-directing-editing。**
+**本技能只管语音语义取舍；jump cut 的画面遮盖与 B-roll 归 references/b-roll；剪辑节奏归 references/editing。**
 
 ## 一、依赖顺序：先结构，后时序，后润色
 
@@ -93,4 +93,4 @@ description: 回答口播与访谈中「说话内容留哪些、删哪些」的�
 ## 十一、与其它导演技能的分工
 
 - 本技能只负责语音语义的“留与删”；不决定画面如何遮盖跳切。
-- 画面遮盖、切镜与素材覆盖由 `recut-directing-b-roll` 负责；整体剪辑节奏、结构节拍与时长控制由 `recut-directing-editing` 负责。
+- 画面遮盖、切镜与素材覆盖由 `references/b-roll` 负责；整体剪辑节奏、结构节拍与时长控制由 `references/editing` 负责。

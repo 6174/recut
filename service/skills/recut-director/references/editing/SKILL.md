@@ -1,16 +1,16 @@
 ---
-name: recut-directing-editing
+name: references/editing
 appId: recut.platform
 description: 回答「片子怎么剪到一起？」的唯一决策问题，为节奏、切点、转场与卡点的组装纪律提供权威判断标准。
 ---
 
-# Recut 全局导演技能：剪辑与节奏（recut-directing-editing）
+# Recut 全局导演技能：剪辑与节奏（references/editing）
 
 本技能是 Recut 平台 App 无关的全局导演技能，**只回答一个问题：片子怎么剪到一起**。适用范围为一切需要把多段素材、图文与声音组装成连续观感的成片——口播、宣传片、AI 生成片段混排、竖幅短视频。以“观众是否感到流畅、可懂、有呼吸”为验收标准，先定节拍与段落，再定切点密度，再定卡点与转场。
 
 ## 边界声明
 
-**本技能只管节奏与组装；开场钩子与留存机制归 recut-directing-hooks；说话内容留哪些、删哪些归 recut-directing-a-roll；画面该放什么素材、怎么摆归 recut-directing-b-roll。**
+**本技能只管节奏与组装；开场钩子与留存机制归 references/hooks；说话内容留哪些、删哪些归 references/a-roll；画面该放什么素材、怎么摆归 references/b-roll。**
 
 - 钩子的形态、原型与留存结构（0–3 秒如何留人、如何收口）由 hooks 回答；本技能只在已定的钩子之后，决定钩子段以何种密度与转场衔接正片。
 - 语音语义的取舍（口癖、重拍、残句、停顿）由 a-roll 回答；本技能在已定的语音之上决定在哪里切、切多快、以何种动机切。
@@ -102,9 +102,9 @@ description: 回答「片子怎么剪到一起？」的唯一决策问题，为�
 
 | 文件 | 用途 | 来源 |
 |---|---|---|
-| `references/editing-and-assembly.md` | 剪辑与组装的权威深化：均值节拍与镜数算术、切点动机分类、转场工程（含硬切清单、匹配切、鞭转、叠化、插入、空帧桥）、把手与修剪、节奏装置、防幻灯片与装配规格 | DirectorSKILL-full (MIT) |
-| `references/music-beat-sync.md` | 卡点纪律的合并版深化：节拍网格拟合、鼓点与重音定位、拍号秒表与音乐结构、双介质落拍写法、渲后回测与工具备忘 | Recut 自有存量（两份 music-beat-sync 合并） |
-| `references/pacing-zh.md` | 9:16 短视频的节奏密度与转场语法的中文改写：0.2 秒非节拍器切割、分层密度、A-roll/B-roll 脊柱、分栏与全幅的有意进出、节奏校验 | vertical-video-editing (MIT) |
-| `assets/edit-timeline-template.md` | 时间线文档模板：表头、转场记法、时长算术与装配顺序的填空模板 | DirectorSKILL-full (MIT) |
+| `references/editing/references/editing-and-assembly.md` | 剪辑与组装的权威深化：均值节拍与镜数算术、切点动机分类、转场工程（含硬切清单、匹配切、鞭转、叠化、插入、空帧桥）、把手与修剪、节奏装置、防幻灯片与装配规格 | DirectorSKILL-full (MIT) |
+| `references/editing/references/music-beat-sync.md` | 卡点纪律的合并版深化：节拍网格拟合、鼓点与重音定位、拍号秒表与音乐结构、双介质落拍写法、渲后回测与工具备忘 | Recut 自有存量（两份 music-beat-sync 合并） |
+| `references/editing/references/pacing-zh.md` | 9:16 短视频的节奏密度与转场语法的中文改写：0.2 秒非节拍器切割、分层密度、A-roll/B-roll 脊柱、分栏与全幅的有意进出、节奏校验 | vertical-video-editing (MIT) |
+| `references/editing/assets/edit-timeline-template.md` | 时间线文档模板：表头、转场记法、时长算术与装配顺序的填空模板 | DirectorSKILL-full (MIT) |
 
 > 使用顺序：先以本 SKILL.md 定段落节拍与密度分层，再按 music-beat-sync 定落拍与回测，再按 editing-and-assembly 选转场与动机，最后以 pacing-zh 校核竖幅场景的密度与版式进出。三份深化按需加载，不整份预读。

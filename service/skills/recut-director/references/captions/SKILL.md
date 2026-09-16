@@ -1,10 +1,10 @@
 ---
-name: recut-directing-captions
+name: references/captions
 appId: recut.platform
 description: 回答「字怎么上屏？」的唯一决策问题，为字幕的层级、安全区、强调词与平台适配样式提供权威判断标准。
 ---
 
-# Recut 全局导演技能：字幕与上屏（recut-directing-captions）
+# Recut 全局导演技能：字幕与上屏（references/captions）
 
 本技能是 Recut 平台 App 无关的全局导演技能，**只回答一个问题：字怎么上屏**。适用范围为一切需要在画面上叠加可读文字以承载对话、旁白或要点强调的成片——口播、访谈、解说、短视频、AI 生成段落混排。以"观众在静音与有声两种条件下都能一眼读清、且不与主体冲突"为验收标准，先定层级与安全区，再定强调策略，最后落平台样式。
 
@@ -15,9 +15,9 @@ description: 回答「字怎么上屏？」的唯一决策问题，为字幕的�
 | 决策 | 归属 | 说明 |
 |---|---|---|
 | **字幕样式本身**（字号/颜色/对齐/字距/行高/底框/位置/强调） | **本技能** | 一条字幕怎么写、怎么摆、怎么强调、怎么保证可读 |
-| **文字钩子的首帧文案**（0–3 秒钩子句写什么、首帧叠什么字） | `recut-directing-hooks` | 钩子句的选题与打磨归 hooks；本技能只决定钩子字幕以何种样式与强调落屏，不决定写什么钩子 |
-| **缝线字幕的版式使命**（栈式分栏中缝处的字幕是版式分隔器还是叙事字幕） | `recut-directing-b-roll` | b-roll 决定何时用栈式分栏、何时用全幅 cover、何时让缝线承载信息；本技能决定缝线字幕本身的可读与强调 |
-| **平台样式规格与审核红线**（各平台的字幕安全区数值、封面标题规范、审核雷区） | `recut-directing-platform` | 平台决定"发给谁、什么规格、什么不能发"；本技能决定字幕在已定规格内的样式与落位 |
+| **文字钩子的首帧文案**（0–3 秒钩子句写什么、首帧叠什么字） | `references/hooks` | 钩子句的选题与打磨归 hooks；本技能只决定钩子字幕以何种样式与强调落屏，不决定写什么钩子 |
+| **缝线字幕的版式使命**（栈式分栏中缝处的字幕是版式分隔器还是叙事字幕） | `references/b-roll` | b-roll 决定何时用栈式分栏、何时用全幅 cover、何时让缝线承载信息；本技能决定缝线字幕本身的可读与强调 |
+| **平台样式规格与审核红线**（各平台的字幕安全区数值、封面标题规范、审核雷区） | `references/platform` | 平台决定"发给谁、什么规格、什么不能发"；本技能决定字幕在已定规格内的样式与落位 |
 
 未点名处，本技能为字幕样式的唯一权威；与上述四类冲突时以本表为准。
 
@@ -91,9 +91,9 @@ description: 回答「字怎么上屏？」的唯一决策问题，为字幕的�
 
 | 文件 | 何时读 | 覆盖问题 |
 |---|---|---|
-| `references/captions.md` | 需要字幕轨结构、共享样式、cue 纪律与 Remotion 主题选型的权威原文时 | 两份自有存量 captions.md 的介质中性合并：字幕轨与 cue 结构、共享样式广播、全轨统一、字幕无底框、主题表与选择建议 |
-| `references/kinetic-captions-zh.md` | 需要动能字幕与关键词强调的版式语法时 | 源自 vertical-video-editing 的 kinetic captions / keyword emphasis / 缝线字幕段落的中文改写：动能入场、强调词、缝线字幕、高亮条与安全摆位 |
-| `references/captions-and-clipping.md` | 需要长转短与静音观看的字幕策略时 | social-media captions-and-clipping 原文搬运：CLIP 框架、I（Inscribe captions）静音字幕纪律、工具选型与完播漏斗中的字幕角色 |
+| `references/captions/references/captions.md` | 需要字幕轨结构、共享样式、cue 纪律与 Remotion 主题选型的权威原文时 | 两份自有存量 captions.md 的介质中性合并：字幕轨与 cue 结构、共享样式广播、全轨统一、字幕无底框、主题表与选择建议 |
+| `references/captions/references/kinetic-captions-zh.md` | 需要动能字幕与关键词强调的版式语法时 | 源自 vertical-video-editing 的 kinetic captions / keyword emphasis / 缝线字幕段落的中文改写：动能入场、强调词、缝线字幕、高亮条与安全摆位 |
+| `references/captions/references/captions-and-clipping.md` | 需要长转短与静音观看的字幕策略时 | social-media captions-and-clipping 原文搬运：CLIP 框架、I（Inscribe captions）静音字幕纪律、工具选型与完播漏斗中的字幕角色 |
 
 > 使用顺序：先以本 SKILL.md 定层级、安全区与强调纪律，再按 captions.md 校核轨结构与主题选型，需要动能效果时读 kinetic-captions-zh，需要长转短与静音策略时读 captions-and-clipping。三份深化按需加载，不整份预读。
 

@@ -87,8 +87,12 @@ export function ContextMentionPopover({
           onCloseAutoFocus={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => { event.preventDefault(); onCancel(); }}
           onInteractOutside={(event) => { event.preventDefault(); onDismiss(); }}
-          // 浮层挂在 body 上：按下不抢焦点，否则宿主的 blur 提交会退出编辑态。
-          onMouseDown={(event) => event.preventDefault()}
+          // 浮层挂在 body 上：按下不抢焦点，否则宿主的 blur 提交会退出编辑态；但搜索框要能被点击聚焦输入。
+          onMouseDown={(event) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest("input, textarea, [contenteditable='true']")) return;
+            event.preventDefault();
+          }}
           onOpenAutoFocus={(event) => event.preventDefault()}
           side="bottom"
           sideOffset={8}

@@ -19,7 +19,7 @@ description: 把已经明确的剧情、人物、场景和参考素材转成可�
 
 ## 权威合同
 
-制作、检查、修正或续接分镜前，完整读取 `references/production-contract.md`。该文件是5.4.1唯一生产合同。
+制作、检查、修正或续接分镜前，完整读取 `references/short-drama/references/ai-storyboard-director/references/production-contract.md`。该文件是5.4.1唯一生产合同。
 
 默认只使用一个主Skill：
 

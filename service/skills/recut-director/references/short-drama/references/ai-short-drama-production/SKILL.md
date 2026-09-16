@@ -37,7 +37,7 @@ description: >
 2. 调用既有 `character-asset`、`scene-asset`、`prop-asset` 建 Cxx/Sxx/Pxx；先人工审核，再进入分镜。不要以视频抽卡替代资产库。
 3. 对每镜建立 `blocking_map`：空间锚点、人物位置/朝向/高度、道具位置、视线、摄影机和安全活动区必须能画在同一张平面图上。
 4. 用主类型 Skill 给镜头、色彩、材质参数；类型 Skill 只供参数，不得改变审核过的资产外观。
-5. 仅在需要时叠加下列专项合同：草图转镜头、布光、动作。详细字段见 [control-contracts.md](references/control-contracts.md)。
+5. 仅在需要时叠加下列专项合同：草图转镜头、布光、动作。详细字段见 [control-contracts.md](references/short-drama/references/ai-short-drama-production/references/control-contracts.md)。
 6. 由 04-prompt-engineer 把所有合同装进既有十段式。一个 AG-CLIP 只能是一个连续机位、没有隐藏硬切；运镜只保留一个主导运动。动作镜默认只装 1–2 个可读因果节拍，密度超出时拆镜；情绪长镜不受“一个动作”口号限制，以导演判断和实际可生成性决定。
 7. 06-qc-supervisor 用实际画面复核，不以平台任务成功、漂亮单帧或重复生成当作通过。
 
@@ -95,4 +95,4 @@ description: >
 
 ## 6. 来源边界
 
-本 Skill 的 8 个专题由刺猬星球 super-i 的公开抖音作品标题与正文触发；目前未将视频口播中不可复核的具体步骤写成事实。作品索引和核验状态见 `references/SOURCE-LEDGER.md`。全部执行合同已随本 Skill 打包，不依赖私人项目目录。
+本 Skill 的 8 个专题由刺猬星球 super-i 的公开抖音作品标题与正文触发；目前未将视频口播中不可复核的具体步骤写成事实。作品索引和核验状态见 `references/short-drama/references/ai-short-drama-production/references/SOURCE-LEDGER.md`。全部执行合同已随本 Skill 打包，不依赖私人项目目录。

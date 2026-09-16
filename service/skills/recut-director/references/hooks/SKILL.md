@@ -1,16 +1,16 @@
 ---
-name: recut-directing-hooks
+name: references/hooks
 appId: recut.platform
 description: 回答视频「开场怎么留人、结尾怎么收」的唯一决策问题，为 0–3 秒钩子与完播留存机制提供权威判断标准。
 ---
 
-# Recut 全局导演技能：开场钩子与留存（recut-directing-hooks）
+# Recut 全局导演技能：开场钩子与留存（references/hooks）
 
 本技能是 Recut 平台 App 无关的全局导演技能，**只回答一个问题：开场怎么留人、结尾怎么收**。适用范围为一切需要争夺注意力的短视频与中短视频的 0–3 秒开场与完播留存设计。以“观众在前三秒是否决定留下、到结尾是否愿意留存或复看”为决策起点，先定钩子，再定留存路径。
 
 ## 边界声明
 
-**本技能只管 0–3 秒开场与完播留存机制；整体叙事结构归 recut-directing-story；叙事节奏密度归 recut-directing-editing。**
+**本技能只管 0–3 秒开场与完播留存机制；整体叙事结构归 references/story；叙事节奏密度归 references/editing。**
 
 ## 一、钩子的本质：闸门而非装饰
 
@@ -137,8 +137,8 @@ description: 回答视频「开场怎么留人、结尾怎么收」的唯一决�
 
 ## 参考
 
-- `references/hook-archetypes.md`：钩子原型与选型深化
-- `references/three-layer-hook.md`：三层钩子对齐与首帧设计
-- `references/retention-and-closing.md`：留存脊、三种失守与结尾机制深化
+- `references/hooks/references/hook-archetypes.md`：钩子原型与选型深化
+- `references/hooks/references/three-layer-hook.md`：三层钩子对齐与首帧设计
+- `references/hooks/references/retention-and-closing.md`：留存脊、三种失守与结尾机制深化
 
 > 来源注记：本技能融合改写自 vyralcontent/content-skills（MIT），原文件见 LICENSE-NOTICE.md。已按 Recut 全局导演技能的介质中性约束重述，不含任何 App 私有工具或代码语法。

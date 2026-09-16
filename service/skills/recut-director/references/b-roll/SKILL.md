@@ -1,16 +1,16 @@
 ---
-name: recut-directing-b-roll
+name: references/b-roll
 appId: recut.platform
 description: 回答「画面该放什么素材、怎么摆」这一唯一决策问题，为 B-roll 与版式摆放的素材选择与画面落位提供权威判断标准。
 ---
 
-# Recut 全局导演技能：B-roll 与画面摆放（recut-directing-b-roll）
+# Recut 全局导演技能：B-roll 与画面摆放（references/b-roll）
 
 本技能是 Recut 平台 App 无关的全局导演技能，**只回答一个问题：画面该放什么素材、怎么摆**。以“观众该看见什么、能看清什么”为决策起点，先看懂素材，再决定素材是否需要、选哪一段、以何种版式落位。以画面可读性与信息完整性为验收标准，不以“填满画布”为标准。
 
 ## 边界声明
 
-**本技能管素材选择与摆放；说话内容取舍归 recut-directing-a-roll；切点节奏归 recut-directing-editing。jump cut 的「留话」归 a-roll、「盖画面」归本技能。**
+**本技能管素材选择与摆放；说话内容取舍归 references/a-roll；切点节奏归 references/editing。jump cut 的「留话」归 a-roll、「盖画面」归本技能。**
 
 本技能不决定“留哪句话、删哪句话”（归 a-roll），也不决定“在哪里切、节奏多快、段落如何分”（归 editing）。本技能只在已定的语音与节奏之上，决定用何种画面覆盖或陪衬，以及画面如何在版式中摆放才可读、不遮挡、不裁掉关键信息。
 
@@ -107,7 +107,7 @@ B-roll 的密度服务于语音与版式，不服务于“填满时间线”。
 
 ## 九、与其它导演技能的分工
 
-- 本技能负责“画面放什么、怎么摆”；不负责“说话留哪句、删哪句”（归 recut-directing-a-roll）。
+- 本技能负责“画面放什么、怎么摆”；不负责“说话留哪句、删哪句”（归 references/a-roll）。
 - 本技能负责“盖画面的选材与落位”；jump cut 是否保留、以何种语音逻辑衔接由 a-roll 判断，以何种节奏切开由 editing 判断。
 - 结构与时序发生变化后，本技能所依赖的语音锚点与版式落位需重新对齐与复核。
 

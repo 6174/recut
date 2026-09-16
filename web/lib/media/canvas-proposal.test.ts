@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 node:test/assert 与被测的 canvas 生成提案纯函数
  * [OUTPUT]: 覆盖提案门禁契约：role 受控词表按模态过滤、提交前自检 fail-closed（prompt/model 必填、
  *          role↔kind 校验）、referenceIds 去重保序、视频强制提案
- * [POS]: web 画布媒体生成的纯逻辑门禁（与 recut-directing-generation-prompt / generation-reference-protocol 对齐）
+ * [POS]: web 画布媒体生成的纯逻辑门禁（与 recut-director（references/generation-prompt） / generation-reference-protocol 对齐）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import assert from "node:assert/strict";

@@ -90,6 +90,8 @@ func main() {
 	// 启动时同步一次 + 每 24h 一次；非致命——离线时降级到种子/上次同步内容。
 	worldCatalog := NewWorldCatalogSyncer(*dataDir, worlds)
 	bridge := NewAgentBridge(store)
+	// 会话 guide 内嵌能力快照时需要媒体就绪信息（省去首轮 recut.context 调用）。
+	bridge.SetMediaService(media)
 	host := NewAppHost(apps, store, media)
 	// 临时公网分享（R2 + CDN）：凭据来自 env 或 <data-dir>/share-credentials；
 	// 缺失时分享能力不可用（带参考素材的 Skymind 视频任务给出可操作错误）。

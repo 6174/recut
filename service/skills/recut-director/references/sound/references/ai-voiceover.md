@@ -30,7 +30,7 @@ the VO supports captions, it doesn't carry the video alone.
    that embodies it (keep them consistent).
 
 ## The framework: VOICE
-(Depth: `references/the-voice-framework.md`.)
+(Depth: `references/sound/references/the-voice-framework.md`.)
 - **V — Voice match:** library / Voice Design / consented clone; fit brand + platform.
 - **O — Own the script for the ear:** spoken cadence, contractions, short sentences; read it aloud.
 - **I — Inflect & direct:** model by job (v3 expressive + Audio Tags / Multilingual v2 final / Flash
@@ -41,15 +41,15 @@ the VO supports captions, it doesn't carry the video alone.
 ## Pick the model (verify-quarterly)
 **Eleven v3** (expressive, Audio Tags) or **Multilingual v2** (polished long-form) for finals;
 **Flash/Turbo** for drafts/real-time at ~half the credits. Draft on Flash, render finals on
-v3/Multilingual v2. Full capabilities/pricing: `references/elevenlabs-2026-capabilities.md`; worked
-scripts: `references/script-for-the-ear-and-recipes.md`.
+v3/Multilingual v2. Full capabilities/pricing: `references/sound/references/elevenlabs-2026-capabilities.md`; worked
+scripts: `references/sound/references/script-for-the-ear-and-recipes.md`.
 
 ## Consent + disclosure (hard gate — never skip)
 - **Only consented voices** — your own clone, a consented person, a library/designed voice, or
   licensed talent. **Never clone a real person without documented consent** (PVC verification only
   permits your own voice anyway). Refuse celebrity soundalikes for commercial use.
 - **Disclose** AI voice where it matters — EU AI Act; TikTok auto-disclosure; always in ads/political.
-  (Spine + tools: `references/consent-disclosure-and-tools.md`.)
+  (Spine + tools: `references/sound/references/consent-disclosure-and-tools.md`.)
 
 ## Honest scope (never violate)
 - **ElevenLabs generates audio; it does not edit/mix it.** A human mixes the VO into the video and

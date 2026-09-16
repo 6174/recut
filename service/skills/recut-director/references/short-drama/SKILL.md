@@ -1,10 +1,10 @@
 ---
-name: recut-directing-short-drama
+name: references/short-drama
 appId: recut.platform
 description: 回答「剧情类怎么编排生产？」的唯一决策问题，为 AI 短剧/漫剧/剧情短视频从故事意图到可控生产链的编排与合同管理提供权威判断标准。
 ---
 
-# Recut 全局导演技能：短剧生产编排（recut-directing-short-drama）
+# Recut 全局导演技能：短剧生产编排（references/short-drama）
 
 本技能是 Recut 平台 App 无关的全局导演技能，**只回答一个问题：剧情类怎么编排生产？** 适用范围为 AI 短剧、漫剧、剧情短视频等强剧情内容的生产组织——把一个故事意图编为可检验、可传递、可回写的控制合同链，再交付生成。所有关于“先做哪步、谁对接谁、什么状态才能生成”的编排判断，以本技能为准。
 
@@ -16,20 +16,20 @@ description: 回答「剧情类怎么编排生产？」的唯一决策问题，�
 
 | 归属 | 内容 | 说明 |
 |---|---|---|
-| **recut-directing-story** | 故事因果与剧本写作 | 人物目标/阻力/行动/变化、因果链、状态引擎、人物弧光、对白与节拍写作；本技能只在“怎么把已批准的剧本变成可交付合同”时引用其结论，不重写故事 |
-| **recut-directing-shot** | 单个镜头怎么拍 | 景别/角度/焦段/运动、调度几何、轴线与视线、分镜表与首尾帧连续性；本技能只负责“镜头应在什么合同约束下生成”，不决定镜头美学本身 |
+| **references/story** | 故事因果与剧本写作 | 人物目标/阻力/行动/变化、因果链、状态引擎、人物弧光、对白与节拍写作；本技能只在“怎么把已批准的剧本变成可交付合同”时引用其结论，不重写故事 |
+| **references/shot** | 单个镜头怎么拍 | 景别/角度/焦段/运动、调度几何、轴线与视线、分镜表与首尾帧连续性；本技能只负责“镜头应在什么合同约束下生成”，不决定镜头美学本身 |
 | **各 App 适配层** | 生成模型 prompt 适配 | 把本技能的合同意图翻译为 Veo/Kling/即梦等具体模型的 prompt 形状、控制面与负面词；全局层只写意图，不写模型语法 |
-| **recut-directing-short-drama（本技能）** | 生产编排合同 | 剧本节拍合同、资产库、场面调度图、布光图、动作账本、草图转镜头六种可控性合同的建账、流转与门禁；十段式装配与生成前 QC 的唯一编排来源 |
+| **references/short-drama（本技能）** | 生产编排合同 | 剧本节拍合同、资产库、场面调度图、布光图、动作账本、草图转镜头六种可控性合同的建账、流转与门禁；十段式装配与生成前 QC 的唯一编排来源 |
 
 未验证的剧集类型或超出本技能合同覆盖的创作（如纯口播、纯图文动效），不得冒充为已验证路径。
 
 ## 六种可控性合同速览
 
-> 以下为中文路由层概述：一句说清每种合同“管什么、长什么样、缺了会怎样”，完整字段与 JSON 模板以 `references/` 原文为准。
+> 以下为中文路由层概述：一句说清每种合同“管什么、长什么样、缺了会怎样”，完整字段与 JSON 模板以 `references/short-drama/references/` 原文为准。
 
 ### 1. 剧本节拍合同（narrative_beat_contract）
 
-管“故事是否可被画面执行”。把钩子、want/obstacle/strategy_shift/power_turn/cost/cliffhanger 写成画面或台词可观察的事实，并记录观众信息差、人物进出状态差、情绪曲线与视觉概念引用。写“反转很强”不计数，能拍出“掌权者伸手索要证据却看到自己罪证”的具体动作才计数。缺此合同即无法回答“这场戏到底变了什么”。详见 `references/ai-short-drama-production/references/control-contracts.md#1` 与 `references/ai-short-drama-production/SKILL.md#3.1`。
+管“故事是否可被画面执行”。把钩子、want/obstacle/strategy_shift/power_turn/cost/cliffhanger 写成画面或台词可观察的事实，并记录观众信息差、人物进出状态差、情绪曲线与视觉概念引用。写“反转很强”不计数，能拍出“掌权者伸手索要证据却看到自己罪证”的具体动作才计数。缺此合同即无法回答“这场戏到底变了什么”。详见 `references/short-drama/references/ai-short-drama-production/references/control-contracts.md#1` 与 `references/short-drama/references/ai-short-drama-production/SKILL.md#3.1`。
 
 ### 2. 资产库合同（asset_registry）
 
@@ -55,10 +55,10 @@ description: 回答「剧情类怎么编排生产？」的唯一决策问题，�
 
 本技能的编排是线性闸门：前一步未通过，不进入下一步；回炉按归属定向返回，禁止“再生成一次”绕过。
 
-1. **剧本三层读法**：先用本技能编排的 `ai-storyboard-director` 完成剧本理解→调度→镜头句的镜头设计，再落为可检验的开场钩子、目标/阻力、策略或权力转折、结尾钩子。对应 `references/ai-storyboard-director/references/shot-design-engine.md` 与 `production-contract.md`。
+1. **剧本三层读法**：先用本技能编排的 `ai-storyboard-director` 完成剧本理解→调度→镜头句的镜头设计，再落为可检验的开场钩子、目标/阻力、策略或权力转折、结尾钩子。对应 `references/short-drama/references/ai-storyboard-director/references/shot-design-engine.md` 与 `production-contract.md`。
 2. **资产库**：调用已批准的 `character-asset / scene-asset / prop-asset` 建 Cxx/Sxx/Pxx，先人工审核，再进入分镜。不以视频抽卡替代资产。
 3. **调度**：对每镜建立 `blocking_map`，人物/道具/摄影机与轴线必须能在同一平面图上互证。
-4. **类型参数**：用主类型 Skill 给镜头、色彩、材质参数；类型只供参数，不改已审核外观（类型色彩来源见 `references/ai-short-drama-production/references/SOURCE-LEDGER.md`）。
+4. **类型参数**：用主类型 Skill 给镜头、色彩、材质参数；类型只供参数，不改已审核外观（类型色彩来源见 `references/short-drama/references/ai-short-drama-production/references/SOURCE-LEDGER.md`）。
 5. **专项合同**：仅在需要时叠加草图转镜头、布光、动作；字段见 `control-contracts.md`。
 6. **装配**：由既有十段式装配规则把所有合同装进六大模块视频提示词，单 AG-CLIP 只含一个连续机位与一个主导运动（见 `SKILL.md#4` 十段式注入表）。
 7. **QC 门禁**：按 `SKILL.md#5 生成前门禁` 八项清单核验实际画面与合同一致性，失败按归属回炉至 01/02/03/04/06，不以“漂亮单帧”当通过。
@@ -81,19 +81,19 @@ description: 回答「剧情类怎么编排生产？」的唯一决策问题，�
 
 | 搬运文件 | 何时读 | 解决什么 |
 |---|---|---|
-| `references/ai-short-drama-production/SKILL.md` | 需看短剧生产的完整编排契约与生产顺序时 | 导演判断→资产→调度→镜头/光/动作→十段式→QC 的总链路；本技能的编排正文 |
-| `references/ai-short-drama-production/references/control-contracts.md` | 需落合同字段或写入 `shots.json` 时 | 六种合同的 JSON 模板与 QC 对照顺序；唯一可执行的合同结构 |
-| `references/ai-short-drama-production/references/SOURCE-LEDGER.md` | 需追溯类型色彩与专题参数来源时 | 色值/导演参考/转化规则/错误库的权威来源与已核验条目，以及公开抖音专题索引 |
-| `references/ai-short-drama-production/agents/openai.yaml` | 需看原 Skill 的代理展示信息时 | 原 Skill 的 display_name / prompt（无编排规则，仅作溯源） |
-| `references/ai-storyboard-director/SKILL.md` | 已有可用剧本需拆分镜或写视频提示词时 | 本技能调用的分镜总路由：人读分镜+六大模块的交付形态、模式判定与必须执行的流程 |
-| `references/ai-storyboard-director/references/shot-design-engine.md` | 需从剧本推导调度与镜头句时 | 5.4.2 镜头设计引擎：剧本理解→调度→镜头句→景别/机位逻辑→复合运镜构造与失败模式 |
-| `references/ai-storyboard-director/references/production-contract.md` | 需保证空间/物理连续性时 | 5.4.1 生产合同：交付结构、人读分镜、六大模块与数字 10 十段式、场景世界状态与换机位重算 |
-| `references/ai-storyboard-director/references/delivery-mode-guard.md` | 需判定应交付分镜表还是完整提示词时 | 5.4.2 交付模式门：默认同轮交付分镜+提示词的硬门与可复制判定 |
-| `references/ai-storyboard-director/agents/openai.yaml` | 需看分镜 Skill 的代理展示信息时 | 原 Skill 的展示信息（仅溯源） |
-| `references/ai-storyboard-director/versions/5.4.1/SKILL.snapshot.md` | 需回退或审阅 5.4.1 基线时 | 5.4.1 原始快照（按哈希完整回退的依据） |
-| `references/ai-storyboard-director/versions/5.4.1/production-contract.snapshot.md` | 需核对 5.4.1 合同原文时 | 5.4.1 生产合同快照 |
-| `references/ai-storyboard-director/versions/5.4.2-candidate/SKILL.snapshot.md` | 需审阅 5.4.2 候选时 | 5.4.2 候选快照（本次正式化的回退证据） |
-| `references/ai-storyboard-director/versions/5.4.2-candidate/shot-design-engine.snapshot.md` | 需比对引擎变更时 | 5.4.2 候选引擎快照 |
+| `references/short-drama/references/ai-short-drama-production/SKILL.md` | 需看短剧生产的完整编排契约与生产顺序时 | 导演判断→资产→调度→镜头/光/动作→十段式→QC 的总链路；本技能的编排正文 |
+| `references/short-drama/references/ai-short-drama-production/references/control-contracts.md` | 需落合同字段或写入 `shots.json` 时 | 六种合同的 JSON 模板与 QC 对照顺序；唯一可执行的合同结构 |
+| `references/short-drama/references/ai-short-drama-production/references/SOURCE-LEDGER.md` | 需追溯类型色彩与专题参数来源时 | 色值/导演参考/转化规则/错误库的权威来源与已核验条目，以及公开抖音专题索引 |
+| `references/short-drama/references/ai-short-drama-production/agents/openai.yaml` | 需看原 Skill 的代理展示信息时 | 原 Skill 的 display_name / prompt（无编排规则，仅作溯源） |
+| `references/short-drama/references/ai-storyboard-director/SKILL.md` | 已有可用剧本需拆分镜或写视频提示词时 | 本技能调用的分镜总路由：人读分镜+六大模块的交付形态、模式判定与必须执行的流程 |
+| `references/short-drama/references/ai-storyboard-director/references/shot-design-engine.md` | 需从剧本推导调度与镜头句时 | 5.4.2 镜头设计引擎：剧本理解→调度→镜头句→景别/机位逻辑→复合运镜构造与失败模式 |
+| `references/short-drama/references/ai-storyboard-director/references/production-contract.md` | 需保证空间/物理连续性时 | 5.4.1 生产合同：交付结构、人读分镜、六大模块与数字 10 十段式、场景世界状态与换机位重算 |
+| `references/short-drama/references/ai-storyboard-director/references/delivery-mode-guard.md` | 需判定应交付分镜表还是完整提示词时 | 5.4.2 交付模式门：默认同轮交付分镜+提示词的硬门与可复制判定 |
+| `references/short-drama/references/ai-storyboard-director/agents/openai.yaml` | 需看分镜 Skill 的代理展示信息时 | 原 Skill 的展示信息（仅溯源） |
+| `references/short-drama/references/ai-storyboard-director/versions/5.4.1/SKILL.snapshot.md` | 需回退或审阅 5.4.1 基线时 | 5.4.1 原始快照（按哈希完整回退的依据） |
+| `references/short-drama/references/ai-storyboard-director/versions/5.4.1/production-contract.snapshot.md` | 需核对 5.4.1 合同原文时 | 5.4.1 生产合同快照 |
+| `references/short-drama/references/ai-storyboard-director/versions/5.4.2-candidate/SKILL.snapshot.md` | 需审阅 5.4.2 候选时 | 5.4.2 候选快照（本次正式化的回退证据） |
+| `references/short-drama/references/ai-storyboard-director/versions/5.4.2-candidate/shot-design-engine.snapshot.md` | 需比对引擎变更时 | 5.4.2 候选引擎快照 |
 
 > 搬运说明：以上文件均从 `62656456/ai-film-skills`（Apache-2.0）原样搬运，保留原文语言与结构，仅在文件头加一行 `> 来源: 62656456/ai-film-skills (Apache-2.0)`，并去除宿主工具专属内容中的工具无关保留。
 
@@ -119,7 +119,7 @@ description: 回答「剧情类怎么编排生产？」的唯一决策问题，�
 
 ## 介质中性声明
 
-本技能 `SKILL.md` 不出现任何 App 工具调用/op/代码；`references/` 中他人原文可保留原貌。各 App 适配层自行将合同映射为自身操作。
+本技能 `SKILL.md` 不出现任何 App 工具调用/op/代码；`references/short-drama/references/` 中他人原文可保留原貌。各 App 适配层自行将合同映射为自身操作。
 
 ## 版本与来源
 

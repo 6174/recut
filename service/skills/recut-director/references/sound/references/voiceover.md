@@ -18,7 +18,7 @@ voice-led 不是“生成一段音频再铺到时间线”。当画面已经存�
 - 已有视觉序列，需要新增或替换 narration：先建立 visual-voiceover sync map，再调用 `recut.speech.generate`。
 - Audio Studio/transcription 未安装或 MCP 未 ready：明确告诉用户“转写/A-roll 暂不可用”，不能静默退化成 text-only；可在用户允许时切换到 voice-led 或 motion-graphics，并重新判断视觉方案。
 
-调用平台媒体生成前检查 `recut.context.media.readiness.speech`；提交后用统一 `recut.job.wait` 观察到 `completed/failed`，queued/running 不能视为可用音频。语音生成需要 `voiceId`，先从 `recut.media.list_voices` 获取真实 ID，不凭记忆捏造音色。
+调用平台媒体生成前检查能力快照的 `media.readiness.speech`（内建会话见 guide 文末「动态配置」，不必调 `recut.context`）。**先落位、不空等**：提交拿到 `assetId` 立即落轨并标记生成中，平台就绪后自动切换；只有下一步依赖产物内容（试听验收、据人声再对齐）时才 `recut.job.wait` 到 `completed`，`failed` 如实报错。语音生成需要 `voiceId`，先从 `recut.media.list_voices` 获取真实 ID，不凭记忆捏造音色。
 
 ## Visual-first sync map
 

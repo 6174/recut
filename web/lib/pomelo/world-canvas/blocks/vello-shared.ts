@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 pomelo-core（PomeloRendererAdapter）、pomelo-vello（VelloOp/Rgba）、pomelo-vello/vello-text
  *          （screenTextOp）、world-canvas/text-metrics（truncateText）
  * [OUTPUT]: 对外提供 world-canvas vello block 的公共绘制辅助（cover 填充、元素徽标）与统一视觉色板
- *           （CARD_FILL/CARD_STROKE/TEXT_* 等，含生成提案态 PROPOSAL_ACCENT/PROPOSAL_FILL）及屏幕像素常量（CAPTION_TOP_OFFSET/CAPTION_SIZE）。
+ *           （CARD_FILL/CARD_STROKE/TEXT_* 等，含生成提案态 PROPOSAL_ACCENT/PROPOSAL_FILL 与
+ *           媒体生成中/失败态 PENDING_ACCENT/PENDING_FILL/FAILED_ACCENT/FAILED_FILL）及屏幕像素常量（CAPTION_TOP_OFFSET/CAPTION_SIZE）。
  * [POS]: lib/pomelo/world-canvas/blocks 的 vello block 共享层（无具体 Block，被各 *-block-v.ts 复用）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -32,6 +33,12 @@ export const LABEL_FILL: Rgba = [161, 161, 170, 255];
 // 生成提案（待确认）态：琥珀色高亮，与常规卡面/选中态区分
 export const PROPOSAL_ACCENT: Rgba = [245, 158, 11, 255];
 export const PROPOSAL_FILL: Rgba = [245, 158, 11, 28];
+// 媒体「生成中」等待态：冷蓝高亮（AI 先落 assetId、素材仍在异步生成）
+export const PENDING_ACCENT: Rgba = [96, 165, 250, 255];
+export const PENDING_FILL: Rgba = [96, 165, 250, 30];
+// 媒体生成失败态：红色高亮
+export const FAILED_ACCENT: Rgba = [239, 68, 68, 255];
+export const FAILED_FILL: Rgba = [239, 68, 68, 28];
 
 /** 适配器当前视口缩放（zoom 常量文字/徽标用）。 */
 export function screenScaleOf(adapter: PomeloRendererAdapter): number {

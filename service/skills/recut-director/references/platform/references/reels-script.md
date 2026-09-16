@@ -34,7 +34,7 @@ how viewers respond — not by follower count. But Reels are not TikToks with a 
    under the length cap, clear niche. A watermarked reupload is throttled at the gate.
 5. **The Reel also lives on your grid** — plan the cover frame; it can't be edited after publish.
 
-(Full mechanics in `references/reels-mechanics.md`.)
+(Full mechanics in `references/platform/references/reels-mechanics.md`.)
 
 ## Step 0 — Read the foundation first
 
@@ -47,28 +47,28 @@ caption. Carry guardrails and compliance rules.
 - **Goal** — reach, sends, saves, follows, or comments (shapes the close/CTA).
 - **Length tier** — ~15–35s is the reach sweet spot; up to ~90s for tutorials/storytelling that
   earns it; up to ~3 min stays recommendation-eligible. Let the idea pick the length; never pad.
-  See `references/reels-mechanics.md`.
+  See `references/platform/references/reels-mechanics.md`.
 
 ## Step 2 — Decide the audio (and write sound-off anyway)
 
 **Original audio** (your voice) for most founder/brand content; a **trending audio** where it
 genuinely fits — but Instagram's licensed library is **native-only**: the script names the audio
 direction, the human adds the track in-app (WoopSocial can't attach trending audio). Either way, the
-Reel must work **on mute**. Live trend research → `trend-jacking`. See `references/formats-and-audio.md`.
+Reel must work **on mute**. Live trend research → `trend-jacking`. See `references/platform/references/formats-and-audio.md`.
 
 ## Step 3 — Write the 3-second hook
 
 Use `hook-writer`. Fire on all three channels at once — verbal + bold on-screen text + a striking
 first frame — with no intro, no logo, no "hey guys." The on-screen text hook must work silently, and
 the hook must be true: a bait-and-switch creates a mid-video retention cliff the algorithm punishes.
-See `references/hooks-and-retention.md`.
+See `references/platform/references/hooks-and-retention.md`.
 
 ## Step 4 — Structure for watch-through and sends
 
 Front-load value, open a loop early, change the visual every ~2–4 seconds, cut all dead air, and
 engineer a **loop or rewatch trigger** so the ending feeds the start. Then ask the sends question:
 **who would DM this to whom, and why?** Relatable, useful-reference, or conversation-starting beats
-travel; generic tips don't. See `references/hooks-and-retention.md`.
+travel; generic tips don't. See `references/platform/references/hooks-and-retention.md`.
 
 ## Step 5 — Write the production doc + cover brief
 
@@ -89,7 +89,7 @@ caption. Keyword research + the search-first caption → `instagram-seo`; captio
 For unproven hooks/formats, recommend a **Trial Reel** (shown to non-followers first — a free test
 that doesn't touch follower-facing stats). Default to **native filming** for faces and voices. For
 **faceless niches, b-roll, or unfilmable shots**, use the bundled Veo prompt pack
-(`references/veo-prompt-pack.md`; API layer in `tools/integrations/veo.md`) — and follow Meta's
+(`references/platform/references/veo-prompt-pack.md`; API layer in `tools/integrations/veo.md`) — and follow Meta's
 AI-labeling rules for generated media (disclosure on Instagram is native/manual, not automatic).
 
 ## Step 8 — Hand off
@@ -134,8 +134,8 @@ AI-labeling rules for generated media (disclosure on Instagram is native/manual,
 
 ## References
 
-- `references/reels-mechanics.md` — the Reels discovery engine, signals, gates, length tiers, Trial Reels, the grid.
-- `references/hooks-and-retention.md` — the 3-second hook, sound-off design, watch-through tactics, the sends lever.
-- `references/formats-and-audio.md` — Reels formats + original vs trending audio (and the native-only limit).
-- `references/veo-prompt-pack.md` — AI-video pack for faceless/b-roll, with disclosure and film-first caveats.
-- `references/examples.md` — worked production docs with cover briefs, sends design, and IG keywords.
+- `references/platform/references/reels-mechanics.md` — the Reels discovery engine, signals, gates, length tiers, Trial Reels, the grid.
+- `references/platform/references/hooks-and-retention.md` — the 3-second hook, sound-off design, watch-through tactics, the sends lever.
+- `references/platform/references/formats-and-audio.md` — Reels formats + original vs trending audio (and the native-only limit).
+- `references/platform/references/veo-prompt-pack.md` — AI-video pack for faceless/b-roll, with disclosure and film-first caveats.
+- `references/platform/references/examples.md` — worked production docs with cover briefs, sends design, and IG keywords.

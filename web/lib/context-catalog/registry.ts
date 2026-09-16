@@ -33,7 +33,8 @@ export const contextGroupTitleKeys: Record<ContextGroupID, string> = {
   world: "agent.context.group.world",
   workspace: "agent.context.group.workspace",
   media: "agent.context.group.media",
-  capability: "agent.context.group.capability",
+  skill: "agent.context.group.skill",
+  tool: "agent.context.group.tool",
 };
 
 const byType = new Map(contextSources.map((source) => [source.type, source]));

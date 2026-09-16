@@ -1,16 +1,16 @@
 ---
-name: recut-directing-motion
+name: references/motion
 appId: recut.platform
 description: 回答「元素怎么动」这一唯一决策问题，为动效嗓音、入场、呼吸与动效图形的运动决策提供权威判断标准。
 ---
 
-# Recut 全局导演技能：元素动效（recut-directing-motion）
+# Recut 全局导演技能：元素动效（references/motion）
 
 本技能是 Recut 平台 App 无关的全局导演技能，**只回答一个问题：元素怎么动**。以"观众如何感知运动的语气、节奏与落定"为决策起点，先定动效嗓音，再定单镜运动与呼吸，动效图形服务于信息而非装饰。以可读性与落定感为验收标准，不以"动得多"为标准。
 
 ## 边界声明
 
-**本技能只管元素动效与动效嗓音；镜头运镜归 recut-directing-shot，节奏与切点归 recut-directing-editing，画面摆什么归 recut-directing-b-roll，字怎么上屏归 recut-directing-captions，耳朵听到什么归 recut-directing-sound。**
+**本技能只管元素动效与动效嗓音；镜头运镜归 references/shot，节奏与切点归 references/editing，画面摆什么归 references/b-roll，字怎么上屏归 references/captions，耳朵听到什么归 references/sound。**
 
 - 镜头如何运动（推/拉/横移/环绕/透视）→ 归 shot。
 - 片子多快、在哪切、5 秒节拍与卡点纪律 → 归 editing。
@@ -121,10 +121,8 @@ description: 回答「元素怎么动」这一唯一决策问题，为动效嗓�
 
 | 文件 | 何时读 | 覆盖问题 |
 |---|---|---|
-| `references/directing-editor.md` | 需要编辑器视角的动效嗓音、5 秒节拍、落定呼吸与流水线经验原文时 | editor 存量的第一节动效嗓音、元素运动、落定呼吸与第六节流水线经验的权威表述（介质相关表达保留在原文） |
-| `references/directing-remotion.md` | 需要 Remotion 视角的动效嗓音、结构与镜头表达原文时 | remotion-studio 存量的动效嗓音两轴、5 秒节拍、一镜一动作与确定性渲染的权威表述 |
-| `references/motion-graphics.md` | 需要动效图形的 viewer job、形式与落位、背景、代表性验证与批量纪律时 | motion graphics 的完整工作流、四个决定、形式复用边界、目标帧保护与实现约束 |
-| `references/aesthetic-rules.md` | 需要判例式审美自检与落定呼吸的实战依据时 | 节奏 R1–R3（呼吸 / 加速度 / 宁慢勿快）与质感 Q1–Q11 的判例、规则与自检问题，含高光纪律与可读性门槛 |
-| `references/lighting-and-color.md` | 需要光与色的命名与连续性纪律时（与本技能正交，作扩展参考） | 光源命名、布光角色、光比、方向、质感与调色语言；本技能不决光，本文件仅作跨技能扩展阅读 |
+| `references/motion/references/motion-graphics.md` | 需要动效图形的 viewer job、形式与落位、背景、代表性验证与批量纪律时 | motion graphics 的完整工作流、四个决定、形式复用边界、目标帧保护与实现约束 |
+| `references/motion/references/aesthetic-rules.md` | 需要判例式审美自检与落定呼吸的实战依据时 | 节奏 R1–R3（呼吸 / 加速度 / 宁慢勿快）与质感 Q1–Q11 的判例、规则与自检问题，含高光纪律与可读性门槛 |
+| `references/motion/references/lighting-and-color.md` | 需要光与色的命名与连续性纪律时（与本技能正交，作扩展参考） | 光源命名、布光角色、光比、方向、质感与调色语言；本技能不决光，本文件仅作跨技能扩展阅读 |
 
 > 本技能为介质中性决策层，不含任何 App 工具调用、时间线操作或代码语法；实现映射由各 App 的适配层承接。

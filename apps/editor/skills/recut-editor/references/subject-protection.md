@@ -1,24 +1,24 @@
 # 画面安全区与 B-roll / motion graphic 摆放（recut.editor · 薄适配层）
 
-> 决策规则权威来源：`service/skills/recut-directing-b-roll`；本文件仅保留 `recut.editor` 介质映射（`timeline.command` 的 `param`/`preview.frame` 实现细节与验证步骤）。
-> 主体保护、安全区、cover vs contain、人脸裁切、stacked split 等决策以全局 `recut-directing-b-roll` 为准，本文件不重复定义。
+> 决策规则权威来源：`service/skills/recut-director/references/b-roll`；本文件仅保留 `recut.editor` 介质映射（`timeline.command` 的 `param`/`preview.frame` 实现细节与验证步骤）。
+> 主体保护、安全区、cover vs contain、人脸裁切、stacked split 等决策以全局 `recut-director（references/b-roll）` 为准，本文件不重复定义。
 
 ## 定位与边界
 
-本文件是 `recut.editor` 对 `recut-directing-b-roll` 的薄适配层，只回答“摆放如何用时间线 op 与预览实现”。
+本文件是 `recut.editor` 对 `recut-director（references/b-roll）` 的薄适配层，只回答“摆放如何用时间线 op 与预览实现”。
 放什么素材、是否需要 B-roll、选哪一段由全局 b-roll 决策；本文件仅说明在 `recut.editor` 中如何用 `param`（`transform.positionX/Y`、`scaleX/Y`、`borderRadius`）、`preview.frame` 审阅与验证落位。
 
 ## 决策路由表
 
 | 决策问题 | 权威来源 | 全局文件 |
 |---|---|---|
-| 先看懂素材再剪（抽帧/主体/受保护信息/选段） | `recut-directing-b-roll` | `SKILL.md` 一 |
-| 何时加 B-roll（可选 treatment）、开场/结尾留白、密集跳切合并 | `recut-directing-b-roll` | `SKILL.md` 二/八 |
-| 主体与安全区保护、叠加位置与可读尺寸 | `recut-directing-b-roll` | `SKILL.md` 三 |
-| PiP / 小窗 overlay 决策流程 | `recut-directing-b-roll` | `SKILL.md` 四 |
-| cover vs contain 全幅适配策略 | `recut-directing-b-roll` | `SKILL.md` 五 |
-| 人脸安全裁切（眼睛上三分之一、偏置、运镜全程保护） | `recut-directing-b-roll` | `SKILL.md` 六 |
-| stacked split 工作版式与缝线字幕 | `recut-directing-b-roll` | `SKILL.md` 七 |
+| 先看懂素材再剪（抽帧/主体/受保护信息/选段） | `recut-director（references/b-roll）` | `SKILL.md` 一 |
+| 何时加 B-roll（可选 treatment）、开场/结尾留白、密集跳切合并 | `recut-director（references/b-roll）` | `SKILL.md` 二/八 |
+| 主体与安全区保护、叠加位置与可读尺寸 | `recut-director（references/b-roll）` | `SKILL.md` 三 |
+| PiP / 小窗 overlay 决策流程 | `recut-director（references/b-roll）` | `SKILL.md` 四 |
+| cover vs contain 全幅适配策略 | `recut-director（references/b-roll）` | `SKILL.md` 五 |
+| 人脸安全裁切（眼睛上三分之一、偏置、运镜全程保护） | `recut-director（references/b-roll）` | `SKILL.md` 六 |
+| stacked split 工作版式与缝线字幕 | `recut-director（references/b-roll）` | `SKILL.md` 七 |
 
 ## 介质映射（App 特有，保留）
 

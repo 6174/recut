@@ -74,10 +74,10 @@ description: "Write and revise screenplay scenes, dialogue, beats, emotional tur
 
 ## Supporting files
 Read only the supporting file needed for the active task:
-- `references/scene_construction.md`
-- `references/dialogue_and_subtext.md`
-- `references/screenplay_format.md`
-- `references/fountain_workflow.md`
+- `references/story/references/screenplay-and-scene-writing/references/scene_construction.md`
+- `references/story/references/screenplay-and-scene-writing/references/dialogue_and_subtext.md`
+- `references/story/references/screenplay-and-scene-writing/references/screenplay_format.md`
+- `references/story/references/screenplay-and-scene-writing/references/fountain_workflow.md`
 - `templates/screenplay_scene.md`
 - `templates/fountain_scene.md`
 - `templates/beat_sheet.md`

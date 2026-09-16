@@ -74,10 +74,10 @@ description: "Develop short stories and short films from raw ideas into loglines
 
 ## Supporting files
 Read only the supporting file needed for the active task:
-- `references/story_development_workflow.md`
-- `references/ai_storytelling_workflow.md`
-- `references/screenplay_structure.md`
-- `references/continuity_handoff.md`
+- `references/story/references/short-film-development/references/story_development_workflow.md`
+- `references/story/references/short-film-development/references/ai_storytelling_workflow.md`
+- `references/story/references/short-film-development/references/screenplay_structure.md`
+- `references/story/references/short-film-development/references/continuity_handoff.md`
 - `templates/idea_intake.md`
 - `templates/logline.md`
 - `templates/short_film_treatment.md`

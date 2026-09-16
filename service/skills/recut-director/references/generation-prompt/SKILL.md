@@ -1,31 +1,31 @@
 ---
-name: recut-directing-generation-prompt
+name: references/generation-prompt
 appId: recut.platform
 description: 回答「一条交给图片/视频生成模型的生产级提示词怎么写」——冻结固定风格、声明 typed 参考锚点、编排多镜连续段与声画合同。
 ---
 
-# Recut 全局生成提示词技能（recut-directing-generation-prompt）
+# Recut 全局生成提示词技能（references/generation-prompt）
 
 本技能只回答一个决策问题：**一条交给图片/视频生成模型的生产级提示词怎么写？** 输入是已确认的镜头意图、场景/人物资产与参考素材，输出是一条可直接提交的提示词（含固定风格块、参考锚点表、多镜连续段、声画与负面约束），以及机器可校验的参考绑定。
 
-它是 `recut-directing-shot`（模型中性镜头意图）与各 App 模型方言之间的**落格层**：把「怎么拍」翻译成「模型读得懂的提示词形状」，但不写 provider 参数语法。
+它是 `references/shot`（模型中性镜头意图）与各 App 模型方言之间的**落格层**：把「怎么拍」翻译成「模型读得懂的提示词形状」，但不写 provider 参数语法。
 
 ## 边界声明
 
 | 归属 | 内容 | 说明 |
 |---|---|---|
 | **本技能** | 生成提示词的形状与锚定 | STYLE LOCK、typed 参考锚点、多镜连续段、声画与负面合同、提示词自检 |
-| **recut-directing-shot** | 镜头意图 | 景别/角度/焦段/运动/调度/分镜连续性；本技能消费其结论，不重写镜头决策 |
-| **recut-directing-story / hooks / editing / captions / sound / platform** | 故事、钩子、剪辑、字幕、声音、平台 | 各归其口；本技能只在提示词需要时引用其结论 |
+| **references/shot** | 镜头意图 | 景别/角度/焦段/运动/调度/分镜连续性；本技能消费其结论，不重写镜头决策 |
+| **references/story / hooks / editing / captions / sound / platform** | 故事、钩子、剪辑、字幕、声音、平台 | 各归其口；本技能只在提示词需要时引用其结论 |
 | **各 App 适配层** | provider 方言 | `modeType`、负面词字段、`ratio/resolution` 传参、别名模板；本技能只写意图与引用，不写技术参数 |
-| **recut-directing-qc** | 失败诊断与门禁 | 本技能产出自检；成片验收走 qc 的 F-code 与门禁 |
+| **references/qc** | 失败诊断与门禁 | 本技能产出自检；成片验收走 qc 的 F-code 与门禁 |
 
 未验证的 provider 能力不冒充支持；本技能不出现任何 App 工具调用、时间线 op 或代码语法。
 
 ## 输入前置（缺一不写）
 
 1. **已冻结的视觉风格**：来自立项模板 `styleTemplate.visualPrompt`、`LIGHT_INVARIANT` 或导演风格文件的稳定视觉语言。若没有，先回到立项/视觉设定阶段冻结，**不允许每镜临时重写风格**。
-2. **场景的镜头意图**：景别、机位、主导运动、起止构图（来自 `recut-directing-shot` 的分镜表）。
+2. **场景的镜头意图**：景别、机位、主导运动、起止构图（来自 `references/shot` 的分镜表）。
 3. **参考素材与角色**：每条引用有稳定 `id`、`kind`、`role`、`label`（见《参考锚点表达规则》）。
 4. **声音资产**：对白逐字文本、音色参考 id、环境/SFX 清单。
 5. **画幅与时长**：由项目配置/宿主传参决定，**不写进提示词正文**。
@@ -52,7 +52,7 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 ```
 
 - 顺序不是装饰：先生成条件（风格、参考）后内容（动作），负面最后；与 `keyframe-prompt-template` 的九槽位同源。
-- **一镜一主导运动**；复合运动必须写清阶段顺序与衔接点（见 `recut-directing-shot`）。
+- **一镜一主导运动**；复合运动必须写清阶段顺序与衔接点（见 `references/shot`）。
 - 段落切换默认 HARD CUT；写清每镜结束状态 = 下一镜起始状态（首尾帧合同）。
 
 ## 参考锚点表达规则
@@ -126,15 +126,15 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 
 | 问题 | 读什么 | 用途 |
 |---|---|---|
-| 生成提示词的多镜分镜意图 | `recut-directing-shot`（SKILL.md + `references/cinematic-language.md`） | 景别/角度/焦段/运动/调度/轴线 |
-| 首尾帧与连续性锚点怎么写 | `recut-directing-shot` 的 `assets/keyframe-prompt-template.md`、`references/continuity-bible.md` | 九槽位、invariant 串、状态账本 |
-| 抽象词→可观察行为、负面词库 | `recut-directing-shot` 的 `references/prompt-lexicon.md` | 措辞与 token 经济 |
-| 六模块/十段式的详细模板 | `recut-directing-short-drama/references/ai-storyboard-director` | 生成任务/主体/场景/情绪/风格/分段脚本 |
-| 参考图职责与人物参考 | `recut-directing-director/references/modes/*/video-prompt-guide.md` | 各 Mode 的 `参考图N` 声明与素材连接纪律 |
-| `<reference>` 标签属性、role 词表、编号与提交规则 | 本 SKILL.md《参考锚点表达规则》+ `assets/generation-prompt-template.md` | 标签属性、role、编号与提交形态 |
+| 生成提示词的多镜分镜意图 | `references/shot/SKILL.md` + `references/shot/references/cinematic-language.md` | 景别/角度/焦段/运动/调度/轴线 |
+| 首尾帧与连续性锚点怎么写 | `references/shot/assets/keyframe-prompt-template.md`、`references/shot/references/continuity-bible.md` | 九槽位、invariant 串、状态账本 |
+| 抽象词→可观察行为、负面词库 | `references/shot/references/prompt-lexicon.md` | 措辞与 token 经济 |
+| 六模块/十段式的详细模板 | `references/short-drama/references/ai-storyboard-director` | 生成任务/主体/场景/情绪/风格/分段脚本 |
+| 参考图职责与人物参考 | `references/modes/*/video-prompt-guide.md` | 各 Mode 的 `参考图N` 声明与素材连接纪律 |
+| `<reference>` 标签属性、role 词表、编号与提交规则 | 本 SKILL.md《参考锚点表达规则》+ `references/generation-prompt/assets/generation-prompt-template.md` | 标签属性、role、编号与提交形态 |
 | 世界内的生成（world.md 世界技能） | `recut.worlds.brief({ worldId })` 读取 `skill` 全文与 `references[]` | 该世界的 STYLE LOCK、可引用项与建议 role、资源口径；本技能是其通用底座 |
 | 世界/画布里的生成怎么调工具 | `recut-worlds` 技能 | `recut.worlds.*` 操作与「读世界 → 写提示词 → 生成 → 落位」流程 |
-| 失败症状与门禁 | `recut-directing-qc` | F-code 与验收门禁 |
+| 失败症状与门禁 | `references/qc` | F-code 与验收门禁 |
 
 ## 介质中性声明
 
@@ -142,7 +142,7 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 
 ## 版本与来源
 
-- 自有存量：`recut-directing-shot`（镜头意图与措辞）、`recut-directing-short-drama/references/ai-storyboard-director`（六大模块）、`recut-directing-director` 各 Mode 的 video-prompt-guide（参考图声明纪律）
+- 自有存量：`references/shot/SKILL.md`（镜头意图与措辞）、`references/short-drama/references/ai-storyboard-director`（六大模块）、`references/modes/` 各 Mode 的 video-prompt-guide（参考图声明纪律）
 - 新增协议：仓库设计文档 `rfc/2026-09-15-generation-reference-protocol.md`（统一 `<reference>` + role + resolver；本 SKILL.md 已内联其规则要点，不依赖该文档可达）
 - 搬运（MIT / Apache-2.0）内容以来源注记的原文为准，本文件只做融合与收敛。
 

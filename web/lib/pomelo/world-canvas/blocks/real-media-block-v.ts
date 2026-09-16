@@ -1,7 +1,8 @@
 /*
  * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/blocks/vello-shared
  * [OUTPUT]: 对外提供 RealMediaBlockV（type: media）：图 center-cover / 视频音频占位 + 元素徽标；
- * 生成提案态（proposalStatus）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要 + 参考/模型信息。
+ * 生成提案态（proposalStatus）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要 + 参考/模型信息；
+ * 素材生成中/失败态（assetStatus）渲染为蓝/红描边 + 等待/失败提示（AI 先落 assetId 的节点）。
  * [POS]: lib/pomelo/world-canvas/blocks 的媒体元素 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -12,6 +13,10 @@ import {
   CAPTION_TOP_OFFSET,
   CARD_FILL,
   CARD_STROKE,
+  FAILED_ACCENT,
+  FAILED_FILL,
+  PENDING_ACCENT,
+  PENDING_FILL,
   PROPOSAL_ACCENT,
   PROPOSAL_FILL,
   SHADOW_FILL,
@@ -50,12 +55,18 @@ export class RealMediaBlockV extends VelloBlock {
     const attached = Boolean(attrs.attached);
     const proposalStatus = String(attrs.proposalStatus ?? "");
     const isProposal = proposalStatus === "pending" || proposalStatus === "generating" || proposalStatus === "failed";
+    // 素材生成中/失败（AI 先落 assetId，素材仍在异步生成）：与提案态区分，单独渲染等待态
+    const assetStatus = String(attrs.assetStatus ?? "");
+    const isGenerating = !isProposal && assetStatus === "generating";
+    const isFailed = !isProposal && assetStatus === "failed";
+    const accent = isProposal ? PROPOSAL_ACCENT : isGenerating ? PENDING_ACCENT : isFailed ? FAILED_ACCENT : CARD_STROKE;
+    const accentWidth = isProposal || isGenerating || isFailed ? 2 : 1;
     const innerH = h - (attached ? 18 : 0);
     const caption = captionOpsV(this.adapter, x, y, w, label);
 
     const ops: VelloOp[] = [
       { kind: "roundRect", x: x + 2, y: y + 6, width: w, height: h, radius: 12, fill: SHADOW_FILL, stroke: [0, 0, 0, 0], strokeWidth: 0 },
-      { kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: isProposal ? PROPOSAL_ACCENT : CARD_STROKE, strokeWidth: isProposal ? 2 : 1 },
+      { kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: accent, strokeWidth: accentWidth },
       ...caption.ops,
     ];
     if (isProposal) {
@@ -69,6 +80,22 @@ export class RealMediaBlockV extends VelloBlock {
       ops.push(textOp({ text: "待确认生成", x: x + 12, y: y + 38, size: 12, maxWidth: w - 24, fill: TEXT_PRIMARY }));
       ops.push(textOp({ text: snippet, x: x + 12, y: y + 58, size: 10, lineHeight: 15, maxWidth: w - 24, fill: TEXT_SECONDARY }));
       ops.push(textOp({ text: `${refs} 参考${model ? ` · ${model}` : ""}`, x: x + 12, y: y + h - 24, size: 9, maxWidth: w - 24, fill: TEXT_TERTIARY }));
+      return { ops, bounds: this.blockBounds() };
+    }
+    if (isGenerating) {
+      // 生成中：AI 已把 assetId 落位、素材仍在生成——蓝边 + 「生成中…」，就绪后由画布自动切换
+      ops.push({ kind: "roundRect", x: x + 10, y: y + 10, width: 56, height: 18, radius: 9, fill: PENDING_FILL, stroke: PENDING_ACCENT, strokeWidth: 1 });
+      ops.push(textOp({ text: "生成中", x: x + 20, y: y + 14, size: 10, maxWidth: 40, fill: PENDING_ACCENT }));
+      ops.push(textOp({ text: "生成中…", x: x + 12, y: y + innerH / 2 - 12, size: 13, maxWidth: w - 24, fill: TEXT_PRIMARY }));
+      ops.push(textOp({ text: "完成后自动显示", x: x + 12, y: y + innerH / 2 + 8, size: 10, maxWidth: w - 24, fill: TEXT_TERTIARY }));
+      return { ops, bounds: this.blockBounds() };
+    }
+    if (isFailed) {
+      // 生成失败：红边 + 失败提示，在详情面板查看错误 / 重试
+      ops.push({ kind: "roundRect", x: x + 10, y: y + 10, width: 44, height: 18, radius: 9, fill: FAILED_FILL, stroke: FAILED_ACCENT, strokeWidth: 1 });
+      ops.push(textOp({ text: "失败", x: x + 19, y: y + 14, size: 10, maxWidth: 32, fill: FAILED_ACCENT }));
+      ops.push(textOp({ text: "生成失败", x: x + 12, y: y + innerH / 2 - 12, size: 13, maxWidth: w - 24, fill: TEXT_PRIMARY }));
+      ops.push(textOp({ text: "在详情面板重试", x: x + 12, y: y + innerH / 2 + 8, size: 10, maxWidth: w - 24, fill: TEXT_TERTIARY }));
       return { ops, bounds: this.blockBounds() };
     }
     if (modality === "image" && src) {

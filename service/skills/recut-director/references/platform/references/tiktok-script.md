@@ -32,7 +32,7 @@ scratch. That makes the rules specific, and different from Reels:
 4. **Sound and trends are part of discovery** — ride them where they fit, never forced.
 5. **TikTok is also a search engine** — keywords (spoken + on-screen + caption) get you found.
 
-(Full mechanics in `references/tiktok-mechanics.md`.)
+(Full mechanics in `references/platform/references/tiktok-mechanics.md`.)
 
 ## Step 0 — Read the foundation first
 
@@ -44,25 +44,25 @@ guardrails and compliance rules.
 - **One idea** — a TikTok does one thing.
 - **Goal** — reach, saves, follows, or comments (shapes the close/CTA).
 - **Format** — talking head, storytime, POV, tutorial, listicle, green-screen, Stitch/Duet, or
-  faceless voiceover. Match it to the message *and* who's making it. See `references/formats-and-sound.md`.
+  faceless voiceover. Match it to the message *and* who's making it. See `references/platform/references/formats-and-sound.md`.
 
 ## Step 2 — Decide the sound
 
 Ride a **trending sound** only where it genuinely fits; otherwise use **original audio** (most
 brand/founder content) or a commercial-safe music bed. A forced trend hurts. For live trend research
-and timing, hand off to `trend-jacking`. See `references/formats-and-sound.md`.
+and timing, hand off to `trend-jacking`. See `references/platform/references/formats-and-sound.md`.
 
 ## Step 3 — Write the 1-second hook
 
 Use `hook-writer`. Fire the hook on all three channels at once in the first ~1–3 seconds — no intro,
 no logo, no "hey guys." It must be true (no clickbait the video won't pay off). See
-`references/hooks-and-retention.md`.
+`references/platform/references/hooks-and-retention.md`.
 
 ## Step 4 — Structure for watch-time and the loop
 
 Front-load value, keep an open loop, cut all dead air, and design a **loop or rewatch trigger** so
 the ending feeds the start (rewatches are one of the strongest FYP signals). Re-hook mid-video for
-longer scripts. See `references/hooks-and-retention.md`.
+longer scripts. See `references/platform/references/hooks-and-retention.md`.
 
 ## Step 5 — Write the production doc
 
@@ -79,7 +79,7 @@ three). Use keyword + niche hashtags, not generic high-volume ones. Hand the cap
 
 Default to **native filming** for faces/voices (it out-trusts AI on TikTok). For **faceless niches,
 b-roll, or unfilmable concepts**, use the bundled Veo prompt pack
-(`references/veo-prompt-pack.md`; API layer in `tools/integrations/veo.md`) — generated
+(`references/platform/references/veo-prompt-pack.md`; API layer in `tools/integrations/veo.md`) — generated
 "native/handheld," not glossy. **AI-disclosure** is auto on TikTok via WoopSocial.
 
 ## Step 8 — Hand off
@@ -123,8 +123,8 @@ b-roll, or unfilmable concepts**, use the bundled Veo prompt pack
 
 ## References
 
-- `references/tiktok-mechanics.md` — the FYP discovery engine, signals, native rule, TikTok SEO, length.
-- `references/hooks-and-retention.md` — the 1-second hook, watch-time tactics, loop/rewatch design.
-- `references/formats-and-sound.md` — TikTok formats + sound/trend strategy and the fit test.
-- `references/veo-prompt-pack.md` — AI-video pack for faceless/b-roll, with the native-beats-AI caveat.
-- `references/examples.md` — worked production docs, with loops + SEO, vs a polished-ad version.
+- `references/platform/references/tiktok-mechanics.md` — the FYP discovery engine, signals, native rule, TikTok SEO, length.
+- `references/platform/references/hooks-and-retention.md` — the 1-second hook, watch-time tactics, loop/rewatch design.
+- `references/platform/references/formats-and-sound.md` — TikTok formats + sound/trend strategy and the fit test.
+- `references/platform/references/veo-prompt-pack.md` — AI-video pack for faceless/b-roll, with the native-beats-AI caveat.
+- `references/platform/references/examples.md` — worked production docs, with loops + SEO, vs a polished-ad version.

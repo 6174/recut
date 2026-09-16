@@ -1,24 +1,24 @@
 # 口播与访谈剪辑（recut.editor · 薄适配层）
 
-> 决策规则权威来源：`service/skills/recut-directing-a-roll`；本文件仅保留 `recut.editor` 介质映射（`script.*` 与 `timeline.command` 的 App 实现及与全局判断的对应表）。
-> 语义决策（留哪些/删哪些、口癖/重拍/停顿/高光/重构等）以全局 `recut-directing-a-roll` 为准，本文件不重复定义。
+> 决策规则权威来源：`service/skills/recut-director/references/a-roll`；本文件仅保留 `recut.editor` 介质映射（`script.*` 与 `timeline.command` 的 App 实现及与全局判断的对应表）。
+> 语义决策（留哪些/删哪些、口癖/重拍/停顿/高光/重构等）以全局 `recut-director（references/a-roll）` 为准，本文件不重复定义。
 
 ## 定位与边界
 
-本文件是 `recut.editor` 对 `recut-directing-a-roll` 的薄适配层，只回答“口播剪辑如何用文稿面与时间线 op 实现”。
+本文件是 `recut.editor` 对 `recut-director（references/a-roll）` 的薄适配层，只回答“口播剪辑如何用文稿面与时间线 op 实现”。
 是否删除、保留或重排某句话由全局 a-roll 决策；本文件仅说明在 `recut.editor` 中如何经 `script.attach/read/clean/apply/find/fix-transcript` 物化文稿、翻译为 `timeline.command` op 批，并处理下游 stale。交叉引用：B-roll 摆放见 `subject-protection.md`，音乐/duck 见 `music-beat-sync.md`，字幕见 `captions.md`，Motion Graphic 见 `motion-graphics.md`。
 
 ## 决策路由表
 
 | 决策问题 | 权威来源 | 全局文件 |
 |---|---|---|
-| 依赖顺序：先结构后时序后润色 | `recut-directing-a-roll` | `SKILL.md` 一 |
-| 语义单元原则、连接组织保护 | `recut-directing-a-roll` | `SKILL.md` 二/七 |
-| 口癖三分类（无语义/语境相关/功能性） | `recut-directing-a-roll` | `SKILL.md` 三 |
-| 重拍与重复、False Start 与残句 | `recut-directing-a-roll` | `SKILL.md` 四/五 |
-| 停顿压缩 | `recut-directing-a-roll` | `SKILL.md` 六 |
-| 高光/重构/hook/目标稿对齐、确认门槛 | `recut-directing-a-roll` | `SKILL.md` 八/十 |
-| 可编辑文稿工作流（介质中性） | `recut-directing-a-roll` | `SKILL.md` 九 |
+| 依赖顺序：先结构后时序后润色 | `recut-director（references/a-roll）` | `SKILL.md` 一 |
+| 语义单元原则、连接组织保护 | `recut-director（references/a-roll）` | `SKILL.md` 二/七 |
+| 口癖三分类（无语义/语境相关/功能性） | `recut-director（references/a-roll）` | `SKILL.md` 三 |
+| 重拍与重复、False Start 与残句 | `recut-director（references/a-roll）` | `SKILL.md` 四/五 |
+| 停顿压缩 | `recut-director（references/a-roll）` | `SKILL.md` 六 |
+| 高光/重构/hook/目标稿对齐、确认门槛 | `recut-director（references/a-roll）` | `SKILL.md` 八/十 |
+| 可编辑文稿工作流（介质中性） | `recut-director（references/a-roll）` | `SKILL.md` 九 |
 
 ## 介质映射（App 特有，保留）
 

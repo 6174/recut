@@ -1,5 +1,5 @@
 > 来源: DirectorSKILL-full (MIT)
-> 原路径: references/failure-modes.md
+> 原路径: references/qc/references/failure-modes.md
 > 搬运日期: 2026-08-29 — 全文原样搬运，保留英文原文，未做有损删改
 
 # Failure Modes: Diagnosis and Repair

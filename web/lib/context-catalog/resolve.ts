@@ -44,12 +44,12 @@ export function resolveContextOption(
     case "skill": {
       const skill = runtime.skills.find((item) => item.appId === attrs.appid && item.id === attrs.skillid);
       if (!skill) return null;
-      return { key: `skill:${skill.appId}:${skill.id}`, sourceType, group: "capability", title: skill.name, subtitle: skill.description, data: skill, score: 0 };
+      return { key: `skill:${skill.appId}:${skill.id}`, sourceType, group: "skill", title: skill.name, subtitle: skill.description, data: skill, score: 0 };
     }
     case "mcp_tool": {
       const tool = runtime.mcpTools.find((item) => item.name === attrs.name && (!attrs.appid || item.appId === attrs.appid));
       if (!tool) return null;
-      return { key: `mcp_tool:${attrs.appid ?? ""}:${tool.name}`, sourceType, group: "capability", title: tool.name, subtitle: tool.description, data: tool, score: 0 };
+      return { key: `mcp_tool:${attrs.appid ?? ""}:${tool.name}`, sourceType, group: "tool", title: tool.name, subtitle: tool.description, data: tool, score: 0 };
     }
     default:
       return null;

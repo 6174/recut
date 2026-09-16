@@ -27,7 +27,7 @@ Put raw JSON, audio, logs, screenshots, download metadata, and comment raw data 
    Use a user-specified directory when given. Otherwise create a clear dated slug under the current project or a generic `爆款视频拆解` folder. Use account folders when processing a series.
 
 3. Build the base package.
-   Use `scripts/run_viral_video.py` instead of hand-writing ASR or FFmpeg commands. Read `README.md` and `references/local-setup.md` before the first run on a new machine.
+   Use `scripts/run_viral_video.py` instead of hand-writing ASR or FFmpeg commands. Read `README.md` and `references/remix/references/local-setup.md` before the first run on a new machine.
 
 4. Collect comments only when useful and possible.
    The bundled comment collector currently supports Douyin. For Douyin comments, use the user's logged-in browser only with permission, and keep the run conservative: about 30 comments, 5 scrolls, 3 seconds between scrolls, `--skip-network` unless the user explicitly asks for deeper collection. Before browser-act commands, use the `browser-act` skill and run its core setup command.
@@ -60,6 +60,6 @@ Make `story_analysis.md` useful for generic content research, not tied to one IP
 - `scripts/collect_douyin_comments_browser_act.py`: conservative Douyin comment collector.
 - `scripts/run_faster_whisper_asr.py`: faster-whisper transcript helper.
 - `scripts/run_funasr_asr.py`: SenseVoice/FunASR transcript and speaker helper.
-- `references/local-setup.md`: current Windows paths, model cache, and command templates.
-- `references/output-style.md`: final analysis style and content checklist.
-- `references/portable-setup.md`: notes for moving this skill to another machine or GitHub.
+- `references/remix/references/local-setup.md`: current Windows paths, model cache, and command templates.
+- `references/remix/references/output-style.md`: final analysis style and content checklist.
+- `references/remix/references/portable-setup.md`: notes for moving this skill to another machine or GitHub.

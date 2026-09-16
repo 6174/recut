@@ -1,10 +1,10 @@
 ---
-name: recut-directing-sound
+name: references/sound
 appId: recut.platform
 description: 回答视频「耳朵听到什么？」的唯一决策问题，为 VO 声音表演方向、BGM 选型、SFX 层次与版权纪律提供权威判断标准。
 ---
 
-# Recut 全局导演技能：声音设计（recut-directing-sound）
+# Recut 全局导演技能：声音设计（references/sound）
 
 本技能是 Recut 平台 App 无关的全局导演技能，**只回答一个问题：耳朵听到什么**。适用范围为一切需要以声音承载情绪、信息与节奏的成片——口播、解说、产品宣传、AI 生成段落混排、竖幅短视频。以"观众闭眼只听亦能感知结构、睁眼视听一致、且无版权与听感硬伤"为验收标准，先定耳朵文案，再定表演方向，再定音乐与音效层次，最后过版权与听感纪律。
 
@@ -14,10 +14,10 @@ description: 回答视频「耳朵听到什么？」的唯一决策问题，为 
 
 | 决策 | 归属 | 说明 |
 |---|---|---|
-| **BGM 的卡点与切点落拍、节奏密度与段落节拍** | `recut-directing-editing` | 本技能定 BGM 选什么气质、SFX 用什么词汇与层次，落拍的数学纪律与密度分层归 editing |
-| **口播文案的语义取舍（留哪句、删哪句、是否重拍）** | `recut-directing-a-roll` | a-roll 定"留与删"的语义判断，本技能定留下的话"怎么写才好听、怎么演才可信" |
-| **字幕的可读样式与强调词、封面标题文案** | `recut-directing-captions` / `recut-directing-platform` | 字幕怎么摆才可读归 captions，标题与封面规格归 platform；本技能只决定声音与字幕的互补关系（VO 支撑字幕、音乐不与人声打架） |
-| **画面该放什么素材、怎么摆** | `recut-directing-b-roll` | 画面选材与版式归 b-roll；本技能只在已定画面结构之后决定声音如何托住画面 |
+| **BGM 的卡点与切点落拍、节奏密度与段落节拍** | `references/editing` | 本技能定 BGM 选什么气质、SFX 用什么词汇与层次，落拍的数学纪律与密度分层归 editing |
+| **口播文案的语义取舍（留哪句、删哪句、是否重拍）** | `references/a-roll` | a-roll 定"留与删"的语义判断，本技能定留下的话"怎么写才好听、怎么演才可信" |
+| **字幕的可读样式与强调词、封面标题文案** | `references/captions` / `references/platform` | 字幕怎么摆才可读归 captions，标题与封面规格归 platform；本技能只决定声音与字幕的互补关系（VO 支撑字幕、音乐不与人声打架） |
+| **画面该放什么素材、怎么摆** | `references/b-roll` | 画面选材与版式归 b-roll；本技能只在已定画面结构之后决定声音如何托住画面 |
 
 未点名处，本技能为声音听感的唯一权威；与上述技能冲突时以本表为准。
 
@@ -107,12 +107,12 @@ description: 回答视频「耳朵听到什么？」的唯一决策问题，为 
 
 | 遇到什么问题 | 去读哪个文件 | 它解决什么 | 来源 |
 |---|---|---|---|
-| 声音分层与对齐的实战方法论、BGM 三易其稿、SFX 词汇到目录的映射、音量与钉帧技巧 | `references/sound-design.md` | 模板片 30 轮画面后才进声音的时机教训、BGM 选型判据与授权来源清单、16 类 SFX 目录与找音路径、12 个实战钉帧与 4 对重名去重、长样本截断与轻音素材三条出路、riser→impact 三拍句式 | Recut 自有存量 `apps/remotion-studio/skills/remotion-studio/references/sound-design.md`（286 行） |
-| 旁白与画面如何对齐、旁白何时该先于画面成为结构 | `references/voiceover.md` | voice-led 的硬前置（visual range + visual anchor）、sync map 字段与 fit 检验、生产与落轨顺序、视觉变更后的 stale 机制、音乐与 SFX 的落位纪律 | Recut 自有存量 `apps/editor/skills/recut-editor/references/voiceover.md`（69 行） |
-| VO 怎么写才不机械、怎么定向表演、怎么选声与模型 | `references/ai-voiceover.md` | VOICE 框架（Voice match / Own the script for the ear / Inflect & direct / Caption alongside / Ethics）、为耳朵写作的写法、按任务选模型、consent 与 disclosure 硬门禁 | 第三方搬运 `social-media/ai-voiceover/SKILL.md`（MIT，72 行） |
-| BGM 与 SFX 怎么 brief 才安全、怎么在版权与 Content ID 约束下选源 | `references/ai-music-and-sound.md` | SCORE 框架（Set brief / Choose safest source / Orchestrate SFX / Respect license & Content ID / Embed & publish）、brief 写法、平台版权红线与披露要求 | 第三方搬运 `social-media/ai-music-and-sound/SKILL.md`（MIT，99 行） |
+| 声音分层与对齐的实战方法论、BGM 三易其稿、SFX 词汇到目录的映射、音量与钉帧技巧 | `references/sound/references/sound-design.md` | 模板片 30 轮画面后才进声音的时机教训、BGM 选型判据与授权来源清单、16 类 SFX 目录与找音路径、12 个实战钉帧与 4 对重名去重、长样本截断与轻音素材三条出路、riser→impact 三拍句式 | Recut 自有存量 `apps/remotion-studio/skills/remotion-studio/references/sound-design.md`（286 行） |
+| 旁白与画面如何对齐、旁白何时该先于画面成为结构 | `references/sound/references/voiceover.md` | voice-led 的硬前置（visual range + visual anchor）、sync map 字段与 fit 检验、生产与落轨顺序、视觉变更后的 stale 机制、音乐与 SFX 的落位纪律 | Recut 自有存量 `apps/editor/skills/recut-editor/references/voiceover.md`（69 行） |
+| VO 怎么写才不机械、怎么定向表演、怎么选声与模型 | `references/sound/references/ai-voiceover.md` | VOICE 框架（Voice match / Own the script for the ear / Inflect & direct / Caption alongside / Ethics）、为耳朵写作的写法、按任务选模型、consent 与 disclosure 硬门禁 | 第三方搬运 `social-media/ai-voiceover/SKILL.md`（MIT，72 行） |
+| BGM 与 SFX 怎么 brief 才安全、怎么在版权与 Content ID 约束下选源 | `references/sound/references/ai-music-and-sound.md` | SCORE 框架（Set brief / Choose safest source / Orchestrate SFX / Respect license & Content ID / Embed & publish）、brief 写法、平台版权红线与披露要求 | 第三方搬运 `social-media/ai-music-and-sound/SKILL.md`（MIT，99 行） |
 
-> 使用顺序：先以本 SKILL.md 定"耳朵听到什么"的决策分层与红线，再按上表深入对应深化文档；BGM 落拍的数学纪律仍以 `recut-directing-editing` 的 music-beat-sync 为准，本技能只定选型与层次。
+> 使用顺序：先以本 SKILL.md 定"耳朵听到什么"的决策分层与红线，再按上表深入对应深化文档；BGM 落拍的数学纪律仍以 `references/editing` 的 music-beat-sync 为准，本技能只定选型与层次。
 
 ---
 

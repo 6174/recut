@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 context-catalog/types、skill/mcp_tool context payload、技能与工具目录类型与 lucide 图标
- * [OUTPUT]: 对外提供 capability 组来源：skill（平台/App 工作流）与 mcp_tool（MCP 工具，含 inputSchema 预览）
+ * [OUTPUT]: 对外提供能力域来源：skillSource（平台/App 工作流，group=skill）与 mcpToolSource（MCP 工具，含 inputSchema 预览，group=tool），两者各自成为面板一级 tab
  * [POS]: web/lib/context-catalog/sources 的能力域来源；M4 来源，引用为强提示非硬约束
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,7 +14,7 @@ export const skillSource: ContextSource = {
   type: "skill",
   attrs: ["appid", "skillid", "name"],
   identity: (attrs) => (attrs.appid && attrs.skillid ? `${attrs.appid}:${attrs.skillid}` : null),
-  group: "capability",
+  group: "skill",
   titleKey: "agent.context.source.skill",
   insertMode: "inline",
   inlineInsertable: true,
@@ -30,8 +30,7 @@ export const skillSource: ContextSource = {
       .map((skill): ContextOption => ({
         key: `skill:${skill.appId}:${skill.id}`,
         sourceType: "skill",
-        group: "capability",
-        subKind: skill.appId,
+        group: "skill",
         title: skill.name,
         subtitle: skill.description,
         badges: [{ key: "app", label: skill.appId, tone: "muted" }],
@@ -59,7 +58,7 @@ export const mcpToolSource: ContextSource = {
   type: "mcp_tool",
   attrs: ["name", "appid"],
   identity: (attrs) => (attrs.name ? `${attrs.appid ? `${attrs.appid}:` : ""}${attrs.name}` : null),
-  group: "capability",
+  group: "tool",
   titleKey: "agent.context.source.mcpTool",
   insertMode: "inline",
   inlineInsertable: true,
@@ -75,8 +74,7 @@ export const mcpToolSource: ContextSource = {
       .map((tool): ContextOption => ({
         key: `mcp_tool:${tool.appId ? `${tool.appId}:` : ""}${tool.name}`,
         sourceType: "mcp_tool",
-        group: "capability",
-        subKind: tool.appId,
+        group: "tool",
         title: tool.name,
         subtitle: tool.description,
         badges: [{ key: "app", label: tool.appName ?? tool.appId ?? "Global", tone: "muted" }],

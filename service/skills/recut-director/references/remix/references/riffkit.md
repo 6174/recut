@@ -789,7 +789,7 @@ List scope members (you must be a member, else 403). Returns `[{id, scope_id, us
 
 | Dimension | Limit | Source |
 |------|------|------|
-| Source video upload | ≤ **100 MB** and ≤ the **render-duration cap** (`max_render_duration`, default **45 s**, runtime-adjustable, ceiling 90s) — the SAME single number that caps the generated video, not a separate limit; over the duration → instant 400 + cleanup | `POST /api/riffs` `video`, `assets/upload` |
+| Source video upload | ≤ **100 MB** and ≤ the **render-duration cap** (`max_render_duration`, default **45 s**, runtime-adjustable, ceiling 90s) — the SAME single number that caps the generated video, not a separate limit; over the duration → instant 400 + cleanup | `POST /api/riffs` `video`, `references/remix/assets/upload` |
 | Generated video length | ≤ **max_render_duration** (the same single cap as the source upload above) | engine render budget |
 | Image upload | ≤ **50 MB** each, ≤ **8 images** per product, `.jpg/.jpeg/.png/.webp` | product images |
 | `content_anchor` / `user_hint` | ≤ **5000 chars** | riffs / pipeline/batch |

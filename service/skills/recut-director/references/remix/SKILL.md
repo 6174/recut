@@ -1,16 +1,16 @@
 ---
-name: recut-directing-remix
+name: references/remix
 appId: recut.platform
 description: 回答「从已有视频反推并产出新片？」的唯一决策问题，为长视频选段成短片与爆款公式迁移仿拍两方向的反推与选段提供权威判断标准。
 ---
 
-# Recut 全局导演技能：混剪与仿拍（recut-directing-remix）
+# Recut 全局导演技能：混剪与仿拍（references/remix）
 
 本技能是 Recut 平台 App 无关的全局导演技能，**只回答一个问题：从已有视频反推并产出新片？** 适用范围为一切以“已有视频”为输入、以“新的短视频成品”为输出的二次创作：A 方向是长转短（从一支长视频中选段、重组成多支竖版短片），B 方向是爆款仿拍（从一支或多支爆款视频中反推可迁移的情绪公式与结构，再落到新选题上）。以“是否有一个可被新选题复用的结构化判断”为验收标准，先反推，再选段或迁移，最后才谈执行。
 
 ## 边界声明
 
-**本技能只管「反推与选段」决策；钩子形态与留存结构归 recut-directing-hooks；切点密度、转场与卡点组装归 recut-directing-editing；画面该放什么、怎么摆归 recut-directing-b-roll；字幕样式归 recut-directing-captions。**
+**本技能只管「反推与选段」决策；钩子形态与留存结构归 references/hooks；切点密度、转场与卡点组装归 references/editing；画面该放什么、怎么摆归 references/b-roll；字幕样式归 references/captions。**
 
 - 钩子写成什么样、原型选哪一类、首帧三层如何对齐，由 hooks 回答；本技能只在已拆解的钩子结构之上，判断“哪一段的钩子值得迁移、哪一句开场白值得保留”。
 - 选段之后的精剪——在哪里切、切多快、用什么转场、是否卡拍——由 editing 回答；本技能只决定“选哪段、起止落在哪句完整语义上、是否需要自然切点修正”。
@@ -111,11 +111,11 @@ description: 回答「从已有视频反推并产出新片？」的唯一决策�
 
 ## 参考
 
-- `references/viral-breakdown.md`：爆款拆解完整工作流与产出契约（含四件套、分析要点与打包结构）
-- `references/viral-breakdown-output-style.md`：拆解报告的成文形状与可迁移结构写法
-- `references/viral-breakdown-local-setup.md`：本机环境与下载/转写/评论采集的执行参考
-- `references/viral-breakdown-portable-setup.md`：跨机与跨仓库移植时的收纳与依赖清单
-- `references/riffkit.md`：爆款公式迁移方法（riff the formula, not the video）与创意锚点撰写框架
-- `references/long-to-short-pipeline.md`：长转短十步流水线（转写→打分→人工批准→自然切点→竖版重构→渲染导出）
+- `references/remix/references/viral-breakdown.md`：爆款拆解完整工作流与产出契约（含四件套、分析要点与打包结构）
+- `references/remix/references/viral-breakdown-output-style.md`：拆解报告的成文形状与可迁移结构写法
+- `references/remix/references/viral-breakdown-local-setup.md`：本机环境与下载/转写/评论采集的执行参考
+- `references/remix/references/viral-breakdown-portable-setup.md`：跨机与跨仓库移植时的收纳与依赖清单
+- `references/remix/references/riffkit.md`：爆款公式迁移方法（riff the formula, not the video）与创意锚点撰写框架
+- `references/remix/references/long-to-short-pipeline.md`：长转短十步流水线（转写→打分→人工批准→自然切点→竖版重构→渲染导出）
 
 > 来源注记：本技能融合搬运自 KINNONG/viral-video-breakdown、riffkit/riffkit、AgriciDaniel/claude-shorts（均为 MIT），原文件与许可见 LICENSE-NOTICE.md。SKILL.md 为中文决策路由层，介质中性，不含任何 App 私有工具调用或代码语法；references 保留原文原貌。

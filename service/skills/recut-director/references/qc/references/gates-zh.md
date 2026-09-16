@@ -4,13 +4,13 @@
 
 # 验收门禁清单（改写自 ai-film-skills 的 QC 契约）
 
-> 本文件将 `62656456/ai-film-skills` 的 `SKILL.md` 中与 QC、验收门禁、合格成片判定相关的段落改写为中文清单。原文为英文，本清单保留其判定逻辑与门槛语义，仅做语言转换与清单化；深化诊断仍以 `failure-modes.md` 的 F-code 为准，量化评分与逐帧检查仍以 `assets/qc-checklist.md` 的三道闸门为准。
+> 本文件将 `62656456/ai-film-skills` 的 `SKILL.md` 中与 QC、验收门禁、合格成片判定相关的段落改写为中文清单。原文为英文，本清单保留其判定逻辑与门槛语义，仅做语言转换与清单化；深化诊断仍以 `failure-modes.md` 的 F-code 为准，量化评分与逐帧检查仍以 `references/qc/assets/qc-checklist.md` 的三道闸门为准。
 
 ## 使用位置
 
 - 仅在声称“可交付”之前运行本清单；任一项不通过即打回，不进入交付。
 - 与 `failure-modes.md` 配合：本清单判定“是否通过”，该文件回答“哪里坏了、怎么修”。
-- 与 `assets/qc-checklist.md` 配合：该资产文件给出 PRE / POST / SEQUENCE 三道闸门的权重与阈值，本清单给出与 `produce-ai-video` 工作流对齐的阶段门禁与诚实交付口径。
+- 与 `references/qc/assets/qc-checklist.md` 配合：该资产文件给出 PRE / POST / SEQUENCE 三道闸门的权重与阈值，本清单给出与 `produce-ai-video` 工作流对齐的阶段门禁与诚实交付口径。
 
 ## 门禁总则
 
@@ -38,10 +38,10 @@
 
 ## 门禁四 —— 全片通看与硬门禁（对应原文步骤 10 Enforce hard rules）
 
-> 本门禁为硬门槛：任一项不通过即打回，不进入交付。创作技能中的自检清单仅作轻量提示，完整判定以本技能与 `assets/qc-checklist.md` 为准。
+> 本门禁为硬门槛：任一项不通过即打回，不进入交付。创作技能中的自检清单仅作轻量提示，完整判定以本技能与 `references/qc/assets/qc-checklist.md` 为准。
 
 - [ ] 已完成至少两遍正常速度全片通看：第一遍看故事与节奏，第二遍看连续性与瑕疵；未以“文件齐全/时长相符/单镜抽检通过”替代。
-- [ ] 已修复首个观众可感知的缺陷并重看验证，直至 `assets/qc-checklist.md` 的硬门禁全绿（见下）。
+- [ ] 已修复首个观众可感知的缺陷并重看验证，直至 `references/qc/assets/qc-checklist.md` 的硬门禁全绿（见下）。
 - [ ] 硬门禁全绿（任一不通过即不交付）：
   - 无 slideshow 感或关键动作未发生/未完成（F2/F4/F5）
   - 无主体/换脸漂移或服饰/锚点消失（F1）
@@ -64,11 +64,11 @@
 
 ## 门禁未通过时的修复纪律
 
-1. 回到 `references/failure-modes.md` 按症状译码（F1–F19），按成本阶梯 L1–L7 从低到高尝试，不跳级。
+1. 回到 `references/qc/references/failure-modes.md` 按症状译码（F1–F19），按成本阶梯 L1–L7 从低到高尝试，不跳级。
 2. 同一设计累计 3 次同因失败即换设计（缩短/推近/简化/拆分/换起点画面/用剪辑承接），不再原地重试。
 3. 修复后回到本清单对应门禁重检，并全片通看验证是否引入新断裂。
 
 ## 与其它文件的分工
 
-- 本清单回答“是否可交付”；`references/failure-modes.md` 回答“哪里坏了、怎么修、修到哪一层成本”；`assets/qc-checklist.md` 回答“按什么权重与阈值打分、阻塞项如何一票否决”。
+- 本清单回答“是否可交付”；`references/qc/references/failure-modes.md` 回答“哪里坏了、怎么修、修到哪一层成本”；`references/qc/assets/qc-checklist.md` 回答“按什么权重与阈值打分、阻塞项如何一票否决”。
 - 三者的判定口径一致，重复条目以本清单的中文表述为准，机制解释以 `failure-modes.md` 为准，量化阈值以 `qc-checklist.md` 为准。

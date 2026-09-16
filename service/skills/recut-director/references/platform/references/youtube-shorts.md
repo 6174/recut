@@ -26,10 +26,10 @@ Shorts have **no thumbnail and no click** — so CTR is irrelevant. The algorith
 **Viewed vs Swiped Away** above all, then retention. Each Short is tested on a small
 interest-based **seed audience**, and the **first 30–60 minutes decide** whether it spreads or
 dies. Write every Short **backwards from the swipe.** (Full mechanics:
-`references/shorts-algorithm-2026.md`.)
+`references/platform/references/shorts-algorithm-2026.md`.)
 
 ## The framework: the Retention Ladder
-Climb four rungs in order (depth: `references/the-retention-ladder.md`):
+Climb four rungs in order (depth: `references/platform/references/the-retention-ladder.md`):
 - **Stop (0–3s):** beat the swipe — on-screen text + striking first frame, readable on mute.
   Target ~75%+ viewed. (hook-writer.)
 - **Hold (~70%+ avg % viewed):** one idea, relentless pacing, burned-in captions, an intentional
@@ -44,10 +44,10 @@ Up to 3 minutes, but bimodal — **<30s** for completion, **~50–60s** for tota
 idea first, then the shortest complete length. Post **~3–7/week** (consistency over spam); note
 **"The Flattening"** deprioritizes Shorts after ~28–30 days, so keep shipping. Output is a
 **shootable script** (on-screen text, VO, shots), captioned, with a keyword-rich title. Hook
-patterns, caption specs + worked scripts: `references/hooks-retention-and-captions.md`.
+patterns, caption specs + worked scripts: `references/platform/references/hooks-retention-and-captions.md`.
 
 ## Publishing + tools (wired)
-Drafts here; **does not publish directly**. Full wiring: `references/publishing-funnel-and-tools.md`.
+Drafts here; **does not publish directly**. Full wiring: `references/platform/references/publishing-funnel-and-tools.md`.
 - **Publish via scheduling-and-queue → WoopSocial** (`tools/integrations/woopsocial.md`; MCP
   `…/mcp`, REST `…/v1`). YouTube supported; **validate before publish; no edit (delete + recreate)**.
 - **Assets:** B-roll via **veo-3** / **ai-video**; captions & long→Short clipping via

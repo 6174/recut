@@ -2,7 +2,7 @@
 
 # sound-design — 声音设计
 
-来源：模板片（`template/`）声音设计实战。准则编号 S1–S4 见 `references/aesthetic-rules.md`。
+来源：模板片（`template/`）声音设计实战。准则编号 S1–S4 见 `references/motion/references/aesthetic-rules.md`。
 
 模板片的声音全部集中在一个文件里管理（`template/src/aifl/Main.tsx`：`SFX[]` 钉帧表），场景组件不含任何音频代码——声音是时间线级资产，不是镜头级资产。
 
@@ -62,7 +62,7 @@ v1→v2 只隔 22 分钟就又被否——说明选曲时根本没在成片语�
 ### 3.0 目录结构与找音路径
 
 ```
-assets/audio/
+references/sound/assets/audio/
   bgm/                5 首  BGM 备选（tech-house 鼓底 + house/hip-hop）
   sfx/<类别>/       149 个  按场景/材质分 16 类
 ```
@@ -96,7 +96,7 @@ whoosh 与 transition 同在 `transition/`（运镜与转场的音色本就重�
 | `crowd/` | 3 | 人群、掌声、呼吸、心跳 | 合影收尾、发布会感、张力 |
 | `counter/` | 4 | 计数器、仪表、钟、倒计时 | 数字滚动、读数、时间轴 |
 
-逐文件的时长 / 峰值 / 建议钉点见 `assets/audio/AUDITION-2026-07-27.md`；授权与 URL 见 `assets/audio/ATTRIBUTION.md`。
+逐文件的时长 / 峰值 / 建议钉点见 `references/sound/assets/audio/AUDITION-2026-07-27.md`；授权与 URL 见 `references/sound/assets/audio/ATTRIBUTION.md`。
 
 注意：类别是**找音的索引，不是配音的判据**。选音仍按第 2 节的片种词汇纪律走——`glass/` `crowd/` `fluid/` 这类材质音是"贴画面定制"槽位（S4），泛用转场仍优先 `transition/` `impact/`。
 
@@ -125,7 +125,7 @@ whoosh 与 transition 同在 `transition/`（运镜与转场的音色本就重�
 
 **两个已删文件的处理（2026-07-27 筛选）**：
 
-- `impact-cine.mp3` 已从 `assets/audio/` 删除，但**模板片照常渲染**——Remotion 读的是 `template/public/audio/` 的独立副本（`staticFile('audio/...')`），那份仍在，`Main.tsx:86` 无需改动。新项目要复刻 outro 三拍句式时，用 `sfx/impact/impact-deep-whoosh.mp3` 代替：它与原 `impact-cine.mp3` **字节完全相同**（md5 `ce27fd2f`，见 3.2），是同一个 Mixkit 素材 Cinematic whoosh deep impact。
+- `impact-cine.mp3` 已从 `references/sound/assets/audio/` 删除，但**模板片照常渲染**——Remotion 读的是 `template/public/audio/` 的独立副本（`staticFile('audio/...')`），那份仍在，`Main.tsx:86` 无需改动。新项目要复刻 outro 三拍句式时，用 `sfx/impact/impact-deep-whoosh.mp3` 代替：它与原 `impact-cine.mp3` **字节完全相同**（md5 `ce27fd2f`，见 3.2），是同一个 Mixkit 素材 Cinematic whoosh deep impact。
 - `typewriter.mp3` 已删（本就是死资产，打字揭示实际用 `keyboard.mp3` 截帧）。要单击拟音改用 `sfx/text/typewriter-hit-single.mp3` 或 `typewriter-hit-hard.mp3`。
 
 ### 3.2 同素材重名：4 对文件字节完全相同
@@ -144,7 +144,7 @@ whoosh 与 transition 同在 `transition/`（运镜与转场的音色本就重�
 
 教训：库里出现同素材重名，是"批量下载后凭文件名判断有没有重复"的必然结果。**新增音效入库时先跑一遍 md5 去重**，别信名字：
 ```bash
-find assets/audio -name '*.mp3' -exec md5 -r {} \; | sort | awk '{print $1}' | uniq -d
+find references/sound/assets/audio -name '*.mp3' -exec md5 -r {} \; | sort | awk '{print $1}' | uniq -d
 ```
 
 比对的副产品是补回了 7 个基础层文件的原始 URL（见 `ATTRIBUTION.md`），这批原本因批量下载丢 metadata 而无法反查。

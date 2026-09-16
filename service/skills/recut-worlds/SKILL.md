@@ -8,7 +8,7 @@ description: 操作 World 与 World Canvas 工具集的通用技能：属性/关
 
 World Canvas 是平台把「一个 App」第一公民化的产物：没有独立安装包，却有自己的画布界面、工具面（`recut.worlds.*`）与元数据。本技能是它的**通用操作技能**，只回答一个问题：**怎么调用 World / World Canvas 的工具，才能把脑中的世界变成 AI 可消费的结构化设定？**
 
-它不描述任何具体世界的内容——那属于 `world.md`（经 `recut.worlds.brief.skill` 内联）。内容归世界，操作归本技能；生成提示词的形状归 `recut-directing-generation-prompt`。
+它不描述任何具体世界的内容——那属于 `world.md`（经 `recut.worlds.brief.skill` 内联）。内容归世界，操作归本技能；生成提示词的形状归 `recut-director（references/generation-prompt）`。
 
 ## 核心模型：先懂这个，再调工具
 
@@ -89,20 +89,84 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 4. **草稿免费**：`isProvisional: true` 的实体是探索草稿，不产 revision、不进 Canon、不计入 readiness；用 `recut.worlds.entity` op=`confirm` 转正。
 5. **删除是软删除**：`recut.worlds.entity` op=`archive` / `relation` op=`archive` = 归档（`archived_at` + 墓碑 + changeLog，可 `restore` 恢复），画布元素删除 = 本地移除。`worlds.delete` 是永久操作，只在用户明确要求并确认世界名称时调用；`evidence.archive` 是归档不是删除；**底层 media asset 永不因世界内容删除而删除**。
 6. **生成产物默认不进 Canon**：见下。
-7. **视频先提案、用户确认**：画布上的视频只落 `proposal`（`props.proposal.status="pending"`），**绝不直接调用 `recut.video.generate`**；确认权只属于用户，Agent 不代确认。图片/语音成本低，可直接生成。
+7. **视频先提案、用户确认**：画布上的视频只落 `proposal`（`props.proposal.status="pending"`），**绝不直接调用 `recut.video.generate`**；确认权只属于用户，Agent 不代确认。图片/语音成本低，可直接生成——拿到 `assetId` 就落「图片节点 + 属性边」（`assetStatus:"generating"`），不等生成完成。
 
 ## 世界内的媒体生成：先提案、后确认
 
-在世界/画布语境里生成媒体，走「读世界 → 写提示词 → 落提案（视频）/ 直接生成（图音）→ 用户确认 → 落位」：
+在世界/画布语境里生成媒体，走「读世界 → 写提示词 → 视频落提案（用户确认后生成）/ 图音提交即落位」：
 
 1. **读**：`recut.worlds.brief({ worldId })` 取 `world.md` 全文、该世界实体属性，以及 **`references[]`**——从实体 media 属性派生的可引用项（`{id,label,kind,role,source,assetId/url,entityId}`，`role` 是建议值）。世界风格（风格实体、world.md 的视觉语言）就是 **STYLE LOCK 来源**；`references[]` 就是可直接锚定的候选清单，不必自己翻属性找图。
-2. **写提示词**：用 `recut-directing-generation-prompt` 的骨架——STYLE LOCK 逐字冻结；参考用受控 role 声明（词表权威见该技能《参考锚点表达规则》），引用世界的角色、风格、示例图与音色。
+2. **写提示词**：用 `recut-director（references/generation-prompt）` 的骨架——STYLE LOCK 逐字冻结；参考用受控 role 声明（词表权威见该技能《参考锚点表达规则》），引用世界的角色、风格、示例图与音色。
 3. **解析绑定**：把参考导出为 `references: [{id, kind, role, label}]`（`id` = assetId），按**出现顺序**得到 `referenceIds`；任一 role 与 kind 不匹配、或 prompt/model 缺失即拒绝提交（fail closed）。
 4. **执行**：
    - **视频**：**不得直接调用 `recut.video.generate`**。视频成本高，必须先落「生成提案」，由用户在画布上确认后才真正生成（见下）。
-   - **图片 / 语音**：成本低，可直接调用 `recut.image.generate` / `recut.speech.generate`（异步 job，用 `recut.job.wait` 等终态）。
-5. **落位**：结果写成实体 **media 属性**（`{assetId, name, kind}`）或画布 `media` 元素；**默认是自由元素/属性，不自动进 Canon**。
+   - **图片 / 语音**：成本低，直接调用 `recut.image.generate` / `recut.speech.generate`。返回的 `assetIds` **立即可用**，务必**提交即落位**（见下「生成中节点 + 属性边」），不要用 `recut.job.wait` 把落位堵在终态之后。
+5. **落位**：图片 / 语音拿到 `assetId` 就**立即**在画布上落一个**图片节点**，并用**属性边**把它连到目标实体——「节点 + 边」才是实体的一条**可见属性**（如「环境卡」）；只写实体 attrs 不会在画布上出现节点。`assetStatus:"generating"` 让画布先显示等待态。
 6. **可追溯**：`references` 就是「这次生成引用了什么、各自什么 role」的绑定记录，随节点保存，可重生成、可回溯 Canon。
+
+### 图片 / 语音：拿到 assetId 就落位（生成中节点 + 属性边）
+
+`recut.image.generate` / `recut.speech.generate` 返回的 `assetIds` 在**排队/生成中**就已稳定可引用。**不要等图片/语音生成完成**——拿到 `assetId` 立刻用 `recut.worlds.doc.update` 按下面两步把「节点 + 属性边」放上画布（图片用 `media:"image"`，语音用 `media:"audio"`），`props.assetStatus="generating"` 让画布立即显示蓝边「生成中」等待态，素材就绪后**平台自动切换**成真实素材（失败则显示失败态）。
+
+**① 确保实体元素在画布上**（属性边只能从实体元素出发）。先用 `recut.worlds.doc` 读目标层，确认是否已有 `shape:<entityId>` 的实体元素；没有才放（服务端会自动补该 id、名称与默认几何）：
+
+```json
+{ "op": "insert", "element": { "kind": "entity", "refKind": "entity", "refId": "<entityId>" } }
+```
+
+**② 落图片节点（属性卡）+ 属性边**。图片节点 = `kind="attr"` 且 `props.media="image"`；属性边 = `kind="arrow"`，`fromElementId` 指向实体元素、`toElementId` 指向图片节点、`edgeType="attr"`。两笔放进同一个 `recut.worlds.doc.update` 的 `ops` 数组：
+
+```json
+{
+  "ops": [
+    {
+      "op": "insert",
+      "element": {
+        "id": "shape:attr-<唯一后缀>",
+        "kind": "attr",
+        "name": "属性 · 环境卡",
+        "props": {
+          "media": "image",
+          "label": "环境卡",
+          "assetId": "<recut.image.generate 返回的 assetId>",
+          "assetStatus": "generating"
+        },
+        "geometry": { "x": 200, "y": 120, "width": 260, "height": 140 }
+      }
+    },
+    {
+      "op": "insert",
+      "element": {
+        "id": "shape:arrow-<唯一后缀>",
+        "kind": "arrow",
+        "name": "属性边 · 环境卡",
+        "props": {
+          "fromElementId": "shape:<entityId>",
+          "toElementId": "shape:attr-<唯一后缀>",
+          "attrMedia": "image",
+          "edgeType": "attr"
+        }
+      }
+    }
+  ]
+}
+```
+
+规则：
+
+- **节点 + 边缺一不可**：只有 `kind="attr"` 图片节点、没有属性边，它只是画布上的孤立图片；只有边、没有节点，边无所指。二者一起才把图片接成实体的属性。
+- 三笔都在**同一个 `contextId` 层**：属性边只能连同层实体元素；根画布用 `contextId:""`，实体容器用该实体 id。不确定先用 `recut.worlds.doc`/`docs` 读该层已有元素与 id。
+- `props.label` 就是属性名（这里「环境卡」）。边标签会显示「属性 · 环境卡」；`name` 建议写成 `属性 · <label>`。
+- `props.assetStatus` 只写 `"generating"` 表示「落位时素材未就绪」；`"ready"` / `"failed"` 由平台按素材真实状态流转，**不要手写**，也不要为了切到结果态而回写节点。
+- 语音（`props.media="audio"`）与图片同策略：拿到 `assetId` 立即落节点、`assetStatus:"generating"`，不等终态。
+- 加载态由素材状态自动驱动：**Agent 不轮询、不回写、不等 `recut.job.wait`**；只有在下一步依赖产物内容（要读图/听声再决策）时才等待。落位即可在结尾如实告诉用户「已放上节点，素材就绪后会自动显示」。
+- **这条属性属于实体时，画布与 Canon 都要写**：用 `recut.worlds.entity` op=`update` + `attrPatch` 写同名 media 属性，让设置视图 / 实体卡封面 / readiness 也认这条属性：
+  ```json
+  { "op": "update", "entityId": "<entityId>", "expectedRevisionId": "<当前 revision>",
+    "attrPatch": [{ "key": "a_<唯一后缀>", "label": "环境卡", "type": "media", "value": { "assetId": "<assetId>", "kind": "image" } }] }
+  ```
+  只写 Canon 不落节点 = 用户看不到节点（本次要修的反例）；只落节点不写 Canon = 设置视图看不到它。Canon 写需用户授权，`label` 与节点 `props.label` 必须一致。
+- 若用户只要「画布上先看着」、暂不沉淀为设定，则只落「节点 + 边」，Canon 留待用户确认。
 
 ### 视频必须先提案（proposal gate）
 
@@ -154,7 +218,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 ## 何时用本技能
 
 - 用户要搭建、编辑、整理某个世界：建实体、填属性、连关系、建类型、摆画布。
-- 用户要在世界语境里生成媒体：先读 world.md，再走 `recut-directing-generation-prompt`；**视频只落提案，等用户确认**。
+- 用户要在世界语境里生成媒体：先读 world.md，再走 `recut-director（references/generation-prompt）`；**视频只落提案，等用户确认**。
 - 不用于：描述某个具体世界的内容（读 world.md）、写生成提示词本身（用生成提示词技能）。
 
 ## 常见误用
@@ -166,6 +230,8 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 - **写 Canon 不等授权**：无用户明确请求就 upsert/promote 是越权。
 - **忘记 `expectedRevisionId`**：并发写会静默覆盖，必须带乐观锁。
 - **直接生成画布视频 / 替用户确认提案**：把 `proposal.status` 写成 `generating`/`done` 或自行轮询采纳都是越权；确认只属于用户。
+- **等图片生成完成才落位**：图片/语音拿到 `assetId` 就应立刻落节点（`assetStatus:"generating"`）；用 `recut.job.wait` 把落位堵在终态之后、或轮询后回写节点都是多余动作。
+- **只写实体属性、不落画布节点**：用户要的是画布上的「图片节点 + 属性边」（实体的一条可见属性）；只写实体 attrs 不会在画布上出现节点。两者都要做时，节点与边的 `label` 保持一致。
 - **在画布元素上写语义真相**：语义只存实体/关系；画布只承载投影与表达。
 
 ## References 路由表
@@ -174,7 +240,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 |---|---|---|
 | 某个世界的内容与生产工作流 | `recut.worlds.brief` 的 `skill`（world.md） | 该世界的定位、工作流、资源口径 |
 | 完善一个世界的标准工作流 | platform `recut` skill 的 `references/world-onboarding.md` | readiness → research → generate → 提案 → 确认写回 |
-| 生成提示词形状与参考锚定 | `recut-directing-generation-prompt` | STYLE LOCK、role 锚定、多镜连续段 |
+| 生成提示词形状与参考锚定 | `recut-director（references/generation-prompt）` | STYLE LOCK、role 锚定、多镜连续段 |
 | 属性/画布数据模型与产品行为 | 仓库设计文档 `rfc/2026-09-09-unified-entity-model.md`、`docs/world-canvas-prd-v2.md` | 属性模型、卡片/面板/属性卡、提升规则 |
 | 世界源格式与发布 | 仓库设计文档 `rfc/2026-09-13-world-content-format-v2.md` | world.json/canvas.json/world.md 物化 |
 

@@ -1,5 +1,5 @@
 > 来源: DirectorSKILL-full (MIT)
-> 原路径: assets/qc-checklist.md
+> 原路径: references/qc/assets/qc-checklist.md
 > 搬运日期: 2026-08-29 — 模板/资产类文件，原样搬运，未做有损删改
 
 # QC & Repair Checklist (Mode J)

@@ -9,11 +9,11 @@ description: Director-brain agent for script creation, script revision, director
 
 This skill is the **screenplay-and-director decision brain**, not the final shot-list engine. In script mode its first duty is to tell a complete, understandable story through believable character actions and purposeful dialogue. State, causality, and cold-read tools verify that story after the writing logic is clear; they do not replace storytelling. In director mode it decides how an already coherent story should be interpreted, visualized, performed, sounded, paced, and prepared for a storyboard.
 
-For serious director analysis or pre-storyboard planning, read `references/verified-director-logic.md`. Use it as a decision scaffold; do not invent film history, director methods, textbook claims, or named examples.
+For serious director analysis or pre-storyboard planning, read `references/story/references/director-agent/references/verified-director-logic.md`. Use it as a decision scaffold; do not invent film history, director methods, textbook claims, or named examples.
 
-For script creation, script revision, script diagnosis, scene repair, or dialogue work, read `references/screenplay-writing-core.md` first and load the A3 knowledge cards it requires. For substantial or explicitly high-quality screenplay work, also read `references/screenplay-exemplar-benchmarks.md`. Draft from the plain-language story, character behavior, and dialogue-purpose logic; then use `references/screenplay-state-engine.md` as the verification layer. Do not let a ledger or checklist generate the story.
+For script creation, script revision, script diagnosis, scene repair, or dialogue work, read `references/story/references/director-agent/references/screenplay-writing-core.md` first and load the A3 knowledge cards it requires. For substantial or explicitly high-quality screenplay work, also read `references/story/references/director-agent/references/screenplay-exemplar-benchmarks.md`. Draft from the plain-language story, character behavior, and dialogue-purpose logic; then use `references/story/references/director-agent/references/screenplay-state-engine.md` as the verification layer. Do not let a ledger or checklist generate the story.
 
-For an independent screenplay audit, a fresh reader must read only `references/screenplay-cold-read-protocol.md`, the raw script, the user's locked constraints, and necessary format information. The writing agent's own review is `SELF-AUDIT ONLY`, not independent evidence.
+For an independent screenplay audit, a fresh reader must read only `references/story/references/director-agent/references/screenplay-cold-read-protocol.md`, the raw script, the user's locked constraints, and necessary format information. The writing agent's own review is `SELF-AUDIT ONLY`, not independent evidence.
 
 Use `ai-storyboard-director` after this skill only when the user explicitly wants a full AG-CLIP storyboard, shot list, or generation-ready分镜 and this skill has supplied unresolved director decisions. If a usable director plan already exists, route straight to `ai-storyboard-director` and do not load this skill again.
 
@@ -48,7 +48,7 @@ This agent must be usable under real context limits. Never pretend a large task 
 For any large script, long outline, full film plan, or multi-scene storyboard-prep task:
 
 - Break the work into explicit units: acts, scenes, sequences, or numbered source segments.
-- Use the staged workbench in `references/director-workbench-protocol.md` when the task involves a project, a full scene package, a short film, a short drama, or a storyboardable sequence.
+- Use the staged workbench in `references/story/references/director-agent/references/director-workbench-protocol.md` when the task involves a project, a full scene package, a short film, a short drama, or a storyboardable sequence.
 - Maintain an internal coverage ledger: what units exist, which units this answer covers, and which remain. Show it only when the user asks for process/status or when the requested scope is incomplete.
 - Complete the current unit fully instead of giving a shallow overview of all units.
 - If context/time is insufficient, stop at a clean boundary and emit a continuation anchor:
@@ -112,11 +112,11 @@ Identify the mode before acting:
 
 Load only the references required by the active mode:
 
-- Script creation, revision, diagnosis, scene repair, or dialogue: read `references/screenplay-writing-core.md` and the exact A3 knowledge cards routed there. Add `references/screenplay-exemplar-benchmarks.md` for full scripts, serious rewrites, or any request for an excellent/complete/high-quality screenplay. After the story and character-action design exist, load `references/screenplay-state-engine.md` for verification. Also read `references/anti-laziness-contract.md`.
-- Independent screenplay audit: a fresh reader loads only `references/screenplay-cold-read-protocol.md` plus the raw allowed inputs.
-- Director analysis or pre-storyboard interpretation: `references/verified-director-logic.md`, `references/director-thinking-spine.md`, and `references/anti-laziness-contract.md`.
-- Full project or staged scene package: add `references/director-workbench-protocol.md`.
-- The bundled references are sufficient for standalone use. When the public companion knowledge repository is available, `references/local-knowledge-map.md` may route deeper A3 cards; never treat that optional repository as a runtime requirement.
+- Script creation, revision, diagnosis, scene repair, or dialogue: read `references/story/references/director-agent/references/screenplay-writing-core.md` and the exact A3 knowledge cards routed there. Add `references/story/references/director-agent/references/screenplay-exemplar-benchmarks.md` for full scripts, serious rewrites, or any request for an excellent/complete/high-quality screenplay. After the story and character-action design exist, load `references/story/references/director-agent/references/screenplay-state-engine.md` for verification. Also read `references/story/references/director-agent/references/anti-laziness-contract.md`.
+- Independent screenplay audit: a fresh reader loads only `references/story/references/director-agent/references/screenplay-cold-read-protocol.md` plus the raw allowed inputs.
+- Director analysis or pre-storyboard interpretation: `references/story/references/director-agent/references/verified-director-logic.md`, `references/story/references/director-agent/references/director-thinking-spine.md`, and `references/story/references/director-agent/references/anti-laziness-contract.md`.
+- Full project or staged scene package: add `references/story/references/director-agent/references/director-workbench-protocol.md`.
+- The bundled references are sufficient for standalone use. When the public companion knowledge repository is available, `references/story/references/director-agent/references/local-knowledge-map.md` may route deeper A3 cards; never treat that optional repository as a runtime requirement.
 
 When the user says "打开工作台", "继续上次", "基于全局工作台", "全局导演工作台", or asks to continue a project across conversations, read the global workbench state before acting:
 
@@ -126,9 +126,9 @@ Use its active project, coverage ledger, anchors, scene board, shot board, uncov
 
 If the task mentions a real director, real film, historical event, textbook, or production method and the local references are not enough, verify with reliable sources before using it as a premise. If no source is available, mark the claim as `待查证` and do not build the plan on it.
 
-Before output, run the anti-laziness check from `references/anti-laziness-contract.md`.
+Before output, run the anti-laziness check from `references/story/references/director-agent/references/anti-laziness-contract.md`.
 
-When the user's request depends on current knowledge, disputed film theory, named directors, real films, production workflows, AI-video platform capability, or anything outside the local notes, run the web verification workflow in `references/research-update-protocol.md`.
+When the user's request depends on current knowledge, disputed film theory, named directors, real films, production workflows, AI-video platform capability, or anything outside the local notes, run the web verification workflow in `references/story/references/director-agent/references/research-update-protocol.md`.
 
 ### 1. Read The Material
 
@@ -163,8 +163,8 @@ plain-language complete story using the A3 writing cards
 -> dialogue purpose, subtext, voice, and interruption/evasion
 -> anti-AI rewrite pass
 -> readable screenplay prose
--> state and causality verification using `references/screenplay-state-engine.md`
--> isolated cold-read audit using `references/screenplay-cold-read-protocol.md`
+-> state and causality verification using `references/story/references/director-agent/references/screenplay-state-engine.md`
+-> isolated cold-read audit using `references/story/references/director-agent/references/screenplay-cold-read-protocol.md`
 ```
 
 Minimum internal proof:
@@ -364,16 +364,16 @@ Then, if the user asks for full production storyboard, run `ai-storyboard-direct
 
 When filesystem access is available, use:
 
-- `references/verified-director-logic.md` for the source-backed reasoning pillars.
-- `references/research-update-protocol.md` for web verification and knowledge update behavior.
-- `references/github-project-watchlist.md` for verified GitHub project patterns worth re-checking and borrowing from.
-- `references/director-workbench-protocol.md` for the usable staged workbench adapted from verified open-source workflow patterns.
-- `references/director-thinking-spine.md` for this skill's distilled director workflow.
-- `references/screenplay-state-engine.md` for screenplay continuity, causality, character strategy, dialogue response, and setup/payoff.
-- `references/screenplay-writing-core.md` for the A3-based primary writing order: complete story, character behavior, dialogue purpose, and anti-AI revision.
-- `references/screenplay-exemplar-benchmarks.md` for source-backed calibration against real excellent screenplays without copying their characters, plots, or dialogue.
-- `references/screenplay-cold-read-protocol.md` for an isolated reader auditing the raw screenplay without the writer's rationale.
-- `references/local-knowledge-map.md` for the user's local knowledge base.
+- `references/story/references/director-agent/references/verified-director-logic.md` for the source-backed reasoning pillars.
+- `references/story/references/director-agent/references/research-update-protocol.md` for web verification and knowledge update behavior.
+- `references/story/references/director-agent/references/github-project-watchlist.md` for verified GitHub project patterns worth re-checking and borrowing from.
+- `references/story/references/director-agent/references/director-workbench-protocol.md` for the usable staged workbench adapted from verified open-source workflow patterns.
+- `references/story/references/director-agent/references/director-thinking-spine.md` for this skill's distilled director workflow.
+- `references/story/references/director-agent/references/screenplay-state-engine.md` for screenplay continuity, causality, character strategy, dialogue response, and setup/payoff.
+- `references/story/references/director-agent/references/screenplay-writing-core.md` for the A3-based primary writing order: complete story, character behavior, dialogue purpose, and anti-AI revision.
+- `references/story/references/director-agent/references/screenplay-exemplar-benchmarks.md` for source-backed calibration against real excellent screenplays without copying their characters, plots, or dialogue.
+- `references/story/references/director-agent/references/screenplay-cold-read-protocol.md` for an isolated reader auditing the raw screenplay without the writer's rationale.
+- `references/story/references/director-agent/references/local-knowledge-map.md` for the user's local knowledge base.
 - A user-configured checkout of the companion `ai-film-knowledge-base/knowledge` corpus, when its location is explicitly supplied. Do not assume a sibling runtime path.
 - Bundled references under `skills/director-agent/references/` as the public reasoning spine.
 - A user-configured workbench state file; this repository does not ship personal runtime state.

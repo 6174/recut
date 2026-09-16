@@ -18,7 +18,7 @@
 
 ## 一、就绪门（每次要动声音前先查）
 
-调用 `recut.context`，读两块：
+读能力快照（会话 guide 文末「动态配置」；内建会话不必调用 `recut.context`）两块：
 
 1. `media.readiness`：`transcription` 与 `speech.generate` 的 `status`。
 2. `integrations.audioStudio`：Audio Studio 是否 `installed` / `mcpReady` / `ready`。
@@ -52,8 +52,8 @@
 
 1. **云端（默认就绪时）**：`recut.speech.generate`
    - 先 `recut.media.list_voices({credentialId})` 拿真实 `voiceId`，不凭记忆编造音色；
-   - 提交 → `recut.media.wait_for_job` 到 `completed` 才算素材可用；`failed` 如实报错，不把素材伪装成可用；
-   - 产物是平台媒体 asset，用 `timeline.placeAudio` 落轨（只给 assetId+start/duration，source 由后端推导）。
+   - **先落位、不空等**：提交拿到 `assetId` 就立刻 `timeline.placeAudio` 落轨（只给 assetId+start/duration，source 由后端推导），标记生成中，平台就绪后自动切换；**不要 `recut.media.wait_for_job` 空等**；
+   - 只有下一步依赖产物内容（试听验收、要据人声再决策/对齐）时才 `recut.media.wait_for_job` 到 `completed`；`failed` 如实报错，不把素材伪装成可用。
 2. **本机（`local-audio` route 就绪时）**：Audio Studio
    - 音色：默认音直接 `audio.synthesize({text, style})`；用角色就 `audio.characters` 拿 `characterId` 传入；
    - 验收：Audio Studio 会做 ASR 回读验收，未通过的配音不会暴露；
@@ -71,7 +71,7 @@
 准备 → 检查 readiness：speech.generate ready？audioStudio ready？
 写法 → 每段解说登记 visual anchor（voiceover.md sync map）
 生成 → 云端 recut.speech.generate 或本机 audio.synthesize（角色可选）
-验收 → wait_for_job / ASR 回读通过 → audio.save 入库
-落轨 → timeline.placeAudio(assetId + start/duration) → role:"anchor" → 字幕对齐
+落轨 → 拿到 assetId 立即 timeline.placeAudio(assetId + start/duration)（先落位，不空等）
+验收 → 默认不等；需要试听/内容依赖时才 wait_for_job 或 ASR 回读 → audio.save 入库
 校验 → timeline.validate 零违规 + 回读可播放
 ```

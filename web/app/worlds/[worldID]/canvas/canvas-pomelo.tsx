@@ -13,6 +13,8 @@
  * 另含 RealMediaBlockV（T8 媒体元素）/ 空世界与空容器引导（T9）/ CanvasOutline / toast / 文件拖放（B.12）；
  * 生成提案态（proposal）：媒体元素与 attr 媒体卡的 props.proposal 映射为 proposalStatus/proposalPrompt/
  * proposalRefs 等 attrs，供 block 渲染「待确认」态；
+ * 素材生成等待态（canvas-asset-status）：AI 先落 assetId 时映射为 assetStatus，未就绪不请求 URL，
+ * 渲染「生成中/失败」态并在素材就绪后经状态订阅增量重建文档；
  * 「+」引导面板支持把实体简介/正文作为关联拖出；文本属性卡高度服从几何 box（渲染侧裁剪溢出，
  * 不随内容自增长），双击就地编辑内滚动并支持全屏放大；
  * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
@@ -38,8 +40,9 @@ import { CanvasInlineEditor } from "./canvas-inline-editor";
 import { CanvasToasts } from "./canvas-toast";
 import { CanvasOutline } from "./canvas-outline";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
-import { attrValueOf, ENTITY_FIELD_ASSOCIATIONS } from "./entity-attrs";
+import { attrMediaValueOf, attrValueOf, ENTITY_FIELD_ASSOCIATIONS, entityMediaAttrs } from "./entity-attrs";
 import { readProposal } from "./canvas-proposal";
+import { canvasAssetStateOf, ensureCanvasAssetStatus, stopCanvasAssetStatus, useCanvasAssetStatusStore } from "./canvas-asset-status";
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
@@ -92,6 +95,15 @@ function buildPomeloRecords(
     const liveSize = liveSizes.get(canvasId);
     const cover = entityCoverMedia(state.apiBase, entity);
     const photoUrls = entityPhotoUrls(state.apiBase, entity);
+    // 实体媒体属性里的素材仍在生成：头图/资料格不请求未就绪 URL（避免 404 重试），
+    // 改为渲染等待态；素材就绪后经状态订阅重建切到真实图。
+    const coverState = cover?.assetId ? canvasAssetStateOf(cover.assetId, undefined) : "ready";
+    const pendingUrls = new Set<string>();
+    for (const attr of entityMediaAttrs(entity)) {
+      const value = attrMediaValueOf(entity, attr.key);
+      if (!value?.assetId) continue;
+      if (canvasAssetStateOf(value.assetId, undefined) !== "ready") pendingUrls.add(mediaSource(state.apiBase, { assetId: value.assetId }));
+    }
     records.push({
       id: `entity:${entity.id}`,
       type: "entity-card",
@@ -106,10 +118,11 @@ function buildPomeloRecords(
         desc: entity.intro || "",
         kind: entity.typeId,
         cover: "",
-        coverUrl: cover?.url ?? "",
-        coverKind: cover?.kind ?? undefined,
-        // photoUrls = 参考素材图片（头图取自参考素材时已剔除那张）
-        photoUrls,
+        coverUrl: coverState === "ready" ? cover?.url ?? "" : "",
+        coverKind: coverState === "ready" ? cover?.kind ?? undefined : undefined,
+        ...(coverState !== "ready" ? { coverStatus: coverState } : {}),
+        // photoUrls = 参考素材图片（头图取自参考素材时已剔除那张；未就绪素材另行等待态）
+        photoUrls: photoUrls.filter((url) => !pendingUrls.has(url)),
         photos: [],
         isProvisional: entity.isProvisional ? true : undefined,
       },
@@ -131,6 +144,9 @@ function buildPomeloRecords(
       const assetId = String(element.props?.assetId ?? "");
       const url = String(element.props?.url ?? "");
       const proposal = readProposal(element.props);
+      // AI 先落 assetId（素材仍在生成）时：不把未就绪的素材 URL 交给渲染器（避免 404 重试），
+      // 走蓝/红等待态；素材就绪后由状态订阅重建文档切到真实图。
+      const assetState = canvasAssetStateOf(assetId, element.props?.assetStatus);
       records.push({
         id: element.id,
         type: "media",
@@ -140,7 +156,8 @@ function buildPomeloRecords(
           width: liveSize?.width ?? (Number(element.geometry?.width) || 220),
           height: liveSize?.height ?? (Number(element.geometry?.height) || 150),
           modality,
-          src: mediaSource(state.apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }),
+          src: assetState === "ready" ? mediaSource(state.apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }) : "",
+          ...(assetState !== "ready" ? { assetStatus: assetState } : {}),
           attached: element.props?.evidenceId ? true : undefined,
           label: String(element.name ?? ""),
           ...(proposal ? {
@@ -157,9 +174,12 @@ function buildPomeloRecords(
       // 属性节点：文本/图片/音频/视频预览卡（AI 生成/上传内容承载物）；媒体卡带 assetId|url → 渲染真实图。
       // 文本高度服从几何 box（渲染侧裁剪溢出，见 free-element-block-v），不随内容自增长。
       const media = String(element.props?.media ?? "text");
-      const mediaSrc = media !== "text" ? mediaSource(state.apiBase, {
-        assetId: element.props?.assetId ? String(element.props.assetId) : undefined,
-        url: element.props?.url ? String(element.props.url) : undefined,
+      const attrAssetId = element.props?.assetId ? String(element.props.assetId) : "";
+      // 媒体属性卡同媒体元素：素材未就绪 → 不请求 URL，渲染等待态
+      const assetState = media !== "text" ? canvasAssetStateOf(attrAssetId, element.props?.assetStatus) : "ready";
+      const mediaSrc = media !== "text" && assetState === "ready" ? mediaSource(state.apiBase, {
+        ...(attrAssetId ? { assetId: attrAssetId } : {}),
+        ...(element.props?.url ? { url: String(element.props.url) } : {}),
       }) : "";
       const proposal = readProposal(element.props);
       records.push({
@@ -172,8 +192,11 @@ function buildPomeloRecords(
           height: Number(element.geometry?.height) || (media === "text" ? 90 : 140),
           elementKind: "attr",
           attrMedia: media,
+          // 属性名（props.label，如「环境卡」）优先作为卡片徽标；缺省回退媒体类型标签
+          label: String(element.props?.label ?? ""),
           text: String(element.props?.text ?? ""),
           mediaSrc,
+          ...(assetState !== "ready" ? { assetStatus: assetState } : {}),
           ...(proposal ? {
             proposalStatus: proposal.status,
             proposalPrompt: proposal.prompt.replace(/<[^>]*>/g, " "),
@@ -767,6 +790,7 @@ export function CanvasPomeloHost() {
       }
       viewportUnsubRef.current?.dispose();
       viewportUnsubRef.current = null;
+      stopCanvasAssetStatus();
       editor.destroy();
       editorRef.current = null;
       pluginRef.current = null;
@@ -816,6 +840,36 @@ export function CanvasPomeloHost() {
     if (!editor || !ready) return;
     pluginRef.current?.drawOverlay(editor);
   }, [selection, dataVersion, ready]);
+
+  // 素材生成等待态（AI 先落 assetId）：把画布上引用中的 assetId 纳入状态跟踪
+  // （media 元素 / 媒体属性卡 / 实体 media 属性头图）；未完成则轮询，就绪/失败后停止。
+  useEffect(() => {
+    if (!ready) return;
+    const state = useWorldCanvasStore.getState();
+    for (const element of state.elements) {
+      if (element.kind !== "media" && element.kind !== "attr") continue;
+      const assetId = element.props?.assetId ? String(element.props.assetId) : "";
+      if (assetId) ensureCanvasAssetStatus(state.apiBase, assetId);
+    }
+    for (const entity of state.entities) {
+      for (const attr of entityMediaAttrs(entity)) {
+        const value = attrMediaValueOf(entity, attr.key);
+        if (value?.assetId) ensureCanvasAssetStatus(state.apiBase, value.assetId);
+      }
+    }
+  }, [dataVersion, ready]);
+
+  // 素材状态变化 → 增量重建文档（等待态 ↔ 真实图/失败态）并重绘 overlay
+  useEffect(() => {
+    if (!ready) return;
+    const unsubscribe = useCanvasAssetStatusStore.subscribe(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      syncDocFromCanvasStore(editor);
+      pluginRef.current?.drawOverlay(editor);
+    });
+    return unsubscribe;
+  }, [ready]);
 
   // T8 文件拖放（B.12 矩阵）：文件 → 实体卡 = 直接写为 media 属性（attachMediaAttr，不建画布元素）；
   // 文件 → 空白 = 独立 media 元素（落点处）

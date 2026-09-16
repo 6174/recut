@@ -12,9 +12,9 @@ Use this before sharing the skill to GitHub or installing it on another machine.
 - `scripts/run_faster_whisper_asr.py`
 - `scripts/run_funasr_asr.py`
 - `scripts/collect_douyin_comments_browser_act.py`
-- `references/local-setup.md`
-- `references/output-style.md`
-- `references/portable-setup.md`
+- `references/remix/references/local-setup.md`
+- `references/remix/references/output-style.md`
+- `references/remix/references/portable-setup.md`
 
 ## Do Not Include
 
@@ -24,7 +24,7 @@ Use this before sharing the skill to GitHub or installing it on another machine.
 - HuggingFace tokens
 - browser profiles, cookies, screenshots with private account data
 - platform credentials
-- `references/local-setup.private.md`
+- `references/remix/references/local-setup.private.md`
 
 ## External Dependencies
 
@@ -39,4 +39,4 @@ The scripts expect:
 
 ## Porting Notes
 
-Update `references/local-setup.md` or create `references/local-setup.private.md` for each machine. The skill itself should not hardcode private model paths, tokens, browser profiles, browser ids, or project-specific output folders as mandatory requirements.
+Update `references/remix/references/local-setup.md` or create `references/remix/references/local-setup.private.md` for each machine. The skill itself should not hardcode private model paths, tokens, browser profiles, browser ids, or project-specific output folders as mandatory requirements.

@@ -36,7 +36,7 @@ audio; the **creator bakes it into the video**; **WoopSocial publishes the finis
 2. the **video/asset it scores** — length, cuts, beats.
 
 ## The framework: SCORE
-(Depth: `references/the-score-framework.md`.)
+(Depth: `references/sound/references/the-score-framework.md`.)
 - **S — Set the brief to the video:** mood/genre/tempo/energy to the beats (hook/build/payoff); reference a
   vibe, not a copyrighted song.
 - **C — Choose the safest licensed source:** **ElevenLabs Music/SFX** (cleanest, licensed-from-day-one) or a
@@ -59,8 +59,8 @@ licensed; stock libraries (Epidemic/Artlist/Soundstripe) clean + indemnified. Le
 copyright vesting → **pure AI music may not be copyrightable**; **paid = commercial/free ≠**; indemnification
 mostly absent; **Content ID claims even AI audio** (keep license + document human); AI-disclosure (EU AI Act
 Aug 2026 + C2PA); **never copyrighted/trending music for a brand without a license** (mute/claim/legal):
-`references/ai-music-2026-reality.md`. The music brief, sound-design accents, the tool-pick decision, the
-licensing/Content-ID checklist, the WoopSocial flow + worked examples: `references/briefs-tools-and-
+`references/sound/references/ai-music-2026-reality.md`. The music brief, sound-design accents, the tool-pick decision, the
+licensing/Content-ID checklist, the WoopSocial flow + worked examples: `references/sound/references/briefs-tools-and-
 licensing.md`.
 
 ## Honest scope (never violate)
@@ -72,7 +72,7 @@ licensing.md`.
 - **Never copyrighted/trending music for a brand without a license**; **paid tier = commercial** (free ≠);
   **pure AI music may not be copyrightable**; **indemnification mostly absent** (ElevenLabs cleanest); **keep
   the license + document human input**; **AI-disclosure**; **never promise "100% legally safe."** (Scope,
-  distinctions + connections: `references/scope-and-connections.md`.)
+  distinctions + connections: `references/sound/references/scope-and-connections.md`.)
 
 ## Distinct from its siblings (route correctly)
 **ai-music-and-sound (this)** = the music + sound design (the audio **bed**) · **ai-voiceover** = the voice/

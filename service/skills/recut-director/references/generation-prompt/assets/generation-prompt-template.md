@@ -1,6 +1,6 @@
 # 生成提示词模板（Generation Prompt Template）
 
-> 本文件归 `recut-directing-generation-prompt` 所有，是产出自检的填写形态。规则与边界见同级 `SKILL.md`；`<reference>` 标签属性、role 词表与编号规则见 SKILL.md《参考锚点表达规则》。
+> 本文件归 `references/generation-prompt` 所有，是产出自检的填写形态。规则与边界见同级 `SKILL.md`；`<reference>` 标签属性、role 词表与编号规则见 SKILL.md《参考锚点表达规则》。
 
 ## 填写顺序
 

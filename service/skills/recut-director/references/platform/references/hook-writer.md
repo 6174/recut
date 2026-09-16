@@ -43,7 +43,7 @@ and "never" list apply to the opening line as much as the body. If neither exist
 ## Step 1 — Pin the format and its cutoff
 
 A hook for a caption first line is not a hook for a video's first three seconds. Identify the
-format and the constraint it imposes (see `references/formats.md`):
+format and the constraint it imposes (see `references/platform/references/formats.md`):
 
 - **Caption** — one line before the "…more" cutoff (~125 chars on Instagram).
 - **Video** — the first 1–3 seconds, across *three channels at once*: what's on screen, the
@@ -70,13 +70,13 @@ earned rather than baited.
 ## Step 3 — Generate many, across different mechanisms
 
 Write **5–10 candidate hooks**, deliberately using *different mechanisms* from
-`references/mechanisms.md` (curiosity gap, contrarian, stakes, specificity, identity, story,
+`references/platform/references/mechanisms.md` (curiosity gap, contrarian, stakes, specificity, identity, story,
 mistake, transformation, question, timeliness, authority). Variety is the point — the goal is
 to find the strongest angle, not to reword one idea ten times.
 
 ## Step 4 — Score and select
 
-Run the candidates through the rubric in `references/scoring.md` and keep the best 1–2. The
+Run the candidates through the rubric in `references/platform/references/scoring.md` and keep the best 1–2. The
 rubric checks: does it open a real gap? is it specific? is it true to the content? does it fit
 the format's cutoff? does it sound like them? would a stranger *need* the next beat? Discard
 the rest without sentiment — most hooks you write should die.
@@ -130,7 +130,7 @@ If it doesn't pass "would a stranger need the next beat?", it isn't a hook yet.
 
 ## References
 
-- `references/mechanisms.md` — the hook mechanism taxonomy (why each one works).
-- `references/formats.md` — hook craft by format and the cutoffs that govern each.
-- `references/scoring.md` — the scoring rubric, the generate-and-select method, anti-patterns.
-- `references/examples.md` — content → many hooks → scored → chosen, worked end to end.
+- `references/platform/references/mechanisms.md` — the hook mechanism taxonomy (why each one works).
+- `references/platform/references/formats.md` — hook craft by format and the cutoffs that govern each.
+- `references/platform/references/scoring.md` — the scoring rubric, the generate-and-select method, anti-patterns.
+- `references/platform/references/examples.md` — content → many hooks → scored → chosen, worked end to end.

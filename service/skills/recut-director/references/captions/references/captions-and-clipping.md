@@ -32,7 +32,7 @@ Shorts). One long video → ~10–30 native clips, each a real Short.
 2. **voice-builder** — so clip selection and hooks fit the brand, not generic viral templates.
 
 ## The framework: CLIP
-(Depth: `references/the-clip-framework.md`.)
+(Depth: `references/captions/references/the-clip-framework.md`.)
 - **C — Cut to the moment:** AI moment-detection (Opus Clip ClipAnything) surfaces candidates; a
   human picks complete, hook-first, on-strategy clips.
 - **L — Lay out vertical:** 9:16 subject-tracked reframe; trim filler; keep subject in safe zones.
@@ -47,12 +47,12 @@ Shorts). One long video → ~10–30 native clips, each a real Short.
 - **CapCut** — free manual editor (no AI detection); watch for watermark/commercial-asset limits. Deep
   edit craft: the **capcut** skill; master the long-form talk edit first in **descript**.
 - Common pattern: **Opus Clip to cut → Submagic to caption → clean export.** Full landscape:
-  `references/clipping-tools-2026.md`; selection + recipes: `references/clip-and-caption-recipes.md`.
+  `references/captions/references/clipping-tools-2026.md`; selection + recipes: `references/captions/references/clip-and-caption-recipes.md`.
 
 ## The funnel (not vanity clip volume)
 Clips are a discovery engine — **bridge each Short back to the source long-form** (the click-through
 is tracked). Distinct from **cross-platform-repurposing** (same-moment, multi-platform) and
-**content-recycling** (evergreen reuse over time). Details: `references/repurposing-funnel-and-tools.md`.
+**content-recycling** (evergreen reuse over time). Details: `references/captions/references/repurposing-funnel-and-tools.md`.
 
 ## Honest scope (never violate)
 - **Tools clip and caption; a human reviews** — ~70% of auto-clips need cleanup, so **never

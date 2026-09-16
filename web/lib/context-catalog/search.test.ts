@@ -69,7 +69,7 @@ describe("dedupeOptions / groupCounts / buildContextRows", () => {
       option({ key: "media:a", sourceType: "media", group: "media", title: "素材" }),
     ]);
     assert.equal(options.length, 2);
-    assert.deepEqual(groupCounts(options), { current: 0, world: 1, workspace: 0, media: 1, capability: 0 });
+    assert.deepEqual(groupCounts(options), { current: 0, world: 1, workspace: 0, media: 1, skill: 0, tool: 0 });
     const rows = buildContextRows(options);
     assert.deepEqual(
       rows.map((row) => row.kind),

@@ -3,7 +3,7 @@
  *          world-canvas/blocks/vello-shared（公共绘制辅助/色板）、world-canvas/text-metrics（truncateText）
  * [OUTPUT]: 对外提供 EntityCardBlockV（type: entity-card）与 entityCardRectV：深色卡面 + 头图 center-cover +
  *           标题/副标题 + 资料格 + 元素徽标；头图区为 flex:1（剩余空间），底部固定标题/缩略图区；
- *           有效矩形与业务命中/选区/连线共用。
+ *           头图素材生成中/失败（coverStatus）渲染为蓝/红等待态；有效矩形与业务命中/选区/连线共用。
  * [POS]: lib/pomelo/world-canvas/blocks 的实体卡 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -25,6 +25,10 @@ import {
   CAPTION_TOP_OFFSET,
   CARD_FILL,
   CARD_STROKE,
+  FAILED_ACCENT,
+  FAILED_FILL,
+  PENDING_ACCENT,
+  PENDING_FILL,
   SHADOW_FILL,
   TEXT_PRIMARY,
   TEXT_SECONDARY,
@@ -80,12 +84,22 @@ export class EntityCardBlockV extends VelloBlock {
       { kind: "roundRect", x, y, width: w, height: h, radius: ENTITY_CARD_RADIUS, fill: CARD_FILL, stroke: CARD_STROKE, strokeWidth: 1 },
       ...caption.ops,
     ];
+    // 头图素材仍在生成 / 失败：不请求未就绪 URL，改渲染等待态（就绪后由画布自动切换）
+    const coverStatus = String(attrs.coverStatus ?? "");
     if (hasCover) {
-      // 头图区 = 剩余空间，仅在自身区域内 center-cover：先按卡面圆角裁剪（保留顶部圆角），
-      // 再裁到头图矩形，避免 cover 溢出污染下方文字/缩略图区。
-      ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: ENTITY_CARD_RADIUS });
-      ops.push(...coverImageOpsV(this.adapter, coverUrl, { x, y, width: w, height: imageH }, { x, y, width: w, height: imageH, radius: 0 }));
-      ops.push({ kind: "popClip" });
+      if (coverStatus === "generating" || coverStatus === "failed") {
+        const failed = coverStatus === "failed";
+        const accent = failed ? FAILED_ACCENT : PENDING_ACCENT;
+        const fill = failed ? FAILED_FILL : PENDING_FILL;
+        ops.push({ kind: "roundRect", x, y, width: w, height: imageH, radius: 0, fill, stroke: accent, strokeWidth: 2 });
+        ops.push(textOp({ text: failed ? "生成失败" : "生成中…", x: x + ENTITY_CARD_PAD, y: y + Math.max(6, imageH / 2 - 8), size: 12, maxWidth: w - ENTITY_CARD_PAD * 2, fill: failed ? accent : TEXT_PRIMARY }));
+      } else {
+        // 头图区 = 剩余空间，仅在自身区域内 center-cover：先按卡面圆角裁剪（保留顶部圆角），
+        // 再裁到头图矩形，避免 cover 溢出污染下方文字/缩略图区。
+        ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: ENTITY_CARD_RADIUS });
+        ops.push(...coverImageOpsV(this.adapter, coverUrl, { x, y, width: w, height: imageH }, { x, y, width: w, height: imageH, radius: 0 }));
+        ops.push({ kind: "popClip" });
+      }
     }
     ops.push(textOp({ text: truncateText(title, w - ENTITY_CARD_PAD * 2, titleSize), x: x + ENTITY_CARD_PAD, y: y + textTop, size: titleSize, maxWidth: w - ENTITY_CARD_PAD * 2, embolden: 0.035, fill: TEXT_PRIMARY }));
     ops.push(textOp({ text: truncateText(summary, w - ENTITY_CARD_PAD * 2, summarySize), x: x + ENTITY_CARD_PAD, y: y + textTop + titleH, size: summarySize, maxWidth: w - ENTITY_CARD_PAD * 2, fill: TEXT_SECONDARY }));

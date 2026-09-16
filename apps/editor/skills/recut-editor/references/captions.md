@@ -1,22 +1,22 @@
 # 字幕实践（recut.editor · 薄适配层）
 
-> 决策规则权威来源：`service/skills/recut-directing-captions`；本文件仅保留 `recut.editor` 介质映射（字幕轨结构、`subtitle.*` 与 `timeline.command` 的 App 实现）。
-> 字幕样式、安全区、强调词与平台默认样式等决策以全局 `recut-directing-captions` 为准，本文件不重复定义。
+> 决策规则权威来源：`service/skills/recut-director/references/captions`；本文件仅保留 `recut.editor` 介质映射（字幕轨结构、`subtitle.*` 与 `timeline.command` 的 App 实现）。
+> 字幕样式、安全区、强调词与平台默认样式等决策以全局 `recut-director（references/captions）` 为准，本文件不重复定义。
 
 ## 定位与边界
 
-本文件是 `recut.editor` 对 `recut-directing-captions` 的薄适配层，只回答“字幕如何用轨道与 op 实现”。
+本文件是 `recut.editor` 对 `recut-director（references/captions）` 的薄适配层，只回答“字幕如何用轨道与 op 实现”。
 字幕怎么写、怎么强调、怎么保证可读由全局决定；本文件仅说明在 `recut.editor` 中字幕轨与 cue 的结构、`subtitle.*` MCP 链路、批量导入与全轨广播的 op 语法。
 
 ## 决策路由表
 
 | 决策问题 | 权威来源 | 全局文件 |
 |---|---|---|
-| 字幕层级、安全区、落位与缩屏验收 | `recut-directing-captions` | `SKILL.md` 一、`references/captions.md` |
-| 强调词/关键词高亮（三选一、一屏一强调、选词纪律） | `recut-directing-captions` | `SKILL.md` 二、`references/kinetic-captions-zh.md` |
-| 平台默认样式速查与主题化 | `recut-directing-captions` | `SKILL.md` 三、`references/captions.md` |
-| 长转短与静音观看字幕策略 | `recut-directing-captions` | `references/captions-and-clipping.md` |
-| 钩子首帧文案与缝线字幕的版式使命（交界） | `recut-directing-hooks` / `recut-directing-b-roll` | 全局边界声明 |
+| 字幕层级、安全区、落位与缩屏验收 | `recut-director（references/captions）` | `SKILL.md` 一、`references/captions.md` |
+| 强调词/关键词高亮（三选一、一屏一强调、选词纪律） | `recut-director（references/captions）` | `SKILL.md` 二、`references/kinetic-captions-zh.md` |
+| 平台默认样式速查与主题化 | `recut-director（references/captions）` | `SKILL.md` 三、`references/captions.md` |
+| 长转短与静音观看字幕策略 | `recut-director（references/captions）` | `references/captions-and-clipping.md` |
+| 钩子首帧文案与缝线字幕的版式使命（交界） | `recut-director（references/hooks）` / `recut-director（references/b-roll）` | 全局边界声明 |
 
 ## 介质映射（App 特有，保留）
 
@@ -50,4 +50,4 @@ timeline.command { op: { type:"caption-style", payload:{ trackId, style:{ fontSi
 | `background.*` | 底框 | 默认关闭；开启时高对比，全轨统一 |
 | `transform.positionX/Y` 等 | 位置/变换 | 全轨统一，自动下三分之一，不手动写 |
 
-> 铁律（无底框、一条一信息、最高层、缩屏 480px 可读等）与字号阶梯、强调手法等决策见全局 `recut-directing-captions` SKILL.md 一/二/三与交付自检；本文件仅保留 op 层面的实现约束。
+> 铁律（无底框、一条一信息、最高层、缩屏 480px 可读等）与字号阶梯、强调手法等决策见全局 `recut-director（references/captions）` SKILL.md 一/二/三与交付自检；本文件仅保留 op 层面的实现约束。
