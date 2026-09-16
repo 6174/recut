@@ -1416,18 +1416,16 @@ type contextMaterial struct {
 // type (e.g. a project element reference) only needs a map entry plus its
 // payload contract; the prompt/CLI pipeline is shared.
 var contextMaterializers = map[string]func(m *AgentManager, payload json.RawMessage) (contextMaterial, error){
-	"media":             materializeMediaContext,
-	"page":              materializePageContext,
-	"work_surface":      materializeWorkSurfaceContext,
-	"work_focus":        materializeWorkFocusContext,
-	"creation_world":    materializeCreationWorldContext,
-	"creation_entity":   materializeCreationEntityContext,
-	"creation_evidence": materializeCreationEvidenceContext,
-	"world_evidence":    materializeCreationEvidenceContext,
-	"project":           materializeProjectContext,
-	"app":               materializeAppContext,
-	"skill":             materializeSkillContext,
-	"mcp_tool":          materializeMCPToolContext,
+	"media":           materializeMediaContext,
+	"page":            materializePageContext,
+	"work_surface":    materializeWorkSurfaceContext,
+	"work_focus":      materializeWorkFocusContext,
+	"creation_world":  materializeCreationWorldContext,
+	"creation_entity": materializeCreationEntityContext,
+	"project":         materializeProjectContext,
+	"app":             materializeAppContext,
+	"skill":           materializeSkillContext,
+	"mcp_tool":        materializeMCPToolContext,
 }
 
 // workSurfaceContextPayload is the host-owned target binding for one turn.
@@ -1764,7 +1762,7 @@ func materializePageContext(_ *AgentManager, payload json.RawMessage) (contextMa
 
 // materializeCreationWorldContext validates a creation_world attachment and
 // renders a prompt line that tells the Agent to read live content via the
-// global recut.worlds.brief single-call entry. The turn only persists
+// global recut.worlds.get single-call entry. The turn only persists
 // structured IDs, never a Canon copy.
 func materializeCreationWorldContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
 	var input struct {
@@ -1787,7 +1785,7 @@ func materializeCreationWorldContext(m *AgentManager, payload json.RawMessage) (
 	return contextMaterial{
 		Label: world.Name,
 		Kind:  "creation_world",
-		Text: fmt.Sprintf("[Creation World] worldId=%s name=%s origin=%s revisionId=%s —— 调用 recut.worlds.brief({ worldId: %q }) 一次获取身份、世界技能（world.md）、事实、规则与证据。非 local 世界只读：用户要求修改时提议 recut.worlds.fork。世界技能是该世界的生产工作流：按其执行（先策略后生成、逐张生成、按质检口径复核后再交付）。",
+		Text: fmt.Sprintf("[Creation World] worldId=%s name=%s origin=%s revisionId=%s —— 调用 recut.worlds.get({ worldId: %q }) 一次获取身份、世界技能（world.md）、实体图、事实、约束与可引用素材。非 local 世界只读：用户要求修改时提议 recut.worlds.fork。世界技能是该世界的生产工作流：按其执行（先策略后生成、逐张生成、按质检口径复核后再交付）。",
 			world.ID, world.Name, origin, revision, world.ID),
 	}, nil
 }
@@ -1811,28 +1809,7 @@ func materializeCreationEntityContext(m *AgentManager, payload json.RawMessage) 
 	return contextMaterial{
 		Label: entity.Name,
 		Kind:  "creation_entity",
-		Text:  "[Creation Entity] worldId=" + input.WorldID + " entityId=" + entity.ID + " kind=" + string(entity.TypeID) + " title=" + entity.Name + " —— 调用 recut.worlds.entities.get({ worldId: \"" + input.WorldID + "\", entityId: \"" + entity.ID + "\" }) 读取完整内容；关联的世界用 recut.worlds.resolve 解析。不要凭聊天记忆假定设定当前状态。",
-	}, nil
-}
-
-// materializeCreationEvidenceContext validates a world_evidence attachment and
-// points the Agent at the World's live evidence rather than copying Canon.
-func materializeCreationEvidenceContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
-	var input struct {
-		WorldID    string `json:"worldId"`
-		EvidenceID string `json:"evidenceId"`
-	}
-	if err := json.Unmarshal(payload, &input); err != nil || input.WorldID == "" || input.EvidenceID == "" {
-		return contextMaterial{}, errors.New("world_evidence context requires worldId and evidenceId")
-	}
-	world, err := NewWorldStore(m.store, m.media).GetWorld(input.WorldID)
-	if err != nil {
-		return contextMaterial{}, errors.New("world evidence attachment is unavailable")
-	}
-	return contextMaterial{
-		Label: world.Name,
-		Kind:  "world_evidence",
-		Text:  "[World Evidence] worldId=" + world.ID + " evidenceId=" + input.EvidenceID + " —— 用 recut.worlds.evidence.list({ worldId: \"" + world.ID + "\" }) 读取证据；不要复制 Canon。",
+		Text:  "[Creation Entity] worldId=" + input.WorldID + " entityId=" + entity.ID + " kind=" + string(entity.TypeID) + " title=" + entity.Name + " —— 调用 recut.worlds.entities.get({ worldId: \"" + input.WorldID + "\", entityId: \"" + entity.ID + "\" }) 读取完整内容；关联的世界用 recut.worlds.get 读取。不要凭聊天记忆假定设定当前状态。",
 	}, nil
 }
 
@@ -2276,10 +2253,6 @@ var mcpToolLabels = map[string]string{
 	"recut.media.reject_proposal":               "放弃生成提案",
 	"recut.worlds.list":                         "读取世界列表",
 	"recut.worlds.get":                          "读取世界",
-	"recut.worlds.brief":                        "读取世界制作上下文",
-	"recut.worlds.evidence.list":                "读取世界资料",
-	"recut.worlds.readiness":                    "读取世界就绪度",
-	"recut.worlds.resolve":                      "解析世界上下文",
 	"recut.worlds.create":                       "创建世界",
 	"recut.worlds.update":                       "更新世界",
 	"recut.worlds.fork":                         "复制世界",
@@ -2289,14 +2262,11 @@ var mcpToolLabels = map[string]string{
 	"recut.worlds.entity":                       "世界实体（画布）",
 	"recut.worlds.entityType":                   "世界类型（画布）",
 	"recut.worlds.entityTypes.list":             "读取世界类型目录",
-	"recut.worlds.relations.list":               "读取世界关系",
 	"recut.worlds.relation":                     "世界关系（画布）",
-	"recut.worlds.evidence.archive":             "归档世界资料",
 	"recut.worlds.doc":                          "读取世界画布",
 	"recut.worlds.docs":                         "读取世界画布层索引",
 	"recut.worlds.doc.update":                   "编辑世界画布",
 	"recut.worlds.promote":                      "提升画布元素为设定",
-	"recut.worlds.bind_project":                 "关联世界到项目",
 	"recut.worlds.revisions.list":               "读取世界版本历史",
 	"recut.worlds.revert":                       "回滚世界版本",
 	"recut.worlds.export":                       "导出世界 bundle",

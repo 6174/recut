@@ -67,7 +67,7 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 
 规则：
 
-1. **role 受控**：`pov / color-card / environment / character / prop / style-ref / motion-ref / voice / sfx / music`。生成链路每条引用必须有 role。**本表是 AI 侧唯一权威**；运行期镜像在 `canvas-proposal.ts` 的 `PROPOSAL_ROLES`，`recut.worlds.brief.references[].role` 也用它，三处必须同步。
+1. **role 受控**：`pov / color-card / environment / character / prop / style-ref / motion-ref / voice / sfx / music`。生成链路每条引用必须有 role。**本表是 AI 侧唯一权威**；运行期镜像在 `canvas-proposal.ts` 的 `PROPOSAL_ROLES`，`recut.worlds.get.references[].role` 也用它，三处必须同步。
 2. **格式与提交分离**：正文用 `<reference id …>`（身份、可由 Agent 校验）；提交给模型时由 resolver 改写为**组内编号别名**（`参考图1..N`、`音频1..N`，可配 `{{Mixed n}}`），并把同序 `referenceIds` 一并提交。
 3. **id 不进模型串**：模型不是 Agent，看不到也不该看到 assetId；它只看到别名 + 按顺序附着的媒体。
 4. **一图一 role**：需要一图多义时用 `label` 说明，不叠 role。
@@ -132,7 +132,7 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 | 六模块/十段式的详细模板 | `references/short-drama/references/ai-storyboard-director` | 生成任务/主体/场景/情绪/风格/分段脚本 |
 | 参考图职责与人物参考 | `references/modes/*/video-prompt-guide.md` | 各 Mode 的 `参考图N` 声明与素材连接纪律 |
 | `<reference>` 标签属性、role 词表、编号与提交规则 | 本 SKILL.md《参考锚点表达规则》+ `references/generation-prompt/assets/generation-prompt-template.md` | 标签属性、role、编号与提交形态 |
-| 世界内的生成（world.md 世界技能） | `recut.worlds.brief({ worldId })` 读取 `skill` 全文与 `references[]` | 该世界的 STYLE LOCK、可引用项与建议 role、资源口径；本技能是其通用底座 |
+| 世界内的生成（world.md 世界技能） | `recut.worlds.get({ worldId })` 读取 `skillMd` 与 `references[]`与 `references[]` | 该世界的 STYLE LOCK、可引用项与建议 role、资源口径；本技能是其通用底座 |
 | 世界/画布里的生成怎么调工具 | `recut-worlds` 技能 | `recut.worlds.*` 操作与「读世界 → 写提示词 → 生成 → 落位」流程 |
 | 失败症状与门禁 | `references/qc` | F-code 与验收门禁 |
 

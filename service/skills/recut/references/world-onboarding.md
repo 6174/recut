@@ -8,11 +8,12 @@
 ## 1. 读取工作清单
 
 ```text
-recut.worlds.readiness({ worldId, scenarioId? })
+recut.worlds.get({ worldId, scenarioId? })
 ```
 
-- 返回 `level`（skeleton / draft / ready）、`score` 与按优先级排序的 `missing`（每项含 `kind`、
-  `title`、`reason`、`suggestion`）。
+- 一次拿到 `readiness`：`level`（skeleton / draft / ready）、`score`、`scenarioId` 与按优先级排序的
+  `readiness.missing`（每项含 `kind`、`title`、`reason`、`suggestion`）；同一次调用还带回 world.md
+  （`skillMd`）、实体图、事实与 `references[]`，不必再单独读世界。
 - `scenarioId` 缺省按世界类型推荐：`fiction_world→novel-adaptation`、`creator_brand→ip-account`、
   `character_ip→style-system`、`brand→brand-guide`、`custom→blank`。用户给了素材线索时可选更贴合的
   蓝图（小说文本→novel-adaptation；账号链接→ip-account；风格图集→style-system）。
@@ -61,8 +62,8 @@ recut.worlds.readiness({ worldId, scenarioId? })
 
 - 逐条调用画布接口：`recut.worlds.entity`（op=create/update；含用户勾选的候选媒体，写入实体 media 属性；给
   `contextId` 时自动在画布落投影卡）、`recut.worlds.relation`（op=create）、`recut.worlds.update(skillMd)`，
-  全部携带 `expectedRevisionId`（提案时的 revision）。证据/参考没有独立写入工具，媒体一律走实体 media 属性；
-  `recut.worlds.evidence.archive` 只在用户要求移除时调用。
+  全部携带 `expectedRevisionId`（提案时的 revision）。证据层已退役：媒体一律走实体 media 属性，没有独立的
+  证据写入/归档工具。
 - 任何一条返回 `WORLD_REVISION_CONFLICT`：**停止整批写回**，重读最新状态，刷新提案差异后再次请
   确认——绝不静默覆盖。
 - 非 local 世界只读（`WORLD_READ_ONLY`）：说明边界并提议 `recut.worlds.fork`，在副本上走本工作流。

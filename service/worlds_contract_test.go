@@ -20,8 +20,7 @@ import (
 // worldsReadTools 是 recut.worlds.* 的只读工具（无副作用）。
 var worldsReadTools = []string{
 	"recut.worlds.list", "recut.worlds.get", "recut.worlds.entities.list", "recut.worlds.entities.get",
-	"recut.worlds.evidence.list", "recut.worlds.brief", "recut.worlds.resolve", "recut.worlds.readiness",
-	"recut.worlds.entityTypes.list", "recut.worlds.relations.list", "recut.worlds.doc", "recut.worlds.docs",
+	"recut.worlds.entityTypes.list", "recut.worlds.doc", "recut.worlds.docs",
 	"recut.worlds.revisions.list", "recut.worlds.export", "recut.worlds.proposals.list",
 }
 
@@ -37,14 +36,14 @@ var worldsContentWriteTools = []string{
 // worldsLifecycleTools 是世界级生命周期/元数据工具（不是实体内容编辑）。
 var worldsLifecycleTools = []string{
 	"recut.worlds.create", "recut.worlds.update", "recut.worlds.fork", "recut.worlds.delete",
-	"recut.worlds.bind_project", "recut.worlds.evidence.archive", "recut.worlds.revert", "recut.worlds.import",
+	"recut.worlds.revert", "recut.worlds.import",
 }
 
 // worldsMutatingTools 是必须广播 world.changed 的工具集合（= world_events.go 的 map）。
 var worldsBroadcastTools = []string{
 	"recut.worlds.create", "recut.worlds.update", "recut.worlds.doc.update", "recut.worlds.promote",
 	"recut.worlds.entity", "recut.worlds.relation", "recut.worlds.entityType", "recut.worlds.revert",
-	"recut.worlds.import", "recut.worlds.evidence.archive",
+	"recut.worlds.import",
 }
 
 // retiredWorldsTools 是已从 MCP 面下线的工具（方案 A 收口）。
@@ -52,6 +51,10 @@ var retiredWorldsTools = []string{
 	"recut.worlds.entities.upsert", "recut.worlds.entities.create_child", "recut.worlds.entities.promote",
 	"recut.worlds.relations.create", "recut.worlds.relations.update", "recut.worlds.entityTypes.upsert",
 	"recut.worlds.references.attach", "recut.worlds.evidence.attach", "recut.worlds.evidence.update",
+	// 已从 MCP 面移除（并入 get / 仅保留 HTTP 与 App runtime）：evidence 已退役、readiness 并入
+	// get.missing、resolve/bind_project 只服务运行时、relations.list 由 get/entities.get 覆盖。
+	"recut.worlds.evidence.list", "recut.worlds.evidence.archive", "recut.worlds.readiness",
+	"recut.worlds.resolve", "recut.worlds.relations.list", "recut.worlds.bind_project",
 }
 
 func worldsToolInventory() []string {
@@ -141,7 +144,7 @@ func TestWorldsSkillToolMentionsAreRealTools(t *testing.T) {
 				if token == "recut.worlds" || real[token] {
 					continue
 				}
-				// 允许工具字段访问（recut.worlds.brief.skill / .references[]）。
+				// 允许工具字段访问（recut.worlds.get.skillMd / .references[]）。
 				fieldAccess := false
 				for name := range real {
 					if strings.HasPrefix(token, name+".") {

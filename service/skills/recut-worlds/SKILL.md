@@ -8,7 +8,7 @@ description: 操作 World 与 World Canvas 工具集的通用技能：属性/关
 
 World Canvas 是平台把「一个 App」第一公民化的产物：没有独立安装包，却有自己的画布界面、工具面（`recut.worlds.*`）与元数据。本技能是它的**通用操作技能**，只回答一个问题：**怎么调用 World / World Canvas 的工具，才能把脑中的世界变成 AI 可消费的结构化设定？**
 
-它不描述任何具体世界的内容——那属于 `world.md`（经 `recut.worlds.brief.skill` 内联）。内容归世界，操作归本技能；生成提示词的形状归 `recut-director（references/generation-prompt）`。
+它不描述任何具体世界的内容——那属于 `world.md`（经 `recut.worlds.get` 的 `skillMd` 内联）。内容归世界，操作归本技能；生成提示词的形状归 `recut-director（references/generation-prompt）`。
 
 ## 核心模型：先懂这个，再调工具
 
@@ -70,7 +70,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 | 意图 | 工具 | 说明 |
 |---|---|---|
-| 发现 / 读取世界 | `recut.worlds.list` / `get` / `brief` / `readiness` / `resolve` | `brief` 是默认单次可生产入口（身份 + world.md + 实体属性 + `references[]` 可引用项表） |
+| 发现 / 读取世界 | `recut.worlds.list` / `get` / `brief` / `readiness` / `resolve` | `get` = 概览 + world.md + **实体图**（entities 带 media 锚点 + relations）；`brief` = 可生产上下文（事实 + `references[]`；不传 selection 即整库） |
 | 读取内容 | `entities.list` / `entities.get` / `relations.list` / `entityTypes.list` / `evidence.list` | 只读；`entities.list` 支持 `parentId`（子设定）与 `includeProvisional`（草稿） |
 | 读画布 | `recut.worlds.doc`（某层）/ `recut.worlds.docs`（层索引） | `contextId=""` 为根画布 |
 | 写内容（画布接口） | `recut.worlds.entity` | op：`create`（可带 `contextId` 自动落投影卡）/ `update`（只覆盖显式字段）/ `archive` / `restore` / `confirm`（草稿转正） |
@@ -91,11 +91,20 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 6. **生成产物默认不进 Canon**：见下。
 7. **视频先提案、用户确认**：视频（及标记 `requiresProposal` 的高价模型）必须先落**全局提案资产**（`status=proposed`，不花钱），再把该 `assetId` 写进画布媒体元素；**绝不直接直生**。确认权只属于用户，Agent 不代确认。图片/语音成本低，可直接生成——拿到 `assetId` 就落「图片节点 + 属性边」（`assetStatus:"generating"`），不等生成完成。
 
+## 读世界的顺序（生成 / 编辑前必做）
+
+World 本身就是 **entities + relations**。只看计数、或只读目标那一个实体都不够——那样会不知道主角色是谁、它的参考图是什么，于是「生成环境就只生成环境」。进入任何世界级任务（尤其生成媒体）前，按顺序建立上下文：
+
+1. **`recut.worlds.get({ worldId })`（单一入口，缺省整库）** —— 一次拿到：身份、**world.md（`skillMd`）**、**实体图**（`entities` 带 media 锚点 + `relations`）、**整库事实**（`facts`：角色/场景/风格/故事字段与 body）、`constraints`、全部 `references[]` 与就绪缺口 `missing`。据此知道「有哪些角色/场景/风格/故事、谁是主角色、每个实体有哪些参考图、它们怎么关联」。**不要习惯性传 `selection` 只取目标实体**：那会丢掉主角色与风格锚点；只有世界很大、确实要聚焦时才用 selection。
+2. **按需深读** —— 某实体完整字段/正文用 `recut.worlds.entities.get`；大世界用 `recut.worlds.entities.list`（`typeId`/`parentId`/`text` 分页）；`world.get` 返回 `graphTruncated=true` 时必须分页补读，不要假装世界只有返回的那些。
+
+**硬规则**：只要画面可能出现主角色，生成前必须从 `references[]`（或 `world.get` 的实体 media 锚点）取出该角色的参考图，以 `role="character"` 传入；风格锚点用 `role="style-ref"`。world.md 的「资源口径」优先。
+
 ## 世界内的媒体生成：先提案、后确认
 
 在世界/画布语境里生成媒体，走「读世界 → 写提示词 → 视频落提案（用户确认后生成）/ 图音提交即落位」：
 
-1. **读**：`recut.worlds.brief({ worldId })` 取 `world.md` 全文、该世界实体属性，以及 **`references[]`**——从实体 media 属性派生的可引用项（`{id,label,kind,role,source,assetId/url,entityId}`，`role` 是建议值）。世界风格（风格实体、world.md 的视觉语言）就是 **STYLE LOCK 来源**；`references[]` 就是可直接锚定的候选清单，不必自己翻属性找图。
+1. **读**：先按上一节《读世界的顺序》——`recut.worlds.get({ worldId })` 一次拿到 world.md + 实体图 + 整库事实 + `references[]`（先不传 selection）。`references[]` 是从实体 media 属性派生的可引用项（`{id,label,kind,role,source,assetId/url,entityId}`，`role` 是建议值）：世界风格（风格实体、world.md 的视觉语言）就是 **STYLE LOCK 来源**；主角色参考图就是**角色一致性锚点**。
 2. **写提示词**：用 `recut-director（references/generation-prompt）` 的骨架——STYLE LOCK 逐字冻结；参考用受控 role 声明（词表权威见该技能《参考锚点表达规则》），引用世界的角色、风格、示例图与音色。
 3. **解析绑定**：把参考导出为 `references: [{id, kind, role, label}]`（`id` = assetId），按**出现顺序**得到 `referenceIds`；任一 role 与 kind 不匹配、或 prompt/model 缺失即拒绝提交（fail closed）。
 4. **执行**：
@@ -166,7 +175,21 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
     "attrPatch": [{ "key": "a_<唯一后缀>", "label": "环境卡", "type": "media", "value": { "assetId": "<assetId>", "kind": "image" } }] }
   ```
   只写 Canon 不落节点 = 用户看不到节点（本次要修的反例）；只落节点不写 Canon = 设置视图看不到它。Canon 写需用户授权，`label` 与节点 `props.label` 必须一致。
+- **Canon media 属性接受未就绪的 `assetId`**：`proposed` / `queued` / `running` 都能写进 media 属性（只有 `failed` / `deleted` 会被拒绝）。所以「画布节点 + 属性边」与「实体 media 属性」可以**一起落位、不必等终态**；assetId 稳定不变，产物就绪后画布/设置视图自动显示。
 - 若用户只要「画布上先看着」、暂不沉淀为设定，则只落「节点 + 边」，Canon 留待用户确认。
+
+### 参考集配方与自查（按产物类型）
+
+不同产物的参考集不同；提交前按产物类型核对 `references`（`id` 取自 `brief.references[]` 或 `world.get` 的实体 media 锚点）：
+
+| 产物 | 参考集（role） |
+|---|---|
+| 场景 / 环境卡 / establishing 全景 | 目标场景 media（`environment`）+ **主角色参考图（`character`，画面出现主角色时必带）** + 风格或版式范例（`style-ref`） |
+| 角色设定 / 表情版 / 情绪九宫格 | 该角色参考图（`character`）+ 风格（`style-ref`） |
+| 分镜关键帧 | 该镜场景（`environment`）+ 主角色（`character`）+ 风格（`style-ref`） |
+| 音色 / 配音 | 音色参考（`voice`） |
+
+**提交前自查（未过不提交）**：画面里会出现主角色，却没有任何 `role="character"` 的参考图 → 停下，从 `brief.references[]` / `world.get` 实体 media 锚点补上再提交。world.md 里「涉及主角色必须传角色设定图」是硬约束，不是建议。只想生成纯空场景（明确不出现任何角色）时才可省略 `character`。
 
 ### 视频必须先提案（proposal gate，全局资产）
 
@@ -228,7 +251,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 | 问题 | 读什么 | 用途 |
 |---|---|---|
-| 某个世界的内容与生产工作流 | `recut.worlds.brief` 的 `skill`（world.md） | 该世界的定位、工作流、资源口径 |
+| 某个世界的内容与生产工作流 | `recut.worlds.get` 的 `skill`（world.md） | 该世界的定位、工作流、资源口径 |
 | 完善一个世界的标准工作流 | platform `recut` skill 的 `references/world-onboarding.md` | readiness → research → generate → 提案 → 确认写回 |
 | 生成提示词形状与参考锚定 | `recut-director（references/generation-prompt）` | STYLE LOCK、role 锚定、多镜连续段 |
 | 属性/画布数据模型与产品行为 | 仓库设计文档 `rfc/2026-09-09-unified-entity-model.md`、`docs/world-canvas-prd-v2.md` | 属性模型、卡片/面板/属性卡、提升规则 |

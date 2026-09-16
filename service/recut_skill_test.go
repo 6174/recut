@@ -366,7 +366,7 @@ func TestRecutSkillShipsAndServesOnboardingReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("onboarding reference not deployed: %v", err)
 	}
-	for _, required := range []string{"recut.worlds.readiness", "expectedRevisionId", "WORLD_READ_ONLY"} {
+	for _, required := range []string{"recut.worlds.get", "readiness.missing", "expectedRevisionId", "WORLD_READ_ONLY"} {
 		if !bytes.Contains(reference, []byte(required)) {
 			t.Fatalf("onboarding reference is missing %q", required)
 		}
@@ -385,7 +385,7 @@ func TestRecutSkillShipsAndServesOnboardingReference(t *testing.T) {
 		t.Fatalf("skills.reference for platform skill = %v", err)
 	}
 	encoded, _ := json.Marshal(result)
-	if !bytes.Contains(encoded, []byte("recut.worlds.readiness")) {
+	if !bytes.Contains(encoded, []byte("readiness.missing")) {
 		t.Fatalf("reference tool result missing workflow content: %s", encoded)
 	}
 	read, err := skillReadTool(bridge, map[string]any{"appId": platformSkillAppID, "skillId": recutSkillID})

@@ -875,7 +875,8 @@ func (w *WorldStore) UnarchiveWorld(worldID string) (bool, error) {
 	return true, nil
 }
 
-// BriefInput is the typed input of recut.worlds.brief: the single default read
+// BriefInput is the typed input shared by recut.worlds.get (merged entry, via
+// GetWorldContext) and the HTTP brief route: the single default read
 // entry that yields a production-ready context in one call.
 type BriefInput struct {
 	WorldID    string
@@ -896,6 +897,49 @@ type WorldBrief struct {
 	Evidence    []WorldEvidence       `json:"evidence"`
 	References  []WorldBriefReference `json:"references"`
 	Missing     []WorldBriefMissing   `json:"missing"`
+}
+
+// WorldContext is the merged recut.worlds.get payload: the world overview with
+// its current entity graph, unified with the brief's production context
+// (facts / constraints / references / missing at the selected revision). Since
+// worlds.get is the single world-read entry, one call now yields identity,
+// world.md, the entity graph, typed facts, constraints, anchorable references
+// and readiness gaps together.
+type WorldContext struct {
+	WorldDetail
+	Facts       WorldBriefFacts       `json:"facts"`
+	Constraints WorldConstraints      `json:"constraints"`
+	Evidence    []WorldEvidence       `json:"evidence"`
+	References  []WorldBriefReference `json:"references"`
+	// Readiness carries level/score/scenarioId + the same actionable gaps the
+	// onboarding UI shows (merged; the standalone readiness tool was removed).
+	Readiness WorldReadiness `json:"readiness"`
+}
+
+// GetWorldContext merges GetWorldGraph (current graph), Brief (revision
+// context) and Readiness (onboarding gaps) for the merged recut.worlds.get
+// tool. scenarioID is optional; empty uses the blueprint recommended by type.
+func (w *WorldStore) GetWorldContext(input BriefInput, scenarioID string) (WorldContext, error) {
+	graph, err := w.GetWorldGraph(input.WorldID)
+	if err != nil {
+		return WorldContext{}, err
+	}
+	brief, err := w.Brief(input)
+	if err != nil {
+		return WorldContext{}, err
+	}
+	readiness, err := w.Readiness(input.WorldID, scenarioID)
+	if err != nil {
+		return WorldContext{}, err
+	}
+	return WorldContext{
+		WorldDetail: graph,
+		Facts:       brief.Facts,
+		Constraints: brief.Constraints,
+		Evidence:    brief.Evidence,
+		References:  brief.References,
+		Readiness:   readiness,
+	}, nil
 }
 
 // WorldBriefReference is one anchorable item an Agent can bind into a
@@ -964,7 +1008,7 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 	if err != nil {
 		return WorldBrief{}, err
 	}
-	world, err := w.GetWorld(input.WorldID)
+	world, err := w.getWorldDetail(db, input.WorldID, false)
 	if err != nil {
 		return WorldBrief{}, err
 	}

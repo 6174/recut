@@ -411,9 +411,38 @@ func (m *MediaService) credential(id string) (MediaCredential, error) {
 	}
 	return MediaCredential{}, sql.ErrNoRows
 }
+
+// canonicalExtensions pins the on-disk extension per MIME type. Go's
+// mime.ExtensionsByType returns an OS-dependent order (macOS produced ".jpe"
+// for image/jpeg), so a stored asset's path no longer matched what a caller
+// would derive from its mimeType. A stable table keeps files predictable.
+var canonicalExtensions = map[string]string{
+	"image/jpeg":      ".jpg",
+	"image/jpg":       ".jpg",
+	"image/png":       ".png",
+	"image/webp":      ".webp",
+	"image/gif":       ".gif",
+	"image/bmp":       ".bmp",
+	"image/tiff":      ".tiff",
+	"image/heic":      ".heic",
+	"image/heif":      ".heif",
+	"image/svg+xml":   ".svg",
+	"video/mp4":       ".mp4",
+	"video/quicktime": ".mov",
+	"video/webm":      ".webm",
+	"audio/mpeg":      ".mp3",
+	"audio/mp3":       ".mp3",
+	"audio/wav":       ".wav",
+	"audio/x-wav":     ".wav",
+	"audio/mp4":       ".m4a",
+	"audio/aac":       ".aac",
+	"audio/ogg":       ".ogg",
+	"audio/webm":      ".weba",
+}
+
 func extensionFor(mimeType string) string {
-	if mimeType == "audio/mpeg" {
-		return ".mp3"
+	if extension, ok := canonicalExtensions[mimeType]; ok {
+		return extension
 	}
 	extensions, _ := mime.ExtensionsByType(mimeType)
 	if len(extensions) > 0 {

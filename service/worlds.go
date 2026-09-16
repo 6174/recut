@@ -126,6 +126,13 @@ type WorldDetail struct {
 	SkillMd              string            `json:"skillMd"`
 	Revision             WorldRevisionView `json:"revision"`
 	AvailableEntityKinds []string          `json:"availableEntityKinds"`
+	// Entities / Relations 是 World 的实体图：World 本身就是 entities + relations，
+	// 读取一个 World 必须能看到这个图，而不是只看计数。为控制上下文长度这里用紧凑
+	// 投影（实体带 media 锚点，不含正文）；超出上限置 GraphTruncated，改走
+	// entities.list（分页）/ entities.get（单个全文）/ brief（按 selection 取事实）。
+	Entities       []WorldEntityCard     `json:"entities"`
+	Relations      []WorldEntityRelation `json:"relations"`
+	GraphTruncated bool                  `json:"graphTruncated,omitempty"`
 }
 
 // WorldOriginMeta records where a World came from and how its lifecycle is
@@ -207,6 +214,36 @@ type WorldEntitySummary struct {
 	IsProvisional bool   `json:"isProvisional,omitempty"`
 	UpdatedAt     string `json:"updatedAt"`
 }
+
+// WorldEntityCard is the compact entity node world.get returns as part of the
+// world graph: identity plus its media anchors (assetId/kind/label) so an Agent
+// knows who exists and which reference images are available without extra calls.
+// Full attrs/body stay behind entities.get / brief.
+type WorldEntityCard struct {
+	ID            string             `json:"id"`
+	TypeID        string             `json:"typeId"`
+	Name          string             `json:"name"`
+	Intro         string             `json:"intro"`
+	ParentID      string             `json:"parentId,omitempty"`
+	IsProvisional bool               `json:"isProvisional,omitempty"`
+	Media         []WorldEntityMedia `json:"media,omitempty"`
+	UpdatedAt     string             `json:"updatedAt"`
+}
+
+// WorldEntityMedia is one media attr projection on a WorldEntityCard.
+type WorldEntityMedia struct {
+	AssetID string `json:"assetId,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	Label   string `json:"label,omitempty"`
+}
+
+// world.get 的图投影上限：超出即截断并置 GraphTruncated，引导 Agent 分页/按需读取。
+const (
+	worldGraphEntityMax   = 200
+	worldGraphRelationMax = 400
+	worldEntityMediaMax   = 8
+)
 
 type WorldEntityRelation struct {
 	ID            string `json:"id"`
@@ -508,11 +545,31 @@ func originOrDefault(origin string) string {
 	return origin
 }
 
+// GetWorld loads the lightweight World detail (no entity graph). Internal
+// callers (brief, readiness, bundle, runtime) use this so they never pay for a
+// graph scan; the MCP recut.worlds.get tool uses GetWorldGraph instead.
 func (w *WorldStore) GetWorld(worldID string) (WorldDetail, error) {
 	db, err := w.database()
 	if err != nil {
 		return WorldDetail{}, err
 	}
+	return w.getWorldDetail(db, worldID, false)
+}
+
+// GetWorldGraph is the recut.worlds.get projection: the World overview plus its
+// bounded entity graph (entities + relations).
+func (w *WorldStore) GetWorldGraph(worldID string) (WorldDetail, error) {
+	db, err := w.database()
+	if err != nil {
+		return WorldDetail{}, err
+	}
+	return w.getWorldDetail(db, worldID, true)
+}
+
+// getWorldDetail loads a World. includeGraph controls whether the entity graph
+// (entities + relations) is attached: world.get wants it, while brief derives
+// its own facts/relations and must not pay for a second full graph scan.
+func (w *WorldStore) getWorldDetail(db *sql.DB, worldID string, includeGraph bool) (WorldDetail, error) {
 	detail := WorldDetail{}
 	summary, err := w.summary(db, worldID)
 	if err != nil {
@@ -543,7 +600,108 @@ func (w *WorldStore) GetWorld(worldID string) (WorldDetail, error) {
 	}
 	detail.Revision = WorldRevisionView{ID: revisionID, CanonicalHash: canonicalHash, CreatedAt: revisionCreatedAt}
 	detail.AvailableEntityKinds = availableEntityKinds(detail.Type)
+	if includeGraph {
+		entities, relations, truncated, graphErr := w.worldGraph(db, worldID)
+		if graphErr != nil {
+			return WorldDetail{}, graphErr
+		}
+		detail.Entities = entities
+		detail.Relations = relations
+		detail.GraphTruncated = truncated
+	}
 	return detail, nil
+}
+
+// worldGraph reads a World's entity graph in bounded, decision-sized form:
+// entities (identity + media anchors, no body) and relations (id/type/ends).
+// It caps rows to keep recut.worlds.get within the tool output budget; callers
+// see GraphTruncated and page with entities.list / relations.list instead.
+func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, []WorldEntityRelation, bool, error) {
+	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, attrs_json, parent_id, is_provisional, updated_at from world_entities where world_id = ? and archived_at is null order by coalesce(nullif(type_id, ''), kind), updated_at desc limit ?", worldID, worldGraphEntityMax+1)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	defer rows.Close()
+	entities := make([]WorldEntityCard, 0)
+	for rows.Next() {
+		var card WorldEntityCard
+		var attrsJSON string
+		var parentID sql.NullString
+		var provisional int
+		if err := rows.Scan(&card.ID, &card.TypeID, &card.Name, &card.Intro, &attrsJSON, &parentID, &provisional, &card.UpdatedAt); err != nil {
+			return nil, nil, false, err
+		}
+		card.ParentID = nullStringValue(parentID)
+		card.IsProvisional = provisional != 0
+		card.Media = entityMediaAnchors(attrsJSON)
+		entities = append(entities, card)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, false, err
+	}
+	truncated := len(entities) > worldGraphEntityMax
+	if truncated {
+		entities = entities[:worldGraphEntityMax]
+	}
+
+	relationRows, err := db.Query("select id, relation_type, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? order by created_at limit ?", worldID, worldGraphRelationMax+1)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	defer relationRows.Close()
+	relations := make([]WorldEntityRelation, 0)
+	for relationRows.Next() {
+		var relation WorldEntityRelation
+		var scopeEntityID sql.NullString
+		if err := relationRows.Scan(&relation.ID, &relation.Type, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
+			return nil, nil, false, err
+		}
+		relation.ScopeEntityID = nullStringValue(scopeEntityID)
+		relations = append(relations, relation)
+	}
+	if err := relationRows.Err(); err != nil {
+		return nil, nil, false, err
+	}
+	if len(relations) > worldGraphRelationMax {
+		truncated = true
+		relations = relations[:worldGraphRelationMax]
+	}
+	return entities, relations, truncated, nil
+}
+
+// entityMediaAnchors projects an entity's attrs_json into compact media anchors.
+func entityMediaAnchors(attrsJSON string) []WorldEntityMedia {
+	if strings.TrimSpace(attrsJSON) == "" {
+		return nil
+	}
+	var attrs []EntityAttr
+	if err := json.Unmarshal([]byte(attrsJSON), &attrs); err != nil {
+		return nil
+	}
+	media := make([]WorldEntityMedia, 0)
+	for _, attr := range attrs {
+		if attr.Type != "media" || len(media) >= worldEntityMediaMax {
+			continue
+		}
+		payload, ok := attr.Value.(map[string]any)
+		if !ok {
+			continue
+		}
+		assetID, _ := payload["assetId"].(string)
+		url, _ := payload["url"].(string)
+		if strings.TrimSpace(assetID) == "" && strings.TrimSpace(url) == "" {
+			continue
+		}
+		kind, _ := payload["kind"].(string)
+		if kind == "" && len(attr.Options) > 0 {
+			kind = attr.Options[0]
+		}
+		media = append(media, WorldEntityMedia{AssetID: assetID, URL: url, Kind: kind, Label: attr.Label})
+	}
+	if len(media) == 0 {
+		return nil
+	}
+	return media
 }
 
 // availableEntityKinds returns the preset type ids a World type surfaces first
@@ -1044,9 +1202,38 @@ func (w *WorldStore) validateAttrValue(attr EntityAttr) error {
 		if strings.TrimSpace(assetID) == "" {
 			return worldsError(WorldsErrContextInvalid, fmt.Sprintf("media attr %q needs an assetId", attr.Key))
 		}
-		if _, _, err := w.validateEvidenceAsset(assetID); err != nil {
+		if err := w.validateMediaAttrAsset(assetID); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateMediaAttrAsset checks a media attr's assetId. Unlike legacy evidence
+// (which required completed bytes), a media attr accepts a stable assetId whose
+// bytes are still coming: a proposed generation or a queued/running job. The
+// assetId never changes, so the attr becomes the real asset automatically once
+// the job completes — callers can place media first and never block on the job.
+// Only failed/deleted (or missing) assets are rejected.
+func (w *WorldStore) validateMediaAttrAsset(assetID string) error {
+	if w.media == nil {
+		return worldsError(WorldsErrAccessDenied, "media service is unavailable")
+	}
+	asset, err := w.media.GetAsset(strings.TrimSpace(assetID))
+	if err != nil {
+		return worldsError(WorldsErrAssetNotFound, "asset not found")
+	}
+	switch asset.Status {
+	case "completed", "proposed", "queued", "running":
+	default:
+		return worldsError(WorldsErrAssetNotReady, "asset is not ready")
+	}
+	modality := asset.Kind
+	if modality == "reference" {
+		modality = "research"
+	}
+	if !evidenceModalities[modality] {
+		return worldsError(WorldsErrContextInvalid, "asset cannot be attached as a media attr")
 	}
 	return nil
 }

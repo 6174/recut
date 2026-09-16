@@ -294,7 +294,7 @@ const zh = {
   "worlds.onboard.kind.identity": "定位",
   "worlds.onboard.prompt.intro": "请帮我完善创作设定「{name}」。",
   "worlds.onboard.prompt.next": "最值得先做的一项：{title}。",
-  "worlds.onboard.prompt.steps": "请先调用 recut.worlds.readiness 获取完整缺失清单和场景蓝图建议，然后按建议逐项起草提案给我确认。",
+  "worlds.onboard.prompt.steps": "请先调用 recut.worlds.get 获取 readiness 缺失清单和场景蓝图建议，然后按建议逐项起草提案给我确认。",
   "worlds.onboard.prompt.boundary": "纪律：只依据我提供的素材与明确授权推进；AI 生成的候选图先展示给我挑选，绝不直接写入证据。",
 } as const;
 
@@ -586,7 +586,7 @@ const en: Record<keyof typeof zh, string> = {
   "worlds.onboard.kind.identity": "Identity",
   "worlds.onboard.prompt.intro": "Please help me complete the world \"{name}\".",
   "worlds.onboard.prompt.next": "The most valuable next step: {title}.",
-  "worlds.onboard.prompt.steps": "First call recut.worlds.readiness for the full gap list and scenario blueprint advice, then draft proposals item by item for my confirmation.",
+  "worlds.onboard.prompt.steps": "First call recut.worlds.get for readiness gaps and scenario blueprint advice, then draft proposals item by item for my confirmation.",
   "worlds.onboard.prompt.boundary": "Discipline: work only from material I provide and explicit authorization; show AI-generated candidate images for my review first — never write them into evidence directly.",
 };
 

@@ -392,7 +392,7 @@ func TestCreationWorldAndEntityContextMaterializers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(worldMaterial) != 1 || !strings.Contains(worldMaterial[0].Text, "recut.worlds.brief") || !strings.Contains(worldMaterial[0].Text, world.ID) {
+	if len(worldMaterial) != 1 || !strings.Contains(worldMaterial[0].Text, "recut.worlds.get") || !strings.Contains(worldMaterial[0].Text, world.ID) {
 		t.Fatalf("world material = %#v", worldMaterial)
 	}
 	entityMaterial, err := manager.contextMaterials([]ChatContext{{Type: "creation_entity", Source: "user", Payload: map[string]any{"worldId": world.ID, "entityId": character.ID}}})
@@ -425,29 +425,12 @@ func TestMergeInlineRefContexts(t *testing.T) {
 	}
 }
 
-// TestExtendedContextMaterializers covers world_evidence / project / app / skill / mcp_tool
+// TestExtendedContextMaterializers covers project / app / skill / mcp_tool
 // validation and prompt text for the unified context panel (RFC 2026-09-14 §12).
+// world_evidence / creation_evidence 已随 evidence 退役移除。
 func TestExtendedContextMaterializers(t *testing.T) {
-	worlds, store, media := newTestWorldStore(t)
-	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Evidenceland", Type: WorldCustom})
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, store, media := newTestWorldStore(t)
 	manager := NewAgentManager(store, NewAgentBridge(store), media)
-
-	evidence, err := manager.contextMaterials([]ChatContext{{Type: "world_evidence", Source: "user", Payload: map[string]any{"worldId": world.ID, "evidenceId": "ev_1"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(evidence) != 1 || !strings.Contains(evidence[0].Text, "recut.worlds.evidence.list") || !strings.Contains(evidence[0].Text, "ev_1") {
-		t.Fatalf("world_evidence material = %#v", evidence)
-	}
-	if _, err := manager.contextMaterials([]ChatContext{{Type: "world_evidence", Source: "user", Payload: map[string]any{"worldId": world.ID}}}); err == nil {
-		t.Fatal("world_evidence without evidenceId was accepted")
-	}
-	if _, err := manager.contextMaterials([]ChatContext{{Type: "creation_evidence", Source: "user", Payload: map[string]any{"worldId": "missing", "evidenceId": "ev_1"}}}); err == nil {
-		t.Fatal("creation_evidence with missing world was accepted")
-	}
 
 	mcp, err := manager.contextMaterials([]ChatContext{{Type: "mcp_tool", Source: "user", Payload: map[string]any{"toolName": "recut.timeline.command"}}})
 	if err != nil {
@@ -722,7 +705,7 @@ func TestEntityMediaAttrRequiresExistingAsset(t *testing.T) {
 		t.Fatalf("message = %q", worldErr.Message)
 	}
 	// With a media service: a media attr without assetId is rejected.
-	worlds, _, _ := newTestWorldStore(t)
+	worlds, store, media := newTestWorldStore(t)
 	created, err := worlds.CreateWorld(CreateWorldInput{Name: "Media", Type: WorldCustom})
 	if err != nil {
 		t.Fatal(err)
@@ -741,6 +724,21 @@ func TestEntityMediaAttrRequiresExistingAsset(t *testing.T) {
 		t.Fatal("nonexistent asset was accepted")
 	} else if !errors.As(err, &worldErr) || worldErr.Code != WorldsErrAssetNotFound {
 		t.Fatalf("expected ASSET_NOT_FOUND, got %v", err)
+	}
+	// 先落位：排队/生成中的 assetId 也可写进 media 属性（只有 failed/deleted 被拒）。
+	pendingID := newTestAsset(t, media, "generating.png")
+	db, err := store.WorkspaceDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("update media_assets set status = 'running', job_id = 'job_pending' where id = ?", pendingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: created.ID, TypeID: EntityTypeCharacter, Name: "Mina",
+		Attrs: []EntityAttr{{Key: "background", Type: "media", Value: map[string]any{"assetId": pendingID, "kind": "image"}}},
+	}); err != nil {
+		t.Fatalf("running asset was rejected: %v", err)
 	}
 }
 

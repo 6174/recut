@@ -10,6 +10,7 @@ package main
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -25,18 +26,12 @@ func TestWorldsMCPToolsAreAlwaysRegistered(t *testing.T) {
 		"recut.worlds.entities.list",
 		"recut.worlds.entities.get",
 		"recut.worlds.entityTypes.list",
-		"recut.worlds.relations.list",
-		"recut.worlds.evidence.list",
-		"recut.worlds.brief",
-		"recut.worlds.resolve",
 		"recut.worlds.doc",
 		"recut.worlds.docs",
 		"recut.worlds.create",
 		"recut.worlds.update",
 		"recut.worlds.fork",
-		"recut.worlds.evidence.archive",
 		"recut.worlds.delete",
-		"recut.worlds.bind_project",
 		"recut.worlds.revisions.list",
 		"recut.worlds.revert",
 		"recut.worlds.export",
@@ -99,17 +94,6 @@ func TestWorldsMCPReadFlowAndStructuredContent(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("foreign/missing entity was not rejected")
-	}
-	result, err = handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
-		Method: "tools/call",
-		Params: json.RawMessage(`{"name":"recut.worlds.resolve","arguments":{"worldId":"` + world.ID + `","selection":{"purpose":"video"}}}`),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	context := result.(map[string]any)["structuredContent"].(CreationContext)
-	if context.World.ID != world.ID || context.World.RevisionID == "" {
-		t.Fatalf("resolved context = %#v", context)
 	}
 }
 
@@ -359,8 +343,69 @@ func TestWorldsMCPCreateThenIsolatedResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched := result.(map[string]any)["structuredContent"].(WorldDetail)
+	fetched := result.(map[string]any)["structuredContent"].(WorldContext)
 	if !reflect.DeepEqual(fetched.ID, world.ID) {
 		t.Fatalf("world.get = %#v", fetched)
+	}
+}
+
+// world.get 必须把 World 的实体图（entities + relations）与 world.md 一并返回，
+// 否则 Agent 不知道世界里有谁、谁是主角色、它们怎么关联。
+func TestWorldsMCPGetReturnsEntityGraphAndSkill(t *testing.T) {
+	_, store, _ := newTestWorldStore(t)
+	bridge := NewAgentBridge(store)
+	media := NewMediaService(store)
+	call := func(name, args string) (any, error) {
+		return handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
+			Method: "tools/call",
+			Params: json.RawMessage(`{"name":"` + name + `","arguments":` + args + `}`),
+		})
+	}
+	created, err := call("recut.worlds.create", `{"name":"Graph World","type":"character_ip"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	world := created.(map[string]any)["structuredContent"].(WorldDetail)
+	heroRes, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"create","typeId":"character","name":"Hero"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hero := heroRes.(map[string]any)["structuredContent"].(WorldEntity)
+	alleyRes, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"create","typeId":"location","name":"Alley"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alley := alleyRes.(map[string]any)["structuredContent"].(WorldEntity)
+	if _, err := call("recut.worlds.relation", `{"worldId":"`+world.ID+`","op":"create","fromEntityId":"`+hero.ID+`","toEntityId":"`+alley.ID+`","relationType":"located_in"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call("recut.worlds.update", `{"worldId":"`+world.ID+`","skillMd":"# Graph World\n\n英雄走在夜巷。"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := call("recut.worlds.get", `{"worldId":"`+world.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetched := result.(map[string]any)["structuredContent"].(WorldContext)
+	if !strings.Contains(fetched.SkillMd, "英雄走在夜巷") {
+		t.Fatalf("world.get must return world.md: %q", fetched.SkillMd)
+	}
+	// 合并后同一入口还要带生产上下文（facts / references）。
+	if len(fetched.Facts.Characters) != 1 || fetched.Facts.Characters[0]["name"] != "Hero" {
+		t.Fatalf("world.get must return facts: %#v", fetched.Facts)
+	}
+	kinds := map[string]bool{}
+	for _, entity := range fetched.Entities {
+		kinds[entity.TypeID] = true
+	}
+	if len(fetched.Entities) != 2 || !kinds["character"] || !kinds["location"] {
+		t.Fatalf("world.get entities = %#v", fetched.Entities)
+	}
+	if len(fetched.Relations) != 1 || fetched.Relations[0].Type != "located_in" {
+		t.Fatalf("world.get relations = %#v", fetched.Relations)
+	}
+	if fetched.Relations[0].FromEntityID != hero.ID || fetched.Relations[0].ToEntityID != alley.ID {
+		t.Fatalf("relation ends wrong: %#v", fetched.Relations[0])
 	}
 }
