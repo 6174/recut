@@ -89,7 +89,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 4. **草稿免费**：`isProvisional: true` 的实体是探索草稿，不产 revision、不进 Canon、不计入 readiness；用 `recut.worlds.entity` op=`confirm` 转正。
 5. **删除是软删除**：`recut.worlds.entity` op=`archive` / `relation` op=`archive` = 归档（`archived_at` + 墓碑 + changeLog，可 `restore` 恢复），画布元素删除 = 本地移除。`worlds.delete` 是永久操作，只在用户明确要求并确认世界名称时调用；`evidence.archive` 是归档不是删除；**底层 media asset 永不因世界内容删除而删除**。
 6. **生成产物默认不进 Canon**：见下。
-7. **视频先提案、用户确认**：画布上的视频只落 `proposal`（`props.proposal.status="pending"`），**绝不直接调用 `recut.video.generate`**；确认权只属于用户，Agent 不代确认。图片/语音成本低，可直接生成——拿到 `assetId` 就落「图片节点 + 属性边」（`assetStatus:"generating"`），不等生成完成。
+7. **视频先提案、用户确认**：视频（及标记 `requiresProposal` 的高价模型）必须先落**全局提案资产**（`status=proposed`，不花钱），再把该 `assetId` 写进画布媒体元素；**绝不直接直生**。确认权只属于用户，Agent 不代确认。图片/语音成本低，可直接生成——拿到 `assetId` 就落「图片节点 + 属性边」（`assetStatus:"generating"`），不等生成完成。
 
 ## 世界内的媒体生成：先提案、后确认
 
@@ -99,7 +99,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 2. **写提示词**：用 `recut-director（references/generation-prompt）` 的骨架——STYLE LOCK 逐字冻结；参考用受控 role 声明（词表权威见该技能《参考锚点表达规则》），引用世界的角色、风格、示例图与音色。
 3. **解析绑定**：把参考导出为 `references: [{id, kind, role, label}]`（`id` = assetId），按**出现顺序**得到 `referenceIds`；任一 role 与 kind 不匹配、或 prompt/model 缺失即拒绝提交（fail closed）。
 4. **执行**：
-   - **视频**：**不得直接调用 `recut.video.generate`**。视频成本高，必须先落「生成提案」，由用户在画布上确认后才真正生成（见下）。
+   - **视频**：**先落全局提案，绝不直生**。调用 `recut.video.generate`（默认 propose）或 `recut.media.propose` 得到 proposed 资产，再把 `assetId` 写进画布媒体元素；由用户在画布上确认后才真正生成（见下）。
    - **图片 / 语音**：成本低，直接调用 `recut.image.generate` / `recut.speech.generate`。返回的 `assetIds` **立即可用**，务必**提交即落位**（见下「生成中节点 + 属性边」），不要用 `recut.job.wait` 把落位堵在终态之后。
 5. **落位**：图片 / 语音拿到 `assetId` 就**立即**在画布上落一个**图片节点**，并用**属性边**把它连到目标实体——「节点 + 边」才是实体的一条**可见属性**（如「环境卡」）；只写实体 attrs 不会在画布上出现节点。`assetStatus:"generating"` 让画布先显示等待态。
 6. **可追溯**：`references` 就是「这次生成引用了什么、各自什么 role」的绑定记录，随节点保存，可重生成、可回溯 Canon。
@@ -168,35 +168,28 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
   只写 Canon 不落节点 = 用户看不到节点（本次要修的反例）；只落节点不写 Canon = 设置视图看不到它。Canon 写需用户授权，`label` 与节点 `props.label` 必须一致。
 - 若用户只要「画布上先看着」、暂不沉淀为设定，则只落「节点 + 边」，Canon 留待用户确认。
 
-### 视频必须先提案（proposal gate）
+### 视频必须先提案（proposal gate，全局资产）
 
-画布上的视频节点有两种状态：**提案态（未生成、不花钱）** 与 **结果态（已生成、可播放）**。生成命令的触发权只在用户手里——**Agent 只负责把提案放上画布，等用户点「确认生成」**。
+视频（及其它高价生成）走**「先提案、后确认」**，而提案本体是**全局素材库里的一个 `proposed` 资产**（不是画布私有字段）：它带着完整配方（prompt/参考+role/模型/参数/画幅/时长/备注）落进素材库，画布只引用它的 `assetId`。状态与内容都读资产——确认后**复用同一 `assetId`** 转成 `queued`→`running`→`completed`，画布元素无需重指。
 
-提案就是一个 `kind="media"` 的画布元素，`props.modality="video"` 且 `props.proposal` 描述这次生成意图。用 `recut.worlds.doc.update` 的 `insert` 放它（画布元素不产 revision、不花钱）：
+**Agent 只做两步**：① 用媒体工具落提案；② 用 `recut.worlds.doc.update` 把 `assetId` 写进媒体元素，然后停下等用户确认。
 
-```json
+`recut.video.generate` 默认就是 propose（返回 proposed 资产），也可用 `recut.media.propose` 显式指定 capability；`mode:"generate"` 是直生逃生门，画布语境不要用。确认前可用 `recut.media.update_proposal` 原地改配方、`recut.media.list_proposals` 查看状态。
+
+```jsonc
+// ① 落提案（视频默认 propose；references 是绑定记录，顺序即提交顺序）
+// recut.video.generate({ text, modelId?, credentialId?, imageAssetIds?/videoAssetIds?/audioAssetIds?,
+//   references:[{id,kind,role,label}], aspectRatio?, durationSec?, note?, batchId? })
+// → { assetId, status:"proposed", proposal:{...}, referenceIds:[...] }
+
+// ② 画布只引资产：媒体元素 props.assetId + assetStatus（画布据此渲染「待确认」态）
 {
   "op": "insert",
   "element": {
     "id": "shape:media-<唯一后缀>",
     "kind": "media",
     "name": "镜头 3 · 雨夜电台",
-    "props": {
-      "modality": "video",
-      "proposal": {
-        "status": "pending",
-        "prompt": "[STYLE LOCK]\n<冻结风格全文，逐字复用>\n\n参考锚定表\n参考图1 作为林小满人物视觉锚定。\n\n第 3 镜，约 5 秒。中景，雨夜电台门口……",
-        "references": [
-          { "id": "asset_a1", "kind": "image", "role": "character", "label": "林小满" }
-        ],
-        "modelId": "<当前可用的视频模型 id>",
-        "params": {},
-        "aspectRatio": "9:16",
-        "durationSec": 5,
-        "note": "承接上一场结束状态；确认后可再调提示词与本镜时长",
-        "proposedBy": "agent"
-      }
-    },
+    "props": { "modality": "video", "assetId": "<recut.video.generate 返回的 assetId>", "assetStatus": "generating" },
     "geometry": { "x": 200, "y": 120, "width": 220, "height": 150 }
   }
 }
@@ -204,14 +197,11 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 规则：
 
-- `proposal.status` **只写 `"pending"`**；`generating` / `done` / `failed` 由平台流转，不要手写。
-- `references` 是这次生成的**绑定记录**（`id` = assetId、`kind`、`role`、`label`），也是模型提交顺序的依据。`prompt` 里可以内联 `<reference>` 标签供人审阅，但**权威是 `references[]`**，二者必须一一对应；不确定时以 `references[]` 为准。
-- role 必须与 kind 匹配（`voice/sfx/music` 只能 audio，`color-card` 只能 image），否则平台自检会阻断确认。
-- `modelId` 留空则用户在确认时再选；不确定当前可用模型时先留空，不要编造。
-- `note` 写意图/承接关系，帮用户判断；`aspectRatio` / `durationSec` 按世界或分镜口径填。
-- 一次可落多条（同一场戏的分镜），用户逐条确认或放弃。
-
-**Agent 的正确结尾**：落完提案后，告诉用户「已提交 N 条视频提案，请在画布上确认生成」并停下。**不要**替用户确认、不要为「跑通」改走 `recut.video.generate`、也不要自己轮询采纳。
+- **提案内容与状态都在资产**：画布不再写 `props.proposal`（旧元素仍可只读回退）。`recut.media.list_proposals` / `recut.worlds.proposals.list` 列出的都是这些 `proposed` 资产。
+- `references` 是这次生成的**绑定记录**（`id`=assetId、`kind`、`role`、`label`），也是模型提交顺序依据；role 必须与 kind 匹配（`voice/sfx/music` 只能 audio，`color-card` 只能 image），否则提案会被拒绝。
+- `modelId` 留空则确认时由用户选；不确定当前可用模型时先留空，不要编造。`aspectRatio` / `durationSec` 按世界或分镜口径填。
+- 一次可落多条（同一场戏的分镜，`batchId` 归组），用户逐条确认或放弃（`recut.media.reject_proposal` 放弃）。
+- **Agent 的正确结尾**：落完提案并放上画布后，告诉用户「已提交 N 条视频提案，请在画布上确认生成」并停下。**不要**替用户确认（`recut.media.confirm_proposal` 只由 UI/用户触发）、不要为「跑通」改走直生、也不要自己轮询采纳。
 
 **资源口径优先**：world.md 的「资源口径」章节决定哪些属性/素材可作生成参考。例如小黑世界规定示例图只作低频视觉校准（`role="style-ref"`）、不进入默认生成路径——必须遵守。
 
@@ -229,7 +219,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 - **把长文/编辑控件塞进实体卡**：卡片只略读，编辑走面板或属性卡。
 - **写 Canon 不等授权**：无用户明确请求就 upsert/promote 是越权。
 - **忘记 `expectedRevisionId`**：并发写会静默覆盖，必须带乐观锁。
-- **直接生成画布视频 / 替用户确认提案**：把 `proposal.status` 写成 `generating`/`done` 或自行轮询采纳都是越权；确认只属于用户。
+- **直接生成画布视频 / 替用户确认提案**：视频必须先落 proposed 资产；自行调用 `recut.media.confirm_proposal`、把直生当默认、或自行轮询采纳都是越权；确认只属于用户。
 - **等图片生成完成才落位**：图片/语音拿到 `assetId` 就应立刻落节点（`assetStatus:"generating"`）；用 `recut.job.wait` 把落位堵在终态之后、或轮询后回写节点都是多余动作。
 - **只写实体属性、不落画布节点**：用户要的是画布上的「图片节点 + 属性边」（实体的一条可见属性）；只写实体 attrs 不会在画布上出现节点。两者都要做时，节点与边的 `label` 保持一致。
 - **在画布元素上写语义真相**：语义只存实体/关系；画布只承载投影与表达。
@@ -242,6 +232,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 | 完善一个世界的标准工作流 | platform `recut` skill 的 `references/world-onboarding.md` | readiness → research → generate → 提案 → 确认写回 |
 | 生成提示词形状与参考锚定 | `recut-director（references/generation-prompt）` | STYLE LOCK、role 锚定、多镜连续段 |
 | 属性/画布数据模型与产品行为 | 仓库设计文档 `rfc/2026-09-09-unified-entity-model.md`、`docs/world-canvas-prd-v2.md` | 属性模型、卡片/面板/属性卡、提升规则 |
+| 生成提案的资产模型与接口 | 仓库设计文档 `rfc/2026-09-16-media-generation-proposal.md` | proposed 生命周期、metadata.proposal、propose/confirm/update/reject |
 | 世界源格式与发布 | 仓库设计文档 `rfc/2026-09-13-world-content-format-v2.md` | world.json/canvas.json/world.md 物化 |
 
 ## 介质声明
@@ -256,7 +247,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 - 工具权威：`service/agent.go` 的 `mcpToolLabels` 中 `recut.worlds.*` 清单（2026-09-15 实测）。
 - 属性/画布模型：`rfc/2026-09-09-unified-entity-model.md`（attrs 统一、evidence 退役）与 `web/app/worlds/[worldID]/canvas/README.md`（画布实现现状）。
-- 生成提案实现：`web/app/worlds/[worldID]/canvas/canvas-proposal.ts`（`references`/`PROPOSAL_ROLES`/自检/`referenceIds`）与 `rfc/2026-09-15-generation-reference-protocol.md`。
+- 生成提案实现：`rfc/2026-09-16-media-generation-proposal.md`（proposed 资产、`service/media/proposals.go`、`web/lib/media/proposal.ts`、`rfc/2026-09-15-generation-reference-protocol.md`）。
 - 产品：`docs/world-canvas-prd-v2.md`。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

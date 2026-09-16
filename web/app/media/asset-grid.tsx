@@ -13,6 +13,7 @@ export function AssetGrid({
   apiBase,
   assets,
   jobs,
+  onConfirm,
   onDelete,
   onPreview,
   onRename,
@@ -20,6 +21,7 @@ export function AssetGrid({
   apiBase: string;
   assets: Asset[];
   jobs: MediaJob[];
+  onConfirm: (asset: Asset) => Promise<void>;
   onDelete: (asset: Asset) => Promise<void>;
   onPreview: (asset: Asset) => void;
   onRename: (asset: Asset, name: string) => Promise<void>;
@@ -38,7 +40,7 @@ export function AssetGrid({
   return (
     <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
       {jobs.map((job) => <QueuedJobCard job={job} key={job.id} />)}
-      {assets.map((asset) => <AssetCard apiBase={apiBase} asset={asset} key={asset.id} onDelete={onDelete} onPreview={onPreview} onRename={onRename} />)}
+      {assets.map((asset) => <AssetCard apiBase={apiBase} asset={asset} key={asset.id} onConfirm={onConfirm} onDelete={onDelete} onPreview={onPreview} onRename={onRename} />)}
     </div>
   );
 }
@@ -57,18 +59,41 @@ function QueuedJobCard({ job }: { job: MediaJob }) {
   );
 }
 
-function AssetCard({ apiBase, asset, onDelete, onPreview, onRename }: { apiBase: string; asset: Asset; onDelete: (asset: Asset) => Promise<void>; onPreview: (asset: Asset) => void; onRename: (asset: Asset, name: string) => Promise<void> }) {
+function AssetCard({ apiBase, asset, onConfirm, onDelete, onPreview, onRename }: { apiBase: string; asset: Asset; onConfirm: (asset: Asset) => Promise<void>; onDelete: (asset: Asset) => Promise<void>; onPreview: (asset: Asset) => void; onRename: (asset: Asset, name: string) => Promise<void> }) {
   const contentURL = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`;
+  const proposed = asset.status === "proposed";
   return <div className="group relative overflow-visible rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20">
     <button className="block w-full overflow-hidden text-left" onClick={() => onPreview(asset)} type="button">
-      {asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-square" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "reference" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
+      {proposed ? <ProposedAsset asset={asset} /> : asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-square" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "reference" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
       <div className="p-2.5">
         <p className="truncate text-xs font-medium">{asset.name}</p>
-        <p className="mt-1 text-[10px] text-muted-foreground">{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : asset.kind === "transcript" ? "转写" : "资料"}</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">{proposed ? "待确认生成" : asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : asset.kind === "transcript" ? "转写" : "资料"}</p>
       </div>
     </button>
+    {proposed && (
+      <div className="border-t px-2.5 py-2">
+        <button
+          className="h-7 w-full rounded-xs bg-primary text-[11px] font-medium text-primary-foreground hover:bg-primary/85"
+          onClick={(event) => { event.stopPropagation(); void onConfirm(asset); }}
+          type="button"
+        >
+          确认生成
+        </button>
+      </div>
+    )}
     <div className="absolute right-2 top-2"><CardMoreMenu itemName={asset.name} itemType="素材" onDelete={() => onDelete(asset)} onRename={(name) => onRename(asset, name)} /></div>
   </div>;
+}
+
+// 提案卡：未确认的高价生成（视频等）。画布与编辑器同样读取资产的 proposed 状态。
+function ProposedAsset({ asset }: { asset: Asset }) {
+  const prompt = typeof asset.metadata.prompt === "string" ? asset.metadata.prompt : "";
+  return (
+    <div className="grid aspect-square content-center gap-1.5 bg-amber-500/10 p-4 text-center">
+      <span className="text-[11px] font-semibold text-amber-600">待确认生成</span>
+      {prompt && <p className="line-clamp-4 text-[10px] leading-4 text-muted-foreground">{prompt}</p>}
+    </div>
+  );
 }
 
 function ReferenceCardPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {

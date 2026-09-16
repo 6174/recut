@@ -1124,11 +1124,57 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 	switch name {
 	case "recut.image.generate", "recut.video.generate", "recut.speech.generate":
 		capability := map[string]MediaCapability{"recut.image.generate": ImageGenerate, "recut.video.generate": VideoGenerate, "recut.speech.generate": SpeechGenerate}[name]
+		propose, proposeErr := media.ShouldPropose(mediaGenerationInput(input, capability), stringValue(input["mode"]))
+		if proposeErr != nil {
+			err = proposeErr
+			break
+		}
+		if propose {
+			var asset MediaAsset
+			asset, err = media.Propose(proposalInputFromMCP(input, capability))
+			if err == nil {
+				result = mediaAssetView(asset)
+			}
+			break
+		}
 		job, generateErr := media.Generate(mediaGenerationInput(input, capability))
 		err = generateErr
 		if err == nil {
 			result = mediaJobView(job)
 		}
+	case "recut.media.propose":
+		capability := MediaCapability(stringValue(input["capability"]))
+		asset, proposeErr := media.Propose(proposalInputFromMCP(input, capability))
+		err = proposeErr
+		if err == nil {
+			result = mediaAssetView(asset)
+		}
+	case "recut.media.list_proposals":
+		projectID := requestedProjectID(input)
+		if workspace, _ := input["workspace"].(bool); workspace {
+			projectID = ""
+		}
+		page, listErr := media.ListProposals(projectID, mediaAssetFilterFromInput(input))
+		err = listErr
+		if err == nil {
+			result = page
+		}
+	case "recut.media.update_proposal":
+		asset, updateErr := media.UpdateProposal(stringValue(input["assetId"]), proposalPatchFromMCP(input))
+		err = updateErr
+		if err == nil {
+			result = mediaAssetView(asset)
+		}
+	case "recut.media.confirm_proposal":
+		job, confirmErr := media.ConfirmProposal(stringValue(input["assetId"]), proposalPatchPointerFromMCP(input))
+		err = confirmErr
+		if err == nil {
+			result = mediaJobView(job)
+		}
+	case "recut.media.reject_proposal":
+		assetID := stringValue(input["assetId"])
+		err = media.RejectProposal(assetID)
+		result = map[string]any{"assetId": assetID, "rejected": err == nil}
 	case "recut.media.list_voices":
 		credentialID, _ := input["credentialId"].(string)
 		result, err = media.ListVoices(credentialID)
@@ -1298,7 +1344,7 @@ func mediaJobView(job MediaJob) map[string]any {
 }
 
 func mediaMCPToolDefinitions(locale Locale) []map[string]any {
-	return []map[string]any{
+	tools := []map[string]any{
 		{"name": "recut.image.generate", "description": mcpDescription(locale, "recut.image.generate"), "inputSchema": mediaGenerationSchema("生成提示词。", true, false, false)},
 		{"name": "recut.video.generate", "description": mcpDescription(locale, "recut.video.generate"), "inputSchema": mediaGenerationSchema("生成提示词。", true, true, true)},
 		{"name": "recut.speech.generate", "description": mcpDescription(locale, "recut.speech.generate"), "inputSchema": speechGenerationSchema()},
@@ -1312,6 +1358,7 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.media.attach", "description": mcpDescription(locale, "recut.media.attach"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "projectId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.import_url", "description": mcpDescription(locale, "recut.media.import_url"), "inputSchema": map[string]any{"type": "object", "required": []string{"url"}, "properties": map[string]any{"url": map[string]string{"type": "string", "description": "绝对 http(s) URL，限 image/video/audio、≤25MB。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称；缺省取 URL 末段。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；提供时同时关联到该项目。"}}}},
 	}
+	return append(tools, proposalMCPToolDefinitions()...)
 }
 
 func mediaWaitTimeout(input map[string]any) time.Duration {
@@ -1615,6 +1662,12 @@ func mediaGenerationSchema(textDescription string, imageReferences, videoReferen
 		"route":          map[string]any{"type": "string", "description": "可选的同类媒体 route；未提供时使用项目默认 route。"},
 		"output":         map[string]any{"type": "object", "description": "当前模型契约允许的可选输出参数。"},
 		"idempotencyKey": map[string]any{"type": "string"},
+		"mode":           map[string]any{"type": "string", "enum": []string{"propose", "generate"}, "description": "缺省按策略：video（及标记 requiresProposal 的高价模型）先 propose 落提案，用户确认后才生成；generate 为直生逃生门。"},
+		"modelId":        map[string]any{"type": "string", "description": "可选；与 credentialId 成对时直连该模型。"},
+		"credentialId":   map[string]any{"type": "string", "description": "可选；与 modelId 成对时直连该凭据。"},
+	}
+	for key, description := range proposalExtraProperties {
+		properties[key] = description
 	}
 	if imageReferences {
 		properties["imageAssetIds"] = map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "作为图片参考的全局 assetId。"}
@@ -1626,6 +1679,71 @@ func mediaGenerationSchema(textDescription string, imageReferences, videoReferen
 		properties["audioAssetIds"] = map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "作为音频参考的全局 assetId。"}
 	}
 	return map[string]any{"type": "object", "required": []string{"text"}, "properties": properties}
+}
+
+// proposalExtraProperties are the proposal-only fields shared by generation and
+// propose tools: reference role bindings and the reviewable recipe extras.
+var proposalExtraProperties = map[string]any{
+	"references": map[string]any{"type": "array", "description": "生成参考的角色绑定记录（顺序即提交顺序）；每项 {id, kind, role, label}，role↔kind 不匹配或未知 role 会被拒绝。",
+		"items": map[string]any{"type": "object", "required": []string{"id"}, "properties": map[string]any{
+			"id":    map[string]any{"type": "string", "description": "参考素材 assetId。"},
+			"kind":  map[string]any{"type": "string", "enum": []string{"image", "video", "audio"}},
+			"role":  map[string]any{"type": "string", "description": "受控 role：pov/color-card/environment/character/prop/style-ref/motion-ref/voice/sfx/music。"},
+			"label": map[string]any{"type": "string"},
+		}}},
+	"aspectRatio": map[string]any{"type": "string", "description": "提案画幅（如 9:16）。"},
+	"durationSec": map[string]any{"type": "number", "description": "提案时长（秒）。"},
+	"note":        map[string]any{"type": "string", "description": "提案意图/承接关系，供用户判断。"},
+	"batchId":     map[string]any{"type": "string", "description": "同一场戏分镜的归组 id。"},
+	"proposedBy":  map[string]any{"type": "string", "enum": []string{"agent", "user"}},
+	"origin": map[string]any{"type": "object", "description": "发起方可追溯信息。", "properties": map[string]any{
+		"appId": map[string]any{"type": "string"}, "projectId": map[string]any{"type": "string"},
+		"worldId": map[string]any{"type": "string"}, "entityId": map[string]any{"type": "string"},
+	}},
+}
+
+func proposalMCPToolDefinitions() []map[string]any {
+	proposeProperties := map[string]any{
+		"capability":    map[string]any{"type": "string", "enum": []string{"image.generate", "video.generate", "speech.generate"}},
+		"text":          map[string]any{"type": "string", "description": "生成提示词。"},
+		"route":         map[string]any{"type": "string"},
+		"modelId":       map[string]any{"type": "string"},
+		"credentialId":  map[string]any{"type": "string"},
+		"output":        map[string]any{"type": "object"},
+		"imageAssetIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+		"videoAssetIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+		"audioAssetIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+	}
+	for key, value := range proposalExtraProperties {
+		proposeProperties[key] = value
+	}
+	updateProperties := map[string]any{
+		"assetId":      map[string]any{"type": "string", "description": "要修改的提案资产 assetId。"},
+		"text":         map[string]any{"type": "string", "description": "新的生成提示词。"},
+		"modelId":      map[string]any{"type": "string"},
+		"credentialId": map[string]any{"type": "string"},
+		"output":       map[string]any{"type": "object"},
+	}
+	for _, key := range []string{"references", "aspectRatio", "durationSec", "note"} {
+		updateProperties[key] = proposalExtraProperties[key]
+	}
+	confirmProperties := map[string]any{
+		"assetId":      map[string]any{"type": "string", "description": "要确认的提案资产 assetId。"},
+		"text":         map[string]any{"type": "string"},
+		"modelId":      map[string]any{"type": "string"},
+		"credentialId": map[string]any{"type": "string"},
+		"output":       map[string]any{"type": "object"},
+	}
+	for _, key := range []string{"references", "aspectRatio", "durationSec", "note"} {
+		confirmProperties[key] = proposalExtraProperties[key]
+	}
+	return []map[string]any{
+		{"name": "recut.media.propose", "description": "创建一个生成提案（任意 capability）：校验模型/参考后落为全局 proposed 资产，不建任务、不花钱，等用户确认。参考用 references[] 声明 role；视频默认也走本入口。", "inputSchema": map[string]any{"type": "object", "required": []string{"capability", "text"}, "properties": proposeProperties}},
+		{"name": "recut.media.list_proposals", "description": "列出 proposed 状态的生成提案（可按 projectId 过滤，分页）。用于查看待确认/失败/已确认的提案；确认权只在用户。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]any{"type": "string"}, "workspace": map[string]any{"type": "boolean"}, "limit": map[string]any{"type": "integer"}, "offset": map[string]any{"type": "integer"}}}},
+		{"name": "recut.media.update_proposal", "description": "确认前原地修改提案配方（提示词/参考/模型/参数/画幅/时长/备注）。仅对 proposed 资产生效，其它状态拒绝。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": updateProperties}},
+		{"name": "recut.media.confirm_proposal", "description": "用户确认提案：把同一 proposed 资产转为真实生成任务（复用 assetId，引用无需重指）。这是唯一花钱动作；Agent 不得代用户确认，只由 UI/用户显式触发。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": confirmProperties}},
+		{"name": "recut.media.reject_proposal", "description": "放弃一个提案（软删墓碑，保留记录）。仅由用户/UI 触发。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]any{"type": "string"}}}},
+	}
 }
 
 func speechGenerationSchema() map[string]any {
@@ -1679,6 +1797,145 @@ func mediaReferenceIDs(input map[string]any) []string {
 	ids := append([]string{}, stringsFromAny(input["imageAssetIds"])...)
 	ids = append(ids, stringsFromAny(input["videoAssetIds"])...)
 	return append(ids, stringsFromAny(input["audioAssetIds"])...)
+}
+
+// proposalInputFromMCP maps a generation/propose tool call into a proposal.
+// Reference roles/labels travel in the optional `references` array; the flat
+// image/video/audioAssetIds remain the submission order.
+func proposalInputFromMCP(input map[string]any, capability MediaCapability) ProposeInput {
+	prompt, _ := input["text"].(string)
+	route, _ := input["route"].(string)
+	modelID, _ := input["modelId"].(string)
+	credentialID, _ := input["credentialId"].(string)
+	output, _ := input["output"].(map[string]any)
+	if output == nil {
+		output = map[string]any{}
+	} else {
+		copied := map[string]any{}
+		for key, value := range output {
+			copied[key] = value
+		}
+		output = copied
+	}
+	if voiceID, _ := input["voiceId"].(string); voiceID != "" {
+		output["voiceId"] = voiceID
+	}
+	return ProposeInput{
+		Capability:     capability,
+		Route:          route,
+		ModelID:        modelID,
+		CredentialID:   credentialID,
+		Prompt:         prompt,
+		ReferenceIDs:   mediaReferenceIDs(input),
+		ReferencesMeta: proposalReferencesFromMCP(input),
+		Output:         output,
+		ProjectID:      requestedProjectID(input),
+		AspectRatio:    stringValue(input["aspectRatio"]),
+		DurationSec:    numericValue(input["durationSec"]),
+		Note:           stringValue(input["note"]),
+		ProposedBy:     stringValue(input["proposedBy"]),
+		BatchID:        stringValue(input["batchId"]),
+		Origin:         proposalOriginFromMCP(input),
+	}
+}
+
+func proposalReferencesFromMCP(input map[string]any) []ProposalReference {
+	items, ok := input["references"].([]any)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	references := []ProposalReference{}
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		reference := ProposalReference{ID: stringValue(item["id"]), Kind: stringValue(item["kind"]), Role: stringValue(item["role"]), Label: stringValue(item["label"])}
+		if reference.ID == "" {
+			continue
+		}
+		references = append(references, reference)
+	}
+	return references
+}
+
+func proposalOriginFromMCP(input map[string]any) *ProposalOrigin {
+	raw, ok := input["origin"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	origin := &ProposalOrigin{AppID: stringValue(raw["appId"]), ProjectID: stringValue(raw["projectId"]), WorldID: stringValue(raw["worldId"]), EntityID: stringValue(raw["entityId"])}
+	if *origin == (ProposalOrigin{}) {
+		return nil
+	}
+	return origin
+}
+
+// proposalPatchFromMCP collects only the fields the caller actually supplied;
+// absent fields stay nil so the merge leaves them unchanged.
+func proposalPatchFromMCP(input map[string]any) ProposalPatch {
+	patch := ProposalPatch{}
+	if value, ok := input["text"].(string); ok {
+		patch.Prompt = &value
+	} else if value, ok := input["prompt"].(string); ok {
+		patch.Prompt = &value
+	}
+	if value, ok := input["modelId"].(string); ok {
+		patch.ModelID = &value
+	}
+	if value, ok := input["credentialId"].(string); ok {
+		patch.CredentialID = &value
+	}
+	if value, ok := input["output"].(map[string]any); ok {
+		patch.Output = value
+	}
+	if raw, present := input["references"]; present && raw != nil {
+		references := proposalReferencesFromMCP(input)
+		patch.References = &references
+	}
+	if value, ok := input["aspectRatio"].(string); ok {
+		patch.AspectRatio = &value
+	}
+	if _, present := input["durationSec"]; present {
+		value := numericValue(input["durationSec"])
+		patch.DurationSec = &value
+	}
+	if value, ok := input["note"].(string); ok {
+		patch.Note = &value
+	}
+	return patch
+}
+
+// proposalPatchPointerFromMCP returns nil when the caller supplied no patch
+// field, so confirm uses the stored recipe untouched.
+func proposalPatchPointerFromMCP(input map[string]any) *ProposalPatch {
+	for _, key := range []string{"text", "prompt", "modelId", "credentialId", "output", "references", "aspectRatio", "durationSec", "note"} {
+		if _, present := input[key]; present {
+			patch := proposalPatchFromMCP(input)
+			return &patch
+		}
+	}
+	return nil
+}
+
+// mediaAssetView exposes a proposed (or otherwise) asset under the explicit
+// `assetId` key. Proposal-only recipe fields are inlined for reviewer context.
+func mediaAssetView(asset MediaAsset) map[string]any {
+	view := map[string]any{
+		"assetId":   asset.ID,
+		"id":        asset.ID,
+		"kind":      asset.Kind,
+		"name":      asset.Name,
+		"status":    asset.Status,
+		"origin":    asset.Origin,
+		"createdAt": asset.CreatedAt,
+	}
+	if asset.Status == AssetStatusProposed {
+		view["prompt"] = stringValue(asset.Metadata["prompt"])
+		view["referenceIds"] = asset.Metadata["referenceIds"]
+		view["proposal"] = asset.Metadata["proposal"]
+	}
+	return view
 }
 
 func projectContextTool(bridge *AgentBridge, host *AppHost, media *MediaService, session AgentSession, arguments map[string]any, locale Locale) (any, error) {

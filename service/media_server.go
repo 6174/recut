@@ -379,6 +379,86 @@ func (s *Server) createMediaJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, job)
 }
 
+// createMediaProposal lands a generation proposal as a proposed asset. It never
+// starts a job or spends provider cost; the user confirms it later.
+func (s *Server) createMediaProposal(w http.ResponseWriter, r *http.Request) {
+	input := ProposeInput{}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	asset, err := s.media.Propose(input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, asset)
+}
+
+// listMediaProposals lists proposed assets (optionally scoped to one project).
+func (s *Server) listMediaProposals(w http.ResponseWriter, r *http.Request) {
+	projectID := strings.TrimSpace(r.URL.Query().Get("projectId"))
+	filter := MediaAssetFilter{}
+	if limit := strings.TrimSpace(r.URL.Query().Get("limit")); limit != "" {
+		if value, err := strconv.Atoi(limit); err == nil {
+			filter.Limit = value
+		}
+	}
+	if offset := strings.TrimSpace(r.URL.Query().Get("offset")); offset != "" {
+		if value, err := strconv.Atoi(offset); err == nil {
+			filter.Offset = value
+		}
+	}
+	page, err := s.media.ListProposals(projectID, filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+// updateMediaProposal edits a proposal's recipe in place before confirmation.
+func (s *Server) updateMediaProposal(w http.ResponseWriter, r *http.Request) {
+	patch := ProposalPatch{}
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	asset, err := s.media.UpdateProposal(r.PathValue("id"), patch)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, asset)
+}
+
+// confirmMediaProposal is the user's confirmation: it turns the proposed asset
+// into a real generation job, reusing the same assetId.
+func (s *Server) confirmMediaProposal(w http.ResponseWriter, r *http.Request) {
+	var patch *ProposalPatch
+	if r.Body != nil {
+		decoded := ProposalPatch{}
+		if err := json.NewDecoder(r.Body).Decode(&decoded); err == nil {
+			patch = &decoded
+		}
+	}
+	job, err := s.media.ConfirmProposal(r.PathValue("id"), patch)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+// rejectMediaProposal abandons a proposal via a soft-delete tombstone.
+func (s *Server) rejectMediaProposal(w http.ResponseWriter, r *http.Request) {
+	if err := s.media.RejectProposal(r.PathValue("id")); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) getMediaJob(w http.ResponseWriter, r *http.Request) {
 	job, err := s.media.GetJob(r.PathValue("id"))
 	if err != nil {

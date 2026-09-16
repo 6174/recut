@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 App 身份、SQLite 驱动与标准库文件系统能力
- * [OUTPUT]: 对外提供 Store、可重命名/删除且含可选媒体封面的 Project、Artifact、App 全局状态与项目 Doc 的隔离能力、
+ * [OUTPUT]: 对外提供 Store、可重命名/删除且含可选媒体封面与 created_at/updated_at 的 Project、Artifact、App 全局状态与项目 Doc 的隔离能力、
  * 平台唯一 workspace SQLite、无迁移的布局版本门禁与项目/Agent/媒体三类 durable 事件表的进程内唤醒广播
  * [POS]: service 的平台存储边界；平台表全部位于 workspace.sqlite，project.sqlite 只含 owner App 业务表，
  * appstate/<appId> 是 App 的全局状态；App 仅通过 capability 获得自己的数据库和文件根
@@ -44,6 +44,7 @@ type Project struct {
 	FormatVersion int           `json:"formatVersion"`
 	Cover         *ProjectCover `json:"cover,omitempty"`
 	CreatedAt     time.Time     `json:"createdAt"`
+	UpdatedAt     time.Time     `json:"updatedAt"`
 }
 
 // ProjectCover is platform metadata. Apps select either a completed media
@@ -172,12 +173,12 @@ func (s *Store) Create(input CreateInput) (Project, error) {
 		return Project{}, err
 	}
 	now := time.Now().UTC()
-	project := Project{ID: id, Name: input.Name, AppID: app.Manifest.ID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: now}
+	project := Project{ID: id, Name: input.Name, AppID: app.Manifest.ID, AppVersion: app.Manifest.Version, FormatVersion: formatVersion, CreatedAt: now, UpdatedAt: now}
 	db, err := s.WorkspaceDatabase()
 	if err != nil {
 		return Project{}, err
 	}
-	if _, err := db.Exec("insert into projects (id, name, app_id, app_version, format_version, created_at) values (?, ?, ?, ?, ?, ?)", project.ID, project.Name, project.AppID, project.AppVersion, project.FormatVersion, iso(now)); err != nil {
+	if _, err := db.Exec("insert into projects (id, name, app_id, app_version, format_version, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?)", project.ID, project.Name, project.AppID, project.AppVersion, project.FormatVersion, iso(now), iso(now)); err != nil {
 		return Project{}, err
 	}
 	if err := os.MkdirAll(s.projectDir(id), 0o755); err != nil {
@@ -194,8 +195,8 @@ func (s *Store) List() ([]Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`select p.id, p.name, p.app_id, p.app_version, p.format_version, p.created_at, c.source, c.asset_id, c.kind, c.file_path, c.mime_type
-from projects p left join project_covers c on c.project_id = p.id order by p.created_at desc`)
+	rows, err := db.Query(`select p.id, p.name, p.app_id, p.app_version, p.format_version, p.created_at, p.updated_at, c.source, c.asset_id, c.kind, c.file_path, c.mime_type
+from projects p left join project_covers c on c.project_id = p.id order by p.updated_at desc`)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +217,7 @@ func (s *Store) Get(id string) (Project, error) {
 	if err != nil {
 		return Project{}, err
 	}
-	row := db.QueryRow(`select p.id, p.name, p.app_id, p.app_version, p.format_version, p.created_at, c.source, c.asset_id, c.kind, c.file_path, c.mime_type
+	row := db.QueryRow(`select p.id, p.name, p.app_id, p.app_version, p.format_version, p.created_at, p.updated_at, c.source, c.asset_id, c.kind, c.file_path, c.mime_type
 from projects p left join project_covers c on c.project_id = p.id where p.id = ?`, id)
 	project, err := scanProject(row)
 	if err != nil {
@@ -236,7 +237,7 @@ func (s *Store) Rename(id, name string) (Project, error) {
 	if err != nil {
 		return Project{}, err
 	}
-	result, err := db.Exec("update projects set name = ? where id = ?", name, id)
+	result, err := db.Exec("update projects set name = ?, updated_at = ? where id = ?", name, iso(time.Now().UTC()), id)
 	if err != nil {
 		return Project{}, err
 	}
@@ -307,6 +308,9 @@ func (s *Store) SetProjectCover(projectID string, cover ProjectCover) (Project, 
 on conflict(project_id) do update set source = excluded.source, asset_id = excluded.asset_id, kind = excluded.kind, file_path = excluded.file_path, mime_type = excluded.mime_type, updated_at = excluded.updated_at`, projectID, cover.AssetID, cover.Kind, iso(time.Now().UTC())); err != nil {
 		return Project{}, err
 	}
+	if _, err := db.Exec("update projects set updated_at = ? where id = ?", iso(time.Now().UTC()), projectID); err != nil {
+		return Project{}, err
+	}
 	s.AppendEvent(projectID, map[string]any{"type": "project.cover.updated", "source": "asset", "assetId": cover.AssetID, "kind": cover.Kind, "at": time.Now().UTC()})
 	return s.Get(projectID)
 }
@@ -343,6 +347,9 @@ func (s *Store) SetProjectCoverFile(projectID, filePath, mimeType string) (Proje
 	}
 	if _, err := db.Exec(`insert into project_covers (project_id, source, asset_id, kind, file_path, mime_type, updated_at) values (?, 'file', '', 'image', ?, ?, ?)
 on conflict(project_id) do update set source = excluded.source, asset_id = excluded.asset_id, kind = excluded.kind, file_path = excluded.file_path, mime_type = excluded.mime_type, updated_at = excluded.updated_at`, projectID, filePath, mimeType, iso(time.Now().UTC())); err != nil {
+		return Project{}, err
+	}
+	if _, err := db.Exec("update projects set updated_at = ? where id = ?", iso(time.Now().UTC()), projectID); err != nil {
 		return Project{}, err
 	}
 	s.AppendEvent(projectID, map[string]any{"type": "project.cover.updated", "source": "file", "filePath": filePath, "mimeType": mimeType, "at": time.Now().UTC()})
@@ -441,7 +448,8 @@ create index if not exists agent_turn_contexts_turn on agent_turn_contexts(turn_
 create index if not exists agent_events_session on agent_events(session_id, id);
 create table if not exists projects (
   id text primary key, name text not null, app_id text not null,
-  app_version text not null, format_version integer not null, created_at text not null
+  app_version text not null, format_version integer not null,
+  created_at text not null, updated_at text not null default ''
 );
 create table if not exists project_covers (
   project_id text primary key,
@@ -767,6 +775,7 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table world_entity_types add column archived_at text",
 			"alter table worlds add column archived_at text",
 			"alter table world_relations add column scope_entity_id text",
+			"alter table projects add column updated_at text not null default ''",
 			"create index if not exists world_entities_parent on world_entities(world_id, parent_id)",
 			"create index if not exists world_entities_world_type on world_entities(world_id, type_id, updated_at desc)",
 		} {
@@ -781,6 +790,9 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			return err
 		}
 		if _, err := db.Exec("update media_assets set updated_at = created_at where updated_at = ''"); err != nil {
+			return err
+		}
+		if _, err := db.Exec("update projects set updated_at = created_at where updated_at = ''"); err != nil {
 			return err
 		}
 		if err := migrateWorldAssetRefsURL(db); err != nil {
@@ -1039,9 +1051,9 @@ func validateAppID(appID string) error {
 
 func scanProject(row scanner) (Project, error) {
 	var project Project
-	var createdAt string
+	var createdAt, updatedAt string
 	var coverSource, coverAssetID, coverKind, coverFilePath, coverMimeType sql.NullString
-	err := row.Scan(&project.ID, &project.Name, &project.AppID, &project.AppVersion, &project.FormatVersion, &createdAt, &coverSource, &coverAssetID, &coverKind, &coverFilePath, &coverMimeType)
+	err := row.Scan(&project.ID, &project.Name, &project.AppID, &project.AppVersion, &project.FormatVersion, &createdAt, &updatedAt, &coverSource, &coverAssetID, &coverKind, &coverFilePath, &coverMimeType)
 	if err != nil {
 		return Project{}, err
 	}
@@ -1050,6 +1062,13 @@ func scanProject(row scanner) (Project, error) {
 		return Project{}, parseErr
 	}
 	project.CreatedAt = parsed
+	// updated_at is additive: pre-migration rows are backfilled from created_at,
+	// but an empty value must never fail a read or the list would go dark.
+	if parsedUpdated, updatedErr := time.Parse(time.RFC3339Nano, updatedAt); updatedErr == nil {
+		project.UpdatedAt = parsedUpdated
+	} else {
+		project.UpdatedAt = parsed
+	}
 	if coverKind.Valid {
 		source := "asset"
 		if coverSource.Valid && coverSource.String == "file" {

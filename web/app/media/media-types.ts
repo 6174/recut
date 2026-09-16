@@ -6,7 +6,7 @@
  */
 
 export type AssetKind = "image" | "video" | "audio" | "transcript" | "reference";
-export type AssetStatus = "queued" | "running" | "completed" | "failed";
+export type AssetStatus = "proposed" | "queued" | "running" | "completed" | "failed";
 export type ModelInputMode = "text" | AssetKind;
 export type Capability = "image.generate" | "video.generate" | "speech.generate";
 export type Asset = {
@@ -29,6 +29,17 @@ export type Asset = {
     modelId?: unknown;
     output?: Record<string, unknown>;
     referenceIds?: unknown;
+    proposal?: {
+      references?: Array<{ id: string; kind?: string; role?: string; label?: string }>;
+      aspectRatio?: string;
+      durationSec?: number;
+      note?: string;
+      proposedBy?: "agent" | "user";
+      proposedAt?: string;
+      batchId?: string;
+      origin?: { appId?: string; projectId?: string; worldId?: string; entityId?: string };
+      confirmedAt?: string;
+    };
     transcript?: {
       sourceAssetId?: string;
       model?: string;
@@ -124,17 +135,19 @@ export type CapabilityVoiceGroup = {
 };
 export type Filter = "all" | AssetKind;
 
-const assetStatuses: AssetStatus[] = ["queued", "running", "completed", "failed"];
+const assetStatuses: AssetStatus[] = ["proposed", "queued", "running", "completed", "failed"];
 
 // Asset lifecycle fields were added after early workspaces already contained
 // imported and generated files. A durable jobId is the platform-wide async
 // binding; remoteId is optional because generic providers such as speech omit it.
+// A proposed asset is intentionally job-less: it carries a recipe until the user
+// confirms generation.
 export function normalizeAsset(value: Partial<Asset> & { id?: string }): Asset {
   const reportedStatus = assetStatuses.includes(value.status as AssetStatus)
     ? (value.status as AssetStatus)
     : "completed";
   const hasJob = typeof value.jobId === "string" && value.jobId.trim() !== "";
-  const status = (reportedStatus === "queued" || reportedStatus === "running") && !hasJob
+  const status = reportedStatus !== "proposed" && (reportedStatus === "queued" || reportedStatus === "running") && !hasJob
     ? "completed"
     : reportedStatus;
   return {

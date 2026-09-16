@@ -74,7 +74,7 @@ export function WorldsClient() {
   </>;
 }
 
-function CreateWorldDialog({ apiBase, onClose, onCreated }: { apiBase: string; onClose: () => void; onCreated: () => void }) {
+export function CreateWorldDialog({ apiBase, onClose, onCreated }: { apiBase: string; onClose: () => void; onCreated: () => void }) {
   const { t } = useI18n();
   const invalidate = useWorldsStore((state) => state.invalidate);
   const [name, setName] = useState("");

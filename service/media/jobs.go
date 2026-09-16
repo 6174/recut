@@ -53,6 +53,38 @@ func (m *MediaService) Generate(input GenerateMediaInput) (MediaJob, error) {
 	return m.getJob(job.ID)
 }
 
+// generateBoundToAsset submits input as a real job and binds the resulting
+// lifecycle to an existing proposed asset instead of allocating a new one. It
+// is the confirmation path: the asset ID is preserved so canvas elements and
+// timeline clips that already reference the proposal keep resolving.
+func (m *MediaService) generateBoundToAsset(input GenerateMediaInput, assetID string) (MediaJob, error) {
+	job, credential, created, err := m.createJob(input)
+	if err != nil {
+		return job, err
+	}
+	if !created {
+		// Idempotent retry after a crash between job creation and asset binding:
+		// if the job is not yet bound to this asset, finish the binding so the
+		// scheduler can see a recoverable queued task instead of a stuck job.
+		if len(job.AssetIDs) == 0 || job.AssetIDs[0] != assetID {
+			if asset, lookupErr := m.GetAsset(assetID); lookupErr == nil && asset.Status == AssetStatusProposed {
+				if _, bindErr := m.bindProposedAssetToJob(assetID, job, ""); bindErr == nil {
+					return m.getJob(job.ID)
+				}
+			}
+		}
+		return job, nil
+	}
+	if _, err := m.bindProposedAssetToJob(assetID, job, credential.Provider); err != nil {
+		m.setJobStatus(job.ID, "failed", nil, err.Error())
+		if failed, getErr := m.getJob(job.ID); getErr == nil {
+			return failed, err
+		}
+		return job, err
+	}
+	return m.getJob(job.ID)
+}
+
 // GenerateSync is for short, stage-critical media operations. It waits for the
 // provider request to finish, so callers receive either usable asset IDs or a
 // terminal error instead of owning a polling loop.

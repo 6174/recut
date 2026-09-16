@@ -30,7 +30,8 @@ import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { buildGenerationRequest } from "@/lib/media/generation-request";
 import { normalizeAsset, type Asset, type Capability, type CapabilityVoiceGroup, type MediaJob, type Model as MediaModel, type ModelParameter } from "@/app/media/media-types";
 import { useWorldCanvasStore } from "../canvas-store";
-import { isProposalGate, proposalIssues, proposalRoleLabel, readProposal, type GenerationProposal, type ProposalReference } from "../canvas-proposal";
+import { isProposalGate, proposalFromAsset, proposalIssues, proposalRoleLabel, readProposal, type GenerationProposal, type ProposalReference } from "../canvas-proposal";
+import { useCanvasAssetStatusStore } from "../canvas-asset-status";
 import { fitElementToAsset } from "../canvas-media";
 import { useElementAssetHistoryStore } from "./element-asset-history-store";
 import { PanelSection } from "@/components/panel-section";
@@ -53,7 +54,11 @@ const PROPOSAL_REF_TYPES = ["media", "creation_entity", "creation_world"];
 type MediaEditorElement = { id: string; kind: string; props?: Record<string, unknown>; name?: string };
 
 export function MediaElementEditor({ element, guided, identity }: { element: MediaEditorElement; guided?: ReactNode; identity?: ReactNode }) {
-  const proposal = readProposal(element.props);
+  // 提案真源是全局资产：已绑定 assetId 时从资产读 proposal（订阅资产缓存，状态变化即重建）；
+  // 旧画布（无 assetId）回退元素 props.proposal。
+  const assetId = String(element.props?.assetId ?? "");
+  const asset = useCanvasAssetStatusStore((state) => (assetId ? state.assets[assetId] : undefined));
+  const proposal = (asset ? proposalFromAsset(asset) : null) ?? readProposal(element.props);
   if (proposal && isProposalGate(proposal.status)) {
     return <GenerationProposalEditor element={element} proposal={proposal} />;
   }
@@ -211,8 +216,7 @@ function GenerationProposalEditor({ element, proposal }: { element: MediaEditorE
 
   // 切换所选元素时用最新提案重置编辑器（避免沿用上一个节点的输入）
   useEffect(() => {
-    const stored = readProposal(useWorldCanvasStore.getState().elements.find((item) => item.id === element.id)?.props);
-    setPromptValue(normalizeValue(stored?.prompt ?? "", registry));
+    setPromptValue(normalizeValue(proposal.prompt ?? "", registry));
     promptDirtyRef.current = false;
   }, [element.id, registry]);
   useEffect(() => {
@@ -222,7 +226,7 @@ function GenerationProposalEditor({ element, proposal }: { element: MediaEditorE
   // 提示词补丁：写回富文本正文，并把正文里 @ 引用的媒体并入 references（否则该图不会随请求发送）
   const promptPatch = (): Partial<GenerationProposal> => {
     const value = promptValueRef.current;
-    const current = readProposal(useWorldCanvasStore.getState().elements.find((item) => item.id === element.id)?.props) ?? proposal;
+    const current = proposal;
     const known = new Set(current.references.map((reference) => reference.id));
     const mentioned = value.refs
       .filter((ref) => ref.type === "media" && ref.attrs.assetid && !known.has(ref.attrs.assetid))

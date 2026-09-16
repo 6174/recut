@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、统一 App 身份图标、Agent Session HTTP API 及全局 Agent 面板上下文、工作台 i18n 字典与 Accept-Language 统一请求包装
- * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Apps 工作台入口及保持根壳的一级 Tab 切换（世界画布激活时顶层 Header 左侧让位给 WorldCanvasTopBar 面包屑、画布工具组 WorldCanvasToolbar 居中于整个 Header，右侧保留全局状态）、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态；全部文案经 useI18n 迁移到 workspace 字典
+ * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Apps 工作台入口及保持根壳的一级 Tab 切换（世界画布激活时顶层 Header 左侧让位给 WorldCanvasTopBar 面包屑、画布工具组 WorldCanvasToolbar 居中于整个 Header，右侧保留全局状态）、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态；项目桌面与 Studio 最近区把 local/published World 与项目按 updatedAt 混排（平台世界仍留在 /worlds），新建项目入口可创建 World；全部文案经 useI18n 迁移到 workspace 字典
  * [POS]: web/app 的应用工作台框架；Studio 是 app Host 的默认创作入口，世界观作为首个原生创作应用统一进入世界观管理，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -28,6 +28,8 @@ import { marketplaceDescription, marketplaceName, type MarketplaceApp } from "@/
 import { isLocalWorkspace, fetchRecutJSON } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore, type WorkspaceInstallation as Installation, type WorkspaceProject as Project } from "@/lib/workspace-store";
+import { worldOrigin, type WorldSummary } from "@/lib/recut-worlds-client";
+import { useWorldsStore } from "@/lib/worlds-store";
 import { t, useI18n, type Locale } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 import { STUDIO_INSPIRATION_COUNT, STUDIO_TEMPLATE_COUNT } from "@/lib/i18n/workspace-studio-dict";
@@ -35,7 +37,7 @@ import { VideoFrame } from "@/components/video-frame";
 import { WebGLStudioHero } from "@/components/webgl-studio-hero";
 import type { Asset } from "./media/media-types";
 import { MediaLibraryPanel } from "./media/media-library-panel";
-import { WorldsClient } from "./worlds/worlds-client";
+import { WorldsClient, CreateWorldDialog } from "./worlds/worlds-client";
 import { WorldCanvasShareButton, WorldCanvasToolbar, WorldCanvasTopBar, useWorldCanvasTopBarStore } from "./worlds/[worldID]/canvas/canvas-top-bar";
 
 type AppDetailRenderer = (context: { onConnectService: () => void; serviceOnline: boolean }) => React.ReactNode;
@@ -51,6 +53,8 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
   const { t } = useI18n();
   const installations = useWorkspaceStore((state) => state.installations);
   const projects = useWorkspaceStore((state) => state.projects);
+  const worlds = useWorldsStore((state) => state.page);
+  const loadWorlds = useWorldsStore((state) => state.loadPage);
   const installationsState = useWorkspaceStore((state) => state.installationsState);
   const installationsError = useWorkspaceStore((state) => state.installationsError);
   const loadWorkspace = useWorkspaceStore((state) => state.load);
@@ -58,6 +62,7 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
   const loadMarketplace = useWorkspaceStore((state) => state.loadMarketplace);
   const [initialAssetID, setInitialAssetID] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("asset") ?? "");
   const [createApp, setCreateApp] = useState<Installation | null>(null);
+  const [createWorld, setCreateWorld] = useState(false);
   const service = useServiceStore((state) => state.service);
   const apiBase = useServiceStore((state) => state.endpoint);
   const [tab, setTab] = useState<WorkspaceTab>(contentTab ?? (appDetail ? "apps" : initialTab));
@@ -87,6 +92,13 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
     void loadWorkspace(apiBase);
   }, [apiBase, loadWorkspace, online]);
 
+  // 项目桌面与 Worlds 桌面共用同一份世界目录：这里预取一次，Projects/Studio 与
+  // /worlds 页面命中同一缓存键（limit=50），因此不会产生重复请求。
+  useEffect(() => {
+    if (!online) return;
+    void loadWorlds(apiBase, { limit: 50 });
+  }, [apiBase, loadWorlds, online]);
+
   // 应用市场（云端数据）与 service 目录解耦：挂载即拉取，语言切换只影响展示层选择。
   useEffect(() => {
     void loadMarketplace();
@@ -104,6 +116,10 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
 
   function openCreateProject(app: Installation) {
     setCreateApp(app);
+  }
+
+  function openCreateWorld() {
+    setCreateWorld(true);
   }
 
   async function createProjectWithApp(app: Installation, projectName: string) {
@@ -157,13 +173,13 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
   const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={installationsError} installationLoadState={appInstallationLoadState} marketplace={marketplace} onStartProject={openCreateProject} onUpdated={reloadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
-    : tab === "studio" ? <Studio apiBase={apiBase} apps={installations.filter((app) => app.manifest.type === "project")} installations={installations} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onDeleteProject={deleteProject} onManageApps={(event) => navigateTab("apps", "/apps", event)} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} />
+    : tab === "studio" ? <Studio apiBase={apiBase} apps={installations.filter((app) => app.manifest.type === "project")} installations={installations} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onCreateWorld={openCreateWorld} onDeleteProject={deleteProject} onManageApps={(event) => navigateTab("apps", "/apps", event)} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} worlds={worlds} />
       : tab === "worlds" ? <WorldsClient />
-        : tab === "projects" ? <ProjectsPage apiBase={apiBase} apps={installations.filter((app) => app.manifest.type === "project")} onDeleteProject={deleteProject} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} />
+        : tab === "projects" ? <ProjectsPage apiBase={apiBase} apps={installations.filter((app) => app.manifest.type === "project")} onCreateWorld={openCreateWorld} onDeleteProject={deleteProject} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} worlds={worlds} />
           : <MediaLibraryPanel initialAssetID={initialAssetID} onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="grid h-16 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b bg-card px-4 md:px-5">
-      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" />{canvasTopBarActive && <WorldCanvasTopBar />}{!canvasTopBarActive && <nav aria-label={showLanding ? t("nav.aria.website") : t("nav.aria.workspace")} className="flex min-w-0 items-center gap-0.5 sm:gap-1">{showLanding ? <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">{t("nav.workspace")}</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">{t("nav.market")}</Tab></> : <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">{t("nav.studio")}</Tab><Tab active={tab === "worlds"} href="/worlds" onNavigate={navigateTab} tab="worlds">{t("nav.worlds")}</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">{t("nav.projects")}</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">{t("nav.assets")}</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">{t("nav.apps")}</Tab></>}</nav>}</div>
+      <div className="flex min-w-0 items-center gap-3 md:gap-4"><span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg"><img alt="Recut" className="size-full object-cover" src="/logo.jpg" /></span><span className="hidden h-5 w-px bg-border sm:block" />{canvasTopBarActive && <WorldCanvasTopBar />}{!canvasTopBarActive && <nav aria-label={showLanding ? t("nav.aria.website") : t("nav.aria.workspace")} className="flex min-w-0 items-center gap-0.5 sm:gap-1">{showLanding ? <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">{t("nav.workspace")}</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">{t("nav.market")}</Tab></> : <><Tab active={tab === "studio"} href="/" onNavigate={navigateTab} tab="studio">{t("nav.studio")}</Tab><Tab active={tab === "projects"} href="/projects" onNavigate={navigateTab} tab="projects">{t("nav.projects")}</Tab><Tab active={tab === "assets"} href="/media" onNavigate={navigateTab} tab="assets">{t("nav.assets")}</Tab><Tab active={tab === "apps"} href="/apps" onNavigate={navigateTab} tab="apps">{t("nav.apps")}</Tab></>}</nav>}</div>
       <div className="flex min-w-0 items-center justify-center">{canvasTopBarActive && <WorldCanvasToolbar />}</div>
       <div className="hidden min-w-0 items-center justify-end gap-3 md:flex md:gap-4">{!showLanding && <>{canvasTopBarActive && <><WorldCanvasShareButton /><span className="h-5 w-px bg-border" /></>}<HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></>}</div>
     </header>
@@ -171,6 +187,7 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
       {online && tab === "assets" ? content : <section className="h-full min-h-0 overflow-y-auto bg-background p-4 sm:p-6 md:p-8"><div className="mx-auto max-w-6xl">{content}</div></section>}
     </div>
     {createApp && <CreateProjectFromAppDialog app={createApp} onClose={() => setCreateApp(null)} onCreate={async (projectName) => createProjectWithApp(createApp, projectName)} />}
+    {createWorld && <CreateWorldDialog apiBase={apiBase} onClose={() => setCreateWorld(false)} onCreated={() => {}} />}
   </main>;
 }
 
@@ -189,19 +206,50 @@ function Tab({ active, children, href, onNavigate, tab }: { active: boolean; chi
   return <a aria-current={active ? "page" : undefined} className={active ? "rounded-lg bg-accent px-2 py-1.5 text-[11px] font-semibold text-accent-foreground sm:px-2.5 sm:text-xs" : "rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground sm:px-2.5 sm:text-xs"} href={href} onClick={(event) => onNavigate(tab, href, event)}>{children}</a>;
 }
 
-function Projects({ apiBase, apps, onDeleteProject, onRenameProject, onStartProject, projects }: { apiBase: string; apps: Installation[]; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
-  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"><NewProjectCard apps={apps} onStartProject={onStartProject} />{projects.map((project) => <ProjectCard apiBase={apiBase} app={apps.find((app) => app.manifest.id === project.appId)} key={project.id} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} project={project} />)}</div>;
+type SpaceItem = { kind: "project"; project: Project } | { kind: "world"; world: WorldSummary };
+
+function spaceUpdatedAt(item: SpaceItem): number {
+  const raw = item.kind === "project" ? item.project.updatedAt : item.world.updatedAt;
+  const parsed = raw ? Date.parse(raw) : NaN;
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function NewProjectCard({ apps, onStartProject }: { apps: Installation[]; onStartProject: (app: Installation) => void }) {
+// 项目与世界混排成同一个桌面：两者都按 updatedAt 倒序，卡片形态对齐，用户不必先判断
+// "这是项目还是世界"。平台世界（origin=platform）是只读内容目录、不属于用户资产，
+// 继续留在 /worlds 的独立货架，不混入这里。
+function ProjectSpaces({ apiBase, apps, limit, onCreateWorld, onDeleteProject, onRenameProject, onStartProject, projects, worlds }: { apiBase: string; apps: Installation[]; limit?: number; onCreateWorld: () => void; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[]; worlds: WorldSummary[] }) {
+  const items = useMemo<SpaceItem[]>(() => {
+    const mixed: SpaceItem[] = [
+      ...projects.map((project): SpaceItem => ({ kind: "project", project })),
+      ...worlds.filter((world) => worldOrigin(world) !== "platform").map((world): SpaceItem => ({ kind: "world", world })),
+    ];
+    mixed.sort((a, b) => spaceUpdatedAt(b) - spaceUpdatedAt(a));
+    return typeof limit === "number" ? mixed.slice(0, limit) : mixed;
+  }, [projects, worlds, limit]);
+  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"><NewProjectCard apps={apps} onCreateWorld={onCreateWorld} onStartProject={onStartProject} />{items.map((item) => item.kind === "project" ? <ProjectCard apiBase={apiBase} app={apps.find((app) => app.manifest.id === item.project.appId)} key={`project-${item.project.id}`} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} project={item.project} /> : <WorldProjectCard apiBase={apiBase} key={`world-${item.world.id}`} world={item.world} />)}</div>;
+}
+
+function WorldProjectCard({ apiBase, world }: { apiBase: string; world: WorldSummary }) {
+  const { t } = useI18n();
+  const isRemote = worldOrigin(world) !== "local";
+  const previews = [
+    ...(world.previewAssetIds ?? []).map((assetID) => `${apiBase}/v1/media/assets/${encodeURIComponent(assetID)}/content`),
+    ...(world.previewUrls ?? []),
+  ];
+  const coverSrc = world.coverAssetId ? `${apiBase}/v1/media/assets/${encodeURIComponent(world.coverAssetId)}/content` : (isRemote ? world.originMeta?.coverUrl ?? "" : "") || previews[0] || "";
+  const kindLabel = t(`worlds.kind.${world.type}`);
+  return <div className="group relative"><Link className="block" href={`/worlds/${encodeURIComponent(world.id)}`}><Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]">{coverSrc ? <img alt={interpolate(t("worlds.card.cover.alt"), { name: world.name })} className="aspect-[16/7] w-full border-b object-cover" src={coverSrc} /> : <div className="flex aspect-[16/7] items-center justify-between border-b bg-muted p-3"><span className="grid size-7 place-items-center rounded-sm bg-card text-muted-foreground shadow-sm"><Globe2 className="size-3.5" /></span><span className="rounded-xs border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground">{kindLabel}</span></div>}<CardContent className="p-3"><p className="truncate text-sm font-semibold">{world.name}</p><p className="mt-1 truncate text-[10px] text-muted-foreground">{kindLabel}</p></CardContent></Card></Link></div>;
+}
+
+function NewProjectCard({ apps, onCreateWorld, onStartProject }: { apps: Installation[]; onCreateWorld: () => void; onStartProject: (app: Installation) => void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  return <><button className="group flex min-h-40 min-w-0 flex-col rounded-lg border-2 border-dashed border-primary/35 bg-transparent p-4 text-left shadow-none transition hover:-translate-y-0.5 hover:border-primary/50 hover:bg-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60" disabled={!apps.length} onClick={() => setOpen(true)} type="button"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><Plus className="size-5" /></span><span className="mt-auto"><span className="block text-base font-semibold">{t("projects.new")}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{apps.length ? t("projects.new.desc") : t("projects.new.descEmpty")}</span><span className="mt-3 inline-flex text-xs font-medium text-primary">{t("projects.new.choose")}</span></span></button>{open && <ProjectAppPickerDialog apps={apps} onClose={() => setOpen(false)} onPick={(app) => { setOpen(false); onStartProject(app); }} />}</>;
+  return <><button className="group flex min-h-40 min-w-0 flex-col rounded-lg border-2 border-dashed border-primary/35 bg-transparent p-4 text-left shadow-none transition hover:-translate-y-0.5 hover:border-primary/50 hover:bg-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" onClick={() => setOpen(true)} type="button"><span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><Plus className="size-5" /></span><span className="mt-auto"><span className="block text-base font-semibold">{t("projects.new")}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{t("projects.new.desc")}</span><span className="mt-3 inline-flex text-xs font-medium text-primary">{t("projects.new.choose")}</span></span></button>{open && <ProjectAppPickerDialog apps={apps} onClose={() => setOpen(false)} onPick={(app) => { setOpen(false); onStartProject(app); }} onPickWorld={() => { setOpen(false); onCreateWorld(); }} />}</>;
 }
 
-function ProjectAppPickerDialog({ apps, onClose, onPick }: { apps: Installation[]; onClose: () => void; onPick: (app: Installation) => void }) {
+function ProjectAppPickerDialog({ apps, onClose, onPick, onPickWorld }: { apps: Installation[]; onClose: () => void; onPick: (app: Installation) => void; onPickWorld: () => void }) {
   const { t } = useI18n();
-  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="project-app-picker-title"><section className="w-full max-w-lg rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">NEW PROJECT</p><h2 className="mt-1 text-base font-semibold" id="project-app-picker-title">{t("projects.picker.title")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("projects.picker.desc")}</p></div><button aria-label={t("projects.picker.close")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><div className="grid gap-2 p-3">{sortByOrder(apps, PROJECT_APP_ORDER).map((app) => <button className="group flex min-w-0 items-center gap-3 rounded-sm p-3 text-left transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={app.package} onClick={() => onPick(app)} type="button"><AppIdentityIcon appID={app.manifest.id} className="transition group-hover:bg-primary group-hover:text-primary-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{app.manifest.name}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{app.manifest.description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div></section></div>;
+  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-6 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-labelledby="project-app-picker-title"><section className="w-full max-w-lg rounded-sm border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-4 border-b px-5 py-4"><div><p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">NEW PROJECT</p><h2 className="mt-1 text-base font-semibold" id="project-app-picker-title">{t("projects.picker.title")}</h2><p className="mt-1 text-xs text-muted-foreground">{t("projects.picker.desc")}</p></div><button aria-label={t("projects.picker.close")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={onClose} type="button"><X className="size-4" /></button></header><div className="grid gap-2 p-3"><button className="group flex min-w-0 items-center gap-3 rounded-sm p-3 text-left transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" onClick={onPickWorld} type="button"><span className="grid size-11 shrink-0 place-items-center rounded-xl border border-primary/10 bg-primary/10 text-primary transition group-hover:bg-primary group-hover:text-primary-foreground"><Globe2 aria-hidden="true" className="size-5" strokeWidth={1.8} /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{t("projects.picker.world")}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{t("projects.picker.worldDesc")}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>{sortByOrder(apps, PROJECT_APP_ORDER).map((app) => <button className="group flex min-w-0 items-center gap-3 rounded-sm p-3 text-left transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={app.package} onClick={() => onPick(app)} type="button"><AppIdentityIcon appID={app.manifest.id} className="transition group-hover:bg-primary group-hover:text-primary-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{app.manifest.name}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{app.manifest.description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div></section></div>;
 }
 
 function homeInspirations(locale: Locale) {
@@ -256,9 +304,8 @@ function sortByOrder(list: Installation[], order: string[]) {
   return [...list].sort((a, b) => (rank.get(a.manifest.id) ?? 999) - (rank.get(b.manifest.id) ?? 999));
 }
 
-function Studio({ apiBase, apps, installations, onCompose, onDeleteProject, onManageApps, onRenameProject, onStartProject, projects }: { apiBase: string; apps: Installation[]; installations: Installation[]; onCompose: (text: string) => void; onDeleteProject: (project: Project) => Promise<void>; onManageApps: (event: MouseEvent<HTMLAnchorElement>) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
+function Studio({ apiBase, apps, installations, onCompose, onCreateWorld, onDeleteProject, onManageApps, onRenameProject, onStartProject, projects, worlds }: { apiBase: string; apps: Installation[]; installations: Installation[]; onCompose: (text: string) => void; onCreateWorld: () => void; onDeleteProject: (project: Project) => Promise<void>; onManageApps: (event: MouseEvent<HTMLAnchorElement>) => void; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[]; worlds: WorldSummary[] }) {
   const { t, locale } = useI18n();
-  const recentProjects = projects.slice(0, 11);
   const sortedInstallations = sortByOrder(installations, STUDIO_HOME_ORDER);
   const editorApp = sortedInstallations.find((app) => app.manifest.id === "recut.editor");
   const restInstallations = sortedInstallations.filter((app) => app.manifest.id !== "recut.editor");
@@ -275,13 +322,9 @@ function Studio({ apiBase, apps, installations, onCompose, onDeleteProject, onMa
       </div>
     </section>
     <section className="mt-8"><SectionHeading action={<a className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps" onClick={onManageApps}>{t("studio.section.apps.manage")}<ArrowRight className="size-3.5" /></a>} description={t("studio.section.apps.desc")} title={t("studio.section.apps")} /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{editorApp && <StudioAppCard app={editorApp} key={editorApp.package} onOpen={() => editorApp.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(editorApp.manifest.id)}`) : onStartProject(editorApp)} />}<WorldsAppCard />{restInstallations.map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div></section>
-    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">{t("studio.section.projects.all")}<ArrowRight className="size-3.5" /></Link>} description={t("studio.section.projects.desc")} title={t("studio.section.projects")} /><RecentProjects apiBase={apiBase} apps={apps} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={recentProjects} /></section>
+    <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">{t("studio.section.projects.all")}<ArrowRight className="size-3.5" /></Link>} description={t("studio.section.projects.desc")} title={t("studio.section.projects")} /><ProjectSpaces apiBase={apiBase} apps={apps} limit={11} onCreateWorld={onCreateWorld} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={projects} worlds={worlds} /></section>
     <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/media">{t("studio.section.assets.open")}<ArrowRight className="size-3.5" /></Link>} description={t("studio.section.assets.desc")} title={t("studio.section.assets")} /><RecentAssets apiBase={apiBase} /></section>
   </div>;
-}
-
-function RecentProjects({ apiBase, apps, onDeleteProject, onRenameProject, onStartProject, projects }: { apiBase: string; apps: Installation[]; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
-  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"><NewProjectCard apps={apps} onStartProject={onStartProject} />{projects.map((project) => <ProjectCard apiBase={apiBase} app={apps.find((app) => app.manifest.id === project.appId)} key={project.id} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} project={project} />)}</div>;
 }
 
 function ProjectCard({ apiBase, app, onDeleteProject, onRenameProject, project }: { apiBase?: string; app?: Installation; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; project: Project }) {
@@ -308,9 +351,10 @@ function ProjectCoverPreview({ apiBase, app, project }: { apiBase?: string; app?
   return <div className="flex aspect-[16/7] items-center justify-between border-b bg-muted p-3"><span className="grid size-7 place-items-center rounded-sm bg-card text-muted-foreground shadow-sm"><Icon className="size-3.5" /></span><span className="rounded-xs border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground">{app?.manifest.name ?? project.appId}</span></div>;
 }
 
-function ProjectsPage({ apiBase, apps, onDeleteProject, onRenameProject, onStartProject, projects }: { apiBase: string; apps: Installation[]; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[] }) {
+function ProjectsPage({ apiBase, apps, onCreateWorld, onDeleteProject, onRenameProject, onStartProject, projects, worlds }: { apiBase: string; apps: Installation[]; onCreateWorld: () => void; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; onStartProject: (app: Installation) => void; projects: Project[]; worlds: WorldSummary[] }) {
   const { t } = useI18n();
-  return <><SectionTitle count={interpolate(t("projects.count"), { count: projects.length })} description={t("projects.desc")} title={t("projects.title")} /><Projects apiBase={apiBase} apps={apps} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={projects} /></>;
+  const count = projects.length + worlds.filter((world) => worldOrigin(world) !== "platform").length;
+  return <><SectionTitle count={interpolate(t("projects.count"), { count })} description={t("projects.desc")} title={t("projects.title")} /><ProjectSpaces apiBase={apiBase} apps={apps} onCreateWorld={onCreateWorld} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={projects} worlds={worlds} /></>;
 }
 
 function RecentAssets({ apiBase }: { apiBase: string }) {

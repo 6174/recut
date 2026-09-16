@@ -19,6 +19,15 @@ const (
 	SpeechGenerate MediaCapability = "speech.generate"
 )
 
+// AssetStatusProposed is the lifecycle state of a generation proposal that has
+// not been confirmed by the user yet. A proposed asset carries the full
+// generation recipe in metadata but owns no media_jobs row and consumes no
+// provider cost; confirming it transitions the same asset into the job
+// lifecycle. Keeping the proposal in the global asset layer is what lets the
+// media library, World Canvas and Editor share one strategy instead of each
+// maintaining their own proposal protocol.
+const AssetStatusProposed = "proposed"
+
 // ReferenceKindSpec is the per-reference-kind constraint of one budget: an
 // optional size ceiling and a mime allowlist. Both fields are optional; a spec
 // with neither accepts everything of its kind.
@@ -103,6 +112,12 @@ type MediaModel struct {
 	// Voices 是该模型自己的内置音色清单（如 Atlas 各 TTS 模型 schema 的 voice 枚举）。
 	// 空表示模型不声明 per-model 音色：调用方回退到 provider 级动态 voices 或扩展清单。
 	Voices []MediaVoice `json:"voices,omitempty"`
+	// RequiresProposal extends the user-confirmation gate to this model's
+	// capability: generation must first land as a `proposed` asset and only
+	// spends provider cost after the user confirms. Video is gated by
+	// capability regardless of this flag; this field lets the catalog mark
+	// individual high-cost models of other capabilities.
+	RequiresProposal bool `json:"requiresProposal,omitempty"`
 }
 
 type MediaProvider struct {
@@ -301,4 +316,74 @@ type ComposeMediaInput struct {
 	VideoTimeline []TimelineClip      `json:"videoTimeline"`
 	AudioTimeline []TimelineClip      `json:"audioTimeline"`
 	Settings      CompositionSettings `json:"settings"`
+}
+
+// ProposalOrigin traces a proposal back to the App/Project/World/entity that
+// raised it, so a later consumer (library, canvas, editor) can attribute it.
+type ProposalOrigin struct {
+	AppID     string `json:"appId,omitempty"`
+	ProjectID string `json:"projectId,omitempty"`
+	WorldID   string `json:"worldId,omitempty"`
+	EntityID  string `json:"entityId,omitempty"`
+}
+
+// ProposalReference is one binding in a generation proposal: the stable asset
+// identity plus the anchoring role/label from the generation reference
+// protocol. The flat ReferenceIDs of a proposal are derived from the order of
+// this list, so it is the submission-order authority.
+type ProposalReference struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind,omitempty"`
+	Role  string `json:"role,omitempty"`
+	Label string `json:"label,omitempty"`
+}
+
+// ProposalSpec is the metadata.proposal payload: the reviewable recipe of a
+// proposed asset. It is kept after confirmation for traceability.
+type ProposalSpec struct {
+	References  []ProposalReference `json:"references,omitempty"`
+	AspectRatio string              `json:"aspectRatio,omitempty"`
+	DurationSec float64             `json:"durationSec,omitempty"`
+	Note        string              `json:"note,omitempty"`
+	ProposedBy  string              `json:"proposedBy,omitempty"`
+	ProposedAt  string              `json:"proposedAt,omitempty"`
+	BatchID     string              `json:"batchId,omitempty"`
+	Origin      *ProposalOrigin     `json:"origin,omitempty"`
+	ConfirmedAt string              `json:"confirmedAt,omitempty"`
+}
+
+// ProposeInput describes a generation proposal: the intent fields of
+// GenerateMediaInput (no execution) plus the proposal-only extras.
+type ProposeInput struct {
+	Capability     MediaCapability     `json:"capability"`
+	Route          string              `json:"route"`
+	ModelID        string              `json:"modelId"`
+	CredentialID   string              `json:"credentialId"`
+	Prompt         string              `json:"prompt"`
+	References     MediaReferences     `json:"references,omitempty"`
+	ReferenceIDs   []string            `json:"referenceIds"`
+	Output         map[string]any      `json:"output"`
+	ProjectID      string              `json:"projectId"`
+	ReferencesMeta []ProposalReference `json:"referencesMeta,omitempty"`
+	AspectRatio    string              `json:"aspectRatio,omitempty"`
+	DurationSec    float64             `json:"durationSec,omitempty"`
+	Note           string              `json:"note,omitempty"`
+	ProposedBy     string              `json:"proposedBy,omitempty"`
+	BatchID        string              `json:"batchId,omitempty"`
+	Origin         *ProposalOrigin     `json:"origin,omitempty"`
+	IdempotencyKey string              `json:"idempotencyKey"`
+}
+
+// ProposalPatch is a partial update of a proposed asset's recipe. Nil fields
+// are left unchanged. Used by both update_proposal and confirm overrides.
+type ProposalPatch struct {
+	Prompt       *string              `json:"prompt,omitempty"`
+	ModelID      *string              `json:"modelId,omitempty"`
+	CredentialID *string              `json:"credentialId,omitempty"`
+	Output       map[string]any       `json:"output,omitempty"`
+	References   *[]ProposalReference `json:"references,omitempty"`
+	ReferenceIDs *[]string            `json:"referenceIds,omitempty"`
+	AspectRatio  *string              `json:"aspectRatio,omitempty"`
+	DurationSec  *float64             `json:"durationSec,omitempty"`
+	Note         *string              `json:"note,omitempty"`
 }

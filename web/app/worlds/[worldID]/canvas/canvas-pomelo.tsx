@@ -41,8 +41,8 @@ import { CanvasToasts } from "./canvas-toast";
 import { CanvasOutline } from "./canvas-outline";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrMediaValueOf, attrValueOf, ENTITY_FIELD_ASSOCIATIONS, entityMediaAttrs } from "./entity-attrs";
-import { readProposal } from "./canvas-proposal";
-import { canvasAssetStateOf, ensureCanvasAssetStatus, stopCanvasAssetStatus, useCanvasAssetStatusStore } from "./canvas-asset-status";
+import { readProposal, proposalFromAsset } from "./canvas-proposal";
+import { canvasAssetOf, canvasAssetStateOf, ensureCanvasAssetStatus, stopCanvasAssetStatus, useCanvasAssetStatusStore } from "./canvas-asset-status";
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
@@ -143,9 +143,11 @@ function buildPomeloRecords(
       const modality = String(element.props?.modality ?? "image");
       const assetId = String(element.props?.assetId ?? "");
       const url = String(element.props?.url ?? "");
-      const proposal = readProposal(element.props);
+      // 提案真源是全局资产：优先从已回查的 asset 读 proposal（旧画布元素回退 props.proposal）。
+      const asset = assetId ? canvasAssetOf(assetId) : null;
+      const proposal = (asset ? proposalFromAsset(asset) : null) ?? readProposal(element.props);
       // AI 先落 assetId（素材仍在生成）时：不把未就绪的素材 URL 交给渲染器（避免 404 重试），
-      // 走蓝/红等待态；素材就绪后由状态订阅重建文档切到真实图。
+      // 走蓝/红等待态；素材就绪后由状态订阅重建文档切到真实图。proposed 由提案徽标表达。
       const assetState = canvasAssetStateOf(assetId, element.props?.assetStatus);
       records.push({
         id: element.id,
@@ -157,7 +159,7 @@ function buildPomeloRecords(
           height: liveSize?.height ?? (Number(element.geometry?.height) || 150),
           modality,
           src: assetState === "ready" ? mediaSource(state.apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }) : "",
-          ...(assetState !== "ready" ? { assetStatus: assetState } : {}),
+          ...(assetState !== "ready" && assetState !== "proposed" ? { assetStatus: assetState } : {}),
           attached: element.props?.evidenceId ? true : undefined,
           label: String(element.name ?? ""),
           ...(proposal ? {
@@ -181,7 +183,8 @@ function buildPomeloRecords(
         ...(attrAssetId ? { assetId: attrAssetId } : {}),
         ...(element.props?.url ? { url: String(element.props.url) } : {}),
       }) : "";
-      const proposal = readProposal(element.props);
+      const attrAsset = attrAssetId ? canvasAssetOf(attrAssetId) : null;
+      const proposal = (attrAsset ? proposalFromAsset(attrAsset) : null) ?? readProposal(element.props);
       records.push({
         id: element.id,
         type: "free-element",
@@ -196,7 +199,7 @@ function buildPomeloRecords(
           label: String(element.props?.label ?? ""),
           text: String(element.props?.text ?? ""),
           mediaSrc,
-          ...(assetState !== "ready" ? { assetStatus: assetState } : {}),
+          ...(assetState !== "ready" && assetState !== "proposed" ? { assetStatus: assetState } : {}),
           ...(proposal ? {
             proposalStatus: proposal.status,
             proposalPrompt: proposal.prompt.replace(/<[^>]*>/g, " "),

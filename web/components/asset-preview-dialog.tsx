@@ -40,7 +40,7 @@ export type PreviewAsset = {
   kind: "image" | "video" | "audio" | "transcript" | "reference";
   name: string;
   origin: string;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "proposed" | "queued" | "running" | "completed" | "failed";
   jobId?: string;
   remoteId?: string;
   error?: string;
@@ -97,7 +97,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
   const knownAssets = new Map(assets.map((item) => [item.id, item]));
   liveAssets.forEach((item) => knownAssets.set(item.id, item as unknown as PreviewAsset));
   const references = referenceIDs.map((id) => knownAssets.get(id)).filter((item): item is PreviewAsset => Boolean(item));
-  const statusText = status === "failed" ? "生成失败" : ready ? "已完成" : "生成中";
+  const statusText = status === "failed" ? "生成失败" : status === "proposed" ? "待确认生成" : ready ? "已完成" : "生成中";
   const statusLabel = <><span>{statusText}</span><GenerationDuration className="font-mono text-[10px] text-muted-foreground" item={asset} /></>;
   async function copyContext() {
     await navigator.clipboard.writeText(mediaContext(asset));
@@ -131,7 +131,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
             <button className="mt-3 flex h-8 w-full items-center justify-center gap-1.5 rounded-xs border text-xs hover:bg-muted" onClick={() => void copyContext()} type="button">{copied ? <Check className="size-3.5 text-primary" /> : <Copy className="size-3.5" />}{copied ? "已复制，可粘贴给 AI" : "复制素材上下文"}</button>
             <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">复制受控资源引用和素材信息，直接粘贴到 Agent 对话即可。</p>
             <dl className="mt-4 space-y-4 text-xs">
-              <div><dt className="text-muted-foreground">状态</dt><dd className="mt-1 flex items-center gap-1.5">{!ready && status !== "failed" && <LoaderCircle className="size-3 animate-spin text-primary" />}{statusLabel}</dd>{asset.error && <dd className="mt-1 text-[11px] text-destructive">{asset.error}</dd>}</div>
+              <div><dt className="text-muted-foreground">状态</dt><dd className="mt-1 flex items-center gap-1.5">{!ready && status !== "failed" && status !== "proposed" && <LoaderCircle className="size-3 animate-spin text-primary" />}{statusLabel}</dd>{asset.error && <dd className="mt-1 text-[11px] text-destructive">{asset.error}</dd>}</div>
               {metadata.prompt !== undefined && <PromptSection prompt={String(metadata.prompt ?? "")} />}
               {references.length > 0 && <div><dt className="text-muted-foreground">参考素材</dt><dd className="mt-2 grid grid-cols-3 gap-2">{references.map((ref) => <ReferencePreview key={ref.id} apiBase={apiBase} reference={ref} />)}</dd></div>}
             </dl>
@@ -307,7 +307,8 @@ function TranscriptAssetContent({ apiBase, asset }: { apiBase: string; asset: Pr
 }
 
 function PendingAssetContent({ apiBase, asset, status }: { apiBase: string; asset: PreviewAsset; status: string }) {
-  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground"><LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} /><div><p className="text-sm font-medium text-foreground">{status === "failed" ? "生成失败" : "生成中"}</p><GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} /><p className="mt-1 text-xs leading-5">素材引用已经建立；完成后会在这里原位可预览。</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryDownloadButton apiBase={apiBase} asset={asset} />}</div></div>;
+  const proposed = status === "proposed";
+  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground">{!proposed && <LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} />}<div><p className={`text-sm font-medium ${proposed ? "text-amber-600" : "text-foreground"}`}>{status === "failed" ? "生成失败" : proposed ? "待确认生成" : "生成中"}</p>{!proposed && <GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} />}<p className="mt-1 text-xs leading-5">{proposed ? "这是一条生成提案；确认后才提交生成并消耗额度。" : "素材引用已经建立；完成后会在这里原位可预览。"}</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryDownloadButton apiBase={apiBase} asset={asset} />}</div></div>;
 }
 
 function RetryDownloadButton({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {

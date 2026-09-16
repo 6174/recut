@@ -45,7 +45,8 @@ import {
 import { applyCanvasError } from "./canvas-errors";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrValueOf, entityFieldKeyOfLabel } from "./entity-attrs";
-import { generationCapabilityOf, isProposalGate, proposalIssues, proposalReferenceIds, readProposal, type GenerationProposal } from "./canvas-proposal";
+import { confirmProposalAsset, createProposal as createProposalAsset, generationCapabilityOf, isProposalGate, proposalFromAsset, proposalIssues, proposalReferenceIds, readProposal, rejectProposalAsset, updateProposalAsset, type GenerationProposal } from "./canvas-proposal";
+import { refreshCanvasAsset, useCanvasAssetStatusStore } from "./canvas-asset-status";
 import { buildGenerationRequest } from "@/lib/media/generation-request";
 import { normalizeAsset, type Asset, type MediaJob } from "@/app/media/media-types";
 import { useElementAssetHistoryStore } from "./panel/element-asset-history-store";
@@ -314,6 +315,15 @@ async function adoptProposalAsset(elementId: string, assetId: string, name: stri
   else await store.setMediaElementAsset(elementId, { assetId, name });
   await useWorldCanvasStore.getState().updateProposal(elementId, { status: "done", error: "" });
   useWorldCanvasStore.getState().toast("生成完成，已就绪", "success");
+}
+
+// 从元素引用的全局资产读提案视图（资产已由 canvas-asset-status 回查缓存）。
+function proposalFromAssetOfElement(elementId: string): GenerationProposal | null {
+  const element = useWorldCanvasStore.getState().elements.find((item) => item.id === elementId);
+  const assetId = String(element?.props?.assetId ?? "");
+  if (!assetId) return null;
+  const asset = useCanvasAssetStatusStore.getState().assets[assetId];
+  return asset ? proposalFromAsset(asset) : null;
 }
 
 // 默认实体名（B.5 自动确认规则的「非默认名」判定；B.7 命名态预填同名）；reference 预设已退役
@@ -2060,38 +2070,109 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
 
-  // 生成提案：AI/用户提交待确认的生成单（提示词 + 参考 + 模型 + 参数）。写画布元素，不产 revision、不花钱。
+  // 生成提案：真源是全局素材（proposed 资产）。有 assetId 时直接复用；AI 已落资产时只做绑定。
+  // 无 assetId（用户在画布直接起草）时：创建全局 proposed 资产，再写元素 assetId。不产 revision、不花钱。
   createProposal: async (elementId, proposal) => {
-    await get().persistGeometry(elementId, undefined, {
-      proposal: { ...proposal, status: "pending", proposedAt: proposal.proposedAt ?? new Date().toISOString() },
-    });
-    set((state) => ({ dataVersion: state.dataVersion + 1 }));
+    const element = get().elements.find((item) => item.id === elementId);
+    if (!element) return;
+    const existingAssetId = String(element.props?.assetId ?? "");
+    try {
+      if (existingAssetId) {
+        await get().updateProposal(elementId, proposal);
+        return;
+      }
+      const modality = String(element.props?.modality ?? element.props?.media ?? "video");
+      const asset = await createProposalAsset(get().apiBase, {
+        capability: generationCapabilityOf(modality),
+        prompt: proposal.prompt,
+        modelId: proposal.modelId,
+        credentialId: proposal.credentialId,
+        output: proposal.params ?? {},
+        references: proposal.references,
+        referenceIds: proposalReferenceIds(proposal),
+        aspectRatio: proposal.aspectRatio,
+        durationSec: proposal.durationSec,
+        note: proposal.note,
+        batchId: proposal.batchId,
+        proposedBy: proposal.proposedBy ?? "user",
+      });
+      const bind = element.kind === "attr" ? get().setAttrMediaAsset : get().setMediaElementAsset;
+      await bind(elementId, { assetId: asset.id, name: asset.name });
+      refreshCanvasAsset(get().apiBase, asset.id);
+    } catch (cause) {
+      get().toast(cause instanceof Error ? cause.message : "创建提案失败，请重试。", "error");
+    }
   },
 
-  // 提案局部更新：读取现有提案合并 patch（状态机流转与面板编辑共用）
+  // 提案局部更新：资产提案走 PATCH；旧画布（无 assetId、props.proposal）保持本地合并。
   updateProposal: async (elementId, patch) => {
     const element = get().elements.find((item) => item.id === elementId);
     if (!element) return;
+    const assetId = String(element.props?.assetId ?? "");
+    if (assetId) {
+      const current = proposalFromAssetOfElement(elementId);
+      if (!current) return;
+      const merged: GenerationProposal = { ...current, ...patch };
+      try {
+        const asset = await updateProposalAsset(get().apiBase, assetId, {
+          prompt: merged.prompt,
+          modelId: merged.modelId,
+          credentialId: merged.credentialId,
+          output: merged.params,
+          references: merged.references,
+          referenceIds: proposalReferenceIds(merged),
+          aspectRatio: merged.aspectRatio,
+          durationSec: merged.durationSec,
+          note: merged.note,
+        });
+        useCanvasAssetStatusStore.setState((prev) => ({ assets: { ...prev.assets, [asset.id]: normalizeAsset(asset) } }));
+        set((state) => ({ dataVersion: state.dataVersion + 1 }));
+      } catch (cause) {
+        get().toast(cause instanceof Error ? cause.message : "修改提案失败，请重试。", "error");
+      }
+      return;
+    }
     const current = readProposal(element.props);
     if (!current) return;
     await get().persistGeometry(elementId, undefined, { proposal: { ...current, ...patch } });
     set((state) => ({ dataVersion: state.dataVersion + 1 }));
   },
 
-  // 配方草稿：持久化用户正在编辑的配方（关闭面板/刷新不丢输入）。只写 draft，不覆盖进行中的提案。
+  // 配方草稿：仅旧画布（无 assetId）持久化本地输入；资产提案本身就是草稿真相，不再单存。
   saveProposalDraft: async (elementId, patch) => {
     const element = get().elements.find((item) => item.id === elementId);
-    if (!element) return;
+    if (!element || element.props?.assetId) return;
     const current = readProposal(element.props);
     if (current && isProposalGate(current.status)) return;
     const next: GenerationProposal = { status: "draft", prompt: "", references: [], ...(current ?? {}), ...patch };
     await get().persistGeometry(elementId, undefined, { proposal: next });
   },
 
-  // 确认提案 = 唯一花钱动作：先过自检（fail closed），再提交生成任务并轮询采纳产物
+  // 确认提案 = 唯一花钱动作。资产提案：调资产 confirm，原地转 queued（assetId 不变，画布自动续上）；
+  // 旧画布（props.proposal）：沿用提交 /v1/media/jobs 并轮询采纳。
   confirmProposal: async (elementId) => {
     const element = get().elements.find((item) => item.id === elementId);
     if (!element || get().readOnly) return;
+    const assetId = String(element.props?.assetId ?? "");
+    if (assetId) {
+      const proposal = proposalFromAssetOfElement(elementId);
+      if (proposal) {
+        const errors = proposalIssues(proposal).filter((issue) => issue.level === "error");
+        if (errors.length) {
+          get().toast(errors[0].message, "error");
+          return;
+        }
+      }
+      try {
+        await confirmProposalAsset(get().apiBase, assetId);
+        refreshCanvasAsset(get().apiBase, assetId);
+        set((state) => ({ dataVersion: state.dataVersion + 1 }));
+        get().toast("已确认生成，素材就绪后会自动显示", "success");
+      } catch (cause) {
+        get().toast(cause instanceof Error ? cause.message : "确认生成失败，请重试。", "error");
+      }
+      return;
+    }
     const proposal = readProposal(element.props);
     if (!proposal || proposal.status === "generating") return;
     const errors = proposalIssues(proposal).filter((issue) => issue.level === "error");
@@ -2128,10 +2209,25 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
 
-  // 取消提案：退回配方草稿（保留提示词/参考等输入，回到常规编辑器），不删除节点
+  // 取消提案：资产提案软删并解绑元素；旧画布退回配方草稿（保留输入），不删除节点。
   rejectProposal: async (elementId) => {
     const element = get().elements.find((item) => item.id === elementId);
-    if (!element || !readProposal(element.props)) return;
+    if (!element) return;
+    const assetId = String(element.props?.assetId ?? "");
+    if (assetId) {
+      try {
+        await rejectProposalAsset(get().apiBase, assetId);
+      } catch (cause) {
+        get().toast(cause instanceof Error ? cause.message : "放弃提案失败，请重试。", "error");
+        return;
+      }
+      const unbind = element.kind === "attr" ? get().setAttrMediaAsset : get().setMediaElementAsset;
+      await unbind(elementId, null);
+      set((state) => ({ dataVersion: state.dataVersion + 1 }));
+      get().toast("已放弃提案", "info");
+      return;
+    }
+    if (!readProposal(element.props)) return;
     await get().updateProposal(elementId, { status: "draft", error: "" });
     get().toast("已取消提案，配方保留为草稿", "info");
   },

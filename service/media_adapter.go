@@ -26,6 +26,11 @@ type MediaAssetPage = media.MediaAssetPage
 type MediaJob = media.MediaJob
 type MediaShare = media.MediaShare
 type GenerateMediaInput = media.GenerateMediaInput
+type ProposalOrigin = media.ProposalOrigin
+type ProposalReference = media.ProposalReference
+type ProposalSpec = media.ProposalSpec
+type ProposeInput = media.ProposeInput
+type ProposalPatch = media.ProposalPatch
 type TimelineClip = media.TimelineClip
 type CompositionSettings = media.CompositionSettings
 type ComposeMediaInput = media.ComposeMediaInput
@@ -33,10 +38,11 @@ type TranscriptImport = media.TranscriptImport
 type ReferenceAssetInput = media.ReferenceAssetInput
 
 const (
-	ImageGenerate     = media.ImageGenerate
-	VideoGenerate     = media.VideoGenerate
-	SpeechGenerate    = media.SpeechGenerate
-	CodexImageModelID = media.CodexImageModelID
+	ImageGenerate       = media.ImageGenerate
+	VideoGenerate       = media.VideoGenerate
+	SpeechGenerate      = media.SpeechGenerate
+	CodexImageModelID   = media.CodexImageModelID
+	AssetStatusProposed = media.AssetStatusProposed
 )
 
 const interruptedMediaJobMessage = media.InterruptedMediaJobMessage

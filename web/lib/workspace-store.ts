@@ -12,7 +12,7 @@ import { fetchRecutJSON } from "./service-endpoint";
 
 export type WorkspaceApp = { manifest: { id: string; name: string; author: string; description: string; repository?: string; version: string; type: "project" | "standalone"; ui?: { projectView?: string; standaloneView?: string }; agentSurface?: { domain: string; defaultIntent: "browse" | "create" | "project_edit" | "world_review" | "media_manage"; requiredSkill?: string } } };
 export type WorkspaceProjectCover = { source?: "asset" | "file"; assetId?: string; kind: "image" | "video"; filePath?: string; mimeType?: string };
-export type WorkspaceProject = { id: string; name: string; appId: string; cover?: WorkspaceProjectCover };
+export type WorkspaceProject = { id: string; name: string; appId: string; cover?: WorkspaceProjectCover; updatedAt?: string };
 export type WorkspaceProjectDetail = WorkspaceProject & { appVersion: string; createdAt: string };
 export type WorkspaceScope = { id: string; name: string; appId: string; appVersion: string };
 export type WorkspaceInstallation = { package: string; manifest: WorkspaceApp["manifest"]; repository?: string; revision?: string; dirty: boolean; updateAvailable: boolean; manageable: boolean; status?: string };

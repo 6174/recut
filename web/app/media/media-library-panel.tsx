@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { CustomSelect } from "@/components/ui/select-field";
 import { MediaAssetEventsProvider, useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
+import { confirmProposalAsset } from "@/lib/media/proposal";
 import { useServiceStore } from "@/lib/service-store";
 import { AssetGrid } from "./asset-grid";
 import { AssetPreview } from "./asset-preview";
@@ -208,6 +209,16 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
     if (!response.ok) throw new Error(await responseMessage(response));
     upsertAsset(await response.json());
   }
+  async function confirmProposal(asset: Asset) {
+    try {
+      await confirmProposalAsset(apiBase, asset.id);
+      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { cache: "no-store" });
+      if (response.ok) upsertAsset(await response.json());
+      setNotice("已确认生成；素材就绪后会自动更新。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "确认生成失败，请重试。");
+    }
+  }
   async function deleteAsset(asset: Asset) {
     const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { method: "DELETE" });
     if (!response.ok) throw new Error(await responseMessage(response));
@@ -338,6 +349,7 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
               apiBase={apiBase}
               assets={renderedAssets}
               jobs={visibleJobs}
+              onConfirm={confirmProposal}
               onDelete={deleteAsset}
               onPreview={setPreview}
               onRename={renameAsset}
@@ -374,6 +386,10 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
             setCreateDraft(null);
           }}
           onOpenProviderSettings={openProviderSettings}
+          onProposed={(asset) => {
+            upsertAsset(asset);
+            setNotice("视频提案已创建，请点击素材卡上的“确认生成”。");
+          }}
           onSubmitted={(job) => {
             setJobs((items) => [job, ...items]);
             void hydrateSubmittedAssets(job);
@@ -392,6 +408,7 @@ function CreateAssetDialog({
   onAssetImported,
   onClose,
   onOpenProviderSettings,
+  onProposed,
   onSubmitted,
 }: {
   assets: Asset[];
@@ -400,6 +417,7 @@ function CreateAssetDialog({
   onAssetImported: (asset: Asset) => void;
   onClose: () => void;
   onOpenProviderSettings: () => void;
+  onProposed: (asset: Asset) => void;
   onSubmitted: (job: MediaJob) => void;
 }) {
   const apiBase = useServiceStore((state) => state.endpoint);
@@ -498,7 +516,9 @@ function CreateAssetDialog({
     if (supportsGeneratedAudio) output.generateAudio = generateAudio;
     setSubmitting(true);
     setError("");
-    const response = await fetch(`${apiBase}/v1/media/jobs`, {
+    // 视频（高价）先落提案，用户确认后才生成；图片/音频保持直生。
+    const proposes = kind.capability === "video.generate";
+    const response = await fetch(`${apiBase}${proposes ? "/v1/media/proposals" : "/v1/media/jobs"}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -516,7 +536,8 @@ function CreateAssetDialog({
       setError(body?.error ?? "创建任务失败，请检查 Provider 配置。");
       return;
     }
-    onSubmitted((await response.json()) as MediaJob);
+    if (proposes) onProposed((await response.json()) as Asset);
+    else onSubmitted((await response.json()) as MediaJob);
     onClose();
   }
   async function importReference(file: File) {
