@@ -33,13 +33,12 @@ export async function restoreLibraryAudioSourceUrls({
   }
 
   for (const element of audioElements) {
-    // sourceUrl 是 blob:/http(s) 且当前页面可用则无需恢复；objectURL 在
-    // 刷新后已失效（blob: 前缀但不可用），统一从缓存重建。
+    // http(s) 已是稳定源，无需恢复；blob 在刷新后失效，空值也需要重建。
     const isHttpUrl = /^https?:\/\//.test(element.sourceUrl);
-    const isBlobUrl = element.sourceUrl.startsWith("blob:");
     if (isHttpUrl) {
       continue;
     }
+    const isBlobUrl = element.sourceUrl.startsWith("blob:");
 
     const file = await loadAudioFile({ audioId: element.audioId });
     if (file) {
@@ -55,20 +54,18 @@ export async function restoreLibraryAudioSourceUrls({
       continue;
     }
 
-    if (isBlobUrl) {
-      // 缓存缺失但保留的 blob URL 已失效：尝试用 CDN 回退。
-      const fallback = await resolveCdnUrl?.(element.audioId);
-      if (fallback) {
+    // 缓存缺失：回退到音频库 CDN URL。拿不到时保持原值，绝不做破坏性清空——
+    // 否则下次 restore 会因 sourceUrl 既非 http 也非 blob 而跳过，永久失声。
+    const fallback = await resolveCdnUrl?.(element.audioId);
+    if (fallback) {
+      if (isBlobUrl) {
         try {
           URL.revokeObjectURL(element.sourceUrl);
         } catch {
           // Ignore revoke errors.
         }
-        element.sourceUrl = fallback;
-      } else {
-        // 缓存与 CDN 都拿不到：清掉失效的 blob URL，避免播放/波形去 fetch 死链。
-        element.sourceUrl = "";
       }
+      element.sourceUrl = fallback;
     }
   }
 }
