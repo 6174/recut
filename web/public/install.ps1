@@ -108,6 +108,44 @@ try {
   & $platformVenvPython -c 'from pathlib import Path; import imageio_ffmpeg, os, shutil; source = Path(imageio_ffmpeg.get_ffmpeg_exe()); target = Path(os.environ["RECUT_PLATFORM_VENV"]) / "Scripts" / "ffmpeg.exe"; shutil.copy2(source, target); print("[Recut install] FFmpeg 已就绪")'
   if ($LASTEXITCODE -ne 0) { Fail "无法激活平台 FFmpeg" }
 
+  # 参考理解依赖（RFC §2.3）：增装 PySceneDetect/opencv-headless/Pillow/numpy 与
+  # static-ffmpeg 并补齐 ffprobe。最佳努力，失败不阻断安装（服务端 prepare 可补齐）。
+  Log "安装平台参考理解依赖（ffprobe / PySceneDetect / Pillow）"
+  & $platformVenvPython -m pip install --disable-pip-version-check --upgrade static-ffmpeg scenedetect opencv-python-headless Pillow numpy
+  if ($LASTEXITCODE -eq 0) {
+    $understandingScript = @'
+import os, shutil, stat
+from pathlib import Path
+paths = []
+try:
+    from static_ffmpeg import run as static_run
+    pair = static_run.get_or_fetch_platform_executables_else_raise()
+    paths = [p for p in (pair if isinstance(pair, (tuple, list)) else []) if p]
+except Exception as exc:
+    print("[Recut install] static-ffmpeg 不可用: %s" % exc)
+try:
+    import imageio_ffmpeg
+    paths.append(imageio_ffmpeg.get_ffmpeg_exe())
+except Exception:
+    pass
+bin_dir = Path(os.environ["RECUT_PLATFORM_VENV"]) / "Scripts"
+for name in ("ffmpeg.exe", "ffprobe.exe"):
+    destination = bin_dir / name
+    if destination.exists():
+        continue
+    for source in paths:
+        if Path(source).name.lower().startswith(name.split(".")[0]):
+            shutil.copy2(source, destination)
+            os.chmod(destination, os.stat(destination).st_mode | stat.S_IEXEC)
+            print("[Recut install] %s 已就绪" % name)
+            break
+'@
+    $env:RECUT_PLATFORM_VENV = $platformVenv
+    $understandingScript | & $platformVenvPython -
+    Set-Content -LiteralPath (Join-Path $platformVenv ".recut-understand") -Value '{"toolVersion":"understand-1"}' -ErrorAction SilentlyContinue
+  }
+  else { Log "平台参考理解依赖安装失败（可稍后由 recut.media.understand.prepare 准备）" }
+
   $taskCommand = ('"{0}" --data-dir "{1}"' -f $serviceBinary, $RecutHome)
   Log "注册并启动 Windows 本地服务"
   & schtasks.exe /Create /TN "Recut Service" /TR $taskCommand /SC ONLOGON /RL LIMITED /F | Out-Null

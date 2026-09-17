@@ -162,7 +162,7 @@ func (m *MediaService) Propose(input ProposeInput) (MediaAsset, error) {
 	if route.ID != "" {
 		metadata["routeId"] = route.ID
 	}
-	return m.createProposedAsset(input.ProjectID, kind, mimeType, metadata)
+	return m.createProposedAsset("", input.ProjectID, kind, mimeType, metadata)
 }
 
 // buildProposalSpec assembles the reviewable recipe. referenceIds (refs.Flat)
@@ -253,7 +253,8 @@ func validateProposalRoles(references []ProposalReference) error {
 
 // createProposedAsset inserts the proposed asset row. It deliberately bypasses
 // the job lifecycle: proposed assets have no bytes and no media_jobs binding.
-func (m *MediaService) createProposedAsset(projectID, kind, mimeType string, metadata map[string]any) (MediaAsset, error) {
+// An empty name yields the default proposal name.
+func (m *MediaService) createProposedAsset(name, projectID, kind, mimeType string, metadata map[string]any) (MediaAsset, error) {
 	id, err := newID()
 	if err != nil {
 		return MediaAsset{}, err
@@ -263,7 +264,10 @@ func (m *MediaService) createProposedAsset(projectID, kind, mimeType string, met
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	name := "proposal-" + id
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "proposal-" + id
+	}
 	asset := MediaAsset{ID: id, Kind: kind, Name: name, MimeType: mimeType, Origin: "proposed", Status: AssetStatusProposed, Metadata: metadata, CreatedAt: now, UpdatedAt: now}
 	db, err := m.database()
 	if err != nil {

@@ -24,7 +24,7 @@
 ## 介质映射：op 语法骨架（保留 2 个示例）
 
 - 关键帧路径：`opacity`、`transform.scaleX/Y`、`transform.positionX/Y`、`transform.rotate`；文字额外 `content/fontSize/color/letterSpacing`。
-- `ref` 来自 `insert`/`timeline.read` 返回值；时长单位秒；复杂需求（粒子、字形描画、shader 感）→ `component.create` 再按用户明确要求 `timeline.placeComponents`。
+- `ref` 来自 `insert`/`timeline.read` 返回值；时长单位秒；复杂需求（粒子、字形描画、shader 感）→ `motion-graphic.create` 再按用户明确要求 `timeline.placeComponents`。
 
 ### 示例 1：标题淡入浮起 fade-up-title（开场/章节标题）
 

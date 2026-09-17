@@ -10,73 +10,29 @@ import (
 	"testing"
 )
 
-// setupEditorTestApp 把真实 recut.editor 应用（../apps/editor）复制进临时目录并建项目，
-// 使测试走真实 background.js + backgroundModules + manifest + goja host + sqlite 全链路。
+// setupEditorTestApp 从编译内嵌的 builtin editor 归档（apps/editor 已移除）解出真实
+// manifest/background/scripts/sdk/ui.dist/catalog 到临时目录，走真实 host + sqlite 全链路。
 func setupEditorTestApp(t *testing.T) (*Catalog, *Store, *AppHost, Project) {
 	t.Helper()
-	src := filepath.Join("..", "apps", "editor")
 	root := t.TempDir()
-	appDir := filepath.Join(root, "apps", "recut-editor")
-	if err := os.MkdirAll(filepath.Join(appDir, "ui", "dist"), 0o755); err != nil {
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := os.ReadFile(filepath.Join(src, "manifest.json"))
-	if err != nil {
-		t.Fatalf("read editor manifest: %v", err)
+	appDir := filepath.Join(appsDir, "editor")
+	if err := extractBuiltinApp(appDir, "editor", embeddedEditor); err != nil {
+		t.Fatalf("extract builtin editor: %v", err)
 	}
-	background, err := os.ReadFile(filepath.Join(src, "background.js"))
-	if err != nil {
-		t.Fatalf("read editor background: %v", err)
+	// 组件构建链依赖 esbuild/typescript：让 <appRoot>/ui/node_modules 指向 web 依赖
+	// （component-build.js 从 `<appRoot>/ui` 解析）。
+	realNodeModules, absErr := filepath.Abs(filepath.Join("..", "web", "node_modules"))
+	if absErr != nil {
+		t.Fatal(absErr)
 	}
-	writeTestFile(t, filepath.Join(appDir, "manifest.json"), string(manifest))
-	writeTestFile(t, filepath.Join(appDir, "background.js"), string(background))
-	backgroundDir := filepath.Join(src, "background")
-	if entries, readErr := os.ReadDir(backgroundDir); readErr == nil {
-		if err := os.MkdirAll(filepath.Join(appDir, "background"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for _, entry := range entries {
-			if entry.IsDir() || filepath.Ext(entry.Name()) != ".js" {
-				continue
-			}
-			content, fileErr := os.ReadFile(filepath.Join(backgroundDir, entry.Name()))
-			if fileErr != nil {
-				t.Fatal(fileErr)
-			}
-			writeTestFile(t, filepath.Join(appDir, "background", entry.Name()), string(content))
-		}
-	}
-	writeTestFile(t, filepath.Join(appDir, "ui", "dist", "index.html"), "ok")
-	// 组件构建链依赖：复制 scripts/component-build.js 与 sdk/，并让 ui/node_modules 指向真实应用
-	// （component-build.js 从 `<appRoot>/scripts` 解析 esbuild/typescript 于 `<appRoot>/ui`）。
-	if err := copyEditorDir(t, filepath.Join(src, "scripts"), filepath.Join(appDir, "scripts")); err != nil {
-		t.Fatal(err)
-	}
-	if err := copyEditorDir(t, filepath.Join(src, "sdk"), filepath.Join(appDir, "sdk")); err != nil {
-		t.Fatal(err)
-	}
-	realNodeModules := filepath.Join(src, "ui", "node_modules")
 	if _, err := os.Stat(realNodeModules); err == nil {
-		absReal, absErr := filepath.Abs(realNodeModules)
-		if absErr != nil {
-			t.Fatal(absErr)
-		}
-		if err := os.Symlink(absReal, filepath.Join(appDir, "ui", "node_modules")); err != nil {
+		_ = os.RemoveAll(filepath.Join(appDir, "ui", "node_modules"))
+		if err := os.Symlink(realNodeModules, filepath.Join(appDir, "ui", "node_modules")); err != nil {
 			t.Fatal(err)
-		}
-	}
-	// 随包 catalog（library.browse 的 shipped 回退源）
-	catalogSrc := filepath.Join(src, "catalog")
-	if entries, err := os.ReadDir(catalogSrc); err == nil {
-		if err := os.MkdirAll(filepath.Join(appDir, "catalog"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for _, entry := range entries {
-			content, err := os.ReadFile(filepath.Join(catalogSrc, entry.Name()))
-			if err != nil {
-				continue
-			}
-			writeTestFile(t, filepath.Join(appDir, "catalog", entry.Name()), string(content))
 		}
 	}
 
@@ -850,7 +806,7 @@ func TestEditorManifestIsSelfConsistent(t *testing.T) {
 		}
 	}
 	// 关键 AI 操作必须 mcp surface
-	for _, must := range []string{"timeline.read", "element.get", "timeline.validate", "timeline.command", "timeline.placeComponents", "history.undo", "project.lock", "component.create", "component.revise", "component.list"} {
+	for _, must := range []string{"timeline.read", "element.get", "timeline.validate", "timeline.command", "timeline.placeComponents", "history.undo", "project.lock", "motion-graphic.create", "motion-graphic.revise", "motion-graphic.list"} {
 		ok := false
 		for _, op := range manifest.Operations {
 			if op.Name == must && strings.Contains(strings.Join(op.Surfaces, ","), "mcp") {

@@ -7,13 +7,29 @@ import { useMaterialUniforms } from "./shared/uniforms";
 import { getShaderTexturePass } from "../../shader-effects/registry";
 import { PASSTHROUGH_VERTEX } from "../../shader-effects/shared/glsl";
 
+type EffectParams = ComponentRenderContext["params"];
+
 /**
  * 放大镜特效：全画布后处理平面，圆形透镜放大 + 像素 HUD + 色差 + 雾气。
  * 透镜中心由可关键帧的 centerX/centerY（UV [0,1]）参数驱动。
  */
 export function MagnifyEffect({ world, params }: ComponentRenderContext) {
 	const texture = useSceneTexture();
+	// Rules of Hooks：纹理缺失时不能在调用其他 hook 前提前 return。
+	// 用内层组件承载带 texture 的 hook 链，挂载即有纹理，保持 build 只跑一次的语义。
 	if (!texture) return null;
+	return <MagnifyEffectInner world={world} params={params} texture={texture} />;
+}
+
+function MagnifyEffectInner({
+	world,
+	params,
+	texture,
+}: {
+	world: ComponentRenderContext["world"];
+	params: EffectParams;
+	texture: THREE.Texture;
+}) {
 	const centerX = num(params.centerX, 0.5);
 	const centerY = num(params.centerY, 0.5);
 	const zoom = num(params.zoom, 1.7);

@@ -39,6 +39,24 @@ type CompositionSettings = media.CompositionSettings
 type ComposeMediaInput = media.ComposeMediaInput
 type TranscriptImport = media.TranscriptImport
 type ReferenceAssetInput = media.ReferenceAssetInput
+type UnderstandFramesInput = media.UnderstandFramesInput
+type UnderstandFramesResult = media.UnderstandFramesResult
+type UnderstandContactSheetInput = media.UnderstandContactSheetInput
+type UnderstandContactSheetResult = media.UnderstandContactSheetResult
+type UnderstandBoundariesInput = media.UnderstandBoundariesInput
+type UnderstandBoundariesResult = media.UnderstandBoundariesResult
+type UnderstandClipResult = media.UnderstandClipResult
+type UnderstandFrame = media.UnderstandFrame
+type UnderstandSheetCell = media.UnderstandSheetCell
+type MeasureRequestInput = media.MeasureRequestInput
+type PlaceholderAssetInput = media.PlaceholderAssetInput
+type ReferenceAttachInput = media.ReferenceAttachInput
+type ReferenceSource = media.ReferenceSource
+type ReferenceTranscript = media.ReferenceTranscript
+type ReferenceFrame = media.ReferenceFrame
+type ReferenceSheet = media.ReferenceSheet
+type ReferenceClip = media.ReferenceClip
+type ReferenceEvidence = media.ReferenceEvidence
 
 const (
 	ImageGenerate       = media.ImageGenerate
@@ -54,6 +72,7 @@ const (
 	MetadataKeyContent     = media.MetadataKeyContent
 	MetadataKeyContentMeta = media.MetadataKeyContentMeta
 	MetadataKeyAttributes  = media.MetadataKeyAttributes
+	MetadataKeyReference   = media.MetadataKeyReference
 	MaterialActorSystem    = media.MaterialActorSystem
 	MaterialActorAgent     = media.MaterialActorAgent
 	MaterialActorUser      = media.MaterialActorUser
@@ -62,6 +81,7 @@ const (
 var ErrShareNotFound = media.ErrShareNotFound
 var ErrShareUnavailable = media.ErrShareUnavailable
 var MaterialAttrsFromMetadata = media.MaterialAttrsFromMetadata
+var ReadReferenceEvidence = media.ReadReferenceEvidence
 
 type mediaStoreAdapter struct{ store *Store }
 

@@ -1,6 +1,6 @@
-# AI 临时组件（Temp Components）
+# 组件素材契约（motion graphic 的默认实现载体）
 
-> 代码即项目内临时素材。时间线 clip `type:"component"` + `componentId`；运行时解析到**最新 verified head**。失败永不渲染，head 保持旧版本。项目作用域，删项目即清理。
+> 代码即素材。消费方持有 `assetId` / `componentId` 引用，运行时解析到**最新 verified head**；失败永不渲染，head 保持旧版本。组件创建一律只进素材库、不落消费方结构。
 
 ## 作者分级 surface
 
@@ -55,14 +55,14 @@ interface ComponentRenderContext {
 
 | op | 说明 |
 |---|---|
-| `component.create` | **创建组件素材的唯一入口（异步 job）。** 输入 `{items:[{nameHint,brief,mode?,role?,template?}], references?, design?}`；构建 + 轻量验证后发布为 verified 素材，并自动创建 `type:"component"` asset 引用。job 完成结果返回 `assetIds[]` 和 `components[]`，每项含 `{assetId,componentId,versionId,status,mode}`；AI 将 `assetId` 传给 `timeline.placeComponents`，`componentId` 只用于修订/读源码。 |
-| `component.revise` | 已有组件的调整/Bug 修复入口。输入 `{componentId,instruction}`；平台固定当前 verified head，启动同模型受限子 Agent 生成新版本，构建 + 轻量验证后成为新 head。失败保留旧 head，绝不写时间线。 |
-| `component.list` | 项目内组件数据 + head 状态 + `inputs` + `mode` + `assetId`；素材发现优先 `asset.list`。 |
-| `component.source` | 读组件源码（当前 verified head 或指定版本）。主 Agent 可读，作为审查/修改的输入。 |
-| `component.update` | 主 Agent 直接提交组件源码新版本（绕过受限子 Agent）。传入 `componentId` + 完整 `source`；基于当前 verified head 开新版本，构建 + 轻量验证后成为新 verified head，进素材库；不落轨。 |
-| `component.archive` | 从素材库隐藏组件但保留版本和已有时间线引用；不删除时间线元素。 |
+| `motion-graphic.create` | **创建组件素材的唯一入口（异步 job）。** 输入 `{items:[{nameHint,brief,mode?,role?,template?}], references?, design?}`；构建 + 轻量验证后发布为 verified 素材，并自动创建 `type:"component"` asset 引用。job 完成结果返回 `assetIds[]` 和 `components[]`，每项含 `{assetId,componentId,versionId,status,mode}`；AI 将 `assetId` 传给 `timeline.placeComponents`，`componentId` 只用于修订/读源码。 |
+| `motion-graphic.revise` | 已有组件的调整/Bug 修复入口。输入 `{componentId,instruction}`；平台固定当前 verified head，启动同模型受限子 Agent 生成新版本，构建 + 轻量验证后成为新 head。失败保留旧 head，绝不写时间线。 |
+| `motion-graphic.list` | 项目内组件数据 + head 状态 + `inputs` + `mode` + `assetId`；素材发现优先 `asset.list`。 |
+| `motion-graphic.source` | 读组件源码（当前 verified head 或指定版本）。主 Agent 可读，作为审查/修改的输入。 |
+| `motion-graphic.update` | 主 Agent 直接提交组件源码新版本（绕过受限子 Agent）。传入 `componentId` + 完整 `source`；基于当前 verified head 开新版本，构建 + 轻量验证后成为新 verified head，进素材库；不落轨。 |
+| `motion-graphic.archive` | 从素材库隐藏组件但保留版本和已有时间线引用；不删除时间线元素。 |
 
-通过 `component.create`/`component.revise` 创建或修改组件，再用 `recut.job.*` 获取进度、错误和取消状态；读源码用 `component.source`，需要明确修订时用 `component.update`。组件完成验证后才能落到时间线。
+通过 `motion-graphic.create`/`motion-graphic.revise` 创建或修改组件，再用 `recut.job.*` 获取进度、错误和取消状态；读源码用 `motion-graphic.source`，需要明确修订时用 `motion-graphic.update`。组件完成验证后才能落到时间线。
 
 ## 组件形态（mode）
 
@@ -72,9 +72,9 @@ interface ComponentRenderContext {
 
 ## 创建语义（模板 = skeleton，不是直发成品）
 
-- 所有组件创建都走 `component.create`，一律由受限子 Agent 完成；**不再有“简单用 create / 复杂用 author”的二分**。
+- 所有组件创建都走 `motion-graphic.create`，一律由受限子 Agent 完成；**不再有“简单用 create / 复杂用 author”的二分**。
 - `template` / `role` 只用于**选 skeleton**：子 Agent 拿到一个高质量骨架源码作为起点（如 `feature-chip`、全屏 `feature-title` 骨架），
-  基于它改写/扩展成目标组件，再通过唯一的 `component.commit` 工具交付。模板不是拿来直接发布的成品。
+  基于它改写/扩展成目标组件，再通过唯一的 `motion-graphic.commit` 工具交付。模板不是拿来直接发布的成品。
 - 验证是**轻量“能构建、能跑”**检查（作者路径构建闸 = esbuild 可编译 + 形状校验 + 确定性扫描，strict tsc 放开为类型契约）；视觉质量由人来判断。封面可选。
 - 错误是结构化信封：可预期失败返回 `{ok:false, kind, code, message, hint}`，按 `code` 处理，不当作工具崩溃重试。
 
@@ -86,7 +86,7 @@ interface ComponentRenderContext {
 timeline.placeComponents {
   baseVersion,
   items: [
-    { assetId: "<component.create job result.components[0].assetId>", startSec, durationSec, params: { <inputs defaults 展开> } }
+    { assetId: "<motion-graphic.create job result.components[0].assetId>", startSec, durationSec, params: { <inputs defaults 展开> } }
   ]
 }
 ```
@@ -95,7 +95,7 @@ timeline.placeComponents {
 
 ## 验证闭环
 
-`component.create` 异步 job 完成验证后成为素材库中的 verified 组件。组件创建不会自动改变时间线；确定入片时，再用 `timeline.placeComponents` 放置。
+`motion-graphic.create` 异步 job 完成验证后成为素材库中的 verified 组件。组件创建不会自动改变时间线；确定入片时，再用 `timeline.placeComponents` 放置。
 
 ## 常用 inputs 约定
 

@@ -2,7 +2,7 @@
 
 > `timeline.command { type:"param", payload:{ ref, params } }` 可设置以下键。实现对齐 `ui/src/params/registry.ts` 与 `ui/src/params/defaults.ts`。写入非法键值会被 `timeline.validate` 的 `param-valid` 命中。
 
-## 通用视觉参数（video/image/text/graphic/component）
+## 通用视觉参数（video/image/text/graphic/motion-graphic）
 
 | key | 类型 | 默认 | 说明 |
 |---|---|---|---|
@@ -45,9 +45,9 @@ hard-light soft-light difference exclusion hue saturation color luminosity addit
 
 > 视觉铁律：1080p 主信息 ≥56px、字幕 ≥40px、辅助 ≥32px；字幕无底框、高对比。
 
-## 组件（component 元素）
+## Motion Graphic（motion-graphic 元素）
 
-`inputs` 来自 `component.list` 的 `inputs: ParamDefinition[]`，每个 `{ key, label?, type?, default? }`。建 `type:"component"` 的 clip 时把各 input 的 `default` 展开进 `params`。组件参数同样可打关键帧（`params.<key>` 路径）。
+`inputs` 来自 `motion-graphic.list` 的 `inputs: ParamDefinition[]`，每个 `{ key, label?, type?, default? }`。建 `type:"component"` 的 clip 时把各 input 的 `default` 展开进 `params`。组件参数同样可打关键帧（`params.<key>` 路径）。
 
 ## 效果 / 蒙版
 

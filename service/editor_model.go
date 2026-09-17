@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 无外部依赖；供 editor ops/store/handlers 共享的时间线原语（model-base.js 的 Go 权威实现）。
- * [OUTPUT]: tick、轨道、元素、关键帧与自动混音的纯函数；component 元素保留 assetId 与 componentId。
+ * [OUTPUT]: tick、轨道、元素、关键帧与自动混音的纯函数；motion-graphic 元素保留 assetId 与 componentId。
  * [POS]: service editor 域的基础层；Go 为 timeline 变更/校验/读模型的唯一权威实现，渲染端只消费不复制。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -537,6 +537,10 @@ func removeTrackFromScene(scene map[string]any, trackID any) bool {
 
 func buildElement(payload map[string]any, seq any, locale Locale) map[string]any {
 	elementType := edStr(payload["type"])
+	// 旧命名兼容：历史 op / 文档里的 "component" 归一到 "component"。
+	if elementType == "component" {
+		elementType = "component"
+	}
 	elementID := edStr(payload["elementId"])
 	if elementID == "" {
 		elementID = "el-ai" + edSeqString(seq) + "-" + edSeqString(payload["slot"])
@@ -598,9 +602,9 @@ func buildElement(payload map[string]any, seq any, locale Locale) map[string]any
 func defaultElementName(elementType string, locale Locale) string {
 	names := map[string]string{}
 	if locale == LocaleEn {
-		names = map[string]string{"video": "Video", "image": "Image", "text": "Text", "graphic": "Graphic", "component": "Component", "audio": "Audio", "effect": "Effect"}
+		names = map[string]string{"video": "Video", "image": "Image", "text": "Text", "graphic": "Graphic", "component": "Motion Graphic", "audio": "Audio", "effect": "Effect"}
 	} else {
-		names = map[string]string{"video": "视频", "image": "图片", "text": "文本", "graphic": "图形", "component": "组件", "audio": "音频", "effect": "特效"}
+		names = map[string]string{"video": "视频", "image": "图片", "text": "文本", "graphic": "图形", "component": "Motion Graphic", "audio": "音频", "effect": "特效"}
 	}
 	if n, ok := names[elementType]; ok {
 		return n

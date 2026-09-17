@@ -15,7 +15,7 @@ Editor 的“完成”不是一个布尔值，而是三层证据：结构成立�
 
 - 每个 `assetId`/`mediaId` 存在且已登记；
 - track type 与 element type 匹配，时间在范围内且没有意外 overlap；
-- component head 已 verified、参数合法、transcript source 仍可解析；
+- motion graphic 已 verified、参数合法、transcript source 仍可解析；
 - 受影响的 A-roll、motion graphics、B-roll、字幕、音乐和 voiceover 依赖仍对应当前时间线；未受影响的下游不因局部编辑被强制重做。
 
 结构证据只回答“文档可执行”，不回答“画面好不好”。
@@ -41,8 +41,8 @@ Editor 的“完成”不是一个布尔值，而是三层证据：结构成立�
 ## 失败分类
 
 - **状态/ID 失败**：stale id、version conflict、asset 未登记 → 重读上下文后重放；
-- **结构失败**：track/overlap/range/component/param violation → 修 op，不先修视觉；
-- **资产失败**：component build、媒体生成或 transcription 的 job `failed` → 处理终态，禁止用 text-only 静默替代；图片/语音仍在生成中（queued/running）不算失败，已先落位、就绪后自动显示；
+- **结构失败**：track/overlap/range/motion-graphic/param violation → 修 op，不先修视觉；
+- **资产失败**：motion graphic build、媒体生成或 transcription 的 job `failed` → 处理终态，禁止用 text-only 静默替代；图片/语音仍在生成中（queued/running）不算失败，已先落位、就绪后自动显示；
 - **构图失败**：主体被盖、fit 错、自然 box 溢出、文字不可读 → 先修 placement/form，再决定是否修 source；
 - **节奏失败**：read time 不够、旁白描述错画面、motion graphic 晚于 speech beat → 修 sync map、duration 或 scene 结构；
 - **交付失败**：export job 非终态、产物缺失或 version 不匹配 → 不声称交付，报告具体 blocker。

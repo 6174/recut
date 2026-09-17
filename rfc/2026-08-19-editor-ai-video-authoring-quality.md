@@ -392,7 +392,7 @@ AI 锁也应收窄：批事务期间 UI 暂停本地写入，但持续应用远�
     "route": "media-led",
     "confidence": 0.91,
     "sourceAssets": [{ "assetId": "asset-01", "kind": "video", "durationSec": 12.4, "ratio": "16:9", "transcript": "none" }],
-    "treatmentDefaults": { "aRoll": "not-applicable", "bRoll": "selected", "motionGraphics": "selected", "captions": "not-needed", "music": "selected" },
+    "treatmentDefaults": { "aRoll": "not-applicable", "bRoll": "selected", "components": "selected", "captions": "not-needed", "music": "selected" },
     "requiredReads": ["directing", "shot-library", "components", "preview-export"],
     "blockedWrites": ["timeline.placeComponents", "subtitle.import"]
   }

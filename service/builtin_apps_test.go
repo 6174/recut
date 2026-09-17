@@ -29,7 +29,13 @@ func TestBuiltinAppsInstallEditorOnFirstLaunch(t *testing.T) {
 	if app.Root != filepath.Join(appsDir, "editor") {
 		t.Fatalf("built-in App root = %q", app.Root)
 	}
-	for _, required := range []string{"background.js", "ui/dist/index.html", "skills/recut-editor/SKILL.md", "scripts/decode-base64.js"} {
+	// recut-editor 技能已全局化到 service/skills/recut-editor（RFC
+	// 2026-09-17-editor-native-migration §4.6 / M2.5），内置 App 包不再携带
+	// App 私有技能副本：surface requiredSkill 解析到全局技能。
+	if _, err := os.Stat(filepath.Join(app.Root, "skills", "recut-editor")); err == nil {
+		t.Fatal("built-in App must not ship an App-local recut-editor skill copy")
+	}
+	for _, required := range []string{"background.js", "ui/dist/index.html", "scripts/decode-base64.js"} {
 		if _, err := os.Stat(filepath.Join(app.Root, required)); err != nil {
 			t.Fatalf("built-in App is missing %s: %v", required, err)
 		}

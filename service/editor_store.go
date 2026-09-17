@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"strconv"
 	"time"
+
+	"recut-service/motion_graphic"
 )
 
 const editorAILockTimeoutMS = int64(5 * 60 * 1000)
@@ -291,17 +293,20 @@ func (c *editorContext) logSince(afterVersion int64) []any {
 	return out
 }
 
-// headVersionStatus 读组件 head 版本的验证状态（组件存储仍归 background/M2）。
+// headVersionStatus 读全局 Motion Graphic 素材的验证状态。
 func (c *editorContext) headVersionStatus(componentID string) (string, bool) {
-	c.ensureSchema()
-	rows, err := queryMaps(c.db,
-		"select v.status from editor_component_versions v "+
-			"where v.version_id = (select head_version_id from editor_components where component_id = ? and project_id = ?)",
-		componentID, c.scopeID)
-	if err != nil || len(rows) == 0 {
+	if c.host == nil || c.host.store == nil {
 		return "", false
 	}
-	return edStr(rows[0]["status"]), true
+	db, err := c.host.store.WorkspaceDatabase()
+	if err != nil {
+		return "", false
+	}
+	material, ok := motion_graphic.Read(db, componentID)
+	if !ok {
+		return "", false
+	}
+	return material.Status, true
 }
 
 func opComponentIDs(op map[string]any) []string {

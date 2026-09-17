@@ -237,7 +237,7 @@ export type ComponentResolver = (componentId: string) => Promise<ComponentResolv
 
 let resolver: ComponentResolver | null = null;
 
-/** 注入解析器：UI 用 recut-sdk 调 component.resolve；测试/演示可用文件/内存实现。 */
+/** 注入解析器：UI 用 recut-sdk 调 motion-graphic.resolve；测试/演示可用文件/内存实现。 */
 export function installComponentResolver(r: ComponentResolver | null): void {
 	resolver = r;
 }

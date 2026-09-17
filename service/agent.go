@@ -1487,7 +1487,11 @@ func materializeWorkSurfaceContext(m *AgentManager, payload json.RawMessage) (co
 				policy := app.Manifest.AgentSurface
 				defaultIntent = policy.DefaultIntent
 				if policy.RequiredSkill != "" {
-					requiredSkill = &workSurfaceSkill{AppID: project.AppID, SkillID: policy.RequiredSkill}
+					skillAppID := project.AppID
+					if platformSkillExists(policy.RequiredSkill) {
+						skillAppID = platformSkillAppID
+					}
+					requiredSkill = &workSurfaceSkill{AppID: skillAppID, SkillID: policy.RequiredSkill}
 				}
 				if policy.Domain == "timeline-editor" {
 					lines = append(lines, "Interpret HTML, React, R3F, shader, component, and animation as timeline visual-component work. Interpret 'bottom' as the video canvas lower safe area.")
@@ -1518,7 +1522,11 @@ func materializeWorkSurfaceContext(m *AgentManager, payload json.RawMessage) (co
 		lines = append(lines, "Default intent: "+defaultIntent+".")
 	}
 	if skill := requiredSkill; skill != nil && skill.AppID != "" && skill.SkillID != "" {
-		lines = append(lines, "Relevant App skill: appId="+skill.AppID+"; skillId="+skill.SkillID+".")
+		scope := "App"
+		if skill.AppID == platformSkillAppID {
+			scope = "platform"
+		}
+		lines = append(lines, "Relevant "+scope+" skill: appId="+skill.AppID+"; skillId="+skill.SkillID+".")
 	}
 	lines = append(lines, "</recut-work-surface>")
 	return contextMaterial{Label: surface.Title, Kind: "work_surface", Text: strings.Join(lines, "\n")}, nil

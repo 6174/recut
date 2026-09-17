@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 Recut Host 的 asset.list/component.resolve、runtime 组件注册表与 ai-components 的测试 seam（无宿主降级）。
+ * [INPUT]: 依赖 Recut Host 的 asset.list/motion-graphic.resolve、runtime 组件注册表与 ai-components 的测试 seam（无宿主降级）。
  * [OUTPUT]: 对外提供安装 Resolver 与按 asset 引用、时间线引用同步组件的 syncTimelineComponents。
  * [POS]: recut Host 组件数据到 UI runtime 的桥；只有 asset 引用或已有时间线引用才能触发动态加载。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -20,7 +20,7 @@ import {
 } from "./ai-components";
 
 /**
- * Recut Host 桥：把组件解析器接到 background 的 component.resolve。
+ * Recut Host 桥：把组件解析器接到 background 的 motion-graphic.resolve。
  * 项目加载后 syncTimelineComponents 同步已验证的项目组件，并额外扫描时间线兼容旧项目。
  */
 let installed = false;
@@ -55,7 +55,7 @@ export function installRecutComponentResolver(): void {
 			);
 			try {
 				const result = await Promise.race([
-					recut.background.call("component.resolve", { ids: [componentId] }),
+					recut.background.call("motion-graphic.resolve", { ids: [componentId] }),
 					timer,
 				]);
 				if (!result) return null;
@@ -71,7 +71,7 @@ export function installRecutComponentResolver(): void {
 					coverUrl: comp.coverUrl,
 				};
 			} catch (error) {
-				console.warn(`[recut] component.resolve 失败 ${componentId}:`, error);
+				console.warn(`[recut] motion-graphic.resolve 失败 ${componentId}:`, error);
 				return null;
 			}
 		},

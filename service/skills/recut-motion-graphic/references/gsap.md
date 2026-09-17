@@ -4,7 +4,7 @@
            gsap-plugins / gsap-performance，MIT，Webflow 收购后含 SplitText/MorphSVG 在内全部插件免费）。
   [OUTPUT]: 组件动画的 GSAP 完整参考（Recut 确定性裁剪版）：core/timeline/react/utils/plugins/performance
            的官方要点全量纳入，标注 Recut 禁用项；useTimeline/useGSAP 模式、白名单插件、常见动效模板。
-  [POS]: recut-editor 的组件动画参考；与作者契约内嵌卡片同源。子 Agent 不读外部技能，本文件是自包含快照。
+  [POS]: recut-motion-graphic 的组件动画参考；与作者契约内嵌卡片同源。子 Agent 不读外部技能，本文件是自包含快照。
   [PROTOCOL]: 变更时更新此头部，然后检查 README.md
   -->
 

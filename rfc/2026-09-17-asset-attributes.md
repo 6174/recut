@@ -295,19 +295,21 @@ MG / 组件今天由 `apps/editor` 的私有 SQLite 维护，且**按项目归�
 ### 8.2 目标（全局 Material）
 
 ```
-全局 code material（平台，非某项目私有）
-  component_materials(material_id PK, name, surface, keywords_json, head_version_id,
-                      origin_app_id, origin_project_id?, archived_at, created_at, updated_at)
-  component_material_versions(version_id PK, material_id, version, source, bundle, bundle_hash,
-                      inputs_json, status, test_report_json, cover_ref, created_at, verified_at)
+全局 code material（平台，非某项目私有；已实施为 mg_materials）
+  mg_materials(material_id PK, name, surface, keywords_json, mode,
+               source, bundle, bundle_hash, inputs_json, status, code_version,
+               test_report_json, last_error_json, cover_ref,
+               origin_app_id, origin_project_id, archived_at, created_at, updated_at)
   material metadata: content / attributes            // 与字节素材同一创作层
 ```
 
-- **ID 稳定**：`component_id` → `material_id`、`version_id` 原样保留。时间线元素 `componentId/versionId` 与 `editor_assets.ref_id/ref_version_id` **无需重指**（迁移不改引用）。
-- **所有权去项目化**：删 `project_id not null`，降级为 `origin_project_id`（仅溯源，不参与权限/生命周期/可见性）；`origin_app_id = recut.editor`。
-- **引用索引保留**：`editor_assets`（或改名 `project_materials`）继续记录「这个项目引了哪些组件」，角色从「资产真相」退为「引用连接」，与字节素材经 `media_asset_projects` attach 完全对等。
-- **存储分 backing**：媒体字节仍在 `media_assets`，组件源码/构建在 `component_materials`，不塞进同一张字节表（沿用迁移 RFC §2 纪律）；对上层暴露统一的 Material 读视图（§3.1）。
-- **构建/渲染归平台**：组件构建与渲染由平台 Render Host 承担（迁移 RFC M2/M3），不再依赖 editor 的 `component-build.js` 与 UI bundle。
+- **不支持多版本（实现决策，覆盖初稿）**：不存在 `*_versions` 版本历史表。`code_version` + `versionId = <materialId>@<codeVersion>` 只是**当前 code 的句柄**。调整 = 原位覆盖 current code；要保留旧版就**新建素材**。
+- **ID 稳定**：`component_id` → `material_id` 原样保留。时间线元素 `componentId` 与 `editor_assets.ref_id` **无需重指**（迁移不改引用）；`ref_version_id` 只是当前版本句柄。
+- **last-good 保护**：构建失败绝不覆盖已存在的 `source`/`bundle`，只写 `last_error_json`；只有构建成功才写 current code 并递增 `code_version`。
+- **所有权去项目化**：`project_id` 降级为 `origin_project_id`（仅溯源）；`origin_app_id = recut.editor`。素材是**全局通用素材，无项目概念**；「本项目引了哪些 MG」由消费方的引用索引（`editor_assets`）维护。
+- **AI 层统一命名**：op = `motion-graphic.create/revise/define/verify/list/source/update/archive/resolve`；子 Agent 工具 = `recut.editor.motion-graphic.commit`；assetId 前缀 = `component:<id>`；元素类型 `motion-graphic`、字段 `componentId`；落轨 = `timeline.placeComponents`；事件 = `project.components.changed`。
+- **存储分 backing**：媒体字节仍在 `media_assets`，MG 源码/构建在 `mg_materials`，不塞进同一张字节表（沿用迁移 RFC §2 纪律）；对上层暴露统一的 Material 读视图（§3.1）。
+- **构建归平台**：构建由 `motion_graphic` 包（Go）调用平台构建契约完成，editor 不再是所有者（`apps/editor/background/components.js` 已退役）。渲染仍待迁移 RFC M3 的 Render Host。
 
 ### 8.3 迁移动作
 
@@ -334,7 +336,7 @@ MG / 组件今天由 `apps/editor` 的私有 SQLite 维护，且**按项目归�
 | **M1 真实内容参考** | `reference.create`（assetId + 可选 url） | 真实视频标记为参考（`kind` 仍为 video）；`sourceUrl` 可溯源；与 `create_reference` 分界清晰；不做 URL 去重 |
 | **M2 参考证据** | `reference.attach` + `metadata.reference` | 理解证据幂等写入；同一参考被第二个目标复用不重复理解；证据只装观察 |
 | **M3 统一预览编辑面** | `AssetPreviewDialog` 展示并编辑 content/attributes；`timeline-editor` 素材面板接入 | 打开素材即可编辑属性/正文并保存；来源与 provenance 可见；编辑器与素材库同一框 **（已实施）** |
-| **M4 MG 全局化迁移** | 全局 `component_materials` 表 + 逐项目搬运 + `component.*` 写侧切全局；旧表冻结 | `componentId`/`versionId` 不变、时间线引用零重指；换项目后可见/复用同一 MG；`component.list` = 项目引用视图；回退可切回私有表 |
+| **M4 MG 全局化迁移（已实施）** | 全局 `mg_materials`（单条 current code）+ 逐项目搬运 + `motion-graphic.*` 写侧切全局（Go `service/motion_graphic` 包）；旧表冻结 | id 不变、时间线引用零重指；换项目/App 后可见/复用同一 MG；构建失败保留 last-good；回退可切回私有表 |
 | **M5 消费对接** | editor / clone / World / MG 跨场景 | editor 素材 == 全局素材（无私有属性层）；clone 计划用 content/attrs；MG 在 editor 外场景可复用；回归无差异 |
 
 依赖：M0 是 M1/M2/M3 的前置；M1/M2 可与 [reference-understanding](./2026-09-17-reference-understanding.md) 的 M0–M2 并行；M4 依赖迁移 RFC 的 store 落点与 Render Host；M5 依赖 clone skill 与 M4。
@@ -342,7 +344,7 @@ MG / 组件今天由 `apps/editor` 的私有 SQLite 维护，且**按项目归�
 ## 10. 受影响契约
 
 - **素材元数据**：新增 `metadata.content` / `metadata.contentMeta` / `metadata.attributes`（Attr[]，带 provenance）；系统数据沿用既有 `metadata.proposal` / `metadata.reference`；覆盖 `code` backing 的组件素材。
-- **全局组件素材**：新增全局表 `component_materials` / `component_material_versions` 与项目引用表（替代 editor 私有 `editor_components` / `editor_component_versions` 的权威地位）；`component.*` op 名与 payload 不变，写侧改全局。
+- **全局 MG 素材**：全局表 `mg_materials`（单条 current code，无版本历史）替代 editor 私有 `editor_components` / `editor_component_versions` 的权威地位；op 统一为 `motion-graphic.*`、写侧改全局。
 - **MCP / agent**：新增 `recut.media.asset.get` / `recut.media.asset.update` / `recut.media.reference.create` / `recut.media.reference.attach`；`list_assets` 输出可含属性摘要（向后兼容）；组件素材的 attrs/content 读写随迁移 RFC 的 MaterialService 并入。
 - **Web / editor**：`AssetPreviewDialog` 成为唯一素材预览编辑框（属性/正文可编辑）；`timeline-editor` 素材面板接入；`editor_assets` 退回引用索引并在 M4 迁为 `project_materials`。
 - **SSE**：沿用 `asset.updated`（组件变更并入素材变更事件）。

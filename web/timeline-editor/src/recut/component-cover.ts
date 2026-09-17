@@ -1,5 +1,5 @@
 /**
- * [INPUT]: asset.list 返回的 active component 引用、component.resolve 返回的精确版本 bundle、component-harness 的 WebGL/HTML-in-Canvas 渲染与 component.verify、ai-components 测试 seam（无宿主跳过）。
+ * [INPUT]: asset.list 返回的 active component 引用、motion-graphic.resolve 返回的精确版本 bundle、component-harness 的 WebGL/HTML-in-Canvas 渲染与 motion-graphic.verify、ai-components 测试 seam（无宿主跳过）。
  * [OUTPUT]: 对外提供组件素材库可见性验证，渲染稳定帧并将 PNG 作为组件素材封面回传。
  * [POS]: recut 组件素材库的 UI verifier；只有素材库显示时才执行 HTML-in-Canvas，不写入时间线。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -98,7 +98,7 @@ async function captureRenderedPng(harness: Harness, timeoutMs = 8000): Promise<s
 
 /**
  * 在隐藏 harness 中渲染一个组件（AI bundle 或平台内置 id）并轮询捕获透明封面 PNG。
- * 共享给 AI 组件（component.verify 写库）与平台内置组件（IndexedDB 缓存）。
+ * 共享给 AI 组件（motion-graphic.verify 写库）与平台内置组件（IndexedDB 缓存）。
  */
 export async function captureComponentCover(
 	options: HarnessComponent,
@@ -142,7 +142,7 @@ export async function verifyComponentVersion(versionId: string): Promise<void> {
 	if (!versionId || running.has(versionId) || shouldGiveUp(versionId)) return;
 	running.add(versionId);
 	try {
-		const resolved = await recut.background.call("component.resolve", { versionId });
+		const resolved = await recut.background.call("motion-graphic.resolve", { versionId });
 		const component = resolved?.components?.[0];
 		if (!component || !["draft", "verified"].includes(component.status)) return;
 		// 已有封面的 verified 版本无需再次启动隐藏 harness。
@@ -157,7 +157,7 @@ export async function verifyComponentVersion(versionId: string): Promise<void> {
 		});
 		const dataUrl = captured?.dataUrl ?? null;
 		const size = captured;
-		await recut.background.call("component.verify", {
+		await recut.background.call("motion-graphic.verify", {
 			versionId,
 			report: {
 				ok: true,
@@ -182,7 +182,7 @@ export async function verifyComponentVersion(versionId: string): Promise<void> {
 
 /** 组件素材库挂载时调用：只为当前可见列表中缺封面的版本执行一次 UI 验证。 */
 export async function ensureVisibleComponentCovers(): Promise<void> {
-	// 测试 seam（demo/Playwright）无宿主桥：封面验证依赖 component.resolve/verify 背景通道，直接跳过。
+	// 测试 seam（demo/Playwright）无宿主桥：封面验证依赖 motion-graphic.resolve/verify 背景通道，直接跳过。
 	if (getTestSeam()) return;
 	try {
 		const listed = await recut.background.call("asset.list", {});

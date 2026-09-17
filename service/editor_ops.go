@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 editor_model 的纯模型函数。
- * [OUTPUT]: applyOp、校验与供 UI/Agent 共用的时间线读取模型（op-engine.js 的 Go 权威实现）；组件 clip 读回 assetId 与 componentId。
+ * [OUTPUT]: applyOp、校验与供 UI/Agent 共用的时间线读取模型（op-engine.js 的 Go 权威实现）；motion-graphic clip 读回 assetId 与 componentId。
  * [POS]: service editor 域的确定性命令内核；不访问 SQLite、不注册外部 operation。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */

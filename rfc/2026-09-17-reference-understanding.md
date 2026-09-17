@@ -404,6 +404,20 @@ service/skills/recut-clone/
 依赖：M0→M1→M2 顺序推进；M3 可与 M1/M2 并行；M4 依赖 M3；M5 依赖 M4 与 Editor 落轨能力；**M6（recut-editor 技能全局化）与 Editor 迁移同批，是 S5 组装的前置**。
 可先行的部分：**零花费路径**（S1→S2→S3→S4 仅字幕/图形）只依赖 M3，可在 Editor 迁移完成前先跑通，作为分层正确性的最早期验证。
 
+### 8.1 实施状态（2026-09-17）
+
+| 里程碑 | 状态 | 落点 |
+|---|---|---|
+| **M0** | **已实施** | `service/media/understand/{plan,probe,frames,sheet,scenes,python,runner,prepare}.go`（纯函数 + adapter + Python 脚本）；平台 venv 锁定依赖与 ffprobe 补齐、`understand.status` / `understand.prepare`（经 `ShellJobManager` 异步）；`install.sh` / `install.ps1` 三份副本同步增装 |
+| **M1** | **已实施** | `boundaries`（PySceneDetect，如实返回 score 与限制）/ `clip`（重编码保证边界） |
+| **M2** | **已实施** | `words`（能力桥委托 audio-studio，词级 + 平台侧探测 wordLevel）/ `measure`（纯 Go 估算） |
+| **M3** | **已实施** | `service/media/reference.go`（`metadata.reference` 观察层 + `reference.create` / `reference.attach` 幂等）、`service/media/placeholder.go`（`asset.create` 无字节 proposed）；补 `recut.media.import_media`（本地文件 → 资产入口） |
+| **M4** | **已实施** | `service/skills/recut-reference/`（SKILL + reading/evidence/tools/transferable）与 `service/skills/recut-clone/`（SKILL + workflow/placement） |
+| **M6** | **已实施** | `recut-editor` 全局化：`apps/editor/skills/recut-editor` 移除、内置 App 包排除 `skills/`、surface `requiredSkill` 解析到平台技能、`core-agents.md.tmpl` 路由改指 `appId=recut.platform` |
+| **M5** | **待验收** | 依赖 Editor 落轨能力；工具与技能已可供端到端跑通，按 §5.2 验收表在真实项目上跑「零花费路径」与「标准路径」 |
+
+环境铁律落实：安装时增装、升级/缺失时 `understand.prepare` 异步重准备、调用时**绝不安装**（缺依赖返回结构化「需要准备」错误）。已在本机真实平台 venv 上验证 `PrepareScript` → 依赖 + ffprobe + 版本标记，以及 `probe/frames/contactSheet/boundaries/clip` 对真实视频的端到端产物。
+
 ## 9. 受影响契约
 
 - **MCP / agent**：新增 `recut.media.probe / frames / contactSheet / boundaries / clip / words / measure`；`recut.media.reference.create` / `recut.media.reference.attach`；`recut.media.asset.create`（占位）。`recut.media.asset.get` / `asset.update`（attrs/content/attrPatch + provenance）**已实施**（§3.4）。

@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 recut-sdk 的 asset.list/asset.archive/component.list/component.source，以及测试 seam。
+ * [INPUT]: 依赖 recut-sdk 的 asset.list/asset.archive/motion-graphic.list/motion-graphic.source，以及测试 seam。
  * [OUTPUT]: 提供组件 asset 引用、AI 组件元数据、源码读取和组件 asset 归档 API。
  * [POS]: recut 数据桥中的组件素材契约，被素材面板与组件预览消费。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -89,12 +89,12 @@ export async function listAiComponents(): Promise<AiComponentMeta[]> {
 	if (seam) return seam.list;
 	try {
 		const result = (await recut.background.call(
-			"component.list",
+			"motion-graphic.list",
 			{},
 		)) as ListResult;
 		return Array.isArray(result?.components) ? result.components : [];
 	} catch (error) {
-		console.warn("[ai-components] component.list 失败:", error);
+		console.warn("[ai-components] motion-graphic.list 失败:", error);
 		return [];
 	}
 }
@@ -117,7 +117,7 @@ export async function listComponentAssets(): Promise<ComponentAssetRef[] | null>
 		}));
 	}
 	try {
-		// 桥不可达时（demo/Playwright 无宿主）快速降级为 null，与 component.resolve 同样式：
+		// 桥不可达时（demo/Playwright 无宿主）快速降级为 null，与 motion-graphic.resolve 同样式：
 		// 否则 renderFrameDataUrl（封面/快照）链路会永久挂起在 host 连接等待上。
 		const timer = new Promise<null>((resolve) =>
 			setTimeout(() => resolve(null), 3000),
@@ -147,13 +147,13 @@ export async function getComponentSource(
 			: null;
 	}
 	try {
-		const result = await recut.background.call("component.source", {
+		const result = await recut.background.call("motion-graphic.source", {
 			componentId,
 		});
 		if (!result || typeof result.source !== "string") return null;
 		return result as { versionId: string; version: number; source: string };
 	} catch (error) {
-		console.warn(`[ai-components] component.source 失败 ${componentId}:`, error);
+		console.warn(`[ai-components] motion-graphic.source 失败 ${componentId}:`, error);
 		return null;
 	}
 }

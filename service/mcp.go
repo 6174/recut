@@ -7,12 +7,14 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -156,6 +158,58 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleZh: "把一个绝对 http(s) URL 的媒体（图片/视频/音频，≤25MB）下载到本地素材库，返回 assetId。用于把 World 的 url 证据、网页资源收进用户自己的素材库；同一内容按哈希去重。不抓取正文或网页内容。",
 		LocaleEn: "Download an absolute http(s) media URL (image/video/audio, ≤25MB) into the local media library and return its assetId. Use it to pull a World's url evidence or a web resource into the user's own library; identical content is deduplicated by hash. It never fetches article or webpage content.",
 	},
+	"recut.media.probe": {
+		LocaleZh: "探测一个素材的客观参数（时长/宽高/帧率/是否有音轨），本地 ffprobe，纯观察。",
+		LocaleEn: "Probe one asset's objective facts (duration/width/height/fps/hasAudio) locally with ffprobe; pure observation.",
+	},
+	"recut.media.frames": {
+		LocaleZh: "按 atSec 列表或 intervalSec 区间抽取关键帧，每帧落为稳定 image 素材并返回 [{atSec,assetId}]。maxFrames 上限保护；帧数超限会报错而不是静默截断。",
+		LocaleEn: "Extract frames by an explicit atSec list or an intervalSec range; each frame becomes a stable image asset and [{atSec,assetId}] is returned. maxFrames bounds the request; exceeding it errors rather than silently truncating.",
+	},
+	"recut.media.contactSheet": {
+		LocaleZh: "在 [startSec,endSec] 上按 intervalSec 抽帧并合成带时间码的接触表（可传 transcriptAssetId 叠词标签），返回 sheetAssetId 与逐格 cells。用于快速看清整片画面节奏。",
+		LocaleEn: "Extract frames across [startSec,endSec] at intervalSec and composite a timecoded contact sheet (pass transcriptAssetId to overlay word labels); returns sheetAssetId and per-cell assets. Use it to read a whole clip's visual rhythm at a glance.",
+	},
+	"recut.media.boundaries": {
+		LocaleZh: "用 PySceneDetect 检测切点，返回 [{atSec,kind,score?}]。score 为尽力而为；快摇、强运动与叠化仍可能误检，只作参考不当作精确镜头切分。",
+		LocaleEn: "Detect cuts with PySceneDetect, returning [{atSec,kind,score?}]. Scores are best-effort; fast pans, heavy motion and dissolves can still be misdetected, so treat it as a reference, not exact shot segmentation.",
+	},
+	"recut.media.clip": {
+		LocaleZh: "把 [startSec,endSec] 精确重编码为新的 video 素材并返回 clipAssetId（重编码保证边界准确，非流拷贝）。",
+		LocaleEn: "Re-encode [startSec,endSec] into a new video asset and return clipAssetId (re-encoding keeps boundaries frame-accurate; this is not a stream copy).",
+	},
+	"recut.media.words": {
+		LocaleZh: "词级时间（可选增强，默认不要调用）：委托 audio-studio 转写并请求词级时间戳，返回 transcriptAssetId 与 wordLevel。仅在卡拉OK/词级绑定/单词删除时才开。",
+		LocaleEn: "Word-level timing (optional enhancement; do not call by default): delegates transcription to audio-studio with word timestamps requested, returning transcriptAssetId and wordLevel. Only enable it for karaoke/word-binding/word-deletion work.",
+	},
+	"recut.media.measure": {
+		LocaleZh: "纯本地估算一段文案的朗读时长（不调模型）。用于生成前判断时长与排布。",
+		LocaleEn: "Estimate narration duration locally (no model call). Use it to judge length and placement before generating.",
+	},
+	"recut.media.reference.create": {
+		LocaleZh: "把一支真实内容素材标记为参考并初始化 metadata.reference 观察组；sourceUrl 仅作溯源，不抓取、不去重。与链接型 recut.media.create_reference 不同。",
+		LocaleEn: "Mark a real-content asset as a reference and initialize its metadata.reference observation group; sourceUrl is provenance only (no fetch, no dedupe). Distinct from the link-oriented recut.media.create_reference.",
+	},
+	"recut.media.reference.attach": {
+		LocaleZh: "把观察证据（probe/transcript/frames/sheets/boundaries/clips）幂等写入参考素材的 metadata.reference：按 (kind,assetId/params) 去重，重复理解复用已有证据。只装观察，不装主观判断。",
+		LocaleEn: "Idempotently write observation evidence (probe/transcript/frames/sheets/boundaries/clips) into a reference asset's metadata.reference, deduplicating by (kind,assetId/params). Observations only; never subjective judgement.",
+	},
+	"recut.media.asset.create": {
+		LocaleZh: "创建一个无字节的计划素材（status=proposed，不花钱、不建 job）并写入 content（规格，可 @ 引用）与可选 attributes。生成时用 asset.update 补 metadata.proposal 再 confirm，产物原位填回同一 assetId。",
+		LocaleEn: "Create a byte-less plan asset (status=proposed; no cost, no job) with content (the spec, may use inline @ references) and optional attributes. At generation time add metadata.proposal via asset.update, confirm, and the output fills the same assetId in place.",
+	},
+	"recut.media.import_media": {
+		LocaleZh: "把会话工作区或目标项目内的本地视频/音频/图片文件导入为素材（≤2GB，流式读取），返回真实 assetId。用于宿主 Agent 自行下载的素材入库。",
+		LocaleEn: "Import a local video/audio/image file from the session workspace or target project as an asset (≤2GB, streamed), returning the real assetId. Use it to bring host-agent-downloaded media into the library.",
+	},
+	"recut.media.understand.status": {
+		LocaleZh: "检查理解工具的环境就绪（平台 Python venv、ffmpeg、ffprobe、PySceneDetect/Pillow/numpy）。缺失时返回需要准备，绝不静默安装。",
+		LocaleEn: "Check understanding-tool readiness (platform Python venv, ffmpeg, ffprobe, PySceneDetect/Pillow/numpy). Missing pieces report as needing preparation; it never installs silently.",
+	},
+	"recut.media.understand.prepare": {
+		LocaleZh: "异步准备平台理解环境：向全局平台 Python venv 安装锁定依赖并补齐 ffprobe，写入版本标记。返回 jobId，用 recut.job.wait 观察终态。",
+		LocaleEn: "Asynchronously prepare the platform understanding environment: install the locked dependencies and ffprobe into the global platform Python venv and write a version marker. Returns a jobId; observe the terminal state with recut.job.wait.",
+	},
 }
 
 // mcpDescription resolves a tool-level MCP description for the requested
@@ -213,7 +267,7 @@ func mcpToolListForSession(bridge *AgentBridge, media *MediaService, session Age
 	for _, app := range apps {
 		tools = append(tools, appMCPToolDefinitions(app)...)
 	}
-	if session.AllowsTool("recut.editor.component.commit") && len(session.AllowedTools) > 0 {
+	if session.AllowsTool("recut.editor.motion-graphic.commit") && len(session.AllowedTools) > 0 {
 		tools = append(tools, componentCommitToolDefinition(locale))
 	}
 	return map[string]any{"tools": visibleToolsForSession(tools, session)}
@@ -245,7 +299,7 @@ func filterSessionTools(tools []map[string]any, session AgentSession) []map[stri
 }
 
 func componentCommitToolDefinition(locale Locale) map[string]any {
-	return platformTool("recut.editor.component.commit", map[Locale]string{
+	return platformTool("recut.editor.motion-graphic.commit", map[Locale]string{
 		LocaleZh: "提交一个已完成的项目私有组件素材。只在 Component Author 完成创作后调用一次；平台构建、入库并安排验证，绝不插入时间线。",
 		LocaleEn: "Commit one finished private component asset. Call exactly once when Component Author finishes; the platform builds, stores, and schedules verification, never a timeline placement.",
 	}[locale], map[string]any{
@@ -388,14 +442,14 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 	if !session.AllowsTool(name) {
 		return nil, fmt.Errorf("tool %q is unavailable in this focused Agent session", name)
 	}
-	if name == "recut.editor.component.commit" {
+	if name == "recut.editor.motion-graphic.commit" {
 		target, ok := session.SessionTarget()
 		if !ok {
-			return nil, errors.New("component.commit requires a focused Component Author session")
+			return nil, errors.New("motion-graphic.commit requires a focused Component Author session")
 		}
 		commitArguments := cloneJSONMap(arguments)
 		// 聚焦上下文由 App（editor background）声明，平台只透传：componentId/baseVersionId/mode 等
-		// 由 editor 的 component.commit 消费，平台不理解其语义。
+		// 由 editor 的 motion-graphic.commit 消费，平台不理解其语义。
 		if session.Focused != nil {
 			for k, v := range session.Focused {
 				if s, isStr := v.(string); isStr && s != "" {
@@ -403,19 +457,19 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 				}
 			}
 		}
-		result, err := host.InvokeAPILocale(target, "recut.editor", "component.define", commitArguments, locale)
+		result, err := host.InvokeAPILocale(target, "recut.editor", "motion-graphic.define", commitArguments, locale)
 		if err != nil {
 			return nil, err
 		}
 		committed, _ := result.(map[string]any)
 		if committed == nil || committed["status"] != "draft" {
 			data, _ := json.Marshal(result)
-			return nil, fmt.Errorf("component.commit build did not produce a draft component: %s", data)
+			return nil, fmt.Errorf("motion-graphic.commit build did not produce a draft component: %s", data)
 		}
-		bridge.RecordAgentToolCall(session.ID, "recut.editor.component.commit", committed)
+		bridge.RecordAgentToolCall(session.ID, "recut.editor.motion-graphic.commit", committed)
 		// 架构 P1：commit 结果发生时即追加到 job 账本（子 Agent 被杀也保留，finalize 从 job 投影）。
 		if job, ok := bridge.agentJobByChild(session.ID); ok {
-			bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.component.commit", Result: committed})
+			bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.motion-graphic.commit", Result: committed})
 		}
 		data, _ := json.Marshal(result)
 		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
@@ -468,6 +522,10 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 		}
 		data, _ := json.Marshal(result)
 		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+	case "recut.media.understand.prepare":
+		return understandPrepareTool(host, media, session, arguments)
+	case "recut.media.words":
+		return understandWordsTool(host, media, arguments, locale)
 	}
 	if isMediaMCPTool(name) {
 		return mediaMCPTool(bridge.store, media, session, name, arguments)
@@ -1246,6 +1304,102 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		result = map[string]any{"assetId": id, "projectId": requestedProjectID(input), "attached": err == nil}
 	case "recut.media.import_url":
 		result, err = importMediaURL(media, input)
+	case "recut.media.import_media":
+		result, err = importLocalMedia(store, media, session, input)
+	case "recut.media.probe":
+		probe, probeErr := media.UnderstandProbe(context.Background(), stringValue(input["assetId"]))
+		err = probeErr
+		if probeErr == nil {
+			result = map[string]any{
+				"assetId": stringValue(input["assetId"]), "durationSec": probe.DurationSec,
+				"width": probe.Width, "height": probe.Height, "fps": probe.FPS, "hasAudio": probe.HasAudio,
+			}
+		}
+	case "recut.media.frames":
+		var framesResult UnderstandFramesResult
+		framesResult, err = media.UnderstandFrames(context.Background(), UnderstandFramesInput{
+			AssetID:   stringValue(input["assetId"]),
+			AtSec:     numberSlice(input["atSec"]),
+			Interval:  numericValue(input["intervalSec"]),
+			StartSec:  optionalNumber(input["startSec"]),
+			EndSec:    optionalNumber(input["endSec"]),
+			MaxFrames: int(numericValue(input["maxFrames"])),
+			ProjectID: requestedProjectID(input),
+		})
+		if err == nil {
+			result = framesResult
+		}
+	case "recut.media.contactSheet":
+		var sheetResult UnderstandContactSheetResult
+		sheetResult, err = media.UnderstandContactSheet(context.Background(), UnderstandContactSheetInput{
+			AssetID:           stringValue(input["assetId"]),
+			StartSec:          optionalNumber(input["startSec"]),
+			EndSec:            optionalNumber(input["endSec"]),
+			Interval:          numericValue(input["intervalSec"]),
+			Columns:           int(numericValue(input["columns"])),
+			CellPx:            int(numericValue(input["cellPx"])),
+			TranscriptAssetID: stringValue(input["transcriptAssetId"]),
+			ProjectID:         requestedProjectID(input),
+		})
+		if err == nil {
+			result = sheetResult
+		}
+	case "recut.media.boundaries":
+		var boundariesResult UnderstandBoundariesResult
+		boundariesResult, err = media.UnderstandBoundaries(context.Background(), UnderstandBoundariesInput{
+			AssetID:   stringValue(input["assetId"]),
+			Threshold: numericValue(input["threshold"]),
+			MinGapSec: numericValue(input["minGapSec"]),
+		})
+		if err == nil {
+			result = boundariesResult
+		}
+	case "recut.media.clip":
+		var clipResult UnderstandClipResult
+		clipResult, err = media.UnderstandClip(context.Background(), stringValue(input["assetId"]), numericValue(input["startSec"]), numericValue(input["endSec"]), requestedProjectID(input))
+		if err == nil {
+			result = clipResult
+		}
+	case "recut.media.measure":
+		result = media.UnderstandMeasure(MeasureRequestInput{
+			Text: stringValue(input["text"]), Language: stringValue(input["language"]), Pace: numericValue(input["pace"]),
+		})
+	case "recut.media.reference.create":
+		var asset MediaAsset
+		asset, err = media.CreateReference(stringValue(input["assetId"]), stringValue(input["sourceUrl"]))
+		if err == nil {
+			result = materialAssetView(asset)
+		}
+	case "recut.media.reference.attach":
+		attach, decodeErr := referenceAttachFromMCP(input)
+		if decodeErr != nil {
+			err = decodeErr
+			break
+		}
+		var asset MediaAsset
+		asset, err = media.AttachReferenceEvidence(attach)
+		if err == nil {
+			result = materialAssetView(asset)
+		}
+	case "recut.media.asset.create":
+		var attributes []MaterialAttr
+		if raw, ok := input["attributes"]; ok && raw != nil {
+			attributes, err = decodeMaterialAttrs(raw)
+			if err != nil {
+				break
+			}
+		}
+		var asset MediaAsset
+		asset, err = media.CreatePlaceholderAsset(PlaceholderAssetInput{
+			Name: stringValue(input["name"]), Kind: stringValue(input["kind"]),
+			Content: stringValue(input["content"]), Attributes: attributes,
+			ProjectID: requestedProjectID(input),
+		})
+		if err == nil {
+			result = materialAssetView(asset)
+		}
+	case "recut.media.understand.status":
+		result = media.UnderstandEnvironment(context.Background())
 	default:
 		return nil, fmt.Errorf("unknown media tool %q", name)
 	}
@@ -1390,6 +1544,73 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.media.create_reference", "description": mcpDescription(locale, "recut.media.create_reference"), "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL；作为全局去重身份。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、web、youtube、xiaohongshu、douyin、image。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "description": map[string]string{"type": "string", "description": "来源自身的简介或视频简介。"}, "excerpt": map[string]string{"type": "string", "description": "直接引用的原文片段，便于审阅。"}, "author": map[string]string{"type": "string", "description": "作者或发布者名称。"}, "publishedAt": map[string]string{"type": "string", "description": "发布时间（ISO-8601）。"}, "siteName": map[string]string{"type": "string", "description": "站点名称，如 The New York Times。"}, "language": map[string]string{"type": "string", "description": "内容语言代码，如 zh、en。"}, "thumbnailUrl": map[string]string{"type": "string", "description": "来源封面/缩略图 URL。"}, "content": map[string]string{"type": "string", "description": "文章或网页的完整正文（真实文章数据）；保存为 content part，默认 text/markdown。"}, "contentMimeType": map[string]string{"type": "string", "description": "正文 part 的 MIME 类型，缺省 text/markdown；限 text/*、application/json、application/xml。"}, "imageData": map[string]string{"type": "string", "description": "图片内容（base64 或 data: URL）；保存为不可变的 image part，限 20MB。"}, "imageMimeType": map[string]string{"type": "string", "description": "图片 MIME 类型，如 image/png、image/jpeg。"}, "channelName": map[string]string{"type": "string", "description": "YouTube 等视频平台的频道/账号名。"}, "channelUrl": map[string]string{"type": "string", "description": "频道主页 URL。"}, "durationSeconds": map[string]any{"type": "number", "description": "视频时长（秒）。"}, "viewCount": map[string]any{"type": "integer", "description": "播放量。"}, "likeCount": map[string]any{"type": "integer", "description": "点赞数。"}}}},
 		{"name": "recut.media.attach", "description": mcpDescription(locale, "recut.media.attach"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "projectId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.import_url", "description": mcpDescription(locale, "recut.media.import_url"), "inputSchema": map[string]any{"type": "object", "required": []string{"url"}, "properties": map[string]any{"url": map[string]string{"type": "string", "description": "绝对 http(s) URL，限 image/video/audio、≤25MB。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称；缺省取 URL 末段。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；提供时同时关联到该项目。"}}}},
+		{"name": "recut.media.import_media", "description": mcpDescription(locale, "recut.media.import_media"), "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "本机视频/音频/图片文件路径：会话工作区相对路径或系统绝对路径（~/ 会展开）；最终文件必须落在会话工作区或目标 Project 内。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "mimeType": map[string]string{"type": "string", "description": "可选；缺省按扩展名/内容探测。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
+		{"name": "recut.media.probe", "description": mcpDescription(locale, "recut.media.probe"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string", "description": "已完成的本地 video/audio/image 素材。"}}}},
+		{"name": "recut.media.frames", "description": mcpDescription(locale, "recut.media.frames"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
+			"assetId":     map[string]string{"type": "string"},
+			"atSec":       map[string]any{"type": "array", "items": map[string]any{"type": "number"}, "description": "精确时间点列表（与 intervalSec 二选一）。"},
+			"intervalSec": map[string]any{"type": "number", "description": "等间隔抽帧（默认区间为整片）。"},
+			"startSec":    map[string]any{"type": "number"},
+			"endSec":      map[string]any{"type": "number"},
+			"maxFrames":   map[string]any{"type": "integer", "description": "帧数上限，默认 24、硬上限 120；超出报错。"},
+			"projectId":   map[string]string{"type": "string", "description": "可选；把衍生帧素材关联到该项目。"},
+		}}},
+		{"name": "recut.media.contactSheet", "description": mcpDescription(locale, "recut.media.contactSheet"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "intervalSec"}, "properties": map[string]any{
+			"assetId":           map[string]string{"type": "string"},
+			"startSec":          map[string]any{"type": "number"},
+			"endSec":            map[string]any{"type": "number"},
+			"intervalSec":       map[string]any{"type": "number"},
+			"columns":           map[string]any{"type": "integer", "description": "列数；缺省取近似正方。"},
+			"cellPx":            map[string]any{"type": "integer", "description": "单元格边长像素，默认 320。"},
+			"transcriptAssetId": map[string]string{"type": "string", "description": "可选；提供时叠词标签。"},
+			"projectId":         map[string]string{"type": "string"},
+		}}},
+		{"name": "recut.media.boundaries", "description": mcpDescription(locale, "recut.media.boundaries"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
+			"assetId":   map[string]string{"type": "string"},
+			"threshold": map[string]any{"type": "number", "description": "ContentDetector 阈值，缺省检测器默认。"},
+			"minGapSec": map[string]any{"type": "number", "description": "切点最小间隔（去抖），缺省 0。"},
+		}}},
+		{"name": "recut.media.clip", "description": mcpDescription(locale, "recut.media.clip"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "startSec", "endSec"}, "properties": map[string]any{
+			"assetId":   map[string]string{"type": "string"},
+			"startSec":  map[string]any{"type": "number"},
+			"endSec":    map[string]any{"type": "number"},
+			"projectId": map[string]string{"type": "string"},
+		}}},
+		{"name": "recut.media.words", "description": mcpDescription(locale, "recut.media.words"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+			"assetId":           map[string]string{"type": "string", "description": "本地 audio/video 素材；与 transcriptAssetId 二选一。"},
+			"transcriptAssetId": map[string]string{"type": "string", "description": "已有 transcript 素材；与 assetId 二选一。"},
+			"language":          map[string]string{"type": "string", "description": "auto/zh/en，缺省 auto。"},
+			"model":             map[string]string{"type": "string", "description": "ASR 模型，缺省 whisper-small。"},
+		}}},
+		{"name": "recut.media.measure", "description": mcpDescription(locale, "recut.media.measure"), "inputSchema": map[string]any{"type": "object", "required": []string{"text"}, "properties": map[string]any{
+			"text":     map[string]string{"type": "string"},
+			"language": map[string]string{"type": "string"},
+			"pace":     map[string]any{"type": "number", "description": "语速倍率，缺省 1.0。"},
+		}}},
+		{"name": "recut.media.reference.create", "description": mcpDescription(locale, "recut.media.reference.create"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
+			"assetId":   map[string]string{"type": "string"},
+			"sourceUrl": map[string]string{"type": "string", "description": "仅作溯源，不抓取、不去重。"},
+		}}},
+		{"name": "recut.media.reference.attach", "description": mcpDescription(locale, "recut.media.reference.attach"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
+			"assetId":     map[string]string{"type": "string", "description": "参考素材 assetId。"},
+			"sourceUrl":   map[string]string{"type": "string"},
+			"source":      map[string]any{"type": "object", "description": "{assetId,durationSec,width,height,fps,hasAudio}。"},
+			"transcript":  map[string]any{"type": "object", "description": "{assetId,language,wordLevel}。"},
+			"frames":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "[{atSec,assetId}]。"},
+			"sheets":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "[{range:[start,end],assetId,transcriptAssetId?}]。"},
+			"boundaries":  map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "[{atSec,kind,score?}]。"},
+			"clips":       map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "[{startSec,endSec,assetId,label?}]。"},
+			"toolVersion": map[string]string{"type": "string"},
+		}}},
+		{"name": "recut.media.asset.create", "description": mcpDescription(locale, "recut.media.asset.create"), "inputSchema": map[string]any{"type": "object", "required": []string{"name", "kind"}, "properties": map[string]any{
+			"name":       map[string]string{"type": "string"},
+			"kind":       map[string]any{"type": "string", "enum": []string{"video", "image", "audio", "code"}},
+			"content":    map[string]string{"type": "string", "description": "计划规格（富文本，可 @ 引用证据/角色/World）。"},
+			"attributes": map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "可选结构化字段 [{key,label,type,value}]。"},
+			"projectId":  map[string]string{"type": "string"},
+		}}},
+		{"name": "recut.media.understand.status", "description": mcpDescription(locale, "recut.media.understand.status"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
+		{"name": "recut.media.understand.prepare", "description": mcpDescription(locale, "recut.media.understand.prepare"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 	}
 	return append(tools, proposalMCPToolDefinitions()...)
 }
@@ -1678,6 +1899,263 @@ func withinAllowedRoots(roots []string, path string) bool {
 		}
 	}
 	return false
+}
+
+// resolveSessionFilePath resolves a user-supplied path to a real file inside the
+// session workspace or the explicitly targeted Project, mirroring
+// importNativeImage's sandbox rules. The returned projectID is the resolved
+// target (may be empty).
+func resolveSessionFilePath(store *Store, session AgentSession, input map[string]any) (string, string, error) {
+	trimmed := strings.TrimSpace(stringValue(input["path"]))
+	if trimmed == "" {
+		return "", "", errors.New("path must be a non-empty file path")
+	}
+	if strings.HasPrefix(trimmed, "~/") || strings.HasPrefix(trimmed, `~\`) {
+		if home, err := os.UserHomeDir(); err == nil {
+			trimmed = filepath.Join(home, strings.TrimPrefix(trimmed[1:], string(filepath.Separator)))
+		}
+	}
+	workspaceDir := store.SessionWorkspaceDir(session.ID)
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		return "", "", err
+	}
+	base, err := filepath.EvalSymlinks(workspaceDir)
+	if err != nil {
+		return "", "", err
+	}
+	var candidate string
+	if filepath.IsAbs(trimmed) {
+		candidate = filepath.Clean(trimmed)
+	} else {
+		candidate = filepath.Join(base, filepath.Clean(trimmed))
+	}
+	path, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve path: %w", err)
+	}
+	projectID := requestedProjectID(input)
+	allowedRoots := []string{base}
+	if projectID != "" {
+		if projectRoot, rootErr := filepath.EvalSymlinks(store.projectDir(projectID)); rootErr == nil {
+			allowedRoots = append(allowedRoots, projectRoot)
+		}
+	}
+	if !withinAllowedRoots(allowedRoots, path) {
+		return "", "", errors.New("path must remain inside the session workspace or the target Project")
+	}
+	return path, projectID, nil
+}
+
+// importLocalMedia streams a local video/audio/image file into the asset
+// library. It closes the M3 gap where a host agent's own download had no MCP
+// entry; unlike import_image it accepts any media kind and does not buffer the
+// file in memory.
+func importLocalMedia(store *Store, media *MediaService, session AgentSession, input map[string]any) (MediaAsset, error) {
+	path, projectID, err := resolveSessionFilePath(store, session, input)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return MediaAsset{}, errors.New("path must point to a regular media file")
+	}
+	if info.Size() > 2<<30 {
+		return MediaAsset{}, errors.New("media exceeds the 2 GB import limit")
+	}
+	mimeType := strings.TrimSpace(stringValue(input["mimeType"]))
+	if mimeType == "" {
+		mimeType = mime.TypeByExtension(strings.ToLower(filepath.Ext(path)))
+	}
+	if mimeType == "" {
+		if file, openErr := os.Open(path); openErr == nil {
+			header := make([]byte, 512)
+			read, _ := file.Read(header)
+			_ = file.Close()
+			mimeType = http.DetectContentType(header[:read])
+		}
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	defer file.Close()
+	name := strings.TrimSpace(stringValue(input["name"]))
+	if name == "" {
+		name = filepath.Base(path)
+	}
+	asset, err := media.ImportMediaReader(name, mimeType, file)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if projectID != "" {
+		if attachErr := media.Attach(asset.ID, projectID); attachErr != nil {
+			return MediaAsset{}, attachErr
+		}
+	}
+	return asset, nil
+}
+
+// numberSlice coerces a JSON array of numbers into []float64.
+func numberSlice(value any) []float64 {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	numbers := make([]float64, 0, len(items))
+	for _, item := range items {
+		numbers = append(numbers, numericValue(item))
+	}
+	return numbers
+}
+
+// optionalNumber returns a pointer to the supplied number, or nil when absent.
+func optionalNumber(value any) *float64 {
+	if value == nil {
+		return nil
+	}
+	number := numericValue(value)
+	return &number
+}
+
+// referenceAttachFromMCP decodes the loosely-typed reference.attach evidence via
+// a JSON round-trip into the typed contract.
+func referenceAttachFromMCP(input map[string]any) (ReferenceAttachInput, error) {
+	attach := ReferenceAttachInput{
+		AssetID:     stringValue(input["assetId"]),
+		SourceURL:   stringValue(input["sourceUrl"]),
+		ToolVersion: stringValue(input["toolVersion"]),
+	}
+	if raw, ok := input["source"]; ok && raw != nil {
+		source := ReferenceSource{}
+		if err := decodeJSONValue(raw, &source); err != nil {
+			return ReferenceAttachInput{}, fmt.Errorf("source must be an object: %w", err)
+		}
+		attach.Source = &source
+	}
+	if raw, ok := input["transcript"]; ok && raw != nil {
+		transcript := ReferenceTranscript{}
+		if err := decodeJSONValue(raw, &transcript); err != nil {
+			return ReferenceAttachInput{}, fmt.Errorf("transcript must be an object: %w", err)
+		}
+		attach.Transcript = &transcript
+	}
+	for key, target := range map[string]any{
+		"frames":     &attach.Frames,
+		"sheets":     &attach.Sheets,
+		"boundaries": &attach.Boundaries,
+		"clips":      &attach.Clips,
+	} {
+		raw, ok := input[key]
+		if !ok || raw == nil {
+			continue
+		}
+		if err := decodeJSONValue(raw, target); err != nil {
+			return ReferenceAttachInput{}, fmt.Errorf("%s must be an array: %w", key, err)
+		}
+	}
+	return attach, nil
+}
+
+func decodeJSONValue(raw any, target any) error {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, target)
+}
+
+// understandPrepareTool prepares the platform understanding environment. It is
+// the only understanding path that writes to disk, runs as an observable shell
+// job, and is never triggered implicitly by a read-only tool.
+func understandPrepareTool(host *AppHost, media *MediaService, session AgentSession, arguments map[string]any) (any, error) {
+	if host == nil || host.jobs == nil {
+		return nil, errors.New("job manager is unavailable")
+	}
+	if media == nil {
+		return nil, errors.New("media service is unavailable")
+	}
+	command, args, ok := media.UnderstandPrepareArgs()
+	if !ok {
+		return nil, errors.New("平台 Python venv 尚未就绪；请先重新运行 Recut 安装器，再调用 recut.media.understand.prepare")
+	}
+	job, err := host.jobs.Start(ShellJobStart{
+		ProjectID:      requestedProjectID(arguments),
+		AppID:          platformSkillAppID,
+		Command:        command,
+		Args:           args,
+		Dir:            media.DataDir(),
+		TimeoutSeconds: 1800,
+	})
+	if err != nil {
+		return nil, err
+	}
+	view := map[string]any{"jobId": job.ID, "id": job.ID, "kind": "shell", "status": string(job.Status)}
+	data, _ := json.Marshal(view)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": view}, nil
+}
+
+// understandWordsTool requests word-level timing. It delegates to audio-studio
+// through the capability bridge (the platform never copies the ASR model), and
+// is opt-in only: callers must ask for it explicitly.
+func understandWordsTool(host *AppHost, media *MediaService, arguments map[string]any, locale Locale) (any, error) {
+	if media == nil {
+		return nil, errors.New("media service is unavailable")
+	}
+	if transcriptAssetID := stringValue(arguments["transcriptAssetId"]); transcriptAssetID != "" {
+		wordLevel, err := media.TranscriptWordLevel(transcriptAssetID)
+		if err != nil {
+			return nil, err
+		}
+		result := map[string]any{"transcriptAssetId": transcriptAssetID, "transcriptId": transcriptAssetID, "wordLevel": wordLevel}
+		data, _ := json.Marshal(result)
+		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": result}, nil
+	}
+	assetID := stringValue(arguments["assetId"])
+	if assetID == "" {
+		return nil, errors.New("word-level transcription needs assetId or transcriptAssetId")
+	}
+	if host == nil {
+		return nil, errors.New("app host is unavailable")
+	}
+	kind := "video"
+	if asset, err := media.GetAsset(assetID); err == nil {
+		kind = asset.Kind
+	}
+	model := stringValue(arguments["model"])
+	if model == "" {
+		model = "whisper-small"
+	}
+	language := stringValue(arguments["language"])
+	if language == "" {
+		language = "auto"
+	}
+	caller := Target{ProjectID: requestedProjectID(arguments), AppID: platformSkillAppID}
+	envelope, err := host.capabilityInvoke(caller, "recut.audio-studio", "audio.transcribe", map[string]any{
+		"assetId": assetID, "kind": kind, "model": model, "language": language,
+		"saveToLibrary": true, "wordTimestamps": true,
+	}, "transcribe", locale)
+	if err != nil {
+		return nil, err
+	}
+	if ok, _ := envelope["ok"].(bool); !ok {
+		return nil, fmt.Errorf("word-level transcription failed: %v", envelope["error"])
+	}
+	view := map[string]any{"assetId": assetID, "model": model, "language": language, "wordLevel": true, "wordTimestampsRequested": true}
+	if result, ok := envelope["result"].(map[string]any); ok {
+		if job, ok := result["job"].(map[string]any); ok {
+			view["jobId"] = job["id"]
+			view["kind"] = "media"
+		}
+		if transcript, ok := result["transcript"].(map[string]any); ok {
+			view["transcriptId"] = transcript["id"]
+			view["transcriptAssetId"] = transcript["assetId"]
+		}
+	}
+	data, _ := json.Marshal(view)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": view}, nil
 }
 
 func isMediaMCPTool(name string) bool {

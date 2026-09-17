@@ -201,7 +201,7 @@ export type ToolPayload = {
   output?: string;
   error?: string;
   cost?: string;
-  // subagent 判别字段：一次 subAgent op（如 component.create）启动受限子 Agent job 时，
+  // subagent 判别字段：一次 subAgent op（如 motion-graphic.create）启动受限子 Agent job 时，
   // tool.completed 事件注入这三个字段；前端据此渲染子 Agent 任务卡片。
   subagentId?: string;
   subagentAppId?: string;

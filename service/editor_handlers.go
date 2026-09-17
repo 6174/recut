@@ -16,10 +16,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"recut-service/motion_graphic"
 )
 
-// editorNativeHandlers 是 recut.editor 由 Go 权威承担的 operation 集合；未列出的 op（如 component.*，属 M2）
-// 回退到 goja background，二者共享 appstate DB，保证单写入口不分裂。
+// editorNativeHandlers 是 recut.editor 由 Go 权威承担的 operation 集合；未列出的 op 才回退到 goja background。
+// motion_graphic_bridge.go 的 registerMotionGraphicHandlers 在同一次 init 内追加 motion-graphic.*，避免文件级 init 顺序依赖。
 var editorNativeHandlers map[string]func(*editorContext, map[string]any) (any, error)
 
 func init() {
@@ -80,6 +82,7 @@ func init() {
 		"subtitle.retry-save":      editorSubtitleRetrySave,
 		"subtitle.commit":          editorSubtitleCommit,
 	}
+	registerMotionGraphicHandlers(editorNativeHandlers)
 }
 
 func editorError(message string) error {
@@ -141,8 +144,8 @@ func editorProjectSave(c *editorContext, input map[string]any) (any, error) {
 var editorFullActions = []string{
 	"timeline.read", "element.get", "timeline.validate", "timeline.command", "timeline.placeComponents", "timeline.placeAudio",
 	"timeline.delta", "history.undo", "history.redo", "project.lock", "project.unlock", "work.checkpoint", "work.cancel",
-	"timeline.assets", "asset.list", "asset.archive", "component.create", "component.revise", "component.source", "component.update",
-	"component.list", "component.archive", "film.package.import", "subtitle.import", "subtitle.export", "subtitle.capabilities",
+	"timeline.assets", "asset.list", "asset.archive", "motion-graphic.create", "motion-graphic.revise", "motion-graphic.source", "motion-graphic.update",
+	"motion-graphic.list", "motion-graphic.archive", "film.package.import", "subtitle.import", "subtitle.export", "subtitle.capabilities",
 	"subtitle.generate", "subtitle.status", "subtitle.commit", "subtitle.cancel", "subtitle.retry-save", "script.read",
 	"script.apply", "script.clean", "script.find", "script.fix-transcript", "script.attach", "track.role", "audio.smooth",
 	"library.browse", "preview.frame", "preview.batch", "preview.contact-sheet", "export.start", "cover.get",
@@ -150,7 +153,7 @@ var editorFullActions = []string{
 
 var editorInitialActions = []string{
 	"project.create", "film.package.import", "timeline.command", "timeline.placeComponents", "asset.list", "asset.archive",
-	"component.create", "component.revise", "component.source", "component.update", "component.list", "component.archive",
+	"motion-graphic.create", "motion-graphic.revise", "motion-graphic.source", "motion-graphic.update", "motion-graphic.list", "motion-graphic.archive",
 	"subtitle.import", "subtitle.export", "subtitle.capabilities", "subtitle.generate", "subtitle.status", "subtitle.commit",
 	"subtitle.cancel", "subtitle.retry-save", "script.attach", "track.role", "library.browse",
 }
@@ -318,13 +321,13 @@ func editorTimelineValidate(c *editorContext, input map[string]any) (any, error)
 	if existing != nil {
 		project = existing.Project
 	}
-	rows, err := queryMaps(c.db, "select component_id from editor_components where project_id = ?", c.scopeID)
+	rows, err := queryMaps(c.db, "select ref_id from editor_assets where project_id = ? and type = 'component' and status = 'active'", c.scopeID)
 	if err != nil {
 		return nil, err
 	}
 	componentIDs := []string{}
 	for _, row := range rows {
-		componentIDs = append(componentIDs, edStr(row["component_id"]))
+		componentIDs = append(componentIDs, edStr(row["ref_id"]))
 	}
 	var registered []any
 	if existing != nil {
@@ -463,7 +466,7 @@ func (c *editorContext) normalizeComponentItems(items []any) ([]any, error) {
 		}
 		next["componentId"] = componentID
 		if edStr(next["assetId"]) == "" {
-			next["assetId"] = editorProjectAssetID("component", componentID)
+			next["assetId"] = motion_graphic.AssetID(componentID)
 		}
 		out = append(out, next)
 	}
@@ -1845,21 +1848,28 @@ func editorExportList(c *editorContext, input map[string]any) (any, error) {
 }
 
 // ---- assets（项目素材引用索引）------------------------------------------------
+// editorBackfillComponentAssets 刷新项目引用索引里 MG 素材的当前版本句柄；
+// 素材真相在全局 mg_materials，这里只维护「本项目引了哪些 MG」。
 func editorBackfillComponentAssets(c *editorContext) {
 	c.ensureSchema()
-	rows, err := queryMaps(c.db,
-		"select c.component_id, c.head_version_id from editor_components c "+
-			"join editor_component_versions v on v.version_id = c.head_version_id "+
-			"left join editor_assets a on a.project_id = c.project_id and a.type = 'component' and a.ref_id = c.component_id "+
-			"where c.project_id = ? and (c.archived_at is null or c.archived_at = '') and v.status = 'verified' and a.asset_id is null",
-		c.scopeID)
+	migrateEditorComponents(c)
+	db, err := c.host.store.WorkspaceDatabase()
+	if err != nil {
+		return
+	}
+	rows, err := queryMaps(c.db, "select ref_id from editor_assets where project_id = ? and type = 'component' and status = 'active'", c.scopeID)
 	if err != nil {
 		return
 	}
 	for _, row := range rows {
-		_, _ = c.db.Exec("insert into editor_assets (asset_id, project_id, type, ref_id, ref_version_id, status, created_at, updated_at) values (?, ?, 'component', ?, ?, 'active', ?, ?) "+
-			"on conflict(asset_id) do update set ref_version_id = excluded.ref_version_id, status = editor_assets.status, updated_at = excluded.updated_at",
-			editorProjectAssetID("component", edStr(row["component_id"])), c.scopeID, edStr(row["component_id"]), row["head_version_id"], nowIso(), nowIso())
+		id := edStr(row["ref_id"])
+		if id == "" {
+			continue
+		}
+		if material, ok := motion_graphic.Read(db, id); ok && material.Status == "verified" {
+			_, _ = c.db.Exec("update editor_assets set ref_version_id = ?, updated_at = ? where project_id = ? and type = 'component' and ref_id = ?",
+				material.VersionID(), nowIso(), c.scopeID, id)
+		}
 	}
 }
 
@@ -1877,17 +1887,13 @@ func parseJSONValue(text string, fallback any) any {
 func editorListProjectAssets(c *editorContext) []any {
 	editorBackfillComponentAssets(c)
 	rows, err := queryMaps(c.db,
-		"select a.asset_id, a.type, a.ref_id, a.ref_version_id, a.status, a.created_at, a.updated_at, "+
-			"c.name, c.surface, c.keywords_json, c.mode, "+
-			"v.version, v.status as version_status, v.inputs_json, v.test_report_json, v.cover_path "+
-			"from editor_assets a "+
-			"left join editor_components c on c.component_id = a.ref_id and c.project_id = a.project_id "+
-			"left join editor_component_versions v on v.version_id = coalesce(a.ref_version_id, c.head_version_id) "+
-			"where a.project_id = ? and a.status = 'active' order by a.updated_at desc",
+		"select asset_id, type, ref_id, ref_version_id, status, created_at, updated_at "+
+			"from editor_assets where project_id = ? and status = 'active' order by updated_at desc",
 		c.scopeID)
 	if err != nil {
 		return []any{}
 	}
+	db, _ := c.host.store.WorkspaceDatabase()
 	out := []any{}
 	for _, row := range rows {
 		asset := map[string]any{
@@ -1895,19 +1901,23 @@ func editorListProjectAssets(c *editorContext) []any {
 			"refVersionId": row["ref_version_id"], "status": row["status"],
 			"createdAt": row["created_at"], "updatedAt": row["updated_at"],
 		}
-		if edStr(row["type"]) == "component" {
-			asset["componentId"] = row["ref_id"]
-			asset["versionId"] = row["ref_version_id"]
-			asset["name"] = nonEmpty(edStr(row["name"]), edStr(row["ref_id"]))
-			asset["surface"] = nonEmpty(edStr(row["surface"]), "r3f")
-			asset["mode"] = nonEmpty(edStr(row["mode"]), "local")
-			asset["keywords"] = parseJSONValue(edStr(row["keywords_json"]), []any{})
-			asset["version"] = row["version"]
-			asset["componentStatus"] = nonEmpty(edStr(row["version_status"]), "draft")
-			asset["inputs"] = parseJSONValue(edStr(row["inputs_json"]), []any{})
-			asset["testReport"] = parseJSONValue(edStr(row["test_report_json"]), nil)
-			if coverPath := edStr(row["cover_path"]); coverPath != "" {
-				asset["coverUrl"] = c.filesURL(coverPath)
+		if edStr(row["type"]) == "component" && db != nil {
+			material, ok := motion_graphic.Read(db, edStr(row["ref_id"]))
+			if !ok {
+				continue
+			}
+			asset["componentId"] = material.ID
+			asset["versionId"] = material.VersionID()
+			asset["name"] = nonEmpty(material.Name, material.ID)
+			asset["surface"] = nonEmpty(material.Surface, "r3f")
+			asset["mode"] = nonEmpty(material.Mode, "local")
+			asset["keywords"] = material.Keywords()
+			asset["version"] = material.CodeVersion
+			asset["componentStatus"] = nonEmpty(material.Status, "draft")
+			asset["inputs"] = material.Inputs()
+			asset["testReport"] = parseJSONValue(material.TestReportJSON, nil)
+			if material.CoverRef != "" {
+				asset["coverUrl"] = fmt.Sprintf("/v1/apps/%s/files/%s", c.app.Manifest.ID, material.CoverRef)
 			} else {
 				asset["coverUrl"] = nil
 			}

@@ -1,7 +1,7 @@
 ---
 name: recut-editor
 description: Recut 核心时间线剪辑器（CapCut 风格）。AI 以「导演」身份处理新片创作与已有时间线的局部修改：读取当前结构，选择合适的 treatment，使用可 undo 的时间线操作、组件/媒体资产、视觉验证与导出。素材只经 assetId 引用。
-references: data-model.md, timeline-workflow.md, params.md, keyframes.md, components.md, component-authoring.md, gsap.md, directing.md, shot-library.md, music-beat-sync.md, captions.md, speech-editing.md, motion-graphics.md, subject-protection.md, voiceover.md, voice-assets.md, video-generation.md, verification.md, errors.md, preview-export.md
+references: data-model.md, timeline-workflow.md, params.md, keyframes.md, directing.md, shot-library.md, music-beat-sync.md, captions.md, speech-editing.md, subject-protection.md, voiceover.md, voice-assets.md, video-generation.md, verification.md, errors.md, preview-export.md
 ---
 
 # recut-editor · 剪辑器（AI 全权编辑）
@@ -42,7 +42,7 @@ Graphics-first 是视频创作的最高层原则：视频的内容要先被理�
 |---|---|---|---|
 | `new-authoring` | 空时间线、明确要求从想法做成新片 | route 请求并建立视觉方向 | 可以规划完整场景，但仍先产出第一个可见主体 |
 | `timeline-revision` | 已有成片/时间线，要求修改内容、节奏、镜头或顺序 | 读取时间线并圈定目标元素/scene | 只改目标范围，保留未点名的结构、素材和视觉语言 |
-| `visual-revision` | 要求调整组件、字幕样式、构图、颜色、动效或画面层级 | 先 `preview.frame`，必要时读 `element.get` / `component.source` | 优先 revise/update 现有 asset；不要重建整支片 |
+| `visual-revision` | 要求调整组件、字幕样式、构图、颜色、动效或画面层级 | 先 `preview.frame`，必要时读 `element.get` / `motion-graphic.source` | 优先 revise/update 现有 asset；不要重建整支片 |
 | `audio-revision` | 要求修人声、旁白、音乐、duck、混音或字幕同步 | 读取音轨角色与当前 speech timing | 保留画面时间，除非用户明确要求重排 |
 | `asset-replacement` | 要求替换某个视频、图片、组件、旁白或音乐 | 查明被替换元素及其时间窗口 | 保留原 placement、时长和依赖，替换后重新验证 |
 | `delivery` | 只要求预览、校验、导出或设置封面 | 读取最新 timeline/version | 不做创作性改动 |
@@ -58,7 +58,7 @@ Graphics-first 是视频创作的最高层原则：视频的内容要先被理�
 | 口播、访谈、播客、课程、演讲 | `speech-led` | 转写与 A-roll 结构 | Audio Studio；不可用时明确阻塞，不退化为文字片 |
 | 已有视频、图片、屏录，内容靠画面 | `media-led` | 素材结构与 B-roll | `assetId`、cutaway/PiP、主体保护区 |
 | 没有源视频，要求生成叙事片 | `generated-video` | shot list 与 continuity | 生成媒体、anchor、逐镜头验收 |
-| 标题卡、数据图、片头、信息图、独立动画 | `motion-graphics` | component-led 画面 | 设计系统、`component.create` |
+| 标题卡、数据图、片头、信息图、独立动画 | `motion-graphics` | motion-graphic-led 画面 | 设计系统、`recut-motion-graphic`（`motion-graphic.create`） |
 | 只有旁白、音频或脚本 | `voice-led` | voice/A-roll 与可见画面 | B-roll、motion graphics、字幕、音乐 |
 | 说明/介绍/价值/意义/教程的叙述型输出 | `voice-led`（默认） | 先写解说脚本并拆 scene，再生产画面 | 解说、B-roll、motion graphic、字幕（BGM 仅点缀） |
 | 只改已有素材顺序或长度 | `timeline-edit` | 结构与时序 | 只执行用户点名的剪辑 |
@@ -81,9 +81,9 @@ Graphics-first 是视频创作的最高层原则：视频的内容要先被理�
 
 设计系统是整支片的视觉契约，不是时间线素材。新片先读取 `recut.skills.reference`（`skillId: recut-design-system`）的 `design-systems/catalog.json` 选择一套风格，再按风格 id 读取 `DESIGN.md`、`tokens.css` 和动效语气；二次编辑先沿用时间线现有视觉语言，只有用户要求换风格时才重新选择。把共同的颜色、字体、间距、形状和运动参数转译到新增或修订的 brief/inputs 中。
 
-Prompt 层统一使用 **motion graphic** 作为创作语义；`component` 只是默认实现载体。不要把“做一个组件”当作 viewer job，也不要把组件数量当作视觉设计；先决定观众要理解什么，再决定是否用组件承载它。
+Prompt 层统一使用 **motion graphic** 作为创作语义；`motion graphic` 只是默认实现载体。不要把“做一个组件”当作 viewer job，也不要把组件数量当作视觉设计；先决定观众要理解什么，再决定是否用组件承载它。
 
-图形画面优先做成组件。调用 `component.create({ items: [{ brief, mode }], design, references })` 时，`brief` 说明 viewer job、画面机制和全片共用的视觉方向；当前 `design` 参数只传 `canvas`、`locale` 等运行上下文，参考组件或素材通过 `references.assetIds/componentIds` 传入。组件只负责自身内容与确定性动画，不决定最终画布坐标。该操作是异步素材生产，不会自动改时间线：等待 `recut.job.*` 到完成，从 `result.components[].assetId` 取得 verified 素材句柄；只有确定入片时，才把一组 `assetId` 交给 `timeline.placeComponents`。`componentId` 只用于 `component.source`、`component.revise`、`component.update`。
+图形画面优先做成组件；**组件的创作方法（视觉语法、surface、inputs、确定性动画、构建与验证）由全局技能 `recut-motion-graphic` 负责**，本技能只负责把已验证素材落到时间线。调用 `motion-graphic.create({ items: [{ brief, mode }], design, references })` 时，`brief` 说明 viewer job、画面机制和全片共用的视觉方向；当前 `design` 参数只传 `canvas`、`locale` 等运行上下文，参考组件或素材通过 `references.assetIds/componentIds` 传入。组件只负责自身内容与确定性动画，不决定最终画布坐标。该操作是异步素材生产，不会自动改时间线：等待 `recut.job.*` 到完成，从 `result.components[].assetId` 取得 verified 素材句柄；只有确定入片时，才把一组 `assetId` 交给 `timeline.placeComponents`。`componentId` 只用于 `motion-graphic.source`、`motion-graphic.revise`、`motion-graphic.update`。
 
 组件 job 的 `verified` 证明组件能构建和运行；`preview.frame` 的 settled frame 才证明它在当前视频里的构图、尺寸和可读性。已有媒体直接使用真实 `assetId`；只有现有媒体或低层 op 无法清楚表达的图形，才创建组件。
 
@@ -93,7 +93,7 @@ Prompt 层统一使用 **motion graphic** 作为创作语义；`component` 只�
 2. **范围判断**：确定 intent、scope、route、scene concept、treatments；首次处理已有时间线时读 `timeline.read`，后续基于已知 version 增量修改，不重做未受影响的部分。
 3. **视觉方向**：新片选择 design system；二次编辑读取目标 frame，保持现有视觉语言，只有明确要求才切换风格。
 4. **盘点素材**：用 `recut.media.list_assets` / `asset.list` 找真实 `assetId`；只有 scope 需要新增/替换资产时才生成或创建组件。
-5. **准备资产**：依据 scene concept 选择资产路径：Motion Graphic 可调用 `component.create`，真实场景可调用平台视频生成，hybrid 可先生成底片再制作图形覆盖。**图片/语音走「先落位」**：拿到 `assetId` 立即落轨（媒体元素/音轨）并标记生成中，**不要 `recut.job.wait` 空等**，平台就绪后自动切换；只有当下一步依赖产物内容（读图/听声决策、连续性或身份验收）时才等终态。**组件与视频仍有门禁**：`component.create` 必须等到 `verified` 才能落轨；视频（尤其分镜连续性）落轨前按 continuity/验收口径确认。
+5. **准备资产**：依据 scene concept 选择资产路径：Motion Graphic 可调用 `motion-graphic.create`，真实场景可调用平台视频生成，hybrid 可先生成底片再制作图形覆盖。**图片/语音走「先落位」**：拿到 `assetId` 立即落轨（媒体元素/音轨）并标记生成中，**不要 `recut.job.wait` 空等**，平台就绪后自动切换；只有当下一步依赖产物内容（读图/听声决策、连续性或身份验收）时才等终态。**组件与视频仍有门禁**：`motion-graphic.create` 必须等到 `verified` 才能落轨；视频（尤其分镜连续性）落轨前按 continuity/验收口径确认。
 6. **写入**：多步编辑时 `project.lock` 返回的 `owner/token` → 立刻 `work.checkpoint` → 用 `timeline.placeComponents` 批量放组件、用 `timeline.command` 写其他 op → 带同一 `owner/token` 调用 `project.unlock`；每次写入携带最新 `baseVersion`。用户中途纠正时用同一凭据调用 `work.cancel({ checkpointSeq, owner, token })`，不要继续未提交队列。
 7. **验证与精修**：按 `verification.md` 先拿结构 proof，再用 `preview.frame` / `preview.batch` / `preview.contact-sheet` 检查受影响的 settled frames；只在 proof 之后做有限关键帧精修。编辑器未打开时这些预览返回 `editor-not-open`；`headless` 尚未实现，返回 `headless-unavailable`，产物只能称为待视觉验收的时间线草稿。
 8. **交付**：只有用户要求预览/导出时才执行 `export.start`（UI 异步：编辑器必须打开）。拿到 `jobId` 后用 `recut.job.wait` 观察到 `completed` 并取得 video Asset 再报告结果。queued/running/failed/cancelled 或 `editor-not-open` / `headless-unavailable` 都不能声称已交付。
@@ -104,7 +104,7 @@ Prompt 层统一使用 **motion graphic** 作为创作语义；`component` 只�
 |---|---|---|
 | 读取 | `workflow.context` / `timeline.read` / `element.get` / `project.get` | 只读；condensed 优先，细节按需读取 |
 | 普通写入 | `timeline.command { op }` | 时间线唯一通用写入口，统一日志，可 undo |
-| 组件落轨 | `timeline.placeComponents` | 一组 verified component 一次批量放置，避免逐条 insert |
+| 组件落轨 | `timeline.placeComponents` | 一组 verified motion graphic 一次批量放置，避免逐条 insert |
 | 音频/旁白落轨 | `timeline.placeAudio` | 一组媒体音频素材一次批量放置；AI 只给 assetId+start/duration，source 由后端推导 |
 | 历史 | `history.undo` / `history.redo` | AI 与 UI 共用同一历史 |
 | 会话 | `project.lock` / `project.unlock` | lock 返回 owner/token；多步编辑时独占，结束时带回同一凭据 |
@@ -113,7 +113,7 @@ Prompt 层统一使用 **motion graphic** 作为创作语义；`component` 只�
 | 视觉预览 | `preview.frame` / `preview.batch` / `preview.contact-sheet` | 编辑器未打开 → `editor-not-open`；`mode:headless` → `headless-unavailable` |
 | 文稿 | `script.attach` / `script.read` / `script.apply` / `script.clean` / `script.find` / `script.fix-transcript` | speech-track 的 canonical 文稿面 |
 | 视觉语言 | `recut.skills.reference`（`skillId: recut-design-system`） | 平台级只读参考；先读一套风格，再把共同的视觉语言转译到 brief/inputs |
-| 媒体资产 | `recut.media.list_assets` / `recut.image.generate` / `recut.video.generate` / `recut.speech.generate` / `recut.media.list_proposals` / `recut.media.update_proposal` / `recut.job.*` | 图片/语音**先落位、不空等**（仅依赖产物内容时才等终态）；**视频默认先落提案**（`recut.video.generate` 缺省 `mode:"propose"`，用户确认后才生成，见 `references/video-generation.md`）；`component.create` 必须 `verified` 才落轨；视频按 continuity 门禁 |
+| 媒体资产 | `recut.media.list_assets` / `recut.image.generate` / `recut.video.generate` / `recut.speech.generate` / `recut.media.list_proposals` / `recut.media.update_proposal` / `recut.job.*` | 图片/语音**先落位、不空等**（仅依赖产物内容时才等终态）；**视频默认先落提案**（`recut.video.generate` 缺省 `mode:"propose"`，用户确认后才生成，见 `references/video-generation.md`）；`motion-graphic.create` 必须 `verified` 才落轨；视频按 continuity 门禁 |
 | 混音 | `track.role` / `audio.smooth` | anchor/follower 自动 duck，结构稳定后再 smooth |
 | 效果与音效 | `library.browse` | catalog-first；目录无匹配才生成 |
 | 导入与导出 | `film.package.import` / `export.start` / `recut.job.*` | `export.start` 返回 `jobId`；headless 未实现。必须观察到终态才交付 |
@@ -129,7 +129,7 @@ Prompt 层统一使用 **motion graphic** 作为创作语义；`component` 只�
 - 每次 `timeline.command` 都带当前已知的 `baseVersion`；写入成功后使用返回的 version，只有发生冲突或检测到外部变化时才重读；遇到 `{ conflict, currentVersion, opsSince }`，重读后重放，不把完整项目重载当成正常同步。
 - 所有 `mediaId`、`assetId`、`sourceUrl`、`trackId`、`elementId` 必须来自工具返回值；时间统一使用秒，读取同时提供 `*Sec`。
 - 动画必须是可寻址关键帧 `{ path, atSec, value }` 的确定性函数，禁止 rAF、spring、`Date.now`、`Math.random` 等墙钟或随机源。
-- `timeline.validate` 与 settled-frame proof 是工作单元级别的验证，不是逐 op 仪式：结构定稿（导出/交付前）跑一次 `timeline.validate`，要求无 asset、track、overlap、range、component、param 违规；结构通过不等于画面通过，同一工作单元内再做一次 settled-frame proof。编辑中途不为「确认」重复 validate 或重读时间线。
+- `timeline.validate` 与 settled-frame proof 是工作单元级别的验证，不是逐 op 仪式：结构定稿（导出/交付前）跑一次 `timeline.validate`，要求无 asset、track、overlap、range、motion-graphic、param 违规；结构通过不等于画面通过，同一工作单元内再做一次 settled-frame proof。编辑中途不为「确认」重复 validate 或重读时间线。
 - 导出 job 处于 queued/running 时不能声称完成；必须观察到 completed，并拿到最终 video Asset。编辑器未打开或 headless 失败时只能报告草稿，禁止用结构校验冒充交付。
 - `workflow.context.authoring.headlessPreview/headlessExport` 为 false；`capabilities.headless` 为 false。不要假设无头渲染可用。
 
@@ -137,8 +137,8 @@ Prompt 层统一使用 **motion graphic** 作为创作语义；`component` 只�
 
 每个连续编辑会话是可观察的工作单元。`project.lock` 后立刻 `work.checkpoint`。用户新指令或纠正出现时：
 
-1. 停止未提交队列（不再发新的 `timeline.command` / `component.create` / 媒体生成）。
-2. 尚未入库的 component/media job 用 `recut.job.cancel`；已 verified 未落轨的素材保留，在 `project.md` 标 superseded。
+1. 停止未提交队列（不再发新的 `timeline.command` / `motion-graphic.create` / 媒体生成）。
+2. 尚未入库的 motion-graphic/media job 用 `recut.job.cancel`；已 verified 未落轨的素材保留，在 `project.md` 标 superseded。
 3. 已提交的时间线 mutation 用 `work.cancel({ checkpointSeq, owner, token })` 按 seq 循环 undo，不要按 version 回滚（`undoLast` 会递增 version）。
 4. preview/export 已进入编码：不能伪造取消成功；阻止后续 delivery claim。
 5. 把新约束写入 `project.md`，从受影响 scene 重跑。用户反馈是上游事实，不能排队等装饰动画结束。
@@ -151,9 +151,9 @@ Prompt 层统一使用 **motion graphic** 作为创作语义；`component` 只�
 ## 参考资料
 
 - 数据与 op：`data-model.md`、`timeline-workflow.md`、`params.md`、`keyframes.md`
-- 组件：`components.md`、`component-authoring.md`
+- 组件创作（全局）：`recut-motion-graphic`（`appId="recut.platform"`）；本技能只负责 `timeline.placeComponents` 落轨与素材登记
 - 导演与镜头：`directing.md`（薄适配层，决策见 `service/skills/recut-director/references/motion` / `recut-director（references/editing）`）、`shot-library.md`（薄适配层，决策见 `service/skills/recut-director/references/shot`）
-- 场景处理：`speech-editing.md`（薄适配层，决策见 `service/skills/recut-director/references/a-roll`）、`motion-graphics.md`、`subject-protection.md`（薄适配层，决策见 `service/skills/recut-director/references/b-roll`）、`voiceover.md`、`voice-assets.md`、`video-generation.md`、`captions.md`（薄适配层，决策见 `service/skills/recut-director/references/captions`）、`music-beat-sync.md`（薄适配层，决策见 `service/skills/recut-director/references/editing`）
+- 场景处理：`speech-editing.md`（薄适配层，决策见 `service/skills/recut-director/references/a-roll`）、`subject-protection.md`（薄适配层，决策见 `service/skills/recut-director/references/b-roll`）、`voiceover.md`、`voice-assets.md`、`video-generation.md`、`captions.md`（薄适配层，决策见 `service/skills/recut-director/references/captions`）、`music-beat-sync.md`（薄适配层，决策见 `service/skills/recut-director/references/editing`）
 - 可靠性与交付：`verification.md`、`errors.md`、`preview-export.md`
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

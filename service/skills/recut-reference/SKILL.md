@@ -18,30 +18,32 @@ description: 读懂一支参考视频/素材，并把证据与参考分析写回
 
 ## 能力就绪检查（先做，再动手）
 
-调用前先确认工具在平台 MCP 工具列表中；缺哪一个就**如实报告**它属于哪个里程碑（见 RFC §8），不要用别的手段冒充：
+调用前先确认工具在平台 MCP 工具列表中；缺依赖时工具会返回结构化的「需要准备」错误，**按指引让用户准备，绝不自行 pip/uv 安装**：
 
 | 能力 | op | 当前状态 |
 |---|---|---|
 | 素材属性读写 | `recut.media.asset.get` / `recut.media.asset.update` | **已实施** |
-| 参考标记 / 证据写入 | `recut.media.reference.create` / `recut.media.reference.attach` | M3（待实施） |
-| 探测 / 抽帧 / 接触表 | `recut.media.probe` / `frames` / `contactSheet` | M0（待实施） |
-| 边界 / 片段 | `recut.media.boundaries` / `clip` | M1（待实施） |
-| 词级 / 估时 | `recut.media.words` / `measure` | M2（待实施） |
+| 参考标记 / 证据写入 | `recut.media.reference.create` / `recut.media.reference.attach` | **已实施** |
+| 探测 / 抽帧 / 接触表 | `recut.media.probe` / `frames` / `contactSheet` | **已实施**（需平台理解环境） |
+| 边界 / 片段 | `recut.media.boundaries` / `clip` | **已实施** |
+| 词级 / 估时 | `recut.media.words` / `measure` | **已实施**（词级可选，默认关闭） |
+| 本地文件入库 | `recut.media.import_media` | **已实施** |
 | 直链入库 | `recut.files.fetch` / `recut.media.import_url` | 已有 |
+| 环境就绪 / 准备 | `recut.media.understand.status` / `recut.media.understand.prepare` | **已实施** |
 
-缺失时的标准话术：说明「理解工具尚未就绪（RFC M0–M3）」，并给出当前可做的替代（如仅用已有素材信息 + 人工描述），绝不虚构抽帧/接触表结果。
+环境缺失时：先 `recut.media.understand.status` 看缺什么 → 调用 `recut.media.understand.prepare`（异步 job，用 `recut.job.wait` 观察）→ 让用户确认准备完成。**绝不静默降级或伪造抽帧/接触表结果**。
 
 ## 流程
 
 1. **准备参考素材**（真实内容优先）
-   - 用户提供视频/音频/图片文件：先入库为素材（直链用 `recut.files.fetch` / `import_url`；本地文件等待「本地文件→资产」入口）。
+   - 用户提供视频/音频/图片文件：先入库为素材 —— 本地文件用 `recut.media.import_media`（会话工作区或目标项目内，流式，≤2GB）；直链用 `recut.files.fetch` / `recut.media.import_url`。
    - 用 `recut.media.reference.create({ assetId, sourceUrl? })` 标记为参考（`sourceUrl` 仅作溯源，不抓取、不去重）。
    - 只处理链接引用（无内容可下载）时才用既有 `recut.media.create_reference`。
 
 2. **采集证据**（只装观察）
    - `probe` 取时长/尺寸/帧率/音轨 → `frames` / `contactSheet` 取画面证据（接触表带时间码；有转写时叠词标签）→ `boundaries` 取切点 → 需要动作/源片段时 `clip`。
    - 转写经能力桥（`audio.transcribe`）；`words` 词级**默认不开**（见 RFC §2.4）。
-   - 用 `recut.media.reference.attach` 幂等写入 `metadata.reference`（字段见 `references/evidence.md`）。
+   - 用 `recut.media.reference.attach` 幂等写入 `metadata.reference`（字段见 `references/evidence.md`）。典型顺序：先 attach `source`/`transcript`，再 attach `frames`/`sheets`/`boundaries`/`clips`。
 
 3. **读懂**：按 `references/reading.md` 在整片与细节之间反复互证；用带时间码的接触表与转写定位「哪个画面/图形/音效响应哪句话」。
 

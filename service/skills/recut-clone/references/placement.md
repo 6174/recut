@@ -9,14 +9,14 @@ clone 的**组装、字幕/图形、预览、校验、导出**全部交给 `time
 | 需要解决 | 读它的 |
 |---|---|
 | 数据模型、element/track/scene、op 入口 | `timeline-workflow.md`、`data-model.md` |
-| 落组件/媒体/音频、原子批量放置 | `components.md`、`timeline-workflow.md` |
-| 图形/MG 的视觉与动效 | `motion-graphics.md`、`directing.md`、`keyframes.md`、`params.md` |
+| 落组件/媒体/音频、原子批量放置 | `timeline-workflow.md`；组件放置契约见全局技能 `recut-motion-graphic/references/material.md` |
+| 图形/MG 的视觉与动效（全局） | `recut-motion-graphic`（SKILL.md + `references/authoring.md`/`gsap.md`）、`directing.md`、`keyframes.md`、`params.md` |
 | 字幕（把文稿/文案上屏） | `captions.md` |
 | 文稿（口播 A-roll 的留删） | `speech-editing.md` |
 | 预览与证据 | `verification.md`、`preview-export.md` |
 | 报错与排错 | `errors.md` |
 
-> 迁移进行中：`recut-editor` 技能从 `apps/editor/skills/` **全局化到 `service/skills/recut-editor/`**，并让 surface `requiredSkill` 解析到全局技能（RFC Editor 迁移 §4.6 / M2.5）。其 op 名仍为 `recut.editor.*`，落轨读模型不变；在该项完成前，按其现有位置读取。
+> `recut-editor` 技能已**全局化到 `service/skills/recut-editor/`**（RFC Editor 迁移 §4.6 / M2.5）：surface `requiredSkill` 解析到全局技能（`appId=recut.platform`），`apps/editor` 不再携带 App 私有副本。其 op 名仍为 `recut.editor.*`，落轨读模型不变。
 
 ## 2. 会话与写入纪律（跟 timeline-editor 走）
 

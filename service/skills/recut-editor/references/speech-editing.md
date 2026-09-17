@@ -6,7 +6,7 @@
 ## 定位与边界
 
 本文件是 `recut.editor` 对 `recut-director（references/a-roll）` 的薄适配层，只回答“口播剪辑如何用文稿面与时间线 op 实现”。
-是否删除、保留或重排某句话由全局 a-roll 决策；本文件仅说明在 `recut.editor` 中如何经 `script.attach/read/clean/apply/find/fix-transcript` 物化文稿、翻译为 `timeline.command` op 批，并处理下游 stale。交叉引用：B-roll 摆放见 `subject-protection.md`，音乐/duck 见 `music-beat-sync.md`，字幕见 `captions.md`，Motion Graphic 见 `motion-graphics.md`。
+是否删除、保留或重排某句话由全局 a-roll 决策；本文件仅说明在 `recut.editor` 中如何经 `script.attach/read/clean/apply/find/fix-transcript` 物化文稿、翻译为 `timeline.command` op 批，并处理下游 stale。交叉引用：B-roll 摆放见 `subject-protection.md`，音乐/duck 见 `music-beat-sync.md`，字幕见 `captions.md`，Motion Graphic 创作见全局技能 `recut-motion-graphic`。
 
 ## 决策路由表
 
@@ -65,4 +65,4 @@
 
 ### 五、变更后的回读与下游失效（App 步骤）
 
-每次 `script.clean`/`apply`/`fix-transcript` 或任何影响 speech timing 的 op 后：1) 重 `script.read`；2) 重 `timeline.read` 确认 clip 数与 `start/duration`；3) 检查逻辑断裂/过度删除/顺序错误/停顿过紧过松；4) 将旧 motion graphic/B-roll/字幕/音乐依赖标为 stale 先修正再继续。`A-roll` 定稿前不落下游层（见 `motion-graphics.md`/`subject-protection.md`/`music-beat-sync.md`/`captions.md`）。
+每次 `script.clean`/`apply`/`fix-transcript` 或任何影响 speech timing 的 op 后：1) 重 `script.read`；2) 重 `timeline.read` 确认 clip 数与 `start/duration`；3) 检查逻辑断裂/过度删除/顺序错误/停顿过紧过松；4) 将旧 motion graphic/B-roll/字幕/音乐依赖标为 stale 先修正再继续。`A-roll` 定稿前不落下游层（MG 创作见全局 `recut-motion-graphic`；摆放见 `subject-protection.md`/`music-beat-sync.md`/`captions.md`）。

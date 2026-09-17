@@ -306,7 +306,7 @@ function ComponentPreviewDialog({
 			"",
 			"## Source",
 			"```tsx",
-			sourceText ?? "(component.source unavailable; this may be a built-in component)",
+			sourceText ?? "(motion-graphic.source unavailable; this may be a built-in component)",
 			"```",
 		];
 		return lines.join("\n");

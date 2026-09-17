@@ -133,6 +133,18 @@ func (m *RecutSkillsManager) Skills() ([]RecutSkillInfo, error) {
 	return skills, nil
 }
 
+// platformSkillExists reports whether a platform skill with the given id is
+// embedded under service/skills. Surfaces use it to resolve a required skill to
+// the global copy (single source) instead of an App-local duplicate.
+func platformSkillExists(skillID string) bool {
+	id := filepath.Base(strings.TrimSpace(skillID))
+	if id == "" || id == "." || id == ".." {
+		return false
+	}
+	_, err := fs.Stat(recutSkillsFS, recutSkillsRoot+"/"+id+"/SKILL.md")
+	return err == nil
+}
+
 // skillFrontmatterValue returns the raw value of one frontmatter key, or an
 // empty string when the key is absent.
 func skillFrontmatterValue(body, key string) string {

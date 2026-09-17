@@ -27,7 +27,7 @@ import (
 
 // SubAgentRequest 描述一次受限子 Agent 运行所需的上下文与工具范围。
 // AllowedTools / Prompt / Focused 均由 App（background）动态声明；Focused 是不透明聚焦上下文，
-// 平台只透传、不理解其内部字段（如 editor 的 componentId/mode 由 editor 的 component.commit 消费）。
+// 平台只透传、不理解其内部字段（如 editor 的 componentId/mode 由 editor 的 motion-graphic.commit 消费）。
 type SubAgentRequest struct {
 	// AllowedTools 是子 Agent 唯一可用的受限工具面（App 声明）。
 	AllowedTools []string
@@ -381,7 +381,7 @@ func subAgentRequestFrom(result any) (SubAgentRequest, bool) {
 		Model:           trim(toString(subAgentRaw["model"])),
 		ReasoningEffort: trim(toString(subAgentRaw["reasoningEffort"])),
 	}
-	// 超时按 op 可配：background 可声明 subAgent.timeoutSeconds（如 component.create 按 items 数预估），
+	// 超时按 op 可配：background 可声明 subAgent.timeoutSeconds（如 motion-graphic.create 按 items 数预估），
 	// 缺省回落全局 defaultSubAgentTimeout（30min）。
 	if seconds, ok := numericAny(subAgentRaw["timeoutSeconds"]); ok && seconds > 0 {
 		req.Timeout = time.Duration(seconds) * time.Second

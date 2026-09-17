@@ -61,7 +61,7 @@ function ComponentPreviewCanvas({
 	const [error, setError] = useState<string | null>(null);
 	const locale = useRecutLocale();
 
-	// 挂上解析器并构建默认参数世界：测试注入 bundle（无宿主）或走 host component.resolve。
+	// 挂上解析器并构建默认参数世界：测试注入 bundle（无宿主）或走 host motion-graphic.resolve。
 	useEffect(() => {
 		let alive = true;
 		const seam = (window as Window & { __recutTest?: { aiComponents?: { resolve?: Record<string, AiComponentResolveSeam> } } })

@@ -47,7 +47,7 @@
 | `text` | overlay text 轨（带 `subtitle` 标记 = 字幕 cue，见 `captions.md`） |
 | `audio` | audio 轨（`sourceType: "upload"` 需 `mediaId`；`"library"` 需 `sourceUrl`） |
 | `graphic` | overlay graphic 轨（`definitionId`，默认 rectangle） |
-| `component` | overlay graphic 轨（`componentId`，来自 `component.list`） |
+| `motion-graphic` | overlay graphic 轨（`componentId`，来自 `motion-graphic.list`） |
 | `effect` | overlay effect 轨（`effectType`，全画布效果） |
 
 - **字幕轨**：text 轨带有 `captionStyle`（全轨共享样式 params）即被视为字幕轨；`timeline.read` 的 `tracks[].captionStyle` 标识。字幕 cue 元素带 `subtitle: { source, cueIndex }`。

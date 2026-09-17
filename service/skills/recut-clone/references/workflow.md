@@ -30,7 +30,7 @@
 2. 补 `metadata.proposal`（capability/model/output）。
 3. 逐元素物化：
    - **媒体**：`recut.video.generate`（默认 propose）→ 用户 `confirm` → 终态；图片/语音按路由。
-   - **MG/图形**：`component.create`（免费）→ 等 `verified`。
+   - **MG/图形**：`motion-graphic.create`（免费）→ 等 `verified`。
    - **字幕/文本**：交给 `timeline-editor` 的字幕能力，不生成媒体。
 4. 产物**原位填回同一 assetId**；按配方稳定 hash 复用未变素材，避免重复计费。
 
@@ -45,7 +45,7 @@
 
 ## 中断与回滚
 
-- 用户纠正时：停止未提交队列；未入库的 component/media job 用 `recut.job.cancel`；已提交的时间线改动用 `timeline-editor` 的 `work.cancel`（按其技能凭据要求）。
+- 用户纠正时：停止未提交队列；未入库的 motion-graphic/media job 用 `recut.job.cancel`；已提交的时间线改动用 `timeline-editor` 的 `work.cancel`（按其技能凭据要求）。
 - 已 verified 未落轨的素材保留，在项目里标 superseded。
 
 ## 零花费路径（最早验证）

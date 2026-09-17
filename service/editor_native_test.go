@@ -15,20 +15,9 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// editorGojaOps 是 M2 组件域：仍由 goja background 承担（共享同一 appstate DB），
-// 与 Go 原生 op 构成 recut.editor 的完整归属。新增/迁移 op 时必须显式更新此表。
-var editorGojaOps = map[string]bool{
-	"component.create":  true,
-	"component.revise":  true,
-	"component.define":  true,
-	"component.verify":  true,
-	"component.list":    true,
-	"component.source":  true,
-	"component.update":  true,
-	"component.resolve": true,
-	"component.archive": true,
-	"component.commit":  true, // 受限子 Agent 唯一工具（非 manifest operation）
-}
+// editorGojaOps 为空的 goja 兜底白名单：Motion Graphic 域已随 M4 全部下沉 Go
+// （motion_graphic 包），recut.editor 不再有 goja 私有 op。新增 op 时必须显式归属。
+var editorGojaOps = map[string]bool{}
 
 // TestEditorNativeDispatchCoverage 锁定「每个 recut.editor op 都有且只有一个归属」。
 func TestEditorNativeDispatchCoverage(t *testing.T) {

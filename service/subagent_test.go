@@ -55,15 +55,15 @@ func TestSubagentToolCallRegistryConsumeOnce(t *testing.T) {
 	if ok || fields.SubagentID != "" {
 		t.Fatalf("consume with no registration = %+v, %v; want empty", fields, ok)
 	}
-	bridge.registerSubagentToolCall("session-a", "job-1", "recut.editor", "component.create")
+	bridge.registerSubagentToolCall("session-a", "job-1", "recut.editor", "motion-graphic.create")
 	fields, ok = bridge.consumeSubagentToolCall("session-a")
-	if !ok || fields.SubagentID != "job-1" || fields.AppID != "recut.editor" || fields.Operation != "component.create" {
+	if !ok || fields.SubagentID != "job-1" || fields.AppID != "recut.editor" || fields.Operation != "motion-graphic.create" {
 		t.Fatalf("consume after register = %+v, %v", fields, ok)
 	}
 	if _, ok := bridge.consumeSubagentToolCall("session-a"); ok {
 		t.Fatal("second consume must be empty (1:1)")
 	}
-	bridge.registerSubagentToolCall("session-b", "job-2", "recut.editor", "component.revise")
+	bridge.registerSubagentToolCall("session-b", "job-2", "recut.editor", "motion-graphic.revise")
 	bridge.clearSubagentToolCall("session-b")
 	if _, ok := bridge.consumeSubagentToolCall("session-b"); ok {
 		t.Fatal("cleared registration must not be consumed")
@@ -76,7 +76,7 @@ func TestCreateChildSessionPersistedAndHiddenFromList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := agents.CreateChildSession(parent.ID, "job-1", "codex", "gpt-5.6-terra", "high", "", "子 Agent · component.create", []string{"recut.editor.component.commit"})
+	child, err := agents.CreateChildSession(parent.ID, "job-1", "codex", "gpt-5.6-terra", "high", "", "子 Agent · motion-graphic.create", []string{"recut.editor.motion-graphic.commit"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestAgentJobLifecycleEventsWriteLedgerAndStream(t *testing.T) {
 	bridge, agents, _ := newSubagentTestBridge(t)
 	var childID string
 	run := func(ctx context.Context, jobID string) (any, error) {
-		child, err := agents.CreateChildSession("parent", jobID, "codex", "gpt-5.6-terra", "high", "", "子 Agent · component.create", []string{"recut.editor.component.commit"})
+		child, err := agents.CreateChildSession("parent", jobID, "codex", "gpt-5.6-terra", "high", "", "子 Agent · motion-graphic.create", []string{"recut.editor.motion-graphic.commit"})
 		if err != nil {
 			return nil, err
 		}
@@ -262,9 +262,9 @@ func TestSubagentToolFieldsInjection(t *testing.T) {
 	if fields := agents.subagentToolFields("session-x"); len(fields) != 0 {
 		t.Fatalf("fields without registration = %v", fields)
 	}
-	bridge.registerSubagentToolCall("session-x", "job-9", "recut.editor", "component.create")
+	bridge.registerSubagentToolCall("session-x", "job-9", "recut.editor", "motion-graphic.create")
 	fields := agents.subagentToolFields("session-x")
-	if fields["subagentId"] != "job-9" || fields["subagentAppId"] != "recut.editor" || fields["subagentOperation"] != "component.create" {
+	if fields["subagentId"] != "job-9" || fields["subagentAppId"] != "recut.editor" || fields["subagentOperation"] != "motion-graphic.create" {
 		t.Fatalf("injected fields = %v", fields)
 	}
 	// 1:1 消费后为空
@@ -325,8 +325,8 @@ func TestAgentJobToolCallLedgerAndChildLookup(t *testing.T) {
 		t.Fatal("agentJobByChild must miss for unknown child")
 	}
 	// 发生时即追加：杀后账本仍在（finalize 从 job 投影）。
-	bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.component.commit", Result: map[string]any{"componentId": "c1"}})
-	bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.component.commit", Result: map[string]any{"componentId": "c2"}})
+	bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.motion-graphic.commit", Result: map[string]any{"componentId": "c1"}})
+	bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.motion-graphic.commit", Result: map[string]any{"componentId": "c2"}})
 	view, ok := bridge.agentJobView(job.ID)
 	if !ok {
 		t.Fatal("job view unavailable")
@@ -335,7 +335,7 @@ func TestAgentJobToolCallLedgerAndChildLookup(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("view toolCalls = %#v", view["toolCalls"])
 	}
-	if first := calls[0]; first.Name != "recut.editor.component.commit" || first.Result["componentId"] != "c1" {
+	if first := calls[0]; first.Name != "recut.editor.motion-graphic.commit" || first.Result["componentId"] != "c1" {
 		t.Fatalf("first tool call = %#v", first)
 	}
 }
@@ -374,9 +374,9 @@ func TestWaitAgentJobBoundedWindowReturnsEarly(t *testing.T) {
 func TestSubagentToolFieldsResolvesBridgeSessionMapping(t *testing.T) {
 	bridge, agents, _ := newSubagentTestBridge(t)
 	agents.recordBridgeSession("chat-1", "bridge-1")
-	bridge.registerSubagentToolCall("bridge-1", "job-10", "recut.editor", "component.revise")
+	bridge.registerSubagentToolCall("bridge-1", "job-10", "recut.editor", "motion-graphic.revise")
 	fields := agents.subagentToolFields("chat-1")
-	if fields["subagentId"] != "job-10" || fields["subagentAppId"] != "recut.editor" || fields["subagentOperation"] != "component.revise" {
+	if fields["subagentId"] != "job-10" || fields["subagentAppId"] != "recut.editor" || fields["subagentOperation"] != "motion-graphic.revise" {
 		t.Fatalf("fields via bridge mapping = %v", fields)
 	}
 	// 无映射且无注册：空

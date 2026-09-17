@@ -9,8 +9,8 @@ use-cover-sync.ts: 同步项目封面相关的 Host 事件与编辑器状态；�
 use-host-project.ts: 宿主项目名数据源；iframe 与 service 同源，经 GET /v1/projects/:id 读取最新宿主名、PATCH 写回重命名（与顶栏同一接口）；项目名称的唯一真相源是宿主项目而非编辑器内部文档名，demo 模式返回空值由调用方回退文档名。
 components.ts: 只按 asset.list 的 active component 引用或已有时间线 componentId 同步 runtime 定义；组件 Tab 不参与 AI 组件加载；无宿主测试 seam（aiComponents）时以注入数据服务列表与 bundle 解析。
 component-cover.ts: 仅在组件素材库实际挂载时，以完整 viewport 的隐藏 component-harness 验证版本并将 HTML-in-Canvas PNG 封面回传；后台不生成缩略图；无宿主测试 seam 时跳过。
-ai-components.ts: 组件 asset 引用与 AI 组件元数据的前端契约；通过 asset.list 发现素材、component.source 读取源码、asset.archive 隐藏引用；对外暴露 getTestSeam 供同步/封面链感知无宿主测试注入。
+ai-components.ts: 组件 asset 引用与 AI 组件元数据的前端契约；通过 asset.list 发现素材、motion-graphic.source 读取源码、asset.archive 隐藏引用；对外暴露 getTestSeam 供同步/封面链感知无宿主测试注入。
 
-组件的创建统一走一次异步 `component.create job -> 唯一 component.commit -> 轻量 verified -> 自动建立 type=component 引用 -> 返回 assetIds/components[].assetId -> 素材库（media）可见时可选 HTML-in-Canvas 封面`；已有组件调整或 Bug 修复统一是 `component.revise job -> 新 head -> 更新同一 asset 的 refVersionId`。组件源码、bundle、版本只有 components.js 一份；asset.archive 只隐藏引用，已有时间线仍可解析。AI 要放置组件时只把返回的 `assetId` 传给 `timeline.placeComponents`，后台再解析到 componentId。组件 Tab 只展示内置组件，项目组件必须经 active asset 引用进入素材库。Author job 用 `recut.job.status/wait/cancel/logs` 观察与控制，失败重试；`component.define` 只保留给受管提交入口。
+组件的创建统一走一次异步 `motion-graphic.create job -> 唯一 motion-graphic.commit -> 轻量 verified -> 自动建立 type=component 引用 -> 返回 assetIds/components[].assetId -> 素材库（media）可见时可选 HTML-in-Canvas 封面`；已有组件调整或 Bug 修复统一是 `motion-graphic.revise job -> 新 head -> 更新同一 asset 的 refVersionId`。组件源码、bundle、版本只有 components.js 一份；asset.archive 只隐藏引用，已有时间线仍可解析。AI 要放置组件时只把返回的 `assetId` 传给 `timeline.placeComponents`，后台再解析到 componentId。组件 Tab 只展示内置组件，项目组件必须经 active asset 引用进入素材库。Author job 用 `recut.job.status/wait/cancel/logs` 观察与控制，失败重试；`motion-graphic.define` 只保留给受管提交入口。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

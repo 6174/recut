@@ -7,13 +7,29 @@ import { useMaterialUniforms } from "./shared/uniforms";
 import { getShaderTexturePass } from "../../shader-effects/registry";
 import { PASSTHROUGH_VERTEX } from "../../shader-effects/shared/glsl";
 
+type EffectParams = ComponentRenderContext["params"];
+
 /**
  * 玻璃特效：全画布后处理平面，以圆角 SDF 玻璃卡折射 / 反射底层场景纹理。
  * 玻璃卡中心由可关键帧的 centerX/centerY（UV [0,1]）参数驱动。
  */
 export function GlassEffect({ world, params }: ComponentRenderContext) {
 	const texture = useSceneTexture();
+	// Rules of Hooks：纹理缺失时不能在调用其他 hook 前提前 return。
+	// 用内层组件承载带 texture 的 hook 链，挂载即有纹理，保持 build 只跑一次的语义。
 	if (!texture) return null;
+	return <GlassEffectInner world={world} params={params} texture={texture} />;
+}
+
+function GlassEffectInner({
+	world,
+	params,
+	texture,
+}: {
+	world: ComponentRenderContext["world"];
+	params: EffectParams;
+	texture: THREE.Texture;
+}) {
 	const centerX = num(params.centerX, 0.5);
 	const centerY = num(params.centerY, 0.5);
 	const zoom = num(params.zoom, 1.34);

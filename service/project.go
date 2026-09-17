@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"recut-service/motion_graphic"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -723,6 +725,9 @@ create index if not exists creation_context_bindings_target on creation_context_
 create index if not exists creation_context_bindings_world on creation_context_bindings(world_id, revision_id);
 `)
 		if err != nil {
+			return err
+		}
+		if err := motion_graphic.EnsureSchema(db); err != nil {
 			return err
 		}
 		for _, statement := range []string{
