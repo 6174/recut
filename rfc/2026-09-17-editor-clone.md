@@ -339,7 +339,7 @@ M0 与 M1 可并行；M2 依赖两者；M3 依赖 M2；M4 独立可后置。
 - **全局 skill**：新增 `service/skills/recut-reference/`（`recut_skills.go` 自动发现，无需改 Go）；`recut.skills.list/read` 可见。
 - **editor App**：新增 route `clone` 与 `references/clone.md`（薄适配）；`timeline.read` 输出增 `assetId` 关联（已有 `assetId`，无需新增字段）。
 - **能力桥**：`audio.transcribe` 增 `wordTimestamps`（可选），不影响既有调用。
-- **无迁移**：不新增表、不改 `editor_assets` 用途（组件索引保持原样），不建 ReferencePack 持久表（证据落参考素材 facet）。
+- **无迁移**：不新增表、不改 `editor_assets` 用途（组件索引保持原样），不建 ReferencePack 持久表（证据落参考素材 `metadata.reference`）。
 
 ## 10. 非目标
 

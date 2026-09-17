@@ -4,7 +4,7 @@
  *   rfc/2026-09-09-unified-entity-model（Entity 的 name/intro/detail + 有序 typed attrs 范式与 locked 语义）、
  *   rfc/2026-09-16-media-generation-proposal（metadata.proposal 系统配方）、
  *   rfc/2026-09-17-reference-understanding（参考证据与真实内容参考）、
- *   rfc/2026-09-17-clone-skill（计划态素材消费 attrs/content）、
+ *   rfc/2026-09-17-reference-understanding（参考理解与克隆执行，计划素材消费 attrs/content）、
  *   web/components/asset-preview-dialog.tsx（既有全局素材预览框）与 web/timeline-editor（素材面板 / 组件预览）
  * [OUTPUT]: 定义「全局素材能力」：以 Material（backing = bytes|code）为唯一素材载体，只加两个创作字段——
  *   content（非结构化长正文）+ attributes（有序 typed，带 provenance 溯源）；系统数据（proposal/reference 等）沿用既有 metadata 键，
@@ -22,7 +22,7 @@
 - 日期：2026-09-17
 - 关联：[Editor 迁移](./2026-09-17-editor-native-migration.md)、[统一 Entity 模型](./2026-09-09-unified-entity-model.md)、
   [媒体生成提案](./2026-09-16-media-generation-proposal.md)、[参考视频理解](./2026-09-17-reference-understanding.md)、
-  [Clone Skill](./2026-09-17-clone-skill.md)
+  [参考理解与克隆执行](./2026-09-17-reference-understanding.md)
 - 取代：[Editor 克隆](./2026-09-17-editor-clone.md) §4「素材元素挂 Editor 素材层」——创作信息不再私有在 `editor_assets`，统一落在全局 Material
 - 非目标：不新增字节目录；不重写 `media_assets` 生命周期与生成门禁；不做素材「类型目录 + 字段 schema」系统（见 §5）；不改 World Entity 的 attrs。
 
@@ -128,6 +128,7 @@ Provenance {
 - 与 `attributes` 的分工：能被枚举、比较、筛选、被机器消费的进 `attributes`；整段叙述进 `content`。避免把 `content` 塞成散装 JSON。
 - `contentMeta` 记录溯源（谁写的、依据哪些素材或哪次理解），与 `attr.provenance` 同形。
 - 对齐 Entity 的 `detail`（`content` ⇔ `detail`），素材暂不引入 `intro`（摘要可由 `content` 首段或一个 `text` attr 表达）。
+- **`content` 是素材的「说明」，也是生成时的规格（本 RFC 的核心用法）**：它既能描述**已有字节**（参考视频「这是什么」），也能描述**尚无字节**的素材（「我要它是什么」）。后者的 **content-first 流程**是：**先建空素材（无字节）+ 写 `content`**（富文本，可 @ 引用其它素材 / 实体 / World），AI 真正执行生成时读这份说明作为提示词、把 @ 引用解析为生成参考，产物**原位填回同一 assetId**（与 09-16 提案门禁一致：proposed → confirm）。
 
 ### 2.5 系统数据（沿用既有键，只读展示）
 
@@ -154,10 +155,12 @@ Provenance {
 | op | 语义 |
 |---|---|
 | `recut.media.asset.get` | 读单个素材完整视图（`backing` / `name` / `content` / `attributes` / 系统键）；code backing 待迁移 RFC 平台化后并入同一入口，此前经组件工具做只读投影 |
+| `recut.media.asset.create`（**待补**） | 建「空素材 + 说明」的占位（无字节、无需先定 capability）：先落 `content`/`attributes`，生成时再补配方并 confirm。当前 `propose` 要求 `capability`+`text`，无法表达纯占位 |
 | `recut.media.asset.update` | 改 `name` / `content` / `attributes`（整体替换）/ `attrPatch`（按 key 合并，避免回读全量）；`locked` 结构项不可改，越权 fail closed |
 
 - 语义对齐 `recut.worlds.entity.update`：`attrs` 整体替换 vs `attrPatch` 按 key 合并。
 - `content` 写入同时更新 `contentMeta`；attrs 写入由服务端填 `source` / `provenance`（Agent 调用即 `by=agent`，只有 system 能创建锁定字段）。
+- `content` = 长正文，与 `contentMeta`（来源）同表存储；正文支持平台**内联引用**（`<media assetid>` 等，见 [富文本上下文输入协议](./2026-09-14-rich-context-composer-protocol.md)）。
 - 写入发 `asset.updated` SSE（既有通道），供工作台/画布/编辑器实时刷新。
 
 ### 3.2 系统数据写入（既有 owner op）
@@ -347,14 +350,16 @@ MG / 组件今天由 `apps/editor` 的私有 SQLite 维护，且**按项目归�
 
 ## 11. 风险与未决问题
 
-1. **参考接口命名**：`reference.create` vs `reference.mark` vs 扩展 `create_reference`（加 `assetId` 分支）。**未决**，倾向独立 op 以免混淆语义。
-2. **`metadata` 口袋继续膨胀**：新旧字段并存可能长期脏。缓解：系统键有 owner；设「`metadata` 只允许 content/contentMeta/attributes + 既有系统键」的收口目标。
-3. **全局可变性**：content/attrs 在全局素材上，会被其他项目读到。缓解：只放可复用的描述性信息与证据，目标私有语义留项目；attrs 带 `source` 供读取侧过滤。
-4. **素材级理解 vs 目标解释的边界**：容易把 keep/replace 这类主观判断写进全局 content。缓解：§4.3 三层分离作为硬纪律，skill 与契约都明确声明。
-5. **`ref` 类型的解析与权限**：引用 World 实体/项目时的可见性校验。**未决**：跨作用域引用是否 fail closed。
-6. **搜索/索引**：按 attr 过滤需要索引，首版不做；需评估素材库规模。
-7. **MG 迁移的数据一致**：组件从项目内变全局，存在「原项目间同名/同源组件」「引用索引与组件行不一致」两类脏数据。缓解：ID 稳定不合并、迁移按引用表回填、双写比对后再切写权威（§8.3/§8.4）。**未决**：组件是否需要 `origin_project_id` 之外的可见性/权限模型。
-8. **组件属性回填的边界**：`keywords/mode` 是系统语义，回填为 `attributes` 时须标 `source=system` 并避免与用户可编辑字段混淆。**未决**：哪些字段进 attrs、哪些直接保留为 Material 一级字段。
+1. **占位入口缺失（content-first 的前置）**：`recut.media.propose` 要求 `capability`+`text`，无法「只建空素材 + 写说明」。需补 `recut.media.asset.create`（draft/proposed 占位）或放开 `propose` 的 capability 必填；在此之前 content-first 只能用「propose 一个最可能能力 + `asset.update` 写 content」近似。
+
+2. **参考接口命名**：`reference.create` vs `reference.mark` vs 扩展 `create_reference`（加 `assetId` 分支）。**未决**，倾向独立 op 以免混淆语义。
+3. **`metadata` 口袋继续膨胀**：新旧字段并存可能长期脏。缓解：系统键有 owner；设「`metadata` 只允许 content/contentMeta/attributes + 既有系统键」的收口目标。
+4. **全局可变性**：content/attrs 在全局素材上，会被其他项目读到。缓解：只放可复用的描述性信息与证据，目标私有语义留项目；attrs 带 `source` 供读取侧过滤。
+5. **素材级理解 vs 目标解释的边界**：容易把 keep/replace 这类主观判断写进全局 content。缓解：§4.3 三层分离作为硬纪律，skill 与契约都明确声明。
+6. **`ref` 类型的解析与权限**：引用 World 实体/项目时的可见性校验。**未决**：跨作用域引用是否 fail closed。
+7. **搜索/索引**：按 attr 过滤需要索引，首版不做；需评估素材库规模。
+8. **MG 迁移的数据一致**：组件从项目内变全局，存在「原项目间同名/同源组件」「引用索引与组件行不一致」两类脏数据。缓解：ID 稳定不合并、迁移按引用表回填、双写比对后再切写权威（§8.3/§8.4）。**未决**：组件是否需要 `origin_project_id` 之外的可见性/权限模型。
+9. **组件属性回填的边界**：`keywords/mode` 是系统语义，回填为 `attributes` 时须标 `source=system` 并避免与用户可编辑字段混淆。**未决**：哪些字段进 attrs、哪些直接保留为 Material 一级字段。
 9. **code backing 的落地时序**：M0–M3 可在 bytes backing 上先落；M4 依赖迁移 RFC 的 store/Render Host，若迁移滞后则 MG 的属性/预览只读投影，不阻塞字节素材。
 
 ## 12. 排期
@@ -364,4 +369,4 @@ MG / 组件今天由 `apps/editor` 的私有 SQLite 维护，且**按项目归�
 1. [Editor 迁移](./2026-09-17-editor-native-migration.md)
 2. [参考视频理解](./2026-09-17-reference-understanding.md)（与 M0/M1 并行）
 3. **本 RFC（素材属性协议层）**
-4. [Clone Skill](./2026-09-17-clone-skill.md)
+4. [参考理解与克隆执行](./2026-09-17-reference-understanding.md)

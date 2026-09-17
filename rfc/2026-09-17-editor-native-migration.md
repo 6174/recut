@@ -166,6 +166,19 @@ UI 平面（web 统一前端，单 React 树）
 2. **UI 整份 `project.save` 怎么办**：现在 UI 会整份保存项目，与 AI 的 op 日志并存（`data-model.md` 的「锁内 project.save 被拒」即是补丁）。建议改为**走 op**（单一写入口）；至少也要变成「带 version 校验的整份替换 op」。
 3. **共享纯函数的单一 spec 归属**（§4.4）——duck 包络、tick 换算、关键帧求值边界。
 
+### 4.6 技能全局化：`recut-editor` → `service/skills/recut-editor`
+
+**背景**：editor 重构（UI 并入 web `timeline-editor`、逻辑下沉 Go）**遗漏了它的技能**——`apps/editor/skills/recut-editor/` 仍是 App 私有技能。editor 转为平台模块后，其技能应与 `recut-worlds`/`recut-director` 同形：**放进 `service/skills/recut-editor/`**，由 `recut_skills.go` 自动发现（无需改 Go 的发现逻辑）。
+
+**迁移动作**：
+
+1. `git mv apps/editor/skills/recut-editor service/skills/recut-editor`；frontmatter 对齐平台技能（`appId: recut.platform`）；references 仍按技能根相对路径——内容语义不改。
+2. **宿主技能解析（必做）**：`agentSurface.requiredSkill`（`service/agent.go` 的 `materializeWorkSurfaceContext`）目前解析为 `{AppID: project.AppID, SkillID}` 的 **App 技能**。editor 不再持有该技能后，需让它解析到**全局技能**（如 `{appId:"recut.platform", skillId:"recut-editor"}`，或按 skillId 回退到全局技能目录）。否则工作台不再加载编辑契约。
+3. **打包与测试**：`service/builtin_apps_test.go` 断言内置 editor tar 含 `skills/recut-editor/SKILL.md`、`apps/editor/scripts/test-authoring-quality.js` 读 `skills/recut-editor/*` —— 随技能外迁更新（tar 排除 skills；脚本改指 `service/skills/recut-editor`）。
+4. **纪律**：全局技能只引用平台 op（`recut.editor.*` / `recut.media.*`），不引 App 私有 op；`service/skills/README.md` 增条目。
+
+**不变式与依赖**：技能语义不变；[`recut-clone`](./2026-09-17-reference-understanding.md) 的 `references/placement.md` 以它作为时间线组装的权威。**本项是 clone 执行的依赖**，与 M0/M1 同批推进。
+
 ## 5. 通信契约迁移明细（评审重点二）
 
 ### 5.1 不变（契约原文直接沿用）
@@ -251,9 +264,10 @@ editor 不再是 App、组件升为平台素材，需要一次显式修订：
 | **M1 timeline 域下沉 Go** | 逻辑权威入 Go | timeline store/model/ops + script/subtitle → Go；op 名不变 | golden 一致性套件全绿；双跑无差异；goja 可关 |
 | **M2 素材平台化** | 组件归平台 | 平台 `code` material + 平台构建工具链；`editor_components` 迁移 | 新组件写平台；`component.*` 结果不变；`bundleHash` 可校验 |
 | **M3 Render Host** | 渲染脱离 editor UI | 平台 host 产物（单例 runtime + import map + §5.3 op 面） | 同 doc 同 t 像素一致；导出端加载同一 host |
+| **M2.5 技能全局化** | 技能随 editor 一起平台化 | `recut-editor` → `service/skills/recut-editor`；surface `requiredSkill` 解析到全局技能；打包/测试同步 | `recut.skills.list` 发现 `recut-editor`；工作台仍加载编辑契约；技能内容零语义变化 |
 | **M4 收口** | 删旧路径 | 删 background/goja/iframe 桥；App 契约修订 | 无残留旧依赖；`editor_agent_test` 迁为 Go 套件且全绿 |
 
-依赖：M0 与 M1 可并行；M2 依赖 M1 的 store 落点；M3 可与 M1/M2 并行；M4 最后。
+依赖：M0 与 M1 可并行；M2 依赖 M1 的 store 落点；**M2.5 与 M0/M2 同批（clone 的依赖）**；M3 可与 M1/M2 并行；M4 最后。
 
 ## 10. 风险与未决问题
 
@@ -278,4 +292,4 @@ editor 不再是 App、组件升为平台素材，需要一次显式修订：
 
 1. **视频理解**：全局 `recut.media.*` 理解工具 + 全局 skill `recut-reference`（可解耦、可单测）。
 2. **素材 attrs 协议层**：在 Material 之上定义有序 attrs + content + 确定性 recipe；计划态与物化。
-3. **clone skill**：在 `timeline-editor` 的 skill 内封装克隆执行（薄适配，决策指向 `recut-director/references/remix`）。
+3. **clone skill**：全局 `recut-clone`（薄适配；决策指向 `recut-director/references/remix`，组装指向全局化的 `recut-editor`）。
