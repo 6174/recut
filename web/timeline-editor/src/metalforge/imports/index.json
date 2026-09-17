@@ -1,0 +1,2228 @@
+[
+ {
+  "id": "progress",
+  "name": "Progress",
+  "gallery": "motion",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ProgressBar.swift",
+    "file": "ios__ProgressBar.swift",
+    "size": 27454
+   },
+   {
+    "platform": "ios",
+    "name": "progress.metal",
+    "file": "ios__progress.metal",
+    "size": 13221
+   },
+   {
+    "platform": "rn",
+    "name": "ProgressBar.tsx",
+    "file": "rn__ProgressBar.tsx",
+    "size": 29669
+   },
+   {
+    "platform": "web",
+    "name": "ProgressBar.tsx",
+    "file": "web__ProgressBar.tsx",
+    "size": 35612
+   }
+  ]
+ },
+ {
+  "id": "thinking-orbs",
+  "name": "Thinking Orbs",
+  "gallery": "motion",
+  "kind": "discs",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ThinkingOrbsPill.swift",
+    "file": "ios__ThinkingOrbsPill.swift",
+    "size": 14493
+   },
+   {
+    "platform": "rn",
+    "name": "ThinkingOrbsPill.tsx",
+    "file": "rn__ThinkingOrbsPill.tsx",
+    "size": 51077
+   },
+   {
+    "platform": "web",
+    "name": "ThinkingOrbsPill.tsx",
+    "file": "web__ThinkingOrbsPill.tsx",
+    "size": 55415
+   }
+  ]
+ },
+ {
+  "id": "dust",
+  "name": "Dust",
+  "gallery": "motion",
+  "kind": "dust",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ContentView.swift",
+    "file": "ios__ContentView.swift",
+    "size": 10387
+   },
+   {
+    "platform": "ios",
+    "name": "dust.metal",
+    "file": "ios__dust.metal",
+    "size": 6832
+   },
+   {
+    "platform": "rn",
+    "name": "DustView.tsx",
+    "file": "rn__DustView.tsx",
+    "size": 6435
+   },
+   {
+    "platform": "web",
+    "name": "DustView.tsx",
+    "file": "web__DustView.tsx",
+    "size": 15130
+   }
+  ]
+ },
+ {
+  "id": "hyperspace",
+  "name": "Hyperspace",
+  "gallery": "space",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "HyperspaceView.swift",
+    "file": "ios__HyperspaceView.swift",
+    "size": 2633
+   },
+   {
+    "platform": "ios",
+    "name": "hyperspace.metal",
+    "file": "ios__hyperspace.metal",
+    "size": 11597
+   },
+   {
+    "platform": "rn",
+    "name": "HyperspaceView.tsx",
+    "file": "rn__HyperspaceView.tsx",
+    "size": 12761
+   },
+   {
+    "platform": "web",
+    "name": "HyperspaceView.tsx",
+    "file": "web__HyperspaceView.tsx",
+    "size": 17886
+   }
+  ]
+ },
+ {
+  "id": "cloth",
+  "name": "Cloth",
+  "gallery": "motion",
+  "kind": "cloth",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ContentView.swift",
+    "file": "ios__ContentView.swift",
+    "size": 2449
+   },
+   {
+    "platform": "rn",
+    "name": "ContentView.swift",
+    "file": "rn__ContentView.swift",
+    "size": 2449
+   },
+   {
+    "platform": "web",
+    "name": "ClothView.tsx",
+    "file": "web__ClothView.tsx",
+    "size": 23993
+   },
+   {
+    "platform": "web",
+    "name": "cloth-runtime.js",
+    "file": "web__cloth-runtime.js",
+    "size": 28727
+   },
+   {
+    "platform": "web",
+    "name": "cloth-artwork.jpg",
+    "file": "web__cloth-artwork.jpg",
+    "size": 0
+   }
+  ],
+  "errors": [
+   {
+    "platform": "ios",
+    "err": "[Errno 2] No such file or directory: '/Users/chenxuejia/ws/recut/apps/editor/ui/src/metalforge/imports/ios__Assets.xcass"
+   },
+   {
+    "platform": "rn",
+    "err": "[Errno 2] No such file or directory: '/Users/chenxuejia/ws/recut/apps/editor/ui/src/metalforge/imports/rn__Assets.xcasse"
+   }
+  ]
+ },
+ {
+  "id": "orb-magenta",
+  "name": "Magenta",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbMagentaView.swift",
+    "file": "ios__OrbMagentaView.swift",
+    "size": 2940
+   },
+   {
+    "platform": "ios",
+    "name": "orb-magenta.metal",
+    "file": "ios__orb-magenta.metal",
+    "size": 14040
+   },
+   {
+    "platform": "rn",
+    "name": "OrbMagentaView.tsx",
+    "file": "rn__OrbMagentaView.tsx",
+    "size": 13865
+   },
+   {
+    "platform": "web",
+    "name": "OrbMagentaView.tsx",
+    "file": "web__OrbMagentaView.tsx",
+    "size": 20122
+   }
+  ]
+ },
+ {
+  "id": "orb-drop",
+  "name": "Drop",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbDropView.swift",
+    "file": "ios__OrbDropView.swift",
+    "size": 2985
+   },
+   {
+    "platform": "ios",
+    "name": "orb-drop.metal",
+    "file": "ios__orb-drop.metal",
+    "size": 14164
+   },
+   {
+    "platform": "rn",
+    "name": "OrbDropView.tsx",
+    "file": "rn__OrbDropView.tsx",
+    "size": 14208
+   },
+   {
+    "platform": "web",
+    "name": "OrbDropView.tsx",
+    "file": "web__OrbDropView.tsx",
+    "size": 20477
+   }
+  ]
+ },
+ {
+  "id": "orb-ember",
+  "name": "Ember Orb",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbEmberView.swift",
+    "file": "ios__OrbEmberView.swift",
+    "size": 2983
+   },
+   {
+    "platform": "ios",
+    "name": "orb-ember.metal",
+    "file": "ios__orb-ember.metal",
+    "size": 14210
+   },
+   {
+    "platform": "rn",
+    "name": "OrbEmberView.tsx",
+    "file": "rn__OrbEmberView.tsx",
+    "size": 14131
+   },
+   {
+    "platform": "web",
+    "name": "OrbEmberView.tsx",
+    "file": "web__OrbEmberView.tsx",
+    "size": 20391
+   }
+  ]
+ },
+ {
+  "id": "orb-solar-flare",
+  "name": "Solar Flare",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbSolarFlareView.swift",
+    "file": "ios__OrbSolarFlareView.swift",
+    "size": 3004
+   },
+   {
+    "platform": "ios",
+    "name": "orb-solar-flare.metal",
+    "file": "ios__orb-solar-flare.metal",
+    "size": 14449
+   },
+   {
+    "platform": "rn",
+    "name": "OrbSolarFlareView.tsx",
+    "file": "rn__OrbSolarFlareView.tsx",
+    "size": 14142
+   },
+   {
+    "platform": "web",
+    "name": "OrbSolarFlareView.tsx",
+    "file": "web__OrbSolarFlareView.tsx",
+    "size": 20408
+   }
+  ]
+ },
+ {
+  "id": "orb-lava-lamp",
+  "name": "Lava Lamp",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbLavaLampView.swift",
+    "file": "ios__OrbLavaLampView.swift",
+    "size": 2958
+   },
+   {
+    "platform": "ios",
+    "name": "orb-lava-lamp.metal",
+    "file": "ios__orb-lava-lamp.metal",
+    "size": 14732
+   },
+   {
+    "platform": "rn",
+    "name": "OrbLavaLampView.tsx",
+    "file": "rn__OrbLavaLampView.tsx",
+    "size": 14631
+   },
+   {
+    "platform": "web",
+    "name": "OrbLavaLampView.tsx",
+    "file": "web__OrbLavaLampView.tsx",
+    "size": 20855
+   }
+  ]
+ },
+ {
+  "id": "orb-prism",
+  "name": "Prism",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbPrismView.swift",
+    "file": "ios__OrbPrismView.swift",
+    "size": 2382
+   },
+   {
+    "platform": "ios",
+    "name": "orb-prism.metal",
+    "file": "ios__orb-prism.metal",
+    "size": 8305
+   },
+   {
+    "platform": "rn",
+    "name": "OrbPrismView.tsx",
+    "file": "rn__OrbPrismView.tsx",
+    "size": 8570
+   },
+   {
+    "platform": "web",
+    "name": "OrbPrismView.tsx",
+    "file": "web__OrbPrismView.tsx",
+    "size": 14918
+   }
+  ]
+ },
+ {
+  "id": "orb-abyss",
+  "name": "Abyss Orb",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbAbyssView.swift",
+    "file": "ios__OrbAbyssView.swift",
+    "size": 2476
+   },
+   {
+    "platform": "ios",
+    "name": "orb-abyss.metal",
+    "file": "ios__orb-abyss.metal",
+    "size": 8378
+   },
+   {
+    "platform": "rn",
+    "name": "OrbAbyssView.tsx",
+    "file": "rn__OrbAbyssView.tsx",
+    "size": 8638
+   },
+   {
+    "platform": "web",
+    "name": "OrbAbyssView.tsx",
+    "file": "web__OrbAbyssView.tsx",
+    "size": 15035
+   }
+  ]
+ },
+ {
+  "id": "orb-glass-liquid",
+  "name": "Glass Liquid",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbGlassLiquidView.swift",
+    "file": "ios__OrbGlassLiquidView.swift",
+    "size": 2973
+   },
+   {
+    "platform": "ios",
+    "name": "orb-glass-liquid.metal",
+    "file": "ios__orb-glass-liquid.metal",
+    "size": 16331
+   },
+   {
+    "platform": "rn",
+    "name": "OrbGlassLiquidView.tsx",
+    "file": "rn__OrbGlassLiquidView.tsx",
+    "size": 15849
+   },
+   {
+    "platform": "web",
+    "name": "OrbGlassLiquidView.tsx",
+    "file": "web__OrbGlassLiquidView.tsx",
+    "size": 21751
+   }
+  ]
+ },
+ {
+  "id": "orb-cyclone",
+  "name": "Cyclone",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbCycloneView.swift",
+    "file": "ios__OrbCycloneView.swift",
+    "size": 2481
+   },
+   {
+    "platform": "ios",
+    "name": "orb-cyclone.metal",
+    "file": "ios__orb-cyclone.metal",
+    "size": 8394
+   },
+   {
+    "platform": "rn",
+    "name": "OrbCycloneView.tsx",
+    "file": "rn__OrbCycloneView.tsx",
+    "size": 8606
+   },
+   {
+    "platform": "web",
+    "name": "OrbCycloneView.tsx",
+    "file": "web__OrbCycloneView.tsx",
+    "size": 15023
+   }
+  ]
+ },
+ {
+  "id": "orb-pyre",
+  "name": "Pyre",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbPyreView.swift",
+    "file": "ios__OrbPyreView.swift",
+    "size": 2360
+   },
+   {
+    "platform": "ios",
+    "name": "orb-pyre.metal",
+    "file": "ios__orb-pyre.metal",
+    "size": 7876
+   },
+   {
+    "platform": "rn",
+    "name": "OrbPyreView.tsx",
+    "file": "rn__OrbPyreView.tsx",
+    "size": 8234
+   },
+   {
+    "platform": "web",
+    "name": "OrbPyreView.tsx",
+    "file": "web__OrbPyreView.tsx",
+    "size": 14569
+   }
+  ]
+ },
+ {
+  "id": "orb-nebula",
+  "name": "Nebula Orb",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbNebulaView.swift",
+    "file": "ios__OrbNebulaView.swift",
+    "size": 2777
+   },
+   {
+    "platform": "ios",
+    "name": "orb-nebula.metal",
+    "file": "ios__orb-nebula.metal",
+    "size": 9799
+   },
+   {
+    "platform": "rn",
+    "name": "OrbNebulaView.tsx",
+    "file": "rn__OrbNebulaView.tsx",
+    "size": 10118
+   },
+   {
+    "platform": "web",
+    "name": "OrbNebulaView.tsx",
+    "file": "web__OrbNebulaView.tsx",
+    "size": 16188
+   }
+  ]
+ },
+ {
+  "id": "orb-ferrofluid",
+  "name": "Ferrofluid",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbFerrofluidView.swift",
+    "file": "ios__OrbFerrofluidView.swift",
+    "size": 2616
+   },
+   {
+    "platform": "ios",
+    "name": "orb-ferrofluid.metal",
+    "file": "ios__orb-ferrofluid.metal",
+    "size": 10956
+   },
+   {
+    "platform": "rn",
+    "name": "OrbFerrofluidView.tsx",
+    "file": "rn__OrbFerrofluidView.tsx",
+    "size": 11043
+   },
+   {
+    "platform": "web",
+    "name": "OrbFerrofluidView.tsx",
+    "file": "web__OrbFerrofluidView.tsx",
+    "size": 17201
+   }
+  ]
+ },
+ {
+  "id": "orb-abalone",
+  "name": "Abalone",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbAbaloneView.swift",
+    "file": "ios__OrbAbaloneView.swift",
+    "size": 3028
+   },
+   {
+    "platform": "ios",
+    "name": "orb-abalone.metal",
+    "file": "ios__orb-abalone.metal",
+    "size": 11529
+   },
+   {
+    "platform": "rn",
+    "name": "OrbAbaloneView.tsx",
+    "file": "rn__OrbAbaloneView.tsx",
+    "size": 11737
+   },
+   {
+    "platform": "web",
+    "name": "OrbAbaloneView.tsx",
+    "file": "web__OrbAbaloneView.tsx",
+    "size": 17943
+   }
+  ]
+ },
+ {
+  "id": "orb-nacre",
+  "name": "Nacre",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbNacreView.swift",
+    "file": "ios__OrbNacreView.swift",
+    "size": 2420
+   },
+   {
+    "platform": "ios",
+    "name": "orb-nacre.metal",
+    "file": "ios__orb-nacre.metal",
+    "size": 8632
+   },
+   {
+    "platform": "rn",
+    "name": "OrbNacreView.tsx",
+    "file": "rn__OrbNacreView.tsx",
+    "size": 8903
+   },
+   {
+    "platform": "web",
+    "name": "OrbNacreView.tsx",
+    "file": "web__OrbNacreView.tsx",
+    "size": 15032
+   }
+  ]
+ },
+ {
+  "id": "orb-soap-film",
+  "name": "Soap Film",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbSoapFilmView.swift",
+    "file": "ios__OrbSoapFilmView.swift",
+    "size": 2647
+   },
+   {
+    "platform": "ios",
+    "name": "orb-soap-film.metal",
+    "file": "ios__orb-soap-film.metal",
+    "size": 10184
+   },
+   {
+    "platform": "rn",
+    "name": "OrbSoapFilmView.swift",
+    "file": "rn__OrbSoapFilmView.swift",
+    "size": 2647
+   },
+   {
+    "platform": "rn",
+    "name": "orb-soap-film.metal",
+    "file": "rn__orb-soap-film.metal",
+    "size": 10184
+   },
+   {
+    "platform": "web",
+    "name": "OrbSoapFilmView.tsx",
+    "file": "web__OrbSoapFilmView.tsx",
+    "size": 16512
+   }
+  ]
+ },
+ {
+  "id": "orb-struck-film",
+  "name": "Struck Film",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbStruckFilmView.swift",
+    "file": "ios__OrbStruckFilmView.swift",
+    "size": 2600
+   },
+   {
+    "platform": "ios",
+    "name": "orb-struck-film.metal",
+    "file": "ios__orb-struck-film.metal",
+    "size": 9880
+   },
+   {
+    "platform": "rn",
+    "name": "OrbStruckFilmView.swift",
+    "file": "rn__OrbStruckFilmView.swift",
+    "size": 2600
+   },
+   {
+    "platform": "rn",
+    "name": "orb-struck-film.metal",
+    "file": "rn__orb-struck-film.metal",
+    "size": 9880
+   },
+   {
+    "platform": "web",
+    "name": "OrbStruckFilmView.tsx",
+    "file": "web__OrbStruckFilmView.tsx",
+    "size": 16089
+   }
+  ]
+ },
+ {
+  "id": "orb-ink-bloom",
+  "name": "Ink Bloom",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbInkBloomView.swift",
+    "file": "ios__OrbInkBloomView.swift",
+    "size": 2592
+   },
+   {
+    "platform": "ios",
+    "name": "orb-ink-bloom.metal",
+    "file": "ios__orb-ink-bloom.metal",
+    "size": 9599
+   },
+   {
+    "platform": "rn",
+    "name": "OrbInkBloomView.tsx",
+    "file": "rn__OrbInkBloomView.tsx",
+    "size": 9783
+   },
+   {
+    "platform": "web",
+    "name": "OrbInkBloomView.tsx",
+    "file": "web__OrbInkBloomView.tsx",
+    "size": 15862
+   }
+  ]
+ },
+ {
+  "id": "orb-caustics",
+  "name": "Caustics",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbCausticsView.swift",
+    "file": "ios__OrbCausticsView.swift",
+    "size": 2685
+   },
+   {
+    "platform": "ios",
+    "name": "orb-caustics.metal",
+    "file": "ios__orb-caustics.metal",
+    "size": 10039
+   },
+   {
+    "platform": "rn",
+    "name": "OrbCausticsView.tsx",
+    "file": "rn__OrbCausticsView.tsx",
+    "size": 10178
+   },
+   {
+    "platform": "web",
+    "name": "OrbCausticsView.tsx",
+    "file": "web__OrbCausticsView.tsx",
+    "size": 16128
+   }
+  ]
+ },
+ {
+  "id": "orb-temper",
+  "name": "Temper",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbTemperView.swift",
+    "file": "ios__OrbTemperView.swift",
+    "size": 3121
+   },
+   {
+    "platform": "ios",
+    "name": "orb-temper.metal",
+    "file": "ios__orb-temper.metal",
+    "size": 12537
+   },
+   {
+    "platform": "rn",
+    "name": "OrbTemperView.tsx",
+    "file": "rn__OrbTemperView.tsx",
+    "size": 12779
+   },
+   {
+    "platform": "web",
+    "name": "OrbTemperView.tsx",
+    "file": "web__OrbTemperView.tsx",
+    "size": 18836
+   }
+  ]
+ },
+ {
+  "id": "orb-obsidian",
+  "name": "Obsidian",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbObsidianView.swift",
+    "file": "ios__OrbObsidianView.swift",
+    "size": 3262
+   },
+   {
+    "platform": "ios",
+    "name": "orb-obsidian.metal",
+    "file": "ios__orb-obsidian.metal",
+    "size": 15356
+   },
+   {
+    "platform": "rn",
+    "name": "OrbObsidianView.tsx",
+    "file": "rn__OrbObsidianView.tsx",
+    "size": 14540
+   },
+   {
+    "platform": "web",
+    "name": "OrbObsidianView.tsx",
+    "file": "web__OrbObsidianView.tsx",
+    "size": 21391
+   }
+  ]
+ },
+ {
+  "id": "orb-liquid-metal",
+  "name": "Liquid Metal",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbLiquidMetalView.swift",
+    "file": "ios__OrbLiquidMetalView.swift",
+    "size": 3169
+   },
+   {
+    "platform": "ios",
+    "name": "orb-liquid-metal.metal",
+    "file": "ios__orb-liquid-metal.metal",
+    "size": 14430
+   },
+   {
+    "platform": "rn",
+    "name": "OrbLiquidMetalView.tsx",
+    "file": "rn__OrbLiquidMetalView.tsx",
+    "size": 14506
+   },
+   {
+    "platform": "web",
+    "name": "OrbLiquidMetalView.tsx",
+    "file": "web__OrbLiquidMetalView.tsx",
+    "size": 20510
+   }
+  ]
+ },
+ {
+  "id": "orb-smoke",
+  "name": "Smoke Orb",
+  "gallery": "orbs",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "OrbSmokeView.swift",
+    "file": "ios__OrbSmokeView.swift",
+    "size": 2931
+   },
+   {
+    "platform": "ios",
+    "name": "orb-smoke.metal",
+    "file": "ios__orb-smoke.metal",
+    "size": 13321
+   },
+   {
+    "platform": "rn",
+    "name": "OrbSmokeView.tsx",
+    "file": "rn__OrbSmokeView.tsx",
+    "size": 13850
+   },
+   {
+    "platform": "web",
+    "name": "OrbSmokeView.tsx",
+    "file": "web__OrbSmokeView.tsx",
+    "size": 19723
+   }
+  ]
+ },
+ {
+  "id": "wallpaper",
+  "name": "Wallpaper",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "WallpaperView.swift",
+    "file": "ios__WallpaperView.swift",
+    "size": 1884
+   },
+   {
+    "platform": "ios",
+    "name": "wallpaper.metal",
+    "file": "ios__wallpaper.metal",
+    "size": 4474
+   },
+   {
+    "platform": "rn",
+    "name": "WallpaperView.tsx",
+    "file": "rn__WallpaperView.tsx",
+    "size": 4405
+   },
+   {
+    "platform": "web",
+    "name": "WallpaperView.tsx",
+    "file": "web__WallpaperView.tsx",
+    "size": 9817
+   }
+  ]
+ },
+ {
+  "id": "abyss",
+  "name": "Abyss",
+  "gallery": "gradient",
+  "kind": "meshgradient",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "AbyssView.swift",
+    "file": "ios__AbyssView.swift",
+    "size": 4144
+   },
+   {
+    "platform": "ios",
+    "name": "abyss.metal",
+    "file": "ios__abyss.metal",
+    "size": 8751
+   },
+   {
+    "platform": "rn",
+    "name": "MeshView.tsx",
+    "file": "rn__MeshView.tsx",
+    "size": 7038
+   },
+   {
+    "platform": "rn",
+    "name": "meshFilter.ts",
+    "file": "rn__meshFilter.ts",
+    "size": 6758
+   },
+   {
+    "platform": "web",
+    "name": "AbyssView.swift",
+    "file": "web__AbyssView.swift",
+    "size": 4144
+   },
+   {
+    "platform": "web",
+    "name": "abyss.metal",
+    "file": "web__abyss.metal",
+    "size": 8751
+   }
+  ]
+ },
+ {
+  "id": "ridge-violet",
+  "name": "Ridge Violet",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "RidgeVioletView.swift",
+    "file": "ios__RidgeVioletView.swift",
+    "size": 2566
+   },
+   {
+    "platform": "ios",
+    "name": "ridge-violet.metal",
+    "file": "ios__ridge-violet.metal",
+    "size": 22420
+   },
+   {
+    "platform": "rn",
+    "name": "RidgeVioletView.tsx",
+    "file": "rn__RidgeVioletView.tsx",
+    "size": 21031
+   },
+   {
+    "platform": "web",
+    "name": "RidgeVioletView.tsx",
+    "file": "web__RidgeVioletView.tsx",
+    "size": 26297
+   }
+  ]
+ },
+ {
+  "id": "ridge-indigo",
+  "name": "Ridge Indigo",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "RidgeIndigoView.swift",
+    "file": "ios__RidgeIndigoView.swift",
+    "size": 2566
+   },
+   {
+    "platform": "ios",
+    "name": "ridge-indigo.metal",
+    "file": "ios__ridge-indigo.metal",
+    "size": 22420
+   },
+   {
+    "platform": "rn",
+    "name": "RidgeIndigoView.tsx",
+    "file": "rn__RidgeIndigoView.tsx",
+    "size": 21026
+   },
+   {
+    "platform": "web",
+    "name": "RidgeIndigoView.tsx",
+    "file": "web__RidgeIndigoView.tsx",
+    "size": 26292
+   }
+  ]
+ },
+ {
+  "id": "ridge-graphite",
+  "name": "Ridge Graphite",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "RidgeGraphiteView.swift",
+    "file": "ios__RidgeGraphiteView.swift",
+    "size": 2571
+   },
+   {
+    "platform": "ios",
+    "name": "ridge-graphite.metal",
+    "file": "ios__ridge-graphite.metal",
+    "size": 22422
+   },
+   {
+    "platform": "rn",
+    "name": "RidgeGraphiteView.tsx",
+    "file": "rn__RidgeGraphiteView.tsx",
+    "size": 21034
+   },
+   {
+    "platform": "web",
+    "name": "RidgeGraphiteView.tsx",
+    "file": "web__RidgeGraphiteView.tsx",
+    "size": 26301
+   }
+  ]
+ },
+ {
+  "id": "spike-purple",
+  "name": "Spike Purple",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "SpikePurpleView.swift",
+    "file": "ios__SpikePurpleView.swift",
+    "size": 3010
+   },
+   {
+    "platform": "ios",
+    "name": "spike-purple.metal",
+    "file": "ios__spike-purple.metal",
+    "size": 26233
+   },
+   {
+    "platform": "rn",
+    "name": "SpikePurpleView.tsx",
+    "file": "rn__SpikePurpleView.tsx",
+    "size": 24129
+   },
+   {
+    "platform": "web",
+    "name": "SpikePurpleView.tsx",
+    "file": "web__SpikePurpleView.tsx",
+    "size": 28696
+   }
+  ]
+ },
+ {
+  "id": "spike-aqua",
+  "name": "Spike Aqua",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "SpikeAquaView.swift",
+    "file": "ios__SpikeAquaView.swift",
+    "size": 3004
+   },
+   {
+    "platform": "ios",
+    "name": "spike-aqua.metal",
+    "file": "ios__spike-aqua.metal",
+    "size": 26231
+   },
+   {
+    "platform": "rn",
+    "name": "SpikeAquaView.tsx",
+    "file": "rn__SpikeAquaView.tsx",
+    "size": 24127
+   },
+   {
+    "platform": "web",
+    "name": "SpikeAquaView.tsx",
+    "file": "web__SpikeAquaView.tsx",
+    "size": 28697
+   }
+  ]
+ },
+ {
+  "id": "spike-lime",
+  "name": "Spike Lime",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "SpikeLimeView.swift",
+    "file": "ios__SpikeLimeView.swift",
+    "size": 3004
+   },
+   {
+    "platform": "ios",
+    "name": "spike-lime.metal",
+    "file": "ios__spike-lime.metal",
+    "size": 26231
+   },
+   {
+    "platform": "rn",
+    "name": "SpikeLimeView.tsx",
+    "file": "rn__SpikeLimeView.tsx",
+    "size": 24137
+   },
+   {
+    "platform": "web",
+    "name": "SpikeLimeView.tsx",
+    "file": "web__SpikeLimeView.tsx",
+    "size": 28708
+   }
+  ]
+ },
+ {
+  "id": "filament",
+  "name": "Filament",
+  "gallery": "motion",
+  "kind": "sim",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ContentView.swift",
+    "file": "ios__ContentView.swift",
+    "size": 30585
+   },
+   {
+    "platform": "ios",
+    "name": "filament.metal",
+    "file": "ios__filament.metal",
+    "size": 12645
+   },
+   {
+    "platform": "rn",
+    "name": "ContentView.swift",
+    "file": "rn__ContentView.swift",
+    "size": 30585
+   },
+   {
+    "platform": "rn",
+    "name": "filament.metal",
+    "file": "rn__filament.metal",
+    "size": 12645
+   },
+   {
+    "platform": "web",
+    "name": "ContentView.swift",
+    "file": "web__ContentView.swift",
+    "size": 30585
+   },
+   {
+    "platform": "web",
+    "name": "filament.metal",
+    "file": "web__filament.metal",
+    "size": 12645
+   }
+  ]
+ },
+ {
+  "id": "aurora",
+  "name": "Aurora",
+  "gallery": "atmosphere",
+  "kind": "sim",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ContentView.swift",
+    "file": "ios__ContentView.swift",
+    "size": 27445
+   },
+   {
+    "platform": "ios",
+    "name": "aurora.metal",
+    "file": "ios__aurora.metal",
+    "size": 10748
+   },
+   {
+    "platform": "rn",
+    "name": "ContentView.swift",
+    "file": "rn__ContentView.swift",
+    "size": 27445
+   },
+   {
+    "platform": "rn",
+    "name": "aurora.metal",
+    "file": "rn__aurora.metal",
+    "size": 10748
+   },
+   {
+    "platform": "web",
+    "name": "ContentView.swift",
+    "file": "web__ContentView.swift",
+    "size": 27445
+   },
+   {
+    "platform": "web",
+    "name": "aurora.metal",
+    "file": "web__aurora.metal",
+    "size": 10748
+   }
+  ]
+ },
+ {
+  "id": "mycelium",
+  "name": "Mycelium",
+  "gallery": "motion",
+  "kind": "sim",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ContentView.swift",
+    "file": "ios__ContentView.swift",
+    "size": 29384
+   },
+   {
+    "platform": "ios",
+    "name": "mycelium.metal",
+    "file": "ios__mycelium.metal",
+    "size": 13913
+   },
+   {
+    "platform": "rn",
+    "name": "ContentView.swift",
+    "file": "rn__ContentView.swift",
+    "size": 29384
+   },
+   {
+    "platform": "rn",
+    "name": "mycelium.metal",
+    "file": "rn__mycelium.metal",
+    "size": 13913
+   },
+   {
+    "platform": "web",
+    "name": "ContentView.swift",
+    "file": "web__ContentView.swift",
+    "size": 29384
+   },
+   {
+    "platform": "web",
+    "name": "mycelium.metal",
+    "file": "web__mycelium.metal",
+    "size": 13913
+   }
+  ]
+ },
+ {
+  "id": "molten",
+  "name": "Molten",
+  "gallery": "atmosphere",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "MoltenView.swift",
+    "file": "ios__MoltenView.swift",
+    "size": 1547
+   },
+   {
+    "platform": "ios",
+    "name": "molten.metal",
+    "file": "ios__molten.metal",
+    "size": 2993
+   },
+   {
+    "platform": "rn",
+    "name": "MoltenView.tsx",
+    "file": "rn__MoltenView.tsx",
+    "size": 3423
+   },
+   {
+    "platform": "web",
+    "name": "MoltenView.tsx",
+    "file": "web__MoltenView.tsx",
+    "size": 8995
+   }
+  ]
+ },
+ {
+  "id": "ember",
+  "name": "Ember",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "EmberCard.swift",
+    "file": "ios__EmberCard.swift",
+    "size": 4469
+   },
+   {
+    "platform": "ios",
+    "name": "ember.metal",
+    "file": "ios__ember.metal",
+    "size": 16199
+   },
+   {
+    "platform": "rn",
+    "name": "EmberCard.tsx",
+    "file": "rn__EmberCard.tsx",
+    "size": 17857
+   },
+   {
+    "platform": "web",
+    "name": "EmberCard.tsx",
+    "file": "web__EmberCard.tsx",
+    "size": 24350
+   }
+  ]
+ },
+ {
+  "id": "sweep",
+  "name": "Sweep",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "SweepCard.swift",
+    "file": "ios__SweepCard.swift",
+    "size": 4317
+   },
+   {
+    "platform": "ios",
+    "name": "sweep.metal",
+    "file": "ios__sweep.metal",
+    "size": 11948
+   },
+   {
+    "platform": "rn",
+    "name": "SweepCard.tsx",
+    "file": "rn__SweepCard.tsx",
+    "size": 14095
+   },
+   {
+    "platform": "web",
+    "name": "SweepCard.tsx",
+    "file": "web__SweepCard.tsx",
+    "size": 20880
+   }
+  ]
+ },
+ {
+  "id": "duotone",
+  "name": "Duotone",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "DuotoneCard.swift",
+    "file": "ios__DuotoneCard.swift",
+    "size": 4558
+   },
+   {
+    "platform": "ios",
+    "name": "duotone.metal",
+    "file": "ios__duotone.metal",
+    "size": 14820
+   },
+   {
+    "platform": "rn",
+    "name": "DuotoneCard.tsx",
+    "file": "rn__DuotoneCard.tsx",
+    "size": 16816
+   },
+   {
+    "platform": "web",
+    "name": "DuotoneCard.tsx",
+    "file": "web__DuotoneCard.tsx",
+    "size": 23282
+   }
+  ]
+ },
+ {
+  "id": "chrome",
+  "name": "Chrome",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ChromeCard.swift",
+    "file": "ios__ChromeCard.swift",
+    "size": 4494
+   },
+   {
+    "platform": "ios",
+    "name": "chrome.metal",
+    "file": "ios__chrome.metal",
+    "size": 16047
+   },
+   {
+    "platform": "rn",
+    "name": "ChromeCard.tsx",
+    "file": "rn__ChromeCard.tsx",
+    "size": 17964
+   },
+   {
+    "platform": "web",
+    "name": "ChromeCard.tsx",
+    "file": "web__ChromeCard.tsx",
+    "size": 24289
+   }
+  ]
+ },
+ {
+  "id": "glow",
+  "name": "Glow",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "GlowCard.swift",
+    "file": "ios__GlowCard.swift",
+    "size": 4543
+   },
+   {
+    "platform": "ios",
+    "name": "glow.metal",
+    "file": "ios__glow.metal",
+    "size": 14963
+   },
+   {
+    "platform": "rn",
+    "name": "GlowCard.tsx",
+    "file": "rn__GlowCard.tsx",
+    "size": 17043
+   },
+   {
+    "platform": "web",
+    "name": "GlowCard.tsx",
+    "file": "web__GlowCard.tsx",
+    "size": 23462
+   }
+  ]
+ },
+ {
+  "id": "halo",
+  "name": "Halo",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "HaloCard.swift",
+    "file": "ios__HaloCard.swift",
+    "size": 4487
+   },
+   {
+    "platform": "ios",
+    "name": "halo.metal",
+    "file": "ios__halo.metal",
+    "size": 14428
+   },
+   {
+    "platform": "rn",
+    "name": "HaloCard.tsx",
+    "file": "rn__HaloCard.tsx",
+    "size": 16500
+   },
+   {
+    "platform": "web",
+    "name": "HaloCard.tsx",
+    "file": "web__HaloCard.tsx",
+    "size": 22932
+   }
+  ]
+ },
+ {
+  "id": "wave",
+  "name": "Wave",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "WaveCard.swift",
+    "file": "ios__WaveCard.swift",
+    "size": 4395
+   },
+   {
+    "platform": "ios",
+    "name": "wave.metal",
+    "file": "ios__wave.metal",
+    "size": 14726
+   },
+   {
+    "platform": "rn",
+    "name": "WaveCard.tsx",
+    "file": "rn__WaveCard.tsx",
+    "size": 16816
+   },
+   {
+    "platform": "web",
+    "name": "WaveCard.tsx",
+    "file": "web__WaveCard.tsx",
+    "size": 23338
+   }
+  ]
+ },
+ {
+  "id": "peaks",
+  "name": "Peaks",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "PeaksCard.swift",
+    "file": "ios__PeaksCard.swift",
+    "size": 4711
+   },
+   {
+    "platform": "ios",
+    "name": "peaks.metal",
+    "file": "ios__peaks.metal",
+    "size": 15721
+   },
+   {
+    "platform": "rn",
+    "name": "PeaksCard.tsx",
+    "file": "rn__PeaksCard.tsx",
+    "size": 17558
+   },
+   {
+    "platform": "web",
+    "name": "PeaksCard.tsx",
+    "file": "web__PeaksCard.tsx",
+    "size": 23993
+   }
+  ]
+ },
+ {
+  "id": "mesh",
+  "name": "Mesh",
+  "gallery": "gradient",
+  "kind": "meshgradient",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "MeshView.swift",
+    "file": "ios__MeshView.swift",
+    "size": 3720
+   },
+   {
+    "platform": "rn",
+    "name": "MeshView.tsx",
+    "file": "rn__MeshView.tsx",
+    "size": 6413
+   },
+   {
+    "platform": "web",
+    "name": "MeshView.swift",
+    "file": "web__MeshView.swift",
+    "size": 3720
+   }
+  ]
+ },
+ {
+  "id": "grain",
+  "name": "Grain",
+  "gallery": "gradient",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "GrainView.swift",
+    "file": "ios__GrainView.swift",
+    "size": 1679
+   },
+   {
+    "platform": "ios",
+    "name": "grain.metal",
+    "file": "ios__grain.metal",
+    "size": 3031
+   },
+   {
+    "platform": "rn",
+    "name": "GrainView.tsx",
+    "file": "rn__GrainView.tsx",
+    "size": 3587
+   },
+   {
+    "platform": "web",
+    "name": "GrainView.tsx",
+    "file": "web__GrainView.tsx",
+    "size": 9056
+   }
+  ]
+ },
+ {
+  "id": "smoke",
+  "name": "Smoke",
+  "gallery": "atmosphere",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "SmokeView.swift",
+    "file": "ios__SmokeView.swift",
+    "size": 1359
+   },
+   {
+    "platform": "ios",
+    "name": "smoke.metal",
+    "file": "ios__smoke.metal",
+    "size": 1672
+   },
+   {
+    "platform": "rn",
+    "name": "SmokeView.tsx",
+    "file": "rn__SmokeView.tsx",
+    "size": 2088
+   },
+   {
+    "platform": "web",
+    "name": "SmokeView.tsx",
+    "file": "web__SmokeView.tsx",
+    "size": 7540
+   }
+  ]
+ },
+ {
+  "id": "loading-data",
+  "name": "Loading Data",
+  "gallery": "motion",
+  "kind": "graph",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "LoadingPreview.swift",
+    "file": "ios__LoadingPreview.swift",
+    "size": 10241
+   },
+   {
+    "platform": "ios",
+    "name": "S2Renderer.swift",
+    "file": "ios__S2Renderer.swift",
+    "size": 13723
+   },
+   {
+    "platform": "ios",
+    "name": "S2GraphModel.swift",
+    "file": "ios__S2GraphModel.swift",
+    "size": 7427
+   },
+   {
+    "platform": "ios",
+    "name": "S2ShaderTypes.swift",
+    "file": "ios__S2ShaderTypes.swift",
+    "size": 1178
+   },
+   {
+    "platform": "ios",
+    "name": "LoadingData.metal",
+    "file": "ios__LoadingData.metal",
+    "size": 6226
+   },
+   {
+    "platform": "rn",
+    "name": "LoadingPreview.swift",
+    "file": "rn__LoadingPreview.swift",
+    "size": 10241
+   },
+   {
+    "platform": "rn",
+    "name": "S2Renderer.swift",
+    "file": "rn__S2Renderer.swift",
+    "size": 13723
+   },
+   {
+    "platform": "rn",
+    "name": "S2GraphModel.swift",
+    "file": "rn__S2GraphModel.swift",
+    "size": 7427
+   },
+   {
+    "platform": "rn",
+    "name": "S2ShaderTypes.swift",
+    "file": "rn__S2ShaderTypes.swift",
+    "size": 1178
+   },
+   {
+    "platform": "rn",
+    "name": "LoadingData.metal",
+    "file": "rn__LoadingData.metal",
+    "size": 6226
+   },
+   {
+    "platform": "web",
+    "name": "LoadingPreview.swift",
+    "file": "web__LoadingPreview.swift",
+    "size": 10241
+   },
+   {
+    "platform": "web",
+    "name": "S2Renderer.swift",
+    "file": "web__S2Renderer.swift",
+    "size": 13723
+   },
+   {
+    "platform": "web",
+    "name": "S2GraphModel.swift",
+    "file": "web__S2GraphModel.swift",
+    "size": 7427
+   },
+   {
+    "platform": "web",
+    "name": "S2ShaderTypes.swift",
+    "file": "web__S2ShaderTypes.swift",
+    "size": 1178
+   },
+   {
+    "platform": "web",
+    "name": "LoadingData.metal",
+    "file": "web__LoadingData.metal",
+    "size": 6226
+   }
+  ]
+ },
+ {
+  "id": "shape",
+  "name": "Shape",
+  "gallery": "solid",
+  "kind": "mesh3d",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ContentView.swift",
+    "file": "ios__ContentView.swift",
+    "size": 12953
+   },
+   {
+    "platform": "ios",
+    "name": "shape.metal",
+    "file": "ios__shape.metal",
+    "size": 1622
+   },
+   {
+    "platform": "rn",
+    "name": "ContentView.swift",
+    "file": "rn__ContentView.swift",
+    "size": 12953
+   },
+   {
+    "platform": "rn",
+    "name": "shape.metal",
+    "file": "rn__shape.metal",
+    "size": 1622
+   },
+   {
+    "platform": "web",
+    "name": "ContentView.swift",
+    "file": "web__ContentView.swift",
+    "size": 12953
+   },
+   {
+    "platform": "web",
+    "name": "shape.metal",
+    "file": "web__shape.metal",
+    "size": 1622
+   }
+  ]
+ },
+ {
+  "id": "fluid",
+  "name": "Fluid",
+  "gallery": "motion",
+  "kind": "fluid",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ContentView.swift",
+    "file": "ios__ContentView.swift",
+    "size": 24767
+   },
+   {
+    "platform": "ios",
+    "name": "fluid.metal",
+    "file": "ios__fluid.metal",
+    "size": 9570
+   },
+   {
+    "platform": "rn",
+    "name": "ContentView.swift",
+    "file": "rn__ContentView.swift",
+    "size": 24767
+   },
+   {
+    "platform": "rn",
+    "name": "fluid.metal",
+    "file": "rn__fluid.metal",
+    "size": 9570
+   },
+   {
+    "platform": "web",
+    "name": "ContentView.swift",
+    "file": "web__ContentView.swift",
+    "size": 24767
+   },
+   {
+    "platform": "web",
+    "name": "fluid.metal",
+    "file": "web__fluid.metal",
+    "size": 9570
+   }
+  ]
+ },
+ {
+  "id": "glass-orb",
+  "name": "Glass Orb",
+  "gallery": "solid",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "GlassOrbView.swift",
+    "file": "ios__GlassOrbView.swift",
+    "size": 1316
+   },
+   {
+    "platform": "ios",
+    "name": "glass-orb-wave.metal",
+    "file": "ios__glass-orb-wave.metal",
+    "size": 4554
+   },
+   {
+    "platform": "rn",
+    "name": "GlassOrbView.tsx",
+    "file": "rn__GlassOrbView.tsx",
+    "size": 4983
+   },
+   {
+    "platform": "web",
+    "name": "GlassOrbView.tsx",
+    "file": "web__GlassOrbView.tsx",
+    "size": 15508
+   }
+  ]
+ },
+ {
+  "id": "concentric-rings",
+  "name": "Ripple",
+  "gallery": "motion",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ConcentricRingsView.swift",
+    "file": "ios__ConcentricRingsView.swift",
+    "size": 1628
+   },
+   {
+    "platform": "ios",
+    "name": "concentric-rings.metal",
+    "file": "ios__concentric-rings.metal",
+    "size": 2082
+   },
+   {
+    "platform": "rn",
+    "name": "RippleView.tsx",
+    "file": "rn__RippleView.tsx",
+    "size": 2483
+   },
+   {
+    "platform": "web",
+    "name": "ConcentricRingsView.tsx",
+    "file": "web__ConcentricRingsView.tsx",
+    "size": 334908
+   }
+  ]
+ },
+ {
+  "id": "nova",
+  "name": "Nova",
+  "gallery": "space",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "NovaView.swift",
+    "file": "ios__NovaView.swift",
+    "size": 1526
+   },
+   {
+    "platform": "ios",
+    "name": "nova-solar.metal",
+    "file": "ios__nova-solar.metal",
+    "size": 4134
+   },
+   {
+    "platform": "rn",
+    "name": "NovaView.swift",
+    "file": "rn__NovaView.swift",
+    "size": 1526
+   },
+   {
+    "platform": "rn",
+    "name": "nova-solar.metal",
+    "file": "rn__nova-solar.metal",
+    "size": 4134
+   },
+   {
+    "platform": "web",
+    "name": "NovaView.tsx",
+    "file": "web__NovaView.tsx",
+    "size": 21205
+   }
+  ]
+ },
+ {
+  "id": "spinning-earth",
+  "name": "Earth",
+  "gallery": "space",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "SpinningEarthView.swift",
+    "file": "ios__SpinningEarthView.swift",
+    "size": 1446
+   },
+   {
+    "platform": "ios",
+    "name": "spinning-earth-dots.metal",
+    "file": "ios__spinning-earth-dots.metal",
+    "size": 19400
+   },
+   {
+    "platform": "rn",
+    "name": "SpinningEarthView.swift",
+    "file": "rn__SpinningEarthView.swift",
+    "size": 1446
+   },
+   {
+    "platform": "rn",
+    "name": "spinning-earth-dots.metal",
+    "file": "rn__spinning-earth-dots.metal",
+    "size": 19400
+   },
+   {
+    "platform": "web",
+    "name": "SpinningEarthView.tsx",
+    "file": "web__SpinningEarthView.tsx",
+    "size": 31212
+   }
+  ]
+ },
+ {
+  "id": "particle-field",
+  "name": "Particle Field",
+  "gallery": "space",
+  "kind": "particle",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "ContentView.swift",
+    "file": "ios__ContentView.swift",
+    "size": 9309
+   },
+   {
+    "platform": "ios",
+    "name": "wave-surface.metal",
+    "file": "ios__wave-surface.metal",
+    "size": 5201
+   },
+   {
+    "platform": "rn",
+    "name": "ContentView.swift",
+    "file": "rn__ContentView.swift",
+    "size": 9309
+   },
+   {
+    "platform": "rn",
+    "name": "wave-surface.metal",
+    "file": "rn__wave-surface.metal",
+    "size": 5201
+   },
+   {
+    "platform": "web",
+    "name": "ContentView.swift",
+    "file": "web__ContentView.swift",
+    "size": 9309
+   },
+   {
+    "platform": "web",
+    "name": "wave-surface.metal",
+    "file": "web__wave-surface.metal",
+    "size": 5201
+   }
+  ]
+ },
+ {
+  "id": "dots",
+  "name": "Dots",
+  "gallery": "motion",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "DotsView.swift",
+    "file": "ios__DotsView.swift",
+    "size": 1473
+   },
+   {
+    "platform": "ios",
+    "name": "dots-wavy.metal",
+    "file": "ios__dots-wavy.metal",
+    "size": 4666
+   },
+   {
+    "platform": "rn",
+    "name": "DotsView.tsx",
+    "file": "rn__DotsView.tsx",
+    "size": 10936
+   },
+   {
+    "platform": "web",
+    "name": "DotsView.tsx",
+    "file": "web__DotsView.tsx",
+    "size": 15907
+   }
+  ]
+ },
+ {
+  "id": "plasma",
+  "name": "Plasma",
+  "gallery": "atmosphere",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "PlasmaView.swift",
+    "file": "ios__PlasmaView.swift",
+    "size": 2806
+   },
+   {
+    "platform": "ios",
+    "name": "plasma-solar.metal",
+    "file": "ios__plasma-solar.metal",
+    "size": 2349
+   },
+   {
+    "platform": "rn",
+    "name": "PlasmaView.tsx",
+    "file": "rn__PlasmaView.tsx",
+    "size": 2792
+   },
+   {
+    "platform": "web",
+    "name": "PlasmaView.tsx",
+    "file": "web__PlasmaView.tsx",
+    "size": 11222
+   }
+  ]
+ },
+ {
+  "id": "starfield",
+  "name": "Starfield",
+  "gallery": "space",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "StarfieldView.swift",
+    "file": "ios__StarfieldView.swift",
+    "size": 1448
+   },
+   {
+    "platform": "ios",
+    "name": "starfield.metal",
+    "file": "ios__starfield.metal",
+    "size": 2291
+   },
+   {
+    "platform": "rn",
+    "name": "StarfieldView.tsx",
+    "file": "rn__StarfieldView.tsx",
+    "size": 2653
+   },
+   {
+    "platform": "web",
+    "name": "StarfieldView.tsx",
+    "file": "web__StarfieldView.tsx",
+    "size": 7948
+   }
+  ]
+ },
+ {
+  "id": "fractal-clouds",
+  "name": "Fractal Clouds",
+  "gallery": "atmosphere",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "FractalCloudsView.swift",
+    "file": "ios__FractalCloudsView.swift",
+    "size": 1477
+   },
+   {
+    "platform": "ios",
+    "name": "fractal-clouds.metal",
+    "file": "ios__fractal-clouds.metal",
+    "size": 2023
+   },
+   {
+    "platform": "rn",
+    "name": "FractalCloudsView.tsx",
+    "file": "rn__FractalCloudsView.tsx",
+    "size": 2328
+   },
+   {
+    "platform": "web",
+    "name": "FractalCloudsView.tsx",
+    "file": "web__FractalCloudsView.tsx",
+    "size": 7813
+   }
+  ]
+ },
+ {
+  "id": "ink-smoke",
+  "name": "Ink Smoke",
+  "gallery": "atmosphere",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "InkSmokeView.swift",
+    "file": "ios__InkSmokeView.swift",
+    "size": 1459
+   },
+   {
+    "platform": "ios",
+    "name": "ink-smoke.metal",
+    "file": "ios__ink-smoke.metal",
+    "size": 2352
+   },
+   {
+    "platform": "rn",
+    "name": "InkSmokeView.tsx",
+    "file": "rn__InkSmokeView.tsx",
+    "size": 2792
+   },
+   {
+    "platform": "web",
+    "name": "InkSmokeView.tsx",
+    "file": "web__InkSmokeView.tsx",
+    "size": 8198
+   }
+  ]
+ },
+ {
+  "id": "liquid-chrome",
+  "name": "Liquid Chrome",
+  "gallery": "solid",
+  "kind": "metal",
+  "files": [
+   {
+    "platform": "ios",
+    "name": "LiquidChromeView.swift",
+    "file": "ios__LiquidChromeView.swift",
+    "size": 1529
+   },
+   {
+    "platform": "ios",
+    "name": "liquid-chrome.metal",
+    "file": "ios__liquid-chrome.metal",
+    "size": 2275
+   },
+   {
+    "platform": "rn",
+    "name": "LiquidChromeView.tsx",
+    "file": "rn__LiquidChromeView.tsx",
+    "size": 2597
+   },
+   {
+    "platform": "web",
+    "name": "LiquidChromeView.tsx",
+    "file": "web__LiquidChromeView.tsx",
+    "size": 8082
+   }
+  ]
+ }
+]

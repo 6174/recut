@@ -235,6 +235,13 @@ func (h *AppHost) requireApp(target Target, appID string) (App, error) {
 }
 
 func (h *AppHost) invoke(target Target, app App, group, name string, input map[string]any, locale Locale) (any, error) {
+	// recut.editor 的 timeline/script/subtitle/material 领域已下沉 Go（见 editor_dispatch.go）；
+	// 未迁移的 op（component.* 属 M2）继续走 goja background，二者共享 appstate DB。
+	if app.Manifest.ID == "recut.editor" && group == "operation" {
+		if _, ok := editorNativeHandlers[name]; ok {
+			return h.invokeEditorNative(target, app, name, input, locale)
+		}
+	}
 	runtime := goja.New()
 	handlers := map[string]goja.Callable{}
 	recut := runtime.NewObject()

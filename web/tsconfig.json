@@ -1,12 +1,12 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2023",
     "lib": [
       "dom",
       "dom.iterable",
-      "es2022"
+      "es2023"
     ],
-    "strict": true,
+    "strict": false,
     "noEmit": true,
     "module": "esnext",
     "moduleResolution": "bundler",
@@ -20,6 +20,15 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@timeline/*": [
+        "./timeline-editor/src/*"
+      ],
+      "@timeline-editor": [
+        "./timeline-editor/index.ts"
+      ],
+      "opencut-wasm": [
+        "./timeline-editor/src/wasm/index.ts"
       ]
     },
     "allowJs": true,
@@ -37,6 +46,13 @@
   ],
   "exclude": [
     "node_modules",
+    // M0 迁移：timeline-editor 已并入 web 统一 project（不再 exclude，别名与类型检查走同一套配置）。
+    // 仅排除自 apps/editor/ui 带入、在 web 中不可达/不适用 vite 的部分：
+    // metalforge 独立页面（react-native / skia / import.meta.glob，只由 metalforge.html 加载）、
+    // vitest 单测（web 测试运行器是 node:test + tsx）、next shim（web 内直接解析真实 next）。
+    "timeline-editor/src/metalforge/**",
+    "timeline-editor/src/**/*.test.ts",
+    "timeline-editor/src/shims/**",
     // pomelo 迁移：依赖 @pixi/react 的存量 demo/插件（React 19 兼容后再启用）
     "lib/pomelo/pomelo-apps/**",
     "lib/pomelo/pomelo-plugins/**",

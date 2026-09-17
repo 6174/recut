@@ -5,7 +5,7 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-test-race service-vet web-install web-test web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test transcribe-e2e worlds-check worlds-build worlds-upload worlds-publish worlds-status worlds-inspect
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-test-race service-vet web-install web-test web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test editor-realtime-verify transcribe-e2e worlds-check worlds-build worlds-upload worlds-publish worlds-status worlds-inspect
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
@@ -222,6 +222,9 @@ editor-frame-render-test: ## L0 frame-render（平台通讯契约 preview.frame 
 
 editor-authoring-quality-test: ## L0 Editor prompt/worklog 质量门（不替代真片 golden）。
 	node apps/editor/scripts/test-authoring-quality.js
+
+editor-realtime-verify: ## 浏览器端验证迁移后 realtime 同步（需先 make dev：service+web 运行中）。
+	cd web && node scripts/verify-editor-realtime.mjs
 
 effects-catalog: ## 从 runtime EFFECT_COMPONENTS 重新生成内置效果目录（apps/editor/catalog + cdn/buckets/effects）。
 	node apps/editor/scripts/build-effects-catalog.mjs

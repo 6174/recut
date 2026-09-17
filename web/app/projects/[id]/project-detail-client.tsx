@@ -8,8 +8,9 @@
 
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
 import { HeaderActions } from "@/components/header-actions";
@@ -25,6 +26,31 @@ import { getRealtimeChannel } from "@/lib/realtime-channel";
 import { useServiceStore } from "@/lib/service-store";
 import { useWorkspaceStore } from "@/lib/workspace-store";
 import { handleIframeAssetsRequest } from "@/lib/iframe-assets-bridge";
+import type { RecutHostAdapter } from "@/timeline-editor";
+
+// M0：timeline-editor 原生模块（无 iframe）默认开启；`NEXT_PUBLIC_TIMELINE_EDITOR_NATIVE=0` 回退到 iframe。
+const TimelineEditor = dynamic(
+  () => import("@/timeline-editor").then((module) => ({ default: module.EditorShell })),
+  { ssr: false },
+);
+const NATIVE_TIMELINE_EDITOR = process.env.NEXT_PUBLIC_TIMELINE_EDITOR_NATIVE !== "0";
+
+// NativeTimelineEditorHost 先注入宿主 adapter，再渲染编辑器：避免模块在未配置时发起请求。
+// memo：编辑器只依赖 adapter/projectId；隔离 web 层（Agent 流式、realtime、store）的重渲染。
+const NativeTimelineEditorHost = memo(function NativeTimelineEditorHost({ adapter, projectId }: { adapter: RecutHostAdapter; projectId: string }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void import("@/timeline-editor").then((module) => {
+      if (cancelled) return;
+      module.configureRecutHost(adapter);
+      setReady(true);
+    });
+    return () => { cancelled = true; };
+  }, [adapter]);
+  if (!ready) return <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">Loading…</div>;
+  return <TimelineEditor projectId={projectId} />;
+});
 
 function operationError(payload: unknown, fallback: string) {
   const value = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as { error?: unknown } : null;
@@ -194,6 +220,59 @@ export default function ProjectDetailClient() {
     await Promise.all([loadWorkspace(apiBase, true), loadProject(apiBase, project.id, true)]);
   };
 
+  // M0：把 iframe 宿主的 MessageChannel 能力以 adapter 形态注入 timeline-editor。
+  const nativeEditorActive = NATIVE_TIMELINE_EDITOR && project?.appId === "recut.editor" && Boolean(id);
+  const nativeAdapter = useMemo<RecutHostAdapter | null>(() => {
+    if (!nativeEditorActive || !project || !id) return null;
+    const appId = project.appId;
+    return {
+      apiBase,
+      projectId: id,
+      appId,
+      invoke: async (op, input) => {
+        const response = await fetch(`${apiBase}/v1/projects/${encodeURIComponent(id)}/apps/${encodeURIComponent(appId)}/api/${encodeURIComponent(op)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...recutHeaders() },
+          body: JSON.stringify(input ?? {}),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(operationError(payload, t("detail.operation.background")));
+        return payload;
+      },
+      request: async (type, input) => {
+        const result = await handleIframeAssetsRequest({ type, input }, { apiBase, projectID: id, headers: recutHeaders() });
+        if (result.handled) return result.result;
+        throw new Error(`unsupported timeline-editor host request: ${type}`);
+      },
+      requestMediaPick: (input) => new Promise<PlatformMediaPickerResult>((resolve, reject) => {
+        if (mediaPickerReply.current) { reject(new Error(t("detail.operation.pickerBusy"))); return; }
+        const kinds = Array.isArray(input.kinds) ? input.kinds.filter((kind): kind is "image" | "video" | "audio" | "transcript" | "reference" => kind === "image" || kind === "video" || kind === "audio" || kind === "transcript" || kind === "reference") : [];
+        if (!kinds.length) { reject(new Error(t("detail.operation.kinds"))); return; }
+        const multiple = input.multiple === true;
+        const selectedIDs = Array.isArray(input.selectedIDs) ? input.selectedIDs.filter((value): value is string => typeof value === "string" && Boolean(value.trim())) : [];
+        mediaPickerReply.current = (selection) => resolve(selection ?? []);
+        setMediaPicker({ kinds, multiple, selectedIDs });
+      }),
+      composeAgent: (prompt) => {
+        const text = String(prompt ?? "").trim();
+        if (!text) return;
+        useAgentPanelContext.getState().setDraft({ id: `compose-${Date.now().toString(36)}`, text });
+      },
+      reportFocus: (focus) => {
+        const normalized = normalizeWorkFocus(focus);
+        if (normalized) useAgentPanelContext.getState().setWorkFocus(normalized);
+      },
+      openAppDetail: (targetAppID) => { window.open(`/apps/${encodeURIComponent(targetAppID)}`, "_blank", "noopener,noreferrer"); },
+      subscribeEvents: (listener) => {
+        const channel = getRealtimeChannel(apiBase);
+        return channel.subscribe("project", id, (frame) => {
+          if (frame.type !== "project.event") return;
+          listener(frame.event);
+        });
+      },
+    };
+  }, [apiBase, id, nativeEditorActive, project, t]);
+
   return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-5">
       <div className="flex min-w-0 items-center gap-4">
@@ -205,7 +284,7 @@ export default function ProjectDetailClient() {
     </header>
     <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]">
       <section className="h-full min-w-0 overflow-hidden border-l bg-card">
-        {uiURL ? <iframe allow="clipboard-write; fullscreen" className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={interpolate(t("detail.frame.title"), { name: project?.name ?? "Recut" })} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">{t("detail.noUI")}</div>}
+        {nativeEditorActive && nativeAdapter && id ? <NativeTimelineEditorHost adapter={nativeAdapter} projectId={id} /> : uiURL ? <iframe allow="clipboard-write; fullscreen" className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={interpolate(t("detail.frame.title"), { name: project?.name ?? "Recut" })} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">{t("detail.noUI")}</div>}
       </section>
     </div>
     <PlatformMediaPicker apiBase={apiBase} onCancel={() => resolveMediaPicker(null)} onPick={resolveMediaPicker} request={mediaPicker} />
