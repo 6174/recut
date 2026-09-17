@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 usePathname、lib/i18n（Locale/localizeURL/t）、lib/marketing-home 双语言数据、MDX 文章/App 正文（以 props 传入）、构建时的 Recut App URL 与浏览器当前 Host
- * [OUTPUT]: 对外提供官网 Header 与 Footer（均含语言切换，导航含世界观 /worlds）、按 Hero→核心应用→创作底座→世界观→三步开始→适合谁→对比→文章→FAQ→CTA 编排的 Landing（世界观区块数据经 worlds props 注入）、Docs 与 Blog 的共享展示组件；Hero 挂载可交互的 Agent + 剪辑器工作台演示，并以 GSAP 轮换 Codex、Claude Code、OpenCode 模型高亮；
- *           MarketingLocaleContext 供 client 组件读 locale；Blog 与 App 详情共用 MarkdownContent 渲染 MDX 正文并提供分享条；localhost 下的工作台链接统一指向同端口 app.localhost；
+ * [OUTPUT]: 对外提供官网 Header 与 Footer（均含语言切换，导航含创作 / 世界观 / 应用 / 开源）、按 Hero→三种起点→复刻爆款→AI 全自动→批量派生→世界观一致性→三步开始→适合谁→完整能力→本地开源→对比→文章→FAQ→CTA 编排的 Landing（世界观区块数据经 worlds props 注入）；Hero 挂载 CreationFlowDiagram（想法 + World 真实封面图 → 世界观概念关系 → 真实帧时间线），入场只播一次、仅时间线光标循环，编辑器演示下移到「成片仍可编辑」区块，价值承诺先于技术名词
+ *           MarketingLocaleContext 供 client 组件读 locale；Docs 与 Blog 共享展示组件（DocsContent / DocContent / BlogContent / BlogPostContent）与 Blog/App 详情共用 MarkdownContent 渲染 MDX 正文并提供分享条；localhost 下的工作台链接统一指向同端口 app.localhost；
  *           官网内部导航一律用 <a> 全页跳转：营销浏览器 URL（无前缀 / /zh/ 前缀）与 Next 客户端路由树（/marketing/[locale]/…）不一致，<a> 保证每次导航都经 Worker/server.cjs 的正确重写
  * [POS]: web/components 的公开官网视觉层；服务 recut.video 与 localhost，不读取本地 service 或工作台状态；文章/应用数据一律由服务端页面经 props 注入，本文件不引入内容加载器
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -18,50 +18,15 @@ import { HOME_FAQ, HOW_IT_WORKS } from "@/lib/marketing-home";
 import { MarkdownContent } from "@/components/markdown-content";
 import { trackEvent } from "@/components/posthog-analytics";
 import { MarketingEditorDemo } from "@/components/marketing-editor-demo";
-import { MarketingHeroAtmosphere } from "@/components/marketing-hero-atmosphere";
 import { MarketingFeatureIllustration, type MarketingFeatureKind } from "@/components/marketing-feature-illustrations";
 import { MarketingWorldsSection } from "@/components/marketing-worlds";
+import { AgentPipelineDiagram, BatchDiagram, CloneFlowDiagram, CreationFlowDiagram, OwnershipDiagram } from "@/components/marketing-narrative-diagrams";
 import type { MarketingWorld } from "@/lib/marketing-worlds";
 
 const defaultAppURL = process.env.NEXT_PUBLIC_RECUT_APP_URL ?? "https://app.recut.video";
 const MarketingAppURLContext = createContext(defaultAppURL);
 
 const MarketingLocaleContext = createContext<Locale>("en");
-
-const AGENT_MODELS = ["Claude Code", "Open Code", "Codex Cli"] as const;
-
-function RotatingAgentModel() {
-  const [modelIndex, setModelIndex] = useState(0);
-  const modelRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    const model = modelRef.current;
-    if (!model) return;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    const context = gsap.context(() => {
-      gsap.timeline({ delay: 3.5, repeat: -1, repeatDelay: 3.5 })
-        .to(model, reduceMotion
-          ? { duration: 0.01 }
-          : { duration: 0.18, filter: "blur(2px)", letterSpacing: "0.08em", opacity: 0.78, scale: 0.98, y: -6, ease: "power2.in" })
-        .call(() => setModelIndex((index) => (index + 1) % AGENT_MODELS.length))
-        .fromTo(model, reduceMotion
-          ? { opacity: 1 }
-          : { filter: "blur(2px)", letterSpacing: "0.08em", opacity: 0.78, scale: 0.98, y: 5 }, reduceMotion
-          ? { duration: 0.01, opacity: 1 }
-          : { duration: 0.42, filter: "blur(0px)", letterSpacing: "0em", opacity: 1, scale: 1, y: 0, ease: "back.out(1.8)" });
-    }, model);
-
-    return () => context.revert();
-  }, []);
-
-  const model = AGENT_MODELS[modelIndex];
-  return (
-    <span aria-live="polite" className="marketing-agent-model" ref={modelRef}>
-      {model}
-    </span>
-  );
-}
 
 export function useMarketingLocale() {
   return useContext(MarketingLocaleContext);
@@ -146,11 +111,10 @@ export function MarketingHeader() {
         <span className="text-sm font-semibold tracking-tight">Recut</span>
         </a>
         <nav aria-label={t("marketing", locale, "nav.ariaMain")} className="hidden items-center gap-1 md:flex">
-          <MarketingNav href={localizeURL("/#product", locale)}>{t("marketing", locale, "nav.product")}</MarketingNav>
+          <MarketingNav href={localizeURL("/#create", locale)}>{t("marketing", locale, "nav.product")}</MarketingNav>
           <MarketingNav href={localizeURL("/worlds", locale)}>{t("marketing", locale, "nav.worlds")}</MarketingNav>
           <MarketingNav href={localizeURL("/apps", locale)}>{t("marketing", locale, "nav.apps")}</MarketingNav>
-          <MarketingNav href={localizeURL("/docs", locale)}>{t("marketing", locale, "nav.docs")}</MarketingNav>
-          <MarketingNav href={localizeURL("/blog", locale)}>{t("marketing", locale, "nav.blog")}</MarketingNav>
+          <MarketingNav href={localizeURL("/#open", locale)}>{t("marketing", locale, "nav.openSource")}</MarketingNav>
           <a className="rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground" href="https://github.com/6174/recut" onClick={() => trackEvent("recut_external_clicked", { target: "github" })} rel="noreferrer" target="_blank">{t("marketing", locale, "nav.github")}</a>
           <LocaleSwitchLink className="rounded-md px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted" to={locale === "zh" ? "en" : "zh"} />
         </nav>
@@ -178,7 +142,7 @@ export function MarketingFooter() {
           </div>
           <p className="mt-3 max-w-xs text-sm leading-6 text-muted-foreground">{t("marketing", locale, "footer.tagline")}</p>
         </div>
-        <FooterLinks title={t("marketing", locale, "footer.product")} links={[{ href: localizeURL("/#product", locale), label: t("marketing", locale, "nav.product") }, { href: localizeURL("/worlds", locale), label: t("marketing", locale, "nav.worlds") }, { href: localizeURL("/apps", locale), label: t("marketing", locale, "nav.apps") }, { href: localizeURL("/docs", locale), label: t("marketing", locale, "nav.docs") }, { href: appURL, label: t("marketing", locale, "footer.openWorkspace") }]} />
+        <FooterLinks title={t("marketing", locale, "footer.product")} links={[{ href: localizeURL("/#create", locale), label: t("marketing", locale, "nav.product") }, { href: localizeURL("/worlds", locale), label: t("marketing", locale, "nav.worlds") }, { href: localizeURL("/apps", locale), label: t("marketing", locale, "nav.apps") }, { href: localizeURL("/#open", locale), label: t("marketing", locale, "nav.openSource") }, { href: localizeURL("/docs", locale), label: t("marketing", locale, "nav.docs") }, { href: appURL, label: t("marketing", locale, "footer.openWorkspace") }]} />
         <FooterLinks title={t("marketing", locale, "footer.resources")} links={[{ href: localizeURL("/blog", locale), label: t("marketing", locale, "nav.blog") }, { href: "https://github.com/6174/recut", label: t("marketing", locale, "footer.github") }]} />
       </div>
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 border-t px-5 py-5 sm:flex-row sm:px-8">
@@ -208,11 +172,13 @@ function FooterLinks({ links, title }: { links: ReadonlyArray<{ href: string; la
   );
 }
 
-export function MarketingHero() {
+export function MarketingHero({ worlds = [] }: { worlds?: MarketingWorld[] }) {
   const appURL = useMarketingAppURL();
   const locale = useMarketingLocale();
-  const zh = locale === "zh";
   const heroRef = useRef<HTMLElement>(null);
+  // Hero 素材统一取小小地球事务所（pgc.xiaohuige）的真实画面；该世界缺失时回退全部世界。
+  const heroWorlds = worlds.some((world) => world.id === "pgc.xiaohuige") ? worlds.filter((world) => world.id === "pgc.xiaohuige") : worlds;
+  const media = Array.from(new Set([...heroWorlds.map((world) => world.coverUrl), ...heroWorlds.flatMap((world) => world.images)].filter(Boolean))).slice(0, 8);
 
   useLayoutEffect(() => {
     const root = heroRef.current;
@@ -222,7 +188,7 @@ export function MarketingHero() {
       gsap.timeline({ defaults: { ease: "power3.out" } })
         .fromTo(q("[data-hero-eyebrow]"), { autoAlpha: 0, y: 10, filter: "blur(6px)" }, { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.42 })
         .fromTo(q("[data-hero-title-line]"), { autoAlpha: 0, y: 28, filter: "blur(10px)" }, { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.62, stagger: 0.08 }, "-=0.16")
-        .fromTo(q("[data-hero-body]"), { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.48 }, "-=0.18")
+        .fromTo(q("[data-hero-body]"), { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.48, stagger: 0.06 }, "-=0.18")
         .fromTo(q("[data-hero-cta]"), { autoAlpha: 0, y: 12, scale: 0.98 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.46 }, "-=0.16")
         .fromTo(q("[data-hero-demo]"), { autoAlpha: 0, y: 24, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.8 }, "-=0.08");
     }, root);
@@ -231,36 +197,138 @@ export function MarketingHero() {
 
   return (
     <section className="marketing-hero-grid relative overflow-hidden border-b border-white/10 bg-[oklch(0.08_0.01_150)] text-white" ref={heroRef}>
-      <MarketingHeroAtmosphere />
-      <div className="relative mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28">
-        <div className="mx-auto max-w-4xl text-center">
-          <p className="font-mono text-[11px] font-semibold tracking-[0.22em] text-primary" data-hero-eyebrow>{zh ? "本地优先 · 开源 · 可扩展" : "LOCAL-FIRST · OPEN SOURCE · EXTENSIBLE"}</p>
-          <h1 className="mt-6 text-5xl font-semibold leading-[0.98] tracking-[-0.055em] sm:text-7xl"><span className="block" data-hero-title-line>{zh ? "让 AI 参与创作，" : "Create with AI."}</span><span className="marketing-hero-title-accent block" data-hero-title-line>{zh ? "但作品始终属于你。" : "Keep everything yours."}</span></h1>
-          <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-white/55 sm:text-lg" data-hero-body>{zh ? <>在你的电脑上，Recut 与 <RotatingAgentModel /> 协作，打造专属于你的视频创作平台。每一次迭代，都让它更适合你的创作。</> : <>On your computer, Recut works with <RotatingAgentModel /> to build your own video creation platform. Every iteration makes it a better fit for how you create.</>}</p>
-          <div className="mt-9 flex flex-wrap justify-center gap-3" data-hero-cta>
-            <a className="inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "hero" })}>{zh ? "打开工作台" : "Open workspace"} <span aria-hidden="true" className="ml-1">↗</span></a>
-            <a className="inline-flex h-11 items-center rounded-lg border border-white/15 bg-white/[0.03] px-5 text-sm font-semibold text-white/85 transition hover:bg-white/[0.08]" href="#product" onClick={() => trackEvent("recut_docs_clicked", { location: "hero" })}>{zh ? "了解开源架构" : "Explore the open architecture"}</a>
+      <div aria-hidden="true" className="pointer-events-none absolute -left-32 top-0 size-[28rem] rounded-full bg-primary/[.07] blur-[120px]" />
+      <div className="relative mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
+        <div className="grid items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
+          <div>
+            <p className="font-mono text-[11px] font-semibold tracking-[0.22em] text-primary" data-hero-eyebrow>{t("marketing", locale, "hero.eyebrow")}</p>
+            <h1 className="mt-6 text-5xl font-semibold leading-[0.98] tracking-[-0.055em] sm:text-6xl">
+              <span className="block" data-hero-title-line>{t("marketing", locale, "hero.title1")}</span>
+              <span className="marketing-hero-title-accent block" data-hero-title-line>{t("marketing", locale, "hero.title2")}</span>
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-7 text-white/60 sm:text-lg" data-hero-body>{t("marketing", locale, "hero.tagline")}</p>
+            <div className="mt-9 flex flex-wrap gap-3" data-hero-cta>
+              <a className="inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "hero" })}>{t("marketing", locale, "hero.install")} <span aria-hidden="true" className="ml-1">↗</span></a>
+              <a className="inline-flex h-11 items-center rounded-lg border border-white/15 bg-white/[0.03] px-5 text-sm font-semibold text-white/85 transition hover:bg-white/[0.08]" href="#how" onClick={() => trackEvent("recut_docs_clicked", { location: "hero" })}>{t("marketing", locale, "hero.readDocs")}</a>
+            </div>
+            <p className="mt-5 font-mono text-[11px] tracking-[0.16em] text-white/35" data-hero-body>{t("marketing", locale, "hero.subtext")}</p>
           </div>
+          <div data-hero-demo><CreationFlowDiagram images={media} /></div>
         </div>
-        <div data-hero-demo><MarketingEditorDemo locale={locale} /></div>
       </div>
     </section>
   );
 }
 
 export function MarketingLanding({ posts, worlds = [] }: { posts: MarketingPost[]; worlds?: MarketingWorld[] }) {
-  return <><MarketingHero /><MarketingWorldsSection worlds={worlds} /><FeaturedApplications /><ProductSection /><HowItWorks /><AudienceSection /><CompareSection /><LatestPosts posts={posts} /><HomeFaqSection /><FinalCTA /></>;
+  return <><MarketingHero worlds={worlds} /><CreateFromAnything /><CloneWhatWorks /><FromIdeaToVideo /><OneIdeaManyVideos /><MarketingWorldsSection worlds={worlds} /><HowItWorks /><AudienceSection /><FeaturedApplications /><ProductSection /><CompareSection /><LatestPosts posts={posts} /><HomeFaqSection /><FinalCTA /></>;
 }
+
+function SectionHeading({ eyebrow, title, tagline }: { eyebrow: string; title: string; tagline: string }) {
+  return (
+    <div className="max-w-2xl">
+      <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{eyebrow}</p>
+      <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h2>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">{tagline}</p>
+    </div>
+  );
+}
+
+function StartIcon({ kind }: { kind: "video" | "idea" | "world" }) {
+  const common = { fill: "none", stroke: "currentColor", strokeLinecap: "round" as const, strokeLinejoin: "round" as const, strokeWidth: 1.6 };
+  return (
+    <span className="grid size-11 place-items-center rounded-xl border border-primary/25 bg-primary/10 text-primary">
+      {kind === "video" && <svg aria-hidden="true" className="size-5" viewBox="0 0 24 24" {...common}><rect height="14" rx="2.5" width="18" x="3" y="6" /><path d="m10 10.5 5 3-5 3z" /></svg>}
+      {kind === "idea" && <svg aria-hidden="true" className="size-5" viewBox="0 0 24 24" {...common}><path d="M9 18h6M10 21h4" /><path d="M12 3a6 6 0 0 0-3.5 10.9c.4.3.5.7.5 1.1v1h6v-1c0-.4.1-.8.5-1.1A6 6 0 0 0 12 3Z" /></svg>}
+      {kind === "world" && <svg aria-hidden="true" className="size-5" viewBox="0 0 24 24" {...common}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.4 3.8 5.5 3.8 9S14.5 18.6 12 21c-2.5-2.4-3.8-5.5-3.8-9S9.5 5.4 12 3Z" /></svg>}
+    </span>
+  );
+}
+
+function CreateFromAnything() {
+  const locale = useMarketingLocale();
+  const items = [
+    { kind: "video" as const, badge: "create.videoBadge", title: "create.videoTitle", body: "create.videoBody", cta: "create.videoCta", href: "#clone" },
+    { kind: "idea" as const, badge: "create.ideaBadge", title: "create.ideaTitle", body: "create.ideaBody", cta: "create.ideaCta", href: "#agent" },
+    { kind: "world" as const, badge: "create.worldBadge", title: "create.worldTitle", body: "create.worldBody", cta: "create.worldCta", href: localizeURL("/worlds", locale) },
+  ];
+  return (
+    <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8" id="create">
+      <SectionHeading eyebrow={t("marketing", locale, "create.eyebrow")} tagline={t("marketing", locale, "create.tagline")} title={t("marketing", locale, "create.title")} />
+      <div className="mt-10 grid gap-4 md:grid-cols-3">
+        {items.map(({ kind, badge, title, body, cta, href }) => (
+          <a className="group flex flex-col rounded-2xl border bg-card p-6 transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]" href={href} key={badge}>
+            <div className="flex items-center justify-between">
+              <StartIcon kind={kind} />
+              <span className="rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-primary">{t("marketing", locale, badge)}</span>
+            </div>
+            <h3 className="mt-6 text-lg font-semibold">{t("marketing", locale, title)}</h3>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("marketing", locale, body)}</p>
+            <span className="mt-auto pt-6 text-sm font-semibold text-primary">{t("marketing", locale, cta)}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CloneWhatWorks() {
+  const appURL = useMarketingAppURL();
+  const locale = useMarketingLocale();
+  return (
+    <section className="border-y bg-card" id="clone">
+      <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
+        <SectionHeading eyebrow={t("marketing", locale, "clone.eyebrow")} tagline={t("marketing", locale, "clone.tagline")} title={t("marketing", locale, "clone.title")} />
+        <div className="mt-10"><CloneFlowDiagram /></div>
+        <a className="mt-8 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "clone" })}>{t("marketing", locale, "clone.cta")}</a>
+      </div>
+    </section>
+  );
+}
+
+function FromIdeaToVideo() {
+  const appURL = useMarketingAppURL();
+  const locale = useMarketingLocale();
+  return (
+    <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8" id="agent">
+      <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+        <div>
+          <SectionHeading eyebrow={t("marketing", locale, "agent.eyebrow")} tagline={t("marketing", locale, "agent.tagline")} title={t("marketing", locale, "agent.title")} />
+          <p className="mt-5 max-w-md text-sm leading-6 text-muted-foreground">{t("marketing", locale, "agent.note")}</p>
+          <a className="mt-7 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "agent" })}>{t("marketing", locale, "hero.install")} <span aria-hidden="true" className="ml-1">↗</span></a>
+        </div>
+        <AgentPipelineDiagram />
+      </div>
+      <div className="mt-20 border-t pt-14" id="editor">
+        <SectionHeading eyebrow={t("marketing", locale, "editor.eyebrow")} tagline={t("marketing", locale, "editor.tagline")} title={t("marketing", locale, "editor.title")} />
+        <MarketingEditorDemo locale={locale} />
+      </div>
+    </section>
+  );
+}
+
+function OneIdeaManyVideos() {
+  const locale = useMarketingLocale();
+  return (
+    <section className="border-y bg-card" id="batch">
+      <div className="mx-auto max-w-5xl px-5 py-20 sm:px-8">
+        <div className="mx-auto max-w-2xl text-center">
+          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "batch.eyebrow")}</p>
+          <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "batch.title")}</h2>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("marketing", locale, "batch.tagline")}</p>
+        </div>
+        <div className="mt-10"><BatchDiagram /></div>
+      </div>
+    </section>
+  );
+}
+
 
 function HowItWorks() {
   const locale = useMarketingLocale();
   return (
-    <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
-      <div className="max-w-2xl">
-        <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "how.eyebrow")}</p>
-        <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "how.title")}</h2>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("marketing", locale, "how.tagline")}</p>
-      </div>
+    <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8" id="how">
+      <SectionHeading eyebrow={t("marketing", locale, "how.eyebrow")} tagline={t("marketing", locale, "how.tagline")} title={t("marketing", locale, "how.title")} />
       <div className="mt-10 grid gap-4 md:grid-cols-3">{HOW_IT_WORKS[locale].map(({ step, title, description }) => <div className="rounded-2xl border bg-card p-6" key={step}><span className="font-mono text-sm font-semibold text-primary">{step}</span><h3 className="mt-4 text-lg font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p></div>)}</div>
     </section>
   );
@@ -335,14 +403,18 @@ export function ProductSection() {
     [t("marketing", locale, "product.value3Title"), t("marketing", locale, "product.value3Body"), localizeURL("/blog/creative-tools-should-be-extensible", locale)],
   ] as const;
   return (
-    <section className="border-y bg-card" id="product">
-      <div className="mx-auto grid max-w-6xl gap-10 px-5 py-20 sm:px-8 lg:grid-cols-[0.8fr_1.2fr]">
-        <div>
-          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "product.eyebrow")}</p>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "product.title1")}<br />{t("marketing", locale, "product.title2")}</h2>
-          <p className="mt-5 max-w-sm text-sm leading-6 text-muted-foreground">{t("marketing", locale, "product.tagline")}</p>
+    <section className="border-y bg-card" id="open">
+      <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
+        <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr]">
+          <div>
+            <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "product.eyebrow")}</p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "product.title1")}<br />{t("marketing", locale, "product.title2")}</h2>
+            <p className="mt-5 max-w-sm text-sm leading-6 text-muted-foreground">{t("marketing", locale, "product.tagline")}</p>
+            <a className="mt-7 inline-flex h-11 items-center rounded-lg border bg-background px-5 text-sm font-semibold transition hover:border-primary/35" href="https://github.com/6174/recut" onClick={() => trackEvent("recut_external_clicked", { target: "github", location: "architecture" })} rel="noreferrer" target="_blank">{t("marketing", locale, "product.architectureCta")}</a>
+          </div>
+          <div className="grid gap-3">{values.map(([title, description, href], index) => <article className="grid gap-4 rounded-xl border bg-background p-5 sm:grid-cols-[3rem_1fr]" key={title}><span className="font-mono text-sm font-semibold text-primary">0{index + 1}</span><div><h3 className="text-lg font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p><a className="mt-3 inline-flex text-sm font-semibold text-primary" href={href}>{index === 1 ? t("marketing", locale, "product.seeGithub") : t("marketing", locale, "product.learnMore")} →</a></div></article>)}</div>
         </div>
-        <div className="grid gap-3">{values.map(([title, description, href], index) => <article className="grid gap-4 rounded-xl border bg-background p-5 sm:grid-cols-[3rem_1fr]" key={title}><span className="font-mono text-sm font-semibold text-primary">0{index + 1}</span><div><h3 className="text-lg font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p><a className="mt-3 inline-flex text-sm font-semibold text-primary" href={href}>{index === 1 ? t("marketing", locale, "product.seeGithub") : t("marketing", locale, "product.learnMore")} →</a></div></article>)}</div>
+        <div className="mt-12"><OwnershipDiagram /></div>
       </div>
     </section>
   );
@@ -422,12 +494,16 @@ function FinalCTA() {
   const locale = useMarketingLocale();
   return (
     <section className="border-t bg-primary text-primary-foreground">
-      <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-5 py-14 sm:px-8 md:flex-row md:items-center">
+      <div className="mx-auto flex max-w-4xl flex-col items-center gap-6 px-5 py-16 text-center sm:px-8">
         <div>
           <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary-foreground/65">{t("marketing", locale, "cta.eyebrow")}</p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight">{t("marketing", locale, "cta.title")}</h2>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "cta.title")}</h2>
         </div>
-        <a className="inline-flex h-11 items-center rounded-lg bg-card px-5 text-sm font-semibold text-foreground transition hover:bg-background" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "final_cta" })}>{t("marketing", locale, "cta.install")} <span aria-hidden="true" className="ml-1">↗</span></a>
+        <div className="flex flex-wrap justify-center gap-3">
+          <a className="inline-flex h-11 items-center rounded-lg bg-card px-5 text-sm font-semibold text-foreground transition hover:bg-background" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "final_cta" })}>{t("marketing", locale, "cta.install")} <span aria-hidden="true" className="ml-1">↗</span></a>
+          <a className="inline-flex h-11 items-center rounded-lg border border-primary-foreground/35 px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-foreground/10" href={localizeURL("/worlds", locale)}>{t("marketing", locale, "cta.worlds")}</a>
+        </div>
+        <p className="font-mono text-[11px] tracking-[0.16em] text-primary-foreground/60">{t("marketing", locale, "cta.subtext")}</p>
       </div>
     </section>
   );

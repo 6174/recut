@@ -115,39 +115,10 @@
   backdrop-filter: blur(14px);
 }
 
-.marketing-hero-atmosphere {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  opacity: 0.8;
-  mix-blend-mode: screen;
-}
-
 .marketing-hero-title-accent {
   background: linear-gradient(105deg, #a7f3c1 0%, #65d8a0 42%, #91a8ff 100%) text;
   color: transparent;
   text-shadow: 0 0 32px oklch(0.68 0.18 151 / 0.16);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .marketing-hero-atmosphere { opacity: 0.68; }
-}
-
-.marketing-agent-model {
-  position: relative;
-  display: inline-block;
-  min-width: 6.4em;
-  color: var(--primary);
-  font-weight: 650;
-  box-shadow: inset 0 -0.32em 0 oklch(0.68 0.18 151 / 0.18);
-  text-shadow: 0 0 22px oklch(0.68 0.18 151 / 0.28);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .marketing-agent-model { box-shadow: inset 0 -0.32em 0 oklch(0.68 0.18 151 / 0.18); }
 }
 
 /* 移动端展示真实桌面 App 画布：固定内部尺寸，只用一个 transform 做等比缩放。 */

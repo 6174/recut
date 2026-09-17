@@ -10,6 +10,7 @@ import { useMarketingLocale, useMarketingAppURL } from "@/components/marketing-s
 import { t, localizeURL } from "@/lib/i18n";
 import { trackEvent } from "@/components/posthog-analytics";
 import type { MarketingWorld } from "@/lib/marketing-worlds";
+import { ConsistencyDiagram } from "@/components/marketing-narrative-diagrams";
 import { MarketingWorldCanvasPreview } from "./marketing-world-canvas-preview";
 
 export function MarketingWorldsSection({ worlds }: { worlds: MarketingWorld[] }) {
@@ -25,8 +26,10 @@ export function MarketingWorldsSection({ worlds }: { worlds: MarketingWorld[] })
         </div>
         <a className="text-sm font-semibold text-primary" href={localizeURL("/worlds", locale)}>{t("marketing", locale, "worlds.viewAll")}</a>
       </div>
-      <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {worlds.map((world) => <MarketingWorldCard key={world.id} world={world} locale={locale} href={localizeURL(`/worlds/${world.id}`, locale)} />)}
+      <div className="mx-auto mt-10 max-w-4xl"><ConsistencyDiagram /></div>
+      <p className="mt-12 font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "worlds.startLabel")}</p>
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {worlds.slice(0, 4).map((world) => <MarketingWorldCard key={world.id} world={world} locale={locale} href={localizeURL(`/worlds/${world.id}`, locale)} />)}
       </div>
     </section>
   );

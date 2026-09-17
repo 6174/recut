@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 marketing-site 的完整官网 Landing 编排与 Marketing JSON-LD、lib/i18n 字典
- * [OUTPUT]: 对外提供 / 与 /zh/ 的逐语言 Landing（Hero、核心应用、创作底座、世界观、文章与 CTA，世界观数据构建期经 lib/marketing-worlds 从 CDN 抓取）及 Organization/WebSite/SoftwareApplication 结构化数据；canonical/hreflang/og 逐语言
+ * [OUTPUT]: 对外提供 / 与 /zh/ 的逐语言 Landing（价值 Hero、三种起点、复刻爆款、AI 全自动、批量派生、世界观一致性、开源底座、文章与 CTA，世界观数据构建期经 lib/marketing-worlds 从 CDN 抓取）及 Organization/WebSite/SoftwareApplication 结构化数据；canonical/hreflang/og 逐语言
  * [POS]: web/app/marketing/[locale] 的官网首页；经 Cloudflare Worker / server.cjs 的 Host 路由对外暴露为无前缀或 /zh/ 前缀
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */

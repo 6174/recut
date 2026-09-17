@@ -28,7 +28,7 @@ async function openIn(context: BrowserContext, path: string): Promise<Page> {
 test("en 默认：/ 无跳转、英文正文、html lang=en", async ({ context }) => {
   const page = await openIn(context, "/");
   expect(new URL(page.url()).pathname).toBe("/");
-  await expect(page.locator("h1")).toContainText("Keep AI video editing and creation");
+  await expect(page.locator("h1")).toContainText("From idea to viral video");
   expect(await page.evaluate(() => document.documentElement.lang)).toBe("en");
 });
 
@@ -36,14 +36,14 @@ test("zh 浏览器 / 自动 302 到 /zh/ 且正文为中文、html lang=zh", asy
   const ctx = await browser.newContext({ locale: "zh-CN" });
   const page = await openIn(ctx, "/");
   expect(new URL(page.url()).pathname).toBe("/zh/");
-  await expect(page.locator("h1")).toContainText("让 AI 视频剪辑与创作");
+  await expect(page.locator("h1")).toContainText("从灵感到爆款视频");
   expect(await page.evaluate(() => document.documentElement.lang)).toBe("zh");
 });
 
 test("显式 /zh/ 前缀：en 浏览器也渲染中文", async ({ context, browser }) => {
   const ctx = await browser.newContext({ locale: "en-US" });
   const page = await openIn(ctx, "/zh/");
-  await expect(page.locator("h1")).toContainText("让 AI 视频剪辑与创作");
+  await expect(page.locator("h1")).toContainText("从灵感到爆款视频");
   expect(await page.evaluate(() => document.documentElement.lang)).toBe("zh");
 });
 
@@ -75,11 +75,11 @@ test("App 详情页双语言渲染", async ({ context, browser }) => {
 test("zh 页面点 English 切换：写 recut_locale=en cookie 并落在英文 /", async ({ context, browser }) => {
   const ctx = await browser.newContext({ locale: "zh-CN" });
   const page = await openIn(ctx, "/zh/");
-  await expect(page.locator("h1")).toContainText("让 AI 视频剪辑与创作");
+  await expect(page.locator("h1")).toContainText("从灵感到爆款视频");
   await page.locator("nav").getByRole("link", { name: "English" }).click();
   await page.waitForLoadState("networkidle");
   expect(new URL(page.url()).pathname).toBe("/");
-  await expect(page.locator("h1")).toContainText("Keep AI video editing and creation");
+  await expect(page.locator("h1")).toContainText("From idea to viral video");
   const cookies = await ctx.cookies();
   expect(cookies.find((c) => c.name === "recut_locale")?.value).toBe("en");
 });
@@ -89,23 +89,23 @@ test("cookie recut_locale=zh 覆盖英文浏览器：/ 被 302 到 /zh/", async 
   await ctx.addCookies([{ name: "recut_locale", value: "zh", url: "http://localhost:3457" }]);
   const page = await openIn(ctx, "/");
   expect(new URL(page.url()).pathname).toBe("/zh/");
-  await expect(page.locator("h1")).toContainText("让 AI 视频剪辑与创作");
+  await expect(page.locator("h1")).toContainText("从灵感到爆款视频");
 });
 
-test("header 导航 <a> 全页跳转（/docs 出英文 Docs，不落入客户端 404）", async ({ context }) => {
+test("header 导航 <a> 全页跳转（Worlds 出英文目录，不落入客户端 404）", async ({ context }) => {
   const page = await openIn(context, "/");
-  await page.getByRole("navigation").getByRole("link", { name: "Docs" }).click();
+  await page.getByRole("navigation").getByRole("link", { name: "Worlds", exact: true }).click();
   await page.waitForLoadState("networkidle");
-  await expect(page.locator("h1")).toContainText("Start with your first video.");
+  await expect(page.locator("h1")).toContainText("Worlds catalog");
 });
 
 test("footer 语言切换：en 页点 中文 落到 /zh/ 并写 cookie", async ({ context }) => {
   const page = await openIn(context, "/");
-  await expect(page.locator("h1")).toContainText("Keep AI video editing and creation");
+  await expect(page.locator("h1")).toContainText("From idea to viral video");
   await page.locator("footer").getByRole("link", { name: "中文" }).click();
   await page.waitForLoadState("networkidle");
   expect(new URL(page.url()).pathname).toBe("/zh/");
-  await expect(page.locator("h1")).toContainText("让 AI 视频剪辑与创作");
+  await expect(page.locator("h1")).toContainText("从灵感到爆款视频");
   const cookies = await context.cookies();
   expect(cookies.find((c) => c.name === "recut_locale")?.value).toBe("zh");
 });
