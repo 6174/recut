@@ -16,6 +16,8 @@ export function PanelSection({
   accent = false,
   collapsible = true,
   defaultOpen = true,
+  open,
+  onOpenChange,
   children,
 }: {
   title: ReactNode;
@@ -26,16 +28,24 @@ export function PanelSection({
   accent?: boolean;
   collapsible?: boolean;
   defaultOpen?: boolean;
+  /** 受控展开态；提供时以该值为准（配合 onOpenChange），缺省为内部状态 */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const isOpen = open ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (open === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const titleClass = `min-w-0 truncate text-xs font-semibold ${accent ? "text-primary" : "text-foreground"}`;
   return (
     // -mx-4：分隔线整宽（贴面板左右边缘）并与内容区的 p-4 对齐；first 再用 -mt-4 抵消容器顶部 padding
     <section className={`-mx-4 ${first ? "-mt-4" : "border-t border-border/70"}`}>
       <div className="flex items-center justify-between gap-2 px-4 pb-1.5 pt-3">
         {collapsible ? (
-          <button className={`${titleClass} text-left hover:opacity-80`} onClick={() => setOpen((value) => !value)} type="button">
+          <button className={`${titleClass} text-left hover:opacity-80`} onClick={() => setOpen(!isOpen)} type="button">
             {title}
           </button>
         ) : (
@@ -46,18 +56,18 @@ export function PanelSection({
           {collapsible && (
             // 折叠开关放最右，标题左对齐内容，排版更整齐
             <button
-              aria-expanded={open}
-              aria-label={open ? "收起分组" : "展开分组"}
+              aria-expanded={isOpen}
+              aria-label={isOpen ? "收起分组" : "展开分组"}
               className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => setOpen((value) => !value)}
+              onClick={() => setOpen(!isOpen)}
               type="button"
             >
-              <span className="text-sm leading-none">{open ? "−" : "+"}</span>
+              <span className="text-sm leading-none">{isOpen ? "−" : "+"}</span>
             </button>
           )}
         </div>
       </div>
-      {open && <div className="space-y-2 px-4 pb-3 pt-2">{children}</div>}
+      {isOpen && <div className="space-y-2 px-4 pb-3 pt-2">{children}</div>}
     </section>
   );
 }

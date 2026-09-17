@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 service endpoint、Media Platform 的资产 SSE、media-configuration-store 的 Provider/Credential 快照与生成任务 API，以及系统项目 Agent Session
- * [OUTPUT]: 对外提供首屏限为 12 张的素材浏览、完成视频的 iframe 视频封面卡片、统一 More 重命名/确认删除、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
- * [POS]: web/app/media 的原生 React 内容组件；由根工作台与 /media 路由共享，在固定工作台高度内独占纵向滚动，Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态，配置从统一缓存读取而不轮询
+ * [OUTPUT]: 对外提供随滚动自动加载的素材网格、完成视频的 iframe 视频封面卡片、统一 More 重命名/确认删除、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
+ * [POS]: web/app/media 的原生 React 内容组件；由根工作台与 /media 路由共享，固定工作台高度内标题与筛选常驻、网格区独占纵向滚动，Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态，配置从统一缓存读取而不轮询
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -90,7 +90,6 @@ const createKinds: CreateKind[] = [
   },
 ];
 const referenceLabels: Record<Exclude<AssetKind, "transcript">, string> = { image: "图片", video: "视频", audio: "音频", reference: "资料" };
-const initialAssetCount = 12;
 
 async function responseMessage(response: Response) {
   const body = await response.json().catch(() => null) as { error?: string } | null;
@@ -118,7 +117,6 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
   const assets = useMemo(() => eventAssets.map((asset) => normalizeAsset(asset as Asset)), [eventAssets]);
   const [jobs, setJobs] = useState<MediaJob[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
-  const [assetLimit, setAssetLimit] = useState(initialAssetCount);
   const [preview, setPreview] = useState<Asset | null>(null);
   const [createKind, setCreateKind] = useState<CreateKind | null>(null);
   const [createDraft, setCreateDraft] = useState<CreateDraft | null>(null);
@@ -155,7 +153,6 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
   }, [apiBase, initialAssetID]);
   const visibleAssets =
     filter === "all" ? assets : assets.filter((asset) => asset.kind === filter);
-  const renderedAssets = visibleAssets.slice(0, assetLimit);
   const visibleJobs = jobs.filter(
     (job) =>
       !job.assetIds.some((assetID) => Boolean(assetByID[assetID])) &&
@@ -163,9 +160,6 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
         job.capability ===
           createKinds.find((item) => item.kind === filter)?.capability),
   );
-  useEffect(() => {
-    setAssetLimit(initialAssetCount);
-  }, [filter]);
   function openProviderSettings() {
     setCreateKind(null);
     onOpenProviderSettings();
@@ -256,9 +250,9 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
   }
   return (
     <>
-        <section className="h-full min-h-0 overflow-y-auto bg-muted/30 p-8">
-          <div className="mx-auto max-w-5xl">
-            <div className="mb-6 flex items-end justify-between border-b pb-4">
+        <section className="flex h-full min-h-0 flex-col bg-muted/30 p-8">
+          <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col">
+            <div className="mb-6 flex shrink-0 items-end justify-between border-b pb-4">
               <div>
                 <h1 className="text-2xl font-semibold">媒体资产</h1>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -327,9 +321,9 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
               </div>
             </div>
             {notice && (
-              <p className="mb-4 text-xs text-muted-foreground">{notice}</p>
+              <p className="mb-4 shrink-0 text-xs text-muted-foreground">{notice}</p>
             )}
-            <nav className="mb-5 flex gap-2">
+            <nav className="mb-5 flex shrink-0 gap-2">
               {filters.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -347,24 +341,13 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
             </nav>
             <AssetGrid
               apiBase={apiBase}
-              assets={renderedAssets}
+              assets={visibleAssets}
               jobs={visibleJobs}
               onConfirm={confirmProposal}
               onDelete={deleteAsset}
               onPreview={setPreview}
               onRename={renameAsset}
             />
-            {renderedAssets.length < visibleAssets.length && (
-              <div className="mt-5 flex justify-center">
-                <button
-                  className="h-9 rounded-xs border bg-card px-3 text-xs font-medium hover:bg-muted"
-                  onClick={() => setAssetLimit((limit) => limit + initialAssetCount)}
-                  type="button"
-                >
-                  显示更多素材（剩余 {visibleAssets.length - renderedAssets.length}）
-                </button>
-              </div>
-            )}
           </div>
         </section>
       {preview && (

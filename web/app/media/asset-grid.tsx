@@ -1,13 +1,28 @@
 /*
- * [INPUT]: 依赖素材、任务生命周期契约与共享视频封面/计时组件
- * [OUTPUT]: 对外提供 AssetGrid，用与首页资源区一致的紧凑方形卡片、iframe 子文档视频封面、惰性图片与统一 More 菜单渲染素材卡片
- * [POS]: media 页面列表渲染单元；从 page.tsx 拆出以隔离预览表现与页面编排，卡片点击由外层按钮统一接收
+ * [INPUT]: 依赖 @tanstack/react-virtual 的行虚拟化、素材与任务生命周期契约与共享视频封面/计时组件
+ * [OUTPUT]: 对外提供 AssetGrid，用与首页资源区一致的紧凑五列方形卡片、iframe 子文档视频封面、惰性图片与统一 More 菜单虚拟化渲染素材卡片，随滚动自动加载后续素材
+ * [POS]: media 页面列表渲染单元；从 page.tsx 拆出以隔离预览表现与页面编排，网格自持滚动容器，卡片点击由外层按钮统一接收
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
+"use client";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Captions, ImageIcon, Link2, LoaderCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CardMoreMenu } from "@/components/card-more-menu";
 import { VideoFrame } from "@/components/video-frame";
 import type { Asset, MediaJob } from "./media-types";
+
+// 与 Tailwind gap-3 一致：列间距由 gap-3 给，行间距由每行自身的 pb-3 给（绝对定位的行不参与 grid 行间距）。
+const GRID_GAP = 12;
+// 方形缩略图之下的名称 + 类型说明高度。
+const CAPTION_HEIGHT = 56;
+const ROW_OVERSCAN = 2;
+// 紧凑五列方形规格：每行固定 5 张卡片，窄容器由 minmax(0, 1fr) 等比压缩。
+const GRID_COLUMNS = 5;
+
+type GridEntry =
+  | { id: string; kind: "job"; job: MediaJob }
+  | { id: string; kind: "asset"; asset: Asset };
 
 export function AssetGrid({
   apiBase,
@@ -26,9 +41,46 @@ export function AssetGrid({
   onPreview: (asset: Asset) => void;
   onRename: (asset: Asset, name: string) => Promise<void>;
 }) {
-  if (!assets.length && !jobs.length) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const entries = useMemo<GridEntry[]>(
+    () => [
+      ...jobs.map((job): GridEntry => ({ id: job.id, kind: "job", job })),
+      ...assets.map((asset): GridEntry => ({ id: asset.id, kind: "asset", asset })),
+    ],
+    [assets, jobs],
+  );
+  const cellWidth =
+    viewportWidth > 0
+      ? (viewportWidth - GRID_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS
+      : 180;
+  const rowCount = Math.ceil(entries.length / GRID_COLUMNS);
+  const virtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => cellWidth + CAPTION_HEIGHT + GRID_GAP,
+    overscan: ROW_OVERSCAN,
+    getItemKey: (index) => entries[index * GRID_COLUMNS]?.id ?? index,
+  });
+
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const sync = () => setViewportWidth(scroller.clientWidth);
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, []);
+
+  // 格子宽度变化会改行高，先清掉旧测量再按新尺寸重算。
+  useEffect(() => {
+    virtualizer.measure();
+  }, [cellWidth, virtualizer]);
+
+  if (!entries.length) {
     return (
-      <div className="grid min-h-72 place-items-center rounded-xs border border-dashed bg-card text-center">
+      <div className="grid min-h-72 flex-1 place-items-center rounded-xs border border-dashed bg-card text-center">
         <div>
           <ImageIcon className="mx-auto size-5 text-muted-foreground" />
           <p className="mt-3 text-sm font-medium">还没有素材</p>
@@ -38,9 +90,40 @@ export function AssetGrid({
     );
   }
   return (
-    <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
-      {jobs.map((job) => <QueuedJobCard job={job} key={job.id} />)}
-      {assets.map((asset) => <AssetCard apiBase={apiBase} asset={asset} key={asset.id} onConfirm={onConfirm} onDelete={onDelete} onPreview={onPreview} onRename={onRename} />)}
+    <div className="min-h-0 flex-1 overflow-y-auto" ref={scrollRef}>
+      <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((row) => {
+          const start = row.index * GRID_COLUMNS;
+          return (
+            <div
+              className="absolute left-0 top-0 grid w-full gap-3 pb-3"
+              data-index={row.index}
+              key={row.key}
+              ref={virtualizer.measureElement}
+              style={{
+                gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
+                transform: `translateY(${row.start}px)`,
+              }}
+            >
+              {entries.slice(start, start + GRID_COLUMNS).map((entry) =>
+                entry.kind === "job" ? (
+                  <QueuedJobCard job={entry.job} key={entry.id} />
+                ) : (
+                  <AssetCard
+                    apiBase={apiBase}
+                    asset={entry.asset}
+                    key={entry.id}
+                    onConfirm={onConfirm}
+                    onDelete={onDelete}
+                    onPreview={onPreview}
+                    onRename={onRename}
+                  />
+                ),
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -63,7 +146,7 @@ function AssetCard({ apiBase, asset, onConfirm, onDelete, onPreview, onRename }:
   const contentURL = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`;
   const proposed = asset.status === "proposed";
   return <div className="group relative overflow-visible rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20">
-    <button className="block w-full overflow-hidden text-left" onClick={() => onPreview(asset)} type="button">
+    <button className="block w-full overflow-hidden rounded-t-xs text-left" onClick={() => onPreview(asset)} type="button">
       {proposed ? <ProposedAsset asset={asset} /> : asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-square" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "reference" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
       <div className="p-2.5">
         <p className="truncate text-xs font-medium">{asset.name}</p>
