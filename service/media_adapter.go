@@ -31,6 +31,9 @@ type ProposalReference = media.ProposalReference
 type ProposalSpec = media.ProposalSpec
 type ProposeInput = media.ProposeInput
 type ProposalPatch = media.ProposalPatch
+type MaterialAttr = media.MaterialAttr
+type MaterialProvenance = media.MaterialProvenance
+type MaterialUpdateInput = media.MaterialUpdateInput
 type TimelineClip = media.TimelineClip
 type CompositionSettings = media.CompositionSettings
 type ComposeMediaInput = media.ComposeMediaInput
@@ -47,8 +50,18 @@ const (
 
 const interruptedMediaJobMessage = media.InterruptedMediaJobMessage
 
+const (
+	MetadataKeyContent     = media.MetadataKeyContent
+	MetadataKeyContentMeta = media.MetadataKeyContentMeta
+	MetadataKeyAttributes  = media.MetadataKeyAttributes
+	MaterialActorSystem    = media.MaterialActorSystem
+	MaterialActorAgent     = media.MaterialActorAgent
+	MaterialActorUser      = media.MaterialActorUser
+)
+
 var ErrShareNotFound = media.ErrShareNotFound
 var ErrShareUnavailable = media.ErrShareUnavailable
+var MaterialAttrsFromMetadata = media.MaterialAttrsFromMetadata
 
 type mediaStoreAdapter struct{ store *Store }
 

@@ -132,6 +132,14 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleZh: "检索工作区或指定项目的可复用媒体素材。优先用 ids 精确取回，或用 kind/query/limit 过滤分页；不要全量拉取素材库。",
 		LocaleEn: "Search reusable media assets in the workspace or a specific project. Prefer ids for exact lookup, or kind/query/limit for filtered pages; never pull the whole library.",
 	},
+	"recut.media.asset.get": {
+		LocaleZh: "读取单个素材的完整创作信息：content（长正文）、contentMeta（正文溯源）、attributes（有序 typed 属性，含 source/provenance 字段级溯源）与 facets（系统结构化组，proposal/reference 等，locked）。素材只有基础字段时用 list_assets，需要属性/正文/证据时用本工具。",
+		LocaleEn: "Read one asset's full creative-information layer: content (long-form body), contentMeta (content provenance), attributes (ordered typed properties with source/provenance field-level traceability) and facets (system structured groups such as proposal/reference, locked). Use list_assets for basic fields; use this tool when attributes/content/evidence are needed.",
+	},
+	"recut.media.asset.update": {
+		LocaleZh: "修改素材的 name / content / attributes。attributes 为整体替换，attrPatch 为按 key 合并（不传 attributes 时生效）；locked 属性的 type/label 与删除会被拒（值仍可改），越权 fail closed。服务端自动写入 source 与 provenance（Agent 调用记为 agent），用于 AI 生成字段的溯源。",
+		LocaleEn: "Update an asset's name / content / attributes. attributes replaces the whole list; attrPatch merges by key (used when attributes is omitted). For locked attributes the type/label and removal are rejected (value is still editable), failing closed on violations. The service stamps source and provenance automatically (agent for Agent calls) so AI-written fields are traceable.",
+	},
 	"recut.media.import_image": {
 		LocaleZh: "将 Codex 原生生成后已写入会话工作区的图片归档为 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。",
 		LocaleEn: "Archive an image written to the session workspace by Codex-native generation as a Media Asset. Only relative paths are accepted; the service validates the path, symlinks, file type, and size, and returns the real assetId.",
@@ -1202,6 +1210,23 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 			projectID = ""
 		}
 		result, err = media.ListAssetsFiltered(projectID, mediaAssetFilterFromInput(input))
+	case "recut.media.asset.get":
+		asset, getErr := media.GetAsset(stringValue(input["assetId"]))
+		err = getErr
+		if err == nil {
+			result = materialAssetView(asset)
+		}
+	case "recut.media.asset.update":
+		update, decodeErr := materialUpdateFromMCP(input)
+		if decodeErr != nil {
+			err = decodeErr
+			break
+		}
+		asset, updateErr := media.UpdateMaterial(stringValue(input["assetId"]), update, MaterialActorAgent, "asset.update")
+		err = updateErr
+		if err == nil {
+			result = materialAssetView(asset)
+		}
 	case "recut.media.import_image":
 		result, err = importNativeImage(store, media, session, input)
 	case "recut.media.create_reference":
@@ -1353,6 +1378,14 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.media.get_job", "description": mcpDescription(locale, "recut.media.get_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
 		{"name": "recut.media.wait_for_job", "description": mcpDescription(locale, "recut.media.wait_for_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 15, "description": "单次最多阻塞 15 秒（Streamable HTTP 兼容，避免长阻塞连接被断开）；超时返回当前状态，需继续轮询。长任务请用短轮询，不要设接近 300 秒。"}}}},
 		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}, "ids": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "精确 assetId 列表（也接受逗号分隔字符串）；用于按已知 ID 取回完整记录，给定时忽略 kind/query 等其他过滤。"}, "kind": map[string]string{"type": "string", "description": "按素材类型过滤：image / video / audio / transcript 等。"}, "status": map[string]string{"type": "string", "description": "按状态过滤（如 completed / queued / running）；缺省排除 deleted。"}, "query": map[string]string{"type": "string", "description": "按名称模糊匹配。"}, "limit": map[string]any{"type": "integer", "description": "分页大小，默认 200，上限 500。"}, "offset": map[string]any{"type": "integer", "description": "分页偏移；结合返回的 total 判断是否还有下一页。"}}}},
+		{"name": "recut.media.asset.get", "description": mcpDescription(locale, "recut.media.asset.get"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string", "description": "要读取完整创作信息的素材 assetId。"}}}},
+		{"name": "recut.media.asset.update", "description": mcpDescription(locale, "recut.media.asset.update"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
+			"assetId":    map[string]string{"type": "string"},
+			"name":       map[string]string{"type": "string", "description": "新的展示名。"},
+			"content":    map[string]string{"type": "string", "description": "非结构化长正文（markdown）；服务端同时写入 contentMeta 溯源。"},
+			"attributes": map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "整体替换：有序 typed 属性 [{key,label,type,value,options?,locked?}]；locked 结构不可改、可改值。"},
+			"attrPatch":  map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "按 key 合并的局部更新；未提供的字段保持不变，新 key 追加。"},
+		}}},
 		{"name": "recut.media.import_image", "description": mcpDescription(locale, "recut.media.import_image"), "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "本机图片路径：会话工作区相对路径或系统绝对路径（~/ 会展开）；最终文件必须落在会话工作区或目标 Project 内，Codex 原生图请先写入工作区再用相对路径归档。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
 		{"name": "recut.media.create_reference", "description": mcpDescription(locale, "recut.media.create_reference"), "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL；作为全局去重身份。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、web、youtube、xiaohongshu、douyin、image。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "description": map[string]string{"type": "string", "description": "来源自身的简介或视频简介。"}, "excerpt": map[string]string{"type": "string", "description": "直接引用的原文片段，便于审阅。"}, "author": map[string]string{"type": "string", "description": "作者或发布者名称。"}, "publishedAt": map[string]string{"type": "string", "description": "发布时间（ISO-8601）。"}, "siteName": map[string]string{"type": "string", "description": "站点名称，如 The New York Times。"}, "language": map[string]string{"type": "string", "description": "内容语言代码，如 zh、en。"}, "thumbnailUrl": map[string]string{"type": "string", "description": "来源封面/缩略图 URL。"}, "content": map[string]string{"type": "string", "description": "文章或网页的完整正文（真实文章数据）；保存为 content part，默认 text/markdown。"}, "contentMimeType": map[string]string{"type": "string", "description": "正文 part 的 MIME 类型，缺省 text/markdown；限 text/*、application/json、application/xml。"}, "imageData": map[string]string{"type": "string", "description": "图片内容（base64 或 data: URL）；保存为不可变的 image part，限 20MB。"}, "imageMimeType": map[string]string{"type": "string", "description": "图片 MIME 类型，如 image/png、image/jpeg。"}, "channelName": map[string]string{"type": "string", "description": "YouTube 等视频平台的频道/账号名。"}, "channelUrl": map[string]string{"type": "string", "description": "频道主页 URL。"}, "durationSeconds": map[string]any{"type": "number", "description": "视频时长（秒）。"}, "viewCount": map[string]any{"type": "integer", "description": "播放量。"}, "likeCount": map[string]any{"type": "integer", "description": "点赞数。"}}}},
 		{"name": "recut.media.attach", "description": mcpDescription(locale, "recut.media.attach"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "projectId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},
@@ -1916,6 +1949,75 @@ func proposalPatchPointerFromMCP(input map[string]any) *ProposalPatch {
 		}
 	}
 	return nil
+}
+
+// materialUpdateFromMCP maps the asset.update tool arguments onto the media
+// layer input. Presence of the key (not its value) decides whether a field is
+// written, so content:"" can intentionally clear the body.
+func materialUpdateFromMCP(input map[string]any) (MaterialUpdateInput, error) {
+	update := MaterialUpdateInput{}
+	if raw, ok := input["name"]; ok {
+		name := stringValue(raw)
+		update.Name = &name
+	}
+	if raw, ok := input["content"]; ok {
+		content := stringValue(raw)
+		update.Content = &content
+	}
+	if raw, ok := input["attributes"]; ok {
+		attrs, err := decodeMaterialAttrs(raw)
+		if err != nil {
+			return MaterialUpdateInput{}, err
+		}
+		update.Attributes = &attrs
+	}
+	if raw, ok := input["attrPatch"]; ok {
+		attrs, err := decodeMaterialAttrs(raw)
+		if err != nil {
+			return MaterialUpdateInput{}, err
+		}
+		update.AttrPatch = attrs
+	}
+	return update, nil
+}
+
+func decodeMaterialAttrs(raw any) ([]MaterialAttr, error) {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	attrs := []MaterialAttr{}
+	if err := json.Unmarshal(data, &attrs); err != nil {
+		return nil, errors.New("attributes must be an array of {key,label,type,value} objects")
+	}
+	return attrs, nil
+}
+
+// materialAssetView exposes the reusable creative-information layer of an
+// asset: content/contentMeta and the ordered attributes with provenance.
+func materialAssetView(asset MediaAsset) map[string]any {
+	var attributes any = []any{}
+	if raw, ok := asset.Metadata[MetadataKeyAttributes]; ok && raw != nil {
+		attributes = raw
+	}
+	view := map[string]any{
+		"assetId":    asset.ID,
+		"id":         asset.ID,
+		"kind":       asset.Kind,
+		"name":       asset.Name,
+		"status":     asset.Status,
+		"origin":     asset.Origin,
+		"createdAt":  asset.CreatedAt,
+		"updatedAt":  asset.UpdatedAt,
+		"attributes": attributes,
+	}
+	if content, ok := asset.Metadata[MetadataKeyContent]; ok {
+		view["content"] = content
+	}
+	if contentMeta, ok := asset.Metadata[MetadataKeyContentMeta]; ok {
+		view["contentMeta"] = contentMeta
+	}
+	return view
 }
 
 // mediaAssetView exposes a proposed (or otherwise) asset under the explicit

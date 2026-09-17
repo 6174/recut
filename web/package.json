@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "WATCHPACK_POLLING=true node server.cjs --dev",
     "build": "next build",
+    "serve": "next start",
     "build:cloudflare": "RECUT_STATIC_EXPORT=1 next build",
     "start": "node server.cjs",
     "lint": "next lint",

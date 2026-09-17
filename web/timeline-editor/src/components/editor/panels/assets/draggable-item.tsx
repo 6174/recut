@@ -170,6 +170,7 @@ export function DraggableItem({
 						draggable={isDraggable}
 						onDragStart={isDraggable ? handleDragStart : undefined}
 						onDragEnd={isDraggable ? handleDragEnd : undefined}
+						onClick={onPreview}
 					>
 						<div className="size-6 shrink-0 overflow-hidden rounded-sm">
 							{preview}

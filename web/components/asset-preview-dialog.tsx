@@ -1,7 +1,7 @@
 "use client";
 
-import { Check, ChevronDown, ChevronUp, Copy, Download, FileText, Link2, LoaderCircle, Music2, RotateCcw, Video, X, ZoomIn } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, ChevronDown, ChevronUp, Copy, Download, FileText, Link2, LoaderCircle, Music2, Plus, RotateCcw, Trash2, Video, X, ZoomIn } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
 import { GenerationDuration } from "@/components/generation-duration";
@@ -35,6 +35,17 @@ export type ReferenceMetadata = {
   parts?: Record<string, { name?: string; contentHash?: string; mimeType?: string; sizeBytes?: number }>;
 };
 
+export type PreviewAttribute = {
+  key: string;
+  label?: string;
+  type: "text" | "textarea" | "number" | "boolean" | "select" | "media" | "ref" | "url";
+  value?: unknown;
+  options?: string[];
+  locked?: boolean;
+  source?: "system" | "agent" | "user";
+  provenance?: { by?: string; op?: string; jobId?: string; modelId?: string; at?: string };
+};
+
 export type PreviewAsset = {
   id: string;
   kind: "image" | "video" | "audio" | "transcript" | "reference";
@@ -46,7 +57,7 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; reference?: ReferenceMetadata };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; reference?: ReferenceMetadata };
 };
 
 export function mediaContext(asset: PreviewAsset) {
@@ -124,6 +135,8 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
             <AssetContent apiBase={apiBase} asset={asset} status={status} onImageClick={onImageClick} />
           </div>
           <aside className="min-h-0 overflow-y-auto border-l p-5">
+            <MaterialEditor apiBase={apiBase} asset={asset} />
+            <div className="my-4 border-t" />
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-medium">生成信息</p>
               {ready && metadata.prompt && onRegenerate && <button className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted" onClick={() => onRegenerate(asset)} type="button"><RotateCcw className="size-3" />再次生成</button>}
@@ -178,6 +191,137 @@ function PromptSection({ prompt }: { prompt: string }) {
       </button>
     </div>
   );
+}
+
+function materialAttributesFromAsset(asset: PreviewAsset): PreviewAttribute[] {
+  const raw = asset.metadata?.attributes;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is PreviewAttribute => Boolean(item) && typeof item === "object" && typeof (item as PreviewAttribute).key === "string");
+}
+
+function materialContentFromAsset(asset: PreviewAsset): string {
+  const value = asset.metadata?.content;
+  return typeof value === "string" ? value : "";
+}
+
+function attributeDisplayValue(attribute: PreviewAttribute): string {
+  if (attribute.value === undefined || attribute.value === null) return "";
+  if (typeof attribute.value === "object") return JSON.stringify(attribute.value);
+  return String(attribute.value);
+}
+
+function attributeSourceLabel(attribute: PreviewAttribute): string {
+  const by = attribute.provenance?.by || attribute.source;
+  if (by === "agent") return "AI";
+  if (by === "system") return "系统";
+  return "手动";
+}
+
+// MaterialEditor 是全局素材「属性 + 正文」的唯一编辑面：素材库、World 画布、编辑器的双击预览
+// 共用同一框。属性有序、可增删，锁定项结构只读；写入经 PATCH /v1/media/assets/{id}，SSE 回推刷新。
+function MaterialEditor({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
+  const [content, setContent] = useState(() => materialContentFromAsset(asset));
+  const [attributes, setAttributes] = useState<PreviewAttribute[]>(() => materialAttributesFromAsset(asset));
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    if (dirtyRef.current) return;
+    setContent(materialContentFromAsset(asset));
+    setAttributes(materialAttributesFromAsset(asset));
+  }, [asset.id, asset.updatedAt]);
+
+  const markDirty = () => { dirtyRef.current = true; setDirty(true); };
+  const updateAttribute = (index: number, patch: Partial<PreviewAttribute>) => {
+    setAttributes((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+    markDirty();
+  };
+  const removeAttribute = (index: number) => {
+    setAttributes((prev) => prev.filter((_, i) => i !== index));
+    markDirty();
+  };
+  const addAttribute = () => {
+    setAttributes((prev) => [...prev, { key: `field_${Date.now().toString(36)}`, label: "", type: "text", value: "" }]);
+    markDirty();
+  };
+  async function save() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content, attributes: attributes.map((attribute) => ({ key: attribute.key, label: attribute.label || undefined, type: attribute.type, value: attribute.value, options: attribute.options, locked: attribute.locked })) }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "保存失败，请稍后重试。");
+      }
+      dirtyRef.current = false;
+      setDirty(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存失败，请稍后重试。");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-medium">素材属性</p>
+        {(dirty || saving) && <button className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted disabled:opacity-60" disabled={saving} onClick={() => void save()} type="button">{saving ? <LoaderCircle className="size-3 animate-spin text-primary" /> : <Check className="size-3" />}{saving ? "保存中…" : "保存"}</button>}
+      </div>
+      <p className="mt-1 text-[10px] leading-4 text-muted-foreground">属性与正文随素材跨项目复用，并标注来源（AI / 系统 / 手动）。</p>
+      <div className="mt-3 space-y-2">
+        {attributes.map((attribute, index) => (
+          <div className="rounded-sm border bg-muted/20 p-2" key={`${attribute.key}-${index}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate text-[11px] font-medium" title={attribute.label || attribute.key}>{attribute.label || attribute.key}</span>
+                <Badge className="shrink-0">{attributeSourceLabel(attribute)}</Badge>
+                {attribute.locked && <Badge className="shrink-0">锁定</Badge>}
+              </div>
+              {!attribute.locked && <button aria-label="删除属性" className="grid size-6 shrink-0 place-items-center rounded-xs text-muted-foreground hover:bg-muted hover:text-destructive" onClick={() => removeAttribute(index)} type="button"><Trash2 className="size-3" /></button>}
+            </div>
+            <AttributeValueInput attribute={attribute} onChange={(value) => updateAttribute(index, { value })} />
+            {attribute.provenance?.jobId && <p className="mt-1 truncate font-mono text-[9px] text-muted-foreground" title={attribute.provenance.jobId}>job {attribute.provenance.jobId}</p>}
+          </div>
+        ))}
+        {attributes.length === 0 && <p className="text-[11px] text-muted-foreground">还没有属性。可手动添加，或让 AI 读懂素材后写入。</p>}
+      </div>
+      <button className="mt-2 flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted" onClick={addAttribute} type="button"><Plus className="size-3" />添加属性</button>
+      <div className="mt-4">
+        <p className="text-xs font-medium">正文</p>
+        <textarea className="mt-2 min-h-24 w-full resize-y rounded-sm border bg-background p-2 text-xs leading-5 outline-none focus:border-primary/50" onChange={(event) => { setContent(event.target.value); markDirty(); }} placeholder="对这条素材的叙述性说明（AI 理解、用途、结构…）" value={content} />
+      </div>
+      {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+function AttributeValueInput({ attribute, onChange }: { attribute: PreviewAttribute; onChange: (value: unknown) => void }) {
+  const baseClassName = "mt-1.5 w-full rounded-xs border bg-background px-2 py-1 text-xs outline-none focus:border-primary/50";
+  if (attribute.type === "boolean") {
+    return <label className="mt-1.5 flex items-center gap-2 text-xs"><input checked={attribute.value === true} onChange={(event) => onChange(event.target.checked)} type="checkbox" />是</label>;
+  }
+  if (attribute.type === "textarea") {
+    return <textarea className={`${baseClassName} min-h-16 resize-y`} onChange={(event) => onChange(event.target.value)} value={attributeDisplayValue(attribute)} />;
+  }
+  if (attribute.type === "select" && attribute.options?.length) {
+    return (
+      <select className={baseClassName} onChange={(event) => onChange(event.target.value)} value={attributeDisplayValue(attribute)}>
+        <option value="">（未设置）</option>
+        {attribute.options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    );
+  }
+  if (attribute.type === "media" || attribute.type === "ref") {
+    return <p className="mt-1.5 break-all rounded-xs border bg-muted/40 px-2 py-1 font-mono text-[10px] text-muted-foreground">{attributeDisplayValue(attribute) || "（未设置）"}</p>;
+  }
+  return <input className={baseClassName} onChange={(event) => onChange(attribute.type === "number" ? (event.target.value === "" ? undefined : Number(event.target.value)) : event.target.value)} placeholder={attribute.type === "url" ? "https://" : ""} type={attribute.type === "number" ? "number" : "text"} value={attributeDisplayValue(attribute)} />;
 }
 
 function AssetContent({ apiBase, asset, status, onImageClick }: { apiBase: string; asset: PreviewAsset; status: string; onImageClick?: (src: string) => void }) {

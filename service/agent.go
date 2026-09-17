@@ -2243,6 +2243,8 @@ var mcpToolLabels = map[string]string{
 	"recut.media.get_job":                       "查询媒体生成进度",
 	"recut.media.wait_for_job":                  "等待媒体生成结果",
 	"recut.media.list_assets":                   "读取素材库",
+	"recut.media.asset.get":                     "读取素材属性",
+	"recut.media.asset.update":                  "修改素材属性",
 	"recut.media.import_image":                  "归档 Codex 原生图片",
 	"recut.media.create_reference":              "登记参考资料",
 	"recut.media.attach":                        "将素材关联到项目",

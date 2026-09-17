@@ -58,7 +58,6 @@ import { MASKABLE_ELEMENT_TYPES } from "@timeline/timeline";
 import type { MediaAsset } from "@timeline/media/types";
 import { cn } from "@timeline/utils/ui";
 import {
-	CloudUploadIcon,
 	GridViewIcon,
 	LeftToRightListDashIcon,
 	SortingOneNineIcon,
@@ -70,6 +69,9 @@ import {
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { t, useRecutLocale, type I18nKey } from "@timeline/i18n";
 import { recut } from "@timeline/recut/sdk";
+import { serviceBase } from "@timeline/recut/host";
+import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
+import { MediaAssetEventsProvider } from "@/components/use-media-asset-events";
 import { ComponentAssetLibraryView } from "./component-library";
 
 export function MediaView() {
@@ -89,12 +91,21 @@ export function MediaView() {
 	} = useAssetsPanelStore();
 
 	const [isProcessing, setIsProcessing] = useState(false);
+	const [previewItem, setPreviewItem] = useState<MediaAsset | null>(null);
 	const [componentAssetState, setComponentAssetState] = useState({
 		count: 0,
 		ready: false,
 	});
+	// `ready` 只单向锁存为 true：ComponentAssetLibraryView 挂载时会先上报 ready:false
+	// 再上报 ready:true，而它自身在空素材库分支里位于「空态占位」与「网格 extraItems」
+	// 两个不同的树位置。若 ready 可来回翻转，就会在两个位置间反复卸载/重挂 → effect 重跑
+	// → 再次上报 → 无限循环，asset.list 每秒数百次打满主线程（拖拽随之卡死）。
 	const handleComponentAssetStateChange = useCallback(
-		(state: { count: number; ready: boolean }) => setComponentAssetState(state),
+		(state: { count: number; ready: boolean }) =>
+			setComponentAssetState((prev) => {
+				const next = { count: state.count, ready: prev.ready || state.ready };
+				return prev.count === next.count && prev.ready === next.ready ? prev : next;
+			}),
 		[],
 	);
 
@@ -163,12 +174,11 @@ export function MediaView() {
 		}
 	};
 
-	const { dragProps, openFilePicker, fileInputProps } =
-		useFileUpload({
-			accept: "image/*,video/*,audio/*",
-			multiple: true,
-			onFilesSelected: (files) => processFiles({ files }),
-		});
+	const { dragProps, fileInputProps } = useFileUpload({
+		accept: "image/*,video/*,audio/*",
+		multiple: true,
+		onFilesSelected: (files) => processFiles({ files }),
+	});
 
 	const handleRemove = ({
 		event,
@@ -249,7 +259,6 @@ export function MediaView() {
 					sortBy={mediaSortBy}
 					sortOrder={mediaSortOrder}
 					onSort={handleSort}
-					onImport={openFilePicker}
 					onImportFromRecut={handleImportFromRecut}
 				/>
 				}
@@ -283,6 +292,7 @@ export function MediaView() {
 						items={filteredMediaItems}
 						mode={mediaViewMode}
 						onRemove={handleRemove}
+						onPreview={setPreviewItem}
 						extraItems={
 							<ComponentAssetLibraryView
 								embedded
@@ -293,6 +303,11 @@ export function MediaView() {
 				</SelectableSurface>
 			)}
 			</PanelView>
+			{previewItem && (
+				<MediaAssetEventsProvider apiBase={serviceBase()}>
+					<AssetPreviewDialog apiBase={serviceBase()} asset={toPreviewAsset(previewItem)} onClose={() => setPreviewItem(null)} />
+				</MediaAssetEventsProvider>
+			)}
 		</>
 	);
 }
@@ -307,11 +322,13 @@ function MediaAssetDraggable({
 	preview,
 	variant,
 	isRounded,
+	onPreview,
 }: {
 	item: MediaAsset;
 	preview: React.ReactNode;
 	variant: "card" | "compact";
 	isRounded?: boolean;
+	onPreview?: () => void;
 }) {
 	const editor = useEditor();
 
@@ -356,6 +373,7 @@ function MediaAssetDraggable({
 			onAddToTimeline={({ currentTime }) =>
 				addElementAtTime({ asset: item, startTime: currentTime })
 			}
+			onPreview={onPreview}
 			variant={variant}
 			isRounded={isRounded}
 		/>
@@ -407,6 +425,7 @@ function MediaItemList({
 	items,
 	mode,
 	onRemove,
+	onPreview,
 	extraItems,
 }: {
 	items: MediaAsset[];
@@ -418,6 +437,7 @@ function MediaItemList({
 		event: React.MouseEvent;
 		ids: string[];
 	}) => void;
+	onPreview: (item: MediaAsset) => void;
 	extraItems?: React.ReactNode;
 }) {
 	const isGrid = mode === "grid";
@@ -436,6 +456,7 @@ function MediaItemList({
 					<SelectableItem className={cn(!isGrid && "w-full")} id={item.id}>
 						<MediaAssetDraggable
 							item={item}
+							onPreview={() => onPreview(item)}
 							preview={
 								<MediaPreview
 									item={item}
@@ -502,6 +523,25 @@ function MediaTypePlaceholder({
 			<MediaDurationLabel duration={duration} />
 		</div>
 	);
+}
+
+// 编辑器素材卡片双击/点击预览复用全局素材预览框（素材属性 + 正文 + 生成信息）：
+// editor 的 MediaAsset.id 就是平台 Asset ID，预览框会用同一 assetId 连服务端与 SSE。
+function toPreviewAsset(item: MediaAsset): PreviewAsset {
+	const status =
+		item.status === "loading" || item.status === "deleted"
+			? "completed"
+			: (item.status ?? "completed");
+	return {
+		id: item.id,
+		kind: item.type,
+		name: item.name,
+		origin: "editor",
+		status,
+		createdAt: "",
+		updatedAt: "",
+		metadata: {},
+	};
 }
 
 function MediaPreview({
@@ -583,7 +623,6 @@ function MediaActions({
 	sortBy,
 	sortOrder,
 	onSort,
-	onImport,
 	onImportFromRecut,
 }: {
 	mediaViewMode: MediaViewMode;
@@ -592,7 +631,6 @@ function MediaActions({
 	sortBy: MediaSortKey;
 	sortOrder: MediaSortOrder;
 	onSort: ({ key }: { key: MediaSortKey }) => void;
-	onImport: () => void;
 	onImportFromRecut: () => void;
 }) {
 	const locale = useRecutLocale();
@@ -685,32 +723,16 @@ function MediaActions({
 					</TooltipContent>
 				</Tooltip>
 			</TooltipProvider>
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					<Button
-						variant="outline"
-						disabled={isProcessing}
-						size="sm"
-						className="items-center justify-center gap-1.5"
-					>
-						<HugeiconsIcon icon={CloudUploadIcon} />
-						{t(locale, "common.import")}
-					</Button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end">
-					<DropdownMenuItem onClick={onImport} disabled={isProcessing}>
-						<HugeiconsIcon icon={CloudUploadIcon} />
-						{t(locale, "assets.importFiles")}
-					</DropdownMenuItem>
-					<DropdownMenuItem
-						onClick={onImportFromRecut}
-						disabled={isProcessing}
-					>
-						<HugeiconsIcon icon={LibraryIcon} />
-						{t(locale, "assets.fromRecut")}
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
+			<Button
+				variant="outline"
+				disabled={isProcessing}
+				size="sm"
+				className="items-center justify-center gap-1.5"
+				onClick={onImportFromRecut}
+			>
+				<HugeiconsIcon icon={LibraryIcon} />
+				{t(locale, "common.import")}
+			</Button>
 		</div>
 	);
 }

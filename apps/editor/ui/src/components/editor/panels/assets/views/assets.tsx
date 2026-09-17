@@ -58,7 +58,6 @@ import { MASKABLE_ELEMENT_TYPES } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import { cn } from "@/utils/ui";
 import {
-	CloudUploadIcon,
 	GridViewIcon,
 	LeftToRightListDashIcon,
 	SortingOneNineIcon,
@@ -163,12 +162,11 @@ export function MediaView() {
 		}
 	};
 
-	const { dragProps, openFilePicker, fileInputProps } =
-		useFileUpload({
-			accept: "image/*,video/*,audio/*",
-			multiple: true,
-			onFilesSelected: (files) => processFiles({ files }),
-		});
+	const { dragProps, fileInputProps } = useFileUpload({
+		accept: "image/*,video/*,audio/*",
+		multiple: true,
+		onFilesSelected: (files) => processFiles({ files }),
+	});
 
 	const handleRemove = ({
 		event,
@@ -249,7 +247,6 @@ export function MediaView() {
 					sortBy={mediaSortBy}
 					sortOrder={mediaSortOrder}
 					onSort={handleSort}
-					onImport={openFilePicker}
 					onImportFromRecut={handleImportFromRecut}
 				/>
 				}
@@ -583,7 +580,6 @@ function MediaActions({
 	sortBy,
 	sortOrder,
 	onSort,
-	onImport,
 	onImportFromRecut,
 }: {
 	mediaViewMode: MediaViewMode;
@@ -592,7 +588,6 @@ function MediaActions({
 	sortBy: MediaSortKey;
 	sortOrder: MediaSortOrder;
 	onSort: ({ key }: { key: MediaSortKey }) => void;
-	onImport: () => void;
 	onImportFromRecut: () => void;
 }) {
 	const locale = useRecutLocale();
@@ -685,32 +680,16 @@ function MediaActions({
 					</TooltipContent>
 				</Tooltip>
 			</TooltipProvider>
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					<Button
-						variant="outline"
-						disabled={isProcessing}
-						size="sm"
-						className="items-center justify-center gap-1.5"
-					>
-						<HugeiconsIcon icon={CloudUploadIcon} />
-						{t(locale, "common.import")}
-					</Button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end">
-					<DropdownMenuItem onClick={onImport} disabled={isProcessing}>
-						<HugeiconsIcon icon={CloudUploadIcon} />
-						{t(locale, "assets.importFiles")}
-					</DropdownMenuItem>
-					<DropdownMenuItem
-						onClick={onImportFromRecut}
-						disabled={isProcessing}
-					>
-						<HugeiconsIcon icon={LibraryIcon} />
-						{t(locale, "assets.fromRecut")}
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
+			<Button
+				variant="outline"
+				disabled={isProcessing}
+				size="sm"
+				className="items-center justify-center gap-1.5"
+				onClick={onImportFromRecut}
+			>
+				<HugeiconsIcon icon={LibraryIcon} />
+				{t(locale, "common.import")}
+			</Button>
 		</div>
 	);
 }
