@@ -55,8 +55,14 @@ export function useBookmarkDrag({
 }: UseBookmarkDragProps) {
 	const editor = useEditor();
 	const isShiftHeldRef = useShiftKey();
-	const tracks = useEditor((currentEditor) =>
-		currentEditor.state.getResolvedTracks(),
+	// 书签吸附只需要「已提交」的元素几何，且仅在书签拖拽时读取。这里不能用
+	// state.getResolvedTracks()：它在 ephemeral（画布拖拽/滑块）每次变化时都会
+	// 换身份，而 useBookmarkDrag 是在 Timeline 顶层调用的，会让整棵 Timeline
+	// 每帧重渲染。
+	const tracks = useEditor(
+		(currentEditor) =>
+			currentEditor.scenes.getActiveSceneOrNull()?.tracks ??
+			currentEditor.state.getResolvedTracks(),
 	);
 	const bookmarks = useEditor(
 		(currentEditor) =>

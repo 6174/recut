@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePreviewViewport } from "@timeline/preview/components/preview-viewport";
-import { useEditor } from "@timeline/editor/use-editor";
+import { useEditor, useEditorSource } from "@timeline/editor/use-editor";
 import { useShiftKey } from "@timeline/hooks/use-shift-key";
 import { getMaskDefinition } from "@timeline/masks";
 import { appendPointToFreeformPathMask } from "@timeline/masks/freeform/definition";
@@ -108,14 +108,20 @@ export function useMaskHandles({
 	const tracks = useEditor(
 		(e) => e.timeline.getPreviewTracks() ?? e.scenes.getActiveScene().tracks,
 	);
-	const currentTime = useEditor((e) => e.playback.getCurrentTime());
-	const mediaAssets = useEditor((e) => e.media.getAssets());
-	const canvasSize = useEditor(
-		(e) => e.project.getActive().settings.canvasSize,
+	const currentTime = useEditorSource(editor.playback, () =>
+		editor.playback.getCurrentTime(),
 	);
-	const selectedElements = useEditor((e) => e.selection.getSelectedElements());
-	const selectedMaskPointSelection = useEditor((e) =>
-		e.selection.getSelectedMaskPointSelection(),
+	const mediaAssets = useEditorSource(editor.media, () =>
+		editor.media.getAssets(),
+	);
+	const canvasSize = useEditorSource(editor.project, () =>
+		editor.project.getActive().settings.canvasSize,
+	);
+	const selectedElements = useEditorSource(editor.selection, () =>
+		editor.selection.getSelectedElements(),
+	);
+	const selectedMaskPointSelection = useEditorSource(editor.selection, () =>
+		editor.selection.getSelectedMaskPointSelection(),
 	);
 
 	const elementsWithBounds = getVisibleElementsWithBounds({

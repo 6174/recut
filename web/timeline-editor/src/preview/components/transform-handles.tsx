@@ -1,7 +1,10 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { usePreviewViewport } from "@timeline/preview/components/preview-viewport";
 import { useTransformHandles } from "@timeline/preview/hooks/use-transform-handles";
+import { transientTransforms } from "@timeline/preview/transient-transform-store";
+import { buildTransformFromParams } from "@timeline/rendering";
 import { isVisualElement } from "@timeline/timeline/element-utils";
 import {
 	getCornerPosition,
@@ -44,6 +47,18 @@ export function TransformHandles({
 		handlePointerUp,
 	} = useTransformHandles({ onSnapLinesChange });
 
+	// 本地拖拽中间态：位置来自瞬时表（不进 store），相对提交基准算出偏移叠加到控制框。
+	// 必须在任何 early return 之前调用，保证 hook 顺序稳定。
+	const selectedElementId =
+		selectedWithBounds && isVisualElement(selectedWithBounds.element)
+			? selectedWithBounds.element.id
+			: null;
+	const transient = useSyncExternalStore(
+		(listener) => transientTransforms.subscribe(listener),
+		() => (selectedElementId ? transientTransforms.get(selectedElementId) : undefined),
+		() => undefined,
+	);
+
 	if (!hasVisualSelection || !selectedWithBounds) return null;
 
 	const { bounds, element } = selectedWithBounds;
@@ -63,15 +78,23 @@ export function TransformHandles({
 			canvasY,
 		});
 
-	const center = toOverlay({ canvasX: bounds.cx, canvasY: bounds.cy });
+	let boundsCx = bounds.cx;
+	let boundsCy = bounds.cy;
+	if (transient) {
+		const base = buildTransformFromParams({ params: element.params });
+		boundsCx += transient.position.x - base.position.x;
+		boundsCy += transient.position.y - base.position.y;
+	}
+
+	const center = toOverlay({ canvasX: boundsCx, canvasY: boundsCy });
 	const outlineWidth = Math.abs(bounds.width) * displayScale.x;
 	const outlineHeight = Math.abs(bounds.height) * displayScale.y;
 
 	const rotationAngleRad = (bounds.rotation * Math.PI) / 180;
 	const topCenterLocalY = -bounds.height / 2;
 	const topCenterScreen = toOverlay({
-		canvasX: bounds.cx - topCenterLocalY * Math.sin(rotationAngleRad),
-		canvasY: bounds.cy + topCenterLocalY * Math.cos(rotationAngleRad),
+		canvasX: boundsCx - topCenterLocalY * Math.sin(rotationAngleRad),
+		canvasY: boundsCy + topCenterLocalY * Math.cos(rotationAngleRad),
 	});
 	const rotationHandleScreen = {
 		x: topCenterScreen.x + Math.sin(rotationAngleRad) * ROTATION_HANDLE_OFFSET,
@@ -94,7 +117,10 @@ export function TransformHandles({
 				rotation={bounds.rotation}
 			/>
 			{CORNERS.map((corner) => {
-				const cornerPosition = getCornerPosition({ bounds, corner });
+				const cornerPosition = getCornerPosition({
+					bounds: { ...bounds, cx: boundsCx, cy: boundsCy },
+					corner,
+				});
 				const screen = toOverlay({
 					canvasX: cornerPosition.x,
 					canvasY: cornerPosition.y,
@@ -118,7 +144,10 @@ export function TransformHandles({
 				);
 			})}
 			{EDGES.map((edge) => {
-				const edgePosition = getEdgeHandlePosition({ bounds, edge });
+				const edgePosition = getEdgeHandlePosition({
+					bounds: { ...bounds, cx: boundsCx, cy: boundsCy },
+					edge,
+				});
 				const screen = toOverlay({
 					canvasX: edgePosition.x,
 					canvasY: edgePosition.y,

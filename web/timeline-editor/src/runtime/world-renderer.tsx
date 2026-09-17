@@ -6,10 +6,13 @@
  */
 import { createRoot, type Root } from "react-dom/client";
 import type { FrameRate } from "@timeline/wasm";
+import type { Transform } from "@timeline/rendering";
 import { VisualRuntime } from "./world-runtime";
 import { WorldScene } from "./world-scene";
 import { activeContentSurfaces } from "./components/html-surface";
 import { waitForVisualMediaFrames } from "./texture";
+import { getRenderedNodeObject } from "./node-registry";
+import { worldPosition, worldRotationZ } from "./components/plane";
 import type { World, WorldFrame } from "./types";
 
 interface SnapshotRequest {
@@ -38,6 +41,8 @@ export class WorldRenderer {
 	private snapshotQueue: SnapshotRequest[] = [];
 	private nextSnapshotId = 1;
 	private disposed = false;
+	/** 由 WorldScene 内的 FrameInvalidator 注入；命令式改矩阵后用它触发重绘。 */
+	private invalidate: (() => void) | null = null;
 
 	constructor({ width, height, fps }: { width: number; height: number; fps: FrameRate }) {
 		this.width = width;
@@ -63,9 +68,37 @@ export class WorldRenderer {
 				frame={this.frame}
 				canvas={this.canvas}
 				snapshot={this.snapshotRequest}
+				onInvalidateReady={this.handleInvalidateReady}
 				onSnapshotComplete={this.completeSnapshot}
 			/>,
 		);
+	}
+
+	private handleInvalidateReady = (invalidate: (() => void) | null): void => {
+		this.invalidate = invalidate;
+	};
+
+	/**
+	 * 命令式更新若干元素的 three 变换并重绘：拖动中间态只改矩阵，不重建 world、
+	 * 不重渲 R3F 场景（对应 preview 的本地瞬时层）。pointerup 落回 store 后再由
+	 * React 用提交后的 transform 覆盖，值一致。
+	 */
+	applyObjectTransforms({
+		transforms,
+	}: {
+		transforms: Map<string, Transform>;
+	}): void {
+		if (this.disposed) return;
+		let changed = false;
+		for (const [elementId, transform] of transforms) {
+			const node = getRenderedNodeObject(elementId);
+			if (!node) continue;
+			node.position.set(...worldPosition(transform));
+			node.scale.set(transform.scaleX, transform.scaleY, 1);
+			node.rotation.set(0, 0, worldRotationZ(transform.rotate));
+			changed = true;
+		}
+		if (changed) this.invalidate?.();
 	}
 
 	private completeSnapshot = (id: number, dataUrl: string | null): void => {

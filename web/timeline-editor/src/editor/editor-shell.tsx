@@ -82,8 +82,6 @@ function EditorLayout() {
 		},
 		[],
 	);
-	const activeScene = useEditor((editor) => editor.scenes.getActiveSceneOrNull());
-	const currentTime = useEditor((editor) => editor.playback.getCurrentTime());
 	const activeGuide = usePreviewStore((state) => state.activeGuide);
 	const overlays = usePreviewStore((state) => state.overlays);
 	const setOverlayVisibility = usePreviewStore((state) => state.setOverlayVisibility);
@@ -92,24 +90,18 @@ function EditorLayout() {
 		overlays,
 	});
 
+	// 这里不再订阅 currentTime / activeScene：bookmark 便签自己按 scenes + playback
+	// 订阅（BookmarkNotesOverlayLive），避免 seek / scrub 每帧重渲染整个 EditorLayout
+	// 及其下的 PreviewPanel / PreviewCanvas。
 	const overlaySource = useMemo(
 		() =>
 			mergePreviewOverlaySources({
 				sources: [
 					getGuidePreviewOverlaySource({ guideId: activeGuide }),
-					activeScene
-						? getBookmarkPreviewOverlaySource({
-								bookmarks: activeScene.bookmarks,
-								time: currentTime,
-								isVisible: showBookmarkNotes,
-							})
-						: {
-								definitions: [bookmarkNotesPreviewOverlay],
-								instances: [],
-							},
+					getBookmarkPreviewOverlaySource({ isVisible: showBookmarkNotes }),
 				],
 			}),
-		[activeGuide, activeScene, currentTime, showBookmarkNotes],
+		[activeGuide, showBookmarkNotes],
 	);
 
 	const overlayControls = useMemo(

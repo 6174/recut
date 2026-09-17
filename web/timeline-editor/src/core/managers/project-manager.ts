@@ -772,6 +772,11 @@ export class ProjectManager {
 		this.previewRenderer = renderer;
 	}
 
+	/** 常驻预览 renderer（供拖拽本地瞬时层命令式改矩阵）。 */
+	getPreviewRenderer(): WorldRenderer | null {
+		return this.previewRenderer;
+	}
+
 	subscribe(listener: () => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);

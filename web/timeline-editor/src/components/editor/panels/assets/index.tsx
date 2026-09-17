@@ -16,21 +16,31 @@ import { AudioLibraryView } from "@timeline/audio-library/components/audio-libra
 import { ComponentLibraryView, EffectLibraryView } from "./views/component-library";
 
 export function AssetsPanel() {
-	const { activeTab } = useAssetsPanelStore();
-
-	const viewMap: Record<Tab, React.ReactNode> = {
-		media: <MediaView />,
-		sounds: <AudioLibraryView />,
-		text: <TextView />,
-		effects: <EffectLibraryView />,
-		components: <ComponentLibraryView />,
-		captions: <Captions />,
-	};
+	// 只订阅 activeTab：整店订阅会让任何面板 store 变更都重渲染整个面板，
+	// 而且每次渲染都会重建 6 个视图元素。
+	const activeTab = useAssetsPanelStore((state) => state.activeTab);
 
 	return (
 		<div className="panel bg-panel flex h-full flex-col overflow-hidden rounded-none border-0">
 			<TopNavigation />
-			<div className="min-w-0 flex-1 overflow-hidden">{viewMap[activeTab]}</div>
+			<div className="min-w-0 flex-1 overflow-hidden">{renderView(activeTab)}</div>
 		</div>
 	);
+}
+
+function renderView(tab: Tab): React.ReactNode {
+	switch (tab) {
+		case "media":
+			return <MediaView />;
+		case "sounds":
+			return <AudioLibraryView />;
+		case "text":
+			return <TextView />;
+		case "effects":
+			return <EffectLibraryView />;
+		case "components":
+			return <ComponentLibraryView />;
+		case "captions":
+			return <Captions />;
+	}
 }

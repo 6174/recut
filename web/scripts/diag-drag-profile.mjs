@@ -23,6 +23,7 @@ const invoke = (projectId, op, input) =>
 
 const browser = await chromium.launch();
 let projectId = null;
+const pageErrors = [];
   let mediaId = "";
 try {
   const created = await api("/v1/projects", {
@@ -76,9 +77,32 @@ try {
     },
   });
 
+  // 额外 clip：用于放大「一次预览更新连坐多少 clip 重渲染」的扇出。
+  const extra = Number.parseInt(process.env.MANY ?? "0", 10);
+  for (let i = 0; i < extra; i++) {
+    await invoke(projectId, "timeline.command", {
+      op: {
+        type: "insert",
+        payload: {
+          element: {
+            type: "text",
+            name: `perf-extra-${i}`,
+            startSec: 10 + i * 10,
+            durationSec: 5,
+            params: { content: `clip ${i}`, fontSize: 80, color: "#ffffff" },
+          },
+        },
+      },
+    });
+  }
+  if (extra) console.log(`inserted ${extra} extra clips`);
+
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.addInitScript(() => {
     window.__diag = { calls: [], stacks: [], gl: {} };
+    window.__recutRenderLog = true;
+    window.__renderCounts = {};
     const patch = (proto, name, key) => {
       if (!proto || typeof proto[name] !== "function") return;
       const orig = proto[name];
@@ -118,8 +142,39 @@ try {
     const r = c.getBoundingClientRect();
     return { x: r.x, y: r.y, w: r.width, h: r.height };
   });
-  const cx = box.x + box.w / 2;
-  const cy = box.y + box.h / 2;
+  const DRAG = process.env.DRAG ?? "preview";
+  let cx = box.x + box.w / 2;
+  let cy = box.y + box.h / 2;
+  let stepX = 6;
+  let stepY = 2;
+  if (DRAG === "timeline") {
+    const clip = await page.evaluate(() => {
+      const sections = [...document.querySelectorAll("section")];
+      const timeline = sections.find((s) => {
+        const label = s.getAttribute("aria-label") ?? "";
+        return label.includes("时间线") || label.toLowerCase().includes("timeline");
+      });
+      const scope = timeline ?? document;
+      const el = [...scope.querySelectorAll("span")].find(
+        (s) => s.textContent === "性能诊断文本",
+      );
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return {
+        x: r.x,
+        y: r.y,
+        w: r.width,
+        h: r.height,
+        sectionLabel: timeline?.getAttribute("aria-label") ?? null,
+      };
+    });
+    if (!clip) throw new Error("timeline clip not found");
+    cx = clip.x + clip.w / 2;
+    cy = clip.y + clip.h / 2;
+    stepX = 5;
+    stepY = 0;
+    console.log(`timeline clip rect=${JSON.stringify(clip)}`);
+  }
 
   const snap = async (label, fn) => {
     await page.evaluate(() => {
@@ -165,44 +220,100 @@ try {
   await wclient.send("Profiler.enable").catch(() => {});
   await wclient.send("Profiler.setSamplingInterval", { interval: 200 }).catch(() => {});
   await wclient.send("Profiler.start").catch(() => {});
+  await page.evaluate(() => { window.__renderCounts = {}; });
   await page.mouse.move(cx, cy);
   await page.mouse.down();
   const perMove = [];
+  const BURST = Number.parseInt(process.env.BURST ?? "1", 10);
+  let pointerIndex = 0;
   for (let i = 1; i <= 12; i++) {
     const a = await metricSet();
     const s = Date.now();
-    await page.mouse.move(cx + i * 6, cy + i * 2);
+    for (let k = 0; k < BURST; k++) {
+      pointerIndex += 1;
+      await page.mouse.move(cx + pointerIndex * 6, cy + pointerIndex * 2);
+    }
     perMove.push(Date.now() - s);
     const b = await metricSet();
     if (i === 1) console.log(`move#1`, JSON.stringify(Object.fromEntries(KEYS.map((k) => [k, +(((b[k] ?? 0) - (a[k] ?? 0)) * 1000).toFixed(1)]))));
   }
+  console.log(`pointermoves=${pointerIndex} burst=${BURST}`);
   await page.mouse.up();
   const { profile } = await wclient.send("Profiler.stop").catch(() => ({ profile: null }));
+  const renderCounts = await page.evaluate(() => window.__renderCounts || {});
   const after = await metricSet();
   const glAfter = await page.evaluate(() => ({ ...window.__diag.gl }));
   const wall = Date.now() - t0;
-  console.log(`\n=== 12-move window wall=${wall}ms; per-move wall=${JSON.stringify(perMove)}`);
-  const glDelta = {};
-  for (const k of Object.keys(glAfter)) glDelta[k] = glAfter[k] - (glBefore[k] ?? 0);
-  console.log(`GL/canvas calls in window:`, JSON.stringify(glDelta));
-  console.log(`window`, JSON.stringify(Object.fromEntries(KEYS.map((k) => [k, +(((after[k] ?? 0) - (before[k] ?? 0)) * 1000).toFixed(1)]))));
-  if (profile) {
-    const byId = new Map(profile.nodes.map((n) => [n.id, n]));
-    const self = new Map();
-    for (let i = 0; i < profile.samples.length; i++) {
-      const node = byId.get(profile.samples[i]);
-      if (!node) continue;
-      const cf = node.callFrame;
-      const key = `${cf.functionName || "(anon)"} @ ${cf.url.split("/").pop()}:${cf.lineNumber + 1}`;
-      self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[i] ?? 0));
+  const report = (label, wall, before, after, glBefore, glAfter, profile) => {
+    console.log(`\n=== ${label} wall=${wall}ms`);
+    const glDelta = {};
+    for (const k of Object.keys(glAfter)) glDelta[k] = glAfter[k] - (glBefore[k] ?? 0);
+    console.log(`GL/canvas calls:`, JSON.stringify(glDelta));
+    console.log(`window`, JSON.stringify(Object.fromEntries(KEYS.map((k) => [k, +(((after[k] ?? 0) - (before[k] ?? 0)) * 1000).toFixed(1)]))));
+    if (profile) {
+      const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+      const self = new Map();
+      const inclusive = new Map();
+      for (let i = 0; i < profile.samples.length; i++) {
+        const node = byId.get(profile.samples[i]);
+        if (!node) continue;
+        const dt = profile.timeDeltas[i] ?? 0;
+        const cf = node.callFrame;
+        const key = `${cf.functionName || "(anon)"} @ ${cf.url.split("/").pop()}:${cf.lineNumber + 1}`;
+        self.set(key, (self.get(key) ?? 0) + dt);
+        // inclusive：沿 parent 链累计到每个函数名（同名只记一次，避免重复计入递归）
+        let cursor = node;
+        const seen = new Set();
+        while (cursor) {
+          const name = cursor.callFrame.functionName || "(anon)";
+          if (!seen.has(name)) {
+            inclusive.set(name, (inclusive.get(name) ?? 0) + dt);
+            seen.add(name);
+          }
+          cursor = cursor.parent !== undefined ? byId.get(cursor.parent) : null;
+        }
+      }
+      const WATCH = ["TimelineElement", "useElementPreview", "ElementInner", "TimelineTrackContent", "TimelineTrackRows", "TrackLabelsPanel", "Timeline", "EditorLayout", "PreviewPanel", "PreviewCanvas", "TransformHandles", "renderWithHooks", "beginWork", "renderRootSync", "AssetsPanel", "MediaView", "TopNavigation", "AudioLibraryView", "ComponentLibraryView", "TextView", "EffectLibraryView", "Captions", "PropertiesPanel", "AssetPreviewDialog", "MediaItemList", "DraggableItem"];
+      console.log(`--- inclusive time by component (ms) ---`);
+      for (const name of WATCH) {
+        const us = inclusive.get(name);
+        if (us) console.log(`  ${(us / 1000).toFixed(1).padStart(8)}ms  ${name}`);
+      }
+      console.log(`--- top self-time (ms) ---`);
+      for (const [fn, us] of [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)) {
+        console.log(`  ${(us / 1000).toFixed(1).padStart(8)}ms  ${fn}`);
+      }
     }
-    console.log(`\n--- top self-time (ms) ---`);
-    for (const [fn, us] of [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 28)) {
-      console.log(`  ${(us / 1000).toFixed(1).padStart(8)}ms  ${fn}`);
-    }
+  };
+  report(`12-move drag`, wall, before, after, glBefore, glAfter, profile);
+  console.log(`per-move wall=${JSON.stringify(perMove)}`);
+  console.log(`--- renders during 12-move drag (count) ---`);
+  for (const [name, count] of Object.entries(renderCounts).sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${String(count).padStart(6)}  ${name}`);
   }
+
+  // seek 路径：键盘 l 连续前移，测每次 seek 的成本
+  await page.mouse.click(cx, cy);
+  await page.waitForTimeout(200);
+  const sBefore = await metricSet();
+  const sGlBefore = await page.evaluate(() => ({ ...window.__diag.gl }));
+  await wclient.send("Profiler.start").catch(() => {});
+  const perSeek = [];
+  for (let i = 1; i <= 20; i++) {
+    const s = Date.now();
+    await page.keyboard.press("l");
+    perSeek.push(Date.now() - s);
+    await page.waitForTimeout(8);
+  }
+  const { profile: sProfile } = await wclient.send("Profiler.stop").catch(() => ({ profile: null }));
+  const sAfter = await metricSet();
+  const sGlAfter = await page.evaluate(() => ({ ...window.__diag.gl }));
+  console.log(`\nper-seek wall=${JSON.stringify(perSeek)}`);
+  report(`20x seek`, perSeek.reduce((a, b) => a + b, 0), sBefore, sAfter, sGlBefore, sGlAfter, sProfile);
+
   await snap("idle-after-2s", () => page.waitForTimeout(2000));
 } finally {
   if (projectId) await api(`/v1/projects/${projectId}`, { method: "DELETE" }).catch(() => {});
   await browser.close().catch(() => {});
+  if (pageErrors.length) console.log(`\npageErrors:\n${pageErrors.slice(0, 5).join("\n")}`);
 }

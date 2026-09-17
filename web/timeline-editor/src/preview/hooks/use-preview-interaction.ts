@@ -4,6 +4,8 @@ import { useCommittedRef } from "@timeline/hooks/use-committed-ref";
 import { useShiftKey } from "@timeline/hooks/use-shift-key";
 import { usePreviewViewport } from "@timeline/preview/components/preview-viewport";
 import type { SnapLine } from "@timeline/preview/preview-snap";
+import { transientTransforms } from "@timeline/preview/transient-transform-store";
+import type { Transform } from "@timeline/rendering";
 import { registerCanceller } from "@timeline/editor/cancel-interaction";
 import {
 	PreviewInteractionController,
@@ -54,6 +56,19 @@ export function usePreviewInteraction({
 				editor.timeline.setElementsTransform({ updates, atTime }),
 			commitPreview: () => editor.timeline.commitPreview(),
 			discardPreview: () => editor.timeline.discardPreview(),
+			// 拖拽中间态：只写本地瞬时层 + 命令式改 three 矩阵，不进 editor store、不 notify。
+			applyLocalTransforms: (updates) => {
+				const transforms = new Map<string, Transform>();
+				for (const { elementId, transform } of updates) {
+					transientTransforms.set({ elementId, transform });
+					transforms.set(elementId, transform);
+				}
+				editor.project
+					.getPreviewRenderer()
+					?.applyObjectTransforms({ transforms });
+			},
+			clearLocalTransforms: (elementIds) =>
+				transientTransforms.clear(elementIds),
 		},
 		playback: {
 			getIsPlaying: () => editor.playback.getIsPlaying(),

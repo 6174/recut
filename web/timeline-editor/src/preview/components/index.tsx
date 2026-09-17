@@ -3,12 +3,11 @@
 import {
 	useCallback,
 	useEffect,
-	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
-import { useEditor } from "@timeline/editor/use-editor";
+import { useEditor, useEditorSource } from "@timeline/editor/use-editor";
 import { useRafLoop } from "@timeline/hooks/use-raf-loop";
 import { useContainerSize } from "@timeline/hooks/use-container-size";
 import { useFullscreen } from "@timeline/hooks/use-fullscreen";
@@ -31,6 +30,7 @@ import {
 	usePreviewViewportState,
 } from "./preview-viewport";
 
+
 /**
  * [INPUT]: 编辑器时间线、WorldRenderer、预览尺寸和用户交互状态
  * [OUTPUT]: 常驻预览画布、工具栏、叠加层与视口控制
@@ -39,8 +39,11 @@ import {
  */
 
 function usePreviewSize() {
-	const canvasSize = useEditor(
-		(e) => e.project.getActive()?.settings.canvasSize,
+	const editor = useEditor();
+	// 只订阅画布尺寸这一片：project 上的 timelineViewState 变更（滚动/缩放落盘）
+	// 不应把预览整树带起来。
+	const canvasSize = useEditorSource(editor.project, () =>
+		editor.project.getActive()?.settings.canvasSize,
 	);
 
 	return {
@@ -132,10 +135,17 @@ function PreviewCanvas({
 	const { width: nativeWidth, height: nativeHeight } = usePreviewSize();
 	const viewportSize = useContainerSize({ containerRef: viewportRef });
 	const editor = useEditor();
-	const activeProject = useEditor((e) => e.project.getActive());
-	const activeFps = activeProject.settings.fps;
-	const tracks = useEditor((e) => e.timeline.getPreviewTracks());
-	const mediaAssets = useEditor((e) => e.media.getAssets());
+	// 按 source 订阅并把切片收窄到 fps / background：fps 与 background 在播放与
+	// 拖拽中都不变，因此这些源的通知不会引起预览重渲染。
+	const activeFps = useEditorSource(editor.project, () =>
+		editor.project.getActive().settings.fps,
+	);
+	const background = useEditorSource(editor.project, () =>
+		editor.project.getActive().settings.background,
+	);
+	// tracks / mediaAssets 不再是 React 订阅：world 重建改由 rAF 里的 dirty 标记驱动，
+	// 这样 preview 拖拽（ephemeral 每帧变）不会重渲染整棵预览子树。
+	const worldDirtyRef = useRef(true);
 	const viewport = usePreviewViewportState({
 		canvasHeight: nativeHeight,
 		canvasWidth: nativeWidth,
@@ -192,31 +202,28 @@ function PreviewCanvas({
 		};
 	}, [editor.project, renderer]);
 
-	// 同步重建世界：与选择框/命中测试在同一 React commit（都由同一 notify 触发）完成。
-	// 不再走 RenderTreeController → setWorld → 再订阅 → rAF 的中间 hop。
-	useLayoutEffect(() => {
-		if (!activeProject || !tracks) return;
-		const duration = editor.timeline.getTotalDuration();
-		const world = buildWorld({
-			scene: { id: "preview", tracks },
-		mediaAssets,
-		canvasSize: { width: nativeWidth, height: nativeHeight },
-			fps: activeFps.numerator / activeFps.denominator,
-			duration: mediaTimeToSeconds({ time: duration }),
-			background: activeProject.settings.background,
-		});
-		world.isPreview = true;
-		worldRef.current = world;
-	}, [
-		tracks,
-		mediaAssets,
-		activeProject?.settings.background,
-		activeFps.numerator,
-		activeFps.denominator,
-		nativeWidth,
-		nativeHeight,
-		editor,
-	]);
+	// world 重建改为命令式：订阅只置 dirty 标记，真正的 buildWorld 放到 rAF 渲染
+	// 循环里。这样 PreviewCanvas 不再因为 tracks/media 变化而重渲染整棵预览子树，
+	// 每帧只跑 GPU 渲染路径。
+	useEffect(() => {
+		worldDirtyRef.current = true;
+		const mark = () => {
+			worldDirtyRef.current = true;
+		};
+		const unsubs = [
+			editor.timeline.subscribe(mark),
+			editor.scenes.subscribe(mark),
+			editor.media.subscribe(mark),
+		];
+		return () => {
+			for (const unsubscribe of unsubs) unsubscribe();
+		};
+	}, [editor]);
+
+	// 尺寸/fps/背景变化会重建 renderer 或改变输出几何，需要重建 world。
+	useEffect(() => {
+		worldDirtyRef.current = true;
+	}, [nativeWidth, nativeHeight, activeFps.numerator, activeFps.denominator, background]);
 
 	// Mount the compositor's output canvas directly into the preview. wgpu
 	// renders straight into this element, so there is no intermediate copy —
@@ -238,8 +245,8 @@ function PreviewCanvas({
 	}, [renderer]);
 
 	const render = useCallback(() => {
-		const world = worldRef.current;
-		if (!world) return;
+		const activeProject = editor.project.getActiveOrNull();
+		if (!activeProject) return;
 
 		// 预览单帧耗时 = 渲染循环两次 tick 的间隔（帧预算）。> 目标帧预算说明预览掉帧。
 		const now = performance.now();
@@ -254,6 +261,35 @@ function PreviewCanvas({
 			editor.playback.getCurrentTime(),
 			editor.timeline.getLastFrameTime(),
 		);
+		const renderTimeSec = mediaTimeToSeconds({
+			time: renderTime as import("@timeline/wasm").MediaTime,
+		});
+
+		if (worldDirtyRef.current || !worldRef.current) {
+			worldDirtyRef.current = false;
+			const settings = activeProject.settings;
+			const world = buildWorld({
+				scene: {
+					id: "preview",
+					tracks:
+						editor.timeline.getPreviewTracks() ??
+						editor.scenes.getActiveScene().tracks,
+				},
+				mediaAssets: editor.media.getAssets(),
+				canvasSize: settings.canvasSize,
+				fps: renderer.fps.numerator / renderer.fps.denominator,
+				duration: mediaTimeToSeconds({
+					time: editor.timeline.getTotalDuration(),
+				}),
+				background: settings.background,
+			});
+			world.isPreview = true;
+			worldRef.current = world;
+		}
+
+		const world = worldRef.current;
+		if (!world) return;
+
 		const ticksPerFrame = Math.round(
 			(TICKS_PER_SECOND * renderer.fps.denominator) / renderer.fps.numerator,
 		);
@@ -266,18 +302,11 @@ function PreviewCanvas({
 		lastSceneRef.current = world;
 		lastFrameRef.current = frame;
 		// 即将上场的媒体提前解码：否则 B 挂载时解码器是冷的，首帧闪背景。
-		prewarmWorldMedia(
-			world,
-			mediaTimeToSeconds({
-				time: renderTime as import("@timeline/wasm").MediaTime,
-			}),
-		);
+		prewarmWorldMedia(world, renderTimeSec);
 		renderer
 			.render({
 				world,
-				time: mediaTimeToSeconds({
-					time: renderTime as import("@timeline/wasm").MediaTime,
-				}),
+				time: renderTimeSec,
 				// 预览不等待出图：WorldScene frameloop="demand"，React 提交后 invalidate
 				// 下一帧即绘制（与纹理捕获合并失效），避免 2 帧等待 + 渲染中跳过导致的元素/选择框脱节。
 				waitForDraw: false,
@@ -286,7 +315,7 @@ function PreviewCanvas({
 				lastFrameRef.current = -1;
 				console.error("Preview render failed:", error);
 			});
-	}, [renderer, editor.playback, editor.timeline]);
+	}, [renderer, editor.playback, editor.timeline, editor.project, editor.media, editor.scenes]);
 
 	useRafLoop(render);
 
@@ -394,9 +423,9 @@ function PreviewCanvas({
 									width: viewport.sceneWidth,
 									height: viewport.sceneHeight,
 									background:
-										activeProject.settings.background.type === "blur"
+										background.type === "blur"
 											? "transparent"
-											: activeProject?.settings.background.color,
+											: background.color,
 								}}
 							/>
 							<PreviewOverlayLayer

@@ -1,9 +1,9 @@
-import type { Bookmark } from "@timeline/timeline";
 import {
 	EMPTY_PREVIEW_OVERLAY_SOURCE_RESULT,
 	type PreviewOverlayDefinition,
 	type PreviewOverlaySourceResult,
 } from "@timeline/preview/overlays";
+import { useEditor, useEditorSource } from "@timeline/editor/use-editor";
 import { getBookmarksActiveAtTime } from "./utils";
 import type { MediaTime } from "@timeline/wasm";
 
@@ -39,49 +39,57 @@ function BookmarkNotesOverlay({
 	);
 }
 
-export function getBookmarkPreviewOverlaySource({
-	bookmarks,
-	time,
-	isVisible,
-}: {
-	bookmarks: Bookmark[];
-	time: MediaTime;
-	isVisible: boolean;
-}): PreviewOverlaySourceResult {
+/**
+ * 自订阅的 bookmark 便签层：只订阅 scenes（书签）与 playback（当前时间），
+ * 把 currentTime 的影响限制在这一个小节点内。父层（EditorLayout / PreviewPanel）
+ * 因此不需要订阅 currentTime——否则 seek / scrub 每帧都会重渲染整块编辑器。
+ */
+function BookmarkNotesOverlayLive() {
+	const editor = useEditor();
+	const activeScene = useEditorSource(editor.scenes, () =>
+		editor.scenes.getActiveSceneOrNull(),
+	);
+	const time = useEditorSource(editor.playback, () =>
+		editor.playback.getCurrentTime(),
+	);
+
 	const bookmarksWithNotes = getBookmarksActiveAtTime({
-		bookmarks,
+		bookmarks: activeScene?.bookmarks ?? [],
 		time,
 	}).flatMap((bookmark) => {
 		if (bookmark.note == null || bookmark.note.trim() === "") {
 			return [];
 		}
-
 		return [
-			{
-				time: bookmark.time,
-				note: bookmark.note,
-				color: bookmark.color,
-			},
+			{ time: bookmark.time, note: bookmark.note, color: bookmark.color },
 		];
 	});
 
-	if (!isVisible || bookmarksWithNotes.length === 0) {
-		return {
-			...EMPTY_PREVIEW_OVERLAY_SOURCE_RESULT,
-			definitions: [bookmarkNotesPreviewOverlay],
-		};
+	if (bookmarksWithNotes.length === 0) {
+		return null;
 	}
 
+	return <BookmarkNotesOverlay bookmarks={bookmarksWithNotes} />;
+}
+
+export function getBookmarkPreviewOverlaySource({
+	isVisible,
+}: {
+	isVisible: boolean;
+}): PreviewOverlaySourceResult {
 	return {
+		...EMPTY_PREVIEW_OVERLAY_SOURCE_RESULT,
 		definitions: [bookmarkNotesPreviewOverlay],
-		instances: [
-			{
-				id: bookmarkNotesPreviewOverlay.id,
-				mount: { kind: "hud", anchor: "top-left", order: 0 },
-				plane: "over-interaction",
-				pointerEvents: "none",
-				render: () => <BookmarkNotesOverlay bookmarks={bookmarksWithNotes} />,
-			},
-		],
+		instances: isVisible
+			? [
+					{
+						id: bookmarkNotesPreviewOverlay.id,
+						mount: { kind: "hud", anchor: "top-left", order: 0 },
+						plane: "over-interaction",
+						pointerEvents: "none",
+						render: () => <BookmarkNotesOverlayLive />,
+					},
+				]
+			: [],
 	};
 }

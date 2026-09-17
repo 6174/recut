@@ -132,6 +132,16 @@ export interface TimelineOps {
 	) => void;
 	commitPreview: () => void;
 	discardPreview: () => void;
+	/** 拖拽中间态：只写本地瞬时层（不进 editor store、不 notify）。 */
+	applyLocalTransforms: (
+		updates: readonly {
+			trackId: string;
+			elementId: string;
+			transform: Transform;
+		}[],
+	) => void;
+	/** 拖拽结束后清空本地瞬时层，让渲染回到 store 的提交值。 */
+	clearLocalTransforms: (elementIds: readonly string[]) => void;
 }
 
 export interface PlaybackApi {
@@ -241,6 +251,15 @@ export class PreviewInteractionController {
 	private editingTextState: EditingTextState | null = null;
 	private wasPlaying: boolean;
 	private unsubscribePlayback: (() => void) | null = null;
+	/**
+	 * 高频 pointermove 合帧：指针采样率（120Hz+ 触控板、1000Hz 鼠标）远高于刷新率，
+	 * 逐事件更新瞬时层会把每帧放大成多次 React commit。只缓存最后一次位置，由 rAF
+	 * 每帧 apply 一次。
+	 */
+	private pendingPointer: Point | null = null;
+	private pointerRafId = 0;
+	/** 最近一次本地拖拽对应的 store 更新（pointerup 才提交，保证提交值与所见一致）。 */
+	private dragUpdates: TimelinePreviewUpdate[] = [];
 
 	constructor({ depsRef }: { depsRef: PreviewInteractionDepsRef }) {
 		this.depsRef = depsRef;
@@ -278,6 +297,7 @@ export class PreviewInteractionController {
 	destroy(): void {
 		this.unsubscribePlayback?.();
 		this.unsubscribePlayback = null;
+		this.cancelPendingPointer();
 		this.abortActiveGesture();
 		this.editingTextState = null;
 		this.subscribers.clear();
@@ -285,8 +305,28 @@ export class PreviewInteractionController {
 
 	cancel(): void {
 		if (this.gesture.kind === "idle") return;
+		this.cancelPendingPointer();
 		this.abortActiveGesture();
 		this.notify();
+	}
+
+	private cancelPendingPointer(): void {
+		if (this.pointerRafId) {
+			cancelAnimationFrame(this.pointerRafId);
+			this.pointerRafId = 0;
+		}
+		this.pendingPointer = null;
+	}
+
+	/** 提交/结束手势前先跑完尚未落帧的最后一次指针位置，避免丢失终点。 */
+	private flushPendingPointer(): void {
+		if (this.pointerRafId) {
+			cancelAnimationFrame(this.pointerRafId);
+			this.pointerRafId = 0;
+		}
+		const pending = this.pendingPointer;
+		this.pendingPointer = null;
+		if (pending) this.applyPointerMove(pending);
 	}
 
 	private abortActiveGesture(): void {
@@ -295,6 +335,18 @@ export class PreviewInteractionController {
 		const gesture = this.gesture;
 		if (gesture.kind === "dragging") {
 			this.deps.timeline.discardPreview();
+			// 本地瞬时位移还原到拖拽前，避免取消后停在拖动位置。
+			this.deps.timeline.applyLocalTransforms(
+				gesture.elements.map(({ trackId, elementId, initialTransform }) => ({
+					trackId,
+					elementId,
+					transform: initialTransform,
+				})),
+			);
+			this.deps.timeline.clearLocalTransforms(
+				gesture.elements.map(({ elementId }) => elementId),
+			);
+			this.dragUpdates = [];
 		}
 
 		this.gesture = IDLE_GESTURE;
@@ -377,6 +429,19 @@ export class PreviewInteractionController {
 	}
 
 	onPointerMove({ clientX, clientY }: ReactPointerEvent): void {
+		// 空闲时不排队（悬停不重渲染）；否则只记最后一次位置，由 rAF 每帧 apply 一次。
+		if (this.gesture.kind === "idle") return;
+		this.pendingPointer = { x: clientX, y: clientY };
+		if (this.pointerRafId) return;
+		this.pointerRafId = requestAnimationFrame(() => {
+			this.pointerRafId = 0;
+			const pending = this.pendingPointer;
+			this.pendingPointer = null;
+			if (pending) this.applyPointerMove(pending);
+		});
+	}
+
+	private applyPointerMove({ x: clientX, y: clientY }: Point): void {
 		const currentPos = this.deps.viewport.screenToCanvas({
 			clientX,
 			clientY,
@@ -407,13 +472,25 @@ export class PreviewInteractionController {
 	}
 
 	onPointerUp({ type }: ReactPointerEvent): void {
+		// 先把最后一次移动落到瞬时层，再基于最终值提交，保证落点与所见一致。
+		this.flushPendingPointer();
+
 		if (this.gesture.kind === "dragging") {
 			const drag = this.gesture;
+			const elementIds = drag.elements.map(({ elementId }) => elementId);
 
 			if (type === "pointercancel") {
-				this.deps.timeline.discardPreview();
-			} else {
-				// D1：关键帧感知提交瞬时层中的最终 transform，再清空瞬时层。
+				// 取消：把本地瞬时位移还原到拖拽前，再清空。
+				this.deps.timeline.applyLocalTransforms(
+					drag.elements.map(({ trackId, elementId, initialTransform }) => ({
+						trackId,
+						elementId,
+						transform: initialTransform,
+					})),
+				);
+			} else if (this.dragUpdates.length > 0) {
+				// 一次性把最终 transform 写入 store（D1 关键帧感知提交），再落回 store。
+				this.deps.timeline.previewElements(this.dragUpdates);
 				this.deps.timeline.setElementsTransform(
 					drag.elements.map(({ trackId, elementId }) => ({
 						trackId,
@@ -424,6 +501,8 @@ export class PreviewInteractionController {
 				this.deps.timeline.discardPreview();
 			}
 
+			this.deps.timeline.clearLocalTransforms(elementIds);
+			this.dragUpdates = [];
 			this.gesture = IDLE_GESTURE;
 			this.lastDragPosition = null;
 			this.clearSnapLines();
@@ -593,8 +672,25 @@ export class PreviewInteractionController {
 		const deltaSnappedY =
 			snappedPosition.y - firstElement.initialTransform.position.y;
 
-		this.deps.timeline.previewElements(
-			drag.elements.map(({ trackId, elementId, initialTransform, initialParams }) => ({
+		// 中间态只写本地瞬时层 + 命令式改 three 矩阵：不进 editor store、不触发全局 notify。
+		this.deps.timeline.applyLocalTransforms(
+			drag.elements.map(({ trackId, elementId, initialTransform }) => ({
+				trackId,
+				elementId,
+				transform: {
+					...initialTransform,
+					position: {
+						x: initialTransform.position.x + deltaSnappedX,
+						y: initialTransform.position.y + deltaSnappedY,
+						z: initialTransform.position.z,
+					},
+				},
+			})),
+		);
+
+		// 记录等价的 store 更新，仅用于 pointerup 时一次性提交。
+		this.dragUpdates = drag.elements.map(
+			({ trackId, elementId, initialTransform, initialParams }) => ({
 				trackId,
 				elementId,
 				updates: {
@@ -604,7 +700,7 @@ export class PreviewInteractionController {
 						"transform.positionY": initialTransform.position.y + deltaSnappedY,
 					},
 				},
-			})),
+			}),
 		);
 	}
 }

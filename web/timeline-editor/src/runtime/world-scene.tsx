@@ -723,11 +723,19 @@ function SnapshotPass({
  * 保证绘制总发生在当前帧 DOM 捕获完成之后——对齐 remotion-kit 的 RemotionFrameInvalidator。
  * 对齐 remotion-kit HtmlSurfacePlane 的 captureVersion → invalidate 语义。
  */
-function FrameInvalidator() {
+function FrameInvalidator({
+	onInvalidateReady,
+}: {
+	onInvalidateReady?: (invalidate: (() => void) | null) => void;
+}) {
 	const invalidate = useThree((state) => state.invalidate);
 	useLayoutEffect(() => {
 		invalidate();
 	});
+	useEffect(() => {
+		onInvalidateReady?.(invalidate);
+		return () => onInvalidateReady?.(null);
+	}, [invalidate, onInvalidateReady]);
 	return null;
 }
 
@@ -743,6 +751,7 @@ export function WorldScene({
 	canvas,
 	snapshot = null,
 	onSnapshotComplete,
+	onInvalidateReady,
 }: {
 	world: World;
 	frame: WorldFrame;
@@ -751,6 +760,8 @@ export function WorldScene({
 	/** 同 context 的隔离快照；仅常驻预览 renderer 注入。 */
 	snapshot?: SnapshotFrame | null;
 	onSnapshotComplete?: (id: number, dataUrl: string | null) => void;
+	/** 供 renderer 命令式改矩阵后触发重绘（drag 本地瞬时层）。 */
+	onInvalidateReady?: (invalidate: (() => void) | null) => void;
 }) {
 	useComponentRegistryTick();
 	// 混合模式合成管线产出的全画布特效内容纹理（sRGB）。无特效/无非 normal 混合时为 null。
@@ -820,7 +831,7 @@ export function WorldScene({
 		>
 			<SceneBackground background={world.environment.background} />
 			<CameraRig world={world} />
-			<FrameInvalidator />
+			<FrameInvalidator onInvalidateReady={onInvalidateReady} />
 			{onSnapshotComplete ? (
 				<SnapshotPass snapshot={snapshot} onComplete={onSnapshotComplete} />
 			) : null}

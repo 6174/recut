@@ -456,7 +456,7 @@ export function useImageTexture(url?: string): THREE.Texture | null {
 	return texture;
 }
 
-/** 持久 CanvasTexture：每次渲染重绘（用于文字等程序化内容）。 */
+/** 持久 CanvasTexture：内容（contentKey/尺寸）变化时才重绘（用于文字等程序化内容）。 */
 export function useCanvasTexture(
 	draw: (ctx: CanvasRenderingContext2D, width: number, height: number) => void,
 	width: number,
@@ -465,6 +465,7 @@ export function useCanvasTexture(
 ): THREE.CanvasTexture {
 	const textureRef = useRef<THREE.CanvasTexture | null>(null);
 	const textureKeyRef = useRef("");
+	const drawnKeyRef = useRef<string | null>(null);
 	if (!textureRef.current || textureKeyRef.current !== contentKey) {
 		textureRef.current?.dispose();
 		const canvas = document.createElement("canvas");
@@ -482,17 +483,24 @@ export function useCanvasTexture(
 	const texture = textureRef.current;
 	useEffect(() => () => texture.dispose(), [texture]);
 	const canvas = texture.image as HTMLCanvasElement;
-	if (canvas.width !== width || canvas.height !== height) {
+	const resized = canvas.width !== width || canvas.height !== height;
+	if (resized) {
 		canvas.width = width;
 		canvas.height = height;
 	}
-	const context = canvas.getContext("2d");
-	if (context) {
-		// 绘制和 geometry 在同一 React 提交中准备好，不能把它延后到 effect。
-		// 否则新尺寸会先采样旧纹理，背景开关便会拉伸文字并留下色块。
-		context.clearRect(0, 0, width, height);
-		draw(context, width, height);
-		texture.needsUpdate = true;
+	// 只在内容真正变化时重绘 + 上传纹理：拖动/缩放只改 transform，不该每帧重绘
+	// canvas 并把整张纹理重新 texSubImage2D（这是 preview 逐帧卡顿的主要来源之一）。
+	const drawKey = `${contentKey}|${width}x${height}`;
+	if (drawKey !== drawnKeyRef.current) {
+		const context = canvas.getContext("2d");
+		if (context) {
+			// 绘制和 geometry 在同一 React 提交中准备好，不能把它延后到 effect。
+			// 否则新尺寸会先采样旧纹理，背景开关便会拉伸文字并留下色块。
+			context.clearRect(0, 0, width, height);
+			draw(context, width, height);
+			texture.needsUpdate = true;
+			drawnKeyRef.current = drawKey;
+		}
 	}
 	return texture;
 }

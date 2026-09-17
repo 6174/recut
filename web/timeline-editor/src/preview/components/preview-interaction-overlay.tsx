@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { usePreviewViewport } from "@timeline/preview/components/preview-viewport";
 import { usePreviewInteraction } from "@timeline/preview/hooks/use-preview-interaction";
 import type { SnapLine } from "@timeline/preview/preview-snap";
@@ -10,9 +10,22 @@ import { usePropertiesStore } from "@timeline/components/editor/panels/propertie
 import { useEditor } from "@timeline/editor/use-editor";
 import { t, useRecutLocale } from "@timeline/i18n";
 
+function areSnapLinesEqual(a: SnapLine[], b: SnapLine[]): boolean {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i += 1) {
+		if (a[i].type !== b[i].type || a[i].position !== b[i].position) return false;
+	}
+	return true;
+}
+
 export function PreviewInteractionOverlay() {
 	const locale = useRecutLocale();
 	const [snapLines, setSnapLines] = useState<SnapLine[]>([]);
+	// 拖拽每帧都会回调 snapLines；值未变时不 setState，避免 overlay/TransformHandles
+	// 因为新数组身份而每帧重渲染。
+	const handleSnapLinesChange = useCallback((lines: SnapLine[]) => {
+		setSnapLines((prev) => (areSnapLinesEqual(prev, lines) ? prev : lines));
+	}, []);
 	const editor = useEditor();
 	const viewport = usePreviewViewport();
 	const selectedElements = useEditor((e) => e.selection.getSelectedElements());
@@ -39,7 +52,7 @@ export function PreviewInteractionOverlay() {
 		editingText,
 		commitTextEdit,
 	} = usePreviewInteraction({
-		onSnapLinesChange: setSnapLines,
+		onSnapLinesChange: handleSnapLinesChange,
 		isMaskMode,
 	});
 
