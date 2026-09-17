@@ -1,0 +1,1421 @@
+{
+  "version": 1,
+  "generatedAt": "2026-08-27T07:53:00.591Z",
+  "generatedFrom": "apps/editor/ui/src/runtime/components/effects/index.ts (EFFECT_COMPONENTS)",
+  "effects": [
+    {
+      "id": "effect.glass",
+      "name": "Glass 玻璃",
+      "keywords": [
+        "glass",
+        "玻璃",
+        "折射",
+        "refraction",
+        "放大",
+        "特效"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "centerX",
+          "label": "中心 X",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "centerY",
+          "label": "中心 Y",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "zoom",
+          "label": "放大",
+          "type": "number",
+          "default": 1.34,
+          "min": 1,
+          "max": 4,
+          "step": 0.01
+        },
+        {
+          "key": "ior",
+          "label": "折射率",
+          "type": "number",
+          "default": 1.5,
+          "min": 1,
+          "max": 2.5,
+          "step": 0.01
+        },
+        {
+          "key": "depth",
+          "label": "折射深度",
+          "type": "number",
+          "default": 250,
+          "min": 10,
+          "max": 1000,
+          "step": 5
+        },
+        {
+          "key": "reflect",
+          "label": "反射强度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.05
+        },
+        {
+          "key": "half",
+          "label": "玻璃半宽",
+          "type": "number",
+          "default": 170,
+          "min": 40,
+          "max": 600,
+          "step": 5
+        }
+      ]
+    },
+    {
+      "id": "effect.magnify",
+      "name": "Magnify 放大镜",
+      "keywords": [
+        "magnify",
+        "magnifier",
+        "放大镜",
+        "放大",
+        "zoom",
+        "特效"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "centerX",
+          "label": "中心 X",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "centerY",
+          "label": "中心 Y",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "zoom",
+          "label": "放大",
+          "type": "number",
+          "default": 1.7,
+          "min": 1,
+          "max": 5,
+          "step": 0.01
+        },
+        {
+          "key": "radius",
+          "label": "透镜半径",
+          "type": "number",
+          "default": 140,
+          "min": 40,
+          "max": 600,
+          "step": 5
+        },
+        {
+          "key": "hud",
+          "label": "HUD",
+          "type": "number",
+          "default": 0.8,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "aberration",
+          "label": "色差",
+          "type": "number",
+          "default": 0.8,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        {
+          "key": "haze",
+          "label": "雾气",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.frost",
+      "name": "Frost 霜玻璃",
+      "keywords": [
+        "frost",
+        "霜",
+        "玻璃",
+        "模糊",
+        "blur",
+        "冰"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "intensity",
+          "label": "强度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.glitch",
+      "name": "Glitch 故障",
+      "keywords": [
+        "glitch",
+        "故障",
+        "信号",
+        "tearing",
+        "噪点"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "intensity",
+          "label": "强度",
+          "type": "number",
+          "default": 1.35,
+          "min": 0,
+          "max": 5,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.crt",
+      "name": "CRT 显像管",
+      "keywords": [
+        "crt",
+        "显像管",
+        "复古",
+        "scanline",
+        "电视"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "scan",
+          "label": "扫描线",
+          "type": "number",
+          "default": 0.24,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "vignette",
+          "label": "暗角",
+          "type": "number",
+          "default": 0.68,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "motion",
+          "label": "动态",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.vintage",
+      "name": "Vintage 复古",
+      "keywords": [
+        "vintage",
+        "复古",
+        "胶片",
+        "grain",
+        "film"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "grain",
+          "label": "颗粒",
+          "type": "number",
+          "default": 0.126,
+          "min": 0,
+          "max": 1,
+          "step": 0.005
+        },
+        {
+          "key": "vignette",
+          "label": "暗角",
+          "type": "number",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "warmth",
+          "label": "暖调",
+          "type": "number",
+          "default": 0.28,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "fade",
+          "label": "褪色",
+          "type": "number",
+          "default": 0.385,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.vhs",
+      "name": "VHS 录像带",
+      "keywords": [
+        "vhs",
+        "录像带",
+        "复古",
+        "磁带",
+        "retro"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "intensity",
+          "label": "强度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.bubble",
+      "name": "Bubble 气泡",
+      "keywords": [
+        "bubble",
+        "气泡",
+        "折射",
+        "metaball",
+        "水"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "intensity",
+          "label": "强度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        {
+          "key": "refraction",
+          "label": "折射",
+          "type": "number",
+          "default": 80,
+          "min": 0,
+          "max": 300,
+          "step": 1
+        },
+        {
+          "key": "dispersion",
+          "label": "色散",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        {
+          "key": "iridescence",
+          "label": "虹彩",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.displacement",
+      "name": "Displacement 位移",
+      "keywords": [
+        "displacement",
+        "位移",
+        "扭曲",
+        "warp"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "amount",
+          "label": "幅度",
+          "type": "number",
+          "default": 0.035,
+          "min": 0,
+          "max": 0.2,
+          "step": 0.001
+        },
+        {
+          "key": "scale",
+          "label": "缩放",
+          "type": "number",
+          "default": 2.4,
+          "min": 0.1,
+          "max": 10,
+          "step": 0.1
+        }
+      ]
+    },
+    {
+      "id": "effect.droplets",
+      "name": "Droplets 雨滴",
+      "keywords": [
+        "droplets",
+        "雨滴",
+        "水",
+        "rain",
+        "玻璃"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "speed",
+          "label": "速度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        {
+          "key": "scale",
+          "label": "缩放",
+          "type": "number",
+          "default": 0.4,
+          "min": 0.1,
+          "max": 2,
+          "step": 0.01
+        },
+        {
+          "key": "dropWidth",
+          "label": "雨滴宽",
+          "type": "number",
+          "default": 1,
+          "min": 0.2,
+          "max": 3,
+          "step": 0.01
+        },
+        {
+          "key": "dropLength",
+          "label": "雨滴长",
+          "type": "number",
+          "default": 1,
+          "min": 0.2,
+          "max": 3,
+          "step": 0.01
+        },
+        {
+          "key": "refraction",
+          "label": "折射",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "intensity",
+          "label": "强度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.asciify",
+      "name": "Asciify 字符化",
+      "keywords": [
+        "ascii",
+        "字符",
+        "代码",
+        "code",
+        "decode"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "cell",
+          "label": "网格",
+          "type": "number",
+          "default": 12,
+          "min": 4,
+          "max": 60,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "id": "effect.retro-dither",
+      "name": "Dither 抖动",
+      "keywords": [
+        "dither",
+        "抖动",
+        "像素",
+        "retro",
+        "复古"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "levels",
+          "label": "色阶",
+          "type": "number",
+          "default": 4,
+          "min": 2,
+          "max": 16,
+          "step": 1
+        },
+        {
+          "key": "grid",
+          "label": "网格",
+          "type": "number",
+          "default": 4,
+          "min": 1,
+          "max": 32,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "id": "effect.ripple",
+      "name": "Ripple 涟漪",
+      "keywords": [
+        "ripple",
+        "涟漪",
+        "水波",
+        "wave",
+        "扭曲"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "centerX",
+          "label": "中心 X",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "centerY",
+          "label": "中心 Y",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "strength",
+          "label": "强度",
+          "type": "number",
+          "default": 0.045,
+          "min": 0,
+          "max": 0.3,
+          "step": 0.001
+        },
+        {
+          "key": "radius",
+          "label": "半径",
+          "type": "number",
+          "default": 320,
+          "min": 40,
+          "max": 1200,
+          "step": 5
+        },
+        {
+          "key": "frequency",
+          "label": "频率",
+          "type": "number",
+          "default": 2.2,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.1
+        }
+      ]
+    },
+    {
+      "id": "effect.text-focus",
+      "name": "Text Focus 焦点",
+      "keywords": [
+        "focus",
+        "焦点",
+        "虚化",
+        "blur",
+        "对焦"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "focusX",
+          "label": "焦点 X",
+          "type": "number",
+          "default": 0.28,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "focusY",
+          "label": "焦点 Y",
+          "type": "number",
+          "default": 0.4,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "focusWidth",
+          "label": "焦点宽",
+          "type": "number",
+          "default": 0.44,
+          "min": 0.01,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "focusHeight",
+          "label": "焦点高",
+          "type": "number",
+          "default": 0.16,
+          "min": 0.01,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "feather",
+          "label": "羽化",
+          "type": "number",
+          "default": 0.035,
+          "min": 0,
+          "max": 0.2,
+          "step": 0.001
+        },
+        {
+          "key": "intensity",
+          "label": "强度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        {
+          "key": "progress",
+          "label": "进度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.article-highlight",
+      "name": "Highlight 高亮",
+      "keywords": [
+        "highlight",
+        "高亮",
+        "marker",
+        "重点"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "centerX",
+          "label": "中心 X",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "centerY",
+          "label": "中心 Y",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "intensity",
+          "label": "强度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        {
+          "key": "markerWidth",
+          "label": "标记宽",
+          "type": "number",
+          "default": 0.54,
+          "min": 0.01,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "markerHeight",
+          "label": "标记高",
+          "type": "number",
+          "default": 0.115,
+          "min": 0.01,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "progress",
+          "label": "进度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.decrypt-reveal",
+      "name": "Decrypt 解密",
+      "keywords": [
+        "decrypt",
+        "解密",
+        "代码",
+        "reveal",
+        "字符"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "cell",
+          "label": "网格",
+          "type": "number",
+          "default": 26,
+          "min": 4,
+          "max": 80,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "id": "effect.particle-reveal",
+      "name": "Particles 粒子",
+      "keywords": [
+        "particle",
+        "粒子",
+        "reveal",
+        "显现",
+        "消散"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "cell",
+          "label": "网格",
+          "type": "number",
+          "default": 22,
+          "min": 4,
+          "max": 80,
+          "step": 1
+        },
+        {
+          "key": "intensity",
+          "label": "强度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.bend",
+      "name": "Bend 卷曲",
+      "keywords": [
+        "bend",
+        "卷曲",
+        "折页",
+        "fold",
+        "翻页"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "bend",
+          "label": "弯曲",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.cloth",
+      "name": "Cloth 布料",
+      "keywords": [
+        "cloth",
+        "布料",
+        "飘动",
+        "wave",
+        "风"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "amplitude",
+          "label": "振幅",
+          "type": "number",
+          "default": 0.18,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "scale",
+          "label": "缩放",
+          "type": "number",
+          "default": 1.2,
+          "min": 0.1,
+          "max": 5,
+          "step": 0.1
+        },
+        {
+          "key": "speed",
+          "label": "速度",
+          "type": "number",
+          "default": 1.4,
+          "min": 0,
+          "max": 5,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.store-peel",
+      "name": "Peel 撕页",
+      "keywords": [
+        "peel",
+        "撕页",
+        "store",
+        "reveal",
+        "卷起"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": []
+    },
+    {
+      "id": "effect.clouds",
+      "name": "Clouds 云雾",
+      "keywords": [
+        "clouds",
+        "云",
+        "雾",
+        "fbm",
+        "环境"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "opacity",
+          "label": "不透明度",
+          "type": "number",
+          "default": 0.74,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.grid",
+      "name": "Grid 网格",
+      "keywords": [
+        "grid",
+        "网格",
+        "蓝图",
+        "blueprint",
+        "环境"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "opacity",
+          "label": "不透明度",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "cell",
+          "label": "格距",
+          "type": "number",
+          "default": 96,
+          "min": 10,
+          "max": 400,
+          "step": 5
+        },
+        {
+          "key": "line",
+          "label": "线宽",
+          "type": "number",
+          "default": 1.2,
+          "min": 0.2,
+          "max": 8,
+          "step": 0.1
+        },
+        {
+          "key": "majorEvery",
+          "label": "主格间隔",
+          "type": "number",
+          "default": 5,
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        {
+          "key": "speed",
+          "label": "速度",
+          "type": "number",
+          "default": 0.75,
+          "min": 0,
+          "max": 5,
+          "step": 0.01
+        },
+        {
+          "key": "color",
+          "label": "Color",
+          "type": "color",
+          "default": "#334155"
+        }
+      ]
+    },
+    {
+      "id": "effect.liquid",
+      "name": "Liquid 液态",
+      "keywords": [
+        "liquid",
+        "液态",
+        "流动",
+        "marble",
+        "环境"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "opacity",
+          "label": "不透明度",
+          "type": "number",
+          "default": 0.8,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "colorA",
+          "label": "Color A",
+          "type": "color",
+          "default": "#0ea5e9"
+        },
+        {
+          "key": "colorB",
+          "label": "Color B",
+          "type": "color",
+          "default": "#7c3aed"
+        }
+      ]
+    },
+    {
+      "id": "effect.glyph-rain",
+      "name": "Glyph Rain 字符雨",
+      "keywords": [
+        "glyph",
+        "字符",
+        "雨",
+        "rain",
+        "代码",
+        "matrix"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "intensity",
+          "label": "强度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        {
+          "key": "opacity",
+          "label": "不透明度",
+          "type": "number",
+          "default": 0.8,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.laser",
+      "name": "Laser 激光",
+      "keywords": [
+        "laser",
+        "激光",
+        "光束",
+        "beam",
+        "环境"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "intensity",
+          "label": "强度",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        {
+          "key": "opacity",
+          "label": "不透明度",
+          "type": "number",
+          "default": 0.85,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.blaze",
+      "name": "Blaze 烈焰",
+      "keywords": [
+        "blaze",
+        "烈焰",
+        "火焰",
+        "fire",
+        "环境"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "opacity",
+          "label": "不透明度",
+          "type": "number",
+          "default": 0.85,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "effect.particle-scroll",
+      "name": "Particles 漂浮",
+      "keywords": [
+        "particle",
+        "粒子",
+        "漂浮",
+        "scroll",
+        "尘埃"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "opacity",
+          "label": "不透明度",
+          "type": "number",
+          "default": 0.8,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "mf.bg.wallpaper",
+      "name": "MF Wallpaper 壁纸",
+      "keywords": [
+        "metalforge",
+        "wallpaper",
+        "壁纸",
+        "渐变",
+        "gradient",
+        "bloom",
+        "flow",
+        "背景"
+      ],
+      "category": "effect",
+      "appliesTo": [
+        "video",
+        "image",
+        "text"
+      ],
+      "inputs": [
+        {
+          "key": "style",
+          "label": "Style",
+          "type": "select",
+          "default": "abyss"
+        },
+        {
+          "key": "mode",
+          "label": "Mode",
+          "type": "select",
+          "default": "bloom"
+        },
+        {
+          "key": "animate",
+          "label": "Animation",
+          "type": "select",
+          "default": "wave"
+        },
+        {
+          "key": "scale",
+          "label": "Scale",
+          "type": "number",
+          "default": 1.15,
+          "min": 0.5,
+          "max": 2,
+          "step": 0.01
+        },
+        {
+          "key": "warp",
+          "label": "Warp",
+          "type": "number",
+          "default": 2.6,
+          "min": 0,
+          "max": 4,
+          "step": 0.05
+        },
+        {
+          "key": "seed",
+          "label": "Seed",
+          "type": "number",
+          "default": 27,
+          "min": 0,
+          "max": 120,
+          "step": 0.5
+        },
+        {
+          "key": "aSpeed",
+          "label": "Speed",
+          "type": "number",
+          "default": 1,
+          "min": 0.1,
+          "max": 3,
+          "step": 0.05
+        },
+        {
+          "key": "aAmount",
+          "label": "Amount",
+          "type": "number",
+          "default": 0.05,
+          "min": 0.005,
+          "max": 0.15,
+          "step": 0.005
+        },
+        {
+          "key": "aWaves",
+          "label": "Waves",
+          "type": "number",
+          "default": 6,
+          "min": 1,
+          "max": 15,
+          "step": 0.5
+        },
+        {
+          "key": "contrast",
+          "label": "Contrast",
+          "type": "number",
+          "default": 1.35,
+          "min": 0.8,
+          "max": 2.5,
+          "step": 0.01
+        },
+        {
+          "key": "bands",
+          "label": "Bands",
+          "type": "number",
+          "default": 1,
+          "min": 0.5,
+          "max": 2,
+          "step": 0.05
+        },
+        {
+          "key": "rotation",
+          "label": "Rotation",
+          "type": "number",
+          "default": 20,
+          "min": -180,
+          "max": 180,
+          "step": 1
+        },
+        {
+          "key": "lift",
+          "label": "Lift",
+          "type": "number",
+          "default": 0.04,
+          "min": -0.2,
+          "max": 0.2,
+          "step": 0.005
+        },
+        {
+          "key": "color1",
+          "label": "Colour 1",
+          "type": "color",
+          "default": "#04051A"
+        },
+        {
+          "key": "color2",
+          "label": "Colour 2",
+          "type": "color",
+          "default": "#08195E"
+        },
+        {
+          "key": "color3",
+          "label": "Colour 3",
+          "type": "color",
+          "default": "#1E5CFF"
+        },
+        {
+          "key": "color4",
+          "label": "Colour 4",
+          "type": "color",
+          "default": "#3FD8FF"
+        },
+        {
+          "key": "color5",
+          "label": "Colour 5",
+          "type": "color",
+          "default": "#EEF1F6"
+        },
+        {
+          "key": "softness",
+          "label": "Softness",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "grain",
+          "label": "Grain",
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "vignette",
+          "label": "Vignette",
+          "type": "number",
+          "default": 0.85,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      ]
+    }
+  ],
+  "transitions": [],
+  "luts": []
+}

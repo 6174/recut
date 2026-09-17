@@ -1,0 +1,1789 @@
+{
+  "version": 3,
+  "generatedAt": "2026-08-21T11:34:25.791Z",
+  "music": [
+    {
+      "id": "inc-feelin-good",
+      "name": "Feelin Good",
+      "moods": [
+        "Happy",
+        "Upbeat",
+        "Playful",
+        "Energetic"
+      ],
+      "styles": [
+        "Rock",
+        "Band"
+      ],
+      "bpm": 131,
+      "duration": 225.44,
+      "filesize": 4620394,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Feelin Good by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-feelin-good.mp3"
+    },
+    {
+      "id": "inc-funky-chunk",
+      "name": "Funky Chunk",
+      "moods": [
+        "Happy",
+        "Upbeat",
+        "Energetic"
+      ],
+      "styles": [
+        "Funk",
+        "Groove"
+      ],
+      "bpm": 115,
+      "duration": 239.05,
+      "filesize": 5172994,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Funky Chunk by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-funky-chunk.mp3"
+    },
+    {
+      "id": "inc-welcome-to-the-show",
+      "name": "Welcome to the Show",
+      "moods": [
+        "Upbeat",
+        "Energetic"
+      ],
+      "styles": [
+        "Rock",
+        "Band"
+      ],
+      "bpm": 124,
+      "duration": 282.75,
+      "filesize": 6424430,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Welcome to the Show by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-welcome-to-the-show.mp3"
+    },
+    {
+      "id": "inc-c-funk",
+      "name": "C-Funk",
+      "moods": [
+        "Energetic"
+      ],
+      "styles": [
+        "Funk",
+        "Groove"
+      ],
+      "bpm": 117,
+      "duration": 170.34,
+      "filesize": 3750034,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: C-Funk by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-c-funk.mp3"
+    },
+    {
+      "id": "inc-celebration",
+      "name": "Celebration",
+      "moods": [
+        "Energetic",
+        "Relaxed"
+      ],
+      "styles": [
+        "Funk",
+        "Groove"
+      ],
+      "bpm": 115,
+      "duration": 277.66,
+      "filesize": 4898862,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Celebration by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-celebration.mp3"
+    },
+    {
+      "id": "inc-style-funk",
+      "name": "Style Funk",
+      "moods": [
+        "Happy",
+        "Energetic"
+      ],
+      "styles": [
+        "Funk",
+        "Groove"
+      ],
+      "bpm": 100,
+      "duration": 307.28,
+      "filesize": 5964335,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Style Funk by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-style-funk.mp3"
+    },
+    {
+      "id": "inc-funkorama",
+      "name": "Funkorama",
+      "moods": [
+        "Upbeat",
+        "Energetic"
+      ],
+      "styles": [
+        "Funk",
+        "Groove"
+      ],
+      "bpm": 101,
+      "duration": 201.48,
+      "filesize": 4160096,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Funkorama by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-funkorama.mp3"
+    },
+    {
+      "id": "inc-who-likes-to-party",
+      "name": "Who Likes to Party",
+      "moods": [
+        "Happy",
+        "Upbeat",
+        "Energetic"
+      ],
+      "styles": [
+        "Disco",
+        "Retro"
+      ],
+      "bpm": 117,
+      "duration": 257.52,
+      "filesize": 5103518,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Who Likes to Party by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-who-likes-to-party.mp3"
+    },
+    {
+      "id": "inc-montauk-point",
+      "name": "Montauk Point",
+      "moods": [
+        "Happy",
+        "Upbeat",
+        "Playful"
+      ],
+      "styles": [
+        "Band",
+        "Groove"
+      ],
+      "bpm": 118,
+      "duration": 219.74,
+      "filesize": 4111591,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Montauk Point by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-montauk-point.mp3"
+    },
+    {
+      "id": "inc-i-feel-you",
+      "name": "I Feel You",
+      "moods": [
+        "Energetic",
+        "Upbeat"
+      ],
+      "styles": [
+        "Rock",
+        "Band"
+      ],
+      "bpm": 120,
+      "duration": 188.08,
+      "filesize": 3485365,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: I Feel You by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-i-feel-you.mp3"
+    },
+    {
+      "id": "inc-groundwork",
+      "name": "Groundwork",
+      "moods": [
+        "Happy",
+        "Playful"
+      ],
+      "styles": [
+        "Band",
+        "Groove"
+      ],
+      "bpm": 102,
+      "duration": 169.51,
+      "filesize": 3497551,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Groundwork by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-groundwork.mp3"
+    },
+    {
+      "id": "inc-motivator",
+      "name": "Motivator",
+      "moods": [
+        "Happy",
+        "Upbeat",
+        "Playful"
+      ],
+      "styles": [
+        "Rock",
+        "Band"
+      ],
+      "bpm": 126,
+      "duration": 237.84,
+      "filesize": 4755158,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Motivator by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-motivator.mp3"
+    },
+    {
+      "id": "inc-nonstop",
+      "name": "Nonstop",
+      "moods": [
+        "Upbeat",
+        "Energetic"
+      ],
+      "styles": [
+        "Band",
+        "Groove"
+      ],
+      "bpm": 128,
+      "duration": 191.35,
+      "filesize": 3704108,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Nonstop by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-nonstop.mp3"
+    },
+    {
+      "id": "inc-sock-hop",
+      "name": "Sock Hop",
+      "moods": [
+        "Upbeat",
+        "Playful",
+        "Relaxed"
+      ],
+      "styles": [
+        "Rock",
+        "Band"
+      ],
+      "bpm": 124,
+      "duration": 166.53,
+      "filesize": 3401444,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Sock Hop by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-sock-hop.mp3"
+    },
+    {
+      "id": "inc-funin-and-sunin",
+      "name": "Funin and Sunin",
+      "moods": [
+        "Happy",
+        "Playful",
+        "Relaxed"
+      ],
+      "styles": [
+        "Rock",
+        "Band"
+      ],
+      "bpm": 120,
+      "duration": 218.98,
+      "filesize": 4210303,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Funin and Sunin by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-funin-and-sunin.mp3"
+    },
+    {
+      "id": "inc-happy-bee",
+      "name": "Happy Bee",
+      "moods": [
+        "Happy",
+        "Upbeat",
+        "Playful"
+      ],
+      "styles": [
+        "Rock",
+        "Band"
+      ],
+      "bpm": 122,
+      "duration": 302.03,
+      "filesize": 6165968,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Happy Bee by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-happy-bee.mp3"
+    },
+    {
+      "id": "inc-twisted",
+      "name": "Twisted",
+      "moods": [
+        "Energetic",
+        "Upbeat"
+      ],
+      "styles": [
+        "Rock",
+        "Band"
+      ],
+      "bpm": 118,
+      "duration": 187.22,
+      "filesize": 3530941,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Twisted by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-twisted.mp3"
+    },
+    {
+      "id": "inc-porch-swing-days-faster",
+      "name": "Porch Swing Days - faster",
+      "moods": [
+        "Happy",
+        "Upbeat",
+        "Calm",
+        "Relaxed"
+      ],
+      "styles": [
+        "Band",
+        "Groove"
+      ],
+      "bpm": 130,
+      "duration": 184.71,
+      "filesize": 3581703,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Porch Swing Days - faster by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-porch-swing-days-faster.mp3"
+    },
+    {
+      "id": "inc-wepa",
+      "name": "Wepa",
+      "moods": [
+        "Happy",
+        "Energetic"
+      ],
+      "styles": [
+        "Jazz",
+        "Latin"
+      ],
+      "bpm": 120,
+      "duration": 195.27,
+      "filesize": 3733980,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Wepa by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-wepa.mp3"
+    },
+    {
+      "id": "inc-beachfront-celebration",
+      "name": "Beachfront Celebration",
+      "moods": [
+        "Happy",
+        "Upbeat",
+        "Playful",
+        "Energetic"
+      ],
+      "styles": [
+        "Jazz",
+        "Latin"
+      ],
+      "bpm": 120,
+      "duration": 187.32,
+      "filesize": 3955454,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Beachfront Celebration by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-beachfront-celebration.mp3"
+    },
+    {
+      "id": "inc-verano-sensual",
+      "name": "Verano Sensual",
+      "moods": [
+        "Happy",
+        "Playful",
+        "Energetic"
+      ],
+      "styles": [
+        "Jazz",
+        "Latin"
+      ],
+      "bpm": 103,
+      "duration": 301.4,
+      "filesize": 6808815,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Verano Sensual by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-verano-sensual.mp3"
+    },
+    {
+      "id": "inc-casa-bossa-nova",
+      "name": "Casa Bossa Nova",
+      "moods": [
+        "Energetic",
+        "Calm",
+        "Playful"
+      ],
+      "styles": [
+        "Jazz",
+        "Latin"
+      ],
+      "bpm": 116,
+      "duration": 242.16,
+      "filesize": 4805031,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Casa Bossa Nova by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-casa-bossa-nova.mp3"
+    },
+    {
+      "id": "inc-notanico-merengue",
+      "name": "Notanico Merengue",
+      "moods": [
+        "Happy",
+        "Playful",
+        "Upbeat"
+      ],
+      "styles": [
+        "Jazz",
+        "Latin"
+      ],
+      "bpm": 120,
+      "duration": 181.08,
+      "filesize": 3690911,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Notanico Merengue by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-notanico-merengue.mp3"
+    },
+    {
+      "id": "inc-big-drumming",
+      "name": "Big Drumming",
+      "moods": [
+        "Energetic",
+        "Upbeat"
+      ],
+      "styles": [
+        "Band",
+        "Groove"
+      ],
+      "bpm": 104,
+      "duration": 222.33,
+      "filesize": 3610628,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Big Drumming by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-big-drumming.mp3"
+    },
+    {
+      "id": "inc-backbay-lounge",
+      "name": "Backbay Lounge",
+      "moods": [
+        "Happy",
+        "Energetic",
+        "Relaxed"
+      ],
+      "styles": [
+        "Jazz",
+        "Latin"
+      ],
+      "bpm": 120,
+      "duration": 266.58,
+      "filesize": 4819439,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Backbay Lounge by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-backbay-lounge.mp3"
+    },
+    {
+      "id": "inc-on-hold-for-you",
+      "name": "On Hold for You",
+      "moods": [
+        "Happy",
+        "Energetic",
+        "Relaxed"
+      ],
+      "styles": [
+        "Jazz",
+        "Latin"
+      ],
+      "bpm": 115,
+      "duration": 218.17,
+      "filesize": 4293401,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: On Hold for You by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-on-hold-for-you.mp3"
+    },
+    {
+      "id": "inc-night-in-venice",
+      "name": "Night in Venice",
+      "moods": [
+        "Energetic",
+        "Relaxed"
+      ],
+      "styles": [
+        "Jazz",
+        "Latin"
+      ],
+      "bpm": 114,
+      "duration": 218.17,
+      "filesize": 4170400,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Night in Venice by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-night-in-venice.mp3"
+    },
+    {
+      "id": "inc-airport-lounge",
+      "name": "Airport Lounge",
+      "moods": [
+        "Playful",
+        "Calm",
+        "Relaxed"
+      ],
+      "styles": [
+        "Jazz",
+        "Latin"
+      ],
+      "bpm": 129,
+      "duration": 307.7,
+      "filesize": 6082152,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Airport Lounge by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-airport-lounge.mp3"
+    },
+    {
+      "id": "inc-lobby-time",
+      "name": "Lobby Time",
+      "moods": [
+        "Energetic",
+        "Calm",
+        "Relaxed"
+      ],
+      "styles": [
+        "Jazz",
+        "Latin"
+      ],
+      "bpm": 128,
+      "duration": 193.23,
+      "filesize": 3706909,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Lobby Time by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-lobby-time.mp3"
+    },
+    {
+      "id": "inc-overcast",
+      "name": "Overcast",
+      "moods": [
+        "Happy",
+        "Playful",
+        "Energetic"
+      ],
+      "styles": [
+        "Disco",
+        "Retro"
+      ],
+      "bpm": 120,
+      "duration": 228.1,
+      "filesize": 4485985,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Overcast by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-overcast.mp3"
+    },
+    {
+      "id": "inc-ether-disco",
+      "name": "Ether Disco",
+      "moods": [
+        "Happy",
+        "Upbeat"
+      ],
+      "styles": [
+        "Disco",
+        "Retro"
+      ],
+      "bpm": 120,
+      "duration": 176.09,
+      "filesize": 3461784,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Ether Disco by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-ether-disco.mp3"
+    },
+    {
+      "id": "inc-disco-con-tutti",
+      "name": "Disco con Tutti",
+      "moods": [
+        "Happy",
+        "Upbeat",
+        "Playful",
+        "Energetic"
+      ],
+      "styles": [
+        "Disco",
+        "Retro"
+      ],
+      "bpm": 115,
+      "duration": 236.38,
+      "filesize": 4175248,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Disco con Tutti by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-disco-con-tutti.mp3"
+    },
+    {
+      "id": "inc-electro-cabello",
+      "name": "Electro Cabello",
+      "moods": [
+        "Playful",
+        "Energetic"
+      ],
+      "styles": [
+        "Disco",
+        "Retro"
+      ],
+      "bpm": 117,
+      "duration": 190.85,
+      "filesize": 3701097,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Electro Cabello by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-electro-cabello.mp3"
+    },
+    {
+      "id": "inc-realizer",
+      "name": "Realizer",
+      "moods": [
+        "Happy",
+        "Energetic",
+        "Upbeat"
+      ],
+      "styles": [
+        "Disco",
+        "Retro"
+      ],
+      "bpm": 125,
+      "duration": 310.18,
+      "filesize": 5621554,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Realizer by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-realizer.mp3"
+    },
+    {
+      "id": "inc-disco-medusae",
+      "name": "Disco Medusae",
+      "moods": [
+        "Happy",
+        "Energetic"
+      ],
+      "styles": [
+        "Disco",
+        "Retro"
+      ],
+      "bpm": 115,
+      "duration": 221.31,
+      "filesize": 4423380,
+      "license": "CC BY 4.0",
+      "source": "https://incompetech.com/music/royalty-free/full_list.php",
+      "attribution": "Music: Disco Medusae by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0",
+      "url": "audio/music/inc-disco-medusae.mp3"
+    },
+    {
+      "id": "rot-big-berlin",
+      "name": "Big Berlin",
+      "moods": [
+        "Happy",
+        "Upbeat"
+      ],
+      "styles": [
+        "Electronic",
+        "Groove"
+      ],
+      "duration": 49.11,
+      "filesize": 953370,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-big-berlin.mp3"
+    },
+    {
+      "id": "rot-bongo-drop",
+      "name": "Bongo Drop",
+      "moods": [
+        "Energetic",
+        "Playful"
+      ],
+      "styles": [
+        "Latin",
+        "Groove"
+      ],
+      "duration": 44.62,
+      "filesize": 913556,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-bongo-drop.mp3"
+    },
+    {
+      "id": "rot-brass-step",
+      "name": "Brass Step",
+      "moods": [
+        "Energetic",
+        "Playful"
+      ],
+      "styles": [
+        "Brass",
+        "Groove"
+      ],
+      "duration": 52.06,
+      "filesize": 907914,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-brass-step.mp3"
+    },
+    {
+      "id": "rot-dubstep",
+      "name": "Dubstep",
+      "moods": [
+        "Energetic",
+        "Playful"
+      ],
+      "styles": [
+        "Percussion",
+        "Groove"
+      ],
+      "duration": 35.71,
+      "filesize": 707037,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-dubstep.mp3"
+    },
+    {
+      "id": "rot-flute-conga",
+      "name": "Flute Conga",
+      "moods": [
+        "Calm",
+        "Relaxed"
+      ],
+      "styles": [
+        "Latin",
+        "Groove"
+      ],
+      "duration": 41.64,
+      "filesize": 766486,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-flute-conga.mp3"
+    },
+    {
+      "id": "rot-jazzy-launch",
+      "name": "Jazzy Launch",
+      "moods": [
+        "Happy",
+        "Upbeat"
+      ],
+      "styles": [
+        "Jazz",
+        "Groove"
+      ],
+      "duration": 40.15,
+      "filesize": 768053,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-jazzy-launch.mp3"
+    },
+    {
+      "id": "rot-latin-horns",
+      "name": "Latin Horns",
+      "moods": [
+        "Energetic",
+        "Playful"
+      ],
+      "styles": [
+        "Latin",
+        "Groove"
+      ],
+      "duration": 41.64,
+      "filesize": 796788,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-latin-horns.mp3"
+    },
+    {
+      "id": "rot-lounge",
+      "name": "Lounge",
+      "moods": [
+        "Calm",
+        "Relaxed"
+      ],
+      "styles": [
+        "Band",
+        "Groove"
+      ],
+      "duration": 63.95,
+      "filesize": 917939,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-lounge.mp3"
+    },
+    {
+      "id": "rot-marimba",
+      "name": "Marimba",
+      "moods": [
+        "Calm",
+        "Relaxed"
+      ],
+      "styles": [
+        "Marimba",
+        "Chill"
+      ],
+      "duration": 65.44,
+      "filesize": 1200522,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-marimba.mp3"
+    },
+    {
+      "id": "rot-mellow-lead-guitar",
+      "name": "Mellow Lead Guitar",
+      "moods": [
+        "Calm",
+        "Relaxed"
+      ],
+      "styles": [
+        "Guitar",
+        "Band"
+      ],
+      "duration": 32.73,
+      "filesize": 547418,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-mellow-lead-guitar.mp3"
+    },
+    {
+      "id": "rot-nostalgic-guitar",
+      "name": "Nostalgic Guitar",
+      "moods": [
+        "Calm",
+        "Relaxed"
+      ],
+      "styles": [
+        "Guitar",
+        "Band"
+      ],
+      "duration": 31.24,
+      "filesize": 506635,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-nostalgic-guitar.mp3"
+    },
+    {
+      "id": "rot-organ-disco",
+      "name": "Organ Disco",
+      "moods": [
+        "Energetic",
+        "Playful"
+      ],
+      "styles": [
+        "Brass",
+        "Groove"
+      ],
+      "duration": 31.24,
+      "filesize": 558587,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-organ-disco.mp3"
+    },
+    {
+      "id": "rot-sax-vs-drums",
+      "name": "Sax vs Drums",
+      "moods": [
+        "Energetic",
+        "Playful"
+      ],
+      "styles": [
+        "Brass",
+        "Groove"
+      ],
+      "duration": 34.22,
+      "filesize": 581573,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-sax-vs-drums.mp3"
+    },
+    {
+      "id": "rot-simple-band",
+      "name": "Simple Band",
+      "moods": [
+        "Happy",
+        "Energetic"
+      ],
+      "styles": [
+        "Band",
+        "Groove"
+      ],
+      "duration": 68.39,
+      "filesize": 1089846,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-simple-band.mp3"
+    },
+    {
+      "id": "rot-solo-drums",
+      "name": "Solo drums",
+      "moods": [
+        "Energetic",
+        "Playful"
+      ],
+      "styles": [
+        "Percussion",
+        "Groove"
+      ],
+      "duration": 19.36,
+      "filesize": 354589,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-solo-drums.mp3"
+    },
+    {
+      "id": "rot-stomp-finger-snap",
+      "name": "Stomp Finger Snap",
+      "moods": [
+        "Energetic",
+        "Playful"
+      ],
+      "styles": [
+        "Percussion",
+        "Groove"
+      ],
+      "duration": 41.59,
+      "filesize": 757585,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-stomp-finger-snap.mp3"
+    },
+    {
+      "id": "rot-text-message-dub",
+      "name": "Text Message Dub",
+      "moods": [
+        "Energetic",
+        "Playful"
+      ],
+      "styles": [
+        "Percussion",
+        "Groove"
+      ],
+      "duration": 41.64,
+      "filesize": 590827,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-text-message-dub.mp3"
+    },
+    {
+      "id": "rot-the-right-thing",
+      "name": "The Right Thing",
+      "moods": [
+        "Upbeat",
+        "Inspiring"
+      ],
+      "styles": [
+        "Band",
+        "Groove"
+      ],
+      "duration": 52.06,
+      "filesize": 957513,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-the-right-thing.mp3"
+    },
+    {
+      "id": "rot-upbeat-mystic",
+      "name": "Upbeat Mystic",
+      "moods": [
+        "Upbeat",
+        "Inspiring"
+      ],
+      "styles": [
+        "Band",
+        "Groove"
+      ],
+      "duration": 54.15,
+      "filesize": 1136123,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-upbeat-mystic.mp3"
+    },
+    {
+      "id": "rot-wild-town",
+      "name": "Wild Town",
+      "moods": [
+        "Energetic",
+        "Playful"
+      ],
+      "styles": [
+        "Band",
+        "Groove"
+      ],
+      "duration": 44.62,
+      "filesize": 894762,
+      "license": "Free for commercial use",
+      "source": "",
+      "attribution": "Free for commercial use. Verify redistribution rights before publishing.",
+      "url": "audio/music/rot-wild-town.mp3"
+    }
+  ],
+  "sfx": [
+    {
+      "id": "kenney-interface-sounds-click-001",
+      "name": "click_001",
+      "category": "UI",
+      "tags": [
+        "click",
+        "ui"
+      ],
+      "duration": 0.13,
+      "filesize": 1503,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-click-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-click-002",
+      "name": "click_002",
+      "category": "UI",
+      "tags": [
+        "click",
+        "ui"
+      ],
+      "duration": 0.05,
+      "filesize": 1087,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-click-002.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-click-003",
+      "name": "click_003",
+      "category": "UI",
+      "tags": [
+        "click",
+        "ui"
+      ],
+      "duration": 0.05,
+      "filesize": 1087,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-click-003.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-confirmation-001",
+      "name": "confirmation_001",
+      "category": "UI",
+      "tags": [
+        "confirm",
+        "success"
+      ],
+      "duration": 0.34,
+      "filesize": 2308,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-confirmation-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-confirmation-002",
+      "name": "confirmation_002",
+      "category": "UI",
+      "tags": [
+        "confirm",
+        "success"
+      ],
+      "duration": 0.57,
+      "filesize": 3817,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-confirmation-002.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-error-001",
+      "name": "error_001",
+      "category": "UI",
+      "tags": [
+        "error",
+        "alert"
+      ],
+      "duration": 0.21,
+      "filesize": 2624,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-error-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-error-002",
+      "name": "error_002",
+      "category": "UI",
+      "tags": [
+        "error",
+        "alert"
+      ],
+      "duration": 0.21,
+      "filesize": 2701,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-error-002.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-switch-001",
+      "name": "switch_001",
+      "category": "UI",
+      "tags": [
+        "switch",
+        "toggle"
+      ],
+      "duration": 0.65,
+      "filesize": 3974,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-switch-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-switch-002",
+      "name": "switch_002",
+      "category": "UI",
+      "tags": [
+        "switch",
+        "toggle"
+      ],
+      "duration": 0.65,
+      "filesize": 3922,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-switch-002.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-toggle-001",
+      "name": "toggle_001",
+      "category": "UI",
+      "tags": [
+        "toggle",
+        "switch"
+      ],
+      "duration": 0.18,
+      "filesize": 2050,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-toggle-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-toggle-002",
+      "name": "toggle_002",
+      "category": "UI",
+      "tags": [
+        "toggle",
+        "switch"
+      ],
+      "duration": 0.18,
+      "filesize": 2155,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-toggle-002.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-open-001",
+      "name": "open_001",
+      "category": "UI",
+      "tags": [
+        "open",
+        "panel"
+      ],
+      "duration": 0.18,
+      "filesize": 2494,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-open-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-close-001",
+      "name": "close_001",
+      "category": "UI",
+      "tags": [
+        "close",
+        "panel"
+      ],
+      "duration": 0.18,
+      "filesize": 2388,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-close-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-back-001",
+      "name": "back_001",
+      "category": "UI",
+      "tags": [
+        "back",
+        "nav"
+      ],
+      "duration": 0.1,
+      "filesize": 2026,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-back-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-drop-001",
+      "name": "drop_001",
+      "category": "UI",
+      "tags": [
+        "drop",
+        "drag"
+      ],
+      "duration": 0.18,
+      "filesize": 1842,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-drop-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-glass-001",
+      "name": "glass_001",
+      "category": "UI",
+      "tags": [
+        "glass",
+        "break"
+      ],
+      "duration": 0.31,
+      "filesize": 2127,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-glass-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-glitch-001",
+      "name": "glitch_001",
+      "category": "UI",
+      "tags": [
+        "glitch",
+        "tech"
+      ],
+      "duration": 0.05,
+      "filesize": 1244,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-glitch-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-scroll-001",
+      "name": "scroll_001",
+      "category": "UI",
+      "tags": [
+        "scroll",
+        "wheel"
+      ],
+      "duration": 1.04,
+      "filesize": 12033,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-scroll-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-select-001",
+      "name": "select_001",
+      "category": "UI",
+      "tags": [
+        "select",
+        "tick"
+      ],
+      "duration": 0.08,
+      "filesize": 1348,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-select-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-tick-001",
+      "name": "tick_001",
+      "category": "UI",
+      "tags": [
+        "tick",
+        "beep"
+      ],
+      "duration": 0.08,
+      "filesize": 1295,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-tick-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-question-001",
+      "name": "question_001",
+      "category": "UI",
+      "tags": [
+        "question",
+        "prompt"
+      ],
+      "duration": 0.52,
+      "filesize": 2828,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-question-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-bong-001",
+      "name": "bong_001",
+      "category": "UI",
+      "tags": [
+        "bong",
+        "chime"
+      ],
+      "duration": 0.16,
+      "filesize": 1398,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-bong-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-maximize-001",
+      "name": "maximize_001",
+      "category": "UI",
+      "tags": [
+        "maximize",
+        "expand"
+      ],
+      "duration": 0.29,
+      "filesize": 3590,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-maximize-001.mp3"
+    },
+    {
+      "id": "kenney-interface-sounds-minimize-001",
+      "name": "minimize_001",
+      "category": "UI",
+      "tags": [
+        "minimize",
+        "collapse"
+      ],
+      "duration": 0.29,
+      "filesize": 3328,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-interface-sounds-minimize-001.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactgeneric-light-000",
+      "name": "impactGeneric_light_000",
+      "category": "Impact",
+      "tags": [
+        "impact",
+        "hit",
+        "generic"
+      ],
+      "duration": 0.21,
+      "filesize": 1789,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactgeneric-light-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactgeneric-light-001",
+      "name": "impactGeneric_light_001",
+      "category": "Impact",
+      "tags": [
+        "impact",
+        "hit",
+        "generic"
+      ],
+      "duration": 0.16,
+      "filesize": 1633,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactgeneric-light-001.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactpunch-heavy-000",
+      "name": "impactPunch_heavy_000",
+      "category": "Impact",
+      "tags": [
+        "punch",
+        "impact",
+        "hit"
+      ],
+      "duration": 0.68,
+      "filesize": 4285,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactpunch-heavy-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactpunch-medium-000",
+      "name": "impactPunch_medium_000",
+      "category": "Impact",
+      "tags": [
+        "punch",
+        "impact",
+        "hit"
+      ],
+      "duration": 0.47,
+      "filesize": 3219,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactpunch-medium-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactwood-heavy-000",
+      "name": "impactWood_heavy_000",
+      "category": "Impact",
+      "tags": [
+        "wood",
+        "impact",
+        "hit"
+      ],
+      "duration": 0.34,
+      "filesize": 2204,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactwood-heavy-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactwood-medium-000",
+      "name": "impactWood_medium_000",
+      "category": "Impact",
+      "tags": [
+        "wood",
+        "impact",
+        "hit"
+      ],
+      "duration": 0.37,
+      "filesize": 2282,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactwood-medium-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactglass-heavy-000",
+      "name": "impactGlass_heavy_000",
+      "category": "Impact",
+      "tags": [
+        "glass",
+        "impact",
+        "break"
+      ],
+      "duration": 0.29,
+      "filesize": 2518,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactglass-heavy-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactglass-medium-000",
+      "name": "impactGlass_medium_000",
+      "category": "Impact",
+      "tags": [
+        "glass",
+        "impact",
+        "break"
+      ],
+      "duration": 0.57,
+      "filesize": 3271,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactglass-medium-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactmetal-heavy-000",
+      "name": "impactMetal_heavy_000",
+      "category": "Impact",
+      "tags": [
+        "metal",
+        "impact",
+        "hit"
+      ],
+      "duration": 0.21,
+      "filesize": 1815,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactmetal-heavy-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactmetal-medium-000",
+      "name": "impactMetal_medium_000",
+      "category": "Impact",
+      "tags": [
+        "metal",
+        "impact",
+        "hit"
+      ],
+      "duration": 0.31,
+      "filesize": 2362,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactmetal-medium-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactsoft-heavy-000",
+      "name": "impactSoft_heavy_000",
+      "category": "Impact",
+      "tags": [
+        "soft",
+        "impact",
+        "hit"
+      ],
+      "duration": 0.57,
+      "filesize": 3166,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactsoft-heavy-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-impactsoft-medium-000",
+      "name": "impactSoft_medium_000",
+      "category": "Impact",
+      "tags": [
+        "soft",
+        "impact",
+        "hit"
+      ],
+      "duration": 0.16,
+      "filesize": 1554,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-impactsoft-medium-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-footstep-carpet-000",
+      "name": "footstep_carpet_000",
+      "category": "Footstep",
+      "tags": [
+        "footstep",
+        "walk"
+      ],
+      "duration": 0.21,
+      "filesize": 2207,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-footstep-carpet-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-footstep-concrete-000",
+      "name": "footstep_concrete_000",
+      "category": "Footstep",
+      "tags": [
+        "footstep",
+        "walk"
+      ],
+      "duration": 0.13,
+      "filesize": 1581,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-footstep-concrete-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-footstep-grass-000",
+      "name": "footstep_grass_000",
+      "category": "Footstep",
+      "tags": [
+        "footstep",
+        "walk"
+      ],
+      "duration": 0.81,
+      "filesize": 4624,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-footstep-grass-000.mp3"
+    },
+    {
+      "id": "kenney-impact-sounds-footstep-wood-000",
+      "name": "footstep_wood_000",
+      "category": "Footstep",
+      "tags": [
+        "footstep",
+        "walk"
+      ],
+      "duration": 0.31,
+      "filesize": 2074,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-impact-sounds-footstep-wood-000.mp3"
+    },
+    {
+      "id": "kenney-rpg-audio-dooropen-1",
+      "name": "doorOpen_1",
+      "category": "Door",
+      "tags": [
+        "door",
+        "open"
+      ],
+      "duration": 0.97,
+      "filesize": 14339,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/rpg-audio",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-rpg-audio-dooropen-1.mp3"
+    },
+    {
+      "id": "kenney-rpg-audio-doorclose-1",
+      "name": "doorClose_1",
+      "category": "Door",
+      "tags": [
+        "door",
+        "close"
+      ],
+      "duration": 0.71,
+      "filesize": 9482,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/rpg-audio",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-rpg-audio-doorclose-1.mp3"
+    },
+    {
+      "id": "kenney-rpg-audio-handlecoins",
+      "name": "handleCoins",
+      "category": "Coins",
+      "tags": [
+        "coin",
+        "money"
+      ],
+      "duration": 0.89,
+      "filesize": 13292,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/rpg-audio",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-rpg-audio-handlecoins.mp3"
+    },
+    {
+      "id": "kenney-rpg-audio-bookflip1",
+      "name": "bookFlip1",
+      "category": "Book",
+      "tags": [
+        "book",
+        "flip",
+        "page"
+      ],
+      "duration": 0.81,
+      "filesize": 10996,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/rpg-audio",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-rpg-audio-bookflip1.mp3"
+    },
+    {
+      "id": "kenney-rpg-audio-metalclick",
+      "name": "metalClick",
+      "category": "Metal",
+      "tags": [
+        "metal",
+        "click"
+      ],
+      "duration": 0.5,
+      "filesize": 7003,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/rpg-audio",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-rpg-audio-metalclick.mp3"
+    },
+    {
+      "id": "kenney-rpg-audio-chop",
+      "name": "chop",
+      "category": "Impact",
+      "tags": [
+        "chop",
+        "slice"
+      ],
+      "duration": 0.29,
+      "filesize": 4425,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/rpg-audio",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-rpg-audio-chop.mp3"
+    },
+    {
+      "id": "kenney-rpg-audio-cloth1",
+      "name": "cloth1",
+      "category": "Foley",
+      "tags": [
+        "cloth",
+        "fabric"
+      ],
+      "duration": 0.71,
+      "filesize": 9247,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/rpg-audio",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-rpg-audio-cloth1.mp3"
+    },
+    {
+      "id": "kenney-rpg-audio-creak1",
+      "name": "creak1",
+      "category": "Foley",
+      "tags": [
+        "creak",
+        "wood"
+      ],
+      "duration": 0.71,
+      "filesize": 7758,
+      "license": "CC0",
+      "source": "https://kenney.nl/assets/rpg-audio",
+      "attribution": "Kenney",
+      "url": "audio/sfx/kenney-rpg-audio-creak1.mp3"
+    }
+  ]
+}
