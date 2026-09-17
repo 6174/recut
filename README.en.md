@@ -9,9 +9,9 @@
 <a href="https://recut.video"><img src="https://img.shields.io/badge/Website-recut.video-2f9e63?style=flat-square" alt="Website" /></a>
 <a href="https://app.recut.video"><img src="https://img.shields.io/badge/Workspace-open-2f9e63?style=flat-square" alt="Open workspace" /></a>
 
-**A local-first, open-source and extensible AI video creation workspace**
+**From idea to viral video, automatically**
 
-On your computer, Recut works with **Claude Code, Open Code and Codex Cli** to build a creative platform that fits you; every iteration makes it a better fit for how you create.
+A free, open-source, local-first AI video creation workspace. On your computer, Recut works with **Claude Code, Open Code and Codex Cli** to plan, create, edit and deliver; every iteration makes it a better fit for how you create.
 
 [Open the workspace](https://app.recut.video) · [Browse Apps](#app-map) · [Build an App](#build-an-app-for-recut)
 
@@ -23,9 +23,25 @@ On your computer, Recut works with **Claude Code, Open Code and Codex Cli** to b
 
 ## What Is Recut?
 
-Recut is a **local-first, open-source and extensible AI video creation workspace**. It does not try to pack every capability into one closed product. Instead, it provides a creative foundation that can keep growing: the platform manages media, projects, timelines, jobs and Agent sessions, while independent Apps provide the actual creative workflows.
+Recut is a **local-first, open-source and extensible AI video creation workspace**. Give Recut an idea, a reference video or a story, and AI handles the research, planning, generation, editing and delivery.
 
-Start with a topic, a voice or a piece of media. An Agent helps organize, plan and move the workflow forward; Recut turns the result into real project data, media and timeline edits. Every result can be edited, replaced and iterated, and the creator decides what becomes the final work.
+It does not try to pack every capability into one closed product. Instead, it provides a creative foundation that can keep growing: the platform manages media, projects, timelines, jobs and Agent sessions, while independent Apps provide the actual creative workflows. Every step lands in real projects, media and timeline edits, so results can be edited, replaced and iterated, and the creator decides what becomes the final work.
+
+## Start From Anything
+
+A reference video, an idea, or a World — whatever you start with, Recut turns it into a finished video.
+
+### A reference video: clone a proven hit
+
+Drop in a video you love. AI reads its hook, story, shots, pacing, caption style, voice and visual language, then rebuilds it as your own version: same idea, different story, your brand, your characters, your voice.
+
+### An idea: let AI do the work
+
+Write down what you want to say. Research, writing, directing and editing are split across agents, and every step lands on a real timeline you can trim, reorder, recaption and re-render — no black box. You decide what to make; AI does the making.
+
+### A World: create once, keep creating
+
+Turn characters, story and style into a World — a reusable permanent asset, not a one-off generation. Then keep iterating and shipping new videos across platforms and languages.
 
 ## Why Recut
 
@@ -39,7 +55,7 @@ Recut follows one simple principle: **let the Agent move the work forward; let t
 
 Your device, or a service you control, manages projects, media, components and the creative process. Models and generation services can be selected and replaced to fit your needs, so your workflow is not locked to one cloud product. Networked models are connected explicitly rather than treated as the default destination for local data.
 
-Local-first does not mean rejecting every cloud capability. It means that data boundaries, model choices and project files stay understandable, portable and under your long-term control.
+Local-first does not mean rejecting every cloud capability. It means that data boundaries, model choices and project files stay understandable, portable and under your long-term control. Recut is free and open source with no per-video billing; compared with cloud tools that require uploads and charge by credits or membership, it is a third option you can self-host long-term and extend with code.
 
 ### Apps let the platform grow
 
@@ -53,8 +69,8 @@ The same capability can be used in a UI and called by an Agent through Skills an
 
 ## From Idea to Finished Video
 
-1. **State the goal**: tell the Agent what you want, or choose media, templates and parameters directly in an App.
-2. **Shape the workflow**: the Agent organizes research, structure, shots and pacing; expensive or irreversible steps stop at confirmation points for your decision.
+1. **Give it a starting point**: drop in a reference video, write an idea, or pick a World; or choose media, templates and parameters directly in an App.
+2. **Let AI shape the plan**: the Agent breaks down the reference, researches the topic, writes the script and plans shots and pacing; expensive or irreversible steps stop at confirmation points for your decision.
 3. **Land in the real workspace**: captions, voice, visuals, components and code become project data, library Assets or timeline edits that remain visible and editable.
 4. **Iterate and deliver**: replace media, tune pacing, rewrite copy or regenerate one part, then export a finished video through a deterministic local job.
 
@@ -114,8 +130,8 @@ Then open the [workspace](https://app.recut.video) and install the Apps you need
 Start with the shortest path:
 
 1. Install and open **Video Editor** or **AI Short Films**.
-2. Import a video, image or audio file, or start from a topic.
-3. Ask the Agent to shape a plan, then review the result in the workspace.
+2. Give it a starting point: import a reference video, write an idea, or pick a World.
+3. Ask the Agent to move the plan forward, then review the result in the workspace.
 4. Keep what works, continue editing and export the finished video.
 
 You do not need to master a complex editor or write code first. Code and Skills are advanced entry points, not a requirement for using Recut.
