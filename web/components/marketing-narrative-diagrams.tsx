@@ -1,13 +1,14 @@
 /*
- * [INPUT]: 依赖 marketing-site 的 useMarketingLocale 上下文、lib/i18n 的 t() 字典与 GSAP；所有文案走 flow/create/clone/agent/batch/worlds.consistency 命名空间，本文件不硬编码语言；CreationFlowDiagram 另接收真实图片（World 封面/角色图，缺省回退渐变占位）
- * [OUTPUT]: 对外提供官网叙事的六张可循环示意：CreationFlowDiagram（想法 + 真实视频 → 世界观概念关系 → 真实帧时间线）、CloneFlowDiagram（参考→拆解→你的版本）、AgentPipelineDiagram（你→四类 Agent→审阅）、BatchDiagram（一个想法→多平台多版本）、ConsistencyDiagram（世界观→持续一致的多条视频）、OwnershipDiagram（开源/本地/可扩展/你的模型/你的工作流）
- * [POS]: web/components 的官网「先展示结果、再解释技术」视觉层；CreationFlowDiagram 采用 Apple 式「抽象结构 + 真实媒体」表达，去 Mock 窗口化：浮层圆角媒体块 + 极细连线 + 光晕，不画假的 App 边框
+ * [INPUT]: 依赖 marketing-site 的 useMarketingLocale 上下文、lib/i18n 的 t() 字典、lucide-react 图标与 GSAP；所有文案走 flow/create/clone/agent/batch/worlds.consistency/ownership 命名空间，本文件不硬编码语言；每张图接收真实图片（World 封面/角色图，缺省回退渐变占位）
+ * [OUTPUT]: 对外提供官网叙事的六张「抽象结构 + 真实媒体」示意，入场只播一次：CreationFlowDiagram（想法 + 真实竖屏视频 → 世界观概念关系 → 真实帧时间线，仅播放头循环）、CloneFlowDiagram（参考视频 → 真实帧分镜拆解 → 你的成片）、AgentPipelineDiagram（你 → 研究/编剧/导演/剪辑四节点 → 待审阅）、BatchDiagram（一个想法 → 多平台多格式成片墙）、ConsistencyDiagram（同一角色/风格 → 四条一致成片）、OwnershipDiagram（本机媒体墙 + 开源/本地/可扩展/你的模型/你的工作流）
+ * [POS]: web/components 的官网「先展示结果、再解释技术」视觉层；全部用浮层圆角媒体块 + 极细连线 + 光晕，不画 Mock App 边框与假面板，尊重 prefers-reduced-motion 且卸载时完整清理动画
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
 import { gsap } from "gsap";
+import { Clapperboard, Code, Cpu, HardDrive, PenLine, Puzzle, Scissors, Search, Workflow } from "lucide-react";
 import { t } from "@/lib/i18n";
 import { useMarketingLocale } from "@/components/marketing-site";
 
@@ -36,18 +37,6 @@ function useStableBuild(build: DiagramBuilder): DiagramBuilder {
 }
 
 // —— 共用外观 ——
-function Panel({ children, tone = "plain", ...rest }: { children: React.ReactNode; tone?: "plain" | "accent" } & React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div {...rest} className={`rounded-xl border p-3.5 ${tone === "accent" ? "border-primary/30 bg-primary/[.07]" : "border-white/12 bg-black/25"}`}>
-      {children}
-    </div>
-  );
-}
-
-function PanelLabel({ children, accent = false }: { children: React.ReactNode; accent?: boolean }) {
-  return <p className={`font-mono text-[10px] font-semibold uppercase tracking-[.18em] ${accent ? "text-primary" : "text-white/45"}`}>{children}</p>;
-}
-
 function Check() {
   return (
     <svg aria-hidden="true" className="size-3.5 shrink-0 text-primary" fill="none" viewBox="0 0 16 16">
@@ -83,6 +72,26 @@ function MediaTile({ badge, className = "", duration, label, rounded = "rounded-
       {badge && <span className="absolute left-1.5 top-1.5 rounded-full bg-black/55 px-2 py-0.5 text-[9px] font-semibold tracking-[.02em] text-white/90 backdrop-blur">{badge}</span>}
       {label && <span className="absolute left-2 top-2 font-mono text-[8px] uppercase tracking-[.16em] text-white/70">{label}</span>}
       {duration && <span className="absolute bottom-1.5 right-2 font-mono text-[8px] text-white/85">{duration}</span>}
+    </span>
+  );
+}
+
+function MediaFrame({ className = "", gradient, rounded = "rounded-lg", src }: { className?: string; gradient?: string; rounded?: string; src?: string }) {
+  return (
+    <span className={`relative block overflow-hidden ${rounded} ring-1 ring-white/12 ${className}`}>
+      {src
+        ? <img alt="" className="absolute inset-0 size-full object-cover" draggable={false} loading="lazy" src={src} />
+        : <span className="absolute inset-0" style={{ background: gradient ?? FALLBACK_GRADIENTS[0] }} />}
+      <span aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+    </span>
+  );
+}
+
+function FlowArrow({ className = "" }: { className?: string }) {
+  return (
+    <span aria-hidden="true" className={`items-center gap-0.5 ${className}`}>
+      <span className="h-px w-8 bg-gradient-to-r from-primary/45 to-primary/15" />
+      <svg className="size-3 text-primary/70" fill="none" viewBox="0 0 12 12"><path d="M4 2.5 8 6l-4 3.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" /></svg>
     </span>
   );
 }
@@ -230,173 +239,221 @@ export function CreationFlowDiagram({ images = [] }: { images?: string[] }) {
   );
 }
 
-// —— 复刻爆款：参考 → 拆解 → 你的版本 ——
-export function CloneFlowDiagram() {
+// —— 复刻爆款：真实参考视频 → 真实帧分镜拆解 → 你的成片 ——
+export function CloneFlowDiagram({ images = [] }: { images?: string[] }) {
   const locale = useMarketingLocale();
   const ref = useRef<HTMLDivElement>(null);
-  const analysis = ["clone.analysis1", "clone.analysis2", "clone.analysis3", "clone.analysis4", "clone.analysis5", "clone.analysis6", "clone.analysis7"];
-  const version = ["clone.version1", "clone.version2", "clone.version3", "clone.version4", "clone.version5"];
-  const build = useStableBuild((q) => gsap.timeline({ repeat: -1, repeatDelay: 3, defaults: { ease: "power2.out" } })
-    .fromTo(q("[data-clone-reference]"), { autoAlpha: 0, x: -14 }, { autoAlpha: 1, x: 0, duration: 0.5 })
-    .fromTo(q("[data-clone-analysis]"), { autoAlpha: 0, x: -10 }, { autoAlpha: 1, x: 0, duration: 0.34, stagger: 0.09 }, "-=0.15")
-    .fromTo(q("[data-clone-version]"), { autoAlpha: 0, x: 14 }, { autoAlpha: 1, x: 0, duration: 0.34, stagger: 0.1 }, "-=0.45")
-    .fromTo(q("[data-clone-arrow]"), { scaleX: 0 }, { scaleX: 1, duration: 0.35, stagger: 0.15, transformOrigin: "left center" }, 0.1));
+  const media = images.filter(Boolean);
+  const at = (index: number) => media[index % Math.max(media.length, 1)];
+  const analysis = ["clone.analysis1", "clone.analysis2", "clone.analysis3", "clone.analysis4", "clone.analysis5", "clone.analysis6"];
+  const version = ["clone.version1", "clone.version2", "clone.version3", "clone.version4"];
+  const build = useStableBuild((q) => gsap.timeline({ defaults: { ease: "power2.out" } })
+    .fromTo(q("[data-clone-block]"), { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.5, stagger: 0.16 })
+    .fromTo(q("[data-clone-frame]"), { autoAlpha: 0, scale: 0.86 }, { autoAlpha: 1, scale: 1, duration: 0.32, stagger: 0.08, ease: "back.out(1.6)" }, "-=0.4")
+    .fromTo(q("[data-clone-version]"), { autoAlpha: 0, scale: 0.82 }, { autoAlpha: 1, scale: 1, duration: 0.34, stagger: 0.1, ease: "back.out(1.8)" }, "-=0.2"));
   useDiagramMotion(ref, build);
   return (
-    <div className="relative grid gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-center" ref={ref}>
-      <Panel data-clone-reference>
-        <PanelLabel>{t("marketing", locale, "clone.referenceLabel")}</PanelLabel>
-        <div className="mt-3"><MediaTile className="h-20 w-28" duration="00:18" gradient={FALLBACK_GRADIENTS[0]} label="REF" /></div>
-        <p className="mt-3 text-xs leading-5 text-white/55">{t("marketing", locale, "clone.referenceHint")}</p>
-      </Panel>
-      <span aria-hidden="true" className="marketing-clone-arrow hidden h-px w-8 bg-gradient-to-r from-primary/60 to-primary/10 md:block" data-clone-arrow />
-      <Panel tone="accent">
-        <PanelLabel accent>{t("marketing", locale, "clone.analysisLabel")}</PanelLabel>
-        <ul className="mt-3 grid gap-1.5">
-          {analysis.map((key) => <li className="inline-flex items-center gap-2 text-xs text-white/75" data-clone-analysis key={key}><Check />{t("marketing", locale, key)}</li>)}
-        </ul>
-      </Panel>
-      <span aria-hidden="true" className="marketing-clone-arrow hidden h-px w-8 bg-gradient-to-r from-primary/60 to-primary/10 md:block" data-clone-arrow />
-      <Panel>
-        <PanelLabel>{t("marketing", locale, "clone.versionLabel")}</PanelLabel>
-        <ul className="mt-3 grid gap-1.5">
-          {version.map((key) => <li className="inline-flex items-center gap-2 text-xs text-white/75" data-clone-version key={key}><span className="size-1.5 rounded-full bg-primary" />{t("marketing", locale, key)}</li>)}
-        </ul>
-      </Panel>
-      {/* 移动端竖向连接线 */}
-      <span aria-hidden="true" className="absolute inset-y-4 left-1/2 -z-10 w-px bg-gradient-to-b from-primary/10 via-primary/40 to-primary/10 md:hidden" />
+    <div className="relative grid items-center gap-8 md:grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] md:gap-4" ref={ref}>
+      {/* 参考视频 */}
+      <div className="flex flex-col items-center gap-3" data-clone-block>
+        <p className="text-[11px] font-medium tracking-[.14em] text-white/45">{t("marketing", locale, "clone.referenceLabel")}</p>
+        <MediaTile badge="TikTok" className="aspect-[9/16] w-28" duration="00:18" gradient={FALLBACK_GRADIENTS[0]} rounded="rounded-[1.1rem]" src={media[0]} />
+        <p className="text-[11px] text-white/45">{t("marketing", locale, "clone.referenceHint")}</p>
+      </div>
+      <FlowArrow className="hidden md:flex" />
+      {/* AI 拆解：一条参考视频被拆成可复用的真实帧分镜 */}
+      <div data-clone-block>
+        <p className="text-[11px] font-medium tracking-[.14em] text-white/45">{t("marketing", locale, "clone.analysisLabel")}</p>
+        <div className="mt-3 grid grid-cols-3 gap-2 sm:gap-2.5">
+          {analysis.map((key, index) => (
+            <figure data-clone-frame key={key}>
+              <MediaFrame className="aspect-video" gradient={FALLBACK_GRADIENTS[index % FALLBACK_GRADIENTS.length]} src={at(index + 1)} />
+              <figcaption className="mt-1 text-[10px] text-white/55">{t("marketing", locale, key)}</figcaption>
+            </figure>
+          ))}
+        </div>
+      </div>
+      <FlowArrow className="hidden md:flex" />
+      {/* 你的成片 */}
+      <div className="flex flex-col items-center gap-3" data-clone-block>
+        <p className="text-[11px] font-medium tracking-[.14em] text-white/45">{t("marketing", locale, "clone.versionLabel")}</p>
+        <div className="flex gap-2.5">
+          {[at(2), at(3)].map((src, index) => (
+            <span data-clone-version key={index}>
+              <MediaTile badge={index === 0 ? "Reels" : "Shorts"} className="aspect-[9/16] w-24" gradient={FALLBACK_GRADIENTS[index + 2]} rounded="rounded-[1.1rem]" src={src} />
+            </span>
+          ))}
+        </div>
+        <div className="flex max-w-[11rem] flex-wrap justify-center gap-1.5">
+          {version.map((key) => <span className="rounded-full bg-white/[.06] px-2 py-0.5 text-[10px] text-white/55 ring-1 ring-white/10" key={key}>{t("marketing", locale, key)}</span>)}
+        </div>
+      </div>
+      <span aria-hidden="true" className="absolute inset-y-6 left-1/2 -z-10 w-px bg-gradient-to-b from-primary/10 via-primary/35 to-primary/10 md:hidden" />
     </div>
   );
 }
 
-// —— AI 全自动：你 → 四类 Agent → 等你审阅 ——
-export function AgentPipelineDiagram() {
+// —— AI 全自动：你 → 研究/编剧/导演/剪辑四个真实画面节点 → 待审阅 ——
+export function AgentPipelineDiagram({ images = [] }: { images?: string[] }) {
   const locale = useMarketingLocale();
   const ref = useRef<HTMLDivElement>(null);
+  const media = images.filter(Boolean);
   const steps = [
-    ["agent.researchTitle", "agent.researchBody"],
-    ["agent.writerTitle", "agent.writerBody"],
-    ["agent.directorTitle", "agent.directorBody"],
-    ["agent.editorTitle", "agent.editorBody"],
+    { title: "agent.researchTitle", body: "agent.researchBody", Icon: Search },
+    { title: "agent.writerTitle", body: "agent.writerBody", Icon: PenLine },
+    { title: "agent.directorTitle", body: "agent.directorBody", Icon: Clapperboard },
+    { title: "agent.editorTitle", body: "agent.editorBody", Icon: Scissors },
   ] as const;
-  const build = useStableBuild((q) => gsap.timeline({ repeat: -1, repeatDelay: 3.2, defaults: { ease: "power2.out" } })
+  const build = useStableBuild((q) => gsap.timeline({ defaults: { ease: "power2.out" } })
     .fromTo(q("[data-agent-you]"), { autoAlpha: 0, y: -10 }, { autoAlpha: 1, y: 0, duration: 0.45 })
-    .fromTo(q("[data-agent-step]"), { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 0.34, stagger: 0.16 }, "-=0.1")
-    .fromTo(q("[data-agent-check]"), { autoAlpha: 0, scale: 0.4 }, { autoAlpha: 1, scale: 1, duration: 0.28, stagger: 0.16, ease: "back.out(2.4)" }, "-=0.55")
-    .fromTo(q("[data-agent-ready]"), { autoAlpha: 0, scale: 0.9 }, { autoAlpha: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }, "-=0.2"));
+    .fromTo(q("[data-agent-step]"), { autoAlpha: 0, y: 16 }, { autoAlpha: 1, y: 0, duration: 0.4, stagger: 0.14 }, "-=0.15")
+    .fromTo(q("[data-agent-ready]"), { autoAlpha: 0, scale: 0.9 }, { autoAlpha: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }, "-=0.15"));
   useDiagramMotion(ref, build);
   return (
-    <div className="rounded-2xl border border-white/12 bg-[linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.012))] p-4 backdrop-blur sm:p-5" ref={ref}>
-      <div className="flex items-center gap-3 rounded-xl border border-white/12 bg-black/25 p-3" data-agent-you>
-        <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/20 bg-white/[.06] font-mono text-[9px] font-semibold text-white/70">{t("marketing", locale, "agent.youLabel")}</span>
-        <p className="text-sm leading-6 text-white/80">{t("marketing", locale, "agent.prompt")}</p>
+    <div className="relative" ref={ref}>
+      <div className="flex items-center gap-3" data-agent-you>
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/[.06] font-mono text-[10px] font-semibold text-white/70 ring-1 ring-white/12">{t("marketing", locale, "agent.youLabel")}</span>
+        <p className="rounded-2xl bg-white/[.05] px-4 py-2.5 text-sm leading-6 text-white/85 ring-1 ring-white/10">{t("marketing", locale, "agent.prompt")}</p>
       </div>
-      <div className="relative mt-3 grid gap-2 pl-4">
-        <span aria-hidden="true" className="absolute bottom-4 left-0 top-0 w-px bg-gradient-to-b from-primary/55 via-primary/30 to-transparent" />
-        {steps.map(([titleKey, bodyKey]) => (
-          <div className="relative flex items-center justify-between gap-3 rounded-xl border border-white/12 bg-black/25 p-3" data-agent-step key={titleKey}>
-            <span aria-hidden="true" className="absolute -left-4 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-primary/70" />
-            <div>
-              <p className="text-sm font-semibold text-white/85">{t("marketing", locale, titleKey)}</p>
-              <p className="mt-0.5 text-xs text-white/50">{t("marketing", locale, bodyKey)}</p>
-            </div>
-            <span className="grid size-6 shrink-0 place-items-center rounded-full border border-primary/35 bg-primary/10" data-agent-check><Check /></span>
+      <div className="relative mt-9 grid grid-cols-4 gap-3">
+        <span aria-hidden="true" className="absolute left-[12%] right-[12%] top-7 h-px bg-gradient-to-r from-primary/10 via-primary/40 to-primary/10" />
+        {steps.map(({ title, body, Icon }, index) => (
+          <div className="relative flex flex-col items-center gap-2 text-center" data-agent-step key={title}>
+            <span className="relative size-14 overflow-hidden rounded-2xl shadow-[0_16px_34px_-16px_rgba(0,0,0,.9)] ring-1 ring-white/15">
+              {media[index]
+                ? <img alt="" className="absolute inset-0 size-full object-cover" draggable={false} loading="lazy" src={media[index]} />
+                : <span className="absolute inset-0" style={{ background: FALLBACK_GRADIENTS[index % FALLBACK_GRADIENTS.length] }} />}
+              <span className="absolute inset-0 grid place-items-center bg-black/40"><Icon className="size-5 text-white/90" /></span>
+            </span>
+            <span className="text-xs font-semibold text-white/85">{t("marketing", locale, title)}</span>
+            <span className="text-[10px] leading-4 text-white/45">{t("marketing", locale, body)}</span>
           </div>
         ))}
       </div>
-      <div className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/[.08] px-4 py-3" data-agent-ready>
-        <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-        <span className="font-mono text-[11px] font-semibold uppercase tracking-[.16em] text-primary">{t("marketing", locale, "agent.ready")}</span>
+      <div className="mt-8 flex items-center justify-center" data-agent-ready>
+        <span className="inline-flex items-center gap-2 rounded-full bg-primary/12 px-4 py-2 ring-1 ring-primary/30">
+          <Check />
+          <span className="font-mono text-[11px] font-semibold uppercase tracking-[.16em] text-primary">{t("marketing", locale, "agent.ready")}</span>
+        </span>
       </div>
     </div>
   );
 }
 
-// —— 一个想法，多条视频 ——
-export function BatchDiagram() {
+// 无限画布：真实实体卡（角色/场景/风格/故事）铺在点阵画布上，用语义关系虚线相连。
+function WorldCanvasDiagram({ images }: { images: string[] }) {
   const locale = useMarketingLocale();
-  const ref = useRef<HTMLDivElement>(null);
-  const platforms = ["batch.platform1", "batch.platform2", "batch.platform3"];
-  const stats = ["batch.stat1", "batch.stat2", "batch.stat3", "batch.stat4"];
-  const build = useStableBuild((q) => gsap.timeline({ repeat: -1, repeatDelay: 3.4, defaults: { ease: "power2.out" } })
-    .fromTo(q("[data-batch-idea]"), { autoAlpha: 0, scale: 0.92 }, { autoAlpha: 1, scale: 1, duration: 0.45 })
-    .fromTo(q("[data-batch-platform]"), { autoAlpha: 0, y: -8 }, { autoAlpha: 1, y: 0, duration: 0.3, stagger: 0.12 }, "-=0.1")
-    .fromTo(q("[data-batch-stat]"), { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 0.32, stagger: 0.12 }, "-=0.05"));
-  useDiagramMotion(ref, build);
+  const at = (index: number) => images[index % Math.max(images.length, 1)];
+  const cards = [
+    { label: "worlds.consistency.character", position: "left-[4%] top-[12%]", width: "w-[24%]" },
+    { label: "worlds.consistency.scenes", position: "right-[4%] top-[6%]", width: "w-[27%]" },
+    { label: "worlds.consistency.style", position: "left-[10%] bottom-[12%]", width: "w-[21%]" },
+    { label: "worlds.consistency.story", position: "right-[10%] bottom-[8%]", width: "w-[24%]" },
+  ];
+  const links: Array<[number, number]> = [[0, 1], [0, 2], [1, 3], [2, 3]];
+  const centers: Array<[number, number]> = [[16, 27], [82, 22], [22, 74], [78, 78]];
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-[linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.012))] p-4 backdrop-blur sm:p-6" ref={ref}>
-      <div aria-hidden="true" className="pointer-events-none absolute left-1/2 top-0 h-40 w-40 -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
-      <div className="relative mx-auto flex w-fit items-center gap-3 rounded-xl border border-primary/30 bg-primary/[.08] px-4 py-2.5" data-batch-idea>
-        <span className="grid size-6 place-items-center rounded-full border border-primary/40 bg-primary/15 text-[10px] text-primary">1</span>
-        <span className="font-mono text-[11px] font-semibold uppercase tracking-[.16em] text-primary">{t("marketing", locale, "batch.ideaLabel")}</span>
+    <div className="relative overflow-hidden rounded-3xl bg-[oklch(0.115_0.012_150)] ring-1 ring-white/10">
+      <div aria-hidden="true" className="absolute inset-0 opacity-50" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,.14) 1px, transparent 1px)", backgroundSize: "22px 22px" }} />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_38%,rgba(0,0,0,.5))]" />
+      <div className="relative h-[330px]">
+        <svg aria-hidden="true" className="absolute inset-0 size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 100 100">
+          {links.map(([from, to]) => <path d={`M${centers[from][0]} ${centers[from][1]} L${centers[to][0]} ${centers[to][1]}`} data-canvas-link key={`${from}-${to}`} stroke="rgba(255,255,255,.2)" strokeDasharray="2 3" strokeDashoffset="60" strokeWidth="0.7" vectorEffect="non-scaling-stroke" />)}
+        </svg>
+        {cards.map(({ label, position, width }, index) => (
+          <span className={`absolute ${position} ${width}`} data-canvas-card key={label}>
+            <span className="block overflow-hidden rounded-xl bg-card shadow-[0_18px_40px_-20px_rgba(0,0,0,.9)] ring-1 ring-white/12">
+              <span className="relative block aspect-video">
+                {at(index)
+                  ? <img alt="" className="absolute inset-0 size-full object-cover" draggable={false} loading="lazy" src={at(index)} />
+                  : <span className="absolute inset-0" style={{ background: FALLBACK_GRADIENTS[index % FALLBACK_GRADIENTS.length] }} />}
+                <span aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+              </span>
+              <span className="flex items-center gap-1.5 px-2 py-1.5">
+                <span className="size-1.5 rounded-full bg-primary" />
+                <span className="truncate text-[10px] font-medium text-white/75">{t("marketing", locale, label)}</span>
+              </span>
+            </span>
+          </span>
+        ))}
       </div>
-      <div aria-hidden="true" className="relative mx-auto h-9 w-px bg-gradient-to-b from-primary/55 to-primary/10" />
-      <div className="grid grid-cols-3 gap-2.5">
-        {platforms.map((key) => <div className="rounded-xl border border-white/12 bg-black/25 px-3 py-3 text-center" data-batch-platform key={key}><span className="text-xs font-medium text-white/75">{t("marketing", locale, key)}</span></div>)}
-      </div>
-      <div aria-hidden="true" className="relative mx-auto h-9 w-px bg-gradient-to-b from-primary/55 to-primary/10" />
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        {stats.map((key) => <div className="rounded-xl border border-primary/20 bg-primary/[.06] px-3 py-3 text-center" data-batch-stat key={key}><span className="font-mono text-[11px] font-semibold text-primary">{t("marketing", locale, key)}</span></div>)}
-      </div>
+      <span className="absolute left-3 top-3 rounded-full bg-black/40 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[.16em] text-white/60 ring-1 ring-white/10 backdrop-blur">{t("marketing", locale, "worlds.canvas.eyebrow")}</span>
+      <span className="absolute bottom-3 right-3 rounded-full bg-black/40 px-2.5 py-1 font-mono text-[9px] text-white/55 ring-1 ring-white/10 backdrop-blur">{t("marketing", locale, "worlds.canvas.hint")}</span>
     </div>
   );
 }
 
-// —— 世界观：一次定义，持续一致 ——
-export function ConsistencyDiagram() {
+// —— World 的长期价值：左侧无限画布承载可长期复用的 World 资产，右侧持续叠出多平台竖屏成片 ——
+export function WorldEngineDiagram({ images = [] }: { images?: string[] }) {
   const locale = useMarketingLocale();
   const ref = useRef<HTMLDivElement>(null);
-  const facets = ["worlds.consistency.character", "worlds.consistency.story", "worlds.consistency.style", "worlds.consistency.scenes", "worlds.consistency.voice", "worlds.consistency.rules"];
-  const build = useStableBuild((q) => gsap.timeline({ repeat: -1, repeatDelay: 3.4, defaults: { ease: "power2.out" } })
-    .fromTo(q("[data-world-facet]"), { autoAlpha: 0, scale: 0.82 }, { autoAlpha: 1, scale: 1, duration: 0.3, stagger: 0.09, ease: "back.out(1.7)" })
-    .fromTo(q("[data-world-arrow]"), { scaleY: 0 }, { scaleY: 1, duration: 0.35, transformOrigin: "top center" }, "-=0.1")
-    .fromTo(q("[data-world-output]"), { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 0.34, stagger: 0.12 }, "-=0.05"));
+  const media = images.filter(Boolean);
+  const at = (index: number) => media[index % Math.max(media.length, 1)];
+  const platforms = [t("marketing", locale, "batch.platform1"), t("marketing", locale, "batch.platform2"), t("marketing", locale, "batch.platform3")];
+  const stack = [0, 1, 2, 3, 4, 5];
+  const build = useStableBuild((q) => gsap.timeline({ defaults: { ease: "power2.out" } })
+    .fromTo(q("[data-world-core]"), { autoAlpha: 0, scale: 0.96 }, { autoAlpha: 1, scale: 1, duration: 0.5 })
+    .fromTo(q("[data-canvas-link]"), { strokeDashoffset: 60 }, { strokeDashoffset: 0, duration: 0.5, stagger: 0.08, ease: "power1.out" }, "-=0.3")
+    .fromTo(q("[data-canvas-card]"), { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.4, stagger: 0.12, ease: "back.out(1.5)" }, "-=0.45")
+    .fromTo(q("[data-world-loop]"), { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.3 }, "-=0.1")
+    .fromTo(q("[data-world-output]"), { autoAlpha: 0, y: 26 }, { autoAlpha: 1, y: 0, duration: 0.42, stagger: 0.08, ease: "back.out(1.4)" }, "-=0.25"));
   useDiagramMotion(ref, build);
   return (
-    <div className="rounded-2xl border border-white/12 bg-[linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.012))] p-4 backdrop-blur sm:p-5" ref={ref}>
-      <div className="rounded-xl border border-primary/30 bg-primary/[.07] p-4">
-        <PanelLabel accent>WORLD</PanelLabel>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {facets.map((key) => <span className="rounded-lg border border-white/12 bg-black/25 px-2.5 py-2 text-center text-[11px] font-medium text-white/75" data-world-facet key={key}>{t("marketing", locale, key)}</span>)}
+    <div className="grid items-center gap-12 md:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]" ref={ref}>
+      {/* 左：一个概念固化成画布式的可复用 World 资产 */}
+      <div>
+        <div data-world-core><WorldCanvasDiagram images={media} /></div>
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-[.18em] text-white/45" data-world-loop>{t("marketing", locale, "worlds.engine.loop")}</p>
+          <span className="rounded-full bg-primary/12 px-2.5 py-1 text-[10px] font-semibold text-primary ring-1 ring-primary/25">{t("marketing", locale, "worlds.engine.asset")}</span>
         </div>
       </div>
-      <div className="relative mx-auto my-3 h-8 w-px bg-gradient-to-b from-primary/55 to-primary/15" data-world-arrow />
-      <div className="grid grid-cols-4 gap-2">
-        {[1, 2, 3, 4].map((index) => (
-          <div className="overflow-hidden rounded-lg border border-white/12 bg-black/25" data-world-output key={index}>
-            <div className="h-14 bg-[linear-gradient(135deg,#22322c,#0f1917)]" />
-            <p className="border-t border-white/10 px-2 py-1.5 font-mono text-[9px] text-white/50">{t("marketing", locale, "worlds.consistency.output")} {String(index).padStart(2, "0")}</p>
-          </div>
+      {/* 右：持续叠出的多平台竖屏成片 */}
+      <div className="relative mx-auto h-[360px] w-full max-w-lg">
+        <span aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 size-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-3xl" />
+        {stack.map((index) => (
+          <span className="absolute w-[27%]" data-world-output key={index} style={{ left: `${index * 11.5}%`, top: index % 2 === 0 ? "16%" : "30%", transform: `rotate(${(index - 2.5) * 4}deg)`, zIndex: index }}>
+            <MediaTile badge={platforms[index % platforms.length]} className="aspect-[9/16]" duration={`00:${String(12 + index * 4).padStart(2, "0")}`} gradient={FALLBACK_GRADIENTS[index % FALLBACK_GRADIENTS.length]} rounded="rounded-[1.1rem]" src={at(index)} />
+          </span>
         ))}
       </div>
     </div>
   );
 }
 
-// —— 为你所有：开源 + 本地 + 可扩展 + 你的模型 + 你的工作流 ——
-export function OwnershipDiagram() {
+// —— 为你所有：本机媒体墙 + 开源/本地/可扩展/你的模型/你的工作流 ——
+export function OwnershipDiagram({ images = [] }: { images?: string[] }) {
   const locale = useMarketingLocale();
   const ref = useRef<HTMLDivElement>(null);
-  const facets = ["ownership.openSource", "ownership.local", "ownership.extensible", "ownership.models", "ownership.workflows"];
-  const build = useStableBuild((q) => gsap.timeline({ repeat: -1, repeatDelay: 3.6, defaults: { ease: "power2.out" } })
-    .fromTo(q("[data-ownership-facet]"), { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.32, stagger: 0.1 })
-    .fromTo(q("[data-ownership-core]"), { autoAlpha: 0, scale: 0.85 }, { autoAlpha: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }, "-=0.25"));
+  const media = images.filter(Boolean);
+  const facets = [
+    { key: "ownership.openSource", Icon: Code },
+    { key: "ownership.local", Icon: HardDrive },
+    { key: "ownership.extensible", Icon: Puzzle },
+    { key: "ownership.models", Icon: Cpu },
+    { key: "ownership.workflows", Icon: Workflow },
+  ] as const;
+  const build = useStableBuild((q) => gsap.timeline({ defaults: { ease: "power2.out" } })
+    .fromTo(q("[data-ownership-core]"), { autoAlpha: 0, scale: 0.94 }, { autoAlpha: 1, scale: 1, duration: 0.5 })
+    .fromTo(q("[data-ownership-facet]"), { autoAlpha: 0, x: 12 }, { autoAlpha: 1, x: 0, duration: 0.34, stagger: 0.1 }, "-=0.3"));
   useDiagramMotion(ref, build);
   return (
-    <div className="grid gap-3 sm:grid-cols-2" ref={ref}>
-      <div className="grid content-start gap-2">
-        {facets.map((key) => (
-          <div className="flex items-center gap-2 rounded-xl border border-white/12 bg-black/25 px-3 py-2.5" data-ownership-facet key={key}>
-            <Check />
-            <span className="text-xs font-medium text-white/75">{t("marketing", locale, key)}</span>
+    <div className="grid items-center gap-8 md:grid-cols-[1.05fr_0.95fr]" ref={ref}>
+      <div className="relative rounded-[1.8rem] p-3 shadow-[0_30px_70px_-30px_rgba(0,0,0,.9)] ring-1 ring-white/12" data-ownership-core style={{ background: "linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.015))" }}>
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <MediaFrame className="aspect-video" gradient={FALLBACK_GRADIENTS[index % FALLBACK_GRADIENTS.length]} key={index} src={media[index]} />
+          ))}
+        </div>
+        <span className="absolute -bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[oklch(0.13_0.012_150)] px-3 py-1 font-mono text-[9px] font-semibold uppercase tracking-[.18em] text-primary ring-1 ring-primary/25">{t("marketing", locale, "ownership.local")}</span>
+      </div>
+      <div className="grid gap-2.5">
+        {facets.map(({ key, Icon }) => (
+          <div className="flex items-center gap-3" data-ownership-facet key={key}>
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[.06] text-primary ring-1 ring-white/10"><Icon className="size-4" /></span>
+            <span className="text-sm text-white/80">{t("marketing", locale, key)}</span>
           </div>
         ))}
-      </div>
-      <div className="grid place-items-center rounded-xl border border-primary/30 bg-primary/[.07] p-5 text-center" data-ownership-core>
-        <div>
-          <span className="grid size-10 place-items-center rounded-xl bg-primary text-lg font-bold text-primary-foreground">R</span>
-          <p className="mt-3 font-mono text-[11px] font-semibold uppercase tracking-[.16em] text-primary">{t("marketing", locale, "product.title1")}</p>
-        </div>
       </div>
     </div>
   );

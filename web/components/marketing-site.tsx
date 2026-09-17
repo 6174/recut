@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 usePathname、lib/i18n（Locale/localizeURL/t）、lib/marketing-home 双语言数据、MDX 文章/App 正文（以 props 传入）、构建时的 Recut App URL 与浏览器当前 Host
- * [OUTPUT]: 对外提供官网 Header 与 Footer（均含语言切换，导航含创作 / 世界观 / 应用 / 开源）、按 Hero→三种起点→复刻爆款→AI 全自动→批量派生→世界观一致性→三步开始→适合谁→完整能力→本地开源→对比→文章→FAQ→CTA 编排的 Landing（世界观区块数据经 worlds props 注入）；Hero 挂载 CreationFlowDiagram（想法 + World 真实封面图 → 世界观概念关系 → 真实帧时间线），入场只播一次、仅时间线光标循环，编辑器演示下移到「成片仍可编辑」区块，价值承诺先于技术名词
+ * [INPUT]: 依赖 usePathname、lib/i18n（Locale/localizeURL/t）、MDX 文章/App 正文（以 props 传入）、构建时的 Recut App URL 与浏览器当前 Host；官网叙事图的真实素材经 selectMarketingMedia 从传入的 worlds props 派生
+ * [OUTPUT]: 对外提供官网 Header 与 Footer（均含语言切换，导航含创作 / 世界观 / 应用 / 开源）、按 Hero→复刻爆款→AI 全自动（含可编辑时间线）→世界观长期价值→为你所有（含竞品对比）→文章→CTA 编排的 Landing（世界观区块数据经 worlds props 注入）；Hero 挂载 CreationFlowDiagram（想法 + World 真实封面图 → 世界观概念关系 → 真实帧时间线），入场只播一次、仅时间线光标循环，价值承诺先于技术名词；Copy/Agent/World 三张图各自消费指定 World 的真实画面
  *           MarketingLocaleContext 供 client 组件读 locale；Docs 与 Blog 共享展示组件（DocsContent / DocContent / BlogContent / BlogPostContent）与 Blog/App 详情共用 MarkdownContent 渲染 MDX 正文并提供分享条；localhost 下的工作台链接统一指向同端口 app.localhost；
  *           官网内部导航一律用 <a> 全页跳转：营销浏览器 URL（无前缀 / /zh/ 前缀）与 Next 客户端路由树（/marketing/[locale]/…）不一致，<a> 保证每次导航都经 Worker/server.cjs 的正确重写
  * [POS]: web/components 的公开官网视觉层；服务 recut.video 与 localhost，不读取本地 service 或工作台状态；文章/应用数据一律由服务端页面经 props 注入，本文件不引入内容加载器
@@ -14,13 +14,11 @@ import gsap from "gsap";
 import { t, type Locale, localizeURL } from "@/lib/i18n";
 import type { MarketingPost } from "@/lib/marketing-posts";
 import type { DocPage } from "@/lib/docs";
-import { HOME_FAQ, HOW_IT_WORKS } from "@/lib/marketing-home";
 import { MarkdownContent } from "@/components/markdown-content";
 import { trackEvent } from "@/components/posthog-analytics";
 import { MarketingEditorDemo } from "@/components/marketing-editor-demo";
-import { MarketingFeatureIllustration, type MarketingFeatureKind } from "@/components/marketing-feature-illustrations";
 import { MarketingWorldsSection } from "@/components/marketing-worlds";
-import { AgentPipelineDiagram, BatchDiagram, CloneFlowDiagram, CreationFlowDiagram, OwnershipDiagram } from "@/components/marketing-narrative-diagrams";
+import { AgentPipelineDiagram, CloneFlowDiagram, CreationFlowDiagram, OwnershipDiagram } from "@/components/marketing-narrative-diagrams";
 import type { MarketingWorld } from "@/lib/marketing-worlds";
 
 const defaultAppURL = process.env.NEXT_PUBLIC_RECUT_APP_URL ?? "https://app.recut.video";
@@ -111,7 +109,7 @@ export function MarketingHeader() {
         <span className="text-sm font-semibold tracking-tight">Recut</span>
         </a>
         <nav aria-label={t("marketing", locale, "nav.ariaMain")} className="hidden items-center gap-1 md:flex">
-          <MarketingNav href={localizeURL("/#create", locale)}>{t("marketing", locale, "nav.product")}</MarketingNav>
+          <MarketingNav href={localizeURL("/#clone", locale)}>{t("marketing", locale, "nav.product")}</MarketingNav>
           <MarketingNav href={localizeURL("/worlds", locale)}>{t("marketing", locale, "nav.worlds")}</MarketingNav>
           <MarketingNav href={localizeURL("/apps", locale)}>{t("marketing", locale, "nav.apps")}</MarketingNav>
           <MarketingNav href={localizeURL("/#open", locale)}>{t("marketing", locale, "nav.openSource")}</MarketingNav>
@@ -142,7 +140,7 @@ export function MarketingFooter() {
           </div>
           <p className="mt-3 max-w-xs text-sm leading-6 text-muted-foreground">{t("marketing", locale, "footer.tagline")}</p>
         </div>
-        <FooterLinks title={t("marketing", locale, "footer.product")} links={[{ href: localizeURL("/#create", locale), label: t("marketing", locale, "nav.product") }, { href: localizeURL("/worlds", locale), label: t("marketing", locale, "nav.worlds") }, { href: localizeURL("/apps", locale), label: t("marketing", locale, "nav.apps") }, { href: localizeURL("/#open", locale), label: t("marketing", locale, "nav.openSource") }, { href: localizeURL("/docs", locale), label: t("marketing", locale, "nav.docs") }, { href: appURL, label: t("marketing", locale, "footer.openWorkspace") }]} />
+        <FooterLinks title={t("marketing", locale, "footer.product")} links={[{ href: localizeURL("/#clone", locale), label: t("marketing", locale, "nav.product") }, { href: localizeURL("/worlds", locale), label: t("marketing", locale, "nav.worlds") }, { href: localizeURL("/apps", locale), label: t("marketing", locale, "nav.apps") }, { href: localizeURL("/#open", locale), label: t("marketing", locale, "nav.openSource") }, { href: localizeURL("/docs", locale), label: t("marketing", locale, "nav.docs") }, { href: appURL, label: t("marketing", locale, "footer.openWorkspace") }]} />
         <FooterLinks title={t("marketing", locale, "footer.resources")} links={[{ href: localizeURL("/blog", locale), label: t("marketing", locale, "nav.blog") }, { href: "https://github.com/6174/recut", label: t("marketing", locale, "footer.github") }]} />
       </div>
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 border-t px-5 py-5 sm:flex-row sm:px-8">
@@ -172,13 +170,17 @@ function FooterLinks({ links, title }: { links: ReadonlyArray<{ href: string; la
   );
 }
 
+// 官网叙事图的真实素材来源：优先取 World 封面与角色图；only 指定单个 World（Hero 固定用小小地球事务所）。
+export function selectMarketingMedia(worlds: MarketingWorld[], limit = 8, only?: string): string[] {
+  const scope = only && worlds.some((world) => world.id === only) ? worlds.filter((world) => world.id === only) : worlds;
+  return Array.from(new Set([...scope.map((world) => world.coverUrl), ...scope.flatMap((world) => world.images)].filter(Boolean))).slice(0, limit);
+}
+
 export function MarketingHero({ worlds = [] }: { worlds?: MarketingWorld[] }) {
   const appURL = useMarketingAppURL();
   const locale = useMarketingLocale();
   const heroRef = useRef<HTMLElement>(null);
-  // Hero 素材统一取小小地球事务所（pgc.xiaohuige）的真实画面；该世界缺失时回退全部世界。
-  const heroWorlds = worlds.some((world) => world.id === "pgc.xiaohuige") ? worlds.filter((world) => world.id === "pgc.xiaohuige") : worlds;
-  const media = Array.from(new Set([...heroWorlds.map((world) => world.coverUrl), ...heroWorlds.flatMap((world) => world.images)].filter(Boolean))).slice(0, 8);
+  const media = selectMarketingMedia(worlds, 8, "pgc.xiaohuige");
 
   useLayoutEffect(() => {
     const root = heroRef.current;
@@ -209,7 +211,7 @@ export function MarketingHero({ worlds = [] }: { worlds?: MarketingWorld[] }) {
             <p className="mt-6 max-w-xl text-base leading-7 text-white/60 sm:text-lg" data-hero-body>{t("marketing", locale, "hero.tagline")}</p>
             <div className="mt-9 flex flex-wrap gap-3" data-hero-cta>
               <a className="inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "hero" })}>{t("marketing", locale, "hero.install")} <span aria-hidden="true" className="ml-1">↗</span></a>
-              <a className="inline-flex h-11 items-center rounded-lg border border-white/15 bg-white/[0.03] px-5 text-sm font-semibold text-white/85 transition hover:bg-white/[0.08]" href="#how" onClick={() => trackEvent("recut_docs_clicked", { location: "hero" })}>{t("marketing", locale, "hero.readDocs")}</a>
+              <a className="inline-flex h-11 items-center rounded-lg border border-white/15 bg-white/[0.03] px-5 text-sm font-semibold text-white/85 transition hover:bg-white/[0.08]" href="#clone" onClick={() => trackEvent("recut_docs_clicked", { location: "hero" })}>{t("marketing", locale, "hero.readDocs")}</a>
             </div>
             <p className="mt-5 font-mono text-[11px] tracking-[0.16em] text-white/35" data-hero-body>{t("marketing", locale, "hero.subtext")}</p>
           </div>
@@ -221,7 +223,8 @@ export function MarketingHero({ worlds = [] }: { worlds?: MarketingWorld[] }) {
 }
 
 export function MarketingLanding({ posts, worlds = [] }: { posts: MarketingPost[]; worlds?: MarketingWorld[] }) {
-  return <><MarketingHero worlds={worlds} /><CreateFromAnything /><CloneWhatWorks /><FromIdeaToVideo /><OneIdeaManyVideos /><MarketingWorldsSection worlds={worlds} /><HowItWorks /><AudienceSection /><FeaturedApplications /><ProductSection /><CompareSection /><LatestPosts posts={posts} /><HomeFaqSection /><FinalCTA /></>;
+  const media = selectMarketingMedia(worlds, 12);
+  return <><MarketingHero worlds={worlds} /><CloneWhatWorks images={selectMarketingMedia(worlds, 8, "pgc.adan")} /><FromIdeaToVideo images={media} /><MarketingWorldsSection worlds={worlds} /><ProductSection images={media} /><LatestPosts posts={posts} /><FinalCTA /></>;
 }
 
 function SectionHeading({ eyebrow, title, tagline }: { eyebrow: string; title: string; tagline: string }) {
@@ -234,59 +237,21 @@ function SectionHeading({ eyebrow, title, tagline }: { eyebrow: string; title: s
   );
 }
 
-function StartIcon({ kind }: { kind: "video" | "idea" | "world" }) {
-  const common = { fill: "none", stroke: "currentColor", strokeLinecap: "round" as const, strokeLinejoin: "round" as const, strokeWidth: 1.6 };
-  return (
-    <span className="grid size-11 place-items-center rounded-xl border border-primary/25 bg-primary/10 text-primary">
-      {kind === "video" && <svg aria-hidden="true" className="size-5" viewBox="0 0 24 24" {...common}><rect height="14" rx="2.5" width="18" x="3" y="6" /><path d="m10 10.5 5 3-5 3z" /></svg>}
-      {kind === "idea" && <svg aria-hidden="true" className="size-5" viewBox="0 0 24 24" {...common}><path d="M9 18h6M10 21h4" /><path d="M12 3a6 6 0 0 0-3.5 10.9c.4.3.5.7.5 1.1v1h6v-1c0-.4.1-.8.5-1.1A6 6 0 0 0 12 3Z" /></svg>}
-      {kind === "world" && <svg aria-hidden="true" className="size-5" viewBox="0 0 24 24" {...common}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.4 3.8 5.5 3.8 9S14.5 18.6 12 21c-2.5-2.4-3.8-5.5-3.8-9S9.5 5.4 12 3Z" /></svg>}
-    </span>
-  );
-}
-
-function CreateFromAnything() {
-  const locale = useMarketingLocale();
-  const items = [
-    { kind: "video" as const, badge: "create.videoBadge", title: "create.videoTitle", body: "create.videoBody", cta: "create.videoCta", href: "#clone" },
-    { kind: "idea" as const, badge: "create.ideaBadge", title: "create.ideaTitle", body: "create.ideaBody", cta: "create.ideaCta", href: "#agent" },
-    { kind: "world" as const, badge: "create.worldBadge", title: "create.worldTitle", body: "create.worldBody", cta: "create.worldCta", href: localizeURL("/worlds", locale) },
-  ];
-  return (
-    <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8" id="create">
-      <SectionHeading eyebrow={t("marketing", locale, "create.eyebrow")} tagline={t("marketing", locale, "create.tagline")} title={t("marketing", locale, "create.title")} />
-      <div className="mt-10 grid gap-4 md:grid-cols-3">
-        {items.map(({ kind, badge, title, body, cta, href }) => (
-          <a className="group flex flex-col rounded-2xl border bg-card p-6 transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]" href={href} key={badge}>
-            <div className="flex items-center justify-between">
-              <StartIcon kind={kind} />
-              <span className="rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-primary">{t("marketing", locale, badge)}</span>
-            </div>
-            <h3 className="mt-6 text-lg font-semibold">{t("marketing", locale, title)}</h3>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("marketing", locale, body)}</p>
-            <span className="mt-auto pt-6 text-sm font-semibold text-primary">{t("marketing", locale, cta)}</span>
-          </a>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function CloneWhatWorks() {
+function CloneWhatWorks({ images }: { images: string[] }) {
   const appURL = useMarketingAppURL();
   const locale = useMarketingLocale();
   return (
     <section className="border-y bg-card" id="clone">
       <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
         <SectionHeading eyebrow={t("marketing", locale, "clone.eyebrow")} tagline={t("marketing", locale, "clone.tagline")} title={t("marketing", locale, "clone.title")} />
-        <div className="mt-10"><CloneFlowDiagram /></div>
+        <div className="mt-10"><CloneFlowDiagram images={images} /></div>
         <a className="mt-8 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "clone" })}>{t("marketing", locale, "clone.cta")}</a>
       </div>
     </section>
   );
 }
 
-function FromIdeaToVideo() {
+function FromIdeaToVideo({ images }: { images: string[] }) {
   const appURL = useMarketingAppURL();
   const locale = useMarketingLocale();
   return (
@@ -297,149 +262,47 @@ function FromIdeaToVideo() {
           <p className="mt-5 max-w-md text-sm leading-6 text-muted-foreground">{t("marketing", locale, "agent.note")}</p>
           <a className="mt-7 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "agent" })}>{t("marketing", locale, "hero.install")} <span aria-hidden="true" className="ml-1">↗</span></a>
         </div>
-        <AgentPipelineDiagram />
+        <AgentPipelineDiagram images={images} />
       </div>
-      <div className="mt-20 border-t pt-14" id="editor">
-        <SectionHeading eyebrow={t("marketing", locale, "editor.eyebrow")} tagline={t("marketing", locale, "editor.tagline")} title={t("marketing", locale, "editor.title")} />
+      <div className="mt-16 border-t pt-10" id="editor">
+        <p className="mx-auto max-w-2xl text-center text-sm leading-6 text-muted-foreground">{t("marketing", locale, "editor.tagline")}</p>
         <MarketingEditorDemo locale={locale} />
       </div>
     </section>
   );
 }
 
-function OneIdeaManyVideos() {
-  const locale = useMarketingLocale();
-  return (
-    <section className="border-y bg-card" id="batch">
-      <div className="mx-auto max-w-5xl px-5 py-20 sm:px-8">
-        <div className="mx-auto max-w-2xl text-center">
-          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "batch.eyebrow")}</p>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "batch.title")}</h2>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("marketing", locale, "batch.tagline")}</p>
-        </div>
-        <div className="mt-10"><BatchDiagram /></div>
-      </div>
-    </section>
-  );
-}
-
-
-function HowItWorks() {
-  const locale = useMarketingLocale();
-  return (
-    <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8" id="how">
-      <SectionHeading eyebrow={t("marketing", locale, "how.eyebrow")} tagline={t("marketing", locale, "how.tagline")} title={t("marketing", locale, "how.title")} />
-      <div className="mt-10 grid gap-4 md:grid-cols-3">{HOW_IT_WORKS[locale].map(({ step, title, description }) => <div className="rounded-2xl border bg-card p-6" key={step}><span className="font-mono text-sm font-semibold text-primary">{step}</span><h3 className="mt-4 text-lg font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p></div>)}</div>
-    </section>
-  );
-}
-
-function AudienceSection() {
-  const locale = useMarketingLocale();
-  const items = [
-    [t("marketing", locale, "audience.item1Title"), t("marketing", locale, "audience.item1Body"), localizeURL("/apps/recut.audio-studio", locale)],
-    [t("marketing", locale, "audience.item2Title"), t("marketing", locale, "audience.item2Body"), localizeURL("/apps/recut.remotion-studio", locale)],
-    [t("marketing", locale, "audience.item3Title"), t("marketing", locale, "audience.item3Body"), localizeURL("/blog/local-first-creative-workspace", locale)],
-    [t("marketing", locale, "audience.item4Title"), t("marketing", locale, "audience.item4Body"), localizeURL("/apps", locale)],
-  ] as const;
-  return (
-    <section className="border-y bg-card">
-      <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
-        <div className="max-w-2xl">
-          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "audience.eyebrow")}</p>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "audience.title")}</h2>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("marketing", locale, "audience.tagline")}</p>
-        </div>
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{items.map(([title, description, href]) => <a className="group rounded-2xl border bg-background p-6 transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-sm" href={href} key={title}><h3 className="text-lg font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p><span className="mt-4 inline-flex text-sm font-semibold text-primary">{t("marketing", locale, "audience.learnMore")}</span></a>)}</div>
-      </div>
-    </section>
-  );
-}
-
-function CompareSection() {
+// 差异化的唯一落点：品牌主张 + 本机所有权示意 + 对比竞品的三条事实，避免与世界观、能力区块重复叙事。
+export function ProductSection({ images }: { images?: string[] }) {
   const locale = useMarketingLocale();
   const rows = [
-    [t("marketing", locale, "compare.row1a"), t("marketing", locale, "compare.row1b"), t("marketing", locale, "compare.row1c"), t("marketing", locale, "compare.row1d"), t("marketing", locale, "compare.row1e")],
-    [t("marketing", locale, "compare.row2a"), t("marketing", locale, "compare.row2b"), t("marketing", locale, "compare.row2c"), t("marketing", locale, "compare.row2d"), t("marketing", locale, "compare.row2e")],
-    [t("marketing", locale, "compare.row3a"), t("marketing", locale, "compare.row3b"), t("marketing", locale, "compare.row3c"), t("marketing", locale, "compare.row3d"), t("marketing", locale, "compare.row3e")],
-    [t("marketing", locale, "compare.row4a"), t("marketing", locale, "compare.row4b"), t("marketing", locale, "compare.row4c"), t("marketing", locale, "compare.row4d"), t("marketing", locale, "compare.row4e")],
+    ["compare.row1a", "compare.row1b", "compare.row1c", "compare.row1d", "compare.row1e"],
+    ["compare.row2a", "compare.row2b", "compare.row2c", "compare.row2d", "compare.row2e"],
+    ["compare.row3a", "compare.row3b", "compare.row3c", "compare.row3d", "compare.row3e"],
   ] as const;
   return (
-    <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
-      <div className="max-w-2xl">
-        <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "compare.eyebrow")}</p>
-        <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "compare.title")}</h2>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("marketing", locale, "compare.tagline")}</p>
-      </div>
-      <div className="mt-10 overflow-x-auto rounded-2xl border bg-card">
-        <table className="w-full min-w-[40rem] text-left text-sm">
-          <thead><tr className="border-b text-muted-foreground"><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerDimension")}</th><th className="p-4 font-semibold text-primary">{t("marketing", locale, "compare.headerRecut")}</th><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerJianying")}</th><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerCloud")}</th><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerPro")}</th></tr></thead>
-          <tbody>{rows.map(([label, recut, jianying, cloud, pro]) => <tr className="border-b last:border-0" key={label}><td className="p-4 text-muted-foreground">{label}</td><td className="p-4 font-medium text-foreground">{recut}</td><td className="p-4">{jianying}</td><td className="p-4">{cloud}</td><td className="p-4">{pro}</td></tr>)}</tbody>
-        </table>
-      </div>
-      <p className="mt-4 text-xs text-muted-foreground">{t("marketing", locale, "compare.footnote")}</p>
-    </section>
-  );
-}
-
-function HomeFaqSection() {
-  const locale = useMarketingLocale();
-  return (
-    <section className="border-y bg-card">
-      <div className="mx-auto max-w-4xl px-5 py-20 sm:px-8">
-        <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "faq.eyebrow")}</p>
-        <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "faq.title")}</h2>
-        <div className="mt-10 grid gap-4">{HOME_FAQ[locale].map(({ question, answer }) => <div className="rounded-2xl border bg-background p-6" key={question}><h3 className="text-lg font-semibold">{question}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{answer}</p></div>)}</div>
-      </div>
-    </section>
-  );
-}
-
-export function ProductSection() {
-  const locale = useMarketingLocale();
-  const values = [
-    [t("marketing", locale, "product.value1Title"), t("marketing", locale, "product.value1Body"), localizeURL("/blog/local-first-creative-workspace", locale)],
-    [t("marketing", locale, "product.value2Title"), t("marketing", locale, "product.value2Body"), "https://github.com/6174/recut"],
-    [t("marketing", locale, "product.value3Title"), t("marketing", locale, "product.value3Body"), localizeURL("/blog/creative-tools-should-be-extensible", locale)],
-  ] as const;
-  return (
-    <section className="border-y bg-card" id="open">
+    <section id="open">
       <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
-        <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr]">
+        <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:items-center">
           <div>
             <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "product.eyebrow")}</p>
             <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "product.title1")}<br />{t("marketing", locale, "product.title2")}</h2>
             <p className="mt-5 max-w-sm text-sm leading-6 text-muted-foreground">{t("marketing", locale, "product.tagline")}</p>
             <a className="mt-7 inline-flex h-11 items-center rounded-lg border bg-background px-5 text-sm font-semibold transition hover:border-primary/35" href="https://github.com/6174/recut" onClick={() => trackEvent("recut_external_clicked", { target: "github", location: "architecture" })} rel="noreferrer" target="_blank">{t("marketing", locale, "product.architectureCta")}</a>
           </div>
-          <div className="grid gap-3">{values.map(([title, description, href], index) => <article className="grid gap-4 rounded-xl border bg-background p-5 sm:grid-cols-[3rem_1fr]" key={title}><span className="font-mono text-sm font-semibold text-primary">0{index + 1}</span><div><h3 className="text-lg font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p><a className="mt-3 inline-flex text-sm font-semibold text-primary" href={href}>{index === 1 ? t("marketing", locale, "product.seeGithub") : t("marketing", locale, "product.learnMore")} →</a></div></article>)}</div>
+          <OwnershipDiagram images={images} />
         </div>
-        <div className="mt-12"><OwnershipDiagram /></div>
-      </div>
-    </section>
-  );
-}
-
-function FeaturedApplications() {
-  const appURL = useMarketingAppURL();
-  const locale = useMarketingLocale();
-  const apps = [
-    [t("marketing", locale, "featured.item1Title"), t("marketing", locale, "featured.item1Body"), "TIMELINE", "timeline", localizeURL("/apps/recut.editor", locale)],
-    [t("marketing", locale, "featured.item2Title"), t("marketing", locale, "featured.item2Body"), "CONTEXT", "context", ""],
-    [t("marketing", locale, "featured.item3Title"), t("marketing", locale, "featured.item3Body"), "VOICE", "voice", localizeURL("/apps/recut.audio-studio", locale)],
-    [t("marketing", locale, "featured.item4Title"), t("marketing", locale, "featured.item4Body"), "EXTEND", "extend", localizeURL("/apps", locale)],
-  ] as const;
-  return (
-    <section aria-labelledby="featured-apps-title" className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
-      <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-        <div className="max-w-2xl">
-          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "featured.eyebrow")}</p>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl" id="featured-apps-title">{t("marketing", locale, "featured.title")}</h2>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("marketing", locale, "featured.tagline")}</p>
+        <div className="mt-16">
+          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "compare.eyebrow")}</p>
+          <div className="mt-5 overflow-x-auto rounded-2xl border bg-background">
+            <table className="w-full min-w-[40rem] text-left text-sm">
+              <thead><tr className="border-b text-muted-foreground"><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerDimension")}</th><th className="p-4 font-semibold text-primary">{t("marketing", locale, "compare.headerRecut")}</th><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerJianying")}</th><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerCloud")}</th><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerPro")}</th></tr></thead>
+              <tbody>{rows.map(([label, recut, jianying, cloud, pro]) => <tr className="border-b last:border-0" key={label}><td className="p-4 text-muted-foreground">{t("marketing", locale, label)}</td><td className="p-4 font-medium text-foreground">{t("marketing", locale, recut)}</td><td className="p-4">{t("marketing", locale, jianying)}</td><td className="p-4">{t("marketing", locale, cloud)}</td><td className="p-4">{t("marketing", locale, pro)}</td></tr>)}</tbody>
+            </table>
+          </div>
+          <p className="mt-4 text-xs text-muted-foreground">{t("marketing", locale, "compare.footnote")}</p>
         </div>
-        <a className="text-sm font-semibold text-primary" href={`${appURL}/apps`}>{t("marketing", locale, "featured.browseApps")}</a>
       </div>
-      <div className="mt-10 grid gap-3 md:grid-cols-2">{apps.map(([title, description, label, kind, href], index) => { const card = <article className="group flex min-h-80 flex-col overflow-hidden rounded-2xl border bg-card p-5 transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]"><div className="flex items-center justify-between"><span className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">{label}</span><span className="grid size-8 place-items-center rounded-full border text-sm text-muted-foreground transition group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground">0{index + 1}</span></div><div className="mt-4"><MarketingFeatureIllustration kind={kind as MarketingFeatureKind} /></div><div className="mt-5"><h3 className="text-xl font-semibold">{title}</h3><p className="mt-3 max-w-sm text-sm leading-6 text-muted-foreground">{description}</p></div></article>; return href ? <a className="block" href={href} key={title}>{card}</a> : <div className="block" key={title}>{card}</div>; })}</div>
     </section>
   );
 }
@@ -475,16 +338,18 @@ function PostDate({ className, date }: { className?: string; date: string }) {
 function LatestPosts({ posts }: { posts: MarketingPost[] }) {
   const locale = useMarketingLocale();
   return (
-    <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
-      <div className="flex items-end justify-between gap-5">
-        <div>
-          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">LATEST FROM RECUT</p>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "blog.title")}</h2>
+    <section className="border-y bg-card">
+      <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
+        <div className="flex items-end justify-between gap-5">
+          <div>
+            <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">LATEST FROM RECUT</p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "blog.title")}</h2>
+          </div>
+          <a className="hidden text-sm font-semibold text-primary sm:inline" href={localizeURL("/blog", locale)}>{t("marketing", locale, "blog.allPosts")}</a>
         </div>
-        <a className="hidden text-sm font-semibold text-primary sm:inline" href={localizeURL("/blog", locale)}>{t("marketing", locale, "blog.allPosts")}</a>
+        <div className="mt-10 grid gap-4 md:grid-cols-3">{posts.map((post) => <article className="flex min-h-60 flex-col rounded-2xl border bg-background p-5" key={post.slug}><PostDate className="text-[10px]" date={post.date} /><h3 className="mt-8 text-lg font-semibold leading-6"><a className="transition hover:text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{post.title[locale]}</a></h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{post.description[locale]}</p><a className="mt-auto pt-6 text-sm font-semibold text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{t("marketing", locale, "blog.continueReading")}</a></article>)}</div>
+        <a className="mt-6 inline-flex text-sm font-semibold text-primary sm:hidden" href={localizeURL("/blog", locale)}>{t("marketing", locale, "blog.allPosts")}</a>
       </div>
-      <div className="mt-10 grid gap-4 md:grid-cols-3">{posts.map((post) => <article className="flex min-h-60 flex-col rounded-2xl border bg-card p-5" key={post.slug}><PostDate className="text-[10px]" date={post.date} /><h3 className="mt-8 text-lg font-semibold leading-6"><a className="transition hover:text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{post.title[locale]}</a></h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{post.description[locale]}</p><a className="mt-auto pt-6 text-sm font-semibold text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{t("marketing", locale, "blog.continueReading")}</a></article>)}</div>
-      <a className="mt-6 inline-flex text-sm font-semibold text-primary sm:hidden" href={localizeURL("/blog", locale)}>{t("marketing", locale, "blog.allPosts")}</a>
     </section>
   );
 }

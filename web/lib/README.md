@@ -8,7 +8,6 @@ appstore.ts: 应用市场（可添加 App）的唯一云端数据源；从 `<sit
 marketing-apps.ts: 官网应用市场的 MDX 加载器；用 gray-matter 读取 `content/apps/<locale>/*.mdx`，frontmatter 解析 `id/name/type/tagline/description/keywords/relatedApps/repository/requirements/faq`，正文为自由 markdown；导出 `MarketingApp` 与 `marketingApps`/`getMarketingApp`；只在服务端模块导入，客户端组件一律经 props 接收数据，避免 `node:fs` 进入浏览器包；App 的 `id` 需与工作台 Catalog 的 app id 一致以打通深链，但内容与安装目录完全解耦。
 content-locale.ts: 内容目录默认 locale（`zh-CN`）与可用 locale 清单常量；多语言接入时在此扩展，blog 与 App 的 MDX 加载器共用。
 docs.ts: 官网 Docs 的 MDX 加载器；读取 `content/docs/<locale>/*.mdx`，frontmatter 解析 `title/description/group/order`，正文为自由 markdown；导出 `DocPage` 与 `loadDocs`/`getDoc`；只在服务端模块导入，客户端组件经 props 接收数据；`group` 供索引按分组展示。
-marketing-home.ts: 官网首页的静态营销数据；`HOME_FAQ` 六条常见问题（免费/与剪映区别/素材隐私/配置要求/是否要写代码/能做什么）与 `HOW_IT_WORKS` 三步开始流程，供首页渲染与首页 FAQPage JSON-LD 共用，避免客户端与服务端各维护一份。
 service-endpoint.ts: Recut service 根地址、`local`/`lan`/`cloud` 工作台模式、格式校验与本地事件流地址；本机默认把 SSE/WebSocket 切到相邻端口，避免长连接耗尽短 API 的浏览器连接池；嵌入式 local 工作台始终以浏览器同源地址连接 service，LAN 开发工作台复用当前主机名和 service 端口，不持有运行时状态。
 service-store.ts: 基于 Zustand persist 的 service 状态唯一真相；持久化 endpoint 并让所有 HTTP、SSE、WebSocket 调用订阅该值，ServiceControl 负责连接轮询，避免路由切换或刷新后退回旧地址。
 agent-store.ts: Agent 元数据、会话列表、当前会话和详情快照的内存缓存；请求按 endpoint 去重，面板拥有 SSE 连接但将增量回写缓存。

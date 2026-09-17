@@ -6,30 +6,32 @@
  */
 "use client";
 
-import { useMarketingLocale, useMarketingAppURL } from "@/components/marketing-site";
+import { useMarketingLocale, useMarketingAppURL, selectMarketingMedia } from "@/components/marketing-site";
 import { t, localizeURL } from "@/lib/i18n";
 import { trackEvent } from "@/components/posthog-analytics";
 import type { MarketingWorld } from "@/lib/marketing-worlds";
-import { ConsistencyDiagram } from "@/components/marketing-narrative-diagrams";
+import { WorldEngineDiagram } from "@/components/marketing-narrative-diagrams";
 import { MarketingWorldCanvasPreview } from "./marketing-world-canvas-preview";
 
 export function MarketingWorldsSection({ worlds }: { worlds: MarketingWorld[] }) {
   const locale = useMarketingLocale();
   if (!worlds.length) return null;
   return (
-    <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8" id="worlds">
-      <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-        <div className="max-w-2xl">
-          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "worlds.eyebrow")}</p>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "worlds.section.title")}</h2>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("marketing", locale, "worlds.section.tagline")}</p>
+    <section className="border-y bg-card" id="worlds">
+      <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
+        <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+          <div className="max-w-2xl">
+            <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "worlds.eyebrow")}</p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "worlds.section.title")}</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("marketing", locale, "worlds.section.tagline")}</p>
+          </div>
+          <a className="text-sm font-semibold text-primary" href={localizeURL("/worlds", locale)}>{t("marketing", locale, "worlds.viewAll")}</a>
         </div>
-        <a className="text-sm font-semibold text-primary" href={localizeURL("/worlds", locale)}>{t("marketing", locale, "worlds.viewAll")}</a>
-      </div>
-      <div className="mx-auto mt-10 max-w-4xl"><ConsistencyDiagram /></div>
-      <p className="mt-12 font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "worlds.startLabel")}</p>
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {worlds.slice(0, 4).map((world) => <MarketingWorldCard key={world.id} world={world} locale={locale} href={localizeURL(`/worlds/${world.id}`, locale)} />)}
+        <div className="mx-auto mt-12 max-w-5xl"><WorldEngineDiagram images={selectMarketingMedia(worlds, 8, "pgc.xiaohuige")} /></div>
+        <p className="mt-16 font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "worlds.startLabel")}</p>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {worlds.slice(0, 4).map((world) => <MarketingWorldCard key={world.id} world={world} locale={locale} href={localizeURL(`/worlds/${world.id}`, locale)} />)}
+        </div>
       </div>
     </section>
   );

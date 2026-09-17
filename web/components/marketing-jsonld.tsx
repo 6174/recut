@@ -1,12 +1,11 @@
 /*
- * [INPUT]: 依赖 lib/marketing-posts / lib/marketing-apps 双语言目录、lib/marketing-home 双语言 FAQ、lib/i18n（Locale/localizeURL/t）；无运行时状态
+ * [INPUT]: 依赖 lib/marketing-posts / lib/marketing-apps 双语言目录、lib/i18n（Locale/localizeURL/t）；无运行时状态
  * [OUTPUT]: 对外提供官网 JSON-LD 结构化数据的服务端组件：Organization、WebSite、SoftwareApplication、Blog 列表与 BlogPosting、BreadcrumbList；inLanguage 与 URL 逐语言，经 locale prop 传入
  * [POS]: web/components 的公开官网数据层；只在服务端页面渲染，禁止进入客户端组件子树（React 19 要求客户端 `<script>` 带 async）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { marketingPosts, type MarketingPost } from "@/lib/marketing-posts";
 import { appDescription, appName, marketingApps, type MarketingApp } from "@/lib/marketing-apps";
-import { HOME_FAQ } from "@/lib/marketing-home";
 import { localizeURL, t, type Locale } from "@/lib/i18n";
 
 const SITE_URL = "https://recut.video";
@@ -65,18 +64,6 @@ export function SoftwareApplicationJsonLd({ locale }: { locale: Locale }) {
       t("marketing", locale, "jsonld.feature5"),
     ],
     offers: { "@type": "Offer", price: 0, priceCurrency: "CNY" },
-  }} />;
-}
-
-export function HomeFaqJsonLd({ locale }: { locale: Locale }) {
-  return <JsonLd data={{
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: HOME_FAQ[locale].map(({ question, answer }) => ({
-      "@type": "Question",
-      name: question,
-      acceptedAnswer: { "@type": "Answer", text: answer },
-    })),
   }} />;
 }
 

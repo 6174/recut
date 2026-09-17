@@ -47,7 +47,9 @@ const zh = {
   "nav.openSource": "开源",
   "worlds.eyebrow": "CREATION WORLDS",
   "worlds.section.title": "创作一次，一直创作。",
-  "worlds.section.tagline": "你的角色、故事与风格在每条视频里都保持一致。把它们存进一个世界观，@ 一下就能持续产出，不用每次重新告诉 AI 你的角色是谁。",
+  "worlds.section.tagline": "把一个概念做成 World：角色、故事与风格固化成一个可长期复用的资产。之后不断迭代、持续产出各平台各语言的新视频，而不是每次从零生成。",
+  "worlds.engine.asset": "永久资产，而非一次性生成",
+  "worlds.engine.loop": "持续迭代 · 持续输出",
   "worlds.startLabel": "从一个世界观开始",
   "worlds.viewAll": "浏览全部世界观 →",
   "worlds.title": "世界观目录",
@@ -170,6 +172,7 @@ const zh = {
   "worlds.consistency.voice": "声音",
   "worlds.consistency.rules": "规则",
   "worlds.consistency.output": "视频",
+  "worlds.consistency.note": "同一个角色、同一套风格，每一条视频都成立。",
 
   // —— 为你所有：技术底座的五个可拥有项 ——
   "ownership.openSource": "开源",
@@ -407,7 +410,9 @@ const en: Record<keyof typeof zh, string> = {
   "nav.openSource": "Open Source",
   "worlds.eyebrow": "CREATION WORLDS",
   "worlds.section.title": "Create once. Keep creating.",
-  "worlds.section.tagline": "Your characters, stories and style stay consistent across every video. Save them once in a World — @ mention it and keep producing, instead of re-explaining your characters to AI every time.",
+  "worlds.section.tagline": "Turn a concept into a World: characters, story and style frozen into a reusable asset. Then keep iterating and shipping new videos across platforms and languages — instead of generating from scratch every time.",
+  "worlds.engine.asset": "A permanent asset, not a one-off",
+  "worlds.engine.loop": "Keep iterating · keep shipping",
   "worlds.startLabel": "Start with a world",
   "worlds.viewAll": "Browse all worlds →",
   "worlds.title": "Worlds catalog",
@@ -524,6 +529,7 @@ const en: Record<keyof typeof zh, string> = {
   "worlds.consistency.voice": "Voice",
   "worlds.consistency.rules": "Rules",
   "worlds.consistency.output": "VIDEO",
+  "worlds.consistency.note": "Same characters, same style — true for every video.",
 
   "ownership.openSource": "Open source",
   "ownership.local": "Local",

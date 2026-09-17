@@ -8,7 +8,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { t, type Locale } from "@/lib/i18n";
 import { MarketingLanding, MarketingShell } from "@/components/marketing-site";
-import { HomeFaqJsonLd, MarketingAppsItemListJsonLd, OrganizationJsonLd, SoftwareApplicationJsonLd, WebSiteJsonLd } from "@/components/marketing-jsonld";
+import { MarketingAppsItemListJsonLd, OrganizationJsonLd, SoftwareApplicationJsonLd, WebSiteJsonLd } from "@/components/marketing-jsonld";
 import { marketingPosts } from "@/lib/marketing-posts";
 import { fetchMarketingWorlds } from "@/lib/marketing-worlds";
 import { buildAlternates, buildOpenGraph, buildTwitter } from "./seo";
@@ -43,7 +43,6 @@ export default async function MarketingHomePage({ params }: { params: Promise<{ 
     <WebSiteJsonLd locale={current} />
     <SoftwareApplicationJsonLd locale={current} />
     <MarketingAppsItemListJsonLd locale={current} />
-    <HomeFaqJsonLd locale={current} />
     <MarketingShell locale={current}><MarketingLanding posts={marketingPosts} worlds={worlds} /></MarketingShell>
   </>;
 }
