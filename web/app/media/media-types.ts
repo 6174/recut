@@ -23,6 +23,15 @@ export type Asset = {
   metadata: {
     prompt?: string;
     capability?: unknown;
+    content?: unknown;
+    contentMeta?: unknown;
+    attributes?: Array<{
+      key: string;
+      label?: string;
+      type?: string;
+      value?: unknown;
+      source?: string;
+    }>;
     generationCompletedAt?: unknown;
     generationDurationMs?: unknown;
     generationStartedAt?: unknown;

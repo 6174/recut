@@ -18,8 +18,6 @@ import { RichComposer } from "@/components/rich-composer/rich-composer";
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import { useWorldCanvasStore } from "./canvas-store";
 
-const INLINE_REF_TYPES = ["creation_entity", "creation_world", "media"];
-
 // 各编辑形态与画布渲染的排版对齐表（字号/行高/内边距/颜色均为世界单位，随视口缩放；
 // 来源：NoteBlockV 11/16 + offset(10,10)（note-block-v.ts）、FreeElementBlockV text 13/20 无内边距、
 // attr 文本 11/17 + offset(10,10)（free-element-block-v.ts）、EntityCardBlockV 标题 15 @PAD=14、attr 徽标 11）。
@@ -170,7 +168,6 @@ export function CanvasInlineEditor() {
           style={metricVars}
         >
           <RichComposer
-            allowedRefTypes={INLINE_REF_TYPES}
             apiBase={apiBase}
             autoFocus
             className={metricClass}
@@ -223,7 +220,6 @@ export function CanvasInlineEditor() {
               </header>
               <div className="min-h-0 flex-1 overflow-y-auto p-4">
                 <RichComposer
-                  allowedRefTypes={INLINE_REF_TYPES}
                   apiBase={apiBase}
                   autoFocus
                   minRows={8}

@@ -13,6 +13,7 @@ import {
   groupCounts,
   matchScore,
   rankOptions,
+  splitEntityQuery,
 } from "./search";
 import type { ContextOption, ContextSearchContext, ContextSource } from "./types";
 
@@ -32,7 +33,6 @@ const ctx = (runtime: ContextSearchContext["runtime"]): ContextSearchContext => 
   group: "all",
   runtime,
   signal: new AbortController().signal,
-  limit: 8,
 });
 
 describe("matchScore", () => {
@@ -43,6 +43,16 @@ describe("matchScore", () => {
     assert.equal(matchScore("一只小黄牛", "小黄牛"), 60);
     assert.equal(matchScore("小x黄x牛", "小黄牛"), 40);
     assert.equal(matchScore("完全无关", "小黄牛"), -1);
+  });
+});
+
+describe("splitEntityQuery", () => {
+  it("splits World.entity into two fuzzy filters", () => {
+    assert.deepEqual(splitEntityQuery(""), { worldQuery: "", entityQuery: "" });
+    assert.deepEqual(splitEntityQuery("阿蛋"), { worldQuery: "", entityQuery: "阿蛋" });
+    assert.deepEqual(splitEntityQuery("阿蛋."), { worldQuery: "阿蛋", entityQuery: "" });
+    assert.deepEqual(splitEntityQuery("阿蛋.深夜"), { worldQuery: "阿蛋", entityQuery: "深夜" });
+    assert.deepEqual(splitEntityQuery("a.b.c"), { worldQuery: "a", entityQuery: "b.c" });
   });
 });
 
@@ -69,7 +79,7 @@ describe("dedupeOptions / groupCounts / buildContextRows", () => {
       option({ key: "media:a", sourceType: "media", group: "media", title: "素材" }),
     ]);
     assert.equal(options.length, 2);
-    assert.deepEqual(groupCounts(options), { current: 0, world: 1, workspace: 0, media: 1, skill: 0, tool: 0 });
+    assert.deepEqual(groupCounts(options), { current: 0, world: 1, entity: 0, workspace: 0, media: 1, skill: 0, tool: 0 });
     const rows = buildContextRows(options);
     assert.deepEqual(
       rows.map((row) => row.kind),
@@ -101,27 +111,5 @@ describe("fanOutSearch", () => {
     assert.equal(result.errors.length, 1);
     assert.equal(result.errors[0]?.sourceType, "creation_world");
     assert.equal(result.errors[0]?.timedOut, false);
-  });
-
-  it("honors allowedRefTypes trimming", async () => {
-    const calls: string[] = [];
-    const make = (type: string): ContextSource => ({
-      type,
-      attrs: [],
-      identity: () => null,
-      group: "media",
-      titleKey: "x",
-      insertMode: "inline",
-      inlineInsertable: true,
-      icon: () => null,
-      label: () => "",
-      preview: () => ({ title: type, facts: [] }),
-      search: async () => {
-        calls.push(type);
-        return [];
-      },
-    });
-    await fanOutSearch([make("media"), make("creation_world")], { ...ctx(runtime), allowedRefTypes: ["media"] });
-    assert.deepEqual(calls, ["media"]);
   });
 });

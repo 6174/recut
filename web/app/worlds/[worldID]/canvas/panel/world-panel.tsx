@@ -22,8 +22,6 @@ import { FieldRow, typeLabelOf } from "./field-row";
 import { PanelSection } from "@/components/panel-section";
 import { RichFieldRow } from "@/components/world-entity/rich-field-row";
 
-const WORLD_REF_TYPES = ["creation_entity", "creation_world", "media"];
-
 export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefined }) {
   const store = useWorldCanvasStore();
   const apiBase = useWorldCanvasStore((state) => state.apiBase);
@@ -104,7 +102,6 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
         <FieldRow label="名称" value={store.worldName} onSave={(value) => void saveMeta({ name: String(value) })} />
         <RichFieldRow
           apiBase={apiBase}
-          allowedRefTypes={WORLD_REF_TYPES}
           label="简介"
           minRows={3}
           value={worldDetail?.description ?? ""}
@@ -113,7 +110,6 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
         />
         <RichFieldRow
           apiBase={apiBase}
-          allowedRefTypes={WORLD_REF_TYPES}
           label="Skill"
           minRows={6}
           value={worldDetail?.skillMd ?? ""}

@@ -7,13 +7,13 @@
 import type { ReactNode } from "react";
 import type { MessageContext, WorkFocusContext, WorkSurfaceContext } from "@/components/agent-panel-types";
 import type { MediaEventAsset } from "@/components/use-media-asset-events";
-import type { WorldDetail, WorldEntity, WorldEntitySummary, WorldSummary } from "@/lib/recut-worlds-client";
+import type { WorldDetail, WorldEntity, WorldEntitySearchItem, WorldEntitySummary, WorldSummary } from "@/lib/recut-worlds-client";
 import type { WorkspaceApp, WorkspaceInstallation, WorkspaceProject } from "@/lib/workspace-store";
 import type { RefAttrRecord, RefProtocol } from "@/lib/rich-composer/protocol/types";
 
 export type { RefAttrRecord };
 
-export type ContextGroupID = "current" | "world" | "workspace" | "media" | "skill" | "tool";
+export type ContextGroupID = "current" | "world" | "entity" | "workspace" | "media" | "skill" | "tool";
 
 export type ContextBadge = {
   key: string;
@@ -69,9 +69,7 @@ export type ContextSearchContext = {
   subKind?: string;
   scope?: ContextSearchScope;
   runtime: ContextRuntime;
-  allowedRefTypes?: string[];
   signal: AbortSignal;
-  limit: number;
 };
 
 // Skill / MCP 工具的前端投影（与设置页共享 /v1/skills、/v1/mcp/tools 快照）。
@@ -96,6 +94,14 @@ export type ContextRuntime = {
   recentKeys: string[];
   /** Entity 服务端模糊搜索（scope 激活且本地不足时补充） */
   loadEntities?: (worldId: string, query: string) => Promise<WorldEntitySummary[]>;
+  /** 读取单个 Entity 完整内容（含 attrs），下钻属性时使用 */
+  loadEntity?: (worldId: string, entityId: string) => Promise<WorldEntity>;
+  /** 读取 World 详情（含 identity/skillMd），下钻 World 时使用 */
+  loadWorldDetail?: (worldId: string) => Promise<WorldDetail>;
+  /** 读取某个 World 的全部实体摘要，下钻 World 时使用 */
+  loadWorldEntities?: (worldId: string) => Promise<WorldEntitySummary[]>;
+  /** 跨 World 实体全局搜索（Entities 分组）：world/text 两级模糊过滤 */
+  searchEntities?: (input: { text?: string; world?: string; typeId?: string }) => Promise<WorldEntitySearchItem[]>;
 };
 
 // 唯一注册表 ContextSource：协议组（type/attrs/identity/icon/label/toContext/navigate/inlineInsertable）
@@ -110,6 +116,10 @@ export type ContextSource = RefProtocol & {
   search: (ctx: ContextSearchContext) => Promise<ContextOption[]>;
   preview: (option: ContextOption, ctx: ContextSearchContext) => Promise<ContextPreview> | ContextPreview;
   rank?: (option: ContextOption, query: string) => number;
+  /** 该选项是否可展开为下一级（面板在行尾显示下钻入口） */
+  expandable?: (option: ContextOption) => boolean;
+  /** 下钻得到子选项；与 expandable 配对（如 entity/asset → 其 attrs） */
+  children?: (option: ContextOption, ctx: ContextSearchContext) => Promise<ContextOption[]> | ContextOption[];
   icon: (attrs: RefAttrRecord, ctx: { apiBase: string }) => ReactNode;
   label: (attrs: RefAttrRecord) => string;
   toContext?: (attrs: RefAttrRecord) => MessageContext | null;

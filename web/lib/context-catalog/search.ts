@@ -1,16 +1,17 @@
 /*
  * [INPUT]: 依赖 context-catalog/types
- * [OUTPUT]: 对外提供纯函数目录内核：matchScore/rankOptions/mergeOptions/buildContextRows/fanOutSearch 与分组顺序、权重、单来源上限；易单测、可缓存
+ * [OUTPUT]: 对外提供纯函数目录内核：matchScore/rankOptions/mergeOptions/buildContextRows/fanOutSearch 与分组顺序、权重；易单测、可缓存
  * [POS]: web/lib/context-catalog 的目录计算层（选择面 RFC §7）；合并、排序、去重、分组全部在此实现，来源只负责产出候选
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { ContextGroupID, ContextOption, ContextSearchContext, ContextSource } from "./types";
 
-export const CONTEXT_GROUP_ORDER: ContextGroupID[] = ["current", "world", "workspace", "media", "skill", "tool"];
+export const CONTEXT_GROUP_ORDER: ContextGroupID[] = ["current", "world", "entity", "workspace", "media", "skill", "tool"];
 
 const GROUP_WEIGHT: Record<ContextGroupID, number> = {
   current: 50,
   world: 40,
+  entity: 35,
   workspace: 30,
   media: 20,
   skill: 10,
@@ -96,6 +97,13 @@ export function dedupeOptions(options: ContextOption[]): ContextOption[] {
   return out;
 }
 
+// splitEntityQuery 把 `World.实体` 拆成两级模糊过滤（Entities 分组）；无 `.` 时只按实体名过滤。
+export function splitEntityQuery(query: string): { worldQuery: string; entityQuery: string } {
+  const index = query.indexOf(".");
+  if (index < 0) return { worldQuery: "", entityQuery: query.trim() };
+  return { worldQuery: query.slice(0, index).trim(), entityQuery: query.slice(index + 1).trim() };
+}
+
 export type ContextRow =
   | { kind: "header"; key: string; group: ContextGroupID; count: number; label?: string }
   | { kind: "option"; key: string; option: ContextOption };
@@ -122,7 +130,7 @@ export function buildContextRows(
 }
 
 export function groupCounts(options: ContextOption[]): Record<ContextGroupID, number> {
-  const counts = { current: 0, world: 0, workspace: 0, media: 0, skill: 0, tool: 0 } as Record<ContextGroupID, number>;
+  const counts = { current: 0, world: 0, entity: 0, workspace: 0, media: 0, skill: 0, tool: 0 } as Record<ContextGroupID, number>;
   for (const option of options) counts[option.group] += 1;
   return counts;
 }
@@ -134,13 +142,10 @@ export type FanOutResult = {
   errors: ContextSourceError[];
 };
 
-// fanOutSearch 并发所有（或允许的）来源，单来源超时降级但不影响其他来源（RFC §7.1/§15）。
+// fanOutSearch 并发所有来源，单来源超时降级但不影响其他来源（RFC §7.1/§15）。
 export async function fanOutSearch(sources: ContextSource[], ctx: ContextSearchContext): Promise<FanOutResult> {
-  const allowed = ctx.allowedRefTypes?.length
-    ? sources.filter((source) => ctx.allowedRefTypes!.includes(source.type))
-    : sources;
   const results = await Promise.all(
-    allowed.map(async (source): Promise<{ options: ContextOption[]; error?: ContextSourceError }> => {
+    sources.map(async (source): Promise<{ options: ContextOption[]; error?: ContextSourceError }> => {
       try {
         const options = await withTimeout(source.search({ ...ctx, query: ctx.query, signal: ctx.signal }), SOURCE_TIMEOUT_MS);
         return { options };
@@ -182,10 +187,4 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
       },
     );
   });
-}
-
-// 每个来源在不同模式下的返回上限（RFC §6.2）。
-export function sourceLimit(query: string, group: ContextSearchContext["group"], limit: number): number {
-  const scoped = Boolean(query.trim()) || group !== "all";
-  return Math.min(limit, scoped ? 12 : 8);
 }

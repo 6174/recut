@@ -7,7 +7,7 @@
 import { createElement } from "react";
 import { AppWindow, FolderKanban } from "lucide-react";
 import { appContextPayload, projectContextPayload } from "@/components/agent-panel-types";
-import { matchScore, sourceLimit } from "../search";
+import { matchScore } from "../search";
 import type { ContextOption, ContextPreview, ContextSource } from "../types";
 
 export const projectSource: ContextSource = {
@@ -24,8 +24,7 @@ export const projectSource: ContextSource = {
   search: async (ctx) => {
     const query = ctx.query.trim();
     const matched = ctx.runtime.projects
-      .filter((project) => !query || matchScore(`${project.name} ${project.appId}`, query) > 0)
-      .slice(0, sourceLimit(ctx.query, ctx.group, ctx.limit));
+      .filter((project) => !query || matchScore(`${project.name} ${project.appId}`, query) > 0);
     return matched.map((project): ContextOption => ({
       key: `project:${project.id}`,
       sourceType: "project",
@@ -74,7 +73,6 @@ export const appSource: ContextSource = {
     for (const manifest of [...catalog, ...installed]) byID.set(manifest.id, manifest);
     return [...byID.values()]
       .filter((manifest) => !query || matchScore(`${manifest.name} ${manifest.description ?? ""}`, query) > 0)
-      .slice(0, sourceLimit(ctx.query, ctx.group, ctx.limit))
       .map((manifest): ContextOption => ({
         key: `app:${manifest.id}`,
         sourceType: "app",

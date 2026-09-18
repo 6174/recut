@@ -134,6 +134,17 @@ export function proposalFromAsset(asset: Pick<Asset, "status" | "jobId" | "metad
   });
 }
 
+// 同属服务端 proposed，但语义分两种：
+// - 提案 / proposal：已带生成配方（metadata.proposal），用户可「确认生成」；
+// - 计划 / plan：只有 content/attributes，没有配方，用户应「复制计划给 AI」去生成。
+export function isConfirmableProposal(asset: Pick<Asset, "status" | "jobId" | "metadata">): boolean {
+  return asset.status === "proposed" && Boolean(proposalFromAsset(asset));
+}
+
+export function isPlanAsset(asset: Pick<Asset, "status" | "jobId" | "metadata">): boolean {
+  return asset.status === "proposed" && !proposalFromAsset(asset);
+}
+
 // 提交前自检（映射 recut-director（references/generation-prompt） 的产出自检）：error 阻断确认，warn 仅提示。
 export function proposalIssues(proposal: GenerationProposal): Array<{ level: "error" | "warn"; message: string }> {
   const issues: Array<{ level: "error" | "warn"; message: string }> = [];

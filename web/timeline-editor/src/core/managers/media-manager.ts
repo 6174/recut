@@ -16,10 +16,12 @@ import { waveformCache } from "@timeline/services/waveform-cache/service";
 import { BatchCommand, RemoveMediaAssetCommand } from "@timeline/commands";
 import { recut, type RecutAsset } from "@timeline/recut/sdk";
 import { isDemoMode } from "@timeline/demo/demo-store";
+import { editorStatusFromServer } from "@timeline/media/asset-status";
 
 // 先落位策略：AI 可以把仍在 queued/running 的素材先落轨，媒体清单需要轮询到
 // 素材终态，下载缓存后画面/波形才可用。completed/failed/deleted 即终态。
-const MEDIA_TERMINAL_STATUSES = new Set(["completed", "failed", "deleted"]);
+// `proposed` 是计划态（无字节、无 job），不轮询、不下载，仅按状态展示。
+const MEDIA_TERMINAL_STATUSES = new Set(["completed", "failed", "deleted", "proposed"]);
 const MEDIA_PENDING_REFRESH_INTERVAL_MS = 2500;
 // 最多轮询 5 分钟（120 × 2.5s）；超时停止，避免永远挂着一个定时器。
 const MEDIA_PENDING_REFRESH_MAX_ATTEMPTS = 120;
@@ -130,7 +132,13 @@ export class MediaManager {
 			const cachedByID = new Map(cachedAssets.map((asset) => [asset.id, asset]));
 			const remoteAssets = manifest.assets
 				.filter((asset) => isEditorMediaAsset(asset) && asset.status !== "deleted")
-				.map((asset) => cachedByID.get(asset.id) ?? toLoadingMediaAsset(asset));
+				.map((asset) => {
+					const cached = cachedByID.get(asset.id);
+					// 服务端 lifecycle 是真相：本地缓存只决定「有没有字节」，不能改写状态，
+					// 否则计划态会被陈旧的 loading 覆盖成「加载中」。
+					const status = editorStatusFromServer(asset.status, Boolean(cached?.file?.size));
+					return cached ? { ...cached, status } : toLoadingMediaAsset(asset);
+				});
 			this.assets = remoteAssets;
 			this.notify();
 			for (const asset of manifest.assets) {
@@ -296,15 +304,15 @@ function isEditorMediaAsset(asset: RecutAsset): asset is RecutAsset & {
 	return asset.kind === "image" || asset.kind === "video" || asset.kind === "audio";
 }
 
-function toLoadingMediaAsset(asset: RecutAsset & {
-	kind: "image" | "video" | "audio";
-}): MediaAsset {
+// 只应由 isEditorMediaAsset 判定过的素材调用；kind 已限定在 image/video/audio。
+// 服务端完成但本地尚未缓存时由 editorStatusFromServer 派生为 loading（下载过渡）。
+function toLoadingMediaAsset(asset: RecutAsset): MediaAsset {
 	return {
 		id: asset.id,
 		name: asset.name,
-		type: asset.kind,
+		type: asset.kind as MediaAsset["type"],
 		file: new File([], asset.name, { type: asset.mimeType }),
-		status: asset.status === "deleted" ? "deleted" : "loading",
+		status: editorStatusFromServer(asset.status, false),
 		contentHash: asset.contentHash,
 		sizeBytes: asset.sizeBytes,
 	};

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
 import { GenerationDuration } from "@/components/generation-duration";
+import { mediaContextPayload } from "@/components/agent-panel-types";
 import { PanelSection } from "@/components/panel-section";
 import { RichComposer } from "@/components/rich-composer/rich-composer";
 import { useMediaAssetEvents } from "@/components/use-media-asset-events";
@@ -12,6 +13,10 @@ import { VideoFrame } from "@/components/video-frame";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
+import type { ContextOption } from "@/lib/context-catalog/types";
+import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
+import { createProposal, updateProposalAsset, confirmProposalAsset, rejectProposalAsset, type GenerationProposal, type ProposalPatch, type ProposalReference } from "@/lib/media/proposal";
+import { ProposalEditor, type ProposalModality } from "@/components/proposal-editor";
 import { referenceDisplayText } from "@/lib/rich-composer/protocol/parse";
 import type { RichComposerValue } from "@/lib/rich-composer/value";
 
@@ -63,7 +68,7 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; reference?: ReferenceMetadata };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; proposal?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; reference?: ReferenceMetadata };
 };
 
 export function mediaContext(asset: PreviewAsset) {
@@ -101,23 +106,153 @@ export function mediaContext(asset: PreviewAsset) {
   ].join("\n");
 }
 
+// 是否已带生成配方：提案（可确认生成）与计划（只有 content/attributes）的区别所在。
+function hasProposalRecipe(asset: PreviewAsset): boolean {
+  const proposal = (asset.metadata as Record<string, unknown> | undefined)?.proposal;
+  const capability = (asset.metadata as Record<string, unknown> | undefined)?.capability;
+  return Boolean((proposal && typeof proposal === "object") || (typeof capability === "string" && capability.length > 0));
+}
+
+// Remix 会复用什么生成能力：优先资产自身的 capability，否则按 kind 推断。
+function remixCapabilityOf(asset: PreviewAsset): "image.generate" | "video.generate" | "speech.generate" {
+  const capability = (asset.metadata as Record<string, unknown> | undefined)?.capability;
+  if (capability === "image.generate" || capability === "video.generate" || capability === "speech.generate") return capability;
+  if (asset.kind === "video") return "video.generate";
+  if (asset.kind === "audio") return "speech.generate";
+  return "image.generate";
+}
+
+// 提案的参考绑定：优先 metadata.proposal.references（带 role/label），回退到扁平 referenceIds。
+function proposalReferenceDrafts(asset: PreviewAsset): ProposalReference[] {
+  const proposal = (asset.metadata as Record<string, unknown> | undefined)?.proposal;
+  const raw = proposal && typeof proposal === "object" ? (proposal as Record<string, unknown>).references : undefined;
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      .map((item) => ({
+        id: typeof item.id === "string" ? item.id : "",
+        ...(typeof item.kind === "string" ? { kind: item.kind } : {}),
+        ...(typeof item.role === "string" ? { role: item.role } : {}),
+        ...(typeof item.label === "string" ? { label: item.label } : {}),
+      }))
+      .filter((item) => item.id);
+  }
+  const ids = (asset.metadata as Record<string, unknown> | undefined)?.referenceIds;
+  return Array.isArray(ids)
+    ? ids.filter((id): id is string => typeof id === "string").map((id) => ({ id }))
+    : [];
+}
+
+// 资产生命周期 → 提案状态机（与 canvas proposalFromAsset 同源，避免两套语义）。
+function proposalStatusOf(status: string): GenerationProposal["status"] {
+  if (status === "queued" || status === "running") return "generating";
+  if (status === "failed") return "failed";
+  if (status === "completed") return "done";
+  return "pending";
+}
+
+function proposalModalityOf(asset: PreviewAsset): ProposalModality {
+  if (asset.kind === "video") return "video";
+  if (asset.kind === "audio") return "audio";
+  return "image";
+}
+
+// 从全局资产构造共享 ProposalEditor 需要的规格（与画布读同一份契约）。
+function proposalFromPreviewAsset(asset: PreviewAsset): GenerationProposal {
+  const metadata = (asset.metadata ?? {}) as Record<string, unknown>;
+  const raw = metadata.proposal && typeof metadata.proposal === "object" ? (metadata.proposal as Record<string, unknown>) : {};
+  return {
+    status: proposalStatusOf(String(asset.status || "proposed")),
+    prompt: typeof metadata.prompt === "string" ? metadata.prompt : "",
+    references: proposalReferenceDrafts(asset),
+    ...(typeof metadata.modelId === "string" ? { modelId: metadata.modelId } : {}),
+    ...(typeof metadata.credentialId === "string" ? { credentialId: metadata.credentialId } : {}),
+    ...(metadata.output && typeof metadata.output === "object" ? { params: metadata.output as Record<string, unknown> } : {}),
+    ...(typeof raw.aspectRatio === "string" ? { aspectRatio: raw.aspectRatio } : {}),
+    ...(typeof raw.durationSec === "number" ? { durationSec: raw.durationSec } : {}),
+    ...(typeof raw.note === "string" ? { note: raw.note } : {}),
+    ...(raw.proposedBy === "agent" || raw.proposedBy === "user" ? { proposedBy: raw.proposedBy } : {}),
+    ...(typeof raw.proposedAt === "string" ? { proposedAt: raw.proposedAt } : {}),
+    ...(typeof raw.batchId === "string" ? { batchId: raw.batchId } : {}),
+  };
+}
+
+// GenerationProposal 补丁 → 资产提案 PATCH（params 映射回 output）。
+function toProposalPatch(patch: Partial<GenerationProposal>): ProposalPatch {
+  return {
+    ...(patch.prompt !== undefined ? { prompt: patch.prompt } : {}),
+    ...(patch.references !== undefined ? { references: patch.references, referenceIds: patch.references.map((ref) => ref.id) } : {}),
+    ...(patch.modelId !== undefined ? { modelId: patch.modelId } : {}),
+    ...(patch.credentialId !== undefined ? { credentialId: patch.credentialId } : {}),
+    ...(patch.params !== undefined ? { output: patch.params } : {}),
+    ...(patch.aspectRatio !== undefined ? { aspectRatio: patch.aspectRatio } : {}),
+    ...(patch.durationSec !== undefined ? { durationSec: patch.durationSec } : {}),
+    ...(patch.note !== undefined ? { note: patch.note } : {}),
+  };
+}
+
 export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], onClose, onRegenerate }: { apiBase: string; asset: PreviewAsset; assets?: PreviewAsset[]; onClose: () => void; onRegenerate?: (asset: PreviewAsset) => void }) {
   const [copied, setCopied] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [asideWidth, setAsideWidth] = useState(360);
-  const { assetByID, assets: liveAssets } = useMediaAssetEvents();
-  const asset = (assetByID[initialAsset.id] as unknown as PreviewAsset | undefined) ?? initialAsset;
+  const [activeAsset, setActiveAsset] = useState<PreviewAsset>(initialAsset);
+  const [remixing, setRemixing] = useState(false);
+  const [remixError, setRemixError] = useState("");
+  const { assetByID, assets: liveAssets, upsertAsset } = useMediaAssetEvents();
+  const configuration = useMediaConfigurationStore();
+  useEffect(() => { setActiveAsset(initialAsset); }, [initialAsset.id]);
+  useEffect(() => { void configuration.load(apiBase); }, [apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+  const liveAsset = assetByID[activeAsset.id] as unknown as PreviewAsset | undefined;
+  const asset = liveAsset ?? activeAsset;
   const status = asset.status || "completed";
   const origin = asset.origin || "imported";
   const metadata = asset.metadata || {};
   const ready = status === "completed";
+  // proposed 下再分两种语义：带配方=待确认提案（可确认生成，且提示词/参考可编辑）；无配方=计划态（复制计划给 AI）。
+  const plan = status === "proposed" && !hasProposalRecipe(asset);
+  const editableProposal = status === "proposed" && hasProposalRecipe(asset);
   const referenceIDs = Array.isArray(metadata.referenceIds) ? metadata.referenceIds.filter((id): id is string => typeof id === "string") : [];
   const knownAssets = new Map(assets.map((item) => [item.id, item]));
   liveAssets.forEach((item) => knownAssets.set(item.id, item as unknown as PreviewAsset));
   const references = referenceIDs.map((id) => knownAssets.get(id)).filter((item): item is PreviewAsset => Boolean(item));
-  const statusText = status === "failed" ? "生成失败" : status === "proposed" ? "待确认生成" : ready ? "已完成" : "生成中";
+  const statusText = status === "failed" ? "生成失败" : plan ? "计划中" : status === "proposed" ? "待确认生成" : ready ? "已完成" : "生成中";
   const statusLabel = <><span>{statusText}</span><GenerationDuration className="font-mono text-[10px] text-muted-foreground" item={asset} /></>;
+  // Remix：把已完成素材的可复用配方复制成一个新的提案资产，并让弹框切到它的编辑态。
+  const canRemix = ready && typeof metadata.prompt === "string" && metadata.prompt.trim().length > 0;
+  async function remix() {
+    if (!canRemix || remixing) return;
+    setRemixing(true);
+    setRemixError("");
+    try {
+      const capability = remixCapabilityOf(asset);
+      const proposal = (metadata.proposal ?? {}) as Record<string, unknown>;
+      // modelId 与 credentialId 必须成对提交（云 provider）；按 provider 找已配置凭据，
+      // 找不到就整对省略，交给 capability 的默认路由解析，绝不只发 modelId。
+      const sourceModelId = typeof metadata.modelId === "string" ? metadata.modelId : "";
+      const sourceModel = configuration.providers.flatMap((provider) => provider.models).find((model) => model.id === sourceModelId && model.available);
+      const sourceCredential = sourceModel ? configuration.credentials.find((item) => item.provider === sourceModel.provider) : undefined;
+      const routePair = sourceModel && (sourceModel.provider === "local-audio" || sourceCredential)
+        ? { modelId: sourceModel.id, ...(sourceCredential ? { credentialId: sourceCredential.id } : {}) }
+        : {};
+      const created = await createProposal(apiBase, {
+        capability,
+        prompt: String(metadata.prompt),
+        ...routePair,
+        ...(metadata.output && typeof metadata.output === "object" ? { output: metadata.output as Record<string, unknown> } : {}),
+        ...(referenceIDs.length ? { referenceIds: referenceIDs } : {}),
+        ...(typeof proposal.aspectRatio === "string" && proposal.aspectRatio ? { aspectRatio: proposal.aspectRatio } : {}),
+        ...(typeof proposal.durationSec === "number" ? { durationSec: proposal.durationSec } : {}),
+        ...(typeof proposal.note === "string" && proposal.note ? { note: proposal.note } : {}),
+      });
+      upsertAsset(created);
+      setActiveAsset(created as unknown as PreviewAsset);
+    } catch (error) {
+      setRemixError(error instanceof Error ? error.message : "创建 Remix 失败，请重试。");
+    } finally {
+      setRemixing(false);
+    }
+  }
   async function copyContext() {
     await navigator.clipboard.writeText(mediaContext(asset));
     setCopied(true);
@@ -166,18 +301,59 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
           <div aria-label="调整属性面板宽度" className="relative w-1.5 shrink-0 cursor-col-resize border-l bg-border/40 hover:bg-primary/40" onMouseDown={startResize} role="separator" />
           <aside className="min-h-0 shrink-0 overflow-y-auto overscroll-contain p-4" style={{ width: asideWidth }}>
             <PanelSection
-              action={ready && metadata.prompt && onRegenerate ? <button className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted" onClick={() => onRegenerate(asset)} type="button"><RotateCcw className="size-3" />再次生成</button> : undefined}
+              action={
+                canRemix ? <button className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted disabled:opacity-60" disabled={remixing} onClick={() => void remix()} type="button">{remixing ? <LoaderCircle className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}Remix</button>
+                : ready && metadata.prompt && onRegenerate ? <button className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted" onClick={() => onRegenerate(asset)} type="button"><RotateCcw className="size-3" />再次生成</button>
+                : undefined
+              }
               first
               title="信息"
             >
               <dl className="space-y-4 text-xs">
                 <div><dt className="text-muted-foreground">状态</dt><dd className="mt-1 flex items-center gap-1.5">{!ready && status !== "failed" && status !== "proposed" && <LoaderCircle className="size-3 animate-spin text-primary" />}{statusLabel}</dd>{asset.error && <dd className="mt-1 text-[11px] text-destructive">{asset.error}</dd>}</div>
-                {metadata.prompt !== undefined && <PromptSection prompt={String(metadata.prompt ?? "")} />}
-                {references.length > 0 && <div><dt className="text-muted-foreground">参考素材</dt><dd className="mt-2 grid grid-cols-3 gap-2">{references.map((ref) => <ReferencePreview key={ref.id} apiBase={apiBase} reference={ref} />)}</dd></div>}
+                {remixError && <p className="text-[10px] text-destructive">{remixError}</p>}
+                {editableProposal ? (
+                  <ProposalEditor
+                    apiBase={apiBase}
+                    editorKey={asset.id}
+                    modality={proposalModalityOf(asset)}
+                    onChange={async (patch) => {
+                      try {
+                        const updated = await updateProposalAsset(apiBase, asset.id, toProposalPatch(patch));
+                        upsertAsset(updated);
+                      } catch (error) {
+                        setRemixError(error instanceof Error ? error.message : "保存提案失败，请重试。");
+                      }
+                    }}
+                    onConfirm={async () => {
+                      try {
+                        await confirmProposalAsset(apiBase, asset.id);
+                        const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { cache: "no-store" });
+                        if (response.ok) upsertAsset(await response.json());
+                      } catch (error) {
+                        setRemixError(error instanceof Error ? error.message : "确认生成失败，请重试。");
+                      }
+                    }}
+                    onReject={async () => {
+                      try {
+                        await rejectProposalAsset(apiBase, asset.id);
+                        onClose();
+                      } catch (error) {
+                        setRemixError(error instanceof Error ? error.message : "取消提案失败，请重试。");
+                      }
+                    }}
+                    proposal={proposalFromPreviewAsset(asset)}
+                  />
+                ) : (
+                  <>
+                    {metadata.prompt !== undefined && <PromptSection prompt={String(metadata.prompt ?? "")} />}
+                    {references.length > 0 && <div><dt className="text-muted-foreground">参考素材</dt><dd className="mt-2 grid grid-cols-3 gap-2">{references.map((ref) => <ReferencePreview key={ref.id} apiBase={apiBase} reference={ref} />)}</dd></div>}
+                  </>
+                )}
               </dl>
               <div>
-                <button className="flex h-8 w-full items-center justify-center gap-1.5 rounded-xs border text-xs hover:bg-muted" onClick={() => void copyContext()} type="button">{copied ? <Check className="size-3.5 text-primary" /> : <Copy className="size-3.5" />}{copied ? "已复制，可粘贴给 AI" : "复制素材上下文"}</button>
-                <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">复制受控资源引用和素材信息，直接粘贴到 Agent 对话即可。</p>
+                <button className={`flex h-8 w-full items-center justify-center gap-1.5 rounded-xs border text-xs hover:bg-muted ${plan ? "border-primary/40 bg-primary/10 font-medium text-primary" : ""}`} onClick={() => void copyContext()} type="button">{copied ? <Check className="size-3.5 text-primary" /> : <Copy className="size-3.5" />}{copied ? "已复制，可粘贴给 AI" : plan ? "复制计划给 AI" : "复制素材上下文"}</button>
+                <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">{plan ? "把这条计划（说明 + 属性 + 引用）交给 AI 去生成。" : "复制受控资源引用和素材信息，直接粘贴到 Agent 对话即可。"}</p>
               </div>
             </PanelSection>
             <MaterialEditor apiBase={apiBase} asset={asset} />
@@ -259,7 +435,7 @@ function isMaterialAttributeEmpty(attribute: PreviewAttribute): boolean {
   return !(attribute.label ?? "").trim() && attributeDisplayValue(attribute).trim() === "";
 }
 
-// 手动可创建的属性类型（media/ref 由 AI 或引用流程写入，不在这里新造）。
+// 手动可创建的属性类型（media/ref 也开放，让计划态能把「参考来源」直接指向素材）。
 const MATERIAL_ATTR_TYPE_OPTIONS: { label: string; value: PreviewAttribute["type"] }[] = [
   { label: "文本", value: "text" },
   { label: "长文本", value: "textarea" },
@@ -267,6 +443,7 @@ const MATERIAL_ATTR_TYPE_OPTIONS: { label: string; value: PreviewAttribute["type
   { label: "开关", value: "boolean" },
   { label: "链接", value: "url" },
   { label: "选项", value: "select" },
+  { label: "素材", value: "media" },
 ];
 
 function materialAttributeTypeLabel(type: PreviewAttribute["type"]): string {
@@ -276,9 +453,6 @@ function materialAttributeTypeLabel(type: PreviewAttribute["type"]): string {
 function newMaterialAttributeKey(): string {
   return `field_${Date.now().toString(36)}${Math.floor(Math.random() * 1000).toString(36)}`;
 }
-
-// 素材说明与属性统一按 world-entity 的引用面处理：可 @ 素材 / World / 实体（与 ENTITY_REF_TYPES 同集）
-const MATERIAL_REF_TYPES = ["creation_entity", "creation_world", "media"];
 
 // 富文本值：持久化真相是 markdown + XML 文本，refs 由文本派生
 function richValueOf(text: string): RichComposerValue {
@@ -294,16 +468,16 @@ function needsMaterialClamp(value: string): boolean {
 
 // RichTextEditor：素材编辑面统一的富文本输入内核（referencing 模式，@ 打开上下文面板）。
 // 编辑态最小高度按 leading-6 = 1.5rem/行，经 CSS 变量 + 后代选择器注入编辑器（RichComposer 自身不读 minRows）。
-function RichTextEditor({ value, apiBase, placeholder, minRows = 2, maxRows, onChange }: { value: RichComposerValue; apiBase: string; placeholder?: string; minRows?: number; maxRows?: number; onChange: (value: RichComposerValue) => void }) {
+function RichTextEditor({ value, apiBase, placeholder, minRows = 2, maxRows, pinnedOptions, onChange }: { value: RichComposerValue; apiBase: string; placeholder?: string; minRows?: number; maxRows?: number; pinnedOptions?: ContextOption[]; onChange: (value: RichComposerValue) => void }) {
   return (
     <div className="rounded-xs border bg-background p-2 focus-within:border-primary/50 [&_.recut-rich-composer]:min-h-[var(--material-rich-min-h)]" style={{ "--material-rich-min-h": `${minRows * 1.5}rem` } as React.CSSProperties}>
-      <RichComposer apiBase={apiBase} allowedRefTypes={MATERIAL_REF_TYPES} maxRows={maxRows} minRows={minRows} mode="referencing" onChange={onChange} placeholder={placeholder} value={value} variant="field" />
+      <RichComposer apiBase={apiBase} maxRows={maxRows} minRows={minRows} mode="referencing" onChange={onChange} pinnedOptions={pinnedOptions} placeholder={placeholder} value={value} variant="field" />
     </div>
   );
 }
 
 // MaterialRichFullscreen：放大编辑，与 world-entity RichFullscreenEditor 同入口（z-[100] 高于素材弹框 z-[90]）
-function MaterialRichFullscreen({ label, value, apiBase, placeholder, onChange, onCommit, onCancel }: { label: string; value: RichComposerValue; apiBase: string; placeholder?: string; onChange: (value: RichComposerValue) => void; onCommit: () => void; onCancel: () => void }) {
+function MaterialRichFullscreen({ label, value, apiBase, placeholder, pinnedOptions, onChange, onCommit, onCancel }: { label: string; value: RichComposerValue; apiBase: string; placeholder?: string; pinnedOptions?: ContextOption[]; onChange: (value: RichComposerValue) => void; onCommit: () => void; onCancel: () => void }) {
   return createPortal(
     <div aria-modal="true" className="fixed inset-0 z-[100] grid place-items-center bg-foreground/40 p-6 backdrop-blur-[1px]" onMouseDown={onCancel} role="dialog">
       <section className="flex h-[80vh] w-full max-w-3xl flex-col rounded-xl border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
@@ -315,7 +489,7 @@ function MaterialRichFullscreen({ label, value, apiBase, placeholder, onChange, 
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-4" onKeyDownCapture={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); onCommit(); } else if (event.key === "Escape") { event.preventDefault(); onCancel(); } }}>
-          <RichTextEditor apiBase={apiBase} minRows={12} onChange={onChange} placeholder={placeholder ?? "输入内容，@ 引用素材与实体"} value={value} />
+          <RichTextEditor apiBase={apiBase} minRows={12} onChange={onChange} pinnedOptions={pinnedOptions} placeholder={placeholder ?? "输入内容，@ 引用素材与实体"} value={value} />
         </div>
         <footer className="shrink-0 border-t px-4 py-1.5 text-[10px] text-muted-foreground">⌘↵ 保存 · Esc 取消 · 输入 @ 引用素材与实体</footer>
       </section>
@@ -326,7 +500,7 @@ function MaterialRichFullscreen({ label, value, apiBase, placeholder, onChange, 
 
 // MaterialRichField：素材「说明」的富文本字段（对齐 world-entity RichFieldRow：展示态折叠 + 展开/收起、
 // 编辑态 RichComposer + 放大全屏、⌘↵ 保存 / Esc 取消），把 value.text 存回素材 content。
-function MaterialRichField({ value, apiBase, placeholder, minRows = 5, onSave }: { value: string; apiBase: string; placeholder?: string; minRows?: number; onSave: (value: string) => Promise<void> | void }) {
+function MaterialRichField({ value, apiBase, placeholder, minRows = 5, pinnedOptions, onSave }: { value: string; apiBase: string; placeholder?: string; minRows?: number; pinnedOptions?: ContextOption[]; onSave: (value: string) => Promise<void> | void }) {
   const registry = useMemo(() => contextProtocolRegistry(), []);
   const [editing, setEditing] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -385,9 +559,9 @@ function MaterialRichField({ value, apiBase, placeholder, minRows = 5, onSave }:
         <button className="text-[10px] text-muted-foreground hover:text-foreground" onClick={cancel} type="button">取消</button>
         <button className="text-[10px] text-primary hover:underline" onClick={() => void commit()} type="button">保存</button>
       </div>
-      <div className="mt-1"><RichTextEditor apiBase={apiBase} maxRows={10} minRows={minRows} onChange={setDraft} placeholder={placeholder} value={draft} /></div>
+      <div className="mt-1"><RichTextEditor apiBase={apiBase} maxRows={10} minRows={minRows} onChange={setDraft} pinnedOptions={pinnedOptions} placeholder={placeholder} value={draft} /></div>
       <p className="mt-0.5 text-[10px] text-muted-foreground">⌘↵ 保存 · Esc 取消 · 输入 @ 引用素材与实体</p>
-      {fullscreen && <MaterialRichFullscreen apiBase={apiBase} label="说明" onCancel={cancel} onChange={setDraft} onCommit={() => void commit()} placeholder={placeholder} value={draft} />}
+      {fullscreen && <MaterialRichFullscreen apiBase={apiBase} label="说明" onCancel={cancel} onChange={setDraft} onCommit={() => void commit()} pinnedOptions={pinnedOptions} placeholder={placeholder} value={draft} />}
     </div>
   );
 }
@@ -407,6 +581,25 @@ function MaterialEditor({ apiBase, asset }: { apiBase: string; asset: PreviewAss
   const dirtyRef = useRef(false);
   // 新建但尚未落库的属性 key：为空时丢弃，不产生空属性。
   const pendingKeysRef = useRef<Set<string>>(new Set());
+  // 当前素材作为 @ 面板「当前」组置顶项：可直接再次引用，并可下钻到它的扩展属性。
+  const pinnedOptions = useMemo<ContextOption[]>(
+    () => [
+      {
+        key: `media:${asset.id}`,
+        sourceType: "media",
+        group: "current",
+        subKind: asset.kind,
+        title: asset.name,
+        subtitle: "当前素材 · 可下钻属性",
+        badges: [{ key: "self", label: "当前", tone: "primary" }],
+        data: asset,
+        context: mediaContextPayload(asset.id),
+        score: 0,
+        pinned: true,
+      },
+    ],
+    [asset],
+  );
 
   useEffect(() => {
     if (dirtyRef.current) return;
@@ -483,7 +676,7 @@ function MaterialEditor({ apiBase, asset }: { apiBase: string; asset: PreviewAss
   return (
     <>
       <PanelSection defaultOpen={content.trim() !== ""} title="说明">
-        <MaterialRichField apiBase={apiBase} onSave={(value) => { setContent(value); return persist({ content: value }); }} placeholder="这条素材是什么、画面/结构/用途…（AI 读懂后会写在这里）" value={content} />
+        <MaterialRichField apiBase={apiBase} onSave={(value) => { setContent(value); return persist({ content: value }); }} pinnedOptions={pinnedOptions} placeholder="这条素材是什么、画面/结构/用途…（AI 读懂后会写在这里）" value={content} />
       </PanelSection>
       <PanelSection
         action={<button className="flex h-6 items-center gap-1 rounded-xs border px-2 text-[10px] hover:bg-muted" onClick={addAttribute} type="button"><Plus className="size-3" />添加属性</button>}
@@ -508,6 +701,7 @@ function MaterialEditor({ apiBase, asset }: { apiBase: string; asset: PreviewAss
               onRemove={() => removeAttribute(index)}
               onSaveDraft={(patch) => saveAttributeDraft(index, patch)}
               pending={pendingKeysRef.current.has(attribute.key)}
+              pinnedOptions={pinnedOptions}
             />
           ))}
           {attributes.length === 0 && <p className="text-xs text-muted-foreground">暂无属性</p>}
@@ -515,6 +709,65 @@ function MaterialEditor({ apiBase, asset }: { apiBase: string; asset: PreviewAss
         {error && <p className="text-[10px] text-destructive">{error}</p>}
       </PanelSection>
     </>
+  );
+}
+
+// media 属性值：规范形态是 { assetId, kind?, name? }（asset-attributes RFC §2.3）；
+// 兼容历史遗留的裸 id 字符串（AI 曾把 refSource 写成 text + id）。
+function mediaAttrValue(value: unknown): { assetId: string; name?: string; kind?: string } | null {
+  if (typeof value === "string") {
+    const assetId = value.trim();
+    return assetId ? { assetId } : null;
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const source = value as Record<string, unknown>;
+    const assetId = typeof source.assetId === "string" ? source.assetId.trim() : "";
+    if (!assetId) return null;
+    return {
+      assetId,
+      ...(typeof source.name === "string" ? { name: source.name } : {}),
+      ...(typeof source.kind === "string" ? { kind: source.kind } : {}),
+    };
+  }
+  return null;
+}
+
+// MediaAttributeField：素材类型属性的取值控件——直接把属性指向一个素材（选择/替换/清除），
+// 而不是编辑 id 字符串。复用共享 Asset SSE 缓存，无需跳转素材库。
+function MediaAttributeField({ apiBase, value, onChange }: { apiBase: string; value: unknown; onChange: (value: { assetId: string; kind?: string; name?: string } | undefined) => void }) {
+  const { assets } = useMediaAssetEvents();
+  const [open, setOpen] = useState(false);
+  const selected = mediaAttrValue(value);
+  const options = useMemo(
+    () => assets.filter((item) => item.status === "completed"),
+    [assets],
+  );
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+      {selected ? (
+        <span className="inline-flex h-7 max-w-60 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pr-1 pl-1 text-[10px]" title={selected.name || selected.assetId}>
+          <img alt="" className="size-5 shrink-0 rounded-[2px] object-cover" src={mediaContentURL(apiBase, selected.assetId)} />
+          <span className="truncate">{selected.name || selected.assetId}</span>
+          <button aria-label="清除参考来源" className="ml-0.5 grid size-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground" onClick={() => onChange(undefined)} type="button"><X className="size-3" /></button>
+        </span>
+      ) : (
+        <span className="text-[11px] text-muted-foreground">未设置</span>
+      )}
+      <Popover onOpenChange={setOpen} open={open}>
+        <PopoverTrigger asChild>
+          <button className="flex h-6 items-center gap-1 rounded-xs border px-1.5 text-[10px] text-muted-foreground hover:bg-muted" type="button"><Plus className="size-3" />选择素材</button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="max-h-72 w-72 overflow-y-auto p-1.5">
+          {options.length ? options.map((item) => (
+            <button className="flex w-full items-center gap-2 rounded-xs px-1.5 py-1 text-left text-xs hover:bg-muted" key={item.id} onClick={() => { onChange({ assetId: item.id, kind: item.kind, name: item.name }); setOpen(false); }} type="button">
+              <img alt="" className="size-6 shrink-0 rounded-[2px] object-cover" src={mediaContentURL(apiBase, item.id)} />
+              <span className="min-w-0 flex-1 truncate">{item.name}</span>
+              <span className="shrink-0 font-mono text-[9px] text-muted-foreground">{item.kind}</span>
+            </button>
+          )) : <p className="px-2 py-4 text-center text-[11px] text-muted-foreground">暂无可用素材</p>}
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -526,6 +779,7 @@ function AttributeRow({
   attribute,
   pending,
   autoOpenRename,
+  pinnedOptions,
   onPatch,
   onCommit,
   onRemove,
@@ -536,6 +790,7 @@ function AttributeRow({
   attribute: PreviewAttribute;
   pending: boolean;
   autoOpenRename: boolean;
+  pinnedOptions?: ContextOption[];
   onPatch: (patch: Partial<PreviewAttribute>) => void;
   onCommit: (patch?: Partial<PreviewAttribute>) => void;
   onRemove: () => void;
@@ -663,12 +918,14 @@ function AttributeRow({
           <option value="">—</option>
           {attribute.options.map((option) => <option key={option} value={option}>{option}</option>)}
         </select>
+      ) : attribute.type === "media" ? (
+        <MediaAttributeField apiBase={apiBase} onChange={(next) => onSaveDraft({ value: next })} value={attribute.value} />
       ) : structural ? (
         <p className="mt-0.5 break-all rounded px-1 py-0.5 font-mono text-[11px] text-muted-foreground">{value}</p>
       ) : editing ? (
         rich ? (
           <div className="mt-0.5" onKeyDownCapture={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); commitRich(); } else if (event.key === "Escape") { event.preventDefault(); cancelRich(); } }}>
-            <RichTextEditor apiBase={apiBase} maxRows={10} onChange={setRichDraft} placeholder="输入内容，@ 引用素材与实体" value={richDraft} />
+            <RichTextEditor apiBase={apiBase} maxRows={10} onChange={setRichDraft} pinnedOptions={pinnedOptions} placeholder="输入内容，@ 引用素材与实体" value={richDraft} />
             <div className="mt-1 flex items-center justify-between gap-2">
               <span className="text-[10px] text-muted-foreground">⌘↵ 保存 · Esc 取消 · 输入 @ 引用</span>
               <span className="flex shrink-0 items-center gap-1.5">
@@ -677,7 +934,7 @@ function AttributeRow({
                 <button className="h-6 rounded-xs border border-primary/40 bg-primary/10 px-1.5 text-[10px] font-medium text-primary hover:bg-primary/20" onClick={commitRich} type="button">保存</button>
               </span>
             </div>
-            {richFullscreen && <MaterialRichFullscreen apiBase={apiBase} label={attribute.label || attribute.key} onCancel={cancelRich} onChange={setRichDraft} onCommit={commitRich} value={richDraft} />}
+            {richFullscreen && <MaterialRichFullscreen apiBase={apiBase} label={attribute.label || attribute.key} onCancel={cancelRich} onChange={setRichDraft} onCommit={commitRich} pinnedOptions={pinnedOptions} value={richDraft} />}
           </div>
         ) : attribute.type === "textarea" ? (
           <textarea autoFocus className="mt-0.5 min-h-16 w-full resize-y rounded border bg-background px-1.5 py-1 text-sm leading-6 outline-none focus:border-primary/50" onBlur={() => { setEditing(false); onCommit(); }} onChange={(event) => onPatch({ value: event.target.value })} value={attributeDisplayValue(attribute)} />
@@ -819,6 +1076,10 @@ function TranscriptAssetContent({ apiBase, asset }: { apiBase: string; asset: Pr
 
 function PendingAssetContent({ apiBase, asset, status }: { apiBase: string; asset: PreviewAsset; status: string }) {
   const proposed = status === "proposed";
+  const plan = proposed && !hasProposalRecipe(asset);
+  if (plan) {
+    return <div className="grid max-w-sm gap-3 text-center text-muted-foreground"><div><p className="text-sm font-medium text-sky-600">计划中</p><p className="mt-1 text-xs leading-5">这是一条生成计划（只有说明与属性，还没有配方）；复制素材上下文交给 AI 去生成。</p></div></div>;
+  }
   return <div className="grid max-w-sm gap-3 text-center text-muted-foreground">{!proposed && <LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} />}<div><p className={`text-sm font-medium ${proposed ? "text-amber-600" : "text-foreground"}`}>{status === "failed" ? "生成失败" : proposed ? "待确认生成" : "生成中"}</p>{!proposed && <GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} />}<p className="mt-1 text-xs leading-5">{proposed ? "这是一条生成提案；确认后才提交生成并消耗额度。" : "素材引用已经建立；完成后会在这里原位可预览。"}</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryDownloadButton apiBase={apiBase} asset={asset} />}</div></div>;
 }
 

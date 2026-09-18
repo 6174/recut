@@ -125,6 +125,15 @@ export function creationWorldContextPayload(worldId: string): MessageContext {
 export function creationEntityContextPayload(worldId: string, entityId: string): MessageContext {
   return { type: "creation_entity", source: "user", payload: { worldId, entityId } };
 }
+export function entityAttrContextPayload(worldId: string, entityId: string, attrKey: string): MessageContext {
+  return { type: "entity_attr", source: "user", payload: { worldId, entityId, attrKey } };
+}
+export function mediaAttrContextPayload(assetId: string, attrKey: string): MessageContext {
+  return { type: "media_attr", source: "user", payload: { assetId, attrKey } };
+}
+export function worldAttrContextPayload(worldId: string, attrKey: string): MessageContext {
+  return { type: "world_attr", source: "user", payload: { worldId, attrKey } };
+}
 export function worldEvidenceContextPayload(worldId: string, evidenceId: string): MessageContext {
   return { type: "creation_evidence", source: "user", payload: { worldId, evidenceId } };
 }

@@ -20,19 +20,19 @@
 ## S3 计划（占位素材 + content，不花钱）
 
 1. 逐项 `recut.media.asset.create` 建占位素材（无字节、`status=proposed`）。
-2. 写 `content`（规格，@ 锚定参考证据/角色/产品/World）+ 必要 `attributes`（role/shotKind/transferable/`refSource`）。
+2. 写 `content`（规格，@ 锚定参考证据/角色/产品/World）+ 必要 `attributes`（role/shotKind/transferable/`refSource`；`refSource` 必须用 `type:"media"`、值 `{assetId,kind?,name?}`，不要写成 text + id 字符串）。
 3. 写 `clone-plan.md`：每个占位素材的角色、理由、来源、预估时长。
 4. **G3 付费门**：向用户呈报计划与预算；批准前**不触发任何生成**。video 一律先提案。
 
 ## S4 生成（读 content 生成）
 
 1. 读占位素材 `content`（+ attrs）作提示词；把 @ 引用解析为生成参考绑定。
-2. 补 `metadata.proposal`（capability/model/output）。
-3. 逐元素物化：
-   - **媒体**：`recut.video.generate`（默认 propose）→ 用户 `confirm` → 终态；图片/语音按路由。
+2. **在原 assetId 上**补生成配方：`recut.media.update_proposal({ assetId, capability, modelId, output, references?})`（省略 `text` 时 `content` 即提示词；`aspectRatio` 显式传入）。
+3. 用户 `recut.media.confirm_proposal({ assetId })` 确认（确认权只在用户）→ 队列执行 → 产物**原位填回同一 assetId**。
+   - **不要**用 `recut.image.generate` / `recut.video.generate`：它们会新建 assetId，占位会永远停在 `proposed`。
    - **MG/图形**：`recut.motion-graphic.create`（免费）→ 等 `verified`。
    - **字幕/文本**：交给 `timeline-editor` 的字幕能力，不生成媒体。
-4. 产物**原位填回同一 assetId**；按配方稳定 hash 复用未变素材，避免重复计费。
+4. 按配方稳定 hash 复用未变素材，避免重复计费。
 
 ## S5 组装与交付（用 timeline-editor）
 

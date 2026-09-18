@@ -9,7 +9,8 @@ import { Captions, Film, Image as ImageIcon, Link2, Music2 } from "lucide-react"
 import { mediaContextPayload } from "@/components/agent-panel-types";
 import type { MediaEventAsset } from "@/components/use-media-asset-events";
 import type { ContextOption, ContextPreview, ContextSearchContext, ContextSource } from "../types";
-import { matchScore, sourceLimit } from "../search";
+import { matchScore } from "../search";
+import { toMediaAttrOption } from "./attribute";
 
 function kindIcon(kind: MediaEventAsset["kind"], className: string) {
   if (kind === "video") return createElement(Film, { className });
@@ -34,6 +35,21 @@ function toOption(asset: MediaEventAsset): ContextOption {
   };
 }
 
+type AssetAttribute = { key: string; label?: string; type?: string; value?: unknown };
+
+function assetAttributes(asset: MediaEventAsset | undefined): AssetAttribute[] {
+  const raw = asset?.metadata?.attributes;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is AssetAttribute =>
+      Boolean(item) && typeof item === "object" && typeof (item as { key?: unknown }).key === "string",
+  );
+}
+
+function assetAttrOptions(asset: MediaEventAsset): ContextOption[] {
+  return assetAttributes(asset).map((attr) => toMediaAttrOption(asset.id, attr));
+}
+
 export const mediaSource: ContextSource = {
   type: "media",
   attrs: ["type", "assetid", "name"],
@@ -55,8 +71,10 @@ export const mediaSource: ContextSource = {
       if (query && !(matchScore(`${asset.name} ${asset.kind} ${asset.origin}`, query) > 0)) return false;
       return true;
     });
-    return matched.slice(0, sourceLimit(ctx.query, ctx.group, ctx.limit)).map(toOption);
+    return matched.map(toOption);
   },
+  expandable: (option) => assetAttributes(option.data as MediaEventAsset).length > 0,
+  children: (option) => assetAttrOptions(option.data as MediaEventAsset),
   preview: (option, ctx): ContextPreview => {
     const asset = option.data as MediaEventAsset;
     const url = `${ctx.apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`;

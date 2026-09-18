@@ -193,6 +193,30 @@ func containsOutputMode(model MediaModel, mode string) bool {
 	return false
 }
 
+// applyAspectRatio folds a top-level aspectRatio into the model Output. The
+// generation tools accept aspectRatio as a first-class field, but the catalog
+// only validates Output; without this merge the request silently falls back to
+// the model default (e.g. 16:9) and a 9:16 clip is generated with the wrong
+// frame. Only models that declare the parameter accept it, so unsupported
+// models are left untouched instead of failing normalization.
+func applyAspectRatio(modelID, aspectRatio string, output map[string]any) {
+	aspectRatio = strings.TrimSpace(aspectRatio)
+	if aspectRatio == "" || output == nil {
+		return
+	}
+	if _, present := output["aspectRatio"]; present {
+		return
+	}
+	model, ok := modelByID(modelID)
+	if !ok {
+		return
+	}
+	if _, supported := modelParameter(model, "aspectRatio"); !supported {
+		return
+	}
+	output["aspectRatio"] = aspectRatio
+}
+
 func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCredential, bool, error) {
 	if !knownCapability(input.Capability) || strings.TrimSpace(input.Prompt) == "" {
 		return MediaJob{}, MediaCredential{}, false, errors.New("capability and prompt are required")
@@ -211,6 +235,7 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 	}
 	input.ModelID = route.ModelID
 	input.Output = normalizedGenerationOutput(input.Capability, input.ModelID, input.Output)
+	applyAspectRatio(input.ModelID, input.AspectRatio, input.Output)
 	if model, ok := modelByID(input.ModelID); ok {
 		normalizedOutput, err := normalizeModelOutput(model, input.Output)
 		if err != nil {

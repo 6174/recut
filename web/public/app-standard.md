@@ -142,7 +142,7 @@ manifest operation 的 `surfaces` 决定谁可调用它：
 | `api` | App UI 经 iframe SDK | `recut.background.call(name, input)` 进入同一个 background handler。 |
 | `mcp` | 当前项目的 Agent | 暴露为 `app-id.operation-name`，同样进入同一个 background handler。 |
 
-Agent 还可使用平台 MCP：`recut.project_context`、`recut.image.generate`、`recut.video.generate`、`recut.speech.generate`、`recut.media.list_voices`、`recut.media.get_job`、`recut.media.list_assets`、`recut.media.import_image` 与 `recut.media.attach`。三种生成都是异步 Job，提交即返回稳定 jobId 与 assetIds；若当前图片 route 是 Codex 原生生成，Agent 必须先将最终图片写入当前 Recut 项目目录，再用 `recut.media.import_image` 归档并取得真实 `assetId`，不能只交付对话预览。提交后须用 recut.media.wait_for_job 等待同一 Asset 被 service 原位推进到 completed/failed，而不是重复提交或提前声称成功。
+Agent 还可使用平台 MCP：`recut.project_context`、`recut.image.generate`、`recut.video.generate`、`recut.speech.generate`、`recut.media.list_voices`、`recut.media.get_job`、`recut.media.list_assets`、`recut.media.import_image` 与 `recut.media.attach`。三种生成都是异步 Job，提交即返回稳定 jobId 与 assetIds；若当前图片 route 是 Codex 原生生成，Agent 必须先将最终图片写入当前 Recut 项目目录，再用 `recut.media.import_image` 归档并取得真实 `assetId`，不能只交付对话预览。默认**先落位、不空等**：拿到 assetId 立即建立引用/落位并标记生成中，service 会原位推进到 completed/failed；仅在下一步依赖产物内容（读图/听声决策、连续性/质量验收或用于导出）时才 `recut.media.wait_for_job`，且不要重复提交或把生成中当作已完成。
 
 ## 最小结构
 

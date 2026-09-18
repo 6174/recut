@@ -37,11 +37,12 @@ export type RichComposerProps = {
   autoFocus?: boolean;
   minRows?: number;
   maxRows?: number;
-  allowedRefTypes?: string[];
   apiBase?: string;
   projectID?: string | null;
   workSurface?: WorkSurfaceContext | null;
   workFocus?: WorkFocusContext | null;
+  /** 宿主额外置顶到「当前引用」组的选项（如生成提案已引用的素材） */
+  pinnedOptions?: ContextOption[];
   onSubmit?: () => void;
   onPasteFiles?: (files: File[]) => void;
   className?: string;
@@ -71,8 +72,14 @@ function optionToAttrs(option: ContextOption): Record<string, unknown> | null {
       return { type: option.subKind ?? "image", assetid: payload.assetId, name: option.title };
     case "creation_world":
       return { worldid: payload.worldId, revisionid: payload.revisionId, name: option.title };
+    case "world_attr":
+      return { worldid: payload.worldId, attrkey: payload.attrKey, name: option.title };
     case "creation_entity":
       return { worldid: payload.worldId, entityid: payload.entityId, kind: option.subKind, name: option.title };
+    case "entity_attr":
+      return { worldid: payload.worldId, entityid: payload.entityId, attrkey: payload.attrKey, name: option.title };
+    case "media_attr":
+      return { assetid: payload.assetId, attrkey: payload.attrKey, name: option.title };
     case "creation_evidence":
       return { worldid: payload.worldId, evidenceid: payload.evidenceId, name: option.title };
     case "project":
@@ -99,11 +106,11 @@ export function RichComposer({
   autoFocus = false,
   minRows,
   maxRows,
-  allowedRefTypes,
   apiBase = "",
   projectID = null,
   workSurface = null,
   workFocus = null,
+  pinnedOptions,
   onSubmit,
   onPasteFiles,
   className,
@@ -128,7 +135,7 @@ export function RichComposer({
   const dismissRef = useRef<() => void>(() => {});
 
   const referencing = mode === "referencing";
-  const { runtime, sourceFor } = useContextCatalog({ apiBase, projectID, workSurface, workFocus, allowedRefTypes });
+  const { runtime, sourceFor } = useContextCatalog({ apiBase, projectID, workSurface, workFocus });
   // 当前正文里已引用的条目：面板据此置顶「当前引用」分组并标选，便于快速定位
   const selectedKeys = useMemo(() => new Set(value.refs.map((ref) => ref.key)), [value.refs]);
   const selectedOptions = useMemo(
@@ -318,7 +325,6 @@ export function RichComposer({
         </div>
         {referencing && (
           <ContextMentionPopover
-            allowedRefTypes={allowedRefTypes}
             anchorRect={panel?.coords ?? null}
             apiBase={apiBase}
             autoFocusSearch={false}
@@ -334,6 +340,7 @@ export function RichComposer({
               setPanel(next);
             }}
             open={Boolean(panel)}
+            pinnedOptions={pinnedOptions}
             projectID={projectID}
             query={panel?.query}
             selectedKeys={selectedKeys}

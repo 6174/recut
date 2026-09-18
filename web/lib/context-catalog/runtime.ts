@@ -18,7 +18,6 @@ import {
   fanOutSearch,
   markSelected,
   rankOptions,
-  sourceLimit,
   type ContextSourceError,
 } from "./search";
 import type {
@@ -85,11 +84,15 @@ export function useContextRuntime(input: {
   const entityByKey = useWorldsStore((state) => state.entityByKey);
   const loadWorldsPage = useWorldsStore((state) => state.loadPage);
   const loadEntities = useWorldsStore((state) => state.loadEntities);
+  const loadEntity = useWorldsStore((state) => state.loadEntity);
+  const loadDetail = useWorldsStore((state) => state.loadDetail);
+  const searchWorldEntities = useWorldsStore((state) => state.searchEntities);
   const projects = useWorkspaceStore((state) => state.projects);
   const apps = useWorkspaceStore((state) => state.apps);
   const installations = useWorkspaceStore((state) => state.installations);
   const loadWorkspace = useWorkspaceStore((state) => state.load);
   const [capabilities, setCapabilities] = useState<CapabilityCache>({ skills: [], mcpTools: [] });
+  const endpoint = worldsEndpoint ?? apiBase;
 
   useEffect(() => {
     void loadWorldsPage(apiBase).catch(() => {});
@@ -104,7 +107,6 @@ export function useContextRuntime(input: {
   }, [apiBase, loadWorkspace, loadWorldsPage]);
 
   return useMemo<ContextRuntime>(() => {
-    const endpoint = worldsEndpoint ?? apiBase;
     return {
       apiBase,
       projectID,
@@ -122,6 +124,10 @@ export function useContextRuntime(input: {
       mcpTools: capabilities.mcpTools,
       recentKeys: readRecentKeys(projectID ?? "global"),
       loadEntities: (worldId, query) => loadEntities(apiBase, worldId, { text: query, limit: 12 }),
+      loadEntity: (worldId, entityId) => loadEntity(apiBase, worldId, entityId),
+      loadWorldDetail: (worldId) => loadDetail(apiBase, worldId),
+      loadWorldEntities: (worldId) => loadEntities(apiBase, worldId, { limit: 100 }),
+      searchEntities: ({ text, world, typeId }) => searchWorldEntities(apiBase, { text, world, typeId, limit: 50 }),
     };
   }, [
     apiBase,
@@ -129,12 +135,16 @@ export function useContextRuntime(input: {
     assets,
     capabilities,
     detailsByID,
+    endpoint,
     entitiesByKey,
     entityByKey,
     installations,
+    loadDetail,
     loadEntities,
+    loadEntity,
     projectID,
     projects,
+    searchWorldEntities,
     worlds,
     worldsEndpoint,
     workFocus,
@@ -147,8 +157,6 @@ export type ContextCatalogSearchInput = {
   group: ContextGroupID | "all";
   subKind?: string;
   scope?: ContextSearchContext["scope"];
-  allowedRefTypes?: string[];
-  limit?: number;
   signal: AbortSignal;
 };
 
@@ -163,16 +171,12 @@ export function useContextCatalog(input: {
   workSurface: WorkSurfaceContext | null;
   workFocus: WorkFocusContext | null;
   selectedKeys?: ReadonlySet<string>;
-  allowedRefTypes?: string[];
 }) {
   const runtime = useContextRuntime(input);
   const recentKeyRef = useRef(0);
   const search = useCallback(
     async (params: ContextCatalogSearchInput): Promise<ContextCatalogSearchResult> => {
       const query = params.query.trim();
-      const sources = params.allowedRefTypes?.length
-        ? contextSources.filter((source) => params.allowedRefTypes!.includes(source.type))
-        : contextSources;
       const ctx: ContextSearchContext = {
         apiBase: input.apiBase,
         query,
@@ -180,12 +184,10 @@ export function useContextCatalog(input: {
         subKind: params.subKind,
         scope: params.scope,
         runtime,
-        allowedRefTypes: params.allowedRefTypes,
         signal: params.signal,
-        limit: params.limit ?? 24,
       };
       const { options, errors } = await fanOutSearch(
-        sources.filter((source) => params.group === "all" || source.group === params.group),
+        contextSources.filter((source) => params.group === "all" || source.group === params.group),
         ctx,
       );
       const scoped = options.filter((option) => !params.subKind || option.subKind === params.subKind);
@@ -205,5 +207,5 @@ export function useContextCatalog(input: {
     (type: string): ContextSource | undefined => contextSources.find((source) => source.type === type),
     [],
   );
-  return { runtime, sources: contextSources, search, record, sourceFor, sourceLimit };
+  return { runtime, sources: contextSources, search, record, sourceFor };
 }

@@ -101,7 +101,7 @@ Recut chat UI 把这些渲染为链接到 Project 或 App 页的可点击卡片�
 
 能力快照的 `integrations` 是平台统一的可选能力视图。例如 `audioStudio` 表示 `recut.audio-studio` 是否已安装、是否暴露 transcription MCP。遇到 `status: not-installed` 或 `installed-no-mcp` 时必须停止依赖该能力的写入，明确说明「暂时不可用」，并给出返回的 `repository` 与 `recut.apps.install` 安装路径；除非用户明确授权安装，否则不要自动安装。安装或更新后要求新开 Agent session，让 MCP 工具列表重新加载。
 
-对旁白而言，接受 `recut.speech.generate` 不等于成功。在报告成功或把音频存为可用的工作流资源之前，立即用返回的 `jobId` 调用 `recut.media.wait_for_job`（最长 300 秒）。若返回 `failed`，报告返回的 Provider 错误，不要把音频呈现为可用。超过等待上限的 `queued` 或 `running` 结果同样不算完成，必须报告为进行中。
+对旁白而言，接受 `recut.speech.generate` 不等于成功。默认与图片一致：拿到稳定 `assetId` 立即落位（音轨/资源）并标记生成中，由平台原位更新，不要空等。只有当下一步依赖音频内容时（试听验收、据人声再对齐，或该音频将用于导出）才用返回的 `jobId` 调 `recut.media.wait_for_job`（单次 ≤15s，超时按 `recut.job.status` 短轮询）到终态；若返回 `failed`，报告返回的 Provider 错误，不要把音频呈现为可用。超过等待上限仍 `queued` 或 `running` 的同样不算完成，必须报告为进行中。
 
 不要用 HyperFrames、ffmpeg、浏览器自动化、shell 脚本或本地渲染代替生成的 Scene。只要 `recut.video.generate` 被接受并返回稳定的 Recut 视频 `assetId`，Scene 关系即已完成；立即持久化该引用，之后只用 `recut.media.get_job` 报告 Asset 后续的 `running`/`completed`/`failed` 状态。
 

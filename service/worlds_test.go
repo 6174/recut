@@ -379,7 +379,7 @@ func TestEntityCreateRejectsEmptyTypeID(t *testing.T) {
 func ptrString(value string) *string { return &value }
 func TestCreationWorldAndEntityContextMaterializers(t *testing.T) {
 	worlds, store, media := newTestWorldStore(t)
-	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Future City 2049", Type: WorldFiction})
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Future City 2049", Type: WorldFiction, Description: "未来都市"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,19 +408,79 @@ func TestCreationWorldAndEntityContextMaterializers(t *testing.T) {
 	if _, err := manager.contextMaterials([]ChatContext{{Type: "creation_world", Source: "user", Payload: map[string]any{"worldId": "missing"}}}); err == nil {
 		t.Fatal("missing world attachment was accepted")
 	}
+	attrMaterial, err := manager.contextMaterials([]ChatContext{{Type: "entity_attr", Source: "user", Payload: map[string]any{"worldId": world.ID, "entityId": character.ID, "attrKey": "appearance"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attrMaterial) != 1 || attrMaterial[0].Kind != "entity_attr" || !strings.Contains(attrMaterial[0].Text, "银发") {
+		t.Fatalf("entity attr material = %#v", attrMaterial)
+	}
+	if _, err := manager.contextMaterials([]ChatContext{{Type: "entity_attr", Source: "user", Payload: map[string]any{"worldId": world.ID, "entityId": character.ID, "attrKey": "missing"}}}); err == nil {
+		t.Fatal("missing entity attr was accepted")
+	}
+	worldAttr, err := manager.contextMaterials([]ChatContext{{Type: "world_attr", Source: "user", Payload: map[string]any{"worldId": world.ID, "attrKey": "description"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(worldAttr) != 1 || worldAttr[0].Kind != "world_attr" || !strings.Contains(worldAttr[0].Text, "未来都市") {
+		t.Fatalf("world attr material = %#v", worldAttr)
+	}
+	if _, err := manager.contextMaterials([]ChatContext{{Type: "world_attr", Source: "user", Payload: map[string]any{"worldId": world.ID, "attrKey": "missing"}}}); err == nil {
+		t.Fatal("missing world attr was accepted")
+	}
+}
+
+// TestSearchEntitiesAcrossWorlds covers the global (cross-World) entity search
+// behind the panel's Entities group.
+func TestSearchEntitiesAcrossWorlds(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	first, err := worlds.CreateWorld(CreateWorldInput{Name: "阿蛋的深夜客厅", Type: WorldCharacterIP})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := worlds.CreateWorld(CreateWorldInput{Name: "橙子一家", Type: WorldFiction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: first.ID, TypeID: EntityTypeCharacter, Name: "深夜阿蛋"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: second.ID, TypeID: EntityTypeCharacter, Name: "小橙"}); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err := worlds.SearchEntities(SearchEntitiesInput{WorldName: "阿蛋"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Name != "深夜阿蛋" || items[0].WorldName != "阿蛋的深夜客厅" {
+		t.Fatalf("world filter items = %#v", items)
+	}
+	items, _, err = worlds.SearchEntities(SearchEntitiesInput{Text: "小橙"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].WorldID != second.ID {
+		t.Fatalf("text filter items = %#v", items)
+	}
+	if items, _, err = worlds.SearchEntities(SearchEntitiesInput{}); err != nil || len(items) != 2 {
+		t.Fatalf("unfiltered search = %#v (err %v)", items, err)
+	}
 }
 
 // TestMergeInlineRefContexts verifies the backend inline-ref safety net (RFC §7).
 func TestMergeInlineRefContexts(t *testing.T) {
-	text := `看 <creation_entity worldid="w1" entityid="e1" name="甲" /> 和 <media type="image" assetid="a1" name="图" />`
+	text := `看 <creation_entity worldid="w1" entityid="e1" name="甲" /> 、 <entity_attr worldid="w1" entityid="e1" attrkey="appearance" name="外观" /> 和 <media type="image" assetid="a1" name="图" />`
 	merged := mergeInlineRefContexts(text, []ChatContext{{Type: "media", Source: "user", Payload: map[string]any{"assetId": "a1"}}})
-	if len(merged) != 2 {
+	if len(merged) != 3 {
 		t.Fatalf("merged contexts = %#v", merged)
 	}
 	if merged[1].Type != "creation_entity" || merged[1].Source != "inline" {
 		t.Fatalf("inline entity context = %#v", merged[1])
 	}
-	if again := mergeInlineRefContexts(text, merged); len(again) != 2 {
+	if merged[2].Type != "entity_attr" || merged[2].Source != "inline" || merged[2].Payload["attrKey"] != "appearance" {
+		t.Fatalf("inline entity attr context = %#v", merged[2])
+	}
+	if again := mergeInlineRefContexts(text, merged); len(again) != 3 {
 		t.Fatalf("inline merge was not idempotent: %#v", again)
 	}
 }

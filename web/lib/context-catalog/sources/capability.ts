@@ -7,7 +7,7 @@
 import { createElement } from "react";
 import { Sparkles, Wrench } from "lucide-react";
 import { mcpToolContextPayload, skillContextPayload } from "@/components/agent-panel-types";
-import { matchScore, sourceLimit } from "../search";
+import { matchScore } from "../search";
 import type { ContextOption, ContextPreview, ContextSource } from "../types";
 
 export const skillSource: ContextSource = {
@@ -26,7 +26,6 @@ export const skillSource: ContextSource = {
     const query = ctx.query.trim();
     return ctx.runtime.skills
       .filter((skill) => !query || matchScore(`${skill.name} ${skill.description}`, query) > 0)
-      .slice(0, sourceLimit(ctx.query, ctx.group, ctx.limit))
       .map((skill): ContextOption => ({
         key: `skill:${skill.appId}:${skill.id}`,
         sourceType: "skill",
@@ -70,7 +69,6 @@ export const mcpToolSource: ContextSource = {
     const query = ctx.query.trim();
     return ctx.runtime.mcpTools
       .filter((tool) => !query || matchScore(`${tool.name} ${tool.description}`, query) > 0)
-      .slice(0, sourceLimit(ctx.query, ctx.group, ctx.limit))
       .map((tool): ContextOption => ({
         key: `mcp_tool:${tool.appId ? `${tool.appId}:` : ""}${tool.name}`,
         sourceType: "mcp_tool",

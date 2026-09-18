@@ -44,6 +44,49 @@ func TestPlanFramesInterval(t *testing.T) {
 	}
 }
 
+func TestPlanFramesDefaultBudgetScalesWithDuration(t *testing.T) {
+	times, err := PlanFrames(FramePlanRequest{IntervalSec: 5, DurationSec: 216})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(times) != 44 {
+		t.Fatalf("got %d frames want 44", len(times))
+	}
+}
+
+func TestPlanFramesIntervalRespectsHardCap(t *testing.T) {
+	if _, err := PlanFrames(FramePlanRequest{IntervalSec: 1, DurationSec: 216}); err == nil {
+		t.Fatal("expected hard cap error")
+	}
+}
+
+func TestPlanFramesShortClipKeepsFloor(t *testing.T) {
+	if _, err := PlanFrames(FramePlanRequest{IntervalSec: 0.1, DurationSec: 10}); err == nil {
+		t.Fatal("expected default budget error")
+	}
+}
+
+func TestFrameBudget(t *testing.T) {
+	cases := []struct {
+		maxFrames int
+		duration  float64
+		want      int
+	}{
+		{0, 10, DefaultMaxFrames},
+		{0, 120, DefaultMaxFrames},
+		{0, 216, 44},
+		{0, 600, HardMaxFrames},
+		{0, 1000, HardMaxFrames},
+		{10, 216, 10},
+		{200, 216, HardMaxFrames},
+	}
+	for _, tc := range cases {
+		if got := frameBudget(tc.maxFrames, tc.duration); got != tc.want {
+			t.Fatalf("frameBudget(%d, %v)=%d want %d", tc.maxFrames, tc.duration, got, tc.want)
+		}
+	}
+}
+
 func TestPlanFramesIntervalRequiresWindow(t *testing.T) {
 	if _, err := PlanFrames(FramePlanRequest{IntervalSec: 0, DurationSec: 7}); err == nil {
 		t.Fatal("expected interval requirement error")

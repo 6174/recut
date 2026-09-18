@@ -82,7 +82,7 @@ references: world-onboarding.md
 
 ## 任务观察（统一）
 
-所有异步任务共享一个 jobId 命名空间与一套观察工具：`recut.job.status` 读取任意 job 的当前状态，`recut.job.wait` 等它到终态，返回视图带 `kind` 区分 `shell`（本地 App 长任务，如 audio.install/transcribe、depth.generate、render.export）与 `media`（recut.image/video/speech.generate 提交的生成任务）。提交任何任务后先用返回的 jobId 调 `recut.job.wait` 到 completed/failed，再决定保存资源或如实报告失败；日志用 `recut.job.logs`、取消用 `recut.job.cancel`（仅 shell job 支持）。
+所有异步任务共享一个 jobId 命名空间与一套观察工具：`recut.job.status` 读取任意 job 的当前状态，`recut.job.wait` 等它到终态，返回视图带 `kind` 区分 `shell`（本地 App 长任务，如 audio.install/transcribe、depth.generate、render.export）与 `media`（recut.image/video/speech.generate 提交的生成任务）。提交后的观察策略与「媒体回复协议」一致：媒体生成（`media`）默认**先落位、不空等**，仅当下一步依赖产物内容时才等终态；本地 shell 长任务（安装/转写/渲染/导出）以及必须拿到终态才能继续的步骤，才用返回的 jobId 调 `recut.job.wait` 到 completed/failed 再决定保存资源或如实报告失败；日志用 `recut.job.logs`、取消用 `recut.job.cancel`（仅 shell job 支持）。
 
 ## 目标规则
 
@@ -104,6 +104,8 @@ App 操作按以下顺序解析状态命名空间：
 ## Creation Worlds 上下文
 
 `recut.worlds.*` 是全局工具：**`recut.worlds.get` 是读取 World 的默认单次入口**——一次获得身份、世界技能（`skill`/world.md 全文）、角色/故事/场景/风格事实（含 `body` 长文）、规则约束与证据（`assetId` 或 `url` 双源），以及可引用项 `references[]`（从实体 media 属性派生，含建议生成 role）。`recut.worlds.list` 发现 Worlds，`recut.worlds.get` 确认身份，`recut.worlds.entities.list/get` 浏览实体。**不存在隐式当前 World**：每次调用都要显式传 `worldId`，`entityId` 只在它的 `worldId` 内有效。
+
+**世界生图/生视频硬规则（未过不提交）**：世界语境下调用 `recut.image.generate` / `recut.video.generate` / `recut.media.propose` 前，必须先 `recut.worlds.get({ worldId })` 读 `references[]`，把合适参考图按 role 传入（画面会出现主角色 → 必带 `role="character"`；场景/风格/色卡锚点分别用 `environment` / `style-ref` / `color-card`）。只有明确不出现任何角色的纯空场景才允许不带参考图；「忘了先读」不是理由。完整口径见全局技能 `recut-worlds`。
 
 **World 工具怎么调（写实体/关系/类型/证据、画布 ops 与 promote、世界内媒体生成）读全局技能 `recut-worlds`**——World Canvas 是没有独立安装包的第一公民 App，它有自己的操作技能。world.md 描述的是**某一个世界的内容与生产工作流**；`recut-worlds` 描述的是**通用工具操作**，两者不要混。
 

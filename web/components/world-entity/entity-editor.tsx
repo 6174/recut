@@ -14,16 +14,16 @@
  */
 "use client";
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRecutWorldsClient, type EntityAttr, type EntityKind, type EntityTypeField, type WorldEntity, type WorldRelationType } from "@/lib/recut-worlds-client";
+import { creationEntityContextPayload } from "@/components/agent-panel-types";
+import type { ContextOption } from "@/lib/context-catalog/types";
 import { useLocaleStore } from "@/lib/i18n/locale-store";
 import { buildEntityContext } from "@/lib/world-entity/guided";
 import { PanelSection } from "@/components/panel-section";
 import { AssetFieldRow, FieldRow, parseAssetValue } from "./field-row";
 import { GuidedAiSection } from "./guided-ai-section";
 import { RichFieldRow } from "./rich-field-row";
-
-const ENTITY_REF_TYPES = ["creation_entity", "creation_world", "media"];
 
 // 统一保存 patch（与画布 saveEntityField 同语义；attrKey 不存在时宿主负责新建该 attr）
 export type EntitySavePatch = {
@@ -113,6 +113,25 @@ export function EntityEditor({
   const locale = useLocaleStore((state) => state.locale);
   // schema 外属性：无独立分区、无「其他」容器语义，直接续排在字段列表（动态属性与 schema 字段同一渲染路径）
   const extraAttrs = entityAttrListOf(entity).filter((attr) => !schemaKeys.has(attr.key));
+  const pinnedOptions = useMemo<ContextOption[]>(() => {
+    if (!entity) return [];
+    const worldId = guided?.worldId ?? entity.worldId;
+    return [
+      {
+        key: `creation_entity:${worldId}:${entity.id}`,
+        sourceType: "creation_entity",
+        group: "current",
+        subKind: entity.typeId,
+        title: entity.name,
+        subtitle: "当前实体 · 可下钻属性",
+        badges: [{ key: "self", label: "当前", tone: "primary" }],
+        data: { worldId, entityId: entity.id, entity },
+        context: creationEntityContextPayload(worldId, entity.id),
+        score: 0,
+        pinned: true,
+      },
+    ];
+  }, [entity, guided?.worldId]);
   const [pickRelationTarget, setPickRelationTarget] = useState(false);
   const [pendingTargetId, setPendingTargetId] = useState<string | null>(null);
   const [relationQuery, setRelationQuery] = useState("");
@@ -137,8 +156,8 @@ export function EntityEditor({
           onSave={(value) => (onRenameField ? onRenameField(String(value)) : saveField({ name: String(value) }))}
           readOnly={readOnly}
         />
-        <RichFieldRow apiBase={apiBase} allowedRefTypes={ENTITY_REF_TYPES} label="简介" minRows={1} onSave={(value) => saveField({ intro: value })} placeholder="一句话简介…" readOnly={readOnly} value={entity?.intro ?? ""} />
-        <RichFieldRow apiBase={apiBase} allowedRefTypes={ENTITY_REF_TYPES} label="正文" minRows={4} onSave={(value) => saveField({ detail: value })} placeholder="详细内容…" readOnly={readOnly} value={entity?.detail ?? ""} />
+        <RichFieldRow apiBase={apiBase} label="简介" minRows={1} onSave={(value) => saveField({ intro: value })} pinnedOptions={pinnedOptions} placeholder="一句话简介…" readOnly={readOnly} value={entity?.intro ?? ""} />
+        <RichFieldRow apiBase={apiBase} label="正文" minRows={4} onSave={(value) => saveField({ detail: value })} pinnedOptions={pinnedOptions} placeholder="详细内容…" readOnly={readOnly} value={entity?.detail ?? ""} />
       </PanelSection>
 
       {/* 字段（type schema + schema 外动态属性 + ＋添加属性 / ＋添加字段） */}
@@ -181,11 +200,11 @@ export function EntityEditor({
             return (
               <RichFieldRow
                 apiBase={apiBase}
-                allowedRefTypes={ENTITY_REF_TYPES}
                 key={field.key}
                 label={field.label ?? field.key}
                 minRows={2}
                 onSave={(value) => saveField({ attrKey: field.key, value })}
+                pinnedOptions={pinnedOptions}
                 placeholder={field.placeholder}
                 readOnly={readOnly}
                 value={entityAttrTextOf(entity, field.key)}
@@ -217,11 +236,11 @@ export function EntityEditor({
           ) : attr.type === "textarea" ? (
             <RichFieldRow
               apiBase={apiBase}
-              allowedRefTypes={ENTITY_REF_TYPES}
               key={attr.key}
               label={attr.label ?? attr.key}
               minRows={2}
               onSave={(value) => saveField({ attrKey: attr.key, value })}
+              pinnedOptions={pinnedOptions}
               readOnly={readOnly}
               value={entityAttrTextOf(entity, attr.key)}
             />

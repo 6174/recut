@@ -52,7 +52,7 @@ export type RecutAsset = {
 	mimeType: string;
 	sizeBytes: number;
 	contentHash: string;
-	status: "completed" | "deleted" | "failed" | "queued" | "running";
+	status: "proposed" | "completed" | "deleted" | "failed" | "queued" | "running";
 	projectIds: string[];
 };
 

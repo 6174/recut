@@ -9,7 +9,9 @@ import { Globe2 } from "lucide-react";
 import { creationWorldContextPayload } from "@/components/agent-panel-types";
 import { worldKindLabels, worldReadOnly, type WorldSummary } from "@/lib/recut-worlds-client";
 import type { ContextOption, ContextPreview, ContextSearchContext, ContextSource } from "../types";
-import { matchScore, sourceLimit } from "../search";
+import { matchScore } from "../search";
+import { toWorldAttrOption } from "./attribute";
+import { entitySummaryOption } from "./entities";
 
 function toOption(world: WorldSummary): ContextOption {
   const readOnly = worldReadOnly(world);
@@ -47,9 +49,29 @@ export const worldsSource: ContextSource = {
   search: async (ctx) => {
     const query = ctx.query.trim();
     const matched = ctx.runtime.worlds
-      .filter((world) => !query || matchScore(`${world.name} ${world.description}`, query) > 0)
-      .slice(0, sourceLimit(ctx.query, ctx.group, ctx.limit));
+      .filter((world) => !query || matchScore(`${world.name} ${world.description}`, query) > 0);
     return matched.map(toOption);
+  },
+  expandable: () => true,
+  // 下钻一个 World：列出世界的属性（identity / 简介 / 世界技能）与它的全部实体。
+  children: async (option, ctx) => {
+    const world = option.data as WorldSummary;
+    const worldId = world.id;
+    const detail = ctx.runtime.loadWorldDetail
+      ? await ctx.runtime.loadWorldDetail(worldId).catch(() => ctx.runtime.worldDetailFor(worldId))
+      : ctx.runtime.worldDetailFor(worldId);
+    const entities = ctx.runtime.loadWorldEntities
+      ? await ctx.runtime.loadWorldEntities(worldId).catch(() => ctx.runtime.entitiesFor(worldId))
+      : ctx.runtime.entitiesFor(worldId);
+    const children: ContextOption[] = [];
+    for (const [key, value] of Object.entries(detail?.identity ?? {})) {
+      children.push(toWorldAttrOption(worldId, key, key, value));
+    }
+    const description = detail?.description ?? world.description;
+    if (description) children.push(toWorldAttrOption(worldId, "description", "简介", description));
+    if (detail?.skillMd) children.push(toWorldAttrOption(worldId, "skillMd", "世界技能", detail.skillMd));
+    for (const entity of entities ?? []) children.push(entitySummaryOption(entity, world.name));
+    return children;
   },
   preview: (option, ctx): ContextPreview => {
     const world = option.data as WorldSummary;

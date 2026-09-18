@@ -193,6 +193,26 @@ func (s *Server) getWorldsCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, catalog)
 }
 
+// searchWorldEntities serves the panel's global (cross-World) entity search:
+// GET /v1/worlds/entities?world=&text=&typeId=&limit=&cursor=.
+func (s *Server) searchWorldEntities(w http.ResponseWriter, r *http.Request) {
+	input := SearchEntitiesInput{
+		WorldName: r.URL.Query().Get("world"),
+		Text:      r.URL.Query().Get("text"),
+		TypeID:    r.URL.Query().Get("typeId"),
+		Cursor:    r.URL.Query().Get("cursor"),
+	}
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		input.Limit, _ = strconv.Atoi(raw)
+	}
+	items, nextCursor, err := s.worldsStore().SearchEntities(input)
+	if err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "nextCursor": optionalCursor(nextCursor)})
+}
+
 func (s *Server) listWorldEntities(w http.ResponseWriter, r *http.Request) {
 	input := ListEntitiesInput{
 		WorldID: r.PathValue("worldID"), TypeID: r.URL.Query().Get("typeId"),

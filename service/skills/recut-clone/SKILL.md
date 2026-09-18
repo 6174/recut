@@ -60,14 +60,16 @@ S1 理解 ──G1──> S2 决定 ──G2──> S3 计划 ──G3──> S4
 
 1. `recut.media.asset.create` 建占位素材（无字节、`status=proposed`、不花钱）。
 2. 写 `content`：这段素材**要是什么**（主体/动作/镜头/风格），用内联引用 @ 锚定参考证据、角色/产品素材、World 实体。
-3. 必要处补 `attributes`（role / shotKind / transferable / `refSource`）；配方留到 S4。
+3. 必要处补 `attributes`（role / shotKind / transferable）；来源素材用 `refSource`，**类型必须是 `media`**、值为 `{ assetId, kind?, name? }`（不要写成 text + id 字符串，也不要写进 content 正文）——这样计划态才能直接把「参考来源」指向素材；配方留到 S4。
 4. 写 `clone-plan.md`（人读索引）供审阅。
 
 `content` 就是生成规格；参考素材的 content 是「这是什么」，计划素材的 content 是「我要它是什么」。
 
 ## 5. 生成与组装
 
-- **生成**：读占位素材 `content`（+ attrs）作提示词，把 @ 引用解析为生成参考绑定；补 `metadata.proposal` → `propose → confirm`（媒体）或 `recut.motion-graphic.create`（MG，免费）。产物**原位填回同一 assetId**。
+- **生成（原位，绝不另建资产）**：读占位素材 `content`（+ attrs）作提示词，把 @ 引用解析为生成参考绑定；**在同一个 `assetId` 上**用 `recut.media.update_proposal` 补生成配方（`capability` / `modelId` / `output`，省略 `text` 时 `content` 即提示词）→ 用户 `recut.media.confirm_proposal`（确认权只在用户）→ 队列执行 → 产物**原位填回同一 assetId**。图形走 `recut.motion-graphic.create`（免费）。
+  - 不要用 `recut.image.generate` / `recut.video.generate` 来物化计划素材——它们会**新建一个 assetId**，使占位永远停在 `proposed`、且提案读不到占位的 `content`/`attributes`。
+  - 画幅以 `aspectRatio` 显式传入（会合进生成 output）；未传时按模型默认。
 - **组装**：交给 `timeline-editor` —— `recut.editor.timeline.read` 看现状、`timeline.placeComponents` / `timeline.placeAudio` / `timeline.command` 落轨、字幕走其 captions 能力；首版按「源片段秒数 / 计划时长」顺序铺（见 `references/placement.md`）。
 - **校验/交付**：`timeline.validate` + settled frame 抽检（`preview.*`）；`export.start` → `recut.job.wait` 到终态 → 实际观看后报告。
 

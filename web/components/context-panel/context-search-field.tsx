@@ -18,9 +18,6 @@ export function ContextSearchField({
   group,
   groups,
   onGroup,
-  subKind,
-  subKinds,
-  onSubKind,
 }: {
   query: string;
   onQuery: (value: string) => void;
@@ -28,9 +25,6 @@ export function ContextSearchField({
   group: ContextGroupID | "all";
   groups: ContextGroupID[];
   onGroup: (group: ContextGroupID | "all") => void;
-  subKind?: string;
-  subKinds: string[];
-  onSubKind: (subKind?: string) => void;
 }) {
   const { t } = useI18n();
   return (
@@ -58,14 +52,6 @@ export function ContextSearchField({
           />
         ))}
       </div>
-      {group !== "all" && subKinds.length > 1 && (
-        <div className="flex flex-wrap items-center gap-1 px-2.5 pb-2">
-          <GroupChip active={!subKind} label={t("agent.context.subkind.all")} onClick={() => onSubKind(undefined)} />
-          {subKinds.map((kind) => (
-            <GroupChip active={subKind === kind} key={kind} label={kind} onClick={() => onSubKind(kind)} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }

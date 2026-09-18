@@ -7,7 +7,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { create } from "zustand";
-import { createRecutWorldsClient, type EntityKind, type WorldDetail, type WorldEntity, type WorldEntitySummary, type WorldKind, type WorldSummary } from "./recut-worlds-client";
+import { createRecutWorldsClient, type EntityKind, type WorldDetail, type WorldEntity, type WorldEntitySearchItem, type WorldEntitySummary, type WorldKind, type WorldSummary } from "./recut-worlds-client";
 
 export type WorldsLoadState = "loading" | "ready" | "failed";
 
@@ -23,6 +23,8 @@ type WorldsStore = {
   loadDetail: (endpoint: string, worldId: string, force?: boolean) => Promise<WorldDetail>;
   loadEntities: (endpoint: string, worldId: string, input?: { typeId?: EntityKind; text?: string; cursor?: string; limit?: number }, force?: boolean) => Promise<WorldEntitySummary[]>;
   loadEntity: (endpoint: string, worldId: string, entityId: string, force?: boolean) => Promise<WorldEntity>;
+  /** 跨 World 实体搜索（Entities 分组全局搜索）；按输入去重并失败返回空列表。 */
+  searchEntities: (endpoint: string, input?: { text?: string; world?: string; typeId?: EntityKind; cursor?: string; limit?: number }) => Promise<WorldEntitySearchItem[]>;
   invalidate: (worldId?: string) => void;
 };
 
@@ -30,6 +32,7 @@ const pageRequests = new Map<string, Promise<WorldSummary[]>>();
 const detailRequests = new Map<string, Promise<WorldDetail>>();
 const entitiesRequests = new Map<string, Promise<WorldEntitySummary[]>>();
 const entityRequests = new Map<string, Promise<WorldEntity>>();
+const searchRequests = new Map<string, Promise<WorldEntitySearchItem[]>>();
 
 const pageKey = (input?: { text?: string; type?: WorldKind; cursor?: string; limit?: number }) => `${input?.text ?? ""}|${input?.type ?? ""}|${input?.cursor ?? ""}|${input?.limit ?? 50}`;
 const entitiesKey = (input?: { typeId?: EntityKind; text?: string; cursor?: string; limit?: number }) => `${input?.typeId ?? ""}|${input?.text ?? ""}|${input?.cursor ?? ""}|${input?.limit ?? 50}`;
@@ -129,6 +132,18 @@ export const useWorldsStore = create<WorldsStore>((set, get) => ({
       return entity;
     })().finally(() => entityRequests.delete(key));
     entityRequests.set(key, pending);
+    return pending;
+  },
+  searchEntities: async (endpoint, input) => {
+    const key = `${endpoint}:${input?.text ?? ""}|${input?.world ?? ""}|${input?.typeId ?? ""}|${input?.cursor ?? ""}|${input?.limit ?? 50}`;
+    const current = searchRequests.get(key);
+    if (current) return current;
+    const pending = createRecutWorldsClient(endpoint)
+      .searchEntities(input)
+      .then((page) => page.items)
+      .catch(() => [])
+      .finally(() => searchRequests.delete(key));
+    searchRequests.set(key, pending);
     return pending;
   },
   invalidate: (worldId) => {

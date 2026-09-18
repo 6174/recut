@@ -105,12 +105,12 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Map an absolute http(s) URL to a local file path (unified remote cache <dataRoot>/files/cdn, content-addressed, repeat access is a filesystem hit, ≤100MB, private/loopback addresses refused). Use it when a local file is needed (viewing, processing, or feeding a local-path-only tool); use recut.media.import_url when an Asset-library entry is wanted; generation references (imageAssetIds, ...) accept URLs directly, so this tool is not required for them.",
 	},
 	"recut.image.generate": {
-		LocaleZh: "提交图片生成任务。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 完成后将同一 Asset 原位转为 completed 或 failed。可立刻用 assetId 建立项目引用，再用 recut.media.wait_for_job 等待终态。",
-		LocaleEn: "Submit an image generation job. It immediately returns a stable queued jobId and assetIds; the persistent Daemon moves the same Asset to completed or failed in place. You may create project references with the assetId right away, then use recut.media.wait_for_job to await the terminal state.",
+		LocaleZh: "【世界生图硬规则·未过不提交】世界语境生图前必须先用 `recut.worlds.get({ worldId })` 读取该世界 `references[]`：画面会出现主角色时必须带该角色参考图（`references` 中 `role: \"character\"`）；世界已有场景/风格锚点时按其 role 传入（`environment` / `style-ref` 等）。只有明确不出现任何角色的纯空场景才允许不带参考图。提交图片生成任务。立即返回处于 queued 状态的稳定 jobId 与 assetIds；assetId 在排队/生成中即可稳定引用，常驻 Daemon 完成后将同一 Asset 原位转为 completed 或 failed。默认先落位、不空等：拿到 assetId 立刻建立项目引用/落位并标记生成中，不要用 recut.media.wait_for_job 把落位堵在终态之后。只有下一步真的依赖图片内容（读图决策、连续性/质量验收、或用于导出）时才 wait。",
+		LocaleEn: "【Hard rule for world image generation — do not submit if unmet】Before generating images in a world context, first read the world's `references[]` via `recut.worlds.get({ worldId })`: when the frame may contain the main character, attach that character's reference (`role: \"character\"` in `references`); when the world already has scene/style anchors, pass them with their roles (`environment` / `style-ref`, ...). Only a pure empty scene that explicitly contains no character may omit references. Submit an image generation job. It immediately returns a stable queued jobId and assetIds; the assetId is stable and referenceable while queued/generating, and the persistent Daemon moves the same Asset to completed or failed in place. Default is place-and-continue, never block: create the project reference/placement with the assetId right away and mark it generating; do not use recut.media.wait_for_job to hold placement until the terminal state. Only wait when the next step truly depends on the image content (image-based decision, continuity/quality acceptance, or export).",
 	},
 	"recut.video.generate": {
-		LocaleZh: "提交长时间运行的视频生成。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。",
-		LocaleEn: "Submit a long-running video generation. It immediately returns a stable queued jobId and assetIds; after the persistent Daemon accepts the Atlas task, the same Asset moves to running in place and is later reclaimed as completed or failed. Create project references with the assetId right away.",
+		LocaleZh: "提交长时间运行的视频生成。世界语境生成前同样受硬规则约束：先 `recut.worlds.get({ worldId })` 读 `references[]`，画面会出现主角色时必须带其角色参考图（`role: \"character\"`），场景/风格锚点按 role 传入；只有明确不出现任何角色的纯空场景才可省略参考图。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。",
+		LocaleEn: "Submit a long-running video generation. World-context generation is bound by the same hard rule: first read `references[]` via `recut.worlds.get({ worldId })`; when the frame may contain the main character, attach the character reference (`role: \"character\"`), and pass scene/style anchors with their roles; only a pure empty scene with no character may omit references. It immediately returns a stable queued jobId and assetIds; after the persistent Daemon accepts the Atlas task, the same Asset moves to running in place and is later reclaimed as completed or failed. Create project references with the assetId right away.",
 	},
 	"recut.speech.generate": {
 		LocaleZh: "提交长时间运行的语音生成。云端路由先用 recut.media.list_voices 查询凭据可用的 voiceId；本机 TTS 路由可省略 voiceId（用 Audio Studio 默认音，或经其 audio.synthesize/audio.save）。立即返回 jobId 与处于 queued 状态的稳定 assetIds。",
@@ -165,8 +165,8 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Probe one asset's objective facts (duration/width/height/fps/hasAudio) locally with ffprobe; pure observation.",
 	},
 	"recut.media.frames": {
-		LocaleZh: "按 atSec 列表或 intervalSec 区间抽取关键帧，每帧落为稳定 image 素材并返回 [{atSec,assetId}]。maxFrames 上限保护；帧数超限会报错而不是静默截断。",
-		LocaleEn: "Extract frames by an explicit atSec list or an intervalSec range; each frame becomes a stable image asset and [{atSec,assetId}] is returned. maxFrames bounds the request; exceeding it errors rather than silently truncating.",
+		LocaleZh: "按 atSec 列表或 intervalSec 区间抽取关键帧，每帧落为稳定 image 素材并返回 [{atSec,assetId}]。帧数上限随总时长推导（显式 maxFrames 优先）；超限会报错而不是静默截断。",
+		LocaleEn: "Extract frames by an explicit atSec list or an intervalSec range; each frame becomes a stable image asset and [{atSec,assetId}] is returned. The frame ceiling scales with the source duration (an explicit maxFrames wins); exceeding it errors rather than silently truncating.",
 	},
 	"recut.media.contactSheet": {
 		LocaleZh: "在 [startSec,endSec] 上按 intervalSec 抽帧并合成带时间码的接触表（可传 transcriptAssetId 叠词标签），返回 sheetAssetId 与逐格 cells。用于快速看清整片画面节奏。",
@@ -197,8 +197,8 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Idempotently write observation evidence (probe/transcript/frames/sheets/boundaries/clips) into a reference asset's metadata.reference, deduplicating by (kind,assetId/params). Observations only; never subjective judgement.",
 	},
 	"recut.media.asset.create": {
-		LocaleZh: "创建一个无字节的计划素材（status=proposed，不花钱、不建 job）并写入 content（规格，可 @ 引用）与可选 attributes。生成时用 asset.update 补 metadata.proposal 再 confirm，产物原位填回同一 assetId。",
-		LocaleEn: "Create a byte-less plan asset (status=proposed; no cost, no job) with content (the spec, may use inline @ references) and optional attributes. At generation time add metadata.proposal via asset.update, confirm, and the output fills the same assetId in place.",
+		LocaleZh: "创建一个无字节的计划素材（status=proposed，不花钱、不建 job）并写入 content（规格，可 @ 引用）与可选 attributes。生成时用 update_proposal 在同一 assetId 上补 capability/model/output（省略 text 时 content 即提示词）再 confirm，产物原位填回同一 assetId，不另建资产。",
+		LocaleEn: "Create a byte-less plan asset (status=proposed; no cost, no job) with content (the spec, may use inline @ references) and optional attributes. To generate, call update_proposal on the same assetId to add capability/model/output (content becomes the prompt when text is omitted), then confirm; the output fills the same assetId in place, never a new one.",
 	},
 	"recut.media.import_media": {
 		LocaleZh: "把会话工作区或目标项目内的本地视频/音频/图片文件导入为素材（≤2GB，流式读取），返回真实 assetId。用于宿主 Agent 自行下载的素材入库。",
@@ -1554,7 +1554,7 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 			"intervalSec": map[string]any{"type": "number", "description": "等间隔抽帧（默认区间为整片）。"},
 			"startSec":    map[string]any{"type": "number"},
 			"endSec":      map[string]any{"type": "number"},
-			"maxFrames":   map[string]any{"type": "integer", "description": "帧数上限，默认 24、硬上限 120；超出报错。"},
+			"maxFrames":   map[string]any{"type": "integer", "description": "帧数上限；缺省按总时长推导（每 5s 一帧，下限 24、上限 120），显式值优先、硬上限 120；超出报错。"},
 			"projectId":   map[string]string{"type": "string", "description": "可选；把衍生帧素材关联到该项目。"},
 		}}},
 		{"name": "recut.media.contactSheet", "description": mcpDescription(locale, "recut.media.contactSheet"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "intervalSec"}, "properties": map[string]any{
@@ -2183,7 +2183,7 @@ func mediaGenerationSchema(textDescription string, imageReferences, videoReferen
 		properties[key] = description
 	}
 	if imageReferences {
-		properties["imageAssetIds"] = map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "作为图片参考的全局 assetId。"}
+		properties["imageAssetIds"] = map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "作为图片参考的全局 assetId。世界生图为硬前置：先 recut.worlds.get 取 references[]，画面会出现主角色时必须带该角色参考图；只有纯空场景可为空。"}
 	}
 	if videoReferences {
 		properties["videoAssetIds"] = map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "作为视频参考的全局 assetId。"}
@@ -2197,7 +2197,7 @@ func mediaGenerationSchema(textDescription string, imageReferences, videoReferen
 // proposalExtraProperties are the proposal-only fields shared by generation and
 // propose tools: reference role bindings and the reviewable recipe extras.
 var proposalExtraProperties = map[string]any{
-	"references": map[string]any{"type": "array", "description": "生成参考的角色绑定记录（顺序即提交顺序）；每项 {id, kind, role, label}，role↔kind 不匹配或未知 role 会被拒绝。",
+	"references": map[string]any{"type": "array", "description": "生成参考的角色绑定记录（顺序即提交顺序）；每项 {id, kind, role, label}，role↔kind 不匹配或未知 role 会被拒绝。世界语境生图/视频为硬前置：画面会出现主角色时必须带 `role=\"character\"` 的角色参考图，场景/风格锚点按 role 传入；只有明确不出现任何角色的纯空场景才可为空。",
 		"items": map[string]any{"type": "object", "required": []string{"id"}, "properties": map[string]any{
 			"id":    map[string]any{"type": "string", "description": "参考素材 assetId。"},
 			"kind":  map[string]any{"type": "string", "enum": []string{"image", "video", "audio"}},
@@ -2232,7 +2232,9 @@ func proposalMCPToolDefinitions() []map[string]any {
 	}
 	updateProperties := map[string]any{
 		"assetId":      map[string]any{"type": "string", "description": "要修改的提案资产 assetId。"},
-		"text":         map[string]any{"type": "string", "description": "新的生成提示词。"},
+		"capability":   map[string]any{"type": "string", "enum": []string{"image.generate", "video.generate", "speech.generate"}, "description": "可选；给 content-first 占位素材补生成能力（占位由 asset.create 建，默认无 capability）。"},
+		"route":        map[string]any{"type": "string", "description": "可选；生成路由 id，缺省走该 capability 的默认路由。"},
+		"text":         map[string]any{"type": "string", "description": "新的生成提示词。占位素材省略时用其 content 作为规格。"},
 		"modelId":      map[string]any{"type": "string"},
 		"credentialId": map[string]any{"type": "string"},
 		"output":       map[string]any{"type": "object"},
@@ -2251,9 +2253,9 @@ func proposalMCPToolDefinitions() []map[string]any {
 		confirmProperties[key] = proposalExtraProperties[key]
 	}
 	return []map[string]any{
-		{"name": "recut.media.propose", "description": "创建一个生成提案（任意 capability）：校验模型/参考后落为全局 proposed 资产，不建任务、不花钱，等用户确认。参考用 references[] 声明 role；视频默认也走本入口。", "inputSchema": map[string]any{"type": "object", "required": []string{"capability", "text"}, "properties": proposeProperties}},
+		{"name": "recut.media.propose", "description": "创建一个生成提案（任意 capability）：校验模型/参考后落为全局 proposed 资产，不建任务、不花钱，等用户确认。参考用 references[] 声明 role；视频默认也走本入口。世界语境提案为硬前置：先 recut.worlds.get({ worldId }) 读 references[]，画面会出现主角色时必须带 `role=\"character\"` 的角色参考图，场景/风格锚点按 role 传入；只有明确不出现任何角色的纯空场景才可为空。", "inputSchema": map[string]any{"type": "object", "required": []string{"capability", "text"}, "properties": proposeProperties}},
 		{"name": "recut.media.list_proposals", "description": "列出 proposed 状态的生成提案（可按 projectId 过滤，分页）。用于查看待确认/失败/已确认的提案；确认权只在用户。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]any{"type": "string"}, "workspace": map[string]any{"type": "boolean"}, "limit": map[string]any{"type": "integer"}, "offset": map[string]any{"type": "integer"}}}},
-		{"name": "recut.media.update_proposal", "description": "确认前原地修改提案配方（提示词/参考/模型/参数/画幅/时长/备注）。仅对 proposed 资产生效，其它状态拒绝。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": updateProperties}},
+		{"name": "recut.media.update_proposal", "description": "确认前原地修改提案配方（能力/路由/提示词/参考/模型/参数/画幅/时长/备注）。仅对 proposed 资产生效，其它状态拒绝。用于把 asset.create 的 content-first 占位素材在同一 assetId 上补全生成配方：传 capability/modelId/output（省略 text 时用其 content 作提示词），再由用户 confirm 原位生成。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": updateProperties}},
 		{"name": "recut.media.confirm_proposal", "description": "用户确认提案：把同一 proposed 资产转为真实生成任务（复用 assetId，引用无需重指）。这是唯一花钱动作；Agent 不得代用户确认，只由 UI/用户显式触发。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": confirmProperties}},
 		{"name": "recut.media.reject_proposal", "description": "放弃一个提案（软删墓碑，保留记录）。仅由用户/UI 触发。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]any{"type": "string"}}}},
 	}
@@ -2289,7 +2291,7 @@ func mediaGenerationInput(input map[string]any, capability MediaCapability) Gene
 	// modelId + credentialId 成对出现时直连该路由（绕过默认路由），供跨 provider 声音选择。
 	modelID, _ := input["modelId"].(string)
 	credentialID, _ := input["credentialId"].(string)
-	return GenerateMediaInput{Capability: capability, Prompt: prompt, Route: route, ModelID: modelID, CredentialID: credentialID, ReferenceIDs: mediaReferenceIDs(input), Output: output, ProjectID: requestedProjectID(input), IdempotencyKey: key}
+	return GenerateMediaInput{Capability: capability, Prompt: prompt, Route: route, ModelID: modelID, CredentialID: credentialID, ReferenceIDs: mediaReferenceIDs(input), Output: output, AspectRatio: stringValue(input["aspectRatio"]), ProjectID: requestedProjectID(input), IdempotencyKey: key}
 }
 
 func stringsFromAny(value any) []string {
@@ -2388,6 +2390,14 @@ func proposalOriginFromMCP(input map[string]any) *ProposalOrigin {
 // absent fields stay nil so the merge leaves them unchanged.
 func proposalPatchFromMCP(input map[string]any) ProposalPatch {
 	patch := ProposalPatch{}
+	// capability/route 让 content-first 占位素材（asset.create，无 capability）能在
+	// 同一 assetId 上补全生成配方，再 confirm；不再需要另建一个提案资产。
+	if value, ok := input["capability"].(string); ok {
+		patch.Capability = &value
+	}
+	if value, ok := input["route"].(string); ok {
+		patch.Route = &value
+	}
 	if value, ok := input["text"].(string); ok {
 		patch.Prompt = &value
 	} else if value, ok := input["prompt"].(string); ok {
@@ -2422,7 +2432,7 @@ func proposalPatchFromMCP(input map[string]any) ProposalPatch {
 // proposalPatchPointerFromMCP returns nil when the caller supplied no patch
 // field, so confirm uses the stored recipe untouched.
 func proposalPatchPointerFromMCP(input map[string]any) *ProposalPatch {
-	for _, key := range []string{"text", "prompt", "modelId", "credentialId", "output", "references", "aspectRatio", "durationSec", "note"} {
+	for _, key := range []string{"capability", "route", "text", "prompt", "modelId", "credentialId", "output", "references", "aspectRatio", "durationSec", "note"} {
 		if _, present := input[key]; present {
 			patch := proposalPatchFromMCP(input)
 			return &patch

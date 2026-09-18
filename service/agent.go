@@ -43,7 +43,7 @@ func cliScanError(err error) error {
 	return err
 }
 
-const defaultOpencodeModel = "opencode-go/deepseek-v4-flash"
+const defaultOpencodeModel = "opencode-go/deepseek-v4.1-flash"
 
 type OpencodeModel struct {
 	ID       string `json:"id"`
@@ -1421,7 +1421,10 @@ var contextMaterializers = map[string]func(m *AgentManager, payload json.RawMess
 	"work_surface":    materializeWorkSurfaceContext,
 	"work_focus":      materializeWorkFocusContext,
 	"creation_world":  materializeCreationWorldContext,
+	"world_attr":      materializeWorldAttrContext,
 	"creation_entity": materializeCreationEntityContext,
+	"entity_attr":     materializeEntityAttrContext,
+	"media_attr":      materializeMediaAttrContext,
 	"project":         materializeProjectContext,
 	"app":             materializeAppContext,
 	"skill":           materializeSkillContext,
@@ -1591,7 +1594,7 @@ func (m *AgentManager) contextMaterials(contexts []ChatContext) ([]contextMateri
 
 // inlineRefTagPattern / inlineRefAttrPattern scan the user message for registered
 // inline reference tags (RFC 2026-09-14 §6). 正文 XML 是主锚点，contexts 是投影。
-var inlineRefTagPattern = regexp.MustCompile(`<(media|creation_world|creation_entity|world_evidence|creation_evidence|project|app|skill|mcp_tool)\b([^>]*?)/?>`)
+var inlineRefTagPattern = regexp.MustCompile(`<(media|creation_world|world_attr|creation_entity|entity_attr|media_attr|world_evidence|creation_evidence|project|app|skill|mcp_tool)\b([^>]*?)/?>`)
 var inlineRefAttrPattern = regexp.MustCompile(`([a-z]+)="([^"]*)"`)
 
 func inlineRefContexts(text string) []ChatContext {
@@ -1623,11 +1626,26 @@ func inlineRefContext(tagType string, attrs map[string]string) (ChatContext, boo
 			return ChatContext{}, false
 		}
 		return ChatContext{Type: "creation_world", Source: "inline", Payload: map[string]any{"worldId": attrs["worldid"]}}, true
+	case "world_attr":
+		if attrs["worldid"] == "" || attrs["attrkey"] == "" {
+			return ChatContext{}, false
+		}
+		return ChatContext{Type: "world_attr", Source: "inline", Payload: map[string]any{"worldId": attrs["worldid"], "attrKey": attrs["attrkey"]}}, true
 	case "creation_entity":
 		if attrs["worldid"] == "" || attrs["entityid"] == "" {
 			return ChatContext{}, false
 		}
 		return ChatContext{Type: "creation_entity", Source: "inline", Payload: map[string]any{"worldId": attrs["worldid"], "entityId": attrs["entityid"]}}, true
+	case "entity_attr":
+		if attrs["worldid"] == "" || attrs["entityid"] == "" || attrs["attrkey"] == "" {
+			return ChatContext{}, false
+		}
+		return ChatContext{Type: "entity_attr", Source: "inline", Payload: map[string]any{"worldId": attrs["worldid"], "entityId": attrs["entityid"], "attrKey": attrs["attrkey"]}}, true
+	case "media_attr":
+		if attrs["assetid"] == "" || attrs["attrkey"] == "" {
+			return ChatContext{}, false
+		}
+		return ChatContext{Type: "media_attr", Source: "inline", Payload: map[string]any{"assetId": attrs["assetid"], "attrKey": attrs["attrkey"]}}, true
 	case "world_evidence", "creation_evidence":
 		if attrs["worldid"] == "" || attrs["evidenceid"] == "" {
 			return ChatContext{}, false
@@ -1691,8 +1709,14 @@ func contextIdentityKey(context ChatContext) string {
 		return "media:" + value("assetId")
 	case "creation_world":
 		return "creation_world:" + value("worldId")
+	case "world_attr":
+		return "world_attr:" + value("worldId") + ":" + value("attrKey")
 	case "creation_entity":
 		return "creation_entity:" + value("worldId") + ":" + value("entityId")
+	case "entity_attr":
+		return "entity_attr:" + value("worldId") + ":" + value("entityId") + ":" + value("attrKey")
+	case "media_attr":
+		return "media_attr:" + value("assetId") + ":" + value("attrKey")
 	case "world_evidence", "creation_evidence":
 		return "creation_evidence:" + value("worldId") + ":" + value("evidenceId")
 	case "project":
@@ -1798,6 +1822,41 @@ func materializeCreationWorldContext(m *AgentManager, payload json.RawMessage) (
 	}, nil
 }
 
+// materializeWorldAttrContext resolves one World attribute (identity field,
+// description, or world skill) to its current value.
+func materializeWorldAttrContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		WorldID string `json:"worldId"`
+		AttrKey string `json:"attrKey"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || input.WorldID == "" || input.AttrKey == "" {
+		return contextMaterial{}, errors.New("world_attr context requires worldId and attrKey")
+	}
+	worlds := NewWorldStore(m.store, m.media)
+	world, err := worlds.GetWorld(input.WorldID)
+	if err != nil {
+		return contextMaterial{}, errors.New("world_attr world is unavailable")
+	}
+	var value any
+	switch input.AttrKey {
+	case "description":
+		value = world.Description
+	case "skillMd":
+		value = world.SkillMd
+	default:
+		value = world.Identity[input.AttrKey]
+	}
+	if value == nil {
+		return contextMaterial{}, errors.New("world_attr is not defined on this world")
+	}
+	return contextMaterial{
+		Label: world.Name + " · " + input.AttrKey,
+		Kind:  "world_attr",
+		Text: fmt.Sprintf("[World Attribute] worldId=%s world=%s attrKey=%s value=%s —— 这是 World「%s」的属性「%s」的当前值；需要更多上下文时用 recut.worlds.get 读取整个世界。",
+			world.ID, world.Name, input.AttrKey, formatContextAttrValue(value), world.Name, input.AttrKey),
+	}, nil
+}
+
 // materializeCreationEntityContext validates a creation_entity attachment
 // against its World and tells the Agent to read the live Entity content.
 func materializeCreationEntityContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
@@ -1819,6 +1878,112 @@ func materializeCreationEntityContext(m *AgentManager, payload json.RawMessage) 
 		Kind:  "creation_entity",
 		Text:  "[Creation Entity] worldId=" + input.WorldID + " entityId=" + entity.ID + " kind=" + string(entity.TypeID) + " title=" + entity.Name + " —— 调用 recut.worlds.entities.get({ worldId: \"" + input.WorldID + "\", entityId: \"" + entity.ID + "\" }) 读取完整内容；关联的世界用 recut.worlds.get 读取。不要凭聊天记忆假定设定当前状态。",
 	}, nil
+}
+
+// materializeEntityAttrContext resolves one World Entity extended attribute to
+// its current value so the Agent sees the live attribute the user anchored.
+func materializeEntityAttrContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		WorldID  string `json:"worldId"`
+		EntityID string `json:"entityId"`
+		AttrKey  string `json:"attrKey"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || input.WorldID == "" || input.EntityID == "" || input.AttrKey == "" {
+		return contextMaterial{}, errors.New("entity_attr context requires worldId, entityId and attrKey")
+	}
+	worlds := NewWorldStore(m.store, m.media)
+	entity, err := worlds.GetEntity(input.WorldID, input.EntityID)
+	if err != nil {
+		return contextMaterial{}, errors.New("entity_attr entity is unavailable")
+	}
+	for _, attr := range entity.Attrs {
+		if attr.Key != input.AttrKey {
+			continue
+		}
+		label := attr.Label
+		if label == "" {
+			label = attr.Key
+		}
+		return contextMaterial{
+			Label: entity.Name + " · " + label,
+			Kind:  "entity_attr",
+			Text: fmt.Sprintf("[Entity Attribute] worldId=%s entityId=%s entity=%s attrKey=%s label=%s type=%s value=%s —— 这是实体「%s」的扩展属性「%s」的当前值；需要更多上下文时用 recut.worlds.entities.get 读取完整实体。",
+				input.WorldID, entity.ID, entity.Name, attr.Key, label, attr.Type, formatContextAttrValue(attr.Value), entity.Name, label),
+		}, nil
+	}
+	return contextMaterial{}, errors.New("entity_attr is not defined on this entity")
+}
+
+// materializeMediaAttrContext resolves one media asset extended attribute.
+func materializeMediaAttrContext(m *AgentManager, payload json.RawMessage) (contextMaterial, error) {
+	var input struct {
+		AssetID string `json:"assetId"`
+		AttrKey string `json:"attrKey"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil || input.AssetID == "" || input.AttrKey == "" {
+		return contextMaterial{}, errors.New("media_attr context requires assetId and attrKey")
+	}
+	if m.media == nil {
+		return contextMaterial{}, errors.New("media service is unavailable")
+	}
+	asset, err := m.media.GetAsset(input.AssetID)
+	if err != nil {
+		return contextMaterial{}, errors.New("media_attr asset is unavailable")
+	}
+	attrs, err := MaterialAttrsFromMetadata(asset.Metadata)
+	if err != nil {
+		return contextMaterial{}, err
+	}
+	for _, attr := range attrs {
+		if attr.Key != input.AttrKey {
+			continue
+		}
+		label := attr.Label
+		if label == "" {
+			label = attr.Key
+		}
+		return contextMaterial{
+			Label: asset.Name + " · " + label,
+			Kind:  "media_attr",
+			Text: fmt.Sprintf("[Media Attribute] assetId=%s asset=%s attrKey=%s label=%s type=%s value=%s —— 这是素材「%s」的扩展属性「%s」的当前值；需要更多上下文时用 recut.media.asset.get 读取完整素材。",
+				asset.ID, asset.Name, attr.Key, label, attr.Type, formatContextAttrValue(attr.Value), asset.Name, label),
+		}, nil
+	}
+	return contextMaterial{}, errors.New("media_attr is not defined on this asset")
+}
+
+// formatContextAttrValue renders an attribute value as one readable prompt line.
+func formatContextAttrValue(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return "—"
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return "—"
+		}
+		return typed
+	case bool, float64, int, int64:
+		return fmt.Sprint(typed)
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, item := range typed {
+			parts = append(parts, formatContextAttrValue(item))
+		}
+		return strings.Join(parts, "、")
+	case map[string]any:
+		if name, ok := typed["name"].(string); ok && name != "" {
+			return name
+		}
+		if assetID, ok := typed["assetId"].(string); ok && assetID != "" {
+			return "asset:" + assetID
+		}
+		if url, ok := typed["url"].(string); ok && url != "" {
+			return url
+		}
+		return "（对象）"
+	default:
+		return fmt.Sprint(typed)
+	}
 }
 
 // materializeProjectContext validates a project attachment and tells the Agent

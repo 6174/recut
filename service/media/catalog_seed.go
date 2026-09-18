@@ -110,8 +110,8 @@ func openAIImageSeedParameters() []MediaParameter {
 // cdn/sources/templates/skymind-video.json 保持一致，CDN 目录不可用时行为不变。
 func skymindVideoSeedParameters() []MediaParameter {
 	return []MediaParameter{
-		{Name: "resolution", ProviderKey: "resolution", Type: "string", Default: "480p"},
-		{Name: "aspectRatio", ProviderKey: "ratio", Type: "string", Default: "16:9"},
+		{Name: "resolution", ProviderKey: "resolution", Type: "string", Enum: []string{"480p", "720p", "720p-SR", "1080p-SR", "1440p-SR"}, Default: "480p"},
+		{Name: "aspectRatio", ProviderKey: "ratio", Type: "string", Enum: []string{"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"}, Default: "16:9"},
 		{Name: "durationSeconds", ProviderKey: "duration", Type: "integer", Default: float64(5)},
 		{Name: "generateAudio", ProviderKey: "metadata.generate_audio", Type: "boolean", Default: true},
 		{Name: "watermark", ProviderKey: "metadata.watermark", Type: "boolean"},

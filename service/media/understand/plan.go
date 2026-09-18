@@ -18,12 +18,19 @@ import (
 )
 
 const (
-	// DefaultMaxFrames bounds a single frames/contactSheet extraction when the
-	// caller does not set one; HardMaxFrames is the absolute ceiling.
+	// DefaultMaxFrames is the floor of the duration-derived frame budget and the
+	// fallback when a source duration is unknown; HardMaxFrames is the absolute
+	// ceiling.
 	DefaultMaxFrames = 24
 	HardMaxFrames    = 120
 	// MaxAtSecPoints bounds explicit atSec lists the same way.
 	MaxAtSecPoints = HardMaxFrames
+
+	// DefaultFrameSpacingSec is the target sampling density used to derive a
+	// duration-aware default budget: a source of N seconds may produce about
+	// N/DefaultFrameSpacingSec frames, floored at DefaultMaxFrames and capped at
+	// HardMaxFrames. Callers can still override with an explicit maxFrames.
+	DefaultFrameSpacingSec = 5.0
 
 	DefaultCellPx = 320
 	MinCellPx     = 96
@@ -54,19 +61,15 @@ type FramePlanRequest struct {
 
 // PlanFrames expands a frame request into ordered, de-duplicated source times.
 // An explicit atSec list is validated against the duration; otherwise the
-// [start,end] window is walked at IntervalSec. Exceeding MaxFrames fails closed
-// so the caller narrows the interval instead of silently truncating evidence.
+// [start,end] window is walked at IntervalSec. Exceeding the effective budget
+// fails closed so the caller narrows the interval instead of silently
+// truncating evidence. An explicit MaxFrames wins; otherwise the budget scales
+// with the probed duration (see frameBudget).
 func PlanFrames(req FramePlanRequest) ([]float64, error) {
 	if !(req.DurationSec > 0) {
 		return nil, errors.New("source duration is required before planning frames")
 	}
-	maxFrames := req.MaxFrames
-	if maxFrames <= 0 {
-		maxFrames = DefaultMaxFrames
-	}
-	if maxFrames > HardMaxFrames {
-		maxFrames = HardMaxFrames
-	}
+	maxFrames := frameBudget(req.MaxFrames, req.DurationSec)
 	if len(req.AtSec) > 0 {
 		if len(req.AtSec) > maxFrames {
 			return nil, fmt.Errorf("frame count %d exceeds maxFrames %d", len(req.AtSec), maxFrames)
@@ -109,6 +112,28 @@ func PlanFrames(req FramePlanRequest) ([]float64, error) {
 		return nil, errors.New("the requested range produces no frames")
 	}
 	return dedupeSorted(times), nil
+}
+
+// frameBudget resolves the effective frame ceiling. An explicit maxFrames wins
+// (clamped to HardMaxFrames). Otherwise the ceiling grows with the source
+// duration at DefaultFrameSpacingSec so a long clip is not capped by a value
+// sized for a short one; short clips keep DefaultMaxFrames and everything is
+// bounded by HardMaxFrames.
+func frameBudget(maxFrames int, durationSec float64) int {
+	if maxFrames > 0 {
+		if maxFrames > HardMaxFrames {
+			return HardMaxFrames
+		}
+		return maxFrames
+	}
+	budget := int(math.Ceil(durationSec / DefaultFrameSpacingSec))
+	if budget < DefaultMaxFrames {
+		budget = DefaultMaxFrames
+	}
+	if budget > HardMaxFrames {
+		budget = HardMaxFrames
+	}
+	return budget
 }
 
 func clampTime(value, duration float64) float64 {

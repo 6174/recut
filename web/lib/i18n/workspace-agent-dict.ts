@@ -218,6 +218,7 @@ const zh = {
   "agent.message.generationFailed": "生成失败",
   "agent.message.checking": "正在读取素材状态…",
   "agent.message.generating": "生成中…",
+  "agent.message.planned": "计划中（待生成）",
 
   // 新对话空态引导
   "agent.onboard.installTitle": "开始使用 Agent",
@@ -318,6 +319,7 @@ const zh = {
   "agent.context.group.current": "当前",
   "agent.context.group.selected": "当前引用",
   "agent.context.group.world": "Worlds",
+  "agent.context.group.entity": "实体",
   "agent.context.group.workspace": "工作台",
   "agent.context.group.media": "素材",
   "agent.context.group.skill": "Skills",
@@ -345,6 +347,9 @@ const zh = {
   "agent.context.source.app": "应用",
   "agent.context.source.skill": "Skill",
   "agent.context.source.mcpTool": "MCP 工具",
+  "agent.context.source.entityAttr": "实体属性",
+  "agent.context.source.mediaAttr": "素材属性",
+  "agent.context.source.worldAttr": "World 属性",
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
@@ -559,6 +564,7 @@ const en: Record<keyof typeof zh, string> = {
   "agent.message.generationFailed": "Generation failed",
   "agent.message.checking": "Reading asset status…",
   "agent.message.generating": "Generating…",
+  "agent.message.planned": "Planned (not generated yet)",
 
   // New-conversation onboarding
   "agent.onboard.installTitle": "Get started with an Agent",
@@ -659,6 +665,7 @@ const en: Record<keyof typeof zh, string> = {
   "agent.context.group.current": "Current",
   "agent.context.group.selected": "Referenced",
   "agent.context.group.world": "Worlds",
+  "agent.context.group.entity": "Entities",
   "agent.context.group.workspace": "Workspace",
   "agent.context.group.media": "Media",
   "agent.context.group.skill": "Skills",
@@ -686,6 +693,9 @@ const en: Record<keyof typeof zh, string> = {
   "agent.context.source.app": "App",
   "agent.context.source.skill": "Skill",
   "agent.context.source.mcpTool": "MCP tool",
+  "agent.context.source.entityAttr": "Entity attribute",
+  "agent.context.source.mediaAttr": "Media attribute",
+  "agent.context.source.worldAttr": "World attribute",
 };
 
 export const agentZh = zh;

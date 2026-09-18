@@ -285,6 +285,7 @@ type GenerateMediaInput struct {
 	References     MediaReferences `json:"references,omitempty"`
 	ReferenceIDs   []string        `json:"referenceIds"`
 	Output         map[string]any  `json:"output"`
+	AspectRatio    string          `json:"aspectRatio,omitempty"`
 	ProjectID      string          `json:"projectId"`
 	IdempotencyKey string          `json:"idempotencyKey"`
 }
@@ -376,7 +377,13 @@ type ProposeInput struct {
 
 // ProposalPatch is a partial update of a proposed asset's recipe. Nil fields
 // are left unchanged. Used by both update_proposal and confirm overrides.
+//
+// Capability/Route are patchable so a content-first plan asset created by
+// asset.create (no bytes, no capability) can be promoted in place: patch adds
+// the generation recipe, confirm binds the same assetId (never a new one).
 type ProposalPatch struct {
+	Capability   *string              `json:"capability,omitempty"`
+	Route        *string              `json:"route,omitempty"`
 	Prompt       *string              `json:"prompt,omitempty"`
 	ModelID      *string              `json:"modelId,omitempty"`
 	CredentialID *string              `json:"credentialId,omitempty"`

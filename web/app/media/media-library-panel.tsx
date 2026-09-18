@@ -28,7 +28,6 @@ import { Badge } from "@/components/ui/badge";
 import { CustomSelect } from "@/components/ui/select-field";
 import { MediaAssetEventsProvider, useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
-import { confirmProposalAsset } from "@/lib/media/proposal";
 import { useServiceStore } from "@/lib/service-store";
 import { AssetGrid } from "./asset-grid";
 import { AssetPreview } from "./asset-preview";
@@ -203,16 +202,6 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
     if (!response.ok) throw new Error(await responseMessage(response));
     upsertAsset(await response.json());
   }
-  async function confirmProposal(asset: Asset) {
-    try {
-      await confirmProposalAsset(apiBase, asset.id);
-      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { cache: "no-store" });
-      if (response.ok) upsertAsset(await response.json());
-      setNotice("已确认生成；素材就绪后会自动更新。");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "确认生成失败，请重试。");
-    }
-  }
   async function deleteAsset(asset: Asset) {
     const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}`, { method: "DELETE" });
     if (!response.ok) throw new Error(await responseMessage(response));
@@ -343,7 +332,6 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
               apiBase={apiBase}
               assets={visibleAssets}
               jobs={visibleJobs}
-              onConfirm={confirmProposal}
               onDelete={deleteAsset}
               onPreview={setPreview}
               onRename={renameAsset}

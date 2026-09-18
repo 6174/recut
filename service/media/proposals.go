@@ -124,6 +124,7 @@ func (m *MediaService) Propose(input ProposeInput) (MediaAsset, error) {
 		return MediaAsset{}, errors.New("media route model is unknown")
 	}
 	output := normalizedGenerationOutput(input.Capability, route.ModelID, input.Output)
+	applyAspectRatio(route.ModelID, input.AspectRatio, output)
 	normalizedOutput, err := normalizeModelOutput(model, output)
 	if err != nil {
 		return MediaAsset{}, err
@@ -332,6 +333,12 @@ func proposalInputFromAsset(asset MediaAsset, patch *ProposalPatch) (ProposeInpu
 	referenceIDs := metadataStringSlice(asset.Metadata["referenceIds"])
 	references := spec.References
 	if patch != nil {
+		if patch.Capability != nil {
+			capability = strings.TrimSpace(*patch.Capability)
+		}
+		if patch.Route != nil {
+			routeID = strings.TrimSpace(*patch.Route)
+		}
 		if patch.Prompt != nil {
 			prompt = *patch.Prompt
 		}
@@ -358,6 +365,14 @@ func proposalInputFromAsset(asset MediaAsset, patch *ProposalPatch) (ProposeInpu
 		}
 		if patch.Note != nil {
 			spec.Note = strings.TrimSpace(*patch.Note)
+		}
+	}
+	// content-first：占位素材没有 prompt 时，用它的 content（说明即生成规格）当提示词，
+	// 这样 asset.create(占位) → update_proposal(补 capability/model/output) → confirm
+	// 能在同一 assetId 上完成，不必另建资产。
+	if strings.TrimSpace(prompt) == "" {
+		if content, _ := asset.Metadata[MetadataKeyContent].(string); strings.TrimSpace(content) != "" {
+			prompt = content
 		}
 	}
 	// Reference order authority: an explicit references patch wins; otherwise
@@ -423,10 +438,13 @@ func (m *MediaService) applyProposalRecipe(assetID string, recipe ProposeInput) 
 	if !ok {
 		return errors.New("media route model is unknown")
 	}
-	output, err := normalizeModelOutput(model, normalizedGenerationOutput(recipe.Capability, route.ModelID, recipe.Output))
+	output := normalizedGenerationOutput(recipe.Capability, route.ModelID, recipe.Output)
+	applyAspectRatio(route.ModelID, recipe.AspectRatio, output)
+	normalizedOutput, err := normalizeModelOutput(model, output)
 	if err != nil {
 		return err
 	}
+	output = normalizedOutput
 	if recipe.Capability == SpeechGenerate && speechVoiceID(MediaJob{Output: output}) == "" {
 		if credential.Provider == "local-audio" {
 			output["voiceId"] = speechLocalVoiceDefault
@@ -510,6 +528,7 @@ func (m *MediaService) ConfirmProposal(assetID string, patch *ProposalPatch) (Me
 		Prompt:         recipe.Prompt,
 		ReferenceIDs:   recipe.ReferenceIDs,
 		Output:         recipe.Output,
+		AspectRatio:    recipe.AspectRatio,
 		ProjectID:      recipe.ProjectID,
 		IdempotencyKey: "proposal:" + assetID,
 	}

@@ -6,6 +6,7 @@
  */
 import type { RefProtocolRegistry } from "@/lib/rich-composer/protocol/types";
 import { CONTEXT_GROUP_ORDER } from "./search";
+import { entityAttrSource, mediaAttrSource, worldAttrSource } from "./sources/attribute";
 import { mcpToolSource, skillSource } from "./sources/capability";
 import { workFocusSource, workSurfaceSource } from "./sources/current";
 import { entitiesSource } from "./sources/entities";
@@ -24,6 +25,9 @@ export const contextSources: ContextSource[] = [
   mediaSource,
   skillSource,
   mcpToolSource,
+  entityAttrSource,
+  mediaAttrSource,
+  worldAttrSource,
 ];
 
 export { CONTEXT_GROUP_ORDER };
@@ -31,6 +35,7 @@ export { CONTEXT_GROUP_ORDER };
 export const contextGroupTitleKeys: Record<ContextGroupID, string> = {
   current: "agent.context.group.current",
   world: "agent.context.group.world",
+  entity: "agent.context.group.entity",
   workspace: "agent.context.group.workspace",
   media: "agent.context.group.media",
   skill: "agent.context.group.skill",

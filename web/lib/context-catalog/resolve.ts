@@ -27,6 +27,52 @@ export function resolveContextOption(
       const title = entity?.name ?? attrs.name ?? attrs.entityid ?? "实体";
       return { key: `creation_entity:${attrs.worldid}:${attrs.entityid}`, sourceType, group: "world", subKind: entity?.typeId ?? attrs.kind, title, data: { worldId: attrs.worldid, entityId: attrs.entityid }, score: 0 };
     }
+    case "world_attr": {
+      const detail = runtime.worldDetailFor(attrs.worldid ?? "");
+      const key = attrs.attrkey ?? "";
+      const value = key === "description"
+        ? detail?.description
+        : key === "skillMd"
+          ? detail?.skillMd
+          : detail?.identity?.[key];
+      return {
+        key: `world_attr:${attrs.worldid}:${key}`,
+        sourceType,
+        group: "world",
+        title: attrs.name ?? key,
+        data: { worldId: attrs.worldid, key, label: attrs.name ?? key, value },
+        score: 0,
+      };
+    }
+    case "entity_attr": {
+      const entity = runtime.entityFor(attrs.worldid ?? "", attrs.entityid ?? "");
+      const attr = entity?.attrs?.find((item) => item.key === attrs.attrkey);
+      return {
+        key: `entity_attr:${attrs.worldid}:${attrs.entityid}:${attrs.attrkey}`,
+        sourceType,
+        group: "entity",
+        subKind: attr?.type,
+        title: attr?.label ?? attrs.name ?? attrs.attrkey ?? "属性",
+        data: { worldId: attrs.worldid, entityId: attrs.entityid, attr: attr ?? { key: attrs.attrkey, label: attrs.name ?? attrs.attrkey ?? "", type: "text" } },
+        score: 0,
+      };
+    }
+    case "media_attr": {
+      const asset = runtime.mediaAssets.find((item) => item.id === attrs.assetid);
+      const attributes = Array.isArray(asset?.metadata?.attributes)
+        ? (asset!.metadata.attributes as Array<{ key: string; label?: string; type?: string; value?: unknown }>)
+        : [];
+      const attr = attributes.find((item) => item.key === attrs.attrkey);
+      return {
+        key: `media_attr:${attrs.assetid}:${attrs.attrkey}`,
+        sourceType,
+        group: "media",
+        subKind: attr?.type,
+        title: attr?.label ?? attrs.name ?? attrs.attrkey ?? "属性",
+        data: { assetId: attrs.assetid, attr: attr ?? { key: attrs.attrkey, label: attrs.name ?? attrs.attrkey ?? "", type: "text" } },
+        score: 0,
+      };
+    }
     case "creation_evidence":
     case "world_evidence":
       return { key: `creation_evidence:${attrs.worldid}:${attrs.evidenceid}`, sourceType: "creation_evidence", group: "world", title: attrs.name ?? attrs.evidenceid ?? "证据", data: { worldId: attrs.worldid, evidenceId: attrs.evidenceid }, score: 0 };

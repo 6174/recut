@@ -10,6 +10,7 @@ import { Captions, ImageIcon, Link2, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CardMoreMenu } from "@/components/card-more-menu";
 import { VideoFrame } from "@/components/video-frame";
+import { isConfirmableProposal, isPlanAsset } from "@/lib/media/proposal";
 import type { Asset, MediaJob } from "./media-types";
 
 // 与 Tailwind gap-3 一致：列间距由 gap-3 给，行间距由每行自身的 pb-3 给（绝对定位的行不参与 grid 行间距）。
@@ -28,7 +29,6 @@ export function AssetGrid({
   apiBase,
   assets,
   jobs,
-  onConfirm,
   onDelete,
   onPreview,
   onRename,
@@ -36,7 +36,6 @@ export function AssetGrid({
   apiBase: string;
   assets: Asset[];
   jobs: MediaJob[];
-  onConfirm: (asset: Asset) => Promise<void>;
   onDelete: (asset: Asset) => Promise<void>;
   onPreview: (asset: Asset) => void;
   onRename: (asset: Asset, name: string) => Promise<void>;
@@ -61,6 +60,7 @@ export function AssetGrid({
     estimateSize: () => cellWidth + CAPTION_HEIGHT + GRID_GAP,
     overscan: ROW_OVERSCAN,
     getItemKey: (index) => entries[index * GRID_COLUMNS]?.id ?? index,
+    useFlushSync: false,
   });
 
   useEffect(() => {
@@ -113,7 +113,6 @@ export function AssetGrid({
                     apiBase={apiBase}
                     asset={entry.asset}
                     key={entry.id}
-                    onConfirm={onConfirm}
                     onDelete={onDelete}
                     onPreview={onPreview}
                     onRename={onRename}
@@ -142,30 +141,33 @@ function QueuedJobCard({ job }: { job: MediaJob }) {
   );
 }
 
-function AssetCard({ apiBase, asset, onConfirm, onDelete, onPreview, onRename }: { apiBase: string; asset: Asset; onConfirm: (asset: Asset) => Promise<void>; onDelete: (asset: Asset) => Promise<void>; onPreview: (asset: Asset) => void; onRename: (asset: Asset, name: string) => Promise<void> }) {
+function AssetCard({ apiBase, asset, onDelete, onPreview, onRename }: { apiBase: string; asset: Asset; onDelete: (asset: Asset) => Promise<void>; onPreview: (asset: Asset) => void; onRename: (asset: Asset, name: string) => Promise<void> }) {
   const contentURL = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/content`;
-  const proposed = asset.status === "proposed";
+  // proposed 是一个服务端状态，但语义分两种：带配方=待确认提案；无配方=计划态。
+  // 卡片只做预览与状态区分；主 action（确认生成 / 复制计划给 AI / Remix）都在素材详情里。
+  const proposal = isConfirmableProposal(asset);
+  const plan = isPlanAsset(asset);
   return <div className="group relative overflow-visible rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20">
     <button className="block w-full overflow-hidden rounded-t-xs text-left" onClick={() => onPreview(asset)} type="button">
-      {proposed ? <ProposedAsset asset={asset} /> : asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-square" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "reference" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
+      {proposal ? <ProposedAsset asset={asset} /> : plan ? <PlannedAsset asset={asset} /> : asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-square" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "reference" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
       <div className="p-2.5">
         <p className="truncate text-xs font-medium">{asset.name}</p>
-        <p className="mt-1 text-[10px] text-muted-foreground">{proposed ? "待确认生成" : asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : asset.kind === "transcript" ? "转写" : "资料"}</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">{proposal ? "待确认生成" : plan ? "计划中" : asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : asset.kind === "transcript" ? "转写" : "资料"}</p>
       </div>
     </button>
-    {proposed && (
-      <div className="border-t px-2.5 py-2">
-        <button
-          className="h-7 w-full rounded-xs bg-primary text-[11px] font-medium text-primary-foreground hover:bg-primary/85"
-          onClick={(event) => { event.stopPropagation(); void onConfirm(asset); }}
-          type="button"
-        >
-          确认生成
-        </button>
-      </div>
-    )}
     <div className="absolute right-2 top-2"><CardMoreMenu itemName={asset.name} itemType="素材" onDelete={() => onDelete(asset)} onRename={(name) => onRename(asset, name)} /></div>
   </div>;
+}
+
+// 计划卡：content-first 占位素材，还没有生成配方；动作是复制计划给 AI，而不是确认生成。
+function PlannedAsset({ asset }: { asset: Asset }) {
+  const content = typeof asset.metadata.content === "string" ? asset.metadata.content : "";
+  return (
+    <div className="grid aspect-square content-center gap-1.5 bg-sky-500/10 p-4 text-center">
+      <span className="text-[11px] font-semibold text-sky-600">计划中</span>
+      {content && <p className="line-clamp-4 text-[10px] leading-4 text-muted-foreground">{content}</p>}
+    </div>
+  );
 }
 
 // 提案卡：未确认的高价生成（视频等）。画布与编辑器同样读取资产的 proposed 状态。

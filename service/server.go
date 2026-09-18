@@ -129,6 +129,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/worlds", s.createWorld)
 	mux.HandleFunc("POST /v1/worlds/import", s.importWorld)
 	mux.HandleFunc("GET /v1/worlds/catalog", s.getWorldsCatalog)
+	mux.HandleFunc("GET /v1/worlds/entities", s.searchWorldEntities)
 	mux.HandleFunc("GET /v1/worlds/{worldID}", s.getWorld)
 	mux.HandleFunc("GET /v1/worlds/{worldID}/export", s.exportWorld)
 	mux.HandleFunc("PATCH /v1/worlds/{worldID}", s.updateWorld)

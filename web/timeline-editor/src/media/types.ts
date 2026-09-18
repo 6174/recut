@@ -12,8 +12,9 @@ export interface MediaAsset
 	extends Omit<MediaAssetData, "size" | "lastModified"> {
 	file: File;
 	url?: string;
-	/** Assets Service 的权威状态；`loading` 仅表示当前 origin 的 OPFS 缓存尚未完成。 */
-	status?: "completed" | "loading" | "deleted" | "failed" | "queued" | "running";
+	/** Assets Service 的权威状态；`loading` 仅表示当前 origin 的 OPFS 缓存尚未完成。
+	 *  `proposed` 是 content-first 计划态（无字节、不建 job），面板按状态展示而非当作待加载媒体。 */
+	status?: "proposed" | "completed" | "loading" | "deleted" | "failed" | "queued" | "running";
 	contentHash?: string;
 	sizeBytes?: number;
 }

@@ -11,6 +11,7 @@ import { Maximize2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { RichComposer } from "@/components/rich-composer/rich-composer";
+import type { ContextOption } from "@/lib/context-catalog/types";
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import { referenceDisplayText } from "@/lib/rich-composer/protocol/parse";
 import type { RichComposerValue } from "@/lib/rich-composer/value";
@@ -21,7 +22,7 @@ export function RichFieldRow({
   value,
   placeholder,
   minRows,
-  allowedRefTypes,
+  pinnedOptions,
   readOnly,
   apiBase,
   onSave,
@@ -30,7 +31,7 @@ export function RichFieldRow({
   value: string;
   placeholder?: string;
   minRows?: number;
-  allowedRefTypes?: string[];
+  pinnedOptions?: ContextOption[];
   readOnly?: boolean;
   apiBase: string;
   onSave: (value: string) => Promise<void> | void;
@@ -153,13 +154,13 @@ export function RichFieldRow({
       </div>
       <div className="mt-1 rounded-md border bg-background p-2 focus-within:border-primary">
         <RichComposer
-          allowedRefTypes={allowedRefTypes}
           apiBase={apiBase}
           autoFocus
           maxRows={10}
           minRows={minRows}
           mode="referencing"
           onChange={setDraft}
+          pinnedOptions={pinnedOptions}
           placeholder={placeholder}
           value={draft}
           variant="field"
@@ -168,12 +169,12 @@ export function RichFieldRow({
       <p className="mt-0.5 text-[10px] text-muted-foreground">⌘↵ 保存 · Esc 取消 · 输入 @ 引用实体</p>
       {fullscreen && (
         <RichFullscreenEditor
-          allowedRefTypes={allowedRefTypes}
           apiBase={apiBase}
           label={label}
           onCancel={cancel}
           onCommit={() => void commit()}
           onDraft={setDraft}
+          pinnedOptions={pinnedOptions}
           placeholder={placeholder}
           value={draft}
         />
@@ -187,7 +188,7 @@ export function RichFullscreenEditor({
   label,
   value,
   placeholder,
-  allowedRefTypes,
+  pinnedOptions,
   apiBase,
   onDraft,
   onCommit,
@@ -196,7 +197,7 @@ export function RichFullscreenEditor({
   label: string;
   value: RichComposerValue;
   placeholder?: string;
-  allowedRefTypes?: string[];
+  pinnedOptions?: ContextOption[];
   apiBase: string;
   onDraft: (value: RichComposerValue) => void;
   onCommit: () => void;
@@ -229,12 +230,12 @@ export function RichFullscreenEditor({
           }}
         >
           <RichComposer
-            allowedRefTypes={allowedRefTypes}
             apiBase={apiBase}
             autoFocus
             minRows={12}
             mode="referencing"
             onChange={onDraft}
+            pinnedOptions={pinnedOptions}
             placeholder={placeholder ?? "输入内容，@ 引用实体"}
             value={value}
             variant="field"

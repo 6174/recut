@@ -281,8 +281,8 @@ func TestNormalizeCodexConfiguration(t *testing.T) {
 }
 
 func TestParseOpencodeModelsKeepsEveryTUIProvider(t *testing.T) {
-	models := parseOpencodeModels("opencode/deepseek-v4-flash-free\nopencode-go/deepseek-v4-flash\ngithub-copilot/gpt-5.6-sol\ninvalid")
-	if len(models) != 3 || models[0].ID != "opencode/deepseek-v4-flash-free" || models[1].ID != defaultOpencodeModel || models[2].Provider != "github-copilot" {
+	models := parseOpencodeModels("opencode/deepseek-v4.1-flash-free\nopencode-go/deepseek-v4.1-flash\ngithub-copilot/gpt-5.6-sol\ninvalid")
+	if len(models) != 3 || models[0].ID != "opencode/deepseek-v4.1-flash-free" || models[1].ID != defaultOpencodeModel || models[2].Provider != "github-copilot" {
 		t.Fatalf("models = %#v", models)
 	}
 }
@@ -464,16 +464,16 @@ func TestUpdateOpencodeConfigurationPersistsModel(t *testing.T) {
 
 	manager := NewAgentManager(store, nil, nil)
 	manager.opencodeModels = func(context.Context) ([]OpencodeModel, error) {
-		return []OpencodeModel{{ID: defaultOpencodeModel}, {ID: "opencode/deepseek-v4-flash-free"}}, nil
+		return []OpencodeModel{{ID: defaultOpencodeModel}, {ID: "opencode/deepseek-v4.1-flash-free"}}, nil
 	}
 	if _, err := manager.UpdateOpencodeConfiguration("session-opencode", "github-copilot/gpt-5.6-sol"); err == nil {
 		t.Fatal("model absent from the OpenCode TUI was accepted")
 	}
-	session, err := manager.UpdateOpencodeConfiguration("session-opencode", "opencode/deepseek-v4-flash-free")
+	session, err := manager.UpdateOpencodeConfiguration("session-opencode", "opencode/deepseek-v4.1-flash-free")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.OpencodeModel != "opencode/deepseek-v4-flash-free" {
+	if session.OpencodeModel != "opencode/deepseek-v4.1-flash-free" {
 		t.Fatalf("saved opencode model = %q", session.OpencodeModel)
 	}
 	db, err = store.WorkspaceDatabase()
@@ -481,7 +481,7 @@ func TestUpdateOpencodeConfigurationPersistsModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stored string
-	if err := db.QueryRow("select opencode_model from agent_sessions where id = ?", "session-opencode").Scan(&stored); err != nil || stored != "opencode/deepseek-v4-flash-free" {
+	if err := db.QueryRow("select opencode_model from agent_sessions where id = ?", "session-opencode").Scan(&stored); err != nil || stored != "opencode/deepseek-v4.1-flash-free" {
 		t.Fatalf("persisted opencode_model = %q, err=%v", stored, err)
 	}
 }

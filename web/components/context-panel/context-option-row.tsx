@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import type { ContextOption, ContextSource } from "@/lib/context-catalog/types";
 
 export function ContextOptionRow({
@@ -14,15 +14,19 @@ export function ContextOptionRow({
   source,
   apiBase,
   highlighted,
+  expandable,
   onHover,
   onPick,
+  onExpand,
 }: {
   option: ContextOption;
   source: ContextSource | undefined;
   apiBase: string;
   highlighted: boolean;
+  expandable?: boolean;
   onHover: () => void;
   onPick: () => void;
+  onExpand?: () => void;
 }) {
   const attrs = { type: option.subKind ?? "", assetid: option.key.split(":")[1] ?? "", name: option.title };
   return (
@@ -52,6 +56,22 @@ export function ContextOptionRow({
           </span>
         ))}
         {option.selected && <Check className="size-3.5 text-primary" />}
+        {expandable && (
+          <span
+            aria-label="展开属性"
+            className="grid size-5 place-items-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onExpand?.();
+            }}
+            role="button"
+            tabIndex={-1}
+            title="展开属性"
+          >
+            <ChevronRight className="size-3.5" />
+          </span>
+        )}
       </span>
     </button>
   );

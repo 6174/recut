@@ -895,6 +895,67 @@ func (w *WorldStore) ListEntities(input ListEntitiesInput) ([]WorldEntitySummary
 	return items, nextCursor, nil
 }
 
+// WorldEntitySearchItem is a global entity search row: the entity summary plus
+// its owning World name so the panel can show `World · entity` without a
+// second lookup across a paginated world list.
+type WorldEntitySearchItem struct {
+	WorldEntitySummary
+	WorldName string `json:"worldName"`
+}
+
+// SearchEntities is the cross-World entity search behind the panel's Entities
+// group. It replaces the client fan-out of one request per World with a single
+// paginated query; WorldName/Text are independent fuzzy filters.
+func (w *WorldStore) SearchEntities(input SearchEntitiesInput) ([]WorldEntitySearchItem, string, error) {
+	db, err := w.database()
+	if err != nil {
+		return nil, "", err
+	}
+	offset, limit := resolvePage(input.Cursor, input.Limit)
+	where := []string{"e.archived_at is null", "w.archived_at is null", "e.is_provisional = 0"}
+	args := []any{}
+	if input.Text != "" {
+		where = append(where, "(e.title like ? or e.summary like ?)")
+		pattern := "%" + input.Text + "%"
+		args = append(args, pattern, pattern)
+	}
+	if input.WorldName != "" {
+		where = append(where, "w.name like ?")
+		args = append(args, "%"+input.WorldName+"%")
+	}
+	if input.TypeID != "" {
+		where = append(where, "coalesce(nullif(e.type_id, ''), e.kind) = ?")
+		args = append(args, input.TypeID)
+	}
+	args = append(args, limit, offset)
+	rows, err := db.Query("select e.id, e.world_id, coalesce(nullif(e.type_id, ''), e.kind), e.title, e.summary, e.parent_id, e.container_role, e.is_provisional, e.updated_at, w.name from world_entities e join worlds w on w.id = e.world_id where "+strings.Join(where, " and ")+" order by e.updated_at desc limit ? offset ?", args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	items := make([]WorldEntitySearchItem, 0)
+	for rows.Next() {
+		var item WorldEntitySearchItem
+		var parentID, containerRole sql.NullString
+		var provisional int
+		if err := rows.Scan(&item.ID, &item.WorldID, &item.TypeID, &item.Name, &item.Intro, &parentID, &containerRole, &provisional, &item.UpdatedAt, &item.WorldName); err != nil {
+			return nil, "", err
+		}
+		item.ParentID = nullStringValue(parentID)
+		item.ContainerRole = nullStringValue(containerRole)
+		item.IsProvisional = provisional != 0
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	nextCursor := ""
+	if len(items) == limit {
+		nextCursor = strconv.Itoa(offset + limit)
+	}
+	return items, nextCursor, nil
+}
+
 func (w *WorldStore) GetEntity(worldID, entityID string) (WorldEntity, error) {
 	db, err := w.database()
 	if err != nil {
@@ -902,7 +963,6 @@ func (w *WorldStore) GetEntity(worldID, entityID string) (WorldEntity, error) {
 	}
 	return w.getEntity(db, worldID, entityID)
 }
-
 func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntity, error) {
 	var entity WorldEntity
 	var detail string
@@ -2901,6 +2961,17 @@ type ListEntitiesInput struct {
 	Cursor             string `json:"cursor"`
 	Limit              int    `json:"limit"`
 	IncludeProvisional bool   `json:"includeProvisional"`
+}
+
+// SearchEntitiesInput is the typed input of the global entity search
+// (GET /v1/worlds/entities). WorldName and Text are two independent fuzzy
+// filters so the panel's `World.entity` query maps to one scalable request.
+type SearchEntitiesInput struct {
+	WorldName string
+	Text      string
+	TypeID    string
+	Cursor    string
+	Limit     int
 }
 
 // CreateWorldInput is the typed input of world.create.

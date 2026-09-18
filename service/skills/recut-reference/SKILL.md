@@ -37,6 +37,7 @@ description: 读懂一支参考视频/素材，并把证据与参考分析写回
 
 1. **准备参考素材**（真实内容优先）
    - 用户提供视频/音频/图片文件：先入库为素材 —— 本地文件用 `recut.media.import_media`（会话工作区或目标项目内，流式，≤2GB）；直链用 `recut.files.fetch` / `recut.media.import_url`。
+   - 平台页链接（抖音/YouTube/B站…）：由宿主 Agent 用 `yt-dlp --cookies-from-browser` 下载（URL 规范、cookie 与各平台要点见 `references/tools.md` §3.1）；**需要登录或反复风控时，先引导用户在本机 Chrome 打开该平台并登录，再重试**，不要索要账号密码。下载产物（含用户手动下载的文件）**必须用 `recut.media.import_media` 入库**，不能白下载、只留工作区文件。
    - 用 `recut.media.reference.create({ assetId, sourceUrl? })` 标记为参考（`sourceUrl` 仅作溯源，不抓取、不去重）。
    - 只处理链接引用（无内容可下载）时才用既有 `recut.media.create_reference`。
 
@@ -57,6 +58,7 @@ description: 读懂一支参考视频/素材，并把证据与参考分析写回
 - `metadata.reference` **只装观察**（指针或客观量）；主观但可复用的分析写 `attributes`/`content`；目标相关判断不写素材。
 - 所有产物是**稳定 `assetId`**；不复制字节、不臆造 id。
 - **幂等**：重复理解同一参考复用已有派生资产（attach 去重），不重复下载/转码。
+- **外部下载必须入库**：任何从平台页下载的内容（yt-dlp 产物或用户手动下载的文件）都要 `recut.media.import_media` 入库为真实素材并 `reference.create` 溯源；只落工作区文件、不入素材库，视为未完成。
 - 读回：`recut.media.asset.get` 拿 `attributes`/`content`/`metadata.reference`；`list_assets` 只回摘要。
 
 ## 参考文档

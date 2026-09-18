@@ -26,7 +26,7 @@ export function ContextMentionPopover({
   autoFocusSearch,
   selectedKeys,
   selectedOptions,
-  allowedRefTypes,
+  pinnedOptions,
   onPick,
   onCancel,
   onDismiss,
@@ -49,7 +49,8 @@ export function ContextMentionPopover({
   selectedKeys: Set<string>;
   /** 已引用条目（置顶为「当前引用」分组） */
   selectedOptions?: ContextOption[];
-  allowedRefTypes?: string[];
+  /** 宿主额外置顶到「当前引用」分组的条目 */
+  pinnedOptions?: ContextOption[];
   onPick: (option: ContextOption, keepOpen: boolean) => void;
   /** 主动取消（Esc / 关闭按钮 / 选择后收起）：清理触发文本 */
   onCancel: () => void;
@@ -98,13 +99,13 @@ export function ContextMentionPopover({
           sideOffset={8}
         >
           <ContextMentionPanel
-            allowedRefTypes={allowedRefTypes}
             apiBase={apiBase}
             autoFocusSearch={autoFocusSearch}
             initialQuery={initialQuery}
             onClose={onCancel}
             onPick={onPick}
             onQuery={onQuery}
+            pinnedOptions={pinnedOptions}
             projectID={projectID}
             query={query}
             selectedKeys={selectedKeys}

@@ -323,7 +323,6 @@ export function Composer({
       </div>
       {contextPanelOpen && (
         <ContextMentionPopover
-          allowedRefTypes={undefined}
           anchor={composerRef.current}
           apiBase={apiBase}
           onCancel={closeContextPanel}

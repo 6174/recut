@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 react createPortal、useContextCatalog/useContextRuntime、ContextSearchField/ContextList/ContextPreviewPane、筛选与排序纯函数
  * [OUTPUT]: 对外提供 ContextMentionPanel：720×min(520,vh) 双栏面板，Portal 锚定 composer 上方，支持搜索/一级分组/二级类型/键盘导航/预览/插入；selectedOptions 置顶为「当前引用」分组（与搜索结果去重，便于快速定位）；受控 query + autoFocusSearch=false 时由编辑器驱动（焦点不离开编辑器）
- * [POS]: web/components/context-panel 的双栏容器（选择面 RFC §6/§16）；由 agent-composer 的 @ 与 AtSign 触发、RichComposer 编辑器内 @ 触发，allowedRefTypes 可裁剪
+ * [POS]: web/components/context-panel 的双栏容器（选择面 RFC §6/§16）；由 agent-composer 的 @ 与 AtSign 触发、RichComposer 编辑器内 @ 触发
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkFocusContext, WorkSurfaceContext } from "@/components/agent-panel-types";
 import { useContextCatalog } from "@/lib/context-catalog/runtime";
-import { buildContextRows, CONTEXT_GROUP_ORDER, type ContextRow, type ContextSourceError } from "@/lib/context-catalog/search";
+import { buildContextRows, CONTEXT_GROUP_ORDER, dedupeOptions, type ContextRow, type ContextSourceError } from "@/lib/context-catalog/search";
 import { contextSourcesForGroup } from "@/lib/context-catalog/registry";
 import type { ContextGroupID, ContextOption, ContextPreview, ContextSearchContext } from "@/lib/context-catalog/types";
 import { useI18n } from "@/lib/i18n/index";
@@ -37,7 +37,7 @@ export function ContextMentionPanel({
   autoFocusSearch = true,
   selectedKeys,
   selectedOptions,
-  allowedRefTypes,
+  pinnedOptions: pinnedInput,
   onPick,
   onClose,
 }: {
@@ -55,7 +55,8 @@ export function ContextMentionPanel({
   selectedKeys: Set<string>;
   /** 已在编辑器中引用的条目：置顶为「当前引用」分组，便于快速定位（与搜索结果去重） */
   selectedOptions?: ContextOption[];
-  allowedRefTypes?: string[];
+  /** 宿主额外置顶到「当前引用」分组的条目（如生成提案已引用的素材） */
+  pinnedOptions?: ContextOption[];
   onPick: (option: ContextOption, keepOpen: boolean) => void;
   onClose: () => void;
 }) {
@@ -73,13 +74,15 @@ export function ContextMentionPanel({
     [controlled, onQuery],
   );
   const [group, setGroup] = useState<ContextGroupID | "all">("all");
-  const [subKind, setSubKind] = useState<string | undefined>(undefined);
   const [scopeWorldId, setScopeWorldId] = useState<string | null>(null);
   const [options, setOptions] = useState<ContextOption[]>([]);
   const [errors, setErrors] = useState<ContextSourceError[]>([]);
   const [loading, setLoading] = useState(true);
   const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<ContextPreview | null>(null);
+  // 下钻栈：每层记录被展开的选项与其子项（如 entity/asset → 其 attrs）。空栈 = 正常搜索列表。
+  const [drillFrames, setDrillFrames] = useState<Array<{ option: ContextOption; options: ContextOption[] }>>([]);
+  const [drillLoading, setDrillLoading] = useState(false);
 
   const { runtime, search, record, sourceFor } = useContextCatalog({
     apiBase,
@@ -87,16 +90,41 @@ export function ContextMentionPanel({
     workSurface,
     workFocus,
     selectedKeys,
-    allowedRefTypes,
   });
+  // search 的 identity 随 runtime/目录快照变化；用 ref 固定引用，避免 store 抖动
+  // （如全局实体索引落库）反复重置下面的查询 effect，造成搜索风暴。
+  const searchRef = useRef(search);
+  searchRef.current = search;
 
   const groups = useMemo<ContextGroupID[]>(() => {
     return CONTEXT_GROUP_ORDER.filter((id) => {
       const sources = contextSourcesForGroup(id);
-      if (!allowedRefTypes?.length) return sources.some((source) => source.inlineInsertable || source.insertMode === "attach");
-      return sources.some((source) => allowedRefTypes.includes(source.type));
+      return sources.some((source) => source.inlineInsertable || source.insertMode === "attach");
     });
-  }, [allowedRefTypes]);
+  }, []);
+
+  // enterOption：展开一个有 children 的选项，把子项压入下钻栈。
+  const enterOption = useCallback(
+    async (option: ContextOption) => {
+      const source = sourceFor(option.sourceType);
+      const ctx = searchCtxRef.current;
+      if (!source?.children || !ctx) return;
+      setDrillLoading(true);
+      try {
+        const children = await Promise.resolve(source.children(option, ctx));
+        setDrillFrames((frames) => [...frames, { option, options: children }]);
+        setHighlightedKey(children.find((child) => !child.disabled)?.key ?? null);
+      } finally {
+        setDrillLoading(false);
+      }
+    },
+    [sourceFor],
+  );
+
+  // backOption：弹出一层；index=0 回到根搜索。
+  const backOption = useCallback((index: number) => {
+    setDrillFrames((frames) => frames.slice(0, index));
+  }, []);
 
   // Entity scope：激活 Entities source 时自动取当前 World（若宿主在世界页）。
   useEffect(() => {
@@ -115,12 +143,10 @@ export function ContextMentionPanel({
     const controller = new AbortController();
     setLoading(true);
     const timer = setTimeout(() => {
-      void search({
+      void searchRef.current({
         query,
         group,
-        subKind,
         scope: { worldId: scopeWorldId ?? undefined, projectId: projectID ?? undefined },
-        allowedRefTypes,
         signal: controller.signal,
       })
         .then((result) => {
@@ -144,29 +170,48 @@ export function ContextMentionPanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [allowedRefTypes, group, projectID, query, scopeWorldId, search, subKind]);
+  }, [group, projectID, query, scopeWorldId]);
 
+  // 置顶条目 = 正文已有引用 + 宿主额外注入（如生成提案的参考素材），按 key 去重。
+  const pinnedOptions = useMemo(
+    () => dedupeOptions([...(pinnedInput ?? []), ...(selectedOptions ?? [])]),
+    [pinnedInput, selectedOptions],
+  );
   // 已引用条目从搜索结果剔除（避免与置顶的「当前引用」重复）
-  const selectedKeySet = useMemo(() => new Set((selectedOptions ?? []).map((option) => option.key)), [selectedOptions]);
+  const selectedKeySet = useMemo(() => new Set(pinnedOptions.map((option) => option.key)), [pinnedOptions]);
   const visibleOptions = useMemo(
     () => (selectedKeySet.size ? options.filter((option) => !selectedKeySet.has(option.key)) : options),
     [options, selectedKeySet],
   );
+  // 下钻时：当前层子项按查询本地过滤，平铺为 option 行（不分组、不置顶当前引用）。
+  const drillOptions = useMemo(() => {
+    if (!drillFrames.length) return [];
+    const current = drillFrames[drillFrames.length - 1].options;
+    const needle = query.trim().toLowerCase();
+    if (!needle) return current;
+    return current.filter((option) => `${option.title} ${option.subtitle ?? ""}`.toLowerCase().includes(needle));
+  }, [drillFrames, query]);
+
   const rows = useMemo<ContextRow[]>(() => {
+    if (drillFrames.length) {
+      return drillOptions.map((option): ContextRow => ({ kind: "option", key: option.key, option }));
+    }
     const base = buildContextRows(visibleOptions);
-    if (!selectedOptions?.length) return base;
+    if (!pinnedOptions.length) return base;
     return [
-      { kind: "header", key: "header:selected", group: "current", count: selectedOptions.length, label: t("agent.context.group.selected") },
-      ...selectedOptions.map((option): ContextRow => ({ kind: "option", key: option.key, option })),
+      { kind: "header", key: "header:selected", group: "current", count: pinnedOptions.length, label: t("agent.context.group.selected") },
+      ...pinnedOptions.map((option): ContextRow => ({ kind: "option", key: option.key, option })),
       ...base,
     ];
-  }, [selectedOptions, t, visibleOptions]);
+  }, [drillFrames, drillOptions, pinnedOptions, t, visibleOptions]);
   const optionRows = useMemo(() => rows.filter((row): row is Extract<ContextRow, { kind: "option" }> => row.kind === "option"), [rows]);
-  const subKinds = useMemo(() => {
-    const set = new Set<string>();
-    for (const option of options) if (option.subKind) set.add(option.subKind);
-    return [...set];
-  }, [options]);
+
+  // 下钻层内：查询过滤导致高亮项消失时，自动落到第一个可选项。
+  useEffect(() => {
+    if (!drillFrames.length) return;
+    if (highlightedKey && optionRows.some((row) => row.option.key === highlightedKey)) return;
+    setHighlightedKey(optionRows.find((row) => !row.option.disabled)?.option.key ?? null);
+  }, [drillFrames.length, highlightedKey, optionRows]);
 
   // 预览：高亮项变化时按 descriptor.preview() 懒加载。
   useEffect(() => {
@@ -201,14 +246,11 @@ export function ContextMentionPanel({
       apiBase,
       query,
       group,
-      subKind,
       scope: { worldId: scopeWorldId ?? undefined, projectId: projectID ?? undefined },
       runtime,
-      allowedRefTypes,
       signal: new AbortController().signal,
-      limit: 24,
     };
-  }, [allowedRefTypes, apiBase, group, projectID, query, runtime, scopeWorldId, subKind]);
+  }, [apiBase, group, projectID, query, runtime, scopeWorldId]);
 
   const commit = useCallback(
     (option: ContextOption | undefined, keepOpen: boolean) => {
@@ -271,7 +313,7 @@ export function ContextMentionPanel({
       const delta = event.shiftKey || event.key === "ArrowLeft" ? -1 : 1;
       const nextIndex = (currentIndex + delta + order.length) % order.length;
       setGroup(order[nextIndex]);
-      setSubKind(undefined);
+      setDrillFrames([]);
       return;
     }
   }
@@ -299,27 +341,45 @@ export function ContextMentionPanel({
             {t("agent.context.close")}
           </button>
         </header>
-        <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)]">
+        <ContextSearchField
+          group={group}
+          groups={groups}
+          inputRef={inputRef}
+          onGroup={(next) => {
+            setGroup(next);
+            setDrillFrames([]);
+          }}
+          onQuery={setQuery}
+          query={query}
+        />
+        {drillFrames.length > 0 && (
+          <div className="flex items-center gap-1 overflow-x-auto border-b px-3 py-1.5 text-[10px] text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <button className="shrink-0 hover:text-foreground" onClick={() => backOption(0)} type="button">
+              {t("agent.context.group.all")}
+            </button>
+            {drillFrames.map((frame, index) => (
+              <span className="flex shrink-0 items-center gap-1" key={frame.option.key}>
+                <span className="text-muted-foreground/60">/</span>
+                <button
+                  className="max-w-40 truncate hover:text-foreground disabled:cursor-default disabled:text-foreground"
+                  disabled={index === drillFrames.length - 1}
+                  onClick={() => backOption(index + 1)}
+                  type="button"
+                >
+                  {frame.option.title}
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
           <div className="flex min-h-0 flex-col border-r">
-            <ContextSearchField
-              group={group}
-              groups={groups}
-              inputRef={inputRef}
-              onGroup={(next) => {
-                setGroup(next);
-                setSubKind(undefined);
-              }}
-              onQuery={setQuery}
-              onSubKind={setSubKind}
-              query={query}
-              subKind={subKind}
-              subKinds={subKinds}
-            />
             <ContextList
               apiBase={apiBase}
               errors={errors}
               highlightedKey={highlightedKey}
-              loading={loading}
+              loading={drillFrames.length ? drillLoading : loading}
+              onExpand={(option) => void enterOption(option)}
               onHighlight={setHighlightedKey}
               onPick={(key) => commit(optionRows.find((row) => row.option.key === key)?.option, false)}
               rows={rows}

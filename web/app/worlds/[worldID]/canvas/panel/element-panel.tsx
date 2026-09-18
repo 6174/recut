@@ -24,8 +24,6 @@ import { FieldRow } from "./field-row";
 import { MediaElementEditor } from "./media-editor";
 import { PanelSection } from "@/components/panel-section";
 
-const ELEMENT_REF_TYPES = ["creation_entity", "creation_world", "media"];
-
 // attr 媒体卡（kind=attr 且 props.media≠text）与独立媒体元素（kind=media）的类型标签
 function mediaLabelOf(media: string): string {
   return ({ image: "图片", video: "视频", audio: "音频" } as Record<string, string>)[media] ?? media;
@@ -79,7 +77,6 @@ function AttrTextCardEditor({ attrId, initialText }: { attrId: string; initialTe
       />
       <RichFieldRow
         apiBase={apiBase}
-        allowedRefTypes={ELEMENT_REF_TYPES}
         label="正文"
         minRows={3}
         value={initialText}
@@ -232,7 +229,6 @@ function AttrEdgeEditor({ attrId, initialLabel, media, initialText }: { attrId: 
       {media === "text" && (
         <RichFieldRow
           apiBase={apiBase}
-          allowedRefTypes={ELEMENT_REF_TYPES}
           label="值"
           minRows={3}
           value={initialText}
@@ -330,7 +326,6 @@ function ElementBodyEditor({ elementId, initialText }: { elementId: string; init
       <div className="mt-1 rounded-md border bg-background p-2 focus-within:border-primary">
         <RichComposer
           apiBase={apiBase}
-          allowedRefTypes={ELEMENT_REF_TYPES}
           maxRows={10}
           minRows={3}
           mode="referencing"

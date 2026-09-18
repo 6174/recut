@@ -75,8 +75,11 @@ export type WorldEntitySummary = {
   updatedAt: string;
 };
 
-export type WorldEntityRelation = {
-  id: string;
+// WorldEntitySearchItem is a cross-World search row: the entity summary plus
+// its owning World name (GET /v1/worlds/entities).
+export type WorldEntitySearchItem = WorldEntitySummary & { worldName: string };
+
+export type WorldEntityRelation = {  id: string;
   type: string;
   fromEntityId: string;
   toEntityId: string;
@@ -397,6 +400,8 @@ export type WorldRevisionSummary = { id: string; hash: string; reason: string; c
 
 export type RecutWorldsClient = {
   list(input?: { text?: string; type?: WorldKind; cursor?: string; limit?: number }): Promise<Page<WorldSummary>>;
+  /** 跨 World 实体搜索：world/text 两级模糊过滤（Entities 分组）。 */
+  searchEntities(input?: { text?: string; world?: string; typeId?: EntityKind; cursor?: string; limit?: number }): Promise<Page<WorldEntitySearchItem>>;
   requestAI(path: string, body: unknown): Promise<Record<string, unknown>>;
   revisions: {
     list(input: { worldId: string }): Promise<WorldRevisionSummary[]>;
@@ -464,6 +469,15 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
       if (cursor) query.set("cursor", cursor);
       if (limit != null) query.set("limit", String(limit));
       return requestJSON<Page<WorldSummary>>(`${apiBase}/v1/worlds${query.size ? `?${query}` : ""}`);
+    },
+    searchEntities: async ({ text, world, typeId, cursor, limit } = {}) => {
+      const query = new URLSearchParams();
+      if (text) query.set("text", text);
+      if (world) query.set("world", world);
+      if (typeId) query.set("typeId", typeId);
+      if (cursor) query.set("cursor", cursor);
+      if (limit != null) query.set("limit", String(limit));
+      return requestJSON<Page<WorldEntitySearchItem>>(`${apiBase}/v1/worlds/entities${query.size ? `?${query}` : ""}`);
     },
     get: ({ worldId }) => requestJSON<WorldDetail>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}`),
     create: (input) => requestJSON<WorldDetail>(`${apiBase}/v1/worlds`, { method: "POST", body: input }),

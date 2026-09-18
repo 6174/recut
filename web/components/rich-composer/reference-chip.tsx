@@ -40,7 +40,7 @@ export function ReferenceChip({ node, deleteNode, editor }: Pick<NodeViewProps, 
     setPreview((current) => current ?? { title: label, subtitle: refType, facts: [] });
     const option = runtime ? resolveContextOption(refType, attrs, runtime) : null;
     if (!option || !catalogSource || !runtime) return;
-    const ctx = { apiBase, query: "", group: "all" as const, runtime, signal: new AbortController().signal, limit: 1 };
+    const ctx = { apiBase, query: "", group: "all" as const, runtime, signal: new AbortController().signal };
     void Promise.resolve(catalogSource.preview(option, ctx))
       .then((value) => setPreview(value))
       .catch(() => {});

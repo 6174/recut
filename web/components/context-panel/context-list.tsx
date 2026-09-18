@@ -11,7 +11,7 @@ import { useRef } from "react";
 import { useI18n } from "@/lib/i18n/index";
 import { CONTEXT_GROUP_ORDER, contextGroupTitleKeys } from "@/lib/context-catalog/registry";
 import type { ContextRow, ContextSourceError } from "@/lib/context-catalog/search";
-import type { ContextGroupID, ContextSource } from "@/lib/context-catalog/types";
+import type { ContextGroupID, ContextOption, ContextSource } from "@/lib/context-catalog/types";
 import { ContextOptionRow } from "./context-option-row";
 
 const HEADER_HEIGHT = 28;
@@ -26,6 +26,7 @@ export function ContextList({
   apiBase,
   onHighlight,
   onPick,
+  onExpand,
 }: {
   rows: ContextRow[];
   errors: ContextSourceError[];
@@ -35,6 +36,7 @@ export function ContextList({
   apiBase: string;
   onHighlight: (key: string) => void;
   onPick: (key: string) => void;
+  onExpand: (option: ContextOption) => void;
 }) {
   const { t } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -87,7 +89,9 @@ export function ContextList({
                   ) : (
                     <ContextOptionRow
                       apiBase={apiBase}
+                      expandable={sourceFor(row.option.sourceType)?.expandable?.(row.option) ?? false}
                       highlighted={highlightedKey === row.option.key}
+                      onExpand={() => onExpand(row.option)}
                       onHover={() => onHighlight(row.option.key)}
                       onPick={() => onPick(row.option.key)}
                       option={row.option}

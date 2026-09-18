@@ -24,7 +24,7 @@ export type MediaEventAsset = {
   mimeType: string;
   name: string;
   origin: string;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "proposed" | "queued" | "running" | "completed" | "failed";
   jobId?: string;
   remoteId?: string;
   error?: string;
@@ -71,6 +71,9 @@ function assetKind(value: unknown, mimeType: string): MediaEventAsset["kind"] {
 }
 
 function assetStatus(value: unknown, jobID: string | undefined): MediaEventAsset["status"] {
+  // 计划态（proposed）是有意为之的无字节状态，必须原样保留；旧代码把它兜底成
+  // completed，导致计划素材在预览/属性面板里被当成已完成并去取空字节（破图）。
+  if (value === "proposed") return "proposed";
   const status = value === "queued" || value === "running" || value === "completed" || value === "failed"
     ? value
     : "completed";

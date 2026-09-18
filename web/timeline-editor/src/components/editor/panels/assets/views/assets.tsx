@@ -56,6 +56,7 @@ import {
 } from "@timeline/components/editor/panels/assets/assets-panel-store";
 import { MASKABLE_ELEMENT_TYPES } from "@timeline/timeline";
 import type { MediaAsset } from "@timeline/media/types";
+import { assetStatusLabelKey } from "@timeline/media/asset-status";
 import { cn } from "@timeline/utils/ui";
 import {
 	GridViewIcon,
@@ -528,20 +529,42 @@ function MediaTypePlaceholder({
 // 编辑器素材卡片双击/点击预览复用全局素材预览框（素材属性 + 正文 + 生成信息）：
 // editor 的 MediaAsset.id 就是平台 Asset ID，预览框会用同一 assetId 连服务端与 SSE。
 function toPreviewAsset(item: MediaAsset): PreviewAsset {
-	const status =
-		item.status === "loading" || item.status === "deleted"
-			? "completed"
-			: (item.status ?? "completed");
 	return {
 		id: item.id,
 		kind: item.type,
 		name: item.name,
 		origin: "editor",
-		status,
+		status: previewStatus(item.status),
 		createdAt: "",
 		updatedAt: "",
 		metadata: {},
 	};
+}
+
+// 预览框只认 proposed/queued/running/completed/failed；本地缓存态 loading 与已删除
+// 不回传给预览框——弹框直接读服务端字节，服务端完成即可预览，按 completed 处理。
+function previewStatus(status: MediaAsset["status"]): PreviewAsset["status"] {
+	switch (status) {
+		case "proposed":
+		case "queued":
+		case "running":
+		case "failed":
+			return status;
+		default:
+			return "completed";
+	}
+}
+
+function MediaStatusBadge({ status }: { status?: MediaAsset["status"] }) {
+	const locale = useRecutLocale();
+	const key = assetStatusLabelKey(status);
+	if (!key) return null;
+
+	return (
+		<div className="pointer-events-none absolute top-1 left-1 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[10px] leading-none font-medium text-white">
+			{t(locale, key)}
+		</div>
+	);
 }
 
 function MediaPreview({
@@ -553,12 +576,30 @@ function MediaPreview({
 }) {
 	const locale = useRecutLocale();
 	const shouldShowDurationBadge = variant === "grid";
+	// 尚无字节（proposed 计划态 / queued / running / 缓存未就绪）时，图片和视频一样
+	// 走类型/状态占位，绝不把空字符串传进 <Image src>。
+	const pendingLabelKey = assetStatusLabelKey(item.status);
 
 	if (item.type === "image") {
+		if (!item.url) {
+			return (
+				<div className="relative size-full">
+					<MediaStatusBadge status={item.status} />
+					<MediaTypePlaceholder
+						icon={Image02Icon}
+						label={pendingLabelKey ? t(locale, pendingLabelKey) : t(locale, "assets.type.image")}
+						duration={item.duration}
+						variant="muted"
+					/>
+				</div>
+			);
+		}
+
 		return (
 			<div className="relative flex size-full items-center justify-center bg-muted">
+				<MediaStatusBadge status={item.status} />
 				<Image
-					src={item.url ?? ""}
+					src={item.url}
 					alt={item.name}
 					fill
 					sizes="100vw"
@@ -574,6 +615,7 @@ function MediaPreview({
 		if (item.thumbnailUrl) {
 			return (
 				<div className="relative size-full">
+					<MediaStatusBadge status={item.status} />
 					<Image
 						src={item.thumbnailUrl}
 						alt={item.name}
@@ -591,23 +633,29 @@ function MediaPreview({
 		}
 
 		return (
-			<MediaTypePlaceholder
-				icon={Video01Icon}
-				label={t(locale, "assets.type.video")}
-				duration={item.duration}
-				variant="muted"
-			/>
+			<div className="relative size-full">
+				<MediaStatusBadge status={item.status} />
+				<MediaTypePlaceholder
+					icon={Video01Icon}
+					label={pendingLabelKey ? t(locale, pendingLabelKey) : t(locale, "assets.type.video")}
+					duration={item.duration}
+					variant="muted"
+				/>
+			</div>
 		);
 	}
 
 	if (item.type === "audio") {
 		return (
-			<MediaTypePlaceholder
-				icon={MusicNote03Icon}
-				label={t(locale, "assets.type.audio")}
-				duration={item.duration}
-				variant="bordered"
-			/>
+			<div className="relative size-full">
+				<MediaStatusBadge status={item.status} />
+				<MediaTypePlaceholder
+					icon={MusicNote03Icon}
+					label={pendingLabelKey ? t(locale, pendingLabelKey) : t(locale, "assets.type.audio")}
+					duration={item.duration}
+					variant="bordered"
+				/>
+			</div>
 		);
 	}
 

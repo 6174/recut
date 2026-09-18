@@ -161,6 +161,86 @@ func TestRejectProposalSoftDeletes(t *testing.T) {
 	}
 }
 
+// TestPlaceholderPromotesToProposalInPlace is the content-first bridge: a
+// byte-less plan asset (asset.create) is promoted on the SAME assetId by
+// update_proposal (capability/model/output), using its content as the prompt,
+// while content/attributes are retained and confirm never allocates a new asset.
+func TestPlaceholderPromotesToProposalInPlace(t *testing.T) {
+	media, credential, reference := newProposalTestService(t)
+	const content = "深夜客厅，阿蛋瘫坐蓝色旧沙发，红卫衣；参考 @角色设定集。"
+	placeholder, err := media.CreatePlaceholderAsset(PlaceholderAssetInput{
+		Name:       "shot-1 陷入",
+		Kind:       "video",
+		Content:    content,
+		Attributes: []MaterialAttr{{Key: "role", Label: "素材角色", Type: "text", Value: "a-roll"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if placeholder.Status != AssetStatusProposed || placeholder.Kind != "video" {
+		t.Fatalf("placeholder = %#v", placeholder)
+	}
+
+	capability := string(VideoGenerate)
+	modelID := testVideoModelID
+	credentialID := credential.ID
+	aspect := "9:16"
+	refs := []ProposalReference{{ID: reference.ID, Kind: "image", Role: "character", Label: "阿蛋"}}
+	updated, err := media.UpdateProposal(placeholder.ID, ProposalPatch{
+		Capability:   &capability,
+		ModelID:      &modelID,
+		CredentialID: &credentialID,
+		AspectRatio:  &aspect,
+		References:   &refs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != placeholder.ID || updated.Status != AssetStatusProposed {
+		t.Fatalf("promotion must keep the same proposed asset: %#v", updated)
+	}
+	if got, _ := updated.Metadata["capability"].(string); got != capability {
+		t.Fatalf("capability = %q, want %q", got, capability)
+	}
+	// content 即提示词：patch 未给 text 时用占位 content 当规格。
+	if got, _ := updated.Metadata["prompt"].(string); got != content {
+		t.Fatalf("prompt = %q, want content fallback", got)
+	}
+	output, _ := updated.Metadata["output"].(map[string]any)
+	if got, _ := output["aspectRatio"].(string); got != "9:16" {
+		t.Fatalf("aspectRatio not merged into output: %#v", output)
+	}
+	// content / attributes 必须随原位升级保留，供 UI 与后续编辑读取。
+	if got, _ := updated.Metadata[MetadataKeyContent].(string); got != content {
+		t.Fatalf("content lost after promotion: %q", got)
+	}
+	if updated.Metadata[MetadataKeyAttributes] == nil {
+		t.Fatal("attributes lost after promotion")
+	}
+
+	job, err := media.ConfirmProposal(placeholder.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(job.AssetIDs) != 1 || job.AssetIDs[0] != placeholder.ID {
+		t.Fatalf("confirm allocated a new asset: job=%#v placeholder=%s", job.AssetIDs, placeholder.ID)
+	}
+}
+
+// TestGenerateInputCarriesAspectRatio guards the direct-generate path: the
+// top-level aspectRatio must survive MCP mapping so applyAspectRatio can fold
+// it into the model output instead of silently using the model default.
+func TestGenerateInputCarriesAspectRatio(t *testing.T) {
+	input := mediaGenerationInput(map[string]any{
+		"text":        "9:16 竖屏关键帧",
+		"aspectRatio": "9:16",
+		"output":      map[string]any{"resolution": "480p"},
+	}, VideoGenerate)
+	if input.AspectRatio != "9:16" {
+		t.Fatalf("aspectRatio dropped during MCP mapping: %#v", input)
+	}
+}
+
 func TestProposalMCPToolSurface(t *testing.T) {
 	tools := map[string]map[string]any{}
 	for _, tool := range mediaMCPToolDefinitions(DefaultLocale) {
