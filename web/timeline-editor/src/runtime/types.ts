@@ -13,6 +13,7 @@
 import type { ElementAnimations } from "@timeline/animation/types";
 import type { ParamDefinition, ParamValues } from "@timeline/params";
 import type { I18nKey } from "@timeline/i18n";
+import type { TextGroupId } from "@timeline/text/groups";
 import type { ComponentType } from "react";
 import type { MotionProgram } from "./motion-runtime";
 import type { ElementMotion, TextMotionBinding } from "./motion-presets";
@@ -156,6 +157,11 @@ export interface ComponentDefinition {
 	 * category==="effect" 且设置了 group 的组件归入组件面板对应分组（而非 Effects 面板）。
 	 */
 	group?: "bg" | "scene" | "demo" | (string & {});
+	/**
+	 * 文本面板二级分类；设置后该内置组件只在文本面板出现，不进入组件面板。
+	 * 组合型文本组件（标题组合/引用卡片/箭头标注/列表/数据/人物条）用它声明归属。
+	 */
+	textGroup?: TextGroupId;
 	/** 是否可作为普通元素选择/拖动（显示选择框与变换手柄）。全画布特效默认不可选。 */
 	selectable?: boolean;
 	/** Timeline 片段识别色（圆点 / 徽标）。 */

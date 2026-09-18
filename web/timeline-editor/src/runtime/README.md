@@ -6,7 +6,7 @@
 types.ts: World、组件 surface、ComponentDefinition 与 origin 契约，明确内置组件和项目 asset 的来源边界。
 component-loader.ts: 受校验的动态 bundle 加载、Host resolver 与项目 asset 来源元数据注入。
 component-registry.ts: 已注册和异步组件定义的加载状态、缓存与订阅。
-components/: 内置组件、HTML surface 与媒体对象实现。
+components/: 内置组件、HTML surface 与媒体对象实现；`components/text-shared.ts` 是文本组件公共基座（字体栈/参数工厂/固定尺寸/确定性动画原语/chunky 展示字/SVG 几何），`components/text-fill.tsx` 提供渐变填充 + 独立描边底层的展示字（避免 `-webkit-text-stroke` 盖住 `background-clip:text` 渐变），`components/text-library.tsx` 提供 9 个结构型组合文本组件（标题组合/引用卡片/箭头标注/列表/数据/人物条），`components/text-effects.tsx` 提供 13 个 SVG 装饰的视觉冲击型文本组件（霓虹/流光/立体/横幅/笔刷/下划线/闪亮/爆炸贴纸/漫画气泡/胶带/角框/速度线/荧光笔），`components/text-variants.tsx` 提供 12 个风格多样型组件（资讯条/辉光/心动/对勾/胶囊/星芒/数据+1/小字花边/缎带/空心/对角标/目录标签），共 34 个，均自带 localTime 确定性入场动画且以 `textGroup` 标记只进文本面板。
 runtime-host.ts: 动态组件可安全引用的受控运行时导出。
 world-runtime.ts, world-renderer.tsx, world-scene.tsx: World 到 WebGL/HTML-in-Canvas 预览的运行时与渲染器；WorldScene 仅在明确提供外部 canvas 时复用它，否则始终使用 R3F 自己挂载的画布。
 build-world.ts, anim.ts, texture.ts, utils.ts: World 构造、确定性动画、纹理与共享计算。

@@ -102,6 +102,11 @@ import {
 const KEYFRAME_INDICATOR_MIN_WIDTH_PX = 40;
 const ELEMENT_RING_WIDTH_PX = 1.5;
 
+/** 组件片段底色：把组件定义色转成半透明底（6 位 hex 追加 alpha），非 hex 原样返回。 */
+function withClipAlpha(color: string): string {
+	return /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}59` : color;
+}
+
 const PixelsPerSecondContext = createContext<number | null>(null);
 const THUMBNAIL_ASPECT_RATIO = 16 / 9;
 
@@ -569,6 +574,12 @@ function ElementInner({
 	const isReducedOpacity =
 		(canElementBeHidden(visibleElement) && visibleElement.hidden) ||
 		isDropTarget;
+	// 组件片段按组件定义色着色，避免所有组件继承 graphic 轨的单一粉色（效果/图形有各自主题色）。
+	const componentColor =
+		visibleElement.type === "component" && componentsRegistry.has(visibleElement.componentId)
+			? componentsRegistry.get(visibleElement.componentId).color
+			: undefined;
+	const componentBackground = componentColor ? withClipAlpha(componentColor) : undefined;
 	return (
 		<div
 			className="absolute top-0 bottom-0"
@@ -610,7 +621,10 @@ function ElementInner({
 								}),
 								isReducedOpacity && "opacity-50",
 							)}
-							style={{ height: `${baseTrackHeight}px` }}
+							style={{
+								height: `${baseTrackHeight}px`,
+								...(componentBackground ? { background: componentBackground } : {}),
+							}}
 						>
 							<div className="flex flex-1 min-h-0 h-full items-center overflow-hidden">
 								<ElementContent element={visibleElement} track={track} />

@@ -722,9 +722,9 @@ export function ComponentLibraryView() {
 		};
 	}, []);
 
-	/** 组件面板归属：普通场景对象 + 提供内容的 shader 层（设置了 group 的全画布组件）。 */
+	/** 组件面板归属：普通场景对象 + 提供内容的 shader 层（设置了 group 的全画布组件）；文本组件归文本面板。 */
 	const isComponentPanelComponent = (component: ComponentDefinition): boolean =>
-		component.category !== "effect" || !!component.group;
+		!component.textGroup && (component.category !== "effect" || !!component.group);
 
 	const groups = componentsRegistry
 		.getAll()

@@ -15,6 +15,8 @@ export interface MediaDragData extends BaseDragData {
 export interface TextDragData extends BaseDragData {
 	type: "text";
 	content: string;
+	/** 文本样式预设携带的参数覆盖（拖入时与元素默认参数合并）。 */
+	params?: Partial<ParamValues>;
 }
 
 export interface GraphicDragData extends BaseDragData {

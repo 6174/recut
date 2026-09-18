@@ -16,12 +16,13 @@ const coverStore = new IndexedDBAdapter<{ id: string; dataUrl: string }>({
 	version: 1,
 });
 
-/** 平台内置可插入组件（视频/图片/文本是媒体原语，特效全画布后处理，均跳过）。 */
+/** 平台内置可插入组件（视频/图片/文本是媒体原语，特效全画布后处理，文本组件走面板内实时预览，均跳过）。 */
 function builtinLibraryComponents(): ComponentDefinition[] {
 	return componentsRegistry
 		.getAll()
 		.filter((definition) => !["video", "image", "text"].includes(definition.id))
 		.filter((definition) => definition.category !== "effect")
+		.filter((definition) => !definition.textGroup)
 		.filter((definition) => definition.origin !== "asset");
 }
 

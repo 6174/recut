@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖内建组件实现、组件注册表与参数定义契约。
- * [OUTPUT]: 对外注册编辑器内建 Video、Image、Text、Shape 等组件。
- * [POS]: runtime/components 的组件总表，文本背景参数归入可折叠 Background 分组。
+ * [OUTPUT]: 对外注册编辑器内建 Video、Image、Text、Shape 等组件与带内置入场动画的组合型文本组件。
+ * [POS]: runtime/components 的组件总表，文本背景参数归入可折叠 Background 分组；文本组件按 textGroup 归文本面板。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { componentsRegistry } from "../component-registry";
@@ -9,6 +9,7 @@ import type { ComponentDefinition } from "../types";
 import { num } from "../utils";
 import { EFFECT_COMPONENTS } from "./effects";
 import { METALFORGE_COMPONENTS } from "./metalforge";
+import { TEXT_COMPONENTS } from "./text-library";
 import { GlowBox } from "./glow-box";
 import { htmlBadgeComponent, reactPulseCardComponent } from "./html-examples";
 import { gsapRevealCardComponent, gsapOrbitComponent } from "./gsap-examples";
@@ -283,7 +284,12 @@ const BUILTIN_COMPONENTS: ComponentDefinition[] = [
 ];
 
 export function registerBuiltinComponents(): void {
-	for (const definition of [...BUILTIN_COMPONENTS, ...EFFECT_COMPONENTS, ...METALFORGE_COMPONENTS]) {
+	for (const definition of [
+		...BUILTIN_COMPONENTS,
+		...TEXT_COMPONENTS,
+		...EFFECT_COMPONENTS,
+		...METALFORGE_COMPONENTS,
+	]) {
 		componentsRegistry.register({ key: definition.id, definition });
 	}
 }

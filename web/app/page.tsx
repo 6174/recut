@@ -35,6 +35,8 @@ import { interpolate } from "@/lib/i18n/workspace-dict";
 import { STUDIO_INSPIRATION_COUNT, STUDIO_TEMPLATE_COUNT } from "@/lib/i18n/workspace-studio-dict";
 import { VideoFrame } from "@/components/video-frame";
 import { WebGLStudioHero } from "@/components/webgl-studio-hero";
+import { StudioScenarioDialog } from "@/components/studio-scenario-dialog";
+import { STUDIO_SCENARIO_FIELDS, type StudioFieldDef } from "@/lib/studio-scenarios";
 import type { Asset } from "./media/media-types";
 import { MediaLibraryPanel } from "./media/media-library-panel";
 import { WorldsClient, CreateWorldDialog } from "./worlds/worlds-client";
@@ -262,9 +264,9 @@ function inspirationForToday(locale: Locale) {
   return inspirations[Math.abs(dayIndex) % inspirations.length];
 }
 
-type StudioPromptTemplate = { icon: LucideIcon; title: string; description: string; prompt: string };
+type StudioPromptTemplate = { icon: LucideIcon; title: string; description: string; prompt: string; fields: StudioFieldDef[] };
 
-const STUDIO_TEMPLATE_ICONS: LucideIcon[] = [Clapperboard, Video, ImageIcon, Sparkles, Sparkles, Captions, Video, Clapperboard, Sparkles, Clapperboard, Video, ImageIcon];
+const STUDIO_TEMPLATE_ICONS: LucideIcon[] = [Clapperboard, Video, ImageIcon, Sparkles, Sparkles, Captions, Video, Clapperboard, Sparkles, Clapperboard, Video, Scissors, Copy, Globe2, Sparkles, Clapperboard];
 const STUDIO_FIRST_VISIT_ICON: LucideIcon = Sparkles;
 
 function studioPromptTemplates(locale: Locale): StudioPromptTemplate[] {
@@ -273,6 +275,7 @@ function studioPromptTemplates(locale: Locale): StudioPromptTemplate[] {
     title: t("workspace", locale, `studio.template.${index}.title`),
     description: t("workspace", locale, `studio.template.${index}.description`),
     prompt: t("workspace", locale, `studio.template.${index}.prompt`),
+    fields: STUDIO_SCENARIO_FIELDS[index] ?? [],
   }));
 }
 
@@ -282,6 +285,7 @@ function studioFirstVisitTemplate(locale: Locale): StudioPromptTemplate {
     title: t("workspace", locale, "studio.firstVisit.title"),
     description: t("workspace", locale, "studio.firstVisit.description"),
     prompt: t("workspace", locale, "studio.firstVisit.prompt"),
+    fields: [],
   };
 }
 
@@ -311,20 +315,21 @@ function Studio({ apiBase, apps, installations, onCompose, onCreateWorld, onDele
   const restInstallations = sortedInstallations.filter((app) => app.manifest.id !== "recut.editor");
   const [promptTemplates, setPromptTemplates] = useState(() => studioPromptTemplates(locale).slice(0, 2));
   useEffect(() => setPromptTemplates(promptTemplatesForToday(locale)), [locale]);
-  return <div className="pb-10">
+  const [scenario, setScenario] = useState<StudioPromptTemplate | null>(null);
+  return <><div className="pb-10">
     <section className="relative min-h-[17rem] overflow-hidden pb-8 pt-7 sm:min-h-[19rem]">
       <WebGLStudioHero />
       <div className="relative z-10 max-w-xl">
       <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">{t("studio.eyebrow")}</p>
       <h1 className="mt-3 text-3xl font-semibold leading-tight">{t("studio.title")}</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">{inspirationForToday(locale)}</p>
-      <div className="mt-7 flex max-w-2xl flex-col">{promptTemplates.map(({ description, icon: Icon, prompt, title }) => <button aria-label={interpolate(t("studio.template.aria"), { title })} className="group flex min-w-0 items-center gap-3 border-b border-border/80 py-3 text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={title} onClick={() => onCompose(prompt)} type="button"><span className="grid size-7 shrink-0 place-items-center rounded-sm bg-accent text-accent-foreground"><Icon className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="text-sm font-semibold">{title}</span><span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div>
+      <div className="mt-7 flex max-w-2xl flex-col">{promptTemplates.map(({ description, fields, icon: Icon, prompt, title }) => <button aria-label={interpolate(t("studio.template.aria"), { title })} className="group flex min-w-0 items-center gap-3 border-b border-border/80 py-3 text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" key={title} onClick={() => setScenario({ description, fields, icon: Icon, prompt, title })} type="button"><span className="grid size-7 shrink-0 place-items-center rounded-sm bg-accent text-accent-foreground"><Icon className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="text-sm font-semibold">{title}</span><span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{description}</span></span><ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" /></button>)}</div>
       </div>
     </section>
     <section className="mt-8"><SectionHeading action={<a className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/apps" onClick={onManageApps}>{t("studio.section.apps.manage")}<ArrowRight className="size-3.5" /></a>} description={t("studio.section.apps.desc")} title={t("studio.section.apps")} /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{editorApp && <StudioAppCard app={editorApp} key={editorApp.package} onOpen={() => editorApp.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(editorApp.manifest.id)}`) : onStartProject(editorApp)} />}<WorldsAppCard />{restInstallations.map((app) => <StudioAppCard app={app} key={app.package} onOpen={() => app.manifest.type === "standalone" ? window.location.assign(`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`) : onStartProject(app)} />)}</div></section>
     <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/projects">{t("studio.section.projects.all")}<ArrowRight className="size-3.5" /></Link>} description={t("studio.section.projects.desc")} title={t("studio.section.projects")} /><ProjectSpaces apiBase={apiBase} apps={apps} limit={11} onCreateWorld={onCreateWorld} onDeleteProject={onDeleteProject} onRenameProject={onRenameProject} onStartProject={onStartProject} projects={projects} worlds={worlds} /></section>
     <section className="mt-9"><SectionHeading action={<Link className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" href="/media">{t("studio.section.assets.open")}<ArrowRight className="size-3.5" /></Link>} description={t("studio.section.assets.desc")} title={t("studio.section.assets")} /><RecentAssets apiBase={apiBase} /></section>
-  </div>;
+  </div>{scenario && <StudioScenarioDialog apiBase={apiBase} onClose={() => setScenario(null)} onSubmit={(text) => { onCompose(text); setScenario(null); }} scenario={scenario} />}</>;
 }
 
 function ProjectCard({ apiBase, app, onDeleteProject, onRenameProject, project }: { apiBase?: string; app?: Installation; onDeleteProject: (project: Project) => Promise<void>; onRenameProject: (project: Project, name: string) => Promise<void>; project: Project }) {
