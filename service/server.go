@@ -750,6 +750,11 @@ func (s *Server) appUI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("App not found"))
 		return
 	}
+	// 平台原生 App（Root 为空，如剪辑器）没有 App 包 UI；UI 已原生并入 web。
+	if app.Root == "" {
+		writeError(w, http.StatusNotFound, errors.New("App ships no UI package"))
+		return
+	}
 	requested := filepath.Clean(strings.TrimPrefix(r.PathValue("path"), "/"))
 	if requested == "." || strings.HasPrefix(requested, "..") || filepath.IsAbs(requested) {
 		writeError(w, http.StatusBadRequest, errors.New("invalid UI path"))

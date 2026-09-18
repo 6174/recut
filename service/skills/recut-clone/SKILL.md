@@ -38,7 +38,7 @@ S5 交付   本技能                    → Done means watched
 
 - 理解工具是否就绪：见 `recut-reference` 的「能力就绪检查」（`recut.media.understand.status` 看缺什么，再 `understand.prepare`）。
 - 素材层：`recut.media.asset.get/update` 与 `recut.media.asset.create`（content-first 占位）已实施。
-- 生成：`recut.media.propose/list_proposals/update_proposal/confirm_proposal`、`motion-graphic.create`。
+- 生成：`recut.media.propose/list_proposals/update_proposal/confirm_proposal`、`recut.motion-graphic.create`。
 - 组装：`timeline-editor` 在线（`recut.editor.workflow_context` / `timeline.read`）；编辑器未打开时预览/导出不可用，只能报告草稿。
 - ML 能力缺失时**如实报告**，不要用别的手段冒充；不要静默安装。
 
@@ -67,7 +67,7 @@ S1 理解 ──G1──> S2 决定 ──G2──> S3 计划 ──G3──> S4
 
 ## 5. 生成与组装
 
-- **生成**：读占位素材 `content`（+ attrs）作提示词，把 @ 引用解析为生成参考绑定；补 `metadata.proposal` → `propose → confirm`（媒体）或 `motion-graphic.create`（MG，免费）。产物**原位填回同一 assetId**。
+- **生成**：读占位素材 `content`（+ attrs）作提示词，把 @ 引用解析为生成参考绑定；补 `metadata.proposal` → `propose → confirm`（媒体）或 `recut.motion-graphic.create`（MG，免费）。产物**原位填回同一 assetId**。
 - **组装**：交给 `timeline-editor` —— `recut.editor.timeline.read` 看现状、`timeline.placeComponents` / `timeline.placeAudio` / `timeline.command` 落轨、字幕走其 captions 能力；首版按「源片段秒数 / 计划时长」顺序铺（见 `references/placement.md`）。
 - **校验/交付**：`timeline.validate` + settled frame 抽检（`preview.*`）；`export.start` → `recut.job.wait` 到终态 → 实际观看后报告。
 

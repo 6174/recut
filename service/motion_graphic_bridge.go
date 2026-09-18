@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 editorContext（appstate 文件/事件/引用索引）与 motion_graphic 全域素材包。
- * [OUTPUT]: 把 motion_graphic 的操作挂到 recut.editor.* 分发；Host 适配（全局文件、事件、引用登记）与
+ * [OUTPUT]: motion_graphic 的平台宿主适配（全局文件、事件、引用登记、项目派生上下文）与
  *           editor 私有组件表到全局 mg_materials 的一次性迁移。
  * [POS]: service 与 motion_graphic 包的接缝；MG 领域逻辑全在 motion_graphic 包，这里只做宿主适配。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -32,7 +32,6 @@ func setPreference(db *sql.DB, key, value string) {
 type mgHost struct{ c *editorContext }
 
 func (h mgHost) DB() (*sql.DB, error) { return h.c.host.store.WorkspaceDatabase() }
-func (h mgHost) AppRoot() string      { return h.c.appRoot }
 func (h mgHost) FilesRoot() string    { return h.c.appFilesRoot }
 func (h mgHost) IsZh() bool           { return h.c.locale == LocaleZh }
 func (h mgHost) Emit(eventType string, payload map[string]any) {
@@ -69,26 +68,34 @@ func (c *editorContext) upsertComponentAssetRef(id, versionID string) {
 		motion_graphic.AssetID(id), c.scopeID, id, versionID, nowIso(), nowIso())
 }
 
-// mgHandler 把一个 motion_graphic operation 适配成 editor 原生 handler：
+// motionGraphicContext 构造 motion_graphic 操作所需的宿主上下文：只借用编辑器平台模块的
+// 项目/引用/文件命名空间，不解析或校验 App manifest（编辑器已转为平台内置模块）。
+func (h *AppHost) motionGraphicContext(target Target, locale Locale) (*editorContext, error) {
+	return newEditorContext(h, target, App{Manifest: Manifest{ID: motionGraphicModuleAppID}}, locale)
+}
+
+// motionGraphicExec 执行一个 motion_graphic operation（平台分发路径，App 无关）：
 // 注入项目派生的画布/合成上下文，并把 motion_graphic.Error 翻译为平台错误信封。
-func mgHandler(op string) func(*editorContext, map[string]any) (any, error) {
-	return func(c *editorContext, input map[string]any) (any, error) {
-		migrateEditorComponents(c)
-		if op == motion_graphic.OpCreate || op == motion_graphic.OpRevise {
-			if _, ok := input["canvas"]; !ok {
-				input["canvas"] = editorCanvasContext(c)
-			}
-			if _, ok := input["composition"]; !ok {
-				input["composition"] = editorCompositingContext(c)
-			}
-		}
-		handler := motion_graphic.Handlers(mgHost{c: c})[op]
-		if handler == nil {
-			return nil, editorError("unknown motion graphic operation: " + op)
-		}
-		result, err := handler(input)
-		return result, mgTranslateError(err)
+func (h *AppHost) motionGraphicExec(target Target, op string, input map[string]any, locale Locale) (any, error) {
+	c, err := h.motionGraphicContext(target, locale)
+	if err != nil {
+		return nil, err
 	}
+	migrateEditorComponents(c)
+	if op == motion_graphic.OpCreate || op == motion_graphic.OpRevise {
+		if _, ok := input["canvas"]; !ok {
+			input["canvas"] = editorCanvasContext(c)
+		}
+		if _, ok := input["composition"]; !ok {
+			input["composition"] = editorCompositingContext(c)
+		}
+	}
+	handler := motion_graphic.Handlers(mgHost{c: c})[op]
+	if handler == nil {
+		return nil, editorError("unknown motion graphic operation: " + op)
+	}
+	result, err := handler(input)
+	return result, mgTranslateError(err)
 }
 
 func mgTranslateError(err error) error {
@@ -100,16 +107,6 @@ func mgTranslateError(err error) error {
 		return &mcpError{Kind: mgErr.Kind, Code: mgErr.Code, Message: mgErr.Message, Hint: mgErr.Hint, Retryable: mgErr.Retryable, Data: mgErr.Data}
 	}
 	return err
-}
-
-// registerMotionGraphicHandlers 把 motion_graphic 的操作挂到 editor 原生分发表（由 editor_handlers init 调用）。
-func registerMotionGraphicHandlers(handlers map[string]func(*editorContext, map[string]any) (any, error)) {
-	for _, op := range []string{
-		motion_graphic.OpCreate, motion_graphic.OpRevise, motion_graphic.OpDefine, motion_graphic.OpVerify,
-		motion_graphic.OpList, motion_graphic.OpSource, motion_graphic.OpUpdate, motion_graphic.OpArchive, motion_graphic.OpResolve,
-	} {
-		handlers[op] = mgHandler(op)
-	}
 }
 
 // editorCanvasContext / editorCompositingContext 从项目文档推导创建 prompt 需要的上下文。

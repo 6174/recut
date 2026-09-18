@@ -21,6 +21,8 @@ import (
 	"reflect"
 	"strings"
 	"time"
+
+	"recut-service/motion_graphic"
 )
 
 type mcpRequest struct {
@@ -210,6 +212,34 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleZh: "异步准备平台理解环境：向全局平台 Python venv 安装锁定依赖并补齐 ffprobe，写入版本标记。返回 jobId，用 recut.job.wait 观察终态。",
 		LocaleEn: "Asynchronously prepare the platform understanding environment: install the locked dependencies and ffprobe into the global platform Python venv and write a version marker. Returns a jobId; observe the terminal state with recut.job.wait.",
 	},
+	"recut.motion-graphic.create": {
+		LocaleZh: "创建组件素材的唯一入口（异步 job）。传入一组 items（每项含 brief），平台受限作者子 Agent 构建 + 轻量验证后发布为 verified 素材并建立 type=component 引用；结果返回 assetIds[] 与 components[]。创建本身绝不插入时间线。",
+		LocaleEn: "The only entry point to create component assets (async job). Given items (each with a brief), the platform's restricted author sub-agent builds and lightly verifies them into verified assets with a type=component reference; the result returns assetIds[] and components[]. Creation never inserts into the timeline.",
+	},
+	"recut.motion-graphic.revise": {
+		LocaleZh: "修复或调整已有组件的唯一入口。传入 componentId 与 instruction；构建 + 轻量验证后生成新 head，并返回同一条 component asset 的 assetId。旧 verified head 在 job 失败前保持不变，绝不插入时间线。",
+		LocaleEn: "The only entry point to fix or adjust an existing component. Given componentId and instruction, it builds and lightly verifies a new head and returns the assetId of the same component asset. The old verified head survives failures and the timeline is never touched.",
+	},
+	"recut.motion-graphic.update": {
+		LocaleZh: "主 Agent 直接提交组件源码的新版本（绕过受限子 Agent）。传入 componentId 与完整 source；平台基于当前 verified head 开新版本，构建 + 轻量验证后成为新 verified head 进入素材库；不插入时间线。先 motion-graphic.source 读当前源码再改。",
+		LocaleEn: "Main agent commits a new component source version directly (bypassing the restricted sub-agent). Given componentId and the full source, the platform opens a new version from the current verified head, builds and lightly verifies it into a new verified head in the library, never inserting into the timeline. Read the current source with motion-graphic.source first.",
+	},
+	"recut.motion-graphic.source": {
+		LocaleZh: "读取组件某版本源码（AI 二次调整 / 主 Agent 审查的权威输入）。",
+		LocaleEn: "Read a component version's source (the authoritative input for AI revision or main-agent review).",
+	},
+	"recut.motion-graphic.list": {
+		LocaleZh: "列出组件素材数据（含 verified head 状态、inputs、mode 与对应 assetId）；素材发现与放置优先使用 asset.list 和 timeline.placeComponents.assetId。",
+		LocaleEn: "List component asset data (verified head status, inputs, mode, and the matching assetId); prefer asset.list and timeline.placeComponents.assetId for discovery and placement.",
+	},
+	"recut.motion-graphic.archive": {
+		LocaleZh: "归档组件素材：从素材库隐藏但保留版本和已有时间线引用，不修改时间线。",
+		LocaleEn: "Archive a component asset: hide it from the library while keeping its versions and existing timeline references; the timeline is untouched.",
+	},
+	"recut.motion-graphic.verify": {
+		LocaleZh: "受管组件版本验证：报告为“能构建、能跑”的轻量验证（Go esbuild + 确定性扫描 + 形状校验），报告 ok 即发布 verified head；不要求真实渲染。普通 Agent 不直接调用。",
+		LocaleEn: "Managed component verification: a lightweight 'builds and runs' check (Go esbuild + determinism scan + shape check); an ok report publishes the verified head. No real rendering is required. Not called directly by ordinary agents.",
+	},
 }
 
 // mcpDescription resolves a tool-level MCP description for the requested
@@ -267,7 +297,7 @@ func mcpToolListForSession(bridge *AgentBridge, media *MediaService, session Age
 	for _, app := range apps {
 		tools = append(tools, appMCPToolDefinitions(app)...)
 	}
-	if session.AllowsTool("recut.editor.motion-graphic.commit") && len(session.AllowedTools) > 0 {
+	if session.AllowsTool(motion_graphic.CommitTool) && len(session.AllowedTools) > 0 {
 		tools = append(tools, componentCommitToolDefinition(locale))
 	}
 	return map[string]any{"tools": visibleToolsForSession(tools, session)}
@@ -299,7 +329,7 @@ func filterSessionTools(tools []map[string]any, session AgentSession) []map[stri
 }
 
 func componentCommitToolDefinition(locale Locale) map[string]any {
-	return platformTool("recut.editor.motion-graphic.commit", map[Locale]string{
+	return platformTool(motion_graphic.CommitTool, map[Locale]string{
 		LocaleZh: "提交一个已完成的项目私有组件素材。只在 Component Author 完成创作后调用一次；平台构建、入库并安排验证，绝不插入时间线。",
 		LocaleEn: "Commit one finished private component asset. Call exactly once when Component Author finishes; the platform builds, stores, and schedules verification, never a timeline placement.",
 	}[locale], map[string]any{
@@ -349,6 +379,7 @@ func platformMCPToolDefinitions(locale Locale) []map[string]any {
 	)
 	tools = append(tools, mediaMCPToolDefinitions(locale)...)
 	tools = append(tools, worldsMCPToolDefinitions(locale)...)
+	tools = append(tools, motionGraphicMCPToolDefinitions(locale)...)
 	return tools
 }
 
@@ -442,37 +473,8 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 	if !session.AllowsTool(name) {
 		return nil, fmt.Errorf("tool %q is unavailable in this focused Agent session", name)
 	}
-	if name == "recut.editor.motion-graphic.commit" {
-		target, ok := session.SessionTarget()
-		if !ok {
-			return nil, errors.New("motion-graphic.commit requires a focused Component Author session")
-		}
-		commitArguments := cloneJSONMap(arguments)
-		// 聚焦上下文由 App（editor background）声明，平台只透传：componentId/baseVersionId/mode 等
-		// 由 editor 的 motion-graphic.commit 消费，平台不理解其语义。
-		if session.Focused != nil {
-			for k, v := range session.Focused {
-				if s, isStr := v.(string); isStr && s != "" {
-					commitArguments[k] = s
-				}
-			}
-		}
-		result, err := host.InvokeAPILocale(target, "recut.editor", "motion-graphic.define", commitArguments, locale)
-		if err != nil {
-			return nil, err
-		}
-		committed, _ := result.(map[string]any)
-		if committed == nil || committed["status"] != "draft" {
-			data, _ := json.Marshal(result)
-			return nil, fmt.Errorf("motion-graphic.commit build did not produce a draft component: %s", data)
-		}
-		bridge.RecordAgentToolCall(session.ID, "recut.editor.motion-graphic.commit", committed)
-		// 架构 P1：commit 结果发生时即追加到 job 账本（子 Agent 被杀也保留，finalize 从 job 投影）。
-		if job, ok := bridge.agentJobByChild(session.ID); ok {
-			bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.motion-graphic.commit", Result: committed})
-		}
-		data, _ := json.Marshal(result)
-		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+	if strings.HasPrefix(name, motion_graphic.MotionGraphicToolPrefix) {
+		return motionGraphicMCPTool(bridge, host, session, name, arguments, locale)
 	}
 	switch name {
 	case "recut.context":

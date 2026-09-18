@@ -16,7 +16,7 @@ clone 的**组装、字幕/图形、预览、校验、导出**全部交给 `time
 | 预览与证据 | `verification.md`、`preview-export.md` |
 | 报错与排错 | `errors.md` |
 
-> `recut-editor` 技能随内置剪辑器 App 分发（`apps/editor/skills/recut-editor/`）：surface `requiredSkill=recut-editor` 解析到 `appId=recut.editor`。编辑器 UI 已原生并入 web `timeline-editor`、op 已下沉 Go，其 op 名仍为 `recut.editor.*`，落轨读模型不变。
+> `recut-editor` 技能已**全局化到 `service/skills/recut-editor/`**（RFC Editor 迁移 §4.6 / M2.5）：surface `requiredSkill` 解析到全局技能（`appId=recut.platform`），`apps/editor` 不再携带 App 私有副本。其 op 名仍为 `recut.editor.*`，落轨读模型不变。
 
 ## 2. 会话与写入纪律（跟 timeline-editor 走）
 

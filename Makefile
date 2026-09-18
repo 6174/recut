@@ -5,7 +5,7 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-test-race service-vet web-install web-test web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps editor-ui-build check editor-model-test editor-frame-render-test editor-authoring-quality-test editor-realtime-verify transcribe-e2e worlds-check worlds-build worlds-upload worlds-publish worlds-status worlds-inspect
+.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-test-race service-vet web-install web-test web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps check editor-realtime-verify transcribe-e2e motion-graphic-e2e worlds-check worlds-build worlds-upload worlds-publish worlds-status worlds-inspect
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
@@ -26,7 +26,6 @@ RELEASE_STAGE ?= $(CURDIR)/build/releases
 RELEASE_PUBLIC ?= $(CURDIR)/cdn/buckets/releases/$(RECUT_VERSION)
 RELEASE_LATEST ?= $(CURDIR)/cdn/buckets/releases/latest
 BUILTIN_REMOTION_ARCHIVE := $(CURDIR)/service/builtin_apps/remotion-studio.tar.gz
-BUILTIN_EDITOR_ARCHIVE := $(CURDIR)/service/builtin_apps/editor.tar.gz
 BUILTIN_AUDIO_STUDIO_ARCHIVE := $(CURDIR)/service/builtin_apps/audio-studio.tar.gz
 # audio-studio voxcpm 专用 venv（发布声音预设 / Voice Design 用；主 ASR venv 由 runner 自行解析）。
 VOXCPM_PYTHON ?= $(firstword $(wildcard $(HOME)/.recut/python/envs/recut.audio-studio/audio-studio/*-voxcpm/bin/python))
@@ -84,7 +83,7 @@ stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never an
 
 service-dev: stop-stale-service ## Start only the LAN Go service for the port 3000 workspace (API 17373, event streams 17374). Built-in App archives build only once; rebuild them via `make builtin-apps` or `make deploy`.
 	@set -e; \
-	if [ ! -f "$(BUILTIN_REMOTION_ARCHIVE)" ] || [ ! -f "$(BUILTIN_EDITOR_ARCHIVE)" ] || [ ! -f "$(BUILTIN_AUDIO_STUDIO_ARCHIVE)" ]; then \
+	if [ ! -f "$(BUILTIN_REMOTION_ARCHIVE)" ] || [ ! -f "$(BUILTIN_AUDIO_STUDIO_ARCHIVE)" ]; then \
 		echo "Built-in App archives missing; building them once."; \
 		$(MAKE) builtin-apps; \
 	fi; \
@@ -203,39 +202,21 @@ app-link: ## Link one local App package (APP=apps/ai-short-film) or every local 
 		echo "Linked $$name -> $$absolute"; \
 	done
 
-builtin-apps: editor-ui-build ## Package the App sources that ship inside every Recut service binary.
+builtin-apps: ## Package the App sources that ship inside every Recut service binary.
 	@mkdir -p "$(dir $(BUILTIN_REMOTION_ARCHIVE))"
 	node scripts/package-builtin-app.mjs apps/remotion-studio "$(BUILTIN_REMOTION_ARCHIVE)"
-	node scripts/package-builtin-app.mjs apps/editor "$(BUILTIN_EDITOR_ARCHIVE)"
 	node scripts/package-builtin-app.mjs apps/audio-studio "$(BUILTIN_AUDIO_STUDIO_ARCHIVE)"
-
-editor-ui-build: ## Build the editor UI bundle included in the builtin editor App.
-	@set -e; \
-	if [ ! -d "$(CURDIR)/apps/editor/ui/node_modules" ]; then (cd "$(CURDIR)/apps/editor/ui" && npm ci); fi; \
-	(cd "$(CURDIR)/apps/editor/ui" && npm run build)
-
-editor-model-test: ## L0 Model API 测试：AI op 引擎、D1 关键帧、统一日志 undo/redo/conflict、aiLock。
-	node apps/editor/scripts/test-model-api.js
-
-editor-frame-render-test: ## L0 frame-render（平台通讯契约 preview.frame 消费者）纯逻辑测试。
-	node apps/editor/scripts/test-frame-render.js
-
-editor-authoring-quality-test: ## L0 Editor prompt/worklog 质量门（不替代真片 golden）。
-	node apps/editor/scripts/test-authoring-quality.js
 
 editor-realtime-verify: ## 浏览器端验证迁移后 realtime 同步（需先 make dev：service+web 运行中）。
 	cd web && node scripts/verify-editor-realtime.mjs
 
-effects-catalog: ## 从 runtime EFFECT_COMPONENTS 重新生成内置效果目录（apps/editor/catalog + cdn/buckets/effects）。
-	node apps/editor/scripts/build-effects-catalog.mjs
-
-editor-e2e: ## 编辑器 UI Playwright 端到端（含 recut 项目实时同步）。
-	cd apps/editor/ui && npx playwright test
-
-check: service-test service-test-race service-vet web-test web-build editor-model-test editor-frame-render-test editor-authoring-quality-test worlds-check ## Run all service and web verification.
+check: service-test service-test-race service-vet web-test web-build worlds-check ## Run all service and web verification.
 
 transcribe-e2e: ## 真实接口转写 E2E（不经 UI）：editor subtitle.generate → audio.transcribe → subtitle.status 轮询到完成。
 	cd service && RECUT_E2E_TRANSCRIBE=1 go test -run TestTranscriptionE2E -count=1 -v .
+
+motion-graphic-e2e: ## 真实接口 Motion Graphic E2E（不经 UI，纯 Go 构建）：define → verify → asset.list → placeComponents → timeline.read → resolve → update → 失败防护。
+	cd service && RECUT_E2E_MOTION_GRAPHIC=1 go test -run TestMotionGraphicE2EComponentChain -count=1 -v .
 
 worlds-check: ## 校验 World 源格式（预算/ID/schema）并打印 manifest hash 预览（CI 防漂移）。
 	node scripts/worlds-publish.mjs --check

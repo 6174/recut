@@ -242,9 +242,22 @@ func runOpencodeSubAgent(ctx context.Context, commands *AgentCommandResolver, br
 	return cmd, stdout, stderr, nil
 }
 
+// subAgentInvoker 是 op 的 authorize/finalize 可调用体：App op 走 host.InvokeAPI，
+// 平台 op（如 recut.motion-graphic.*）走平台 handler。运行器只关心「同一 op 两次调用」。
+type subAgentInvoker func(input map[string]any) (any, error)
+
 // startAppSubAgentJob 是 mcp.go 应用操作分发的通用入口：对 manifest 标记 subAgent 的 op，
 // 启动一个通用受限子 Agent job（authorize → run → finalize），返回可经 recut.job.* 观察的 job。
 func startAppSubAgentJob(bridge *AgentBridge, host *AppHost, session AgentSession, target Target, appID, operation string, payload map[string]any, locale Locale) (map[string]any, error) {
+	invoke := func(input map[string]any) (any, error) {
+		return host.InvokeAPILocale(target, appID, operation, input, locale)
+	}
+	return startSubAgentJob(bridge, host, session, target, appID, operation, payload, invoke)
+}
+
+// startSubAgentJob 是平台通用受限子 Agent job 入口：任何 op 只要提供 subAgentInvoker
+// （authorize 返回 SubAgentRequest、finalize 接收 subAgentTools）即可复用同一运行器。
+func startSubAgentJob(bridge *AgentBridge, host *AppHost, session AgentSession, target Target, appID, operation string, payload map[string]any, invoke subAgentInvoker) (map[string]any, error) {
 	if host == nil {
 		return nil, errors.New("sub-agent host is unavailable")
 	}
@@ -252,7 +265,7 @@ func startAppSubAgentJob(bridge *AgentBridge, host *AppHost, session AgentSessio
 		return nil, errors.New("sub-agent requires a project target")
 	}
 	run := func(ctx context.Context, jobID string) (any, error) {
-		return runDeclaredSubAgent(ctx, bridge, host, session, target, appID, operation, payload, locale, jobID)
+		return runSubAgentOp(ctx, bridge, host, session, target, appID, operation, payload, invoke, jobID)
 	}
 	job, err := bridge.startAgentJob(target, run)
 	if err != nil {
@@ -265,6 +278,49 @@ func startAppSubAgentJob(bridge *AgentBridge, host *AppHost, session AgentSessio
 		return nil, errors.New("sub-agent job view unavailable")
 	}
 	return view, nil
+}
+
+// runSubAgentOp 执行一个受限子 Agent，分三阶段：
+// 1) authorize：调 op 取 SubAgentRequest（上下文+工具范围由 op 声明）；
+// 2) run：用平台通用 runner 执行（持久化子会话 + 事件落账本），收集受限工具调用；
+// 3) finalize：把工具调用结果回传同一 op（subAgentTools），由 op 产出最终结果。
+// 每个阶段边界显式更新 job phase（authorizing → running → finalizing → complete）。
+// 架构（P1 单一事实源 + 抗杀）：子 Agent 被杀/超时/取消时，只要已产生 commit，仍执行 finalize
+// 保留部分交付，并以 subagentInterruptedError 呈现给 job 状态机（interrupted 终态）。
+func runSubAgentOp(ctx context.Context, bridge *AgentBridge, host *AppHost, session AgentSession, target Target, appID, operation string, payload map[string]any, invoke subAgentInvoker, jobID string) (any, error) {
+	// 在 job goroutine 内尽早登记 meta，避免与调用方 setAgentJobMeta 竞态导致早期事件缺 appId/operation。
+	bridge.setAgentJobMeta(jobID, appID, operation, session.ID)
+	setPhase := func(phase string) { bridge.setAgentJobPhase(jobID, phase) }
+	setPhase("authorizing")
+	raw, err := invoke(payload)
+	if err != nil {
+		return nil, fmt.Errorf("%s failed: %w", operation, err)
+	}
+	req, ok := subAgentRequestFrom(raw)
+	if !ok {
+		return nil, fmt.Errorf("%s did not return a subAgent request", operation)
+	}
+	calls, err := runFocusedSubAgent(ctx, bridge, host, session, target, req, jobID)
+	if err != nil {
+		if len(calls) > 0 {
+			// 子 Agent 未正常完成但已有提交：finalize 保留部分交付，并以 interrupted 终态呈现。
+			setPhase("finalizing")
+			finalized, ferr := invokeFinalizeInvoker(invoke, payload, calls)
+			if ferr != nil {
+				return nil, fmt.Errorf("%s finalize after sub-agent interrupt: %w", operation, ferr)
+			}
+			setPhase("finalized")
+			return nil, &subagentInterruptedError{Result: finalized, Cause: err}
+		}
+		return nil, err
+	}
+	setPhase("finalizing")
+	finalized, err := invokeFinalizeInvoker(invoke, payload, calls)
+	if err != nil {
+		return nil, err
+	}
+	setPhase("finalized")
+	return finalized, nil
 }
 
 // agentRunMCPTool 是平台通用 recut.agent.run 工具：任一 App 都能以
@@ -300,49 +356,6 @@ func agentRunMCPTool(bridge *AgentBridge, host *AppHost, session AgentSession, a
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": view}, nil
 }
 
-// runDeclaredSubAgent 执行一个由 background 动态声明请求的受限子 Agent，分三阶段：
-// 1) authorize：调 background operation 取 SubAgentRequest（上下文+工具范围由 background 声明）；
-// 2) run：用平台通用 runner 执行（持久化子会话 + 事件落账本），收集受限工具调用；
-// 3) finalize：把工具调用结果回传同一 operation（subAgentTools），由 background 产出最终结果。
-// 每个阶段边界显式更新 job phase（authorizing → running → finalizing → complete）。
-// 架构（P1 单一事实源 + 抗杀）：子 Agent 被杀/超时/取消时，只要已产生 commit，仍执行 finalize
-// 保留部分交付，并以 subagentInterruptedError 呈现给 job 状态机（interrupted 终态）。
-func runDeclaredSubAgent(ctx context.Context, bridge *AgentBridge, host *AppHost, session AgentSession, target Target, appID, operation string, payload map[string]any, locale Locale, jobID string) (any, error) {
-	// 在 job goroutine 内尽早登记 meta，避免与调用方 setAgentJobMeta 竞态导致早期事件缺 appId/operation。
-	bridge.setAgentJobMeta(jobID, appID, operation, session.ID)
-	setPhase := func(phase string) { bridge.setAgentJobPhase(jobID, phase) }
-	setPhase("authorizing")
-	raw, err := host.InvokeAPILocale(target, appID, operation, payload, locale)
-	if err != nil {
-		return nil, fmt.Errorf("%s failed: %w", operation, err)
-	}
-	req, ok := subAgentRequestFrom(raw)
-	if !ok {
-		return nil, fmt.Errorf("%s did not return a subAgent request", operation)
-	}
-	calls, err := runFocusedSubAgent(ctx, bridge, host, session, target, req, jobID)
-	if err != nil {
-		if len(calls) > 0 {
-			// 子 Agent 未正常完成但已有提交：finalize 保留部分交付，并以 interrupted 终态呈现。
-			setPhase("finalizing")
-			finalized, ferr := invokeFinalize(host, target, appID, operation, payload, calls, locale)
-			if ferr != nil {
-				return nil, fmt.Errorf("%s finalize after sub-agent interrupt: %w", operation, ferr)
-			}
-			setPhase("finalized")
-			return nil, &subagentInterruptedError{Result: finalized, Cause: err}
-		}
-		return nil, err
-	}
-	setPhase("finalizing")
-	finalized, err := invokeFinalize(host, target, appID, operation, payload, calls, locale)
-	if err != nil {
-		return nil, err
-	}
-	setPhase("finalized")
-	return finalized, nil
-}
-
 // subagentInterruptedError 表示子 Agent 未正常完成（被杀/超时/异常退出），但已提交结果成功 finalize。
 // runAgentJob 据此把 job 落成 interrupted 终态并携带部分结果（架构 P4：终态即结果）。
 type subagentInterruptedError struct {
@@ -353,8 +366,8 @@ type subagentInterruptedError struct {
 func (e *subagentInterruptedError) Error() string { return "sub-agent interrupted: " + e.Cause.Error() }
 func (e *subagentInterruptedError) Unwrap() error { return e.Cause }
 
-// invokeFinalize 把子 Agent 收集到的受限工具调用结果回传同一 operation 的 finalize 分支。
-func invokeFinalize(host *AppHost, target Target, appID, operation string, payload map[string]any, calls []agentToolCall, locale Locale) (any, error) {
+// invokeFinalizeInvoker 把子 Agent 收集到的受限工具调用结果回传同一 op 的 finalize 分支。
+func invokeFinalizeInvoker(invoke subAgentInvoker, payload map[string]any, calls []agentToolCall) (any, error) {
 	tools := make([]map[string]any, 0, len(calls))
 	for _, call := range calls {
 		tools = append(tools, map[string]any{"name": call.Name, "result": call.Result})
@@ -364,7 +377,7 @@ func invokeFinalize(host *AppHost, target Target, appID, operation string, paylo
 		finalInput[k] = v
 	}
 	finalInput["subAgentTools"] = tools
-	return host.InvokeAPILocale(target, appID, operation, finalInput, locale)
+	return invoke(finalInput)
 }
 
 // subAgentRequestFrom 从 background 返回中解析 SubAgentRequest；非 subAgent 响应返回 ok=false。

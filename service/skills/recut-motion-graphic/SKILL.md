@@ -1,11 +1,11 @@
 ---
 name: recut-motion-graphic
 appId: recut.platform
-description: 全局 Motion Graphic 创作技能（App 无关）：把一个 viewer job 变成可复用、可验证的图形素材——先定视觉语法与 surface，用 @recut/runtime 写确定性组件，经 motion-graphic.create/revise 构建为 verified 素材，再交给时间线放置。不决定导演取舍（归 recut-director/references/motion），不执行时间线 op（归 recut-editor）。
+description: 全局 Motion Graphic 创作技能（App 无关）：把一个 viewer job 变成可复用、可验证的图形素材——先定视觉语法与 surface，用 @recut/runtime 写确定性组件，经 recut.motion-graphic.create/revise 构建为 verified 素材，再交给时间线放置。不决定导演取舍（归 recut-director/references/motion），不执行时间线 op（归 recut-editor）。
 ---
 
 <!--
- [INPUT]: 依赖 recut-design-system 的视觉契约、组件工具（motion-graphic.create/revise/update/source/list）、@recut/runtime surface 与任意消费方（时间线 / World 画布 / clone / AI 短片）的放置能力。
+ [INPUT]: 依赖 recut-design-system 的视觉契约、组件工具（recut.motion-graphic.create/revise/update/source/list）、@recut/runtime surface 与任意消费方（时间线 / World 画布 / clone / AI 短片）的放置能力。
  [OUTPUT]: 全局 Motion Graphic 创作契约：viewer job → 视觉语法 → surface → 组件源码 → verified 素材 → 放置与目标帧验证的完整链，以及复用、批量、失败分类与确定性纪律。
  [POS]: 平台级「动效图形创作」技能（appId=recut.platform）；只负责把概念做成素材。导演取舍在 recut-director/references/motion，时间线落轨在 recut-editor，设计语言在 recut-design-system。
  [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -56,7 +56,7 @@ Motion Graphic 的目标是让观众看见关系、节奏和视觉隐喻，而�
 style list/get
   → 确认本片视觉语言
   → 选择一个 viewer job 做 representative motion graphic
-  → motion-graphic.create（只生成素材，不落时间线）
+  → recut.motion-graphic.create（只生成素材，不落时间线）
   → recut.job.wait 到 verified
   → 交消费方放置（时间线 timeline.placeComponents / 画布 / clone）并 preview.frame
   → 代表性 settled frame 通过后，按相同 job/结构/form 批量扩展
@@ -111,7 +111,7 @@ motion graphic 的 brief 写内容、形式和背景，不写最终画布坐标�
 
 ## 创建与批量更新
 
-1. `motion-graphic.create({ items, design, references })` 一次创建同一批候选；把统一风格和 viewer job 的简短说明写进每项 `brief`，`design` 只传当前支持的 canvas/locale，参考组件或素材放在 `references`，然后等待统一 job 终态。
+1. `recut.motion-graphic.create({ items, design, references })` 一次创建同一批候选；把统一风格和 viewer job 的简短说明写进每项 `brief`，`design` 只传当前支持的 canvas/locale，参考组件或素材放在 `references`，然后等待统一 job 终态。
 2. 从完成结果读取每个 `components[].assetId` 和 `componentId`；失败项不要用文字或 raw rectangle 静默替代。
 3. 入片时交消费方放置：时间线调用一次 `timeline.placeComponents({ baseVersion, items })`，每项至少包含真实 `assetId`、`startSec`、`durationSec`，必要时带 `params`。
 4. 放置成功后回读消费方结构（时间线用 `timeline.read`），再对代表性 start/settled/end 时刻取 frame 复核。
@@ -130,7 +130,7 @@ motion graphic 的 brief 写内容、形式和背景，不写最终画布坐标�
 | 文件 | 何时读 | 覆盖问题 |
 |---|---|---|
 | `references/authoring.md` | 需要写组件源码、选 surface、设计 inputs、处理类型与验证时 | 组件创作指南、surface 形状、参数设计、动画与常见坑 |
-| `references/material.md` | 需要 motion graphic 工具契约、mode 语义、放置与验证闭环时 | SDK `@recut/runtime`、`motion-graphic.*` 工具、`mode`、`timeline.placeComponents` |
+| `references/material.md` | 需要 motion graphic 工具契约、mode 语义、放置与验证闭环时 | SDK `@recut/runtime`、`recut.motion-graphic.*` 工具、`mode`、`timeline.placeComponents` |
 | `references/gsap.md` | react/r3f 需要 GSAP 确定性编排时 | 五条铁律、timeline/useTimeline、缓动、白名单插件、性能与禁项 |
 
 ## 完成标准

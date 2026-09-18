@@ -164,7 +164,8 @@ func (s *Store) Create(input CreateInput) (Project, error) {
 	if !ok {
 		return Project{}, fmt.Errorf("unknown app %q", input.AppID)
 	}
-	if isSystemAppID(input.AppID) {
+	// 素材库是纯系统能力，不承载用户项目；剪辑器是平台原生 ProjectApp，可创建项目。
+	if input.AppID == mediaSystemAppID {
 		return Project{}, errors.New("system apps cannot create user projects")
 	}
 	if app.Manifest.Kind != ProjectApp {

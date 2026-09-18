@@ -19,6 +19,15 @@ import (
 // （motion_graphic 包），recut.editor 不再有 goja 私有 op。新增 op 时必须显式归属。
 var editorGojaOps = map[string]bool{}
 
+// editorPlatformOps 是平台原生（App 无关）分发的 op：仍可作为 recut.editor API 被编辑器 UI 调用，
+// 但 AI 的 MCP 工具面归 recut.motion-graphic.*（见 motion_graphic_platform.go），
+// 不再挂在 recut.editor 的 MCP 面上。
+var editorPlatformOps = map[string]bool{
+	"motion-graphic.create": true, "motion-graphic.revise": true, "motion-graphic.define": true,
+	"motion-graphic.verify": true, "motion-graphic.list": true, "motion-graphic.source": true,
+	"motion-graphic.update": true, "motion-graphic.resolve": true, "motion-graphic.archive": true,
+}
+
 // TestEditorNativeDispatchCoverage 锁定「每个 recut.editor op 都有且只有一个归属」。
 func TestEditorNativeDispatchCoverage(t *testing.T) {
 	apps, _, _, _ := setupEditorTestApp(t)
@@ -29,6 +38,12 @@ func TestEditorNativeDispatchCoverage(t *testing.T) {
 	declared := map[string]bool{}
 	for _, op := range app.Manifest.Operations {
 		declared[op.Name] = true
+		if editorPlatformOps[op.Name] {
+			if _, native := editorNativeHandlers[op.Name]; native {
+				t.Errorf("op %q is both platform-routed and a Go-native editor handler", op.Name)
+			}
+			continue
+		}
 		if editorGojaOps[op.Name] {
 			if _, native := editorNativeHandlers[op.Name]; native {
 				t.Errorf("op %q is both goja-listed and Go-native", op.Name)

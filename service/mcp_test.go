@@ -148,7 +148,13 @@ func TestRecutContextReportsAppsWithoutProjectDefault(t *testing.T) {
 		t.Fatalf("recut.context must not report a workspace project default: %#v", structured)
 	}
 	appsReported := structured["apps"].([]map[string]any)
-	if len(appsReported) != 1 || appsReported[0]["appId"] != "example.app" {
+	reportedIDs := map[string]bool{}
+	for _, app := range appsReported {
+		if id, ok := app["appId"].(string); ok {
+			reportedIDs[id] = true
+		}
+	}
+	if !reportedIDs["example.app"] || !reportedIDs[editorSystemAppID] {
 		t.Fatalf("recut.context apps = %#v", appsReported)
 	}
 	// 平台技能不属于任何已安装 App，必须并入同一份 skills 清单（appId=recut.platform），
@@ -768,11 +774,16 @@ func TestMCPToolGroupsSeparateGlobalAndAppTools(t *testing.T) {
 	}
 
 	appGroups, ok := groups["apps"].([]map[string]any)
-	if !ok || len(appGroups) != 1 {
+	if !ok {
 		t.Fatalf("app groups = %#v", groups["apps"])
 	}
-	app := appGroups[0]
-	if app["appId"] != "example.app" || app["name"] != "Example" || app["kind"] != "project" {
+	var app map[string]any
+	for _, group := range appGroups {
+		if group["appId"] == "example.app" {
+			app = group
+		}
+	}
+	if app == nil || app["name"] != "Example" || app["kind"] != "project" {
 		t.Fatalf("app group metadata = %#v", app)
 	}
 	tools, ok := app["tools"].([]map[string]any)
@@ -822,7 +833,13 @@ func TestMCPToolsEndpointServesGroupedTools(t *testing.T) {
 	if len(groups.Global) == 0 || groups.Global[0]["name"] == nil {
 		t.Fatalf("global tools = %s", body)
 	}
-	if len(groups.Apps) != 1 || groups.Apps[0]["appId"] != "example.app" {
+	groupIDs := map[string]bool{}
+	for _, group := range groups.Apps {
+		if id, ok := group["appId"].(string); ok {
+			groupIDs[id] = true
+		}
+	}
+	if !groupIDs["example.app"] || !groupIDs[editorSystemAppID] {
 		t.Fatalf("app groups = %s", body)
 	}
 }

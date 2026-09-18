@@ -1,7 +1,7 @@
 > 来源: recut/recut — service/skills/recut-motion-graphic/SKILL.md (Recut 自有，内部复用)
 
 <!--
- [INPUT]: 依赖 recut-design-system skill 的视觉契约、Editor timeline.read/preview.frame 与 motion-graphic.create/timeline.placeComponents。
+ [INPUT]: 依赖 recut-design-system skill 的视觉契约、Editor timeline.read/preview.frame 与 recut.motion-graphic.create/timeline.placeComponents。
  [OUTPUT]: Motion Graphics 的 style gate、代表性组件、逐镜头决策、摆放与验证规则。
  [POS]: motion-graphics route 的导演与组件编排参考；不替代 `recut-motion-graphic` 的 SDK/构建契约。
  [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -43,7 +43,7 @@ Motion Graphic 的目标是让观众看见关系、节奏和视觉隐喻，而�
 style list/get
   → 确认本片视觉语言
   → 选择一个 viewer job 做 representative motion graphic
-  → motion-graphic.create（只生成素材，不落时间线）
+  → recut.motion-graphic.create（只生成素材，不落时间线）
   → recut.job.wait 到 verified
   → timeline.placeComponents 放置并 preview.frame
   → 代表性 settled frame 通过后，按相同 job/结构/form 批量扩展
@@ -98,7 +98,7 @@ motion graphic 的 brief 写内容、形式和背景，不写最终画布坐标�
 
 ## Recut 落轨与批量更新
 
-1. `motion-graphic.create({ items, design, references })` 一次创建同一批候选；把统一风格和 viewer job 的简短说明写进每项 `brief`，`design` 只传当前支持的 canvas/locale，参考组件或素材放在 `references`，然后等待统一 job 终态。
+1. `recut.motion-graphic.create({ items, design, references })` 一次创建同一批候选；把统一风格和 viewer job 的简短说明写进每项 `brief`，`design` 只传当前支持的 canvas/locale，参考组件或素材放在 `references`，然后等待统一 job 终态。
 2. 从完成结果读取每个 `components[].assetId` 和 `componentId`；失败项不要用文字或 raw rectangle 静默替代。
 3. 对用户要求入片的组件调用一次 `timeline.placeComponents({ baseVersion, items })`，每项至少包含真实 `assetId`、`startSec`、`durationSec`，必要时带 `params`。
 4. `timeline.placeComponents` 成功后，读取 `timeline.read` 回读轨道、时间和 component ref；再对代表性 start/settled/end 时刻调用 `preview.frame`。

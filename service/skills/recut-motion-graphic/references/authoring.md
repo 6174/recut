@@ -1,5 +1,5 @@
 <!--
- [INPUT]: 依赖 motion-graphic.create/revise/update 的组件 job、@recut/runtime surface 与 design system brief。
+ [INPUT]: 依赖 recut.motion-graphic.create/revise/update 的组件 job、@recut/runtime surface 与 design system brief。
  [OUTPUT]: React/R3F/HTML 组件的图形化创作、参数、确定性动画和验证约束。
  [POS]: recut-motion-graphic 的实现指南（motion-graphics 与 hybrid 解释层）；不决定时间线 placement。
  [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -8,7 +8,7 @@
 # 自定义组件创作指南（recut-motion-graphic）
 
 > 代码即素材。**本文件是"怎么写出好组件"的创作指南**；工具/SDK 契约见 `material.md`。
-> 组件 = 一段可验证的代码素材：由 `motion-graphic.create` 启动同模型受限子 Agent job，子 Agent 以 skeleton 为起点，用唯一 `motion-graphic.commit` 工具提交源码 → 构建 → 轻量"能跑通"验证 → verified 成为 head，进入素材库。创建本身不产生任何消费方使用点。
+> 组件 = 一段可验证的代码素材：由 `recut.motion-graphic.create` 启动同模型受限子 Agent job，子 Agent 以 skeleton 为起点，用唯一 `recut.motion-graphic.commit` 工具提交源码 → 构建 → 轻量"能跑通"验证 → verified 成为 head，进入素材库。创建本身不产生任何消费方使用点。
 
 ## 一、什么时候用组件，而不是时间线 op
 
@@ -107,7 +107,7 @@ inputs: [
 - 读取用 SDK 的 `num()`/`str()`/`bool()`（带 fallback，容忍时间线缺参）。
 - `type` 合法值：`number`/`string`/`boolean`/`color`/`text`/`select`（select 带 `options`）。
 - 参数名与时间线 `params` 一一对应，可打关键帧：`keyframe-upsert {ref, path:"params.<key>", atSec, value}`。
-- 建 clip 时用 `motion-graphic.list` 返回的 `inputs[].default` 展开成元素 params。
+- 建 clip 时用 `recut.motion-graphic.list` 返回的 `inputs[].default` 展开成元素 params。
 
 ## 五、动画：GSAP 优先（react/r3f），anim.* 兼容（html）
 
@@ -246,10 +246,10 @@ export default {
 ## 八、验证闭环与迭代
 
 ```text
-motion-graphic.create / motion-graphic.revise → job.status:"queued"|"running"|"completed"|"interrupted"|"failed"|"cancelled"
-→ 轻量 motion-graphic.verify(versionId, report.mode:"headless-code")
+recut.motion-graphic.create / recut.motion-graphic.revise → job.status:"queued"|"running"|"completed"|"interrupted"|"failed"|"cancelled"
+→ 轻量 recut.motion-graphic.verify(versionId, report.mode:"headless-code")
    ok → verified → head 更新，进入素材库（media）
-   坏 → failed → head 保持旧版本 → 读 motion-graphic.source 修复 → 重新 create/revise
+   坏 → failed → head 保持旧版本 → 读 recut.motion-graphic.source 修复 → 重新 create/revise
 ```
 
 - 构建失败读 `buildError`（shape/determinism 拒绝清单；作者路径已放开 strict tsc，若仍报类型错=违反类型契约）修源码，**不要整段重写**。
@@ -274,9 +274,9 @@ motion-graphic.create / motion-graphic.revise → job.status:"queued"|"running"|
 timeline.command {
   type: "insert",
   payload: { element: {
-    type: "component", componentId: "<motion-graphic.list 的 id>",
+    type: "component", componentId: "<recut.motion-graphic.list 的 id>",
     startSec, durationSec,
-    params: { <motion-graphic.list 的 inputs default 展开> }
+    params: { <recut.motion-graphic.list 的 inputs default 展开> }
   } }
 }
 # 组件参数可打关键帧：keyframe-upsert { ref, path:"params.<key>", atSec, value }

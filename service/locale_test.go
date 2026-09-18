@@ -220,7 +220,13 @@ func TestListAppsLocalizesManifestByAcceptLanguage(t *testing.T) {
 	if err := json.Unmarshal(zhRecorder.Body.Bytes(), &zhApps); err != nil {
 		t.Fatal(err)
 	}
-	if len(zhApps) != 1 || zhApps[0].Manifest.Name != "AI 短片" || zhApps[0].Manifest.Description != "中文描述。" {
+	zhLocalized := false
+	for _, app := range zhApps {
+		if app.Manifest.Name == "AI 短片" && app.Manifest.Description == "中文描述。" {
+			zhLocalized = true
+		}
+	}
+	if !zhLocalized {
 		t.Fatalf("zh apps = %#v", zhApps)
 	}
 
@@ -237,7 +243,13 @@ func TestListAppsLocalizesManifestByAcceptLanguage(t *testing.T) {
 	if err := json.Unmarshal(enRecorder.Body.Bytes(), &enApps); err != nil {
 		t.Fatal(err)
 	}
-	if len(enApps) != 1 || enApps[0].Manifest.Name != "AI Short Films" || enApps[0].Manifest.Description != "English description." {
+	enLocalized := false
+	for _, app := range enApps {
+		if app.Manifest.Name == "AI Short Films" && app.Manifest.Description == "English description." {
+			enLocalized = true
+		}
+	}
+	if !enLocalized {
 		t.Fatalf("en apps = %#v", enApps)
 	}
 }

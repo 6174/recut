@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// writeTwoAppHarness 创建「editor（project，调用方）」+「audio-studio（standalone，提供方）」两个 stub App。
+// writeTwoAppHarness 创建「caller（project，调用方）」+「audio-studio（standalone，提供方）」两个 stub App。
 func writeTwoAppHarness(t *testing.T) (*AppHost, *Store, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -34,11 +34,11 @@ recut.operation.register("private.op", function(input, ctx) { return { private: 
 	writeTestFile(t, filepath.Join(providerDir, "ui", "index.html"), "ok")
 
 	// 调用方 project App：自身只注册一个 api op，在 handler 里经 ctx.capabilities.invoke 调提供方。
-	callerDir := filepath.Join(root, "apps", "editor")
+	callerDir := filepath.Join(root, "apps", "caller")
 	if err := os.MkdirAll(filepath.Join(callerDir, "ui"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, filepath.Join(callerDir, "manifest.json"), `{"manifestVersion":1,"id":"recut.editor","name":"Editor","author":"Test","description":"Test caller.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"permissions":[],"operations":[{"name":"gen.run","description":"Invoke a capability.","surfaces":["api"],"inputSchema":{"type":"object"}}]}`)
+	writeTestFile(t, filepath.Join(callerDir, "manifest.json"), `{"manifestVersion":1,"id":"test.caller","name":"Caller","author":"Test","description":"Test caller.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"},"permissions":[],"operations":[{"name":"gen.run","description":"Invoke a capability.","surfaces":["api"],"inputSchema":{"type":"object"}}]}`)
 	writeTestFile(t, filepath.Join(callerDir, "background.js"), `recut.operation.register("gen.run", function(input, ctx) { const r = ctx.capabilities.invoke({ appId: input.appId, name: input.name, input: input.input || {}, authorization: input.authorization || "" }); return r; });`)
 	writeTestFile(t, filepath.Join(callerDir, "ui", "index.html"), "ok")
 
@@ -50,7 +50,7 @@ recut.operation.register("private.op", function(input, ctx) { return { private: 
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	project, err := store.Create(CreateInput{Name: "Proj", AppID: "recut.editor"})
+	project, err := store.Create(CreateInput{Name: "Proj", AppID: "test.caller"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ recut.operation.register("private.op", function(input, ctx) { return { private: 
 
 func invokeViaCapability(t *testing.T, host *AppHost, projectID, targetAppID, name string, input map[string]any) map[string]any {
 	t.Helper()
-	result, err := host.InvokeAPI(Target{ProjectID: projectID, AppID: "recut.editor"}, "recut.editor", "gen.run", map[string]any{"appId": targetAppID, "name": name, "input": input})
+	result, err := host.InvokeAPI(Target{ProjectID: projectID, AppID: "test.caller"}, "test.caller", "gen.run", map[string]any{"appId": targetAppID, "name": name, "input": input})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestCapabilityBridgeSyncTimeout(t *testing.T) {
 	capabilityInvokeTimeout = 80 * time.Millisecond
 	defer func() { capabilityInvokeTimeout = old }()
 	start := time.Now()
-	result, err := host.capabilityInvoke(Target{ProjectID: projectID, AppID: "recut.editor"}, "recut.audio-studio", "cap.slow", map[string]any{}, "", DefaultLocale)
+	result, err := host.capabilityInvoke(Target{ProjectID: projectID, AppID: "test.caller"}, "recut.audio-studio", "cap.slow", map[string]any{}, "", DefaultLocale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestCapabilityBridgeSyncTimeout(t *testing.T) {
 
 func TestCapabilitySignedAuthorization(t *testing.T) {
 	host, _, projectID := writeTwoAppHarness(t)
-	result, err := host.InvokeAPI(Target{ProjectID: projectID, AppID: "recut.editor"}, "recut.editor", "gen.run",
+	result, err := host.InvokeAPI(Target{ProjectID: projectID, AppID: "test.caller"}, "test.caller", "gen.run",
 		map[string]any{"appId": "recut.audio-studio", "name": "cap.echo", "input": map[string]any{"x": 1}, "authorization": "user-generated-captions"})
 	if err != nil {
 		t.Fatal(err)

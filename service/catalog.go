@@ -22,7 +22,11 @@ import (
 const mediaSystemProjectID = "media-library"
 const mediaSystemAppID = "recut.media-library"
 
-func isSystemAppID(id string) bool { return id == mediaSystemAppID }
+// editorSystemAppID 是平台原生剪辑器 App；其 meta 与 operation 契约定义在
+// editor_app.go，不由已安装的 App 包提供。
+const editorSystemAppID = editorAppID
+
+func isSystemAppID(id string) bool { return id == mediaSystemAppID || id == editorSystemAppID }
 
 type AppKind string
 
@@ -262,7 +266,9 @@ func catalogDirectoryVersion(dir string) (string, error) {
 		parts = append(parts, catalogFileVersion(entry.Name(), linkInfo))
 		info, err := os.Stat(root)
 		if err != nil {
-			if entry.Name() == mediaSystemProjectID && errors.Is(err, os.ErrNotExist) {
+			// 失效链接（App 被移除或迁移为平台原生能力）不应阻止 daemon 启动；
+			// 旧 media-library 链接是其中一例。
+			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
 			return "", fmt.Errorf("inspect App package %q: %w", entry.Name(), err)
@@ -272,6 +278,11 @@ func catalogDirectoryVersion(dir string) (string, error) {
 		}
 		manifest, err := os.Stat(filepath.Join(root, "manifest.json"))
 		if err != nil {
+			// 没有 manifest.json 的目录不是 App 包（平台原生 App 的残留源码目录
+			// 也走这里），跳过而不是让 daemon 启动失败。
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
 			return "", fmt.Errorf("inspect App manifest %q: %w", entry.Name(), err)
 		}
 		parts = append(parts, catalogFileVersion(entry.Name()+"/manifest.json", manifest))
@@ -293,14 +304,19 @@ func loadCatalogApps(dir string) (map[string]App, error) {
 		root := filepath.Join(dir, entry.Name())
 		info, err := os.Stat(root)
 		if err != nil {
-			// 0.1.0 将素材库作为 App 链接安装。新版素材库改为
-			// 平台原生 React 页面后，保留该失效链接不应阻止 daemon 启动。
-			if entry.Name() == mediaSystemProjectID && errors.Is(err, os.ErrNotExist) {
+			// 失效链接（App 被移除或迁移为平台原生能力）不应阻止 daemon 启动；
+			// 旧 media-library 链接是其中一例。
+			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
 			return nil, fmt.Errorf("inspect App package %q: %w", entry.Name(), err)
 		}
 		if !info.IsDir() {
+			continue
+		}
+		// 没有 manifest.json 的目录不是 App 包；平台原生 App 的残留源码目录
+		// 不应被注册（其契约定义在 Go）。
+		if _, err := os.Stat(filepath.Join(root, "manifest.json")); errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		app, err := loadApp(root)
@@ -331,13 +347,15 @@ func (c *Catalog) List() ([]App, error) {
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	apps := make([]App, 0, len(c.apps))
+	apps := make([]App, 0, len(c.apps)+1)
 	for _, app := range c.apps {
-		if app.Manifest.ID == mediaSystemAppID {
+		if isSystemAppID(app.Manifest.ID) {
 			continue
 		}
 		apps = append(apps, app)
 	}
+	// 平台原生 App（如剪辑器）没有安装包，但需要出现在工具面与上下文里。
+	apps = append(apps, editorApp)
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Manifest.ID < apps[j].Manifest.ID })
 	return apps, nil
 }
@@ -380,6 +398,8 @@ func systemAppDescriptor(id string) (App, bool) {
 	switch id {
 	case mediaSystemAppID:
 		return mediaSystemAppDescriptor(), true
+	case editorSystemAppID:
+		return editorApp, true
 	default:
 		return App{}, false
 	}
@@ -548,6 +568,10 @@ type Skill struct {
 // root AGENTS.md. The skills directory always wins; the two are never both
 // authoritative.
 func (app App) Skills() ([]Skill, error) {
+	// 平台原生 App（Root 为空）不携带 App 私有技能；其技能由平台 skills/ 提供。
+	if app.Root == "" {
+		return []Skill{}, nil
+	}
 	skillsRoot := filepath.Join(app.Root, "skills")
 	entries, err := os.ReadDir(skillsRoot)
 	if err == nil {

@@ -118,7 +118,7 @@ func (s *service) define(input map[string]any, forceVerified bool) (Material, Re
 		version = existing.CodeVersion + 1
 	}
 	versionID := VersionID(id, version)
-	built := Build(s.h.AppRoot(), s.h.FilesRoot(), versionID, source)
+	built := Build(s.h.FilesRoot(), versionID, source)
 	keywordsJSON, _ := json.Marshal(keywords)
 	inputsJSON, _ := json.Marshal(inputs)
 	material := Material{
@@ -319,7 +319,13 @@ func (s *service) resolveView(m Material) map[string]any {
 
 // ---- 受限子 Agent -----------------------------------------------------------
 
-var authorAllowedTools = []any{"recut.editor.motion-graphic.commit"}
+// MotionGraphicToolPrefix 是 MG 的平台工具名前缀（全局、App 无关）。
+const MotionGraphicToolPrefix = "recut.motion-graphic."
+
+// CommitTool 是受限作者子 Agent 唯一的提交工具名。
+const CommitTool = MotionGraphicToolPrefix + "commit"
+
+var authorAllowedTools = []any{CommitTool}
 
 func (s *service) create(input map[string]any) (any, error) {
 	if tools, ok := input["subAgentTools"].([]any); ok {
@@ -390,7 +396,7 @@ func (s *service) finalize(tools []any, items []any, mode string) (any, error) {
 	itemIndex := 0
 	for _, toolValue := range tools {
 		tool := asMap(toolValue)
-		if tool == nil || str(tool["name"]) != "recut.editor.motion-graphic.commit" {
+		if tool == nil || str(tool["name"]) != CommitTool {
 			continue
 		}
 		committed := asMap(tool["result"])

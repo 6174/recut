@@ -38,6 +38,6 @@ keyframe-upsert { ref, path:"transform.positionY", atSec:0.8, value:0 }
 ## 流水线与验证（App 特有）
 
 - **依赖顺序**：本次编辑若新建或改变 A-roll，先冻结说话内容，再落 motion graphic/B-roll/音乐/字幕层；纯视觉/音频/资产微调不重做未受影响的下游。
-- **素材登记**：所有媒体/组件素材落轨前必须经 `timeline.assets`（或 `asset.list`）登记真实 `assetId`，否则导出空画面；组件经 `motion-graphic.create` 产出（创作方法见全局技能 `recut-motion-graphic`），`recut.job.wait` 到 `verified` 后用 `timeline.placeComponents` 落轨（`componentId` 仅用于 `motion-graphic.source`/`revise`/`update`）。
+- **素材登记**：所有媒体/组件素材落轨前必须经 `timeline.assets`（或 `asset.list`）登记真实 `assetId`，否则导出空画面；组件经 `recut.motion-graphic.create` 产出（创作方法见全局技能 `recut-motion-graphic`），`recut.job.wait` 到 `verified` 后用 `timeline.placeComponents` 落轨（`componentId` 仅用于 `recut.motion-graphic.source`/`revise`/`update`）。
 - **验证**：结构定稿后跑一次 `timeline.validate`（要求零 `asset/track/overlap/range/motion-graphic/param` 违规），再对受影响 scene 用 `preview.frame`/`preview.batch`/`preview.contact-sheet` 做 settled-frame 像素验收；验证与导出门禁详见 `verification.md`、`preview-export.md`。
 - **字幕层级**：字幕始终最高层（独立 text 轨，下三分之一），参数见 `captions.md`。

@@ -235,9 +235,14 @@ func (h *AppHost) requireApp(target Target, appID string) (App, error) {
 }
 
 func (h *AppHost) invoke(target Target, app App, group, name string, input map[string]any, locale Locale) (any, error) {
-	// recut.editor 的 timeline/script/subtitle/material 领域已下沉 Go（见 editor_dispatch.go）；
-	// 未迁移的 op（component.* 属 M2）继续走 goja background，二者共享 appstate DB。
-	if app.Manifest.ID == "recut.editor" && group == "operation" {
+	// motion-graphic.* 已平台化（recut.motion-graphic.*）：App op 以裸名进入，平台工具以全名进入，
+	// 两者都走同一条 App 无关的 Go 路径（见 motion_graphic_platform.go / motion_graphic_bridge.go）。
+	if group == "operation" && strings.HasPrefix(name, "motion-graphic.") {
+		return h.motionGraphicExec(target, name, input, locale)
+	}
+	// recut.editor 已平台原生化：全部 op 由 Go 原生分发（见 editor_dispatch.go /
+	// editor_app.go），没有 goja background。
+	if app.Manifest.ID == editorSystemAppID && group == "operation" {
 		if _, ok := editorNativeHandlers[name]; ok {
 			return h.invokeEditorNative(target, app, name, input, locale)
 		}

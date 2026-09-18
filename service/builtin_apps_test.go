@@ -9,14 +9,20 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestBuiltinAppsInstallEditorOnFirstLaunch(t *testing.T) {
+// 剪辑器已是平台原生 App（RFC 2026-09-17-editor-native-migration M4）：meta 与 op
+// 契约定义在 Go（editor_app.go），没有内置安装包，但必须可被 Catalog 解析并枚举进
+// MCP 工具面。
+func TestEditorIsPlatformNativeApp(t *testing.T) {
 	appsDir := filepath.Join(t.TempDir(), "apps")
-	manager := NewBuiltinAppManager(appsDir)
-	if err := manager.Ensure(); err != nil {
+	if err := NewBuiltinAppManager(appsDir).Ensure(); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(appsDir, "editor")); !os.IsNotExist(err) {
+		t.Fatalf("editor must not be installed as a built-in App package: %v", err)
 	}
 	catalog, err := LoadCatalog(appsDir)
 	if err != nil {
@@ -24,20 +30,34 @@ func TestBuiltinAppsInstallEditorOnFirstLaunch(t *testing.T) {
 	}
 	app, ok := catalog.Get("recut.editor")
 	if !ok {
-		t.Fatal("Editor was not added to the catalog")
+		t.Fatal("Editor was not resolvable from the catalog")
 	}
-	if app.Root != filepath.Join(appsDir, "editor") {
-		t.Fatalf("built-in App root = %q", app.Root)
+	if app.Root != "" {
+		t.Fatalf("native editor descriptor carries no package root, got %q", app.Root)
 	}
-	// recut-editor 技能已全局化到 service/skills/recut-editor（RFC
-	// 2026-09-17-editor-native-migration §4.6 / M2.5），内置 App 包不再携带
-	// App 私有技能副本：surface requiredSkill 解析到全局技能。
-	if _, err := os.Stat(filepath.Join(app.Root, "skills", "recut-editor")); err == nil {
-		t.Fatal("built-in App must not ship an App-local recut-editor skill copy")
+	listed := false
+	apps, err := catalog.List()
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, required := range []string{"background.js", "ui/dist/index.html", "scripts/decode-base64.js"} {
-		if _, err := os.Stat(filepath.Join(app.Root, required)); err != nil {
-			t.Fatalf("built-in App is missing %s: %v", required, err)
+	for _, candidate := range apps {
+		if candidate.Manifest.ID == "recut.editor" {
+			listed = true
+		}
+	}
+	if !listed {
+		t.Fatal("native editor App must be enumerable for the MCP tool surface")
+	}
+	// Motion Graphic 的 AI 工具面已平台化（recut.motion-graphic.*）：编辑器 App 仅保留
+	// api surface 供 UI 桥读写组件素材，MCP surface 归平台（见 TestMotionGraphicPlatformTools）。
+	for _, operation := range app.Manifest.Operations {
+		if !strings.HasPrefix(operation.Name, "motion-graphic.") {
+			continue
+		}
+		for _, surface := range operation.Surfaces {
+			if surface == "mcp" {
+				t.Fatalf("editor op %q must not expose mcp; motion graphic is a platform tool", operation.Name)
+			}
 		}
 	}
 }

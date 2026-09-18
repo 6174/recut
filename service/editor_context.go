@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 AppHost（store/media/async/capabilities）、Target 与项目文件根。
  * [OUTPUT]: editor Go 域运行上下文：scope、appstate DB、项目文件读写、事件广播、媒体/能力桥、封面与 callUI 原语。
- * [POS]: service editor 域的宿主适配层；让 Go 实现与 goja ctx.* 能力一一对应，App 仍只经 manifest 授权。
+ * [POS]: service editor 域的宿主适配层；让 Go 实现与 goja ctx.* 能力一一对应，App 授权来自 editor_app.go 的原生契约。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -130,18 +130,6 @@ func (c *editorContext) filesURL(rel string) string {
 
 func (c *editorContext) projectFilesRoot() string {
 	return c.filesRoot
-}
-
-func (c *editorContext) appReadText(rel string) (string, error) {
-	path, err := editorSafeFile(c.appRoot, rel)
-	if err != nil {
-		return "", err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }
 
 // ---- 封面 -------------------------------------------------------------------

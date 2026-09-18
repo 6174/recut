@@ -18,6 +18,6 @@ Editor Agent 的导演契约与 treatment 参考。`SKILL.md` 只定义统一创
 - `references/data-model.md` / `references/timeline-workflow.md` / `references/params.md` / `references/keyframes.md`: Editor 数据、op、参数和关键帧语义。
 - `references/preview-export.md` / `references/errors.md`: 预览、导出、封面和恢复路径。
 
-依赖方向：intent/scope 先决定是新片还是二次编辑 → route + scene concept 引导生成视频、Motion Graphic 或 hybrid → reference 读取项目/素材证据 → `motion-graphic.create` 或媒体生成产出 asset → `timeline.command`/`timeline.placeComponents` 落轨 → `verification.md` 统一验收。
+依赖方向：intent/scope 先决定是新片还是二次编辑 → route + scene concept 引导生成视频、Motion Graphic 或 hybrid → reference 读取项目/素材证据 → `recut.motion-graphic.create` 或媒体生成产出 asset → `timeline.command`/`timeline.placeComponents` 落轨 → `verification.md` 统一验收。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

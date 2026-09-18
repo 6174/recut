@@ -47,7 +47,7 @@ hard-light soft-light difference exclusion hue saturation color luminosity addit
 
 ## Motion Graphic（motion-graphic 元素）
 
-`inputs` 来自 `motion-graphic.list` 的 `inputs: ParamDefinition[]`，每个 `{ key, label?, type?, default? }`。建 `type:"component"` 的 clip 时把各 input 的 `default` 展开进 `params`。组件参数同样可打关键帧（`params.<key>` 路径）。
+`inputs` 来自 `recut.motion-graphic.list` 的 `inputs: ParamDefinition[]`，每个 `{ key, label?, type?, default? }`。建 `type:"component"` 的 clip 时把各 input 的 `default` 展开进 `params`。组件参数同样可打关键帧（`params.<key>` 路径）。
 
 ## 效果 / 蒙版
 

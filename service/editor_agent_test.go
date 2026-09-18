@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"net/http/httptest"
@@ -10,8 +11,8 @@ import (
 	"testing"
 )
 
-// setupEditorTestApp 从编译内嵌的 builtin editor 归档（apps/editor 已移除）解出真实
-// manifest/background/scripts/sdk/ui.dist/catalog 到临时目录，走真实 host + sqlite 全链路。
+// setupEditorTestApp 用平台原生剪辑器 App（editor_app.go 的 Go 契约，无安装包）
+// 走真实 host + sqlite 全链路。
 func setupEditorTestApp(t *testing.T) (*Catalog, *Store, *AppHost, Project) {
 	t.Helper()
 	root := t.TempDir()
@@ -19,24 +20,7 @@ func setupEditorTestApp(t *testing.T) (*Catalog, *Store, *AppHost, Project) {
 	if err := os.MkdirAll(appsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	appDir := filepath.Join(appsDir, "editor")
-	if err := extractBuiltinApp(appDir, "editor", embeddedEditor); err != nil {
-		t.Fatalf("extract builtin editor: %v", err)
-	}
-	// 组件构建链依赖 esbuild/typescript：让 <appRoot>/ui/node_modules 指向 web 依赖
-	// （component-build.js 从 `<appRoot>/ui` 解析）。
-	realNodeModules, absErr := filepath.Abs(filepath.Join("..", "web", "node_modules"))
-	if absErr != nil {
-		t.Fatal(absErr)
-	}
-	if _, err := os.Stat(realNodeModules); err == nil {
-		_ = os.RemoveAll(filepath.Join(appDir, "ui", "node_modules"))
-		if err := os.Symlink(realNodeModules, filepath.Join(appDir, "ui", "node_modules")); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	apps, err := LoadCatalog(appsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,37 +40,6 @@ func setupEditorTestApp(t *testing.T) (*Catalog, *Store, *AppHost, Project) {
 func invoke(t *testing.T, host *AppHost, project Project, op string, input map[string]any) map[string]any {
 	t.Helper()
 	return invokeSurface(t, host, project, op, input, "mcp")
-}
-
-// copyEditorDir 递归复制目录（非空内容），用于让测试 app 具备组件构建链的 scripts/sdk。
-func copyEditorDir(t *testing.T, src, dst string) error {
-	t.Helper()
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-		if entry.IsDir() {
-			if err := copyEditorDir(t, srcPath, dstPath); err != nil {
-				return err
-			}
-			continue
-		}
-		content, err := os.ReadFile(srcPath)
-		if err != nil {
-			return err
-		}
-		writeTestFile(t, dstPath, string(content))
-	}
-	return nil
 }
 
 // invokeAPI 走 InvokeAPI 路径（api surface 门），用于 cover.* 等仅 UI 的操作。
@@ -780,23 +733,85 @@ func TestEditorManualCoverFlow(t *testing.T) {
 	}
 }
 
-func TestEditorManifestIsSelfConsistent(t *testing.T) {
-	src := filepath.Join("..", "apps", "editor")
-	raw, err := os.ReadFile(filepath.Join(src, "manifest.json"))
+// 随包目录（原 apps/editor/catalog/*.json）已 embed；离线时 library.browse 必须仍有内容。
+func TestEditorShippedCatalogsEmbedded(t *testing.T) {
+	effects := editorShippedCatalog(editorEffectsCatalogJSON)
+	if effects == nil || effects["effects"] == nil {
+		t.Fatalf("embedded effects catalog is empty/invalid")
+	}
+	audio := editorShippedCatalog(editorAudioCatalogJSON)
+	if audio == nil || audio["sfx"] == nil {
+		t.Fatalf("embedded audio catalog is empty/invalid")
+	}
+}
+
+// export.complete 的收尾（原 decode-base64.js 链）已在 Go 内直接 base64 解码并落盘；
+// 这里覆盖真实 host + 项目文件根 + 素材入库的 E2E。
+func TestEditorExportCompleteDecodesBase64(t *testing.T) {
+	_, store, _, project := setupEditorTestApp(t)
+	media := NewMediaService(store)
+	host := NewAppHost(store.catalog, store, media)
+
+	payload := []byte("fake-mp4-bytes")
+	result := invokeAPI(t, host, project, "export.complete", map[string]any{
+		"exportId":   "export-1",
+		"fileBase64": base64.StdEncoding.EncodeToString(payload),
+		"name":       "成片",
+		"mimeType":   "video/mp4",
+	})
+	if stringOf(result["exportId"]) != "export-1" || result["assetId"] == nil {
+		t.Fatalf("export.complete = %#v", result)
+	}
+	filesRoot, err := store.TargetFilesRoot(Target{ProjectID: project.ID, AppID: editorSystemAppID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var manifest struct {
-		Operations []struct {
-			Name     string   `json:"name"`
-			Surfaces []string `json:"surfaces"`
-		} `json:"operations"`
-	}
-	if err := json.Unmarshal(raw, &manifest); err != nil {
+	decoded, err := os.ReadFile(filepath.Join(filesRoot, "exports", "export-1.mp4"))
+	if err != nil {
 		t.Fatal(err)
 	}
+	if !bytes.Equal(decoded, payload) {
+		t.Fatalf("decoded mp4 = %q, want %q", decoded, payload)
+	}
+}
+
+// Motion Graphic 已平台化为 recut.motion-graphic.*（motion_graphic_platform.go）；
+// 剪辑器 MCP 面不得再暴露 recut.editor.motion-graphic.*，避免重复工具。
+func TestEditorMCPFaceDefersMotionGraphicToPlatform(t *testing.T) {
+	appsDir := filepath.Join(t.TempDir(), "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(t.TempDir(), "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	list := mcpToolListForSession(NewAgentBridge(store), NewMediaService(store), AgentSession{}, DefaultLocale)
+	tools, _ := list["tools"].([]map[string]any)
 	seen := map[string]bool{}
-	for _, op := range manifest.Operations {
+	for _, tool := range tools {
+		if name, ok := tool["name"].(string); ok {
+			seen[name] = true
+		}
+	}
+	if !seen["recut.motion-graphic.create"] || !seen["recut.motion-graphic.list"] {
+		t.Fatalf("platform motion-graphic tools missing from session tool list")
+	}
+	for name := range seen {
+		if strings.HasPrefix(name, "recut.editor.motion-graphic.") {
+			t.Fatalf("motion graphic must not be exposed under the editor MCP face: %q", name)
+		}
+	}
+}
+
+// 剪辑器契约已在 Go（editor_app.go）：自洽性与关键 op 的 surface 必须在原生定义上成立。
+func TestEditorManifestIsSelfConsistent(t *testing.T) {
+	seen := map[string]bool{}
+	for _, op := range editorApp.Manifest.Operations {
 		if seen[op.Name] {
 			t.Fatalf("duplicate operation %q", op.Name)
 		}
@@ -806,9 +821,9 @@ func TestEditorManifestIsSelfConsistent(t *testing.T) {
 		}
 	}
 	// 关键 AI 操作必须 mcp surface
-	for _, must := range []string{"timeline.read", "element.get", "timeline.validate", "timeline.command", "timeline.placeComponents", "history.undo", "project.lock", "motion-graphic.create", "motion-graphic.revise", "motion-graphic.list"} {
+	for _, must := range []string{"timeline.read", "element.get", "timeline.validate", "timeline.command", "timeline.placeComponents", "history.undo", "project.lock"} {
 		ok := false
-		for _, op := range manifest.Operations {
+		for _, op := range editorApp.Manifest.Operations {
 			if op.Name == must && strings.Contains(strings.Join(op.Surfaces, ","), "mcp") {
 				ok = true
 			}

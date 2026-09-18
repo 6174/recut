@@ -16,7 +16,7 @@
 ## 三、素材未登记（asset-exists）
 
 - `insert` 用未登记 `mediaId`/`sourceUrl` 会被 `timeline.validate` 拦截：先 `recut.media.list_assets` 拿真实 assetId，再 `timeline.assets` 覆盖式登记，再重试 insert。
-- 组件未 verify：先用 `recut.job.status/wait` 观察 `motion-graphic.create` job；构建/验证失败时用 `recut.job.logs` 诊断并重试。素材库可见后封面可选。绝不把未 verified 条目插入时间线。
+- 组件未 verify：先用 `recut.job.status/wait` 观察 `recut.motion-graphic.create` job；构建/验证失败时用 `recut.job.logs` 诊断并重试。素材库可见后封面可选。绝不把未 verified 条目插入时间线。
 
 ## 四、validate violations
 

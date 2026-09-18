@@ -8,11 +8,11 @@ package motion_graphic
 
 import "database/sql"
 
-// Host 抽象 MG 操作所需的最小宿主能力：平台 DB、执行/封面文件根、事件与验证回调。
+// Host 抽象 MG 操作所需的最小宿主能力：平台 DB、落盘/封面文件根、事件与验证回调。
 // MG 是全局素材，Host 不提供任何项目语义；项目引用由消费方在 OnVerified 中自行登记。
+// 构建工具链归平台（build.go 的 Go esbuild + 静态扫描 + 形状校验），因此不再需要 App 根。
 type Host interface {
 	DB() (*sql.DB, error)
-	AppRoot() string
 	FilesRoot() string
 	WriteBase64(rel, b64 string) error
 	FilesURL(rel string) string

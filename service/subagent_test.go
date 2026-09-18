@@ -76,7 +76,7 @@ func TestCreateChildSessionPersistedAndHiddenFromList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := agents.CreateChildSession(parent.ID, "job-1", "codex", "gpt-5.6-terra", "high", "", "子 Agent · motion-graphic.create", []string{"recut.editor.motion-graphic.commit"})
+	child, err := agents.CreateChildSession(parent.ID, "job-1", "codex", "gpt-5.6-terra", "high", "", "子 Agent · motion-graphic.create", []string{"recut.motion-graphic.commit"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestAgentJobLifecycleEventsWriteLedgerAndStream(t *testing.T) {
 	bridge, agents, _ := newSubagentTestBridge(t)
 	var childID string
 	run := func(ctx context.Context, jobID string) (any, error) {
-		child, err := agents.CreateChildSession("parent", jobID, "codex", "gpt-5.6-terra", "high", "", "子 Agent · motion-graphic.create", []string{"recut.editor.motion-graphic.commit"})
+		child, err := agents.CreateChildSession("parent", jobID, "codex", "gpt-5.6-terra", "high", "", "子 Agent · motion-graphic.create", []string{"recut.motion-graphic.commit"})
 		if err != nil {
 			return nil, err
 		}
@@ -325,8 +325,8 @@ func TestAgentJobToolCallLedgerAndChildLookup(t *testing.T) {
 		t.Fatal("agentJobByChild must miss for unknown child")
 	}
 	// 发生时即追加：杀后账本仍在（finalize 从 job 投影）。
-	bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.motion-graphic.commit", Result: map[string]any{"componentId": "c1"}})
-	bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.editor.motion-graphic.commit", Result: map[string]any{"componentId": "c2"}})
+	bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.motion-graphic.commit", Result: map[string]any{"componentId": "c1"}})
+	bridge.recordAgentJobCall(job.ID, agentToolCall{Name: "recut.motion-graphic.commit", Result: map[string]any{"componentId": "c2"}})
 	view, ok := bridge.agentJobView(job.ID)
 	if !ok {
 		t.Fatal("job view unavailable")
@@ -335,7 +335,7 @@ func TestAgentJobToolCallLedgerAndChildLookup(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("view toolCalls = %#v", view["toolCalls"])
 	}
-	if first := calls[0]; first.Name != "recut.editor.motion-graphic.commit" || first.Result["componentId"] != "c1" {
+	if first := calls[0]; first.Name != "recut.motion-graphic.commit" || first.Result["componentId"] != "c1" {
 		t.Fatalf("first tool call = %#v", first)
 	}
 }

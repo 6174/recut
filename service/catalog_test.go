@@ -22,14 +22,29 @@ func TestCatalogCreatesMissingAppsDirectoryAsEmpty(t *testing.T) {
 	if err != nil || !info.IsDir() {
 		t.Fatalf("apps directory = %#v, %v", info, err)
 	}
+	// 目录为空时 Catalog 只暴露平台原生 App（剪辑器），没有任何安装型 App。
 	apps, err := catalog.List()
-	if err != nil || len(apps) != 0 {
+	if err != nil || len(apps) != 1 || apps[0].Manifest.ID != editorSystemAppID || apps[0].Root != "" {
 		t.Fatalf("empty catalog = %#v, %v", apps, err)
 	}
 	installations, err := catalog.Installations()
 	if err != nil || len(installations) != 0 {
 		t.Fatalf("empty installations = %#v, %v", installations, err)
 	}
+}
+
+// listAppIDs 返回 Catalog.List 的 App id 集合，便于断言平台原生 App 的混入。
+func listAppIDs(t *testing.T, catalog *Catalog) map[string]bool {
+	t.Helper()
+	apps, err := catalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make(map[string]bool, len(apps))
+	for _, app := range apps {
+		ids[app.Manifest.ID] = true
+	}
+	return ids
 }
 
 func TestCatalogLoadsManifestOnlyApps(t *testing.T) {
@@ -115,8 +130,28 @@ func TestCatalogIgnoresLegacyMediaLibraryLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy media-library link prevented startup: %v", err)
 	}
-	if apps, err := catalog.List(); err != nil || len(apps) != 0 {
-		t.Fatalf("legacy media-library link appeared as an App: %#v", apps)
+	if ids := listAppIDs(t, catalog); ids[mediaSystemAppID] {
+		t.Fatalf("legacy media-library link appeared as an App: %#v", ids)
+	}
+}
+
+// 任何指向已移除 App 源码的失效开发软链接都不应阻止 daemon 启动（apps/editor
+// 迁为平台原生能力后即留下一枚）。
+func TestCatalogIgnoresDanglingAppLink(t *testing.T) {
+	root := t.TempDir()
+	appsDir := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "removed-editor"), filepath.Join(appsDir, "editor")); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := LoadCatalog(appsDir)
+	if err != nil {
+		t.Fatalf("dangling App link prevented startup: %v", err)
+	}
+	if ids := listAppIDs(t, catalog); len(ids) != 1 || !ids[editorSystemAppID] {
+		t.Fatalf("dangling App link changed the enumerable apps: %#v", ids)
 	}
 }
 
@@ -142,7 +177,7 @@ func TestCatalogRefreshesWhenLocalAppLinkOrManifestChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	apps, err := catalog.List()
-	if err != nil || len(apps) != 1 || apps[0].Manifest.ID != "example.app" {
+	if err != nil || len(apps) != 2 || apps[0].Manifest.ID != "example.app" {
 		t.Fatalf("linked apps = %#v, err = %v", apps, err)
 	}
 

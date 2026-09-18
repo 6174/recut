@@ -7,12 +7,10 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +19,7 @@ import (
 )
 
 // editorNativeHandlers 是 recut.editor 由 Go 权威承担的 operation 集合；未列出的 op 才回退到 goja background。
-// motion_graphic_bridge.go 的 registerMotionGraphicHandlers 在同一次 init 内追加 motion-graphic.*，避免文件级 init 顺序依赖。
+// motion-graphic.* 已平台化（recut.motion-graphic.*，见 motion_graphic_platform.go / motion_graphic_bridge.go）。
 var editorNativeHandlers map[string]func(*editorContext, map[string]any) (any, error)
 
 func init() {
@@ -82,7 +80,6 @@ func init() {
 		"subtitle.retry-save":      editorSubtitleRetrySave,
 		"subtitle.commit":          editorSubtitleCommit,
 	}
-	registerMotionGraphicHandlers(editorNativeHandlers)
 }
 
 func editorError(message string) error {
@@ -144,8 +141,7 @@ func editorProjectSave(c *editorContext, input map[string]any) (any, error) {
 var editorFullActions = []string{
 	"timeline.read", "element.get", "timeline.validate", "timeline.command", "timeline.placeComponents", "timeline.placeAudio",
 	"timeline.delta", "history.undo", "history.redo", "project.lock", "project.unlock", "work.checkpoint", "work.cancel",
-	"timeline.assets", "asset.list", "asset.archive", "motion-graphic.create", "motion-graphic.revise", "motion-graphic.source", "motion-graphic.update",
-	"motion-graphic.list", "motion-graphic.archive", "film.package.import", "subtitle.import", "subtitle.export", "subtitle.capabilities",
+	"timeline.assets", "asset.list", "asset.archive", "film.package.import", "subtitle.import", "subtitle.export", "subtitle.capabilities",
 	"subtitle.generate", "subtitle.status", "subtitle.commit", "subtitle.cancel", "subtitle.retry-save", "script.read",
 	"script.apply", "script.clean", "script.find", "script.fix-transcript", "script.attach", "track.role", "audio.smooth",
 	"library.browse", "preview.frame", "preview.batch", "preview.contact-sheet", "export.start", "cover.get",
@@ -153,7 +149,6 @@ var editorFullActions = []string{
 
 var editorInitialActions = []string{
 	"project.create", "film.package.import", "timeline.command", "timeline.placeComponents", "asset.list", "asset.archive",
-	"motion-graphic.create", "motion-graphic.revise", "motion-graphic.source", "motion-graphic.update", "motion-graphic.list", "motion-graphic.archive",
 	"subtitle.import", "subtitle.export", "subtitle.capabilities", "subtitle.generate", "subtitle.status", "subtitle.commit",
 	"subtitle.cancel", "subtitle.retry-save", "script.attach", "track.role", "library.browse",
 }
@@ -1209,11 +1204,8 @@ func (c *editorContext) loadEffectsCatalog() map[string]any {
 	if doc := libraryHTTPJSON(editorLibraryCatalogURLs["effects"], 3000, 1<<20); doc != nil {
 		return map[string]any{"effects": doc["effects"], "transitions": doc["transitions"], "luts": doc["luts"], "source": "cdn"}
 	}
-	if text, err := c.appReadText("catalog/effects.json"); err == nil {
-		var local map[string]any
-		if json.Unmarshal([]byte(text), &local) == nil && local["effects"] != nil {
-			return map[string]any{"effects": local["effects"], "transitions": local["transitions"], "luts": local["luts"], "source": "shipped"}
-		}
+	if local := editorShippedCatalog(editorEffectsCatalogJSON); local != nil && local["effects"] != nil {
+		return map[string]any{"effects": local["effects"], "transitions": local["transitions"], "luts": local["luts"], "source": "shipped"}
 	}
 	return map[string]any{"effects": editorLibraryBuiltinEffects, "transitions": []any{}, "luts": []any{}, "source": "builtin"}
 }
@@ -1222,11 +1214,8 @@ func (c *editorContext) loadAudioCatalog() map[string]any {
 	if doc := libraryHTTPJSON(editorLibraryCatalogURLs["audio"], 5000, 2<<20); doc != nil {
 		return map[string]any{"music": doc["music"], "sfx": doc["sfx"], "source": "cdn"}
 	}
-	if text, err := c.appReadText("catalog/audio.json"); err == nil {
-		var local map[string]any
-		if json.Unmarshal([]byte(text), &local) == nil && local["sfx"] != nil {
-			return map[string]any{"music": local["music"], "sfx": local["sfx"], "source": "shipped"}
-		}
+	if local := editorShippedCatalog(editorAudioCatalogJSON); local != nil && local["sfx"] != nil {
+		return map[string]any{"music": local["music"], "sfx": local["sfx"], "source": "shipped"}
 	}
 	return map[string]any{"music": []any{}, "sfx": []any{}, "source": "builtin"}
 }
@@ -1714,13 +1703,8 @@ func (c *editorContext) ensureExportSchema() {
 }
 
 func (c *editorContext) finishExport(exportID, fileBase64, name, mimeType string) (map[string]any, error) {
-	b64Path := "exports/" + exportID + ".b64"
 	mp4Path := "exports/" + exportID + ".mp4"
-	if err := c.writeText(b64Path, fileBase64); err != nil {
-		return nil, err
-	}
-	scriptPath := c.appRoot + "/scripts/decode-base64.js"
-	if err := runShellDecode(c.filesRoot, scriptPath, b64Path, mp4Path); err != nil {
+	if err := c.writeBase64(mp4Path, fileBase64); err != nil {
 		return nil, err
 	}
 	assetName := name
@@ -2257,18 +2241,6 @@ func editorSubtitleCommit(c *editorContext, input map[string]any) (any, error) {
 }
 
 // ---- 小工具 -----------------------------------------------------------------
-func runShellDecode(filesRoot, scriptPath, b64Path, mp4Path string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, "node", scriptPath, b64Path, mp4Path)
-	command.Dir = filesRoot
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("decode-base64: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
 func anyToStrings(values []any) []string {
 	out := []string{}
 	for _, v := range values {

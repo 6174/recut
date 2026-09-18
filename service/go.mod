@@ -5,6 +5,8 @@ go 1.25.0
 require (
 	github.com/creack/pty v1.1.24
 	github.com/dop251/goja v0.0.0-20260723142020-b4aef50fa347
+	github.com/evanw/esbuild v0.17.19
+	github.com/tdewolff/parse/v2 v2.8.16
 	modernc.org/sqlite v1.54.0
 )
 
