@@ -54,6 +54,7 @@ export function Workspace(props: WorkspaceProps = {}) {
 function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: WorkspaceProps = {}) {
   const { t } = useI18n();
   const installations = useWorkspaceStore((state) => state.installations);
+  const catalogApps = useWorkspaceStore((state) => state.apps);
   const projects = useWorkspaceStore((state) => state.projects);
   const worlds = useWorldsStore((state) => state.page);
   const loadWorlds = useWorldsStore((state) => state.loadPage);
@@ -73,6 +74,13 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
   const [settingsSection, setSettingsSection] = useState<"service" | "multimodal" | undefined>();
 
   const online = service.phase === "online";
+  // 平台原生 App（如剪辑器）没有安装包，不在 /v1/apps/installed 里，但必须作为可创建
+  // 的项目类型出现；这里把 catalog（/v1/apps）里未出现在安装列表的原生 App 合成进来。
+  const availableInstallations = useMemo<Installation[]>(() => {
+    const installed = new Set(installations.map((app) => app.manifest.id));
+    const native = catalogApps.filter((app) => !installed.has(app.manifest.id)).map((app) => ({ package: app.manifest.id, manifest: app.manifest, dirty: false, updateAvailable: false, manageable: false }));
+    return [...installations, ...native];
+  }, [installations, catalogApps]);
   const showLanding = !isLocalWorkspace && service.phase === "offline";
   const showAgentPanel = isLocalWorkspace || service.phase !== "offline";
   const agentProjectID = tab === "assets" ? mediaProjectID : null;
@@ -175,9 +183,9 @@ function WorkspaceFrame({ appDetail, contentTab, initialTab = "studio" }: Worksp
   const content = detail ?? (tab === "apps" ? <Apps apiBase={apiBase} installations={installations} installationError={installationsError} installationLoadState={appInstallationLoadState} marketplace={marketplace} onStartProject={openCreateProject} onUpdated={reloadWorkspace} serviceOnline={online} />
     : service.phase === "checking" ? <ServiceChecking />
     : !online ? <ServiceGuide embedded={isLocalWorkspace} error={service.error} onConnectRemote={openServiceSettings} />
-    : tab === "studio" ? <Studio apiBase={apiBase} apps={installations.filter((app) => app.manifest.type === "project")} installations={installations} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onCreateWorld={openCreateWorld} onDeleteProject={deleteProject} onManageApps={(event) => navigateTab("apps", "/apps", event)} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} worlds={worlds} />
+    : tab === "studio" ? <Studio apiBase={apiBase} apps={availableInstallations.filter((app) => app.manifest.type === "project")} installations={availableInstallations} onCompose={(text) => useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text })} onCreateWorld={openCreateWorld} onDeleteProject={deleteProject} onManageApps={(event) => navigateTab("apps", "/apps", event)} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} worlds={worlds} />
       : tab === "worlds" ? <WorldsClient />
-        : tab === "projects" ? <ProjectsPage apiBase={apiBase} apps={installations.filter((app) => app.manifest.type === "project")} onCreateWorld={openCreateWorld} onDeleteProject={deleteProject} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} worlds={worlds} />
+        : tab === "projects" ? <ProjectsPage apiBase={apiBase} apps={availableInstallations.filter((app) => app.manifest.type === "project")} onCreateWorld={openCreateWorld} onDeleteProject={deleteProject} onRenameProject={renameProject} onStartProject={openCreateProject} projects={projects} worlds={worlds} />
           : <MediaLibraryPanel initialAssetID={initialAssetID} onOpenProviderSettings={openMediaProviderSettings} onProjectIDChange={setMediaProjectID} />);
   return <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
     <header className="grid h-16 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b bg-card px-4 md:px-5">
