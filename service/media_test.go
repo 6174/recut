@@ -862,8 +862,8 @@ func TestReferenceAssetIsGlobalAndAttachable(t *testing.T) {
 	}
 	media := NewMediaService(store)
 	first, err := media.CreateReferenceAsset(ReferenceAssetInput{Name: "原始报道", URL: "https://example.com/report?edition=1", SourceKind: "article", Summary: "可验证事实"})
-	if err != nil || first.Kind != "reference" || first.Origin != "research" {
-		t.Fatalf("create reference = %#v, %v", first, err)
+	if err != nil || first.Kind != "document" || first.Origin != "research" {
+		t.Fatalf("create document = %#v, %v", first, err)
 	}
 	second, err := media.CreateReferenceAsset(ReferenceAssetInput{Name: "同一报道", URL: "https://example.com/report?edition=1", SourceKind: "web"})
 	if err != nil || second.ID != first.ID {
@@ -880,7 +880,7 @@ func TestReferenceAssetIsGlobalAndAttachable(t *testing.T) {
 	if err != nil || len(assets) != 1 || assets[0].ID != first.ID || assets[0].ProjectIDs[0] != project.ID {
 		t.Fatalf("attached reference = %#v, %v", assets, err)
 	}
-	metadata, _ := assets[0].Metadata["reference"].(map[string]any)
+	metadata, _ := assets[0].Metadata["document"].(map[string]any)
 	if metadata["url"] != "https://example.com/report?edition=1" || metadata["sourceKind"] != "article" {
 		t.Fatalf("reference metadata = %#v", assets[0].Metadata)
 	}
@@ -920,7 +920,7 @@ func TestReferenceAssetStoresContentAndImageParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reference, ok := stored.Metadata["reference"].(map[string]any)
+	reference, ok := stored.Metadata["document"].(map[string]any)
 	if !ok {
 		t.Fatalf("reference metadata missing: %#v", stored.Metadata)
 	}
@@ -984,7 +984,7 @@ func TestReferenceAssetFillInOnDedup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parts, _ := first.Metadata["reference"].(map[string]any); parts["parts"] != nil {
+	if parts, _ := first.Metadata["document"].(map[string]any); parts["parts"] != nil {
 		t.Fatalf("first registration must have no parts: %#v", parts)
 	}
 	filled, err := media.CreateReferenceAsset(ReferenceAssetInput{
@@ -999,7 +999,7 @@ func TestReferenceAssetFillInOnDedup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reference, _ := stored.Metadata["reference"].(map[string]any)
+	reference, _ := stored.Metadata["document"].(map[string]any)
 	parts, _ := reference["parts"].(map[string]any)
 	if len(parts) != 2 {
 		t.Fatalf("fill-in must add missing parts: %#v", reference["parts"])

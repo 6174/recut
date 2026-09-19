@@ -676,12 +676,8 @@ func firstElement(items []any) any {
 }
 
 // ---- 校验 ------------------------------------------------------------------
-func validateTimeline(project map[string]any, registeredAssets []any, componentIDs []string) []any {
+func validateTimeline(project map[string]any, componentIDs []string) []any {
 	violations := []any{}
-	assetSet := map[string]bool{}
-	for _, id := range registeredAssets {
-		assetSet[edStr(id)] = true
-	}
 	componentSet := map[string]bool{}
 	for _, id := range componentIDs {
 		componentSet[id] = true
@@ -696,9 +692,6 @@ func validateTimeline(project map[string]any, registeredAssets []any, componentI
 				el := edMap(ev)
 				elementID := el["id"]
 				ref := map[string]any{"trackId": trackID, "elementId": elementID}
-				if edStr(el["mediaId"]) != "" && !assetSet[edStr(el["mediaId"])] {
-					violations = append(violations, map[string]any{"code": "asset-exists", "ref": ref, "detail": "mediaId not registered: " + edStr(el["mediaId"])})
-				}
 				if edStr(el["type"]) == "audio" {
 					sourceType := edStr(el["sourceType"])
 					if sourceType == "upload" && edStr(el["mediaId"]) == "" {

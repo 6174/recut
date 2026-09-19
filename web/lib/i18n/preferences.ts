@@ -9,6 +9,7 @@ import { readStoredLocale } from "./locale-store";
 import { fetchRecutJSON } from "@/lib/service-endpoint";
 
 export type LocalePreferenceResponse = { locale?: Locale };
+export type PreferencesResponse = { locale?: Locale; videoProposalGate?: boolean };
 
 // 读 service 的 /v1/preferences；不可用时回退本地存储，再回退浏览器语言探测。
 export async function loadLocalePreference(endpoint: string): Promise<Locale> {
@@ -31,5 +32,29 @@ export async function saveLocalePreference(endpoint: string, locale: Locale): Pr
     });
   } catch {
     // 网络/服务不可用时语言仍在本地生效并持久化到 localStorage。
+  }
+}
+
+// 读「视频生成是否先落待确认素材」偏好；旧版 service 无该字段时返回 undefined（按默认开启处理）。
+export async function loadVideoProposalGate(endpoint: string): Promise<boolean | undefined> {
+  try {
+    const preference = await fetchRecutJSON<PreferencesResponse>(endpoint, "/v1/preferences");
+    if (typeof preference.videoProposalGate === "boolean") return preference.videoProposalGate;
+  } catch {
+    // 旧版 service 无该端点或字段：保持默认。
+  }
+  return undefined;
+}
+
+// 写视频生成门禁偏好；失败静默，不阻塞设置面板。
+export async function saveVideoProposalGate(endpoint: string, enabled: boolean): Promise<void> {
+  try {
+    await fetchRecutJSON(endpoint, "/v1/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoProposalGate: enabled }),
+    });
+  } catch {
+    // 网络/服务不可用时保持界面选择，下次打开再同步。
   }
 }

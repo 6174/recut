@@ -143,14 +143,8 @@ func TestEditorAgentDataLayerAndOps(t *testing.T) {
 
 	// validate：未登记素材 → asset-exists
 	val := invoke(t, host, project, "timeline.validate", map[string]any{})
-	if boolOf(val["ok"]) {
-		t.Fatalf("validate should fail before asset registration: %#v", val)
-	}
-	// 登记素材
-	invoke(t, host, project, "timeline.assets", map[string]any{"assetIds": []any{"a1"}})
-	val = invoke(t, host, project, "timeline.validate", map[string]any{})
 	if !boolOf(val["ok"]) || len(val["violations"].([]any)) != 0 {
-		t.Fatalf("validate after registration = %#v", val)
+		t.Fatalf("validate = %#v", val)
 	}
 
 	// undo → 撤销最后一条 keyframe-upsert（opacity 回 1 条）
@@ -424,7 +418,6 @@ func TestEditorAudioMix(t *testing.T) {
 		t.Fatalf("insert bgm = %#v", ins)
 	}
 	// 登记素材，validate 零违反
-	invoke(t, host, project, "timeline.assets", map[string]any{"assetIds": []any{"bgm1", "vo1"}})
 
 	sm := invoke(t, host, project, "audio.smooth", map[string]any{})
 	if !boolOf(sm["ok"]) || numOf(sm["applied"]) != 4 {
@@ -542,7 +535,7 @@ func TestEditorPlaceAudioAndAudioResolvable(t *testing.T) {
 		t.Fatalf("expected audio-unresolvable violation, got %#v", val)
 	}
 
-	// 5) 同步事件：placeAudio 与 timeline.assets 都广播 project.assets.changed{library.tab=media}
+	// 5) 同步事件：placeAudio 广播 project.assets.changed{library.tab=media}
 	assetSeen := false
 	for _, e := range projectEvents(store, project.ID) {
 		if e["type"] == "project.assets.changed" {

@@ -18,7 +18,7 @@ export type AssetReference = {
   assetId: string;
   name: string;
   mimeType: string;
-  kind: "image" | "video" | "audio" | "transcript" | "reference";
+  kind: "image" | "video" | "audio" | "transcript" | "document";
   origin: string;
   status: string;
   createdAt?: string;
@@ -37,7 +37,7 @@ const mediaTag = /<media\s+type="(image|video|audio|transcript|reference)"\s+ass
 
 function normalizeAsset(value: Partial<Asset> & { id?: unknown }): Asset {
   const mimeType = typeof value.mimeType === "string" ? value.mimeType : "";
-  const kind = value.kind === "video" || value.kind === "audio" || value.kind === "image" || value.kind === "transcript" || value.kind === "reference"
+  const kind = value.kind === "video" || value.kind === "audio" || value.kind === "image" || value.kind === "transcript" || value.kind === "document"
     ? value.kind
     : mimeType.startsWith("video/")
       ? "video"
@@ -154,7 +154,7 @@ function AssetOption({ apiBase, asset, onPick }: { apiBase: string; asset: Asset
 
 function AssetTile({ apiBase, asset, onPick, onPreview, selected = false }: { apiBase: string; asset: Asset; onPick: (asset: Asset) => void; onPreview: (asset: Asset) => void; selected?: boolean }) {
   const prompt = assetPrompt(asset);
-  return <article className={`flex min-w-0 flex-col overflow-hidden rounded-sm border bg-card transition-colors hover:border-primary hover:shadow-sm ${selected ? "border-primary ring-1 ring-primary" : ""}`} title={`${asset.name} · ${asset.kind} · ${asset.origin}${prompt ? ` · ${prompt}` : ""}`}><div className="relative shrink-0"><AssetThumbnail apiBase={apiBase} asset={asset} className="h-[126px] w-full" iconClassName="size-5" /><span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-sm bg-background/90 px-1.5 py-1 text-[10px] font-medium shadow-sm"><AssetKindIcon className="size-3" kind={asset.kind} />{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "transcript" ? "转写" : asset.kind === "reference" ? "资料" : "音频"}</span></div><div className="grid min-h-0 flex-1 content-start gap-1 px-2.5 pt-2"><p className="truncate text-xs font-medium">{asset.name}</p><p className="truncate text-[10px] text-muted-foreground">{asset.mimeType || asset.origin} · {asset.origin}</p><p className="truncate text-[10px] text-muted-foreground">{asset.createdAt ? new Date(asset.createdAt).toLocaleString("zh-CN") : "创建时间未知"}</p><p className="truncate text-[10px] text-muted-foreground">{prompt ?? "无生成提示词"}</p></div><footer className="flex items-center gap-1.5 border-t px-2 py-1.5"><GenerationDuration className="mr-auto shrink-0 font-mono text-[10px] text-muted-foreground" item={asset} /><button className="inline-flex h-7 items-center gap-1 rounded-xs border px-2 text-[10px] hover:bg-muted" onClick={() => onPreview(asset)} type="button"><Eye className="size-3" />详情</button><button className={`inline-flex h-7 items-center gap-1 rounded-xs px-2 text-[10px] ${selected ? "bg-secondary text-secondary-foreground" : "bg-primary text-primary-foreground hover:bg-primary/90"}`} onClick={() => onPick(asset)} type="button"><Check className="size-3" />{selected ? "已选" : "选择"}</button></footer></article>;
+  return <article className={`flex min-w-0 flex-col overflow-hidden rounded-sm border bg-card transition-colors hover:border-primary hover:shadow-sm ${selected ? "border-primary ring-1 ring-primary" : ""}`} title={`${asset.name} · ${asset.kind} · ${asset.origin}${prompt ? ` · ${prompt}` : ""}`}><div className="relative shrink-0"><AssetThumbnail apiBase={apiBase} asset={asset} className="h-[126px] w-full" iconClassName="size-5" /><span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-sm bg-background/90 px-1.5 py-1 text-[10px] font-medium shadow-sm"><AssetKindIcon className="size-3" kind={asset.kind} />{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "transcript" ? "转写" : asset.kind === "document" ? "资料" : "音频"}</span></div><div className="grid min-h-0 flex-1 content-start gap-1 px-2.5 pt-2"><p className="truncate text-xs font-medium">{asset.name}</p><p className="truncate text-[10px] text-muted-foreground">{asset.mimeType || asset.origin} · {asset.origin}</p><p className="truncate text-[10px] text-muted-foreground">{asset.createdAt ? new Date(asset.createdAt).toLocaleString("zh-CN") : "创建时间未知"}</p><p className="truncate text-[10px] text-muted-foreground">{prompt ?? "无生成提示词"}</p></div><footer className="flex items-center gap-1.5 border-t px-2 py-1.5"><GenerationDuration className="mr-auto shrink-0 font-mono text-[10px] text-muted-foreground" item={asset} /><button className="inline-flex h-7 items-center gap-1 rounded-xs border px-2 text-[10px] hover:bg-muted" onClick={() => onPreview(asset)} type="button"><Eye className="size-3" />详情</button><button className={`inline-flex h-7 items-center gap-1 rounded-xs px-2 text-[10px] ${selected ? "bg-secondary text-secondary-foreground" : "bg-primary text-primary-foreground hover:bg-primary/90"}`} onClick={() => onPick(asset)} type="button"><Check className="size-3" />{selected ? "已选" : "选择"}</button></footer></article>;
 }
 
 function toPreviewAsset(asset: Asset): PreviewAsset {
@@ -171,5 +171,5 @@ function AssetThumbnail({ apiBase, asset, className, iconClassName }: { apiBase:
 }
 
 function AssetKindIcon({ className = "size-4", kind }: { className?: string; kind: Asset["kind"] }) {
-  return kind === "image" ? <ImageIcon className={className} /> : kind === "video" ? <Film className={className} /> : kind === "transcript" ? <Captions className={className} /> : kind === "reference" ? <Link2 className={className} /> : <Music2 className={className} />;
+  return kind === "image" ? <ImageIcon className={className} /> : kind === "video" ? <Film className={className} /> : kind === "transcript" ? <Captions className={className} /> : kind === "document" ? <Link2 className={className} /> : <Music2 className={className} />;
 }

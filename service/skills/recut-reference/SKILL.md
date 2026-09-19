@@ -1,69 +1,47 @@
 ---
 name: recut-reference
 appId: recut.platform
-description: 读懂一支参考视频/素材，并把证据与参考分析写回素材：调用 recut.media.* 理解工具产出 metadata.reference 观察，按规范把 hook/格式/节拍/系统/可迁移判据写成 attributes（ref.*）与 content（可 @ 引用），供 clone / remix / World 复用。
+description: 读懂一支参考素材并把理解写回该素材：用 recut.media.import 引入，用 probe/contactSheet/frames 读，把 hook/格式/节拍/系统/可迁移判据写成素材的 content 与 attributes（ref.*）。不引入 evidence 流程、不写 metadata.reference、不决定「换成什么」。
 ---
 
 # 参考理解技能（recut-reference）
 
-本技能是 Recut 平台无关的全局技能，只回答一个问题：**怎么读懂一支参考（视频/音频/图片）并留下可复用的证据与参考分析？** 它不决定「换成什么」——那属于 `recut-director（references/remix）`；也不负责跑通新片——那属于 `recut-clone`。
+本技能只回答一个问题：**怎么读懂一支参考（视频/音频/图片/网页）并把它变成素材上可复用的理解？** 它不决定「换成什么」——那属于 `recut-director（references/remix）`；也不负责跑通新片——那属于 `recut-clone`。
 
-规范与契约的权威来源：`rfc/2026-09-17-reference-understanding.md`（§2 工具、§3 证据与写回、§4 占位、§5 工作流、§9 契约）。
+规范与契约：`rfc/2026-09-19-asset-model-simplification.md`。**本技能已按新 Asset 模型重写**：没有 evidence 流程、没有 `metadata.reference`、没有 `reference.mark/attach`。
 
 ## 边界声明
 
-- **本技能只管「看懂并留证据 + 参考分析」**；迁移判断（keep/replace）归 `recut-director（references/remix）`。
-- **观察 → `metadata.reference`；参考分析 → `attributes` + `content`**。目标改造留目标项目，不写入素材。
-- 不重复 `recut-clone` 的执行步骤；不写时间线 op 语法；不引入 XML/DSL。
-
-## 能力就绪检查（先做，再动手）
-
-调用前先确认工具在平台 MCP 工具列表中；缺依赖时工具会返回结构化的「需要准备」错误，**按指引让用户准备，绝不自行 pip/uv 安装**：
-
-| 能力 | op | 当前状态 |
-|---|---|---|
-| 素材属性读写 | `recut.media.asset.get` / `recut.media.asset.update` | **已实施** |
-| 参考标记 / 证据写入 | `recut.media.reference.create` / `recut.media.reference.attach` | **已实施** |
-| 探测 / 抽帧 / 接触表 | `recut.media.probe` / `frames` / `contactSheet` | **已实施**（需平台理解环境） |
-| 边界 / 片段 | `recut.media.boundaries` / `clip` | **已实施** |
-| 词级 / 估时 | `recut.media.words` / `measure` | **已实施**（词级可选，默认关闭） |
-| 本地文件入库 | `recut.media.import_media` | **已实施** |
-| 直链入库 | `recut.files.fetch` / `recut.media.import_url` | 已有 |
-| 环境就绪 / 准备 | `recut.media.understand.status` / `recut.media.understand.prepare` | **已实施** |
-
-环境缺失时：先 `recut.media.understand.status` 看缺什么 → 调用 `recut.media.understand.prepare`（异步 job，用 `recut.job.wait` 观察）→ 让用户确认准备完成。**绝不静默降级或伪造抽帧/接触表结果**。
+- **Asset = kind + status + content + attributes**。理解只写 `content` 与 `attributes` 两个字段。
+- 「这是一支参考」= 素材上的一条属性（`role: reference`，必要时 `url` 溯源），不是一种 kind、不是命名空间、不是专用工具。
+- 读取产物（帧/接触表/片段）就是**普通素材**；要用就直接引用它的 `assetId`，不写回父素材、不建派生关系。
+- 目标改造（keep/replace）留目标项目，不写素材。
 
 ## 流程
 
-1. **准备参考素材**（真实内容优先）
-   - 用户提供视频/音频/图片文件：先入库为素材 —— 本地文件用 `recut.media.import_media`（会话工作区或目标项目内，流式，≤2GB）；直链用 `recut.files.fetch` / `recut.media.import_url`。
-   - 平台页链接（抖音/YouTube/B站…）：由宿主 Agent 用 `yt-dlp --cookies-from-browser` 下载（URL 规范、cookie 与各平台要点见 `references/tools.md` §3.1）；**需要登录或反复风控时，先引导用户在本机 Chrome 打开该平台并登录，再重试**，不要索要账号密码。下载产物（含用户手动下载的文件）**必须用 `recut.media.import_media` 入库**，不能白下载、只留工作区文件。
-   - 用 `recut.media.reference.create({ assetId, sourceUrl? })` 标记为参考（`sourceUrl` 仅作溯源，不抓取、不去重）。
-   - 只处理链接引用（无内容可下载）时才用既有 `recut.media.create_reference`。
-
-2. **采集证据**（只装观察）
-   - `probe` 取时长/尺寸/帧率/音轨 → `frames` / `contactSheet` 取画面证据（接触表带时间码；有转写时叠词标签）→ `boundaries` 取切点 → 需要动作/源片段时 `clip`。
-   - 转写经能力桥（`audio.transcribe`）；`words` 词级**默认不开**（见 RFC §2.4）。
-   - 用 `recut.media.reference.attach` 幂等写入 `metadata.reference`（字段见 `references/evidence.md`）。典型顺序：先 attach `source`/`transcript`，再 attach `frames`/`sheets`/`boundaries`/`clips`。
-
-3. **读懂**：按 `references/reading.md` 在整片与细节之间反复互证；用带时间码的接触表与转写定位「哪个画面/图形/音效响应哪句话」。
-
-4. **写回参考分析**（见 `references/evidence.md` 的写回规范）
+1. **引入素材**：`recut.media.import({ path|url|link, projectId? })`——本地文件用 `path`，直链媒体用 `url`，网页/文章用 `link`（落 `kind=document`）；外部下载（yt-dlp 等）后也必须经它入库。拿到稳定 `assetId`。
+   - 标的为参考：`recut.media.asset.update({ assetId, attrPatch: [{ key:"role", value:"reference" }, { key:"url", value: sourceUrl }] })`（`url` 仅溯源）。
+2. **读**：
+   - `recut.media.probe` 取时长/尺寸/帧率/音轨；
+   - `recut.media.contactSheet`（带时间码，可传 `transcriptAssetId` 叠词）看整片节奏；
+   - 需要细节时 `recut.media.frames`；转写经 `recut.audio-studio.audio.transcribe`。
+   - 这些产物需要留就留成普通素材，用 `assetId` 引用即可；不写回父素材。
+3. **写回理解**（唯一落点）：
+   - `content`：整片理解 + 带源时间的细节，用平台内联引用标签（`<media assetid>` 等）@ 到证据素材。
    - `attributes`（key 前缀 `ref.`）：`ref.summary` / `ref.format` / `ref.hook` / `ref.beats` / `ref.systems` / `ref.transferable`。
-   - `content`：详细读法（整片理解 + 带源时间的细节），用平台内联引用标签（`<media assetid>` 等）@ 到证据资产或 World 实体。
-   - 每个 AI 写入字段带 `provenance { by:"agent", op, modelId?, assetIds:[证据], at }`。
+   - 写：`recut.media.asset.update({ assetId, content, attrPatch:[…] })`；服务端自动带 `source=agent` 与 `provenance`。
+4. **复用**：同一参考被第二个目标复用，读它的 `content`/`attributes` 即可，不重复理解；目标相关判断写各自项目。
 
 ## 硬规则
 
-- `metadata.reference` **只装观察**（指针或客观量）；主观但可复用的分析写 `attributes`/`content`；目标相关判断不写素材。
-- 所有产物是**稳定 `assetId`**；不复制字节、不臆造 id。
-- **幂等**：重复理解同一参考复用已有派生资产（attach 去重），不重复下载/转码。
-- **外部下载必须入库**：任何从平台页下载的内容（yt-dlp 产物或用户手动下载的文件）都要 `recut.media.import_media` 入库为真实素材并 `reference.create` 溯源；只落工作区文件、不入素材库，视为未完成。
-- 读回：`recut.media.asset.get` 拿 `attributes`/`content`/`metadata.reference`；`list_assets` 只回摘要。
+- 只写 `content`/`attributes`；**不写 `metadata.reference`**，不做 evidence 记账，不建派生关系。
+- 读取产物是普通素材；不复制字节、不臆造 `assetId`。
+- 读出的**事实**与**解释**都进 `content`/`attributes`（可读、可复用）；目标相关判断不写素材。
+- 外部下载必须入库（`recut.media.import`）；只落工作区文件不算完成。
 
 ## 参考文档
 
-- `references/reading.md`：整片 ↔ 细节互证的读法、取样密度、证据命名。
-- `references/evidence.md`：`metadata.reference` 契约、参考分析写回规范、幂等与溯源。
+- `references/reading.md`：整片 ↔ 细节互证的读法、取样密度、理解落点。
+- `references/evidence.md`：`content`/`attributes`（`ref.*`）写回规范与溯源（已无 metadata.reference）。
 - `references/tools.md`：`recut.media.*` 用法、参数、失败诊断、ingest 路径。
 - `references/transferable.md`：可迁移 vs 不可复制的判据（交界处指向 `recut-director（references/remix）`）。

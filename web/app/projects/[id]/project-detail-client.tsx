@@ -181,7 +181,7 @@ export default function ProjectDetailClient() {
           console.debug(`[recut-host] iframe response id=${String(request.id)} type=${String(request.type)} result=ok`);
         } else if (request.type === "media.pick") {
           if (mediaPickerReply.current) throw new Error(t("detail.operation.pickerBusy"));
-          const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" | "transcript" | "reference" => kind === "image" || kind === "video" || kind === "audio" || kind === "transcript" || kind === "reference") : [];
+          const kinds = Array.isArray(request.input?.kinds) ? request.input.kinds.filter((kind: unknown): kind is "image" | "video" | "audio" | "transcript" | "document" => kind === "image" || kind === "video" || kind === "audio" || kind === "transcript" || kind === "document") : [];
           if (!kinds.length) throw new Error(t("detail.operation.kinds"));
           const multiple = request.input?.multiple === true;
           const selectedIDs = Array.isArray(request.input?.selectedIDs) ? request.input.selectedIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
@@ -246,7 +246,7 @@ export default function ProjectDetailClient() {
       },
       requestMediaPick: (input) => new Promise<PlatformMediaPickerResult>((resolve, reject) => {
         if (mediaPickerReply.current) { reject(new Error(t("detail.operation.pickerBusy"))); return; }
-        const kinds = Array.isArray(input.kinds) ? input.kinds.filter((kind): kind is "image" | "video" | "audio" | "transcript" | "reference" => kind === "image" || kind === "video" || kind === "audio" || kind === "transcript" || kind === "reference") : [];
+        const kinds = Array.isArray(input.kinds) ? input.kinds.filter((kind): kind is "image" | "video" | "audio" | "transcript" | "document" => kind === "image" || kind === "video" || kind === "audio" || kind === "transcript" || kind === "document") : [];
         if (!kinds.length) { reject(new Error(t("detail.operation.kinds"))); return; }
         const multiple = input.multiple === true;
         const selectedIDs = Array.isArray(input.selectedIDs) ? input.selectedIDs.filter((value): value is string => typeof value === "string" && Boolean(value.trim())) : [];

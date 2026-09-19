@@ -32,7 +32,6 @@ func init() {
 		"timeline.read":            editorTimelineRead,
 		"element.get":              editorElementGet,
 		"timeline.validate":        editorTimelineValidate,
-		"timeline.assets":          editorTimelineAssets,
 		"project.updateSettings":   editorUpdateSettings,
 		"project.lock":             editorProjectLock,
 		"project.unlock":           editorProjectUnlock,
@@ -72,6 +71,7 @@ func init() {
 		"preview.contact-sheet":    editorPreviewContactSheet,
 		"frame.finalize":           editorFrameFinalize,
 		"asset.list":               editorAssetList,
+		"asset.add":                editorAssetAdd,
 		"asset.archive":            editorAssetArchive,
 		"subtitle.capabilities":    editorSubtitleCapabilities,
 		"subtitle.generate":        editorSubtitleGenerate,
@@ -98,9 +98,9 @@ func editorProjectCreate(c *editorContext, input map[string]any) (any, error) {
 	if materials == nil {
 		materials = []any{}
 	}
-	_, err := c.db.Exec("insert into editor_projects (project_id, project_json, registered_assets_json, version, updated_at) values (?, ?, ?, ?, ?) "+
-		"on conflict(project_id) do update set project_json = excluded.project_json, registered_assets_json = excluded.registered_assets_json, version = excluded.version, updated_at = excluded.updated_at",
-		c.scopeID, marshalJSONNoEscape(project), marshalJSONNoEscape(materials), 1, nowIso())
+	_, err := c.db.Exec("insert into editor_projects (project_id, project_json, version, updated_at) values (?, ?, ?, ?) "+
+		"on conflict(project_id) do update set project_json = excluded.project_json, version = excluded.version, updated_at = excluded.updated_at",
+		c.scopeID, marshalJSONNoEscape(project), 1, nowIso())
 	if err != nil {
 		return nil, err
 	}
@@ -111,10 +111,10 @@ func editorProjectLoad(c *editorContext, input map[string]any) (any, error) {
 	existing := c.readProject()
 	if existing == nil || existing.Project == nil {
 		project := makeDefaultProject(c.scopeID, "", nil, nil, c.locale)
-		c.writeProject(project, []any{}, nil)
-		return map[string]any{"project": project, "registeredAssets": []any{}, "version": 1}, nil
+		c.writeProject(project, nil)
+		return map[string]any{"project": project, "version": 1}, nil
 	}
-	return map[string]any{"project": existing.Project, "registeredAssets": existing.RegisteredAssets, "version": existing.Version}, nil
+	return map[string]any{"project": existing.Project, "version": existing.Version}, nil
 }
 
 func editorProjectSave(c *editorContext, input map[string]any) (any, error) {
@@ -130,7 +130,7 @@ func editorProjectSave(c *editorContext, input map[string]any) (any, error) {
 		v := int64(edNum(input["baseVersion"]))
 		baseVersion = &v
 	}
-	write := c.writeProject(edMap(input["project"]), nil, baseVersion)
+	write := c.writeProject(edMap(input["project"]), baseVersion)
 	if !okBool(write["ok"]) {
 		return map[string]any{"ok": false, "conflict": true, "currentVersion": write["currentVersion"]}, nil
 	}
@@ -141,14 +141,14 @@ func editorProjectSave(c *editorContext, input map[string]any) (any, error) {
 var editorFullActions = []string{
 	"timeline.read", "element.get", "timeline.validate", "timeline.command", "timeline.placeComponents", "timeline.placeAudio",
 	"timeline.delta", "history.undo", "history.redo", "project.lock", "project.unlock", "work.checkpoint", "work.cancel",
-	"timeline.assets", "asset.list", "asset.archive", "film.package.import", "subtitle.import", "subtitle.export", "subtitle.capabilities",
+	"asset.list", "asset.add", "asset.archive", "film.package.import", "subtitle.import", "subtitle.export", "subtitle.capabilities",
 	"subtitle.generate", "subtitle.status", "subtitle.commit", "subtitle.cancel", "subtitle.retry-save", "script.read",
 	"script.apply", "script.clean", "script.find", "script.fix-transcript", "script.attach", "track.role", "audio.smooth",
 	"library.browse", "preview.frame", "preview.batch", "preview.contact-sheet", "export.start", "cover.get",
 }
 
 var editorInitialActions = []string{
-	"project.create", "film.package.import", "timeline.command", "timeline.placeComponents", "asset.list", "asset.archive",
+	"project.create", "film.package.import", "timeline.command", "timeline.placeComponents", "asset.list", "asset.add", "asset.archive",
 	"subtitle.import", "subtitle.export", "subtitle.capabilities", "subtitle.generate", "subtitle.status", "subtitle.commit",
 	"subtitle.cancel", "subtitle.retry-save", "script.attach", "track.role", "library.browse",
 }
@@ -189,26 +189,23 @@ func editorWorkflowContext(c *editorContext, input map[string]any) (any, error) 
 		settings = project["settings"]
 	}
 	version := int64(0)
-	registered := []any{}
 	if existing != nil {
 		version = existing.Version
-		registered = existing.RegisteredAssets
 	}
 	var aiLock any
 	if locked {
 		aiLock = map[string]any{"owner": lock["owner"], "since": lock["since"]}
 	}
 	return map[string]any{
-		"projectId":        c.scopeID,
-		"stage":            stage,
-		"settings":         settings,
-		"timeline":         map[string]any{"elements": len(edSlice(condensed["clips"])), "tracks": len(edSlice(condensed["tracks"]))},
-		"durationSeconds":  condensed["durationSec"],
-		"registeredAssets": registered,
-		"version":          version,
-		"aiLock":           aiLock,
-		"nextAction":       nextAction,
-		"allowedActions":   allowed,
+		"projectId":       c.scopeID,
+		"stage":           stage,
+		"settings":        settings,
+		"timeline":        map[string]any{"elements": len(edSlice(condensed["clips"])), "tracks": len(edSlice(condensed["tracks"]))},
+		"durationSeconds": condensed["durationSec"],
+		"version":         version,
+		"aiLock":          aiLock,
+		"nextAction":      nextAction,
+		"allowedActions":  allowed,
 		"authoring": map[string]any{
 			"incrementalSync": true, "workUnits": true, "previewBatch": true, "contactSheet": true,
 			"headlessPreview": false, "headlessExport": false,
@@ -239,10 +236,8 @@ func editorProjectGet(c *editorContext, input map[string]any) (any, error) {
 		}
 	}
 	version := int64(0)
-	registered := []any{}
 	if existing != nil {
 		version = existing.Version
-		registered = existing.RegisteredAssets
 	}
 	var aiLock any
 	if lock != nil && !lockExpired(lock) {
@@ -258,7 +253,6 @@ func editorProjectGet(c *editorContext, input map[string]any) (any, error) {
 		"version":          version,
 		"durationSec":      projectDurationTicks(project) / editorTicksPerSecond,
 		"materialAssetIds": materialIds,
-		"registeredAssets": registered,
 		"aiLock":           aiLock,
 	}, nil
 }
@@ -324,39 +318,12 @@ func editorTimelineValidate(c *editorContext, input map[string]any) (any, error)
 	for _, row := range rows {
 		componentIDs = append(componentIDs, edStr(row["ref_id"]))
 	}
-	var registered []any
-	if existing != nil {
-		registered = existing.RegisteredAssets
-	}
-	violations := validateTimeline(project, registered, componentIDs)
+	violations := validateTimeline(project, componentIDs)
 	version := int64(0)
 	if existing != nil {
 		version = existing.Version
 	}
 	return map[string]any{"version": version, "ok": len(violations) == 0, "violations": violations}, nil
-}
-
-func editorTimelineAssets(c *editorContext, input map[string]any) (any, error) {
-	ids := edSlice(input["assetIds"])
-	if ids == nil {
-		return nil, editorError("timeline.assets: assetIds array required")
-	}
-	unique := []any{}
-	seen := map[string]bool{}
-	for _, id := range ids {
-		key := edStr(id)
-		if !seen[key] {
-			seen[key] = true
-			unique = append(unique, id)
-		}
-	}
-	c.ensureSchema()
-	_, err := c.db.Exec("update editor_projects set registered_assets_json = ?, updated_at = ? where project_id = ?", marshalJSONNoEscape(unique), nowIso(), c.scopeID)
-	if err != nil {
-		return nil, err
-	}
-	c.emit("project.assets.changed", map[string]any{"kind": "any", "mediaIds": unique, "library": map[string]any{"tab": "media"}})
-	return map[string]any{"registered": len(unique), "assetIds": unique}, nil
 }
 
 func editorUpdateSettings(c *editorContext, input map[string]any) (any, error) {
@@ -574,39 +541,12 @@ func editorPlaceAudio(c *editorContext, input map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	existing := c.readProject()
-	merged := []any{}
-	seen := map[string]bool{}
-	if existing != nil {
-		for _, id := range existing.RegisteredAssets {
-			key := edStr(id)
-			if !seen[key] {
-				seen[key] = true
-				merged = append(merged, id)
-			}
-		}
-	}
 	placedMediaIDs := []string{}
 	for _, itemValue := range normalized {
-		mediaID := edStr(edMap(itemValue)["mediaId"])
-		if !seen[mediaID] {
-			seen[mediaID] = true
-			merged = append(merged, mediaID)
-		}
-		placedMediaIDs = append(placedMediaIDs, mediaID)
+		placedMediaIDs = append(placedMediaIDs, edStr(edMap(itemValue)["mediaId"]))
 	}
-	c.ensureSchema()
-	if _, err := c.db.Exec("update editor_projects set registered_assets_json = ?, updated_at = ? where project_id = ?", marshalJSONNoEscape(merged), nowIso(), c.scopeID); err != nil {
-		return nil, err
-	}
-	attachIDs := []string{}
-	for _, id := range merged {
-		key := edStr(id)
-		if !strings.HasPrefix(key, "component:") {
-			attachIDs = append(attachIDs, key)
-		}
-	}
-	c.attachMediaAssetsToProject(attachIDs)
+	// 落轨即把媒体素材加入项目素材库（项目引用）；不再维护单独的登记缓存。
+	c.attachMediaAssetsToProject(placedMediaIDs)
 	op := map[string]any{"type": "audio-placement", "payload": map[string]any{"sceneId": input["sceneId"], "items": normalized}}
 	if input["baseVersion"] != nil {
 		op["baseVersion"] = input["baseVersion"]
@@ -1481,7 +1421,7 @@ func editorFilmPackageImport(c *editorContext, input map[string]any) (any, error
 		metadata["updatedAt"] = now
 	}
 	scene["updatedAt"] = now
-	write := c.writeProject(project, nil, nil)
+	write := c.writeProject(project, nil)
 	if okBool(write["ok"]) {
 		c.emitDocumentChanged(int64(edNum(write["version"])), "agent", nil)
 	}
@@ -1915,6 +1855,21 @@ func editorAssetList(c *editorContext, input map[string]any) (any, error) {
 	return map[string]any{"assets": editorListProjectAssets(c)}, nil
 }
 
+// editorAssetAdd adds a global media asset to the project's asset library
+// (a project reference), so it appears in the editor's asset panel. It never
+// imports bytes or touches the timeline.
+func editorAssetAdd(c *editorContext, input map[string]any) (any, error) {
+	assetID := edStr(input["assetId"])
+	if assetID == "" {
+		return nil, editorError("asset.add: assetId is required")
+	}
+	if err := c.attachMedia(assetID); err != nil {
+		return nil, err
+	}
+	c.emit("project.assets.changed", map[string]any{"kind": "media", "mediaIds": []string{assetID}, "library": map[string]any{"tab": "media"}})
+	return map[string]any{"ok": true, "assetId": assetID}, nil
+}
+
 func editorAssetArchive(c *editorContext, input map[string]any) (any, error) {
 	assetType := edStr(input["type"])
 	refID := edStr(input["refId"])
@@ -2210,23 +2165,10 @@ func editorSubtitleCommit(c *editorContext, input map[string]any) (any, error) {
 	if transcriptAssetID == "" {
 		return nil, editorError("subtitle.commit: transcriptAssetId required")
 	}
-	existing := c.readProject()
-	previous := []any{}
-	if existing != nil {
-		previous = existing.RegisteredAssets
+	if err := c.attachMedia(transcriptAssetID); err != nil {
+		return nil, err
 	}
-	merged := []any{transcriptAssetID}
-	seen := map[string]bool{transcriptAssetID: true}
-	for _, id := range previous {
-		key := edStr(id)
-		if !seen[key] {
-			seen[key] = true
-			merged = append(merged, id)
-		}
-	}
-	c.ensureSchema()
-	_, _ = c.db.Exec("update editor_projects set registered_assets_json = ?, updated_at = ? where project_id = ?", marshalJSONNoEscape(merged), nowIso(), c.scopeID)
-	c.emit("project.assets.changed", map[string]any{"kind": "any", "mediaIds": merged, "library": map[string]any{"tab": "media"}})
+	c.emit("project.assets.changed", map[string]any{"kind": "any", "mediaIds": []string{transcriptAssetID}, "library": map[string]any{"tab": "media"}})
 	attached := false
 	if edStr(input["trackId"]) != "" && edStr(input["elementId"]) != "" {
 		out := c.executeCommand(map[string]any{"type": "transcript-attach", "payload": map[string]any{
@@ -2237,7 +2179,7 @@ func editorSubtitleCommit(c *editorContext, input map[string]any) (any, error) {
 		}})
 		attached = okBool(out["ok"])
 	}
-	return map[string]any{"ok": true, "transcriptAssetId": transcriptAssetID, "registered": len(merged), "attached": attached}, nil
+	return map[string]any{"ok": true, "transcriptAssetId": transcriptAssetID, "attached": attached}, nil
 }
 
 // ---- 小工具 -----------------------------------------------------------------

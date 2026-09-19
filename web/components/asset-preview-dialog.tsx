@@ -59,7 +59,7 @@ export type PreviewAttribute = {
 
 export type PreviewAsset = {
   id: string;
-  kind: "image" | "video" | "audio" | "transcript" | "reference";
+  kind: "image" | "video" | "audio" | "transcript" | "document";
   name: string;
   origin: string;
   status: "proposed" | "queued" | "running" | "completed" | "failed";
@@ -68,18 +68,18 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; proposal?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; reference?: ReferenceMetadata };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; generation?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; document?: ReferenceMetadata };
 };
 
 export function mediaContext(asset: PreviewAsset) {
   const metadata = asset.metadata ?? {};
   const prompt = typeof metadata.prompt === "string" && metadata.prompt.trim();
   const transcript = transcriptMetadata(asset);
-  const reference = metadata.reference as ReferenceMetadata | undefined;
+  const reference = metadata.document as ReferenceMetadata | undefined;
   return [
     `<media type="${asset.kind}" assetid="${asset.id}"/>`,
     `素材名称：${asset.name}`,
-    `素材类型：${asset.kind === "transcript" ? "转写（源声音 + SRT + JSON）" : asset.kind === "reference" ? "研究资料链接" : asset.kind}`,
+    `素材类型：${asset.kind === "transcript" ? "转写（源声音 + SRT + JSON）" : asset.kind === "document" ? "研究资料链接" : asset.kind}`,
     `素材来源：${asset.origin}`,
     `素材状态：${asset.status}`,
     ...(transcript ? [
@@ -108,7 +108,7 @@ export function mediaContext(asset: PreviewAsset) {
 
 // 是否已带生成配方：提案（可确认生成）与计划（只有 content/attributes）的区别所在。
 function hasProposalRecipe(asset: PreviewAsset): boolean {
-  const proposal = (asset.metadata as Record<string, unknown> | undefined)?.proposal;
+  const proposal = (asset.metadata as Record<string, unknown> | undefined)?.generation;
   const capability = (asset.metadata as Record<string, unknown> | undefined)?.capability;
   return Boolean((proposal && typeof proposal === "object") || (typeof capability === "string" && capability.length > 0));
 }
@@ -122,9 +122,9 @@ function remixCapabilityOf(asset: PreviewAsset): "image.generate" | "video.gener
   return "image.generate";
 }
 
-// 提案的参考绑定：优先 metadata.proposal.references（带 role/label），回退到扁平 referenceIds。
+// 提案的参考绑定：优先 metadata.generation.references（带 role/label），回退到扁平 referenceIds。
 function proposalReferenceDrafts(asset: PreviewAsset): ProposalReference[] {
-  const proposal = (asset.metadata as Record<string, unknown> | undefined)?.proposal;
+  const proposal = (asset.metadata as Record<string, unknown> | undefined)?.generation;
   const raw = proposal && typeof proposal === "object" ? (proposal as Record<string, unknown>).references : undefined;
   if (Array.isArray(raw)) {
     return raw
@@ -160,7 +160,7 @@ function proposalModalityOf(asset: PreviewAsset): ProposalModality {
 // 从全局资产构造共享 ProposalEditor 需要的规格（与画布读同一份契约）。
 function proposalFromPreviewAsset(asset: PreviewAsset): GenerationProposal {
   const metadata = (asset.metadata ?? {}) as Record<string, unknown>;
-  const raw = metadata.proposal && typeof metadata.proposal === "object" ? (metadata.proposal as Record<string, unknown>) : {};
+  const raw = metadata.generation && typeof metadata.generation === "object" ? (metadata.generation as Record<string, unknown>) : {};
   return {
     status: proposalStatusOf(String(asset.status || "proposed")),
     prompt: typeof metadata.prompt === "string" ? metadata.prompt : "",
@@ -226,7 +226,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
     setRemixError("");
     try {
       const capability = remixCapabilityOf(asset);
-      const proposal = (metadata.proposal ?? {}) as Record<string, unknown>;
+      const proposal = (metadata.generation ?? {}) as Record<string, unknown>;
       // modelId 与 credentialId 必须成对提交（云 provider）；按 provider 找已配置凭据，
       // 找不到就整对省略，交给 capability 的默认路由解析，绝不只发 modelId。
       const sourceModelId = typeof metadata.modelId === "string" ? metadata.modelId : "";
@@ -954,12 +954,12 @@ function AssetContent({ apiBase, asset, status, onImageClick }: { apiBase: strin
   if (asset.kind === "image") return <button className="group relative" onClick={() => onImageClick?.(source)} type="button"><img alt={asset.name} className="max-h-[65vh] max-w-full cursor-zoom-in object-contain" src={source} /><span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/10 group-hover:opacity-100"><ZoomIn className="size-6 text-white drop-shadow" /></span></button>;
   if (asset.kind === "audio") return <AudioWaveformPlayer name={asset.name || "音频素材"} src={source} />;
   if (asset.kind === "transcript") return <TranscriptAssetContent apiBase={apiBase} asset={asset} />;
-  if (asset.kind === "reference") return <ReferenceAssetContent apiBase={apiBase} asset={asset} onImageClick={onImageClick} />;
+  if (asset.kind === "document") return <ReferenceAssetContent apiBase={apiBase} asset={asset} onImageClick={onImageClick} />;
   return <VideoFrame alt={asset.name || "视频素材"} className="w-full max-w-4xl rounded-xs bg-black" controls src={source} videoClassName="max-h-[65vh] object-contain" />;
 }
 
 function ReferenceAssetContent({ apiBase, asset, onImageClick }: { apiBase: string; asset: PreviewAsset; onImageClick?: (src: string) => void }) {
-  const reference = asset.metadata?.reference as ReferenceMetadata | undefined;
+  const reference = asset.metadata?.document as ReferenceMetadata | undefined;
   const url = typeof reference?.url === "string" ? reference.url : "";
   const mediaMeta = reference?.media;
   const rows: { label: string; value: string }[] = [];

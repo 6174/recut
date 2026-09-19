@@ -88,7 +88,7 @@ const createKinds: CreateKind[] = [
     prompt: "输入需要生成的语音内容或音频描述…",
   },
 ];
-const referenceLabels: Record<Exclude<AssetKind, "transcript">, string> = { image: "图片", video: "视频", audio: "音频", reference: "资料" };
+const referenceLabels: Record<Exclude<AssetKind, "transcript">, string> = { image: "图片", video: "视频", audio: "音频", document: "资料" };
 
 async function responseMessage(response: Response) {
   const body = await response.json().catch(() => null) as { error?: string } | null;

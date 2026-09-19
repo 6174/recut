@@ -113,7 +113,7 @@ recut.operation.register("hello", (input, ctx) => {
 });
 
 // 需要用户项目上下文的 op 用 ctx.project.*：
-recut.operation.register("timeline.assets", (input, ctx) => {
+recut.operation.register("my.example.op", (input, ctx) => {
   const scopeId = scope(ctx);
   ctx.project.emit("my.event", { at: nowIso() });  // 落事件账本，iframe 经 recut.events.subscribe 接收
   return { ok: true };

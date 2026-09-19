@@ -481,7 +481,7 @@ func (m *MediaService) Attach(assetID, projectID string) error {
 		return err
 	}
 	// 媒体库是引用网络：attach 只建立 asset_id ↔ project_id 的引用连接。素材即使已删除
-	// （墓碑），时间线/registeredAssets 仍可能引用该 id，重新挂回项目是合法引用操作，
+	// （墓碑），时间线仍可能引用该 id，重新挂回项目是合法引用操作，
 	// 不应硬性报错。删除状态保留在素材本身，不会因此重新出现在库列表。
 	db, err := m.database()
 	if err != nil {
@@ -618,9 +618,9 @@ func (m *MediaService) CreateReferenceAsset(input ReferenceAssetInput) (MediaAss
 		return MediaAsset{}, err
 	}
 	now := time.Now().UTC()
-	metadata := map[string]any{"source": "research", "reference": reference}
+	metadata := map[string]any{"source": "research", "document": reference}
 	serialized, _ := json.Marshal(metadata)
-	asset := MediaAsset{ID: id, Kind: "reference", Name: name, MimeType: "application/vnd.recut.reference+json", ContentHash: contentHash, Origin: "research", Status: "completed", Metadata: metadata, CreatedAt: now, UpdatedAt: now}
+	asset := MediaAsset{ID: id, Kind: "document", Name: name, MimeType: "application/vnd.recut.document+json", ContentHash: contentHash, Origin: "research", Status: "completed", Metadata: metadata, CreatedAt: now, UpdatedAt: now}
 	tx, err := db.Begin()
 	if err != nil {
 		return MediaAsset{}, err
@@ -734,7 +734,7 @@ func (m *MediaService) missingReferenceParts(reference map[string]any, input Ref
 // registration of the same URL into the existing reference Asset. The URL
 // identity stays immutable; only gaps are filled, never overwritten.
 func (m *MediaService) fillReferenceAsset(existing MediaAsset, input ReferenceAssetInput, db *sql.DB) (MediaAsset, error) {
-	reference, ok := existing.Metadata["reference"].(map[string]any)
+	reference, ok := existing.Metadata["document"].(map[string]any)
 	if !ok {
 		return existing, nil
 	}
@@ -1670,7 +1670,7 @@ func assetContentParts(asset MediaAsset) (map[string]any, error) {
 		}
 		return parts, nil
 	}
-	if reference, ok := asset.Metadata["reference"].(map[string]any); ok {
+	if reference, ok := asset.Metadata["document"].(map[string]any); ok {
 		parts, ok := reference["parts"].(map[string]any)
 		if !ok {
 			return nil, errors.New("media asset has no reference content parts")

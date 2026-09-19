@@ -28,7 +28,7 @@
 
 ### 推荐流程（MCP）
 
-0. **生成字幕**：`subtitle.capabilities` 确认 audio-studio 就绪 → `subtitle.generate { targetAssetId, kind:"video"|"audio", model, language }`（幂等去重，返回 `jobId`）→ `subtitle.status({jobId})` 轮询到 `completed` 得全局 `transcriptAssetId` + `srt`/`segments` → `subtitle.commit({transcriptAssetId})` 登记进 `registeredAssets`（可附 `trackId+elementId` 让字幕与文稿同源）。
+0. **生成字幕**：`subtitle.capabilities` 确认 audio-studio 就绪 → `subtitle.generate { targetAssetId, kind:"video"|"audio", model, language }`（幂等去重，返回 `jobId`）→ `subtitle.status({jobId})` 轮询到 `completed` 得全局 `transcriptAssetId` + `srt`/`segments` → `subtitle.commit({transcriptAssetId})` 加入项目素材库（可附 `trackId+elementId` 让字幕与文稿同源）。
 1. **批量导入**：`subtitle.import { content: SRT/ASS 文本, style, trackId?, startSec?, source? }` 一次铺成字幕轨，返回 `trackId` + 各 cue 的 `ref`。`style` 只写文字外观类键（`fontSize/color/background.*/textAlign/letterSpacing/lineHeight/opacity/blendMode`），位置由后台按画布自动算。
 2. **读回**：`subtitle.export` 返回整轨 SRT 文本 `{ srt, cueCount, trackId }`。
 3. **精细编辑**：

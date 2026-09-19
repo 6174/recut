@@ -149,7 +149,7 @@ function AssetCard({ apiBase, asset, onDelete, onPreview, onRename }: { apiBase:
   const plan = isPlanAsset(asset);
   return <div className="group relative overflow-visible rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20">
     <button className="block w-full overflow-hidden rounded-t-xs text-left" onClick={() => onPreview(asset)} type="button">
-      {proposal ? <ProposedAsset asset={asset} /> : plan ? <PlannedAsset asset={asset} /> : asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-square" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "reference" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
+      {proposal ? <ProposedAsset asset={asset} /> : plan ? <PlannedAsset asset={asset} /> : asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-square" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "document" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
       <div className="p-2.5">
         <p className="truncate text-xs font-medium">{asset.name}</p>
         <p className="mt-1 text-[10px] text-muted-foreground">{proposal ? "待确认生成" : plan ? "计划中" : asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : asset.kind === "transcript" ? "转写" : "资料"}</p>
@@ -182,7 +182,7 @@ function ProposedAsset({ asset }: { asset: Asset }) {
 }
 
 function ReferenceCardPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
-  const reference = asset.metadata.reference;
+  const reference = asset.metadata.document;
   const imagePart = reference?.parts?.image;
   if (imagePart) {
     const imageURL = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/parts/image`;

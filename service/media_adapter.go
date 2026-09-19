@@ -49,14 +49,6 @@ type UnderstandClipResult = media.UnderstandClipResult
 type UnderstandFrame = media.UnderstandFrame
 type UnderstandSheetCell = media.UnderstandSheetCell
 type MeasureRequestInput = media.MeasureRequestInput
-type PlaceholderAssetInput = media.PlaceholderAssetInput
-type ReferenceAttachInput = media.ReferenceAttachInput
-type ReferenceSource = media.ReferenceSource
-type ReferenceTranscript = media.ReferenceTranscript
-type ReferenceFrame = media.ReferenceFrame
-type ReferenceSheet = media.ReferenceSheet
-type ReferenceClip = media.ReferenceClip
-type ReferenceEvidence = media.ReferenceEvidence
 
 const (
 	ImageGenerate       = media.ImageGenerate
@@ -72,7 +64,6 @@ const (
 	MetadataKeyContent     = media.MetadataKeyContent
 	MetadataKeyContentMeta = media.MetadataKeyContentMeta
 	MetadataKeyAttributes  = media.MetadataKeyAttributes
-	MetadataKeyReference   = media.MetadataKeyReference
 	MaterialActorSystem    = media.MaterialActorSystem
 	MaterialActorAgent     = media.MaterialActorAgent
 	MaterialActorUser      = media.MaterialActorUser
@@ -81,7 +72,6 @@ const (
 var ErrShareNotFound = media.ErrShareNotFound
 var ErrShareUnavailable = media.ErrShareUnavailable
 var MaterialAttrsFromMetadata = media.MaterialAttrsFromMetadata
-var ReadReferenceEvidence = media.ReadReferenceEvidence
 
 type mediaStoreAdapter struct{ store *Store }
 
@@ -102,6 +92,13 @@ func (a mediaStoreAdapter) ProjectExists(id string) error {
 func NewMediaService(store *Store) *MediaService {
 	media := media.NewMediaService(mediaStoreAdapter{store: store})
 	media.SetNotifyMediaChange(func() { store.mediaEvents.notify() })
+	media.SetVideoProposalGate(func() bool {
+		gate, err := store.VideoProposalGate()
+		if err != nil {
+			return true
+		}
+		return gate
+	})
 	return media
 }
 

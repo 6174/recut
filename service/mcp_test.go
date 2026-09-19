@@ -30,7 +30,7 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 			t.Fatalf("legacy async/multiplexed tool %q must not be exposed", name)
 		}
 	}
-	for _, name := range []string{"recut.image.generate", "recut.video.generate", "recut.speech.generate", "recut.media.wait_for_job", "recut.media.import_image"} {
+	for _, name := range []string{"recut.image.generate", "recut.video.generate", "recut.speech.generate"} {
 		tool, ok := tools[name]
 		if !ok {
 			t.Fatalf("missing media tool %q", name)
@@ -40,21 +40,18 @@ func TestMediaMCPToolDefinitionsSeparateGenerationContracts(t *testing.T) {
 		if _, exists := properties["capability"]; exists {
 			t.Fatalf("%s must encode its capability in the tool name", name)
 		}
-		if name != "recut.media.import_image" && name != "recut.media.wait_for_job" {
-			if _, exists := properties["text"]; !exists {
-				t.Fatalf("%s must require text", name)
-			}
+		if _, exists := properties["text"]; !exists {
+			t.Fatalf("%s must require text", name)
 		}
-		if name == "recut.media.import_image" {
-			if _, exists := properties["path"]; !exists {
-				t.Fatalf("%s must require a project-relative path", name)
-			}
-		}
-		if name == "recut.media.wait_for_job" {
-			if _, exists := properties["jobId"]; !exists {
-				t.Fatalf("%s must require a jobId", name)
-			}
-		}
+	}
+	if _, ok := tools["recut.media.get_job"]; ok {
+		t.Fatal("recut.media.get_job must not be exposed; use the unified recut.job.* surface")
+	}
+	if _, ok := tools["recut.media.wait_for_job"]; ok {
+		t.Fatal("recut.media.wait_for_job must not be exposed; use the unified recut.job.* surface")
+	}
+	if _, ok := tools["recut.media.import_image"]; ok {
+		t.Fatal("recut.media.import_image must not be exposed; import_media covers images")
 	}
 	video := tools["recut.video.generate"]["inputSchema"].(map[string]any)["properties"].(map[string]any)
 	if _, ok := video["imageAssetIds"]; !ok {
@@ -409,11 +406,10 @@ func TestMediaMCPToolsBypassAppToolBoundary(t *testing.T) {
 		"recut.video.generate",
 		"recut.speech.generate",
 		"recut.media.list_voices",
-		"recut.media.get_job",
-		"recut.media.wait_for_job",
 		"recut.media.list_assets",
-		"recut.media.import_image",
-		"recut.media.attach",
+		"recut.media.import",
+		"recut.media.asset.get",
+		"recut.media.asset.update",
 	} {
 		if !isMediaMCPTool(name) {
 			t.Fatalf("platform media tool %q was not recognized", name)

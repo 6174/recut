@@ -284,19 +284,6 @@ func TestWorldsMCPRevisionsProposalsAndAttrPatch(t *testing.T) {
 	if _, err := call("recut.worlds.revert", `{"worldId":"`+world.ID+`","revisionId":"`+revisions[0].ID+`"}`); err != nil {
 		t.Fatalf("revert: %v", err)
 	}
-
-	// 生成提案可观测。
-	if _, err := call("recut.worlds.doc.update", `{"worldId":"`+world.ID+`","contextId":"","ops":[{"op":"insert","element":{"id":"shape:media-1","kind":"media","name":"镜头","props":{"modality":"video","proposal":{"status":"pending","prompt":"p"}}}}]}`); err != nil {
-		t.Fatal(err)
-	}
-	proposalRes, err := call("recut.worlds.proposals.list", `{"worldId":"`+world.ID+`"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	proposals := proposalRes.(map[string]any)["structuredContent"].(map[string]any)["items"].([]map[string]any)
-	if len(proposals) != 1 || proposals[0]["status"] != "pending" || proposals[0]["elementId"] != "shape:media-1" {
-		t.Fatalf("proposals = %#v", proposals)
-	}
 }
 
 func TestWorldsMCPDescriptionsLocalized(t *testing.T) {

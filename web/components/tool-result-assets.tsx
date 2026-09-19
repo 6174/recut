@@ -134,7 +134,7 @@ function ToolResultAsset({
   const label = asset?.name || t("agent.tool.assetFallback");
   const completed = asset?.status === "completed";
   const source = mediaContentURL(apiBase, assetID);
-  const Icon = asset?.kind === "video" ? Video : asset?.kind === "audio" ? Music2 : asset?.kind === "transcript" ? Captions : asset?.kind === "reference" ? Link2 : ImageIcon;
+  const Icon = asset?.kind === "video" ? Video : asset?.kind === "audio" ? Music2 : asset?.kind === "transcript" ? Captions : asset?.kind === "document" ? Link2 : ImageIcon;
   return (
     <button
       aria-label={interpolate(t("agent.tool.open"), { label })}

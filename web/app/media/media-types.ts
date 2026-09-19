@@ -5,7 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
-export type AssetKind = "image" | "video" | "audio" | "transcript" | "reference";
+export type AssetKind = "image" | "video" | "audio" | "transcript" | "document";
 export type AssetStatus = "proposed" | "queued" | "running" | "completed" | "failed";
 export type ModelInputMode = "text" | AssetKind;
 export type Capability = "image.generate" | "video.generate" | "speech.generate";
@@ -38,7 +38,7 @@ export type Asset = {
     modelId?: unknown;
     output?: Record<string, unknown>;
     referenceIds?: unknown;
-    proposal?: {
+    generation?: {
       references?: Array<{ id: string; kind?: string; role?: string; label?: string }>;
       aspectRatio?: string;
       durationSec?: number;
@@ -56,7 +56,7 @@ export type Asset = {
       duration?: number;
       segmentCount?: number;
     };
-    reference?: {
+    document?: {
       url?: string;
       sourceKind?: string;
       title?: string;

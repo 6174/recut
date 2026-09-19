@@ -49,6 +49,39 @@ func TestGenerationProposalGateDefaults(t *testing.T) {
 	}
 }
 
+// TestVideoProposalGatePreference 验证用户偏好能关闭视频确认门禁：
+// 关闭后 video.generate 直接提交生成，图片/显式 mode 不受影响。
+func TestVideoProposalGatePreference(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	media := NewMediaService(store)
+	credential, err := media.SaveCredential(MediaCredential{Provider: "skymind-token", Name: "Skymind", APIBase: "http://127.0.0.1:1"}, "skymind-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	video := GenerateMediaInput{Capability: VideoGenerate, ModelID: testVideoModelID, CredentialID: credential.ID}
+	if propose, err := media.ShouldPropose(video, ""); err != nil || !propose {
+		t.Fatalf("default gate must propose, got %v, %v", propose, err)
+	}
+	if err := store.SaveVideoProposalGate(false); err != nil {
+		t.Fatal(err)
+	}
+	if propose, err := media.ShouldPropose(video, ""); err != nil || propose {
+		t.Fatalf("gate off must generate directly, got %v, %v", propose, err)
+	}
+	if propose, err := media.ShouldPropose(video, "propose"); err != nil || !propose {
+		t.Fatalf("explicit mode=propose must still gate, got %v, %v", propose, err)
+	}
+	if err := store.SaveVideoProposalGate(true); err != nil {
+		t.Fatal(err)
+	}
+	if propose, err := media.ShouldPropose(video, ""); err != nil || !propose {
+		t.Fatalf("gate on must propose, got %v, %v", propose, err)
+	}
+}
+
 func TestProposeLandsProposedAssetWithoutJob(t *testing.T) {
 	media, credential, reference := newProposalTestService(t)
 	asset, err := media.Propose(ProposeInput{
@@ -161,72 +194,6 @@ func TestRejectProposalSoftDeletes(t *testing.T) {
 	}
 }
 
-// TestPlaceholderPromotesToProposalInPlace is the content-first bridge: a
-// byte-less plan asset (asset.create) is promoted on the SAME assetId by
-// update_proposal (capability/model/output), using its content as the prompt,
-// while content/attributes are retained and confirm never allocates a new asset.
-func TestPlaceholderPromotesToProposalInPlace(t *testing.T) {
-	media, credential, reference := newProposalTestService(t)
-	const content = "深夜客厅，阿蛋瘫坐蓝色旧沙发，红卫衣；参考 @角色设定集。"
-	placeholder, err := media.CreatePlaceholderAsset(PlaceholderAssetInput{
-		Name:       "shot-1 陷入",
-		Kind:       "video",
-		Content:    content,
-		Attributes: []MaterialAttr{{Key: "role", Label: "素材角色", Type: "text", Value: "a-roll"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if placeholder.Status != AssetStatusProposed || placeholder.Kind != "video" {
-		t.Fatalf("placeholder = %#v", placeholder)
-	}
-
-	capability := string(VideoGenerate)
-	modelID := testVideoModelID
-	credentialID := credential.ID
-	aspect := "9:16"
-	refs := []ProposalReference{{ID: reference.ID, Kind: "image", Role: "character", Label: "阿蛋"}}
-	updated, err := media.UpdateProposal(placeholder.ID, ProposalPatch{
-		Capability:   &capability,
-		ModelID:      &modelID,
-		CredentialID: &credentialID,
-		AspectRatio:  &aspect,
-		References:   &refs,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.ID != placeholder.ID || updated.Status != AssetStatusProposed {
-		t.Fatalf("promotion must keep the same proposed asset: %#v", updated)
-	}
-	if got, _ := updated.Metadata["capability"].(string); got != capability {
-		t.Fatalf("capability = %q, want %q", got, capability)
-	}
-	// content 即提示词：patch 未给 text 时用占位 content 当规格。
-	if got, _ := updated.Metadata["prompt"].(string); got != content {
-		t.Fatalf("prompt = %q, want content fallback", got)
-	}
-	output, _ := updated.Metadata["output"].(map[string]any)
-	if got, _ := output["aspectRatio"].(string); got != "9:16" {
-		t.Fatalf("aspectRatio not merged into output: %#v", output)
-	}
-	// content / attributes 必须随原位升级保留，供 UI 与后续编辑读取。
-	if got, _ := updated.Metadata[MetadataKeyContent].(string); got != content {
-		t.Fatalf("content lost after promotion: %q", got)
-	}
-	if updated.Metadata[MetadataKeyAttributes] == nil {
-		t.Fatal("attributes lost after promotion")
-	}
-
-	job, err := media.ConfirmProposal(placeholder.ID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(job.AssetIDs) != 1 || job.AssetIDs[0] != placeholder.ID {
-		t.Fatalf("confirm allocated a new asset: job=%#v placeholder=%s", job.AssetIDs, placeholder.ID)
-	}
-}
-
 // TestGenerateInputCarriesAspectRatio guards the direct-generate path: the
 // top-level aspectRatio must survive MCP mapping so applyAspectRatio can fold
 // it into the model output instead of silently using the model default.
@@ -246,28 +213,19 @@ func TestProposalMCPToolSurface(t *testing.T) {
 	for _, tool := range mediaMCPToolDefinitions(DefaultLocale) {
 		tools[tool["name"].(string)] = tool
 	}
+	// 提案词汇不再暴露给 AI：对 AI 而言所有素材都是「generate → assetId → 落位」，
+	// propose/confirm 只是平台内部策略与 UI 动作。
 	for _, name := range []string{"recut.media.propose", "recut.media.list_proposals", "recut.media.update_proposal", "recut.media.confirm_proposal", "recut.media.reject_proposal"} {
-		tool, ok := tools[name]
-		if !ok {
-			t.Fatalf("missing proposal tool %q", name)
+		if _, ok := tools[name]; ok {
+			t.Fatalf("proposal tool %q must not be exposed to the agent surface", name)
 		}
-		if !isMediaMCPTool(name) {
-			t.Fatalf("proposal tool %q is not recognized as a media tool", name)
-		}
-		schema := tool["inputSchema"].(map[string]any)
-		properties, ok := schema["properties"].(map[string]any)
-		if !ok || len(properties) == 0 {
-			t.Fatalf("%s has no input properties", name)
-		}
-		for key, value := range properties {
-			if value == nil {
-				t.Fatalf("%s property %q is nil", name, key)
-			}
+		if isMediaMCPTool(name) {
+			t.Fatalf("proposal tool %q must not be recognized as an agent media tool", name)
 		}
 	}
 	video := tools["recut.video.generate"]["inputSchema"].(map[string]any)["properties"].(map[string]any)
-	if _, ok := video["mode"]; !ok {
-		t.Fatal("video generation must expose mode to choose propose/generate")
+	if _, ok := video["mode"]; ok {
+		t.Fatal("generation tools must not expose mode; propose/generate is a platform policy, not an agent choice")
 	}
 	if _, ok := video["references"]; !ok {
 		t.Fatal("generation tools must accept role-bound references")

@@ -18,10 +18,9 @@ import (
 const editorAILockTimeoutMS = int64(5 * 60 * 1000)
 
 type editorProjectRow struct {
-	Project          map[string]any
-	RegisteredAssets []any
-	Version          int64
-	UpdatedAt        string
+	Project   map[string]any
+	Version   int64
+	UpdatedAt string
 }
 
 func (c *editorContext) ensureSchema() {
@@ -29,7 +28,6 @@ func (c *editorContext) ensureSchema() {
 		"create table if not exists editor_projects (" +
 			"project_id text not null primary key, " +
 			"project_json text not null, " +
-			"registered_assets_json text not null default '[]', " +
 			"version integer not null default 1, " +
 			"updated_at text not null)",
 		"create table if not exists editor_command_log (" +
@@ -154,7 +152,7 @@ func queryMaps(db *sql.DB, query string, args ...any) ([]map[string]any, error) 
 
 func (c *editorContext) readProject() *editorProjectRow {
 	c.ensureSchema()
-	rows, err := queryMaps(c.db, "select project_json, registered_assets_json, version, updated_at from editor_projects where project_id = ?", c.scopeID)
+	rows, err := queryMaps(c.db, "select project_json, version, updated_at from editor_projects where project_id = ?", c.scopeID)
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
@@ -163,20 +161,14 @@ func (c *editorContext) readProject() *editorProjectRow {
 	if err := json.Unmarshal([]byte(edStr(row["project_json"])), &project); err != nil {
 		project = nil
 	}
-	var registered []any
-	_ = json.Unmarshal([]byte(edStr(row["registered_assets_json"])), &registered)
-	if registered == nil {
-		registered = []any{}
-	}
 	return &editorProjectRow{
-		Project:          project,
-		RegisteredAssets: registered,
-		Version:          int64(edNum(row["version"])),
-		UpdatedAt:        edStr(row["updated_at"]),
+		Project:   project,
+		Version:   int64(edNum(row["version"])),
+		UpdatedAt: edStr(row["updated_at"]),
 	}
 }
 
-func (c *editorContext) writeProject(project map[string]any, registeredAssets []any, baseVersion *int64) map[string]any {
+func (c *editorContext) writeProject(project map[string]any, baseVersion *int64) map[string]any {
 	c.ensureSchema()
 	existing := c.readProject()
 	current := int64(0)
@@ -190,23 +182,15 @@ func (c *editorContext) writeProject(project map[string]any, registeredAssets []
 	if existing != nil {
 		nextVersion = existing.Version + 1
 	}
-	nextRegistered := registeredAssets
-	if nextRegistered == nil {
-		if existing != nil {
-			nextRegistered = existing.RegisteredAssets
-		} else {
-			nextRegistered = []any{}
-		}
-	}
 	if project != nil {
 		project["version"] = nextVersion
 	}
-	result, err := c.db.Exec("insert into editor_projects (project_id, project_json, registered_assets_json, version, updated_at) values (?, ?, ?, ?, ?) "+
+	result, err := c.db.Exec("insert into editor_projects (project_id, project_json, version, updated_at) values (?, ?, ?, ?) "+
 		"on conflict(project_id) do update set "+
-		"project_json = excluded.project_json, registered_assets_json = excluded.registered_assets_json, "+
+		"project_json = excluded.project_json, "+
 		"version = excluded.version, updated_at = excluded.updated_at "+
 		"where editor_projects.version = ?",
-		c.scopeID, marshalJSONNoEscape(project), marshalJSONNoEscape(nextRegistered), nextVersion, nowIso(), current)
+		c.scopeID, marshalJSONNoEscape(project), nextVersion, nowIso(), current)
 	if err != nil {
 		return map[string]any{"ok": false, "conflict": true, "currentVersion": current}
 	}
@@ -214,7 +198,7 @@ func (c *editorContext) writeProject(project map[string]any, registeredAssets []
 	if affected == 0 {
 		return map[string]any{"ok": false, "conflict": true, "currentVersion": current}
 	}
-	return map[string]any{"ok": true, "version": nextVersion, "registeredAssets": nextRegistered}
+	return map[string]any{"ok": true, "version": nextVersion}
 }
 
 // ---- 锁 ---------------------------------------------------------------------
@@ -362,7 +346,7 @@ func (c *editorContext) executeCommand(op map[string]any) map[string]any {
 		project["metadata"] = metadata
 	}
 	metadata["updatedAt"] = nowIso()
-	write := c.writeProject(project, nil, &existing.Version)
+	write := c.writeProject(project, &existing.Version)
 	if !okBool(write["ok"]) {
 		return map[string]any{"ok": false, "conflict": true, "currentVersion": write["currentVersion"]}
 	}
@@ -425,7 +409,7 @@ func (c *editorContext) undoLast() map[string]any {
 		project["metadata"] = metadata
 	}
 	metadata["updatedAt"] = nowIso()
-	write := c.writeProject(project, nil, &existing.Version)
+	write := c.writeProject(project, &existing.Version)
 	if !okBool(write["ok"]) {
 		return map[string]any{"ok": false, "conflict": true, "currentVersion": write["currentVersion"]}
 	}
@@ -463,7 +447,7 @@ func (c *editorContext) redoNext() map[string]any {
 	if metadata := edMap(project["metadata"]); metadata != nil {
 		metadata["updatedAt"] = nowIso()
 	}
-	write := c.writeProject(project, nil, &existing.Version)
+	write := c.writeProject(project, &existing.Version)
 	if !okBool(write["ok"]) {
 		return map[string]any{"ok": false, "conflict": true, "currentVersion": write["currentVersion"]}
 	}

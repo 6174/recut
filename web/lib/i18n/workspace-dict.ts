@@ -267,7 +267,7 @@ const zh = {
   "settings.section.skill": "Recut Skill",
   "settings.section.mcp": "Recut MCP",
   "settings.section.multimodal": "AI 服务商",
-  "settings.desc.general": "调整工作台的通用偏好，例如界面语言。",
+  "settings.desc.general": "调整工作台的通用偏好，例如界面语言与视频生成行为。",
 
   "settings.desc.service": "选择此工作台要连接的 Recut service。默认仍是本机地址。",
   "settings.desc.multimodal": "先连接 Provider，再为每种创作用途选择合适的模型。密钥只在本机加密保存。",
@@ -301,6 +301,12 @@ const zh = {
   "settings.language.desc": "切换工作台、Service 与 App 使用的界面语言。",
   "locale.zh": "中文",
   "locale.en": "English",
+
+  // 设置 - 生成行为
+  "settings.generation.title": "生成行为",
+  "settings.generation.desc": "视频生成是否先落为待确认素材，由你确认后再生成；关闭后视频提交即开始生成并计费。",
+  "settings.generation.videoGate.confirm": "先确认再生成（推荐）",
+  "settings.generation.videoGate.direct": "提交即直接生成",
 
   // 设置 - Provider / 模型 Route
   "settings.provider.loading.title": "正在加载 AI 服务配置…",
@@ -706,7 +712,7 @@ const en: Record<keyof typeof zh, string> = {
   "settings.section.skill": "Recut Skill",
   "settings.section.mcp": "Recut MCP",
   "settings.section.multimodal": "AI Providers",
-  "settings.desc.general": "Adjust workspace-wide preferences, such as the interface language.",
+  "settings.desc.general": "Adjust workspace-wide preferences, such as the interface language and video generation behavior.",
 
   "settings.desc.service": "Choose the Recut service this workspace connects to. The local address remains the default.",
   "settings.desc.multimodal": "Connect a provider first, then pick a model for each creative use. Keys are stored encrypted only on this machine.",
@@ -740,6 +746,12 @@ const en: Record<keyof typeof zh, string> = {
   "settings.language.desc": "Switch the interface language used by the workspace, the service and apps.",
   "locale.zh": "中文",
   "locale.en": "English",
+
+  // Settings - generation behavior
+  "settings.generation.title": "Generation",
+  "settings.generation.desc": "Whether video generation first lands as a pending asset you confirm; when off, a submission starts generating and bills immediately.",
+  "settings.generation.videoGate.confirm": "Confirm before generating (recommended)",
+  "settings.generation.videoGate.direct": "Generate on submit",
 
   // Settings - providers / model routes
   "settings.provider.loading.title": "Loading AI configuration…",

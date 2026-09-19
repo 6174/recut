@@ -60,37 +60,46 @@ func TestPreferencesHTTPRoundTrip(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("GET /v1/preferences = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	var initial map[string]string
+	var initial map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &initial); err != nil {
 		t.Fatal(err)
 	}
 	if initial["locale"] != string(DefaultLocale) {
-		t.Fatalf("initial locale = %q, want %q", initial["locale"], DefaultLocale)
+		t.Fatalf("initial locale = %v, want %q", initial["locale"], DefaultLocale)
+	}
+	if initial["videoProposalGate"] != true {
+		t.Fatalf("initial videoProposalGate = %v, want true", initial["videoProposalGate"])
 	}
 
 	recorder = httptest.NewRecorder()
-	put := httptest.NewRequest(http.MethodPut, "/v1/preferences", strings.NewReader(`{"locale":"en"}`))
+	put := httptest.NewRequest(http.MethodPut, "/v1/preferences", strings.NewReader(`{"locale":"en","videoProposalGate":false}`))
 	put.Header.Set("Content-Type", "application/json")
 	handler.ServeHTTP(recorder, put)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("PUT /v1/preferences = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	var saved map[string]string
+	var saved map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &saved); err != nil {
 		t.Fatal(err)
 	}
 	if saved["locale"] != "en" {
-		t.Fatalf("saved locale = %q, want en", saved["locale"])
+		t.Fatalf("saved locale = %v, want en", saved["locale"])
+	}
+	if saved["videoProposalGate"] != false {
+		t.Fatalf("saved videoProposalGate = %v, want false", saved["videoProposalGate"])
 	}
 
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/preferences", nil))
-	var reread map[string]string
+	var reread map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &reread); err != nil {
 		t.Fatal(err)
 	}
 	if reread["locale"] != "en" {
-		t.Fatalf("round-tripped locale = %q, want en", reread["locale"])
+		t.Fatalf("round-tripped locale = %v, want en", reread["locale"])
+	}
+	if reread["videoProposalGate"] != false {
+		t.Fatalf("round-tripped videoProposalGate = %v, want false", reread["videoProposalGate"])
 	}
 
 	recorder = httptest.NewRecorder()
@@ -99,6 +108,14 @@ func TestPreferencesHTTPRoundTrip(t *testing.T) {
 	handler.ServeHTTP(recorder, bad)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("PUT /v1/preferences invalid locale = %d, want 400", recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	empty := httptest.NewRequest(http.MethodPut, "/v1/preferences", strings.NewReader(`{}`))
+	empty.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(recorder, empty)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("PUT /v1/preferences with no fields = %d, want 400", recorder.Code)
 	}
 }
 
@@ -323,9 +340,9 @@ func TestMCPDescriptionsLocalizeToolLevelCopy(t *testing.T) {
 		}
 	}
 	for _, tool := range mediaMCPToolDefinitions(LocaleEn) {
-		if tool["name"] == "recut.media.create_reference" {
-			if !strings.Contains(tool["description"].(string), "Register a public link") {
-				t.Fatalf("en recut.media.create_reference description = %q", tool["description"])
+		if tool["name"] == "recut.media.import" {
+			if !strings.Contains(tool["description"].(string), "single entry") {
+				t.Fatalf("en recut.media.import description = %q", tool["description"])
 			}
 		}
 	}

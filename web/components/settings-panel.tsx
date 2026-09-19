@@ -19,7 +19,7 @@ import { CustomSelect } from "@/components/ui/select-field";
 import { useI18n, type Locale } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 import { useLocaleStore } from "@/lib/i18n/locale-store";
-import { loadLocalePreference, saveLocalePreference } from "@/lib/i18n/preferences";
+import { loadLocalePreference, loadVideoProposalGate, saveLocalePreference, saveVideoProposalGate } from "@/lib/i18n/preferences";
 import { fetchRecutJSON, normalizeServiceEndpoint } from "@/lib/service-endpoint";
 import {
   useMediaConfigurationStore,
@@ -94,7 +94,7 @@ export function SettingsPanel({ open: controlledOpen, onOpenChange, section }: {
             </nav>
             <div className="min-w-0 overflow-y-auto p-8">
               <div className="flex items-start justify-between pb-6"><div><h2 className="text-xl font-semibold">{t(sections.find((item) => item.id === activeSection)?.labelKey ?? "settings.title")}</h2><p className="mt-1.5 max-w-2xl text-sm text-foreground/80">{sectionDescription}</p></div><button aria-label={t("settings.close.aria")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={() => setOpen(false)} type="button"><X className="size-4" /></button></div>
-              {activeSection === "general" ? <LanguageSettings /> : activeSection === "service" ? <ServiceEndpointSettings /> : activeSection === "multimodal" ? <ProviderSettings /> : activeSection === "skill" ? <RecutSkillSettings apiBase={apiBase} /> : <RecutMCPSettings apiBase={apiBase} />}
+              {activeSection === "general" ? <><LanguageSettings /><GenerationSettings /></> : activeSection === "service" ? <ServiceEndpointSettings /> : activeSection === "multimodal" ? <ProviderSettings /> : activeSection === "skill" ? <RecutSkillSettings apiBase={apiBase} /> : <RecutMCPSettings apiBase={apiBase} />}
             </div>
           </section>
         </div>
@@ -118,6 +118,27 @@ function LanguageSettings() {
     if (apiBase) void useWorkspaceStore.getState().load(apiBase, true);
   }
   return <section className="max-w-2xl pt-1"><p className="text-[15px] font-semibold">{t("settings.language.title")}</p><p className="mt-1 text-xs leading-5 text-foreground/85">{t("settings.language.desc")}</p><fieldset className="mt-3 space-y-1 rounded-md bg-foreground/5 p-1"><legend className="sr-only">{t("settings.language.title")}</legend>{options.map((option) => <label className={`flex cursor-pointer items-center gap-2.5 rounded-xs px-3 py-2.5 text-xs transition-colors ${locale === option.value ? "bg-foreground/12 font-medium text-foreground" : "text-foreground/80 hover:bg-foreground/9"}`} htmlFor={`locale-${option.value}`} key={option.value}><input checked={locale === option.value} className="accent-primary" id={`locale-${option.value}`} name="workspace-locale" onChange={() => choose(option.value)} type="radio" value={option.value} /><span className="flex-1">{option.label}</span>{locale === option.value && <Check className="size-3.5 text-primary" />}</label>)}</fieldset></section>;
+}
+
+function GenerationSettings() {
+  const { t } = useI18n();
+  const apiBase = useServiceStore((state) => state.endpoint);
+  const [gate, setGate] = useState(true);
+  useEffect(() => {
+    let active = true;
+    void loadVideoProposalGate(apiBase).then((value) => { if (active && typeof value === "boolean") setGate(value); });
+    return () => { active = false; };
+  }, [apiBase]);
+  function choose(next: boolean) {
+    if (next === gate) return;
+    setGate(next);
+    void saveVideoProposalGate(apiBase, next);
+  }
+  const options: { value: boolean; label: string }[] = [
+    { value: true, label: t("settings.generation.videoGate.confirm") },
+    { value: false, label: t("settings.generation.videoGate.direct") },
+  ];
+  return <section className="max-w-2xl pt-6"><p className="text-[15px] font-semibold">{t("settings.generation.title")}</p><p className="mt-1 text-xs leading-5 text-foreground/85">{t("settings.generation.desc")}</p><fieldset className="mt-3 space-y-1 rounded-md bg-foreground/5 p-1"><legend className="sr-only">{t("settings.generation.title")}</legend>{options.map((option) => <label className={`flex cursor-pointer items-center gap-2.5 rounded-xs px-3 py-2.5 text-xs transition-colors ${gate === option.value ? "bg-foreground/12 font-medium text-foreground" : "text-foreground/80 hover:bg-foreground/9"}`} htmlFor={`video-gate-${option.value}`} key={String(option.value)}><input checked={gate === option.value} className="accent-primary" id={`video-gate-${option.value}`} name="video-proposal-gate" onChange={() => choose(option.value)} type="radio" value={String(option.value)} /><span className="flex-1">{option.label}</span>{gate === option.value && <Check className="size-3.5 text-primary" />}</label>)}</fieldset></section>;
 }
 
 function ServiceEndpointSettings() {

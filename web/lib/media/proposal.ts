@@ -87,9 +87,9 @@ function referencesOf(value: unknown): ProposalReference[] {
     .filter((item) => item.id);
 }
 
-// props.proposal 防御式解析：非法/缺失一律返回 null（老画布元素没有该字段）。
+// props.generation 防御式解析：非法/缺失一律返回 null。
 export function readProposal(props?: Record<string, unknown> | null): GenerationProposal | null {
-  const raw = props?.proposal;
+  const raw = props?.generation;
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
   const status = PROPOSAL_STATUSES.includes(value.status as ProposalStatus) ? (value.status as ProposalStatus) : "pending";
@@ -112,9 +112,9 @@ export function readProposal(props?: Record<string, unknown> | null): Generation
 }
 
 // 资产侧提案视图：proposed/queued/running/failed/completed 映射为提案状态机。
-// 素材是唯一真相（metadata.proposal + metadata.prompt/modelId/output），画布/素材库据此渲染。
+// 素材是唯一真相（metadata.generation + metadata.prompt/modelId/output），画布/素材库据此渲染。
 export function proposalFromAsset(asset: Pick<Asset, "status" | "jobId" | "metadata">): GenerationProposal | null {
-  const raw = asset.metadata?.proposal;
+  const raw = asset.metadata?.generation;
   if (!raw || typeof raw !== "object") return null;
   const status: ProposalStatus =
     asset.status === "proposed" ? "pending"
@@ -123,7 +123,7 @@ export function proposalFromAsset(asset: Pick<Asset, "status" | "jobId" | "metad
     : asset.status === "completed" ? "done"
     : "pending";
   return readProposal({
-    proposal: {
+    generation: {
       ...(raw as Record<string, unknown>),
       status,
       prompt: asset.metadata.prompt,
@@ -135,7 +135,7 @@ export function proposalFromAsset(asset: Pick<Asset, "status" | "jobId" | "metad
 }
 
 // 同属服务端 proposed，但语义分两种：
-// - 提案 / proposal：已带生成配方（metadata.proposal），用户可「确认生成」；
+// - 提案 / proposal：已带生成配方（metadata.generation），用户可「确认生成」；
 // - 计划 / plan：只有 content/attributes，没有配方，用户应「复制计划给 AI」去生成。
 export function isConfirmableProposal(asset: Pick<Asset, "status" | "jobId" | "metadata">): boolean {
   return asset.status === "proposed" && Boolean(proposalFromAsset(asset));

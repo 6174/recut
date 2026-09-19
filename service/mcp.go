@@ -101,20 +101,20 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Cancel a queued or running local App shell job or a sub-agent job (cancellation propagates to the child CLI process; already committed partial results are still finalized and surfaced as an interrupted terminal state).",
 	},
 	"recut.files.fetch": {
-		LocaleZh: "把绝对 http(s) URL 映射为本地文件路径（统一远程缓存 <dataRoot>/files/cdn，内容寻址、重复访问零网络、≤100MB、拒绝内网/回环地址）。需要本地文件时使用（查看、处理、传给只收本地路径的工具）；只想要素材库 Asset 用 recut.media.import_url；生成参考（imageAssetIds 等）可直接传 URL，无需先调用本工具。",
-		LocaleEn: "Map an absolute http(s) URL to a local file path (unified remote cache <dataRoot>/files/cdn, content-addressed, repeat access is a filesystem hit, ≤100MB, private/loopback addresses refused). Use it when a local file is needed (viewing, processing, or feeding a local-path-only tool); use recut.media.import_url when an Asset-library entry is wanted; generation references (imageAssetIds, ...) accept URLs directly, so this tool is not required for them.",
+		LocaleZh: "把绝对 http(s) URL 映射为本地文件路径（统一远程缓存 <dataRoot>/files/cdn，内容寻址、重复访问零网络、≤100MB、拒绝内网/回环地址）。需要本地文件时使用（查看、处理、传给只收本地路径的工具）；只想要素材库 Asset 用 recut.media.import({ url })；生成参考（imageAssetIds 等）可直接传 URL，无需先调用本工具。",
+		LocaleEn: "Map an absolute http(s) URL to a local file path (unified remote cache <dataRoot>/files/cdn, content-addressed, repeat access is a filesystem hit, ≤100MB, private/loopback addresses refused). Use it when a local file is needed (viewing, processing, or feeding a local-path-only tool); use recut.media.import({ url }) when an Asset-library entry is wanted; generation references (imageAssetIds, ...) accept URLs directly, so this tool is not required for them.",
 	},
 	"recut.image.generate": {
-		LocaleZh: "【世界生图硬规则·未过不提交】世界语境生图前必须先用 `recut.worlds.get({ worldId })` 读取该世界 `references[]`：画面会出现主角色时必须带该角色参考图（`references` 中 `role: \"character\"`）；世界已有场景/风格锚点时按其 role 传入（`environment` / `style-ref` 等）。只有明确不出现任何角色的纯空场景才允许不带参考图。提交图片生成任务。立即返回处于 queued 状态的稳定 jobId 与 assetIds；assetId 在排队/生成中即可稳定引用，常驻 Daemon 完成后将同一 Asset 原位转为 completed 或 failed。默认先落位、不空等：拿到 assetId 立刻建立项目引用/落位并标记生成中，不要用 recut.media.wait_for_job 把落位堵在终态之后。只有下一步真的依赖图片内容（读图决策、连续性/质量验收、或用于导出）时才 wait。",
-		LocaleEn: "【Hard rule for world image generation — do not submit if unmet】Before generating images in a world context, first read the world's `references[]` via `recut.worlds.get({ worldId })`: when the frame may contain the main character, attach that character's reference (`role: \"character\"` in `references`); when the world already has scene/style anchors, pass them with their roles (`environment` / `style-ref`, ...). Only a pure empty scene that explicitly contains no character may omit references. Submit an image generation job. It immediately returns a stable queued jobId and assetIds; the assetId is stable and referenceable while queued/generating, and the persistent Daemon moves the same Asset to completed or failed in place. Default is place-and-continue, never block: create the project reference/placement with the assetId right away and mark it generating; do not use recut.media.wait_for_job to hold placement until the terminal state. Only wait when the next step truly depends on the image content (image-based decision, continuity/quality acceptance, or export).",
+		LocaleZh: "提交图片生成，立即返回稳定 assetId（排队/生成中即可引用）。**拿到 assetId 立刻挂到项目/素材/画布并继续做别的事**，不要空等；只有下一步依赖图片内容（读图决策、连续性/质量验收、导出）时才用 jobId 等到终态。用户在素材面板查看结果。世界生图硬规则（未过不提交）：先 `recut.worlds.get({ worldId })` 读 `references[]`，画面会出现主角色时必须带该角色参考图，**参考通过 `imageAssetIds` 传**（image 能力只读该字段，role 绑定不生效）；只有明确无角色的纯空场景可为空。",
+		LocaleEn: "Submit an image generation; it immediately returns a stable assetId (referenceable while queued/generating). **Attach the assetId to the project/material/canvas right away and keep working**; only wait on the jobId when the next step actually depends on the image content (image-based decision, continuity/quality acceptance, export). The user reviews the result in the asset panel. World image hard rule (do not submit if unmet): read the world's `references[]` via `recut.worlds.get({ worldId })` first; when the frame may contain the main character, attach that reference, **passed via `imageAssetIds`** (the image capability only reads that field; role bindings do not apply); only a pure empty scene with no character may omit it.",
 	},
 	"recut.video.generate": {
-		LocaleZh: "提交长时间运行的视频生成。世界语境生成前同样受硬规则约束：先 `recut.worlds.get({ worldId })` 读 `references[]`，画面会出现主角色时必须带其角色参考图（`role: \"character\"`），场景/风格锚点按 role 传入；只有明确不出现任何角色的纯空场景才可省略参考图。立即返回处于 queued 状态的稳定 jobId 与 assetIds；常驻 Daemon 接受 Atlas 任务后将同一 Asset 原位转为 running，再回收为 completed 或 failed。可立刻用 assetId 建立项目引用。",
-		LocaleEn: "Submit a long-running video generation. World-context generation is bound by the same hard rule: first read `references[]` via `recut.worlds.get({ worldId })`; when the frame may contain the main character, attach the character reference (`role: \"character\"`), and pass scene/style anchors with their roles; only a pure empty scene with no character may omit references. It immediately returns a stable queued jobId and assetIds; after the persistent Daemon accepts the Atlas task, the same Asset moves to running in place and is later reclaimed as completed or failed. Create project references with the assetId right away.",
+		LocaleZh: "提交视频生成。视频默认先落为待确认的 proposed 素材（不建任务、不花钱），由用户在素材面板/画布确认后才真正生成；可在「全局设置 → 通用设置 → 生成行为」关闭该门禁，改为提交即生成。**AI 只负责提交与落位，绝不代确认**。始终返回稳定 assetId，**拿到立刻挂到项目/画布并继续**。参考关键帧通过 `imageAssetIds` 传；`aspectRatio` / `durationSec` 显式传入并与画布一致。世界语境硬规则同图片：先读 `references[]`，主线角色必带角色参考。",
+		LocaleEn: "Submit a video generation. By default it first lands as a pending proposed asset (no job, no cost) and only runs after the user confirms it in the asset panel/canvas; the gate can be turned off under Settings → General → Generation to generate on submit. **The agent only submits and places it, never confirms.** It always returns a stable assetId — **attach it and continue immediately**. Pass reference keyframes via `imageAssetIds`; pass `aspectRatio` / `durationSec` explicitly and match the canvas. The same world hard rule applies: read `references[]` and attach the main character's reference.",
 	},
 	"recut.speech.generate": {
-		LocaleZh: "提交长时间运行的语音生成。云端路由先用 recut.media.list_voices 查询凭据可用的 voiceId；本机 TTS 路由可省略 voiceId（用 Audio Studio 默认音，或经其 audio.synthesize/audio.save）。立即返回 jobId 与处于 queued 状态的稳定 assetIds。",
-		LocaleEn: "Submit a long-running speech generation. For cloud routes first query the credential's available voiceId with recut.media.list_voices; the local TTS route may omit voiceId (Audio Studio default voice, or use audio.synthesize/audio.save). It immediately returns a jobId and stable queued assetIds.",
+		LocaleZh: "提交语音生成，立即返回稳定 jobId 与 assetId。**拿到 assetId 立刻落位并继续**，不要空等；只有下一步依赖音频内容时才等终态。云端路由先用 recut.media.list_voices 查可用 voiceId；本机 TTS 可省略 voiceId（用 Audio Studio 默认音，或经其 audio.synthesize/audio.save）。",
+		LocaleEn: "Submit a speech generation; it immediately returns a stable jobId and assetId. **Attach the assetId and continue immediately**; only wait for the terminal state when the next step depends on the audio. For cloud routes query the credential's voiceId with recut.media.list_voices first; the local TTS route may omit voiceId (Audio Studio default voice, or use its audio.synthesize/audio.save).",
 	},
 	"recut.media.list_voices": {
 		LocaleZh: "读取当前可用音色：云端凭据（MiniMax/ElevenLabs）的音色，或本机 TTS 的 Audio Studio 默认音（credentialId 传 local-audio 或留空）。",
@@ -124,41 +124,21 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleZh: "按能力聚合所有可用的声音分组：本地 provider 一组、云端每个凭据一组、未配置凭据的 provider 返回占位组（带 error）供引导设置。用于跨 provider 声音选择，不依赖默认路由。",
 		LocaleEn: "Aggregate all available voice groups for one capability: one group per local provider, one per cloud credential, and placeholder groups (with error) for unconfigured providers to guide setup. Use it to select voices across providers without depending on the default route.",
 	},
-	"recut.media.get_job": {
-		LocaleZh: "读取媒体生成任务状态。",
-		LocaleEn: "Read a media generation job's status.",
-	},
-	"recut.media.wait_for_job": {
-		LocaleZh: "等待本地 Daemon 已提交的媒体任务达到 completed 或 failed。",
-		LocaleEn: "Wait for a media job submitted to the local Daemon to reach completed or failed.",
-	},
 	"recut.media.list_assets": {
 		LocaleZh: "检索工作区或指定项目的可复用媒体素材。优先用 ids 精确取回，或用 kind/query/limit 过滤分页；不要全量拉取素材库。",
 		LocaleEn: "Search reusable media assets in the workspace or a specific project. Prefer ids for exact lookup, or kind/query/limit for filtered pages; never pull the whole library.",
 	},
 	"recut.media.asset.get": {
-		LocaleZh: "读取单个素材的完整创作信息：content（长正文）、contentMeta（正文溯源）、attributes（有序 typed 属性，含 source/provenance 字段级溯源）与 facets（系统结构化组，proposal/reference 等，locked）。素材只有基础字段时用 list_assets，需要属性/正文/证据时用本工具。",
-		LocaleEn: "Read one asset's full creative-information layer: content (long-form body), contentMeta (content provenance), attributes (ordered typed properties with source/provenance field-level traceability) and facets (system structured groups such as proposal/reference, locked). Use list_assets for basic fields; use this tool when attributes/content/evidence are needed.",
+		LocaleZh: "读取单个素材：kind/status + content（长正文）+ attributes（有序 typed 属性，含 source/provenance 字段级溯源）。素材只有基础字段时用 list_assets，需要属性/正文时用本工具。",
+		LocaleEn: "Read one asset: kind/status + content (long-form body) + attributes (ordered typed properties with source/provenance field-level traceability). Use list_assets for basic fields; use this tool when attributes/content are needed.",
 	},
 	"recut.media.asset.update": {
 		LocaleZh: "修改素材的 name / content / attributes。attributes 为整体替换，attrPatch 为按 key 合并（不传 attributes 时生效）；locked 属性的 type/label 与删除会被拒（值仍可改），越权 fail closed。服务端自动写入 source 与 provenance（Agent 调用记为 agent），用于 AI 生成字段的溯源。",
 		LocaleEn: "Update an asset's name / content / attributes. attributes replaces the whole list; attrPatch merges by key (used when attributes is omitted). For locked attributes the type/label and removal are rejected (value is still editable), failing closed on violations. The service stamps source and provenance automatically (agent for Agent calls) so AI-written fields are traceable.",
 	},
-	"recut.media.import_image": {
-		LocaleZh: "将 Codex 原生生成后已写入会话工作区的图片归档为 Media Asset。只接受相对路径；服务端验证路径、符号链接、文件类型与大小，并返回真实 assetId。",
-		LocaleEn: "Archive an image written to the session workspace by Codex-native generation as a Media Asset. Only relative paths are accepted; the service validates the path, symlinks, file type, and size, and returns the real assetId.",
-	},
-	"recut.media.create_reference": {
-		LocaleZh: "把文章、网页、YouTube、小红书、抖音等公开链接登记为可跨项目复用的全局 reference Asset。URL 是唯一身份并按规范 URL 去重；可同时提交正文全文（article/web 的真实文章数据）、base64 图片（真实图片数据）与尽量完整的平台元数据。正文与图片作为不可变 parts 随素材保存，可经素材 parts 接口审阅；服务本身不抓取或下载外部内容。",
-		LocaleEn: "Register a public link (article, web, YouTube, Xiaohongshu, Douyin, etc.) as a reusable global reference Asset across projects. The URL is the unique identity and is deduplicated by canonical URL; you may submit the full body text (real article data for article/web), a base64 image (real image data), and as complete platform metadata as possible. The body and image are saved as immutable parts with the asset and can be reviewed through the asset parts API; the service itself never fetches or downloads external content.",
-	},
-	"recut.media.attach": {
-		LocaleZh: "把现有媒体 assetId 引用到目标项目。",
-		LocaleEn: "Attach an existing media assetId to a target project.",
-	},
-	"recut.media.import_url": {
-		LocaleZh: "把一个绝对 http(s) URL 的媒体（图片/视频/音频，≤25MB）下载到本地素材库，返回 assetId。用于把 World 的 url 证据、网页资源收进用户自己的素材库；同一内容按哈希去重。不抓取正文或网页内容。",
-		LocaleEn: "Download an absolute http(s) media URL (image/video/audio, ≤25MB) into the local media library and return its assetId. Use it to pull a World's url evidence or a web resource into the user's own library; identical content is deduplicated by hash. It never fetches article or webpage content.",
+	"recut.media.import": {
+		LocaleZh: "把素材带进来的唯一入口，三选一：`path`=本地媒体文件（会话工作区或目标 Project 内，≤2GB，也用于归档 Codex 原生图）；`url`=直链媒体（image/video/audio，≤25MB，按哈希去重）；`link`=网页/文章链接（无字节，落 kind=document，可带正文 content 与 base64 图片 imageData 及平台元数据）。返回真实 assetId。服务不抓取网页正文。",
+		LocaleEn: "The single entry to bring assets in, exactly one of: `path` = a local media file (inside the session workspace or target project, ≤2GB; also archives Codex-native images); `url` = a direct media URL (image/video/audio, ≤25MB, hash-deduplicated); `link` = a web/article link (byte-less, lands as kind=document, may carry body `content`, base64 `imageData` and platform metadata). Returns the real assetId. The service never fetches page bodies.",
 	},
 	"recut.media.probe": {
 		LocaleZh: "探测一个素材的客观参数（时长/宽高/帧率/是否有音轨），本地 ffprobe，纯观察。",
@@ -187,22 +167,6 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 	"recut.media.measure": {
 		LocaleZh: "纯本地估算一段文案的朗读时长（不调模型）。用于生成前判断时长与排布。",
 		LocaleEn: "Estimate narration duration locally (no model call). Use it to judge length and placement before generating.",
-	},
-	"recut.media.reference.create": {
-		LocaleZh: "把一支真实内容素材标记为参考并初始化 metadata.reference 观察组；sourceUrl 仅作溯源，不抓取、不去重。与链接型 recut.media.create_reference 不同。",
-		LocaleEn: "Mark a real-content asset as a reference and initialize its metadata.reference observation group; sourceUrl is provenance only (no fetch, no dedupe). Distinct from the link-oriented recut.media.create_reference.",
-	},
-	"recut.media.reference.attach": {
-		LocaleZh: "把观察证据（probe/transcript/frames/sheets/boundaries/clips）幂等写入参考素材的 metadata.reference：按 (kind,assetId/params) 去重，重复理解复用已有证据。只装观察，不装主观判断。",
-		LocaleEn: "Idempotently write observation evidence (probe/transcript/frames/sheets/boundaries/clips) into a reference asset's metadata.reference, deduplicating by (kind,assetId/params). Observations only; never subjective judgement.",
-	},
-	"recut.media.asset.create": {
-		LocaleZh: "创建一个无字节的计划素材（status=proposed，不花钱、不建 job）并写入 content（规格，可 @ 引用）与可选 attributes。生成时用 update_proposal 在同一 assetId 上补 capability/model/output（省略 text 时 content 即提示词）再 confirm，产物原位填回同一 assetId，不另建资产。",
-		LocaleEn: "Create a byte-less plan asset (status=proposed; no cost, no job) with content (the spec, may use inline @ references) and optional attributes. To generate, call update_proposal on the same assetId to add capability/model/output (content becomes the prompt when text is omitted), then confirm; the output fills the same assetId in place, never a new one.",
-	},
-	"recut.media.import_media": {
-		LocaleZh: "把会话工作区或目标项目内的本地视频/音频/图片文件导入为素材（≤2GB，流式读取），返回真实 assetId。用于宿主 Agent 自行下载的素材入库。",
-		LocaleEn: "Import a local video/audio/image file from the session workspace or target project as an asset (≤2GB, streamed), returning the real assetId. Use it to bring host-agent-downloaded media into the library.",
 	},
 	"recut.media.understand.status": {
 		LocaleZh: "检查理解工具的环境就绪（平台 Python venv、ffmpeg、ffprobe、PySceneDetect/Pillow/numpy）。缺失时返回需要准备，绝不静默安装。",
@@ -719,6 +683,7 @@ func capabilitySnapshot(bridge *AgentBridge, media *MediaService, session AgentS
 			"dataRoot":         bridge.store.root,
 			"appsDir":          filepath.Join(bridge.store.root, "apps"),
 			"projectsDir":      filepath.Join(bridge.store.root, "projects"),
+			"filesDir":         filepath.Join(bridge.store.root, "files"),
 			"sessionWorkspace": bridge.store.SessionWorkspaceDir(session.ID),
 			"mediaDir":         filepath.Join(bridge.store.root, "media"),
 			"modelsDir":        filepath.Join(bridge.store.root, "models"),
@@ -1210,59 +1175,12 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		if err == nil {
 			result = mediaJobView(job)
 		}
-	case "recut.media.propose":
-		capability := MediaCapability(stringValue(input["capability"]))
-		asset, proposeErr := media.Propose(proposalInputFromMCP(input, capability))
-		err = proposeErr
-		if err == nil {
-			result = mediaAssetView(asset)
-		}
-	case "recut.media.list_proposals":
-		projectID := requestedProjectID(input)
-		if workspace, _ := input["workspace"].(bool); workspace {
-			projectID = ""
-		}
-		page, listErr := media.ListProposals(projectID, mediaAssetFilterFromInput(input))
-		err = listErr
-		if err == nil {
-			result = page
-		}
-	case "recut.media.update_proposal":
-		asset, updateErr := media.UpdateProposal(stringValue(input["assetId"]), proposalPatchFromMCP(input))
-		err = updateErr
-		if err == nil {
-			result = mediaAssetView(asset)
-		}
-	case "recut.media.confirm_proposal":
-		job, confirmErr := media.ConfirmProposal(stringValue(input["assetId"]), proposalPatchPointerFromMCP(input))
-		err = confirmErr
-		if err == nil {
-			result = mediaJobView(job)
-		}
-	case "recut.media.reject_proposal":
-		assetID := stringValue(input["assetId"])
-		err = media.RejectProposal(assetID)
-		result = map[string]any{"assetId": assetID, "rejected": err == nil}
 	case "recut.media.list_voices":
 		credentialID, _ := input["credentialId"].(string)
 		result, err = media.ListVoices(credentialID)
 	case "recut.media.list_capability_voices":
 		capability, _ := input["capability"].(string)
 		result, err = media.CapabilityVoiceGroups(MediaCapability(capability))
-	case "recut.media.get_job":
-		id, _ := input["jobId"].(string)
-		job, getErr := media.GetJob(id)
-		err = getErr
-		if err == nil {
-			result = mediaJobView(job)
-		}
-	case "recut.media.wait_for_job":
-		id, _ := input["jobId"].(string)
-		job, waitErr := media.WaitForTerminalJob(id, mediaWaitTimeout(input))
-		err = waitErr
-		if err == nil {
-			result = mediaJobView(job)
-		}
 	case "recut.media.list_assets":
 		workspace, _ := input["workspace"].(bool)
 		projectID := requestedProjectID(input)
@@ -1287,27 +1205,8 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		if err == nil {
 			result = materialAssetView(asset)
 		}
-	case "recut.media.import_image":
-		result, err = importNativeImage(store, media, session, input)
-	case "recut.media.create_reference":
-		result, err = media.CreateReferenceAsset(ReferenceAssetInput{
-			Name: stringValue(input["name"]), URL: stringValue(input["url"]), SourceKind: stringValue(input["sourceKind"]),
-			Summary: stringValue(input["summary"]), Description: stringValue(input["description"]), Excerpt: stringValue(input["excerpt"]),
-			Author: stringValue(input["author"]), PublishedAt: stringValue(input["publishedAt"]), SiteName: stringValue(input["siteName"]),
-			Language: stringValue(input["language"]), ThumbnailURL: stringValue(input["thumbnailUrl"]),
-			Content: stringValue(input["content"]), ContentMimeType: stringValue(input["contentMimeType"]),
-			ImageData: stringValue(input["imageData"]), ImageMimeType: stringValue(input["imageMimeType"]),
-			ChannelName: stringValue(input["channelName"]), ChannelURL: stringValue(input["channelUrl"]),
-			DurationSec: numericValue(input["durationSeconds"]), ViewCount: int64(numericValue(input["viewCount"])), LikeCount: int64(numericValue(input["likeCount"])),
-		})
-	case "recut.media.attach":
-		id, _ := input["assetId"].(string)
-		err = media.Attach(id, requestedProjectID(input))
-		result = map[string]any{"assetId": id, "projectId": requestedProjectID(input), "attached": err == nil}
-	case "recut.media.import_url":
-		result, err = importMediaURL(media, input)
-	case "recut.media.import_media":
-		result, err = importLocalMedia(store, media, session, input)
+	case "recut.media.import":
+		result, err = mediaImportTool(store, media, session, input, stringValue(input["__import_mode"]))
 	case "recut.media.probe":
 		probe, probeErr := media.UnderstandProbe(context.Background(), stringValue(input["assetId"]))
 		err = probeErr
@@ -1366,40 +1265,6 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		result = media.UnderstandMeasure(MeasureRequestInput{
 			Text: stringValue(input["text"]), Language: stringValue(input["language"]), Pace: numericValue(input["pace"]),
 		})
-	case "recut.media.reference.create":
-		var asset MediaAsset
-		asset, err = media.CreateReference(stringValue(input["assetId"]), stringValue(input["sourceUrl"]))
-		if err == nil {
-			result = materialAssetView(asset)
-		}
-	case "recut.media.reference.attach":
-		attach, decodeErr := referenceAttachFromMCP(input)
-		if decodeErr != nil {
-			err = decodeErr
-			break
-		}
-		var asset MediaAsset
-		asset, err = media.AttachReferenceEvidence(attach)
-		if err == nil {
-			result = materialAssetView(asset)
-		}
-	case "recut.media.asset.create":
-		var attributes []MaterialAttr
-		if raw, ok := input["attributes"]; ok && raw != nil {
-			attributes, err = decodeMaterialAttrs(raw)
-			if err != nil {
-				break
-			}
-		}
-		var asset MediaAsset
-		asset, err = media.CreatePlaceholderAsset(PlaceholderAssetInput{
-			Name: stringValue(input["name"]), Kind: stringValue(input["kind"]),
-			Content: stringValue(input["content"]), Attributes: attributes,
-			ProjectID: requestedProjectID(input),
-		})
-		if err == nil {
-			result = materialAssetView(asset)
-		}
 	case "recut.media.understand.status":
 		result = media.UnderstandEnvironment(context.Background())
 	default:
@@ -1531,8 +1396,6 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.speech.generate", "description": mcpDescription(locale, "recut.speech.generate"), "inputSchema": speechGenerationSchema()},
 		{"name": "recut.media.list_voices", "description": mcpDescription(locale, "recut.media.list_voices"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"credentialId": map[string]string{"type": "string", "description": "云端语音 provider 的凭据 ID；本机 TTS 可传 local-audio 或留空返回 Audio Studio 默认音。"}}}},
 		{"name": "recut.media.list_capability_voices", "description": mcpDescription(locale, "recut.media.list_capability_voices"), "inputSchema": map[string]any{"type": "object", "required": []string{"capability"}, "properties": map[string]any{"capability": map[string]any{"type": "string", "enum": []string{"speech.generate"}, "description": "要聚合声音的能力；当前 speech.generate 提供动态 voices，其他能力返回空列表。"}}}},
-		{"name": "recut.media.get_job", "description": mcpDescription(locale, "recut.media.get_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}},
-		{"name": "recut.media.wait_for_job", "description": mcpDescription(locale, "recut.media.wait_for_job"), "inputSchema": map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 15, "description": "单次最多阻塞 15 秒（Streamable HTTP 兼容，避免长阻塞连接被断开）；超时返回当前状态，需继续轮询。长任务请用短轮询，不要设接近 300 秒。"}}}},
 		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}, "ids": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "精确 assetId 列表（也接受逗号分隔字符串）；用于按已知 ID 取回完整记录，给定时忽略 kind/query 等其他过滤。"}, "kind": map[string]string{"type": "string", "description": "按素材类型过滤：image / video / audio / transcript 等。"}, "status": map[string]string{"type": "string", "description": "按状态过滤（如 completed / queued / running）；缺省排除 deleted。"}, "query": map[string]string{"type": "string", "description": "按名称模糊匹配。"}, "limit": map[string]any{"type": "integer", "description": "分页大小，默认 200，上限 500。"}, "offset": map[string]any{"type": "integer", "description": "分页偏移；结合返回的 total 判断是否还有下一页。"}}}},
 		{"name": "recut.media.asset.get", "description": mcpDescription(locale, "recut.media.asset.get"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string", "description": "要读取完整创作信息的素材 assetId。"}}}},
 		{"name": "recut.media.asset.update", "description": mcpDescription(locale, "recut.media.asset.update"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
@@ -1542,11 +1405,32 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 			"attributes": map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "整体替换：有序 typed 属性 [{key,label,type,value,options?,locked?}]；locked 结构不可改、可改值。"},
 			"attrPatch":  map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "按 key 合并的局部更新；未提供的字段保持不变，新 key 追加。"},
 		}}},
-		{"name": "recut.media.import_image", "description": mcpDescription(locale, "recut.media.import_image"), "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "本机图片路径：会话工作区相对路径或系统绝对路径（~/ 会展开）；最终文件必须落在会话工作区或目标 Project 内，Codex 原生图请先写入工作区再用相对路径归档。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
-		{"name": "recut.media.create_reference", "description": mcpDescription(locale, "recut.media.create_reference"), "inputSchema": map[string]any{"type": "object", "required": []string{"name", "url", "sourceKind"}, "properties": map[string]any{"name": map[string]string{"type": "string", "description": "来源标题。"}, "url": map[string]string{"type": "string", "description": "公开的绝对 http(s) URL；作为全局去重身份。"}, "sourceKind": map[string]string{"type": "string", "description": "如 article、web、youtube、xiaohongshu、douyin、image。"}, "summary": map[string]string{"type": "string", "description": "该来源的简短事实摘要。"}, "description": map[string]string{"type": "string", "description": "来源自身的简介或视频简介。"}, "excerpt": map[string]string{"type": "string", "description": "直接引用的原文片段，便于审阅。"}, "author": map[string]string{"type": "string", "description": "作者或发布者名称。"}, "publishedAt": map[string]string{"type": "string", "description": "发布时间（ISO-8601）。"}, "siteName": map[string]string{"type": "string", "description": "站点名称，如 The New York Times。"}, "language": map[string]string{"type": "string", "description": "内容语言代码，如 zh、en。"}, "thumbnailUrl": map[string]string{"type": "string", "description": "来源封面/缩略图 URL。"}, "content": map[string]string{"type": "string", "description": "文章或网页的完整正文（真实文章数据）；保存为 content part，默认 text/markdown。"}, "contentMimeType": map[string]string{"type": "string", "description": "正文 part 的 MIME 类型，缺省 text/markdown；限 text/*、application/json、application/xml。"}, "imageData": map[string]string{"type": "string", "description": "图片内容（base64 或 data: URL）；保存为不可变的 image part，限 20MB。"}, "imageMimeType": map[string]string{"type": "string", "description": "图片 MIME 类型，如 image/png、image/jpeg。"}, "channelName": map[string]string{"type": "string", "description": "YouTube 等视频平台的频道/账号名。"}, "channelUrl": map[string]string{"type": "string", "description": "频道主页 URL。"}, "durationSeconds": map[string]any{"type": "number", "description": "视频时长（秒）。"}, "viewCount": map[string]any{"type": "integer", "description": "播放量。"}, "likeCount": map[string]any{"type": "integer", "description": "点赞数。"}}}},
-		{"name": "recut.media.attach", "description": mcpDescription(locale, "recut.media.attach"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "projectId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string"}, "projectId": map[string]string{"type": "string"}}}},
-		{"name": "recut.media.import_url", "description": mcpDescription(locale, "recut.media.import_url"), "inputSchema": map[string]any{"type": "object", "required": []string{"url"}, "properties": map[string]any{"url": map[string]string{"type": "string", "description": "绝对 http(s) URL，限 image/video/audio、≤25MB。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称；缺省取 URL 末段。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；提供时同时关联到该项目。"}}}},
-		{"name": "recut.media.import_media", "description": mcpDescription(locale, "recut.media.import_media"), "inputSchema": map[string]any{"type": "object", "required": []string{"path"}, "properties": map[string]any{"path": map[string]string{"type": "string", "description": "本机视频/音频/图片文件路径：会话工作区相对路径或系统绝对路径（~/ 会展开）；最终文件必须落在会话工作区或目标 Project 内。"}, "name": map[string]string{"type": "string", "description": "可选的素材显示名称。"}, "mimeType": map[string]string{"type": "string", "description": "可选；缺省按扩展名/内容探测。"}, "projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省落到 workspace 级素材。"}}}},
+		{"name": "recut.media.import", "description": mcpDescription(locale, "recut.media.import"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+			"path":         map[string]string{"type": "string", "description": "本地媒体文件路径（会话工作区或目标 Project 内）；与 url/link 三选一。"},
+			"url":          map[string]string{"type": "string", "description": "直链媒体 URL（image/video/audio，≤25MB）；与 path/link 三选一。"},
+			"link":         map[string]string{"type": "string", "description": "网页/文章链接（无字节，落 kind=document）；与 path/url 三选一。"},
+			"name":         map[string]string{"type": "string", "description": "素材显示名。"},
+			"projectId":    map[string]string{"type": "string", "description": "可选 Project target。"},
+			"mimeType":     map[string]string{"type": "string", "description": "path 分支可选；缺省按扩展名/内容探测。"},
+			"sourceKind":   map[string]string{"type": "string", "description": "link 分支：article/web/youtube/xiaohongshu/douyin 等。"},
+			"summary":      map[string]string{"type": "string"},
+			"description":  map[string]string{"type": "string"},
+			"excerpt":      map[string]string{"type": "string"},
+			"author":       map[string]string{"type": "string"},
+			"publishedAt":  map[string]string{"type": "string"},
+			"siteName":     map[string]string{"type": "string"},
+			"language":     map[string]string{"type": "string"},
+			"thumbnailUrl": map[string]string{"type": "string"},
+			"content":      map[string]string{"type": "string", "description": "link 分支：正文全文，保存为 content part。"},
+			"contentMimeType": map[string]string{"type": "string"},
+			"imageData":       map[string]string{"type": "string", "description": "link 分支：base64 图片，保存为 image part。"},
+			"imageMimeType":   map[string]string{"type": "string"},
+			"channelName":     map[string]string{"type": "string"},
+			"channelUrl":      map[string]string{"type": "string"},
+			"durationSeconds": map[string]any{"type": "number"},
+			"viewCount":       map[string]any{"type": "integer"},
+			"likeCount":       map[string]any{"type": "integer"},
+		}}},
 		{"name": "recut.media.probe", "description": mcpDescription(locale, "recut.media.probe"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string", "description": "已完成的本地 video/audio/image 素材。"}}}},
 		{"name": "recut.media.frames", "description": mcpDescription(locale, "recut.media.frames"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
 			"assetId":     map[string]string{"type": "string"},
@@ -1589,42 +1473,10 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 			"language": map[string]string{"type": "string"},
 			"pace":     map[string]any{"type": "number", "description": "语速倍率，缺省 1.0。"},
 		}}},
-		{"name": "recut.media.reference.create", "description": mcpDescription(locale, "recut.media.reference.create"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
-			"assetId":   map[string]string{"type": "string"},
-			"sourceUrl": map[string]string{"type": "string", "description": "仅作溯源，不抓取、不去重。"},
-		}}},
-		{"name": "recut.media.reference.attach", "description": mcpDescription(locale, "recut.media.reference.attach"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
-			"assetId":     map[string]string{"type": "string", "description": "参考素材 assetId。"},
-			"sourceUrl":   map[string]string{"type": "string"},
-			"source":      map[string]any{"type": "object", "description": "{assetId,durationSec,width,height,fps,hasAudio}。"},
-			"transcript":  map[string]any{"type": "object", "description": "{assetId,language,wordLevel}。"},
-			"frames":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "[{atSec,assetId}]。"},
-			"sheets":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "[{range:[start,end],assetId,transcriptAssetId?}]。"},
-			"boundaries":  map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "[{atSec,kind,score?}]。"},
-			"clips":       map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "[{startSec,endSec,assetId,label?}]。"},
-			"toolVersion": map[string]string{"type": "string"},
-		}}},
-		{"name": "recut.media.asset.create", "description": mcpDescription(locale, "recut.media.asset.create"), "inputSchema": map[string]any{"type": "object", "required": []string{"name", "kind"}, "properties": map[string]any{
-			"name":       map[string]string{"type": "string"},
-			"kind":       map[string]any{"type": "string", "enum": []string{"video", "image", "audio", "code"}},
-			"content":    map[string]string{"type": "string", "description": "计划规格（富文本，可 @ 引用证据/角色/World）。"},
-			"attributes": map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "可选结构化字段 [{key,label,type,value}]。"},
-			"projectId":  map[string]string{"type": "string"},
-		}}},
 		{"name": "recut.media.understand.status", "description": mcpDescription(locale, "recut.media.understand.status"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "recut.media.understand.prepare", "description": mcpDescription(locale, "recut.media.understand.prepare"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 	}
-	return append(tools, proposalMCPToolDefinitions()...)
-}
-
-func mediaWaitTimeout(input map[string]any) time.Duration {
-	// 与 recut.job.wait 一致：单次等待封顶 15s（Streamable HTTP 兼容），避免长阻塞连接被断开。
-	max := agentJobWaitWindow
-	seconds, _ := input["timeoutSeconds"].(float64)
-	if seconds <= 0 || time.Duration(seconds*float64(time.Second)) > max {
-		return max
-	}
-	return time.Duration(seconds * float64(time.Second))
+	return tools
 }
 
 // jobMCPTool implements the unified platform job observation surface
@@ -1825,6 +1677,54 @@ func jobLogViews(logs []ShellJobLog, input map[string]any) []map[string]any {
 	return views
 }
 
+// mediaImportTool is the single import entry for the asset model: `path` (local
+// media file), `url` (direct media URL) or `link` (web/article link, landing as
+// kind=document). `mode` is explicit for the legacy aliases; otherwise it is
+// inferred from the supplied field.
+func mediaImportTool(store *Store, media *MediaService, session AgentSession, input map[string]any, mode string) (any, error) {
+	if mode == "" {
+		switch {
+		case stringValue(input["path"]) != "":
+			mode = "path"
+		case stringValue(input["link"]) != "":
+			mode = "link"
+		case stringValue(input["url"]) != "":
+			mode = "url"
+		default:
+			return nil, errors.New("import: exactly one of path, url or link is required")
+		}
+	}
+	switch mode {
+	case "link":
+		linkURL := stringValue(input["link"])
+		if linkURL == "" {
+			linkURL = stringValue(input["url"])
+		}
+		asset, err := media.CreateReferenceAsset(ReferenceAssetInput{
+			Name: stringValue(input["name"]), URL: linkURL, SourceKind: stringValue(input["sourceKind"]),
+			Summary: stringValue(input["summary"]), Description: stringValue(input["description"]), Excerpt: stringValue(input["excerpt"]),
+			Author: stringValue(input["author"]), PublishedAt: stringValue(input["publishedAt"]), SiteName: stringValue(input["siteName"]),
+			Language: stringValue(input["language"]), ThumbnailURL: stringValue(input["thumbnailUrl"]),
+			Content: stringValue(input["content"]), ContentMimeType: stringValue(input["contentMimeType"]),
+			ImageData: stringValue(input["imageData"]), ImageMimeType: stringValue(input["imageMimeType"]),
+			ChannelName: stringValue(input["channelName"]), ChannelURL: stringValue(input["channelUrl"]),
+			DurationSec: numericValue(input["durationSeconds"]), ViewCount: int64(numericValue(input["viewCount"])), LikeCount: int64(numericValue(input["likeCount"])),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return mediaAssetView(asset), nil
+	case "url":
+		return importMediaURL(media, input)
+	default:
+		asset, err := importLocalMedia(store, media, session, input)
+		if err != nil {
+			return nil, err
+		}
+		return asset, nil
+	}
+}
+
 func importNativeImage(store *Store, media *MediaService, session AgentSession, input map[string]any) (MediaAsset, error) {
 	rawPath, _ := input["path"].(string)
 	name, _ := input["name"].(string)
@@ -2022,45 +1922,6 @@ func optionalNumber(value any) *float64 {
 	return &number
 }
 
-// referenceAttachFromMCP decodes the loosely-typed reference.attach evidence via
-// a JSON round-trip into the typed contract.
-func referenceAttachFromMCP(input map[string]any) (ReferenceAttachInput, error) {
-	attach := ReferenceAttachInput{
-		AssetID:     stringValue(input["assetId"]),
-		SourceURL:   stringValue(input["sourceUrl"]),
-		ToolVersion: stringValue(input["toolVersion"]),
-	}
-	if raw, ok := input["source"]; ok && raw != nil {
-		source := ReferenceSource{}
-		if err := decodeJSONValue(raw, &source); err != nil {
-			return ReferenceAttachInput{}, fmt.Errorf("source must be an object: %w", err)
-		}
-		attach.Source = &source
-	}
-	if raw, ok := input["transcript"]; ok && raw != nil {
-		transcript := ReferenceTranscript{}
-		if err := decodeJSONValue(raw, &transcript); err != nil {
-			return ReferenceAttachInput{}, fmt.Errorf("transcript must be an object: %w", err)
-		}
-		attach.Transcript = &transcript
-	}
-	for key, target := range map[string]any{
-		"frames":     &attach.Frames,
-		"sheets":     &attach.Sheets,
-		"boundaries": &attach.Boundaries,
-		"clips":      &attach.Clips,
-	} {
-		raw, ok := input[key]
-		if !ok || raw == nil {
-			continue
-		}
-		if err := decodeJSONValue(raw, target); err != nil {
-			return ReferenceAttachInput{}, fmt.Errorf("%s must be an array: %w", key, err)
-		}
-	}
-	return attach, nil
-}
-
 func decodeJSONValue(raw any, target any) error {
 	data, err := json.Marshal(raw)
 	if err != nil {
@@ -2175,7 +2036,6 @@ func mediaGenerationSchema(textDescription string, imageReferences, videoReferen
 		"route":          map[string]any{"type": "string", "description": "可选的同类媒体 route；未提供时使用项目默认 route。"},
 		"output":         map[string]any{"type": "object", "description": "当前模型契约允许的可选输出参数。"},
 		"idempotencyKey": map[string]any{"type": "string"},
-		"mode":           map[string]any{"type": "string", "enum": []string{"propose", "generate"}, "description": "缺省按策略：video（及标记 requiresProposal 的高价模型）先 propose 落提案，用户确认后才生成；generate 为直生逃生门。"},
 		"modelId":        map[string]any{"type": "string", "description": "可选；与 credentialId 成对时直连该模型。"},
 		"credentialId":   map[string]any{"type": "string", "description": "可选；与 modelId 成对时直连该凭据。"},
 	}
@@ -2194,8 +2054,10 @@ func mediaGenerationSchema(textDescription string, imageReferences, videoReferen
 	return map[string]any{"type": "object", "required": []string{"text"}, "properties": properties}
 }
 
-// proposalExtraProperties are the proposal-only fields shared by generation and
-// propose tools: reference role bindings and the reviewable recipe extras.
+// proposalExtraProperties are the reviewable recipe extras accepted by the
+// generation tools (reference role bindings, dimensions, review note). The
+// propose/confirm ops themselves are internal (platform policy + UI), not part
+// of the agent surface.
 var proposalExtraProperties = map[string]any{
 	"references": map[string]any{"type": "array", "description": "生成参考的角色绑定记录（顺序即提交顺序）；每项 {id, kind, role, label}，role↔kind 不匹配或未知 role 会被拒绝。世界语境生图/视频为硬前置：画面会出现主角色时必须带 `role=\"character\"` 的角色参考图，场景/风格锚点按 role 传入；只有明确不出现任何角色的纯空场景才可为空。",
 		"items": map[string]any{"type": "object", "required": []string{"id"}, "properties": map[string]any{
@@ -2213,52 +2075,6 @@ var proposalExtraProperties = map[string]any{
 		"appId": map[string]any{"type": "string"}, "projectId": map[string]any{"type": "string"},
 		"worldId": map[string]any{"type": "string"}, "entityId": map[string]any{"type": "string"},
 	}},
-}
-
-func proposalMCPToolDefinitions() []map[string]any {
-	proposeProperties := map[string]any{
-		"capability":    map[string]any{"type": "string", "enum": []string{"image.generate", "video.generate", "speech.generate"}},
-		"text":          map[string]any{"type": "string", "description": "生成提示词。"},
-		"route":         map[string]any{"type": "string"},
-		"modelId":       map[string]any{"type": "string"},
-		"credentialId":  map[string]any{"type": "string"},
-		"output":        map[string]any{"type": "object"},
-		"imageAssetIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
-		"videoAssetIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
-		"audioAssetIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
-	}
-	for key, value := range proposalExtraProperties {
-		proposeProperties[key] = value
-	}
-	updateProperties := map[string]any{
-		"assetId":      map[string]any{"type": "string", "description": "要修改的提案资产 assetId。"},
-		"capability":   map[string]any{"type": "string", "enum": []string{"image.generate", "video.generate", "speech.generate"}, "description": "可选；给 content-first 占位素材补生成能力（占位由 asset.create 建，默认无 capability）。"},
-		"route":        map[string]any{"type": "string", "description": "可选；生成路由 id，缺省走该 capability 的默认路由。"},
-		"text":         map[string]any{"type": "string", "description": "新的生成提示词。占位素材省略时用其 content 作为规格。"},
-		"modelId":      map[string]any{"type": "string"},
-		"credentialId": map[string]any{"type": "string"},
-		"output":       map[string]any{"type": "object"},
-	}
-	for _, key := range []string{"references", "aspectRatio", "durationSec", "note"} {
-		updateProperties[key] = proposalExtraProperties[key]
-	}
-	confirmProperties := map[string]any{
-		"assetId":      map[string]any{"type": "string", "description": "要确认的提案资产 assetId。"},
-		"text":         map[string]any{"type": "string"},
-		"modelId":      map[string]any{"type": "string"},
-		"credentialId": map[string]any{"type": "string"},
-		"output":       map[string]any{"type": "object"},
-	}
-	for _, key := range []string{"references", "aspectRatio", "durationSec", "note"} {
-		confirmProperties[key] = proposalExtraProperties[key]
-	}
-	return []map[string]any{
-		{"name": "recut.media.propose", "description": "创建一个生成提案（任意 capability）：校验模型/参考后落为全局 proposed 资产，不建任务、不花钱，等用户确认。参考用 references[] 声明 role；视频默认也走本入口。世界语境提案为硬前置：先 recut.worlds.get({ worldId }) 读 references[]，画面会出现主角色时必须带 `role=\"character\"` 的角色参考图，场景/风格锚点按 role 传入；只有明确不出现任何角色的纯空场景才可为空。", "inputSchema": map[string]any{"type": "object", "required": []string{"capability", "text"}, "properties": proposeProperties}},
-		{"name": "recut.media.list_proposals", "description": "列出 proposed 状态的生成提案（可按 projectId 过滤，分页）。用于查看待确认/失败/已确认的提案；确认权只在用户。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]any{"type": "string"}, "workspace": map[string]any{"type": "boolean"}, "limit": map[string]any{"type": "integer"}, "offset": map[string]any{"type": "integer"}}}},
-		{"name": "recut.media.update_proposal", "description": "确认前原地修改提案配方（能力/路由/提示词/参考/模型/参数/画幅/时长/备注）。仅对 proposed 资产生效，其它状态拒绝。用于把 asset.create 的 content-first 占位素材在同一 assetId 上补全生成配方：传 capability/modelId/output（省略 text 时用其 content 作提示词），再由用户 confirm 原位生成。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": updateProperties}},
-		{"name": "recut.media.confirm_proposal", "description": "用户确认提案：把同一 proposed 资产转为真实生成任务（复用 assetId，引用无需重指）。这是唯一花钱动作；Agent 不得代用户确认，只由 UI/用户显式触发。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": confirmProperties}},
-		{"name": "recut.media.reject_proposal", "description": "放弃一个提案（软删墓碑，保留记录）。仅由用户/UI 触发。", "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]any{"type": "string"}}}},
-	}
 }
 
 func speechGenerationSchema() map[string]any {
@@ -2386,61 +2202,6 @@ func proposalOriginFromMCP(input map[string]any) *ProposalOrigin {
 	return origin
 }
 
-// proposalPatchFromMCP collects only the fields the caller actually supplied;
-// absent fields stay nil so the merge leaves them unchanged.
-func proposalPatchFromMCP(input map[string]any) ProposalPatch {
-	patch := ProposalPatch{}
-	// capability/route 让 content-first 占位素材（asset.create，无 capability）能在
-	// 同一 assetId 上补全生成配方，再 confirm；不再需要另建一个提案资产。
-	if value, ok := input["capability"].(string); ok {
-		patch.Capability = &value
-	}
-	if value, ok := input["route"].(string); ok {
-		patch.Route = &value
-	}
-	if value, ok := input["text"].(string); ok {
-		patch.Prompt = &value
-	} else if value, ok := input["prompt"].(string); ok {
-		patch.Prompt = &value
-	}
-	if value, ok := input["modelId"].(string); ok {
-		patch.ModelID = &value
-	}
-	if value, ok := input["credentialId"].(string); ok {
-		patch.CredentialID = &value
-	}
-	if value, ok := input["output"].(map[string]any); ok {
-		patch.Output = value
-	}
-	if raw, present := input["references"]; present && raw != nil {
-		references := proposalReferencesFromMCP(input)
-		patch.References = &references
-	}
-	if value, ok := input["aspectRatio"].(string); ok {
-		patch.AspectRatio = &value
-	}
-	if _, present := input["durationSec"]; present {
-		value := numericValue(input["durationSec"])
-		patch.DurationSec = &value
-	}
-	if value, ok := input["note"].(string); ok {
-		patch.Note = &value
-	}
-	return patch
-}
-
-// proposalPatchPointerFromMCP returns nil when the caller supplied no patch
-// field, so confirm uses the stored recipe untouched.
-func proposalPatchPointerFromMCP(input map[string]any) *ProposalPatch {
-	for _, key := range []string{"capability", "route", "text", "prompt", "modelId", "credentialId", "output", "references", "aspectRatio", "durationSec", "note"} {
-		if _, present := input[key]; present {
-			patch := proposalPatchFromMCP(input)
-			return &patch
-		}
-	}
-	return nil
-}
-
 // materialUpdateFromMCP maps the asset.update tool arguments onto the media
 // layer input. Presence of the key (not its value) decides whether a field is
 // written, so content:"" can intentionally clear the body.
@@ -2525,7 +2286,7 @@ func mediaAssetView(asset MediaAsset) map[string]any {
 	if asset.Status == AssetStatusProposed {
 		view["prompt"] = stringValue(asset.Metadata["prompt"])
 		view["referenceIds"] = asset.Metadata["referenceIds"]
-		view["proposal"] = asset.Metadata["proposal"]
+		view["generation"] = asset.Metadata["generation"]
 	}
 	return view
 }

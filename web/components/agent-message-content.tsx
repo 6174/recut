@@ -18,7 +18,7 @@ import { parseInlineRefs } from "@/lib/rich-composer/protocol/parse";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 
-type MediaType = "image" | "video" | "audio" | "transcript" | "reference";
+type MediaType = "image" | "video" | "audio" | "transcript" | "document";
 type Segment =
   | { kind: "text"; value: string }
   | { kind: "media"; assetID: string; type: MediaType }
@@ -84,9 +84,9 @@ function MediaPreview({ apiBase, assetID, onOpen, type }: { apiBase: string; ass
       ? { status: "failed", error: t("agent.message.assetUnavailable") }
       : { status: "checking", error: "" };
   const url = mediaContentURL(apiBase, assetID);
-  const previewKey = type === "image" ? "agent.message.preview.image" : type === "video" ? "agent.message.preview.video" : type === "transcript" ? "agent.message.preview.transcript" : type === "reference" ? "agent.message.preview.reference" : "agent.message.preview.audio";
+  const previewKey = type === "image" ? "agent.message.preview.image" : type === "video" ? "agent.message.preview.video" : type === "transcript" ? "agent.message.preview.transcript" : type === "document" ? "agent.message.preview.reference" : "agent.message.preview.audio";
   const label = t(previewKey);
-  const Icon = type === "image" ? ImageIcon : type === "video" ? Video : type === "transcript" ? Captions : type === "reference" ? Link2 : Music2;
+  const Icon = type === "image" ? ImageIcon : type === "video" ? Video : type === "transcript" ? Captions : type === "document" ? Link2 : Music2;
   return <button aria-label={interpolate(t("agent.message.open"), { label })} className="group block w-56 overflow-hidden rounded-sm border bg-card text-left shadow-sm transition hover:border-primary hover:shadow-md" onClick={onOpen} type="button">{state.status === "completed" ? type === "image" ? <img alt={label} className="aspect-video w-full object-cover" src={url} /> : type === "video" ? <VideoFrame alt={label} className="aspect-video w-full" src={url} /> : <div className="grid aspect-video place-items-center bg-muted text-muted-foreground"><Icon className="size-6" /></div> : <MediaPreviewState state={state} />}<span className="flex items-center gap-1.5 border-t px-2 py-1.5 font-mono text-[10px] text-muted-foreground group-hover:text-foreground"><Icon className="size-3" />{label} · {t("agent.message.clickToView")}</span></button>;
 }
 

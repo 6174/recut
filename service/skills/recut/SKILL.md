@@ -76,7 +76,7 @@ references: world-onboarding.md
 
 ## 媒体
 
-平台媒体任务使用 `recut.image.generate`、`recut.video.generate`、`recut.speech.generate`、`recut.media.get_job`、`recut.media.wait_for_job`。调用前必须检查 `recut.context.media.readiness[capability].status`：只有 `ready` 才调用对应 Recut 生成工具；`not-configured` 时直接说明用户需要在 Recut 设置中连接 Provider 并为该用途选择默认模型；当语音 route 报告 `provider:"local-audio"` 时本机 TTS 已配置，先看音频/转写是否由 Audio Studio 承载（`audio.transcribe`/`audio.synthesize`/`audio.characters`/`audio.save`），`recut.speech.generate` 的本地路由仅在 daemon 已接 Audio Studio 桥时可用；图片为 `codex-native` 时使用宿主原生生图、不调用 `recut.image.generate`，把生成文件写入当前会话工作区根目录（如 `cover.png`），再按上文 OutputFormat: url 一节以深链引用，需要挂到项目时用 `recut.media.import_image` 传入工作区相对路径与目标 `projectId` 换取真实 `assetId`。三种生成工具都是异步 job：提交即返回稳定 jobId 与 assetIds（先 queued，Daemon 原位推进到 completed/failed）。**视频默认先落提案**：`recut.video.generate` 缺省 `mode:"propose"` 只创建一个 `proposed` 素材（不建任务、不花钱），用 `recut.media.list_proposals`/`update_proposal` 查看与迭代，确认权在用户（`recut.media.confirm_proposal` 只由 UI/用户触发，Agent 不得代确认）；图片/语音缺省直生。**默认先落位、不空等**：宿主 surface（画布节点 / 时间线素材 / 实体 media 属性）支持时，拿到 `assetId` 立即落位并标记生成中，产物就绪后自动显示；只有下一步依赖产物内容或要交付时才用返回的 jobId 等到 `completed`。只有 `completed` 才能声称素材可用；`failed` 要如实报告 provider 错误，`queued`/`running` 是仍在进行而非完成。禁止用 HyperFrames、ffmpeg、浏览器自动化或本地渲染替代平台生成。你从不读取其他 App 的私有数据库；跨 App 理解走 owner App 声明的 read operation。
+平台媒体任务使用 `recut.image.generate`、`recut.video.generate`、`recut.speech.generate`、`recut.job.status`、`recut.job.wait`。调用前必须检查 `recut.context.media.readiness[capability].status`：只有 `ready` 才调用对应 Recut 生成工具；`not-configured` 时直接说明用户需要在 Recut 设置中连接 Provider 并为该用途选择默认模型；当语音 route 报告 `provider:"local-audio"` 时本机 TTS 已配置，先看音频/转写是否由 Audio Studio 承载（`audio.transcribe`/`audio.synthesize`/`audio.characters`/`audio.save`），`recut.speech.generate` 的本地路由仅在 daemon 已接 Audio Studio 桥时可用；图片为 `codex-native` 时使用宿主原生生图、不调用 `recut.image.generate`，把生成文件写入当前会话工作区根目录（如 `cover.png`），再按上文 OutputFormat: url 一节以深链引用，需要挂到项目时用 `recut.media.import` 传入工作区相对路径与目标 `projectId` 换取真实 `assetId`。三种生成工具都是异步提交：提交即返回稳定 assetId（图片/语音先排队，Daemon 原位推进到完成/失败；视频由平台落为待用户确认态，不建任务、不花钱）。**对 AI 而言所有素材都是「直接生成」**：调 generate → 拿 assetId → 立即落位 → 继续；没有 `mode`，也不要向用户使用「提案」词汇。视频由用户在素材面板/画布确认后才真正生成，**Agent 不得代确认**。**默认先落位、不空等**：宿主 surface（画布节点 / 时间线素材 / 实体 media 属性）支持时，拿到 `assetId` 立即落位并标记生成中，产物就绪后自动显示；只有下一步依赖产物内容或要交付时才用返回的 jobId 等到 `completed`。只有 `completed` 才能声称素材可用；`failed` 要如实报告 provider 错误，`queued`/`running` 是仍在进行而非完成。禁止用 HyperFrames、ffmpeg、浏览器自动化或本地渲染替代平台生成。你从不读取其他 App 的私有数据库；跨 App 理解走 owner App 声明的 read operation。
 
 素材发现用 `recut.media.list_assets`，永远不要全量拉取：已知 ID 用 `ids` 精确取回，否则用 `kind` / `query` / `limit` / `offset` 过滤分页，按返回的 `total` 判断是否翻页。平台对任何工具输出执行 48KB 预算：超限结果会被截断为 `{truncated, totalBytes, preview, fullOutputPath}` 信封——把它当作数据来决策（缩小查询参数或读文件），不要重复提交同样的全量调用。
 
@@ -91,7 +91,7 @@ App 操作按以下顺序解析状态命名空间：
 1. 显式 `__recut.target.projectId`——该 Project 必须存在且由该 App 持有。
 2. 否则——该 App 的全局状态（appstate），`ctx.project` 为 `null`。
 
-媒体工具是平台持有的：它们接受 `projectId` 参数，否则创建可稍后用 `recut.media.attach` 挂到 Project 的 workspace 级素材。你从不读取其他 App 的私有数据库；跨 App 理解走 owner App 声明的 read operation。
+媒体工具是平台持有的：它们接受 `projectId` 参数，否则创建可稍后用 `recut.editor.asset.add` 加入项目素材库。你从不读取其他 App 的私有数据库；跨 App 理解走 owner App 声明的 read operation。
 
 ## App 管理
 
@@ -105,15 +105,15 @@ App 操作按以下顺序解析状态命名空间：
 
 `recut.worlds.*` 是全局工具：**`recut.worlds.get` 是读取 World 的默认单次入口**——一次获得身份、世界技能（`skill`/world.md 全文）、角色/故事/场景/风格事实（含 `body` 长文）、规则约束与证据（`assetId` 或 `url` 双源），以及可引用项 `references[]`（从实体 media 属性派生，含建议生成 role）。`recut.worlds.list` 发现 Worlds，`recut.worlds.get` 确认身份，`recut.worlds.entities.list/get` 浏览实体。**不存在隐式当前 World**：每次调用都要显式传 `worldId`，`entityId` 只在它的 `worldId` 内有效。
 
-**世界生图/生视频硬规则（未过不提交）**：世界语境下调用 `recut.image.generate` / `recut.video.generate` / `recut.media.propose` 前，必须先 `recut.worlds.get({ worldId })` 读 `references[]`，把合适参考图按 role 传入（画面会出现主角色 → 必带 `role="character"`；场景/风格/色卡锚点分别用 `environment` / `style-ref` / `color-card`）。只有明确不出现任何角色的纯空场景才允许不带参考图；「忘了先读」不是理由。完整口径见全局技能 `recut-worlds`。
+**世界生图/生视频硬规则（未过不提交）**：世界语境下调用 `recut.image.generate` / `recut.video.generate` 前，必须先 `recut.worlds.get({ worldId })` 读 `references[]`，把合适参考图按 role 传入（画面会出现主角色 → 必带 `role="character"`；场景/风格/色卡锚点分别用 `environment` / `style-ref` / `color-card`）。只有明确不出现任何角色的纯空场景才允许不带参考图；「忘了先读」不是理由。完整口径见全局技能 `recut-worlds`。
 
 **World 工具怎么调（写实体/关系/类型/证据、画布 ops 与 promote、世界内媒体生成）读全局技能 `recut-worlds`**——World Canvas 是没有独立安装包的第一公民 App，它有自己的操作技能。world.md 描述的是**某一个世界的内容与生产工作流**；`recut-worlds` 描述的是**通用工具操作**，两者不要混。
 
 World 分三类来源（`origin`）：`local`（用户自建，可编辑）、`platform`（平台内置，daemon 自动同步）、`published`（发布安装，P4）。**非 local 世界只读**：任何写工具（update/entity/relation/entityType/recut.worlds.doc.update/recut.worlds.promote/skill_md）会返回 `WORLD_READ_ONLY`——这是边界不是失败，按错误 details 向用户说明并**提议 `recut.worlds.fork`**，经用户确认在本地副本上继续。平台世界的 world.md 是该垂直能力的**生产工作流**（如小黑配图：先出 shot list → 逐张生成 → 按质检口径复核 → 交付），必须按其执行；技能中的「资源口径」章节约束证据的使用方式（如“风格示例仅作低频视觉校准，不进入默认生成路径”）。
 
-素材双源：媒体在实体里是一条 **media 属性**，值为 `{assetId?|url?, name?, kind?, segment?}`——`assetId` 指向素材库，`url` 是绝对 http(s) 远程资源（provider 接受 URL 时直接引用，需要本地文件或入库时调用 `recut.media.import_url`，≤25MB、内容寻址去重）；一次性可用项由 `recut.worlds.get` 的 `references[]` 给出。当消息携带 World/Entity 引用，或 Project 的 `workflow.context`/`ctx.creationContext` 报出 `creationContext` 时，在该次工作期间把它当作权威 Canon：遵守 `constraints.always/never`、优先使用被引用的素材、绝不凭空捏造 Canon。**不要**调用写入类工具（`recut.worlds.create/update/fork/delete/entity/relation/entityType/recut.worlds.doc.update/recut.worlds.promote`），除非用户明确要求；非 local 世界的修改诉求走 Fork。删除是永久操作：只在用户明确要求且确认了 World 名称时调用 `recut.worlds.delete`（素材库不受影响）。
+素材双源：媒体在实体里是一条 **media 属性**，值为 `{assetId?|url?, name?, kind?, segment?}`——`assetId` 指向素材库，`url` 是绝对 http(s) 远程资源（provider 接受 URL 时直接引用，需要本地文件或入库时调用 `recut.media.import`，≤25MB、内容寻址去重）；一次性可用项由 `recut.worlds.get` 的 `references[]` 给出。当消息携带 World/Entity 引用，或 Project 的 `workflow.context`/`ctx.creationContext` 报出 `creationContext` 时，在该次工作期间把它当作权威 Canon：遵守 `constraints.always/never`、优先使用被引用的素材、绝不凭空捏造 Canon。**不要**调用写入类工具（`recut.worlds.create/update/fork/delete/entity/relation/entityType/recut.worlds.doc.update/recut.worlds.promote`），除非用户明确要求；非 local 世界的修改诉求走 Fork。删除是永久操作：只在用户明确要求且确认了 World 名称时调用 `recut.worlds.delete`（素材库不受影响）。
 
-**新世界从空开始（无模板空壳实体）**：`recut.worlds.get({ worldId })` 的 `readiness` 返回就绪度（skeleton/draft/ready）、分数与按优先级排序的缺失清单（含原因与建议动作），并按世界类型推荐起点场景蓝图。用户要求完善或搭建一个 World 时，按 onboarding 标准工作流执行：get 的 readiness.missing 取工作清单 → 消化用户素材（链接用 `recut.media.create_reference` 登记）→ research 补全（只依据素材，未覆盖项标注"需要你补充"）→ 生成候选图交用户挑选 → 结构化提案 → 用户确认后逐条写回（携带 `expectedRevisionId`，冲突即停）。完整工作流经 `recut.skills.reference({ appId: "recut.platform", skillId: "recut", path: "references/world-onboarding.md" })` 读取。
+**新世界从空开始（无模板空壳实体）**：`recut.worlds.get({ worldId })` 的 `readiness` 返回就绪度（skeleton/draft/ready）、分数与按优先级排序的缺失清单（含原因与建议动作），并按世界类型推荐起点场景蓝图。用户要求完善或搭建一个 World 时，按 onboarding 标准工作流执行：get 的 readiness.missing 取工作清单 → 消化用户素材（链接用 `recut.media.import` 登记）→ research 补全（只依据素材，未覆盖项标注"需要你补充"）→ 生成候选图交用户挑选 → 结构化提案 → 用户确认后逐条写回（携带 `expectedRevisionId`，冲突即停）。完整工作流经 `recut.skills.reference({ appId: "recut.platform", skillId: "recut", path: "references/world-onboarding.md" })` 读取。
 
 ## 文件系统与原生文件工具
 

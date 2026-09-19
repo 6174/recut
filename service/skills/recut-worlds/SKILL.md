@@ -89,7 +89,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 4. **草稿免费**：`isProvisional: true` 的实体是探索草稿，不产 revision、不进 Canon、不计入 readiness；用 `recut.worlds.entity` op=`confirm` 转正。
 5. **删除是软删除**：`recut.worlds.entity` op=`archive` / `relation` op=`archive` = 归档（`archived_at` + 墓碑 + changeLog，可 `restore` 恢复），画布元素删除 = 本地移除。`worlds.delete` 是永久操作，只在用户明确要求并确认世界名称时调用；`evidence.archive` 是归档不是删除；**底层 media asset 永不因世界内容删除而删除**。
 6. **生成产物默认不进 Canon**：见下。
-7. **视频先提案、用户确认**：视频（及标记 `requiresProposal` 的高价模型）必须先落**全局提案资产**（`status=proposed`，不花钱），再把该 `assetId` 写进画布媒体元素；**绝不直接直生**。确认权只属于用户，Agent 不代确认。图片/语音成本低，可直接生成——拿到 `assetId` 就落「图片节点 + 属性边」（`assetStatus:"generating"`），不等生成完成。图片/语音虽可直接生成，但**同样必须先过上面的「生图硬规则」**：先读 `references[]`、带对 role 的参考图，再提交。
+7. **视频默认待用户确认，图片/语音直接生成**：`recut.video.generate` 会按平台策略落一个**待用户确认**的全局素材（不花钱），把该 `assetId` 写进画布媒体元素，由用户在画布确认后才真正生成；**Agent 只提交与落位，不代确认**。图片/语音成本低，拿到 `assetId` 就落「图片节点 + 属性边」（`assetStatus:"generating"`），不等生成完成。图片/语音虽可直接生成，但**同样必须先过上面的「生图硬规则」**：先读 `references[]`、带对 role 的参考图，再提交。
 
 ## 读世界的顺序（生成 / 编辑前必做）
 
@@ -98,7 +98,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 1. **`recut.worlds.get({ worldId })`（单一入口，缺省整库）** —— 一次拿到：身份、**world.md（`skillMd`）**、**实体图**（`entities` 带 media 锚点 + `relations`）、**整库事实**（`facts`：角色/场景/风格/故事字段与 body）、`constraints`、全部 `references[]` 与就绪缺口 `missing`。据此知道「有哪些角色/场景/风格/故事、谁是主角色、每个实体有哪些参考图、它们怎么关联」。**不要习惯性传 `selection` 只取目标实体**：那会丢掉主角色与风格锚点；只有世界很大、确实要聚焦时才用 selection。
 2. **按需深读** —— 某实体完整字段/正文用 `recut.worlds.entities.get`；大世界用 `recut.worlds.entities.list`（`typeId`/`parentId`/`text` 分页）；`world.get` 返回 `graphTruncated=true` 时必须分页补读，不要假装世界只有返回的那些。
 
-**硬规则（生图 / 生视频通用，未过不提交）**：任何世界语境下的 `recut.image.generate` / `recut.video.generate` / `recut.media.propose`，提交前必须先取参考图，不许「纯文本直出」：
+**硬规则（生图 / 生视频通用，未过不提交）**：任何世界语境下的 `recut.image.generate` / `recut.video.generate`，提交前必须先取参考图，不许「纯文本直出」：
 
 1. 先 `recut.worlds.get({ worldId })` 读 `references[]`（或 `world.get` 的实体 media 锚点），逐条对照本次画面。
 2. 画面会出现主角色 → 必须带该角色参考图，`role="character"`。
@@ -108,16 +108,16 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 
 **自查（不过即停）**：这次生成引用了哪些 `references`？每条 role 是什么？画面里的主角色对应哪一条？答不上来就从 `references[]` 补齐再提交。
 
-## 世界内的媒体生成：先提案、后确认
+## 世界内的媒体生成：读世界 → 生成 → 落位（视频待用户确认）
 
-在世界/画布语境里生成媒体，走「读世界 → 写提示词 → 视频落提案（用户确认后生成）/ 图音提交即落位」：
+在世界/画布语境里生成媒体：**调 generate → 拿 assetId → 落位**；视频由平台落为待用户确认态，用户在画布确认后才生成。
 
 1. **读**：先按上一节《读世界的顺序》——`recut.worlds.get({ worldId })` 一次拿到 world.md + 实体图 + 整库事实 + `references[]`（先不传 selection）。`references[]` 是从实体 media 属性派生的可引用项（`{id,label,kind,role,source,assetId/url,entityId}`，`role` 是建议值）：世界风格（风格实体、world.md 的视觉语言）就是 **STYLE LOCK 来源**；主角色参考图就是**角色一致性锚点**。
 2. **写提示词**：用 `recut-director（references/generation-prompt）` 的骨架——STYLE LOCK 逐字冻结；参考用受控 role 声明（词表权威见该技能《参考锚点表达规则》），引用世界的角色、风格、示例图与音色。
 3. **解析绑定**：把参考导出为 `references: [{id, kind, role, label}]`（`id` = assetId），按**出现顺序**得到 `referenceIds`；任一 role 与 kind 不匹配、或 prompt/model 缺失即拒绝提交（fail closed）。
 4. **执行**：
-   - **视频**：**先落全局提案，绝不直生**。调用 `recut.video.generate`（默认 propose）或 `recut.media.propose` 得到 proposed 资产，再把 `assetId` 写进画布媒体元素；由用户在画布上确认后才真正生成（见下）。
-   - **图片 / 语音**：成本低，直接调用 `recut.image.generate` / `recut.speech.generate`。返回的 `assetIds` **立即可用**，务必**提交即落位**（见下「生成中节点 + 属性边」），不要用 `recut.job.wait` 把落位堵在终态之后。
+   - **视频**：调用 `recut.video.generate` 得到**待用户确认**的 `assetId`，把它写进画布媒体元素；由用户在画布上确认后才真正生成（见下）。
+   - **图片 / 语音**：直接调用 `recut.image.generate` / `recut.speech.generate`。返回的 `assetIds` **立即可用**，务必**提交即落位**（见下「生成中节点 + 属性边」），不要用 `recut.job.wait` 把落位堵在终态之后。
 5. **落位**：图片 / 语音拿到 `assetId` 就**立即**在画布上落一个**图片节点**，并用**属性边**把它连到目标实体——「节点 + 边」才是实体的一条**可见属性**（如「环境卡」）；只写实体 attrs 不会在画布上出现节点。`assetStatus:"generating"` 让画布先显示等待态。
 6. **可追溯**：`references` 就是「这次生成引用了什么、各自什么 role」的绑定记录，随节点保存，可重生成、可回溯 Canon。
 
@@ -199,19 +199,17 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 
 **提交前自查（未过不提交）**：这次**生图 / 生视频**引用了几条参考、各是什么 role？画面里会出现主角色，却没有任何 `role="character"` 的参考图 → 停下，从 `brief.references[]` / `world.get` 实体 media 锚点补上再提交。世界已有场景 / 风格 / 色卡锚点时同样要带入。world.md 里「涉及主角色必须传角色设定图」是硬约束，不是建议。只想生成纯空场景（明确不出现任何角色）时才可省略 `character`；「这次忘了先读 `references[]`」不是省略理由。
 
-### 视频必须先提案（proposal gate，全局资产）
+### 视频默认待用户确认（全局资产，平台策略）
 
-视频（及其它高价生成）走**「先提案、后确认」**，而提案本体是**全局素材库里的一个 `proposed` 资产**（不是画布私有字段）：它带着完整配方（prompt/参考+role/模型/参数/画幅/时长/备注）落进素材库，画布只引用它的 `assetId`。状态与内容都读资产——确认后**复用同一 `assetId`** 转成 `queued`→`running`→`completed`，画布元素无需重指。
+视频（及其它高价生成）由平台落为**全局素材库里的一个待确认资产**（不是画布私有字段）：它带着完整配方（prompt/参考+role/模型/参数/画幅/时长/备注）落进素材库，画布只引用它的 `assetId`。确认后**复用同一 `assetId`** 转成生成中→完成，画布元素无需重指。
 
-**Agent 只做两步**：① 用媒体工具落提案；② 用 `recut.worlds.doc.update` 把 `assetId` 写进媒体元素，然后停下等用户确认。
-
-`recut.video.generate` 默认就是 propose（返回 proposed 资产），也可用 `recut.media.propose` 显式指定 capability；`mode:"generate"` 是直生逃生门，画布语境不要用。确认前可用 `recut.media.update_proposal` 原地改配方、`recut.media.list_proposals` 查看状态。
+**Agent 只做两步**：① 调 `recut.video.generate`；② 用 `recut.worlds.doc.update` 把返回的 `assetId` 写进媒体元素，然后停下等用户确认。
 
 ```jsonc
-// ① 落提案（视频默认 propose；references 是绑定记录，顺序即提交顺序）
+// ① 提交（references 是绑定记录，顺序即提交顺序）
 // recut.video.generate({ text, modelId?, credentialId?, imageAssetIds?/videoAssetIds?/audioAssetIds?,
 //   references:[{id,kind,role,label}], aspectRatio?, durationSec?, note?, batchId? })
-// → { assetId, status:"proposed", proposal:{...}, referenceIds:[...] }
+// → { assetId, referenceIds:[...] }
 
 // ② 画布只引资产：媒体元素 props.assetId + assetStatus（画布据此渲染「待确认」态）
 {
@@ -228,18 +226,18 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 
 规则：
 
-- **提案内容与状态都在资产**：画布不再写 `props.proposal`（旧元素仍可只读回退）。`recut.media.list_proposals` / `recut.worlds.proposals.list` 列出的都是这些 `proposed` 资产。
-- `references` 是这次生成的**绑定记录**（`id`=assetId、`kind`、`role`、`label`），也是模型提交顺序依据；role 必须与 kind 匹配（`voice/sfx/music` 只能 audio，`color-card` 只能 image），否则提案会被拒绝。
-- `modelId` 留空则确认时由用户选；不确定当前可用模型时先留空，不要编造。`aspectRatio` / `durationSec` 按世界或分镜口径填。
-- 一次可落多条（同一场戏的分镜，`batchId` 归组），用户逐条确认或放弃（`recut.media.reject_proposal` 放弃）。
-- **Agent 的正确结尾**：落完提案并放上画布后，告诉用户「已提交 N 条视频提案，请在画布上确认生成」并停下。**不要**替用户确认（`recut.media.confirm_proposal` 只由 UI/用户触发）、不要为「跑通」改走直生、也不要自己轮询采纳。
+- **内容与状态都在资产**：画布不写 `props.proposal`（旧元素仍可只读回退）。
+- `references` 是这次生成的**绑定记录**（`id`=assetId、`kind`、`role`、`label`），也是模型提交顺序依据；role 必须与 kind 匹配（`voice/sfx/music` 只能 audio，`color-card` 只能 image），否则会被拒绝。
+- `modelId` 留空则由用户在确认时选；不确定当前可用模型时先留空，不要编造。`aspectRatio` / `durationSec` 按世界或分镜口径填。
+- 一次可提交多条（同一场戏的分镜，`batchId` 归组），用户逐条确认或放弃。
+- **Agent 的正确结尾**：提交并放上画布后，告诉用户「已提交 N 条视频，请在画布上确认生成」并停下。**不要**替用户确认、也不要自己轮询采纳。
 
 **资源口径优先**：world.md 的「资源口径」章节决定哪些属性/素材可作生成参考。例如小黑世界规定示例图只作低频视觉校准（`role="style-ref"`）、不进入默认生成路径——必须遵守。
 
 ## 何时用本技能
 
 - 用户要搭建、编辑、整理某个世界：建实体、填属性、连关系、建类型、摆画布。
-- 用户要在世界语境里生成媒体：先读 world.md，再走 `recut-director（references/generation-prompt）`；**视频只落提案，等用户确认**。
+- 用户要在世界语境里生成媒体：先读 world.md，再走 `recut-director（references/generation-prompt）`；**视频待用户确认**。
 - 不用于：描述某个具体世界的内容（读 world.md）、写生成提示词本身（用生成提示词技能）。
 
 ## 常见误用
@@ -250,7 +248,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 - **把长文/编辑控件塞进实体卡**：卡片只略读，编辑走面板或属性卡。
 - **写 Canon 不等授权**：无用户明确请求就 upsert/promote 是越权。
 - **忘记 `expectedRevisionId`**：并发写会静默覆盖，必须带乐观锁。
-- **直接生成画布视频 / 替用户确认提案**：视频必须先落 proposed 资产；自行调用 `recut.media.confirm_proposal`、把直生当默认、或自行轮询采纳都是越权；确认只属于用户。
+- **替用户确认视频生成**：视频由平台落为待确认资产；自行确认、把直生当默认、或自行轮询采纳都是越权；确认只属于用户。
 - **世界生图/生视频不带参考图**：不先读 `references[]` 就纯文本直出，是最严重的误用——主角色会漂、场景/风格会串。画面可能出现主角色而没有 `role="character"` 参考图时**必须停下补齐**，只有明确无角色的纯空场景才可省略。
 - **等图片生成完成才落位**：图片/语音拿到 `assetId` 就应立刻落节点（`assetStatus:"generating"`）；用 `recut.job.wait` 把落位堵在终态之后、或轮询后回写节点都是多余动作。
 - **只写实体属性、不落画布节点**：用户要的是画布上的「图片节点 + 属性边」（实体的一条可见属性）；只写实体 attrs 不会在画布上出现节点。两者都要做时，节点与边的 `label` 保持一致。
@@ -261,10 +259,10 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 | 问题 | 读什么 | 用途 |
 |---|---|---|
 | 某个世界的内容与生产工作流 | `recut.worlds.get` 的 `skill`（world.md） | 该世界的定位、工作流、资源口径 |
-| 完善一个世界的标准工作流 | platform `recut` skill 的 `references/world-onboarding.md` | readiness → research → generate → 提案 → 确认写回 |
+| 完善一个世界的标准工作流 | platform `recut` skill 的 `references/world-onboarding.md` | readiness → research → generate → 确认写回 |
 | 生成提示词形状与参考锚定 | `recut-director（references/generation-prompt）` | STYLE LOCK、role 锚定、多镜连续段 |
 | 属性/画布数据模型与产品行为 | 仓库设计文档 `rfc/2026-09-09-unified-entity-model.md`、`docs/world-canvas-prd-v2.md` | 属性模型、卡片/面板/属性卡、提升规则 |
-| 生成提案的资产模型与接口 | 仓库设计文档 `rfc/2026-09-16-media-generation-proposal.md` | proposed 生命周期、metadata.proposal、propose/confirm/update/reject |
+| 待确认生成资产的模型与接口 | 仓库设计文档 `rfc/2026-09-16-media-generation-proposal.md` | 待确认生命周期、metadata.generation、平台策略与 UI 确认 |
 | 世界源格式与发布 | 仓库设计文档 `rfc/2026-09-13-world-content-format-v2.md` | world.json/canvas.json/world.md 物化 |
 
 ## 介质声明

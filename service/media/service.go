@@ -43,6 +43,9 @@ type MediaService struct {
 	// 不可用（凭据缺失），此时带参考素材的 Skymind 视频任务会给出可操作错误，
 	// 纯文生视频与其他 Provider 不受影响。
 	shareClient *ShareClient
+	// videoProposalGate 是平台生成策略钩子：返回 true 时视频生成先落待用户确认
+	// 的资产（默认）。service 层注入它读取用户偏好；nil 时按默认 true。
+	videoProposalGate func() bool
 }
 
 // SetLocalSpeechExecutor wires the local-audio provider to an execution backend.
@@ -60,6 +63,15 @@ func (m *MediaService) SetLocalSpeechExecutor(exec func(job MediaJob, model Medi
 func (m *MediaService) SetLocalVoiceProvider(provider func() []MediaVoice) {
 	if provider != nil {
 		m.localVoiceProvider = provider
+	}
+}
+
+// SetVideoProposalGate wires the platform policy that decides whether video
+// generation lands as a user-confirmed asset first. The daemon injects a reader
+// for the user's preference; nil keeps the default (gate on).
+func (m *MediaService) SetVideoProposalGate(gate func() bool) {
+	if gate != nil {
+		m.videoProposalGate = gate
 	}
 }
 

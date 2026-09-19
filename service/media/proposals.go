@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Workspace 数据库、模型目录与 media 的资产/任务生命周期（assets.go、jobs.go、catalog.go）
- * [OUTPUT]: 对外提供生成提案能力：RequiresProposal（按 capability/model 判定提案门禁）、Propose（提案落库，不建 job、不花钱）、
+ * [OUTPUT]: 对外提供生成提案能力：ShouldPropose（按 capability/model 与用户偏好判定门禁）、Propose（提案落库，不建 job、不花钱）、
  *   ConfirmProposal（复用同一 assetId 转 queued 并提交 job）、UpdateProposal（确认前原地改配方）、
  *   RejectProposal（软删放弃）、ListProposals 与 readProposalSpec
  * [POS]: media 的提案门禁层；把 World Canvas 私有 props.proposal 收敛为全局素材状态，素材库/画布/编辑器共享同一策略
@@ -33,23 +33,21 @@ func proposalRouteInput(capability MediaCapability, routeID, modelID, credential
 	return input
 }
 
-// RequiresProposal reports whether a generation of this capability/model must
-// first land as a user-confirmed proposal. Video is gated by capability for any
-// model; other capabilities are gated only when the catalog marks the model
-// high-cost via RequiresProposal.
-func RequiresProposal(capability MediaCapability, modelID string) bool {
-	if capability == VideoGenerate {
+// videoRequiresProposal applies the platform policy for video submissions: the
+// user-confirmation gate is on unless the daemon wired a preference reader that
+// says otherwise.
+func (m *MediaService) videoRequiresProposal() bool {
+	if m.videoProposalGate == nil {
 		return true
 	}
-	if model, ok := modelByID(modelID); ok {
-		return model.RequiresProposal
-	}
-	return false
+	return m.videoProposalGate()
 }
 
 // ShouldPropose applies the proposal gate for one submission. An explicit mode
 // ("propose"/"generate") wins; an empty mode derives the default from the
-// capability/model policy, resolving the route when necessary.
+// capability/model policy: video follows the user's platform preference, other
+// capabilities are gated only when the catalog marks the resolved model
+// high-cost via RequiresProposal.
 func (m *MediaService) ShouldPropose(input GenerateMediaInput, mode string) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "generate":
@@ -58,20 +56,23 @@ func (m *MediaService) ShouldPropose(input GenerateMediaInput, mode string) (boo
 		return true, nil
 	}
 	if input.Capability == VideoGenerate {
-		return true, nil
+		return m.videoRequiresProposal(), nil
 	}
 	route, _, err := m.resolveRoute(input)
 	if err != nil {
 		return false, err
 	}
-	return RequiresProposal(input.Capability, route.ModelID), nil
+	if model, ok := modelByID(route.ModelID); ok {
+		return model.RequiresProposal, nil
+	}
+	return false, nil
 }
 
-// readProposalSpec extracts metadata.proposal from an asset. The metadata map
+// readProposalSpec extracts metadata.generation from an asset. The metadata map
 // holds JSON-decoded values, so it round-trips through JSON to the typed spec;
 // a missing/invalid payload yields the zero spec.
 func readProposalSpec(asset MediaAsset) ProposalSpec {
-	raw, ok := asset.Metadata["proposal"]
+	raw, ok := asset.Metadata["generation"]
 	if !ok || raw == nil {
 		return ProposalSpec{}
 	}
@@ -155,7 +156,7 @@ func (m *MediaService) Propose(input ProposeInput) (MediaAsset, error) {
 		"capability":   input.Capability,
 		"output":       output,
 		"referenceIds": refs.Flat(),
-		"proposal":     spec,
+		"generation":   spec,
 	}
 	if credential.ID != "" {
 		metadata["credentialId"] = credential.ID
@@ -491,7 +492,7 @@ func (m *MediaService) applyProposalRecipe(assetID string, recipe ProposeInput) 
 	metadata["capability"] = recipe.Capability
 	metadata["output"] = output
 	metadata["referenceIds"] = refs.Flat()
-	metadata["proposal"] = spec
+	metadata["generation"] = spec
 	if credential.ID != "" {
 		metadata["credentialId"] = credential.ID
 	} else {
@@ -555,7 +556,7 @@ func (m *MediaService) ConfirmProposal(assetID string, patch *ProposalPatch) (Me
 		if metadata == nil {
 			metadata = map[string]any{}
 		}
-		metadata["proposal"] = spec
+		metadata["generation"] = spec
 		_ = m.updateProposedAssetMetadata(assetID, metadata)
 	}
 	return job, nil

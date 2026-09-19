@@ -1,6 +1,6 @@
 <!--
  * [INPUT]: 依赖 recut.context.media.readiness[capability].status / integrations.audioStudio、
- *          recut.speech.generate / recut.media.list_voices / recut.media.wait_for_job、
+ *          recut.speech.generate / recut.media.list_voices / recut.job.wait、
  *          Audio Studio MCP（audio.transcribe / audio.synthesize / audio.characters / audio.save）、
  *          Editor timeline（timeline.placeAudio / timeline.command / script.attach）。
  * [OUTPUT]: 声音资产（ASR 转写 + TTS 配音）的创建总览：能引用的平台/App 能力、就绪门、
@@ -52,8 +52,8 @@
 
 1. **云端（默认就绪时）**：`recut.speech.generate`
    - 先 `recut.media.list_voices({credentialId})` 拿真实 `voiceId`，不凭记忆编造音色；
-   - **先落位、不空等**：提交拿到 `assetId` 就立刻 `timeline.placeAudio` 落轨（只给 assetId+start/duration，source 由后端推导），标记生成中，平台就绪后自动切换；**不要 `recut.media.wait_for_job` 空等**；
-   - 只有下一步依赖产物内容（试听验收、要据人声再决策/对齐）时才 `recut.media.wait_for_job` 到 `completed`；`failed` 如实报错，不把素材伪装成可用。
+   - **先落位、不空等**：提交拿到 `assetId` 就立刻 `timeline.placeAudio` 落轨（只给 assetId+start/duration，source 由后端推导），标记生成中，平台就绪后自动切换；**不要 `recut.job.wait` 空等**；
+   - 只有下一步依赖产物内容（试听验收、要据人声再决策/对齐）时才 `recut.job.wait` 到 `completed`；`failed` 如实报错，不把素材伪装成可用。
 2. **本机（`local-audio` route 就绪时）**：Audio Studio
    - 音色：默认音直接 `audio.synthesize({text, style})`；用角色就 `audio.characters` 拿 `characterId` 传入；
    - 验收：Audio Studio 会做 ASR 回读验收，未通过的配音不会暴露；

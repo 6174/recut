@@ -1,7 +1,7 @@
 <!--
- [INPUT]: 依赖 recut.video.generate（默认 propose）、recut.media.list_proposals/update_proposal、recut.job.wait、已有 image/video assetId 与 Editor timeline.place/preview 能力。
- [OUTPUT]: generated-video 的 shot list、anchor、先提案后确认、串行生成、修改与落轨规则。
- [POS]: 生成媒体到 Editor 可编辑时间线的交接层；提案是全局素材状态，不把生成 job 自动当成 timeline placement。
+ [INPUT]: 依赖 recut.video.generate（统一 generate→assetId，平台按策略落待确认态）、recut.job.wait、已有 image/video assetId 与 Editor timeline.place/preview 能力。
+ [OUTPUT]: generated-video 的 shot list、anchor、提交与落位、串行生成、修改与落轨规则。
+ [POS]: 生成媒体到 Editor 可编辑时间线的交接层；对 AI 而言统一是「直接生成」，确认是 UI 动作，不把生成 job 自动当成 timeline placement。
  [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 -->
 
@@ -32,21 +32,19 @@
 - 多角色为每个角色建立独立 anchor；在同框 prompt 中写明左右位置、服装/颜色/特征，必要时写显式 negation，避免属性串位。
 - 依赖前一镜输出的 shot 必须等前一 job 到终态后再提交；默认一镜一 job，除非用户明确要求并行。
 
-## 生成循环（默认先提案）
+## 生成循环（统一 generate → assetId → 落位）
 
-生成视频成本高，`recut.video.generate` **默认只创建提案**（落一个 `proposed` 全局素材，不建任务、不花钱）；确认权属于用户。因此editor 的默认路径是「AI 提案 → 用户确认 → 生成 → 编排」。
+视频成本高：平台会把 `recut.video.generate` 落为**待用户确认**的全局素材（不建任务、不花钱），确认权属于用户。对 AI 而言路径统一而简单：**调 generate → 拿稳定 assetId → 立即落位 → 继续**；没有 `mode`，也不向用户说「提案」。
 
 1. 写 shot list 与 continuity notes，确认总时长、镜头数、画幅和视觉方向。
 2. 选择生成 route/model；读取当前 `recut.context.media.readiness.video`，不把未配置能力静默替换成文字卡。
-3. 为每个 shot 写描述性 name 和可执行 prompt，必要时带真实 reference asset IDs（`references:[{id,kind,role,label}]` 声明锚定 role，顺序即提交顺序）。
-4. 调用 `recut.video.generate({ text, modelId?, credentialId?, imageAssetIds?, videoAssetIds?, audioAssetIds?, references?, aspectRatio?, durationSec?, note?, mode? })`：
-   - 缺省 `mode:"propose"` → 返回 `{ assetId, status:"proposed", proposal, referenceIds }`，提案已进素材库，**此时不要等生成**。
-   - 只有用户明确要求立即生成（已确认）时才传 `mode:"generate"`，返回 `jobId` 与 queued `assetIds`。
-5. 提案阶段：用 `recut.media.list_proposals` 查看状态；用户要改就 `recut.media.update_proposal(assetId, patch)` 原地改 prompt/参考/模型/参数；确认/放弃由用户在素材库或画布上完成（**AI 不得调用 `recut.media.confirm_proposal`**）。
-6. 用户确认后资产转为 `queued`→`running`：用 `recut.job.wait`（或观察资产状态）到终态；完成后先回读 asset，再用 `preview.frame` 或目标帧检查主体、动作、画幅和 continuity。
-7. 用户要求入片时，才将完成 asset 传给 `timeline.command insert` 或批量 placement；生成与提案工具本身都不改变时间线。
+3. 为每个 shot 写描述性 name 和可执行 prompt，带真实 reference asset IDs（关键帧放 `imageAssetIds`；`references:[{id,kind,role,label}]` 声明锚定 role，顺序即提交顺序）。
+4. 调 `recut.video.generate({ text, modelId?, credentialId?, imageAssetIds?, videoAssetIds?, audioAssetIds?, references?, aspectRatio?, durationSec?, note? })` → 返回稳定 assetId（视频为待确认态）→ **立刻挂到项目/画布，不要空等**。
+5. 由用户在素材面板/画布确认；确认后资产转 `queued`→`running`。**AI 不得替用户确认。**
+6. 确认并完成后：用 `recut.job.wait`（或观察资产状态）到终态；回读 asset，再用 `preview.frame` 或目标帧检查主体、动作、画幅和 continuity。
+7. 用户要求入片时，才将完成 asset 传给 `timeline.command insert` 或批量 placement；生成工具本身不改变时间线。
 
-> 已确认的提案复用同一 `assetId`（`proposed` → `queued` → `completed`），时间线/画布引用无需重指；提案的参考锚定与 recipe 保留在 `asset.metadata.proposal` 供回溯与再生成。
+> 确认复用同一 `assetId`（`proposed` → `queued` → `completed`），时间线/画布引用无需重指；配方保留在 `asset.metadata.generation` 供回溯与再生成。
 
 ## 修改与失败升级
 

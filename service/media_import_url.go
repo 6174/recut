@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService 的内容寻址导入（ImportMediaReader）与标准库 HTTP
- * [OUTPUT]: 对外提供 recut.media.import_url 的执行体：绝对 http(s) URL → 本地 Media Asset
+ * [OUTPUT]: 对外提供 recut.media.import 的 url 分支：绝对 http(s) URL → 本地 Media Asset
  * 的官方桥梁（mime 白名单 image/video/audio、≤25MB、内容哈希去重、可选挂项目）
  * [POS]: service 的媒体边界；World 的 url 证据保持 URL 真相，本地化是按需动作，
  * 素材库仍是用户事实源

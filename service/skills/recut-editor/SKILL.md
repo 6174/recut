@@ -113,7 +113,7 @@ Prompt 层统一使用 **motion graphic** 作为创作语义；`motion graphic` 
 | 视觉预览 | `preview.frame` / `preview.batch` / `preview.contact-sheet` | 编辑器未打开 → `editor-not-open`；`mode:headless` → `headless-unavailable` |
 | 文稿 | `script.attach` / `script.read` / `script.apply` / `script.clean` / `script.find` / `script.fix-transcript` | speech-track 的 canonical 文稿面 |
 | 视觉语言 | `recut.skills.reference`（`skillId: recut-design-system`） | 平台级只读参考；先读一套风格，再把共同的视觉语言转译到 brief/inputs |
-| 媒体资产 | `recut.media.list_assets` / `recut.image.generate` / `recut.video.generate` / `recut.speech.generate` / `recut.media.list_proposals` / `recut.media.update_proposal` / `recut.job.*` | 图片/语音**先落位、不空等**（仅依赖产物内容时才等终态）；**视频默认先落提案**（`recut.video.generate` 缺省 `mode:"propose"`，用户确认后才生成，见 `references/video-generation.md`）；`recut.motion-graphic.create` 必须 `verified` 才落轨；视频按 continuity 门禁 |
+| 媒体资产 | `recut.media.list_assets` / `recut.image.generate` / `recut.video.generate` / `recut.speech.generate` / `recut.job.*` | **统一 generate → 稳定 assetId → 立即落位、不空等**；没有 `mode`，也不向用户使用「提案」词汇。视频由平台落为待用户确认态，**AI 只提交与落位，绝不代确认**（确认在素材面板，见 `references/video-generation.md`）；`recut.motion-graphic.create` 必须 `verified` 才落轨；视频按 continuity 门禁 |
 | 混音 | `track.role` / `audio.smooth` | anchor/follower 自动 duck，结构稳定后再 smooth |
 | 效果与音效 | `library.browse` | catalog-first；目录无匹配才生成 |
 | 导入与导出 | `film.package.import` / `export.start` / `recut.job.*` | `export.start` 返回 `jobId`；headless 未实现。必须观察到终态才交付 |

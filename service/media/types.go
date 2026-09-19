@@ -339,7 +339,7 @@ type ProposalReference struct {
 	Label string `json:"label,omitempty"`
 }
 
-// ProposalSpec is the metadata.proposal payload: the reviewable recipe of a
+// ProposalSpec is the metadata.generation payload: the reviewable recipe of a
 // proposed asset. It is kept after confirmation for traceability.
 type ProposalSpec struct {
 	References  []ProposalReference `json:"references,omitempty"`

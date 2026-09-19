@@ -48,7 +48,7 @@
 ## 导出前 checklist
 
 1. `timeline.validate` → `ok: true`（零 violations）
-2. 所有 `mediaId`/`componentId` 已登记 / 已 verify（`timeline.assets` 覆盖式登记）
+2. 所有 `mediaId`/`componentId` 已 verify 且指向真实素材
 3. 关键帧/动画已预览确认
 4. `project.lock` 已释放（如有）
 5. `export.start({ width, height, fps })` → 拿到 `jobId` → `recut.job.wait` 到 completed → 产物 assetId 落库。不要传 `mode:"headless"`（会 `headless-unavailable`）。编辑器未打开时会 `editor-not-open`。

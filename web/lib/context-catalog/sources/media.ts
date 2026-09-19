@@ -16,7 +16,7 @@ function kindIcon(kind: MediaEventAsset["kind"], className: string) {
   if (kind === "video") return createElement(Film, { className });
   if (kind === "audio") return createElement(Music2, { className });
   if (kind === "transcript") return createElement(Captions, { className });
-  if (kind === "reference") return createElement(Link2, { className });
+  if (kind === "document") return createElement(Link2, { className });
   return createElement(ImageIcon, { className });
 }
 

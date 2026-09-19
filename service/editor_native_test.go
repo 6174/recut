@@ -129,7 +129,7 @@ func TestEditorRealtimeEventContract(t *testing.T) {
 	}
 
 	// project.assets.changed：前端素材面板实时刷新依赖 library.tab=media。
-	invoke(t, host, project, "timeline.assets", map[string]any{"assetIds": []any{"a1"}})
+	invoke(t, host, project, "timeline.placeAudio", map[string]any{"items": []any{map[string]any{"assetId": "a1", "startSec": float64(0), "durationSec": float64(2)}}})
 	assets := waitProjectEvent(t, conn, "project.assets.changed", 12, func(ev map[string]any) bool {
 		lib, _ := ev["library"].(map[string]any)
 		return stringOf(lib["tab"]) == "media"
