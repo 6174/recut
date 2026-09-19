@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖文件预处理、recut.assets 上传、编辑器媒体管理器与资产面板选择状态。
+ * [INPUT]: 依赖文件预处理、编辑器媒体管理器（经其上传 recut.assets）与资产面板选择状态。
  * [OUTPUT]: 对外提供素材库的本地上传、全局素材导入、排序、拖拽和插入时间线交互。
- * [POS]: properties/assets views 的素材入口；上传先取得 Service Asset ID，再写本 origin 缓存。
+ * [POS]: properties/assets views 的素材入口；本地文件交 media manager 先上传 Service 拿 contentHash，再按内容入全局缓存。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -69,7 +69,6 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { t, useRecutLocale, type I18nKey } from "@timeline/i18n";
-import { recut } from "@timeline/recut/sdk";
 import { serviceBase } from "@timeline/recut/host";
 import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { MediaAssetEventsProvider } from "@/components/use-media-asset-events";
@@ -125,17 +124,12 @@ export function MediaView() {
 					const processedAssets = await processMediaAssets({
 						files,
 					});
+					// 统一由 media manager 经 recut.assets.upload 上传，拿到权威 id/contentHash
+					// 后写入全局内容缓存（按内容去重）。
 					for (const asset of processedAssets) {
-						const uploaded = await recut.assets.upload({
-							projectId: activeProject.metadata.id,
-							file: asset.file,
-						});
 						await editor.media.addMediaAsset({
 							projectId: activeProject.metadata.id,
-							asset: {
-								...asset,
-								id: uploaded.asset.id,
-							},
+							asset,
 						});
 					}
 					return {

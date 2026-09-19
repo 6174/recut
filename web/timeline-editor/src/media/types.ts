@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖旧 OPFS 元数据与 Assets Service 返回的状态/内容哈希。
+ * [INPUT]: 依赖全局内容缓存元数据与 Assets Service 返回的状态/内容哈希。
  * [OUTPUT]: 提供编辑器可渲染的 MediaAsset 类型与 image/video/audio 分类。
- * [POS]: media 的类型边界；file 是本 origin 缓存副本，status/contentHash 反映 Service Asset 真相。
+ * [POS]: media 的类型边界；file 是按 contentHash 从全局内容缓存重建的视图，status/contentHash 反映 Service Asset 真相。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { MediaAssetData } from "@timeline/services/storage/types";

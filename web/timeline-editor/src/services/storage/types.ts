@@ -27,6 +27,10 @@ export interface MediaAssetData {
 	hasAudio?: boolean;
 	ephemeral?: boolean;
 	thumbnailUrl?: string;
+	/** Service Asset 的内容哈希；本地字节以它为全局缓存键（按内容去重）。 */
+	contentHash?: string;
+	/** 原始 MIME；从全局缓存重建 File 时恢复 type。 */
+	mimeType?: string;
 }
 
 export type SerializedScene = Omit<TScene, "createdAt" | "updatedAt"> & {

@@ -8,8 +8,9 @@ import { InsertElementCommand } from "@timeline/commands/timeline";
 import { BatchCommand } from "@timeline/commands";
 import { DEFAULT_NEW_ELEMENT_DURATION } from "@timeline/timeline/creation";
 import { mediaTimeFromSeconds } from "@timeline/wasm";
+import { recut } from "@timeline/recut/sdk";
 import { isTypableDOMElement } from "@timeline/utils/browser";
-import type { MediaType } from "@timeline/media/types";
+import type { MediaAsset, MediaType } from "@timeline/media/types";
 
 const MEDIA_MIME_PREFIXES: MediaType[] = ["image", "video", "audio"];
 
@@ -68,9 +69,33 @@ export function usePasteMedia() {
 						const startTime = editor.playback.getCurrentTime();
 
 						for (const asset of processedAssets) {
+							// Service Asset 是真相：先上传拿权威 id/contentHash，再落时间线；
+							// 全局内容缓存按 contentHash 去重。
+							let prepared: Omit<MediaAsset, "id"> & { id?: string } = asset;
+							try {
+								const uploaded = await recut.assets.upload({
+									projectId: activeProject.metadata.id,
+									file: asset.file,
+								});
+								const remote = uploaded?.asset;
+								if (!remote?.id || !remote.contentHash) {
+									throw new Error("assets.upload returned no content-addressed asset");
+								}
+								prepared = {
+									...asset,
+									id: remote.id,
+									contentHash: remote.contentHash,
+									sizeBytes: remote.sizeBytes,
+									...(remote.mimeType ? { mimeType: remote.mimeType } : {}),
+								};
+							} catch (error) {
+								console.error("Failed to upload pasted media:", error);
+								continue;
+							}
+
 							const addMediaCmd = new AddMediaAssetCommand({
 								projectId: activeProject.metadata.id,
-								asset,
+								asset: prepared,
 							});
 							const assetId = addMediaCmd.getAssetId();
 							const duration =

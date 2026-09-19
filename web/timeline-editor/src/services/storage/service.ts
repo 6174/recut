@@ -3,6 +3,7 @@ import { getProjectDurationFromScenes } from "@timeline/timeline/scenes";
 import type { MediaAsset } from "@timeline/media/types";
 import { IndexedDBAdapter } from "./indexeddb-adapter";
 import { OPFSAdapter } from "./opfs-adapter";
+import { mediaContentCache } from "./media-cache";
 import { recut } from "@timeline/recut/sdk";
 import { syncTimelineComponents } from "@timeline/recut/components";
 import { demoAssets, demoProject, isDemoMode } from "@timeline/demo/demo-store";
@@ -140,6 +141,25 @@ class StorageService {
 	private savedSoundsAdapter: IndexedDBAdapter<SavedSoundsData>;
 	private config: StorageConfig;
 	private migrationsPromise: Promise<void> | null = null;
+	// 同一 (projectId, assetId) 的 save/delete 串行化：引用计数是读-改-写，
+	// 并发调用（如启动时多处 loadProjectMedia）不能各自读旧值再加计数。
+	private mediaLocks = new Map<string, Promise<unknown>>();
+
+	private withMediaLock<T>(key: string, task: () => Promise<T>): Promise<T> {
+		const previous = this.mediaLocks.get(key) ?? Promise.resolve();
+		const next = previous.then(task, task);
+		const tail = next.then(
+			() => undefined,
+			() => undefined,
+		);
+		this.mediaLocks.set(key, tail);
+		void tail.then(() => {
+			if (this.mediaLocks.get(key) === tail) {
+				this.mediaLocks.delete(key);
+			}
+		});
+		return next;
+	}
 
 	constructor() {
 		this.config = {
@@ -181,9 +201,7 @@ class StorageService {
 			version: this.config.version,
 		});
 
-		const mediaAssetsAdapter = new OPFSAdapter(`media-files-${projectId}`);
-
-		return { mediaMetadataAdapter, mediaAssetsAdapter };
+		return { mediaMetadataAdapter };
 	}
 
 	async canStoreFile({
@@ -411,45 +429,92 @@ class StorageService {
 		projectId: string;
 		mediaAsset: MediaAsset;
 	}): Promise<void> {
-		const { mediaMetadataAdapter, mediaAssetsAdapter } =
-			this.getProjectMediaAdapters({ projectId });
+		return this.withMediaLock(`${projectId}:${mediaAsset.id}`, () =>
+			this.persistMediaAsset({ projectId, mediaAsset }),
+		);
+	}
 
-		const metadata: MediaAssetData = {
-			id: mediaAsset.id,
-			name: mediaAsset.name,
-			type: mediaAsset.type,
-			size: mediaAsset.file.size,
-			lastModified: mediaAsset.file.lastModified,
-			width: mediaAsset.width,
-			height: mediaAsset.height,
-			duration: mediaAsset.duration,
-			thumbnailUrl: mediaAsset.thumbnailUrl,
-			ephemeral: mediaAsset.ephemeral,
-		};
+	private async persistMediaAsset({
+		projectId,
+		mediaAsset,
+	}: {
+		projectId: string;
+		mediaAsset: MediaAsset;
+	}): Promise<void> {
+		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({ projectId });
 
-		try {
-			await mediaAssetsAdapter.set({
-				key: mediaAsset.id,
-				value: mediaAsset.file,
-			});
-			await mediaMetadataAdapter.set({
-				key: mediaAsset.id,
-				value: metadata,
-			});
-		} catch (error) {
-			try {
-				await mediaAssetsAdapter.remove(mediaAsset.id);
-			} catch {
-				// Ignore cleanup failures so the original storage error is preserved.
-			}
+		const contentHash = mediaAsset.contentHash;
+		if (!contentHash) {
+			throw new Error(
+				"media asset is missing contentHash; upload it to the Recut service first",
+			);
+		}
 
-			if (this.isQuotaExceededError({ error })) {
-				throw new StorageQuotaExceededError({
-					requiredBytes: mediaAsset.file.size,
+		const fileBytes =
+			mediaAsset.file && mediaAsset.file.size > 0 ? mediaAsset.file : undefined;
+		const size = mediaAsset.sizeBytes ?? fileBytes?.size ?? mediaAsset.file?.size ?? 0;
+		const mimeType = mediaAsset.mimeType ?? mediaAsset.file?.type ?? undefined;
+
+		const existing = await mediaMetadataAdapter.get(mediaAsset.id);
+		const hashChanged = Boolean(existing?.contentHash && existing.contentHash !== contentHash);
+		const entry = await mediaContentCache.getEntry(contentHash);
+		// 已有内容索引且是本项目同 hash 的引用时不重复计数；否则视为新增引用。
+		const needsRetain =
+			!existing || existing.contentHash !== contentHash || !entry;
+
+		if (needsRetain) {
+			// 内容按 hash 全局去重：字节缺失或首次落盘时才写；已有字节直接复用。
+			if (fileBytes && !(await mediaContentCache.has(contentHash))) {
+				await mediaContentCache.store({
+					hash: contentHash,
+					file: fileBytes,
+					size,
+					mimeType,
+				});
+			} else if (!entry) {
+				// 没有字节可写且没有索引：可能是下载路径先 store 过，这里只确保索引存在。
+				await mediaContentCache.store({
+					hash: contentHash,
+					size,
+					mimeType,
 				});
 			}
+			await mediaContentCache.retain({ hash: contentHash, size, mimeType });
+		}
 
+		try {
+			await mediaMetadataAdapter.set({
+				key: mediaAsset.id,
+				value: {
+					id: mediaAsset.id,
+					name: mediaAsset.name,
+					type: mediaAsset.type,
+					size,
+					lastModified: mediaAsset.file?.lastModified ?? Date.now(),
+					width: mediaAsset.width,
+					height: mediaAsset.height,
+					duration: mediaAsset.duration,
+					fps: mediaAsset.fps,
+					hasAudio: mediaAsset.hasAudio,
+					ephemeral: mediaAsset.ephemeral,
+					thumbnailUrl: mediaAsset.thumbnailUrl,
+					contentHash,
+					mimeType,
+				},
+			});
+		} catch (error) {
+			if (needsRetain) {
+				await mediaContentCache.release(contentHash).catch(() => undefined);
+			}
+			if (this.isQuotaExceededError({ error })) {
+				throw new StorageQuotaExceededError({ requiredBytes: size });
+			}
 			throw error;
+		}
+
+		// 同一 assetId 内容被替换：元数据更新成功后再释放旧内容的引用。
+		if (hashChanged && existing?.contentHash) {
+			await mediaContentCache.release(existing.contentHash).catch(() => undefined);
 		}
 	}
 
@@ -460,44 +525,36 @@ class StorageService {
 		projectId: string;
 		id: string;
 	}): Promise<MediaAsset | null> {
-		const { mediaMetadataAdapter, mediaAssetsAdapter } =
-			this.getProjectMediaAdapters({ projectId });
+		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({ projectId });
 
-		const [file, metadata] = await Promise.all([
-			mediaAssetsAdapter.get(id),
-			mediaMetadataAdapter.get(id),
-		]);
+		const metadata = await mediaMetadataAdapter.get(id);
+		if (!metadata) return null;
 
-		if (!file || !metadata) return null;
-
-		let url: string;
-		if (metadata.type === "image" && (!file.type || file.type === "")) {
-			try {
-				const text = await file.text();
-				if (text.trim().startsWith("<svg")) {
-					const svgBlob = new Blob([text], { type: "image/svg+xml" });
-					url = URL.createObjectURL(svgBlob);
-				} else {
-					url = URL.createObjectURL(file);
-				}
-			} catch {
-				url = URL.createObjectURL(file);
-			}
-		} else {
-			url = URL.createObjectURL(file);
-		}
+		const file = metadata.contentHash
+			? await mediaContentCache.resolveFile(metadata.contentHash, {
+					name: metadata.name,
+					mimeType: metadata.mimeType,
+				})
+			: null;
+		if (!file) return null;
 
 		return {
 			id: metadata.id,
 			name: metadata.name,
 			type: metadata.type,
 			file,
-			url,
+			url: URL.createObjectURL(file),
 			width: metadata.width,
 			height: metadata.height,
 			duration: metadata.duration,
+			fps: metadata.fps,
+			hasAudio: metadata.hasAudio,
 			thumbnailUrl: metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
+			status: "completed",
+			contentHash: metadata.contentHash,
+			mimeType: metadata.mimeType,
+			sizeBytes: metadata.size,
 		};
 	}
 
@@ -526,6 +583,16 @@ class StorageService {
 		return mediaItems;
 	}
 
+	/** 读取项目媒体元数据（不解析字节）；用于按 contentHash 做缓存命中/引用对账。 */
+	async listMediaAssetMetadata({
+		projectId,
+	}: {
+		projectId: string;
+	}): Promise<MediaAssetData[]> {
+		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({ projectId });
+		return mediaMetadataAdapter.getAll();
+	}
+
 	async deleteMediaAsset({
 		projectId,
 		id,
@@ -533,13 +600,25 @@ class StorageService {
 		projectId: string;
 		id: string;
 	}): Promise<void> {
-		const { mediaMetadataAdapter, mediaAssetsAdapter } =
-			this.getProjectMediaAdapters({ projectId });
+		return this.withMediaLock(`${projectId}:${id}`, () =>
+			this.persistDeleteMediaAsset({ projectId, id }),
+		);
+	}
 
-		await Promise.all([
-			mediaAssetsAdapter.remove(id),
-			mediaMetadataAdapter.remove(id),
-		]);
+	private async persistDeleteMediaAsset({
+		projectId,
+		id,
+	}: {
+		projectId: string;
+		id: string;
+	}): Promise<void> {
+		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({ projectId });
+
+		const metadata = await mediaMetadataAdapter.get(id);
+		await mediaMetadataAdapter.remove(id);
+		if (metadata?.contentHash) {
+			await mediaContentCache.release(metadata.contentHash).catch(() => undefined);
+		}
 	}
 
 	async deleteProjectMedia({
@@ -547,13 +626,15 @@ class StorageService {
 	}: {
 		projectId: string;
 	}): Promise<void> {
-		const { mediaMetadataAdapter, mediaAssetsAdapter } =
-			this.getProjectMediaAdapters({ projectId });
+		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({ projectId });
 
-		await Promise.all([
-			mediaMetadataAdapter.clear(),
-			mediaAssetsAdapter.clear(),
-		]);
+		const entries = await mediaMetadataAdapter.getAll();
+		await mediaMetadataAdapter.clear();
+		for (const entry of entries) {
+			if (entry.contentHash) {
+				await mediaContentCache.release(entry.contentHash).catch(() => undefined);
+			}
+		}
 	}
 
 	async clearAllData(): Promise<void> {

@@ -22,16 +22,16 @@ export class AddMediaAssetCommand extends Command {
 		asset,
 	}: {
 		projectId: string;
-		asset: Omit<MediaAsset, "id">;
+		asset: Omit<MediaAsset, "id"> & { id?: string };
 	}) {
 		super();
 		this.projectId = projectId;
 		this.asset = asset;
-		this.assetId = generateUUID();
+		this.assetId = asset.id ?? generateUUID();
 	}
 
 	private projectId: string;
-	private asset: Omit<MediaAsset, "id">;
+	private asset: Omit<MediaAsset, "id"> & { id?: string };
 
 	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();

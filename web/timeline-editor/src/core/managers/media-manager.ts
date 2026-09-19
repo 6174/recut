@@ -1,8 +1,8 @@
 /**
- * [INPUT]: 依赖 EditorCore、recut.assets Manifest/内容 URL 与 OPFS 缓存 StorageService；demo 模式直接消费注入的离线素材。
- * [OUTPUT]: 对外提供项目媒体清单、后台缓存下载、素材增删和订阅通知；对仍在 queued/running
+ * [INPUT]: 依赖 EditorCore、recut.assets Manifest/上传/内容 URL 与全局内容缓存 StorageService；demo 模式直接消费注入的离线素材。
+ * [OUTPUT]: 对外提供项目媒体清单、上传即入内容缓存、后台同步下载、素材增删和订阅通知；对仍在 queued/running
  *          的「先落位」素材按 2.5s 轮询清单（上限 5 分钟），就绪后自动缓存上屏。
- * [POS]: core/managers 的媒体状态协调器；Service Asset 是真相，当前 origin 文件仅为可重建缓存。
+ * [POS]: core/managers 的媒体状态协调器；Service Asset 是真相，本地字节按 contentHash 存全局内容缓存（跨项目去重）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { EditorCore } from "@timeline/core";
@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { t, getRecutLocale } from "@timeline/i18n";
 import type { MediaAsset } from "@timeline/media/types";
 import { storageService } from "@timeline/services/storage/service";
+import { mediaContentCache } from "@timeline/services/storage/media-cache";
 import { generateUUID } from "@timeline/utils/id";
 import { videoCache } from "@timeline/services/video-cache/service";
 import { waveformCache } from "@timeline/services/waveform-cache/service";
@@ -33,6 +34,8 @@ export class MediaManager {
 	private pendingRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 	private pendingRefreshProjectId: string | null = null;
 	private pendingRefreshAttempts = 0;
+	// 同一 Asset 的同步下载去重：并发 loadProjectMedia（如启动多处触发）共享同一个在途任务。
+	private inflightDownloads = new Map<string, Promise<void>>();
 
 	constructor(private editor: EditorCore) {}
 
@@ -43,23 +46,55 @@ export class MediaManager {
 		projectId: string;
 		asset: Omit<MediaAsset, "id"> & { id?: string };
 	}): Promise<MediaAsset | null> {
-		const newAsset: MediaAsset = {
+		let prepared: MediaAsset = {
 			...asset,
 			id: asset.id ?? generateUUID(),
 		};
 
-		this.assets = [...this.assets, newAsset];
+		// Service Asset 是唯一真相：本地导入（拖拽/粘贴/面板）先经上传拿到 contentHash，
+		// 再以 hash 为键写入全局内容缓存；同一内容跨项目只保留一份字节。
+		if (!prepared.contentHash) {
+			try {
+				const uploaded = await recut.assets.upload({
+					projectId,
+					file: prepared.file,
+				});
+				const remote = uploaded?.asset;
+				if (!remote?.id || !remote.contentHash) {
+					throw new Error("assets.upload did not return a content-addressed asset");
+				}
+				prepared = {
+					...prepared,
+					id: remote.id,
+					contentHash: remote.contentHash,
+					sizeBytes: remote.sizeBytes,
+					...(remote.mimeType ? { mimeType: remote.mimeType } : {}),
+				};
+			} catch (error) {
+				console.error("Failed to upload media asset:", error);
+				toast.error(t(getRecutLocale(), "media.failedImport", { name: prepared.name }));
+				return null;
+			}
+		}
+
+		// Service 按内容去重后可能返回已存在的 Asset：重复导入复用同一引用，避免面板重复占位。
+		const duplicated = this.assets.find((item) => item.id === prepared.id);
+		if (duplicated) {
+			return duplicated;
+		}
+
+		this.assets = [...this.assets, prepared];
 		this.notify();
 
 		try {
-			await storageService.saveMediaAsset({ projectId, mediaAsset: newAsset });
+			await storageService.saveMediaAsset({ projectId, mediaAsset: prepared });
 			this.editor.project.ratchetFpsForImportedMedia({
-				importedAssets: [newAsset],
+				importedAssets: [prepared],
 			});
-			return newAsset;
+			return prepared;
 		} catch (error) {
 			console.error("Failed to save media asset:", error);
-			this.assets = this.assets.filter((asset) => asset.id !== newAsset.id);
+			this.assets = this.assets.filter((item) => item.id !== prepared.id);
 			this.notify();
 
 			if (storageService.isQuotaExceededError({ error })) {
@@ -120,32 +155,62 @@ export class MediaManager {
 		}
 
 		try {
-			const cachedAssets = await storageService.loadAllMediaAssets({
-				projectId,
-			});
 			if (isDemoMode()) {
+				const cachedAssets = await storageService.loadAllMediaAssets({
+					projectId,
+				});
 				this.assets = cachedAssets;
 				this.notify();
 				return;
 			}
 			const manifest = await recut.assets.list({ projectId });
-			const cachedByID = new Map(cachedAssets.map((asset) => [asset.id, asset]));
-			const remoteAssets = manifest.assets
-				.filter((asset) => isEditorMediaAsset(asset) && asset.status !== "deleted")
-				.map((asset) => {
-					const cached = cachedByID.get(asset.id);
-					// 服务端 lifecycle 是真相：本地缓存只决定「有没有字节」，不能改写状态，
-					// 否则计划态会被陈旧的 loading 覆盖成「加载中」。
-					const status = editorStatusFromServer(asset.status, Boolean(cached?.file?.size));
-					return cached ? { ...cached, status } : toLoadingMediaAsset(asset);
-				});
-			this.assets = remoteAssets;
-			this.notify();
-			for (const asset of manifest.assets) {
-				if (!isEditorMediaAsset(asset) || cachedByID.has(asset.id)) continue;
-				if (asset.status === "completed") {
-					void this.cacheRemoteAsset({ projectId, asset });
+			const metadata = await storageService.listMediaAssetMetadata({ projectId });
+			const metadataByID = new Map(metadata.map((entry) => [entry.id, entry]));
+
+			// 服务端已删除的素材：释放本项目引用，避免全局内容缓存引用计数泄漏。
+			const manifestByID = new Map(manifest.assets.map((asset) => [asset.id, asset]));
+			for (const entry of metadata) {
+				const remote = manifestByID.get(entry.id);
+				if (remote && remote.status === "deleted") {
+					void storageService.deleteMediaAsset({ projectId, id: entry.id });
 				}
+			}
+
+			const editorAssets = manifest.assets.filter(
+				(asset) => isEditorMediaAsset(asset) && asset.status !== "deleted",
+			);
+			// 已完成且全局内容缓存已有字节的素材：只需登记本项目引用并解析画面。
+			const localAssets = new Map<string, MediaAsset>();
+			for (const asset of editorAssets) {
+				if (asset.status !== "completed" || !asset.contentHash) continue;
+				if (!(await mediaContentCache.has(asset.contentHash))) continue;
+				const entry = metadataByID.get(asset.id);
+				if (!entry || entry.contentHash !== asset.contentHash) {
+					await storageService
+						.saveMediaAsset({ projectId, mediaAsset: toLoadingMediaAsset(asset) })
+						.catch(() => undefined);
+				}
+				const resolved = await storageService.loadMediaAsset({
+					projectId,
+					id: asset.id,
+				});
+				if (resolved) localAssets.set(asset.id, resolved);
+			}
+
+			this.assets = editorAssets.map((asset) => {
+				const local = localAssets.get(asset.id);
+				// 服务端 lifecycle 是真相：本地缓存只决定「有没有字节」，不能改写状态，
+				// 否则计划态会被陈旧的 loading 覆盖成「加载中」。
+				const status = editorStatusFromServer(asset.status, Boolean(local));
+				return local ? { ...local, status } : toLoadingMediaAsset(asset);
+			});
+			this.notify();
+
+			// 主动同步：completed 但本地缺字节的素材，从 service 拉到 OPFS 内容缓存。
+			for (const asset of editorAssets) {
+				if (asset.status !== "completed" || !asset.contentHash) continue;
+				if (await mediaContentCache.has(asset.contentHash)) continue;
+				void this.cacheRemoteAsset({ projectId, asset });
 			}
 			// 仍有 queued/running 的素材：安排下一轮轮询，就绪后自动缓存上屏。
 			this.schedulePendingRefresh(projectId, manifest.assets);
@@ -192,7 +257,26 @@ export class MediaManager {
 		this.pendingRefreshAttempts = 0;
 	}
 
-	private async cacheRemoteAsset({
+	private cacheRemoteAsset({
+		projectId,
+		asset,
+	}: {
+		projectId: string;
+		asset: RecutAsset;
+	}): Promise<void> {
+		// 同一 assetId 的同步任务在途时复用，避免并发 loadProjectMedia 重复下载。
+		const inflight = this.inflightDownloads.get(asset.id);
+		if (inflight) return inflight;
+		const task = this.downloadRemoteAsset({ projectId, asset }).finally(() => {
+			if (this.inflightDownloads.get(asset.id) === task) {
+				this.inflightDownloads.delete(asset.id);
+			}
+		});
+		this.inflightDownloads.set(asset.id, task);
+		return task;
+	}
+
+	private async downloadRemoteAsset({
 		projectId,
 		asset,
 	}: {
@@ -200,22 +284,40 @@ export class MediaManager {
 		asset: RecutAsset;
 	}): Promise<void> {
 		try {
-			const response = await fetch(
-				await recut.assets.contentURL({ assetId: asset.id }),
-			);
-			if (!response.ok) throw new Error(`asset download failed (${response.status})`);
-			const file = new File([await response.blob()], asset.name, {
-				type: asset.mimeType,
+			const contentHash = asset.contentHash;
+			if (!contentHash) throw new Error("asset has no contentHash");
+			// 字节已在全局内容缓存（可能来自其它项目/素材）：跳过网络，直接登记引用。
+			if (await mediaContentCache.has(contentHash)) {
+				await storageService.saveMediaAsset({
+					projectId,
+					mediaAsset: toLoadingMediaAsset(asset),
+				});
+			} else {
+				const response = await fetch(
+					await recut.assets.contentURL({ assetId: asset.id }),
+				);
+				if (!response.ok)
+					throw new Error(`asset download failed (${response.status})`);
+				// 字节直接流式落全局内容缓存（按 hash 去重），再登记本项目引用。
+				await mediaContentCache.store({
+					hash: contentHash,
+					stream: response.body,
+					file: response.body ? undefined : await response.blob(),
+					size: asset.sizeBytes,
+					mimeType: asset.mimeType,
+				});
+				await storageService.saveMediaAsset({
+					projectId,
+					mediaAsset: toLoadingMediaAsset(asset),
+				});
+			}
+			const cached = await storageService.loadMediaAsset({
+				projectId,
+				id: asset.id,
 			});
-			const cached: MediaAsset = {
-				...toLoadingMediaAsset(asset),
-				file,
-				url: URL.createObjectURL(file),
-				status: "completed",
-			};
-			await storageService.saveMediaAsset({ projectId, mediaAsset: cached });
+			if (!cached) throw new Error("cached asset could not be resolved");
 			this.assets = this.assets.map((item) =>
-				item.id === cached.id ? cached : item,
+				item.id === cached.id ? { ...cached, status: "completed" } : item,
 			);
 			this.notify();
 		} catch (error) {
@@ -314,6 +416,7 @@ function toLoadingMediaAsset(asset: RecutAsset): MediaAsset {
 		file: new File([], asset.name, { type: asset.mimeType }),
 		status: editorStatusFromServer(asset.status, false),
 		contentHash: asset.contentHash,
+		mimeType: asset.mimeType,
 		sizeBytes: asset.sizeBytes,
 	};
 }
