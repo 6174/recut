@@ -292,19 +292,19 @@ func (w *WorldStore) ExportWorldBundle(worldID string) ([]byte, string, error) {
 	}
 
 	// Relations
-	relationRows, err := db.Query("select id, relation_type, from_entity_id, to_entity_id, coalesce(scope_entity_id, '') from world_relations where world_id = ? order by created_at, id", worldID)
+	relationRows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, coalesce(scope_entity_id, '') from world_relations where world_id = ? order by created_at, id", worldID)
 	if err != nil {
 		return nil, "", err
 	}
 	relations := []WorldManifestRelation{}
 	for relationRows.Next() {
-		var id, relationType, fromID, toID, scopeID string
-		if err := relationRows.Scan(&id, &relationType, &fromID, &toID, &scopeID); err != nil {
+		var id, relationType, toRole, fromID, toID, scopeID string
+		if err := relationRows.Scan(&id, &relationType, &toRole, &fromID, &toID, &scopeID); err != nil {
 			relationRows.Close()
 			return nil, "", err
 		}
 		relations = append(relations, WorldManifestRelation{
-			ID: id, Type: relationType, From: sourceEntityID(worldID, fromID), To: sourceEntityID(worldID, toID), Scope: sourceEntityID(worldID, scopeID),
+			ID: id, FromRole: relationType, ToRole: toRole, From: sourceEntityID(worldID, fromID), To: sourceEntityID(worldID, toID), Scope: sourceEntityID(worldID, scopeID),
 		})
 	}
 	relationRows.Close()

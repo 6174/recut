@@ -37,8 +37,8 @@ export type EntitySavePatch = {
   value?: unknown;
 };
 
-// 关系列表的统一投影：双向语义，out = 我指向对方
-export type RelationItem = { id: string; type: string; otherId: string; out: boolean; scoped: boolean };
+// 关系列表的统一投影：双向语义，out = 我指向对方；role = 观察端这一侧的语义 token
+export type RelationItem = { id: string; role: string; otherId: string; out: boolean; scoped: boolean };
 
 export function entityAttrListOf(entity: WorldEntity | null): EntityAttr[] {
   return entity?.attrs ?? [];
@@ -306,7 +306,7 @@ export function EntityEditor({
           <ul className="space-y-1">
             {relations.map((relation) => (
               <li className="truncate rounded bg-muted/50 px-2 py-1.5 text-xs" key={relation.id}>
-                {relation.out ? "→" : "←"} {relation.type} · {candidates.find((item) => item.id === relation.otherId)?.name ?? "…"}
+                {relation.out ? "→" : "←"} {relationTypes.find((item) => item.id === relation.role)?.labelZh ?? relation.role} · {candidates.find((item) => item.id === relation.otherId)?.name ?? "…"}
                 {relation.scoped ? " · 局部" : ""}
               </li>
             ))}

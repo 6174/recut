@@ -15,7 +15,7 @@ export type MarketingCanvasElement =
   | { kind: "note"; key: string; x: number; y: number; width: number; height: number; text: string };
 
 /** 画布上两端都有实体的语义关系（连线）；from/to 为实体语义 id。 */
-export type MarketingCanvasRelation = { id: string; from: string; to: string; type: string };
+export type MarketingCanvasRelation = { id: string; from: string; to: string; fromRole: string; toRole?: string };
 
 export type MarketingWorldCanvas = { width: number; height: number; elements: MarketingCanvasElement[]; relations: MarketingCanvasRelation[] };
 
@@ -70,7 +70,7 @@ type ManifestCanvasElement = {
   geometry?: { x?: number; y?: number; width?: number; height?: number };
 };
 type ManifestCanvas = { contextId?: string; elements?: ManifestCanvasElement[] };
-type ManifestRelation = { id?: string; from?: string; to?: string; type?: string };
+type ManifestRelation = { id?: string; from?: string; to?: string; fromRole?: string; toRole?: string; type?: string };
 
 type WorldManifest = {
   manifestVersion?: number;
@@ -200,11 +200,12 @@ function buildCanvas(manifest: WorldManifest, imagesById: Map<string, string>): 
     const from = relation.from ?? "";
     const to = relation.to ?? "";
     if (!from || !to || !entityIds.has(from) || !entityIds.has(to)) continue;
-    const type = relation.type ?? "";
-    const key = `${from}→${to}·${type}`;
+    const fromRole = relation.fromRole ?? relation.type ?? "";
+    const toRole = relation.toRole ?? "";
+    const key = `${from}→${to}·${fromRole}`;
     if (seenRelations.has(key)) continue;
     seenRelations.add(key);
-    relations.push({ id: relation.id ?? key, from, to, type });
+    relations.push({ id: relation.id ?? key, from, to, fromRole, ...(toRole ? { toRole } : {}) });
   }
   return { width: maxX + 40, height: maxY + 40, elements, relations };
 }

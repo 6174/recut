@@ -110,7 +110,7 @@ export default function WorldCanvas({ apiBase, worldId, worldName, readOnly, rev
       primaryRef = { kind: "world_relation", id: selection.relation.id };
       refs.push(primaryRef);
       selectionState = { relation: selection.relation };
-      summary = `画布中选中关系「${selection.relation.type}」`;
+      summary = `画布中选中关系「${selection.relation.fromRole}」`;
     } else if (selection?.type === "canvas") {
       primaryRef = { kind: "world_canvas_element", id: selection.element.id };
       refs.push(primaryRef);

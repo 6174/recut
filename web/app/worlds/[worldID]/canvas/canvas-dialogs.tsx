@@ -393,7 +393,7 @@ function PromoteDialog({ elementKind }: { elementKind: string }) {
             className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
             onClick={() => {
               if (!promotingId) return;
-              void (isNote ? promote(promotingId, { typeId: kind }) : promote(promotingId, { relationType: kind }));
+              void (isNote ? promote(promotingId, { typeId: kind }) : promote(promotingId, { fromRole: kind }));
             }}
             type="button"
           >

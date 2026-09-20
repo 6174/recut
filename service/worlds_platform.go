@@ -66,12 +66,30 @@ type WorldManifestEntity struct {
 	Content map[string]any `json:"content"`
 }
 
+// WorldManifestRelation is one edge in the source/manifest v2 format.
+// FromRole is the source-end semantic token (stored in the legacy relation_type
+// column); ToRole is the optional opposite-end token ("" = unmarked). Type is
+// the legacy field name, still accepted on read as a FromRole alias.
 type WorldManifestRelation struct {
-	ID    string `json:"id"`
-	Type  string `json:"type"`
-	From  string `json:"from"`
-	To    string `json:"to"`
-	Scope string `json:"scope,omitempty"`
+	ID       string `json:"id"`
+	FromRole string `json:"fromRole,omitempty"`
+	ToRole   string `json:"toRole,omitempty"`
+	Type     string `json:"type,omitempty"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Scope    string `json:"scope,omitempty"`
+}
+
+// relationFromRole resolves the source-end role across the new fromRole field
+// and the legacy type alias (new field wins; empty falls back to "references").
+func (r WorldManifestRelation) relationFromRole() string {
+	if value := strings.TrimSpace(r.FromRole); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(r.Type); value != "" {
+		return value
+	}
+	return "references"
 }
 
 type WorldManifestEvidence struct {
@@ -240,9 +258,8 @@ func validateWorldManifestV2(kind string, entryID string, manifest *WorldManifes
 			return fmt.Errorf("relation id missing or duplicated: %q", relation.ID)
 		}
 		seenRelation[relation.ID] = true
-		if relation.Type == "" {
-			return fmt.Errorf("relation %q type is required", relation.ID)
-		}
+		// fromRole may be omitted (defaults to "references"); the legacy "type"
+		// field is accepted as an alias by relationFromRole.
 		if !seenEntity[relation.From] || !seenEntity[relation.To] {
 			return fmt.Errorf("relation %q references unknown entities", relation.ID)
 		}
@@ -391,9 +408,8 @@ func validateWorldManifest(kind string, entryID string, manifest *WorldManifest)
 			return fmt.Errorf("relation id missing or duplicated: %q", relation.ID)
 		}
 		seenRelation[relation.ID] = true
-		if relation.Type == "" {
-			return fmt.Errorf("relation %q type is required", relation.ID)
-		}
+		// fromRole may be omitted (defaults to "references"); the legacy "type"
+		// field is accepted as an alias by relationFromRole.
 		if !seenEntity[relation.From] || !seenEntity[relation.To] {
 			return fmt.Errorf("relation %q references unknown entities", relation.ID)
 		}
@@ -595,8 +611,8 @@ func (w *WorldStore) MaterializeWorld(entryID, entryKind, publisher, version, sh
 			_ = index
 		}
 		for _, relation := range manifest.Relations {
-			if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, created_at) values (?, ?, ?, ?, ?, '{}', ?)",
-				storedEntityID(relation.ID), manifest.World.ID, storedEntityID(relation.From), storedEntityID(relation.To), relation.Type, now); err != nil {
+			if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, created_at) values (?, ?, ?, ?, ?, ?, '{}', ?)",
+				storedEntityID(relation.ID), manifest.World.ID, storedEntityID(relation.From), storedEntityID(relation.To), relation.relationFromRole(), strings.TrimSpace(relation.ToRole), now); err != nil {
 				return "", false, err
 			}
 		}
@@ -689,8 +705,8 @@ func insertManifestV2Tx(tx *sql.Tx, worldID string, manifest *WorldManifestV2, n
 		if strings.TrimSpace(relation.Scope) != "" {
 			scope = storedID(relation.Scope)
 		}
-		if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, '{}', ?, ?)",
-			storedID(relation.ID), worldID, storedID(relation.From), storedID(relation.To), relation.Type, scope, now); err != nil {
+		if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, ?, '{}', ?, ?)",
+			storedID(relation.ID), worldID, storedID(relation.From), storedID(relation.To), relation.relationFromRole(), strings.TrimSpace(relation.ToRole), scope, now); err != nil {
 			return err
 		}
 	}
@@ -1516,14 +1532,14 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 			return WorldDetail{}, err
 		}
 	}
-	relationRows, err := tx.Query("select relation_type, from_entity_id, to_entity_id, metadata_json, scope_entity_id, created_at from world_relations where world_id = ?", input.WorldID)
+	relationRows, err := tx.Query("select relation_type, to_role, from_entity_id, to_entity_id, metadata_json, scope_entity_id, created_at from world_relations where world_id = ?", input.WorldID)
 	if err != nil {
 		return WorldDetail{}, err
 	}
 	for relationRows.Next() {
-		var relationType, fromID, toID, metadataJSON, scopeID, createdAt string
+		var relationType, toRole, fromID, toID, metadataJSON, scopeID, createdAt string
 		var scopeNull sql.NullString
-		if err := relationRows.Scan(&relationType, &fromID, &toID, &metadataJSON, &scopeNull, &createdAt); err != nil {
+		if err := relationRows.Scan(&relationType, &toRole, &fromID, &toID, &metadataJSON, &scopeNull, &createdAt); err != nil {
 			relationRows.Close()
 			return WorldDetail{}, err
 		}
@@ -1539,8 +1555,8 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 				if remapped, ok := idMap[scopeID]; ok {
 					newScope = remapped
 				}
-				if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-					newRelationID, newWorldID, newFrom, newTo, relationType, metadataJSON, nullIfEmpty(newScope), createdAt); err != nil {
+				if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					newRelationID, newWorldID, newFrom, newTo, relationType, toRole, metadataJSON, nullIfEmpty(newScope), createdAt); err != nil {
 					relationRows.Close()
 					return WorldDetail{}, err
 				}

@@ -32,6 +32,7 @@ export function CanvasDetailPanel() {
   const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const worldName = useWorldCanvasStore((state) => state.worldName);
   const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
+  const relationTypes = useWorldCanvasStore((state) => state.relationTypes);
   const panelSide = useWorldCanvasStore((state) => state.panelSide);
   const setPanelSide = useWorldCanvasStore((state) => state.setPanelSide);
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
@@ -64,7 +65,7 @@ export function CanvasDetailPanel() {
     : selection?.type === "entity"
       ? selection.entity.name
       : selection?.type === "relation"
-        ? selection.relation.type
+        ? (relationTypes.find((item) => item.id === selection.relation.fromRole)?.labelZh ?? selection.relation.fromRole)
         : selection?.type === "canvas"
           ? selection.element.name || "画布元素"
           : (detail?.name ?? worldName);
@@ -128,7 +129,7 @@ function MultiSelectionSummary({ ids }: { ids: string[] }) {
   const rows = ids.map((id) => {
     if (id.startsWith("arrow:")) {
       const relation = relations.find((item) => item.id === id.slice("arrow:".length));
-      return { id, kind: "关系", label: relation?.type ?? "关系" };
+      return { id, kind: "关系", label: relation?.fromRole ?? "关系" };
     }
     if (id.startsWith("entity:")) {
       const entity = entities.find((item) => item.id === id.slice("entity:".length));

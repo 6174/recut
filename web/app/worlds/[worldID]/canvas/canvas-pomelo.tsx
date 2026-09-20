@@ -306,11 +306,12 @@ function buildPomeloRecords(
   }
   for (const relation of state.relations) {
     if (!entityById.has(relation.fromEntityId) || !entityById.has(relation.toEntityId)) continue;
-    // 同一双端 + 同类型的重复关系只画第一条（历史数据可能存在重复边）
-    const key = `${relation.fromEntityId}→${relation.toEntityId}·${relation.type}`;
+    // 同一双端 + 同起点语义的重复关系只画第一条（历史数据可能存在重复边）
+    const key = `${relation.fromEntityId}→${relation.toEntityId}·${relation.fromRole}`;
     if (seenRelations.has(key)) continue;
     seenRelations.add(key);
-    const typeInfo = state.relationTypes.find((item) => item.id === relation.type);
+    const typeInfo = state.relationTypes.find((item) => item.id === relation.fromRole);
+    const toRole = relation.toRole ?? "";
     const pairKey = [relation.fromEntityId, relation.toEntityId].sort().join("~");
     const labelIndex = pairLabelIndex.get(pairKey) ?? 0;
     pairLabelIndex.set(pairKey, labelIndex + 1);
@@ -328,8 +329,12 @@ function buildPomeloRecords(
         height: 0,
         fromId: `entity:${relation.fromEntityId}`,
         toId: `entity:${relation.toEntityId}`,
-        label: typeInfo?.labelZh ?? relation.type,
-        relationType: relation.type,
+        label: typeInfo?.labelZh ?? relation.fromRole,
+        fromRole: relation.fromRole,
+        toRole,
+        hasReverse: toRole !== "",
+        reverseLabel: toRole ? (state.relationTypes.find((item) => item.id === toRole)?.labelZh ?? toRole) : "",
+        relationType: relation.fromRole,
         group: typeInfo?.group ?? "",
         ...(labelIndex > 0 ? { labelOffsetIndex: labelIndex } : {}),
         ...(fromAnchor ? { fromAnchor } : {}),
@@ -485,11 +490,11 @@ function AttrCreatorPanel() {
       if (!newId || !fromEntity || fromEntity.id === newId) return;
       const fromBase = sourceType?.baseKind || fromEntity.typeId || "";
       const toBase = entityTypes.find((item) => item.id === kind)?.baseKind || kind || "";
-      const relationType =
+      const fromRole =
         relationCandidatesOf(fromBase, toBase).find((id) => relationTypes.some((item) => item.id === id)) ??
         relationTypes[0]?.id ??
         "references";
-      await createRelation(fromEntity.id, newId, relationType);
+      await createRelation(fromEntity.id, newId, fromRole);
     })();
   };
   return (

@@ -247,10 +247,11 @@ const (
 )
 
 type WorldEntityRelation struct {
-	ID            string `json:"id"`
-	Type          string `json:"type"`
-	FromEntityID  string `json:"fromEntityId"`
-	ToEntityID    string `json:"toEntityId"`
+	ID           string `json:"id"`
+	FromRole     string `json:"fromRole"`
+	ToRole       string `json:"toRole,omitempty"`
+	FromEntityID string `json:"fromEntityId"`
+	ToEntityID   string `json:"toEntityId"`
 	ScopeEntityID string `json:"scopeEntityId,omitempty"`
 	// Direction is a read projection (out | in | scope) from the touched
 	// entity's point of view; only ListRelations fills it.
@@ -645,7 +646,7 @@ func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, 
 		entities = entities[:worldGraphEntityMax]
 	}
 
-	relationRows, err := db.Query("select id, relation_type, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? order by created_at limit ?", worldID, worldGraphRelationMax+1)
+	relationRows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? order by created_at limit ?", worldID, worldGraphRelationMax+1)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -654,7 +655,7 @@ func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, 
 	for relationRows.Next() {
 		var relation WorldEntityRelation
 		var scopeEntityID sql.NullString
-		if err := relationRows.Scan(&relation.ID, &relation.Type, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
+		if err := relationRows.Scan(&relation.ID, &relation.FromRole, &relation.ToRole, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
 			return nil, nil, false, err
 		}
 		relation.ScopeEntityID = nullStringValue(scopeEntityID)
@@ -995,7 +996,7 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 		return WorldEntity{}, err
 	}
 	entity.Children = children
-	relationRows, err := db.Query("select id, relation_type, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? and (from_entity_id = ? or to_entity_id = ?) and (scope_entity_id is null or scope_entity_id = ?) order by created_at", worldID, entityID, entityID, entityID)
+	relationRows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? and (from_entity_id = ? or to_entity_id = ?) and (scope_entity_id is null or scope_entity_id = ?) order by created_at", worldID, entityID, entityID, entityID)
 	if err != nil {
 		return WorldEntity{}, err
 	}
@@ -1004,7 +1005,7 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 	for relationRows.Next() {
 		var relation WorldEntityRelation
 		var scopeEntityID sql.NullString
-		if err := relationRows.Scan(&relation.ID, &relation.Type, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
+		if err := relationRows.Scan(&relation.ID, &relation.FromRole, &relation.ToRole, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
 			return WorldEntity{}, err
 		}
 		relation.ScopeEntityID = nullStringValue(scopeEntityID)
@@ -1444,7 +1445,7 @@ func (w *WorldStore) DeleteEntity(input DeleteEntityInput) (DeleteEntityResult, 
 	if _, err := tx.Exec("delete from world_relation_tombstones where world_id = ? and id in (select id from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+")))", append(append([]any{input.WorldID, input.WorldID}, args...), args...)...); err != nil {
 		return DeleteEntityResult{}, err
 	}
-	if _, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, ?, ? from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{now, batchID, input.WorldID}, args...), args...)...); err != nil {
+	if _, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, ?, ? from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{now, batchID, input.WorldID}, args...), args...)...); err != nil {
 		return DeleteEntityResult{}, err
 	}
 	if _, err := tx.Exec("delete from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{input.WorldID}, args...), args...)...); err != nil {
@@ -1550,7 +1551,7 @@ func (w *WorldStore) RestoreEntity(input RestoreEntityInput) (RestoreEntityResul
 			for _, id := range restoredIDs {
 				args = append(args, id)
 			}
-			res, err = tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.metadata_json, t.scope_entity_id, t.created_at from world_relation_tombstones t where t.world_id = ? and t.batch_id <> '' and "+cond+" and "+alive, args...)
+			res, err = tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.to_role, t.metadata_json, t.scope_entity_id, t.created_at from world_relation_tombstones t where t.world_id = ? and t.batch_id <> '' and "+cond+" and "+alive, args...)
 			if err != nil {
 				return RestoreEntityResult{}, err
 			}
@@ -1637,7 +1638,7 @@ func (w *WorldStore) RestoreRelation(worldID, relationID, expectedRevisionID, cr
 		return err
 	}
 	// 两端都必须存活才允许重建（避免恢复出指向已归档实体的悬空边）
-	res, err := tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.metadata_json, t.scope_entity_id, t.created_at from world_relation_tombstones t where t.id = ? and t.world_id = ? and exists (select 1 from world_entities e where e.id = t.from_entity_id and e.world_id = t.world_id and e.archived_at is null) and exists (select 1 from world_entities e where e.id = t.to_entity_id and e.world_id = t.world_id and e.archived_at is null)", relationID, worldID)
+	res, err := tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.to_role, t.metadata_json, t.scope_entity_id, t.created_at from world_relation_tombstones t where t.id = ? and t.world_id = ? and exists (select 1 from world_entities e where e.id = t.from_entity_id and e.world_id = t.world_id and e.archived_at is null) and exists (select 1 from world_entities e where e.id = t.to_entity_id and e.world_id = t.world_id and e.archived_at is null)", relationID, worldID)
 	if err != nil {
 		return err
 	}
@@ -2050,19 +2051,25 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 	}
 
 	relations := []map[string]any{}
-	relationRows, err := tx.Query("select id, relation_type, from_entity_id, to_entity_id, metadata_json from world_relations where world_id = ? and scope_entity_id is null order by id", worldID)
+	relationRows, err := tx.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, metadata_json from world_relations where world_id = ? and scope_entity_id is null order by id", worldID)
 	if err != nil {
 		return "", "", err
 	}
 	for relationRows.Next() {
-		var id, relationType, fromEntityID, toEntityID, metadataJSON string
-		if err := relationRows.Scan(&id, &relationType, &fromEntityID, &toEntityID, &metadataJSON); err != nil {
+		var id, relationType, toRole, fromEntityID, toEntityID, metadataJSON string
+		if err := relationRows.Scan(&id, &relationType, &toRole, &fromEntityID, &toEntityID, &metadataJSON); err != nil {
 			relationRows.Close()
 			return "", "", err
 		}
 		metadata := map[string]any{}
 		_ = json.Unmarshal([]byte(metadataJSON), &metadata)
-		relations = append(relations, map[string]any{"id": id, "type": relationType, "from": fromEntityID, "to": toEntityID, "metadata": metadata})
+		// "type" is the legacy canonical key carrying fromRole; the optional
+		// "toRole" is omitted when unmarked so existing worlds keep their hash.
+		record := map[string]any{"id": id, "type": relationType, "from": fromEntityID, "to": toEntityID, "metadata": metadata}
+		if toRole != "" {
+			record["toRole"] = toRole
+		}
+		relations = append(relations, record)
 	}
 	relationRows.Close()
 	if err := relationRows.Err(); err != nil {
@@ -2769,7 +2776,7 @@ func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, c
 	if _, err := tx.Exec("delete from world_relation_tombstones where world_id = ? and id in (select id from world_relations where world_id = ?)", worldID, worldID); err != nil {
 		return WorldDetail{}, err
 	}
-	if _, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, ?, '' from world_relations where world_id = ?", now, worldID); err != nil {
+	if _, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, ?, '' from world_relations where world_id = ?", now, worldID); err != nil {
 		return WorldDetail{}, err
 	}
 	if _, err := tx.Exec("delete from world_relations where world_id = ?", worldID); err != nil {
@@ -2827,6 +2834,7 @@ func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, c
 	for _, record := range payload.Relations {
 		id, _ := record["id"].(string)
 		relationType, _ := record["type"].(string)
+		toRole, _ := record["toRole"].(string)
 		fromID, _ := record["from"].(string)
 		toID, _ := record["to"].(string)
 		if id == "" || relationType == "" || fromID == "" || toID == "" {
@@ -2836,8 +2844,8 @@ func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, c
 		if err != nil {
 			return WorldDetail{}, err
 		}
-		if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, created_at) values (?, ?, ?, ?, ?, ?, ?)",
-			id, worldID, fromID, toID, relationType, string(metadataJSON), now); err != nil {
+		if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+			id, worldID, fromID, toID, relationType, toRole, string(metadataJSON), now); err != nil {
 			return WorldDetail{}, err
 		}
 	}

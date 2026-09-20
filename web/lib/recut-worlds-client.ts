@@ -79,8 +79,12 @@ export type WorldEntitySummary = {
 // its owning World name (GET /v1/worlds/entities).
 export type WorldEntitySearchItem = WorldEntitySummary & { worldName: string };
 
-export type WorldEntityRelation = {  id: string;
-  type: string;
+export type WorldEntityRelation = {
+  id: string;
+  /** Source-end semantic token (stored in the legacy relation_type column). */
+  fromRole: string;
+  /** Opposite-end semantic token; empty/absent = unmarked (single arrow). */
+  toRole?: string;
   fromEntityId: string;
   toEntityId: string;
   scopeEntityId?: string;
@@ -339,7 +343,7 @@ export type WorldEntityType = {
   updatedAt: string;
 };
 
-export type WorldRelationType = { id: string; labelZh: string; group: string; inverseId?: string };
+export type WorldRelationType = { id: string; labelZh: string; group: string; inverseLabelZh?: string };
 
 export type WorldCanvasElement = {
   id: string;
@@ -445,11 +449,11 @@ export type RecutWorldsClient = {
     save(input: { worldId: string; contextId?: string; elements: WorldCanvasElement[]; version: number }): Promise<WorldCanvasDocument>;
     docs(input: { worldId: string }): Promise<Array<{ contextId: string; version: number; updatedAt: string; elementCount: number }>>;
     docUpdate(input: { worldId: string; contextId?: string; ops: CanvasDocOp[] }): Promise<WorldCanvasDocument>;
-    promote(input: { worldId: string; elementId: string; typeId?: string; relationType?: string; title?: string; expectedRevisionId?: string }): Promise<CanvasPromoteResult>;
+    promote(input: { worldId: string; elementId: string; typeId?: string; fromRole?: string; toRole?: string; relationType?: string; title?: string; expectedRevisionId?: string }): Promise<CanvasPromoteResult>;
   };
   relations: {
-    create(input: { worldId: string; fromEntityId: string; toEntityId: string; relationType: string; scopeEntityId?: string; expectedRevisionId?: string }): Promise<WorldEntityRelation>;
-    update(input: { worldId: string; relationId: string; fromEntityId?: string; toEntityId?: string; relationType?: string; expectedRevisionId?: string }): Promise<WorldEntityRelation>;
+    create(input: { worldId: string; fromEntityId: string; toEntityId: string; fromRole: string; toRole?: string; scopeEntityId?: string; expectedRevisionId?: string }): Promise<WorldEntityRelation>;
+    update(input: { worldId: string; relationId: string; fromEntityId?: string; toEntityId?: string; fromRole?: string; toRole?: string; expectedRevisionId?: string }): Promise<WorldEntityRelation>;
     list(input: { worldId: string; entityId: string }): Promise<WorldEntityRelation[]>;
     remove(input: { worldId: string; relationId: string; expectedRevisionId?: string }): Promise<void>;
     /** 撤销软删除：从墓碑按原 id 重建关系（画布锚点自动重新绑定）。 */

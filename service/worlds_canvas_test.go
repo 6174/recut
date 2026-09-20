@@ -345,13 +345,13 @@ func TestScopedRelationStaysOutOfGlobalCanonical(t *testing.T) {
 		t.Fatal(err)
 	}
 	globalRelation, err := worlds.CreateRelation(CreateRelationInput{
-		WorldID: worldID, FromEntityID: liang.ID, ToEntityID: liangsi.ID, RelationType: "father",
+		WorldID: worldID, FromEntityID: liang.ID, ToEntityID: liangsi.ID, FromRole: "father",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	localRelation, err := worlds.CreateRelation(CreateRelationInput{
-		WorldID: worldID, FromEntityID: liangsi.ID, ToEntityID: liang.ID, RelationType: "child",
+		WorldID: worldID, FromEntityID: liangsi.ID, ToEntityID: liang.ID, FromRole: "child",
 		ScopeEntityID: liang.ID,
 	})
 	if err != nil {
@@ -398,17 +398,17 @@ func TestUpdateRelationChangesTypeAndDirectionInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	relation, err := worlds.CreateRelation(CreateRelationInput{
-		WorldID: worldID, FromEntityID: from.ID, ToEntityID: to.ID, RelationType: "father",
+		WorldID: worldID, FromEntityID: from.ID, ToEntityID: to.ID, FromRole: "father",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Type-only patch keeps the id and both endpoints.
-	updated, err := worlds.UpdateRelation(UpdateRelationInput{WorldID: worldID, RelationID: relation.ID, RelationType: "teacher"})
+	updated, err := worlds.UpdateRelation(UpdateRelationInput{WorldID: worldID, RelationID: relation.ID, FromRole: "teacher"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.ID != relation.ID || updated.Type != "teacher" || updated.FromEntityID != from.ID || updated.ToEntityID != to.ID {
+	if updated.ID != relation.ID || updated.FromRole != "teacher" || updated.FromEntityID != from.ID || updated.ToEntityID != to.ID {
 		t.Fatalf("type update = %#v", updated)
 	}
 	// Direction swap keeps the id and the previously patched type.
@@ -416,7 +416,7 @@ func TestUpdateRelationChangesTypeAndDirectionInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if swapped.ID != relation.ID || swapped.Type != "teacher" || swapped.FromEntityID != to.ID || swapped.ToEntityID != from.ID {
+	if swapped.ID != relation.ID || swapped.FromRole != "teacher" || swapped.FromEntityID != to.ID || swapped.ToEntityID != from.ID {
 		t.Fatalf("direction update = %#v", swapped)
 	}
 	// Canonical freezes one relation with the updated type and direction.
@@ -433,11 +433,11 @@ func TestUpdateRelationChangesTypeAndDirectionInPlace(t *testing.T) {
 	}
 	// A patch that would duplicate another edge is rejected (same from/to/type
 	// as the relation updated above: to → from, teacher).
-	other, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: to.ID, ToEntityID: from.ID, RelationType: "friend"})
+	other, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: to.ID, ToEntityID: from.ID, FromRole: "friend"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worlds.UpdateRelation(UpdateRelationInput{WorldID: worldID, RelationID: other.ID, RelationType: "teacher"}); err == nil {
+	if _, err := worlds.UpdateRelation(UpdateRelationInput{WorldID: worldID, RelationID: other.ID, FromRole: "teacher"}); err == nil {
 		t.Fatal("duplicate relation update must be rejected")
 	}
 }
@@ -543,7 +543,7 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 		t.Fatal(err)
 	}
 	arrowResult, err := worlds.PromoteCanvasElement(PromoteCanvasElementInput{
-		WorldID: worldID, ElementID: "shape:arrow-1", RelationType: "spouse",
+		WorldID: worldID, ElementID: "shape:arrow-1", FromRole: "spouse",
 		ExpectedRevisionID: mid.Revision.ID, CreatedBy: "test",
 	})
 	if err != nil {
@@ -563,7 +563,7 @@ func TestCanvasPromoteNoteToEntityAndArrowToRelation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(relations) != 1 || relations[0].Type != "spouse" {
+	if len(relations) != 1 || relations[0].FromRole != "spouse" {
 		t.Fatalf("promoted relation = %#v", relations)
 	}
 }
@@ -782,7 +782,7 @@ func TestDeleteEntityArchivesSubgraphAndCascade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, RelationType: "located_in"}); err != nil {
+	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, FromRole: "located_in"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := worlds.UpsertCanvasElement(UpsertCanvasElementInput{
@@ -890,7 +890,7 @@ func TestRevertToRevisionRebuildsSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, RelationType: "located_in"}); err != nil {
+	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, FromRole: "located_in"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "object", Name: "项链"}); err != nil {
@@ -948,7 +948,7 @@ func TestRestoreEntityRevivesSubgraphAndRelations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	relation, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, RelationType: "located_in"})
+	relation, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: station.ID, FromRole: "located_in"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1008,7 +1008,7 @@ func TestRestoreEntityRevivesSubgraphAndRelations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: person2.ID, RelationType: "friend"})
+	edge, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: person.ID, ToEntityID: person2.ID, FromRole: "friend"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1046,7 +1046,7 @@ func TestRestoreEntityRevivesCrossBatchRelations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: a.ID, ToEntityID: b.ID, RelationType: "friend"})
+	edge, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: a.ID, ToEntityID: b.ID, FromRole: "friend"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1078,5 +1078,97 @@ func TestRestoreEntityRevivesCrossBatchRelations(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("cross-batch edge should be restored: %#v", reloaded.Relations)
+	}
+}
+
+// 关系双边语义（RFC 2026-09-20）：一条边 = fromRole + 可空 toRole；fromRole 沿用旧
+// relation_type 值域，缺省 references；toRole 非空即标记（画布双箭头），可清空回单箭头；
+// canonical 空 toRole 省略、非空追加，旧世界 hash 不受影响。
+func TestRelationBilateralRoles(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+	father, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "character", Name: "父亲"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: "character", Name: "子女"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 两端语义都标记
+	marked, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: father.ID, ToEntityID: child.ID, FromRole: "father", ToRole: "child"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marked.FromRole != "father" || marked.ToRole != "child" {
+		t.Fatalf("marked roles = %q/%q, want father/child", marked.FromRole, marked.ToRole)
+	}
+
+	// 缺省：fromRole=references，toRole 未标记
+	defaulted, err := worlds.CreateRelation(CreateRelationInput{WorldID: worldID, FromEntityID: child.ID, ToEntityID: father.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaulted.FromRole != "references" || defaulted.ToRole != "" {
+		t.Fatalf("default roles = %q/%q, want references/empty", defaulted.FromRole, defaulted.ToRole)
+	}
+
+	// 读取带回两端 role
+	loaded, err := worlds.GetEntity(worldID, father.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range loaded.Relations {
+		if item.ID == marked.ID {
+			found = item.FromRole == "father" && item.ToRole == "child"
+		}
+	}
+	if !found {
+		t.Fatalf("marked roles not projected on entity read: %#v", loaded.Relations)
+	}
+
+	// 清空 toRole（回单箭头），fromRole 保留
+	cleared := ""
+	updated, err := worlds.UpdateRelation(UpdateRelationInput{WorldID: worldID, RelationID: marked.ID, ToRole: &cleared})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ToRole != "" || updated.FromRole != "father" {
+		t.Fatalf("cleared roles = %q/%q, want father/empty", updated.FromRole, updated.ToRole)
+	}
+
+	// canonical：空 toRole 省略键，非空追加键（旧世界 hash 不变）
+	readCanonical := func() string {
+		t.Helper()
+		db, err := worlds.database()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		canonical, _, err := worlds.computeCanonicalTx(tx, worldID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return canonical
+	}
+	canonical := readCanonical()
+	if strings.Contains(canonical, `"toRole":"child"`) {
+		t.Fatalf("cleared relation should not serialize toRole: %s", canonical)
+	}
+	if !strings.Contains(canonical, `"type":"references"`) {
+		t.Fatalf("canonical should keep the legacy \"type\" key for fromRole: %s", canonical)
+	}
+	if _, err := worlds.UpdateRelation(UpdateRelationInput{WorldID: worldID, RelationID: marked.ID, ToRole: strPtr("child")}); err != nil {
+		t.Fatal(err)
+	}
+	canonical = readCanonical()
+	if !strings.Contains(canonical, `"toRole":"child"`) {
+		t.Fatalf("marked relation should serialize toRole: %s", canonical)
 	}
 }

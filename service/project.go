@@ -604,7 +604,8 @@ create table if not exists world_relations (
   world_id text not null references worlds(id) on delete cascade,
   from_entity_id text not null references world_entities(id) on delete cascade,
   to_entity_id text not null references world_entities(id) on delete cascade,
-  relation_type text not null,
+  relation_type text not null,          -- fromRole (legacy physical name)
+  to_role text not null default '',     -- toRole; '' = unmarked
   metadata_json text not null default '{}',
   scope_entity_id text references world_entities(id) on delete cascade,
   created_at text not null,
@@ -621,6 +622,7 @@ create table if not exists world_relation_tombstones (
   from_entity_id text not null,
   to_entity_id text not null,
   relation_type text not null,
+  to_role text not null default '',
   metadata_json text not null default '{}',
   scope_entity_id text,
   created_at text not null,
@@ -781,6 +783,8 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table world_entity_types add column archived_at text",
 			"alter table worlds add column archived_at text",
 			"alter table world_relations add column scope_entity_id text",
+			"alter table world_relations add column to_role text not null default ''",
+			"alter table world_relation_tombstones add column to_role text not null default ''",
 			"alter table projects add column updated_at text not null default ''",
 			"create index if not exists world_entities_parent on world_entities(world_id, parent_id)",
 			"create index if not exists world_entities_world_type on world_entities(world_id, type_id, updated_at desc)",

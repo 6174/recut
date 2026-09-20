@@ -2,7 +2,7 @@
 
 > L3 | 父级: ../README.md
 
-Recursive World Canvas（RFC 2026-09-07）的全屏画布模式：pomelo（pixi + 插件机制）为交互底座，zustand store 为唯一数据源。语义真相只在 `world_entities` + `world_relations`；pomelo 文档是 `world_canvas` 的内存投影（可重建），画布变更永不产出 revision。
+Recursive World Canvas（RFC 2026-09-07）的全屏画布模式：pomelo（pixi + 插件机制）为交互底座，zustand store 为唯一数据源。语义真相只在 `world_entities` + `world_relations`（一条边 = 两端语义 `fromRole`/`toRole`，`fromRole` 沿用旧 `relation_type` 值域，`toRole` 空 = 未标记；RFC 2026-09-20 关系双边语义）；pomelo 文档是 `world_canvas` 的内存投影（可重建），画布变更永不产出 revision。
 
 成员清单
 
@@ -19,7 +19,7 @@ index.tsx: 组合根；经 portal 挂载到工作台内容区（#workspace-conte
 依赖边界
 
 - 数据流：组件只读 `useWorldCanvasStore` 快照并触发动作，绝不直接调用 recut-worlds-client 写接口。
-- pomelo block id 约定：实体 `entity:<entityId>`（元素 id 仍为 `shape:<entityId>`）、World 节点 `shape:world`、自由元素直接用 world_canvas 元素 id、语义关系边 block id = `arrow:<relationId>`。
+- pomelo block id 约定：实体 `entity:<entityId>`（元素 id 仍为 `shape:<entityId>`）、World 节点 `shape:world`、自由元素直接用 world_canvas 元素 id、语义关系边 block id = `arrow:<relationId>`（attrs 携带 `fromRole`/`toRole`/`hasReverse`，`toRole` 非空时 RelationArrowBlockV 画双箭头、两端各一个标签）。
 - pomelo 文档是内存投影：拖拽/resize 增量提交仅在文档内，pointerup 落回 canvas-store 持久化，异常时可随时全量重建。
 - 多选/框选：空白拖拽拉框，与选框有交集即命中——节点按矩形重叠、关系/自由箭头按贝塞尔曲线采样成折线与选框相交；`store.selectedIds` 存 block id，恰好一项时解析为单选（面板/手柄按单选工作），多项时面板显示汇总；批量位移沿用 MoveDrag 的 `Map<blockId, origin>`；批量删除经 `deleteSelectionIds` 打开 DeleteSelectionConfirmDialog（按类型展示影响，含设定时可仅从画布移除），确认后 `deleteSelection` 按序执行。
 - 删除可撤销（软删除）：删除设定 = 后端归档（`archived_at` + `archive_batch_id`）并把关系移入 `world_relation_tombstones`，画布投影/内层文档保留；删除关系 = 入墓碑；删除画布元素 = 本地移除。三者都写 `changeLog`（历史菜单逐条撤销）：`restoreEntity` 调 `entity.restore`（按 batch 复位标记 + 原 id 重建关系，再 `load(false)`）、`restoreRelation` 调 `relation.restore`、`restoreElement` 按删除时快照 upsert。前端删除设定时**不**从本地 `elements` 移除投影，否则文档粒度整包保存会永久丢失恢复所需的位置。底层 media_assets 永不因世界内容删除而删除（素材历史「移除」只解引用，不删文件）。

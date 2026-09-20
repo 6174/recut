@@ -104,6 +104,7 @@ function buildRecords(canvas: MarketingWorldCanvas, locale: Locale): PomeloBlock
   // 语义关系连线（复用 RelationArrowBlockV）：两端实体块 id 与工作台一致（entity:<id>）；
   // 不传 color，跟随 block 默认灰（与工作台 renderBlock 缺省一致）
   canvas.relations.forEach((relation, index) => {
+    const toRole = relation.toRole ?? "";
     records.push({
       id: `arrow:${relation.id || index}`,
       type: "relation-arrow",
@@ -114,8 +115,12 @@ function buildRecords(canvas: MarketingWorldCanvas, locale: Locale): PomeloBlock
         height: 0,
         fromId: `entity:${relation.from}`,
         toId: `entity:${relation.to}`,
-        label: relationLabel(relation.type, locale),
-        relationType: relation.type,
+        label: relationLabel(relation.fromRole, locale),
+        fromRole: relation.fromRole,
+        toRole,
+        hasReverse: toRole !== "",
+        reverseLabel: toRole ? relationLabel(toRole, locale) : "",
+        relationType: relation.fromRole,
       },
     });
   });

@@ -4,6 +4,7 @@
  *          world-canvas/blocks/vello-shared
  * [OUTPUT]: 对外提供 RelationArrowBlockV（type: relation-arrow）：复用 arrow-geometry 的二次贝塞尔，
  *           曲线 + 箭头 + 标签；线宽/箭头/标签/边框均按屏幕像素恒定；zIndex=-1 永远画在内容节点下层。
+ *           toRole 非空（hasReverse）时画双箭头、两端各一个标签；否则单箭头 + 中点 fromRole 标签。
  * [POS]: lib/pomelo/world-canvas/blocks 的关系连线 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -34,11 +35,20 @@ export class RelationArrowBlockV extends VelloBlock {
     const from = state.getBlockById(fromId);
     const to = state.getBlockById(toId);
     const geo = relationGeometry(from, to, this.record.attrs as { fromAnchor?: { x: number; y: number }; toAnchor?: { x: number; y: number }; bend?: { dx: number; dy: number } });
-    return { fromId, toId, geo, label: String(this.record.attrs.label ?? "") };
+    const toRole = String(this.record.attrs.toRole ?? "");
+    const reverseLabel = String(this.record.attrs.reverseLabel ?? "");
+    return {
+      fromId,
+      toId,
+      geo,
+      label: String(this.record.attrs.label ?? ""),
+      hasReverse: Boolean(this.record.attrs.hasReverse) || toRole !== "" || reverseLabel !== "",
+      reverseLabel,
+    };
   };
 
   renderBlock(): VelloBlockDraw {
-    const state = this.blockState as { geo: RelationGeometry | null; label: string } | null;
+    const state = this.blockState as { geo: RelationGeometry | null; label: string; hasReverse: boolean; reverseLabel: string } | null;
     const geo = state?.geo;
     if (!geo) return { ops: [], bounds: this.blockBounds() };
     const color = hexToRgba(String(this.record.attrs.color ?? "#8b93a7"));
@@ -52,6 +62,17 @@ export class RelationArrowBlockV extends VelloBlock {
     const headWidth = 9 * inv;
     const strokeWidth = 2 * inv;
 
+    // 箭头三角：tip 在给定点、沿 angle 方向指出的等边三角
+    const head = (tipX: number, tipY: number, dir: number): VelloOp => ({
+      kind: "triangleFill",
+      points: [
+        [tipX, tipY],
+        [tipX - headLength * Math.cos(dir) + (headWidth / 2) * Math.sin(dir), tipY - headLength * Math.sin(dir) - (headWidth / 2) * Math.cos(dir)],
+        [tipX - headLength * Math.cos(dir) - (headWidth / 2) * Math.sin(dir), tipY - headLength * Math.sin(dir) + (headWidth / 2) * Math.cos(dir)],
+      ],
+      fill: color,
+    });
+
     const ops: VelloOp[] = [
       {
         kind: "quadStroke",
@@ -61,43 +82,49 @@ export class RelationArrowBlockV extends VelloBlock {
         stroke: color,
         strokeWidth,
       },
-      {
-        kind: "triangleFill",
-        points: [
-          [geo.b.x, geo.b.y],
-          [geo.b.x - headLength * Math.cos(angle) + (headWidth / 2) * Math.sin(angle), geo.b.y - headLength * Math.sin(angle) - (headWidth / 2) * Math.cos(angle)],
-          [geo.b.x - headLength * Math.cos(angle) - (headWidth / 2) * Math.sin(angle), geo.b.y - headLength * Math.sin(angle) + (headWidth / 2) * Math.cos(angle)],
-        ],
-        fill: color,
-      },
+      head(geo.b.x, geo.b.y, angle),
     ];
+    // 反向箭头（toRole 已标记）：tip 在 a 端、方向为起点切线的反向
+    if (state?.hasReverse) {
+      const tangentA = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.ta);
+      const angleA = Math.atan2(tangentA.y, tangentA.x);
+      ops.push(head(geo.a.x, geo.a.y, angleA + Math.PI));
+    }
 
-    // 标签：曲线中点（多条边沿法向 ±14 屏幕像素错开）；字号/药丸/偏移均按屏幕像素恒定。
-    // 文本 op 用屏幕 ppem（10）+ glyphScale=1/scale 保证轮廓清晰（同 caption）。
-    let label = "";
-    let labelTextW = 0;
+    // 标签：单箭头 = 曲线中点一个 fromRole；双箭头 = 两端各一个（t≈0.28 / t≈0.72）。
+    // 字号/药丸/偏移均按屏幕像素恒定；文本 op 用屏幕 ppem（10）+ glyphScale=1/scale 保证轮廓清晰。
+    const midTangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
+    const midLen = Math.hypot(midTangent.x, midTangent.y) || 1;
+    const offsetIndex = Number(this.record.attrs.labelOffsetIndex ?? 0);
     let labelX = geo.mid.x;
     let labelY = geo.mid.y;
-    let pillW = 0;
-    let pillH = 0;
-    if (state?.label) {
-      label = truncateText(state.label, 120, 10);
-      labelTextW = measureTextWidth(label, 10);
-      const offsetIndex = Number(this.record.attrs.labelOffsetIndex ?? 0);
+
+    const drawLabel = (text: string, x: number, y: number) => {
+      if (!text) return;
+      const label = truncateText(text, 120, 10);
+      const labelTextW = measureTextWidth(label, 10);
+      const pillW = (labelTextW + 14) * inv;
+      const pillH = 18 * inv;
+      ops.push({ kind: "roundRect", x: x - pillW / 2, y: y - pillH / 2, width: pillW, height: pillH, radius: 9 * inv, fill: [15, 20, 16, 235], stroke: [255, 255, 255, 40], strokeWidth: inv });
+      ops.push(screenTextOp(this.adapter, { text: label, x: x - labelTextW / 2 / scale, y: y - 7 / scale, screenSize: 10, maxScreenWidth: labelTextW, align: "left", fill: LABEL_FILL }));
+    };
+
+    if (state?.hasReverse) {
+      // 双箭头：两端语义都收在中点控制点处，上下堆叠（from 在上、to 在下），不占两端。
+      const stackGap = 11 * inv;
+      drawLabel(state.label, geo.mid.x, geo.mid.y - stackGap);
+      drawLabel(state.reverseLabel || state.label, geo.mid.x, geo.mid.y + stackGap);
+      labelX = geo.mid.x;
+      labelY = geo.mid.y;
+    } else if (state?.label) {
       if (offsetIndex > 0) {
-        const midTangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
-        const length = Math.hypot(midTangent.x, midTangent.y) || 1;
         const side = offsetIndex % 2 === 1 ? 1 : -1;
         const level = Math.ceil(offsetIndex / 2);
-        const px = ((level * 14 * side) / length) * inv;
+        const px = ((level * 14 * side) / midLen) * inv;
         labelX = geo.mid.x - midTangent.y * px;
         labelY = geo.mid.y + midTangent.x * px;
       }
-      pillW = (labelTextW + 14) * inv;
-      pillH = 18 * inv;
-      // 边框也按屏幕恒定（strokeWidth 乘 1/scale）：否则缩小时 <1px，描边发虚/断续
-      ops.push({ kind: "roundRect", x: labelX - pillW / 2, y: labelY - pillH / 2, width: pillW, height: pillH, radius: 9 * inv, fill: [15, 20, 16, 235], stroke: [255, 255, 255, 40], strokeWidth: inv });
-      ops.push(screenTextOp(this.adapter, { text: label, x: labelX - labelTextW / 2 / scale, y: labelY - 7 / scale, screenSize: 10, maxScreenWidth: labelTextW, align: "left", fill: LABEL_FILL }));
+      drawLabel(state.label, labelX, labelY);
     }
 
     const pad = 24 * inv + (state?.label ? 60 * inv : 0);

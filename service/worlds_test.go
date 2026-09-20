@@ -564,7 +564,7 @@ func TestDeleteWorldRequiresExactNameAndRemovesEverything(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: world.ID, FromEntityID: hero.ID, ToEntityID: rule.ID, RelationType: "references"}); err != nil {
+	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: world.ID, FromEntityID: hero.ID, ToEntityID: rule.ID, FromRole: "references"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := worlds.SaveCanvasDocument(world.ID, "", []WorldCanvasElement{
@@ -860,7 +860,7 @@ func TestListRelationsDirectionOutAndIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: world.ID, FromEntityID: father.ID, ToEntityID: child.ID, RelationType: "father"}); err != nil {
+	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: world.ID, FromEntityID: father.ID, ToEntityID: child.ID, FromRole: "father"}); err != nil {
 		t.Fatal(err)
 	}
 	fatherRelations, err := worlds.ListRelations(world.ID, father.ID)
@@ -877,15 +877,16 @@ func TestListRelationsDirectionOutAndIn(t *testing.T) {
 	if childRelations[0].Direction != "in" {
 		t.Fatalf("child direction = %q, want in", childRelations[0].Direction)
 	}
-	// The controlled vocabulary carries the inverse projection for the pair.
-	inverses := map[string]string{}
+	// The controlled vocabulary carries the opposite-end label for preset pairs
+	// (father ↔ child) used to one-click fill both roles.
+	inverseLabels := map[string]string{}
 	for _, item := range ListWorldRelationTypes() {
 		if id, ok := item["id"].(string); ok {
-			inverses[id], _ = item["inverseId"].(string)
+			inverseLabels[id], _ = item["inverseLabelZh"].(string)
 		}
 	}
-	if inverses["father"] != "child" || inverses["child"] != "father" {
-		t.Fatalf("father/child inverse pair broken: %v/%v", inverses["father"], inverses["child"])
+	if inverseLabels["father"] != "子女" || inverseLabels["child"] != "父母" {
+		t.Fatalf("father/child inverse label pair broken: %v/%v", inverseLabels["father"], inverseLabels["child"])
 	}
 }
 

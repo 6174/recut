@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 func (s *Server) worldsStore() *WorldStore {
@@ -423,8 +424,11 @@ func (s *Server) listWorldRelations(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createWorldRelation(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		FromEntityID       string         `json:"fromEntityId"`
-		ToEntityID         string         `json:"toEntityId"`
+		FromEntityID string `json:"fromEntityId"`
+		ToEntityID   string `json:"toEntityId"`
+		FromRole     string `json:"fromRole"`
+		ToRole       string `json:"toRole"`
+		// RelationType is the legacy alias of fromRole, kept for old clients.
 		RelationType       string         `json:"relationType"`
 		ScopeEntityID      string         `json:"scopeEntityId"`
 		Metadata           map[string]any `json:"metadata"`
@@ -434,9 +438,13 @@ func (s *Server) createWorldRelation(w http.ResponseWriter, r *http.Request) {
 		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
 		return
 	}
+	fromRole := strings.TrimSpace(input.FromRole)
+	if fromRole == "" {
+		fromRole = strings.TrimSpace(input.RelationType)
+	}
 	relation, err := s.worldsStore().CreateRelation(CreateRelationInput{
 		WorldID: r.PathValue("worldID"), FromEntityID: input.FromEntityID, ToEntityID: input.ToEntityID,
-		RelationType: input.RelationType, ScopeEntityID: input.ScopeEntityID, Metadata: input.Metadata,
+		FromRole: fromRole, ToRole: strings.TrimSpace(input.ToRole), ScopeEntityID: input.ScopeEntityID, Metadata: input.Metadata,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
 	})
 	if err != nil {
@@ -448,8 +456,11 @@ func (s *Server) createWorldRelation(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updateWorldRelation(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		FromEntityID       string `json:"fromEntityId"`
-		ToEntityID         string `json:"toEntityId"`
+		FromEntityID string `json:"fromEntityId"`
+		ToEntityID   string `json:"toEntityId"`
+		FromRole     string `json:"fromRole"`
+		ToRole       *string `json:"toRole"`
+		// RelationType is the legacy alias of fromRole, kept for old clients.
 		RelationType       string `json:"relationType"`
 		ExpectedRevisionID string `json:"expectedRevisionId"`
 	}
@@ -457,9 +468,13 @@ func (s *Server) updateWorldRelation(w http.ResponseWriter, r *http.Request) {
 		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
 		return
 	}
+	fromRole := strings.TrimSpace(input.FromRole)
+	if fromRole == "" {
+		fromRole = strings.TrimSpace(input.RelationType)
+	}
 	relation, err := s.worldsStore().UpdateRelation(UpdateRelationInput{
 		WorldID: r.PathValue("worldID"), RelationID: r.PathValue("relationID"),
-		FromEntityID: input.FromEntityID, ToEntityID: input.ToEntityID, RelationType: input.RelationType,
+		FromEntityID: input.FromEntityID, ToEntityID: input.ToEntityID, FromRole: fromRole, ToRole: input.ToRole,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
 	})
 	if err != nil {
@@ -580,7 +595,9 @@ func (s *Server) updateCanvasDocumentOps(w http.ResponseWriter, r *http.Request)
 func (s *Server) promoteWorldCanvas(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Kind               string `json:"kind"`
-		RelationType       string `json:"relationType"`
+		FromRole           string `json:"fromRole"`
+		ToRole             string `json:"toRole"`
+		RelationType       string `json:"relationType"` // legacy alias of fromRole
 		Field              string `json:"field"`
 		TypeID             string `json:"typeId"`
 		Title              string `json:"title"`
@@ -590,9 +607,13 @@ func (s *Server) promoteWorldCanvas(w http.ResponseWriter, r *http.Request) {
 		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
 		return
 	}
+	fromRole := strings.TrimSpace(input.FromRole)
+	if fromRole == "" {
+		fromRole = strings.TrimSpace(input.RelationType)
+	}
 	result, err := s.worldsStore().PromoteCanvasElement(PromoteCanvasElementInput{
 		WorldID: r.PathValue("worldID"), ElementID: r.PathValue("elementID"), TypeID: input.TypeID,
-		RelationType: input.RelationType, Field: input.Field, Title: input.Title,
+		FromRole: fromRole, ToRole: strings.TrimSpace(input.ToRole), Field: input.Field, Title: input.Title,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
 	})
 	if err != nil {

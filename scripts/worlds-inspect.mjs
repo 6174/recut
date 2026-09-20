@@ -60,7 +60,10 @@ function inspect(world) {
   if (relations.length) {
     const nameOf = new Map(world.entities.map((e) => [e.id, e.name]));
     for (const relation of relations) {
-      console.log(`  ${nameOf.get(relation.from) ?? relation.from} --${relation.type}--> ${nameOf.get(relation.to) ?? relation.to}${relation.scope ? `（scope ${relation.scope}）` : ""}`);
+      const fromRole = relation.fromRole ?? relation.type ?? "";
+      const toRole = relation.toRole ?? "";
+      const edge = toRole ? `${fromRole}  ⇄  ${toRole}` : `${fromRole} →`;
+      console.log(`  ${nameOf.get(relation.from) ?? relation.from} ${edge} ${nameOf.get(relation.to) ?? relation.to}${relation.scope ? `（scope ${relation.scope}）` : ""}`);
     }
   } else {
     console.log("  （无；画布不会有连线。关系写在 world.json 的 relations[]，物化后自动渲染为箭头）");

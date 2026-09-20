@@ -138,19 +138,22 @@ export function EntitySettingsPanel({
     }
   }, [apiBase, onChanged, worldId]);
 
-  const relations: RelationItem[] = (live?.relations ?? []).map((relation) => ({
-    id: relation.id,
-    type: relation.type,
-    out: relation.fromEntityId === live?.id,
-    otherId: relation.fromEntityId === live?.id ? relation.toEntityId : relation.fromEntityId,
-    scoped: Boolean(relation.scopeEntityId),
-  }));
+  const relations: RelationItem[] = (live?.relations ?? []).map((relation) => {
+    const out = relation.fromEntityId === live?.id;
+    return {
+      id: relation.id,
+      role: out ? relation.fromRole : relation.toRole || relation.fromRole,
+      out,
+      otherId: out ? relation.toEntityId : relation.fromEntityId,
+      scoped: Boolean(relation.scopeEntityId),
+    };
+  });
 
-  async function createRelation(toEntityId: string, relationType: string) {
+  async function createRelation(toEntityId: string, fromRole: string) {
     if (!liveRef.current?.id) return;
     const expectedRevisionId = await saver.revision();
     try {
-      await client.relations.create({ worldId, fromEntityId: liveRef.current.id, toEntityId, relationType, expectedRevisionId });
+      await client.relations.create({ worldId, fromEntityId: liveRef.current.id, toEntityId, fromRole, expectedRevisionId });
       saver.invalidateRevision();
       await refreshEntity();
     } catch (cause) {

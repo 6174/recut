@@ -173,7 +173,7 @@ func TestWorldBundleExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert rule: %v", err)
 	}
-	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: created.ID, FromEntityID: hero.ID, ToEntityID: rule.ID, RelationType: "references"}); err != nil {
+	if _, err := worlds.CreateRelation(CreateRelationInput{WorldID: created.ID, FromEntityID: hero.ID, ToEntityID: rule.ID, FromRole: "references"}); err != nil {
 		t.Fatalf("create relation: %v", err)
 	}
 	if _, err := worlds.SaveCanvasDocument(created.ID, "", []WorldCanvasElement{
@@ -244,7 +244,7 @@ func TestWorldBundleExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list relations: %v", err)
 	}
-	if len(relations) != 1 || relations[0].Type != "references" {
+	if len(relations) != 1 || relations[0].FromRole != "references" {
 		t.Fatalf("imported relations = %#v", relations)
 	}
 	doc, err := worlds.GetCanvasDocument(imported.ID, "")

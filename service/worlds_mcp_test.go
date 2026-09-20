@@ -389,7 +389,7 @@ func TestWorldsMCPGetReturnsEntityGraphAndSkill(t *testing.T) {
 	if len(fetched.Entities) != 2 || !kinds["character"] || !kinds["location"] {
 		t.Fatalf("world.get entities = %#v", fetched.Entities)
 	}
-	if len(fetched.Relations) != 1 || fetched.Relations[0].Type != "located_in" {
+	if len(fetched.Relations) != 1 || fetched.Relations[0].FromRole != "located_in" {
 		t.Fatalf("world.get relations = %#v", fetched.Relations)
 	}
 	if fetched.Relations[0].FromEntityID != hero.ID || fetched.Relations[0].ToEntityID != alley.ID {

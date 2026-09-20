@@ -218,8 +218,10 @@ function validateManifest(manifest) {
   if (detailTotal > ENTITY_DETAIL_MAX_BYTES) fail(`实体 detail 合计超过 ${ENTITY_DETAIL_MAX_BYTES} 字节`);
 
   for (const [index, relation] of (manifest.relations ?? []).entries()) {
-    if (!relation.id || !relation.type) fail(`relation 缺 id/type`);
-    if (!seen.has(relation.from) || !seen.has(relation.to)) fail(`relation ${relation.id ?? index} 引用未知实体`);
+    // fromRole 是语义 token，缺省 references；type 为 legacy 别名。
+    if (!relation.id || (!relation.fromRole && !relation.type)) fail(`relation 缺 id/fromRole`);
+    if (!seen.has(relation.from)) fail(`relation ${relation.id ?? index} 引用未知实体`);
+    if (relation.to && !seen.has(relation.to)) fail(`relation ${relation.id ?? index} 引用未知实体`);
     if (relation.scope && !seen.has(relation.scope)) fail(`relation ${relation.id} scope 引用未知实体`);
   }
 

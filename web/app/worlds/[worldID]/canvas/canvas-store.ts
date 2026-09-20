@@ -629,17 +629,18 @@ type WorldCanvasState = {
   removeElement: (id: string) => Promise<void>;
   // 画布元素删除的撤销：按删除时快照原样 upsert（world_canvas 不产 revision）
   restoreElement: (snapshot: WorldCanvasElement) => Promise<void>;
-  createRelation: (fromEntityId: string, toEntityId: string, relationType: string, opts?: { scopeEntityId?: string }) => Promise<void>;
+  createRelation: (fromEntityId: string, toEntityId: string, fromRole: string, opts?: { toRole?: string; scopeEntityId?: string }) => Promise<void>;
   removeRelation: (relationId: string) => Promise<void>;
   // 关系软删除的撤销：从墓碑按原 id 重建（画布锚点自动重绑）
   restoreRelation: (relationId: string) => Promise<void>;
-  // 原位改关系（T5）：类型与方向 patch，保留 relation id、scope 与画布锚点（relations.update）
-  updateRelation: (relation: WorldEntityRelation, patch: { relationType?: string; fromEntityId?: string; toEntityId?: string }) => Promise<void>;
-  // 换类型（面板/标签就地换）：updateRelation 的语义别名
-  changeRelationType: (relation: WorldEntityRelation, relationType: string) => Promise<void>;
-  // 交换方向（A → B 变 B → A）：等价 updateRelation 交换两端
+  // 原位改关系（T5）：两端语义与方向 patch，保留 relation id、scope 与画布锚点（relations.update）。
+  // toRole 传 "" 表示清除（画布回单箭头），缺省表示不改动。
+  updateRelation: (relation: WorldEntityRelation, patch: { fromRole?: string; toRole?: string; fromEntityId?: string; toEntityId?: string }) => Promise<void>;
+  // 换起点语义（面板/标签就地换）：updateRelation 的语义别名
+  changeRelationRole: (relation: WorldEntityRelation, fromRole: string) => Promise<void>;
+  // 交换方向（A → B 变 B → A）：交换两端并同时对调两端 role
   swapRelationDirection: (relation: WorldEntityRelation) => Promise<void>;
-  promote: (elementId: string, input?: { typeId?: string; name?: string; relationType?: string }) => Promise<void>;
+  promote: (elementId: string, input?: { typeId?: string; name?: string; fromRole?: string; toRole?: string }) => Promise<void>;
   setPromoting: (elementId: string | null) => void;
   setPendingRelation: (pendingRelation: { fromEntityId: string; toEntityId: string; arrowCanvasId?: string } | null) => void;
   startInlineEdit: (edit: NonNullable<InlineEdit>) => void;
@@ -1502,15 +1503,15 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
 
-  createRelation: async (fromEntityId, toEntityId, relationType, opts = {}) => {
+  createRelation: async (fromEntityId, toEntityId, fromRole, opts = {}) => {
     // 自环禁止（B.10）
     if (fromEntityId === toEntityId) {
       set({ pendingRelation: null, relatingFrom: null, relatingTo: null });
       get().toast("不能与自身建立关系", "error");
       return;
     }
-    // 同一双端/同类型去重（历史数据可能存在重复边，不再追加）
-    if (get().relations.some((relation) => relation.fromEntityId === fromEntityId && relation.toEntityId === toEntityId && relation.type === relationType)) {
+    // 同一双端/同起点语义去重（历史数据可能存在重复边，不再追加）
+    if (get().relations.some((relation) => relation.fromEntityId === fromEntityId && relation.toEntityId === toEntityId && relation.fromRole === fromRole)) {
       set({ pendingRelation: null, relatingFrom: null, relatingTo: null });
       get().toast("已存在这条关系", "info");
       return;
@@ -1520,7 +1521,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         worldId: get().worldId,
         fromEntityId,
         toEntityId,
-        relationType,
+        fromRole,
+        ...(opts.toRole ? { toRole: opts.toRole } : {}),
         scopeEntityId: opts.scopeEntityId !== undefined ? opts.scopeEntityId : get().context?.entityId || undefined,
         expectedRevisionId: revisionId,
       });
@@ -1553,10 +1555,14 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
 
   updateRelation: async (relation, patch) => {
-    const nextType = patch.relationType?.trim() || relation.type;
+    const nextRole = patch.fromRole?.trim() || relation.fromRole;
+    const nextToRole = patch.toRole !== undefined ? patch.toRole : (relation.toRole ?? "");
     const nextFrom = patch.fromEntityId || relation.fromEntityId;
     const nextTo = patch.toEntityId || relation.toEntityId;
-    if (nextType === relation.type && nextFrom === relation.fromEntityId && nextTo === relation.toEntityId) return;
+    const roleChanged = nextRole !== relation.fromRole || nextToRole !== (relation.toRole ?? "");
+    const fromChanged = nextFrom !== relation.fromEntityId;
+    const toChanged = nextTo !== relation.toEntityId;
+    if (!roleChanged && !fromChanged && !toChanged) return;
     if (nextFrom === nextTo) {
       get().toast("不能与自身建立关系", "error");
       return;
@@ -1565,9 +1571,10 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       createRecutWorldsClient(get().apiBase).relations.update({
         worldId: get().worldId,
         relationId: relation.id,
-        ...(nextType !== relation.type ? { relationType: nextType } : {}),
-        ...(nextFrom !== relation.fromEntityId ? { fromEntityId: nextFrom } : {}),
-        ...(nextTo !== relation.toEntityId ? { toEntityId: nextTo } : {}),
+        ...(nextRole !== relation.fromRole ? { fromRole: nextRole } : {}),
+        ...(patch.toRole !== undefined ? { toRole: nextToRole } : {}),
+        ...(fromChanged ? { fromEntityId: nextFrom } : {}),
+        ...(toChanged ? { toEntityId: nextTo } : {}),
         expectedRevisionId: revisionId,
       });
     try {
@@ -1585,27 +1592,39 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         dataVersion: state.dataVersion + 1,
       }));
       const titleOf = (id: string) => get().entities.find((entity) => entity.id === id)?.name ?? id;
-      if (nextFrom === relation.fromEntityId && nextTo === relation.toEntityId) {
-        get().toast(`关系类型已改为 ${nextType}`, "success");
+      if (!fromChanged && !toChanged) {
+        get().toast(`关系语义已更新${nextToRole ? "" : "（单箭头）"}`, "success");
       } else {
         get().toast(`关系方向已改为 ${titleOf(nextFrom)} → ${titleOf(nextTo)}`, "success");
       }
       get().logChange(
         `修改关系 ${titleOf(relation.fromEntityId)}→${titleOf(relation.toEntityId)}`,
-        () => void get().updateRelation(saved, { relationType: relation.type, fromEntityId: relation.fromEntityId, toEntityId: relation.toEntityId }),
+        () =>
+          void get().updateRelation(saved, {
+            fromRole: relation.fromRole,
+            toRole: relation.toRole ?? "",
+            fromEntityId: relation.fromEntityId,
+            toEntityId: relation.toEntityId,
+          }),
       );
     } catch (cause) {
       applyCanvasError(cause);
     }
   },
 
-  changeRelationType: async (relation, relationType) => {
-    if (relation.type === relationType) return;
-    await get().updateRelation(relation, { relationType });
+  changeRelationRole: async (relation, fromRole) => {
+    if (relation.fromRole === fromRole) return;
+    await get().updateRelation(relation, { fromRole });
   },
 
   swapRelationDirection: async (relation) => {
-    await get().updateRelation(relation, { fromEntityId: relation.toEntityId, toEntityId: relation.fromEntityId });
+    // 交换两端时同时对调两端 role，使两端看到的语义标签保持贴在自己的实体上。
+    await get().updateRelation(relation, {
+      fromEntityId: relation.toEntityId,
+      toEntityId: relation.fromEntityId,
+      fromRole: relation.toRole || relation.fromRole,
+      toRole: relation.fromRole,
+    });
   },
 
   removeRelation: async (relationId) => {
@@ -1632,7 +1651,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       }));
       // 软删除：撤销 = 从墓碑按原 id 重建（保留锚点/方向），不是新建关系
       if (removed) {
-        get().logChange(`删除关系 ${removed.type}`, () => void get().restoreRelation(relationId));
+        get().logChange(`删除关系 ${removed.fromRole}`, () => void get().restoreRelation(relationId));
       }
       get().toast("已删除此关系", "success");
     } catch (cause) {

@@ -27,13 +27,17 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
   const relationScope = store.context?.entityId ?? "";
   const relations: RelationItem[] = (entity.relations ?? [])
     .filter((relation) => !relation.scopeEntityId || relation.scopeEntityId === relationScope)
-    .map((relation) => ({
-      id: relation.id,
-      type: relation.type,
-      otherId: relation.fromEntityId === entity.id ? relation.toEntityId : relation.fromEntityId,
-      out: relation.fromEntityId === entity.id,
-      scoped: Boolean(relation.scopeEntityId),
-    }));
+    .map((relation) => {
+      const out = relation.fromEntityId === entity.id;
+      return {
+        id: relation.id,
+        // 观察端这一侧的语义：出边看 fromRole，入边优先看 toRole（未标记回退 fromRole）
+        role: out ? relation.fromRole : relation.toRole || relation.fromRole,
+        otherId: out ? relation.toEntityId : relation.fromEntityId,
+        out,
+        scoped: Boolean(relation.scopeEntityId),
+      };
+    });
   const candidates = entities.map((item) => ({ id: item.id, name: item.name, typeId: item.typeId }));
 
   return (

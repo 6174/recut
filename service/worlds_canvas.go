@@ -27,34 +27,36 @@ import (
 type WorldRelationSpec struct {
 	LabelZh string `json:"labelZh"`
 	Group   string `json:"group"`
-	// Inverse is the id of the opposite-direction edge (father ↔ child). The
-	// storage stays a single directed row; the inverse only drives the UI's
-	// bidirectional phrasing (RFC: 双向关系构成图).
-	Inverse string `json:"inverse,omitempty"`
+	// ToLabelZh is the preset label for the opposite end (father ↔ child). The
+	// storage keeps a single edge with an optional inline toRole; this only
+	// drives the UI's one-click fill of both ends (RFC 2026-09-20 §2.2).
+	ToLabelZh string `json:"inverseLabelZh,omitempty"`
 }
 
 // worldRelationTypes is the built-in read-only relation directory (RFC §5.3):
 // relation_type stays open for free extension, but UI prefers these entries so
 // the graph stays readable. Groups mirror the user draft: people/world/video/story.
+// The map key is the fromRole token; ToLabelZh (when present) is the preset
+// toRole label for a one-click two-end fill.
 var worldRelationTypes = map[string]WorldRelationSpec{
-	"father":       {LabelZh: "父亲", Group: "people", Inverse: "child"},
-	"mother":       {LabelZh: "母亲", Group: "people", Inverse: "child"},
-	"child":        {LabelZh: "子女", Group: "people", Inverse: "father"},
+	"father":       {LabelZh: "父亲", Group: "people", ToLabelZh: "子女"},
+	"mother":       {LabelZh: "母亲", Group: "people", ToLabelZh: "子女"},
+	"child":        {LabelZh: "子女", Group: "people", ToLabelZh: "父母"},
 	"spouse":       {LabelZh: "配偶", Group: "people"},
 	"partner":      {LabelZh: "伴侣", Group: "people"},
 	"friend":       {LabelZh: "朋友", Group: "people"},
-	"teacher":      {LabelZh: "老师", Group: "people", Inverse: "student"},
-	"student":      {LabelZh: "学生", Group: "people", Inverse: "teacher"},
+	"teacher":      {LabelZh: "老师", Group: "people", ToLabelZh: "学生"},
+	"student":      {LabelZh: "学生", Group: "people", ToLabelZh: "老师"},
 	"colleague":    {LabelZh: "同事", Group: "people"},
 	"enemy":        {LabelZh: "敌人", Group: "people"},
-	"belongs_to":   {LabelZh: "属于", Group: "world", Inverse: "owns"},
-	"located_in":   {LabelZh: "位于", Group: "world", Inverse: "contains"},
-	"owns":         {LabelZh: "拥有", Group: "world", Inverse: "belongs_to"},
-	"contains":     {LabelZh: "包含", Group: "world", Inverse: "located_in"},
+	"belongs_to":   {LabelZh: "属于", Group: "world", ToLabelZh: "拥有"},
+	"located_in":   {LabelZh: "位于", Group: "world", ToLabelZh: "包含"},
+	"owns":         {LabelZh: "拥有", Group: "world", ToLabelZh: "属于"},
+	"contains":     {LabelZh: "包含", Group: "world", ToLabelZh: "位于"},
 	"created_by":   {LabelZh: "由…创作", Group: "world"},
 	"appears_in":   {LabelZh: "出现在", Group: "video"},
-	"followed_by":  {LabelZh: "接续", Group: "video", Inverse: "precedes"},
-	"precedes":     {LabelZh: "先于", Group: "video", Inverse: "followed_by"},
+	"followed_by":  {LabelZh: "接续", Group: "video", ToLabelZh: "先于"},
+	"precedes":     {LabelZh: "先于", Group: "video", ToLabelZh: "接续"},
 	"adapted_from": {LabelZh: "改编自", Group: "story"},
 	"causes":       {LabelZh: "导致", Group: "story"},
 	"references":   {LabelZh: "引用", Group: "story"},
@@ -72,8 +74,8 @@ func ListWorldRelationTypes() []map[string]any {
 				continue
 			}
 			item := map[string]any{"id": id, "labelZh": spec.LabelZh, "group": spec.Group}
-			if spec.Inverse != "" {
-				item["inverseId"] = spec.Inverse
+			if spec.ToLabelZh != "" {
+				item["inverseLabelZh"] = spec.ToLabelZh
 			}
 			items = append(items, item)
 		}
@@ -652,17 +654,20 @@ type CreateRelationInput struct {
 	WorldID            string
 	FromEntityID       string
 	ToEntityID         string
-	RelationType       string
+	FromRole           string
+	ToRole             string
 	ScopeEntityID      string
 	Metadata           map[string]any
 	ExpectedRevisionID string
 	CreatedBy          string
 }
 
-// CreateRelation writes a directed semantic edge into world_relations.
+// CreateRelation writes a semantic edge into world_relations. The edge is a
+// single record with two optional endpoint roles: FromRole (stored in the
+// legacy relation_type column) defaults to "references"; ToRole is empty when
+// the opposite end carries no semantics (canvas draws a single arrowhead).
 // ScopeEntityID makes the edge local to an entity's context (never in the
-// global Canon); empty scope is a global relation. The edge is the only source
-// of truth for the canvas binding projection.
+// global Canon); empty scope is a global relation.
 func (w *WorldStore) CreateRelation(input CreateRelationInput) (WorldEntityRelation, error) {
 	if strings.TrimSpace(input.WorldID) == "" {
 		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "worldId is required")
@@ -670,9 +675,11 @@ func (w *WorldStore) CreateRelation(input CreateRelationInput) (WorldEntityRelat
 	if strings.TrimSpace(input.FromEntityID) == "" || strings.TrimSpace(input.ToEntityID) == "" {
 		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "relation needs from and to entities")
 	}
-	if strings.TrimSpace(input.RelationType) == "" {
-		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "relation type is required")
+	input.FromRole = strings.TrimSpace(input.FromRole)
+	if input.FromRole == "" {
+		input.FromRole = "references"
 	}
+	input.ToRole = strings.TrimSpace(input.ToRole)
 	if input.Metadata == nil {
 		input.Metadata = map[string]any{}
 	}
@@ -712,8 +719,8 @@ func (w *WorldStore) CreateRelation(input CreateRelationInput) (WorldEntityRelat
 		return WorldEntityRelation{}, err
 	}
 	now := isoTimeNow()
-	if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-		relationID, input.WorldID, input.FromEntityID, input.ToEntityID, input.RelationType, string(metadataJSON), nullIfEmpty(input.ScopeEntityID), now); err != nil {
+	if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		relationID, input.WorldID, input.FromEntityID, input.ToEntityID, input.FromRole, input.ToRole, string(metadataJSON), nullIfEmpty(input.ScopeEntityID), now); err != nil {
 		return WorldEntityRelation{}, err
 	}
 	if _, err := w.commitRevision(tx, input.WorldID, "relation.created", input.CreatedBy); err != nil {
@@ -723,27 +730,30 @@ func (w *WorldStore) CreateRelation(input CreateRelationInput) (WorldEntityRelat
 		return WorldEntityRelation{}, err
 	}
 	logWorldEvent("world.relation.created", map[string]string{"worldId": input.WorldID, "relationId": relationID})
-	return WorldEntityRelation{ID: relationID, Type: input.RelationType, FromEntityID: input.FromEntityID, ToEntityID: input.ToEntityID, ScopeEntityID: input.ScopeEntityID}, nil
+	return WorldEntityRelation{ID: relationID, FromRole: input.FromRole, ToRole: input.ToRole, FromEntityID: input.FromEntityID, ToEntityID: input.ToEntityID, ScopeEntityID: input.ScopeEntityID}, nil
 }
 
-// UpdateRelationInput is the typed input of relations.update. Empty fields are
-// left unchanged (patch semantics); the relation id and scope are preserved so
-// canvas anchors (shape:rel-<relationId>) survive a type or direction edit.
+// UpdateRelationInput is the typed input of relations.update. Empty string
+// fields are left unchanged (patch semantics) except ToRole: a nil ToRole
+// leaves it unchanged, a pointer to "" clears it (single arrow), any other
+// value marks the opposite end. The relation id and scope are preserved so
+// canvas anchors (arrow:<relationId>) survive a role or direction edit.
 type UpdateRelationInput struct {
 	WorldID            string
 	RelationID         string
-	RelationType       string
+	FromRole           string
 	FromEntityID       string
 	ToEntityID         string
+	ToRole             *string
 	ExpectedRevisionID string
 	CreatedBy          string
 }
 
-// UpdateRelation edits an existing directed edge in place: relation_type and/or
-// the endpoints (direction) can change. It produces a revision only when the
-// Canon actually differs. A self-loop or a duplicate of another edge (same
-// world/from/to/type) is rejected instead of silently colliding with the unique
-// constraint.
+// UpdateRelation edits an existing edge in place: the endpoint roles and/or the
+// endpoints (direction) can change. It produces a revision only when the Canon
+// actually differs. A self-loop or a duplicate of another edge (same
+// world/from/to/fromRole) is rejected instead of silently colliding with the
+// unique constraint.
 func (w *WorldStore) UpdateRelation(input UpdateRelationInput) (WorldEntityRelation, error) {
 	if strings.TrimSpace(input.WorldID) == "" {
 		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "worldId is required")
@@ -768,8 +778,8 @@ func (w *WorldStore) UpdateRelation(input UpdateRelationInput) (WorldEntityRelat
 	}
 	current := WorldEntityRelation{ID: input.RelationID}
 	var scopeEntityID sql.NullString
-	err = tx.QueryRow("select relation_type, from_entity_id, to_entity_id, scope_entity_id from world_relations where id = ? and world_id = ?", input.RelationID, input.WorldID).
-		Scan(&current.Type, &current.FromEntityID, &current.ToEntityID, &scopeEntityID)
+	err = tx.QueryRow("select relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id from world_relations where id = ? and world_id = ?", input.RelationID, input.WorldID).
+		Scan(&current.FromRole, &current.ToRole, &current.FromEntityID, &current.ToEntityID, &scopeEntityID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "relation not found")
 	}
@@ -779,8 +789,11 @@ func (w *WorldStore) UpdateRelation(input UpdateRelationInput) (WorldEntityRelat
 	current.ScopeEntityID = nullStringValue(scopeEntityID)
 
 	next := current
-	if value := strings.TrimSpace(input.RelationType); value != "" {
-		next.Type = value
+	if value := strings.TrimSpace(input.FromRole); value != "" {
+		next.FromRole = value
+	}
+	if input.ToRole != nil {
+		next.ToRole = strings.TrimSpace(*input.ToRole)
 	}
 	if value := strings.TrimSpace(input.FromEntityID); value != "" {
 		next.FromEntityID = value
@@ -788,8 +801,8 @@ func (w *WorldStore) UpdateRelation(input UpdateRelationInput) (WorldEntityRelat
 	if value := strings.TrimSpace(input.ToEntityID); value != "" {
 		next.ToEntityID = value
 	}
-	if next.Type == "" {
-		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "relation type is required")
+	if next.FromRole == "" {
+		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "relation fromRole is required")
 	}
 	if next.FromEntityID == next.ToEntityID {
 		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "relation cannot point to itself")
@@ -808,14 +821,14 @@ func (w *WorldStore) UpdateRelation(input UpdateRelationInput) (WorldEntityRelat
 	}
 	var duplicate int
 	if err := tx.QueryRow("select count(*) from world_relations where world_id = ? and from_entity_id = ? and to_entity_id = ? and relation_type = ? and id <> ?",
-		input.WorldID, next.FromEntityID, next.ToEntityID, next.Type, input.RelationID).Scan(&duplicate); err != nil {
+		input.WorldID, next.FromEntityID, next.ToEntityID, next.FromRole, input.RelationID).Scan(&duplicate); err != nil {
 		return WorldEntityRelation{}, err
 	}
 	if duplicate > 0 {
 		return WorldEntityRelation{}, worldsError(WorldsErrContextInvalid, "an identical relation already exists")
 	}
-	if _, err := tx.Exec("update world_relations set from_entity_id = ?, to_entity_id = ?, relation_type = ? where id = ? and world_id = ?",
-		next.FromEntityID, next.ToEntityID, next.Type, input.RelationID, input.WorldID); err != nil {
+	if _, err := tx.Exec("update world_relations set from_entity_id = ?, to_entity_id = ?, relation_type = ?, to_role = ? where id = ? and world_id = ?",
+		next.FromEntityID, next.ToEntityID, next.FromRole, next.ToRole, input.RelationID, input.WorldID); err != nil {
 		return WorldEntityRelation{}, err
 	}
 	if _, err := w.commitRevision(tx, input.WorldID, "relation.updated", input.CreatedBy); err != nil {
@@ -840,7 +853,7 @@ func (w *WorldStore) ListRelations(worldID, entityID string) ([]WorldEntityRelat
 	if _, err := w.summary(db, worldID); err != nil {
 		return nil, err
 	}
-	rows, err := db.Query("select id, relation_type, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? and ((from_entity_id = ? or to_entity_id = ?) or scope_entity_id = ?) order by created_at", worldID, entityID, entityID, entityID)
+	rows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? and ((from_entity_id = ? or to_entity_id = ?) or scope_entity_id = ?) order by created_at", worldID, entityID, entityID, entityID)
 	if err != nil {
 		return nil, err
 	}
@@ -849,7 +862,7 @@ func (w *WorldStore) ListRelations(worldID, entityID string) ([]WorldEntityRelat
 	for rows.Next() {
 		var relation WorldEntityRelation
 		var scopeEntityID sql.NullString
-		if err := rows.Scan(&relation.ID, &relation.Type, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
+		if err := rows.Scan(&relation.ID, &relation.FromRole, &relation.ToRole, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
 			return nil, err
 		}
 		relation.ScopeEntityID = nullStringValue(scopeEntityID)
@@ -891,7 +904,7 @@ func (w *WorldStore) DeleteRelation(worldID, relationID, expectedRevisionID, cre
 	if _, err := tx.Exec("delete from world_relation_tombstones where id = ? and world_id = ?", relationID, worldID); err != nil {
 		return err
 	}
-	result, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, metadata_json, scope_entity_id, created_at, ?, '' from world_relations where id = ? and world_id = ?", now, relationID, worldID)
+	result, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, ?, '' from world_relations where id = ? and world_id = ?", now, relationID, worldID)
 	if err != nil {
 		return err
 	}
@@ -952,7 +965,8 @@ type PromoteCanvasElementInput struct {
 	WorldID            string
 	ElementID          string
 	TypeID             string // optional; used when a note becomes an entity
-	RelationType       string // optional; used when an arrow becomes a relation
+	FromRole           string // optional; used when an arrow becomes a relation
+	ToRole             string // optional; opposite-end role (empty = unmarked)
 	Field              string // optional; used when an arrow becomes a property binding
 	Title              string // optional; overrides the derived note title
 	ExpectedRevisionID string
@@ -1075,16 +1089,23 @@ func (w *WorldStore) promoteArrowToRelation(db *sql.DB, elementContext string, e
 	if from.Kind != "entity" || from.RefID == "" || to.Kind != "entity" || to.RefID == "" {
 		return nil, worldsError(WorldsErrContextInvalid, "arrow endpoints must be entity elements")
 	}
-	relationType := strings.TrimSpace(input.RelationType)
-	if relationType == "" {
-		relationType = strings.TrimSpace(stringProp(element.Props, "relationType"))
+	fromRole := strings.TrimSpace(input.FromRole)
+	if fromRole == "" {
+		fromRole = strings.TrimSpace(stringProp(element.Props, "fromRole"))
 	}
-	if relationType == "" {
-		relationType = "references"
+	if fromRole == "" {
+		fromRole = strings.TrimSpace(stringProp(element.Props, "relationType"))
+	}
+	if fromRole == "" {
+		fromRole = "references"
+	}
+	toRole := strings.TrimSpace(input.ToRole)
+	if toRole == "" {
+		toRole = strings.TrimSpace(stringProp(element.Props, "toRole"))
 	}
 	relation, err := w.CreateRelation(CreateRelationInput{
 		WorldID: input.WorldID, FromEntityID: from.RefID, ToEntityID: to.RefID,
-		RelationType: relationType, ScopeEntityID: elementContext,
+		FromRole: fromRole, ToRole: toRole, ScopeEntityID: elementContext,
 		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: input.CreatedBy,
 	})
 	if err != nil {

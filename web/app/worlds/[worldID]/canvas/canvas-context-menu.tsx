@@ -77,14 +77,14 @@ function startElementEdit(elementId: string, kind: "note-body" | "text-body") {
   useWorldCanvasStore.getState().startElementBodyEdit(elementId, kind);
 }
 
-// 关系类型就地切换 popover（T15）：双击关系线/标签弹出；Top4 候选 + 全量词表 → changeRelationType；
+// 关系类型就地切换 popover（T15）：双击关系线/标签弹出；Top4 候选 + 全量词表 → changeRelationRole；
 // 末尾「＋ 自定义关系…」就地输入任意关系名（relation_type 对自由扩展开放，服务端不校验词表）
 export function RelationTypePopover() {
   const popover = useWorldCanvasStore((state) => state.relationTypePopover);
   const setRelationTypePopover = useWorldCanvasStore((state) => state.setRelationTypePopover);
   const relationTypes = useWorldCanvasStore((state) => state.relationTypes);
   const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
-  const changeRelationType = useWorldCanvasStore((state) => state.changeRelationType);
+  const changeRelationRole = useWorldCanvasStore((state) => state.changeRelationRole);
   const relations = useWorldCanvasStore((state) => state.relations);
   const entities = useWorldCanvasStore((state) => state.entities);
   if (!popover) return null;
@@ -108,11 +108,11 @@ export function RelationTypePopover() {
       >
         {top4.map((id) => (
           <button
-            className={`block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted ${relation.type === id ? "text-primary" : ""}`}
+            className={`block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted ${relation.fromRole === id ? "text-primary" : ""}`}
             key={id}
             onClick={() => {
               close();
-              void changeRelationType(relation, id);
+              void changeRelationRole(relation, id);
             }}
             type="button"
           >
@@ -125,11 +125,11 @@ export function RelationTypePopover() {
             .filter((item) => !top4.includes(item.id))
             .map((item) => (
               <button
-                className={`block w-full truncate rounded px-2 py-1 text-left text-xs hover:bg-muted ${relation.type === item.id ? "text-primary" : ""}`}
+                className={`block w-full truncate rounded px-2 py-1 text-left text-xs hover:bg-muted ${relation.fromRole === item.id ? "text-primary" : ""}`}
                 key={item.id}
                 onClick={() => {
                   close();
-                  void changeRelationType(relation, item.id);
+                  void changeRelationRole(relation, item.id);
                 }}
                 type="button"
               >
@@ -137,13 +137,13 @@ export function RelationTypePopover() {
               </button>
             ))}
         </div>
-        <CustomRelationRow current={relation.type} onConfirm={(relationType) => { close(); void changeRelationType(relation, relationType); }} />
+        <CustomRelationRow current={relation.fromRole} onConfirm={(fromRole) => { close(); void changeRelationRole(relation, fromRole); }} />
       </div>
     </div>
   );
 }
 
-// 自定义关系类型（RFC：relation_type 对自由扩展开放）：就地输入关系名，提交 changeRelationType
+// 自定义关系类型（RFC：relation_type 对自由扩展开放）：就地输入关系名，提交 changeRelationRole
 function CustomRelationRow({ current, onConfirm }: { current: string; onConfirm: (relationType: string) => void }) {
   const [customOpen, setCustomOpen] = useState(false);
   const [customType, setCustomType] = useState("");
