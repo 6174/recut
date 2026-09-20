@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 react、canvas-store（promote/removeElement/setPromoting/persistGeometry/upsertElement/
  * renameAttrLabel/syncAttrValue）、panel/field-row（FieldRow 共用编辑原语）、lucide-react
  * [OUTPUT]: 对外提供 ElementPanel（B.8 Canvas 元素态）：便签/文本正文就地编辑（T4 面板侧）、
- * 箭头（草稿）可编辑——属性边改属性名（renameAttrLabel 同步实体字段）与文本值、实体间草稿边改关系类型
+ * 箭头（草稿）可编辑——属性边改属性名（renameAttrLabel 同步实体 text/media 字段；目标含 kind=attr 属性卡、
+ * kind=media 独立媒体卡、kind=text 文本卡）与文本值、实体间草稿边改关系类型
  * （persist edgeType+relationType，提升时沿用）、提升为设定 / 提升为语义关系、删除；
  * 媒体元素态（图片/视频：kind=media 独立媒体 或 kind=attr 媒体属性卡）路由到
  * panel/media-editor 的 MediaElementEditor（预览/来源三选/生成配方/素材指针历史，RFC 2026-09-10）
@@ -112,7 +113,13 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
   // 箭头端点（原始元素 id）：属性边 to 端是 attr 元素，实体边两端都是实体元素
   const fromRaw = String(element.props?.fromElementId ?? "");
   const toRaw = String(element.props?.toElementId ?? "");
-  const attrTarget = elements.find((item) => item.id === toRaw && item.kind === "attr");
+  // 属性边目标元素：kind=attr 属性卡 / kind=media 独立媒体卡 / kind=text 文本卡（都可作为实体属性承载物）
+  const attrTarget = elements.find((item) => item.id === toRaw && (item.kind === "attr" || item.kind === "media" || item.kind === "text"));
+  const attrTargetMedia = attrTarget
+    ? attrTarget.kind === "media"
+      ? String(attrTarget.props?.modality ?? "image")
+      : String(attrTarget.props?.media ?? "text")
+    : "text";
   const isAttrEdge = isArrow && (Boolean(String(element.props?.attrMedia ?? "")) || Boolean(attrTarget));
   const fromEntityId = fromEntityIdProp ?? fromRaw.replace(/^shape:/, "");
   const toEntityId = toEntityIdProp ?? toRaw.replace(/^shape:/, "");
@@ -170,7 +177,7 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
       )}
       {isAttrEdge && attrTarget && (
         <PanelSection title="属性">
-          <AttrEdgeEditor attrId={attrTarget.id} initialLabel={String(attrTarget.props?.label ?? "") || String(attrTarget.name ?? "").replace(/^属性 · /, "")} media={String(attrTarget.props?.media ?? "text")} initialText={String(attrTarget.props?.text ?? "")} />
+          <AttrEdgeEditor attrId={attrTarget.id} initialLabel={String(attrTarget.props?.label ?? "") || String(attrTarget.name ?? "").replace(/^属性 · /, "")} media={attrTargetMedia} initialText={String(attrTarget.props?.text ?? "")} />
         </PanelSection>
       )}
       {isArrow && !isAttrEdge && connectable && (

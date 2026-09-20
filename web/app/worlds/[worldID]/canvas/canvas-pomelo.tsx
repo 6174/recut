@@ -255,7 +255,7 @@ function buildPomeloRecords(
       const attrMedia = String(element.props?.attrMedia ?? "");
       const edgeType = String(element.props?.edgeType ?? "");
       // 属性边标签 = 属性：具体属性名（attr 元素 props.label 优先，回退元素名/媒体类型）
-      const attrTarget = state.elements.find((item) => item.id === toElementId && item.kind === "attr");
+      const attrTarget = state.elements.find((item) => item.id === toElementId && (item.kind === "attr" || item.kind === "media" || item.kind === "text"));
       const attrLabel =
         String(attrTarget?.props?.label ?? "") ||
         String(attrTarget?.name ?? "").replace(/^属性 · /, "") ||

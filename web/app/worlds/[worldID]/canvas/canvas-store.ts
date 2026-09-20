@@ -612,6 +612,9 @@ type WorldCanvasState = {
   linkAttributeEdge: (fromElementId: string, toElementId: string) => Promise<string | null>;
   // 属性值回写实体 content（label 映射 type schema 字段 key；否则 label 即 key）
   syncAttrValue: (element: WorldCanvasElement, text: string) => Promise<void>;
+  // 媒体属性值回写实体（边即属性关联）：assetId|url + kind 按 label 映射写实体 media 属性。
+  // 目标可为 kind=media 独立媒体卡或 kind=attr 媒体属性卡；无素材值则跳过（素材就绪后再写）。
+  syncAttrMedia: (element: WorldCanvasElement) => Promise<void>;
   renameAttrLabel: (elementId: string, label: string) => Promise<void>;
   // 关系锚点持久化：写固有 anchor 元素（shape:rel-<relationId>），语义由 relationId 关联
   persistRelationGeometry: (relationId: string, geometry: { fromAnchor?: { x: number; y: number }; toAnchor?: { x: number; y: number }; bend?: { dx: number; dy: number } }) => Promise<void>;
@@ -1106,11 +1109,16 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         : target.kind === "attr"
           ? ((String(target.props?.media ?? "text") as AttrMedia) || "text")
           : "text";
-    const mediaLabels: Record<AttrMedia, string> = { text: "文本", image: "图片", audio: "音频", video: "视频" };
-    const label =
-      String(target.props?.label ?? "") ||
-      String(target.name ?? "").replace(/^属性 · /, "") ||
-      mediaLabels[attrMedia];
+    // 默认属性名：目标无显式 label 时生成唯一「属性-XXXX」（用户可点边在右侧面板重命名）——
+    // 不用通用媒体名（音频/图片），避免多个属性重名、实体字段映射不到
+    let label = String(target.props?.label ?? "").trim();
+    if (!label) {
+      const taken = new Set(get().elements.map((item) => String(item.props?.label ?? "")).filter(Boolean));
+      do {
+        label = `属性-${Math.floor(1000 + Math.random() * 9000)}`;
+      } while (taken.has(label));
+      await get().persistGeometry(target.id, undefined, { label });
+    }
     const arrowId = `shape:arrow-${Date.now()}`;
     try {
       await get().upsertElement({
@@ -1129,6 +1137,13 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         style: {},
         layer: "0",
       });
+      // 属性边即属性关联：连接后立即把目标值写进实体字段（媒体/文本），实体即出现该属性
+      const named = get().elements.find((item) => item.id === target.id);
+      if (named) {
+        const media = String(named.props?.media ?? "");
+        if (named.kind === "media" || (media && media !== "text")) await get().syncAttrMedia(named);
+        else await get().syncAttrValue(named, String(named.props?.text ?? ""));
+      }
       get().logChange(`关联属性「${label}」`, () => void get().removeElement(arrowId));
       return arrowId;
     } catch (cause) {
@@ -1170,7 +1185,35 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     scheduleCanvasSave();
   },
 
-  // 属性重命名（画布命名态与右侧边面板共用）：写 props.label + 元素名，并同步属性边名与实体 content 字段；
+  // 媒体属性值回写实体（边即属性关联）：找到挂到该元素的属性边 → fromElementId 解析实体，
+  // 按 label 映射 type schema 字段 key（否则 label 即 key），写 media 属性值 {assetId|url,name,kind}。
+  // 目标可以是 kind=media 独立媒体卡（modality）或 kind=attr 媒体属性卡（media）；无素材值则跳过。
+  syncAttrMedia: async (element) => {
+    const arrow = get().elements.find(
+      (item) => item.kind === "arrow" && String(item.props?.toElementId ?? "") === element.id && String(item.props?.edgeType ?? "attr") === "attr",
+    );
+    const entityId = String(arrow?.props?.fromElementId ?? "").replace(/^shape:/, "");
+    const entity = get().entities.find((item) => item.id === entityId);
+    if (!entity) return;
+    const label = String(element.props?.label ?? "") || String(element.name ?? "").replace(/^属性 · /, "");
+    const assetId = String(element.props?.assetId ?? "");
+    const url = String(element.props?.url ?? "");
+    if (!label || (!assetId && !url)) return;
+    const kind = element.kind === "media" ? String(element.props?.modality ?? "image") : String(element.props?.media ?? "image");
+    // 素材名优先 assetName；元素名在属性重命名后会被改写为「属性 · xxx」，不污染 media 值名
+    const rawName = String(element.props?.assetName ?? "") || String(element.name ?? "");
+    const name = rawName.startsWith("属性 · ") ? "" : rawName;
+    const entityType = get().entityTypes.find((item) => item.id === entity.typeId);
+    const matched = (entityType?.fields ?? []).find((field) => (field.label ?? field.key) === label || field.key === label);
+    await get().saveEntityField(entity, {
+      attrKey: matched?.key ?? label,
+      attrLabel: label,
+      attrType: "media",
+      value: { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}), ...(name ? { name } : {}), kind },
+    });
+  },
+
+  // 属性重命名（画布命名态与右侧边面板共用）：写 props.label + 元素名，并同步属性边名与实体属性（text/media）；
   // dataVersion 推进让投影层（卡片徽标/边标签）立即重建
   renameAttrLabel: async (elementId, label) => {
     const trimmed = label.trim() || "属性";
@@ -1186,8 +1229,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       dataVersion: state.dataVersion + 1,
     }));
     const named = get().elements.find((item) => item.id === elementId);
-    // 媒体属性卡（props.media≠text）props.text 恒为空，同步空值会把实体 media 属性值冲掉——跳过
-    if (named && String(named.props?.media ?? "text") === "text") await get().syncAttrValue(named, String(named.props?.text ?? ""));
+    if (!named) return;
+    // 媒体属性（独立媒体卡 / 媒体属性卡）走 media 值回写；文本属性（文本卡 / attr 文本卡）走 syncAttrValue
+    const media = String(named.props?.media ?? "");
+    if (named.kind === "media" || (media && media !== "text")) await get().syncAttrMedia(named);
+    else await get().syncAttrValue(named, String(named.props?.text ?? ""));
   },
 
   moveElement: (id, x, y) => {
