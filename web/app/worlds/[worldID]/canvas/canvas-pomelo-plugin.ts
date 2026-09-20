@@ -10,10 +10,12 @@
  * Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（同样对齐吸附；图片锁比例时仅横向吸附；transact 增量提交，pointerup 落回
  * canvas-store.moveElement + 去抖 persistGeometry；pointermove 经 editor.ticker 统一合帧，
  * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡与 World 根节点
- * 左右缘中点各一个，自由元素不挂）拖出引导线：实体 → 实体 =
- * 受控关系确认（setPendingRelation），其余落点（含 World 节点）= 属性引导菜单（setAttrCreator，创建属性节点 +
- * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击图片节点（独立媒体卡 / 图片属性卡）
- * = 全局素材弹框（setMediaPicker）换图；双击空白 = 最近类型快捷建卡
+ * 左右缘中点各一个，自由元素不挂）拖出引导线：拖动中吸附到实体卡（蓝）或「可当属性节点」的基础节点
+ * （kind=attr/text 自由元素、kind=media 独立媒体卡，绿），松手才落地——实体 → 实体 =
+ * 受控关系确认（setPendingRelation），实体 → 已有基础属性节点 = 补属性边（store.linkAttributeEdge，
+ * 边即属性关联，不新建节点），其余落点（含 World 节点）= 属性引导菜单（setAttrCreator，创建属性节点 +
+ * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击媒体节点（独立媒体卡 / 媒体属性卡，含图片/视频/音频）
+ * 有 assetId = 全局素材详情弹框（setAssetDetail，proposal/计划态照常呈现）、仅 url = 预览浮层、无内容 = 全局素材选择弹框（setMediaPicker，按模态过滤）挑素材或上传；双击空白 = 最近类型快捷建卡
  * （Alt = 创建菜单）；右键 = 实体/便签文本上下文菜单（T3）；Delete/Backspace 删除关系/草稿、
  * 实体走删除确认（B.6）；Cmd/Ctrl+Z = 语义撤销（store.undoLastChange，画布真相在 store/服务端）；
  * 选区 overlay + 「+」手柄 +
@@ -259,6 +261,22 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       return null;
     };
 
+    // 引导线可吸附目标判定：实体（建受控关系）或「可当属性节点」的基础节点
+    // （kind=attr/text 的自由元素、kind=media 独立媒体卡）。两者拖动中吸附表现一致，松手才落地。
+    // World 节点/便签/关系线不是可连目标。
+    const isAttributeTarget = (blockId: string): boolean => {
+      if (blockId.startsWith("entity:") || blockId === WORLD_ELEMENT_ID || blockId.startsWith(RELATION_PREFIX)) return false;
+      const record = editor.state.getBlockById(blockId);
+      if (!record) return false;
+      if (record.type === "media") return true;
+      if (record.type === "free-element") {
+        const elementKind = String(record.attrs.elementKind ?? "");
+        return elementKind === "attr" || elementKind === "text";
+      }
+      return false;
+    };
+    const isGuideTarget = (blockId: string): boolean => blockId.startsWith("entity:") || isAttributeTarget(blockId);
+
     // ---- 选中解析：blockId → CanvasSelection（落回 canvas-store） ----
     const selectBlock = (blockId: string) => {
       const store = useWorldCanvasStore.getState();
@@ -375,11 +393,28 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       const readOnly = useWorldCanvasStore.getState().readOnly;
 
       if (this.#guide) {
-        const endWorld = this.#guide.hoverBlockId ? centerWorld(this.#guide.hoverBlockId) : this.#guide.pointerWorld;
+        const targetId = this.#guide.hoverBlockId;
+        const endWorld = targetId ? centerWorld(targetId) : this.#guide.pointerWorld;
         const a = toScreen(this.#guide.anchorWorld);
         const b = toScreen(endWorld);
-        overlay.line(a.x, a.y, b.x, b.y, { stroke: cssColor(0x8b93a7, 0.9), strokeWidth: 2, dash: "6 4" });
-        overlay.circle(b.x, b.y, 4, { fill: cssColor(0x8b93a7) });
+        // 吸附命中：实体目标=蓝（建关系），属性节点目标=绿（建属性边）；未命中=灰虚线跟随指针
+        const entityTarget = Boolean(targetId?.startsWith("entity:"));
+        const accent = targetId ? (entityTarget ? 0x4c8dff : 0x34d399) : 0x8b93a7;
+        overlay.line(a.x, a.y, b.x, b.y, { stroke: cssColor(accent, 0.9), strokeWidth: 2, ...(targetId ? {} : { dash: "6 4" }) });
+        overlay.circle(b.x, b.y, 4, { fill: cssColor(accent) });
+        if (targetId) {
+          const record = editor.state.getBlockById(targetId);
+          const rect = record ? rectOfRecord(record) : null;
+          if (rect && rect.width > 0 && rect.height > 0) {
+            const tl = toScreen({ x: rect.x, y: rect.y });
+            const br = toScreen({ x: rect.x + rect.width, y: rect.y + rect.height });
+            overlay.roundedRect(
+              { x: tl.x - 5, y: tl.y - 5, width: br.x - tl.x + 10, height: br.y - tl.y + 10 },
+              12,
+              { stroke: cssColor(accent, 0.9), strokeWidth: 2 },
+            );
+          }
+        }
       }
 
       if (!readOnly && !this.#guide && !this.#marquee && this.#hoverBlockId?.startsWith("entity:")) {
@@ -691,9 +726,9 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       if (this.#guide && event.pointerId === this.#guide.pointerId) {
         const guide = this.#guide;
         const pointerWorld = toWorld(event);
-        // 引导线指向实体卡时吸附其中心（受控关系的目标）
+        // 引导线指向实体卡或可当属性节点的基础节点时吸附其中心（松手才落地）
         const hit = hitTest(pointerWorld);
-        const hoverBlockId = hit && hit.kind === "node" && hit.blockId !== guide.sourceBlockId && hit.blockId.startsWith("entity:") ? hit.blockId : null;
+        const hoverBlockId = hit && hit.kind === "node" && hit.blockId !== guide.sourceBlockId && isGuideTarget(hit.blockId) ? hit.blockId : null;
         this.#guide = { ...guide, pointerWorld, hoverBlockId };
         drawGuide();
         return;
@@ -922,6 +957,10 @@ export class CanvasBindsPlugin extends PomeloPlugin {
             fromEntityId: guide.sourceBlockId.slice("entity:".length),
             toEntityId: guide.hoverBlockId.slice("entity:".length),
           });
+        } else if (guide.hoverBlockId && isAttributeTarget(guide.hoverBlockId) && guide.sourceBlockId.startsWith("entity:")) {
+          // 实体 → 已有基础属性节点（图/视频/音频/文本）：吸附落点即补属性边（边即属性关联），
+          // 不新建节点、不弹创建面板——与 entity→entity 落点表现一致
+          void store.linkAttributeEdge(source.canvasId, guide.hoverBlockId);
         } else {
           // 属性节点放置：跟随拖拽落点（指针世界坐标），所见即所得
           const dropWorld = toWorld(event);
@@ -1059,20 +1098,27 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         store.startElementBodyEdit(hitRecord.id, "attr-body");
         return;
       }
-      // 图片节点（独立媒体卡 / 图片属性卡）双击 = 打开全局素材弹框换图（与面板「素材库」同源）
-      const isImageMediaNode =
-        (hitRecord.type === "media" && String(hitRecord.attrs.modality ?? "image") === "image") ||
-        (hitRecord.type === "free-element" && String(hitRecord.attrs.elementKind ?? "") === "attr" && String(hitRecord.attrs.attrMedia ?? "text") === "image");
-      if (isImageMediaNode) {
-        store.setMediaPicker({ elementId: hitRecord.id });
-        return;
-      }
-      // 媒体元素双击 = 预览（T8）
-      if (hitRecord.type === "media") {
+      // 媒体节点（独立媒体卡 / 媒体属性卡，含图片/视频/音频）双击，三种模态同一规则：
+      // 有 assetId = 打开全局素材详情弹框（AssetPreviewDialog，proposal / 计划态同样按 asset 状态呈现）；
+      // 仅 url = 预览浮层；无内容 = 全局素材选择弹框（按元素模态过滤）挑素材或上传。
+      const isAttrNode = hitRecord.type === "free-element" && String(hitRecord.attrs.elementKind ?? "") === "attr";
+      const mediaModality = hitRecord.type === "media"
+        ? String(hitRecord.attrs.modality ?? "image")
+        : isAttrNode ? String(hitRecord.attrs.attrMedia ?? "text") : "text";
+      if (hitRecord.type === "media" || (isAttrNode && mediaModality !== "text")) {
         const element = store.elements.find((item) => item.id === hitRecord.id);
-        if (!element) return;
-        const src = resolveMediaPropsSrc(store.apiBase, { assetId: element.props?.assetId ? String(element.props.assetId) : undefined, url: element.props?.url ? String(element.props.url) : undefined });
-        if (src) store.setMediaPreview({ src, modality: String(element.props?.modality ?? "image"), name: element.name ?? "媒体" });
+        const assetId = element?.props?.assetId ? String(element.props.assetId) : "";
+        const url = element?.props?.url ? String(element.props.url) : "";
+        const name = element?.name ?? String(hitRecord.attrs.label ?? "媒体");
+        if (assetId) {
+          store.setAssetDetail({ assetId, name });
+        } else if (url) {
+          const src = resolveMediaPropsSrc(store.apiBase, { url });
+          if (src) store.setMediaPreview({ src, modality: mediaModality, name });
+        } else {
+          store.setMediaPicker({ elementId: hitRecord.id });
+        }
+        return;
       }
     };
 

@@ -9,6 +9,7 @@ export const typeColors: Record<string, string> = {
   character: "#e879f9",
   location: "#60a5fa",
   story: "#f59e0b",
+  script: "#22d3ee",
   style: "#34d399",
   rule: "#a78bfa",
   reference: "#94a3b8",

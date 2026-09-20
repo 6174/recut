@@ -83,6 +83,34 @@ func parseProbe(data []byte) (Probe, error) {
 	return probe, nil
 }
 
+// ImageSize runs ffprobe and returns the first video stream's pixel size. It
+// accepts still images (which carry no duration), unlike Probe, so grid slicing
+// works on generated PNG/JPEG sheets.
+func (t *Toolkit) ImageSize(ctx context.Context, path string) (int, int, error) {
+	if err := t.requireFFprobe(); err != nil {
+		return 0, 0, err
+	}
+	output, err := t.Runner.Run(ctx, t.FFprobe,
+		"-v", "error",
+		"-print_format", "json",
+		"-show_streams",
+		path,
+	)
+	if err != nil {
+		return 0, 0, err
+	}
+	var parsed ffprobeOutput
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		return 0, 0, fmt.Errorf("cannot parse ffprobe output: %w", err)
+	}
+	for _, stream := range parsed.Streams {
+		if stream.CodecType == "video" && stream.Width > 0 && stream.Height > 0 {
+			return stream.Width, stream.Height, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("ffprobe returned no pixel size for this file")
+}
+
 func parseSeconds(value string) float64 {
 	value = strings.TrimSpace(value)
 	if value == "" {

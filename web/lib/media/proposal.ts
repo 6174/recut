@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 media-types（Asset/AssetStatus）与 fetch；无其它运行时依赖
  * [OUTPUT]: 对外提供生成提案的共享纯函数与资产映射：GenerationProposal/ProposalReference/ProposalStatus、
  *           PROPOSAL_ROLES/role 选项/自检（fail closed）/proposalReferenceIds、proposalRequiredFor、
- *           generationCapabilityOf、readProposal（props 防御式解析）、proposalFromAsset（proposed 资产 → 提案视图），
+ *           generationCapabilityOf、readProposal（props 防御式解析）、hasProposalRecipe / proposalFromAsset（proposed 资产 → 提案视图）、
+ *           isConfirmableProposal / isPlanAsset（提案 vs 计划），
  *           以及 HTTP 客户端 createProposal/listProposals/updateProposalAsset/confirmProposalAsset/rejectProposalAsset
  * [POS]: web/lib/media 的提案契约边界；素材库 / World Canvas / Editor 共用同一份 role 词表、自检与确认流程
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -48,6 +49,7 @@ export const PROPOSAL_ROLES: Array<{ id: string; label: string; kinds: string[] 
   { id: "character", label: "人物", kinds: ["image"] },
   { id: "prop", label: "道具", kinds: ["image"] },
   { id: "style-ref", label: "风格", kinds: ["image"] },
+  { id: "storyboard", label: "分镜", kinds: ["image"] },
   { id: "motion-ref", label: "运动", kinds: ["video"] },
   { id: "voice", label: "音色", kinds: ["audio"] },
   { id: "sfx", label: "音效", kinds: ["audio"] },
@@ -111,24 +113,42 @@ export function readProposal(props?: Record<string, unknown> | null): Generation
   };
 }
 
+// 是否已带生成配方：proposed 状态下的提案（可确认生成）与计划（只有 content/attributes）之别。
+// metadata.generation 是 Propose 写入的评审配方；早期只写 metadata.capability 的占位提案也认。
+export function hasProposalRecipe(asset: Pick<Asset, "metadata">): boolean {
+  const metadata = (asset.metadata ?? {}) as Record<string, unknown>;
+  const generation = metadata.generation;
+  if (generation && typeof generation === "object") return true;
+  return typeof metadata.capability === "string" && metadata.capability.length > 0;
+}
+
+function referenceIdsOf(value: unknown): ProposalReference[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((id): id is string => typeof id === "string").map((id) => ({ id }));
+}
+
 // 资产侧提案视图：proposed/queued/running/failed/completed 映射为提案状态机。
 // 素材是唯一真相（metadata.generation + metadata.prompt/modelId/output），画布/素材库据此渲染。
+// 计划（proposed 但无配方）返回 null——它不是提案，详情只应展示「计划中」。
 export function proposalFromAsset(asset: Pick<Asset, "status" | "jobId" | "metadata">): GenerationProposal | null {
-  const raw = asset.metadata?.generation;
-  if (!raw || typeof raw !== "object") return null;
+  if (!hasProposalRecipe(asset)) return null;
+  const metadata = (asset.metadata ?? {}) as Record<string, unknown>;
+  const raw = metadata.generation && typeof metadata.generation === "object" ? (metadata.generation as Record<string, unknown>) : {};
   const status: ProposalStatus =
     asset.status === "proposed" ? "pending"
     : asset.status === "queued" || asset.status === "running" ? "generating"
     : asset.status === "failed" ? "failed"
     : asset.status === "completed" ? "done"
     : "pending";
+  const references = Array.isArray(raw.references) ? raw.references : referenceIdsOf(metadata.referenceIds);
   return readProposal({
     generation: {
-      ...(raw as Record<string, unknown>),
+      ...raw,
       status,
-      prompt: asset.metadata.prompt,
-      modelId: asset.metadata.modelId,
-      params: asset.metadata.output,
+      references,
+      prompt: metadata.prompt,
+      modelId: metadata.modelId,
+      params: metadata.output,
       jobId: asset.jobId,
     },
   });
@@ -138,11 +158,11 @@ export function proposalFromAsset(asset: Pick<Asset, "status" | "jobId" | "metad
 // - 提案 / proposal：已带生成配方（metadata.generation），用户可「确认生成」；
 // - 计划 / plan：只有 content/attributes，没有配方，用户应「复制计划给 AI」去生成。
 export function isConfirmableProposal(asset: Pick<Asset, "status" | "jobId" | "metadata">): boolean {
-  return asset.status === "proposed" && Boolean(proposalFromAsset(asset));
+  return asset.status === "proposed" && proposalFromAsset(asset) !== null;
 }
 
 export function isPlanAsset(asset: Pick<Asset, "status" | "jobId" | "metadata">): boolean {
-  return asset.status === "proposed" && !proposalFromAsset(asset);
+  return asset.status === "proposed" && proposalFromAsset(asset) === null;
 }
 
 // 提交前自检（映射 recut-director（references/generation-prompt） 的产出自检）：error 阻断确认，warn 仅提示。

@@ -63,6 +63,17 @@ description: 决定「一个镜头/一场怎么拍？」——景别、角度、
 4. **可生成性预检**：按六维难度打分定档；高风险镜在纸面写拆分（a/b 两镜）与首尾帧对齐证据；人物、道具、光位锚点写入连续性圣经。
 5. **落表**：填 shot-plan 模板的 15 列（编号/秒段/节拍功能/位置/画面内容/走位/景别角度/焦段/运动/光位/氛围/连续性锚点/风险/转场/生成备注），并做列向自检（节拍全覆盖、每镜一功能、首尾衔接、运动预算、轴线守恒、出入地理完整）。
 
+## 一图分镜表（宫格压缩法）
+
+把已定的分镜方案先压成**一张 N 宫格分镜表（storyboard sheet）**再逐格展开，用于：先快速锁定跨镜连续性、控制生成成本、先审后细化。
+
+1. **压缩**：一张图内 5 行 × 5 列 = 25 格（弱模型可降 4×6=24 / 4×4=16 / 3×3=9）；严格等分 + 细黑缝，每格左上角标 `R{r}C{c}` 与镜号 `#nn`（行上→下、列左→右）；全图共享同一 STYLE LOCK 与同一角色/服装/场景/光位。宫格只作草图，不作成片精度。
+2. **清点**：图内文字不可靠——景别/角度/动作/时长/节拍/参考锚点写进一份**格清单（panel manifest，纯文本，不进图）**，逐格与坐标配对。
+3. **展开**：按坐标把 sheet 切成 N 个单格，逐格以该格为构图锚点重生成正式关键帧（去格线编号、提分辨率），再落镜头/视频。一格一动作、首尾状态闭环（同本技能的分镜纪律）。
+4. **连续性**：相邻格共享同一世界状态；跨格人物位置用米与秒显式记录，不用「靠近」。
+
+提示词骨架与格清单 schema 见 `references/shot/assets/storyboard-sheet-template.md`。
+
 ## 使用时机
 
 - 用户问"这场怎么拍""这个镜头用什么景别/焦段/运动""分镜怎么拆"时加载本技能。
@@ -87,6 +98,7 @@ description: 决定「一个镜头/一场怎么拍？」——景别、角度、
 | 开场/运动/转场等配方卡 | `references/shot/references/shot-library.md` + `references/shot/references/shot-recipes/**` | 10 基础配方 + 八类 100+ 细分配方（camera/data/effects/interaction/opening/outro/rhythm/transition/typography/ui-entrance），按场景类型按需加载，不整库常驻 |
 | 20 位导演风格覆盖 | `references/shot/references/director_styles/*.md` | 每位导演一文件，含镜头/灯光/色彩/剪辑/声音/表演偏好与可迁移清单 |
 | 分镜表怎么填 | `references/shot/assets/shot-plan-template.md` | 15 列字段字典、风险定档与工作示例 |
+| 一图 N 宫格分镜表怎么写 | `references/shot/assets/storyboard-sheet-template.md` | 宫格提示词骨架、`R{r}C{c}` 坐标、panel manifest schema 与展开步骤 |
 | 首尾帧怎么写 | `references/shot/assets/keyframe-prompt-template.md` | 九槽位顺序、invariant 串用法与首/尾/板/表模板 |
 | 节拍怎么拆 | `references/shot/assets/beat-sheet-template.md` | 节拍定义、压力记法与时长预算 |
 

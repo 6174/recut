@@ -1,12 +1,13 @@
 /*
- * [INPUT]: 依赖 guided/types、guided/context（attrText/refsLine/entityOf）
- * [OUTPUT]: 对外提供 ENTITY_ACTIONS：按预设类型（人物/场景/物件/故事/风格/规则 + 通用兜底）的引导提示动作注册表，
- *   覆盖 sheet/derive/text/structure/plan/qc/transform/research/sound 九类与四种产出
- * [POS]: web/lib/world-entity/guided 的实体动作数据层；build 为纯函数，预填全局 AI 输入框（RFC §5.1–5.7 / §5.9）
+ * [INPUT]: 依赖 guided/types、guided/context（attrText/refsLine/entityOf）、guided/cards（版式常量）
+ * [OUTPUT]: 对外提供 ENTITY_ACTIONS：按预设类型（人物/场景/物件/故事/视频脚本/风格/规则 + 通用兜底）的引导提示动作注册表，
+ *   覆盖 sheet/derive/text/structure/plan/qc/transform/research/sound 九类与四种产出；故事/脚本的分镜表动作为一图 N 宫格分镜表
+ * [POS]: web/lib/world-entity/guided 的实体动作数据层；build 为纯函数，预填全局 AI 输入框（RFC §5.1–5.7 / §5.9、
+ *   RFC 2026-09-20-video-script-storyboard-sheet）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { attrText, entityOf, refsLine } from "./context";
-import { CHARACTER_CARD_LAYOUT, ENVIRONMENT_CARD_LAYOUT, OBJECT_CARD_LAYOUT, cardRefsLine, stylePreamble } from "./cards";
+import { CHARACTER_CARD_LAYOUT, ENVIRONMENT_CARD_LAYOUT, OBJECT_CARD_LAYOUT, STORYBOARD_SHEET_LAYOUT, cardRefsLine, stylePreamble } from "./cards";
 import type { GuidedAiAction, GuidedEntitySubject } from "./types";
 
 function hasMedia(s: GuidedEntitySubject): boolean {
@@ -563,13 +564,21 @@ const storyActions: GuidedAiAction[] = [
     output: { kind: "media", modality: "image", gate: "direct" },
     icon: "layout-grid",
     label: "生成分镜表",
-    desc: "前提/时刻/情绪 → N 格分镜草图",
+    desc: "前提/时刻/情绪 → 一张 25 宫格分镜表（含坐标）",
     typeIds: ["story"],
     priority: () => 45,
     build: (ctx) => {
       const s = entityOf(ctx);
-      return `为世界《${ctx.worldName}》的故事「${s.entity.name}」生成分镜草图：前提=${attrText(s.entity, "premise") || "未填"}；关键时刻=${attrText(s.entity, "moment") || "未填"}；情绪=${attrText(s.entity, "emotion") || "未填"}。
-输出 6–8 格分镜（每格含景别与一句画面说明），沿用世界风格。产出写回该故事的 media 属性。`;
+      return `为世界《${ctx.worldName}》的故事「${s.entity.name}」生成一张分镜表（storyboard sheet）——用一张图把连续分镜一次性生成出来：
+前提=${attrText(s.entity, "premise") || "未填"}；关键时刻=${attrText(s.entity, "moment") || "未填"}；情绪=${attrText(s.entity, "emotion") || "未填"}。
+
+${STORYBOARD_SHEET_LAYOUT}
+
+${cardRefsLine(s.mediaRefs)}
+${stylePreamble(ctx.styleLock)}
+同时给出格清单（panel manifest，纯文本，不进图）：每格列出 坐标(R{r}C{c}) / 镜号 / 景别 / 机位角度 / 主体动作一句话 / 时长(秒) / 所属节拍 / 参考锚点(role)。格序即镜序，首尾环环相扣。
+
+产出：把这张宫格图写回该故事的 media 属性（label「分镜表」，生成参考以 role=storyboard 记录）；只新增这一条素材，不改其它设定。世界只读时先提议 Fork。`;
     },
   },
   {
@@ -587,12 +596,20 @@ const storyActions: GuidedAiAction[] = [
     id: "story.script",
     subject: "entity",
     category: "text",
-    output: { kind: "text" },
+    output: { kind: "canon-proposal" },
     icon: "file-text",
-    label: "展开为一页剧本/口播稿",
-    desc: "",
+    label: "展开为视频脚本",
+    desc: "把故事写成 script 实体（节拍/口播/时长/画幅）",
     typeIds: ["story"],
-    build: (ctx) => `把故事「${entityOf(ctx).entity.name}」（前提：${attrText(entityOf(ctx).entity, "premise") || "无"}）展开为一页剧本或口播稿。只输出文本。`,
+    build: (ctx) => {
+      const s = entityOf(ctx);
+      return `把世界《${ctx.worldName}》的故事「${s.entity.name}」展开为一条「视频脚本」（script 实体）：
+- 前提：${attrText(s.entity, "premise") || "无"}
+- 关键时刻：${attrText(s.entity, "moment") || "无"}
+- 情绪：${attrText(s.entity, "emotion") || "无"}
+
+先给出脚本草案（字段：logline 一句话概括 / beats 节拍与叙事结构 / vo 逐字口播 / durationSec 目标时长 / aspectRatio 画幅 / platform 目标平台），并建议节拍如何分配到分镜格。我确认后再创建这条 script 实体，并建立「script_of → 本故事」的关系。不直接写入。`;
+    },
   },
   {
     id: "story.dialogue",
@@ -659,6 +676,131 @@ const storyActions: GuidedAiAction[] = [
     desc: "画幅/时长/封面/节奏建议",
     typeIds: ["story"],
     build: (ctx) => `为故事「${entityOf(ctx).entity.name}」给出发布计划：目标平台、画幅与时长、封面与标题、节奏建议。只输出文本。`,
+  },
+];
+
+const scriptActions: GuidedAiAction[] = [
+  {
+    id: "script.storyboard",
+    subject: "entity",
+    category: "sheet",
+    output: { kind: "media", modality: "image", gate: "direct" },
+    icon: "layout-grid",
+    label: "生成分镜表",
+    desc: "脚本 → 一张 25 宫格分镜表（含坐标与镜号）",
+    typeIds: ["script"],
+    priority: () => 60,
+    build: (ctx) => {
+      const s = entityOf(ctx);
+      return `为世界《${ctx.worldName}》的视频脚本「${s.entity.name}」生成一张分镜表（storyboard sheet）——用一张图把连续分镜一次性生成出来：
+- 一句话概括：${attrText(s.entity, "logline") || "未填"}
+- 节拍 / 叙事结构：${attrText(s.entity, "beats") || "未填"}
+- 口播 / 旁白：${attrText(s.entity, "vo") || "（无）"}
+- 目标时长：${attrText(s.entity, "durationSec") || "未填"} 秒；画幅：${attrText(s.entity, "aspectRatio") || "未填"}；平台：${attrText(s.entity, "platform") || "未填"}
+
+${STORYBOARD_SHEET_LAYOUT}
+
+${cardRefsLine(s.mediaRefs)}
+${stylePreamble(ctx.styleLock)}
+同时给出格清单（panel manifest，纯文本，不进图）：每格列出 坐标(R{r}C{c}) / 镜号 / 景别 / 机位角度 / 主体动作一句话 / 时长(秒) / 所属节拍 / 参考锚点(role)。格序即镜序，首尾环环相扣。
+
+产出：把这张宫格图写回该脚本的「分镜表」media 属性（role=storyboard）；只新增这一条素材，不改其它设定。世界只读时先提议 Fork。`;
+    },
+  },
+  {
+    id: "script.panels",
+    subject: "entity",
+    category: "derive",
+    output: { kind: "media", modality: "image", gate: "direct" },
+    icon: "grid-2x2",
+    label: "按宫格切分并细化",
+    desc: "把分镜表按坐标切格，逐格细化为关键帧",
+    typeIds: ["script"],
+    requires: (ctx) => (hasMedia(entityOf(ctx)) ? { ok: true } : { ok: false, reason: "先生成或添加一张分镜表" }),
+    priority: () => 55,
+    build: (ctx) => {
+      const s = entityOf(ctx);
+      return `以脚本「${s.entity.name}」的分镜表（${refsLine(s.mediaRefs)}，role=storyboard）为准，按宫格坐标逐格展开：
+1. 用 vision 读出网格行数/列数与每格左上角坐标标签（R{r}C{c}），确认网格规则等分；
+2. 按坐标把这张图切成 N 个单格素材（如平台有 recut.media.gridSlice 就用它，否则以 ffmpeg 按等分裁剪）；
+3. 逐格以该格为构图锚点（role=storyboard）+ 出场角色的 character 参考 + 场景环境参考 + 世界风格，生成去格线、去编号、提升分辨率的正式关键帧，画面与动作严格沿用该格与 manifest；
+4. 每格关键帧写回该脚本的 media 属性（label「分镜 #nn (R{r}C{c})」），并记录参考绑定。
+
+只新增这些关键帧素材，不改其它设定；逐格保持角色/服装/道具/光位一致。`;
+    },
+  },
+  {
+    id: "script.shotlist",
+    subject: "entity",
+    category: "plan",
+    output: { kind: "text" },
+    icon: "list-tree",
+    label: "输出镜头表",
+    desc: "由分镜格清单出镜号/景别/时长",
+    typeIds: ["script"],
+    build: (ctx) => `把脚本「${entityOf(ctx).entity.name}」的分镜格清单整理成镜头表：镜号、坐标(R{r}C{c})、景别、角度、时长、台词/口播、参考锚点（role）。只输出表格文本。`,
+  },
+  {
+    id: "script.vo",
+    subject: "entity",
+    category: "sound",
+    output: { kind: "media", modality: "audio", gate: "direct" },
+    icon: "audio-lines",
+    label: "生成口播配音",
+    desc: "由 vo 字段走语音合成",
+    typeIds: ["script"],
+    requires: (ctx) => (attrText(entityOf(ctx).entity, "vo") ? { ok: true } : { ok: false, reason: "先填写「口播 / 旁白」字段" }),
+    build: (ctx) => {
+      const s = entityOf(ctx);
+      return `用脚本「${s.entity.name}」的口播文本合成配音（role=voice）：
+${attrText(s.entity, "vo") || "（空）"}
+
+按世界已有音色锚定（若有）保持一致；产出写回该脚本的 media 属性。只新增这一条音频素材。`;
+    },
+  },
+  {
+    id: "script.keyframes",
+    subject: "entity",
+    category: "derive",
+    output: { kind: "media", modality: "image", gate: "direct" },
+    icon: "image",
+    label: "逐格生成关键帧",
+    desc: "每格一张正式关键帧",
+    typeIds: ["script"],
+    requires: (ctx) => (hasMedia(entityOf(ctx)) ? { ok: true } : { ok: false, reason: "先生成分镜表" }),
+    build: (ctx) => `以脚本「${entityOf(ctx).entity.name}」的分镜表（${refsLine(entityOf(ctx).mediaRefs)}）为准，逐格生成正式关键帧（每格用该格的 role=storyboard 锚点 + 角色 character + 环境 environment + 风格 style-ref，去掉格线与编号），每格写回 media 属性。`,
+  },
+  {
+    id: "script.videos",
+    subject: "entity",
+    category: "plan",
+    output: { kind: "media", modality: "video", gate: "proposal" },
+    icon: "clapperboard",
+    label: "逐格生成视频提案",
+    desc: "每格一镜视频提案，batchId 归组",
+    typeIds: ["script"],
+    requires: (ctx) => (hasMedia(entityOf(ctx)) ? { ok: true } : { ok: false, reason: "先生成分镜表或关键帧" }),
+    build: (ctx) => {
+      const s = entityOf(ctx);
+      return `以脚本「${s.entity.name}」的分镜格为准，逐格生成视频镜头提案（同一脚本用同一 batchId 归组）：
+每镜给出提示词、时长、画幅（${attrText(s.entity, "aspectRatio") || "按世界"}）与参考锚定（上一镜结束态 = 下一镜起始态，role=storyboard/character/environment）。
+落成待确认的视频提案等我逐条确认，不要直接生成。`;
+    },
+  },
+  {
+    id: "script.consistency",
+    subject: "entity",
+    category: "qc",
+    output: { kind: "text" },
+    icon: "shield-check",
+    label: "跨格连续性检查",
+    desc: "对比相邻格的人物/服装/光位",
+    typeIds: ["script"],
+    requires: (ctx) => (hasMedia(entityOf(ctx)) ? { ok: true } : { ok: false, reason: "先生成或添加分镜表" }),
+    build: (ctx) => {
+      const s = entityOf(ctx);
+      return `检查脚本「${s.entity.name}」分镜表（${refsLine(s.mediaRefs)}）的跨格连续性：逐格对比人物身份、服装、道具、场景结构、光源方向与动作首尾衔接，列出偏差格与其坐标(R{r}C{c})及修复建议。只输出报告。`;
+    },
   },
 ];
 
@@ -793,6 +935,7 @@ export const ENTITY_ACTIONS: GuidedAiAction[] = [
   ...locationActions,
   ...objectActions,
   ...storyActions,
+  ...scriptActions,
   ...styleActions,
   ...ruleActions,
   ...genericActions(),

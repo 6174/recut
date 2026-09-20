@@ -57,6 +57,7 @@ const (
 	EntityTypeLocation  = "location"
 	EntityTypeObject    = "object"
 	EntityTypeStory     = "story"
+	EntityTypeScript    = "script"
 	EntityTypeStyle     = "style"
 	EntityTypeRule      = "rule"
 )
@@ -709,15 +710,15 @@ func entityMediaAnchors(attrsJSON string) []WorldEntityMedia {
 func availableEntityKinds(kind WorldKind) []string {
 	switch kind {
 	case WorldCharacterIP:
-		return []string{EntityTypeCharacter, EntityTypeStory, EntityTypeStyle, EntityTypeRule, EntityTypeLocation, EntityTypeObject}
+		return []string{EntityTypeCharacter, EntityTypeStory, EntityTypeScript, EntityTypeStyle, EntityTypeRule, EntityTypeLocation, EntityTypeObject}
 	case WorldCreatorBrand:
-		return []string{EntityTypeStyle, EntityTypeStory, EntityTypeRule, EntityTypeCharacter, EntityTypeObject}
+		return []string{EntityTypeStyle, EntityTypeStory, EntityTypeScript, EntityTypeRule, EntityTypeCharacter, EntityTypeObject}
 	case WorldBrand:
-		return []string{EntityTypeStyle, EntityTypeRule, EntityTypeStory, EntityTypeCharacter, EntityTypeObject}
+		return []string{EntityTypeStyle, EntityTypeRule, EntityTypeStory, EntityTypeScript, EntityTypeCharacter, EntityTypeObject}
 	case WorldFiction:
-		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeStory, EntityTypeStyle, EntityTypeRule, EntityTypeObject}
+		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeStory, EntityTypeScript, EntityTypeStyle, EntityTypeRule, EntityTypeObject}
 	default:
-		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeStory, EntityTypeStyle, EntityTypeRule, EntityTypeObject}
+		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeStory, EntityTypeScript, EntityTypeStyle, EntityTypeRule, EntityTypeObject}
 	}
 }
 

@@ -13,7 +13,7 @@
 import { useMemo, useState } from "react";
 import type { WorldRelationType } from "@/lib/recut-worlds-client";
 import { relationCandidatesOf } from "./canvas-relation-candidates";
-import { MediaAssetPickerDialog, MediaPreviewDialog, MediaSourceDialog } from "./canvas-media-dialogs";
+import { CanvasAssetDetailDialog, MediaAssetPickerDialog, MediaPreviewDialog, MediaSourceDialog } from "./canvas-media-dialogs";
 import { AiEntityDialog } from "./canvas-ai-dialog";
 import { useWorldCanvasStore } from "./canvas-store";
 import { CanvasContextMenu, RelationTypePopover } from "./canvas-context-menu";
@@ -40,6 +40,7 @@ export function CanvasDialogs() {
       <MediaAssetPickerDialog />
       <AiEntityDialog />
       <MediaPreviewDialog />
+      <CanvasAssetDetailDialog />
     </>
   );
 }

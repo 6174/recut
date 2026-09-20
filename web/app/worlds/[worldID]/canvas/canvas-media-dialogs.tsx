@@ -2,8 +2,9 @@
  * [INPUT]: 依赖 react、canvas-store（mediaSource/mediaPreview 状态与媒体动作）、canvas-media 辅助
  * [OUTPUT]: 对外提供 MediaSourceDialog（T8 独立素材来源浮层：上传文件 / 素材库 / URL 三源，落为
  * 独立媒体元素）、MediaAssetPickerDialog（画布图片节点双击 → 全局素材弹框换图，复用
- * AssetReferenceDialog）与 MediaPreviewDialog（图片 lightbox / video / audio 播放）；实体媒体走 media
- * 属性（拖到实体卡 / 属性字段），不再有「挂接目标实体」通道
+ * AssetReferenceDialog）、MediaPreviewDialog（图片 lightbox / video / audio 播放）与
+ * CanvasAssetDetailDialog（有内容的图片节点双击 → 全局素材详情弹框 AssetPreviewDialog，按 assetId 读取）；
+ * 实体媒体走 media 属性（拖到实体卡 / 属性字段），不再有「挂接目标实体」通道
  * [POS]: worlds/[worldID]/canvas 的媒体对话框层（上传走 /v1/media/assets multipart，素材库走列表接口）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,9 +12,11 @@
 
 import { Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
+import { ensureCanvasAssetStatus, useCanvasAssetStatusStore } from "./canvas-asset-status";
 import { assetModality, fitElementToAsset, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
 import { useWorldCanvasStore } from "./canvas-store";
 import { useElementAssetHistoryStore } from "./panel/element-asset-history-store";
@@ -29,7 +32,7 @@ export function MediaSourceDialog() {
 
 const MODALITY_LABEL: Record<MediaModality, string> = { image: "图片", video: "视频", audio: "音频" };
 
-// 画布图片节点（独立媒体卡 / 图片属性卡）双击打开的全局素材弹框：选中即换图。
+// 画布媒体节点（独立媒体卡 / 媒体属性卡，图片/视频/音频）双击打开的全局素材弹框：选中即换素材。
 // 与面板「素材库」同一条 adopt 通道：写 props.assetId + 记元素素材历史 + 图片按 naturalSize 适配卡面；
 // attr 卡若有属性边连到实体，store.setAttrMediaAsset 会按字段映射回写 media 属性值。
 export function MediaAssetPickerDialog() {
@@ -40,13 +43,11 @@ export function MediaAssetPickerDialog() {
   if (!mediaPicker || !element) return null;
   const isAttr = element.kind === "attr";
   const modality = ((isAttr ? element.props?.media : element.props?.modality) ?? "image") as MediaModality;
-  // 仅图片节点双击换素材；其余（视频/音频）不在本通道内
-  if (modality !== "image") return null;
   const currentAssetId = String(element.props?.assetId ?? "");
   return (
     <AssetReferenceDialog
       apiBase={apiBase}
-      description="选择后替换该图片节点的素材；也可以在这里直接上传。"
+      description={`选择后替换该${MODALITY_LABEL[modality]}节点的素材；也可以在这里直接上传。`}
       kinds={[modality] as MediaPickerKind[]}
       onClose={() => setMediaPicker(null)}
       onPick={(picked) => {
@@ -269,6 +270,42 @@ export function MediaPreviewDialog() {
       </div>
     </div>
   );
+}
+
+// 有内容的图片节点双击 → 全局素材详情弹框（AssetPreviewDialog）：按 assetId 回查完整素材
+// （含生成配方/属性），与面板素材库、实体属性字段同源弹框；未就绪的素材先显示等待态。
+export function CanvasAssetDetailDialog() {
+  const detail = useWorldCanvasStore((state) => state.assetDetail);
+  const setAssetDetail = useWorldCanvasStore((state) => state.setAssetDetail);
+  const apiBase = useWorldCanvasStore((state) => state.apiBase);
+  const assetId = detail?.assetId ?? "";
+  const asset = useCanvasAssetStatusStore((state) => (assetId ? state.assets[assetId] : undefined));
+  useEffect(() => {
+    if (assetId) ensureCanvasAssetStatus(apiBase, assetId);
+  }, [apiBase, assetId]);
+  if (!detail || !assetId) return null;
+  const current: PreviewAsset | null = asset
+    ? {
+        id: asset.id,
+        kind: asset.kind,
+        name: asset.name || detail.name || "素材",
+        origin: asset.origin,
+        status: asset.status,
+        jobId: asset.jobId,
+        error: asset.error,
+        createdAt: asset.createdAt,
+        updatedAt: asset.updatedAt,
+        metadata: asset.metadata as PreviewAsset["metadata"],
+      }
+    : null;
+  if (!current) {
+    return (
+      <div aria-modal="true" className="fixed inset-0 z-[80] grid place-items-center bg-black/80 p-8 backdrop-blur" onMouseDown={() => setAssetDetail(null)} role="dialog">
+        <p className="text-xs text-white/70">正在读取素材…</p>
+      </div>
+    );
+  }
+  return <AssetPreviewDialog apiBase={apiBase} asset={current} onClose={() => setAssetDetail(null)} />;
 }
 
 // 视口中心的世界坐标（独立媒体元素落点）

@@ -49,7 +49,7 @@ description: 回答「剧情类怎么编排生产？」的唯一决策问题，�
 
 ### 6. 草图转镜头（sketch_to_shot_brief）
 
-管“草图是继承关系而非复刻外观”。只锁构图与关系（构图/地平线/机位/人物占比/视线/主光方向），人物脸、服装纹理与成片风格必须由资产/类型 Skill 补齐。先标记可继承与必须回填项，再生成关键帧，防止“草图脸”覆盖批准资产。详见 `control-contracts.md#6` 与 `SKILL.md#3.6`。
+管“草图是继承关系而非复刻外观”。只锁构图与关系（构图/地平线/机位/人物占比/视线/主光方向），人物脸、服装纹理与成片风格必须由资产/类型 Skill 补齐。先标记可继承与必须回填项，再生成关键帧，防止“草图脸”覆盖批准资产。分镜可先压成**一张 N 宫格分镜表**（见 `references/shot` 的「一图分镜表（宫格压缩法）」）再按格坐标逐格展开；每格即本合同的 `sketch_to_shot_brief` 单元，格清单的坐标与镜号是展开时的唯一外键。详见 `control-contracts.md#6` 与 `SKILL.md#3.6`。
 
 ## 固定生产顺序
 
@@ -72,6 +72,7 @@ description: 回答「剧情类怎么编排生产？」的唯一决策问题，�
 | `Cxx` 角色资产 | `character` 实体 | 外观锁定特征、状态变体与审查版本对应角色的 `appearance / wardrobe / identity` 证据；`C01b` 版本演进对应 World revision |
 | `Sxx` 场景资产 | `scene / location` 实体 | 世界位置、通道、门窗、家具、光源方位对应场景的空间与光源证据 |
 | `Pxx` 道具资产 | `prop`（挂于 character/scene 的关联证据） | 持有人、位置、状态与来源镜头对应道具证据 |
+| 分镜表/格清单 | `script` 视频脚本实体 | 节拍、口播、时长、画幅与「分镜表」媒体属性（一张 N 宫格）对应脚本实体的 `beats / vo / durationSec / aspectRatio / storyboard`；格清单的坐标(R{r}C{c})与镜号对应 `sketch_to_shot_brief` 单元 |
 | `blocking_map` 的世界坐标 | Worlds 的世界地图 | 人物/道具/摄影机的世界位置与轴线复用同一世界坐标系 |
 | `lighting_plan` 的实体光源 | Worlds 的光源证据 | 光源的世界位置/方向/色温需能在 Worlds 中找到实体依据 |
 

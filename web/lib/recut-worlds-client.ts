@@ -9,7 +9,7 @@
 export type WorldKind = "character_ip" | "creator_brand" | "brand" | "fiction_world" | "custom";
 // Entity type id: preset ids autocomplete, any custom id allowed (type 目录开放)。
 // The legacy "reference" preset is retired — media attrs cover it.
-export type EntityKind = "character" | "location" | "object" | "story" | "style" | "rule" | (string & {});
+export type EntityKind = "character" | "location" | "object" | "story" | "script" | "style" | "rule" | (string & {});
 export type WorldPurpose = "chat" | "video" | "voice" | "image" | "cover" | "agent";
 export type Page<T> = { items: T[]; nextCursor?: string };
 
@@ -279,6 +279,7 @@ export const entityKindLabels: Record<EntityKind, string> = {
   location: "场景",
   object: "物件",
   story: "故事",
+  script: "视频脚本",
   style: "风格",
   rule: "规则",
 };
@@ -307,7 +308,7 @@ export function worldTypes(): WorldKind[] {
 }
 
 export function entityKinds(): EntityKind[] {
-  return ["character", "location", "object", "story", "style", "rule"];
+  return ["character", "location", "object", "story", "script", "style", "rule"];
 }
 
 export type EntityTypeField = {

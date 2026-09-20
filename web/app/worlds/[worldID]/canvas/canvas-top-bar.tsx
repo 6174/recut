@@ -57,9 +57,9 @@ export function WorldCanvasTopBar() {
   return (
     <div className="flex h-11 min-w-0 items-center gap-2 text-sm">
       <button
-        aria-label="返回 Worlds 列表"
+        aria-label="返回工作台"
         className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-        onClick={() => router.push("/worlds")}
+        onClick={() => router.push("/")}
         type="button"
       >
         <ArrowLeft className="size-4" />

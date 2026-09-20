@@ -11,7 +11,7 @@ import "testing"
 func TestUnderstandMCPToolsAreRegistered(t *testing.T) {
 	for _, name := range []string{
 		"recut.media.probe", "recut.media.frames", "recut.media.contactSheet",
-		"recut.media.boundaries", "recut.media.clip", "recut.media.words", "recut.media.measure",
+		"recut.media.gridSlice", "recut.media.boundaries", "recut.media.clip", "recut.media.words", "recut.media.measure",
 		"recut.media.import", "recut.media.asset.get", "recut.media.asset.update",
 		"recut.media.understand.status", "recut.media.understand.prepare",
 	} {

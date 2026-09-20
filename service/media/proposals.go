@@ -220,6 +220,7 @@ var proposalRoles = map[string][]string{
 	"character":   {"image"},
 	"prop":        {"image"},
 	"style-ref":   {"image"},
+	"storyboard":  {"image"},
 	"motion-ref":  {"video"},
 	"voice":       {"audio"},
 	"sfx":         {"audio"},

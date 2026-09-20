@@ -119,6 +119,98 @@ func (m *MediaService) UnderstandFrames(ctx context.Context, input UnderstandFra
 	return UnderstandFramesResult{AssetID: asset.ID, Probe: probe, Frames: frames}, nil
 }
 
+// UnderstandGridPanel is one sliced sheet cell saved as an image asset.
+type UnderstandGridPanel struct {
+	Row     int    `json:"row"`
+	Col     int    `json:"col"`
+	Coord   string `json:"coord"` // R{r}C{c}, 1-based
+	Shot    int    `json:"shot"`  // 1-based, row-major
+	AssetID string `json:"assetId"`
+	X       int    `json:"x"`
+	Y       int    `json:"y"`
+	Width   int    `json:"width"`
+	Height  int    `json:"height"`
+}
+
+// UnderstandGridSliceInput is the typed gridSlice request.
+type UnderstandGridSliceInput struct {
+	AssetID   string
+	Rows      int
+	Cols      int
+	GutterPx  int
+	ProjectID string
+}
+
+// UnderstandGridSliceResult is the gridSlice tool envelope.
+type UnderstandGridSliceResult struct {
+	AssetID string                `json:"assetId"`
+	Rows    int                   `json:"rows"`
+	Cols    int                   `json:"cols"`
+	Width   int                   `json:"width"`
+	Height  int                   `json:"height"`
+	Panels  []UnderstandGridPanel `json:"panels"`
+}
+
+// UnderstandGridSlice cuts one image (e.g. an N-cell storyboard sheet) into
+// rows×cols equal cells by deterministic pixel math and saves each cell as an
+// image asset. Pair each panel with its manifest entry by Coord.
+func (m *MediaService) UnderstandGridSlice(ctx context.Context, input UnderstandGridSliceInput) (UnderstandGridSliceResult, error) {
+	asset, path, err := m.readableMediaAsset(input.AssetID, "image")
+	if err != nil {
+		return UnderstandGridSliceResult{}, err
+	}
+	toolkit := m.understandingToolkit()
+	width, height, err := toolkit.ImageSize(ctx, path)
+	if err != nil {
+		return UnderstandGridSliceResult{}, err
+	}
+	if width <= 0 || height <= 0 {
+		return UnderstandGridSliceResult{}, fmt.Errorf("asset %q has no readable pixel size (got %dx%d)", asset.Name, width, height)
+	}
+	regions, err := understand.GridRegions(width, height, input.Rows, input.Cols, input.GutterPx)
+	if err != nil {
+		return UnderstandGridSliceResult{}, err
+	}
+	tempDir, err := os.MkdirTemp(m.store.MediaRoot(), "understand-grid-")
+	if err != nil {
+		return UnderstandGridSliceResult{}, err
+	}
+	defer os.RemoveAll(tempDir)
+	panels := make([]UnderstandGridPanel, 0, len(regions))
+	for index, region := range regions {
+		targetPath := filepath.Join(tempDir, fmt.Sprintf("panel-%03d.png", index))
+		if err := toolkit.CropImage(ctx, path, targetPath, region); err != nil {
+			return UnderstandGridSliceResult{}, err
+		}
+		content, err := os.ReadFile(targetPath)
+		if err != nil {
+			return UnderstandGridSliceResult{}, err
+		}
+		saved, err := m.saveDerivedAsset(content, "image", "image/png", fmt.Sprintf("panel-%s-%s.png", asset.ID, region.Coord()), "understand", input.ProjectID, map[string]any{
+			"source":      "understand",
+			"sourceAsset": asset.ID,
+			"coord":       region.Coord(),
+			"row":         region.Row,
+			"col":         region.Col,
+			"x":           region.X,
+			"y":           region.Y,
+			"width":       region.Width,
+			"height":      region.Height,
+		})
+		if err != nil {
+			return UnderstandGridSliceResult{}, err
+		}
+		panels = append(panels, UnderstandGridPanel{
+			Row: region.Row, Col: region.Col, Coord: region.Coord(), Shot: index + 1,
+			AssetID: saved.ID, X: region.X, Y: region.Y, Width: region.Width, Height: region.Height,
+		})
+	}
+	return UnderstandGridSliceResult{
+		AssetID: asset.ID, Rows: input.Rows, Cols: input.Cols,
+		Width: width, Height: height, Panels: panels,
+	}, nil
+}
+
 // UnderstandSheetCell is one contact-sheet cell (a saved frame asset).
 type UnderstandSheetCell struct {
 	AtSec   float64 `json:"atSec"`

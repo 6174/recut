@@ -2,9 +2,9 @@
  * [INPUT]: 依赖 media-types（Asset/normalizeAsset/Capability/ModelParameter）、lib/media/proposal（GenerationProposal/ProposalReference/proposalIssues/proposalRoleLabel）、
  *   media-configuration-store、model-picker、rich-composer、asset-reference-picker、recipe-parameters、lucide-react。
  * [OUTPUT]: 对外提供 ProposalEditor——生成提案审批台的唯一实现：状态区 + 富文本提示词（@ 引用素材，并入 references）+
- *   参考素材（缩略图/锚定 role/增删）+ 生成模型与参数 + 提交前自检 + 确认生成 / 取消提案。
+ *   参考素材（缩略图/锚定 role/增删）+ 生成模型与参数 + 提交前自检 + 确认生成（提案状态不可取消）。
  * [POS]: web/components 的提案编辑同构层；World 画布媒体节点与素材详情弹框共用同一实现，差异只在宿主：宿主注入
- *   onChange/onConfirm/onReject（画布写元素 store，弹框写全局 asset 提案 HTTP）。
+ *   onChange/onConfirm（画布写元素 store，弹框写全局 asset 提案 HTTP）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -42,7 +42,6 @@ export function ProposalEditor({
   readOnly = false,
   onChange,
   onConfirm,
-  onReject,
 }: {
   apiBase: string;
   modality: ProposalModality;
@@ -52,7 +51,6 @@ export function ProposalEditor({
   readOnly?: boolean;
   onChange: (patch: Partial<GenerationProposal>) => void | Promise<void>;
   onConfirm: () => void | Promise<void>;
-  onReject?: () => void | Promise<void>;
 }) {
   const configuration = useMediaConfigurationStore();
   const capability = RECIPE_CAPABILITY[modality];
@@ -290,11 +288,6 @@ export function ProposalEditor({
           >
             {proposal.status === "generating" ? "生成中…" : proposal.status === "failed" ? "重新生成" : "确认生成"}
           </button>
-          {onReject && (
-            <button className="h-9 rounded-md border px-3 text-xs hover:bg-muted" onClick={() => void onReject()} type="button">
-              取消提案
-            </button>
-          )}
         </div>
       )}
       {pickerOpen && (

@@ -15,7 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import type { ContextOption } from "@/lib/context-catalog/types";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
-import { createProposal, updateProposalAsset, confirmProposalAsset, rejectProposalAsset, type GenerationProposal, type ProposalPatch, type ProposalReference } from "@/lib/media/proposal";
+import { createProposal, updateProposalAsset, confirmProposalAsset, type GenerationProposal, type ProposalPatch, type ProposalReference } from "@/lib/media/proposal";
 import { ProposalEditor, type ProposalModality } from "@/components/proposal-editor";
 import { referenceDisplayText } from "@/lib/rich-composer/protocol/parse";
 import type { RichComposerValue } from "@/lib/rich-composer/value";
@@ -332,14 +332,6 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
                         if (response.ok) upsertAsset(await response.json());
                       } catch (error) {
                         setRemixError(error instanceof Error ? error.message : "确认生成失败，请重试。");
-                      }
-                    }}
-                    onReject={async () => {
-                      try {
-                        await rejectProposalAsset(apiBase, asset.id);
-                        onClose();
-                      } catch (error) {
-                        setRemixError(error instanceof Error ? error.message : "取消提案失败，请重试。");
                       }
                     }}
                     proposal={proposalFromPreviewAsset(asset)}

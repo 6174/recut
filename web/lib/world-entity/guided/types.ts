@@ -15,6 +15,7 @@ export type GenerationRefRole =
   | "character"
   | "prop"
   | "style-ref"
+  | "storyboard"
   | "motion-ref"
   | "voice"
   | "sfx"

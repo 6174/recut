@@ -129,7 +129,7 @@ export type Model = {
 };
 export type Provider = { id: string; name: string; models: Model[] };
 export type Credential = { id: string; name: string; provider: string };
-export type Voice = { id: string; name: string; description?: string; provider: string; category?: string };
+export type Voice = { id: string; name: string; description?: string; provider: string; category?: string; modelId?: string };
 // Capability voice group: the local provider (no credential) plus one group per
 // cloud credential, each carrying its TTS models and selectable voices.
 export type CapabilityVoiceGroup = {

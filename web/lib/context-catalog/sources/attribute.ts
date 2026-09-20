@@ -1,13 +1,14 @@
 /*
- * [INPUT]: 依赖 context-catalog/types、agent-panel-types 的属性 payload、recut-worlds-client 的 EntityAttr 与 lucide 图标
- * [OUTPUT]: 对外提供属性引用来源：entityAttrSource（type=entity_attr，World Entity 扩展属性）与 mediaAttrSource（type=media_attr，素材扩展属性）；两者只作为实体/素材选项的下钻子项出现，顶层 search 恒为空，另导出 toEntityAttrOption/toMediaAttrOption 与 formatAttributeValue 供来源复用
+ * [INPUT]: 依赖 context-catalog/types、agent-panel-types 的属性 payload、recut-worlds-client 的 EntityAttr/entityAttrMediaRef、world-media 的 resolveMediaSrc 与 lucide 图标
+ * [OUTPUT]: 对外提供属性引用来源：entityAttrSource（type=entity_attr，World Entity 扩展属性）与 mediaAttrSource（type=media_attr，素材扩展属性）；两者只作为实体/素材选项的下钻子项出现，顶层 search 恒为空，另导出 toEntityAttrOption/toMediaAttrOption 与 formatAttributeValue 供来源复用；media 类型属性在预览中附带可渲染的媒体
  * [POS]: web/lib/context-catalog/sources 的属性引用来源；把任意 owner（entity/asset）的扩展属性变成可 @、可序列化、可被后端物化的引用
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { createElement } from "react";
 import { Tags } from "lucide-react";
 import { entityAttrContextPayload, mediaAttrContextPayload, worldAttrContextPayload } from "@/components/agent-panel-types";
-import type { EntityAttr } from "@/lib/recut-worlds-client";
+import { entityAttrMediaRef, type EntityAttr } from "@/lib/recut-worlds-client";
+import { resolveMediaSrc } from "@/lib/world-media";
 import type { ContextOption, ContextPreview, ContextSource } from "../types";
 
 // formatAttributeValue 把属性值压成单行预览；媒体/对象值退化为类型描述而非原始 JSON。
@@ -24,6 +25,16 @@ export function formatAttributeValue(value: unknown): string {
     return "（对象）";
   }
   return String(value);
+}
+
+// mediaAttrPreview 把 media 属性值（{assetId|url}）解析为预览可渲染的媒体；仅可视媒体（图片/视频）返回，非媒体或音频返回 undefined。
+function mediaAttrPreview(apiBase: string | undefined, type: string | undefined, value: unknown): ContextPreview["media"] | undefined {
+  if (type !== "media") return undefined;
+  const ref = entityAttrMediaRef(value);
+  if (!ref || ref.kind === "audio") return undefined;
+  const url = resolveMediaSrc(apiBase, ref);
+  if (!url) return undefined;
+  return { kind: ref.kind === "video" ? "video" : "image", url };
 }
 
 function attrSubtitle(attr: EntityAttr): string {
@@ -78,11 +89,12 @@ export const entityAttrSource: ContextSource = {
       : null,
   // 属性只作为实体选项的下钻子项存在，不参与顶层搜索。
   search: async () => [],
-  preview: (option): ContextPreview => {
+  preview: (option, ctx): ContextPreview => {
     const data = option.data as { worldId: string; entityId: string; attr: EntityAttr };
     return {
       title: data.attr.label || data.attr.key,
       subtitle: option.subtitle,
+      media: mediaAttrPreview(ctx.apiBase, data.attr.type, data.attr.value),
       body: formatAttributeValue(data.attr.value),
       facts: [
         { key: "type", label: "类型", value: data.attr.type },
@@ -106,11 +118,12 @@ export const mediaAttrSource: ContextSource = {
   toContext: (attrs) =>
     attrs.assetid && attrs.attrkey ? mediaAttrContextPayload(String(attrs.assetid), String(attrs.attrkey)) : null,
   search: async () => [],
-  preview: (option): ContextPreview => {
+  preview: (option, ctx): ContextPreview => {
     const data = option.data as { assetId: string; attr: { key: string; label?: string; type?: string; value?: unknown } };
     return {
       title: data.attr.label || data.attr.key,
       subtitle: option.subtitle,
+      media: mediaAttrPreview(ctx.apiBase, data.attr.type, data.attr.value),
       body: formatAttributeValue(data.attr.value),
       facts: [
         { key: "type", label: "类型", value: data.attr.type ?? "attr" },

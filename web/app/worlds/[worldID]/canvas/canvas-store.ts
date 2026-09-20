@@ -46,7 +46,7 @@ import { applyCanvasError } from "./canvas-errors";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrValueOf, entityFieldKeyOfLabel } from "./entity-attrs";
 import { confirmProposalAsset, createProposal as createProposalAsset, generationCapabilityOf, isProposalGate, proposalFromAsset, proposalIssues, proposalReferenceIds, readProposal, rejectProposalAsset, updateProposalAsset, type GenerationProposal } from "./canvas-proposal";
-import { refreshCanvasAsset, useCanvasAssetStatusStore } from "./canvas-asset-status";
+import { canvasAssetOf, refreshCanvasAsset, useCanvasAssetStatusStore } from "./canvas-asset-status";
 import { buildGenerationRequest } from "@/lib/media/generation-request";
 import { normalizeAsset, type Asset, type MediaJob } from "@/app/media/media-types";
 import { useElementAssetHistoryStore } from "./panel/element-asset-history-store";
@@ -145,6 +145,7 @@ export const typeColors: Record<string, string> = {
   object: "#fbbf24",
   location: "#60a5fa",
   story: "#f59e0b",
+  script: "#22d3ee",
   style: "#34d399",
   rule: "#a78bfa",
 };
@@ -606,6 +607,9 @@ type WorldCanvasState = {
   setEditor: (editor: PomeloEditor | null) => void;
   addFreeElement: (kind: "text" | AttrMedia, pos: Point) => Promise<void>;
   createAttribute: (fromElementId: string, media: AttrMedia, pos: Point, initial?: { text?: string; fileName?: string; label?: string; assetId?: string; assetName?: string }, edgeType?: string) => Promise<string | null>;
+  // 把「已有」基础属性节点（kind=attr/text/media）挂到实体：只建属性边（edgeType=attr），不新建节点。
+  // 由画布「+」引导线拖到已有属性节点时调用（与 entity→entity 建关系同一交互）。
+  linkAttributeEdge: (fromElementId: string, toElementId: string) => Promise<string | null>;
   // 属性值回写实体 content（label 映射 type schema 字段 key；否则 label 即 key）
   syncAttrValue: (element: WorldCanvasElement, text: string) => Promise<void>;
   renameAttrLabel: (elementId: string, label: string) => Promise<void>;
@@ -668,8 +672,11 @@ type WorldCanvasState = {
   mediaPreview: { src: string; modality: string; name: string } | null;
   // 画布图片节点双击 → 全局素材弹框（AssetReferenceDialog）换图；只存元素 id，媒体类型按元素推导
   mediaPicker: { elementId: string } | null;
+  // 有内容的图片节点双击 → 全局素材详情弹框（AssetPreviewDialog，按 assetId 读取）
+  assetDetail: { assetId: string; name?: string } | null;
   setMediaSource: (input: { modality?: "image" | "video" | "audio" } | null) => void;
   setMediaPicker: (input: { elementId: string } | null) => void;
+  setAssetDetail: (input: { assetId: string; name?: string } | null) => void;
   // 画面删除（T16/D7 P1）：实体卡从画布移除，设定本身保留；outline 面板可放回
   hideEntityFromCanvas: (entityId: string) => Promise<void>;
   unhideEntity: (entityId: string) => Promise<void>;
@@ -762,6 +769,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   mediaSource: null,
   mediaPreview: null,
   mediaPicker: null,
+  assetDetail: null,
   creatingAt: null,
   contextMenu: null,
   toasts: [],
@@ -812,6 +820,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       mediaSource: null,
       mediaPreview: null,
       mediaPicker: null,
+      assetDetail: null,
       creatingAt: null,
       contextMenu: null,
       toasts: [],
@@ -1071,6 +1080,57 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         layer: "0",
       });
       return attrId;
+    } catch (cause) {
+      applyCanvasError(cause);
+      return null;
+    }
+  },
+
+  // 把已有基础属性节点挂到实体：只补一条属性边（kind=arrow + edgeType=attr），节点本身不动。
+  // 属性媒体类型由目标节点推导（attr 卡读 props.media、独立媒体卡读 props.modality、文本按 text）。
+  // 已存在同向同目标属性边则幂等跳过，返回既有边 id。
+  linkAttributeEdge: async (fromElementId, toElementId) => {
+    const target = get().elements.find((item) => item.id === toElementId);
+    if (!target || target.kind === "entity" || target.kind === "arrow") return null;
+    const existing = get().elements.find(
+      (item) =>
+        item.kind === "arrow" &&
+        String(item.props?.edgeType ?? "attr") === "attr" &&
+        String(item.props?.fromElementId ?? "") === fromElementId &&
+        String(item.props?.toElementId ?? "") === toElementId,
+    );
+    if (existing) return existing.id;
+    const attrMedia: AttrMedia =
+      target.kind === "media"
+        ? ((String(target.props?.modality ?? "image") as AttrMedia) || "image")
+        : target.kind === "attr"
+          ? ((String(target.props?.media ?? "text") as AttrMedia) || "text")
+          : "text";
+    const mediaLabels: Record<AttrMedia, string> = { text: "文本", image: "图片", audio: "音频", video: "视频" };
+    const label =
+      String(target.props?.label ?? "") ||
+      String(target.name ?? "").replace(/^属性 · /, "") ||
+      mediaLabels[attrMedia];
+    const arrowId = `shape:arrow-${Date.now()}`;
+    try {
+      await get().upsertElement({
+        id: arrowId,
+        contextId: get().context?.entityId ?? "",
+        kind: "arrow",
+        refKind: "",
+        refId: "",
+        name: `属性边 · ${label}`,
+        props: { fromElementId, toElementId, attrMedia, edgeType: "attr" },
+        geometry: {
+          x: Math.round(Number(target.geometry?.x) || 0),
+          y: Math.round(Number(target.geometry?.y) || 0),
+          zIndex: 1,
+        },
+        style: {},
+        layer: "0",
+      });
+      get().logChange(`关联属性「${label}」`, () => void get().removeElement(arrowId));
+      return arrowId;
     } catch (cause) {
       applyCanvasError(cause);
       return null;
@@ -2028,6 +2088,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
   setMediaPreview: (mediaPreview) => set({ mediaPreview }),
+  setAssetDetail: (assetDetail) => set({ assetDetail }),
 
   // 面板换图（媒体元素）：null = 清除（保留元素骨架，待用户重新选择来源）
   setMediaElementAsset: async (elementId, media) => {
@@ -2077,7 +2138,10 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     if (!element) return;
     const existingAssetId = String(element.props?.assetId ?? "");
     try {
-      if (existingAssetId) {
+      // 仅在现有资产本身就是「带配方的 proposed 提案」时原位改配方；已完成/失败/计划资产都新建，
+      // 避免 PATCH 非提案资产被服务端拒绝（再生成 = 复制配方成一条新提案）。
+      const existing = existingAssetId ? canvasAssetOf(existingAssetId) : null;
+      if (existingAssetId && existing?.status === "proposed" && proposalFromAsset(existing)) {
         await get().updateProposal(elementId, proposal);
         return;
       }

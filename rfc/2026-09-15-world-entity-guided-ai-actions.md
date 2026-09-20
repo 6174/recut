@@ -339,9 +339,9 @@ function invokeGuidedAction(action: GuidedAiAction, ctx: GuidedPromptContext) {
 
 | id | 名称 | 类别 | 产出 | 说明 |
 |---|---|---|---|---|
-| `story.storyboard` | 生成分镜表 | sheet | img / direct | `premise/moment/emotion` → N 格分镜草图（含镜头意图） |
+| `story.storyboard` | 生成分镜表 | sheet | img / direct | `premise/moment/emotion` → 一张 25 宫格分镜草图表（含 `R{r}C{c}` 坐标 + 格清单） |
 | `story.shotlist` | 输出镜头表 | plan | text | 景别/角度/时长/台词/参考锚点的结构化清单 |
-| `story.script` | 展开为一页剧本/口播稿 | text | text | |
+| `story.script` | 展开为视频脚本 | text | canon | 把故事转为 `script`（视频脚本）实体（logline/beats/vo/duration/aspectRatio/platform） |
 | `story.dialogue` | 生成关键对白 | text | text | |
 | `story.hooks` | 起开场钩子与标题 | plan | text | 5 版钩子 + 标题 |
 | `story.beats` | 扩写故事结构 | text | text | 前提 → 场景/人物/冲突清单 |

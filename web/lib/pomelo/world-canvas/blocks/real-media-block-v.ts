@@ -2,6 +2,7 @@
  * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/blocks/vello-shared
  * [OUTPUT]: 对外提供 RealMediaBlockV（type: media）：图 center-cover / 视频音频占位 + 元素徽标；
  * 生成提案态（proposalStatus）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要 + 参考/模型信息；
+ * 计划态（planStatus，proposed 但无配方）渲染为冷蓝描边 + 「计划中」+ 说明摘要；
  * 素材生成中/失败态（assetStatus）渲染为蓝/红描边 + 等待/失败提示（AI 先落 assetId 的节点）。
  * [POS]: lib/pomelo/world-canvas/blocks 的媒体元素 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -17,6 +18,8 @@ import {
   FAILED_FILL,
   PENDING_ACCENT,
   PENDING_FILL,
+  PLAN_ACCENT,
+  PLAN_FILL,
   PROPOSAL_ACCENT,
   PROPOSAL_FILL,
   SHADOW_FILL,
@@ -57,10 +60,12 @@ export class RealMediaBlockV extends VelloBlock {
     const isProposal = proposalStatus === "pending" || proposalStatus === "generating" || proposalStatus === "failed";
     // 素材生成中/失败（AI 先落 assetId，素材仍在异步生成）：与提案态区分，单独渲染等待态
     const assetStatus = String(attrs.assetStatus ?? "");
-    const isGenerating = !isProposal && assetStatus === "generating";
-    const isFailed = !isProposal && assetStatus === "failed";
-    const accent = isProposal ? PROPOSAL_ACCENT : isGenerating ? PENDING_ACCENT : isFailed ? FAILED_ACCENT : CARD_STROKE;
-    const accentWidth = isProposal || isGenerating || isFailed ? 2 : 1;
+    // 计划态（proposed 但无生成配方）：content-first 占位素材，只等 AI 补配方 / 用户交给 AI
+    const isPlan = !isProposal && Boolean(attrs.planStatus);
+    const isGenerating = !isProposal && !isPlan && assetStatus === "generating";
+    const isFailed = !isProposal && !isPlan && assetStatus === "failed";
+    const accent = isProposal ? PROPOSAL_ACCENT : isPlan ? PLAN_ACCENT : isGenerating ? PENDING_ACCENT : isFailed ? FAILED_ACCENT : CARD_STROKE;
+    const accentWidth = isProposal || isPlan || isGenerating || isFailed ? 2 : 1;
     const innerH = h - (attached ? 18 : 0);
     const caption = captionOpsV(this.adapter, x, y, w, label);
 
@@ -80,6 +85,17 @@ export class RealMediaBlockV extends VelloBlock {
       ops.push(textOp({ text: "待确认生成", x: x + 12, y: y + 38, size: 12, maxWidth: w - 24, fill: TEXT_PRIMARY }));
       ops.push(textOp({ text: snippet, x: x + 12, y: y + 58, size: 10, lineHeight: 15, maxWidth: w - 24, fill: TEXT_SECONDARY }));
       ops.push(textOp({ text: `${refs} 参考${model ? ` · ${model}` : ""}`, x: x + 12, y: y + h - 24, size: 9, maxWidth: w - 24, fill: TEXT_TERTIARY }));
+      return { ops, bounds: this.blockBounds() };
+    }
+    if (isPlan) {
+      // 计划（content-first）：冷蓝徽标 + 计划摘要，提示交给 AI 补生成配方（详情面板可复制计划）
+      const prompt = String(attrs.planPrompt ?? "").replace(/\s+/g, " ").trim();
+      const snippet = prompt.length > 46 ? `${prompt.slice(0, 46)}…` : prompt || "（仅说明，暂无生成配方）";
+      ops.push({ kind: "roundRect", x: x + 10, y: y + 10, width: 56, height: 18, radius: 9, fill: PLAN_FILL, stroke: PLAN_ACCENT, strokeWidth: 1 });
+      ops.push(textOp({ text: "计划", x: x + 20, y: y + 14, size: 10, maxWidth: 40, fill: PLAN_ACCENT }));
+      ops.push(textOp({ text: "计划中", x: x + 12, y: y + 38, size: 12, maxWidth: w - 24, fill: TEXT_PRIMARY }));
+      ops.push(textOp({ text: snippet, x: x + 12, y: y + 58, size: 10, lineHeight: 15, maxWidth: w - 24, fill: TEXT_SECONDARY }));
+      ops.push(textOp({ text: "待补生成配方", x: x + 12, y: y + h - 24, size: 9, maxWidth: w - 24, fill: TEXT_TERTIARY }));
       return { ops, bounds: this.blockBounds() };
     }
     if (isGenerating) {

@@ -81,7 +81,7 @@ type WorldManifest = {
   relations?: ManifestRelation[];
 };
 
-const MARKETING_ENTITY_KINDS = new Set(["character", "location", "object", "story", "style", "rule"]);
+const MARKETING_ENTITY_KINDS = new Set(["character", "location", "object", "story", "script", "style", "rule"]);
 const MAX_IMAGES_PER_WORLD = 6;
 const MAX_ENTITIES_PER_WORLD = 6;
 const MAX_CANVAS_ELEMENTS = 60;

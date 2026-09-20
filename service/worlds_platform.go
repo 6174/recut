@@ -945,7 +945,7 @@ func (w *WorldStore) GetWorldContext(input BriefInput, scenarioID string) (World
 // WorldBriefReference is one anchorable item an Agent can bind into a
 // generation prompt: a media attribute's assetId/url plus a suggested role
 // from the generation-reference vocabulary (pov / color-card / environment /
-// character / prop / style-ref / motion-ref / voice / sfx / music). It is a
+// character / prop / style-ref / storyboard / motion-ref / voice / sfx / music). It is a
 // suggestion, not a frozen binding — the prompt skill and the user confirm the
 // final role.
 type WorldBriefReference struct {
@@ -1233,7 +1233,7 @@ func briefReferenceFromEvidence(evidence WorldEvidence) WorldBriefReference {
 func isGenerationRole(role string) bool {
 	switch role {
 	case "pov", "color-card", "environment", "character", "prop", "style-ref",
-		"motion-ref", "voice", "sfx", "music":
+		"storyboard", "motion-ref", "voice", "sfx", "music":
 		return true
 	}
 	return false
@@ -1292,6 +1292,8 @@ func inferMediaAttrRole(kind, label, key, baseKind string) string {
 		return "motion-ref"
 	case "image":
 		switch {
+		case strings.Contains(text, "分镜") || strings.Contains(text, "故事板") || strings.Contains(text, "storyboard"):
+			return "storyboard"
 		case strings.Contains(text, "色卡") || strings.Contains(text, "配色") || strings.Contains(text, "color") || strings.Contains(text, "palette"):
 			return "color-card"
 		case strings.Contains(text, "视角") || strings.Contains(text, "pov") || strings.Contains(text, "机位"):

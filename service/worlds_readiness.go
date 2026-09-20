@@ -157,6 +157,7 @@ var scenarioBlueprints = map[string]scenarioBlueprint{
 var requiredFieldsByKind = map[string][]string{
 	EntityTypeCharacter: {"appearance", "personality", "voice", "invariants"},
 	EntityTypeStory:     {"premise", "moment", "emotion"},
+	EntityTypeScript:    {"logline", "beats"},
 	EntityTypeStyle:     {"visual", "guidance", "avoid"},
 	EntityTypeRule:      {"text"},
 	EntityTypeLocation:  {"description", "atmosphere"},

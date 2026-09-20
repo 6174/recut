@@ -11,8 +11,9 @@
  * 自由元素映射：note→NoteBlockV、text/shape→FreeElementBlockV、绑定两实体的自由箭头→复用
  * RelationArrowBlockV 投影（未绑定箭头暂不渲染）；画面 delta 同步经 moveElement + persistGeometry
  * 另含 RealMediaBlockV（T8 媒体元素）/ 空世界与空容器引导（T9）/ CanvasOutline / toast / 文件拖放（B.12）；
- * 生成提案态（proposal）：媒体元素与 attr 媒体卡的 props.proposal 映射为 proposalStatus/proposalPrompt/
- * proposalRefs 等 attrs，供 block 渲染「待确认」态；
+ * 生成提案态（proposal）：媒体元素与 attr 媒体卡从全局 asset 读 proposal，映射为 proposalStatus/
+ * proposalPrompt/proposalRefs 等 attrs，供 block 渲染「待确认」态；proposed 但无配方按「计划」映射为
+ * planStatus/planPrompt，block 渲染「计划中」；
  * 素材生成等待态（canvas-asset-status）：AI 先落 assetId 时映射为 assetStatus，未就绪不请求 URL，
  * 渲染「生成中/失败」态并在素材就绪后经状态订阅增量重建文档；
  * 「+」引导面板支持把实体简介/正文作为关联拖出；文本属性卡高度服从几何 box（渲染侧裁剪溢出，
@@ -41,7 +42,7 @@ import { CanvasToasts } from "./canvas-toast";
 import { CanvasOutline } from "./canvas-outline";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrMediaValueOf, attrValueOf, ENTITY_FIELD_ASSOCIATIONS, entityMediaAttrs } from "./entity-attrs";
-import { readProposal, proposalFromAsset } from "./canvas-proposal";
+import { isPlanAsset, readProposal, proposalFromAsset } from "./canvas-proposal";
 import { canvasAssetOf, canvasAssetStateOf, ensureCanvasAssetStatus, stopCanvasAssetStatus, useCanvasAssetStatusStore } from "./canvas-asset-status";
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
@@ -146,8 +147,10 @@ function buildPomeloRecords(
       // 提案真源是全局资产：优先从已回查的 asset 读 proposal（旧画布元素回退 props.proposal）。
       const asset = assetId ? canvasAssetOf(assetId) : null;
       const proposal = (asset ? proposalFromAsset(asset) : null) ?? readProposal(element.props);
+      // 计划态（proposed 但无配方）：画布上显式渲染「计划中」，不能只剩一个空占位卡。
+      const plan = asset ? isPlanAsset(asset) : false;
       // AI 先落 assetId（素材仍在生成）时：不把未就绪的素材 URL 交给渲染器（避免 404 重试），
-      // 走蓝/红等待态；素材就绪后由状态订阅重建文档切到真实图。proposed 由提案徽标表达。
+      // 走蓝/红等待态；素材就绪后由状态订阅重建文档切到真实图。proposed 由提案/计划徽标表达。
       const assetState = canvasAssetStateOf(assetId, element.props?.assetStatus);
       records.push({
         id: element.id,
@@ -168,6 +171,7 @@ function buildPomeloRecords(
             proposalRefs: proposal.references.length,
             proposalModel: proposal.modelId ?? "",
           } : {}),
+          ...(plan ? { planStatus: true, planPrompt: String(asset?.metadata?.content ?? "") } : {}),
         },
       });
       return;
@@ -185,6 +189,7 @@ function buildPomeloRecords(
       }) : "";
       const attrAsset = attrAssetId ? canvasAssetOf(attrAssetId) : null;
       const proposal = (attrAsset ? proposalFromAsset(attrAsset) : null) ?? readProposal(element.props);
+      const plan = attrAsset ? isPlanAsset(attrAsset) : false;
       records.push({
         id: element.id,
         type: "free-element",
@@ -205,6 +210,7 @@ function buildPomeloRecords(
             proposalPrompt: proposal.prompt.replace(/<[^>]*>/g, " "),
             proposalRefs: proposal.references.length,
           } : {}),
+          ...(plan ? { planStatus: true, planPrompt: String(attrAsset?.metadata?.content ?? "") } : {}),
         },
       });
       return;

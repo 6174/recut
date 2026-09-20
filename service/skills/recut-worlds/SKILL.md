@@ -31,7 +31,9 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 **素材 = media 属性（唯一通道）**：实体挂图片/视频/音频，就是一条 `type:"media"` 的 attr，值为 `{assetId, name?, kind?, segment?}`。**没有独立的「参考素材 / 证据」层**（evidence 已退役）；不复制二进制，只引用素材库 `assetId`，`segment` 保留「只引用某一段」的能力。
 
-**预设类型字段（locked）**：`character` 外貌与标志/性格/声音/不可变特征；`location` 描述/氛围；`object` 描述/材质/来历/用途/重要时刻；`story` 前提/关键时刻/情绪；`style` 视觉/guidance/避免；`rule` 规则文本。每类另带一个 **unlocked `background`（media）** 字段。
+**预设类型字段（locked）**：`character` 外貌与标志/性格/声音/不可变特征；`location` 描述/氛围；`object` 描述/材质/来历/用途/重要时刻；`story` 前提/关键时刻/情绪；`script`（视频脚本）一句话概括/节拍/口播/目标时长/画幅/目标平台/分镜表；`style` 视觉/guidance/避免；`rule` 规则文本。每类另带一个 **unlocked `background`（media）** 字段。
+
+**视频脚本与分镜**：`script` 是面向生成的脚本层（`story` 给叙事内核，`script` 给可生成规格）。分镜先以**一张 N 宫格分镜表（storyboard sheet）**压缩生成（默认 5×5=25 格，每格标 `R{r}C{c}` 坐标与镜号），再用 `recut.media.gridSlice` 按 rows×cols 等分切格，逐格细化关键帧；宫格图与单格都作 `role="storyboard"` 锚点。分镜表写回 `script.storyboard` 这条 locked media 属性。
 
 ## 属性怎么显示：三层分工
 
@@ -195,6 +197,8 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 | 场景 / 环境卡 / establishing 全景 | 目标场景 media（`environment`）+ **主角色参考图（`character`，画面出现主角色时必带）** + 风格或版式范例（`style-ref`） |
 | 角色设定 / 表情版 / 情绪九宫格 | 该角色参考图（`character`）+ 风格（`style-ref`） |
 | 分镜关键帧 | 该镜场景（`environment`）+ 主角色（`character`）+ 风格（`style-ref`） |
+| 一图分镜表（storyboard sheet） | 世界风格（`style-ref`）+ 出场角色（`character`）+ 场景（`environment`）；产出 role=`storyboard` |
+| 逐格细化关键帧 | 该格分镜（`storyboard`）+ 主角色（`character`）+ 场景（`environment`）+ 风格（`style-ref`） |
 | 音色 / 配音 | 音色参考（`voice`） |
 
 **提交前自查（未过不提交）**：这次**生图 / 生视频**引用了几条参考、各是什么 role？画面里会出现主角色，却没有任何 `role="character"` 的参考图 → 停下，从 `brief.references[]` / `world.get` 实体 media 锚点补上再提交。世界已有场景 / 风格 / 色卡锚点时同样要带入。world.md 里「涉及主角色必须传角色设定图」是硬约束，不是建议。只想生成纯空场景（明确不出现任何角色）时才可省略 `character`；「这次忘了先读 `references[]`」不是省略理由。

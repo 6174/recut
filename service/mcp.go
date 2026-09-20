@@ -152,6 +152,10 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleZh: "在 [startSec,endSec] 上按 intervalSec 抽帧并合成带时间码的接触表（可传 transcriptAssetId 叠词标签），返回 sheetAssetId 与逐格 cells。用于快速看清整片画面节奏。",
 		LocaleEn: "Extract frames across [startSec,endSec] at intervalSec and composite a timecoded contact sheet (pass transcriptAssetId to overlay word labels); returns sheetAssetId and per-cell assets. Use it to read a whole clip's visual rhythm at a glance.",
 	},
+	"recut.media.gridSlice": {
+		LocaleZh: "把一张图（如 N 宫格分镜表 storyboard sheet）按 rows×cols 等分切成逐格 image 素材，返回每格 {row,col,coord(R{r}C{c}),shot,assetId,x,y,width,height}。等分 + 细缝由参数控制；配分镜格清单按 coord 配对，用于逐格细化关键帧。",
+		LocaleEn: "Cut one image (e.g. an N-cell storyboard sheet) into rows×cols equal cells as image assets, returning each cell's {row,col,coord(R{r}C{c}),shot,assetId,x,y,width,height}. Equal split plus optional gutter; pair panels with the storyboard manifest by coord, then refine each into a keyframe.",
+	},
 	"recut.media.boundaries": {
 		LocaleZh: "用 PySceneDetect 检测切点，返回 [{atSec,kind,score?}]。score 为尽力而为；快摇、强运动与叠化仍可能误检，只作参考不当作精确镜头切分。",
 		LocaleEn: "Detect cuts with PySceneDetect, returning [{atSec,kind,score?}]. Scores are best-effort; fast pans, heavy motion and dissolves can still be misdetected, so treat it as a reference, not exact shot segmentation.",
@@ -1245,6 +1249,18 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		if err == nil {
 			result = sheetResult
 		}
+	case "recut.media.gridSlice":
+		var gridResult UnderstandGridSliceResult
+		gridResult, err = media.UnderstandGridSlice(context.Background(), UnderstandGridSliceInput{
+			AssetID:   stringValue(input["assetId"]),
+			Rows:      int(numericValue(input["rows"])),
+			Cols:      int(numericValue(input["cols"])),
+			GutterPx:  int(numericValue(input["gutterPx"])),
+			ProjectID: requestedProjectID(input),
+		})
+		if err == nil {
+			result = gridResult
+		}
 	case "recut.media.boundaries":
 		var boundariesResult UnderstandBoundariesResult
 		boundariesResult, err = media.UnderstandBoundaries(context.Background(), UnderstandBoundariesInput{
@@ -1450,6 +1466,13 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 			"cellPx":            map[string]any{"type": "integer", "description": "单元格边长像素，默认 320。"},
 			"transcriptAssetId": map[string]string{"type": "string", "description": "可选；提供时叠词标签。"},
 			"projectId":         map[string]string{"type": "string"},
+		}}},
+		{"name": "recut.media.gridSlice", "description": mcpDescription(locale, "recut.media.gridSlice"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "rows", "cols"}, "properties": map[string]any{
+			"assetId":   map[string]string{"type": "string", "description": "要切分的本地 image 素材（如一张 N 宫格分镜表）。"},
+			"rows":      map[string]any{"type": "integer", "description": "行数（自上而下），如 5。"},
+			"cols":      map[string]any{"type": "integer", "description": "列数（自左而右），如 5。"},
+			"gutterPx":  map[string]any{"type": "integer", "description": "可选；每格四周裁掉的缝隙像素，默认 0。"},
+			"projectId": map[string]string{"type": "string", "description": "可选；把逐格素材关联到该项目。"},
 		}}},
 		{"name": "recut.media.boundaries", "description": mcpDescription(locale, "recut.media.boundaries"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
 			"assetId":   map[string]string{"type": "string"},
@@ -2063,7 +2086,7 @@ var proposalExtraProperties = map[string]any{
 		"items": map[string]any{"type": "object", "required": []string{"id"}, "properties": map[string]any{
 			"id":    map[string]any{"type": "string", "description": "参考素材 assetId。"},
 			"kind":  map[string]any{"type": "string", "enum": []string{"image", "video", "audio"}},
-			"role":  map[string]any{"type": "string", "description": "受控 role：pov/color-card/environment/character/prop/style-ref/motion-ref/voice/sfx/music。"},
+			"role":  map[string]any{"type": "string", "description": "受控 role：pov/color-card/environment/character/prop/style-ref/storyboard/motion-ref/voice/sfx/music。"},
 			"label": map[string]any{"type": "string"},
 		}}},
 	"aspectRatio": map[string]any{"type": "string", "description": "提案画幅（如 9:16）。"},

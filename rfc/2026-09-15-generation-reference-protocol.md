@@ -102,6 +102,7 @@
 | `character` | image | 人物视觉锚定 | `参考图{n} 作为{人物}视觉锚定` |
 | `prop` | image | 关键道具/物件锚定 | `参考图{n} 作为{道具}外观锚定` |
 | `style-ref` | image | 风格参考（低频校准） | `参考图{n} 仅作风格校准，不进入默认生成路径` |
+| `storyboard` | image | 分镜表/单格构图锚定 | `参考图{n} 作为该镜构图与调度锚定（沿用此格画面与动作）` |
 | `motion-ref` | video | 运动/表演参考 | `参考视频{n} 作为运动与调度参考` |
 | `voice` | audio | 音色锚定 | `音频{n} 仅用于参考{说话人}的音色特征` |
 | `sfx` | audio | 音效参考 | `音频{n} 作为{效果}音效参考` |
@@ -171,7 +172,7 @@ export type GenerationRefKind = "image" | "video" | "audio" | "transcript" | "en
 
 export type GenerationRefRole =
   | "pov" | "color-card" | "environment" | "character" | "prop" | "style-ref"
-  | "motion-ref" | "voice" | "sfx" | "music";
+  | "storyboard" | "motion-ref" | "voice" | "sfx" | "music";
 
 export type ReferenceBinding = {
   id: string;

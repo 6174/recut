@@ -67,7 +67,7 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 
 规则：
 
-1. **role 受控**：`pov / color-card / environment / character / prop / style-ref / motion-ref / voice / sfx / music`。生成链路每条引用必须有 role。**本表是 AI 侧唯一权威**；运行期镜像在 `canvas-proposal.ts` 的 `PROPOSAL_ROLES`，`recut.worlds.get.references[].role` 也用它，三处必须同步。
+1. **role 受控**：`pov / color-card / environment / character / prop / style-ref / storyboard / motion-ref / voice / sfx / music`。生成链路每条引用必须有 role。**本表是 AI 侧唯一权威**；运行期镜像在 `canvas-proposal.ts` 的 `PROPOSAL_ROLES`，`recut.worlds.get.references[].role` 也用它，三处必须同步。
 2. **格式与提交分离**：正文用 `<reference id …>`（身份、可由 Agent 校验）；提交给模型时由 resolver 改写为**组内编号别名**（`参考图1..N`、`音频1..N`，可配 `{{Mixed n}}`），并把同序 `referenceIds` 一并提交。
 3. **id 不进模型串**：模型不是 Agent，看不到也不该看到 assetId；它只看到别名 + 按顺序附着的媒体。
 4. **一图一 role**：需要一图多义时用 `label` 说明，不叠 role。
@@ -84,6 +84,15 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 4. **方向与屏幕位置不混写**：人物自身左/右与画面左/右分开描述；跨镜保持世界坐标一致。
 5. **运镜克制、物理路径明确**：不做无意义漂移或随机抖动；手持/机械臂等质感与人物状态形成对照时说明。
 6. **可生成性预算**：高风险镜（多人交手、快速位移、复杂复合运镜）在纸面先给拆分预案。
+
+## 一图分镜表锚定（storyboard）
+
+当分镜先以**一张 N 宫格分镜表**（storyboard sheet，见 `references/shot` 的宫格压缩法）压缩生成时：
+
+1. 整张 sheet 是一张 image，作 `role="storyboard"`；它承载整段的构图与调度连续性，不是成片帧。
+2. 逐格细化时，把该格切出的单格图作 `role="storyboard"`，**只锚定该格**的构图/动作/调度；再叠 `character`（角色身份）/`environment`（场景）/`style-ref`（风格）。
+3. 提示词要求「去掉宫格边框与坐标编号、提升分辨率、保持角色/服装/道具/光位与相邻格一致」——sheet 只当草图锚点，成片关键帧必须重生成，不放大草图。
+4. 一格里已冻结的起止状态即该镜的首尾帧合同；相邻格用世界状态推导，不重建房间。
 
 ## 声画规则
 

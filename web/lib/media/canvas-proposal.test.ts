@@ -20,7 +20,7 @@ test("role options are filtered by kind", () => {
   assert.ok(imageRoles.includes("character") && imageRoles.includes("color-card"));
   assert.ok(!imageRoles.includes("voice"));
   assert.deepEqual(audioRoles.sort(), ["music", "sfx", "voice"]);
-  assert.equal(PROPOSAL_ROLES.length, 10);
+  assert.equal(PROPOSAL_ROLES.length, 11);
 });
 
 test("issues fail closed on missing prompt or model and role/kind mismatch", () => {

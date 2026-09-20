@@ -19,6 +19,7 @@ export function normalizeMediaLabel(value?: string): string {
 
 // 词表（RFC §5.8.1）：顺序无关；命中冲突时取最长关键词
 export const MEDIA_PURPOSE_LEXICON: LexiconEntry[] = [
+  { id: "storyboard", role: "storyboard", keywords: ["分镜", "分镜表", "故事板", "storyboard"] },
   { id: "turnaround", role: "character", keywords: ["三视图", "转身", "正侧背", "turnaround"] },
   { id: "expression", role: "character", keywords: ["表情", "情绪", "神态", "expression", "face"] },
   { id: "wardrobe", role: "character", keywords: ["服装", "穿搭", "服饰", "造型", "配饰", "衣服", "outfit", "costume"] },

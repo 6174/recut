@@ -146,6 +146,16 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 		{Key: "emotion", Label: "情绪", Type: "textarea", Locked: true},
 		{Key: "background", Label: "背景", Type: "media"},
 	},
+	"script": {
+		{Key: "logline", Label: "一句话概括", Type: "text", Locked: true},
+		{Key: "beats", Label: "节拍 / 叙事结构", Type: "textarea", Locked: true},
+		{Key: "vo", Label: "口播 / 旁白", Type: "textarea", Locked: true},
+		{Key: "durationSec", Label: "目标时长（秒）", Type: "number", Locked: true},
+		{Key: "aspectRatio", Label: "画幅", Type: "select", Options: []string{"9:16", "16:9", "1:1", "4:5"}, Locked: true},
+		{Key: "platform", Label: "目标平台", Type: "text", Locked: true},
+		{Key: "storyboard", Label: "分镜表", Type: "media", Locked: true},
+		{Key: "background", Label: "背景", Type: "media"},
+	},
 	"style": {
 		{Key: "visual", Label: "视觉", Type: "textarea", Locked: true},
 		{Key: "guidance", Label: "guidance", Type: "textarea", Locked: true},
@@ -158,12 +168,12 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 }
 
 // presetEntityTypeOrder is the seed order for the preset directory.
-var presetEntityTypeOrder = []string{"character", "location", "object", "story", "style", "rule"}
+var presetEntityTypeOrder = []string{"character", "location", "object", "story", "script", "style", "rule"}
 
 // presetEntityTypeNames maps a preset id to its zh display name.
 var presetEntityTypeNames = map[string]string{
 	"character": "人物", "location": "场景", "object": "物件", "story": "故事",
-	"style": "风格", "rule": "规则",
+	"script": "视频脚本", "style": "风格", "rule": "规则",
 }
 
 // ensurePresetEntityTypesInTx lazily seeds the preset directory rows into a
