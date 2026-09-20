@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 useWorldCanvasStore（persistGeometry，供 fitElementToAsset）、recut-worlds-client 类型
  * [OUTPUT]: 对外提供媒体元素（kind='media'）辅助：mediaSource（assetId/url → 可渲染 URL）、
- * modalityOfKind/assetModality（文件类型 → modality）、fitElementToAsset（图片采纳后卡片按
+ * modalityOfKind/assetModality/modalityOfAssetKind（文件或素材 kind → modality）、fitElementToAsset（图片采纳后卡片按
  * naturalWidth/Height 适配纵横比，media-editor 与 AttrCreatorPanel 建卡共用）。
  * 统一 Entity 模型（RFC 2026-09-09）后 evidence 写通道退役（evidence.attach/update 已移除），
  * 实体素材 = media 属性；旧的 defaultEvidencePurpose/evidencePurposeLabels 随之删除
@@ -29,6 +29,12 @@ export function modalityOfKind(kind: string): MediaModality | null {
 // 媒体素材（/v1/media/assets 行）→ modality（素材库网格过滤用）
 export function assetModality(kind: string): MediaModality | null {
   return modalityOfKind(kind);
+}
+
+// 素材真源 kind（image/video/audio 已是同一词表）→ modality；非视听素材（transcript/document）返回 null。
+// 用于 props.modality 缺失/错标时按素材真源纠正，避免音频/视频被当图片交给渲染器。
+export function modalityOfAssetKind(kind: string): MediaModality | null {
+  return kind === "image" || kind === "video" || kind === "audio" ? kind : null;
 }
 
 // 图片素材采纳后卡片自适应比例：读 naturalWidth/Height，按比例重排宽高（宽锚 240，

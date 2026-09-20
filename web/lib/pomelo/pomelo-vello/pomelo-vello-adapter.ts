@@ -7,7 +7,8 @@
  *           静态内容只在会话开始时渲染一次；视口/尺寸/结构变化自动结束会话回退整场渲染。
  *           direct 模式另有保留场景底图（controller.buildSceneBacking）：内容不变时平移/缩放贴底图。
  *           图片纹理按视口缩放/元素尺寸自适应分辨率：首次基准档 512，放大时 512→1024→2048→4096
- *           升档（复用缓存的源 Image 重栅格并原位替换纹理），避免放大发糊。
+ *           升档（复用缓存的源 Image 重栅格并原位替换纹理），避免放大发糊；
+ *           加载失败（404/CORS/非图片）做负缓存，杜绝「渲染→失败→重渲染→再请求」请求风暴。
  *           WebGPU 不可用时不降级，抛 RendererUnsupportedError，由宿主提示用户升级浏览器。
  * [POS]: pomelo-vello 的适配器实现（M2 接入层）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -133,6 +134,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private readonly removedBlocks = new Set<string>();
   private readonly imageIds = new Map<string, number>();
   private readonly imagePending = new Set<string>();
+  /** url → 已确认加载失败（非图片/404/CORS）；负缓存，避免反复请求。结构重建时清空以便重试。 */
+  private readonly imageFailed = new Set<string>();
   private readonly imageSizes = new Map<number, { width: number; height: number }>();
   /** url → 已注册纹理的当前档位（长边设备像素）；用于按视口放大升档。 */
   private readonly imageTier = new Map<string, number>();
@@ -391,7 +394,11 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       }
     }
 
-    if (structural) this.controller?.endContentSession();
+    if (structural) {
+      this.controller?.endContentSession();
+      // 文档结构重建（block 增删）→ 素材引用可能已变化：清空失败缓存，允许新 URL 重试。
+      if (this.imageFailed.size > 0) this.imageFailed.clear();
+    }
 
     if (changed) {
       this.contentGeneration++;
@@ -446,10 +453,12 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       }
       return cached;
     }
+    if (this.imageFailed.has(url)) return null;
     if (this.imagePending.has(url)) return null;
     this.imagePending.add(url);
     const id = this.nextImageId++;
     void (async () => {
+      let ok = false;
       try {
         // vello(GPU) 需要 RGBA 上传纹理
         const source = await this.loadSource(url);
@@ -462,6 +471,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
             this.imageTier.set(url, tier);
             (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(id, loaded.width, loaded.height, loaded.data);
             this.imageIds.set(url, id);
+            ok = true;
           }
         } else {
           console.warn("[pomelo-vello-adapter] image load failed", url);
@@ -471,7 +481,9 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
         console.warn("[pomelo-vello-adapter] image load failed", url, error);
       } finally {
         this.imagePending.delete(url);
-        this.refreshImageBlocks();
+        // 只有成功才触发重绘：失败重绘会让所有 block 再调 ensureImage 形成请求死循环。
+        if (ok) this.refreshImageBlocks();
+        else this.imageFailed.add(url);
       }
     })().catch(() => undefined);
     return null;
@@ -483,6 +495,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     void (async () => {
       // 让出当前调用栈：升档由 render 内同步触发，先挂起避免重入 refreshImageBlocks
       await Promise.resolve();
+      let ok = false;
       try {
         const loaded = rasterizeImage(source, tier);
         if (loaded) {
@@ -496,12 +509,18 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
           this.imageTier.set(url, tier);
           (this.rasterizer as unknown as VelloGpuRasterizer).registerImage(nextId, loaded.width, loaded.height, loaded.data);
           this.imageIds.set(url, nextId);
+          ok = true;
         }
       } catch (error) {
         console.warn("[pomelo-vello-adapter] image upgrade failed", url, error);
       } finally {
         this.imagePending.delete(url);
-        this.refreshImageBlocks();
+        if (ok) {
+          this.refreshImageBlocks();
+        } else {
+          // 升档失败也要落档位：否则 desired 恒大于 current，每次重绘都会再试 → 死循环。
+          this.imageTier.set(url, tier);
+        }
       }
     })().catch(() => undefined);
   }

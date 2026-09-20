@@ -34,7 +34,7 @@ import { ViewportPlugin, centerContent, panBy } from "@/lib/pomelo/world-canvas/
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
 import { AlignmentGuidePlugin } from "@/lib/pomelo/world-canvas/plugins/alignment-guide-plugin";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
-import { fitElementToAsset, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
+import { fitElementToAsset, mediaSource, modalityOfAssetKind, modalityOfKind, type MediaModality } from "./canvas-media";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
 import { relationCandidatesOf } from "./canvas-relation-candidates";
 import { CanvasInlineEditor } from "./canvas-inline-editor";
@@ -141,11 +141,12 @@ function buildPomeloRecords(
     if (element.kind === "media") {
       // 媒体元素（T8/B.12）：图片 cover-fit 缩略 / 视频音频占位卡；挂接后带「参考素材」角标。
       // 生成提案（视频等高价媒体）：带 proposal 属性 → 卡片渲染为「待确认」态。
-      const modality = String(element.props?.modality ?? "image");
       const assetId = String(element.props?.assetId ?? "");
       const url = String(element.props?.url ?? "");
       // 提案真源是全局资产：优先从已回查的 asset 读 proposal（旧画布元素回退 props.proposal）。
       const asset = assetId ? canvasAssetOf(assetId) : null;
+      // 素材真源 kind 优先于 props.modality：音频/视频不被当图片交给渲染器（解码失败 → 请求风暴）。
+      const modality = modalityOfAssetKind(asset?.kind ?? "") ?? String(element.props?.modality ?? "image");
       const proposal = (asset ? proposalFromAsset(asset) : null) ?? readProposal(element.props);
       // 计划态（proposed 但无配方）：画布上显式渲染「计划中」，不能只剩一个空占位卡。
       const plan = asset ? isPlanAsset(asset) : false;
@@ -181,13 +182,15 @@ function buildPomeloRecords(
       // 文本高度服从几何 box（渲染侧裁剪溢出，见 free-element-block-v），不随内容自增长。
       const media = String(element.props?.media ?? "text");
       const attrAssetId = element.props?.assetId ? String(element.props.assetId) : "";
+      const attrAsset = attrAssetId ? canvasAssetOf(attrAssetId) : null;
+      // 素材真源 kind 优先：属性卡也避免把音频/视频当图片加载
+      const resolvedAttrMedia = modalityOfAssetKind(attrAsset?.kind ?? "") ?? media;
       // 媒体属性卡同媒体元素：素材未就绪 → 不请求 URL，渲染等待态
-      const assetState = media !== "text" ? canvasAssetStateOf(attrAssetId, element.props?.assetStatus) : "ready";
-      const mediaSrc = media !== "text" && assetState === "ready" ? mediaSource(state.apiBase, {
+      const assetState = resolvedAttrMedia !== "text" ? canvasAssetStateOf(attrAssetId, element.props?.assetStatus) : "ready";
+      const mediaSrc = resolvedAttrMedia !== "text" && assetState === "ready" ? mediaSource(state.apiBase, {
         ...(attrAssetId ? { assetId: attrAssetId } : {}),
         ...(element.props?.url ? { url: String(element.props.url) } : {}),
       }) : "";
-      const attrAsset = attrAssetId ? canvasAssetOf(attrAssetId) : null;
       const proposal = (attrAsset ? proposalFromAsset(attrAsset) : null) ?? readProposal(element.props);
       const plan = attrAsset ? isPlanAsset(attrAsset) : false;
       records.push({
@@ -196,10 +199,10 @@ function buildPomeloRecords(
         attrs: {
           x: pos.x,
           y: pos.y,
-          width: Number(element.geometry?.width) || (media === "text" ? 160 : 200),
-          height: Number(element.geometry?.height) || (media === "text" ? 90 : 140),
+          width: Number(element.geometry?.width) || (resolvedAttrMedia === "text" ? 160 : 200),
+          height: Number(element.geometry?.height) || (resolvedAttrMedia === "text" ? 90 : 140),
           elementKind: "attr",
-          attrMedia: media,
+          attrMedia: resolvedAttrMedia,
           // 属性名（props.label，如「环境卡」）优先作为卡片徽标；缺省回退媒体类型标签
           label: String(element.props?.label ?? ""),
           text: String(element.props?.text ?? ""),

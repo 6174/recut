@@ -3,7 +3,8 @@
  *          world-canvas/blocks/vello-shared（公共绘制辅助/色板）、world-canvas/text-metrics（truncateText）
  * [OUTPUT]: 对外提供 EntityCardBlockV（type: entity-card）与 entityCardRectV：深色卡面 + 头图 center-cover +
  *           标题/副标题 + 资料格 + 元素徽标；头图区为 flex:1（剩余空间），底部固定标题/缩略图区；
- *           头图素材生成中/失败（coverStatus）渲染为蓝/红等待态；有效矩形与业务命中/选区/连线共用。
+ *           头图素材生成中/失败（coverStatus）渲染为蓝/红等待态；coverKind=video 只画占位，
+ *           不把视频 URL 交给图片解码器；有效矩形与业务命中/选区/连线共用。
  * [POS]: lib/pomelo/world-canvas/blocks 的实体卡 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -68,6 +69,8 @@ export class EntityCardBlockV extends VelloBlock {
     const title = displayRefText(String(attrs.title ?? "实体"));
     const summary = displayRefText(String(attrs.desc ?? "")).trim() || "补充一句简介…";
     const coverUrl = String(attrs.coverUrl ?? "");
+    // 头图类型：video 头图不能当图片纹理加载（解码失败会触发请求风暴），只画占位。
+    const coverKind = String(attrs.coverKind ?? "image");
     // flex 布局：底部内容区（标题 + 副标题 + 缩略图）固定高度，剩余空间全部留给头图区。
     const imageH = entityCardImageHeight(attrs, h);
     const hasCover = imageH > 0;
@@ -93,6 +96,10 @@ export class EntityCardBlockV extends VelloBlock {
         const fill = failed ? FAILED_FILL : PENDING_FILL;
         ops.push({ kind: "roundRect", x, y, width: w, height: imageH, radius: 0, fill, stroke: accent, strokeWidth: 2 });
         ops.push(textOp({ text: failed ? "生成失败" : "生成中…", x: x + ENTITY_CARD_PAD, y: y + Math.max(6, imageH / 2 - 8), size: 12, maxWidth: w - ENTITY_CARD_PAD * 2, fill: failed ? accent : TEXT_PRIMARY }));
+      } else if (coverKind === "video") {
+        // 视频头图：不以图片方式加载，画深色区 + 提示（避免把视频 URL 交给图片解码器）
+        ops.push({ kind: "roundRect", x, y, width: w, height: imageH, radius: 0, fill: TILE_FILL, stroke: [0, 0, 0, 0], strokeWidth: 0 });
+        ops.push(textOp({ text: "▶ 视频头图", x: x + ENTITY_CARD_PAD, y: y + Math.max(6, imageH / 2 - 8), size: 12, maxWidth: w - ENTITY_CARD_PAD * 2, fill: TEXT_SECONDARY }));
       } else {
         // 头图区 = 剩余空间，仅在自身区域内 center-cover：先按卡面圆角裁剪（保留顶部圆角），
         // 再裁到头图矩形，避免 cover 溢出污染下方文字/缩略图区。

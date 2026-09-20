@@ -2,9 +2,9 @@
  * [INPUT]: 依赖 recut-worlds-client（WorldEntity/WorldEvidence 类型）与 canvas/entity-attrs 辅助
  * [OUTPUT]: 对外提供 remoteProxySource（远程 URL 同源代理）、evidenceSource（旧证据 → 可渲染 URL，
  * references 为 legacy 只读投影仍可渲染）、entityImageUrls（旧证据图片 URL，B.6 封面规则）、
- * entityMediaUrls（media 属性 assetId → URL 列表）、entityCoverMedia（头图解析：显式 background media
+ * entityMediaUrls（media 属性 assetId → URL 列表，可按 kind 过滤）、entityCoverMedia（头图解析：显式 background media
  * 属性优先 → 其余 media 属性 kind=image → kind=video；返回含 assetId 供「生成中」等待态判定）与
- * entityPhotoUrls（资料网格 URL，头图取自非 background 属性时剔除那张）
+ * entityPhotoUrls（资料网格 URL，仅图片，头图取自非 background 属性时剔除那张）
  * [POS]: worlds/[worldID]/canvas 的画布图片辅助（canvas-pomelo.tsx 组装 attrs，EntityCardBlockV 渲染）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -38,11 +38,12 @@ export function mediaAttrSource(apiBase: string, value: { assetId?: string; url?
   return resolveMediaSrc(apiBase, value);
 }
 
-// media 属性 → URL 列表（统一 Entity 模型：实体素材 = media 属性）
-export function entityMediaUrls(apiBase: string, entity: WorldEntity): string[] {
+// media 属性 → URL 列表（统一 Entity 模型：实体素材 = media 属性）；可传 kind 只取该类型。
+export function entityMediaUrls(apiBase: string, entity: WorldEntity, kind?: "image" | "video" | "audio"): string[] {
   return entityMediaAttrs(entity)
     .map((attr) => attrMediaValueOf(entity, attr.key))
     .filter((value): value is NonNullable<typeof value> => value !== null)
+    .filter((value) => !kind || (value.kind ?? "image") === kind)
     .map((value) => resolveMediaSrc(apiBase, value))
     .filter((url) => url !== "");
 }
@@ -50,11 +51,12 @@ export function entityMediaUrls(apiBase: string, entity: WorldEntity): string[] 
 // 头图媒体：image | video（video 走视频纹理加载）；assetId 供「素材生成中」等待态判定
 export type CoverMedia = { url: string; kind: "image" | "video"; assetId?: string };
 
-// 实体卡资料网格 URL：头图取自非 background 属性时剔除那张；background 封面不占资料格
+// 实体卡资料网格 URL：仅图片（资料格按图片绘制，音频/视频交给渲染器会解码失败并触发请求风暴）；
+// 头图取自非 background 属性时剔除那张；background 封面不占资料格。
 export function entityPhotoUrls(apiBase: string, entity: WorldEntity): string[] {
   const cover = entityCoverMedia(apiBase, entity);
   const background = attrOf(entity, "background");
-  const urls = entityMediaUrls(apiBase, entity);
+  const urls = entityMediaUrls(apiBase, entity, "image");
   if (cover && cover.kind === "image" && !background) return urls.filter((url) => url !== cover.url);
   return urls;
 }
