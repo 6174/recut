@@ -20,7 +20,7 @@
  * 不随内容自增长），双击就地编辑内滚动并支持全屏放大；
  * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
  * `wc:vp:<worldId>:<contextId>`，进出容器先存回来源再恢复目标，无快照才 fit）；
- * 撤销 = 语义撤销（canvas-store changeLog 逆操作，经 Cmd/Ctrl+Z 与工具栏），不走 yjs UndoManager
+ * 撤销/重做 = 语义撤销/重做（canvas-store changeLog/redoLog 双栈，经 Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z 与工具栏），不走 yjs UndoManager
  * [POS]: worlds/[worldID]/canvas 的画布底座层（本组件经 index.tsx dynamic(ssr:false) 挂载）；
  * 语义真相只在 world_entities + world_relations，pomelo 文档是内存投影（canvas 变更永不产 revision）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md

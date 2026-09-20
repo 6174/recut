@@ -8,6 +8,8 @@
  * 多选 selectedIds 为 pomelo block id 集合，select 单选/selectMany 框选保持同步）
  * 与全部写动作（关系原位改 updateRelation：类型/方向 patch，保留 id/scope 与画布锚点）；画布元素写 world_canvas 不产 revision，
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
+ * 语义撤销/重做为闭包双栈（changeLog/redoLog）：每次语义写登记 undo+redo，撤销把条目移入 redoLog、重做移回
+ * changeLog，新语义写清空 redoLog；回放期用 historyReplaying 抑制递归记账。
  * 画布存储为文档粒度（RFC 2026-09-09）：一张画布 = 一个 Document，canvas.get/save 整包读写 + version 乐观锁；
  * 元素级动作（upsertElement/persistGeometry/moveElement/removeElement）只改本地文档 + 脏集合，去抖整包落库，
  * 冲突时拉远端按 id 合并脏集重试一次；内层画布是独立文档，实体投影位置跨层天然隔离。
@@ -92,10 +94,17 @@ export type CanvasContextMenu = {
 export type CanvasToast = { id: number; text: string; kind: "info" | "success" | "error"; action?: { label: string; run: () => void } };
 
 // 最近变更（T12/B.14 语义撤销）：建/删实体、建/删关系、改字段、挂接/确认设定等；
-// undo 为闭包（回写旧值 / 删除 / 重建）；删除设定/关系/元素均已可撤销——
-// 实体走后端软删除 + entity.restore（复位归档标记、按 batch 重建关系墓碑并保留画布投影），
-// 关系走 relation.restore（墓碑原 id 重建），画布元素走 restoreElement（快照 upsert）
-export type CanvasChange = { id: number; label: string; at: string; undo: () => Promise<void> | void };
+// undo/redo 均为闭包（undo 回写旧值 / 删除 / 重建；redo 重放正向操作，尽量复用原 id）；
+// 删除设定/关系/元素均已可撤销——实体走后端软删除 + entity.restore（复位归档标记、按 batch
+// 重建关系墓碑并保留画布投影），关系走 relation.restore（墓碑原 id 重建），画布元素走
+// restoreElement（快照 upsert）。撤销把条目移入 redoLog，重做再移回 changeLog（LIFO 双栈）。
+export type CanvasChange = {
+  id: number;
+  label: string;
+  at: string;
+  undo: () => Promise<void> | void;
+  redo: () => Promise<void> | void;
+};
 
 export const DEFAULT_ENTITY_SIZE = { width: 264, height: 328 };
 export const NOTE_SIZE = { width: 150, height: 100 };
@@ -410,6 +419,19 @@ const canvasSaveState = {
   saving: false,
 };
 
+// 撤销/重做回放标记：回放期（entry.undo()/entry.redo() 执行中）抑制 logChange，
+// 避免撤销动作内部调用的写动作（deleteEntity/removeRelation/removeElement…）再向 changeLog
+// 追加条目，破坏 LIFO 双栈语义。模块级而非响应式，回放是单线程顺序执行。
+let historyReplaying = false;
+async function replayHistory<T>(action: () => T | Promise<T>): Promise<T> {
+  historyReplaying = true;
+  try {
+    return await action();
+  } finally {
+    historyReplaying = false;
+  }
+}
+
 function markCanvasDirty(id: string, removed = false) {
   canvasSaveState.dirty.add(id);
   if (removed) canvasSaveState.removed.add(id);
@@ -712,10 +734,14 @@ type WorldCanvasState = {
   removeMediaAttr: (entityId: string, attrKey: string) => Promise<void>;
   // 最近变更（T12 语义撤销）：最近 10 条语义操作，逐条撤销
   changeLog: CanvasChange[];
-  logChange: (label: string, undo: () => Promise<void> | void) => void;
+  // 重做栈：被撤销的条目按 LIFO 暂存；新的语义操作（logChange）清空它
+  redoLog: CanvasChange[];
+  logChange: (label: string, undo: () => Promise<void> | void, redo: () => Promise<void> | void) => void;
   undoChange: (id: number) => Promise<void>;
   // 撤销最近一次语义操作（Cmd/Ctrl+Z 与工具栏撤销的统一入口）
   undoLastChange: () => Promise<void>;
+  // 重做最近一次被撤销的操作（Cmd/Ctrl+Shift+Z 与工具栏重做的统一入口）
+  redoLastChange: () => Promise<void>;
   // 版本快照/回滚（T12）：快照列表 + 指针回移 + 面板开合
   historyOpen: boolean;
   setHistoryOpen: (open: boolean) => void;
@@ -778,6 +804,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   contextMenu: null,
   toasts: [],
   changeLog: [],
+  redoLog: [],
   historyOpen: false,
   outlineOpen: false,
   panelSide: readPanelSide(),
@@ -829,6 +856,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       contextMenu: null,
       toasts: [],
       changeLog: [],
+      redoLog: [],
       historyOpen: false,
       outlineOpen: false,
       aiDialogOpen: false,
@@ -1122,7 +1150,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
     const arrowId = `shape:arrow-${Date.now()}`;
     try {
-      await get().upsertElement({
+      const arrowElement = await get().upsertElement({
         id: arrowId,
         contextId: get().context?.entityId ?? "",
         kind: "arrow",
@@ -1145,7 +1173,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         if (named.kind === "media" || (media && media !== "text")) await get().syncAttrMedia(named);
         else await get().syncAttrValue(named, String(named.props?.text ?? ""));
       }
-      get().logChange(`关联属性「${label}」`, () => void get().removeElement(arrowId));
+      get().logChange(
+        `关联属性「${label}」`,
+        () => get().removeElement(arrowId),
+        () => get().restoreElement(arrowElement),
+      );
       return arrowId;
     } catch (cause) {
       applyCanvasError(cause);
@@ -1365,7 +1397,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         selectedIds: [`entity:${entity.id}`],
       }));
       saveLastKind(kind);
-      get().logChange(`创建「${entity.name}」`, () => void get().deleteEntity(entity.id));
+      get().logChange(
+        `创建「${entity.name}」`,
+        () => get().deleteEntity(entity.id),
+        () => get().restoreEntity(entity.id),
+      );
       return entity.id;
     } catch (cause) {
       applyCanvasError(cause);
@@ -1419,7 +1455,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         selectedIds: [`entity:${child.id}`],
       }));
       saveLastKind(kind);
-      get().logChange(`创建「${child.name}」`, () => void get().deleteEntity(child.id));
+      get().logChange(
+        `创建「${child.name}」`,
+        () => get().deleteEntity(child.id),
+        () => get().restoreEntity(child.id),
+      );
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1478,7 +1518,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     // 元素是 world_canvas 投影（不产 revision）：撤销 = 按删除时快照原样写回
     if (element) {
       const label = element.name || element.kind || "元素";
-      get().logChange(`删除元素「${label}」`, () => void get().restoreElement(element));
+      get().logChange(
+        `删除元素「${label}」`,
+        () => get().restoreElement(element),
+        () => get().removeElement(element.id),
+      );
     }
   },
 
@@ -1548,7 +1592,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       const titleOf = (id: string) => get().entities.find((entity) => entity.id === id)?.name ?? id;
       const scopeSuffix = relation.scopeEntityId ? "（局部）" : "";
       get().toast(`已建立关系：${titleOf(relation.fromEntityId)} → ${titleOf(relation.toEntityId)}${scopeSuffix}`, "success");
-      get().logChange(`建立关系 ${titleOf(relation.fromEntityId)}→${titleOf(relation.toEntityId)}`, () => void get().removeRelation(relation.id));
+      get().logChange(
+        `建立关系 ${titleOf(relation.fromEntityId)}→${titleOf(relation.toEntityId)}`,
+        () => get().removeRelation(relation.id),
+        () => get().restoreRelation(relation.id),
+      );
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1600,11 +1648,18 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       get().logChange(
         `修改关系 ${titleOf(relation.fromEntityId)}→${titleOf(relation.toEntityId)}`,
         () =>
-          void get().updateRelation(saved, {
+          get().updateRelation(saved, {
             fromRole: relation.fromRole,
             toRole: relation.toRole ?? "",
             fromEntityId: relation.fromEntityId,
             toEntityId: relation.toEntityId,
+          }),
+        () =>
+          get().updateRelation(relation, {
+            fromRole: nextRole,
+            toRole: nextToRole,
+            fromEntityId: nextFrom,
+            toEntityId: nextTo,
           }),
       );
     } catch (cause) {
@@ -1651,7 +1706,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       }));
       // 软删除：撤销 = 从墓碑按原 id 重建（保留锚点/方向），不是新建关系
       if (removed) {
-        get().logChange(`删除关系 ${removed.fromRole}`, () => void get().restoreRelation(relationId));
+        get().logChange(
+          `删除关系 ${removed.fromRole}`,
+          () => get().restoreRelation(relationId),
+          () => get().removeRelation(relationId),
+        );
       }
       get().toast("已删除此关系", "success");
     } catch (cause) {
@@ -1749,15 +1808,28 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
   dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
 
-  // 最近变更（T12）：至多 10 条，后进先出撤销
-  logChange: (label, undo) =>
-    set((state) => ({ changeLog: [{ id: Date.now() + Math.random(), label, at: new Date().toLocaleTimeString(), undo }, ...state.changeLog].slice(0, 10) })),
+  // 最近变更（T12）：至多 10 条，后进先出撤销；新的语义操作清空重做栈（分支失效）
+  logChange: (label, undo, redo) => {
+    if (historyReplaying) return;
+    set((state) => ({
+      changeLog: [{ id: Date.now() + Math.random(), label, at: new Date().toLocaleTimeString(), undo, redo }, ...state.changeLog].slice(0, 10),
+      redoLog: [],
+    }));
+  },
+  // 逐条撤销（历史菜单点按具体条目）：撤销后条目进入重做栈顶部
   undoChange: async (id) => {
     const entry = get().changeLog.find((item) => item.id === id);
     if (!entry) return;
     set((state) => ({ changeLog: state.changeLog.filter((item) => item.id !== id) }));
-    await entry.undo();
-    get().toast(`已撤销：${entry.label}`, "success");
+    try {
+      await replayHistory(() => entry.undo());
+      set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, 10) }));
+      get().toast(`已撤销：${entry.label}`, "success");
+    } catch (cause) {
+      // 回放失败：条目退回撤销栈，保持可重试
+      set((state) => ({ changeLog: [entry, ...state.changeLog].slice(0, 10) }));
+      applyCanvasError(cause);
+    }
   },
   // 撤销最近一次语义操作：取 changeLog 首条（LIFO）执行其逆操作。与 yjs UndoManager 无关——
   // 画布真相在 canvas-store/服务端，内存文档只是投影。
@@ -1769,9 +1841,28 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
     set((state) => ({ changeLog: state.changeLog.filter((item) => item.id !== entry.id) }));
     try {
-      await entry.undo();
+      await replayHistory(() => entry.undo());
+      set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, 10) }));
       get().toast(`已撤销：${entry.label}`, "success");
     } catch (cause) {
+      set((state) => ({ changeLog: [entry, ...state.changeLog].slice(0, 10) }));
+      applyCanvasError(cause);
+    }
+  },
+  // 重做：取 redoLog 首条重放正向操作，成功后条目回到 changeLog（可再次撤销）
+  redoLastChange: async () => {
+    const entry = get().redoLog[0];
+    if (!entry) {
+      get().toast("没有可重做的操作", "info");
+      return;
+    }
+    set((state) => ({ redoLog: state.redoLog.filter((item) => item.id !== entry.id) }));
+    try {
+      await replayHistory(() => entry.redo());
+      set((state) => ({ changeLog: [entry, ...state.changeLog].slice(0, 10) }));
+      get().toast(`已重做：${entry.label}`, "success");
+    } catch (cause) {
+      set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, 10) }));
       applyCanvasError(cause);
     }
   },
@@ -1933,7 +2024,14 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         ),
         dataVersion: state.dataVersion + 1,
       }));
-      get().logChange(`重命名「${saved.name}」`, () => void get().renameEntity(saved, entity.name));
+      get().logChange(
+        `重命名「${saved.name}」`,
+        () => get().renameEntity(saved, entity.name),
+        () => {
+          const current = get().entities.find((item) => item.id === entity.id);
+          return current ? get().renameEntity(current, trimmed) : undefined;
+        },
+      );
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1988,7 +2086,14 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         undoPatch.attrType = patch.attrType;
         undoPatch.value = attrIndex >= 0 ? entity.attrs?.[attrIndex]?.value : undefined;
       }
-      get().logChange(`修改「${name}」`, () => void get().saveEntityField(entity, undoPatch));
+      get().logChange(
+        `修改「${name}」`,
+        () => get().saveEntityField(entity, undoPatch),
+        () => {
+          const current = get().entities.find((item) => item.id === entity.id);
+          return current ? get().saveEntityField(current, patch) : undefined;
+        },
+      );
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -2010,7 +2115,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         ),
         dataVersion: state.dataVersion + 1,
       }));
-      get().logChange(`确认设定「${entity.name}」`, () => {});
+      // 确认（草稿→正式）为后端单向 promote，无等价逆操作：撤销/重做均为空操作，仅作审计记录
+      get().logChange(`确认设定「${entity.name}」`, () => {}, () => {});
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -2038,7 +2144,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       }));
       // 后端软删除（归档 + 关系入墓碑）：撤销 = 复位标记并重建关系墓碑
       if (removed) {
-        get().logChange(`删除「${removed.name}」`, () => void get().restoreEntity(entityId));
+        get().logChange(
+          `删除「${removed.name}」`,
+          () => get().restoreEntity(entityId),
+          () => get().deleteEntity(entityId),
+        );
       }
       get().toast("已删除设定", "success");
     } catch (cause) {
@@ -2108,7 +2218,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         selectedIds: state.selectedIds.filter((item) => item !== `entity:${entityId}` && item !== `shape:${entityId}`),
       }));
       const name = get().entities.find((item) => item.id === entityId)?.name;
-      get().logChange(`从画布移除「${name ?? "设定"}」`, () => void get().unhideEntity(entityId));
+      get().logChange(
+        `从画布移除「${name ?? "设定"}」`,
+        () => get().unhideEntity(entityId),
+        () => get().hideEntityFromCanvas(entityId),
+      );
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -2433,17 +2547,20 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       const attrIndex = (entity.attrs ?? []).findIndex((attr) => attr.key === attrKey);
       set((state) => ({ entities: upsertById(state.entities, saved), dataVersion: state.dataVersion + 1 }));
       // 语义撤销：把被删属性原样塞回（saveEntityField 按 key patch，属性已不存在 → 重建）
-      get().logChange("删除素材属性", () => {
-        const current = useWorldCanvasStore.getState().entities.find((item) => item.id === entity.id);
-        if (current) {
-          void get().saveEntityField(current, {
+      get().logChange(
+        "删除素材属性",
+        () => {
+          const current = useWorldCanvasStore.getState().entities.find((item) => item.id === entity.id);
+          if (!current) return;
+          return get().saveEntityField(current, {
             attrKey,
             attrLabel: entity.attrs?.[attrIndex]?.label ?? attrKey,
             attrType: entity.attrs?.[attrIndex]?.type ?? "media",
             value: removedValue,
           });
-        }
-      });
+        },
+        () => get().removeMediaAttr(entityId, attrKey),
+      );
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -2466,9 +2583,10 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const prevEntityId = element.props?.entityId ? String(element.props.entityId) : "";
     try {
       const kind = String(element.props?.modality ?? "image");
+      const mediaName = typeof element.name === "string" && element.name ? element.name : undefined;
       const attrKey = await get().attachMediaAttr(entityId, {
         assetId,
-        name: typeof element.name === "string" && element.name ? element.name : undefined,
+        name: mediaName,
         kind,
       });
       if (!attrKey) return;
@@ -2478,8 +2596,22 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         ),
       }));
       if (prevAttrKey && prevAttrKey !== attrKey && prevEntityId === entityId) await get().removeMediaAttr(entityId, prevAttrKey);
-      get().logChange(`添加「${entity.name}」的媒体属性`, () => void get().removeMediaAttr(entityId, attrKey));
-      get().toast(`已将${modalityLabelOf(kind)}添加为「${entity.name}」的媒体属性`, "success");
+      const label = modalityLabelOf(kind);
+      get().logChange(
+        `添加「${entity.name}」的媒体属性`,
+        () => get().removeMediaAttr(entityId, attrKey),
+        () => {
+          const current = get().entities.find((item) => item.id === entityId);
+          if (!current) return;
+          return get().saveEntityField(current, {
+            attrKey,
+            attrLabel: label,
+            attrType: "media",
+            value: { assetId, ...(mediaName ? { name: mediaName } : {}), kind },
+          });
+        },
+      );
+      get().toast(`已将${label}添加为「${entity.name}」的媒体属性`, "success");
     } catch (cause) {
       applyCanvasError(cause);
     }

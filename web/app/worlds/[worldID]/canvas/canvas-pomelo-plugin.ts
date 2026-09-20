@@ -17,7 +17,7 @@
  * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击媒体节点（独立媒体卡 / 媒体属性卡，含图片/视频/音频）
  * 有 assetId = 全局素材详情弹框（setAssetDetail，proposal/计划态照常呈现）、仅 url = 预览浮层、无内容 = 全局素材选择弹框（setMediaPicker，按模态过滤）挑素材或上传；双击空白 = 最近类型快捷建卡
  * （Alt = 创建菜单）；右键 = 实体/便签文本上下文菜单（T3）；Delete/Backspace 删除关系/草稿、
- * 实体走删除确认（B.6）；Cmd/Ctrl+Z = 语义撤销（store.undoLastChange，画布真相在 store/服务端）；
+ * 实体走删除确认（B.6）；Cmd/Ctrl+Z = 语义撤销、Cmd/Ctrl+Shift+Z = 语义重做（store.undoLastChange/redoLastChange，画布真相在 store/服务端）；
  * 选区 overlay + 「+」手柄 +
  * 引导草稿线（overlay 屏幕空间 / draft 世界空间，transform 变化自动重绘）
  * [POS]: worlds/[worldID]/canvas 的画布交互绑定层（resolveSelection / store↔document 同步）
@@ -1162,10 +1162,12 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         store.exitContext();
         return;
       }
-      // Cmd/Ctrl + Z = 语义撤销（画布真相在 store/服务端，不碰 yjs 内存文档投影）
-      if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && !event.shiftKey && !store.readOnly) {
+      // Cmd/Ctrl + Z = 语义撤销、Cmd/Ctrl + Shift + Z = 语义重做
+      // （画布真相在 store/服务端，不碰 yjs 内存文档投影）
+      if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && !store.readOnly) {
         event.preventDefault();
-        void store.undoLastChange();
+        if (event.shiftKey) void store.redoLastChange();
+        else void store.undoLastChange();
         return;
       }
       if ((event.key === "Delete" || event.key === "Backspace") && !store.readOnly) {

@@ -3,7 +3,7 @@
  * addFreeElement 动作）、pomelo 插件（ViewportPlugin 的 zoomAt/centerContent、GridPlugin）与 lucide-react
  * [OUTPUT]: 对外提供 CanvasToolbarItems：世界画布工具组（由 canvas-top-bar.tsx 的 WorldCanvasToolbar 包装，
  * 居中渲染于全局 Header，无浮动容器）——选择/抓手模式、大纲开关（T14）、连线工具、历史菜单（T12：最近变更逐条撤销 /
- * 版本快照回滚）、独立插入（图片/音频/视频/文本 + 扩展占位）、undo/redo、
+ * 版本快照回滚）、独立插入（图片/音频/视频/文本 + 扩展占位）、undo/redo（语义双栈）、
  * 缩放菜单（放大/缩小/50%/100%/200%/适应项目/适应所选内容——按 selectedIds 求多选并集包围盒/对齐到网格开关）与帮助面板；
  * 抓手模式的全画布平移 overlay 由 canvas-pomelo.tsx 宿主渲染（panMode 读自 canvas-store）
  * [POS]: worlds/[worldID]/canvas 的工具组；由 canvas-top-bar.tsx 包装后进页面最顶 Header 居中位
@@ -152,6 +152,7 @@ export function CanvasToolbarItems() {
   const Divider = () => <span className="mx-1 h-5 w-px bg-zinc-700" />;
 
   const hasSelection = useWorldCanvasStore((state) => !!state.selection || state.selectedIds.length > 0);
+  const redoLog = useWorldCanvasStore((state) => state.redoLog);
   if (!editor) return null;
 
   return (
@@ -189,7 +190,11 @@ export function CanvasToolbarItems() {
       <ToolButton disabled={readOnly} label="撤销：撤销最近一次语义操作（等同历史菜单逐条撤销）" onClick={() => void useWorldCanvasStore.getState().undoLastChange()}>
         <Undo2 className="size-4" />
       </ToolButton>
-      <ToolButton disabled label="重做：暂不支持（语义操作不保留重做栈）">
+      <ToolButton
+        disabled={readOnly || redoLog.length === 0}
+        label="重做：重做最近一次被撤销的操作"
+        onClick={() => void useWorldCanvasStore.getState().redoLastChange()}
+      >
         <Redo2 className="size-4" />
       </ToolButton>
       <Divider />
@@ -278,7 +283,7 @@ export function CanvasToolbarItems() {
               <li>• 连线工具：点起点 → 点终点，可连续多条，Esc 退出</li>
               <li>• 拖文件到卡：添加为该设定的媒体属性；拖到空白：独立素材</li>
               <li>• Del：删草稿/关系；实体走删除确认</li>
-              <li>• ⌘Z 撤销布局（不含语义）；⌘[ 返回上一层</li>
+              <li>• ⌘Z 撤销、⇧⌘Z 重做（语义操作）；⌘[ 返回上一层</li>
               <li>• 新建设定先成为「草稿」，面板确认后转正</li>
             </ul>
           </div>

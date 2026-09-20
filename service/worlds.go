@@ -615,9 +615,10 @@ func (w *WorldStore) getWorldDetail(db *sql.DB, worldID string, includeGraph boo
 }
 
 // worldGraph reads a World's entity graph in bounded, decision-sized form:
-// entities (identity + media anchors, no body) and relations (id/type/ends).
-// It caps rows to keep recut.worlds.get within the tool output budget; callers
-// see GraphTruncated and page with entities.list / relations.list instead.
+// entities (identity + media anchors, no body) and relations (id, ends, and
+// both endpoint roles fromRole/toRole). It caps rows to keep recut.worlds.get
+// within the tool output budget; callers see GraphTruncated and page with
+// entities.list / entities.get instead.
 func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, []WorldEntityRelation, bool, error) {
 	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, attrs_json, parent_id, is_provisional, updated_at from world_entities where world_id = ? and archived_at is null order by coalesce(nullif(type_id, ''), kind), updated_at desc limit ?", worldID, worldGraphEntityMax+1)
 	if err != nil {
