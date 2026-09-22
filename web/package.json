@@ -2,6 +2,7 @@
   "name": "@recut/workspace",
   "private": true,
   "version": "0.1.0",
+  "packageManager": "pnpm@10.17.1",
   "scripts": {
     "dev": "WATCHPACK_POLLING=true node server.cjs --dev",
     "build": "next build",
@@ -83,6 +84,14 @@
     "yjs": "^13.6.32",
     "zod": "^4.6.5",
     "zustand": "5.0.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "core-js",
+      "esbuild",
+      "sharp",
+      "workerd"
+    ]
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250408.0",
