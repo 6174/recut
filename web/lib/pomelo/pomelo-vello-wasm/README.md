@@ -28,11 +28,14 @@ vello(WASM/WebGPU) 光栅器运行时，实现 `pomelo-vello` 的 `VelloRuntime`
 
 ```bash
 # 在 web/ 下
-pnpm wasm:build:vello     # wasm-pack build --target web + 拷贝到 public/vello-wasm
+pnpm vello:setup          # 幂等：wasm 缺失则构建 + 确保完整中文字体（predev/prebuild 自动调用）
+pnpm wasm:build:vello     # 仅构建 wasm：wasm-pack build --target web + 拷贝到 public/vello-wasm
 ```
 
-产物 `public/vello-wasm/` 由 `.gitignore` 忽略（可重建）。dev 页 `/dev/vello-tiles` 在
-`navigator.gpu` 不可用时直接报错提示升级浏览器（不再回退 Canvas2D）。
+`public/vello-wasm/` 中的 wasm 产物与拷贝字体（`pomelo_vello_wasm*`、`space-grotesk.ttf`、
+`noto-cjk-subset.otf`）由 `.gitignore` 忽略（可重建）；**完整中文字体 `noto-sans-sc.otf` 入库**
+（~16MB，缺失时真实中文内容会大量丢字，兜底脚本 `scripts/fetch-cjk-font.mjs` 可重新下载）。
+dev 页 `/dev/vello-tiles` 在 `navigator.gpu` 不可用时直接报错提示升级浏览器（不再回退 Canvas2D）。
 
 ## 关键 API 事实（wgpu 29 / vello 0.10 已验证）
 

@@ -4,7 +4,9 @@
 
 pomelo 的 vello-native 渲染适配层：把 pomelo 的 vdom/block 生命周期接到 `pomelo-tiles` 瓦片管线，
 经 `VelloGpuRasterizer`(WebGPU/WASM) 上屏。WebGPU 不可用时不做软件回退，抛出 `RendererUnsupportedError`
-由宿主提示用户升级浏览器。
+（带 `reason`：insecure-context/no-webgpu/no-adapter/adapter-error）由宿主给出对症指引；wasm 产物缺失或
+设备初始化失败抛 `RendererInitError`（reason=resource/device），提示「构建产物」而非误导用户升级浏览器。
+产物与完整中文字体由 `pnpm vello:setup`（`predev`/`prebuild` 自动调用）幂等确保。
 
 ## 分层
 

@@ -7,6 +7,12 @@ coverage.out
 build/
 web/out/
 web/public/releases/
+# vello 世界画布：wasm 产物与拷贝字体由 pnpm wasm:build:vello 生成（可重建）；
+# 完整中文字体 noto-sans-sc.otf 入库（~16MB），避免开发者因缺字体大量丢字。
+web/public/vello-wasm/pomelo_vello_wasm.js
+web/public/vello-wasm/pomelo_vello_wasm_bg.wasm
+web/public/vello-wasm/space-grotesk.ttf
+web/public/vello-wasm/noto-cjk-subset.otf
 service/ui/assets/*
 # Release-generated built-in App archives stay local to each build.
 service/builtin_apps/*.tar.gz

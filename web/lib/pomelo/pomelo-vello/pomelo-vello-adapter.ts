@@ -9,7 +9,8 @@
  *           图片纹理按视口缩放/元素尺寸自适应分辨率：首次基准档 512，放大时 512→1024→2048→4096
  *           升档（复用缓存的源 Image 重栅格并原位替换纹理），避免放大发糊；
  *           加载失败（404/CORS/非图片）做负缓存，杜绝「渲染→失败→重渲染→再请求」请求风暴。
- *           WebGPU 不可用时不降级，抛 RendererUnsupportedError，由宿主提示用户升级浏览器。
+ *           WebGPU 不可用时不降级，抛 RendererUnsupportedError（带 reason）；wasm 产物缺失/设备初始化失败抛
+ *           RendererInitError（reason=resource/device），由宿主区分提示「构建产物」还是「升级浏览器/开硬件加速」。
  * [POS]: pomelo-vello 的适配器实现（M2 接入层）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -17,7 +18,7 @@ import { PomeloRendererAdapter } from "../pomelo-core/pomelo-renderer/pomelo-ren
 import type { IElement } from "../pomelo-core/pomelo-types/render.types";
 import { TileController } from "../pomelo-core/pomelo-tiles/controller";
 import type { RenderChunk, TileRasterizer, Viewport } from "../pomelo-core/pomelo-tiles/types";
-import { VelloGpuRasterizer } from "./vello-rasterizer";
+import { VelloGpuRasterizer, VelloWasmLoadError, type VelloUnavailableReason } from "./vello-rasterizer";
 import { encodeOps } from "./op-bridge";
 import { VelloElement } from "./vello-element";
 import { VelloBlock } from "./vello-block";
@@ -25,12 +26,24 @@ import { VelloBlock } from "./vello-block";
 const FONT_ID = 1;
 const CJK_FONT_ID = 3;
 
-/** WebGPU/vello 运行环境不可用：不再降级 Canvas2D，宿主据此提示用户升级浏览器。 */
+/** WebGPU/vello 运行环境不可用：不再降级 Canvas2D，宿主据此提示用户升级浏览器/开启硬件加速。 */
 export class RendererUnsupportedError extends Error {
   readonly code = "RENDERER_UNSUPPORTED";
-  constructor(message = "当前浏览器不支持 WebGPU，无法运行世界画布渲染器") {
+  constructor(message = "当前浏览器不支持 WebGPU，无法运行世界画布渲染器", readonly reason: VelloUnavailableReason = "no-webgpu") {
     super(message);
     this.name = "RendererUnsupportedError";
+  }
+}
+
+/**
+ * 运行环境本身可用，但渲染器初始化失败（产物缺失 / 设备初始化）：与「浏览器不支持 WebGPU」严格区分，
+ * 宿主据此提示「构建 wasm 产物 / 重试」而非误导用户升级浏览器。
+ */
+export class RendererInitError extends Error {
+  readonly code = "RENDERER_INIT_FAILED";
+  constructor(message: string, readonly reason: "resource" | "device" = "device", readonly detail?: string) {
+    super(message);
+    this.name = "RendererInitError";
   }
 }
 
@@ -187,8 +200,9 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     const dpr = Math.min((window.devicePixelRatio || 1) * superSample, 3);
     // 背景色对齐 pixi（透明画布透出主题背景）：解析容器祖先链的有效背景色
     const background = this.options.background ?? resolveBackgroundColor(container);
-    if (!(await VelloGpuRasterizer.isAvailable())) {
-      throw new RendererUnsupportedError();
+    const availability = await VelloGpuRasterizer.availability();
+    if (!availability.ok) {
+      throw new RendererUnsupportedError(undefined, availability.reason);
     }
     let rasterizer: TileRasterizer<unknown, unknown>;
     try {
@@ -196,7 +210,10 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       await this.registerFonts(gpu);
       rasterizer = gpu as unknown as TileRasterizer<unknown, unknown>;
     } catch (error) {
-      throw new RendererUnsupportedError(`WebGPU 初始化失败：${error instanceof Error ? error.message : String(error)}`);
+      if (error instanceof VelloWasmLoadError) {
+        throw new RendererInitError("世界画布渲染器资源未就绪", "resource", error.message);
+      }
+      throw new RendererInitError(`世界画布渲染器初始化失败：${error instanceof Error ? error.message : String(error)}`, "device");
     }
     this.rasterizer = rasterizer;
     this.rasterizerName = rasterizer.name;
@@ -230,9 +247,14 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
         latin = new Uint8Array(await latinResponse.arrayBuffer());
         gpu.registerFont(FONT_ID, latin);
       }
-      // 优先完整 CJK 字体（真实世界内容为中文）；缺失时回退到内置子集（仅 demo 字符）
+      // 优先完整 CJK 字体（真实世界内容为中文）；缺失时回退到内置子集（仅 demo 字符），此时中文会大量丢字
       let cjk = await fetch("/vello-wasm/noto-sans-sc.otf");
-      if (!cjk.ok) cjk = await fetch("/vello-wasm/noto-cjk-subset.otf");
+      if (!cjk.ok) {
+        console.warn(
+          "[pomelo-vello-adapter] 缺少完整中文字体 public/vello-wasm/noto-sans-sc.otf，回退到内置子集（仅 demo 字符），真实中文内容会大量缺字。请运行 pnpm vello:setup 补齐。",
+        );
+        cjk = await fetch("/vello-wasm/noto-cjk-subset.otf");
+      }
       if (cjk.ok) {
         gpu.registerFont(CJK_FONT_ID, new Uint8Array(await cjk.arrayBuffer()));
         if (latin) gpu.setFontFallback(FONT_ID, CJK_FONT_ID);
