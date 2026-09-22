@@ -125,9 +125,27 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 	if locked["background"] {
 		t.Fatal("background field must stay unlocked")
 	}
+	mediaKeys := map[string]bool{}
 	for _, field := range character.Fields {
-		if field.Type == "media" && field.Key != "background" {
+		if field.Type != "media" {
+			continue
+		}
+		mediaKeys[field.Key] = true
+		if field.Key != "background" && field.Key != "voice_reference" {
 			t.Fatalf("unexpected media field %q", field.Key)
+		}
+	}
+	if !mediaKeys["voice_reference"] {
+		t.Fatal("character preset must declare a voice_reference media field")
+	}
+	for _, field := range character.Fields {
+		if field.Key == "voice_reference" {
+			if !field.Locked {
+				t.Fatal("voice_reference field must be locked")
+			}
+			if len(field.Options) != 1 || field.Options[0] != "audio" {
+				t.Fatalf("voice_reference options = %#v, want [audio]", field.Options)
+			}
 		}
 	}
 	for _, id := range []string{"location", "object", "story", "style"} {

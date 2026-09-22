@@ -1147,6 +1147,20 @@ function TiledMediaContent({
 }) {
 	const locale = useRecutLocale();
 	const mediaAssets = useEditor((e) => e.media.getAssets());
+	// 媒体就绪与否会切换渲染分支（删/加载中/缺缩略图都提前 return），而下面两个 Hook
+	// 必须无条件调用：一旦在提前 return 之后调用，媒体从 loading 变为就绪时 Hook 数量变化，
+	// React 抛「Rendered more hooks than during the previous render」并卸载整棵编辑器。
+	const pixelsPerSecond = useContext(PixelsPerSecondContext);
+	const gainSamples = useMemo(
+		() =>
+			element.type === "video"
+				? buildWaveformGainSamples({
+						element,
+						count: WAVEFORM_GAIN_SAMPLE_COUNT,
+					})
+				: undefined,
+		[element],
+	);
 
 	const mediaAsset = mediaAssets.find((asset) => asset.id === element.mediaId);
 	if (mediaAsset?.status === "deleted") {
@@ -1178,19 +1192,8 @@ function TiledMediaContent({
 
 	const trackHeight = getTrackHeight({ type: track.type });
 	const tileWidth = trackHeight * THUMBNAIL_ASPECT_RATIO;
-	const pixelsPerSecond = useContext(PixelsPerSecondContext);
 	const showVolumeLine =
 		element.type === "video" && isSourceAudioEnabled({ element });
-	const gainSamples = useMemo(
-		() =>
-			element.type === "video"
-				? buildWaveformGainSamples({
-						element,
-						count: WAVEFORM_GAIN_SAMPLE_COUNT,
-					})
-				: undefined,
-		[element],
-	);
 
 	return (
 		<div className="group/audio relative size-full">

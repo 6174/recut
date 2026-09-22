@@ -1187,13 +1187,21 @@ func briefReferencesFromEntity(record map[string]any, entityName, baseKind strin
 				label = key
 			}
 		}
+		role := inferMediaAttrRole(kind, label, key, baseKind)
+		inferred := true
+		if declared, ok := declaredFieldRole(key, kind); ok {
+			// A semantic preset field (e.g. voice_reference) declares the role;
+			// user-added media fields still fall back to inference.
+			role = declared
+			inferred = false
+		}
 		ref := WorldBriefReference{
 			Label:        label,
 			Kind:         kind,
 			EntityID:     entityID,
 			EntityName:   entityName,
-			Role:         inferMediaAttrRole(kind, label, key, baseKind),
-			RoleInferred: true,
+			Role:         role,
+			RoleInferred: inferred,
 			Segment:      briefSegmentFromValue(value),
 		}
 		if assetID != "" {
@@ -1270,6 +1278,9 @@ func normalizeBriefReferences(refs []WorldBriefReference) []WorldBriefReference 
 			if better {
 				out[at].Role = ref.Role
 				out[at].RoleInferred = ref.RoleInferred
+				if ref.Label != "" {
+					out[at].Label = ref.Label
+				}
 			}
 			if out[at].Label == "" {
 				out[at].Label = ref.Label
@@ -1287,6 +1298,41 @@ func normalizeBriefReferences(refs []WorldBriefReference) []WorldBriefReference 
 		}
 	}
 	return out
+}
+
+// declaredMediaFieldRoles maps a semantic preset media field key to the
+// generation reference role it declares. A media attr carried by one of these
+// fields is a declared binding (roleInferred=false), so an Agent reads the role
+// off the field schema instead of guessing from label text. User-added media
+// fields are not in this set and still fall back to inference.
+var declaredMediaFieldRoles = map[string]string{
+	"voice_reference":     "voice",
+	"character_reference": "character",
+	"location_reference":  "environment",
+	"style_reference":     "style-ref",
+	"storyboard":          "storyboard",
+}
+
+// declaredFieldRole resolves a declared role for a semantic field key, guarding
+// role/kind compatibility (voice/sfx/music require audio; visual roles require
+// image/video). Returns ok=false for unknown or incompatible fields so callers
+// fall back to inference.
+func declaredFieldRole(key, kind string) (string, bool) {
+	role, ok := declaredMediaFieldRoles[key]
+	if !ok {
+		return "", false
+	}
+	switch role {
+	case "voice", "sfx", "music":
+		if kind != "audio" {
+			return "", false
+		}
+	case "character", "environment", "style-ref", "storyboard", "motion-ref", "prop", "pov", "color-card":
+		if kind != "image" && kind != "video" {
+			return "", false
+		}
+	}
+	return role, true
 }
 
 // inferMediaAttrRole suggests a generation role for a media attr. Roles mirror

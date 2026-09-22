@@ -1020,7 +1020,9 @@ func TestMigrationRecyclesEntityEvidenceIntoMediaAttrs(t *testing.T) {
 	}
 	media := []EntityAttr{}
 	for _, attr := range entity.Attrs {
-		if attr.Type == "media" {
+		// Preset media fields (e.g. voice_reference) may exist with no value;
+		// count only media attrs that actually carry a binding.
+		if attr.Type == "media" && attr.Value != nil {
 			media = append(media, attr)
 		}
 	}

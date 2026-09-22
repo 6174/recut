@@ -9,7 +9,7 @@
 | 整片理解 + 带源时间的细节（叙述） | 素材 `content`（markdown，可 @ 引用证据素材） |
 | 可枚举/可比较/被机器消费的判据 | 素材 `attributes`（key 前缀 `ref.`） |
 | 「这是一支参考」 | 素材属性 `role: reference`（+ `url` 溯源） |
-| 目标改造（keep/replace） | 目标项目（`clone.md` 等），不写素材 |
+| 目标改造（keep/replace） | 目标项目（`TREATMENT.md` 等），不写素材 |
 
 读取产物（帧/接触表/片段/转写）是**普通素材**；要用就在 `content` 里 `<media assetid>` 引用，或作为一条 `media` 属性，不做专门记账。
 

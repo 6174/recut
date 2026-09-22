@@ -133,7 +133,8 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 	"character": {
 		{Key: "appearance", Label: "外貌与标志", Type: "textarea", Locked: true},
 		{Key: "personality", Label: "性格", Type: "textarea", Locked: true},
-		{Key: "voice", Label: "声音", Type: "textarea", Locked: true},
+		{Key: "voice", Label: "声音与说话方式", Type: "textarea", Locked: true},
+		{Key: "voice_reference", Label: "声线参考", Type: "media", Options: []string{"audio"}, Locked: true},
 		{Key: "invariants", Label: "不可变特征", Type: "textarea", Invariant: true, Locked: true},
 		{Key: "background", Label: "背景", Type: "media"},
 	},

@@ -74,6 +74,10 @@ references: world-onboarding.md
 
 这条铁律由每个 App 的领域 Skill 进一步落地；任何 App Prompt 与模板实现都不得与之冲突。
 
+## 生成必先导演（硬约束）
+
+凡涉及**生成图片或视频**的动作，必须先加载导演技能 `recut-director`（按任务读相应 `references/`：story / hooks / shot / generation-prompt / b-roll / motion / captions / sound / editing），先形成导演意图——整体讲什么、这个镜头/场景为什么存在、用什么媒介（生成 / motion-graphic / 字幕排版 / 混合）、段与段之间如何连续——再提交生成。AI 生成以「段/场景」为单位：一段连续动作**优先一次多镜连续生成**（用首尾帧合同与角色/场景/声线参考保持连续，段长按模型时长上限取值而不是默认 5s），不是逐帧、逐段硬拼。**没有导演意图的生成产出是没有全局观的碎片，属于违规**；唯一例外是明确的单点素材替换且既有导演意图已确定。
+
 ## 媒体
 
 平台媒体任务使用 `recut.image.generate`、`recut.video.generate`、`recut.speech.generate`、`recut.job.status`、`recut.job.wait`。调用前必须检查 `recut.context.media.readiness[capability].status`：只有 `ready` 才调用对应 Recut 生成工具；`not-configured` 时直接说明用户需要在 Recut 设置中连接 Provider 并为该用途选择默认模型；当语音 route 报告 `provider:"local-audio"` 时本机 TTS 已配置，先看音频/转写是否由 Audio Studio 承载（`audio.transcribe`/`audio.synthesize`/`audio.characters`/`audio.save`），`recut.speech.generate` 的本地路由仅在 daemon 已接 Audio Studio 桥时可用；图片为 `codex-native` 时使用宿主原生生图、不调用 `recut.image.generate`，把生成文件写入当前会话工作区根目录（如 `cover.png`），再按上文 OutputFormat: url 一节以深链引用，需要挂到项目时用 `recut.media.import` 传入工作区相对路径与目标 `projectId` 换取真实 `assetId`。三种生成工具都是异步提交：提交即返回稳定 assetId（图片/语音先排队，Daemon 原位推进到完成/失败；视频由平台落为待用户确认态，不建任务、不花钱）。**对 AI 而言所有素材都是「直接生成」**：调 generate → 拿 assetId → 立即落位 → 继续；没有 `mode`，也不要向用户使用「提案」词汇。视频由用户在素材面板/画布确认后才真正生成，**Agent 不得代确认**。**默认先落位、不空等**：宿主 surface（画布节点 / 时间线素材 / 实体 media 属性）支持时，拿到 `assetId` 立即落位并标记生成中，产物就绪后自动显示；只有下一步依赖产物内容或要交付时才用返回的 jobId 等到 `completed`。只有 `completed` 才能声称素材可用；`failed` 要如实报告 provider 错误，`queued`/`running` 是仍在进行而非完成。禁止用 HyperFrames、ffmpeg、浏览器自动化或本地渲染替代平台生成。你从不读取其他 App 的私有数据库；跨 App 理解走 owner App 声明的 read operation。
