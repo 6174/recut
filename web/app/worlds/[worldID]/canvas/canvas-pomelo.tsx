@@ -28,7 +28,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { PomeloEditorState } from "@/lib/pomelo/pomelo-core/pomelo-state";
 import { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
-import { VelloRendererAdapter, RendererUnsupportedError } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
+import { VelloRendererAdapter, RendererUnsupportedError, RendererInitError } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
 import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/world-canvas/blocks/vello-world-blocks";
 import { ViewportPlugin, centerContent, panBy } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
@@ -722,6 +722,51 @@ function PanOverlay({ editorRef }: { editorRef: RefObject<PomeloEditor | null> }
   );
 }
 
+// ---------- 渲染器失败 → 对症指引 ----------
+
+type RendererIssue = { title: string; message: string; steps: string[]; retryable: boolean };
+
+const WEBGPU_REASON_TEXT: Record<string, string> = {
+  "insecure-context": "页面不是安全上下文：WebGPU 仅在 localhost 或 HTTPS 下可用。",
+  "no-webgpu": "当前浏览器未提供 WebGPU（navigator.gpu 不存在）。",
+  "no-adapter": "浏览器未返回可用的 WebGPU 适配器（GPU 被禁用或列入黑名单）。",
+  "adapter-error": "请求 WebGPU 适配器时出错（可能被跨域 iframe 的权限策略拦截）。",
+};
+
+function rendererIssueFrom(error: unknown): RendererIssue {
+  if (error instanceof RendererInitError && error.reason === "resource") {
+    return {
+      title: "世界画布渲染器资源未就绪",
+      message: "未能加载 vello 的 WebGPU 产物（/vello-wasm/*）。",
+      steps: [
+        "开发环境：在 web/ 目录运行 pnpm vello:setup（或 pnpm wasm:build:vello）重新构建。",
+        "pnpm dev / pnpm build 已内置自动检查，正常情况下会自动补建；构建后刷新页面重试。",
+        "生产环境：检查 /vello-wasm/* 静态资源是否正确部署。",
+      ],
+      retryable: true,
+    };
+  }
+  if (error instanceof RendererUnsupportedError) {
+    return {
+      title: "无法渲染世界画布",
+      message: WEBGPU_REASON_TEXT[error.reason] ?? "当前环境未启用可用的 WebGPU（vello/wasm 无法启动）。",
+      steps: [
+        "使用最新版 Chrome / Edge（桌面版 113+）或 Safari 18+。",
+        "地址栏打开 chrome://gpu，确认 WebGPU 为 Hardware accelerated。",
+        "若显示 Disabled / Software only：在 chrome://settings/system 打开「使用硬件加速」，或以 --ignore-gpu-blocklist 启动浏览器后重启。",
+        "确认通过 localhost 或 HTTPS 访问；跨域 iframe 需父页授予 allow=\"webgpu\"。",
+      ],
+      retryable: true,
+    };
+  }
+  return {
+    title: "世界画布渲染器初始化失败",
+    message: error instanceof Error ? error.message : String(error),
+    steps: ["打开浏览器控制台查看详细错误后重试。"],
+    retryable: true,
+  };
+}
+
 // ---------- 宿主组件 ----------
 
 export function CanvasPomeloHost() {
@@ -739,11 +784,14 @@ export function CanvasPomeloHost() {
   const viewportUnsubRef = useRef<{ dispose: () => void } | null>(null);
   const lastViewportKeyRef = useRef<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [unsupported, setUnsupported] = useState<string | null>(null);
+  const [rendererIssue, setRendererIssue] = useState<RendererIssue | null>(null);
+  // 渲染器失败后「重试」：递增触发 effect 重建编辑器（cleanup 会先销毁旧实例）
+  const [initAttempt, setInitAttempt] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container || editorRef.current) return;
+    setRendererIssue(null);
     const bindsPlugin = new CanvasBindsPlugin();
     const editor = new PomeloEditor({
       state: PomeloEditorState.fromJSON({ id: "world-canvas", children: [] }),
@@ -794,11 +842,7 @@ export function CanvasPomeloHost() {
       }
     }).catch((error) => {
       if (cancelled || editorRef.current !== editor) return;
-      setUnsupported(
-        error instanceof RendererUnsupportedError
-          ? "当前浏览器不支持 WebGPU，世界画布渲染器（vello/wasm）无法启动。"
-          : `世界画布渲染器初始化失败：${error instanceof Error ? error.message : String(error)}`,
-      );
+      setRendererIssue(rendererIssueFrom(error));
     });
     return () => {
       cancelled = true;
@@ -814,7 +858,7 @@ export function CanvasPomeloHost() {
       useWorldCanvasStore.getState().setEditor(null);
       setReady(false);
     };
-  }, []);
+  }, [initAttempt]);
 
   // store → 文档重建（仅 dataVersion / 上下文 / worldName 变化时；拖拽走插件 transact，不重建）
   useEffect(() => {
@@ -935,15 +979,27 @@ export function CanvasPomeloHost() {
   return (
     <div className="relative h-full min-h-0 w-full bg-background">
       <div ref={containerRef} className="absolute inset-0 [&_canvas]:block" onDragOver={onDragOver} onDrop={onDrop} />
-      {unsupported && (
+      {rendererIssue && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-background/95 p-6">
-          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 text-center shadow-xl">
-            <p className="text-sm font-semibold">无法渲染世界画布</p>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">{unsupported}</p>
-            <p className="mt-3 text-[11px] leading-5 text-muted-foreground">
-              请升级到最新版 Chrome / Edge（桌面版 113+）或 Safari 18+。仍失败可在地址栏打开{" "}
-              <code className="rounded bg-muted px-1 py-0.5">chrome://gpu</code> 确认 WebGPU 未被禁用。
-            </p>
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 text-left shadow-xl">
+            <p className="text-sm font-semibold">{rendererIssue.title}</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{rendererIssue.message}</p>
+            {rendererIssue.steps.length > 0 && (
+              <ol className="mt-3 list-decimal space-y-1 pl-4 text-[11px] leading-5 text-muted-foreground">
+                {rendererIssue.steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            )}
+            {rendererIssue.retryable && (
+              <button
+                type="button"
+                onClick={() => setInitAttempt((value) => value + 1)}
+                className="mt-4 inline-flex h-8 items-center rounded-md border border-border px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                重试
+              </button>
+            )}
           </div>
         </div>
       )}

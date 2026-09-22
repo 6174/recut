@@ -15,7 +15,7 @@ import { useEffect, useRef } from "react";
 import { PomeloEditorState } from "@/lib/pomelo/pomelo-core/pomelo-state";
 import { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import type { PomeloBlockRecord } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
-import { VelloRendererAdapter, RendererUnsupportedError } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
+import { VelloRendererAdapter, RendererUnsupportedError, RendererInitError } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
 import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/world-canvas/blocks/vello-world-blocks";
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
 import { type Locale, t } from "@/lib/i18n";
@@ -187,7 +187,9 @@ export default function MarketingWorldCanvasVello({ canvas, locale, onReady, onU
       .catch((error) => {
         if (disposed) return;
         callbacksRef.current.onUnsupported?.(
-          error instanceof RendererUnsupportedError ? error.message : `世界画布渲染器初始化失败：${error instanceof Error ? error.message : String(error)}`,
+          error instanceof RendererUnsupportedError || error instanceof RendererInitError
+            ? error.message
+            : `世界画布渲染器初始化失败：${error instanceof Error ? error.message : String(error)}`,
         );
       });
     return () => {

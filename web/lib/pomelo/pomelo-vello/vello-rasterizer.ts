@@ -7,8 +7,9 @@
  *             覆盖不足时可分帧（begin/step）增量重建，避免逐帧重编码整场；
  *           - 内容会话（beginContentSession/renderContentSession/endContentSession）：
  *             静态 chunk 渲成保留纹理，会话帧只重渲 live chunks 并合成。
- *           运行时经 /vello-wasm/*（wasm-pack 产物）动态加载；`isAvailable()` 检测 navigator.gpu + adapter。
- *           不可用时由宿主抛出 RendererUnsupportedError（不降级）。
+ *           运行时经 /vello-wasm/*（wasm-pack 产物）动态加载；`availability()` 给出 WebGPU 不可用的具体原因，
+ *           `isAvailable()` 为其布尔便捷版。wasm 产物加载失败抛 VelloWasmLoadError（与「不支持 WebGPU」区分，
+ *           宿主据此提示构建 `pnpm wasm:build:vello`）；不可用时由宿主抛 RendererUnsupportedError（不降级）。
  * [POS]: pomelo-vello 的 GPU 光栅器实现（M1）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -84,6 +85,26 @@ async function loadModule(): Promise<WasmModule> {
   return modulePromise;
 }
 
+/** WebGPU 不可用的具体原因，供宿主给出对症的用户指引（而非笼统「浏览器不支持」）。 */
+export type VelloUnavailableReason = "insecure-context" | "no-webgpu" | "no-adapter" | "adapter-error";
+
+export interface VelloAvailability {
+  ok: boolean;
+  reason?: VelloUnavailableReason;
+}
+
+/**
+ * vello wasm 产物（/vello-wasm/*）加载失败：与「浏览器不支持 WebGPU」严格区分。
+ * 常见于本地未构建 wasm（pnpm wasm:build:vello），宿主应提示构建而非升级浏览器。
+ */
+export class VelloWasmLoadError extends Error {
+  readonly code = "VELLO_WASM_LOAD_FAILED";
+  constructor(message: string, readonly cause?: unknown) {
+    super(message);
+    this.name = "VelloWasmLoadError";
+  }
+}
+
 type VelloTarget = { key: TileKey; bounds: TileWorldBounds; level: number; buffers: Uint8Array[] };
 
 export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
@@ -105,18 +126,30 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
     this.dpr = dpr;
   }
 
-  static async isAvailable(): Promise<boolean> {
-    if (typeof navigator === "undefined" || !("gpu" in navigator)) return false;
+  /** WebGPU 可用性诊断：返回不可用的具体原因，供宿主区分指引。 */
+  static async availability(): Promise<VelloAvailability> {
+    if (typeof navigator === "undefined" || typeof window === "undefined") return { ok: false, reason: "no-webgpu" };
+    if (!window.isSecureContext) return { ok: false, reason: "insecure-context" };
+    if (!("gpu" in navigator)) return { ok: false, reason: "no-webgpu" };
     try {
       const adapter = await (navigator as Navigator & { gpu: { requestAdapter(): Promise<unknown> } }).gpu.requestAdapter();
-      return Boolean(adapter);
+      return adapter ? { ok: true } : { ok: false, reason: "no-adapter" };
     } catch {
-      return false;
+      return { ok: false, reason: "adapter-error" };
     }
   }
 
+  static async isAvailable(): Promise<boolean> {
+    return (await VelloGpuRasterizer.availability()).ok;
+  }
+
   static async create(canvas: HTMLCanvasElement, dpr = 1, background: [number, number, number, number] = [11, 15, 25, 255]): Promise<VelloGpuRasterizer> {
-    const mod = await loadModule();
+    let mod: WasmModule;
+    try {
+      mod = await loadModule();
+    } catch (error) {
+      throw new VelloWasmLoadError("vello wasm 产物加载失败（/vello-wasm/*）", error);
+    }
     const runtime = await mod.create_runtime(canvas);
     runtime.set_clear_color(background[0], background[1], background[2], background[3]);
     return new VelloGpuRasterizer(runtime, canvas, dpr);
