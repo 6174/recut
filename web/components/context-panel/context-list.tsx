@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 @tanstack/react-virtual、context-catalog/search 的行模型与 context-option-row
- * [OUTPUT]: 对外提供 ContextList：虚拟化的分组列表（header + option 行），表头支持 label 覆盖，含空态与错误行
+ * [OUTPUT]: 对外提供 ContextList：虚拟化的分组列表（header + option 行），表头支持 label 覆盖，含空态与错误行；drill 时空态文案切换为「无可引用属性」
  * [POS]: web/components/context-panel 的虚拟列表；行高固定避免抖动，键盘高亮由容器回传
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -21,6 +21,7 @@ export function ContextList({
   rows,
   errors,
   loading,
+  drill = false,
   highlightedKey,
   sourceFor,
   apiBase,
@@ -31,6 +32,8 @@ export function ContextList({
   rows: ContextRow[];
   errors: ContextSourceError[];
   loading: boolean;
+  /** 下钻层（如实体 → 属性）：空态文案换成「无可引用属性」，与顶层搜索区分 */
+  drill?: boolean;
   highlightedKey: string | null;
   sourceFor: (type: string) => ContextSource | undefined;
   apiBase: string;
@@ -60,8 +63,8 @@ export function ContextList({
       ) : rows.length === 0 ? (
         <div className="grid h-full place-items-center px-6 text-center">
           <div>
-            <p className="text-xs text-muted-foreground">{t("agent.context.empty")}</p>
-            <p className="mt-1 text-[10px] text-muted-foreground/70">{t("agent.context.emptyHint")}</p>
+            <p className="text-xs text-muted-foreground">{t(drill ? "agent.context.drill.empty" : "agent.context.empty")}</p>
+            <p className="mt-1 text-[10px] text-muted-foreground/70">{t(drill ? "agent.context.drill.emptyHint" : "agent.context.emptyHint")}</p>
           </div>
         </div>
       ) : (

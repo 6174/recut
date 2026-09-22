@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 react createPortal、useContextCatalog/useContextRuntime、ContextSearchField/ContextList/ContextPreviewPane、筛选与排序纯函数
- * [OUTPUT]: 对外提供 ContextMentionPanel：720×min(520,vh) 双栏面板，Portal 锚定 composer 上方，支持搜索/一级分组/二级类型/键盘导航/预览/插入；selectedOptions 置顶为「当前引用」分组（与搜索结果去重，便于快速定位）；受控 query + autoFocusSearch=false 时由编辑器驱动（焦点不离开编辑器）
+ * [OUTPUT]: 对外提供 ContextMentionPanel：720×min(520,vh) 双栏面板，Portal 锚定 composer 上方，支持搜索/一级分组/二级类型/键盘导航/预览/插入；selectedOptions 置顶为「当前引用」分组（与搜索结果去重，便于快速定位）；受控 query + autoFocusSearch=false 时由编辑器驱动（焦点不离开编辑器）；下钻（实体/World → 属性）按进入时的查询前缀剥离父级搜索词，避免父级关键词误杀子项
  * [POS]: web/components/context-panel 的双栏容器（选择面 RFC §6/§16）；由 agent-composer 的 @ 与 AtSign 触发、RichComposer 编辑器内 @ 触发
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -80,8 +80,9 @@ export function ContextMentionPanel({
   const [loading, setLoading] = useState(true);
   const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<ContextPreview | null>(null);
-  // 下钻栈：每层记录被展开的选项与其子项（如 entity/asset → 其 attrs）。空栈 = 正常搜索列表。
-  const [drillFrames, setDrillFrames] = useState<Array<{ option: ContextOption; options: ContextOption[] }>>([]);
+  // 下钻栈：每层记录被展开的选项、其子项（如 entity/asset → 其 attrs）与进入时的查询。
+  // 空栈 = 正常搜索列表；进入时的查询用于把父级搜索词从子项过滤中剥离（否则父级关键词会误杀属性）。
+  const [drillFrames, setDrillFrames] = useState<Array<{ option: ContextOption; options: ContextOption[]; query: string }>>([]);
   const [drillLoading, setDrillLoading] = useState(false);
 
   const { runtime, search, record, sourceFor } = useContextCatalog({
@@ -112,13 +113,13 @@ export function ContextMentionPanel({
       setDrillLoading(true);
       try {
         const children = await Promise.resolve(source.children(option, ctx));
-        setDrillFrames((frames) => [...frames, { option, options: children }]);
+        setDrillFrames((frames) => [...frames, { option, options: children, query }]);
         setHighlightedKey(children.find((child) => !child.disabled)?.key ?? null);
       } finally {
         setDrillLoading(false);
       }
     },
-    [sourceFor],
+    [query, sourceFor],
   );
 
   // backOption：弹出一层；index=0 回到根搜索。
@@ -184,12 +185,14 @@ export function ContextMentionPanel({
     [options, selectedKeySet],
   );
   // 下钻时：当前层子项按查询本地过滤，平铺为 option 行（不分组、不置顶当前引用）。
+  // 进入下钻时父级搜索词仍留在输入框，但它不该过滤子项——剥离进入时的查询前缀，只用在层内新输入的部分过滤。
   const drillOptions = useMemo(() => {
     if (!drillFrames.length) return [];
-    const current = drillFrames[drillFrames.length - 1].options;
-    const needle = query.trim().toLowerCase();
-    if (!needle) return current;
-    return current.filter((option) => `${option.title} ${option.subtitle ?? ""}`.toLowerCase().includes(needle));
+    const current = drillFrames[drillFrames.length - 1];
+    const base = current.query;
+    const needle = (query.startsWith(base) ? query.slice(base.length) : query).trim().toLowerCase();
+    if (!needle) return current.options;
+    return current.options.filter((option) => `${option.title} ${option.subtitle ?? ""}`.toLowerCase().includes(needle));
   }, [drillFrames, query]);
 
   const rows = useMemo<ContextRow[]>(() => {
@@ -376,6 +379,7 @@ export function ContextMentionPanel({
           <div className="flex min-h-0 flex-col border-r">
             <ContextList
               apiBase={apiBase}
+              drill={drillFrames.length > 0}
               errors={errors}
               highlightedKey={highlightedKey}
               loading={drillFrames.length ? drillLoading : loading}
