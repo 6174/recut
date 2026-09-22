@@ -38,7 +38,7 @@ help: ## Show available development commands.
 dev: builtin-apps stop-stale-service stop-stale-web ## Start the LAN service and web development workspace together.
 	@set -e; \
 	GOCACHE=$(GOCACHE) go -C service run . --address ":$(SERVICE_PORT)" --stream-address ":$(STREAM_PORT)" & service_pid=$$!; \
-	( cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) NEXT_PUBLIC_RECUT_APP_URL=http://app.localhost:3000 npm run dev ) & web_pid=$$!; \
+	( cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) NEXT_PUBLIC_RECUT_APP_URL=http://app.localhost:3000 pnpm run dev ) & web_pid=$$!; \
 	trap 'kill $$service_pid $$web_pid 2>/dev/null || true' EXIT INT TERM; \
 	wait $$service_pid $$web_pid
 
@@ -153,30 +153,30 @@ service-vet: ## Run Go static analysis for the local service.
 	GOCACHE=$(GOCACHE) go -C service vet .
 
 web-test: ## Run web unit tests (rich-composer / context-catalog / media / world-entity).
-	cd web && npm test
+	cd web && pnpm test
 
 web-install: ## Install locked web workspace dependencies.
-	cd web && npm ci
+	cd web && pnpm install --frozen-lockfile
 
 deps: ## Install locked service and web dependencies in one step.
 	GOCACHE=$(GOCACHE) go -C service mod download
-	cd web && npm ci
+	cd web && pnpm install --frozen-lockfile
 
 web-dev: stop-stale-web ## Start the public localhost site; app.localhost:3000 is the LAN-aware workspace.
-	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) NEXT_PUBLIC_RECUT_APP_URL=http://app.localhost:3000 NEXT_PUBLIC_RECUT_SITE_URL=http://localhost:3000 npm run dev
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=lan NEXT_PUBLIC_RECUT_API_PORT=$(SERVICE_PORT) NEXT_PUBLIC_RECUT_APP_URL=http://app.localhost:3000 NEXT_PUBLIC_RECUT_SITE_URL=http://localhost:3000 pnpm run dev
 
 web-build: ## Build and type-check the Next.js workspace.
-	cd web && npm run build
+	cd web && pnpm run build
 
 web-e2e-worker: web-build-cloudflare ## Worker 路由 E2E：真实 worker.ts + out/ 静态导出（Accept-Language/cookie 判定、302/301、双语言正文）。
-	cd web && npm run test:e2e:worker
+	cd web && pnpm run test:e2e:worker
 
 web-e2e: ## 浏览器 E2E：自动拉起本地 dev server 验证官网 hydration、逐语言渲染、自动跳转与 cookie 切换。
-	cd web && npm run test:e2e
+	cd web && pnpm run test:e2e
 
 web-build-embedded: ## Export the same-origin local workspace and stage it for Go embedding (never copies service releases). Marketing pages are served from the CDN (web-build-cloudflare), not from the service binary, so marketing/ is dropped here to keep release archives small.
 	@rm -rf "$(CURDIR)/web/out"
-	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local NEXT_PUBLIC_RECUT_APP_URL=https://app.recut.video NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=local NEXT_PUBLIC_RECUT_APP_URL=https://app.recut.video NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) pnpm run build:cloudflare
 	@rm -rf "$(CURDIR)/service/ui/assets/marketing"
 	@rsync -a --delete --exclude='.keep' --exclude='releases/' --exclude='marketing/' "$(CURDIR)/web/out/" "$(CURDIR)/service/ui/assets/"
 	@rm -rf "$(CURDIR)/service/ui/assets/releases"
@@ -184,7 +184,7 @@ web-build-embedded: ## Export the same-origin local workspace and stage it for G
 web-build-cloudflare: ## Export the static web workspace for the Cloudflare Worker (service releases live on the CDN, never in Worker Assets).
 	@rm -rf "$(CURDIR)/web/out"
 	@rm -rf "$(CURDIR)/web/public/releases"
-	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=cloud NEXT_PUBLIC_RECUT_API_URL=http://127.0.0.1:17373 NEXT_PUBLIC_RECUT_APP_URL=https://app.recut.video NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) npm run build:cloudflare
+	cd web && NEXT_PUBLIC_RECUT_WORKSPACE_MODE=cloud NEXT_PUBLIC_RECUT_API_URL=http://127.0.0.1:17373 NEXT_PUBLIC_RECUT_APP_URL=https://app.recut.video NEXT_PUBLIC_RECUT_SERVICE_VERSION=$(WEB_SERVICE_VERSION) pnpm run build:cloudflare
 
 web-deploy: service-release cd-upload web-build-cloudflare ## Package the service, publish it to the CDN, export the web workspace, then deploy it to Cloudflare.
 	cd web && node ./node_modules/wrangler/bin/wrangler.js deploy
