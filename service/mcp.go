@@ -1128,9 +1128,10 @@ func projectMCPTool(store *Store, input map[string]any) (any, error) {
 // ignores the other predicates by contract (see MediaAssetFilter).
 func mediaAssetFilterFromInput(input map[string]any) MediaAssetFilter {
 	filter := MediaAssetFilter{
-		Kind:   stringValue(input["kind"]),
-		Status: stringValue(input["status"]),
-		Query:  stringValue(input["query"]),
+		Kind:            stringValue(input["kind"]),
+		Status:          stringValue(input["status"]),
+		Query:           stringValue(input["query"]),
+		IncludeAnalysis: boolValue(input["includeAnalysis"]),
 	}
 	switch ids := input["ids"].(type) {
 	case []any:
@@ -1229,7 +1230,6 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 			StartSec:  optionalNumber(input["startSec"]),
 			EndSec:    optionalNumber(input["endSec"]),
 			MaxFrames: int(numericValue(input["maxFrames"])),
-			ProjectID: requestedProjectID(input),
 		})
 		if err == nil {
 			result = framesResult
@@ -1244,7 +1244,6 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 			Columns:           int(numericValue(input["columns"])),
 			CellPx:            int(numericValue(input["cellPx"])),
 			TranscriptAssetID: stringValue(input["transcriptAssetId"]),
-			ProjectID:         requestedProjectID(input),
 		})
 		if err == nil {
 			result = sheetResult
@@ -1256,7 +1255,6 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 			Rows:      int(numericValue(input["rows"])),
 			Cols:      int(numericValue(input["cols"])),
 			GutterPx:  int(numericValue(input["gutterPx"])),
-			ProjectID: requestedProjectID(input),
 		})
 		if err == nil {
 			result = gridResult
@@ -1412,7 +1410,7 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.speech.generate", "description": mcpDescription(locale, "recut.speech.generate"), "inputSchema": speechGenerationSchema()},
 		{"name": "recut.media.list_voices", "description": mcpDescription(locale, "recut.media.list_voices"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"credentialId": map[string]string{"type": "string", "description": "云端语音 provider 的凭据 ID；本机 TTS 可传 local-audio 或留空返回 Audio Studio 默认音。"}}}},
 		{"name": "recut.media.list_capability_voices", "description": mcpDescription(locale, "recut.media.list_capability_voices"), "inputSchema": map[string]any{"type": "object", "required": []string{"capability"}, "properties": map[string]any{"capability": map[string]any{"type": "string", "enum": []string{"speech.generate"}, "description": "要聚合声音的能力；当前 speech.generate 提供动态 voices，其他能力返回空列表。"}}}},
-		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}, "ids": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "精确 assetId 列表（也接受逗号分隔字符串）；用于按已知 ID 取回完整记录，给定时忽略 kind/query 等其他过滤。"}, "kind": map[string]string{"type": "string", "description": "按素材类型过滤：image / video / audio / transcript 等。"}, "status": map[string]string{"type": "string", "description": "按状态过滤（如 completed / queued / running）；缺省排除 deleted。"}, "query": map[string]string{"type": "string", "description": "按名称模糊匹配。"}, "limit": map[string]any{"type": "integer", "description": "分页大小，默认 200，上限 500。"}, "offset": map[string]any{"type": "integer", "description": "分页偏移；结合返回的 total 判断是否还有下一页。"}}}},
+		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}, "ids": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "精确 assetId 列表（也接受逗号分隔字符串）；用于按已知 ID 取回完整记录，给定时忽略 kind/query 等其他过滤。"}, "kind": map[string]string{"type": "string", "description": "按素材类型过滤：image / video / audio / transcript 等。"}, "status": map[string]string{"type": "string", "description": "按状态过滤（如 completed / queued / running）；缺省排除 deleted。"}, "query": map[string]string{"type": "string", "description": "按名称模糊匹配。"}, "includeAnalysis": map[string]any{"type": "boolean", "description": "可选；项目查询时默认隐藏参考理解产物（origin=understand），传 true 可一并返回。"}, "limit": map[string]any{"type": "integer", "description": "分页大小，默认 200，上限 500。"}, "offset": map[string]any{"type": "integer", "description": "分页偏移；结合返回的 total 判断是否还有下一页。"}}}},
 		{"name": "recut.media.asset.get", "description": mcpDescription(locale, "recut.media.asset.get"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string", "description": "要读取完整创作信息的素材 assetId。"}}}},
 		{"name": "recut.media.asset.update", "description": mcpDescription(locale, "recut.media.asset.update"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
 			"assetId":    map[string]string{"type": "string"},
@@ -1455,7 +1453,6 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 			"startSec":    map[string]any{"type": "number"},
 			"endSec":      map[string]any{"type": "number"},
 			"maxFrames":   map[string]any{"type": "integer", "description": "帧数上限；缺省按总时长推导（每 5s 一帧，下限 24、上限 120），显式值优先、硬上限 120；超出报错。"},
-			"projectId":   map[string]string{"type": "string", "description": "可选；把衍生帧素材关联到该项目。"},
 		}}},
 		{"name": "recut.media.contactSheet", "description": mcpDescription(locale, "recut.media.contactSheet"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "intervalSec"}, "properties": map[string]any{
 			"assetId":           map[string]string{"type": "string"},
@@ -1465,14 +1462,12 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 			"columns":           map[string]any{"type": "integer", "description": "列数；缺省取近似正方。"},
 			"cellPx":            map[string]any{"type": "integer", "description": "单元格边长像素，默认 320。"},
 			"transcriptAssetId": map[string]string{"type": "string", "description": "可选；提供时叠词标签。"},
-			"projectId":         map[string]string{"type": "string"},
 		}}},
 		{"name": "recut.media.gridSlice", "description": mcpDescription(locale, "recut.media.gridSlice"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId", "rows", "cols"}, "properties": map[string]any{
 			"assetId":   map[string]string{"type": "string", "description": "要切分的本地 image 素材（如一张 N 宫格分镜表）。"},
 			"rows":      map[string]any{"type": "integer", "description": "行数（自上而下），如 5。"},
 			"cols":      map[string]any{"type": "integer", "description": "列数（自左而右），如 5。"},
 			"gutterPx":  map[string]any{"type": "integer", "description": "可选；每格四周裁掉的缝隙像素，默认 0。"},
-			"projectId": map[string]string{"type": "string", "description": "可选；把逐格素材关联到该项目。"},
 		}}},
 		{"name": "recut.media.boundaries", "description": mcpDescription(locale, "recut.media.boundaries"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
 			"assetId":   map[string]string{"type": "string"},
@@ -1483,7 +1478,7 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 			"assetId":   map[string]string{"type": "string"},
 			"startSec":  map[string]any{"type": "number"},
 			"endSec":    map[string]any{"type": "number"},
-			"projectId": map[string]string{"type": "string"},
+			"projectId": map[string]string{"type": "string", "description": "可选；仅当该片段将作为项目素材使用时才传，把片段关联到该项目。"},
 		}}},
 		{"name": "recut.media.words", "description": mcpDescription(locale, "recut.media.words"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
 			"assetId":           map[string]string{"type": "string", "description": "本地 audio/video 素材；与 transcriptAssetId 二选一。"},

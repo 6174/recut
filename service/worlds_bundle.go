@@ -117,7 +117,10 @@ func sourceEntityID(worldID, storedID string) string {
 // ExportWorldBundle renders one World as a self-contained v2 source zip. Media
 // referenced by assetId is read from the content-addressed store; media carried
 // as a public url is fetched through the SSRF-guarded remote cache. Identical
-// media is written once per bundle.
+// media is written once per bundle. Assets whose bytes are not materialized yet
+// (proposals, queued/running/failed generations) do not abort the export: a
+// public url is used when available, otherwise the non-portable assetId is
+// dropped so the world still round-trips.
 func (w *WorldStore) ExportWorldBundle(worldID string) ([]byte, string, error) {
 	detail, err := w.GetWorld(worldID)
 	if err != nil {
@@ -175,15 +178,51 @@ func (w *WorldStore) ExportWorldBundle(worldID string) ([]byte, string, error) {
 		provenance := map[string]any{}
 		switch {
 		case assetID != "":
-			key = "asset:" + assetID
 			asset, getErr := w.media.GetAsset(assetID)
 			if getErr != nil {
 				return nil, fmt.Errorf("export asset %s: %w", assetID, getErr)
 			}
 			filePath, _ := asset.Metadata["path"].(string)
 			if filePath == "" {
-				return nil, fmt.Errorf("export asset %s: no local file", assetID)
+				// The asset has no bytes on disk yet: a proposal, or a queued/
+				// running/failed generation. Media attrs and canvas elements
+				// may reference such an assetId by design, so one
+				// not-yet-materialized asset must not fail the whole export.
+				// Prefer a public URL when the asset carries one; otherwise
+				// drop the non-portable assetId so the reference is not
+				// dangled on import.
+				rescueURL, _ := asset.Metadata["url"].(string)
+				if rescueURL == "" {
+					logWorldEvent("world.export.media_skipped", map[string]string{"worldId": worldID, "assetId": assetID, "status": asset.Status})
+					skipped := make(map[string]any, len(value))
+					for key, item := range value {
+						if key != "assetId" {
+							skipped[key] = item
+						}
+					}
+					return skipped, nil
+				}
+				if kind == "" {
+					kind = asset.Kind
+				}
+				if name == "" {
+					name = asset.Name
+				}
+				key = "url:" + rescueURL
+				result, cacheErr := w.media.RemoteCache().LocalPathFor(rescueURL)
+				if cacheErr != nil {
+					return nil, fmt.Errorf("export asset %s url %s: %w", assetID, rescueURL, cacheErr)
+				}
+				data, err = os.ReadFile(result.Path)
+				if err != nil {
+					return nil, fmt.Errorf("read asset %s url %s: %w", assetID, rescueURL, err)
+				}
+				mimeType = result.ContentType
+				displayName = path.Base(rescueURL)
+				provenance["sourceUrl"] = rescueURL
+				break
 			}
+			key = "asset:" + assetID
 			data, err = os.ReadFile(filePath)
 			if err != nil {
 				return nil, fmt.Errorf("read asset %s: %w", assetID, err)

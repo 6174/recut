@@ -72,6 +72,7 @@ func init() {
 		"frame.finalize":           editorFrameFinalize,
 		"asset.list":               editorAssetList,
 		"asset.add":                editorAssetAdd,
+		"asset.remove":             editorAssetRemove,
 		"asset.archive":            editorAssetArchive,
 		"subtitle.capabilities":    editorSubtitleCapabilities,
 		"subtitle.generate":        editorSubtitleGenerate,
@@ -141,14 +142,14 @@ func editorProjectSave(c *editorContext, input map[string]any) (any, error) {
 var editorFullActions = []string{
 	"timeline.read", "element.get", "timeline.validate", "timeline.command", "timeline.placeComponents", "timeline.placeAudio",
 	"timeline.delta", "history.undo", "history.redo", "project.lock", "project.unlock", "work.checkpoint", "work.cancel",
-	"asset.list", "asset.add", "asset.archive", "film.package.import", "subtitle.import", "subtitle.export", "subtitle.capabilities",
+	"asset.list", "asset.add", "asset.remove", "asset.archive", "film.package.import", "subtitle.import", "subtitle.export", "subtitle.capabilities",
 	"subtitle.generate", "subtitle.status", "subtitle.commit", "subtitle.cancel", "subtitle.retry-save", "script.read",
 	"script.apply", "script.clean", "script.find", "script.fix-transcript", "script.attach", "track.role", "audio.smooth",
 	"library.browse", "preview.frame", "preview.batch", "preview.contact-sheet", "export.start", "cover.get",
 }
 
 var editorInitialActions = []string{
-	"project.create", "film.package.import", "timeline.command", "timeline.placeComponents", "asset.list", "asset.add", "asset.archive",
+	"project.create", "film.package.import", "timeline.command", "timeline.placeComponents", "asset.list", "asset.add", "asset.remove", "asset.archive",
 	"subtitle.import", "subtitle.export", "subtitle.capabilities", "subtitle.generate", "subtitle.status", "subtitle.commit",
 	"subtitle.cancel", "subtitle.retry-save", "script.attach", "track.role", "library.browse",
 }
@@ -1864,6 +1865,27 @@ func editorAssetAdd(c *editorContext, input map[string]any) (any, error) {
 		return nil, editorError("asset.add: assetId is required")
 	}
 	if err := c.attachMedia(assetID); err != nil {
+		return nil, err
+	}
+	c.emit("project.assets.changed", map[string]any{"kind": "media", "mediaIds": []string{assetID}, "library": map[string]any{"tab": "media"}})
+	return map[string]any{"ok": true, "assetId": assetID}, nil
+}
+
+// editorAssetRemove detaches a global media asset from the project's asset
+// library (the inverse of asset.add). The global asset and its bytes survive;
+// only the project reference is removed. The timeline is not touched.
+func editorAssetRemove(c *editorContext, input map[string]any) (any, error) {
+	assetID := edStr(input["assetId"])
+	if assetID == "" {
+		return nil, editorError("asset.remove: assetId is required")
+	}
+	if !c.target.IsProject() {
+		return nil, editorError("asset.remove: a project target is required")
+	}
+	if c.host.media == nil {
+		return nil, editorError("asset.remove: media service is unavailable")
+	}
+	if err := c.host.media.DetachProjectAsset(assetID, c.target.ProjectID); err != nil {
 		return nil, err
 	}
 	c.emit("project.assets.changed", map[string]any{"kind": "media", "mediaIds": []string{assetID}, "library": map[string]any{"tab": "media"}})

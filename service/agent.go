@@ -394,7 +394,9 @@ func (m *AgentManager) RecoverInterruptedTurns() (int, error) {
 		}
 	}
 	for sessionID := range sessions {
-		if _, err := tx.Exec("update agent_sessions set status = ?, native_session_id = case when runtime = ? then '' else native_session_id end, native_workspace = case when runtime = ? then '' else native_workspace end, updated_at = ? where id = ?", "idle", "opencode", "opencode", now, sessionID); err != nil {
+		// A restart must not discard conversation memory: keep native_session_id
+		// and native_workspace so the next message resumes the same native session.
+		if _, err := tx.Exec("update agent_sessions set status = ?, updated_at = ? where id = ?", "idle", now, sessionID); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec("insert into agent_events (session_id, turn_id, type, payload_json, created_at) values (?, ?, ?, ?, ?)", sessionID, "", "session.updated", `{"label":"服务重启后已恢复为空闲"}`, now); err != nil {
@@ -982,7 +984,9 @@ type cancelledAgentTurn struct {
 }
 
 // cancelSessionTurns makes Stop a terminal operation for the current batch.
-// A later user message creates a new batch and, for OpenCode, a fresh native session.
+// A later user message creates a new batch but RESUMES the same native session:
+// cancelling a turn must not discard conversation memory. Only a genuine runtime
+// failure (silence timeout) resets the native session.
 func (m *AgentManager) cancelSessionTurns(sessionID string) ([]cancelledAgentTurn, error) {
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
@@ -1016,7 +1020,9 @@ func (m *AgentManager) cancelSessionTurns(sessionID string) ([]cancelledAgentTur
 	if _, err := tx.Exec("update agent_turns set status = ?, completed_at = ? where session_id = ? and role = ? and status in (?, ?)", "cancelled", now, sessionID, "user", "running", "queued"); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec("update agent_sessions set status = ?, native_session_id = case when runtime = ? then '' else native_session_id end, native_workspace = case when runtime = ? then '' else native_workspace end, updated_at = ? where id = ?", "idle", "opencode", "opencode", now, sessionID); err != nil {
+	// Keep native_session_id/native_workspace so the next message resumes the
+	// same OpenCode conversation instead of starting a fresh one.
+	if _, err := tx.Exec("update agent_sessions set status = ?, updated_at = ? where id = ?", "idle", now, sessionID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {

@@ -176,7 +176,7 @@ func TestOpencodeSilenceWatchdogCancelsSilentTurn(t *testing.T) {
 	}
 }
 
-func TestStopCancelsCurrentBatchAndResetsOpenCodeSession(t *testing.T) {
+func TestStopCancelsCurrentBatchAndResumesOpenCodeSession(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	db, err := store.WorkspaceDatabase()
 	if err != nil {
@@ -210,8 +210,8 @@ func TestStopCancelsCurrentBatchAndResetsOpenCodeSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.Status != "idle" || detail.NativeSessionID != "" || len(detail.Turns) != 2 || detail.Turns[0].Status != "cancelled" || detail.Turns[0].CompletedAt == nil || detail.Turns[1].Status != "cancelled" || detail.Turns[1].CompletedAt == nil {
-		t.Fatalf("stop did not persist a terminal state: %#v", detail)
+	if detail.Status != "idle" || detail.NativeSessionID != "ses_stuck" || len(detail.Turns) != 2 || detail.Turns[0].Status != "cancelled" || detail.Turns[0].CompletedAt == nil || detail.Turns[1].Status != "cancelled" || detail.Turns[1].CompletedAt == nil {
+		t.Fatalf("stop did not persist a terminal state while keeping the native session: %#v", detail)
 	}
 	if manager.hasQueuedTurn("session-1") {
 		t.Fatal("stop left a queued turn that could restart the cancelled runner")
@@ -227,7 +227,7 @@ func TestStopCancelsCurrentBatchAndResetsOpenCodeSession(t *testing.T) {
 	}
 }
 
-func TestRecoverInterruptedTurnsClearsStaleRunningState(t *testing.T) {
+func TestRecoverInterruptedTurnsKeepsNativeSession(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	db, err := store.WorkspaceDatabase()
 	if err != nil {
@@ -253,8 +253,8 @@ func TestRecoverInterruptedTurnsClearsStaleRunningState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.Status != "idle" || detail.NativeSessionID != "" || detail.Turns[0].Status != "cancelled" || detail.Turns[0].CompletedAt == nil {
-		t.Fatalf("restart left stale running state: %#v", detail)
+	if detail.Status != "idle" || detail.NativeSessionID != "ses_interrupted" || detail.Turns[0].Status != "cancelled" || detail.Turns[0].CompletedAt == nil {
+		t.Fatalf("restart left stale running state or dropped the native session: %#v", detail)
 	}
 	var cancelled, sessionUpdated int
 	for _, event := range detail.Events {

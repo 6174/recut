@@ -69,7 +69,6 @@ type UnderstandFramesInput struct {
 	StartSec  *float64
 	EndSec    *float64
 	MaxFrames int
-	ProjectID string
 }
 
 // UnderstandFrames extracts frames and saves each as an image asset.
@@ -106,7 +105,7 @@ func (m *MediaService) UnderstandFrames(ctx context.Context, input UnderstandFra
 		if err != nil {
 			return UnderstandFramesResult{}, err
 		}
-		saved, err := m.saveDerivedAsset(content, "image", "image/png", fmt.Sprintf("frame-%s-%.2fs.png", asset.ID, frame.AtSec), "understand", input.ProjectID, map[string]any{
+		saved, err := m.saveDerivedAsset(content, "image", "image/png", fmt.Sprintf("frame-%s-%.2fs.png", asset.ID, frame.AtSec), "understand", "", map[string]any{
 			"source":      "understand",
 			"sourceAsset": asset.ID,
 			"atSec":       frame.AtSec,
@@ -134,11 +133,10 @@ type UnderstandGridPanel struct {
 
 // UnderstandGridSliceInput is the typed gridSlice request.
 type UnderstandGridSliceInput struct {
-	AssetID   string
-	Rows      int
-	Cols      int
-	GutterPx  int
-	ProjectID string
+	AssetID  string
+	Rows     int
+	Cols     int
+	GutterPx int
 }
 
 // UnderstandGridSliceResult is the gridSlice tool envelope.
@@ -186,7 +184,7 @@ func (m *MediaService) UnderstandGridSlice(ctx context.Context, input Understand
 		if err != nil {
 			return UnderstandGridSliceResult{}, err
 		}
-		saved, err := m.saveDerivedAsset(content, "image", "image/png", fmt.Sprintf("panel-%s-%s.png", asset.ID, region.Coord()), "understand", input.ProjectID, map[string]any{
+		saved, err := m.saveDerivedAsset(content, "image", "image/png", fmt.Sprintf("panel-%s-%s.png", asset.ID, region.Coord()), "understand", "", map[string]any{
 			"source":      "understand",
 			"sourceAsset": asset.ID,
 			"coord":       region.Coord(),
@@ -211,7 +209,8 @@ func (m *MediaService) UnderstandGridSlice(ctx context.Context, input Understand
 	}, nil
 }
 
-// UnderstandSheetCell is one contact-sheet cell (a saved frame asset).
+// UnderstandSheetCell is one contact-sheet cell coordinate. AssetID is empty
+// because cells are not persisted; only the composite sheet is an asset.
 type UnderstandSheetCell struct {
 	AtSec   float64 `json:"atSec"`
 	AssetID string  `json:"assetId"`
@@ -238,11 +237,12 @@ type UnderstandContactSheetInput struct {
 	Columns           int
 	CellPx            int
 	TranscriptAssetID string
-	ProjectID         string
 }
 
-// UnderstandContactSheet extracts evenly spaced frames, saves each cell as an
-// asset, then composites a timecoded (and optionally word-labelled) sheet.
+// UnderstandContactSheet extracts evenly spaced frames and composites a
+// timecoded (and optionally word-labelled) sheet, saved as one workspace-level
+// asset. Cells are not persisted individually; callers that need single frames
+// use UnderstandFrames.
 func (m *MediaService) UnderstandContactSheet(ctx context.Context, input UnderstandContactSheetInput) (UnderstandContactSheetResult, error) {
 	asset, path, err := m.readableMediaAsset(input.AssetID, "video", "image")
 	if err != nil {
@@ -282,26 +282,17 @@ func (m *MediaService) UnderstandContactSheet(ctx context.Context, input Underst
 	if err != nil {
 		return UnderstandContactSheetResult{}, err
 	}
+	// Analysis intermediates stay workspace-level and are not persisted per cell:
+	// a contact sheet is one reviewable asset (the composite), not N frame assets.
+	// Callers that genuinely need individual frames use recut.media.frames.
 	cells := make([]UnderstandSheetCell, 0, len(extracted))
 	sheetCells := make([]understand.SheetCell, 0, len(extracted))
 	for index, frame := range extracted {
-		content, err := os.ReadFile(frame.Path)
-		if err != nil {
-			return UnderstandContactSheetResult{}, err
-		}
 		label := timecode(frame.AtSec)
 		if index < len(labels) && labels[index] != "" {
 			label = label + " " + labels[index]
 		}
-		saved, err := m.saveDerivedAsset(content, "image", "image/png", fmt.Sprintf("sheet-cell-%s-%.2fs.png", asset.ID, frame.AtSec), "understand", input.ProjectID, map[string]any{
-			"source":      "understand",
-			"sourceAsset": asset.ID,
-			"atSec":       frame.AtSec,
-		})
-		if err != nil {
-			return UnderstandContactSheetResult{}, err
-		}
-		cells = append(cells, UnderstandSheetCell{AtSec: frame.AtSec, AssetID: saved.ID, Label: label})
+		cells = append(cells, UnderstandSheetCell{AtSec: frame.AtSec, Label: label})
 		sheetCells = append(sheetCells, understand.SheetCell{AtSec: frame.AtSec, Path: frame.Path, Label: label})
 	}
 	sheetPath := filepath.Join(tempDir, "contact-sheet.png")
@@ -315,7 +306,7 @@ func (m *MediaService) UnderstandContactSheet(ctx context.Context, input Underst
 	if err != nil {
 		return UnderstandContactSheetResult{}, err
 	}
-	sheet, err := m.saveDerivedAsset(sheetContent, "image", "image/png", fmt.Sprintf("contact-sheet-%s.png", asset.ID), "understand", input.ProjectID, map[string]any{
+	sheet, err := m.saveDerivedAsset(sheetContent, "image", "image/png", fmt.Sprintf("contact-sheet-%s.png", asset.ID), "understand", "", map[string]any{
 		"source":       "understand",
 		"sourceAsset":  asset.ID,
 		"cells":        cells,

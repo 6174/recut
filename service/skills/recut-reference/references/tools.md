@@ -16,13 +16,13 @@
 |---|---|---|
 | `probe` | `{ assetId }` | `{ durationSec, width, height, fps, hasAudio }` |
 | `frames` | `{ assetId, atSec?[], intervalSec?, startSec?, endSec?, maxFrames? }` | `{ frames: [{ atSec, assetId }] }` |
-| `contactSheet` | `{ assetId, startSec, endSec, intervalSec, columns?, cellPx?, transcriptAssetId? }` | `{ sheetAssetId, cells: [{ atSec, assetId }] }` |
+| `contactSheet` | `{ assetId, startSec, endSec, intervalSec, columns?, cellPx?, transcriptAssetId? }` | `{ sheetAssetId, cells: [{ atSec, label }] }`（只落合成图一张；单帧用 `frames`） |
 | `boundaries` | `{ assetId, threshold?, minGapSec? }` | `{ boundaries: [{ atSec, kind, score? }] }` |
 | `clip` | `{ assetId, startSec, endSec }` | `{ clipAssetId }` |
 | `words` | `{ assetId \| transcriptAssetId, language? }` | `{ transcriptAssetId, wordLevel: true }`（可选，默认关） |
 | `measure` | `{ text, language?, pace? }` | `{ estimatedDurationSec }` |
 
-读取产物是**普通素材**；要把某帧/接触表留在理解里，就在 `content` 里 `<media assetid="…">` 引用它。
+读取产物是 **workspace 级普通素材**（`origin=understand`）；要把某帧/接触表留在理解里，就在 `content` 里 `<media assetid="…">` 引用它。**不要把参考或读取产物挂进项目**（不传 `projectId`）；只有要上时间线的素材才用 `recut.editor.asset.add` 进项目素材库。
 
 ## 2. 用法要点
 
@@ -32,8 +32,8 @@
 
 ## 3. 引入路径（一个入口）
 
-- 本地文件：`recut.media.import({ path })`（会话工作区/目标项目内，≤2GB）。
-- 直链媒体：`recut.media.import({ url })`（image/video/audio，≤25MB，按哈希去重）。
+- 本地文件：`recut.media.import({ path })`（会话工作区/目标项目内，≤2GB）；**不要传 `projectId`**。
+- 直链媒体：`recut.media.import({ url })`（image/video/audio，≤25MB，按哈希去重）；**不要传 `projectId`**。
 - 网页/文章链接：`recut.media.import({ link, sourceKind, name?, content?, imageData?, … })`（无字节，落 `kind=document`）。
 - 平台页（YouTube/抖音…）平台不下载：宿主用 `yt-dlp` 下到工作区后，仍必须 `recut.media.import({ path })` 入库；**只落工作区文件不算完成**。
 - 标为参考：`recut.media.asset.update({ assetId, attrPatch: [{ key:"role", value:"reference" }, { key:"url", value: sourceUrl }] })`。
@@ -50,6 +50,7 @@
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
+| 模型不支持读图 | 当前模型无视觉能力 | **立即终止**，提示用户「理解与克隆视频需要能读图的模型，请先切换到有视觉能力的模型」；不要用转写/切点替代读图 |
 | 缺 ffmpeg/ffprobe/PySceneDetect | 平台 venv 未准备 | `understand.status` → `understand.prepare` → `recut.job.wait`；不要自行安装 |
 | `assetId` 不可读 | 非本地素材/已删除 | `asset.get` 确认；补引入 |
 | 素材无本地文件 | 只有链接 / 未完成 | 只有 `completed` 且带本地文件的素材可读；`document` 无字节是正常的 |

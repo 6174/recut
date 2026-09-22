@@ -92,7 +92,7 @@ Prompt 层统一使用 **motion graphic** 作为创作语义；`motion graphic` 
 1. **上下文**：连续编辑会话开始时调用 `workflow.context`，读取 stage、settings、version、aiLock、allowedActions、paths；同一会话复用快照，外部状态变化或快照失效时再刷新。
 2. **范围判断**：确定 intent、scope、route、scene concept、treatments；首次处理已有时间线时读 `timeline.read`，后续基于已知 version 增量修改，不重做未受影响的部分。
 3. **视觉方向**：新片选择 design system；二次编辑读取目标 frame，保持现有视觉语言，只有明确要求才切换风格。
-4. **盘点素材**：用 `recut.media.list_assets` / `asset.list` 找真实 `assetId`；只有 scope 需要新增/替换资产时才生成或创建组件。
+4. **盘点素材**：用 `recut.media.list_assets` / `asset.list` 找真实 `assetId`；只有 scope 需要新增/替换资产时才生成或创建组件。项目素材库只放上时间线的素材：`asset.add` 加入、`asset.remove` 解挂；参考理解产物（`origin=understand`）不在此列，需要时用 `includeAnalysis` 显式查询。
 5. **准备资产**：依据 scene concept 选择资产路径：Motion Graphic 可调用 `recut.motion-graphic.create`，真实场景可调用平台视频生成，hybrid 可先生成底片再制作图形覆盖。**图片/语音走「先落位」**：拿到 `assetId` 立即落轨（媒体元素/音轨）并标记生成中，**不要 `recut.job.wait` 空等**，平台就绪后自动切换；只有当下一步依赖产物内容（读图/听声决策、连续性或身份验收）时才等终态。**组件与视频仍有门禁**：`recut.motion-graphic.create` 必须等到 `verified` 才能落轨；视频（尤其分镜连续性）落轨前按 continuity/验收口径确认。
 6. **写入**：多步编辑时 `project.lock` 返回的 `owner/token` → 立刻 `work.checkpoint` → 用 `timeline.placeComponents` 批量放组件、用 `timeline.command` 写其他 op → 带同一 `owner/token` 调用 `project.unlock`；每次写入携带最新 `baseVersion`。用户中途纠正时用同一凭据调用 `work.cancel({ checkpointSeq, owner, token })`，不要继续未提交队列。
 7. **验证与精修**：按 `verification.md` 先拿结构 proof，再用 `preview.frame` / `preview.batch` / `preview.contact-sheet` 检查受影响的 settled frames；只在 proof 之后做有限关键帧精修。编辑器未打开时这些预览返回 `editor-not-open`；`headless` 尚未实现，返回 `headless-unavailable`，产物只能称为待视觉验收的时间线草稿。

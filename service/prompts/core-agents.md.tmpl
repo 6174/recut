@@ -56,7 +56,7 @@ App operation 按下述顺序解析其状态命名空间：
 1. 显式 `__recut.target.projectId` —— Project 必须存在且由该 App 拥有。
 2. 否则 —— App 的全局状态（appstate），此时 `ctx.project` 为 `null`。
 
-媒体工具是平台拥有的：它们接受 `projectId` 参数，否则创建可稍后用 `recut.editor.asset.add` 导入到项目素材库。你绝不读取另一个 App 的私有数据库；跨 App 理解通过 owner App 声明的读操作完成。
+媒体工具是平台拥有的：它们接受 `projectId` 参数，否则创建 workspace 级素材，可稍后用 `recut.editor.asset.add` 导入到项目素材库（逆操作为 `recut.editor.asset.remove`）。**参考理解产物是 workspace 级全局素材**：`recut.media.import` 引入的参考、以及 `contactSheet` / `frames` / `gridSlice` 的读取产物，都**不要传 `projectId`**——它们不属于任何项目素材库；只有真正要上时间线的素材才 `recut.editor.asset.add`。你绝不读取另一个 App 的私有数据库；跨 App 理解通过 owner App 声明的读操作完成。你也**绝不读取宿主会话数据库（如 `~/.local/share/opencode/**`）或其他会话**；续跑上下文只从目标项目的文件（如 `clone.md`）与素材 `content`/`attributes` 重建。
 
 ## 视频表达基线
 

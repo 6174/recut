@@ -145,6 +145,82 @@ func TestWorldBundleImportAcceptsWrappedZip(t *testing.T) {
 	}
 }
 
+// TestWorldBundleExportSkipsUnmaterializedAsset guards the regression where a
+// world referencing a not-yet-generated proposal (no local bytes) failed the
+// whole export. Media attrs and canvas elements accept proposed/queued assets
+// by design, so export must degrade gracefully: the non-portable assetId is
+// dropped and the bundle still round-trips.
+func TestWorldBundleExportSkipsUnmaterializedAsset(t *testing.T) {
+	worlds, _, media := newTestWorldStore(t)
+	credential, err := media.SaveCredential(MediaCredential{Provider: "skymind-token", Name: "Skymind", APIBase: "http://127.0.0.1:1"}, "skymind-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := media.Propose(ProposeInput{Capability: VideoGenerate, ModelID: testVideoModelID, CredentialID: credential.ID, Prompt: "做梦坐飞机"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.Status != AssetStatusProposed {
+		t.Fatalf("proposal status = %q", proposal.Status)
+	}
+
+	created, err := worlds.CreateWorld(CreateWorldInput{Name: "Proposal World", Type: WorldCustom})
+	if err != nil {
+		t.Fatalf("create world: %v", err)
+	}
+	if _, err := worlds.SaveCanvasDocument(created.ID, "", []WorldCanvasElement{
+		{ID: "shape:media-1", Kind: "media", Props: map[string]any{"assetId": proposal.ID, "modality": "video", "assetStatus": "generating"}},
+	}, 0); err != nil {
+		t.Fatalf("save canvas: %v", err)
+	}
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: created.ID, TypeID: "character", Name: "Hero",
+		Attrs: []EntityAttr{{Key: "clip", Label: "片段", Type: "media", Value: map[string]any{"assetId": proposal.ID, "kind": "video"}}},
+	}); err != nil {
+		t.Fatalf("upsert entity with proposal media attr: %v", err)
+	}
+
+	data, name, err := worlds.ExportWorldBundle(created.ID)
+	if err != nil {
+		t.Fatalf("export with unmaterialized asset = %v", err)
+	}
+	if len(data) == 0 || name == "" {
+		t.Fatalf("empty export name=%q bytes=%d", name, len(data))
+	}
+
+	imported, err := worlds.ImportWorldBundle(data, "Imported", "test")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	doc, err := worlds.GetCanvasDocument(imported.ID, "")
+	if err != nil {
+		t.Fatalf("get canvas: %v", err)
+	}
+	for _, element := range doc.Elements {
+		if _, ok := element.Props["assetId"]; ok {
+			t.Fatalf("skipped asset left a dangling assetId: %#v", element.Props)
+		}
+	}
+	entities, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: imported.ID})
+	if err != nil || len(entities) != 1 {
+		t.Fatalf("entities = %#v err=%v", entities, err)
+	}
+	hero, err := worlds.GetEntity(imported.ID, entities[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, attr := range hero.Attrs {
+		if attr.Key != "clip" {
+			continue
+		}
+		if value, ok := attr.Value.(map[string]any); ok {
+			if _, dangling := value["assetId"]; dangling {
+				t.Fatalf("skipped attr left a dangling assetId: %#v", value)
+			}
+		}
+	}
+}
+
 func TestWorldBundleExportImportRoundTrip(t *testing.T) {
 	worlds, _, media := newTestWorldStore(t)
 	created, err := worlds.CreateWorld(CreateWorldInput{

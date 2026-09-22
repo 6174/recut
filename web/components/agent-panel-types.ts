@@ -38,7 +38,7 @@ export const defaultCodexConfiguration: CodexConfiguration = {
 export type OpencodeConfiguration = { opencodeModel: string };
 export type OpencodeModel = { id: string; provider: string };
 export const defaultOpencodeConfiguration: OpencodeConfiguration = {
-  opencodeModel: "opencode-go/deepseek-v4-flash",
+  opencodeModel: "opencode-go/deepseek-v4.1-flash",
 };
 export type Attachment = AssetReference;
 export type WorldReference = { worldId: string; name: string };

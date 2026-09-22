@@ -37,7 +37,7 @@ S4 交付    实际观看 → 报告
 
 ## 1. 两个硬门（其余都是自检清单）
 
-- **花钱门**：S3 触发任何付费生成前，把 Plan 与预算呈报用户并获批。未批准不提交。
+- **花钱门（一次性）**：S3 开始时把 Plan 与预算**一次性**呈报用户并获批。批准后从生成 → 落轨 → 校验**连续推进**，不得在中途再停下来反复确认。同一项目内已批准过的同类预算直接沿用；用户说「开始 / 继续 / 就按这个来」即视为批准，立即提交，不要复述计划再等一次。
 - **交付门**：Done means watched。导出后实际观看/试听再报告；queued/running/failed/`editor-not-open` 都不算完成。
 
 G1 理解齐、G2 决策可定位、G4 落轨零违规是**自检**，不设停等；不通过就继续做，不打断用户。
@@ -79,19 +79,23 @@ G1 理解齐、G2 决策可定位、G4 落轨零违规是**自检**，不设停�
 ### S4 交付
 - `export.start` → `recut.job.wait` 到 `completed` → **实际观看** → 报告（含 Plan/assetId/recipe hash，便于只重做改动项）。
 
-## 4. 生成政策（对 AI 而言所有素材都是「直接生成」）
+## 4. 生成政策（花钱门批准后一次性推进）
 
-- 统一入口：`recut.image.generate` / `recut.video.generate` / `recut.speech.generate` / `recut.motion-graphic.create`。提交即返回稳定 assetId，**立刻回填 Plan 并继续**；没有 `mode`，也不向用户说「提案」。
-- **图片**：`text`=spec；**角色/世界/风格参考一律放 `imageAssetIds`**（image 能力只读该字段）。先出样图、读图验收再批量。
-- **视频**：平台默认先落为**待用户确认**的素材（全局设置可关闭该门禁）；**AI 只提交与落位，绝不代确认**。参考关键帧放 `imageAssetIds`；`aspectRatio`/`durationSec` 显式且与项目 `canvasSize` 一致。
+- 统一入口：`recut.image.generate` / `recut.video.generate` / `recut.speech.generate` / `recut.motion-graphic.create`。提交即返回稳定 assetId，**立刻回填 Plan 并继续**，不要为确认而空等。
+- **图片 / 语音**：直接生成（`mode` 缺省即直生），提交后继续；先出样图、读图验收再批量。
+- **视频**：平台默认先落为**待用户确认**的素材（全局设置可关闭该门禁）；这是平台门禁，**AI 只提交、绝不代用户确认**，提交后立即继续落位，不空等终态。`aspectRatio`/`durationSec` 显式且与项目 `canvasSize` 一致。
+- **参考**：**角色/世界/风格参考一律放 `imageAssetIds`**（image 能力只读该字段），不要放 `references`。
 - **图形**：`recut.motion-graphic.create` → 等 `verified` 才落轨。
 - **语音**：`recut.speech.generate`（`text`=Script 行）。
 
 ## 5. 硬规则
 
-- **一个文档**：所有目标侧内容只写 `clone.md`；参考的跨目标分析才写参考素材。不建 analysis/plan/reading 多份文档。
+- **一个文档**：所有目标侧内容只写 `clone.md`；参考的跨目标分析才写参考素材。**切换参考或目标时，删除/归档旧的 `analysis.md`、`clone-plan.md` 等遗留文档，只保留 `clone.md`**。不建 analysis/plan/reading 多份文档。
 - **计划表必有 `anchor`**；不做「按顺序估时长」的手铺。改稿后按 anchor 重排（`references/placement.md`）。
 - **无占位素材**：计划只在 `clone.md`；生成直接产出真实 assetId，回填 Plan。不要为空计划建无字节 asset。
+- **分析产物不挂项目**：参考理解产物（`recut.media.import` 的参考、`contactSheet` / `frames` / `gridSlice` 的读取产物）是 workspace 级全局素材，**不要传 `projectId`**；只有要上时间线的素材才用 `recut.editor.asset.add` 进项目素材库。误挂的用 `recut.editor.asset.remove` 解挂。
+- **不考古**：续跑只从 `clone.md` 与素材 `content`/`attributes` 重建上下文；**绝不读取宿主 session 数据库（如 `~/.local/share/opencode/**`）或其他会话**。
+- **视觉前置**：克隆依赖视觉理解参考。若当前模型不能读图，**立即终止**并提示用户「理解与克隆视频需要能读图的模型，请先切换到有视觉能力的模型」，不要用纯文本替代或反复重试读图。
 - **不复制源台词/构图/肖像**（remix 红线）；只迁移可复用结构。
 - **不代用户确认视频生成**；付费前必须获批。
 - 所有素材以真实 `assetId` 引用；不臆造 id、不复制二进制。

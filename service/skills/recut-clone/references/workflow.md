@@ -10,9 +10,9 @@
 
 ## S1 读参考（recut-reference）
 
-1. 入库：`recut.media.import({ path })`（本地文件）或 `recut.media.import({ url })`（直链媒体）；网页用 `recut.media.import({ link })`。
+1. 入库：`recut.media.import({ path })`（本地文件）或 `recut.media.import({ url })`（直链媒体）；网页用 `recut.media.import({ link })`。**不要传 `projectId`**——参考是 workspace 级全局素材，不是项目素材。
 2. 标为参考：`recut.media.asset.update({ assetId, attrPatch: [{ key:"role", value:"reference" }, { key:"url", value: sourceUrl }] })`。
-3. 读：`recut.media.probe` → `recut.media.contactSheet`（带时间码）→ 按需 `recut.media.frames`；转写经 `recut.audio-studio.audio.transcribe`。
+3. 读：`recut.media.probe` → `recut.media.contactSheet`（带时间码）→ 按需 `recut.media.frames`；转写经 `recut.audio-studio.audio.transcribe`。这些读取产物都是 workspace 级分析物，同样不进项目素材库。
 4. 理解写回素材：`recut.media.asset.update({ assetId, content, attrPatch: [ref.*] })`（只写 content/attributes，无 metadata.reference）。
 5. 分析写参考素材 `content`/`attributes`（跨目标复用）；**本目标要用的带源时间读法写 `clone.md → Reference`**。
 
@@ -28,7 +28,7 @@
 ## S3 做完（计划 → 生成 → 落轨）
 
 1. 写 `clone.md → Plan`：每行 `role | anchor | spec | refs`；有口播用 `speech@<目标转写assetId>#起-止`，否则 `clock@起-止`。
-2. **付费门**：呈报 Plan + 预算，获批。
+2. **付费门（一次性）**：呈报 Plan + 预算，获批后连续执行到落轨；不再中途反复确认。用户说「开始 / 继续」即视为批准。
 3. 生成：
    - 图片 `recut.image.generate`（参考放 `imageAssetIds`；先出样图验收再批量）；
    - 视频 `recut.video.generate`（默认待用户确认，AI 不代确认；`aspectRatio`/`durationSec` 与画布一致）；
