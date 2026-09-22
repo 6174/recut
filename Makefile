@@ -5,7 +5,7 @@
 # Recut local development commands. Run `make help` for the public interface.
 
 .DEFAULT_GOAL := help
-.PHONY: help dev deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-test-race service-vet web-install web-test web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps check editor-realtime-verify transcribe-e2e motion-graphic-e2e worlds-check worlds-build worlds-upload worlds-publish worlds-status worlds-inspect
+.PHONY: help dev deps deploy service-dev service-build service-release service-install service-status service-resume stop-stale-service stop-stale-web service-test service-test-race service-vet web-install web-test web-dev web-build web-build-embedded web-build-cloudflare web-deploy cd-upload app-link builtin-apps check editor-realtime-verify transcribe-e2e motion-graphic-e2e worlds-check worlds-build worlds-upload worlds-publish worlds-status worlds-inspect
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 RECUT_HOME ?= $(HOME)/.recut
@@ -156,6 +156,10 @@ web-test: ## Run web unit tests (rich-composer / context-catalog / media / world
 	cd web && npm test
 
 web-install: ## Install locked web workspace dependencies.
+	cd web && npm ci
+
+deps: ## Install locked service and web dependencies in one step.
+	GOCACHE=$(GOCACHE) go -C service mod download
 	cd web && npm ci
 
 web-dev: stop-stale-web ## Start the public localhost site; app.localhost:3000 is the LAN-aware workspace.
