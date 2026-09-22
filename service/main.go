@@ -81,6 +81,13 @@ func main() {
 		log.Fatalf("ERROR initialize workspace store: %v", err)
 	}
 	media := NewMediaService(store)
+	// 一次性修正：参考理解产物（origin=understand）与参考资产（role=reference）
+	// 属于 workspace 级全局素材，历史上被错误挂进项目素材库；这里幂等解挂、不删字节。
+	if detached, err := media.MigrateDetachAnalysisAssets(); err != nil {
+		log.Printf("WARN detach analysis assets migration: %v", err)
+	} else if detached > 0 {
+		log.Printf("INFO detached %d analysis asset references from projects", detached)
+	}
 	// CDN-first Provider 模型目录（rfc/2026-09-03-provider-model-catalog-cdn.md §4）：
 	// 本地缓存立即生效 + 后台 CDN 刷新（首发 + 6h 周期），失败静默保留当前目录，
 	// 绝不因目录失败阻断生成。只在 daemon 启动路径开启；测试与 MCP 短命进程走种子。

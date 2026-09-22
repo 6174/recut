@@ -19,13 +19,13 @@ description: 读懂一支参考素材并把理解写回该素材：用 recut.med
 
 ## 流程
 
-1. **引入素材**：`recut.media.import({ path|url|link, projectId? })`——本地文件用 `path`，直链媒体用 `url`，网页/文章用 `link`（落 `kind=document`）；外部下载（yt-dlp 等）后也必须经它入库。拿到稳定 `assetId`。
+1. **引入素材**：`recut.media.import({ path|url|link })`——本地文件用 `path`，直链媒体用 `url`，网页/文章用 `link`（落 `kind=document`）；外部下载（yt-dlp 等）后也必须经它入库。拿到稳定 `assetId`。**不要传 `projectId`**：参考与它的读取产物是 workspace 级全局素材，不进任何项目素材库。
    - 标的为参考：`recut.media.asset.update({ assetId, attrPatch: [{ key:"role", value:"reference" }, { key:"url", value: sourceUrl }] })`（`url` 仅溯源）。
 2. **读**：
    - `recut.media.probe` 取时长/尺寸/帧率/音轨；
    - `recut.media.contactSheet`（带时间码，可传 `transcriptAssetId` 叠词）看整片节奏；
    - 需要细节时 `recut.media.frames`；转写经 `recut.audio-studio.audio.transcribe`。
-   - 这些产物需要留就留成普通素材，用 `assetId` 引用即可；不写回父素材。
+   - 这些产物是 workspace 级分析物（`origin=understand`）：用 `assetId` 引用即可，不写回父素材，**也不挂任何项目**。要进项目素材库的只有真正上时间线的素材，用 `recut.editor.asset.add` 显式加入。
 3. **写回理解**（唯一落点）：
    - `content`：整片理解 + 带源时间的细节，用平台内联引用标签（`<media assetid>` 等）@ 到证据素材。
    - `attributes`（key 前缀 `ref.`）：`ref.summary` / `ref.format` / `ref.hook` / `ref.beats` / `ref.systems` / `ref.transferable`。
@@ -36,7 +36,9 @@ description: 读懂一支参考素材并把理解写回该素材：用 recut.med
 
 - 只写 `content`/`attributes`；**不写 `metadata.reference`**，不做 evidence 记账，不建派生关系。
 - 读取产物是普通素材；不复制字节、不臆造 `assetId`。
+- **分析物留 workspace**：参考素材与读取产物（`contactSheet`/`frames`/`gridSlice`）都不挂项目；项目素材库只放上时间线的素材（`recut.editor.asset.add`）。
 - 读出的**事实**与**解释**都进 `content`/`attributes`（可读、可复用）；目标相关判断不写素材。
+- **模型无视觉时必须停**：理解参考视频需要能读图的模型。若当前模型不支持图片输入，**立即终止**，明确告知用户「理解与克隆视频需要能读图的模型，请先切换到有视觉能力的模型」，不要反复重试读图，也不要用转写/切点冒充理解继续。
 - 外部下载必须入库（`recut.media.import`）；只落工作区文件不算完成。
 
 ## 参考文档

@@ -102,6 +102,10 @@ type MediaAssetFilter struct {
 	Query  string
 	Limit  int
 	Offset int
+	// IncludeAnalysis surfaces workspace-level reference-understanding products
+	// (origin=understand) inside a project listing. They are hidden by default
+	// because they belong to the global library, not the project asset panel.
+	IncludeAnalysis bool
 }
 
 const (
@@ -192,6 +196,11 @@ func assetListWhere(projectID string, filter MediaAssetFilter) (string, []any) {
 	if projectID != "" {
 		conditions = append(conditions, "exists (select 1 from media_asset_projects p where p.asset_id = a.id and p.project_id = ?)")
 		args = append(args, projectID)
+		if !filter.IncludeAnalysis {
+			// Reference-understanding products are workspace-level; never surface
+			// them in a project's asset panel unless explicitly requested.
+			conditions = append(conditions, "coalesce(a.origin, '') != 'understand'")
+		}
 	}
 	// Exact lookup by contract: ids wins over kind/query predicates.
 	if len(filter.IDs) > 0 {
