@@ -1,8 +1,8 @@
 # Storyboard Sheet Template
 
-Load this file when分镜先以**一张 N 宫格分镜表**压缩生成，再按坐标展开（见 `SKILL.md` 的「一图分镜表（宫格压缩法）」）。
+Load this file when分镜以**一张 N 宫格分镜表**压缩生成，默认整张直接驱动视频，仅按需按坐标展开（见 `SKILL.md` 的「一图分镜表（宫格压缩法）」）。
 
-A sheet is a *contact sheet of intent*: one image holding the whole sequence so character, costume, set and light stay in one generation context. It is **not** a finished frame — each cell is expanded into a real keyframe afterwards.
+A sheet is a *contact sheet of intent*: one image holding the whole sequence so character, costume, set and light stay in one generation context. **Default: submit the whole sheet as the `storyboard` reference that drives video generation** — the reference budget is limited, so one sheet occupies one slot, not one per cell. Only expand a cell into a real keyframe when the escalation conditions apply (weak storyboard support or resolution, a precise first/last-frame endpoint, or a failed proof).
 
 ## 1. Grid contract
 
@@ -62,7 +62,11 @@ Field dictionary:
 
 `∑ durationSec` must match the script's `durationSec`; each beat owns 3–5 cells.
 
-## 4. Expand: from cells to frames
+## 4. Use: sheet → video (default), expand cells on demand
+
+**Default — use the sheet directly.** Submit the whole sheet as `role="storyboard"` alongside cast (`character`), set (`environment`), style (`style-ref`) and voice references; the model expands the sequence from it. The reference budget is limited, so the sheet occupies **one** slot — never one slot per cell. Do not regenerate per-cell keyframes unless the escalation conditions below apply.
+
+**Escalate to per-cell keyframes only when** the model handles storyboard references poorly or resolution is clearly insufficient, a shot needs a precise first/last-frame endpoint, or a representative-shot proof fails. Then:
 
 1. Read the grid rows/cols and the `R{r}C{c}` tags with vision; confirm the grid is regular and equal.
 2. Slice by deterministic pixel math `[c·W/cols, r·H/rows, W/cols, H/rows]` (platform `recut.media.gridSlice` when available, else ffmpeg crop). Pair every slice with its manifest entry by `coord`.
@@ -75,4 +79,4 @@ Field dictionary:
 - [ ] One STYLE LOCK, one cast/costume/set/light across all cells
 - [ ] Manifest covers every cell; `∑ durationSec` = script duration; every beat covered
 - [ ] Each cell is one action with a start→end state; last state = next cell's start
-- [ ] Sheet treated as sketch anchor only — no keyframe upscaled from it
+- [ ] Default is the whole sheet as the `storyboard` reference; any per-cell keyframe is regenerated (never upscaled) and only after an escalation condition

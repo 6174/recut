@@ -53,7 +53,6 @@ export type RecutAsset = {
 	sizeBytes: number;
 	contentHash: string;
 	status: "proposed" | "completed" | "deleted" | "failed" | "queued" | "running";
-	projectIds: string[];
 };
 
 export type RecutAssetManifest = {

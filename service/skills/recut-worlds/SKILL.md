@@ -31,9 +31,9 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 **素材 = media 属性（唯一通道）**：实体挂图片/视频/音频，就是一条 `type:"media"` 的 attr，值为 `{assetId, name?, kind?, segment?}`。**没有独立的「参考素材 / 证据」层**（evidence 已退役）；不复制二进制，只引用素材库 `assetId`，`segment` 保留「只引用某一段」的能力。
 
-**预设类型字段（locked）**：`character` 外貌与标志/性格/声音/不可变特征；`location` 描述/氛围；`object` 描述/材质/来历/用途/重要时刻；`story` 前提/关键时刻/情绪；`script`（视频脚本）一句话概括/节拍/口播/目标时长/画幅/目标平台/分镜表；`style` 视觉/guidance/避免；`rule` 规则文本。每类另带一个 **unlocked `background`（media）** 字段。
+**预设类型字段（locked）**：`character` 外貌与标志/性格/声音与说话方式/**声线参考（`voice_reference`，media/audio）**/不可变特征；`location` 描述/氛围；`object` 描述/材质/来历/用途/重要时刻；`story` 前提/关键时刻/情绪；`script`（视频脚本）一句话概括/节拍/口播/目标时长/画幅/目标平台/分镜表；`style` 视觉/guidance/避免；`rule` 规则文本。每类另带一个 **unlocked `background`（media）** 字段。`voice_reference` 是角色的**声线参考**（区别于文本「声音与说话方式」的语气描述）；`references[]` 会把它的 role 声明为 `voice`（不再靠 label 推断）。
 
-**视频脚本与分镜**：`script` 是面向生成的脚本层（`story` 给叙事内核，`script` 给可生成规格）。分镜先以**一张 N 宫格分镜表（storyboard sheet）**压缩生成（默认 5×5=25 格，每格标 `R{r}C{c}` 坐标与镜号），再用 `recut.media.gridSlice` 按 rows×cols 等分切格，逐格细化关键帧；宫格图与单格都作 `role="storyboard"` 锚点。分镜表写回 `script.storyboard` 这条 locked media 属性。
+**视频脚本与分镜**：`script` 是面向生成的脚本层（`story` 给叙事内核，`script` 给可生成规格）。分镜以**一张 N 宫格分镜表（storyboard sheet）**压缩生成（默认 5×5=25 格，每格标 `R{r}C{c}` 坐标与镜号），**默认整张直接作 `role="storyboard"` 参考驱动视频生成**（参考名额有限，整张只占一个），由模型据此展开分镜；仅当升级条件（模型吃 storyboard 参考弱/分辨率不足、需精确首尾帧端点、代表镜 proof 不过）才用 `recut.media.gridSlice` 按 rows×cols 等分切格、逐格细化关键帧。宫格图与单格都作 `role="storyboard"` 锚点。分镜表写回 `script.storyboard` 这条 locked media 属性。
 
 ## 属性怎么显示：三层分工
 
@@ -100,13 +100,17 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 1. **`recut.worlds.get({ worldId })`（单一入口，缺省整库）** —— 一次拿到：身份、**world.md（`skillMd`）**、**实体图**（`entities` 带 media 锚点 + `relations`）、**整库事实**（`facts`：角色/场景/风格/故事字段与 body）、`constraints`、全部 `references[]` 与就绪缺口 `missing`。据此知道「有哪些角色/场景/风格/故事、谁是主角色、每个实体有哪些参考图、它们怎么关联」。**不要习惯性传 `selection` 只取目标实体**：那会丢掉主角色与风格锚点；只有世界很大、确实要聚焦时才用 selection。
 2. **按需深读** —— 某实体完整字段/正文用 `recut.worlds.entities.get`；大世界用 `recut.worlds.entities.list`（`typeId`/`parentId`/`text` 分页）；`world.get` 返回 `graphTruncated=true` 时必须分页补读，不要假装世界只有返回的那些。
 
-**硬规则（生图 / 生视频通用，未过不提交）**：任何世界语境下的 `recut.image.generate` / `recut.video.generate`，提交前必须先取参考图，不许「纯文本直出」：
+**硬规则（生图 / 生视频 / 配音通用，未过不提交）**：任何世界语境下的 `recut.image.generate` / `recut.video.generate` / `recut.speech.generate`，提交前必须先取参考，不许「纯文本直出」：
 
-1. 先 `recut.worlds.get({ worldId })` 读 `references[]`（或 `world.get` 的实体 media 锚点），逐条对照本次画面。
+1. 先 `recut.worlds.get({ worldId })` 读 `references[]`（或 `world.get` 的实体 media 锚点），逐条对照本次画面/声音。
 2. 画面会出现主角色 → 必须带该角色参考图，`role="character"`。
 3. 世界已有场景 / 风格 / 色卡锚点 → 按 `role="environment" / "style-ref" / "color-card"` 传入，不堆无关图。
-4. 只有**明确不出现任何角色**的纯空场景，才允许不带任何参考图；「我忘了读」不是理由。
-5. world.md 的「资源口径」优先（例如示例图只作 `style-ref` 低频校准）。
+4. **角色有台词 / 内心独白** → 必须带该角色**声线参考**，`role="voice"`（取实体 `voice_reference` 字段，`references[]` 已声明其 role）。角色不说话的纯环境/静默镜头不必带 voice。
+5. **视频提交口径**：用 `references:[{id,kind,role,label}]` 传参考（含 audio role），需要模型发声时传 `audioAssetIds`，并让 `generateAudio` 与「本段是否说话」一致；**不要**只传 `imageAssetIds` 而丢掉 role 与声线。
+6. 只有**明确不出现任何角色**的纯空场景，才允许不带任何参考；缺任一应有锚点（角色/场景/声线）即停下补齐，「我忘了读」不是理由。
+7. world.md 的「资源口径」优先（例如示例图只作 `style-ref` 低频校准）。
+
+**统一口径**：世界已有声线参考时，角色台词/旁白**必须用该声线**（参考音 → 声音角色 → 合成），不静默换成默认音色；生成以「段/场景」为单位（一段连续动作优先一次多镜连续生成），不逐帧、逐段 5s 硬拼。
 
 **自查（不过即停）**：这次生成引用了哪些 `references`？每条 role 是什么？画面里的主角色对应哪一条？答不上来就从 `references[]` 补齐再提交。
 
@@ -198,7 +202,9 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 | 角色设定 / 表情版 / 情绪九宫格 | 该角色参考图（`character`）+ 风格（`style-ref`） |
 | 分镜关键帧 | 该镜场景（`environment`）+ 主角色（`character`）+ 风格（`style-ref`） |
 | 一图分镜表（storyboard sheet） | 世界风格（`style-ref`）+ 出场角色（`character`）+ 场景（`environment`）；产出 role=`storyboard` |
-| 逐格细化关键帧 | 该格分镜（`storyboard`）+ 主角色（`character`）+ 场景（`environment`）+ 风格（`style-ref`） |
+| 逐格细化关键帧（按需升级） | 该格分镜（`storyboard`）+ 主角色（`character`）+ 场景（`environment`）+ 风格（`style-ref`） |
+| 分镜直驱的场景视频（默认） | 整张分镜表（`storyboard`）+ 主角色（`character`）+ 场景（`environment`）+ 风格（`style-ref`）+ **声线参考（`voice`，角色说话时必带）** |
+| 出镜表演 / 有台词的视频镜头 | 主角色（`character`）+ 场景（`environment`）+ 风格（`style-ref`）+ **声线参考（`voice`，角色说话时必带）** |
 | 音色 / 配音 | 音色参考（`voice`） |
 
 **提交前自查（未过不提交）**：这次**生图 / 生视频**引用了几条参考、各是什么 role？画面里会出现主角色，却没有任何 `role="character"` 的参考图 → 停下，从 `brief.references[]` / `world.get` 实体 media 锚点补上再提交。世界已有场景 / 风格 / 色卡锚点时同样要带入。world.md 里「涉及主角色必须传角色设定图」是硬约束，不是建议。只想生成纯空场景（明确不出现任何角色）时才可省略 `character`；「这次忘了先读 `references[]`」不是省略理由。
@@ -254,6 +260,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 - **忘记 `expectedRevisionId`**：并发写会静默覆盖，必须带乐观锁。
 - **替用户确认视频生成**：视频由平台落为待确认资产；自行确认、把直生当默认、或自行轮询采纳都是越权；确认只属于用户。
 - **世界生图/生视频不带参考图**：不先读 `references[]` 就纯文本直出，是最严重的误用——主角色会漂、场景/风格会串。画面可能出现主角色而没有 `role="character"` 参考图时**必须停下补齐**，只有明确无角色的纯空场景才可省略。
+- **角色说话却不带声线参考**：只传 `imageAssetIds`、丢掉 `references`/`audioAssetIds`，或让 VO 走默认音色——角色的声音会与 Canon 不一致；有台词的镜头必须带 `role="voice"`。
 - **等图片生成完成才落位**：图片/语音拿到 `assetId` 就应立刻落节点（`assetStatus:"generating"`）；用 `recut.job.wait` 把落位堵在终态之后、或轮询后回写节点都是多余动作。
 - **只写实体属性、不落画布节点**：用户要的是画布上的「图片节点 + 属性边」（实体的一条可见属性）；只写实体 attrs 不会在画布上出现节点。两者都要做时，节点与边的 `label` 保持一致。
 - **在画布元素上写语义真相**：语义只存实体/关系；画布只承载投影与表达。

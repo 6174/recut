@@ -130,6 +130,8 @@ ProjectAssetLink ────────┘
 - `ProjectAssetLink` 表示“这个项目被允许、且应能发现这个 Asset”。一个 Asset 可以被同一项目多个 clip 复用。
 - 新增或替换 clip 时，服务端在同一事务中验证 Asset 状态与写入 ProjectAssetLink；不能先保存 clip、后异步赌绑定成功。
 
+> 归属方向纪律（2026-09-22）：项目归属只存在于 project 侧（`ProjectAssetLink` / `media_asset_projects`），Asset 本体不携带反向索引。`MediaAsset` 不再返回 `projectIds`；「这个 Asset 在哪些项目里」必须查 project 侧清单（`GET /v1/media/assets?projectId=…`、`recut.assets.list({ projectId })`）。服务端个别需要反查的场景（提案归属、迁移解挂）走显式的 project 侧查询，绝不回填到 Asset。
+
 ### 6.3 OPFS Cache：非权威记录
 
 每个 origin 的 OPFS 可以保存：

@@ -14,7 +14,7 @@ description: 读懂一支参考素材并把理解写回该素材：用 recut.med
 
 - **Asset = kind + status + content + attributes**。理解只写 `content` 与 `attributes` 两个字段。
 - 「这是一支参考」= 素材上的一条属性（`role: reference`，必要时 `url` 溯源），不是一种 kind、不是命名空间、不是专用工具。
-- 读取产物（帧/接触表/片段）就是**普通素材**；要用就直接引用它的 `assetId`，不写回父素材、不建派生关系。
+- 读取产物（帧/接触表/片段）就是**普通素材**；要用就直接引用它的 `assetId`，不写回父素材、不建派生关系。克隆/仿拍时它们正是**镜头语言的生成参考**（`style-ref` 调色质感 / `motion-ref` 运镜时序 / `storyboard` 构图）——只看不引用，生成不出相似镜头感。
 - 目标改造（keep/replace）留目标项目，不写素材。
 
 ## 流程

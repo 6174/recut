@@ -381,6 +381,31 @@ func (s *Store) ProjectFilesRoot(projectID string) (string, error) {
 	return root, os.MkdirAll(root, 0o755)
 }
 
+// SandboxDataFile resolves an absolute path underneath the Recut data root,
+// rejecting traversal and symlink escapes. Agent tool cards use it to read back
+// the file a write/edit produced; paths outside the data root are refused.
+// Both sides are symlink-resolved so macOS `/var` → `/private/var` comparisons
+// stay valid.
+func (s *Store) SandboxDataFile(requested string) (string, bool) {
+	if requested == "" || !filepath.IsAbs(requested) {
+		return "", false
+	}
+	root, err := filepath.EvalSymlinks(filepath.Clean(s.root))
+	if err != nil {
+		return "", false
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(requested))
+	if err != nil || !pathWithin(root, resolved) {
+		return "", false
+	}
+	return resolved, true
+}
+
+func pathWithin(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
+}
+
 func (s *Store) AppStateFilesRoot(appID string) (string, error) {
 	if err := validateAppID(appID); err != nil {
 		return "", err
@@ -395,6 +420,14 @@ func (s *Store) TargetFilesRoot(target Target) (string, error) {
 		return s.ProjectFilesRoot(target.ProjectID)
 	}
 	return s.AppStateFilesRoot(target.AppID)
+}
+
+// PlatformFilesRoot is the platform-global files root for assets that belong to
+// the platform rather than to any App or project (e.g. motion graphic bundles
+// and covers). It carries no App identity.
+func (s *Store) PlatformFilesRoot() (string, error) {
+	root := filepath.Join(s.root, "platform", "files")
+	return root, os.MkdirAll(root, 0o755)
 }
 
 // WorkspaceDatabase owns platform-only data that must survive independently of a

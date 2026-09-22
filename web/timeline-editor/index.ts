@@ -5,6 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 export { EditorShell } from "./src/editor/editor-shell";
+export { ComponentPreview } from "./src/components/editor/panels/assets/views/component-preview";
 export { configureRecutHost } from "./src/recut/host";
 export type { RecutHostAdapter } from "./src/recut/host";
 

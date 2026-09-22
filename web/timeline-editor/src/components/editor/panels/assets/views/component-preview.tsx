@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { VisualRuntime, WorldScene, anim, componentsRegistry, ensureComponent, installComponentResolver, FrameTimeContext } from "@timeline/runtime";
+import type { ComponentResolver } from "@timeline/runtime";
 import type {
 	ComponentDefinition,
 	ComponentRenderContext,
@@ -35,7 +36,42 @@ type ComponentPreviewProps = {
 	width?: number;
 	height?: number;
 	duration?: number;
+	/**
+	 * 自定义组件解析器：聊天等非编辑器宿主经 HTTP 取 bundle 时注入；
+	 * 缺省（编辑器内）走 recut 宿主桥 installRecutComponentResolver。
+	 */
+	resolver?: ComponentResolver;
 };
+
+// installPreviewResolver 统一预览入口的解析来源：显式 resolver 优先，其次测试 seam，最后编辑器宿主桥。
+function installPreviewResolver(
+	componentId: string,
+	name: string,
+	surface: AiComponentSurface,
+	inputs: AiComponentInput[],
+	resolver?: ComponentResolver,
+) {
+	if (resolver) {
+		installComponentResolver(resolver);
+		return;
+	}
+	const seam = (window as Window & { __recutTest?: { aiComponents?: { resolve?: Record<string, AiComponentResolveSeam> } } })
+		.__recutTest?.aiComponents?.resolve?.[componentId];
+	if (seam) {
+		installComponentResolver(() =>
+			Promise.resolve({
+				componentId,
+				name,
+				surface: seam.surface,
+				inputs: seam.inputs as unknown as ParamDefinition[],
+				bundle: seam.bundle,
+				bundleHash: seam.bundleHash,
+			}),
+		);
+		return;
+	}
+	installRecutComponentResolver();
+}
 
 /** 预览入口：R3F 必须走 WorldScene，其他承载面直接渲染真实 DOM。 */
 export function ComponentPreview(props: ComponentPreviewProps) {
@@ -51,35 +87,22 @@ export function ComponentPreview(props: ComponentPreviewProps) {
 function ComponentPreviewCanvas({
 	componentId,
 	name,
+	surface,
 	inputs,
 	width = 320,
 	height = 180,
 	duration = 6,
+	resolver,
 }: ComponentPreviewProps) {
 	const [world, setWorld] = useState<import("@timeline/runtime/types").World | null>(null);
 	const [time, setTime] = useState(0);
 	const [error, setError] = useState<string | null>(null);
 	const locale = useRecutLocale();
 
-	// 挂上解析器并构建默认参数世界：测试注入 bundle（无宿主）或走 host motion-graphic.resolve。
+	// 挂上解析器并构建默认参数世界：显式 resolver（聊天 HTTP）/ 测试 seam / 编辑器宿主桥。
 	useEffect(() => {
 		let alive = true;
-		const seam = (window as Window & { __recutTest?: { aiComponents?: { resolve?: Record<string, AiComponentResolveSeam> } } })
-			.__recutTest?.aiComponents?.resolve?.[componentId];
-		if (seam) {
-			installComponentResolver(() =>
-				Promise.resolve({
-					componentId,
-					name,
-					surface: seam.surface,
-					inputs: seam.inputs as unknown as ParamDefinition[],
-					bundle: seam.bundle,
-					bundleHash: seam.bundleHash,
-				}),
-			);
-		} else {
-			installRecutComponentResolver();
-		}
+		installPreviewResolver(componentId, name, surface, inputs, resolver);
 		(async () => {
 			try {
 				await ensureComponent(componentId);
@@ -128,7 +151,7 @@ function ComponentPreviewCanvas({
 		return () => {
 			alive = false;
 		};
-	}, [componentId, width, height, duration, name, inputs]);
+	}, [componentId, surface, width, height, duration, name, inputs, resolver]);
 
 	// 时间循环（预览允许墙钟；导出仍确定性）。
 	useEffect(() => {
@@ -187,6 +210,7 @@ function ComponentDomPreview({
 	width = 320,
 	height = 180,
 	duration = 6,
+	resolver,
 }: ComponentPreviewProps) {
 	const [definition, setDefinition] = useState<ComponentDefinition | null>(null);
 	const [time, setTime] = useState(0);
@@ -194,6 +218,7 @@ function ComponentDomPreview({
 
 	useEffect(() => {
 		let alive = true;
+		installPreviewResolver(componentId, name, surface, inputs, resolver);
 		ensureComponent(componentId)
 			.then((definition) => {
 				if (alive && definition) setDefinition(definition);
@@ -202,7 +227,7 @@ function ComponentDomPreview({
 		return () => {
 			alive = false;
 		};
-	}, [componentId]);
+	}, [componentId, name, surface, inputs, resolver]);
 
 	// 时间循环（预览允许墙钟；导出仍确定性）。
 	useEffect(() => {

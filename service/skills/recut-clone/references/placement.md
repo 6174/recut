@@ -19,7 +19,7 @@ clone 的**组装、字幕/图形、预览、校验、导出**全部交给 `time
 - `recut.editor.workflow_context`（读一次，**显式带 projectId**）→ `timeline.read` 看现状。
 - 多步写入：`project.lock` 拿 `owner/token` → `work.checkpoint` → 写入带最新 `baseVersion` → `project.unlock`。
 - 冲突：重读后重放，不整份重载。
-- 落轨即把媒体素材自动加入项目素材库（无需额外登记）。
+- 落轨即自动加入项目素材库（无需额外登记）：媒体走 `placeAudio` 的媒体引用；组件默认「先登记后用」（创建带 `projectId` 或 `asset.add component:<id>`），`placeComponents` 对未登记组件只作兜底补登记。
 
 ## 3. 锚点 → 时间线窗口
 

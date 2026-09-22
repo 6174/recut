@@ -6,14 +6,18 @@
  */
 "use client";
 
-import { Bot, Check, ChevronRight, CircleAlert, Copy, RefreshCw, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { Bot, Check, ChevronRight, CircleAlert, Copy, Layers, LoaderCircle, RefreshCw, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { AgentInstallGuide, CopyFeedback, copyToClipboard, recoverySubtitle, recoveryTitle, type AgentRuntimeStatus } from "@/components/agent-install-guide";
 import { AgentMessageContent } from "@/components/agent-message-content";
 import { AssetReferenceChip } from "@/components/asset-reference-picker";
-import { ToolResultAssets } from "@/components/tool-result-assets";
+import { ToolResultAssets, resultAssetIDs } from "@/components/tool-result-assets";
+import { FileChangeCard, extractFileChanges, isFileChangeCall } from "@/components/tool-file-change-card";
+import { MotionGraphicPreview } from "@/components/motion-graphic-preview";
+import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
+import { extractMotionGraphic, isMotionGraphicCall, type MotionGraphic } from "@/lib/agent/motion-graphic";
 import { Button } from "@/components/ui/button";
 import { ActionIcon, RunningStatus, WorkFocusChip, WorkSurfaceChip } from "@/components/agent-composer";import { codexModelLabel, contextLabel, defaultCodexConfiguration, hasWorkFocusSelection, opencodeModelLabel, parseSubagentJob, runtimeLabel, type SubagentJob, type WorkFocusContext, type WorkSurfaceContext } from "@/components/agent-panel-types";
 import { type AgentEvent, type CLIEntry, type Detail, type Session, type ToolPayload, type Turn } from "@/components/agent-panel-types";
@@ -564,13 +568,55 @@ function toolCalls(events: AgentEvent[]): ToolCall[] {
 }
 
 function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolCall; now: number }) {
+  // Hooks 必须在任何分支返回前调用：子 Agent 卡片、文件卡片与生成结果卡片都是独立组件，
+  // 但本组件自身（通用工具行）的 state 不能因分支切换而改变 hook 数量。
+  const { t: text } = useI18n();
+  const [open, setOpen] = useState(false);
   // 子 Agent 任务：识别到 subagentId 判别字段即渲染专用任务卡片（含实时状态与耗时 counter）。
   if (call.subagent?.id) {
     return <SubagentTaskCard apiBase={apiBase} call={call} now={now} />;
   }
-  const { t: text } = useI18n();
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  // 文件写入/编辑工具（write/edit/patch/file_change）渲染为可直接预览文件内容与 diff 的卡片；
+  // 输入尚未解析出文件时回退到通用工具行，避免运行中工具整行消失。
+  if (isFileChangeCall(call.payload)) {
+    const changes = extractFileChanges(call);
+    if (changes.length > 0) {
+      return (
+        <FileChangeCard
+          apiBase={apiBase}
+          call={call}
+          changes={changes}
+          duration={toolDuration(call.createdAt, call.completedAt, now)}
+        />
+      );
+    }
+  }
+  // Motion Graphic 组件操作（commit/update/verify 等）渲染为组件卡片：展示名称、状态、
+  // 版本与封面（有则预览，无则占位），不再只是一行文本。
+  if (isMotionGraphicCall(call.payload)) {
+    const graphic = extractMotionGraphic(call);
+    if (graphic) {
+      return (
+        <MotionGraphicCard
+          apiBase={apiBase}
+          call={call}
+          duration={toolDuration(call.createdAt, call.completedAt, now)}
+          graphic={graphic}
+        />
+      );
+    }
+  }
+  // 生成类工具（image/video/speech.generate）始终渲染结果卡片：无论输入中、生成中、
+  // 待确认提案还是已完成，都直接内联展示媒体预览，不再需要点开工具行。
+  if (isMediaGenerationCall(call.payload)) {
+    return (
+      <MediaResultCard
+        apiBase={apiBase}
+        call={call}
+        duration={toolDuration(call.createdAt, call.completedAt, now)}
+      />
+    );
+  }
   const hasDetail = true;
   const duration = toolDuration(call.createdAt, call.completedAt, now);
   const label = toolDisplayLabel(call.payload, call.input, text);
@@ -611,53 +657,333 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
         )}
       </div>
       {open && hasDetail && (
-        <div
-          className={`mt-2 max-w-full rounded-sm border p-3 text-foreground ${call.state === "error" ? "border-destructive/40 bg-destructive/5" : "bg-muted/30"}`}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-medium">
-              {label}
-            </p>
-            <span className={`shrink-0 text-[10px] ${labelClass}`}>
-              {stateLabel} · {interpolate(text("agent.conversation.elapsed"), { duration })}
-            </span>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <p className="min-w-0 break-all font-mono text-[10px] text-muted-foreground">
-              {interpolate(text("agent.tool.realName"), { name: call.payload.toolName ?? call.payload.tool ?? text("agent.tool.noName") })}
-            </p>
-            <button
-              className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={async () => {
-                setCopied(await copyToClipboard(toolCallReport(call, label, duration)));
-              }}
-              type="button"
-            >
-              {copied ? text("agent.tool.copied") : text("agent.tool.copy")}
-            </button>
-          </div>
-          <ToolDetail
-            emptyLabel={text("agent.tool.args.empty")}
-            title={text("agent.tool.args")}
-            value={call.input}
-          />
-          {call.state !== "error" && (
-            <ToolResultAssets apiBase={apiBase} output={call.output} />
-          )}
-          <ToolDetail
-            emptyLabel={
-              call.state === "error" ? text("agent.tool.error.empty") : text("agent.tool.output.empty")
-            }
-            title={call.state === "error" ? text("agent.tool.error.title") : text("agent.tool.output")}
-            value={call.error ?? call.output}
-          />
-          {call.payload.cost && (
-            <ToolDetail title={text("agent.tool.cost")} value={call.payload.cost} />
-          )}
-        </div>
+        <ToolCallDetailBody
+          apiBase={apiBase}
+          call={call}
+          duration={duration}
+          label={label}
+          labelClass={labelClass}
+          showAssets
+          stateLabel={stateLabel}
+        />
       )}
     </div>
   );
+}
+
+// MediaResultCard 把生成类工具（image/video/speech.generate）的产物直接渲染成结果卡片：
+// 头部保留工具名与耗时，主体内联显示生成中/已完成的媒体预览，点击预览卡即可放大查看；
+// 需要原始参数或输出时再展开详情，不再需要点开工具行才能看到结果。
+function MediaResultCard({ apiBase, call, duration }: { apiBase: string; call: ToolCall; duration: string }) {
+  const { t: text } = useI18n();
+  const [open, setOpen] = useState(false);
+  const label = toolDisplayLabel(call.payload, call.input, text);
+  const hasAssets = resultAssetIDs(call.output).length > 0;
+  const stateLabel = { running: text("agent.tool.running"), success: text("agent.tool.success"), error: text("agent.tool.error") }[
+    call.state
+  ];
+  const stateClass = {
+    running: "animate-pulse bg-warning",
+    success: "bg-success",
+    error: "bg-destructive",
+  }[call.state];
+  const labelClass =
+    call.state === "error"
+      ? "text-destructive"
+      : call.state === "success"
+        ? "text-success"
+        : "text-warning";
+  return (
+    <div className="max-w-full text-[11px]">
+      <div className="rounded-sm border bg-card p-2.5 shadow-sm">
+        <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+          <span className={`size-1.5 shrink-0 rounded-full ${stateClass}`} />
+          <span className="truncate font-medium text-foreground">{label}</span>
+          <span className={`ml-auto shrink-0 text-[10px] ${labelClass}`}>
+            {stateLabel} · {duration}
+          </span>
+          <button
+            aria-expanded={open}
+            aria-label={text("agent.tool.expand")}
+            className="grid size-5 shrink-0 place-items-center rounded-sm hover:bg-muted hover:text-foreground"
+            onClick={() => setOpen((value) => !value)}
+            type="button"
+          >
+            <ChevronRight className={`size-3 transition-transform ${open ? "rotate-90" : ""}`} />
+          </button>
+        </div>
+        {hasAssets ? (
+          <ToolResultAssets apiBase={apiBase} output={call.output} />
+        ) : call.state === "error" ? (
+          <p className="mt-2 font-mono text-[10px] whitespace-pre-wrap text-destructive">
+            {(call.error ?? text("agent.tool.error.empty")).split("\n")[0]}
+          </p>
+        ) : (
+          <p className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <LoaderCircle className="size-3 animate-spin text-primary" />
+            {text("agent.message.generating")}
+          </p>
+        )}
+      </div>
+      {open && (
+        <ToolCallDetailBody
+          apiBase={apiBase}
+          call={call}
+          duration={duration}
+          label={label}
+          labelClass={labelClass}
+          showAssets={false}
+          stateLabel={stateLabel}
+        />
+      )}
+    </div>
+  );
+}
+
+// ToolCallDetailBody 是通用工具行与结果卡共用的展开详情：真实工具名、复制、参数、输出/错误与成本。
+// showAssets 控制是否内联媒体结果（结果卡已常驻展示，避免重复）。
+function ToolCallDetailBody({
+  apiBase,
+  call,
+  duration,
+  label,
+  labelClass,
+  showAssets,
+  stateLabel,
+}: {
+  apiBase: string;
+  call: ToolCall;
+  duration: string;
+  label: string;
+  labelClass: string;
+  showAssets: boolean;
+  stateLabel: string;
+}) {
+  const { t: text } = useI18n();
+  const [copied, setCopied] = useState(false);
+  return (
+    <div
+      className={`mt-2 max-w-full rounded-sm border p-3 text-foreground ${call.state === "error" ? "border-destructive/40 bg-destructive/5" : "bg-muted/30"}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-medium">{label}</p>
+        <span className={`shrink-0 text-[10px] ${labelClass}`}>
+          {stateLabel} · {interpolate(text("agent.conversation.elapsed"), { duration })}
+        </span>
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <p className="min-w-0 break-all font-mono text-[10px] text-muted-foreground">
+          {interpolate(text("agent.tool.realName"), { name: call.payload.toolName ?? call.payload.tool ?? text("agent.tool.noName") })}
+        </p>
+        <button
+          className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={async () => {
+            setCopied(await copyToClipboard(toolCallReport(call, label, duration)));
+          }}
+          type="button"
+        >
+          {copied ? text("agent.tool.copied") : text("agent.tool.copy")}
+        </button>
+      </div>
+      <ToolDetail
+        emptyLabel={text("agent.tool.args.empty")}
+        title={text("agent.tool.args")}
+        value={call.input}
+      />
+      {showAssets && call.state !== "error" && (
+        <ToolResultAssets apiBase={apiBase} output={call.output} />
+      )}
+      <ToolDetail
+        emptyLabel={
+          call.state === "error" ? text("agent.tool.error.empty") : text("agent.tool.output.empty")
+        }
+        title={call.state === "error" ? text("agent.tool.error.title") : text("agent.tool.output")}
+        value={call.error ?? call.output}
+      />
+      {call.payload.cost && (
+        <ToolDetail title={text("agent.tool.cost")} value={call.payload.cost} />
+      )}
+    </div>
+  );
+}
+
+// isMediaGenerationCall 识别生成类工具；按规范化后的名字包含 image/video/speech_generate 判定，
+// 同时覆盖 OpenCode 规范名（recut.image.generate）与 App 别名/异步变体（recut_recut_image_generate_async）。
+function isMediaGenerationCall(payload: ToolPayload): boolean {
+  const names = [payload.toolName, payload.tool].filter((value): value is string => Boolean(value));
+  return names.some((name) => /(image|video|speech)_generate/.test(name.replaceAll(".", "_")));
+}
+
+// MotionGraphicCard 展示一个 Motion Graphic 组件素材：名称、状态徽标、版本、封面预览
+// （有 coverUrl 显示真实封面并可放大；没有则用组件占位卡，提示到剪辑器素材库渲染），
+// 需要原始参数/输出时再展开详情。
+function MotionGraphicCard({
+  apiBase,
+  call,
+  duration,
+  graphic,
+}: {
+  apiBase: string;
+  call: ToolCall;
+  duration: string;
+  graphic: MotionGraphic;
+}) {
+  const { t: text } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const label = toolDisplayLabel(call.payload, call.input, text);
+  const stateLabel = { running: text("agent.tool.running"), success: text("agent.tool.success"), error: text("agent.tool.error") }[
+    call.state
+  ];
+  const stateClass = {
+    running: "animate-pulse bg-warning",
+    success: "bg-success",
+    error: "bg-destructive",
+  }[call.state];
+  const labelClass =
+    call.state === "error"
+      ? "text-destructive"
+      : call.state === "success"
+        ? "text-success"
+        : "text-warning";
+  const name = graphic.name || graphic.componentId;
+  const cover = coverSource(apiBase, graphic.coverUrl);
+  const status = motionGraphicStatus(graphic.status, text);
+  const paramCount = graphic.inputs?.length ?? 0;
+  return (
+    <div className="max-w-full text-[11px]">
+      <div className="overflow-hidden rounded-sm border bg-card shadow-sm">
+        <div className="flex min-w-0 items-center gap-1.5 px-2.5 py-2 text-muted-foreground">
+          <Layers className="size-3.5 shrink-0 text-primary" />
+          <span className="truncate font-medium text-foreground">{name}</span>
+          {status && (
+            <span className={`shrink-0 rounded-sm px-1 py-0.5 text-[9px] leading-4 ${status.className}`}>
+              {status.label}
+            </span>
+          )}
+          {graphic.version !== undefined && (
+            <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
+              {interpolate(text("agent.mg.version"), { version: String(graphic.version) })}
+            </span>
+          )}
+          <span className={`ml-auto shrink-0 text-[10px] ${labelClass}`}>
+            {stateLabel} · {duration}
+          </span>
+          <button
+            aria-expanded={open}
+            aria-label={text("agent.tool.expand")}
+            className="grid size-5 shrink-0 place-items-center rounded-sm hover:bg-muted hover:text-foreground"
+            onClick={() => setOpen((value) => !value)}
+            type="button"
+          >
+            <ChevronRight className={`size-3 transition-transform ${open ? "rotate-90" : ""}`} />
+          </button>
+        </div>
+        {cover ? (
+          <button
+            aria-label={interpolate(text("agent.mg.preview"), { name })}
+            className="block w-full border-t"
+            onClick={() => setPreview(true)}
+            type="button"
+          >
+            <img alt={name} className="aspect-video w-full object-cover" src={cover} />
+          </button>
+        ) : (
+          // 无封面时在卡片内实时渲染组件（懒挂载 + 错误边界）；点击统一走素材预览弹框。
+          <div className="relative">
+            <MotionGraphicPreview
+              apiBase={apiBase}
+              componentId={graphic.componentId}
+              name={name}
+              surface={graphic.surface}
+              versionId={graphic.versionId}
+            />
+            <button
+              aria-label={interpolate(text("agent.mg.preview"), { name })}
+              className="absolute inset-0 cursor-zoom-in"
+              onClick={() => setPreview(true)}
+              type="button"
+            />
+          </div>
+        )}
+        {(graphic.brief || paramCount > 0) && (
+          <div className="flex items-start gap-2 border-t px-2.5 py-1.5 text-[10px] text-muted-foreground">
+            {graphic.brief && <p className="min-w-0 flex-1 line-clamp-2">{graphic.brief}</p>}
+            {paramCount > 0 && (
+              <span className="ml-auto shrink-0">
+                {interpolate(text("agent.mg.params"), { count: String(paramCount) })}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      {open && (
+        <ToolCallDetailBody
+          apiBase={apiBase}
+          call={call}
+          duration={duration}
+          label={label}
+          labelClass={labelClass}
+          showAssets={false}
+          stateLabel={stateLabel}
+        />
+      )}
+      {preview && (
+        <AssetPreviewDialog
+          apiBase={apiBase}
+          asset={motionGraphicPreviewAsset(graphic, name)}
+          onClose={() => setPreview(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// motionGraphicPreviewAsset 把组件工具结果包装成统一素材：kind=component，组件版本信息统一在 metadata.component，
+// 由 AssetPreviewDialog 复用同一实时渲染路径预览。
+function motionGraphicPreviewAsset(graphic: MotionGraphic, fallbackName: string): PreviewAsset {
+  const now = new Date().toISOString();
+  return {
+    id: graphic.assetId || `component:${graphic.componentId}`,
+    kind: "component",
+    name: graphic.name || fallbackName || graphic.componentId,
+    origin: "agent",
+    status: "completed",
+    createdAt: now,
+    updatedAt: now,
+    metadata: {
+      component: {
+        componentId: graphic.componentId,
+        versionId: graphic.versionId,
+        surface: graphic.surface,
+        inputs: graphic.inputs,
+        status: graphic.status,
+        brief: graphic.brief,
+      },
+      prompt: graphic.brief,
+    },
+  };
+}
+
+function coverSource(apiBase: string, coverUrl?: string): string | undefined {
+  if (!coverUrl) return undefined;
+  return /^https?:\/\//.test(coverUrl) ? coverUrl : `${apiBase}${coverUrl}`;
+}
+
+function motionGraphicStatus(
+  status: string | undefined,
+  text: (key: string) => string,
+): { label: string; className: string } | null {
+  if (!status) return null;
+  const tone =
+    status === "verified"
+      ? "bg-success/10 text-success"
+      : status === "failed"
+        ? "bg-destructive/10 text-destructive"
+        : "bg-muted text-muted-foreground";
+  const key = `agent.mg.${status}`;
+  const label = text(key);
+  return { label: label !== key ? label : status, className: tone };
 }
 
 // 工具动作标签同时展示翻译名称与英文 tool-name；未知工具名直接展示英文名，

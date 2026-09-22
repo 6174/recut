@@ -145,6 +145,35 @@ const zh = {
   "agent.tool.assetFallback": "生成的素材",
   "agent.tool.open": "打开{label}",
 
+  // 文件写入/编辑卡片
+  "agent.file.new": "新建",
+  "agent.file.edit": "修改",
+  "agent.file.delete": "删除",
+  "agent.file.fileCount": "{count} 个文件",
+  "agent.file.viewFull": "查看完整内容：{name}",
+  "agent.file.viewFullShort": "查看完整内容",
+  "agent.file.copy": "复制内容",
+  "agent.file.copied": "已复制",
+  "agent.file.close": "关闭文件预览",
+  "agent.file.empty": "（空文件）",
+  "agent.file.more": "还有 {count} 行…",
+  "agent.file.tab.diff": "变更",
+  "agent.file.tab.doc": "文档",
+  "agent.file.loading": "正在读取文件…",
+  "agent.file.readFailed": "无法读取文件：{message}",
+
+  // Motion Graphic 组件卡片
+  "agent.mg.draft": "草稿",
+  "agent.mg.verified": "已验证",
+  "agent.mg.failed": "构建失败",
+  "agent.mg.archived": "已归档",
+  "agent.mg.version": "v{version}",
+  "agent.mg.params": "{count} 个参数",
+  "agent.mg.noCover": "组件暂无封面，可在剪辑器素材库渲染后查看",
+  "agent.mg.preview": "预览 {name}",
+  "agent.mg.previewLoading": "正在渲染组件…",
+  "agent.mg.previewFailed": "组件渲染失败",
+
   // 工具动作标签（按工具名）
   "agent.tool.name.recut_recut_context": "读取 Recut 上下文",
   "agent.tool.name.recut_recut_apps_list": "读取已安装应用",
@@ -492,6 +521,35 @@ const en: Record<keyof typeof zh, string> = {
   "agent.tool.result": "Generated results",
   "agent.tool.assetFallback": "Generated asset",
   "agent.tool.open": "Open {label}",
+
+  // File write/edit card
+  "agent.file.new": "New",
+  "agent.file.edit": "Edit",
+  "agent.file.delete": "Delete",
+  "agent.file.fileCount": "{count} files",
+  "agent.file.viewFull": "View full content: {name}",
+  "agent.file.viewFullShort": "View full content",
+  "agent.file.copy": "Copy content",
+  "agent.file.copied": "Copied",
+  "agent.file.close": "Close file preview",
+  "agent.file.empty": "(empty file)",
+  "agent.file.more": "{count} more lines…",
+  "agent.file.tab.diff": "Changes",
+  "agent.file.tab.doc": "Document",
+  "agent.file.loading": "Reading file…",
+  "agent.file.readFailed": "Couldn't read the file: {message}",
+
+  // Motion Graphic component card
+  "agent.mg.draft": "Draft",
+  "agent.mg.verified": "Verified",
+  "agent.mg.failed": "Build failed",
+  "agent.mg.archived": "Archived",
+  "agent.mg.version": "v{version}",
+  "agent.mg.params": "{count} params",
+  "agent.mg.noCover": "No cover yet — render it in the editor's asset library to preview",
+  "agent.mg.preview": "Preview {name}",
+  "agent.mg.previewLoading": "Rendering component…",
+  "agent.mg.previewFailed": "Component failed to render",
 
   // Tool action labels (keyed by tool name)
   "agent.tool.name.recut_recut_context": "Read Recut context",

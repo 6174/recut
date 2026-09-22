@@ -20,7 +20,9 @@
    - 整片机制（为什么有效）；
    - 带源时间的节拍；
    - **上屏文案系统**：句子、层级（字幕/强调/独立书写）、位置、强调纪律、结尾卡/数据卡形态；
-   - 可迁移（公式）/ 不可复制（肖像/台词/构图/品牌）。
+   - **镜头语言**：景别/机位/运镜/构图/节奏/调色——clone 要用它把「镜头感」迁过去，所以要落成可复用的生成参考（下条）；
+   - 可迁移（公式）/ 不可复制（肖像/台词/具体构图/品牌）。
+5. **读取产物即参考素材**：`frames` / `contactSheet` / `gridSlice` / `clip` 是普通素材，生成时按 role 复用（`style-ref` 调色质感 / `motion-ref` 运镜时序 / `storyboard` 构图）——不另建副本、不挂项目。
 
 **自检 G1**：机制可定位到源时间；有可读 `speech@` 转写或明确用 `clock@`；上屏文案已记录。
 
@@ -49,7 +51,9 @@
 1. **G3 花钱门**：呈报 Plan + 预算；获批后连续执行到落轨（视频确认是第二个人工门，不承诺无中断）。
 2. 生成（政策见 `SKILL.md` §6）：
    - 逐段/场景提交；一段连续动作优先一次多镜生成；
-   - 参考按能力提交：图片 `imageAssetIds`；视频 `references`（含 `role:voice`）+ 必要时 `audioAssetIds`；锚定表取自 `recut.worlds.get.references[]`；
+   - 参考按能力提交：图片 `imageAssetIds`；视频 `references`（含 `role:voice`）+ 必要时 `audioAssetIds`；新主体/世界锚定取自 `recut.worlds.get.references[]`；
+   - **镜头语言锚点**：参考的帧/接触表/片段按 role 传入（`style-ref` 调色质感 / `motion-ref` 运镜时序·走 `videoAssetIds` / `storyboard` 构图），与角色/场景锚点并列——不传就生成不出相似镜头感；
+   - **分镜图直接驱动（默认）**：分镜表/分镜图**整张作 `role="storyboard"` 参考直提交**，不逐格重生成；参考名额有限，仅在升级条件（模型吃 storyboard 参考弱/需精确首尾帧/代表镜 proof 不过，见 `SKILL.md` §6）下才 `gridSlice` 切格细化关键帧；
    - 信息/数据/排版走 `recut.motion-graphic.create`（等 `verified`）；
    - 角色台词/独白用 World 声线参考合成；
    - 拿到稳定 assetId **立即回填 `PLAN.md`**；仅当下一步依赖产物内容时等待终态；代表段先 proof 再批量。

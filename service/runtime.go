@@ -1109,6 +1109,12 @@ func (t Target) filesURL(appID, path string) string {
 	return fmt.Sprintf("/v1/apps/%s/files/%s", appID, filepath.ToSlash(path))
 }
 
+// platformFileURL is the platform-global URL for a file under PlatformFilesRoot.
+// Used by assets that belong to the platform, not to any App or project.
+func platformFileURL(path string) string {
+	return "/v1/platform/files/" + filepath.ToSlash(path)
+}
+
 // composeMediaInput crosses the JavaScript boundary through JSON rather than
 // Go field names. Goja's direct struct export does not apply json tags, while
 // App payloads intentionally use the stable camelCase HTTP/MCP contract.

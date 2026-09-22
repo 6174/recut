@@ -102,7 +102,9 @@ rpc.reply { id, result }           // 平台 op，daemon 直接处理
 
 ### 统一观察（Agent 侧）
 
-`recut.job.status` / `recut.job.wait` / `recut.job.cancel` 统一读 `shell` / `media` / `deferred` 三类。`recut.job.wait` 对 deferred 同样按 timeout 返回当前视图，Agent 可继续轮询。
+`recut.job.status` / `recut.job.wait` / `recut.job.cancel` 统一读 `shell` / `media` / `deferred`（以及聚焦 sub-agent）四类。`recut.job.wait` 对 deferred 同样按 timeout 返回当前视图，Agent 可继续轮询。
+
+三者都接受单个 `jobId` 或 `jobIds: string[]`。批量时返回 `{ jobs, summary, pending, allTerminal }`（cancel 返回 `{ jobs, cancelled }`），未知 id 以逐项 `{ jobId, kind:"unknown", status:"not_found", error }` 呈现而不整批失败。`recut.job.wait` 的 `mode` 选择批量语义：`all`（缺省）等到全部终态，`any` 任一终态即返回（失败快停）。批量等待用单一共享 deadline 在短窗口内轮询，N 个任务不会串行占用 N 个等待窗口。
 
 ## 6. App→UI RPC 时序（规范）
 

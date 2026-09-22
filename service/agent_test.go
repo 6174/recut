@@ -611,6 +611,30 @@ func TestOpencodeToolErrorDetailPreservesStateError(t *testing.T) {
 	}
 }
 
+func TestOpencodeFileMetadataSurfacesPathDiffAndExistence(t *testing.T) {
+	state := map[string]any{
+		"input": map[string]any{"filePath": "/project/files/NOTES.md"},
+		"metadata": map[string]any{
+			"filepath": "/project/files/NOTES.md",
+			"exists":   false,
+			"diff":     "@@ -0,0 +1 @@\n+hello",
+		},
+	}
+	fields := opencodeFileMetadata(state)
+	if fields["filePath"] != "/project/files/NOTES.md" || fields["fileExists"] != false {
+		t.Fatalf("opencode file metadata path/exists = %#v", fields)
+	}
+	if !strings.Contains(fields["diff"].(string), "+hello") {
+		t.Fatalf("opencode file metadata diff missing: %#v", fields)
+	}
+	if extra := opencodeFileMetadata(map[string]any{"metadata": map[string]any{"diagnostics": map[string]any{}}}); extra != nil {
+		t.Fatalf("metadata without file fields should yield nil, got %#v", extra)
+	}
+	if none := opencodeFileMetadata(map[string]any{}); none != nil {
+		t.Fatalf("metadata-less state should yield nil, got %#v", none)
+	}
+}
+
 func TestAgentCLIUnavailableErrorIsActionable(t *testing.T) {
 	message := agentCLIUnavailableError("Codex", "codex").Error()
 	for _, expected := range []string{"Codex CLI is unavailable", "device running Recut service", `"codex"`, "restart Recut service"} {

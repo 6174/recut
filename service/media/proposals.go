@@ -288,7 +288,6 @@ func (m *MediaService) createProposedAsset(name, projectID, kind, mimeType strin
 		if err := attachTx(tx, asset.ID, projectID, now); err != nil {
 			return rollback(err)
 		}
-		asset.ProjectIDs = []string{projectID}
 	}
 	if err := recordAssetEvent(tx, asset.ID, now); err != nil {
 		return rollback(err)
@@ -321,10 +320,10 @@ func (m *MediaService) RejectProposal(assetID string) error {
 	return m.DeleteAsset(assetID)
 }
 
-// ProposeInputFromAsset reconstructs the propose/submit recipe of a proposed
+// proposalInputFromAsset reconstructs the propose/submit recipe of a proposed
 // asset, after applying a patch. It is the single merge point shared by
 // UpdateProposal and ConfirmProposal so both observe the same validation.
-func proposalInputFromAsset(asset MediaAsset, patch *ProposalPatch) (ProposeInput, error) {
+func (m *MediaService) proposalInputFromAsset(asset MediaAsset, patch *ProposalPatch) (ProposeInput, error) {
 	spec := readProposalSpec(asset)
 	prompt, _ := asset.Metadata["prompt"].(string)
 	modelID, _ := asset.Metadata["modelId"].(string)
@@ -395,7 +394,7 @@ func proposalInputFromAsset(asset MediaAsset, patch *ProposalPatch) (ProposeInpu
 		Prompt:         strings.TrimSpace(prompt),
 		ReferenceIDs:   referenceIDs,
 		Output:         output,
-		ProjectID:      firstProjectID(asset),
+		ProjectID:      m.firstProjectID(asset.ID),
 		ReferencesMeta: references,
 		AspectRatio:    spec.AspectRatio,
 		DurationSec:    spec.DurationSec,
@@ -415,7 +414,7 @@ func (m *MediaService) UpdateProposal(assetID string, patch ProposalPatch) (Medi
 	if asset.Status != AssetStatusProposed {
 		return MediaAsset{}, fmt.Errorf("only a proposed asset can be edited; this asset is %s", asset.Status)
 	}
-	recipe, err := proposalInputFromAsset(asset, &patch)
+	recipe, err := m.proposalInputFromAsset(asset, &patch)
 	if err != nil {
 		return MediaAsset{}, err
 	}
@@ -517,7 +516,7 @@ func (m *MediaService) ConfirmProposal(assetID string, patch *ProposalPatch) (Me
 	if asset.Status != AssetStatusProposed {
 		return MediaJob{}, fmt.Errorf("proposal is already %s", asset.Status)
 	}
-	recipe, err := proposalInputFromAsset(asset, patch)
+	recipe, err := m.proposalInputFromAsset(asset, patch)
 	if err != nil {
 		return MediaJob{}, err
 	}
@@ -697,9 +696,18 @@ func metadataStringSlice(value any) []string {
 	return out
 }
 
-func firstProjectID(asset MediaAsset) string {
-	if len(asset.ProjectIDs) > 0 {
-		return asset.ProjectIDs[0]
+// firstProjectID returns one project this Asset is attached to, or "" when it
+// is workspace-only. Asset membership lives on the project side
+// (media_asset_projects); an Asset never stores a reverse project index, so
+// this is an explicit lookup here rather than a field read.
+func (m *MediaService) firstProjectID(assetID string) string {
+	db, err := m.database()
+	if err != nil {
+		return ""
 	}
-	return ""
+	var projectID string
+	if err := db.QueryRow("select project_id from media_asset_projects where asset_id = ? order by project_id limit 1", assetID).Scan(&projectID); err != nil {
+		return ""
+	}
+	return projectID
 }

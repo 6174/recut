@@ -10,6 +10,7 @@ import { PanelSection } from "@/components/panel-section";
 import { RichComposer } from "@/components/rich-composer/rich-composer";
 import { useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { VideoFrame } from "@/components/video-frame";
+import { MotionGraphicPreview } from "@/components/motion-graphic-preview";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
@@ -59,7 +60,7 @@ export type PreviewAttribute = {
 
 export type PreviewAsset = {
   id: string;
-  kind: "image" | "video" | "audio" | "transcript" | "document";
+  kind: "image" | "video" | "audio" | "transcript" | "document" | "component";
   name: string;
   origin: string;
   status: "proposed" | "queued" | "running" | "completed" | "failed";
@@ -68,7 +69,18 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; generation?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; document?: ReferenceMetadata };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; generation?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; document?: ReferenceMetadata; component?: ComponentPreviewMeta };
+};
+
+// Motion Graphic 组件素材的预览元数据：聊天卡片把组件的精确版本信息挂在这里，
+// 统一素材框据此在内容区实时渲染组件（与卡片内预览同一渲染路径）。
+export type ComponentPreviewMeta = {
+  componentId?: string;
+  versionId?: string;
+  surface?: string;
+  inputs?: unknown[];
+  status?: string;
+  brief?: string;
 };
 
 export function mediaContext(asset: PreviewAsset) {
@@ -209,6 +221,8 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
   const origin = asset.origin || "imported";
   const metadata = asset.metadata || {};
   const ready = status === "completed";
+  // 组件素材只读预览：不走 Remix / 素材属性编辑（那些是媒体素材的写入面）。
+  const isComponent = asset.kind === "component";
   // proposed 下再分两种语义：带配方=待确认提案（可确认生成，且提示词/参考可编辑）；无配方=计划态（复制计划给 AI）。
   const plan = status === "proposed" && !hasProposalRecipe(asset);
   const editableProposal = status === "proposed" && hasProposalRecipe(asset);
@@ -219,7 +233,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
   const statusText = status === "failed" ? "生成失败" : plan ? "计划中" : status === "proposed" ? "待确认生成" : ready ? "已完成" : "生成中";
   const statusLabel = <><span>{statusText}</span><GenerationDuration className="font-mono text-[10px] text-muted-foreground" item={asset} /></>;
   // Remix：把已完成素材的可复用配方复制成一个新的提案资产，并让弹框切到它的编辑态。
-  const canRemix = ready && typeof metadata.prompt === "string" && metadata.prompt.trim().length > 0;
+  const canRemix = !isComponent && ready && typeof metadata.prompt === "string" && metadata.prompt.trim().length > 0;
   async function remix() {
     if (!canRemix || remixing) return;
     setRemixing(true);
@@ -348,7 +362,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
                 <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">{plan ? "把这条计划（说明 + 属性 + 引用）交给 AI 去生成。" : "复制受控资源引用和素材信息，直接粘贴到 Agent 对话即可。"}</p>
               </div>
             </PanelSection>
-            <MaterialEditor apiBase={apiBase} asset={asset} />
+            {!isComponent && <MaterialEditor apiBase={apiBase} asset={asset} />}
           </aside>
         </div>
       </section>
@@ -940,7 +954,29 @@ function AttributeRow({
   );
 }
 
+// ComponentAssetContent 是组件素材的统一预览内容：复用聊天卡片同一实时渲染路径
+// （motion-graphic-preview），只读展示，不写时间线；组件错误被限制在预览框内。
+function ComponentAssetContent({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
+  const meta = asset.metadata?.component;
+  if (!meta?.componentId) {
+    return <p className="text-xs text-muted-foreground">组件信息缺失，无法预览。</p>;
+  }
+  return (
+    <div className="w-full max-w-3xl overflow-hidden rounded-sm border bg-[#101014]">
+      <MotionGraphicPreview
+        apiBase={apiBase}
+        componentId={meta.componentId}
+        name={asset.name}
+        surface={meta.surface}
+        versionId={meta.versionId}
+      />
+      {meta.brief && <p className="border-t bg-card px-3 py-2 text-xs leading-5 text-muted-foreground">{meta.brief}</p>}
+    </div>
+  );
+}
+
 function AssetContent({ apiBase, asset, status, onImageClick }: { apiBase: string; asset: PreviewAsset; status: string; onImageClick?: (src: string) => void }) {
+  if (asset.kind === "component") return <ComponentAssetContent apiBase={apiBase} asset={asset} />;
   if (status !== "completed") return <PendingAssetContent apiBase={apiBase} asset={asset} status={status} />;
   const source = mediaContentURL(apiBase, asset.id);
   if (asset.kind === "image") return <button className="group relative" onClick={() => onImageClick?.(source)} type="button"><img alt={asset.name} className="max-h-[65vh] max-w-full cursor-zoom-in object-contain" src={source} /><span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/10 group-hover:opacity-100"><ZoomIn className="size-6 text-white drop-shadow" /></span></button>;

@@ -195,7 +195,6 @@ type MediaAsset struct {
 	JobID       string         `json:"jobId,omitempty"`
 	RemoteID    string         `json:"remoteId,omitempty"`
 	Error       string         `json:"error,omitempty"`
-	ProjectIDs  []string       `json:"projectIds"`
 	ParentID    string         `json:"parentId,omitempty"`
 	Metadata    map[string]any `json:"metadata"`
 	DeletedAt   *time.Time     `json:"deletedAt,omitempty"`

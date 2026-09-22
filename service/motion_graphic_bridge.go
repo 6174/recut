@@ -1,7 +1,9 @@
 /*
- * [INPUT]: 依赖 editorContext（appstate 文件/事件/引用索引）与 motion_graphic 全域素材包。
- * [OUTPUT]: motion_graphic 的平台宿主适配（全局文件、事件、引用登记、项目派生上下文）与
- *           editor 私有组件表到全局 mg_materials 的一次性迁移。
+ * [INPUT]: 依赖 editorContext（项目/引用/事件命名空间）、Store.PlatformFilesRoot（平台全局文件根）
+ *          与 motion_graphic 全域素材包。
+ * [OUTPUT]: motion_graphic 的平台宿主适配：素材真相在平台全局（workspace DB + 平台文件根，
+ *           无 AppID）、可选的「顺带登记项目引用」、项目派生上下文，以及 editor 私有组件表到
+ *           全局 mg_materials 的一次性迁移。
  * [POS]: service 与 motion_graphic 包的接缝；MG 领域逻辑全在 motion_graphic 包，这里只做宿主适配。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -10,12 +12,13 @@ package main
 import (
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"recut-service/media"
 	"recut-service/motion_graphic"
 )
 
@@ -32,13 +35,79 @@ func setPreference(db *sql.DB, key, value string) {
 type mgHost struct{ c *editorContext }
 
 func (h mgHost) DB() (*sql.DB, error) { return h.c.host.store.WorkspaceDatabase() }
-func (h mgHost) FilesRoot() string    { return h.c.appFilesRoot }
-func (h mgHost) IsZh() bool           { return h.c.locale == LocaleZh }
+func (h mgHost) FilesRoot() string {
+	root, err := h.c.host.store.PlatformFilesRoot()
+	if err != nil {
+		return ""
+	}
+	return root
+}
+func (h mgHost) IsZh() bool { return h.c.locale == LocaleZh }
 func (h mgHost) Emit(eventType string, payload map[string]any) {
 	h.c.emit(eventType, payload)
 }
 func (h mgHost) OnVerified(id, versionID string) {
+	// MG 组件首先是统一素材库的一员：投影一条 kind=component 的全局 Asset，
+	// 使其像图片/视频一样出现在素材库、可预览、可挂项目引用。
+	h.projectComponentAsset(id, versionID)
+	// 只有消费方提供了项目目标时才顺带登记项目引用。
+	if h.c.scopeID == "" {
+		return
+	}
 	h.c.upsertComponentAssetRef(id, versionID)
+}
+
+// projectComponentAsset 把 MG 组件投影进统一 media_assets（kind=component），
+// 元数据（版本/surface/inputs/coverUrl/brief）统一在素材里；组件源码仍归 mg_materials。
+func (h mgHost) projectComponentAsset(id, versionID string) {
+	db, err := h.DB()
+	if err != nil {
+		return
+	}
+	material, ok := motion_graphic.Read(db, id)
+	if !ok {
+		return
+	}
+	mediaService := h.c.host.media
+	if mediaService == nil {
+		return
+	}
+	inputs := any([]any{})
+	if parsed := decodeEditorJSON(material.InputsJSON); parsed != nil {
+		inputs = parsed
+	}
+	coverURL := ""
+	if material.CoverRef != "" {
+		coverURL = platformFileURL(material.CoverRef)
+	}
+	_, _ = mediaService.UpsertComponentAsset(media.ComponentAssetImport{
+		ID:          motion_graphic.AssetID(id),
+		Name:        material.Name,
+		MimeType:    "application/vnd.recut.component+json",
+		Origin:      "motion-graphic",
+		ComponentID: id,
+		VersionID:   versionID,
+		Version:     material.CodeVersion,
+		Surface:     material.Surface,
+		Mode:        material.Mode,
+		Status:      material.Status,
+		CoverURL:    coverURL,
+		Inputs:      inputs,
+		Brief:       material.Name,
+		ProjectID:   h.c.scopeID,
+	})
+}
+
+// decodeEditorJSON 解析一段 JSON 文本为通用值；空串或非法 JSON 返回 nil。
+func decodeEditorJSON(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(value), &decoded); err != nil {
+		return nil
+	}
+	return decoded
 }
 
 func (h mgHost) WriteBase64(rel, b64 string) error {
@@ -46,7 +115,11 @@ func (h mgHost) WriteBase64(rel, b64 string) error {
 	if err != nil {
 		return err
 	}
-	path, err := editorSafeFile(h.c.appFilesRoot, rel)
+	root, err := h.c.host.store.PlatformFilesRoot()
+	if err != nil {
+		return err
+	}
+	path, err := editorSafeFile(root, rel)
 	if err != nil {
 		return err
 	}
@@ -57,7 +130,7 @@ func (h mgHost) WriteBase64(rel, b64 string) error {
 }
 
 func (h mgHost) FilesURL(rel string) string {
-	return fmt.Sprintf("/v1/apps/%s/files/%s", h.c.app.Manifest.ID, filepath.ToSlash(rel))
+	return platformFileURL(rel)
 }
 
 // upsertComponentAssetRef 在项目引用索引里登记/刷新一条 MG 素材引用。
@@ -68,10 +141,11 @@ func (c *editorContext) upsertComponentAssetRef(id, versionID string) {
 		motion_graphic.AssetID(id), c.scopeID, id, versionID, nowIso(), nowIso())
 }
 
-// motionGraphicContext 构造 motion_graphic 操作所需的宿主上下文：只借用编辑器平台模块的
-// 项目/引用/文件命名空间，不解析或校验 App manifest（编辑器已转为平台内置模块）。
+// motionGraphicContext 构造 motion_graphic 操作所需的宿主上下文：素材真相在平台全局
+// （workspace DB + 平台文件根），这里只借用编辑器平台模块的项目/引用/事件命名空间；
+// 没有项目目标时退化为纯全局创作，不登记任何项目引用。
 func (h *AppHost) motionGraphicContext(target Target, locale Locale) (*editorContext, error) {
-	return newEditorContext(h, target, App{Manifest: Manifest{ID: motionGraphicModuleAppID}}, locale)
+	return newEditorContext(h, target, App{Manifest: Manifest{ID: editorSystemAppID}}, locale)
 }
 
 // motionGraphicExec 执行一个 motion_graphic operation（平台分发路径，App 无关）：
@@ -82,6 +156,8 @@ func (h *AppHost) motionGraphicExec(target Target, op string, input map[string]a
 		return nil, err
 	}
 	migrateEditorComponents(c)
+	migrateLegacyMotionGraphicFiles(c)
+	migrateMotionGraphicAssets(c)
 	if op == motion_graphic.OpCreate || op == motion_graphic.OpRevise {
 		if _, ok := input["canvas"]; !ok {
 			input["canvas"] = editorCanvasContext(c)
@@ -220,4 +296,82 @@ func migrateEditorComponents(c *editorContext) {
 		}
 	}
 	setPreference(db, mgMigrationPrefKey, "1")
+}
+
+// mgFilesMigrationPrefKey 标记「MG 文件已从 editor appstate 迁到平台全局文件根」。
+const mgFilesMigrationPrefKey = "mg_files_migrated_v1"
+
+// motionGraphicLegacyAppID 是 MG 文件迁移前借用过的 App 命名空间（只用于读取旧文件）。
+const motionGraphicLegacyAppID = "recut.editor"
+
+// migrateLegacyMotionGraphicFiles 把早期落在 `appstate/recut.editor/files` 下的 MG
+// bundle/封面复制到平台全局文件根。MG 现在读平台根（`platformFileURL`），旧 roll 的
+// `cover_ref` 若仍指向 appstate 会 404；这里按 `cover_ref` 一次性搬移，幂等且不删除旧文件。
+func migrateLegacyMotionGraphicFiles(c *editorContext) {
+	if c == nil || c.host == nil || c.host.store == nil {
+		return
+	}
+	db, err := c.host.store.WorkspaceDatabase()
+	if err != nil {
+		return
+	}
+	if preferenceSet(db, mgFilesMigrationPrefKey) {
+		return
+	}
+	platformRoot, err := c.host.store.PlatformFilesRoot()
+	if err != nil {
+		return
+	}
+	legacyRoot, legacyErr := c.host.store.AppStateFilesRoot(motionGraphicLegacyAppID)
+	if legacyErr == nil {
+		for _, material := range motion_graphic.ListAll(db) {
+			rel := material.CoverRef
+			if rel == "" {
+				continue
+			}
+			target, targetErr := editorSafeFile(platformRoot, rel)
+			if targetErr != nil {
+				continue
+			}
+			if _, statErr := os.Stat(target); statErr == nil {
+				continue
+			}
+			source, sourceErr := editorSafeFile(legacyRoot, rel)
+			if sourceErr != nil {
+				continue
+			}
+			data, readErr := os.ReadFile(source)
+			if readErr != nil {
+				continue
+			}
+			if mkErr := os.MkdirAll(filepath.Dir(target), 0o755); mkErr != nil {
+				continue
+			}
+			_ = os.WriteFile(target, data, 0o644)
+		}
+	}
+	setPreference(db, mgFilesMigrationPrefKey, "1")
+}
+
+// mgAssetProjectionPrefKey 标记「既有 MG 组件已回填为统一组件素材」。
+const mgAssetProjectionPrefKey = "mg_assets_projected_v1"
+
+// migrateMotionGraphicAssets 把库里既有的 MG 组件一次性回填成统一素材（kind=component），
+// 让历史组件也出现在素材库；幂等，只回填尚未投影的组件。
+func migrateMotionGraphicAssets(c *editorContext) {
+	if c == nil || c.host == nil || c.host.store == nil || c.host.media == nil {
+		return
+	}
+	db, err := c.host.store.WorkspaceDatabase()
+	if err != nil {
+		return
+	}
+	if preferenceSet(db, mgAssetProjectionPrefKey) {
+		return
+	}
+	host := mgHost{c: c}
+	for _, material := range motion_graphic.ListAll(db) {
+		host.projectComponentAsset(material.ID, material.VersionID())
+	}
+	setPreference(db, mgAssetProjectionPrefKey, "1")
 }

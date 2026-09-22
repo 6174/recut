@@ -23,7 +23,7 @@
 
 # 克隆的导演化生成：从「一图一视频」到分镜驱动的连续场景
 
-- 状态：M0（技能/指引）与 M1（World `voice_reference` 字段 + `references[]` 声明 role + `world.md` 指引）**已实施**；M2–M4 待实施。M1 的 `references[]` 声明态需**重建并重启 Recut service** 后在运行中的 daemon 生效（旧 daemon 仍走推断）。
+- 状态：M0（技能/指引）与 M1（World `voice_reference` 字段 + `references[]` 声明 role + 通用层声线与媒介规则）**已实施**；M2–M4 待实施。规则落在通用层（`recut-worlds` / `generation-prompt` / core-agent），**不写进单个 world.md**；M1 的 `references[]` 声明态需**重建并重启 Recut service** 后在运行中的 daemon 生效（旧 daemon 仍走推断）。
 - 作者：Recut
 - 日期：2026-09-22
 - 关联：[Editor 克隆总纲](./2026-09-17-editor-clone.md)、[参考理解与克隆执行](./2026-09-17-reference-understanding.md)、[素材模型简化](./2026-09-19-asset-model-simplification.md)、[视频脚本与一图分镜表](./2026-09-20-video-script-storyboard-sheet.md)、[生成提示词参考引用协议](./2026-09-15-generation-reference-protocol.md)、[媒体生成提案](./2026-09-16-media-generation-proposal.md)、[富文本上下文输入协议](./2026-09-14-rich-context-composer-protocol.md)
@@ -100,13 +100,22 @@ Plan 表的列结构承载不了导演信息（见 §1.2）；且「拿到 asset
 
 `recut-clone/SKILL.md:38-43` 用「一次性花费门 + 交付门」替代了 RFC 的 G1–G5；**没有 G2 计划门**，用户看不到、也改不了「这支片要成为什么」，只能审预算。
 
-### 2.6 平台/工具契约缺口（次要但真实）
+### 2.6 参考的「镜头语言」没有进入生成（clone 失去镜头感）
+
+clone 的核心诉求之一是**镜头感相似**。但会话里 `recut.video.generate` 只传了目标关键帧 + 阿蛋人像，**没有把参考的帧/接触表/片段作为生成参考**（`style-ref`/`motion-ref`/`storyboard`）。参考被「读懂」了，却没有被「引用」。
+
+- 生成参考协议本就提供 `style-ref` / `motion-ref` / `storyboard` / `pov` 等 role（`rfc/2026-09-15-generation-reference-protocol.md`），但 clone 技能没有要求把参考画面连成这些锚点；旧版 Plan 的 `refs` 只指角色/风格，且 remix 红线的「不复制构图」易被误解为「不引用参考」。
+- 只传关键帧+人像 → 新画面的调色、运镜、景别、构图与参考无关，自然「不相似」。
+
+**正确区分**：不复制源**台词/肖像/具体构图**（remix 红线），但**必须引用**参考的**镜头语言**——`style-ref`（调色/质感/视觉语言）、`motion-ref`（运镜/动作时序，视频参考）、`storyboard`（构图/调度）。「不复制」≠「不引用」。
+
+### 2.7 平台/工具契约缺口（次要但真实）
 
 - 编辑器操作无显式 `projectId` 时静默返回「空项目」（应报错）。
 - 视频确认门与「批准后连续推进到导出」的承诺自相矛盾（多段视频需多次人工确认）。
 - 生成式 VO 的锚点契约不成立（`speech@` 需要转写，TTS 合成资产没有转写）。
 - 用 `find -newermt` 猜 assetId→文件；应走 asset/job 返回的 path。
-- 分析/关键帧产物被误挂项目（asset `811c5086…` 的 `projectIds` 含项目）。
+- 分析/关键帧产物被误挂项目（asset `811c5086…` 的 project 侧引用含项目；Asset 本体不再暴露 `projectIds`，归属只在 project 侧读）。
 - ASR/TTS 环境未预检（whisper-small 未装）。
 
 ## 3. 目标与非目标
@@ -252,18 +261,19 @@ Plan 每条 = **一个生成任务**（一段戏 / 一场 / 一个 MG）及其�
 
 1. **`character` 类型新增 `voice_reference`**：`type:"media", options:["audio"], label:"声线参考"`；把文本 `voice` 更名为 `voice_style`/`delivery`（语气描述）以消歧；迁移 `属性-1551` 到 `voice_reference`。
 2. **`references[]` 的 role 由字段声明派生**，不再仅靠 `roleInferred`。
-3. **`world.md` 指引加硬规则**：「画面出现主角色时，必须同时传 `role=character` 的人像与 `role=voice` 的声线参考；角色台词/独白必须使用该声线。」并在「交给视频生成」一节补「视频用 references 传多参考、必要时 audioAssetIds」。
+3. **通用规则，不写进单个 world.md**：声线/媒介纪律必须落在**通用层**，覆盖所有 World——`recut-worlds` 的《生图/生视频硬规则》（角色说话必带 `role="voice"`；视频用 `references`+`audioAssetIds`；段/场景为单位）与 `recut-director（references/generation-prompt）` 的参考锚定规则（世界语境含 `voice` 锚点）。`world.md` 只保留该世界自己的内容与资源口径，不为某个世界写一次性规则。
 4. 与 `2026-09-20-video-script-storyboard-sheet.md` 的 `script`/`storyboard` 字段协同（分镜图挂 `script.storyboard`）。
 
 ## 8. 生成政策
 
 1. **先定段结构**：一段连续动作优先 1 个 request；需要拆时按动作/机位/世界关系拆并 carry forward 参考。默认一段 ≤ 模型能力上限（Seedance 2.0 Mini 15s）。
 2. **多镜连续段**：一个 request 内可含多拍、硬切、多个说话轮次；用「每镜一信息变化 + 首尾帧合同 + HARD CUT 显式标注」写 prompt。
-3. **分镜图驱动**：`storyboard` role sheet + panel manifest → `recut.media.gridSlice` 切格 → 逐格细化关键帧（去格线/提分辨率）→ 作为该段的多参考或首尾帧。
-4. **先看再批量**：代表段/代表镜的表演、连续性、构图通过 settled-frame proof 后，才扩到其余段；生成后「看一遍」是导演回路的一部分。
-5. **媒介先行**：生成前先按 §5.3 定媒介；MG 走 `recut.motion-graphic.create` 并等 `verified`。
-6. **回填与复用**：稳定 assetId 立刻回填 `PLAN.md`；`proposed` 视频可先落轨，但导出前必须已完成。
-7. **声画一致**：`generateAudio`、`audioAssetIds`、VO 声线三者与「本段有无台词」一致。
+3. **分镜图直用（默认）**：`storyboard` role sheet + panel manifest，**整张直接作参考提交**（参考名额有限，整张只占一个），由模型据此展开分镜；**仅当命中升级条件**（模型吃 storyboard 参考弱/分辨率不足、需精确首尾帧端点、代表镜 proof 不过）才 `recut.media.gridSlice` 切格 → 逐格细化关键帧（去格线/提分辨率）→ 作为该段的多参考或首尾帧。
+4. **镜头语言锚点（硬要求）**：clone 生成必须把参考的帧/片段按 role 传入——`style-ref`（调色/质感/视觉语言）、`motion-ref`（运镜/动作时序，视频走 `videoAssetIds`）、`storyboard`（构图/调度）——与新主体/世界锚点（`character`/`environment`/`voice`）并列。只传目标关键帧和人像 = 生成不出相似镜头感。
+5. **先看再批量**：代表段/代表镜的表演、连续性、构图通过 settled-frame proof 后，才扩到其余段；生成后「看一遍」是导演回路的一部分。
+6. **媒介先行**：生成前先按 §5.3 定媒介；MG 走 `recut.motion-graphic.create` 并等 `verified`。
+7. **回填与复用**：稳定 assetId 立刻回填 `PLAN.md`；`proposed` 视频可先落轨，但导出前必须已完成。
+8. **声画一致**：`generateAudio`、`audioAssetIds`、VO 声线三者与「本段有无台词」一致。
 
 ## 9. 门禁
 
@@ -298,6 +308,7 @@ Plan 每条 = **一个生成任务**（一段戏 / 一场 / 一个 MG）及其�
 - **`:69-77`（Plan）**：改为 §5.2 的段落式计划（段/场景为单位），字段由意义承载；必须回填 assetId。
 - **`:87`（参考政策）**：拆为图片/视频两句（§7.2）。
 - **`:86`（视频）**：补「一段连续动作优先一次多镜生成；用 model 时长上限与首尾帧/多参考续接」。
+- **§6/§7（镜头语言）**：新增硬要求——clone 必须把参考的帧/接触表/片段作为生成参考（`style-ref`/`motion-ref`/`storyboard`），与新主体/世界锚点并列；红线由「不复制构图」改为「不复制、但要引用」。
 - 新增引用 `recut-motion-graphic`（MG）、`director/captions`（上屏文案）。
 
 ### `references/workflow.md` / `anchors.md` / `placement.md`
@@ -308,7 +319,7 @@ Plan 每条 = **一个生成任务**（一段戏 / 一场 / 一个 MG）及其�
 
 ### `recut-director` / `recut-editor`（接线，不重写）
 
-- `references/shot`：把「宫格压缩法 + storyboard-sheet-template + keyframe first/last」从「可选」提到 clone 的必经路径。
+- `references/shot`：把「宫格压缩法 + storyboard-sheet-template」提到 clone 的必经路径（**整张 sheet 默认直接作 `storyboard` 参考**）；逐格 keyframe first/last 降为**按需升级档**，非必经。
 - `references/generation-prompt`：「多镜连续段 + role 锚定 + STYLE LOCK」在 clone 中必用。
 - `editor/video-generation.md`：明确视频用 `references`（含 voice/audio role）；`generateAudio` 与台词一致。
 
@@ -320,8 +331,8 @@ Plan 每条 = **一个生成任务**（一段戏 / 一场 / 一个 MG）及其�
 
 | 阶段 | 目标 | 交付 | 验收 |
 |---|---|---|---|
-| **M0（纯技能，零平台改动）✅ 已实施** | 立即消除「一图一视频」与「无导演」 | 修订 `recut-clone` SKILL/workflow（§11）；核心 Agent guide（内建 + 第三方）加「生成必先导演」硬约束；Agent 产出 md 协议（§5）与段落式计划 | 同一参考跑一遍：计划含 Treatment + 段式分镜 + 媒介；视频以「段」为单位提交 |
-| **M1（World 字段）✅ 已实施** | 声线/角色锚定可读 | `character.voice_reference` 字段（`worlds_canvas.go`）+ `references[]` role 由字段声明派生（`worlds_platform.go` `declaredMediaFieldRoles`）；阿蛋实体加 `voice_reference` + `world.md` 声线指引 | `entities.get` 直接看到「声线参考」；`references[]` role=voice 非推断（需重启 service） |
+| **M0（纯技能，零改动）✅ 已实施** | 立即消除「一图一视频」「无导演」「镜头语言不迁移」 | 修订 `recut-clone` SKILL/workflow（§11，含**镜头语言锚点**硬要求：参考帧/片段作 `style-ref`/`motion-ref`/`storyboard`）；核心 Agent guide（内建 + 第三方）加「生成必先导演」硬约束；`recut-worlds`/`generation-prompt` 补声线与参考纪律；Agent 产出 md 协议（§5）与段落式计划 | 同一参考跑一遍：计划含 Treatment + 段式分镜 + 媒介；生成带参考镜头语言锚点；视频以「段」为单位提交 |
+| **M1（World 字段 + 通用规则）✅ 已实施** | 声线/角色锚定可读、规则在通用层 | 通用实现：`character.voice_reference` 字段（`worlds_canvas.go`）+ `references[]` role 由字段声明派生（`worlds_platform.go` `declaredMediaFieldRoles`）；通用指引：`recut-worlds` 生图/生视频硬规则与参考集表、`recut-director（generation-prompt）`、core-agent「生成必先导演」。数据：阿蛋实体补 `voice_reference`（迁移示例）；**不写进单个 world.md** | `entities.get` 直接看到「声线参考」；`references[]` role=voice 非推断（需重启 service）；规则对任意 World 生效 |
 | **M2（G2 + 计划态）** | 计划可审可改、不花钱 | 计划态载体（md 或 RFC-09-17 的 planned AssetElement）+ G2 计划门 | 用户可审/改计划；批准前零花费 |
 | **M3（分镜→连续生成）** | 一段戏一次连续生成 | 接线 `gridSlice`+`storyboard` role+首尾帧/`videoAssetIds`；`references`/`audioAssetIds` 全通 | 阿蛋 0–30s 由 2 次生成兑现，镜间连续 |
 | **M4（语义锚点/重排）** | 改一句自动重排 | `script` 选择/时刻 → `speech@` 窗口编译 | 改一句台词，图形与 B-roll 自动重排 |

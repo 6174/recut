@@ -28,7 +28,6 @@ export type MediaEventAsset = {
   jobId?: string;
   remoteId?: string;
   error?: string;
-  projectIds: string[];
   createdAt: string;
   updatedAt: string;
   metadata: Record<string, unknown>;
@@ -99,9 +98,6 @@ export function normalizeMediaEventAsset(value: unknown): MediaEventAsset | null
     jobId,
     remoteId: typeof source.remoteId === "string" ? source.remoteId : undefined,
     error: typeof source.error === "string" ? source.error : undefined,
-    projectIds: Array.isArray(source.projectIds)
-      ? source.projectIds.filter((projectID): projectID is string => typeof projectID === "string")
-      : [],
     createdAt: typeof source.createdAt === "string" ? source.createdAt : "",
     updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : "",
     metadata,
