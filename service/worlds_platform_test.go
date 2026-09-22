@@ -289,6 +289,48 @@ func TestBriefProjectsReferenceBindings(t *testing.T) {
 	}
 }
 
+func TestBriefDeclaresVoiceReferenceRole(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	const id = "pgc.voice"
+	manifest := map[string]any{
+		"manifestVersion": 2,
+		"world": map[string]any{
+			"id": id, "name": "Voice World", "type": "character_ip",
+			"description": "desc", "skillMd": "## voice skill", "identity": map[string]any{"tone": "calm"},
+		},
+		"entityTypes": []any{},
+		"entities": []any{
+			map[string]any{
+				"id": "adan", "typeId": "character", "name": "阿蛋", "intro": "intro",
+				"attrs": []any{
+					map[string]any{"key": "appearance", "label": "外貌与标志", "type": "textarea", "value": "egg head"},
+					map[string]any{"key": "voice_reference", "label": "声线参考", "type": "media", "value": map[string]any{"url": "https://cdn.example.test/adan.wav", "kind": "audio"}},
+				},
+			},
+		},
+		"relations": []any{},
+		"canvases":  []any{},
+		"provenance": map[string]any{
+			"author": "recut", "license": "MIT", "repository": "https://github.com/recut/test",
+		},
+	}
+	materializeTest(t, worlds, id, manifest)
+	brief, err := worlds.Brief(BriefInput{WorldID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(brief.References) != 1 {
+		t.Fatalf("references = %#v", brief.References)
+	}
+	ref := brief.References[0]
+	if ref.Kind != "audio" || ref.Role != "voice" {
+		t.Fatalf("voice_reference must project role=voice: %#v", ref)
+	}
+	if ref.RoleInferred {
+		t.Fatalf("voice_reference role must be declared, not inferred: %#v", ref)
+	}
+}
+
 func catalogEntry(id, kind, version, sha string, status string, base string) map[string]any {
 	return map[string]any{"id": id, "kind": kind, "publisher": "recut", "version": version, "manifestUrl": base + "/" + id + "/world.json", "sha256": sha, "status": status, "order": 1}
 }

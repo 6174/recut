@@ -125,6 +125,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
   const streamRef = useRef<{ unsubscribe: () => void } | null>(null);
   const cliStreamRef = useRef<{ unsubscribe: () => void } | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const initialScrollSessionRef = useRef<string | null>(null);
   const scopeVersionRef = useRef(0);
   const detailVersionRef = useRef(0);
   const activeIDRef = useRef<string | null>(null);
@@ -191,11 +192,20 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     setWorkFocusIncluded(true);
   }, [workFocus]);
   useEffect(() => {
-    messagesRef.current?.scrollTo({
-      top: messagesRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [detail?.turns.length, detail?.events.length]);
+    initialScrollSessionRef.current = null;
+  }, [activeID]);
+  useEffect(() => {
+    const el = messagesRef.current;
+    const hasContent =
+      (detail?.turns.length ?? 0) > 0 || (detail?.events.length ?? 0) > 0;
+    if (!el || !hasContent) return;
+    if (initialScrollSessionRef.current !== activeID) {
+      initialScrollSessionRef.current = activeID;
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [detail?.turns.length, detail?.events.length, activeID]);
   useEffect(() => {
     if (detail?.status !== "running") return;
     setNow(Date.now());

@@ -719,7 +719,7 @@ func TestImportNativeImageArchivesProjectFileAndRejectsEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asset.Origin != "codex-native" || len(asset.ProjectIDs) != 1 || asset.ProjectIDs[0] != project.ID {
+	if asset.Origin != "codex-native" {
 		t.Fatalf("native import = %#v", asset)
 	}
 	if _, err := importNativeImage(store, media, session, map[string]any{"path": "../outside.png"}); err == nil {
@@ -958,5 +958,69 @@ func TestUnifiedJobObservationCoversShellAndMedia(t *testing.T) {
 		Params: json.RawMessage(`{"name":"recut.job.status","arguments":{"jobId":"does-not-exist"}}`),
 	}); err == nil {
 		t.Fatal("recut.job.status accepted an unknown jobId")
+	}
+}
+
+func TestRecutJobMCPToolsSupportBatch(t *testing.T) {
+	store, project := testShellJobScope(t)
+	host := NewAppHost(store.catalog, store)
+	manager := host.jobs
+	start := func(script string) string {
+		t.Helper()
+		job, err := manager.Start(ShellJobStart{ProjectID: project.ID, AppID: project.AppID, Command: "sh", Args: []string{"-c", script}, Dir: t.TempDir(), TimeoutSeconds: 5})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return job.ID
+	}
+	doneA := start("printf batch-a")
+	doneB := start("printf batch-b")
+	for _, id := range []string{doneA, doneB} {
+		if _, err := manager.WaitByID(id, 10*time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	slow := start("sleep 30")
+
+	call := func(name, arguments string) string {
+		t.Helper()
+		result, err := handleMCP(NewAgentBridge(store), host, NewMediaService(store), AgentSession{ID: "s1"}, mcpRequest{
+			Method: "tools/call",
+			Params: json.RawMessage(`{"name":"` + name + `","arguments":` + arguments + `}`),
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return result.(map[string]any)["content"].([]map[string]string)[0]["text"]
+	}
+
+	// Batch status reads every id at once and degrades unknown ids per-item.
+	text := call("recut.job.status", `{"jobIds":["`+doneA+`","`+doneB+`","missing"]}`)
+	for _, want := range []string{`"allTerminal":true`, `"summary"`, `"not_found":1`, doneA, doneB, "missing"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("batch status text = %s, want %q", text, want)
+		}
+	}
+
+	// Batch wait with the default mode=all resolves the terminal jobs.
+	text = call("recut.job.wait", `{"jobIds":["`+doneA+`","`+doneB+`"],"timeoutSeconds":2}`)
+	if !strings.Contains(text, `"allTerminal":true`) {
+		t.Fatalf("batch wait text = %s", text)
+	}
+
+	// mode=any returns on the first terminal job and does not block on the slow one.
+	started := time.Now()
+	text = call("recut.job.wait", `{"jobIds":["`+doneA+`","`+slow+`"],"timeoutSeconds":15,"mode":"any"}`)
+	if !strings.Contains(text, `"anyTerminal":true`) {
+		t.Fatalf("batch any wait text = %s", text)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("batch any wait blocked for %s, want fail-fast", elapsed)
+	}
+
+	// Batch cancel cancels the running job and reports the missing id per-item.
+	text = call("recut.job.cancel", `{"jobIds":["`+slow+`","missing"]}`)
+	if !strings.Contains(text, `"cancelled":1`) || !strings.Contains(text, "not found") {
+		t.Fatalf("batch cancel text = %s", text)
 	}
 }

@@ -156,7 +156,6 @@ export function ProposalEditor({
           name,
           origin: "参考素材",
           status: "completed",
-          projectIds: [],
           createdAt: "",
           updatedAt: "",
           metadata: {},

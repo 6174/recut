@@ -43,7 +43,11 @@ func (m *MediaService) MigrateDetachAnalysisAssets() (int, error) {
 		if !isWorkspaceLevelAnalysisAsset(asset) {
 			continue
 		}
-		for _, projectID := range asset.ProjectIDs {
+		projectIDs, err := m.assetProjectIDs(asset.ID)
+		if err != nil {
+			return detached, err
+		}
+		for _, projectID := range projectIDs {
 			if projectID == "" {
 				continue
 			}

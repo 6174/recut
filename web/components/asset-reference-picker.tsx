@@ -1,12 +1,12 @@
 /*
- * [INPUT]: 依赖共享 Asset SSE 缓存、素材内容 API、AssetPreviewDialog、VideoFrame、GenerationDuration 与 lucide-react 图标
+ * [INPUT]: 依赖共享 Asset SSE 缓存、项目侧素材清单（GET /v1/media/assets?projectId=）、素材内容 API、AssetPreviewDialog、VideoFrame、GenerationDuration 与 lucide-react 图标
  * [OUTPUT]: 对外提供素材引用与平台选择面板、@ 快速候选、单行紧凑引用芯片、带正常高度真实预览与元信息的素材卡；选择面板经 document.body Portal 脱离侧栏堆叠上下文，并提供 `<media>` 剪贴板解析
- * [POS]: components 的资源引用交互层；项目对话、全局素材库与 iframe App 共享一套稳定 assetId 和详情预览协议，完成态媒体不以类型图标替代预览，运行态从 Asset 真相显示时长
+ * [POS]: components 的资源引用交互层；项目对话、全局素材库与 iframe App 共享一套稳定 assetId 和详情预览协议，完成态媒体不以类型图标替代预览，运行态从 Asset 真相显示时长；项目归属只在 project 侧读取，不从 asset 反向取
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { AtSign, Captions, Check, Eye, Film, Image as ImageIcon, Link2, Music2, Search, Upload, X } from "lucide-react";
+import { AtSign, Captions, Check, Eye, Film, Image as ImageIcon, Layers, Link2, Music2, Search, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
@@ -18,7 +18,7 @@ export type AssetReference = {
   assetId: string;
   name: string;
   mimeType: string;
-  kind: "image" | "video" | "audio" | "transcript" | "document";
+  kind: "image" | "video" | "audio" | "transcript" | "document" | "component";
   origin: string;
   status: string;
   createdAt?: string;
@@ -27,23 +27,24 @@ export type AssetReference = {
 type Asset = Omit<AssetReference, "assetId"> & {
   id: string;
   error?: string;
-  projectIds?: string[];
   updatedAt?: string;
 };
 type Scope = "project" | "library";
 export type MediaPickerKind = Asset["kind"];
 
-const mediaTag = /<media\s+type="(image|video|audio|transcript|reference)"\s+assetid="([^"]+)"\s*\/?>/gi;
+const mediaTag = /<media\s+type="(image|video|audio|transcript|reference|component)"\s+assetid="([^"]+)"\s*\/?>/gi;
 
 function normalizeAsset(value: Partial<Asset> & { id?: unknown }): Asset {
   const mimeType = typeof value.mimeType === "string" ? value.mimeType : "";
-  const kind = value.kind === "video" || value.kind === "audio" || value.kind === "image" || value.kind === "transcript" || value.kind === "document"
+  const kind = value.kind === "video" || value.kind === "audio" || value.kind === "image" || value.kind === "transcript" || value.kind === "document" || value.kind === "component"
     ? value.kind
     : mimeType.startsWith("video/")
       ? "video"
       : mimeType.startsWith("audio/")
         ? "audio"
-        : "image";
+        : mimeType === "application/vnd.recut.component+json"
+          ? "component"
+          : "image";
   return {
     id: typeof value.id === "string" ? value.id : "",
     name: typeof value.name === "string" && value.name.trim() ? value.name : "未命名素材",
@@ -54,9 +55,6 @@ function normalizeAsset(value: Partial<Asset> & { id?: unknown }): Asset {
     createdAt: typeof value.createdAt === "string" ? value.createdAt : undefined,
     metadata: value.metadata,
     error: typeof value.error === "string" ? value.error : undefined,
-    projectIds: Array.isArray(value.projectIds)
-      ? value.projectIds.filter((projectID): projectID is string => typeof projectID === "string")
-      : [],
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
   };
 }
@@ -67,8 +65,37 @@ function assetPrompt(asset: Asset) {
     : null;
 }
 
-function isProjectAsset(asset: Asset, projectID: string | null) {
-  return !projectID || asset.projectIds?.includes(projectID);
+// 项目归属是 project 侧的事实，不是 asset 的属性：素材库是 workspace 级资源，
+// 「哪些素材在项目里」由 project 侧的素材清单（GET /v1/media/assets?projectId=）
+// 决定。这里只持有该项目的 assetId 集合，绝不从 asset 上反向读取项目索引。
+function useProjectAssetIDs(apiBase: string, projectID: string | null): Set<string> | null {
+  const [ids, setIDs] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    if (!projectID) {
+      setIDs(null);
+      return;
+    }
+    let active = true;
+    setIDs(null);
+    fetch(`${apiBase}/v1/media/assets?projectId=${encodeURIComponent(projectID)}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
+      .then((payload: unknown) => {
+        if (!active) return;
+        const list = Array.isArray(payload) ? payload : [];
+        setIDs(new Set(list.map((asset) => (asset && typeof asset === "object" && typeof (asset as { id?: unknown }).id === "string" ? (asset as { id: string }).id : "")).filter(Boolean)));
+      })
+      .catch(() => {
+        if (active) setIDs(new Set());
+      });
+    return () => {
+      active = false;
+    };
+  }, [apiBase, projectID]);
+  return ids;
+}
+
+function isProjectAsset(asset: Asset, projectAssetIDs: Set<string> | null) {
+  return !projectAssetIDs || projectAssetIDs.has(asset.id);
 }
 
 function matches(asset: Asset, query: string) {
@@ -98,8 +125,9 @@ export function AssetReferenceChip({ apiBase, reference, onRemove }: { apiBase: 
 
 export function AssetReferenceMenu({ apiBase, projectID, query, selectedIDs, onPick, onOpenLibrary, onOpenWorlds }: { apiBase: string; projectID: string | null; query: string; selectedIDs: string[]; onPick: (asset: Asset) => void; onOpenLibrary: () => void; onOpenWorlds?: () => void }) {
   const { assets: cachedAssets, ready } = useMediaAssetEvents();
+  const projectAssetIDs = useProjectAssetIDs(apiBase, projectID);
   const assets = useMemo(() => cachedAssets.map(normalizeAsset), [cachedAssets]);
-  const options = projectID ? assets.filter((asset) => isProjectAsset(asset, projectID)) : assets;
+  const options = projectAssetIDs ? assets.filter((asset) => isProjectAsset(asset, projectAssetIDs)) : assets;
   const visible = options.filter((asset) => !selectedIDs.includes(asset.id) && matches(asset, query)).slice(0, 5);
   return <section className="absolute bottom-full left-0 z-30 mb-2 w-80 overflow-hidden rounded-md border bg-popover shadow-[var(--shadow-overlay)]"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-1.5 text-xs font-medium"><AtSign className="size-3.5" />引用上下文</span><span className="flex items-center gap-2"><button className="text-[10px] text-primary hover:underline" onClick={onOpenWorlds} type="button">选择世界观</button><button className="text-[10px] text-primary hover:underline" onClick={onOpenLibrary} type="button">浏览素材</button></span></div><div className="max-h-52 overflow-y-auto p-1.5">{!ready ? <p className="px-2 py-4 text-center text-[11px] text-muted-foreground">正在读取资源…</p> : visible.length ? visible.map((asset) => <AssetOption apiBase={apiBase} asset={asset} key={asset.id} onPick={onPick} />) : <p className="px-2 py-4 text-center text-[11px] text-muted-foreground">没有匹配的素材；也可以选择一个世界观。</p>}</div></section>;
 }
@@ -114,12 +142,13 @@ export function AssetReferenceDialog({ apiBase, open, projectID, selectedIDs, on
   const [uploadError, setUploadError] = useState("");
   const uploadInput = useRef<HTMLInputElement>(null);
   const { assets: cachedAssets, ready } = useMediaAssetEvents();
+  const projectAssetIDs = useProjectAssetIDs(apiBase, projectID);
   const assets = useMemo(() => {
     const cached = cachedAssets.map(normalizeAsset);
     return [...uploadedAssets, ...cached.filter((asset) => !uploadedAssets.some((uploaded) => uploaded.id === asset.id))];
   }, [cachedAssets, uploadedAssets]);
   const activeScope = scope === "project" && projectID ? "project" : "library";
-  const scoped = activeScope === "project" ? assets.filter((asset) => isProjectAsset(asset, projectID)) : assets;
+  const scoped = activeScope === "project" ? assets.filter((asset) => isProjectAsset(asset, projectAssetIDs)) : assets;
   const visible = scoped.filter((asset) => (multiple || !selectedIDs.includes(asset.id)) && (!kinds?.length || kinds.includes(asset.kind)) && (!completedOnly || asset.status === "completed") && matches(asset, query));
   useEffect(() => { if (open) { setChosenIDs(preselectedIDs); setUploadedAssets([]); setUploadError(""); } }, [open]);
   const choose = (asset: Asset) => {
@@ -171,5 +200,5 @@ function AssetThumbnail({ apiBase, asset, className, iconClassName }: { apiBase:
 }
 
 function AssetKindIcon({ className = "size-4", kind }: { className?: string; kind: Asset["kind"] }) {
-  return kind === "image" ? <ImageIcon className={className} /> : kind === "video" ? <Film className={className} /> : kind === "transcript" ? <Captions className={className} /> : kind === "document" ? <Link2 className={className} /> : <Music2 className={className} />;
+  return kind === "image" ? <ImageIcon className={className} /> : kind === "video" ? <Film className={className} /> : kind === "transcript" ? <Captions className={className} /> : kind === "document" ? <Link2 className={className} /> : kind === "component" ? <Layers className={className} /> : <Music2 className={className} />;
 }

@@ -21,7 +21,7 @@
   position: absolute;
   top: 0;
   left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   border: 1px solid color-mix(in oklab, var(--constructive) 72%, transparent);
   border-radius: 999px;
   background: var(--background);

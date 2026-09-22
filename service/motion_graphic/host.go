@@ -9,7 +9,8 @@ package motion_graphic
 import "database/sql"
 
 // Host 抽象 MG 操作所需的最小宿主能力：平台 DB、落盘/封面文件根、事件与验证回调。
-// MG 是全局素材，Host 不提供任何项目语义；项目引用由消费方在 OnVerified 中自行登记。
+// MG 是全局素材，Host 不提供任何项目语义；verified 只做全局投影（统一素材库），项目成员
+// 关系由消费方（如 recut.editor）在需要使用时自行建立，MG 包不感知。
 // 构建工具链归平台（build.go 的 Go esbuild + 静态扫描 + 形状校验），因此不再需要 App 根。
 type Host interface {
 	DB() (*sql.DB, error)
@@ -18,7 +19,8 @@ type Host interface {
 	FilesURL(rel string) string
 	IsZh() bool
 	Emit(eventType string, payload map[string]any)
-	// OnVerified 让消费方在素材 verified 后登记自己的引用（如项目的素材索引）。
+	// OnVerified 让宿主在素材 verified 后做全局投影（如投影进统一素材库）。
+	// 它不做任何项目引用登记——项目成员关系归消费方。
 	OnVerified(id, versionID string)
 }
 

@@ -171,12 +171,6 @@ func (m *MediaService) ListAssetsFiltered(projectID string, filter MediaAssetFil
 	if err := rows.Close(); err != nil {
 		return MediaAssetPage{}, err
 	}
-	// Project attachments are loaded in one batched query after the result set
-	// is closed, mirroring listAssets; see the comment there for the pooling
-	// rationale.
-	if err := loadAssetsProjects(db, assets); err != nil {
-		return MediaAssetPage{}, err
-	}
 	return MediaAssetPage{Items: assets, Total: total, Limit: limit, Offset: offset}, nil
 }
 
@@ -260,42 +254,7 @@ func (m *MediaService) listAssets(projectID string) ([]MediaAsset, error) {
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
-	// Project attachments are loaded in one batched query after the result set
-	// is closed. A per-row query while the result set is still open requires a
-	// second pooled connection; enough concurrent listers can exhaust the pool
-	// and deadlock every reader.
-	if err := loadAssetsProjects(db, assets); err != nil {
-		return nil, err
-	}
 	return assets, nil
-}
-
-func loadAssetsProjects(db *sql.DB, assets []MediaAsset) error {
-	if len(assets) == 0 {
-		return nil
-	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(assets)), ",")
-	args := make([]any, len(assets))
-	indexByID := make(map[string]int, len(assets))
-	for index, asset := range assets {
-		args[index] = asset.ID
-		indexByID[asset.ID] = index
-	}
-	rows, err := db.Query("select asset_id, project_id from media_asset_projects where asset_id in ("+placeholders+") order by project_id", args...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var assetID, projectID string
-		if err := rows.Scan(&assetID, &projectID); err != nil {
-			return err
-		}
-		if index, ok := indexByID[assetID]; ok {
-			assets[index].ProjectIDs = append(assets[index].ProjectIDs, projectID)
-		}
-	}
-	return rows.Err()
 }
 
 func (m *MediaService) GetAsset(id string) (MediaAsset, error) {
@@ -454,32 +413,11 @@ func scanAssetRow(row mediaScanner) (MediaAsset, error) {
 	return asset, nil
 }
 
-// scanAsset augments a core scan with the Asset's project attachments. It is
-// only safe when the source row was already consumed (a *sql.Row after Scan),
-// because it opens a second pooled connection.
+// scanAsset scans one Asset row without loading any project attachment. Project
+// membership lives on the project side (media_asset_projects); an Asset never
+// carries its own reverse project index.
 func scanAsset(db *sql.DB, row mediaScanner) (MediaAsset, error) {
-	asset, err := scanAssetRow(row)
-	if err != nil {
-		return MediaAsset{}, err
-	}
-	if err := loadAssetProjects(db, &asset); err != nil {
-		return MediaAsset{}, err
-	}
-	return asset, nil
-}
-
-func loadAssetProjects(db *sql.DB, asset *MediaAsset) error {
-	projectRows, err := db.Query("select project_id from media_asset_projects where asset_id = ? order by project_id", asset.ID)
-	if err != nil {
-		return err
-	}
-	defer projectRows.Close()
-	for projectRows.Next() {
-		var projectID string
-		_ = projectRows.Scan(&projectID)
-		asset.ProjectIDs = append(asset.ProjectIDs, projectID)
-	}
-	return projectRows.Err()
+	return scanAssetRow(row)
 }
 
 func (m *MediaService) Attach(assetID, projectID string) error {
@@ -905,6 +843,31 @@ func attachTx(tx *sql.Tx, assetID, projectID string, now time.Time) error {
 	return err
 }
 
+// assetProjectIDs reads which projects reference an Asset. Membership lives on
+// the project side (media_asset_projects): the Asset itself never carries a
+// reverse project index, so any server-side consumer that needs the reverse
+// relationship must ask here.
+func (m *MediaService) assetProjectIDs(assetID string) ([]string, error) {
+	db, err := m.database()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query("select project_id from media_asset_projects where asset_id = ? order by project_id", assetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	projectIDs := []string{}
+	for rows.Next() {
+		var projectID string
+		if err := rows.Scan(&projectID); err != nil {
+			return nil, err
+		}
+		projectIDs = append(projectIDs, projectID)
+	}
+	return projectIDs, rows.Err()
+}
+
 func (m *MediaService) saveGeneratedAsset(job MediaJob, content []byte, kind, mimeType string, metadata map[string]any) (MediaAsset, error) {
 	if len(job.AssetIDs) == 1 {
 		return m.completePendingAsset(job.ID, job.AssetIDs[0], content, mimeType, metadata)
@@ -975,7 +938,6 @@ func (m *MediaService) createPendingAsset(job MediaJob, provider, kind, mimeType
 		if _, err := tx.Exec("insert or ignore into media_asset_projects (asset_id, project_id, created_at) values (?, ?, ?)", asset.ID, job.ProjectID, now.Format(time.RFC3339Nano)); err != nil {
 			return rollback(err)
 		}
-		asset.ProjectIDs = []string{job.ProjectID}
 	}
 	if err := recordAssetEvent(tx, asset.ID, now); err != nil {
 		return rollback(err)
@@ -1444,7 +1406,6 @@ func (m *MediaService) persistAsset(content []byte, kind, mimeType, name, origin
 				if err := tx.Commit(); err != nil {
 					return MediaAsset{}, err
 				}
-				existing.ProjectIDs = appendUnique(existing.ProjectIDs, projectID)
 			}
 			return existing, nil
 		}
@@ -1485,7 +1446,6 @@ func (m *MediaService) persistAsset(content []byte, kind, mimeType, name, origin
 		if err := attachTx(tx, asset.ID, projectID, now); err != nil {
 			return rollback(err)
 		}
-		asset.ProjectIDs = []string{projectID}
 	}
 	if err := recordAssetEvent(tx, asset.ID, now); err != nil {
 		return rollback(err)
@@ -1495,6 +1455,103 @@ func (m *MediaService) persistAsset(content []byte, kind, mimeType, name, origin
 	}
 	m.publishAssetChange()
 	return asset, nil
+}
+
+// ComponentAssetImport describes a motion-graphic component surfaced in the
+// global Asset library. The component's source, bundle and versions stay owned
+// by the motion_graphic tables; this only projects a unified Asset record so it
+// appears, previews and attaches like any other library Asset.
+type ComponentAssetImport struct {
+	// ID is the stable component assetId (component:<componentId>).
+	ID          string
+	Name        string
+	MimeType    string
+	Origin      string
+	ComponentID string
+	VersionID   string
+	Version     int64
+	Surface     string
+	Mode        string
+	Status      string
+	CoverURL    string
+	Inputs      any
+	Brief       string
+	ProjectID   string
+}
+
+// UpsertComponentAsset projects a motion-graphic component into the unified
+// media_assets table (kind=component). It is idempotent on the component
+// assetId so repeated commits refresh metadata instead of duplicating rows.
+func (m *MediaService) UpsertComponentAsset(input ComponentAssetImport) (MediaAsset, error) {
+	db, err := m.database()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if strings.TrimSpace(input.ID) == "" {
+		return MediaAsset{}, errors.New("component asset requires an id")
+	}
+	now := time.Now().UTC()
+	mimeType := input.MimeType
+	if mimeType == "" {
+		mimeType = "application/vnd.recut.component+json"
+	}
+	status := input.Status
+	if status == "" {
+		status = "completed"
+	}
+	metadata := map[string]any{
+		"component": map[string]any{
+			"componentId": input.ComponentID,
+			"versionId":   input.VersionID,
+			"version":     input.Version,
+			"surface":     input.Surface,
+			"mode":        input.Mode,
+			"status":      input.Status,
+			"coverUrl":    input.CoverURL,
+			"inputs":      input.Inputs,
+		},
+	}
+	if input.Brief != "" {
+		metadata["content"] = input.Brief
+		metadata["prompt"] = input.Brief
+	}
+	if input.ProjectID != "" {
+		metadata["projectId"] = input.ProjectID
+	}
+	serialized, _ := json.Marshal(metadata)
+	origin := input.Origin
+	if origin == "" {
+		origin = "motion-graphic"
+	}
+	var existing string
+	_ = db.QueryRow("select id from media_assets where id = ?", input.ID).Scan(&existing)
+	tx, err := db.Begin()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	rollback := func(cause error) (MediaAsset, error) { _ = tx.Rollback(); return MediaAsset{}, cause }
+	if existing == "" {
+		if _, err = tx.Exec("insert into media_assets (id, kind, name, mime_type, size_bytes, content_hash, origin, parent_id, status, job_id, remote_id, remote_poll_url, error, metadata_json, created_at, updated_at) values (?, 'component', ?, ?, 0, '', ?, '', ?, '', '', '', '', ?, ?, ?)",
+			input.ID, input.Name, mimeType, origin, status, string(serialized), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+			return rollback(err)
+		}
+	} else if _, err = tx.Exec("update media_assets set name = ?, mime_type = ?, origin = ?, status = ?, metadata_json = ?, updated_at = ? where id = ?",
+		input.Name, mimeType, origin, status, string(serialized), now.Format(time.RFC3339Nano), input.ID); err != nil {
+		return rollback(err)
+	}
+	if input.ProjectID != "" {
+		if err := attachTx(tx, input.ID, input.ProjectID, now); err != nil {
+			return rollback(err)
+		}
+	}
+	if err := recordAssetEvent(tx, input.ID, now); err != nil {
+		return rollback(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return MediaAsset{}, err
+	}
+	m.publishAssetChange()
+	return MediaAsset{ID: input.ID, Kind: "component", Name: input.Name, MimeType: mimeType, Origin: origin, Status: status, Metadata: metadata, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // TranscriptPart is one non-primary file of a transcript Asset bundle. The
@@ -1705,13 +1762,4 @@ func metadataFloat(value any) int64 {
 	default:
 		return 0
 	}
-}
-
-func appendUnique(values []string, value string) []string {
-	for _, existing := range values {
-		if existing == value {
-			return values
-		}
-	}
-	return append(values, value)
 }

@@ -9,14 +9,17 @@ webgl-studio-hero.tsx: Studio Header 的纯客户端 WebGL 背景；用 Three.js
 marketing-narrative-diagrams.tsx: 官网叙事示意层；六张可循环「抽象结构 + 真实媒体」图（Hero 创作流、复刻爆款、AI 全自动、批量派生、世界观一致性、为你所有），Hero 图优先消费 World 真实封面图、无图回退柔和渐变，遵守减少动态效果偏好且卸载时清理 GSAP。
 audio-waveform-player.tsx: 音频预览原子；原生 `HTMLAudioElement` 先加载元数据并开放播放、定位、静音与下载，wavesurfer.js 随后共享该媒体元素在后台解码和绘制波形，波形失败时不阻塞播放。
 generation-duration.tsx: 媒体生成耗时原子；活跃任务本地逐秒计时，终态只显示后端持久化的最终耗时，不发起状态请求。
-use-media-asset-events.tsx: Recut 媒体 SSE 缓存边界；以首次快照和增量 Asset 事件维护唯一前端真相，嵌套入口复用已有连接且绝不轮询 Atlas 或单个素材；保留 ASR 转写 bundle 的 `transcript` 与可跨项目研究资料的 `reference` 类型。
+use-media-asset-events.tsx: Recut 媒体 SSE 缓存边界；以首次快照和增量 Asset 事件维护唯一前端真相，嵌套入口复用已有连接且绝不轮询 Atlas 或单个素材；保留 ASR 转写 bundle 的 `transcript`、可跨项目研究资料的 `reference` 与 Motion Graphic 的 `component` 类型，未知 kind 按 mimeType 推断（`application/vnd.recut.component+json` → component），绝不把组件错判成图片。
 asset-preview-dialog.tsx: 跨页面统一素材详情模态框；素材库与 Agent 对话都通过它预览图片、按需视频播放器、可定位波形音频、转写 bundle（源声音播放、分段列表、SRT/JSON parts 预览下载）和无本地二进制的 `reference` 资料链接，从共享 Asset 缓存原位更新运行/终态与生成耗时，查看提示词与参考素材，并复制符合 `<media>` 协议的素材上下文给 Agent。
 asset-reference-picker.tsx: 资源引用交互层；解析素材库复制的 `<media>` 协议，提供 @ 素材候选与进入全局世界观/素材选择器的统一入口；素材选择面板使用正常高度真实预览卡，直接显示名称、类型、来源、创建时间、提示词/时长，并分离“详情”和“选择”操作。
 platform-media-picker.tsx: iframe App 的平台级素材桥；复用带元信息、详情预览与明确选择操作的全局素材面板，返回指定类型（含转写稿）、完成态素材的稳定 assetId 与展示元数据；转写稿选择只从库中读取，避免错误上传类型。
-agent-message-content.tsx: Agent 回复的受控 XML 媒体节点渲染器；解析 `<media type="image|video|audio|transcript|reference" assetid="..."/>` 为紧凑可点击卡片，从共享 Asset 缓存显示实时/最终生成耗时；完成的图片和视频显示真实画面，资料链接点击打开详情。
-tool-result-assets.tsx: Agent 工具结果中的媒体适配层；从含嵌套 JSON 字符串的 `assetIds` 提取结果，图片和视频直接显示真实预览，视频统一复用 `VideoFrame` 的 iframe 子文档模式与素材详情模态框。
+agent-message-content.tsx: Agent 回复的受控 XML 媒体节点渲染器；解析 `<media type="image|video|audio|transcript|reference|component" assetid="..."/>` 为紧凑可点击卡片，从共享 Asset 缓存显示实时/最终生成耗时；完成的图片和视频显示真实画面，`component` 用 `motion-graphic-preview` 实时渲染组件，资料链接点击打开详情。
+tool-result-assets.tsx: Agent 工具结果中的媒体适配层；从含嵌套 JSON 字符串的 `assetIds`（含单个 `assetId`，如 propose 结果）提取结果，跳过 `component:` 组件引用，图片和视频直接显示真实预览，视频统一复用 `VideoFrame` 的 iframe 子文档模式与素材详情模态框；生成中/排队显示旋转态与「生成中」，`proposed` 提案显示虚线框与「计划中（待生成）」，失败显示错误文案。
+asset-preview-dialog.tsx: 全局统一素材详情框；媒体素材展示预览 + 信息/提案/属性编辑面，`kind=component`（Motion Graphic 组件）复用 `motion-graphic-preview` 实时渲染内容区并只读展示元数据，不走 Remix 与素材属性编辑。
+tool-file-change-card.tsx: Agent 文件写入/编辑工具卡片；把 write/edit/patch/file_change 渲染成带文件名、路径、新建/修改徽标与增删行数的卡片，内联预览文件内容或 unified diff，点击经 Portal 打开完整预览：单文件提供「变更 / 文档」两个入口，diff 直接展示、文档优先用自带全文，edit 只有 diff 时按需读 `/v1/files/local` 取回落地文件；归一化逻辑复用 `lib/agent/file-change`。
+motion-graphic-preview.tsx: Motion Graphic 组件的聊天内实时渲染层；按需 `GET /v1/motion-graphics/{versionId}` 取回精确版本 bundle，深路径动态导入 timeline-editor 的 `ComponentPreview` 复用同一渲染运行时（html/react/r3f），IntersectionObserver 懒挂载、ResizeObserver 跟随容器宽度；外层 `PreviewErrorBoundary` 与运行时 `ComponentErrorBoundary` 双重隔离，组件抛错只降级为占位，绝不冒泡到聊天页面。
 agent-panel-types.ts: Agent 对话的共享数据契约；集中 Session、Turn、事件、运行时配置以及宿主签发的 Work Surface、App 补充的完整 Work Focus 和泛化 MessageContext，iframe 不能覆盖目标。
-agent-panel-views.tsx: Agent 对话展示层；渲染会话时间线、历史、调试与工具结果，并按原始结构展示素材、Work Surface 和 Focus。
+agent-panel-views.tsx: Agent 对话展示层；渲染会话时间线、历史、调试与工具结果，并按原始结构展示素材、Work Surface 和 Focus；文件工具渲染 `tool-file-change-card`、Motion Graphic 组件操作渲染组件卡片（名称/状态/版本；有封面显示封面，无封面经 `motion-graphic-preview` 在卡片内实时渲染组件）、生成类工具（image/video/speech.generate）渲染常驻媒体结果卡片（loading/提案/完成都内联预览），展开详情由通用 `ToolCallDetailBody` 提供。
 agent-composer.tsx: Agent 对话输入层；处理文本、素材、世界观、上传、Work Surface 和独立可移除的 Focus，以及 runtime 配置。
 agent-panel-host.tsx: 根布局唯一挂载的域名级路由边界与工作台壳；SSR 与浏览器 Host 未确认时透明输出页面本身，不生成任何固定高度、Chat skeleton 或工作台容器；Marketing Host 在浏览器前端路由时自行映射 `/`、`/apps`、`/apps/:id` 到官网组件，未知或工作台路由只显示官网 404，绝不依赖 Worker 重请求、更不会挂载 Workspace；App Host 才使用顶部固定 64px Header、左侧单一全局 Agent 对话栏、右侧内容区与共享 `--side-panel-width`，拖拽中同步响应且跨路由持久化。官网使用无固定高度、可纵向滚动的普通文档流，且绝不挂载 Agent 面板、拖拽手柄或 App SSE；cloud mode 首次离线 Landing Page 同样无面板。
  marketing-site.tsx: 官网共享展示层；提供按 Hero→核心应用→创作底座→三步开始→适合谁→与云端对比→文章→FAQ→CTA 编排的 Landing、Docs、Blog、Header/Footer 与跨域「打开工作台」链接；Hero 挂载 `marketing-editor-demo.tsx` 展示 Agent 与剪辑器的产品闭环，并用 GSAP 轮换高亮 Codex、Claude Code、OpenCode，文章数据由服务端页面经 props 注入，Blog 详情用 `MarkdownContent` 渲染 MDX 正文并提供分享条；线上指向 `app.recut.video`，`localhost` 自动改为同端口 `app.localhost`，不读取 service 或工作台状态。

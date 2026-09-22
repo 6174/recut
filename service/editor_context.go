@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 AppHost（store/media/async/capabilities）、Target 与项目文件根。
- * [OUTPUT]: editor Go 域运行上下文：scope、appstate DB、项目文件读写、事件广播、媒体/能力桥、封面与 callUI 原语。
+ * [OUTPUT]: editor Go 域运行上下文：scope、appstate DB、文件读写（项目根；全局目标时为
+ *           平台文件根，见 Store.PlatformFilesRoot）、事件广播、媒体/能力桥、封面与 callUI 原语。
  * [POS]: service editor 域的宿主适配层；让 Go 实现与 goja ctx.* 能力一一对应，App 授权来自 editor_app.go 的原生契约。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -19,15 +20,14 @@ import (
 )
 
 type editorContext struct {
-	host         *AppHost
-	target       Target
-	app          App
-	locale       Locale
-	scopeID      string
-	db           *sql.DB
-	filesRoot    string
-	appRoot      string
-	appFilesRoot string
+	host      *AppHost
+	target    Target
+	app       App
+	locale    Locale
+	scopeID   string
+	db        *sql.DB
+	filesRoot string
+	appRoot   string
 }
 
 func newEditorContext(host *AppHost, target Target, app App, locale Locale) (*editorContext, error) {
@@ -35,25 +35,36 @@ func newEditorContext(host *AppHost, target Target, app App, locale Locale) (*ed
 	if err != nil {
 		return nil, err
 	}
-	filesRoot, err := host.store.TargetFilesRoot(target)
-	if err != nil {
-		return nil, err
+	// 全局目标（无 App、无项目）没有项目文件根；平台全局素材（如 MG bundle/封面）
+	// 的落盘由 mgHost 直接使用平台文件根，不依赖这里。
+	filesRoot := ""
+	switch {
+	case target.IsProject():
+		resolved, rootErr := host.store.ProjectFilesRoot(target.ProjectID)
+		if rootErr != nil {
+			return nil, rootErr
+		}
+		filesRoot = resolved
+	case target.AppID != "":
+		resolved, rootErr := host.store.AppStateFilesRoot(target.AppID)
+		if rootErr != nil {
+			return nil, rootErr
+		}
+		filesRoot = resolved
 	}
-	appFilesRoot, _ := host.store.AppStateFilesRoot(app.Manifest.ID)
 	scopeID := ""
 	if target.IsProject() {
 		scopeID = target.ProjectID
 	}
 	return &editorContext{
-		host:         host,
-		target:       target,
-		app:          app,
-		locale:       locale,
-		scopeID:      scopeID,
-		db:           db,
-		filesRoot:    filesRoot,
-		appRoot:      app.Root,
-		appFilesRoot: appFilesRoot,
+		host:      host,
+		target:    target,
+		app:       app,
+		locale:    locale,
+		scopeID:   scopeID,
+		db:        db,
+		filesRoot: filesRoot,
+		appRoot:   app.Root,
 	}, nil
 }
 

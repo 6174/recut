@@ -8,7 +8,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -391,14 +390,45 @@ func (c *editorContext) resolveComponentAsset(assetID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(rows) == 0 {
-		return "", editorError("timeline component asset is missing or archived: " + assetID)
+	if len(rows) > 0 {
+		asset := rows[0]
+		if edStr(asset["type"]) == "component" && edStr(asset["status"]) == "active" {
+			return edStr(asset["ref_id"]), nil
+		}
 	}
-	asset := rows[0]
-	if edStr(asset["type"]) != "component" || edStr(asset["status"]) != "active" {
-		return "", editorError("timeline component asset is missing or archived: " + assetID)
+	// 项目侧的组件引用索引里没有（或已归档）：若 id 指向一个全局 verified 组件，则「用到时」自动
+	// 登记一条项目引用。引用只落在项目侧（editor_assets，与 media_asset_projects 同构），全局
+	// mg_materials 不存反向项目索引。
+	if id, ok := c.registerGlobalComponentRef(assetID); ok {
+		return id, nil
 	}
-	return edStr(asset["ref_id"]), nil
+	return "", editorError("timeline component asset is missing or archived: " + assetID)
+}
+
+// registerGlobalComponentRef 把 `component:<id>` 指向的全局 verified Motion Graphic 登记为当前项目的
+// 组件引用（写项目侧 editor_assets）。仅认 `component:` 前缀；非组件 id、或组件不存在/未 verified/
+// 已归档时返回 ok=false，由调用方决定报错。没有项目目标时无项目可登记，同样返回 false。
+func (c *editorContext) registerGlobalComponentRef(assetID string) (string, bool) {
+	if !strings.HasPrefix(assetID, "component:") || c.scopeID == "" {
+		return "", false
+	}
+	id := strings.TrimPrefix(assetID, "component:")
+	if id == "" {
+		return "", false
+	}
+	db, err := c.host.store.WorkspaceDatabase()
+	if err != nil {
+		return "", false
+	}
+	material, ok := motion_graphic.Read(db, id)
+	if !ok || material.Status != "verified" || material.ArchivedAt != "" {
+		return "", false
+	}
+	c.upsertComponentAssetRef(id, material.VersionID())
+	// 统一素材库的项目成员关系（与媒体同构）在「使用时」建立：把全局组件投影进 media_assets
+	// 并 attach 到本项目（scopeID 非空），使素材面板可见。verify 时只做全局投影、不挂项目。
+	mgHost{c: c}.projectComponentAsset(id, material.VersionID())
+	return id, true
 }
 
 func (c *editorContext) normalizeComponentItems(items []any) ([]any, error) {
@@ -493,7 +523,18 @@ func editorPlaceComponents(c *editorContext, input map[string]any) (any, error) 
 	if input["baseVersion"] != nil {
 		op["baseVersion"] = input["baseVersion"]
 	}
-	return c.executeCommand(op), nil
+	out := c.executeCommand(op)
+	// 落轨即把组件加入项目素材库（项目引用）；登记已在 normalize 时完成，这里广播给前端面板。
+	if okBool(out["ok"]) {
+		for _, itemValue := range normalized {
+			componentID := edStr(edMap(itemValue)["componentId"])
+			if componentID == "" {
+				continue
+			}
+			c.emit("project.components.changed", map[string]any{"componentId": componentID, "status": "verified", "asset": true, "library": map[string]any{"tab": "media"}})
+		}
+	}
+	return out, nil
 }
 
 func editorNormalizeAudioPlacementItems(items []any) ([]any, error) {
@@ -1778,6 +1819,7 @@ func editorExportList(c *editorContext, input map[string]any) (any, error) {
 func editorBackfillComponentAssets(c *editorContext) {
 	c.ensureSchema()
 	migrateEditorComponents(c)
+	migrateLegacyMotionGraphicFiles(c)
 	db, err := c.host.store.WorkspaceDatabase()
 	if err != nil {
 		return
@@ -1842,7 +1884,7 @@ func editorListProjectAssets(c *editorContext) []any {
 			asset["inputs"] = material.Inputs()
 			asset["testReport"] = parseJSONValue(material.TestReportJSON, nil)
 			if material.CoverRef != "" {
-				asset["coverUrl"] = fmt.Sprintf("/v1/apps/%s/files/%s", c.app.Manifest.ID, material.CoverRef)
+				asset["coverUrl"] = platformFileURL(material.CoverRef)
 			} else {
 				asset["coverUrl"] = nil
 			}
@@ -1863,6 +1905,15 @@ func editorAssetAdd(c *editorContext, input map[string]any) (any, error) {
 	assetID := edStr(input["assetId"])
 	if assetID == "" {
 		return nil, editorError("asset.add: assetId is required")
+	}
+	// 组件是全局素材，其项目成员关系同样落在项目侧引用索引；`component:` 前缀不再走媒体 attach。
+	if strings.HasPrefix(assetID, "component:") {
+		componentID, ok := c.registerGlobalComponentRef(assetID)
+		if !ok {
+			return nil, editorError("asset.add: component asset is missing, archived or not verified: " + assetID)
+		}
+		c.emit("project.components.changed", map[string]any{"componentId": componentID, "status": "verified", "asset": true})
+		return map[string]any{"ok": true, "assetId": assetID}, nil
 	}
 	if err := c.attachMedia(assetID); err != nil {
 		return nil, err

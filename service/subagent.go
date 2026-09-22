@@ -248,7 +248,11 @@ type subAgentInvoker func(input map[string]any) (any, error)
 
 // startAppSubAgentJob 是 mcp.go 应用操作分发的通用入口：对 manifest 标记 subAgent 的 op，
 // 启动一个通用受限子 Agent job（authorize → run → finalize），返回可经 recut.job.* 观察的 job。
+// App 子 Agent 依赖项目状态，因此必须绑定项目目标。
 func startAppSubAgentJob(bridge *AgentBridge, host *AppHost, session AgentSession, target Target, appID, operation string, payload map[string]any, locale Locale) (map[string]any, error) {
+	if !target.IsProject() {
+		return nil, errors.New("sub-agent requires a project target")
+	}
 	invoke := func(input map[string]any) (any, error) {
 		return host.InvokeAPILocale(target, appID, operation, input, locale)
 	}
@@ -257,12 +261,10 @@ func startAppSubAgentJob(bridge *AgentBridge, host *AppHost, session AgentSessio
 
 // startSubAgentJob 是平台通用受限子 Agent job 入口：任何 op 只要提供 subAgentInvoker
 // （authorize 返回 SubAgentRequest、finalize 接收 subAgentTools）即可复用同一运行器。
+// 目标可为空（平台全局素材，如 motion-graphic.create 不带项目也允许）。
 func startSubAgentJob(bridge *AgentBridge, host *AppHost, session AgentSession, target Target, appID, operation string, payload map[string]any, invoke subAgentInvoker) (map[string]any, error) {
 	if host == nil {
 		return nil, errors.New("sub-agent host is unavailable")
-	}
-	if !target.IsProject() {
-		return nil, errors.New("sub-agent requires a project target")
 	}
 	run := func(ctx context.Context, jobID string) (any, error) {
 		return runSubAgentOp(ctx, bridge, host, session, target, appID, operation, payload, invoke, jobID)

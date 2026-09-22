@@ -85,20 +85,20 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Read a project's deep context: the owner App's workflow.context, produced Artifacts, appState, and the project's absolute paths (paths.projectFilesRoot).",
 	},
 	"recut.job.status": {
-		LocaleZh: "读取一个任务（job）的当前状态：queued / running / completed / failed / cancelled / interrupted。统一观察层同时覆盖本地 App shell job（如 audio.install/transcribe、depth.generate、render.export）与平台媒体生成 job（recut.image/video/speech.generate 返回的 jobId）；返回视图带 kind 区分 shell / media。",
-		LocaleEn: "Read the current status of a job: queued / running / completed / failed / cancelled / interrupted. The unified observation layer covers both local App shell jobs (e.g. audio.install/transcribe, depth.generate, render.export) and platform media generation jobs (jobIds returned by recut.image/video/speech.generate); the returned view carries a kind of shell or media.",
+		LocaleZh: "读取一个或多个任务（job）的当前状态：queued / running / completed / failed / cancelled / interrupted。统一观察层同时覆盖本地 App shell job（如 audio.install/transcribe、depth.generate、render.export）、延迟 Handle（deferred）与平台媒体生成 job（recut.image/video/speech.generate 返回的 jobId）；返回视图带 kind 区分 shell / deferred / media / sub-agent。批量生成时用 `jobIds` 一次读取多个，返回 {jobs, summary, pending, allTerminal}。",
+		LocaleEn: "Read the current status of one or more jobs: queued / running / completed / failed / cancelled / interrupted. The unified observation layer covers local App shell jobs (e.g. audio.install/transcribe, depth.generate, render.export), deferred handles, and platform media generation jobs (jobIds returned by recut.image/video/speech.generate); the returned view carries a kind of shell / deferred / media / sub-agent. For batch generation pass `jobIds` to read many at once; it returns {jobs, summary, pending, allTerminal}.",
 	},
 	"recut.job.wait": {
-		LocaleZh: "等待一个任务（job）达到终态（completed / interrupted / failed / cancelled），sub-agent / shell / media job 通用。等待是短窗口轮询（单次最多 15s），超时返回当前状态而不报错，可继续用 recut.job.status 继续轮询。",
-		LocaleEn: "Wait for a job to reach a terminal state (completed / interrupted / failed / cancelled), working for sub-agent, shell, and media jobs. Waiting is a short-window poll (at most 15s per call); on timeout it returns the current state without error, keep polling with recut.job.status.",
+		LocaleZh: "等待一个或多个任务（job）达到终态（completed / interrupted / failed / cancelled），sub-agent / shell / deferred / media job 通用。等待是短窗口轮询（单次最多 15s），超时返回当前状态而不报错，可继续用 recut.job.status 继续轮询。批量传 `jobIds` 并用 `mode` 选择语义：all（缺省）等到全部终态，any 任一终态即返回，便于失败快停。",
+		LocaleEn: "Wait for one or more jobs to reach a terminal state (completed / interrupted / failed / cancelled), working for sub-agent, shell, deferred, and media jobs. Waiting is a short-window poll (at most 15s per call); on timeout it returns the current state without error, keep polling with recut.job.status. For batch wait pass `jobIds` and pick `mode`: all (default) waits for every job, any returns on the first terminal state for fail-fast.",
 	},
 	"recut.job.logs": {
 		LocaleZh: "读取本地 App shell job 的 stdout/stderr 日志，或子 Agent job 的当前视图（含 toolCalls 提交账本），供失败诊断；媒体生成 job 无进程日志。",
 		LocaleEn: "Read the stdout/stderr logs of a local App shell job, or a sub-agent job's current view (including the toolCalls commit ledger) for failure diagnosis; media generation jobs have no process logs.",
 	},
 	"recut.job.cancel": {
-		LocaleZh: "取消一个 queued / running 的本地 App shell job 或子 Agent job（sub-agent job 取消会传播到子 CLI 进程；已提交的部分结果仍会被 finalize 并以 interrupted 终态呈现）。",
-		LocaleEn: "Cancel a queued or running local App shell job or a sub-agent job (cancellation propagates to the child CLI process; already committed partial results are still finalized and surfaced as an interrupted terminal state).",
+		LocaleZh: "取消一个或多个 queued / running 的本地 App shell job、deferred Handle 或子 Agent job（sub-agent job 取消会传播到子 CLI 进程；已提交的部分结果仍会被 finalize 并以 interrupted 终态呈现）。批量传 `jobIds`。",
+		LocaleEn: "Cancel one or more queued or running local App shell jobs, deferred handles, or sub-agent jobs (cancellation propagates to the child CLI process; already committed partial results are still finalized and surfaced as an interrupted terminal state). For batch pass `jobIds`.",
 	},
 	"recut.files.fetch": {
 		LocaleZh: "把绝对 http(s) URL 映射为本地文件路径（统一远程缓存 <dataRoot>/files/cdn，内容寻址、重复访问零网络、≤100MB、拒绝内网/回环地址）。需要本地文件时使用（查看、处理、传给只收本地路径的工具）；只想要素材库 Asset 用 recut.media.import({ url })；生成参考（imageAssetIds 等）可直接传 URL，无需先调用本工具。",
@@ -181,8 +181,8 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Asynchronously prepare the platform understanding environment: install the locked dependencies and ffprobe into the global platform Python venv and write a version marker. Returns a jobId; observe the terminal state with recut.job.wait.",
 	},
 	"recut.motion-graphic.create": {
-		LocaleZh: "创建组件素材的唯一入口（异步 job）。传入一组 items（每项含 brief），平台受限作者子 Agent 构建 + 轻量验证后发布为 verified 素材并建立 type=component 引用；结果返回 assetIds[] 与 components[]。创建本身绝不插入时间线。",
-		LocaleEn: "The only entry point to create component assets (async job). Given items (each with a brief), the platform's restricted author sub-agent builds and lightly verifies them into verified assets with a type=component reference; the result returns assetIds[] and components[]. Creation never inserts into the timeline.",
+		LocaleZh: "创建组件素材的唯一入口（异步 job）。传入一组 items（每项含 brief），平台受限作者子 Agent 构建 + 轻量验证后发布为 verified 全局素材；结果返回 assetIds[] 与 components[]。MG 是全局素材，不绑定任何项目；项目成员关系由消费方（recut.editor）在需要使用时建立。创建本身绝不插入时间线。",
+		LocaleEn: "The only entry point to create component assets (async job). Given items (each with a brief), the platform's restricted author sub-agent builds and lightly verifies them into verified global assets; the result returns assetIds[] and components[]. Motion graphics are global assets and never bind a project; the consumer (recut.editor) establishes project membership when it needs to use one. Creation never inserts into the timeline.",
 	},
 	"recut.motion-graphic.revise": {
 		LocaleZh: "修复或调整已有组件的唯一入口。传入 componentId 与 instruction；构建 + 轻量验证后生成新 head，并返回同一条 component asset 的 assetId。旧 verified head 在 job 失败前保持不变，绝不插入时间线。",
@@ -339,10 +339,10 @@ func platformMCPToolDefinitions(locale Locale) []map[string]any {
 			"payload":   map[string]any{"type": "object", "description": "传给该 operation 的参数。"},
 			"target":    map[string]any{"type": "object", "description": "可选的 {projectId} 目标；缺省用 App 默认 scope。"},
 		}}),
-		platformTool("recut.job.status", mcpDescription(locale, "recut.job.status"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
-		platformTool("recut.job.wait", mcpDescription(locale, "recut.job.wait"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 15, "description": "单次最多阻塞 15 秒（Streamable HTTP 兼容，避免长阻塞连接被断开）；超时返回当前状态，需用 recut.job.status 继续轮询。长任务请用短轮询，不要设接近 300 秒。"}}}),
+		platformTool("recut.job.status", mcpDescription(locale, "recut.job.status"), map[string]any{"type": "object", "properties": map[string]any{"jobId": map[string]string{"type": "string", "description": "单个 job ID；与 jobIds 二选一。"}, "jobIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "批量 job ID 列表；一次读取多个，返回 {jobs, summary, pending, allTerminal}。"}}}),
+		platformTool("recut.job.wait", mcpDescription(locale, "recut.job.wait"), map[string]any{"type": "object", "properties": map[string]any{"jobId": map[string]string{"type": "string", "description": "单个 job ID；与 jobIds 二选一。"}, "jobIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "批量 job ID 列表。"}, "mode": map[string]any{"type": "string", "enum": []string{"all", "any"}, "description": "批量等待语义：all（缺省）等到全部终态；any 任一终态即返回，便于失败快停。"}, "timeoutSeconds": map[string]any{"type": "number", "minimum": 1, "maximum": 15, "description": "单次最多阻塞 15 秒（Streamable HTTP 兼容，避免长阻塞连接被断开）；超时返回当前状态，需用 recut.job.status 继续轮询。长任务请用短轮询，不要设接近 300 秒。"}}}),
 		platformTool("recut.job.logs", mcpDescription(locale, "recut.job.logs"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}, "limit": map[string]any{"type": "number", "minimum": 1, "maximum": 2000, "description": "只返回最近 N 行，默认 300。"}}}),
-		platformTool("recut.job.cancel", mcpDescription(locale, "recut.job.cancel"), map[string]any{"type": "object", "required": []string{"jobId"}, "properties": map[string]any{"jobId": map[string]string{"type": "string"}}}),
+		platformTool("recut.job.cancel", mcpDescription(locale, "recut.job.cancel"), map[string]any{"type": "object", "properties": map[string]any{"jobId": map[string]string{"type": "string", "description": "单个 job ID；与 jobIds 二选一。"}, "jobIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "批量 job ID 列表。"}}}),
 		platformTool("recut.files.fetch", mcpDescription(locale, "recut.files.fetch"), map[string]any{"type": "object", "required": []string{"url"}, "properties": map[string]any{"url": map[string]string{"type": "string", "description": "绝对 http(s) URL（限公网地址，≤100MB）。"}, "name": map[string]string{"type": "string", "description": "可选：返回结果中的显示名称。"}}}),
 	)
 	tools = append(tools, mediaMCPToolDefinitions(locale)...)
@@ -1505,71 +1505,59 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 // Author diagnostics are exposed through logs and cancellation propagates to
 // the child Codex process.
 func jobMCPTool(bridge *AgentBridge, jobs *ShellJobManager, async *AsyncOpsManager, media *MediaService, name string, input map[string]any) (any, error) {
-	jobID, _ := input["jobId"].(string)
-	if strings.TrimSpace(jobID) == "" {
+	jobIDs := jobIDList(input)
+	if len(jobIDs) == 0 {
 		return nil, errors.New("jobId is required")
 	}
 	var result any
 	var err error
-	switch name {
-	case "recut.job.status":
-		if view, ok := bridge.agentJobView(jobID); ok {
-			result = view
-		} else {
-			result, err = unifiedJobStatus(jobs, async, media, jobID)
+	if len(jobIDs) > 1 {
+		switch name {
+		case "recut.job.status":
+			result = jobBatchResults(bridge, jobs, async, media, jobIDs)
+		case "recut.job.wait":
+			result = jobBatchWait(bridge, jobs, async, media, jobIDs, jobWaitTimeout(input), jobWaitMode(input))
+		case "recut.job.cancel":
+			result = jobBatchCancel(bridge, jobs, async, jobIDs)
+		case "recut.job.logs":
+			return nil, errors.New("recut.job.logs accepts a single jobId")
+		default:
+			return nil, fmt.Errorf("unknown job tool %q", name)
 		}
-	case "recut.job.wait":
-		if view, ok := bridge.waitAgentJob(jobID, jobWaitTimeout(input)); ok {
-			result = view
-		} else {
-			result, err = unifiedJobWait(jobs, async, media, jobID, jobWaitTimeout(input))
-		}
-	case "recut.job.logs":
-		if view, ok := bridge.agentJobView(jobID); ok {
-			result = map[string]any{"jobId": jobID, "kind": "sub-agent", "diagnostics": view}
-			break
-		}
-		var logs []ShellJobLog
-		logs, err = jobs.LogsByID(jobID)
-		if err == nil {
-			result = jobLogViews(logs, input)
-		} else if _, asyncErr := async.FindByID(jobID); asyncErr == nil {
-			// deferred Handle 无进程日志；生命周期事件在项目账本。
-			result = map[string]any{"jobId": jobID, "kind": "deferred", "logs": []any{}}
-			err = nil
-		}
-	case "recut.job.cancel":
-		if cancelled, ok := bridge.cancelAgentJob(jobID); ok {
-			result = cancelled
-			break
-		}
-		var job ShellJob
-		job, err = jobs.FindByID(jobID)
-		if err == nil {
-			if job.Status != ShellJobQueued && job.Status != ShellJobRunning {
-				result = map[string]any{"jobId": jobID, "kind": "shell", "cancelled": false, "status": string(job.Status)}
+	} else {
+		jobID := jobIDs[0]
+		switch name {
+		case "recut.job.status":
+			if view, ok := bridge.agentJobView(jobID); ok {
+				result = view
+			} else {
+				result, err = unifiedJobStatus(jobs, async, media, jobID)
+			}
+		case "recut.job.wait":
+			if view, ok := bridge.waitAgentJob(jobID, jobWaitTimeout(input)); ok {
+				result = view
+			} else {
+				result, err = unifiedJobWait(jobs, async, media, jobID, jobWaitTimeout(input))
+			}
+		case "recut.job.logs":
+			if view, ok := bridge.agentJobView(jobID); ok {
+				result = map[string]any{"jobId": jobID, "kind": "sub-agent", "diagnostics": view}
 				break
 			}
-			err = jobs.CancelByID(jobID)
-			result = map[string]any{"jobId": jobID, "kind": "shell", "cancelled": err == nil}
-			break
-		}
-		if op, asyncErr := async.FindByID(jobID); asyncErr == nil {
-			if op.Status != AsyncOpPending && op.Status != AsyncOpRunning {
-				result = map[string]any{"jobId": jobID, "kind": "deferred", "cancelled": false, "status": string(op.Status)}
-				break
+			var logs []ShellJobLog
+			logs, err = jobs.LogsByID(jobID)
+			if err == nil {
+				result = jobLogViews(logs, input)
+			} else if _, asyncErr := async.FindByID(jobID); asyncErr == nil {
+				// deferred Handle 无进程日志；生命周期事件在项目账本。
+				result = map[string]any{"jobId": jobID, "kind": "deferred", "logs": []any{}}
+				err = nil
 			}
-			if _, cancelErr := async.Cancel(jobID); cancelErr != nil {
-				err = cancelErr
-				break
-			}
-			result = map[string]any{"jobId": jobID, "kind": "deferred", "cancelled": true, "status": "cancelled"}
-			err = nil
-			break
+		case "recut.job.cancel":
+			result, err = jobCancelOne(bridge, jobs, async, jobID)
+		default:
+			return nil, fmt.Errorf("unknown job tool %q", name)
 		}
-		err = errors.New("job not found")
-	default:
-		return nil, fmt.Errorf("unknown job tool %q", name)
 	}
 	if err != nil {
 		return nil, err
@@ -1578,29 +1566,213 @@ func jobMCPTool(bridge *AgentBridge, jobs *ShellJobManager, async *AsyncOpsManag
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 }
 
-// unifiedJobStatus reads one job by a shared jobId. Shell jobs and deferred
-// handles are checked first (both local), then the media store.
-func unifiedJobStatus(jobs *ShellJobManager, async *AsyncOpsManager, media *MediaService, jobID string) (any, error) {
-	if shell, err := jobs.FindByID(jobID); err == nil {
-		view := jobView(shell)
-		view["kind"] = "shell"
-		return view, nil
+// jobIDList normalizes the jobId / jobIds inputs into an ordered, de-duplicated
+// list. Both a single id and a batch list share the same unified observation
+// surface, so the id plumbing is centralized here.
+func jobIDList(input map[string]any) []string {
+	ids := make([]string, 0, 4)
+	seen := map[string]bool{}
+	add := func(raw string) {
+		id := strings.TrimSpace(raw)
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		ids = append(ids, id)
 	}
-	if op, err := async.FindByID(jobID); err == nil {
-		return asyncOpView(op), nil
+	if id, ok := input["jobId"].(string); ok {
+		add(id)
+	}
+	switch raw := input["jobIds"].(type) {
+	case []any:
+		for _, item := range raw {
+			if id, ok := item.(string); ok {
+				add(id)
+			}
+		}
+	case []string:
+		for _, id := range raw {
+			add(id)
+		}
+	}
+	return ids
+}
+
+// jobWaitMode selects batch wait semantics: "all" (default) waits for every job
+// to reach a terminal state; "any" returns on the first terminal state for
+// fail-fast batch generation.
+func jobWaitMode(input map[string]any) string {
+	if mode, _ := input["mode"].(string); mode == "any" {
+		return "any"
+	}
+	return "all"
+}
+
+// batchJobPollInterval is the shared-deadline poll cadence for batch waits; the
+// deadline is shared across every id so a batch of N never blocks N windows.
+const batchJobPollInterval = 100 * time.Millisecond
+
+// jobBatchResults reads a batch of jobIds into the batch observation shape
+// {jobs, summary, pending, allTerminal, anyTerminal}. Unknown ids become
+// per-item error entries instead of failing the whole batch.
+func jobBatchResults(bridge *AgentBridge, jobs *ShellJobManager, async *AsyncOpsManager, media *MediaService, jobIDs []string) map[string]any {
+	items := make([]map[string]any, 0, len(jobIDs))
+	summary := map[string]int{}
+	pending := make([]string, 0, len(jobIDs))
+	anyTerminal := false
+	for _, id := range jobIDs {
+		view, err := jobLookupView(bridge, jobs, async, media, id)
+		if err != nil {
+			items = append(items, map[string]any{"jobId": id, "kind": "unknown", "status": "not_found", "error": err.Error()})
+			summary["not_found"]++
+			continue
+		}
+		items = append(items, view)
+		status := jobViewStatus(view)
+		summary[status]++
+		if jobStatusTerminal(status) {
+			anyTerminal = true
+		} else {
+			pending = append(pending, id)
+		}
+	}
+	return map[string]any{
+		"jobs":        items,
+		"summary":     summary,
+		"pending":     pending,
+		"allTerminal": len(pending) == 0,
+		"anyTerminal": anyTerminal,
+	}
+}
+
+// jobBatchWait polls the batch with a single shared deadline. mode="all" returns
+// once every found job is terminal; mode="any" returns on the first terminal
+// job. On timeout it returns the current batch state without error, mirroring
+// the single-job wait contract.
+func jobBatchWait(bridge *AgentBridge, jobs *ShellJobManager, async *AsyncOpsManager, media *MediaService, jobIDs []string, timeout time.Duration, mode string) map[string]any {
+	deadline := time.Now().Add(timeout)
+	for {
+		result := jobBatchResults(bridge, jobs, async, media, jobIDs)
+		if mode == "any" {
+			if result["anyTerminal"] == true || result["allTerminal"] == true {
+				return result
+			}
+		} else if result["allTerminal"] == true {
+			return result
+		}
+		if !time.Now().Before(deadline) {
+			return result
+		}
+		time.Sleep(batchJobPollInterval)
+	}
+}
+
+// jobBatchCancel cancels each id independently and returns the per-id outcomes;
+// unknown ids surface as error entries rather than aborting the batch.
+func jobBatchCancel(bridge *AgentBridge, jobs *ShellJobManager, async *AsyncOpsManager, jobIDs []string) map[string]any {
+	items := make([]map[string]any, 0, len(jobIDs))
+	cancelled := 0
+	for _, id := range jobIDs {
+		view, err := jobCancelOne(bridge, jobs, async, id)
+		if err != nil {
+			items = append(items, map[string]any{"jobId": id, "kind": "unknown", "cancelled": false, "error": err.Error()})
+			continue
+		}
+		items = append(items, view)
+		if view["cancelled"] == true {
+			cancelled++
+		}
+	}
+	return map[string]any{"jobs": items, "cancelled": cancelled}
+}
+
+// jobLookupView resolves one jobId across the four unified backends without
+// blocking: focused sub-agent jobs, local shell jobs, deferred handles, then
+// media jobs. The bridge may be nil (deferred/shell/media only).
+func jobLookupView(bridge *AgentBridge, jobs *ShellJobManager, async *AsyncOpsManager, media *MediaService, jobID string) (map[string]any, error) {
+	if bridge != nil {
+		if view, ok := bridge.agentJobView(jobID); ok {
+			return view, nil
+		}
+	}
+	if jobs != nil {
+		if shell, err := jobs.FindByID(jobID); err == nil {
+			view := jobView(shell)
+			view["kind"] = "shell"
+			return view, nil
+		}
+	}
+	if async != nil {
+		if op, err := async.FindByID(jobID); err == nil {
+			return asyncOpView(op), nil
+		}
 	}
 	if media == nil {
-		return nil, errors.New("job not found")
+		return nil, errJobNotFound
 	}
 	job, err := media.GetJob(jobID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, errors.New("job not found")
+		return nil, errJobNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
 	view := mediaJobView(job)
 	view["kind"] = "media"
+	return view, nil
+}
+
+// errJobNotFound is the shared sentinel for an unknown jobId across backends.
+var errJobNotFound = errors.New("job not found")
+
+func jobViewStatus(view map[string]any) string {
+	status, _ := view["status"].(string)
+	return status
+}
+
+// jobStatusTerminal reports whether a unified job status is terminal. queued /
+// running / pending are the only non-terminal states across sub-agent, shell,
+// deferred and media jobs.
+func jobStatusTerminal(status string) bool {
+	switch status {
+	case "", "queued", "running", "pending":
+		return false
+	}
+	return true
+}
+
+// jobCancelOne cancels a single id across sub-agent, shell, and deferred
+// backends; unknown ids return errJobNotFound.
+func jobCancelOne(bridge *AgentBridge, jobs *ShellJobManager, async *AsyncOpsManager, jobID string) (map[string]any, error) {
+	if cancelled, ok := bridge.cancelAgentJob(jobID); ok {
+		return cancelled, nil
+	}
+	if job, err := jobs.FindByID(jobID); err == nil {
+		if job.Status != ShellJobQueued && job.Status != ShellJobRunning {
+			return map[string]any{"jobId": jobID, "kind": "shell", "cancelled": false, "status": string(job.Status)}, nil
+		}
+		err = jobs.CancelByID(jobID)
+		return map[string]any{"jobId": jobID, "kind": "shell", "cancelled": err == nil}, err
+	}
+	if op, asyncErr := async.FindByID(jobID); asyncErr == nil {
+		if op.Status != AsyncOpPending && op.Status != AsyncOpRunning {
+			return map[string]any{"jobId": jobID, "kind": "deferred", "cancelled": false, "status": string(op.Status)}, nil
+		}
+		if _, cancelErr := async.Cancel(jobID); cancelErr != nil {
+			return nil, cancelErr
+		}
+		return map[string]any{"jobId": jobID, "kind": "deferred", "cancelled": true, "status": "cancelled"}, nil
+	}
+	return nil, errJobNotFound
+}
+
+// unifiedJobStatus reads one job by a shared jobId. Shell jobs and deferred
+// handles are checked first (both local), then the media store.
+func unifiedJobStatus(jobs *ShellJobManager, async *AsyncOpsManager, media *MediaService, jobID string) (any, error) {
+	view, err := jobLookupView(nil, jobs, async, media, jobID)
+	if err != nil {
+		return nil, err
+	}
 	return view, nil
 }
 

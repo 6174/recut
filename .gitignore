@@ -14,6 +14,8 @@ web/public/vello-wasm/pomelo_vello_wasm_bg.wasm
 web/public/vello-wasm/space-grotesk.ttf
 web/public/vello-wasm/noto-cjk-subset.otf
 service/ui/assets/*
+# 构建产物：Go service 二进制（make service-build 输出到 build/，此处兜底本地 `go build` 直出）。
+service/recut-service
 # Release-generated built-in App archives stay local to each build.
 service/builtin_apps/*.tar.gz
 !service/ui/assets/.keep

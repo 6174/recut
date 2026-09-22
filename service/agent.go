@@ -2278,6 +2278,9 @@ func (m *AgentManager) handleOpencodeEvent(sessionID, turnID string, raw map[str
 		if detail := opencodeToolDetail(state, phase); detail != "" {
 			payload[phase] = detail
 		}
+		for key, value := range opencodeFileMetadata(state) {
+			payload[key] = value
+		}
 		if fields := m.subagentToolFields(sessionID); len(fields) > 0 {
 			for key, value := range fields {
 				payload[key] = value
@@ -2317,6 +2320,31 @@ func opencodeToolDetail(state map[string]any, phase string) string {
 		return fmt.Sprint(values)
 	}
 	return string(data)
+}
+
+// opencodeFileMetadata surfaces OpenCode's file-tool metadata (path, unified
+// diff, whether the target already existed) onto the payload, so the UI can
+// render a file-change card without parsing runtime-specific input shapes.
+// Only write/edit/patch carry it; other tools return no fields.
+func opencodeFileMetadata(state map[string]any) map[string]any {
+	metadata, _ := state["metadata"].(map[string]any)
+	if len(metadata) == 0 {
+		return nil
+	}
+	fields := map[string]any{}
+	if path, ok := metadata["filepath"].(string); ok && strings.TrimSpace(path) != "" {
+		fields["filePath"] = path
+	}
+	if diff, ok := metadata["diff"].(string); ok && strings.TrimSpace(diff) != "" {
+		fields["diff"] = diff
+	}
+	if exists, ok := metadata["exists"].(bool); ok {
+		fields["fileExists"] = exists
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
 }
 
 func isCodexTool(kind string) bool {

@@ -9,6 +9,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Captions, ImageIcon, Link2, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CardMoreMenu } from "@/components/card-more-menu";
+import { MotionGraphicPreview } from "@/components/motion-graphic-preview";
 import { VideoFrame } from "@/components/video-frame";
 import { isConfirmableProposal, isPlanAsset } from "@/lib/media/proposal";
 import type { Asset, MediaJob } from "./media-types";
@@ -149,10 +150,10 @@ function AssetCard({ apiBase, asset, onDelete, onPreview, onRename }: { apiBase:
   const plan = isPlanAsset(asset);
   return <div className="group relative overflow-visible rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20">
     <button className="block w-full overflow-hidden rounded-t-xs text-left" onClick={() => onPreview(asset)} type="button">
-      {proposal ? <ProposedAsset asset={asset} /> : plan ? <PlannedAsset asset={asset} /> : asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-square" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "document" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
+      {proposal ? <ProposedAsset asset={asset} /> : plan ? <PlannedAsset asset={asset} /> : asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-square" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "document" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : asset.kind === "component" ? <ComponentCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
       <div className="p-2.5">
         <p className="truncate text-xs font-medium">{asset.name}</p>
-        <p className="mt-1 text-[10px] text-muted-foreground">{proposal ? "待确认生成" : plan ? "计划中" : asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : asset.kind === "transcript" ? "转写" : "资料"}</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">{proposal ? "待确认生成" : plan ? "计划中" : asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : asset.kind === "transcript" ? "转写" : asset.kind === "component" ? "组件" : "资料"}</p>
       </div>
     </button>
     <div className="absolute right-2 top-2"><CardMoreMenu itemName={asset.name} itemType="素材" onDelete={() => onDelete(asset)} onRename={(name) => onRename(asset, name)} /></div>
@@ -191,8 +192,23 @@ function ReferenceCardPreview({ apiBase, asset }: { apiBase: string; asset: Asse
   return <div className="grid aspect-square content-center gap-2 bg-primary/5 p-4 text-primary"><Link2 className="size-5" /><p className="font-mono text-[10px] uppercase">{reference?.sourceKind || "web"}</p><p className="line-clamp-3 text-xs leading-5 text-foreground">{reference?.summary || reference?.description || reference?.excerpt || "可复用研究资料"}</p></div>;
 }
 
-function TranscriptCardPreview({ asset }: { asset: Asset }) {
-  const bundle = asset.metadata?.transcript;
+// 组件卡：Motion Graphic 组件素材。有封面用封面，否则在网格里实时渲染组件预览。
+function ComponentCardPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
+  const component = asset.metadata.component;
+  if (!component?.componentId) {
+    return <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">组件</span></div>;
+  }
+  if (component.coverUrl) {
+    return <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={component.coverUrl.startsWith("http") ? component.coverUrl : `${apiBase}${component.coverUrl}`} /></div>;
+  }
+  return (
+    <div className="aspect-square overflow-hidden bg-[#101014]">
+      <MotionGraphicPreview apiBase={apiBase} componentId={component.componentId} name={asset.name} surface={component.surface} versionId={component.versionId} />
+    </div>
+  );
+}
+
+function TranscriptCardPreview({ asset }: { asset: Asset }) {  const bundle = asset.metadata?.transcript;
   const segments = typeof bundle?.segmentCount === "number" ? bundle.segmentCount : undefined;
   const duration = typeof bundle?.duration === "number" ? bundle.duration : undefined;
   return <div className="grid aspect-square place-items-center bg-violet-600/10 text-violet-700"><span className="grid gap-1 text-center"><Captions className="mx-auto size-5" /><span className="font-mono text-[10px] font-medium">转写 · {segments ?? 0} 段{typeof duration === "number" ? ` · ${duration.toFixed(1)}s` : ""}</span></span></div>;

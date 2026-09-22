@@ -20,7 +20,7 @@ import { getRealtimeChannel } from "@/lib/realtime-channel";
 
 export type MediaEventAsset = {
   id: string;
-  kind: "image" | "video" | "audio" | "transcript" | "document";
+  kind: "image" | "video" | "audio" | "transcript" | "document" | "component";
   mimeType: string;
   name: string;
   origin: string;
@@ -28,7 +28,6 @@ export type MediaEventAsset = {
   jobId?: string;
   remoteId?: string;
   error?: string;
-  projectIds: string[];
   createdAt: string;
   updatedAt: string;
   metadata: Record<string, unknown>;
@@ -64,9 +63,10 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 function assetKind(value: unknown, mimeType: string): MediaEventAsset["kind"] {
-  if (value === "image" || value === "video" || value === "audio" || value === "transcript" || value === "document") return value;
+  if (value === "image" || value === "video" || value === "audio" || value === "transcript" || value === "document" || value === "component") return value;
   if (mimeType.startsWith("video/")) return "video";
   if (mimeType.startsWith("audio/")) return "audio";
+  if (mimeType === "application/vnd.recut.component+json") return "component";
   return "image";
 }
 
@@ -99,9 +99,6 @@ export function normalizeMediaEventAsset(value: unknown): MediaEventAsset | null
     jobId,
     remoteId: typeof source.remoteId === "string" ? source.remoteId : undefined,
     error: typeof source.error === "string" ? source.error : undefined,
-    projectIds: Array.isArray(source.projectIds)
-      ? source.projectIds.filter((projectID): projectID is string => typeof projectID === "string")
-      : [],
     createdAt: typeof source.createdAt === "string" ? source.createdAt : "",
     updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : "",
     metadata,

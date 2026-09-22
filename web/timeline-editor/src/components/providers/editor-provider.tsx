@@ -2,8 +2,8 @@
 
 /**
  * [INPUT]: 依赖 EditorCore 的项目加载状态、路由与渲染初始化能力，以及 Recut 项目同步的 AI 锁状态。
- * [OUTPUT]: 对外提供 EditorProvider，在项目初始化或同步重载时隔离场景依赖 UI，并以不遮挡内容的边框标签表达 AI 编辑锁；demo/test 模式绕过不必要的 GPU WASM 前置等待。
- * [POS]: 编辑器界面的生命周期边界；子界面仅在有效项目和活动场景就绪后挂载。
+ * [OUTPUT]: 对外提供 EditorProvider，在项目初始化或同步重载时隔离场景依赖 UI，并以限定在编辑器容器内（不锚定视口）的边框标签表达 AI 编辑锁；demo/test 模式绕过不必要的 GPU WASM 前置等待。
+ * [POS]: 编辑器界面的生命周期边界；子界面仅在有效项目和活动场景就绪后挂载；AI 编辑锁边框相对本层容器定位，避免在宿主页面遮挡顶栏。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useEffect, useState } from "react";
@@ -135,11 +135,11 @@ export function EditorProvider({ projectId, children }: EditorProviderProps) {
 	}
 
 	return (
-		<>
+		<div className="relative size-full">
 			<EditorRuntimeBindings />
 			{children}
 			{isAiEditing ? <AiEditingBorder /> : null}
-		</>
+		</div>
 	);
 }
 
@@ -148,7 +148,7 @@ function AiEditingBorder() {
 	return (
 		<div
 			aria-live="polite"
-			className="ai-editing-border pointer-events-none fixed inset-2 z-50 rounded-md"
+			className="ai-editing-border pointer-events-none absolute inset-2 z-50 rounded-md"
 		>
 			<span className="ai-editing-border__label">
 				{t(locale, "editor.aiEditing")}

@@ -210,6 +210,11 @@ export type ToolPayload = {
   output?: string;
   error?: string;
   cost?: string;
+  // 文件类工具（write/edit/patch/file_change）的结构化文件信息：服务端把 OpenCode 的
+  // metadata 归一化后注入，前端据此渲染文件卡片与 diff，无需解析 runtime 专有输入。
+  filePath?: string;
+  diff?: string;
+  fileExists?: boolean;
   // subagent 判别字段：一次 subAgent op（如 motion-graphic.create）启动受限子 Agent job 时，
   // tool.completed 事件注入这三个字段；前端据此渲染子 Agent 任务卡片。
   subagentId?: string;

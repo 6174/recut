@@ -59,7 +59,7 @@ func TestMediaComposeCreatesNewTimelineAsset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asset.ID == video.ID || asset.Kind != "video" || asset.Status != "completed" || len(asset.ProjectIDs) != 1 || asset.ProjectIDs[0] != project.ID {
+	if asset.ID == video.ID || asset.Kind != "video" || asset.Status != "completed" {
 		t.Fatalf("unexpected export asset: %#v", asset)
 	}
 	if _, err := os.Stat(asset.Metadata["path"].(string)); err != nil {

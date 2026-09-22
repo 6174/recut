@@ -27,7 +27,7 @@ references: references/story/SKILL.md, references/hooks/SKILL.md, references/sho
 | **口播 / 访谈** | `a-roll → b-roll → editing → captions` | 有说话人实拍或访谈素材，核心是“该留哪句话” |
 | **知识解说** | `story → motion → editing → captions` | 以知识/概念/人物思想解释为主，需动画承载 |
 | **剧情 / 短剧** | `story → script → short-drama → shot` | 有人物、世界观、对白与戏剧冲突，需分镜与连续性 |
-| **故事视频 / 分镜驱动** | `story → script → shot → generation-prompt` | 以视频故事与脚本为核心，先出一图 N 宫格分镜表再逐格展开 |
+| **故事视频 / 分镜驱动** | `story → script → shot → generation-prompt` | 以视频故事与脚本为核心，先出一图 N 宫格分镜表作 `storyboard` 参考（默认直用，按需逐格展开） |
 | **爆款仿拍 / 长转短** | `remix → hooks → editing` | 输入是已有视频或爆款链接，目标是仿拍或长转短 |
 | **种草 / 带货** | `hooks → story → b-roll → platform` | 以转化与种草为目标，需强钩子与平台合规 |
 

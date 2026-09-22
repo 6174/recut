@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { Captions, ImageIcon, Link2, LoaderCircle, Music2, Video } from "lucide-react";
+import { Captions, Clock, ImageIcon, Link2, LoaderCircle, Music2, Video } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -56,10 +56,15 @@ export function resultAssetIDs(output?: string): string[] {
         if (typeof assetID === "string" && assetID.trim()) assetIDs.add(assetID);
       });
     }
+    // 单个生成/提案结果用 assetId（如 video/image.generate propose），同样纳入。
+    if (typeof object.assetId === "string" && object.assetId.trim()) {
+      assetIDs.add(object.assetId);
+    }
     Object.values(object).forEach((item) => visit(item, depth + 1));
   }
   visit(parsed(output), 0);
-  return [...assetIDs];
+  // 组件引用（component:<id>）不是媒体素材，交给组件卡片渲染，这里不当作媒体。
+  return [...assetIDs].filter((assetID) => !assetID.startsWith("component:"));
 }
 
 export function ToolResultAssets({
@@ -133,6 +138,7 @@ function ToolResultAsset({
   const { t } = useI18n();
   const label = asset?.name || t("agent.tool.assetFallback");
   const completed = asset?.status === "completed";
+  const planned = asset?.status === "proposed";
   const source = mediaContentURL(apiBase, assetID);
   const Icon = asset?.kind === "video" ? Video : asset?.kind === "audio" ? Music2 : asset?.kind === "transcript" ? Captions : asset?.kind === "document" ? Link2 : ImageIcon;
   return (
@@ -148,11 +154,19 @@ function ToolResultAsset({
       ) : completed && asset?.kind === "video" ? (
         <VideoFrame alt={label} className="aspect-video w-full" src={source} />
       ) : (
-        <div className="grid aspect-video place-items-center bg-muted text-muted-foreground">
+        <div className={`grid aspect-video place-items-center text-muted-foreground ${planned ? "border border-dashed bg-muted/40" : "bg-muted"}`}>
           {asset?.status === "failed" ? (
             <span className="text-[10px] text-destructive">{t("agent.message.generationFailed")}</span>
+          ) : planned ? (
+            <span className="flex flex-col items-center gap-1">
+              <Clock className="size-5" />
+              <span className="text-[10px]">{t("agent.message.planned")}</span>
+            </span>
           ) : (
-            <LoaderCircle className="size-5 animate-spin text-primary" />
+            <span className="flex flex-col items-center gap-1">
+              <LoaderCircle className="size-5 animate-spin text-primary" />
+              <span className="text-[10px]">{t("agent.message.generating")}</span>
+            </span>
           )}
         </div>
       )}

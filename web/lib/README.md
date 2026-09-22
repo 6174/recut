@@ -20,5 +20,7 @@ worlds-store.ts: Creation Worlds 的跨路由内存缓存；World 列表分页�
 iframe-assets-bridge.ts: iframe `recut.assets` 与 `recut.clipboard.writeText` 的宿主实现；以当前 project scope 代理全局 Asset 查询、上传、绑定、删除和内容 URL，并在顶层文档执行 Clipboard 写入，iframe 不发现 Service 或拼接 API。
 agent-panel-context.ts: 路由签发的 Work Surface 与 App/页面补充的完整 Focus 的全局状态；路由变更立刻清理 Focus，禁止选区跨项目、App 或 World 泄漏。
 world-entity/guided/: World 详情面板的引导提示操作内核（RFC 2026-09-15-world-entity-guided-ai-actions）：类型/产出/动作契约、属性名→purpose/role 推断词表（`inferMediaPurpose`）、实体与媒体两套动作注册表（九类动作 × 四种产出）、上下文装配（`buildEntityContext`/`buildMediaContext`/`mediaRefsFromEntity`）与过滤/排序/门禁注册表（`actionsFor`/`rankActions`/`isActionEnabled`）；纯函数、无 React/无 I/O，`components/world-entity/guided-ai-section` 消费并把组装好的提示词交全局 AI 输入框。
+agent/file-change.ts: Agent 文件工具事件的纯归一化内核：`isFileChangeCall` 识别 write/edit/patch/file_change，`extractFileChanges` 把不同 runtime 的输入（OpenCode 的 write 全文、edit/patch 的 diff、Codex 的 changes 清单）统一成 `{path, kind, content?, diff?}`；`changeDiff` 提供可展示 diff（新建文件用全文合成全部新增），`diffStats`/`lineCount` 供卡片统计；纯函数、无 React/无 I/O，`components/tool-file-change-card` 消费并渲染可点击的「变更 / 文档」完整预览。
+agent/motion-graphic.ts: Motion Graphic 组件工具的纯归一化内核：`isMotionGraphicCall` 识别 `motion-graphic.*`（点/连字符/别名统一），`extractMotionGraphic` 深度解析 input/output 中嵌套 JSON，取出 `{name, componentId, versionId, version, status, mode, surface, coverUrl, assetId, brief, keywords, inputs, source}`，只对产出/变更组件的操作（commit/define/create/revise/update/verify/resolve/archive）生效；纯函数、无 React/无 I/O，`agent-panel-views` 的组件卡片消费。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

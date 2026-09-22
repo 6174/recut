@@ -877,7 +877,7 @@ func TestReferenceAssetIsGlobalAndAttachable(t *testing.T) {
 		t.Fatal(err)
 	}
 	assets, err := media.ListAssets(project.ID)
-	if err != nil || len(assets) != 1 || assets[0].ID != first.ID || assets[0].ProjectIDs[0] != project.ID {
+	if err != nil || len(assets) != 1 || assets[0].ID != first.ID {
 		t.Fatalf("attached reference = %#v, %v", assets, err)
 	}
 	metadata, _ := assets[0].Metadata["document"].(map[string]any)

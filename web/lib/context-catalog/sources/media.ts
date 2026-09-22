@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 context-catalog/types、mediaContextPayload、MediaEventAsset 与 lucide 图标
- * [OUTPUT]: 对外提供 media 来源：按 kind/项目 scope 搜索素材、预览真实大图/元数据、toContext 生成 media 旁路
- * [POS]: web/lib/context-catalog/sources 的素材域来源；复用 Asset SSE 缓存，不新增轮询
+ * [OUTPUT]: 对外提供 media 来源：按 kind 在素材库（workspace 级）搜索素材、预览真实大图/元数据、toContext 生成 media 旁路
+ * [POS]: web/lib/context-catalog/sources 的素材域来源；素材库与 project 无关，@ 面板不按 projectID 过滤；复用 Asset SSE 缓存，不新增轮询
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { createElement } from "react";
@@ -58,19 +58,17 @@ export const mediaSource: ContextSource = {
   titleKey: "agent.context.source.media",
   insertMode: "inline",
   inlineInsertable: true,
-  scope: "project",
+  // 素材库是 workspace 级资源；@ 面板不把 media 绑定到任何 projectID。
+  scope: null,
   icon: (attrs) => kindIcon(attrs.type as MediaEventAsset["kind"], "size-3.5"),
   label: (attrs) => String(attrs.name ?? attrs.assetid ?? "素材"),
   toContext: (attrs) => (attrs.assetid ? mediaContextPayload(String(attrs.assetid)) : null),
   search: async (ctx) => {
     const query = ctx.query.trim();
-    const projectID = ctx.scope?.projectId ?? ctx.runtime.projectID;
-    const scope = ctx.scope?.mediaScope ?? (projectID ? "project" : "library");
-    const matched = ctx.runtime.mediaAssets.filter((asset) => {
-      if (!query && scope === "project" && projectID && !asset.projectIds?.includes(projectID)) return false;
-      if (query && !(matchScore(`${asset.name} ${asset.kind} ${asset.origin}`, query) > 0)) return false;
-      return true;
-    });
+    // 素材库是 workspace 级资源，与 projectID 无关：浏览和搜索都在整个素材库进行。
+    const matched = ctx.runtime.mediaAssets.filter(
+      (asset) => !query || matchScore(`${asset.name} ${asset.kind} ${asset.origin}`, query) > 0,
+    );
     return matched.map(toOption);
   },
   expandable: (option) => assetAttributes(option.data as MediaEventAsset).length > 0,

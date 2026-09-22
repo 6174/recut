@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type Server struct {
@@ -187,6 +188,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /v1/media/assets/{id}", s.deleteMediaAsset)
 	mux.HandleFunc("GET /v1/media/assets/{id}/content", s.getMediaAssetContent)
 	mux.HandleFunc("GET /v1/files/remote", s.getRemoteFile)
+	mux.HandleFunc("GET /v1/files/local", s.getLocalFile)
+	mux.HandleFunc("GET /v1/motion-graphics/{versionId}", s.getMotionGraphicResolve)
+	mux.HandleFunc("GET /v1/platform/files/{path...}", s.platformFile)
 	mux.HandleFunc("GET /v1/media/assets/{id}/parts/{part}", s.getMediaAssetPart)
 	mux.HandleFunc("POST /v1/media/assets/{id}/attach", s.attachMediaAsset)
 	mux.HandleFunc("POST /v1/media/assets/{id}/retry-download", s.retryMediaAssetDownload)
@@ -706,6 +710,15 @@ func (s *Server) appFile(w http.ResponseWriter, r *http.Request) {
 	s.serveSandboxedFile(w, r, root)
 }
 
+func (s *Server) platformFile(w http.ResponseWriter, r *http.Request) {
+	root, err := s.store.PlatformFilesRoot()
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("platform file not found"))
+		return
+	}
+	s.serveSandboxedFile(w, r, root)
+}
+
 func (s *Server) appStateFile(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("appID")
 	app, ok := s.apps.Get(appID)
@@ -743,6 +756,50 @@ func sandboxPath(root, requested string) (string, bool) {
 		return "", false
 	}
 	return filepath.Join(root, clean), true
+}
+
+// localFilePreviewMaxBytes caps the text preview payload; agents write source and
+// markdown files well below this, and larger files return 413 instead of bloating
+// the response.
+const localFilePreviewMaxBytes = 4 << 20
+
+// getLocalFile serves the text content of an absolute file under the Recut data
+// root (project files and agent-bridge workspaces). The Agent tool card uses it
+// to show the resulting document for edits, where only a diff is available.
+func (s *Server) getLocalFile(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusNotFound, errors.New("file not found"))
+		return
+	}
+	requested := strings.TrimSpace(r.URL.Query().Get("path"))
+	path, ok := s.store.SandboxDataFile(requested)
+	if !ok {
+		writeError(w, http.StatusBadRequest, errors.New("invalid file path"))
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		writeError(w, http.StatusNotFound, errors.New("file not found"))
+		return
+	}
+	if info.Size() > localFilePreviewMaxBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, errors.New("file is too large to preview"))
+		return
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, errors.New("failed to read file"))
+		return
+	}
+	if !utf8.Valid(content) {
+		writeError(w, http.StatusUnsupportedMediaType, errors.New("file is not text"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path":    requested,
+		"size":    info.Size(),
+		"content": string(content),
+	})
 }
 
 func (s *Server) appUI(w http.ResponseWriter, r *http.Request) {

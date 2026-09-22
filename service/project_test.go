@@ -231,3 +231,44 @@ func TestSQLiteDSNWindowsPath(t *testing.T) {
 		t.Fatalf("POSIX path DSN changed: %s", posix)
 	}
 }
+
+// TestSandboxDataFileConfinesReadsToDataRoot 锁定文件预览端点的沙箱边界：
+// 数据根内的 Agent 产物可读，根外路径、相对路径、空路径与符号链接逃逸一律拒绝。
+func TestSandboxDataFileConfinesReadsToDataRoot(t *testing.T) {
+	root := t.TempDir()
+	apps, err := LoadCatalog(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(filepath.Join(root, "data"), apps)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(root, "data", "projects", "p1", "files", "NOTES.md")
+	if err := os.MkdirAll(filepath.Dir(inside), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inside, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolvedInside, err := filepath.EvalSymlinks(inside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := store.SandboxDataFile(inside); !ok || got != resolvedInside {
+		t.Fatalf("inside path = %q, %v; want %q", got, ok, resolvedInside)
+	}
+	outside := filepath.Join(root, "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := store.SandboxDataFile(outside); ok {
+		t.Fatalf("outside path must be refused, got %q", got)
+	}
+	if _, ok := store.SandboxDataFile("relative/path"); ok {
+		t.Fatalf("relative path must be refused")
+	}
+	if _, ok := store.SandboxDataFile(""); ok {
+		t.Fatalf("empty path must be refused")
+	}
+}

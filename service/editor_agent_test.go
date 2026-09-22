@@ -48,6 +48,35 @@ func invokeAPI(t *testing.T, host *AppHost, project Project, op string, input ma
 	return invokeSurface(t, host, project, op, input, "api")
 }
 
+// invokeMCP 走平台全局 MCP 工具（recut.*，App 无关；如 recut.motion-graphic.resolve），
+// 无项目目标也允许（MG 是全局素材）。
+func invokeMCP(t *testing.T, host *AppHost, name string, input map[string]any) map[string]any {
+	t.Helper()
+	bridge := NewAgentBridge(host.store)
+	arguments := map[string]any{}
+	for k, v := range input {
+		arguments[k] = v
+	}
+	res, err := mcpToolCall(bridge, host, NewMediaService(host.store), AgentSession{ID: "s-platform-mcp"}, name, arguments, DefaultLocale)
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	structured, _ := res.(map[string]any)["structuredContent"].(map[string]any)
+	if structured == nil {
+		raw, _ := json.Marshal(res)
+		t.Fatalf("%s structuredContent missing: %s", name, string(raw))
+	}
+	out := map[string]any{}
+	raw, err := json.Marshal(structured)
+	if err != nil {
+		t.Fatalf("%s marshal: %v", name, err)
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("%s unmarshal: %v", name, err)
+	}
+	return out
+}
+
 func invokeSurface(t *testing.T, host *AppHost, project Project, op string, input map[string]any, surface string) map[string]any {
 	t.Helper()
 	target := Target{ProjectID: project.ID, AppID: "recut.editor"}

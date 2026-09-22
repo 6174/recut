@@ -5,7 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
-export type AssetKind = "image" | "video" | "audio" | "transcript" | "document";
+export type AssetKind = "image" | "video" | "audio" | "transcript" | "document" | "component";
 export type AssetStatus = "proposed" | "queued" | "running" | "completed" | "failed";
 export type ModelInputMode = "text" | AssetKind;
 export type Capability = "image.generate" | "video.generate" | "speech.generate";
@@ -80,6 +80,16 @@ export type Asset = {
         language?: string;
       };
       parts?: Record<string, { name?: string; contentHash?: string; mimeType?: string; sizeBytes?: number }>;
+    };
+    component?: {
+      componentId?: string;
+      versionId?: string;
+      version?: number;
+      surface?: string;
+      mode?: string;
+      status?: string;
+      coverUrl?: string;
+      inputs?: Array<{ key?: string; label?: string; type?: string; default?: unknown }>;
     };
   };
 };

@@ -9,6 +9,7 @@ import {
   Captions,
   ChevronDown,
   ImageIcon,
+  Layers,
   Music2,
   Plus,
   Upload,
@@ -64,6 +65,7 @@ const filters: { id: Filter; label: string; icon: typeof ImageIcon }[] = [
   { id: "video", label: "视频", icon: Video },
   { id: "audio", label: "音频", icon: Music2 },
   { id: "transcript", label: "转写", icon: Captions },
+  { id: "component", label: "组件", icon: Layers },
 ];
 const createKinds: CreateKind[] = [
   {
@@ -88,7 +90,7 @@ const createKinds: CreateKind[] = [
     prompt: "输入需要生成的语音内容或音频描述…",
   },
 ];
-const referenceLabels: Record<Exclude<AssetKind, "transcript">, string> = { image: "图片", video: "视频", audio: "音频", document: "资料" };
+const referenceLabels: Record<Exclude<AssetKind, "transcript" | "component">, string> = { image: "图片", video: "视频", audio: "音频", document: "资料" };
 
 async function responseMessage(response: Response) {
   const body = await response.json().catch(() => null) as { error?: string } | null;

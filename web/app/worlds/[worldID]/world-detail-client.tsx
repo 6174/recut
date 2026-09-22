@@ -59,7 +59,29 @@ import { useWorldCanvasTopBarStore } from "./canvas/canvas-top-bar";
 import { useWorldCanvasStore } from "./canvas/canvas-store";
 
 // 画布模式：依赖浏览器 API，仅客户端挂载。
-const WorldCanvas = dynamic(() => import("./canvas").then((mod) => mod.default), { ssr: false });
+// loading 骨架与真实画布同构（点阵底 + 居中卡片占位）并覆盖内容区：chunk 未就绪时也
+// 不露出设定视图表单，刷新/首次进入都直接看到画布骨架。
+const WorldCanvas = dynamic(() => import("./canvas").then((mod) => mod.default), {
+  ssr: false,
+  loading: () => (
+    <div
+      aria-hidden
+      className="absolute inset-0 md:left-[var(--side-panel-width)]"
+      style={{
+        backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1px)",
+        backgroundSize: "26px 26px",
+      }}
+    >
+      <div className="grid h-full place-items-center">
+        <div className="flex w-64 animate-pulse flex-col gap-3 rounded-xl border border-border/60 bg-card/60 p-4">
+          <div className="h-16 w-16 rounded-lg bg-muted" />
+          <div className="h-4 w-3/4 rounded bg-muted" />
+          <div className="h-3 w-1/2 rounded bg-muted" />
+        </div>
+      </div>
+    </div>
+  ),
+});
 
 function worldIDFromLocation(routeID: string | undefined) {
   const queryID = new URLSearchParams(window.location.search).get("id");
@@ -379,6 +401,10 @@ function WorldDetailContent() {
     }
   }
 
+  // 画布是默认视图：detail 加载完成后也只挂画布，绝不先渲染设定视图表单再由 portal 覆盖
+  // （否则 WorldCanvas chunk / host effect 未就绪时会闪一帧设定视图）。
+  if (viewMode === "canvas") return canvasNode;
+
   return (
     <>
       <header className="relative mb-8">
@@ -389,16 +415,16 @@ function WorldDetailContent() {
         >
           <ArrowLeft className="size-4" />
         </Link>
-        {/* 表单/画布模式切换（左上角） */}
+        {/* 表单/画布模式切换（左上角）：此分支即设定视图，点击进入画布 */}
         <button
           aria-label="切换到画布模式"
-          aria-pressed={viewMode === "canvas"}
+          aria-pressed={false}
           className="absolute -left-12 top-12 grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={() => setViewMode(viewMode === "canvas" ? "form" : "canvas")}
-          title={viewMode === "canvas" ? "返回设定模式" : "进入画布模式"}
+          onClick={() => setViewMode("canvas")}
+          title="进入画布模式"
           type="button"
         >
-          <Network className={viewMode === "canvas" ? "size-4 text-primary" : "size-4"} />
+          <Network className="size-4" />
         </button>
         <div className="flex min-w-0 items-start gap-4">
           <span className="grid size-16 shrink-0 place-items-center rounded-2xl bg-accent text-accent-foreground">
@@ -613,8 +639,6 @@ function WorldDetailContent() {
           </div>
         </div>
       )}
-      {/* 画布模式：全屏覆盖设定视图（默认视图，不等 detail 加载） */}
-      {viewMode === "canvas" && canvasNode}
     </>
   );
 }

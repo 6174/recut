@@ -72,7 +72,17 @@ func (s *service) defineOp(input map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]any{"componentId": material.ID, "versionId": material.VersionID(), "version": material.CodeVersion, "status": material.Status}
+	out := map[string]any{
+		"componentId": material.ID,
+		"versionId":   material.VersionID(),
+		"version":     material.CodeVersion,
+		"status":      material.Status,
+		"name":        material.Name,
+		"assetId":     AssetID(material.ID),
+		"mode":        fallback(material.Mode, "local"),
+		"surface":     material.Surface,
+		"coverUrl":    s.coverURL(material.CoverRef),
+	}
 	if material.Status == "failed" {
 		out["buildError"] = built.Error
 	}
@@ -166,7 +176,7 @@ func (s *service) verify(input map[string]any) (any, error) {
 	if report := asMap(input["report"]); report != nil {
 		return s.applyVerify(id, versionID, report), nil
 	}
-	return map[string]any{"assetId": AssetID(id), "versionId": material.VersionID(), "componentId": id, "status": material.Status, "report": decodeAny(material.TestReportJSON)}, nil
+	return map[string]any{"assetId": AssetID(id), "versionId": material.VersionID(), "componentId": id, "status": material.Status, "name": material.Name, "surface": material.Surface, "mode": fallback(material.Mode, "local"), "coverUrl": s.coverURL(material.CoverRef), "report": decodeAny(material.TestReportJSON)}, nil
 }
 
 func (s *service) list(input map[string]any) (any, error) {
@@ -261,6 +271,8 @@ func (s *service) update(input map[string]any) (any, error) {
 	return map[string]any{
 		"ok": true, "assetId": AssetID(id), "componentId": id,
 		"versionId": material.VersionID(), "version": material.CodeVersion, "status": "verified",
+		"name": material.Name, "surface": material.Surface, "mode": fallback(material.Mode, "local"),
+		"coverUrl": s.coverURL(material.CoverRef),
 		"evidence": map[string]any{"level": "build-passed", "by": "motion-graphic.update"}, "requiresVisualCheck": true,
 	}, nil
 }
@@ -427,6 +439,10 @@ func (s *service) finalize(tools []any, items []any, mode string) (any, error) {
 			"versionId":   versionID,
 			"status":      "verified",
 			"mode":        fallback(material.Mode, "local"),
+			"name":        material.Name,
+			"version":     material.CodeVersion,
+			"surface":     material.Surface,
+			"coverUrl":    s.coverURL(material.CoverRef),
 		})
 	}
 	if len(views) == 0 {
