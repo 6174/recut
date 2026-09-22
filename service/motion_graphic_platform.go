@@ -9,7 +9,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -37,7 +36,7 @@ func (s *Server) getMotionGraphicResolve(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusServiceUnavailable, errors.New("motion graphic host is unavailable"))
 		return
 	}
-	result, err := s.host.motionGraphicExec(Target{}, motion_graphic.OpResolve, map[string]any{"versionId": versionID}, DefaultLocale)
+	result, err := s.host.motionGraphicExec(motion_graphic.OpResolve, map[string]any{"versionId": versionID}, DefaultLocale)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -67,9 +66,10 @@ func motionGraphicMCPToolDefinitions(locale Locale) []map[string]any {
 					"componentIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
 					"assetIds":     map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
 				}},
-				"design": map[string]any{"type": "object", "description": "可选的画布/语言上下文。", "properties": map[string]any{
-					"canvas": map[string]any{"type": "object", "properties": map[string]any{"width": map[string]string{"type": "number"}, "height": map[string]string{"type": "number"}}},
-					"locale": map[string]string{"type": "string"},
+				"design": map[string]any{"type": "object", "description": "可选的画布/合成/语言上下文（MG 不绑定项目，需由调用方显式提供）。", "properties": map[string]any{
+					"canvas":      map[string]any{"type": "object", "properties": map[string]any{"width": map[string]string{"type": "number"}, "height": map[string]string{"type": "number"}}},
+					"composition": map[string]any{"type": "object", "description": "合成上下文，如 {overMedia: true}：组件将叠在已有视频/图片上。", "properties": map[string]any{"overMedia": map[string]string{"type": "boolean"}}},
+					"locale":      map[string]string{"type": "string"},
 				}},
 			},
 		},
@@ -121,6 +121,7 @@ func motionGraphicMCPToolDefinitions(locale Locale) []map[string]any {
 }
 
 // motionGraphicMCPTool 分发一个 recut.motion-graphic.* 平台工具。
+// MG 是全局素材：工具不接受也不使用任何项目目标，项目成员关系由消费方（recut.editor）管理。
 func motionGraphicMCPTool(bridge *AgentBridge, host *AppHost, session AgentSession, name string, arguments map[string]any, locale Locale) (any, error) {
 	if host == nil {
 		return nil, errors.New("motion graphic host is unavailable")
@@ -129,29 +130,22 @@ func motionGraphicMCPTool(bridge *AgentBridge, host *AppHost, session AgentSessi
 	if op == "commit" {
 		return motionGraphicCommitTool(bridge, host, session, arguments, locale)
 	}
-	target, args := motionGraphicTarget(arguments)
-	// projectId 是可选的「顺带登记」提示：确认它指向真实项目，避免把成品登记到一个不存在
-	// 的项目引用里（MG 本体是全局素材，校验失败即拒绝，不静默降级）。
-	if target.IsProject() {
-		if _, err := host.store.Get(target.ProjectID); err != nil {
-			return nil, fmt.Errorf("invalid target project %q: %w", target.ProjectID, err)
-		}
-	}
+	args := motionGraphicArgs(arguments)
 	fullOp := "motion-graphic." + op
 	switch op {
 	case "create", "revise":
 		input := args
 		invoke := func(input map[string]any) (any, error) {
-			return host.motionGraphicExec(target, fullOp, input, locale)
+			return host.motionGraphicExec(fullOp, input, locale)
 		}
-		view, err := startSubAgentJob(bridge, host, session, target, motionGraphicJobAppID, fullOp, input, invoke)
+		view, err := startSubAgentJob(bridge, host, session, Target{}, motionGraphicJobAppID, fullOp, input, invoke)
 		if err != nil {
 			return nil, err
 		}
 		data, _ := json.Marshal(view)
 		return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": view}, nil
 	}
-	result, err := host.motionGraphicExec(target, fullOp, args, locale)
+	result, err := host.motionGraphicExec(fullOp, args, locale)
 	if err != nil {
 		return nil, err
 	}
@@ -159,35 +153,25 @@ func motionGraphicMCPTool(bridge *AgentBridge, host *AppHost, session AgentSessi
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
 }
 
-// motionGraphicTarget 解析平台 MG 工具目标：__recut.target.projectId 只作为可选的
-// 「顺带把成品登记到该项目」提示。MG 素材是全局的，没有项目目标时也照常创作全局素材。
-func motionGraphicTarget(arguments map[string]any) (Target, map[string]any) {
+// motionGraphicArgs 剥掉平台传输信封（__recut），只保留领域参数。MG 不接受项目目标。
+func motionGraphicArgs(arguments map[string]any) map[string]any {
 	args := map[string]any{}
 	for key, value := range arguments {
 		if key != "__recut" {
 			args[key] = value
 		}
 	}
-	if projectID := requestedProjectID(arguments); projectID != "" {
-		return Target{ProjectID: projectID}, args
-	}
-	return Target{}, args
+	return args
 }
 
 // motionGraphicCommitTool 是受管作者子 Agent 唯一的提交闸：作者身份由受限工具面
-// （AllowedTools，只含 commit）判定，平台不接受任何通用会话的提交。目标只带可选的
-// projectId，用于把成品顺带登记到该项目；MG 本体是全局素材，不依赖 AppID。
+// （AllowedTools，只含 commit）判定，平台不接受任何通用会话的提交。MG 本体是全局素材，
+// 不依赖 AppID，也不登记任何项目引用。
 func motionGraphicCommitTool(bridge *AgentBridge, host *AppHost, session AgentSession, arguments map[string]any, locale Locale) (any, error) {
 	if len(session.AllowedTools) == 0 {
 		return nil, errors.New("recut.motion-graphic.commit requires a focused Component Author session")
 	}
-	target := Target{ProjectID: session.ProjectID}
-	commitArguments := map[string]any{}
-	for key, value := range arguments {
-		if key != "__recut" {
-			commitArguments[key] = value
-		}
-	}
+	commitArguments := motionGraphicArgs(arguments)
 	// 聚焦上下文由平台会话声明，平台只透传：componentId/baseVersionId/mode 等由 define 消费。
 	if session.Focused != nil {
 		for key, value := range session.Focused {
@@ -196,7 +180,7 @@ func motionGraphicCommitTool(bridge *AgentBridge, host *AppHost, session AgentSe
 			}
 		}
 	}
-	result, err := host.motionGraphicExec(target, motion_graphic.OpDefine, commitArguments, locale)
+	result, err := host.motionGraphicExec(motion_graphic.OpDefine, commitArguments, locale)
 	if err != nil {
 		return nil, err
 	}

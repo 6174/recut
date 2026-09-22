@@ -6,11 +6,12 @@
  */
 "use client";
 
-import { Captions, ImageIcon, Link2, LoaderCircle, Music2, Video } from "lucide-react";
+import { Captions, ImageIcon, Layers, Link2, LoaderCircle, Music2, Video } from "lucide-react";
 import { useState } from "react";
 import { AppReferenceCard, GenericReferenceCard, ProjectReferenceCard } from "@/components/agent-reference-card";
 import { AssetPreviewDialog, mediaContentURL, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { GenerationDuration, type GenerationTiming } from "@/components/generation-duration";
+import { MotionGraphicPreview } from "@/components/motion-graphic-preview";
 import { useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { VideoFrame } from "@/components/video-frame";
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
@@ -18,7 +19,7 @@ import { parseInlineRefs } from "@/lib/rich-composer/protocol/parse";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 
-type MediaType = "image" | "video" | "audio" | "transcript" | "document";
+type MediaType = "image" | "video" | "audio" | "transcript" | "document" | "component";
 type Segment =
   | { kind: "text"; value: string }
   | { kind: "media"; assetID: string; type: MediaType }
@@ -65,7 +66,7 @@ function parseMessage(content: string): Segment[] {
 }
 
 function isMediaType(value: string): value is MediaType {
-  return value === "image" || value === "video" || value === "audio" || value === "transcript" || value === "reference";
+  return value === "image" || value === "video" || value === "audio" || value === "transcript" || value === "reference" || value === "component";
 }
 
 type MediaPreviewStatus = "checking" | "proposed" | "queued" | "running" | "completed" | "failed";
@@ -84,10 +85,25 @@ function MediaPreview({ apiBase, assetID, onOpen, type }: { apiBase: string; ass
       ? { status: "failed", error: t("agent.message.assetUnavailable") }
       : { status: "checking", error: "" };
   const url = mediaContentURL(apiBase, assetID);
-  const previewKey = type === "image" ? "agent.message.preview.image" : type === "video" ? "agent.message.preview.video" : type === "transcript" ? "agent.message.preview.transcript" : type === "document" ? "agent.message.preview.reference" : "agent.message.preview.audio";
+  const previewKey = type === "image" ? "agent.message.preview.image" : type === "video" ? "agent.message.preview.video" : type === "transcript" ? "agent.message.preview.transcript" : type === "document" ? "agent.message.preview.reference" : type === "component" ? "agent.message.preview.component" : "agent.message.preview.audio";
   const label = t(previewKey);
-  const Icon = type === "image" ? ImageIcon : type === "video" ? Video : type === "transcript" ? Captions : type === "document" ? Link2 : Music2;
-  return <button aria-label={interpolate(t("agent.message.open"), { label })} className="group block w-56 overflow-hidden rounded-sm border bg-card text-left shadow-sm transition hover:border-primary hover:shadow-md" onClick={onOpen} type="button">{state.status === "completed" ? type === "image" ? <img alt={label} className="aspect-video w-full object-cover" src={url} /> : type === "video" ? <VideoFrame alt={label} className="aspect-video w-full" src={url} /> : <div className="grid aspect-video place-items-center bg-muted text-muted-foreground"><Icon className="size-6" /></div> : <MediaPreviewState state={state} />}<span className="flex items-center gap-1.5 border-t px-2 py-1.5 font-mono text-[10px] text-muted-foreground group-hover:text-foreground"><Icon className="size-3" />{label} · {t("agent.message.clickToView")}</span></button>;
+  const Icon = type === "image" ? ImageIcon : type === "video" ? Video : type === "transcript" ? Captions : type === "document" ? Link2 : type === "component" ? Layers : Music2;
+  const component = type === "component" && asset ? componentMeta(asset.metadata) : null;
+  return <button aria-label={interpolate(t("agent.message.open"), { label })} className="group block w-56 overflow-hidden rounded-sm border bg-card text-left shadow-sm transition hover:border-primary hover:shadow-md" onClick={onOpen} type="button">{state.status === "completed" && type === "component" && component ? <MotionGraphicPreview apiBase={apiBase} componentId={component.componentId} name={asset?.name} surface={component.surface} versionId={component.versionId} /> : state.status === "completed" ? type === "image" ? <img alt={label} className="aspect-video w-full object-cover" src={url} /> : type === "video" ? <VideoFrame alt={label} className="aspect-video w-full" src={url} /> : <div className="grid aspect-video place-items-center bg-muted text-muted-foreground"><Icon className="size-6" /></div> : <MediaPreviewState state={state} />}<span className="flex items-center gap-1.5 border-t px-2 py-1.5 font-mono text-[10px] text-muted-foreground group-hover:text-foreground"><Icon className="size-3" />{label} · {t("agent.message.clickToView")}</span></button>;
+}
+
+// componentMeta 读取组件素材的 metadata.component（版本/surface），供内联实时预览。
+function componentMeta(metadata: Record<string, unknown> | undefined): { componentId: string; versionId?: string; surface?: string } | null {
+  const value = metadata?.component;
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const componentId = typeof record.componentId === "string" ? record.componentId : "";
+  if (!componentId) return null;
+  return {
+    componentId,
+    versionId: typeof record.versionId === "string" ? record.versionId : undefined,
+    surface: typeof record.surface === "string" ? record.surface : undefined,
+  };
 }
 
 function MediaPreviewState({ state }: { state: MediaPreviewStateData }) {

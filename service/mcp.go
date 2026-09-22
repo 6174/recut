@@ -181,8 +181,8 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Asynchronously prepare the platform understanding environment: install the locked dependencies and ffprobe into the global platform Python venv and write a version marker. Returns a jobId; observe the terminal state with recut.job.wait.",
 	},
 	"recut.motion-graphic.create": {
-		LocaleZh: "创建组件素材的唯一入口（异步 job）。传入一组 items（每项含 brief），平台受限作者子 Agent 构建 + 轻量验证后发布为 verified 全局素材；结果返回 assetIds[] 与 components[]。MG 是全局素材：不传项目目标也可创作，带 projectId 时顺带把成品登记进该项目素材库。创建本身绝不插入时间线。",
-		LocaleEn: "The only entry point to create component assets (async job). Given items (each with a brief), the platform's restricted author sub-agent builds and lightly verifies them into verified global assets; the result returns assetIds[] and components[]. Motion graphics are global assets: no project target is needed, and an optional projectId also registers the result into that project's library. Creation never inserts into the timeline.",
+		LocaleZh: "创建组件素材的唯一入口（异步 job）。传入一组 items（每项含 brief），平台受限作者子 Agent 构建 + 轻量验证后发布为 verified 全局素材；结果返回 assetIds[] 与 components[]。MG 是全局素材，不绑定任何项目；项目成员关系由消费方（recut.editor）在需要使用时建立。创建本身绝不插入时间线。",
+		LocaleEn: "The only entry point to create component assets (async job). Given items (each with a brief), the platform's restricted author sub-agent builds and lightly verifies them into verified global assets; the result returns assetIds[] and components[]. Motion graphics are global assets and never bind a project; the consumer (recut.editor) establishes project membership when it needs to use one. Creation never inserts into the timeline.",
 	},
 	"recut.motion-graphic.revise": {
 		LocaleZh: "修复或调整已有组件的唯一入口。传入 componentId 与 instruction；构建 + 轻量验证后生成新 head，并返回同一条 component asset 的 assetId。旧 verified head 在 job 失败前保持不变，绝不插入时间线。",

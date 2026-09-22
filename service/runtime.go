@@ -238,7 +238,7 @@ func (h *AppHost) invoke(target Target, app App, group, name string, input map[s
 	// motion-graphic.* 已平台化（recut.motion-graphic.*）：App op 以裸名进入，平台工具以全名进入，
 	// 两者都走同一条 App 无关的 Go 路径（见 motion_graphic_platform.go / motion_graphic_bridge.go）。
 	if group == "operation" && strings.HasPrefix(name, "motion-graphic.") {
-		return h.motionGraphicExec(target, name, input, locale)
+		return h.motionGraphicExec(name, input, locale)
 	}
 	// recut.editor 已平台原生化：全部 op 由 Go 原生分发（见 editor_dispatch.go /
 	// editor_app.go），没有 goja background。

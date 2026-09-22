@@ -20,7 +20,7 @@ import { getRealtimeChannel } from "@/lib/realtime-channel";
 
 export type MediaEventAsset = {
   id: string;
-  kind: "image" | "video" | "audio" | "transcript" | "document";
+  kind: "image" | "video" | "audio" | "transcript" | "document" | "component";
   mimeType: string;
   name: string;
   origin: string;
@@ -63,9 +63,10 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 function assetKind(value: unknown, mimeType: string): MediaEventAsset["kind"] {
-  if (value === "image" || value === "video" || value === "audio" || value === "transcript" || value === "document") return value;
+  if (value === "image" || value === "video" || value === "audio" || value === "transcript" || value === "document" || value === "component") return value;
   if (mimeType.startsWith("video/")) return "video";
   if (mimeType.startsWith("audio/")) return "audio";
+  if (mimeType === "application/vnd.recut.component+json") return "component";
   return "image";
 }
 

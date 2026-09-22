@@ -51,9 +51,8 @@ export default {
 
 func TestMotionGraphicPlatformDispatchIsAppAgnostic(t *testing.T) {
 	_, store, host, project := setupEditorTestApp(t)
-	target := Target{ProjectID: project.ID}
 
-	defined, err := host.motionGraphicExec(target, motion_graphic.OpDefine, map[string]any{
+	defined, err := host.motionGraphicExec(motion_graphic.OpDefine, map[string]any{
 		"name": "Platform MG", "surface": "react", "source": platformComponentSource,
 	}, DefaultLocale)
 	if err != nil {
@@ -85,10 +84,9 @@ func TestMotionGraphicPlatformDispatchIsAppAgnostic(t *testing.T) {
 // TestMotionGraphicPlatformCreateFinalize 覆盖受限作者子 Agent 的 finalize 半程：
 // create 收到 subAgentTools（commit 结果）后应产出 verified 组件与 assetId，且不落时间线。
 func TestMotionGraphicPlatformCreateFinalize(t *testing.T) {
-	_, _, host, project := setupEditorTestApp(t)
-	target := Target{ProjectID: project.ID}
+	_, _, host, _ := setupEditorTestApp(t)
 
-	defined, err := host.motionGraphicExec(target, motion_graphic.OpDefine, map[string]any{
+	defined, err := host.motionGraphicExec(motion_graphic.OpDefine, map[string]any{
 		"name": "Finalized MG", "surface": "react", "source": platformComponentSource,
 	}, DefaultLocale)
 	if err != nil {
@@ -100,7 +98,7 @@ func TestMotionGraphicPlatformCreateFinalize(t *testing.T) {
 		t.Fatalf("define returned no versionId: %#v", defined)
 	}
 
-	finalized, err := host.motionGraphicExec(target, motion_graphic.OpCreate, map[string]any{
+	finalized, err := host.motionGraphicExec(motion_graphic.OpCreate, map[string]any{
 		"items": []any{map[string]any{"brief": "a platform motion graphic"}},
 		"subAgentTools": []any{map[string]any{
 			"name":   motion_graphic.CommitTool,
@@ -121,7 +119,7 @@ func TestMotionGraphicPlatformCreateFinalize(t *testing.T) {
 	}
 
 	// 不落时间线：项目文档没有新增 element。
-	if listed, err := host.motionGraphicExec(target, motion_graphic.OpList, map[string]any{}, DefaultLocale); err != nil {
+	if listed, err := host.motionGraphicExec(motion_graphic.OpList, map[string]any{}, DefaultLocale); err != nil {
 		t.Fatalf("list failed: %v", err)
 	} else if _, ok := listed.(map[string]any)["components"].([]any); !ok {
 		t.Fatalf("list result = %#v", listed)
@@ -159,25 +157,30 @@ func TestMotionGraphicCommitGateRecognizesAuthorSession(t *testing.T) {
 	}
 }
 
-// TestMotionGraphicTargetRejectsUnknownProject 锁定：projectId 只是可选的顺带登记提示，
-// 但若指向不存在的项目必须显式拒绝，而不是把成品登记进一个悬空的项目引用。
-func TestMotionGraphicTargetRejectsUnknownProject(t *testing.T) {
-	_, _, host, _ := setupEditorTestApp(t)
+// TestMotionGraphicIgnoresProjectTarget 锁定解耦：MG 是全局素材，平台工具不接受项目目标——
+// 即使调用方传了 __recut.target.projectId，也只做全局创作，不会把成品登记进该项目素材库。
+func TestMotionGraphicIgnoresProjectTarget(t *testing.T) {
+	_, _, host, project := setupEditorTestApp(t)
+	invoke(t, host, project, "project.create", map[string]any{})
 	bridge := NewAgentBridge(host.store)
 	arguments := map[string]any{
 		"name": "Ghost MG", "surface": "react", "source": platformComponentSource,
-		"__recut": map[string]any{"target": map[string]any{"projectId": "no-such-project"}},
+		"__recut": map[string]any{"target": map[string]any{"projectId": project.ID}},
 	}
-	_, err := mcpToolCall(bridge, host, NewMediaService(host.store), AgentSession{ID: "s-ghost"}, "recut.motion-graphic.define", arguments, DefaultLocale)
-	if err == nil {
-		t.Fatal("define with an unknown projectId must be rejected")
+	if _, err := mcpToolCall(bridge, host, NewMediaService(host.store), AgentSession{ID: "s-ghost"}, "recut.motion-graphic.define", arguments, DefaultLocale); err != nil {
+		t.Fatalf("define with a project target must still succeed as a global asset: %v", err)
+	}
+	for _, raw := range invokeAPI(t, host, project, "asset.list", map[string]any{})["assets"].([]any) {
+		if edStr(edMap(raw)["type"]) == "component" {
+			t.Fatalf("MG define must not register a project reference, got %#v", raw)
+		}
 	}
 }
 
 // TestMigrateLegacyMotionGraphicFiles 锁定：早期落在 appstate/recut.editor/files 下的 MG
 // cover_ref 会被复制到平台全局文件根，使新的 platformFileURL 能解析旧封面。
 func TestMigrateLegacyMotionGraphicFiles(t *testing.T) {
-	_, store, host, project := setupEditorTestApp(t)
+	_, store, host, _ := setupEditorTestApp(t)
 
 	db, err := store.WorkspaceDatabase()
 	if err != nil {
@@ -212,7 +215,7 @@ func TestMigrateLegacyMotionGraphicFiles(t *testing.T) {
 	}
 
 	// 任一次 MG op 触发迁移（motionGraphicExec → migrateLegacyMotionGraphicFiles）。
-	if _, err := host.motionGraphicExec(Target{ProjectID: project.ID}, motion_graphic.OpList, map[string]any{}, DefaultLocale); err != nil {
+	if _, err := host.motionGraphicExec(motion_graphic.OpList, map[string]any{}, DefaultLocale); err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
 
@@ -236,7 +239,7 @@ func TestMigrateLegacyMotionGraphicFiles(t *testing.T) {
 // resolve 返回组件精确版本的 bundle/surface，使浏览器可在聊天内实时渲染组件预览。
 func TestMotionGraphicResolveViewCarriesBundleForChatPreview(t *testing.T) {
 	_, _, host, _ := setupEditorTestApp(t)
-	defined, err := host.motionGraphicExec(Target{}, motion_graphic.OpDefine, map[string]any{
+	defined, err := host.motionGraphicExec(motion_graphic.OpDefine, map[string]any{
 		"name": "Preview MG", "surface": "react", "source": platformComponentSource,
 	}, DefaultLocale)
 	if err != nil {
@@ -247,7 +250,7 @@ func TestMotionGraphicResolveViewCarriesBundleForChatPreview(t *testing.T) {
 	if versionID == "" {
 		t.Fatalf("define returned no versionId: %#v", defined)
 	}
-	resolved, err := host.motionGraphicExec(Target{}, motion_graphic.OpResolve, map[string]any{"versionId": versionID}, DefaultLocale)
+	resolved, err := host.motionGraphicExec(motion_graphic.OpResolve, map[string]any{"versionId": versionID}, DefaultLocale)
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
@@ -351,7 +354,7 @@ func TestMotionGraphicVerifyProjectsUnifiedComponentAsset(t *testing.T) {
 	apps, store, _, project := setupEditorTestApp(t)
 	host := NewAppHost(apps, store, NewMediaService(store))
 	_ = project
-	defined, err := host.motionGraphicExec(Target{}, motion_graphic.OpDefine, map[string]any{
+	defined, err := host.motionGraphicExec(motion_graphic.OpDefine, map[string]any{
 		"name": "Library MG", "surface": "react", "source": platformComponentSource,
 	}, DefaultLocale)
 	if err != nil {
@@ -364,7 +367,7 @@ func TestMotionGraphicVerifyProjectsUnifiedComponentAsset(t *testing.T) {
 	if versionID == "" || componentID == "" || assetID == "" {
 		t.Fatalf("define result missing ids: %#v", defined)
 	}
-	if _, err := host.motionGraphicExec(Target{}, motion_graphic.OpVerify, map[string]any{
+	if _, err := host.motionGraphicExec(motion_graphic.OpVerify, map[string]any{
 		"versionId": versionID,
 		"report":    map[string]any{"ok": true, "checks": []any{map[string]any{"name": "build", "pass": true}}},
 	}, DefaultLocale); err != nil {
@@ -396,14 +399,14 @@ func TestMotionGraphicAssetBackfillProjectsExistingComponents(t *testing.T) {
 	apps, store, _, _ := setupEditorTestApp(t)
 	host := NewAppHost(apps, store, NewMediaService(store))
 	// 先造一个历史组件（direct define，模拟迁移前已存在的 mg_materials）。
-	if _, err := host.motionGraphicExec(Target{}, motion_graphic.OpDefine, map[string]any{
+	if _, err := host.motionGraphicExec(motion_graphic.OpDefine, map[string]any{
 		"name": "Legacy MG", "surface": "react", "source": platformComponentSource,
 	}, DefaultLocale); err != nil {
 		t.Fatalf("define failed: %v", err)
 	}
 	mediaSvc := NewMediaService(store)
 	// 触发任意 MG op：迁移应把历史组件回填成组件素材。
-	if _, err := host.motionGraphicExec(Target{}, motion_graphic.OpList, map[string]any{}, DefaultLocale); err != nil {
+	if _, err := host.motionGraphicExec(motion_graphic.OpList, map[string]any{}, DefaultLocale); err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
 	page, err := mediaSvc.ListAssetsFiltered("", media.MediaAssetFilter{Kind: "component", Query: "Legacy MG"})

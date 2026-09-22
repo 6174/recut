@@ -9,6 +9,7 @@ import {
   Captions,
   ChevronDown,
   ImageIcon,
+  Layers,
   Music2,
   Plus,
   Upload,
@@ -64,6 +65,7 @@ const filters: { id: Filter; label: string; icon: typeof ImageIcon }[] = [
   { id: "video", label: "视频", icon: Video },
   { id: "audio", label: "音频", icon: Music2 },
   { id: "transcript", label: "转写", icon: Captions },
+  { id: "component", label: "组件", icon: Layers },
 ];
 const createKinds: CreateKind[] = [
   {

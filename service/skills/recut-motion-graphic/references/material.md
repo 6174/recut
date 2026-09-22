@@ -55,7 +55,7 @@ interface ComponentRenderContext {
 
 | op | 说明 |
 |---|---|
-| `recut.motion-graphic.create` | **创建组件素材的唯一入口（异步 job）。** 输入 `{items:[{nameHint,brief,mode?,role?,template?}], references?, design?}`；构建 + 轻量验证后发布为 verified 全局素材。MG 是全局素材：不传项目目标也可创作，带 `projectId` 时顺带把成品登记进该项目素材库。job 完成结果返回 `assetIds[]` 和 `components[]`，每项含 `{assetId,componentId,versionId,status,mode}`；AI 将 `assetId` 传给 `timeline.placeComponents`，`componentId` 只用于修订/读源码。 |
+| `recut.motion-graphic.create` | **创建组件素材的唯一入口（异步 job）。** 输入 `{items:[{nameHint,brief,mode?,role?,template?}], references?, design?}`；构建 + 轻量验证后发布为 verified 全局素材。MG 是全局素材，不绑定任何项目；项目成员关系由 recut.editor 在需要使用时建立（`asset.add` / `timeline.placeComponents`）。job 完成结果返回 `assetIds[]` 和 `components[]`，每项含 `{assetId,componentId,versionId,status,mode}`；AI 将 `assetId` 传给 `timeline.placeComponents`，`componentId` 只用于修订/读源码。 |
 | `recut.motion-graphic.revise` | 已有组件的调整/Bug 修复入口。输入 `{componentId,instruction}`；平台固定当前 verified head，启动同模型受限子 Agent 生成新版本，构建 + 轻量验证后成为新 head。失败保留旧 head，绝不写时间线。 |
 | `recut.motion-graphic.list` | 项目内组件数据 + head 状态 + `inputs` + `mode` + `assetId`；素材发现优先 `asset.list`。 |
 | `recut.motion-graphic.source` | 读组件源码（当前 verified head 或指定版本）。主 Agent 可读，作为审查/修改的输入。 |
@@ -91,7 +91,7 @@ timeline.placeComponents {
 }
 ```
 
-它原子写入整组元素。默认「先登记后用」：创建时带 `projectId`（或 `asset.add component:<id>`）先把组件登记进本项目素材库，再用 `timeline.placeComponents` 放置；若组件尚未登记到本项目，`placeComponents` 只作兜底，会在用到时自动补登记。禁止为一组组件逐条调用 `timeline.command insert`。
+它原子写入整组元素。默认「先登记后用」：先用 `asset.add component:<id>` 把组件登记进本项目素材库，再用 `timeline.placeComponents` 放置；若组件尚未登记到本项目，`placeComponents` 只作兜底，会在用到时自动补登记。禁止为一组组件逐条调用 `timeline.command insert`。
 
 ## 验证闭环
 

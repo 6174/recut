@@ -2,8 +2,9 @@
  * [INPUT]: 依赖 editorContext（项目/引用/事件命名空间）、Store.PlatformFilesRoot（平台全局文件根）
  *          与 motion_graphic 全域素材包。
  * [OUTPUT]: motion_graphic 的平台宿主适配：素材真相在平台全局（workspace DB + 平台文件根，
- *           无 AppID）、可选的「顺带登记项目引用」、项目派生上下文，以及 editor 私有组件表到
- *           全局 mg_materials 的一次性迁移。
+ *           无 AppID）、verified 时的统一素材库全局投影，以及 editor 私有组件表到
+ *           全局 mg_materials 的一次性迁移。MG 不绑定项目：项目成员关系由 recut.editor 在
+ *           需要使用时建立（asset.add / placeComponents）。
  * [POS]: service 与 motion_graphic 包的接缝；MG 领域逻辑全在 motion_graphic 包，这里只做宿主适配。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -48,13 +49,9 @@ func (h mgHost) Emit(eventType string, payload map[string]any) {
 }
 func (h mgHost) OnVerified(id, versionID string) {
 	// MG 组件首先是统一素材库的一员：投影一条 kind=component 的全局 Asset，
-	// 使其像图片/视频一样出现在素材库、可预览、可挂项目引用。
+	// 使其像图片/视频一样出现在素材库、可预览。投影不挂任何项目引用——项目成员关系
+	// 由 recut.editor 在需要使用时建立（asset.add / placeComponents）。
 	h.projectComponentAsset(id, versionID)
-	// 只有消费方提供了项目目标时才顺带登记项目引用。
-	if h.c.scopeID == "" {
-		return
-	}
-	h.c.upsertComponentAssetRef(id, versionID)
 }
 
 // projectComponentAsset 把 MG 组件投影进统一 media_assets（kind=component），
@@ -96,6 +93,7 @@ func (h mgHost) projectComponentAsset(id, versionID string) {
 		Brief:       material.Name,
 		ProjectID:   h.c.scopeID,
 	})
+	markComponentAssetProjected(db, motion_graphic.AssetID(id), versionID)
 }
 
 // decodeEditorJSON 解析一段 JSON 文本为通用值；空串或非法 JSON 返回 nil。
@@ -142,28 +140,32 @@ func (c *editorContext) upsertComponentAssetRef(id, versionID string) {
 }
 
 // motionGraphicContext 构造 motion_graphic 操作所需的宿主上下文：素材真相在平台全局
-// （workspace DB + 平台文件根），这里只借用编辑器平台模块的项目/引用/事件命名空间；
-// 没有项目目标时退化为纯全局创作，不登记任何项目引用。
-func (h *AppHost) motionGraphicContext(target Target, locale Locale) (*editorContext, error) {
-	return newEditorContext(h, target, App{Manifest: Manifest{ID: editorSystemAppID}}, locale)
+// （workspace DB + 平台文件根），不绑定任何项目（MG 是全局素材，项目成员关系由消费方管理）。
+func (h *AppHost) motionGraphicContext(locale Locale) (*editorContext, error) {
+	return newEditorContext(h, Target{}, App{Manifest: Manifest{ID: editorSystemAppID}}, locale)
 }
 
 // motionGraphicExec 执行一个 motion_graphic operation（平台分发路径，App 无关）：
-// 注入项目派生的画布/合成上下文，并把 motion_graphic.Error 翻译为平台错误信封。
-func (h *AppHost) motionGraphicExec(target Target, op string, input map[string]any, locale Locale) (any, error) {
-	c, err := h.motionGraphicContext(target, locale)
+// 把 motion_graphic.Error 翻译为平台错误信封。MG 是全局素材，不注入也不推导任何项目上下文；
+// 画布/合成上下文由调用方显式提供（顶层 `canvas`，或 create 的 `design.canvas`）。
+func (h *AppHost) motionGraphicExec(op string, input map[string]any, locale Locale) (any, error) {
+	c, err := h.motionGraphicContext(locale)
 	if err != nil {
 		return nil, err
 	}
 	migrateEditorComponents(c)
 	migrateLegacyMotionGraphicFiles(c)
 	migrateMotionGraphicAssets(c)
-	if op == motion_graphic.OpCreate || op == motion_graphic.OpRevise {
+	if design := edMap(input["design"]); design != nil {
 		if _, ok := input["canvas"]; !ok {
-			input["canvas"] = editorCanvasContext(c)
+			if canvas := edMap(design["canvas"]); canvas != nil {
+				input["canvas"] = canvas
+			}
 		}
 		if _, ok := input["composition"]; !ok {
-			input["composition"] = editorCompositingContext(c)
+			if composition := edMap(design["composition"]); composition != nil {
+				input["composition"] = composition
+			}
 		}
 	}
 	handler := motion_graphic.Handlers(mgHost{c: c})[op]
@@ -185,59 +187,8 @@ func mgTranslateError(err error) error {
 	return err
 }
 
-// editorCanvasContext / editorCompositingContext 从项目文档推导创建 prompt 需要的上下文。
-func editorCanvasContext(c *editorContext) map[string]any {
-	existing := c.readProject()
-	if existing == nil || existing.Project == nil {
-		return nil
-	}
-	settings := edMap(existing.Project["settings"])
-	if settings == nil {
-		return nil
-	}
-	return edMap(settings["canvasSize"])
-}
-
-func editorCompositingContext(c *editorContext) map[string]any {
-	existing := c.readProject()
-	if existing == nil || existing.Project == nil {
-		return map[string]any{"overMedia": false}
-	}
-	project := existing.Project
-	scenes := edSlice(project["scenes"])
-	if len(scenes) == 0 {
-		return map[string]any{"overMedia": false}
-	}
-	scene := edMap(scenes[0])
-	if current := edStr(project["currentSceneId"]); current != "" {
-		for _, sceneValue := range scenes {
-			candidate := edMap(sceneValue)
-			if edStr(candidate["id"]) == current {
-				scene = candidate
-				break
-			}
-		}
-	}
-	tracks := edMap(scene["tracks"])
-	if tracks == nil {
-		return map[string]any{"overMedia": false}
-	}
-	list := []any{}
-	if main := edMap(tracks["main"]); main != nil {
-		list = append(list, main)
-	}
-	list = append(list, edSlice(tracks["overlay"])...)
-	list = append(list, edSlice(tracks["audio"])...)
-	for _, trackValue := range list {
-		for _, elValue := range edSlice(edMap(trackValue)["elements"]) {
-			elementType := edStr(edMap(elValue)["type"])
-			if elementType == "video" || elementType == "image" {
-				return map[string]any{"overMedia": true}
-			}
-		}
-	}
-	return map[string]any{"overMedia": false}
-}
+// editorCanvasContext / editorCompositingContext 已移除：MG 是全局素材，画布/合成上下文
+// 不再从项目推导，改由调用方显式提供（顶层 `canvas` 或 `design.canvas`）。
 
 // ---- 迁移：editor 私有组件表 → 全局 mg_materials ----------------------------
 
@@ -353,11 +304,9 @@ func migrateLegacyMotionGraphicFiles(c *editorContext) {
 	setPreference(db, mgFilesMigrationPrefKey, "1")
 }
 
-// mgAssetProjectionPrefKey 标记「既有 MG 组件已回填为统一组件素材」。
-const mgAssetProjectionPrefKey = "mg_assets_projected_v1"
-
-// migrateMotionGraphicAssets 把库里既有的 MG 组件一次性回填成统一素材（kind=component），
-// 让历史组件也出现在素材库；幂等，只回填尚未投影的组件。
+// migrateMotionGraphicAssets 把库里既有的 MG 组件回填成统一素材（kind=component），
+// 让历史组件也出现在素材库。以「已投影的组件 assetId」为幂等标记：新增/历史组件都会
+// 在下一次 MG op 时补齐，已投影的按版本刷新而不重复。
 func migrateMotionGraphicAssets(c *editorContext) {
 	if c == nil || c.host == nil || c.host.store == nil || c.host.media == nil {
 		return
@@ -366,12 +315,27 @@ func migrateMotionGraphicAssets(c *editorContext) {
 	if err != nil {
 		return
 	}
-	if preferenceSet(db, mgAssetProjectionPrefKey) {
-		return
-	}
 	host := mgHost{c: c}
 	for _, material := range motion_graphic.ListAll(db) {
+		if componentAssetProjected(db, motion_graphic.AssetID(material.ID), material.VersionID()) {
+			continue
+		}
 		host.projectComponentAsset(material.ID, material.VersionID())
+		markComponentAssetProjected(db, motion_graphic.AssetID(material.ID), material.VersionID())
 	}
-	setPreference(db, mgAssetProjectionPrefKey, "1")
 }
+
+// componentAssetProjected 判断某组件版本是否已投影进统一素材库（幂等标记）。
+func componentAssetProjected(db *sql.DB, assetID, versionID string) bool {
+	rows, err := queryMaps(db, "select value_json from workspace_preferences where key = ?", mgAssetProjectedPrefKey(assetID))
+	if err != nil || len(rows) == 0 {
+		return false
+	}
+	return edStr(rows[0]["value_json"]) == versionID
+}
+
+func markComponentAssetProjected(db *sql.DB, assetID, versionID string) {
+	setPreference(db, mgAssetProjectedPrefKey(assetID), versionID)
+}
+
+func mgAssetProjectedPrefKey(assetID string) string { return "mg_asset_projected:" + assetID }

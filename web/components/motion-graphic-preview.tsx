@@ -1,13 +1,13 @@
 /*
  * [INPUT]: 依赖服务端 /v1/motion-graphics/{versionId} 解析出的组件 bundle 与 timeline-editor 的 ComponentPreview
- * [OUTPUT]: 对外提供 MotionGraphicPreview：在聊天卡片内按需实时渲染一个 Motion Graphic 组件，带错误边界与可见性懒挂载
+ * [OUTPUT]: 对外提供 MotionGraphicPreview：在聊天/素材卡内按需实时渲染一个 Motion Graphic 组件（默认循环播放、透明底透出主题、16:9 或按基准尺寸），带错误边界与可见性懒挂载
  * [POS]: components 的组件预览适配层；与编辑器共用同一渲染运行时，组件错误被限制在预览框内，绝不冒泡到页面
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import dynamic from "next/dynamic";
-import { Component, useEffect, useRef, useState, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useI18n } from "@/lib/i18n/index";
 
@@ -33,16 +33,21 @@ export type MotionGraphicPreviewProps = {
   componentId: string;
   name?: string;
   surface?: string;
+  /** 组件设计基准尺寸；缺省按宽高比 16:9 的容器渲染。 */
+  baseWidth?: number;
+  baseHeight?: number;
 };
 
-export function MotionGraphicPreview({ apiBase, versionId, componentId, name, surface }: MotionGraphicPreviewProps) {
+export function MotionGraphicPreview({ apiBase, versionId, componentId, name, surface, baseWidth, baseHeight }: MotionGraphicPreviewProps) {
   const { t: text } = useI18n();
   const frameRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [visible, setVisible] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const [resolved, setResolved] = useState<ResolvedComponent | null>(null);
   const [error, setError] = useState(false);
-  const height = width > 0 ? Math.round((width * 9) / 16) : 0;
+  const ratio = baseWidth && baseHeight ? baseHeight / baseWidth : 9 / 16;
+  const height = width > 0 ? Math.round(width * ratio) : 0;
 
   // 只渲染进入视口的卡片：避免会话里大量组件同时占用 WebGL 上下文。
   useEffect(() => {
@@ -91,29 +96,41 @@ export function MotionGraphicPreview({ apiBase, versionId, componentId, name, su
     };
   }, [apiBase, versionId, visible, resolved, error]);
 
+  // 稳定 resolver 身份：避免内联 async 每次渲染新建 → ComponentPreview effect 循环。
+  const resolver = useCallback(async () => resolved as never, [resolved]);
+  const resolvedInputs = useMemo(() => resolved?.inputs ?? [], [resolved]);
+
   const fallback = (
-    <div className="grid h-full w-full place-items-center bg-gradient-to-br from-zinc-900 to-zinc-800 px-4 text-center text-zinc-400">
+    <div className="grid h-full w-full place-items-center px-4 text-center text-muted-foreground">
       <span className="text-[10px]">{error ? text("agent.mg.previewFailed") : text("agent.mg.previewLoading")}</span>
     </div>
   );
 
   // 外层容器始终是同一个节点（frameRef 稳定），保证 Intersection/ResizeObserver 不会观察到已被替换的旧节点。
   return (
-    <div className="border-t bg-[#101014]" ref={frameRef} style={{ height: height || 160 }}>
+    <div
+      className="w-full overflow-hidden"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      ref={frameRef}
+      style={{ height: height || 160 }}
+    >
       {!visible ? null : error || !versionId ? (
         fallback
       ) : !resolved || width === 0 ? (
-        <div className="grid h-full place-items-center text-[10px] text-zinc-400">{text("agent.mg.previewLoading")}</div>
+        <div className="grid h-full place-items-center text-[10px] text-muted-foreground">{text("agent.mg.previewLoading")}</div>
       ) : (
         <PreviewErrorBoundary fallback={fallback}>
           <ComponentPreview
+            animate={hovered}
+            background="transparent"
             componentId={resolved.componentId}
-            inputs={resolved.inputs as never}
+            height={height}
+            inputs={resolvedInputs as never}
             name={resolved.name || name || resolved.componentId}
-            resolver={async () => resolved as never}
+            resolver={resolver}
             surface={(resolved.surface || surface || "r3f") as never}
             width={width}
-            height={height}
           />
         </PreviewErrorBoundary>
       )}

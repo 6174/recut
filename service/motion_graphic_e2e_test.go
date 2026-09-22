@@ -50,7 +50,7 @@ func TestMotionGraphicE2EComponentChain(t *testing.T) {
 	invoke(t, host, project, "project.create", map[string]any{})
 
 	// 0. 全局 MCP 工具面：AI 侧入口 recut.motion-graphic.define 经 mcpToolCall 直达平台构建。
-	//     MG 是全局素材：不传项目目标也应能创作；带 projectId 只是顺带把成品登记到该项目。
+	//    MG 是全局素材：不传项目目标也能创作；即使传了 projectId 也会被忽略（不登记项目引用）。
 	bridge := NewAgentBridge(store)
 	globalDefine, err := mcpToolCall(bridge, host, NewMediaService(store), AgentSession{ID: "s-mg-global"},
 		"recut.motion-graphic.define", map[string]any{"name": "Global via MCP", "surface": "react", "source": e2eMGSourceV1}, DefaultLocale)
@@ -74,7 +74,7 @@ func TestMotionGraphicE2EComponentChain(t *testing.T) {
 	}
 
 	// 1. define：真实 Go 构建工具链产出 draft 素材。
-	//    带 projectId 只是为后续把成品登记到该项目素材库；MG 本体不依赖它。
+	//    MG 是全局素材，define 不依赖项目；项目成员关系由消费方在用时建立。
 	defined := invokeAPI(t, host, project, "motion-graphic.define", map[string]any{
 		"name": "E2E Motion Graphic", "surface": "react", "source": e2eMGSourceV1,
 	})
@@ -85,8 +85,7 @@ func TestMotionGraphicE2EComponentChain(t *testing.T) {
 	}
 	t.Logf("defined componentId=%s versionId=%s", componentID, versionV1)
 
-	// 2. verify：发布 verified head。先走全局工具路径（无项目目标）——素材仍不挂任何项目；
-	//    再走项目路径，verify 顺带把成品登记进该项目素材库（editor_assets）。
+	// 2. verify：发布 verified head（纯全局素材，不挂任何项目）。
 	globalVerify := invokeMCP(t, host, "recut.motion-graphic.verify", map[string]any{
 		"versionId": versionV1,
 		"report":    map[string]any{"ok": true, "checks": []any{map[string]any{"name": "component-build", "pass": true}}},
@@ -95,18 +94,17 @@ func TestMotionGraphicE2EComponentChain(t *testing.T) {
 		t.Fatalf("global verify = %#v", globalVerify)
 	}
 	if assetListHasComponent(invokeAPI(t, host, project, "asset.list", map[string]any{}), componentID) {
-		t.Fatalf("global verify must not auto-attach to a project; got a component ref for %s", componentID)
+		t.Fatalf("MG verify must not attach to a project; got a component ref for %s", componentID)
 	}
-	verified := invokeAPI(t, host, project, "motion-graphic.verify", map[string]any{
-		"versionId": versionV1,
-		"report":    map[string]any{"ok": true, "checks": []any{map[string]any{"name": "component-build", "pass": true}}},
-	})
-	if verified["status"] != "verified" {
-		t.Fatalf("verify = %#v", verified)
+
+	// 3. 项目成员关系由 recut.editor 在需要使用时建立（asset.add），MG 本体不感知项目。
+	added := invoke(t, host, project, "asset.add", map[string]any{"assetId": "component:" + componentID})
+	if added["ok"] != true {
+		t.Fatalf("asset.add = %#v", added)
 	}
 	assets := invokeAPI(t, host, project, "asset.list", map[string]any{})
 	if !assetListHasComponent(assets, componentID) {
-		t.Fatalf("asset.list missing component %s after project verify: %#v", componentID, assets)
+		t.Fatalf("asset.list missing component %s after asset.add: %#v", componentID, assets)
 	}
 
 	// 4. 用 assetId 放置到时间线：必须解析到同一个 componentId。

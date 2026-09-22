@@ -425,6 +425,9 @@ func (c *editorContext) registerGlobalComponentRef(assetID string) (string, bool
 		return "", false
 	}
 	c.upsertComponentAssetRef(id, material.VersionID())
+	// 统一素材库的项目成员关系（与媒体同构）在「使用时」建立：把全局组件投影进 media_assets
+	// 并 attach 到本项目（scopeID 非空），使素材面板可见。verify 时只做全局投影、不挂项目。
+	mgHost{c: c}.projectComponentAsset(id, material.VersionID())
 	return id, true
 }
 

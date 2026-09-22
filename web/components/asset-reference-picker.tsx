@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { AtSign, Captions, Check, Eye, Film, Image as ImageIcon, Link2, Music2, Search, Upload, X } from "lucide-react";
+import { AtSign, Captions, Check, Eye, Film, Image as ImageIcon, Layers, Link2, Music2, Search, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
@@ -18,7 +18,7 @@ export type AssetReference = {
   assetId: string;
   name: string;
   mimeType: string;
-  kind: "image" | "video" | "audio" | "transcript" | "document";
+  kind: "image" | "video" | "audio" | "transcript" | "document" | "component";
   origin: string;
   status: string;
   createdAt?: string;
@@ -32,17 +32,19 @@ type Asset = Omit<AssetReference, "assetId"> & {
 type Scope = "project" | "library";
 export type MediaPickerKind = Asset["kind"];
 
-const mediaTag = /<media\s+type="(image|video|audio|transcript|reference)"\s+assetid="([^"]+)"\s*\/?>/gi;
+const mediaTag = /<media\s+type="(image|video|audio|transcript|reference|component)"\s+assetid="([^"]+)"\s*\/?>/gi;
 
 function normalizeAsset(value: Partial<Asset> & { id?: unknown }): Asset {
   const mimeType = typeof value.mimeType === "string" ? value.mimeType : "";
-  const kind = value.kind === "video" || value.kind === "audio" || value.kind === "image" || value.kind === "transcript" || value.kind === "document"
+  const kind = value.kind === "video" || value.kind === "audio" || value.kind === "image" || value.kind === "transcript" || value.kind === "document" || value.kind === "component"
     ? value.kind
     : mimeType.startsWith("video/")
       ? "video"
       : mimeType.startsWith("audio/")
         ? "audio"
-        : "image";
+        : mimeType === "application/vnd.recut.component+json"
+          ? "component"
+          : "image";
   return {
     id: typeof value.id === "string" ? value.id : "",
     name: typeof value.name === "string" && value.name.trim() ? value.name : "未命名素材",
@@ -198,5 +200,5 @@ function AssetThumbnail({ apiBase, asset, className, iconClassName }: { apiBase:
 }
 
 function AssetKindIcon({ className = "size-4", kind }: { className?: string; kind: Asset["kind"] }) {
-  return kind === "image" ? <ImageIcon className={className} /> : kind === "video" ? <Film className={className} /> : kind === "transcript" ? <Captions className={className} /> : kind === "document" ? <Link2 className={className} /> : <Music2 className={className} />;
+  return kind === "image" ? <ImageIcon className={className} /> : kind === "video" ? <Film className={className} /> : kind === "transcript" ? <Captions className={className} /> : kind === "document" ? <Link2 className={className} /> : kind === "component" ? <Layers className={className} /> : <Music2 className={className} />;
 }
