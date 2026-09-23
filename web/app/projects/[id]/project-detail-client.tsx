@@ -274,7 +274,7 @@ export default function ProjectDetailClient() {
   }, [apiBase, id, nativeEditorActive, project, t]);
 
   return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">
-    <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-5">
+    <header className="flex h-13 shrink-0 items-center justify-between border-b bg-card px-5">
       <div className="flex min-w-0 items-center gap-4">
         <Link aria-label={t("detail.back")} className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><img alt="Recut" className="size-5 shrink-0 rounded-sm object-cover" src="/logo.jpg" /></Link>
         <div aria-hidden="true" className="h-5 w-px bg-border" />

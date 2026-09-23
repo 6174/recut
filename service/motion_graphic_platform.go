@@ -48,9 +48,16 @@ func (s *Server) getMotionGraphicResolve(w http.ResponseWriter, r *http.Request)
 func motionGraphicMCPToolDefinitions(locale Locale) []map[string]any {
 	schemas := map[string]map[string]any{
 		"create": {
-			"type":     "object",
-			"required": []string{"items"},
+			"type": "object",
 			"properties": map[string]any{
+				"source":      map[string]string{"type": "string", "description": "默认直通路径：单文件 TS/TSX 源码（唯一允许的外部 import 是 @recut/runtime）。平台同步构建 + 轻量验证后返回 verified，无需受限作者子 Agent。"},
+				"author":      map[string]any{"type": "boolean", "description": "设为 true 才走受限作者子 Agent（复杂组件：需要自主探索/多镜编排/视觉迭代）；此时用 items 提供 brief。"},
+				"name":        map[string]string{"type": "string", "description": "组件名（直通路径）。"},
+				"componentId": map[string]string{"type": "string", "description": "可选；带此值 = 在已有组件上开新版本。"},
+				"surface":     map[string]any{"type": "string", "enum": []string{"html", "react", "r3f"}, "description": "组件承载面（直通路径；缺省 react）。"},
+				"keywords":    map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+				"inputs":      map[string]any{"type": "array", "description": "ParamDefinition[]，驱动参数面板（直通路径）。"},
+				"mode":        map[string]any{"type": "string", "enum": []string{"fullscreen", "local"}, "description": "fullscreen：铺满整张画布；local：画布局部装饰件（缺省）。"},
 				"items": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{
 					"type":     "object",
 					"required": []string{"brief"},
@@ -134,6 +141,16 @@ func motionGraphicMCPTool(bridge *AgentBridge, host *AppHost, session AgentSessi
 	fullOp := "motion-graphic." + op
 	switch op {
 	case "create", "revise":
+		// create 默认直通：传 `source` 时同步构建 + 轻量验证 → verified，不拉受限作者子 Agent；
+		// 只有显式 `author:true`（复杂组件）才走子 Agent。revise 仍走子 Agent。
+		if op == "create" && !boolMap(args, "author") {
+			result, err := host.motionGraphicExec(fullOp, args, locale)
+			if err != nil {
+				return nil, err
+			}
+			data, _ := json.Marshal(result)
+			return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+		}
 		input := args
 		invoke := func(input map[string]any) (any, error) {
 			return host.motionGraphicExec(fullOp, input, locale)

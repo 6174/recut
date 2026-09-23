@@ -21,7 +21,7 @@ import { isLocalWorkspace } from "@/lib/service-endpoint";
 import { useServiceStore } from "@/lib/service-store";
 import { useAppInstallationEvents } from "@/components/use-app-installation-events";
 
-const workspaceHeaderHeight = 64;
+const workspaceHeaderHeight = 52; // px, 固定 Header 高度，Agent 面板从 Header 底部开始撑满剩余高度
 const marketingHosts = new Set(["localhost", "recut.video", "www.recut.video"]);
 
 export function AgentPanelHost({ apps, children, docs, posts }: Readonly<{ apps: MarketingApp[]; children: React.ReactNode; docs: Record<Locale, DocPage[]>; posts: MarketingPost[] }>) {

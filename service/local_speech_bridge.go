@@ -76,11 +76,26 @@ func wireLocalSpeechBridge(host *AppHost, platformMedia *media.MediaService) {
 		// 与字幕生成共用一段 InvokeMCP→观察→save 的表达；用户选本地 TTS 为默认即视为允许保存。
 		invoked, err := host.capabilityInvoke(Target{ProjectID: job.ProjectID}, audioStudioAppID, "audio.save", map[string]any{"id": synthesisID, "kind": "synthesis"}, "default-voice-route", DefaultLocale)
 		if err != nil || !boolMap(invoked, "ok") {
-			message := "local speech save failed"
+			providerErr := map[string]any(nil)
 			if invoked != nil {
-				message = fmt.Sprintf("%s: %v", message, jsonMap(invoked)["error"])
+				providerErr = jsonMap(jsonMap(invoked)["error"])
 			}
-			return media.MediaAsset{}, fmt.Errorf("%s: %w", message, err)
+			code := mapString(providerErr, "code")
+			if code == "" {
+				code = "audio.save.failed"
+			}
+			message := mapString(providerErr, "message")
+			if message == "" {
+				message = fmt.Sprintf("%v", err)
+			}
+			// 结构化失败：合成已完成、仅授权落库失败。给出可执行 hint，且不把该错误伪装成合成失败。
+			return media.MediaAsset{}, &mcpError{
+				Kind:      "provider",
+				Code:      code,
+				Message:   "local speech save failed: " + message,
+				Hint:      loc(DefaultLocale, "Audio Studio 已合成但平台授权落库失败；可改用 audio.synthesize + audio.save，或把语音默认路由切到云端 provider。", "Audio Studio synthesized but the platform save failed; use audio.synthesize + audio.save, or switch the speech default route to a cloud provider."),
+				Retryable: true,
+			}
 		}
 		rawResult := jsonMap(invoked)["result"]
 		assetID := mapString(jsonMap(rawResult), "assetId")

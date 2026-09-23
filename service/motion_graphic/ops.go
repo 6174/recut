@@ -343,9 +343,54 @@ func (s *service) create(input map[string]any) (any, error) {
 	if tools, ok := input["subAgentTools"].([]any); ok {
 		return s.finalize(tools, asSlice(input["items"]), "create")
 	}
+	// 默认直通：直接传源码 → 同步构建 + 轻量验证 → verified，不需要受限作者子 Agent。
+	if strings.TrimSpace(str(input["source"])) != "" {
+		return s.createDirect(input)
+	}
+	// 复杂组件：显式 author:true 才走受限作者子 Agent（返回 SubAgentRequest 给平台 runner）。
+	if boolInput(input["author"]) {
+		return s.createSubAgent(input)
+	}
+	return nil, businessErrorWithCode("source-required",
+		"motion-graphic.create: provide `source` (single-file TS/TSX) for the default direct path, or set `author:true` to run the restricted author sub-agent",
+		"默认直通请传 `source`（单文件 TS/TSX），平台一次构建+验证并返回 verified；复杂组件再传 `author:true` 走受限作者子 Agent。")
+}
+
+// createDirect 是 create 的默认直通路径：源码 → 构建 + 轻量验证 → verified 全局素材。
+func (s *service) createDirect(input map[string]any) (any, error) {
+	defineInput := map[string]any{
+		"source":   input["source"],
+		"name":     fallback(str(input["name"]), str(input["nameHint"])),
+		"surface":  input["surface"],
+		"keywords": input["keywords"],
+		"inputs":   input["inputs"],
+		"mode":     input["mode"],
+	}
+	if id := str(input["componentId"]); id != "" {
+		defineInput["componentId"] = id
+	}
+	material, built, err := s.define(defineInput, true)
+	if err != nil {
+		return nil, err
+	}
+	if material.Status != "verified" {
+		return map[string]any{"ok": false, "componentId": material.ID, "versionId": material.VersionID(), "status": "failed", "buildError": built.Error}, nil
+	}
+	return map[string]any{
+		"ok": true, "assetId": AssetID(material.ID), "componentId": material.ID,
+		"versionId": material.VersionID(), "version": material.CodeVersion, "status": "verified",
+		"name": material.Name, "surface": material.Surface, "mode": fallback(material.Mode, "local"),
+		"coverUrl": s.coverURL(material.CoverRef),
+		"evidence": map[string]any{"level": "build-passed", "by": "motion-graphic.create"}, "requiresVisualCheck": true,
+	}, nil
+}
+
+// createSubAgent 是 create 的受限作者子 Agent 路径（显式 author:true）：把 brief/items 交给
+// 平台 runner，由作者子会话产出源码并经唯一 commit 闸提交，finalize 后返回 verified。
+func (s *service) createSubAgent(input map[string]any) (any, error) {
 	items := asSlice(input["items"])
 	if len(items) == 0 {
-		return nil, businessError("motion-graphic.create: items required")
+		return nil, businessError("motion-graphic.create: items required in author mode")
 	}
 	canvas := asMap(input["canvas"])
 	composition := asMap(input["composition"])

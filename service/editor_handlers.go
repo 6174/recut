@@ -323,11 +323,12 @@ func editorTimelineValidate(c *editorContext, input map[string]any) (any, error)
 		componentIDs = append(componentIDs, edStr(row["ref_id"]))
 	}
 	violations := validateTimeline(project, componentIDs)
+	warnings := audioSilentWarnings(project)
 	version := int64(0)
 	if existing != nil {
 		version = existing.Version
 	}
-	return map[string]any{"version": version, "ok": len(violations) == 0, "violations": violations}, nil
+	return map[string]any{"version": version, "ok": len(violations) == 0, "violations": violations, "warnings": warnings}, nil
 }
 
 func editorUpdateSettings(c *editorContext, input map[string]any) (any, error) {
@@ -460,6 +461,11 @@ func (c *editorContext) normalizeComponentItems(items []any) ([]any, error) {
 		}
 		if componentID == "" {
 			return nil, editorError("timeline component requires assetId")
+		}
+		if strings.HasPrefix(componentID, "effect.") {
+			return nil, editorErrorWithCode("effect-not-component",
+				"`"+componentID+"` is an effect catalog id, not a component",
+				"`"+componentID+"` 是特效目录 id，不是组件；请用 timeline.command insert 落 type=effect + effectType 的元素。", false, nil)
 		}
 		next["componentId"] = componentID
 		if edStr(next["assetId"]) == "" {
@@ -656,6 +662,17 @@ func editorNormalizeAudioPlacementItems(items []any) ([]any, error) {
 		delete(next, "assetId")
 		next["sourceType"] = "upload"
 		next["type"] = "audio"
+		// placeAudio 的 items 支持可选 volume（缺省由 buildElement 落到 1）；
+		// buildElement 只读 params，所以把顶层 volume 归并进 params。
+		if v, ok := next["volume"]; ok {
+			params := map[string]any{}
+			for k, pv := range edMap(next["params"]) {
+				params[k] = pv
+			}
+			params["volume"] = v
+			next["params"] = params
+			delete(next, "volume")
+		}
 		out = append(out, next)
 	}
 	return out, nil
@@ -1332,6 +1349,14 @@ func editorLibraryBrowse(c *editorContext, input map[string]any) (any, error) {
 			merged[k] = v
 		}
 		merged["kind"] = kind
+		if kind == "effect" {
+			merged["elementTemplate"] = map[string]any{
+				"type":       "effect",
+				"effectType": edStr(entry["id"]),
+				"params":     effectDefaultParams(edSlice(entry["inputs"])),
+			}
+			merged["insertHint"] = "用 timeline.command insert 落 `type:effect` + `effectType` 元素（不是组件）"
+		}
 		items = append(items, merged)
 	}
 	effects := c.loadEffectsCatalog()
@@ -1365,6 +1390,20 @@ func editorLibraryBrowse(c *editorContext, input map[string]any) (any, error) {
 		limit = count
 	}
 	return map[string]any{"ok": true, "source": source, "count": count, "items": items[:limit]}, nil
+}
+
+// effectDefaultParams 把 effects 目录条目的 inputs 默认值收敛为 effect 元素的 params。
+func effectDefaultParams(inputs []any) map[string]any {
+	params := map[string]any{}
+	for _, iv := range inputs {
+		input := edMap(iv)
+		key := edStr(input["key"])
+		if key == "" || input["default"] == nil {
+			continue
+		}
+		params[key] = input["default"]
+	}
+	return params
 }
 
 // ---- 封面 -------------------------------------------------------------------

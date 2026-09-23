@@ -46,3 +46,8 @@ func asSlice(v any) []any {
 	s, _ := v.([]any)
 	return s
 }
+
+func boolInput(v any) bool {
+	b, _ := v.(bool)
+	return b
+}

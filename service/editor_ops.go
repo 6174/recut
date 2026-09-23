@@ -6,7 +6,10 @@
  */
 package main
 
-import "math"
+import (
+	"math"
+	"strings"
+)
 
 type editorOpOptions struct {
 	Seq    any
@@ -711,7 +714,11 @@ func validateTimeline(project map[string]any, componentIDs []string) []any {
 					violations = append(violations, map[string]any{"code": "out-of-range", "ref": ref, "detail": "trimStart > trimEnd"})
 				}
 				if edStr(el["type"]) == "component" && edStr(el["componentId"]) != "" && !componentSet[edStr(el["componentId"])] {
-					violations = append(violations, map[string]any{"code": "component-def", "ref": ref, "detail": "unknown componentId: " + edStr(el["componentId"])})
+					hint := "组件未登记：先用 asset.add 登记组件引用，或确认 assetId/componentId 指向已 verified 的组件。"
+					if strings.HasPrefix(edStr(el["componentId"]), "effect.") {
+						hint = "这是特效目录 id，不是组件；请用 timeline.command insert 落 type=effect + effectType 的元素。"
+					}
+					violations = append(violations, map[string]any{"code": "component-def", "ref": ref, "detail": "unknown componentId: " + edStr(el["componentId"]), "hint": hint})
 				}
 				if bm := edMap(el["params"])["blendMode"]; bm != nil && !editorContainsString(editorDefaultBlendModes, edStr(bm)) {
 					violations = append(violations, map[string]any{"code": "param-valid", "ref": ref, "detail": "invalid blendMode: " + edStr(bm)})
@@ -723,7 +730,7 @@ func validateTimeline(project map[string]any, componentIDs []string) []any {
 					violations = append(violations, map[string]any{"code": "transcript-src", "ref": ref, "detail": "transcript declared without source (assetId or segments)"})
 				}
 				if edStr(el["type"]) == "effect" && edStr(el["effectType"]) == "" {
-					violations = append(violations, map[string]any{"code": "effect-type", "ref": ref, "detail": "effect element without effectType (use library.browse ids)"})
+					violations = append(violations, map[string]any{"code": "effect-type", "ref": ref, "detail": "effect element without effectType (use library.browse ids)", "hint": "从 library.browse(category:\"effects\") 取 elementTemplate，insert 时带 type:effect + effectType。"})
 				}
 			}
 		}
@@ -745,6 +752,40 @@ func validateTimeline(project map[string]any, componentIDs []string) []any {
 		}
 	}
 	return violations
+}
+
+// audioSilentWarnings 返回信息性提示（非 violation，不阻断导出）：音频 volume 为 0 且没有音量关键帧、
+// 也未 muted。用于提醒 Agent/用户「这条音频当前是静音的」，是否真的该有声由调用方判断。
+func audioSilentWarnings(project map[string]any) []any {
+	warnings := []any{}
+	for _, sv := range edSlice(project["scenes"]) {
+		scene := edMap(sv)
+		tracks := edSceneTracks(scene)
+		for _, track := range sceneTrackList(tracks) {
+			for _, ev := range edSlice(track["elements"]) {
+				el := edMap(ev)
+				if el == nil || edStr(el["type"]) != "audio" {
+					continue
+				}
+				params := edMap(el["params"])
+				if edBool(el["muted"]) || edBool(params["muted"]) {
+					continue
+				}
+				if !edIsNum(params["volume"]) || edNum(params["volume"]) > 0 {
+					continue
+				}
+				if keys := edSlice(edMap(edMap(el["animations"])["volume"])["keys"]); len(keys) > 0 {
+					continue
+				}
+				warnings = append(warnings, map[string]any{
+					"code":   "audio-silent",
+					"ref":    map[string]any{"trackId": track["id"], "elementId": el["id"]},
+					"detail": "audio volume is 0 (silent); if this is narration/voiceover set volume > 0",
+				})
+			}
+		}
+	}
+	return warnings
 }
 
 // ---- condensed 读取 ---------------------------------------------------------

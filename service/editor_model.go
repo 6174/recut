@@ -52,7 +52,7 @@ var editorCoreDefaultTextParams = map[string]any{
 	"lineHeight":     float64(1.2),
 }
 
-var editorCoreDefaultAudioParams = map[string]any{"volume": float64(0), "muted": false}
+var editorCoreDefaultAudioParams = map[string]any{"volume": float64(1), "muted": false}
 
 var editorSubtitleDefaultTextParams = map[string]any{
 	"fontFamily":     "Arial",

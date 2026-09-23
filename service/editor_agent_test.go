@@ -1022,3 +1022,50 @@ func TestEditorManifestIsSelfConsistent(t *testing.T) {
 		}
 	}
 }
+
+// TestEditorAudioDefaultVolumeAndSilentWarning 覆盖 A1：新落轨音频默认 volume=1（可听），
+// placeAudio 支持显式 volume，validate 对静音音频给出 audio-silent 信息性提示（不阻断）。
+func TestEditorAudioDefaultVolumeAndSilentWarning(t *testing.T) {
+	_, _, host, project := setupEditorTestApp(t)
+	invoke(t, host, project, "project.create", map[string]any{})
+
+	pa := invoke(t, host, project, "timeline.placeAudio", map[string]any{"items": []any{
+		map[string]any{"assetId": "voice-1", "startSec": float64(0), "durationSec": float64(4)},
+	}})
+	if !boolOf(pa["ok"]) {
+		t.Fatalf("placeAudio = %#v", pa)
+	}
+
+	read := invoke(t, host, project, "timeline.read", map[string]any{})
+	clips := read["clips"].([]any)
+	if len(clips) != 1 {
+		t.Fatalf("clips = %d, want 1", len(clips))
+	}
+	clip := clips[0].(map[string]any)
+	if vol := numOf(clip["params"].(map[string]any)["volume"]); vol != 1 {
+		t.Fatalf("default audio volume = %v, want 1", vol)
+	}
+
+	val := invoke(t, host, project, "timeline.validate", map[string]any{})
+	if !boolOf(val["ok"]) {
+		t.Fatalf("validate = %#v", val)
+	}
+	if warns := val["warnings"].([]any); len(warns) != 0 {
+		t.Fatalf("unexpected warnings after placeAudio: %#v", warns)
+	}
+
+	// 显式 volume:0 = 主动静音 → validate 仍 ok，但给出 audio-silent 软提示。
+	ref := clip["ref"].(map[string]any)
+	invoke(t, host, project, "timeline.command", map[string]any{"op": map[string]any{
+		"type":    "param",
+		"payload": map[string]any{"ref": ref, "params": map[string]any{"volume": float64(0)}},
+	}})
+	val2 := invoke(t, host, project, "timeline.validate", map[string]any{})
+	if !boolOf(val2["ok"]) {
+		t.Fatalf("silent audio must not fail validate: %#v", val2)
+	}
+	warns := val2["warnings"].([]any)
+	if len(warns) != 1 || stringOf(warns[0].(map[string]any)["code"]) != "audio-silent" {
+		t.Fatalf("audio-silent warning missing: %#v", val2["warnings"])
+	}
+}
