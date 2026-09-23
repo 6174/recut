@@ -1,0 +1,22 @@
+# [INPUT]: 由 bootstrap.py 读取并安装进 diffusers runtime 专属 venv。
+# [OUTPUT]: 重建经端到端验证的扩散模型推理环境（torch + diffusers + transformers）。
+# [POS]: gen-studio 默认 runtime 的锁文件；只装进 <venv>-diffusers，不装进主 venv。
+# [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+#
+# 对齐 Qwen-Image-2.1 官方 quick start（transformers>=5.17；QwenImage21Pipeline）。
+# QwenImage21Pipeline 由 diffusers PR #14804 合入 main（2026-09-18，commit 6256aa76），
+# 尚未进 PyPI 发行版（最新 0.40.0 不含），故按官方指引从 git 固定该 commit 安装。
+# 默认权重是 SDNQ 4-bit（UINT4 + Hadamard，见 registry.json）；SDNQ 自 diffusers 0.40.0
+# 起原生支持，需安装 sdnq 包以注册量化后端。
+torch==2.6.0
+torchvision==0.21.0
+diffusers @ git+https://github.com/huggingface/diffusers@6256aa7666cedd47443adc8f82da9a10e110b09c
+transformers==5.17.0
+accelerate==1.12.0
+sdnq==0.2.6
+sentencepiece==0.2.1
+safetensors==0.6.2
+Pillow==11.3.0
+numpy==2.2.6
+ftfy==6.3.1
+regex==2025.9.1

@@ -36,9 +36,15 @@ type MediaService struct {
 	// 创建 MediaService 后注入（因为 MediaService 早于 AppHost 构建）；MCP 直连等
 	// 短命进程保持 nil，此时本地路由提交会得到引导错误（走 audio-studio MCP）。
 	localSpeechExec func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error)
+	// localAppExec 是 App 贡献的本地 provider（contributes.media）执行桥，按 provider id 分派。
+	// Daemon 在 AppHost 就绪后注入；短命进程保持空，本地路由提交会得到引导错误。
+	localAppExec map[string]func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error)
 	// localVoiceProvider 是本机 TTS 的声音面（Audio Studio 预设 + 声音角色）。
 	// Daemon 在 AppHost 就绪后注入；nil 时本地分组只声明模型、不返回声音。
 	localVoiceProvider func() []MediaVoice
+	// localModelProvider 是本机生成 App（Generation Studio）的模型面（gen.catalog）。
+	// Daemon 在 AppHost 就绪后注入；nil 时本地生成分组只声明平台模型、不带引擎就绪度。
+	localModelProvider func() []LocalModelInfo
 	// shareClient 是临时公网分享（R2 + CDN）的线协议客户端；nil 表示分享能力
 	// 不可用（凭据缺失），此时带参考素材的 Skymind 视频任务会给出可操作错误，
 	// 纯文生视频与其他 Provider 不受影响。
@@ -66,6 +72,15 @@ func (m *MediaService) SetLocalVoiceProvider(provider func() []MediaVoice) {
 	}
 }
 
+// SetLocalModelProvider wires the local-gen provider's model catalog (Generation
+// Studio registry) so capability model groups can present local engines next to
+// cloud models. nil keeps the local group without engine readiness.
+func (m *MediaService) SetLocalModelProvider(provider func() []LocalModelInfo) {
+	if provider != nil {
+		m.localModelProvider = provider
+	}
+}
+
 // SetVideoProposalGate wires the platform policy that decides whether video
 // generation lands as a user-confirmed asset first. The daemon injects a reader
 // for the user's preference; nil keeps the default (gate on).
@@ -87,6 +102,29 @@ func (m *MediaService) SaveGeneratedAudio(job MediaJob, content []byte, mimeType
 
 func (m *MediaService) LocalSpeechExecutor() func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
 	return m.localSpeechExec
+}
+
+// SetLocalAppExecutor wires one App-contributed local provider (contributes.media)
+// to its execution bridge, keyed by provider id. The daemon supplies a bridge
+// that delegates to the App's generate/save operations; without one, local
+// route jobs for that provider fail with an actionable guidance error.
+func (m *MediaService) SetLocalAppExecutor(providerID string, exec func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error)) {
+	if providerID == "" || exec == nil {
+		return
+	}
+	if m.localAppExec == nil {
+		m.localAppExec = map[string]func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error){}
+	}
+	m.localAppExec[providerID] = exec
+}
+
+// LocalAppExecutor exposes a wired App-contributed executor (used by tests/daemon
+// to propagate the bridge to a scheduler-owned MediaService copy).
+func (m *MediaService) LocalAppExecutor(providerID string) func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error) {
+	if m.localAppExec == nil {
+		return nil
+	}
+	return m.localAppExec[providerID]
 }
 
 const mediaRequestTimeout = 5 * time.Minute

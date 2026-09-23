@@ -4,7 +4,10 @@
  * [OUTPUT]: 对外提供 VelloRendererAdapter：pomelo 的渲染器适配层——接管 vdom diff/patch 后的 block 树，
  *           把 VelloBlock 的绘制 op 汇总成 chunk 交给 TileController 渲染（仅 vello/WebGPU）。
  *           拖拽内容会话（beginContentSession/endContentSession）：被拖块+随动箭头走 live 层，
- *           静态内容只在会话开始时渲染一次；视口/尺寸/结构变化自动结束会话回退整场渲染。
+ *           静态内容只在会话开始时渲染一次；视口/尺寸/结构变化自动结束会话回退整场渲染；
+ *           含图像的块不启用会话，会话期间图像首次加载/升档也结束会话——vello 在会话的
+ *           静态快照与逐帧 live render 之间无法安全复用图像图集/override，否则被拖集合里的
+ *           图片会整片消失且不可恢复（多选拖动被拖卡片封面/缩略图丢失）。
  *           direct 模式另有保留场景底图（controller.buildSceneBacking）：内容不变时平移/缩放贴底图。
  *           图片纹理按视口缩放/元素尺寸自适应分辨率：首次基准档 512，放大时 512→1024→2048→4096
  *           升档（复用缓存的源 Image 重栅格并原位替换纹理），避免放大发糊；
@@ -294,10 +297,21 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   /**
    * 拖拽内容会话：excludedBlockIds（被拖块 + 随动箭头）每帧走 live 层，
    * 其余静态内容只在会话开始时渲染一次。视口/尺寸/结构变化会自动结束会话。
+   * 含图像的块不启用会话：会话的静态快照 + 逐帧 live `render_to_texture` 之间，
+   * vello 的图像图集/override 无法安全复用，会把被拖集合里的图片整片画丢且不可恢复
+   * （多选拖动时表现为被拖卡片的封面/缩略图消失）。此时回退整场渲染，正确优先。
    */
   beginContentSession(excludedBlockIds: string[]): void {
+    if (excludedBlockIds.some((id) => this.blockHasImageOps(id))) return;
     this.controller?.beginContentSession(excludedBlockIds);
     this.dirty = true;
+  }
+
+  /** 该块当前渲染出的 vello op 是否含图像（含图像 = 内容会话不安全）。 */
+  private blockHasImageOps(blockId: string): boolean {
+    const block = this.renderedBlockMap.get(blockId);
+    if (!(block instanceof VelloBlock)) return false;
+    return block.ops.some((op) => op.kind === "image");
   }
 
   endContentSession(): void {
@@ -550,6 +564,11 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   /** 图片就绪/升档后重跑所有 VelloBlock.render() 并同步 chunk（drawVersion 变化 → 瓦片重编码）。 */
   private refreshImageBlocks(): void {
     try {
+      // 先结束拖拽内容会话：会话把静态内容渲成保留纹理、live 块逐帧合成，二者都建立在
+      // 会话开始时的图像注册/图集状态上。会话期间新注册图像（首次加载或升档）会改写被拖块
+      // 的 chunk payload，使 vello 的图像图集与解析状态错位——症状是被拖集合里的图片整体
+      // 消失且不可恢复（结束会话本帧回退整场渲染即可避免）。
+      this.controller?.endContentSession();
       // 不在此显式 settle：ticker 每帧会 flush，多个图片同帧就绪只渲染一次，避免单帧多次整场渲染。
       for (const block of this.renderedBlockMap.values()) {
         if (block instanceof VelloBlock) block.render();

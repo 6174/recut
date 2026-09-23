@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖媒体 DTO 与 providers/atlas 默认 APIBase
  * [OUTPUT]: 编译期内嵌种子目录（Provider/模型清单与参考预算），CDN 目录不可用时的最终回退
- * [POS]: media 目录的种子数据面；CDN catalog（providers/<id>.catalog.json）按 provider 整体覆盖种子，codex/local-audio 不参与
+ * [POS]: media 目录的种子数据面；CDN catalog（providers/<id>.catalog.json）按 provider 整体覆盖种子，codex/local-audio 不参与；App 声明的本地 provider（contributes.media）另行合并
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media

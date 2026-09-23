@@ -783,6 +783,9 @@ export function CanvasPomeloHost() {
   // 视口持久化订阅（T12）：卸载时释放；lastViewportKeyRef 记录「来源上下文键」供切换时存回
   const viewportUnsubRef = useRef<{ dispose: () => void } | null>(null);
   const lastViewportKeyRef = useRef<string | null>(null);
+  // 上一次同步时的画布层：切层时清掉插件的拖拽实时几何（同名元素 id 跨层，
+  // 否则新层会按旧层的 liveGeometry 渲染，表现为位置「复原」）
+  const lastSyncedContextRef = useRef<string | null>(null);
   const [ready, setReady] = useState(false);
   const [rendererIssue, setRendererIssue] = useState<RendererIssue | null>(null);
   // 渲染器失败后「重试」：递增触发 effect 重建编辑器（cleanup 会先销毁旧实例）
@@ -864,6 +867,12 @@ export function CanvasPomeloHost() {
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !ready) return;
+    const contextId = context?.entityId ?? "";
+    if (lastSyncedContextRef.current !== contextId) {
+      lastSyncedContextRef.current = contextId;
+      // 切层：拖拽实时几何属于旧层，清掉再同步，避免按同名 id 画到新层
+      pluginRef.current?.liveGeometry.clear();
+    }
     syncDocFromCanvasStore(editor);
     if (fitOnNextSync.current) {
       fitOnNextSync.current = false;

@@ -27,6 +27,7 @@ RELEASE_PUBLIC ?= $(CURDIR)/cdn/buckets/releases/$(RECUT_VERSION)
 RELEASE_LATEST ?= $(CURDIR)/cdn/buckets/releases/latest
 BUILTIN_REMOTION_ARCHIVE := $(CURDIR)/service/builtin_apps/remotion-studio.tar.gz
 BUILTIN_AUDIO_STUDIO_ARCHIVE := $(CURDIR)/service/builtin_apps/audio-studio.tar.gz
+BUILTIN_GEN_STUDIO_ARCHIVE := $(CURDIR)/service/builtin_apps/gen-studio.tar.gz
 # audio-studio voxcpm 专用 venv（发布声音预设 / Voice Design 用；主 ASR venv 由 runner 自行解析）。
 VOXCPM_PYTHON ?= $(firstword $(wildcard $(HOME)/.recut/python/envs/recut.audio-studio/audio-studio/*-voxcpm/bin/python))
 # 发布平台覆盖 macOS（Apple Silicon 与 Intel）及 Windows，不产出 linux-* / freebsd-* 包。
@@ -210,6 +211,7 @@ builtin-apps: ## Package the App sources that ship inside every Recut service bi
 	@mkdir -p "$(dir $(BUILTIN_REMOTION_ARCHIVE))"
 	node scripts/package-builtin-app.mjs apps/remotion-studio "$(BUILTIN_REMOTION_ARCHIVE)"
 	node scripts/package-builtin-app.mjs apps/audio-studio "$(BUILTIN_AUDIO_STUDIO_ARCHIVE)"
+	node scripts/package-builtin-app.mjs apps/gen-studio "$(BUILTIN_GEN_STUDIO_ARCHIVE)"
 
 editor-realtime-verify: ## 浏览器端验证迁移后 realtime 同步（需先 make dev：service+web 运行中）。
 	cd web && node scripts/verify-editor-realtime.mjs

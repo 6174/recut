@@ -116,7 +116,7 @@ func (m *MediaService) configuredModelFor(route MediaRoute) (MediaConfiguration,
 		return configuration, true
 	}
 	if p, ok := providerByID(model.Provider); ok && p.Protocol == "local" {
-		configuration.CredentialName = "Audio Studio（本机）"
+		configuration.CredentialName = p.Name
 		return configuration, true
 	}
 	credential, err := m.credential(route.CredentialID)

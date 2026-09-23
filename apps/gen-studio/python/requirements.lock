@@ -1,0 +1,15 @@
+# [INPUT]: 由 manifest.json 的 runtime.python 读取并作为主 venv 指纹的一部分。
+# [OUTPUT]: 重建 gen-studio 主 venv（轻量调度/下载依赖，不含 torch/diffusers）。
+# [POS]: gen-studio 主 venv 锁文件；扩散重依赖必须使用 comfyui.requirements.lock，不可混装。
+# [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+#
+# 主 venv 只承担 gen_runner.py 的调度与权重下载，保持轻量、避免与 runtime venv 的
+# torch/transformers 依赖互相覆盖。
+huggingface_hub==0.34.4
+modelscope==1.28.2
+requests==2.32.5
+safetensors==0.6.2
+tqdm==4.67.1
+PyYAML==6.0.3
+numpy==2.2.6
+Pillow==11.3.0

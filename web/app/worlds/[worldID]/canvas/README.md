@@ -6,7 +6,7 @@ Recursive World Canvas（RFC 2026-09-07）的全屏画布模式：pomelo（pixi 
 
 成员清单
 
-canvas-store.ts: 画布 zustand 状态层；会话配置（open）、当前上下文（全局/实体容器）的实体/画布元素/关系/类型目录、视图状态（缩放/选中/多选 selectedIds/连线草稿/对话框）与全部写动作；`selection`（单选 CanvasSelection）与 `selectedIds`（多选 pomelo block id 集合）由 `select`/`selectMany` 保持同步（恰好一项回落单选，多项时 selection 置空由面板汇总），删除/重载时按 id 清理集合；语义写带 revision 冲突重试，附几何工具函数与尺寸常量。
+canvas-store.ts: 画布 zustand 状态层；会话配置（open）、当前上下文（全局/实体容器）的实体/画布元素/关系/类型目录、视图状态（缩放/选中/多选 selectedIds/连线草稿/对话框）与全部写动作；`elementsContextId` 记录 elements 归属层——切层后 load 回填新层前 elements 仍是旧层数据，整包保存必须按它（而非当前导航 context）落库，否则待保存/重试窗口会把旧层整包覆盖写进新层文档（表现为「进入子世界后 root entity 位置被复原」）；`selection`（单选 CanvasSelection）与 `selectedIds`（多选 pomelo block id 集合）由 `select`/`selectMany` 保持同步（恰好一项回落单选，多项时 selection 置空由面板汇总），删除/重载时按 id 清理集合；语义写带 revision 冲突重试，附几何工具函数与尺寸常量。
 canvas-top-bar.tsx: 世界画布顶层工具栏行（渲染进 Workspace 全局 Header）：useWorldCanvasTopBarStore 以 variant=canvas|form 双视图注册——画布挂载经 setActive 注册 canvas variant（左侧返回/面包屑/notice），world-detail-client 在设定视图经 setFormMode 注册 form variant（同一行结构、无画布工具）；WorldCanvasToolbar 包装画布工具组 + 只读徽标 + 关系引导，仅 canvas variant，由 page.tsx 的 Header 居中列渲染（三列 grid，工具组相对于整个 Header 居中，与左侧面包屑、右侧全局操作解耦）；WorldCanvasShareButton 在右侧渲染视图切换（canvas→「设定视图」、form→「画布视图」），两种视图切换位置一致。
 canvas-toolbar.tsx: 画布工具组（CanvasToolbarItems，无浮动容器）：由 canvas-top-bar.tsx 的 WorldCanvasToolbar 包装后居中渲染进页面最顶 Header——选择/抓手模式（panMode 读自 canvas-store，全画布平移 overlay 由 canvas-pomelo.tsx 的 PanOverlay 承载）、连线工具（canvas-store.linkMode → CanvasBindsPlugin 点击节点拖出引导线，一次性后自动回选择模式）、「＋」创建菜单入口（B.7，独立插入按钮已收敛进创建菜单）、undo/redo（内存投影）、缩放菜单（放大/缩小/50%/100%/200%/适应项目/适应所选内容/对齐到网格开关）与帮助面板。pomelo 编辑器实例由 canvas-pomelo 挂载后经 setEditor 登记进 canvas-store。
 canvas-pomelo.tsx: pomelo 底座：canvas-store → pomelo 文档按 block id diff 增量同步（T1：新增/删除/属性更新三路对账，不再全量重建，消除写后闪烁与重复图片请求；buildPomeloRecords）；ViewportPlugin 平移缩放 + CanvasBindsPlugin 交互绑定；底部浮动工具栏 CanvasFloatingToolbar；自由元素 note/text/shape→FreeElementBlock，绑定两实体的自由箭头复用 RelationArrowBlock 投影。
@@ -20,7 +20,7 @@ index.tsx: 组合根；经 portal 挂载到工作台内容区（#workspace-conte
 
 - 数据流：组件只读 `useWorldCanvasStore` 快照并触发动作，绝不直接调用 recut-worlds-client 写接口。
 - pomelo block id 约定：实体 `entity:<entityId>`（元素 id 仍为 `shape:<entityId>`）、World 节点 `shape:world`、自由元素直接用 world_canvas 元素 id、语义关系边 block id = `arrow:<relationId>`（attrs 携带 `fromRole`/`toRole`/`hasReverse`，`toRole` 非空时 RelationArrowBlockV 画双箭头、两端各一个标签）。
-- pomelo 文档是内存投影：拖拽/resize 增量提交仅在文档内，pointerup 落回 canvas-store 持久化，异常时可随时全量重建。
+- pomelo 文档是内存投影：拖拽/resize 增量提交仅在文档内，pointerup 落回 canvas-store 持久化，异常时可随时全量重建。提交/去抖落库绑定「提交时的画布层」：pointerup 提交 + 双击切层（双击实体卡进入容器）时，迟到的 persistGeometry 若层已变则丢弃；切层同步前清空插件 liveGeometry——同名元素 id（`shape:<entityId>`）在全局与容器各有一份，不设防会把旧层坐标覆盖写进新层文档（症状：进入子世界后 root entity 位置被复原）。
 - 多选/框选：空白拖拽拉框，与选框有交集即命中——节点按矩形重叠、关系/自由箭头按贝塞尔曲线采样成折线与选框相交；`store.selectedIds` 存 block id，恰好一项时解析为单选（面板/手柄按单选工作），多项时面板显示汇总；批量位移沿用 MoveDrag 的 `Map<blockId, origin>`；批量删除经 `deleteSelectionIds` 打开 DeleteSelectionConfirmDialog（按类型展示影响，含设定时可仅从画布移除），确认后 `deleteSelection` 按序执行。
 - 删除可撤销（软删除）：删除设定 = 后端归档（`archived_at` + `archive_batch_id`）并把关系移入 `world_relation_tombstones`，画布投影/内层文档保留；删除关系 = 入墓碑；删除画布元素 = 本地移除。三者都写 `changeLog`（历史菜单逐条撤销）：`restoreEntity` 调 `entity.restore`（按 batch 复位标记 + 原 id 重建关系，再 `load(false)`）、`restoreRelation` 调 `relation.restore`、`restoreElement` 按删除时快照 upsert。前端删除设定时**不**从本地 `elements` 移除投影，否则文档粒度整包保存会永久丢失恢复所需的位置。底层 media_assets 永不因世界内容删除而删除（素材历史「移除」只解引用，不删文件）。撤销/重做为闭包双栈：每次语义写登记 `undo`/`redo`，撤销把条目移入 `redoLog`、`⇧⌘Z` 重做再移回，新的语义写清空 `redoLog`；回放期 `historyReplaying` 抑制递归记账。
 - 画布元素写入不产 revision；实体/关系/Promote 写入产出 revision，冲突时 refreshRevision 重试一次。

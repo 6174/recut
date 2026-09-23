@@ -85,6 +85,7 @@ Recut 只提供稳定的基础能力，社区通过独立 App 扩展创作场景
 | **声音工坊** | 在本机把音视频转成带时间戳的字幕与文稿，用已授权声音角色完成旁白、补录和配音。 | `standalone` | [recut-audio-studio](https://github.com/6174/recut-audio-studio) |
 | **封面生成** | 按发布渠道和画幅，从真实场景与参考封面出发生成候选图，并把确认后的封面沉淀为可复用 Asset。 | `standalone` | [recut-cover-studio](https://github.com/6174/recut-cover-studio) |
 | **深度图** | 在本机将图片或视频转换为可预览的深度图，支持不同模型、伪彩与灰度输出，按需接回后续生成或合成。 | `standalone` | [recut-depth-anything-v2](https://github.com/6174/recut-depth-anything-v2) |
+| **生成工坊** | 在本机用一个运行环境托管多个开源模型（先准备环境、再按需下载权重），生成图片与视频，并可设为全局生图默认。 | `standalone` | 内置（随客户端） |
 | **Remotion 视频** | 从 Brief、模板和组件开始，把选题、文案与素材编排成可实时预览、可确定性导出的程序化视频。 | `standalone` | [recut-remotion-studio](https://github.com/6174/recut-remotion-studio) |
 
 更多应用正在创作中。官方总库只维护经审阅的入口、用途和支持状态，不复制或托管各 App 的源码。

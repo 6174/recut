@@ -1,0 +1,42 @@
+{
+  "runtimes": [
+    {
+      "id": "comfyui",
+      "label": { "zh": "ComfyUI（通用图片）", "en": "ComfyUI (general image)" },
+      "venv": "comfyui",
+      "runner": "python/comfyui_runner.py",
+      "requirements": "python/comfyui.requirements.lock",
+      "repository": "https://github.com/comfyanonymous/ComfyUI",
+      "revision": "b5cc8830279eae909a59de030af1e50761c36751"
+    }
+  ],
+  "models": [
+    {
+      "id": "qwen-image",
+      "capability": "image.generate",
+      "runtime": "comfyui",
+      "label": { "zh": "Qwen-Image-2.1 · 本机文生图/编辑（int8）", "en": "Qwen-Image-2.1 · Local t2i/edit (int8)" },
+      "pipeline": "qwen_image_2.1",
+      "formSchema": [
+        { "key": "prompt", "type": "textarea", "required": true, "label": { "zh": "提示词", "en": "Prompt" } },
+        { "key": "negativePrompt", "type": "textarea", "label": { "zh": "负向词", "en": "Negative prompt" } },
+        { "key": "aspectRatio", "type": "select", "options": ["1:1", "16:9", "9:16", "4:3", "3:4"], "default": "1:1", "label": { "zh": "画幅", "en": "Aspect ratio" } },
+        { "key": "steps", "type": "number", "default": 25, "min": 1, "max": 100, "label": { "zh": "步数", "en": "Steps" } },
+        { "key": "cfg", "type": "number", "default": 1.0, "min": 0, "max": 20, "label": { "zh": "CFG", "en": "CFG" } },
+        { "key": "seed", "type": "number", "default": -1, "label": { "zh": "随机种子（-1 随机）", "en": "Seed (-1 random)" } }
+      ],
+      "defaultParams": { "aspectRatio": "1:1", "steps": 25, "cfg": 1.0, "negativePrompt": " " },
+      "weights": {
+        "huggingFace": "Comfy-Org/Qwen-Image-2.1",
+        "modelScope": "Comfy-Org/Qwen-Image-2.1",
+        "revision": "main",
+        "sizeGb": 17,
+        "files": [
+          "diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+          "text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+          "vae/qwen_image_2.1_vae_bf16.safetensors"
+        ]
+      }
+    }
+  ]
+}

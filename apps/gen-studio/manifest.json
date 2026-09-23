@@ -1,0 +1,201 @@
+{
+  "manifestVersion": 1,
+  "id": "recut.gen-studio",
+  "name": "生成工坊",
+  "author": "Recut",
+  "description": "在本机用开源模型生成图片与视频：一个运行环境托管多个模型，先准备环境，再按需下载模型权重，结果确认后进入素材库。",
+  "localized": {
+    "en": {
+      "name": "Generation Studio",
+      "description": "Generate images and videos locally with open models: one runtime hosts many models, prepare the environment first, download model weights on demand, and save results to the library."
+    }
+  },
+  "repository": "https://github.com/6174/recut-gen-studio",
+  "version": "0.1.0",
+  "type": "standalone",
+  "background": "background.js",
+  "ui": { "standaloneView": "ui/dist/index.html" },
+  "permissions": ["sqlite", "files", "media.read", "media.write", "python", "shell"],
+  "runtime": {
+    "python": {
+      "venv": "gen-studio",
+      "version": "3.11",
+      "tools": ["ffmpeg"],
+      "requirements": "python/requirements.lock",
+      "bootstrap": "bootstrap.py"
+    }
+  },
+  "contributes": {
+    "media": {
+      "providers": [
+        {
+          "id": "local-gen",
+          "name": "Generation Studio（本机）",
+          "localized": { "en": { "name": "Generation Studio (local)" } },
+          "protocol": "local",
+          "operations": {
+            "generate": "gen.generate",
+            "save": "gen.save",
+            "catalog": "gen.catalog",
+            "status": "gen.status"
+          },
+          "models": [
+            {
+              "id": "qwen-image",
+              "name": "Qwen-Image-2.1 · 本机文生图/编辑（int8）",
+              "localized": { "en": { "name": "Qwen-Image-2.1 · Local t2i/edit (int8)" } },
+              "capability": "image.generate",
+              "runtime": "comfyui",
+              "sizeGb": 17,
+              "inputModes": ["text", "image"],
+              "outputModes": ["size", "seed"],
+              "weights": {
+                "huggingFace": "Comfy-Org/Qwen-Image-2.1",
+                "modelScope": "Comfy-Org/Qwen-Image-2.1",
+                "revision": "main"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "distribution": {
+    "builtin": {
+      "include": ["."],
+      "exclude": [
+        "rfc",
+        "__pycache__",
+        "**/__pycache__",
+        "ui/node_modules",
+        "ui/src",
+        "ui/package-lock.json",
+        "ui/package.json",
+        "ui/tsconfig.json",
+        "ui/vite.config.ts",
+        "ui/components.json"
+      ]
+    }
+  },
+  "operations": [
+    {
+      "name": "gen.status",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "检查生成工坊的本地 Python、FFmpeg、各 runtime 专属 venv 与各模型权重（就绪度）和下载源；activeJob 返回最新在途任务，tasks 返回全部在途任务清单。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "gen.catalog",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "枚举本机生成模型（静态注册表 + 动态就绪度）：返回 runtimes 与 models（含 capability、runtime、表单 schema、就绪度与权重安装状态），供界面模型切换与平台能力模型聚合。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "gen.prepare",
+      "surfaces": ["api", "mcp"],
+      "description": "准备运行环境：安装主 venv 依赖、创建 runtime 专属 venv 并按固定 commit 克隆 ComfyUI 源码（target: all|comfyui），不下载模型权重。异步提交，立即返回 job/taskId；环境准备单槽串行。",
+      "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "enum": ["all", "comfyui"], "description": "可选；缺省 all。" } } }
+    },
+    {
+      "name": "gen.settings.set",
+      "surfaces": ["api"],
+      "description": "持久化生成工坊的下载源设置（automatic/huggingface/modelscope）。",
+      "inputSchema": { "type": "object", "properties": { "downloadSource": { "type": "string", "enum": ["automatic", "huggingface", "modelscope"] } } }
+    },
+    {
+      "name": "gen.install",
+      "surfaces": ["api", "mcp"],
+      "description": "仅下载模型权重（不建 venv），支持 huggingface / modelscope / automatic 来源。异步提交、可并行；用 recut.job.status / recut.job.wait 轮询终态。",
+      "inputSchema": { "type": "object", "required": ["model"], "properties": { "model": { "type": "string" }, "source": { "type": "string", "enum": ["automatic", "huggingface", "modelscope"] } } }
+    },
+    {
+      "name": "gen.generate",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "提交本机生成：单槽 FIFO 排队（占槽时 job=null + taskId 入队，槽位释放后自动开始）。返回 job 与 generation.id；完成后用 gen.generation.complete 读取，或 gen.save 入库。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["model", "prompt"],
+        "properties": {
+          "model": { "type": "string", "description": "本机模型 id（见 gen.catalog），如 qwen-image。" },
+          "prompt": { "type": "string" },
+          "negativePrompt": { "type": "string" },
+          "aspectRatio": { "type": "string" },
+          "seed": { "type": "number" },
+          "steps": { "type": "number" },
+          "cfg": { "type": "number" },
+          "referenceAssetIds": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    {
+      "name": "gen.generations",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "读取已完成的生成记录（私有产物 + savedAssetId）。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "gen.generation.complete",
+      "surfaces": ["api"],
+      "description": "在生成任务完成后读取产物（outputURL/尺寸/seed/耗时/错误）。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
+    },
+    {
+      "name": "gen.save",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "把用户明确选择的私有生成产物导入素材库（kind: image|video），返回真实 assetId。",
+      "inputSchema": { "type": "object", "required": ["id", "kind"], "properties": { "id": { "type": "string" }, "kind": { "type": "string", "enum": ["image", "video"] } } }
+    },
+    {
+      "name": "gen.cancel",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "取消最新在途的生成工坊任务（queued 直接落 cancelled，running 经 shell 取消）。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "gen.tasks.list",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "任务中心主列表：统一返回环境准备、模型下载与生成任务，支持按来源与状态过滤、日期倒序分页。",
+      "inputSchema": { "type": "object", "properties": { "source": { "type": "string", "enum": ["ai", "manual"] }, "status": { "type": "string", "enum": ["running", "queued", "done", "failed"] }, "action": { "type": "string" }, "limit": { "type": "number" } } }
+    },
+    {
+      "name": "gen.task.get",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "读取单条任务的完整信息（来源、状态、结构化 meta、日志路径与关联产物）。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
+    },
+    {
+      "name": "gen.task.logs",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "读取单条任务的持久日志（tasks/${id}.log 的 JSON-lines，带时间戳与等级），支持按行分页。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" }, "cursor": { "type": "number" }, "limit": { "type": "number" } } }
+    },
+    {
+      "name": "gen.task.cancel",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "按任务中心 id 取消任务：运行中经底层 shell job 取消，排队中直接落 cancelled。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
+    },
+    {
+      "name": "gen.job",
+      "surfaces": ["api"],
+      "description": "读取最近尚未由界面确认的生成工坊本地任务。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "gen.resolve",
+      "surfaces": ["api"],
+      "description": "在界面已处理终态后确认本地任务，避免重连后显示过期执行状态。",
+      "inputSchema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
+    }
+  ]
+}

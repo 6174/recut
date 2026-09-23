@@ -1,0 +1,44 @@
+# [INPUT]: 由 bootstrap.py 读取并安装进 comfyui runtime 专属 venv；ComfyUI 源码由 bootstrap.py 按
+#          registry.json 的 runtime.repository/revision 固定 commit 浅克隆。
+# [OUTPUT]: 重建 ComfyUI 运行环境（torch + ComfyUI 全量依赖闭包）。
+# [POS]: gen-studio 默认 runtime 的锁文件；只装进 <venv>-comfyui，不装进主 venv。
+# [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+#
+# 内容对齐 ComfyUI commit b5cc8830279eae909a59de030af1e50761c36751 的 requirements.txt，
+# 仅把裸 torch/torchvision 固定为明确版本（保证可复现）。
+# torch>=2.7 是硬性下限：comfy-kitchen 0.2.35 用 PEP 585 的 list[int] 注解注册 custom op，
+# 而 torch 2.6 的 infer_schema 只认 typing.List[int]，会在 import 期直接抛 ValueError 崩溃。
+torch==2.8.0
+torchvision==0.23.0
+comfyui-frontend-package==1.53.6
+comfyui-workflow-templates==0.11.68
+comfyui-embedded-docs==0.5.12
+torchsde
+numpy>=1.25.0
+einops
+transformers>=4.50.3
+tokenizers>=0.13.3
+sentencepiece
+safetensors>=0.4.2
+aiohttp>=3.11.8
+yarl>=1.18.0
+pyyaml
+Pillow
+scipy
+tqdm
+psutil
+alembic
+SQLAlchemy>=2.0.0
+filelock
+av>=17.0.0
+comfy-kitchen==0.2.35
+comfy-aimdo==0.5.5
+requests
+simpleeval>=1.0.0
+blake3
+kornia>=0.7.1
+spandrel
+pydantic~=2.0
+pydantic-settings~=2.0
+PyOpenGL>=3.1.8
+comfy-angle

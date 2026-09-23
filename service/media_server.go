@@ -94,6 +94,17 @@ func (s *Server) listCapabilityVoices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, groups)
 }
 
+// listCapabilityModels 聚合某能力（如 image.generate）下本地生成 provider 的模型分组：
+// 平台模型清单 + App（Generation Studio）引擎就绪度，供设置/画布/素材库跨 provider 选择本地环境。
+func (s *Server) listCapabilityModels(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.media.CapabilityModelGroups(MediaCapability(r.PathValue("capability")))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, groups)
+}
+
 // getVoicePreview 解析云端 voice 试听：provider 原生 previewUrl 直接返回；
 // 否则幂等提交一段短句语音生成任务，UI 按媒体任务轮询后用 asset content 播放。
 func (s *Server) getVoicePreview(w http.ResponseWriter, r *http.Request) {

@@ -85,6 +85,7 @@ The official Apps are not isolated feature demos. Together they form a creative 
 | **Audio Studio** | Turn audio and video into time-aligned captions and transcripts locally, then create narration, pickups and dubbing with authorized voice characters. | `standalone` | [recut-audio-studio](https://github.com/6174/recut-audio-studio) |
 | **Cover Studio** | Generate cover candidates from real scenes and reference covers for a publishing channel and canvas, then archive approved covers as reusable Assets. | `standalone` | [recut-cover-studio](https://github.com/6174/recut-cover-studio) |
 | **Depth Map** | Convert images or video into previewable depth maps locally, with model choices plus false-color or grayscale output, ready for later generation or compositing. | `standalone` | [recut-depth-anything-v2](https://github.com/6174/recut-depth-anything-v2) |
+| **Generation Studio** | Host many open models in one local runtime (prepare the environment, download weights on demand) to generate images and video, and set it as the global image default. | `standalone` | Built-in (ships with the client) |
 | **Remotion Video** | Start from a Brief, templates and components, then turn copy and media into programmatic video with live preview and deterministic export. | `standalone` | [recut-remotion-studio](https://github.com/6174/recut-remotion-studio) |
 
 More Apps are being built. The official repository keeps reviewed entries, purposes and support status; it does not mirror or host each App's source code.

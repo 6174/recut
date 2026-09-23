@@ -112,6 +112,9 @@ func main() {
 	// 因此执行桥在 AppHost 就绪后注入（Audio Studio 已安装时 recut.speech.generate
 	// 的 local-audio 路由才可执行；未安装则本地路由提交得到引导错误）。
 	wireLocalSpeechBridge(host, media)
+	// App 贡献的本地生成 provider（manifest contributes.media，如 Generation Studio）：
+	// 合并静态模型目录 + 注入通用执行桥 + 动态就绪面（未安装则无 provider，本地路由提交得到引导错误）。
+	wireAppMediaProviders(host, media)
 	if recovered, err := host.jobs.RecoverInterrupted(); err != nil {
 		log.Fatalf("ERROR recover interrupted shell jobs: %v", err)
 	} else if recovered > 0 {

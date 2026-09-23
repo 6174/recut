@@ -137,7 +137,7 @@ export type Model = {
     audio?: { maxBytes?: number; mimes?: string[] };
   }[];
 };
-export type Provider = { id: string; name: string; models: Model[] };
+export type Provider = { id: string; name: string; protocol?: string; models: Model[] };
 export type Credential = { id: string; name: string; provider: string };
 export type Voice = { id: string; name: string; description?: string; provider: string; category?: string; modelId?: string };
 // Capability voice group: the local provider (no credential) plus one group per

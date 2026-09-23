@@ -6,6 +6,8 @@
 types.go: 媒体能力、含输入/输出参数能力的模型、路由、资产、任务、生成输入与固定两轨合成的稳定 JSON 契约。
 service.go: Workspace 端口、MediaService 组合根、图片等同步生成 5 分钟长请求与短状态查询分离的 HTTP 超时配置及少量跨层诊断入口；同一凭据的一次请求生成在进程内有界串行，避免调度批次突发压垮上游。
 catalog.go: Provider/模型目录、无需 Provider 凭据的 Codex 原生图片路由、默认输出字段、参考素材能力及模型限制校验（含 skymind-token：gpt-image-2 / seedance-2.0 / seedance-2.5）。
+app_providers.go: App 贡献的本地 provider（manifest `contributes.media`）合并进全局模型目录，并在 CDN 刷新时保留；provider/模型由 App 静态声明，平台只做通用合并。
+capability_models.go: 按能力聚合本地生成 provider 的模型分组（平台模型清单 + App 引擎就绪度），镜像 capability_voices.go，供 HTTP 与 MCP 的 `list_capability_models` 共用。
 config.go: BYOK 凭据加密、模型路由（含无凭据的 Codex 图片路由）、MiniMax/ElevenLabs 音色目录和配置查询。
 assets.go: 图片、视频、音频 Asset 查询与流式导入、重命名与安全删除、ASR 转写 bundle（源声音 + SRT + JSON parts）导入与 parts 读取、Motion Graphic 组件 Asset 投影（`kind=component`，`UpsertComponentAsset` 幂等刷新元数据，源码/bundle/版本仍归 `mg_materials`）、Codex 原生图片的项目关联归档、内容哈希去重、受控落盘、异步任务的起止时间/耗时/诊断原位回写及 SQLite durable 更新事件账本；项目归属只存在于 project 侧（`media_asset_projects`），Asset 本体不返回反向 `projectIds`，反查走显式查询；删除只移除索引和平台引用，保留可能共享的内容地址文件供后续回收；远程成功/失败终态以 job/asset 身份记入 service 日志；合成导出可绕过记录去重以保证每次交付都有新的 Asset。
 material.go: 全局素材的通用创作信息层（metadata_json 内的 content/contentMeta + 有序 typed attributes）：校验 attr 类型/select options/media.assetId，locked 结构不可改而值可改（只有 system 能创建锁定字段），attrPatch 按 key 合并、整体替换保持有序，并为每次真实写入填 source 与 provenance（by/op/jobId/modelId/assetIds/at）以支持 AI 生成字段溯源；系统数据（proposal/reference）沿用既有 metadata 键，不新增命名空间。

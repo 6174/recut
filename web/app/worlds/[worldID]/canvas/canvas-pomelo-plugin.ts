@@ -8,7 +8,7 @@
  * 按曲线相交；Shift 追加、Shift 点选增删），命中写入 store.selectedIds（恰好一项回落单选）；
  * 多选下拖拽整体位移（并交给 AlignmentGuidePlugin 做边缘/中心对齐吸附与提示线，Alt 临时关闭）、
  * Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（同样对齐吸附；图片锁比例时仅横向吸附；transact 增量提交，pointerup 落回
- * canvas-store.moveElement + 去抖 persistGeometry；pointermove 经 editor.ticker 统一合帧，
+ * canvas-store.moveElement + 去抖 persistGeometry（提交时记录 elementsContextId，层已切则丢弃，避免同名元素 id 跨层覆盖写）；pointermove 经 editor.ticker 统一合帧，
  * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡与 World 根节点
  * 左右缘中点各一个，自由元素不挂）拖出引导线：拖动中吸附到实体卡（蓝）或「可当属性节点」的基础节点
  * （kind=attr/text 自由元素、kind=media 独立媒体卡，绿），松手才落地——实体 → 实体 =
@@ -552,13 +552,20 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       const store = useWorldCanvasStore.getState();
       if (store.readOnly) return;
       store.moveElement(canvasId, Math.round(Number(geometry.x) || 0), Math.round(Number(geometry.y) || 0));
+      // 记录提交时的画布层：元素 id 跨层同名（实体卡 `shape:<entityId>` 在全局与容器各有一份），
+      // 若去抖窗口内切层（如双击实体卡进入容器 = pointerup 提交 + dblclick 切层），
+      // 迟到的 persistGeometry 会按 id 改到新层元素上，把旧层坐标覆盖写进新层文档
+      // （表现为「进子世界后 root entity 位置被复原」）。层已变则丢弃这次落库。
+      const sourceContextId = store.elementsContextId;
       const existing = geometryTimers.get(canvasId);
       if (existing) clearTimeout(existing);
       geometryTimers.set(
         canvasId,
         setTimeout(() => {
           geometryTimers.delete(canvasId);
-          void useWorldCanvasStore.getState().persistGeometry(canvasId, geometry);
+          const current = useWorldCanvasStore.getState();
+          if (current.elementsContextId !== sourceContextId) return;
+          void current.persistGeometry(canvasId, geometry);
         }, PERSIST_DEBOUNCE_MS),
       );
     };

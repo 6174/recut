@@ -17,6 +17,35 @@ README.md      面向人的用途、安装、最短使用路径与开发方式
 
 `manifest.json` 是唯一运行时配置。它应声明稳定的 `id`、名称、版本、`type`、入口、最小权限，以及可选 onboarding 与 operations。`type: project` 绑定项目；`type: standalone` 绑定工作区。不要把运行时事实散落在 README、脚本或隐式约定中。
 
+## 贡献本地媒体 provider（`contributes.media`）
+
+App 可在 manifest 静态声明它服务的**本机媒体 provider**（当前仅支持 `protocol: "local"`，无凭据），平台据此把 provider 与其模型合入全局媒体目录，并由通用执行桥调用声明的 operation 完成生成。模型清单是静态的（「有哪些模型」由 App 声明）；「本机是否已下载/就绪」由 App 的 `catalog`/`status` operation 动态上报。
+
+```json
+"contributes": {
+  "media": {
+    "providers": [{
+      "id": "local-gen",
+      "name": "Generation Studio（本机）",
+      "localized": { "en": { "name": "Generation Studio (local)" } },
+      "protocol": "local",
+      "operations": { "generate": "gen.generate", "save": "gen.save", "catalog": "gen.catalog", "status": "gen.status" },
+      "models": [{
+        "id": "qwen-image", "name": "Qwen-Image · 本机文生图",
+        "capability": "image.generate", "runtime": "diffusers", "sizeGb": 40,
+        "inputModes": ["text", "image"], "outputModes": ["size", "seed"],
+        "weights": { "huggingFace": "Qwen/Qwen-Image-2.1", "modelScope": "Qwen/Qwen-Image-2.1", "revision": "main" }
+      }]
+    }]
+  }
+}
+```
+
+- `protocol` 必须是 `local`；`capability` 必须是已知媒体能力（`image.generate`/`video.generate`/`speech.generate`）；模型 id 为简单名。
+- `operations.generate` / `operations.save` 必填，且必须指向本 manifest 中已声明且可调用（`mcp` surface 或 `capability: true`）的 operation；`catalog` / `status` 可选。
+- 平台模型 ID 规则：`<providerID>/<modelID>`（如 `local-gen/qwen-image`）；生图/视频默认路由可直接指向它。
+- 平台侧实现见 `service/media/app_providers.go`（目录合并）与 `service/app_media_bridge.go`（通用执行桥）；契约变更需先出 RFC。
+
 ## 数据与权限边界
 
 - App 数据属于 App；跨 App 协作只能使用公开 API 和不可变 Artifact 引用。

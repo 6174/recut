@@ -36,7 +36,8 @@ const (
 
 // providerCatalogExcluded lists providers that never participate in the CDN
 // catalog: codex is a native no-credential capability, local-audio is the
-// machine-local TTS bridge. Both always come from code/seed.
+// machine-local TTS bridge. Both always come from code/seed. App-contributed
+// local providers (contributes.media) are merged separately and also excluded.
 var providerCatalogExcluded = map[string]bool{"codex": true, "local-audio": true}
 
 // providerCatalogIndex mirrors cdn/providers/index.json (the integrity anchor).
@@ -132,7 +133,7 @@ func (l *providerCatalogLoader) refresh() {
 	if !ok {
 		return
 	}
-	swapCatalog(mergeCatalogProviders(seedProviders, providers))
+	swapCatalog(withAppProviders(mergeCatalogProviders(seedProviders, providers)))
 	if err := l.writeCache(providers); err != nil {
 		log.Printf("WARN media provider catalog cache write failed: %v", err)
 	}
@@ -218,7 +219,7 @@ func (l *providerCatalogLoader) loadCache() {
 	if len(providers) == 0 {
 		return
 	}
-	swapCatalog(mergeCatalogProviders(seedProviders, providers))
+	swapCatalog(withAppProviders(mergeCatalogProviders(seedProviders, providers)))
 	log.Printf("INFO media provider catalog loaded from cache providers=%d", len(providers))
 }
 

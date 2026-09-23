@@ -13,6 +13,8 @@
  * 画布存储为文档粒度（RFC 2026-09-09）：一张画布 = 一个 Document，canvas.get/save 整包读写 + version 乐观锁；
  * 元素级动作（upsertElement/persistGeometry/moveElement/removeElement）只改本地文档 + 脏集合，去抖整包落库，
  * 冲突时拉远端按 id 合并脏集重试一次；内层画布是独立文档，实体投影位置跨层天然隔离。
+ * elementsContextId：elements 归属层（切层后 load 回填前仍是旧层数据），整包保存按它落库，
+ * 避免按当前导航 context 把旧层整包覆盖写进新层文档。
  * canonicalizeCanvasElements：load 时把导入 bundle 的实体元素 id 归一为 shape:<entityId>（源世界沿用
  * shape:<sourceId>）、重映射箭头端点并去重，修复导入世界拖拽后位置回退（一次性迁移落库）。
  * 统一 Entity 模型（RFC 2026-09-09）：实体字段 = title/kind/content → name/typeId/intro/detail/attrs；
@@ -459,7 +461,9 @@ async function flushCanvasSave(): Promise<void> {
   if (!state.apiBase || !state.worldId || state.readOnly) return;
   if (!canvasSaveState.dirty.size && !canvasSaveState.removed.size) return;
   canvasSaveState.saving = true;
-  const contextId = state.context?.entityId ?? "";
+  // 保存按「elements 归属层」而非当前导航 context：切层后 load 回填新层前，
+  // elements 仍是旧层数据，按 context 落库会把旧层整包覆盖写进新层文档。
+  const contextId = state.elementsContextId;
   const dirty = new Set(canvasSaveState.dirty);
   const removed = new Set(canvasSaveState.removed);
   const save = async (elements: WorldCanvasElement[], version: number) => {
@@ -469,7 +473,10 @@ async function flushCanvasSave(): Promise<void> {
       elements,
       version,
     });
-    useWorldCanvasStore.setState({ docVersion: doc.version });
+    // 只有仍在保存同一层时才回写 docVersion，避免旧层保存结果覆盖新层的乐观锁。
+    if (useWorldCanvasStore.getState().elementsContextId === contextId) {
+      useWorldCanvasStore.setState({ docVersion: doc.version });
+    }
   };
   try {
     await save(useWorldCanvasStore.getState().elements, useWorldCanvasStore.getState().docVersion);
@@ -480,8 +487,8 @@ async function flushCanvasSave(): Promise<void> {
     const code = (cause as { code?: string } | null)?.code;
     if (code === "CANVAS_VERSION_CONFLICT") {
       // 冲突合并：远端文档为底，回放本地脏元素/删除，再以新 version 重试一次。
-      // context 已切换则丢弃本次合并（脏集属于旧层文档，不能写进新层）
-      if ((useWorldCanvasStore.getState().context?.entityId ?? "") !== contextId) {
+      // elements 已切到别的层则丢弃本次合并（脏集属于旧层文档，不能写进新层）
+      if (useWorldCanvasStore.getState().elementsContextId !== contextId) {
         canvasSaveState.dirty.clear();
         canvasSaveState.removed.clear();
       } else {
@@ -523,7 +530,7 @@ if (typeof window !== "undefined") {
       canvasSaveState.timer = null;
     }
     const body = JSON.stringify({
-      contextId: state.context?.entityId ?? "",
+      contextId: state.elementsContextId,
       elements: state.elements,
       version: state.docVersion,
     });
@@ -571,6 +578,10 @@ type WorldCanvasState = {
   contextTrail: Array<{ entityId: string; title: string }>;
   entities: WorldEntity[];
   elements: WorldCanvasElement[];
+  // `elements` 归属的画布层：整包保存必须按它（而不是当前导航 context）落库。
+  // 切层后、load 回填新层之前，elements 仍是旧层数据；若此时按 context 保存，
+  // 会把旧层整包写进新层文档（覆盖写）。默认 "" = 根画布。
+  elementsContextId: string;
   // 当前文档（context 层）的服务端 version：整包保存的乐观锁
   docVersion: number;
   relations: WorldEntityRelation[];
@@ -777,6 +788,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   contextTrail: [],
   entities: [],
   elements: [],
+  elementsContextId: "",
   relations: [],
   relationTypes: [],
   entityTypes: [],
@@ -829,6 +841,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       contextTrail: [],
       entities: [],
       elements: [],
+      elementsContextId: "",
       docVersion: 0,
       relations: [],
       relationTypes: [],
@@ -942,6 +955,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       set({
         entities,
         elements: nextElements,
+        elementsContextId: contextId,
         docVersion: doc.version,
         relations: visibleRelations,
         relationTypes: entityTypeData.relations ?? [],
@@ -1051,7 +1065,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     try {
       await get().upsertElement({
         id,
-        contextId: get().context?.entityId ?? "",
+        contextId: get().elementsContextId,
         kind: kind === "text" ? "text" : "attr",
         refKind: "",
         refId: "",
@@ -1078,7 +1092,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     set({ attrCreator: null });
     const attrId = `shape:attr-${Date.now()}`;
     const arrowId = `shape:arrow-${Date.now()}`;
-    const contextId = get().context?.entityId ?? "";
+    const contextId = get().elementsContextId;
     const mediaLabels: Record<AttrMedia, string> = { text: "文本", image: "图片", audio: "音频", video: "视频" };
     try {
       await get().upsertElement({
@@ -1152,7 +1166,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     try {
       const arrowElement = await get().upsertElement({
         id: arrowId,
-        contextId: get().context?.entityId ?? "",
+        contextId: get().elementsContextId,
         kind: "arrow",
         refKind: "",
         refId: "",
@@ -1278,7 +1292,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         const ghost: WorldCanvasElement = {
           id,
           worldId: state.worldId,
-          contextId: state.context?.entityId ?? "",
+          contextId: state.elementsContextId,
           kind: isWorld ? "world" : "entity",
           refKind: isWorld ? "" : "entity",
           refId: isWorld ? "" : id.replace(/^shape:/, ""),
@@ -1306,7 +1320,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const saved: WorldCanvasElement = {
       id: input.id,
       worldId: get().worldId,
-      contextId: input.contextId ?? get().context?.entityId ?? "",
+      contextId: input.contextId ?? get().elementsContextId,
       kind: input.kind,
       refKind: input.refKind ?? "",
       refId: input.refId ?? "",
@@ -1373,7 +1387,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       const pos = opts.pos ?? gridPosition(get().elements.length);
       await get().upsertElement({
         id: `shape:${entity.id}`,
-        contextId: get().context?.entityId ?? "",
+        contextId: get().elementsContextId,
         kind: "entity",
         refKind: "entity",
         refId: entity.id,
@@ -1472,7 +1486,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     try {
       await get().upsertElement({
         id,
-        contextId: get().context?.entityId ?? "",
+        contextId: get().elementsContextId,
         kind: "note",
         refKind: "",
         refId: "",
@@ -1745,7 +1759,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     try {
       await get().upsertElement({
         id: `shape:rel-${relationId}`,
-        contextId: get().context?.entityId ?? "",
+        contextId: get().elementsContextId,
         kind: "arrow",
         refKind: "",
         refId: relationId,
@@ -2251,7 +2265,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       } else {
         await get().upsertElement({
           id: `shape:${entityId}`,
-          contextId: state.context?.entityId ?? "",
+          contextId: state.elementsContextId,
           kind: "entity",
           refKind: "entity",
           refId: entityId,
@@ -2483,7 +2497,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     try {
       await get().upsertElement({
         id,
-        contextId: get().context?.entityId ?? "",
+        contextId: get().elementsContextId,
         kind: "media",
         refKind: "",
         refId: "",

@@ -124,6 +124,10 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleZh: "按能力聚合所有可用的声音分组：本地 provider 一组、云端每个凭据一组、未配置凭据的 provider 返回占位组（带 error）供引导设置。用于跨 provider 声音选择，不依赖默认路由。",
 		LocaleEn: "Aggregate all available voice groups for one capability: one group per local provider, one per cloud credential, and placeholder groups (with error) for unconfigured providers to guide setup. Use it to select voices across providers without depending on the default route.",
 	},
+	"recut.media.list_capability_models": {
+		LocaleZh: "按能力聚合本机生成 provider 的模型分组（image.generate / video.generate）：返回平台模型清单与本地 App（Generation Studio）引擎的就绪度（是否安装、runtime、权重）。用于查看本机有哪些生成环境、或把默认路由切到本地模型。",
+		LocaleEn: "Aggregate local generation providers' model groups for one capability (image.generate / video.generate): platform models plus the local Generation Studio engines' readiness (installed, runtime, weights). Use it to see which local generation environments exist, or to point the default route at a local model.",
+	},
 	"recut.media.list_assets": {
 		LocaleZh: "检索工作区或指定项目的可复用媒体素材。优先用 ids 精确取回，或用 kind/query/limit 过滤分页；不要全量拉取素材库。",
 		LocaleEn: "Search reusable media assets in the workspace or a specific project. Prefer ids for exact lookup, or kind/query/limit for filtered pages; never pull the whole library.",
@@ -797,17 +801,21 @@ func mediaContext(media *MediaService) (any, map[string]map[string]string) {
 			value["action"] = "Use Codex native image generation; do not call recut.image.generate."
 			continue
 		}
-		if configuration.Provider.ID == "local-audio" {
-			// 本机 TTS 路由就绪：Agent 应优先使用 Audio Studio 的 MCP
-			// （audio.synthesize + audio.save）完成配音，recut.speech.generate 仍可用但
-			// 依赖 daemon 注入的本地执行桥。
+		if configuration.Provider.Protocol == "local" {
+			// 本机 provider 路由就绪（Audio Studio TTS / Generation Studio 生成）：
+			// 无凭据、不花钱；Agent 可用 App 的 MCP 面直接调用，或经 daemon 注入的执行桥走平台工具。
 			value["status"] = "ready"
 			value["routeId"] = configuration.Route.ID
 			value["modelId"] = configuration.Model.ID
-			value["provider"] = "local-audio"
+			value["provider"] = configuration.Provider.ID
 			value["credentialName"] = configuration.CredentialName
 			value["local"] = "true"
-			value["action"] = "Local Audio Studio TTS is configured; use audio.synthesize + audio.save (or recut.speech.generate when the daemon bridge is wired)."
+			switch configuration.Route.Capability {
+			case SpeechGenerate:
+				value["action"] = "Local Audio Studio TTS is configured; use audio.synthesize + audio.save (or recut.speech.generate when the daemon bridge is wired)."
+			default:
+				value["action"] = "Local Generation Studio is configured; use recut.media.list_capability_models to inspect local models, or recut.image.generate when the daemon bridge is wired."
+			}
 			continue
 		}
 		value["status"] = "ready"
@@ -1186,6 +1194,9 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 	case "recut.media.list_capability_voices":
 		capability, _ := input["capability"].(string)
 		result, err = media.CapabilityVoiceGroups(MediaCapability(capability))
+	case "recut.media.list_capability_models":
+		capability, _ := input["capability"].(string)
+		result, err = media.CapabilityModelGroups(MediaCapability(capability))
 	case "recut.media.list_assets":
 		workspace, _ := input["workspace"].(bool)
 		projectID := requestedProjectID(input)
@@ -1410,6 +1421,7 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.speech.generate", "description": mcpDescription(locale, "recut.speech.generate"), "inputSchema": speechGenerationSchema()},
 		{"name": "recut.media.list_voices", "description": mcpDescription(locale, "recut.media.list_voices"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"credentialId": map[string]string{"type": "string", "description": "云端语音 provider 的凭据 ID；本机 TTS 可传 local-audio 或留空返回 Audio Studio 默认音。"}}}},
 		{"name": "recut.media.list_capability_voices", "description": mcpDescription(locale, "recut.media.list_capability_voices"), "inputSchema": map[string]any{"type": "object", "required": []string{"capability"}, "properties": map[string]any{"capability": map[string]any{"type": "string", "enum": []string{"speech.generate"}, "description": "要聚合声音的能力；当前 speech.generate 提供动态 voices，其他能力返回空列表。"}}}},
+		{"name": "recut.media.list_capability_models", "description": mcpDescription(locale, "recut.media.list_capability_models"), "inputSchema": map[string]any{"type": "object", "required": []string{"capability"}, "properties": map[string]any{"capability": map[string]any{"type": "string", "enum": []string{"image.generate", "video.generate"}, "description": "要聚合本地模型的能力；返回本地生成 provider 的平台模型清单与 App 引擎就绪度。"}}}},
 		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}, "ids": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "精确 assetId 列表（也接受逗号分隔字符串）；用于按已知 ID 取回完整记录，给定时忽略 kind/query 等其他过滤。"}, "kind": map[string]string{"type": "string", "description": "按素材类型过滤：image / video / audio / transcript 等。"}, "status": map[string]string{"type": "string", "description": "按状态过滤（如 completed / queued / running）；缺省排除 deleted。"}, "query": map[string]string{"type": "string", "description": "按名称模糊匹配。"}, "includeAnalysis": map[string]any{"type": "boolean", "description": "可选；项目查询时默认隐藏参考理解产物（origin=understand），传 true 可一并返回。"}, "limit": map[string]any{"type": "integer", "description": "分页大小，默认 200，上限 500。"}, "offset": map[string]any{"type": "integer", "description": "分页偏移；结合返回的 total 判断是否还有下一页。"}}}},
 		{"name": "recut.media.asset.get", "description": mcpDescription(locale, "recut.media.asset.get"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string", "description": "要读取完整创作信息的素材 assetId。"}}}},
 		{"name": "recut.media.asset.update", "description": mcpDescription(locale, "recut.media.asset.update"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{

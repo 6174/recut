@@ -53,6 +53,63 @@ type Manifest struct {
 	Onboarding        []OnboardingGuide            `json:"onboarding"`
 	Localized         map[string]ManifestLocalized `json:"localized,omitempty"`
 	AgentSurface      *AgentSurface                `json:"agentSurface,omitempty"`
+	Contributes       *ManifestContributes         `json:"contributes,omitempty"`
+}
+
+// ManifestContributes is the static, app-owned declaration of platform
+// surfaces an App contributes. It is intentionally separate from runtime
+// operations: the platform reads it at catalog-load time to register the App's
+// contributed media providers/models, while dynamic readiness is reported by
+// the App's declared operations (e.g. a status/catalog op).
+type ManifestContributes struct {
+	Media *MediaContribution `json:"media,omitempty"`
+}
+
+// MediaContribution declares the local media providers an App serves. A local
+// provider has no credential; generation is dispatched to the App's declared
+// operations (generate/save). Models are static (the catalog of what the App
+// can run); whether a model is downloaded is reported dynamically by the
+// App's status/catalog operation.
+type MediaContribution struct {
+	Providers []ContributedMediaProvider `json:"providers"`
+}
+
+type ContributedMediaProvider struct {
+	ID         string                             `json:"id"`
+	Name       string                             `json:"name"`
+	Localized  map[string]ManifestLocalizedName   `json:"localized,omitempty"`
+	Protocol   string                             `json:"protocol"`
+	Operations ContributedMediaProviderOperations `json:"operations"`
+	Models     []ContributedMediaModel            `json:"models"`
+}
+
+// ManifestLocalizedName is the per-locale override for a contributed provider
+// or model display name.
+type ManifestLocalizedName struct {
+	Name string `json:"name"`
+}
+
+// ContributedMediaProviderOperations wires a local provider to the App's
+// operations. Generate and Save are required; Catalog (or Status) is optional
+// and supplies dynamic model readiness for platform discovery.
+type ContributedMediaProviderOperations struct {
+	Generate string `json:"generate"`
+	Save     string `json:"save"`
+	Catalog  string `json:"catalog,omitempty"`
+	Status   string `json:"status,omitempty"`
+}
+
+type ContributedMediaModel struct {
+	ID          string                           `json:"id"`
+	Name        string                           `json:"name"`
+	Localized   map[string]ManifestLocalizedName `json:"localized,omitempty"`
+	Capability  string                           `json:"capability"`
+	Runtime     string                           `json:"runtime,omitempty"`
+	SizeGB      float64                          `json:"sizeGb,omitempty"`
+	InputModes  []string                         `json:"inputModes,omitempty"`
+	OutputModes []string                         `json:"outputModes,omitempty"`
+	Parameters  []map[string]any                 `json:"parameters,omitempty"`
+	Weights     map[string]string                `json:"weights,omitempty"`
 }
 
 // AgentSurface declares only the host-level routing policy for an App. Skill
@@ -491,6 +548,66 @@ func validateManifest(manifest Manifest) error {
 				return fmt.Errorf("invalid operation surface %q", surface)
 			}
 			surfaces[surface] = true
+		}
+	}
+	if err := validateMediaContribution(manifest); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateMediaContribution checks an App's contributes.media block: only local
+// providers are allowed, capabilities are known media capabilities, model ids
+// are simple, and the generate/save (and optional catalog/status) operations
+// must exist in the App's declared operations with a callable surface.
+func validateMediaContribution(manifest Manifest) error {
+	if manifest.Contributes == nil || manifest.Contributes.Media == nil {
+		return nil
+	}
+	operations := map[string]bool{}
+	for _, operation := range manifest.Operations {
+		for _, surface := range operation.Surfaces {
+			if surface == "mcp" || operation.Capability {
+				operations[operation.Name] = true
+				break
+			}
+		}
+	}
+	seenProviders := map[string]bool{}
+	for _, provider := range manifest.Contributes.Media.Providers {
+		if !validRuntimeName(provider.ID) || seenProviders[provider.ID] {
+			return fmt.Errorf("invalid contributed media provider id %q", provider.ID)
+		}
+		seenProviders[provider.ID] = true
+		if provider.Name == "" {
+			return fmt.Errorf("contributed media provider %q requires a name", provider.ID)
+		}
+		if provider.Protocol != "local" {
+			return fmt.Errorf("contributed media provider %q must use protocol \"local\"", provider.ID)
+		}
+		if provider.Operations.Generate == "" || provider.Operations.Save == "" {
+			return fmt.Errorf("contributed media provider %q requires generate and save operations", provider.ID)
+		}
+		for _, name := range []string{provider.Operations.Generate, provider.Operations.Save, provider.Operations.Catalog, provider.Operations.Status} {
+			if name != "" && !operations[name] {
+				return fmt.Errorf("contributed media provider %q references unknown operation %q", provider.ID, name)
+			}
+		}
+		if len(provider.Models) == 0 {
+			return fmt.Errorf("contributed media provider %q must declare at least one model", provider.ID)
+		}
+		seenModels := map[string]bool{}
+		for _, model := range provider.Models {
+			if !validRuntimeName(model.ID) || seenModels[model.ID] {
+				return fmt.Errorf("invalid contributed media model id %q", model.ID)
+			}
+			seenModels[model.ID] = true
+			if model.Name == "" {
+				return fmt.Errorf("contributed media model %q requires a name", model.ID)
+			}
+			if model.Capability != "image.generate" && model.Capability != "video.generate" && model.Capability != "speech.generate" {
+				return fmt.Errorf("contributed media model %q has unknown capability %q", model.ID, model.Capability)
+			}
 		}
 	}
 	return nil

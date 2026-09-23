@@ -373,6 +373,35 @@ func (m *MediaService) execute(job MediaJob, credential MediaCredential) {
 		m.failExecution(job, errors.New("this provider model adapter is not available yet"))
 		return
 	}
+	// 本地 provider（Protocol=="local"）：无凭据，按 provider id 分派到 daemon 注入的执行桥。
+	// 必须在图片/语音的云 provider 路径之前拦截，否则会先走 m.secret(空凭据) 而失败。
+	if provider, ok := providerByID(credential.Provider); ok && provider.Protocol == "local" {
+		if provider.ID == "local-audio" {
+			if m.localSpeechExec == nil {
+				m.failExecution(job, errors.New("local speech route is not connected; install/start Audio Studio or switch the speech default route to a cloud provider in Recut settings"))
+				return
+			}
+			asset, err := m.localSpeechExec(job, model, speechVoiceID(job))
+			if err != nil {
+				m.failExecution(job, err)
+				return
+			}
+			m.completeExecution(job, asset)
+			return
+		}
+		exec := m.localAppExec[provider.ID]
+		if exec == nil {
+			m.failExecution(job, fmt.Errorf("local provider %s is not connected; install/start its App or switch the default route to a cloud provider in Recut settings", provider.ID))
+			return
+		}
+		asset, err := exec(job, model, job.Output)
+		if err != nil {
+			m.failExecution(job, err)
+			return
+		}
+		m.completeExecution(job, asset)
+		return
+	}
 	if job.Capability == ImageGenerate {
 		if provider, ok := model_providers.For(credential.Provider); ok {
 			secret, err := m.secret(credential.ID)
@@ -403,21 +432,6 @@ func (m *MediaService) execute(job MediaJob, credential MediaCredential) {
 			return
 		}
 		m.failExecution(job, errors.New("this provider image adapter is not available yet"))
-		return
-	}
-	if credential.Provider == "local-audio" {
-		// 本机 TTS（Audio Studio / CosyVoice2）：执行经 daemon 注入的本地执行桥；
-		// 未注入时给可操作的引导错误，避免把素材伪装成可用。
-		if m.localSpeechExec == nil {
-			m.failExecution(job, errors.New("local speech route is not connected; install/start Audio Studio or switch the speech default route to a cloud provider in Recut settings"))
-			return
-		}
-		asset, err := m.localSpeechExec(job, model, speechVoiceID(job))
-		if err != nil {
-			m.failExecution(job, err)
-			return
-		}
-		m.completeExecution(job, asset)
 		return
 	}
 	if job.Capability != SpeechGenerate || (credential.Provider != "minimax" && credential.Provider != "elevenlabs" && credential.Provider != "atlas-cloud") {
