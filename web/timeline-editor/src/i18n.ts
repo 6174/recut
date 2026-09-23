@@ -242,6 +242,8 @@ const zh = {
 	"prop.effects.open": "打开特效",
 	"prop.effects.toggle": "切换 {name}",
 	"prop.effects.remove": "删除 {name}",
+	"prop.effects.unknown": "未知特效：{type}",
+	"prop.effects.unknownHint": "当前版本不支持该特效类型，删除后可重新添加。",
 
 	"prop.elementsSelected": "已选择 {count} 个元素",
 	"prop.toggleKeyframe": "切换 {label} 关键帧",
@@ -1065,6 +1067,8 @@ const en: Record<keyof typeof zh, string> = {
 	"prop.effects.open": "Open effects",
 	"prop.effects.toggle": "Toggle {name}",
 	"prop.effects.remove": "Remove {name}",
+	"prop.effects.unknown": "Unknown effect: {type}",
+	"prop.effects.unknownHint": "This effect type is unavailable in the current version. Remove it and add it again.",
 
 	"prop.elementsSelected": "{count} elements selected",
 	"prop.toggleKeyframe": "Toggle {label} keyframe",

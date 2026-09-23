@@ -316,13 +316,11 @@ function MediaAssetDraggable({
 	item,
 	preview,
 	variant,
-	isRounded,
 	onPreview,
 }: {
 	item: MediaAsset;
 	preview: React.ReactNode;
 	variant: "card" | "compact";
-	isRounded?: boolean;
 	onPreview?: () => void;
 }) {
 	const editor = useEditor();
@@ -370,7 +368,6 @@ function MediaAssetDraggable({
 			}
 			onPreview={onPreview}
 			variant={variant}
-			isRounded={isRounded}
 		/>
 	);
 }
@@ -459,7 +456,6 @@ function MediaItemList({
 								/>
 							}
 							variant={isGrid ? "card" : "compact"}
-							isRounded={isGrid ? false : undefined}
 						/>
 					</SelectableItem>
 				</MediaItemWithContextMenu>
@@ -497,23 +493,14 @@ function MediaTypePlaceholder({
 	icon,
 	label,
 	duration,
-	variant,
 }: {
 	icon: IconSvgElement;
 	label: string;
 	duration?: number;
-	variant: "muted" | "bordered";
 }) {
-	const iconClassName = cn("size-6", variant === "bordered" && "mb-1");
-
 	return (
-		<div
-			className={cn(
-				"text-muted-foreground flex size-full flex-col items-center justify-center rounded",
-				variant === "muted" ? "bg-muted/30" : "border",
-			)}
-		>
-			<HugeiconsIcon icon={icon} className={iconClassName} />
+		<div className="text-muted-foreground flex size-full flex-col items-center justify-center">
+			<HugeiconsIcon icon={icon} className="size-6" />
 			<span className="text-xs">{label}</span>
 			<MediaDurationLabel duration={duration} />
 		</div>
@@ -583,14 +570,13 @@ function MediaPreview({
 						icon={Image02Icon}
 						label={pendingLabelKey ? t(locale, pendingLabelKey) : t(locale, "assets.type.image")}
 						duration={item.duration}
-						variant="muted"
 					/>
 				</div>
 			);
 		}
 
 		return (
-			<div className="relative flex size-full items-center justify-center bg-muted">
+			<div className="relative flex size-full items-center justify-center bg-muted/50">
 				<MediaStatusBadge status={item.status} />
 				<Image
 					src={item.url}
@@ -633,7 +619,6 @@ function MediaPreview({
 					icon={Video01Icon}
 					label={pendingLabelKey ? t(locale, pendingLabelKey) : t(locale, "assets.type.video")}
 					duration={item.duration}
-					variant="muted"
 				/>
 			</div>
 		);
@@ -647,14 +632,13 @@ function MediaPreview({
 					icon={MusicNote03Icon}
 					label={pendingLabelKey ? t(locale, pendingLabelKey) : t(locale, "assets.type.audio")}
 					duration={item.duration}
-					variant="bordered"
 				/>
 			</div>
 		);
 	}
 
 	return (
-		<MediaTypePlaceholder icon={Image02Icon} label={t(locale, "assets.type.unknown")} variant="muted" />
+		<MediaTypePlaceholder icon={Image02Icon} label={t(locale, "assets.type.unknown")} />
 	);
 }
 

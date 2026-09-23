@@ -176,8 +176,10 @@ export class MediaManager {
 				}
 			}
 
-			const editorAssets = manifest.assets.filter(
-				(asset) => isEditorMediaAsset(asset) && asset.status !== "deleted",
+			// 已删除墓碑也保留在清单里：时间线上引用它的元素据此显示「资源已删除」，
+			// 而不是无声消失（素材面板会按 status 过滤，不展示墓碑）。
+			const editorAssets = manifest.assets.filter((asset) =>
+				isEditorMediaAsset(asset),
 			);
 			// 已完成且全局内容缓存已有字节的素材：只需登记本项目引用并解析画面。
 			const localAssets = new Map<string, MediaAsset>();

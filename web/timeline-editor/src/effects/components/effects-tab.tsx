@@ -43,6 +43,7 @@ export function StandaloneEffectTab({
 	trackId: string;
 }) {
 	const locale = useRecutLocale();
+	const editor = useEditor();
 	const { renderElement, previewUpdates, commit } = useElementPreview({
 		trackId,
 		elementId: element.id,
@@ -72,6 +73,11 @@ export function StandaloneEffectTab({
 				renderParams={(renderElement as EffectElement).params}
 				previewParam={previewParam}
 				onCommit={commit}
+				onRemove={() =>
+					editor.timeline.deleteElements({
+						elements: [{ trackId, elementId: element.id }],
+					})
+				}
 			/>
 		</div>
 	);
@@ -260,9 +266,9 @@ function EffectSection({
 	onToggle?: () => void;
 	onRemove?: () => void;
 }) {
-	const definition = effectsRegistry.get(effect.type);
+	const definition = effectsRegistry.tryGet(effect.type);
 	const locale = useRecutLocale();
-	const name = getEffectName({ definition, locale });
+	const name = definition ? getEffectName({ definition, locale }) : effect.type;
 
 	return (
 		<Section
@@ -306,21 +312,41 @@ function EffectSection({
 			<SectionContent
 				className={cn("p-0", onToggle && !effect.enabled && "opacity-50")}
 			>
-				<SectionFields>
-					{definition.params.map((param) => (
-						<div key={param.key} className="flex flex-col gap-3.5">
-							<div className="px-4">
-								<PropertyParamField
-									param={param}
-									value={renderParams[param.key] ?? param.default}
-									onPreview={previewParam(param.key)}
-									onCommit={onCommit}
-								/>
+				{definition ? (
+					<SectionFields>
+						{definition.params.map((param) => (
+							<div key={param.key} className="flex flex-col gap-3.5">
+								<div className="px-4">
+									<PropertyParamField
+										param={param}
+										value={renderParams[param.key] ?? param.default}
+										onPreview={previewParam(param.key)}
+										onCommit={onCommit}
+									/>
+								</div>
+								<Separator />
 							</div>
-							<Separator />
-						</div>
-					))}
-				</SectionFields>
+						))}
+					</SectionFields>
+				) : (
+					<div className="flex flex-col gap-3 px-4 py-3">
+						<p className="text-muted-foreground text-xs text-balance">
+							{t(locale, "prop.effects.unknownHint")}
+						</p>
+						{onRemove ? (
+							<Button
+								variant="outline"
+								size="sm"
+								className="w-fit text-destructive hover:bg-destructive/10"
+								aria-label={t(locale, "prop.effects.remove", { name })}
+								onClick={onRemove}
+							>
+								<HugeiconsIcon icon={Delete02Icon} />
+								{t(locale, "common.delete")}
+							</Button>
+						) : null}
+					</div>
+				)}
 			</SectionContent>
 		</Section>
 	);

@@ -202,7 +202,7 @@ function ComponentCardPreview({ apiBase, asset }: { apiBase: string; asset: Asse
     return <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={component.coverUrl.startsWith("http") ? component.coverUrl : `${apiBase}${component.coverUrl}`} /></div>;
   }
   return (
-    <div className="aspect-square overflow-hidden bg-[#101014]">
+    <div className="aspect-square overflow-hidden bg-muted">
       <MotionGraphicPreview apiBase={apiBase} componentId={component.componentId} name={asset.name} surface={component.surface} versionId={component.versionId} />
     </div>
   );

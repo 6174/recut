@@ -102,6 +102,11 @@ type MediaAssetFilter struct {
 	Query  string
 	Limit  int
 	Offset int
+	// IncludeDeleted keeps tombstones in the listing (only when no explicit
+	// Status filter). The editor project panel needs them so a timeline clip
+	// whose underlying asset was deleted can resolve to an explicit deleted
+	// state instead of silently vanishing.
+	IncludeDeleted bool
 	// IncludeAnalysis surfaces workspace-level reference-understanding products
 	// (origin=understand) inside a project listing. They are hidden by default
 	// because they belong to the global library, not the project asset panel.
@@ -183,7 +188,7 @@ func assetListWhere(projectID string, filter MediaAssetFilter) (string, []any) {
 	if filter.Status != "" {
 		conditions = append(conditions, "coalesce(a.status, '') = ?")
 		args = append(args, filter.Status)
-	} else {
+	} else if !filter.IncludeDeleted {
 		// 只排除被删除的墓碑，保留 queued/running/legacy 等仍在库里的素材。
 		conditions = append(conditions, "coalesce(a.status, '') != 'deleted'")
 	}
@@ -227,11 +232,22 @@ func assetListWhere(projectID string, filter MediaAssetFilter) (string, []any) {
 }
 
 func (m *MediaService) listAssets(projectID string) ([]MediaAsset, error) {
+	return m.queryAssets(assetListWhere(projectID, MediaAssetFilter{}))
+}
+
+// ListProjectAssetsIncludingDeleted lists a project's assets including deleted
+// tombstones, without pagination. The editor project panel uses it so a timeline
+// clip whose underlying asset was deleted can resolve to an explicit deleted
+// state instead of silently vanishing.
+func (m *MediaService) ListProjectAssetsIncludingDeleted(projectID string) ([]MediaAsset, error) {
+	return m.queryAssets(assetListWhere(projectID, MediaAssetFilter{IncludeDeleted: true}))
+}
+
+func (m *MediaService) queryAssets(where string, args []any) ([]MediaAsset, error) {
 	db, err := m.database()
 	if err != nil {
 		return nil, err
 	}
-	where, args := assetListWhere(projectID, MediaAssetFilter{})
 	query := `select a.` + strings.ReplaceAll(assetColumns, ", ", ", a.") + ` from media_assets a where ` + where +
 		" order by a.created_at desc"
 	rows, err := db.Query(query, args...)

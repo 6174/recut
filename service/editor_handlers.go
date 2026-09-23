@@ -114,6 +114,10 @@ func editorProjectLoad(c *editorContext, input map[string]any) (any, error) {
 		c.writeProject(project, nil)
 		return map[string]any{"project": project, "version": 1}, nil
 	}
+	// 打开项目时反写：时间线引用但素材库缺失的媒体素材重新挂回项目，保证素材面板与时间线一致。
+	if synced := c.syncProjectMediaAssets(existing.Project); len(synced) > 0 {
+		c.emit("project.assets.changed", map[string]any{"kind": "media", "mediaIds": synced, "library": map[string]any{"tab": "media"}})
+	}
 	return map[string]any{"project": existing.Project, "version": existing.Version}, nil
 }
 
@@ -498,6 +502,89 @@ func (c *editorContext) normalizeComponentAssetOp(op map[string]any) (map[string
 	return normalized, nil
 }
 
+// editorOpMediaIDs 抽取一个 op 落轨时引用的媒体素材 id（video/image/audio 的 mediaId）。
+// 与 timeline.placeAudio 同一语义：AI 直接 insert 已生成的媒体素材时，素材也要归口项目。
+func editorOpMediaIDs(op map[string]any) []string {
+	if edStr(op["type"]) != "insert" {
+		return nil
+	}
+	if id := elementMediaID(edMap(edMap(op["payload"])["element"])); id != "" {
+		return []string{id}
+	}
+	return nil
+}
+
+// elementMediaID 返回时间线元素引用的媒体素材 id；library 音频与文字/组件等无媒体素材。
+func elementMediaID(el map[string]any) string {
+	if el == nil {
+		return ""
+	}
+	switch edStr(el["type"]) {
+	case "video", "image":
+		return edStr(el["mediaId"])
+	case "audio":
+		if edStr(el["sourceType"]) == "library" {
+			return ""
+		}
+		return edStr(el["mediaId"])
+	}
+	return ""
+}
+
+// projectMediaIDs 返回项目时间线引用的全部媒体素材 id（去重，保持出现顺序）。
+func projectMediaIDs(project map[string]any) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, sv := range edSlice(project["scenes"]) {
+		tracks := edMap(edMap(sv)["tracks"])
+		if tracks == nil {
+			continue
+		}
+		for _, track := range sceneTrackList(tracks) {
+			for _, ev := range edSlice(track["elements"]) {
+				id := elementMediaID(edMap(ev))
+				if id != "" && !seen[id] {
+					seen[id] = true
+					out = append(out, id)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// syncProjectMediaAssets 反写：把时间线引用、但项目素材库缺失的媒体素材重新挂回项目。
+// 修复历史数据（AI 直接 insert 未 attach / 手动改库）造成的「时间线有、素材库没有」。
+func (c *editorContext) syncProjectMediaAssets(project map[string]any) []string {
+	if c.host.media == nil || !c.target.IsProject() {
+		return nil
+	}
+	referenced := projectMediaIDs(project)
+	if len(referenced) == 0 {
+		return nil
+	}
+	attached := map[string]bool{}
+	if assets, err := c.host.media.ListAssets(c.target.ProjectID); err == nil {
+		for _, asset := range assets {
+			attached[asset.ID] = true
+		}
+	}
+	missing := []string{}
+	for _, id := range referenced {
+		if attached[id] {
+			continue
+		}
+		// 已全局删除的墓碑素材不再反写（时间线元素保留为「资源已删除」）。
+		if asset, err := c.host.media.GetAsset(id); err != nil || asset.DeletedAt != nil || asset.Status == "deleted" {
+			continue
+		}
+		if err := c.attachMedia(id); err == nil {
+			missing = append(missing, id)
+		}
+	}
+	return missing
+}
+
 func editorTimelineCommand(c *editorContext, input map[string]any) (any, error) {
 	op := edMap(input["op"])
 	if op == nil || edStr(op["type"]) == "" {
@@ -507,7 +594,16 @@ func editorTimelineCommand(c *editorContext, input map[string]any) (any, error) 
 	if err != nil {
 		return nil, err
 	}
-	return c.executeCommand(normalized), nil
+	out := c.executeCommand(normalized)
+	// 落轨即把引用的媒体素材加入项目素材库（项目引用），与 timeline.placeAudio 同一语义；
+	// 否则 AI 直接 insert 的视频/图片/音频不会出现在编辑器素材面板（recut.assets.list(projectId)）。
+	if okBool(out["ok"]) {
+		if mediaIDs := editorOpMediaIDs(normalized); len(mediaIDs) > 0 {
+			c.attachMediaAssetsToProject(mediaIDs)
+			c.emit("project.assets.changed", map[string]any{"kind": "media", "mediaIds": mediaIDs, "library": map[string]any{"tab": "media"}})
+		}
+	}
+	return out, nil
 }
 
 func editorPlaceComponents(c *editorContext, input map[string]any) (any, error) {
@@ -1397,6 +1493,7 @@ func editorFilmPackageImport(c *editorContext, input map[string]any) (any, error
 		script = map[string]any{"beats": []any{}}
 	}
 	cursor := float64(0)
+	mediaIDs := []string{}
 	for i, scv := range scenes {
 		sc := edMap(scv)
 		assetIDs := edSlice(sc["assetIds"])
@@ -1414,6 +1511,9 @@ func editorFilmPackageImport(c *editorContext, input map[string]any) (any, error
 		title := edStr(sc["title"])
 		for _, assetValue := range assetIDs {
 			assetID := edStr(assetValue)
+			if assetID != "" {
+				mediaIDs = append(mediaIDs, assetID)
+			}
 			idSuffix := assetID
 			if len(idSuffix) > 8 {
 				idSuffix = idSuffix[len(idSuffix)-8:]
@@ -1445,6 +1545,7 @@ func editorFilmPackageImport(c *editorContext, input map[string]any) (any, error
 	audio := edMap(pkg["audio"])
 	if audio != nil && edStr(audio["voiceoverAssetId"]) != "" {
 		audioTrack := ensureAudioTrack()
+		mediaIDs = append(mediaIDs, edStr(audio["voiceoverAssetId"]))
 		dur := cursor
 		if dur == 0 {
 			dur = 10
@@ -1465,7 +1566,11 @@ func editorFilmPackageImport(c *editorContext, input map[string]any) (any, error
 	scene["updatedAt"] = now
 	write := c.writeProject(project, nil)
 	if okBool(write["ok"]) {
+		c.attachMediaAssetsToProject(mediaIDs)
 		c.emitDocumentChanged(int64(edNum(write["version"])), "agent", nil)
+		if len(mediaIDs) > 0 {
+			c.emit("project.assets.changed", map[string]any{"kind": "media", "mediaIds": mediaIDs, "library": map[string]any{"tab": "media"}})
+		}
 	}
 	return map[string]any{"ok": true, "elements": summarizeTimeline(project)}, nil
 }
@@ -1924,7 +2029,8 @@ func editorAssetAdd(c *editorContext, input map[string]any) (any, error) {
 
 // editorAssetRemove detaches a global media asset from the project's asset
 // library (the inverse of asset.add). The global asset and its bytes survive;
-// only the project reference is removed. The timeline is not touched.
+// only the project reference is removed. The timeline is not touched here:
+// 全局素材删除与项目内移除语义不同，时间线引用保留（缺素材时由前端显示删除态）。
 func editorAssetRemove(c *editorContext, input map[string]any) (any, error) {
 	assetID := edStr(input["assetId"])
 	if assetID == "" {

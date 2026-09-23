@@ -633,6 +633,173 @@ func TestEditorPlaceAudioAttachesAssetToProject(t *testing.T) {
 	}
 }
 
+// TestEditorTimelineCommandAttachesInsertedMedia 覆盖「AI 直接 insert 媒体素材」的数据链路：
+// timeline.command insert 的视频/图片/音频也应把引用的素材 attach 到当前项目，使
+// recut.assets.list(projectId) 与素材面板能看到它；未引用的素材仍保持 workspace 分离。
+func TestEditorTimelineCommandAttachesInsertedMedia(t *testing.T) {
+	_, store, _, project := setupEditorTestApp(t)
+	media := NewMediaService(store)
+	host := NewAppHost(store.catalog, store, media)
+
+	clip, err := media.ImportMedia("shot.mp4", "video/mp4", []byte("mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	png, err := media.ImportMedia("pic.png", "image/png", []byte("png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invoke(t, host, project, "project.create", map[string]any{})
+
+	// attach 前：项目素材列表不应包含 clip（workspace 分离）
+	before, _ := media.ListAssets(project.ID)
+	for _, a := range before {
+		if a.ID == clip.ID {
+			t.Fatalf("clip asset should not be project-attached before insert: %#v", a)
+		}
+	}
+
+	// 只 insert 引用 clip；image 留作对照
+	ins := invoke(t, host, project, "timeline.command", map[string]any{"op": map[string]any{
+		"type": "insert",
+		"payload": map[string]any{
+			"element": map[string]any{"type": "video", "name": "镜头", "mediaId": clip.ID, "startSec": float64(0), "durationSec": float64(3)},
+		},
+	}})
+	if !boolOf(ins["ok"]) {
+		t.Fatalf("insert = %#v", ins)
+	}
+
+	// attach 后：clip 出现在项目素材列表（前端 recut.assets.list(projectId) 即见）；image 仍不归属
+	after, _ := media.ListAssets(project.ID)
+	clipFound, imageFound := false, false
+	for _, a := range after {
+		if a.ID == clip.ID {
+			clipFound = true
+		}
+		if a.ID == png.ID {
+			imageFound = true
+		}
+	}
+	if !clipFound {
+		t.Fatal("timeline.command insert should attach the inserted media asset to the project (panel real-time visibility)")
+	}
+	if imageFound {
+		t.Fatalf("unreferenced image should not be project-attached: %#v", png)
+	}
+}
+
+// TestEditorProjectLoadReattachesTimelineMedia 覆盖「打开项目反写」：时间线引用但素材库缺失的
+// 媒体素材在 project.load 时重新挂回项目，修复历史数据造成的不一致。
+func TestEditorProjectLoadReattachesTimelineMedia(t *testing.T) {
+	_, store, _, project := setupEditorTestApp(t)
+	media := NewMediaService(store)
+	host := NewAppHost(store.catalog, store, media)
+
+	clip, err := media.ImportMedia("shot.mp4", "video/mp4", []byte("mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invoke(t, host, project, "project.create", map[string]any{})
+	invoke(t, host, project, "timeline.command", map[string]any{"op": map[string]any{
+		"type": "insert",
+		"payload": map[string]any{
+			"element": map[string]any{"type": "video", "name": "镜头", "mediaId": clip.ID, "startSec": float64(0), "durationSec": float64(3)},
+		},
+	}})
+
+	// 模拟历史数据：时间线仍引用，但项目素材库已被手动解除引用。
+	if err := media.DetachProjectAsset(clip.ID, project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if listed, _ := media.ListAssets(project.ID); containsAsset(listed, clip.ID) {
+		t.Fatal("precondition: asset should be detached before project.load")
+	}
+
+	invokeAPI(t, host, project, "project.load", map[string]any{})
+
+	listed, _ := media.ListAssets(project.ID)
+	if !containsAsset(listed, clip.ID) {
+		t.Fatal("project.load should re-attach timeline-referenced media (reverse write)")
+	}
+}
+
+// TestEditorAssetRemoveKeepsTimelineElements 覆盖边界：asset.remove 是「从项目素材库解除引用」，
+// 与项目内显式删除素材不同，不自动删除时间线引用（引用保留，缺素材由前端显示删除态）。
+func TestEditorAssetRemoveKeepsTimelineElements(t *testing.T) {
+	_, store, _, project := setupEditorTestApp(t)
+	media := NewMediaService(store)
+	host := NewAppHost(store.catalog, store, media)
+
+	clip, err := media.ImportMedia("shot.mp4", "video/mp4", []byte("mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invoke(t, host, project, "project.create", map[string]any{})
+	invoke(t, host, project, "timeline.command", map[string]any{"op": map[string]any{
+		"type": "insert",
+		"payload": map[string]any{
+			"element": map[string]any{"type": "video", "name": "镜头", "mediaId": clip.ID, "startSec": float64(0), "durationSec": float64(3)},
+		},
+	}})
+
+	invoke(t, host, project, "asset.remove", map[string]any{"assetId": clip.ID})
+
+	read := invoke(t, host, project, "timeline.read", map[string]any{})
+	if len(read["clips"].([]any)) != 1 {
+		t.Fatalf("asset.remove must keep timeline references (no cascade), clips = %#v", read["clips"])
+	}
+}
+
+// TestEditorGlobalDeleteKeepsTimelineReference 覆盖边界：全局素材删除（墓碑）后，时间线引用保留，
+// 且打开项目反写不会重新挂回已删除素材。
+func TestEditorGlobalDeleteKeepsTimelineReference(t *testing.T) {
+	_, store, _, project := setupEditorTestApp(t)
+	media := NewMediaService(store)
+	host := NewAppHost(store.catalog, store, media)
+
+	clip, err := media.ImportMedia("shot.mp4", "video/mp4", []byte("mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invoke(t, host, project, "project.create", map[string]any{})
+	invoke(t, host, project, "timeline.command", map[string]any{"op": map[string]any{
+		"type": "insert",
+		"payload": map[string]any{
+			"element": map[string]any{"type": "video", "name": "镜头", "mediaId": clip.ID, "startSec": float64(0), "durationSec": float64(3)},
+		},
+	}})
+
+	if err := media.DeleteAsset(clip.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// 常规列表排除墓碑；编辑器专用列表保留墓碑，供时间线解析「资源已删除」。
+	if listed, _ := media.ListAssets(project.ID); containsAsset(listed, clip.ID) {
+		t.Fatal("default listing must exclude deleted tombstones")
+	}
+	withDeleted, _ := media.ListProjectAssetsIncludingDeleted(project.ID)
+	if !containsAsset(withDeleted, clip.ID) {
+		t.Fatal("editor listing should include deleted tombstones so timeline can show the deleted state")
+	}
+
+	// 打开项目反写：已删除素材不应被重新挂回项目。
+	invokeAPI(t, host, project, "project.load", map[string]any{})
+	if listed, _ := media.ListAssets(project.ID); containsAsset(listed, clip.ID) {
+		t.Fatal("project.load must not re-attach a globally deleted asset")
+	}
+
+	// 时间线引用保留，不被自动删除。
+	read := invoke(t, host, project, "timeline.read", map[string]any{})
+	if len(read["clips"].([]any)) != 1 {
+		t.Fatalf("global delete must keep timeline reference, clips = %#v", read["clips"])
+	}
+}
+
 // TestEditorLibraryBrowse 覆盖 P4 catalog-first：真实 goja 链路下 library.browse
 // 按 CDN(若可达)→随包→builtin 顺序解析目录（网络无关断言：只检查内容不锁 source），
 // 且能按 category/query 过滤。

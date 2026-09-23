@@ -283,7 +283,7 @@ function TextComponentThumb({
 	return (
 		<div
 			ref={containerRef}
-			className="relative size-full overflow-hidden bg-[#101014]"
+			className="relative size-full overflow-hidden bg-muted/50"
 		>
 			{scale > 0 ? (
 				<div

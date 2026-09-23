@@ -98,7 +98,8 @@ export async function handleIframeAssetsRequest(
     }
     case "assets.list": {
       assertProjectScope(input, options.projectID);
-      const response = await fetch(`${base}/v1/media/assets?projectId=${encodeURIComponent(options.projectID)}`, { headers });
+      // includeDeleted=1：取回已删除墓碑，时间线引用可解析为「资源已删除」而不是无声消失。
+      const response = await fetch(`${base}/v1/media/assets?projectId=${encodeURIComponent(options.projectID)}&includeDeleted=1`, { headers });
       const assets = await responsePayload(response);
       return { handled: true, result: { projectId: options.projectID, assets } };
     }

@@ -962,7 +962,7 @@ function ComponentAssetContent({ apiBase, asset }: { apiBase: string; asset: Pre
     return <p className="text-xs text-muted-foreground">组件信息缺失，无法预览。</p>;
   }
   return (
-    <div className="w-full max-w-3xl overflow-hidden rounded-sm border bg-[#101014]">
+    <div className="w-full max-w-3xl overflow-hidden rounded-sm border bg-muted/50">
       <MotionGraphicPreview
         apiBase={apiBase}
         componentId={meta.componentId}

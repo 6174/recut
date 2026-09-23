@@ -47,6 +47,8 @@ func TestSessionGuideIsPlatformOnlyAndVoxSkillIsDiscoverable(t *testing.T) {
 		// 内建会话 guide 直接内嵌能力快照与系统信息（放在文末）：平台技能与已安装
 		// App 都要可发现，免得 Agent 首轮还要为发现能力调用 recut.context。
 		"## 技能路由",
+		"## 复杂任务先出计划（Plan-first）",
+		"files/plans/",
 		"## 动态配置",
 		"## 当前系统信息",
 		`"skills"`,
@@ -402,6 +404,7 @@ func TestAgentGuideRendersChineseOnly(t *testing.T) {
 	for _, required := range []string{
 		"平台结构",
 		"技能路由",
+		"复杂任务先出计划（Plan-first）",
 		"例行预检",
 		"上下文刷新协议",
 		"工具与目标解析",

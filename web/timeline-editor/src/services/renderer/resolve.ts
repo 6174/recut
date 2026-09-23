@@ -115,20 +115,22 @@ function resolveEffectPassGroups({
 	return (effects ?? [])
 		.filter((effect) => effect.enabled)
 		.map((effect) => {
+			const definition = effectsRegistry.tryGet(effect.type);
+			if (!definition) return null;
 			const resolvedParams = resolveEffectParamsAtTime({
 				effectId: effect.id,
 				params: effect.params,
 				animations,
 				localTime,
 			});
-			const definition = effectsRegistry.get(effect.type);
 			return resolveEffectPasses({
 				definition,
 				effectParams: resolvedParams,
 				width,
 				height,
 			});
-		});
+		})
+		.filter((passes): passes is EffectPass[] => passes !== null);
 }
 
 function resolveVisualState({
@@ -439,7 +441,10 @@ function resolveEffectLayerNode({
 		return null;
 	}
 
-	const definition = effectsRegistry.get(node.params.effectType);
+	const definition = effectsRegistry.tryGet(node.params.effectType);
+	if (!definition) {
+		return null;
+	}
 	const passes = resolveEffectPasses({
 		definition,
 		effectParams: node.params.effectParams,

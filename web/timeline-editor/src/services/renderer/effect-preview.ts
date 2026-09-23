@@ -51,7 +51,12 @@ class EffectPreviewService {
 		}
 
 		try {
-			const definition = effectsRegistry.get(effectType);
+			const definition = effectsRegistry.tryGet(effectType);
+			if (!definition) {
+				targetCtx.clearRect(0, 0, size, size);
+				targetCtx.drawImage(source, 0, 0, size, size);
+				return;
+			}
 			const resolvedParams =
 				Object.keys(params).length > 0
 					? params

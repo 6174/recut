@@ -8,7 +8,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
-import { useEffect, useLayoutEffect, useState } from "react";
+import { Component as ReactComponent, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import {
 	DraggableItem,
 	RESOURCE_CARD_ASPECT_RATIO,
@@ -45,11 +45,14 @@ import { buildComponentElement } from "@timeline/timeline/element-utils";
 import type { MediaTime } from "@timeline/wasm";
 import { ComponentPreview } from "./component-preview";
 import { EffectCoverPreview } from "./effect-cover";
-import { t, useRecutLocale } from "@timeline/i18n";
+import { t, useRecutLocale, type RecutLocale } from "@timeline/i18n";
 import { getParamLabel } from "@timeline/params";
 import { cn } from "@timeline/utils/ui";
 import { toast } from "sonner";
 import { recut } from "@timeline/recut/sdk";
+import { serviceBase } from "@timeline/recut/host";
+import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
+import { MediaAssetEventsProvider } from "@/components/use-media-asset-events";
 import {
 	AlertDiamondIcon,
 	CodeIcon,
@@ -380,7 +383,7 @@ function ComponentPreviewDialog({
 						showSource && "md:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]",
 					)}
 				>
-					<div ref={setPreviewPane} className="flex min-w-0 items-center justify-center overflow-hidden bg-muted/30 p-4 sm:p-6">
+					<div ref={setPreviewPane} className="flex min-w-0 items-center justify-center overflow-hidden bg-muted/50 p-4 sm:p-6">
 						<ComponentPreview
 							componentId={component.id}
 							name={getComponentName({ definition: component, locale })}
@@ -388,6 +391,7 @@ function ComponentPreviewDialog({
 							inputs={inputs}
 							width={previewSize.width}
 							height={previewSize.height}
+							background="transparent"
 						/>
 					</div>
 					{showSource ? (
@@ -436,12 +440,153 @@ function SourceCodeViewer({
 	);
 }
 
+/** 组件卡实时预览的错误边界：单个组件渲染抛错只降级为占位，不拖垮整个素材网格。 */
+class ComponentPreviewBoundary extends ReactComponent<
+	{ children: ReactNode; fallback: ReactNode },
+	{ failed: boolean }
+> {
+	state = { failed: false };
+
+	static getDerivedStateFromError() {
+		return { failed: true };
+	}
+
+	render() {
+		return this.state.failed ? this.props.fallback : this.props.children;
+	}
+}
+
+/**
+ * 组件卡实时预览：卡片无封面时在卡片内直接渲染组件（与素材库页面同一视觉路径）。
+ * 只有进入视口才挂载（限制 WebGL 上下文数量），悬停时才播放动画，静止时停在 settled 帧。
+ */
+function ComponentCardLivePreview({
+	definition,
+}: {
+	definition: ComponentDefinition;
+}) {
+	const locale = useRecutLocale();
+	const [frame, setFrame] = useState<HTMLDivElement | null>(null);
+	const [size, setSize] = useState({ width: 0, height: 0 });
+	const [visible, setVisible] = useState(false);
+	const [hovered, setHovered] = useState(false);
+
+	useEffect(() => {
+		if (!frame || typeof IntersectionObserver === "undefined") {
+			setVisible(true);
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => setVisible(entries.some((entry) => entry.isIntersecting)),
+			{ rootMargin: "120px" },
+		);
+		observer.observe(frame);
+		return () => observer.disconnect();
+	}, [frame]);
+
+	useLayoutEffect(() => {
+		if (!frame || typeof ResizeObserver === "undefined") return;
+		const update = () => {
+			const width = Math.round(frame.clientWidth);
+			if (width > 0) setSize({ width, height: Math.round((width * 9) / 16) });
+		};
+		update();
+		const observer = new ResizeObserver(update);
+		observer.observe(frame);
+		return () => observer.disconnect();
+	}, [frame]);
+
+	const inputs = useMemo(
+		() =>
+			definition.inputs.map((input) => ({
+				key: input.key,
+				label: input.labelKey ? getParamLabel({ param: input, locale }) : input.label,
+				type: input.type,
+				default: input.default,
+			})) as AiComponentInput[],
+		[definition, locale],
+	);
+
+	const fallback = (
+		<div className="flex size-full items-center justify-center">
+			<span
+				aria-hidden="true"
+				className="size-3 rounded-full shadow-[0_0_18px_currentColor]"
+				style={{ color: definition.color ?? "#94a3b8", backgroundColor: "currentColor" }}
+			/>
+		</div>
+	);
+
+	return (
+		<div
+			ref={setFrame}
+			className="size-full"
+			onMouseEnter={() => setHovered(true)}
+			onMouseLeave={() => setHovered(false)}
+		>
+			{visible && size.width > 0 ? (
+				<ComponentPreviewBoundary fallback={fallback}>
+					<ComponentPreview
+						animate={hovered}
+						background="transparent"
+						componentId={definition.id}
+						height={size.height}
+						inputs={inputs}
+						name={getComponentName({ definition, locale })}
+						surface={(definition.surface ?? "r3f") as AiComponentSurface}
+						width={size.width}
+					/>
+				</ComponentPreviewBoundary>
+			) : (
+				fallback
+			)}
+		</div>
+	);
+}
+
+// 项目组件 asset → 统一素材详情面板的 PreviewAsset：组件元数据挂在 metadata.component，
+// 面板据此经 motion-graphic-preview 实时渲染精确版本，并展示说明/属性等素材信息。
+function componentPreviewAsset({
+	definition,
+	ref,
+	locale,
+}: {
+	definition: ComponentDefinition;
+	ref: ComponentAssetRef;
+	locale: RecutLocale;
+}): PreviewAsset {
+	return {
+		id: ref.assetId || `component:${definition.id}`,
+		kind: "component",
+		name: getComponentName({ definition, locale }),
+		origin: "editor",
+		status: "completed",
+		createdAt: "",
+		updatedAt: "",
+		metadata: {
+			component: {
+				componentId: definition.id,
+				...(ref.refVersionId ? { versionId: ref.refVersionId } : {}),
+				surface: definition.surface ?? "r3f",
+				status: ref.componentStatus,
+				inputs: definition.inputs.map((input) => ({
+					key: input.key,
+					label: input.labelKey ? getParamLabel({ param: input, locale }) : input.label,
+					type: input.type,
+					default: input.default,
+				})),
+			},
+		},
+	};
+}
+
 function ComponentGrid({
 	components,
 	failedComponents = [],
 	onRemove,
 	embedded = false,
 	coverPending = false,
+	assetRefs,
 }: {
 	components: ComponentDefinition[];
 	failedComponents?: FailedComponent[];
@@ -449,10 +594,13 @@ function ComponentGrid({
 	embedded?: boolean;
 	/** 封面生成中：无封面的卡片在占位块上显示小 loading，保持卡片稳定（不引入布局抖动）。 */
 	coverPending?: boolean;
+	/** 项目组件 asset 引用（含精确版本）；有引用时单击走统一素材详情面板。 */
+	assetRefs?: Map<string, ComponentAssetRef>;
 }) {
 	const editor = useEditor();
 	const locale = useRecutLocale();
 	const [preview, setPreview] = useState<ComponentDefinition | null>(null);
+	const [assetPreview, setAssetPreview] = useState<PreviewAsset | null>(null);
 	const [errorPreview, setErrorPreview] = useState<FailedComponent | null>(null);
 
 	const handleAdd =
@@ -474,6 +622,13 @@ function ComponentGrid({
 		<>
 			{components.map((definition) => {
 				const name = getComponentName({ definition, locale });
+				// 项目组件 asset：单击打开统一素材详情面板（与素材库/画布同一预览面）；
+				// 平台内置组件仍用组件库自带的按 surface 自适应预览弹框。
+				const assetRef = assetRefs?.get(definition.id);
+				const openPreview = () => {
+					if (assetRef) setAssetPreview(componentPreviewAsset({ definition, ref: assetRef, locale }));
+					else setPreview(definition);
+				};
 					const card = (
 						<DraggableItem
 							key={definition.id}
@@ -489,12 +644,8 @@ function ComponentGrid({
 								) : definition.category === "effect" ? (
 									<EffectCoverPreview color={definition.color} />
 								) : (
-									<div className="relative flex size-full items-center justify-center bg-[#101014]">
-										<span
-											aria-hidden="true"
-											className="size-3 rounded-full shadow-[0_0_18px_currentColor]"
-											style={{ color: definition.color ?? "#94a3b8", backgroundColor: "currentColor" }}
-										/>
+									<div className="relative size-full">
+										<ComponentCardLivePreview definition={definition} />
 										{coverPending ? (
 											<div className="absolute inset-0 grid place-items-center bg-black/25">
 												<Spinner className="size-4 text-foreground/75" />
@@ -512,7 +663,7 @@ function ComponentGrid({
 							}}
 							aspectRatio={RESOURCE_CARD_ASPECT_RATIO}
 							onAddToTimeline={handleAdd(definition.id)}
-							onPreview={() => setPreview(definition)}
+							onPreview={openPreview}
 						/>
 					);
 					if (!onRemove) return card;
@@ -594,6 +745,15 @@ function ComponentGrid({
 						if (!open) setPreview(null);
 					}}
 				/>
+			) : null}
+			{assetPreview ? (
+				<MediaAssetEventsProvider apiBase={serviceBase()}>
+					<AssetPreviewDialog
+						apiBase={serviceBase()}
+						asset={assetPreview}
+						onClose={() => setAssetPreview(null)}
+					/>
+				</MediaAssetEventsProvider>
 			) : null}
 			{errorPreview ? (
 				<ComponentErrorDialog
@@ -855,6 +1015,12 @@ export function ComponentAssetLibraryView({
 		})
 		.filter((failed): failed is FailedComponent => failed != null);
 
+	// 组件 id → asset 引用：卡片单击统一素材详情面板需要精确版本与 assetId。
+	const assetRefByComponentId = useMemo(
+		() => new Map((assetRefs ?? []).map((ref) => [ref.componentId, ref])),
+		[assetRefs],
+	);
+
 	return (
 		<ComponentGrid
 			components={aiComponents}
@@ -862,6 +1028,7 @@ export function ComponentAssetLibraryView({
 			onRemove={handleRemove}
 			embedded={embedded}
 			coverPending={assetComponentIds === null}
+			assetRefs={assetRefByComponentId}
 		/>
 	);
 }

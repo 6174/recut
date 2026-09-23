@@ -69,6 +69,11 @@ export class DefinitionRegistry<TKey extends string, TDefinition> {
 		return def;
 	}
 
+	/** 非抛错查找：用于数据驱动的 key（可能来自旧数据或外部目录）。 */
+	tryGet(key: TKey): TDefinition | undefined {
+		return this.definitions.get(key);
+	}
+
 	getAll(): TDefinition[] {
 		return Array.from(this.definitions.values());
 	}

@@ -186,7 +186,10 @@ function buildEffectParamDescriptor({
 	}
 
 	registerDefaultEffects();
-	const definition = effectsRegistry.get(effect.type);
+	const definition = effectsRegistry.tryGet(effect.type);
+	if (!definition) {
+		return null;
+	}
 	const param = definition.params.find((candidate) => candidate.key === paramKey);
 	if (!param) {
 		return null;

@@ -574,6 +574,7 @@ func sessionLayout(snapshot map[string]any) string {
 		"  files/                                       "+str("filesDir"),
 		"  files/cdn/                                   (remote fetch cache)",
 		"  files/reference/<assetId>/                   (global reference working files)",
+		"  files/plans/                                 (project-less plan files)",
 		"  appstate/<appId>/",
 		"  sessions/agent-bridge/<sessionId>/workspace/  "+str("sessionWorkspace"),
 		"  media/                                       "+str("mediaDir"),

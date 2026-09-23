@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖时间线元素、选择/关键帧交互、编辑器媒体清单与 i18n。
- * [OUTPUT]: 对外提供时间线 clip 渲染、菜单、缩放与媒体 Loading/Deleted 降级显示。
+ * [OUTPUT]: 对外提供时间线 clip 渲染、菜单、缩放与媒体 Loading/Deleted 降级显示，以及待生成/失败素材的节点状态提示。
  * [POS]: timeline/components 的单元素交互与视觉容器；素材未缓存或已删除时仍可安全选择。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -47,6 +47,10 @@ import type {
 	AudioElement,
 } from "@timeline/timeline";
 import type { MediaAsset } from "@timeline/media/types";
+import {
+	assetStatusLabelKey,
+	type EditorAssetStatus,
+} from "@timeline/media/asset-status";
 import { mediaSupportsAudio } from "@timeline/media/media-utils";
 import {
 	canToggleSourceAudio,
@@ -580,6 +584,18 @@ function ElementInner({
 			? componentsRegistry.get(visibleElement.componentId).color
 			: undefined;
 	const componentBackground = componentColor ? withClipAlpha(componentColor) : undefined;
+	// 引用素材处于待生成（计划/排队/生成中）或失败时，在节点上给出提示；loading/completed
+	// 由内容区正常展示，不再叠角标。
+	const mediaAssets = useEditor((e) => e.media.getAssets());
+	const mediaAsset = hasMediaId(visibleElement)
+		? (mediaAssets.find((asset) => asset.id === visibleElement.mediaId) ?? null)
+		: null;
+	const pendingStatus =
+		mediaAsset?.status &&
+		mediaAsset.status !== "loading" &&
+		mediaAsset.status !== "completed"
+			? (mediaAsset.status as EditorAssetStatus)
+			: undefined;
 	return (
 		<div
 			className="absolute top-0 bottom-0"
@@ -631,6 +647,7 @@ function ElementInner({
 							</div>
 						</div>
 						{expandedContent}
+						{pendingStatus && <MediaPendingBadge status={pendingStatus} />}
 					</button>
 				</div>
 			</div>
@@ -651,6 +668,18 @@ function ElementInner({
 					/>
 				</>
 			)}
+		</div>
+	);
+}
+
+// MediaPendingBadge：引用素材仍待生成（计划/排队/生成中）或失败时，在节点右上角给出状态提示。
+function MediaPendingBadge({ status }: { status: EditorAssetStatus }) {
+	const locale = useRecutLocale();
+	const key = assetStatusLabelKey(status);
+	if (!key) return null;
+	return (
+		<div className="pointer-events-none absolute top-0.5 right-1 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[10px] leading-none font-medium text-white">
+			{t(locale, key)}
 		</div>
 	);
 }

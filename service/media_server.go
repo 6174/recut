@@ -119,7 +119,18 @@ func (s *Server) listMediaRoutes(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) listMediaAssets(w http.ResponseWriter, r *http.Request) {
-	items, err := s.media.ListAssets(strings.TrimSpace(r.URL.Query().Get("projectId")))
+	projectID := strings.TrimSpace(r.URL.Query().Get("projectId"))
+	// includeDeleted=1 让编辑器项目面板取回已删除墓碑，使时间线引用能解析为显式删除态。
+	if r.URL.Query().Get("includeDeleted") == "1" {
+		items, err := s.media.ListProjectAssetsIncludingDeleted(projectID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, items)
+		return
+	}
+	items, err := s.media.ListAssets(projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

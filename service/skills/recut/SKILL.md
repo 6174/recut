@@ -32,6 +32,25 @@ references: world-onboarding.md
 
 如果 service 已安装但暂时未运行，仍引导用户打开 [https://recut.video](https://recut.video) 检查连接与安装状态；不要要求用户手动修改 Skill 文件或 MCP 配置。
 
+## 复杂任务先出计划（Plan-first）
+
+创建视频、搭建/完善 World、做研究（research）等**非简单任务**，在动手执行前先写一份可落地的 Plan，呈报用户过目后再执行；不要边想边做、边做边改。Plan 不是泛泛提纲，而是**结合本次会话已发现的 App、Skill 与 operation** 设计的执行方案——「拿现有能力把这件事落地」正是 Plan 的目的。
+
+Plan 至少写清：
+
+- **目标与验收**：要交付什么、用户/观众得到什么、怎样算完成；
+- **能力选型**：用哪些已安装 App / Skill / operation（写清 Skill 名与工具名），为什么选它们；
+- **步骤序列**：按依赖顺序拆成可执行步骤，每步标注产物（文档 / assetId / 时间线 / 实体 / 组件）；
+- **决策门**：哪些步骤必须等用户确认（花钱、写 Canon、视频确认、导出发布），哪些是自检；
+- **风险与回退**：关键不确定性与失败时的回退方式。
+
+**Plan 文件写在哪**：
+
+- 有目标 Project（`workflow.context` / `recut.project_context` 给出 `paths.projectFilesRoot`）→ 写在项目目录内（如 `PLAN.md`），随项目续跑、与项目共存；
+- 无项目的通用计划 → 写在通用目录 `files/plans/<name>.md`（即 `.recut/files/plans/`），可跨项目复用。
+
+**执行纪律**：Plan 先呈报用户、可改；每完成一步就回填 Plan（assetId / 版本 / 下一步）；结构变更先改 Plan 再动下游。领域技能给出更细的计划格式——`recut-clone` 的 `BRIEF.md`/`TREATMENT.md`/`PLAN.md`/`PROGRESS.md`、`recut-worlds` 的 onboarding 缺口清单、`recut-director` 的链与门——Plan-first 要求在任何执行前先有这份可审阅计划，但不替代它们的领域格式。
+
 ## 上下文新鲜度协议
 
 `recut.context` 是能力快照，不是每轮的仪式。新建 native session 时调用一次，读取已安装 App、Skill 元数据、媒体配置与 `media.readiness`。同一 native session（包括 resume 续跑）内，整段会话生命周期都复用已确认的快照，不能因为用户发来下一条消息、暂停后恢复或跨天再打开就重读。
@@ -131,6 +150,7 @@ World 分三类来源（`origin`）：`local`（用户自建，可编辑）、`p
   projects/<projectId>/files/workspace/  每项目工程（如 Remotion workspace）
   appstate/<appId>/            App 全局状态（sqlite + files；不读他人 App 的 DB）
   sessions/agent-bridge/<sessionId>/workspace/  当前会话工作区（CLI cwd）
+  files/plans/                 无项目归属的通用计划文件（有项目时计划写项目目录内）
   media/  models/
 ```
 
