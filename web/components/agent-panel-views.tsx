@@ -625,14 +625,14 @@ function ToolTimelineItem({ apiBase, call, now }: { apiBase: string; call: ToolC
   ];
   const stateClass = {
     running: "animate-pulse bg-warning",
-    success: "bg-success",
+    success: "bg-muted-foreground",
     error: "bg-destructive",
   }[call.state];
   const labelClass =
     call.state === "error"
       ? "text-destructive"
       : call.state === "success"
-        ? "text-success"
+        ? "text-muted-foreground"
         : "text-warning";
   return (
     <div className="max-w-full text-[11px]">
@@ -684,14 +684,14 @@ function MediaResultCard({ apiBase, call, duration }: { apiBase: string; call: T
   ];
   const stateClass = {
     running: "animate-pulse bg-warning",
-    success: "bg-success",
+    success: "bg-muted-foreground",
     error: "bg-destructive",
   }[call.state];
   const labelClass =
     call.state === "error"
       ? "text-destructive"
       : call.state === "success"
-        ? "text-success"
+        ? "text-muted-foreground"
         : "text-warning";
   return (
     <div className="max-w-full text-[11px]">
@@ -837,14 +837,14 @@ function MotionGraphicCard({
   ];
   const stateClass = {
     running: "animate-pulse bg-warning",
-    success: "bg-success",
+    success: "bg-muted-foreground",
     error: "bg-destructive",
   }[call.state];
   const labelClass =
     call.state === "error"
       ? "text-destructive"
       : call.state === "success"
-        ? "text-success"
+        ? "text-muted-foreground"
         : "text-warning";
   const name = graphic.name || graphic.componentId;
   const cover = coverSource(apiBase, graphic.coverUrl);
@@ -1255,7 +1255,7 @@ function SubagentTaskCard({ apiBase, call, now }: { apiBase: string; call: ToolC
       {
         queued: "bg-muted-foreground",
         running: "animate-pulse bg-warning",
-        completed: "bg-success",
+        completed: "bg-muted-foreground",
         failed: "bg-destructive",
         cancelled: "bg-muted-foreground",
       } as Record<string, string>
@@ -1264,7 +1264,7 @@ function SubagentTaskCard({ apiBase, call, now }: { apiBase: string; call: ToolC
     (
       {
         running: "text-warning",
-        completed: "text-success",
+        completed: "text-muted-foreground",
         failed: "text-destructive",
       } as Record<string, string>
     )[status] ?? "text-muted-foreground";
@@ -1450,7 +1450,7 @@ function SubagentPreviewDialog({ apiBase, job, onClose }: { apiBase: string; job
           </button>
         </header>
         <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-2 text-[10px] text-muted-foreground">
-          <span className={`size-1.5 rounded-full ${status === "running" ? "animate-pulse bg-warning" : status === "completed" ? "bg-success" : status === "failed" ? "bg-destructive" : "bg-muted-foreground"}`} />
+          <span className={`size-1.5 rounded-full ${status === "running" ? "animate-pulse bg-warning" : status === "completed" ? "bg-muted-foreground" : status === "failed" ? "bg-destructive" : "bg-muted-foreground"}`} />
           <span className="font-medium text-foreground">{statusLabel}</span>
           <span>{interpolate(text("agent.subagent.meta.phase"), { phase: phaseLabel })}</span>
           <span className="ml-auto flex items-center gap-1">

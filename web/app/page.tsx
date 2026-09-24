@@ -677,7 +677,7 @@ function WorldProjectCard({
   return (
     <div className="group relative">
       <Link className="block" href={`/worlds/${encodeURIComponent(world.id)}`}>
-        <Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]">
+        <Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-foreground/20 group-hover:shadow-[var(--shadow-overlay)]">
           {coverSrc ? (
             <img
               alt={interpolate(t("worlds.card.cover.alt"), {
@@ -722,11 +722,11 @@ function NewProjectCard({
   return (
     <>
       <button
-        className="group flex min-h-40 min-w-0 flex-col rounded-lg border-2 border-dashed border-primary/35 bg-transparent p-4 text-left shadow-none transition hover:-translate-y-0.5 hover:border-primary/50 hover:bg-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+        className="group flex min-h-40 min-w-0 flex-col rounded-lg border-2 border-dashed border-border bg-transparent p-4 text-left shadow-none transition hover:-translate-y-0.5 hover:border-foreground/25 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
         onClick={() => setOpen(true)}
         type="button"
       >
-        <span className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground">
+        <span className="grid size-10 place-items-center rounded-xl bg-muted text-muted-foreground">
           <Plus className="size-5" />
         </span>
         <span className="mt-auto">
@@ -782,7 +782,7 @@ function ProjectAppPickerDialog({
       >
         <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
           <div>
-            <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">
+            <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
               NEW PROJECT
             </p>
             <h2
@@ -810,7 +810,7 @@ function ProjectAppPickerDialog({
             onClick={onPickWorld}
             type="button"
           >
-            <span className="grid size-11 shrink-0 place-items-center rounded-xl border border-primary/10 bg-primary/10 text-primary transition group-hover:bg-primary group-hover:text-primary-foreground">
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl border bg-muted text-muted-foreground transition group-hover:bg-secondary">
               <Globe2 aria-hidden="true" className="size-5" strokeWidth={1.8} />
             </span>
             <span className="min-w-0 flex-1">
@@ -821,7 +821,7 @@ function ProjectAppPickerDialog({
                 {t("projects.picker.worldDesc")}
               </span>
             </span>
-            <ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
+            <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
           </button>
           {sortByOrder(apps, PROJECT_APP_ORDER).map((app) => (
             <button
@@ -832,7 +832,7 @@ function ProjectAppPickerDialog({
             >
               <AppIdentityIcon
                 appID={app.manifest.id}
-                className="transition group-hover:bg-primary group-hover:text-primary-foreground"
+                className="transition group-hover:bg-secondary"
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">
@@ -842,7 +842,7 @@ function ProjectAppPickerDialog({
                   {app.manifest.description}
                 </span>
               </span>
-              <ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
+              <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
             </button>
           ))}
         </div>
@@ -1000,7 +1000,7 @@ function Studio({
         <section className="relative min-h-[17rem] overflow-hidden pb-8 pt-7 sm:min-h-[19rem]">
           <WebGLStudioHero />
           <div className="relative z-10 max-w-xl">
-            <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">
+            <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
               {t("studio.eyebrow")}
             </p>
             <h1 className="mt-3 text-3xl font-semibold leading-tight">
@@ -1016,7 +1016,7 @@ function Studio({
                     aria-label={interpolate(t("studio.template.aria"), {
                       title,
                     })}
-                    className="group flex min-w-0 items-center gap-3 border-b border-border/80 py-3 text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                    className="group flex min-w-0 items-center gap-3 border-b border-border/80 py-3 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                     key={title}
                     onClick={() =>
                       setScenario({
@@ -1029,7 +1029,7 @@ function Studio({
                     }
                     type="button"
                   >
-                    <span className="grid size-7 shrink-0 place-items-center rounded-sm bg-accent text-accent-foreground">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-sm bg-muted text-muted-foreground">
                       <Icon className="size-3.5" />
                     </span>
                     <span className="min-w-0 flex-1">
@@ -1038,7 +1038,7 @@ function Studio({
                         {description}
                       </span>
                     </span>
-                    <ArrowRight className="size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
+                    <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                   </button>
                 ),
               )}
@@ -1166,7 +1166,7 @@ function ProjectCard({
   return (
     <div className="group relative">
       <Link className="block" href={`/projects/${project.id}`}>
-        <Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]">
+        <Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-foreground/20 group-hover:shadow-[var(--shadow-overlay)]">
           <ProjectCoverPreview apiBase={apiBase} app={app} project={project} />
           <CardContent className="p-3">
             <p className="truncate text-sm font-semibold">{project.name}</p>
@@ -1382,7 +1382,7 @@ function RecentAssets({ apiBase }: { apiBase: string }) {
               onClick={() => setPreview(asset)}
               type="button"
             >
-              <Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-primary/35">
+              <Card className="overflow-hidden transition group-hover:-translate-y-0.5 group-hover:border-foreground/20">
                 <AssetPreview apiBase={apiBase} asset={asset} />
                 <CardContent className="p-2.5">
                   <p className="truncate text-xs font-medium">{asset.name}</p>
@@ -1448,7 +1448,7 @@ function AssetPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
       />
     );
   return (
-    <div className="grid aspect-square place-items-center bg-muted text-primary">
+    <div className="grid aspect-square place-items-center bg-muted text-muted-foreground">
       {icon}
     </div>
   );
@@ -1459,11 +1459,11 @@ function WorldsAppCard() {
   return (
     <Link
       aria-label={t("studio.worlds.open")}
-      className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+      className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       href="/worlds"
     >
       <div className="flex min-w-0 items-start gap-3">
-        <span className="grid size-11 shrink-0 place-items-center rounded-xl border border-primary/10 bg-primary/10 text-primary transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground">
+        <span className="grid size-11 shrink-0 place-items-center rounded-xl border bg-muted text-muted-foreground transition duration-200 group-hover:bg-secondary">
           <Globe2 aria-hidden="true" className="size-5" strokeWidth={1.8} />
         </span>
         <div className="min-w-0">
@@ -1475,7 +1475,7 @@ function WorldsAppCard() {
           </p>
         </div>
       </div>
-      <span className="mt-auto flex items-center justify-end pt-3 text-primary">
+      <span className="mt-auto flex items-center justify-end pt-3 text-muted-foreground group-hover:text-foreground">
         <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
       </span>
     </Link>
@@ -1497,14 +1497,14 @@ function StudioAppCard({
   return (
     <button
       aria-label={actionLabel}
-      className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+      className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       onClick={onOpen}
       type="button"
     >
       <div className="flex min-w-0 items-start gap-3">
         <AppIdentityIcon
           appID={app.manifest.id}
-          className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground"
+          className="transition duration-200 group-hover:bg-secondary"
         />
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{app.manifest.name}</p>
@@ -1513,7 +1513,7 @@ function StudioAppCard({
           </p>
         </div>
       </div>
-      <span className="mt-auto flex items-center justify-end pt-3 text-primary">
+      <span className="mt-auto flex items-center justify-end pt-3 text-muted-foreground group-hover:text-foreground">
         <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
       </span>
     </button>
@@ -1610,7 +1610,7 @@ function CreateProjectFromAppDialog({
       >
         <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
           <div>
-            <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">
+            <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
               NEW PROJECT
             </p>
             <h2
@@ -1741,7 +1741,7 @@ function Apps({
         ) : installations.length === 0 ? (
           <Card>
             <CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center">
-              <FolderOpen className="size-6 text-primary" />
+              <FolderOpen className="size-6 text-muted-foreground" />
               <p className="text-sm font-medium">
                 {t("apps.installed.empty.title")}
               </p>
@@ -1788,12 +1788,12 @@ function Apps({
                 href={`/apps/${encodeURIComponent(app.appId)}`}
                 key={app.appId}
               >
-                <Card className="flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:border-primary/35 group-hover:shadow-[var(--shadow-overlay)]">
+                <Card className="flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:border-foreground/20 group-hover:shadow-[var(--shadow-overlay)]">
                   <CardContent className="flex flex-1 flex-col p-0">
                     <div className="flex min-w-0 items-start gap-3">
                       <AppIdentityIcon
                         appID={app.appId}
-                        className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground"
+                        className="transition duration-200 group-hover:bg-secondary"
                       />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold">
@@ -1805,7 +1805,7 @@ function Apps({
                       </div>
                       <Badge>{marketplaceStatus(installed)}</Badge>
                     </div>
-                    <span className="mt-auto flex items-center justify-end pt-3 text-primary">
+                    <span className="mt-auto flex items-center justify-end pt-3 text-muted-foreground group-hover:text-foreground">
                       <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
                     </span>
                   </CardContent>
@@ -1826,7 +1826,7 @@ function InstalledAppsLoading() {
       <CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center">
         <LoaderCircle
           aria-hidden="true"
-          className="size-6 animate-spin text-primary"
+          className="size-6 animate-spin text-muted-foreground"
         />
         <p className="text-sm font-medium">
           {t("apps.installed.loading.title")}
@@ -1870,7 +1870,7 @@ function InstalledAppsOffline() {
   return (
     <Card>
       <CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center">
-        <FolderOpen className="size-6 text-primary" />
+        <FolderOpen className="size-6 text-muted-foreground" />
         <p className="text-sm font-medium">
           {t("apps.installed.offline.title")}
         </p>
@@ -1902,7 +1902,7 @@ function InstalledAppCard({
           ? t("apps.status.remote")
           : (app.status ?? t("apps.status.current"));
   return (
-    <Card className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[var(--shadow-overlay)]">
+    <Card className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[var(--shadow-overlay)]">
       <CardContent className="flex flex-1 flex-col p-0">
         <Link
           aria-label={interpolate(t("apps.detail.aria"), {
@@ -1913,7 +1913,7 @@ function InstalledAppCard({
         >
           <AppIdentityIcon
             appID={app.manifest.id}
-            className="transition duration-200 group-hover:bg-primary group-hover:text-primary-foreground"
+            className="transition duration-200 group-hover:bg-secondary"
           />
           <span className="min-w-0">
             <span className="block truncate text-sm font-semibold">
@@ -1926,7 +1926,7 @@ function InstalledAppCard({
         </Link>
         <div className="mt-auto flex items-center justify-between gap-3 pt-3">
           <Link
-            className="text-xs font-medium text-primary hover:underline"
+            className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
             href={detailHref}
           >
             {t("apps.details")}
@@ -1952,7 +1952,7 @@ function InstalledAppAction({
   if (app.manifest.type === "standalone")
     return (
       <Link
-        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/85"
+        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xs border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
         href={`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`}
       >
         <AppWindow className="size-3.5" />
@@ -1964,6 +1964,7 @@ function InstalledAppAction({
       className="h-8 px-2.5"
       onClick={() => onStartProject(app)}
       type="button"
+      variant="outline"
     >
       <FolderPlus className="size-3.5" />
       {t("apps.new")}
@@ -2246,8 +2247,8 @@ function SectionTitle({
   return (
     <div className="mb-7 flex items-end justify-between">
       <div>
-        <p className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">
-          <span className="size-1.5 rounded-full bg-primary" />
+        <p className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
+          <span className="size-1.5 rounded-full bg-muted-foreground" />
           DESKTOP
         </p>
         <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
@@ -2256,7 +2257,7 @@ function SectionTitle({
       <div className="flex items-center gap-3">
         {action}
         {count && (
-          <Badge className="border-primary/25 bg-accent text-accent-foreground">
+          <Badge className="border bg-muted text-muted-foreground">
             {count}
           </Badge>
         )}
