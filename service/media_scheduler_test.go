@@ -359,7 +359,8 @@ func TestLocalSpeechDirectRouteRunsWithoutCredential(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	service := NewMediaService(store)
 	executed := false
-	service.SetLocalSpeechExecutor(func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
+	service.SetLocalAppExecutor("local-audio", func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error) {
+		voiceID := output["voiceId"]
 		executed = true
 		if voiceID != "preset:neutral-female" {
 			t.Fatalf("executor voiceID = %q, want preset:neutral-female", voiceID)
@@ -371,7 +372,7 @@ func TestLocalSpeechDirectRouteRunsWithoutCredential(t *testing.T) {
 		t.Fatalf("queued local direct speech job = %#v, %v", job, err)
 	}
 	daemon := NewMediaService(store)
-	daemon.SetLocalSpeechExecutor(service.LocalSpeechExecutor())
+	daemon.SetLocalAppExecutor("local-audio", service.LocalAppExecutor("local-audio"))
 	if _, err := daemon.ReconcilePendingJobs(); err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +389,7 @@ func TestLocalImportMergesIntoPendingAsset(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	service := NewMediaService(store)
 	var importedID string
-	service.SetLocalSpeechExecutor(func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
+	service.SetLocalAppExecutor("local-audio", func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error) {
 		// 模拟 App 的 save：导入一份全新素材（与 pending 不同 id），再交回平台归并。
 		imported, err := service.ImportMedia("gen-output.wav", "audio/wav", []byte("RIFF....imported"))
 		if err != nil {
@@ -403,7 +404,7 @@ func TestLocalImportMergesIntoPendingAsset(t *testing.T) {
 	}
 	pendingID := job.AssetIDs[0]
 	daemon := NewMediaService(store)
-	daemon.SetLocalSpeechExecutor(service.LocalSpeechExecutor())
+	daemon.SetLocalAppExecutor("local-audio", service.LocalAppExecutor("local-audio"))
 	if _, err := daemon.ReconcilePendingJobs(); err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +430,7 @@ func TestLocalImportMergesIntoPendingAsset(t *testing.T) {
 func TestCompletePendingAssetFromBytesKeepsIdentity(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	service := NewMediaService(store)
-	service.SetLocalSpeechExecutor(func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
+	service.SetLocalAppExecutor("local-audio", func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error) {
 		if len(job.AssetIDs) != 1 {
 			t.Fatalf("job must carry its pending asset: %#v", job.AssetIDs)
 		}
@@ -441,7 +442,7 @@ func TestCompletePendingAssetFromBytesKeepsIdentity(t *testing.T) {
 	}
 	pendingID := job.AssetIDs[0]
 	daemon := NewMediaService(store)
-	daemon.SetLocalSpeechExecutor(service.LocalSpeechExecutor())
+	daemon.SetLocalAppExecutor("local-audio", service.LocalAppExecutor("local-audio"))
 	if _, err := daemon.ReconcilePendingJobs(); err != nil {
 		t.Fatal(err)
 	}

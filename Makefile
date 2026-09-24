@@ -25,9 +25,9 @@ RELEASE_STAGE ?= $(CURDIR)/build/releases
 # 不再写入 web/public，否则会进入 Next 静态导出而超出 Cloudflare Workers Assets 单文件 25 MiB 上限。
 RELEASE_PUBLIC ?= $(CURDIR)/cdn/buckets/releases/$(RECUT_VERSION)
 RELEASE_LATEST ?= $(CURDIR)/cdn/buckets/releases/latest
-BUILTIN_REMOTION_ARCHIVE := $(CURDIR)/service/builtin_apps/remotion-studio.tar.gz
-BUILTIN_AUDIO_STUDIO_ARCHIVE := $(CURDIR)/service/builtin_apps/audio-studio.tar.gz
-BUILTIN_GEN_STUDIO_ARCHIVE := $(CURDIR)/service/builtin_apps/gen-studio.tar.gz
+# 内置 App 集合与打包规则只维护在 service/builtin_apps/apps.json（单一真相）；Makefile 只调用打包器。
+BUILTIN_APPS_MANIFEST := $(CURDIR)/service/builtin_apps/apps.json
+BUILTIN_APPS_DIR := $(CURDIR)/service/builtin_apps
 # audio-studio voxcpm 专用 venv（发布声音预设 / Voice Design 用；主 ASR venv 由 runner 自行解析）。
 VOXCPM_PYTHON ?= $(firstword $(wildcard $(HOME)/.recut/python/envs/recut.audio-studio/audio-studio/*-voxcpm/bin/python))
 # 发布平台覆盖 macOS（Apple Silicon 与 Intel）及 Windows，不产出 linux-* / freebsd-* 包。
@@ -84,7 +84,9 @@ stop-stale-web: ## Stop the stale local Next.js workspace on port 3000, never an
 
 service-dev: stop-stale-service ## Start only the LAN Go service for the port 3000 workspace (API 17373, event streams 17374). Built-in App archives build only once; rebuild them via `make builtin-apps` or `make deploy`.
 	@set -e; \
-	if [ ! -f "$(BUILTIN_REMOTION_ARCHIVE)" ] || [ ! -f "$(BUILTIN_AUDIO_STUDIO_ARCHIVE)" ]; then \
+	archives=$$(ls "$(BUILTIN_APPS_DIR)"/*.tar.gz 2>/dev/null | wc -l | tr -d ' '); \
+	expected=$$(node -e "console.log(require('$(BUILTIN_APPS_MANIFEST)').length)"); \
+	if [ "$$archives" != "$$expected" ]; then \
 		echo "Built-in App archives missing; building them once."; \
 		$(MAKE) builtin-apps; \
 	fi; \
@@ -207,11 +209,8 @@ app-link: ## Link one local App package (APP=apps/ai-short-film) or every local 
 		echo "Linked $$name -> $$absolute"; \
 	done
 
-builtin-apps: ## Package the App sources that ship inside every Recut service binary.
-	@mkdir -p "$(dir $(BUILTIN_REMOTION_ARCHIVE))"
-	node scripts/package-builtin-app.mjs apps/remotion-studio "$(BUILTIN_REMOTION_ARCHIVE)"
-	node scripts/package-builtin-app.mjs apps/audio-studio "$(BUILTIN_AUDIO_STUDIO_ARCHIVE)"
-	node scripts/package-builtin-app.mjs apps/gen-studio "$(BUILTIN_GEN_STUDIO_ARCHIVE)"
+builtin-apps: ## Package the App sources listed in service/builtin_apps/apps.json that ship inside every Recut service binary.
+	node scripts/package-builtin-app.mjs
 
 editor-realtime-verify: ## 浏览器端验证迁移后 realtime 同步（需先 make dev：service+web 运行中）。
 	cd web && node scripts/verify-editor-realtime.mjs

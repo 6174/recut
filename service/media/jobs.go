@@ -246,7 +246,7 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 	// 语音必需 voiceId：本地路由缺省用默认音；云端路由缺失则报错。
 	if input.Capability == SpeechGenerate {
 		if speechVoiceID(MediaJob{Output: input.Output}) == "" {
-			if credential.Provider == "local-audio" {
+			if provider, ok := providerByID(credential.Provider); ok && provider.Protocol == "local" {
 				input.Output["voiceId"] = speechLocalVoiceDefault
 			} else {
 				return MediaJob{}, MediaCredential{}, false, errors.New("voiceId is required for speech generation")
@@ -373,22 +373,9 @@ func (m *MediaService) execute(job MediaJob, credential MediaCredential) {
 		m.failExecution(job, errors.New("this provider model adapter is not available yet"))
 		return
 	}
-	// 本地 provider（Protocol=="local"）：无凭据，按 provider id 分派到 daemon 注入的执行桥。
-	// 必须在图片/语音的云 provider 路径之前拦截，否则会先走 m.secret(空凭据) 而失败。
+	// 本地 provider（Protocol=="local"）：无凭据，按 provider id 分派到 daemon 注入的通用执行桥。
+	// 图片/视频/语音共用同一条路径（App 的 executor 声明输入映射与结果路径），平台无 per-app 分支。
 	if provider, ok := providerByID(credential.Provider); ok && provider.Protocol == "local" {
-		if provider.ID == "local-audio" {
-			if m.localSpeechExec == nil {
-				m.failExecution(job, errors.New("local speech route is not connected; install/start Audio Studio or switch the speech default route to a cloud provider in Recut settings"))
-				return
-			}
-			asset, err := m.localSpeechExec(job, model, speechVoiceID(job))
-			if err != nil {
-				m.failExecution(job, err)
-				return
-			}
-			m.completeExecution(job, asset)
-			return
-		}
 		exec := m.localAppExec[provider.ID]
 		if exec == nil {
 			m.failExecution(job, fmt.Errorf("local provider %s is not connected; install/start its App or switch the default route to a cloud provider in Recut settings", provider.ID))

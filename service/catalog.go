@@ -81,6 +81,34 @@ type ContributedMediaProvider struct {
 	Protocol   string                             `json:"protocol"`
 	Operations ContributedMediaProviderOperations `json:"operations"`
 	Models     []ContributedMediaModel            `json:"models"`
+	// Voices (optional) declares the App operations that enumerate local voices
+	// for this provider, so the platform voice catalog stays App-driven instead
+	// of hardcoding one App's voice ops.
+	Voices *ContributedMediaVoices `json:"voices,omitempty"`
+	// Executor (optional) declares how the platform generic bridge turns a media
+	// job into the App's generate/save operation input and reads the record id
+	// back. Absent means the default generation shape (model/prompt/references).
+	Executor *ContributedMediaExecutor `json:"executor,omitempty"`
+}
+
+// ContributedMediaVoices wires a local provider's voice enumeration to App
+// operations. Each op returns {presets:[{id,name,scene}]} or
+// {characters:[{id,name,origin}]}; the platform prefixes the ids and groups them.
+type ContributedMediaVoices struct {
+	Presets    string `json:"presets,omitempty"`
+	Characters string `json:"characters,omitempty"`
+}
+
+// ContributedMediaExecutor makes the platform generic execution bridge fully
+// App-driven: ResultIDPath reads the record id from the generate result
+// (e.g. "generation.id" / "synthesis.id"), SaveKind is passed to the save op
+// (e.g. "image" / "synthesis"), and InputMap maps the App operation input keys
+// to job/model source tokens ("job.prompt", "job.referenceIds", "job.voiceId",
+// "job.output", "model.apiModelId"). Unknown tokens are ignored.
+type ContributedMediaExecutor struct {
+	ResultIDPath string            `json:"resultIdPath,omitempty"`
+	SaveKind     string            `json:"saveKind,omitempty"`
+	InputMap     map[string]string `json:"inputMap,omitempty"`
 }
 
 // ManifestLocalizedName is the per-locale override for a contributed provider
@@ -591,6 +619,13 @@ func validateMediaContribution(manifest Manifest) error {
 		for _, name := range []string{provider.Operations.Generate, provider.Operations.Save, provider.Operations.Catalog, provider.Operations.Status} {
 			if name != "" && !operations[name] {
 				return fmt.Errorf("contributed media provider %q references unknown operation %q", provider.ID, name)
+			}
+		}
+		if provider.Voices != nil {
+			for _, name := range []string{provider.Voices.Presets, provider.Voices.Characters} {
+				if name != "" && !operations[name] {
+					return fmt.Errorf("contributed media provider %q references unknown voice operation %q", provider.ID, name)
+				}
 			}
 		}
 		if len(provider.Models) == 0 {

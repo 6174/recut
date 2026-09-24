@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖编译内嵌的 App 发布归档、Catalog 的运行时 apps 目录与标准 tar/gzip 文件能力
- * [OUTPUT]: 对外提供内置 App 清单及启动时原子同步；当前将 Remotion Studio、声音工坊与本地生成安装到 apps 目录（剪辑器已改为平台原生 App）
- * [POS]: service 的首启体验边界；内置 App 与 Git App 使用同一个 Catalog，开发期本地软链接优先
+ * [INPUT]: 依赖编译内嵌的 service/builtin_apps 目录（单一清单 apps.json + 各 App 归档）、Catalog 的运行时 apps 目录与标准 tar/gzip 文件能力
+ * [OUTPUT]: 对外提供内置 App 清单及启动时原子同步；当前将 Remotion Studio、声音工坊与 ComfyUI 工作台安装到 apps 目录（剪辑器已改为平台原生 App）
+ * [POS]: service 的首启体验边界；内置 App 集合与打包规则只维护在 service/builtin_apps/apps.json，本文件只做目录扫描与同步，不硬编码任何 App
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -10,7 +10,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	_ "embed"
+	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,14 +21,21 @@ import (
 	"strings"
 )
 
-//go:embed builtin_apps/remotion-studio.tar.gz
-var embeddedRemotionStudio []byte
+// builtinAppsFS embeds the whole built-in App directory. The set of Apps and
+// their packaging rules live in apps.json (the single source of truth); this
+// file never hardcodes individual App packages.
+//
+//go:embed builtin_apps
+var builtinAppsFS embed.FS
 
-//go:embed builtin_apps/audio-studio.tar.gz
-var embeddedAudioStudio []byte
+const builtinAppsManifestPath = "builtin_apps/apps.json"
 
-//go:embed builtin_apps/gen-studio.tar.gz
-var embeddedGenStudio []byte
+// builtinAppManifestEntry is one row of apps.json. Only the identity fields are
+// needed at runtime; include/exclude/prep drive the packaging script.
+type builtinAppManifestEntry struct {
+	Package string `json:"package"`
+	AppID   string `json:"appId"`
+}
 
 type BuiltinApp struct {
 	Package string
@@ -35,32 +43,55 @@ type BuiltinApp struct {
 	Archive []byte
 }
 
-// builtinAppList is the explicit set of packages that ship with every Recut
-// binary. Adding an App here makes first launch useful without turning the
-// Catalog into a second implementation of App discovery.
-var builtinAppList = []BuiltinApp{
-	{Package: "remotion-studio", AppID: "recut.remotion-studio", Archive: embeddedRemotionStudio},
-	{Package: "audio-studio", AppID: "recut.audio-studio", Archive: embeddedAudioStudio},
-	{Package: "gen-studio", AppID: "recut.gen-studio", Archive: embeddedGenStudio},
+// loadBuiltinAppList reads the embedded apps.json and resolves each entry's
+// archive from the embedded directory, so adding an App only requires editing
+// apps.json (no Go literals).
+func loadBuiltinAppList() ([]BuiltinApp, error) {
+	raw, err := builtinAppsFS.ReadFile(builtinAppsManifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("read embedded %s: %w", builtinAppsManifestPath, err)
+	}
+	var entries []builtinAppManifestEntry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, fmt.Errorf("parse embedded %s: %w", builtinAppsManifestPath, err)
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("embedded %s declares no built-in Apps", builtinAppsManifestPath)
+	}
+	apps := make([]BuiltinApp, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Package == "" || entry.AppID == "" {
+			return nil, fmt.Errorf("embedded %s has an entry without package/appId", builtinAppsManifestPath)
+		}
+		archive, err := builtinAppsFS.ReadFile("builtin_apps/" + entry.Package + ".tar.gz")
+		if err != nil {
+			return nil, fmt.Errorf("read embedded archive for built-in App %q: %w", entry.Package, err)
+		}
+		apps = append(apps, BuiltinApp{Package: entry.Package, AppID: entry.AppID, Archive: archive})
+	}
+	return apps, nil
 }
 
 type BuiltinAppManager struct {
 	appsDir string
-	apps    []BuiltinApp
 }
 
 func NewBuiltinAppManager(appsDir string) *BuiltinAppManager {
-	return &BuiltinAppManager{appsDir: appsDir, apps: builtinAppList}
+	return &BuiltinAppManager{appsDir: appsDir}
 }
 
 // Ensure refreshes daemon-owned App packages before Catalog reads them. A
 // source-tree symlink is an explicit development override and is never
 // replaced; all ordinary package directories are atomically replaced.
 func (m *BuiltinAppManager) Ensure() error {
+	apps, err := loadBuiltinAppList()
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(m.appsDir, 0o755); err != nil {
 		return fmt.Errorf("create built-in apps directory: %w", err)
 	}
-	for _, app := range m.apps {
+	for _, app := range apps {
 		if err := m.sync(app); err != nil {
 			return err
 		}

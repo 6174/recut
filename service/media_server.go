@@ -95,7 +95,7 @@ func (s *Server) listCapabilityVoices(w http.ResponseWriter, r *http.Request) {
 }
 
 // listCapabilityModels 聚合某能力（如 image.generate）下本地生成 provider 的模型分组：
-// 平台模型清单 + App（Generation Studio）引擎就绪度，供设置/画布/素材库跨 provider 选择本地环境。
+// 平台模型清单 + App（ComfyUI Studio）引擎就绪度，供设置/画布/素材库跨 provider 选择本地环境。
 func (s *Server) listCapabilityModels(w http.ResponseWriter, r *http.Request) {
 	groups, err := s.media.CapabilityModelGroups(MediaCapability(r.PathValue("capability")))
 	if err != nil {

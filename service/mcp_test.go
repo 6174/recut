@@ -381,7 +381,8 @@ func TestLocalAudioRouteConfiguredReadinessAndDefaultVoice(t *testing.T) {
 	}
 
 	// 注入本地执行桥：无 voiceId 也应默认用默认音并产出真实 Asset
-	media.SetLocalSpeechExecutor(func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
+	media.SetLocalAppExecutor("local-audio", func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error) {
+		voiceID := output["voiceId"]
 		if voiceID != "__cosyvoice_default__" {
 			t.Fatalf("executor voiceID = %q, want default", voiceID)
 		}

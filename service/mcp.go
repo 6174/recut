@@ -125,8 +125,8 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Aggregate all available voice groups for one capability: one group per local provider, one per cloud credential, and placeholder groups (with error) for unconfigured providers to guide setup. Use it to select voices across providers without depending on the default route.",
 	},
 	"recut.media.list_capability_models": {
-		LocaleZh: "按能力聚合本机生成 provider 的模型分组（image.generate / video.generate）：返回平台模型清单与本地 App（Generation Studio）引擎的就绪度（是否安装、runtime、权重）。用于查看本机有哪些生成环境、或把默认路由切到本地模型。",
-		LocaleEn: "Aggregate local generation providers' model groups for one capability (image.generate / video.generate): platform models plus the local Generation Studio engines' readiness (installed, runtime, weights). Use it to see which local generation environments exist, or to point the default route at a local model.",
+		LocaleZh: "按能力聚合本机生成 provider 的模型分组（image.generate / video.generate）：返回平台模型清单与本地 App（ComfyUI Studio）引擎的就绪度（是否安装、runtime、权重）。用于查看本机有哪些生成环境、或把默认路由切到本地模型。",
+		LocaleEn: "Aggregate local generation providers' model groups for one capability (image.generate / video.generate): platform models plus the local ComfyUI Studio engines' readiness (installed, runtime, weights). Use it to see which local generation environments exist, or to point the default route at a local model.",
 	},
 	"recut.media.list_assets": {
 		LocaleZh: "检索工作区或指定项目的可复用媒体素材。优先用 ids 精确取回，或用 kind/query/limit 过滤分页；不要全量拉取素材库。",
@@ -802,7 +802,7 @@ func mediaContext(media *MediaService) (any, map[string]map[string]string) {
 			continue
 		}
 		if configuration.Provider.Protocol == "local" {
-			// 本机 provider 路由就绪（Audio Studio TTS / Generation Studio 生成）：
+			// 本机 provider 路由就绪（Audio Studio TTS / ComfyUI Studio 生成）：
 			// 无凭据、不花钱；Agent 可用 App 的 MCP 面直接调用，或经 daemon 注入的执行桥走平台工具。
 			value["status"] = "ready"
 			value["routeId"] = configuration.Route.ID
@@ -814,7 +814,7 @@ func mediaContext(media *MediaService) (any, map[string]map[string]string) {
 			case SpeechGenerate:
 				value["action"] = "Local Audio Studio TTS is configured; use audio.synthesize + audio.save (or recut.speech.generate when the daemon bridge is wired)."
 			default:
-				value["action"] = "Local Generation Studio is configured; use recut.media.list_capability_models to inspect local models, or recut.image.generate when the daemon bridge is wired."
+				value["action"] = "Local ComfyUI Studio is configured; use recut.media.list_capability_models to inspect local models, or recut.image.generate when the daemon bridge is wired."
 			}
 			continue
 		}

@@ -1,20 +1,22 @@
 /*
  * [INPUT]: 依赖 AppHost（遍历已安装 App 的 manifest contributes.media、InvokeMCP 到 App 的 generate/save/
- *          catalog operation）、ShellJobManager（等待 generate 提交的 shell job）、MediaService（注册本地
- *          provider/模型、读取/挂载产物 Asset）与 media 包的本地执行契约。
- * [OUTPUT]: 把每个已安装 App 声明的本地 media provider（contributes.media）接到平台：
- *          ① 静态 provider/模型目录合并进全局 media 目录（media.RegisterAppProviders）；
- *          ② 通用执行桥（generate → 等 shell job 终态 → save 授权落库 → 返回平台 Asset），按 provider id 注册；
- *          ③ 动态模型就绪面（调用 App 的 catalog/status op）供 capability model 聚合展示。
- *          App 未安装时无 provider 注册，本地路由提交得到引导错误。
- * [POS]: service 的通用「App 贡献本地 provider」桥；与 local_speech_bridge 的 local-audio 硬编码并列，
- *        但完全由 manifest 驱动，无 per-app Go 代码；只经 App 公开 operation 契约，不触碰其私有 SQLite。
+ *          catalog/status/voices operation）、ShellJobManager（等待 generate 提交的 shell job）、MediaService
+ *          （注册本地 provider/模型/声音、读取/挂载产物 Asset）与 media 包的本地执行契约。
+ * [OUTPUT]: 把每个已安装 App 声明的本地 media provider（contributes.media）接到平台，完全由 manifest 驱动、
+ *           无 per-app 代码：① 静态 provider/模型目录合并进全局 media 目录（media.RegisterAppProviders）；
+ *           ② 通用执行桥（按 App 的 executor 声明组装输入 → generate/synthesize → 等 shell job 终态 →
+ *           save 授权落库 → 返回平台 Asset），图片/视频/语音共用同一条路径；
+ *           ③ 声音面（App 的 voices 声明，preset:/character: 前缀编码）；④ 动态模型就绪面（调用 App 的
+ *           catalog/status op）供 capability model 聚合展示。App 未安装时无 provider 注册，本地路由提交得到引导错误。
+ * [POS]: service 的通用「App 贡献本地 provider」桥；不含任何具体 App 常量（Audio Studio / ComfyUI Studio 都只是
+ *        注册了 contributes.media 的普通 App）；只经 App 公开 operation 契约，不触碰其私有 SQLite。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"recut-service/media"
@@ -40,6 +42,7 @@ func wireAppMediaProviders(host *AppHost, platformMedia *media.MediaService) {
 		for _, provider := range contribution.Media.Providers {
 			providers = append(providers, mediaProviderFromContribution(provider))
 			registerAppProviderExecutor(host, platformMedia, app.Manifest.ID, provider)
+			registerAppProviderVoices(host, platformMedia, app.Manifest.ID, provider)
 		}
 	}
 	media.RegisterAppProviders(providers)
@@ -77,41 +80,74 @@ func mediaProviderFromContribution(contribution ContributedMediaProvider) media.
 }
 
 // registerAppProviderExecutor wires one contributed provider to a generic bridge
-// that invokes the App's declared generate/save operations.
+// that invokes the App's declared generate/save operations using the provider's
+// declared executor shape (input map + result id path + save kind).
 func registerAppProviderExecutor(host *AppHost, platformMedia *media.MediaService, appID string, contribution ContributedMediaProvider) {
 	platformMedia.SetLocalAppExecutor(contribution.ID, func(job media.MediaJob, model media.MediaModel, output map[string]any) (media.MediaAsset, error) {
-		return runAppGeneration(host, platformMedia, appID, contribution, job, model, output)
+		return runAppProvider(host, platformMedia, appID, contribution, job, model, output)
 	})
 }
 
-// runAppGeneration executes one local generation through the App's public MCP
+// registerAppProviderVoices wires a provider's declared voice operations into the
+// platform voice catalog, prefixing ids with preset:/character: so the generic
+// executor can pass the raw voiceId back to the App.
+func registerAppProviderVoices(host *AppHost, platformMedia *media.MediaService, appID string, contribution ContributedMediaProvider) {
+	if contribution.Voices == nil || (contribution.Voices.Presets == "" && contribution.Voices.Characters == "") {
+		return
+	}
+	voices := contribution.Voices
+	platformMedia.SetLocalVoiceProvider(contribution.ID, func() []media.MediaVoice {
+		app, ok := host.catalog.Get(appID)
+		if !ok {
+			return nil
+		}
+		target := Target{AppID: appID}
+		out := []media.MediaVoice{}
+		if voices.Presets != "" && operationIsCapability(app.Manifest, voices.Presets) {
+			if raw, err := host.InvokeMCP(target, appID, voices.Presets, map[string]any{}); err == nil {
+				for _, item := range sliceField(raw, "presets") {
+					id := mapString(jsonMap(item), "id")
+					if id == "" {
+						continue
+					}
+					out = append(out, media.MediaVoice{ID: "preset:" + id, Name: voiceName(jsonMap(item)["name"], id), Category: mapString(jsonMap(item), "scene"), Provider: contribution.ID})
+				}
+			}
+		}
+		if voices.Characters != "" && operationIsCapability(app.Manifest, voices.Characters) {
+			if raw, err := host.InvokeMCP(target, appID, voices.Characters, map[string]any{}); err == nil {
+				for _, item := range sliceField(raw, "characters") {
+					id := mapString(jsonMap(item), "id")
+					if id == "" {
+						continue
+					}
+					out = append(out, media.MediaVoice{ID: "character:" + id, Name: voiceName(jsonMap(item)["name"], id), Category: mapString(jsonMap(item), "origin"), Provider: contribution.ID})
+				}
+			}
+		}
+		return out
+	})
+}
+
+// runAppProvider executes one local generation through the App's public MCP
 // operations: generate (submit) → wait shell job → save (authorized import).
-func runAppGeneration(host *AppHost, platformMedia *media.MediaService, appID string, contribution ContributedMediaProvider, job media.MediaJob, model media.MediaModel, output map[string]any) (media.MediaAsset, error) {
+// The input shape and result id path come from the provider's executor
+// declaration; absent an executor it falls back to the default generation shape.
+func runAppProvider(host *AppHost, platformMedia *media.MediaService, appID string, contribution ContributedMediaProvider, job media.MediaJob, model media.MediaModel, output map[string]any) (media.MediaAsset, error) {
 	app, ok := host.catalog.Get(appID)
 	if !ok || !operationIsCapability(app.Manifest, contribution.Operations.Generate) || !operationIsCapability(app.Manifest, contribution.Operations.Save) {
 		return media.MediaAsset{}, fmt.Errorf("App %s is not installed or its capabilities are unavailable; install it or switch the default route to a cloud provider", appID)
 	}
-	input := map[string]any{
-		"model":  model.APIModelID,
-		"prompt": job.Prompt,
-	}
-	if len(job.ReferenceIDs) > 0 {
-		input["referenceAssetIds"] = append([]string(nil), job.ReferenceIDs...)
-	}
-	for _, key := range []string{"aspectRatio", "seed", "negativePrompt", "steps", "cfg", "width", "height", "durationSec"} {
-		if value, ok := output[key]; ok {
-			input[key] = value
-		}
-	}
+	input := buildProviderInput(contribution, job, model, output)
 	target := Target{AppID: appID}
 	raw, err := host.InvokeMCP(target, appID, contribution.Operations.Generate, input)
 	if err != nil {
 		return media.MediaAsset{}, fmt.Errorf("local generation failed: %w", err)
 	}
-	generationID := mapString(jsonMap(jsonMap(raw)["generation"]), "id")
+	recordID := providerResultID(contribution, raw)
 	shellJobID := mapString(jsonMap(jsonMap(raw)["job"]), "id")
-	if generationID == "" {
-		return media.MediaAsset{}, fmt.Errorf("local generation did not return a generation id")
+	if recordID == "" {
+		return media.MediaAsset{}, fmt.Errorf("local generation did not return a record id")
 	}
 	if shellJobID == "" {
 		return media.MediaAsset{}, fmt.Errorf("local generation did not return a job id")
@@ -127,14 +163,9 @@ func runAppGeneration(host *AppHost, platformMedia *media.MediaService, appID st
 		}
 		return media.MediaAsset{}, fmt.Errorf("local generation job did not complete (status=%s)", status)
 	}
-	kind := "image"
-	if job.Capability == media.VideoGenerate {
-		kind = "video"
-	}
 	// 把平台为该 Job 预建的 pending Asset 一并交给 App 的 save：App 用 ctx.media.completeAsset
-	// 原地补全同一 assetId，平台不会再落一张重复成品；不支持的 App 忽略该字段，由下方
-	// CompleteGenerationFromImport 兜底归并。
-	saveInput := map[string]any{"id": generationID, "kind": kind}
+	// 原地补全同一 assetId，平台不会再落一张重复成品。
+	saveInput := map[string]any{"id": recordID, "kind": providerSaveKind(contribution, job)}
 	if len(job.AssetIDs) == 1 {
 		saveInput["assetId"] = job.AssetIDs[0]
 	}
@@ -147,12 +178,10 @@ func runAppGeneration(host *AppHost, platformMedia *media.MediaService, appID st
 		}
 		code := mapString(providerErr, "code")
 		if code == "" {
-			code = "gen.save.failed"
+			code = "media.save.failed"
 		}
 		message := mapString(providerErr, "message")
 		if message == "" {
-			// err 通常为 nil（capabilityInvoke 把失败装进 invoked.error）；不要用 %v 直接格式化，
-			// 否则会产出 "<nil>" 这类无信息错误。
 			if err != nil {
 				message = err.Error()
 			} else {
@@ -163,7 +192,7 @@ func runAppGeneration(host *AppHost, platformMedia *media.MediaService, appID st
 			Kind:      "provider",
 			Code:      code,
 			Message:   "local generation save failed: " + message,
-			Hint:      loc(DefaultLocale, "本地生成已完成但平台授权落库失败；可改用 App 的 generate + save，或把默认路由切到云端 provider。", "Local generation completed but the platform save failed; use the App's generate + save, or switch the default route to a cloud provider."),
+			Hint:      loc(DefaultLocale, "本机生成已完成但平台授权落库失败；可改用 App 的 generate + save，或把默认路由切到云端 provider。", "Local generation completed but the platform save failed; use the App's generate + save, or switch the default route to a cloud provider."),
 			Retryable: true,
 		}
 	}
@@ -171,8 +200,6 @@ func runAppGeneration(host *AppHost, platformMedia *media.MediaService, appID st
 	if assetID == "" {
 		return media.MediaAsset{}, fmt.Errorf("local generation save did not return an asset id")
 	}
-	// 把 App 导入的成品归并回 Job 预建的 pending Asset：否则平台的「生成中」占位卡会永远
-	// 停留在 running，同时 App 又导入出一张重复成品卡。
 	asset, err := platformMedia.CompleteGenerationFromImport(job, assetID)
 	if err != nil {
 		return media.MediaAsset{}, fmt.Errorf("local generation asset unavailable: %w", err)
@@ -181,6 +208,78 @@ func runAppGeneration(host *AppHost, platformMedia *media.MediaService, appID st
 		_ = platformMedia.Attach(asset.ID, job.ProjectID)
 	}
 	return asset, nil
+}
+
+// buildProviderInput assembles the App generate/save input. job.Output is merged
+// first (aspectRatio/seed/voiceId/... params), then the provider's InputMap
+// overrides/adds the well-known keys. Absent an executor, the default generation
+// shape (model/prompt/referenceAssetIds) is used.
+func buildProviderInput(contribution ContributedMediaProvider, job media.MediaJob, model media.MediaModel, output map[string]any) map[string]any {
+	input := map[string]any{}
+	for key, value := range output {
+		input[key] = value
+	}
+	if contribution.Executor == nil || len(contribution.Executor.InputMap) == 0 {
+		input["model"] = model.APIModelID
+		input["prompt"] = job.Prompt
+		if len(job.ReferenceIDs) > 0 {
+			input["referenceAssetIds"] = append([]string(nil), job.ReferenceIDs...)
+		}
+		return input
+	}
+	for key, token := range contribution.Executor.InputMap {
+		if value, ok := resolveProviderToken(token, job, model, output); ok {
+			input[key] = value
+		}
+	}
+	return input
+}
+
+func resolveProviderToken(token string, job media.MediaJob, model media.MediaModel, output map[string]any) (any, bool) {
+	switch token {
+	case "model.apiModelId":
+		return model.APIModelID, true
+	case "job.prompt":
+		return job.Prompt, true
+	case "job.referenceIds":
+		if len(job.ReferenceIDs) == 0 {
+			return nil, false
+		}
+		return append([]string(nil), job.ReferenceIDs...), true
+	case "job.voiceId":
+		if value, ok := output["voiceId"]; ok {
+			return value, true
+		}
+		return nil, false
+	case "job.output":
+		return output, true
+	default:
+		return nil, false
+	}
+}
+
+// providerResultID reads the record id from the App generate result using the
+// executor's ResultIDPath (dot path); default "generation.id".
+func providerResultID(contribution ContributedMediaProvider, raw any) string {
+	path := "generation.id"
+	if contribution.Executor != nil && contribution.Executor.ResultIDPath != "" {
+		path = contribution.Executor.ResultIDPath
+	}
+	return mapString(jsonMapByPath(raw, path), "id")
+}
+
+// providerSaveKind resolves the kind passed to the App save op.
+func providerSaveKind(contribution ContributedMediaProvider, job media.MediaJob) string {
+	if contribution.Executor != nil && contribution.Executor.SaveKind != "" {
+		return contribution.Executor.SaveKind
+	}
+	if job.Capability == media.VideoGenerate {
+		return "video"
+	}
+	if job.Capability == media.SpeechGenerate {
+		return "synthesis"
+	}
+	return "image"
 }
 
 // appLocalModels aggregates each App's dynamic model readiness by calling its
@@ -213,9 +312,12 @@ func appLocalModels(host *AppHost, apps []App) []media.LocalModelInfo {
 
 // localModelsFromCatalog projects an App catalog operation's models[] into
 // media.LocalModelInfo (label accepts a string or {zh,en}; readiness from
-// weight.installed / top-level ready).
+// weight.installed / top-level ready). It also accepts apps[] (ComfyUI Studio).
 func localModelsFromCatalog(raw any) []media.LocalModelInfo {
 	models := sliceField(jsonMap(raw), "models")
+	if models == nil {
+		models = sliceField(jsonMap(raw), "apps")
+	}
 	if models == nil {
 		return nil
 	}
@@ -223,6 +325,9 @@ func localModelsFromCatalog(raw any) []media.LocalModelInfo {
 	for _, item := range models {
 		entry := jsonMap(item)
 		id := mapString(entry, "model")
+		if id == "" {
+			id = mapString(entry, "app")
+		}
 		if id == "" {
 			continue
 		}
@@ -249,4 +354,78 @@ func numberField(m map[string]any, key string) float64 {
 		return value
 	}
 	return 0
+}
+
+// jsonMapByPath resolves a dot path (e.g. "generation.id") into a nested map.
+func jsonMapByPath(raw any, path string) map[string]any {
+	current := jsonMap(raw)
+	for _, segment := range strings.Split(path, ".") {
+		if current == nil {
+			return nil
+		}
+		if segment == "" {
+			continue
+		}
+		current = jsonMap(current[segment])
+	}
+	return current
+}
+
+// sliceField 读一个 result 负载里的数组：既接受裸数组，也接受 {key:[...]} / {items:[...]}。
+func sliceField(raw any, key string) []any {
+	if list, ok := raw.([]any); ok {
+		return list
+	}
+	if m := jsonMap(raw); m != nil {
+		if list, ok := m[key].([]any); ok {
+			return list
+		}
+		if list, ok := m["items"].([]any); ok {
+			return list
+		}
+	}
+	return nil
+}
+
+// voiceName 解析声音名称：字符串直接返回，{zh,en} 对象优先中文，缺省回退 id。
+func voiceName(value any, fallback string) string {
+	switch typed := value.(type) {
+	case string:
+		if strings.TrimSpace(typed) != "" {
+			return typed
+		}
+	case map[string]any:
+		for _, key := range []string{"zh", "en"} {
+			if text, ok := typed[key].(string); ok && strings.TrimSpace(text) != "" {
+				return text
+			}
+		}
+	}
+	return fallback
+}
+
+// boolMap 读 map 的布尔字段，缺省 false。
+func boolMap(m map[string]any, key string) bool {
+	if m == nil {
+		return false
+	}
+	if b, ok := m[key].(bool); ok {
+		return b
+	}
+	return false
+}
+
+func jsonMap(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
+}
+
+func mapString(m map[string]any, key string) string {
+	if s, ok := m[key].(string); ok {
+		return s
+	}
+	if s, ok := m[key].(fmt.Stringer); ok {
+		return s.String()
+	}
+	return ""
 }

@@ -26,15 +26,15 @@ App 可在 manifest 静态声明它服务的**本机媒体 provider**（当前�
   "media": {
     "providers": [{
       "id": "local-gen",
-      "name": "Generation Studio（本机）",
-      "localized": { "en": { "name": "Generation Studio (local)" } },
+      "name": "ComfyUI 工作台（本机）",
+      "localized": { "en": { "name": "ComfyUI Studio (local)" } },
       "protocol": "local",
-      "operations": { "generate": "gen.generate", "save": "gen.save", "catalog": "gen.catalog", "status": "gen.status" },
+      "operations": { "generate": "comfy.generate", "save": "comfy.save", "catalog": "comfy.catalog", "status": "comfy.status" },
       "models": [{
         "id": "qwen-image", "name": "Qwen-Image · 本机文生图",
-        "capability": "image.generate", "runtime": "diffusers", "sizeGb": 40,
+        "capability": "image.generate", "runtime": "comfyui", "sizeGb": 17,
         "inputModes": ["text", "image"], "outputModes": ["size", "seed"],
-        "weights": { "huggingFace": "Qwen/Qwen-Image-2.1", "modelScope": "Qwen/Qwen-Image-2.1", "revision": "main" }
+        "weights": { "huggingFace": "Comfy-Org/Qwen-Image-2.1", "modelScope": "Comfy-Org/Qwen-Image-2.1", "revision": "main" }
       }]
     }]
   }
@@ -43,8 +43,10 @@ App 可在 manifest 静态声明它服务的**本机媒体 provider**（当前�
 
 - `protocol` 必须是 `local`；`capability` 必须是已知媒体能力（`image.generate`/`video.generate`/`speech.generate`）；模型 id 为简单名。
 - `operations.generate` / `operations.save` 必填，且必须指向本 manifest 中已声明且可调用（`mcp` surface 或 `capability: true`）的 operation；`catalog` / `status` 可选。
-- 平台模型 ID 规则：`<providerID>/<modelID>`（如 `local-gen/qwen-image`）；生图/视频默认路由可直接指向它。
-- 平台侧实现见 `service/media/app_providers.go`（目录合并）与 `service/app_media_bridge.go`（通用执行桥）；契约变更需先出 RFC。
+- 平台模型 ID 规则：`<providerID>/<modelID>`（如 `local-gen/qwen-image`）；生图/视频/语音默认路由可直接指向它。
+- **`voices`（可选，语音 provider）**：声明枚举本机声音的 operation，如 `{ "presets": "audio.presets", "characters": "audio.characters" }`；平台把声音并入能力声音目录（id 加 `preset:`/`character:` 前缀）。
+- **`executor`（可选）**：声明平台通用执行桥如何把媒体任务组装成 App 输入、并读回记录 id——`inputMap` 把 operation 输入键映射到 `job.prompt` / `job.referenceIds` / `job.voiceId` / `job.output` / `model.apiModelId`；`resultIdPath` 指定结果里的记录 id 路径（如 `generation.id` / `synthesis.id`）；`saveKind` 传给 save op（如 `image` / `video` / `synthesis`）。缺省按生成默认形状（`model` / `prompt` / `referenceAssetIds`）。
+- 平台侧实现见 `service/media/app_providers.go`（目录合并 + 稳定基准目录）与 `service/app_media_bridge.go`（通用执行桥，图片/视频/语音同一路径，无 per-app 代码）；契约变更需先出 RFC。
 
 ## 数据与权限边界
 

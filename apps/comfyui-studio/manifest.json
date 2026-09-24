@@ -1,0 +1,512 @@
+{
+  "manifestVersion": 1,
+  "id": "recut.comfyui-studio",
+  "name": "ComfyUI 工作台",
+  "author": "Recut",
+  "description": "在本机用 ComfyUI 工作流生成图片、视频与音频：一个共享运行环境托管多个工作流，先准备环境，再按需下载权重，结果确认后进入素材库。",
+  "localized": {
+    "en": {
+      "name": "ComfyUI Studio",
+      "description": "Generate images, videos and audio locally with ComfyUI workflows: one shared runtime hosts many workflows, prepare the environment first, download weights on demand, and save results to the library."
+    }
+  },
+  "repository": "https://github.com/6174/recut-comfyui-studio",
+  "version": "0.1.0",
+  "type": "standalone",
+  "background": "background.js",
+  "ui": {
+    "standaloneView": "ui/dist/index.html"
+  },
+  "permissions": [
+    "sqlite",
+    "files",
+    "media.read",
+    "media.write",
+    "python",
+    "shell"
+  ],
+  "runtime": {
+    "python": {
+      "venv": "comfyui-studio",
+      "version": "3.11",
+      "tools": [
+        "ffmpeg"
+      ],
+      "requirements": "python/requirements.lock",
+      "bootstrap": "bootstrap.py"
+    }
+  },
+  "contributes": {
+    "media": {
+      "providers": [
+        {
+          "id": "local-gen",
+          "name": "ComfyUI 工作台（本机）",
+          "localized": {
+            "en": {
+              "name": "ComfyUI Studio (local)"
+            }
+          },
+          "protocol": "local",
+          "operations": {
+            "generate": "comfy.generate",
+            "save": "comfy.save",
+            "catalog": "comfy.catalog",
+            "status": "comfy.status"
+          },
+          "models": [
+            {
+              "id": "qwen-image",
+              "name": "Qwen-Image-2.1 文生图/编辑",
+              "capability": "image.generate",
+              "runtime": "comfyui",
+              "sizeGb": 17,
+              "inputModes": [
+                "text",
+                "image"
+              ],
+              "parameters": [
+                {
+                  "name": "prompt",
+                  "type": "string"
+                },
+                {
+                  "name": "negativePrompt",
+                  "type": "string"
+                },
+                {
+                  "name": "aspectRatio",
+                  "type": "string",
+                  "enum": [
+                    "1:1",
+                    "16:9",
+                    "9:16",
+                    "4:3",
+                    "3:4"
+                  ],
+                  "default": "1:1"
+                },
+                {
+                  "name": "steps",
+                  "type": "number",
+                  "default": 10,
+                  "min": 1,
+                  "max": 100
+                },
+                {
+                  "name": "cfg",
+                  "type": "number",
+                  "default": 1.0,
+                  "min": 0,
+                  "max": 20
+                },
+                {
+                  "name": "seed",
+                  "type": "number",
+                  "default": -1
+                }
+              ],
+              "referenceFields": [
+                {
+                  "field": "references",
+                  "role": "image",
+                  "multiple": true
+                }
+              ],
+              "weights": {
+                "huggingFace": "Comfy-Org/Qwen-Image-2.1",
+                "modelScope": "Comfy-Org/Qwen-Image-2.1",
+                "revision": "main"
+              },
+              "localized": {
+                "zh": {
+                  "name": "Qwen-Image-2.1 文生图/编辑"
+                },
+                "en": {
+                  "name": "Qwen-Image-2.1 t2i/edit"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "operations": [
+    {
+      "name": "comfy.status",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "检查本地 ComfyUI 工作台的本地 Python、FFmpeg、ComfyUI 专属 venv 与各工作流权重（就绪度）和下载源；activeJob 返回最新在途任务，tasks 返回全部在途任务清单。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "comfy.catalog",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "枚举本机 ComfyUI 工作流（静态注册表 + 动态就绪度）：返回 runtimes 与 apps（含 capability、runtime、表单 schema、输出类型、就绪度与权重安装状态），供界面工作流切换与平台能力模型聚合。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "comfy.prepare",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "description": "准备运行环境：安装主 venv 依赖、创建 ComfyUI 专属 venv 并按固定 commit 克隆源码（target: all|comfyui），逐工作流执行其 bootstrap.py，最后启动/复用 ComfyUI 常驻服务；不下载模型权重。异步提交，立即返回 job/taskId；环境准备单槽串行。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "可选；缺省 all。all=全部工作流 / comfyui=仅运行时 / <appId>=仅该工作流。"
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.engine.status",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "检查 ComfyUI 常驻引擎是否在监听（HTTP /system_stats）与记录的进程 PID，返回 { running, port, pid }。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "comfy.engine.start",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "description": "启动 ComfyUI 常驻引擎（复用已在监听的实例；否则拉起服务并等待就绪）。异步提交，返回 job/taskId。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "comfy.engine.ensure",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "确保 ComfyUI 常驻引擎可用（幂等）：已在监听则立即返回 { running, reused:true }；否则拉起服务并等待就绪后返回。供 AI/background 操作引擎，不依赖 UI。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "comfy.engine.stop",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "description": "关闭本机启动的 ComfyUI 常驻引擎（按 PID 终止进程组并等待端口释放）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "comfy.settings.set",
+      "surfaces": [
+        "api"
+      ],
+      "description": "持久化 ComfyUI 工作台的下载源设置（automatic/huggingface/modelscope）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "downloadSource": {
+            "type": "string",
+            "enum": [
+              "automatic",
+              "huggingface",
+              "modelscope"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.install",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "description": "仅下载某个工作流的模型权重（不建 venv），支持 huggingface / modelscope / automatic 来源。异步提交、可并行；用 recut.job.status / recut.job.wait 轮询终态。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "app"
+        ],
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "automatic",
+              "huggingface",
+              "modelscope"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.generate",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "提交本机 ComfyUI 工作流生成：单槽 FIFO 排队（占槽时 job=null + taskId 入队，槽位释放后自动开始）。params 为任意表单值对象；返回 job 与 generation.id；完成后用 comfy.generation.complete 读取，或 comfy.save 入库。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "app"
+        ],
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "本机工作流 id（见 comfy.catalog），如 qwen-image-2.1。"
+          },
+          "params": {
+            "type": "object",
+            "description": "工作流表单参数（任意字段，按 manifest.formSchema 校验/转换）。"
+          },
+          "referenceAssetIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.generations",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "读取已完成的生成记录（私有产物 + savedAssetId）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "comfy.generation.complete",
+      "surfaces": [
+        "api"
+      ],
+      "description": "在生成任务完成后读取产物（outputURL/尺寸/seed/耗时/错误）。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.save",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "把用户明确选择的私有生成产物导入素材库（kind: image|video|audio），返回真实 assetId。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "audio"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.cancel",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "取消最新在途的本地生成任务（queued 直接落 cancelled，running 经 shell 取消）。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "comfy.tasks.list",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "任务中心主列表：统一返回环境准备、模型下载与生成任务，支持按来源与状态过滤、日期倒序分页。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "ai",
+              "manual"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "queued",
+              "done",
+              "failed"
+            ]
+          },
+          "action": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.task.get",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "读取单条任务的完整信息（来源、状态、结构化 meta、日志路径与关联产物）。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.task.logs",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "读取单条任务的持久日志（tasks/${id}.log 的 JSON-lines，带时间戳与等级），支持按行分页。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.task.cancel",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "capability": true,
+      "description": "按任务中心 id 取消任务：运行中经底层 shell job 取消，排队中直接落 cancelled。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.job",
+      "surfaces": [
+        "api"
+      ],
+      "description": "读取最近尚未由界面确认的本地 ComfyUI 本地任务。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "comfy.resolve",
+      "surfaces": [
+        "api"
+      ],
+      "description": "在界面已处理终态后确认本地任务，避免重连后显示过期执行状态。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

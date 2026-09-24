@@ -1,0 +1,320 @@
+/**
+ * [INPUT]: 依赖 comfy.catalog 的工作流清单/formSchema/output 类型/就绪度、shadcn Select、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、环境/下载动作回调与 useGenerateStore
+ * [OUTPUT]: 顶部工作流切换器（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境/下载模型/来源）+ media 字段的多选参考图（缩略图点击经 recut.media.preview 全屏预览；预览图经 injectedReference 一键回填）+ 表单提交；工作流/参数/参考图/下载源由 useGenerateStore 持有并持久化
+ * [POS]: Left「生成」Tab；依赖准备与生成提交都在此收敛，记录 Tab 只负责历史；表单状态在 store，切 Tab 不丢
+ * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+ */
+import { AlertTriangle, Check, Download, ImagePlus, Play, Sparkles, Wand2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { interpolate, t, type Locale } from "../i18n";
+import { recut } from "../recut-sdk";
+import { mediaContentPath, mediaContentURL } from "../lib/media";
+import { useGenerateStore } from "../state/generate";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Badge, Button, Card, Field, Input, Textarea } from "../ui";
+import type { CatalogApp, FormField, InjectedReference, LocalLabel, MediaAsset, RuntimeInfo } from "../types";
+
+interface Props {
+  apps: CatalogApp[];
+  runtimes: RuntimeInfo[];
+  locale: Locale;
+  downloadSource: string;
+  injectedReference: InjectedReference | null;
+  onGenerate: (input: Record<string, unknown>) => Promise<void>;
+  onSaveDefault: (model: string) => Promise<string>;
+  onPrepare: (target: string) => Promise<void>;
+  onInstall: (app: string, source: string) => Promise<void>;
+  onSetSource: (source: string) => Promise<void>;
+}
+
+const SOURCES = ["automatic", "huggingface", "modelscope"] as const;
+
+function labelText(value: LocalLabel | undefined, locale: Locale, fallback: string) {
+  if (!value) return fallback;
+  if (typeof value === "string") return value;
+  return (locale === "en" ? value.en : value.zh) || value.zh || value.en || fallback;
+}
+
+function defaultValue(field: FormField): string {
+  if (field.default === undefined || field.default === null) return "";
+  return String(field.default);
+}
+
+function formDefaults(app: CatalogApp | undefined): Record<string, string> {
+  const next: Record<string, string> = {};
+  if (app) for (const field of app.formSchema) next[field.key] = defaultValue(field);
+  return next;
+}
+
+function mediaField(app: CatalogApp | undefined): FormField | undefined {
+  return app?.formSchema.find((field) => field.type === "media");
+}
+
+export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedReference, onGenerate, onSaveDefault, onPrepare, onInstall, onSetSource }: Props) {
+  const appId = useGenerateStore((state) => state.appId);
+  const values = useGenerateStore((state) => state.values);
+  const references = useGenerateStore((state) => state.references);
+  const source = useGenerateStore((state) => state.source);
+  const selectApp = useGenerateStore((state) => state.selectApp);
+  const setAppId = useGenerateStore((state) => state.setAppId);
+  const setValue = useGenerateStore((state) => state.setValue);
+  const mergeValues = useGenerateStore((state) => state.mergeValues);
+  const setValues = useGenerateStore((state) => state.setValues);
+  const setReferences = useGenerateStore((state) => state.setReferences);
+  const setSource = useGenerateStore((state) => state.setSource);
+
+  const [hint, setHint] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [working, setWorking] = useState(false);
+  const injectedNonceRef = useRef(0);
+
+  const app = useMemo(() => apps.find((candidate) => candidate.app === appId) ?? apps[0], [apps, appId]);
+  const appKey = app?.app ?? "";
+  const acceptsMedia = Boolean(mediaField(app));
+
+  useEffect(() => {
+    if (!appId && apps[0]) setAppId(apps[0].app);
+  }, [apps, appId, setAppId]);
+
+  // 工作流 schema 就绪/切换时对齐字段：值已属于该工作流则只补默认键（保留持久化与草稿输入），
+  // 否则视为切换工作流，重置字段与参考图。仅在 appKey 变化时运行，目录刷新不覆盖输入。
+  useEffect(() => {
+    if (!app) return;
+    const defaults = formDefaults(app);
+    const stored = useGenerateStore.getState();
+    if (stored.appId === app.app) {
+      const merged = { ...defaults };
+      for (const [key, value] of Object.entries(stored.values)) if (key in merged) merged[key] = value;
+      setValues(merged);
+      return;
+    }
+    setAppId(app.app);
+    setValues(defaults);
+    setReferences([]);
+  }, [appKey]);
+
+  useEffect(() => {
+    if (!injectedReference || injectedReference.nonce === injectedNonceRef.current) return;
+    injectedNonceRef.current = injectedReference.nonce;
+    if (injectedReference.error) {
+      setHint(interpolate(t(locale, "generate.edit-failed"), { error: injectedReference.error }));
+      return;
+    }
+    const draft = injectedReference.draft;
+    if (draft) {
+      const target = apps.find((candidate) => candidate.app === draft.app);
+      if (target && target.app !== appId) setAppId(target.app);
+      const next: Record<string, string> = formDefaults(target);
+      for (const [key, value] of Object.entries(draft.values ?? {})) if (key in next) next[key] = String(value);
+      next.prompt = draft.prompt ?? next.prompt ?? "";
+      mergeValues(next);
+      const targetAcceptsMedia = Boolean(mediaField(target));
+      if (targetAcceptsMedia) {
+        setReferences((draft.referenceAssetIds ?? []).filter((item) => item.available !== false).map((item) => ({ id: item.id, name: item.name, kind: "image" })));
+      } else {
+        setReferences([]);
+        setHint(t(locale, "generate.edit-unsupported"));
+      }
+      return;
+    }
+    if (!acceptsMedia) {
+      setHint(t(locale, "generate.edit-unsupported"));
+      return;
+    }
+    setReferences((prev) => (prev.some((item) => item.id === injectedReference.id) ? prev : [...prev, { id: injectedReference.id, name: injectedReference.name, kind: "image" }]));
+    setHint("");
+  }, [injectedReference, acceptsMedia, locale, apps, appId]);
+
+  useEffect(() => setSource(downloadSource || "automatic"), [downloadSource]);
+
+  if (!app) {
+    return <div className="grid min-h-40 place-items-center rounded-lg border border-dashed text-xs text-muted-foreground">{t(locale, "generate.empty-models")}</div>;
+  }
+
+  const runtimeReady = runtimes.find((item) => item.id === app.runtime)?.ready ?? false;
+  const weightInstalled = app.weight.installed;
+  const ready = runtimeReady && weightInstalled;
+  const supportsImage = acceptsMedia;
+
+  const pickReferences = async () => {
+    try {
+      const selected = (await recut.media.pick(["image"], { multiple: true, selectedIDs: references.map((item) => item.id) })) as MediaAsset[] | null;
+      if (!selected) return;
+      setReferences(selected.map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind ?? "image" })));
+      setHint("");
+    } catch (error) {
+      setHint(interpolate(t(locale, "generate.pick-failed"), { error: error instanceof Error ? error.message : String(error) }));
+    }
+  };
+
+  const submit = async () => {
+    setSubmitting(true);
+    setHint("");
+    try {
+      const params: Record<string, unknown> = {};
+      for (const [key, raw] of Object.entries(values)) {
+        if (raw === "") continue;
+        const field = app.formSchema.find((candidate) => candidate.key === key);
+        if (field?.type === "media") continue;
+        params[key] = field?.type === "number" ? Number(raw) : raw;
+      }
+      const input: Record<string, unknown> = { app: app.app, params };
+      if (supportsImage && references.length) input.referenceAssetIds = references.map((asset) => asset.id);
+      await onGenerate(input);
+    } catch (error) {
+      setHint(interpolate(t(locale, "generate.failed"), { error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const run = async (action: () => Promise<void>) => {
+    setWorking(true);
+    try {
+      await action();
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Field label={t(locale, "generate.model")}>
+        <Select value={app.app} onValueChange={(value) => selectApp(value, formDefaults(apps.find((candidate) => candidate.app === value)))}>
+          <SelectTrigger>
+            <SelectValue placeholder={app.app} />
+          </SelectTrigger>
+          <SelectContent>
+            {apps.map((candidate) => (
+              <SelectItem key={candidate.app} value={candidate.app}>
+                <span className="flex items-center gap-2">
+                  <span className={`size-1.5 rounded-full ${candidate.ready ? "bg-success" : "bg-warning"}`} />
+                  {labelText(candidate.label, locale, candidate.app)}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+
+      {!ready && (
+        <Card className="border-warning/40 bg-warning/[0.06] p-3.5">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-foreground">{t(locale, "generate.dep.title")}</p>
+              <ul className="mt-2 space-y-1 text-[11px] leading-5 text-muted-foreground">
+                <li className="flex items-center gap-1.5">
+                  {runtimeReady ? <Check className="size-3 text-success" /> : <span className="size-1.5 rounded-full bg-warning" />}
+                  {t(locale, "generate.dep.runtime")} · {app.runtime}
+                </li>
+                <li className="flex items-center gap-1.5">
+                  {weightInstalled ? <Check className="size-3 text-success" /> : <span className="size-1.5 rounded-full bg-warning" />}
+                  {t(locale, "generate.dep.weights")}{app.weight.sizeGb ? ` · ~${app.weight.sizeGb}GB` : ""}
+                </li>
+              </ul>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" disabled={working || runtimeReady} onClick={() => void run(() => onPrepare(app.runtime || "all"))}>
+                  <Play className="size-3.5" />{t(locale, "records.prepare")}
+                </Button>
+                <Button size="sm" disabled={working || weightInstalled} onClick={() => void run(() => onInstall(app.app, source))}>
+                  <Download className="size-3.5" />{t(locale, "records.install")}
+                </Button>
+                <Select value={source} onValueChange={(value) => { setSource(value); void onSetSource(value); }}>
+                  <SelectTrigger className="h-7 w-36 text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SOURCES.map((item) => (
+                      <SelectItem key={item} value={item}>{t(locale, `source.${item}`)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <div className="space-y-3">
+        {app.formSchema.filter((field) => field.type !== "media").map((field) => (
+          <Field key={field.key} label={labelText(field.label, locale, field.key)}>
+            {field.type === "textarea" ? (
+              <Textarea value={values[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)} />
+            ) : field.type === "select" ? (
+              <Select value={values[field.key] ?? ""} onValueChange={(value) => setValue(field.key, value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(field.options ?? []).map((option) => (
+                    <SelectItem key={option} value={option}>{option}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : field.type === "boolean" ? (
+              <Select value={values[field.key] ?? "false"} onValueChange={(value) => setValue(field.key, value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="true">{t(locale, "generate.bool-on")}</SelectItem>
+                  <SelectItem value="false">{t(locale, "generate.bool-off")}</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                type={field.type === "number" ? "number" : "text"}
+                min={field.min}
+                max={field.max}
+                value={values[field.key] ?? ""}
+                onChange={(event) => setValue(field.key, event.target.value)}
+              />
+            )}
+          </Field>
+        ))}
+
+        {supportsImage ? (
+          <Field label={t(locale, "generate.references")} hint={t(locale, "generate.references-hint")}>
+            <div className="flex flex-wrap items-center gap-2">
+              {references.map((asset) => (
+                <div key={asset.id} className="group relative size-16 overflow-hidden rounded-md border bg-muted">
+                  <button
+                    type="button"
+                    title={t(locale, "generate.preview-reference")}
+                    onClick={() => void recut.media.preview(mediaContentURL(asset.id), { name: asset.name || asset.id })}
+                    className="block size-full cursor-zoom-in"
+                  >
+                    <img className="size-full object-cover" src={mediaContentPath(asset.id)} alt={asset.name || asset.id} />
+                  </button>
+                  <button
+                    type="button"
+                    title={t(locale, "generate.remove-reference")}
+                    onClick={() => setReferences((prev) => prev.filter((item) => item.id !== asset.id))}
+                    className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-background/85 text-foreground opacity-0 transition group-hover:opacity-100"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => void pickReferences()}>
+                <ImagePlus className="size-3.5" />{t(locale, "generate.add-reference")}
+              </Button>
+            </div>
+          </Field>
+        ) : null}
+      </div>
+
+      <div className="flex items-center gap-2 pt-1">
+        <Button disabled={!ready || submitting} onClick={() => void submit()}>
+          <Wand2 className="size-3.5" />{t(locale, "generate.submit")}
+        </Button>
+        <Button variant="ghost" onClick={async () => setHint(await onSaveDefault(app.model))}>
+          <Sparkles className="size-3.5" />{t(locale, "generate.set-default")}
+        </Button>
+        {ready ? <Badge tone="success" className="ml-auto">{t(locale, "generate.ready")}</Badge> : null}
+      </div>
+      {hint ? <p className="text-[11px] leading-4 text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}

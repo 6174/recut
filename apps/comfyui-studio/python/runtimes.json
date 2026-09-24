@@ -1,0 +1,13 @@
+{
+  "runtimes": [
+    {
+      "id": "comfyui",
+      "label": { "zh": "ComfyUI（共享运行时）", "en": "ComfyUI (shared runtime)" },
+      "venv": "comfyui",
+      "runner": "python/comfyui_runner.py",
+      "requirements": "python/comfyui.requirements.lock",
+      "repository": "https://github.com/comfyanonymous/ComfyUI",
+      "revision": "b5cc8830279eae909a59de030af1e50761c36751"
+    }
+  ]
+}

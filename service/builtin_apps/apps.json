@@ -1,0 +1,58 @@
+[
+  {
+    "package": "remotion-studio",
+    "source": "apps/remotion-studio",
+    "appId": "recut.remotion-studio",
+    "include": ["."],
+    "exclude": [
+      "remotion-skeleton/demo-render-out",
+      "remotion-skeleton/output",
+      "remotion-skeleton/dist",
+      "remotion-skeleton/package-lock.json",
+      "ui/node_modules",
+      "ui/src",
+      "ui/package-lock.json",
+      "ui/package.json",
+      "ui/tsconfig.json",
+      "ui/vite.config.ts"
+    ]
+  },
+  {
+    "package": "audio-studio",
+    "source": "apps/audio-studio",
+    "appId": "recut.audio-studio",
+    "include": ["."],
+    "exclude": [
+      "rfc",
+      "publish",
+      "__pycache__",
+      "**/__pycache__",
+      "ui/node_modules",
+      "ui/src",
+      "ui/package-lock.json",
+      "ui/package.json",
+      "ui/tsconfig.json",
+      "ui/vite.config.ts",
+      "ui/components.json"
+    ]
+  },
+  {
+    "package": "comfyui-studio",
+    "source": "apps/comfyui-studio",
+    "appId": "recut.comfyui-studio",
+    "include": ["."],
+    "exclude": [
+      "rfc",
+      "__pycache__",
+      "**/__pycache__",
+      "ui/node_modules",
+      "ui/src",
+      "ui/package-lock.json",
+      "ui/package.json",
+      "ui/tsconfig.json",
+      "ui/vite.config.ts",
+      "ui/components.json"
+    ],
+    "prep": ["python3", "apps/comfyui-studio/python/publish_registry.py"]
+  }
+]

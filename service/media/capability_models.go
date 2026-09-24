@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 catalog（provider/model/能力查询）、路由表与本地 provider 识别；本地模型面由注入的
- *          localModelProvider 提供（Generation Studio 的 gen.catalog）
+ *          localModelProvider 提供（ComfyUI Studio 的 comfy.catalog）
  * [OUTPUT]: 对外提供 CapabilityModelGroups：按 capability 聚合本地 provider 的生成模型分组（含默认路由
  *          标记、平台模型清单、本地 App 模型就绪度与逐组错误）
  * [POS]: media 的能力级模型聚合查询；只读无副作用，供平台 HTTP 与 MCP 工具共用；镜像 CapabilityVoiceGroups
@@ -10,7 +10,7 @@ package media
 
 import "sort"
 
-// LocalModelInfo 是本地生成 App（Generation Studio）注册表里的一个模型就绪投影，
+// LocalModelInfo 是本地生成 App（ComfyUI Studio）注册表里的一个模型就绪投影，
 // 由 daemon 注入的 localModelProvider 提供，用于把本地模型并入平台能力模型聚合。
 type LocalModelInfo struct {
 	Model      string  `json:"model"`

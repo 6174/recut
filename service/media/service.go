@@ -32,17 +32,14 @@ type MediaService struct {
 	oneRequestGates   sync.Map
 	schedulerID       string
 	notifyMediaChange func()
-	// localSpeechExec 是本机 TTS（Audio Studio / CosyVoice2）执行桥。Daemon 在
-	// 创建 MediaService 后注入（因为 MediaService 早于 AppHost 构建）；MCP 直连等
-	// 短命进程保持 nil，此时本地路由提交会得到引导错误（走 audio-studio MCP）。
-	localSpeechExec func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error)
 	// localAppExec 是 App 贡献的本地 provider（contributes.media）执行桥，按 provider id 分派。
-	// Daemon 在 AppHost 就绪后注入；短命进程保持空，本地路由提交会得到引导错误。
+	// Daemon 在 AppHost 就绪后注入；短命进程保持空，本地路由提交会得到引导错误。语音与图片/视频
+	// 共用同一条通用桥（由 App 的 executor 声明输入映射与结果路径），平台无 per-app 分支。
 	localAppExec map[string]func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error)
-	// localVoiceProvider 是本机 TTS 的声音面（Audio Studio 预设 + 声音角色）。
-	// Daemon 在 AppHost 就绪后注入；nil 时本地分组只声明模型、不返回声音。
-	localVoiceProvider func() []MediaVoice
-	// localModelProvider 是本机生成 App（Generation Studio）的模型面（gen.catalog）。
+	// localVoiceProviders 是各本地 provider 的声音面，按 provider id 注入（App 的 voices 声明）。
+	// 缺省 nil 时该 provider 分组只声明模型、不返回声音。
+	localVoiceProviders map[string]func() []MediaVoice
+	// localModelProvider 是本地生成 App 的模型面（comfy.catalog），聚合所有本地生成 provider 的就绪度。
 	// Daemon 在 AppHost 就绪后注入；nil 时本地生成分组只声明平台模型、不带引擎就绪度。
 	localModelProvider func() []LocalModelInfo
 	// shareClient 是临时公网分享（R2 + CDN）的线协议客户端；nil 表示分享能力
@@ -54,27 +51,31 @@ type MediaService struct {
 	videoProposalGate func() bool
 }
 
-// SetLocalSpeechExecutor wires the local-audio provider to an execution backend.
-// The daemon supplies a bridge that delegates to Audio Studio's synthesized speech;
-// without one, local route jobs fail with an actionable guidance error.
-func (m *MediaService) SetLocalSpeechExecutor(exec func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error)) {
-	if exec != nil {
-		m.localSpeechExec = exec
+// SetLocalVoiceProvider wires one local provider's voice catalog (e.g. Audio
+// Studio presets + characters) so capability voice groups can present local
+// voices next to cloud ones. nil keeps that provider's group voiceless.
+func (m *MediaService) SetLocalVoiceProvider(providerID string, provider func() []MediaVoice) {
+	if providerID == "" || provider == nil {
+		return
 	}
+	if m.localVoiceProviders == nil {
+		m.localVoiceProviders = map[string]func() []MediaVoice{}
+	}
+	m.localVoiceProviders[providerID] = provider
 }
 
-// SetLocalVoiceProvider wires the local-audio provider's voice catalog (Audio
-// Studio presets + user-created characters) so capability voice groups can
-// present local voices next to cloud ones. nil keeps the local group voiceless.
-func (m *MediaService) SetLocalVoiceProvider(provider func() []MediaVoice) {
-	if provider != nil {
-		m.localVoiceProvider = provider
+// LocalVoiceProvider exposes one provider's wired voice catalog (used by the
+// capability voice aggregation and tests).
+func (m *MediaService) LocalVoiceProvider(providerID string) func() []MediaVoice {
+	if m.localVoiceProviders == nil {
+		return nil
 	}
+	return m.localVoiceProviders[providerID]
 }
 
-// SetLocalModelProvider wires the local-gen provider's model catalog (Generation
-// Studio registry) so capability model groups can present local engines next to
-// cloud models. nil keeps the local group without engine readiness.
+// SetLocalModelProvider wires the local generation providers' model catalog so
+// capability model groups can present local engines next to cloud models. nil
+// keeps the local group without engine readiness.
 func (m *MediaService) SetLocalModelProvider(provider func() []LocalModelInfo) {
 	if provider != nil {
 		m.localModelProvider = provider
@@ -98,10 +99,6 @@ func (m *MediaService) SaveGeneratedAudio(job MediaJob, content []byte, mimeType
 		mimeType = "audio/wav"
 	}
 	return m.saveGeneratedAsset(job, content, "audio", mimeType, metadata)
-}
-
-func (m *MediaService) LocalSpeechExecutor() func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
-	return m.localSpeechExec
 }
 
 // SetLocalAppExecutor wires one App-contributed local provider (contributes.media)
