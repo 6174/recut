@@ -54,6 +54,10 @@ def repository() -> Path:
     return models_root() / "comfyui" / "repository"
 
 
+def pid_path() -> Path:
+    return models_root() / "comfyui" / "server.pid"
+
+
 def model_files(model: dict) -> dict:
     """从 registry 权重清单里取 unet / clip / vae 的文件名（ComfyUI 只认文件名）。"""
     names = {"unet": "", "clip": "", "vae": ""}
@@ -149,6 +153,10 @@ def ensure_server(port: int) -> None:
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
         start_new_session=True,
     )
+    try:
+        pid_path().write_text(str(process.pid), encoding="utf-8")
+    except OSError:
+        pass
     deadline = time.monotonic() + 600
     while time.monotonic() < deadline:
         offset = tail_server_log(log_path, offset)
@@ -241,6 +249,17 @@ def queue_and_wait(port: int, workflow: dict, output_path: Path) -> None:
         time.sleep(2)
 
 
+def cmd_serve(args: argparse.Namespace) -> dict:
+    port = int(args.port or os.environ.get("RECUT_COMFYUI_PORT", DEFAULT_PORT))
+    ensure_server(port)
+    pid = ""
+    try:
+        pid = pid_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        pid = ""
+    return {"ready": True, "running": True, "port": port, "pid": pid}
+
+
 def cmd_generate(args: argparse.Namespace) -> dict:
     reg = registry()
     model = next((m for m in reg.get("models", []) if m["id"] == args.model), None)
@@ -255,7 +274,7 @@ def cmd_generate(args: argparse.Namespace) -> dict:
 
     width, height = ASPECT_RATIOS.get(args.aspect_ratio or "1:1", (1024, 1024))
     seed = int(args.seed) if str(args.seed).strip() not in ("", "-1") else int(time.time()) % (2**31)
-    steps = int(args.steps) if str(args.steps).strip() else 25
+    steps = int(args.steps) if str(args.steps).strip() else 10
     cfg = float(args.cfg) if str(args.cfg).strip() else 1.0
     negative = args.negative_prompt or " "
 
@@ -296,6 +315,9 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status")
 
+    serve_parser = sub.add_parser("serve")
+    serve_parser.add_argument("--port", default="")
+
     generate_parser = sub.add_parser("generate")
     generate_parser.add_argument("--model", required=True)
     generate_parser.add_argument("--prompt", required=True)
@@ -308,7 +330,12 @@ def main() -> None:
     generate_parser.add_argument("--reference", action="append", default=[])
 
     args = parser.parse_args()
-    payload = cmd_status(args) if args.command == "status" else cmd_generate(args)
+    if args.command == "status":
+        payload = cmd_status(args)
+    elif args.command == "serve":
+        payload = cmd_serve(args)
+    else:
+        payload = cmd_generate(args)
     print(json.dumps(payload, ensure_ascii=False), flush=True)
 
 

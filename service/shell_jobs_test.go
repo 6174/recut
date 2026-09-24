@@ -46,6 +46,36 @@ func TestShellJobPersistsLogsAndCompletion(t *testing.T) {
 	}
 }
 
+// Standalone Apps have no project id; their shell-job lifecycle must be scoped
+// under the app id so the host's project-channel subscription (scope.id=appID)
+// delivers it to the App iframe.
+func TestStandaloneShellJobEventsScopeByAppID(t *testing.T) {
+	store, _ := testShellJobScope(t)
+	job, err := NewShellJobManager(store).Execute(ShellJobStart{ProjectID: "", AppID: "example.standalone", Command: "sh", Args: []string{"-c", "printf hi"}, Dir: t.TempDir(), TimeoutSeconds: 5})
+	if err != nil || job.Status != ShellJobCompleted {
+		t.Fatalf("job = %#v, err = %v", job, err)
+	}
+	events, err := store.ListProjectEvents("example.standalone", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, completed := 0, 0
+	for _, event := range events {
+		if strings.Contains(event.Payload, "shell.job.started") {
+			started++
+		}
+		if strings.Contains(event.Payload, "shell.job.completed") {
+			completed++
+		}
+	}
+	if started != 1 || completed != 1 {
+		t.Fatalf("standalone events started=%d completed=%d events=%#v", started, completed, events)
+	}
+	if leaked, _ := store.ListProjectEvents("", 0); len(leaked) != 0 {
+		t.Fatalf("standalone events leaked to empty scope: %#v", leaked)
+	}
+}
+
 func TestShellJobResolvesCommandFromItsEffectivePath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test fixture is a POSIX shell script")

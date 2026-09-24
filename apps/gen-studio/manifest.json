@@ -99,6 +99,25 @@
       "inputSchema": { "type": "object", "properties": { "target": { "type": "string", "enum": ["all", "comfyui"], "description": "可选；缺省 all。" } } }
     },
     {
+      "name": "gen.engine.status",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "检查 ComfyUI 常驻引擎是否在监听（HTTP /system_stats）与记录的进程 PID，返回 { running, port, pid }。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "gen.engine.start",
+      "surfaces": ["api", "mcp"],
+      "description": "启动 ComfyUI 常驻引擎（复用已在监听的实例；否则拉起服务并等待就绪）。异步提交，返回 job/taskId。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "gen.engine.stop",
+      "surfaces": ["api", "mcp"],
+      "description": "关闭本机启动的 ComfyUI 常驻引擎（按 PID 终止进程组并等待端口释放）。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
       "name": "gen.settings.set",
       "surfaces": ["api"],
       "description": "持久化生成工坊的下载源设置（automatic/huggingface/modelscope）。",

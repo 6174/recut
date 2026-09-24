@@ -58,6 +58,17 @@ type ShellJobLog struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// realtimeEventScope returns the project-channel key a job's lifecycle events are
+// published under. Project Apps scope by project id; standalone Apps have no
+// project id, so they scope by app id — matching the host's project-channel
+// subscription (scope.id === appID) so the App iframe receives its own job events.
+func realtimeEventScope(job ShellJob) string {
+	if job.ProjectID != "" {
+		return job.ProjectID
+	}
+	return job.AppID
+}
+
 type ShellJobStart struct {
 	ProjectID      string
 	AppID          string
@@ -120,7 +131,7 @@ func (m *ShellJobManager) RecoverInterrupted() (int, error) {
 		if err := m.persist(job); err != nil {
 			return count, err
 		}
-		m.store.AppendEvent(job.ProjectID, map[string]any{"type": "shell.job.completed", "appId": job.AppID, "job": job})
+		m.store.AppendEvent(realtimeEventScope(job), map[string]any{"type": "shell.job.completed", "appId": job.AppID, "job": job})
 		count++
 	}
 	return count, nil
@@ -216,7 +227,7 @@ func (m *ShellJobManager) run(job ShellJob, input ShellJobStart, ctx context.Con
 	now := time.Now().UTC()
 	job.Status, job.StartedAt = ShellJobRunning, &now
 	_ = m.persist(job)
-	m.store.AppendEvent(job.ProjectID, map[string]any{"type": "shell.job.started", "appId": job.AppID, "job": job})
+	m.store.AppendEvent(realtimeEventScope(job), map[string]any{"type": "shell.job.started", "appId": job.AppID, "job": job})
 	environment := mergeEnv(userBaseEnv(), input.Env)
 	command := exec.CommandContext(ctx, resolveShellCommand(input.Command, environment), input.Args...)
 	configureShellJobCommand(command)
@@ -258,7 +269,7 @@ func (m *ShellJobManager) run(job ShellJob, input ShellJobStart, ctx context.Con
 		job.Status = ShellJobCompleted
 	}
 	_ = m.persist(job)
-	m.store.AppendEvent(job.ProjectID, map[string]any{"type": "shell.job.completed", "appId": job.AppID, "job": job})
+	m.store.AppendEvent(realtimeEventScope(job), map[string]any{"type": "shell.job.completed", "appId": job.AppID, "job": job})
 	switch job.Status {
 	case ShellJobCompleted:
 		log.Printf("INFO shell job completed job_id=%s exit_code=%d", job.ID, job.ExitCode)
@@ -326,7 +337,7 @@ func (m *ShellJobManager) finishCancelled(job ShellJob) {
 	now := time.Now().UTC()
 	job.Status, job.Error, job.EndedAt = ShellJobCancelled, "cancelled", &now
 	_ = m.persist(job)
-	m.store.AppendEvent(job.ProjectID, map[string]any{"type": "shell.job.completed", "appId": job.AppID, "job": job})
+	m.store.AppendEvent(realtimeEventScope(job), map[string]any{"type": "shell.job.completed", "appId": job.AppID, "job": job})
 	log.Printf("WARN shell job cancelled job_id=%s", job.ID)
 }
 
@@ -357,7 +368,7 @@ func (m *ShellJobManager) appendLog(job ShellJob, stream, text string) {
 	_, _ = file.Write(append(raw, '\n'))
 	_ = file.Close()
 	m.mu.Unlock()
-	m.store.AppendEvent(job.ProjectID, map[string]any{"type": "shell.job.log", "appId": job.AppID, "log": entry})
+	m.store.AppendEvent(realtimeEventScope(job), map[string]any{"type": "shell.job.log", "appId": job.AppID, "log": entry})
 }
 
 func (m *ShellJobManager) Status(projectID, appID, id string) (ShellJob, error) {

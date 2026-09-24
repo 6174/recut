@@ -59,7 +59,9 @@ export const recut = {
   state: { query: (name: string) => call("state.query", { name }) },
   background: { call: (operation: string, input: Record<string, unknown> = {}) => call("background.call", { operation, ...input }) },
   agent: { compose: (prompt: string) => call("agent.compose", { prompt }) },
-  media: { pick: (kinds: string[]) => call("media.pick", { kinds }) },
+  media: {
+    pick: (kinds: string[], options: { multiple?: boolean; selectedIDs?: string[] } = {}) => call("media.pick", { kinds, ...options }),
+  },
   events: {
     subscribe: (listener: (event: unknown) => void) => {
       const handler = (event: Event) => listener((event as CustomEvent).detail);

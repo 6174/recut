@@ -80,6 +80,11 @@ func testRealtimeServer(t *testing.T) (*httptest.Server, *Server) {
 		t.Fatal(err)
 	}
 	writeTestFile(t, filepath.Join(appDir, "manifest.json"), `{"manifestVersion":1,"id":"example.app","name":"Example","author":"Test","description":"Test App.","version":"1.0.0","type":"project","background":"background.js","ui":{"projectView":"ui/index.html"}}`)
+	standaloneDir := filepath.Join(root, "apps", "standalone")
+	if err := os.MkdirAll(standaloneDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(standaloneDir, "manifest.json"), `{"manifestVersion":1,"id":"example.standalone","name":"Standalone","author":"Test","description":"Test App.","version":"1.0.0","type":"standalone","background":"background.js","ui":{"standaloneView":"ui/index.html"}}`)
 	apps, err := LoadCatalog(filepath.Join(root, "apps"))
 	if err != nil {
 		t.Fatal(err)
@@ -173,6 +178,37 @@ func TestRealtimeWSProjectAndMediaChannels(t *testing.T) {
 	frame = readWSFrame(t, conn)
 	if frame["type"] != "pong" {
 		t.Fatalf("pong frame = %#v", frame)
+	}
+}
+
+func TestRealtimeWSStandaloneAppProjectChannel(t *testing.T) {
+	srv, server := testRealtimeServer(t)
+	conn := dialRealtime(t, srv)
+
+	// A standalone app id is a valid project-channel scope (host subscribes with
+	// scope.id === appID); a nonexistent key is still ignored.
+	subscribe := map[string]any{
+		"type": "subscribe",
+		"channels": []map[string]any{
+			{"channel": "project", "projectId": "example.standalone"},
+			{"channel": "project", "projectId": "nonexistent"},
+		},
+	}
+	if err := conn.WriteJSON(subscribe); err != nil {
+		t.Fatal(err)
+	}
+	if ack := readWSFrame(t, conn); ack["type"] != "subscribed" {
+		t.Fatalf("subscribe ack = %#v", ack)
+	}
+
+	server.store.AppendEvent("example.standalone", map[string]any{"type": "shell.job.completed", "appId": "example.standalone"})
+	frame := readWSFrame(t, conn)
+	if frame["type"] != "project.event" || frame["projectId"] != "example.standalone" {
+		t.Fatalf("standalone project frame = %#v", frame)
+	}
+	event, _ := frame["event"].(map[string]any)
+	if event["type"] != "shell.job.completed" {
+		t.Fatalf("standalone event payload = %#v", frame["event"])
 	}
 }
 

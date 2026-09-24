@@ -17,7 +17,7 @@
 
 1. `gen.status` / `gen.catalog` 看本机模型与就绪度（runtime venv 是否就绪、权重是否已下载）。
 2. 未就绪时：`gen.prepare { target: "all" }` 准备运行环境；`gen.install { model, source }` 下载权重（可并行）。
-3. `gen.generate { model, prompt, ... }` 提交生成；单槽 FIFO，占槽时返回 `taskId`（`job=null`）→ 用 `gen.tasks.list` / `recut.job.wait` 观察。
+3. `gen.generate { model, prompt, ... }` 提交生成；单槽 FIFO，占槽时返回 `taskId`（`job=null`）→ 用 `gen.tasks.list` / `recut.job.wait` 观察。带参考图编辑时传 `referenceAssetIds: string[]`（可多张，按顺序接进工作流）；界面用全局素材选择器多选。
 4. `gen.generation.complete { id }` 读取产物；`gen.save { id, kind: "image" }` 入库（平台默认路由路径会自动入库）。
 
 ## 平台集成

@@ -6,7 +6,7 @@
  * [OUTPUT]: 注册环境检查（gen.status，含在途任务）、模型目录（gen.catalog：静态注册表 + 动态就绪度）、环境准备
  *          （gen.prepare target: all|comfyui）、下载源设置（gen.settings.set）、模型权重下载（gen.install，
  *          huggingface/modelscope/automatic）、本机生成（gen.generate，单槽 FIFO）、历史与入库（gen.generations /
- *          gen.generation.complete / gen.save）、任务中心（gen.tasks.list/get/logs/cancel）与取消（gen.cancel）。
+ *          gen.generation.complete / gen.save）、任务中心（gen.tasks.list/get/params/logs/cancel）与取消（gen.cancel）。
  * [POS]: gen-studio 的唯一业务后端；manifest contributes.media 声明 local-gen provider，平台经 gen.generate/
  *        gen.save 能力桥调用本 App 完成本机生成。任务并发：推理（generate）单槽 FIFO，环境准备（prepare）单槽
  *        等推理排空，模型下载（install）不限并行；提交永不拒绝，占槽入队。
@@ -14,7 +14,7 @@
  */
 
 const DOWNLOAD_SOURCES = new Set(["automatic", "huggingface", "modelscope"]);
-const ACTIONS = new Set(["prepare", "install", "generate"]);
+const ACTIONS = new Set(["prepare", "install", "generate", "engine"]);
 const PREPARE_TARGETS = new Set(["all", "comfyui"]);
 const INFER_ACTIONS = new Set(["generate"]);
 const RECORD_TABLES = { generate: "gen_generations" };
@@ -26,17 +26,17 @@ const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled", "inte
 const REGISTRY_FALLBACK = {
   runtimes: [{ id: "comfyui", label: { zh: "ComfyUI（通用图片）", en: "ComfyUI (general image)" }, venv: "comfyui" }],
   models: [{
-    id: "qwen-image", capability: "image.generate", runtime: "comfyui",
+    id: "qwen-image", capability: "image.generate", runtime: "comfyui", inputModes: ["text", "image"],
     label: { zh: "Qwen-Image-2.1 · 本机文生图/编辑（int8）", en: "Qwen-Image-2.1 · Local t2i/edit (int8)" },
     formSchema: [
       { key: "prompt", type: "textarea", required: true, label: { zh: "提示词", en: "Prompt" } },
       { key: "negativePrompt", type: "textarea", label: { zh: "负向词", en: "Negative prompt" } },
       { key: "aspectRatio", type: "select", options: ["1:1", "16:9", "9:16", "4:3", "3:4"], default: "1:1" },
-      { key: "steps", type: "number", default: 25, min: 1, max: 100 },
+      { key: "steps", type: "number", default: 10, min: 1, max: 100 },
       { key: "cfg", type: "number", default: 1.0, min: 0, max: 20 },
       { key: "seed", type: "number", default: -1 }
     ],
-    defaultParams: { aspectRatio: "1:1", steps: 25, cfg: 1.0, negativePrompt: " " },
+    defaultParams: { aspectRatio: "1:1", steps: 10, cfg: 1.0, negativePrompt: " " },
     weights: { huggingFace: "Comfy-Org/Qwen-Image-2.1", modelScope: "Comfy-Org/Qwen-Image-2.1", revision: "main", sizeGb: 17 }
   }]
 };
@@ -64,6 +64,7 @@ function taskName(action, meta) {
   if (action === "generate") return `生成：${m.model || ""}${m.prompt ? " · " + m.prompt : ""}`.trim();
   if (action === "install") return `下载模型：${m.model || ""}`.trim();
   if (action === "prepare") return "准备运行环境";
+  if (action === "engine") return "启动 ComfyUI 引擎";
   return action;
 }
 
@@ -131,6 +132,7 @@ function buildCatalog(ctx) {
     const installed = st.installed === true;
     return {
       model: m.id, capability: m.capability, runtime: m.runtime, label: m.label || m.id,
+      inputModes: Array.isArray(m.inputModes) && m.inputModes.length ? m.inputModes : ["text"],
       formSchema: m.formSchema || [], defaultParams: m.defaultParams || {},
       ready: runtimeReady && installed,
       weight: { installed, sizeGb: st.sizeGb || (m.weights && m.weights.sizeGb) || 0, source: st.source || "", revision: (m.weights && m.weights.revision) || "" }
@@ -146,6 +148,22 @@ function settleOutput(ctx, action, recordID, job) {
   if (!table || !recordID || !isTerminalJob(job.status)) return;
   ctx.sqlite.execute(`update ${table} set status = ?, error = ? where id = ?`, [outputStatus(job.status), String(job.error || job.status || "failed"), recordID]);
 }
+
+// 生成完成后把 worker 写出的 <output>.meta.json（真实宽高/seed/步数/耗时）回填进记录，
+// 否则记录只有提交时的默认值（0×0 · seed -1 · 0s）。
+function applyGenerationMeta(ctx, recordID) {
+  if (!recordID) return;
+  const rows = ctx.sqlite.query("select output_path from gen_generations where id = ?", [recordID]);
+  if (!rows.length) return;
+  let raw = "";
+  try { raw = ctx.files.readText(`${rows[0].output_path}.meta.json`); } catch (_) { return; }
+  let meta;
+  try { meta = JSON.parse(raw); } catch (_) { return; }
+  const width = Number(meta.width) || 0;
+  const height = Number(meta.height) || 0;
+  const duration = Number(meta.duration) || 0;
+  ctx.sqlite.execute("update gen_generations set width = ?, height = ?, duration = ?, seed = ?, steps = ? where id = ?", [width, height, duration, meta.seed === undefined || meta.seed === null ? "" : String(meta.seed), meta.steps === undefined || meta.steps === null ? "" : String(meta.steps), recordID]);
+}
 function markFailed(ctx, action, recordID, error) {
   const table = RECORD_TABLES[action];
   if (!table || !recordID) return;
@@ -159,6 +177,7 @@ function closeTaskById(ctx, taskID, state, error) {
 function settleTaskRow(ctx, row) {
   const closeWith = (state, error) => {
     settleOutput(ctx, row.action, row.record_id, { status: state === "completed" ? "completed" : "failed", error: error || "" });
+    if (state === "completed" && row.action === "generate") applyGenerationMeta(ctx, row.record_id);
     if (row.action === "prepare" || row.action === "install") noteEnvOutcome(ctx, row, { status: state, error: error || "" });
     const finalState = state === "completed" ? "completed" : state === "cancelled" ? "cancelled" : state === "interrupted" ? "interrupted" : "failed";
     closeTaskById(ctx, row.id, finalState, error || "");
@@ -206,6 +225,9 @@ function buildJobSpec(ctx, action, row, payload) {
   }
   if (action === "install") {
     return { args: ["python/gen_runner.py", "install", "--model", p.model, "--source", p.source, "--task-log", logPath] };
+  }
+  if (action === "engine") {
+    return { args: ["python/gen_runner.py", "engine", "start", "--task-log", logPath] };
   }
   if (action === "generate") {
     const args = ["python/gen_runner.py", "generate", "--model", p.model, "--prompt", p.prompt, "--output", `generations/${row.record_id}`, "--task-log", logPath];
@@ -297,7 +319,7 @@ function toTaskSummary(task) {
   const raw = task.meta_json ?? task.meta;
   if (typeof raw === "string") { try { meta = JSON.parse(raw); } catch (_) { /* keep empty */ } }
   else if (raw && typeof raw === "object") { meta = raw; }
-  return { id: task.id, action: task.action, name: taskName(task.action, meta), recordId: task.recordId || task.record_id || "", source: task.source, submittedBy: task.submittedBy || task.submitted_by || "", state: task.state, progress: task.progress, createdAt: task.createdAt || task.created_at, startedAt: task.startedAt || task.started_at || "", jobId: task.jobId || task.shell_job_id || "", error: task.error || "", meta };
+  return { id: task.id, action: task.action, name: taskName(task.action, meta), recordId: task.recordId || task.record_id || "", source: task.source, submittedBy: task.submittedBy || task.submitted_by || "", state: task.state, progress: task.progress, createdAt: task.createdAt || task.created_at, startedAt: task.startedAt || task.started_at || "", resolvedAt: task.resolvedAt || task.resolved_at || "", jobId: task.jobId || task.shell_job_id || "", error: task.error || "", meta };
 }
 
 function listTasks(ctx, input = {}) {
@@ -307,7 +329,7 @@ function listTasks(ctx, input = {}) {
   const status = value(input, "status");
   const action = value(input, "action");
   const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 200);
-  const jobs = ctx.sqlite.query("select id, shell_job_id, action, record_id, source, submitted_by, state, progress, meta_json, error, created_at, started_at from gen_tasks").map(toTaskSummary);
+  const jobs = ctx.sqlite.query("select id, shell_job_id, action, record_id, source, submitted_by, state, progress, meta_json, error, created_at, started_at, resolved_at from gen_tasks").map(toTaskSummary);
   const all = jobs.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   const filtered = all.filter((task) => {
     if (source === "ai" || source === "manual") { if (task.source !== source) return false; }
@@ -332,6 +354,49 @@ function getTask(ctx, input) {
   let meta = {};
   try { meta = JSON.parse(row.meta_json || "{}"); } catch (_) { /* keep empty */ }
   return { id: row.id, action: row.action, name: taskName(row.action, meta), recordId: row.record_id, source: row.source, submittedBy: row.submitted_by, state: row.state, progress: row.progress, meta, logPath: row.log_path, error: row.error, createdAt: row.created_at, startedAt: row.started_at, resolvedAt: row.resolved_at };
+}
+
+// 读取生成任务提交时的完整参数与参考图，供右侧预览回显与「重新调整」。
+function taskParams(ctx, input) {
+  ensureSchema(ctx);
+  const id = value(input, "id");
+  const rows = ctx.sqlite.query("select action, record_id from gen_tasks where id = ?", [id]);
+  if (!rows.length) throw new Error("gen task was not found.");
+  const row = rows[0];
+  if (row.action !== "generate" || !row.record_id) return { taskId: id, params: null };
+  const records = ctx.sqlite.query("select id, model, prompt, negative_prompt, aspect_ratio, seed, steps, cfg, reference_asset_ids, status, error from gen_generations where id = ?", [row.record_id]);
+  if (!records.length) return { taskId: id, params: null };
+  const record = records[0];
+  let referenceAssetIds = [];
+  try { referenceAssetIds = JSON.parse(record.reference_asset_ids || "[]"); } catch (_) { referenceAssetIds = []; }
+  referenceAssetIds = (Array.isArray(referenceAssetIds) ? referenceAssetIds : []).map((assetId) => {
+    const asset = toReferenceAsset(ctx, assetId);
+    return asset ? { id: assetId, name: asset.name, savedAssetId: asset.savedAssetId, available: true } : { id: assetId, name: "", savedAssetId: "", available: false };
+  });
+  return {
+    taskId: id,
+    params: {
+      id: record.id,
+      model: record.model,
+      prompt: record.prompt,
+      negativePrompt: record.negative_prompt,
+      aspectRatio: record.aspect_ratio,
+      seed: record.seed,
+      steps: record.steps,
+      cfg: record.cfg,
+      referenceAssetIds,
+      status: record.status,
+      error: record.error || "",
+    },
+  };
+}
+
+function toReferenceAsset(ctx, assetId) {
+  if (!assetId) return null;
+  let rows = [];
+  try { rows = ctx.sqlite.query("select id, name from gen_assets where id = ?", [assetId]); } catch (_) { return { id: assetId, name: "", savedAssetId: "", available: true }; }
+  if (rows.length) return { id: assetId, name: rows[0].name || "", savedAssetId: assetId, available: true };
+  return { id: assetId, name: "", savedAssetId: "", available: true };
 }
 
 function inferLogLevel(message) {
@@ -469,6 +534,24 @@ function install(input, ctx) {
   return { job, taskId: tid };
 }
 
+function engineStatus(_, ctx) {
+  return run(ctx, ["engine", "status"], 30);
+}
+
+function engineStart(input, ctx) {
+  ensureSchema(ctx);
+  const tid = outputID();
+  const logPath = taskLogPath(tid);
+  const job = ctx.python.run(["python/gen_runner.py", "engine", "start", "--task-log", logPath]);
+  submitJob(ctx, { action: "engine", payload: {}, meta: { type: tr(ctx, "ComfyUI 引擎", "ComfyUI engine") }, source: value(input, "origin"), submittedBy: value(input, "submittedBy"), taskId: tid, started: true });
+  ctx.sqlite.execute("update gen_tasks set shell_job_id = ? where id = ?", [shellJobID(job), tid]);
+  return { job, taskId: tid };
+}
+
+function engineStop(_, ctx) {
+  return run(ctx, ["engine", "stop"], 60);
+}
+
 function generate(input, ctx) {
   ensureSchema(ctx);
   const model = value(input, "model");
@@ -513,6 +596,7 @@ function generationComplete(input, ctx) {
   ensureSchema(ctx);
   trackedJob(ctx);
   const id = value(input, "id");
+  applyGenerationMeta(ctx, id);
   const rows = ctx.sqlite.query("select id, model, runtime, capability, prompt, negative_prompt, aspect_ratio, seed, steps, cfg, width, height, duration, saved_asset_id, output_path, created_at, status, error from gen_generations where id = ?", [id]);
   if (!rows.length) throw new Error("generation was not found.");
   const row = rows[0];
@@ -579,6 +663,9 @@ function taskCancel(input, ctx) {
 recut.operation.register("gen.status", status);
 recut.operation.register("gen.catalog", catalog);
 recut.operation.register("gen.prepare", prepare);
+recut.operation.register("gen.engine.status", engineStatus);
+recut.operation.register("gen.engine.start", engineStart);
+recut.operation.register("gen.engine.stop", engineStop);
 recut.operation.register("gen.settings.set", settingsSet);
 recut.operation.register("gen.install", install);
 recut.operation.register("gen.generate", generate);
@@ -590,5 +677,6 @@ recut.operation.register("gen.resolve", resolveJob);
 recut.operation.register("gen.cancel", cancel);
 recut.operation.register("gen.tasks.list", tasksList);
 recut.operation.register("gen.task.get", taskGet);
+recut.operation.register("gen.task.params", taskParams);
 recut.operation.register("gen.task.logs", taskLogs);
 recut.operation.register("gen.task.cancel", taskCancel);

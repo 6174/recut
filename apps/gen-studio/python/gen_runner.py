@@ -352,6 +352,99 @@ def cmd_generate(args: argparse.Namespace) -> dict:
     return {"ready": True, "model": model["id"], "output": args.output}
 
 
+# ---------------------- ComfyUI 引擎（常驻服务） ----------------------
+
+
+def engine_port() -> int:
+    return int(os.environ.get("RECUT_COMFYUI_PORT", "8188"))
+
+
+def engine_pid_file() -> Path:
+    return models_root() / "comfyui" / "server.pid"
+
+
+def engine_alive(port: int) -> bool:
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/system_stats", timeout=2) as response:
+            return response.status == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def engine_status(port: int) -> dict:
+    try:
+        pid = engine_pid_file().read_text(encoding="utf-8").strip()
+    except OSError:
+        pid = ""
+    return {"running": engine_alive(port), "port": port, "pid": pid}
+
+
+def engine_start(port: int) -> dict:
+    runtime = runtime_def(registry(), "comfyui")
+    python = runtime_python("comfyui")
+    if not python.is_file():
+        raise SystemExit("ComfyUI 专属运行环境未就绪，请先准备环境。")
+    runner = app_root() / runtime.get("runner", "python/comfyui_runner.py")
+    process = subprocess.Popen([str(python), str(runner), "serve", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert process.stdout is not None
+    for line in process.stdout:
+        print(line.rstrip(), flush=True)
+    if process.wait() != 0:
+        raise SystemExit("ComfyUI 引擎启动失败。")
+    return {"ready": True, "running": True, "port": port}
+
+
+def engine_stop(port: int) -> dict:
+    import signal
+
+    try:
+        pid = int(engine_pid_file().read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        pid = 0
+    if pid <= 0:
+        if not engine_alive(port):
+            return {"running": False, "port": port, "pid": ""}
+        raise SystemExit("找不到 ComfyUI 服务进程，无法关闭。")
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+    except Exception:  # noqa: BLE001
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except Exception:  # noqa: BLE001
+            pass
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and engine_alive(port):
+        time.sleep(0.5)
+    if engine_alive(port):
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except Exception:  # noqa: BLE001
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except Exception:  # noqa: BLE001
+                pass
+        time.sleep(1)
+    try:
+        engine_pid_file().unlink()
+    except OSError:
+        pass
+    return {"running": engine_alive(port), "port": port, "pid": ""}
+
+
+def cmd_engine(args: argparse.Namespace) -> dict:
+    action = args.engine_action
+    port = engine_port()
+    if action == "status":
+        return engine_status(port)
+    if action == "start":
+        return engine_start(port)
+    if action == "stop":
+        return engine_stop(port)
+    raise SystemExit(f"unknown engine action: {action}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-log", default="")
@@ -380,6 +473,10 @@ def main() -> None:
     generate_parser.add_argument("--reference", action="append", default=[])
     generate_parser.add_argument("--task-log", default="")
 
+    engine_parser = sub.add_parser("engine")
+    engine_parser.add_argument("engine_action", choices=["status", "start", "stop"])
+    engine_parser.add_argument("--task-log", default="")
+
     args = parser.parse_args()
     resolve_task_log(args.task_log)
 
@@ -391,6 +488,8 @@ def main() -> None:
         payload = cmd_install(args)
     elif args.command == "generate":
         payload = cmd_generate(args)
+    elif args.command == "engine":
+        payload = cmd_engine(args)
     else:  # pragma: no cover
         raise SystemExit(f"unknown command: {args.command}")
 

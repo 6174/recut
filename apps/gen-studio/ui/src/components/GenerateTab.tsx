@@ -1,21 +1,23 @@
 /**
- * [INPUT]: 依赖 gen.catalog 的模型清单/formSchema/就绪度、shadcn Select 与环境/下载动作回调
- * [OUTPUT]: 顶部模型切换器（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境/下载模型/来源）+ 表单提交
+ * [INPUT]: 依赖 gen.catalog 的模型清单/formSchema/inputModes/就绪度、shadcn Select、recut.media.pick 全局素材选择器与环境/下载动作回调
+ * [OUTPUT]: 顶部模型切换器（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境/下载模型/来源）+ 支持 image 输入的模型上的多选参考图（含预览图经 injectedReference 一键回填）+ 表单提交
  * [POS]: Left「生成」Tab；依赖准备与生成提交都在此收敛，记录 Tab 只负责历史
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { AlertTriangle, Check, Download, Play, Sparkles, Wand2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Check, Download, ImagePlus, Play, Sparkles, Wand2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { interpolate, t, type Locale } from "../i18n";
+import { recut } from "../recut-sdk";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Badge, Button, Card, Field, Input, Textarea } from "../ui";
-import type { CatalogModel, FormField, LocalLabel, RuntimeInfo } from "../types";
+import type { CatalogModel, FormField, InjectedReference, LocalLabel, MediaAsset, RuntimeInfo } from "../types";
 
 interface Props {
   models: CatalogModel[];
   runtimes: RuntimeInfo[];
   locale: Locale;
   downloadSource: string;
+  injectedReference: InjectedReference | null;
   onGenerate: (input: Record<string, unknown>) => Promise<void>;
   onSaveDefault: (model: string) => Promise<string>;
   onPrepare: (target: string) => Promise<void>;
@@ -36,16 +38,19 @@ function defaultValue(field: FormField): string {
   return String(field.default);
 }
 
-export function GenerateTab({ models, runtimes, locale, downloadSource, onGenerate, onSaveDefault, onPrepare, onInstall, onSetSource }: Props) {
+export function GenerateTab({ models, runtimes, locale, downloadSource, injectedReference, onGenerate, onSaveDefault, onPrepare, onInstall, onSetSource }: Props) {
   const [modelId, setModelId] = useState(models[0]?.model ?? "");
   const [values, setValues] = useState<Record<string, string>>({});
+  const [references, setReferences] = useState<MediaAsset[]>([]);
   const [source, setSource] = useState(downloadSource || "automatic");
   const [hint, setHint] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [working, setWorking] = useState(false);
+  const injectedNonceRef = useRef(0);
 
   const model = useMemo(() => models.find((candidate) => candidate.model === modelId) ?? models[0], [models, modelId]);
   const modelKey = model?.model ?? "";
+  const canUseImage = Array.isArray(model?.inputModes) && model.inputModes.includes("image");
 
   useEffect(() => {
     if (!modelId && models[0]) setModelId(models[0].model);
@@ -56,7 +61,45 @@ export function GenerateTab({ models, runtimes, locale, downloadSource, onGenera
     const next: Record<string, string> = {};
     for (const field of model.formSchema) next[field.key] = defaultValue(field);
     setValues(next);
+    setReferences([]);
   }, [modelKey]);
+
+  useEffect(() => {
+    if (!injectedReference || injectedReference.nonce === injectedNonceRef.current) return;
+    injectedNonceRef.current = injectedReference.nonce;
+    if (injectedReference.error) {
+      setHint(interpolate(t(locale, "generate.edit-failed"), { error: injectedReference.error }));
+      return;
+    }
+    const draft = injectedReference.draft;
+    if (draft) {
+      const target = models.find((candidate) => candidate.model === draft.model);
+      if (target && target.model !== modelId) setModelId(target.model);
+      const next: Record<string, string> = {};
+      if (target) for (const field of target.formSchema) next[field.key] = defaultValue(field);
+      next.prompt = draft.prompt ?? next.prompt ?? "";
+      if (draft.negativePrompt) next.negativePrompt = draft.negativePrompt;
+      if (draft.aspectRatio) next.aspectRatio = draft.aspectRatio;
+      if (draft.seed !== undefined) next.seed = String(draft.seed);
+      if (draft.steps !== undefined) next.steps = String(draft.steps);
+      if (draft.cfg !== undefined) next.cfg = String(draft.cfg);
+      setValues((prev) => ({ ...prev, ...next }));
+      const targetCanUseImage = Array.isArray(target?.inputModes) && target.inputModes.includes("image");
+      if (targetCanUseImage) {
+        setReferences((draft.referenceAssetIds ?? []).filter((item) => item.available !== false).map((item) => ({ id: item.id, name: item.name, kind: "image" })));
+      } else {
+        setReferences([]);
+        setHint(t(locale, "generate.edit-unsupported"));
+      }
+      return;
+    }
+    if (!canUseImage) {
+      setHint(t(locale, "generate.edit-unsupported"));
+      return;
+    }
+    setReferences((prev) => (prev.some((item) => item.id === injectedReference.id) ? prev : [...prev, { id: injectedReference.id, name: injectedReference.name, kind: "image" }]));
+    setHint("");
+  }, [injectedReference, canUseImage, locale, models, modelId]);
 
   useEffect(() => setSource(downloadSource || "automatic"), [downloadSource]);
 
@@ -67,6 +110,18 @@ export function GenerateTab({ models, runtimes, locale, downloadSource, onGenera
   const runtimeReady = runtimes.find((item) => item.id === model.runtime)?.ready ?? false;
   const weightInstalled = model.weight.installed;
   const ready = runtimeReady && weightInstalled;
+  const supportsImage = canUseImage;
+
+  const pickReferences = async () => {
+    try {
+      const selected = (await recut.media.pick(["image"], { multiple: true, selectedIDs: references.map((item) => item.id) })) as MediaAsset[] | null;
+      if (!selected) return;
+      setReferences(selected.map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind ?? "image" })));
+      setHint("");
+    } catch (error) {
+      setHint(interpolate(t(locale, "generate.pick-failed"), { error: error instanceof Error ? error.message : String(error) }));
+    }
+  };
 
   const submit = async () => {
     setSubmitting(true);
@@ -78,6 +133,7 @@ export function GenerateTab({ models, runtimes, locale, downloadSource, onGenera
         const field = model.formSchema.find((candidate) => candidate.key === key);
         input[key] = field?.type === "number" ? Number(raw) : raw;
       }
+      if (supportsImage && references.length) input.referenceAssetIds = references.map((asset) => asset.id);
       await onGenerate(input);
     } catch (error) {
       setHint(interpolate(t(locale, "generate.failed"), { error: error instanceof Error ? error.message : String(error) }));
@@ -181,6 +237,29 @@ export function GenerateTab({ models, runtimes, locale, downloadSource, onGenera
             )}
           </Field>
         ))}
+
+        {supportsImage ? (
+          <Field label={t(locale, "generate.references")} hint={t(locale, "generate.references-hint")}>
+            <div className="flex flex-wrap items-center gap-2">
+              {references.map((asset) => (
+                <div key={asset.id} className="group relative size-16 overflow-hidden rounded-md border bg-muted">
+                  <img className="size-full object-cover" src={`/v1/media/assets/${encodeURIComponent(asset.id)}/content`} alt={asset.name || asset.id} />
+                  <button
+                    type="button"
+                    title={t(locale, "generate.remove-reference")}
+                    onClick={() => setReferences((prev) => prev.filter((item) => item.id !== asset.id))}
+                    className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-background/85 text-foreground opacity-0 transition group-hover:opacity-100"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => void pickReferences()}>
+                <ImagePlus className="size-3.5" />{t(locale, "generate.add-reference")}
+              </Button>
+            </div>
+          </Field>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2 pt-1">

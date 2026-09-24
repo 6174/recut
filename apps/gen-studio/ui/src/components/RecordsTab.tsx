@@ -6,6 +6,7 @@
  */
 import { t, type Locale } from "../i18n";
 import { Badge, Card } from "../ui";
+import { formatCompactTime } from "../lib/format";
 import type { Task } from "../types";
 
 interface Props {
@@ -40,7 +41,7 @@ export function RecordsTab({ tasks, locale, selectedId, onSelect }: Props) {
             <Badge tone={TONE[task.state] ?? "muted"}>{t(locale, `state.${task.state}`)}</Badge>
           </div>
           <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-            <span>{task.source === "ai" ? "AI" : "MANUAL"} · {task.createdAt}</span>
+            <span>{task.source === "ai" ? "AI" : "MANUAL"} · {t(locale, "records.started")} {formatCompactTime(task.startedAt || task.createdAt)}</span>
             <span className="font-mono">{task.id}</span>
           </div>
         </Card>

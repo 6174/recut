@@ -293,6 +293,20 @@ func enqueueFrame(client *wsClient, done <-chan struct{}, frame []byte) bool {
 	}
 }
 
+// realtimeScopeExists reports whether key names a valid realtime project-channel
+// scope: either a real project, or a standalone App whose appstate scope is keyed
+// by its app id (the host subscribes the project channel with scope.id === appID).
+func (s *Server) realtimeScopeExists(key string) bool {
+	if _, err := s.store.Get(key); err == nil {
+		return true
+	}
+	if s.apps == nil {
+		return false
+	}
+	app, ok := s.apps.Get(key)
+	return ok && app.Manifest.Kind == StandaloneApp
+}
+
 // applySubscribe validates and registers a channel subscription, starting any
 // event-driven cli/terminal stream forwarder.
 func (s *Server) applySubscribe(
@@ -302,10 +316,8 @@ func (s *Server) applySubscribe(
 	subs *realtimeSubscriptions,
 	done <-chan struct{},
 ) bool {
-	if channel == "project" && key != "" {
-		if _, err := s.store.Get(key); err != nil {
-			return true // 项目不存在则忽略订阅
-		}
+	if channel == "project" && key != "" && !s.realtimeScopeExists(key) {
+		return true // 项目/独立 App 作用域不存在则忽略订阅
 	}
 	if channel == "project" || channel == "agent" {
 		s.bus.Subscribe(client, channel, key)

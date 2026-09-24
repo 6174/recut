@@ -16,6 +16,7 @@ export interface CatalogModel {
   capability: string;
   runtime: string;
   label: LocalLabel;
+  inputModes: string[];
   formSchema: FormField[];
   defaultParams: Record<string, unknown>;
   ready: boolean;
@@ -38,6 +39,12 @@ export interface Catalog {
   downloadSource: string;
 }
 
+export interface EngineStatus {
+  running: boolean;
+  port: number;
+  pid?: string;
+}
+
 export interface EnvStatus {
   ready: boolean;
   pending?: boolean;
@@ -54,6 +61,8 @@ export interface Task {
   source: string;
   state: string;
   createdAt: string;
+  startedAt?: string;
+  resolvedAt?: string;
   error?: string;
 }
 
@@ -66,6 +75,43 @@ export interface TaskDetail extends Task {
 export interface LogLine {
   level: string;
   message: string;
+}
+
+export interface MediaAsset {
+  id: string;
+  name?: string;
+  kind?: string;
+  mimeType?: string;
+  status?: string;
+}
+
+export interface InjectedReference {
+  id: string;
+  name?: string;
+  nonce: number;
+  error?: string;
+  draft?: GenerationParams;
+}
+
+export interface ReferenceParam {
+  id: string;
+  name?: string;
+  savedAssetId?: string;
+  available?: boolean;
+}
+
+export interface GenerationParams {
+  id: string;
+  model: string;
+  prompt: string;
+  negativePrompt: string;
+  aspectRatio: string;
+  seed: string;
+  steps: string;
+  cfg: string;
+  referenceAssetIds: ReferenceParam[];
+  status?: string;
+  error?: string;
 }
 
 export interface Generation {
