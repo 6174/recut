@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 gen.catalog 的模型清单/formSchema/inputModes/就绪度、shadcn Select、recut.media.pick 全局素材选择器、环境/下载动作回调与 useGenerateStore
- * [OUTPUT]: 顶部模型切换器（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境/下载模型/来源）+ 支持 image 输入的模型上的多选参考图（含预览图经 injectedReference 一键回填）+ 表单提交；模型/参数/参考图/下载源由 useGenerateStore 持有并持久化
+ * [INPUT]: 依赖 gen.catalog 的模型清单/formSchema/inputModes/就绪度、shadcn Select、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、环境/下载动作回调与 useGenerateStore
+ * [OUTPUT]: 顶部模型切换器（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境/下载模型/来源）+ 支持 image 输入的模型上的多选参考图（缩略图点击经 recut.media.preview 全屏预览；预览图经 injectedReference 一键回填）+ 表单提交；模型/参数/参考图/下载源由 useGenerateStore 持有并持久化
  * [POS]: Left「生成」Tab；依赖准备与生成提交都在此收敛，记录 Tab 只负责历史；表单状态在 store，切 Tab 不丢
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -8,6 +8,7 @@ import { AlertTriangle, Check, Download, ImagePlus, Play, Sparkles, Wand2, X } f
 import { useEffect, useMemo, useRef, useState } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
+import { mediaContentPath, mediaContentURL } from "../lib/media";
 import { useGenerateStore } from "../state/generate";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Badge, Button, Card, Field, Input, Textarea } from "../ui";
@@ -266,7 +267,14 @@ export function GenerateTab({ models, runtimes, locale, downloadSource, injected
             <div className="flex flex-wrap items-center gap-2">
               {references.map((asset) => (
                 <div key={asset.id} className="group relative size-16 overflow-hidden rounded-md border bg-muted">
-                  <img className="size-full object-cover" src={`/v1/media/assets/${encodeURIComponent(asset.id)}/content`} alt={asset.name || asset.id} />
+                  <button
+                    type="button"
+                    title={t(locale, "generate.preview-reference")}
+                    onClick={() => void recut.media.preview(mediaContentURL(asset.id), { name: asset.name || asset.id })}
+                    className="block size-full cursor-zoom-in"
+                  >
+                    <img className="size-full object-cover" src={mediaContentPath(asset.id)} alt={asset.name || asset.id} />
+                  </button>
                   <button
                     type="button"
                     title={t(locale, "generate.remove-reference")}

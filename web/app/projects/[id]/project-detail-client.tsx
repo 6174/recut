@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖全局 Zustand service 状态、workspace-store 的项目/App/安装状态、平台素材选择器、Assets bridge、可编辑项目名称、按 scope 缓存的 Agent Session 列表、全局 Agent 面板上下文与 Next.js 浏览器路由参数
- * [OUTPUT]: 对外提供通用项目 App UI 容器、按 iframe 实际 origin 转发的项目事件、全局素材选择、受 project scope 限制的 recut.assets 能力、项目名称编辑与结构化 Agent 请求转交；App 只能经全局面板上下文回填左侧 Agent 输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
+ * [INPUT]: 依赖全局 Zustand service 状态、workspace-store 的项目/App/安装状态、平台素材选择器、全局图片预览、Assets bridge、可编辑项目名称、按 scope 缓存的 Agent Session 列表、全局 Agent 面板上下文与 Next.js 浏览器路由参数
+ * [OUTPUT]: 对外提供通用项目 App UI 容器、按 iframe 实际 origin 转发的项目事件、全局素材选择、全局图片全屏预览（image.preview）、受 project scope 限制的 recut.assets 能力、项目名称编辑与结构化 Agent 请求转交；App 只能经全局面板上下文回填左侧 Agent 输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
  * [POS]: projects/[id] 的客户端交互层；由 page.tsx 服务端壳承载，从 workspace-store 读取目录真相，隔离 useParams、WebSocket 与 iframe，通信目标以 iframe URL 为唯一真相源；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
 import { HeaderActions } from "@/components/header-actions";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
+import { PlatformImagePreview, type PlatformImagePreviewRequest } from "@/components/image-lightbox";
 import { EditableProjectName } from "./editable-project-name";
 import { normalizeWorkFocus } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
@@ -76,6 +77,7 @@ export default function ProjectDetailClient() {
   const { id: routeID } = useParams<{ id: string }>();
   const [id, setID] = useState("");
   const [mediaPicker, setMediaPicker] = useState<PlatformMediaPickerRequest | null>(null);
+  const [imagePreview, setImagePreview] = useState<PlatformImagePreviewRequest | null>(null);
   const apiBase = useServiceStore((state) => state.endpoint);
   const online = useServiceStore((state) => state.service.phase === "online");
   const apps = useWorkspaceStore((state) => state.apps);
@@ -187,6 +189,12 @@ export default function ProjectDetailClient() {
           const selectedIDs = Array.isArray(request.input?.selectedIDs) ? request.input.selectedIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
           mediaPickerReply.current = (selection) => reply(selection);
           setMediaPicker({ kinds, multiple, selectedIDs });
+          } else if (request.type === "image.preview") {
+          const url = String(request.input?.url || "").trim();
+          if (!url) throw new Error(t("detail.operation.preview"));
+          const name = typeof request.input?.name === "string" ? request.input.name : undefined;
+          setImagePreview({ url, name });
+          reply({ delivery: "image-preview" });
           }
         }
       } catch (cause) {
@@ -288,5 +296,6 @@ export default function ProjectDetailClient() {
       </section>
     </div>
     <PlatformMediaPicker apiBase={apiBase} onCancel={() => resolveMediaPicker(null)} onPick={resolveMediaPicker} request={mediaPicker} />
+    <PlatformImagePreview onClose={() => setImagePreview(null)} request={imagePreview} />
   </main>;
 }

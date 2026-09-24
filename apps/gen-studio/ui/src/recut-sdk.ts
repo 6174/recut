@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖宿主注入的 MessageChannel 与独立 App workspace scope
- * [OUTPUT]: 对外提供 App operation 调用（background.call）、状态查询、右侧 Agent 输入回填与 UI 语言读取的 iframe SDK
+ * [OUTPUT]: 对外提供 App operation 调用（background.call）、状态查询、右侧 Agent 输入回填、全局素材选择/图片全屏预览（media.pick / media.preview）与 UI 语言读取的 iframe SDK
  * [POS]: ui/src 的宿主通信边界；组件不直接读写 App SQLite 或执行本机命令
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useState } from "react";
 
-type RequestType = "state.query" | "background.call" | "agent.compose" | "media.pick";
+type RequestType = "state.query" | "background.call" | "agent.compose" | "media.pick" | "image.preview";
 
 export type Locale = "zh" | "en";
 
@@ -61,6 +61,7 @@ export const recut = {
   agent: { compose: (prompt: string) => call("agent.compose", { prompt }) },
   media: {
     pick: (kinds: string[], options: { multiple?: boolean; selectedIDs?: string[] } = {}) => call("media.pick", { kinds, ...options }),
+    preview: (url: string, options: { name?: string } = {}) => call("image.preview", { url, ...options }),
   },
   events: {
     subscribe: (listener: (event: unknown) => void) => {

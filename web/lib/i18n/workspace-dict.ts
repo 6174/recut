@@ -453,6 +453,7 @@ const zh = {
   "detail.operation.context": "页面上下文需要标题",
   "detail.operation.pickerBusy": "已有素材选择器正在打开",
   "detail.operation.kinds": "请声明可选择的素材类型",
+  "detail.operation.preview": "图片地址不能为空",
   "detail.operation.host": "Recut Host 通信失败",
 } as const;
 
@@ -898,6 +899,7 @@ const en: Record<keyof typeof zh, string> = {
   "detail.operation.context": "Page context requires a title",
   "detail.operation.pickerBusy": "A media picker is already open",
   "detail.operation.kinds": "Declare selectable media kinds",
+  "detail.operation.preview": "An image URL is required",
   "detail.operation.host": "Recut Host communication failed",
 };
 

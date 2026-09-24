@@ -1,14 +1,16 @@
 /**
- * [INPUT]: 依赖选中任务详情（gen.task.get）、生成产物（gen.generation.complete）、生成参数（gen.task.params）与持久日志（gen.task.logs）
- * [OUTPUT]: Right 面板：任务头（状态/取消）+ 生成预览（含「以此为参考图编辑」「重新调整参数」入口）与生成参数回显 + 入库 / 环境下载实时日志
+ * [INPUT]: 依赖选中任务详情（gen.task.get）、生成产物（gen.generation.complete）、生成参数（gen.task.params）、持久日志（gen.task.logs）与 recut.media.preview 全屏预览
+ * [OUTPUT]: Right 面板：任务头（状态/取消）+ 生成预览（图片点击全屏预览，含「以此为参考图编辑」「重新调整参数」入口）与生成参数回显（参考图可全屏预览）+ 入库 / 环境下载实时日志
  * [POS]: Right 的统一生产预览与进度日志面
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useEffect, useState } from "react";
 import { Download, ImageIcon, SlidersHorizontal, Wand2, X } from "lucide-react";
 import { interpolate, t, type Locale } from "../i18n";
+import { recut } from "../recut-sdk";
 import { Badge, Button, Progress, StatusDot } from "../ui";
 import { formatDateTime, formatDuration } from "../lib/format";
+import { absoluteURL, mediaContentPath, mediaContentURL } from "../lib/media";
 import type { Generation, GenerationParams, LogLine, TaskDetail } from "../types";
 
 interface Props {
@@ -88,9 +90,16 @@ function ParamsPanel({ params, locale }: { params: GenerationParams | null; loca
         ) : (
           <div className="flex flex-wrap items-center gap-1.5">
             {params.referenceAssetIds.map((item) => (
-              <div key={item.id} className={`relative size-12 overflow-hidden rounded-md border bg-muted ${item.available === false ? "opacity-40" : ""}`}>
-                <img className="size-full object-cover" src={`/v1/media/assets/${encodeURIComponent(item.id)}/content`} alt={item.name || item.id} title={item.name || item.id} />
-              </div>
+              <button
+                key={item.id}
+                type="button"
+                className={`relative size-12 overflow-hidden rounded-md border bg-muted ${item.available === false ? "opacity-40" : "cursor-zoom-in"}`}
+                disabled={item.available === false}
+                onClick={() => void recut.media.preview(mediaContentURL(item.id), { name: item.name || item.id })}
+                title={t(locale, "preview.preview-image")}
+              >
+                <img className="size-full object-cover" src={mediaContentPath(item.id)} alt={item.name || item.id} />
+              </button>
             ))}
           </div>
         )}
@@ -141,7 +150,14 @@ export function PreviewPane({ task, generation, params, logs, locale, onCancel, 
       {showImage ? (
         <div className="space-y-3">
           <div className="group relative overflow-hidden rounded-lg border bg-terminal">
-            <img className="mx-auto max-h-[60vh] w-auto" src={generation.outputURL} alt="generated" />
+            <button
+              type="button"
+              className="block w-full cursor-zoom-in"
+              onClick={() => void recut.media.preview(absoluteURL(generation.outputURL), { name: generation.model })}
+              title={t(locale, "preview.preview-image")}
+            >
+              <img className="mx-auto max-h-[60vh] w-auto" src={generation.outputURL} alt="generated" />
+            </button>
             <Button
               variant="outline"
               size="sm"

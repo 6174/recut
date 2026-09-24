@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 workspace-store 的独立 App scope/manifest、统一 App 身份图标、media-configuration-store 的 Provider/凭据、App API、媒体生成、Assets bridge、平台素材选择器、按 scope 缓存的 Agent Session 列表与全局 Agent 面板上下文
- * [OUTPUT]: 对外提供独立 App iframe 容器、按 iframe 实际 origin 的宿主通信、受 scope 限制的 recut.assets 能力、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择和工作区级 Agent 对话侧栏，并在工作区头部以单行展示 App 图标、名称、版本号与可升级状态提示（AppVersionControl）；App 只能经全局面板上下文回填输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
+ * [INPUT]: 依赖 workspace-store 的独立 App scope/manifest、统一 App 身份图标、media-configuration-store 的 Provider/凭据、App API、媒体生成、Assets bridge、平台素材选择器、全局图片预览、按 scope 缓存的 Agent Session 列表与全局 Agent 面板上下文
+ * [OUTPUT]: 对外提供独立 App iframe 容器、按 iframe 实际 origin 的宿主通信、受 scope 限制的 recut.assets 能力、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择、全局图片全屏预览（image.preview）和工作区级 Agent 对话侧栏，并在工作区头部以单行展示 App 图标、名称、版本号与可升级状态提示（AppVersionControl）；App 只能经全局面板上下文回填输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
  * [POS]: workspace-app/[appID] 的客户端工作台；从统一缓存复用项目级安全 scope，但不显示或创建用户项目；iframe URL 是消息目标 origin 的唯一真相源；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,6 +14,7 @@ import { appIcon } from "@/components/app-identity-icon";
 import { AppVersionControl } from "@/components/app-version-control";
 import { HeaderActions } from "@/components/header-actions";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
+import { PlatformImagePreview, type PlatformImagePreviewRequest } from "@/components/image-lightbox";
 import { normalizeWorkFocus } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
 import { useAgentPanelContext, useReportWorkSurface } from "@/lib/agent-panel-context";
@@ -47,6 +48,7 @@ export default function StandaloneAppClient() {
   const { appID: routeID } = useParams<{ appID: string }>();
   const [appID, setAppID] = useState("");
   const [mediaPicker, setMediaPicker] = useState<PlatformMediaPickerRequest | null>(null);
+  const [imagePreview, setImagePreview] = useState<PlatformImagePreviewRequest | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"multimodal" | undefined>();
   const apiBase = useServiceStore((state) => state.endpoint);
@@ -155,6 +157,12 @@ export default function StandaloneAppClient() {
           const selectedIDs = Array.isArray(request.input?.selectedIDs) ? request.input.selectedIDs.filter((id: unknown): id is string => typeof id === "string" && Boolean(id.trim())) : [];
           mediaPickerReply.current = (selection) => reply(selection);
           setMediaPicker({ kinds, multiple, selectedIDs });
+        } else if (request.type === "image.preview") {
+          const url = String(request.input?.url || "").trim();
+          if (!url) throw new Error("图片地址不能为空");
+          const name = typeof request.input?.name === "string" ? request.input.name : undefined;
+          setImagePreview({ url, name });
+          reply({ delivery: "image-preview" });
         }
       } catch (cause) { reply(undefined, cause instanceof Error ? cause.message : "Recut Host 通信失败"); }
     };
@@ -170,5 +178,6 @@ export default function StandaloneAppClient() {
     <header className="flex h-13 shrink-0 items-center justify-between border-b bg-card px-5"><div className="flex min-w-0 items-center gap-4"><Link aria-label="返回首页" className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><AppWindow className="size-4" /><strong className="text-sm tracking-tight">RECUT</strong></Link><div aria-hidden="true" className="h-5 w-px bg-border" /><div className="flex min-w-0 items-center gap-2"><Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.8} /><p className="truncate text-sm font-semibold">{app?.manifest.name ?? "工作区 App"}</p>{app && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">v{app.manifest.version}</span>}{installation && <AppVersionControl app={installation} onUpdated={() => { void loadWorkspace(apiBase); }} />}</div></div><HeaderActions onSettingsOpenChange={changeSettingsOpen} settingsOpen={settingsOpen} settingsSection={settingsSection} /></header>
     <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]"><section className="h-full min-w-0 overflow-hidden border-l bg-card">{uiURL ? <iframe allow="clipboard-write; fullscreen" className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={app?.manifest.name ?? "Recut App"} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">正在准备独立 App 工作区…</div>}</section></div>
     <PlatformMediaPicker apiBase={apiBase} onCancel={() => resolveMediaPicker(null)} onPick={resolveMediaPicker} request={mediaPicker} />
+    <PlatformImagePreview onClose={() => setImagePreview(null)} request={imagePreview} />
   </main>;
 }

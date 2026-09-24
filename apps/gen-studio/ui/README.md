@@ -7,7 +7,8 @@
 - `src/style.css`：Recut Design System 语义 token（深色画布、绿色主色、低圆角工具表面）。
 - `src/ui.tsx`：共享视觉原子（Button / Card / Badge / Field / Input / Textarea / Progress / StatusDot）。
 - `src/components/ui/select.tsx`：shadcn 风格 Select（Radix Select，替代原生 `<select>`）。
-- `src/recut-sdk.ts`：宿主 MessageChannel 桥（`background.call` / `state.query`）与 `useRecutLocale`。
+- `src/recut-sdk.ts`：宿主 MessageChannel 桥（`background.call` / `state.query` / `media.pick` / `media.preview`）与 `useRecutLocale`。
+- `src/lib/media.ts`：媒体地址边界（素材内容路径 / 绝对地址），供缩略图与全屏预览共用。
 - `src/i18n.ts`：zh/en 字典 + `t` / `interpolate`。
 - `src/App.tsx`：Left 两 Tab（生成 / 记录）+ Right 统一预览与进度日志的状态编排与轮询。
 - `src/state/generate.ts`：生成表单的 zustand store（modelId / 字段值 / 参考图 / 下载源），persist 到 localStorage，刷新与切 Tab 后恢复。

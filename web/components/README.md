@@ -13,6 +13,7 @@ use-media-asset-events.tsx: Recut 媒体 SSE 缓存边界；以首次快照和�
 asset-preview-dialog.tsx: 跨页面统一素材详情模态框；素材库与 Agent 对话都通过它预览图片、按需视频播放器、可定位波形音频、转写 bundle（源声音播放、分段列表、SRT/JSON parts 预览下载）和无本地二进制的 `reference` 资料链接，从共享 Asset 缓存原位更新运行/终态与生成耗时，查看提示词与参考素材，并复制符合 `<media>` 协议的素材上下文给 Agent。
 asset-reference-picker.tsx: 资源引用交互层；解析素材库复制的 `<media>` 协议，提供 @ 素材候选与进入全局世界观/素材选择器的统一入口；素材选择面板使用正常高度真实预览卡，直接显示名称、类型、来源、创建时间、提示词/时长，并分离“详情”和“选择”操作。
 platform-media-picker.tsx: iframe App 的平台级素材桥；复用带元信息、详情预览与明确选择操作的全局素材面板，返回指定类型（含转写稿）、完成态素材的稳定 assetId 与展示元数据；转写稿选择只从库中读取，避免错误上传类型。
+image-lightbox.tsx: 平台级全屏图片预览；Portal 到 body，点击遮罩/Esc 关闭并支持 25%–600% 缩放，`PlatformImagePreview` 承接 iframe App 的 `image.preview` 请求（App 只传绝对地址与名称），素材详情与各 iframe 宿主共用同一预览面。
 agent-message-content.tsx: Agent 回复的受控 XML 媒体节点渲染器；解析 `<media type="image|video|audio|transcript|reference|component" assetid="..."/>` 为紧凑可点击卡片，从共享 Asset 缓存显示实时/最终生成耗时；完成的图片和视频显示真实画面，`component` 用 `motion-graphic-preview` 实时渲染组件，资料链接点击打开详情。
 tool-result-assets.tsx: Agent 工具结果中的媒体适配层；从含嵌套 JSON 字符串的 `assetIds`（含单个 `assetId`，如 propose 结果）提取结果，跳过 `component:` 组件引用，图片和视频直接显示真实预览，视频统一复用 `VideoFrame` 的 iframe 子文档模式与素材详情模态框；生成中/排队显示旋转态与「生成中」，`proposed` 提案显示虚线框与「计划中（待生成）」，失败显示错误文案。
 asset-preview-dialog.tsx: 全局统一素材详情框；媒体素材展示预览 + 信息/提案/属性编辑面，`kind=component`（Motion Graphic 组件）复用 `motion-graphic-preview` 实时渲染内容区并只读展示元数据，不走 Remix 与素材属性编辑。
