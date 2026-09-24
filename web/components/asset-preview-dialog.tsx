@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import type { ContextOption } from "@/lib/context-catalog/types";
-import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
+import { isLocalProvider, useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { createProposal, updateProposalAsset, confirmProposalAsset, type GenerationProposal, type ProposalPatch, type ProposalReference } from "@/lib/media/proposal";
 import { ProposalEditor, type ProposalModality } from "@/components/proposal-editor";
 import { referenceDisplayText } from "@/lib/rich-composer/protocol/parse";
@@ -134,6 +134,15 @@ function remixCapabilityOf(asset: PreviewAsset): "image.generate" | "video.gener
   return "image.generate";
 }
 
+// 已生成素材的信息区展示所选模型：优先 Provider 目录里的可读名，目录还没加载时回退原始 modelId。
+function modelDisplayName(modelId: unknown, providers: { id: string; name: string; models: { id: string; name: string; provider: string }[] }[]): string {
+  if (typeof modelId !== "string" || !modelId.trim()) return "";
+  const model = providers.flatMap((provider) => provider.models).find((item) => item.id === modelId);
+  if (!model) return modelId;
+  const provider = providers.find((item) => item.id === model.provider);
+  return provider ? `${provider.name} · ${model.name}` : model.name;
+}
+
 // 提案的参考绑定：优先 metadata.generation.references（带 role/label），回退到扁平 referenceIds。
 function proposalReferenceDrafts(asset: PreviewAsset): ProposalReference[] {
   const proposal = (asset.metadata as Record<string, unknown> | undefined)?.generation;
@@ -230,6 +239,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
   const knownAssets = new Map(assets.map((item) => [item.id, item]));
   liveAssets.forEach((item) => knownAssets.set(item.id, item as unknown as PreviewAsset));
   const references = referenceIDs.map((id) => knownAssets.get(id)).filter((item): item is PreviewAsset => Boolean(item));
+  const modelName = modelDisplayName(metadata.modelId, configuration.providers);
   const statusText = status === "failed" ? "生成失败" : plan ? "计划中" : status === "proposed" ? "待确认生成" : ready ? "已完成" : "生成中";
   const statusLabel = <><span>{statusText}</span><GenerationDuration className="font-mono text-[10px] text-muted-foreground" item={asset} /></>;
   // Remix：把已完成素材的可复用配方复制成一个新的提案资产，并让弹框切到它的编辑态。
@@ -246,7 +256,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
       const sourceModelId = typeof metadata.modelId === "string" ? metadata.modelId : "";
       const sourceModel = configuration.providers.flatMap((provider) => provider.models).find((model) => model.id === sourceModelId && model.available);
       const sourceCredential = sourceModel ? configuration.credentials.find((item) => item.provider === sourceModel.provider) : undefined;
-      const routePair = sourceModel && (sourceModel.provider === "local-audio" || sourceCredential)
+      const routePair = sourceModel && (isLocalProvider(sourceModel.provider, configuration.providers) || sourceCredential)
         ? { modelId: sourceModel.id, ...(sourceCredential ? { credentialId: sourceCredential.id } : {}) }
         : {};
       const created = await createProposal(apiBase, {
@@ -352,6 +362,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
                   />
                 ) : (
                   <>
+                    {modelName && <div><dt className="text-muted-foreground">模型</dt><dd className="mt-1 break-words">{modelName}</dd></div>}
                     {metadata.prompt !== undefined && <PromptSection prompt={String(metadata.prompt ?? "")} />}
                     {references.length > 0 && <div><dt className="text-muted-foreground">参考素材</dt><dd className="mt-2 grid grid-cols-3 gap-2">{references.map((ref) => <ReferencePreview key={ref.id} apiBase={apiBase} reference={ref} />)}</dd></div>}
                   </>

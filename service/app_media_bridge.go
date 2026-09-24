@@ -131,8 +131,15 @@ func runAppGeneration(host *AppHost, platformMedia *media.MediaService, appID st
 	if job.Capability == media.VideoGenerate {
 		kind = "video"
 	}
+	// 把平台为该 Job 预建的 pending Asset 一并交给 App 的 save：App 用 ctx.media.completeAsset
+	// 原地补全同一 assetId，平台不会再落一张重复成品；不支持的 App 忽略该字段，由下方
+	// CompleteGenerationFromImport 兜底归并。
+	saveInput := map[string]any{"id": generationID, "kind": kind}
+	if len(job.AssetIDs) == 1 {
+		saveInput["assetId"] = job.AssetIDs[0]
+	}
 	invoked, err := host.capabilityInvoke(Target{ProjectID: job.ProjectID}, appID, contribution.Operations.Save,
-		map[string]any{"id": generationID, "kind": kind}, "default-generation-route", DefaultLocale)
+		saveInput, "default-generation-route", DefaultLocale)
 	if err != nil || !boolMap(invoked, "ok") {
 		providerErr := map[string]any(nil)
 		if invoked != nil {
@@ -144,7 +151,13 @@ func runAppGeneration(host *AppHost, platformMedia *media.MediaService, appID st
 		}
 		message := mapString(providerErr, "message")
 		if message == "" {
-			message = fmt.Sprintf("%v", err)
+			// err 通常为 nil（capabilityInvoke 把失败装进 invoked.error）；不要用 %v 直接格式化，
+			// 否则会产出 "<nil>" 这类无信息错误。
+			if err != nil {
+				message = err.Error()
+			} else {
+				message = "the provider did not report a reason"
+			}
 		}
 		return media.MediaAsset{}, &mcpError{
 			Kind:      "provider",
@@ -158,12 +171,14 @@ func runAppGeneration(host *AppHost, platformMedia *media.MediaService, appID st
 	if assetID == "" {
 		return media.MediaAsset{}, fmt.Errorf("local generation save did not return an asset id")
 	}
-	asset, err := platformMedia.GetAsset(assetID)
+	// 把 App 导入的成品归并回 Job 预建的 pending Asset：否则平台的「生成中」占位卡会永远
+	// 停留在 running，同时 App 又导入出一张重复成品卡。
+	asset, err := platformMedia.CompleteGenerationFromImport(job, assetID)
 	if err != nil {
 		return media.MediaAsset{}, fmt.Errorf("local generation asset unavailable: %w", err)
 	}
 	if job.ProjectID != "" {
-		_ = platformMedia.Attach(assetID, job.ProjectID)
+		_ = platformMedia.Attach(asset.ID, job.ProjectID)
 	}
 	return asset, nil
 }

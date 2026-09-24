@@ -381,6 +381,82 @@ func TestLocalSpeechDirectRouteRunsWithoutCredential(t *testing.T) {
 	}
 }
 
+// 回归：App 贡献的本地 provider 经 ctx.media.importFile 落库必然产出新 Asset；
+// 执行桥必须把它归并回 Job 预建的 pending Asset，否则素材库会同时留下一张永远
+// “生成中”的占位卡和一张重复成品卡。
+func TestLocalImportMergesIntoPendingAsset(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	service := NewMediaService(store)
+	var importedID string
+	service.SetLocalSpeechExecutor(func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
+		// 模拟 App 的 save：导入一份全新素材（与 pending 不同 id），再交回平台归并。
+		imported, err := service.ImportMedia("gen-output.wav", "audio/wav", []byte("RIFF....imported"))
+		if err != nil {
+			return MediaAsset{}, err
+		}
+		importedID = imported.ID
+		return service.CompleteGenerationFromImport(job, imported.ID)
+	})
+	job, err := service.Generate(GenerateMediaInput{Capability: SpeechGenerate, Prompt: "你好", ModelID: "local-audio/cosyvoice2", Output: map[string]any{"voiceId": "preset:neutral-female"}, IdempotencyKey: "local-import-merge"})
+	if err != nil || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued local job = %#v, %v", job, err)
+	}
+	pendingID := job.AssetIDs[0]
+	daemon := NewMediaService(store)
+	daemon.SetLocalSpeechExecutor(service.LocalSpeechExecutor())
+	if _, err := daemon.ReconcilePendingJobs(); err != nil {
+		t.Fatal(err)
+	}
+	completed := waitForMediaJobStatus(t, daemon, job.ID, "completed")
+	if len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != pendingID {
+		t.Fatalf("job must complete in place on its pending asset: %#v (pending=%s)", completed.AssetIDs, pendingID)
+	}
+	asset, err := daemon.GetAsset(pendingID)
+	if err != nil || asset.Status != "completed" {
+		t.Fatalf("pending asset = %#v, %v", asset, err)
+	}
+	if importedID == "" {
+		t.Fatal("executor must import a distinct asset")
+	}
+	dup, err := daemon.GetAsset(importedID)
+	if err != nil || dup.Status != "deleted" {
+		t.Fatalf("imported duplicate must be retired: %#v, %v", dup, err)
+	}
+}
+
+// 回归：ctx.media.completeAsset 契约（平台侧 CompletePendingAssetFromBytes）把字节原地补全到
+// Job 预建的 pending Asset，保持同一 assetId、不新建行；并拒绝补全已完成的素材。
+func TestCompletePendingAssetFromBytesKeepsIdentity(t *testing.T) {
+	store := NewStore(t.TempDir(), nil)
+	service := NewMediaService(store)
+	service.SetLocalSpeechExecutor(func(job MediaJob, model MediaModel, voiceID string) (MediaAsset, error) {
+		if len(job.AssetIDs) != 1 {
+			t.Fatalf("job must carry its pending asset: %#v", job.AssetIDs)
+		}
+		return service.CompletePendingAssetFromBytes(job.AssetIDs[0], []byte("RIFF....bound"), "audio/wav")
+	})
+	job, err := service.Generate(GenerateMediaInput{Capability: SpeechGenerate, Prompt: "你好", ModelID: "local-audio/cosyvoice2", Output: map[string]any{"voiceId": "preset:neutral-female"}, IdempotencyKey: "local-complete-asset"})
+	if err != nil || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued local job = %#v, %v", job, err)
+	}
+	pendingID := job.AssetIDs[0]
+	daemon := NewMediaService(store)
+	daemon.SetLocalSpeechExecutor(service.LocalSpeechExecutor())
+	if _, err := daemon.ReconcilePendingJobs(); err != nil {
+		t.Fatal(err)
+	}
+	completed := waitForMediaJobStatus(t, daemon, job.ID, "completed")
+	if len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != pendingID {
+		t.Fatalf("completeAsset must keep the pending asset id: %#v (pending=%s)", completed.AssetIDs, pendingID)
+	}
+	if asset, err := daemon.GetAsset(pendingID); err != nil || asset.Status != "completed" {
+		t.Fatalf("pending asset = %#v, %v", asset, err)
+	}
+	if _, err := daemon.CompletePendingAssetFromBytes(pendingID, []byte("again"), "audio/wav"); err == nil {
+		t.Fatal("completing a finished asset must be rejected")
+	}
+}
+
 func waitForMediaTaskLeaseRelease(t *testing.T, media *MediaService, jobID string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)

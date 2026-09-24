@@ -613,16 +613,25 @@ function generations(_, ctx) {
 }
 
 function save(input, ctx) {
-  ensureSchema(ctx);
+  // 平台能力桥在 shell 任务终态后立刻调用 save；此时本 App 的队列引擎可能还没结算，
+  // 生成记录仍是 queued/running。先结算在途任务（与 generation.complete 同源），
+  // 否则会误判“generation was not found.”，把已成功的本机生成报成失败。
+  trackedJob(ctx);
   const id = value(input, "id");
   const kind = value(input, "kind");
+  // 平台能力桥会带上它为本次 Job 预建的 pending assetId；带上就原地补全，避免重复素材。
+  const targetAssetId = value(input, "assetId");
   if (kind !== "image" && kind !== "video") throw new Error("kind must be image or video");
   const rows = ctx.sqlite.query("select id, output_path, mime_type, saved_asset_id from gen_generations where id = ? and status = 'completed'", [id]);
   if (!rows.length) throw new Error("generation was not found.");
   const record = rows[0];
   if (!record.saved_asset_id) {
-    const extension = kind === "video" ? "mp4" : "png";
-    const asset = ctx.media.importFile({ path: record.output_path, name: `gen-${record.id}.${extension}`, mimeType: record.mime_type || (kind === "video" ? "video/mp4" : "image/png") });
+    const mimeType = record.mime_type || (kind === "video" ? "video/mp4" : "image/png");
+    // 有 pending assetId：ctx.media.completeAsset 原地补全同一 assetId（不新建行）；
+    // 无（App 界面主动入库）：ctx.media.importFile 普通导入为新素材。
+    const asset = targetAssetId
+      ? ctx.media.completeAsset({ assetId: targetAssetId, path: record.output_path, mimeType })
+      : ctx.media.importFile({ path: record.output_path, name: `gen-${record.id}.${kind === "video" ? "mp4" : "png"}`, mimeType });
     ctx.sqlite.execute("update gen_generations set saved_asset_id = ? where id = ?", [asset.id, id]);
     record.saved_asset_id = asset.id;
   }

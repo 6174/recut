@@ -1054,6 +1054,77 @@ func (m *MediaService) completePendingAsset(jobID, assetID string, content []byt
 	return asset, nil
 }
 
+// CompleteGenerationFromImport 把 App 已导入的生成素材归并到该 Job 预先创建的
+// pending/queued Asset：用导入素材的字节原位补全 pending（保持项目、画布、时间线已引用的
+// 稳定 assetId），并移除 App 额外导入的重复素材，避免素材库同时出现「生成中」占位卡与成品卡。
+// App 贡献的本地 provider 经 ctx.media.importFile 落库必然产出新 Asset，因此需要这一步归并。
+func (m *MediaService) CompleteGenerationFromImport(job MediaJob, importedAssetID string) (MediaAsset, error) {
+	importedAssetID = strings.TrimSpace(importedAssetID)
+	if importedAssetID == "" {
+		return MediaAsset{}, errors.New("generated asset id is required")
+	}
+	// 没有预建 pending（同步生成路径）或已经是同一素材：直接回读。
+	if len(job.AssetIDs) != 1 || job.AssetIDs[0] == importedAssetID {
+		return m.GetAsset(importedAssetID)
+	}
+	imported, err := m.GetAsset(importedAssetID)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	path, _ := imported.Metadata["path"].(string)
+	if path == "" {
+		return MediaAsset{}, errors.New("generated asset has no readable file")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	mimeType := imported.MimeType
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	completed, err := m.completePendingAsset(job.ID, job.AssetIDs[0], content, mimeType, nil)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	// 重复素材的内容与 pending 同为内容寻址（同一文件），删除只清行不删字节。
+	if err := m.DeleteAsset(importedAssetID); err != nil {
+		log.Printf("WARN local generation duplicate asset cleanup failed asset_id=%s: %v", importedAssetID, err)
+	}
+	return completed, nil
+}
+
+// CompletePendingAssetFromBytes 用一段字节原位补全某个尚未完成的 pending Asset
+// （由其 job_id 反查），稳定 assetId 不变。仅允许 running 的待完成资产，已完成/导入等
+// 终态资产一律拒绝，避免 App 借 ctx.media.importFile({assetId}) 覆盖既有成品。
+func (m *MediaService) CompletePendingAssetFromBytes(assetID string, content []byte, mimeType string) (MediaAsset, error) {
+	assetID = strings.TrimSpace(assetID)
+	if assetID == "" {
+		return MediaAsset{}, errors.New("target asset id is required")
+	}
+	db, err := m.database()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where id = ?", assetID))
+	if err != nil {
+		return MediaAsset{}, errors.New("target media asset not found")
+	}
+	if asset.JobID == "" {
+		return MediaAsset{}, errors.New("target asset is not a pending generation")
+	}
+	if asset.Status != "running" {
+		return MediaAsset{}, fmt.Errorf("target asset is %s; only a running generation can be completed", asset.Status)
+	}
+	if mimeType == "" {
+		mimeType = asset.MimeType
+	}
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	return m.completePendingAsset(asset.JobID, assetID, content, mimeType, nil)
+}
+
 func (m *MediaService) failRemoteAsset(jobID, assetID, message string) {
 	db, err := m.database()
 	if err != nil {

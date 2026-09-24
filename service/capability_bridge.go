@@ -64,10 +64,16 @@ func capabilityOperations(manifest Manifest) []map[string]any {
 // capabilityEnvelope 把 invoke 错误翻译成统一错误信封。业务/校验错误（mcpError）原样透传，
 // 其余归类为 transport，并都标记调用阶段 phase="sync"（异步段终止由调用方按 job 观察）。
 func capabilityEnvelope(err error) map[string]any {
+	// 注意：err 是 Go error 而非字符串，必须走 err.Error()；直接 toString(err) 会得到空串，
+	// 让上层把失败退化成 "<nil>" 这类无信息错误。
+	message := "provider call failed without a message"
+	if err != nil {
+		message = err.Error()
+	}
 	envelope := map[string]any{
 		"kind":      "transport",
 		"code":      "provider.error",
-		"message":   toString(err),
+		"message":   message,
 		"retryable": true,
 		"phase":     "sync",
 	}

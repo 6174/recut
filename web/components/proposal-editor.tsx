@@ -1,8 +1,9 @@
 /*
  * [INPUT]: 依赖 media-types（Asset/normalizeAsset/Capability/ModelParameter）、lib/media/proposal（GenerationProposal/ProposalReference/proposalIssues/proposalRoleLabel）、
- *   media-configuration-store、model-picker、rich-composer、asset-reference-picker、recipe-parameters、lucide-react。
+ *   media-configuration-store（isLocalProvider 按 protocol=local 判定免凭据）、model-picker、rich-composer、asset-reference-picker、recipe-parameters、lucide-react。
  * [OUTPUT]: 对外提供 ProposalEditor——生成提案审批台的唯一实现：状态区 + 富文本提示词（@ 引用素材，并入 references）+
- *   参考素材（缩略图/锚定 role/增删）+ 生成模型与参数 + 提交前自检 + 确认生成（提案状态不可取消）。
+ *   参考素材（缩略图/锚定 role/增删，支持宿主经 extraReferenceAction 注入额外入口如「从当前 World 选择」）+
+ *   生成模型与参数 + 提交前自检 + 确认生成（提案状态不可取消）。
  * [POS]: web/components 的提案编辑同构层；World 画布媒体节点与素材详情弹框共用同一实现，差异只在宿主：宿主注入
  *   onChange/onConfirm（画布写元素 store，弹框写全局 asset 提案 HTTP）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -10,7 +11,7 @@
 "use client";
 
 import { RefreshCcw, X } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
 import { ModelPicker } from "@/components/model-picker";
 import { RecipeParameters } from "@/components/recipe-parameters";
@@ -19,7 +20,7 @@ import { mediaContextPayload } from "@/components/agent-panel-types";
 import type { MediaEventAsset } from "@/components/use-media-asset-events";
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import type { ContextOption } from "@/lib/context-catalog/types";
-import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
+import { isLocalProvider, useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { normalizeValue, type RichComposerValue } from "@/lib/rich-composer/value";
 import { proposalIssues, proposalRoleLabel, type GenerationProposal, type ProposalReference } from "@/lib/media/proposal";
 import { normalizeAsset, type Asset, type Capability } from "@/app/media/media-types";
@@ -42,6 +43,7 @@ export function ProposalEditor({
   readOnly = false,
   onChange,
   onConfirm,
+  extraReferenceAction,
 }: {
   apiBase: string;
   modality: ProposalModality;
@@ -51,6 +53,8 @@ export function ProposalEditor({
   readOnly?: boolean;
   onChange: (patch: Partial<GenerationProposal>) => void | Promise<void>;
   onConfirm: () => void | Promise<void>;
+  /** 宿主注入的额外参考素材入口（如画布的「从当前 World 选择」），与素材库按钮并排。 */
+  extraReferenceAction?: ReactNode;
 }) {
   const configuration = useMediaConfigurationStore();
   const capability = RECIPE_CAPABILITY[modality];
@@ -112,7 +116,7 @@ export function ProposalEditor({
   const models = configuration.providers.flatMap((provider) => provider.models).filter((model) => model.capability === capability && model.available);
   const selectedModel = models.find((model) => model.id === proposal.modelId) ?? models[0];
   const credential = configuration.credentials.find((item) => item.provider === selectedModel?.provider);
-  const keyless = selectedModel?.provider === "local-audio";
+  const keyless = isLocalProvider(selectedModel?.provider, configuration.providers);
   const draft: GenerationProposal = { ...proposal, prompt: promptValue.text };
   const issues = proposalIssues(draft);
   const canConfirm = !readOnly && Boolean(selectedModel) && (keyless || Boolean(credential)) && !issues.some((issue) => issue.level === "error") && proposal.status !== "generating";
@@ -244,9 +248,12 @@ export function ProposalEditor({
           {!proposal.references.length && <p className="text-[10px] text-muted-foreground">没有参考素材。可添加人物形象、场景、色卡等锚定。</p>}
         </div>
         {!readOnly && (
-          <button className="grid h-8 w-full place-items-center rounded-md border border-dashed text-xs text-muted-foreground hover:bg-muted" onClick={() => setPickerOpen(true)} type="button">
-            ＋ 添加参考素材
-          </button>
+          <div className="flex gap-1.5">
+            <button className="grid h-8 flex-1 place-items-center rounded-md border border-dashed text-xs text-muted-foreground hover:bg-muted" onClick={() => setPickerOpen(true)} type="button">
+              ＋ 素材库
+            </button>
+            {extraReferenceAction}
+          </div>
         )}
       </div>
       {/* D. 模型与参数 */}
@@ -254,7 +261,7 @@ export function ProposalEditor({
         <p className="text-[11px] font-medium text-muted-foreground">生成模型</p>
         {models.length && selectedModel ? (
           <ModelPicker
-            credentialConnected={(providerID) => providerID === "local-audio" || configuration.credentials.some((item) => item.provider === providerID)}
+            credentialConnected={(providerID) => isLocalProvider(providerID, configuration.providers) || configuration.credentials.some((item) => item.provider === providerID)}
             id={`proposal-${reactID}`}
             models={models}
             onChange={(modelId) => void onChange({ modelId })}

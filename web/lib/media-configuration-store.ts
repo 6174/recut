@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 Zustand 与 Recut service 的 Provider、Credential、Route HTTP API；经 fetchRecutJSON 统一附加 Accept-Language
- * [OUTPUT]: 对外提供按 endpoint 去重的 Provider、脱敏 Credential、用途 Route 配置快照与显式刷新动作
+ * [OUTPUT]: 对外提供按 endpoint 去重的 Provider、脱敏 Credential、用途 Route 配置快照与显式刷新动作，
+ * 以及 isLocalProvider（按 protocol=local 判定本机免凭据 provider）
  * [POS]: web/lib 的媒体配置唯一缓存；Settings、素材创建和 iframe App 宿主共享，API Key 输入草稿绝不进入此处
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -21,6 +22,15 @@ export type MediaRoute = {
   enabled: boolean;
 };
 export type MediaConfigurationState = "idle" | "loading" | "ready" | "failed";
+
+// 本机（免凭据）provider 由 protocol === "local" 判定（Audio Studio 的 local-audio、
+// Generation Studio 的 local-gen 等），不再硬编码单个 provider id；保留 local-audio
+// 兜底以防 providers 尚未加载完成时误判为需要凭据。
+export function isLocalProvider(providerID: string | undefined, providers: Pick<MediaProvider, "id" | "protocol">[]): boolean {
+  if (!providerID) return false;
+  if (providerID === "local-audio") return true;
+  return providers.some((provider) => provider.id === providerID && provider.protocol === "local");
+}
 
 type MediaConfigurationStore = {
   endpoint: string | null;

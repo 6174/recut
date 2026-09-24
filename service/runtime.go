@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 manifest、Store 的目标命名空间与 App 全局状态、MediaService 与 goja JavaScript 运行时
- * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、受控项目封面设置、流式私有媒体导入、ASR 转写 bundle（源声音 + SRT + JSON）导入，以及按 surface 有序执行 App background.js/backgroundModules 的统一 operation handler
+ * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、受控项目封面设置、流式私有媒体导入、绑定生成资产的原地补全（completeAsset）与 ASR 转写 bundle（源声音 + SRT + JSON）导入，以及按 surface 有序执行 App background.js/backgroundModules 的统一 operation handler
  * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用 manifest 明示的 recut API；平台表一律不进入 ctx.sqlite / ctx.appState
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -626,6 +626,34 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App, locale 
 			}
 			defer content.Close()
 			asset, err := h.media.ImportMediaReader(nonEmpty(stringValue(input["name"]), filepath.Base(path)), stringValue(input["mimeType"]), content)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			if target.IsProject() {
+				if err := h.media.Attach(asset.ID, target.ProjectID); err != nil {
+					panic(runtime.NewGoError(err))
+				}
+			}
+			return runtime.ToValue(importedAssetResult(asset))
+		})
+		// completeAsset：把 App 已生成的字节写进平台为该 Job 预建的 pending Asset（同一 assetId 原地
+		// 补全），与 importFile（新建导入）分开，避免一个入口两套语义。仅允许 running 的待完成生成资产，
+		// 已完成/导入等终态资产一律拒绝，避免 App 覆盖既有成品。
+		_ = mediaObject.Set("completeAsset", func(call goja.FunctionCall) goja.Value {
+			input := map[string]any{}
+			if err := runtime.ExportTo(call.Argument(0), &input); err != nil {
+				panic(runtime.NewTypeError(err.Error()))
+			}
+			assetID := stringValue(input["assetId"])
+			if assetID == "" {
+				panic(runtime.NewTypeError("completeAsset requires assetId"))
+			}
+			path := safeSandboxFile(primaryFiles, stringValue(input["path"]))
+			bytes, err := os.ReadFile(path)
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			asset, err := h.media.CompletePendingAssetFromBytes(assetID, bytes, stringValue(input["mimeType"]))
 			if err != nil {
 				panic(runtime.NewGoError(err))
 			}

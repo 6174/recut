@@ -1,18 +1,23 @@
 /*
  * [INPUT]: 依赖 react、canvas-store（apiBase/mediaSource 辅助/setMediaElementAsset/setAttrMediaAsset）、
- * pane./element-asset-history-store、media-types（Asset/normalizeAsset/MediaJob/Capability/
- * CapabilityVoiceGroup/Model/ModelParameter）、media-configuration-store、
+ * pane./element-asset-history-store、pane./element-recipe-draft-store（按元素持久化配方草稿）、
+ * pane./world-media-picker（从当前 World 快速选参考）、media-types（Asset/normalizeAsset/MediaJob/Capability/
+ * CapabilityVoiceGroup/Model/ModelParameter）、media-configuration-store（isLocalProvider 免凭据判定/全局默认路由）、
  * components/asset-reference-picker、components/audio-waveform-player（统一音频预览）、
  * canvas-media、lucide-react
  * [OUTPUT]: 对外提供 MediaElementEditor：详情完全由全局 asset 状态驱动（proposal 是 asset 的一种状态）——
  * proposed + 配方路由到 GenerationProposalEditor（提案审批台：状态区 + 富文本提示词（@ 引用素材，写入
- * <reference> 锚点）+ 参考/模型/参数 + 提交前自检 + 确认生成；AI 写入的锚定 role 只读展示），
+ * <reference> 锚点）+ 参考/模型/参数 + 提交前自检 + 确认生成；AI 写入的锚定 role 只读展示；
+ * 失败提案在本地缓冲编辑，确认时复制配方成新提案再确认，实现真正的「重新生成」；
+ * 参考素材可另经「当前 World」快速选择），
  * proposed + 无配方路由到 PlanElementPanel（计划中 + 复制计划给 AI），其余走 MediaAssetEditor
  * （B.8 媒体元素态，RFC 2026-09-10）：预览区（素材仍在生成时显示等待态并轮询到终态；图片单击打开
  * 素材详情弹框 AssetPreviewDialog；视频 controls；音频复用统一 AudioWaveformPlayer 波形预览）、来源区（AI 生成 / 素材库选择——浮层内可上传 /
  * 本地上传 / 清除）、生成配方区（RECIPE_CAPABILITY 决定生产链路：图片/音频直生，视频落全局提案资产
  * 等用户确认；参数控件由 catalog model.parameters 驱动；音频声音来自 capability voices——
- * 云端凭据 + 本机 Audio Studio 预设/角色）、素材历史区
+ * 云端凭据 + 本机 Audio Studio 预设/角色；配方草稿按元素持久化，切换节点后恢复；缺省模型取
+ * 系统全局设置默认模型（capability route）；本机 provider 按 protocol=local 免凭据可提交；
+ * 参考素材两条途径——素材库选择 / 从当前 World 快速选择）、素材历史区
  * （历史即素材：元素上下文 指针历史（换图即记指针），删除资产 + 删除资产 + 重生成）。
  * 适配两类载体：独立媒体元素（kind=media）与 attr 属性元素（kind=attr 且 props.media≠text）
  * [POS]: worlds/[worldID]/canvas/panel 的媒体元素编辑器
@@ -20,7 +25,7 @@
  */
 "use client";
 
-import { Image as ImageIcon, RefreshCcw, Trash2, Upload, X } from "lucide-react";
+import { Globe, Image as ImageIcon, RefreshCcw, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AssetPreviewDialog, mediaContentURL, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
@@ -28,7 +33,7 @@ import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
 import { ModelPicker } from "@/components/model-picker";
 import { ProposalEditor, type ProposalModality } from "@/components/proposal-editor";
 import { RecipeParameters } from "@/components/recipe-parameters";
-import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
+import { isLocalProvider, useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { buildGenerationRequest } from "@/lib/media/generation-request";
 import { normalizeAsset, type Asset, type Capability, type CapabilityVoiceGroup, type MediaJob, type Model as MediaModel } from "@/app/media/media-types";
 import { useWorldCanvasStore } from "../canvas-store";
@@ -36,6 +41,8 @@ import { isPlanAsset, isProposalGate, proposalFromAsset, readProposal, type Gene
 import { ensureCanvasAssetStatus, useCanvasAssetStatusStore } from "../canvas-asset-status";
 import { fitElementToAsset } from "../canvas-media";
 import { useElementAssetHistoryStore } from "./element-asset-history-store";
+import { EMPTY_RECIPE_DRAFT, useElementRecipeDraftStore, type RecipeDraft } from "./element-recipe-draft-store";
+import { WorldMediaPicker } from "./world-media-picker";
 import { PanelSection } from "@/components/panel-section";
 
 type MediaModality = "image" | "video" | "audio";
@@ -242,21 +249,78 @@ function MediaAssetEditor({ element, guided, identity }: { element: MediaEditorE
 }
 
 // 生成提案审批台（视频等高价媒体）：与素材详情弹框同构，复用共享 ProposalEditor；
-// 画布侧把 onChange/onConfirm 接到元素 store（写回元素/绑定的全局资产提案）。提案状态不可取消。
+// 画布侧把 onChange/onConfirm 接到元素 store（写回元素/绑定的全局资产提案）。
+// 失败提案（服务端终态，不可再 PATCH/confirm）：编辑改为本地草稿缓冲，确认时把当前配方
+// 复制成一条新提案（新 assetId = 新幂等键）再确认，实现真正的「重新生成」；
+// 参考素材除素材库外，可经 extraReferenceAction 从当前 World 快速选择。
 function GenerationProposalEditor({ element, proposal }: { element: MediaEditorElement; proposal: GenerationProposal }) {
   const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const updateProposal = useWorldCanvasStore((state) => state.updateProposal);
   const confirmProposal = useWorldCanvasStore((state) => state.confirmProposal);
+  const createProposal = useWorldCanvasStore((state) => state.createProposal);
   const modality = ((element.props?.media ?? element.props?.modality ?? "video") as ProposalModality);
+  const failed = proposal.status === "failed";
+  const [retryDraft, setRetryDraft] = useState<Partial<GenerationProposal>>({});
+  const retryDraftRef = useRef<Partial<GenerationProposal>>({});
+  const [worldPickerOpen, setWorldPickerOpen] = useState(false);
+  // 切换元素或提案状态（失败→重新生成）时清空本地草稿缓冲
+  useEffect(() => {
+    retryDraftRef.current = {};
+    setRetryDraft({});
+  }, [element.id, proposal.status]);
+  // 失败态保留 status=failed（状态区/按钮显示「生成失败/重新生成」），编辑缓冲在本地，确认时复制成新提案
+  const merged: GenerationProposal = failed ? { ...proposal, ...retryDraft } : proposal;
+  const handleChange = (patch: Partial<GenerationProposal>) => {
+    if (!failed) {
+      void updateProposal(element.id, patch);
+      return;
+    }
+    retryDraftRef.current = { ...retryDraftRef.current, ...patch };
+    setRetryDraft(retryDraftRef.current);
+  };
+  const handleConfirm = async () => {
+    if (!failed) {
+      await confirmProposal(element.id);
+      return;
+    }
+    // 失败资产已终态：复制配方成新提案（createProposal 对非 proposed 会新建并绑定元素），再确认新资产。
+    const before = String(element.props?.assetId ?? "");
+    const recipe: GenerationProposal = { ...proposal, ...retryDraftRef.current };
+    await createProposal(element.id, recipe);
+    const after = String(useWorldCanvasStore.getState().elements.find((item) => item.id === element.id)?.props?.assetId ?? "");
+    if (!after || after === before) return; // createProposal 失败（已 toast），不误确认旧失败资产
+    await confirmProposal(element.id);
+  };
+  const worldReferenceAction = (
+    <>
+      <button
+        className="grid h-8 flex-1 place-items-center rounded-md border border-dashed text-xs text-muted-foreground hover:bg-muted"
+        onClick={() => setWorldPickerOpen(true)}
+        type="button"
+      >
+        <Globe className="mr-1 size-3.5" /> 当前 World
+      </button>
+      <WorldMediaPicker
+        onClose={() => setWorldPickerOpen(false)}
+        onPick={(items) => {
+          const existing = new Set(merged.references.map((reference) => reference.id));
+          handleChange({ references: [...merged.references, ...items.filter((item) => !existing.has(item.id)).map((item) => ({ id: item.id, kind: item.kind, name: item.name, label: item.name }))] });
+        }}
+        open={worldPickerOpen}
+        selectedIds={merged.references.map((reference) => reference.id)}
+      />
+    </>
+  );
   return (
     <ProposalEditor
       apiBase={apiBase}
       editorKey={element.id}
+      extraReferenceAction={worldReferenceAction}
       modality={modality}
-      onChange={(patch) => updateProposal(element.id, patch)}
-      onConfirm={() => confirmProposal(element.id)}
-      proposal={proposal}
+      onChange={handleChange}
+      onConfirm={handleConfirm}
+      proposal={merged}
       readOnly={readOnly}
     />
   );
@@ -398,7 +462,6 @@ function apiBaseAssetURL(apiBase: string, id: string): string {
 // - 音频：走平台 speech.generate，声音来自 capability voices（云端凭据 + 本机 Audio Studio
 //   预设/角色），提交 output.voiceId；
 // 提交 /v1/media/jobs → 轮询 → 自适应采用首个完成的产出；配方常驻并自动回填。
-type RecipeReference = { id: string; name?: string; kind?: string };
 
 function GenerationRecipe({ apiBase, capability, elementId, current, modality, onAdopt, focusSignal = 0 }: {
   apiBase: string;
@@ -411,20 +474,25 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
 }) {
   const configuration = useMediaConfigurationStore();
   const isSpeech = capability === "speech.generate";
-  const [prompt, setPrompt] = useState("");
-  const [modelId, setModelId] = useState("");
-  const [withCurrentRef, setWithCurrentRef] = useState(true);
-  const [references, setReferences] = useState<RecipeReference[]>([]);
+  // 配方草稿按元素持久化（element-recipe-draft-store）：切换节点导致面板卸载重挂后，
+  // 已填写的 prompt/模型/参考/参数原样恢复，不再丢失。
+  const draft = useElementRecipeDraftStore((state) => state.drafts[elementId]) ?? EMPTY_RECIPE_DRAFT;
+  const setDraft = useElementRecipeDraftStore((state) => state.setDraft);
+  const { prompt, modelId, withCurrentRef, references, params, voiceId } = draft;
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [worldPickerOpen, setWorldPickerOpen] = useState(false);
   const [job, setJob] = useState<MediaJob | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [params, setParams] = useState<Record<string, unknown>>({});
-  const [voiceId, setVoiceId] = useState("");
   const [voiceGroups, setVoiceGroups] = useState<CapabilityVoiceGroup[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  // editedRef 区分「用户真的改了」与 metadata 程序化回填：用户编辑后不再被回填覆盖。
-  const editedRef = useRef(false);
+  // 用户编辑入口：写草稿并标记 edited，换图继承的 metadata 便不再覆盖其输入。
+  const edit = (patch: Partial<RecipeDraft>) => setDraft(elementId, { ...patch, edited: true });
+  // 切换元素（面板未卸载、仅换 elementId）时清掉上一个元素的瞬时生成态，避免状态串台
+  useEffect(() => {
+    setJob(null);
+    setError("");
+  }, [elementId]);
 
   useEffect(() => {
     void configuration.load(apiBase);
@@ -447,55 +515,59 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
   const models: MediaModel[] = isSpeech
     ? Array.from(new Map(voiceGroups.flatMap((group) => group.models).map((model) => [model.id, model])).values())
     : configuration.providers.flatMap((provider) => provider.models).filter((model) => model.capability === capability && model.available);
-  const selectedModel = models.find((model) => model.id === modelId) ?? models[0];
+  // 缺省模型：优先用户在本元素上选过的（草稿 modelId），否则取系统全局设置的默认模型（capability route）。
+  const routeModelId = configuration.routes.find((route) => route.capability === capability && route.enabled)?.modelId ?? "";
+  const selectedModel = models.find((model) => model.id === (modelId || routeModelId)) ?? models[0];
   const voiceGroup = isSpeech ? voiceGroups.find((group) => group.models.some((model) => model.id === selectedModel?.id)) : undefined;
   const credential = configuration.credentials.find((item) => item.provider === selectedModel?.provider);
-  // 本地 provider（Audio Studio）无需凭据：只给 modelId 直连即可
-  const keyless = selectedModel?.provider === "local-audio";
-  useEffect(() => {
-    if (!modelId && models[0]) setModelId(models[0].id);
-  }, [modelId, models]);
-  // 参数与模型对齐：换模型时丢弃不属于新模型的键，并按 catalog 默认值补全
+  // 本机（免凭据）provider（Audio Studio 的 local-audio、Generation Studio 的 local-gen 等）
+  // 由 protocol === "local" 判定：直连 modelId 即可，不再因缺 credential 而禁用生成。
+  const keyless = isLocalProvider(selectedModel?.provider, configuration.providers);
+  // 参数与模型对齐：换模型时丢弃不属于新模型的键，并按 catalog 默认值补全（仅在确有变化时写草稿）
   useEffect(() => {
     const parameters = selectedModel?.parameters ?? [];
     const allowed = new Set(parameters.map((parameter) => parameter.name));
-    setParams((prev) => {
-      const next: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(prev)) if (allowed.has(key)) next[key] = value;
-      for (const parameter of parameters) if (!(parameter.name in next) && parameter.default !== undefined) next[parameter.name] = parameter.default;
-      return next;
-    });
-  }, [selectedModel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    const prev = useElementRecipeDraftStore.getState().drafts[elementId]?.params ?? {};
+    const next: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(prev)) if (allowed.has(key)) next[key] = value;
+    for (const parameter of parameters) if (!(parameter.name in next) && parameter.default !== undefined) next[parameter.name] = parameter.default;
+    if (JSON.stringify(next) !== JSON.stringify(prev)) setDraft(elementId, { params: next });
+  }, [selectedModel?.id, elementId, setDraft]); // eslint-disable-line react-hooks/exhaustive-deps
   const voices = (voiceGroup?.voices ?? []).filter((voice) => !voice.modelId || voice.modelId === selectedModel?.id);
   const voiceKey = voices.map((voice) => voice.id).join(",");
   useEffect(() => {
-    setVoiceId((prev) => (prev && voices.some((voice) => voice.id === prev) ? prev : voices[0]?.id ?? ""));
-  }, [voiceKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    const current = useElementRecipeDraftStore.getState().drafts[elementId]?.voiceId ?? "";
+    const next = current && voices.some((voice) => voice.id === current) ? current : voices[0]?.id ?? "";
+    if (next !== current) setDraft(elementId, { voiceId: next });
+  }, [voiceKey, elementId, setDraft]); // eslint-disable-line react-hooks/exhaustive-deps
   // 换图即继承：当前 asset 的完整详情（含 recipe metadata）到位后回填 prompt/模型/参数/参考；
-  // 依赖 current 而非 id——id 变更时 metadata 还在异步拉取，等详情到达再回填
+  // 依赖 current 而非 id——id 变更时 metadata 还在异步拉取，等详情到达再回填。
+  // 用户已经编辑过配方（草稿 edited）后，metadata 回填不再覆盖其输入。
   useEffect(() => {
     const metadata = current?.metadata;
-    // 用户已经开始编辑配方后，metadata 回填不再覆盖其输入
-    if (!metadata || editedRef.current) return;
-    if (typeof metadata.prompt === "string" && metadata.prompt) setPrompt(metadata.prompt);
-    if (typeof metadata.modelId === "string" && metadata.modelId) setModelId(metadata.modelId);
+    if (!metadata) return;
+    const existing = useElementRecipeDraftStore.getState().drafts[elementId];
+    if (existing?.edited) return;
+    const patch: Partial<RecipeDraft> = {};
+    if (typeof metadata.prompt === "string" && metadata.prompt) patch.prompt = metadata.prompt;
+    if (typeof metadata.modelId === "string" && metadata.modelId) patch.modelId = metadata.modelId;
     const output = metadata.output;
     if (output && typeof output === "object") {
       if (isSpeech) {
-        if (typeof (output as Record<string, unknown>).voiceId === "string") setVoiceId((output as Record<string, unknown>).voiceId as string);
+        if (typeof (output as Record<string, unknown>).voiceId === "string") patch.voiceId = (output as Record<string, unknown>).voiceId as string;
       } else {
-        setParams((prev) => ({ ...prev, ...(output as Record<string, unknown>) }));
+        patch.params = { ...(existing?.params ?? {}), ...(output as Record<string, unknown>) };
       }
     }
     // AI 生成素材：把它用过的参考素材一并显示出来（当前图作为底图另有开关，不重复入列）
     if (Array.isArray(metadata.referenceIds)) {
       const ids = (metadata.referenceIds as unknown[]).filter((id): id is string => typeof id === "string" && id !== current?.id);
-      setReferences((prev) => {
-        const known = new Map(prev.map((item) => [item.id, item]));
-        return ids.map((id) => known.get(id) ?? { id });
-      });
+      const known = new Map((existing?.references ?? []).map((item) => [item.id, item]));
+      patch.references = ids.map((id) => known.get(id) ?? { id });
     }
-  }, [current]); // eslint-disable-line react-hooks/exhaustive-deps
+    const changed = Object.entries(patch).some(([key, value]) => JSON.stringify((existing as Record<string, unknown> | undefined)?.[key]) !== JSON.stringify(value));
+    if (changed) setDraft(elementId, patch);
+  }, [current, elementId, isSpeech, setDraft]); // eslint-disable-line react-hooks/exhaustive-deps
   // 参考素材详情补全：继承来的 referenceIds 只有 id，拉到 kind/name 才能显示缩略图
   const missingRefIds = references.filter((item) => !item.kind).map((item) => item.id).join(",");
   useEffect(() => {
@@ -507,11 +579,12 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
         if (!response?.ok) return;
         const asset = normalizeAsset((await response.json()) as Asset);
         if (!active) return;
-        setReferences((prev) => prev.map((item) => (item.id === id ? { id, name: asset.name, kind: asset.kind } : item)));
+        const latest = useElementRecipeDraftStore.getState().drafts[elementId]?.references ?? [];
+        setDraft(elementId, { references: latest.map((item) => (item.id === id ? { id, name: asset.name, kind: asset.kind } : item)) });
       })();
     }
     return () => { active = false; };
-  }, [apiBase, missingRefIds]);
+  }, [apiBase, missingRefIds, elementId, setDraft]);
   const referenceIds = Array.from(new Set([
     ...(!isSpeech && current && withCurrentRef ? [current.id] : []),
     ...(isSpeech ? [] : references.filter((item) => item.id !== current?.id).map((item) => item.id)),
@@ -610,10 +683,10 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
       </div>
       {models.length && selectedModel ? (
         <ModelPicker
-          credentialConnected={(providerID) => providerID === "local-audio" || configuration.credentials.some((item) => item.provider === providerID)}
+          credentialConnected={(providerID) => isLocalProvider(providerID, configuration.providers) || configuration.credentials.some((item) => item.provider === providerID)}
           id={`canvas-recipe-${elementId}`}
           models={models}
-          onChange={(id) => { editedRef.current = true; setModelId(id); }}
+          onChange={(id) => edit({ modelId: id })}
           providerName={(providerID) => configuration.providers.find((item) => item.id === providerID)?.name ?? providerID}
           value={selectedModel.id}
         />
@@ -622,7 +695,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
       )}
       <textarea
         className="h-24 w-full resize-none rounded-md border bg-background p-2 text-xs leading-5 outline-none focus:border-primary"
-        onChange={(event) => { editedRef.current = true; setPrompt(event.target.value); }}
+        onChange={(event) => edit({ prompt: event.target.value })}
         placeholder={isSpeech ? "输入需要朗读的文本…" : modality === "video" ? "输入视频提示词…" : "输入画面描述，支持以当前图为底图改写…"}
         ref={textareaRef}
         value={prompt}
@@ -633,7 +706,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
           {voices.length ? (
             <select
               className="w-full rounded-md border bg-background p-2 text-xs outline-none focus:border-primary"
-              onChange={(event) => setVoiceId(event.target.value)}
+              onChange={(event) => edit({ voiceId: event.target.value })}
               value={voiceId}
             >
               {voices.map((voice) => (
@@ -647,10 +720,10 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
           )}
         </div>
       )}
-      {!isSpeech && <RecipeParameters parameters={selectedModel?.parameters ?? []} values={params} onChange={(name, value) => { editedRef.current = true; setParams((prev) => ({ ...prev, [name]: value })); }} />}
+      {!isSpeech && <RecipeParameters parameters={selectedModel?.parameters ?? []} values={params} onChange={(name, value) => edit({ params: { ...params, [name]: value } })} />}
       {!isSpeech && current && (
         <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <input checked={withCurrentRef} onChange={(event) => setWithCurrentRef(event.target.checked)} type="checkbox" />
+          <input checked={withCurrentRef} onChange={(event) => setDraft(elementId, { withCurrentRef: event.target.checked })} type="checkbox" />
           以当前图为参考底图
         </label>
       )}
@@ -672,7 +745,7 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
                 <button
                   aria-label={`移除参考 ${item.name ?? item.id}`}
                   className="absolute right-0 top-0 hidden rounded bg-card/90 p-0.5 text-muted-foreground hover:text-destructive group-hover/ref:block"
-                  onClick={() => { editedRef.current = true; setReferences((prev) => prev.filter((ref) => ref.id !== item.id)); }}
+                  onClick={() => edit({ references: references.filter((ref) => ref.id !== item.id) })}
                   type="button"
                 >
                   <X className="size-3" />
@@ -680,15 +753,23 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
               </div>
             ))}
             <button
-              className="grid size-12 place-items-center rounded-md border border-dashed text-muted-foreground hover:bg-muted"
+              className="inline-flex h-12 items-center gap-1.5 rounded-md border border-dashed px-2.5 text-[10px] text-muted-foreground hover:bg-muted"
               onClick={() => setPickerOpen(true)}
-              title="添加参考素材（图片 / 视频 / 音频）"
+              title="从素材库选择（可上传）"
               type="button"
             >
-              ＋
+              <ImageIcon className="size-3.5" /> 素材库
+            </button>
+            <button
+              className="inline-flex h-12 items-center gap-1.5 rounded-md border border-dashed px-2.5 text-[10px] text-muted-foreground hover:bg-muted"
+              onClick={() => setWorldPickerOpen(true)}
+              title="从当前 World 已引用的素材中选择"
+              type="button"
+            >
+              <Globe className="size-3.5" /> 当前 World
             </button>
           </div>
-          <p className="text-[10px] text-muted-foreground">支持图片 / 视频 / 音频参考，可素材库选择或本地上传。</p>
+          <p className="text-[10px] text-muted-foreground">支持图片 / 视频 / 音频参考：可从素材库选择（含本地上传），或从当前 World 快速选择。</p>
         </div>
       )}
       {pickerOpen && (
@@ -701,11 +782,8 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
           onClose={() => setPickerOpen(false)}
           onPick={() => {}}
           onPickMany={(picked) => {
-            editedRef.current = true;
-            setReferences((prev) => {
-              const known = new Set(prev.map((item) => item.id));
-              return [...prev, ...picked.filter((asset) => !known.has(asset.id)).map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind }))];
-            });
+            const known = new Set(references.map((item) => item.id));
+            edit({ references: [...references, ...picked.filter((asset) => !known.has(asset.id)).map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind }))] });
             setPickerOpen(false);
           }}
           open
@@ -714,6 +792,15 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
           title="选择参考素材"
         />
       )}
+      <WorldMediaPicker
+        onClose={() => setWorldPickerOpen(false)}
+        onPick={(items) => {
+          const known = new Set(references.map((item) => item.id));
+          edit({ references: [...references, ...items.filter((item) => !known.has(item.id))] });
+        }}
+        open={worldPickerOpen}
+        selectedIds={references.map((item) => item.id)}
+      />
       <div className="flex gap-1.5">
         <button
           className="h-8 flex-1 rounded-md bg-primary text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"

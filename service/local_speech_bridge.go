@@ -102,13 +102,13 @@ func wireLocalSpeechBridge(host *AppHost, platformMedia *media.MediaService) {
 		if assetID == "" {
 			return media.MediaAsset{}, fmt.Errorf("local speech save did not return an asset id")
 		}
-		asset, err := platformMedia.GetAsset(assetID)
+		asset, err := platformMedia.CompleteGenerationFromImport(job, assetID)
 		if err != nil {
 			return media.MediaAsset{}, fmt.Errorf("local speech asset unavailable: %w", err)
 		}
 		if job.ProjectID != "" {
 			// 归口项目：让该项目的 recut.assets.list(projectId) 能看到这份配音。
-			_ = platformMedia.Attach(assetID, job.ProjectID)
+			_ = platformMedia.Attach(asset.ID, job.ProjectID)
 		}
 		return asset, nil
 	})
