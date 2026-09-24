@@ -367,6 +367,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
         </div>
       </section>
       {lightbox && (
+        // 大图预览覆盖整个视口：点击空白处只关闭这层大图，不再冒泡到根遮罩把整个素材弹框一起关掉。
         <div className="fixed inset-0 z-[60] grid place-items-center bg-black/80 p-8 backdrop-blur" onMouseDown={(event) => { event.stopPropagation(); setLightbox(null); }}>
           <button aria-label="关闭大图" className="absolute right-4 top-4 grid size-8 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20" onClick={() => setLightbox(null)} type="button"><X className="size-4" /></button>
           <img alt="preview" className="max-h-[90vh] max-w-[90vw] object-contain" src={lightbox} onMouseDown={(e) => e.stopPropagation()} />

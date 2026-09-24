@@ -1000,9 +1000,6 @@ function Studio({
         <section className="relative min-h-[17rem] overflow-hidden pb-8 pt-7 sm:min-h-[19rem]">
           <WebGLStudioHero />
           <div className="relative z-10 max-w-xl">
-            <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
-              {t("studio.eyebrow")}
-            </p>
             <h1 className="mt-3 text-3xl font-semibold leading-tight">
               {t("studio.title")}
             </h1>
@@ -2247,10 +2244,6 @@ function SectionTitle({
   return (
     <div className="mb-7 flex items-end justify-between">
       <div>
-        <p className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
-          <span className="size-1.5 rounded-full bg-muted-foreground" />
-          DESKTOP
-        </p>
         <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-2 text-sm text-muted-foreground">{description}</p>
       </div>
