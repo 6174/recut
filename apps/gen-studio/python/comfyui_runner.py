@@ -204,8 +204,13 @@ def copy_references(paths: list) -> list:
     input_dir.mkdir(parents=True, exist_ok=True)
     names = []
     for index, raw in enumerate(paths, start=1):
+        # background 传入的是以 App 文件区（RECUT_APP_FILES_DIR）为根的相对路径，
+        # 与 resolve_output 同一约定；必须按 files_root() 解析，否则会落到 worker 的 CWD。
         source = Path(raw)
+        if not source.is_absolute():
+            source = files_root() / source
         if not source.is_file():
+            print(f"[gen] 参考图不存在，已跳过：{raw}", flush=True)
             continue
         suffix = source.suffix or ".png"
         name = f"recut_ref_{index}{suffix}"

@@ -60,6 +60,7 @@ export interface Task {
   recordId: string;
   source: string;
   state: string;
+  jobId?: string;
   createdAt: string;
   startedAt?: string;
   resolvedAt?: string;

@@ -10,7 +10,8 @@
 - `src/recut-sdk.ts`：宿主 MessageChannel 桥（`background.call` / `state.query`）与 `useRecutLocale`。
 - `src/i18n.ts`：zh/en 字典 + `t` / `interpolate`。
 - `src/App.tsx`：Left 两 Tab（生成 / 记录）+ Right 统一预览与进度日志的状态编排与轮询。
-- `src/components/GenerateTab.tsx`：模型切换（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境 / 下载模型 / 来源）+ 表单。
+- `src/state/generate.ts`：生成表单的 zustand store（modelId / 字段值 / 参考图 / 下载源），persist 到 localStorage，刷新与切 Tab 后恢复。
+- `src/components/GenerateTab.tsx`：模型切换（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境 / 下载模型 / 来源）+ 表单（订阅 `useGenerateStore`）。
 - `src/components/RecordsTab.tsx`：环境/下载/生成统一任务列表（只读历史）。
 - `src/components/PreviewPane.tsx`：Right 的结果预览与实时日志。
 

@@ -1,13 +1,14 @@
 /**
- * [INPUT]: 依赖 gen.catalog 的模型清单/formSchema/inputModes/就绪度、shadcn Select、recut.media.pick 全局素材选择器与环境/下载动作回调
- * [OUTPUT]: 顶部模型切换器（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境/下载模型/来源）+ 支持 image 输入的模型上的多选参考图（含预览图经 injectedReference 一键回填）+ 表单提交
- * [POS]: Left「生成」Tab；依赖准备与生成提交都在此收敛，记录 Tab 只负责历史
+ * [INPUT]: 依赖 gen.catalog 的模型清单/formSchema/inputModes/就绪度、shadcn Select、recut.media.pick 全局素材选择器、环境/下载动作回调与 useGenerateStore
+ * [OUTPUT]: 顶部模型切换器（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境/下载模型/来源）+ 支持 image 输入的模型上的多选参考图（含预览图经 injectedReference 一键回填）+ 表单提交；模型/参数/参考图/下载源由 useGenerateStore 持有并持久化
+ * [POS]: Left「生成」Tab；依赖准备与生成提交都在此收敛，记录 Tab 只负责历史；表单状态在 store，切 Tab 不丢
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { AlertTriangle, Check, Download, ImagePlus, Play, Sparkles, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
+import { useGenerateStore } from "../state/generate";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Badge, Button, Card, Field, Input, Textarea } from "../ui";
 import type { CatalogModel, FormField, InjectedReference, LocalLabel, MediaAsset, RuntimeInfo } from "../types";
@@ -38,11 +39,25 @@ function defaultValue(field: FormField): string {
   return String(field.default);
 }
 
+function formDefaults(model: CatalogModel | undefined): Record<string, string> {
+  const next: Record<string, string> = {};
+  if (model) for (const field of model.formSchema) next[field.key] = defaultValue(field);
+  return next;
+}
+
 export function GenerateTab({ models, runtimes, locale, downloadSource, injectedReference, onGenerate, onSaveDefault, onPrepare, onInstall, onSetSource }: Props) {
-  const [modelId, setModelId] = useState(models[0]?.model ?? "");
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [references, setReferences] = useState<MediaAsset[]>([]);
-  const [source, setSource] = useState(downloadSource || "automatic");
+  const modelId = useGenerateStore((state) => state.modelId);
+  const values = useGenerateStore((state) => state.values);
+  const references = useGenerateStore((state) => state.references);
+  const source = useGenerateStore((state) => state.source);
+  const selectModel = useGenerateStore((state) => state.selectModel);
+  const setModelId = useGenerateStore((state) => state.setModelId);
+  const setValue = useGenerateStore((state) => state.setValue);
+  const mergeValues = useGenerateStore((state) => state.mergeValues);
+  const setValues = useGenerateStore((state) => state.setValues);
+  const setReferences = useGenerateStore((state) => state.setReferences);
+  const setSource = useGenerateStore((state) => state.setSource);
+
   const [hint, setHint] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [working, setWorking] = useState(false);
@@ -54,13 +69,22 @@ export function GenerateTab({ models, runtimes, locale, downloadSource, injected
 
   useEffect(() => {
     if (!modelId && models[0]) setModelId(models[0].model);
-  }, [models, modelId]);
+  }, [models, modelId, setModelId]);
 
+  // 模型 schema 就绪/切换时对齐字段：值已属于该模型则只补默认键（保留持久化与草稿输入），
+  // 否则视为切换模型，重置字段与参考图。仅在 modelKey 变化时运行，目录刷新不覆盖输入。
   useEffect(() => {
     if (!model) return;
-    const next: Record<string, string> = {};
-    for (const field of model.formSchema) next[field.key] = defaultValue(field);
-    setValues(next);
+    const defaults = formDefaults(model);
+    const stored = useGenerateStore.getState();
+    if (stored.modelId === model.model) {
+      const merged = { ...defaults };
+      for (const [key, value] of Object.entries(stored.values)) if (key in merged) merged[key] = value;
+      setValues(merged);
+      return;
+    }
+    setModelId(model.model);
+    setValues(defaults);
     setReferences([]);
   }, [modelKey]);
 
@@ -75,15 +99,14 @@ export function GenerateTab({ models, runtimes, locale, downloadSource, injected
     if (draft) {
       const target = models.find((candidate) => candidate.model === draft.model);
       if (target && target.model !== modelId) setModelId(target.model);
-      const next: Record<string, string> = {};
-      if (target) for (const field of target.formSchema) next[field.key] = defaultValue(field);
+      const next: Record<string, string> = formDefaults(target);
       next.prompt = draft.prompt ?? next.prompt ?? "";
       if (draft.negativePrompt) next.negativePrompt = draft.negativePrompt;
       if (draft.aspectRatio) next.aspectRatio = draft.aspectRatio;
       if (draft.seed !== undefined) next.seed = String(draft.seed);
       if (draft.steps !== undefined) next.steps = String(draft.steps);
       if (draft.cfg !== undefined) next.cfg = String(draft.cfg);
-      setValues((prev) => ({ ...prev, ...next }));
+      mergeValues(next);
       const targetCanUseImage = Array.isArray(target?.inputModes) && target.inputModes.includes("image");
       if (targetCanUseImage) {
         setReferences((draft.referenceAssetIds ?? []).filter((item) => item.available !== false).map((item) => ({ id: item.id, name: item.name, kind: "image" })));
@@ -154,7 +177,7 @@ export function GenerateTab({ models, runtimes, locale, downloadSource, injected
   return (
     <div className="space-y-4">
       <Field label={t(locale, "generate.model")}>
-        <Select value={model.model} onValueChange={setModelId}>
+        <Select value={model.model} onValueChange={(value) => selectModel(value, formDefaults(models.find((candidate) => candidate.model === value)))}>
           <SelectTrigger>
             <SelectValue placeholder={model.model} />
           </SelectTrigger>
@@ -214,9 +237,9 @@ export function GenerateTab({ models, runtimes, locale, downloadSource, injected
         {model.formSchema.map((field) => (
           <Field key={field.key} label={labelText(field.label, locale, field.key)}>
             {field.type === "textarea" ? (
-              <Textarea value={values[field.key] ?? ""} onChange={(event) => setValues((prev) => ({ ...prev, [field.key]: event.target.value }))} />
+              <Textarea value={values[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)} />
             ) : field.type === "select" ? (
-              <Select value={values[field.key] ?? ""} onValueChange={(value) => setValues((prev) => ({ ...prev, [field.key]: value }))}>
+              <Select value={values[field.key] ?? ""} onValueChange={(value) => setValue(field.key, value)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -232,7 +255,7 @@ export function GenerateTab({ models, runtimes, locale, downloadSource, injected
                 min={field.min}
                 max={field.max}
                 value={values[field.key] ?? ""}
-                onChange={(event) => setValues((prev) => ({ ...prev, [field.key]: event.target.value }))}
+                onChange={(event) => setValue(field.key, event.target.value)}
               />
             )}
           </Field>

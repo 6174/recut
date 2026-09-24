@@ -40,6 +40,7 @@ export default function App() {
 
   const catalogLoadedRef = useRef(false);
   const selectedIdRef = useRef<string | null>(null);
+  const trackedJobIdsRef = useRef<Set<string>>(new Set());
   const refreshTimer = useRef<number | null>(null);
   const logTimer = useRef<number | null>(null);
 
@@ -134,6 +135,11 @@ export default function App() {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
+  // 本 App 经 gen_tasks 提交的 shell job id 集合（事件过滤用）。
+  useEffect(() => {
+    trackedJobIdsRef.current = new Set(tasks.map((task) => task.jobId).filter((id): id is string => Boolean(id)));
+  }, [tasks]);
+
   // 本地秒针：仅在存在在途任务时驱动计时显示，不发任何请求。
   useEffect(() => {
     if (!hasActiveTask) return;
@@ -160,11 +166,15 @@ export default function App() {
   }, [connected, catalogLoaded, refreshCatalog, refreshTasks, refreshEnv, refreshEngine]);
 
   // 事件驱动的增量刷新：后台 shell job 生命周期（started/completed）触发一次合并刷新。
-  const refreshFromEvent = useCallback(async () => {
+  // 只有本 App 提交的任务（tracked）才需要重读环境/引擎就绪度；gen.status / gen.engine.status
+  // 自身也会创建 shell job，若无条件重读就会自激成风暴（每 250ms 一轮的「假轮询」）。
+  const refreshFromEvent = useCallback(async (includeStatus: boolean) => {
     if (!catalogLoadedRef.current) await refreshCatalog();
     await refreshTasks();
-    await refreshEnv();
-    await refreshEngine();
+    if (includeStatus) {
+      await refreshEnv();
+      await refreshEngine();
+    }
     const id = selectedIdRef.current;
     if (id) {
       try {
@@ -175,11 +185,15 @@ export default function App() {
     }
   }, [refreshCatalog, refreshTasks, refreshEnv, refreshEngine, renderRight]);
 
-  const scheduleRefresh = useCallback(() => {
+  const statusRefreshRef = useRef(false);
+  const scheduleRefresh = useCallback((includeStatus: boolean) => {
+    if (includeStatus) statusRefreshRef.current = true;
     if (refreshTimer.current !== null) return;
     refreshTimer.current = window.setTimeout(() => {
       refreshTimer.current = null;
-      void refreshFromEvent();
+      const include = statusRefreshRef.current;
+      statusRefreshRef.current = false;
+      void refreshFromEvent(include);
     }, 250);
   }, [refreshFromEvent]);
 
@@ -202,13 +216,18 @@ export default function App() {
   useEffect(() => {
     if (!connected) return;
     return recut.events.subscribe((event) => {
-      const message = event as { type?: unknown; appId?: unknown } | null;
+      const message = event as { type?: unknown; appId?: unknown; job?: { id?: unknown }; log?: { jobId?: unknown } } | null;
       if (!message || message.appId !== APP_ID) return;
+      // 本 App 经 gen_tasks 提交的 shell job 才是「真任务」；gen.status / gen.catalog /
+      // gen.engine.status 等同步查询同样会创建 shell job 并产生事件，据此区分，避免自激循环。
+      const jobId = typeof message.job?.id === "string" ? message.job.id : typeof message.log?.jobId === "string" ? message.log.jobId : "";
+      const tracked = Boolean(jobId) && trackedJobIdsRef.current.has(jobId);
       const type = typeof message.type === "string" ? message.type : "";
       if (type === "shell.job.started" || type === "shell.job.completed") {
-        scheduleRefresh();
+        // 即使不是本 App 任务也刷新任务列表，以便发现平台/Agent 经能力桥提交的生成。
+        scheduleRefresh(tracked);
       } else if (type === "shell.job.log") {
-        scheduleLogRefresh();
+        if (tracked) scheduleLogRefresh();
       }
     });
   }, [connected, scheduleRefresh, scheduleLogRefresh]);
