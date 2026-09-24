@@ -1,7 +1,7 @@
 {
   "manifestVersion": 1,
   "id": "recut.gen-studio",
-  "name": "生成工坊",
+  "name": "本地生成",
   "author": "Recut",
   "description": "在本机用开源模型生成图片与视频：一个运行环境托管多个模型，先准备环境，再按需下载模型权重，结果确认后进入素材库。",
   "localized": {
@@ -82,7 +82,7 @@
       "name": "gen.status",
       "surfaces": ["api", "mcp"],
       "capability": true,
-      "description": "检查生成工坊的本地 Python、FFmpeg、各 runtime 专属 venv 与各模型权重（就绪度）和下载源；activeJob 返回最新在途任务，tasks 返回全部在途任务清单。",
+      "description": "检查本地生成的本地 Python、FFmpeg、各 runtime 专属 venv 与各模型权重（就绪度）和下载源；activeJob 返回最新在途任务，tasks 返回全部在途任务清单。",
       "inputSchema": { "type": "object", "properties": {} }
     },
     {
@@ -120,7 +120,7 @@
     {
       "name": "gen.settings.set",
       "surfaces": ["api"],
-      "description": "持久化生成工坊的下载源设置（automatic/huggingface/modelscope）。",
+      "description": "持久化本地生成的下载源设置（automatic/huggingface/modelscope）。",
       "inputSchema": { "type": "object", "properties": { "downloadSource": { "type": "string", "enum": ["automatic", "huggingface", "modelscope"] } } }
     },
     {
@@ -173,7 +173,7 @@
       "name": "gen.cancel",
       "surfaces": ["api", "mcp"],
       "capability": true,
-      "description": "取消最新在途的生成工坊任务（queued 直接落 cancelled，running 经 shell 取消）。",
+      "description": "取消最新在途的本地生成任务（queued 直接落 cancelled，running 经 shell 取消）。",
       "inputSchema": { "type": "object", "properties": {} }
     },
     {
@@ -207,7 +207,7 @@
     {
       "name": "gen.job",
       "surfaces": ["api"],
-      "description": "读取最近尚未由界面确认的生成工坊本地任务。",
+      "description": "读取最近尚未由界面确认的本地生成本地任务。",
       "inputSchema": { "type": "object", "properties": {} }
     },
     {

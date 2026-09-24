@@ -2,7 +2,7 @@
 
 > L2 | 父级: ../README.md
 
-生成工坊界面（React + TypeScript + Vite + Tailwind CSS v4）。
+本地生成界面（React + TypeScript + Vite + Tailwind CSS v4）。
 
 - `src/style.css`：Recut Design System 语义 token（深色画布、绿色主色、低圆角工具表面）。
 - `src/ui.tsx`：共享视觉原子（Button / Card / Badge / Field / Input / Textarea / Progress / StatusDot）。

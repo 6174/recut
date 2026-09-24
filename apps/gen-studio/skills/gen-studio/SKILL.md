@@ -1,6 +1,6 @@
-# Generation Studio（生成工坊）Skill
+# Generation Studio（本地生成）Skill
 
-生成工坊是 Recut 的**本地图片/视频生成 App**：一个运行环境（runtime）托管多个模型，用用户本机显卡跑开源模型，不联网、不花钱。
+本地生成是 Recut 的**本地图片/视频生成 App**：一个运行环境（runtime）托管多个模型，用用户本机显卡跑开源模型，不联网、不花钱。
 
 ## 何时使用
 

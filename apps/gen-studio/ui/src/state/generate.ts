@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 zustand（persist 中间件）与 types（MediaAsset）
  * [OUTPUT]: useGenerateStore：生成表单状态容器（modelId/字段值/参考图/下载源）+ 原子动作（selectModel/setValue/mergeValues/setReferences/setSource）；persist 到 localStorage，刷新与切 Tab 后恢复
- * [POS]: 生成工坊 UI 的持久表单状态；GenerateTab 订阅，App 的编辑/返修回填经 store 写入
+ * [POS]: 本地生成 UI 的持久表单状态；GenerateTab 订阅，App 的编辑/返修回填经 store 写入
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { create } from "zustand";

@@ -33,7 +33,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  -->
 
-# RFC：本地模型生成工坊（Generation Studio）——一个环境、多个模型的本机生成 App
+# RFC：本地模型本地生成（Generation Studio）——一个环境、多个模型的本机生成 App
 
 - 状态：Proposal
 - 作者：Recut
@@ -77,13 +77,13 @@
 7. **有 MCP 告诉外部「本机有哪些模型/环境」**：App 侧提供 `gen.catalog`（模型清单 + 每模型表单 schema）与 `gen.status`；平台侧聚合出一个 `recut.media.list_capability_models`。
 8. **任务模型照抄声音工坊**：生成单槽 FIFO 排队（一张卡同时只能跑一个模型），环境准备单槽排队（等生成排空），模型下载可并行；提交永不拒绝，空槽立即跑、占槽自动排队；统一用 `recut.job.*` 观察，日志落文件可回看，可取消。
 
-**一句话：** 把「声音工坊」的本地能力范式，做成一个 ComfyUI 式的「生成工坊」——App 内一个 runtime 托管多模型，平台侧只新增一个「本地生图 provider + 执行桥」，其余全部复用现有契约。
+**一句话：** 把「声音工坊」的本地能力范式，做成一个 ComfyUI 式的「本地生成」——App 内一个 runtime 托管多模型，平台侧只新增一个「本地生图 provider + 执行桥」，其余全部复用现有契约。
 
 ---
 
 ## 0.1 技术摘要
 
-本文设计 `recut.gen-studio`（目录 `apps/gen-studio`，名称「生成工坊 · Generation Studio」）——一个**内置**、**本机运行**、**一个 runtime 多模型**的图片/视频生成 App。
+本文设计 `recut.gen-studio`（目录 `apps/gen-studio`，名称「本地生成 · Generation Studio」）——一个**内置**、**本机运行**、**一个 runtime 多模型**的图片/视频生成 App。
 
 - **协议同构**：完全复用 audio-studio 的 App 协议——`manifest.json` 声明 `operations` + `runtime.python` + `distribution.builtin`；`background.js` 用 `ctx.sqlite` 维护 `gen_tasks` 任务账本、`ctx.python` 执行可观察 shell job、`ctx.media` 复制/导入素材、`ctx.files` 提供私有预览 URL、`ctx.capabilities` 供跨 App 调用。
 - **runtime/model 分离（核心）**：注册表 `python/registry.json` 分两段——`runtimes`（依赖闭包 + 专属 venv，默认一个 `diffusers` runtime 托管绝大多数图片模型）与 `models`（权重 + 归属 runtime + **表单 schema**）。`gen.prepare { target }` 只建 runtime；`gen.install { model, source }` 只下权重；`gen.generate { model, ... }` 在模型所属 runtime 里跑。目标目录：venv 在 `~/.recut/python/envs/recut.gen-studio/`，权重在 `~/.recut/models/gen-studio/<runtime>/<model>/`。
@@ -202,7 +202,7 @@ apps/gen-studio/
 {
   "manifestVersion": 1,
   "id": "recut.gen-studio",
-  "name": "生成工坊",
+  "name": "本地生成",
   "author": "Recut",
   "description": "在本机用开源模型生成图片与视频：一个环境托管多个模型，先准备运行环境，再按需下载模型权重，结果确认后进入素材库。",
   "repository": "https://github.com/6174/recut-gen-studio",

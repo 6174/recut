@@ -7,11 +7,10 @@
 export type Locale = "zh" | "en";
 
 const zh: Record<string, string> = {
-  "app.name": "生成工坊",
-  "app.kicker": "RECUT APP / 生成工坊",
+  "app.name": "本地生成",
   "app.subtitle": "一个运行环境托管多个本机模型：先准备环境、再下载权重，生成结果确认后进入素材库。",
   "app.resync": "重新同步",
-  "app.loading": "正在连接生成工坊…",
+  "app.loading": "正在连接本地生成…",
 
   "setup.title": "正在准备运行环境",
   "setup.description": "首次使用需要安装 Python 依赖与 ComfyUI 源码；之后依赖锁定有变更时也会在这里自动重新安装。",
@@ -112,7 +111,6 @@ const zh: Record<string, string> = {
 
 const en: Record<string, string> = {
   "app.name": "Generation Studio",
-  "app.kicker": "RECUT APP / GENERATION STUDIO",
   "app.subtitle": "One runtime hosts many local models: prepare the environment, download weights on demand, and save confirmed results to the library.",
   "app.resync": "Resync",
   "app.loading": "Connecting to Generation Studio…",

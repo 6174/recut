@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖共享视觉原子、lucide 图标、i18n 与任务日志行
  * [OUTPUT]: 启动门 Setup 卡：环境未就绪时自动触发一次全量 gen.prepare，展示计时、实时日志与失败重试
- * [POS]: 生成工坊的启动门；catalog.ready 之前整屏渲染此卡
+ * [POS]: 本地生成的启动门；catalog.ready 之前整屏渲染此卡
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useEffect, useRef } from "react";
@@ -60,7 +60,6 @@ export function Setup({ locale, autoPrepare, busy, elapsedSeconds, failure, fail
         <div className="mb-3 grid size-10 place-items-center rounded-md border border-primary/40 bg-primary/10 text-primary">
           <Loader2 className={`size-5 ${busy ? "animate-spin" : ""}`} />
         </div>
-        <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">{t(locale, "app.kicker")}</p>
         <h1 className="mt-1 text-lg font-semibold tracking-tight">{t(locale, "setup.title")}</h1>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{t(locale, "setup.description")}</p>
 

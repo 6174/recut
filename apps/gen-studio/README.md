@@ -1,4 +1,4 @@
-# 生成工坊 · Generation Studio
+# 本地生成 · Generation Studio
 
 **在本机用一个运行环境托管多个开源模型，生成图片与视频**
 
@@ -6,7 +6,7 @@ Recut 的本地生成工作台 — 先准备环境、再下载模型，一个 Ap
 
 ## 这是什么
 
-生成工坊是 Recut 的**独立生成 App**（`standalone` 类型，内置分发）。它把「运行环境」与「模型」解耦：一个 runtime（依赖闭包 + 专属 venv，默认 `comfyui`）能加载很多个模型权重，在一个 App 里切换模型。
+本地生成是 Recut 的**独立生成 App**（`standalone` 类型，内置分发）。它把「运行环境」与「模型」解耦：一个 runtime（依赖闭包 + 专属 venv，默认 `comfyui`）能加载很多个模型权重，在一个 App 里切换模型。
 
 - **本机运行**：用用户自己的显卡（NVIDIA / Apple MPS / CPU）跑开源扩散模型，不联网、不花钱。
 - **一个环境多模型**：换模型只下权重，不重建环境；只有依赖冲突时才新增 runtime。
@@ -29,7 +29,7 @@ Recut 的本地生成工作台 — 先准备环境、再下载模型，一个 Ap
 ## 快速开始
 
 1. 安装并启动 Recut（见主仓库 [README](../../README.md#安装-recut)）。
-2. 生成工坊为**内置 App**，随客户端发布，无需单独安装。
+2. 本地生成为**内置 App**，随客户端发布，无需单独安装。
 3. 首次进入：先「准备环境」（创建 `comfyui` runtime 专属 venv 并克隆 ComfyUI 源码），再「下载模型」（默认 Qwen-Image-2.1 int8 权重集，约 17GB），随后即可生成。
 4. 在「设置 · 模型」把生图默认路由指向 `local-gen/qwen-image`，即可让 `recut.image.generate` 走本机。
 

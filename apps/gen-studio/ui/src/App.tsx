@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 recut-sdk（background.call + events.subscribe 实时事件）、Left 两 Tab 组件、Right 预览组件与 i18n
- * [OUTPUT]: 生成工坊主工作区：模型目录/任务列表按事件增量刷新（首屏与用户动作走 REST）、选中任务详情与产物、预览图「以此为参考图编辑」回填左侧表单、动作编排与语言同步
+ * [OUTPUT]: 本地生成主工作区：模型目录/任务列表按事件增量刷新（首屏与用户动作走 REST）、选中任务详情与产物、预览图「以此为参考图编辑」回填左侧表单、动作编排与语言同步
  * [POS]: ui 的状态编排层；只经 App operation 契约访问后台，不直接读写本机文件
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -386,7 +386,6 @@ export default function App() {
       <div className="mx-auto max-w-[1600px]">
         <header className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-border/80 pb-4">
           <div className="min-w-0">
-            <p className="font-mono text-[10px] font-semibold tracking-[0.18em] text-primary">{t(locale, "app.kicker")}</p>
             <h1 className="mt-1.5 text-2xl font-semibold tracking-tight sm:text-3xl">{t(locale, "app.name")}</h1>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{t(locale, "app.subtitle")}</p>
           </div>
