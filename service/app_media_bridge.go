@@ -265,7 +265,7 @@ func providerResultID(contribution ContributedMediaProvider, raw any) string {
 	if contribution.Executor != nil && contribution.Executor.ResultIDPath != "" {
 		path = contribution.Executor.ResultIDPath
 	}
-	return mapString(jsonMapByPath(raw, path), "id")
+	return stringByPath(raw, path)
 }
 
 // providerSaveKind resolves the kind passed to the App save op.
@@ -356,19 +356,27 @@ func numberField(m map[string]any, key string) float64 {
 	return 0
 }
 
-// jsonMapByPath resolves a dot path (e.g. "generation.id") into a nested map.
-func jsonMapByPath(raw any, path string) map[string]any {
-	current := jsonMap(raw)
+// stringByPath resolves a dot path (e.g. "generation.id") to the string value
+// stored at that path in a decoded JSON payload.
+func stringByPath(raw any, path string) string {
+	current := raw
 	for _, segment := range strings.Split(path, ".") {
-		if current == nil {
-			return nil
-		}
 		if segment == "" {
 			continue
 		}
-		current = jsonMap(current[segment])
+		current = jsonMap(current)[segment]
+		if current == nil {
+			return ""
+		}
 	}
-	return current
+	switch value := current.(type) {
+	case string:
+		return value
+	case fmt.Stringer:
+		return value.String()
+	default:
+		return ""
+	}
 }
 
 // sliceField 读一个 result 负载里的数组：既接受裸数组，也接受 {key:[...]} / {items:[...]}。

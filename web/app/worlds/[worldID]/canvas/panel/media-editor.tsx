@@ -631,6 +631,10 @@ function GenerationRecipe({ apiBase, capability, elementId, current, modality, o
     }
     const created = (await response.json()) as MediaJob;
     setJob(created);
+    // 立即挂载平台预建的 pending 素材（queued）：预览区先显示「生成中」，与 AI / 素材库
+    // 生成路径一致；轮询到终态后同一 assetId 原位补全，不再等完成才上图。
+    const pendingId = created.assetIds?.[0];
+    if (pendingId) onAdopt({ id: pendingId });
     void poll(created);
   };
   const poll = async (created: MediaJob) => {

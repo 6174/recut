@@ -387,6 +387,54 @@ apps/modal-studio/
 
 > 生成器只在开发/构建期跑；运行期只读 `registry.json`，`background.js` 保留极简 `REGISTRY_FALLBACK`（照 gen-studio `REGISTRY_FALLBACK` 做法）。**不生成 `contributes.media`**（v1 不接平台）。
 
+### 4.6 内置与用户预设包（appstate）——用户也能创建 modalapp
+
+> 预设包有**两种来源**，共用同一三件套契约（`manifest.json` + `modal_app.py` + `bootstrap.py`）；运行期合并成一份目录，靠 `origin` 区分。
+
+| 来源 | 位置 | 权限 | 发现方式 |
+|---|---|---|---|
+| **内置 `origin=builtin`** | App 包内 `modalapps/<id>/`（`appRoot/modalapps`） | 只读 | 构建期 `publish_registry.py` → `python/registry.json` |
+| **用户 `origin=user`** | **appstate** `<dataRoot>/appstate/recut.modal-studio/files/modalapps/<id>/`（`ctx.appFiles` / `ctx.paths.appFilesRoot`） | 可写 | 运行期 `ctx.appFiles.list("modalapps")` + 读各 `manifest.json` |
+
+- **合并规则**：`background.js` 的 `readRegistry` = 内置（`registry.json`）+ 用户（appstate 扫描），同 id 用户覆盖内置（兜底）；`modal.modalapp.save` 显式**禁止与内置 id 撞名**，避免遮蔽内置。
+- **源码路径解析**：每个预设包带 `sourceDir`（相对其根）；`sourceAbs(ctx, modalapp)` 按 `origin` 拼绝对路径（内置→`appRoot`，用户→`appFilesRoot`）。`modal_runner.py` 的所有子命令改传 `--dir <绝对源码目录>`，直接读该目录的 `manifest.json`，不再依赖注册表；`status` 扫描两个根（`--user-root`）。
+- **作者操作**（App 层，无 service 改动）：`modal.modalapp.list/get/path/save/scaffold/remove`——
+  - `modal.modalapp.path` 返回内置/用户根目录绝对路径，供 Agent 用**原生文件工具**直接编辑用户预设包；
+  - `modal.modalapp.save { id, manifest, modalAppPy?, bootstrapPy? }` 校验 id（`^[a-z0-9][a-z0-9._-]*$`、不与内置撞名）与 manifest 必填（`id/name/engine.appName/functions[].id+entrypoint`）后写入 appstate；
+  - `modal.modalapp.scaffold` 生成一个**可端到端跑通**的最小骨架（返回 1x1 占位图、无需权重），作为用户起点；
+  - `modal.modalapp.remove` 删除用户预设包（内置不可删），经 `ctx.shell` 严格路径校验后 `rm -rf`。
+- **UI**：预设包切换器按 `origin` 显示「内置/用户」徽标，用户包显示 appstate 绝对路径。
+- **Skill**：`skills/modal-studio/SKILL.md` 提供完整「创建一个新 modalapp」引导（路径 → 三件套契约 → 输出契约 → 验证与运行 → 安全），教 Agent 自主创建。
+- **安全/供应链**：用户预设包是**代码分发载体**（`modal deploy` 会构建并运行其代码）；只创建/使用可信 modalapp（承 §14 风险）。
+
+> 生成器仍只扫内置 `modalapps/`；用户预设包**不参与构建期生成**，完全运行期发现。内置与用户共用 `background.js` 的归一逻辑（`normalizeManifest`）与 runner 的 `normalize_manifest`。
+
+### 4.7 旗舰预设包：MiniMax-H3（SGLang 多卡服务）
+
+> 第一版兑现的开源视频项目定为 **[MiniMax-H3](https://github.com/MiniMax-AI/MiniMax-H3)**（`modalapps/minimax-h3/`）——一个**全模态音视频生成**模型，验证「多卡 SGLang 服务托管进单个 Modal Function」的范式。
+
+**模型事实（调研结论）**：H3-Base 是 33B dense omni transformer（DiT 约 61.7GB）+ Qwen3-VL-32B 文本编码器（取第 50 层隐状态），输出视频 + 原生立体声音频，4–15s、短边 768、24 FPS。官方推荐推理框架为 **SGLang / vLLM / diffusers / ComfyUI**；官方验证的单节点多卡 recipe（SGLang cookbook）：
+
+| GPU | 并行 | 备注 |
+|---|---|---|
+| `H200:4` | `--num-gpus 4 --ulysses-degree 4`（resident） | 官方 h200-resident-4（默认） |
+| `H100:4` | `--num-gpus 4 --tp-size 2 --ulysses-degree 2` | 官方 h100-resident-4 |
+| `B200:4` | `--num-gpus 4 --ulysses-degree 4 --use-fsdp-inference true` | 官方 b200-fsdp-4 |
+| `B200:8` | `--num-gpus 8 --ulysses-degree 8` | 官方 b200-resident-8 |
+
+**Modal 落地方式（无需 HTTP endpoint，仍是本机函数式调用）**：
+
+- **镜像**：`modal.Image.from_registry("lmsysorg/sglang:dev")` + `pip install -e /sgl-workspace/sglang/python[diffusion]`（SGLang 官方镜像自带 H3 diffusion 支持）。
+- **多卡 = 多卡 Function**：`@app.function(gpu="H200:4", ...)`；Modal 单节点支持最多 8 卡，与 H3 的单节点 recipe 一致（多节点为 Modal 私有 beta，不在 v1 范围）。
+- **服务封进函数**：容器内 `_ensure_server()` 幂等启动 `sglang serve` 常驻子进程并等 `/health`；`generate_video` 把表单参数 + 参考帧组装成 `POST /v1/videos`（`task=t2va|fl2va`、`target.short_edge=768`、`quality=lossless`、`flow_shift=12.0`、`audio_flow_shift=3.0`），取回 mp4 写入 `/out` 卷并返回 `{kind:"file"}`。**对本机 runner 仍是 `Function.from_name(...).with_options(gpu=...).remote(...)`**——`invoke.mode` 保持 `sdk`。
+- **recipe 动态选择**：容器启动时探测 `torch.cuda.device_count()` 与 `get_device_name(0)`，映射到上表 recipe——因此一个函数即可支持多档 GPU（`with_options(gpu=...)` 换池，容器内自适应）。
+- **函数与检查点**：FL2VA 检查点，两个函数「文生视频（t2va）」「首/尾帧生视频（fl2va）」共用一个 entrypoint（有参考帧即 `fl2va`，否则 `t2va`）。
+- **权重（HF gated，只在 bootstrap 写卷）**：**只有 `bootstrap.py` 会把权重写进 Volume**（`modal.deploy` 只构建镜像、`generate` 只读卷，都不联网拉权重）。因约 80GB，下载必须**断点续传**：逐文件 HTTP `Range` + `.part` 留在卷里，**每 10 分钟 `volume.commit()`** 保住进度，容器超时/中断后重跑 `modal.install` 从断点继续；全部文件校验通过才写卷根完成标记。`bootstrap.py` 用 `recut-hf-token` Secret 访问 gated 仓库，**部署前必须先 `modal.secret.set`**（secret 在 deploy 时被引用）。
+- **成本透明**：H200×4 ≈ $18/h、B200×8 ≈ $50/h；`modal.generate` 的 `confirmCost` 门默认开启。
+- **有意边界**：H3-Context-IR（提示词增强）与 H3-Regenerate-2K（2K 重生成）官方未开源 → 输出 768p、提示词需用户按 Prompting Guidance 结构化；v1 只做 FL2VA，不含 Ref2VA；冷启动需从卷加载约 80GB 权重（`max_containers=1`）。
+
+> 通用化：`modal_runner.py` 只认「`--dir` + `manifest.json` + `Function.from_name`」，H3 的 SGLang 细节全部封装在 `modalapps/minimax-h3/modal_app.py`，核心零改动。
+
 ---
 
 ## 5. 平台接入：v1 不做特殊接入（等平台 hook）
@@ -421,6 +469,13 @@ apps/modal-studio/
 | `modal.profiles.remove` | api | | 删除 profile |
 | `modal.settings.set` | api | | 默认 profile、权重源（`automatic/huggingface/modelscope`）、默认 GPU 档位 |
 | `modal.secret.set` | api | | 把 `{name, values}` 写成用户 Modal 账号下的 Secret（`modal secret create --force`），用于私有权重 token |
+| `modal.prepare` | api | | 准备本机运行环境（装主 venv 依赖 + 跑 App `bootstrap.py`）；异步单槽；不部署云端、不下载权重 |
+| `modal.modalapp.list` | api, mcp | | 列出内置+用户预设包（`origin`、绝对路径、部署/volume 就绪度、函数清单） |
+| `modal.modalapp.get` | api, mcp | | 单个预设包的归一 manifest + `origin` + 源码绝对路径 + 目录文件清单 |
+| `modal.modalapp.path` | api | | 内置/用户预设包根目录的绝对路径（供 Agent 原生工具编辑用户预设包） |
+| `modal.modalapp.save` | api, mcp | | 创建/更新用户预设包 `{id, manifest, modalAppPy?, bootstrapPy?}`（写 appstate；id 不可与内置撞名） |
+| `modal.modalapp.scaffold` | api, mcp | | 生成可端到端跑通的最小用户预设包骨架（占位图、无需权重） |
+| `modal.modalapp.remove` | api, mcp | | 删除用户预设包（内置不可删） |
 | `modal.deploy` | api, mcp | | 部署/更新 modalapp 的 Image 与函数（`modal deploy`）；异步单槽；`{modalapp}` |
 | `modal.install` | api, mcp | | 只准备权重（跑 `bootstrap` 写 Volume，不重建 image）；异步、按 modalapp 串行；`{modalapp, source}` |
 | `modal.generate` | api, mcp | ✅ | 调用函数：`{modalapp, function, ...formFields, referenceAssetIds?, gpuTier?, confirmCost?}`；单槽 FIFO；返回 `{job, taskId, generation:{id}}` |

@@ -549,6 +549,18 @@ func (s *Server) retryMediaAssetDownload(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, asset)
 }
 
+// retryMediaAssetGeneration re-runs a failed generation asset in place, so the
+// canvas/timeline keeps the same assetId. Atlas download-only failures are
+// delegated to the remote recovery path.
+func (s *Server) retryMediaAssetGeneration(w http.ResponseWriter, r *http.Request) {
+	asset, err := s.media.RetryGeneration(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, asset)
+}
+
 func (s *Server) attachMediaAsset(w http.ResponseWriter, r *http.Request) {
 	input := struct {
 		ProjectID string `json:"projectId"`

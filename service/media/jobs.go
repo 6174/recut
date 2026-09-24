@@ -453,6 +453,59 @@ func (m *MediaService) completeExecution(job MediaJob, asset MediaAsset) {
 	m.setJobStatus(job.ID, "completed", []string{asset.ID}, "")
 }
 
+// RetryGeneration re-runs a failed generation asset in place. Atlas tasks that
+// only failed while downloading fall back to the remote download retry; every
+// other failure (local App providers, cloud image/speech) resets the same job
+// and its pending asset to queued and lets the durable scheduler replay it, so
+// canvas/timeline references keep resolving to the same assetId.
+func (m *MediaService) RetryGeneration(assetID string) (MediaAsset, error) {
+	db, err := m.database()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where id = ?", assetID))
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if asset.Status != "failed" {
+		return MediaAsset{}, errors.New("只有失败的素材可以重试")
+	}
+	if asset.JobID == "" {
+		return MediaAsset{}, errors.New("该素材没有关联的生成任务")
+	}
+	job, err := m.getJob(asset.JobID)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	// Atlas 远端任务若已提交成功、只是取回失败，仍走下载恢复。
+	if job.RemoteID != "" && strings.HasPrefix(job.ModelID, "atlas-cloud/") {
+		return m.RetryAssetDownload(assetID)
+	}
+	if len(job.AssetIDs) != 1 || job.AssetIDs[0] != asset.ID {
+		return MediaAsset{}, errors.New("该素材不是任务的待完成产物，无法原位重试")
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	tx, err := db.Begin()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	rollback := func(cause error) (MediaAsset, error) { _ = tx.Rollback(); return MediaAsset{}, cause }
+	if _, err := tx.Exec("update media_assets set status = 'queued', error = '', remote_id = '', remote_poll_url = '', updated_at = ? where id = ? and status = 'failed'", now, asset.ID); err != nil {
+		return rollback(err)
+	}
+	if _, err := tx.Exec("update media_jobs set status = 'queued', error = '', remote_id = '', remote_poll_url = '', submission_started_at = '', updated_at = ? where id = ? and status = 'failed'", now, job.ID); err != nil {
+		return rollback(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return MediaAsset{}, err
+	}
+	m.publishAssetChange()
+	m.startQueuedExecution(job.ID)
+	asset.Status = "queued"
+	asset.Error = ""
+	return asset, nil
+}
+
 func (m *MediaService) generateOpenAIImage(job MediaJob, credential MediaCredential, model MediaModel, secret string) (MediaAsset, error) {
 	base := apiBaseFor(credential)
 	if base == "" {

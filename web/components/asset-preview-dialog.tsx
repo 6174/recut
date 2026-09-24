@@ -1120,10 +1120,13 @@ function PendingAssetContent({ apiBase, asset, status }: { apiBase: string; asse
   if (plan) {
     return <div className="grid max-w-sm gap-3 text-center text-muted-foreground"><div><p className="text-sm font-medium text-sky-600">计划中</p><p className="mt-1 text-xs leading-5">这是一条生成计划（只有说明与属性，还没有配方）；复制素材上下文交给 AI 去生成。</p></div></div>;
   }
-  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground">{!proposed && <LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} />}<div><p className={`text-sm font-medium ${proposed ? "text-amber-600" : "text-foreground"}`}>{status === "failed" ? "生成失败" : proposed ? "待确认生成" : "生成中"}</p>{!proposed && <GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} />}<p className="mt-1 text-xs leading-5">{proposed ? "这是一条生成提案；确认后才提交生成并消耗额度。" : "素材引用已经建立；完成后会在这里原位可预览。"}</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryDownloadButton apiBase={apiBase} asset={asset} />}</div></div>;
+  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground">{!proposed && <LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} />}<div><p className={`text-sm font-medium ${proposed ? "text-amber-600" : "text-foreground"}`}>{status === "failed" ? "生成失败" : proposed ? "待确认生成" : "生成中"}</p>{!proposed && <GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} />}<p className="mt-1 text-xs leading-5">{proposed ? "这是一条生成提案；确认后才提交生成并消耗额度。" : "素材引用已经建立；完成后会在这里原位可预览。"}</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryGenerationButton apiBase={apiBase} asset={asset} />}</div></div>;
 }
 
-function RetryDownloadButton({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
+// 失败重试：重新执行同一任务的生成（原位复用 assetId），而不是只重新下载远端产物。
+// Atlas 远端仅下载失败的场景由服务端 /retry 内部回退到下载恢复。
+function RetryGenerationButton({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
+  const { upsertAsset } = useMediaAssetEvents();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   if (!asset.jobId) return null;
@@ -1131,18 +1134,20 @@ function RetryDownloadButton({ apiBase, asset }: { apiBase: string; asset: Previ
     setPending(true);
     setError("");
     try {
-      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/retry-download`, { method: "POST" });
+      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/retry`, { method: "POST" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || "重新下载失败，请稍后重试。");
+        throw new Error(payload?.error || "重试失败，请稍后重试。");
       }
+      const updated = await response.json().catch(() => null);
+      if (updated) upsertAsset(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "重新下载失败，请稍后重试。");
+      setError(err instanceof Error ? err.message : "重试失败，请稍后重试。");
     } finally {
       setPending(false);
     }
   }
-  return <div className="grid gap-1.5"><button className="mx-auto flex h-8 items-center gap-1.5 rounded-xs border px-3 text-xs hover:bg-muted disabled:opacity-60" disabled={pending} onClick={() => void retry()} type="button">{pending ? <LoaderCircle className="size-3.5 animate-spin text-primary" /> : <RotateCcw className="size-3.5" />}{pending ? "正在重新下载…" : "重新下载"}</button>{error && <p className="text-xs text-destructive">{error}</p>}</div>;
+  return <div className="grid gap-1.5"><button className="mx-auto flex h-8 items-center gap-1.5 rounded-xs border px-3 text-xs hover:bg-muted disabled:opacity-60" disabled={pending} onClick={() => void retry()} type="button">{pending ? <LoaderCircle className="size-3.5 animate-spin text-primary" /> : <RotateCcw className="size-3.5" />}{pending ? "正在重试…" : "重试"}</button>{error && <p className="text-xs text-destructive">{error}</p>}</div>;
 }
 
 function ReferencePreview({ apiBase, reference }: { apiBase: string; reference: PreviewAsset }) {
