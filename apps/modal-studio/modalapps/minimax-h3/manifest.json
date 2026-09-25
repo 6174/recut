@@ -1,0 +1,266 @@
+{
+  "id": "minimax-h3",
+  "name": {
+    "zh": "MiniMax-H3 视频+音频生成",
+    "en": "MiniMax-H3 video+audio"
+  },
+  "capability": "video.generate",
+  "engine": {
+    "appName": "recut-minimax-h3",
+    "sourceDir": "modalapps/minimax-h3",
+    "image": {
+      "base": "registry:lmsysorg/sglang:dev",
+      "pythonVersion": "3.11",
+      "apt": [],
+      "pip": [
+        "huggingface_hub",
+        "requests"
+      ],
+      "buildCommands": [
+        "python -m pip install -e /sgl-workspace/sglang/python[diffusion]"
+      ]
+    },
+    "gpuTiers": {
+      "default": "H200:4",
+      "options": [
+        {
+          "id": "h200x4",
+          "gpu": "H200:4",
+          "label": {
+            "zh": "H200 ×4（推荐，resident）",
+            "en": "H200 ×4 (recommended, resident)"
+          }
+        },
+        {
+          "id": "h100x4",
+          "gpu": "H100:4",
+          "label": {
+            "zh": "H100 ×4（TP2+Ulysses2）",
+            "en": "H100 ×4 (TP2+Ulysses2)"
+          }
+        },
+        {
+          "id": "b200x4",
+          "gpu": "B200:4",
+          "label": {
+            "zh": "B200 ×4（FSDP）",
+            "en": "B200 ×4 (FSDP)"
+          }
+        },
+        {
+          "id": "b200x8",
+          "gpu": "B200:8",
+          "label": {
+            "zh": "B200 ×8（最快）",
+            "en": "B200 ×8 (fastest)"
+          }
+        }
+      ]
+    },
+    "timeoutSec": 3600,
+    "idleTimeoutSec": 60,
+    "volumes": [
+      {
+        "name": "recut-minimax-h3-models",
+        "mount": "/models",
+        "label": {
+          "zh": "模型权重（FL2VA，约 134GB）",
+          "en": "Model weights (FL2VA, ~134GB)"
+        }
+      },
+      {
+        "name": "recut-minimax-h3-out",
+        "mount": "/out",
+        "label": {
+          "zh": "产物中转",
+          "en": "Output staging"
+        }
+      }
+    ],
+    "secrets": [
+      {
+        "name": "recut-hf-token",
+        "required": true,
+        "label": {
+          "zh": "Hugging Face Token（H3 需申请访问权限，必填）",
+          "en": "Hugging Face token (H3 is gated, required)"
+        },
+        "keys": [
+          "HF_TOKEN"
+        ]
+      }
+    ]
+  },
+  "weights": {
+    "bootstrapFunction": "bootstrap_weights",
+    "repoHuggingFace": "MiniMaxAI/MiniMax-H3",
+    "repoModelScope": "",
+    "revision": "main",
+    "sizeGb": 135,
+    "files": [
+      "model_index.json",
+      "FL2VA/**"
+    ]
+  },
+  "functions": [
+    {
+      "id": "text-to-video",
+      "name": {
+        "zh": "文生视频（带音频）",
+        "en": "Text to video+audio"
+      },
+      "entrypoint": "generate_video",
+      "invoke": {
+        "mode": "sdk",
+        "kind": "cls",
+        "cls": "H3",
+        "method": "generate_video"
+      },
+      "output": {
+        "kind": "video",
+        "mimeType": "video/mp4",
+        "ext": "mp4"
+      },
+      "formSchema": [
+        {
+          "key": "prompt",
+          "type": "textarea",
+          "required": true,
+          "label": {
+            "zh": "提示词",
+            "en": "Prompt"
+          }
+        },
+        {
+          "key": "aspectRatio",
+          "type": "select",
+          "options": [
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ],
+          "default": "16:9",
+          "label": {
+            "zh": "画幅",
+            "en": "Aspect ratio"
+          }
+        },
+        {
+          "key": "durationSec",
+          "type": "number",
+          "default": 5,
+          "min": 4,
+          "max": 15,
+          "label": {
+            "zh": "时长（秒）",
+            "en": "Duration (s)"
+          }
+        },
+        {
+          "key": "steps",
+          "type": "number",
+          "default": 50,
+          "min": 10,
+          "max": 80,
+          "label": {
+            "zh": "步数",
+            "en": "Steps"
+          }
+        },
+        {
+          "key": "seed",
+          "type": "number",
+          "default": -1,
+          "label": {
+            "zh": "随机种子（-1 随机）",
+            "en": "Seed (-1 random)"
+          }
+        }
+      ],
+      "defaultParams": {
+        "aspectRatio": "16:9",
+        "durationSec": 5,
+        "steps": 50
+      }
+    },
+    {
+      "id": "first-last-frame",
+      "name": {
+        "zh": "首/尾帧生视频",
+        "en": "First/last-frame to video"
+      },
+      "entrypoint": "generate_video",
+      "invoke": {
+        "mode": "sdk",
+        "kind": "cls",
+        "cls": "H3",
+        "method": "generate_video"
+      },
+      "output": {
+        "kind": "video",
+        "mimeType": "video/mp4",
+        "ext": "mp4"
+      },
+      "formSchema": [
+        {
+          "key": "prompt",
+          "type": "textarea",
+          "required": true,
+          "label": {
+            "zh": "提示词",
+            "en": "Prompt"
+          }
+        },
+        {
+          "key": "references",
+          "type": "media",
+          "kind": "image",
+          "multiple": true,
+          "required": true,
+          "label": {
+            "zh": "首帧 / 尾帧（1–2 张，按顺序）",
+            "en": "First / last frame (1–2 images, in order)"
+          }
+        },
+        {
+          "key": "durationSec",
+          "type": "number",
+          "default": 5,
+          "min": 4,
+          "max": 15,
+          "label": {
+            "zh": "时长（秒）",
+            "en": "Duration (s)"
+          }
+        },
+        {
+          "key": "steps",
+          "type": "number",
+          "default": 50,
+          "min": 10,
+          "max": 80,
+          "label": {
+            "zh": "步数",
+            "en": "Steps"
+          }
+        },
+        {
+          "key": "seed",
+          "type": "number",
+          "default": -1,
+          "label": {
+            "zh": "随机种子（-1 随机）",
+            "en": "Seed (-1 random)"
+          }
+        }
+      ],
+      "defaultParams": {
+        "durationSec": 5,
+        "steps": 50
+      }
+    }
+  ]
+}

@@ -1,0 +1,352 @@
+{
+  "manifestVersion": 1,
+  "id": "recut.modal-studio",
+  "name": "Modal 云函数",
+  "author": "Recut",
+  "description": "把开源 GPU 项目托管到 modal.com：选择预设包，配置 modal token 后即可部署镜像、准备权重并调用云端函数。",
+  "localized": {
+    "en": {
+      "name": "Modal Functions",
+      "description": "Host open-source GPU projects on modal.com: pick a preset pack, configure a modal token, then deploy the image, prepare weights and call cloud functions."
+    }
+  },
+  "repository": "https://github.com/6174/recut-modal-studio",
+  "version": "0.1.0",
+  "type": "standalone",
+  "background": "background.js",
+  "ui": {
+    "standaloneView": "ui/dist/index.html"
+  },
+  "permissions": [
+    "sqlite",
+    "files",
+    "media.read",
+    "media.write",
+    "python",
+    "shell"
+  ],
+  "runtime": {
+    "python": {
+      "venv": "modal-studio",
+      "version": "3.11",
+      "requirements": "python/requirements.lock",
+      "bootstrap": "bootstrap.py"
+    }
+  },
+  "operations": [
+    {
+      "name": "modal.status",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "检查 Modal token profile/连通性、各预设包的部署状态（app/function 是否存在）、volume 就绪度、stale（代码变更待重新部署）与在途任务。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "modal.catalog",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "枚举预设包/函数：返回 { modalapps:[{ id, label, capability, deployed, volumeReady, stale, gpuTiers, functions:[{ id, label, formSchema, defaultParams, output }] }] }。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "modal.profiles.add",
+      "surfaces": ["api"],
+      "description": "新增 Modal token profile { name, tokenId, tokenSecret }（存 App 私有状态，0600）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name", "tokenId", "tokenSecret"],
+        "properties": {
+          "name": { "type": "string" },
+          "tokenId": { "type": "string" },
+          "tokenSecret": { "type": "string" },
+          "makeDefault": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "modal.profiles.list",
+      "surfaces": ["api"],
+      "description": "列出 Modal token profiles（不返回 secret，只返回 { id, name, tokenIdMasked, tokenSet }）。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "modal.profiles.remove",
+      "surfaces": ["api"],
+      "description": "删除一个 Modal token profile。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      }
+    },
+    {
+      "name": "modal.settings.set",
+      "surfaces": ["api"],
+      "description": "持久化默认 profile、权重源（automatic/huggingface/modelscope）与默认 GPU 档位。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "defaultProfileId": { "type": "string" },
+          "downloadSource": { "type": "string", "enum": ["automatic", "huggingface", "modelscope"] },
+          "defaultGpuTier": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "modal.secret.set",
+      "surfaces": ["api"],
+      "description": "把 { name, values } 写成用户 Modal 账号下的 Secret（modal secret create --force），用于私有权重 token。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name", "values"],
+        "properties": {
+          "name": { "type": "string" },
+          "values": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "modal.secrets.list",
+      "surfaces": ["api", "mcp"],
+      "description": "聚合所有预设包声明的 Secret（去重）并标注在当前账号是否已创建，供「账号」面板渲染 token/密钥设置项。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "modal.modalapp.list",
+      "surfaces": ["api", "mcp"],
+      "description": "列出内置与用户预设包（含 origin、绝对路径、部署与 volume 就绪度、函数清单）。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "modal.modalapp.get",
+      "surfaces": ["api", "mcp"],
+      "description": "读取单个预设包的归一 manifest、来源（builtin/user）、源码绝对路径与目录内文件清单。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      }
+    },
+    {
+      "name": "modal.modalapp.path",
+      "surfaces": ["api"],
+      "description": "返回内置与用户预设包根目录的绝对路径（供 Agent 用原生工具直接编辑用户预设包文件）。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "modal.modalapp.save",
+      "surfaces": ["api", "mcp"],
+      "description": "创建/更新一个用户预设包（写入 appstate/modalapps/<id>/）：{ id, manifest, modalAppPy?, bootstrapPy? }；id 不可与内置撞名。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id", "manifest"],
+        "properties": {
+          "id": { "type": "string" },
+          "manifest": { "type": "object" },
+          "modalAppPy": { "type": "string" },
+          "bootstrapPy": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "modal.modalapp.scaffold",
+      "surfaces": ["api", "mcp"],
+      "description": "生成一个可端到端跑通的最小用户预设包骨架（占位 1x1 图、无需权重）：{ id, name?, capability?, overwrite? }。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "capability": { "type": "string" },
+          "overwrite": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "modal.modalapp.remove",
+      "surfaces": ["api", "mcp"],
+      "description": "删除一个用户预设包（appstate/modalapps/<id>/）；内置预设包不可删除。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      }
+    },
+    {
+      "name": "modal.prepare",
+      "surfaces": ["api"],
+      "description": "准备本机运行环境（安装主 venv 依赖并跑 App bootstrap.py）；异步单槽；不部署云端、不下载权重。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "modal.deploy",
+      "surfaces": ["api", "mcp"],
+      "description": "部署/更新预设包的 Image 与函数（modal deploy）；异步单槽；{ modalapp }。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["modalapp"],
+        "properties": { "modalapp": { "type": "string" }, "profileId": { "type": "string" } }
+      }
+    },
+    {
+      "name": "modal.install",
+      "surfaces": ["api", "mcp"],
+      "description": "只准备权重（跑 bootstrap 写 Volume，不重建 image）；异步、按预设包串行；{ modalapp, source }。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["modalapp"],
+        "properties": {
+          "modalapp": { "type": "string" },
+          "source": { "type": "string", "enum": ["automatic", "huggingface", "modelscope"] },
+          "profileId": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "modal.generate",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "调用云端函数：{ modalapp, function, ...formFields, referenceAssetIds?, gpuTier?, confirmCost? }；单槽 FIFO；返回 { job, taskId, generation:{id} }。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["modalapp", "function"],
+        "properties": {
+          "modalapp": { "type": "string" },
+          "function": { "type": "string" },
+          "params": { "type": "object" },
+          "referenceAssetIds": { "type": "array", "items": { "type": "string" } },
+          "gpuTier": { "type": "string" },
+          "confirmCost": { "type": "boolean" },
+          "profileId": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "modal.generations",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "已完成运行记录（私有产物 + savedAssetId）。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "modal.generation.complete",
+      "surfaces": ["api"],
+      "description": "任务终态后读取产物（outputURL/尺寸/时长/seed/耗时/错误）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      }
+    },
+    {
+      "name": "modal.save",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "把私有产物导入素材库（kind: image|video|audio），返回真实 assetId。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id", "kind"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["image", "video", "audio"] }
+        }
+      }
+    },
+    {
+      "name": "modal.cancel",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "取消最新在途任务。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "modal.teardown",
+      "surfaces": ["api", "mcp"],
+      "description": "停止云端 Modal App（modal app stop）；可并行。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["modalapp"],
+        "properties": { "modalapp": { "type": "string" }, "profileId": { "type": "string" } }
+      }
+    },
+    {
+      "name": "modal.tasks.list",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "任务中心主列表：统一返回部署/权重/运行任务，支持按来源与状态过滤、日期倒序分页。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string", "enum": ["ai", "manual"] },
+          "status": { "type": "string", "enum": ["running", "queued", "done", "failed"] },
+          "action": { "type": "string" },
+          "limit": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "modal.task.get",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "单任务详情（来源、状态、结构化 meta、日志路径与关联产物）。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      }
+    },
+    {
+      "name": "modal.task.params",
+      "surfaces": ["api"],
+      "description": "读取生成任务提交时的完整参数与参考图，供右侧预览回显与「重新调整」。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      }
+    },
+    {
+      "name": "modal.task.logs",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "读取单条任务的持久日志（tasks/${id}.log 的 JSON-lines，带时间戳与等级），支持按行分页。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "cursor": { "type": "number" },
+          "limit": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "modal.task.cancel",
+      "surfaces": ["api", "mcp"],
+      "capability": true,
+      "description": "按任务中心 id 取消任务：运行中经底层 shell job 取消，排队中直接落 cancelled。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      }
+    },
+    {
+      "name": "modal.job",
+      "surfaces": ["api"],
+      "description": "读取最近尚未由界面确认的本地任务。",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "modal.resolve",
+      "surfaces": ["api"],
+      "description": "在界面已处理终态后确认本地任务，避免重连后显示过期执行状态。",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      }
+    }
+  ]
+}

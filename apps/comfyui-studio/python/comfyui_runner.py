@@ -1,7 +1,7 @@
 """
 [INPUT]: 平台注入的 RECUT_MODELS_DIR / RECUT_VENV / RECUT_PYTHON / RECUT_APP_FILES_DIR；comfyuiapps/<id>/
           的 manifest.json 与 workflow.py；generate 子命令的 --params/--reference
-[OUTPUT]: status（torch 与 ComfyUI 源码自检）、serve（启动/复用 ComfyUI 常驻服务）、generate（加载 app manifest →
+[OUTPUT]: status（torch 与 ComfyUI 源码自检）、serve（启动/复用本应用 ComfyUI 常驻服务，端口被旧/外来实例占用时按仓库归属接管或报错）、generate（加载 app manifest →
           导入 workflow.build(ctx) 动态构图 → 提交 API 工作流 → 按 output.kind 取回产物 → 写 <output>.meta.json）
 [POS]: comfyui-studio comfyui runtime venv 内的通用执行器；不认识任何具体工作流，工作流全部来自 comfyuiapps/
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -77,6 +77,129 @@ def server_alive(port: int) -> bool:
         return False
 
 
+def listening_pid(port: int) -> int:
+    """返回监听 port 的进程 PID；无法判定时返回 0（跨平台尽力而为）。"""
+    proc = Path("/proc")
+    if proc.is_dir():
+        inode = ""
+        try:
+            for line in Path("/proc/net/tcp").read_text().splitlines()[1:]:
+                fields = line.split()
+                if len(fields) < 10 or fields[3] != "0A":  # 0A = LISTEN
+                    continue
+                if int(fields[1].split(":")[1], 16) != port:
+                    continue
+                inode = fields[9]
+                break
+        except (OSError, ValueError):
+            inode = ""
+        if inode:
+            for entry in proc.iterdir():
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    for fd in (entry / "fd").iterdir():
+                        try:
+                            if os.readlink(fd) == f"socket:[{inode}]":
+                                return int(entry.name)
+                        except OSError:
+                            continue
+                except OSError:
+                    continue
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for token in result.stdout.split():
+            if token.isdigit():
+                return int(token)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return 0
+
+
+def process_cwd(pid: int) -> str:
+    """返回进程工作目录的 realpath；无法判定时返回空串。"""
+    try:
+        link = Path(f"/proc/{pid}/cwd")
+        if link.exists():
+            return os.path.realpath(link)
+    except OSError:
+        pass
+    try:
+        result = subprocess.run(
+            ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            if line.startswith("n"):
+                return os.path.realpath(line[1:].strip())
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ""
+
+
+def server_owned(port: int) -> bool:
+    """监听 port 的 ComfyUI 是否由本应用启动（工作目录 == 本应用仓库）。
+
+    拿不到 PID/cwd 时保守返回 True：宁可复用也不误杀用户自建的实例。
+    """
+    pid = listening_pid(port)
+    if pid <= 0:
+        return True
+    cwd = process_cwd(pid)
+    if not cwd:
+        return True
+    return cwd == os.path.realpath(str(repository()))
+
+
+def reclaim_foreign_server(port: int) -> None:
+    """端口被旧实例占用时接管：仅当它是同一 models 根下（如改名前的 gen-studio）的
+    ComfyUI 仓库才停止；其它来源直接报错，交给用户处理。"""
+    pid = listening_pid(port)
+    cwd = process_cwd(pid) if pid > 0 else ""
+    models_parent = os.path.realpath(str(comfyui_sdk.models_root().parent))
+    if pid > 0 and cwd and Path(cwd).is_relative_to(models_parent):
+        print(f"[comfy] 端口 {port} 被旧 ComfyUI 实例占用（{cwd}），正在停止并接管…", flush=True)
+        _terminate_pid(pid)
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline and server_alive(port):
+            time.sleep(0.5)
+        if server_alive(port):
+            _kill_pid(pid)
+            time.sleep(1)
+        return
+    raise SystemExit(
+        f"端口 {port} 已被其它 ComfyUI 实例占用（cwd={cwd or '未知'}）；"
+        f"请先停止它，或用 RECUT_COMFYUI_PORT 换一个端口。"
+    )
+
+
+def _terminate_pid(pid: int) -> None:
+    import signal
+
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+    except Exception:  # noqa: BLE001
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _kill_pid(pid: int) -> None:
+    import signal
+
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    except Exception:  # noqa: BLE001
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def tail_server_log(log_path: Path, offset: int) -> int:
     """把 server.log 自 offset 起新增的完整行转成 worker stdout，返回新 offset。"""
     try:
@@ -128,16 +251,21 @@ def _release_lock() -> None:
 
 
 def ensure_server(port: int) -> None:
-    """幂等：复用已在监听的本机 ComfyUI；否则在文件锁保护下启动一个常驻服务（不随本进程退出）。"""
+    """幂等：复用本应用启动的常驻 ComfyUI；端口被旧/外来实例占用时先接管或报错；
+    否则在文件锁保护下启动一个常驻服务（不随本进程退出）。"""
     if server_alive(port):
-        print(f"[comfy] 复用已运行的 ComfyUI 服务（:{port}）。", flush=True)
-        return
+        if server_owned(port):
+            print(f"[comfy] 复用已运行的 ComfyUI 服务（:{port}）。", flush=True)
+            return
+        reclaim_foreign_server(port)
     if not _acquire_lock():
         raise SystemExit("等待 ComfyUI 引擎锁超时。")
     try:
         if server_alive(port):  # 另一个进程已启动
-            print(f"[comfy] 复用已运行的 ComfyUI 服务（:{port}）。", flush=True)
-            return
+            if server_owned(port):
+                print(f"[comfy] 复用已运行的 ComfyUI 服务（:{port}）。", flush=True)
+                return
+            reclaim_foreign_server(port)
         repo = repository()
         print(f"[comfy] 正在启动 ComfyUI 服务（:{port}，首次启动较慢）…", flush=True)
         log_path = comfyui_sdk.models_root() / "comfyui" / "server.log"

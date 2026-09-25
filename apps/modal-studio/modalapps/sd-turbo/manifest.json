@@ -1,0 +1,260 @@
+{
+  "id": "sd-turbo",
+  "name": {
+    "zh": "SD-Turbo 文生图/图生图",
+    "en": "SD-Turbo t2i/i2i"
+  },
+  "capability": "image.generate",
+  "engine": {
+    "appName": "recut-sd-turbo",
+    "sourceDir": "modalapps/sd-turbo",
+    "image": {
+      "base": "debian_slim",
+      "pythonVersion": "3.11",
+      "apt": [
+        "git"
+      ],
+      "pip": [
+        "torch",
+        "diffusers",
+        "transformers",
+        "accelerate",
+        "safetensors",
+        "pillow",
+        "huggingface_hub"
+      ]
+    },
+    "gpuTiers": {
+      "default": "T4",
+      "options": [
+        {
+          "id": "t4",
+          "gpu": "T4",
+          "label": {
+            "zh": "T4（省额度）",
+            "en": "T4 (cheaper)"
+          }
+        },
+        {
+          "id": "a10g",
+          "gpu": "A10G",
+          "label": {
+            "zh": "A10G（更快）",
+            "en": "A10G (faster)"
+          }
+        }
+      ]
+    },
+    "timeoutSec": 1800,
+    "idleTimeoutSec": 60,
+    "volumes": [
+      {
+        "name": "recut-sd-turbo-models",
+        "mount": "/models",
+        "label": {
+          "zh": "模型权重",
+          "en": "Model weights"
+        }
+      }
+    ],
+    "secrets": [
+      {
+        "name": "recut-hf-token",
+        "required": false,
+        "label": {
+          "zh": "Hugging Face Token（私有权重时需要）",
+          "en": "Hugging Face token (private weights)"
+        },
+        "keys": [
+          "HF_TOKEN"
+        ]
+      }
+    ]
+  },
+  "weights": {
+    "bootstrapFunction": "bootstrap_weights",
+    "repoHuggingFace": "stabilityai/sd-turbo",
+    "repoModelScope": "AI-ModelScope/sd-turbo",
+    "revision": "main",
+    "sizeGb": 3,
+    "files": [
+      "*.json",
+      "*.safetensors",
+      "*.txt",
+      "tokenizer/*",
+      "scheduler/*",
+      "text_encoder/*",
+      "unet/*",
+      "vae/*"
+    ]
+  },
+  "functions": [
+    {
+      "id": "text-to-image",
+      "name": {
+        "zh": "文生图",
+        "en": "Text to image"
+      },
+      "entrypoint": "generate_image",
+      "invoke": {
+        "mode": "sdk",
+        "kind": "cls",
+        "cls": "SDTurbo",
+        "method": "generate_image"
+      },
+      "output": {
+        "kind": "image",
+        "mimeType": "image/png",
+        "ext": "png"
+      },
+      "formSchema": [
+        {
+          "key": "prompt",
+          "type": "textarea",
+          "required": true,
+          "label": {
+            "zh": "提示词",
+            "en": "Prompt"
+          }
+        },
+        {
+          "key": "negativePrompt",
+          "type": "textarea",
+          "default": "",
+          "label": {
+            "zh": "负向词",
+            "en": "Negative prompt"
+          }
+        },
+        {
+          "key": "aspectRatio",
+          "type": "select",
+          "options": [
+            "1:1",
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4"
+          ],
+          "default": "1:1",
+          "label": {
+            "zh": "画幅",
+            "en": "Aspect ratio"
+          }
+        },
+        {
+          "key": "steps",
+          "type": "number",
+          "default": 2,
+          "min": 1,
+          "max": 8,
+          "label": {
+            "zh": "步数",
+            "en": "Steps"
+          }
+        },
+        {
+          "key": "guidance",
+          "type": "number",
+          "default": 0.0,
+          "min": 0,
+          "max": 10,
+          "label": {
+            "zh": "引导强度",
+            "en": "Guidance"
+          }
+        },
+        {
+          "key": "seed",
+          "type": "number",
+          "default": -1,
+          "label": {
+            "zh": "随机种子（-1 随机）",
+            "en": "Seed (-1 random)"
+          }
+        }
+      ],
+      "defaultParams": {
+        "aspectRatio": "1:1",
+        "steps": 2,
+        "guidance": 0.0
+      }
+    },
+    {
+      "id": "image-to-image",
+      "name": {
+        "zh": "图生图",
+        "en": "Image to image"
+      },
+      "entrypoint": "generate_image_from_image",
+      "invoke": {
+        "mode": "sdk",
+        "kind": "cls",
+        "cls": "SDTurbo",
+        "method": "generate_image_from_image"
+      },
+      "output": {
+        "kind": "image",
+        "mimeType": "image/png",
+        "ext": "png"
+      },
+      "formSchema": [
+        {
+          "key": "prompt",
+          "type": "textarea",
+          "required": true,
+          "label": {
+            "zh": "提示词",
+            "en": "Prompt"
+          }
+        },
+        {
+          "key": "references",
+          "type": "media",
+          "kind": "image",
+          "multiple": false,
+          "required": true,
+          "label": {
+            "zh": "参考图",
+            "en": "Reference image"
+          }
+        },
+        {
+          "key": "strength",
+          "type": "number",
+          "default": 0.6,
+          "min": 0.05,
+          "max": 1.0,
+          "label": {
+            "zh": "改动强度",
+            "en": "Strength"
+          }
+        },
+        {
+          "key": "steps",
+          "type": "number",
+          "default": 2,
+          "min": 1,
+          "max": 8,
+          "label": {
+            "zh": "步数",
+            "en": "Steps"
+          }
+        },
+        {
+          "key": "seed",
+          "type": "number",
+          "default": -1,
+          "label": {
+            "zh": "随机种子（-1 随机）",
+            "en": "Seed (-1 random)"
+          }
+        }
+      ],
+      "defaultParams": {
+        "strength": 0.6,
+        "steps": 2
+      }
+    }
+  ]
+}

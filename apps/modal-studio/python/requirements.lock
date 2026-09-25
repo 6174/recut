@@ -1,0 +1,9 @@
+# [INPUT]: 由 manifest.json 的 runtime.python 读取并作为主 venv 指纹的一部分。
+# [OUTPUT]: 重建 modal-studio 主 venv（轻量本机客户端：Modal SDK/CLI + 少量工具，不含 GPU 依赖）。
+# [POS]: modal-studio 主 venv 锁文件；重依赖在 Modal 云端 Image 里，不落到本机。
+# [PROTOCOL]: 变更时更新此头部，然后检查 README.md
+#
+# 本机只做编排、上传参考、接收产物；真正的 GPU 计算与权重都在 modal.com。
+# modal 包同时提供 SDK 与 `modal` CLI（modal_runner.py 用 CLI 执行 deploy/run/volume/app）。
+modal>=0.73
+requests==2.32.5
