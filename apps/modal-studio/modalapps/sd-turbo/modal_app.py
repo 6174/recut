@@ -2,9 +2,10 @@
 [INPUT]: Modal 运行时（modal.Image / modal.Volume / modal.Secret）；/models 卷里由 bootstrap.py 下载的 sd-turbo 权重
 [OUTPUT]: 云端 Modal App「recut-sd-turbo」：类 SDTurbo 在容器内常驻 sd-turbo pipeline，提供 generate_image（文生图，
           返回 PNG bytes）与 generate_image_from_image（图生图，接收参考图 bytes，返回 PNG bytes）；bootstrap_weights
-          把权重下载进 /models 卷
+           把权重下载进 /models 卷。类开启 GPU memory snapshot（enable_memory_snapshot + enable_gpu_snapshot），
+           把 import/加载/首帧预热挪进 @modal.enter(snap=True)，后续冷启动直接从快照恢复
 [POS]: sd-turbo 预设包的云端执行体；用 @app.cls 以支持 Modal 1.x 的 with_options(gpu=...) 逐档切换 GPU，
-       并让 pipeline 在容器内只加载一次
+       并让 pipeline 在容器内只加载一次；GPU 快照把「冷启动加载」从每次计费里剔除
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 """
 
@@ -60,9 +61,10 @@ def _png_bytes(pil_image) -> bytes:
     return buffer.getvalue()
 
 
-@app.cls(image=image, volumes={MODELS_DIR: models}, gpu="T4", timeout=1800, max_containers=1)
+@app.cls(image=image, volumes={MODELS_DIR: models}, gpu="T4", timeout=1800, max_containers=1,
+         enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})
 class SDTurbo:
-    @modal.enter()
+    @modal.enter(snap=True)
     def load(self):
         import torch
         from diffusers import AutoPipelineForText2Image
@@ -71,6 +73,10 @@ class SDTurbo:
             MODELS_DIR, torch_dtype=torch.float16, safety_checker=None
         ).to("cuda")
         self.i2i = None
+        # 预热一次前向，把 CUDA/分配器/算子初始化也冻进快照（Modal 官方建议）。
+        with torch.inference_mode():
+            self.t2i(prompt="warmup", width=64, height=64, num_inference_steps=1,
+                     guidance_scale=0.0).images[0]
 
     def _image2image(self):
         from diffusers import AutoPipelineForImage2Image
