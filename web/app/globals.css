@@ -65,8 +65,8 @@
   --input: oklch(0.3 0.014 150);
   --ring: oklch(0.68 0.18 151);
   --terminal: oklch(0.12 0.008 150);
-  /* 世界画布底色：与编辑器 panel 同一 lab 值，独立于工作台 --background */
-  --world-canvas: lab(2.83213% -1.69843 1.05832);
+  /* 世界画布底色：中性近黑（去绿色偏色），亮度与工作台 --background 一致 */
+  --world-canvas: oklch(0.145 0.012 150);
   --radius-xs: 0.375rem;
   --radius-sm: 0.5rem;
   --radius-md: 0.625rem;

@@ -143,7 +143,7 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
     return (await VelloGpuRasterizer.availability()).ok;
   }
 
-  static async create(canvas: HTMLCanvasElement, dpr = 1, background: [number, number, number, number] = [11, 15, 25, 255]): Promise<VelloGpuRasterizer> {
+  static async create(canvas: HTMLCanvasElement, dpr = 1, background: [number, number, number, number] = [0, 0, 0, 0]): Promise<VelloGpuRasterizer> {
     let mod: WasmModule;
     try {
       mod = await loadModule();

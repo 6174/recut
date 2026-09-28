@@ -801,14 +801,14 @@ export function CanvasPomeloHost() {
       container,
       plugins: [new GridPlugin(), new ViewportPlugin(), bindsPlugin, new AlignmentGuidePlugin()],
       blockTypes: WORLD_VELLO_BLOCKS,
-      renderAdapter: new VelloRendererAdapter(),
+      renderAdapter: new VelloRendererAdapter({ transparentBackground: true }),
     });
     editorRef.current = editor;
     pluginRef.current = bindsPlugin;
     let cancelled = false;
     void editor.onInit().then(() => {
       if (cancelled || editorRef.current !== editor) return;
-      // 背景由容器 CSS var(--background) 提供（adapter 以 backgroundAlpha:0 初始化）；
+      // 背景由容器 CSS bg-world-canvas（var(--world-canvas)）提供（adapter 以 transparentBackground 初始化）；
       // 点状网格由 GridPlugin 绘制
       syncDocFromCanvasStore(editor);
       centerContent(editor);

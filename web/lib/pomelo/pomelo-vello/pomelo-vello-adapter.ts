@@ -69,7 +69,7 @@ function cssColorToRgba(color: string, fallback: [number, number, number, number
   }
 }
 
-/** 解析容器祖先链上第一个非透明背景色（对齐 pixi 透明画布透出的主题背景）。 */
+/** 解析容器祖先链上第一个非透明背景色（透明画布关闭时的兜底底色的对齐来源）。 */
 function resolveBackgroundColor(container: HTMLElement): string {
   let node: HTMLElement | null = container;
   while (node) {
@@ -131,7 +131,14 @@ interface SyncedBlock {
 }
 
 export interface VelloRendererAdapterOptions {
+  /** 显式 clear 色；优先于透明/解析逻辑。 */
   background?: string;
+  /**
+   * 透明画布：不再自涂底色，交给宿主容器 CSS 透出（世界画布需要 GridPlugin 点阵与
+   * CSS --world-canvas 一起可见）。
+   * 缺省 false：沿用旧行为，按容器祖先链解析不透明背景色，避免官网预览透出 DOM 兜底层。
+   */
+  transparentBackground?: boolean;
   /**
    * 直绘模式：true = 每帧整场单 pass（无瓦片缝，但每帧整场重编码）；
    * false（缺省）= 瓦片管线：平移/缩放贴缓存旧瓦片（stale-zoom，<1ms）、落定后按预算补清晰层。
@@ -203,8 +210,11 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       return 2;
     })();
     const dpr = Math.min((window.devicePixelRatio || 1) * superSample, 3);
-    // 背景色对齐 pixi（透明画布透出主题背景）：解析容器祖先链的有效背景色
-    const background = this.options.background ?? resolveBackgroundColor(container);
+    // transparentBackground：透明画布，底色交给宿主容器 CSS（如 bg-world-canvas）透出，
+    // 避免与 CSS 层出现两份可漂移的颜色；否则沿用旧行为，解析容器祖先链的有效背景色。
+    const background = this.options.transparentBackground
+      ? "transparent"
+      : this.options.background ?? resolveBackgroundColor(container);
     const availability = await VelloGpuRasterizer.availability();
     if (!availability.ok) {
       throw new RendererUnsupportedError(undefined, availability.reason);

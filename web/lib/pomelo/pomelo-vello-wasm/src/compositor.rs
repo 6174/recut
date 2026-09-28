@@ -60,6 +60,9 @@ pub struct QuadDraw<'a> {
     pub rect: [f32; 4],
     /// 纹理采样 UV 矩形 (u0, v0, u1, v1)（bleed 瓦片取内区）
     pub uv: [f32; 4],
+    /// 源纹理是否已是预乘 alpha。vello 直接渲出的瓦片/快照为**直通** alpha（false）；
+    /// 经本合成器累积构建的底图为**预乘** alpha（true），需换用预乘混合，否则半透明边缘会二次预乘。
+    pub premultiplied: bool,
 }
 
 struct TileBinding {
@@ -68,7 +71,10 @@ struct TileBinding {
 }
 
 pub struct Compositor {
+    /// 直通 alpha 源（vello 瓦片/快照）：SrcAlpha / OneMinusSrcAlpha。
     pipeline: RenderPipeline,
+    /// 预乘 alpha 源（累积底图）：One / OneMinusSrcAlpha。
+    premultiplied_pipeline: RenderPipeline,
     layout: BindGroupLayout,
     sampler: Sampler,
     entries: HashMap<u32, TileBinding>,
@@ -130,45 +136,54 @@ impl Compositor {
             source: ShaderSource::Wgsl(SHADER.into()),
         });
 
-        // straight（未预乘）alpha 混合：vello `render_to_texture` 的目标纹理输出为未预乘 alpha
+        let make_pipeline = |label: &'static str, blend: BlendState| {
+            device.create_render_pipeline(&RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&pipeline_layout),
+                vertex: VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: PipelineCompilationOptions::default(),
+                    buffers: &[],
+                },
+                primitive: PrimitiveState {
+                    topology: PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: MultisampleState::default(),
+                fragment: Some(FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: PipelineCompilationOptions::default(),
+                    targets: &[Some(ColorTargetState { format, blend: Some(blend), write_mask: ColorWrites::ALL })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+
+        // straight（未预乘）alpha 源：vello `render_to_texture` 输出未预乘 alpha
         // （fine.wgsl 末尾写目标前做 1/a 反预乘 → `rgba_sep`），必须用 SrcAlpha/OneMinusSrcAlpha。
         // 若按预乘混合，半透明像素的 rgb（仍是原色，如白边 255）会被直接叠加 → 节点白边、文字发白。
-        let blend = BlendState {
+        let straight_blend = BlendState {
             color: BlendComponent { src_factor: BlendFactor::SrcAlpha, dst_factor: BlendFactor::OneMinusSrcAlpha, operation: BlendOperation::Add },
             alpha: BlendComponent { src_factor: BlendFactor::One, dst_factor: BlendFactor::OneMinusSrcAlpha, operation: BlendOperation::Add },
         };
+        // premultiplied 源：纹理 rgb 已乘过 alpha（如经本合成器累积的底图），直接 One/OneMinusSrcAlpha。
+        let premultiplied_blend = BlendState {
+            color: BlendComponent { src_factor: BlendFactor::One, dst_factor: BlendFactor::OneMinusSrcAlpha, operation: BlendOperation::Add },
+            alpha: BlendComponent { src_factor: BlendFactor::One, dst_factor: BlendFactor::OneMinusSrcAlpha, operation: BlendOperation::Add },
+        };
+        let pipeline = make_pipeline("pomelo-vello-compositor-pipeline", straight_blend);
+        let premultiplied_pipeline = make_pipeline("pomelo-vello-compositor-pipeline-premul", premultiplied_blend);
 
-        let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("pomelo-vello-compositor-pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: PipelineCompilationOptions::default(),
-                buffers: &[],
-            },
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
-            fragment: Some(FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: PipelineCompilationOptions::default(),
-                targets: &[Some(ColorTargetState { format, blend: Some(blend), write_mask: ColorWrites::ALL })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        Self { pipeline, layout, sampler, entries: HashMap::new(), clear: wgpu::Color::BLACK }
+        Self { pipeline, premultiplied_pipeline, layout, sampler, entries: HashMap::new(), clear: wgpu::Color::TRANSPARENT }
     }
 
     pub fn set_clear(&mut self, color: wgpu::Color) {
@@ -234,12 +249,6 @@ impl Compositor {
             queue.write_buffer(&entry.buffer, 0, &bytes);
         }
 
-        // 2) 收齐 bind group（保持 draws 顺序）
-        let bindings: Vec<&BindGroup> = draws
-            .iter()
-            .filter_map(|draw| self.entries.get(&draw.handle).map(|entry| &entry.bind_group))
-            .collect();
-
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("pomelo-vello-compositor-pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -253,9 +262,16 @@ impl Compositor {
             occlusion_query_set: None,
             multiview_mask: None,
         });
+        // 2) 按 draws 顺序绘制；源 alpha 语义不同（直通/预乘）时切换管线
+        let mut using_premultiplied = false;
         pass.set_pipeline(&self.pipeline);
-        for bind_group in bindings {
-            pass.set_bind_group(0, Some(bind_group), &[]);
+        for draw in draws {
+            let Some(entry) = self.entries.get(&draw.handle) else { continue };
+            if draw.premultiplied != using_premultiplied {
+                pass.set_pipeline(if draw.premultiplied { &self.premultiplied_pipeline } else { &self.pipeline });
+                using_premultiplied = draw.premultiplied;
+            }
+            pass.set_bind_group(0, Some(&entry.bind_group), &[]);
             pass.draw(0..6, 0..1);
         }
     }
