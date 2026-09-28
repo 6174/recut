@@ -7,6 +7,8 @@ pomelo 的 vello-native 渲染适配层：把 pomelo 的 vdom/block 生命周期
 （带 `reason`：insecure-context/no-webgpu/no-adapter/adapter-error）由宿主给出对症指引；wasm 产物缺失或
 设备初始化失败抛 `RendererInitError`（reason=resource/device），提示「构建产物」而非误导用户升级浏览器。
 产物与完整中文字体由 `pnpm vello:setup`（`predev`/`prebuild` 自动调用）幂等确保。
+字体**不阻塞首屏**：`registerFonts` 在后台加载（Cache Storage 命中即零网络），WASM 侧缺字体只跳过
+TEXT op，卡片/连线/图片/网格先上屏；字体就绪后失效 chunk Scene 缓存并整场重绘补上文字。
 
 ## 分层
 
@@ -17,7 +19,8 @@ pomelo 的 vello-native 渲染适配层：把 pomelo 的 vdom/block 生命周期
 | `vello-block.ts` | `VelloBlock extends PomeloBlock`：`renderBlock()` 产出 vello op；`render()`/`reposition()` 分别标记内容/位置版本供增量失效；`reposition()` 对内嵌世界坐标做平移（拖拽不滞后/闪动；文本 op 按 `glyphScale` 预乘坐标反算），`blockStateSelector` 忽略 x/y。**内核不感知任何业务 block** |
 | `demo-blocks.ts` | 示例 `DemoCardBlock`（M2 验证用） |
 | `op-bridge.ts` | JS→WASM 绘制 op 编码（与 `pomelo-vello-wasm/src/ops.rs` 对齐）；TEXT op 含 `embolden`（合成加粗 em 比例）与 `glyphScale`（屏幕恒定文本：font_size 保持屏幕 ppem 由轮廓高精度生成，配 1/scale 抵消视口缩放，坐标预乘 scale） |
-| `vello-rasterizer.ts` | `TileRasterizer` 的 vello(WebGPU/WASM) 实现；保留场景底图（`buildSceneBacking`/`presentSceneBacking`/`beginSceneBacking`/`stepSceneBacking`/`endSceneBacking`，平移/缩放贴底图不重编码，覆盖不足分帧增量重建）与内容会话（`beginContentSession`/`renderContentSession`/`endContentSession`） |
+| `vello-rasterizer.ts` | `TileRasterizer` 的 vello(WebGPU/WASM) 实现；保留场景底图（`buildSceneBacking`/`presentSceneBacking`/`beginSceneBacking`/`stepSceneBacking`/`endSceneBacking`，平移/缩放贴底图不重编码，覆盖不足分帧增量重建）与内容会话（`beginContentSession`/`renderContentSession`/`endContentSession`）；`invalidateFontScenes()` 把字体代次混进 chunk key——WASM 侧 `chunk_scenes` 按 key 缓存 Scene，注册字体后不换 key 就会一直复用「无字形」的旧 Scene |
+| `vello-fonts.ts` | 字体资源层：`FONT_URLS` + `loadFontBytes(url)`（**先命中 Cache Storage，未命中才走网络并回填**，返回 `{bytes, fromCache}`）；完整中文字体约 16MB，而 `/vello-wasm/*` 以 `max-age=0` 提供、每次都要回源校验，devtools 禁用缓存/无痕/缓存逐出时更是整包重下——这里把「只下载一次」变成显式契约；同时对外提供加载进度快照（`subscribeFontLoad`/`getFontLoadSnapshot`）供宿主显示 Loading |
 
 > 业务 block（实体卡/便签/World 节点/媒体/关系线等）不再放在内核里：位于
 > `world-canvas/blocks/vello-world-blocks.ts`（`EntityCardBlockV` 等 + `entityCardRectV`），

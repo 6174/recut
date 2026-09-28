@@ -23,8 +23,19 @@ const WASM_JS_URL = `/vello-wasm/pomelo_vello_wasm.js${WASM_CACHE_BUST}`;
 const WASM_BIN_URL = `/vello-wasm/pomelo_vello_wasm_bg.wasm${WASM_CACHE_BUST}`;
 const TILE_DEVICE_SIZE = 256;
 
+/**
+ * 字体代次：参与 chunk key 计算。WASM 侧按 chunk key 缓存 Scene（见 build_stream_scene），
+ * 字体注册/替换后旧 Scene 仍是「无字形」版本，光靠重绘会一直复用缓存、文字永不出现。
+ * 注册完字体后调用 invalidateFontScenes() 递增代次，即让全部旧 Scene 失效并按当前字体表重建。
+ */
+let fontSceneGeneration = 0;
+
+export function invalidateFontScenes(): void {
+  fontSceneGeneration++;
+}
+
 function hashChunk(id: string, ops: Uint8Array): number {
-  let hash = 2166136261 ^ id.length;
+  let hash = 2166136261 ^ id.length ^ Math.imul(fontSceneGeneration + 1, 0x9e3779b1);
   for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
   // 必须哈希全部字节：此前按 i += 7 抽样，坐标浮点的字节常落在采样点之外，
   // 平移/缩放后 key 不变 → WASM chunk_scenes 复用旧位置的 Scene，画面「抖到别处」。

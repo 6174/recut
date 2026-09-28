@@ -10,7 +10,7 @@ import type { PomeloRendererAdapter } from "../../pomelo-core/pomelo-renderer";
 import { PomeloPlugin } from "../../pomelo-core/pomelo-plugin";
 import { useWorldDemoStore, type Transform } from "../demo-store";
 
-export const MIN_SCALE = 0.3;
+export const MIN_SCALE = 0.05;
 export const MAX_SCALE = 2.5;
 
 export function clampScale(scale: number) {

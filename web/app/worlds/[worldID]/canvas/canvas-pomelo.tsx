@@ -16,6 +16,8 @@
  * planStatus/planPrompt，block 渲染「计划中」；
  * 素材生成等待态（canvas-asset-status）：AI 先落 assetId 时映射为 assetStatus，未就绪不请求 URL，
  * 渲染「生成中/失败」态并在素材就绪后经状态订阅增量重建文档；
+ * 就绪态（ready）只表示 pomelo 文档已挂上，不含字体：字体在后台加载，加载中在画布底部显式提示
+ * 进度（订阅 pomelo-vello/vello-fonts 的快照），字体到位后由适配器整场重绘把文字补上；
  * 「+」引导面板支持把实体简介/正文作为关联拖出；文本属性卡高度服从几何 box（渲染侧裁剪溢出，
  * 不随内容自增长），双击就地编辑内滚动并支持全屏放大；
  * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
@@ -25,10 +27,11 @@
  * 语义真相只在 world_entities + world_relations，pomelo 文档是内存投影（canvas 变更永不产 revision）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { PomeloEditorState } from "@/lib/pomelo/pomelo-core/pomelo-state";
 import { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { VelloRendererAdapter, RendererUnsupportedError, RendererInitError } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
+import { getFontLoadSnapshot, subscribeFontLoad } from "@/lib/pomelo/pomelo-vello/vello-fonts";
 import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/world-canvas/blocks/vello-world-blocks";
 import { ViewportPlugin, centerContent, panBy } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
@@ -767,6 +770,11 @@ function rendererIssueFrom(error: unknown): RendererIssue {
   };
 }
 
+// 进度展示用：字体约 16MB，按 MB 显示比原始字节直观。
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 // ---------- 宿主组件 ----------
 
 export function CanvasPomeloHost() {
@@ -788,6 +796,8 @@ export function CanvasPomeloHost() {
   const lastSyncedContextRef = useRef<string | null>(null);
   const [ready, setReady] = useState(false);
   const [rendererIssue, setRendererIssue] = useState<RendererIssue | null>(null);
+  // 字体加载状态：字体在适配器侧后台加载，不阻塞首屏；这里只负责把状态/进度显式呈现出来。
+  const fontLoad = useSyncExternalStore(subscribeFontLoad, getFontLoadSnapshot, getFontLoadSnapshot);
   // 渲染器失败后「重试」：递增触发 effect 重建编辑器（cleanup 会先销毁旧实例）
   const [initAttempt, setInitAttempt] = useState(0);
 
@@ -1008,6 +1018,20 @@ export function CanvasPomeloHost() {
               >
                 重试
               </button>
+            )}
+          </div>
+        </div>
+      )}
+      {!rendererIssue && (fontLoad.phase === "loading" || !ready) && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4">
+          <div
+            role="status"
+            className="flex items-center gap-2 rounded-full border border-border/60 bg-card/95 px-4 py-1.5 text-xs text-muted-foreground shadow-lg backdrop-blur"
+          >
+            <span className="size-3 shrink-0 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+            <span>{fontLoad.phase === "loading" ? "正在加载中文字形（首次较慢，之后缓存到浏览器）" : "正在初始化画布渲染器"}</span>
+            {fontLoad.phase === "loading" && fontLoad.totalBytes > 0 && (
+              <span className="tabular-nums text-foreground/70">{formatMegabytes(fontLoad.loadedBytes)} / {formatMegabytes(fontLoad.totalBytes)}</span>
             )}
           </div>
         </div>

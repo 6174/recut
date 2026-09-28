@@ -5,6 +5,8 @@
  *           把 VelloBlock 的绘制 op 汇总成 chunk 交给 TileController 渲染（仅 vello/WebGPU）。
  *           拖拽内容会话（beginContentSession/endContentSession）：被拖块+随动箭头走 live 层，
  *           静态内容只在会话开始时渲染一次；视口/尺寸/结构变化自动结束会话回退整场渲染；
+ *           字体加载不阻塞首屏（registerFonts 后台跑，就绪后失效 chunk Scene 缓存并整场重绘补文字）：
+ *           缺字体时 WASM 侧跳过 TEXT op，卡片/连线/图片/网格先上屏；字体字节经 Cache Storage 只下载一次。
  *           含图像的块不启用会话，会话期间图像首次加载/升档也结束会话——vello 在会话的
  *           静态快照与逐帧 live render 之间无法安全复用图像图集/override，否则被拖集合里的
  *           图片会整片消失且不可恢复（多选拖动被拖卡片封面/缩略图丢失）。
@@ -23,7 +25,8 @@ import { PomeloRendererAdapter } from "../pomelo-core/pomelo-renderer/pomelo-ren
 import type { IElement } from "../pomelo-core/pomelo-types/render.types";
 import { TileController } from "../pomelo-core/pomelo-tiles/controller";
 import type { RenderChunk, TileRasterizer, Viewport } from "../pomelo-core/pomelo-tiles/types";
-import { VelloGpuRasterizer, VelloWasmLoadError, type VelloUnavailableReason } from "./vello-rasterizer";
+import { VelloGpuRasterizer, VelloWasmLoadError, invalidateFontScenes, type VelloUnavailableReason } from "./vello-rasterizer";
+import { FONT_URLS, beginFontLoad, failFontLoad, finishFontLoad, loadFontBytes, reportFontProgress } from "./vello-fonts";
 import { encodeOps } from "./op-bridge";
 import { VelloElement } from "./vello-element";
 import { VelloBlock } from "./vello-block";
@@ -222,8 +225,12 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     let rasterizer: TileRasterizer<unknown, unknown>;
     try {
       const gpu = await VelloGpuRasterizer.create(canvas, dpr, cssColorToRgba(background));
-      await this.registerFonts(gpu);
       rasterizer = gpu as unknown as TileRasterizer<unknown, unknown>;
+      // 先挂上光栅器：字体异步就绪的回调要能立刻触发重绘，不等 onInit 收尾。
+      this.rasterizer = rasterizer;
+      // 字体不阻塞首屏：先按「无字形」渲染卡片/连线/图片/网格（WASM 侧缺字体时跳过 TEXT op），
+      // 字体就绪后整场重绘补上文字。完整中文字体约 16MB，首次加载慢；命中 Cache Storage 后零网络。
+      void this.registerFonts(gpu);
     } catch (error) {
       if (error instanceof VelloWasmLoadError) {
         throw new RendererInitError("世界画布渲染器资源未就绪", "resource", error.message);
@@ -255,28 +262,41 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   }
 
   private async registerFonts(gpu: VelloGpuRasterizer): Promise<void> {
+    beginFontLoad();
+    let latin: Awaited<ReturnType<typeof loadFontBytes>> = null;
+    let cjk: Awaited<ReturnType<typeof loadFontBytes>> = null;
     try {
-      let latin: Uint8Array | null = null;
-      const latinResponse = await fetch("/vello-wasm/space-grotesk.ttf");
-      if (latinResponse.ok) {
-        latin = new Uint8Array(await latinResponse.arrayBuffer());
-        gpu.registerFont(FONT_ID, latin);
-      }
+      latin = await loadFontBytes(FONT_URLS.latin, reportFontProgress);
+      if (latin) gpu.registerFont(FONT_ID, latin.bytes);
       // 优先完整 CJK 字体（真实世界内容为中文）；缺失时回退到内置子集（仅 demo 字符），此时中文会大量丢字
-      let cjk = await fetch("/vello-wasm/noto-sans-sc.otf");
-      if (!cjk.ok) {
+      cjk = await loadFontBytes(FONT_URLS.cjk, reportFontProgress);
+      if (!cjk) {
         console.warn(
           "[pomelo-vello-adapter] 缺少完整中文字体 public/vello-wasm/noto-sans-sc.otf，回退到内置子集（仅 demo 字符），真实中文内容会大量缺字。请运行 pnpm vello:setup 补齐。",
         );
-        cjk = await fetch("/vello-wasm/noto-cjk-subset.otf");
+        cjk = await loadFontBytes(FONT_URLS.cjkSubset, reportFontProgress);
       }
-      if (cjk.ok) {
-        gpu.registerFont(CJK_FONT_ID, new Uint8Array(await cjk.arrayBuffer()));
+      if (cjk) {
+        gpu.registerFont(CJK_FONT_ID, cjk.bytes);
         if (latin) gpu.setFontFallback(FONT_ID, CJK_FONT_ID);
       }
     } catch (error) {
+      failFontLoad();
       console.warn("[pomelo-vello-adapter] font load failed", error);
+      return;
     }
+    if (!latin && !cjk) {
+      // 两个字体都没拿到（产物缺失）：画布仍可显示形状，但不会有文字——按失败态提示宿主。
+      failFontLoad();
+      return;
+    }
+    finishFontLoad((latin?.fromCache ?? true) && (cjk?.fromCache ?? true));
+    // 字体表已变化：让 WASM 侧 chunk Scene 缓存失效，并推进 contentGeneration 触发整场重建
+    // （direct 模式下底图按 generation 复用，不推进会一直贴「无字形」的旧底图）。
+    invalidateFontScenes();
+    this.contentGeneration++;
+    this.dirty = true;
+    this.settle();
   }
 
   createIElement(tag: string, block: Parameters<PomeloRendererAdapter["createIElement"]>[1], props?: Record<string, unknown>): IElement {

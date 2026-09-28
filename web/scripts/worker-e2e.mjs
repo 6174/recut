@@ -69,6 +69,14 @@ const cases = [
   ["未知路径 /foo → 404", "recut.video", "/foo", {}, { status: 404 }],
   ["/zh/ 下未知 /zh/foo → 404", "recut.video", "/zh/foo", {}, { status: 404 }],
   ["市场 API /api/appstore.json → 200 且带 CORS", "recut.video", "/api/appstore.json", { "accept-language": "en-US" }, { status: 200, bodyContains: "\"recut.remotion-studio\"", header: { "Access-Control-Allow-Origin": "*" } }],
+  // 详情深链的 RSC 分段缓存：静态导出只在 /<base>/app/ 下有 __next.*.txt，
+  // 真实 id 下的分段请求必须一并重写，否则 404 会让 Next 降级为整页导航（点开即刷新）。
+  ["App Host 世界深链裸路径 → 壳", "app.recut.video", "/worlds/b3ae7b0d/", {}, { status: 200 }],
+  ["App Host 世界深链 _tree 分段 → 壳目录", "app.recut.video", "/worlds/b3ae7b0d/__next._tree.txt", {}, { status: 200 }],
+  ["App Host 世界深链动态段分段 → 壳目录", "app.recut.video", "/worlds/b3ae7b0d/__next.worlds.$d$worldID.txt", {}, { status: 200 }],
+  ["App Host 项目深链 _tree 分段 → 壳目录", "app.recut.video", "/projects/abc/__next._tree.txt", {}, { status: 200 }],
+  ["App Host 应用深链 _tree 分段 → 壳目录", "app.recut.video", "/apps/recut.remotion-studio/__next._tree.txt", {}, { status: 200 }],
+  ["App Host 列表路由 RSC 原样送出", "app.recut.video", "/worlds/__next.worlds.txt", {}, { status: 200 }],
 ];
 
 let pass = 0;

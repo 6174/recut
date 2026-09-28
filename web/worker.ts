@@ -1,7 +1,9 @@
 /*
  * [INPUT]: 依赖 Cloudflare 静态 Assets binding、浏览器 Host、recut_locale cookie 与 Accept-Language 头、项目/App 深链 URL
  * [OUTPUT]: 对外提供 Marketing/App Host 分流：recut.video 服务逐语言官网（en 无前缀、zh 固定 /zh/ 前缀），app.recut.video 服务本地 service 驱动的工作台；
- *           无前缀路径按 recut_locale cookie → Accept-Language 判定语言，中文浏览器 302 到 /zh/<同路径>/；www 收敛、/marketing 别名 404、未知路径 404
+ *           无前缀路径按 recut_locale cookie → Accept-Language 判定语言，中文浏览器 302 到 /zh/<同路径>/；www 收敛、/marketing 别名 404、未知路径 404；
+ *           App Host 详情深链（/worlds/<id>、/projects/<id>、/apps/<id>）连同其 RSC 分段缓存子路径一并重写到唯一的静态壳目录（/<base>/app/），
+ *           避免分段请求 404 触发 Next 的「整页导航」降级（点开即刷新），浏览器地址栏仍保留真实 id。
  * [POS]: web 的 Cloudflare 边缘入口；语言判定与静态壳重写映射与 server.cjs（本地 Host）及 lib/i18n/url.ts（localizeURL）保持一致；绝不代理或读取用户 localhost 上的 service
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -144,25 +146,26 @@ export default {
       // /worlds/__next.worlds.txt; they must reach ASSETS untouched, or the
       // router receives HTML and falls back to full page navigations.
       const isRSCSegment = (segment: string) => segment.startsWith("__next.") || segment.endsWith(".txt");
-      const worldMatch = url.pathname.match(/^\/worlds\/([^/]+)\/?$/);
-      if (worldMatch && worldMatch[1] !== "app" && !isRSCSegment(worldMatch[1])) {
-        // Static export only materializes /worlds/app/. Preserve the real World
-        // id in the visible URL while serving the one generated route shell.
-        const shell = new URL("/worlds/app/", url);
-        return env.ASSETS.fetch(new Request(shell, request));
-      }
-      const projectMatch = url.pathname.match(/^\/projects\/([^/]+)\/?$/);
-      if (projectMatch && projectMatch[1] !== "app" && !isRSCSegment(projectMatch[1])) {
-        // Static export only materializes /projects/app/. Serve that asset
-        // internally while leaving the real project URL in the browser bar.
-        const shell = new URL("/projects/app/", url);
-        return env.ASSETS.fetch(new Request(shell, request));
-      }
-      const appMatch = url.pathname.match(/^\/apps\/([^/]+)\/?$/);
-      if (appMatch && appMatch[1] !== "app" && !isRSCSegment(appMatch[1])) {
-        // Static export only materializes /apps/app/. Preserve the semantic App
-        // id in the visible URL while serving the one generated route shell.
-        const shell = new URL("/apps/app/", url);
+      // 静态导出只为详情路由生成一个壳（/worlds/app/、/projects/app/、/apps/app/），
+      // 连同壳目录下的 RSC 分段缓存文件（__next.*.txt）。真实 id 下的客户端导航会请求
+      // /worlds/<id>/__next._tree.txt 这类分段文件；只映射裸路径会让它们 404，
+      // 路由随即降级为整页导航（表现为「点开就刷新」）。故把详情壳目录下的任意子路径
+      // 一并重写，浏览器地址栏仍保留真实 id。
+      const detailShell = (base: string): string | null => {
+        const match = url.pathname.match(new RegExp(`^${base}/([^/]+)(/.*)?$`));
+        if (!match) return null;
+        const [, first, rest = "/"] = match;
+        // /worlds/__next.worlds.txt 等列表路由的 RSC 文件必须原样送出；
+        // /<base>/app 本身已是生成好的壳目录，无需重写。
+        if (first === "app" || isRSCSegment(first)) return null;
+        return `${base}/app${rest}`;
+      };
+      for (const base of ["/worlds", "/projects", "/apps"]) {
+        const shellPath = detailShell(base);
+        if (!shellPath) continue;
+        // 保留查询串：画布深链 (?ctx=…) 与分段缓存请求都带上它。
+        const shell = new URL(shellPath, url);
+        shell.search = url.search;
         return env.ASSETS.fetch(new Request(shell, request));
       }
       return env.ASSETS.fetch(request);
