@@ -8,7 +8,7 @@
  * 按曲线相交；Shift 追加、Shift 点选增删），命中写入 store.selectedIds（恰好一项回落单选）；
  * 多选下拖拽整体位移（并交给 AlignmentGuidePlugin 做边缘/中心对齐吸附与提示线，Alt 临时关闭）、
  * Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（同样对齐吸附；图片锁比例时仅横向吸附；transact 增量提交，pointerup 落回
- * canvas-store.moveElement + 去抖 persistGeometry（提交时记录 elementsContextId，层已切则丢弃，避免同名元素 id 跨层覆盖写）；pointermove 经 editor.ticker 统一合帧，
+ * canvas-store.moveElement + persistGeometry（提交即落库，不再去抖；同一次交互再经 store.logGeometryChange 记一条撤销，多选整体位移合成一条；提交后立即清 liveGeometry，避免撤销被实时几何覆盖）；pointermove 经 editor.ticker 统一合帧，
  * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡与 World 根节点
  * 左右缘中点各一个，自由元素不挂）拖出引导线：拖动中吸附到实体卡（蓝）或「可当属性节点」的基础节点
  * （kind=attr/text 自由元素、kind=media 独立媒体卡，绿），松手才落地——实体 → 实体 =
@@ -52,7 +52,6 @@ const NODE_TYPES = new Set(["entity-card", "note", "free-element", "media", "med
 const MARQUEE_NODE_TYPES = NODE_TYPES;
 const RELATION_PREFIX = "arrow:";
 const MIN_SIZE = 60;
-const PERSIST_DEBOUNCE_MS = 400;
 // 空白拖拽超过该屏幕像素才视为框选（否则按点击清选处理）
 const MARQUEE_MIN_SCREEN = 4;
 
@@ -111,6 +110,9 @@ type ResizeDrag = {
   kind: "nw" | "ne" | "sw" | "se";
   blockId: string;
   startRect: Rect;
+  // 起始的「原始」attrs 几何（x/y/width/height）：实体卡有效矩形 entityCardRect 会放宽到
+  // max(attrs.width, MIN_W) / max(attrs.height, contentH)，与落库值不一致，撤销必须回写原始值
+  startGeometry: { x: number; y: number; width: number; height: number };
   // 图像媒体卡锁定纵横比（采纳时按素材 naturalWidth/Height 适配过）：height = width * aspect
   aspect?: number;
 };
@@ -546,28 +548,15 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       }
     };
 
-    // 拖拽/resize 提交：moveElement 本地影子 + persistGeometry 去抖
-    const geometryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    // 拖拽/resize 提交：moveElement 本地影子 + persistGeometry 立即落库（提交只在 pointerup 发生一次，无需去抖）。
+    // 不延迟的原因：① 延迟窗口内用户撤销位移会被迟到的落点覆盖；② pointerup 后立刻双击进容器会因切层
+    // 守卫丢掉这次位移（旧实现里「进子世界后 root entity 位置被复原」即源于此）。层隔离由 persistGeometry
+    // 的本地写 + flushCanvasSave 的 elementsContextId 快照承担。
     const commitGeometry = (canvasId: string, geometry: Record<string, unknown>) => {
       const store = useWorldCanvasStore.getState();
       if (store.readOnly) return;
       store.moveElement(canvasId, Math.round(Number(geometry.x) || 0), Math.round(Number(geometry.y) || 0));
-      // 记录提交时的画布层：元素 id 跨层同名（实体卡 `shape:<entityId>` 在全局与容器各有一份），
-      // 若去抖窗口内切层（如双击实体卡进入容器 = pointerup 提交 + dblclick 切层），
-      // 迟到的 persistGeometry 会按 id 改到新层元素上，把旧层坐标覆盖写进新层文档
-      // （表现为「进子世界后 root entity 位置被复原」）。层已变则丢弃这次落库。
-      const sourceContextId = store.elementsContextId;
-      const existing = geometryTimers.get(canvasId);
-      if (existing) clearTimeout(existing);
-      geometryTimers.set(
-        canvasId,
-        setTimeout(() => {
-          geometryTimers.delete(canvasId);
-          const current = useWorldCanvasStore.getState();
-          if (current.elementsContextId !== sourceContextId) return;
-          void current.persistGeometry(canvasId, geometry);
-        }, PERSIST_DEBOUNCE_MS),
-      );
+      void store.persistGeometry(canvasId, geometry);
     };
 
     const onPointerDown = (event: PointerEvent) => {
@@ -635,11 +624,19 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         );
         if (record) {
           const startRect = rectOf(record);
+          // 记原始 attrs（落库值），供撤销回写；startRect 是有效矩形（实体卡会被放宽），只用于 resize 数学
+          const startGeometry = {
+            x: Math.round(Number(record.attrs.x) || 0),
+            y: Math.round(Number(record.attrs.y) || 0),
+            width: Math.round(Number(record.attrs.width) || 0),
+            height: Math.round(Number(record.attrs.height) || 0),
+          };
           dragging = {
             pointerId: event.pointerId,
             kind: corner.kind,
             blockId: corner.blockId,
             startRect,
+            startGeometry,
             aspect: isImageMedia && startRect.width > 0 && startRect.height > 0 ? startRect.height / startRect.width : undefined,
           };
         } else {
@@ -991,6 +988,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       if (isLinkDrag(dragging)) return; // link 拖拽在上面独立收尾
       if (!store.readOnly) {
         const liveIds: string[] = [];
+        // 一次拖拽/resize = 一条撤销：收集 before（pointerdown 快照）/ after（落点）供 store 记账
+        const geometryHistory: Array<{ id: string; before: Record<string, unknown>; after: Record<string, unknown> }> = [];
         if (isResize(dragging)) {
           const record = editor.state.getBlockById(dragging.blockId);
           if (record) {
@@ -1003,6 +1002,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
             };
             this.liveGeometry.set(canvasId, { x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height });
             commitGeometry(canvasId, geometry);
+            geometryHistory.push({ id: canvasId, before: { ...dragging.startGeometry }, after: geometry });
             liveIds.push(dragging.blockId);
           }
         } else {
@@ -1012,16 +1012,23 @@ export class CanvasBindsPlugin extends PomeloPlugin {
             const canvasId = blockIdToCanvasId(blockId);
             const x = Math.round(Number(record.attrs.x) || 0);
             const y = Math.round(Number(record.attrs.y) || 0);
+            const origin = dragging.moved.get(blockId);
             this.liveGeometry.set(canvasId, { x, y });
             commitGeometry(canvasId, { x, y });
+            if (origin) geometryHistory.push({ id: canvasId, before: { x: Math.round(origin.x), y: Math.round(origin.y) }, after: { x, y } });
             liveIds.push(blockId);
           }
         }
-        // 提交完成：稍后清除实时几何（等 persist/重建消化完，避免抖动窗口）
-        const live = this.liveGeometry;
-        setTimeout(() => {
-          for (const blockId of liveIds) live.delete(blockIdToCanvasId(blockId));
-        }, PERSIST_DEBOUNCE_MS + 200);
+        // 位移/resize 记历史（无实际变化时 store 侧会忽略；多选整体位移合成一条）
+        if (geometryHistory.length > 0) {
+          store.logGeometryChange(
+            isResize(dragging) ? "调整元素大小" : geometryHistory.length > 1 ? `移动 ${geometryHistory.length} 个元素` : "移动元素",
+            geometryHistory,
+          );
+        }
+        // 提交完成：立即清除实时几何——store 已持有最终几何，留着会在随后（含撤销触发的）重建里
+        // 用拖拽值覆盖 store，表现为撤销位移后又被拉回。
+        for (const blockId of liveIds) this.liveGeometry.delete(blockIdToCanvasId(blockId));
         // 拖媒体元素到实体卡 = 挂接/换挂（B.12 拖放矩阵，T8）
         const movedIds = isResize(dragging) ? [dragging.blockId] : [...dragging.moved.keys()];
         if (!isResize(dragging) && movedIds.length === 1) {

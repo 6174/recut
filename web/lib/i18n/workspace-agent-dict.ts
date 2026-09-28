@@ -71,6 +71,7 @@ const zh = {
   "agent.panel.stopping": "正在停止当前回复…",
   "agent.panel.addAssetFailed": "无法引用资源",
   "agent.panel.newConversation": "新建对话",
+  "agent.panel.more": "更多",
   "agent.panel.retry": "请重试",
   "agent.panel.retryLater": "请稍后重试",
 
@@ -449,6 +450,7 @@ const en: Record<keyof typeof zh, string> = {
   "agent.panel.stopping": "Stopping the current reply…",
   "agent.panel.addAssetFailed": "Couldn't reference this resource",
   "agent.panel.newConversation": "New conversation",
+  "agent.panel.more": "More",
   "agent.panel.retry": "please retry",
   "agent.panel.retryLater": "please try again shortly",
 

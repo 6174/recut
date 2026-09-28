@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { Bug, Check, History, MessageSquarePlus, Terminal } from "lucide-react";
+import { Bug, Check, History, MessageSquarePlus, MoreHorizontal, Terminal } from "lucide-react";
 import {
   type FormEvent,
   useEffect,
@@ -108,8 +108,9 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
   const [loadingSessions, setLoadingSessions] = useState(online);
   const [error, setError] = useState("");
   const [stopNotice, setStopNotice] = useState("");
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [runtimeOpen, setRuntimeOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [cliOpen, setCLIOpen] = useState(false);
   const [cliEntries, setCLIEntries] = useState<CLIEntry[]>([]);
   const [cliAvailable, setCLIAvailable] = useState(true);
@@ -144,6 +145,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     setStopNotice("");
     setHistoryOpen(false);
     setRuntimeOpen(false);
+    setMoreOpen(false);
     setCLIOpen(false);
     setCLIEntries([]);
     setDebugCopyStatus("idle");
@@ -652,7 +654,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     return (
       <>
         <aside className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-          <header className="flex h-10 shrink-0 items-center border-b bg-card px-4">
+          <header className="flex h-10 shrink-0 items-center border-b px-4">
             <p className="text-xs font-semibold tracking-wide">AI</p>
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
@@ -676,45 +678,29 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
   return (
     <>
       <aside className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
-        <header className="flex h-10 shrink-0 items-center justify-between border-b bg-card px-4">
+        <header className="flex h-10 shrink-0 items-center justify-between px-4">
           <p className="text-xs font-semibold tracking-wide">AI</p>
           <div className="flex items-center gap-1">
             <Button
-              aria-label={debugCopyStatus === "copied" ? t("agent.debug.copied") : t("agent.debug.copy")}
               className="size-7 px-0"
-              disabled={!detail || creatingRuntime || loadingSessions}
-              onClick={() => void copySessionDebugReport()}
-              title={
-                debugCopyStatus === "copied"
-                  ? t("agent.debug.copied")
-                  : debugCopyStatus === "failed"
-                    ? t("agent.debug.copyFailed")
-                    : t("agent.debug.copy")
-              }
+              disabled={creatingRuntime || loadingSessions}
+              onClick={() => {
+                setHistoryOpen(false);
+                setMoreOpen(false);
+                setRuntimeOpen((value) => !value);
+              }}
+              title={t("agent.panel.newConversation")}
               type="button"
               variant="ghost"
             >
-              {debugCopyStatus === "copied" ? (
-                <Check className="size-3.5 text-success" />
-              ) : (
-                <Bug className="size-3.5" />
-              )}
-            </Button>
-            <Button
-              className="size-7 px-0"
-              disabled={!activeID || creatingRuntime || loadingSessions}
-              onClick={openCLIStream}
-              title={t("agent.debug.viewCli")}
-              type="button"
-              variant="ghost"
-            >
-              <Terminal className="size-3.5" />
+              <MessageSquarePlus className="size-3.5" />
             </Button>
             <Button
               className="size-7 px-0"
               disabled={creatingRuntime || loadingSessions}
               onClick={() => {
                 setRuntimeOpen(false);
+                setMoreOpen(false);
                 setHistoryOpen((value) => !value);
               }}
               title={t("agent.history.title")}
@@ -727,14 +713,15 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
               className="size-7 px-0"
               disabled={creatingRuntime || loadingSessions}
               onClick={() => {
+                setRuntimeOpen(false);
                 setHistoryOpen(false);
-                setRuntimeOpen((value) => !value);
+                setMoreOpen((value) => !value);
               }}
-              title={t("agent.panel.newConversation")}
+              title={t("agent.panel.more")}
               type="button"
               variant="ghost"
             >
-              <MessageSquarePlus className="size-3.5" />
+              <MoreHorizontal className="size-3.5" />
             </Button>
           </div>
         </header>
@@ -745,6 +732,41 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
             onInstall={openInstallDialog}
             runtimeStatus={runtimeStatus ?? []}
           />
+        )}
+        {moreOpen && (
+          <section className="absolute right-3 top-14 z-30 w-[calc(100%-1.5rem)] overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
+            <button
+              className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!detail || creatingRuntime || loadingSessions}
+              onClick={() => void copySessionDebugReport()}
+              type="button"
+            >
+              {debugCopyStatus === "copied" ? (
+                <Check className="size-3.5 shrink-0 text-success" />
+              ) : (
+                <Bug className="size-3.5 shrink-0" />
+              )}
+              <span>
+                {debugCopyStatus === "copied"
+                  ? t("agent.debug.copied")
+                  : debugCopyStatus === "failed"
+                    ? t("agent.debug.copyFailed")
+                    : t("agent.debug.copy")}
+              </span>
+            </button>
+            <button
+              className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!activeID || creatingRuntime || loadingSessions}
+              onClick={() => {
+                setMoreOpen(false);
+                openCLIStream();
+              }}
+              type="button"
+            >
+              <Terminal className="size-3.5 shrink-0" />
+              <span>{t("agent.debug.viewCli")}</span>
+            </button>
+          </section>
         )}
         {historyOpen && (
           <SessionHistory

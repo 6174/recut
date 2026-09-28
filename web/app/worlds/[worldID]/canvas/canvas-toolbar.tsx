@@ -294,7 +294,7 @@ export function CanvasToolbarItems() {
   );
 }
 
-// 历史菜单（T12/B.14）：上半 = 最近变更（逐条撤销，最近 10 条）；下半 = 版本快照（最近 5 条，回滚为指针回移）
+// 历史菜单（T12/B.14）：上半 = 最近变更（栈顶逐条撤销；点中间条目 = 撤销到此，连同其后更新的变更一并回退；批量操作合并为一条整组回退）；下半 = 版本快照（最近 5 条，回滚为指针回移）
 function HistoryMenu({ onClose }: { onClose: () => void }) {
   const changeLog = useWorldCanvasStore((state) => state.changeLog);
   const undoChange = useWorldCanvasStore((state) => state.undoChange);
@@ -313,13 +313,18 @@ function HistoryMenu({ onClose }: { onClose: () => void }) {
       <p className="px-1.5 py-1 text-[10px] font-medium text-muted-foreground">最近变更</p>
       {changeLog.length === 0 && <p className="px-1.5 py-1 text-xs text-muted-foreground">暂无语义操作记录</p>}
       <ul className="max-h-40 overflow-y-auto">
-        {changeLog.map((item) => (
+        {changeLog.map((item, index) => (
           <li className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-muted" key={item.id}>
             <span className="min-w-0 truncate">
               {item.label} <span className="text-muted-foreground">{item.at}</span>
             </span>
-            <button className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] hover:bg-muted" onClick={() => void undoChange(item.id)} type="button">
-              撤销
+            <button
+              className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] hover:bg-muted"
+              onClick={() => void undoChange(item.id)}
+              title={index === 0 ? "撤销最近一次变更" : "撤销到此（连同其后更新的变更一并回退）"}
+              type="button"
+            >
+              {index === 0 ? "撤销" : "撤销到此"}
             </button>
           </li>
         ))}

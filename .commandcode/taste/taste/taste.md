@@ -1,0 +1,11 @@
+# Taste
+- Writes in Chinese and expects replies in Chinese. Confidence: 0.9
+- Frames problems by contrasting current behavior with "正常人的预期" (what a normal user would expect), i.e. wants the implementation to follow the user's mental model rather than internal implementation convenience. Confidence: 0.75
+- When reporting one bug in a subsystem, expects the agent to also holistically review that subsystem for other related problems ("你也整体 review 一下 X 是否还有其他问题") instead of only fixing the reported symptom. Confidence: 0.7
+- Expects the agent to critically self-review its own diff before declaring work done ("自己 review 一遍 diff"), reporting a verdict, any bugs it found in its own changes (and fixing them), and explicitly flagging known limitations it deliberately left unfixed — rather than just summarizing what it changed. Confidence: 0.7
+- Expects batch operations to undo/redo as a single grouped step — e.g. multi-select delete should be undone in one ⌘Z, not item-by-item. Confidence: 0.75
+- Prefers surfaces to blend into their parent background rather than carrying their own outer background/border — e.g. panel headers share the content area's background, and the composer/input strip has no outer background (floating, Codex-style transparent area with only the inner rounded input card). Confidence: 0.7
+- Prioritizes fixing the already-identified bugs over jumping to a bigger architectural change — explicitly defers large new strategies (e.g. "先不要到 atlas，先修复你说的各种 bug") until the cheap/known fixes are landed. Confidence: 0.7
+- Measurement-driven optimization order: prefers landing low-risk fixes (e.g. release builds), then re-profiling the real workload before committing to a larger rewrite, rather than starting with the big strategy. Confidence: 0.65
+- Challenges the causal premise of a proposed fix and expects it verified before implementation (e.g. "拖拽完全不应该影响缓存？只是位置变了而已？") — wants the agent to reason about whether the diagnosis actually holds, not just act on it. Confidence: 0.65
+- Prefers a clear split between primary and secondary header actions: primary actions (e.g. 新建/new conversation, 历史/history) stay as separate visible icon buttons, while secondary/diagnostic actions (e.g. debug copy, terminal/CLI stream) are tucked into a single trailing "更多" (more) overflow menu. Confidence: 0.7

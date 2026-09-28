@@ -8,7 +8,9 @@
  *           含图像的块不启用会话，会话期间图像首次加载/升档也结束会话——vello 在会话的
  *           静态快照与逐帧 live render 之间无法安全复用图像图集/override，否则被拖集合里的
  *           图片会整片消失且不可恢复（多选拖动被拖卡片封面/缩略图丢失）。
- *           direct 模式另有保留场景底图（controller.buildSceneBacking）：内容不变时平移/缩放贴底图。
+ *           direct 模式另有保留场景底图（controller.buildSceneBacking）：内容不变时平移/缩放贴底图；
+ *           导航期 renderOnZoom 块（屏幕恒定徽标/标签）也延迟到落定后重绘一次——否则每个缩放帧都会
+ *           让 contentGeneration 自增并触发整场底图重建（整场重渲 + 整场 vello resolve）。
  *           图片纹理按视口缩放/元素尺寸自适应分辨率：首次基准档 512，放大时 512→1024→2048→4096
  *           升档（复用缓存的源 Image 重栅格并原位替换纹理），避免放大发糊；
  *           加载失败（404/CORS/非图片）做负缓存，杜绝「渲染→失败→重渲染→再请求」请求风暴。
@@ -331,6 +333,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     this.onTransformEvent.emit({ x, y, scale });
     // zoom 常量 block（元素徽标等）需按新缩放重绘；此处只打标，合并到 ticker 帧内执行一次，
     // 避免每个 wheel/pointermove 事件都同步重编码全部 renderOnZoom block（主线程被占满 → 丢事件）。
+    // 实际消费延迟到导航落定（见 flush）：导航期每帧消费会让 contentGeneration 每帧自增，
+    // 直接触发 buildOneShot 整场重建；导航期本就用 stale-zoom 底图，落定后重绘一次即可。
     if (scaleChanged) this.zoomBlocksDirty = true;
     this.navigationGeneration++;
     // 导航期（平移/缩放）defer 瓦片重栅格：先贴旧瓦片缩放过渡，落定后再补高清，避免每次 wheel 重渲全部瓦片
@@ -456,8 +460,10 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     // 未 covered 也继续渲染（补偿确定性），直到瓦片补齐
     if (!this.dirty && controller.scheduler.pending() === 0 && this.isCovered()) return;
     this.lastFlushFrame = frame;
-    // 缩放变化：帧内一次重绘 zoom 常量 block 并把 drawVersion 变化同步成 chunk（此前分散在事件回调里逐次执行）
-    if (this.zoomBlocksDirty) {
+    // 缩放变化：帧内一次重绘 zoom 常量 block 并把 drawVersion 变化同步成 chunk（此前分散在事件回调里逐次执行）。
+    // 导航期不消费：重绘 zoom 常量块 → drawVersion 变 → contentDirty → contentGeneration++ → 底图 generation 不符
+    // → buildOneShot 整场重渲（含整场 vello resolve）。导航期画面本就用 stale-zoom 底图，延迟到落定后重绘一次。
+    if (this.zoomBlocksDirty && !this.navigationActive) {
       this.zoomBlocksDirty = false;
       this.rerenderZoomBlocks();
       this.syncChunks();

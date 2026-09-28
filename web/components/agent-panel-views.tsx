@@ -341,7 +341,7 @@ export function AgentRecoveryPanel({
   }
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <header className="flex h-10 shrink-0 items-center justify-between border-b bg-card px-4">
+      <header className="flex h-10 shrink-0 items-center justify-between border-b px-4">
         <p className="text-xs font-semibold tracking-wide">AI</p>
         <Button
           className="size-7 px-0"

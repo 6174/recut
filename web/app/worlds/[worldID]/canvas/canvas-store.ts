@@ -9,7 +9,11 @@
  * 与全部写动作（关系原位改 updateRelation：类型/方向 patch，保留 id/scope 与画布锚点）；画布元素写 world_canvas 不产 revision，
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
  * 语义撤销/重做为闭包双栈（changeLog/redoLog）：每次语义写登记 undo+redo，撤销把条目移入 redoLog、重做移回
- * changeLog，新语义写清空 redoLog；回放期用 historyReplaying 抑制递归记账。
+ * changeLog，新语义写清空 redoLog；回放期用 historyReplayDepth 抑制递归记账；历史操作经 historyQueue 串行
+ * （避免并发的读栈/出栈/回放交错导致 revision 冲突）；批量操作（多选删除等）经 withChangeGroup 合并为单条
+ * （一次撤销整组，undo 逆序/redo 正序），栈深 HISTORY_LIMIT；自由元素（便签/文本/媒体/属性）创建、
+ * 拖拽/resize（插件 pointerup 经 logGeometryChange 记一条）与便签/文本正文编辑均可撤销；回放期整层重载合并
+ * （loadForHistory：一笔批量撤销只 load(false) 一次）；历史菜单逐条撤销 = 从栈顶连续回放到该条（含其上的更新条目）。
  * 画布存储为文档粒度（RFC 2026-09-09）：一张画布 = 一个 Document，canvas.get/save 整包读写 + version 乐观锁；
  * 元素级动作（upsertElement/persistGeometry/moveElement/removeElement）只改本地文档 + 脏集合，去抖整包落库，
  * 冲突时拉远端按 id 合并脏集重试一次；内层画布是独立文档，实体投影位置跨层天然隔离。
@@ -99,7 +103,8 @@ export type CanvasToast = { id: number; text: string; kind: "info" | "success" |
 // undo/redo 均为闭包（undo 回写旧值 / 删除 / 重建；redo 重放正向操作，尽量复用原 id）；
 // 删除设定/关系/元素均已可撤销——实体走后端软删除 + entity.restore（复位归档标记、按 batch
 // 重建关系墓碑并保留画布投影），关系走 relation.restore（墓碑原 id 重建），画布元素走
-// restoreElement（快照 upsert）。撤销把条目移入 redoLog，重做再移回 changeLog（LIFO 双栈）。
+// restoreElement（快照 upsert）。撤销把条目移入 redoLog，重做再移回 changeLog（LIFO 双栈）；
+// 批量操作（多选删除）与多笔创建（属性=节点+边）经 withChangeGroup 合并为单条，整组一次回退。
 export type CanvasChange = {
   id: number;
   label: string;
@@ -423,14 +428,109 @@ const canvasSaveState = {
 
 // 撤销/重做回放标记：回放期（entry.undo()/entry.redo() 执行中）抑制 logChange，
 // 避免撤销动作内部调用的写动作（deleteEntity/removeRelation/removeElement…）再向 changeLog
-// 追加条目，破坏 LIFO 双栈语义。模块级而非响应式，回放是单线程顺序执行。
-let historyReplaying = false;
-async function replayHistory<T>(action: () => T | Promise<T>): Promise<T> {
-  historyReplaying = true;
+// 追加条目，破坏 LIFO 双栈语义。用计数而非布尔：合并条目内部可能再触发回放，最外层结束才解除抑制。
+let historyReplayDepth = 0;
+
+// 最近变更栈深度：批量操作合并为单条后仍保留足够深度，避免深编辑序列静默丢历史（旧上限 10 过浅）。
+const HISTORY_LIMIT = 100;
+
+// 历史操作串行队列：Cmd/Ctrl+Z、工具栏按钮或历史菜单可能在上一笔撤销尚未落库时再次触发。
+// 串行执行「读栈 → 出栈 → 回放 → 入栈」，避免两次撤销同时取到相邻条目并发写服务端
+// （revision 冲突/交错），也避免回放抑制被后一笔提前解除。单笔失败不阻塞后续操作。
+let historyQueue: Promise<unknown> = Promise.resolve();
+// 回放期的整层重载合并：一笔批量撤销里多个 restore* 各自 load(false) 会重复全量拉取
+// （N 个设定 = N 次全量刷新，慢且易与后续写交错）。回放中只置一个待重载标记，整笔撤销结束后统一重载一次。
+let historyReloadPending = false;
+function runHistoryExclusive<T>(action: () => Promise<T> | T): Promise<T> {
+  const run = historyQueue.then(async () => {
+    historyReplayDepth += 1;
+    try {
+      return await action();
+    } finally {
+      historyReplayDepth -= 1;
+    }
+  });
+  const settled = run.then(
+    async (value) => {
+      await flushHistoryReload();
+      return value;
+    },
+    async (error) => {
+      await flushHistoryReload();
+      throw error;
+    },
+  );
+  historyQueue = settled.then(
+    () => undefined,
+    () => undefined,
+  );
+  return settled;
+}
+
+// 回放中的 restore* 用此替代直接 load(false)：合并为整笔撤销结束后的一次整层重载；
+// 非回放期（直接调用）保持原有立即重载语义。
+async function loadForHistory() {
+  if (historyReplayDepth > 0) {
+    historyReloadPending = true;
+    return;
+  }
+  await useWorldCanvasStore.getState().load(false);
+}
+
+async function flushHistoryReload() {
+  if (!historyReloadPending) return;
+  historyReloadPending = false;
+  await useWorldCanvasStore.getState().load(false);
+}
+
+// 几何是否真的变了（拖拽/resize 的点击无位移不应记历史）；缺省的键视为 undefined 相等比较
+function geometryDeltaChanged(before: Record<string, unknown>, after: Record<string, unknown>): boolean {
+  const same = (a: unknown, b: unknown) => (a === undefined ? undefined : Number(a)) === (b === undefined ? undefined : Number(b));
+  return ["x", "y", "width", "height"].some((key) => !same(before[key], after[key]));
+}
+
+// 一次用户级操作 = 一条 changeLog：批量操作（如多选删除）内部的多笔语义写经分组合并为单条，
+// 对外表现为「一次撤销整组」（undo 逆序回放、redo 正序重放）。支持嵌套，只有最外层提交。
+let changeGroupDepth = 0;
+let changeGroupLabel = "";
+let changeGroupEntries: Array<{ label: string; undo: () => Promise<void> | void; redo: () => Promise<void> | void }> = [];
+
+// 语义操作入栈（LIFO）：新操作清空重做栈（分支失效）。
+function pushChangeEntry(label: string, undo: () => Promise<void> | void, redo: () => Promise<void> | void) {
+  useWorldCanvasStore.setState((state) => ({
+    changeLog: [{ id: Date.now() + Math.random(), label, at: new Date().toLocaleTimeString(), undo, redo }, ...state.changeLog].slice(0, HISTORY_LIMIT),
+    redoLog: [],
+  }));
+}
+
+async function withChangeGroup<T>(label: string, action: () => Promise<T> | T): Promise<T> {
+  const outermost = changeGroupDepth === 0;
+  if (outermost) {
+    changeGroupLabel = label;
+    changeGroupEntries = [];
+  }
+  changeGroupDepth += 1;
   try {
     return await action();
   } finally {
-    historyReplaying = false;
+    changeGroupDepth -= 1;
+    if (changeGroupDepth === 0) {
+      const entries = changeGroupEntries;
+      const mergedLabel = changeGroupLabel;
+      changeGroupEntries = [];
+      changeGroupLabel = "";
+      if (entries.length > 0) {
+        pushChangeEntry(
+          mergedLabel || label,
+          async () => {
+            for (let index = entries.length - 1; index >= 0; index -= 1) await entries[index].undo();
+          },
+          async () => {
+            for (const entry of entries) await entry.redo();
+          },
+        );
+      }
+    }
   }
 }
 
@@ -654,6 +754,11 @@ type WorldCanvasState = {
   moveElement: (id: string, x: number, y: number) => void;
   upsertElement: (input: CanvasElementInput) => Promise<WorldCanvasElement>;
   persistGeometry: (id: string, geometryOverride?: Record<string, unknown>, propsOverride?: Record<string, unknown>) => Promise<void>;
+  // 历史回放专用（内部）：确定性地写回元素几何/属性并推进 dataVersion——persistGeometry 不推进
+  // dataVersion，画布投影不会重建，撤销位移/文本后就看不到变化。
+  applyElementPatch: (id: string, patch: { geometry?: Record<string, unknown>; props?: Record<string, unknown> }) => void;
+  // 拖拽/resize 提交记入历史：一次交互 = 一条（before/after 为 geometry 片段；无实际位移则忽略）
+  logGeometryChange: (label: string, entries: Array<{ id: string; before: Record<string, unknown>; after: Record<string, unknown> }>) => void;
   // T3 创建：落点可选（默认网格位）；标题缺省 = 类型默认名 + isProvisional 草稿 + 进入命名态。
   // 返回新实体 id（失败 null），供「+」引导在同一流程内补建默认关系。
   createEntity: (kind: string, opts?: { title?: string; pos?: Point }) => Promise<string | null>;
@@ -743,7 +848,7 @@ type WorldCanvasState = {
   attachMediaAttr: (entityId: string, media: { assetId: string; name?: string; kind: string }, label?: string) => Promise<string | null>;
   // 删除实体上的 media 属性（attrKey 精确删除；其余 attrs 保持）
   removeMediaAttr: (entityId: string, attrKey: string) => Promise<void>;
-  // 最近变更（T12 语义撤销）：最近 10 条语义操作，逐条撤销
+  // 最近变更（T12 语义撤销）：最近 HISTORY_LIMIT 条语义操作，逐条撤销；批量操作合并为单条
   changeLog: CanvasChange[];
   // 重做栈：被撤销的条目按 LIFO 暂存；新的语义操作（logChange）清空它
   redoLog: CanvasChange[];
@@ -1078,6 +1183,14 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         style: {},
         layer: "0",
       });
+      const created = get().elements.find((element) => element.id === id);
+      if (created) {
+        get().logChange(
+          `添加「${created.name || labels[kind] || kind}」`,
+          () => get().removeElement(id),
+          () => get().restoreElement(created),
+        );
+      }
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1125,6 +1238,22 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         style: {},
         layer: "0",
       });
+      // 属性 = 节点 + 属性边两笔写：合并为单条撤销（先删边再删节点，恢复时相反）
+      const attrElement = get().elements.find((element) => element.id === attrId);
+      const arrowElement = get().elements.find((element) => element.id === arrowId);
+      if (attrElement && arrowElement) {
+        get().logChange(
+          `添加属性「${initial?.label || mediaLabels[media]}」`,
+          async () => {
+            await get().removeElement(arrowId);
+            await get().removeElement(attrId);
+          },
+          async () => {
+            await get().restoreElement(attrElement);
+            await get().restoreElement(arrowElement);
+          },
+        );
+      }
       return attrId;
     } catch (cause) {
       applyCanvasError(cause);
@@ -1362,6 +1491,41 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     return Promise.resolve();
   },
 
+  // 历史回放写回（撤销/重做几何或文本）：与 persistGeometry 同构，但显式推进 dataVersion，
+  // 让画布投影重建（否则撤销位移/文本后 store 变了、画布不变）。不产 revision。
+  applyElementPatch: (id, patch) => {
+    markCanvasDirty(id);
+    set((state) => ({
+      elements: state.elements.map((element) =>
+        element.id === id
+          ? {
+              ...element,
+              ...(patch.props ? { props: { ...(element.props ?? {}), ...patch.props } } : {}),
+              ...(patch.geometry ? { geometry: { ...(element.geometry ?? {}), ...patch.geometry } } : {}),
+              updatedAt: new Date().toISOString(),
+            }
+          : element,
+      ),
+      dataVersion: state.dataVersion + 1,
+    }));
+    scheduleCanvasSave();
+  },
+
+  // 拖拽/resize 提交（插件在 pointerup 调用）：一次交互合并为单条撤销；无实际位移则不入栈。
+  logGeometryChange: (label, entries) => {
+    const valid = entries.filter((entry) => entry.id && geometryDeltaChanged(entry.before, entry.after));
+    if (valid.length === 0) return;
+    get().logChange(
+      label,
+      () => {
+        for (const entry of valid) get().applyElementPatch(entry.id, { geometry: entry.before });
+      },
+      () => {
+        for (const entry of valid) get().applyElementPatch(entry.id, { geometry: entry.after });
+      },
+    );
+  },
+
   // T3 创建系统：标题缺省用类型默认名；创建即写库（无草稿流程，直接落正式实体），
   // 直接落默认标题卡片，不进入命名态（改名走双击实体卡/右侧面板）
   createEntity: async (kind, opts = {}) => {
@@ -1496,6 +1660,14 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         style: { color: "#fde68a" },
         layer: "0",
       });
+      const created = get().elements.find((element) => element.id === id);
+      if (created) {
+        get().logChange(
+          "添加便签",
+          () => get().removeElement(id),
+          () => get().restoreElement(created),
+        );
+      }
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -1746,7 +1918,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         await get().refreshRevision();
         return run(get().revisionId);
       });
-      await get().load(false);
+      // 回放期合并重载：批量撤销里多个 restore 只全量刷新一次（见 loadForHistory）
+      await loadForHistory();
       get().toast("已恢复关系", "success");
     } catch (cause) {
       applyCanvasError(cause);
@@ -1822,64 +1995,78 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
   dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
 
-  // 最近变更（T12）：至多 10 条，后进先出撤销；新的语义操作清空重做栈（分支失效）
+  // 最近变更（T12）：后进先出撤销，栈深 HISTORY_LIMIT；新的语义操作清空重做栈（分支失效）。
+  // 批量操作内部的多笔写在这里被 withChangeGroup 暂存，组结束才并入单条（见 withChangeGroup）。
   logChange: (label, undo, redo) => {
-    if (historyReplaying) return;
-    set((state) => ({
-      changeLog: [{ id: Date.now() + Math.random(), label, at: new Date().toLocaleTimeString(), undo, redo }, ...state.changeLog].slice(0, 10),
-      redoLog: [],
-    }));
-  },
-  // 逐条撤销（历史菜单点按具体条目）：撤销后条目进入重做栈顶部
-  undoChange: async (id) => {
-    const entry = get().changeLog.find((item) => item.id === id);
-    if (!entry) return;
-    set((state) => ({ changeLog: state.changeLog.filter((item) => item.id !== id) }));
-    try {
-      await replayHistory(() => entry.undo());
-      set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, 10) }));
-      get().toast(`已撤销：${entry.label}`, "success");
-    } catch (cause) {
-      // 回放失败：条目退回撤销栈，保持可重试
-      set((state) => ({ changeLog: [entry, ...state.changeLog].slice(0, 10) }));
-      applyCanvasError(cause);
+    if (historyReplayDepth > 0) return;
+    if (changeGroupDepth > 0) {
+      changeGroupEntries.push({ label, undo, redo });
+      return;
     }
+    pushChangeEntry(label, undo, redo);
   },
+  // 逐条撤销（历史菜单点按具体条目）：撤销该条及其上更新的条目——LIFO 只能从栈顶连续往下回放，
+  // 单撤中间条目会留下依赖已撤销状态的更新条目（历史与画布不一致）。经 historyQueue 串行，避免与快捷键并发。
+  undoChange: (id) =>
+    runHistoryExclusive(async () => {
+      const log = get().changeLog;
+      const index = log.findIndex((item) => item.id === id);
+      if (index < 0) return;
+      const doomed = log.slice(0, index + 1);
+      const clicked = doomed[doomed.length - 1];
+      set((state) => ({ changeLog: state.changeLog.filter((item) => !doomed.some((entry) => entry.id === item.id)) }));
+      for (let i = 0; i < doomed.length; i += 1) {
+        const entry = doomed[i];
+        try {
+          await entry.undo();
+          set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, HISTORY_LIMIT) }));
+        } catch (cause) {
+          // 失败：该条与其更旧（未处理）的条目按原顺序退回撤销栈，保持可重试（已撤销的留在 redoLog）
+          const remaining = doomed.slice(i);
+          set((state) => ({ changeLog: [...remaining, ...state.changeLog].slice(0, HISTORY_LIMIT) }));
+          applyCanvasError(cause);
+          return;
+        }
+      }
+      get().toast(doomed.length > 1 ? `已撤销 ${doomed.length} 步：${clicked.label}` : `已撤销：${clicked.label}`, "success");
+    }),
   // 撤销最近一次语义操作：取 changeLog 首条（LIFO）执行其逆操作。与 yjs UndoManager 无关——
   // 画布真相在 canvas-store/服务端，内存文档只是投影。
-  undoLastChange: async () => {
-    const entry = get().changeLog[0];
-    if (!entry) {
-      get().toast("没有可撤销的操作", "info");
-      return;
-    }
-    set((state) => ({ changeLog: state.changeLog.filter((item) => item.id !== entry.id) }));
-    try {
-      await replayHistory(() => entry.undo());
-      set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, 10) }));
-      get().toast(`已撤销：${entry.label}`, "success");
-    } catch (cause) {
-      set((state) => ({ changeLog: [entry, ...state.changeLog].slice(0, 10) }));
-      applyCanvasError(cause);
-    }
-  },
+  undoLastChange: () =>
+    runHistoryExclusive(async () => {
+      const entry = get().changeLog[0];
+      if (!entry) {
+        get().toast("没有可撤销的操作", "info");
+        return;
+      }
+      set((state) => ({ changeLog: state.changeLog.filter((item) => item.id !== entry.id) }));
+      try {
+        await entry.undo();
+        set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, HISTORY_LIMIT) }));
+        get().toast(`已撤销：${entry.label}`, "success");
+      } catch (cause) {
+        set((state) => ({ changeLog: [entry, ...state.changeLog].slice(0, HISTORY_LIMIT) }));
+        applyCanvasError(cause);
+      }
+    }),
   // 重做：取 redoLog 首条重放正向操作，成功后条目回到 changeLog（可再次撤销）
-  redoLastChange: async () => {
-    const entry = get().redoLog[0];
-    if (!entry) {
-      get().toast("没有可重做的操作", "info");
-      return;
-    }
-    set((state) => ({ redoLog: state.redoLog.filter((item) => item.id !== entry.id) }));
-    try {
-      await replayHistory(() => entry.redo());
-      set((state) => ({ changeLog: [entry, ...state.changeLog].slice(0, 10) }));
-      get().toast(`已重做：${entry.label}`, "success");
-    } catch (cause) {
-      set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, 10) }));
-      applyCanvasError(cause);
-    }
-  },
+  redoLastChange: () =>
+    runHistoryExclusive(async () => {
+      const entry = get().redoLog[0];
+      if (!entry) {
+        get().toast("没有可重做的操作", "info");
+        return;
+      }
+      set((state) => ({ redoLog: state.redoLog.filter((item) => item.id !== entry.id) }));
+      try {
+        await entry.redo();
+        set((state) => ({ changeLog: [entry, ...state.changeLog].slice(0, HISTORY_LIMIT) }));
+        get().toast(`已重做：${entry.label}`, "success");
+      } catch (cause) {
+        set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, HISTORY_LIMIT) }));
+        applyCanvasError(cause);
+      }
+    }),
   setHistoryOpen: (historyOpen) => set({ historyOpen }),
   setOutlineOpen: (outlineOpen) => set({ outlineOpen }),
 
@@ -1910,20 +2097,27 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   setDeleteTarget: (deleteTarget) => set({ deleteTarget }),
   setDeleteSelectionIds: (deleteSelectionIds) => set({ deleteSelectionIds }),
   // 多选删除执行（确认弹框触发）：按序执行规避 revision 冲突；hideEntities 时设定仅从画布移除。
+  // 整批经 withChangeGroup 合并为单条 changeLog：撤销/重做一次回退整组，而非逐项（正常预期）。
   deleteSelection: async (ids, opts = {}) => {
     set({ deleteSelectionIds: null });
     const unique = [...new Set(ids)];
     const relationIds = unique.filter((id) => id.startsWith("arrow:")).map((id) => id.slice("arrow:".length));
     const entityIds = unique.filter((id) => id.startsWith("entity:")).map((id) => id.slice("entity:".length));
     const elementIds = unique.filter((id) => !id.startsWith("arrow:") && !id.startsWith("entity:") && id !== WORLD_ELEMENT_ID);
-    for (const id of relationIds) await get().removeRelation(id);
-    for (const id of elementIds) await get().removeElement(id);
-    for (const id of entityIds) {
-      if (opts.hideEntities) await get().hideEntityFromCanvas(id);
-      else await get().deleteEntity(id);
-    }
+    const hideMode = Boolean(opts.hideEntities) && entityIds.length > 0;
+    const label = hideMode
+      ? `批量处理 ${unique.length} 项（含从画布移除设定）`
+      : `批量删除 ${unique.length} 项`;
+    await withChangeGroup(label, async () => {
+      for (const id of relationIds) await get().removeRelation(id);
+      for (const id of elementIds) await get().removeElement(id);
+      for (const id of entityIds) {
+        if (opts.hideEntities) await get().hideEntityFromCanvas(id);
+        else await get().deleteEntity(id);
+      }
+    });
     get().selectMany([]);
-    if (opts.hideEntities && entityIds.length > 0) {
+    if (hideMode) {
       get().toast(`已从画布移除 ${entityIds.length} 个设定（设定保留），并删除其余 ${unique.length - entityIds.length} 项`, "success");
     } else {
       get().toast(`已删除 ${unique.length} 项`, "success");
@@ -2004,8 +2198,15 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       return;
     }
     // 未变更不写库
-    if ((element.props?.text ?? "") === value) return;
+    const previous = String(element.props?.text ?? "");
+    if (previous === value) return;
     await get().persistGeometry(element.id, undefined, { text: value });
+    // 便签/文本正文编辑记入历史（attr-body 走 syncAttrValue 的实体字段条目，不重复记）
+    get().logChange(
+      element.kind === "note" ? "编辑便签" : "编辑文本",
+      () => get().applyElementPatch(element.id, { props: { text: previous } }),
+      () => get().applyElementPatch(element.id, { props: { text: value } }),
+    );
   },
 
   renameEntity: async (entity, title) => {
@@ -2129,8 +2330,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         ),
         dataVersion: state.dataVersion + 1,
       }));
-      // 确认（草稿→正式）为后端单向 promote，无等价逆操作：撤销/重做均为空操作，仅作审计记录
-      get().logChange(`确认设定「${entity.name}」`, () => {}, () => {});
+      // 确认（草稿→正式）为后端单向 promote，无等价逆操作：不记入 changeLog——
+      // 记了只会让 Cmd+Z 出现「已撤销」提示却什么都不做，误导用户并占用栈位。
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -2180,7 +2381,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         await get().refreshRevision();
         return run(get().revisionId);
       });
-      await get().load(false);
+      // 回放期合并重载：批量撤销里多个 restore 只全量刷新一次（见 loadForHistory）
+      await loadForHistory();
       get().toast("已恢复设定", "success");
     } catch (cause) {
       applyCanvasError(cause);
@@ -2508,7 +2710,14 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         layer: "0",
       });
       const created = get().elements.find((element) => element.id === id);
-      if (created) get().select({ type: "canvas", element: created });
+      if (created) {
+        get().select({ type: "canvas", element: created });
+        get().logChange(
+          `添加「${created.name}」`,
+          () => get().removeElement(id),
+          () => get().restoreElement(created),
+        );
+      }
     } catch (cause) {
       applyCanvasError(cause);
     }

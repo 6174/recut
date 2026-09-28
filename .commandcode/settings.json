@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(npx tsc --noEmit -p tsconfig.json 2 >& 1)",
+      "Shell(grep:*)",
+      "Shell(V=$(ls -d ~/.cargo/registry/src/*/vello_encoding-0.10.0); echo \"== $V\"; ls $V/src; echo; echo \"== glyph.rs ==\"; wc -l $V/src/glyph.rs)",
+      "Shell(npx tsc --noEmit -p tsconfig.json 2>&1 > /tmp/tsc-out.txt; echo \"total errors: $(grep -c 'error TS' /tmp/tsc-out.txt)\"; echo \"--- canvas errors ---\"; grep -E \"worlds/\\[worldID\\]/canvas\" /tmp/tsc-out.txt || echo \"NONE\")",
+      "Shell(sed:*)",
+      "Shell(npx next lint --file app/worlds/[worldID]/canvas/canvas-store.ts --file app/worlds/[worldID]/canvas/canvas-toolbar.tsx 2 >& 1)",
+      "Shell(V=~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vello-0.10.0;:*)",
+      "Shell(S=~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/skrifa-0.44.0;:*)",
+      "Shell(cd /Users/chenxuejia/ws/recut/web; ls -la public/vello-wasm/ 2>/dev/null; echo \"=== pkg ===\"; ls -la lib/pomelo/pomelo-vello-wasm/pkg/ 2>/dev/null; echo \"=== Cargo.toml profiles ===\"; cat lib/pomelo/pomelo-vello-wasm/Cargo.toml)",
+      "Shell(node /private/tmp/commandcode-501/-Users-chenxuejia-ws-recut/8c7f81e1-723a-4f79-8eb2-8fb6fc40f4e6/scratchpad/history-sim.mjs)",
+      "Shell(pnpm:*)",
+      "Shell(echo:*)",
+      "Shell(npx tsc --noEmit -p tsconfig.json 2>&1 > /tmp/tsc-out2.txt; echo \"total errors: $(grep -c 'error TS' /tmp/tsc-out2.txt)\"; echo \"--- canvas errors ---\"; grep -E \"worlds/\\[worldID\\]/canvas\" /tmp/tsc-out2.txt || echo \"NONE\")",
+      "Shell(node -e \"const s=require('fs').readFileSync('/tmp/x','utf8')\" 2>/dev/null; grep -rn \"restoreEntity\\|restoreRelation\" --include=*.ts --include=*.tsx web/app web/lib | grep -v \"canvas-store.ts\" || echo \"no external callers\")",
+      "Shell(R=~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/read-fonts-0.41.0;:*)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

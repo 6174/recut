@@ -171,7 +171,7 @@ export function Composer({
     : t("agent.composer.placeholder");
   return (
     <form
-      className="absolute inset-x-0 bottom-0 border-t bg-card p-3"
+      className="absolute inset-x-0 bottom-0 p-3"
       onSubmit={onSend}
       ref={formRef}
     >

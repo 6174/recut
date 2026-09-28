@@ -372,6 +372,8 @@ struct TextLayout {
     leading: f32,
     /// 原文（仅用于哈希碰撞时校验，避免 String 作为每个查询的分配键）。
     text: String,
+    /// 最近一次使用序号（供有界淘汰按 LRU 保留）。
+    serial: u64,
 }
 
 /// FNV-1a 64：文本内容哈希（快速、无分配；用于文本布局缓存键）。
@@ -384,11 +386,37 @@ fn text_hash(text: &str) -> u64 {
     hash
 }
 
+/// 有界文本布局缓存。满时按「最近使用序号」淘汰最旧的一批：序号单调递增，
+/// 故保留 `serial > 当前序号 - CAPACITY` 的条目后长度必然有界。
+/// 旧实现是「满即 clear()」，会让下一帧把所有可见文本重新 shaping，造成周期性卡顿。
+#[derive(Default)]
+struct LayoutCache {
+    entries: HashMap<(u32, u32, u32, u32, u64), TextLayout>,
+    serial: u64,
+}
+
+impl LayoutCache {
+    /// 保留的最近使用条目数上限。
+    const CAPACITY: u64 = 2048;
+
+    fn next_serial(&mut self) -> u64 {
+        self.serial = self.serial.wrapping_add(1);
+        self.serial
+    }
+
+    fn evict_old(&mut self) {
+        if self.entries.len() <= Self::CAPACITY as usize {
+            return;
+        }
+        let cutoff = self.serial.saturating_sub(Self::CAPACITY);
+        self.entries.retain(|_, layout| layout.serial > cutoff);
+    }
+}
+
 thread_local! {
     /// key = (font_id, fallback_id, size bits, max_width bits, text hash) → TextLayout。
     /// Copy 键避免每帧为查询分配/哈希 String；同一文本在多个 chunk/瓦片/帧渲染时复用。
-    static TEXT_LAYOUT: std::cell::RefCell<std::collections::HashMap<(u32, u32, u32, u32, u64), TextLayout>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
+    static TEXT_LAYOUT: std::cell::RefCell<LayoutCache> = std::cell::RefCell::new(LayoutCache::default());
 }
 
 /// 解析字体表并 shaping（仅在缓存 miss 时调用）。max_width > 0 时按宽度贪心换行（CJK 逐字符，对齐 pixi breakWords）。
@@ -462,7 +490,7 @@ fn build_text_layout(
         }
         lines.push(current);
     }
-    Some(TextLayout { lines, ascent, leading, text: text.to_string() })
+    Some(TextLayout { lines, ascent, leading, text: text.to_string(), serial: 0 })
 }
 
 /// 由缓存布局计算每个字形的世界坐标（位置依赖 x/y/max_width/align，故不入缓存）。
@@ -522,25 +550,22 @@ fn draw_text(
     let cache_key = (font_id, fallback_id.unwrap_or(0), size.to_bits(), max_width.to_bits(), text_hash(text));
     let mut primary_glyphs: Vec<Glyph> = Vec::new();
     let mut fallback_glyphs: Vec<Glyph> = Vec::new();
-    let mut done = false;
     TEXT_LAYOUT.with(|cell| {
-        let mut map = cell.borrow_mut();
+        let cache = &mut *cell.borrow_mut();
+        let serial = cache.next_serial();
         // 命中：Copy 键 + 原文校验（防哈希碰撞），零分配、零字体解析
-        if let Some(layout) = map.get(&cache_key) {
+        if let Some(layout) = cache.entries.get_mut(&cache_key) {
             if layout.text == text {
+                layout.serial = serial;
                 emit_glyphs(layout, x, y, max_width, align, &mut primary_glyphs, &mut fallback_glyphs);
-                done = true;
+                return;
             }
         }
-        if !done {
-            // 简单有界：满则整体清空，避免无界增长
-            if map.len() >= 1024 {
-                map.clear();
-            }
-            if let Some(layout) = build_text_layout(primary, fallback, size, line_height, max_width, text) {
-                emit_glyphs(&layout, x, y, max_width, align, &mut primary_glyphs, &mut fallback_glyphs);
-                map.insert(cache_key, layout);
-            }
+        if let Some(mut layout) = build_text_layout(primary, fallback, size, line_height, max_width, text) {
+            emit_glyphs(&layout, x, y, max_width, align, &mut primary_glyphs, &mut fallback_glyphs);
+            layout.serial = serial;
+            cache.entries.insert(cache_key, layout);
+            cache.evict_old();
         }
     });
 
@@ -683,5 +708,32 @@ mod tests {
             b.push(99);
         });
         assert!(decode_ops(&unknown).is_err());
+    }
+
+    /// 有界淘汰：超出容量时保留最近使用的条目，而不是整体清空（旧实现满 1024 即 `clear()`，
+    /// 会让下一帧把所有可见文本重新 shaping，造成周期性卡顿）。
+    #[test]
+    fn layout_cache_evicts_oldest_not_all() {
+        let mut cache = LayoutCache::default();
+        let capacity = LayoutCache::CAPACITY as usize;
+        let total = capacity + 64;
+        for i in 0..total {
+            let serial = cache.next_serial();
+            cache.entries.insert(
+                (i as u32, 0, 0, 0, i as u64),
+                TextLayout { lines: Vec::new(), ascent: 0.0, leading: 0.0, text: String::new(), serial },
+            );
+        }
+        assert_eq!(cache.entries.len(), total);
+
+        cache.evict_old();
+
+        // 淘汰后严格有界，且不是整体清空
+        assert!(cache.entries.len() <= capacity, "len={}", cache.entries.len());
+        assert!(!cache.entries.is_empty());
+        // 最近一次使用的条目保留；最旧的 64 条被淘汰
+        let newest = cache.next_serial() - 1;
+        assert!(cache.entries.values().any(|layout| layout.serial == newest));
+        assert!(!cache.entries.contains_key(&(0u32, 0, 0, 0, 0u64)));
     }
 }
