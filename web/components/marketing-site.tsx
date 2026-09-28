@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 usePathname、lib/i18n（Locale/localizeURL/t）、MDX 文章/App 正文（以 props 传入）、构建时的 Recut App URL 与浏览器当前 Host；官网叙事图的真实素材经 selectMarketingMedia 从传入的 worlds props 派生
- * [OUTPUT]: 对外提供官网 Header 与 Footer（均含语言切换，导航含创作 / 世界观 / 应用 / 开源）、按 Hero→复刻爆款→AI 全自动（含可编辑时间线）→世界观长期价值→为你所有（含竞品对比）→文章→CTA 编排的 Landing（世界观区块数据经 worlds props 注入）；Hero 挂载 CreationFlowDiagram（想法 + World 真实封面图 → 世界观概念关系 → 真实帧时间线），入场只播一次、仅时间线光标循环，价值承诺先于技术名词；Copy/Agent/World 三张图各自消费指定 World 的真实画面
+ * [OUTPUT]: 对外提供官网 Header 与 Footer（均含语言切换，导航含创作 / 世界观 / 应用 / 开源）、按「世界观驱动生成（marketing-world-hero 的 3D 舞台）→ 案例网格与全屏播放器（marketing-case-grid）」两段编排的 Landing（案例经 lib/marketing-cases 从 worlds props 派生），以及 Docs / Blog 展示组件；旧 Landing 区块（复刻爆款 / AI 全自动 / 世界观长期价值 / 竞品对比 / 文章 / CTA）保留在文件内待后续逐步放出，不再进入首屏
  *           MarketingLocaleContext 供 client 组件读 locale；Docs 与 Blog 共享展示组件（DocsContent / DocContent / BlogContent / BlogPostContent）与 Blog/App 详情共用 MarkdownContent 渲染 MDX 正文并提供分享条；localhost 下的工作台链接统一指向同端口 app.localhost；
  *           官网内部导航一律用 <a> 全页跳转：营销浏览器 URL（无前缀 / /zh/ 前缀）与 Next 客户端路由树（/marketing/[locale]/…）不一致，<a> 保证每次导航都经 Worker/server.cjs 的正确重写
  * [POS]: web/components 的公开官网视觉层；服务 recut.video 与 localhost，不读取本地 service 或工作台状态；文章/应用数据一律由服务端页面经 props 注入，本文件不引入内容加载器
@@ -17,8 +17,10 @@ import type { DocPage } from "@/lib/docs";
 import { MarkdownContent } from "@/components/markdown-content";
 import { trackEvent } from "@/components/posthog-analytics";
 import { MarketingEditorDemo } from "@/components/marketing-editor-demo";
-import { MarketingWorldsSection } from "@/components/marketing-worlds";
 import { AgentPipelineDiagram, CloneFlowDiagram, CreationFlowDiagram, OwnershipDiagram } from "@/components/marketing-narrative-diagrams";
+import { MarketingWorldHero } from "@/components/marketing-world-hero";
+import { MarketingCaseGrid } from "@/components/marketing-case-grid";
+import { buildMarketingCases } from "@/lib/marketing-cases";
 import type { MarketingWorld } from "@/lib/marketing-worlds";
 
 const defaultAppURL = process.env.NEXT_PUBLIC_RECUT_APP_URL ?? "https://app.recut.video";
@@ -108,15 +110,14 @@ export function MarketingHeader() {
         <img alt="Recut" className="size-8 rounded-lg" height={424} src="/logo.jpg" width={404} />
         <span className="text-sm font-semibold tracking-tight">Recut</span>
         </a>
-        <nav aria-label={t("marketing", locale, "nav.ariaMain")} className="hidden items-center gap-1 md:flex">
-          <MarketingNav href={localizeURL("/#clone", locale)}>{t("marketing", locale, "nav.product")}</MarketingNav>
-          <MarketingNav href={localizeURL("/worlds", locale)}>{t("marketing", locale, "nav.worlds")}</MarketingNav>
-          <MarketingNav href={localizeURL("/apps", locale)}>{t("marketing", locale, "nav.apps")}</MarketingNav>
-          <MarketingNav href={localizeURL("/#open", locale)}>{t("marketing", locale, "nav.openSource")}</MarketingNav>
-          <a className="rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground" href="https://github.com/6174/recut" onClick={() => trackEvent("recut_external_clicked", { target: "github" })} rel="noreferrer" target="_blank">{t("marketing", locale, "nav.github")}</a>
-          <LocaleSwitchLink className="rounded-md px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted" to={locale === "zh" ? "en" : "zh"} />
-        </nav>
-        <a className="inline-flex h-9 shrink-0 items-center rounded-lg bg-primary px-3.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_workspace_clicked", { location: "header" })}>{t("marketing", locale, "nav.openWorkspace")} <span aria-hidden="true" className="ml-1">↗</span></a>
+        <div className="flex shrink-0 items-center gap-2 md:gap-3">
+          <nav aria-label={t("marketing", locale, "nav.ariaMain")} className="hidden items-center gap-1 md:flex">
+            <MarketingNav href={localizeURL("/docs/philosophy", locale)}>{t("marketing", locale, "nav.openSource")}</MarketingNav>
+            <a className="rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground" href="https://github.com/6174/recut" onClick={() => trackEvent("recut_external_clicked", { target: "github" })} rel="noreferrer" target="_blank">{t("marketing", locale, "nav.github")}</a>
+            <LocaleSwitchLink className="rounded-md px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted" to={locale === "zh" ? "en" : "zh"} />
+          </nav>
+          <a className="inline-flex h-9 shrink-0 items-center rounded-lg bg-primary px-3.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_workspace_clicked", { location: "header" })}>{t("marketing", locale, "nav.openWorkspace")} <span aria-hidden="true" className="ml-1">↗</span></a>
+        </div>
       </div>
     </header>
   );
@@ -140,7 +141,7 @@ export function MarketingFooter() {
           </div>
           <p className="mt-3 max-w-xs text-sm leading-6 text-muted-foreground">{t("marketing", locale, "footer.tagline")}</p>
         </div>
-        <FooterLinks title={t("marketing", locale, "footer.product")} links={[{ href: localizeURL("/#clone", locale), label: t("marketing", locale, "nav.product") }, { href: localizeURL("/worlds", locale), label: t("marketing", locale, "nav.worlds") }, { href: localizeURL("/apps", locale), label: t("marketing", locale, "nav.apps") }, { href: localizeURL("/#open", locale), label: t("marketing", locale, "nav.openSource") }, { href: localizeURL("/docs", locale), label: t("marketing", locale, "nav.docs") }, { href: appURL, label: t("marketing", locale, "footer.openWorkspace") }]} />
+        <FooterLinks title={t("marketing", locale, "footer.product")} links={[{ href: localizeURL("/#world", locale), label: t("marketing", locale, "nav.product") }, { href: localizeURL("/worlds", locale), label: t("marketing", locale, "nav.worlds") }, { href: localizeURL("/apps", locale), label: t("marketing", locale, "nav.apps") }, { href: localizeURL("/docs/philosophy", locale), label: t("marketing", locale, "nav.openSource") }, { href: localizeURL("/docs", locale), label: t("marketing", locale, "nav.docs") }, { href: appURL, label: t("marketing", locale, "footer.openWorkspace") }]} />
         <FooterLinks title={t("marketing", locale, "footer.resources")} links={[{ href: localizeURL("/blog", locale), label: t("marketing", locale, "nav.blog") }, { href: "https://github.com/6174/recut", label: t("marketing", locale, "footer.github") }]} />
       </div>
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 border-t px-5 py-5 sm:flex-row sm:px-8">
@@ -222,9 +223,9 @@ export function MarketingHero({ worlds = [] }: { worlds?: MarketingWorld[] }) {
   );
 }
 
-export function MarketingLanding({ posts, worlds = [] }: { posts: MarketingPost[]; worlds?: MarketingWorld[] }) {
-  const media = selectMarketingMedia(worlds, 12);
-  return <><MarketingHero worlds={worlds} /><CloneWhatWorks images={selectMarketingMedia(worlds, 8, "pgc.adan")} /><FromIdeaToVideo images={media} /><MarketingWorldsSection worlds={worlds} /><ProductSection images={media} /><LatestPosts posts={posts} /><FinalCTA /></>;
+export function MarketingLanding({ worlds = [] }: { posts: MarketingPost[]; worlds?: MarketingWorld[] }) {
+  const cases = buildMarketingCases(worlds);
+  return <><MarketingWorldHero posters={cases.map((item) => item.poster)} /><MarketingCaseGrid cases={cases} /></>;
 }
 
 function SectionHeading({ eyebrow, title, tagline }: { eyebrow: string; title: string; tagline: string }) {

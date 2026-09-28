@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 locales.ts 的 Locale；文案源为 marketing-site / marketing-apps / marketing-home / marketing-posts / marketing-apps 现有中文文案与各页面 metadata
- * [OUTPUT]: 官网（marketing）文案的逐语言字典：zh / en 两组，en 必须覆盖 zh 全部 key（Record<keyof typeof zh, string> 编译期保证）；key 命名空间覆盖 meta/nav/hero/flow/create/clone/agent/editor/batch/worlds/product/featured/how/audience/compare/faq/footer/apps/docs/blog/cta/share/preview/team
+ * [OUTPUT]: 官网（marketing）文案的逐语言字典：zh / en 两组，en 必须覆盖 zh 全部 key（Record<keyof typeof zh, string> 编译期保证）；key 命名空间覆盖 meta/nav/hero/story/cases/player/flow/create/clone/agent/editor/batch/worlds/product/featured/how/audience/compare/faq/footer/apps/docs/blog/cta/share/preview/team
  * [POS]: web/lib/i18n 的官网文案边界；marketing-site / marketing-apps 组件与逐语言 metadata、JSON-LD 消费；叙事顺序为「价值承诺 → 三种起点 → 复刻爆款 → AI 全自动 → 批量派生 → 世界观一致性 → 本地/开源底座」，技术名词一律让位于用户可感知的结果
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -83,6 +83,35 @@ const zh = {
   "hero.install": "开始创作",
   "hero.readDocs": "看看怎么用",
   "hero.subtext": "免费 · 开源 · 本地优先",
+
+  // —— 首页第一区块：世界观驱动生成（3D 舞台）——
+  "story.title1": "别再靠抽卡做视频，",
+  "story.title2": "开始经营一个世界。",
+  "story.tagline": "在无限画布上沉淀角色、风格、场景与规则，AI 就能自动生成并剪出视频——越做越省力。",
+  "story.input.document": "文稿",
+  "story.input.video": "视频",
+  "story.input.article": "文章",
+  "story.input.account": "账号",
+  "story.platform.youtube": "YouTube",
+  "story.platform.tiktok": "TikTok",
+  "story.platform.xiaohongshu": "小红书",
+
+  // —— 首页第二区块：案例网格与播放器 ——
+  "cases.eyebrow": "MADE WITH RECUT",
+  "cases.title1": "同一个世界观，",
+  "cases.title2": "无限条视频。",
+  "cases.tagline": "每一个案例都由一个世界观生成。点开看片，也可以切到底部的世界观画布，看看这条视频是怎么被想出来的。",
+  "cases.anonymous": "未署名",
+
+  // —— 案例播放器 ——
+  "player.tab.video": "视频",
+  "player.tab.canvas": "世界观画布",
+  "player.tabsAria": "案例视图切换",
+  "player.fullscreen": "全屏",
+  "player.exitFullscreen": "退出全屏",
+  "player.exit": "退出预览",
+  "player.placeholder": "成片占位 · 真实视频稍后替换",
+  "player.canvasMissing": "这个世界观还没有可预览的画布。",
 
   // —— Hero 创作流示意：想法 + 视频 → 世界观概念关系 → 时间线成片 ——
   "flow.idea": "想法",
@@ -447,6 +476,35 @@ const en: Record<keyof typeof zh, string> = {
   "hero.install": "Start Creating",
   "hero.readDocs": "See how it works",
   "hero.subtext": "Free · Open source · Local-first",
+
+  // Landing section 1: world-driven generation (3D stage)
+  "story.title1": "Stop rolling the dice on every video,",
+  "story.title2": "Start running a world.",
+  "story.tagline": "Build your characters, style, scenes and rules on an infinite canvas, and AI turns them into videos — on-model, on-brand, faster every time.",
+  "story.input.document": "Script",
+  "story.input.video": "Video",
+  "story.input.article": "Article",
+  "story.input.account": "Account",
+  "story.platform.youtube": "YouTube",
+  "story.platform.tiktok": "TikTok",
+  "story.platform.xiaohongshu": "Xiaohongshu",
+
+  // Landing section 2: case grid and player
+  "cases.eyebrow": "MADE WITH RECUT",
+  "cases.title1": "One world,",
+  "cases.title2": "endless videos.",
+  "cases.tagline": "Every case is generated from a world. Open one to watch the film, or switch to the world canvas at the bottom to see how it was imagined.",
+  "cases.anonymous": "Unattributed",
+
+  // Case player
+  "player.tab.video": "Video",
+  "player.tab.canvas": "World Canvas",
+  "player.tabsAria": "Case view switch",
+  "player.fullscreen": "Fullscreen",
+  "player.exitFullscreen": "Exit fullscreen",
+  "player.exit": "Exit preview",
+  "player.placeholder": "Placeholder frame · real film coming soon",
+  "player.canvasMissing": "This world has no canvas preview yet.",
 
   // Hero creation flow: idea + video → World concept graph → timeline video
   "flow.idea": "Idea",

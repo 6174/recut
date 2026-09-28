@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖全局 fetch 与 CDN 上的 World 发布目录（https://cdn.recut.video/worlds/catalog.json）及各 world.json manifest
  *   （v2：entityTypes + 统一 entities[attrs/media] + canvases + relations；旧 v1 evidence 仍兼容读取）
- * [OUTPUT]: 对外提供官网营销用的静态 World 目录数据 MarketingWorld（名称/类型/定位/语气/受众/封面/图片/实体摘要/
+ * [OUTPUT]: 对外提供官网营销用的静态 World 目录数据 MarketingWorld（名称/类型/定位/语气/受众/发布者 author/封面/图片/实体摘要/
  *   只读画布投影 canvas：实体/媒体/便签元素 + 两端都在画布上的语义关系）与 fetchMarketingWorlds()；CDN 不可达时返回空数组降级，不抛错
  * [POS]: web/lib 的公开营销内容加载器；只在服务端页面（首页 /worlds）构建期导入，客户端组件一律经 props 接收数据；
  *   绝不读取本地 service 或工作台状态
@@ -28,10 +28,11 @@ export type MarketingWorld = {
   positioning: string;
   tone: string;
   audience: string[];
+  /** 发布者（manifest.provenance.author），案例卡的作者行使用。 */
+  author: string;
   coverUrl: string;
   images: string[];
   entities: MarketingWorldEntity[];
-  /** 只读画布投影（manifest.canvases 根文档；无画布时为空）。 */
   canvas: MarketingWorldCanvas | null;
 };
 
@@ -79,6 +80,7 @@ type WorldManifest = {
   evidence?: ManifestEvidence[];
   canvases?: ManifestCanvas[];
   relations?: ManifestRelation[];
+  provenance?: { author?: string; license?: string; publishedAt?: string; repository?: string };
 };
 
 const MARKETING_ENTITY_KINDS = new Set(["character", "location", "object", "story", "script", "style", "rule"]);
@@ -252,6 +254,7 @@ async function fetchWorld(entry: CatalogEntry): Promise<MarketingWorld | null> {
     positioning: identity.positioning ?? "",
     tone: identity.tone ?? "",
     audience: Array.isArray(identity.audience) ? identity.audience : typeof identity.audience === "string" ? [identity.audience] : [],
+    author: manifest?.provenance?.author ?? "",
     coverUrl: world.coverUrl || allImages[0] || evidenceImages[0] || "",
     images: allImages.length ? allImages : evidenceImages.slice(0, MAX_IMAGES_PER_WORLD),
     entities: projectedEntities,

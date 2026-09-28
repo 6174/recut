@@ -14,6 +14,7 @@ service-store.ts: 基于 Zustand persist 的 service 状态唯一真相；持久
 agent-store.ts: Agent 元数据、会话列表、当前会话和详情快照的内存缓存；请求按 endpoint 去重，面板拥有 SSE 连接但将增量回写缓存。
 agent-panel-context.ts: 全局 Agent 面板上下文的内存状态；保存根布局唯一挂载的面板所需的当前路由 projectID（仅素材上传/引导上下文）、宿主回填草稿与当前页面上下文，`useReportPageContext` 让页面声明式上报并在卸载时清理；Header 高度是工作台壳固定的 64px，不允许页面各自覆盖，面板为单一全局会话，各页面只声明这些上下文，不再各自挂载面板。
 marketing-posts.ts: 官网 Blog 的 MDX 加载器；用 gray-matter 读取 `content/marketing/<locale>/*.mdx`，导出 `MarketingPost`（date/slug/title/description/content/locale）与 `marketingPosts`/`getMarketingPost`，按日期降序；只在服务端模块导入，客户端组件一律经 props 接收数据，避免 `node:fs` 进入浏览器包；内容覆盖产品理念、使用教程与技术关键词碰瓷（CosyVoice / Qwen ASR / Depth Anything / AI 封面等自部署难的高搜索词，落点到免配置 App 方案）。
+marketing-cases.ts: 官网首页「案例」区块的数据派生层；`buildMarketingCases(worlds)` 把每个真实 World 映射为一条由它生成的成片案例（标题取 World 名、作者取 World 的 `provenance.author`、封面取 cover/首图、确定性 tone 供无图时渐变占位、保留完整 World 供播放器复用其只读画布投影）；`CASE_VIDEO_SOURCES`（key 为 World id，默认空）是真实成片 URL 的唯一入口，填入即播放、无需改 UI；纯函数、无 I/O，只在服务端页面构建期经 props 派生。
 media-configuration-store.ts: Provider、脱敏 Credential 与用途 Route 的按 endpoint 配置缓存；Settings、素材创建和 iframe App 宿主共享，绝不保存 API Key 输入草稿。
 workspace-store.ts: 含可选 image/video `cover` 的项目、App、已安装 App、项目详情和独立 App scope 的内存目录缓存；App、项目与安装列表分别保留读取状态和服务端失败原因，安装列表成功返回空数组即是“尚未安装”，首次读取和写操作后显式刷新，禁止页面级轮询。
 recut-worlds-client.ts: Creation Worlds 的浏览器传输适配器；请求/响应与全局 SDK 及 MCP 同构，World/Entity、可冻结的多模态 Evidence、Resolve、readiness 就绪度投影与项目 World Context 读写；错误统一解包为结构化 `RecutWorldsError`；只被原生 Recut 页面使用，App iframe 永不经它。

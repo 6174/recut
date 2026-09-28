@@ -9,9 +9,9 @@
 <a href="https://recut.video"><img src="https://img.shields.io/badge/Website-recut.video-2f9e63?style=flat-square" alt="Website" /></a>
 <a href="https://app.recut.video"><img src="https://img.shields.io/badge/Workspace-open-2f9e63?style=flat-square" alt="Open workspace" /></a>
 
-**从灵感到爆款视频，AI 全自动完成**
+**别再靠抽卡做视频，开始经营一个世界。**
 
-免费、开源、本地优先的 AI 视频创作工作台。在你的电脑上，Recut 与 **Claude Code、Open Code、Codex Cli** 协作，完成策划、生成、剪辑与成片；每一次迭代，都让它更适合你的创作。
+免费、开源、本地优先的 AI 视频创作工作台。在无限画布上沉淀角色、风格、场景与规则，AI 就能自动生成并剪出视频——同一个世界观，无限条视频。在你的电脑上，Recut 与 **Claude Code、Open Code、Codex Cli** 协作；每一次迭代，世界更完整，产出更省力。
 
 [打开工作台](https://app.recut.video) · [浏览应用](#应用地图) · [开发 App](#为-recut-开发-app)
 

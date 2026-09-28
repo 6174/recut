@@ -1,8 +1,9 @@
 /*
  * [INPUT]: 依赖 next/dynamic、lib/i18n 与 lib/marketing-worlds 的画布投影；动态加载 marketing-world-canvas-vello
  *          （真实 pomelo-vello 画布宿主）；locale 由 marketing-worlds 注入，不回引 marketing-site 以避开循环依赖
- * [OUTPUT]: 对外提供 MarketingWorldCanvasPreview：/worlds/:id 详情的世界画布区块——固定高度框内优先加载真实
- *          vello 画布（实体卡 + 语义关系连线，拖拽平移 / ⌘滚轮缩放），WebGPU 不可用时回退到 DOM 静态投影（含关系连线），滚动进入视口才懒加载
+ * [OUTPUT]: 对外提供 MarketingWorldCanvasPreview（/worlds/:id 详情的世界画布区块）与可复用的 MarketingWorldCanvasStage——
+ *          固定高度框内优先加载真实 vello 画布（实体卡 + 语义关系连线，拖拽平移 / ⌘滚轮缩放），
+ *          WebGPU 不可用时回退到 DOM 静态投影（含关系连线），滚动进入视口才懒加载
  * [POS]: web/components 的官网画布预览壳；数据仍由服务端页面经 props 注入，本文件不发请求
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -26,13 +27,14 @@ export function MarketingWorldCanvasPreview({ world, locale }: { world: Marketin
     <section className="mt-12">
       <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "worlds.canvas.eyebrow")}</p>
       <div className="relative mt-4 h-[360px] w-full overflow-hidden rounded-2xl border bg-background sm:h-[460px] lg:h-[540px]">
-        <MarketingWorldCanvasBox canvas={canvas} locale={locale} />
+        <MarketingWorldCanvasStage canvas={canvas} locale={locale} />
       </div>
     </section>
   );
 }
 
-function MarketingWorldCanvasBox({ canvas, locale }: { canvas: MarketingWorldCanvas; locale: Locale }) {
+/** 只读世界画布舞台：DOM 静态投影常在，真实 vello 画布就绪后叠在其上；官网详情页与首页案例播放器共用。 */
+export function MarketingWorldCanvasStage({ canvas, locale }: { canvas: MarketingWorldCanvas; locale: Locale }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [shouldMount, setShouldMount] = useState(false);
   const [velloReady, setVelloReady] = useState(false);

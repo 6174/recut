@@ -8,6 +8,30 @@
 @import "@xterm/xterm/css/xterm.css";
 @import "tw-animate-css";
 
+/* 官网显示字体：拉丁走 Space Grotesk（几何人文、转角圆润、极客感），中文落到得意黑 Smiley Sans（斜体、能量感）；
+ * 技术标签/eyebrow 用 JetBrains Mono（圆润等宽）。三者均为 OFL，见 public/fonts/*-OFL.txt；其余字形回退系统无衬线。 */
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/space-grotesk-latin.woff2") format("woff2");
+  font-weight: 500 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/jetbrains-mono-latin.woff2") format("woff2");
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Smiley Sans";
+  src: url("/fonts/smiley-sans-oblique.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme inline {
   /* Components consume semantic roles, never raw palette values. */
   --color-background: var(--background);
@@ -124,6 +148,29 @@
   color: transparent;
   text-shadow: 0 0 32px oklch(0.68 0.18 151 / 0.16);
 }
+
+/* 官网首页「超大文字」显示字体栈：拉丁走 Space Grotesk、中文落到得意黑，避免缺字与字距过挤。 */
+.marketing-display {
+  font-family: "Space Grotesk", "Smiley Sans", var(--font-sans);
+  letter-spacing: -0.02em;
+}
+
+/* 中文标题（得意黑本身上宽下窄、字面更满）不加负字距，否则词与词会挤在一起。 */
+html[lang="zh"] .marketing-display {
+  letter-spacing: 0.02em;
+}
+
+/* 官网技术标签/eyebrow 换用 JetBrains Mono；仅限营销站，不动工作台终端等全局 --font-mono。 */
+.marketing-dark .font-mono {
+  font-family: "JetBrains Mono", var(--font-mono);
+}
+
+.marketing-story-accent {
+  background: linear-gradient(100deg, #d6ffe4 0%, #65d8a0 46%, #9fb2ff 100%) text;
+  color: transparent;
+  text-shadow: 0 0 40px oklch(0.68 0.18 151 / 0.18);
+}
+
 
 /* 移动端展示真实桌面 App 画布：固定内部尺寸，只用一个 transform 做等比缩放。 */
 .marketing-editor-demo-stage {
