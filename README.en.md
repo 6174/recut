@@ -9,27 +9,30 @@
 <a href="https://recut.video"><img src="https://img.shields.io/badge/Website-recut.video-2f9e63?style=flat-square" alt="Website" /></a>
 <a href="https://app.recut.video"><img src="https://img.shields.io/badge/Workspace-open-2f9e63?style=flat-square" alt="Open workspace" /></a>
 
-**From idea to viral video, automatically**
+**Stop rolling the dice on every video. Start running a world.**
 
-A free, open-source, local-first AI video creation workspace. On your computer, Recut works with **Claude Code, Open Code and Codex Cli** to plan, create, edit and deliver; every iteration makes it a better fit for how you create.
-
-[Open the workspace](https://app.recut.video) · [Browse Apps](#app-map) · [Build an App](#build-an-app-for-recut)
+A free, open-source, local-first AI video creation workspace. Settle your characters, style, scenes and rules into a World on an infinite canvas, and AI keeps generating and editing videos — one world, endless videos. On your computer, Recut works with **Claude Code, Open Code and Codex Cli**; each pass makes the world more complete and the next video easier.
 
 [中文](./README.md) · **English**
 
 </div>
 
-![Recut workspace](./assets/home2.jpg)
+![Stop rolling the dice on every video. Start running a world.](./assets/world-hero-en.png)
+
 
 ## What Is Recut?
 
-Recut is a **local-first, open-source and extensible AI video creation workspace**. Give Recut an idea, a reference video or a story, and AI handles the research, planning, generation, editing and delivery.
+Recut is a **local-first, open-source and extensible AI video creation workspace**. Turn your characters, style, scenes and rules into a World, and AI keeps generating and editing on-model videos; or drop in a reference video, an idea or a story, and AI handles the research, planning, generation, editing and delivery.
 
 It does not try to pack every capability into one closed product. Instead, it provides a creative foundation that can keep growing: the platform manages media, projects, timelines, jobs and Agent sessions, while independent Apps provide the actual creative workflows. Every step lands in real projects, media and timeline edits, so results can be edited, replaced and iterated, and the creator decides what becomes the final work.
 
-## Start From Anything
+## One World, Endless Videos
 
-A reference video, an idea, or a World — whatever you start with, Recut turns it into a finished video.
+Settle your characters, style, scenes and rules on an infinite canvas, and AI keeps generating and editing videos — easier with every pass. A reference video or an idea can be the seed of a new world, too.
+
+### A World: create once, keep shipping
+
+Turn characters, story and style into a World — a reusable permanent asset, not a one-off generation. From one world, keep iterating and ship new videos across platforms and languages.
 
 ### A reference video: clone a proven hit
 
@@ -38,10 +41,6 @@ Drop in a video you love. AI reads its hook, story, shots, pacing, caption style
 ### An idea: let AI do the work
 
 Write down what you want to say. Research, writing, directing and editing are split across agents, and every step lands on a real timeline you can trim, reorder, recaption and re-render — no black box. You decide what to make; AI does the making.
-
-### A World: create once, keep creating
-
-Turn characters, story and style into a World — a reusable permanent asset, not a one-off generation. Then keep iterating and shipping new videos across platforms and languages.
 
 ## Why Recut
 
@@ -69,37 +68,10 @@ The same capability can be used in a UI and called by an Agent through Skills an
 
 ## From Idea to Finished Video
 
-1. **Give it a starting point**: drop in a reference video, write an idea, or pick a World; or choose media, templates and parameters directly in an App.
+1. **Give it a starting point**: pick a World, drop in a reference video, or write an idea; or choose media, templates and parameters directly in an App.
 2. **Let AI shape the plan**: the Agent breaks down the reference, researches the topic, writes the script and plans shots and pacing; expensive or irreversible steps stop at confirmation points for your decision.
 3. **Land in the real workspace**: captions, voice, visuals, components and code become project data, library Assets or timeline edits that remain visible and editable.
 4. **Iterate and deliver**: replace media, tune pacing, rewrite copy or regenerate one part, then export a finished video through a deterministic local job.
-
-## App Map
-
-The official Apps are not isolated feature demos. Together they form a creative chain around the same media, projects and Agent workflows.
-
-| App | What it is for | Type | Repository |
-| --- | --- | --- | --- |
-| **Video Editor** | Let an Agent organize media, plan shots and operate an editable timeline; components, captions, audio and export stay in one project. | `project` | [Video Editor App page](https://recut.video/apps/recut.editor/) |
-| **Audio Studio** | Turn audio and video into time-aligned captions and transcripts locally, then create narration, pickups and dubbing with authorized voice characters. | `standalone` | [recut-audio-studio](https://github.com/6174/recut-audio-studio) |
-| **Generation Studio** | Host many open models in one local runtime (prepare the environment, download weights on demand) to generate images and video, and set it as the global image default. | `standalone` | Built-in (ships with the client) |
-| **Remotion Video** | Start from a Brief, templates and components, then turn copy and media into programmatic video with live preview and deterministic export. | `standalone` | [recut-remotion-studio](https://github.com/6174/recut-remotion-studio) |
-
-More Apps are being built. The official repository keeps reviewed entries, purposes and support status; it does not mirror or host each App's source code.
-
-### Workspace and App Previews
-
-These screenshots come from the real Recut workspace. One Agent session can move from Studio into projects, the media library and different Apps, then return the results to a workflow you can keep editing.
-
-<table>
-  <tr>
-    <td width="50%"><img src="./assets/home.jpg" alt="Recut video editor timeline" /><br /><sub>Video Editor: the Agent works alongside the media library, preview and multi-track timeline.</sub></td>
-    <td width="50%"><img src="./assets/audio-studio.jpg" alt="Recut Audio Studio" /><br /><sub>Audio Studio: transcription, voice characters and dubbing in one voice workflow.</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="./assets/remotion.jpg" alt="Recut Remotion Video" /><br /><sub>Remotion Video: connect code, media and live preview from a template and Brief.</sub></td>
-  </tr>
-</table>
 
 ## Get Started
 
@@ -124,40 +96,8 @@ Then open the [workspace](https://app.recut.video) and install the Apps you need
 Start with the shortest path:
 
 1. Install and open the **Video Editor**.
-2. Give it a starting point: import a reference video, write an idea, or pick a World.
+2. Give it a starting point: pick a World, import a reference video, or write an idea.
 3. Ask the Agent to move the plan forward, then review the result in the workspace.
 4. Keep what works, continue editing and export the finished video.
 
 You do not need to master a complex editor or write code first. Code and Skills are advanced entry points, not a requirement for using Recut.
-
-## Build an App for Recut
-
-An App is a creative workflow in its own Git repository. It can have its own UI, background logic, SQLite state, Python environment, Skill and Agent operations, while following the platform's capability and data boundaries.
-
-Minimum structure:
-
-```text
-manifest.json  Runtime identity, entrypoint, permissions, onboarding and operations
-AGENTS.md      Domain rules and workflow boundaries for Agents
-README.md      Human-facing purpose, install path, usage and development notes
-<entrypoint>   Background or UI entrypoint declared by the manifest
-```
-
-Read the [App contract](./docs/app-contract.md) before developing, and use existing Apps as references. The core rules are:
-
-- Publish every App independently; the repository root must contain `manifest.json` so users can install it by URL.
-- An App reads and writes only its own data; cross-App collaboration uses public APIs and immutable Artifact references.
-- Media, jobs, storage and Agent calls go through Recut capabilities rather than bypassing platform persistence and permissions.
-- Permissions are denied by default; every permission must map to a clear user value.
-- Every step explains its inputs, outputs, confirmation points and expensive operations; an unconfirmed idea is not a finished video.
-- UI controls need visible labels; business files maintain INPUT / OUTPUT / POS contracts, and each App directory maintains its own README map.
-
-Discuss a new App or capability in an [Issue](https://github.com/6174/recut/issues/new), or submit a Pull Request. Include the problem it solves, the shortest user path, required permissions, data boundaries and local runtime requirements.
-
-## Current Status
-
-Recut is moving quickly and has not reached a stable release. Platform contracts, App operations and Agent workflows may continue to evolve; pin versions and keep project backups for production use. When reporting a problem, include your OS, Recut version, App name, task logs and reproduction steps. Do not upload real media or credentials.
-
-This is an open creative foundation, not a closed feature list. Turn the creative problem you keep meeting into an App that you and the community can use for the long term.
-
-[PROTOCOL]: 变更时更新此头部，然后检查 README.md
