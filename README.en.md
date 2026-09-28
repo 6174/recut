@@ -81,10 +81,7 @@ The official Apps are not isolated feature demos. Together they form a creative 
 | App | What it is for | Type | Repository |
 | --- | --- | --- | --- |
 | **Video Editor** | Let an Agent organize media, plan shots and operate an editable timeline; components, captions, audio and export stay in one project. | `project` | [Video Editor App page](https://recut.video/apps/recut.editor/) |
-| **AI Short Films** | Start from a topic, shape the narrative and storyboard, produce a reviewable narration script with B-roll, then keep editing on a local timeline. | `project` | [recut-ai-short-film](https://github.com/6174/recut-ai-short-film) |
 | **Audio Studio** | Turn audio and video into time-aligned captions and transcripts locally, then create narration, pickups and dubbing with authorized voice characters. | `standalone` | [recut-audio-studio](https://github.com/6174/recut-audio-studio) |
-| **Cover Studio** | Generate cover candidates from real scenes and reference covers for a publishing channel and canvas, then archive approved covers as reusable Assets. | `standalone` | [recut-cover-studio](https://github.com/6174/recut-cover-studio) |
-| **Depth Map** | Convert images or video into previewable depth maps locally, with model choices plus false-color or grayscale output, ready for later generation or compositing. | `standalone` | [recut-depth-anything-v2](https://github.com/6174/recut-depth-anything-v2) |
 | **Generation Studio** | Host many open models in one local runtime (prepare the environment, download weights on demand) to generate images and video, and set it as the global image default. | `standalone` | Built-in (ships with the client) |
 | **Remotion Video** | Start from a Brief, templates and components, then turn copy and media into programmatic video with live preview and deterministic export. | `standalone` | [recut-remotion-studio](https://github.com/6174/recut-remotion-studio) |
 
@@ -98,10 +95,6 @@ These screenshots come from the real Recut workspace. One Agent session can move
   <tr>
     <td width="50%"><img src="./assets/home.jpg" alt="Recut video editor timeline" /><br /><sub>Video Editor: the Agent works alongside the media library, preview and multi-track timeline.</sub></td>
     <td width="50%"><img src="./assets/audio-studio.jpg" alt="Recut Audio Studio" /><br /><sub>Audio Studio: transcription, voice characters and dubbing in one voice workflow.</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="./assets/cover-maker.jpg" alt="Recut Cover Studio" /><br /><sub>Cover Studio: organize channel sizes, reference images, reference covers and generated results.</sub></td>
-    <td width="50%"><img src="./assets/depth.jpg" alt="Recut Depth Map" /><br /><sub>Depth Map: generate previewable image or video depth locally, then save only after approval.</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="./assets/remotion.jpg" alt="Recut Remotion Video" /><br /><sub>Remotion Video: connect code, media and live preview from a template and Brief.</sub></td>
@@ -130,7 +123,7 @@ Then open the [workspace](https://app.recut.video) and install the Apps you need
 
 Start with the shortest path:
 
-1. Install and open **Video Editor** or **AI Short Films**.
+1. Install and open the **Video Editor**.
 2. Give it a starting point: import a reference video, write an idea, or pick a World.
 3. Ask the Agent to move the plan forward, then review the result in the workspace.
 4. Keep what works, continue editing and export the finished video.

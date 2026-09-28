@@ -75,7 +75,7 @@ export function CanvasDetailPanel() {
     <aside className={`absolute top-0 z-20 flex h-full w-80 flex-col overflow-hidden bg-card ${panelSide === "left" ? "left-0 border-r" : "right-0 border-l"}`}>
       <header className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-primary">{headerLabel}{loadingDetail ? " · 加载中" : ""}</p>
+          <p className="text-xs font-medium text-muted-foreground">{headerLabel}{loadingDetail ? " · 加载中" : ""}</p>
           <h3 className="mt-0.5 truncate text-base font-semibold">{headerTitle}</h3>
         </div>
         <div className="flex shrink-0 items-center gap-1">

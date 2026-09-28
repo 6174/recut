@@ -67,10 +67,10 @@ export function WorldOnboardingCard({
   }
 
   return (
-    <section aria-label={t("worlds.onboard.card.title")} className="mb-6 w-full rounded-md border border-primary/20 bg-primary/5 p-4">
+    <section aria-label={t("worlds.onboard.card.title")} className="mb-6 w-full rounded-md border border-border bg-card p-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h2 className="text-sm font-semibold">{t("worlds.onboard.card.title")}</h2>
-        <Badge className="border-primary/25 bg-accent text-accent-foreground">{t(`worlds.onboard.level.${readiness.level}`)}</Badge>
+        <Badge>{t(`worlds.onboard.level.${readiness.level}`)}</Badge>
         <div aria-hidden className="h-1.5 min-w-32 flex-1 overflow-hidden rounded-full bg-background">
           <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${readiness.score}%` }} />
         </div>

@@ -66,7 +66,7 @@ const WorldCanvas = dynamic(() => import("./canvas").then((mod) => mod.default),
   loading: () => (
     <div
       aria-hidden
-      className="absolute inset-0 md:left-[var(--side-panel-width)]"
+      className="absolute inset-0 bg-world-canvas md:left-[var(--side-panel-width)]"
       style={{
         backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1px)",
         backgroundSize: "26px 26px",
@@ -427,7 +427,7 @@ function WorldDetailContent() {
           <Network className="size-4" />
         </button>
         <div className="flex min-w-0 items-start gap-4">
-          <span className="grid size-16 shrink-0 place-items-center rounded-2xl bg-accent text-accent-foreground">
+          <span className="grid size-16 shrink-0 place-items-center rounded-2xl bg-muted text-muted-foreground">
             <Globe2 className="size-7" />
           </span>
           <div className="min-w-0 flex-1 pt-1">
@@ -448,9 +448,9 @@ function WorldDetailContent() {
                     <button aria-label={t("worlds.detail.edit.aria")} className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => { setMetaName(detail.name); setMetaDesc(detail.description ?? ""); setEditingMeta(true); }} type="button"><Pencil className="size-3.5" /></button>
                   )}
                   {readOnly && (
-                    <Badge className="shrink-0 border-primary/25 bg-primary/10 text-primary">{origin === "platform" ? t("worlds.badge.platform") : t("worlds.badge.published")}</Badge>
+                    <Badge className="shrink-0">{origin === "platform" ? t("worlds.badge.platform") : t("worlds.badge.published")}</Badge>
                   )}
-                  <Badge className="shrink-0 border-primary/20 bg-accent/60 text-accent-foreground">{t(`worlds.kind.${detail.type}`)}</Badge>
+                  <Badge className="shrink-0">{t(`worlds.kind.${detail.type}`)}</Badge>
                   {readOnly && detail.originMeta?.version && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">v{detail.originMeta.version}</span>}
                   <button aria-label={t("worlds.detail.export.aria")} className="ml-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50" disabled={exportingWorld} onClick={() => void exportWorldBundle()} title={t("worlds.detail.export")} type="button">
                     <Download className="size-3.5" />
@@ -479,7 +479,7 @@ function WorldDetailContent() {
               </>
             )}
             {readOnly && (
-              <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-primary/15 bg-primary/5 px-3 py-2">
+              <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-2">
                 <p className="text-xs text-muted-foreground">{t("worlds.detail.readonly.banner")}</p>
                 <Button className="h-7 shrink-0 text-xs" disabled={forking} onClick={() => void forkWorld()} type="button" variant="outline">
                   {t("worlds.detail.fork")}
@@ -767,8 +767,8 @@ function loadEntityTypes(apiBase: string, worldId: string, force = false): Promi
 
 function tabClass(active: boolean) {
   return active
-    ? "rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground"
-    : "rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground";
+    ? "rounded-lg bg-secondary px-3 py-2 text-xs font-semibold text-foreground"
+    : "rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground";
 }
 async function projectErrorMessage(response: Response) {
   const body = (await response.json().catch(() => ({}))) as { error?: string };

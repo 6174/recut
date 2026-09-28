@@ -72,7 +72,7 @@ export function SettingCard({
           </p>
         </div>
         <span
-          className={`shrink-0 rounded-full px-2 py-1 text-[11px] ${complete ? "bg-primary/10 text-primary" : "bg-warning/15 text-warning"}`}
+          className={`shrink-0 rounded-full px-2 py-1 text-[11px] ${complete ? "bg-secondary text-foreground/70" : "bg-warning/15 text-warning"}`}
         >
           {complete ? t("worlds.entity.completed") : t("worlds.entity.incomplete")}
         </span>

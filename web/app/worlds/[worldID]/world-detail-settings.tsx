@@ -180,7 +180,7 @@ export function EntitySettingsPanel({
     <aside className="fixed inset-y-0 right-0 z-[60] flex w-80 flex-col overflow-hidden border-l bg-card shadow-2xl" role="dialog" aria-label="设定详情">
       <header className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-primary">{typeName}</p>
+          <p className="text-xs font-medium text-muted-foreground">{typeName}</p>
           <h3 className="mt-0.5 truncate text-base font-semibold">{live?.name || "新建设定"}</h3>
         </div>
         <button aria-label="关闭设定详情" className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted" onClick={onClose} type="button">

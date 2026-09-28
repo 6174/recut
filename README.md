@@ -81,10 +81,7 @@ Recut 只提供稳定的基础能力，社区通过独立 App 扩展创作场景
 | App | 适合做什么 | 形态 | 仓库 |
 | --- | --- | --- | --- |
 | **视频剪辑** | 用 Agent 整理素材、规划镜头并操作可编辑时间线；组件、字幕、音频和导出都回到同一个项目。 | `project` | [视频剪辑 App 页面](https://recut.video/zh/apps/recut.editor/) |
-| **AI 短片** | 从一个选题开始，梳理叙事结构与分镜，生成可审阅的解说文案和 B-roll，再在本地时间线继续制作。 | `project` | [recut-ai-short-film](https://github.com/6174/recut-ai-short-film) |
 | **声音工坊** | 在本机把音视频转成带时间戳的字幕与文稿，用已授权声音角色完成旁白、补录和配音。 | `standalone` | [recut-audio-studio](https://github.com/6174/recut-audio-studio) |
-| **封面生成** | 按发布渠道和画幅，从真实场景与参考封面出发生成候选图，并把确认后的封面沉淀为可复用 Asset。 | `standalone` | [recut-cover-studio](https://github.com/6174/recut-cover-studio) |
-| **深度图** | 在本机将图片或视频转换为可预览的深度图，支持不同模型、伪彩与灰度输出，按需接回后续生成或合成。 | `standalone` | [recut-depth-anything-v2](https://github.com/6174/recut-depth-anything-v2) |
 | **本地生成** | 在本机用一个运行环境托管多个开源模型（先准备环境、再按需下载权重），生成图片与视频，并可设为全局生图默认。 | `standalone` | 内置（随客户端） |
 | **Remotion 视频** | 从 Brief、模板和组件开始，把选题、文案与素材编排成可实时预览、可确定性导出的程序化视频。 | `standalone` | [recut-remotion-studio](https://github.com/6174/recut-remotion-studio) |
 
@@ -98,10 +95,6 @@ Recut 只提供稳定的基础能力，社区通过独立 App 扩展创作场景
   <tr>
     <td width="50%"><img src="./assets/home.jpg" alt="Recut 视频剪辑时间线" /><br /><sub>视频剪辑：Agent 与素材库、预览和多轨时间线协作。</sub></td>
     <td width="50%"><img src="./assets/audio-studio.jpg" alt="Recut Audio Studio 声音工坊" /><br /><sub>声音工坊：转写、声音角色和配音在同一条声音工作流中完成。</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="./assets/cover-maker.jpg" alt="Recut Cover Studio 封面生成" /><br /><sub>封面生成：按渠道尺寸组织参考图、参考封面和生成结果。</sub></td>
-    <td width="50%"><img src="./assets/depth.jpg" alt="Recut Depth Map 深度图" /><br /><sub>深度图：本机生成可预览的图片或视频深度结果，确认后再保存。</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="./assets/remotion.jpg" alt="Recut Remotion Video 程序化视频" /><br /><sub>Remotion 视频：从模板和 Brief 开始，把代码、素材与预览连接起来。</sub></td>
@@ -130,7 +123,7 @@ irm https://recut.video/install.ps1 | iex
 
 可以从最短路径开始：
 
-1. 安装并打开 **视频剪辑** 或 **AI 短片**。
+1. 安装并打开 **视频剪辑**。
 2. 给出一个起点：导入一条参考视频、写下想法，或选一个世界观。
 3. 让 Agent 先推进方案，再在工作区中审阅结果。
 4. 保留需要的部分，继续修改，最后导出成片。

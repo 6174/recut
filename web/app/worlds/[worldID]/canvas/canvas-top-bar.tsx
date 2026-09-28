@@ -76,7 +76,7 @@ export function WorldCanvasTopBar() {
               <span className="flex min-w-0 items-center gap-1" key={item.entityId}>
                 <span className="text-xs text-muted-foreground">▸</span>
                 {isLast ? (
-                  <span className="flex min-w-0 items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs text-accent-foreground">
+                  <span className="flex min-w-0 items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground">
                     <Box className="size-3 shrink-0" />
                     <span className="truncate">{item.title}</span>
                   </span>
@@ -96,7 +96,7 @@ export function WorldCanvasTopBar() {
         </nav>
       ) : (
         <span className="flex min-w-0 items-center gap-1.5 font-semibold">
-          <Globe2 aria-hidden className="size-4 shrink-0 text-primary" />
+          <Globe2 aria-hidden className="size-4 shrink-0 text-muted-foreground" />
           <span className="truncate">{worldName}</span>
         </span>
       )}
@@ -120,7 +120,7 @@ export function WorldCanvasToolbar() {
     <div className="flex min-w-0 items-center gap-2">
       {readOnly && <span className="shrink-0 rounded-md bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">只读</span>}
       <CanvasToolbarItems />
-      {relatingFrom && !relatingTo && <span className="shrink-0 text-xs text-primary">已选起点：点击目标实体建立关系</span>}
+      {relatingFrom && !relatingTo && <span className="shrink-0 text-xs text-foreground">已选起点：点击目标实体建立关系</span>}
     </div>
   );
 }
@@ -133,7 +133,7 @@ function PanelToggleButton() {
       aria-label={panelOpen ? "收起属性面板" : "打开属性面板"}
       title={panelOpen ? "收起属性面板" : "属性面板（空选 = 世界属性）"}
       aria-pressed={panelOpen}
-      className={`grid size-7 shrink-0 place-items-center rounded-md hover:bg-muted ${panelOpen ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
+      className={`grid size-7 shrink-0 place-items-center rounded-md hover:bg-muted ${panelOpen ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
       onClick={() => setPanelOpen(!panelOpen)}
       type="button"
     >

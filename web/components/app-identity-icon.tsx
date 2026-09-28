@@ -4,14 +4,11 @@
  * [POS]: web/components 的 App 身份视觉原子；首页、应用中心、详情、工作区头部和 Agent 引用卡都通过它展示同一 App 身份
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { AppWindow, Box, Clapperboard, ImageIcon, Music2, Video, type LucideIcon } from "lucide-react";
+import { AppWindow, Music2, Video, type LucideIcon } from "lucide-react";
 
 export function appIcon(appID: string): LucideIcon {
-  if (appID === "recut.ai-short-film") return Clapperboard;
   if (appID === "recut.remotion-studio") return Video;
   if (appID === "recut.audio-studio") return Music2;
-  if (appID === "recut.cover-studio") return ImageIcon;
-  if (appID === "recut.depth-anything") return Box;
   return AppWindow;
 }
 

@@ -26,8 +26,8 @@ agent-panel-host.tsx: 根布局唯一挂载的域名级路由边界与工作台�
  marketing-site.tsx: 官网共享展示层；提供按 Hero→核心应用→创作底座→三步开始→适合谁→与云端对比→文章→FAQ→CTA 编排的 Landing、Docs、Blog、Header/Footer 与跨域「打开工作台」链接；Hero 挂载 `marketing-editor-demo.tsx` 展示 Agent 与剪辑器的产品闭环，并用 GSAP 轮换高亮 Codex、Claude Code、OpenCode，文章数据由服务端页面经 props 注入，Blog 详情用 `MarkdownContent` 渲染 MDX 正文并提供分享条；线上指向 `app.recut.video`，`localhost` 自动改为同端口 `app.localhost`，不读取 service 或工作台状态。
 marketing-editor-demo.tsx: 官网 Hero 的可交互抽象工作台；以 GSAP 循环驱动预览场景和时间线播放头，保留真实 Editor 的素材/预览/属性/多轨时间线骨架，并提供可暂停的播放器演示。
 marketing-feature-illustrations.tsx: 官网核心能力卡的 GSAP + SVG 叙事层；以时间线、世界观节点、语音波形与 App 组合四种循环切片替代纯文字介绍，遵守减少动态效果偏好。
-app-product-visual.tsx: 官网 App 画廊与详情页复用的动态产品工作流视觉层；按 App id 展示转写波形、封面候选、深度估计、代码渲染、B-roll 分镜或时间线，替代通用骨架。
-app-landing/: 五个非 Editor App 的真正独立 Landing 组件与静态 registry；每个文件依据对应 App 的 manifest、README、UI 与 operation 契约表达自身核心工作流，registry 只做 appId 分发。
+app-product-visual.tsx: 官网 App 画廊与详情页复用的动态产品工作流视觉层；按 App id 展示转写波形、代码渲染或时间线，替代通用骨架。
+app-landing/: 非 Editor App 的真正独立 Landing 组件与静态 registry；每个文件依据对应 App 的 manifest、README、UI 与 operation 契约表达自身核心工作流，registry 只做 appId 分发。
 marketing-jsonld.tsx: 官网 JSON-LD 结构化数据服务端组件；输出 Organization、WebSite、SoftwareApplication（含首页增强版）、Blog 列表与 BlogPosting（publisher 携带 logo，支持文章富结果）、BreadcrumbList、逐 App 的 SoftwareApplication/FAQPage、应用市场 ItemList 与首页 FAQPage，只允许在服务端页面渲染（React 19 要求客户端 `<script>` 带 async），构建期随静态导出写入 HTML。
 posthog-analytics.tsx: 全站 PostHog 埋点骨架；内置项目 token（`phc_` 公开客户端 token，可用 `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` 覆盖），以 `https://us.i.posthog.com` 直连上报，覆盖官网与工作台两个 Host。职责分四层：① 初始化开启 `autocapture`（general 点击/输入）与 `capture_exceptions`（未捕获错误与 Promise rejection）；② 随客户端路由与工作台原生 pushState 标签切换上报 `recut_page_viewed`（site=marketing/app、页面分组、脱敏路由 `/blog/[slug]`、`/apps/[appID]`、`/projects/[id]`、`/worlds/[id]`、实体 id、来源 `s`/utm/`ref`/referrer，并注册 initial_*/current_* super properties）；③ 导出 `trackEvent` 供语义事件复用（安装/打开工作台/分享/Docs/GitHub 等）；④ iframe App 内部交互不在顶层捕获范围。
 marketing-apps.tsx: 官网公开应用层；提供 `/apps` 应用市场目录与 `/apps/:appID` 详情 SEO 落地页，App 数据一律由服务端页面经 props 注入（本文件不引入内容加载器）；详情使用统一官网内容容器，按 App 注册的 Showcase/Landing 组件编排 Hero、功能叙事、FAQ、设备要求与相关应用内链，CTA 引导到工作台。
@@ -52,7 +52,6 @@ install-git-app-dialog.tsx: Apps 顶部的 Git 安装入口；将 GitHub 仓库�
 use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧更新共享 CSS 宽度变量，左侧对话栏、右侧内容与手柄即时响应，暴露拖动状态以遮蔽 iframe，松手后才持久化宽度，避免渲染拥塞或跨文档丢失指针事件；当前只被根布局全局挂载的 Agent 面板宿主消费。
 terminal-panel.tsx: 基于 xterm.js 的可恢复 CLI 终端面板，负责 Daemon 引导、CLI 探测、一键启动、失败反馈，以及展示最新输出摘要、只读历史与原生 Agent 恢复入口的会话浮层。
 Agent 调试流：`project-agent-panel.tsx` 右上角「更多」菜单内的终端入口订阅当前会话 `/cli-stream`；弹框只显示 Agent runner 已捕获的有界内存 stdout/stderr，不能附着或重放服务重启前的进程，也不取代结构化对话时间线。每个发送 Turn 固定保存 Work Surface；Focus 在同一 Turn 内是完整但可独立移除的选择态。
-ai-short-film-workflow.tsx: 已废弃的 AI 短片纵向资源管理器；当前短片流程由 App iframe 自己承载，此文件仅保留历史说明。
 world-card.tsx: Worlds 列表与 Studio 区域的 World 卡片；显示名称、类型、定位、最近更新与实体计数摘要，封面缺失时用摘要里的 `previewAssetIds`（本地世界图片证据）拼画廊预览，点击整卡进入 `/worlds/{id}`；卡片只消费摘要，不请求实体正文。
 world-picker.tsx: World picker 弹框；搜索与类型筛选后选择只发出结构化 `{ type: "creation_world", worldId }` 引用，供 Chat attachment 与生产 App 的 World 选择使用，绝不把 Canon 复制进消息。
 world-entity-picker.tsx: Entity picker 弹框；先选定 World 再按 kind/搜索过滤实体，选择发出 `{ type: "creation_entity", worldId, entityId }`；entityId 永远与 worldId 一起验证，绝不跨 World 复用。

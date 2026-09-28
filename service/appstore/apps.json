@@ -1,18 +1,5 @@
 [
   {
-    "appId": "recut.ai-short-film",
-    "name": "AI 短片",
-    "description": "把一个主题做成可研究、可审阅、可继续生产的 AI 短片（立项→资料研究→创作方案→剧本与场景方案→成片交付）。",
-    "kind": "project",
-    "repository": "https://github.com/6174/recut-ai-short-film.git",
-    "localized": {
-      "en": {
-        "name": "AI Short Films",
-        "description": "Turn a topic into a researchable, reviewable, and continuously producible AI short film (kickoff, research, creative plan, script and shot plan, final delivery)."
-      }
-    }
-  },
-  {
     "appId": "recut.remotion-studio",
     "name": "Remotion 视频",
     "description": "把一个选题做成可审阅、可实时预览、可导出的 Remotion 程序化视频。",
@@ -22,32 +9,6 @@
       "en": {
         "name": "Remotion Videos",
         "description": "Turn a topic into a reviewable, live-previewable, exportable Remotion programmatic video."
-      }
-    }
-  },
-  {
-    "appId": "recut.cover-studio",
-    "name": "封面生成",
-    "description": "用渠道尺寸、参考封面和创作要求生成并沉淀封面素材。",
-    "kind": "standalone",
-    "repository": "https://github.com/6174/recut-cover-studio.git",
-    "localized": {
-      "en": {
-        "name": "Cover Generation",
-        "description": "Generate and archive cover assets from channel sizes, reference covers, and creative requirements."
-      }
-    }
-  },
-  {
-    "appId": "recut.depth-anything",
-    "name": "深度图",
-    "description": "对图片或视频执行深度估计并保存深度图结果。",
-    "kind": "standalone",
-    "repository": "https://github.com/6174/recut-depth-anything-v2.git",
-    "localized": {
-      "en": {
-        "name": "Depth Map",
-        "description": "Run depth estimation on an image or video and save the resulting depth map."
       }
     }
   }

@@ -2,28 +2,6 @@
   "version": 1,
   "apps": [
     {
-      "appId": "recut.ai-short-film",
-      "author": "6174",
-      "kind": "project",
-      "repository": "https://github.com/6174/recut-ai-short-film.git",
-      "name": { "zh": "AI 短片", "en": "AI Short Films" },
-      "description": {
-        "zh": "将一个主题制作成可审阅、可继续制作的 Vox 风格 B-roll 解说片。",
-        "en": "Turn a topic into a reviewable, continuously producible Vox-style B-roll explainer."
-      }
-    },
-    {
-      "appId": "recut.depth-anything",
-      "author": "Recut",
-      "kind": "standalone",
-      "repository": "https://github.com/6174/recut-depth-anything-v2.git",
-      "name": { "zh": "深度图", "en": "Depth Map" },
-      "description": {
-        "zh": "在本机将图片或视频转换为可预览的深度图，再按需保存到素材库。",
-        "en": "Convert images or videos into previewable depth maps locally, saving them to the media library as needed."
-      }
-    },
-    {
       "appId": "recut.remotion-studio",
       "author": "6174",
       "kind": "project",
@@ -63,17 +41,6 @@
           ],
           "note": "Models run locally. Installing the App does not download weights; they are only downloaded after you pick a model in Audio Studio."
         }
-      }
-    },
-    {
-      "appId": "recut.cover-studio",
-      "author": "Recut",
-      "kind": "standalone",
-      "repository": "https://github.com/6174/recut-cover-studio.git",
-      "name": { "zh": "封面生成", "en": "Cover Studio" },
-      "description": {
-        "zh": "用渠道尺寸、参考封面和创作要求生成并沉淀封面素材。",
-        "en": "Generate and collect cover assets from channel sizes, reference covers and creative requirements."
       }
     }
   ]

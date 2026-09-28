@@ -1,0 +1,24 @@
+{
+  "id": "depth-anything-3",
+  "name": { "zh": "深度图（Depth Anything 3）", "en": "Depth Map (Depth Anything 3)" },
+  "capability": "image.depth",
+  "runtime": "comfyui",
+  "output": { "kind": "image", "mimeType": "image/png", "ext": "png" },
+  "inputModes": ["image"],
+  "weights": {
+    "huggingFace": "Comfy-Org/Depth-Anything-3",
+    "modelScope": "",
+    "revision": "main",
+    "sizeGb": 1.4,
+    "files": [
+      { "role": "model", "path": "geometry_estimation/depth_anything_3_mono_large.safetensors" }
+    ]
+  },
+  "formSchema": [
+    { "key": "references", "type": "media", "kind": "image", "multiple": false, "label": { "zh": "输入图", "en": "Image" } },
+    { "key": "render", "type": "select", "options": ["depth", "depth_colored"], "default": "depth_colored", "label": { "zh": "输出", "en": "Output" } },
+    { "key": "normalization", "type": "select", "options": ["v2_style", "min_max", "raw"], "default": "v2_style", "label": { "zh": "归一化", "en": "Normalization" } },
+    { "key": "resolution", "type": "number", "default": 504, "min": 140, "max": 2520, "label": { "zh": "分辨率", "en": "Resolution" } }
+  ],
+  "defaultParams": { "render": "depth_colored", "normalization": "v2_style", "resolution": 504 }
+}

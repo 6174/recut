@@ -932,17 +932,11 @@ const STUDIO_HOME_ORDER = [
   "recut.editor",
   "recut.audio-studio",
   "recut.remotion-studio",
-  "recut.ai-short-film",
-  "recut.cover-studio",
-  "recut.depth-anything",
 ];
 const PROJECT_APP_ORDER = [
   "recut.editor",
-  "recut.ai-short-film",
   "recut.remotion-studio",
   "recut.audio-studio",
-  "recut.cover-studio",
-  "recut.depth-anything",
 ];
 
 function sortByOrder(list: Installation[], order: string[]) {
@@ -997,7 +991,7 @@ function Studio({
   return (
     <>
       <div className="pb-10">
-        <section className="relative min-h-[17rem] overflow-hidden pb-8 pt-7 sm:min-h-[19rem]">
+        <section className="relative min-h-[17rem] overflow-hidden pt-7 sm:min-h-[19rem]">
           <WebGLStudioHero />
           <div className="relative z-10 max-w-xl">
             <h1 className="mt-3 text-3xl font-semibold leading-tight">
@@ -1040,51 +1034,6 @@ function Studio({
                 ),
               )}
             </div>
-          </div>
-        </section>
-        <section className="mt-8">
-          <SectionHeading
-            action={
-              <a
-                className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                href="/apps"
-                onClick={onManageApps}
-              >
-                {t("studio.section.apps.manage")}
-                <ArrowRight className="size-3.5" />
-              </a>
-            }
-            description={t("studio.section.apps.desc")}
-            title={t("studio.section.apps")}
-          />
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {editorApp && (
-              <StudioAppCard
-                app={editorApp}
-                key={editorApp.package}
-                onOpen={() =>
-                  editorApp.manifest.type === "standalone"
-                    ? window.location.assign(
-                        `/workspace-app/app?id=${encodeURIComponent(editorApp.manifest.id)}`,
-                      )
-                    : onStartProject(editorApp)
-                }
-              />
-            )}
-            <WorldsAppCard />
-            {restInstallations.map((app) => (
-              <StudioAppCard
-                app={app}
-                key={app.package}
-                onOpen={() =>
-                  app.manifest.type === "standalone"
-                    ? window.location.assign(
-                        `/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`,
-                      )
-                    : onStartProject(app)
-                }
-              />
-            ))}
           </div>
         </section>
         <section className="mt-9">

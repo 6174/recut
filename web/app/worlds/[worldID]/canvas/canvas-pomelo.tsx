@@ -986,10 +986,10 @@ export function CanvasPomeloHost() {
   };
 
   return (
-    <div className="relative h-full min-h-0 w-full bg-background">
+    <div className="relative h-full min-h-0 w-full bg-world-canvas">
       <div ref={containerRef} className="absolute inset-0 [&_canvas]:block" onDragOver={onDragOver} onDrop={onDrop} />
       {rendererIssue && (
-        <div className="absolute inset-0 z-40 grid place-items-center bg-background/95 p-6">
+        <div className="absolute inset-0 z-40 grid place-items-center bg-world-canvas/95 p-6">
           <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 text-left shadow-xl">
             <p className="text-sm font-semibold">{rendererIssue.title}</p>
             <p className="mt-2 text-xs leading-5 text-muted-foreground">{rendererIssue.message}</p>

@@ -29,7 +29,7 @@ const CanvasPomeloHost = dynamic(() => import("./canvas-pomelo").then((mod) => m
   loading: () => (
     <div
       aria-hidden
-      className="h-full w-full"
+      className="h-full w-full bg-world-canvas"
       style={{
         backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1px)",
         backgroundSize: "26px 26px",
@@ -201,7 +201,7 @@ export default function WorldCanvas({ apiBase, worldId, worldName, readOnly, rev
     // 会永远停在"正在读取资源…"。
     <MediaAssetEventsProvider apiBase={apiBase}>
       {/* 与内容区的 md:pl-[--side-panel-width] 避让一致：md 以上从 Chat 面板右侧起排，Chat 保持可见。 */}
-      <div className="absolute bottom-0 right-0 top-0 z-30 flex flex-col bg-background md:left-[var(--side-panel-width)]">
+      <div className="absolute bottom-0 right-0 top-0 z-30 flex flex-col bg-world-canvas md:left-[var(--side-panel-width)]">
         <div className="relative min-h-0 min-w-0 flex-1">
           <CanvasPomeloHost />
           {aiLocked && (
