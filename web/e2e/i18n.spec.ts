@@ -67,9 +67,9 @@ test("文章深链 hydration 不落入 404，分享 URL 逐语言正确（zh 正
 
 test("App 详情页双语言渲染", async ({ context, browser }) => {
   const en = await openIn(context, "/apps/recut.remotion-studio/");
-  await expect(en.locator("h1").first()).toContainText("Remotion Video");
+  await expect(en.locator("h1").first()).toContainText("Remotion");
   const zh = await openIn(await browser.newContext({ locale: "zh-CN" }), "/zh/apps/recut.remotion-studio/");
-  await expect(zh.locator("h1").first()).toContainText("Remotion 视频");
+  await expect(zh.locator("h1").first()).toContainText("Remotion");
 });
 
 test("zh 页面点 English 切换：写 recut_locale=en cookie 并落在英文 /", async ({ context, browser }) => {

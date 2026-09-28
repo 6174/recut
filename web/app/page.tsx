@@ -1025,7 +1025,7 @@ function Studio({
             </div>
           </div>
         </section>
-        <section className="mt-9">
+        <section className="mt-1">
           <SectionHeading
             action={
               <Link

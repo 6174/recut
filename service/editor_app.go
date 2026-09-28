@@ -22,9 +22,9 @@ func mustEditorApp() App {
 	return App{Manifest: Manifest{
 		ManifestVersion: 1,
 		ID:              editorAppID,
-		Name:            "剪辑器",
+		Name:            "Timeline",
 		Author:          "recut",
-		Description:     "Recut 核心时间线剪辑器：把素材库、AI 短片与程序化视频编排成最终成片。CapCut 风格时间线，支持 R3F GPU 合成、3D 特效与 html-in-canvas 文字。",
+		Description:     "把素材库、AI 短片与程序化视频编排成最终成片的时间线剪辑器。CapCut 风格时间线，支持 R3F GPU 合成、3D 特效与 html-in-canvas 文字。",
 		Repository:      "https://github.com/opencut-app/opencut",
 		Version:         "0.1.3",
 		Kind:            ProjectApp,
@@ -36,8 +36,8 @@ func mustEditorApp() App {
 		},
 		Localized: map[string]ManifestLocalized{
 			string(LocaleEn): {
-				Name:        "Editor",
-				Description: "Recut's core timeline editor: assemble the asset library, AI short films, and procedural videos into a final cut. CapCut-style timeline with R3F GPU compositing, 3D effects, and html-in-canvas text.",
+				Name:        "Timeline",
+				Description: "A timeline editor that assembles the asset library, AI short films and procedural videos into a final cut. CapCut-style timeline with R3F GPU compositing, 3D effects and html-in-canvas text.",
 				Onboarding: []OnboardingGuide{
 					{ID: "start-editing", Title: "Start editing from a clip", Description: "Place library assets on the timeline in the editor and assemble them into a final cut.", Prompt: "Use the Editor for this request【describe the change or video idea here】. First read workflow.context and timeline.read. Decide whether this is a new video, a timeline revision, a visual revision, an audio revision, an asset replacement, or delivery-only work. For an existing timeline, identify the exact scenes/elements to change and preserve everything else. Only if new visual content is needed, choose the relevant speech-led, media-led, generated-video, motion-graphics, voice-led, or timeline-edit route; keep motion graphics in one visual language, use real media or verified components as visual subjects, make the smallest necessary timeline edits, preview affected settled frames, validate, and export only when requested."},
 				},

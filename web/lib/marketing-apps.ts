@@ -51,9 +51,9 @@ type EnApp = {
 // 英文内容（内联）：与 zh 目录按 id 对应；en 是 default 无前缀面，必须恒有内容。
 const EN_APPS: Record<string, EnApp> = {
   "recut.editor": {
-    name: "Video Editor",
+    name: "Timeline",
     tagline: "Let Codex or Claude Code drive the video creation workflow — editing is no longer only for professionals",
-    description: "Recut Editor lets Codex, Claude Code and other agents participate in real video creation: organizing footage, planning shots, shaping pacing and operating an editable timeline. You do not need to become a professional editor first; every action lands as a reviewable, editable and reversible result, with the final decision still yours.",
+    description: "Recut's Timeline lets Codex, Claude Code and other agents participate in real video creation: organizing footage, planning shots, shaping pacing and operating an editable timeline. You do not need to become a professional editor first; every action lands as a reviewable, editable and reversible result, with the final decision still yours.",
     keywords: ["AI video editor", "agentic video editing", "Codex video workflow", "Claude Code video workflow", "local video editor", "open source video editor"],
     faq: [
       {
@@ -65,7 +65,7 @@ const EN_APPS: Record<string, EnApp> = {
         answer: "No. The Agent handles the first pass from your description, while the timeline keeps every result understandable and adjustable. You can start with an intention instead of mastering every editing control first.",
       },
     ],
-    body: `Let Codex or Claude Code drive your video creation workflow. Recut Editor turns a natural-language goal into an editable project: the Agent helps organize footage, plan shots and shape pacing, while you keep the final say.
+    body: `Let Codex or Claude Code drive your video creation workflow. Recut's Timeline turns a natural-language goal into an editable project: the Agent helps organize footage, plan shots and shape pacing, while you keep the final say.
 
 ## Editing help without becoming a professional first
 
@@ -173,7 +173,7 @@ For a more efficient finishing pipeline, combine with the AI Short Films App to 
 - Source code is public and auditable, with transparent capabilities and boundaries`,
   },
   "recut.remotion-studio": {
-    name: "Remotion Video",
+    name: "Remotion",
     tagline: "Do not start from zero: build code-driven video with built-in templates, components, effects, fonts and music",
     description: "Make Remotion videos without building the framework from scratch: Recut builds on Remotion and React to arrange topics, copy and media into programmatic videos you can preview live and export as MP4. Change the data and re-render, batch videos and data visualizations, with media and projects fully local.",
     keywords: [
@@ -210,7 +210,7 @@ For a more efficient finishing pipeline, combine with the AI Short Films App to 
     ],
     body: `When video needs repeat production, must follow data changes, or has to keep dozens of outputs perfectly consistent, hand-editing hits its ceiling. Remotion makes video code-driven: every frame comes from deterministic components and data, so it can be version-controlled, parameterized and batch-exported.
 
-Recut's "Remotion Video" App brings the power of a Remotion project into the local workspace: plan the topic, copy and storyboard first, then arrange media and picture with live preview, and export the finished video at the end. The project is a real Remotion project — open the code anytime for deeper changes.
+Recut's "Remotion" App brings the power of a Remotion project into the local workspace: plan the topic, copy and storyboard first, then arrange media and picture with live preview, and export the finished video at the end. The project is a real Remotion project — open the code anytime for deeper changes.
 
 ## What programmatic video is, and why use it
 
@@ -240,7 +240,7 @@ The key to batch template video is "the template as single source of truth". In 
 
 Export renders locally to MP4, archives automatically as an asset and sets the project cover — dozens of videos can queue up, with no cloud quota involved.
 
-## What Remotion Video can do for you
+## What Remotion can do for you
 
 - Pick a finishing template, fill in the topic, and AI arranges copy and media into a video
 - Change data or copy and the preview updates; export matches frame for frame

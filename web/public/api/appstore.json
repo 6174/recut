@@ -6,10 +6,10 @@
       "author": "6174",
       "kind": "project",
       "repository": "https://github.com/6174/recut-remotion-studio.git",
-      "name": { "zh": "Remotion 视频", "en": "Remotion Video" },
+      "name": { "zh": "Remotion", "en": "Remotion" },
       "description": {
-        "zh": "把选题、文案和素材编排成可审阅、可实时预览、可导出的 Remotion 程序化视频。",
-        "en": "Arrange a topic, script and assets into a reviewable, live-previewable, exportable Remotion programmatic video."
+        "zh": "用 Remotion 与 React 把选题、文案和素材编排成可审阅、可实时预览、可导出的程序化视频。",
+        "en": "Arrange a topic, script and assets into a reviewable, live-previewable, exportable programmatic video with Remotion and React."
       }
     },
     {

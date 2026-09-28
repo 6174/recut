@@ -80,10 +80,10 @@ Recut 只提供稳定的基础能力，社区通过独立 App 扩展创作场景
 
 | App | 适合做什么 | 形态 | 仓库 |
 | --- | --- | --- | --- |
-| **视频剪辑** | 用 Agent 整理素材、规划镜头并操作可编辑时间线；组件、字幕、音频和导出都回到同一个项目。 | `project` | [视频剪辑 App 页面](https://recut.video/zh/apps/recut.editor/) |
+| **Timeline** | 用 Agent 整理素材、规划镜头并操作可编辑时间线；组件、字幕、音频和导出都回到同一个项目。 | `project` | [Timeline App 页面](https://recut.video/zh/apps/recut.editor/) |
 | **声音工坊** | 在本机把音视频转成带时间戳的字幕与文稿，用已授权声音角色完成旁白、补录和配音。 | `standalone` | [recut-audio-studio](https://github.com/6174/recut-audio-studio) |
 | **本地生成** | 在本机用一个运行环境托管多个开源模型（先准备环境、再按需下载权重），生成图片与视频，并可设为全局生图默认。 | `standalone` | 内置（随客户端） |
-| **Remotion 视频** | 从 Brief、模板和组件开始，把选题、文案与素材编排成可实时预览、可确定性导出的程序化视频。 | `standalone` | [recut-remotion-studio](https://github.com/6174/recut-remotion-studio) |
+| **Remotion** | 从 Brief、模板和组件开始，把选题、文案与素材编排成可实时预览、可确定性导出的程序化视频。 | `standalone` | [recut-remotion-studio](https://github.com/6174/recut-remotion-studio) |
 
 更多应用正在创作中。官方总库只维护经审阅的入口、用途和支持状态，不复制或托管各 App 的源码。
 
@@ -93,11 +93,11 @@ Recut 只提供稳定的基础能力，社区通过独立 App 扩展创作场景
 
 <table>
   <tr>
-    <td width="50%"><img src="./assets/home.jpg" alt="Recut 视频剪辑时间线" /><br /><sub>视频剪辑：Agent 与素材库、预览和多轨时间线协作。</sub></td>
+    <td width="50%"><img src="./assets/home.jpg" alt="Recut Timeline 时间线" /><br /><sub>Timeline：Agent 与素材库、预览和多轨时间线协作。</sub></td>
     <td width="50%"><img src="./assets/audio-studio.jpg" alt="Recut Audio Studio 声音工坊" /><br /><sub>声音工坊：转写、声音角色和配音在同一条声音工作流中完成。</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="./assets/remotion.jpg" alt="Recut Remotion Video 程序化视频" /><br /><sub>Remotion 视频：从模板和 Brief 开始，把代码、素材与预览连接起来。</sub></td>
+    <td width="50%"><img src="./assets/remotion.jpg" alt="Recut Remotion 程序化视频" /><br /><sub>Remotion：从模板和 Brief 开始，把代码、素材与预览连接起来。</sub></td>
   </tr>
 </table>
 

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 无运行时依赖；定义素材库 API 的 JSON 契约
- * [OUTPUT]: 对外提供素材、任务、含输入/输出参数能力与 per-model parameters/referenceFields schema 的 Provider 模型、能力级声音分组（CapabilityVoiceGroup）、Credential、筛选类型（含 ASR 转写 bundle），以及按 durable jobId 保留异步生成状态的历史 Asset 展示归一化
+ * [OUTPUT]: 对外提供素材、任务、含输入/输出参数能力与 per-model parameters/referenceFields schema 的 Provider 模型、能力级声音分组（CapabilityVoiceGroup）、Credential、筛选类型（含 ASR 转写 bundle），按 durable jobId 保留异步生成状态的历史 Asset 展示归一化，以及生成态超时（GENERATION_TIMEOUT_MS/isGenerationTimedOut）判定
  * [POS]: web/app/media 的共享类型边界；由页面、详情和创建流程共同使用，Provider 专属 remoteId 不是生命周期依据
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -156,6 +156,19 @@ export type Filter = "all" | AssetKind;
 
 const assetStatuses: AssetStatus[] = ["proposed", "queued", "running", "completed", "failed"];
 
+// 生成态的最长等待：超过此时长即判定超时。服务端 job 卡死时前端不再无限「生成中」
+// （曾出现 90+ 小时仍显示生成中的素材卡），统一转为可重试的失败态。
+export const GENERATION_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+export const GENERATION_TIMEOUT_ERROR = "生成超时（超过 3 小时），请重试。";
+
+// 仅对 queued/running 生效：以生成开始时间为准，缺失时回退素材创建时间。
+export function isGenerationTimedOut(status: string | undefined, startedAt: unknown, now = Date.now()): boolean {
+  if (status !== "queued" && status !== "running") return false;
+  if (typeof startedAt !== "string" || !startedAt.trim()) return false;
+  const started = Date.parse(startedAt);
+  return Number.isFinite(started) && now - started > GENERATION_TIMEOUT_MS;
+}
+
 // Asset lifecycle fields were added after early workspaces already contained
 // imported and generated files. A durable jobId is the platform-wide async
 // binding; remoteId is optional because generic providers such as speech omit it.
@@ -166,18 +179,19 @@ export function normalizeAsset(value: Partial<Asset> & { id?: string }): Asset {
     ? (value.status as AssetStatus)
     : "completed";
   const hasJob = typeof value.jobId === "string" && value.jobId.trim() !== "";
-  const status = reportedStatus !== "proposed" && (reportedStatus === "queued" || reportedStatus === "running") && !hasJob
+  const baseStatus = reportedStatus !== "proposed" && (reportedStatus === "queued" || reportedStatus === "running") && !hasJob
     ? "completed"
     : reportedStatus;
+  const timedOut = isGenerationTimedOut(baseStatus, value.metadata?.generationStartedAt ?? value.createdAt);
   return {
     id: typeof value.id === "string" ? value.id : "",
     kind: value.kind ?? "image",
     name: value.name || "未命名素材",
     origin: value.origin || "user-upload",
-    status,
+    status: timedOut ? "failed" : baseStatus,
     jobId: value.jobId,
     remoteId: value.remoteId,
-    error: value.error,
+    error: timedOut ? value.error || GENERATION_TIMEOUT_ERROR : value.error,
     createdAt: value.createdAt || "",
     updatedAt: value.updatedAt || value.createdAt || "",
     metadata: value.metadata || {},

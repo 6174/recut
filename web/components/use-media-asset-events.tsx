@@ -16,6 +16,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { GENERATION_TIMEOUT_ERROR, isGenerationTimedOut } from "@/app/media/media-types";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 
 export type MediaEventAsset = {
@@ -89,16 +90,20 @@ export function normalizeMediaEventAsset(value: unknown): MediaEventAsset | null
   const mimeType = typeof source.mimeType === "string" ? source.mimeType : "";
   const jobId = typeof source.jobId === "string" && source.jobId.trim() ? source.jobId : undefined;
   const metadata = record(source.metadata) ?? {};
+  const status = assetStatus(source.status, jobId);
+  // 生成态超过上限即超时：与 normalizeAsset 同一判定，避免 SSE 缓存绕过超时规则。
+  const timedOut = isGenerationTimedOut(status, metadata.generationStartedAt ?? source.createdAt);
+  const error = typeof source.error === "string" ? source.error : undefined;
   return {
     id,
     kind: assetKind(source.kind, mimeType),
     mimeType,
     name: typeof source.name === "string" && source.name.trim() ? source.name : "未命名素材",
     origin: typeof source.origin === "string" && source.origin ? source.origin : "素材库",
-    status: assetStatus(source.status, jobId),
+    status: timedOut ? "failed" : status,
     jobId,
     remoteId: typeof source.remoteId === "string" ? source.remoteId : undefined,
-    error: typeof source.error === "string" ? source.error : undefined,
+    error: timedOut ? error || GENERATION_TIMEOUT_ERROR : error,
     createdAt: typeof source.createdAt === "string" ? source.createdAt : "",
     updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : "",
     metadata,
