@@ -93,7 +93,7 @@ function worldIDFromLocation(routeID: string | undefined) {
 
 export default function WorldDetailClient() {
   return (
-    <Workspace appDetail={() => <WorldDetailContent />} contentTab="worlds" />
+    <Workspace appDetail={() => <WorldDetailContent />} contentTab="community" />
   );
 }
 

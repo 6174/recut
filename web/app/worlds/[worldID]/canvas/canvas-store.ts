@@ -4,7 +4,7 @@
  * load(true)；T2 面板动作 saveEntityField/confirmEntity/deleteEntity/updateWorldMeta；T3 创建系统
  * createEntity/createChildEntity 草稿化 + 命名态 + 创建/右键菜单状态；T4 就地编辑 inlineEdit；T6 容器
  * 视图默认包含容器自身 entity（load 时把 context 实体 unshift 进 entities）：会话配置（open）、当前上下文的实体/画布元素/关系/
- * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框，含详情面板停靠侧 panelSide 左右可切并持久化；
+ * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框，含属性面板显隐；
  * 多选 selectedIds 为 pomelo block id 集合，select 单选/selectMany 框选保持同步）
  * 与全部写动作（关系原位改 updateRelation：类型/方向 patch，保留 id/scope 与画布锚点）；画布元素写 world_canvas 不产 revision，
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
@@ -361,28 +361,7 @@ export function isDefaultEntityTitle(typeId: string, title: string): boolean {
 const LAST_KIND_KEY = "wc:lastKind";
 const RECENT_TYPES_KEY = "wc:recentTypes";
 
-// 详情面板停靠侧（左/右均可）：localStorage 持久化，默认右侧（兼容既有习惯）
-export type PanelSide = "left" | "right";
-const PANEL_SIDE_KEY = "wc:panelSide";
-
-export function readPanelSide(): PanelSide {
-  try {
-    return localStorage.getItem(PANEL_SIDE_KEY) === "left" ? "left" : "right";
-  } catch {
-    return "right";
-  }
-}
-
-function savePanelSide(side: PanelSide) {
-  try {
-    localStorage.setItem(PANEL_SIDE_KEY, side);
-  } catch {
-    // localStorage 不可用时静默（隐私模式等）
-  }
-}
-
-// 属性面板显隐（T17 重构）：默认打开；Header icon 切换；选中元素自动打开，空选回落 World 态
-export type PanelOpenState = boolean;
+// 属性面板显隐（T17 重构）：默认打开；面板头部折叠为边缘小 icon 入口；选中元素自动打开，空选回落 World 态
 
 export function readLastKind(): string {
   try {
@@ -864,10 +843,8 @@ type WorldCanvasState = {
   // 大纲/搜索侧栏（T14）
   outlineOpen: boolean;
   setOutlineOpen: (open: boolean) => void;
-  // 详情面板停靠侧（左/右）；切换即时生效并持久化
-  panelSide: PanelSide;
+  // 属性面板显隐（折叠为边缘小 icon 入口）
   panelOpen: boolean;
-  setPanelSide: (side: PanelSide) => void;
   setPanelOpen: (panelOpen: boolean) => void;
   // AI 用描述添加设定（T13/B.16）：候选对话框
   aiDialogOpen: boolean;
@@ -924,7 +901,6 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   redoLog: [],
   historyOpen: false,
   outlineOpen: false,
-  panelSide: readPanelSide(),
   panelOpen: true,
   aiDialogOpen: false,
   relationTypePopover: null,
@@ -2070,10 +2046,6 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   setHistoryOpen: (historyOpen) => set({ historyOpen }),
   setOutlineOpen: (outlineOpen) => set({ outlineOpen }),
 
-  setPanelSide: (side) => {
-    savePanelSide(side);
-    set({ panelSide: side });
-  },
   setPanelOpen: (panelOpen) => set({ panelOpen }),
   setAiDialogOpen: (aiDialogOpen) => set({ aiDialogOpen }),
   setRelationTypePopover: (relationTypePopover) => set({ relationTypePopover }),

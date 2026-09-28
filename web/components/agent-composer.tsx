@@ -540,7 +540,7 @@ export function WorkSurfaceChip({
   const guidance = workSurfaceGuidance(surface, t);
   return (
     <span className="group inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" title={`${label} · ${guidance}`}>
-      <FileText className="size-3 shrink-0 text-primary" />
+      <FileText className="size-3 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate">{label}</span>
       {onRemove && (
         <button
@@ -569,7 +569,7 @@ export function WorkFocusChip({ focus, onRemove }: { focus: WorkFocusContext; on
   const label = interpolate(t("agent.composer.workFocus"), { summary: focus.summary || focus.view || t("agent.composer.workFocusDefault") });
   return (
     <span className="group inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1 pr-1.5 text-[10px] text-foreground" title={label}>
-      <FileText className="size-3 shrink-0 text-primary" />
+      <FileText className="size-3 shrink-0 text-muted-foreground" />
       <span className="truncate">{label}</span>
       {onRemove && <button aria-label={t("agent.composer.removeWorkFocus")} className="ml-0.5 grid size-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground" onClick={onRemove} type="button">
         <X className="size-3" />

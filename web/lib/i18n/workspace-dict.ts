@@ -24,12 +24,35 @@ const zh = {
   "nav.assets": "素材库",
   "nav.apps": "应用",
   "nav.market": "应用市场",
+  "nav.community": "社区",
 
   // 页面上下文（上报给 Agent 面板）
   "page.assets.title": "素材库",
   "page.worlds.title": "Worlds",
   "page.projects.title": "项目",
   "page.apps.title": "应用",
+  "page.community.title": "社区",
+
+  // 社区
+  "community.title": "发现社区创作",
+  "community.desc": "浏览平台精选的世界与应用，把它们带入你的创作。",
+  "community.nav.aria": "社区分区",
+  "community.nav.all": "全部",
+  "community.section.apps.title": "应用",
+  "community.section.apps.desc": "可安装的创作能力：剪辑、Remotion、声音与生成工作流。",
+  "community.section.worlds.title": "世界",
+  "community.section.worlds.desc": "平台精选的 Creation Worlds：角色、品牌与故事设定。",
+  "community.section.viewAll": "查看全部",
+  "community.section.count": "{count} 项",
+  "community.worlds.search.placeholder": "搜索世界名称或定位…",
+  "community.worlds.filter.all": "全部类型",
+  "community.worlds.count": "{count} 个世界",
+  "community.worlds.loading": "读取中…",
+  "community.worlds.failed": "读取失败",
+  "community.worlds.error.title": "未能读取社区世界",
+  "community.worlds.retry": "重新读取",
+  "community.worlds.empty.title": "社区世界暂不可用",
+  "community.worlds.empty.desc": "连接本地 service 后即可浏览平台精选的 Creation Worlds。",
 
   // 项目
   "projects.title": "项目",
@@ -470,12 +493,35 @@ const en: Record<keyof typeof zh, string> = {
   "nav.assets": "Assets",
   "nav.apps": "Apps",
   "nav.market": "App Store",
+  "nav.community": "Community",
 
   // Page context reported to the Agent panel
   "page.assets.title": "Assets",
   "page.worlds.title": "Worlds",
   "page.projects.title": "Projects",
   "page.apps.title": "Apps",
+  "page.community.title": "Community",
+
+  // Community
+  "community.title": "Discover community creations",
+  "community.desc": "Browse platform-curated worlds and apps, then bring them into your work.",
+  "community.nav.aria": "Community sections",
+  "community.nav.all": "All",
+  "community.section.apps.title": "Apps",
+  "community.section.apps.desc": "Installable creative capabilities: editing, Remotion, voice and generation workflows.",
+  "community.section.worlds.title": "Worlds",
+  "community.section.worlds.desc": "Platform-curated Creation Worlds: characters, brands and story settings.",
+  "community.section.viewAll": "View all",
+  "community.section.count": "{count} items",
+  "community.worlds.search.placeholder": "Search world name or positioning…",
+  "community.worlds.filter.all": "All types",
+  "community.worlds.count": "{count} worlds",
+  "community.worlds.loading": "Loading…",
+  "community.worlds.failed": "Failed to load",
+  "community.worlds.error.title": "Couldn't read community worlds",
+  "community.worlds.retry": "Retry",
+  "community.worlds.empty.title": "Community worlds unavailable",
+  "community.worlds.empty.desc": "Connect the local service to browse platform-curated Creation Worlds.",
 
   // Projects
   "projects.title": "Projects",

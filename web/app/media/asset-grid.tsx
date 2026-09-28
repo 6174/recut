@@ -6,7 +6,7 @@
  */
 "use client";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Captions, ImageIcon, Link2, LoaderCircle } from "lucide-react";
+import { Captions, ImageIcon, Link2, LoaderCircle, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CardMoreMenu } from "@/components/card-more-menu";
 import { MotionGraphicPreview } from "@/components/motion-graphic-preview";
@@ -16,8 +16,6 @@ import type { Asset, MediaJob } from "./media-types";
 
 // 与 Tailwind gap-3 一致：列间距由 gap-3 给，行间距由每行自身的 pb-3 给（绝对定位的行不参与 grid 行间距）。
 const GRID_GAP = 12;
-// 方形缩略图之下的名称 + 类型说明高度。
-const CAPTION_HEIGHT = 56;
 const ROW_OVERSCAN = 2;
 // 紧凑五列方形规格：每行固定 5 张卡片，窄容器由 minmax(0, 1fr) 等比压缩。
 const GRID_COLUMNS = 5;
@@ -58,7 +56,7 @@ export function AssetGrid({
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => cellWidth + CAPTION_HEIGHT + GRID_GAP,
+    estimateSize: () => cellWidth + GRID_GAP,
     overscan: ROW_OVERSCAN,
     getItemKey: (index) => entries[index * GRID_COLUMNS]?.id ?? index,
     useFlushSync: false,
@@ -97,7 +95,7 @@ export function AssetGrid({
           const start = row.index * GRID_COLUMNS;
           return (
             <div
-              className="absolute left-0 top-0 grid w-full gap-3 pb-3"
+              className="absolute left-0 top-0 grid w-full items-start gap-3 pb-3"
               data-index={row.index}
               key={row.key}
               ref={virtualizer.measureElement}
@@ -129,14 +127,22 @@ export function AssetGrid({
 }
 
 function QueuedJobCard({ job }: { job: MediaJob }) {
+  const failed = job.status === "failed";
   return (
-    <div className="overflow-hidden rounded-xs border border-primary/40 bg-primary/5 text-left">
-      <div className="grid aspect-square place-items-center bg-primary/10"><div className="text-center">
-        <span className="text-xs font-medium text-primary">{job.status === "failed" ? "生成失败" : "生成中…"}</span>
-      </div></div>
-      <div className="p-2.5">
+    <div className={`flex aspect-square flex-col overflow-hidden rounded-xs border text-left ${failed ? "bg-card" : "border-primary/40 bg-primary/5"}`}>
+      <div className={`grid min-h-0 flex-1 place-items-center overflow-hidden ${failed ? "bg-muted" : "bg-primary/10"}`}>
+        {failed ? (
+          <div className="px-4 text-center">
+            <TriangleAlert className="mx-auto size-4 text-muted-foreground/60" />
+            <p className="mt-2 text-[11px] font-medium text-muted-foreground">生成失败</p>
+          </div>
+        ) : (
+          <span className="text-xs font-medium text-primary">生成中…</span>
+        )}
+      </div>
+      <div className="shrink-0 p-2.5">
         <p className="truncate text-xs font-medium">{job.prompt}</p>
-        <p className="mt-1 truncate text-[10px] text-muted-foreground">{job.status === "failed" ? (job.error ?? "任务未完成") : "正在生成"}</p>
+        <p className="mt-1 truncate text-[10px] text-muted-foreground">{failed ? (job.error ?? "任务未完成") : "正在生成"}</p>
       </div>
     </div>
   );
@@ -148,10 +154,12 @@ function AssetCard({ apiBase, asset, onDelete, onPreview, onRename }: { apiBase:
   // 卡片只做预览与状态区分；主 action（确认生成 / 复制计划给 AI / Remix）都在素材详情里。
   const proposal = isConfirmableProposal(asset);
   const plan = isPlanAsset(asset);
-  return <div className="group relative overflow-visible rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20">
-    <button className="block w-full overflow-hidden rounded-t-xs text-left" onClick={() => onPreview(asset)} type="button">
-      {proposal ? <ProposedAsset asset={asset} /> : plan ? <PlannedAsset asset={asset} /> : asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="aspect-square" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "document" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : asset.kind === "component" ? <ComponentCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
-      <div className="p-2.5">
+  return <div className="group relative flex aspect-square flex-col rounded-xs border bg-card text-left transition-colors hover:border-foreground/40 hover:bg-muted/20">
+    <button className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xs text-left" onClick={() => onPreview(asset)} type="button">
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {proposal ? <ProposedAsset asset={asset} /> : plan ? <PlannedAsset asset={asset} /> : asset.status !== "completed" ? <PendingAsset asset={asset} /> : asset.kind === "image" ? <div className="h-full w-full bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={contentURL} /></div> : asset.kind === "video" ? <VideoFrame alt={asset.name || "视频素材"} className="h-full w-full" src={contentURL} /> : asset.kind === "transcript" ? <TranscriptCardPreview asset={asset} /> : asset.kind === "document" ? <ReferenceCardPreview apiBase={apiBase} asset={asset} /> : asset.kind === "component" ? <ComponentCardPreview apiBase={apiBase} asset={asset} /> : <div className="grid h-full w-full place-items-center bg-muted"><span className="text-xs text-muted-foreground">{asset.kind.toUpperCase()}</span></div>}
+      </div>
+      <div className="shrink-0 p-2.5">
         <p className="truncate text-xs font-medium">{asset.name}</p>
         <p className="mt-1 text-[10px] text-muted-foreground">{proposal ? "待确认生成" : plan ? "计划中" : asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : asset.kind === "transcript" ? "转写" : asset.kind === "component" ? "组件" : "资料"}</p>
       </div>
@@ -164,7 +172,7 @@ function AssetCard({ apiBase, asset, onDelete, onPreview, onRename }: { apiBase:
 function PlannedAsset({ asset }: { asset: Asset }) {
   const content = typeof asset.metadata.content === "string" ? asset.metadata.content : "";
   return (
-    <div className="grid aspect-square content-center gap-1.5 bg-sky-500/10 p-4 text-center">
+    <div className="grid h-full w-full content-center gap-1.5 bg-sky-500/10 p-4 text-center">
       <span className="text-[11px] font-semibold text-sky-600">计划中</span>
       {content && <p className="line-clamp-4 text-[10px] leading-4 text-muted-foreground">{content}</p>}
     </div>
@@ -175,7 +183,7 @@ function PlannedAsset({ asset }: { asset: Asset }) {
 function ProposedAsset({ asset }: { asset: Asset }) {
   const prompt = typeof asset.metadata.prompt === "string" ? asset.metadata.prompt : "";
   return (
-    <div className="grid aspect-square content-center gap-1.5 bg-amber-500/10 p-4 text-center">
+    <div className="grid h-full w-full content-center gap-1.5 bg-amber-500/10 p-4 text-center">
       <span className="text-[11px] font-semibold text-amber-600">待确认生成</span>
       {prompt && <p className="line-clamp-4 text-[10px] leading-4 text-muted-foreground">{prompt}</p>}
     </div>
@@ -187,22 +195,22 @@ function ReferenceCardPreview({ apiBase, asset }: { apiBase: string; asset: Asse
   const imagePart = reference?.parts?.image;
   if (imagePart) {
     const imageURL = `${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/parts/image`;
-    return <div className="aspect-[4/3] bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={imageURL} /></div>;
+    return <div className="h-full w-full bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={imageURL} /></div>;
   }
-  return <div className="grid aspect-square content-center gap-2 bg-primary/5 p-4 text-primary"><Link2 className="size-5" /><p className="font-mono text-[10px] uppercase">{reference?.sourceKind || "web"}</p><p className="line-clamp-3 text-xs leading-5 text-foreground">{reference?.summary || reference?.description || reference?.excerpt || "可复用研究资料"}</p></div>;
+  return <div className="grid h-full w-full content-center gap-2 bg-primary/5 p-4 text-primary"><Link2 className="size-5" /><p className="font-mono text-[10px] uppercase">{reference?.sourceKind || "web"}</p><p className="line-clamp-3 text-xs leading-5 text-foreground">{reference?.summary || reference?.description || reference?.excerpt || "可复用研究资料"}</p></div>;
 }
 
 // 组件卡：Motion Graphic 组件素材。有封面用封面，否则在网格里实时渲染组件预览。
 function ComponentCardPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
   const component = asset.metadata.component;
   if (!component?.componentId) {
-    return <div className="grid aspect-square place-items-center bg-muted"><span className="text-xs text-muted-foreground">组件</span></div>;
+    return <div className="grid h-full w-full place-items-center bg-muted"><span className="text-xs text-muted-foreground">组件</span></div>;
   }
   if (component.coverUrl) {
-    return <div className="aspect-square bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={component.coverUrl.startsWith("http") ? component.coverUrl : `${apiBase}${component.coverUrl}`} /></div>;
+    return <div className="h-full w-full bg-muted"><img alt={asset.name} className="h-full w-full object-cover" decoding="async" loading="lazy" src={component.coverUrl.startsWith("http") ? component.coverUrl : `${apiBase}${component.coverUrl}`} /></div>;
   }
   return (
-    <div className="aspect-square overflow-hidden bg-muted">
+    <div className="h-full w-full overflow-hidden bg-muted">
       <MotionGraphicPreview apiBase={apiBase} componentId={component.componentId} name={asset.name} surface={component.surface} versionId={component.versionId} />
     </div>
   );
@@ -211,15 +219,26 @@ function ComponentCardPreview({ apiBase, asset }: { apiBase: string; asset: Asse
 function TranscriptCardPreview({ asset }: { asset: Asset }) {  const bundle = asset.metadata?.transcript;
   const segments = typeof bundle?.segmentCount === "number" ? bundle.segmentCount : undefined;
   const duration = typeof bundle?.duration === "number" ? bundle.duration : undefined;
-  return <div className="grid aspect-square place-items-center bg-violet-600/10 text-violet-700"><span className="grid gap-1 text-center"><Captions className="mx-auto size-5" /><span className="font-mono text-[10px] font-medium">转写 · {segments ?? 0} 段{typeof duration === "number" ? ` · ${duration.toFixed(1)}s` : ""}</span></span></div>;
+  return <div className="grid h-full w-full place-items-center bg-violet-600/10 text-violet-700"><span className="grid gap-1 text-center"><Captions className="mx-auto size-5" /><span className="font-mono text-[10px] font-medium">转写 · {segments ?? 0} 段{typeof duration === "number" ? ` · ${duration.toFixed(1)}s` : ""}</span></span></div>;
 }
 
 function PendingAsset({ asset }: { asset: Asset }) {
   const failed = asset.status === "failed";
+  if (failed) {
+    return (
+      <div className="grid h-full w-full min-h-0 place-items-center overflow-hidden bg-muted px-4 text-center">
+        <div className="min-w-0">
+          <TriangleAlert className="mx-auto size-4 text-muted-foreground/60" />
+          <p className="mt-2 text-[11px] font-medium text-muted-foreground">生成失败</p>
+          <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-muted-foreground/60">{asset.error ?? "任务未完成"}</p>
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="grid aspect-square place-items-center bg-primary/10 px-4 text-center"><div>
-      {failed ? <span className="text-xs font-medium text-destructive">生成失败</span> : <LoaderCircle className="mx-auto size-5 animate-spin text-primary" />}
-      <p className="mt-2 text-xs font-medium text-foreground">{failed ? asset.error ?? "任务未完成" : "生成中…"}</p>
+    <div className="grid h-full w-full min-h-0 place-items-center overflow-hidden bg-primary/10 px-4 text-center"><div>
+      <LoaderCircle className="mx-auto size-5 animate-spin text-primary" />
+      <p className="mt-2 text-xs font-medium text-foreground">生成中…</p>
     </div></div>
   );
 }

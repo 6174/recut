@@ -1,8 +1,8 @@
 /*
  * [INPUT]: 依赖 canvas-store（selection/context 动作）、panel/*（World/Entity/Relation/Element 态）、
  * canvas-dialogs（DeleteConfirmDialog/AddFieldDialog 由 CanvasDialogs 渲染）、worlds-store、lucide-react
- * [OUTPUT]: 对外提供 CanvasDetailPanel：320px 详情面板壳（B.3/B.8——空选 = World 态常显），
- * 停靠左/右可切（panelSide 持久化，头部切换按钮），按 selection 类型路由到 panel 子组件；
+ * [OUTPUT]: 对外提供 CanvasDetailPanel：右侧 320px 详情面板壳（B.3/B.8——空选 = World 态常显），
+ * 头部可折叠收起为画布右上角小 icon 入口（panelOpen，点小 icon 再展开），按 selection 类型路由到 panel 子组件；
  * 多选（selectedIds.length>1）时显示 MultiSelectionSummary 汇总（类型计数 + 逐项列表 + 清空）；
  * 实体态底部操作区（进入内部 / 删除设定）
  * [POS]: worlds/[worldID]/canvas 的详情层组合根；内容编辑在 panel/* 各态组件内聚实现
@@ -10,7 +10,7 @@
  */
 "use client";
 
-import { PanelLeft, PanelRight, X } from "lucide-react";
+import { PanelRightClose, PanelRightOpen, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { WorldDetail } from "@/lib/recut-worlds-client";
 import { useWorldsStore } from "@/lib/worlds-store";
@@ -33,8 +33,7 @@ export function CanvasDetailPanel() {
   const worldName = useWorldCanvasStore((state) => state.worldName);
   const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
   const relationTypes = useWorldCanvasStore((state) => state.relationTypes);
-  const panelSide = useWorldCanvasStore((state) => state.panelSide);
-  const setPanelSide = useWorldCanvasStore((state) => state.setPanelSide);
+  const setPanelOpen = useWorldCanvasStore((state) => state.setPanelOpen);
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const detail = useWorldsStore((state) => state.detailsByID[worldId]) as WorldDetail | undefined;
   const loadDetail = useWorldsStore((state) => state.loadDetail);
@@ -70,9 +69,22 @@ export function CanvasDetailPanel() {
           ? selection.element.name || "画布元素"
           : (detail?.name ?? worldName);
 
-  if (!panelOpen) return null;
+  // 折叠态：面板隐藏，只在画布右上角留一个小 icon 作为再展开入口（取代原先 Header 的 Info 开关）
+  if (!panelOpen) {
+    return (
+      <button
+        aria-label="展开属性面板"
+        title="属性面板（空选 = 世界属性）"
+        className="absolute right-3 top-3 z-20 grid size-8 place-items-center rounded-md border bg-card text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground"
+        onClick={() => setPanelOpen(true)}
+        type="button"
+      >
+        <PanelRightOpen className="size-4" />
+      </button>
+    );
+  }
   return (
-    <aside className={`absolute top-0 z-20 flex h-full w-80 flex-col overflow-hidden bg-card ${panelSide === "left" ? "left-0 border-r" : "right-0 border-l"}`}>
+    <aside className="absolute right-0 top-0 z-20 flex h-full w-80 flex-col overflow-hidden border-l bg-card">
       <header className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted-foreground">{headerLabel}{loadingDetail ? " · 加载中" : ""}</p>
@@ -80,13 +92,13 @@ export function CanvasDetailPanel() {
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <button
-            aria-label={panelSide === "left" ? "移到右侧" : "移到左侧"}
-            title={panelSide === "left" ? "移到右侧" : "移到左侧"}
+            aria-label="收起属性面板"
+            title="收起属性面板"
             className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted"
-            onClick={() => setPanelSide(panelSide === "left" ? "right" : "left")}
+            onClick={() => setPanelOpen(false)}
             type="button"
           >
-            {panelSide === "left" ? <PanelRight className="size-4" /> : <PanelLeft className="size-4" />}
+            <PanelRightClose className="size-4" />
           </button>
           {(selection || multi) && (
             <button aria-label="关闭详情" className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted" onClick={() => select(null)} type="button">

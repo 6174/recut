@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、统一 App 身份图标、Agent Session HTTP API 及全局 Agent 面板上下文、工作台 i18n 字典与 Accept-Language 统一请求包装
- * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Apps 工作台入口及保持根壳的一级 Tab 切换（世界画布激活时顶层 Header 左侧让位给 WorldCanvasTopBar 面包屑、画布工具组 WorldCanvasToolbar 居中于整个 Header，右侧保留全局状态）、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态；项目桌面与 Studio 最近区把 local/published World 与项目按 updatedAt 混排（平台世界仍留在 /worlds），新建项目入口可创建 World；全部文案经 useI18n 迁移到 workspace 字典
- * [POS]: web/app 的应用工作台框架；Studio 是 app Host 的默认创作入口，世界观作为首个原生创作应用统一进入世界观管理，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
+ * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Community 工作台入口及保持根壳的一级 Tab 切换（世界画布激活时顶层 Header 左侧让位给 WorldCanvasTopBar 面包屑、画布工具组 WorldCanvasToolbar 居中于整个 Header，右侧保留全局状态）、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态；项目桌面与 Studio 最近区把本地 World 与项目按 updatedAt 混排（平台/PGC 世界只在社区展示），新建项目入口可创建 World；全部文案经 useI18n 迁移到 workspace 字典
+ * [POS]: web/app 的应用工作台框架；Studio 是 app Host 的默认创作入口，社区（Community）统一承载 PGC Worlds 与 Apps 目录两个可扩展分区，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -17,15 +17,11 @@ import {
   Code2,
   Copy,
   Download,
-  ExternalLink,
   FileImage,
-  FolderOpen,
-  FolderPlus,
   Globe2,
   HardDrive,
   ImageIcon,
   Link2,
-  LoaderCircle,
   Mic2,
   Music2,
   Plus,
@@ -51,14 +47,11 @@ import { AssetPreviewDialog } from "@/components/asset-preview-dialog";
 import { AppIdentityIcon, appIcon } from "@/components/app-identity-icon";
 import { CardMoreMenu } from "@/components/card-more-menu";
 import { Badge } from "@/components/ui/badge";
-import {
-  AppUpdateAllControl,
-  AppVersionControl,
-} from "@/components/app-version-control";
+import { Community, type CommunityView } from "@/components/community/community";
+import type { InstallationLoadState } from "@/components/community/apps-section";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { CreateAppDialog } from "@/components/create-app-dialog";
-import { InstallGitAppDialog } from "@/components/install-git-app-dialog";
+import { CreateWorldDialog } from "@/components/create-world-dialog";
 import { Input } from "@/components/ui/input";
 import { HeaderActions } from "@/components/header-actions";
 import {
@@ -95,7 +88,6 @@ import {
 } from "@/lib/studio-scenarios";
 import type { Asset } from "./media/media-types";
 import { MediaLibraryPanel } from "./media/media-library-panel";
-import { WorldsClient, CreateWorldDialog } from "./worlds/worlds-client";
 import {
   WorldCanvasShareButton,
   WorldCanvasToolbar,
@@ -107,10 +99,11 @@ type AppDetailRenderer = (context: {
   onConnectService: () => void;
   serviceOnline: boolean;
 }) => React.ReactNode;
-type WorkspaceTab = "studio" | "worlds" | "projects" | "assets" | "apps";
-type InstallationLoadState = "loading" | "ready" | "failed" | "offline";
+type WorkspaceTab = "studio" | "projects" | "assets" | "community";
 type WorkspaceProps = {
   appDetail?: AppDetailRenderer;
+  /** 社区一级 Tab 下的分区：home / apps / worlds。 */
+  communitySection?: CommunityView;
   contentTab?: WorkspaceTab;
   initialTab?: WorkspaceTab;
 };
@@ -121,6 +114,7 @@ export function Workspace(props: WorkspaceProps = {}) {
 
 function WorkspaceFrame({
   appDetail,
+  communitySection = "home",
   contentTab,
   initialTab = "studio",
 }: WorkspaceProps = {}) {
@@ -149,7 +143,7 @@ function WorkspaceFrame({
   const service = useServiceStore((state) => state.service);
   const apiBase = useServiceStore((state) => state.endpoint);
   const [tab, setTab] = useState<WorkspaceTab>(
-    contentTab ?? (appDetail ? "apps" : initialTab),
+    contentTab ?? (appDetail ? "community" : initialTab),
   );
   const [mediaProjectID, setMediaProjectID] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -196,12 +190,12 @@ function WorkspaceFrame({
             },
             policy: { defaultIntent: "media_manage" as const },
           }
-        : tab === "worlds"
+        : tab === "community"
           ? {
               version: 1 as const,
               surface: "workspace" as const,
-              title: t("page.worlds.title"),
-              path: "/worlds",
+              title: t("page.community.title"),
+              path: "/community",
               policy: { defaultIntent: "browse" as const },
             }
           : tab === "projects"
@@ -212,15 +206,7 @@ function WorkspaceFrame({
                 path: "/projects",
                 policy: { defaultIntent: "browse" as const },
               }
-            : tab === "apps"
-              ? {
-                  version: 1 as const,
-                  surface: "workspace" as const,
-                  title: t("page.apps.title"),
-                  path: "/apps",
-                  policy: { defaultIntent: "browse" as const },
-                }
-              : null,
+            : null,
     [tab, t],
   );
   useReportWorkSurface(workSurface);
@@ -344,15 +330,16 @@ function WorkspaceFrame({
       : "offline";
   const content =
     detail ??
-    (tab === "apps" ? (
-      <Apps
+    (tab === "community" ? (
+      <Community
         apiBase={apiBase}
-        installations={installations}
         installationError={installationsError}
         installationLoadState={appInstallationLoadState}
+        installations={installations}
         marketplace={marketplace}
         onStartProject={openCreateProject}
         onUpdated={reloadWorkspace}
+        section={communitySection}
         serviceOnline={online}
       />
     ) : service.phase === "checking" ? (
@@ -377,14 +364,14 @@ function WorkspaceFrame({
         }
         onCreateWorld={openCreateWorld}
         onDeleteProject={deleteProject}
-        onManageApps={(event) => navigateTab("apps", "/apps", event)}
+        onManageApps={(event) =>
+          navigateTab("community", "/community/apps", event)
+        }
         onRenameProject={renameProject}
         onStartProject={openCreateProject}
         projects={projects}
         worlds={worlds}
       />
-    ) : tab === "worlds" ? (
-      <WorldsClient />
     ) : tab === "projects" ? (
       <ProjectsPage
         apiBase={apiBase}
@@ -436,10 +423,10 @@ function WorkspaceFrame({
                     {t("nav.workspace")}
                   </Tab>
                   <Tab
-                    active={tab === "apps"}
-                    href="/apps"
+                    active={tab === "community"}
+                    href="/community/apps"
                     onNavigate={navigateTab}
-                    tab="apps"
+                    tab="community"
                   >
                     {t("nav.market")}
                   </Tab>
@@ -471,12 +458,12 @@ function WorkspaceFrame({
                     {t("nav.assets")}
                   </Tab>
                   <Tab
-                    active={tab === "apps"}
-                    href="/apps"
+                    active={tab === "community"}
+                    href="/community"
                     onNavigate={navigateTab}
-                    tab="apps"
+                    tab="community"
                   >
-                    {t("nav.apps")}
+                    {t("nav.community")}
                   </Tab>
                 </>
               )}
@@ -540,10 +527,12 @@ export default Workspace;
 
 function tabFromPath(pathname: string): WorkspaceTab | null {
   if (pathname === "/") return "studio";
-  if (pathname === "/worlds" || pathname === "/worlds/") return "worlds";
+  if (pathname.startsWith("/community")) return "community";
   if (pathname === "/projects" || pathname === "/projects/") return "projects";
   if (pathname === "/media" || pathname === "/media/") return "assets";
-  if (pathname === "/apps" || pathname === "/apps/") return "apps";
+  // 兼容深链：/apps、/worlds 现由社区承载（详情页 /apps/<id>、/worlds/<id> 不受影响）。
+  if (pathname === "/apps" || pathname === "/apps/") return "community";
+  if (pathname === "/worlds" || pathname === "/worlds/") return "community";
   return null;
 }
 
@@ -1400,72 +1389,6 @@ function AssetPreview({ apiBase, asset }: { apiBase: string; asset: Asset }) {
   );
 }
 
-function WorldsAppCard() {
-  const { t } = useI18n();
-  return (
-    <Link
-      aria-label={t("studio.worlds.open")}
-      className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-      href="/worlds"
-    >
-      <div className="flex min-w-0 items-start gap-3">
-        <span className="grid size-11 shrink-0 place-items-center rounded-xl border bg-muted text-muted-foreground transition duration-200 group-hover:bg-secondary">
-          <Globe2 aria-hidden="true" className="size-5" strokeWidth={1.8} />
-        </span>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">
-            {t("studio.worlds.title")}
-          </p>
-          <p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">
-            {t("studio.worlds.desc")}
-          </p>
-        </div>
-      </div>
-      <span className="mt-auto flex items-center justify-end pt-3 text-muted-foreground group-hover:text-foreground">
-        <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-      </span>
-    </Link>
-  );
-}
-
-function StudioAppCard({
-  app,
-  onOpen,
-}: {
-  app: Installation;
-  onOpen: () => void;
-}) {
-  const { t } = useI18n();
-  const actionLabel =
-    app.manifest.type === "standalone"
-      ? interpolate(t("studio.app.open"), { name: app.manifest.name })
-      : interpolate(t("studio.app.new"), { name: app.manifest.name });
-  return (
-    <button
-      aria-label={actionLabel}
-      className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[var(--shadow-overlay)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-      onClick={onOpen}
-      type="button"
-    >
-      <div className="flex min-w-0 items-start gap-3">
-        <AppIdentityIcon
-          appID={app.manifest.id}
-          className="transition duration-200 group-hover:bg-secondary"
-        />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{app.manifest.name}</p>
-          <p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">
-            {app.manifest.description}
-          </p>
-        </div>
-      </div>
-      <span className="mt-auto flex items-center justify-end pt-3 text-muted-foreground group-hover:text-foreground">
-        <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-      </span>
-    </button>
-  );
-}
-
 function SectionHeading({
   action,
   description,
@@ -1611,310 +1534,6 @@ function CreateProjectFromAppDialog({
         </form>
       </section>
     </div>
-  );
-}
-
-function Apps({
-  apiBase,
-  installations,
-  installationError,
-  installationLoadState,
-  marketplace,
-  onStartProject,
-  onUpdated,
-  serviceOnline,
-}: {
-  apiBase: string;
-  installations: Installation[];
-  installationError: string;
-  installationLoadState: InstallationLoadState;
-  marketplace: MarketplaceApp[];
-  onStartProject: (app: Installation) => void;
-  onUpdated: () => Promise<void>;
-  serviceOnline: boolean;
-}) {
-  const { t, locale } = useI18n();
-  const installationCount =
-    installationLoadState === "loading"
-      ? t("apps.count.loading")
-      : installationLoadState === "offline"
-        ? t("apps.count.offline")
-        : interpolate(t("apps.installed.count"), {
-            count: installations.length,
-          });
-  const marketplaceStatus = (installed: boolean) =>
-    installed
-      ? t("apps.market.installed")
-      : installationLoadState === "loading"
-        ? t("apps.market.checking")
-        : t("apps.market.market");
-  return (
-    <>
-      <SectionTitle
-        action={
-          <>
-            <AppUpdateAllControl apps={installations} onUpdated={onUpdated} />
-            <CreateAppDialog />
-            <InstallGitAppDialog
-              apiBase={apiBase}
-              disabled={!serviceOnline}
-              onInstalled={onUpdated}
-            />
-          </>
-        }
-        description={t("apps.desc")}
-        title={t("apps.title")}
-      />
-      <section>
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold">{t("apps.installed")}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("apps.installed.desc")}
-            </p>
-          </div>
-          <Badge>{installationCount}</Badge>
-        </div>
-        {installationLoadState === "loading" ? (
-          <InstalledAppsLoading />
-        ) : installationLoadState === "offline" ? (
-          <InstalledAppsOffline />
-        ) : installationLoadState === "failed" ? (
-          <InstalledAppsError
-            message={installationError}
-            onRetry={() => void onUpdated()}
-          />
-        ) : installations.length === 0 ? (
-          <Card>
-            <CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center">
-              <FolderOpen className="size-6 text-muted-foreground" />
-              <p className="text-sm font-medium">
-                {t("apps.installed.empty.title")}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {t("apps.installed.empty.desc")}
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {installations.map((app) => (
-              <InstalledAppCard
-                app={app}
-                key={app.package}
-                onStartProject={onStartProject}
-                onUpdated={onUpdated}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-      <section className="mt-10">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold">{t("apps.addable")}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("apps.addable.desc")}
-            </p>
-          </div>
-          <Badge>
-            {interpolate(t("apps.addable.count"), {
-              count: marketplace.length,
-            })}
-          </Badge>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {marketplace.map((app) => {
-            const installed = installations.some(
-              (item) => item.manifest.id === app.appId,
-            );
-            return (
-              <Link
-                className="group"
-                href={`/apps/${encodeURIComponent(app.appId)}`}
-                key={app.appId}
-              >
-                <Card className="flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:border-foreground/20 group-hover:shadow-[var(--shadow-overlay)]">
-                  <CardContent className="flex flex-1 flex-col p-0">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <AppIdentityIcon
-                        appID={app.appId}
-                        className="transition duration-200 group-hover:bg-secondary"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold">
-                          {marketplaceName(app, locale)}
-                        </p>
-                        <p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">
-                          {marketplaceDescription(app, locale)}
-                        </p>
-                      </div>
-                      <Badge>{marketplaceStatus(installed)}</Badge>
-                    </div>
-                    <span className="mt-auto flex items-center justify-end pt-3 text-muted-foreground group-hover:text-foreground">
-                      <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-                    </span>
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
-      </section>
-    </>
-  );
-}
-
-function InstalledAppsLoading() {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center">
-        <LoaderCircle
-          aria-hidden="true"
-          className="size-6 animate-spin text-muted-foreground"
-        />
-        <p className="text-sm font-medium">
-          {t("apps.installed.loading.title")}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {t("apps.installed.loading.desc")}
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function InstalledAppsError({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center">
-        <FolderOpen className="size-6 text-warning" />
-        <div>
-          <p className="text-sm font-medium">
-            {t("apps.installed.error.title")}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-        </div>
-        <Button onClick={onRetry} type="button" variant="outline">
-          {t("apps.installed.error.retry")}
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
-function InstalledAppsOffline() {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <CardContent className="flex min-h-36 flex-col items-center justify-center gap-3 text-center">
-        <FolderOpen className="size-6 text-muted-foreground" />
-        <p className="text-sm font-medium">
-          {t("apps.installed.offline.title")}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {t("apps.installed.offline.desc")}
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function InstalledAppCard({
-  app,
-  onStartProject,
-  onUpdated,
-}: {
-  app: Installation;
-  onStartProject: (app: Installation) => void;
-  onUpdated: () => void;
-}) {
-  const { t } = useI18n();
-  const detailHref = `/apps/${encodeURIComponent(app.manifest.id)}`;
-  const status =
-    app.dirty && app.updateAvailable
-      ? t("apps.status.remoteDirty")
-      : app.dirty
-        ? t("apps.status.dirty")
-        : app.updateAvailable
-          ? t("apps.status.remote")
-          : (app.status ?? t("apps.status.current"));
-  return (
-    <Card className="group flex min-h-32 min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[var(--shadow-overlay)]">
-      <CardContent className="flex flex-1 flex-col p-0">
-        <Link
-          aria-label={interpolate(t("apps.detail.aria"), {
-            name: app.manifest.name,
-          })}
-          className="flex min-w-0 items-start gap-3 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          href={detailHref}
-        >
-          <AppIdentityIcon
-            appID={app.manifest.id}
-            className="transition duration-200 group-hover:bg-secondary"
-          />
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold">
-              {app.manifest.name}
-            </span>
-            <span className="mt-1 block line-clamp-2 text-xs leading-4 text-muted-foreground">
-              {app.manifest.description}
-            </span>
-          </span>
-        </Link>
-        <div className="mt-auto flex items-center justify-between gap-3 pt-3">
-          <Link
-            className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
-            href={detailHref}
-          >
-            {t("apps.details")}
-          </Link>
-          <InstalledAppAction app={app} onStartProject={onStartProject} />
-        </div>
-        <div className="mt-2 flex justify-end" title={status}>
-          <AppVersionControl app={app} onUpdated={onUpdated} />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function InstalledAppAction({
-  app,
-  onStartProject,
-}: {
-  app: Installation;
-  onStartProject: (app: Installation) => void;
-}) {
-  const { t } = useI18n();
-  if (app.manifest.type === "standalone")
-    return (
-      <Link
-        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xs border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-        href={`/workspace-app/app?id=${encodeURIComponent(app.manifest.id)}`}
-      >
-        <AppWindow className="size-3.5" />
-        {t("apps.open")}
-      </Link>
-    );
-  return (
-    <Button
-      className="h-8 px-2.5"
-      onClick={() => onStartProject(app)}
-      type="button"
-      variant="outline"
-    >
-      <FolderPlus className="size-3.5" />
-      {t("apps.new")}
-    </Button>
   );
 }
 

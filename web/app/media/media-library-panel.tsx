@@ -241,9 +241,9 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
   }
   return (
     <>
-        <section className="flex h-full min-h-0 flex-col bg-muted/30 p-8">
+        <section className="flex h-full min-h-0 flex-col bg-background p-8">
           <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col">
-            <div className="mb-6 flex shrink-0 items-end justify-between border-b pb-4">
+            <div className="flex shrink-0 items-end justify-between pb-4">
               <div>
                 <h1 className="text-2xl font-semibold">媒体资产</h1>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -251,9 +251,6 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <Badge>
-                  {visibleAssets.length + visibleJobs.length} ASSETS
-                </Badge>
                 <input
                   accept="image/*,video/*,audio/*"
                   className="hidden"

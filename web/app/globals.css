@@ -42,31 +42,32 @@
 }
 
 :root {
-  /* Recut Design System: dark-first canvas, decisive green, low-radius tool surfaces. */
-  --background: oklch(0.145 0.012 150);
-  --foreground: oklch(0.95 0.008 150);
-  --card: oklch(0.185 0.012 150);
+  /* Recut Design System: dark-first canvas, decisive green accent, low-radius tool surfaces. */
+  /* 中性面用极低绿彩度（仅留一丝色相认同），品牌绿只出现在 primary/success/ring 等强调位。 */
+  --background: oklch(0.145 0.005 150);
+  --foreground: oklch(0.95 0.003 150);
+  --card: oklch(0.185 0.005 150);
   --card-foreground: var(--foreground);
-  --popover: oklch(0.205 0.014 150);
+  --popover: oklch(0.205 0.006 150);
   --popover-foreground: var(--foreground);
   --primary: oklch(0.68 0.18 151);
-  --primary-foreground: oklch(0.12 0.012 150);
-  --secondary: oklch(0.235 0.016 150);
+  --primary-foreground: oklch(0.12 0.004 150);
+  --secondary: oklch(0.235 0.006 150);
   --secondary-foreground: var(--foreground);
-  --muted: oklch(0.225 0.012 150);
-  --muted-foreground: oklch(0.68 0.012 150);
-  --accent: oklch(0.28 0.06 151);
-  --accent-foreground: oklch(0.9 0.025 151);
+  --muted: oklch(0.225 0.005 150);
+  --muted-foreground: oklch(0.68 0.005 150);
+  --accent: oklch(0.28 0.03 151);
+  --accent-foreground: oklch(0.9 0.015 151);
   --destructive: oklch(0.58 0.18 28);
   --destructive-foreground: oklch(1 0 0);
   --success: oklch(0.68 0.16 151);
   --warning: oklch(0.78 0.16 82);
-  --border: oklch(0.32 0.014 150);
-  --input: oklch(0.3 0.014 150);
+  --border: oklch(0.32 0.006 150);
+  --input: oklch(0.3 0.006 150);
   --ring: oklch(0.68 0.18 151);
-  --terminal: oklch(0.12 0.008 150);
+  --terminal: oklch(0.12 0.003 150);
   /* 世界画布底色：中性近黑（去绿色偏色），亮度与工作台 --background 一致 */
-  --world-canvas: oklch(0.145 0.012 150);
+  --world-canvas: oklch(0.145 0.005 150);
   --radius-xs: 0.375rem;
   --radius-sm: 0.5rem;
   --radius-md: 0.625rem;
@@ -77,22 +78,22 @@
 
 /* 官网与产品工作台共享同一套深色语义，避免营销页出现黑白两张皮。 */
 .marketing-dark {
-  --background: oklch(0.145 0.012 150);
-  --foreground: oklch(0.95 0.008 150);
-  --card: oklch(0.185 0.012 150);
+  --background: oklch(0.145 0.005 150);
+  --foreground: oklch(0.95 0.003 150);
+  --card: oklch(0.185 0.005 150);
   --card-foreground: var(--foreground);
-  --popover: oklch(0.205 0.014 150);
+  --popover: oklch(0.205 0.006 150);
   --popover-foreground: var(--foreground);
   --primary: oklch(0.68 0.18 151);
-  --primary-foreground: oklch(0.12 0.012 150);
-  --secondary: oklch(0.235 0.016 150);
+  --primary-foreground: oklch(0.12 0.004 150);
+  --secondary: oklch(0.235 0.006 150);
   --secondary-foreground: var(--foreground);
-  --muted: oklch(0.225 0.012 150);
-  --muted-foreground: oklch(0.68 0.012 150);
-  --accent: oklch(0.28 0.06 151);
-  --accent-foreground: oklch(0.9 0.025 151);
-  --border: oklch(0.32 0.014 150);
-  --input: oklch(0.3 0.014 150);
+  --muted: oklch(0.225 0.005 150);
+  --muted-foreground: oklch(0.68 0.005 150);
+  --accent: oklch(0.28 0.03 151);
+  --accent-foreground: oklch(0.9 0.015 151);
+  --border: oklch(0.32 0.006 150);
+  --input: oklch(0.3 0.006 150);
   --ring: oklch(0.68 0.18 151);
   --shadow-overlay: 0 20px 60px oklch(0 0 0 / 0.3);
   color-scheme: dark;
@@ -111,8 +112,8 @@
 .marketing-header {
   background: linear-gradient(
     to bottom,
-    oklch(0.08 0.012 150 / 0.58) 0%,
-    oklch(0.08 0.012 150 / 0.28) 52%,
+    oklch(0.08 0.005 150 / 0.58) 0%,
+    oklch(0.08 0.005 150 / 0.28) 52%,
     transparent 100%
   );
   backdrop-filter: blur(14px);
@@ -161,8 +162,8 @@
   overflow: hidden;
   border-radius: 1rem;
   border: 1px solid oklch(1 0 0 / 0.12);
-  background: oklch(0.145 0.012 150);
-  color: oklch(0.95 0.008 150);
+  background: oklch(0.145 0.005 150);
+  color: oklch(0.95 0.003 150);
 }
 .app-demo-editor.app-demo { border: 0; background: transparent; }
 .app-demo-schematic { min-height: 12rem; }
