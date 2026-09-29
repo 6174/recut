@@ -2,9 +2,9 @@
 [INPUT]: 平台注入的 RECUT_APP_FILES_DIR / RECUT_PYTHON；内置 modalapps/*（App 包内，只读）与用户 modalapps/*
           （--user-root，缺省 RECUT_APP_FILES_DIR，即 appstate）；<files>/modal/profiles.json（token profile 镜像）；
           --task-log 任务日志文件
-[OUTPUT]: status（token profile/连通性、内置+用户预设包的部署状态、volume 就绪度与 stale（预设包目录 hash 与
-          上次成功 deploy 记录不一致 → 代码已变更、需重新部署））、deploy（modal deploy 构建 Image 与函数，成功后把
-          目录 hash 记进 appstate/modal/deploy-state.json）、bootstrap（modal run 把权重写进 Volume）、invoke
+[OUTPUT]: status（token profile/连通性、内置+用户预设包的部署状态、volume 就绪度与 stale（预设包目录 hash ——
+          排除忽略名单（通用 modalapps/deploy-ignore.json + 预设包 manifest 的 deployIgnore）里的文件 ——
+          与上次成功 deploy 记录不一致 → 代码已变更、需重新部署））、deploy（modal deploy 构建 Image 与函数，成功后把目录 hash 记进 appstate/modal/deploy-state.json）、bootstrap（modal run 把权重写进 Volume）、invoke
           （Function.from_name(...).with_options(gpu=...).spawn(...) 调用并把产物拉回本机；后台 `modal app logs
           --follow` 把云端容器日志 tee 进任务日志，避免启动崩溃只剩心跳）、invoke --mock（加载预设包 mock.py，
           对本地 mock 服务跑通同一套产物链路，不部署/不访问 Modal/GPU）、teardown（modal app stop）、secret
@@ -21,6 +21,7 @@ import argparse
 import base64
 import builtins
 import datetime
+import fnmatch
 import hashlib
 import json
 import os
@@ -173,6 +174,50 @@ _HASH_SKIP_DIRS = {"__pycache__", ".git"}
 _HASH_SKIP_SUFFIXES = (".pyc", ".pyo")
 _HASH_SKIP_NAMES = {".DS_Store"}
 
+# 部署变更检测的忽略名单：这些文件不参与 `modal deploy`（manifest 只被本机 runner 读取，文档/mock/bench
+# 不上云），改它们不应把预设包标成 stale。分两层：通用名单（所有预设包共享）+ 预设包自带的 `deployIgnore`。
+_HASH_IGNORE_FILE = ("modalapps", "deploy-ignore.json")
+# 通用名单文件缺失/损坏时的兜底（保持最小集，避免误报「待部署」）。
+_HASH_IGNORE_FALLBACK = ("manifest.json", "*.md", "mock*.py", "bench*.py")
+
+
+def common_ignore() -> tuple:
+    """通用忽略名单：随 App 包发布的 `modalapps/deploy-ignore.json`（JSON 字符串数组），内置/用户预设包共享。"""
+    path = app_root().joinpath(*_HASH_IGNORE_FILE)
+    try:
+        patterns = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return _HASH_IGNORE_FALLBACK
+    if not isinstance(patterns, list):
+        return _HASH_IGNORE_FALLBACK
+    cleaned = tuple(str(pattern) for pattern in patterns if str(pattern).strip())
+    return cleaned or _HASH_IGNORE_FALLBACK
+
+
+def deploy_ignore(manifest: dict | None) -> tuple:
+    """通用名单 + manifest 声明的 `deployIgnore`（glob，相对预设包根或文件名）。"""
+    extra = tuple(str(pattern) for pattern in ((manifest or {}).get("deployIgnore") or []))
+    return common_ignore() + extra
+
+
+def matches_ignore(rel: Path, patterns: tuple) -> bool:
+    """`rel`（相对预设包根）是否命中忽略名单。
+
+    glob 命中相对路径或文件名（`mock*.py` 这类可匹配任意层级的文件名）；以 `/` 结尾的 pattern 按目录名匹配
+    （`output/` 命中任意层级的 output 目录）。
+    """
+    if not patterns:
+        return False
+    posix = rel.as_posix()
+    for pattern in patterns:
+        if pattern.endswith("/"):
+            directory = pattern.rstrip("/")
+            if directory in rel.parts or posix.startswith(f"{directory}/"):
+                return True
+        elif fnmatch.fnmatch(posix, pattern) or fnmatch.fnmatch(rel.name, pattern):
+            return True
+    return False
+
 
 def source_path(modalapp: dict, user_root: Path) -> Path:
     """由归一 manifest 解析预设包源码目录的绝对路径（内置在 App 包内，用户在 appstate）。"""
@@ -180,18 +225,32 @@ def source_path(modalapp: dict, user_root: Path) -> Path:
     return base / str(modalapp.get("sourceDir") or "")
 
 
-def folder_hash(source: Path) -> str:
-    """整个预设包目录的确定性 sha256（相对路径 + 内容）；目录缺失返回空串。"""
+def source_ignore(modalapp: dict, user_root: Path) -> tuple:
+    """读取预设包 manifest 的忽略名单；缺 manifest 时退回默认名单。"""
+    try:
+        return deploy_ignore(manifest_at(source_path(modalapp, user_root)))
+    except (SystemExit, OSError, ValueError):
+        return deploy_ignore(None)
+
+
+def folder_hash(source: Path, ignore: tuple = ()) -> str:
+    """整个预设包目录的确定性 sha256（相对路径 + 内容）；目录缺失返回空串。
+
+    `ignore` 为 glob 列表（命中相对路径或文件名即跳过），用于把不参与部署的文件排除在变更检测之外。
+    """
     if not source.is_dir():
         return ""
     digest = hashlib.sha256()
     for path in sorted(p for p in source.rglob("*") if p.is_file()):
-        parts = path.relative_to(source).parts
+        rel = path.relative_to(source)
+        parts = rel.parts
         if any(part in _HASH_SKIP_DIRS for part in parts):
             continue
         if path.name in _HASH_SKIP_NAMES or path.suffix in _HASH_SKIP_SUFFIXES:
             continue
-        digest.update(path.relative_to(source).as_posix().encode("utf-8"))
+        if matches_ignore(rel, ignore):
+            continue
+        digest.update(rel.as_posix().encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
@@ -209,9 +268,9 @@ def load_deploy_state() -> dict:
         return {}
 
 
-def record_deploy(modalapp_id: str, source: Path) -> str:
-    """部署成功后记录当前目录 hash，供后续 status 判断代码是否变更。"""
-    digest = folder_hash(source)
+def record_deploy(modalapp_id: str, source: Path, ignore: tuple = ()) -> str:
+    """部署成功后记录当前目录 hash（按忽略名单），供后续 status 判断代码是否变更。"""
+    digest = folder_hash(source, ignore)
     state = load_deploy_state()
     state[modalapp_id] = {"deployHash": digest, "at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     path = deploy_state_file()
@@ -473,7 +532,7 @@ def cmd_status(args: argparse.Namespace) -> dict:
     for modalapp in all_modalapps(user_root):
         app_name = modalapp.get("appName") or modalapp["id"]
         deployed = app_name in names
-        current_hash = folder_hash(source_path(modalapp, user_root))
+        current_hash = folder_hash(source_path(modalapp, user_root), source_ignore(modalapp, user_root))
         recorded_hash = (deploy_state.get(modalapp["id"]) or {}).get("deployHash") or ""
         states[modalapp["id"]] = {
             "deployed": deployed,
@@ -501,7 +560,7 @@ def cmd_deploy(args: argparse.Namespace) -> dict:
     process = run_cli(["deploy", "modal_app.py"], cwd=str(source))
     if process.returncode != 0:
         raise SystemExit("modal deploy failed")
-    record_deploy(manifest["id"], source)
+    record_deploy(manifest["id"], source, deploy_ignore(manifest))
     print(f"[modal] {manifest['id']} 已部署。", flush=True)
     # 部署与权重合并：镜像部署成功后，若声明了权重卷，直接接着跑 bootstrap（幂等/断点续传）。
     weights = manifest.get("weights") or {}
@@ -568,7 +627,16 @@ def load_references(refs_path: str) -> list:
         if not path.is_file():
             print(f"[modal] 参考素材不存在，已跳过：{path}", flush=True)
             continue
-        out.append({"name": entry.get("name") or path.name, "mimeType": entry.get("mimeType") or "", "data": path.read_bytes()})
+        item = {"name": entry.get("name") or path.name, "mimeType": entry.get("mimeType") or "",
+                "data": path.read_bytes()}
+        # 角色/时序透传给 h3_contract：field 决定首/尾帧 keyframe 还是多模态 reference。
+        if entry.get("field"):
+            item["field"] = str(entry["field"])
+        if entry.get("startTimeSeconds") is not None:
+            item["startTimeSeconds"] = entry["startTimeSeconds"]
+        if entry.get("withAudio"):
+            item["withAudio"] = True
+        out.append(item)
     return out
 
 

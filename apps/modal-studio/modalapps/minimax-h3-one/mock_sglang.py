@@ -23,7 +23,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from h3_contract import (MAX_SECONDS, MIN_SECONDS, MODEL_NAME, VALID_TASKS, build_video_body,
-                         submit_video)
+                         submit_video, task_for_conditions, write_reference_conditions)
 
 # 1s / 64x64 / 8fps 的黑色 mp4（含静音 AAC 轨），仅用于本地链路验证。
 _TINY_MP4 = base64.b64decode(
@@ -89,6 +89,23 @@ def validate(body) -> str | None:
             frames.append(condition.get("frame_index"))
         if frames not in ([0], [-1], [0, -1]):
             return f"fl2va unsupported frame_index set {frames}; supported: [0], [-1], [0, -1]"
+    if task == "ref2va":
+        references = [c for c in conditions if isinstance(c, dict) and c.get("role") == "reference"]
+        if not references:
+            return "ref2va requires at least one condition with role 'reference'"
+        for condition in conditions:
+            if not isinstance(condition, dict) or condition.get("role") not in ("reference", "keyframe"):
+                return "ref2va conditions must be references (or hybrid keyframes)"
+            if condition.get("role") == "keyframe":
+                continue
+            if condition.get("type") not in ("image", "video", "video_audio", "audio"):
+                return f"unsupported reference type {condition.get('type')!r}"
+            uri = str(condition.get("uri") or "")
+            if not uri.startswith("file://") or not Path(uri[7:]).is_file():
+                return f"ref2va reference not readable: {uri or '<empty>'}"
+            start = condition.get("start_time_seconds")
+            if start is not None and (isinstance(start, bool) or not isinstance(start, (int, float)) or start < 0):
+                return "start_time_seconds must be a non-negative number"
     return None
 
 
@@ -208,6 +225,46 @@ def run_selftest() -> int:
         assert_mp4(submit_video(base, body, log=None))
 
     check("fl2va 端到端返回 mp4", fl2va_ok)
+
+    def typed_conditions():
+        import tempfile
+        directory = Path(tempfile.mkdtemp())
+        refs = [
+            {"field": "firstFrame", "name": "a.png", "mimeType": "image/png", "data": _TINY_PNG},
+            {"field": "lastFrame", "name": "b.png", "mimeType": "image/png", "data": _TINY_PNG},
+            {"field": "referenceAudios", "name": "c.mp3", "mimeType": "audio/mpeg", "data": _TINY_PNG},
+        ]
+        conditions = write_reference_conditions(refs, str(directory / "refs"))
+        assert conditions[0]["role"] == "keyframe" and conditions[0]["frame_index"] == 0, conditions
+        assert conditions[1]["role"] == "keyframe" and conditions[1]["frame_index"] == -1, conditions
+        assert conditions[2]["role"] == "reference" and conditions[2]["type"] == "audio", conditions
+        assert task_for_conditions(conditions) == "ref2va", conditions
+
+    check("field → 条件角色/类型映射", typed_conditions)
+
+    def ref2va_ok():
+        import tempfile
+        directory = Path(tempfile.mkdtemp())
+        image = directory / "ref.png"
+        image.write_bytes(_TINY_PNG)
+        conditions = [{"type": "image", "uri": image.as_uri(), "role": "reference"}]
+        body = build_video_body("use <Picture 1>", aspect_ratio="auto", duration_sec=5, steps=4, seed=3, conditions=conditions)
+        assert body["task"] == "ref2va", body["task"]
+        assert_mp4(submit_video(base, body, log=None))
+
+    check("ref2va 端到端返回 mp4", ref2va_ok)
+
+    def ref2va_missing_reference():
+        body = build_video_body("x", duration_sec=5, steps=4, seed=1)
+        body["task"] = "ref2va"
+        try:
+            submit_video(base, body, log=None)
+        except RuntimeError as error:
+            assert "ref2va requires at least one" in str(error), str(error)
+            return
+        raise AssertionError("expected 400 for ref2va without references")
+
+    check("ref2va 无参考被拒", ref2va_missing_reference)
 
     def rejects(field, mutate, needle):
         body = build_video_body("x", duration_sec=5, steps=4, seed=1)

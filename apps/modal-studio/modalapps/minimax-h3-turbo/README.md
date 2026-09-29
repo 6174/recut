@@ -1,6 +1,8 @@
 # MiniMax-H3 极速版（Turbo 离线合并 + GPU 快照）
 
-[MiniMax-H3](https://github.com/MiniMax-AI/MiniMax-H3) 的全模态音视频生成（文本/关键帧 → 带原生立体声的视频，4–15 秒、768p、24 FPS）。本预设包是**时延优先的极速分支**，与多卡 `minimax-h3`、单卡 `minimax-h3-one` **并列、三选一**，复用同一份权重卷。
+[MiniMax-H3](https://github.com/MiniMax-AI/MiniMax-H3) 的全模态音视频生成（文本/关键帧/多模态参考 → 带原生立体声的视频，4–15 秒、768p、24 FPS）。本预设包是**时延优先的极速分支**，与多卡 `minimax-h3`、单卡 `minimax-h3-one` **并列、三选一**，复用同一份权重卷。
+
+同样提供三个函数：`H3Turbo`（`--model-variant fl2va`）服务**文生视频（t2va）/ 首尾帧生视频（fl2va）**并叠加 Turbo 少步 LoRA；`H3TurboRef`（`--model-variant ref2va`）服务**参考生视频（ref2va，图像/视频/音频）**，**不套 Turbo LoRA**（该 LoRA 只训练于 FL2VA 分区），走官方 Ref2VA 权重与 base 步数。
 
 它把「少步蒸馏 + 合成量化驻留 + 快注意力（可选）+ GPU 快照」叠在一起，且**少步 LoRA 是在 bootstrap 里离线合并进权重的**（不是运行期 LoRA）。
 
@@ -71,7 +73,7 @@ sglang serve --model-path /models/MiniMax-H3 --model-variant fl2va \
 
 | 卷 | 挂载 | 内容 | 步骤 |
 |---|---|---|---|
-| `recut-minimax-h3-models` | `/models` | FL2VA 原始权重（**与 minimax-h3/-one 共用，只读**） | `bootstrap_weights`（见标记即短路） |
+| `recut-minimax-h3-models` | `/models` | FL2VA + Ref2VA 原始权重（**与 minimax-h3/-one 共用，只读**） | `bootstrap_weights`（见标记即短路） |
 | `recut-minimax-h3-turbo-adapters` | `/adapters` | Turbo LoRA（780MB） | `bootstrap_adapters` |
 | `recut-minimax-h3-turbo-merged` | `/merged` | **离线合并后的 transformer（≈62GB）** | `bootstrap_merge` |
 | `recut-minimax-h3-turbo-out` | `/out` | 产物中转 | — |
@@ -125,4 +127,5 @@ modal run apps/modal-studio/modalapps/minimax-h3-turbo/bench.py --gpu H200 --run
 - **步数**：作者建议 4–8 次去噪（请求网格 5–9）；超过 8 次去噪收益消失甚至过锐。表单默认 9。
 - Cache-DiT（`quality:"high"`）官方 fail-closed 到 4×H200 特定 workload，本包单卡档**不可用**。
 - **画质抽检待补**：本轮只验证了「能否跑通 + 时延/显存」，合并版相对运行期 LoRA 的画质差异尚未逐帧比对。
+- **参考生视频（ref2va）不套 Turbo**：Turbo LoRA 只训练于 FL2VA 分区，`H3TurboRef` 用官方 Ref2VA 权重与 base 步数（默认 50），因此参考生视频没有 Turbo 的少步加速；要求至少 1 个参考素材，上限图 ≤9、视频 ≤3、音频 ≤3。
 - 近似注意力后端默认关闭；启用后输出**非**一致性基准，需在目标负载上抽检视频**与音频**。

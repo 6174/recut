@@ -4,7 +4,7 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 
 ## 何时使用
 
-- 用户**本机没有 GPU**，但想跑开源图片/视频模型（内置：SD-Turbo 文生图/图生图、Qwen-Image-2.1 文生图/图像编辑（原生 2K）、MiniMax-H3 文生视频（带原生音频）/首尾帧生视频）。
+- 用户**本机没有 GPU**，但想跑开源图片/视频模型（内置：SD-Turbo 文生图/图生图、Qwen-Image-2.1 图像编辑/文生图（原生 2K）、MiniMax-H3 文生视频（带原生音频）/首尾帧生视频/**参考生视频（图像/视频/音频多模态参考）**）。
 - 需要查看有哪些预设包/函数、是否已部署、权重是否就绪，或需要部署、下载权重、调用云端函数。
 - **用户/Agent 想新建一个自己的 modalapp**（见「创建一个新 modalapp」）。
 
@@ -79,9 +79,9 @@ modal.save { id, kind }               # 入库
 modal.modalapp.remove { id }          # 删除用户预设包（内置不可删）
 ```
 
-> 改完 `manifest.json`/`modal_app.py` 后需重新 `modal.deploy` 才生效；改 `bootstrap.py` 后重新 `modal.install`。
+> 改完 `modal_app.py`（或它部署进容器的模块，如 `h3_contract.py`）后需重新 `modal.deploy` 才生效；改 `bootstrap.py` 后重新 `modal.install`。
 >
-> **代码变更检测**：`modal.deploy` 成功后把预设包目录 hash 记进 appstate；之后 `modal.status` / `modal.catalog` 的 `stale: true` 表示目录已变、需重新部署。界面常驻一个「重新部署」入口（deploy 自带 bootstrap，权重一并刷新），用户可手动更新。**但 `modal.generate` 不会自动重部署**，Agent 应在代码变更后（`stale` 为真时）主动补一次 `modal.deploy`。权重不做 hash 跟踪，`bootstrap.py` 自身跳过已下载文件。
+> **代码变更检测（两层忽略名单）**：`modal.deploy` 成功后把预设包目录 hash 记进 appstate；之后 `modal.status` / `modal.catalog` 的 `stale: true` 表示目录已变、需重新部署。目录 hash **排除**不进部署的文件，名单分两层：① **通用名单** `modalapps/deploy-ignore.json`（随 App 发布，内置/用户预设包共享，覆盖文档与生成物 `manifest.json`/`*.md`/`index.json`、本地 `mock*.py`/`bench*.py`、运行产物 `*.log`/`output/`/`samples/`、开发测试目录 `test*/`/`*.ipynb`/`.venv/`/`node_modules/` 等，`xxx/` 形式按目录名匹配）；② **预设包自带**：在 manifest 里用 `deployIgnore: ["<glob>", ...]` 追加自己的规则，叠加在通用名单之上。因此改 manifest/文档/mock 不会误报「待部署」，个别预设包的噪声文件也不用改通用名单。界面常驻一个「重新部署」入口（deploy 自带 bootstrap，权重一并刷新），用户可手动更新。**但 `modal.generate` 不会自动重部署**，Agent 应在参与部署的代码变更后（`stale` 为真时）主动补一次 `modal.deploy`。权重不做 hash 跟踪，`bootstrap.py` 自身跳过已下载文件。
 
 ## 成本纪律（重要）
 
@@ -90,8 +90,9 @@ modal.modalapp.remove { id }          # 删除用户预设包（内置不可删�
 
 ## 平台集成（已接入）
 
-- 本 App 在 manifest `contributes.media` 声明 provider `modal-cloud`（`protocol:"local"`）；**每个声明 `expose: { model, function }` 的 modalapp 注册为一个平台模型 `modal-cloud/<model>`**（图片与视频都注册）。
+- 本 App 在 manifest `contributes.media` 声明 provider `modal-cloud`（`protocol:"local"`）；**每个声明 `expose: { model, function }` 的 modalapp 注册为一个平台模型 `modal-cloud/<model>`**（图片与视频都注册）。内置的 MiniMax-H3 与 Qwen-Image 都把 **`expose.function` 指向「可锚定参考」的函数**（参考生视频 / 图像编辑），并在函数上声明 `referenceFields`/`referenceBudgets`——平台据此把模型识别为参考型并校验参考数量上限；`inputModes` 由 media 字段类型汇总（image/video/audio）。
 - 平台「生图/生视频默认路由」可指向 `modal-cloud/<model>`；生成经通用执行桥组装 `{ model, prompt, params, referenceAssetIds }` 调 `modal.generate`（`resolveTarget` 按 `expose.model` 解析 modalapp + `expose.function`），终态经 `modal.task.get` 观察，产物 `modal.save` 入库。
+- **参考可选，无参考自动回退文生**：平台路由不带 `referenceAssetIds` 时，`resolveTarget` 会把 `expose.function`（参考型）自动换成同输出类型的纯文生函数（`text-to-*`）；带参考才走参考函数。因此模型的 `referenceBudgets` 只声明上限、**不能声明 `images>=1` 这类下限**（否则平台会在提交前拒绝纯文本请求，回退永远走不到）。
 - **就绪是动态的**：`modal.catalog.models[]` 上报 `ready`，**只有 `deployed && volumeReady` 才为真**；未就绪时平台路由提交给出引导错误（先部署/下权重）。
 - 因此 `recut.media.list_capability_models` 会列出本 App 与其模型就绪度；平台路由与显式 `modal.*` 调用两条路径都可用。
 - **成本门**：经平台路由（`model` 入参）跳过 App 的 `confirmCost` 门（视频由平台 proposal 门兜底）；直接 `modal.generate` 仍须 `confirmCost: true`。

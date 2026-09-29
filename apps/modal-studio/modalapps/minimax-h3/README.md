@@ -2,10 +2,13 @@
 
 [MiniMax-H3](https://github.com/MiniMax-AI/MiniMax-H3) 是 MiniMax 的**全模态（omni-modal）音视频生成系统**：从文本、关键帧或参考素材生成带原生立体声的视频，支持 4–15 秒、768p（短边 768）、24 FPS、32 kHz 立体声。
 
-本预设包把 **H3-Base（FL2VA 检查点）** 用 [SGLang](https://docs.sglang.io/cookbook/diffusion/MiniMax/MiniMax-H3) 托管到 modal.com 的多卡 GPU 上，并暴露为两个函数：
+本预设包把 **H3-Base 的两个检查点分区（FL2VA / Ref2VA）** 用 [SGLang](https://docs.sglang.io/cookbook/diffusion/MiniMax/MiniMax-H3) 托管到 modal.com 的多卡 GPU 上，并暴露为三个函数：
 
-- **文生视频（t2va）**：纯文本提示词 → 视频 + 音频。
-- **首/尾帧生视频（fl2va）**：1–2 张关键帧（首帧/尾帧）→ 视频 + 音频。
+- **文生视频（t2va）**：纯文本提示词 → 视频 + 音频（FL2VA 分区）。
+- **首/尾帧生视频（fl2va）**：1–2 张关键帧（首帧/尾帧）→ 视频 + 音频（FL2VA 分区）。
+- **参考生视频（ref2va）**：图像 / 视频 / 音频多模态参考（可混首尾帧）→ 视频 + 音频（**Ref2VA 分区**）。
+
+> FL2VA 与 Ref2VA 是**两个独立的检查点分区**：一个 SGLang 进程只加载一个分区，故本包用两个并列 Modal 类（`H3` / `H3Ref`）分别托管；两个分区的权重都下载进同一个 `/models` 卷。
 
 ## 如何在 Modal 上运行
 
@@ -19,8 +22,8 @@ H3-Base 是一个 **33B 的 omni transformer**（DiT 约 61.7GB）+ Qwen3-VL-32B
    | `H100:4` | `--num-gpus 4 --tp-size 2 --ulysses-degree 2` | 官方 h100-resident-4 |
    | `B200:4` | `--num-gpus 4 --ulysses-degree 4 --use-fsdp-inference true` | 官方 b200-fsdp-4 |
    | `B200:8` | `--num-gpus 8 --ulysses-degree 8` | 官方 b200-resident-8 |
-3. **调用**：容器内的 `generate_video` 把表单参数组装成 SGLang `POST /v1/videos` 请求（`task=t2va|fl2va`、`target.short_edge=768`、`quality=lossless`、`num_inference_steps`、`flow_shift=12.0`、`audio_flow_shift=3.0`），取回 mp4 写入 `/out` 卷并返回 `{kind:"file"}`。对本机 runner 仍是 `Function.from_name(...).with_options(gpu=...).remote(...)`——**无需 HTTP endpoint**。
-4. **权重（只在 bootstrap 下进 Volume）**：FL2VA 检查点（`model_index.json` + `FL2VA/**`，约 134GB）**只由 `bootstrap.py` 下载进 `/models` 卷**；`modal.deploy` 只构建镜像、`generate` 只读卷，都不联网拉权重。因为太大，下载用**逐文件 HTTP Range 断点续传**（`.part` 留在卷里），并**每 10 分钟 `volume.commit()`**，容器超时/中断后重跑 `modal.install` 即从断点继续；全部文件校验通过才写完成标记。**标记存在时 `bootstrap_weights` 直接短路返回（不联网、不需要 token）**——已下载过就不会重复准备。
+3. **调用**：容器内的 `generate_video` 把表单参数组装成 SGLang `POST /v1/videos` 请求（`task=t2va|fl2va|ref2va`、`target.short_edge=768`、`quality=lossless`、`num_inference_steps`、`flow_shift=12.0`、`audio_flow_shift=3.0`），取回 mp4 写入 `/out` 卷并返回 `{kind:"file"}`。对本机 runner 仍是 `Function.from_name(...).with_options(gpu=...).remote(...)`——**无需 HTTP endpoint**。
+4. **权重（只在 bootstrap 下进 Volume）**：两个分区的检查点（`model_index.json` + `FL2VA/**` + `Ref2VA/**`，共约 270GB）**只由 `bootstrap.py` 下载进 `/models` 卷**；`modal.deploy` 只构建镜像、`generate` 只读卷，都不联网拉权重。因为太大，下载用**逐文件 HTTP Range 断点续传**（`.part` 留在卷里），并**每 10 分钟 `volume.commit()`**，容器超时/中断后重跑 `modal.install` 即从断点继续；全部文件校验通过才写完成标记。**标记存在时 `bootstrap_weights` 直接短路返回（不联网、不需要 token）**——已下载过就不会重复准备。
 
 ## 前置条件（重要）
 
@@ -62,5 +65,5 @@ python python/modal_runner.py invoke \
 ## 已知边界
 
 - **不含 H3-Context-IR / H3-Regenerate-2K**：官方未开源这两个模块（提示词增强与 2K 重生成）。本预设包输出 768p；提示词建议直接给出结构化的 `integrated_multimodal_description / overall_soundscape / non_diegetic_music`（见上游 Prompting Guidance），否则质量会低于官方 API。
-- **仅 FL2VA 检查点**：暂不支持 Ref2VA（多模态参考）。
-- **冷启动较慢**：每次冷启动需从卷加载约 134GB 权重；`max_containers=1` 避免重复加载。
+- **参考（Ref2VA）走独立分区**：`reference-to-video` 用官方 Ref2VA 权重与 `--model-variant ref2va` 单独服务，要求至少 1 个参考素材；参数上限：图 ≤9、视频 ≤3、音频 ≤3（视频/音频每段 2–15s）。
+- **冷启动较慢**：每次冷启动需从卷加载对应分区约 134GB 权重（两分区共约 270GB，bootstrap 只下一次并共用卷）；`max_containers=1` 避免重复加载。

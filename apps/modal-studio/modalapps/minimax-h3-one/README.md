@@ -1,6 +1,8 @@
 # MiniMax-H3 单卡（GPU 快照）
 
-[MiniMax-H3](https://github.com/MiniMax-AI/MiniMax-H3) 的全模态音视频生成（文本/关键帧 → 带原生立体声的视频，4–15 秒、768p、24 FPS）。本预设包是 **多卡 `minimax-h3` 的单卡分支**，用 1 张 GPU 跑，换来两件事：
+[MiniMax-H3](https://github.com/MiniMax-AI/MiniMax-H3) 的全模态音视频生成（文本/关键帧/多模态参考 → 带原生立体声的视频，4–15 秒、768p、24 FPS）。本预设包是 **多卡 `minimax-h3` 的单卡分支**，用 1 张 GPU 跑，换来两件事：
+
+与 `minimax-h3` 一样提供三个函数，并各用一个 Modal 类托管对应检查点分区：**文生视频（t2va）/ 首尾帧生视频（fl2va）** 走 `--model-variant fl2va`（类 `H3One`），**参考生视频（ref2va，图像/视频/音频）** 走 `--model-variant ref2va`（类 `H3OneRef`）。两个分区权重都从同一个共享卷读取。
 
 1. **单价大幅下降**：默认 RTX PRO 6000 ≈ $3.03/h vs H200×4 ≈ $18/h（Modal 计价）。
 2. **GPU 冷启动缓存**：单卡才能用 Modal 的 GPU memory snapshot；把 sglang 子进程整棵进程树（含 CUDA 状态）冻进快照，冷启动从快照恢复、不再每次重读 134GB 权重。
@@ -37,7 +39,7 @@ sglang serve --model-path /models/MiniMax-H3 --model-variant fl2va \
 
 ## 权重卷与 minimax-h3 共用
 
-本包挂载 **同一个** `recut-minimax-h3-models` 卷，权重只下载一次（`bootstrap_weights` 见到完成标记直接短路）。产物写到自己的 `recut-minimax-h3-one-out` 卷。
+本包挂载 **同一个** `recut-minimax-h3-models` 卷，FL2VA + Ref2VA 权重只下载一次（`bootstrap_weights` 见到完成标记直接短路）。产物写到自己的 `recut-minimax-h3-one-out` 卷。
 
 ## GPU 快照
 
@@ -55,5 +57,6 @@ sglang serve --model-path /models/MiniMax-H3 --model-variant fl2va \
 ## 已知边界
 
 - 单卡只能跑单节点单 GPU；输出 768p；不含官方未开源的 H3-Context-IR / H3-Regenerate-2K。
+- **参考生视频（ref2va）走独立分区**：`H3OneRef` 用 `--model-variant ref2va` 单独服务（另一个快照档），要求至少 1 个参考素材；上限图 ≤9、视频 ≤3、音频 ≤3。
 - 在线 FP8 是近似模式，画质/音频请在目标负载上抽检。
 - 时延远高于多卡 `minimax-h3`。

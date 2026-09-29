@@ -1,8 +1,9 @@
 """
-[INPUT]: 仅标准库（base64/json/random/time/urllib/pathlib）；H3 表单参数与参考帧 bytes
-[OUTPUT]: H3 与 SGLang /v1/videos 之间的纯契约：build_video_body（组请求体，含种子归一与类型归一）、
-          write_reference_conditions（参考帧落盘并返回 file:// 条件）、submit_video（POST→轮询→
-          下载 content 的异步视频协议，兼容直接返回字节/内联 b64/url 的旧实现）
+[INPUT]: 仅标准库（base64/json/random/time/urllib/pathlib）；H3 表单参数与参考素材 bytes（带 field 角色标记）
+[OUTPUT]: H3 与 SGLang /v1/videos 之间的纯契约：build_video_body（按参考角色推断 task：t2va/fl2va/ref2va，组请求体，
+          含种子归一与类型归一）、write_reference_conditions（按 field/mimeType 把参考素材落盘为 file:// 条件：
+          首/尾帧 role=keyframe + frame_index，其余 role=reference，图像/视频/音频按类型声明）、
+          submit_video（POST→轮询→下载 content 的异步视频协议，兼容直接返回字节/内联 b64/url 的旧实现）
 [POS]: minimax-h3 / minimax-h3-one 两个预设包共享的契约层（本副本与 minimax-h3/h3_contract.py 保持一致）；
        modal_app.py（云端容器）与 mock.py（本地 mock）共用，可用 mock_sglang.py 在没有 GPU/Modal 的情况下单测
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -23,6 +24,13 @@ VALID_TASKS = ("t2va", "fl2va", "ref2va")
 MIN_SECONDS = 4
 MAX_SECONDS = 15
 
+# 参考素材角色：keyframe 用于 FL2VA 的首/尾帧（frame_index 0=首帧、-1=尾帧）；
+# 其余落入 reference（Ref2VA 的多模态参考：图像/视频/音频）。
+KEYFRAME_FIELDS = {"firstFrame": 0, "lastFrame": -1}
+REFERENCE_KINDS = {"referenceImages": "image", "referenceVideos": "video", "referenceAudios": "audio"}
+# 参考视频可选：type=video（可无音轨）/ video_audio（必须有音轨）；表单字段用后者按需区分。
+_KIND_EXT = {"image": ".png", "video": ".mp4", "video_audio": ".mp4", "audio": ".mp3"}
+
 _COMPLETED = {"completed", "succeeded", "success", "done"}
 _FAILED = {"failed", "error", "canceled", "cancelled"}
 
@@ -38,15 +46,31 @@ def normalize_seed(seed) -> int:
     return value
 
 
+def task_for_conditions(conditions) -> str:
+    """从条件角色推断 task：含 reference → ref2va；含 keyframe → fl2va；否则 t2va。"""
+    roles = {str(condition.get("role") or "") for condition in (conditions or [])}
+    if "reference" in roles:
+        return "ref2va"
+    if "keyframe" in roles:
+        return "fl2va"
+    return "t2va"
+
+
 def build_video_body(prompt: str, *, aspect_ratio: str = "auto", duration_sec=5, steps: int = 50,
-                     seed=-1, conditions=None) -> dict:
-    """按 SGLang H3 契约组 /v1/videos 请求体（seconds 为整数秒、duration_seconds 为浮点秒）。"""
+                     seed=-1, conditions=None, task: str | None = None) -> dict:
+    """按 SGLang H3 契约组 /v1/videos 请求体（seconds 为整数秒、duration_seconds 为浮点秒）。
+
+    `task` 缺省时按 conditions 的角色推断（t2va/fl2va/ref2va），与 SGLang 的 task 语义一致。
+    """
     conditions = list(conditions or [])
+    resolved_task = task or task_for_conditions(conditions)
+    if resolved_task not in VALID_TASKS:
+        raise ValueError(f"task must be one of {list(VALID_TASKS)}, got {resolved_task!r}")
     return {
         "model": MODEL_NAME,
         "prompt": prompt,
         "seconds": int(duration_sec),
-        "task": "fl2va" if conditions else "t2va",
+        "task": resolved_task,
         "conditions": conditions,
         "target": {"short_edge": 768, "aspect_ratio": aspect_ratio or "auto",
                    "duration_seconds": float(duration_sec)},
@@ -59,19 +83,58 @@ def build_video_body(prompt: str, *, aspect_ratio: str = "auto", duration_sec=5,
     }
 
 
+def _ref_kind(ref: dict, field: str) -> str:
+    """参考素材类型：优先按表单字段（referenceImages/Videos/Audios），否则按 mimeType 推断。"""
+    if field in REFERENCE_KINDS:
+        return REFERENCE_KINDS[field]
+    mime = str(ref.get("mimeType") or "").lower()
+    if mime.startswith("video/"):
+        return "video_audio" if ref.get("withAudio") else "video"
+    if mime.startswith("audio/"):
+        return "audio"
+    return "image"
+
+
+def _suffix_for(ref: dict, kind: str, index: int) -> str:
+    suffix = Path(str(ref.get("name") or "")).suffix
+    return suffix or _KIND_EXT.get(kind, f".{index}")
+
+
 def write_reference_conditions(refs, ref_dir) -> list:
-    """把参考帧写到本地，返回 SGLang 可读的 file:// 条件列表（refs[0]=首帧，refs[1]=尾帧）。"""
+    """把参考素材写到本地，返回 SGLang 可读的 file:// 条件列表。
+
+    - `field` 为 firstFrame/lastFrame → `{type:image, role:keyframe, frame_index:0|-1}`（FL2VA）；
+    - 其余（referenceImages/Videos/Audios 或按 mimeType 推断）→ `{type:image|video|video_audio|audio, role:reference}`
+      （Ref2VA），参考视频可带 `startTimeSeconds`（默认 0）。
+    """
     conditions = []
     if not refs:
         return conditions
     target_dir = Path(ref_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
-    for index, ref in enumerate(refs[:2]):
-        suffix = Path(str(ref.get("name") or f"ref{index}.png")).suffix or ".png"
-        path = target_dir / f"ref{index}{suffix}"
-        path.write_bytes(ref["data"])
-        conditions.append({"type": "image", "uri": path.as_uri(), "role": "keyframe",
-                           "frame_index": 0 if index == 0 else -1})
+    for index, ref in enumerate(refs):
+        field = str(ref.get("field") or "")
+        data = ref.get("data")
+        if data is None:
+            continue
+        if field in KEYFRAME_FIELDS:
+            kind = "image"
+        else:
+            kind = _ref_kind(ref, field)
+        path = target_dir / f"ref{index}{_suffix_for(ref, kind, index)}"
+        path.write_bytes(bytes(data))
+        if field in KEYFRAME_FIELDS:
+            conditions.append({"type": "image", "uri": path.as_uri(), "role": "keyframe",
+                               "frame_index": KEYFRAME_FIELDS[field]})
+            continue
+        condition = {"type": kind, "uri": path.as_uri(), "role": "reference"}
+        start = ref.get("startTimeSeconds")
+        if kind in ("video", "video_audio") and start is not None:
+            try:
+                condition["start_time_seconds"] = max(0.0, float(start))
+            except (TypeError, ValueError):
+                pass
+        conditions.append(condition)
     return conditions
 
 

@@ -98,6 +98,7 @@ function normalizeManifest(manifest, origin, sourceRel) {
       invoke: f.invoke || { mode: "sdk" },
       output: f.output || { kind: "image", mimeType: "image/png", ext: "png" },
       formSchema: f.formSchema || [], defaultParams: f.defaultParams || {},
+      minReferences: f.minReferences || 0,
     })),
   };
 }
@@ -264,7 +265,7 @@ function buildCatalog(ctx) {
       weights: a.weights || {}, profileId: a.profileId || "",
       functions: (a.functions || []).map((f) => ({
         id: f.id, label: f.label || f.id, entrypoint: f.entrypoint, output: f.output || { kind: "image", mimeType: "image/png", ext: "png" },
-        formSchema: f.formSchema || [], defaultParams: f.defaultParams || {}
+        formSchema: f.formSchema || [], defaultParams: f.defaultParams || {}, minReferences: f.minReferences || 0
       }))
     };
   });
@@ -297,6 +298,27 @@ function coerceParams(fn, raw) {
     else out[field.key] = value;
   }
   return out;
+}
+
+// media 字段 → 带角色标记的参考素材列表。入参优先用按字段分组的 `references`（{field:[assetId]}，App UI 走这条）；
+// 平台执行桥只给扁平有序的 `referenceAssetIds`，此时单字段函数直接落到该字段，多字段函数留空由契约层按 mimeType 推断。
+function mediaFieldsOf(fn) { return ((fn && fn.formSchema) || []).filter((field) => field && field.type === "media"); }
+
+function collectReferences(fn, input) {
+  const fields = mediaFieldsOf(fn);
+  const grouped = (input.references && typeof input.references === "object") ? input.references : null;
+  const collected = [];
+  if (grouped) {
+    for (const field of fields) {
+      const ids = Array.isArray(grouped[field.key]) ? grouped[field.key] : (grouped[field.key] ? [grouped[field.key]] : []);
+      for (const assetId of ids) { if (assetId) collected.push({ assetId, field: field.key }); }
+    }
+    return collected;
+  }
+  const flat = Array.isArray(input.referenceAssetIds) ? input.referenceAssetIds : [];
+  const onlyField = fields.length === 1 ? fields[0].key : "";
+  for (const assetId of flat) { if (assetId) collected.push({ assetId, field: onlyField }); }
+  return collected;
 }
 
 // ---------------------- 任务账本 ----------------------
@@ -975,7 +997,15 @@ function resolveTarget(registry, input) {
   if (!model) return { modalapp: null, fn: null, platform: false };
   const app = (registry.modalapps || []).find((a) => a.expose && a.expose.model === model) || appDef(registry, model);
   if (!app) return { modalapp: null, fn: null, platform: true };
-  const fn = functionDef(app, (app.expose && app.expose.function) || "") || (app.functions || [])[0] || null;
+  let fn = functionDef(app, (app.expose && app.expose.function) || "") || (app.functions || [])[0] || null;
+  // 平台执行桥只按 model 路由、不分函数：若请求未带任何参考素材，而 expose.function 需要参考，
+  // 自动回退到同输出类型的纯文生函数（text-to-*），使「有参考走参考、无参考走文生」自动成立。
+  const hasReferences = Array.isArray(input.referenceAssetIds) && input.referenceAssetIds.length > 0;
+  if (fn && !hasReferences && Number(fn.minReferences || 0) > 0) {
+    const wanted = (fn.output && fn.output.kind) || "";
+    const fallback = (app.functions || []).find((candidate) => Number(candidate.minReferences || 0) === 0 && ((candidate.output && candidate.output.kind) || "") === wanted);
+    if (fallback) fn = fallback;
+  }
   return { modalapp: app, fn, platform: true };
 }
 
@@ -994,22 +1024,35 @@ function generate(input, ctx) {
   // 平台执行桥把提示词与表单参数分开传（prompt + params）；App 内调用则直接用 params/表单字段。
   const rawParams = (value(input, "prompt") && baseParams.prompt === undefined) ? { ...baseParams, prompt: value(input, "prompt") } : baseParams;
   const params = coerceParams(fn, rawParams);
-  const referenceIds = Array.isArray(input.referenceAssetIds) ? input.referenceAssetIds : [];
-  // media 字段不进 params，经 referenceAssetIds 传入，故单独按参考素材校验 required。
+  const collected = collectReferences(fn, input);
+  const refsByField = {};
+  for (const item of collected) refsByField[item.field] = (refsByField[item.field] || 0) + 1;
+  // media 字段不进 params，经按字段分组的参考素材传入，故单独按字段校验 required 与函数级 minReferences。
   for (const field of (fn.formSchema || [])) {
-    if (!field.required) continue;
+    if (!field || !field.required) continue;
     if (field.type === "media") {
-      if (!referenceIds.length) throw new Error(`${field.key} is required`);
+      if (!(refsByField[field.key] > 0)) throw new Error(`${field.key} is required`);
       continue;
     }
     if (params[field.key] === undefined || params[field.key] === "") throw new Error(`${field.key} is required`);
   }
+  const minReferences = Number(fn.minReferences || 0);
+  if (minReferences > 0 && collected.length < minReferences) {
+    throw new Error(tr(ctx, `该函数至少需要 ${minReferences} 个参考素材（图像/视频/音频）。`,
+      `This function needs at least ${minReferences} reference asset(s) (image/video/audio).`));
+  }
   const gpu = value(input, "gpuTier") || defaultGpuTierSetting(ctx) || defaultGpuTier(modalapp);
   const profileId = value(input, "profileId") || resolveProfileId(ctx, registry, modalapp);
   const refs = [];
-  for (const assetId of referenceIds) {
-    try { const materialized = ctx.media.materialize(assetId); refs.push({ path: materialized.path, name: materialized.name || assetId, mimeType: materialized.mimeType || "" }); }
-    catch (_) { /* skip missing reference */ }
+  const referenceIds = [];
+  for (const item of collected) {
+    try {
+      const materialized = ctx.media.materialize(item.assetId);
+      const ref = { path: materialized.path, name: materialized.name || item.assetId, mimeType: materialized.mimeType || "" };
+      if (item.field) ref.field = item.field;
+      refs.push(ref);
+      referenceIds.push(item.assetId);
+    } catch (_) { /* skip missing reference */ }
   }
   const id = outputID();
   const output = functionOutput(modalapp, fn);

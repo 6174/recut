@@ -2,7 +2,8 @@
 [INPUT]: modalapps/*/manifest.json（每个预设包的单一信息源）
 [OUTPUT]: 生成 python/registry.json（modalapps：engine/函数/表单/权重/expose/就绪兜底）与 modalapps/index.json
           （id 列表），并同步根 manifest.json 的 contributes.media.providers[0].models（每个声明 expose 的
-          modalapp → 一个平台模型，读取其 expose.function 的表单/权重）
+          modalapp → 一个平台模型，读取其 expose.function 的表单/权重；inputModes 按 media 字段类型汇总，
+          另产出 referenceFields 让平台识别「可锚定参考」的模型）
 [POS]: modal-studio 的注册表生成器；运行期只读生成物，人工不再手改 registry.json；构建内置归档前先跑
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 """
@@ -44,6 +45,7 @@ def registry_function(manifest: dict, function: dict) -> dict:
         "output": function.get("output") or {"kind": "image", "mimeType": "image/png", "ext": "png"},
         "formSchema": function.get("formSchema") or [],
         "defaultParams": function.get("defaultParams") or {},
+        "minReferences": function.get("minReferences") or 0,
     }
 
 
@@ -125,12 +127,26 @@ def form_parameters(form_schema: list) -> list:
 
 
 def input_modes(function: dict) -> list:
+    """按 media 字段声明收集输入模态：text + 各参考素材类型（image/video/audio）。"""
     modes = ["text"]
     for field in function.get("formSchema") or []:
-        if field.get("type") == "media" and (field.get("kind") or "image") == "image":
-            modes.append("image")
-            break
+        if field.get("type") != "media":
+            continue
+        mode = field.get("kind") or "image"
+        if mode not in modes:
+            modes.append(mode)
     return modes
+
+
+def reference_fields(function: dict) -> list:
+    """media 字段 → 平台 referenceFields（field/role/multiple），供平台识别「可锚定参考」的模型。"""
+    fields = []
+    for field in function.get("formSchema") or []:
+        if field.get("type") != "media" or not field.get("key"):
+            continue
+        fields.append({"field": field["key"], "role": field.get("kind") or "image",
+                       "multiple": bool(field.get("multiple"))})
+    return fields
 
 
 def contributed_model(manifest: dict) -> dict | None:
@@ -152,12 +168,16 @@ def contributed_model(manifest: dict) -> dict | None:
         "sizeGb": weights.get("sizeGb", 0),
         "inputModes": input_modes(function),
         "parameters": form_parameters(function.get("formSchema") or []),
+        "referenceFields": reference_fields(function),
         "weights": {
             "huggingFace": weights.get("repoHuggingFace", ""),
             "modelScope": weights.get("repoModelScope", ""),
             "revision": weights.get("revision", ""),
         },
     }
+    budgets = function.get("referenceBudgets") or []
+    if budgets:
+        model["referenceBudgets"] = budgets
     if isinstance(name, dict):
         model["localized"] = {loc: {"name": val} for loc, val in name.items() if val}
     return model

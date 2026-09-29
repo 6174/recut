@@ -1,11 +1,14 @@
 {
   "id": "minimax-h3-one",
   "name": {
-    "zh": "MiniMax-H3 单卡（GPU 快照）",
-    "en": "MiniMax-H3 single-GPU (GPU snapshot)"
+    "zh": "MiniMax-H3 单卡（文/首尾帧/参考，GPU 快照）",
+    "en": "MiniMax-H3 single-GPU (text/frames/reference)"
   },
   "capability": "video.generate",
-  "expose": { "model": "minimax-h3-one", "function": "text-to-video" },
+  "expose": {
+    "model": "minimax-h3-one",
+    "function": "reference-to-video"
+  },
   "engine": {
     "appName": "recut-minimax-h3-one",
     "sourceDir": "modalapps/minimax-h3-one",
@@ -105,10 +108,11 @@
     "repoHuggingFace": "MiniMaxAI/MiniMax-H3",
     "repoModelScope": "",
     "revision": "main",
-    "sizeGb": 135,
+    "sizeGb": 270,
     "files": [
       "model_index.json",
-      "FL2VA/**"
+      "FL2VA/**",
+      "Ref2VA/**"
     ]
   },
   "functions": [
@@ -224,14 +228,23 @@
           }
         },
         {
-          "key": "references",
+          "key": "firstFrame",
           "type": "media",
           "kind": "image",
-          "multiple": true,
-          "required": true,
+          "multiple": false,
           "label": {
-            "zh": "首帧 / 尾帧（1–2 张，按顺序）",
-            "en": "First / last frame (1–2 images, in order)"
+            "zh": "首帧（可选）",
+            "en": "First frame (optional)"
+          }
+        },
+        {
+          "key": "lastFrame",
+          "type": "media",
+          "kind": "image",
+          "multiple": false,
+          "label": {
+            "zh": "尾帧（可选）",
+            "en": "Last frame (optional)"
           }
         },
         {
@@ -269,7 +282,119 @@
       "defaultParams": {
         "durationSec": 5,
         "steps": 50
-      }
+      },
+      "minReferences": 1,
+      "referenceBudgets": [
+        {
+          "requirements": [
+            "images>=1"
+          ],
+          "maxImages": 2
+        }
+      ]
+    },
+    {
+      "id": "reference-to-video",
+      "name": {
+        "zh": "参考生视频（图像/视频/音频）",
+        "en": "Reference to video (image/video/audio)"
+      },
+      "entrypoint": "generate_video",
+      "minReferences": 1,
+      "invoke": {
+        "mode": "sdk",
+        "kind": "cls",
+        "cls": "H3OneRef",
+        "method": "generate_video"
+      },
+      "output": {
+        "kind": "video",
+        "mimeType": "video/mp4",
+        "ext": "mp4"
+      },
+      "formSchema": [
+        {
+          "key": "prompt",
+          "type": "textarea",
+          "required": true,
+          "label": {
+            "zh": "提示词（用 <Picture 1>/<Video 1>/<Audio 1> 引用素材）",
+            "en": "Prompt (reference materials as <Picture 1>/<Video 1>/<Audio 1>)"
+          }
+        },
+        {
+          "key": "referenceImages",
+          "type": "media",
+          "kind": "image",
+          "multiple": true,
+          "label": {
+            "zh": "参考图（最多 9 张，按顺序）",
+            "en": "Reference images (up to 9, in order)"
+          }
+        },
+        {
+          "key": "referenceVideos",
+          "type": "media",
+          "kind": "video",
+          "multiple": true,
+          "label": {
+            "zh": "参考视频（最多 3 段，每段 2–15s）",
+            "en": "Reference videos (up to 3, 2-15s each)"
+          }
+        },
+        {
+          "key": "referenceAudios",
+          "type": "media",
+          "kind": "audio",
+          "multiple": true,
+          "label": {
+            "zh": "参考音频（最多 3 段，每段 2–15s）",
+            "en": "Reference audios (up to 3, 2-15s each)"
+          }
+        },
+        {
+          "key": "durationSec",
+          "type": "number",
+          "default": 5,
+          "min": 4,
+          "max": 15,
+          "label": {
+            "zh": "时长（秒）",
+            "en": "Duration (s)"
+          }
+        },
+        {
+          "key": "steps",
+          "type": "number",
+          "default": 50,
+          "min": 10,
+          "max": 80,
+          "label": {
+            "zh": "步数",
+            "en": "Steps"
+          }
+        },
+        {
+          "key": "seed",
+          "type": "number",
+          "default": -1,
+          "label": {
+            "zh": "随机种子（-1 随机）",
+            "en": "Seed (-1 random)"
+          }
+        }
+      ],
+      "defaultParams": {
+        "durationSec": 5,
+        "steps": 50
+      },
+      "referenceBudgets": [
+        {
+          "maxImages": 9,
+          "maxVideos": 3,
+          "maxAudios": 3
+        }
+      ]
     }
   ]
 }

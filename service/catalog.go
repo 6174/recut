@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"recut-service/media"
 )
 
 const mediaSystemProjectID = "media-library"
@@ -143,6 +145,22 @@ type ContributedMediaModel struct {
 	OutputModes []string                         `json:"outputModes,omitempty"`
 	Parameters  []map[string]any                 `json:"parameters,omitempty"`
 	Weights     map[string]string                `json:"weights,omitempty"`
+	// ReferenceFields declares the reference roles the model's exposed function
+	// accepts (field/role/multiple), and ReferenceBudgets declares its count
+	// limits. Together with InputModes they let the platform recognize a
+	// reference-anchored model and enforce its reference constraints without
+	// per-App code.
+	ReferenceFields  []ContributedMediaReferenceField `json:"referenceFields,omitempty"`
+	ReferenceBudgets []media.ReferenceBudget          `json:"referenceBudgets,omitempty"`
+}
+
+// ContributedMediaReferenceField is one declared reference input of a
+// contributed model: which form field carries it, the media role it plays, and
+// whether it accepts multiple assets.
+type ContributedMediaReferenceField struct {
+	Field    string `json:"field"`
+	Role     string `json:"role"`
+	Multiple bool   `json:"multiple,omitempty"`
 }
 
 // AgentSurface declares only the host-level routing policy for an App. Skill

@@ -1,6 +1,6 @@
 """
 [INPUT]: modal_app.py 的 app/image/volumes 与 bootstrap_weights / bootstrap_adapters / bootstrap_merge；--source / --revision / --patterns
-[OUTPUT]: 在 Modal 云端准备三样：/models（复用/补下 MiniMax-H3 FL2VA 权重，与 minimax-h3 共用同一卷）、
+[OUTPUT]: 在 Modal 云端准备三样：/models（复用/补下 MiniMax-H3 FL2VA + Ref2VA 权重，与 minimax-h3 共用同一卷）、
           /adapters（下载 Turbo 少步 LoRA）、/merged（把 LoRA 离线合并进 transformer）；
           modal run bootstrap.py --source <s> [--patterns model_index.json]
 [POS]: minimax-h3-turbo 预设包的准备入口（modal.install / deploy 收尾调用）；H3 为 HF gated，需先 modal.secret.set 配置 token；

@@ -71,6 +71,9 @@ func mediaProviderFromContribution(contribution ContributedMediaProvider) media.
 			OutputModes:  append([]string(nil), model.OutputModes...),
 			Available:    true,
 			Configurable: false,
+			// 参考约束随 manifest 声明进入平台目录：平台据此识别「可锚定参考」的本地模型
+			// 并在提交前校验其参考数量（与云端 provider 的 referenceBudgets 同一套校验）。
+			ReferenceBudgets: append([]media.ReferenceBudget(nil), model.ReferenceBudgets...),
 		})
 	}
 	return media.MediaProvider{

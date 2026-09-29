@@ -1,0 +1,20 @@
+[
+  "manifest.json",
+  "*.md",
+  "index.json",
+  "registry.json",
+  "mock*.py",
+  "bench*.py",
+  "*.log",
+  "*.tmp",
+  ".DS_Store",
+  "output/",
+  "samples/",
+  "test/",
+  "tests/",
+  "test*.py",
+  "*.ipynb",
+  ".venv/",
+  "__pycache__/",
+  "node_modules/"
+]

@@ -1,11 +1,14 @@
 {
   "id": "qwen-image-2.1",
   "name": {
-    "zh": "Qwen-Image-2.1 文生图/编辑",
+    "zh": "Qwen-Image-2.1 文生图/参考生图",
     "en": "Qwen-Image-2.1 t2i/edit"
   },
   "capability": "image.generate",
-  "expose": { "model": "qwen-image", "function": "text-to-image" },
+  "expose": {
+    "model": "qwen-image",
+    "function": "image-edit"
+  },
   "engine": {
     "appName": "recut-qwen-image-21",
     "sourceDir": "modalapps/qwen-image-2.1",
@@ -284,7 +287,12 @@
       "defaultParams": {
         "steps": 40,
         "guidance": 1.0
-      }
+      },
+      "referenceBudgets": [
+        {
+          "maxImages": 10
+        }
+      ]
     }
   ]
 }

@@ -46,7 +46,7 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 | 运行 / 历史 / 入库 | `modal.generate` · `modal.generations` · `modal.generation.complete` · `modal.save` |
 | 任务中心 | `modal.tasks.list` · `modal.task.get` · `modal.task.logs` · `modal.task.cancel` · `modal.cancel` |
 
-> **已接入平台生图/生视频能力**：manifest `contributes.media` 声明 provider `modal-cloud`，每个声明 `expose` 的预设包注册为一个平台模型（`modal-cloud/<model>`，图片与视频都注册）。平台「生图/生视频默认路由」可指向它，生成经通用执行桥调用 `modal.generate`；**预设包未部署/权重未就绪时该模型 `ready=false`**（`modal.catalog.models[]` 动态上报，只有 `deployed && volumeReady` 才算就绪）。其余能力仍经本 App 的 api/mcp operation 直接暴露。
+> **已接入平台生图/生视频能力**：manifest `contributes.media` 声明 provider `modal-cloud`，每个声明 `expose` 的预设包注册为一个平台模型（`modal-cloud/<model>`，图片与视频都注册）。平台「生图/生视频默认路由」可指向它，生成经通用执行桥调用 `modal.generate`；**预设包未部署/权重未就绪时该模型 `ready=false`**（`modal.catalog.models[]` 动态上报，只有 `deployed && volumeReady` 才算就绪）。**纯文本请求（不带任何参考素材）会自动路由到该预设包的文生函数（`text-to-*`）；只有带参考时才走参考函数（参考生视频 / 图像编辑）**——参考是可选项（平台 budget 只设上限），因此「无参考走文生、有参考走参考」在平台默认路由下自动成立。其余能力仍经本 App 的 api/mcp operation 直接暴露。
 
 ## 预设包：内置 + 用户
 
@@ -68,6 +68,12 @@ modal.modalapp.remove { id }              # 删除用户预设包（内置不可
 用户 id 不可与内置撞名；改完需重新 `modal.deploy`（改 `bootstrap.py` 需重新 `modal.install`）。
 
 **代码变更检测**：`modal.deploy` 成功后会记录预设包目录的 sha256 到 appstate `modal/deploy-state.json`；`modal.status` / `modal.catalog` 现场重算目录 hash，不一致即返回 `stale: true`（至少调用一次 deploy 后才会进入可信状态）。因此 App 升级或用户编辑 `modal_app.py` 后，界面会提示「需重新部署」，并常驻「重新部署」手动入口（deploy 自带 bootstrap，权重会一并刷新）。权重不做 hash 跟踪：`bootstrap.py` 自身跳过已下载文件，deploy 后的权重准备可安全重跑。
+
+目录 hash 有两层**忽略名单**（不参与 `modal deploy` 的文件不计入变更检测）：
+- **通用名单** `modalapps/deploy-ignore.json`（随 App 发布，内置与用户预设包共享）：文档与生成物（`manifest.json`、`*.md`、`index.json`）、本地 mock/压测（`mock*.py`、`bench*.py`）、运行产物（`*.log`、`*.tmp`、`output/`、`samples/`）、开发测试目录（`test/`、`tests/`、`test*.py`、`*.ipynb`、`.venv/`、`node_modules/`）；`xxx/` 形式按目录名匹配，其余为 glob（命中相对路径或文件名）。
+- **预设包自带**：在该包 manifest 里用 `deployIgnore: ["<glob>", ...]` 追加自己的规则，叠加在通用名单之上。
+
+因此改 manifest/文档/mock 不会误报「待部署」；个别预设包的噪声文件也无需改通用名单。
 
 ## 内置预设包
 

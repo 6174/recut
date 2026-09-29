@@ -1,9 +1,10 @@
 """
 [INPUT]: Modal 运行时（modal.Image from lmsysorg/sglang:dev、modal.Volume、modal.Secret recut-hf-token）；
-          h3_contract（请求构造与 SGLang 异步视频协议）；/models 卷里由 bootstrap.py 下载的 MiniMax-H3 FL2VA 权重
-[OUTPUT]: 云端 Modal App「recut-minimax-h3」：在容器内托管一个 SGLang 常驻服务（按探测到的 GPU 选已验证 recipe），
-          generate_video 把表单参数 + 参考帧组装成 SGLang /v1/videos 请求（经 h3_contract），取回 mp4 写入 /out 卷
-          并返回 file 结果；bootstrap_weights 用 HF token 把 FL2VA 权重下载进 /models 卷
+          h3_contract（请求构造与 SGLang 异步视频协议）；/models 卷里由 bootstrap.py 下载的 MiniMax-H3 权重（FL2VA + Ref2VA 分区）
+[OUTPUT]: 云端 Modal App「recut-minimax-h3」：两个并列 Modal 类各自托管一个 SGLang 常驻服务——H3（--model-variant fl2va，
+          服务 t2va/fl2va）与 H3Ref（--model-variant ref2va，服务多模态参考 ref2va），按探测到的 GPU 选已验证 recipe。
+          generate_video 把表单参数 + 参考素材组装成 SGLang /v1/videos 请求（经 h3_contract），取回 mp4 写入 /out 卷
+          并返回 file 结果；bootstrap_weights 用 HF token 把 FL2VA + Ref2VA 权重下载进 /models 卷
 [POS]: minimax-h3 预设包的云端执行体；把「多卡 SGLang 服务」封进一个 Modal Function，对本机 runner 仍是
        Function.from_name(...).with_options(gpu=...).remote(...)，无需 HTTP endpoint。请求契约与本地 mock
        （mock.py/mock_sglang.py）共用 h3_contract，保证「本地跑通＝云端同一套逻辑」
@@ -38,9 +39,10 @@ OUT_VOLUME = "recut-minimax-h3-out"
 MODELS_DIR = "/models"
 OUT_DIR = "/out"
 MODEL_SUBDIR = "MiniMax-H3"
-MODEL_VARIANT = "fl2va"
+MODEL_VARIANT = "fl2va"  # FL2VA 分区：服务 t2va/fl2va
+REF_VARIANT = "ref2va"  # Ref2VA 分区：服务 ref2va（多模态参考）
 PORT = 30010
-MARKER = ".recut-download-complete"
+MARKER = ".recut-download-complete-v2"  # v2 = 增加 Ref2VA 分区；旧卷（仅有 v1 标记）会自动补下
 REF_DIR = "/tmp/h3-refs"
 
 app = modal.App(APP_NAME)
@@ -75,13 +77,13 @@ bootstrap_image = (
 # ---------------------- SGLang 常驻服务（容器内） ----------------------
 
 
-def _server_flags() -> list[str]:
-    """按探测到的 GPU 型号/数量选择 SGLang 已验证 recipe（单节点）。"""
+def _server_flags(variant: str = MODEL_VARIANT) -> list[str]:
+    """按探测到的 GPU 型号/数量选择 SGLang 已验证 recipe（单节点）；`variant` 选 FL2VA 或 Ref2VA 分区。"""
     import torch
 
     count = torch.cuda.device_count()
     name = torch.cuda.get_device_name(0).upper()
-    flags = ["--model-path", f"{MODELS_DIR}/{MODEL_SUBDIR}", "--model-variant", MODEL_VARIANT,
+    flags = ["--model-path", f"{MODELS_DIR}/{MODEL_SUBDIR}", "--model-variant", variant,
              "--host", "127.0.0.1", "--port", str(PORT)]
     if "B200" in name or "B300" in name:
         if count >= 8:
@@ -99,7 +101,7 @@ def _server_flags() -> list[str]:
     return flags
 
 
-_SERVER: dict = {"proc": None}
+_SERVER: dict = {"proc": None, "variant": None}
 _LOCK = threading.Lock()
 
 
@@ -115,20 +117,30 @@ def _healthy() -> bool:
     return False
 
 
-def _ensure_server() -> None:
-    """幂等：复用本容器内已在监听的 SGLang 服务；否则启动并等待就绪。"""
+def _ensure_server(variant: str = MODEL_VARIANT) -> None:
+    """幂等：复用本容器内已在监听且**分区一致**的 SGLang 服务；否则启动并等待就绪。
+
+    分区不同（fl2va ↔ ref2va）时不能复用，因为一个 SGLang 进程只加载一个 checkpoint 分区。
+    """
     proc = _SERVER.get("proc")
-    if proc is not None and proc.poll() is None and _healthy():
+    if proc is not None and proc.poll() is None and _SERVER.get("variant") == variant and _healthy():
         return
     with _LOCK:
         proc = _SERVER.get("proc")
-        if proc is not None and proc.poll() is None and _healthy():
+        if proc is not None and proc.poll() is None and _SERVER.get("variant") == variant and _healthy():
             return
-        command = ["sglang", "serve", *_server_flags()]
-        print("[modal] 启动 SGLang 服务：" + " ".join(command), flush=True)
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        command = ["sglang", "serve", *_server_flags(variant)]
+        print(f"[modal] 启动 SGLang 服务（variant={variant}）：" + " ".join(command), flush=True)
         env = {**os.environ, "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True", "PYTHONUNBUFFERED": "1"}
         proc = subprocess.Popen(command, stdout=sys.stdout, stderr=subprocess.STDOUT, env=env)
         _SERVER["proc"] = proc
+        _SERVER["variant"] = variant
         deadline = time.time() + 3000
         while time.time() < deadline:
             if proc.poll() is not None:
@@ -140,13 +152,37 @@ def _ensure_server() -> None:
         raise RuntimeError("SGLang 服务启动超时")
 
 
+def _run_video(variant: str, prompt: str, aspect_ratio: str, duration_sec: float,
+               steps: int, seed: int, refs) -> dict:
+    """共享执行体：确保对应分区的服务在跑，组装请求、提交并落地 mp4。"""
+    _ensure_server(variant)
+    conditions = write_reference_conditions(refs or [], REF_DIR)
+    body = build_video_body(prompt, aspect_ratio=aspect_ratio, duration_sec=duration_sec,
+                            steps=steps, seed=seed, conditions=conditions)
+    print(f"[modal] 提交 H3 {body['task']}（{body['seconds']}s，{body['target']['aspect_ratio']}，"
+          f"{body['num_inference_steps']} steps，seed {body['seed']}，{len(conditions)} 条件）…", flush=True)
+    started = time.time()
+    data = submit_video(f"http://127.0.0.1:{PORT}", body, log=print)
+    key = f"runs/{uuid.uuid4().hex}.mp4"
+    path = Path(OUT_DIR) / key
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    outputs.commit()
+    print(f"[modal] 已生成 {key}（{round(time.time() - started, 1)}s）。", flush=True)
+    return {"kind": "file", "volume": OUT_VOLUME, "key": key, "mimeType": "video/mp4",
+            "meta": {"durationSec": float(duration_sec), "fps": 24, "seed": body["seed"],
+                     "steps": int(steps), "audio": True, "task": body["task"]}}
+
+
 @app.cls(image=image, gpu="H200:4", volumes={MODELS_DIR: models, OUT_DIR: outputs},
          timeout=3600, max_containers=1)
 class H3:
+    """FL2VA 分区：服务 t2va（文生视频+音频）与 fl2va（首/尾帧生视频+音频）。"""
+
     @modal.enter()
     def start(self):
         """容器启动即拉起 SGLang 常驻服务；@modal.enter 每容器只跑一次（非每次调用）。"""
-        _ensure_server()
+        _ensure_server(MODEL_VARIANT)
 
     @modal.exit()
     def stop(self):
@@ -157,31 +193,38 @@ class H3:
     @modal.method()
     def generate_video(self, prompt: str, aspectRatio: str = "auto", durationSec: float = 5,
                        steps: int = 50, seed: int = -1, refs=None):
-        _ensure_server()
-        conditions = write_reference_conditions(refs or [], REF_DIR)
-        body = build_video_body(prompt, aspect_ratio=aspectRatio, duration_sec=durationSec,
-                                steps=steps, seed=seed, conditions=conditions)
-        print(f"[modal] 提交 H3 {body['task']}（{body['seconds']}s，{body['target']['aspect_ratio']}，"
-              f"{body['num_inference_steps']} steps，seed {body['seed']}）…", flush=True)
-        started = time.time()
-        data = submit_video(f"http://127.0.0.1:{PORT}", body, log=print)
-        key = f"runs/{uuid.uuid4().hex}.mp4"
-        path = Path(OUT_DIR) / key
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-        outputs.commit()
-        print(f"[modal] 已生成 {key}（{round(time.time() - started, 1)}s）。", flush=True)
-        return {"kind": "file", "volume": OUT_VOLUME, "key": key, "mimeType": "video/mp4",
-                "meta": {"durationSec": float(durationSec), "fps": 24, "seed": body["seed"],
-                         "steps": int(steps), "audio": True}}
+        return _run_video(MODEL_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs)
+
+
+@app.cls(image=image, gpu="H200:4", volumes={MODELS_DIR: models, OUT_DIR: outputs},
+         timeout=3600, max_containers=1)
+class H3Ref:
+    """Ref2VA 分区：服务 ref2va（多模态参考生视频+音频），并要求至少一个参考素材。"""
+
+    @modal.enter()
+    def start(self):
+        _ensure_server(REF_VARIANT)
+
+    @modal.exit()
+    def stop(self):
+        proc = _SERVER.get("proc")
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+
+    @modal.method()
+    def generate_video(self, prompt: str, aspectRatio: str = "auto", durationSec: float = 5,
+                       steps: int = 50, seed: int = -1, refs=None):
+        if not (refs or []):
+            raise ValueError("reference-to-video 需要至少一个参考素材（图像/视频/音频）")
+        return _run_video(REF_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs)
 
 
 @app.function(image=bootstrap_image, volumes={MODELS_DIR: models}, timeout=7200,
               secrets=[modal.Secret.from_name("recut-hf-token")])
 def bootstrap_weights(source: str = "automatic", repo: str = MODEL_NAME, revision: str = "main", patterns: str = ""):
-    """把 H3 FL2VA 权重下载进 /models 卷。**只有 bootstrap 会写权重卷**（deploy/generate 都不下载）。
+    """把 H3 权重（FL2VA + Ref2VA 两个分区）下载进 /models 卷。**只有 bootstrap 会写权重卷**（deploy/generate 都不下载）。
 
-    H3 权重约 134GB 且为 HF gated，因此：
+    H3 权重（FL2VA + Ref2VA 两个分区，共约 270GB）且为 HF gated，因此：
     - 逐文件 HTTP Range 断点续传（`.part` 保留在卷里，重跑从断点继续）；
     - 每 10 分钟 `volume.commit()` 一次，容器超时/中断也能保住已下进度；
     - 全部文件校验通过后才写完成标记；重跑幂等跳过已完成文件。
@@ -198,11 +241,11 @@ def bootstrap_weights(source: str = "automatic", repo: str = MODEL_NAME, revisio
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or ""
     if not token:
         raise RuntimeError("缺少 HF token：请先 modal.secret.set { name: 'recut-hf-token', values: { HF_TOKEN } }")
-    allow = [p.strip() for p in (patterns or "").split(",") if p.strip()] or ["model_index.json", "FL2VA/*"]
+    allow = [p.strip() for p in (patterns or "").split(",") if p.strip()] or ["model_index.json", "FL2VA/*", "Ref2VA/*"]
     target.mkdir(parents=True, exist_ok=True)
     pinned, files = _list_files(repo, revision, allow)
     if not files:
-        raise RuntimeError(f"{repo} 没有匹配的文件（FL2VA）")
+        raise RuntimeError(f"{repo} 没有匹配的文件（FL2VA/Ref2VA）")
     total = sum(size for _, size, _ in files)
     print(f"[modal] H3 待下载 {len(files)} 个文件，共 {_human(total)}（pinned {pinned[:12]}）…", flush=True)
     for index, (path, size, url) in enumerate(files, start=1):
@@ -212,7 +255,7 @@ def bootstrap_weights(source: str = "automatic", repo: str = MODEL_NAME, revisio
     if not (patterns or "").strip():
         (Path(MODELS_DIR) / MARKER).write_text("ok", encoding="utf-8")
     models.commit()
-    print("[modal] H3 FL2VA 权重已就绪。", flush=True)
+    print("[modal] H3 权重（FL2VA + Ref2VA）已就绪。", flush=True)
     return {"ready": True, "path": str(target), "files": len(files), "revision": pinned}
 
 

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 modal.catalog 的预设包/函数清单/formSchema/output/gpuTiers/就绪度、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调与 useRunStore
- * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 常驻环境块（未就绪时部署/下载权重；就绪时「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择 + media 字段的多选参考图（缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交；表单状态由 useRunStore 持有并持久化
+ * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 常驻环境块（未就绪时部署/下载权重；就绪时「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择 + **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交；提交按字段分组 references={field:[assetId]}；表单状态由 useRunStore 持有并持久化
  * [POS]: Left「功能」Tab；部署、权重与运行都在此收敛，记录 Tab 只负责历史
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -51,8 +51,25 @@ function formDefaults(fn: ModalFunction | undefined): Record<string, string> {
   return next;
 }
 
-function mediaField(fn: ModalFunction | undefined): FormField | undefined {
-  return fn?.formSchema.find((field) => field.type === "media");
+function mediaFields(fn: ModalFunction | undefined): FormField[] {
+  return (fn?.formSchema ?? []).filter((field) => field.type === "media");
+}
+
+function fieldAccepts(field: FormField, asset: MediaAsset): boolean {
+  return (field.kind ?? "image") === (asset.kind ?? "image");
+}
+
+// 把一组素材按字段声明的 kind/multiple 落位（图像 → image 字段，视频 → video 字段…），
+// 供「编辑/返修回填」这类没有字段归属的入参推断目标字段。
+function placeReferences(fields: FormField[], assets: MediaAsset[]): Record<string, MediaAsset[]> {
+  const out: Record<string, MediaAsset[]> = {};
+  for (const asset of assets) {
+    const target = fields.find((field) => fieldAccepts(field, asset) && (field.multiple !== false || !(out[field.key]?.length)))
+      ?? fields.find((field) => field.multiple !== false);
+    if (!target) continue;
+    (out[target.key] ??= []).push(asset);
+  }
+  return out;
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -77,6 +94,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   const mergeValues = useRunStore((state) => state.mergeValues);
   const setValues = useRunStore((state) => state.setValues);
   const setReferences = useRunStore((state) => state.setReferences);
+  const setFieldReferences = useRunStore((state) => state.setFieldReferences);
   const setGpuTier = useRunStore((state) => state.setGpuTier);
 
   const [hint, setHint] = useState("");
@@ -88,7 +106,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   const fn = useMemo(() => modalapp?.functions.find((candidate) => candidate.id === functionId) ?? modalapp?.functions[0], [modalapp, functionId]);
   const appKey = modalapp?.id ?? "";
   const fnKey = `${appKey}:${fn?.id ?? ""}`;
-  const acceptsMedia = Boolean(mediaField(fn));
+  const acceptsMedia = mediaFields(fn).length > 0;
 
   useEffect(() => {
     if (!modalappId && modalapps[0]) selectModalapp(modalapps[0].id, modalapps[0].functions[0]?.id ?? "", formDefaults(modalapps[0].functions[0]));
@@ -126,11 +144,13 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         if (targetApp.id !== modalappId || targetFn.id !== functionId) selectModalapp(targetApp.id, targetFn.id, next);
         else mergeValues(next);
         if (draft.gpuTier) setGpuTier(draft.gpuTier);
-        const targetAcceptsMedia = Boolean(mediaField(targetFn));
-        if (targetAcceptsMedia) {
-          setReferences((draft.referenceAssetIds ?? []).filter((item) => item.available !== false).map((item) => ({ id: item.id, name: item.name, kind: "image" })));
+        const targetMediaFields = mediaFields(targetFn);
+        if (targetMediaFields.length) {
+          const assets = (draft.referenceAssetIds ?? []).filter((item) => item.available !== false)
+            .map((item) => ({ id: item.id, name: item.name, kind: "image" }));
+          setReferences(placeReferences(targetMediaFields, assets));
         } else {
-          setReferences([]);
+          setReferences({});
           setHint(t(locale, "run.edit-unsupported"));
         }
       }
@@ -140,7 +160,12 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
       setHint(t(locale, "run.edit-unsupported"));
       return;
     }
-    setReferences((prev) => (prev.some((item) => item.id === injectedReference.id) ? prev : [...prev, { id: injectedReference.id, name: injectedReference.name, kind: "image" }]));
+    const fields = mediaFields(fn);
+    const asset: MediaAsset = { id: injectedReference.id, name: injectedReference.name, kind: "image" };
+    const current = useRunStore.getState().references;
+    const target = fields.find((field) => fieldAccepts(field, asset) && (field.multiple !== false || !(current[field.key]?.length)))
+      ?? fields.find((field) => field.multiple !== false);
+    if (target) setFieldReferences(target.key, (prev) => (prev.some((item) => item.id === asset.id) ? prev : [...prev, asset]));
     setHint("");
   }, [injectedReference, acceptsMedia, locale, modalapps, modalappId, functionId]);
 
@@ -154,11 +179,12 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   const gpuOptions = modalapp.gpuTiers?.options ?? [];
   const gpuValue = gpuTier || defaultGpuTier || modalapp.gpuTiers?.default || "";
 
-  const pickReferences = async () => {
+  const pickFieldReferences = async (field: FormField) => {
     try {
-      const selected = (await recut.media.pick(["image"], { multiple: true, selectedIDs: references.map((item) => item.id) })) as MediaAsset[] | null;
+      const multiple = field.multiple !== false;
+      const selected = (await recut.media.pick([field.kind ?? "image"], { multiple, selectedIDs: (references[field.key] ?? []).map((item) => item.id) })) as MediaAsset[] | null;
       if (!selected) return;
-      setReferences(selected.map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind ?? "image" })));
+      setFieldReferences(field.key, selected.map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind ?? field.kind ?? "image" })));
       setHint("");
     } catch (error) {
       setHint(interpolate(t(locale, "run.pick-failed"), { error: error instanceof Error ? error.message : String(error) }));
@@ -177,7 +203,12 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         params[key] = field?.type === "number" ? Number(raw) : raw;
       }
       const input: Record<string, unknown> = { modalapp: modalapp.id, function: fn.id, params, gpuTier: gpuValue, confirmCost: true };
-      if (acceptsMedia && references.length) input.referenceAssetIds = references.map((asset) => asset.id);
+      const grouped: Record<string, string[]> = {};
+      for (const field of mediaFields(fn)) {
+        const ids = (references[field.key] ?? []).map((asset) => asset.id);
+        if (ids.length) grouped[field.key] = ids;
+      }
+      if (Object.keys(grouped).length) input.references = grouped;
       await onRun(input);
     } catch (error) {
       setHint(interpolate(t(locale, "run.failed"), { error: error instanceof Error ? error.message : String(error) }));
@@ -332,34 +363,44 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
           </Field>
         ))}
 
-        {acceptsMedia ? (
-          <Field label={t(locale, "run.references")} hint={t(locale, "run.references-hint")}>
-            <div className="flex flex-wrap items-center gap-2">
-              {references.map((asset) => (
-                <div key={asset.id} className="group relative size-16 overflow-hidden rounded-md border bg-muted">
-                  <button
-                    type="button"
-                    title={t(locale, "run.preview-reference")}
-                    onClick={() => void recut.media.preview(mediaContentURL(asset.id), { name: asset.name || asset.id })}
-                    className="block size-full cursor-zoom-in"
-                  >
-                    <img className="size-full object-cover" src={mediaContentPath(asset.id)} alt={asset.name || asset.id} />
-                  </button>
-                  <button
-                    type="button"
-                    title={t(locale, "run.remove-reference")}
-                    onClick={() => setReferences((prev) => prev.filter((item) => item.id !== asset.id))}
-                    className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-background/85 text-foreground opacity-0 transition group-hover:opacity-100"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={() => void pickReferences()}>
-                <ImagePlus className="size-3.5" />{t(locale, "run.add-reference")}
-              </Button>
-            </div>
-          </Field>
+        {mediaFields(fn).map((field) => {
+          const fieldRefs = references[field.key] ?? [];
+          const multiple = field.multiple !== false;
+          return (
+            <Field key={field.key} label={labelText(field.label, locale, field.key)} hint={multiple ? t(locale, "run.references-hint") : undefined}>
+              <div className="flex flex-wrap items-center gap-2">
+                {fieldRefs.map((asset) => (
+                  <div key={asset.id} className="group relative size-16 overflow-hidden rounded-md border bg-muted">
+                    <button
+                      type="button"
+                      title={t(locale, "run.preview-reference")}
+                      onClick={() => void recut.media.preview(mediaContentURL(asset.id), { name: asset.name || asset.id })}
+                      className="block size-full cursor-zoom-in"
+                    >
+                      <img className="size-full object-cover" src={mediaContentPath(asset.id)} alt={asset.name || asset.id} />
+                    </button>
+                    <button
+                      type="button"
+                      title={t(locale, "run.remove-reference")}
+                      onClick={() => setFieldReferences(field.key, (prev) => prev.filter((item) => item.id !== asset.id))}
+                      className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-background/85 text-foreground opacity-0 transition group-hover:opacity-100"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+                {multiple || fieldRefs.length === 0 ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => void pickFieldReferences(field)}>
+                    <ImagePlus className="size-3.5" />{t(locale, "run.add-reference")}
+                  </Button>
+                ) : null}
+              </div>
+            </Field>
+          );
+        })}
+
+        {fn.minReferences ? (
+          <p className="text-[11px] leading-4 text-muted-foreground">{interpolate(t(locale, "run.references-min"), { count: String(fn.minReferences) })}</p>
         ) : null}
 
         {gpuOptions.length > 0 ? (

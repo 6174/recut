@@ -1,14 +1,17 @@
 """
 [INPUT]: Modal 运行时（modal.Image from lmsysorg/sglang:dev、modal.Volume、modal.Secret recut-hf-token）；
-          h3_contract（请求构造与 SGLang 异步视频协议）；/models 卷里由 bootstrap.py 下载的 MiniMax-H3 FL2VA 权重
-          （与 minimax-h3 / minimax-h3-one 共用同一 recut-minimax-h3-models 卷，避免重复下载 134GB）；
+          h3_contract（请求构造与 SGLang 异步视频协议）；/models 卷里由 bootstrap.py 下载的 MiniMax-H3 权重（FL2VA + Ref2VA 分区）
+          （与 minimax-h3 / minimax-h3-one 共用同一 recut-minimax-h3-models 卷，避免重复下载）；
           /adapters 卷里由 bootstrap_adapters 下载的 Turbo 少步 LoRA
-[OUTPUT]: 云端 Modal App「recut-minimax-h3-turbo」：单卡（默认 RTX PRO 6000 96GB）托管一个 SGLang 常驻服务——
-          Turbo 少步 LoRA（默认 9 步 / 8 NFE）以 --lora-merge-mode auto 合并进常驻权重，DiT 在线 fp8（SM100+/SM120
-          映射 mxfp8）常驻、bf16 文本编码器按组件流式 offload；类开启 GPU memory snapshot（enable_memory_snapshot +
-          enable_gpu_snapshot），@modal.enter(snap=True) 拉起 sglang 子进程后冻结整棵进程树（含子进程 CUDA 状态），
-          冷启动从快照秒级恢复、不再重读 134GB 权重。generate_video 把表单参数 + 参考帧组装成 SGLang /v1/videos
-          请求（经 h3_contract，默认 9 步）；bootstrap_weights 复用/补下 FL2VA 权重，bootstrap_adapters 下 Turbo LoRA
+[OUTPUT]: 云端 Modal App「recut-minimax-h3-turbo」：单卡（默认 RTX PRO 6000 96GB）下两个并列 Modal 类——
+          H3Turbo（--model-variant fl2va，服务 t2va/fl2va）：Turbo 少步 LoRA（默认 9 步 / 8 NFE）以
+          --lora-merge-mode auto 合并进常驻权重，DiT 在线 fp8（SM100+/SM120 映射 mxfp8）常驻、bf16 文本编码器按组件
+          流式 offload；类开启 GPU memory snapshot（enable_memory_snapshot + enable_gpu_snapshot），
+          @modal.enter(snap=True) 拉起 sglang 子进程后冻结整棵进程树（含子进程 CUDA 状态），冷启动从快照秒级恢复、
+          不再重读权重。H3TurboRef（--model-variant ref2va，服务多模态参考 ref2va）：**不用 FL2VA Turbo LoRA / 合并
+          transformer**（该 LoRA 只训练于 FL2VA 分区），跑官方 Ref2VA 分区 base 步数。generate_video 把表单参数 +
+          参考素材组装成 SGLang /v1/videos 请求（经 h3_contract，Turbo 默认 9 步）；bootstrap_weights 复用/补下
+          FL2VA+Ref2VA 权重，bootstrap_adapters 下 Turbo LoRA
 [POS]: minimax-h3 / minimax-h3-one 的「极速版」并列预设包（三选一）：复用同一权重卷，用少步 LoRA + 合成式 fp8 驻留 +
        快注意力（可选）+ GPU 快照，把「少算步、算得快、起得快」落到 Modal。契约与另外两者完全同构（同一 h3_contract），
        区别只在默认步数与 serve 配方
@@ -46,9 +49,10 @@ ADAPTERS_DIR = "/adapters"
 MERGED_DIR = "/merged"
 OUT_DIR = "/out"
 MODEL_SUBDIR = "MiniMax-H3"
-MODEL_VARIANT = "fl2va"
+MODEL_VARIANT = "fl2va"  # FL2VA 分区：服务 t2va/fl2va（配 Turbo 少步 LoRA）
+REF_VARIANT = "ref2va"  # Ref2VA 分区：服务 ref2va（多模态参考，不配 Turbo LoRA）
 PORT = 30010
-MARKER = ".recut-download-complete"
+MARKER = ".recut-download-complete-v2"  # v2 = 增加 Ref2VA 分区；旧卷（仅有 v1 标记）会自动补下
 ADAPTER_MARKER = ".recut-adapters-complete"
 MERGED_MARKER = ".recut-merge-complete"
 REF_DIR = "/tmp/h3-refs"
@@ -157,23 +161,25 @@ bootstrap_image = (
 # ---------------------- SGLang 常驻服务（容器内，单卡） ----------------------
 
 
-def _turbo_flags() -> list[str]:
+def _turbo_flags(variant: str = MODEL_VARIANT) -> list[str]:
     """Turbo 走**离线合并**后的 transformer（`--component-weights-paths.transformer`），不用运行期 LoRA。
 
     合并产物由 `bootstrap_merge` 写进 /merged/transformer（与 base 同分片布局、仅权重被改写）。
+    **只对 FL2VA 分区生效**：作者明示该 LoRA 训练于 FL2VA，故 ref2va 分区不套用（用官方 Ref2VA 权重）。
     """
-    if not USE_TURBO:
+    if not USE_TURBO or variant != MODEL_VARIANT:
         return []
     return ["--component-weights-paths.transformer", f"{MERGED_DIR}/{MERGED_SUBDIR}"]
 
 
-def _server_flags() -> list[str]:
+def _server_flags(variant: str = MODEL_VARIANT) -> list[str]:
     """单卡 recipe：fp8 只量化 DiT 让其常驻，bf16 文本编码器在 96GB 级单卡上流式 offload。
 
     单卡才能用 GPU memory snapshot（Modal 不支持多卡快照），故本包只提供单卡档：
     - ≥130GB（H200/B200/B300 单卡）：BF16/FP32 全驻留放得下（DiT 62 + 文本编码器 46 + VAE 10 ≈ 118 GiB），不量化最快；
     - <130GB（RTX PRO 6000 96GB / SM120）：在线 fp8 DiT（≈33 GiB）常驻，文本编码器按组件流式 offload。
     合并后的权重没有 LoRA 包裹层，故 fp8 可与 Turbo 叠加（这正是离线合并要换来的能力）。
+    形状预热（--warmup-resolutions）只对 Turbo/fl2va 生效；ref2va 走官方分区、无对应预热曲线。
     """
     import torch
 
@@ -181,18 +187,18 @@ def _server_flags() -> list[str]:
     if count != 1:
         raise RuntimeError(f"minimax-h3-turbo 只支持单卡（GPU 快照限制），检测到 {count} 张 GPU")
     vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
-    flags = ["--model-path", f"{MODELS_DIR}/{MODEL_SUBDIR}", "--model-variant", MODEL_VARIANT,
+    flags = ["--model-path", f"{MODELS_DIR}/{MODEL_SUBDIR}", "--model-variant", variant,
              "--host", "127.0.0.1", "--port", str(PORT),
              "--num-gpus", "1", "--performance-mode", "speed", "--enable-torch-compile", "false"]
     if vram_gb < 130:
         # 96GB 级单卡：fp8 DiT 常驻，bf16 文本编码器（≈46GB）放不下 → 流式 offload。
         flags += ["--quantization", "fp8", "--layerwise-offload-components", "text_encoder"]
-    if WARMUP:
+    if WARMUP and variant == MODEL_VARIANT:
         flags += ["--warmup-resolutions", WARMUP_RESOLUTION]
-    return flags + _turbo_flags() + _attention_flags()
+    return flags + _turbo_flags(variant) + _attention_flags()
 
 
-_SERVER: dict = {"proc": None}
+_SERVER: dict = {"proc": None, "variant": None}
 _LOCK = threading.Lock()
 
 
@@ -208,25 +214,35 @@ def _healthy() -> bool:
     return False
 
 
-def _ensure_server() -> None:
-    """幂等：复用本容器内已在监听的 SGLang 服务；否则启动并等待就绪。"""
+def _ensure_server(variant: str = MODEL_VARIANT) -> None:
+    """幂等：复用本容器内已在监听且**分区一致**的 SGLang 服务；否则启动并等待就绪。
+
+    分区不同（fl2va ↔ ref2va）时不能复用，因为一个 SGLang 进程只加载一个 checkpoint 分区。
+    """
     proc = _SERVER.get("proc")
-    if proc is not None and proc.poll() is None and _healthy():
+    if proc is not None and proc.poll() is None and _SERVER.get("variant") == variant and _healthy():
         return
     with _LOCK:
         proc = _SERVER.get("proc")
-        if proc is not None and proc.poll() is None and _healthy():
+        if proc is not None and proc.poll() is None and _SERVER.get("variant") == variant and _healthy():
             return
-        if USE_TURBO and not (Path(MERGED_DIR) / MERGED_SUBDIR / "model.safetensors.index.json").is_file():
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        if variant == MODEL_VARIANT and USE_TURBO and not (Path(MERGED_DIR) / MERGED_SUBDIR / "model.safetensors.index.json").is_file():
             raise RuntimeError(
                 f"Turbo 合并权重未就绪：请先 modal.install（缺 {MERGED_DIR}/{MERGED_SUBDIR}）——"
                 "bootstrap 会先下 LoRA，再离线合并进 transformer。")
-        command = ["sglang", "serve", *_server_flags()]
-        label = "Turbo 少步配方（离线合并）" if USE_TURBO else "base 配方"
-        print(f"[modal] 启动 SGLang 服务（{label}）：" + " ".join(command), flush=True)
+        command = ["sglang", "serve", *_server_flags(variant)]
+        label = ("Turbo 少步配方（离线合并）" if USE_TURBO else "base 配方") if variant == MODEL_VARIANT else "Ref2VA 参考配方"
+        print(f"[modal] 启动 SGLang 服务（{label}，variant={variant}）：" + " ".join(command), flush=True)
         env = {**os.environ, "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True", "PYTHONUNBUFFERED": "1"}
         proc = subprocess.Popen(command, stdout=sys.stdout, stderr=subprocess.STDOUT, env=env)
         _SERVER["proc"] = proc
+        _SERVER["variant"] = variant
         deadline = time.time() + 3000
         while time.time() < deadline:
             if proc.poll() is not None:
@@ -249,6 +265,28 @@ def _warmup() -> None:
     print(f"[modal] 预热完成（{round(time.time() - started, 1)}s）。", flush=True)
 
 
+def _run_video(variant: str, prompt: str, aspect_ratio: str, duration_sec: float,
+               steps: int, seed: int, refs) -> dict:
+    """共享执行体：确保对应分区的服务在跑，组装请求、提交并落地 mp4。"""
+    _ensure_server(variant)
+    conditions = write_reference_conditions(refs or [], REF_DIR)
+    body = build_video_body(prompt, aspect_ratio=aspect_ratio, duration_sec=duration_sec,
+                            steps=steps, seed=seed, conditions=conditions)
+    print(f"[modal] 提交 H3 {body['task']}（{body['seconds']}s，{body['target']['aspect_ratio']}，"
+          f"{body['num_inference_steps']} steps，seed {body['seed']}，{len(conditions)} 条件）…", flush=True)
+    started = time.time()
+    data = submit_video(f"http://127.0.0.1:{PORT}", body, log=print)
+    key = f"runs/{uuid.uuid4().hex}.mp4"
+    path = Path(OUT_DIR) / key
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    outputs.commit()
+    print(f"[modal] 已生成 {key}（{round(time.time() - started, 1)}s）。", flush=True)
+    return {"kind": "file", "volume": OUT_VOLUME, "key": key, "mimeType": "video/mp4",
+            "meta": {"durationSec": float(duration_sec), "fps": 24, "seed": body["seed"],
+                     "steps": int(steps), "audio": True, "task": body["task"]}}
+
+
 def _sample_vram(stop: threading.Event, samples: list) -> None:
     """尽力采样 nvidia-smi 的 used 显存（近似峰值）；容器无 nvidia-smi 时静默退出。"""
     while not stop.is_set():
@@ -267,11 +305,13 @@ def _sample_vram(stop: threading.Event, samples: list) -> None:
          timeout=3600, max_containers=1, memory=262144,  # 单卡流式/驻留需较大 host RAM
          enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})
 class H3Turbo:
+    """FL2VA 分区 + Turbo 少步 LoRA（离线合并）：服务 t2va（文生视频+音频）与 fl2va（首/尾帧生视频+音频）。"""
+
     @modal.enter(snap=True)
     def start(self):
         """拉起 SGLang 常驻服务（用离线合并后的 Turbo transformer），并把整棵进程树（含 sglang 子进程的
         CUDA 状态）冻进 GPU memory snapshot；快照创建时执行一次，之后冷启动直接从快照恢复、不再重读权重。"""
-        _ensure_server()
+        _ensure_server(MODEL_VARIANT)
         if WARMUP:
             _warmup()
 
@@ -284,23 +324,7 @@ class H3Turbo:
     @modal.method()
     def generate_video(self, prompt: str, aspectRatio: str = "auto", durationSec: float = 5,
                        steps: int = DEFAULT_STEPS, seed: int = -1, refs=None):
-        _ensure_server()
-        conditions = write_reference_conditions(refs or [], REF_DIR)
-        body = build_video_body(prompt, aspect_ratio=aspectRatio, duration_sec=durationSec,
-                                steps=steps, seed=seed, conditions=conditions)
-        print(f"[modal] 提交 H3 {body['task']}（{body['seconds']}s，{body['target']['aspect_ratio']}，"
-              f"{body['num_inference_steps']} steps，seed {body['seed']}）…", flush=True)
-        started = time.time()
-        data = submit_video(f"http://127.0.0.1:{PORT}", body, log=print)
-        key = f"runs/{uuid.uuid4().hex}.mp4"
-        path = Path(OUT_DIR) / key
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-        outputs.commit()
-        print(f"[modal] 已生成 {key}（{round(time.time() - started, 1)}s）。", flush=True)
-        return {"kind": "file", "volume": OUT_VOLUME, "key": key, "mimeType": "video/mp4",
-                "meta": {"durationSec": float(durationSec), "fps": 24, "seed": body["seed"],
-                         "steps": int(steps), "audio": True}}
+        return _run_video(MODEL_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs)
 
     @modal.method()
     def bench(self, prompt: str = BENCH_PROMPT, aspectRatio: str = WARMUP_ASPECT,
@@ -313,7 +337,7 @@ class H3Turbo:
 
         import torch
 
-        _ensure_server()
+        _ensure_server(MODEL_VARIANT)
         stop = threading.Event()
         samples: list = []
         threading.Thread(target=_sample_vram, args=(stop, samples), daemon=True).start()
@@ -336,13 +360,42 @@ class H3Turbo:
                 "peakVramGb": round(max(samples) / 1024, 2) if samples else None}
 
 
+@app.cls(image=image, gpu="RTX-PRO-6000",
+         volumes={MODELS_DIR: models, OUT_DIR: outputs},
+         timeout=3600, max_containers=1, memory=262144,
+         enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})
+class H3TurboRef:
+    """Ref2VA 分区：服务 ref2va（多模态参考生视频+音频），并要求至少一个参考素材。
+
+    **不套用 Turbo 少步 LoRA / 合并 transformer**：该 LoRA 只训练于 FL2VA 分区（作者明示），故此处走官方
+    Ref2VA 权重与 base 步数（默认 50）；只保留单卡 GPU 快照与 fp8 DiT 驻留这两项通用优化。
+    """
+
+    @modal.enter(snap=True)
+    def start(self):
+        _ensure_server(REF_VARIANT)
+
+    @modal.exit()
+    def stop(self):
+        proc = _SERVER.get("proc")
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+
+    @modal.method()
+    def generate_video(self, prompt: str, aspectRatio: str = "auto", durationSec: float = 5,
+                       steps: int = 50, seed: int = -1, refs=None):
+        if not (refs or []):
+            raise ValueError("reference-to-video 需要至少一个参考素材（图像/视频/音频）")
+        return _run_video(REF_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs)
+
+
 @app.function(image=bootstrap_image, volumes={MODELS_DIR: models}, timeout=7200,
               secrets=[modal.Secret.from_name("recut-hf-token")])
 def bootstrap_weights(source: str = "automatic", repo: str = MODEL_NAME, revision: str = "main", patterns: str = ""):
-    """把 H3 FL2VA 权重下载进 /models 卷（与 minimax-h3 / minimax-h3-one 共用同一卷）。
+    """把 H3 权重（FL2VA + Ref2VA 两个分区）下载进 /models 卷（与 minimax-h3 / minimax-h3-one 共用同一卷）。
 
     若共享卷已有完成标记（由 minimax-h3 下好），直接短路——不联网、不需要 token，实现「复用不重下」。
-    否则用同一套断点续传逻辑补下（H3 约 134GB 且为 HF gated）。
+    否则用同一套断点续传逻辑补下（H3 两个分区共约 270GB 且为 HF gated）。
     """
     import os
 
@@ -355,11 +408,11 @@ def bootstrap_weights(source: str = "automatic", repo: str = MODEL_NAME, revisio
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or ""
     if not token:
         raise RuntimeError("缺少 HF token：请先 modal.secret.set { name: 'recut-hf-token', values: { HF_TOKEN } }")
-    allow = [p.strip() for p in (patterns or "").split(",") if p.strip()] or ["model_index.json", "FL2VA/*"]
+    allow = [p.strip() for p in (patterns or "").split(",") if p.strip()] or ["model_index.json", "FL2VA/*", "Ref2VA/*"]
     target.mkdir(parents=True, exist_ok=True)
     pinned, files = _list_files(repo, revision, allow)
     if not files:
-        raise RuntimeError(f"{repo} 没有匹配的文件（FL2VA）")
+        raise RuntimeError(f"{repo} 没有匹配的文件（FL2VA/Ref2VA）")
     total = sum(size for _, size, _ in files)
     print(f"[modal] H3 待下载 {len(files)} 个文件，共 {_human(total)}（pinned {pinned[:12]}）…", flush=True)
     for index, (path, size, url) in enumerate(files, start=1):
@@ -368,7 +421,7 @@ def bootstrap_weights(source: str = "automatic", repo: str = MODEL_NAME, revisio
     if not (patterns or "").strip():
         (Path(MODELS_DIR) / MARKER).write_text("ok", encoding="utf-8")
     models.commit()
-    print("[modal] H3 FL2VA 权重已就绪。", flush=True)
+    print("[modal] H3 权重（FL2VA + Ref2VA）已就绪。", flush=True)
     return {"ready": True, "path": str(target), "files": len(files), "revision": pinned}
 
 

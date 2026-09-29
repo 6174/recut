@@ -37,6 +37,7 @@ export interface ModalFunction {
   output: OutputSpec;
   formSchema: FormField[];
   defaultParams: Record<string, unknown>;
+  minReferences?: number;
 }
 
 export interface ModalApp {

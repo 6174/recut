@@ -33,7 +33,7 @@ Modal Functions is a Recut **standard app** (`standalone`): it decouples the *cl
 | Run / history / save | `modal.generate` · `modal.generations` · `modal.generation.complete` · `modal.save` |
 | Task center | `modal.tasks.list` · `modal.task.get` · `modal.task.logs` · `modal.task.cancel` · `modal.cancel` |
 
-> **Integrated with the platform's image/video capabilities**: the manifest declares a `contributes.media` provider `modal-cloud`, and every preset pack that declares `expose` registers as one platform model (`modal-cloud/<model>`; both image and video). The platform's image/video default route can point at it, and generation dispatches to `modal.generate` through the generic execution bridge; a model is only `ready=true` once its pack is **deployed and its weights are ready** (`modal.catalog.models[]` reports readiness dynamically). Other capabilities remain exposed directly through this app's api/mcp operations.
+> **Integrated with the platform's image/video capabilities**: the manifest declares a `contributes.media` provider `modal-cloud`, and every preset pack that declares `expose` registers as one platform model (`modal-cloud/<model>`; both image and video). The platform's image/video default route can point at it, and generation dispatches to `modal.generate` through the generic execution bridge; a model is only `ready=true` once its pack is **deployed and its weights are ready** (`modal.catalog.models[]` reports readiness dynamically). **A text-only request (no references) auto-routes to the pack's text function (`text-to-*`); the reference function is used only when references are supplied** — references are optional (the platform budget only sets ceilings), so "no refs → text, refs → reference" holds under the platform default route. Other capabilities remain exposed directly through this app's api/mcp operations.
 
 ## Preset packs: built-in + user
 
@@ -53,6 +53,12 @@ modal.modalapp.remove { id }              # delete a user pack (built-ins cannot
 User ids must not collide with built-ins; re-run `modal.deploy` after edits (and `modal.install` after changing `bootstrap.py`).
 
 **Change detection.** A successful `modal.deploy` records the preset-pack folder's sha256 in appstate `modal/deploy-state.json`; `modal.status` / `modal.catalog` recompute the folder hash and return `stale: true` when it differs (trustworthy only after at least one deploy). So after an app upgrade or a `modal_app.py` edit the UI flags "redeploy required" and always offers a single manual "Redeploy" button (deploy runs bootstrap, refreshing weights too). Weights are intentionally not hash-tracked: `bootstrap.py` skips already-downloaded files, so re-running it after deploy is safe.
+
+The folder hash honors a two-tier **ignore list** (files not shipped by `modal deploy` don't count as changes):
+- **Common list** `modalapps/deploy-ignore.json` (shipped with the app, shared by built-in and user packs): docs & generated files (`manifest.json`, `*.md`, `index.json`), local mock/bench (`mock*.py`, `bench*.py`), run artifacts (`*.log`, `*.tmp`, `output/`, `samples/`), dev/test dirs (`test/`, `tests/`, `test*.py`, `*.ipynb`, `.venv/`, `node_modules/`). A trailing `xxx/` matches by directory name; other entries are globs (matched against the relative path or file name).
+- **Per-pack**: add `deployIgnore: ["<glob>", ...]` to that pack's manifest to layer extra rules on top of the common list.
+
+So editing manifests/docs/mocks no longer false-flags "redeploy required", and a single pack's noise files don't force a change to the common list.
 
 ## Bundled preset packs
 

@@ -86,6 +86,40 @@ func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
 		t.Fatal("wireAppMediaProviders must register the modal-cloud executor")
 	}
 
+	// 参考能力标注必须随 App 声明进入平台目录：平台的「参考图/参考视频/参考音频」输入提示
+	// 来源于 MediaModel.InputModes 与 ReferenceBudgets；缺一即退化为纯文本输入
+	// （reference-to-video / reference-to-image 不可见）。
+	byID := map[string]media.MediaModel{}
+	for _, model := range service.Models() {
+		byID[model.ID] = model
+	}
+	for id, wantModes := range map[string][]string{
+		"modal-cloud/minimax-h3":       {"text", "image", "video", "audio"},
+		"modal-cloud/minimax-h3-one":   {"text", "image", "video", "audio"},
+		"modal-cloud/minimax-h3-turbo": {"text", "image", "video", "audio"},
+		"modal-cloud/qwen-image":       {"text", "image"},
+	} {
+		model, ok := byID[id]
+		if !ok {
+			t.Fatalf("model %s missing from the merged catalog", id)
+		}
+		for _, mode := range wantModes {
+			if !stringIn(model.InputModes, mode) {
+				t.Fatalf("model %s inputModes = %v, missing %q", id, model.InputModes, mode)
+			}
+		}
+		if len(model.ReferenceBudgets) == 0 {
+			t.Fatalf("model %s must carry referenceBudgets so the platform enforces its reference inputs", id)
+		}
+		// 参考是可选输入：budget 只能设上限，不能要求「≥1 个参考」，否则平台会在提交前拒绝
+		// 纯文本请求，App 的「无参考自动回退 text-to-* 」就永远走不到。
+		for _, budget := range model.ReferenceBudgets {
+			if len(budget.Requirements) != 0 {
+				t.Fatalf("model %s reference budget %q must not require references (text-only must fall back)", id, budget.Requirements)
+			}
+		}
+	}
+
 	// 能力聚合：image/video 两个能力下都应出现 modal-cloud 分组及其平台模型。
 	for capability, want := range map[media.MediaCapability][]string{
 		media.ImageGenerate: {"modal-cloud/qwen-image", "modal-cloud/sd-turbo"},
@@ -115,4 +149,13 @@ func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
 			}
 		}
 	}
+}
+
+func stringIn(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
