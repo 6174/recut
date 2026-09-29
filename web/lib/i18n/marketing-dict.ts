@@ -41,8 +41,8 @@ const zh = {
   "nav.apps": "应用",
   "nav.docs": "Docs",
   "nav.blog": "Blog",
-  "nav.github": "GitHub ↗",
-  "nav.openWorkspace": "打开工作台",
+  "nav.github": "GitHub",
+  "nav.openWorkspace": "开始创作",
   "nav.worlds": "世界观",
   "nav.openSource": "开源",
   "worlds.eyebrow": "CREATION WORLDS",
@@ -325,7 +325,7 @@ const zh = {
   "apps.requirementsNote": "运行有设备与磁盘要求，请先阅读详情。",
   "apps.backToAll": "← 所有应用",
   "apps.faqTitle": "常见问题",
-  "apps.openInWorkspace": "在工作台打开 {name} ↗",
+  "apps.openInWorkspace": "在工作台打开 {name}",
   "apps.viewSource": "查看源码",
   "apps.learnMoreRelated": "继续了解",
 
@@ -345,7 +345,7 @@ const zh = {
   "docs.card4Title": "本地部署",
   "docs.card4Body": "将 Recut 运行在自己的电脑、局域网或受控的远程 service 上。",
   "docs.card4Eyebrow": "部署与连接",
-  "docs.openInWorkspace": "在工作台中开始 ↗",
+  "docs.openInWorkspace": "在工作台中开始",
   "docs.readMore": "阅读",
 
   // —— Blog ——
@@ -358,7 +358,7 @@ const zh = {
   "blog.allPosts": "查看所有文章 →",
   "blog.continueReading": "继续阅读 →",
   "blog.backToAll": "← 所有文章",
-  "blog.openWorkspace": "打开 Recut 工作台 ↗",
+  "blog.openWorkspace": "打开 Recut 工作台",
 
   // —— 最终 CTA ——
   "cta.eyebrow": "MAKE YOUR NEXT VIDEO",
@@ -434,8 +434,8 @@ const en: Record<keyof typeof zh, string> = {
   "nav.apps": "Apps",
   "nav.docs": "Docs",
   "nav.blog": "Blog",
-  "nav.github": "GitHub ↗",
-  "nav.openWorkspace": "Open Workspace",
+  "nav.github": "GitHub",
+  "nav.openWorkspace": "Start",
   "nav.worlds": "Worlds",
   "nav.openSource": "Open Source",
   "worlds.eyebrow": "CREATION WORLDS",
@@ -703,7 +703,7 @@ const en: Record<keyof typeof zh, string> = {
   "apps.requirementsNote": "This App has device and disk requirements — please read the details first.",
   "apps.backToAll": "← All Apps",
   "apps.faqTitle": "FAQ",
-  "apps.openInWorkspace": "Open {name} in the workspace ↗",
+  "apps.openInWorkspace": "Open {name} in the workspace",
   "apps.viewSource": "View source",
   "apps.learnMoreRelated": "Keep exploring",
 
@@ -722,7 +722,7 @@ const en: Record<keyof typeof zh, string> = {
   "docs.card4Title": "Self-hosting",
   "docs.card4Body": "Run Recut on your own computer, LAN, or a controlled remote service.",
   "docs.card4Eyebrow": "Deploy & Connect",
-  "docs.openInWorkspace": "Start in the workspace ↗",
+  "docs.openInWorkspace": "Start in the workspace",
   "docs.readMore": "Read",
 
   "blog.eyebrow": "FROM RECUT",
@@ -734,7 +734,7 @@ const en: Record<keyof typeof zh, string> = {
   "blog.allPosts": "View all posts →",
   "blog.continueReading": "Keep reading →",
   "blog.backToAll": "← All posts",
-  "blog.openWorkspace": "Open the Recut workspace ↗",
+  "blog.openWorkspace": "Open the Recut workspace",
 
   "cta.eyebrow": "MAKE YOUR NEXT VIDEO",
   "cta.title": "Make your next video.",

@@ -227,7 +227,6 @@ A signature motif: thin (~1–1.5px) single-weight curved lines in Light Signal 
 - Structure: large conversational H2 ("We're always here when you need us") left-aligned, then a 4-column link grid below
 - Column headers: uppercase, muted, weight 700, letter-spacing +4%
 - Link rows: white, weight 450, 14px; entries prefixed with a small icon (support bubble, card, map pin, question mark) for the "NEED HELP?" column
-- External link marker: a small upper-right arrow (`↗`) after link text
 - Bottom row (below a 1px white-at-opacity divider): copyright + privacy small-print + country-language pill dropdown + four social icons (LinkedIn, Facebook, X, YouTube)
 
 ## 5. Layout Principles

@@ -160,6 +160,12 @@ html[lang="zh"] .marketing-display {
   letter-spacing: 0.02em;
 }
 
+/* 品牌字标：mark 旁的 Recut 字与官网显示字体同栈，官网与工作台的锁标复用同一字体与字距。 */
+.brand-wordmark {
+  font-family: "Space Grotesk", "Smiley Sans", var(--font-sans);
+  letter-spacing: -0.02em;
+}
+
 /* 官网技术标签/eyebrow 换用 JetBrains Mono；仅限营销站，不动工作台终端等全局 --font-mono。 */
 .marketing-dark .font-mono {
   font-family: "JetBrains Mono", var(--font-mono);

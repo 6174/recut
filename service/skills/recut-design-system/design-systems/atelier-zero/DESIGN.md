@@ -167,8 +167,7 @@ sans bold                serif italic         coral dot
 ### Buttons
 
 - **Primary:** coral fill `#ed6f5c`, white label, `999px` radius,
-  `14px 22px` padding, with a white arrow `↗` SVG at 14px and a
-  coral 0,14,26,-16 rgba shadow.
+  `14px 22px` padding
 - **Ghost:** transparent, `1px solid rgba(21,20,15,0.2)` border,
   ink label, same radius and padding.
 

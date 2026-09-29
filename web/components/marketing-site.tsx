@@ -9,21 +9,35 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import gsap from "gsap";
 import { t, type Locale, localizeURL } from "@/lib/i18n";
+import { RecutLogo } from "@/components/brand-logo";
 import type { MarketingPost } from "@/lib/marketing-posts";
 import type { DocPage } from "@/lib/docs";
 import { MarkdownContent } from "@/components/markdown-content";
 import { trackEvent } from "@/components/posthog-analytics";
 import { MarketingEditorDemo } from "@/components/marketing-editor-demo";
-import { AgentPipelineDiagram, CloneFlowDiagram, CreationFlowDiagram, OwnershipDiagram } from "@/components/marketing-narrative-diagrams";
+import {
+  AgentPipelineDiagram,
+  CloneFlowDiagram,
+  CreationFlowDiagram,
+  OwnershipDiagram,
+} from "@/components/marketing-narrative-diagrams";
 import { MarketingWorldHero } from "@/components/marketing-world-hero";
 import { MarketingCaseGrid } from "@/components/marketing-case-grid";
 import { buildMarketingCases } from "@/lib/marketing-cases";
 import type { MarketingWorld } from "@/lib/marketing-worlds";
 
-const defaultAppURL = process.env.NEXT_PUBLIC_RECUT_APP_URL ?? "https://app.recut.video";
+const defaultAppURL =
+  process.env.NEXT_PUBLIC_RECUT_APP_URL ?? "https://app.recut.video";
 const MarketingAppURLContext = createContext(defaultAppURL);
 
 const MarketingLocaleContext = createContext<Locale>("en");
@@ -33,11 +47,19 @@ export function useMarketingLocale() {
 }
 
 // [locale]/layout.tsx 用它注入 locale 并设置 <html lang>；MarketingShell 内部同样兜底（client 路由时按路径判定）。
-export function MarketingLocaleProvider({ children, locale }: { children: React.ReactNode; locale: Locale }) {
+export function MarketingLocaleProvider({
+  children,
+  locale,
+}: {
+  children: React.ReactNode;
+  locale: Locale;
+}) {
   useEffect(() => {
     document.documentElement.lang = locale === "zh" ? "zh" : "en";
   }, [locale]);
-  return <MarketingLocaleContext value={locale}>{children}</MarketingLocaleContext>;
+  return (
+    <MarketingLocaleContext value={locale}>{children}</MarketingLocaleContext>
+  );
 }
 
 function resolveLocaleFromPath(pathname: string | null): Locale {
@@ -56,9 +78,15 @@ function publicPath(pathname: string): string {
 // localizeURL 逆运算：zh 页切英文去掉 /zh 前缀，en 页切中文加 /zh 前缀。
 function localizedSwitchPath(pathname: string, to: Locale): string {
   const publicPathname = publicPath(pathname);
-  const withoutPrefix = publicPathname.startsWith("/zh") ? publicPathname.slice("/zh".length) : publicPathname;
+  const withoutPrefix = publicPathname.startsWith("/zh")
+    ? publicPathname.slice("/zh".length)
+    : publicPathname;
   // 尾斜杠归一化：server.cjs 重写时去尾斜杠、浏览器 URL 保留尾斜杠，统一去掉避免 hydration mismatch。
-  const normalized = (withoutPrefix.startsWith("/") ? withoutPrefix : `/${withoutPrefix}`).replace(/\/+$/, "") || "/";
+  const normalized =
+    (withoutPrefix.startsWith("/")
+      ? withoutPrefix
+      : `/${withoutPrefix}`
+    ).replace(/\/+$/, "") || "/";
   return localizeURL(normalized, to);
 }
 
@@ -67,11 +95,21 @@ function writeLocaleCookie(locale: Locale) {
 }
 
 // 语言切换器先写 recut_locale cookie 再导航，避免被 Accept-Language 弹回原语言；用 <a> 强制整页导航让 Worker/Host 重新判定。
-export function LocaleSwitchLink({ to, className }: { to: Locale; className?: string }) {
+export function LocaleSwitchLink({
+  to,
+  className,
+}: {
+  to: Locale;
+  className?: string;
+}) {
   const locale = useMarketingLocale();
   const pathname = usePathname() ?? "/";
   const href = localizedSwitchPath(pathname, to);
-  const label = t("marketing", locale, to === "zh" ? "nav.switchToZh" : "nav.switchToEn");
+  const label = t(
+    "marketing",
+    locale,
+    to === "zh" ? "nav.switchToZh" : "nav.switchToEn",
+  );
   return (
     <a className={className} href={href} onClick={() => writeLocaleCookie(to)}>
       {label}
@@ -79,7 +117,13 @@ export function LocaleSwitchLink({ to, className }: { to: Locale; className?: st
   );
 }
 
-export function MarketingShell({ children, locale }: { children: React.ReactNode; locale?: Locale }) {
+export function MarketingShell({
+  children,
+  locale,
+}: {
+  children: React.ReactNode;
+  locale?: Locale;
+}) {
   const appURL = useAppURLForHost();
   const contextLocale = useMarketingLocale();
   const pathname = usePathname();
@@ -106,25 +150,67 @@ export function MarketingHeader() {
   return (
     <header className="marketing-header sticky top-0 z-30 -mb-16 border-b border-transparent">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-5 px-5 sm:px-8">
-<a aria-label={t("marketing", locale, "nav.ariaHome")} className="flex shrink-0 items-center gap-2.5" href={localizeURL("/", locale)}>
-        <img alt="Recut" className="size-8 rounded-lg" height={424} src="/logo.jpg" width={404} />
-        <span className="text-sm font-semibold tracking-tight">Recut</span>
+        <a
+          aria-label={t("marketing", locale, "nav.ariaHome")}
+          className="flex shrink-0 items-center"
+          href={localizeURL("/", locale)}
+        >
+          <RecutLogo />
         </a>
         <div className="flex shrink-0 items-center gap-2 md:gap-3">
-          <nav aria-label={t("marketing", locale, "nav.ariaMain")} className="hidden items-center gap-1 md:flex">
-            <MarketingNav href={localizeURL("/docs/philosophy", locale)}>{t("marketing", locale, "nav.openSource")}</MarketingNav>
-            <a className="rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground" href="https://github.com/6174/recut" onClick={() => trackEvent("recut_external_clicked", { target: "github" })} rel="noreferrer" target="_blank">{t("marketing", locale, "nav.github")}</a>
-            <LocaleSwitchLink className="rounded-md px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted" to={locale === "zh" ? "en" : "zh"} />
+          <nav
+            aria-label={t("marketing", locale, "nav.ariaMain")}
+            className="hidden items-center gap-1 md:flex"
+          >
+            <MarketingNav href={localizeURL("/docs/philosophy", locale)}>
+              {t("marketing", locale, "nav.openSource")}
+            </MarketingNav>
+            <a
+              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              href="https://github.com/6174/recut"
+              onClick={() =>
+                trackEvent("recut_external_clicked", { target: "github" })
+              }
+              rel="noreferrer"
+              target="_blank"
+            >
+              {t("marketing", locale, "nav.github")}
+            </a>
+            <LocaleSwitchLink
+              className="rounded-md px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+              to={locale === "zh" ? "en" : "zh"}
+            />
           </nav>
-          <a className="inline-flex h-9 shrink-0 items-center rounded-lg bg-primary px-3.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_workspace_clicked", { location: "header" })}>{t("marketing", locale, "nav.openWorkspace")} <span aria-hidden="true" className="ml-1">↗</span></a>
+          <a
+            className="inline-flex h-9 shrink-0 items-center rounded-lg bg-primary px-3.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85"
+            href={appURL}
+            onClick={() =>
+              trackEvent("recut_workspace_clicked", { location: "header" })
+            }
+          >
+            {t("marketing", locale, "nav.openWorkspace")}{" "}
+          </a>
         </div>
       </div>
     </header>
   );
 }
 
-function MarketingNav({ children, href }: { children: React.ReactNode; href: string }) {
-  return <a className="rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground" href={href}>{children}</a>;
+function MarketingNav({
+  children,
+  href,
+}: {
+  children: React.ReactNode;
+  href: string;
+}) {
+  return (
+    <a
+      className="rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+      href={href}
+    >
+      {children}
+    </a>
+  );
 }
 
 export function MarketingFooter() {
@@ -135,46 +221,137 @@ export function MarketingFooter() {
     <footer className="border-t bg-card">
       <div className="mx-auto grid max-w-6xl gap-8 px-5 py-10 sm:px-8 md:grid-cols-[1fr_auto_auto]">
         <div>
-          <div className="flex items-center gap-2">
-            <img alt="" className="size-6 rounded-md" height={424} src="/logo.jpg" width={404} />
-            <span className="text-sm font-semibold">Recut</span>
-          </div>
-          <p className="mt-3 max-w-xs text-sm leading-6 text-muted-foreground">{t("marketing", locale, "footer.tagline")}</p>
+          <RecutLogo
+            markClassName="h-6 w-auto"
+            wordmarkClassName="brand-wordmark text-sm font-semibold"
+          />
+          <p className="mt-3 max-w-xs text-sm leading-6 text-muted-foreground">
+            {t("marketing", locale, "footer.tagline")}
+          </p>
         </div>
-        <FooterLinks title={t("marketing", locale, "footer.product")} links={[{ href: localizeURL("/#world", locale), label: t("marketing", locale, "nav.product") }, { href: localizeURL("/worlds", locale), label: t("marketing", locale, "nav.worlds") }, { href: localizeURL("/apps", locale), label: t("marketing", locale, "nav.apps") }, { href: localizeURL("/docs/philosophy", locale), label: t("marketing", locale, "nav.openSource") }, { href: localizeURL("/docs", locale), label: t("marketing", locale, "nav.docs") }, { href: appURL, label: t("marketing", locale, "footer.openWorkspace") }]} />
-        <FooterLinks title={t("marketing", locale, "footer.resources")} links={[{ href: localizeURL("/blog", locale), label: t("marketing", locale, "nav.blog") }, { href: "https://github.com/6174/recut", label: t("marketing", locale, "footer.github") }]} />
+        <FooterLinks
+          title={t("marketing", locale, "footer.product")}
+          links={[
+            {
+              href: localizeURL("/#world", locale),
+              label: t("marketing", locale, "nav.product"),
+            },
+            {
+              href: localizeURL("/worlds", locale),
+              label: t("marketing", locale, "nav.worlds"),
+            },
+            {
+              href: localizeURL("/apps", locale),
+              label: t("marketing", locale, "nav.apps"),
+            },
+            {
+              href: localizeURL("/docs/philosophy", locale),
+              label: t("marketing", locale, "nav.openSource"),
+            },
+            {
+              href: localizeURL("/docs", locale),
+              label: t("marketing", locale, "nav.docs"),
+            },
+            {
+              href: appURL,
+              label: t("marketing", locale, "footer.openWorkspace"),
+            },
+          ]}
+        />
+        <FooterLinks
+          title={t("marketing", locale, "footer.resources")}
+          links={[
+            {
+              href: localizeURL("/blog", locale),
+              label: t("marketing", locale, "nav.blog"),
+            },
+            {
+              href: "https://github.com/6174/recut",
+              label: t("marketing", locale, "footer.github"),
+            },
+          ]}
+        />
       </div>
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 border-t px-5 py-5 sm:flex-row sm:px-8">
-        <p className="text-sm font-semibold text-foreground">{t("marketing", locale, "footer.language")}</p>
-        <div className="flex items-center gap-1 rounded-lg border bg-background p-1" role="group" aria-label={t("marketing", locale, "footer.language")}>
+        <p className="text-sm font-semibold text-foreground">
+          {t("marketing", locale, "footer.language")}
+        </p>
+        <div
+          className="flex items-center gap-1 rounded-lg border bg-background p-1"
+          role="group"
+          aria-label={t("marketing", locale, "footer.language")}
+        >
           {(["zh", "en"] as const).map((option) => {
             const active = option === locale;
             return (
-              <a aria-current={active ? "true" : undefined} className={`rounded-md px-3.5 py-1.5 text-xs font-medium transition ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`} href={localizedSwitchPath(pathname, option)} key={option} onClick={() => writeLocaleCookie(option)}>
-                {t("marketing", locale, option === "zh" ? "nav.switchToZh" : "nav.switchToEn")}
+              <a
+                aria-current={active ? "true" : undefined}
+                className={`rounded-md px-3.5 py-1.5 text-xs font-medium transition ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                href={localizedSwitchPath(pathname, option)}
+                key={option}
+                onClick={() => writeLocaleCookie(option)}
+              >
+                {t(
+                  "marketing",
+                  locale,
+                  option === "zh" ? "nav.switchToZh" : "nav.switchToEn",
+                )}
               </a>
             );
           })}
         </div>
       </div>
-      <div className="border-t px-5 py-4 text-center text-xs text-muted-foreground">{t("marketing", locale, "footer.copyright")}</div>
+      <div className="border-t px-5 py-4 text-center text-xs text-muted-foreground">
+        {t("marketing", locale, "footer.copyright")}
+      </div>
     </footer>
   );
 }
 
-function FooterLinks({ links, title }: { links: ReadonlyArray<{ href: string; label: string }>; title: string }) {
+function FooterLinks({
+  links,
+  title,
+}: {
+  links: ReadonlyArray<{ href: string; label: string }>;
+  title: string;
+}) {
   return (
     <div>
       <h2 className="text-sm font-semibold">{title}</h2>
-      <ul className="mt-3 space-y-2">{links.map(({ href, label }) => <li key={label}><a className="text-sm text-muted-foreground transition hover:text-foreground" href={href}>{label}</a></li>)}</ul>
+      <ul className="mt-3 space-y-2">
+        {links.map(({ href, label }) => (
+          <li key={label}>
+            <a
+              className="text-sm text-muted-foreground transition hover:text-foreground"
+              href={href}
+            >
+              {label}
+            </a>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
 
 // 官网叙事图的真实素材来源：优先取 World 封面与角色图；only 指定单个 World（Hero 固定用小小地球事务所）。
-export function selectMarketingMedia(worlds: MarketingWorld[], limit = 8, only?: string): string[] {
-  const scope = only && worlds.some((world) => world.id === only) ? worlds.filter((world) => world.id === only) : worlds;
-  return Array.from(new Set([...scope.map((world) => world.coverUrl), ...scope.flatMap((world) => world.images)].filter(Boolean))).slice(0, limit);
+export function selectMarketingMedia(
+  worlds: MarketingWorld[],
+  limit = 8,
+  only?: string,
+): string[] {
+  const scope =
+    only && worlds.some((world) => world.id === only)
+      ? worlds.filter((world) => world.id === only)
+      : worlds;
+  return Array.from(
+    new Set(
+      [
+        ...scope.map((world) => world.coverUrl),
+        ...scope.flatMap((world) => world.images),
+      ].filter(Boolean),
+    ),
+  ).slice(0, limit);
 }
 
 export function MarketingHero({ worlds = [] }: { worlds?: MarketingWorld[] }) {
@@ -185,54 +362,154 @@ export function MarketingHero({ worlds = [] }: { worlds?: MarketingWorld[] }) {
 
   useLayoutEffect(() => {
     const root = heroRef.current;
-    if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+      return;
     const context = gsap.context(() => {
       const q = gsap.utils.selector(root);
-      gsap.timeline({ defaults: { ease: "power3.out" } })
-        .fromTo(q("[data-hero-eyebrow]"), { autoAlpha: 0, y: 10, filter: "blur(6px)" }, { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.42 })
-        .fromTo(q("[data-hero-title-line]"), { autoAlpha: 0, y: 28, filter: "blur(10px)" }, { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.62, stagger: 0.08 }, "-=0.16")
-        .fromTo(q("[data-hero-body]"), { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.48, stagger: 0.06 }, "-=0.18")
-        .fromTo(q("[data-hero-cta]"), { autoAlpha: 0, y: 12, scale: 0.98 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.46 }, "-=0.16")
-        .fromTo(q("[data-hero-demo]"), { autoAlpha: 0, y: 24, scale: 0.985 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.8 }, "-=0.08");
+      gsap
+        .timeline({ defaults: { ease: "power3.out" } })
+        .fromTo(
+          q("[data-hero-eyebrow]"),
+          { autoAlpha: 0, y: 10, filter: "blur(6px)" },
+          { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.42 },
+        )
+        .fromTo(
+          q("[data-hero-title-line]"),
+          { autoAlpha: 0, y: 28, filter: "blur(10px)" },
+          {
+            autoAlpha: 1,
+            y: 0,
+            filter: "blur(0px)",
+            duration: 0.62,
+            stagger: 0.08,
+          },
+          "-=0.16",
+        )
+        .fromTo(
+          q("[data-hero-body]"),
+          { autoAlpha: 0, y: 14 },
+          { autoAlpha: 1, y: 0, duration: 0.48, stagger: 0.06 },
+          "-=0.18",
+        )
+        .fromTo(
+          q("[data-hero-cta]"),
+          { autoAlpha: 0, y: 12, scale: 0.98 },
+          { autoAlpha: 1, y: 0, scale: 1, duration: 0.46 },
+          "-=0.16",
+        )
+        .fromTo(
+          q("[data-hero-demo]"),
+          { autoAlpha: 0, y: 24, scale: 0.985 },
+          { autoAlpha: 1, y: 0, scale: 1, duration: 0.8 },
+          "-=0.08",
+        );
     }, root);
     return () => context.revert();
   }, []);
 
   return (
-    <section className="marketing-hero-grid relative overflow-hidden border-b border-white/10 bg-[oklch(0.08_0.01_150)] text-white" ref={heroRef}>
-      <div aria-hidden="true" className="pointer-events-none absolute -left-32 top-0 size-[28rem] rounded-full bg-primary/[.07] blur-[120px]" />
+    <section
+      className="marketing-hero-grid relative overflow-hidden border-b border-white/10 bg-[oklch(0.08_0.01_150)] text-white"
+      ref={heroRef}
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -left-32 top-0 size-[28rem] rounded-full bg-primary/[.07] blur-[120px]"
+      />
       <div className="relative mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
         <div className="grid items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
           <div>
-            <p className="font-mono text-[11px] font-semibold tracking-[0.22em] text-primary" data-hero-eyebrow>{t("marketing", locale, "hero.eyebrow")}</p>
+            <p
+              className="font-mono text-[11px] font-semibold tracking-[0.22em] text-primary"
+              data-hero-eyebrow
+            >
+              {t("marketing", locale, "hero.eyebrow")}
+            </p>
             <h1 className="mt-6 text-5xl font-semibold leading-[0.98] tracking-[-0.055em] sm:text-6xl">
-              <span className="block" data-hero-title-line>{t("marketing", locale, "hero.title1")}</span>
-              <span className="marketing-hero-title-accent block" data-hero-title-line>{t("marketing", locale, "hero.title2")}</span>
+              <span className="block" data-hero-title-line>
+                {t("marketing", locale, "hero.title1")}
+              </span>
+              <span
+                className="marketing-hero-title-accent block"
+                data-hero-title-line
+              >
+                {t("marketing", locale, "hero.title2")}
+              </span>
             </h1>
-            <p className="mt-6 max-w-xl text-base leading-7 text-white/60 sm:text-lg" data-hero-body>{t("marketing", locale, "hero.tagline")}</p>
+            <p
+              className="mt-6 max-w-xl text-base leading-7 text-white/60 sm:text-lg"
+              data-hero-body
+            >
+              {t("marketing", locale, "hero.tagline")}
+            </p>
             <div className="mt-9 flex flex-wrap gap-3" data-hero-cta>
-              <a className="inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "hero" })}>{t("marketing", locale, "hero.install")} <span aria-hidden="true" className="ml-1">↗</span></a>
-              <a className="inline-flex h-11 items-center rounded-lg border border-white/15 bg-white/[0.03] px-5 text-sm font-semibold text-white/85 transition hover:bg-white/[0.08]" href="#clone" onClick={() => trackEvent("recut_docs_clicked", { location: "hero" })}>{t("marketing", locale, "hero.readDocs")}</a>
+              <a
+                className="inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85"
+                href={appURL}
+                onClick={() =>
+                  trackEvent("recut_install_clicked", { location: "hero" })
+                }
+              >
+                {t("marketing", locale, "hero.install")}
+              </a>
+              <a
+                className="inline-flex h-11 items-center rounded-lg border border-white/15 bg-white/[0.03] px-5 text-sm font-semibold text-white/85 transition hover:bg-white/[0.08]"
+                href="#clone"
+                onClick={() =>
+                  trackEvent("recut_docs_clicked", { location: "hero" })
+                }
+              >
+                {t("marketing", locale, "hero.readDocs")}
+              </a>
             </div>
-            <p className="mt-5 font-mono text-[11px] tracking-[0.16em] text-white/35" data-hero-body>{t("marketing", locale, "hero.subtext")}</p>
+            <p
+              className="mt-5 font-mono text-[11px] tracking-[0.16em] text-white/35"
+              data-hero-body
+            >
+              {t("marketing", locale, "hero.subtext")}
+            </p>
           </div>
-          <div data-hero-demo><CreationFlowDiagram images={media} /></div>
+          <div data-hero-demo>
+            <CreationFlowDiagram images={media} />
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-export function MarketingLanding({ worlds = [] }: { posts: MarketingPost[]; worlds?: MarketingWorld[] }) {
+export function MarketingLanding({
+  worlds = [],
+}: {
+  posts: MarketingPost[];
+  worlds?: MarketingWorld[];
+}) {
   const cases = buildMarketingCases(worlds);
-  return <><MarketingWorldHero posters={cases.map((item) => item.poster)} /><MarketingCaseGrid cases={cases} /></>;
+  return (
+    <>
+      <MarketingWorldHero posters={cases.map((item) => item.poster)} />
+      <MarketingCaseGrid cases={cases} />
+    </>
+  );
 }
 
-function SectionHeading({ eyebrow, title, tagline }: { eyebrow: string; title: string; tagline: string }) {
+function SectionHeading({
+  eyebrow,
+  title,
+  tagline,
+}: {
+  eyebrow: string;
+  title: string;
+  tagline: string;
+}) {
   return (
     <div className="max-w-2xl">
-      <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{eyebrow}</p>
-      <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h2>
+      <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">
+        {eyebrow}
+      </p>
+      <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
+        {title}
+      </h2>
       <p className="mt-3 text-sm leading-6 text-muted-foreground">{tagline}</p>
     </div>
   );
@@ -244,9 +521,23 @@ function CloneWhatWorks({ images }: { images: string[] }) {
   return (
     <section className="border-y bg-card" id="clone">
       <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
-        <SectionHeading eyebrow={t("marketing", locale, "clone.eyebrow")} tagline={t("marketing", locale, "clone.tagline")} title={t("marketing", locale, "clone.title")} />
-        <div className="mt-10"><CloneFlowDiagram images={images} /></div>
-        <a className="mt-8 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "clone" })}>{t("marketing", locale, "clone.cta")}</a>
+        <SectionHeading
+          eyebrow={t("marketing", locale, "clone.eyebrow")}
+          tagline={t("marketing", locale, "clone.tagline")}
+          title={t("marketing", locale, "clone.title")}
+        />
+        <div className="mt-10">
+          <CloneFlowDiagram images={images} />
+        </div>
+        <a
+          className="mt-8 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85"
+          href={appURL}
+          onClick={() =>
+            trackEvent("recut_install_clicked", { location: "clone" })
+          }
+        >
+          {t("marketing", locale, "clone.cta")}
+        </a>
       </div>
     </section>
   );
@@ -259,14 +550,30 @@ function FromIdeaToVideo({ images }: { images: string[] }) {
     <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8" id="agent">
       <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
         <div>
-          <SectionHeading eyebrow={t("marketing", locale, "agent.eyebrow")} tagline={t("marketing", locale, "agent.tagline")} title={t("marketing", locale, "agent.title")} />
-          <p className="mt-5 max-w-md text-sm leading-6 text-muted-foreground">{t("marketing", locale, "agent.note")}</p>
-          <a className="mt-7 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "agent" })}>{t("marketing", locale, "hero.install")} <span aria-hidden="true" className="ml-1">↗</span></a>
+          <SectionHeading
+            eyebrow={t("marketing", locale, "agent.eyebrow")}
+            tagline={t("marketing", locale, "agent.tagline")}
+            title={t("marketing", locale, "agent.title")}
+          />
+          <p className="mt-5 max-w-md text-sm leading-6 text-muted-foreground">
+            {t("marketing", locale, "agent.note")}
+          </p>
+          <a
+            className="mt-7 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85"
+            href={appURL}
+            onClick={() =>
+              trackEvent("recut_install_clicked", { location: "agent" })
+            }
+          >
+            {t("marketing", locale, "hero.install")}
+          </a>
         </div>
         <AgentPipelineDiagram images={images} />
       </div>
       <div className="mt-16 border-t pt-10" id="editor">
-        <p className="mx-auto max-w-2xl text-center text-sm leading-6 text-muted-foreground">{t("marketing", locale, "editor.tagline")}</p>
+        <p className="mx-auto max-w-2xl text-center text-sm leading-6 text-muted-foreground">
+          {t("marketing", locale, "editor.tagline")}
+        </p>
         <MarketingEditorDemo locale={locale} />
       </div>
     </section>
@@ -277,31 +584,106 @@ function FromIdeaToVideo({ images }: { images: string[] }) {
 export function ProductSection({ images }: { images?: string[] }) {
   const locale = useMarketingLocale();
   const rows = [
-    ["compare.row1a", "compare.row1b", "compare.row1c", "compare.row1d", "compare.row1e"],
-    ["compare.row2a", "compare.row2b", "compare.row2c", "compare.row2d", "compare.row2e"],
-    ["compare.row3a", "compare.row3b", "compare.row3c", "compare.row3d", "compare.row3e"],
+    [
+      "compare.row1a",
+      "compare.row1b",
+      "compare.row1c",
+      "compare.row1d",
+      "compare.row1e",
+    ],
+    [
+      "compare.row2a",
+      "compare.row2b",
+      "compare.row2c",
+      "compare.row2d",
+      "compare.row2e",
+    ],
+    [
+      "compare.row3a",
+      "compare.row3b",
+      "compare.row3c",
+      "compare.row3d",
+      "compare.row3e",
+    ],
   ] as const;
   return (
     <section id="open">
       <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
         <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:items-center">
           <div>
-            <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "product.eyebrow")}</p>
-            <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "product.title1")}<br />{t("marketing", locale, "product.title2")}</h2>
-            <p className="mt-5 max-w-sm text-sm leading-6 text-muted-foreground">{t("marketing", locale, "product.tagline")}</p>
-            <a className="mt-7 inline-flex h-11 items-center rounded-lg border bg-background px-5 text-sm font-semibold transition hover:border-primary/35" href="https://github.com/6174/recut" onClick={() => trackEvent("recut_external_clicked", { target: "github", location: "architecture" })} rel="noreferrer" target="_blank">{t("marketing", locale, "product.architectureCta")}</a>
+            <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">
+              {t("marketing", locale, "product.eyebrow")}
+            </p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
+              {t("marketing", locale, "product.title1")}
+              <br />
+              {t("marketing", locale, "product.title2")}
+            </h2>
+            <p className="mt-5 max-w-sm text-sm leading-6 text-muted-foreground">
+              {t("marketing", locale, "product.tagline")}
+            </p>
+            <a
+              className="mt-7 inline-flex h-11 items-center rounded-lg border bg-background px-5 text-sm font-semibold transition hover:border-primary/35"
+              href="https://github.com/6174/recut"
+              onClick={() =>
+                trackEvent("recut_external_clicked", {
+                  target: "github",
+                  location: "architecture",
+                })
+              }
+              rel="noreferrer"
+              target="_blank"
+            >
+              {t("marketing", locale, "product.architectureCta")}
+            </a>
           </div>
           <OwnershipDiagram images={images} />
         </div>
         <div className="mt-16">
-          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "compare.eyebrow")}</p>
+          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">
+            {t("marketing", locale, "compare.eyebrow")}
+          </p>
           <div className="mt-5 overflow-x-auto rounded-2xl border bg-background">
             <table className="w-full min-w-[40rem] text-left text-sm">
-              <thead><tr className="border-b text-muted-foreground"><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerDimension")}</th><th className="p-4 font-semibold text-primary">{t("marketing", locale, "compare.headerRecut")}</th><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerJianying")}</th><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerCloud")}</th><th className="p-4 font-semibold">{t("marketing", locale, "compare.headerPro")}</th></tr></thead>
-              <tbody>{rows.map(([label, recut, jianying, cloud, pro]) => <tr className="border-b last:border-0" key={label}><td className="p-4 text-muted-foreground">{t("marketing", locale, label)}</td><td className="p-4 font-medium text-foreground">{t("marketing", locale, recut)}</td><td className="p-4">{t("marketing", locale, jianying)}</td><td className="p-4">{t("marketing", locale, cloud)}</td><td className="p-4">{t("marketing", locale, pro)}</td></tr>)}</tbody>
+              <thead>
+                <tr className="border-b text-muted-foreground">
+                  <th className="p-4 font-semibold">
+                    {t("marketing", locale, "compare.headerDimension")}
+                  </th>
+                  <th className="p-4 font-semibold text-primary">
+                    {t("marketing", locale, "compare.headerRecut")}
+                  </th>
+                  <th className="p-4 font-semibold">
+                    {t("marketing", locale, "compare.headerJianying")}
+                  </th>
+                  <th className="p-4 font-semibold">
+                    {t("marketing", locale, "compare.headerCloud")}
+                  </th>
+                  <th className="p-4 font-semibold">
+                    {t("marketing", locale, "compare.headerPro")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(([label, recut, jianying, cloud, pro]) => (
+                  <tr className="border-b last:border-0" key={label}>
+                    <td className="p-4 text-muted-foreground">
+                      {t("marketing", locale, label)}
+                    </td>
+                    <td className="p-4 font-medium text-foreground">
+                      {t("marketing", locale, recut)}
+                    </td>
+                    <td className="p-4">{t("marketing", locale, jianying)}</td>
+                    <td className="p-4">{t("marketing", locale, cloud)}</td>
+                    <td className="p-4">{t("marketing", locale, pro)}</td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
-          <p className="mt-4 text-xs text-muted-foreground">{t("marketing", locale, "compare.footnote")}</p>
+          <p className="mt-4 text-xs text-muted-foreground">
+            {t("marketing", locale, "compare.footnote")}
+          </p>
         </div>
       </div>
     </section>
@@ -314,13 +696,28 @@ function TeamNote() {
     <section className="border-y bg-[oklch(0.17_0.012_150)] text-white">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-20 sm:px-8 lg:grid-cols-[0.7fr_1.3fr]">
         <div>
-          <span className="grid size-12 place-items-center rounded-xl bg-primary text-xl font-bold">R</span>
-          <p className="mt-5 font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "team.eyebrow")}</p>
+          <span className="grid size-12 place-items-center rounded-xl bg-primary text-xl font-bold">
+            R
+          </span>
+          <p className="mt-5 font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">
+            {t("marketing", locale, "team.eyebrow")}
+          </p>
         </div>
         <div>
-          <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">{t("marketing", locale, "team.title1")}<br />{t("marketing", locale, "team.title2")}</h2>
-          <p className="mt-6 max-w-2xl text-base leading-7 text-white/65">{t("marketing", locale, "team.body")}</p>
-          <a className="mt-8 inline-flex text-sm font-semibold text-primary" href={localizeURL("/blog/local-first-creative-workspace", locale)}>{t("marketing", locale, "team.readMore")}</a>
+          <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
+            {t("marketing", locale, "team.title1")}
+            <br />
+            {t("marketing", locale, "team.title2")}
+          </h2>
+          <p className="mt-6 max-w-2xl text-base leading-7 text-white/65">
+            {t("marketing", locale, "team.body")}
+          </p>
+          <a
+            className="mt-8 inline-flex text-sm font-semibold text-primary"
+            href={localizeURL("/blog/local-first-creative-workspace", locale)}
+          >
+            {t("marketing", locale, "team.readMore")}
+          </a>
         </div>
       </div>
     </section>
@@ -331,9 +728,25 @@ function PostDate({ className, date }: { className?: string; date: string }) {
   const locale = useMarketingLocale();
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   const readableDate = match
-    ? new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))))
+    ? new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        timeZone: "UTC",
+      }).format(
+        new Date(
+          Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
+        ),
+      )
     : date;
-  return <time className={`block font-mono text-muted-foreground ${className ?? ""}`} dateTime={date}>{t("marketing", locale, "blog.published").replace("{date}", readableDate)}</time>;
+  return (
+    <time
+      className={`block font-mono text-muted-foreground ${className ?? ""}`}
+      dateTime={date}
+    >
+      {t("marketing", locale, "blog.published").replace("{date}", readableDate)}
+    </time>
+  );
 }
 
 function LatestPosts({ posts }: { posts: MarketingPost[] }) {
@@ -343,13 +756,53 @@ function LatestPosts({ posts }: { posts: MarketingPost[] }) {
       <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
         <div className="flex items-end justify-between gap-5">
           <div>
-            <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">LATEST FROM RECUT</p>
-            <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "blog.title")}</h2>
+            <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">
+              LATEST FROM RECUT
+            </p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
+              {t("marketing", locale, "blog.title")}
+            </h2>
           </div>
-          <a className="hidden text-sm font-semibold text-primary sm:inline" href={localizeURL("/blog", locale)}>{t("marketing", locale, "blog.allPosts")}</a>
+          <a
+            className="hidden text-sm font-semibold text-primary sm:inline"
+            href={localizeURL("/blog", locale)}
+          >
+            {t("marketing", locale, "blog.allPosts")}
+          </a>
         </div>
-        <div className="mt-10 grid gap-4 md:grid-cols-3">{posts.map((post) => <article className="flex min-h-60 flex-col rounded-2xl border bg-background p-5" key={post.slug}><PostDate className="text-[10px]" date={post.date} /><h3 className="mt-8 text-lg font-semibold leading-6"><a className="transition hover:text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{post.title[locale]}</a></h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{post.description[locale]}</p><a className="mt-auto pt-6 text-sm font-semibold text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{t("marketing", locale, "blog.continueReading")}</a></article>)}</div>
-        <a className="mt-6 inline-flex text-sm font-semibold text-primary sm:hidden" href={localizeURL("/blog", locale)}>{t("marketing", locale, "blog.allPosts")}</a>
+        <div className="mt-10 grid gap-4 md:grid-cols-3">
+          {posts.map((post) => (
+            <article
+              className="flex min-h-60 flex-col rounded-2xl border bg-background p-5"
+              key={post.slug}
+            >
+              <PostDate className="text-[10px]" date={post.date} />
+              <h3 className="mt-8 text-lg font-semibold leading-6">
+                <a
+                  className="transition hover:text-primary"
+                  href={localizeURL(`/blog/${post.slug}`, locale)}
+                >
+                  {post.title[locale]}
+                </a>
+              </h3>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                {post.description[locale]}
+              </p>
+              <a
+                className="mt-auto pt-6 text-sm font-semibold text-primary"
+                href={localizeURL(`/blog/${post.slug}`, locale)}
+              >
+                {t("marketing", locale, "blog.continueReading")}
+              </a>
+            </article>
+          ))}
+        </div>
+        <a
+          className="mt-6 inline-flex text-sm font-semibold text-primary sm:hidden"
+          href={localizeURL("/blog", locale)}
+        >
+          {t("marketing", locale, "blog.allPosts")}
+        </a>
       </div>
     </section>
   );
@@ -362,14 +815,33 @@ function FinalCTA() {
     <section className="border-t bg-primary text-primary-foreground">
       <div className="mx-auto flex max-w-4xl flex-col items-center gap-6 px-5 py-16 text-center sm:px-8">
         <div>
-          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary-foreground/65">{t("marketing", locale, "cta.eyebrow")}</p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{t("marketing", locale, "cta.title")}</h2>
+          <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary-foreground/65">
+            {t("marketing", locale, "cta.eyebrow")}
+          </p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+            {t("marketing", locale, "cta.title")}
+          </h2>
         </div>
         <div className="flex flex-wrap justify-center gap-3">
-          <a className="inline-flex h-11 items-center rounded-lg bg-card px-5 text-sm font-semibold text-foreground transition hover:bg-background" href={appURL} onClick={() => trackEvent("recut_install_clicked", { location: "final_cta" })}>{t("marketing", locale, "cta.install")} <span aria-hidden="true" className="ml-1">↗</span></a>
-          <a className="inline-flex h-11 items-center rounded-lg border border-primary-foreground/35 px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-foreground/10" href={localizeURL("/worlds", locale)}>{t("marketing", locale, "cta.worlds")}</a>
+          <a
+            className="inline-flex h-11 items-center rounded-lg bg-card px-5 text-sm font-semibold text-foreground transition hover:bg-background"
+            href={appURL}
+            onClick={() =>
+              trackEvent("recut_install_clicked", { location: "final_cta" })
+            }
+          >
+            {t("marketing", locale, "cta.install")}
+          </a>
+          <a
+            className="inline-flex h-11 items-center rounded-lg border border-primary-foreground/35 px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-foreground/10"
+            href={localizeURL("/worlds", locale)}
+          >
+            {t("marketing", locale, "cta.worlds")}
+          </a>
         </div>
-        <p className="font-mono text-[11px] tracking-[0.16em] text-primary-foreground/60">{t("marketing", locale, "cta.subtext")}</p>
+        <p className="font-mono text-[11px] tracking-[0.16em] text-primary-foreground/60">
+          {t("marketing", locale, "cta.subtext")}
+        </p>
       </div>
     </section>
   );
@@ -386,10 +858,55 @@ export function DocsContent({ docs }: { docs: DocPage[] }) {
   }
   return (
     <section className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
-      <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "docs.eyebrow")}</p>
-      <h1 className="mt-4 text-4xl font-semibold tracking-tight">{t("marketing", locale, "docs.title")}</h1>
-      <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">{t("marketing", locale, "docs.tagline")}</p>
-      <div className="mt-10 space-y-10">{groups.map(({ group, docs: groupDocs }) => <div key={group}><h2 className="text-sm font-semibold text-muted-foreground">{group}</h2><div className="mt-4 grid gap-4 md:grid-cols-2">{groupDocs.map((doc) => <article className="rounded-2xl border bg-card p-6 transition hover:border-primary/35 hover:shadow-sm" key={doc.slug}><h3 className="text-lg font-semibold"><a className="transition hover:text-primary" href={localizeURL(`/docs/${doc.slug}`, locale)}>{doc.title}</a></h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{doc.description}</p><div className="mt-4 flex items-center justify-between gap-3"><a className="text-sm font-semibold text-primary" href={localizeURL(`/docs/${doc.slug}`, locale)}>{t("marketing", locale, "docs.readMore")} →</a><a className="text-xs text-muted-foreground" href={appURL}>{t("marketing", locale, "docs.openInWorkspace")}</a></div></article>)}</div></div>)}</div>
+      <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">
+        {t("marketing", locale, "docs.eyebrow")}
+      </p>
+      <h1 className="mt-4 text-4xl font-semibold tracking-tight">
+        {t("marketing", locale, "docs.title")}
+      </h1>
+      <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+        {t("marketing", locale, "docs.tagline")}
+      </p>
+      <div className="mt-10 space-y-10">
+        {groups.map(({ group, docs: groupDocs }) => (
+          <div key={group}>
+            <h2 className="text-sm font-semibold text-muted-foreground">
+              {group}
+            </h2>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {groupDocs.map((doc) => (
+                <article
+                  className="rounded-2xl border bg-card p-6 transition hover:border-primary/35 hover:shadow-sm"
+                  key={doc.slug}
+                >
+                  <h3 className="text-lg font-semibold">
+                    <a
+                      className="transition hover:text-primary"
+                      href={localizeURL(`/docs/${doc.slug}`, locale)}
+                    >
+                      {doc.title}
+                    </a>
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {doc.description}
+                  </p>
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <a
+                      className="text-sm font-semibold text-primary"
+                      href={localizeURL(`/docs/${doc.slug}`, locale)}
+                    >
+                      {t("marketing", locale, "docs.readMore")} →
+                    </a>
+                    <a className="text-xs text-muted-foreground" href={appURL}>
+                      {t("marketing", locale, "docs.openInWorkspace")}
+                    </a>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -397,17 +914,77 @@ export function DocsContent({ docs }: { docs: DocPage[] }) {
 export function DocContent({ doc }: { doc: DocPage }) {
   const appURL = useMarketingAppURL();
   const locale = useMarketingLocale();
-  return <article className="mx-auto max-w-3xl px-5 py-16 sm:px-8"><a className="text-sm font-semibold text-primary" href={localizeURL("/docs", locale)}>← {t("marketing", locale, "docs.title")}</a><h1 className="mt-10 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">{doc.title}</h1><p className="mt-6 text-lg leading-8 text-muted-foreground">{doc.description}</p><MarkdownContent content={doc.content} /><a className="mt-10 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL}>{t("marketing", locale, "docs.openInWorkspace")}</a></article>;
+  return (
+    <article className="mx-auto max-w-3xl px-5 py-16 sm:px-8">
+      <a
+        className="text-sm font-semibold text-primary"
+        href={localizeURL("/docs", locale)}
+      >
+        ← {t("marketing", locale, "docs.title")}
+      </a>
+      <h1 className="mt-10 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
+        {doc.title}
+      </h1>
+      <p className="mt-6 text-lg leading-8 text-muted-foreground">
+        {doc.description}
+      </p>
+      <MarkdownContent content={doc.content} />
+      <a
+        className="mt-10 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85"
+        href={appURL}
+      >
+        {t("marketing", locale, "docs.openInWorkspace")}
+      </a>
+    </article>
+  );
 }
 
 export function BlogContent({ posts }: { posts: MarketingPost[] }) {
   const locale = useMarketingLocale();
   return (
     <section className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
-      <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">{t("marketing", locale, "blog.eyebrow")}</p>
-      <h1 className="mt-4 text-4xl font-semibold tracking-tight">{t("marketing", locale, "blog.title")}</h1>
-      <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">{t("marketing", locale, "blog.tagline")}</p>
-      <div className="mt-10 divide-y border-y">{posts.map((post) => <article className="grid gap-3 py-7 sm:grid-cols-[9rem_1fr_auto] sm:items-center" key={post.slug}><PostDate className="text-xs" date={post.date} /><div><h2 className="text-xl font-semibold"><a className="transition hover:text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{post.title[locale]}</a></h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{post.description[locale]}</p></div><a aria-label={t("marketing", locale, "blog.readAria").replace("{title}", post.title[locale])} className="text-sm font-semibold text-primary" href={localizeURL(`/blog/${post.slug}`, locale)}>{t("marketing", locale, "blog.read")}</a></article>)}</div>
+      <p className="font-mono text-[11px] font-semibold tracking-[0.18em] text-primary">
+        {t("marketing", locale, "blog.eyebrow")}
+      </p>
+      <h1 className="mt-4 text-4xl font-semibold tracking-tight">
+        {t("marketing", locale, "blog.title")}
+      </h1>
+      <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+        {t("marketing", locale, "blog.tagline")}
+      </p>
+      <div className="mt-10 divide-y border-y">
+        {posts.map((post) => (
+          <article
+            className="grid gap-3 py-7 sm:grid-cols-[9rem_1fr_auto] sm:items-center"
+            key={post.slug}
+          >
+            <PostDate className="text-xs" date={post.date} />
+            <div>
+              <h2 className="text-xl font-semibold">
+                <a
+                  className="transition hover:text-primary"
+                  href={localizeURL(`/blog/${post.slug}`, locale)}
+                >
+                  {post.title[locale]}
+                </a>
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                {post.description[locale]}
+              </p>
+            </div>
+            <a
+              aria-label={t("marketing", locale, "blog.readAria").replace(
+                "{title}",
+                post.title[locale],
+              )}
+              className="text-sm font-semibold text-primary"
+              href={localizeURL(`/blog/${post.slug}`, locale)}
+            >
+              {t("marketing", locale, "blog.read")}
+            </a>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -418,18 +995,41 @@ export function BlogPostContent({ post }: { post: MarketingPost }) {
   const title = post.title[locale];
   return (
     <article className="mx-auto max-w-3xl px-5 py-16 sm:px-8">
-      <a className="text-sm font-semibold text-primary" href={localizeURL("/blog", locale)}>{t("marketing", locale, "blog.backToAll")}</a>
+      <a
+        className="text-sm font-semibold text-primary"
+        href={localizeURL("/blog", locale)}
+      >
+        {t("marketing", locale, "blog.backToAll")}
+      </a>
       <PostDate className="mt-10 text-xs" date={post.date} />
-      <h1 className="mt-4 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">{title}</h1>
-      <p className="mt-6 text-lg leading-8 text-muted-foreground">{post.description[locale]}</p>
+      <h1 className="mt-4 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
+        {title}
+      </h1>
+      <p className="mt-6 text-lg leading-8 text-muted-foreground">
+        {post.description[locale]}
+      </p>
       <MarkdownContent content={post.content[locale]} />
-      <ShareActions title={title} urlPath={localizeURL(`/blog/${post.slug}`, locale)} />
-      <a className="mt-10 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85" href={appURL}>{t("marketing", locale, "blog.openWorkspace")}</a>
+      <ShareActions
+        title={title}
+        urlPath={localizeURL(`/blog/${post.slug}`, locale)}
+      />
+      <a
+        className="mt-10 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85"
+        href={appURL}
+      >
+        {t("marketing", locale, "blog.openWorkspace")}
+      </a>
     </article>
   );
 }
 
-export function ShareActions({ title, urlPath }: { title: string; urlPath: string }) {
+export function ShareActions({
+  title,
+  urlPath,
+}: {
+  title: string;
+  urlPath: string;
+}) {
   const locale = useMarketingLocale();
   const [copied, setCopied] = useState(false);
   // urlPath 由父组件用 localizeURL 派生（服务端/客户端一致），不从 usePathname 推导，
@@ -437,10 +1037,22 @@ export function ShareActions({ title, urlPath }: { title: string; urlPath: strin
   const url = `https://recut.video${urlPath}`;
   const encode = encodeURIComponent;
   const links = [
-    { label: "X", href: `https://twitter.com/intent/tweet?text=${encode(title)}&url=${encode(url)}` },
-    { label: "LinkedIn", href: `https://www.linkedin.com/sharing/share-offsite/?url=${encode(url)}` },
-    { label: "Telegram", href: `https://t.me/share/url?url=${encode(url)}&text=${encode(title)}` },
-    { label: t("marketing", locale, "share.weibo"), href: `https://service.weibo.com/share/share.php?url=${encode(url)}&title=${encode(title)}` },
+    {
+      label: "X",
+      href: `https://twitter.com/intent/tweet?text=${encode(title)}&url=${encode(url)}`,
+    },
+    {
+      label: "LinkedIn",
+      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encode(url)}`,
+    },
+    {
+      label: "Telegram",
+      href: `https://t.me/share/url?url=${encode(url)}&text=${encode(title)}`,
+    },
+    {
+      label: t("marketing", locale, "share.weibo"),
+      href: `https://service.weibo.com/share/share.php?url=${encode(url)}&title=${encode(title)}`,
+    },
   ];
   async function copyLink() {
     try {
@@ -453,9 +1065,33 @@ export function ShareActions({ title, urlPath }: { title: string; urlPath: strin
   }
   return (
     <div className="mt-10 flex flex-wrap items-center gap-2 border-t pt-6">
-      <span className="text-xs font-medium text-muted-foreground">{t("marketing", locale, "share.label")}</span>
-      {links.map(({ href, label }) => <a className="inline-flex h-8 items-center rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:border-primary/35 hover:text-foreground" href={href} key={label} onClick={() => trackEvent("recut_share_clicked", { platform: label })} rel="noreferrer" target="_blank">{label}</a>)}
-      <button className="inline-flex h-8 items-center rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:border-primary/35 hover:text-foreground" onClick={() => { trackEvent("recut_share_clicked", { platform: "copy_link" }); void copyLink(); }} type="button">{copied ? t("marketing", locale, "share.copied") : t("marketing", locale, "share.copyLink")}</button>
+      <span className="text-xs font-medium text-muted-foreground">
+        {t("marketing", locale, "share.label")}
+      </span>
+      {links.map(({ href, label }) => (
+        <a
+          className="inline-flex h-8 items-center rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:border-primary/35 hover:text-foreground"
+          href={href}
+          key={label}
+          onClick={() => trackEvent("recut_share_clicked", { platform: label })}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {label}
+        </a>
+      ))}
+      <button
+        className="inline-flex h-8 items-center rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:border-primary/35 hover:text-foreground"
+        onClick={() => {
+          trackEvent("recut_share_clicked", { platform: "copy_link" });
+          void copyLink();
+        }}
+        type="button"
+      >
+        {copied
+          ? t("marketing", locale, "share.copied")
+          : t("marketing", locale, "share.copyLink")}
+      </button>
     </div>
   );
 }
@@ -468,7 +1104,9 @@ function useAppURLForHost() {
   const [appURL, setAppURL] = useState(defaultAppURL);
   useEffect(() => {
     if (window.location.hostname !== "localhost") return;
-    setAppURL(`${window.location.protocol}//app.localhost${window.location.port ? `:${window.location.port}` : ""}`);
+    setAppURL(
+      `${window.location.protocol}//app.localhost${window.location.port ? `:${window.location.port}` : ""}`,
+    );
   }, []);
   return appURL;
 }

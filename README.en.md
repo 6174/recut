@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./assets/logo.jpg" alt="Recut logo" width="112" />
+<img src="./assets/logo.svg" alt="Recut logo" width="112" />
 
 # Recut
 

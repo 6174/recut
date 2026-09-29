@@ -33,13 +33,13 @@ export const metadata: Metadata = {
     url: "https://recut.video/",
     title: "Recut",
     description: "本地优先、可扩展的 AI 视频创作工作台。",
-    images: [{ url: "https://recut.video/logo.jpg", width: 404, height: 424, alt: "Recut" }],
+    images: [{ url: "https://recut.video/icon.png", width: 512, height: 512, alt: "Recut" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Recut",
     description: "本地优先、可扩展的 AI 视频创作工作台。",
-    images: ["https://recut.video/logo.jpg"],
+    images: ["https://recut.video/icon.png"],
   },
 };
 

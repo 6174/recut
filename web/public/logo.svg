@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 88 85" role="img" aria-label="Recut" fill="currentColor">
+  <title>Recut</title>
+  <!-- Recut brand mark (core logo). Monochrome and transparent: inline it to inherit currentColor,
+       or reference it from <img> for the default black. Geometry is shared with web/components/brand-logo.tsx. -->
+  <path d="M0 9.5A9.5 9.5 0 0 1 9.5 0L58 0A26 26 0 0 1 72.5 47.581L34.534 24.992A3 3 0 0 0 30 27.57L30 80.5A4.5 4.5 0 0 1 25.5 85L5 85A5 5 0 0 1 0 80Z"/>
+  <path d="M60.27 46.84A3 3 0 0 1 64.14 47.53L87.85 76.85A5 5 0 0 1 83.96 85L39 85A4 4 0 0 1 35 81L35 62Z"/>
+</svg>

@@ -8,7 +8,7 @@ import type { Metadata } from "next";
 import { type Locale, localizeURL } from "@/lib/i18n";
 
 export const SITE_URL = "https://recut.video";
-export const SITE_LOGO = `${SITE_URL}/logo.jpg`;
+export const SITE_LOGO = `${SITE_URL}/icon.png`;
 
 export function localizedURL(path: string, locale: Locale): string {
   return `${SITE_URL}${localizeURL(path, locale)}`;
@@ -43,7 +43,7 @@ export function buildOpenGraph(path: string, locale: Locale, title: string, desc
     siteName: "Recut",
     locale: ogLocale(locale),
     alternateLocale: [ogLocale(other)],
-    images: [{ url: SITE_LOGO, width: 404, height: 424, alt: "Recut" }],
+    images: [{ url: SITE_LOGO, width: 512, height: 512, alt: "Recut" }],
   } as OpenGraph;
   if (type === "article" && publishedTime) {
     (og as { publishedTime?: string }).publishedTime = publishedTime;

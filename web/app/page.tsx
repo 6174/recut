@@ -45,6 +45,7 @@ import {
 
 import { AssetPreviewDialog } from "@/components/asset-preview-dialog";
 import { AppIdentityIcon, appIcon } from "@/components/app-identity-icon";
+import { RecutMark } from "@/components/brand-logo";
 import { CardMoreMenu } from "@/components/card-more-menu";
 import { Badge } from "@/components/ui/badge";
 import { Community, type CommunityView } from "@/components/community/community";
@@ -396,13 +397,7 @@ function WorkspaceFrame({
     <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <header className="grid h-13 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b bg-card px-4 md:px-5">
         <div className="flex min-w-0 items-center gap-3 md:gap-4">
-          <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg">
-            <img
-              alt="Recut"
-              className="size-full object-cover"
-              src="/logo.jpg"
-            />
-          </span>
+          <RecutMark className="h-5 w-auto shrink-0" title="Recut" />
           <span className="hidden h-5 w-px bg-border sm:block" />
           {canvasTopBarActive && <WorldCanvasTopBar />}
           {!canvasTopBarActive && (

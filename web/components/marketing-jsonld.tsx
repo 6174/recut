@@ -9,7 +9,7 @@ import { appDescription, appName, marketingApps, type MarketingApp } from "@/lib
 import { localizeURL, t, type Locale } from "@/lib/i18n";
 
 const SITE_URL = "https://recut.video";
-const LOGO_URL = `${SITE_URL}/logo.jpg`;
+const LOGO_URL = `${SITE_URL}/icon.png`;
 
 function localizedURL(path: string, locale: Locale) {
   return `${SITE_URL}${localizeURL(path, locale)}`;

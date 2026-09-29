@@ -13,6 +13,7 @@ import { useParams } from "next/navigation";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
+import { RecutMark } from "@/components/brand-logo";
 import { HeaderActions } from "@/components/header-actions";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
 import { PlatformImagePreview, type PlatformImagePreviewRequest } from "@/components/image-lightbox";
@@ -284,7 +285,7 @@ export default function ProjectDetailClient() {
   return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">
     <header className="flex h-13 shrink-0 items-center justify-between border-b bg-card px-5">
       <div className="flex min-w-0 items-center gap-4">
-        <Link aria-label={t("detail.back")} className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><img alt="Recut" className="size-5 shrink-0 rounded-sm object-cover" src="/logo.jpg" /></Link>
+        <Link aria-label={t("detail.back")} className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><RecutMark className="h-4 w-auto shrink-0" /></Link>
         <div aria-hidden="true" className="h-5 w-px bg-border" />
         <div className="min-w-0">{project ? <EditableProjectName apiBase={apiBase} name={project.name} onRenamed={refreshProject} projectID={project.id} /> : <p className="truncate text-sm font-medium">{t("detail.loading")}</p>}<p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{project ? `${app?.manifest.name ?? project.appId} · v${app?.manifest.version ?? project.appVersion} · ${project.id}` : t("detail.loading.meta")}</p></div>
       </div>

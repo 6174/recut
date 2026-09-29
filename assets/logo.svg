@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Recut" width="512" height="512">
+  <title>Recut</title>
+  <!-- Recut brand tile: the core mark on the brand canvas, self-contained so READMEs and shares render
+       identically on light and dark backgrounds. Vector source of the mark: web/public/logo.svg. -->
+  <rect width="512" height="512" fill="#161616"/>
+  <g fill="#f1f3f2" transform="translate(81 87) scale(3.9765)">
+    <path d="M0 9.5A9.5 9.5 0 0 1 9.5 0L58 0A26 26 0 0 1 72.5 47.581L34.534 24.992A3 3 0 0 0 30 27.57L30 80.5A4.5 4.5 0 0 1 25.5 85L5 85A5 5 0 0 1 0 80Z"/>
+    <path d="M60.27 46.84A3 3 0 0 1 64.14 47.53L87.85 76.85A5 5 0 0 1 83.96 85L39 85A4 4 0 0 1 35 81L35 62Z"/>
+  </g>
+</svg>
