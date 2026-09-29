@@ -5,6 +5,7 @@
     "en": "SD-Turbo t2i/i2i"
   },
   "capability": "image.generate",
+  "expose": { "model": "sd-turbo", "function": "text-to-image" },
   "engine": {
     "appName": "recut-sd-turbo",
     "sourceDir": "modalapps/sd-turbo",

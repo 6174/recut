@@ -1,0 +1,290 @@
+{
+  "id": "qwen-image-2.1",
+  "name": {
+    "zh": "Qwen-Image-2.1 文生图/编辑",
+    "en": "Qwen-Image-2.1 t2i/edit"
+  },
+  "capability": "image.generate",
+  "expose": { "model": "qwen-image", "function": "text-to-image" },
+  "engine": {
+    "appName": "recut-qwen-image-21",
+    "sourceDir": "modalapps/qwen-image-2.1",
+    "image": {
+      "base": "debian_slim",
+      "pythonVersion": "3.11",
+      "apt": [
+        "git"
+      ],
+      "pip": [
+        "torch",
+        "torchvision",
+        "accelerate",
+        "pillow",
+        "safetensors",
+        "transformers>=5.17",
+        "huggingface_hub",
+        "sentencepiece",
+        "git+https://github.com/huggingface/diffusers"
+      ]
+    },
+    "gpuTiers": {
+      "default": "L40S",
+      "options": [
+        {
+          "id": "l40s",
+          "gpu": "L40S",
+          "label": {
+            "zh": "L40S ×1 · 48GB（省额度；2K 走 VAE 分块解码）",
+            "en": "L40S ×1 · 48GB (cheaper; 2K via tiled VAE decode)"
+          }
+        },
+        {
+          "id": "a100-80gb",
+          "gpu": "A100-80GB",
+          "label": {
+            "zh": "A100 80GB ×1（更稳）",
+            "en": "A100 80GB ×1 (safer)"
+          }
+        },
+        {
+          "id": "h100",
+          "gpu": "H100",
+          "label": {
+            "zh": "H100 ×1（更快）",
+            "en": "H100 ×1 (faster)"
+          }
+        },
+        {
+          "id": "h200",
+          "gpu": "H200",
+          "label": {
+            "zh": "H200 ×1（最快）",
+            "en": "H200 ×1 (fastest)"
+          }
+        }
+      ]
+    },
+    "timeoutSec": 1800,
+    "idleTimeoutSec": 60,
+    "volumes": [
+      {
+        "name": "recut-qwen-image-21-models",
+        "mount": "/models",
+        "label": {
+          "zh": "模型权重（约 33GB）",
+          "en": "Model weights (~33GB)"
+        }
+      }
+    ],
+    "secrets": [
+      {
+        "name": "recut-hf-token",
+        "required": false,
+        "label": {
+          "zh": "Hugging Face Token（权重需授权时需要）",
+          "en": "Hugging Face token (when weights are gated)"
+        },
+        "keys": [
+          "HF_TOKEN"
+        ]
+      }
+    ]
+  },
+  "weights": {
+    "bootstrapFunction": "bootstrap_weights",
+    "repoHuggingFace": "Qwen/Qwen-Image-2.1",
+    "repoModelScope": "Qwen/Qwen-Image-2.1",
+    "revision": "main",
+    "sizeGb": 33,
+    "files": [
+      "*.json",
+      "*.txt",
+      "transformer/*",
+      "text_encoder/*",
+      "tokenizer/*",
+      "processor/*",
+      "vae/*",
+      "scheduler/*"
+    ]
+  },
+  "functions": [
+    {
+      "id": "text-to-image",
+      "name": {
+        "zh": "文生图",
+        "en": "Text to image"
+      },
+      "entrypoint": "generate_image",
+      "invoke": {
+        "mode": "sdk",
+        "kind": "cls",
+        "cls": "QwenImage21",
+        "method": "generate_image"
+      },
+      "output": {
+        "kind": "image",
+        "mimeType": "image/png",
+        "ext": "png"
+      },
+      "formSchema": [
+        {
+          "key": "prompt",
+          "type": "textarea",
+          "required": true,
+          "label": {
+            "zh": "提示词",
+            "en": "Prompt"
+          }
+        },
+        {
+          "key": "negativePrompt",
+          "type": "textarea",
+          "default": "",
+          "label": {
+            "zh": "负向词（仅当引导强度 > 1 时生效）",
+            "en": "Negative prompt (only when guidance > 1)"
+          }
+        },
+        {
+          "key": "aspectRatio",
+          "type": "select",
+          "options": [
+            "1:1",
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4",
+            "3:2",
+            "2:3"
+          ],
+          "default": "1:1",
+          "label": {
+            "zh": "画幅（原生 2K）",
+            "en": "Aspect ratio (native 2K)"
+          }
+        },
+        {
+          "key": "steps",
+          "type": "number",
+          "default": 40,
+          "min": 1,
+          "max": 100,
+          "label": {
+            "zh": "步数",
+            "en": "Steps"
+          }
+        },
+        {
+          "key": "guidance",
+          "type": "number",
+          "default": 1.0,
+          "min": 0,
+          "max": 20,
+          "label": {
+            "zh": "引导强度",
+            "en": "Guidance"
+          }
+        },
+        {
+          "key": "seed",
+          "type": "number",
+          "default": -1,
+          "label": {
+            "zh": "随机种子（-1 随机）",
+            "en": "Seed (-1 random)"
+          }
+        }
+      ],
+      "defaultParams": {
+        "aspectRatio": "1:1",
+        "steps": 40,
+        "guidance": 1.0
+      }
+    },
+    {
+      "id": "image-edit",
+      "name": {
+        "zh": "图像编辑",
+        "en": "Image edit"
+      },
+      "entrypoint": "edit_image",
+      "invoke": {
+        "mode": "sdk",
+        "kind": "cls",
+        "cls": "QwenImage21",
+        "method": "edit_image"
+      },
+      "output": {
+        "kind": "image",
+        "mimeType": "image/png",
+        "ext": "png"
+      },
+      "formSchema": [
+        {
+          "key": "prompt",
+          "type": "textarea",
+          "required": true,
+          "label": {
+            "zh": "编辑指令",
+            "en": "Edit instruction"
+          }
+        },
+        {
+          "key": "references",
+          "type": "media",
+          "kind": "image",
+          "multiple": true,
+          "required": true,
+          "label": {
+            "zh": "参考图（最多 10 张，按顺序）",
+            "en": "Reference images (up to 10, in order)"
+          }
+        },
+        {
+          "key": "negativePrompt",
+          "type": "textarea",
+          "default": "",
+          "label": {
+            "zh": "负向词（仅当引导强度 > 1 时生效）",
+            "en": "Negative prompt (only when guidance > 1)"
+          }
+        },
+        {
+          "key": "steps",
+          "type": "number",
+          "default": 40,
+          "min": 1,
+          "max": 100,
+          "label": {
+            "zh": "步数",
+            "en": "Steps"
+          }
+        },
+        {
+          "key": "guidance",
+          "type": "number",
+          "default": 1.0,
+          "min": 0,
+          "max": 20,
+          "label": {
+            "zh": "引导强度",
+            "en": "Guidance"
+          }
+        },
+        {
+          "key": "seed",
+          "type": "number",
+          "default": -1,
+          "label": {
+            "zh": "随机种子（-1 随机）",
+            "en": "Seed (-1 random)"
+          }
+        }
+      ],
+      "defaultParams": {
+        "steps": 40,
+        "guidance": 1.0
+      }
+    }
+  ]
+}

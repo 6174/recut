@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 canvas-store（context/worldName/notice/relating 状态与 setContext 动作）、
  * canvas-toolbar（CanvasToolbarItems 工具组）与 lucide-react
  * [OUTPUT]: 对外提供 useWorldCanvasTopBarStore（画布/设定两种视图都向全局 Header 注册同一条工具栏行，
- * variant 区分）、WorldCanvasTopBar（左侧返回 / 上下文面包屑 / notice）、WorldCanvasToolbar（画布工具组，
+ * variant 区分）、WorldCanvasTopBar（全局 Header 左侧标题区内容：上下文面包屑 / world 名称 / notice，
+ * 单一返回入口由 WorkspaceHeader 提供，不再自绘返回图标）、WorldCanvasToolbar（画布工具组，
  * 由 Workspace 顶层 Header 居中渲染，仅 canvas variant；只读徽标与关系引导随行）与
  * WorldCanvasShareButton（右侧视图切换：canvas→设定视图，form→画布视图），切换按钮位置在两种视图下保持一致
  * [POS]: worlds/[worldID]/canvas 的顶层工具栏；画布工具（模式/连线/插入/undo/缩放）由 CanvasToolbarItems 承载
@@ -10,8 +11,7 @@
  */
 "use client";
 
-import { ArrowLeft, Box, ChevronLeft, Globe2, Network } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Box, ChevronLeft, Globe2, Network } from "lucide-react";
 import { create } from "zustand";
 import { useWorldCanvasStore } from "./canvas-store";
 import { CanvasToolbarItems } from "./canvas-toolbar";
@@ -42,7 +42,6 @@ export const useWorldCanvasTopBarStore = create<WorldCanvasTopBarState>((set) =>
 }));
 
 export function WorldCanvasTopBar() {
-  const router = useRouter();
   const variant = useWorldCanvasTopBarStore((state) => state.variant);
   const context = useWorldCanvasStore((state) => state.context);
   const contextTrail = useWorldCanvasStore((state) => state.contextTrail);
@@ -55,15 +54,7 @@ export function WorldCanvasTopBar() {
   const collapsed = contextTrail.length > 3;
   const visibleTrail = collapsed ? contextTrail.slice(-2) : contextTrail;
   return (
-    <div className="flex h-11 min-w-0 items-center gap-2 text-sm">
-      <button
-        aria-label="返回工作台"
-        className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-        onClick={() => router.push("/")}
-        type="button"
-      >
-        <ArrowLeft className="size-4" />
-      </button>
+    <div className="flex min-w-0 items-center gap-2 text-sm">
       {context && variant === "canvas" ? (
         <nav aria-label="容器导航" className="flex min-w-0 items-center gap-1">
           <button className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted" onClick={() => setContext(null)} type="button">
@@ -95,10 +86,7 @@ export function WorldCanvasTopBar() {
           )}
         </nav>
       ) : (
-        <span className="flex min-w-0 items-center gap-1.5 font-semibold">
-          <Globe2 aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate">{worldName}</span>
-        </span>
+        <span className="min-w-0 truncate font-semibold">{worldName}</span>
       )}
       {notice && variant === "canvas" && <span className="truncate text-xs text-warning">{notice}</span>}
     </div>

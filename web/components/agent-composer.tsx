@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖共享 Agent 会话配置类型、素材引用选择器、Agent runtime 安装状态与 UI 原子组件
- * [OUTPUT]: 对外提供 Composer 与 RuntimePicker；以单行紧凑芯片展示素材、Work Surface 与 Focus，悬浮查看完整上下文，并让文本区随内容增长至固定上限
+ * [OUTPUT]: 对外提供 Composer 与 RuntimePicker（两者都只提供浮层内容、由宿主用 @/components/ui/popover 定位，点外部/Esc 自动收起）；以单行紧凑芯片展示素材、Work Surface 与 Focus，悬浮查看完整上下文，并让文本区随内容增长至固定上限
  * [POS]: components Agent 对话模块的交互输入层；让用户发送前明确看见 Agent 的目标与局部选区
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,6 +14,7 @@ import { AssetReferenceChip } from "@/components/asset-reference-picker";
 import { ContextMentionPopover } from "@/components/context-panel/context-mention-popover";
 import { RichComposer } from "@/components/rich-composer/rich-composer";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, hasWorkFocusSelection, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PickedContext, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
 import type { ContextOption } from "@/lib/context-catalog/types";
 import { useI18n } from "@/lib/i18n/index";
@@ -215,33 +216,40 @@ export function Composer({
           workSurface={workSurface}
         />
         <div className="mt-1 flex items-center justify-between">
-          <div className="relative">
-            <Button
-              aria-expanded={configOpen}
-              aria-label={configButtonTitle}
-              className="size-6 rounded-full p-0 text-muted-foreground hover:text-foreground"
-              disabled={configDisabled}
-              onClick={() => setConfigOpen((value) => !value)}
-              title={configButtonTitle}
-              type="button"
-              variant="ghost"
+          <Popover onOpenChange={setConfigOpen} open={configOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                aria-label={configButtonTitle}
+                className="size-6 rounded-full p-0 text-muted-foreground hover:text-foreground"
+                disabled={configDisabled}
+                title={configButtonTitle}
+                type="button"
+                variant="ghost"
+              >
+                <Bot className="size-3.5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className={runtime === "opencode" ? "w-80 p-1.5" : "w-72 p-1.5"}
+              side="top"
+              sideOffset={8}
             >
-              <Bot className="size-3.5" />
-            </Button>
-            {configOpen && runtime === "codex" && (
-              <CodexConfigurationPopover
-                configuration={codexConfiguration}
-                onChange={(next) => void saveCodex(next)}
-              />
-            )}
-            {configOpen && runtime === "opencode" && (
-              <OpencodeConfigurationPopover
-                configuration={opencodeConfiguration}
-                models={opencodeModels}
-                onChange={(next) => void saveOpencode(next)}
-              />
-            )}
-          </div>
+              {runtime === "codex" && (
+                <CodexConfigurationPopover
+                  configuration={codexConfiguration}
+                  onChange={(next) => void saveCodex(next)}
+                />
+              )}
+              {runtime === "opencode" && (
+                <OpencodeConfigurationPopover
+                  configuration={opencodeConfiguration}
+                  models={opencodeModels}
+                  onChange={(next) => void saveOpencode(next)}
+                />
+              )}
+            </PopoverContent>
+          </Popover>
           <div className="flex items-center gap-1">
             <input
               accept="image/*,video/*,audio/*"
@@ -373,7 +381,7 @@ function CodexConfigurationPopover({
       />
     );
   return (
-    <section className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
+    <section>
       <ConfigurationMenuItem
         label={t("agent.composer.model")}
         onClick={() => setPage("model")}
@@ -407,7 +415,7 @@ function OpencodeConfigurationPopover({
     selectedRef.current?.scrollIntoView({ block: "nearest" });
   }, [models.length]);
   return (
-    <section className="absolute bottom-full left-0 z-30 mb-2 w-80 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
+    <section>
       <div className="flex items-baseline justify-between gap-2 px-2 py-1.5">
         <p className="shrink-0 text-xs font-medium">{t("agent.composer.currentModel")}</p>
         <p
@@ -504,7 +512,7 @@ function ConfigurationChoices({
   options: readonly (readonly [string, string])[];
 }) {
   return (
-    <section className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
+    <section>
       <button
         className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs font-medium hover:bg-muted"
         onClick={onBack}
@@ -641,7 +649,7 @@ export function RuntimePicker({
       syntheticAgent(runtime),
   }));
   return (
-    <section className="absolute right-3 top-14 z-30 w-[calc(100%-1.5rem)] overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
+    <section>
       {rows.length === 0 ? (
         <p className="px-2 py-3 text-center text-xs text-muted-foreground">
           {t("agent.composer.noAgent")}

@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖按 endpoint 缓存的 Agent 运行时、模型、引导与会话列表、general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
  * [OUTPUT]: 对外提供单一全局 Agent 会话及其运行、调试、素材上下文与 Work Surface/Focus 发送逻辑；稳定工作面默认附带，完整 Focus 可独立移除，二者随每个 Turn 持久化
- * [POS]: components 的通用 Agent 侧栏；由根布局挂载，Work Surface 是本次操作目标的单一真相，Focus 只是可撤销的局部视线
+ * [POS]: components 的通用 Agent 侧栏；由根布局挂载，Work Surface 是本次操作目标的单一真相，Focus 只是可撤销的局部视线；新建/历史/更多等头部浮层统一复用 @/components/ui/popover（Radix，点外部/Esc 自动收起），不自绘 absolute 菜单
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -24,6 +24,7 @@ import {
 } from "@/components/agent-install-guide";
 import { AgentOnboarding } from "@/components/agent-onboarding";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MediaAssetEventsProvider } from "@/components/use-media-asset-events";
 import { Composer, RuntimePicker } from "@/components/agent-composer";
 import {
@@ -681,104 +682,132 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
         <header className="flex h-10 shrink-0 items-center justify-between px-4">
           <p className="text-xs font-semibold tracking-wide">AI</p>
           <div className="flex items-center gap-1">
-            <Button
-              className="size-7 px-0"
-              disabled={creatingRuntime || loadingSessions}
-              onClick={() => {
-                setHistoryOpen(false);
-                setMoreOpen(false);
-                setRuntimeOpen((value) => !value);
+            <Popover
+              onOpenChange={(open) => {
+                setRuntimeOpen(open);
+                if (open) {
+                  setHistoryOpen(false);
+                  setMoreOpen(false);
+                }
               }}
-              title={t("agent.panel.newConversation")}
-              type="button"
-              variant="ghost"
+              open={runtimeOpen}
             >
-              <MessageSquarePlus className="size-3.5" />
-            </Button>
-            <Button
-              className="size-7 px-0"
-              disabled={creatingRuntime || loadingSessions}
-              onClick={() => {
-                setRuntimeOpen(false);
-                setMoreOpen(false);
-                setHistoryOpen((value) => !value);
+              <PopoverTrigger asChild>
+                <Button
+                  className="size-7 px-0"
+                  disabled={creatingRuntime || loadingSessions}
+                  title={t("agent.panel.newConversation")}
+                  type="button"
+                  variant="ghost"
+                >
+                  <MessageSquarePlus className="size-3.5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 p-1.5" sideOffset={6}>
+                <RuntimePicker
+                  creating={creatingRuntime}
+                  onChoose={(runtime) => {
+                    setRuntimeOpen(false);
+                    void createSession(runtime);
+                  }}
+                  onInstall={(agent) => {
+                    setRuntimeOpen(false);
+                    openInstallDialog(agent);
+                  }}
+                  runtimeStatus={runtimeStatus ?? []}
+                />
+              </PopoverContent>
+            </Popover>
+            <Popover
+              onOpenChange={(open) => {
+                setHistoryOpen(open);
+                if (open) {
+                  setRuntimeOpen(false);
+                  setMoreOpen(false);
+                }
               }}
-              title={t("agent.history.title")}
-              type="button"
-              variant="ghost"
+              open={historyOpen}
             >
-              <History className="size-3.5" />
-            </Button>
-            <Button
-              className="size-7 px-0"
-              disabled={creatingRuntime || loadingSessions}
-              onClick={() => {
-                setRuntimeOpen(false);
-                setHistoryOpen(false);
-                setMoreOpen((value) => !value);
+              <PopoverTrigger asChild>
+                <Button
+                  className="size-7 px-0"
+                  disabled={creatingRuntime || loadingSessions}
+                  title={t("agent.history.title")}
+                  type="button"
+                  variant="ghost"
+                >
+                  <History className="size-3.5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 p-0" sideOffset={6}>
+                <SessionHistory
+                  activeID={activeID}
+                  label={historyLabel(t, scope)}
+                  onOpen={(id) => {
+                    setHistoryOpen(false);
+                    void open(id);
+                  }}
+                  sessions={sessions}
+                />
+              </PopoverContent>
+            </Popover>
+            <Popover
+              onOpenChange={(open) => {
+                setMoreOpen(open);
+                if (open) {
+                  setRuntimeOpen(false);
+                  setHistoryOpen(false);
+                }
               }}
-              title={t("agent.panel.more")}
-              type="button"
-              variant="ghost"
+              open={moreOpen}
             >
-              <MoreHorizontal className="size-3.5" />
-            </Button>
+              <PopoverTrigger asChild>
+                <Button
+                  className="size-7 px-0"
+                  disabled={creatingRuntime || loadingSessions}
+                  title={t("agent.panel.more")}
+                  type="button"
+                  variant="ghost"
+                >
+                  <MoreHorizontal className="size-3.5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 p-1.5" sideOffset={6}>
+                <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!detail || creatingRuntime || loadingSessions}
+                  onClick={() => void copySessionDebugReport()}
+                  type="button"
+                >
+                  {debugCopyStatus === "copied" ? (
+                    <Check className="size-3.5 shrink-0 text-success" />
+                  ) : (
+                    <Bug className="size-3.5 shrink-0" />
+                  )}
+                  <span>
+                    {debugCopyStatus === "copied"
+                      ? t("agent.debug.copied")
+                      : debugCopyStatus === "failed"
+                        ? t("agent.debug.copyFailed")
+                        : t("agent.debug.copy")}
+                  </span>
+                </button>
+                <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!activeID || creatingRuntime || loadingSessions}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    openCLIStream();
+                  }}
+                  type="button"
+                >
+                  <Terminal className="size-3.5 shrink-0" />
+                  <span>{t("agent.debug.viewCli")}</span>
+                </button>
+              </PopoverContent>
+            </Popover>
           </div>
         </header>
-        {runtimeOpen && (
-          <RuntimePicker
-            creating={creatingRuntime}
-            onChoose={(runtime) => void createSession(runtime)}
-            onInstall={openInstallDialog}
-            runtimeStatus={runtimeStatus ?? []}
-          />
-        )}
-        {moreOpen && (
-          <section className="absolute right-3 top-14 z-30 w-[calc(100%-1.5rem)] overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
-            <button
-              className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!detail || creatingRuntime || loadingSessions}
-              onClick={() => void copySessionDebugReport()}
-              type="button"
-            >
-              {debugCopyStatus === "copied" ? (
-                <Check className="size-3.5 shrink-0 text-success" />
-              ) : (
-                <Bug className="size-3.5 shrink-0" />
-              )}
-              <span>
-                {debugCopyStatus === "copied"
-                  ? t("agent.debug.copied")
-                  : debugCopyStatus === "failed"
-                    ? t("agent.debug.copyFailed")
-                    : t("agent.debug.copy")}
-              </span>
-            </button>
-            <button
-              className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!activeID || creatingRuntime || loadingSessions}
-              onClick={() => {
-                setMoreOpen(false);
-                openCLIStream();
-              }}
-              type="button"
-            >
-              <Terminal className="size-3.5 shrink-0" />
-              <span>{t("agent.debug.viewCli")}</span>
-            </button>
-          </section>
-        )}
-        {historyOpen && (
-          <SessionHistory
-            activeID={activeID}
-            label={historyLabel(t, scope)}
-            onOpen={(id) => {
-              setHistoryOpen(false);
-              void open(id);
-            }}
-            sessions={sessions}
-          />
-        )}
         <div
           className="min-h-0 flex-1 overflow-y-auto px-4 py-6 pb-72"
           ref={messagesRef}

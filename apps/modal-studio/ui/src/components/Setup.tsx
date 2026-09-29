@@ -1,13 +1,16 @@
 /**
- * [INPUT]: 依赖共享视觉原子、lucide 图标、i18n 与任务日志行
+ * [INPUT]: 依赖 shadcn Card/Button/Input/Label、lucide 图标、i18n 与任务日志行
  * [OUTPUT]: 启动门：本机环境未就绪时自动触发一次 modal.prepare（mode=env）；环境就绪但未配置 token 时渲染 token 表单（mode=token，写入 profile 并验证连接）
  * [POS]: Modal 云函数的启动门；环境或连接未就绪时整屏渲染此卡
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Clock3, KeyRound, Loader2 } from "lucide-react";
 import { interpolate, t, type Locale } from "../i18n";
-import { Button, Card, Field, Input } from "../ui";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { LogLine } from "../types";
 
 interface Props {
@@ -20,6 +23,15 @@ interface Props {
   logs: LogLine[];
   onPrepare: () => void;
   onConnect: (name: string, tokenId: string, tokenSecret: string) => Promise<void>;
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-2">
+      <Label className="text-xs/relaxed text-muted-foreground">{label}</Label>
+      {children}
+    </div>
+  );
 }
 
 function formatElapsed(total: number): string {

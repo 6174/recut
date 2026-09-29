@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 service endpoint、Media Platform 的资产 SSE、media-configuration-store 的 Provider/Credential 快照与生成任务 API，以及系统项目 Agent Session
  * [OUTPUT]: 对外提供随滚动自动加载的素材网格、完成视频的 iframe 视频封面卡片、统一 More 重命名/确认删除、运行中实时计时与终态持久化耗时、按 assetId 合并导入/生成结果、主动上传图片/视频/音频、生成详情中的提示词与参考素材展示、生成参数回填再次创建、紧凑 Provider 模型选择及按模型输入契约筛选、上传参考素材的工作区级素材库
- * [POS]: web/app/media 的原生 React 内容组件；由根工作台与 /media 路由共享，固定工作台高度内标题与筛选常驻、网格区独占纵向滚动，Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态，配置从统一缓存读取而不轮询
+ * [POS]: web/app/media 的原生 React 内容组件；由根工作台与 /media 路由共享，标题与筛选经统一 WorkspacePageHeader/FilterTabs 与项目页对齐、整页随工作台内容区滚动（网格不再自持滚动容器），Asset 是异步生命周期唯一真相，页面通过一条 Recut SSE 消费状态，配置从统一缓存读取而不轮询；“创建”菜单复用 @/components/ui/popover（Radix，点外部/Esc 自动收起），不自绘 absolute 浮层
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -25,8 +25,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CustomSelect } from "@/components/ui/select-field";
+import { FilterTabs, WorkspacePageHeader } from "@/components/workspace-page";
 import { MediaAssetEventsProvider, useMediaAssetEvents } from "@/components/use-media-asset-events";
 import { useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { useServiceStore } from "@/lib/service-store";
@@ -241,16 +242,9 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
   }
   return (
     <>
-        <section className="flex h-full min-h-0 flex-col bg-background p-8">
-          <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col">
-            <div className="flex shrink-0 items-end justify-between pb-4">
-              <div>
-                <h1 className="text-2xl font-semibold">媒体资产</h1>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  直接选择模型创建素材，复杂创作也可交给左侧 Agent。
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
+      <WorkspacePageHeader
+        action={
+          <>
                 <input
                   accept="image/*,video/*,audio/*"
                   className="hidden"
@@ -268,75 +262,57 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
                   <Upload className="size-3.5" />
                   {uploading ? "上传中…" : "上传素材"}
                 </button>
-                <div className="relative">
-                  <button
-                    aria-expanded={createMenuOpen}
-                    aria-haspopup="menu"
-                    className="flex h-8 items-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/85"
-                    onClick={() => setCreateMenuOpen((value) => !value)}
-                    type="button"
-                  >
-                    <Plus className="size-3.5" />
-                    创建
-                    <ChevronDown className="size-3" />
-                  </button>
-                  {createMenuOpen && (
-                    <div
-                      className="absolute right-0 z-20 mt-1 w-36 rounded-xs border bg-card p-1 shadow-lg"
-                      role="menu"
+                <Popover onOpenChange={setCreateMenuOpen} open={createMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="flex h-8 items-center gap-1.5 rounded-xs bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/85"
+                      type="button"
                     >
-                      {createKinds.map((item) => {
-                        const Icon = item.icon;
-                        return (
-                          <button
-                            className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-left text-xs hover:bg-muted"
-                            key={item.kind}
-                            onClick={() => {
-                              setCreateMenuOpen(false);
-                              setCreateKind(item);
-                            }}
-                            role="menuitem"
-                            type="button"
-                          >
-                            <Icon className="size-3.5" />
-                            {item.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            {notice && (
-              <p className="mb-4 shrink-0 text-xs text-muted-foreground">{notice}</p>
-            )}
-            <nav className="mb-5 flex shrink-0 gap-2">
-              {filters.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    className={`flex h-8 items-center gap-1.5 rounded-xs border px-2.5 text-xs ${filter === item.id ? "bg-secondary font-medium" : "bg-card text-muted-foreground hover:bg-muted"}`}
-                    key={item.id}
-                    onClick={() => setFilter(item.id)}
-                    type="button"
-                  >
-                    <Icon className="size-3.5" />
-                    {item.label}
-                  </button>
-                );
-              })}
-            </nav>
-            <AssetGrid
-              apiBase={apiBase}
-              assets={visibleAssets}
-              jobs={visibleJobs}
-              onDelete={deleteAsset}
-              onPreview={setPreview}
-              onRename={renameAsset}
-            />
-          </div>
-        </section>
+                      <Plus className="size-3.5" />
+                      创建
+                      <ChevronDown className="size-3" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-36 p-1" sideOffset={4}>
+                    {createKinds.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-left text-xs hover:bg-muted"
+                          key={item.kind}
+                          onClick={() => {
+                            setCreateKind(item);
+                            setCreateMenuOpen(false);
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <Icon className="size-3.5" />
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </PopoverContent>
+                </Popover>
+          </>
+        }
+        description="直接选择模型创建素材，复杂创作也可交给左侧 Agent。"
+        title="媒体资产"
+      />
+      {notice && <p className="mb-4 text-xs text-muted-foreground">{notice}</p>}
+      <FilterTabs<Filter>
+        items={filters.map((item) => ({ icon: item.icon, id: item.id, label: item.label }))}
+        onChange={setFilter}
+        value={filter}
+      />
+      <AssetGrid
+        apiBase={apiBase}
+        assets={visibleAssets}
+        jobs={visibleJobs}
+        onDelete={deleteAsset}
+        onPreview={setPreview}
+        onRename={renameAsset}
+      />
       {preview && (
         <AssetPreview
           asset={preview}

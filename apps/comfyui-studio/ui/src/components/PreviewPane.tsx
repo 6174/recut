@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖选中任务详情（comfy.task.get）、生成产物（comfy.generation.complete）、生成参数（comfy.task.params）、持久日志（comfy.task.logs）与 recut.media.preview 全屏预览
+ * [INPUT]: 依赖选中任务详情（comfy.task.get）、生成产物（comfy.generation.complete）、生成参数（comfy.task.params）、持久日志（comfy.task.logs）、shadcn Badge/Button/Progress 与 recut.media.preview 全屏预览
  * [OUTPUT]: Right 面板：任务头（状态/取消）+ 生成预览（按 output.kind 渲染图片/视频/音频；图片可全屏预览并含「以此为参考图编辑」「重新调整参数」入口）与生成参数回显（参考图可全屏预览）+ 入库 / 环境下载实时日志
  * [POS]: Right 的统一生产预览与进度日志面
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -8,7 +8,10 @@ import { useEffect, useState } from "react";
 import { Download, ImageIcon, SlidersHorizontal, Wand2, X } from "lucide-react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
-import { Badge, Button, Progress, StatusDot } from "../ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 import { formatDateTime, formatDuration } from "../lib/format";
 import { absoluteURL, mediaContentPath, mediaContentURL } from "../lib/media";
 import type { Generation, GenerationParams, LogLine, TaskDetail } from "../types";
@@ -25,19 +28,19 @@ interface Props {
   onRemix: (params: GenerationParams) => void;
 }
 
-const TONE: Record<string, "success" | "destructive" | "warning" | "muted"> = {
-  completed: "success",
-  failed: "destructive",
-  cancelled: "destructive",
-  queued: "warning",
-  running: "warning",
+const TONE: Record<string, string> = {
+  completed: "border-success/40 text-success",
+  failed: "border-destructive/40 text-destructive",
+  cancelled: "border-destructive/40 text-destructive",
+  queued: "border-warning/40 text-warning",
+  running: "border-warning/40 text-warning",
 };
-const DOT: Record<string, "idle" | "active" | "success" | "error"> = {
-  completed: "success",
-  failed: "error",
-  cancelled: "error",
-  queued: "active",
-  running: "active",
+const DOT: Record<string, string> = {
+  completed: "bg-success",
+  failed: "bg-destructive",
+  cancelled: "bg-destructive",
+  queued: "bg-warning animate-pulse",
+  running: "bg-warning animate-pulse",
 };
 const TERMINAL = new Set(["completed", "failed", "cancelled", "interrupted"]);
 
@@ -56,7 +59,7 @@ function TimingCell({ label, value, mono = true }: { label: string; value: strin
   return (
     <div className="min-w-0">
       <span className="block text-[10px] text-muted-foreground">{label}</span>
-      <span className={`block truncate text-[11px] text-foreground ${mono ? "font-mono" : ""}`} title={value}>{value}</span>
+      <span className={cn("block truncate text-[11px] text-foreground", mono && "font-mono")} title={value}>{value}</span>
     </div>
   );
 }
@@ -65,7 +68,7 @@ function ParamRow({ label, value, mono = true }: { label: string; value: string;
   return (
     <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-2">
       <span className="text-[10px] text-muted-foreground">{label}</span>
-      <span className={`min-w-0 break-words text-[11px] text-foreground ${mono ? "font-mono" : ""}`}>{value}</span>
+      <span className={cn("min-w-0 break-words text-[11px] text-foreground", mono && "font-mono")}>{value}</span>
     </div>
   );
 }
@@ -75,7 +78,7 @@ function ParamsPanel({ params, locale }: { params: GenerationParams | null; loca
   const missing = params.referenceAssetIds.filter((item) => item.available === false).length;
   const entries = Object.entries(params.values ?? {});
   return (
-    <div className="space-y-2 rounded-lg border border-border/70 bg-secondary/30 p-3">
+    <div className="grid gap-2 rounded-lg border border-border/70 bg-secondary/30 p-3">
       <p className="text-[11px] font-semibold text-foreground">{t(locale, "preview.params")}</p>
       <ParamRow label={t(locale, "preview.params-model")} value={params.app || params.model} />
       {entries.length === 0 ? (
@@ -159,11 +162,11 @@ export function PreviewPane({ task, generation, params, logs, locale, onCancel, 
   const seconds = startIso ? Math.max(0, ((terminal && endIso ? Date.parse(endIso) : now) - Date.parse(startIso)) / 1000) : null;
 
   return (
-    <div className="space-y-4">
+    <div className="grid gap-4">
       <div className="flex items-center gap-2.5">
-        <StatusDot tone={DOT[task.state] ?? "idle"} />
+        <span className={cn("size-2 shrink-0 rounded-full", DOT[task.state] ?? "bg-muted-foreground")} />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{task.name || task.action}</span>
-        <Badge tone={TONE[task.state] ?? "muted"}>{t(locale, `state.${task.state}`)}</Badge>
+        <Badge variant="outline" className={TONE[task.state] ?? "text-muted-foreground"}>{t(locale, `state.${task.state}`)}</Badge>
         <Button variant="ghost" size="sm" disabled={!busy} onClick={onCancel}>
           <X className="size-3.5" />{t(locale, "preview.cancel")}
         </Button>
@@ -178,7 +181,7 @@ export function PreviewPane({ task, generation, params, logs, locale, onCancel, 
       {busy ? <Progress value={task.progress ?? (task.state === "running" ? 45 : 8)} /> : null}
 
       {showOutput ? (
-        <div className="space-y-3">
+        <div className="grid gap-3">
           <OutputPreview generation={generation} locale={locale} onEdit={onEdit} />
           <p className="font-mono text-[11px] text-muted-foreground">
             {interpolate(t(locale, "preview.meta"), {

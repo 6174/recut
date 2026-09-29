@@ -1,17 +1,22 @@
 /**
- * [INPUT]: 依赖 modal.catalog 的预设包/函数清单/formSchema/output/gpuTiers/就绪度、shadcn Select、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调与 useRunStore
+ * [INPUT]: 依赖 modal.catalog 的预设包/函数清单/formSchema/output/gpuTiers/就绪度、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调与 useRunStore
  * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 常驻环境块（未就绪时部署/下载权重；就绪时「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择 + media 字段的多选参考图（缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交；表单状态由 useRunStore 持有并持久化
  * [POS]: Left「功能」Tab；部署、权重与运行都在此收敛，记录 Tab 只负责历史
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { AlertTriangle, Check, Download, ImagePlus, Rocket, Wand2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
 import { mediaContentPath, mediaContentURL } from "../lib/media";
 import { useRunStore } from "../state/run";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Badge, Button, Card, Field, Input, Textarea } from "../ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import type { FormField, InjectedReference, LocalLabel, MediaAsset, ModalApp, ModalFunction } from "../types";
 
 interface Props {
@@ -48,6 +53,16 @@ function formDefaults(fn: ModalFunction | undefined): Record<string, string> {
 
 function mediaField(fn: ModalFunction | undefined): FormField | undefined {
   return fn?.formSchema.find((field) => field.type === "media");
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-2">
+      <Label className="text-xs/relaxed text-muted-foreground">{label}</Label>
+      {children}
+      {hint ? <p className="text-[11px] leading-4 text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
 }
 
 export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, onRun, onDeploy, onInstall }: Props) {
@@ -181,29 +196,29 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   };
 
   return (
-    <div className="space-y-4">
+    <div className="grid gap-4">
       <Field label={t(locale, "run.modalapp")}>
-        <div className="space-y-1.5">
+        <div className="grid gap-1.5">
           <Select value={modalapp.id} onValueChange={(value) => {
             const next = modalapps.find((candidate) => candidate.id === value);
             if (next) selectModalapp(next.id, next.functions[0]?.id ?? "", formDefaults(next.functions[0]));
           }}>
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue placeholder={modalapp.id} />
             </SelectTrigger>
             <SelectContent>
               {modalapps.map((candidate) => (
                 <SelectItem key={candidate.id} value={candidate.id}>
-                  <span className="flex items-center gap-2">
-                    <span className={`size-1.5 rounded-full ${candidate.deployed && candidate.volumeReady && !candidate.stale ? "bg-success" : "bg-warning"}`} />
-                    {labelText(candidate.label, locale, candidate.id)}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className={`size-1.5 shrink-0 rounded-full ${candidate.deployed && candidate.volumeReady && !candidate.stale ? "bg-success" : "bg-warning"}`} />
+                    <span className="min-w-0 truncate">{labelText(candidate.label, locale, candidate.id)}</span>
                   </span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <div className="flex items-center gap-2">
-            <Badge tone={modalapp.origin === "user" ? "primary" : "muted"}>
+            <Badge variant="outline" className={modalapp.origin === "user" ? "border-primary/40 text-primary" : "text-muted-foreground"}>
               {t(locale, modalapp.origin === "user" ? "run.origin-user" : "run.origin-builtin")}
             </Badge>
             {modalapp.origin === "user" && modalapp.path ? (
@@ -219,7 +234,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
             const next = modalapp.functions.find((candidate) => candidate.id === value);
             if (next) selectFunction(next.id, formDefaults(next));
           }}>
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue placeholder={fn.id} />
             </SelectTrigger>
             <SelectContent>
@@ -232,7 +247,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
       ) : null}
 
       {!ready ? (
-        <Card className="border-warning/40 bg-warning/[0.06] p-3.5">
+        <Card size="sm" className="border-warning/40 bg-warning/[0.06] p-3.5">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
             <div className="min-w-0 flex-1">
@@ -258,7 +273,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
           </div>
         </Card>
       ) : (
-        <Card className={`p-3.5 ${modalapp.stale ? "border-warning/40 bg-warning/[0.06]" : ""}`}>
+        <Card size="sm" className={`p-3.5 ${modalapp.stale ? "border-warning/40 bg-warning/[0.06]" : ""}`}>
           <div className="flex items-start gap-2.5">
             {modalapp.stale ? (
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
@@ -272,21 +287,21 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
           </div>
           {/* 常驻手动更新入口：一个动作即可——deploy 自带 bootstrap，权重会一并刷新（bootstrap 自身跳过已下载）。 */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button size="sm" variant={modalapp.stale ? "primary" : "outline"} disabled={working} onClick={() => void run(() => onDeploy(modalapp.id))}>
+            <Button size="sm" variant={modalapp.stale ? "default" : "outline"} disabled={working} onClick={() => void run(() => onDeploy(modalapp.id))}>
               <Rocket className="size-3.5" />{t(locale, "run.redeploy")}
             </Button>
           </div>
         </Card>
       )}
 
-      <div className="space-y-3">
+      <div className="grid gap-3">
         {fn.formSchema.filter((field) => field.type !== "media").map((field) => (
           <Field key={field.key} label={labelText(field.label, locale, field.key)}>
             {field.type === "textarea" ? (
               <Textarea value={values[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)} />
             ) : field.type === "select" ? (
               <Select value={values[field.key] ?? ""} onValueChange={(value) => setValue(field.key, value)}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -297,7 +312,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
               </Select>
             ) : field.type === "boolean" ? (
               <Select value={values[field.key] ?? "false"} onValueChange={(value) => setValue(field.key, value)}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -350,7 +365,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         {gpuOptions.length > 0 ? (
           <Field label={t(locale, "run.gpu")} hint={t(locale, "run.cost-hint")}>
             <Select value={gpuValue} onValueChange={setGpuTier}>
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -367,7 +382,13 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         <Button disabled={!ready || submitting} onClick={() => void submit()}>
           <Wand2 className="size-3.5" />{t(locale, "run.submit")}
         </Button>
-        {ready ? (modalapp.stale ? <Badge tone="warning" className="ml-auto">{t(locale, "run.stale.badge")}</Badge> : <Badge tone="success" className="ml-auto">{t(locale, "run.ready")}</Badge>) : <Badge tone="warning" className="ml-auto">{deployed ? t(locale, "run.no-weights") : t(locale, "run.not-deployed")}</Badge>}
+        {ready ? (
+          modalapp.stale
+            ? <Badge variant="outline" className="ml-auto gap-1.5 border-warning/40 text-warning"><AlertTriangle className="size-3" />{t(locale, "run.stale.badge")}</Badge>
+            : <Badge variant="outline" className="ml-auto gap-1.5 border-success/40 text-success"><Check className="size-3" />{t(locale, "run.ready")}</Badge>
+        ) : (
+          <Badge variant="outline" className="ml-auto border-warning/40 text-warning">{deployed ? t(locale, "run.no-weights") : t(locale, "run.not-deployed")}</Badge>
+        )}
       </div>
       {hint ? <p className="text-[11px] leading-4 text-muted-foreground">{hint}</p> : null}
     </div>

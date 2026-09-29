@@ -144,10 +144,13 @@ export function SettingsPanel({
   open: controlledOpen,
   onOpenChange,
   section,
+  hideTrigger,
 }: {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   section?: SettingSection;
+  /** 由外部入口（如离线落地页的「连接远程工作区」）受控打开时不渲染自带齿轮入口。 */
+  hideTrigger?: boolean;
 }) {
   const { t } = useI18n();
   const apiBase = useServiceStore((state) => state.endpoint);
@@ -196,27 +199,29 @@ export function SettingsPanel({
             : t("settings.desc.mcp");
   return (
     <>
-      <button
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={t("settings.open.aria")}
-        className={`relative grid size-8 place-items-center rounded-xs transition-colors hover:bg-muted hover:text-foreground ${updateAvailable ? "text-primary" : "text-muted-foreground"}`}
-        onClick={() => setOpen(true)}
-        title={
-          updateAvailable
-            ? interpolate(t("service.upgrade.title"), {
-                version: latestVersion,
-              })
-            : t("settings.open.aria")
-        }
-        type="button"
-      >
-        <Settings className="size-4" />
-        <span
-          aria-hidden="true"
-          className={`absolute right-1.5 top-1.5 size-1.5 rounded-full ${online ? "bg-success" : service.phase === "checking" ? "animate-pulse bg-muted-foreground" : "bg-warning"}`}
-        />
-      </button>
+      {!hideTrigger && (
+        <button
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-label={t("settings.open.aria")}
+          className={`relative grid size-8 place-items-center rounded-xs transition-colors hover:bg-muted hover:text-foreground ${updateAvailable ? "text-primary" : "text-muted-foreground"}`}
+          onClick={() => setOpen(true)}
+          title={
+            updateAvailable
+              ? interpolate(t("service.upgrade.title"), {
+                  version: latestVersion,
+                })
+              : t("settings.open.aria")
+          }
+          type="button"
+        >
+          <Settings className="size-4" />
+          <span
+            aria-hidden="true"
+            className={`absolute right-1.5 top-1.5 size-1.5 rounded-full ${online ? "bg-success" : service.phase === "checking" ? "animate-pulse bg-muted-foreground" : "bg-warning"}`}
+          />
+        </button>
+      )}
       {open && (
         <div
           aria-modal="true"

@@ -33,7 +33,7 @@ Modal Functions is a Recut **standard app** (`standalone`): it decouples the *cl
 | Run / history / save | `modal.generate` · `modal.generations` · `modal.generation.complete` · `modal.save` |
 | Task center | `modal.tasks.list` · `modal.task.get` · `modal.task.logs` · `modal.task.cancel` · `modal.cancel` |
 
-> **v1 does not integrate with the platform**: no `contributes.media`, no default image/video routes; capabilities are exposed only through this app's api/mcp operations.
+> **Integrated with the platform's image/video capabilities**: the manifest declares a `contributes.media` provider `modal-cloud`, and every preset pack that declares `expose` registers as one platform model (`modal-cloud/<model>`; both image and video). The platform's image/video default route can point at it, and generation dispatches to `modal.generate` through the generic execution bridge; a model is only `ready=true` once its pack is **deployed and its weights are ready** (`modal.catalog.models[]` reports readiness dynamically). Other capabilities remain exposed directly through this app's api/mcp operations.
 
 ## Preset packs: built-in + user
 
@@ -59,13 +59,19 @@ User ids must not collide with built-ins; re-run `modal.deploy` after edits (and
 | Pack | Capability | Functions | Model | GPU |
 | --- | --- | --- | --- | --- |
 | `minimax-h3` | video.generate | text-to-video / first-last-frame (native audio) | `MiniMaxAI/MiniMax-H3` (FL2VA, ~134GB, HF-gated) | H200×4 / H100×4 / B200×4 / B200×8 |
+| `minimax-h3-one` | video.generate | same (base 50-step) | same weights (shares the `recut-minimax-h3-models` volume) | RTX PRO 6000 / H100 / H200 / B200 / B300 (**single-GPU + GPU snapshot**) |
+| `minimax-h3-turbo` | video.generate | text-to-video / first-last-frame (**Turbo 9-step**, native audio; LoRA offline-merged in bootstrap) | same weights (shared volume) + Turbo LoRA | RTX PRO 6000 / H200 / B200 / B300 (**single-GPU + GPU snapshot + shape warmup**) |
+| `qwen-image-2.1` | image.generate | text-to-image / image edit (up to 10 references) | `Qwen/Qwen-Image-2.1` (~33GB, native 2K) | L40S / A100 80GB / H100 / H200 |
 | `sd-turbo` | image.generate | text-to-image / image-to-image | `stabilityai/sd-turbo` (~3GB) | T4 / A10G |
 
 > `minimax-h3` serves H3 with multi-GPU SGLang: the container picks the official verified recipe from the detected GPU. You must first run `modal.secret.set { name: "recut-hf-token", values: { HF_TOKEN } }` and get access approval for `MiniMaxAI/MiniMax-H3` on Hugging Face. See `modalapps/minimax-h3/README.md`.
+> `minimax-h3-one` (single-GPU + GPU snapshot, base 50-step) and `minimax-h3-turbo` (single-GPU + GPU snapshot, Turbo 9-step few-step LoRA) **share the same `recut-minimax-h3-models` volume**, so weights are downloaded only once; both freeze the resident SGLang service into a GPU memory snapshot for second-level cold starts. See each README.
 
 ## Extending
 
 Add a directory under `modalapps/` (`manifest.json`, `modal_app.py`, `bootstrap.py`) and rerun `python3 python/publish_registry.py`. Core code needs no changes.
+
+**Opting onto the platform (optional)**: add `expose: { "model": "<simple platform model id>", "function": "<function id>" }` to `manifest.json` and rerun the generator; the pack then registers as the platform model `modal-cloud/<model>` (`model` may only contain `a-z0-9-_`, so `qwen-image-2.1` exposes as `qwen-image`). `function` defaults to `functions[0]`, and the capability is derived from that function's `output.kind` (image/video/audio). Packs without `expose` stay off-platform (user scaffolds have none by default).
 
 ## Developers
 

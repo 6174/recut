@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 recut-sdk（background.call + events.subscribe 实时事件）、Left 两 Tab 组件、Right 预览组件与 i18n
- * [OUTPUT]: ComfyUI 工作台主工作区：工作流目录/任务列表按事件增量刷新（首屏与用户动作走 REST）、选中任务详情与产物、预览图「以此为参考图编辑」回填左侧表单、动作编排与语言同步
+ * [OUTPUT]: ComfyUI 工作台主工作区：工作流目录/任务列表按事件增量刷新（首屏与用户动作走 REST）、选中任务详情与产物、预览图「以此为参考图编辑」回填左侧表单、引擎管理面板（EngineDialog）、动作编排与语言同步；外壳由 shadcn Tabs/Card 承载
  * [POS]: ui 的状态编排层；只经 App operation 契约访问后台，不直接读写本机文件
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Workflow } from "lucide-react";
 import { isRecutConnected, recut, useRecutLocale } from "./recut-sdk";
 import { t } from "./i18n";
 import { WorkflowTab } from "./components/WorkflowTab";
@@ -13,7 +13,10 @@ import { RecordsTab } from "./components/RecordsTab";
 import { PreviewPane } from "./components/PreviewPane";
 import { Setup } from "./components/Setup";
 import { EngineControl } from "./components/EngineControl";
-import { Button, Card } from "./ui";
+import { EngineDialog } from "./components/EngineDialog";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Catalog, EngineStatus, EnvStatus, Generation, GenerationParams, InjectedReference, LogLine, Task, TaskDetail } from "./types";
 import "./style.css";
 
@@ -28,7 +31,7 @@ export default function App() {
   const [catalog, setCatalog] = useState<Catalog>(EMPTY_CATALOG);
   const [env, setEnv] = useState<EnvStatus | null>(null);
   const [engine, setEngine] = useState<EngineStatus | null>(null);
-  const [engineStopping, setEngineStopping] = useState(false);
+  const [engineOpen, setEngineOpen] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
@@ -227,9 +230,11 @@ export default function App() {
     });
   }, [connected, scheduleRefresh, scheduleLogRefresh]);
 
-  // 引擎就绪无法由 shell job 事件表达（端口探活），仅在启动中且未就绪时轮询。
+  // 引擎就绪无法由 shell job 事件表达（端口探活）：启动中、或引擎面板打开时轮询。
   useEffect(() => {
-    if (!connected || !engineStarting || engine?.running === true) return;
+    if (!connected) return;
+    const watchingStart = engineStarting && engine?.running !== true;
+    if (!engineOpen && !watchingStart) return;
     let cancelled = false;
     const tick = async () => {
       await refreshEngine();
@@ -239,7 +244,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [connected, engineStarting, engine?.running, refreshEngine]);
+  }, [connected, engineOpen, engineStarting, engine?.running, refreshEngine]);
 
   useEffect(() => {
     document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
@@ -294,20 +299,11 @@ export default function App() {
     [op, refreshCatalog],
   );
 
-  const handleEngineStart = useCallback(async () => {
-    await op("comfy.engine.start");
+  // 引擎的启动/关闭由引擎面板自己调用 operation；这里只负责在动作后同步状态与任务。
+  const handleEngineChanged = useCallback(async () => {
+    await refreshEngine();
     await refreshTasks();
-  }, [op, refreshTasks]);
-
-  const handleEngineStop = useCallback(async () => {
-    setEngineStopping(true);
-    try {
-      await op("comfy.engine.stop");
-      await refreshEngine();
-    } finally {
-      setEngineStopping(false);
-    }
-  }, [op, refreshEngine]);
+  }, [refreshEngine, refreshTasks]);
 
   const handleCancel = useCallback(async () => {
     if (!selectedId) return;
@@ -377,39 +373,31 @@ export default function App() {
   }
 
   return (
-    <main className="min-h-screen p-4 sm:p-6">
-      <div className="mx-auto max-w-[1600px]">
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-border/80 pb-4">
+    <main className="mx-auto flex w-full max-w-[1600px] flex-col p-4 sm:p-6 xl:h-dvh xl:overflow-hidden">
+      <header className="flex shrink-0 items-center justify-between gap-4 px-1 py-1">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
+            <Workflow className="size-5" />
+          </span>
           <div className="min-w-0">
-            <h1 className="mt-1.5 text-2xl font-semibold tracking-tight sm:text-3xl">{t(locale, "app.name")}</h1>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{t(locale, "app.subtitle")}</p>
+            <h1 className="text-base font-bold tracking-tight">{t(locale, "app.name")}</h1>
+            <p className="max-w-2xl truncate text-xs text-muted-foreground">{t(locale, "app.subtitle")}</p>
           </div>
-          <EngineControl
-            locale={locale}
-            status={engine}
-            starting={engineStarting}
-            busy={engineStarting || engineStopping}
-            onStart={() => void handleEngineStart()}
-            onStop={() => void handleEngineStop()}
-          />
-        </header>
+        </div>
+        <EngineControl locale={locale} status={engine} starting={engineStarting} onOpen={() => setEngineOpen(true)} />
+      </header>
 
-        <div className="grid gap-5 xl:grid-cols-[26rem_minmax(0,1fr)]">
-          <Card className="flex min-h-[36rem] flex-col overflow-hidden">
-            <div className="grid grid-cols-2 border-b border-border/80">
-              {(["generate", "records"] as const).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setTab(item)}
-                  className={`h-11 text-xs font-medium transition ${tab === item ? "text-foreground shadow-[inset_0_-2px_0_var(--primary)]" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  {t(locale, `tab.${item}`)}
-                </button>
-              ))}
+      <div className="mt-4 grid min-h-0 flex-1 gap-4 xl:grid-cols-[26rem_minmax(0,1fr)]">
+        <Card className="flex min-h-[36rem] flex-col gap-0 overflow-hidden py-0 [--card-spacing:0px] xl:min-h-0">
+          <Tabs value={tab} onValueChange={(value) => setTab(value as "generate" | "records")} className="flex min-h-0 flex-1 flex-col gap-0">
+            <div className="flex shrink-0 items-center border-b border-border/70 px-4">
+              <TabsList variant="line" className="h-10 gap-5">
+                <TabsTrigger value="generate" className="flex-none px-0.5">{t(locale, "tab.generate")}</TabsTrigger>
+                <TabsTrigger value="records" className="flex-none px-0.5">{t(locale, "tab.records")}</TabsTrigger>
+              </TabsList>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {tab === "generate" ? (
+              <TabsContent value="generate">
                 <WorkflowTab
                   apps={catalog.apps}
                   runtimes={catalog.runtimes}
@@ -422,26 +410,36 @@ export default function App() {
                   onInstall={handleInstall}
                   onSetSource={handleSetSource}
                 />
-              ) : (
+              </TabsContent>
+              <TabsContent value="records">
                 <RecordsTab tasks={tasks} locale={locale} selectedId={selectedId} onSelect={selectTask} />
-              )}
+              </TabsContent>
             </div>
-          </Card>
+          </Tabs>
+        </Card>
 
-          <Card className="flex min-h-[36rem] flex-col overflow-hidden">
-            <div className="flex h-11 items-center gap-2 border-b border-border/80 px-4">
-              <span className="text-xs font-semibold text-foreground">{t(locale, "preview.title")}</span>
-              <span className="flex-1" />
-              <Button variant="ghost" size="sm" onClick={() => { void refreshCatalog(); void refreshTasks(); }}>
-                <RefreshCw className="size-3.5" />{t(locale, "app.resync")}
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <PreviewPane task={detail} generation={generation} params={params} logs={logs} locale={locale} onCancel={handleCancel} onSave={handleSave} onEdit={handleEdit} onRemix={handleRemix} />
-            </div>
-          </Card>
-        </div>
+        <Card className="flex min-h-[36rem] flex-col gap-0 overflow-hidden py-0 [--card-spacing:0px] xl:min-h-0">
+          <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-4">
+            <span className="text-xs font-semibold text-foreground">{t(locale, "preview.title")}</span>
+            <span className="flex-1" />
+            <Button variant="ghost" size="sm" onClick={() => { void refreshCatalog(); void refreshTasks(); }}>
+              <RefreshCw className="size-3.5" />{t(locale, "app.resync")}
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <PreviewPane task={detail} generation={generation} params={params} logs={logs} locale={locale} onCancel={handleCancel} onSave={handleSave} onEdit={handleEdit} onRemix={handleRemix} />
+          </div>
+        </Card>
       </div>
+
+      <EngineDialog
+        open={engineOpen}
+        locale={locale}
+        status={engine}
+        starting={engineStarting}
+        onClose={() => setEngineOpen(false)}
+        onChanged={() => void handleEngineChanged()}
+      />
     </main>
   );
 }

@@ -10,7 +10,7 @@ const zh: Record<string, string> = {
   "app.name": "Modal 云函数",
   "app.subtitle": "把开源 GPU 项目托管到 modal.com：选预设包、配 token，部署镜像、准备权重并调用云端函数。",
   "app.resync": "重新同步",
-  "app.loading": "正在连接 Modal 云函数…",
+  "app.loading-packs": "正在读取预设包与任务…",
 
   "setup.title": "配置 Modal 账号",
   "setup.description": "Modal 云函数在你的 modal.com 账号上运行（每月含免费额度）。填入 Modal token 后即可部署与调用；token 只保存在本机，绝不写入日志。",
@@ -39,6 +39,7 @@ const zh: Record<string, string> = {
   "connection.name": "Modal 账号",
   "connection.connected": "已连接",
   "connection.disconnected": "未连接",
+  "connection.connecting": "连接中…",
   "connection.profile": "profile {name}",
   "connection.manage": "管理账号与密钥",
   "account.title": "Modal 账号与密钥",
@@ -151,7 +152,7 @@ const en: Record<string, string> = {
   "app.name": "Modal Functions",
   "app.subtitle": "Host open-source GPU projects on modal.com: pick a preset pack, configure a token, deploy the image, prepare weights and call cloud functions.",
   "app.resync": "Resync",
-  "app.loading": "Connecting to Modal Functions…",
+  "app.loading-packs": "Loading preset packs and tasks…",
 
   "setup.title": "Configure your Modal account",
   "setup.description": "Modal Functions run on your own modal.com account (with monthly free credits). Add a Modal token to deploy and call; the token stays on this machine and is never logged.",
@@ -180,6 +181,7 @@ const en: Record<string, string> = {
   "connection.name": "Modal account",
   "connection.connected": "Connected",
   "connection.disconnected": "Disconnected",
+  "connection.connecting": "Connecting…",
   "connection.profile": "profile {name}",
   "connection.manage": "Manage account & secrets",
   "account.title": "Modal account & secrets",

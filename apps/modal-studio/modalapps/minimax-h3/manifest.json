@@ -5,6 +5,7 @@
     "en": "MiniMax-H3 video+audio"
   },
   "capability": "video.generate",
+  "expose": { "model": "minimax-h3", "function": "text-to-video" },
   "engine": {
     "appName": "recut-minimax-h3",
     "sourceDir": "modalapps/minimax-h3",

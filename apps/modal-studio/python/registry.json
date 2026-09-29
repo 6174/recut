@@ -10,6 +10,10 @@
       "appName": "recut-minimax-h3",
       "sourceDir": "modalapps/minimax-h3",
       "origin": "builtin",
+      "expose": {
+        "model": "minimax-h3",
+        "function": "text-to-video"
+      },
       "gpuTiers": {
         "default": "H200:4",
         "options": [
@@ -264,6 +268,10 @@
       "appName": "recut-minimax-h3-one",
       "sourceDir": "modalapps/minimax-h3-one",
       "origin": "builtin",
+      "expose": {
+        "model": "minimax-h3-one",
+        "function": "text-to-video"
+      },
       "gpuTiers": {
         "default": "RTX-PRO-6000",
         "options": [
@@ -517,6 +525,555 @@
       ]
     },
     {
+      "id": "minimax-h3-turbo",
+      "label": {
+        "zh": "MiniMax-H3 极速版（Turbo 离线合并 + GPU 快照）",
+        "en": "MiniMax-H3 Turbo (offline-merged LoRA + GPU snapshot)"
+      },
+      "capability": "video.generate",
+      "appName": "recut-minimax-h3-turbo",
+      "sourceDir": "modalapps/minimax-h3-turbo",
+      "origin": "builtin",
+      "expose": {
+        "model": "minimax-h3-turbo",
+        "function": "text-to-video"
+      },
+      "gpuTiers": {
+        "default": "RTX-PRO-6000",
+        "options": [
+          {
+            "id": "rtxpro6000x1",
+            "gpu": "RTX-PRO-6000",
+            "label": {
+              "zh": "RTX PRO 6000 ×1 · 96GB · $3.03/h · Turbo 9步 · GPU 快照（默认最省）",
+              "en": "RTX PRO 6000 ×1 · 96GB · $3.03/h · Turbo 9-step · GPU snapshot (default, cheapest)"
+            }
+          },
+          {
+            "id": "h200x1",
+            "gpu": "H200",
+            "label": {
+              "zh": "H200 ×1 · 141GB · $4.54/h · bf16 全驻留",
+              "en": "H200 ×1 · 141GB · $4.54/h · fully resident bf16"
+            }
+          },
+          {
+            "id": "b200x1",
+            "gpu": "B200",
+            "label": {
+              "zh": "B200 ×1 · 183GB · $6.25/h · 原生 mxfp8/NVFP4",
+              "en": "B200 ×1 · 183GB · $6.25/h · native mxfp8/NVFP4"
+            }
+          },
+          {
+            "id": "b300x1",
+            "gpu": "B300",
+            "label": {
+              "zh": "B300 ×1 · 288GB · $7.10/h · 单卡上限",
+              "en": "B300 ×1 · 288GB · $7.10/h · single-GPU ceiling"
+            }
+          }
+        ]
+      },
+      "timeoutSec": 3600,
+      "idleTimeoutSec": 60,
+      "volumes": [
+        {
+          "name": "recut-minimax-h3-models",
+          "mount": "/models",
+          "label": {
+            "zh": "模型权重（FL2VA，约 134GB；与 minimax-h3 / minimax-h3-one 共用，只读复用免重下）",
+            "en": "Model weights (FL2VA, ~134GB; shared with minimax-h3 / minimax-h3-one, reused read-only)"
+          }
+        },
+        {
+          "name": "recut-minimax-h3-turbo-adapters",
+          "mount": "/adapters",
+          "label": {
+            "zh": "Turbo LoRA 适配器（几百 MB）",
+            "en": "Turbo LoRA adapter (a few hundred MB)"
+          }
+        },
+        {
+          "name": "recut-minimax-h3-turbo-merged",
+          "mount": "/merged",
+          "label": {
+            "zh": "Turbo 离线合并后的 transformer（约 62GB，bootstrap_merge 写入）",
+            "en": "Turbo offline-merged transformer (~62GB, written by bootstrap_merge)"
+          }
+        },
+        {
+          "name": "recut-minimax-h3-turbo-out",
+          "mount": "/out",
+          "label": {
+            "zh": "产物中转",
+            "en": "Output staging"
+          }
+        }
+      ],
+      "secrets": [
+        {
+          "name": "recut-hf-token",
+          "required": true,
+          "label": {
+            "zh": "Hugging Face Token（H3 需申请访问权限，必填；若共享权重卷已就绪则权重部分短路）",
+            "en": "Hugging Face token (H3 is gated, required; weight step short-circuits if the shared volume is ready)"
+          },
+          "keys": [
+            "HF_TOKEN"
+          ]
+        }
+      ],
+      "profileId": "",
+      "weights": {
+        "bootstrapFunction": "bootstrap_weights",
+        "repoHuggingFace": "MiniMaxAI/MiniMax-H3",
+        "repoModelScope": "",
+        "revision": "main",
+        "sizeGb": 135,
+        "files": [
+          "model_index.json",
+          "FL2VA/**"
+        ]
+      },
+      "functions": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频（带音频）",
+            "en": "Text to video+audio"
+          },
+          "entrypoint": "generate_video",
+          "invoke": {
+            "mode": "sdk",
+            "kind": "cls",
+            "cls": "H3Turbo",
+            "method": "generate_video"
+          },
+          "output": {
+            "kind": "video",
+            "mimeType": "video/mp4",
+            "ext": "mp4"
+          },
+          "formSchema": [
+            {
+              "key": "prompt",
+              "type": "textarea",
+              "required": true,
+              "label": {
+                "zh": "提示词",
+                "en": "Prompt"
+              }
+            },
+            {
+              "key": "aspectRatio",
+              "type": "select",
+              "options": [
+                "21:9",
+                "16:9",
+                "4:3",
+                "1:1",
+                "3:4",
+                "9:16"
+              ],
+              "default": "16:9",
+              "label": {
+                "zh": "画幅",
+                "en": "Aspect ratio"
+              }
+            },
+            {
+              "key": "durationSec",
+              "type": "number",
+              "default": 5,
+              "min": 4,
+              "max": 15,
+              "label": {
+                "zh": "时长（秒）",
+                "en": "Duration (s)"
+              }
+            },
+            {
+              "key": "steps",
+              "type": "number",
+              "default": 9,
+              "min": 5,
+              "max": 12,
+              "label": {
+                "zh": "步数（Turbo：请求＝sigma 网格点数＝去噪次数+1；作者建议 4–8 次去噪 → 5–9）",
+                "en": "Steps (Turbo: request = sigma grid points = denoise evals + 1; author recommends 4-8 evals → 5-9)"
+              }
+            },
+            {
+              "key": "seed",
+              "type": "number",
+              "default": -1,
+              "label": {
+                "zh": "随机种子（-1 随机）",
+                "en": "Seed (-1 random)"
+              }
+            }
+          ],
+          "defaultParams": {
+            "aspectRatio": "16:9",
+            "durationSec": 5,
+            "steps": 9
+          }
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首/尾帧生视频",
+            "en": "First/last-frame to video"
+          },
+          "entrypoint": "generate_video",
+          "invoke": {
+            "mode": "sdk",
+            "kind": "cls",
+            "cls": "H3Turbo",
+            "method": "generate_video"
+          },
+          "output": {
+            "kind": "video",
+            "mimeType": "video/mp4",
+            "ext": "mp4"
+          },
+          "formSchema": [
+            {
+              "key": "prompt",
+              "type": "textarea",
+              "required": true,
+              "label": {
+                "zh": "提示词",
+                "en": "Prompt"
+              }
+            },
+            {
+              "key": "references",
+              "type": "media",
+              "kind": "image",
+              "multiple": true,
+              "required": true,
+              "label": {
+                "zh": "首帧 / 尾帧（1–2 张，按顺序）",
+                "en": "First / last frame (1–2 images, in order)"
+              }
+            },
+            {
+              "key": "durationSec",
+              "type": "number",
+              "default": 5,
+              "min": 4,
+              "max": 15,
+              "label": {
+                "zh": "时长（秒）",
+                "en": "Duration (s)"
+              }
+            },
+            {
+              "key": "steps",
+              "type": "number",
+              "default": 9,
+              "min": 5,
+              "max": 12,
+              "label": {
+                "zh": "步数（Turbo：请求＝sigma 网格点数＝去噪次数+1；作者建议 4–8 次去噪 → 5–9）",
+                "en": "Steps (Turbo: request = sigma grid points = denoise evals + 1; author recommends 4-8 evals → 5-9)"
+              }
+            },
+            {
+              "key": "seed",
+              "type": "number",
+              "default": -1,
+              "label": {
+                "zh": "随机种子（-1 随机）",
+                "en": "Seed (-1 random)"
+              }
+            }
+          ],
+          "defaultParams": {
+            "durationSec": 5,
+            "steps": 9
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen-image-2.1",
+      "label": {
+        "zh": "Qwen-Image-2.1 文生图/编辑",
+        "en": "Qwen-Image-2.1 t2i/edit"
+      },
+      "capability": "image.generate",
+      "appName": "recut-qwen-image-21",
+      "sourceDir": "modalapps/qwen-image-2.1",
+      "origin": "builtin",
+      "expose": {
+        "model": "qwen-image",
+        "function": "text-to-image"
+      },
+      "gpuTiers": {
+        "default": "L40S",
+        "options": [
+          {
+            "id": "l40s",
+            "gpu": "L40S",
+            "label": {
+              "zh": "L40S ×1 · 48GB（省额度；2K 走 VAE 分块解码）",
+              "en": "L40S ×1 · 48GB (cheaper; 2K via tiled VAE decode)"
+            }
+          },
+          {
+            "id": "a100-80gb",
+            "gpu": "A100-80GB",
+            "label": {
+              "zh": "A100 80GB ×1（更稳）",
+              "en": "A100 80GB ×1 (safer)"
+            }
+          },
+          {
+            "id": "h100",
+            "gpu": "H100",
+            "label": {
+              "zh": "H100 ×1（更快）",
+              "en": "H100 ×1 (faster)"
+            }
+          },
+          {
+            "id": "h200",
+            "gpu": "H200",
+            "label": {
+              "zh": "H200 ×1（最快）",
+              "en": "H200 ×1 (fastest)"
+            }
+          }
+        ]
+      },
+      "timeoutSec": 1800,
+      "idleTimeoutSec": 60,
+      "volumes": [
+        {
+          "name": "recut-qwen-image-21-models",
+          "mount": "/models",
+          "label": {
+            "zh": "模型权重（约 33GB）",
+            "en": "Model weights (~33GB)"
+          }
+        }
+      ],
+      "secrets": [
+        {
+          "name": "recut-hf-token",
+          "required": false,
+          "label": {
+            "zh": "Hugging Face Token（权重需授权时需要）",
+            "en": "Hugging Face token (when weights are gated)"
+          },
+          "keys": [
+            "HF_TOKEN"
+          ]
+        }
+      ],
+      "profileId": "",
+      "weights": {
+        "bootstrapFunction": "bootstrap_weights",
+        "repoHuggingFace": "Qwen/Qwen-Image-2.1",
+        "repoModelScope": "Qwen/Qwen-Image-2.1",
+        "revision": "main",
+        "sizeGb": 33,
+        "files": [
+          "*.json",
+          "*.txt",
+          "transformer/*",
+          "text_encoder/*",
+          "tokenizer/*",
+          "processor/*",
+          "vae/*",
+          "scheduler/*"
+        ]
+      },
+      "functions": [
+        {
+          "id": "text-to-image",
+          "label": {
+            "zh": "文生图",
+            "en": "Text to image"
+          },
+          "entrypoint": "generate_image",
+          "invoke": {
+            "mode": "sdk",
+            "kind": "cls",
+            "cls": "QwenImage21",
+            "method": "generate_image"
+          },
+          "output": {
+            "kind": "image",
+            "mimeType": "image/png",
+            "ext": "png"
+          },
+          "formSchema": [
+            {
+              "key": "prompt",
+              "type": "textarea",
+              "required": true,
+              "label": {
+                "zh": "提示词",
+                "en": "Prompt"
+              }
+            },
+            {
+              "key": "negativePrompt",
+              "type": "textarea",
+              "default": "",
+              "label": {
+                "zh": "负向词（仅当引导强度 > 1 时生效）",
+                "en": "Negative prompt (only when guidance > 1)"
+              }
+            },
+            {
+              "key": "aspectRatio",
+              "type": "select",
+              "options": [
+                "1:1",
+                "16:9",
+                "9:16",
+                "4:3",
+                "3:4",
+                "3:2",
+                "2:3"
+              ],
+              "default": "1:1",
+              "label": {
+                "zh": "画幅（原生 2K）",
+                "en": "Aspect ratio (native 2K)"
+              }
+            },
+            {
+              "key": "steps",
+              "type": "number",
+              "default": 40,
+              "min": 1,
+              "max": 100,
+              "label": {
+                "zh": "步数",
+                "en": "Steps"
+              }
+            },
+            {
+              "key": "guidance",
+              "type": "number",
+              "default": 1.0,
+              "min": 0,
+              "max": 20,
+              "label": {
+                "zh": "引导强度",
+                "en": "Guidance"
+              }
+            },
+            {
+              "key": "seed",
+              "type": "number",
+              "default": -1,
+              "label": {
+                "zh": "随机种子（-1 随机）",
+                "en": "Seed (-1 random)"
+              }
+            }
+          ],
+          "defaultParams": {
+            "aspectRatio": "1:1",
+            "steps": 40,
+            "guidance": 1.0
+          }
+        },
+        {
+          "id": "image-edit",
+          "label": {
+            "zh": "图像编辑",
+            "en": "Image edit"
+          },
+          "entrypoint": "edit_image",
+          "invoke": {
+            "mode": "sdk",
+            "kind": "cls",
+            "cls": "QwenImage21",
+            "method": "edit_image"
+          },
+          "output": {
+            "kind": "image",
+            "mimeType": "image/png",
+            "ext": "png"
+          },
+          "formSchema": [
+            {
+              "key": "prompt",
+              "type": "textarea",
+              "required": true,
+              "label": {
+                "zh": "编辑指令",
+                "en": "Edit instruction"
+              }
+            },
+            {
+              "key": "references",
+              "type": "media",
+              "kind": "image",
+              "multiple": true,
+              "required": true,
+              "label": {
+                "zh": "参考图（最多 10 张，按顺序）",
+                "en": "Reference images (up to 10, in order)"
+              }
+            },
+            {
+              "key": "negativePrompt",
+              "type": "textarea",
+              "default": "",
+              "label": {
+                "zh": "负向词（仅当引导强度 > 1 时生效）",
+                "en": "Negative prompt (only when guidance > 1)"
+              }
+            },
+            {
+              "key": "steps",
+              "type": "number",
+              "default": 40,
+              "min": 1,
+              "max": 100,
+              "label": {
+                "zh": "步数",
+                "en": "Steps"
+              }
+            },
+            {
+              "key": "guidance",
+              "type": "number",
+              "default": 1.0,
+              "min": 0,
+              "max": 20,
+              "label": {
+                "zh": "引导强度",
+                "en": "Guidance"
+              }
+            },
+            {
+              "key": "seed",
+              "type": "number",
+              "default": -1,
+              "label": {
+                "zh": "随机种子（-1 随机）",
+                "en": "Seed (-1 random)"
+              }
+            }
+          ],
+          "defaultParams": {
+            "steps": 40,
+            "guidance": 1.0
+          }
+        }
+      ]
+    },
+    {
       "id": "sd-turbo",
       "label": {
         "zh": "SD-Turbo 文生图/图生图",
@@ -526,6 +1083,10 @@
       "appName": "recut-sd-turbo",
       "sourceDir": "modalapps/sd-turbo",
       "origin": "builtin",
+      "expose": {
+        "model": "sd-turbo",
+        "function": "text-to-image"
+      },
       "gpuTiers": {
         "default": "T4",
         "options": [

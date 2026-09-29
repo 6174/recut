@@ -3,7 +3,7 @@
           （由 publish_registry.py 从 comfyuiapps/*/manifest.json 生成）；--task-log 任务日志文件
 [OUTPUT]: status（runtime venv 与各工作流权重就绪度）、catalog（同 status 的工作流面）、install（从 huggingface/
           modelscope/automatic 下载权重，不动 venv；逐文件断点续传 + 大小校验 + 完成标记，可安全重试）、
-          generate（把请求派发到工作流所属 runtime 的专属 venv worker）、engine（ComfyUI 常驻服务 status/start/stop）
+          generate（把请求派发到工作流所属 runtime 的专属 venv worker）、engine（ComfyUI 常驻服务 status/start/stop/logs）
 [POS]: comfyui-studio 的主 venv 调度器；主 venv 保持轻量（下载/调度），真正推理在 comfyui runtime 专属 venv
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 """
@@ -17,6 +17,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -375,6 +376,35 @@ def engine_status(port: int) -> dict:
     return {"running": engine_alive(port), "port": port, "pid": pid}
 
 
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+PROGRESS_RE = re.compile(r"^\s*\d+%\|")
+
+
+def engine_log_lines(count: int) -> list[str]:
+    """server.log 尾部 count 行：去 ANSI、按 \\r/\\n 切分、折叠进度条刷屏。"""
+    path = models_root() / "comfyui" / "server.log"
+    limit = 256 * 1024
+    try:
+        size = path.stat().st_size
+        with open(path, "rb") as handle:
+            handle.seek(max(0, size - limit))
+            text = handle.read().decode("utf-8", "replace")
+    except OSError:
+        return []
+    if size > limit and "\n" in text:
+        text = text.split("\n", 1)[1]
+    lines: list[str] = []
+    for raw in ANSI_RE.sub("", text.replace("\r", "\n")).split("\n"):
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if PROGRESS_RE.match(line) and lines and PROGRESS_RE.match(lines[-1]):
+            lines[-1] = line
+            continue
+        lines.append(line)
+    return lines[-count:]
+
+
 def engine_start(port: int) -> dict:
     runtime = runtime_def(registry(), "comfyui")
     python = runtime_python("comfyui")
@@ -432,6 +462,9 @@ def cmd_engine(args: argparse.Namespace) -> dict:
     port = engine_port()
     if action == "status":
         return engine_status(port)
+    if action == "logs":
+        tail = max(20, min(int(args.lines or 200), 1000))
+        return {**engine_status(port), "path": str(models_root() / "comfyui" / "server.log"), "lines": engine_log_lines(tail)}
     if action == "start":
         return engine_start(port)
     if action == "stop":
@@ -463,7 +496,8 @@ def main() -> None:
     generate_parser.add_argument("--task-log", default="")
 
     engine_parser = sub.add_parser("engine")
-    engine_parser.add_argument("engine_action", choices=["status", "start", "stop"])
+    engine_parser.add_argument("engine_action", choices=["status", "start", "stop", "logs"])
+    engine_parser.add_argument("--lines", default="200")
     engine_parser.add_argument("--task-log", default="")
 
     args = parser.parse_args()

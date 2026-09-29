@@ -20,7 +20,8 @@ ComfyUI 工作台是 Recut 的**本地 ComfyUI 工作流 App**：一个共享运
 2. 未就绪时：`comfy.prepare { target: "all" }` 准备运行环境并起引擎；`comfy.install { app, source }` 下载权重（可并行）。
 3. `comfy.generate { app, params, referenceAssetIds? }` 提交生成；`params` 是工作流表单值对象（字段见 `comfy.catalog` 的 `formSchema`）。单槽 FIFO，占槽时返回 `taskId`（`job=null`）→ 用 `comfy.tasks.list` / `comfy.task.get { id }` 观察（taskId 是本 App 内部任务 id，不属于 `recut.job.*` 的统一 job 面）。带参考图时传 `referenceAssetIds: string[]`（按顺序接进工作流）。
 4. `comfy.generation.complete { id }` 读取产物；`comfy.save { id, kind: "image"|"video"|"audio" }` 入库（平台默认路由路径会自动入库）。
-5. 引擎未起或需重启：`comfy.engine.ensure`（幂等，AI 用）/ `comfy.engine.status` / `comfy.engine.stop`。
+5. 引擎未起或需重启：`comfy.engine.ensure`（幂等，AI 用）/ `comfy.engine.status` / `comfy.engine.logs { lines? }`（server.log 尾部）/ `comfy.engine.stop`。
+6. 产物异常时看 `comfy.engine.logs`：MPS/Metal 上出现 `kIOGPUCommandBufferCallbackErrorSubmissionsIgnored` 说明 GPU 命令缓冲失败、采样步被静默丢弃（产物是噪点图），用 `comfy.engine.stop` 关掉再 `comfy.engine.ensure` 换一个新的 GPU 上下文。
 
 ## 平台集成
 

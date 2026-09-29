@@ -1549,7 +1549,7 @@ export function SessionHistory({
 }) {
   const { t: text } = useI18n();
   return (
-    <section className="absolute right-3 top-14 z-20 w-[calc(100%-1.5rem)] overflow-hidden rounded-md border bg-popover shadow-[var(--shadow-overlay)]">
+    <section>
       <p className="border-b px-3 py-2 text-[10px] font-medium text-muted-foreground">
         {label}
       </p>

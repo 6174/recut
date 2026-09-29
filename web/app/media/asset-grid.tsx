@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 @tanstack/react-virtual 的行虚拟化、素材与任务生命周期契约与共享视频封面/计时组件
  * [OUTPUT]: 对外提供 AssetGrid，用与首页资源区一致的紧凑五列方形卡片、iframe 子文档视频封面、惰性图片与统一 More 菜单虚拟化渲染素材卡片，随滚动自动加载后续素材
- * [POS]: media 页面列表渲染单元；从 page.tsx 拆出以隔离预览表现与页面编排，网格自持滚动容器，卡片点击由外层按钮统一接收
+ * [POS]: media 页面列表渲染单元；从 page.tsx 拆出以隔离预览表现与页面编排，滚动容器外借工作台内容区 [data-workspace-scroll]（与项目页一致），自身只按 scrollMargin 定位虚拟行，卡片点击由外层按钮统一接收
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -39,7 +39,10 @@ export function AssetGrid({
   onPreview: (asset: Asset) => void;
   onRename: (asset: Asset, name: string) => Promise<void>;
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  // 网格自身不再是滚动容器：滚动条交给工作台内容区（[data-workspace-scroll]），与项目页对齐；
+  // 虚拟化按该滚动元素定位，并用 scrollMargin 补偿标题/筛选占据的偏移。
+  const listRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(0);
   const entries = useMemo<GridEntry[]>(
     () => [
@@ -55,20 +58,34 @@ export function AssetGrid({
   const rowCount = Math.ceil(entries.length / GRID_COLUMNS);
   const virtualizer = useVirtualizer({
     count: rowCount,
-    getScrollElement: () => scrollRef.current,
+    getScrollElement: () =>
+      (listRef.current?.closest("[data-workspace-scroll]") as HTMLElement | null) ??
+      null,
     estimateSize: () => cellWidth + GRID_GAP,
     overscan: ROW_OVERSCAN,
     getItemKey: (index) => entries[index * GRID_COLUMNS]?.id ?? index,
+    scrollMargin,
     useFlushSync: false,
   });
 
   useEffect(() => {
-    const scroller = scrollRef.current;
-    if (!scroller) return;
-    const sync = () => setViewportWidth(scroller.clientWidth);
+    const list = listRef.current;
+    if (!list) return;
+    const scroller = list.closest("[data-workspace-scroll]") as HTMLElement | null;
+    const sync = () => {
+      setViewportWidth(list.clientWidth);
+      if (scroller) {
+        setScrollMargin(
+          list.getBoundingClientRect().top -
+            scroller.getBoundingClientRect().top +
+            scroller.scrollTop,
+        );
+      }
+    };
     sync();
     const observer = new ResizeObserver(sync);
-    observer.observe(scroller);
+    observer.observe(list);
+    if (scroller) observer.observe(scroller);
     return () => observer.disconnect();
   }, []);
 
@@ -89,39 +106,37 @@ export function AssetGrid({
     );
   }
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto" ref={scrollRef}>
-      <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
-        {virtualizer.getVirtualItems().map((row) => {
-          const start = row.index * GRID_COLUMNS;
-          return (
-            <div
-              className="absolute left-0 top-0 grid w-full items-start gap-3 pb-3"
-              data-index={row.index}
-              key={row.key}
-              ref={virtualizer.measureElement}
-              style={{
-                gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
-                transform: `translateY(${row.start}px)`,
-              }}
-            >
-              {entries.slice(start, start + GRID_COLUMNS).map((entry) =>
-                entry.kind === "job" ? (
-                  <QueuedJobCard job={entry.job} key={entry.id} />
-                ) : (
-                  <AssetCard
-                    apiBase={apiBase}
-                    asset={entry.asset}
-                    key={entry.id}
-                    onDelete={onDelete}
-                    onPreview={onPreview}
-                    onRename={onRename}
-                  />
-                ),
-              )}
-            </div>
-          );
-        })}
-      </div>
+    <div className="relative w-full" ref={listRef} style={{ height: virtualizer.getTotalSize() }}>
+      {virtualizer.getVirtualItems().map((row) => {
+        const start = row.index * GRID_COLUMNS;
+        return (
+          <div
+            className="absolute left-0 top-0 grid w-full items-start gap-3 pb-3"
+            data-index={row.index}
+            key={row.key}
+            ref={virtualizer.measureElement}
+            style={{
+              gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
+              transform: `translateY(${row.start - scrollMargin}px)`,
+            }}
+          >
+            {entries.slice(start, start + GRID_COLUMNS).map((entry) =>
+              entry.kind === "job" ? (
+                <QueuedJobCard job={entry.job} key={entry.id} />
+              ) : (
+                <AssetCard
+                  apiBase={apiBase}
+                  asset={entry.asset}
+                  key={entry.id}
+                  onDelete={onDelete}
+                  onPreview={onPreview}
+                  onRename={onRename}
+                />
+              ),
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

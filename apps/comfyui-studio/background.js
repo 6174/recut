@@ -7,7 +7,7 @@
  * [OUTPUT]: 注册环境检查（comfy.status，含在途任务）、工作流目录（comfy.catalog：静态注册表 + 动态就绪度）、
  *          环境准备（comfy.prepare target: all|comfyui|<appId>，收尾起 ComfyUI 引擎）、下载源设置
  *          （comfy.settings.set）、权重下载（comfy.install，huggingface/modelscope/automatic）、引擎控制
- *          （comfy.engine.status/start/ensure/stop；ensure 幂等，供 AI/background 操作）、本机生成
+ *          （comfy.engine.status/start/ensure/stop/logs；ensure 幂等，供 AI/background 操作；logs 返回引擎 server.log 尾部）、本机生成
  *          （comfy.generate {app, params}，单槽 FIFO）、历史与入库（comfy.generations / comfy.generation.complete /
  *          comfy.save）、任务中心（comfy.tasks.list/get/params/logs/cancel）与取消（comfy.cancel）。
  * [POS]: comfyui-studio 的唯一业务后端；manifest contributes.media 声明 local-gen provider，平台经
@@ -193,7 +193,7 @@ function settleOutput(ctx, action, recordID, job) {
 // 生成完成后把 worker 写出的 <output>.meta.json（真实宽高/seed/步数/耗时）回填进记录。
 function applyGenerationMeta(ctx, recordID) {
   if (!recordID) return;
-  const rows = ctx.sqlite.query("select output_path from comfy_generations where id = ?", [recordID]);
+  const rows = ctx.sqlite.query("select output_path, params_json from comfy_generations where id = ?", [recordID]);
   if (!rows.length) return;
   let raw = "";
   try { raw = ctx.files.readText(`${rows[0].output_path}.meta.json`); } catch (_) { return; }
@@ -203,6 +203,17 @@ function applyGenerationMeta(ctx, recordID) {
   const height = Number(meta.height) || 0;
   const duration = Number(meta.duration) || 0;
   ctx.sqlite.execute("update comfy_generations set width = ?, height = ?, duration = ? where id = ?", [width, height, duration, recordID]);
+  // 调用方（平台桥/AI）未必带 seed/steps，用 worker 回填的真实值补齐，供预览与「重新调整」回显。
+  let params = {};
+  try { params = JSON.parse(rows[0].params_json || "{}"); } catch (_) { params = {}; }
+  let changed = false;
+  for (const key of ["seed", "steps"]) {
+    if ((params[key] === undefined || params[key] === null || params[key] === "") && meta[key] !== undefined && meta[key] !== null) {
+      params[key] = meta[key];
+      changed = true;
+    }
+  }
+  if (changed) ctx.sqlite.execute("update comfy_generations set params_json = ? where id = ?", [JSON.stringify(params), recordID]);
 }
 function markFailed(ctx, action, recordID, error) {
   const table = RECORD_TABLES[action];
@@ -574,6 +585,12 @@ function engineStatus(_, ctx) {
   return run(ctx, ["engine", "status"], 30);
 }
 
+// 引擎实时日志（server.log 尾部）：启动、运行、停止后都可读，供引擎面板展示。
+function engineLogs(input, ctx) {
+  const lines = String(Math.min(Math.max(Number(input.lines) || 200, 20), 1000));
+  return run(ctx, ["engine", "logs", "--lines", lines], 30);
+}
+
 function engineStart(input, ctx) {
   ensureSchema(ctx);
   const tid = outputID();
@@ -631,7 +648,7 @@ function generate(input, ctx) {
 }
 
 function generationRecord(ctx, row) {
-  const record = { id: row.id, app: row.app, model: row.app, outputKind: row.output_kind, width: row.width, height: row.height, duration: row.duration, savedAssetId: row.saved_asset_id, createdAt: row.created_at, outputURL: "" };
+  const record = { id: row.id, app: row.app, model: row.model, outputKind: row.output_kind, width: row.width, height: row.height, duration: row.duration, savedAssetId: row.saved_asset_id, createdAt: row.created_at, outputURL: "" };
   try { record.outputURL = ctx.files.url(row.output_path); }
   catch (error) {
     ctx.sqlite.execute("update comfy_generations set status = 'failed', error = ? where id = ?", [error instanceof Error ? error.message : tr(ctx, "生成文件已丢失。", "The generated file is missing."), row.id]);
@@ -720,6 +737,7 @@ recut.operation.register("comfy.status", status);
 recut.operation.register("comfy.catalog", catalog);
 recut.operation.register("comfy.prepare", prepare);
 recut.operation.register("comfy.engine.status", engineStatus);
+recut.operation.register("comfy.engine.logs", engineLogs);
 recut.operation.register("comfy.engine.start", engineStart);
 recut.operation.register("comfy.engine.ensure", engineEnsure);
 recut.operation.register("comfy.engine.stop", engineStop);

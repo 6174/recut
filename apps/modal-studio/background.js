@@ -3,12 +3,13 @@
  *          modalapps/*\/manifest.json 生成）与读写 token profile 镜像、ctx.media 复制参考素材与导入产物，
  *          ctx.python.run / ctx.shell.exec 执行可观察本地任务（modal_runner.py：status/catalog/deploy/bootstrap/
  *          invoke/teardown/secret）
- * [OUTPUT]: 注册连通性与就绪度（modal.status）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记）、token profiles（modal.profiles.*）、
+ * [OUTPUT]: 注册连通性与就绪度（modal.status）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记与平台模型就绪投影 models[]）、token profiles（modal.profiles.*）、
  *          设置（modal.settings.set）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
- *          调用函数（modal.generate，单槽 FIFO）、历史与入库（modal.generations / modal.generation.complete /
+ *          调用函数（modal.generate，单槽 FIFO；兼容平台执行桥的 model 入参）、历史与入库（modal.generations / modal.generation.complete /
  *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel）与取消（modal.cancel）。
- * [POS]: modal-studio 的唯一业务后端；v1 不接平台（无 contributes.media、无默认路由）；能力只经本 App 的
- *        api/mcp operation（modal.generate/modal.save 等 capability:true）暴露。任务并发：运行（generate）单槽
+ * [POS]: modal-studio 的唯一业务后端；经 manifest contributes.media 向平台注册 modal-cloud provider（每个声明
+ *        expose 的 modalapp → 一个平台模型，平台默认生图/生视频路由可指向它，经通用执行桥调用 modal.generate），
+ *        其余能力经本 App 的 api/mcp operation（modal.generate/modal.save 等 capability:true）暴露。任务并发：运行（generate）单槽
  *        FIFO、部署（deploy）单槽且与运行互斥、权重（install）按预设包串行、停止（teardown）可并行；提交永不拒绝。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -80,6 +81,7 @@ function normalizeManifest(manifest, origin, sourceRel) {
     id: manifest.id,
     label: manifest.name || manifest.id,
     capability: manifest.capability || "image.generate",
+    expose: (manifest.expose && typeof manifest.expose === "object") ? manifest.expose : {},
     appName: engine.appName || manifest.id,
     sourceDir: sourceRel,
     origin,
@@ -266,9 +268,16 @@ function buildCatalog(ctx) {
       }))
     };
   });
+  // models 是 modalapps 的平台模型就绪投影（供 app_media_bridge 的动态就绪面按 expose.model 匹配）：
+  // 只有 deployed && volumeReady 时才 ready，平台据此把该模型标记为可用（"一旦 available 就注册"）。
+  const models = modalapps.filter((a) => a.expose && a.expose.model).map((a) => ({
+    model: a.expose.model, app: a.expose.model, capability: a.capability, runtime: "modal",
+    label: a.label || a.id, ready: a.deployed === true && a.volumeReady === true,
+    weight: { installed: a.volumeReady === true, sizeGb: (a.weights && a.weights.sizeGb) || 0, source: "", revision: (a.weights && a.weights.revision) || "" }
+  }));
   return {
     ready: status.ready === true, connected: status.connected === true, error: status.error || "",
-    account: status.account || "", modalapps,
+    account: status.account || "", modalapps, models,
     profiles: profiles.profiles.map(profileSummary),
     defaultProfileId: profiles.defaultProfileId || defaultProfileId(ctx),
     downloadSource: downloadSource(ctx), defaultGpuTier: defaultGpuTierSetting(ctx)
@@ -956,17 +965,34 @@ function teardown(input, ctx) {
   return { job: jobForTask(ctx, row), taskId: tid };
 }
 
+// 解析生成目标：App 内调用走 modalapp + function；平台执行桥只传一个平台模型简单名（model），
+// 按 modalapps 的 expose.model 命中预设包并用其 expose.function（缺省取首个函数）。平台路由表示用户已在
+// 平台侧选择该模型（视频另经平台提案确认门），因此不再重复 App 的 confirmCost 门。
+function resolveTarget(registry, input) {
+  const explicit = appDef(registry, value(input, "modalapp"));
+  if (explicit) return { modalapp: explicit, fn: functionDef(explicit, value(input, "function")), platform: false };
+  const model = value(input, "model");
+  if (!model) return { modalapp: null, fn: null, platform: false };
+  const app = (registry.modalapps || []).find((a) => a.expose && a.expose.model === model) || appDef(registry, model);
+  if (!app) return { modalapp: null, fn: null, platform: true };
+  const fn = functionDef(app, (app.expose && app.expose.function) || "") || (app.functions || [])[0] || null;
+  return { modalapp: app, fn, platform: true };
+}
+
 function generate(input, ctx) {
   ensureSchema(ctx);
   const registry = readRegistry(ctx);
-  const modalapp = appDef(registry, value(input, "modalapp"));
-  if (!modalapp) throw new Error("unknown modalapp: " + value(input, "modalapp"));
-  const fn = functionDef(modalapp, value(input, "function"));
+  const target = resolveTarget(registry, input);
+  const modalapp = target.modalapp;
+  if (!modalapp) throw new Error("unknown modalapp: " + (value(input, "modalapp") || value(input, "model")));
+  const fn = target.fn;
   if (!fn) throw new Error("unknown function: " + value(input, "function") + " in " + modalapp.id);
-  if (requireCostConfirm(ctx) && input.confirmCost !== true) {
+  if (!target.platform && requireCostConfirm(ctx) && input.confirmCost !== true) {
     throw new Error(tr(ctx, "云端 GPU 调用会消耗 Modal 额度，请显式传入 confirmCost: true 确认后重试。", "Cloud GPU calls consume Modal credits; pass confirmCost: true to confirm."));
   }
-  const rawParams = (input.params && typeof input.params === "object") ? input.params : input;
+  const baseParams = (input.params && typeof input.params === "object") ? input.params : input;
+  // 平台执行桥把提示词与表单参数分开传（prompt + params）；App 内调用则直接用 params/表单字段。
+  const rawParams = (value(input, "prompt") && baseParams.prompt === undefined) ? { ...baseParams, prompt: value(input, "prompt") } : baseParams;
   const params = coerceParams(fn, rawParams);
   const referenceIds = Array.isArray(input.referenceAssetIds) ? input.referenceAssetIds : [];
   // media 字段不进 params，经 referenceAssetIds 传入，故单独按参考素材校验 required。

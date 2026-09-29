@@ -4,7 +4,7 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 
 ## 何时使用
 
-- 用户**本机没有 GPU**，但想跑开源图片/视频模型（内置：SD-Turbo 文生图/图生图、MiniMax-H3 文生视频（带原生音频）/首尾帧生视频）。
+- 用户**本机没有 GPU**，但想跑开源图片/视频模型（内置：SD-Turbo 文生图/图生图、Qwen-Image-2.1 文生图/图像编辑（原生 2K）、MiniMax-H3 文生视频（带原生音频）/首尾帧生视频）。
 - 需要查看有哪些预设包/函数、是否已部署、权重是否就绪，或需要部署、下载权重、调用云端函数。
 - **用户/Agent 想新建一个自己的 modalapp**（见「创建一个新 modalapp」）。
 
@@ -48,6 +48,7 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 **manifest.json 要点**（与内置完全同构）：
 
 - `id`：`[a-z0-9][a-z0-9._-]*`，且**不可与内置 id 撞名**。
+- `expose`（可选）：`{ model, function }` 把该预设包注册为一个平台模型 `modal-cloud/<model>`；`model` 只能含 `a-z0-9-_`（不能含 `.`），`function` 缺省取 `functions[0]`。不加则不上平台。
 - `engine.appName`：云端 Modal App 名（如 `recut-my-app`），与 `modal_app.py` 里 `modal.App(...)` 一致。
 - `engine.gpuTiers`：`{ default, options:[{id,gpu,label}] }`；`gpu` 直接传给 `with_options(gpu=...)`。
 - `engine.volumes`：`[{name, mount, label}]`；第一个 volume 是权重卷，bootstrap 需在其根部写 `.recut-download-complete`。
@@ -87,10 +88,13 @@ modal.modalapp.remove { id }          # 删除用户预设包（内置不可删�
 - Modal 有免费额度但超了要花钱。**`modal.generate` 必须显式传 `confirmCost: true`**（默认开启成本确认门；`modal.settings.set { requireCostConfirm: false }` 可关闭）。
 - 调用前用 `modal.catalog` 确认 `gpuTiers`；GPU 档位越高越贵。
 
-## 平台集成（v1 有意边界）
+## 平台集成（已接入）
 
-- **v1 不接平台**：不写 `contributes.media`、不注册媒体 provider、不占默认生图/生视频路由。能力只经本 App 的 operation 暴露：UI 走 api、Agent 走 mcp、其他 App 走 `capability: true` 能力桥。
-- 因此 `recut.media.list_capability_models` / 默认路由**不会**出现本 App；需显式调用 `modal.*`。
+- 本 App 在 manifest `contributes.media` 声明 provider `modal-cloud`（`protocol:"local"`）；**每个声明 `expose: { model, function }` 的 modalapp 注册为一个平台模型 `modal-cloud/<model>`**（图片与视频都注册）。
+- 平台「生图/生视频默认路由」可指向 `modal-cloud/<model>`；生成经通用执行桥组装 `{ model, prompt, params, referenceAssetIds }` 调 `modal.generate`（`resolveTarget` 按 `expose.model` 解析 modalapp + `expose.function`），终态经 `modal.task.get` 观察，产物 `modal.save` 入库。
+- **就绪是动态的**：`modal.catalog.models[]` 上报 `ready`，**只有 `deployed && volumeReady` 才为真**；未就绪时平台路由提交给出引导错误（先部署/下权重）。
+- 因此 `recut.media.list_capability_models` 会列出本 App 与其模型就绪度；平台路由与显式 `modal.*` 调用两条路径都可用。
+- **成本门**：经平台路由（`model` 入参）跳过 App 的 `confirmCost` 门（视频由平台 proposal 门兜底）；直接 `modal.generate` 仍须 `confirmCost: true`。
 
 ## 安全
 

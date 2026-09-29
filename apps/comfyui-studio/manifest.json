@@ -191,6 +191,23 @@
       }
     },
     {
+      "name": "comfy.engine.logs",
+      "surfaces": [
+        "api"
+      ],
+      "capability": true,
+      "description": "读取 ComfyUI 常驻引擎的实时日志（server.log 尾部，已去 ANSI 并折叠进度条），返回 { running, port, pid, path, lines }；启动、运行与停止后都可读，供引擎面板展示。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "type": "number",
+            "description": "可选；返回的日志行数，缺省 200，范围 20–1000。"
+          }
+        }
+      }
+    },
+    {
       "name": "comfy.engine.start",
       "surfaces": [
         "api",

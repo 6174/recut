@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、统一 App 身份图标、Agent Session HTTP API 及全局 Agent 面板上下文、工作台 i18n 字典与 Accept-Language 统一请求包装
- * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Studio、Projects、Assets、Community 工作台入口及保持根壳的一级 Tab 切换（世界画布激活时顶层 Header 左侧让位给 WorldCanvasTopBar 面包屑、画布工具组 WorldCanvasToolbar 居中于整个 Header，右侧保留全局状态）、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态；项目桌面与 Studio 最近区把本地 World 与项目按 updatedAt 混排（平台/PGC 世界只在社区展示），新建项目入口可创建 World；全部文案经 useI18n 迁移到 workspace 字典
- * [POS]: web/app 的应用工作台框架；Studio 是 app Host 的默认创作入口，社区（Community）统一承载 PGC Worlds 与 Apps 目录两个可扩展分区，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
+ * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Projects、Assets、Community 工作台入口（创作台 Studio 暂时隐藏，根路径 `/` 与 `/projects` 同渲染项目桌面）及保持根壳的一级 Tab 切换（顶层 Header 统一经 WorkspaceHeader 承载：工作台根壳保留品牌 mark + 一级 Tab，世界画布/详情页则为单一返回入口 + 单行标题区；世界画布激活时左侧让位给 WorldCanvasTopBar 面包屑、画布工具组 WorldCanvasToolbar 居中于整个 Header，右侧保留全局状态）、内容区统一为单一外部滚动容器（`data-workspace-scroll` + max-w-6xl，项目页与素材页共用标题/筛选骨架）、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态（service 生命周期界面收敛在 `components/service-guide`，本页只按 phase 选择渲染）；项目桌面与 Studio 最近区把本地 World 与项目按 updatedAt 混排（平台/PGC 世界只在社区展示），新建项目入口可创建 World；全部文案经 useI18n 迁移到 workspace 字典
+ * [POS]: web/app 的应用工作台框架；app Host 默认进入项目（创作台 Studio 暂时隐藏、代码保留），社区（Community）统一承载 PGC Worlds 与 Apps 目录两个可扩展分区，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
@@ -9,25 +9,18 @@
 import {
   AppWindow,
   ArrowRight,
-  Blocks,
   Box,
   Captions,
-  Check,
   Clapperboard,
-  Code2,
   Copy,
-  Download,
   FileImage,
   Globe2,
-  HardDrive,
   ImageIcon,
   Link2,
-  Mic2,
   Music2,
   Plus,
   Scissors,
   Sparkles,
-  Terminal,
   Video,
   X,
   type LucideIcon,
@@ -55,11 +48,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CreateWorldDialog } from "@/components/create-world-dialog";
 import { Input } from "@/components/ui/input";
 import { HeaderActions } from "@/components/header-actions";
+import { FilterTabs, WorkspacePageHeader } from "@/components/workspace-page";
+import { WorkspaceHeader } from "@/components/workspace-header";
 import {
   useAgentPanelContext,
   useReportWorkSurface,
 } from "@/lib/agent-panel-context";
-import { trackEvent } from "@/components/posthog-analytics";
+import { ServiceChecking, ServiceGuide } from "@/components/service-guide";
+import { SettingsPanel } from "@/components/settings-panel";
 import {
   marketplaceDescription,
   marketplaceName,
@@ -117,7 +113,7 @@ function WorkspaceFrame({
   appDetail,
   communitySection = "home",
   contentTab,
-  initialTab = "studio",
+  initialTab = "projects",
 }: WorkspaceProps = {}) {
   const { t } = useI18n();
   const installations = useWorkspaceStore((state) => state.installations);
@@ -331,7 +327,15 @@ function WorkspaceFrame({
       : "offline";
   const content =
     detail ??
-    (tab === "community" ? (
+    (service.phase === "checking" ? (
+      <ServiceChecking />
+    ) : !online ? (
+      <ServiceGuide
+        embedded={isLocalWorkspace}
+        error={service.error}
+        onConnectRemote={openServiceSettings}
+      />
+    ) : tab === "community" ? (
       <Community
         apiBase={apiBase}
         installationError={installationsError}
@@ -342,14 +346,6 @@ function WorkspaceFrame({
         onUpdated={reloadWorkspace}
         section={communitySection}
         serviceOnline={online}
-      />
-    ) : service.phase === "checking" ? (
-      <ServiceChecking />
-    ) : !online ? (
-      <ServiceGuide
-        embedded={isLocalWorkspace}
-        error={service.error}
-        onConnectRemote={openServiceSettings}
       />
     ) : tab === "studio" ? (
       <Studio
@@ -395,86 +391,14 @@ function WorkspaceFrame({
     ));
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      <header className="grid h-13 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b bg-card px-4 md:px-5">
-        <div className="flex min-w-0 items-center gap-3 md:gap-4">
-          <RecutMark className="h-5 w-auto shrink-0" title="Recut" />
-          <span className="hidden h-5 w-px bg-border sm:block" />
-          {canvasTopBarActive && <WorldCanvasTopBar />}
-          {!canvasTopBarActive && (
-            <nav
-              aria-label={
-                showLanding ? t("nav.aria.website") : t("nav.aria.workspace")
-              }
-              className="flex min-w-0 items-center gap-0.5 sm:gap-1"
-            >
-              {showLanding ? (
-                <>
-                  <Tab
-                    active={tab === "studio"}
-                    href="/"
-                    onNavigate={navigateTab}
-                    tab="studio"
-                  >
-                    {t("nav.workspace")}
-                  </Tab>
-                  <Tab
-                    active={tab === "community"}
-                    href="/community/apps"
-                    onNavigate={navigateTab}
-                    tab="community"
-                  >
-                    {t("nav.market")}
-                  </Tab>
-                </>
-              ) : (
-                <>
-                  <Tab
-                    active={tab === "studio"}
-                    href="/"
-                    onNavigate={navigateTab}
-                    tab="studio"
-                  >
-                    {t("nav.studio")}
-                  </Tab>
-                  <Tab
-                    active={tab === "projects"}
-                    href="/projects"
-                    onNavigate={navigateTab}
-                    tab="projects"
-                  >
-                    {t("nav.projects")}
-                  </Tab>
-                  <Tab
-                    active={tab === "assets"}
-                    href="/media"
-                    onNavigate={navigateTab}
-                    tab="assets"
-                  >
-                    {t("nav.assets")}
-                  </Tab>
-                  <Tab
-                    active={tab === "community"}
-                    href="/community"
-                    onNavigate={navigateTab}
-                    tab="community"
-                  >
-                    {t("nav.community")}
-                  </Tab>
-                </>
-              )}
-            </nav>
-          )}
-        </div>
-        <div className="flex min-w-0 items-center justify-center">
-          {canvasTopBarActive && <WorldCanvasToolbar />}
-        </div>
-        <div className="hidden min-w-0 items-center justify-end gap-3 md:flex md:gap-3">
-          {!showLanding && (
+      <WorkspaceHeader
+        actions={
+          !showLanding && (
             <>
               {canvasTopBarActive && (
                 <>
                   <WorldCanvasShareButton />
-                  <span className="h-5 w-px bg-border" />
+                  <span aria-hidden="true" className="h-5 w-px bg-border" />
                 </>
               )}
               <HeaderActions
@@ -483,21 +407,72 @@ function WorkspaceFrame({
                 settingsSection={settingsSection}
               />
             </>
-          )}
-        </div>
-      </header>
+          )
+        }
+        back={
+          canvasTopBarActive
+            ? { label: "返回工作台", onClick: () => router.push("/") }
+            : null
+        }
+        center={canvasTopBarActive ? <WorldCanvasToolbar /> : null}
+      >
+        {canvasTopBarActive ? (
+          <WorldCanvasTopBar />
+        ) : (
+          <>
+            <RecutMark className="h-5 w-auto shrink-0" title="Recut" />
+            <span aria-hidden="true" className="hidden h-5 w-px bg-border sm:block" />
+            <nav
+              aria-label={t("nav.aria.workspace")}
+              className="flex min-w-0 items-center gap-0.5 sm:gap-1"
+            >
+              <Tab
+                active={tab === "projects"}
+                href="/projects"
+                onNavigate={navigateTab}
+                tab="projects"
+              >
+                {t("nav.projects")}
+              </Tab>
+              <Tab
+                active={tab === "assets"}
+                href="/media"
+                onNavigate={navigateTab}
+                tab="assets"
+              >
+                {t("nav.assets")}
+              </Tab>
+              <Tab
+                active={tab === "community"}
+                href="/community"
+                onNavigate={navigateTab}
+                tab="community"
+              >
+                {t("nav.market")}
+              </Tab>
+            </nav>
+          </>
+        )}
+      </WorkspaceHeader>
       <div
         id="workspace-content-region"
         className={`relative min-h-0 flex-1 overflow-hidden ${showAgentPanel ? "md:pl-[var(--side-panel-width)]" : ""}`}
       >
-        {online && tab === "assets" ? (
-          content
-        ) : (
-          <section className="h-full min-h-0 overflow-y-auto bg-background p-4 sm:p-6 md:p-8">
-            <div className="mx-auto max-w-6xl">{content}</div>
-          </section>
-        )}
+        <section
+          className="h-full min-h-0 overflow-y-auto bg-background p-4 sm:p-6 md:p-8"
+          data-workspace-scroll
+        >
+          <div className="mx-auto max-w-6xl">{content}</div>
+        </section>
       </div>
+      {showLanding && (
+        <SettingsPanel
+          hideTrigger
+          onOpenChange={changeSettingsOpen}
+          open={settingsOpen}
+          section={settingsSection}
+        />
+      )}
       {createApp && (
         <CreateProjectFromAppDialog
           app={createApp}
@@ -521,7 +496,8 @@ function WorkspaceFrame({
 export default Workspace;
 
 function tabFromPath(pathname: string): WorkspaceTab | null {
-  if (pathname === "/") return "studio";
+  // 创作台（Studio）暂时隐藏：根路径 / 与 /projects 都进入项目。
+  if (pathname === "/") return "projects";
   if (pathname.startsWith("/community")) return "community";
   if (pathname === "/projects" || pathname === "/projects/") return "projects";
   if (pathname === "/media" || pathname === "/media/") return "assets";
@@ -568,6 +544,25 @@ type SpaceItem =
   | { kind: "project"; project: Project }
   | { kind: "world"; world: WorldSummary };
 
+// "all" = 全部；"world" = 世界；其余取值为 appId（项目型 App）。
+type ProjectFilter = "all" | "world" | string;
+
+function countSpaces(
+  projects: Project[],
+  worlds: WorldSummary[],
+  filter: ProjectFilter,
+): number {
+  const projectCount = projects.filter(
+    (project) => filter === "all" || project.appId === filter,
+  ).length;
+  const worldCount = worlds.filter(
+    (world) =>
+      worldOrigin(world) !== "platform" &&
+      (filter === "all" || filter === "world"),
+  ).length;
+  return projectCount + worldCount;
+}
+
 function spaceUpdatedAt(item: SpaceItem): number {
   const raw =
     item.kind === "project" ? item.project.updatedAt : item.world.updatedAt;
@@ -581,6 +576,7 @@ function spaceUpdatedAt(item: SpaceItem): number {
 function ProjectSpaces({
   apiBase,
   apps,
+  filter = "all",
   limit,
   onCreateWorld,
   onDeleteProject,
@@ -591,6 +587,7 @@ function ProjectSpaces({
 }: {
   apiBase: string;
   apps: Installation[];
+  filter?: ProjectFilter;
   limit?: number;
   onCreateWorld: () => void;
   onDeleteProject: (project: Project) => Promise<void>;
@@ -601,14 +598,17 @@ function ProjectSpaces({
 }) {
   const items = useMemo<SpaceItem[]>(() => {
     const mixed: SpaceItem[] = [
-      ...projects.map((project): SpaceItem => ({ kind: "project", project })),
+      ...projects
+        .filter((project) => filter === "all" || project.appId === filter)
+        .map((project): SpaceItem => ({ kind: "project", project })),
       ...worlds
         .filter((world) => worldOrigin(world) !== "platform")
+        .filter(() => filter === "all" || filter === "world")
         .map((world): SpaceItem => ({ kind: "world", world })),
     ];
     mixed.sort((a, b) => spaceUpdatedAt(b) - spaceUpdatedAt(a));
     return typeof limit === "number" ? mixed.slice(0, limit) : mixed;
-  }, [projects, worlds, limit]);
+  }, [filter, projects, worlds, limit]);
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <NewProjectCard
@@ -1204,19 +1204,35 @@ function ProjectsPage({
   worlds: WorldSummary[];
 }) {
   const { t } = useI18n();
-  const count =
-    projects.length +
-    worlds.filter((world) => worldOrigin(world) !== "platform").length;
+  const [filter, setFilter] = useState<ProjectFilter>("all");
+  // 过滤 tab 与「新建项目」入口的类型一一对应：全部 / 世界 / 每个已安装的项目型 App。
+  const tabs: { icon?: LucideIcon; id: ProjectFilter; label: string }[] = [
+    { id: "all", label: t("projects.filter.all") },
+    { icon: Globe2, id: "world", label: t("projects.filter.world") },
+    ...sortByOrder(apps, PROJECT_APP_ORDER).map((app) => ({
+      icon: appIcon(app.manifest.id),
+      id: app.manifest.id,
+      label: app.manifest.name,
+    })),
+  ];
   return (
     <>
-      <SectionTitle
-        count={interpolate(t("projects.count"), { count })}
+      <WorkspacePageHeader
+        action={
+          <Badge className="border bg-muted text-muted-foreground">
+            {interpolate(t("projects.count"), {
+              count: countSpaces(projects, worlds, filter),
+            })}
+          </Badge>
+        }
         description={t("projects.desc")}
         title={t("projects.title")}
       />
+      <FilterTabs items={tabs} onChange={setFilter} value={filter} />
       <ProjectSpaces
         apiBase={apiBase}
         apps={apps}
+        filter={filter}
         onCreateWorld={onCreateWorld}
         onDeleteProject={onDeleteProject}
         onRenameProject={onRenameProject}
@@ -1528,318 +1544,6 @@ function CreateProjectFromAppDialog({
           </footer>
         </form>
       </section>
-    </div>
-  );
-}
-
-const SERVICE_INSTALL_COMMAND =
-  "curl -fsSL https://recut.video/install.sh | sh";
-
-const LANDING_FEATURES = [
-  {
-    descKey: "landing.feature.editing.desc",
-    icon: Scissors,
-    titleKey: "landing.feature.editing",
-  },
-  {
-    descKey: "landing.feature.worlds.desc",
-    icon: Globe2,
-    titleKey: "landing.feature.worlds",
-  },
-  {
-    descKey: "landing.feature.voice.desc",
-    icon: Mic2,
-    titleKey: "landing.feature.voice",
-  },
-  {
-    descKey: "landing.feature.extensions.desc",
-    icon: Blocks,
-    titleKey: "landing.feature.extensions",
-  },
-] as const;
-
-function ServiceGuide({
-  embedded,
-  error,
-  onConnectRemote,
-}: {
-  embedded?: boolean;
-  error?: string;
-  onConnectRemote: () => void;
-}) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  async function copyInstallCommand() {
-    try {
-      await navigator.clipboard.writeText(SERVICE_INSTALL_COMMAND);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2200);
-    } catch {
-      setCopied(false);
-    }
-  }
-  if (embedded) return <ServiceRecoveryGuide error={error} />;
-  return (
-    <section className="mx-auto max-w-6xl py-4 pb-10 sm:py-8">
-      <div className="relative overflow-hidden rounded-[1.75rem] border border-primary/15 bg-card px-6 py-10 shadow-[0_24px_80px_oklch(0.25_0.06_151_/_0.10)] sm:px-10 sm:py-14 lg:px-14">
-        <div
-          aria-hidden="true"
-          className="absolute -right-24 -top-32 size-96 rounded-full bg-primary/10 blur-3xl"
-        />
-        <div
-          aria-hidden="true"
-          className="absolute -bottom-32 left-1/3 size-80 rounded-full bg-accent/70 blur-3xl"
-        />
-        <div className="relative grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-14">
-          <div className="max-w-2xl">
-            <p className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-primary">
-              <span className="size-1.5 rounded-full bg-primary" />
-              RECUT · LOCAL CREATIVE OS
-            </p>
-            <h1 className="mt-5 max-w-xl text-4xl font-semibold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              {t("landing.title")}
-              <br />
-              <span className="text-primary">{t("landing.title2")}</span>
-            </h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground">
-              {t("landing.desc")}
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <button
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                onClick={() => {
-                  trackEvent("recut_install_clicked", {
-                    location: "service_guide",
-                  });
-                  void copyInstallCommand();
-                }}
-                type="button"
-              >
-                <Download className="size-4" />
-                {copied ? t("landing.install.copied") : t("landing.install")}
-              </button>
-              <a
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border bg-background px-5 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                href="https://github.com/6174/recut"
-                onClick={() =>
-                  trackEvent("recut_external_clicked", { target: "github" })
-                }
-                rel="noreferrer"
-                target="_blank"
-              >
-                <Code2 className="size-4" />
-                {t("landing.github")}
-              </a>
-            </div>
-            <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Terminal className="size-3.5" />
-              {t("landing.install.hint")}
-            </p>
-            <button
-              className="mt-5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-              onClick={onConnectRemote}
-              type="button"
-            >
-              {t("landing.connectRemote")}{" "}
-              <ArrowRight className="ml-1 inline size-3.5" />
-            </button>
-          </div>
-          <div className="relative rounded-2xl border border-primary/15 bg-background/85 p-4 shadow-xl backdrop-blur-sm">
-            <div className="flex items-center justify-between border-b border-border/80 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
-                  <Clapperboard className="size-4" />
-                </span>
-                <span>
-                  <span className="block text-sm font-semibold">
-                    {t("landing.workspace.title")}
-                  </span>
-                  <span className="block text-[10px] text-muted-foreground">
-                    LOCAL · PRIVATE · EXTENSIBLE
-                  </span>
-                </span>
-              </div>
-              <span className="rounded-full bg-primary/10 px-2 py-1 font-mono text-[9px] font-semibold tracking-wider text-primary">
-                READY
-              </span>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2.5">
-              {LANDING_FEATURES.map(({ descKey, icon: Icon, titleKey }) => (
-                <div
-                  className="rounded-xl border border-border/80 bg-card p-3.5"
-                  key={titleKey}
-                >
-                  <span className="grid size-8 place-items-center rounded-lg bg-accent text-accent-foreground">
-                    <Icon className="size-4" />
-                  </span>
-                  <p className="mt-5 text-sm font-semibold">{t(titleKey)}</p>
-                  <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                    {t(descKey)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <LandingValue
-          icon={HardDrive}
-          text={t("landing.value.local.desc")}
-          title={t("landing.value.local")}
-        />
-        <LandingValue
-          icon={Code2}
-          text={t("landing.value.open.desc")}
-          title={t("landing.value.open")}
-        />
-        <LandingValue
-          icon={Check}
-          text={t("landing.value.ready.desc")}
-          title={t("landing.value.ready")}
-        />
-      </div>
-      <div className="mt-5 overflow-hidden rounded-xl border bg-foreground text-left text-primary-foreground shadow-sm">
-        <div className="flex items-center gap-3 border-b border-primary-foreground/10 px-4 py-2 text-[10px] font-medium text-primary-foreground/55">
-          <Terminal className="size-3.5" />
-          TERMINAL · MACOS / LINUX / FREEBSD
-        </div>
-        <div className="flex items-center gap-3 px-4 py-3">
-          <code className="min-w-0 flex-1 overflow-x-auto font-mono text-xs">
-            {SERVICE_INSTALL_COMMAND}
-          </code>
-          <button
-            aria-label={t("landing.copy.aria")}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary/85"
-            onClick={() => void copyInstallCommand()}
-            type="button"
-          >
-            <Copy className="size-3.5" />
-            {copied ? t("landing.copied") : t("landing.copy")}
-          </button>
-        </div>
-      </div>
-      {error && (
-        <div className="mt-5">
-          <RepairGuide message={error} />
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ServiceRecoveryGuide({ error }: { error?: string }) {
-  const { t } = useI18n();
-  return (
-    <section className="mx-auto flex min-h-[30rem] max-w-2xl flex-col items-center justify-center py-12 text-center">
-      <span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground">
-        <Download className="size-6" />
-      </span>
-      <p className="mt-6 font-mono text-[10px] font-semibold tracking-[0.16em] text-primary">
-        LOCAL SERVICE
-      </p>
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-        {t("recovery.title")}
-      </h1>
-      <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">
-        {t("recovery.desc")}
-      </p>
-      {error && (
-        <div className="mt-8 w-full max-w-2xl">
-          <RepairGuide message={error} />
-        </div>
-      )}
-    </section>
-  );
-}
-
-function LandingValue({
-  icon: Icon,
-  text,
-  title,
-}: {
-  icon: LucideIcon;
-  text: string;
-  title: string;
-}) {
-  return (
-    <div className="flex gap-3 rounded-xl border bg-card p-4">
-      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-        <Icon className="size-4" />
-      </span>
-      <div>
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p>
-      </div>
-    </div>
-  );
-}
-
-function ServiceChecking() {
-  const { t } = useI18n();
-  return (
-    <section
-      aria-busy="true"
-      aria-label={t("service.checking.aria")}
-      className="grid min-h-80 place-items-center p-8 text-center"
-    >
-      <div>
-        <span className="mx-auto block size-2 animate-pulse rounded-full bg-muted-foreground" />
-        <p className="mt-4 text-sm text-muted-foreground">
-          {t("service.checking.label")}
-        </p>
-      </div>
-    </section>
-  );
-}
-
-function SectionTitle({
-  action,
-  count,
-  description,
-  title,
-}: {
-  action?: React.ReactNode;
-  count?: string;
-  description: string;
-  title: string;
-}) {
-  return (
-    <div className="mb-7 flex items-end justify-between">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{description}</p>
-      </div>
-      <div className="flex items-center gap-3">
-        {action}
-        {count && (
-          <Badge className="border bg-muted text-muted-foreground">
-            {count}
-          </Badge>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function RepairGuide({ message }: { message: string }) {
-  const { t } = useI18n();
-  const prompt = `Recut 本地环境遇到问题：${message}\n请先检查 service 日志、Git 状态和 manifest.json；解释根因并给出最小、可验证的修复。不要跳过现有本地修改。`;
-  return (
-    <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-left">
-      <p className="text-xs font-medium">{message}</p>
-      <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-        {t("repair.desc")}
-      </p>
-      <Button
-        className="mt-2 h-7"
-        onClick={() => void navigator.clipboard.writeText(prompt)}
-        type="button"
-        variant="outline"
-      >
-        <Code2 className="size-3.5" />
-        {t("repair.copy")}
-      </Button>
     </div>
   );
 }

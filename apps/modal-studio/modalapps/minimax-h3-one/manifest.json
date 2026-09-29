@@ -5,6 +5,7 @@
     "en": "MiniMax-H3 single-GPU (GPU snapshot)"
   },
   "capability": "video.generate",
+  "expose": { "model": "minimax-h3-one", "function": "text-to-video" },
   "engine": {
     "appName": "recut-minimax-h3-one",
     "sourceDir": "modalapps/minimax-h3-one",

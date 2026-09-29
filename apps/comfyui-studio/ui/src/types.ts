@@ -55,6 +55,11 @@ export interface EngineStatus {
   pid?: string;
 }
 
+export interface EngineLogs extends EngineStatus {
+  path?: string;
+  lines: string[];
+}
+
 export interface EnvStatus {
   ready: boolean;
   pending?: boolean;

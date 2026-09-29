@@ -6,15 +6,13 @@
  */
 "use client";
 
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { AppVersionControl, type ManagedApp } from "@/components/app-version-control";
-import { RecutMark } from "@/components/brand-logo";
 import { HeaderActions } from "@/components/header-actions";
+import { WorkspaceHeader } from "@/components/workspace-header";
 import { PlatformMediaPicker, type PlatformMediaPickerRequest, type PlatformMediaPickerResult } from "@/components/platform-media-picker";
 import { PlatformImagePreview, type PlatformImagePreviewRequest } from "@/components/image-lightbox";
 import { EditableProjectName } from "./editable-project-name";
@@ -283,14 +281,10 @@ export default function ProjectDetailClient() {
   }, [apiBase, id, nativeEditorActive, project, t]);
 
   return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">
-    <header className="flex h-13 shrink-0 items-center justify-between border-b bg-card px-5">
-      <div className="flex min-w-0 items-center gap-4">
-        <Link aria-label={t("detail.back")} className="flex shrink-0 items-center gap-2" href="/"><ArrowLeft className="size-4" /><RecutMark className="h-4 w-auto shrink-0" /></Link>
-        <div aria-hidden="true" className="h-5 w-px bg-border" />
-        <div className="min-w-0">{project ? <EditableProjectName apiBase={apiBase} name={project.name} onRenamed={refreshProject} projectID={project.id} /> : <p className="truncate text-sm font-medium">{t("detail.loading")}</p>}<p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{project ? `${app?.manifest.name ?? project.appId} · v${app?.manifest.version ?? project.appVersion} · ${project.id}` : t("detail.loading.meta")}</p></div>
-      </div>
-      <HeaderActions>{installation && <AppVersionControl app={installation} onUpdated={() => window.location.reload()} />}</HeaderActions>
-    </header>
+    <WorkspaceHeader actions={<HeaderActions>{installation && <AppVersionControl app={installation} onUpdated={() => window.location.reload()} />}</HeaderActions>} back={{ href: "/", label: t("detail.back") }}>
+      {project ? <EditableProjectName apiBase={apiBase} name={project.name} onRenamed={refreshProject} projectID={project.id} /> : <span className="truncate text-sm font-medium">{t("detail.loading")}</span>}
+      <span className="hidden shrink-0 font-mono text-[10px] text-muted-foreground sm:inline">{project ? `${app?.manifest.name ?? project.appId} · v${app?.manifest.version ?? project.appVersion} · ${project.id}` : t("detail.loading.meta")}</span>
+    </WorkspaceHeader>
     <div className="min-h-0 flex-1 overflow-hidden md:pl-[var(--side-panel-width)]">
       <section className="h-full min-w-0 overflow-hidden border-l bg-card">
         {nativeEditorActive && nativeAdapter && id ? <NativeTimelineEditorHost adapter={nativeAdapter} projectId={id} /> : uiURL ? <iframe allow="clipboard-write; fullscreen" className="block h-full w-full border-0" onLoad={connectUI} ref={appFrame} src={uiURL} title={interpolate(t("detail.frame.title"), { name: project?.name ?? "Recut" })} /> : <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">{t("detail.noUI")}</div>}

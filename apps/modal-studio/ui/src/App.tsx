@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 recut-sdk（background.call + events.subscribe 实时事件）、Left 两 Tab 组件、Right 预览组件与 i18n
- * [OUTPUT]: Modal 云函数主工作区：预设包目录/任务列表按事件增量刷新（首屏与用户动作走 REST）、选中任务详情与产物、预览图「以此为参考图运行」回填左侧表单、动作编排与语言同步
+ * [OUTPUT]: Modal 云函数主工作区：预设包目录/任务列表按事件增量刷新（首屏与用户动作走 REST）、选中任务详情与产物、预览图「以此为参考图运行」回填左侧表单、动作编排与语言同步；外壳由 shadcn Tabs/Card/Button 承载
  * [POS]: ui 的状态编排层；只经 App operation 契约访问后台，不直接读写本机文件
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Cloud, Loader2, RefreshCw } from "lucide-react";
 import { isRecutConnected, recut, useRecutLocale } from "./recut-sdk";
 import { t } from "./i18n";
 import { RunTab } from "./components/RunTab";
@@ -14,12 +14,23 @@ import { PreviewPane } from "./components/PreviewPane";
 import { Setup } from "./components/Setup";
 import { ConnectionControl } from "./components/ConnectionControl";
 import { AccountDialog } from "./components/AccountDialog";
-import { Button, Card } from "./ui";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Catalog, EnvStatus, Generation, GenerationParams, InjectedReference, LogLine, Task, TaskDetail } from "./types";
 import "./style.css";
 
 const EMPTY_CATALOG: Catalog = { ready: false, connected: false, modalapps: [], profiles: [], defaultProfileId: "", downloadSource: "automatic", defaultGpuTier: "" };
 const APP_ID = "recut.modal-studio";
+
+function LoadingBlock({ label }: { label: string }) {
+  return (
+    <div className="flex h-full min-h-[16rem] flex-col items-center justify-center gap-2 text-muted-foreground">
+      <Loader2 className="size-4 animate-spin text-primary" />
+      <p className="text-xs">{label}</p>
+    </div>
+  );
+}
 
 export default function App() {
   const locale = useRecutLocale();
@@ -315,19 +326,10 @@ export default function App() {
     setInjectedReference({ id: draft.id, name: `modal-${draft.id}`, nonce: Date.now(), draft });
   }, []);
 
-  if (!catalogLoaded) {
-    return (
-      <main className="grid min-h-screen place-items-center p-6">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Loader2 className="size-5 animate-spin text-primary" />
-          <p className="text-xs">{t(locale, "app.loading")}</p>
-        </div>
-      </main>
-    );
-  }
-
+  // 先进入界面再局部 Loading：状态校验（modal.catalog/status）期间不再整屏阻塞，
+  // 仅在拿到结果后才决定是否落到 Setup 启动门。
   const envReady = env?.ready ?? catalog.ready;
-  if (!envReady) {
+  if (catalogLoaded && !envReady) {
     const elapsedSeconds = prepareTask ? (clock - Date.parse(prepareTask.createdAt)) / 1000 : 0;
     return (
       <Setup
@@ -344,7 +346,7 @@ export default function App() {
     );
   }
 
-  if (!catalog.connected) {
+  if (catalogLoaded && !catalog.connected) {
     return (
       <Setup
         locale={locale}
@@ -360,64 +362,72 @@ export default function App() {
     );
   }
 
+  const booting = !catalogLoaded;
   const activeProfile = catalog.profiles.find((profile) => profile.id === catalog.defaultProfileId);
 
   return (
-    <main className="min-h-screen p-4 sm:p-6">
-      <div className="mx-auto max-w-[1600px]">
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-border/80 pb-4">
+    <main className="mx-auto flex w-full max-w-[1600px] flex-col p-4 sm:p-6 xl:h-dvh xl:overflow-hidden">
+      <header className="flex shrink-0 items-center justify-between gap-4 px-1 py-1">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
+            <Cloud className="size-5" />
+          </span>
           <div className="min-w-0">
-            <h1 className="mt-1.5 text-2xl font-semibold tracking-tight sm:text-3xl">{t(locale, "app.name")}</h1>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{t(locale, "app.subtitle")}</p>
+            <h1 className="text-base font-bold tracking-tight">{t(locale, "app.name")}</h1>
+            <p className="max-w-2xl truncate text-xs text-muted-foreground">{t(locale, "app.subtitle")}</p>
           </div>
-          <ConnectionControl locale={locale} connected={catalog.connected} account={catalog.account} profileName={activeProfile?.name} onOpen={() => setAccountOpen(true)} />
-        </header>
+        </div>
+        <ConnectionControl locale={locale} connected={catalog.connected} loading={booting} account={catalog.account} profileName={activeProfile?.name} onOpen={() => setAccountOpen(true)} />
+      </header>
 
-        <div className="grid gap-5 xl:grid-cols-[26rem_minmax(0,1fr)]">
-          <Card className="flex min-h-[36rem] flex-col overflow-hidden">
-            <div className="grid grid-cols-2 border-b border-border/80">
-              {(["run", "records"] as const).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setTab(item)}
-                  className={`h-11 text-xs font-medium transition ${tab === item ? "text-foreground shadow-[inset_0_-2px_0_var(--primary)]" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  {t(locale, `tab.${item}`)}
-                </button>
-              ))}
+      <div className="mt-4 grid min-h-0 flex-1 gap-4 xl:grid-cols-[26rem_minmax(0,1fr)]">
+        <Card className="flex min-h-[36rem] flex-col gap-0 overflow-hidden py-0 [--card-spacing:0px] xl:min-h-0">
+          <Tabs value={tab} onValueChange={(value) => setTab(value as "run" | "records")} className="flex min-h-0 flex-1 flex-col gap-0">
+            <div className="flex shrink-0 items-center border-b border-border/70 px-4">
+              <TabsList variant="line" className="h-10 gap-5">
+                <TabsTrigger value="run" className="flex-none px-0.5">{t(locale, "tab.run")}</TabsTrigger>
+                <TabsTrigger value="records" className="flex-none px-0.5">{t(locale, "tab.records")}</TabsTrigger>
+              </TabsList>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {tab === "run" ? (
-                <RunTab
-                  modalapps={catalog.modalapps}
-                  locale={locale}
-                  defaultGpuTier={catalog.defaultGpuTier}
-                  injectedReference={injectedReference}
-                  onRun={handleRun}
-                  onDeploy={handleDeploy}
-                  onInstall={handleInstall}
-                />
+              {booting ? (
+                <LoadingBlock label={t(locale, "app.loading-packs")} />
               ) : (
-                <RecordsTab tasks={tasks} locale={locale} selectedId={selectedId} onSelect={selectTask} />
+                <>
+                  <TabsContent value="run">
+                    <RunTab
+                      modalapps={catalog.modalapps}
+                      locale={locale}
+                      defaultGpuTier={catalog.defaultGpuTier}
+                      injectedReference={injectedReference}
+                      onRun={handleRun}
+                      onDeploy={handleDeploy}
+                      onInstall={handleInstall}
+                    />
+                  </TabsContent>
+                  <TabsContent value="records">
+                    <RecordsTab tasks={tasks} locale={locale} selectedId={selectedId} onSelect={selectTask} />
+                  </TabsContent>
+                </>
               )}
             </div>
-          </Card>
+          </Tabs>
+        </Card>
 
-          <Card className="flex min-h-[36rem] flex-col overflow-hidden">
-            <div className="flex h-11 items-center gap-2 border-b border-border/80 px-4">
-              <span className="text-xs font-semibold text-foreground">{t(locale, "preview.title")}</span>
-              <span className="flex-1" />
-              <Button variant="ghost" size="sm" onClick={() => { void refreshCatalog(); void refreshTasks(); }}>
-                <RefreshCw className="size-3.5" />{t(locale, "app.resync")}
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <PreviewPane task={detail} generation={generation} params={params} logs={logs} locale={locale} onCancel={handleCancel} onSave={handleSave} onEdit={handleEdit} onRemix={handleRemix} />
-            </div>
-          </Card>
-        </div>
+        <Card className="flex min-h-[36rem] flex-col gap-0 overflow-hidden py-0 [--card-spacing:0px] xl:min-h-0">
+          <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-4">
+            <span className="text-xs font-semibold text-foreground">{t(locale, "preview.title")}</span>
+            <span className="flex-1" />
+            <Button variant="ghost" size="sm" onClick={() => { void refreshCatalog(); void refreshTasks(); }}>
+              <RefreshCw className="size-3.5" />{t(locale, "app.resync")}
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <PreviewPane task={detail} generation={generation} params={params} logs={logs} locale={locale} onCancel={handleCancel} onSave={handleSave} onEdit={handleEdit} onRemix={handleRemix} />
+          </div>
+        </Card>
       </div>
+
       {accountOpen ? (
         <AccountDialog locale={locale} connected={catalog.connected} account={catalog.account} onClose={() => setAccountOpen(false)} onChanged={handleAccountChanged} />
       ) : null}

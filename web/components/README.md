@@ -46,7 +46,10 @@ settings-panel.tsx: Header 右侧的全局设置面板；仅展示已可用的�
 recut-mcp-settings.tsx: Recut MCP 全局设置子面板；只读展示本机 MCP Host 的 `/v1/mcp/tools` 快照，平台工具归入全局分组、App 声明的 mcp 操作按归属 App 分组（工具列表双栏排布），读取超时（8s）给出可读提示并支持重试，不产生任何工具调用。
 recut-skill-settings.tsx: Recut Skill 全局设置子面板；读取 daemon 启动时自动维护的唯一 Skill 来源、各 Agent 链接状态与 MCP 注册状态，只请求后端安全修复异常项，不在浏览器直接写用户目录；服务路由缺失或返回非 JSON 时给出可执行的重启提示。Recut Skill 与 Recut MCP 两个目录类 Tab 共享同一无描边视觉契约：列表行默认带浅填充底（悬停加深）以区分块，分组边界与层级用留白区分而非边框/分割线，摘要行（数量徽标 + 内联刷新，无外框）、组标题 15px 加粗、等宽无描边计数芯片、分组头合并名称/归属/描述、列表双栏排布（sm 以下单栏）、行悬停高亮与绿色标记点，说明性文字统一 12px 且对比度高于 muted。
 header-actions.tsx: 工作台 Header 右侧的统一操作入口；汇集设置图标左侧的启动器入口（素材库、已安装 App、添加应用）、全局设置（service 状态由设置图标承载）与可选页面上下文操作，首页、项目详情与独立 App 页共用。
+workspace-header.tsx: 工作台顶层 Header 壳层；统一项目详情、独立 App 页与世界画布的版式——左侧单一返回入口 + 单行标题区（可内联元信息）、可选居中区与右侧操作区；自身不渲染品牌 mark 或身份图标（根壳首页仍由调用方传入品牌 mark），返回入口按 href 走 next/link 或按 onClick 走按钮。
+workspace-page.tsx: 工作台一级页面骨架原子；`WorkspacePageHeader`（text-3xl 标题 + 说明 + 可选右侧操作）与 `FilterTabs`（同款胶囊筛选行，支持可选图标）供项目页与素材页共用，保证两页标题层级与筛选视觉一致。
 service-status.tsx: 设置内 Service 状态页内容；通过 Zustand 初始化并每 30 秒刷新唯一 endpoint 的全局状态，以状态摘要展示 health 提供的角色、在线/检查/离线、版本与进程启动时间，并在启动时间变化后确认升级或 launchd 重启完成；已连通 service 提供新标签页诊断日志入口（CLI 解析、PATH 与近期 service 日志，接口仍由 service 限制在本地网络）；发现本地 service 更新时以状态行与按钮给出更新操作，核心工作区保持可用；本地已安装 daemon 才允许网页执行重启/升级，远程或开发模式只展示对应说明；同时导出设置图标复用的状态读取、更新判断与连接轮询。
+service-guide.tsx: 工作台 service 不可用时的整屏状态层；`ServiceGuide` 是 cloud mode 首次离线的产品落地页（采用官网首页「经营一个世界」单核心故事 + 扁平超大排版，安装 Recut 为唯一主操作，含安装命令复制、GitHub 与远程连接入口），`ServiceChecking` 是连接中骨架，`ServiceRecoveryGuide`（本机断连恢复）与 `RepairGuide`（诊断修复提示）仅供本模块消费；除工作台 i18n 外不读取其他工作台状态。
 app-version-control.tsx: Git App 版本交互原子；项目 Header 和 Apps 目录复用，单项升级经确认执行，且仅在存在可升级、无本地修改条目时提供一键更新，始终保留 dirty Git 工作树保护。
 app-identity-icon.tsx: App 身份视觉原子；按 App ID 解析唯一图标，并以首页一致的浅绿图标徽标供应用中心、详情、工作区与 Agent 引用复用。
 installed-apps-menu.tsx: Header 设置图标左侧的启动器入口；统一的两栏「图标在左、文案在右」列表项，首位是「素材库」新标签页入口，随后列出 `/v1/apps/installed` 快照（点击在新标签页按类型打开：standalone 进独立工作区、project 进详情页），末位是跳转应用中心 `/community/apps` 的「添加应用」入口；复用已有 workspace 缓存，不发起额外请求。

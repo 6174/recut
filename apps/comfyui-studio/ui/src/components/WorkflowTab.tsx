@@ -1,17 +1,22 @@
 /**
- * [INPUT]: 依赖 comfy.catalog 的工作流清单/formSchema/output 类型/就绪度、shadcn Select、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、环境/下载动作回调与 useGenerateStore
+ * [INPUT]: 依赖 comfy.catalog 的工作流清单/formSchema/output 类型/就绪度、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、环境/下载动作回调与 useGenerateStore
  * [OUTPUT]: 顶部工作流切换器（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境/下载模型/来源）+ media 字段的多选参考图（缩略图点击经 recut.media.preview 全屏预览；预览图经 injectedReference 一键回填）+ 表单提交；工作流/参数/参考图/下载源由 useGenerateStore 持有并持久化
  * [POS]: Left「生成」Tab；依赖准备与生成提交都在此收敛，记录 Tab 只负责历史；表单状态在 store，切 Tab 不丢
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { AlertTriangle, Check, Download, ImagePlus, Play, Sparkles, Wand2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
 import { mediaContentPath, mediaContentURL } from "../lib/media";
 import { useGenerateStore } from "../state/generate";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Badge, Button, Card, Field, Input, Textarea } from "../ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import type { CatalogApp, FormField, InjectedReference, LocalLabel, MediaAsset, RuntimeInfo } from "../types";
 
 interface Props {
@@ -48,6 +53,16 @@ function formDefaults(app: CatalogApp | undefined): Record<string, string> {
 
 function mediaField(app: CatalogApp | undefined): FormField | undefined {
   return app?.formSchema.find((field) => field.type === "media");
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-2">
+      <Label className="text-xs/relaxed text-muted-foreground">{label}</Label>
+      {children}
+      {hint ? <p className="text-[11px] leading-4 text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
 }
 
 export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedReference, onGenerate, onSaveDefault, onPrepare, onInstall, onSetSource }: Props) {
@@ -178,18 +193,18 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
   };
 
   return (
-    <div className="space-y-4">
+    <div className="grid gap-4">
       <Field label={t(locale, "generate.model")}>
         <Select value={app.app} onValueChange={(value) => selectApp(value, formDefaults(apps.find((candidate) => candidate.app === value)))}>
-          <SelectTrigger>
+          <SelectTrigger className="w-full">
             <SelectValue placeholder={app.app} />
           </SelectTrigger>
           <SelectContent>
             {apps.map((candidate) => (
               <SelectItem key={candidate.app} value={candidate.app}>
-                <span className="flex items-center gap-2">
-                  <span className={`size-1.5 rounded-full ${candidate.ready ? "bg-success" : "bg-warning"}`} />
-                  {labelText(candidate.label, locale, candidate.app)}
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className={`size-1.5 shrink-0 rounded-full ${candidate.ready ? "bg-success" : "bg-warning"}`} />
+                  <span className="min-w-0 truncate">{labelText(candidate.label, locale, candidate.app)}</span>
                 </span>
               </SelectItem>
             ))}
@@ -198,7 +213,7 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
       </Field>
 
       {!ready && (
-        <Card className="border-warning/40 bg-warning/[0.06] p-3.5">
+        <Card size="sm" className="border-warning/40 bg-warning/[0.06] p-3.5">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
             <div className="min-w-0 flex-1">
@@ -221,7 +236,7 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
                   <Download className="size-3.5" />{t(locale, "records.install")}
                 </Button>
                 <Select value={source} onValueChange={(value) => { setSource(value); void onSetSource(value); }}>
-                  <SelectTrigger className="h-7 w-36 text-[11px]">
+                  <SelectTrigger size="sm" className="w-40">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -236,14 +251,14 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
         </Card>
       )}
 
-      <div className="space-y-3">
+      <div className="grid gap-3">
         {app.formSchema.filter((field) => field.type !== "media").map((field) => (
           <Field key={field.key} label={labelText(field.label, locale, field.key)}>
             {field.type === "textarea" ? (
               <Textarea value={values[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)} />
             ) : field.type === "select" ? (
               <Select value={values[field.key] ?? ""} onValueChange={(value) => setValue(field.key, value)}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -254,7 +269,7 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
               </Select>
             ) : field.type === "boolean" ? (
               <Select value={values[field.key] ?? "false"} onValueChange={(value) => setValue(field.key, value)}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -312,7 +327,7 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
         <Button variant="ghost" onClick={async () => setHint(await onSaveDefault(app.model))}>
           <Sparkles className="size-3.5" />{t(locale, "generate.set-default")}
         </Button>
-        {ready ? <Badge tone="success" className="ml-auto">{t(locale, "generate.ready")}</Badge> : null}
+        {ready ? <Badge variant="outline" className="ml-auto gap-1.5 border-success/40 text-success"><Check className="size-3" />{t(locale, "generate.ready")}</Badge> : null}
       </div>
       {hint ? <p className="text-[11px] leading-4 text-muted-foreground">{hint}</p> : null}
     </div>

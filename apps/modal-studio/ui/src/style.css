@@ -1,12 +1,22 @@
 /**
- * [INPUT]: 依赖 Tailwind CSS v4 编译器
- * [OUTPUT]: 对外提供与 Recut 平台一致的颜色、排版、深色工作台背景与低圆角工具表面
- * [POS]: Modal Functions UI 的视觉基础层；组件只使用语义 token，不硬编码平台页面样式
+ * [INPUT]: 依赖 Tailwind CSS v4 编译器与 tw-animate-css
+ * [OUTPUT]: 对外提供与 Recut 平台一致的颜色、排版、深色工作台背景与低圆角工具表面；组件只消费语义 token
+ * [POS]: ui/src 的视觉基础层；页面用低对比边界和绿色主色建立层级，不引入装饰性渐变与光晕
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 @import "tailwindcss";
+@import "tw-animate-css";
+
+/* shadcn 原件按 data-open / data-closed / data-active / data-horizontal 编写，而 radix-ui 原语暴露的是
+ * data-state 与 data-orientation；这里把二者对齐，否则页签选中态/下划线、弹层进出场动画都不会生效。 */
+@custom-variant data-open (&[data-open], &[data-state="open"]);
+@custom-variant data-closed (&[data-closed], &[data-state="closed"]);
+@custom-variant data-active (&[data-active], &[data-state="active"]);
+@custom-variant data-horizontal (&[data-horizontal], &[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-vertical], &[data-orientation="vertical"]);
 
 @theme inline {
+  /* Components consume semantic roles, never raw palette values. */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -34,6 +44,7 @@
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
+  --shadow-overlay: var(--shadow-overlay);
   --font-sans: Inter, "PingFang SC", "Noto Sans SC", Arial, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
@@ -56,8 +67,8 @@
   --accent-foreground: oklch(0.9 0.015 151);
   --destructive: oklch(0.58 0.18 28);
   --destructive-foreground: oklch(1 0 0);
-  --success: oklch(0.64 0.16 151);
-  --warning: oklch(0.77 0.16 82);
+  --success: oklch(0.68 0.16 151);
+  --warning: oklch(0.78 0.16 82);
   --border: oklch(0.32 0.006 150);
   --input: oklch(0.3 0.006 150);
   --ring: oklch(0.68 0.18 151);
@@ -67,6 +78,7 @@
   --radius-sm: 0.5rem;
   --radius-md: 0.625rem;
   --radius-lg: 0.75rem;
+  --shadow-overlay: 0 20px 60px oklch(0 0 0 / 0.3);
   color-scheme: dark;
 }
 
@@ -75,9 +87,13 @@
   body {
     @apply min-h-screen bg-background font-sans text-foreground antialiased;
     letter-spacing: 0;
-    background-image:
-      radial-gradient(circle at 8% 0%, color-mix(in oklch, var(--primary) 7%, transparent), transparent 28rem),
-      radial-gradient(circle at 92% 8%, color-mix(in oklch, var(--primary) 4%, transparent), transparent 24rem);
   }
   ::selection { background: var(--accent); color: var(--accent-foreground); }
+  /* 细滚动条：透明轨道贴边、小圆角滑块，与平台工作台一致。 */
+  * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+  ::-webkit-scrollbar-corner { background: transparent; }
 }

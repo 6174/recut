@@ -2,7 +2,8 @@
 [INPUT]: 平台注入的 RECUT_MODELS_DIR / RECUT_VENV / RECUT_PYTHON / RECUT_APP_FILES_DIR；comfyuiapps/<id>/
           的 manifest.json 与 workflow.py；generate 子命令的 --params/--reference
 [OUTPUT]: status（torch 与 ComfyUI 源码自检）、serve（启动/复用本应用 ComfyUI 常驻服务，端口被旧/外来实例占用时按仓库归属接管或报错）、generate（加载 app manifest →
-          导入 workflow.build(ctx) 动态构图 → 提交 API 工作流 → 按 output.kind 取回产物 → 写 <output>.meta.json）
+          导入 workflow.build(ctx) 动态构图 → 提交 API 工作流 → 按 output.kind 取回产物；期间检出 Metal/GPU 命令缓冲错误则丢弃产物并重启引擎重试一次
+          → 写 <output>.meta.json，宽高取自产物本身）
 [POS]: comfyui-studio comfyui runtime venv 内的通用执行器；不认识任何具体工作流，工作流全部来自 comfyuiapps/
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 """
@@ -28,6 +29,14 @@ CLIENT_ID = "recut-comfyui-studio"
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
+# ComfyUI 在 MPS/Metal 上遇到 GPU 命令缓冲失败时不会抛异常，只把错误写到 server.log，
+# 采样步会被驱动静默丢弃（每步从 ~12s 掉到 ~0.2s），最终解出一张全噪点图并照样报成功。
+GPU_ERROR_MARKERS = (
+    "kIOGPUCommandBufferCallbackErrorSubmissionsIgnored",
+    "command buffer exited with error status",
+    "invalid value encountered in cast",
+)
+
 
 def repository() -> Path:
     return comfyui_sdk.comfyui_repository()
@@ -39,6 +48,48 @@ def pid_path() -> Path:
 
 def lock_path() -> Path:
     return comfyui_sdk.models_root() / "comfyui" / "server.lock"
+
+
+def server_log_path() -> Path:
+    return comfyui_sdk.models_root() / "comfyui" / "server.log"
+
+
+def server_log_offset() -> int:
+    try:
+        return server_log_path().stat().st_size
+    except OSError:
+        return 0
+
+
+def gpu_errors_since(offset: int) -> list[str]:
+    """从 offset 起扫描 server.log，返回本次运行命中的 GPU/Metal 失败证据（最多 3 条）。"""
+    try:
+        with open(server_log_path(), "rb") as handle:
+            handle.seek(offset)
+            chunk = handle.read()
+    except OSError:
+        return []
+    found = []
+    for raw in chunk.decode("utf-8", "replace").split("\n"):
+        if any(marker in raw for marker in GPU_ERROR_MARKERS):
+            line = ANSI_RE.sub("", raw).strip()
+            if line:
+                found.append(line)
+                if len(found) >= 3:
+                    break
+    return found
+
+
+def image_size(path: Path) -> tuple[int, int] | None:
+    """读 PNG 的 IHDR 得到产物真实像素宽高；非 PNG 返回 None。"""
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(24)
+    except OSError:
+        return None
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
 
 
 def resolve_output(raw: str) -> Path:
@@ -301,6 +352,33 @@ def ensure_server(port: int) -> None:
         _release_lock()
 
 
+def stop_server(port: int) -> None:
+    """停掉本应用启动的常驻 ComfyUI（外来实例一律拒绝，交给用户处理）。"""
+    if not server_alive(port):
+        return
+    if not server_owned(port):
+        raise SystemExit(f"端口 {port} 被其它 ComfyUI 实例占用，拒绝重启；请手动处理后重试。")
+    try:
+        pid = int(pid_path().read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        pid = 0
+    if pid <= 0:
+        pid = listening_pid(port)
+    if pid > 0:
+        print(f"[comfy] 正在停止 ComfyUI 服务（pid {pid}）…", flush=True)
+        _terminate_pid(pid)
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and server_alive(port):
+        time.sleep(0.5)
+    if server_alive(port) and pid > 0:
+        _kill_pid(pid)
+        time.sleep(1)
+    try:
+        pid_path().unlink()
+    except OSError:
+        pass
+
+
 # ---------------------- 产物取回 ----------------------
 
 
@@ -331,9 +409,12 @@ def _output_items(entry: dict, kind: str) -> list:
     return items
 
 
-def queue_and_wait(port: int, workflow: dict, output_path: Path, kind: str) -> None:
+def queue_and_wait(port: int, workflow: dict, output_path: Path, kind: str, allow_retry: bool = True) -> None:
+    """提交工作流并等待产物。跑完先核对 server.log 是否出现 GPU 命令缓冲错误：
+    出现即说明采样步被静默丢弃（产物是噪点图），丢弃产物并重启引擎重试一次。"""
     import requests  # type: ignore
 
+    log_offset = server_log_offset()
     response = requests.post(server_url(port) + "/prompt", json={"prompt": workflow, "client_id": CLIENT_ID}, timeout=30)
     payload = response.json()
     if response.status_code != 200 or "prompt_id" not in payload:
@@ -355,6 +436,19 @@ def queue_and_wait(port: int, workflow: dict, output_path: Path, kind: str) -> N
                 query = f"?filename={item['filename']}&subfolder={item.get('subfolder','')}&type={item.get('type','output')}"
                 data = requests.get(server_url(port) + "/view" + query, timeout=300).content
                 output_path.write_bytes(data)
+                errors = gpu_errors_since(log_offset)
+                if errors:
+                    output_path.unlink(missing_ok=True)
+                    if allow_retry:
+                        print(f"[comfy] 检出 GPU 执行错误，产物不可信，重启引擎后重试一次：{errors[0]}", flush=True)
+                        stop_server(port)
+                        ensure_server(port)
+                        queue_and_wait(port, workflow, output_path, kind, allow_retry=False)
+                        return
+                    raise SystemExit(
+                        "ComfyUI 的 GPU(Metal) 执行失败，产物不可信："
+                        f"{errors[0]}；请关闭并重新启动 ComfyUI 引擎后重试。"
+                    )
                 print(f"[comfy] 已生成 {output_path.name}（{int(time.monotonic() - started)}s）。", flush=True)
                 return
         now = time.monotonic()
@@ -429,6 +523,9 @@ def cmd_generate(args: argparse.Namespace) -> dict:
                 meta.update(extra)
         except Exception as error:  # noqa: BLE001
             print(f"[comfy] meta() 计算失败，已忽略：{error}", flush=True)
+    size = image_size(output_path)
+    if size:  # 编辑模式下画幅由参考图决定，工作流自己报的宽高未必等于产物真实尺寸
+        meta["width"], meta["height"] = size
     Path(str(output_path) + ".meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     return {"ready": True, "output": str(output_path), **meta}
 

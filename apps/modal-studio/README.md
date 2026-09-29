@@ -46,7 +46,7 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 | 运行 / 历史 / 入库 | `modal.generate` · `modal.generations` · `modal.generation.complete` · `modal.save` |
 | 任务中心 | `modal.tasks.list` · `modal.task.get` · `modal.task.logs` · `modal.task.cancel` · `modal.cancel` |
 
-> **v1 不接平台**：不写 `contributes.media`、不占默认生图/生视频路由；能力只经本 App 的 api/mcp operation 暴露。平台 hook 机制就绪后再评估接入。
+> **已接入平台生图/生视频能力**：manifest `contributes.media` 声明 provider `modal-cloud`，每个声明 `expose` 的预设包注册为一个平台模型（`modal-cloud/<model>`，图片与视频都注册）。平台「生图/生视频默认路由」可指向它，生成经通用执行桥调用 `modal.generate`；**预设包未部署/权重未就绪时该模型 `ready=false`**（`modal.catalog.models[]` 动态上报，只有 `deployed && volumeReady` 才算就绪）。其余能力仍经本 App 的 api/mcp operation 直接暴露。
 
 ## 预设包：内置 + 用户
 
@@ -74,9 +74,13 @@ modal.modalapp.remove { id }              # 删除用户预设包（内置不可
 | 预设包 | 能力 | 函数 | 模型 | GPU |
 | --- | --- | --- | --- | --- |
 | `minimax-h3` | video.generate | 文生视频 / 首尾帧生视频（带原生音频） | `MiniMaxAI/MiniMax-H3`（FL2VA，约 134GB，HF gated） | H200×4 / H100×4 / B200×4 / B200×8 |
+| `minimax-h3-one` | video.generate | 与上同（base 50 步） | 同上权重（共用 `recut-minimax-h3-models` 卷） | RTX PRO 6000 / H100 / H200 / B200 / B300（**单卡 + GPU 快照**） |
+| `minimax-h3-turbo` | video.generate | 文生视频 / 首尾帧生视频（**Turbo 9 步**，带原生音频；LoRA 由 bootstrap 离线合并） | 同上权重（共用卷）+ Turbo LoRA | RTX PRO 6000 / H200 / B200 / B300（**单卡 + GPU 快照 + 形状预热**） |
+| `qwen-image-2.1` | image.generate | 文生图 / 图像编辑（最多 10 张参考图） | `Qwen/Qwen-Image-2.1`（约 33GB，原生 2K） | L40S / A100 80GB / H100 / H200 |
 | `sd-turbo` | image.generate | 文生图 / 图生图 | `stabilityai/sd-turbo`（约 3GB） | T4 / A10G |
 
 > `minimax-h3` 用 SGLang 多卡服务：容器内按探测到的 GPU 选择官方已验证 recipe；需先 `modal.secret.set { name: "recut-hf-token", values: { HF_TOKEN } }` 并在 Hugging Face 申请 `MiniMaxAI/MiniMax-H3` 访问授权。详见 `modalapps/minimax-h3/README.md`。
+> `minimax-h3-one`（单卡 + GPU 快照，base 50 步）与 `minimax-h3-turbo`（单卡 + GPU 快照，Turbo 9 步：LoRA 在 bootstrap 里离线合并进权重）**共用同一 `recut-minimax-h3-models` 权重卷**，权重只下一次；两者都把 SGLang 常驻服务冻进 GPU memory snapshot，冷启动秒级。分别见各自 README。
 
 ## 扩展一个新预设包
 
@@ -90,6 +94,10 @@ modalapps/my-app/
 ```
 
 **方式二（用户运行时创建）**：用 `modal.modalapp.scaffold` 起骨架，或 `modal.modalapp.save` 写入，落到 appstate，无需重跑生成器。
+
+**上平台（可选）**：在 `manifest.json` 加 `expose: { "model": "<平台模型简单名>", "function": "<函数 id>" }`，重跑生成器后即注册为平台模型
+`modal-cloud/<model>`（`model` 只能含 `a-z0-9-_`，如 `qwen-image-2.1` 暴露为 `qwen-image`）。缺省 `function` 取 `functions[0]`，
+capability 按该函数 `output.kind` 推导（image/video/audio）；未声明 `expose` 的预设包不上平台（用户 scaffold 默认不带）。
 
 ## 面向开发者
 
