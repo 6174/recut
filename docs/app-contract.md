@@ -29,7 +29,7 @@ App 可在 manifest 静态声明它服务的**本机媒体 provider**（当前�
       "name": "ComfyUI 工作台（本机）",
       "localized": { "en": { "name": "ComfyUI Studio (local)" } },
       "protocol": "local",
-      "operations": { "generate": "comfy.generate", "save": "comfy.save", "catalog": "comfy.catalog", "status": "comfy.status" },
+      "operations": { "generate": "comfy.generate", "save": "comfy.save", "catalog": "comfy.catalog", "status": "comfy.status", "task": "comfy.task.get" },
       "models": [{
         "id": "qwen-image", "name": "Qwen-Image · 本机文生图",
         "capability": "image.generate", "runtime": "comfyui", "sizeGb": 17,
@@ -42,7 +42,8 @@ App 可在 manifest 静态声明它服务的**本机媒体 provider**（当前�
 ```
 
 - `protocol` 必须是 `local`；`capability` 必须是已知媒体能力（`image.generate`/`video.generate`/`speech.generate`）；模型 id 为简单名。
-- `operations.generate` / `operations.save` 必填，且必须指向本 manifest 中已声明且可调用（`mcp` surface 或 `capability: true`）的 operation；`catalog` / `status` 可选。
+- `operations.generate` / `operations.save` 必填，且必须指向本 manifest 中已声明且可调用（`mcp` surface 或 `capability: true`）的 operation；`catalog` / `status` / `task` 可选。
+- **`task`（可选）**：声明「按任务 id 读状态」的 operation（如 `comfy.task.get`），入参 `{ id }`，返回体带 `state` 或 `status`（`queued` / `running` / `completed` / `failed` / `cancelled` / `interrupted`）。声明后，平台按 App 自己的任务账本等待生成终态，而不假设 `generate` 同步起了进程：**支持排队是 App 自己的决定**——`generate` 可以在槽位被占时返回 `{ job: null, taskId }`，平台会轮询该 task 直到终态（轮询本身也推进 App 的队列，因此无 UI 的 headless 流程同样成立），且排队等待不计入执行超时。未声明 `task` 的 provider 沿用「等 `generate` 返回的 shell job」契约。
 - 平台模型 ID 规则：`<providerID>/<modelID>`（如 `local-gen/qwen-image`）；生图/视频/语音默认路由可直接指向它。
 - **`voices`（可选，语音 provider）**：声明枚举本机声音的 operation，如 `{ "presets": "audio.presets", "characters": "audio.characters" }`；平台把声音并入能力声音目录（id 加 `preset:`/`character:` 前缀）。
 - **`executor`（可选）**：声明平台通用执行桥如何把媒体任务组装成 App 输入、并读回记录 id——`inputMap` 把 operation 输入键映射到 `job.prompt` / `job.referenceIds` / `job.voiceId` / `job.output` / `model.apiModelId`；`resultIdPath` 指定结果里的记录 id 路径（如 `generation.id` / `synthesis.id`）；`saveKind` 传给 save op（如 `image` / `video` / `synthesis`）。缺省按生成默认形状（`model` / `prompt` / `referenceAssetIds`）。

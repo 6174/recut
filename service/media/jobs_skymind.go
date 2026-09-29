@@ -331,10 +331,11 @@ func (m *MediaService) collectSkymindOutput(jobID, assetID string, taskStatus sk
 }
 
 // Both diagnostic writers run on every poll step of a running task, so an
-// unconditional UPDATE would churn updated_at for the whole generation window.
-// Every consumer that dedupes on updated_at (canvas asset polling, SSE
-// increments) would then rebuild per poll; the WHERE guards below make a
-// no-op write a no-op statement instead.
+// unconditional UPDATE churns updated_at for the whole generation window.
+// Neither inserts a media_asset_events row, so the SSE/WS ledger path never saw
+// this; the churn reaches clients that poll one asset by id and dedupe on
+// updated_at (the world canvas asset-status poller), which rebuilt per poll.
+// The WHERE guards below make a no-op write a no-op statement instead.
 func (m *MediaService) recordSkymindPollingDiagnostic(jobID, assetID, message string) {
 	db, err := m.database()
 	if err != nil {

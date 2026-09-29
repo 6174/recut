@@ -998,10 +998,11 @@ export function CanvasPomeloHost() {
     let pending = new Set<string>();
     const flush = () => {
       frame = 0;
+      const editor = editorRef.current;
+      // editor 未就绪时保留待处理集，等下一次变化再补，避免静默丢弃
+      if (!editor || pending.size === 0) return;
       const changed = pending;
       pending = new Set();
-      const editor = editorRef.current;
-      if (!editor || changed.size === 0) return;
       syncDocFromCanvasStore(editor);
       pluginRef.current?.drawOverlay(editor);
       const store = useWorldCanvasStore.getState();
@@ -1021,12 +1022,13 @@ export function CanvasPomeloHost() {
     };
     const unsubscribe = useCanvasAssetStatusStore.subscribe((next, prev) => {
       let touched = false;
-      for (const assetId of Object.keys(next.statuses)) {
+      // 并集迭代：状态被清除（refreshCanvasAsset 删 key）同样是变化，否则等待态会停在旧投影
+      for (const assetId of new Set([...Object.keys(prev.statuses), ...Object.keys(next.statuses)])) {
         if (prev.statuses[assetId] === next.statuses[assetId]) continue;
         pending.add(assetId);
         touched = true;
       }
-      for (const assetId of Object.keys(next.assets)) {
+      for (const assetId of new Set([...Object.keys(prev.assets), ...Object.keys(next.assets)])) {
         if (prev.assets[assetId] === next.assets[assetId]) continue;
         pending.add(assetId);
         touched = true;

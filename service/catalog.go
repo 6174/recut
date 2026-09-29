@@ -119,12 +119,17 @@ type ManifestLocalizedName struct {
 
 // ContributedMediaProviderOperations wires a local provider to the App's
 // operations. Generate and Save are required; Catalog (or Status) is optional
-// and supplies dynamic model readiness for platform discovery.
+// and supplies dynamic model readiness for platform discovery. Task is optional
+// and reports one submitted task's state: when declared, the platform observes
+// generation through the App's own task ledger instead of assuming generate
+// started a process, so Apps are free to queue work under their own
+// concurrency policy.
 type ContributedMediaProviderOperations struct {
 	Generate string `json:"generate"`
 	Save     string `json:"save"`
 	Catalog  string `json:"catalog,omitempty"`
 	Status   string `json:"status,omitempty"`
+	Task     string `json:"task,omitempty"`
 }
 
 type ContributedMediaModel struct {
@@ -616,7 +621,7 @@ func validateMediaContribution(manifest Manifest) error {
 		if provider.Operations.Generate == "" || provider.Operations.Save == "" {
 			return fmt.Errorf("contributed media provider %q requires generate and save operations", provider.ID)
 		}
-		for _, name := range []string{provider.Operations.Generate, provider.Operations.Save, provider.Operations.Catalog, provider.Operations.Status} {
+		for _, name := range []string{provider.Operations.Generate, provider.Operations.Save, provider.Operations.Catalog, provider.Operations.Status, provider.Operations.Task} {
 			if name != "" && !operations[name] {
 				return fmt.Errorf("contributed media provider %q references unknown operation %q", provider.ID, name)
 			}

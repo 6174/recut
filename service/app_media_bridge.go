@@ -1,11 +1,14 @@
 /*
  * [INPUT]: 依赖 AppHost（遍历已安装 App 的 manifest contributes.media、InvokeMCP 到 App 的 generate/save/
- *          catalog/status/voices operation）、ShellJobManager（等待 generate 提交的 shell job）、MediaService
- *          （注册本地 provider/模型/声音、读取/挂载产物 Asset）与 media 包的本地执行契约。
+ *          catalog/status/voices/task operation）、ShellJobManager（未声明 task op 的 provider 等待 generate
+ *          提交的 shell job）、MediaService（注册本地 provider/模型/声音、读取/挂载产物 Asset）与 media 包的
+ *          本地执行契约。
  * [OUTPUT]: 把每个已安装 App 声明的本地 media provider（contributes.media）接到平台，完全由 manifest 驱动、
  *           无 per-app 代码：① 静态 provider/模型目录合并进全局 media 目录（media.RegisterAppProviders）；
- *           ② 通用执行桥（按 App 的 executor 声明组装输入 → generate/synthesize → 等 shell job 终态 →
- *           save 授权落库 → 返回平台 Asset），图片/视频/语音共用同一条路径；
+ *           ② 通用执行桥（按 App 的 executor 声明组装输入 → generate/synthesize → 等终态 → save 授权落库 →
+ *           返回平台 Asset），图片/视频/语音共用同一条路径；终态观察有两种形态：声明 operations.task 的
+ *           provider 由平台轮询其 task op（App 自持队列与并发策略，占槽时 job=null 不再是错误，且排队时长不
+ *           计入执行预算），其余 provider 沿用等待 shell job；
  *           ③ 声音面（App 的 voices 声明，preset:/character: 前缀编码）；④ 动态模型就绪面（调用 App 的
  *           catalog/status op）供 capability model 聚合展示。App 未安装时无 provider 注册，本地路由提交得到引导错误。
  * [POS]: service 的通用「App 贡献本地 provider」桥；不含任何具体 App 常量（Audio Studio / ComfyUI Studio 都只是
@@ -145,23 +148,11 @@ func runAppProvider(host *AppHost, platformMedia *media.MediaService, appID stri
 		return media.MediaAsset{}, fmt.Errorf("local generation failed: %w", err)
 	}
 	recordID := providerResultID(contribution, raw)
-	shellJobID := mapString(jsonMap(jsonMap(raw)["job"]), "id")
 	if recordID == "" {
 		return media.MediaAsset{}, fmt.Errorf("local generation did not return a record id")
 	}
-	if shellJobID == "" {
-		return media.MediaAsset{}, fmt.Errorf("local generation did not return a job id")
-	}
-	if _, err := host.jobs.WaitByID(shellJobID, 30*time.Minute); err != nil {
-		return media.MediaAsset{}, fmt.Errorf("local generation job failed: %w", err)
-	}
-	shell, err := host.jobs.FindByID(shellJobID)
-	if err != nil || shell.Status != ShellJobCompleted {
-		status := "unknown"
-		if err == nil {
-			status = string(shell.Status)
-		}
-		return media.MediaAsset{}, fmt.Errorf("local generation job did not complete (status=%s)", status)
+	if err := waitForAppGeneration(host, appID, contribution, raw); err != nil {
+		return media.MediaAsset{}, err
 	}
 	// 把平台为该 Job 预建的 pending Asset 一并交给 App 的 save：App 用 ctx.media.completeAsset
 	// 原地补全同一 assetId，平台不会再落一张重复成品。
@@ -208,6 +199,125 @@ func runAppProvider(host *AppHost, platformMedia *media.MediaService, appID stri
 		_ = platformMedia.Attach(asset.ID, job.ProjectID)
 	}
 	return asset, nil
+}
+
+// Local generation waiting budgets. A submitted generation is either a started
+// shell job or a task the App queued behind its own concurrency policy; both are
+// bounded separately so a queue wait is never mistaken for an execution timeout.
+const (
+	// localJobRunBudget bounds how long a local generation may run once it is
+	// actually executing. It mirrors the platform's own App job ceiling
+	// (ctx.python.run / ctx.shell.start cap TimeoutSeconds at 7200) so the
+	// bridge never gives up on a job the platform would still consider running;
+	// local video workflows on MPS/CPU routinely exceed 30 minutes.
+	localJobRunBudget = 2 * time.Hour
+	// localJobWaitCeiling is the leak guard for a task that never reaches a
+	// terminal state (e.g. a stuck slot holder that nobody cancels).
+	localJobWaitCeiling = 6 * time.Hour
+	// localTaskPollFloor/localTaskPollCeiling bound the App task polling
+	// cadence. Each poll also advances the App's queue, so the floor is also the
+	// queue's tick rate.
+	localTaskPollFloor   = 500 * time.Millisecond
+	localTaskPollCeiling = 3 * time.Second
+)
+
+// waitForAppGeneration blocks until the App reports the submitted generation as
+// finished. Two App shapes are supported:
+//
+//   - Providers declaring Operations.Task own their own task ledger and may
+//     queue work under their own concurrency policy (generate returns
+//     {job: null, taskId} while the slot is taken). The App's task state is then
+//     authoritative and the platform only observes it.
+//   - Other providers start a process synchronously, so generate's shell job is
+//     awaited directly.
+func waitForAppGeneration(host *AppHost, appID string, contribution ContributedMediaProvider, raw any) error {
+	if taskOp := contribution.Operations.Task; taskOp != "" {
+		taskID := providerTaskID(raw)
+		if taskID == "" {
+			return fmt.Errorf("local generation did not return a task id")
+		}
+		return waitForAppTask(host, appID, taskOp, taskID)
+	}
+	shellJobID := mapString(jsonMap(jsonMap(raw)["job"]), "id")
+	if shellJobID == "" {
+		return fmt.Errorf("local generation did not return a job id")
+	}
+	if _, err := host.jobs.WaitByID(shellJobID, localJobRunBudget); err != nil {
+		return fmt.Errorf("local generation job failed: %w", err)
+	}
+	shell, err := host.jobs.FindByID(shellJobID)
+	if err != nil || shell.Status != ShellJobCompleted {
+		status := "unknown"
+		if err == nil {
+			status = string(shell.Status)
+		}
+		return fmt.Errorf("local generation job did not complete (status=%s)", status)
+	}
+	return nil
+}
+
+// waitForAppTask polls the App's declared task operation until it reports a
+// terminal state. Reading the task also settles the App's finished jobs and
+// dispatches its next queued one, so this loop is what advances the App's queue
+// (including in headless runs with no App UI open). While the task is still
+// queued it has not started executing, so the run budget is pushed forward
+// rather than spent: a deep App queue cannot fail a generation that never ran.
+func waitForAppTask(host *AppHost, appID, taskOp, taskID string) error {
+	target := Target{AppID: appID}
+	input := map[string]any{"id": taskID}
+	runDeadline := time.Now().Add(localJobRunBudget)
+	ceiling := time.Now().Add(localJobWaitCeiling)
+	interval := localTaskPollFloor
+	for {
+		raw, err := host.InvokeMCP(target, appID, taskOp, input)
+		if err != nil {
+			return fmt.Errorf("local generation task failed: %w", err)
+		}
+		state := providerTaskState(raw)
+		// The task op is an external App boundary: a result with no state breaks
+		// the declared contract, so fail loudly instead of polling for hours.
+		if state == "" {
+			return fmt.Errorf("local generation task %s reported no state", taskID)
+		}
+		if jobStatusTerminal(state) {
+			if state == "completed" {
+				return nil
+			}
+			return fmt.Errorf("local generation task did not complete (status=%s)", state)
+		}
+		now := time.Now()
+		// queued/pending mean "not started yet" (same vocabulary jobStatusTerminal
+		// uses), so queue latency is charged to no one instead of the run budget.
+		if state == "queued" || state == "pending" {
+			runDeadline = now.Add(localJobRunBudget)
+		} else if now.After(runDeadline) {
+			// Distinct from a stalled queue: the App did start it, it just never
+			// finished. Both leave the asset failed, so the user can retry it.
+			return fmt.Errorf("local generation ran longer than %s without finishing (status=%s); retry the asset to run it again", localJobRunBudget, state)
+		}
+		if now.After(ceiling) {
+			return fmt.Errorf("local generation waited longer than %s for its turn (status=%s); the local engine may be stuck — retry the asset once it is free", localJobWaitCeiling, state)
+		}
+		time.Sleep(interval)
+		if interval < localTaskPollCeiling {
+			interval *= 2
+		}
+	}
+}
+
+// providerTaskID reads the App task id from a generate result. Apps that queue
+// work return it alongside a null job (default path "taskId").
+func providerTaskID(raw any) string {
+	return stringByPath(raw, "taskId")
+}
+
+// providerTaskState reads the task state from an App task operation result,
+// accepting the state/status field names used across the Apps.
+func providerTaskState(raw any) string {
+	if state := stringByPath(raw, "state"); state != "" {
+		return state
+	}
+	return stringByPath(raw, "status")
 }
 
 // buildProviderInput assembles the App generate/save input. job.Output is merged

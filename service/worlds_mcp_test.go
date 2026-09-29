@@ -396,3 +396,118 @@ func TestWorldsMCPGetReturnsEntityGraphAndSkill(t *testing.T) {
 		t.Fatalf("relation ends wrong: %#v", fetched.Relations[0])
 	}
 }
+
+// 「建一个作品」的标准流程（recut-worlds skill）：作品 = 实体，靠 parentId 归属 +
+// 内层画布 contextId 组织子实体；一次 create 同时给两件即可。落卡与 UI 同构
+// （id=`shape:<entityId>`、默认几何），重复落同一实体卡只覆盖不新增。
+func TestWorldsMCPWorkContainerWorkflow(t *testing.T) {
+	_, store, _ := newTestWorldStore(t)
+	bridge := NewAgentBridge(store)
+	media := NewMediaService(store)
+	call := func(name, args string) (any, error) {
+		return handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
+			Method: "tools/call",
+			Params: json.RawMessage(`{"name":"` + name + `","arguments":` + args + `}`),
+		})
+	}
+	findCard := func(elements []WorldCanvasElement, entityID string) *WorldCanvasElement {
+		for i := range elements {
+			if elements[i].Kind == "entity" && elements[i].RefID == entityID {
+				return &elements[i]
+			}
+		}
+		return nil
+	}
+	countCards := func(elements []WorldCanvasElement, entityID string) int {
+		count := 0
+		for _, element := range elements {
+			if element.Kind == "entity" && element.RefID == entityID {
+				count++
+			}
+		}
+		return count
+	}
+
+	created, err := call("recut.worlds.create", `{"name":"Works","type":"custom"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	world := created.(map[string]any)["structuredContent"].(WorldDetail)
+	worldArg := `"worldId":"` + world.ID + `"`
+	docElements := func(contextID string) []WorldCanvasElement {
+		docRes, err := call("recut.worlds.doc", `{`+worldArg+`,"contextId":"`+contextID+`"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return docRes.(map[string]any)["structuredContent"].(map[string]any)["elements"].([]WorldCanvasElement)
+	}
+
+	// ① 建作品，显式 contextId:"" 落在根画布。
+	workRes, err := call("recut.worlds.entity", `{`+worldArg+`,"op":"create","typeId":"script","name":"《想找个人说话》","detail":"翻遍通讯录。","contextId":""}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := workRes.(map[string]any)["structuredContent"].(WorldEntity)
+	card := findCard(docElements(""), work.ID)
+	if card == nil {
+		t.Fatalf("作品卡未落在根画布")
+	}
+	if card.ID != "shape:"+work.ID {
+		t.Fatalf("作品卡 id = %q, want %q", card.ID, "shape:"+work.ID)
+	}
+	if numberValue(card.Geometry["width"]) != 264 {
+		t.Fatalf("作品卡未补默认几何: %#v", card.Geometry)
+	}
+
+	// ② 作品内部放子实体：parentId（归属）+ contextId（落在作品内层画布）一起给。
+	childRes, err := call("recut.worlds.entity", `{`+worldArg+`,"op":"create","typeId":"character","name":"阿蛋","parentId":"`+work.ID+`","contextId":"`+work.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := childRes.(map[string]any)["structuredContent"].(WorldEntity)
+	if child.ParentID != work.ID {
+		t.Fatalf("子实体 parentId = %q, want %q", child.ParentID, work.ID)
+	}
+	innerCard := findCard(docElements(work.ID), child.ID)
+	if innerCard == nil || innerCard.ID != "shape:"+child.ID {
+		t.Fatalf("子实体卡未落在作品内层画布: %#v", innerCard)
+	}
+
+	// create 已把卡落成 `shape:<entityId>`（与 UI/doc.update 同一约定）：再 insert 同一
+	// 实体会被明确拒绝（元素已存在），不会悄悄多出第二张卡；要改卡用 update op。
+	if _, err := call("recut.worlds.doc.update", `{`+worldArg+`,"contextId":"`+work.ID+`","ops":[{"op":"insert","element":{"kind":"entity","refKind":"entity","refId":"`+child.ID+`"}}]}`); err == nil {
+		t.Fatal("重复 insert 同一实体卡应被拒绝（元素已存在）")
+	}
+	if count := countCards(docElements(work.ID), child.ID); count != 1 {
+		t.Fatalf("同一实体应只有 1 张卡，实际 %d 张", count)
+	}
+	if _, err := call("recut.worlds.doc.update", `{`+worldArg+`,"contextId":"`+work.ID+`","ops":[{"op":"update","element":{"kind":"entity","refKind":"entity","refId":"`+child.ID+`","props":{"pinned":true}}}]}`); err != nil {
+		t.Fatalf("update 同一实体卡应成功: %v", err)
+	}
+	if count := countCards(docElements(work.ID), child.ID); count != 1 {
+		t.Fatalf("update 后仍应只有 1 张卡，实际 %d 张", count)
+	}
+
+	// 子设定列表按 parentId 过滤。
+	childrenRes, err := call("recut.worlds.entities.list", `{`+worldArg+`,"parentId":"`+work.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	children := childrenRes.(map[string]any)["structuredContent"].(map[string]any)["items"].([]WorldEntitySummary)
+	if len(children) != 1 || children[0].ID != child.ID {
+		t.Fatalf("作品子设定 = %#v", children)
+	}
+
+	// 归档作品级联归档整棵子图。
+	if _, err := call("recut.worlds.entity", `{`+worldArg+`,"op":"archive","entityId":"`+work.ID+`"}`); err != nil {
+		t.Fatal(err)
+	}
+	afterRes, err := call("recut.worlds.entities.list", `{`+worldArg+`}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := afterRes.(map[string]any)["structuredContent"].(map[string]any)["items"].([]WorldEntitySummary)
+	if len(after) != 0 {
+		t.Fatalf("归档作品后仍有存活实体（应级联）: %#v", after)
+	}
+}

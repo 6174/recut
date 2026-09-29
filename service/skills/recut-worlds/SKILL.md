@@ -35,6 +35,36 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 **视频脚本与分镜**：`script` 是面向生成的脚本层（`story` 给叙事内核，`script` 给可生成规格）。分镜以**一张 N 宫格分镜表（storyboard sheet）**压缩生成（默认 5×5=25 格，每格标 `R{r}C{c}` 坐标与镜号），**默认整张直接作 `role="storyboard"` 参考驱动视频生成**（参考名额有限，整张只占一个），由模型据此展开分镜；仅当升级条件（模型吃 storyboard 参考弱/分辨率不足、需精确首尾帧端点、代表镜 proof 不过）才用 `recut.media.gridSlice` 按 rows×cols 等分切格、逐格细化关键帧。宫格图与单格都作 `role="storyboard"` 锚点。分镜表写回 `script.storyboard` 这条 locked media 属性。
 
+## 建一个作品：容器 + 子实体（最常见）
+
+**没有独立的「作品」对象——作品就是一个实体。** 「作品内部」由两件事共同构成：`parentId`（语义归属，进 Canon）+ 它的**内层画布**（`contextId = 该实体 id`，纯表达）。子实体 = `parentId` 指向作品的实体。任何实体都能当容器，没有「容器类型」；`containerRole` 只是子实体的角色标签（自由文本、不校验），不是容器标记。
+
+标准流程（作品建在哪一层 → 内部放什么）：
+
+1. **选层**：作品落在**根画布**（`contextId: ""`）或**用户指定的某个容器内层**（`contextId: <容器实体 id>`）。
+2. **建作品**：`recut.worlds.entity` op=`create`，给 `typeId` + `name` + `intro` + `detail`（作品简介/正文写 `detail`，不要拆成 attr）。`typeId` 用与作品性质相符的预设（视频作品 `script`、叙事作品 `story`、设定集 `style`…）；**没有合适的就先用 `recut.worlds.entityType` 定义自定义类型，不要临时编一个 id**——未知 id 会被静默当成新类型自动建一个空类型。要它落在某层就带 `contextId`（根画布也要显式给 `""`，省略则只建实体、不落卡）；要它归属某容器再加 `parentId: <容器 id>`。
+3. **内部组织子实体**：每个子实体 `recut.worlds.entity` op=`create`，**同一调用里同时给两件**——`parentId: <作品 id>`（成为作品的子设定，可被 `entities.list {parentId}` 列出）+ `contextId: <作品 id>`（卡片落到作品的内层画布，可双击进入）。只给 `parentId` = 有归属、画布上没卡；只给 `contextId` = 有卡、没归属。
+4. **读回**：作品内层画布用 `recut.worlds.doc {contextId: <作品 id>}`；有哪些画布层用 `recut.worlds.docs`；作品有哪些子设定用 `recut.worlds.entities.get`（返回 `children`）或 `recut.worlds.entities.list {parentId: <作品 id>}`。
+
+```jsonc
+// ① 建作品（根画布；若放进容器 c1 则 contextId 与 parentId 都给 c1）
+// recut.worlds.entity({ worldId, op: "create", typeId: "script", name: "《想找个人说话》",
+//   intro: "深夜独处切片 01", detail: "<作品正文 / 大纲>",
+//   attrs: [{ key: "aspectRatio", value: "9:16" }, { key: "durationSec", value: 45 }],
+//   contextId: "" }) → { id: "<workId>", … }
+
+// ② 作品内部放子实体：parentId 与 contextId 都给作品 id
+// recut.worlds.entity({ worldId, op: "create", typeId: "character", name: "阿蛋", parentId: "<workId>", contextId: "<workId>" })
+// recut.worlds.entity({ worldId, op: "create", typeId: "location",  name: "深夜客厅", parentId: "<workId>", contextId: "<workId>" })
+```
+
+边界：
+
+- **归属只在创建时定**：op=`update` 的 `parentId` / `containerRole` 不被采纳——要归属就在 create 时给；已经建好的实体改不了归属（要换就重建）。
+- **归档作品 = 归档整棵子图**：op=`archive` 级联归档作品与其全部子实体（同一条 revision、同一恢复批次），op=`restore` 按批次原位恢复；内层画布与其上的卡保留。
+- **作品可再嵌作品**（容器递归，可多级下钻），但 `parentId` 必须同 world——实体从不跨 World。
+- 内层画布只是表达层：子实体的真相仍在 `entity`（`attrs` / `intro` / `detail`），画布元素不产 revision。
+
 ## 属性怎么显示：三层分工
 
 不要让一处承担所有信息。三层各司其职：

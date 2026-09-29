@@ -13,7 +13,8 @@
  * [POS]: comfyui-studio 的唯一业务后端；manifest contributes.media 声明 local-gen provider，平台经
  *        comfy.generate/comfy.save 能力桥调用本 App 完成本机 ComfyUI 工作流生成。切换单位是「工作流(app)」
  *        而非模型；generate 接受任意 params。任务并发：推理（generate）单槽 FIFO，环境准备（prepare）单槽
- *        等推理排空，模型下载（install）不限并行；提交永不拒绝，占槽入队。
+ *        等推理排空，模型下载（install）不限并行；提交永不拒绝，占槽入队。平台桥按 provider 声明的
+ *        operations.task（comfy.task.get）观察队列与终态，故占槽时返回 taskId（job=null）是正常契约而非失败。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 

@@ -49,10 +49,10 @@ header-actions.tsx: 工作台 Header 右侧的统一操作入口；汇集设置�
 service-status.tsx: 设置内 Service 状态页内容；通过 Zustand 初始化并每 30 秒刷新唯一 endpoint 的全局状态，以状态摘要展示 health 提供的角色、在线/检查/离线、版本与进程启动时间，并在启动时间变化后确认升级或 launchd 重启完成；已连通 service 提供新标签页诊断日志入口（CLI 解析、PATH 与近期 service 日志，接口仍由 service 限制在本地网络）；发现本地 service 更新时以状态行与按钮给出更新操作，核心工作区保持可用；本地已安装 daemon 才允许网页执行重启/升级，远程或开发模式只展示对应说明；同时导出设置图标复用的状态读取、更新判断与连接轮询。
 app-version-control.tsx: Git App 版本交互原子；项目 Header 和 Apps 目录复用，单项升级经确认执行，且仅在存在可升级、无本地修改条目时提供一键更新，始终保留 dirty Git 工作树保护。
 app-identity-icon.tsx: App 身份视觉原子；按 App ID 解析唯一图标，并以首页一致的浅绿图标徽标供应用中心、详情、工作区与 Agent 引用复用。
-installed-apps-menu.tsx: Header 设置图标左侧的启动器入口；统一的两栏「图标在左、文案在右」列表项，首位是「素材库」新标签页入口，随后列出 `/v1/apps/installed` 快照（点击在新标签页按类型打开：standalone 进独立工作区、project 进详情页），末位是打开创建弹窗的「添加应用」入口；复用已有 workspace 缓存，不发起额外请求。
+installed-apps-menu.tsx: Header 设置图标左侧的启动器入口；统一的两栏「图标在左、文案在右」列表项，首位是「素材库」新标签页入口，随后列出 `/v1/apps/installed` 快照（点击在新标签页按类型打开：standalone 进独立工作区、project 进详情页），末位是跳转应用中心 `/community/apps` 的「添加应用」入口；复用已有 workspace 缓存，不发起额外请求。
 agent-reference-card.tsx: Agent 回复中的项目与 App 引用卡；App 引用通过统一身份图标保留与工作台相同的应用语义。
 use-app-installation-events.tsx: App 安装目录事件桥；根工作台壳订阅后台 Git 检查完成事件后显式刷新唯一 workspace 快照，不用页面级轮询，远端更新与本地修改同时存在时也会显示保护状态。
-create-app-dialog.tsx: Apps 顶部的新建应用引导；默认自带触发按钮，也支持 `open`/`onOpenChange` 受控用法供启动器菜单从外部打开；交付指向公开架构与 Recut API 标准的可复制 AI Prompt，不直接改写用户的应用目录。
+create-app-dialog.tsx: Apps 顶部的新建应用引导；交付指向公开架构与 Recut API 标准的可复制 AI Prompt，不直接改写用户的应用目录。
 install-git-app-dialog.tsx: Apps 顶部的 Git 安装入口；将 GitHub 仓库交给本地 service 校验并安装，成功后通知目录刷新。
 use-resizable-side-panel.ts: 桌面双栏工作台的拖拽调宽 hook；逐帧更新共享 CSS 宽度变量，左侧对话栏、右侧内容与手柄即时响应，暴露拖动状态以遮蔽 iframe，松手后才持久化宽度，避免渲染拥塞或跨文档丢失指针事件；当前只被根布局全局挂载的 Agent 面板宿主消费。
 terminal-panel.tsx: 基于 xterm.js 的可恢复 CLI 终端面板，负责 Daemon 引导、CLI 探测、一键启动、失败反馈，以及展示最新输出摘要、只读历史与原生 Agent 恢复入口的会话浮层。

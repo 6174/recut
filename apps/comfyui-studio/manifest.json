@@ -52,7 +52,8 @@
             "generate": "comfy.generate",
             "save": "comfy.save",
             "catalog": "comfy.catalog",
-            "status": "comfy.status"
+            "status": "comfy.status",
+            "task": "comfy.task.get"
           },
           "models": [
             {

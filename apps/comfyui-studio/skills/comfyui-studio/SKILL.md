@@ -18,7 +18,7 @@ ComfyUI 工作台是 Recut 的**本地 ComfyUI 工作流 App**：一个共享运
 
 1. `comfy.status` / `comfy.catalog` 看本机工作流与就绪度（runtime venv、权重、输出类型）。
 2. 未就绪时：`comfy.prepare { target: "all" }` 准备运行环境并起引擎；`comfy.install { app, source }` 下载权重（可并行）。
-3. `comfy.generate { app, params, referenceAssetIds? }` 提交生成；`params` 是工作流表单值对象（字段见 `comfy.catalog` 的 `formSchema`）。单槽 FIFO，占槽时返回 `taskId`（`job=null`）→ 用 `comfy.tasks.list` / `recut.job.wait` 观察。带参考图时传 `referenceAssetIds: string[]`（按顺序接进工作流）。
+3. `comfy.generate { app, params, referenceAssetIds? }` 提交生成；`params` 是工作流表单值对象（字段见 `comfy.catalog` 的 `formSchema`）。单槽 FIFO，占槽时返回 `taskId`（`job=null`）→ 用 `comfy.tasks.list` / `comfy.task.get { id }` 观察（taskId 是本 App 内部任务 id，不属于 `recut.job.*` 的统一 job 面）。带参考图时传 `referenceAssetIds: string[]`（按顺序接进工作流）。
 4. `comfy.generation.complete { id }` 读取产物；`comfy.save { id, kind: "image"|"video"|"audio" }` 入库（平台默认路由路径会自动入库）。
 5. 引擎未起或需重启：`comfy.engine.ensure`（幂等，AI 用）/ `comfy.engine.status` / `comfy.engine.stop`。
 

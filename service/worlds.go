@@ -1067,8 +1067,14 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 	if err := w.checkWritable(tx, input.WorldID); err != nil {
 		return WorldEntity{}, err
 	}
-	if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
-		return WorldEntity{}, err
+	// Optimistic concurrency gates edits of existing facts. Creating a new
+	// entity is additive (there is no prior state to clobber), so a stale
+	// expectedRevisionId is not a conflict: the create path stays one step and
+	// an Agent does not have to re-read the revision between batch writes.
+	if input.EntityID != "" {
+		if err := w.checkWorldRevision(tx, input.WorldID, input.ExpectedRevisionID); err != nil {
+			return WorldEntity{}, err
+		}
 	}
 	// Entity type is an extensible type directory entry: preset ids are seeded
 	// as builtin rows, unknown ids auto-create a minimal custom type so "create
@@ -1167,9 +1173,6 @@ func (w *WorldStore) mergeEntityAttrs(worldID string, entityType WorldEntityType
 		if !attrTypes[attr.Type] {
 			return nil, worldsError(WorldsErrContextInvalid, fmt.Sprintf("invalid attr type %q", attr.Type))
 		}
-		if attr.Type == "select" && len(attr.Options) == 0 {
-			return nil, worldsError(WorldsErrContextInvalid, "select attr needs options")
-		}
 		if _, dup := byKey[attr.Key]; dup {
 			continue
 		}
@@ -1208,6 +1211,13 @@ func (w *WorldStore) mergeEntityAttrs(worldID string, entityType WorldEntityType
 		}
 	}
 	for _, attr := range merged {
+		// Options are checked after the schema pass so a locked preset field
+		// supplies its own options: an Agent writing {key:"aspectRatio",
+		// type:"select", value:"9:16"} succeeds without knowing the options.
+		// Only a select that no schema declares still needs explicit options.
+		if attr.Type == "select" && len(attr.Options) == 0 {
+			return nil, worldsError(WorldsErrContextInvalid, fmt.Sprintf("select attr %q needs options", attr.Key))
+		}
 		if err := w.validateAttrValue(attr); err != nil {
 			return nil, err
 		}

@@ -50,7 +50,7 @@ recut.worlds.get({ worldId, scenarioId? })
 
 输出一份结构化提案，包含：
 
-1. 拟写入实体逐条完整内容（kind、title、summary、content 全文预览）；
+1. 拟写入实体逐条完整内容（typeId、name、intro、detail 全文预览）；
 2. 拟写入 `skillMd`（world.md）全文（蓝图骨架：定位 / 工作流 / 资源口径）；
 3. 候选素材清单（assetId 深链 + 建议的 purpose/status/collection）；
 4. 素材未覆盖、需要用户补充的项；

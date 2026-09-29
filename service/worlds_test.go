@@ -744,6 +744,62 @@ func TestEntityAttrsPresetLockedFieldsAndValidation(t *testing.T) {
 	}
 }
 
+// 预设类型的 locked select 字段：Agent 只写 key+value（type/options 都不给）时，
+// 结构由类型 schema 补齐——不需要先读类型，也不需要手写 options。
+func TestEntityPresetSelectInheritsSchemaOptions(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Script", Type: WorldFiction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entity, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: world.ID, TypeID: EntityTypeScript, Name: "想找个人说话",
+		Detail: "翻遍通讯录，最后给妈妈发了一句「在干嘛」。",
+		Attrs: []EntityAttr{
+			{Key: "logline", Value: "翻遍通讯录，最后给妈妈发了一句「在干嘛」。"},
+			{Key: "aspectRatio", Type: "select", Value: "9:16"},
+			{Key: "durationSec", Type: "number", Value: float64(45)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("preset select without explicit options must be accepted: %v", err)
+	}
+	ratio, ok := entityAttr(entity, "aspectRatio")
+	if !ok || ratio.Type != "select" || !ratio.Locked {
+		t.Fatalf("aspectRatio must be the schema-pinned select: %#v", ratio)
+	}
+	if len(ratio.Options) != 4 || ratio.Options[0] != "9:16" {
+		t.Fatalf("aspectRatio options must be inherited from the type schema: %#v", ratio.Options)
+	}
+	if entity.Detail == "" {
+		t.Fatal("long-form body must land in detail")
+	}
+}
+
+// create 是增量写：过期 expectedRevisionId 不构成冲突（省掉一次重读）；
+// update 仍受乐观并发门约束。
+func TestEntityCreateIgnoresStaleRevisionButUpdateGates(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Gate", Type: WorldFiction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := "rev_stale_snapshot"
+	created, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: world.ID, TypeID: EntityTypeCharacter, Name: "Mina", ExpectedRevisionID: stale,
+	})
+	if err != nil {
+		t.Fatalf("create must not gate on a stale revision: %v", err)
+	}
+	_, err = worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: world.ID, EntityID: created.ID, TypeID: EntityTypeCharacter, Name: "Mina2", ExpectedRevisionID: stale,
+	})
+	var conflict *WorldsError
+	if !errors.As(err, &conflict) || conflict.Code != WorldsErrRevisionConflict {
+		t.Fatalf("update with a stale revision must conflict, got %v", err)
+	}
+}
+
 // media attr：必须带 assetId；素材不存在（或 media 服务不可用）被拒绝。
 func TestEntityMediaAttrRequiresExistingAsset(t *testing.T) {
 	world, _, _ := newTestWorldStore(t)

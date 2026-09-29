@@ -13,6 +13,7 @@ ComfyUI 工作台是 Recut 的**独立生成 App**（`standalone` 类型，内�
 - **准备与下载分离**：`comfy.prepare` 建环境（runtime venv + 克隆 ComfyUI 源码 + 逐工作流 bootstrap + 起引擎）、`comfy.install` 下权重（按 `manifest.weights.files` 白名单只拉需要的文件，逐文件断点续传），各自独立可重试；权重源可选 Hugging Face / ModelScope / 自动回退。
 - **引擎随准备就绪**：`comfy.prepare` 成功即 ComfyUI 常驻服务在监听；`comfy.engine.ensure` 幂等，UI 与 AI 都能操作引擎。
 - **接入全局生图**：平台把本地生成作为 `local-gen` provider；把生图默认路由指向 `local-gen/qwen-image`，或单次显式选择即可。
+- **并发由 App 决定，平台只观察**：本机推理单槽 FIFO 排队（`pumpQueue`），占槽时 `comfy.generate` 返回 `taskId`（`job=null`）而不是报错；平台桥按 provider 声明的 `operations.task`（`comfy.task.get`）轮询排队与终态，排队等待不计入执行超时，轮询本身也推进队列（无 UI 的 headless 流程同样成立）。
 - **结果先私有**：生成产物留在 App 私有区，确认后 `comfy.save` 进入素材库。
 
 ## 交互
