@@ -330,13 +330,18 @@ func (m *MediaService) collectSkymindOutput(jobID, assetID string, taskStatus sk
 	return err
 }
 
+// Both diagnostic writers run on every poll step of a running task, so an
+// unconditional UPDATE would churn updated_at for the whole generation window.
+// Every consumer that dedupes on updated_at (canvas asset polling, SSE
+// increments) would then rebuild per poll; the WHERE guards below make a
+// no-op write a no-op statement instead.
 func (m *MediaService) recordSkymindPollingDiagnostic(jobID, assetID, message string) {
 	db, err := m.database()
 	if err != nil {
 		return
 	}
 	now := time.Now().UTC()
-	_, _ = db.Exec(`update media_assets set metadata_json = json_set(coalesce(metadata_json, '{}'), '$.skymindPollError', ?, '$.skymindPollErrorAt', ?), updated_at = ? where id = ? and job_id = ?`, message, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), assetID, jobID)
+	_, _ = db.Exec(`update media_assets set metadata_json = json_set(coalesce(metadata_json, '{}'), '$.skymindPollError', ?, '$.skymindPollErrorAt', ?), updated_at = ? where id = ? and job_id = ? and json_extract(coalesce(metadata_json, '{}'), '$.skymindPollError') is not ?`, message, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), assetID, jobID, message)
 }
 
 func (m *MediaService) clearSkymindPollingDiagnostic(jobID, assetID string) {
@@ -345,5 +350,5 @@ func (m *MediaService) clearSkymindPollingDiagnostic(jobID, assetID string) {
 		return
 	}
 	now := time.Now().UTC()
-	_, _ = db.Exec(`update media_assets set metadata_json = json_remove(coalesce(metadata_json, '{}'), '$.skymindPollError', '$.skymindPollErrorAt'), updated_at = ? where id = ? and job_id = ?`, now.Format(time.RFC3339Nano), assetID, jobID)
+	_, _ = db.Exec(`update media_assets set metadata_json = json_remove(coalesce(metadata_json, '{}'), '$.skymindPollError', '$.skymindPollErrorAt'), updated_at = ? where id = ? and job_id = ? and json_extract(coalesce(metadata_json, '{}'), '$.skymindPollError') is not null`, now.Format(time.RFC3339Nano), assetID, jobID)
 }

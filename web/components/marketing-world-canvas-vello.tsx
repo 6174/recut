@@ -4,7 +4,8 @@
  *          lib/marketing-worlds 的画布投影数据
  * [OUTPUT]: 对外提供 MarketingWorldCanvasVello：官网世界观详情的真实世界画布预览宿主——把 MarketingWorldCanvas
  *          映射为 pomelo 文档（entity-card / media / note / relation-arrow），经 VelloRendererAdapter(WebGPU) 渲染；
- *          按宽度自适应 fit、拖拽平移、⌘/Ctrl+滚轮缩放；WebGPU 不可用时经 onUnsupported 交回宿主回退
+ *          按宽度自适应 fit、拖拽平移、⌘/Ctrl+滚轮缩放、单击实体卡回报选中（onSelectEntity）；
+ *          视口请求（viewRequest）= 大纲下发的 fit / 实体居中；WebGPU 不可用时经 onUnsupported 交回宿主提示不支持
  * [POS]: web/components 的官网画布预览渲染层；由 marketing-world-canvas-preview.tsx 经 dynamic(ssr:false) 懒挂载，
  *        自身不读取工作台状态、不写入任何数据
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -17,9 +18,11 @@ import { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import type { PomeloBlockRecord } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import { VelloRendererAdapter, RendererUnsupportedError, RendererInitError } from "@/lib/pomelo/pomelo-vello/pomelo-vello-adapter";
 import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/world-canvas/blocks/vello-world-blocks";
+import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
-import { type Locale, t } from "@/lib/i18n";
-import type { MarketingCanvasElement, MarketingWorldCanvas } from "@/lib/marketing-worlds";
+import { centerOnBlock } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
+import { type Locale } from "@/lib/i18n";
+import { entityTypeLabel, type MarketingCanvasElement, type MarketingWorldCanvas } from "@/lib/marketing-worlds";
 
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 3;
@@ -28,6 +31,10 @@ const FIT_PADDING = 48;
 export type MarketingWorldCanvasVelloProps = {
   canvas: MarketingWorldCanvas;
   locale: Locale;
+  /** 大纲下发的视口请求：fit = 回到整体视图（根节点），entity = 把该实体卡居中（nonce 变化即重放） */
+  viewRequest?: { nonce: number; target: { kind: "fit" } | { kind: "entity"; entityId: string } } | null;
+  /** 单击画布：命中实体卡则回报其 id，点空白回报 null（宿主据此显示只读属性 panel） */
+  onSelectEntity?: (entityId: string | null) => void;
   onReady?: () => void;
   onUnsupported?: (message: string) => void;
 };
@@ -46,14 +53,6 @@ const RELATION_LABELS: Record<Locale, Record<string, string>> = {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-/** 类型 id → 官网本地化标签（缺 key 时回退原 id）。 */
-function entityTypeLabel(kind: string, locale: Locale): string {
-  if (!kind) return "";
-  const key = `worlds.entity.${kind}`;
-  const label = t("marketing", locale, key);
-  return label === key ? kind : label;
 }
 
 function relationLabel(type: string, locale: Locale): string {
@@ -159,12 +158,30 @@ function fitToWidth(editor: PomeloEditor, canvas: MarketingWorldCanvas) {
   adapter.renderNow();
 }
 
+/** 世界坐标 → 命中的实体元素（倒序 = 后画的在上层）；命中矩形取渲染真源 entityCardRect（实体卡高度由内容派生），空处返回 null。 */
+function entityAt(canvas: MarketingWorldCanvas, world: { x: number; y: number }): string | null {
+  for (let index = canvas.elements.length - 1; index >= 0; index -= 1) {
+    const element = canvas.elements[index];
+    if (element.kind !== "entity") continue;
+    const rect = entityCardRect({ x: element.x, y: element.y, width: element.width, coverUrl: element.imageUrl || "" });
+    if (world.x >= rect.x && world.x <= rect.x + rect.width && world.y >= rect.y && world.y <= rect.y + rect.height) {
+      return element.entityId;
+    }
+  }
+  return null;
+}
+
 /** 真实世界画布预览宿主：pomelo 文档 + vello(WebGPU) 渲染 + 平移缩放。 */
-export default function MarketingWorldCanvasVello({ canvas, locale, onReady, onUnsupported }: MarketingWorldCanvasVelloProps) {
+export default function MarketingWorldCanvasVello({ canvas, locale, viewRequest, onSelectEntity, onReady, onUnsupported }: MarketingWorldCanvasVelloProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<PomeloEditor | null>(null);
   const callbacksRef = useRef({ onReady, onUnsupported });
   callbacksRef.current = { onReady, onUnsupported };
+  // 指针 handler 只绑一次：canvas/回调经 ref 读最新值
+  const canvasRef = useRef(canvas);
+  canvasRef.current = canvas;
+  const selectRef = useRef(onSelectEntity);
+  selectRef.current = onSelectEntity;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -201,29 +218,60 @@ export default function MarketingWorldCanvasVello({ canvas, locale, onReady, onU
     };
   }, [canvas, locale]);
 
-  // 平移（拖拽）/ 缩放（⌘/Ctrl+滚轮，普通滚轮留给页面滚动）
+  // 大纲下发的视口请求：根节点 = 回到整体视图，实体节点 = 把该实体卡居中。
+  // 渲染器尚未就绪时静默跳过（首屏 fitToWidth 仍是默认视口）。
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !viewRequest) return;
+    const adapter = editor.renderAdapter as VelloRendererAdapter;
+    if (viewRequest.target.kind === "fit") {
+      fitToWidth(editor, canvas);
+    } else if (!centerOnBlock(editor, `entity:${viewRequest.target.entityId}`, { mirrorDemoStore: false })) {
+      return;
+    }
+    adapter.renderNow();
+  }, [viewRequest, canvas]);
+
+  // 平移（拖拽）/ 缩放（⌘/Ctrl+滚轮，普通滚轮留给页面滚动）/ 单击选中实体
   useEffect(() => {
     const container = containerRef.current;
     const editor = editorRef.current;
     if (!container || !editor) return;
     const adapter = editor.renderAdapter as VelloRendererAdapter;
-    let panning: { pointerId: number; x: number; y: number } | null = null;
+    let panning: { pointerId: number; x: number; y: number; originX: number; originY: number; dragged: boolean } | null = null;
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
-      panning = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+      panning = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, originX: event.clientX, originY: event.clientY, dragged: false };
       container.setPointerCapture(event.pointerId);
       container.style.cursor = "grabbing";
       event.preventDefault();
     };
     const onPointerMove = (event: PointerEvent) => {
       if (!panning || event.pointerId !== panning.pointerId) return;
+      if (!panning.dragged && Math.hypot(event.clientX - panning.originX, event.clientY - panning.originY) > 4) panning.dragged = true;
       const current = adapter.transform;
       adapter.setTransform(current.x + (event.clientX - panning.x), current.y + (event.clientY - panning.y), current.scale);
       panning.x = event.clientX;
       panning.y = event.clientY;
     };
     const onPointerUp = (event: PointerEvent) => {
+      const drag = panning;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      panning = null;
+      container.releasePointerCapture?.(event.pointerId);
+      container.style.cursor = "grab";
+      // 没拖动才算单击：命中实体卡 → 选中，点空白 → 清选
+      if (drag.dragged) return;
+      const rect = container.getBoundingClientRect();
+      const current = adapter.transform;
+      const world = {
+        x: (event.clientX - rect.left - current.x) / current.scale,
+        y: (event.clientY - rect.top - current.y) / current.scale,
+      };
+      selectRef.current?.(entityAt(canvasRef.current, world));
+    };
+    const onPointerCancel = (event: PointerEvent) => {
       if (!panning || event.pointerId !== panning.pointerId) return;
       panning = null;
       container.releasePointerCapture?.(event.pointerId);
@@ -247,7 +295,7 @@ export default function MarketingWorldCanvasVello({ canvas, locale, onReady, onU
     container.addEventListener("pointerdown", onPointerDown);
     container.addEventListener("pointermove", onPointerMove);
     container.addEventListener("pointerup", onPointerUp);
-    container.addEventListener("pointercancel", onPointerUp);
+    container.addEventListener("pointercancel", onPointerCancel);
     container.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       container.style.cursor = "";
@@ -255,7 +303,7 @@ export default function MarketingWorldCanvasVello({ canvas, locale, onReady, onU
       container.removeEventListener("pointerdown", onPointerDown);
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("pointerup", onPointerUp);
-      container.removeEventListener("pointercancel", onPointerUp);
+      container.removeEventListener("pointercancel", onPointerCancel);
       container.removeEventListener("wheel", onWheel);
     };
   }, []);

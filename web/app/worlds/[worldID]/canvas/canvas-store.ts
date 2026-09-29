@@ -4,7 +4,7 @@
  * load(true)；T2 面板动作 saveEntityField/confirmEntity/deleteEntity/updateWorldMeta；T3 创建系统
  * createEntity/createChildEntity 草稿化 + 命名态 + 创建/右键菜单状态；T4 就地编辑 inlineEdit；T6 容器
  * 视图默认包含容器自身 entity（load 时把 context 实体 unshift 进 entities）：会话配置（open）、当前上下文的实体/画布元素/关系/
- * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框，含属性面板显隐；
+ * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框，含属性面板显隐与 dock 内大纲 panel 高度 outlineHeight（按浏览器持久化）；
  * 多选 selectedIds 为 pomelo block id 集合，select 单选/selectMany 框选保持同步）
  * 与全部写动作（关系原位改 updateRelation：类型/方向 patch，保留 id/scope 与画布锚点）；画布元素写 world_canvas 不产 revision，
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
@@ -41,6 +41,7 @@ import { create } from "zustand";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { ENTITY_CARD_PAD, entityCardContentHeight, entityCardImageHeight } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import { MEDIA_VISUAL_SIZE, isMediaVisualModality, measureMediaVisualRatio, mediaVisualSizeForRatio } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
+import { textAttrHeight, textElementHeight } from "@/lib/pomelo/world-canvas/blocks/text-block-metrics";
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import {
   createRecutWorldsClient,
@@ -369,6 +370,26 @@ export const DEFAULT_ENTITY_TITLES: Record<string, string> = {
 
 export function isDefaultEntityTitle(typeId: string, title: string): boolean {
   return title.trim() === (DEFAULT_ENTITY_TITLES[typeId] ?? "新设定");
+}
+
+// dock 内大纲 panel 高度：拖 resizer 的分配按浏览器持久化（组件重挂/刷新后保持用户的分配）；
+// 没存过 = null，由 dock 按两 panel 平分（DEFAULT_OUTLINE_HEIGHT 只是测量前的兜底值）
+const OUTLINE_HEIGHT_KEY = "wc:outlineHeight";
+export const DEFAULT_OUTLINE_HEIGHT = 300;
+export function readOutlineHeight(): number | null {
+  try {
+    const value = Number(localStorage.getItem(OUTLINE_HEIGHT_KEY));
+    return Number.isFinite(value) && value >= 120 ? value : null;
+  } catch {
+    return null;
+  }
+}
+function saveOutlineHeight(height: number) {
+  try {
+    localStorage.setItem(OUTLINE_HEIGHT_KEY, String(Math.round(height)));
+  } catch {
+    // localStorage 不可用时静默（隐私模式等）
+  }
 }
 
 // 最近使用类型（B.7 双击空白快捷创建）与最近自定义类型（创建菜单自定义区，至多 3 个）
@@ -858,9 +879,10 @@ type WorldCanvasState = {
   // 版本快照/回滚（T12）：快照列表 + 指针回移 + 面板开合
   historyOpen: boolean;
   setHistoryOpen: (open: boolean) => void;
-  // 大纲/搜索侧栏（T14）
-  outlineOpen: boolean;
-  setOutlineOpen: (open: boolean) => void;
+  // dock 内大纲 panel 的高度（拖 resizer 调整；按浏览器持久化，刷新/重开画布保持用户的分配）。
+  // null = 用户还没拖过：由 dock 按两个 panel 平分高度（默认就能留意到大纲 panel）
+  outlineHeight: number | null;
+  setOutlineHeight: (height: number) => void;
   // 属性面板显隐（折叠为边缘小 icon 入口）
   panelOpen: boolean;
   setPanelOpen: (panelOpen: boolean) => void;
@@ -918,7 +940,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   changeLog: [],
   redoLog: [],
   historyOpen: false,
-  outlineOpen: false,
+  outlineHeight: readOutlineHeight(),
   panelOpen: true,
   aiDialogOpen: false,
   relationTypePopover: null,
@@ -970,7 +992,6 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       changeLog: [],
       redoLog: [],
       historyOpen: false,
-      outlineOpen: false,
       aiDialogOpen: false,
       relationTypePopover: null,
       linkMode: false,
@@ -1216,7 +1237,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           label: initial?.label ?? "",
           ...(initial?.assetId ? { assetId: initial.assetId, assetName: initial.assetName ?? "" } : {}),
         },
-        geometry: { x: Math.round(pos.x), y: Math.round(pos.y), ...(isMediaVisualModality(media) ? MEDIA_VISUAL_SIZE : { width: 260, height: 140 }), zIndex: 1 },
+        // 文本属性卡高度随内容（textAttrHeight）；图片/视频按素材比例；音频块另有固定尺寸（audioBlockRect）。
+        geometry: { x: Math.round(pos.x), y: Math.round(pos.y), ...(isMediaVisualModality(media) ? MEDIA_VISUAL_SIZE : media === "text" ? { width: 260, height: textAttrHeight(initial?.text ?? "", 260) } : { width: 260, height: 140 }), zIndex: 1 },
         style: {},
         layer: "0",
       });
@@ -2064,7 +2086,10 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       }
     }),
   setHistoryOpen: (historyOpen) => set({ historyOpen }),
-  setOutlineOpen: (outlineOpen) => set({ outlineOpen }),
+  setOutlineHeight: (height) => {
+    saveOutlineHeight(height);
+    set({ outlineHeight: height });
+  },
 
   setPanelOpen: (panelOpen) => set({ panelOpen }),
   setAiDialogOpen: (aiDialogOpen) => set({ aiDialogOpen }),
@@ -2185,7 +2210,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     // 属性文本编辑：持久化 text 并同步回实体 content 字段
     if (edit.kind === "attr-body") {
       if ((element.props?.text ?? "") === value) return;
-      await get().persistGeometry(element.id, undefined, { text: value });
+      // 文本属性卡高度随内容：提交时同步几何高度（文档组装按同一公式计算）
+      await get().persistGeometry(element.id, { height: textAttrHeight(value, Number(element.geometry?.width) || 260) }, { text: value });
       await get().syncAttrValue(element, value);
       // 同上：persistGeometry/syncAttrValue 都不推进 dataVersion，需显式推进触发文档重建
       set((state) => ({ dataVersion: state.dataVersion + 1 }));
@@ -2194,7 +2220,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     // 未变更不写库
     const previous = String(element.props?.text ?? "");
     if (previous === value) return;
-    await get().persistGeometry(element.id, undefined, { text: value });
+    // 自由文本元素高度随内容（便签仍固定尺寸）
+    const heightOverride = element.kind === "text" ? { height: textElementHeight(value, Number(element.geometry?.width) || 120) } : undefined;
+    await get().persistGeometry(element.id, heightOverride, { text: value });
     // persistGeometry 不推进 dataVersion：显式推进以触发文档重建，否则编辑后画布仍是旧文本（刷新才更新）
     set((state) => ({ dataVersion: state.dataVersion + 1 }));
     // 便签/文本正文编辑记入历史（attr-body 走 syncAttrValue 的实体字段条目，不重复记）

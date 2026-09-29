@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 canvas-store（editor/panMode/linkMode/readOnly/selection 与 setPanMode/setLinkMode/
  * addFreeElement 动作）、pomelo 插件（ViewportPlugin 的 zoomAt/centerContent）与 lucide-react
  * [OUTPUT]: 对外提供 CanvasToolbarItems：世界画布工具组（由 canvas-top-bar.tsx 的 WorldCanvasToolbar 包装，
- * 居中渲染于全局 Header，无浮动容器）——选择/抓手模式、大纲开关（T14）、连线工具、历史菜单（T12：最近变更逐条撤销 /
+ * 居中渲染于全局 Header，无浮动容器）——选择/抓手模式、连线工具、历史菜单（T12：最近变更逐条撤销 /
  * 版本快照回滚）、独立插入（图片/音频/视频/文本 + 扩展占位）、undo/redo（语义双栈）、
  * 缩放菜单（放大/缩小/50%/100%/200%/适应项目/适应所选内容——按 selectedIds 求多选并集包围盒）与帮助面板；
  * 抓手模式的全画布平移 overlay 由 canvas-pomelo.tsx 宿主渲染（panMode 读自 canvas-store）
@@ -16,7 +16,6 @@ import {
   CircleHelp,
   Hand,
   History as HistoryIcon,
-  ListTree,
   MousePointer2,
   Plus,
   Redo2,
@@ -151,7 +150,6 @@ export function CanvasToolbarItems() {
       <ToolButton active={panMode} label="抓手：拖拽平移画布（空格 + 拖拽随时可用）" onClick={() => (setPanMode(!panMode), setLinkMode(false), setMenu(null))}>
         <Hand className="size-4" />
       </ToolButton>
-      <OutlineToggle />
       <ToolButton active={linkMode} disabled={readOnly} label="连线：点击起点实体，再点击目标实体" onClick={() => setLinkMode(!linkMode)}>
         <Spline className="size-4" />
       </ToolButton>
@@ -332,19 +330,4 @@ function HistoryMenu({ onClose }: { onClose: () => void }) {
   );
 }
 
-// 大纲/搜索侧栏开关（T14）
-function OutlineToggle() {
-  const open = useWorldCanvasStore((state) => state.outlineOpen);
-  const setOutlineOpen = useWorldCanvasStore((state) => state.setOutlineOpen);
-  return (
-    <button
-      aria-label="大纲与搜索"
-      className={`grid size-7 place-items-center rounded-md transition-colors ${open ? "bg-zinc-100 text-zinc-900" : "text-zinc-300 hover:bg-zinc-700/60 hover:text-white"}`}
-      onClick={() => setOutlineOpen(!open)}
-      title="大纲与搜索"
-      type="button"
-    >
-      <ListTree className="size-4" />
-    </button>
-  );
-}
+// 大纲入口已移到画布左上角（canvas-outline.tsx 的折叠态 icon），工具栏不再重复提供开关

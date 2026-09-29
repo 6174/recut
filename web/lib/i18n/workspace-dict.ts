@@ -153,6 +153,9 @@ const zh = {
   "apps.status.dirty": "存在本地 Git 修改，升级已保护",
   "apps.status.remote": "检测到远端更新",
   "apps.status.current": "已是当前 Git 状态",
+  "apps.menu.title": "快捷入口",
+  "apps.menu.empty": "还没有已安装的应用",
+  "apps.menu.add": "添加应用",
 
   // 新建应用弹框
   "createapp.button": "新建应用",
@@ -624,6 +627,9 @@ const en: Record<keyof typeof zh, string> = {
   "apps.status.dirty": "Local Git changes; upgrade protected",
   "apps.status.remote": "Remote update detected",
   "apps.status.current": "Up to date with Git",
+  "apps.menu.title": "Quick access",
+  "apps.menu.empty": "No apps installed yet",
+  "apps.menu.add": "Add app",
 
   // Create app dialog
   "createapp.button": "New App",

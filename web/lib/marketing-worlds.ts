@@ -1,12 +1,17 @@
 /*
  * [INPUT]: 依赖全局 fetch 与 CDN 上的 World 发布目录（https://cdn.recut.video/worlds/catalog.json）及各 world.json manifest
- *   （v2：entityTypes + 统一 entities[attrs/media] + canvases + relations；旧 v1 evidence 仍兼容读取）
+ *   （v2：entityTypes + 统一 entities[attrs/media] + canvases + relations；旧 v1 evidence 仍兼容读取）与 lib/i18n
  * [OUTPUT]: 对外提供官网营销用的静态 World 目录数据 MarketingWorld（名称/类型/定位/语气/受众/发布者 author/封面/图片/实体摘要/
- *   只读画布投影 canvas：实体/媒体/便签元素 + 两端都在画布上的语义关系）与 fetchMarketingWorlds()；CDN 不可达时返回空数组降级，不抛错
+ *   只读画布投影 canvas：实体/媒体/便签元素 + 两端都在画布上的语义关系；tree：整棵实体层级（parentId 递归容器，
+ *   与画布元素 entityId 同命名空间，供只读预览的大纲树使用））与 fetchMarketingWorlds()；另导出
+ *   entityTypeLabel（类型 id → 官网本地化标签，画布预览与大纲共用）；CDN 不可达时返回空数组降级，不抛错
  * [POS]: web/lib 的公开营销内容加载器；只在服务端页面（首页 /worlds）构建期导入，客户端组件一律经 props 接收数据；
  *   绝不读取本地 service 或工作台状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
+import { t, type Locale } from "./i18n";
+import type { EntityTreeItem } from "./world-entity-tree";
+
 export type MarketingWorldEntity = { id: string; kind: string; title: string; summary: string; imageUrl?: string };
 
 export type MarketingCanvasElement =
@@ -34,7 +39,17 @@ export type MarketingWorld = {
   images: string[];
   entities: MarketingWorldEntity[];
   canvas: MarketingWorldCanvas | null;
+  /** 整棵实体层级（递归容器）：只读预览的大纲树用；id 与画布元素 entityId 同命名空间 */
+  tree: EntityTreeItem[];
 };
+
+/** 类型 id → 官网本地化标签（缺 key 时回退原 id）。画布 block 描述与大纲树共用。 */
+export function entityTypeLabel(kind: string, locale: Locale): string {
+  if (!kind) return "";
+  const key = `worlds.entity.${kind}`;
+  const label = t("marketing", locale, key);
+  return label === key ? kind : label;
+}
 
 type CatalogEntry = { id?: string; manifestUrl?: string; status?: string; version?: string; order?: number };
 
@@ -57,6 +72,9 @@ type ManifestEntity = {
   name?: string;
   summary?: string;
   intro?: string;
+  /** 递归容器：父实体 id（发布物里可能已命名空间化为 <worldId>:<slug>） */
+  parentId?: string | null;
+  isProvisional?: boolean;
   attrs?: ManifestAttr[];
   content?: Record<string, unknown>;
 };
@@ -87,6 +105,7 @@ const MARKETING_ENTITY_KINDS = new Set(["character", "location", "object", "stor
 const MAX_IMAGES_PER_WORLD = 6;
 const MAX_ENTITIES_PER_WORLD = 6;
 const MAX_CANVAS_ELEMENTS = 60;
+const MAX_TREE_ENTITIES = 200;
 
 // 构建期多个页面/worker 共享同一次抓取结果：memoize + Next 数据缓存（revalidate 1h），
 // 避免某一页的瞬时网络失败让该页静默丢失整个世界观区块。
@@ -212,6 +231,35 @@ function buildCanvas(manifest: WorldManifest, imagesById: Map<string, string>): 
   return { width: maxX + 40, height: maxY + 40, elements, relations };
 }
 
+/**
+ * v2 manifest → 大纲树条目。节点 id 取实体自身的 id（与画布元素 entityId 同命名空间，
+ * 预览里「哪些节点在画布上」据此判定）；parentId 解析到实体真实 id（发布物可能已命名空间化，
+ * 故与画布 refId 用同一套 raw/local 兜底），解析不到或自引用按根处理。
+ */
+function buildTree(manifest: WorldManifest): EntityTreeItem[] {
+  const entities = (manifest.entities ?? []).filter((entity) => entityID(entity) && (entity.name ?? entity.title ?? "").trim());
+  const byId = new Map(entities.map((entity) => [entityID(entity), entity]));
+  const localRef = (raw: string) => (raw.includes(":") ? raw.slice(raw.indexOf(":") + 1) : raw);
+  const resolve = (raw: string) => {
+    const direct = byId.get(raw);
+    if (direct) return entityID(direct);
+    const local = localRef(raw);
+    const matched = entities.find((entity) => localRef(entityID(entity)) === local);
+    return matched ? entityID(matched) : "";
+  };
+  return entities.slice(0, MAX_TREE_ENTITIES).map((entity) => {
+    const id = entityID(entity);
+    const parentId = resolve(entity.parentId ?? "");
+    return {
+      id,
+      name: (entity.name ?? entity.title ?? "").trim(),
+      typeId: (entity.typeId ?? entity.kind ?? "object").toString(),
+      ...(parentId && parentId !== id ? { parentId } : {}),
+      ...(entity.isProvisional ? { isProvisional: true } : {}),
+    };
+  });
+}
+
 async function fetchWorld(entry: CatalogEntry): Promise<MarketingWorld | null> {
   const manifest = await fetchJSON(entry.manifestUrl as string) as WorldManifest | null;
   const world = manifest?.world;
@@ -259,6 +307,7 @@ async function fetchWorld(entry: CatalogEntry): Promise<MarketingWorld | null> {
     images: allImages.length ? allImages : evidenceImages.slice(0, MAX_IMAGES_PER_WORLD),
     entities: projectedEntities,
     canvas: isV2 ? buildCanvas(manifest!, imagesById) : null,
+    tree: isV2 ? buildTree(manifest!) : [],
   };
 }
 

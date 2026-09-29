@@ -1,16 +1,14 @@
 /*
  * [INPUT]: 依赖 react、canvas-store（renameEntity/confirmEntity/deleteEntity/select/setContext/
- * setPendingRelation/setAddFieldFor）、recut-worlds-client 类型、shared world-entity/field-row、
- * lucide-react
+ * setPendingRelation/setAddFieldFor）、recut-worlds-client 类型、shared world-entity/field-row
  * [OUTPUT]: 对外提供 EntityPanel（B.8 Entity 态）：共享 EntityEditor 的画布宿主薄壳 —— 名称
  * 走 renameEntity（元素投影同步），字段/属性（media 属性同一路径）/关系全部由共享编辑器渲染；
- * 画布特有部分仅保留：子设定列表（[进入]）、[进入内部]/[删除设定…]（CanvasDetailPanel 页脚）
+ * 画布特有部分仅保留：子设定列表（[进入]）
  * [POS]: worlds/[worldID]/canvas/panel 的 Entity 态面板；编辑 UI 真相在 web/components/world-entity
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { ChevronRight, Trash2 } from "lucide-react";
 import type { WorldEntity, WorldEntityType } from "@/lib/recut-worlds-client";
 import { EntityEditor, type RelationItem } from "@/components/world-entity/entity-editor";
 import { PanelSection } from "@/components/panel-section";
@@ -98,31 +96,6 @@ export function EntityDraftBanner({ entity, readOnly }: { entity: WorldEntity; r
         type="button"
       >
         确认设定
-      </button>
-    </div>
-  );
-}
-
-// 面板底部操作区由 CanvasDetailPanel 渲染（进入内部 / 在画布定位 / 删除设定）
-export function EntityPanelFooter({ entity }: { entity: WorldEntity }) {
-  const store = useWorldCanvasStore();
-  const readOnly = useWorldCanvasStore((state) => state.readOnly);
-  if (readOnly) return null;
-  return (
-    <div className="flex gap-2">
-      <button
-        className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border text-xs hover:bg-muted"
-        onClick={() => store.setContext({ entityId: entity.id, title: entity.name })}
-        type="button"
-      >
-        <ChevronRight className="size-3.5" /> 进入内部
-      </button>
-      <button
-        className="flex h-7 items-center justify-center gap-1 rounded-md border border-destructive/40 px-2 text-xs text-destructive hover:bg-destructive/10"
-        onClick={() => store.setDeleteTarget(entity)}
-        type="button"
-      >
-        <Trash2 className="size-3.5" />
       </button>
     </div>
   );

@@ -3,9 +3,9 @@
  *          world-canvas/blocks/vello-shared（cover/徽标/低细节）、world-canvas/blocks/audio-block-ops（音频播放器外观）
  * [OUTPUT]: 对外提供 RealMediaBlockV（type: media）：图 center-cover / 音频播放器外观（圆形播放钮 + 真实波形 +
  * 时间 + 音量/下载，波形懒加载）/ 视频占位 + 元素徽标；
- * 生成提案态（proposalStatus）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要 + 参考/模型信息；
+ * 生成提案「待确认」态（proposalStatus=pending）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要 + 参考/模型信息；
  * 计划态（planStatus，proposed 但无配方）渲染为冷蓝描边 + 「计划中」+ 说明摘要；
- * 素材生成中/失败态（assetStatus）渲染为蓝/红描边 + 等待/失败提示（AI 先落 assetId 的节点）；
+ * 生成中/失败态（proposalStatus=generating/failed，或 AI 先落 assetId 的 assetStatus）渲染为蓝/红描边 + 等待/失败提示；
  * 视口 <= LOW_DETAIL_SCALE 时只画卡面/图，隐藏全部文字。
  * [POS]: lib/pomelo/world-canvas/blocks 的媒体元素 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -64,13 +64,15 @@ export class RealMediaBlockV extends VelloBlock {
     const attached = Boolean(attrs.attached);
     const lowDetail = isLowDetail(this.adapter);
     const proposalStatus = String(attrs.proposalStatus ?? "");
-    const isProposal = proposalStatus === "pending" || proposalStatus === "generating" || proposalStatus === "failed";
-    // 素材生成中/失败（AI 先落 assetId，素材仍在异步生成）：与提案态区分，单独渲染等待态
+    // 只有「待确认」（pending）才是提案卡：确认后资产转 queued/running，proposalStatus 也随之变 generating，
+    // 此时必须按「生成中/失败」渲染，否则会把已提交的生成误显示成「待确认生成」。
+    const isProposal = proposalStatus === "pending";
+    // 素材生成中/失败（AI 先落 assetId，或提案已确认仍在异步生成）：单独渲染等待态
     const assetStatus = String(attrs.assetStatus ?? "");
     // 计划态（proposed 但无生成配方）：content-first 占位素材，只等 AI 补配方 / 用户交给 AI
     const isPlan = !isProposal && Boolean(attrs.planStatus);
-    const isGenerating = !isProposal && !isPlan && assetStatus === "generating";
-    const isFailed = !isProposal && !isPlan && assetStatus === "failed";
+    const isGenerating = !isProposal && !isPlan && (proposalStatus === "generating" || assetStatus === "generating");
+    const isFailed = !isProposal && !isPlan && (proposalStatus === "failed" || assetStatus === "failed");
     const accent = isProposal ? PROPOSAL_ACCENT : isPlan ? PLAN_ACCENT : isGenerating ? PENDING_ACCENT : isFailed ? FAILED_ACCENT : CARD_STROKE;
     const accentWidth = isProposal || isPlan || isGenerating || isFailed ? 2 : 1;
     const innerH = h - (attached ? 18 : 0);

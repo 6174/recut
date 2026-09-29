@@ -4,23 +4,21 @@
  *           RESIZABLE_BLOCK_KINDS（支持 resize 的 block 类别）+ blockKindOf（block → 类别 token）
  *           + blockSupportsResize（名单内才给手柄）。
  *           名单外的 block 不显示、不响应 resize 手柄，但仍可选中与拖拽位移。
- *           实体卡（有封面按封面比例定尺）、图片/视频块（按素材比例定尺）与音频块（按播放器定尺）刻意不在名单内。
+ *           实体卡（封面比例定尺）、文本块（高度随内容自适应）、图片/视频块（素材比例定尺）与音频块（播放器定尺）刻意不在名单内。
  * [POS]: lib/pomelo/world-canvas 的交互策略（宿主 CanvasBindsPlugin 的 overlay / 命中与未来插件共用）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
 // 支持四角 resize 的 block 类别白名单（类别见 blockKindOf）：
-//   note / world-node / media-node（基础占位节点）
-//   free-element:text（自由文本）/ free-element:shape（形状）/ free-element:attr-text（文本属性卡）
+//   note / world-node / media-node（基础占位节点）/ free-element:shape（形状）
 // 刻意不含：entity-card（有封面按封面比例定尺、无封面按占位保底 + footer）、
-//   media:image|video|audio、free-element:attr-image|video|audio——这些卡片按素材比例 / 播放器外观定尺，不给 resize。
+//   free-element:text 与 free-element:attr-text（文本块高度随内容自适应）、
+//   media:image|video|audio、free-element:attr-image|video|audio——这些卡片都由内容定尺，不给 resize。
 export const RESIZABLE_BLOCK_KINDS = [
   "note",
   "world-node",
   "media-node",
-  "free-element:text",
   "free-element:shape",
-  "free-element:attr-text",
 ] as const;
 
 export type ResizableBlockKind = (typeof RESIZABLE_BLOCK_KINDS)[number];
@@ -41,7 +39,7 @@ export function blockKindOf(record: RecordLike | null | undefined): string | nul
   return type || null;
 }
 
-/** 该 block 是否支持四角 resize（名单内才给手柄）；实体卡与图片/视频/音频块返回 false，只能选中移动。 */
+/** 该 block 是否支持四角 resize（名单内才给手柄）；实体卡、文本块与图片/视频/音频块返回 false，只能选中移动。 */
 export function blockSupportsResize(record: RecordLike | null | undefined): boolean {
   const kind = blockKindOf(record);
   return kind !== null && RESIZABLE.has(kind);

@@ -294,6 +294,9 @@ function RelateDialog() {
         <input
           className="mt-3 w-full rounded-md border bg-background p-2 text-sm outline-none focus:border-primary"
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !groups.size && query.trim()) confirm(query.trim());
+          }}
           placeholder="搜索关系类型…"
           value={query}
         />
@@ -315,7 +318,19 @@ function RelateDialog() {
               </div>
             </div>
           ))}
-          {!groups.size && <p className="text-xs text-muted-foreground">没有匹配的关系类型</p>}
+          {!groups.size && (
+            query.trim() ? (
+              <button
+                className="w-full rounded-md border border-dashed border-primary/50 px-2 py-1.5 text-left text-xs text-primary hover:bg-primary/10"
+                onClick={() => confirm(query.trim())}
+                type="button"
+              >
+                ＋ 建立「{query.trim()}」关系
+              </button>
+            ) : (
+              <p className="text-xs text-muted-foreground">没有匹配的关系类型</p>
+            )
+          )}
         </div>
         {customOpen ? (
           <div className="mt-3 flex gap-2">
@@ -334,7 +349,7 @@ function RelateDialog() {
             </button>
           </div>
         ) : (
-          <button className="mt-3 text-xs text-primary hover:underline" onClick={() => setCustomOpen(true)} type="button">
+          <button className="mt-3 text-xs text-primary hover:underline" onClick={() => { setCustomType(query.trim()); setCustomOpen(true); }} type="button">
             ＋ 新建关系类型
           </button>
         )}

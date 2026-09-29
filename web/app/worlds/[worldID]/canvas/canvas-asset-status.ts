@@ -36,9 +36,18 @@ function mark(assetId: string, state: CanvasAssetState) {
 }
 
 function remember(assetId: string, asset: Asset) {
-  // 轮询会在 proposed 等待期持续回查；只有实质变化才更新，避免每轮都触发画布重建。
+  // 轮询会在生成/提案等待期持续回查；只有实质变化才更新，避免每轮都触发画布重建。
+  // 判等不能用 updatedAt：provider 轮询会周期性 touch 该行的 updated_at（见
+  // service/media/jobs_skymind.go 的 polling 诊断写入），而 status/error/metadata 未变时
+  // 画布投影完全相同。用 metadata 判等既能屏蔽这类纯时间戳抖动，又能让提案提示词/参数的
+  // 真实变化继续触发重建（canvasAssetOf 会读 metadata 映射提案态）。
   const current = useCanvasAssetStatusStore.getState().assets[assetId];
-  if (current && current.status === asset.status && current.updatedAt === asset.updatedAt && current.error === asset.error) return;
+  if (
+    current &&
+    current.status === asset.status &&
+    current.error === asset.error &&
+    JSON.stringify(current.metadata) === JSON.stringify(asset.metadata)
+  ) return;
   useCanvasAssetStatusStore.setState((prev) => ({ assets: { ...prev.assets, [assetId]: asset } }));
 }
 

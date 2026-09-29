@@ -1,13 +1,15 @@
 /*
  * [INPUT]: 依赖 pomelo-core（PomeloPlugin / PomeloEditor / PomeloRendererAdapter）
  * [OUTPUT]: 对外提供 ViewportPlugin：wheel 平移、ctrl/⌘+wheel 以指针为锚点缩放、空格拖拽与中键拖拽平移；
- * transform 经 adapter.setTransform 写入渲染器并镜像到 demo-store；附 zoomAt/centerContent 辅助
+ * transform 经 adapter.setTransform 写入渲染器并镜像到 demo-store；附 zoomAt/centerContent/centerOnBlock 辅助
+ * （centerOnBlock = 把某个 block 的渲染矩形居中到视口，供大纲/预览点节点聚焦）
  * [POS]: lib/pomelo/world-canvas 的视口插件（pomelo plugin 机制的第一个控制层扩展示例）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { PomeloEditor } from "../../pomelo-core/pomelo-editor";
 import type { PomeloRendererAdapter } from "../../pomelo-core/pomelo-renderer";
 import { PomeloPlugin } from "../../pomelo-core/pomelo-plugin";
+import { entityCardRect } from "../blocks/entity-card-metrics";
 import { useWorldDemoStore, type Transform } from "../demo-store";
 
 export const MIN_SCALE = 0.05;
@@ -159,4 +161,35 @@ export function zoomByCenter(editor: PomeloEditor, factor: number) {
   const next = zoomAt(transform, { x: rect.width / 2, y: rect.height / 2 }, transform.scale * factor);
   adapter.setTransform(next.x, next.y, next.scale);
   useWorldDemoStore.getState().setTransform(next);
+}
+
+// 聚焦某个 block：保持当前缩放，把它的渲染矩形中心移到视口中心。
+// 矩形取渲染真源（实体卡高度由内容派生，见 entityCardRect），否则居中会偏。
+// mirrorDemoStore=false 用于官网预览画布（无 demo-store 消费方）。
+export function centerOnBlock(editor: PomeloEditor, blockId: string, opts: { mirrorDemoStore?: boolean } = {}): boolean {
+  const adapter = editor.renderAdapter as PomeloRendererAdapter;
+  const record = editor.state.getBlockById(blockId);
+  const view = adapter.getView();
+  if (!record || !view) return false;
+  const rect =
+    record.type === "entity-card"
+      ? entityCardRect(record.attrs as Record<string, unknown>)
+      : {
+          x: Number(record.attrs.x) || 0,
+          y: Number(record.attrs.y) || 0,
+          width: Number(record.attrs.width) || 0,
+          height: Number(record.attrs.height) || 0,
+        };
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  const viewRect = view.getBoundingClientRect();
+  if (viewRect.width < 2 || viewRect.height < 2) return false;
+  const scale = clampScale(adapter.transform.scale);
+  const next: Transform = {
+    x: viewRect.width / 2 - (rect.x + rect.width / 2) * scale,
+    y: viewRect.height / 2 - (rect.y + rect.height / 2) * scale,
+    scale,
+  };
+  adapter.setTransform(next.x, next.y, next.scale);
+  if (opts.mirrorDemoStore !== false) useWorldDemoStore.getState().setTransform(next);
+  return true;
 }

@@ -6,9 +6,9 @@
  * 文本框（elementKind=text，或 attr 且 attrMedia=text）无背景、无徽标——就是画布上的文本（文本服从 box，
  * 溢出截断），与实体卡区分开；只有媒体属性卡（image/audio/video）才画卡面与徽标；音频属性卡（attrMedia=audio 且有源）
  * 画播放器外观（圆形播放钮 + 真实波形 + 时间 + 音量/下载，波形懒加载，与媒体元素同源）；
- * 媒体属性卡的生成提案态（proposalStatus）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要；
+ * 媒体属性卡的生成提案「待确认」态（proposalStatus=pending）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要；
  * 计划态（planStatus，proposed 但无配方）渲染为冷蓝描边 + 「计划中」+ 说明摘要；
- * 素材生成中/失败态（assetStatus）渲染为蓝/红描边 + 等待/失败提示（AI 先落 assetId 的节点）；
+ * 生成中/失败态（proposalStatus=generating/failed，或 AI 先落 assetId 的 assetStatus）渲染为蓝/红描边 + 等待/失败提示；
  * 视口 <= LOW_DETAIL_SCALE 时隐藏文字（文本框不再退化出占位块）。
  * [POS]: lib/pomelo/world-canvas/blocks 的自由元素 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -37,6 +37,7 @@ import {
 } from "../graph-theme";
 import { CAPTION_TOP_OFFSET, captionOpsV, coverImageOpsV, isLowDetail, screenScaleOf } from "./vello-shared";
 import { audioPlayerOpsV } from "./audio-block-ops";
+import { TEXT_ATTR_LINE_HEIGHT, TEXT_ATTR_PAD, TEXT_ATTR_SIZE, TEXT_ELEMENT_LINE_HEIGHT, TEXT_ELEMENT_SIZE } from "./text-block-metrics";
 import { audioBlockRect, isAudioBlockRecord } from "./audio-block-metrics";
 import { displayRefText } from "./ref-text";
 
@@ -78,17 +79,17 @@ export class FreeElementBlockV extends VelloBlock {
     const ops: VelloOp[] = [];
     if (elementKind === "text") {
       // 文本元素：无背景，就是画布上的文本（低缩放下隐藏）
-      if (!lowDetail) ops.push(textOp({ text: text || "（空文本）", x, y, size: 13, maxWidth: Math.max(40, w), lineHeight: 20, fill: CAPTION_FILL }));
+      if (!lowDetail) ops.push(textOp({ text: text || "（空文本）", x, y, size: TEXT_ELEMENT_SIZE, maxWidth: Math.max(40, w), lineHeight: TEXT_ELEMENT_LINE_HEIGHT, fill: CAPTION_FILL }));
     } else if (elementKind === "attr") {
       // 文本框（media=text）：无背景、无徽标——和实体卡区分开，只是画布上的文本
       if (media === "text") {
         if (!lowDetail) {
           if (text) {
             ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: 8 });
-            ops.push(textOp({ text, x: x + 10, y: y + 10, size: 11, maxWidth: Math.max(20, w - 20), lineHeight: 17, fill: TEXT_PRIMARY }));
+            ops.push(textOp({ text, x: x + TEXT_ATTR_PAD, y: y + TEXT_ATTR_PAD, size: TEXT_ATTR_SIZE, maxWidth: Math.max(20, w - TEXT_ATTR_PAD * 2), lineHeight: TEXT_ATTR_LINE_HEIGHT, fill: TEXT_PRIMARY }));
             ops.push({ kind: "popClip" });
           } else {
-            ops.push(textOp({ text: "＋ 文本", x: x + 10, y: y + 10, size: 11, maxWidth: Math.max(20, w - 20), fill: TEXT_TERTIARY }));
+            ops.push(textOp({ text: "＋ 文本", x: x + TEXT_ATTR_PAD, y: y + TEXT_ATTR_PAD, size: TEXT_ATTR_SIZE, maxWidth: Math.max(20, w - TEXT_ATTR_PAD * 2), fill: TEXT_TERTIARY }));
           }
         }
         return { ops, bounds: this.blockBounds() };
@@ -96,12 +97,14 @@ export class FreeElementBlockV extends VelloBlock {
       // 媒体属性卡：属性名（label）优先于媒体类型标签，让「环境卡」等具名属性在卡片上可读
       const label = `${String(attrs.label ?? "") || attrMediaLabel(media)}${text ? ` · ${text.slice(0, 12)}` : ""}`;
       const proposalStatus = String(attrs.proposalStatus ?? "");
-      const isProposal = proposalStatus === "pending" || proposalStatus === "generating" || proposalStatus === "failed";
-      // 素材生成中/失败（AI 先落 assetId）：与提案态区分，单独渲染等待态
+      // 只有「待确认」（pending）才是提案卡：确认后资产转 queued/running，proposalStatus 也随之变 generating，
+      // 此时必须按「生成中/失败」渲染，否则会把已提交的生成误显示成「待确认生成」。
+      const isProposal = proposalStatus === "pending";
+      // 素材生成中/失败（AI 先落 assetId，或提案已确认仍在异步生成）：单独渲染等待态
       const assetStatus = String(attrs.assetStatus ?? "");
       const isPlan = !isProposal && Boolean(attrs.planStatus);
-      const isGenerating = !isProposal && !isPlan && assetStatus === "generating";
-      const isFailed = !isProposal && !isPlan && assetStatus === "failed";
+      const isGenerating = !isProposal && !isPlan && (proposalStatus === "generating" || assetStatus === "generating");
+      const isFailed = !isProposal && !isPlan && (proposalStatus === "failed" || assetStatus === "failed");
       const accent = isProposal ? PROPOSAL_ACCENT : isPlan ? PLAN_ACCENT : isGenerating ? PENDING_ACCENT : isFailed ? FAILED_ACCENT : CARD_STROKE;
       ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: accent, strokeWidth: isProposal || isPlan || isGenerating || isFailed ? 2 : 1 });
       if (!lowDetail) ops.push(...captionOpsV(this.adapter, x, y, w, label).ops);

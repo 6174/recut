@@ -10,7 +10,7 @@
  * 世界工具栏与「设定视图」切换仍上提到全局 Header（canvas-top-bar.tsx）；
  * 自由元素映射：note→NoteBlockV、text/shape→FreeElementBlockV、绑定两实体的自由箭头→复用
  * RelationArrowBlockV 投影（未绑定箭头暂不渲染）；画面 delta 同步经 moveElement + persistGeometry
- * 另含 RealMediaBlockV（T8 媒体元素）/ 空世界与空容器引导（T9）/ CanvasOutline / toast / 文件拖放（B.12）；
+ * 另含 RealMediaBlockV（T8 媒体元素）/ 空世界与空容器引导（T9）/ toast / 文件拖放（B.12）；
  * 生成提案态（proposal）：媒体元素与 attr 媒体卡从全局 asset 读 proposal，映射为 proposalStatus/
  * proposalPrompt/proposalRefs 等 attrs，供 block 渲染「待确认」态；proposed 但无配方按「计划」映射为
  * planStatus/planPrompt，block 渲染「计划中」；
@@ -40,12 +40,12 @@ import { AlignmentGuidePlugin } from "@/lib/pomelo/world-canvas/plugins/alignmen
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { mediaSource, modalityOfAssetKind, modalityOfKind } from "./canvas-media";
 import { MEDIA_VISUAL_HEIGHT, MEDIA_VISUAL_WIDTH, isMediaVisualModality } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
+import { textAttrHeight, textElementHeight } from "@/lib/pomelo/world-canvas/blocks/text-block-metrics";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
 import { CreatePanel, type CreateGroup, type CreateItem } from "./canvas-create-panel";
 import { relationCandidatesOf } from "./canvas-relation-candidates";
 import { CanvasInlineEditor } from "./canvas-inline-editor";
 import { CanvasToasts } from "./canvas-toast";
-import { CanvasOutline } from "./canvas-outline";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrMediaValueOf, attrValueOf, ENTITY_FIELD_ASSOCIATIONS, entityMediaAttrs } from "./entity-attrs";
 import { isPlanAsset, readProposal, proposalFromAsset } from "./canvas-proposal";
@@ -206,6 +206,13 @@ function buildPomeloRecords(
         ...(element.props?.url ? { url: String(element.props.url) } : {}),
       }) : "";
       const attrVisualBlank = isMediaVisualModality(resolvedAttrMedia) && !mediaSrc;
+      const attrWidth = attrVisualBlank ? MEDIA_VISUAL_WIDTH : Number(element.geometry?.width) || (resolvedAttrMedia === "text" ? 160 : 200);
+      // 文本属性卡高度随内容（换行行数）；其余媒体卡用几何/默认高度
+      const attrHeight = attrVisualBlank
+        ? MEDIA_VISUAL_HEIGHT
+        : resolvedAttrMedia === "text"
+          ? textAttrHeight(String(element.props?.text ?? ""), attrWidth)
+          : Number(element.geometry?.height) || 140;
       const proposal = (attrAsset ? proposalFromAsset(attrAsset) : null) ?? readProposal(element.props);
       const plan = attrAsset ? isPlanAsset(attrAsset) : false;
       records.push({
@@ -214,8 +221,8 @@ function buildPomeloRecords(
         attrs: {
           x: pos.x,
           y: pos.y,
-          width: attrVisualBlank ? MEDIA_VISUAL_WIDTH : Number(element.geometry?.width) || (resolvedAttrMedia === "text" ? 160 : 200),
-          height: attrVisualBlank ? MEDIA_VISUAL_HEIGHT : Number(element.geometry?.height) || (resolvedAttrMedia === "text" ? 90 : 140),
+          width: attrWidth,
+          height: attrHeight,
           elementKind: "attr",
           attrMedia: resolvedAttrMedia,
           // 属性名（props.label，如「环境卡」）优先作为卡片徽标；缺省回退媒体类型标签
@@ -242,10 +249,13 @@ function buildPomeloRecords(
       return;
     }
     if (element.kind === "text") {
+      const text = String(element.props?.text ?? "");
+      const width = Number(element.geometry?.width) || 120;
       records.push({
         id: element.id,
         type: "free-element",
-        attrs: { x: pos.x, y: pos.y, width: Number(element.geometry?.width) || 120, height: Number(element.geometry?.height) || 24, elementKind: "text", text: String(element.props?.text ?? "") },
+        // 文本元素高度随内容（换行行数），不再固定一行
+        attrs: { x: pos.x, y: pos.y, width, height: textElementHeight(text, width), elementKind: "text", text },
       });
       return;
     }
@@ -979,26 +989,55 @@ export function CanvasPomeloHost() {
     }
   }, [dataVersion, ready]);
 
-  // 素材状态变化 → 增量重建文档（等待态 ↔ 真实图/失败态）并重绘 overlay
+  // 素材状态变化 → 增量重建文档（等待态 ↔ 真实图/失败态）并重绘 overlay。
+  // 只处理真正变化的 assetId，并把同一帧内的多次变化合并成一次重建：在途素材会被持续回查，
+  // 逐次全量重建（全量 diff + 全元素/全实体定尺测量）足以占满主线程。
   useEffect(() => {
     if (!ready) return;
-    const unsubscribe = useCanvasAssetStatusStore.subscribe(() => {
+    let frame = 0;
+    let pending = new Set<string>();
+    const flush = () => {
+      frame = 0;
+      const changed = pending;
+      pending = new Set();
       const editor = editorRef.current;
-      if (!editor) return;
+      if (!editor || changed.size === 0) return;
       syncDocFromCanvasStore(editor);
       pluginRef.current?.drawOverlay(editor);
-      // 图片/视频块：素材就绪后按比例补定尺（AI 先落 assetId：创建时素材未就绪，测不到比例）
       const store = useWorldCanvasStore.getState();
+      // 图片/视频块：素材就绪后按比例补定尺（AI 先落 assetId：创建时素材未就绪，测不到比例）
       for (const element of store.elements) {
         if (element.kind !== "media" && element.kind !== "attr") continue;
-        const modality = element.kind === "media" ? element.props?.modality : element.props?.media;
         const assetId = String(element.props?.assetId ?? "");
-        if (assetId && isMediaVisualModality(modality) && canvasAssetStateOf(assetId, undefined) === "ready") store.fitMediaVisualElement(element.id);
+        if (!changed.has(assetId)) continue;
+        const modality = element.kind === "media" ? element.props?.modality : element.props?.media;
+        if (isMediaVisualModality(modality) && canvasAssetStateOf(assetId, undefined) === "ready") store.fitMediaVisualElement(element.id);
       }
       // 有封面的实体卡：封面就绪后测量比例并写回（卡片按封面定尺）
-      for (const entity of store.entities) store.fitEntityCover(entity.id);
+      for (const entity of store.entities) {
+        const cover = entityCoverMedia(store.apiBase, entity);
+        if (cover?.assetId && changed.has(cover.assetId) && canvasAssetStateOf(cover.assetId, undefined) === "ready") store.fitEntityCover(entity.id);
+      }
+    };
+    const unsubscribe = useCanvasAssetStatusStore.subscribe((next, prev) => {
+      let touched = false;
+      for (const assetId of Object.keys(next.statuses)) {
+        if (prev.statuses[assetId] === next.statuses[assetId]) continue;
+        pending.add(assetId);
+        touched = true;
+      }
+      for (const assetId of Object.keys(next.assets)) {
+        if (prev.assets[assetId] === next.assets[assetId]) continue;
+        pending.add(assetId);
+        touched = true;
+      }
+      if (!touched || frame) return;
+      frame = requestAnimationFrame(flush);
     });
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (frame) cancelAnimationFrame(frame);
+    };
   }, [ready]);
 
   // T8 文件拖放（B.12 矩阵）：文件 → 实体卡 = 直接写为 media 属性（attachMediaAttr，不建画布元素）；
@@ -1089,7 +1128,6 @@ export function CanvasPomeloHost() {
       <CanvasInlineEditor />
       <EmptyWorldGuide />
       <EmptyContainerGuide />
-      <CanvasOutline />
       <CanvasToasts />
       <PanOverlay editorRef={editorRef} />
       <AttrCreatorPanel />
