@@ -553,8 +553,8 @@ function Tab({
       aria-current={active ? "page" : undefined}
       className={
         active
-          ? "rounded-lg bg-accent px-2 py-1.5 text-[11px] font-semibold text-accent-foreground sm:px-2.5 sm:text-xs"
-          : "rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground sm:px-2.5 sm:text-xs"
+          ? "rounded-lg bg-secondary px-2 py-1.5 text-[11px] font-semibold text-foreground sm:px-2.5 sm:text-xs"
+          : "rounded-lg px-2 py-1.5 text-[11px] font-medium text-foreground hover:bg-secondary/70 sm:px-2.5 sm:text-xs"
       }
       href={href}
       onClick={(event) => onNavigate(tab, href, event)}
