@@ -1,17 +1,18 @@
 /*
- * [INPUT]: 依赖 service endpoint 配置、Recut Skill 状态、media-configuration-store 的 Provider/Credential/Route 快照、工作台 UI 原子组件（含 CustomSelect 全局下拉）、i18n 字典与 /v1/preferences 语言偏好持久化
- * [OUTPUT]: 对外提供全局设置面板，以及通用设置（界面语言）、本机/LAN service 连接、Recut Skill 软链接、Recut MCP 工具清单、Provider 连接/删除和用途模型配置体验；视觉契约：无描边设置页——内容块与列表行默认带浅填充底（悬停加深）以区分块，命令用深色内嵌容器，组标题 15px 加粗、页面标题 20px，块间与标题间不用边框/分割线，导航当前分类用绿色标记指示，目录行悬停高亮、计数用等宽填充芯片（无描边）；连接 Provider 走二级弹框，只列出需要密钥的服务商，Audio Studio 本机 TTS 作为语音生成的免密钥特殊选项直接出现在用途模型里；只展示已可用的设置项，加载完成前保留明确等待态，表单字段均有可见标签；用途模型选择走双栏 ModelPicker（候选仅限已连接凭据的 Provider + 本机免 key 项；左：搜索 + Provider 分组列表，右：模型详情卡，含凭据状态/计费/输入/输出参数/参考上限），服务商下拉复用 CustomSelect（Radix Popover Portal，避免重叠/裁剪）
- * [POS]: web/components 的工作台级设置入口；通用偏好（语言）、service 地址、Recut Skill、Provider 与用途模型的唯一用户配置界面，不暴露尚未实现的应用管理入口，API Key 草稿不外泄到全局缓存；打开时从 /v1/preferences 载入语言偏好
+ * [INPUT]: 依赖 service 状态与 endpoint 配置、ServiceStatusSettings 与共享的 service 状态读取/连接轮询、Recut Skill 状态、media-configuration-store 的 Provider/Credential/Route 快照、工作台 UI 原子组件（含 CustomSelect 全局下拉）、i18n 字典与 /v1/preferences 语言偏好持久化
+ * [OUTPUT]: 对外提供全局设置面板，以及通用设置（界面语言）、Service 状态与本机/LAN 连接（默认分类；入口图标以状态点与高亮承载 service 在线/检查/离线与更新提示）、Recut Skill 软链接、Recut MCP 工具清单、Provider 连接/删除和用途模型配置体验；视觉契约：无描边设置页——内容块与列表行默认带浅填充底（悬停加深）以区分块，命令用深色内嵌容器，组标题 15px 加粗、页面标题 20px，块间与标题间不用边框/分割线，导航当前分类用绿色标记指示，目录行悬停高亮、计数用等宽填充芯片（无描边）；连接 Provider 走二级弹框，只列出需要密钥的服务商，Audio Studio 本机 TTS 作为语音生成的免密钥特殊选项直接出现在用途模型里；只展示已可用的设置项，加载完成前保留明确等待态，表单字段均有可见标签；用途模型选择走双栏 ModelPicker（候选仅限已连接凭据的 Provider + 本机免 key 项；左：搜索 + Provider 分组列表，右：模型详情卡，含凭据状态/计费/输入/输出参数/参考上限），服务商下拉复用 CustomSelect（Radix Popover Portal，避免重叠/裁剪）
+ * [POS]: web/components 的工作台级设置入口；通用偏好（语言）、service 状态与地址、Recut Skill、Provider 与用途模型的唯一用户配置界面，不暴露尚未实现的应用管理入口，API Key 草稿不外泄到全局缓存；打开时默认停在 Service 分类并同步外部指定的分类，从 /v1/preferences 载入语言偏好
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { Check, Copy, Image, Link2, Mic2, Plug, Plus, Server, Settings, SlidersHorizontal, Sparkles, Trash2, Video, X } from "lucide-react";
+import { ArrowRight, Check, Copy, Image, Link2, Mic2, Plug, Plus, Server, Settings, SlidersHorizontal, Sparkles, Trash2, Video, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { RecutMCPSettings } from "@/components/recut-mcp-settings";
 import { RecutSkillSettings } from "@/components/recut-skill-settings";
+import { ServiceStatusSettings, latestVersion, useServicePolling, useServiceStatus } from "@/components/service-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ModelPicker } from "@/components/model-picker";
@@ -20,7 +21,7 @@ import { useI18n, type Locale } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 import { useLocaleStore } from "@/lib/i18n/locale-store";
 import { loadLocalePreference, loadVideoProposalGate, saveLocalePreference, saveVideoProposalGate } from "@/lib/i18n/preferences";
-import { fetchRecutJSON, normalizeServiceEndpoint } from "@/lib/service-endpoint";
+import { fetchRecutJSON, isDefaultServiceEndpoint, normalizeServiceEndpoint } from "@/lib/service-endpoint";
 import {
   useMediaConfigurationStore,
   type MediaCredential as Credential,
@@ -68,10 +69,13 @@ function providerInfo(t: (key: string) => string, id: string) {
 export function SettingsPanel({ open: controlledOpen, onOpenChange, section }: { open?: boolean; onOpenChange?: (open: boolean) => void; section?: SettingSection }) {
   const { t } = useI18n();
   const apiBase = useServiceStore((state) => state.endpoint);
+  const { service, online, updateAvailable } = useServiceStatus();
+  useServicePolling();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
-  const [selectedSection, setSelectedSection] = useState<SettingSection>("general");
+  const [selectedSection, setSelectedSection] = useState<SettingSection>(section ?? "service");
   const open = controlledOpen ?? uncontrolledOpen;
-  const activeSection = section ?? selectedSection;
+  const activeSection = selectedSection;
+  useEffect(() => { if (open) setSelectedSection(section ?? "service"); }, [open, section]);
   function setOpen(next: boolean) { if (controlledOpen === undefined) setUncontrolledOpen(next); onOpenChange?.(next); }
   useEffect(() => { if (!open) return; const close = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [open]);
   useEffect(() => {
@@ -83,8 +87,9 @@ export function SettingsPanel({ open: controlledOpen, onOpenChange, section }: {
   const sectionDescription = activeSection === "general" ? t("settings.desc.general") : activeSection === "service" ? t("settings.desc.service") : activeSection === "multimodal" ? t("settings.desc.multimodal") : activeSection === "skill" ? t("settings.desc.skill") : t("settings.desc.mcp");
   return (
     <>
-      <button aria-expanded={open} aria-haspopup="dialog" aria-label={t("settings.open.aria")} className="grid size-8 place-items-center rounded-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={() => setOpen(true)} title={t("settings.open.aria")} type="button">
+      <button aria-expanded={open} aria-haspopup="dialog" aria-label={t("settings.open.aria")} className={`relative grid size-8 place-items-center rounded-xs transition-colors hover:bg-muted hover:text-foreground ${updateAvailable ? "text-primary" : "text-muted-foreground"}`} onClick={() => setOpen(true)} title={updateAvailable ? interpolate(t("service.upgrade.title"), { version: latestVersion }) : t("settings.open.aria")} type="button">
         <Settings className="size-4" />
+        <span aria-hidden="true" className={`absolute right-1.5 top-1.5 size-1.5 rounded-full ${online ? "bg-success" : service.phase === "checking" ? "animate-pulse bg-muted-foreground" : "bg-warning"}`} />
       </button>
       {open && (
         <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-foreground/20 p-6 backdrop-blur-[1px]" onMouseDown={() => setOpen(false)} role="dialog">
@@ -95,7 +100,7 @@ export function SettingsPanel({ open: controlledOpen, onOpenChange, section }: {
             </nav>
             <div className="min-w-0 overflow-y-auto p-8">
               <div className="flex items-start justify-between pb-6"><div><h2 className="text-xl font-semibold">{t(sections.find((item) => item.id === activeSection)?.labelKey ?? "settings.title")}</h2><p className="mt-1.5 max-w-2xl text-sm text-foreground/80">{sectionDescription}</p></div><button aria-label={t("settings.close.aria")} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={() => setOpen(false)} type="button"><X className="size-4" /></button></div>
-              {activeSection === "general" ? <><LanguageSettings /><GenerationSettings /></> : activeSection === "service" ? <ServiceEndpointSettings /> : activeSection === "multimodal" ? <ProviderSettings /> : activeSection === "skill" ? <RecutSkillSettings apiBase={apiBase} /> : <RecutMCPSettings apiBase={apiBase} />}
+              {activeSection === "general" ? <><LanguageSettings /><GenerationSettings /></> : activeSection === "service" ? <div className="space-y-8"><ServiceStatusSettings /><ServiceEndpointSettings /></div> : activeSection === "multimodal" ? <ProviderSettings /> : activeSection === "skill" ? <RecutSkillSettings apiBase={apiBase} /> : <RecutMCPSettings apiBase={apiBase} />}
             </div>
           </section>
         </div>
@@ -148,21 +153,23 @@ function ServiceEndpointSettings() {
   const setServiceEndpoint = useServiceStore((state) => state.setEndpoint);
   const resetServiceEndpoint = useServiceStore((state) => state.resetEndpoint);
   const refreshService = useServiceStore((state) => state.refresh);
-  const [endpoint, setEndpoint] = useState(savedEndpoint);
+  const offline = useServiceStore((state) => state.service.phase === "offline");
+  const remoteConfigured = !isDefaultServiceEndpoint(savedEndpoint);
+  const [endpoint, setEndpoint] = useState(remoteConfigured ? savedEndpoint : "");
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(false);
   const installCommand = "curl -fsSL https://recut.video/install.sh | sh";
 
-  useEffect(() => { setEndpoint(savedEndpoint); }, [savedEndpoint]);
+  useEffect(() => { setEndpoint(isDefaultServiceEndpoint(savedEndpoint) ? "" : savedEndpoint); }, [savedEndpoint]);
 
   async function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setMessage(""); setWorking(true);
     try {
       const nextEndpoint = normalizeServiceEndpoint(endpoint);
+      if (new URL(nextEndpoint).protocol !== "https:") throw new Error(t("settings.endpoint.https.required"));
       setServiceEndpoint(nextEndpoint);
       await refreshService();
-      const insecureRemote = window.location.protocol === "https:" && nextEndpoint.startsWith("http:") && !nextEndpoint.includes("127.0.0.1") && !nextEndpoint.includes("localhost");
-      setMessage(insecureRemote ? t("settings.endpoint.insecure") : t("settings.endpoint.saved"));
+      setMessage(t("settings.endpoint.saved"));
     } catch (cause) { setMessage(`${cause instanceof Error ? cause.message : t("settings.endpoint.save.failed")}。`); } finally { setWorking(false); }
   }
 
@@ -176,7 +183,7 @@ function ServiceEndpointSettings() {
     try { await navigator.clipboard.writeText(installCommand); setMessage(t("settings.endpoint.copied")); } catch { setMessage(t("settings.endpoint.copy.failed")); }
   }
 
-  return <section className="max-w-2xl space-y-4 pt-1"><div className="rounded-md bg-foreground/5 p-4"><p className="text-[15px] font-semibold">{t("settings.endpoint.title")}</p><p className="mt-1 text-xs leading-5 text-foreground/85">{interpolate(t("settings.endpoint.desc"), { code: ":17373", example: "http://192.168.1.9:17373" })}</p><form className="mt-4" onSubmit={connect}><label className="mb-1.5 block text-xs font-medium" htmlFor="service-endpoint">{t("settings.endpoint.label")}</label><div className="flex gap-2"><Input id="service-endpoint" onChange={(event) => setEndpoint(event.target.value)} placeholder={t("settings.endpoint.placeholder")} value={endpoint} /><Button disabled={!endpoint.trim() || working} type="submit">{working ? t("settings.endpoint.verify") : t("settings.endpoint.connect")}</Button></div><p className="mt-2 text-[11px] leading-4 text-foreground/70">{t("settings.endpoint.hint")}</p></form></div><div className="rounded-md bg-foreground/5 p-4"><p className="text-[15px] font-semibold">{t("settings.endpoint.install.title")}</p><p className="mt-1 text-[11px] leading-4 text-foreground/70">{interpolate(t("settings.endpoint.install.desc"), { code: "127.0.0.1:17373" })}</p><div className="mt-3 flex items-center gap-2 rounded-sm bg-background/60 p-2"><code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap px-1 font-mono text-[11px]">{installCommand}</code><Button aria-label={t("settings.endpoint.copy.aria")} className="size-7 shrink-0 px-0" onClick={() => void copyInstallCommand()} title={t("settings.endpoint.copy.title")} type="button" variant="outline"><Copy className="size-3.5" /></Button></div></div><div className="flex items-center justify-between gap-4 rounded-md bg-foreground/5 p-4"><div><p className="text-[15px] font-semibold">{t("settings.endpoint.restore.title")}</p><p className="mt-1 text-[11px] text-foreground/70">{t("settings.endpoint.restore.desc")}</p></div><Button onClick={useLocalService} type="button" variant="outline">{t("settings.endpoint.restore.submit")}</Button></div>{message && <p className="text-xs text-warning" role="status">{message}</p>}</section>;
+  return <div className="space-y-8"><section className="max-w-2xl"><p className="text-[15px] font-semibold">{t("settings.endpoint.title")}</p><p className="mt-1 text-xs leading-5 text-foreground/85">{t("settings.endpoint.desc")}</p><form className="mt-3" onSubmit={connect}><label className="sr-only" htmlFor="service-endpoint">{t("settings.endpoint.label")}</label><div className="flex gap-2"><Input id="service-endpoint" onChange={(event) => setEndpoint(event.target.value)} placeholder={t("settings.endpoint.placeholder")} value={endpoint} /><Button disabled={!endpoint.trim() || working} type="submit">{working ? t("settings.endpoint.verify") : t("settings.endpoint.connect")}</Button></div><p className="mt-2 text-[11px] leading-4 text-foreground/70">{t("settings.endpoint.hint")}</p></form>{remoteConfigured && <button className="mt-3 inline-flex items-center gap-1 text-xs text-foreground/70 transition-colors hover:text-foreground" onClick={useLocalService} title={t("settings.endpoint.restore.desc")} type="button">{t("settings.endpoint.restore.submit")}<ArrowRight className="size-3.5" /></button>}{message && <p className="mt-3 text-xs text-warning" role="status">{message}</p>}</section>{offline && !remoteConfigured && <section className="max-w-2xl"><p className="text-[15px] font-semibold">{t("settings.endpoint.install.title")}</p><p className="mt-1 text-xs leading-5 text-foreground/85">{interpolate(t("settings.endpoint.install.desc"), { code: "127.0.0.1:17373" })}</p><div className="mt-3 flex items-center gap-2 rounded-sm bg-foreground/5 p-2"><code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap px-1 font-mono text-[11px]">{installCommand}</code><Button aria-label={t("settings.endpoint.copy.aria")} className="size-7 shrink-0 px-0" onClick={() => void copyInstallCommand()} title={t("settings.endpoint.copy.title")} type="button" variant="outline"><Copy className="size-3.5" /></Button></div></section>}</div>;
 }
 
 function ProviderSettings() {

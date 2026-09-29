@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 Zustand persist、工作台模式下的 service endpoint 默认值与 Daemon 的 health/system status HTTP API
  * [OUTPUT]: 对外提供 cloud 模式跨刷新持久化、local/LAN 模式固定默认地址的 endpoint，以及全局共享的 service 连接状态、版本、进程启动时间、能力、连接错误与去重刷新动作
- * [POS]: web/lib 的服务状态唯一真相；所有 HTTP、SSE 与 WebSocket 调用订阅 endpoint，根级 ServiceControl 负责初始化；开发与内嵌工作台绝不复用 cloud 的旧远程地址
+ * [POS]: web/lib 的服务状态唯一真相；所有 HTTP、SSE 与 WebSocket 调用订阅 endpoint，根级设置入口（SettingsPanel）负责初始化；开发与内嵌工作台绝不复用 cloud 的旧远程地址
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { create } from "zustand";

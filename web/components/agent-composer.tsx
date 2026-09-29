@@ -6,15 +6,15 @@
  */
 "use client";
 
-import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleStop, FileText, Globe2, ImagePlus, SlidersHorizontal, X } from "lucide-react";
-import { type FormEvent, type ReactNode, useMemo, useRef, useState } from "react";
+import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleStop, FileText, Globe2, ImagePlus, X } from "lucide-react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatus, type Runtime } from "@/components/agent-install-guide";
 import { AssetReferenceChip } from "@/components/asset-reference-picker";
 import { ContextMentionPopover } from "@/components/context-panel/context-mention-popover";
 import { RichComposer } from "@/components/rich-composer/rich-composer";
 import { Button } from "@/components/ui/button";
-import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, hasWorkFocusSelection, opencodeModelLabel, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PickedContext, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
+import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, hasWorkFocusSelection, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PickedContext, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
 import type { ContextOption } from "@/lib/context-catalog/types";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
@@ -160,12 +160,6 @@ export function Composer({
         ? t("agent.composer.config.opencode")
         : t("agent.composer.config.claude");
   const configDisabled = disabled || runtime === "claude";
-  const configSummary =
-    runtime === "codex"
-      ? `${codexModelLabel(codexConfiguration.codexModel)} · ${localizedReasoningLabel(t, codexConfiguration.reasoningEffort)}`
-      : runtime === "opencode"
-        ? opencodeModelLabel(opencodeConfiguration.opencodeModel)
-        : "";
   const placeholder = firstTurn
     ? interpolate(t("agent.composer.placeholder.first"), { name: runtimeAgentName(runtime) })
     : t("agent.composer.placeholder");
@@ -221,24 +215,19 @@ export function Composer({
           workSurface={workSurface}
         />
         <div className="mt-1 flex items-center justify-between">
-          <div className="relative min-w-0 flex-1">
-            <button
+          <div className="relative">
+            <Button
               aria-expanded={configOpen}
-              className="flex min-h-8 w-full min-w-0 items-center gap-1.5 rounded-sm px-1 text-left text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed"
+              aria-label={configButtonTitle}
+              className="size-6 rounded-full p-0 text-muted-foreground hover:text-foreground"
               disabled={configDisabled}
               onClick={() => setConfigOpen((value) => !value)}
               title={configButtonTitle}
               type="button"
+              variant="ghost"
             >
-              <Bot className="size-3" />
-              <span>{runtimeLabel(runtime)}</span>
-              {configSummary && (
-                <span className="min-w-0 truncate text-muted-foreground/70">
-                  {configSummary}
-                </span>
-              )}
-              <SlidersHorizontal className="size-3.5" />
-            </button>
+              <Bot className="size-3.5" />
+            </Button>
             {configOpen && runtime === "codex" && (
               <CodexConfigurationPopover
                 configuration={codexConfiguration}
@@ -409,13 +398,25 @@ function OpencodeConfigurationPopover({
 }) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
+  const selectedRef = useRef<HTMLButtonElement>(null);
   const matchingModels = models.filter((model) =>
     model.id.toLowerCase().includes(query.trim().toLowerCase()),
   );
   const providers = [...new Set(matchingModels.map((model) => model.provider))];
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: "nearest" });
+  }, [models.length]);
   return (
     <section className="absolute bottom-full left-0 z-30 mb-2 w-80 overflow-hidden rounded-md border bg-popover p-1.5 shadow-[var(--shadow-overlay)]">
-      <p className="px-2 py-1.5 text-xs font-medium">{t("agent.composer.model")}</p>
+      <div className="flex items-baseline justify-between gap-2 px-2 py-1.5">
+        <p className="shrink-0 text-xs font-medium">{t("agent.composer.currentModel")}</p>
+        <p
+          className="min-w-0 truncate font-mono text-[10px] text-muted-foreground"
+          title={configuration.opencodeModel}
+        >
+          {configuration.opencodeModel}
+        </p>
+      </div>
       <label className="sr-only" htmlFor="opencode-model-search">
         {t("agent.composer.searchModel")}
       </label>
@@ -436,21 +437,25 @@ function OpencodeConfigurationPopover({
             </p>
             {matchingModels
               .filter((model) => model.provider === provider)
-              .map((model) => (
-                <button
-                  className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted"
-                  key={model.id}
-                  onClick={() => onChange({ opencodeModel: model.id })}
-                  type="button"
-                >
-                  <span className="min-w-0 flex-1 break-all font-mono text-[10px]">
-                    {model.id}
-                  </span>
-                  {model.id === configuration.opencodeModel && (
-                    <Check className="size-3.5 shrink-0 text-primary" />
-                  )}
-                </button>
-              ))}
+              .map((model) => {
+                const selected = model.id === configuration.opencodeModel;
+                return (
+                  <button
+                    className={`flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted ${selected ? "bg-secondary/60" : ""}`}
+                    key={model.id}
+                    onClick={() => onChange({ opencodeModel: model.id })}
+                    ref={selected ? selectedRef : undefined}
+                    type="button"
+                  >
+                    <span className="min-w-0 flex-1 break-all font-mono text-[10px]">
+                      {model.id}
+                    </span>
+                    {selected && (
+                      <Check className="size-3.5 shrink-0 text-primary" />
+                    )}
+                  </button>
+                );
+              })}
           </section>
         ))}
         {matchingModels.length === 0 && (
