@@ -18,8 +18,9 @@
  * 渲染「生成中/失败」态并在素材就绪后经状态订阅增量重建文档；
  * 就绪态（ready）只表示 pomelo 文档已挂上，不含字体：字体在后台加载，加载中在画布底部显式提示
  * 进度（订阅 pomelo-vello/vello-fonts 的快照），字体到位后由适配器整场重绘把文字补上；
- * 「+」引导面板支持把实体简介/正文作为关联拖出；文本属性卡高度服从几何 box（渲染侧裁剪溢出，
- * 不随内容自增长），双击就地编辑内滚动并支持全屏放大；
+ * 「+」引导面板（AttrCreatorPanel）与创建菜单共用 CreatePanel 交互结构（搜索 + 左分组列表 + 右详情 +
+ * 「创建」），支持把实体 schema 建议字段/简介/正文作为关联拖出；文本属性卡高度服从几何 box
+ * （渲染侧裁剪溢出，不随内容自增长），双击就地编辑内滚动并支持全屏放大；
  * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
  * `wc:vp:<worldId>:<contextId>`，进出容器先存回来源再恢复目标，无快照才 fit）；
  * 撤销/重做 = 语义撤销/重做（canvas-store changeLog/redoLog 双栈，经 Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z 与工具栏），不走 yjs UndoManager
@@ -37,8 +38,10 @@ import { ViewportPlugin, centerContent, panBy } from "@/lib/pomelo/world-canvas/
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
 import { AlignmentGuidePlugin } from "@/lib/pomelo/world-canvas/plugins/alignment-guide-plugin";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
-import { fitElementToAsset, mediaSource, modalityOfAssetKind, modalityOfKind, type MediaModality } from "./canvas-media";
+import { mediaSource, modalityOfAssetKind, modalityOfKind } from "./canvas-media";
+import { MEDIA_VISUAL_HEIGHT, MEDIA_VISUAL_WIDTH, isMediaVisualModality } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
+import { CreatePanel, type CreateGroup, type CreateItem } from "./canvas-create-panel";
 import { relationCandidatesOf } from "./canvas-relation-candidates";
 import { CanvasInlineEditor } from "./canvas-inline-editor";
 import { CanvasToasts } from "./canvas-toast";
@@ -50,7 +53,7 @@ import { canvasAssetOf, canvasAssetStateOf, ensureCanvasAssetStatus, stopCanvasA
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
-import { entityAttrMediaRef } from "@/lib/recut-worlds-client";
+import { entityAttrMediaRef, entityKindLabel, type EntityAttrMediaValue } from "@/lib/recut-worlds-client";
 
 // ---------- canvas-store → pomelo document 映射（block id 约定） ----------
 
@@ -108,6 +111,8 @@ function buildPomeloRecords(
       if (!value?.assetId) continue;
       if (canvasAssetStateOf(value.assetId, undefined) !== "ready") pendingUrls.add(mediaSource(state.apiBase, { assetId: value.assetId }));
     }
+    // 实体卡标题的类型前缀文案：type 目录 name 优先（B.2 用户语言），目录缺失回退静态 label
+    const kindLabel = state.entityTypes.find((item) => item.id === entity.typeId)?.name || entityKindLabel(entity.typeId);
     records.push({
       id: `entity:${entity.id}`,
       type: "entity-card",
@@ -121,9 +126,12 @@ function buildPomeloRecords(
         tags: [],
         desc: entity.intro || "",
         kind: entity.typeId,
+        kindLabel,
         cover: "",
         coverUrl: coverState === "ready" ? cover?.url ?? "" : "",
         coverKind: coverState === "ready" ? cover?.kind ?? undefined : undefined,
+        // 封面比例（store.fitEntityCover 测量的 naturalWidth/Height）：有封面时卡片按它定尺
+        ...(Number(element?.props?.coverAspect) > 0 ? { coverAspect: Number(element?.props?.coverAspect) } : {}),
         ...(coverState !== "ready" ? { coverStatus: coverState } : {}),
         // photoUrls = 参考素材图片（头图取自参考素材时已剔除那张；未就绪素材另行等待态）
         photoUrls: photoUrls.filter((url) => !pendingUrls.has(url)),
@@ -156,16 +164,19 @@ function buildPomeloRecords(
       // AI 先落 assetId（素材仍在生成）时：不把未就绪的素材 URL 交给渲染器（避免 404 重试），
       // 走蓝/红等待态；素材就绪后由状态订阅重建文档切到真实图。proposed 由提案/计划徽标表达。
       const assetState = canvasAssetStateOf(assetId, element.props?.assetStatus);
+      const mediaSrc = assetState === "ready" ? mediaSource(state.apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }) : "";
+      // 图片/视频块按素材比例定尺、空素材 = 16:9 占位（比例由 store 在素材就绪后写入几何）
+      const visualBlank = isMediaVisualModality(modality) && !mediaSrc;
       records.push({
         id: element.id,
         type: "media",
         attrs: {
           x: pos.x,
           y: pos.y,
-          width: liveSize?.width ?? (Number(element.geometry?.width) || 220),
-          height: liveSize?.height ?? (Number(element.geometry?.height) || 150),
+          width: liveSize?.width ?? (visualBlank ? MEDIA_VISUAL_WIDTH : Number(element.geometry?.width) || 220),
+          height: liveSize?.height ?? (visualBlank ? MEDIA_VISUAL_HEIGHT : Number(element.geometry?.height) || 150),
           modality,
-          src: assetState === "ready" ? mediaSource(state.apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }) : "",
+          src: mediaSrc,
           ...(assetState !== "ready" && assetState !== "proposed" ? { assetStatus: assetState } : {}),
           attached: element.props?.evidenceId ? true : undefined,
           label: String(element.name ?? ""),
@@ -194,6 +205,7 @@ function buildPomeloRecords(
         ...(attrAssetId ? { assetId: attrAssetId } : {}),
         ...(element.props?.url ? { url: String(element.props.url) } : {}),
       }) : "";
+      const attrVisualBlank = isMediaVisualModality(resolvedAttrMedia) && !mediaSrc;
       const proposal = (attrAsset ? proposalFromAsset(attrAsset) : null) ?? readProposal(element.props);
       const plan = attrAsset ? isPlanAsset(attrAsset) : false;
       records.push({
@@ -202,8 +214,8 @@ function buildPomeloRecords(
         attrs: {
           x: pos.x,
           y: pos.y,
-          width: Number(element.geometry?.width) || (resolvedAttrMedia === "text" ? 160 : 200),
-          height: Number(element.geometry?.height) || (resolvedAttrMedia === "text" ? 90 : 140),
+          width: attrVisualBlank ? MEDIA_VISUAL_WIDTH : Number(element.geometry?.width) || (resolvedAttrMedia === "text" ? 160 : 200),
+          height: attrVisualBlank ? MEDIA_VISUAL_HEIGHT : Number(element.geometry?.height) || (resolvedAttrMedia === "text" ? 90 : 140),
           elementKind: "attr",
           attrMedia: resolvedAttrMedia,
           // 属性名（props.label，如「环境卡」）优先作为卡片徽标；缺省回退媒体类型标签
@@ -423,11 +435,12 @@ function restoreViewport(editor: PomeloEditor, key: string): boolean {
 }
 
 
-// ---------- 「+」生成引导面板（两区：属性 / 实体）----------
-// 属性区：来源实体 type schema 建议字段 + 一等实体字段「简介/正文」（预填 entity.intro/detail，
-// 编辑即回写字段）+ 空白属性（四种媒体）；实体区：直接列预设/自定义实体类型，点即建草稿卡
-// （「空白」用最近使用类型），并自动补一条默认关系（候选 Top1；边类型不在面板选：创建后点击边，
-// 右侧边属性面板直接调整）。
+// ---------- 「+」生成引导面板（分组：属性 / 空白属性 / 实体）----------
+// 与创建菜单（CreateMenu）共用 CreatePanel 交互结构（搜索 + 左分组列表 + 右详情 + 「创建」），
+// 不再自成一枚 chip 面板：属性组 = 来源实体 type schema 建议字段 + 一等实体字段「简介/正文」
+// （预填 entity.intro/detail，编辑即回写字段）——已填值的带值可选、未填值的可新建设置；空白属性组 =
+// 四种媒体；实体组 = 预设/自定义实体类型 + 「空白」（最近使用），点即建草稿卡并自动补一条默认关系
+// （候选 Top1；边类型不在面板选：创建后点击边，右侧边属性面板直接调整）。
 
 function AttrCreatorPanel() {
   const creator = useWorldCanvasStore((state) => state.attrCreator);
@@ -476,11 +489,11 @@ function AttrCreatorPanel() {
     return { key: field.key, label: field.label, type: "text" as const, options: undefined as string[] | undefined, rawValue: value, mediaValue: null, value: value };
   });
   const attributeSuggestions = [...entityFieldSuggestions, ...suggestedFields];
-  const filledFields = attributeSuggestions.filter((field) => field.value.trim() || (field.type === "media" && field.mediaValue && field.mediaValue.assetId));
   const pos = {
     x: Number.isFinite(creator.worldX) ? creator.worldX! : 420,
     y: Number.isFinite(creator.worldY) ? creator.worldY! : 300,
-  };  const blankMediaOptions: Array<{ media: AttrMedia; label: string; icon: string }> = [
+  };
+  const blankMediaOptions: Array<{ media: AttrMedia; label: string; icon: string }> = [
     { media: "text", label: "文本", icon: "≡" },
     { media: "image", label: "图片", icon: "🖼" },
     { media: "audio", label: "音频", icon: "♪" },
@@ -503,115 +516,140 @@ function AttrCreatorPanel() {
       await createRelation(fromEntity.id, newId, fromRole);
     })();
   };
+  // 面板条目：与创建菜单同一套 CreatePanel 结构（左分组列表 + 右详情 + 「创建」）
+  type AttrField = {
+    key: string;
+    label?: string;
+    type?: string;
+    options?: string[];
+    rawValue: unknown;
+    mediaValue: EntityAttrMediaValue | null;
+    value: string;
+  };
+  const mediaIconOf = (media: AttrMedia) => (media === "image" ? "🖼" : media === "video" ? "▶" : media === "audio" ? "♪" : "≡");
+  const mediaLabelOf = (media: AttrMedia) => (media === "image" ? "图片" : media === "video" ? "视频" : media === "audio" ? "音频" : "文本");
+
+  const attrFields: AttrField[] = attributeSuggestions;
+  const attrMediaOf = (field: AttrField): AttrMedia =>
+    field.type === "media" ? ((field.options?.[0] as AttrMedia) ?? (field.mediaValue?.kind as AttrMedia) ?? "image") : "text";
+  const attrPreviewOf = (field: AttrField) => (field.mediaValue && field.mediaValue.assetId ? field.mediaValue : null);
+  const attrSummaryOf = (field: AttrField): string => {
+    const mediaPreview = attrPreviewOf(field);
+    return mediaPreview ? mediaPreview.name || `${mediaLabelOf(attrMediaOf(field))}素材` : field.value;
+  };
+  const attrFilled = (field: AttrField) => Boolean(field.value.trim()) || Boolean(field.type === "media" && field.mediaValue?.assetId);
+
+  const attrItem = (field: AttrField): CreateItem => {
+    const media = attrMediaOf(field);
+    const mediaPreview = attrPreviewOf(field);
+    const summary = attrSummaryOf(field);
+    const filled = attrFilled(field);
+    return {
+      key: `attr:${field.key}`,
+      label: field.label ?? field.key,
+      icon: mediaIconOf(media),
+      hint: filled ? summary : "新建",
+      preview: {
+        icon: mediaIconOf(media),
+        title: field.label ?? field.key,
+        subtitle: filled ? `已填值 · ${mediaLabelOf(media)}属性` : `空白${mediaLabelOf(media)}属性`,
+        body: `从「${creator.fromEntityTitle}」连一条属性边并落一张${mediaLabelOf(media)}属性卡（边即属性关联），建卡后可就地编辑、在右侧面板改写。`,
+        facts: [
+          { label: "属性名", value: field.label ?? field.key },
+          { label: "媒体", value: mediaLabelOf(media) },
+          ...(filled ? [{ label: "当前值", value: summary }] : []),
+        ],
+      },
+      run: () => {
+        if (mediaPreview?.assetId) {
+          const assetId = mediaPreview.assetId;
+          void (async () => {
+            // 建卡后由 store 按素材比例定尺（canvas-store.fitMediaVisualElement）
+            await createAttribute(creator.fromEntityId, media, pos, { label: field.label ?? field.key, assetId, assetName: mediaPreview.name }, "attr");
+          })();
+        } else if (filled) {
+          void createAttribute(creator.fromEntityId, "text", pos, { label: field.label ?? field.key, text: String(field.rawValue ?? field.value) }, "attr");
+        } else {
+          void createAttribute(creator.fromEntityId, media, pos, { label: field.label ?? field.key, text: "" }, "attr");
+        }
+        setAttrCreator(null);
+      },
+    };
+  };
+
+  const blankItems: CreateItem[] = blankMediaOptions.map((option): CreateItem => ({
+    key: `blank:${option.media}`,
+    label: `${option.label}属性`,
+    icon: option.icon,
+    hint: "空白属性",
+    preview: {
+      icon: option.icon,
+      title: `空白${option.label}属性`,
+      subtitle: "空白属性",
+      body: `从「${creator.fromEntityTitle}」连一条属性边并落一张空白${option.label}属性卡，创建后就地命名。`,
+    },
+    run: () => {
+      void (async () => {
+        // 空白属性：创建后进入命名态（填写属性名称），值提交时同步到实体 content 字段
+        const attrId = await createAttribute(creator.fromEntityId, option.media, pos, undefined, "attr");
+        if (attrId) {
+          startInlineEdit({
+            kind: "attr-title",
+            elementId: attrId,
+            rect: { x: pos.x, y: pos.y, width: 260, height: 28 },
+            value: "",
+          });
+        }
+      })();
+      setAttrCreator(null);
+    },
+  }));
+
+  const lastKind = readLastKind();
+  const entityItems: CreateItem[] = [
+    ...entityTypes.map((item): CreateItem => ({
+      key: `entity:${item.id}`,
+      label: item.name || item.id,
+      icon: item.icon || "◍",
+      hint: item.scope === "custom" ? "自定义类型" : "预设类型",
+      preview: {
+        icon: item.icon || "◍",
+        title: item.name || item.id,
+        subtitle: "新设定",
+        body: `在画布上落一张「${item.name || item.id}」草稿卡，并从「${creator.fromEntityTitle}」补一条默认关系；创建后可点边改类型。`,
+      },
+      run: () => createEntityAt(item.id),
+    })),
+    {
+      key: "entity:blank",
+      label: "空白",
+      icon: "◻",
+      hint: `最近使用 · ${entityTypes.find((item) => item.id === lastKind)?.name ?? lastKind}`,
+      preview: {
+        icon: "◻",
+        title: "空白设定",
+        subtitle: "最近使用类型",
+        body: `用最近使用的类型在画布上落一张草稿卡，并从「${creator.fromEntityTitle}」补一条默认关系。`,
+      },
+      run: () => createEntityAt(lastKind),
+    },
+  ];
+
+  const groups: CreateGroup[] = [
+    { key: "attr-filled", title: sourceType ? `属性 · ${sourceType.name}已填的带值可选` : "属性 · 已填值可选", items: attrFields.filter(attrFilled).map(attrItem) },
+    { key: "attr-new", title: "属性 · 可新建", items: attrFields.filter((field) => !attrFilled(field)).map(attrItem) },
+    { key: "blank", title: "空白属性", items: blankItems },
+    { key: "entity", title: "实体", items: entityItems },
+  ].filter((group) => group.items.length > 0);
+
   return (
-    <div className="fixed z-40 w-72 rounded-xl border border-border bg-card p-3 text-sm shadow-2xl" style={{ left: Math.min(Math.max(16, creator.screenX), (typeof window !== "undefined" ? window.innerWidth - 300 : 800)), top: Math.min(Math.max(16, creator.screenY), (typeof window !== "undefined" ? window.innerHeight - 280 : 600)) }} onMouseDown={(event) => event.stopPropagation()}>
-      <p className="mb-2 truncate text-xs text-muted-foreground">从 {creator.fromEntityTitle} 生成</p>
-      <p className="mb-1 text-[10px] text-muted-foreground">属性{sourceType ? ` · ${sourceType.name}已填的带值可选` : ""}</p>
-      {filledFields.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {filledFields.map((field) => {
-            const mediaPreview = field.mediaValue && field.mediaValue.assetId ? field.mediaValue : null;
-            const mediaKind: MediaModality = ((field.options?.[0] as MediaModality) ?? (mediaPreview?.kind as MediaModality) ?? "image");
-            const summary = mediaPreview
-              ? mediaPreview.name || (mediaKind === "image" ? "图片" : mediaKind === "video" ? "视频" : mediaKind === "audio" ? "音频" : "媒体")
-              : String(field.value);
-            return (
-              <button
-                key={field.key}
-                className="max-w-full rounded-md border border-primary/50 bg-primary/5 px-2 py-1 text-left text-xs hover:border-primary hover:bg-primary/10"
-                onClick={() => {
-                  if (mediaPreview && mediaPreview.assetId) {
-                    const assetId = mediaPreview.assetId;
-                    void (async () => {
-                      const attrId = await createAttribute(creator.fromEntityId, mediaKind, pos, { label: field.label ?? field.key, assetId, assetName: mediaPreview.name }, "attr");
-                      // 建卡后按素材 naturalWidth/Height 适配纵横比（与面板采纳同一规则）
-                      if (attrId) fitElementToAsset(attrId, useWorldCanvasStore.getState().apiBase, assetId, mediaKind);
-                    })();
-                  } else {
-                    void createAttribute(creator.fromEntityId, "text", pos, { label: field.label ?? field.key, text: String(field.rawValue ?? field.value) }, "attr");
-                  }
-                  setAttrCreator(null);
-                }}
-                title={`${field.label ?? field.key}：${summary} · 点击生成属性并挂边（边即属性关联）`}
-                type="button"
-              >
-                <span className="font-medium">{field.label ?? field.key}</span>
-                <span className="ml-1 text-[10px] text-muted-foreground">{summary.length > 12 ? `${summary.slice(0, 12)}…` : summary}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <div className="mb-2 flex flex-wrap gap-1.5">
-        {attributeSuggestions.filter((field) => !field.value.trim() && !(field.mediaValue?.assetId)).map((field) => (
-          <button
-            key={field.key}
-            className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary/60 hover:bg-primary/5"
-            onClick={() => {
-              const media = field.type === "media" ? ((field.options?.[0] as AttrMedia) ?? "image") : "text";
-              void createAttribute(creator.fromEntityId, media, pos, { label: field.label ?? field.key, text: "" }, "attr");
-              setAttrCreator(null);
-            }}
-            title="创建该属性"
-            type="button"
-          >
-            {field.label ?? field.key}
-          </button>
-        ))}
-        {!attributeSuggestions.length && <p className="text-[10px] text-muted-foreground">暂无建议字段，可用下方空白属性。</p>}
-      </div>
-      <p className="mb-1 text-[10px] text-muted-foreground">空白属性 · 点击即创建</p>
-      <div className="mb-2 grid grid-cols-4 gap-1.5">
-        {blankMediaOptions.map((option) => (
-          <button
-            key={option.media}
-            className="flex items-center justify-center gap-1 rounded-md border border-border px-1.5 py-2 text-xs hover:border-primary/60 hover:bg-primary/5"
-            onClick={() => {
-              void (async () => {
-                // 空白属性：创建后进入命名态（填写属性名称），值提交时同步到实体 content 字段
-                const attrId = await createAttribute(creator.fromEntityId, option.media, pos, undefined, "attr");
-                if (attrId) {
-                  startInlineEdit({
-                    kind: "attr-title",
-                    elementId: attrId,
-                    rect: { x: pos.x, y: pos.y, width: 260, height: 28 },
-                    value: "",
-                  });
-                }
-              })();
-              setAttrCreator(null);
-            }}
-            type="button"
-          >
-            <span aria-hidden>{option.icon}</span>
-            {option.label}
-          </button>
-        ))}
-      </div>
-      <p className="mb-1 text-[10px] text-muted-foreground">实体 · 点击即创建</p>
-      <div className="flex flex-wrap gap-1.5">
-        {entityTypes.map((item) => (
-          <button
-            key={item.id}
-            className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary/60 hover:bg-primary/5"
-            onClick={() => createEntityAt(item.id)}
-            type="button"
-          >
-            {item.name}
-          </button>
-        ))}
-        <button
-          className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary/60 hover:bg-primary/5 hover:text-foreground"
-          onClick={() => createEntityAt(readLastKind())}
-          type="button"
-        >
-          空白
-        </button>
-      </div>
-      <button className="mt-2 w-full rounded-md px-2 py-1 text-center text-xs text-muted-foreground hover:bg-muted" onClick={() => setAttrCreator(null)} type="button">
-        取消
-      </button>
-    </div>
+    <CreatePanel
+      anchor={creator}
+      groups={groups}
+      onClose={() => setAttrCreator(null)}
+      placeholder="搜索属性、媒体或设定类型…"
+      title={`从 ${creator.fromEntityTitle} 生成`}
+    />
   );
 }
 
@@ -936,6 +974,8 @@ export function CanvasPomeloHost() {
         const value = attrMediaValueOf(entity, attr.key);
         if (value?.assetId) ensureCanvasAssetStatus(state.apiBase, value.assetId);
       }
+      // 有封面的实体卡：测量封面比例并写回元素 props.coverAspect（卡片按它定尺；已测过则跳过）
+      state.fitEntityCover(entity.id);
     }
   }, [dataVersion, ready]);
 
@@ -947,6 +987,16 @@ export function CanvasPomeloHost() {
       if (!editor) return;
       syncDocFromCanvasStore(editor);
       pluginRef.current?.drawOverlay(editor);
+      // 图片/视频块：素材就绪后按比例补定尺（AI 先落 assetId：创建时素材未就绪，测不到比例）
+      const store = useWorldCanvasStore.getState();
+      for (const element of store.elements) {
+        if (element.kind !== "media" && element.kind !== "attr") continue;
+        const modality = element.kind === "media" ? element.props?.modality : element.props?.media;
+        const assetId = String(element.props?.assetId ?? "");
+        if (assetId && isMediaVisualModality(modality) && canvasAssetStateOf(assetId, undefined) === "ready") store.fitMediaVisualElement(element.id);
+      }
+      // 有封面的实体卡：封面就绪后测量比例并写回（卡片按封面定尺）
+      for (const entity of store.entities) store.fitEntityCover(entity.id);
     });
     return unsubscribe;
   }, [ready]);

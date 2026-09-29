@@ -13,9 +13,10 @@ import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { t, type Locale } from "@/lib/i18n";
 import type { MarketingWorld, MarketingWorldCanvas } from "@/lib/marketing-worlds";
+import { GRAPH_COLORS } from "@/lib/pomelo/world-canvas/graph-theme";
 
-// 关系连线颜色：与工作台 vello relation-arrow block 的默认色保持一致
-const RELATION_STROKE = "#8b93a7";
+// 关系连线颜色：与工作台 vello relation-arrow block 默认色同源（graph-theme）
+const RELATION_STROKE = GRAPH_COLORS.linkDefault;
 
 // 真实画布依赖 WebGPU/DOM，仅客户端挂载；模块独立按需下载，避免污染官网主包。
 const MarketingWorldCanvasVello = dynamic(() => import("./marketing-world-canvas-vello"), { ssr: false });

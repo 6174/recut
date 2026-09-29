@@ -9,6 +9,7 @@
     "prebuild": "node scripts/ensure-vello-wasm.mjs",
     "build": "next build",
     "serve": "next start",
+    "deploy": "wrangler deploy",
     "prebuild:cloudflare": "node scripts/ensure-vello-wasm.mjs",
     "build:cloudflare": "RECUT_STATIC_EXPORT=1 next build",
     "start": "node server.cjs",

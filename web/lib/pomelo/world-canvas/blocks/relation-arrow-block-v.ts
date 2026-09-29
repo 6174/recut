@@ -5,22 +5,18 @@
  * [OUTPUT]: 对外提供 RelationArrowBlockV（type: relation-arrow）：复用 arrow-geometry 的二次贝塞尔，
  *           曲线 + 箭头 + 标签；线宽/箭头/标签/边框均按屏幕像素恒定；zIndex=-1 永远画在内容节点下层。
  *           toRole 非空（hasReverse）时画双箭头、两端各一个标签；否则单箭头 + 中点 fromRole 标签。
+ *           标签落在可视段中点（geo.mid/midT），不压在两端元素卡片上。
  * [POS]: lib/pomelo/world-canvas/blocks 的关系连线 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { PomeloEditorState } from "../../pomelo-core/pomelo-state";
 import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block";
-import type { Rgba, VelloOp } from "../../pomelo-vello/op-bridge";
+import type { VelloOp } from "../../pomelo-vello/op-bridge";
 import { screenTextOp } from "../../pomelo-vello/vello-text";
+import { LABEL_FILL, LINK_DEFAULT, rgba } from "../graph-theme";
 import { bezierTangent, curveSegment, relationGeometry, type RelationGeometry } from "../arrow-geometry";
 import { measureTextWidth, truncateText } from "../text-metrics";
-import { LABEL_FILL, screenScaleOf } from "./vello-shared";
-
-function hexToRgba(hex: string, alpha = 255): Rgba {
-  const value = hex.replace("#", "");
-  if (value.length < 6) return [59, 130, 246, alpha];
-  return [Number.parseInt(value.slice(0, 2), 16) || 0, Number.parseInt(value.slice(2, 4), 16) || 0, Number.parseInt(value.slice(4, 6), 16) || 0, alpha];
-}
+import { isLowDetail, screenScaleOf } from "./vello-shared";
 
 /** 关系连线：复用 arrow-geometry 的二次贝塞尔，曲线 + 箭头 + 标签（线宽/箭头/标签按屏幕像素恒定）。 */
 export class RelationArrowBlockV extends VelloBlock {
@@ -51,16 +47,18 @@ export class RelationArrowBlockV extends VelloBlock {
     const state = this.blockState as { geo: RelationGeometry | null; label: string; hasReverse: boolean; reverseLabel: string } | null;
     const geo = state?.geo;
     if (!geo) return { ops: [], bounds: this.blockBounds() };
-    const color = hexToRgba(String(this.record.attrs.color ?? "#8b93a7"));
+    const color = rgba(String(this.record.attrs.color || LINK_DEFAULT));
     // zoom 常量补偿：线条/箭头/标签尺寸乘 1/scale，屏幕上保持恒定像素（否则低缩放下细线发虚/锯齿明显）
     const scale = screenScaleOf(this.adapter);
     const inv = 1 / scale;
+    // 低细节缩放：只保留曲线 + 箭头（shape），标签直接消失
+    const lowDetail = isLowDetail(this.adapter);
     const segment = curveSegment(geo, geo.ta, geo.tb);
     const tangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.tb);
     const angle = Math.atan2(tangent.y, tangent.x);
     const headLength = 11 * inv;
     const headWidth = 9 * inv;
-    const strokeWidth = 2 * inv;
+    const strokeWidth = 1 * inv;
 
     // 箭头三角：tip 在给定点、沿 angle 方向指出的等边三角
     const head = (tipX: number, tipY: number, dir: number): VelloOp => ({
@@ -91,9 +89,10 @@ export class RelationArrowBlockV extends VelloBlock {
       ops.push(head(geo.a.x, geo.a.y, angleA + Math.PI));
     }
 
-    // 标签：单箭头 = 曲线中点一个 fromRole；双箭头 = 两端各一个（t≈0.28 / t≈0.72）。
-    // 字号/药丸/偏移均按屏幕像素恒定；文本 op 用屏幕 ppem（10）+ glyphScale=1/scale 保证轮廓清晰。
-    const midTangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
+    // 标签：单箭头 = 可视段中点一个 fromRole；双箭头 = 两端语义都收在中点处、上下堆叠。
+    // 仅画文本、不画药丸底（保持克制）；文本 op 用屏幕 ppem（10）+ glyphScale=1/scale 保证轮廓清晰。
+    // 法向取可视段中点切线——与 geo.mid 同一处，错开标签才对得上曲线。
+    const midTangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.midT);
     const midLen = Math.hypot(midTangent.x, midTangent.y) || 1;
     const offsetIndex = Number(this.record.attrs.labelOffsetIndex ?? 0);
     let labelX = geo.mid.x;
@@ -103,13 +102,13 @@ export class RelationArrowBlockV extends VelloBlock {
       if (!text) return;
       const label = truncateText(text, 120, 10);
       const labelTextW = measureTextWidth(label, 10);
-      const pillW = (labelTextW + 14) * inv;
-      const pillH = 18 * inv;
-      ops.push({ kind: "roundRect", x: x - pillW / 2, y: y - pillH / 2, width: pillW, height: pillH, radius: 9 * inv, fill: [15, 20, 16, 235], stroke: [255, 255, 255, 40], strokeWidth: inv });
       ops.push(screenTextOp(this.adapter, { text: label, x: x - labelTextW / 2 / scale, y: y - 7 / scale, screenSize: 10, maxScreenWidth: labelTextW, align: "left", fill: LABEL_FILL }));
     };
 
-    if (state?.hasReverse) {
+    if (lowDetail) {
+      labelX = geo.mid.x;
+      labelY = geo.mid.y;
+    } else if (state?.hasReverse) {
       // 双箭头：两端语义都收在中点控制点处，上下堆叠（from 在上、to 在下），不占两端。
       const stackGap = 11 * inv;
       drawLabel(state.label, geo.mid.x, geo.mid.y - stackGap);

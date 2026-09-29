@@ -7,7 +7,8 @@
  *   pointermove 经 editor.ticker 统一合帧（一帧至多一次 transact+重绘，对齐 vsync），pointerup 前 flush 最后一次 move；
  * - resize：节点选区四角控制点拖拽调整宽高（对角固定，屏幕像素手柄）；
  * - link 选中覆盖线高亮（曲线贯穿两端控制点，节点内段短虚线，节点外段白+蓝双描边），
- *   三控制点可拖：start/end 调锚点在节点内的比例位置，mid 调曲线弯曲；
+ *   三控制点可拖：start/end 手柄落在箭头与节点边缘的交点（arrow-geometry.linkHandlePoints，
+ *   默认锚点在节点中心，直接画 t1/t2 会压住元素卡片；拖拽中跟手画在锚点），mid 在可视段中点调曲线弯曲；
  * - 选区 overlay 用渲染器无关的 DomOverlay（屏幕空间 SVG）：线宽/手柄尺寸不随 zoom 变化，transform 变化自动重绘
  * [POS]: lib/pomelo/world-canvas 的选择插件（connect 模式下让位给 ConnectionPlugin）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -18,14 +19,15 @@ import { DomOverlay, cssColor } from "../../pomelo-vello/overlay-dom";
 import { useWorldDemoStore } from "../demo-store";
 import { entityCardRect } from "../blocks/entity-card-metrics";
 import {
-  bezierPoint,
   bezierTangent,
   curveSegment,
   distanceToRelation,
   drawDashedCurve,
+  linkHandlePoints,
   relationGeometry,
   splitQuadratic,
 } from "../arrow-geometry";
+import { OVERLAY_GUIDE, OVERLAY_SELECTION } from "../graph-theme";
 
 type Rect = { x: number; y: number; width: number; height: number };
 type Point = { x: number; y: number };
@@ -140,11 +142,14 @@ export class SelectionPlugin extends PomeloPlugin {
         const to = editor.state.getBlockById(String(arrowRecord.attrs.toId ?? ""));
         const geo = relationGeometry(from, to, arrowRecord.attrs as never);
         if (from && to && geo) {
-          const mid = bezierPoint(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
+          const dragKind = dragging && isLinkHandleDrag(dragging) && dragging.arrowBlockId === arrowRecord.id ? dragging.kind : null;
+          const points = linkHandlePoints(geo, dragKind);
+          const fromId = String(arrowRecord.attrs.fromId ?? "");
+          const toId = String(arrowRecord.attrs.toId ?? "");
           link.push(
-            { kind: "start", screen: toScreen(geo.t1), arrowBlockId: arrowRecord.id, fromBlockId: String(arrowRecord.attrs.fromId ?? ""), toBlockId: String(arrowRecord.attrs.toId ?? "") },
-            { kind: "mid", screen: toScreen(mid), arrowBlockId: arrowRecord.id, fromBlockId: String(arrowRecord.attrs.fromId ?? ""), toBlockId: String(arrowRecord.attrs.toId ?? "") },
-            { kind: "end", screen: toScreen(geo.t2), arrowBlockId: arrowRecord.id, fromBlockId: String(arrowRecord.attrs.fromId ?? ""), toBlockId: String(arrowRecord.attrs.toId ?? "") },
+            { kind: "start", screen: toScreen(points.start), arrowBlockId: arrowRecord.id, fromBlockId: fromId, toBlockId: toId },
+            { kind: "mid", screen: toScreen(points.mid), arrowBlockId: arrowRecord.id, fromBlockId: fromId, toBlockId: toId },
+            { kind: "end", screen: toScreen(points.end), arrowBlockId: arrowRecord.id, fromBlockId: fromId, toBlockId: toId },
           );
         }
         return { link, corners };
@@ -427,7 +432,7 @@ export class SelectionPlugin extends PomeloPlugin {
             last = { x, y };
           },
           lineTo: (x: number, y: number) => {
-            overlay.line(last.x, last.y, x, y, { stroke: cssColor(0x8b93a7, 0.9), strokeWidth: 1.5 });
+            overlay.line(last.x, last.y, x, y, { stroke: cssColor(OVERLAY_GUIDE, 0.9), strokeWidth: 1.5 });
             last = { x, y };
           },
         };
@@ -442,8 +447,8 @@ export class SelectionPlugin extends PomeloPlugin {
         if (!from || !to || !geo) return;
         // 拖拽 start/end 时的节点中心热区指示圈
         if (this.#snapZone) {
-          overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 14, { stroke: cssColor(0x4c8dff, 0.6), strokeWidth: 1.5 });
-          overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 22, { stroke: cssColor(0x4c8dff, 0.25), strokeWidth: 1 });
+          overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 14, { stroke: cssColor(OVERLAY_SELECTION, 0.6), strokeWidth: 1.5 });
+          overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 22, { stroke: cssColor(OVERLAY_SELECTION, 0.25), strokeWidth: 1 });
         }
         // 节点内段：短虚线（曲线贯穿两端控制点）；拆分子曲线保证与 line 本体同一几何
         const leftPart = geo.ta > 0 ? splitQuadratic(geo.curve, geo.ta).left : geo.curve;
@@ -457,7 +462,7 @@ export class SelectionPlugin extends PomeloPlugin {
         const b = toScreen(midPart.p2);
         const cp = toScreen(midPart.cp);
         overlay.quad(a, cp, b, { stroke: cssColor(0xffffff, 0.95), strokeWidth: 5 });
-        overlay.quad(a, cp, b, { stroke: cssColor(0x4c8dff), strokeWidth: 2 });
+        overlay.quad(a, cp, b, { stroke: cssColor(OVERLAY_SELECTION), strokeWidth: 2 });
         // 箭头高亮：沿曲线在边界 b 处的切线
         const tangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.tb);
         const angle = Math.atan2(tangent.y, tangent.x);
@@ -469,11 +474,12 @@ export class SelectionPlugin extends PomeloPlugin {
           ],
           { fill: cssColor(0xffffff) },
         );
-        // 三控制点：start（默认节点中心）/ 中点 / end
-        const mid = bezierPoint(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
-        for (const world of [geo.t1, mid, geo.t2]) {
+        // 三控制点：start/end 落在箭头与节点边缘的交点、mid 落在可视段中点（拖拽中的端手柄跟手）
+        const dragKind = dragging && isLinkHandleDrag(dragging) && dragging.arrowBlockId === arrowRecord.id ? dragging.kind : null;
+        const points = linkHandlePoints(geo, dragKind);
+        for (const world of [points.start, points.mid, points.end]) {
           const point = toScreen(world);
-          overlay.circle(point.x, point.y, 4.5, { stroke: cssColor(0x4c8dff), strokeWidth: 2, fill: cssColor(0xffffff) });
+          overlay.circle(point.x, point.y, 4.5, { stroke: cssColor(OVERLAY_SELECTION), strokeWidth: 2, fill: cssColor(0xffffff) });
         }
         return;
       }
@@ -491,14 +497,14 @@ export class SelectionPlugin extends PomeloPlugin {
         };
         if (localRect.width <= 0 || localRect.height <= 0) continue;
         const rect = toScreenRect(localRect);
-        overlay.roundedRect({ x: rect.x - 4, y: rect.y - 4, width: rect.width + 8, height: rect.height + 8 }, 6, { stroke: cssColor(0x4c8dff, 0.5), strokeWidth: 2 });
+        overlay.roundedRect({ x: rect.x - 4, y: rect.y - 4, width: rect.width + 8, height: rect.height + 8 }, 6, { stroke: cssColor(OVERLAY_SELECTION, 0.5), strokeWidth: 2 });
         for (const [hx, hy] of [
           [rect.x - 4, rect.y - 4],
           [rect.x + rect.width + 4, rect.y - 4],
           [rect.x - 4, rect.y + rect.height + 4],
           [rect.x + rect.width + 4, rect.y + rect.height + 4],
         ]) {
-          overlay.roundedRect({ x: hx - 4, y: hy - 4, width: 8, height: 8 }, 1, { stroke: cssColor(0x4c8dff), strokeWidth: 2, fill: cssColor(0xffffff) });
+          overlay.roundedRect({ x: hx - 4, y: hy - 4, width: 8, height: 8 }, 1, { stroke: cssColor(OVERLAY_SELECTION), strokeWidth: 2, fill: cssColor(0xffffff) });
         }
         break;
       }

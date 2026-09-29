@@ -1,53 +1,45 @@
 /*
- * [INPUT]: 无依赖（纯映射表）
+ * [INPUT]: 依赖 graph-theme（语义色单一真源：ENTITY_TYPE_COLORS/RELATION_TYPE_COLORS/ATTR_MEDIA_COLORS/RELATION_GROUP_COLORS）
  * [OUTPUT]: 对外提供实体 kind → 卡片描边色与关系 relationType → 连线色（对齐真实案例设计：
- * 家属=紫红、朋友=蓝、场景=绿、事件=橙红）；两类颜色只表达类型语义，不承载关系方向
- * [POS]: lib/pomelo/world-canvas 的颜色映射（与 worlds canvas canvas-store 的 typeColors 保持一致）
+ * 家属=紫红、朋友=蓝、场景=绿、事件=橙红）；两类颜色只表达类型语义，不承载关系方向。
+ * kind 色同时以 0xRRGGBB（entityColor）与 Rgba（entityColorRgba，供 vello 填充如实体卡类型前缀）两种形态给出。
+ * 色值真源在 graph-theme，本文件只做「语义名称 → 颜色」的取用与数值转换。
+ * [POS]: lib/pomelo/world-canvas 的颜色映射（与 worlds canvas canvas-store 的 typeColors 同源）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-export const typeColors: Record<string, string> = {
-  character: "#e879f9",
-  location: "#60a5fa",
-  story: "#f59e0b",
-  script: "#22d3ee",
-  style: "#34d399",
-  rule: "#a78bfa",
-  reference: "#94a3b8",
-};
+import type { Rgba } from "../pomelo-vello/op-bridge";
+import { ATTR_MEDIA_COLORS, ENTITY_TYPE_COLORS, RELATION_GROUP_COLORS, RELATION_TYPE_COLORS, rgba } from "./graph-theme";
 
+/** 实体 kind → 描边色。 */
+export const typeColors: Record<string, string> = ENTITY_TYPE_COLORS;
+
+/** kind 色（0xRRGGBB）。 */
 export function entityColor(kind: string): number {
-  const hex = typeColors[kind] ?? "#94a3b8";
-  return parseInt(hex.slice(1), 16);
+  const hex = typeColors[kind] ?? RELATION_GROUP_COLORS.other;
+  return Number.parseInt(hex.slice(1), 16);
 }
 
-// 关系语义色：连线与连线标签统一按 relationType 着色（真实案例设计：同色系归组）
-export const relationColors: Record<string, string> = {
-  belongs_to: "#d946ef", // 家庭/师门
-  friend: "#3b82f6",
-  references: "#10b981",
-  appears_in: "#f97316",
-  located_in: "#e11d48",
-  father: "#d946ef",
-  mother: "#d946ef",
-  enemy: "#ef4444",
-};
+/** kind 色（Rgba 元组，供 vello 文本/图形填充用；与 entityColor 同源）。 */
+export function entityColorRgba(kind: string): Rgba {
+  return rgba(typeColors[kind] ?? RELATION_GROUP_COLORS.other);
+}
 
+/** 关系语义色：连线与连线标签统一按 relationType 着色（真实案例设计：同色系归组）。 */
+export const relationColors: Record<string, string> = RELATION_TYPE_COLORS;
+
+/** relationType 色（0xRRGGBB）。 */
 export function relationColor(relationType: string): number {
   const hex = relationColors[relationType] ?? attrMediaColors[relationType] ?? "#64748b";
-  return parseInt(hex.slice(1), 16);
+  return Number.parseInt(hex.slice(1), 16);
 }
 
-// 属性边颜色：文本/图片/音频/视频（「+」引导创建的属性节点连线）
-export const attrMediaColors: Record<string, string> = {
-  attr_text: "#38bdf8",
-  attr_image: "#a78bfa",
-  attr_audio: "#34d399",
-  attr_video: "#f59e0b",
-};
+/** 属性边颜色：文本/图片/音频/视频（「+」引导创建的属性节点连线）。 */
+export const attrMediaColors: Record<string, string> = ATTR_MEDIA_COLORS;
 
+/** 属性媒体色（0xRRGGBB）。 */
 export function attrColor(media: string): number {
   const hex = attrMediaColors[`attr_${media}`] ?? "#64748b";
-  return parseInt(hex.slice(1), 16);
+  return Number.parseInt(hex.slice(1), 16);
 }
 
 export function attrMediaLabel(media: string): string {
@@ -55,19 +47,8 @@ export function attrMediaLabel(media: string): string {
   return labels[media] ?? "属性";
 }
 
-// 关系分组色（T5/B.10）：people/world/story/video 四组 + 其他灰；
-// app 层的候选映射表（canvas-relation-candidates.ts）复用本函数
+/** 关系分组色（T5/B.10）：people/world/story/video 四组 + 其他灰；色值真源在 graph-theme。 */
 export function relationGroupColor(group: string): number {
-  switch (group) {
-    case "people":
-      return 0xe879f9;
-    case "world":
-      return 0x60a5fa;
-    case "story":
-      return 0xf59e0b;
-    case "video":
-      return 0xa78bfa;
-    default:
-      return 0x94a3b8;
-  }
+  const hex = RELATION_GROUP_COLORS[group] ?? RELATION_GROUP_COLORS.other;
+  return Number.parseInt(hex.slice(1), 16);
 }

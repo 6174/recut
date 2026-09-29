@@ -12,6 +12,7 @@ import {
   NOTE_SIZE,
   WORLD_NODE_ID,
   WORLD_NODE_SIZE,
+  kindLabel,
   relationLabel,
   useWorldDemoStore,
 } from "./demo-store";
@@ -43,6 +44,7 @@ export function buildDemoBlocks(data: ReturnType<typeof useWorldDemoStore.getSta
         cover: entity.cover ?? "",
         photos: entity.photos ?? [],
         kind: entity.kind,
+        kindLabel: kindLabel(entity.kind),
         isProvisional: entity.isProvisional ? true : undefined,
       },
     });

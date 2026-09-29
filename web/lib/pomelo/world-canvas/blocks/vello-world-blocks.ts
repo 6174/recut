@@ -1,8 +1,10 @@
 /*
  * [INPUT]: 依赖 world-canvas/blocks 下各 *-block-v（EntityCard/Note/WorldNode/MediaNode/RelationArrow/RealMedia/FreeElement）
+ *          与 audio-block-metrics（音频块固定几何）
  * [OUTPUT]: 对外提供 world-canvas 业务 block 的 vello-native 版本聚合出口：
  *           EntityCardBlockV / NoteBlockV / WorldNodeBlockV / MediaNodeBlockV / RelationArrowBlockV /
- *           RealMediaBlockV / FreeElementBlockV / entityCardRectV / WORLD_VELLO_BLOCKS。
+ *           RealMediaBlockV / FreeElementBlockV / entityCardRectV / WORLD_VELLO_BLOCKS，
+ *           以及音频块固定几何（AUDIO_BLOCK_WIDTH/AUDIO_BLOCK_HEIGHT/audioBlockRect/isAudioBlockRecord）。
  * [POS]: lib/pomelo/world-canvas/blocks 的聚合 barrel（具体实现见各 Block 文件；几何共用 entity-card-metrics / arrow-geometry）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -13,6 +15,7 @@ export { MediaNodeBlockV } from "./media-node-block-v";
 export { RelationArrowBlockV } from "./relation-arrow-block-v";
 export { RealMediaBlockV } from "./real-media-block-v";
 export { FreeElementBlockV } from "./free-element-block-v";
+export { AUDIO_BLOCK_WIDTH, AUDIO_BLOCK_HEIGHT, audioBlockRect, isAudioBlockRecord } from "./audio-block-metrics";
 
 import { EntityCardBlockV } from "./entity-card-block-v";
 import { NoteBlockV } from "./note-block-v";

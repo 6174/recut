@@ -11,6 +11,7 @@ import type { RefObject } from "react";
 import type { PomeloEditor } from "../pomelo-core/pomelo-editor";
 import { useWorldDemoStore, kindLabel } from "./demo-store";
 import { MEDIA_META } from "./blocks/media-meta";
+import { ENTITY_TYPE_COLORS } from "./graph-theme";
 
 type ToolbarProps = {
   kinds: string[];
@@ -21,14 +22,7 @@ type ToolbarProps = {
   onCenter: () => void;
 };
 
-const kindColors: Record<string, string> = {
-  character: "#e879f9",
-  location: "#60a5fa",
-  story: "#f59e0b",
-  style: "#34d399",
-  rule: "#a78bfa",
-  reference: "#94a3b8",
-};
+const kindColors: Record<string, string> = ENTITY_TYPE_COLORS;
 
 export function Toolbar({ kinds, editor, editorReady, onZoomIn, onZoomOut, onCenter }: ToolbarProps) {
   const mode = useWorldDemoStore((state) => state.mode);

@@ -40,6 +40,8 @@
 import { create } from "zustand";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { ENTITY_CARD_PAD, entityCardContentHeight, entityCardImageHeight } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
+import { MEDIA_VISUAL_SIZE, isMediaVisualModality, measureMediaVisualRatio, mediaVisualSizeForRatio } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
+import { resolveMediaPropsSrc } from "@/lib/world-media";
 import {
   createRecutWorldsClient,
   type EntityAttr,
@@ -58,6 +60,25 @@ import { canvasAssetOf, refreshCanvasAsset, useCanvasAssetStatusStore } from "./
 import { buildGenerationRequest } from "@/lib/media/generation-request";
 import { normalizeAsset, type Asset, type MediaJob } from "@/app/media/media-types";
 import { useElementAssetHistoryStore } from "./panel/element-asset-history-store";
+
+// 图片/视频块（视觉媒体）按素材比例定尺：素材就绪后测量 naturalWidth / videoWidth，写回元素几何并推进
+// dataVersion 触发画布重建；空素材保持创建时的 16:9。同一元素已按某素材定尺过就不再重复测量（缓存）。
+const fittedMediaVisual = new Map<string, string>();
+// entityId → 封面 key（assetId|url）：已测量过该封面的元素卡不重复测量
+const measuredEntityCover = new Map<string, string>();
+function fitVisualMediaElement(elementId: string, apiBase: string, source: { assetId?: string; url?: string }, modality: unknown) {
+  if (!isMediaVisualModality(modality)) return;
+  const assetId = source.assetId ?? "";
+  if (assetId && fittedMediaVisual.get(elementId) === assetId) return;
+  const src = resolveMediaPropsSrc(apiBase, source);
+  if (!src) return;
+  void measureMediaVisualRatio(src, modality).then((ratio) => {
+    if (!ratio) return;
+    if (assetId) fittedMediaVisual.set(elementId, assetId);
+    void useWorldCanvasStore.getState().persistGeometry(elementId, mediaVisualSizeForRatio(ratio));
+    useWorldCanvasStore.setState((state) => ({ dataVersion: state.dataVersion + 1 }));
+  });
+}
 
 export type Point = { x: number; y: number };
 
@@ -113,7 +134,8 @@ export type CanvasChange = {
   redo: () => Promise<void> | void;
 };
 
-export const DEFAULT_ENTITY_SIZE = { width: 264, height: 328 };
+// 空实体卡默认尺寸：宽度固定 264；高度 = 占位保底 84 + footer 70（见 entity-card-metrics，实际渲染一律按内容派生）
+export const DEFAULT_ENTITY_SIZE = { width: 264, height: 154 };
 export const NOTE_SIZE = { width: 150, height: 100 };
 export const WORLD_ELEMENT_ID = "shape:world";
 export const WORLD_NODE_SIZE = { width: 200, height: 200 };
@@ -155,19 +177,11 @@ function resolveBlockSelection(
   return { type: "canvas", element, ...(fromEntityId ? { fromEntityId } : {}), ...(toEntityId ? { toEntityId } : {}) };
 }
 
-// 实体类型 → 卡片描边色；颜色只表达类型，不承载关系语义（RFC 视觉语言）。
-export const typeColors: Record<string, string> = {
-  character: "#e879f9",
-  object: "#fbbf24",
-  location: "#60a5fa",
-  story: "#f59e0b",
-  script: "#22d3ee",
-  style: "#34d399",
-  rule: "#a78bfa",
-};
+// 实体类型 → 卡片描边色；色值真源在 graph-theme（与画布 block / 面板同源），此处转出。
+export { ENTITY_TYPE_COLORS as typeColors } from "@/lib/pomelo/world-canvas/graph-theme";
 
 export function gridPosition(index: number): Point {
-  return { x: 40 + (Math.max(0, index) % 4) * 260, y: 40 + Math.floor(Math.max(0, index) / 4) * 180 };
+  return { x: 40 + (Math.max(0, index) % 4) * 300, y: 40 + Math.floor(Math.max(0, index) / 4) * 260 };
 }
 
 // 画布元素位置：已持久化几何优先，否则按 gridPosition 兜底。
@@ -804,6 +818,10 @@ type WorldCanvasState = {
   setMediaPreview: (preview: { src: string; modality: string; name: string } | null) => void;
   // 独立媒体元素落画布（assetId/url 二选一）
   addMediaElement: (props: { modality: string; assetId?: string; url?: string; name?: string }, pos: Point) => Promise<void>;
+  // 图片/视频块按素材比例定尺（素材就绪后测量 naturalWidth/videoWidth；宿主在素材状态变化时补调用）
+  fitMediaVisualElement: (elementId: string) => void;
+  // 有封面的实体卡：测量封面比例并写回元素 props.coverAspect（卡片按封面定尺；无封面/非图片封面跳过）
+  fitEntityCover: (entityId: string) => void;
   // 生成提案（视频等高价媒体）：AI/用户先提交提案并等待确认，确认后才提交生成任务；提案写画布不产 revision
   createProposal: (elementId: string, proposal: GenerationProposal) => Promise<void>;
   // 提案局部更新（编辑提示词/参考/模型/参数，或状态机流转）
@@ -1155,7 +1173,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         geometry:
           kind === "text"
             ? { x: Math.round(pos.x), y: Math.round(pos.y), width: 220, zIndex: 1 }
-            : { x: Math.round(pos.x), y: Math.round(pos.y), width: 220, height: 150, zIndex: 1 },
+            : { x: Math.round(pos.x), y: Math.round(pos.y), ...(isMediaVisualModality(kind) ? MEDIA_VISUAL_SIZE : { width: 220, height: 150 }), zIndex: 1 },
         style: {},
         layer: "0",
       });
@@ -1198,10 +1216,12 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           label: initial?.label ?? "",
           ...(initial?.assetId ? { assetId: initial.assetId, assetName: initial.assetName ?? "" } : {}),
         },
-        geometry: { x: Math.round(pos.x), y: Math.round(pos.y), width: 260, height: 140, zIndex: 1 },
+        geometry: { x: Math.round(pos.x), y: Math.round(pos.y), ...(isMediaVisualModality(media) ? MEDIA_VISUAL_SIZE : { width: 260, height: 140 }), zIndex: 1 },
         style: {},
         layer: "0",
       });
+      // 图片/视频属性卡：按素材比例定尺（空素材保持 16:9 占位）
+      if (initial?.assetId) fitVisualMediaElement(attrId, get().apiBase, { assetId: initial.assetId }, media);
       await get().upsertElement({
         id: arrowId,
         contextId,
@@ -2113,7 +2133,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const height = Number(element.geometry?.height) || DEFAULT_ENTITY_SIZE.height;
     const photoUrls = entityPhotoUrls(state.apiBase, entity);
     const coverUrl = entityCoverMedia(state.apiBase, entity)?.url ?? "";
-    const metricsAttrs = { width, coverUrl, photoUrls };
+    const metricsAttrs = { width, coverUrl, photoUrls, ...(Number(element.props?.coverAspect) > 0 ? { coverAspect: Number(element.props.coverAspect) } : {}) };
     const contentH = entityCardContentHeight(metricsAttrs);
     const imageH = entityCardImageHeight(metricsAttrs, Math.max(height, contentH));
     set({
@@ -2167,12 +2187,16 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       if ((element.props?.text ?? "") === value) return;
       await get().persistGeometry(element.id, undefined, { text: value });
       await get().syncAttrValue(element, value);
+      // 同上：persistGeometry/syncAttrValue 都不推进 dataVersion，需显式推进触发文档重建
+      set((state) => ({ dataVersion: state.dataVersion + 1 }));
       return;
     }
     // 未变更不写库
     const previous = String(element.props?.text ?? "");
     if (previous === value) return;
     await get().persistGeometry(element.id, undefined, { text: value });
+    // persistGeometry 不推进 dataVersion：显式推进以触发文档重建，否则编辑后画布仍是旧文本（刷新才更新）
+    set((state) => ({ dataVersion: state.dataVersion + 1 }));
     // 便签/文本正文编辑记入历史（attr-body 走 syncAttrValue 的实体字段条目，不重复记）
     get().logChange(
       element.kind === "note" ? "编辑便签" : "编辑文本",
@@ -2462,6 +2486,16 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     try {
       await get().persistGeometry(elementId, undefined, media ? { assetId: media.assetId, name: media.name ?? "" } : { assetId: "", name: "" });
       set((state) => ({ dataVersion: state.dataVersion + 1 }));
+      // 图片/视频媒体卡：绑定素材后按比例定尺；清空素材回落 16:9 占位
+      const element = get().elements.find((item) => item.id === elementId);
+      const modality = element?.props?.modality;
+      if (isMediaVisualModality(modality)) {
+        if (media) fitVisualMediaElement(elementId, get().apiBase, { assetId: media.assetId }, modality);
+        else {
+          fittedMediaVisual.delete(elementId);
+          void get().persistGeometry(elementId, MEDIA_VISUAL_SIZE);
+        }
+      }
     } catch (cause) {
       applyCanvasError(cause);
     }
@@ -2473,6 +2507,14 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       await get().persistGeometry(elementId, undefined, media ? { assetId: media.assetId, assetName: media.name ?? "" } : { assetId: "", assetName: "" });
       set((state) => ({ dataVersion: state.dataVersion + 1 }));
       const element = get().elements.find((item) => item.id === elementId);
+      // 图片/视频属性卡：绑定素材后按比例定尺；清空素材回落 16:9 占位
+      if (element && isMediaVisualModality(element.props?.media)) {
+        if (media) fitVisualMediaElement(elementId, get().apiBase, { assetId: media.assetId }, element.props?.media);
+        else {
+          fittedMediaVisual.delete(elementId);
+          void get().persistGeometry(elementId, MEDIA_VISUAL_SIZE);
+        }
+      }
       if (element && media) {
         // 属性边即属性关联：解析实体与字段映射，media 属性值 = {assetId,name,kind}（与 AssetFieldRow 同构）
         const arrow = get().elements.find(
@@ -2677,10 +2719,12 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         refId: "",
         name: props.name ?? labels[props.modality] ?? "媒体",
         props: { modality: props.modality, assetId: props.assetId ?? "", url: props.url ?? "" },
-        geometry: { x: Math.round(pos.x), y: Math.round(pos.y), width: 220, height: 150, zIndex: 1 },
+        geometry: { x: Math.round(pos.x), y: Math.round(pos.y), ...(isMediaVisualModality(props.modality) ? MEDIA_VISUAL_SIZE : { width: 220, height: 150 }), zIndex: 1 },
         style: {},
         layer: "0",
       });
+      // 图片/视频媒体卡：按素材比例定尺（空素材保持 16:9 占位）
+      if (props.assetId || props.url) fitVisualMediaElement(id, get().apiBase, { ...(props.assetId ? { assetId: props.assetId } : {}), ...(props.url ? { url: props.url } : {}) }, props.modality);
       const created = get().elements.find((element) => element.id === id);
       if (created) {
         get().select({ type: "canvas", element: created });
@@ -2693,6 +2737,39 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     } catch (cause) {
       applyCanvasError(cause);
     }
+  },
+
+  // 图片/视频块按素材比例定尺（宿主在素材状态变化时调用，覆盖 AI 先落 assetId、创建时测不到比例的场景）
+  fitMediaVisualElement: (elementId) => {
+    const element = get().elements.find((item) => item.id === elementId);
+    if (!element) return;
+    const modality = element.kind === "media" ? element.props?.modality : element.props?.media;
+    const assetId = String(element.props?.assetId ?? "");
+    const url = String(element.props?.url ?? "");
+    if (!assetId && !url) return;
+    fitVisualMediaElement(elementId, get().apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }, modality);
+  },
+
+  // 有封面的实体卡：测量封面比例，写回元素 props.coverAspect（entity-card-metrics 按它定尺）。
+  // 卡片有封面时高度 = 封面比例区 + footer（图片 Block 的适应模式 + 下方信息），不支持 resize。
+  fitEntityCover: (entityId) => {
+    const state = get();
+    const entity = state.entities.find((item) => item.id === entityId);
+    const element = state.elements.find((item) => item.refKind === "entity" && item.refId === entityId);
+    if (!entity || !element) return;
+    const cover = entityCoverMedia(state.apiBase, entity);
+    if (!cover || cover.kind !== "image") {
+      measuredEntityCover.delete(entityId);
+      return;
+    }
+    const key = cover.assetId || cover.url;
+    if (measuredEntityCover.get(entityId) === key) return;
+    void measureMediaVisualRatio(cover.url, "image").then((ratio) => {
+      if (!ratio) return;
+      measuredEntityCover.set(entityId, key);
+      void get().persistGeometry(element.id, undefined, { coverAspect: ratio });
+      set((s) => ({ dataVersion: s.dataVersion + 1 }));
+    });
   },
 
   // 素材挂为实体 media 属性（统一 Entity 模型）：attrKey 生成 `a_<ts>`，全量 attrs 替换语义；

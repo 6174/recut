@@ -17,7 +17,7 @@ import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-r
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { ensureCanvasAssetStatus, useCanvasAssetStatusStore } from "./canvas-asset-status";
-import { assetModality, fitElementToAsset, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
+import { assetModality, mediaSource, modalityOfKind, type MediaModality } from "./canvas-media";
 import { useWorldCanvasStore } from "./canvas-store";
 import { useElementAssetHistoryStore } from "./panel/element-asset-history-store";
 
@@ -55,7 +55,6 @@ export function MediaAssetPickerDialog() {
           ? useWorldCanvasStore.getState().setAttrMediaAsset(element.id, { assetId: picked.id, name: picked.name })
           : useWorldCanvasStore.getState().setMediaElementAsset(element.id, { assetId: picked.id, name: picked.name }));
         useElementAssetHistoryStore.getState().record(element.id, picked.id);
-        fitElementToAsset(element.id, apiBase, picked.id, modality);
         setMediaPicker(null);
       }}
       open

@@ -11,7 +11,7 @@ import { PomeloPlugin } from "../../pomelo-core/pomelo-plugin";
 import { useWorldDemoStore, type Transform } from "../demo-store";
 
 export const MIN_SCALE = 0.05;
-export const MAX_SCALE = 2.5;
+export const MAX_SCALE = 10;
 
 export function clampScale(scale: number) {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));

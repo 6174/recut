@@ -1,53 +1,33 @@
 /*
  * [INPUT]: 依赖 pomelo-core（PomeloRendererAdapter）、pomelo-vello（VelloOp/Rgba）、pomelo-vello/vello-text
- *          （screenTextOp）、world-canvas/text-metrics（truncateText）
- * [OUTPUT]: 对外提供 world-canvas vello block 的公共绘制辅助（cover 填充、元素徽标）与统一视觉色板
- *           （CARD_FILL/CARD_STROKE/TEXT_* 等，含生成提案态 PROPOSAL_ACCENT/PROPOSAL_FILL、计划态
- *           PLAN_ACCENT/PLAN_FILL 与媒体生成中/失败态 PENDING_ACCENT/PENDING_FILL/FAILED_ACCENT/FAILED_FILL）
- *           及屏幕像素常量（CAPTION_TOP_OFFSET/CAPTION_SIZE）。
- * [POS]: lib/pomelo/world-canvas/blocks 的 vello block 共享层（无具体 Block，被各 *-block-v.ts 复用）。
+ *          （screenTextOp）、world-canvas/text-metrics（truncateText）、world-canvas/graph-theme（色板/阈值）
+ * [OUTPUT]: 对外提供 world-canvas vello block 的公共绘制辅助：coverImageOpsV（center-cover 填充）、
+ *           captionOpsV（卡片外元素徽标，屏幕像素恒定；支持前置彩色前缀，如实体类型名）、screenScaleOf（视口缩放）、
+ *           isLowDetail（是否进入低细节缩放，供各 block 隐藏文字）。
+ *           配色/排版常量一律从 graph-theme 取，本文件不再定义颜色。
+ * [POS]: lib/pomelo/world-canvas/blocks 的 vello block 共享辅助层（无具体 Block，被各 *-block-v.ts 复用）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { PomeloRendererAdapter } from "../../pomelo-core/pomelo-renderer";
 import type { Rgba, VelloOp } from "../../pomelo-vello/op-bridge";
 import { screenTextOp } from "../../pomelo-vello/vello-text";
-import { truncateText } from "../text-metrics";
+import { CAPTION_FILL, GRAPH_TEXT, LOW_DETAIL_SCALE } from "../graph-theme";
+import { measureTextWidth, truncateText } from "../text-metrics";
 
 // 元素标题徽标（卡片外上方）：屏幕像素恒定。
-// CAPTION_TOP_OFFSET = 徽标文字顶边到卡片上缘的屏幕像素距离（徽标底边距卡面约 5px）；
-// CAPTION_SIZE = 屏幕字号。
+// CAPTION_TOP_OFFSET = 徽标文字顶边到卡片上缘的屏幕像素距离；CAPTION_SIZE = 屏幕字号。
 export const CAPTION_TOP_OFFSET = 16;
-export const CAPTION_SIZE = 11;
-
-// 统一画布视觉：CARD_FILL=#0f1410（主题绿黑），描边=白色低透明，瓦片=#1d231e
-export const CARD_FILL: Rgba = [15, 20, 16, 255];
-export const CARD_STROKE: Rgba = [255, 255, 255, 20];
-export const CARD_STROKE_STRONG: Rgba = [255, 255, 255, 41];
-export const TILE_FILL: Rgba = [29, 35, 30, 255];
-export const SHADOW_FILL: Rgba = [0, 0, 0, 71];
-export const WORLD_ACCENT: Rgba = [93, 157, 117, 255];
-export const TEXT_PRIMARY: Rgba = [244, 244, 245, 255];
-export const TEXT_SECONDARY: Rgba = [139, 147, 167, 255];
-export const TEXT_TERTIARY: Rgba = [107, 114, 128, 255];
-export const CAPTION_FILL: Rgba = [212, 212, 216, 255];
-export const LABEL_FILL: Rgba = [161, 161, 170, 255];
-// 生成提案（待确认）态：琥珀色高亮，与常规卡面/选中态区分
-export const PROPOSAL_ACCENT: Rgba = [245, 158, 11, 255];
-export const PROPOSAL_FILL: Rgba = [245, 158, 11, 28];
-// 媒体「生成中」等待态：冷蓝高亮（AI 先落 assetId、素材仍在异步生成）
-export const PENDING_ACCENT: Rgba = [96, 165, 250, 255];
-export const PENDING_FILL: Rgba = [96, 165, 250, 30];
-// 媒体生成失败态：红色高亮
-export const FAILED_ACCENT: Rgba = [239, 68, 68, 255];
-export const FAILED_FILL: Rgba = [239, 68, 68, 28];
-// 计划态：proposed 但尚无生成配方的占位素材（content-first），冷蓝绿高亮，与「生成中」区分
-export const PLAN_ACCENT: Rgba = [14, 165, 233, 255];
-export const PLAN_FILL: Rgba = [14, 165, 233, 28];
+export const CAPTION_SIZE = GRAPH_TEXT.caption;
 
 /** 适配器当前视口缩放（zoom 常量文字/徽标用）。 */
 export function screenScaleOf(adapter: PomeloRendererAdapter): number {
   const scale = adapter.transform?.scale;
   return scale && scale > 0 ? scale : 1;
+}
+
+/** 视口缩放是否已低到只该看到 shape（<= LOW_DETAIL_SCALE 时各 block 隐藏文字）。 */
+export function isLowDetail(adapter: PomeloRendererAdapter): boolean {
+  return screenScaleOf(adapter) <= LOW_DETAIL_SCALE;
 }
 
 /** cover 填充的 op：等比放大铺满目标盒并居中，再按 clip 圆角裁剪（对齐 CSS background-size: cover; position: center）。
@@ -78,11 +58,25 @@ export function coverImageOpsV(adapter: PomeloRendererAdapter, url: string, box:
   return ops;
 }
 
-/** 元素标题徽标（● 名称）：画在卡片外上方，按屏幕像素恒定（委托 vello-text 的 screenTextOp）。 */
-export function captionOpsV(adapter: PomeloRendererAdapter, x: number, y: number, width: number, title: string): { ops: VelloOp[]; top: number } {
-  if (!title) return { ops: [], top: y };
+/** 元素标题徽标：画在卡片外上方，按屏幕像素恒定（委托 vello-text 的 screenTextOp）。
+ *  可选 prefix（如实体类型名）先画，再紧随其后画 title，两者颜色可不同（前缀用类型色）。 */
+export function captionOpsV(adapter: PomeloRendererAdapter, x: number, y: number, width: number, title: string, prefix?: { text: string; fill: Rgba }): { ops: VelloOp[]; top: number } {
+  if (!title && !prefix?.text) return { ops: [], top: y };
   const scale = screenScaleOf(adapter);
   const top = y - CAPTION_TOP_OFFSET / scale;
-  const text = truncateText(`● ${title}`, width * scale, CAPTION_SIZE);
-  return { top, ops: [screenTextOp(adapter, { text, x, y: top, screenSize: CAPTION_SIZE, maxScreenWidth: width * scale, align: "left", fill: CAPTION_FILL })] };
+  const maxScreenWidth = width * scale;
+  const ops: VelloOp[] = [];
+  let cursorX = x;
+  let remaining = maxScreenWidth;
+  if (prefix?.text) {
+    const label = truncateText(prefix.text, remaining, CAPTION_SIZE);
+    const labelWidth = Math.min(measureTextWidth(label, CAPTION_SIZE), remaining);
+    ops.push(screenTextOp(adapter, { text: label, x: cursorX, y: top, screenSize: CAPTION_SIZE, maxScreenWidth: remaining, align: "left", fill: prefix.fill }));
+    cursorX += labelWidth / scale;
+    remaining = Math.max(0, remaining - labelWidth);
+  }
+  if (title && remaining > 0) {
+    ops.push(screenTextOp(adapter, { text: truncateText(title, remaining, CAPTION_SIZE), x: cursorX, y: top, screenSize: CAPTION_SIZE, maxScreenWidth: remaining, align: "left", fill: CAPTION_FILL }));
+  }
+  return { top, ops };
 }

@@ -7,7 +7,7 @@
  * CanvasSelection 驱动右侧面板；空白拖拽 = 框选（与选框有交集即选中：节点按矩形重叠、关系/自由箭头
  * 按曲线相交；Shift 追加、Shift 点选增删），命中写入 store.selectedIds（恰好一项回落单选）；
  * 多选下拖拽整体位移（并交给 AlignmentGuidePlugin 做边缘/中心对齐吸附与提示线，Alt 临时关闭）、
- * Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（同样对齐吸附；图片锁比例时仅横向吸附；transact 增量提交，pointerup 落回
+ * Del/Backspace 打开批量删除确认弹框（DeleteSelectionConfirmDialog，不用 window.confirm）；拖拽位移 + 四角 resize（同样对齐吸附；仅 resize-policy 白名单内的 block 给手柄——图片/视频/音频块定尺不给；transact 增量提交，pointerup 落回
  * canvas-store.moveElement + persistGeometry（提交即落库，不再去抖；同一次交互再经 store.logGeometryChange 记一条撤销，多选整体位移合成一条；提交后立即清 liveGeometry，避免撤销被实时几何覆盖）；pointermove 经 editor.ticker 统一合帧，
  * 一帧至多一次 transact+重绘，pointerup 前 flush 最后一次 move）；「+」手柄（实体卡与 World 根节点
  * 左右缘中点各一个，自由元素不挂）拖出引导线：拖动中吸附到实体卡（蓝）或「可当属性节点」的基础节点
@@ -18,7 +18,8 @@
  * 有 assetId = 全局素材详情弹框（setAssetDetail，proposal/计划态照常呈现）、仅 url = 预览浮层、无内容 = 全局素材选择弹框（setMediaPicker，按模态过滤）挑素材或上传；双击空白 = 最近类型快捷建卡
  * （Alt = 创建菜单）；右键 = 实体/便签文本上下文菜单（T3）；Delete/Backspace 删除关系/草稿、
  * 实体走删除确认（B.6）；Cmd/Ctrl+Z = 语义撤销、Cmd/Ctrl+Shift+Z = 语义重做（store.undoLastChange/redoLastChange，画布真相在 store/服务端）；
- * 选区 overlay + 「+」手柄 +
+ * 选区 overlay（关系线三控制点由 arrow-geometry.linkHandlePoints 给出：start/end 落在箭头与节点边缘
+ * 的交点、mid 在可视段中点，避免默认锚点（节点中心）把控制点画到元素卡片上）+ 「+」手柄 +
  * 引导草稿线（overlay 屏幕空间 / draft 世界空间，transform 变化自动重绘）
  * [POS]: worlds/[worldID]/canvas 的画布交互绑定层（resolveSelection / store↔document 同步）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -29,8 +30,11 @@ import { DomOverlay, cssColor } from "@/lib/pomelo/pomelo-vello/overlay-dom";
 import { WORLD_ELEMENT_ID, useWorldCanvasStore } from "./canvas-store";
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
+import { audioBlockRect, isAudioBlockRecord } from "@/lib/pomelo/world-canvas/blocks/audio-block-metrics";
+import { blockSupportsResize } from "@/lib/pomelo/world-canvas/resize-policy";
 import { blockRect } from "@/lib/pomelo/world-canvas/arrow-geometry";
 import { displayRefText } from "@/lib/pomelo/world-canvas/blocks/ref-text";
+import { OVERLAY_GUIDE, OVERLAY_HANDLE, OVERLAY_HANDLE_FILL, OVERLAY_SELECTION, OVERLAY_SNAP } from "@/lib/pomelo/world-canvas/graph-theme";
 import { AlignmentGuidePlugin } from "@/lib/pomelo/world-canvas/plugins/alignment-guide-plugin";
 import { pomeloPerf } from "@/lib/pomelo/pomelo-core/pomelo-perf";
 import {
@@ -39,6 +43,7 @@ import {
   curveSegment,
   distanceToRelation,
   drawDashedCurve,
+  linkHandlePoints,
   relationGeometry,
   splitQuadratic,
 } from "@/lib/pomelo/world-canvas/arrow-geometry";
@@ -59,6 +64,8 @@ const MARQUEE_MIN_SCREEN = 4;
 // 命中/选区/「+」手柄必须与实际渲染一致）
 function rectOfRecord(record: { type: string; attrs: Record<string, unknown> }): Rect {
   if (record.type === "entity-card") return entityCardRect(record.attrs);
+  // 音频块固定尺寸（旧数据可能存了别的宽高）：命中/选区/框选与渲染所见一致
+  if (isAudioBlockRecord(record)) return audioBlockRect(record.attrs);
   return {
     x: Number(record.attrs.x) || 0,
     y: Number(record.attrs.y) || 0,
@@ -113,8 +120,6 @@ type ResizeDrag = {
   // 起始的「原始」attrs 几何（x/y/width/height）：实体卡有效矩形 entityCardRect 会放宽到
   // max(attrs.width, MIN_W) / max(attrs.height, contentH)，与落库值不一致，撤销必须回写原始值
   startGeometry: { x: number; y: number; width: number; height: number };
-  // 图像媒体卡锁定纵横比（采纳时按素材 naturalWidth/Height 适配过）：height = width * aspect
-  aspect?: number;
 };
 type LinkHandleDrag = {
   pointerId: number;
@@ -328,6 +333,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       for (const blockId of candidates) {
         const record = editor.state.getBlockById(blockId);
         if (!record || record.isRoot) continue;
+        // 只有白名单内的 block 给 resize 手柄（图片/视频/音频块按素材/播放器定尺，不给；拖拽位移仍可用）
+        if (!blockSupportsResize(record)) continue;
         const world = rectOfRecord(record);
         if (world.width <= 0 || world.height <= 0) continue;
         const tl = toScreen({ x: world.x, y: world.y });
@@ -347,7 +354,9 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const isLinkDrag = (value: DragState): value is LinkHandleDrag =>
       !!value && "fromBlockId" in value && "blockId" in value && (value.kind === "start" || value.kind === "mid" || value.kind === "end");
 
-    // 连线三控制点屏幕手柄（demo 版同款：exit t1 / 曲线中点 / enter t2）；
+    // 连线三控制点屏幕手柄（demo 版同款；位置由 arrow-geometry.linkHandlePoints 给出：
+    // start/end 落在箭头与节点边缘的交点、mid 落在可视段中点，避免默认锚点（节点中心）
+    // 把控制点画到元素卡片上；拖拽中的 start/end 跟手画在锚点）。
     // 语义关系边与自由草稿箭头都支持
     type LinkHandle = { kind: "start" | "mid" | "end"; screen: Point; blockId: string; fromBlockId: string; toBlockId: string };
     const activeLinkHandles = (): LinkHandle[] => {
@@ -363,11 +372,14 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       const to = editor.state.getBlockById(String(record.attrs.toId ?? ""));
       const geo = relationGeometry(from, to, record.attrs as never);
       if (!from || !to || !geo) return [];
-      const mid = bezierPoint(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
+      const dragKind = dragging && isLinkDrag(dragging) && dragging.blockId === record.id ? dragging.kind : null;
+      const points = linkHandlePoints(geo, dragKind);
+      const fromId = String(record.attrs.fromId ?? "");
+      const toId = String(record.attrs.toId ?? "");
       return [
-        { kind: "start", screen: toScreen(geo.t1), blockId: record.id, fromBlockId: String(record.attrs.fromId ?? ""), toBlockId: String(record.attrs.toId ?? "") },
-        { kind: "mid", screen: toScreen(mid), blockId: record.id, fromBlockId: String(record.attrs.fromId ?? ""), toBlockId: String(record.attrs.toId ?? "") },
-        { kind: "end", screen: toScreen(geo.t2), blockId: record.id, fromBlockId: String(record.attrs.fromId ?? ""), toBlockId: String(record.attrs.toId ?? "") },
+        { kind: "start", screen: toScreen(points.start), blockId: record.id, fromBlockId: fromId, toBlockId: toId },
+        { kind: "mid", screen: toScreen(points.mid), blockId: record.id, fromBlockId: fromId, toBlockId: toId },
+        { kind: "end", screen: toScreen(points.end), blockId: record.id, fromBlockId: fromId, toBlockId: toId },
       ];
     };
 
@@ -401,7 +413,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const b = toScreen(endWorld);
         // 吸附命中：实体目标=蓝（建关系），属性节点目标=绿（建属性边）；未命中=灰虚线跟随指针
         const entityTarget = Boolean(targetId?.startsWith("entity:"));
-        const accent = targetId ? (entityTarget ? 0x4c8dff : 0x34d399) : 0x8b93a7;
+        const accent = targetId ? (entityTarget ? OVERLAY_SELECTION : OVERLAY_SNAP) : OVERLAY_GUIDE;
         overlay.line(a.x, a.y, b.x, b.y, { stroke: cssColor(accent, 0.9), strokeWidth: 2, ...(targetId ? {} : { dash: "6 4" }) });
         overlay.circle(b.x, b.y, 4, { fill: cssColor(accent) });
         if (targetId) {
@@ -429,9 +441,9 @@ export class CanvasBindsPlugin extends PomeloPlugin {
               { x: rect.x, y: rect.y + rect.height / 2 },
             ]) {
               const anchorPoint = toScreen(world);
-              overlay.circle(anchorPoint.x, anchorPoint.y, 8, { stroke: cssColor(0xd4d4d8, 0.85), strokeWidth: 1.5, fill: cssColor(0x1c1d22) });
-              overlay.line(anchorPoint.x - 3.5, anchorPoint.y, anchorPoint.x + 3.5, anchorPoint.y, { stroke: cssColor(0xd4d4d8), strokeWidth: 2 });
-              overlay.line(anchorPoint.x, anchorPoint.y - 3.5, anchorPoint.x, anchorPoint.y + 3.5, { stroke: cssColor(0xd4d4d8), strokeWidth: 2 });
+              overlay.circle(anchorPoint.x, anchorPoint.y, 8, { stroke: cssColor(OVERLAY_HANDLE, 0.85), strokeWidth: 1.5, fill: cssColor(OVERLAY_HANDLE_FILL) });
+              overlay.line(anchorPoint.x - 3.5, anchorPoint.y, anchorPoint.x + 3.5, anchorPoint.y, { stroke: cssColor(OVERLAY_HANDLE), strokeWidth: 2 });
+              overlay.line(anchorPoint.x, anchorPoint.y - 3.5, anchorPoint.x, anchorPoint.y + 3.5, { stroke: cssColor(OVERLAY_HANDLE), strokeWidth: 2 });
             }
           }
         }
@@ -444,7 +456,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         overlay.roundedRect(
           { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) },
           2,
-          { stroke: cssColor(0x4c8dff, 0.9), strokeWidth: 1, fill: cssColor(0x4c8dff, 0.08) },
+          { stroke: cssColor(OVERLAY_SELECTION, 0.9), strokeWidth: 1, fill: cssColor(OVERLAY_SELECTION, 0.08) },
         );
       }
 
@@ -461,7 +473,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
             const geo = relationGeometry(from, to, record.attrs as never);
             if (geo) {
               const part = curveSegment(geo, geo.ta, geo.tb);
-              overlay.quad(toScreen(part.p0), toScreen(part.cp), toScreen(part.p2), { stroke: cssColor(0x4c8dff), strokeWidth: 2.5 });
+              overlay.quad(toScreen(part.p0), toScreen(part.cp), toScreen(part.p2), { stroke: cssColor(OVERLAY_SELECTION), strokeWidth: 2.5 });
             }
             continue;
           }
@@ -471,7 +483,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
           overlay.roundedRect(
             { x: tl.x - 3, y: tl.y - 3, width: world.width * t.scale + 6, height: world.height * t.scale + 6 },
             6,
-            { stroke: cssColor(0x4c8dff, 0.7), strokeWidth: 2 },
+            { stroke: cssColor(OVERLAY_SELECTION, 0.7), strokeWidth: 2 },
           );
         }
         return;
@@ -489,20 +501,20 @@ export class CanvasBindsPlugin extends PomeloPlugin {
           const geo = relationGeometry(from, to, arrowRecord.attrs as never);
           if (from && to && geo) {
             if (this.#snapZone) {
-              overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 14, { stroke: cssColor(0x4c8dff, 0.6), strokeWidth: 1.5 });
-              overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 22, { stroke: cssColor(0x4c8dff, 0.25), strokeWidth: 1 });
+              overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 14, { stroke: cssColor(OVERLAY_SELECTION, 0.6), strokeWidth: 1.5 });
+              overlay.circle(this.#snapZone.centerScreen.x, this.#snapZone.centerScreen.y, 22, { stroke: cssColor(OVERLAY_SELECTION, 0.25), strokeWidth: 1 });
             }
             const leftPart = geo.ta > 0 ? splitQuadratic(geo.curve, geo.ta).left : geo.curve;
             const rightPart = geo.tb < 1 ? splitQuadratic(geo.curve, geo.tb).right : geo.curve;
             for (const part of [leftPart, rightPart]) {
-              overlay.quad(toScreen(part.p0), toScreen(part.cp), toScreen(part.p2), { stroke: cssColor(0x8b93a7, 0.9), strokeWidth: 1.5, dash: "6 4" });
+              overlay.quad(toScreen(part.p0), toScreen(part.cp), toScreen(part.p2), { stroke: cssColor(OVERLAY_GUIDE, 0.9), strokeWidth: 1.5, dash: "6 4" });
             }
             const midPart = curveSegment(geo, geo.ta, geo.tb);
             const a = toScreen(midPart.p0);
             const b = toScreen(midPart.p2);
             const cpScreen = toScreen(midPart.cp);
             overlay.quad(a, cpScreen, b, { stroke: cssColor(0xffffff, 0.95), strokeWidth: 5 });
-            overlay.quad(a, cpScreen, b, { stroke: cssColor(0x4c8dff), strokeWidth: 2 });
+            overlay.quad(a, cpScreen, b, { stroke: cssColor(OVERLAY_SELECTION), strokeWidth: 2 });
             const tangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.tb);
             const angle = Math.atan2(tangent.y, tangent.x);
             overlay.polygon(
@@ -513,10 +525,12 @@ export class CanvasBindsPlugin extends PomeloPlugin {
               ],
               { fill: cssColor(0xffffff) },
             );
-            const mid = bezierPoint(geo.curve.p0, geo.curve.cp, geo.curve.p2, 0.5);
-            for (const world of [geo.t1, mid, geo.t2]) {
+            // 三控制点：start/end 落在箭头与节点边缘的交点、mid 落在可视段中点（拖拽中的端手柄跟手）
+            const dragKind = dragging && isLinkDrag(dragging) && dragging.blockId === arrowRecord.id ? dragging.kind : null;
+            const points = linkHandlePoints(geo, dragKind);
+            for (const world of [points.start, points.mid, points.end]) {
               const point = toScreen(world);
-              overlay.circle(point.x, point.y, 4.5, { stroke: cssColor(0x4c8dff), strokeWidth: 2, fill: cssColor(0xffffff) });
+              overlay.circle(point.x, point.y, 4.5, { stroke: cssColor(OVERLAY_SELECTION), strokeWidth: 2, fill: cssColor(0xffffff) });
             }
           }
         }
@@ -535,14 +549,17 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const height = world.height;
         if (width <= 0 || height <= 0) continue;
         const tl = toScreen({ x: world.x, y: world.y });
-        overlay.roundedRect({ x: tl.x - 4, y: tl.y - 4, width: width * t.scale + 8, height: height * t.scale + 8 }, 8, { stroke: cssColor(0x4c8dff, 0.5), strokeWidth: 2 });
-        for (const [hx, hy] of [
-          [tl.x - 4, tl.y - 4],
-          [tl.x + width * t.scale + 4, tl.y - 4],
-          [tl.x - 4, tl.y + height * t.scale + 4],
-          [tl.x + width * t.scale + 4, tl.y + height * t.scale + 4],
-        ]) {
-          overlay.roundedRect({ x: hx - 4, y: hy - 4, width: 8, height: 8 }, 1, { stroke: cssColor(0x4c8dff), strokeWidth: 2, fill: cssColor(0xffffff) });
+        overlay.roundedRect({ x: tl.x - 4, y: tl.y - 4, width: width * t.scale + 8, height: height * t.scale + 8 }, 8, { stroke: cssColor(OVERLAY_SELECTION, 0.5), strokeWidth: 2 });
+        // 只有白名单内的 block 画四角 resize 手柄（图片/视频/音频块定尺，仅选中高亮）
+        if (blockSupportsResize(record)) {
+          for (const [hx, hy] of [
+            [tl.x - 4, tl.y - 4],
+            [tl.x + width * t.scale + 4, tl.y - 4],
+            [tl.x - 4, tl.y + height * t.scale + 4],
+            [tl.x + width * t.scale + 4, tl.y + height * t.scale + 4],
+          ]) {
+            overlay.roundedRect({ x: hx - 4, y: hy - 4, width: 8, height: 8 }, 1, { stroke: cssColor(OVERLAY_SELECTION), strokeWidth: 2, fill: cssColor(0xffffff) });
+          }
         }
         break;
       }
@@ -568,7 +585,22 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       const screen = { x: event.clientX - view.getBoundingClientRect().left, y: event.clientY - view.getBoundingClientRect().top };
       const world = toWorld(event);
 
-      // 「+」手柄最优先：点击/拖出引导线（只读态不提供创建）
+      // 三控制点最优先：控制点落在节点边缘（与「+」手柄同一带），悬停节点时两者会重叠——
+      // 已选中关系线时控制点优先，否则「拖端点」会被「+」引导线抢走；要用「+」先取消选中（Esc/点空白）
+      const linkHandle = activeLinkHandles().find((item) => Math.hypot(screen.x - item.screen.x, screen.y - item.screen.y) < 12);
+      if (linkHandle && event.pointerId != null) {
+        dragging = {
+          pointerId: event.pointerId,
+          kind: linkHandle.kind,
+          blockId: linkHandle.blockId,
+          fromBlockId: linkHandle.fromBlockId,
+          toBlockId: linkHandle.toBlockId,
+        };
+        view.setPointerCapture(event.pointerId);
+        return;
+      }
+
+      // 「+」手柄：点击/拖出引导线（只读态不提供创建）
       if (useWorldCanvasStore.getState().attrCreator == null) {
         const plus = plusHandles().find((item) => Math.hypot(screen.x - item.screen.x, screen.y - item.screen.y) < 10);
         if (plus && !useWorldCanvasStore.getState().readOnly) {
@@ -598,30 +630,9 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         }
       }
 
-      const linkHandle = activeLinkHandles().find((item) => Math.hypot(screen.x - item.screen.x, screen.y - item.screen.y) < 12);
-      if (linkHandle && event.pointerId != null) {
-        dragging = {
-          pointerId: event.pointerId,
-          kind: linkHandle.kind,
-          blockId: linkHandle.blockId,
-          fromBlockId: linkHandle.fromBlockId,
-          toBlockId: linkHandle.toBlockId,
-        };
-        view.setPointerCapture(event.pointerId);
-        return;
-      }
-
       const corner = activeCorners().find((item) => Math.hypot(screen.x - item.screen.x, screen.y - item.screen.y) < 10);
       if (corner) {
         const record = editor.state.getBlockById(corner.blockId);
-        const canvasId = blockIdToCanvasId(corner.blockId);
-        const source = useWorldCanvasStore.getState().elements.find((item) => item.id === canvasId);
-        // 图片媒体卡（独立 media 或属性卡）锁定纵横比；其余元素自由 resize
-        const isImageMedia = Boolean(
-          source &&
-            ((source.kind === "media" && String(source.props?.modality ?? "image") === "image") ||
-              (source.kind === "attr" && String(source.props?.media ?? "text") === "image")),
-        );
         if (record) {
           const startRect = rectOf(record);
           // 记原始 attrs（落库值），供撤销回写；startRect 是有效矩形（实体卡会被放宽），只用于 resize 数学
@@ -637,7 +648,6 @@ export class CanvasBindsPlugin extends PomeloPlugin {
             blockId: corner.blockId,
             startRect,
             startGeometry,
-            aspect: isImageMedia && startRect.width > 0 && startRect.height > 0 ? startRect.height / startRect.width : undefined,
           };
         } else {
           dragging = null;
@@ -780,14 +790,12 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const record = editor.state.getBlockById(drag.blockId);
         if (!record) return;
         // 对齐吸附：被拖角以零尺寸矩形参与成对边缘/中心比较（对应 open-pencil resize snap 的
-        // activeEdgeBounds = 活动边/角）。锁比例（图片）时只有主轴能对齐（另一维由比例推导），
-        // 因此限制在 x 轴吸附，避免出现对不上的纵向提示线。
+        // activeEdgeBounds = 活动边/角）。
         const alignment = editor.pluginRegistry.get("AlignmentGuidePlugin") as AlignmentGuidePlugin | undefined;
         let pointerX = world.x;
         let pointerY = world.y;
         if (alignment && !event.altKey) {
-          const axes = drag.aspect ? (["x"] as const) : undefined;
-          const correction = alignment.snap(new Set([drag.blockId]), { x: pointerX, y: pointerY, width: 0, height: 0 }, axes);
+          const correction = alignment.snap(new Set([drag.blockId]), { x: pointerX, y: pointerY, width: 0, height: 0 });
           pointerX += correction.dx;
           pointerY += correction.dy;
         } else {
@@ -796,7 +804,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const x = Math.round(Math.min(pointerX, fixedX));
         const y = Math.round(Math.min(pointerY, fixedY));
         const width = Math.round(Math.max(MIN_SIZE, Math.abs(pointerX - fixedX)));
-        const height = Math.round(Math.max(MIN_SIZE, drag.aspect ? Math.max(MIN_SIZE, width * drag.aspect) : Math.abs(pointerY - fixedY)));
+        const height = Math.round(Math.max(MIN_SIZE, Math.abs(pointerY - fixedY)));
         editor.state.transact((hook) => {
           hook.updateBlock(drag.blockId, { x, y, width, height });
         });
@@ -1259,7 +1267,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
   }
 
   // 选区 overlay：屏幕空间绘制（stage 直挂）；
-  // 节点/便签 = 矩形选框 + 四角 resize 手柄；关系线 = 曲线高亮覆盖 + 三控制点；
+  // 节点/便签 = 矩形选框（白名单内 block 附四角 resize 手柄）；关系线 = 曲线高亮覆盖 + 三控制点；
   // 所有节点左右缘中点各绘制「+」手柄（创建连线 / 属性引导入口）
   drawOverlay(editor: PomeloEditor) {
     // 覆盖层是纯 DOM/SVG 改动（不经过 transact）：demand-driven 渲染需显式置脏

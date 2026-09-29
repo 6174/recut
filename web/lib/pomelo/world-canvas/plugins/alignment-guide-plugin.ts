@@ -14,6 +14,7 @@ import type { PomeloEditor } from "../../pomelo-core/pomelo-editor";
 import { PomeloPlugin } from "../../pomelo-core/pomelo-plugin";
 import { DomOverlay, cssColor } from "../../pomelo-vello/overlay-dom";
 import { blockRect } from "../arrow-geometry";
+import { OVERLAY_ALIGNMENT_GUIDE } from "../graph-theme";
 
 export type GuideRect = { x: number; y: number; width: number; height: number };
 
@@ -32,7 +33,7 @@ export type AlignmentSnapResult = {
 
 // 吸附阈值：屏幕像素（除以 zoom 得到世界单位），与 open-pencil SNAP_THRESHOLD_SCREEN_PX 一致
 export const SNAP_THRESHOLD_SCREEN_PX = 5;
-const GUIDE_COLOR = 0xff3b8d;
+const GUIDE_COLOR = OVERLAY_ALIGNMENT_GUIDE;
 const EPSILON = 1e-6;
 
 // 同轴同位置的提示线合并（多条目标对齐到同一条线时，取并集区间画一条）

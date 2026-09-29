@@ -86,6 +86,11 @@ export abstract class PomeloRendererAdapter {
     return 1;
   }
 
+  /** 可选：外部异步数据（图片/音频波形等）就绪后，请求重跑 block 绘制；缺省仅请求一帧渲染。 */
+  refreshBlocks(): void {
+    this.invalidate();
+  }
+
   onInit(renderer: PomeloRenderer) {
     this.renderer = renderer;
     this.editor = renderer.editor;

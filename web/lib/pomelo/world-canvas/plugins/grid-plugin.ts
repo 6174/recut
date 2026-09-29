@@ -9,6 +9,7 @@
 import type { PomeloEditor } from "../../pomelo-core/pomelo-editor";
 import type { PomeloRendererAdapter } from "../../pomelo-core/pomelo-renderer/pomelo-renderer-adapter";
 import { PomeloPlugin } from "../../pomelo-core/pomelo-plugin";
+import { GRID_DOT } from "../graph-theme";
 
 export const GRID_STEP = 26;
 
@@ -72,7 +73,7 @@ export class GridPlugin extends PomeloPlugin {
     if (step < 10) return;
     const fromX = Math.floor(-t.x / step) * step + t.x;
     const fromY = Math.floor(-t.y / step) * step + t.y;
-    ctx.fillStyle = "rgba(255,255,255,0.07)";
+    ctx.fillStyle = GRID_DOT;
     for (let x = fromX; x <= width; x += step) {
       for (let y = fromY; y <= height; y += step) {
         ctx.fillRect(x, y, 1, 1);

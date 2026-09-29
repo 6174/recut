@@ -68,7 +68,7 @@ export type DemoMediaNode = {
   height: number;
 };
 
-export const ENTITY_SIZE = { width: 264, height: 328 };
+export const ENTITY_SIZE = { width: 264, height: 200 };
 export const NOTE_SIZE = { width: 160, height: 110 };
 export const WORLD_NODE_SIZE = { width: 200, height: 200 };
 export const MEDIA_NODE_SIZE = { width: 220, height: 150 };

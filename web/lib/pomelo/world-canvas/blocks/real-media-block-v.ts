@@ -1,9 +1,12 @@
 /*
- * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/blocks/vello-shared
- * [OUTPUT]: 对外提供 RealMediaBlockV（type: media）：图 center-cover / 视频音频占位 + 元素徽标；
+ * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/graph-theme（配色单一真源）、
+ *          world-canvas/blocks/vello-shared（cover/徽标/低细节）、world-canvas/blocks/audio-block-ops（音频播放器外观）
+ * [OUTPUT]: 对外提供 RealMediaBlockV（type: media）：图 center-cover / 音频播放器外观（圆形播放钮 + 真实波形 +
+ * 时间 + 音量/下载，波形懒加载）/ 视频占位 + 元素徽标；
  * 生成提案态（proposalStatus）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要 + 参考/模型信息；
  * 计划态（planStatus，proposed 但无配方）渲染为冷蓝描边 + 「计划中」+ 说明摘要；
- * 素材生成中/失败态（assetStatus）渲染为蓝/红描边 + 等待/失败提示（AI 先落 assetId 的节点）。
+ * 素材生成中/失败态（assetStatus）渲染为蓝/红描边 + 等待/失败提示（AI 先落 assetId 的节点）；
+ * 视口 <= LOW_DETAIL_SCALE 时只画卡面/图，隐藏全部文字。
  * [POS]: lib/pomelo/world-canvas/blocks 的媒体元素 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,7 +14,6 @@ import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block"
 import type { VelloOp } from "../../pomelo-vello/op-bridge";
 import { textOp } from "../../pomelo-vello/vello-text";
 import {
-  CAPTION_TOP_OFFSET,
   CARD_FILL,
   CARD_STROKE,
   FAILED_ACCENT,
@@ -26,10 +28,10 @@ import {
   TEXT_PRIMARY,
   TEXT_SECONDARY,
   TEXT_TERTIARY,
-  captionOpsV,
-  coverImageOpsV,
-  screenScaleOf,
-} from "./vello-shared";
+} from "../graph-theme";
+import { CAPTION_TOP_OFFSET, captionOpsV, coverImageOpsV, isLowDetail, screenScaleOf } from "./vello-shared";
+import { audioPlayerOpsV } from "./audio-block-ops";
+import { audioBlockRect, isAudioBlockRecord } from "./audio-block-metrics";
 
 /** 媒体元素（type: media）：图 center-cover / 视频音频占位 + 元素徽标。 */
 export class RealMediaBlockV extends VelloBlock {
@@ -40,8 +42,10 @@ export class RealMediaBlockV extends VelloBlock {
     const attrs = this.record.attrs as Record<string, unknown>;
     const x = Number(attrs.x) || 0;
     const y = Number(attrs.y) || 0;
-    const w = Number(attrs.width) || 220;
-    const h = Number(attrs.height) || 150;
+    // 音频块固定尺寸（不支持 resize）：渲染/命中/选区都用同一固定矩形
+    const audio = isAudioBlockRecord(this.record) ? audioBlockRect(attrs) : null;
+    const w = audio?.width ?? (Number(attrs.width) || 220);
+    const h = audio?.height ?? (Number(attrs.height) || 150);
     const scale = screenScaleOf(this.adapter);
     return { minX: x, minY: y - (CAPTION_TOP_OFFSET + 2) / scale, maxX: x + w, maxY: y + h };
   }
@@ -50,12 +54,15 @@ export class RealMediaBlockV extends VelloBlock {
     const attrs = this.record.attrs as Record<string, unknown>;
     const x = Number(attrs.x) || 0;
     const y = Number(attrs.y) || 0;
-    const w = Number(attrs.width) || 220;
-    const h = Number(attrs.height) || 150;
+    // 音频块固定尺寸（不支持 resize）：忽略旧数据里存的宽高
+    const audio = isAudioBlockRecord(this.record) ? audioBlockRect(attrs) : null;
+    const w = audio?.width ?? (Number(attrs.width) || 220);
+    const h = audio?.height ?? (Number(attrs.height) || 150);
     const modality = String(attrs.modality ?? "image");
     const src = String(attrs.src ?? "");
     const label = String(attrs.label ?? "媒体");
     const attached = Boolean(attrs.attached);
+    const lowDetail = isLowDetail(this.adapter);
     const proposalStatus = String(attrs.proposalStatus ?? "");
     const isProposal = proposalStatus === "pending" || proposalStatus === "generating" || proposalStatus === "failed";
     // 素材生成中/失败（AI 先落 assetId，素材仍在异步生成）：与提案态区分，单独渲染等待态
@@ -67,14 +74,14 @@ export class RealMediaBlockV extends VelloBlock {
     const accent = isProposal ? PROPOSAL_ACCENT : isPlan ? PLAN_ACCENT : isGenerating ? PENDING_ACCENT : isFailed ? FAILED_ACCENT : CARD_STROKE;
     const accentWidth = isProposal || isPlan || isGenerating || isFailed ? 2 : 1;
     const innerH = h - (attached ? 18 : 0);
-    const caption = captionOpsV(this.adapter, x, y, w, label);
 
     const ops: VelloOp[] = [
       { kind: "roundRect", x: x + 2, y: y + 6, width: w, height: h, radius: 12, fill: SHADOW_FILL, stroke: [0, 0, 0, 0], strokeWidth: 0 },
       { kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: accent, strokeWidth: accentWidth },
-      ...caption.ops,
     ];
-    if (isProposal) {
+    if (!lowDetail) ops.push(...captionOpsV(this.adapter, x, y, w, label).ops);
+
+    if (!lowDetail && isProposal) {
       // 生成提案（待确认）：琥珀徽标 + 提示词摘要 + 参考/模型信息，提示用户确认后才生成
       const refs = Number(attrs.proposalRefs ?? 0);
       const model = String(attrs.proposalModel ?? "");
@@ -87,7 +94,7 @@ export class RealMediaBlockV extends VelloBlock {
       ops.push(textOp({ text: `${refs} 参考${model ? ` · ${model}` : ""}`, x: x + 12, y: y + h - 24, size: 9, maxWidth: w - 24, fill: TEXT_TERTIARY }));
       return { ops, bounds: this.blockBounds() };
     }
-    if (isPlan) {
+    if (!lowDetail && isPlan) {
       // 计划（content-first）：冷蓝徽标 + 计划摘要，提示交给 AI 补生成配方（详情面板可复制计划）
       const prompt = String(attrs.planPrompt ?? "").replace(/\s+/g, " ").trim();
       const snippet = prompt.length > 46 ? `${prompt.slice(0, 46)}…` : prompt || "（仅说明，暂无生成配方）";
@@ -98,7 +105,7 @@ export class RealMediaBlockV extends VelloBlock {
       ops.push(textOp({ text: "待补生成配方", x: x + 12, y: y + h - 24, size: 9, maxWidth: w - 24, fill: TEXT_TERTIARY }));
       return { ops, bounds: this.blockBounds() };
     }
-    if (isGenerating) {
+    if (!lowDetail && isGenerating) {
       // 生成中：AI 已把 assetId 落位、素材仍在生成——蓝边 + 「生成中…」，就绪后由画布自动切换
       ops.push({ kind: "roundRect", x: x + 10, y: y + 10, width: 56, height: 18, radius: 9, fill: PENDING_FILL, stroke: PENDING_ACCENT, strokeWidth: 1 });
       ops.push(textOp({ text: "生成中", x: x + 20, y: y + 14, size: 10, maxWidth: 40, fill: PENDING_ACCENT }));
@@ -106,7 +113,7 @@ export class RealMediaBlockV extends VelloBlock {
       ops.push(textOp({ text: "完成后自动显示", x: x + 12, y: y + innerH / 2 + 8, size: 10, maxWidth: w - 24, fill: TEXT_TERTIARY }));
       return { ops, bounds: this.blockBounds() };
     }
-    if (isFailed) {
+    if (!lowDetail && isFailed) {
       // 生成失败：红边 + 失败提示，在详情面板查看错误 / 重试
       ops.push({ kind: "roundRect", x: x + 10, y: y + 10, width: 44, height: 18, radius: 9, fill: FAILED_FILL, stroke: FAILED_ACCENT, strokeWidth: 1 });
       ops.push(textOp({ text: "失败", x: x + 19, y: y + 14, size: 10, maxWidth: 32, fill: FAILED_ACCENT }));
@@ -116,15 +123,18 @@ export class RealMediaBlockV extends VelloBlock {
     }
     if (modality === "image" && src) {
       ops.push(...coverImageOpsV(this.adapter, src, { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12 }, { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12, radius: 8 }));
-    } else if (src) {
-      // 已有源的视频/音频：提示双击预览
-      ops.push(textOp({ text: modality === "video" ? "▶ 视频 · 双击预览" : "♪ 音频 · 双击预览", x: x + 12, y: y + innerH / 2 - 10, size: 14, maxWidth: w - 24, fill: TEXT_TERTIARY }));
-    } else {
+    } else if (modality === "audio") {
+      // 音频：音频卡外观（音符标记 + 波形 + 时间）；无源时为空态（加号 + 骨架波形 + 提示）
+      if (!lowDetail) ops.push(...audioPlayerOpsV(this.adapter, { x, y, width: w, height: innerH }, src, { empty: !src }));
+    } else if (!lowDetail && src) {
+      // 已有源的视频：提示双击预览
+      ops.push(textOp({ text: "▶ 视频 · 双击预览", x: x + 12, y: y + innerH / 2 - 10, size: 14, maxWidth: w - 24, fill: TEXT_TERTIARY }));
+    } else if (!lowDetail) {
       // 空素材 placeholder：点击选中后在右侧详情面板选来源 / 本地上传
-      const placeholder = modality === "video" ? "＋ 点击添加视频" : modality === "audio" ? "＋ 点击添加音频" : "＋ 点击添加图片";
+      const placeholder = modality === "video" ? "＋ 点击添加视频" : "＋ 点击添加图片";
       ops.push(textOp({ text: placeholder, x: x + 12, y: y + innerH / 2 - 10, size: 13, maxWidth: w - 24, fill: TEXT_TERTIARY }));
     }
-    if (attached) ops.push(textOp({ text: "◈ 参考素材", x: x + 10, y: y + h - 16, size: 9, maxWidth: w - 20, fill: TEXT_SECONDARY }));
+    if (!lowDetail && attached) ops.push(textOp({ text: "◈ 参考素材", x: x + 10, y: y + h - 16, size: 9, maxWidth: w - 20, fill: TEXT_SECONDARY }));
 
     return { ops, bounds: this.blockBounds() };
   }

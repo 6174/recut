@@ -16,6 +16,7 @@
  *           图片纹理按视口缩放/元素尺寸自适应分辨率：首次基准档 512，放大时 512→1024→2048→4096
  *           升档（复用缓存的源 Image 重栅格并原位替换纹理），避免放大发糊；
  *           加载失败（404/CORS/非图片）做负缓存，杜绝「渲染→失败→重渲染→再请求」请求风暴。
+ *           对外提供 refreshBlocks()：图片/音频波形等外部异步数据就绪后重跑 block 绘制并同步 chunk。
  *           WebGPU 不可用时不降级，抛 RendererUnsupportedError（带 reason）；wasm 产物缺失/设备初始化失败抛
  *           RendererInitError（reason=resource/device），由宿主区分提示「构建产物」还是「升级浏览器/开硬件加速」。
  * [POS]: pomelo-vello 的适配器实现（M2 接入层）。
@@ -554,7 +555,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       } finally {
         this.imagePending.delete(url);
         // 只有成功才触发重绘：失败重绘会让所有 block 再调 ensureImage 形成请求死循环。
-        if (ok) this.refreshImageBlocks();
+        if (ok) this.refreshBlocks();
         else this.imageFailed.add(url);
       }
     })().catch(() => undefined);
@@ -565,7 +566,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private upgradeImage(url: string, source: HTMLImageElement, tier: number): void {
     this.imagePending.add(url);
     void (async () => {
-      // 让出当前调用栈：升档由 render 内同步触发，先挂起避免重入 refreshImageBlocks
+      // 让出当前调用栈：升档由 render 内同步触发，先挂起避免重入 refreshBlocks
       await Promise.resolve();
       let ok = false;
       try {
@@ -588,7 +589,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       } finally {
         this.imagePending.delete(url);
         if (ok) {
-          this.refreshImageBlocks();
+          this.refreshBlocks();
         } else {
           // 升档失败也要落档位：否则 desired 恒大于 current，每次重绘都会再试 → 死循环。
           this.imageTier.set(url, tier);
@@ -597,8 +598,9 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     })().catch(() => undefined);
   }
 
-  /** 图片就绪/升档后重跑所有 VelloBlock.render() 并同步 chunk（drawVersion 变化 → 瓦片重编码）。 */
-  private refreshImageBlocks(): void {
+  /** 外部异步数据（图片就绪/升档、音频波形解码完成等）就绪后：重跑所有 VelloBlock.render()
+   *  并同步 chunk（drawVersion 变化 → 瓦片重编码）。 */
+  override refreshBlocks(): void {
     try {
       // 先结束拖拽内容会话：会话把静态内容渲成保留纹理、live 块逐帧合成，二者都建立在
       // 会话开始时的图像注册/图集状态上。会话期间新注册图像（首次加载或升档）会改写被拖块
@@ -611,7 +613,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       }
       this.syncChunks();
     } catch (error) {
-      console.warn("[pomelo-vello-adapter] image re-render failed", error);
+      console.warn("[pomelo-vello-adapter] block re-render failed", error);
     }
     this.dirty = true;
   }

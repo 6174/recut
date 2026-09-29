@@ -1,21 +1,22 @@
+// File: web/app/worlds/[worldID]/canvas/canvas-create-menu.tsx (tsx)
 /*
- * [INPUT]: 依赖 react、lucide（Search）、canvas-store（creating/creatingAt/entityTypes 与
+ * [INPUT]: 依赖 react、canvas-store（creating/creatingAt/entityTypes 与
  * createEntity/addNote/addFreeElement/addMediaElement/setCreating/setAiDialogOpen/load 动作）、
- * recut-worlds-client、readLastKind/readRecentCustomTypes
- * [OUTPUT]: 对外提供 CreateMenu（B.7 创建菜单，@ 面板式双栏）：顶部搜索框 + 左侧分组列表
- * （最近使用 / 设定 / 自定义类型 / 画布元素 / 操作，组标题分隔）+ 右侧 hover/高亮预览，
- * [＋ 新建设定类型…]（名称+emoji，最小「描述」字段 schema，创建后可选落第一张草稿卡）；
+ * recut-worlds-client、readLastKind/readRecentCustomTypes、canvas-create-panel（共用创建面板外壳）
+ * [OUTPUT]: 对外提供 CreateMenu（B.7 创建菜单）：构建分组条目（画布元素 / 最近使用 / 设定 /
+ * 自定义类型 / 操作——画布元素类比设定更常用，排在分组最前）与 [＋ 新建设定类型…] 对话框，
+ * 面板本身由 CreatePanel 渲染（顶部搜索 + 左侧分组列表 + 右侧详情预览 + 「创建」）；
  * 锚点 = creatingAt（双击空白 / Header ＋ 按钮正下方）或视口中心
  * [POS]: worlds/[worldID]/canvas 的创建系统菜单层；选类型即在锚点处落正式卡片并进入命名态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import type { WorldEntityType } from "@/lib/recut-worlds-client";
 import { createRecutWorldsClient, entityKindLabels } from "@/lib/recut-worlds-client";
+import { CreatePanel, type CreateGroup, type CreateItem } from "./canvas-create-panel";
 import { readRecentCustomTypes, useWorldCanvasStore } from "./canvas-store";
 
 // 视口中心的世界坐标（无 creatingAt 时的兜底落点）
@@ -59,47 +60,12 @@ function typeNameOf(type: WorldEntityType): string {
   return type.name || entityKindLabels[type.id as keyof typeof entityKindLabels] || type.id;
 }
 
-// 面板尺寸（用于锚点夹取；与 JSX 里的 w/h 保持一致）
-const PANEL_W = 600;
-const PANEL_H = 460;
-
-// 预览 = 右侧详情栏渲染所需的最小数据
-type CreatePreview = {
-  icon: string;
-  title: string;
-  subtitle?: string;
-  body?: string;
-  facts?: Array<{ label: string; value: string }>;
-};
-
-type CreateItem = {
-  key: string;
-  label: string;
-  icon: string;
-  hint?: string;
-  preview: CreatePreview;
-  run: () => void;
-};
-
-type CreateGroup = { key: string; title: string; items: CreateItem[] };
-
 export function CreateMenu() {
   const creating = useWorldCanvasStore((state) => state.creating);
   const creatingAt = useWorldCanvasStore((state) => state.creatingAt);
   const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
   const setCreating = useWorldCanvasStore((state) => state.setCreating);
   const [newTypeOpen, setNewTypeOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [activeKey, setActiveKey] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  // 每次打开都重置搜索与高亮，避免上次会话残留
-  useEffect(() => {
-    if (creating) {
-      setQuery("");
-      setActiveKey(null);
-    }
-  }, [creating]);
 
   if (!creating) return null;
 
@@ -202,161 +168,20 @@ export function CreateMenu() {
     },
   ];
 
+  // 画布元素（便签/文本/媒体）比设定类型更常用：排在分组最前，打开即可直接落元素
   const groups: CreateGroup[] = [
+    { key: "element", title: "画布元素", items: elementItems },
     { key: "recent", title: "最近使用", items: recentTypes.map(typeItem) },
     { key: "preset", title: "设定", items: presetTypes.map(typeItem) },
     { key: "custom", title: "自定义类型", items: otherCustomTypes.map(typeItem) },
-    { key: "element", title: "画布元素", items: elementItems },
     { key: "action", title: "操作", items: actionItems },
   ].filter((group) => group.items.length > 0);
 
-  const needle = query.trim().toLowerCase();
-  const visibleGroups = needle
-    ? groups
-        .map((group) => ({ ...group, items: group.items.filter((item) => `${item.label} ${item.hint ?? ""}`.toLowerCase().includes(needle)) }))
-        .filter((group) => group.items.length > 0)
-    : groups;
-  const flatItems = visibleGroups.flatMap((group) => group.items);
-  const activeItem = flatItems.find((item) => item.key === activeKey) ?? flatItems[0] ?? null;
-
-  const moveHighlight = (delta: number) => {
-    if (flatItems.length === 0) return;
-    const currentIndex = Math.max(0, flatItems.findIndex((item) => item.key === activeItem?.key));
-    const nextIndex = Math.max(0, Math.min(flatItems.length - 1, currentIndex + delta));
-    const next = flatItems[nextIndex];
-    setActiveKey(next.key);
-    listRef.current?.querySelector(`[data-create-key="${next.key}"]`)?.scrollIntoView({ block: "nearest" });
-  };
-
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-      return;
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      moveHighlight(1);
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      moveHighlight(-1);
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      activeItem?.run();
-    }
-  };
-
-  const winW = typeof window !== "undefined" ? window.innerWidth : 1280;
-  const winH = typeof window !== "undefined" ? window.innerHeight : 800;
-  const left = creatingAt
-    ? Math.min(Math.max(16, creatingAt.screenX), Math.max(16, winW - PANEL_W - 16))
-    : Math.max(16, winW / 2 - PANEL_W / 2);
-  const top = creatingAt
-    ? Math.min(Math.max(60, creatingAt.screenY), Math.max(60, winH - PANEL_H - 16))
-    : Math.max(60, winH / 2 - PANEL_H / 2);
-
   return (
-    <div className="fixed inset-0 z-[70]" onPointerDown={close}>
-      <div
-        className="absolute flex h-[min(460px,calc(100vh-5rem))] w-[min(600px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-popover text-sm text-popover-foreground shadow-[var(--shadow-overlay)]"
-        onKeyDown={onKeyDown}
-        onMouseDown={(event) => event.stopPropagation()}
-        onPointerDown={(event) => event.stopPropagation()}
-        style={{ left, top }}
-      >
-        <div className="relative border-b p-2.5">
-          <Search className="pointer-events-none absolute left-4.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            autoFocus
-            className="h-8 w-full rounded-sm border bg-background pl-8 pr-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索设定类型、便签、文本、媒体…"
-            type="search"
-            value={query}
-          />
-        </div>
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
-          <div className="min-h-0 overflow-y-auto border-r p-1.5" ref={listRef} role="listbox">
-            {visibleGroups.length === 0 ? (
-              <p className="px-3 py-8 text-center text-[11px] text-muted-foreground">没有匹配的项</p>
-            ) : (
-              visibleGroups.map((group) => (
-                <div key={group.key} role="group">
-                  <p className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</p>
-                  {group.items.map((item) => (
-                    <button
-                      aria-selected={activeItem?.key === item.key}
-                      className={`flex w-full items-center gap-2.5 rounded-sm px-2 py-1.5 text-left ${activeItem?.key === item.key ? "bg-accent" : "hover:bg-muted"}`}
-                      data-create-key={item.key}
-                      key={item.key}
-                      onClick={item.run}
-                      onFocus={() => setActiveKey(item.key)}
-                      onMouseEnter={() => setActiveKey(item.key)}
-                      role="option"
-                      type="button"
-                    >
-                      <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-sm border bg-background text-xs">
-                        {item.icon}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium">{item.label}</span>
-                        {item.hint && <span className="block truncate text-[10px] text-muted-foreground">{item.hint}</span>}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ))
-            )}
-          </div>
-          <PreviewPane item={activeItem} />
-        </div>
-      </div>
+    <>
+      <CreatePanel anchor={creatingAt} groups={groups} onClose={close} placeholder="搜索设定类型、便签、文本、媒体…" />
       {newTypeOpen && <NewTypeDialog onClose={close} />}
-    </div>
-  );
-}
-
-function PreviewPane({ item }: { item: CreateItem | null }) {
-  if (!item) {
-    return <div className="grid h-full place-items-center px-6 text-center text-xs text-muted-foreground">悬停或选择一项查看详情</div>;
-  }
-  const { preview } = item;
-  return (
-    <div aria-live="polite" className="flex h-full min-h-0 flex-col overflow-y-auto p-4 text-xs">
-      <div className="flex items-start gap-3">
-        <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-md border bg-background text-lg">
-          {preview.icon}
-        </span>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{preview.title}</p>
-          {preview.subtitle && <p className="mt-0.5 text-[11px] text-muted-foreground">{preview.subtitle}</p>}
-        </div>
-      </div>
-      {preview.body && <p className="mt-3 whitespace-pre-wrap break-words text-[11px] leading-5 text-muted-foreground">{preview.body}</p>}
-      {preview.facts && preview.facts.length > 0 && (
-        <dl className="mt-3 space-y-2">
-          {preview.facts.map((fact) => (
-            <div className="flex items-start justify-between gap-3" key={fact.label}>
-              <dt className="shrink-0 pt-0.5 text-muted-foreground">{fact.label}</dt>
-              <dd className="min-w-0 text-right font-medium break-words">{fact.value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      <div className="mt-auto border-t pt-3">
-        <button
-          className="inline-flex h-8 items-center gap-1.5 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-          onClick={item.run}
-          type="button"
-        >
-          创建
-        </button>
-      </div>
-    </div>
+    </>
   );
 }
 

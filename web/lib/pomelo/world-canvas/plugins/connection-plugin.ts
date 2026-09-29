@@ -13,6 +13,7 @@ import { PomeloPlugin } from "../../pomelo-core/pomelo-plugin";
 import { DomOverlay, cssColor } from "../../pomelo-vello/overlay-dom";
 import { useWorldDemoStore } from "../demo-store";
 import { entityCardRect } from "../blocks/entity-card-metrics";
+import { OVERLAY_GUIDE, OVERLAY_SELECTION, OVERLAY_SNAP } from "../graph-theme";
 
 type Point = { x: number; y: number };
 
@@ -81,11 +82,11 @@ export class ConnectionPlugin extends PomeloPlugin {
       const e = toScreen(edge);
       const end = toScreen(draft.end);
       // 起点节点内段：虚线（与选中态一致：锚点默认在节点中心）
-      overlay.line(a.x, a.y, e.x, e.y, { stroke: cssColor(0x8b93a7, 0.9), strokeWidth: 1.5, dash: "6 4" });
+      overlay.line(a.x, a.y, e.x, e.y, { stroke: cssColor(OVERLAY_GUIDE, 0.9), strokeWidth: 1.5, dash: "6 4" });
       // 边缘 → 终点：实线（吸附目标时用高亮双描边）
       if (draft.target) {
         overlay.line(e.x, e.y, end.x, end.y, { stroke: cssColor(0xffffff, 0.95), strokeWidth: 5 });
-        overlay.line(e.x, e.y, end.x, end.y, { stroke: cssColor(0x4c8dff), strokeWidth: 2 });
+        overlay.line(e.x, e.y, end.x, end.y, { stroke: cssColor(OVERLAY_SELECTION), strokeWidth: 2 });
       } else {
         overlay.line(e.x, e.y, end.x, end.y, { stroke: cssColor(0x7c9cff, 0.9), strokeWidth: 2 });
       }
@@ -94,7 +95,7 @@ export class ConnectionPlugin extends PomeloPlugin {
         const r = draft.target.rect;
         const tl = toScreen({ x: r.x, y: r.y });
         const br = toScreen({ x: r.x + r.width, y: r.y + r.height });
-        overlay.roundedRect({ x: tl.x - 5, y: tl.y - 5, width: br.x - tl.x + 10, height: br.y - tl.y + 10 }, 12, { stroke: cssColor(0x34d399, 0.9), strokeWidth: 2 });
+        overlay.roundedRect({ x: tl.x - 5, y: tl.y - 5, width: br.x - tl.x + 10, height: br.y - tl.y + 10 }, 12, { stroke: cssColor(OVERLAY_SNAP, 0.9), strokeWidth: 2 });
       }
     };
 

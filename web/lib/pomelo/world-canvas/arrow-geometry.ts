@@ -2,8 +2,11 @@
  * [INPUT]: 无渲染器依赖（纯几何），输入为 block record（attrs）与端点卡片记录
  * [OUTPUT]: 对外提供连线几何的单一实现：锚点解析（fromAnchor/toAnchor 归一化，默认节点中心）、
  * 端点在节点边界的裁剪（boundaryPoint）、二次贝塞尔（控制点 = 直线中点 + bend 偏移），
- * 以及 relationGeometry 汇总（t1/t2/a/b/cp/labelPos；边界交点经二分细化，保证端点精确落在
- * 节点矩形边缘，箭头头部不会被节点卡面盖住）；blockRect 暴露节点有效矩形解析（对齐吸附等复用），
+ * 以及 relationGeometry 汇总（t1/t2/a/b/cp/mid；边界交点经二分细化，保证端点精确落在
+ * 节点矩形边缘，箭头头部不会被节点卡面盖住）；mid/midT 取可视段（ta..tb）参数中点，
+ * 标签与中点控制点因此落在两节点之间的空间里，而不是被两端节点中心拉进卡片内部；
+ * linkHandlePoints 给出选中态三控制点（start/end 取箭头与节点边缘的交点 a/b，而非实体锚点 t1/t2）；
+ * blockRect 暴露节点有效矩形解析（对齐吸附等复用），
  * Block 渲染、选中 overlay、命中检测、
  * 连线草稿共用这一份几何，保证四者所见一致
  * [POS]: lib/pomelo/world-canvas 的连线几何模块（对应 tldraw 的 normalizedAnchor + bend 概念）
@@ -28,17 +31,20 @@ export type BlockLike = {
   };
 } | null | undefined;
 
-// 节点有效矩形解析器：Block（如实体卡）可能有渲染固有尺寸 > attrs 存储尺寸，
-// 由 block 模块注册（setNodeRectResolver），保证几何与渲染所见一致；未注册时回退 attrs
+// 节点有效矩形解析器：Block（实体卡有渲染固有尺寸、音频块为固定尺寸）可能与 attrs 存储尺寸不一致，
+// 由 block 模块注册（addNodeRectResolver），保证几何与渲染所见一致；未注册时回退 attrs
 type NodeRectResolver = (record: NonNullable<BlockLike>) => RectLike | null;
-let nodeRectResolver: NodeRectResolver | null = null;
-export function setNodeRectResolver(resolver: NodeRectResolver) {
-  nodeRectResolver = resolver;
+const nodeRectResolvers: NodeRectResolver[] = [];
+/** 注册节点有效矩形解析器（各 Block 模块自注册；后注册者优先）。 */
+export function addNodeRectResolver(resolver: NodeRectResolver) {
+  nodeRectResolvers.push(resolver);
 }
 
 function rectFor(block: NonNullable<BlockLike>): RectLike {
-  const resolved = nodeRectResolver?.(block);
-  if (resolved) return resolved;
+  for (let index = nodeRectResolvers.length - 1; index >= 0; index--) {
+    const resolved = nodeRectResolvers[index](block);
+    if (resolved) return resolved;
+  }
   return {
     x: Number(block.attrs.x) || 0,
     y: Number(block.attrs.y) || 0,
@@ -47,7 +53,7 @@ function rectFor(block: NonNullable<BlockLike>): RectLike {
   };
 }
 
-// 节点有效矩形：与连线几何/命中/选区共用同一解析（实体卡经 setNodeRectResolver 用渲染固有尺寸）
+// 节点有效矩形：与连线几何/命中/选区共用同一解析（实体卡/音频块经 addNodeRectResolver 用渲染固有尺寸）
 export function blockRect(block: NonNullable<BlockLike>): RectLike {
   return rectFor(block);
 }
@@ -111,7 +117,8 @@ function pointInRect(point: Point, rect: RectLike): boolean {
 }
 
 // 二次贝塞尔的等价控制点：曲线从 t1（锚点，默认节点中心）到 t2（锚点），cp = 中点 + bend，
-// 中间控制点拖拽存的就是 bend；ta/tb 为曲线穿出起点节点 / 进入目标节点的参数（节点内段画虚线）
+// 中间控制点拖拽存的就是 bend；ta/tb 为曲线穿出起点节点 / 进入目标节点的参数（节点内段画虚线），
+// mid/midT 为可视段（ta..tb）参数中点：标签与中点控制点落在这里，才不会压在两端元素卡片上
 export type RelationGeometry = {
   t1: Point;
   t2: Point;
@@ -121,6 +128,7 @@ export type RelationGeometry = {
   tb: number;
   cp: Point;
   mid: Point;
+  midT: number;
   curve: QuadCurve;
   fromRect: RectLike;
   toRect: RectLike;
@@ -166,8 +174,25 @@ export function relationGeometry(from: BlockLike, to: BlockLike, arrowAttrs?: { 
   }
   const a = bezierPoint(t1, cp, t2, ta);
   const b = bezierPoint(t1, cp, t2, tb);
-  const mid = bezierPoint(t1, cp, t2, 0.5);
-  return { t1, t2, a, b, ta, tb, cp, mid, curve, fromRect, toRect };
+  // 可视段参数中点：两端锚点默认在节点中心，全长 t=0.5 可能落在某张卡片内部（表现为
+  // 「标签/中点控制点压在元素上」），故标签与中点控制点统一取节点外段的中点
+  const midT = (ta + tb) / 2;
+  const mid = bezierPoint(t1, cp, t2, midT);
+  return { t1, t2, a, b, ta, tb, cp, mid, midT, curve, fromRect, toRect };
+}
+
+// 选中态三控制点（世界坐标）：start/end 取箭头与节点边缘的交点 a/b——锚点默认在节点中心，
+// 直接画 t1/t2 会让控制点压在元素卡片上；mid 取可视段中点（两节点之间的空间）。
+// activeDrag = 正在拖拽的控制点：被拖的 start/end 改画在锚点位置（跟手），松手后回到边缘交点
+export function linkHandlePoints(
+  geo: RelationGeometry,
+  activeDrag: "start" | "mid" | "end" | null = null,
+): { start: Point; mid: Point; end: Point } {
+  return {
+    start: activeDrag === "start" ? geo.t1 : geo.a,
+    mid: geo.mid,
+    end: activeDrag === "end" ? geo.t2 : geo.b,
+  };
 }
 
 export function curveSegment(geo: RelationGeometry, fromT: number, toT: number): QuadCurve {

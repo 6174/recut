@@ -16,18 +16,18 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { RichComposer } from "@/components/rich-composer/rich-composer";
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
+import { GRAPH_COLORS } from "@/lib/pomelo/world-canvas/graph-theme";
+import { ENTITY_TITLE_SIZE } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import { useWorldCanvasStore } from "./canvas-store";
 
-// 各编辑形态与画布渲染的排版对齐表（字号/行高/内边距/颜色均为世界单位，随视口缩放；
-// 来源：NoteBlockV 11/16 + offset(10,10)（note-block-v.ts）、FreeElementBlockV text 13/20 无内边距、
-// attr 文本 11/17 + offset(10,10)（free-element-block-v.ts）、EntityCardBlockV 标题 15 @PAD=14、attr 徽标 11）。
-// 画布 Block 侧必须使用同一组数值（字号/行高/内边距），否则两种渲染模式会错位。
+// 各编辑形态与画布渲染的排版对齐表（字号/行高/内边距/颜色均为世界单位，随视口缩放）；
+// 颜色取自 graph-theme（与 vello block 同一真源），字号取自 entity-card-metrics，避免两种渲染模式错位。
 const EDITOR_METRICS = {
-  "note-body": { fontSize: 11, lineHeight: 16, padX: 10, padTop: 10, color: "#9ca3af", semibold: false },
-  "text-body": { fontSize: 13, lineHeight: 20, padX: 0, padTop: 0, color: "#d4d4d8", semibold: false },
-  "attr-body": { fontSize: 11, lineHeight: 17, padX: 10, padTop: 10, color: "#f4f4f5", semibold: false },
-  "entity-title": { fontSize: 15, lineHeight: 20, padX: 14, padTop: 0, color: "#f4f4f5", semibold: true },
-  "attr-title": { fontSize: 11, lineHeight: 18, padX: 28, padTop: 8, color: "#8b93a7", semibold: false },
+  "note-body": { fontSize: 11, lineHeight: 16, padX: 10, padTop: 10, color: GRAPH_COLORS.textSecondary, semibold: false },
+  "text-body": { fontSize: 13, lineHeight: 20, padX: 0, padTop: 0, color: GRAPH_COLORS.caption, semibold: false },
+  "attr-body": { fontSize: 11, lineHeight: 17, padX: 10, padTop: 10, color: GRAPH_COLORS.textPrimary, semibold: false },
+  "entity-title": { fontSize: ENTITY_TITLE_SIZE, lineHeight: 20, padX: 14, padTop: 0, color: GRAPH_COLORS.textPrimary, semibold: true },
+  "attr-title": { fontSize: 11, lineHeight: 18, padX: 28, padTop: 8, color: GRAPH_COLORS.textSecondary, semibold: false },
 } as const;
 
 // 全屏放大编辑的对话框标题（与面板 FieldRow 的 label 语义一致）

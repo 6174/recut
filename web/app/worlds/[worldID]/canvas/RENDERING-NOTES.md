@@ -136,7 +136,8 @@ mac ProMotion 120Hz 下每帧预算只有 **8.3ms**（不是 16.7ms）。DevTool
 
 - 选中区域和渲染错位：实体卡高度内容自适应（≥内容固有高度），但命中/选区/「+」手柄/箭头锚点
   读的是 attrs 存储尺寸（旧数据更小）。→ `entityCardRect()` 作为「有效渲染矩形」单一实现，
-  命中/选区/连线几何（`arrow-geometry` 经 `setNodeRectResolver` 注册）共用。
+  命中/选区/连线几何（`arrow-geometry` 经 `addNodeRectResolver` 注册）共用；同理音频块经同一机制
+  固定为 260×140（`audioBlockRect`，不支持 resize）；图片/视频块也不给 resize，尺寸按素材比例定尺（`media-visual-metrics`，空素材 16:9），四角手柄白名单见 `world-canvas/resize-policy.ts`。
 - 引擎埋点引入的 bug：`const renderBlock = this.renderBlock` 丢 `this` → 所有 block 渲染抛错。
   包函数必须 `.bind(this)`。
 - 背景色不一致：`PixiRendererAdapter` 硬编码 `backgroundColor: 0x0b0f19`；运行时设

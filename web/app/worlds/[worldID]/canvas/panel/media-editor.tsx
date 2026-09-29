@@ -39,7 +39,6 @@ import { normalizeAsset, type Asset, type Capability, type CapabilityVoiceGroup,
 import { useWorldCanvasStore } from "../canvas-store";
 import { isPlanAsset, isProposalGate, proposalFromAsset, readProposal, type GenerationProposal } from "../canvas-proposal";
 import { ensureCanvasAssetStatus, useCanvasAssetStatusStore } from "../canvas-asset-status";
-import { fitElementToAsset } from "../canvas-media";
 import { useElementAssetHistoryStore } from "./element-asset-history-store";
 import { EMPTY_RECIPE_DRAFT, useElementRecipeDraftStore, type RecipeDraft } from "./element-recipe-draft-store";
 import { WorldMediaPicker } from "./world-media-picker";
@@ -52,9 +51,6 @@ const CONTRIBUTED_LABELS: Record<MediaModality, string> = { image: "图片", vid
 // 每种媒体节点对应的生产 capability：音频走平台 speech.generate（云端 provider 与
 // 本机 Audio Studio 同一路由），不再误落到 image.generate。
 const RECIPE_CAPABILITY: Record<MediaModality, Capability> = { image: "image.generate", video: "video.generate", audio: "speech.generate" };
-
-// 图片素材采纳后卡片自适应比例：统一走 canvas-media 的 fitElementToAsset（media-editor 采纳与
-// AttrCreatorPanel 建卡共用同一适配规则）
 
 // 媒体元素编辑器出口：带「待确认提案」的元素路由到提案审批台，其余走常规素材编辑器。
 // 提案完成（done）后回落常规编辑器——配方已随 asset.metadata 继承。
@@ -125,7 +121,6 @@ function MediaAssetEditor({ element, guided, identity }: { element: MediaEditorE
   const adopt = (asset: { id: string; name?: string }) => {
     void (isAttr ? setAttrMediaAsset(element.id, { assetId: asset.id, name: asset.name }) : setMediaElementAsset(element.id, { assetId: asset.id, name: asset.name }));
     useElementAssetHistoryStore.getState().record(element.id, asset.id);
-    fitElementToAsset(element.id, apiBase, asset.id, modality);
   };
 
   const currentAssetId = assetId;
