@@ -468,7 +468,7 @@ function WorkspaceFrame({
         <div className="flex min-w-0 items-center justify-center">
           {canvasTopBarActive && <WorldCanvasToolbar />}
         </div>
-        <div className="hidden min-w-0 items-center justify-end gap-3 md:flex md:gap-4">
+        <div className="hidden min-w-0 items-center justify-end gap-3 md:flex md:gap-3">
           {!showLanding && (
             <>
               {canvasTopBarActive && (

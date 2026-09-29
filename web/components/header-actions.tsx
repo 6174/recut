@@ -18,7 +18,7 @@ type HeaderActionsProps = {
 };
 
 export function HeaderActions({ children, onSettingsOpenChange, settingsOpen, settingsSection }: HeaderActionsProps) {
-  return <div className="ml-4 flex shrink-0 items-center gap-2 font-mono text-[10px] text-muted-foreground">
+  return <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-muted-foreground">
     {children}
     <SettingsPanel onOpenChange={onSettingsOpenChange} open={settingsOpen} section={settingsSection} />
   </div>;
