@@ -1,15 +1,21 @@
 /*
  * [INPUT]: 依赖 MediaService、Store 与临时工作区
  * [OUTPUT]: 验证生成提案门禁（video/requiresProposal 默认 propose）、Propose 落 proposed 资产且不建 job、
- *   ConfirmProposal 复用同一 assetId 转 queued、UpdateProposal 仅对 proposed 生效、RejectProposal 软删与 role↔kind 自检
+ *   ConfirmProposal 复用同一 assetId 转 queued、UpdateProposal 仅对 proposed 生效、RejectProposal 软删与 role↔kind 自检；
+ *   以及正文参考绑定的创建期门禁（Propose/asset.update 报 unbound_prompt_reference）与
+ *   asset.update 原地改写提案配方（同 assetId）、配方冻结后 fail closed 为 validation 信封
  * [POS]: service 的媒体提案回归测试；不调用真实模型提供商
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
+
+	media "recut-service/media"
 )
 
 const (
@@ -194,17 +200,50 @@ func TestRejectProposalSoftDeletes(t *testing.T) {
 	}
 }
 
-// TestGenerateInputCarriesAspectRatio guards the direct-generate path: the
-// top-level aspectRatio must survive MCP mapping so applyAspectRatio can fold
-// it into the model output instead of silently using the model default.
-func TestGenerateInputCarriesAspectRatio(t *testing.T) {
+// TestGenerateInputCarriesFirstClassFields guards the direct-generate path: the
+// top-level aspectRatio and durationSec must survive MCP mapping so
+// applyAspectRatio/applyDurationSec can fold them into the model output instead
+// of silently using the model defaults.
+func TestGenerateInputCarriesFirstClassFields(t *testing.T) {
 	input := mediaGenerationInput(map[string]any{
 		"text":        "9:16 竖屏关键帧",
 		"aspectRatio": "9:16",
+		"durationSec": float64(15),
 		"output":      map[string]any{"resolution": "480p"},
 	}, VideoGenerate)
-	if input.AspectRatio != "9:16" {
-		t.Fatalf("aspectRatio dropped during MCP mapping: %#v", input)
+	if input.AspectRatio != "9:16" || input.DurationSec != 15 {
+		t.Fatalf("first-class aspectRatio/durationSec dropped during MCP mapping: %#v", input)
+	}
+}
+
+// The propose→confirm path must carry the first-class aspectRatio/durationSec
+// all the way into the job Output, because that map is what the App receives as
+// `params` — otherwise the agent-chosen clip length collapses to the App
+// default (5s).
+func TestConfirmProposalCarriesFirstClassFieldsIntoOutput(t *testing.T) {
+	defer media.RegisterAppProviders(nil)
+	media.RegisterAppProviders([]media.MediaProvider{{
+		ID: "modal-cloud", Protocol: "local",
+		Models: []media.MediaModel{{
+			ID: "modal-cloud/minimax-h3-turbo", Provider: "modal-cloud", APIModelID: "minimax-h3-turbo",
+			Capability: media.VideoGenerate, Available: true, PassthroughParams: true,
+			Parameters: []media.MediaParameter{{Name: "aspectRatio", Type: "string"}, {Name: "durationSec", Type: "number"}},
+		}},
+	}})
+	service := NewMediaService(NewStore(t.TempDir(), nil))
+	proposed, err := service.Propose(ProposeInput{
+		Capability: VideoGenerate, ModelID: "modal-cloud/minimax-h3-turbo",
+		Prompt: "段1 15s 竖屏", AspectRatio: "9:16", DurationSec: 15,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := service.ConfirmProposal(proposed.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Output["aspectRatio"] != "9:16" || job.Output["durationSec"] != float64(15) {
+		t.Fatalf("confirm dropped first-class fields; job.Output = %#v", job.Output)
 	}
 }
 
@@ -229,5 +268,137 @@ func TestProposalMCPToolSurface(t *testing.T) {
 	}
 	if _, ok := video["references"]; !ok {
 		t.Fatal("generation tools must accept role-bound references")
+	}
+}
+
+// The prompt-reference binding gate must run at proposal creation, not only at
+// confirmation: the agent has to learn about an unbound tag from the very call
+// that created the proposal, in terms it can act on.
+func TestProposeRejectsUnboundPromptReference(t *testing.T) {
+	media, credential, reference := newProposalTestService(t)
+	_, err := media.Propose(ProposeInput{
+		Capability: VideoGenerate, ModelID: testVideoModelID, CredentialID: credential.ID,
+		Prompt: `<reference id="ghost-img" kind="image" role="pov" label="幻觉" /> 推进`,
+	})
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) || invalid.Code != "unbound_prompt_reference" {
+		t.Fatalf("err = %v; want unbound_prompt_reference", err)
+	}
+	ids, _ := invalid.Data["unboundReferenceIds"].([]string)
+	if len(ids) != 1 || ids[0] != "ghost-img" {
+		t.Fatalf("unbound ids = %#v", invalid.Data)
+	}
+	// 绑定同一 id 后放行。
+	bound := fmt.Sprintf(`<reference id=%q kind="image" role="style-ref" label="参考" /> 推进`, reference.ID)
+	if _, err := media.Propose(ProposeInput{
+		Capability: VideoGenerate, ModelID: testVideoModelID, CredentialID: credential.ID, Prompt: bound,
+		ReferencesMeta: []ProposalReference{{ID: reference.ID, Kind: "image", Role: "style-ref", Label: "参考"}},
+	}); err != nil {
+		t.Fatalf("bound prompt must propose: %v", err)
+	}
+}
+
+// Editing a proposed asset's recipe through the one asset.update tool must
+// rewrite the same assetId in place (no new proposal), and must fail closed once
+// the recipe is frozen — while the creative-info layer keeps working.
+func TestAssetUpdateEditsProposedRecipeInPlace(t *testing.T) {
+	media, credential, reference := newProposalTestService(t)
+	proposed, err := media.Propose(ProposeInput{
+		Capability: VideoGenerate, ModelID: testVideoModelID, CredentialID: credential.ID, Prompt: "初版提示词",
+		ReferencesMeta: []ProposalReference{{ID: reference.ID, Kind: "image", Role: "style-ref", Label: "参考"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := mediaMCPTool(nil, media, AgentSession{ID: "s1"}, "recut.media.asset.update", map[string]any{
+		"assetId": proposed.ID,
+		"prompt":  "改写后的提示词",
+		"note":    "换一个转场",
+	})
+	if err != nil {
+		t.Fatalf("asset.update recipe edit failed: %v", err)
+	}
+	envelope, _ := result.(map[string]any)
+	view, _ := envelope["structuredContent"].(map[string]any)
+	if view["assetId"] != proposed.ID || view["prompt"] != "改写后的提示词" {
+		t.Fatalf("edit view = %#v", view)
+	}
+	updated, err := media.GetAsset(proposed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prompt, _ := updated.Metadata["prompt"].(string); prompt != "改写后的提示词" {
+		t.Fatalf("stored prompt = %q", prompt)
+	}
+	if updated.Status != AssetStatusProposed {
+		t.Fatalf("editing must keep the asset proposed, got %q", updated.Status)
+	}
+	generation, _ := updated.Metadata["generation"].(map[string]any)
+	if note, _ := generation["note"].(string); note != "换一个转场" {
+		t.Fatalf("recipe note = %#v", generation["note"])
+	}
+}
+
+func TestAssetUpdateRecipeFailsClosedWhenNotProposed(t *testing.T) {
+	media, completed := newMaterialTestService(t)
+	_, err := mediaMCPTool(nil, media, AgentSession{ID: "s1"}, "recut.media.asset.update", map[string]any{
+		"assetId": completed.ID, "prompt": "改配方",
+	})
+	var env *mcpError
+	if !errors.As(err, &env) || env.Kind != "validation" || env.Code != "asset_not_editable" {
+		t.Fatalf("err = %v; want validation/asset_not_editable", err)
+	}
+	if env.Hint == "" {
+		t.Fatal("a validation envelope must carry an actionable hint")
+	}
+	// 创作信息层不受配方冻结影响。
+	if _, err := mediaMCPTool(nil, media, AgentSession{ID: "s1"}, "recut.media.asset.update", map[string]any{
+		"assetId": completed.ID, "name": "新名字",
+	}); err != nil {
+		t.Fatalf("material update on a completed asset must still work: %v", err)
+	}
+}
+
+func TestAssetUpdateRequiresAField(t *testing.T) {
+	media, completed := newMaterialTestService(t)
+	_, err := mediaMCPTool(nil, media, AgentSession{ID: "s1"}, "recut.media.asset.update", map[string]any{"assetId": completed.ID})
+	var env *mcpError
+	if !errors.As(err, &env) || env.Code != "nothing_to_update" {
+		t.Fatalf("err = %v; want nothing_to_update", err)
+	}
+}
+
+// Only recipe keys count as a recipe edit: a material-only call must not touch
+// (or be blocked by) the generation recipe.
+func TestProposalPatchFromMCPMapsRecipeFields(t *testing.T) {
+	if _, changed := proposalPatchFromMCP(map[string]any{"assetId": "a", "name": "n"}); changed {
+		t.Fatal("material-only input must not read as a recipe edit")
+	}
+	patch, changed := proposalPatchFromMCP(map[string]any{
+		"assetId": "a", "capability": "video.generate", "route": "direct", "prompt": "p",
+		"references":   []any{map[string]any{"id": "r1", "kind": "image", "role": "style-ref"}},
+		"referenceIds": []any{"r1"}, "modelId": "m", "credentialId": "c",
+		"output": map[string]any{"resolution": "480p"}, "aspectRatio": "9:16", "durationSec": float64(5), "note": "n",
+	})
+	if !changed {
+		t.Fatal("recipe fields must be detected")
+	}
+	if patch.Capability == nil || *patch.Capability != "video.generate" || patch.Route == nil || *patch.Route != "direct" {
+		t.Fatalf("capability/route = %#v/%#v", patch.Capability, patch.Route)
+	}
+	if patch.Prompt == nil || *patch.Prompt != "p" || patch.ModelID == nil || *patch.ModelID != "m" {
+		t.Fatalf("prompt/modelId = %#v/%#v", patch.Prompt, patch.ModelID)
+	}
+	if patch.References == nil || len(*patch.References) != 1 || (*patch.References)[0].ID != "r1" {
+		t.Fatalf("references = %#v", patch.References)
+	}
+	if patch.ReferenceIDs == nil || len(*patch.ReferenceIDs) != 1 || (*patch.ReferenceIDs)[0] != "r1" {
+		t.Fatalf("referenceIds = %#v", patch.ReferenceIDs)
+	}
+	if patch.DurationSec == nil || *patch.DurationSec != 5 || patch.AspectRatio == nil || *patch.AspectRatio != "9:16" {
+		t.Fatalf("durationSec/aspectRatio = %#v/%#v", patch.DurationSec, patch.AspectRatio)
+	}
+	if patch.Note == nil || *patch.Note != "n" || patch.Output["resolution"] != "480p" {
+		t.Fatalf("note/output = %#v/%#v", patch.Note, patch.Output)
 	}
 }

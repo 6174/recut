@@ -126,6 +126,7 @@ func (m *MediaService) Propose(input ProposeInput) (MediaAsset, error) {
 	}
 	output := normalizedGenerationOutput(input.Capability, route.ModelID, input.Output)
 	applyAspectRatio(route.ModelID, input.AspectRatio, output)
+	applyDurationSec(route.ModelID, input.DurationSec, output)
 	normalizedOutput, err := normalizeModelOutput(model, output)
 	if err != nil {
 		return MediaAsset{}, err
@@ -146,6 +147,12 @@ func (m *MediaService) Propose(input ProposeInput) (MediaAsset, error) {
 	}
 	spec, err := buildProposalSpec(input, refs)
 	if err != nil {
+		return MediaAsset{}, err
+	}
+	// Creation-time gate: a prompt tag without a bound reference would leak a bare
+	// assetId at submit time, so reject it now and tell the caller which ids are
+	// missing (the same rule re-runs at confirmation).
+	if err := ValidatePromptReferences(input.Prompt, refs.List()); err != nil {
 		return MediaAsset{}, err
 	}
 	kind, mimeType := queuedAssetSpec(MediaJob{Capability: input.Capability, Output: output})
@@ -384,7 +391,11 @@ func (m *MediaService) proposalInputFromAsset(asset MediaAsset, patch *ProposalP
 		referenceIDs = proposalReferenceIDs(references)
 	}
 	if strings.TrimSpace(prompt) == "" {
-		return ProposeInput{}, errors.New("proposal prompt is empty")
+		return ProposeInput{}, &ValidationError{
+			Code:    "empty_prompt",
+			Message: "proposal prompt is empty",
+			Data:    map[string]any{"assetId": asset.ID},
+		}
 	}
 	return ProposeInput{
 		Capability:     MediaCapability(capability),
@@ -412,7 +423,11 @@ func (m *MediaService) UpdateProposal(assetID string, patch ProposalPatch) (Medi
 		return MediaAsset{}, errors.New("media asset not found")
 	}
 	if asset.Status != AssetStatusProposed {
-		return MediaAsset{}, fmt.Errorf("only a proposed asset can be edited; this asset is %s", asset.Status)
+		return MediaAsset{}, &ValidationError{
+			Code:    "asset_not_editable",
+			Message: fmt.Sprintf("only a proposed asset's recipe can be edited; this asset is %s", asset.Status),
+			Data:    map[string]any{"status": asset.Status},
+		}
 	}
 	recipe, err := m.proposalInputFromAsset(asset, &patch)
 	if err != nil {
@@ -429,7 +444,11 @@ func (m *MediaService) UpdateProposal(assetID string, patch ProposalPatch) (Medi
 // current catalog so an edit cannot smuggle an invalid submission past confirm.
 func (m *MediaService) applyProposalRecipe(assetID string, recipe ProposeInput) error {
 	if !knownCapability(recipe.Capability) {
-		return errors.New("proposal capability is invalid")
+		return &ValidationError{
+			Code:    "proposal_recipe_incomplete",
+			Message: "proposal capability is invalid",
+			Data:    map[string]any{"capability": string(recipe.Capability)},
+		}
 	}
 	route, credential, err := m.resolveRoute(proposalRouteInput(recipe.Capability, recipe.Route, recipe.ModelID, recipe.CredentialID))
 	if err != nil {
@@ -441,6 +460,7 @@ func (m *MediaService) applyProposalRecipe(assetID string, recipe ProposeInput) 
 	}
 	output := normalizedGenerationOutput(recipe.Capability, route.ModelID, recipe.Output)
 	applyAspectRatio(route.ModelID, recipe.AspectRatio, output)
+	applyDurationSec(route.ModelID, recipe.DurationSec, output)
 	normalizedOutput, err := normalizeModelOutput(model, output)
 	if err != nil {
 		return err
@@ -461,6 +481,11 @@ func (m *MediaService) applyProposalRecipe(assetID string, recipe ProposeInput) 
 	}
 	spec, err := buildProposalSpec(recipe, refs)
 	if err != nil {
+		return err
+	}
+	// Re-run the prompt-reference binding gate so an edit cannot smuggle an
+	// unbound tag past confirmation.
+	if err := ValidatePromptReferences(recipe.Prompt, refs.List()); err != nil {
 		return err
 	}
 	// Preserve the original proposal identity/timestamp when editing.
@@ -530,6 +555,7 @@ func (m *MediaService) ConfirmProposal(assetID string, patch *ProposalPatch) (Me
 		ReferenceIDs:   recipe.ReferenceIDs,
 		Output:         recipe.Output,
 		AspectRatio:    recipe.AspectRatio,
+		DurationSec:    recipe.DurationSec,
 		ProjectID:      recipe.ProjectID,
 		IdempotencyKey: "proposal:" + assetID,
 	}

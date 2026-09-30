@@ -1,8 +1,9 @@
 /*
- * [INPUT]: 依赖 media-types（Asset/AssetStatus）、rich-composer 协议解析（parseInlineRefs/RefProtocolRegistry）与 fetch
+ * [INPUT]: 依赖 media-types（Asset/AssetStatus）、rich-composer 协议解析（parseInlineRefs/stripRefsByIdentity/RefProtocolRegistry）与 fetch
  * [OUTPUT]: 对外提供生成提案的共享纯函数与资产映射：GenerationProposal/ProposalReference/ProposalStatus、
  *           PROPOSAL_ROLES/role 选项/自检（fail closed：role↔kind 与正文 token 绑定）/proposalReferenceIds、
  *           mergeProposalReferences（正文标签并入 references，按 id 去重回填）、proposalRequiredFor、
+ *           stripProposalReference（删引用时同步清掉正文 token）、
  *           generationCapabilityOf、readProposal（props 防御式解析）、hasProposalRecipe / proposalFromAsset（proposed 资产 → 提案视图）、
  *           isConfirmableProposal / isPlanAsset（提案 vs 计划），
  *           以及 HTTP 客户端 createProposal/listProposals/updateProposalAsset/confirmProposalAsset/rejectProposalAsset
@@ -10,7 +11,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { Asset } from "@/app/media/media-types";
-import { parseInlineRefs } from "@/lib/rich-composer/protocol/parse";
+import { parseInlineRefs, stripRefsByIdentity } from "@/lib/rich-composer/protocol/parse";
 import type { RefProtocolRegistry } from "@/lib/rich-composer/protocol/types";
 
 // 提案引用：id 为稳定 assetId；kind/role/label 语义见 generation-reference-protocol RFC。
@@ -225,6 +226,13 @@ export function mergeProposalReferences(existing: ProposalReference[], incoming:
     if (!target.name && reference.name) target.name = reference.name;
   }
   return merged;
+}
+
+// 删除正文里指向该参考的标签：正文是绑定的唯一权威，删掉一条参考素材时必须同步清掉它的 token，
+// 否则正文留下悬空 token——服务端的未绑定参考门禁会拒绝这次保存（与 proposalIssues 同一规则）。
+export function stripProposalReference(prompt: string, id: string, registry: RefProtocolRegistry): string {
+  if (!prompt || !id) return prompt;
+  return stripRefsByIdentity(prompt, registry, [id]);
 }
 
 // 按引用出现顺序导出 referenceIds（提交串顺序的绑定证据）。

@@ -269,6 +269,8 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 - **内容与状态都在资产**：画布不写 `props.proposal`（旧元素仍可只读回退）。
 - `references` 是这次生成的**绑定记录**（`id`=assetId、`kind`、`role`、`label`），也是模型提交顺序依据；role 必须与 kind 匹配（`voice/sfx/music` 只能 audio，`color-card` 只能 image），否则会被拒绝。
 - `modelId` 留空则由用户在确认时选；不确定当前可用模型时先留空，不要编造。`aspectRatio` / `durationSec` 按世界或分镜口径填。
+- **改配方不用重提**：待确认资产还是 `proposed` 时，用 `recut.media.asset.update({ assetId, prompt?, references?, referenceIds?, modelId?, output?, aspectRatio?, durationSec?, note? })` **原地**改配方——同一条 `assetId`，画布元素无需重指；确认后配方冻结，才需要新建提案。素材的 `name`/`content`/`attributes` 任何时候都可改。
+- **正文标签必须绑定**：`prompt` 正文里出现的每个参考 token 都必须在 `references[]` 里有绑定，未绑定的 id 会在创建/更新时被拒（`code:"unbound_prompt_reference"`）——把 id 补进 `references[]` 或删掉该标签再试，不要带着未绑定标签提交。
 - 一次可提交多条（同一场戏的分镜，`batchId` 归组），用户逐条确认或放弃。
 - **Agent 的正确结尾**：提交并放上画布后，告诉用户「已提交 N 条视频，请在画布上确认生成」并停下。**不要**替用户确认、也不要自己轮询采纳。
 

@@ -6,8 +6,10 @@
  *           卡片外上方有屏幕恒定的顶部标题 = 类型前缀（kindLabel，取 kind 语义色）+ 实体名，如「人物:阿蛋」；
  *           footer 内标题只画实体名（主色），不加类型前缀（文本框不画顶部标题）；
  *           有封面 → 头图 center-cover；无封面 → 中性媒体占位槽 + 居中浅色 image 图标（预示封面区，
- *           并把拉伸出的高度吃掉，不会空一半）；footer 为标题 + 副标题 + 资料缩略图，与媒体区之间一条细分隔线；
+ *           并把拉伸出的高度吃掉，不会空一半）；footer 为标题 + 副标题 + 资料缩略图；
  *           卡面整体中性（仅顶部标题的类型前缀用 kind 配色）、圆角 + 内边距，和画布底色协调。
+ *           媒体区一律内缩 MEDIA_PAD 并自带 MEDIA_RADIUS 圆角（与媒体元素 real-media-block-v 同一卡面语法）：
+ *           图片四周露出卡面底色成「框」，卡片感更强、更突出 entity，而非图片贴边。
  *           头图素材生成中/失败（coverStatus）渲染为蓝/红等待态；coverKind=video 只画占位，
  *           不把视频 URL 交给图片解码器；视口 <= LOW_DETAIL_SCALE 时只画 shape、隐藏全部文字；
  *           有效矩形与业务命中/选区/连线共用。
@@ -19,7 +21,6 @@ import type { VelloOp } from "../../pomelo-vello/op-bridge";
 import { textOp } from "../../pomelo-vello/vello-text";
 import {
   CARD_FILL,
-  CARD_SEPARATOR,
   CARD_STROKE,
   FAILED_ACCENT,
   FAILED_FILL,
@@ -55,6 +56,10 @@ import { displayRefText } from "./ref-text";
 
 const THUMB = ENTITY_CARD_THUMB;
 const THUMB_GAP = ENTITY_CARD_THUMB_GAP;
+// 媒体区内缩与自身圆角：与媒体元素（real-media-block-v 的 6px 内缩 / radius 8）同一卡面语法，
+// 让图片四周露出卡面底色成「框」——实体卡是一张写着 entity 的卡片，而不是一张贴边图。
+const MEDIA_PAD = 6;
+const MEDIA_RADIUS = 8;
 
 function stringListOf(value: unknown): string[] {
   return Array.isArray(value) ? (value as string[]).filter((item) => typeof item === "string" && item) : [];
@@ -105,6 +110,8 @@ export class EntityCardBlockV extends VelloBlock {
     const coverKind = String(attrs.coverKind ?? "image");
     const hasCover = entityCardHasCover(attrs);
     const mediaH = entityCardImageHeight(attrs, h);
+    // 媒体区内缩盒：封面/等待态/视频占位/无封面占位槽一律画在这里，四周 6px 卡面底色即「卡片框」
+    const mediaBox = { x: x + MEDIA_PAD, y: y + MEDIA_PAD, width: Math.max(0, w - MEDIA_PAD * 2), height: Math.max(0, mediaH - MEDIA_PAD * 2) };
     const textTop = entityCardTextTop(attrs, h);
     const titleH = entityCardTitleHeight(attrs);
     const totalCount = Math.max(stringListOf(attrs.photos).length, stringListOf(attrs.photoUrls).length);
@@ -116,43 +123,38 @@ export class EntityCardBlockV extends VelloBlock {
     // 实体卡的顶部标题（卡片外上方，屏幕像素恒定）——文本框不画；类型前缀同色区分
     if (!lowDetail) ops.push(...captionOpsV(this.adapter, x, y, w, title, prefixText ? { text: prefixText, fill: prefixFill } : undefined).ops);
 
-    // 媒体区整体裁剪到卡面圆角内（顶部两角），避免占位槽/等待态/视频占位的直角溢出圆角
-    ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: ENTITY_CARD_RADIUS });
+    // 媒体区：卡面 + 内缩圆角的媒体盒（媒体盒自身已圆角、且不越出卡面，无需再裁剪到卡面圆角）
     if (hasCover) {
       // 头图素材仍在生成 / 失败：不请求未就绪 URL，改渲染等待态（就绪后由画布自动切换）
       const coverStatus = String(attrs.coverStatus ?? "");
       if (coverStatus === "generating" || coverStatus === "failed") {
         const failed = coverStatus === "failed";
         const accent = failed ? FAILED_ACCENT : PENDING_ACCENT;
-        ops.push({ kind: "roundRect", x, y, width: w, height: mediaH, radius: 0, fill: failed ? FAILED_FILL : PENDING_FILL, stroke: accent, strokeWidth: 2 });
+        ops.push({ kind: "roundRect", x: mediaBox.x, y: mediaBox.y, width: mediaBox.width, height: mediaBox.height, radius: MEDIA_RADIUS, fill: failed ? FAILED_FILL : PENDING_FILL, stroke: accent, strokeWidth: 2 });
         if (!lowDetail) {
-          ops.push(textOp({ text: failed ? "生成失败" : "生成中…", x: x + ENTITY_CARD_PAD, y: y + Math.max(6, mediaH / 2 - 8), size: 12, maxWidth: w - ENTITY_CARD_PAD * 2, fill: failed ? accent : TEXT_PRIMARY }));
+          ops.push(textOp({ text: failed ? "生成失败" : "生成中…", x: mediaBox.x + ENTITY_CARD_PAD, y: mediaBox.y + Math.max(6, mediaBox.height / 2 - 8), size: 12, maxWidth: mediaBox.width - ENTITY_CARD_PAD * 2, fill: failed ? accent : TEXT_PRIMARY }));
         }
       } else if (coverKind === "video") {
         // 视频头图：不以图片方式加载，画深色区 + 提示（避免把视频 URL 交给图片解码器）
-        ops.push({ kind: "roundRect", x, y, width: w, height: mediaH, radius: 0, fill: TILE_FILL, stroke: [0, 0, 0, 0], strokeWidth: 0 });
+        ops.push({ kind: "roundRect", x: mediaBox.x, y: mediaBox.y, width: mediaBox.width, height: mediaBox.height, radius: MEDIA_RADIUS, fill: TILE_FILL, stroke: [0, 0, 0, 0], strokeWidth: 0 });
         if (!lowDetail) {
-          ops.push(textOp({ text: "▶ 视频头图", x: x + ENTITY_CARD_PAD, y: y + Math.max(6, mediaH / 2 - 8), size: 12, maxWidth: w - ENTITY_CARD_PAD * 2, fill: TEXT_SECONDARY }));
+          ops.push(textOp({ text: "▶ 视频头图", x: mediaBox.x + ENTITY_CARD_PAD, y: mediaBox.y + Math.max(6, mediaBox.height / 2 - 8), size: 12, maxWidth: mediaBox.width - ENTITY_CARD_PAD * 2, fill: TEXT_SECONDARY }));
         }
       } else {
-        // 头图：在媒体区矩形内 center-cover
-        ops.push(...coverImageOpsV(this.adapter, coverUrl, { x, y, width: w, height: mediaH }, { x, y, width: w, height: mediaH, radius: 0 }));
+        // 头图：在媒体盒内 center-cover，圆角与媒体盒一致
+        ops.push(...coverImageOpsV(this.adapter, coverUrl, mediaBox, { ...mediaBox, radius: MEDIA_RADIUS }));
       }
     } else {
-      // 无封面：中性媒体占位槽（略深凹槽）+ 居中浅色 image 图标，预示「这里是封面区」
-      ops.push({ kind: "rectFill", x, y, width: w, height: mediaH, fill: MEDIA_PLACEHOLDER_FILL });
-      const iconW = Math.min(88, Math.min(w, mediaH) * 0.42);
+      // 无封面：中性媒体占位槽（略深凹槽、内缩圆角）+ 居中浅色 image 图标，预示「这里是封面区」
+      ops.push({ kind: "roundRect", x: mediaBox.x, y: mediaBox.y, width: mediaBox.width, height: mediaBox.height, radius: MEDIA_RADIUS, fill: MEDIA_PLACEHOLDER_FILL, stroke: [0, 0, 0, 0], strokeWidth: 0 });
+      const iconW = Math.min(88, Math.min(mediaBox.width, mediaBox.height) * 0.42);
       const iconH = (iconW * 16) / 19;
       // 首帧纹理未就绪返回 null，就绪后适配器会自动重绘本块补上图标
       const iconId = this.adapter.ensureImage(PLACEHOLDER_ICON_URL, Math.max(iconW, iconH) * this.adapter.getImagePixelRatio());
       if (iconId !== null) {
-        ops.push({ kind: "image", imageId: iconId, x: x + (w - iconW) / 2, y: y + (mediaH - iconH) / 2, width: iconW, height: iconH });
+        ops.push({ kind: "image", imageId: iconId, x: mediaBox.x + (mediaBox.width - iconW) / 2, y: mediaBox.y + (mediaBox.height - iconH) / 2, width: iconW, height: iconH });
       }
     }
-    ops.push({ kind: "popClip" });
-
-    // 媒体区与 footer 之间的细分隔线（有封面时图片边缘已给出分界，仅无封面需要）
-    if (!hasCover) ops.push({ kind: "rectFill", x, y: y + mediaH, width: w, height: 1, fill: CARD_SEPARATOR });
 
     if (!lowDetail) {
       const textW = Math.max(0, w - ENTITY_CARD_PAD * 2);

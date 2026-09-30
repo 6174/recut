@@ -1,8 +1,8 @@
 {
   "id": "minimax-h3-turbo",
   "name": {
-    "zh": "MiniMax-H3 极速版（Turbo 文/首尾帧 + 参考）",
-    "en": "MiniMax-H3 Turbo (text/frames + reference)"
+    "zh": "MiniMax-H3 极速版（Turbo 文/首尾帧；参考走 base）",
+    "en": "MiniMax-H3 Turbo (text/frames; reference = base)"
   },
   "capability": "video.generate",
   "referenceImage": { "maxEdge": 1024 },
@@ -289,6 +289,30 @@
           }
         },
         {
+          "key": "aspectRatio",
+          "type": "select",
+          "options": [
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ],
+          "placeholder": {
+            "zh": "跟随首/尾帧",
+            "en": "Follow keyframe"
+          },
+          "label": {
+            "zh": "画幅",
+            "en": "Aspect ratio"
+          },
+          "hint": {
+            "zh": "留空则画面尺寸跟随首/尾帧；指定后按所选画幅输出。分辨率按最长边理解，短边由画幅推导。",
+            "en": "Leave empty to follow the keyframe size; once set, the output uses this ratio. Resolution is the longest edge; the short edge follows this ratio."
+          }
+        },
+        {
           "key": "resolution",
           "type": "select",
           "options": [
@@ -357,8 +381,8 @@
     {
       "id": "reference-to-video",
       "name": {
-        "zh": "参考生视频（图像/视频/音频）",
-        "en": "Reference to video (image/video/audio)"
+        "zh": "参考生视频（图像/视频/音频 · 非 Turbo，base 50 步）",
+        "en": "Reference to video (image/video/audio · not Turbo, base 50 steps)"
       },
       "entrypoint": "generate_video",
       "minReferences": 1,
@@ -418,6 +442,27 @@
           }
         },
         {
+          "key": "aspectRatio",
+          "type": "select",
+          "options": [
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ],
+          "default": "16:9",
+          "label": {
+            "zh": "画幅",
+            "en": "Aspect ratio"
+          },
+          "hint": {
+            "zh": "输出画幅；参考素材只作语义参考，不继承其尺寸。分辨率按最长边理解，短边由画幅推导。",
+            "en": "Output ratio; references are semantic only and their size is not inherited. Resolution is the longest edge; the short edge follows this ratio."
+          }
+        },
+        {
           "key": "resolution",
           "type": "select",
           "options": [
@@ -453,8 +498,12 @@
           "min": 10,
           "max": 80,
           "label": {
-            "zh": "步数",
-            "en": "Steps"
+            "zh": "步数（非 Turbo：Ref2VA 无少步 LoRA，走 base 50 步）",
+            "en": "Steps (not Turbo: Ref2VA has no few-step LoRA, base 50)"
+          },
+          "hint": {
+            "zh": "参考生视频用官方 Ref2VA 分区；Turbo 少步 LoRA 只训练于 FL2VA 分区，故此处没有少步加速，默认 50 步＝base 质量档（单卡 RTX PRO 6000 上约 8–12 分钟/片）。想更快可用文生视频/首尾帧函数（Turbo 9 步）。",
+            "en": "Reference-to-video runs the official Ref2VA partition; the Turbo few-step LoRA is FL2VA-only, so this function gets no few-step speedup. Default 50 = base quality (~8-12 min/clip on a single RTX PRO 6000). For speed, use text-to-video / first-last-frame (Turbo 9-step)."
           }
         },
         {
@@ -469,6 +518,7 @@
         }
       ],
       "defaultParams": {
+        "aspectRatio": "16:9",
         "resolution": "1536",
         "durationSec": 5,
         "steps": 50

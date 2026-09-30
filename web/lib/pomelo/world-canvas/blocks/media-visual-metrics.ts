@@ -3,7 +3,7 @@
  * [OUTPUT]: 对外提供「视觉媒体块」（图片 / 视频：独立 media 元素与 attr 属性卡）的尺寸策略单一真源：
  *           MEDIA_VISUAL_WIDTH / MEDIA_VISUAL_HEIGHT / MEDIA_VISUAL_SIZE（空媒体固定 16:9 = 240×135）、
  *           isMediaVisualModality / isMediaVisualRecord（判定图片/视频块）、
- *           mediaVisualSizeForRatio（按素材长宽比定尺：宽锚 240，高夹 [120, 420]，竖图缩宽）、
+ *           mediaVisualSizeForRatio（按素材长宽比定尺：最长边锚 240，横竖同一缩放因子），
  *           measureMediaVisualRatio（从可渲染 URL 读 naturalWidth / videoWidth 得到长宽比）。
  *           图片/视频块不支持 resize（白名单见 world-canvas/resize-policy），尺寸只由素材比例或空态 16:9 决定。
  * [POS]: lib/pomelo/world-canvas/blocks 的视觉媒体块尺寸策略（渲染器无关；canvas-store / resize-policy / 宿主共用）。
@@ -32,18 +32,15 @@ export function isMediaVisualRecord(record: RecordLike | null | undefined): bool
   return false;
 }
 
-/** 按素材长宽比定尺：宽锚 240，高夹 [120, 420]（超窄/超宽时改锚高、宽度按比例回算）。 */
+/** 按素材长宽比定尺：最长边锚 240，横竖共用同一缩放因子（240 / max(素材宽, 素材高)）。
+ *  旧策略「宽锚 240 + 高夹 [120,420]」对同分辨率的横竖素材给出不同缩放：1920×1080 → 240×135（0.125）、
+ *  1080×1920 → 236×420（0.219），竖屏内容在画布上看起来大 1.7 倍；最长边锚定后横竖都是 240×135 / 135×240，
+ *  同分辨率下缩放一致，混合比例的画布浏览起来大小才齐（空素材 16:9 = 240×135 即最长边 240，与之一致）。 */
+export const MEDIA_VISUAL_LONG_SIDE = MEDIA_VISUAL_WIDTH;
+
 export function mediaVisualSizeForRatio(ratio: number): { width: number; height: number } {
-  let width = MEDIA_VISUAL_WIDTH;
-  let height = Math.round(width / ratio);
-  if (height > 420) {
-    height = 420;
-    width = Math.round(height * ratio);
-  } else if (height < 120) {
-    height = 120;
-    width = Math.round(height * ratio);
-  }
-  return { width, height };
+  if (ratio >= 1) return { width: MEDIA_VISUAL_LONG_SIDE, height: Math.max(1, Math.round(MEDIA_VISUAL_LONG_SIDE / ratio)) };
+  return { width: Math.max(1, Math.round(MEDIA_VISUAL_LONG_SIDE * ratio)), height: MEDIA_VISUAL_LONG_SIDE };
 }
 
 /** 从可渲染 URL 读素材长宽比（图片 naturalSize / 视频 videoSize）；加载失败或尺寸未知返回 null。 */

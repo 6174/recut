@@ -277,6 +277,30 @@
           }
         },
         {
+          "key": "aspectRatio",
+          "type": "select",
+          "options": [
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ],
+          "placeholder": {
+            "zh": "跟随首/尾帧",
+            "en": "Follow keyframe"
+          },
+          "label": {
+            "zh": "画幅",
+            "en": "Aspect ratio"
+          },
+          "hint": {
+            "zh": "留空则画面尺寸跟随首/尾帧；指定后按所选画幅输出。分辨率按最长边理解，短边由画幅推导。",
+            "en": "Leave empty to follow the keyframe size; once set, the output uses this ratio. Resolution is the longest edge; the short edge follows this ratio."
+          }
+        },
+        {
           "key": "resolution",
           "type": "select",
           "options": [
@@ -406,6 +430,27 @@
           }
         },
         {
+          "key": "aspectRatio",
+          "type": "select",
+          "options": [
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ],
+          "default": "16:9",
+          "label": {
+            "zh": "画幅",
+            "en": "Aspect ratio"
+          },
+          "hint": {
+            "zh": "输出画幅；参考素材只作语义参考，不继承其尺寸。分辨率按最长边理解，短边由画幅推导。",
+            "en": "Output ratio; references are semantic only and their size is not inherited. Resolution is the longest edge; the short edge follows this ratio."
+          }
+        },
+        {
           "key": "resolution",
           "type": "select",
           "options": [
@@ -457,6 +502,7 @@
         }
       ],
       "defaultParams": {
+        "aspectRatio": "16:9",
         "resolution": "1536",
         "durationSec": 5,
         "steps": 50

@@ -31,6 +31,7 @@ type ProposalReference = media.ProposalReference
 type ProposalSpec = media.ProposalSpec
 type ProposeInput = media.ProposeInput
 type ProposalPatch = media.ProposalPatch
+type ValidationError = media.ValidationError
 type MaterialAttr = media.MaterialAttr
 type MaterialProvenance = media.MaterialProvenance
 type MaterialUpdateInput = media.MaterialUpdateInput

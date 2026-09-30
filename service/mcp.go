@@ -137,8 +137,8 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 		LocaleEn: "Read one asset: kind/status + content (long-form body) + attributes (ordered typed properties with source/provenance field-level traceability). Use list_assets for basic fields; use this tool when attributes/content are needed.",
 	},
 	"recut.media.asset.update": {
-		LocaleZh: "修改素材的 name / content / attributes。attributes 为整体替换，attrPatch 为按 key 合并（不传 attributes 时生效）；locked 属性的 type/label 与删除会被拒（值仍可改），越权 fail closed。服务端自动写入 source 与 provenance（Agent 调用记为 agent），用于 AI 生成字段的溯源。",
-		LocaleEn: "Update an asset's name / content / attributes. attributes replaces the whole list; attrPatch merges by key (used when attributes is omitted). For locked attributes the type/label and removal are rejected (value is still editable), failing closed on violations. The service stamps source and provenance automatically (agent for Agent calls) so AI-written fields are traceable.",
+		LocaleZh: "修改素材。两种层面：创作信息 name / content / attributes（attributes 整体替换，attrPatch 按 key 合并，不传 attributes 时生效；locked 属性的 type/label 与删除会被拒，值仍可改）；生成配方 prompt / references / referenceIds / modelId / credentialId / route / output / aspectRatio / durationSec / note（capability/route 仅在把无配方的「计划」资产提升为可生成提案时需要）。配方只在该素材 status=proposed（待确认）时可改，原地更新同一条提案、不新建 assetId；已生成/生成中/已删除的素材配方已冻结（内容寻址，改内容必然是新 assetId），越权 fail closed。服务端自动写入 source 与 provenance（Agent 调用记为 agent），用于 AI 生成字段的溯源。",
+		LocaleEn: "Update an asset on two layers: creative info (name / content / attributes — attributes replaces the whole list, attrPatch merges by key and is used when attributes is omitted; for locked attributes the type/label and removal are rejected while the value stays editable), and the generation recipe (prompt / references / referenceIds / modelId / credentialId / route / output / aspectRatio / durationSec / note; capability/route are only needed to promote a recipe-less plan asset into a confirmable proposal). A recipe is editable only while the asset is still proposed: it updates that same proposal in place and never creates a new assetId. Once queued/running/completed/deleted the recipe is frozen (assets are content-addressed; changing the bytes is always a new assetId) and the call fails closed. The service stamps source and provenance automatically (agent for Agent calls) so AI-written fields are traceable.",
 	},
 	"recut.media.import": {
 		LocaleZh: "把素材带进来的唯一入口，三选一：`path`=本地媒体文件（会话工作区或目标 Project 内，≤2GB，也用于归档 Codex 原生图）；`url`=直链媒体（image/video/audio，≤25MB，按哈希去重）；`link`=网页/文章链接（无字节，落 kind=document，可带正文 content 与 base64 图片 imageData 及平台元数据）。返回真实 assetId。服务不抓取网页正文。",
@@ -1211,14 +1211,31 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 			result = materialAssetView(asset)
 		}
 	case "recut.media.asset.update":
+		assetID := stringValue(input["assetId"])
 		update, decodeErr := materialUpdateFromMCP(input)
 		if decodeErr != nil {
 			err = decodeErr
 			break
 		}
-		asset, updateErr := media.UpdateMaterial(stringValue(input["assetId"]), update, MaterialActorAgent, "asset.update")
-		err = updateErr
-		if err == nil {
+		// The same tool carries both layers: creative info (name/content/attributes)
+		// and, while the asset is still proposed, the generation recipe. Recipe
+		// edits win the first write so a non-editable status fails before any
+		// partial material change lands.
+		recipePatch, editsRecipe := proposalPatchFromMCP(input)
+		var asset MediaAsset
+		if editsRecipe {
+			asset, err = media.UpdateProposal(assetID, recipePatch)
+			if err != nil {
+				break
+			}
+		}
+		switch {
+		case !materialUpdateEmpty(update):
+			asset, err = media.UpdateMaterial(assetID, update, MaterialActorAgent, "asset.update")
+		case !editsRecipe:
+			err = &ValidationError{Code: "nothing_to_update", Message: "asset.update needs at least one field to change"}
+		}
+		if err == nil && asset.ID != "" {
 			result = materialAssetView(asset)
 		}
 	case "recut.media.import":
@@ -1299,10 +1316,54 @@ func mediaMCPTool(store *Store, media *MediaService, session AgentSession, name 
 		if strings.Contains(err.Error(), "no route configured for ") {
 			return nil, fmt.Errorf("%w; open Recut settings, connect a Provider, then choose the default model for this capability", err)
 		}
-		return nil, err
+		return nil, mediaToolError(err)
 	}
 	data, _ := json.Marshal(result)
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+// mediaToolError translates a caller-actionable media validation failure into the
+// structured MCP envelope (kind=validation) so the agent reads code/hint/data and
+// self-corrects, instead of treating an expected rejection as a transport crash
+// (rfc/2026-08-19 P2). Unrecognized errors pass through unchanged.
+func mediaToolError(err error) error {
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) {
+		return err
+	}
+	return &mcpError{
+		Kind:    "validation",
+		Code:    invalid.Code,
+		Message: invalid.Message,
+		Hint:    mediaValidationHint(invalid.Code),
+		Data:    invalid.Data,
+	}
+}
+
+func mediaValidationHint(code string) string {
+	switch code {
+	case "unbound_prompt_reference":
+		return loc(DefaultLocale,
+			"提示词正文里的参考标签没有被 references[] 绑定：把未绑定的 id 补进 references[]（每项 {id, kind, role}，id 必须是素材 assetId），或从正文删除对应 <reference>/<media> 标签，然后重试。",
+			"A prompt reference tag is not bound to any reference: add the id to references[] ({id, kind, role}; id must be a media assetId) or remove the tag, then retry.")
+	case "asset_not_editable":
+		return loc(DefaultLocale,
+			"生成配方只在该素材仍为 proposed（待确认）时可改；已生成/生成中/已删除的素材配方已冻结，需要改配方请重新生成一条新提案。素材的 name/content/attributes 不受此限制。",
+			"A generation recipe is editable only while the asset is still proposed; once queued/running/completed/deleted it is frozen — create a new proposal to change it. name/content/attributes remain editable.")
+	case "nothing_to_update":
+		return loc(DefaultLocale,
+			"至少要给出一个要修改的字段（name/content/attributes/attrPatch，或提案配方字段 prompt/references/modelId/output/…）。",
+			"Provide at least one field to change (name/content/attributes/attrPatch, or a recipe field such as prompt/references/modelId/output).")
+	case "proposal_recipe_incomplete":
+		return loc(DefaultLocale,
+			"这条提案还没有可用配方：在本次调用里一并给出 capability（image.generate/video.generate/speech.generate）与 modelId（或 route），让它成为可确认的提案。",
+			"This proposal has no usable recipe yet: pass capability (image.generate/video.generate/speech.generate) together with modelId (or route) in the same call to make it confirmable.")
+	case "empty_prompt":
+		return loc(DefaultLocale,
+			"提案的提示词不能为空：给出 prompt，或先给该素材写 content（content 会作为提示词兜底）。",
+			"A proposal needs a non-empty prompt: pass prompt, or write the asset's content first (content is used as the prompt fallback).")
+	}
+	return ""
 }
 
 // OpenCode 将 MCP structuredContent 校验为 record。文本负载保留原始结果，
@@ -1425,11 +1486,22 @@ func mediaMCPToolDefinitions(locale Locale) []map[string]any {
 		{"name": "recut.media.list_assets", "description": mcpDescription(locale, "recut.media.list_assets"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "可选的 Project target；缺省返回 workspace 级素材。"}, "workspace": map[string]string{"type": "boolean"}, "ids": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "精确 assetId 列表（也接受逗号分隔字符串）；用于按已知 ID 取回完整记录，给定时忽略 kind/query 等其他过滤。"}, "kind": map[string]string{"type": "string", "description": "按素材类型过滤：image / video / audio / transcript 等。"}, "status": map[string]string{"type": "string", "description": "按状态过滤（如 completed / queued / running）；缺省排除 deleted。"}, "query": map[string]string{"type": "string", "description": "按名称模糊匹配。"}, "includeAnalysis": map[string]any{"type": "boolean", "description": "可选；项目查询时默认隐藏参考理解产物（origin=understand），传 true 可一并返回。"}, "limit": map[string]any{"type": "integer", "description": "分页大小，默认 200，上限 500。"}, "offset": map[string]any{"type": "integer", "description": "分页偏移；结合返回的 total 判断是否还有下一页。"}}}},
 		{"name": "recut.media.asset.get", "description": mcpDescription(locale, "recut.media.asset.get"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{"assetId": map[string]string{"type": "string", "description": "要读取完整创作信息的素材 assetId。"}}}},
 		{"name": "recut.media.asset.update", "description": mcpDescription(locale, "recut.media.asset.update"), "inputSchema": map[string]any{"type": "object", "required": []string{"assetId"}, "properties": map[string]any{
-			"assetId":    map[string]string{"type": "string"},
-			"name":       map[string]string{"type": "string", "description": "新的展示名。"},
-			"content":    map[string]string{"type": "string", "description": "非结构化长正文（markdown）；服务端同时写入 contentMeta 溯源。"},
-			"attributes": map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "整体替换：有序 typed 属性 [{key,label,type,value,options?,locked?}]；locked 结构不可改、可改值。"},
-			"attrPatch":  map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "按 key 合并的局部更新；未提供的字段保持不变，新 key 追加。"},
+			"assetId":      map[string]string{"type": "string"},
+			"name":         map[string]string{"type": "string", "description": "新的展示名。"},
+			"content":      map[string]string{"type": "string", "description": "非结构化长正文（markdown）；服务端同时写入 contentMeta 溯源。"},
+			"attributes":   map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "整体替换：有序 typed 属性 [{key,label,type,value,options?,locked?}]；locked 结构不可改、可改值。"},
+			"attrPatch":    map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "按 key 合并的局部更新；未提供的字段保持不变，新 key 追加。"},
+			"capability":   map[string]any{"type": "string", "enum": []string{"image.generate", "video.generate", "speech.generate"}, "description": "生成配方：能力类型。仅在把一条尚无配方的「计划」资产提升为可生成提案时需要（仅 proposed）。"},
+			"route":        map[string]string{"type": "string", "description": "生成配方：命名路由；与 modelId/credentialId 二选一（仅 proposed）。"},
+			"prompt":       map[string]string{"type": "string", "description": "生成配方：提示词。仅当素材 status=proposed（待确认）时可改，原地更新同一条提案，不新建 assetId。"},
+			"references":   proposalExtraProperties["references"],
+			"referenceIds": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "生成配方：参考素材提交顺序；缺省沿用已有顺序，传了 references 时以 references 为准。"},
+			"modelId":      map[string]string{"type": "string", "description": "生成配方：换用生成模型（仅 proposed）。"},
+			"credentialId": map[string]string{"type": "string", "description": "生成配方：与 modelId 成对使用时的云端凭据（仅 proposed）。"},
+			"output":       map[string]any{"type": "object", "description": "生成配方：模型参数（仅 proposed）。"},
+			"aspectRatio":  proposalExtraProperties["aspectRatio"],
+			"durationSec":  proposalExtraProperties["durationSec"],
+			"note":         proposalExtraProperties["note"],
 		}}},
 		{"name": "recut.media.import", "description": mcpDescription(locale, "recut.media.import"), "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
 			"path":         map[string]string{"type": "string", "description": "本地媒体文件路径（会话工作区或目标 Project 内）；与 url/link 三选一。"},
@@ -2309,7 +2381,7 @@ func mediaGenerationInput(input map[string]any, capability MediaCapability) Gene
 	// modelId + credentialId 成对出现时直连该路由（绕过默认路由），供跨 provider 声音选择。
 	modelID, _ := input["modelId"].(string)
 	credentialID, _ := input["credentialId"].(string)
-	return GenerateMediaInput{Capability: capability, Prompt: prompt, Route: route, ModelID: modelID, CredentialID: credentialID, ReferenceIDs: mediaReferenceIDs(input), Output: output, AspectRatio: stringValue(input["aspectRatio"]), ProjectID: requestedProjectID(input), IdempotencyKey: key}
+	return GenerateMediaInput{Capability: capability, Prompt: prompt, Route: route, ModelID: modelID, CredentialID: credentialID, ReferenceIDs: mediaReferenceIDs(input), Output: output, AspectRatio: stringValue(input["aspectRatio"]), DurationSec: numericValue(input["durationSec"]), ProjectID: requestedProjectID(input), IdempotencyKey: key}
 }
 
 func stringsFromAny(value any) []string {
@@ -2434,6 +2506,75 @@ func materialUpdateFromMCP(input map[string]any) (MaterialUpdateInput, error) {
 	return update, nil
 }
 
+// proposalPatchFromMCP maps the generation-recipe subset of asset.update onto a
+// proposal patch. The second result reports whether any recipe field was present
+// (presence, not value, decides — so an empty prompt is a real edit).
+func proposalPatchFromMCP(input map[string]any) (ProposalPatch, bool) {
+	patch := ProposalPatch{}
+	changed := false
+	if raw, ok := input["capability"]; ok {
+		capability := stringValue(raw)
+		patch.Capability = &capability
+		changed = true
+	}
+	if raw, ok := input["route"]; ok {
+		route := stringValue(raw)
+		patch.Route = &route
+		changed = true
+	}
+	if raw, ok := input["prompt"]; ok {
+		prompt := stringValue(raw)
+		patch.Prompt = &prompt
+		changed = true
+	}
+	if raw, ok := input["modelId"]; ok {
+		modelID := stringValue(raw)
+		patch.ModelID = &modelID
+		changed = true
+	}
+	if raw, ok := input["credentialId"]; ok {
+		credentialID := stringValue(raw)
+		patch.CredentialID = &credentialID
+		changed = true
+	}
+	if raw, ok := input["output"]; ok {
+		output, _ := raw.(map[string]any)
+		patch.Output = output
+		changed = true
+	}
+	if _, ok := input["references"]; ok {
+		references := proposalReferencesFromMCP(input)
+		patch.References = &references
+		changed = true
+	}
+	if raw, ok := input["referenceIds"]; ok {
+		ids := stringsFromAny(raw)
+		patch.ReferenceIDs = &ids
+		changed = true
+	}
+	if raw, ok := input["aspectRatio"]; ok {
+		ratio := stringValue(raw)
+		patch.AspectRatio = &ratio
+		changed = true
+	}
+	if raw, ok := input["durationSec"]; ok {
+		duration := numericValue(raw)
+		patch.DurationSec = &duration
+		changed = true
+	}
+	if raw, ok := input["note"]; ok {
+		note := stringValue(raw)
+		patch.Note = &note
+		changed = true
+	}
+	return patch, changed
+}
+
+// materialUpdateEmpty reports whether the creative-info layer would write nothing.
+func materialUpdateEmpty(update MaterialUpdateInput) bool {
+	return update.Name == nil && update.Content == nil && update.Attributes == nil && len(update.AttrPatch) == 0
+}
+
 func decodeMaterialAttrs(raw any) ([]MaterialAttr, error) {
 	data, err := json.Marshal(raw)
 	if err != nil {
@@ -2469,6 +2610,14 @@ func materialAssetView(asset MediaAsset) map[string]any {
 	}
 	if contentMeta, ok := asset.Metadata[MetadataKeyContentMeta]; ok {
 		view["contentMeta"] = contentMeta
+	}
+	// A proposed asset is also a generation recipe: expose the prompt/references
+	// so the agent can read and edit what it would submit (same keys as
+	// mediaAssetView) instead of re-deriving them from the composer.
+	if asset.Status == AssetStatusProposed {
+		view["prompt"] = stringValue(asset.Metadata["prompt"])
+		view["referenceIds"] = asset.Metadata["referenceIds"]
+		view["generation"] = asset.Metadata["generation"]
 	}
 	return view
 }

@@ -107,3 +107,46 @@ func TestApplyAspectRatioFoldsForPassthroughAppModel(t *testing.T) {
 		t.Fatalf("first-class aspectRatio was not folded into Output: %#v", output)
 	}
 }
+
+// The first-class durationSec must fold into Output for an App-contributed
+// model that declares it, so the caller-chosen clip length drives the request
+// instead of the App's own default (5s). Models that do not declare the
+// parameter (cloud catalogs name it differently) stay untouched, and a value
+// already present in Output wins.
+func TestApplyDurationSecFoldsForDeclaringModel(t *testing.T) {
+	defer RegisterAppProviders(nil)
+	RegisterAppProviders([]MediaProvider{{
+		ID: "modal-cloud", Protocol: "local",
+		Models: []MediaModel{
+			{ID: "modal-cloud/minimax-h3-turbo", Provider: "modal-cloud", APIModelID: "minimax-h3-turbo",
+				Capability: VideoGenerate, Available: true, PassthroughParams: true,
+				Parameters: []MediaParameter{{Name: "durationSec", Type: "number"}}},
+			{ID: "modal-cloud/qwen-image", Provider: "modal-cloud", APIModelID: "qwen-image",
+				Capability: ImageGenerate, Available: true, PassthroughParams: true,
+				Parameters: []MediaParameter{{Name: "aspectRatio", Type: "string"}}},
+		},
+	}})
+	output := map[string]any{}
+	applyDurationSec("modal-cloud/minimax-h3-turbo", 15, output)
+	if output["durationSec"] != float64(15) {
+		t.Fatalf("first-class durationSec was not folded into Output: %#v", output)
+	}
+	// A model that does not declare durationSec is left untouched, not rejected.
+	other := map[string]any{}
+	applyDurationSec("modal-cloud/qwen-image", 15, other)
+	if _, present := other["durationSec"]; present {
+		t.Fatalf("a model without durationSec must not receive it: %#v", other)
+	}
+	// An explicit Output value wins over the first-class field.
+	preset := map[string]any{"durationSec": float64(8)}
+	applyDurationSec("modal-cloud/minimax-h3-turbo", 15, preset)
+	if preset["durationSec"] != float64(8) {
+		t.Fatalf("existing Output durationSec must win: %#v", preset)
+	}
+	// Zero means "unset" and must not overwrite the model default.
+	zero := map[string]any{}
+	applyDurationSec("modal-cloud/minimax-h3-turbo", 0, zero)
+	if _, present := zero["durationSec"]; present {
+		t.Fatalf("zero durationSec must be treated as unset: %#v", zero)
+	}
+}

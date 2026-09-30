@@ -1,13 +1,15 @@
 /*
  * [INPUT]: 依赖标准库 testing 与被测的 ResolvePromptReferences
  * [OUTPUT]: 覆盖提交串改写契约：按 kind 分组编号（图/视频/音频）、文件名优先取标签声明的 label/name、
- *   未绑定 id fail closed、无标签与无 id 的提示词原样透传
+ *   未绑定 id fail closed、无标签与无 id 的提示词原样透传；以及创建/更新期门禁 ValidatePromptReferences
+ *   一次报出全部未绑定 id（ValidationError.unbound_prompt_reference）
  * [POS]: media 包提交串边界的门禁测试（generation-reference-protocol RFC §5）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -70,8 +72,10 @@ func TestResolvePromptReferencesFallsBackToReferenceName(t *testing.T) {
 
 func TestResolvePromptReferencesFailsClosedOnUnboundID(t *testing.T) {
 	refs := []MediaReference{{Kind: "image", Source: "asset", Value: "img_1"}}
-	if _, err := ResolvePromptReferences(`<reference id="ghost" kind="image" role="pov" label="幻觉" />`, refs, nil); err == nil {
-		t.Fatal("expected an error for an unbound reference id")
+	_, err := ResolvePromptReferences(`<reference id="ghost" kind="image" role="pov" label="幻觉" />`, refs, nil)
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) || invalid.Code != "unbound_prompt_reference" {
+		t.Fatalf("err = %v; want unbound_prompt_reference ValidationError", err)
 	}
 	// 没有任何参考时，正文里的标签同样视为未绑定。
 	if _, err := ResolvePromptReferences(`<media type="image" assetid="img_1" name="图" />`, nil, nil); err == nil {
@@ -93,6 +97,46 @@ func TestResolvePromptReferencesPassesThroughUntouched(t *testing.T) {
 		}
 		if resolved != prompt {
 			t.Fatalf("prompt changed unexpectedly:\n got %q\nwant %q", resolved, prompt)
+		}
+	}
+}
+
+// ValidatePromptReferences is the creation/update-time gate: it must report
+// every unbound id (not just the first, unlike the submit rewrite) so a caller
+// can fix its prompt in one pass.
+func TestValidatePromptReferencesReportsEveryUnboundID(t *testing.T) {
+	refs := []MediaReference{{Kind: "image", Source: "asset", Value: "img_1"}}
+	prompt := `<reference id="ghost_a" kind="image" role="pov" /> 与 ` +
+		`<reference id="ghost_b" kind="image" role="color-card" />，再次 ` +
+		`<media assetid="ghost_a" />，并绑定 <media assetid="img_1" />`
+	ids := UnboundPromptReferenceIDs(prompt, refs)
+	if len(ids) != 2 || ids[0] != "ghost_a" || ids[1] != "ghost_b" {
+		t.Fatalf("unbound ids = %v; want [ghost_a ghost_b]", ids)
+	}
+	err := ValidatePromptReferences(prompt, refs)
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("err = %v; want *ValidationError", err)
+	}
+	if invalid.Code != "unbound_prompt_reference" {
+		t.Fatalf("code = %q", invalid.Code)
+	}
+	reported, ok := invalid.Data["unboundReferenceIds"].([]string)
+	if !ok || len(reported) != 2 || reported[0] != "ghost_a" || reported[1] != "ghost_b" {
+		t.Fatalf("data = %#v", invalid.Data)
+	}
+	// 全部绑定后放行。
+	bound := append(refs,
+		MediaReference{Kind: "image", Source: "asset", Value: "ghost_a"},
+		MediaReference{Kind: "image", Source: "asset", Value: "ghost_b"},
+	)
+	if err := ValidatePromptReferences(prompt, bound); err != nil {
+		t.Fatalf("fully bound prompt must pass: %v", err)
+	}
+	// 无标签/无 id 的提示词不产生未绑定项。
+	for _, plain := range []string{"纯文本", `<reference kind="image" label="残缺" />`} {
+		if ids := UnboundPromptReferenceIDs(plain, refs); len(ids) != 0 {
+			t.Fatalf("prompt %q reported unbound ids %v", plain, ids)
 		}
 	}
 }

@@ -18,7 +18,7 @@ Modal Functions is a Recut **standard app** (`standalone`): it decouples the *cl
 
 - **Remembered per preset pack**: every pack keeps its own persisted form slice (field values + references + GPU tier); switching packs, switching tabs or reloading brings back exactly what you left. The right pane's focused task is restored too (cleared if the task is gone).
 - **Resolution**: the form's `resolution` field is the **output longest edge (max side) in pixels**; the short edge follows the aspect ratio. Smaller is faster and cheaper. Natives differ per pack (MiniMax-H3 = 768p — 1366×768 at 16:9, the form's 1536 default; Qwen-Image-2.1 = native 2K; SD-Turbo = 512) and are **never upscaled**: a value at or above the frame's native longest edge keeps the native size. Keying off the longest edge rather than the short edge means a wide frame (e.g. 21:9) can no longer blow the other side up. Image-edit / image-to-image follow the reference image's size, so they have no such field.
-- **GPU tier**: an explicit choice is remembered (per pack); only when there is none does it fall back to the pack's declared default. Precedence is "this request > global default > pack default", and every candidate must exist in that pack's `gpuTiers.options` — otherwise the first option wins, so switching packs can never leave the selector blank.
+- **GPU tier**: an explicit choice is remembered (per pack); only when there is none does it fall back to the pack's declared default. Precedence is "this request > the function's AI default GPU (set in AI call defaults) > global default > pack default", and every candidate must exist in that pack's `gpuTiers.options` — otherwise the first option wins, so switching packs can never leave the selector blank.
 - **Seed**: a number field where `-1` means random. A "Random" button fills a concrete seed in 0..2³¹−1 (so a run can be reproduced). Whether a field gets that button is declared by its `randomizable` flag.
 
 ## Quick start
@@ -88,7 +88,7 @@ So editing manifests/docs/mocks no longer false-flags "redeploy required", and a
 | --- | --- | --- | --- | --- |
 | `minimax-h3` | video.generate | text-to-video / first-last-frame (native audio) | `MiniMaxAI/MiniMax-H3` (FL2VA, ~134GB, HF-gated) | H200×4 / H100×4 / B200×4 / B200×8 |
 | `minimax-h3-one` | video.generate | same (base 50-step) | same weights (shares the `recut-minimax-h3-models` volume) | RTX PRO 6000 / H100 / H200 / B200 / B300 (**single-GPU + GPU snapshot**) |
-| `minimax-h3-turbo` | video.generate | text-to-video / first-last-frame (**Turbo 9-step**, native audio; LoRA offline-merged in bootstrap) | same weights (shared volume) + Turbo LoRA | RTX PRO 6000 / H200 / B200 / B300 (**single-GPU + GPU snapshot + shape warmup**) |
+| `minimax-h3-turbo` | video.generate | text-to-video / first-last-frame (**Turbo 9-step**, native audio; LoRA offline-merged in bootstrap); reference-to-video uses base steps (**not Turbo**) | same weights (shared volume) + Turbo LoRA | RTX PRO 6000 / H200 / B200 / B300 (**single-GPU + GPU snapshot + shape warmup**) |
 | `qwen-image-2.1` | image.generate | text-to-image / image edit (up to 10 references) | `Qwen/Qwen-Image-2.1` (~33GB, native 2K) | L40S / A100 80GB / H100 / H200 |
 | `sd-turbo` | image.generate | text-to-image / image-to-image | `stabilityai/sd-turbo` (~3GB) | T4 / A10G |
 

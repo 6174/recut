@@ -1,7 +1,8 @@
 /*
  * [INPUT]: 依赖 AppHost 的 recut.error 绑定、MCP 错误信封（mcpError）与 HTTP 边界翻译
  * [OUTPUT]: 锁定错误面架构（rfc/2026-08-19 P2）：App background 经 recut.error 声明业务错误，
- *           平台翻译成正常结果 {ok:false,kind,code,hint}；只有传输/协议故障才以 JSON-RPC error 呈现
+ *           平台翻译成正常结果 {ok:false,kind,code,hint}；media 的 ValidationError 同样翻译为
+ *           kind=validation 信封（未绑定参考/配方冻结等）；只有传输/协议故障才以 JSON-RPC error 呈现
  * [POS]: service 错误信封边界回归测试
  * [PROTOCOL]: 变更时更新此头部
  */
@@ -68,6 +69,34 @@ func TestPlainAppErrorStaysTransportError(t *testing.T) {
 	var env *mcpError
 	if errors.As(err, &env) && env.Kind != "" && env.Kind != "transport" {
 		t.Fatalf("plain throw must not become a business envelope, got %+v", env)
+	}
+}
+
+// Media validation failures (e.g. an unbound prompt reference, or a frozen
+// recipe) must reach the agent as the same structured envelope as App business
+// errors — code/hint/data it can act on — not as an opaque transport error.
+func TestMediaValidationErrorBecomesTypedEnvelope(t *testing.T) {
+	err := mediaToolError(&ValidationError{
+		Code:    "unbound_prompt_reference",
+		Message: `prompt reference "ghost" is not bound to any reference asset`,
+		Data:    map[string]any{"unboundReferenceIds": []string{"ghost"}},
+	})
+	var env *mcpError
+	if !errors.As(err, &env) {
+		t.Fatalf("err type = %T %v; want *mcpError", err, err)
+	}
+	if env.Kind != "validation" || env.Code != "unbound_prompt_reference" || env.Hint == "" {
+		t.Fatalf("envelope = %+v", env)
+	}
+	data, ok := env.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("envelope must carry data, got %#v", env.Data)
+	}
+	if _, ok := data["unboundReferenceIds"]; !ok {
+		t.Fatalf("envelope must carry the offending ids, got %#v", env.Data)
+	}
+	if _, ok := mediaToolError(errors.New("boom")).(*mcpError); ok {
+		t.Fatal("a plain error must not become a validation envelope")
 	}
 }
 

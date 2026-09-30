@@ -104,7 +104,10 @@ ATTENTION_PROFILES = {
                   "--attention-backend-config", '{"sparsity": 0.75, "skip_first_steps": 10}'],
     },
 }
-ATTENTION_BACKEND = "fa"
+# 'auto'：按容器实际 GPU 架构自动挑——SM90/SM100/SM120 → 无训练块稀疏 subblock_sparse_attn（SM12.x 上比 fa
+# 回退的 torch_sdpa 快，且请求步数 ≤ 其 skip_first_steps 时自动退化为 dense，Turbo 9 步不受近似影响），
+# 其余（含 B300/SM103，不在其支持列表）→ 精确 fa。也可显式固定为下面任一后端。
+ATTENTION_BACKEND = "auto"
 
 # —— 形状对齐预热（M1）——
 # 快照创建时按「目标形状」预热一次，把分配器/算子/首帧成本一起冻进快照，避免首个真实请求付冷形状开销。
@@ -117,11 +120,29 @@ BENCH_PROMPT = "A cat walking on a sunny beach, gentle waves."
 app = modal.App(APP_NAME)
 
 
+def _resolved_backend() -> str:
+    """实际生效的注意力后端：`auto` 时按当前 GPU 架构挑（SM90/SM100/SM120 → 块稀疏；否则精确 fa）。"""
+    if ATTENTION_BACKEND != "auto":
+        return ATTENTION_BACKEND
+    try:
+        import torch
+
+        major, minor = torch.cuda.get_device_capability(0)
+        if major * 10 + minor in (90, 100, 120):
+            return "subblock_sparse_attn"
+    except Exception:  # noqa: BLE001
+        pass
+    return "fa"
+
+
 def _attention_profile() -> dict:
-    return ATTENTION_PROFILES.get(ATTENTION_BACKEND) or ATTENTION_PROFILES["fa"]
+    return ATTENTION_PROFILES.get(_resolved_backend()) or ATTENTION_PROFILES["fa"]
 
 
 def _attention_pip() -> list[str]:
+    # auto 只会解析到两个 pip-free 后端（fa / subblock_sparse_attn），构建期无需按架构补装内核。
+    if ATTENTION_BACKEND == "auto":
+        return []
     return list(_attention_profile()["pip"])
 
 
@@ -255,12 +276,41 @@ def _ensure_server(variant: str = MODEL_VARIANT) -> None:
         raise RuntimeError("SGLang 服务启动超时")
 
 
-def _warmup() -> None:
-    """按目标形状预热一次（结果会随快照被冻结）。后端不可用 / 预热失败会在此暴露。"""
-    print(f"[modal] 形状预热（{WARMUP_RESOLUTION}，{WARMUP_DURATION_SEC}s，{WARMUP_STEPS} 步，"
-          f"backend={ATTENTION_BACKEND}）…", flush=True)
+def _warmup_png() -> bytes:
+    """合成一张占位参考图（预热只求触发同一形状的参考编码/去噪路径，不关心内容）。"""
+    try:
+        import io
+
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (512, 512), (128, 128, 128)).save(buffer, format="PNG")
+        return buffer.getvalue()
+    except Exception:  # noqa: BLE001
+        import base64
+
+        return base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
+
+
+def _warmup_refs(variant: str) -> list:
+    """预热用的参考素材：fl2va 无参考（→ task t2va）；ref2va 需 ≥1 个参考，故补一张占位图（→ task ref2va）。"""
+    if variant != REF_VARIANT:
+        return []
+    return [{"field": "referenceImages", "name": "warmup.png", "mimeType": "image/png", "data": _warmup_png()}]
+
+
+def _warmup(variant: str = MODEL_VARIANT) -> None:
+    """按目标形状预热一次（结果会随快照被冻结）。后端不可用 / 预热失败会在此暴露。
+
+    ref2va 分区走官方 Ref2VA 权重、请求必须带参考素材，故用 `_warmup_refs` 合成占位参考，确保预热真的命中
+    ref2va 路径（否则会被 partition 拒绝，白预热）。
+    """
+    print(f"[modal] 形状预热（{variant} · {WARMUP_RESOLUTION}，{WARMUP_DURATION_SEC}s，{WARMUP_STEPS} 步，"
+          f"backend={_resolved_backend()}）…", flush=True)
+    conditions = write_reference_conditions(_warmup_refs(variant), REF_DIR)
     body = build_video_body(BENCH_PROMPT, aspect_ratio=WARMUP_ASPECT, duration_sec=WARMUP_DURATION_SEC,
-                            steps=WARMUP_STEPS, seed=1000, conditions=[])
+                            steps=WARMUP_STEPS, seed=1000, conditions=conditions)
     started = time.time()
     submit_video(f"http://127.0.0.1:{PORT}", body, log=None)
     print(f"[modal] 预热完成（{round(time.time() - started, 1)}s）。", flush=True)
@@ -321,7 +371,7 @@ class H3Turbo:
         CUDA 状态）冻进 GPU memory snapshot；快照创建时执行一次，之后冷启动直接从快照恢复、不再重读权重。"""
         _ensure_server(MODEL_VARIANT)
         if WARMUP:
-            _warmup()
+            _warmup(MODEL_VARIANT)
 
     @modal.exit()
     def stop(self):
@@ -376,12 +426,19 @@ class H3TurboRef:
     """Ref2VA 分区：服务 ref2va（多模态参考生视频+音频），并要求至少一个参考素材。
 
     **不套用 Turbo 少步 LoRA / 合并 transformer**：该 LoRA 只训练于 FL2VA 分区（作者明示），故此处走官方
-    Ref2VA 权重与 base 步数（默认 50）；只保留单卡 GPU 快照与 fp8 DiT 驻留这两项通用优化。
+    Ref2VA 权重与 base 步数（默认 50）；只保留单卡 GPU 快照、fp8 DiT 驻留与形状预热这几项通用优化
+    （因此参考生视频没有 Turbo 的 5–6× 少步收益，属已知边界）。
     """
 
     @modal.enter(snap=True)
     def start(self):
         _ensure_server(REF_VARIANT)
+        if WARMUP:
+            # best-effort：占位参考若被分区拒绝，也不该拖垮整个 ref2va 服务。
+            try:
+                _warmup(REF_VARIANT)
+            except Exception as error:  # noqa: BLE001
+                print(f"[modal] Ref2VA 形状预热失败（忽略，服务仍可用）：{error}", flush=True)
 
     @modal.exit()
     def stop(self):

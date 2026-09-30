@@ -5,7 +5,7 @@
  * canvas-store（world_entities/world_relations/world_canvas 唯一语义真相）→ pomelo 文档按 block id diff
  * 增量同步（T1-c：新增 addRecord / 删除 removeRecord / 属性变化 updateRecord，不再全量重建）；
  * ViewportPlugin（平移/缩放）+ CanvasBindsPlugin（选中解析/拖拽位移与 resize 持久化/进入容器/删除）
- * + AlignmentGuidePlugin（拖拽对齐吸附与提示线）；
+ * + AlignmentGuidePlugin（拖拽对齐吸附与提示线）+ VideoPreviewPlugin（视频节点悬停盖同尺寸播放器，移出收起）；
  * 画布工具（模式/连线/插入/undo/缩放菜单）由 CanvasToolbarItems 承载并合并进全局 Header（canvas-top-bar.tsx），
  * 世界工具栏与「设定视图」切换仍上提到全局 Header（canvas-top-bar.tsx）；
  * 自由元素映射：note→NoteBlockV、text/shape→FreeElementBlockV、绑定两实体的自由箭头→复用
@@ -15,7 +15,10 @@
  * proposalPrompt/proposalRefs 等 attrs，供 block 渲染「待确认」态；proposed 但无配方按「计划」映射为
  * planStatus/planPrompt，block 渲染「计划中」；
  * 素材生成等待态（canvas-asset-status）：AI 先落 assetId 时映射为 assetStatus，未就绪不请求 URL，
- * 渲染「生成中/失败」态并在素材就绪后经状态订阅增量重建文档；
+ * 渲染「生成中/失败」态并在素材就绪后经状态订阅增量重建文档；状态来源 = 模块轮询（单次请求硬超时 +
+ * 陈旧在途自愈）+ media 实时通道事件（ingestCanvasAsset）+ 页面重新可见时的重新武装，任一链路异常都不会
+ * 把节点永久钉在「生成中」；
+ * 视频首帧（video-frame）：视频块默认画首帧 center-cover（抽帧失败退化为双击提示）；
  * 就绪态（ready）只表示 pomelo 文档已挂上，不含字体：字体在后台加载，加载中在画布底部显式提示
  * 进度（订阅 pomelo-vello/vello-fonts 的快照），字体到位后由适配器整场重绘把文字补上；
  * 「+」引导面板（AttrCreatorPanel）与创建菜单共用 CreatePanel 交互结构（搜索 + 左分组列表 + 右详情 +
@@ -37,6 +40,7 @@ import { WORLD_VELLO_BLOCKS } from "@/lib/pomelo/world-canvas/blocks/vello-world
 import { ViewportPlugin, centerContent, panBy } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
 import { GridPlugin } from "@/lib/pomelo/world-canvas/plugins/grid-plugin";
 import { AlignmentGuidePlugin } from "@/lib/pomelo/world-canvas/plugins/alignment-guide-plugin";
+import { VideoPreviewPlugin } from "@/lib/pomelo/world-canvas/plugins/video-preview-plugin";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { mediaSource, modalityOfAssetKind, modalityOfKind } from "./canvas-media";
 import { MEDIA_VISUAL_HEIGHT, MEDIA_VISUAL_WIDTH, isMediaVisualModality } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
@@ -49,9 +53,10 @@ import { CanvasToasts } from "./canvas-toast";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrMediaValueOf, attrValueOf, ENTITY_FIELD_ASSOCIATIONS, entityMediaAttrs } from "./entity-attrs";
 import { isPlanAsset, readProposal, proposalFromAsset } from "./canvas-proposal";
-import { canvasAssetOf, canvasAssetStateOf, ensureCanvasAssetStatus, stopCanvasAssetStatus, useCanvasAssetStatusStore } from "./canvas-asset-status";
+import { canvasAssetOf, canvasAssetStateOf, ensureCanvasAssetStatus, ingestCanvasAsset, rearmCanvasAssetStatus, stopCanvasAssetStatus, useCanvasAssetStatusStore } from "./canvas-asset-status";
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
+import { getRealtimeChannel } from "@/lib/realtime-channel";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
 import { entityAttrMediaRef, entityKindLabel, type EntityAttrMediaValue } from "@/lib/recut-worlds-client";
 
@@ -419,6 +424,24 @@ function stripUndefined(attrs: Record<string, unknown>): Record<string, unknown>
     if (value !== undefined) out[key] = value;
   }
   return out;
+}
+
+// 画布上引用中的 assetId（media 元素 / 媒体属性卡 / 实体 media 属性头图）：
+// 状态登记与「页面重新可见时重新武装轮询」共用同一份口径。
+function canvasAssetIdsInUse(state: ReturnType<typeof useWorldCanvasStore.getState>): string[] {
+  const ids = new Set<string>();
+  for (const element of state.elements) {
+    if (element.kind !== "media" && element.kind !== "attr") continue;
+    const assetId = element.props?.assetId ? String(element.props.assetId) : "";
+    if (assetId) ids.add(assetId);
+  }
+  for (const entity of state.entities) {
+    for (const attr of entityMediaAttrs(entity)) {
+      const value = attrMediaValueOf(entity, attr.key);
+      if (value?.assetId) ids.add(value.assetId);
+    }
+  }
+  return [...ids];
 }
 
 // ---------- 世界工具栏已全部上提到全局 Header（canvas-top-bar.tsx），画布内不再保留顶部覆盖层 ----------
@@ -831,6 +854,7 @@ export function CanvasPomeloHost() {
   const worldName = useWorldCanvasStore((state) => state.worldName);
   const worldId = useWorldCanvasStore((state) => state.worldId);
   const selection = useWorldCanvasStore((state) => state.selection);
+  const apiBase = useWorldCanvasStore((state) => state.apiBase);
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<PomeloEditor | null>(null);
   const pluginRef = useRef<CanvasBindsPlugin | null>(null);
@@ -857,7 +881,7 @@ export function CanvasPomeloHost() {
     const editor = new PomeloEditor({
       state: PomeloEditorState.fromJSON({ id: "world-canvas", children: [] }),
       container,
-      plugins: [new GridPlugin(), new ViewportPlugin(), bindsPlugin, new AlignmentGuidePlugin()],
+      plugins: [new GridPlugin(), new ViewportPlugin(), bindsPlugin, new AlignmentGuidePlugin(), new VideoPreviewPlugin()],
       blockTypes: WORLD_VELLO_BLOCKS,
       renderAdapter: new VelloRendererAdapter({ transparentBackground: true }),
     });
@@ -974,20 +998,36 @@ export function CanvasPomeloHost() {
   useEffect(() => {
     if (!ready) return;
     const state = useWorldCanvasStore.getState();
-    for (const element of state.elements) {
-      if (element.kind !== "media" && element.kind !== "attr") continue;
-      const assetId = element.props?.assetId ? String(element.props.assetId) : "";
-      if (assetId) ensureCanvasAssetStatus(state.apiBase, assetId);
-    }
-    for (const entity of state.entities) {
-      for (const attr of entityMediaAttrs(entity)) {
-        const value = attrMediaValueOf(entity, attr.key);
-        if (value?.assetId) ensureCanvasAssetStatus(state.apiBase, value.assetId);
-      }
-      // 有封面的实体卡：测量封面比例并写回元素 props.coverAspect（卡片按它定尺；已测过则跳过）
-      state.fitEntityCover(entity.id);
-    }
+    for (const assetId of canvasAssetIdsInUse(state)) ensureCanvasAssetStatus(state.apiBase, assetId);
+    // 有封面的实体卡：测量封面比例并写回元素 props.coverAspect（卡片按它定尺；已测过则跳过）
+    for (const entity of state.entities) state.fitEntityCover(entity.id);
   }, [dataVersion, ready]);
+
+  // 素材实时通道（media channel）：资产状态变化即时写入画布状态层。生成完成不再只依赖 2.5s 轮询链——
+  // 轮询链一旦因悬挂请求 / 重挂载丢链，节点会一直停在 props 声明的「生成中」，只能整页刷新恢复。
+  useEffect(() => {
+    if (!ready || !apiBase) return;
+    const unsubscribe = getRealtimeChannel(apiBase).subscribe("media", "", (frame) => {
+      const data = frame.data && typeof frame.data === "object" ? (frame.data as Record<string, unknown>) : {};
+      if (data.asset) ingestCanvasAsset(apiBase, data.asset);
+    });
+    return unsubscribe;
+  }, [ready, apiBase]);
+
+  // 页面重新可见 / 获得焦点：重新武装未终态的轮询（陈旧在途、被清理或丢链后自愈）。
+  useEffect(() => {
+    if (!ready || !apiBase) return;
+    const rearm = () => {
+      if (document.visibilityState !== "visible") return;
+      rearmCanvasAssetStatus(apiBase, canvasAssetIdsInUse(useWorldCanvasStore.getState()));
+    };
+    window.addEventListener("focus", rearm);
+    document.addEventListener("visibilitychange", rearm);
+    return () => {
+      window.removeEventListener("focus", rearm);
+      document.removeEventListener("visibilitychange", rearm);
+    };
+  }, [ready, apiBase]);
 
   // 素材状态变化 → 增量重建文档（等待态 ↔ 真实图/失败态）并重绘 overlay。
   // 只处理真正变化的 assetId，并把同一帧内的多次变化合并成一次重建：在途素材会被持续回查，

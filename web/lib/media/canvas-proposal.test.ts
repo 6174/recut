@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { mergeProposalReferences, PROPOSAL_ROLES, proposalIssues, proposalReferenceIds, proposalRequiredFor, proposalRoleOptions, type GenerationProposal } from "../../app/worlds/[worldID]/canvas/canvas-proposal";
+import { stripProposalReference } from "./proposal";
 
 function proposal(overrides: Partial<GenerationProposal> = {}): GenerationProposal {
   return { status: "pending", prompt: "p", references: [], modelId: "m", ...overrides };
@@ -69,6 +70,19 @@ test("mergeProposalReferences dedupes by id and backfills missing fields", () =>
     { id: "a1", kind: "image", label: "镜1关键帧", role: "storyboard" },
     { id: "a2", kind: "audio", role: "voice" },
   ]);
+});
+
+test("stripProposalReference removes only the removed reference's token", () => {
+  const prompt = '锚定表\n<reference id="a1" kind="image" role="character" /> 作为人物\n<media assetid="a2" name="场景" /> 作为环境';
+  const stripped = stripProposalReference(prompt, "a1", referenceRegistry);
+  assert.ok(!stripped.includes('id="a1"'));
+  assert.ok(stripped.includes('assetid="a2"'));
+  assert.ok(stripped.includes("作为环境"));
+  // 删引用后同一份自检必须通过（不再有未绑定 token）。
+  assert.equal(proposalIssues(proposal({ prompt: stripped, references: [{ id: "a2", kind: "image" }] }), referenceRegistry).some((issue) => issue.level === "error"), false);
+  // 未注册的标签 / 不存在的 id 不改动正文。
+  assert.equal(stripProposalReference('<unknown id="a1" />', "a1", referenceRegistry), '<unknown id="a1" />');
+  assert.equal(stripProposalReference(prompt, "missing", referenceRegistry), prompt);
 });
 
 test("video requires a proposal, image does not", () => {

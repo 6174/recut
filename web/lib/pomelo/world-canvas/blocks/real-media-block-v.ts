@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 pomelo-vello（VelloBlock/VelloOp/vello-text）、world-canvas/graph-theme（配色单一真源）、
  *          world-canvas/blocks/vello-shared（cover/徽标/低细节）、world-canvas/blocks/audio-block-ops（音频播放器外观）
  * [OUTPUT]: 对外提供 RealMediaBlockV（type: media）：图 center-cover / 音频播放器外观（圆形播放钮 + 真实波形 +
- * 时间 + 音量/下载，波形懒加载）/ 视频占位 + 元素徽标；
+ * 时间 + 音量/下载，波形懒加载）/ 视频首帧 center-cover（video-frame 抽帧 → 图片纹理管线，失败退化为双击提示；
+ * 悬停播放由 VideoPreviewPlugin 承担）+ 元素徽标；
  * 生成提案「待确认」态（proposalStatus=pending）渲染为弱灰描边 + 「提案」徽标 + 提示词摘要 + 参考/模型信息；
  * 计划态（planStatus，proposed 但无配方）渲染为弱灰描边 + 「计划中」+ 说明摘要；
  * 生成中/失败态（proposalStatus=generating/failed，或 AI 先落 assetId 的 assetStatus）渲染为蓝/红描边 + 等待/失败提示；
@@ -32,6 +33,7 @@ import {
 import { CAPTION_TOP_OFFSET, captionOpsV, coverImageOpsV, isLowDetail, screenScaleOf } from "./vello-shared";
 import { audioPlayerOpsV } from "./audio-block-ops";
 import { audioBlockRect, isAudioBlockRecord } from "./audio-block-metrics";
+import { ensureVideoFrame, videoFrameUrl } from "./video-frame";
 
 /** 媒体元素（type: media）：图 center-cover / 视频音频占位 + 元素徽标。 */
 export class RealMediaBlockV extends VelloBlock {
@@ -123,14 +125,23 @@ export class RealMediaBlockV extends VelloBlock {
       ops.push(textOp({ text: "在详情面板重试", x: x + 12, y: y + innerH / 2 + 8, size: 10, maxWidth: w - 24, fill: TEXT_TERTIARY }));
       return { ops, bounds: this.blockBounds() };
     }
+    const mediaBox = { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12 };
     if (modality === "image" && src) {
-      ops.push(...coverImageOpsV(this.adapter, src, { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12 }, { x: x + 6, y: y + 6, width: w - 12, height: innerH - 12, radius: 8 }));
+      ops.push(...coverImageOpsV(this.adapter, src, mediaBox, { ...mediaBox, radius: 8 }));
     } else if (modality === "audio") {
       // 音频：音频卡外观（音符标记 + 波形 + 时间）；无源时为空态（加号 + 骨架波形 + 提示）
       if (!lowDetail) ops.push(...audioPlayerOpsV(this.adapter, { x, y, width: w, height: innerH }, src, { empty: !src }));
-    } else if (!lowDetail && src) {
-      // 已有源的视频：提示双击预览
-      ops.push(textOp({ text: "▶ 视频 · 双击预览", x: x + 12, y: y + innerH / 2 - 10, size: 14, maxWidth: w - 24, fill: TEXT_TERTIARY }));
+    } else if (modality === "video" && src) {
+      // 视频：默认画首帧（<video> 抽帧成 blob URL，走图片纹理管线，按视口需求分档升档，放大不发糊）；
+      // 抽帧未就绪/失败时退化为双击提示。播放由 VideoPreviewPlugin 悬停盖同尺寸播放器承担。
+      const frame = videoFrameUrl(src);
+      ensureVideoFrame(src, () => this.adapter.refreshBlocks(), Math.max(mediaBox.width, mediaBox.height) * this.adapter.getImagePixelRatio());
+      if (frame) {
+        // 画首帧即可：不再叠文字——播放器悬停时会盖住卡面，任何卡内文字都会让 hover 前后看起来不一致
+        ops.push(...coverImageOpsV(this.adapter, frame, mediaBox, { ...mediaBox, radius: 8 }));
+      } else if (!lowDetail) {
+        ops.push(textOp({ text: "▶ 视频 · 双击预览", x: x + 12, y: y + innerH / 2 - 10, size: 14, maxWidth: w - 24, fill: TEXT_TERTIARY }));
+      }
     } else if (!lowDetail) {
       // 空素材 placeholder：点击选中后在右侧详情面板选来源 / 本地上传
       const placeholder = modality === "video" ? "＋ 点击添加视频" : "＋ 点击添加图片";

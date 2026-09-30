@@ -4,7 +4,9 @@
 
 同样提供三个函数：`H3Turbo`（`--model-variant fl2va`）服务**文生视频（t2va）/ 首尾帧生视频（fl2va）**并叠加 Turbo 少步 LoRA；`H3TurboRef`（`--model-variant ref2va`）服务**参考生视频（ref2va，图像/视频/音频）**，**不套 Turbo LoRA**（该 LoRA 只训练于 FL2VA 分区），走官方 Ref2VA 权重与 base 步数。
 
-它把「少步蒸馏 + 合成量化驻留 + 快注意力（可选）+ GPU 快照」叠在一起，且**少步 LoRA 是在 bootstrap 里离线合并进权重的**（不是运行期 LoRA）。
+> ⚠️ **只有文生视频 / 首尾帧是 Turbo（9 步）；参考生视频不是。** 因此表单里前两个函数的「步数」默认 9 并带 Turbo 说明，而参考生视频的「步数」默认 50（base 质量档，表单已标注「非 Turbo」），单卡 RTX PRO 6000 上约 **8–12 分钟/片**。要少步加速请改用文生视频 / 首尾帧函数。
+
+它把「少步蒸馏 + 合成量化驻留 + 快注意力 + GPU 快照 + 形状预热」叠在一起，且**少步 LoRA 是在 bootstrap 里离线合并进权重的**（不是运行期 LoRA）。
 
 ## 状态与实测（2026-09-29，真机 RTX PRO 6000 + `lmsysorg/sglang:dev`）
 
@@ -30,7 +32,7 @@ sglang 会把 GPU 上**所有线性层**换成 `*WithLoRA` 包裹层（`Converte
 **代价（作者明示的取舍）**：LoRA 仓库 README 指出「合并进 bf16 会把较小的 delta 舍入掉 → 运行期 LoRA 最锐，合并版 *a bit softer*，量化基座更明显」。本包因上游 bug 只能走合并版；等上游修复后切回运行期 LoRA 可拿回最锐结果。
 
 **其他实测约束**：
-- **SM12.x（RTX PRO 6000）无 `fa`**：自动回退 `torch_sdpa`（仍精确）。该档加速注意力应改用 `subblock_sparse_attn`。
+- **SM12.x（RTX PRO 6000）无 `fa`**：`fa` 会回退 `torch_sdpa`（仍精确）。故默认 `ATTENTION_BACKEND="auto"`：SM90/SM100/SM120 → `subblock_sparse_attn`（近似，但比 `torch_sdpa` 快），其余（含 B300/SM103，不在其支持列表）→ `fa`。
 
 ## 与另外两个预设包的关系
 
@@ -38,7 +40,7 @@ sglang 会把 GPU 上**所有线性层**换成 `*WithLoRA` 包裹层（`Converte
 |---|---|---|---|
 | `minimax-h3` | H200×4 / H100×4 / B200×4 / B200×8 | ❌（多卡不支持） | 多卡，例行质量优先（50 步） |
 | `minimax-h3-one` | 单卡（RTX PRO 6000 等） | ✅ | 单卡，base 50 步 |
-| **`minimax-h3-turbo`（本包）** | 单卡（快照档） | ✅ | **Turbo 少步（离线合并）+ 形状预热，时延优先** |
+| **`minimax-h3-turbo`（本包）** | 单卡（快照档） | ✅ | **Turbo 少步（离线合并）+ 形状预热，时延优先**（ref2va 走 base 步数，无少步加速） |
 
 三者共用同一套 `h3_contract`，调用方式完全一致。
 
@@ -46,10 +48,10 @@ sglang 会把 GPU 上**所有线性层**换成 `*WithLoRA` 包裹层（`Converte
 
 | 档位 | 显存 | Modal $/h（仅 GPU） | 配方 |
 |---|---|---|---|
-| **RTX PRO 6000（默认，最省）** | 96GB | 3.03 | fp8 DiT 宿留 + 文本编码器流式（注意 SM12.x 无 `fa`） |
+| **RTX PRO 6000（默认，最省）** | 96GB | 3.03 | fp8 DiT 宿留 + 文本编码器流式 + `auto`→`subblock_sparse_attn`（SM12.x 无 `fa`） |
 | H200 | 141GB | 4.54 | bf16 全驻留（≈118 GiB 放得下） |
 | B200 | 183GB | 6.25 | bf16 全驻留，原生 mxfp8/NVFP4 可用 |
-| B300 | 288GB | 7.10 | 单卡上限 |
+| B300 | 288GB | 7.10 | 单卡上限（`auto` 在该档回落精确 `fa`） |
 
 > 单卡才能用 GPU memory snapshot（Modal 不支持多卡快照），故本包**只提供单卡档**。要更多并行度用 `minimax-h3`。
 > 价格仅为 GPU，另有 host RAM（本包默认 256GiB ≈ $2.05/h）与卷存储。每种 GPU 型号各自建一份快照：切到新档后首次调用会重建快照（慢一次），之后各自秒级恢复。
@@ -58,17 +60,18 @@ sglang 会把 GPU 上**所有线性层**换成 `*WithLoRA` 包裹层（`Converte
 
 ```text
 sglang serve --model-path /models/MiniMax-H3 --model-variant fl2va \
-  --component-weights-paths.transformer /merged/transformer   # ← Turbo 离线合并权重（无运行期 LoRA）
+  --component-weights-paths.transformer /merged/transformer   # ← 仅 Turbo/fl2va：离线合并权重（无运行期 LoRA）
   --num-gpus 1 --performance-mode speed --enable-torch-compile false \
   [显存 <130GB 时] --quantization fp8 --layerwise-offload-components text_encoder \
-  --warmup-resolutions 1344x768 \
-  --attention-backend <fa | sage_attn | sol_attn | subblock_sparse_attn>
+  --warmup-resolutions 1344x768 \                             # ← 仅 Turbo/fl2va（serve 侧）
+  --attention-backend <auto | fa | sage_attn | sol_attn | subblock_sparse_attn>
 ```
 
 - **≥130GB**（H200/B200/B300）：BF16/FP32 全驻留放得下，不量化最快；
 - **<130GB**（RTX PRO 6000 96GB / SM120）：在线 fp8 只量化 DiT 让其常驻，文本编码器流式 offload；
-- 请求步数默认 **9**（＝8 次去噪，落在作者建议的 4–8 区间）。
-- **分辨率**（表单「最长边」，短边按画幅换算、≤768p，只下调不超分）会换掉请求形状：快照只预热了 `--warmup-resolutions 1344x768` 那一种，换到更小的画幅时该容器内首个请求要多付一次分配器增长成本（结果不变，之后同形状恢复常态），故默认档 1536（16:9 下即原生 768p）。
+- **ref2va**（`H3TurboRef`）：`--model-variant ref2va`，**不加** `--component-weights-paths.transformer`、不加 `--warmup-resolutions`；仍享 fp8 驻留 + 快照 + 请求级形状预热。
+- 请求步数默认 **9**（＝8 次去噪，落在作者建议的 4–8 区间）；ref2va 默认 **50**（base）。
+- **分辨率**（表单「最长边」，短边按画幅换算、≤768p，只下调不超分）会换掉请求形状：快照只预热了 `1344x768` 那一种，换到更小的画幅时该容器内首个请求要多付一次分配器增长成本（结果不变，之后同形状恢复常态），故默认档 1536（16:9 下即原生 768p）。
 
 ## 三个卷（bootstrap 三步）
 
@@ -83,7 +86,7 @@ sglang serve --model-path /models/MiniMax-H3 --model-variant fl2va \
 
 ## GPU 快照
 
-`H3Turbo` 类开启 `enable_memory_snapshot=True` + `experimental_options={"enable_gpu_snapshot": True}`，`@modal.enter(snap=True)` 内 `_ensure_server()` + 形状预热。首次运行会创建快照（较慢，一次性），之后冷启动从快照秒级恢复。改了代码 / 镜像 / serve flags 会自动重建快照。
+`H3Turbo` 与 `H3TurboRef` 都开启 `enable_memory_snapshot=True` + `experimental_options={"enable_gpu_snapshot": True}`，`@modal.enter(snap=True)` 内 `_ensure_server()` + 形状预热。首次运行会创建快照（较慢，一次性），之后冷启动从快照秒级恢复。改了代码 / 镜像 / serve flags 会自动重建快照。
 
 > Modal 限制：GPU memory snapshot **不支持多 GPU Function**，所以本包只做单卡；多卡走 `minimax-h3`。
 
@@ -91,16 +94,21 @@ sglang serve --model-path /models/MiniMax-H3 --model-variant fl2va \
 
 注意力后端是 **server-wide** 的部署期选择（非请求参数）：改 `modal_app.py` 顶部的 `ATTENTION_BACKEND` 一行后重新部署，镜像会按 profile 的 pip 补装内核、快照随之重建。
 
+默认 `ATTENTION_BACKEND="auto"`：按容器实际 GPU 架构解析——SM90/SM100/SM120 → `subblock_sparse_attn`，其余 → `fa`。
+
 | profile | 说明 | 额外依赖 |
 |---|---|---|
-| `fa`（默认） | 精确 FlashAttention | 无（但 **SM12.x 不支持，自动回退 `torch_sdpa`**） |
+| `auto`（默认） | 按 GPU 架构挑：SM90/100/120 → `subblock_sparse_attn`，否则 `fa` | 无 |
+| `fa` | 精确 FlashAttention（一致性基准） | 无（但 **SM12.x 不支持，自动回退 `torch_sdpa`**） |
 | `sage_attn` | 量化注意力（近似） | 固定 commit 的 [SageAttention](https://github.com/thu-ml/SageAttention) |
 | `sol_attn` | Sage→Sol 混合（前 10 步精确、其后近似） | 同上 |
-| `subblock_sparse_attn` | 无训练块稀疏（内建，SM90/SM100/**SM120**） | 无 |
+| `subblock_sparse_attn` | 无训练块稀疏（内建，SM90/SM100/**SM120**；`auto` 在这些架构上选它） | 无 |
 
 > 除 `fa` 外均为**近似**，输出**非**一致性基准，启用后须在目标负载上同时抽检视频**与音频**。
 
-**形状对齐预热**：`WARMUP=True` 时，`@modal.enter(snap=True)` 会在建快照前按目标形状预热（serve 侧 `--warmup-resolutions 1344x768` + 一次 4s 请求），把分配器/算子/首帧成本一并冻进快照。
+**形状对齐预热**：`WARMUP=True` 时，`@modal.enter(snap=True)` 会在建快照前按目标形状预热一次（4s 请求），把分配器/算子/首帧成本一并冻进快照：
+- `H3Turbo`（fl2va）：serve 侧 `--warmup-resolutions 1344x768` + 一次 t2va 请求；
+- `H3TurboRef`（ref2va）：serve 侧无 `--warmup-resolutions`，改用一张**合成占位参考图**发起一次真正的 ref2va 预热请求（否则会被分区拒绝、白预热）。该步为 best-effort：失败只记日志，不影响服务。
 
 **实测一条命令**（先部署本包并 install，再跑 bench）：
 
@@ -125,8 +133,8 @@ modal run apps/modal-studio/modalapps/minimax-h3-turbo/bench.py --gpu H200 --run
 ## 已知边界
 
 - **合并版比运行期 LoRA 略软**（作者取舍，见上）；等上游修好 `*WithLoRA` × `quant_method` 兼容后可切回运行期 LoRA。
-- **步数**：作者建议 4–8 次去噪（请求网格 5–9）；超过 8 次去噪收益消失甚至过锐。表单默认 9。
+- **步数**：作者建议 4–8 次去噪（请求网格 5–9）；超过 8 次去噪收益消失甚至过锐。Turbo 表单默认 9。
 - Cache-DiT（`quality:"high"`）官方 fail-closed 到 4×H200 特定 workload，本包单卡档**不可用**。
 - **画质抽检待补**：本轮只验证了「能否跑通 + 时延/显存」，合并版相对运行期 LoRA 的画质差异尚未逐帧比对。
-- **参考生视频（ref2va）不套 Turbo**：Turbo LoRA 只训练于 FL2VA 分区，`H3TurboRef` 用官方 Ref2VA 权重与 base 步数（默认 50），因此参考生视频没有 Turbo 的少步加速；要求至少 1 个参考素材，上限图 ≤9、视频 ≤3、音频 ≤3。
-- 近似注意力后端默认关闭；启用后输出**非**一致性基准，需在目标负载上抽检视频**与音频**。
+- **参考生视频（ref2va）不套 Turbo**：Turbo LoRA 只训练于 FL2VA 分区，`H3TurboRef` 用官方 Ref2VA 权重与 base 步数（默认 50），因此参考生视频**没有** Turbo 的少步加速（表单已明确标注「非 Turbo」，避免与其它两个函数的 9 步混淆）；要求至少 1 个参考素材，上限图 ≤9、视频 ≤3、音频 ≤3。
+- **注意力后端**：`auto` 在 SM90/100/120 上会选近似块稀疏（`subblock_sparse_attn`），输出**非**一致性基准，需在目标负载上抽检视频**与音频**；要严格一致请把 `ATTENTION_BACKEND` 固定为 `fa`。

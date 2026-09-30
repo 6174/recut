@@ -131,12 +131,12 @@ export function Composer({
       ]),
     [attachments, pickedContexts, workFocusIncluded, workFocusPreview, workSurface, workSurfaceIncluded, workSurfacePreview, worldReferences],
   );
-  // 候选 = 当前工作面 / 当前 Focus：直接摆在芯片行里，点一下就添加，不必先开面板再挑。
-  // Focus 依附于工作面，且自身已概括整段选区（refs + 完整选择态），所以不再把每个 ref 拆成独立候选。
+  // 候选 = 当前工作面 / 当前 Focus，二者互相独立：各自都能单独添加、单独移除。
+  // Focus 自身已概括整段选区（refs + 完整选择态），所以不再把每个 ref 拆成独立候选。
   const candidates = useMemo(() => {
-    const raw = [surfaceOption(contextRuntime), workSurface ? focusOption(contextRuntime) : null];
+    const raw = [surfaceOption(contextRuntime), focusOption(contextRuntime)];
     return raw.filter((option): option is ContextOption => option !== null && !attachedKeys.has(option.key));
-  }, [attachedKeys, contextRuntime, workSurface]);
+  }, [attachedKeys, contextRuntime]);
   const composerValue = useMemo(
     () => ({ text: content, refs: [], isEmpty: content.trim().length === 0 }),
     [content],
@@ -231,7 +231,7 @@ export function Composer({
               <WorkSurfaceChip onRemove={onRemoveWorkSurface} surface={workSurface} />
             </ChipPreviewPopover>
           )}
-          {hasWorkFocusSelection(workFocus) && workFocus && workFocusIncluded && workSurface && workSurfaceIncluded && (
+          {hasWorkFocusSelection(workFocus) && workFocus && workFocusIncluded && (
             <ChipPreviewPopover apiBase={apiBase} option={workFocusPreview} runtime={contextRuntime}>
               <WorkFocusChip focus={workFocus} onRemove={onRemoveWorkFocus} />
             </ChipPreviewPopover>
@@ -378,7 +378,8 @@ export function Composer({
                   !attachments.length &&
                   !worldReferences.length &&
                   !pickedContexts.length &&
-                  !(workSurface && workSurfaceIncluded))
+                  !(workSurface && workSurfaceIncluded) &&
+                  !(hasWorkFocusSelection(workFocus) && workFocusIncluded))
               }
               title={
                 firstTurn

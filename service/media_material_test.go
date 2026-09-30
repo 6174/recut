@@ -207,4 +207,10 @@ func TestMaterialMCPToolSurface(t *testing.T) {
 			t.Fatalf("asset.update is missing %q", key)
 		}
 	}
+	// The same tool carries the generation recipe for proposed assets.
+	for _, key := range []string{"prompt", "references", "referenceIds", "modelId", "credentialId", "output", "aspectRatio", "durationSec", "note"} {
+		if updateProps[key] == nil {
+			t.Fatalf("asset.update is missing recipe field %q", key)
+		}
+	}
 }

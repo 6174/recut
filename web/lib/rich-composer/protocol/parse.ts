@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 protocol/types 的 RefProtocol 注册表与 protocol/xml 的属性解析
- * [OUTPUT]: 对外提供 parseInlineRefs（保留位置）、extractRefs（按 identity 去重）、stripRefs（迁移期剥离标签）与 hasInlineRefs
+ * [OUTPUT]: 对外提供 parseInlineRefs（保留位置）、extractRefs（按 identity 去重）、stripRefs（迁移期剥离标签）、
+ *   stripRefsByIdentity（按 identity 定向剥离，用于删引用时同步清 token）与 hasInlineRefs
  * [POS]: web/lib/rich-composer/protocol 的解析层；未知标签一律保留为原文，前向兼容（World 正文可能含未来标签）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -54,6 +55,23 @@ export function hasInlineRefs(text: string, registry: RefProtocolRegistry): bool
 export function stripRefs(text: string, registry: RefProtocolRegistry): string {
   const byType = protocolsByType(registry);
   return text.replace(tagPattern, (raw, type: string) => (byType.has(type) ? "" : raw));
+}
+
+// stripRefsByIdentity 只删除指向给定 identity 的原子引用，保留其余文本与未知标签。
+// 用于「删掉一条参考素材」时同步清掉正文里它的 token：正文是引用绑定的唯一权威，
+// 留下悬空 token 会被服务端的未绑定参考门禁拒绝。
+export function stripRefsByIdentity(text: string, registry: RefProtocolRegistry, identities: string[]): string {
+  const targets = new Set(identities.filter(Boolean));
+  if (!targets.size) return text;
+  const byType = protocolsByType(registry);
+  return text.replace(tagPattern, (raw, type: string, attrsSource: string, inner?: string) => {
+    const protocol = byType.get(type);
+    if (!protocol) return raw;
+    // 带非空内容的同名标签是块级内容，不是原子引用。
+    if (inner !== undefined && inner.trim() !== "") return raw;
+    const identity = protocol.identity(parseAttributes(attrsSource ?? ""));
+    return identity && targets.has(identity) ? "" : raw;
+  });
 }
 
 // referenceDisplayText 用于纯文本渲染位（画布文本/便签、卡片副标题、turn 预览）：

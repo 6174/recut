@@ -467,11 +467,13 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
   }
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // 工作面与 Focus 是两个独立上下文：各自是否发送只看自己的开关，互不牵连。
     const workSurfaceAttached = Boolean(workSurface && workSurfaceIncluded);
+    const workFocusAttached = Boolean(hasWorkFocusSelection(workFocus) && workFocus && workFocusIncluded);
     if (
       creatingRuntime ||
       loadingSessions ||
-      (!content.trim() && !attachments.length && !worldReferences.length && !pickedContexts.length && !workSurfaceAttached)
+      (!content.trim() && !attachments.length && !worldReferences.length && !pickedContexts.length && !workSurfaceAttached && !workFocusAttached)
     )
       return;
     const text = content.trim();
@@ -484,7 +486,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     const sessionID = activeID ?? session?.id;
     if (!sessionID) return;
     const workSurfaceItem = workSurfaceAttached && workSurface ? [workSurfaceContextPayload(workSurface)] : [];
-    const workFocusItem = workSurfaceAttached && hasWorkFocusSelection(workFocus) && workFocusIncluded && workFocus ? [workFocusContextPayload(workFocus)] : [];
+    const workFocusItem = workFocusAttached && workFocus ? [workFocusContextPayload(workFocus)] : [];
     // 正文内联 XML 是主锚点：从 content 提取去重引用并物化为 contexts（RFC 协议 §7）。
     const inlineContexts = extractRefs(text, contextProtocolRegistry())
       .map((ref) => contextSourceForType(ref.type)?.toContext?.(ref.attrs) ?? null)
@@ -882,11 +884,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
               setError(cause instanceof Error ? cause.message : t("agent.panel.addAssetFailed")),
             )
           }
-          onAddWorkFocus={() => {
-            // Focus 依附于工作面：没有 target 时它既不显示也不会随 Turn 发送，所以添加 Focus 时一并确保工作面已附带。
-            setWorkSurfaceIncluded(true);
-            setWorkFocusIncluded(true);
-          }}
+          onAddWorkFocus={() => setWorkFocusIncluded(true)}
           onAddWorkSurface={() => setWorkSurfaceIncluded(true)}
           onAddWorld={(world) => setWorldReferences((current) => current.some((item) => item.worldId === world.worldId) ? current : [...current, world])}
           onChange={setContent}

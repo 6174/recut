@@ -10,7 +10,8 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  *
  * 布局模型（单一骨架，高度一律由内容派生）：
- *   有封面：媒体区 = 封面比例定尺（entityCardCoverHeight，与图片 Block 同一适应模式），卡片高度 = 媒体区 + footer；
+ *   有封面：媒体区 = 封面比例定尺（entityCardCoverHeight：卡片宽度由设计定宽、封面高度按比例夹 [120,420]），
+ *           卡片高度 = 媒体区 + footer；
  *   无封面：媒体区 = 占位保底（MIN_MEDIA_H_PLAIN），卡片高度 = 媒体区 + footer。
  *   实体卡不支持 resize（resize 白名单见 world-canvas/resize-policy），忽略存储高度，保证新建与既有卡片同高。
  */
@@ -73,7 +74,7 @@ export function entityCardBottomHeight(attrs: Record<string, unknown>): number {
   return ENTITY_CARD_PAD + TITLE_H + SUMMARY_H + thumbSection + ENTITY_CARD_PAD;
 }
 
-/** 封面区高度：有封面时按封面比例定尺（宽锚卡片宽度、高夹 [120, 420]，与图片 Block 同一适应模式）；
+/** 封面区高度：卡片宽度定宽（设计常量，不受素材比例影响），封面高度按比例夹 [120, 420]；
  *  封面比例尚未测得（attrs.coverAspect 缺席）时用保底；无封面 = 占位保底。 */
 export function entityCardCoverHeight(attrs: Record<string, unknown>): number {
   if (!entityCardHasCover(attrs)) return MIN_MEDIA_H_PLAIN;

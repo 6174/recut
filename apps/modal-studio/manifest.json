@@ -80,6 +80,19 @@
                   "type": "string"
                 },
                 {
+                  "name": "aspectRatio",
+                  "type": "string",
+                  "enum": [
+                    "21:9",
+                    "16:9",
+                    "4:3",
+                    "1:1",
+                    "3:4",
+                    "9:16"
+                  ],
+                  "default": "16:9"
+                },
+                {
                   "name": "resolution",
                   "type": "string",
                   "enum": [
@@ -168,6 +181,19 @@
                   "type": "string"
                 },
                 {
+                  "name": "aspectRatio",
+                  "type": "string",
+                  "enum": [
+                    "21:9",
+                    "16:9",
+                    "4:3",
+                    "1:1",
+                    "3:4",
+                    "9:16"
+                  ],
+                  "default": "16:9"
+                },
+                {
                   "name": "resolution",
                   "type": "string",
                   "enum": [
@@ -240,7 +266,7 @@
             },
             {
               "id": "minimax-h3-turbo",
-              "name": "MiniMax-H3 极速版（Turbo 文/首尾帧 + 参考）",
+              "name": "MiniMax-H3 极速版（Turbo 文/首尾帧；参考走 base）",
               "capability": "video.generate",
               "runtime": "modal",
               "sizeGb": 270,
@@ -254,6 +280,19 @@
                 {
                   "name": "prompt",
                   "type": "string"
+                },
+                {
+                  "name": "aspectRatio",
+                  "type": "string",
+                  "enum": [
+                    "21:9",
+                    "16:9",
+                    "4:3",
+                    "1:1",
+                    "3:4",
+                    "9:16"
+                  ],
+                  "default": "16:9"
                 },
                 {
                   "name": "resolution",
@@ -319,10 +358,10 @@
               },
               "localized": {
                 "zh": {
-                  "name": "MiniMax-H3 极速版（Turbo 文/首尾帧 + 参考）"
+                  "name": "MiniMax-H3 极速版（Turbo 文/首尾帧；参考走 base）"
                 },
                 "en": {
-                  "name": "MiniMax-H3 Turbo (text/frames + reference)"
+                  "name": "MiniMax-H3 Turbo (text/frames; reference = base)"
                 }
               }
             },
@@ -651,7 +690,7 @@
           },
           "agentDefaults": {
             "type": "object",
-            "description": "某函数的 AI 默认参数：{ modalapp, function, params }。params 为按 formSchema 的表单值对象，传空对象即清除。",
+            "description": "某函数的 AI 默认参数：{ modalapp, function, params }。params 为按 formSchema 的表单值对象，可含 gpuTier 作为该函数的 AI 默认 GPU 档位（须属于该预设包），传空对象即清除。",
             "properties": {
               "modalapp": {
                 "type": "string"

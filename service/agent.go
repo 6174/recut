@@ -1542,9 +1542,12 @@ func materializeWorkSurfaceContext(m *AgentManager, payload json.RawMessage) (co
 }
 
 // materializeWorkFocusContext deliberately preserves the complete structured
-// selection snapshot. The host has already bound it to a work surface; this
-// materializer only checks its envelope and makes it a separate controlled
-// prompt section instead of flattening it into a lossy title string.
+// selection snapshot. A focus is an independent user-picked context: it may ride
+// along with a work surface, or be sent on its own when the user attaches only
+// the selection (the payload carries its own refs/state, e.g. the canvas focus
+// includes state.worldId). This materializer only checks its envelope and makes
+// it a separate controlled prompt section instead of flattening it into a lossy
+// title string.
 func materializeWorkFocusContext(_ *AgentManager, payload json.RawMessage) (contextMaterial, error) {
 	var focus struct {
 		Version   int    `json:"version"`
@@ -1570,17 +1573,6 @@ func materializeWorkFocusContext(_ *AgentManager, payload json.RawMessage) (cont
 func (m *AgentManager) contextMaterials(contexts []ChatContext) ([]contextMaterial, error) {
 	if len(contexts) == 0 {
 		return nil, nil
-	}
-	hasSurface := false
-	for _, context := range contexts {
-		if context.Type == "work_surface" {
-			hasSurface = true
-		}
-	}
-	for _, context := range contexts {
-		if context.Type == "work_focus" && !hasSurface {
-			return nil, errors.New("work focus requires a work surface")
-		}
 	}
 	materials := make([]contextMaterial, 0, len(contexts))
 	for _, context := range contexts {

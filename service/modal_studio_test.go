@@ -122,22 +122,38 @@ func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
 	}
 
 	// App 模型把 manifest 的参数声明带进平台目录，并标记为 passthrough：平台据此折叠一等字段
-	// （如把顶层 aspectRatio 折进 Output），但输出参数仍由 App 校验（App 表单是唯一真相）。
-	qwen := byID["modal-cloud/qwen-image"]
-	if !qwen.PassthroughParams {
-		t.Fatal("app-contributed models must be marked PassthroughParams")
-	}
-	aspectRatioDeclared := false
-	for _, parameter := range qwen.Parameters {
-		if parameter.Name == "prompt" {
-			t.Fatalf("prompt is a first-class platform input, not an Output parameter: %#v", qwen.Parameters)
+	// （把顶层 aspectRatio/durationSec 折进 Output），但输出参数仍由 App 校验（App 表单是唯一真相）。
+	// 模型必须声明 aspectRatio，否则 applyAspectRatio 会静默丢弃画幅（参考/首尾帧生视频就设不了画幅）。
+	for _, id := range []string{"modal-cloud/qwen-image", "modal-cloud/minimax-h3", "modal-cloud/minimax-h3-one", "modal-cloud/minimax-h3-turbo"} {
+		model := byID[id]
+		if !model.PassthroughParams {
+			t.Fatalf("app-contributed model %s must be marked PassthroughParams", id)
 		}
-		if parameter.Name == "aspectRatio" {
-			aspectRatioDeclared = stringIn(parameter.Enum, "9:16")
+		aspectRatioDeclared := false
+		for _, parameter := range model.Parameters {
+			if parameter.Name == "prompt" {
+				t.Fatalf("prompt is a first-class platform input, not an Output parameter: %#v", model.Parameters)
+			}
+			if parameter.Name == "aspectRatio" {
+				aspectRatioDeclared = stringIn(parameter.Enum, "9:16")
+			}
+		}
+		if !aspectRatioDeclared {
+			t.Fatalf("model %s must declare aspectRatio (enum 9:16) so the platform folds the first-class field: %#v", id, model.Parameters)
 		}
 	}
-	if !aspectRatioDeclared {
-		t.Fatalf("modal-cloud/qwen-image must declare aspectRatio (enum 9:16) so the platform folds the first-class field: %#v", qwen.Parameters)
+	// 视频模型还要声明 durationSec：否则 agent 传的时长会被丢弃、App 回落到默认 5s。
+	for _, id := range []string{"modal-cloud/minimax-h3", "modal-cloud/minimax-h3-one", "modal-cloud/minimax-h3-turbo"} {
+		declared := false
+		for _, parameter := range byID[id].Parameters {
+			if parameter.Name == "durationSec" {
+				declared = true
+				break
+			}
+		}
+		if !declared {
+			t.Fatalf("video model %s must declare durationSec so the platform folds the first-class field: %#v", id, byID[id].Parameters)
+		}
 	}
 
 	// 能力聚合：image/video 两个能力下都应出现 modal-cloud 分组及其平台模型。

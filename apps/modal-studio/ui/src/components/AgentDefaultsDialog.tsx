@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 modal.settings.set（agentDefaults）、shadcn Dialog/Button/Input/Label/Select/Textarea、i18n 与 useRunStore
- * [OUTPUT]: 「AI 调用默认参数」弹框：按函数 formSchema 逐非 media 字段编辑 AI/Agent 调用时的默认值（留空=不设置），保存写入 modal_settings，供 modal.generate 在非手动调用（origin≠manual）时补全缺省字段
+ * [INPUT]: 依赖 modal.settings.set（agentDefaults）、预设包 gpuTiers 档位表、shadcn Dialog/Button/Input/Label/Select/Textarea、i18n 与 useRunStore
+ * [OUTPUT]: 「AI 调用默认参数」弹框：按函数 formSchema 逐非 media 字段编辑 AI/Agent 调用时的默认值（留空=不设置）+ 该函数的默认 GPU 档位（gpuTier，不属于 formSchema，单独存入 agentDefaults），保存写入 modal_settings，供 modal.generate 在非手动调用（origin≠manual）时补全缺省字段与档位
  * [POS]: modal-studio UI 的默认参数设置面；RunTab 提交行入口打开，保存后回调刷新目录
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -41,6 +41,15 @@ function editableFields(fn: ModalFunction): FormField[] {
   return fn.formSchema.filter((field) => field.type !== "media" && field.key !== "seed");
 }
 
+// Radix Select 不接受空字符串 item value，用哨兵表示「不设置默认 GPU」。
+const GPU_UNSET = "__unset__";
+
+// 默认 GPU 档位不属于 formSchema，单独存进 agentDefaults.gpuTier（空 = 不设置，回落到全局默认/预设包默认）。
+function seedGpu(fn: ModalFunction): string {
+  const value = fn.agentDefaults?.gpuTier;
+  return typeof value === "string" ? value : "";
+}
+
 // 初值：已保存的 AI 默认参数，否则用清单默认（formSchema[].default + defaultParams）预填——用户可一键保存整套默认值。
 function seedValues(fn: ModalFunction): Record<string, string> {
   const next: Record<string, string> = {};
@@ -56,12 +65,14 @@ function seedValues(fn: ModalFunction): Record<string, string> {
 
 export function AgentDefaultsDialog({ modalapp, fn, locale, onClose, onSaved }: Props) {
   const [draft, setDraft] = useState<Record<string, string>>(() => seedValues(fn));
+  const [gpuTier, setGpuTier] = useState<string>(() => seedGpu(fn));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
 
   useEffect(() => {
     setDraft(seedValues(fn));
+    setGpuTier(seedGpu(fn));
     setError("");
     setDone(false);
   }, [modalapp.id, fn.id]);
@@ -69,16 +80,19 @@ export function AgentDefaultsDialog({ modalapp, fn, locale, onClose, onSaved }: 
   const setValue = (key: string, value: string) => setDraft((prev) => ({ ...prev, [key]: value }));
 
   const useCurrent = () => {
-    const values = useRunStore.getState().forms[modalapp.id]?.functions[fn.id]?.values ?? {};
+    const slice = useRunStore.getState().forms[modalapp.id];
+    const values = slice?.functions[fn.id]?.values ?? {};
     const next: Record<string, string> = {};
     for (const field of editableFields(fn)) next[field.key] = values[field.key] ?? "";
     setDraft(next);
+    setGpuTier(slice?.gpuTier ?? "");
   };
 
   const clearAll = () => {
     const next: Record<string, string> = {};
     for (const field of editableFields(fn)) next[field.key] = "";
     setDraft(next);
+    setGpuTier("");
   };
 
   const save = async () => {
@@ -92,6 +106,7 @@ export function AgentDefaultsDialog({ modalapp, fn, locale, onClose, onSaved }: 
         if (raw === undefined || raw === "") continue;
         params[field.key] = field.type === "number" ? Number(raw) : raw;
       }
+      if (gpuTier) params.gpuTier = gpuTier;
       await recut.background.call("modal.settings.set", { agentDefaults: { modalapp: modalapp.id, function: fn.id, params } });
       setDone(true);
       await onSaved();
@@ -160,6 +175,22 @@ export function AgentDefaultsDialog({ modalapp, fn, locale, onClose, onSaved }: 
                 </div>
               );
             })}
+
+            {(modalapp.gpuTiers?.options ?? []).length > 0 ? (
+              <div className="grid gap-2">
+                <Label className="text-xs/relaxed text-muted-foreground">{t(locale, "defaults.gpu")}</Label>
+                <Select value={gpuTier || GPU_UNSET} onValueChange={(value) => setGpuTier(value === GPU_UNSET ? "" : value)}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder={t(locale, "defaults.gpu-unset")} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={GPU_UNSET}>{t(locale, "defaults.gpu-unset")}</SelectItem>
+                    {(modalapp.gpuTiers?.options ?? []).map((option) => (
+                      <SelectItem key={option.id} value={option.gpu}>{labelText(option.label, locale, option.gpu)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] leading-4 text-muted-foreground">{t(locale, "defaults.gpu-hint")}</p>
+              </div>
+            ) : null}
           </div>
 
           {error ? <p className="mt-3 text-[11px] text-destructive">{interpolate(t(locale, "defaults.error"), { error })}</p> : null}

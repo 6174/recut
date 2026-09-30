@@ -6,7 +6,7 @@
  *          invoke/teardown/secret）
  * [OUTPUT]: 注册首屏轻量负载（modal.overview：只读本机 registry/profiles/设置 + 上次就绪度快照，不拉起 Python）、
  *          连通性与就绪度（modal.status，结果同时写入快照供下次首屏回放）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记与平台模型就绪投影 models[]）、token profiles（modal.profiles.*）、
- *          设置（modal.settings.set：默认 profile / 权重源 / GPU 档位 / 每「预设包+函数」的 AI 默认参数 agent_defaults:<id>:<fn>）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
+ *          设置（modal.settings.set：默认 profile / 权重源 / GPU 档位 / 每「预设包+函数」的 AI 默认参数（含默认 GPU 档位）agent_defaults:<id>:<fn>）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
  *          调用函数（modal.generate，按预设包单槽、跨预设包并行；兼容平台执行桥的 model 入参；非 origin="manual" 的调用用 agentDefaults 补全缺省字段）、历史与入库（modal.generations / modal.generation.complete /
  *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel）与取消（modal.cancel）。
  * [POS]: modal-studio 的唯一业务后端；经 manifest contributes.media 向平台注册 modal-cloud provider（每个声明
@@ -896,7 +896,11 @@ function settingsSet(input, ctx) {
     const fn = functionDef(modalapp, value(defaults, "function")) || (modalapp.functions || [])[0];
     if (!fn) throw new Error("unknown function: " + value(defaults, "function") + " in " + modalapp.id);
     const params = (defaults.params && typeof defaults.params === "object") ? defaults.params : {};
-    setAgentDefaults(ctx, modalapp.id, fn.id, coerceParams(fn, params));
+    const stored = coerceParams(fn, params);
+    // gpuTier 不是 formSchema 字段，会被 coerceParams 丢弃；单独保留，作为该函数 AI/Agent 调用未显式指定时的默认 GPU 档位。
+    const tier = typeof params.gpuTier === "string" ? params.gpuTier.trim() : "";
+    if (tier) stored.gpuTier = tier;
+    setAgentDefaults(ctx, modalapp.id, fn.id, stored);
   }
   return { defaultProfileId: data.defaultProfileId, downloadSource: downloadSource(ctx), defaultGpuTier: defaultGpuTierSetting(ctx), requireCostConfirm: requireCostConfirm(ctx) };
 }
@@ -1200,7 +1204,8 @@ function generate(input, ctx) {
   const rawParams = (value(input, "prompt") && baseParams.prompt === undefined) ? { ...baseParams, prompt: value(input, "prompt") } : baseParams;
   // 仅 AI/Agent 与平台默认路由调用补配置的默认参数；App 内手动提交（origin="manual"）完全按表单值。
   const fromUI = value(input, "origin") === "manual";
-  const merged = fromUI ? rawParams : { ...agentDefaults(ctx, modalapp.id, fn.id), ...rawParams };
+  const defaults = fromUI ? {} : agentDefaults(ctx, modalapp.id, fn.id);
+  const merged = fromUI ? rawParams : { ...defaults, ...rawParams };
   const params = coerceParams(fn, merged);
   const collected = collectReferences(fn, input);
   const refsByField = {};
@@ -1219,7 +1224,8 @@ function generate(input, ctx) {
     throw new Error(tr(ctx, `该函数至少需要 ${minReferences} 个参考素材（图像/视频/音频）。`,
       `This function needs at least ${minReferences} reference asset(s) (image/video/audio).`));
   }
-  const gpu = resolveGpuTier(modalapp, value(input, "gpuTier"), ctx);
+  // 档位优先取请求显式值；Agent/平台调用再回落到该函数配置的 AI 默认 GPU，然后才是全局默认与预设包默认。
+  const gpu = resolveGpuTier(modalapp, value(input, "gpuTier") || defaults.gpuTier, ctx);
   const profileId = value(input, "profileId") || resolveProfileId(ctx, registry, modalapp);
   const refs = [];
   const referenceIds = [];

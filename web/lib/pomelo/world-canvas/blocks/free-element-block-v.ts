@@ -6,6 +6,9 @@
  * 文本框（elementKind=text，或 attr 且 attrMedia=text）无背景、无徽标——就是画布上的文本（文本服从 box，
  * 溢出截断），与实体卡区分开；只有媒体属性卡（image/audio/video）才画卡面与徽标；音频属性卡（attrMedia=audio 且有源）
  * 画播放器外观（圆形播放钮 + 真实波形 + 时间 + 音量/下载，波形懒加载，与媒体元素同源）；
+ * 视频属性卡（attrMedia=video 且有源）画首帧 center-cover（video-frame 抽帧；悬停播放由 VideoPreviewPlugin 承担）；
+ * 媒体属性卡的图/视频与媒体元素、实体卡头图同一卡面语法：内容在卡面内缩 MEDIA_PAD、自带 MEDIA_RADIUS 圆角，
+ * 四周露出卡面底色成「框」（音频属性卡是整卡播放器 UI，保持满卡不内缩）；
  * 媒体属性卡的生成提案「待确认」态（proposalStatus=pending）渲染为弱灰描边 + 「提案」徽标 + 提示词摘要；
  * 计划态（planStatus，proposed 但无配方）渲染为弱灰描边 + 「计划中」+ 说明摘要；
  * 生成中/失败态（proposalStatus=generating/failed，或 AI 先落 assetId 的 assetStatus）渲染为蓝/红描边 + 等待/失败提示；
@@ -40,6 +43,12 @@ import { audioPlayerOpsV } from "./audio-block-ops";
 import { TEXT_ATTR_LINE_HEIGHT, TEXT_ATTR_PAD, TEXT_ATTR_SIZE, TEXT_ELEMENT_LINE_HEIGHT, TEXT_ELEMENT_SIZE } from "./text-block-metrics";
 import { audioBlockRect, isAudioBlockRecord } from "./audio-block-metrics";
 import { displayRefText } from "./ref-text";
+import { ensureVideoFrame, videoFrameUrl } from "./video-frame";
+
+// 媒体卡内容盒内缩/圆角：与媒体元素（real-media-block-v）、实体卡头图（entity-card-block-v）同一卡面语法，
+// 但属性卡自身的卡面圆角是 12——图在卡内再圆一次 8，四周留出卡面底色成「框」。
+const MEDIA_PAD = 6;
+const MEDIA_RADIUS = 8;
 
 /** 自由元素（type: free-element）：文本 / 形状 / 属性预览卡（v1 简化视觉）。 */
 export class FreeElementBlockV extends VelloBlock {
@@ -96,6 +105,8 @@ export class FreeElementBlockV extends VelloBlock {
       }
       // 媒体属性卡：属性名（label）优先于媒体类型标签，让「环境卡」等具名属性在卡片上可读
       const label = `${String(attrs.label ?? "") || attrMediaLabel(media)}${text ? ` · ${text.slice(0, 12)}` : ""}`;
+      // 内容盒（图/视频/等待态用）：在卡面内缩 MEDIA_PAD，四周露出卡面底色成「框」
+      const mediaBox = { x: x + MEDIA_PAD, y: y + MEDIA_PAD, width: Math.max(0, w - MEDIA_PAD * 2), height: Math.max(0, h - MEDIA_PAD * 2) };
       const proposalStatus = String(attrs.proposalStatus ?? "");
       // 只有「待确认」（pending）才是提案卡：确认后资产转 queued/running，proposalStatus 也随之变 generating，
       // 此时必须按「生成中/失败」渲染，否则会把已提交的生成误显示成「待确认生成」。
@@ -140,7 +151,18 @@ export class FreeElementBlockV extends VelloBlock {
         // 音频属性卡：播放器外观（圆形按钮 + 波形 + 时间 + 音量/下载）；无源时为空态（加号 + 骨架波形 + 提示）
         if (!lowDetail) ops.push(...audioPlayerOpsV(this.adapter, { x, y, width: w, height: h }, mediaSrc, { empty: !mediaSrc }));
       } else if (media === "image" && mediaSrc) {
-        ops.push(...coverImageOpsV(this.adapter, mediaSrc, { x, y, width: w, height: h }, { x, y, width: w, height: h, radius: 12 }));
+        ops.push(...coverImageOpsV(this.adapter, mediaSrc, mediaBox, { ...mediaBox, radius: MEDIA_RADIUS }));
+      } else if (media === "video" && mediaSrc) {
+        // 视频属性卡：默认画首帧（按视口需求分档升档，放大不发糊；未就绪/失败退化为双击提示）；
+        // 播放由 VideoPreviewPlugin 悬停承担
+        const frame = videoFrameUrl(mediaSrc);
+        ensureVideoFrame(mediaSrc, () => this.adapter.refreshBlocks(), Math.max(w, h) * this.adapter.getImagePixelRatio());
+        if (frame) {
+          // 画首帧即可：不再叠文字——播放器悬停时会盖住卡面，卡内文字会让 hover 前后看起来不一致
+          ops.push(...coverImageOpsV(this.adapter, frame, mediaBox, { ...mediaBox, radius: MEDIA_RADIUS }));
+        } else if (!lowDetail) {
+          ops.push(textOp({ text: "▶ 视频 · 双击预览", x: x + 10, y: y + 10, size: 11, maxWidth: w - 20, fill: TEXT_TERTIARY }));
+        }
       } else if (!lowDetail && text) {
         // 文本服从 box：裁剪到卡片圆角内，溢出直接截断（双击就地编辑改为内滚动 + 全屏放大）
         ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: 12 });

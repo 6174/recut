@@ -290,6 +290,7 @@ type GenerateMediaInput struct {
 	ReferenceIDs   []string        `json:"referenceIds"`
 	Output         map[string]any  `json:"output"`
 	AspectRatio    string          `json:"aspectRatio,omitempty"`
+	DurationSec    float64         `json:"durationSec,omitempty"`
 	ProjectID      string          `json:"projectId"`
 	IdempotencyKey string          `json:"idempotencyKey"`
 }
@@ -398,3 +399,16 @@ type ProposalPatch struct {
 	DurationSec  *float64             `json:"durationSec,omitempty"`
 	Note         *string              `json:"note,omitempty"`
 }
+
+// ValidationError is a caller-actionable validation failure: the media layer
+// rejects the call and names the code, while the MCP boundary translates it into
+// the structured {ok:false, kind:"validation", code, hint} envelope so an agent
+// can self-correct instead of reading an opaque transport error. Data carries
+// machine-readable detail (e.g. the offending reference ids).
+type ValidationError struct {
+	Code    string
+	Message string
+	Data    map[string]any
+}
+
+func (e *ValidationError) Error() string { return e.Message }

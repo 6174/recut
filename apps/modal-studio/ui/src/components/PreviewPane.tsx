@@ -213,7 +213,7 @@ export function PreviewPane({ task, generation, params, logs, locale, onCancel, 
 
   return (
     <div className="grid gap-4">
-      <div className="flex items-center gap-2.5">
+      <div className="flex min-w-0 items-center gap-2.5">
         <span className={cn("size-2 shrink-0 rounded-full", DOT[task.state] ?? "bg-muted-foreground")} />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{task.name || task.action}</span>
         <Badge variant="outline" className={TONE[task.state] ?? "text-muted-foreground"}>{t(locale, `state.${task.state}`)}</Badge>

@@ -58,7 +58,7 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 - `functions[]`：每项 `{ id, name, entrypoint, output:{kind,mimeType,ext}, formSchema[], defaultParams }`。
   - `entrypoint` 必须等于 `modal_app.py` 里的函数名；参数名与 `formSchema[].key` 一致。
   - `formSchema` 类型：`textarea|text|number|select|boolean|media`（`label`/`placeholder`/`hint` 均为双语对象，用于把字段语义写在字段旁）；`media` 字段经 `referenceAssetIds` 传入，函数收到 `refs=[{name,mimeType,data:bytes}]`；`number` 字段可加 `randomizable: true`，App 表单会为它渲染一个「随机」按钮（点击在 `min`–`max` 区间内填入一个整数，缺省 0..2³¹-1）。
-  - **`aspectRatio` / `resolution`**：`aspectRatio` 是输出画幅，`resolution` 是**输出最长边（最大边）像素**（短边按画幅推导，**只下调不超分**，不小于该画幅原生最长边时保持原生尺寸：H3 原生 768p，16:9 即 1366×768、表单默认 1536；Qwen-Image-2.1 原生 2K；SD-Turbo 原生 512）。以最长边为准而不是短边，宽画幅（如 21:9）不会把另一边撑大到爆显存。文生图/文生视频有这两个字段；**图像编辑 / 图生图默认跟随参考图尺寸**——`aspectRatio` 留空即跟随，显式给定后按「画幅 + 分辨率」出图（Qwen-Image-2.1 的 `edit_image` 已支持）。合法取值从 `modal.catalog` 的 `formSchema[].options` 取。
+  - **`aspectRatio` / `resolution`**：`aspectRatio` 是输出画幅，`resolution` 是**输出最长边（最大边）像素**（短边按画幅推导，**只下调不超分**，不小于该画幅原生最长边时保持原生尺寸：H3 原生 768p，16:9 即 1366×768、表单默认 1536；Qwen-Image-2.1 原生 2K；SD-Turbo 原生 512）。以最长边为准而不是短边，宽画幅（如 21:9）不会把另一边撑大到爆显存。文生图、文生视频，以及**视频的首尾帧生视频 / 参考生视频**都有这两个字段——首尾帧生视频的 `aspectRatio` 留空＝跟随首/尾帧（`auto`），参考生视频默认 16:9（参考素材只作语义参考、不继承其尺寸）。**图像编辑 / 图生图默认跟随参考图尺寸**——`aspectRatio` 留空即跟随，显式给定后按「画幅 + 分辨率」出图（Qwen-Image-2.1 的 `edit_image` 已支持）。Agent 调 `recut.video.generate` 时把 `aspectRatio` / `durationSec` 传在**顶层字段**即可：平台按模型声明把它们折进 `output` 下发到 App（未声明的模型不接收）。合法取值从 `modal.catalog` 的 `formSchema[].options` 取。
   - `output.kind` ∈ `image|video|audio`，决定取回方式与预览。
 
 ### 3) 云端函数输出契约（`modal_app.py`）
@@ -88,7 +88,7 @@ modal.modalapp.remove { id }          # 删除用户预设包（内置不可删�
 ## 成本纪律（重要）
 
 - Modal 有免费额度但超了要花钱。**`modal.generate` 必须显式传 `confirmCost: true`**（默认开启成本确认门；`modal.settings.set { requireCostConfirm: false }` 可关闭）。
-- 调用前用 `modal.catalog` 确认 `gpuTiers`；GPU 档位越高越贵。`gpuTier` 不传时按「全局默认 > 预设包默认」取，且候选必须落在该预设包的 `options` 内（否则回落到首个选项），所以不需要自己兜底。
+- 调用前用 `modal.catalog` 确认 `gpuTiers`；GPU 档位越高越贵。`gpuTier` 不传时按「该函数 AI 默认 GPU > 全局默认 > 预设包默认」取，且候选必须落在该预设包的 `options` 内（否则回落到首个选项），所以不需要自己兜底。
 
 ## 平台集成（已接入）
 

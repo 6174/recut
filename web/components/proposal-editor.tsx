@@ -1,5 +1,5 @@
 /*
- * [INPUT]: 依赖 media-types（Asset/normalizeAsset/Capability/ModelParameter）、lib/media/proposal（GenerationProposal/ProposalReference/proposalIssues/mergeProposalReferences/proposalRoleLabel）、
+ * [INPUT]: 依赖 media-types（Asset/normalizeAsset/Capability/ModelParameter）、lib/media/proposal（GenerationProposal/ProposalReference/proposalIssues/mergeProposalReferences/proposalRoleLabel/stripProposalReference）、
  *   media-configuration-store（isLocalProvider 按 protocol=local 判定免凭据）、model-picker、rich-composer、asset-reference-picker、recipe-parameters、lucide-react。
  * [OUTPUT]: 对外提供 ProposalEditor——生成提案审批台的唯一实现：状态区 + 富文本提示词（@ 引用素材与 AI 的 <reference> 锚点一并渲染为 chip，并入 references）+
  *   参考素材（缩略图/锚定 role/增删，支持宿主经 extraReferenceAction 注入额外入口如「从当前 World 选择」）+
@@ -22,7 +22,7 @@ import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import type { ContextOption } from "@/lib/context-catalog/types";
 import { isLocalProvider, useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { normalizeValue, type RichComposerValue } from "@/lib/rich-composer/value";
-import { mergeProposalReferences, proposalIssues, proposalRoleLabel, type GenerationProposal, type ProposalReference } from "@/lib/media/proposal";
+import { mergeProposalReferences, proposalIssues, proposalRoleLabel, stripProposalReference, type GenerationProposal, type ProposalReference } from "@/lib/media/proposal";
 import { normalizeAsset, type Asset, type Capability } from "@/app/media/media-types";
 
 export type ProposalModality = "image" | "video" | "audio";
@@ -196,8 +196,18 @@ export function ProposalEditor({
       }),
     [proposal.references, resolved], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const removeReference = (id: string) =>
-    void onChange({ references: proposal.references.filter((reference) => reference.id !== id) });
+  const removeReference = (id: string) => {
+    const references = proposal.references.filter((reference) => reference.id !== id);
+    // 正文是引用的唯一权威：删引用必须同步删掉它的 token，否则会留下悬空 token（服务端会拒绝保存）。
+    const text = stripProposalReference(promptValueRef.current.text, id, registry);
+    if (text === promptValueRef.current.text) {
+      void onChange({ references });
+      return;
+    }
+    setPromptValue(normalizeValue(text, registry));
+    promptDirtyRef.current = false;
+    void onChange({ prompt: text, references });
+  };
 
   return (
     <div className="space-y-4">

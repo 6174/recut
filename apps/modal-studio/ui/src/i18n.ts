@@ -129,6 +129,9 @@ const zh: Record<string, string> = {
   "defaults.unset": "不设置",
   "defaults.manifest": "清单默认：{value}",
   "defaults.unset-hint": "留空 = 不设置，沿用清单默认。",
+  "defaults.gpu": "默认 GPU 档位",
+  "defaults.gpu-unset": "不设置（跟随预设包默认）",
+  "defaults.gpu-hint": "Agent/平台调用未显式传 gpuTier 时使用；须属于该预设包，否则回落到预设包默认。",
 
   "records.prepare": "准备环境",
   "records.deploy": "部署环境",
@@ -302,6 +305,9 @@ const en: Record<string, string> = {
   "defaults.unset": "Not set",
   "defaults.manifest": "Manifest default: {value}",
   "defaults.unset-hint": "Empty = not set, falls back to the manifest default.",
+  "defaults.gpu": "Default GPU tier",
+  "defaults.gpu-unset": "Unset (follow preset pack default)",
+  "defaults.gpu-hint": "Used when an Agent/platform call does not pass a gpuTier; must belong to this pack, otherwise the pack default wins.",
 
   "records.prepare": "Prepare environment",
   "records.deploy": "Deploy environment",

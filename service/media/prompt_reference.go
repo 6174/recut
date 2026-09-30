@@ -1,7 +1,8 @@
 /*
  * [INPUT]: 依赖 references.go 的 MediaReference 与标准库 regexp/strings
- * [OUTPUT]: 对外提供 ResolvePromptReferences：把提示词正文里的 <reference id … /> 与 <media assetid … />
- *   改写成模型侧别名（参考图N / 参考视频N / 音频N，带文件名），未绑定的 id 一律 fail closed
+ * [OUTPUT]: 对外提供 ResolvePromptReferences（正文标签 → 模型侧别名，未绑定 id fail closed）、
+ *   UnboundPromptReferenceIDs（未绑定 id 清单）与 ValidatePromptReferences（提案创建/更新期的早期门禁，
+ *   以 ValidationError 报告全部未绑定 id）
  * [POS]: media 包的提交串边界；资产侧 metadata.prompt 保留作者原文（含标签，供编辑器渲染 chip），
  *   只有真正发给模型的 job prompt 经这里改写——模型只看到编号与名称，不看到裸 assetId
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -57,7 +58,11 @@ func ResolvePromptReferences(prompt string, refs []MediaReference, nameOf func(v
 		}
 		alias, bound := aliases[id]
 		if !bound {
-			failure = fmt.Errorf("prompt reference %q is not bound to any reference asset", id)
+			failure = &ValidationError{
+				Code:    "unbound_prompt_reference",
+				Message: fmt.Sprintf("prompt reference %q is not bound to any reference asset", id),
+				Data:    map[string]any{"unboundReferenceIds": []string{id}},
+			}
 			return tag
 		}
 		name := strings.TrimSpace(declared)
@@ -73,6 +78,64 @@ func ResolvePromptReferences(prompt string, refs []MediaReference, nameOf func(v
 		return "", failure
 	}
 	return resolved, nil
+}
+
+// UnboundPromptReferenceIDs lists, in first-appearance order and deduplicated,
+// every prompt tag whose id is not bound to any attached reference. The
+// submit-time rewrite (ResolvePromptReferences) fails on the first one; this
+// lets the propose/update path report them all at once so an agent can fix its
+// prompt in a single pass.
+func UnboundPromptReferenceIDs(prompt string, refs []MediaReference) []string {
+	if !strings.Contains(prompt, "<reference") && !strings.Contains(prompt, "<media") {
+		return nil
+	}
+	aliases := referenceAliases(refs)
+	var unbound []string
+	seen := map[string]struct{}{}
+	for _, match := range referenceTagPattern.FindAllStringSubmatch(prompt, -1) {
+		attrs := parseReferenceAttributes(match[2])
+		id := attrs["id"]
+		if match[1] == "media" {
+			id = attrs["assetid"]
+		}
+		// A tag without an id carries nothing to bind.
+		if id == "" {
+			continue
+		}
+		if _, bound := aliases[id]; bound {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		unbound = append(unbound, id)
+	}
+	return unbound
+}
+
+// ValidatePromptReferences fails closed when the authored prompt references an
+// id that is not bound to any attached reference. The submit rewrite would leak
+// a bare assetId to the model, so the proposal is rejected at creation/update
+// time (with an actionable ValidationError) rather than at confirmation.
+func ValidatePromptReferences(prompt string, refs []MediaReference) error {
+	ids := UnboundPromptReferenceIDs(prompt, refs)
+	if len(ids) == 0 {
+		return nil
+	}
+	quoted := make([]string, 0, len(ids))
+	for _, id := range ids {
+		quoted = append(quoted, strconv.Quote(id))
+	}
+	noun, verb := "prompt reference", "is"
+	if len(ids) > 1 {
+		noun, verb = "prompt references", "are"
+	}
+	return &ValidationError{
+		Code:    "unbound_prompt_reference",
+		Message: fmt.Sprintf("%s %s %s not bound to any reference asset", noun, strings.Join(quoted, ", "), verb),
+		Data:    map[string]any{"unboundReferenceIds": ids},
+	}
 }
 
 // referenceAliases numbers the references per kind (image/video/audio) in attachment order.

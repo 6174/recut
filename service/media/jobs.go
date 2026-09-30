@@ -217,6 +217,28 @@ func applyAspectRatio(modelID, aspectRatio string, output map[string]any) {
 	output["aspectRatio"] = aspectRatio
 }
 
+// applyDurationSec folds a top-level durationSec into the model Output, the
+// same contract as applyAspectRatio: the generation tools accept durationSec as
+// a first-class field, but only models that declare the parameter receive it,
+// so the value the caller chose drives the real clip length instead of the
+// model default (5s). Zero / absent leaves the model default in place.
+func applyDurationSec(modelID string, durationSec float64, output map[string]any) {
+	if durationSec <= 0 || output == nil {
+		return
+	}
+	if _, present := output["durationSec"]; present {
+		return
+	}
+	model, ok := modelByID(modelID)
+	if !ok {
+		return
+	}
+	if _, supported := modelParameter(model, "durationSec"); !supported {
+		return
+	}
+	output["durationSec"] = durationSec
+}
+
 func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCredential, bool, error) {
 	if !knownCapability(input.Capability) || strings.TrimSpace(input.Prompt) == "" {
 		return MediaJob{}, MediaCredential{}, false, errors.New("capability and prompt are required")
@@ -236,6 +258,7 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 	input.ModelID = route.ModelID
 	input.Output = normalizedGenerationOutput(input.Capability, input.ModelID, input.Output)
 	applyAspectRatio(input.ModelID, input.AspectRatio, input.Output)
+	applyDurationSec(input.ModelID, input.DurationSec, input.Output)
 	if model, ok := modelByID(input.ModelID); ok {
 		normalizedOutput, err := normalizeModelOutput(model, input.Output)
 		if err != nil {
