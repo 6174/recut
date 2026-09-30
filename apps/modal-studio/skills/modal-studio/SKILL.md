@@ -23,7 +23,7 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 1. `modal.status` / `modal.catalog` / `modal.modalapp.list` 看预设包/函数、部署与 Volume 就绪度、连通性、来源与路径。
 2. 首次使用：右上角「Modal 账号」面板设置 Modal token（profiles）与 HF token / 其他 Secret（`modal.profiles.add` / `modal.secret.set`，可用 `modal.secrets.list` 看哪些已声明/已设置）；`modal.prepare` 准备本机 venv。
 3. `modal.deploy { modalapp }` **部署与权重合并**：先 `modal deploy` 构建 Image，成功后自动接着跑 bootstrap 下载权重（幂等/断点续传）；只补权重用 `modal.install { modalapp, source:"huggingface" }`（按预设包串行）。来源默认 Hugging Face。
-4. `modal.generate { modalapp, function, params, referenceAssetIds?, gpuTier?, confirmCost: true }` 调用云端函数（单槽 FIFO）。**params 只需传 `prompt`（与参考素材）**：其余字段会走用户在 App 内配置的「AI 默认参数」、再回落到函数默认，无需自己填。占槽时返回 `taskId`（`job=null`）→ 用 `modal.tasks.list` / `recut.job.wait` 观察。
+4. `modal.generate { modalapp, function, params, referenceAssetIds?, gpuTier?, confirmCost: true }` 调用云端函数（**按预设包单槽、跨预设包并行**，上限可经该包 `engine.concurrency` 调大）。**params 只需传 `prompt`（与参考素材）**：其余字段会走用户在 App 内配置的「AI 默认参数」、再回落到函数默认，无需自己填。占槽时返回 `taskId`（`job=null`）→ 用 `modal.tasks.list` / `recut.job.wait` 观察。
 5. `modal.generation.complete { id }` 读取产物；`modal.save { id, kind }` 入库（不自动入库）。
 
 ## 创建一个新 modalapp（用户预设包）

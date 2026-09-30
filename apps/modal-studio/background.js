@@ -7,18 +7,18 @@
  * [OUTPUT]: 注册首屏轻量负载（modal.overview：只读本机 registry/profiles/设置 + 上次就绪度快照，不拉起 Python）、
  *          连通性与就绪度（modal.status，结果同时写入快照供下次首屏回放）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记与平台模型就绪投影 models[]）、token profiles（modal.profiles.*）、
  *          设置（modal.settings.set：默认 profile / 权重源 / GPU 档位 / 每「预设包+函数」的 AI 默认参数 agent_defaults:<id>:<fn>）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
- *          调用函数（modal.generate，单槽 FIFO；兼容平台执行桥的 model 入参；非 origin="manual" 的调用用 agentDefaults 补全缺省字段）、历史与入库（modal.generations / modal.generation.complete /
+ *          调用函数（modal.generate，按预设包单槽、跨预设包并行；兼容平台执行桥的 model 入参；非 origin="manual" 的调用用 agentDefaults 补全缺省字段）、历史与入库（modal.generations / modal.generation.complete /
  *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel）与取消（modal.cancel）。
  * [POS]: modal-studio 的唯一业务后端；经 manifest contributes.media 向平台注册 modal-cloud provider（每个声明
  *        expose 的 modalapp → 一个平台模型，平台默认生图/生视频路由可指向它，经通用执行桥调用 modal.generate），
- *        其余能力经本 App 的 api/mcp operation（modal.generate/modal.save 等 capability:true）暴露。任务并发：运行（generate）单槽
- *        FIFO、部署（deploy）单槽且与运行互斥、权重（install）按预设包串行、停止（teardown）可并行；提交永不拒绝。
+ *        其余能力经本 App 的 api/mcp operation（modal.generate/modal.save 等 capability:true）暴露。任务并发：运行（generate）与部署（deploy）
+ *        按预设包独立排队（同一预设包单槽 FIFO、上限可经 engine.concurrency 调大；跨预设包并行）、同预设包内 deploy 与 generate 互斥且 deploy 优先、
+ *        准备（prepare）全局单槽、权重（install）按预设包串行、停止（teardown）可并行；提交永不拒绝。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 
 const DOWNLOAD_SOURCES = new Set(["automatic", "huggingface", "modelscope"]);
 const ACTIONS = new Set(["prepare", "deploy", "install", "generate", "teardown"]);
-const INFER_ACTIONS = new Set(["generate"]);
 const RECORD_TABLES = { generate: "modal_generations" };
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled", "interrupted"]);
@@ -91,6 +91,7 @@ function normalizeManifest(manifest, origin, sourceRel) {
     sourceDir: sourceRel,
     origin,
     gpuTiers: engine.gpuTiers || { default: "T4", options: [] },
+    concurrency: engine.concurrency || {},
     volumes: engine.volumes || [],
     secrets: engine.secrets || [],
     profileId: engine.profileId || "",
@@ -297,6 +298,7 @@ function projectModalapps(ctx, registry, states) {
       origin: a.origin || "builtin", sourceDir: a.sourceDir || "", path: sourceAbs(ctx, a),
       expose: a.expose || {},
       gpuTiers: a.gpuTiers || { default: "T4", options: [] },
+      concurrency: a.concurrency || {},
       weights: a.weights || {}, profileId: a.profileId || "",
       functions: (a.functions || []).map((f) => ({
         id: f.id, label: f.label || f.id, entrypoint: f.entrypoint, output: f.output || { kind: "image", mimeType: "image/png", ext: "png" },
@@ -532,37 +534,68 @@ function linkRecordJob(ctx, action, recordID, shellID) {
   ctx.sqlite.execute(`update ${table} set job_id = ? where id = ?`, [shellID, recordID]);
 }
 
-// 队列引擎：结算 → 守卫派发（prepare 单槽；deploy 与 generate 互斥单槽、deploy 优先；install 按预设包串行；teardown 并行）。
+// 预设包声明的并发上限（engine.concurrency）：缺省/非法 => 1（同一预设包内单槽 FIFO）。
+function concurrencyLimit(registry, modalappID, action) {
+  const def = appDef(registry, modalappID);
+  const n = Number(def && def.concurrency && def.concurrency[action]);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+}
+
+const TASK_COLUMNS = "id, action, record_id, modalapp, meta_json, payload_json, log_path";
+
+// 队列引擎：结算 → 守卫派发。运行（generate）/部署（deploy）按预设包独立排队（同一应用单槽、上限可配
+// engine.concurrency；跨应用并行）；同应用内 deploy 与 generate 互斥、deploy 优先；prepare 全局单槽（共用一个
+// 本机 venv）并阻塞运行/部署；install 按预设包串行；teardown 并行。
 function pumpQueue(ctx) {
   ensureSchema(ctx);
   settleAllJobs(ctx);
+  // registry 只在真的要为某个排队任务解析并发上限时读一次（常见路径没有排队任务，省掉一次 registry 读取/解析）。
+  let registry = null;
+  const getRegistry = () => (registry || (registry = readRegistry(ctx)));
   const actives = ctx.sqlite.query("select action, state, modalapp from modal_tasks where state in ('queued','running')");
-  const inferRunning = actives.some((row) => INFER_ACTIONS.has(row.action) && row.state === "running");
-  const deployRunning = actives.some((row) => row.action === "deploy" && row.state === "running");
+  // 计数按 (action, modalapp) 维度；派发后本地自增（actives 是派发前快照，不能再用它判上限）。
+  const running = {};
+  for (const row of actives) {
+    if (row.state !== "running") continue;
+    const key = `${row.action}:${row.modalapp}`;
+    running[key] = (running[key] || 0) + 1;
+  }
+  const runningCount = (action, modalapp) => running[`${action}:${modalapp}`] || 0;
+  const bump = (action, modalapp) => { const key = `${action}:${modalapp}`; running[key] = (running[key] || 0) + 1; };
+  const queued = (action) => ctx.sqlite.query(`select ${TASK_COLUMNS} from modal_tasks where action = '${action}' and state = 'queued' order by created_at asc`);
+
+  // prepare：本 App 一个 venv（与预设包无关，行上 modalapp 为空），全局单槽；运行中或已排队时不再派发。
   const prepareRunning = actives.some((row) => row.action === "prepare" && row.state === "running");
-  const inferAny = actives.some((row) => INFER_ACTIONS.has(row.action));
-  if (!inferAny && !deployRunning && !prepareRunning) {
-    const nextPrepare = ctx.sqlite.query("select id, action, record_id, modalapp, meta_json, payload_json, log_path from modal_tasks where action = 'prepare' and state = 'queued' order by created_at asc limit 1");
+  const prepareBusy = prepareRunning || actives.some((row) => row.action === "prepare" && row.state === "queued");
+  if (!prepareRunning) {
+    const nextPrepare = ctx.sqlite.query(`select ${TASK_COLUMNS} from modal_tasks where action = 'prepare' and state = 'queued' order by created_at asc limit 1`);
     if (nextPrepare.length) dispatchTask(ctx, nextPrepare[0]);
   }
-  if (!inferRunning && !deployRunning && !prepareRunning) {
-    const nextDeploy = ctx.sqlite.query("select id, action, record_id, modalapp, meta_json, payload_json, log_path from modal_tasks where action = 'deploy' and state = 'queued' order by created_at asc limit 1");
-    if (nextDeploy.length) {
-      dispatchTask(ctx, nextDeploy[0]);
-    } else {
-      const nextGen = ctx.sqlite.query("select id, action, record_id, modalapp, meta_json, payload_json, log_path from modal_tasks where action = 'generate' and state = 'queued' order by created_at asc limit 1");
-      if (nextGen.length) dispatchTask(ctx, nextGen[0]);
-    }
+
+  // deploy：按预设包独立排队；同应用内与 generate 互斥且优先。
+  for (const row of queued("deploy")) {
+    if (prepareBusy) continue;
+    if (runningCount("deploy", row.modalapp) >= concurrencyLimit(getRegistry(), row.modalapp, "deploy")) continue;
+    if (runningCount("generate", row.modalapp) > 0) continue;
+    dispatchTask(ctx, row); bump("deploy", row.modalapp);
   }
+
+  // generate：按预设包独立排队（上限可配）；同应用内与 deploy 互斥。
+  for (const row of queued("generate")) {
+    if (prepareBusy) continue;
+    if (runningCount("generate", row.modalapp) >= concurrencyLimit(getRegistry(), row.modalapp, "generate")) continue;
+    if (runningCount("deploy", row.modalapp) > 0) continue;
+    dispatchTask(ctx, row); bump("generate", row.modalapp);
+  }
+
   // install：同一预设包不并发写同一 Volume；不同预设包可并行。
-  const installs = ctx.sqlite.query("select id, action, record_id, modalapp, meta_json, payload_json, log_path from modal_tasks where action = 'install' and state = 'queued' order by created_at asc");
-  for (const row of installs) {
-    const running = ctx.sqlite.query("select id from modal_tasks where action = 'install' and state = 'running' and modalapp = ?", [row.modalapp]);
-    if (!running.length) dispatchTask(ctx, row);
+  for (const row of queued("install")) {
+    if (runningCount("install", row.modalapp) > 0) continue;
+    dispatchTask(ctx, row); bump("install", row.modalapp);
   }
+
   // teardown：可并行。
-  const teardowns = ctx.sqlite.query("select id, action, record_id, modalapp, meta_json, payload_json, log_path from modal_tasks where action = 'teardown' and state = 'queued' order by created_at asc");
-  for (const row of teardowns) dispatchTask(ctx, row);
+  for (const row of queued("teardown")) dispatchTask(ctx, row);
 }
 
 function submitJob(ctx, { action, modalapp = "", fn = "", recordID = "", payload, meta, source, submittedBy, taskId }) {
@@ -813,6 +846,29 @@ function profilesRemove(input, ctx) {
   writeProfiles(ctx, data);
   settingSet(ctx, "default_profile_id", data.defaultProfileId);
   return { removed: true, defaultProfileId: data.defaultProfileId };
+}
+
+// 更新 profile：name 缺省表示不改；tokenId/tokenSecret 必须成对提供（整体替换），都不传则只改名/改默认。
+function profilesUpdate(input, ctx) {
+  ensureSchema(ctx);
+  const id = value(input, "id");
+  if (!id) throw new Error("id is required");
+  const data = readProfiles(ctx);
+  const profile = data.profiles.find((item) => item.id === id);
+  if (!profile) throw new Error("unknown profile: " + id);
+  const name = value(input, "name");
+  if (name) profile.name = name;
+  const tokenId = value(input, "tokenId");
+  const tokenSecret = value(input, "tokenSecret");
+  if (tokenId || tokenSecret) {
+    if (!tokenId || !tokenSecret) throw new Error("tokenId and tokenSecret are required together");
+    profile.tokenId = tokenId;
+    profile.tokenSecret = tokenSecret;
+  }
+  if (input.makeDefault === true) data.defaultProfileId = id;
+  writeProfiles(ctx, data);
+  if (data.defaultProfileId) settingSet(ctx, "default_profile_id", data.defaultProfileId);
+  return { profile: profileSummary(profile), defaultProfileId: data.defaultProfileId };
 }
 
 function settingsSet(input, ctx) {
@@ -1288,6 +1344,7 @@ recut.operation.register("modal.catalog", catalog);
 recut.operation.register("modal.profiles.add", profilesAdd);
 recut.operation.register("modal.profiles.list", profilesList);
 recut.operation.register("modal.profiles.remove", profilesRemove);
+recut.operation.register("modal.profiles.update", profilesUpdate);
 recut.operation.register("modal.settings.set", settingsSet);
 recut.operation.register("modal.secret.set", secretSet);
 recut.operation.register("modal.secrets.list", secretsList);

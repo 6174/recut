@@ -5,6 +5,10 @@ export interface FormField {
   type: "textarea" | "select" | "number" | "text" | "boolean" | "media";
   required?: boolean;
   label?: LocalLabel;
+  /** 输入框占位提示（textarea/text/number 用）。 */
+  placeholder?: LocalLabel;
+  /** 字段级说明（渲染在控件下方），用于把语义写在字段旁而非文档里。 */
+  hint?: LocalLabel;
   default?: unknown;
   options?: string[];
   min?: number;

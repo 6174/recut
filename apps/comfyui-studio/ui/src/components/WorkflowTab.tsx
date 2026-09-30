@@ -42,6 +42,12 @@ function labelText(value: LocalLabel | undefined, locale: Locale, fallback: stri
   return (locale === "en" ? value.en : value.zh) || value.zh || value.en || fallback;
 }
 
+function optionalText(value: LocalLabel | undefined, locale: Locale): string | undefined {
+  if (!value) return undefined;
+  const text = typeof value === "string" ? value : ((locale === "en" ? value.en : value.zh) || value.zh || value.en || "");
+  return text || undefined;
+}
+
 function defaultValue(field: FormField): string {
   if (field.default === undefined || field.default === null) return "";
   return String(field.default);
@@ -256,9 +262,9 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
 
       <div className="grid gap-3">
         {app.formSchema.filter((field) => field.type !== "media").map((field) => (
-          <Field key={field.key} label={labelText(field.label, locale, field.key)}>
+          <Field key={field.key} label={labelText(field.label, locale, field.key)} hint={optionalText(field.hint, locale)}>
             {field.type === "textarea" ? (
-              <Textarea value={values[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)} />
+              <Textarea value={values[field.key] ?? ""} placeholder={optionalText(field.placeholder, locale)} onChange={(event) => setValue(field.key, event.target.value)} />
             ) : field.type === "select" ? (
               <Select value={values[field.key] ?? ""} onValueChange={(value) => setValue(field.key, value)}>
                 <SelectTrigger className="w-full">
@@ -285,6 +291,7 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
                 type={field.type === "number" ? "number" : "text"}
                 min={field.min}
                 max={field.max}
+                placeholder={optionalText(field.placeholder, locale)}
                 value={values[field.key] ?? ""}
                 onChange={(event) => setValue(field.key, event.target.value)}
               />

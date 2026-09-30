@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 recut-sdk（background.call + events.subscribe 实时事件）、Left 两 Tab 组件、Right 预览组件与 i18n
- * [OUTPUT]: Modal 云函数主工作区：首屏走 modal.overview（本机 registry + 上次就绪度快照，零等待）即时渲染出预设包与表单，就绪度/连通性由 modal.status 独立后台探测回填、不阻塞任何 UI；「运行」时动态校验该预设包的就绪度，未就绪则提示先准备或重新部署；任务列表按事件增量刷新、选中任务详情与产物、预览图「以此为参考图运行」回填左侧表单、**成功任务同样回读完整日志**（产物与参数/日志并存）、动作编排与语言同步；**当前 Tab 与 Right 面板聚焦的任务 id 经 useViewStore 持久化**（下次打开直接回到上次的 Tab 与预览目标，任务已失效则清掉）；宿主深链 ?taskId= 优先于本地恢复（素材库「生成任务」新标签页跳入时直接切到记录页并选中该任务）；外壳由 shadcn Tabs/Card/Button 承载
+ * [OUTPUT]: Modal 云函数主工作区：首屏走 modal.overview（本机 registry + 上次就绪度快照，零等待）即时渲染出预设包与表单，就绪度/连通性由 modal.status 独立后台探测回填、不阻塞任何 UI；「运行」时动态校验该预设包的就绪度，未就绪则提示先准备或重新部署；任务列表按事件增量刷新、选中任务详情与产物、预览图「以此为参考图运行」回填左侧表单、**成功任务同样回读完整日志**（产物与参数/日志并存）、动作编排与语言同步；**当前 Tab 与 Right 面板聚焦的任务 id 经 useViewStore 持久化**（下次打开直接回到上次的 Tab 与预览目标，任务已失效则清掉）；宿主深链 ?taskId= 优先于本地恢复（素材库「生成任务」新标签页跳入时直接切到记录页并选中该任务）；**切换/增删 Modal 账号后作废旧账号的各 modalapp 就绪度并强制重探（刷新 store state、不整页 reload）**；外壳由 shadcn Tabs/Card/Button 承载
  * [POS]: ui 的状态编排层；只经 App operation 契约访问后台，不直接读写本机文件
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -381,9 +381,17 @@ export default function App() {
     [op, selectTask, refreshTasks, refreshStatus],
   );
 
-  const handleAccountChanged = useCallback(async () => {
-    await refreshOverview();
-    await refreshStatus();
+  // 切换/增删账号是「大操作」：每个 modalapp 的部署与权重就绪度都归属某个 modal 账号，换账号后旧账号的
+  // 就绪度不再成立。这里走「刷新 store state」而不是整页 reload——reload 会丢掉已持久化的 Tab/预览聚焦
+  // 与正在编辑的表单草稿。顺序：回填新账号身份 → 作废旧就绪度（回落「待检查」，避免误导「已部署」）→
+  // 强制重探（复用改动前的在途探测会拿到上一个账号的状态）。探测在后台跑，不阻塞调用方。
+  const handleAccountChanged = useCallback(() => {
+    void (async () => {
+      await refreshOverview();
+      setLive(null);
+      setOverview((prev) => (prev?.snapshot ? { ...prev, snapshot: { ...prev.snapshot, modalapps: {}, account: "", checkedAt: undefined } } : prev));
+      await refreshStatus(true);
+    })();
   }, [refreshOverview, refreshStatus]);
 
   const handleConnect = useCallback(
@@ -492,8 +500,8 @@ export default function App() {
       <div className="mt-4 grid min-h-0 flex-1 gap-4 xl:grid-cols-[26rem_minmax(0,1fr)]">
         <Card className="flex min-h-[36rem] flex-col gap-0 overflow-hidden py-0 [--card-spacing:0px] xl:min-h-0">
           <Tabs value={tab} onValueChange={(value) => setTab(value as "run" | "records")} className="flex min-h-0 flex-1 flex-col gap-0">
-            <div className="flex shrink-0 items-center border-b border-border/70 px-4">
-              <TabsList variant="line" className="h-10 gap-5">
+            <div className="flex h-11 shrink-0 items-center border-b border-border/70 px-4">
+              <TabsList variant="line" className="h-full gap-5">
                 <TabsTrigger value="run" className="flex-none px-0.5">{t(locale, "tab.run")}</TabsTrigger>
                 <TabsTrigger value="records" className="flex-none px-0.5">{t(locale, "tab.records")}</TabsTrigger>
               </TabsList>

@@ -1,21 +1,25 @@
 /*
- * [INPUT]: 依赖共享 Agent 会话配置类型、素材引用选择器、Agent runtime 安装状态与 UI 原子组件
- * [OUTPUT]: 对外提供 Composer 与 RuntimePicker（两者都只提供浮层内容、由宿主用 @/components/ui/popover 定位，点外部/Esc 自动收起）；以单行紧凑芯片展示素材、Work Surface 与 Focus，悬浮查看完整上下文，并让文本区随内容增长至固定上限
+ * [INPUT]: 依赖共享 Agent 会话配置类型、素材引用选择器、上下文目录运行时/选项构造、芯片 hover 预览、Agent runtime 安装状态与 UI 原子组件
+ * [OUTPUT]: 对外提供 Composer 与 RuntimePicker（两者都只提供浮层内容、由宿主用 @/components/ui/popover 定位，点外部/Esc 自动收起）；上下文默认不附带，芯片行常驻「添加上下文」入口并以多行换行的紧凑芯片展示已添加项，hover 弹出完整预览，文本区随内容增长至固定上限
  * [POS]: components Agent 对话模块的交互输入层；让用户发送前明确看见 Agent 的目标与局部选区
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
-import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleStop, FileText, Globe2, ImagePlus, X } from "lucide-react";
+import { ArrowUp, AtSign, Bot, Check, ChevronLeft, ChevronRight, CircleStop, FileText, Globe2, ImagePlus, Plus, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { RUNTIME_ORDER, runtimeAgentName, syntheticAgent, type AgentRuntimeStatus, type Runtime } from "@/components/agent-install-guide";
 import { AssetReferenceChip } from "@/components/asset-reference-picker";
+import { ChipPreviewPopover } from "@/components/context-panel/context-chip-preview";
 import { ContextMentionPopover } from "@/components/context-panel/context-mention-popover";
 import { RichComposer } from "@/components/rich-composer/rich-composer";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, hasWorkFocusSelection, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PickedContext, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
+import { resolveContextOption } from "@/lib/context-catalog/resolve";
+import { useContextRuntime } from "@/lib/context-catalog/runtime";
+import { focusOption, surfaceOption } from "@/lib/context-catalog/sources/current";
 import type { ContextOption } from "@/lib/context-catalog/types";
 import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
@@ -111,6 +115,10 @@ export function Composer({
   const composerRef = useRef<HTMLDivElement>(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [contextPanelOpen, setContextPanelOpen] = useState(false);
+  // 芯片 hover 预览复用目录运行时快照；与 RichComposer 内部的实例共享 store 缓存，不产生额外请求。
+  const contextRuntime = useContextRuntime({ apiBase, projectID, workSurface, workFocus });
+  const workSurfacePreview = useMemo(() => surfaceOption(contextRuntime), [contextRuntime]);
+  const workFocusPreview = useMemo(() => focusOption(contextRuntime), [contextRuntime]);
   const composerValue = useMemo(
     () => ({ text: content, refs: [], isEmpty: content.trim().length === 0 }),
     [content],
@@ -171,34 +179,70 @@ export function Composer({
       ref={formRef}
     >
       <div className="relative rounded-md border bg-popover px-3 py-2 shadow-[var(--shadow-overlay)]" ref={composerRef}>
-        {(attachments.length > 0 || worldReferences.length > 0 || pickedContexts.length > 0 || (workSurface && workSurfaceIncluded) || (hasWorkFocusSelection(workFocus) && workFocusIncluded && workSurface && workSurfaceIncluded)) && (
-          <div className="mb-2 flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {attachments.map((attachment) => (
+        <div className="mb-2 flex min-w-0 flex-wrap items-center gap-1.5">
+          {attachments.map((attachment) => (
+            <ChipPreviewPopover
+              apiBase={apiBase}
+              key={attachment.assetId}
+              option={resolveContextOption("media", { assetid: attachment.assetId }, contextRuntime)}
+              runtime={contextRuntime}
+            >
               <AssetReferenceChip
                 apiBase={apiBase}
-                key={attachment.assetId}
                 onRemove={() => onRemoveAttachment(attachment.assetId)}
                 reference={attachment}
               />
-            ))}
-            {worldReferences.map((world) => (
-              <button className="inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" key={world.worldId} onClick={() => onRemoveWorld(world.worldId)} title={interpolate(t("agent.composer.removeWorld"), { name: world.name })} type="button">
+            </ChipPreviewPopover>
+          ))}
+          {worldReferences.map((world) => (
+            <ChipPreviewPopover
+              apiBase={apiBase}
+              key={world.worldId}
+              option={resolveContextOption("creation_world", { worldid: world.worldId }, contextRuntime)}
+              runtime={contextRuntime}
+            >
+              <button className="inline-flex h-7 max-w-40 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" onClick={() => onRemoveWorld(world.worldId)} title={interpolate(t("agent.composer.removeWorld"), { name: world.name })} type="button">
                 <Globe2 className="size-3 text-primary" />
                 <span className="truncate">{world.name}</span>
                 <X className="size-3 text-muted-foreground" />
               </button>
-            ))}
-            {workSurface && workSurfaceIncluded && <WorkSurfaceChip onRemove={onRemoveWorkSurface} surface={workSurface} />}
-            {hasWorkFocusSelection(workFocus) && workFocus && workFocusIncluded && workSurface && workSurfaceIncluded && <WorkFocusChip focus={workFocus} onRemove={onRemoveWorkFocus} />}
-            {pickedContexts.map((picked) => (
-              <button className="inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" key={picked.key} onClick={() => onRemovePickedContext(picked.key)} title={`${picked.sourceType} · ${picked.title}`} type="button">
+            </ChipPreviewPopover>
+          ))}
+          {workSurface && workSurfaceIncluded && (
+            <ChipPreviewPopover apiBase={apiBase} option={workSurfacePreview} runtime={contextRuntime}>
+              <WorkSurfaceChip onRemove={onRemoveWorkSurface} surface={workSurface} />
+            </ChipPreviewPopover>
+          )}
+          {hasWorkFocusSelection(workFocus) && workFocus && workFocusIncluded && workSurface && workSurfaceIncluded && (
+            <ChipPreviewPopover apiBase={apiBase} option={workFocusPreview} runtime={contextRuntime}>
+              <WorkFocusChip focus={workFocus} onRemove={onRemoveWorkFocus} />
+            </ChipPreviewPopover>
+          )}
+          {pickedContexts.map((picked) => (
+            <ChipPreviewPopover
+              apiBase={apiBase}
+              fallback={{ title: picked.title, subtitle: picked.sourceType, facts: Object.entries(picked.context.payload).map(([key, value]) => ({ key, label: key, value: String(value) })) }}
+              key={picked.key}
+              runtime={contextRuntime}
+            >
+              <button className="inline-flex h-7 max-w-40 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" onClick={() => onRemovePickedContext(picked.key)} title={`${picked.sourceType} · ${picked.title}`} type="button">
                 <AtSign className="size-3 text-primary" />
                 <span className="truncate">{picked.title}</span>
                 <X className="size-3 text-muted-foreground" />
               </button>
-            ))}
-          </div>
-        )}
+            </ChipPreviewPopover>
+          ))}
+          <button
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-sm border border-dashed px-1.5 text-[10px] text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled || uploading}
+            onClick={() => setContextPanelOpen(true)}
+            title={t("agent.composer.addContext")}
+            type="button"
+          >
+            <Plus className="size-3" />
+            {t("agent.composer.addContext")}
+          </button>
+        </div>
         <RichComposer
           apiBase={apiBase}
           autoFocus={false}
@@ -552,7 +596,7 @@ export function WorkSurfaceChip({
   const label = interpolate(t("agent.composer.workSurface"), { title: surface.title });
   const guidance = workSurfaceGuidance(surface, t);
   return (
-    <span className="group inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" title={`${label} · ${guidance}`}>
+    <span className="group inline-flex h-7 max-w-40 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1.5 pr-1.5 text-[10px] text-foreground" title={`${label} · ${guidance}`}>
       <FileText className="size-3 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate">{label}</span>
       {onRemove && (
@@ -581,7 +625,7 @@ export function WorkFocusChip({ focus, onRemove }: { focus: WorkFocusContext; on
   const { t } = useI18n();
   const label = interpolate(t("agent.composer.workFocus"), { summary: focus.summary || focus.view || t("agent.composer.workFocusDefault") });
   return (
-    <span className="group inline-flex h-7 max-w-60 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1 pr-1.5 text-[10px] text-foreground" title={label}>
+    <span className="group inline-flex h-7 max-w-40 shrink-0 items-center gap-1 rounded-sm border bg-secondary/70 py-0.5 pl-1 pr-1.5 text-[10px] text-foreground" title={label}>
       <FileText className="size-3 shrink-0 text-muted-foreground" />
       <span className="truncate">{label}</span>
       {onRemove && <button aria-label={t("agent.composer.removeWorkFocus")} className="ml-0.5 grid size-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground" onClick={onRemove} type="button">

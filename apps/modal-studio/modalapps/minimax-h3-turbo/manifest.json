@@ -62,6 +62,10 @@
         }
       ]
     },
+    "concurrency": {
+      "generate": 1,
+      "deploy": 1
+    },
     "timeoutSec": 3600,
     "idleTimeoutSec": 60,
     "volumes": [

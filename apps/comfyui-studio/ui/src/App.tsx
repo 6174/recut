@@ -421,8 +421,8 @@ export default function App() {
         <Card className="flex min-h-[36rem] flex-col gap-0 overflow-hidden py-0 [--card-spacing:0px] xl:min-h-0">
           {catalogPhase === "ready" ? (
             <Tabs value={tab} onValueChange={(value) => setTab(value as "generate" | "records")} className="flex min-h-0 flex-1 flex-col gap-0">
-              <div className="flex shrink-0 items-center border-b border-border/70 px-4">
-                <TabsList variant="line" className="h-10 gap-5">
+              <div className="flex h-11 shrink-0 items-center border-b border-border/70 px-4">
+                <TabsList variant="line" className="h-full gap-5">
                   <TabsTrigger value="generate" className="flex-none px-0.5">{t(locale, "tab.generate")}</TabsTrigger>
                   <TabsTrigger value="records" className="flex-none px-0.5">{t(locale, "tab.records")}</TabsTrigger>
                 </TabsList>

@@ -40,12 +40,12 @@ const REGISTRY_FALLBACK = {
     output: { kind: "image", mimeType: "image/png", ext: "png" },
     inputModes: ["text", "image"],
     formSchema: [
-      { key: "prompt", type: "textarea", required: true, label: { zh: "提示词", en: "Prompt" } },
-      { key: "negativePrompt", type: "textarea", label: { zh: "负向词", en: "Negative prompt" } },
+      { key: "prompt", type: "textarea", required: true, label: { zh: "提示词", en: "Prompt" }, placeholder: { zh: "例如：一只蓝色的可爱的玩具小飞机，柔和的阳光，干净背景", en: "e.g. a cute blue toy plane, soft sunlight, clean background" } },
+      { key: "negativePrompt", type: "textarea", label: { zh: "负向词", en: "Negative prompt" }, placeholder: { zh: "例如：模糊、多余的手指、水印", en: "e.g. blurry, extra fingers, watermark" } },
       { key: "aspectRatio", type: "select", options: ["1:1", "16:9", "9:16", "4:3", "3:4"], default: "1:1" },
-      { key: "steps", type: "number", default: 10, min: 1, max: 100 },
-      { key: "cfg", type: "number", default: 1.0, min: 0, max: 20 },
-      { key: "seed", type: "number", default: -1 }
+      { key: "steps", type: "number", default: 10, min: 1, max: 100, placeholder: "10" },
+      { key: "cfg", type: "number", default: 1.0, min: 0, max: 20, placeholder: "1.0" },
+      { key: "seed", type: "number", default: -1, placeholder: "-1" }
     ],
     defaultParams: { aspectRatio: "1:1", steps: 10, cfg: 1.0, negativePrompt: " " },
     weights: { huggingFace: "Comfy-Org/Qwen-Image-2.1", modelScope: "Comfy-Org/Qwen-Image-2.1", revision: "main", sizeGb: 17 }

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖按 endpoint 缓存的 Agent 运行时、模型、引导与会话列表、general scope 的 Agent Session/Media HTTP API、Agent 与媒体 SSE、AgentInstallGuide 共享安装正文、AgentInstallDialog 共享安装对话框及基础 UI 原子组件
- * [OUTPUT]: 对外提供单一全局 Agent 会话及其运行、调试、素材上下文与 Work Surface/Focus 发送逻辑；稳定工作面默认附带，完整 Focus 可独立移除，二者随每个 Turn 持久化
+ * [OUTPUT]: 对外提供单一全局 Agent 会话及其运行、调试、素材上下文与 Work Surface/Focus 发送逻辑；稳定工作面与完整 Focus 默认都不附带，只有用户显式添加后才进入本次 Turn，二者随每个 Turn 持久化
  * [POS]: components 的通用 Agent 侧栏；由根布局挂载，Work Surface 是本次操作目标的单一真相，Focus 只是可撤销的局部视线；新建/历史/更多等头部浮层统一复用 @/components/ui/popover（Radix，点外部/Esc 自动收起），不自绘 absolute 菜单
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -59,6 +59,7 @@ import {
   type Props,
   type Session,
   type UploadedAsset,
+  type WorkSurfaceContext,
   type WorldReference,
 } from "@/components/agent-panel-types";
 import { useAgentStore } from "@/lib/agent-store";
@@ -101,8 +102,9 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [worldReferences, setWorldReferences] = useState<WorldReference[]>([]);
   const [pickedContexts, setPickedContexts] = useState<PickedContext[]>([]);
-  const [workSurfaceIncluded, setWorkSurfaceIncluded] = useState(true);
-  const [workFocusIncluded, setWorkFocusIncluded] = useState(true);
+  // 上下文默认不附带：Work Surface / Focus 只有在用户主动添加后才进入本次 Turn。
+  const [workSurfaceIncluded, setWorkSurfaceIncluded] = useState(false);
+  const [workFocusIncluded, setWorkFocusIncluded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [creatingRuntime, setCreatingRuntime] = useState(false);
   const [syncingID, setSyncingID] = useState<string | null>(null);
@@ -188,12 +190,14 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     setPickedContexts([]);
     setError("");
   }, [draft]);
+  // 切换工作对象（路由/目标变化）后回到「不附带」：新工作面与它的 Focus 都需要用户重新确认。
+  // 判定用 surface + target 身份而非对象引用，避免详情刷新等无关重渲染把已添加项悄悄取消；
+  // 同一 target 内 Focus 变化不重置，用户可以一边保持附带一边在 App 里移动选区。
+  const workSurfaceKey = workSurface ? `${workSurface.surface}:${workSurface.target?.kind ?? ""}:${workSurfaceTargetID(workSurface)}` : null;
   useEffect(() => {
-    setWorkSurfaceIncluded(true);
-  }, [workSurface]);
-  useEffect(() => {
-    setWorkFocusIncluded(true);
-  }, [workFocus]);
+    setWorkSurfaceIncluded(false);
+    setWorkFocusIncluded(false);
+  }, [workSurfaceKey]);
   useEffect(() => {
     initialScrollSessionRef.current = null;
   }, [activeID]);
@@ -878,7 +882,11 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
               setError(cause instanceof Error ? cause.message : t("agent.panel.addAssetFailed")),
             )
           }
-          onAddWorkFocus={() => setWorkFocusIncluded(true)}
+          onAddWorkFocus={() => {
+            // Focus 依附于工作面：没有 target 时它既不显示也不会随 Turn 发送，所以添加 Focus 时一并确保工作面已附带。
+            setWorkSurfaceIncluded(true);
+            setWorkFocusIncluded(true);
+          }}
           onAddWorkSurface={() => setWorkSurfaceIncluded(true)}
           onAddWorld={(world) => setWorldReferences((current) => current.some((item) => item.worldId === world.worldId) ? current : [...current, world])}
           onChange={setContent}
@@ -941,6 +949,17 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
       )}
     </>
   );
+}
+
+// Work Surface 的稳定身份：surface 种类 + target id，用于判断「换了一个工作对象」。
+function workSurfaceTargetID(surface: WorkSurfaceContext): string {
+  const target = surface.target;
+  if (!target) return "";
+  if (target.kind === "project") return target.projectId;
+  if (target.kind === "app_scope") return target.scopeId;
+  if (target.kind === "world") return target.worldId;
+  if (target.kind === "media_library") return target.projectId ?? target.scope;
+  return target.appId;
 }
 
 // contexts 按 type + payload 去重：正文内联与宿主/附件可能指向同一对象（RFC 协议 §7.4）。

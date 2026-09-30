@@ -1,6 +1,6 @@
 """
 [INPUT]: modalapps/*/manifest.json（每个预设包的单一信息源）
-[OUTPUT]: 生成 python/registry.json（modalapps：engine/函数/表单/权重/expose/就绪兜底）与 modalapps/index.json
+[OUTPUT]: 生成 python/registry.json（modalapps：engine/函数/表单/权重/expose/并发上限 concurrency/就绪兜底）与 modalapps/index.json
           （id 列表），并同步根 manifest.json 的 contributes.media.providers[0].models（每个声明 expose 的
           modalapp → 一个平台模型，读取其 expose.function 的表单/权重；inputModes 按 media 字段类型汇总，
           另产出 referenceFields 让平台识别「可锚定参考」的模型，并把预设包声明的 referenceImage 参考图
@@ -62,6 +62,7 @@ def registry_modalapp(manifest: dict) -> dict:
         "origin": "builtin",
         "expose": manifest.get("expose") or {},
         "gpuTiers": engine.get("gpuTiers") or {"default": "T4", "options": []},
+        "concurrency": engine.get("concurrency") or {},
         "timeoutSec": engine.get("timeoutSec", 3600),
         "idleTimeoutSec": engine.get("idleTimeoutSec", 60),
         "volumes": engine.get("volumes") or [],

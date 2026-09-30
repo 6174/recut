@@ -30,6 +30,12 @@ function labelText(value: LocalLabel | undefined, locale: Locale, fallback: stri
   return (locale === "en" ? value.en : value.zh) || value.zh || value.en || fallback;
 }
 
+function optionalText(value: LocalLabel | undefined, locale: Locale): string | undefined {
+  if (!value) return undefined;
+  const text = typeof value === "string" ? value : ((locale === "en" ? value.en : value.zh) || value.zh || value.en || "");
+  return text || undefined;
+}
+
 function defaultValue(field: FormField): string {
   if (field.default === undefined || field.default === null) return "";
   return String(field.default);
@@ -120,12 +126,13 @@ export function AgentDefaultsDialog({ app, locale, onClose, onSaved }: Props) {
           <div className="mt-4 grid gap-3">
             {editableFields(app).map((field) => {
               const fallback = defaultValue(field);
+              const inputPlaceholder = optionalText(field.placeholder, locale) ?? (fallback || undefined);
               const placeholder = fallback ? interpolate(t(locale, "defaults.manifest"), { value: fallback }) : t(locale, "defaults.unset");
               return (
                 <div key={field.key} className="grid gap-2">
                   <Label className="text-xs/relaxed text-muted-foreground">{labelText(field.label, locale, field.key)}</Label>
                   {field.type === "textarea" ? (
-                    <Textarea value={draft[field.key] ?? ""} placeholder={fallback || undefined} onChange={(event) => setValue(field.key, event.target.value)} />
+                    <Textarea value={draft[field.key] ?? ""} placeholder={inputPlaceholder} onChange={(event) => setValue(field.key, event.target.value)} />
                   ) : field.type === "select" ? (
                     <Select value={draft[field.key] ?? ""} onValueChange={(value) => setValue(field.key, value)}>
                       <SelectTrigger className="w-full"><SelectValue placeholder={placeholder} /></SelectTrigger>
@@ -148,7 +155,7 @@ export function AgentDefaultsDialog({ app, locale, onClose, onSaved }: Props) {
                       type={field.type === "number" ? "number" : "text"}
                       min={field.min}
                       max={field.max}
-                      placeholder={fallback || undefined}
+                      placeholder={inputPlaceholder}
                       value={draft[field.key] ?? ""}
                       onChange={(event) => setValue(field.key, event.target.value)}
                     />

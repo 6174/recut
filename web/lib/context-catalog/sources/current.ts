@@ -1,16 +1,17 @@
 /*
  * [INPUT]: 依赖 context-catalog/types、Agent 面板的 Work Surface/Focus 类型、lucide 图标
- * [OUTPUT]: 对外提供 current 组的两个来源：workSurfaceSource（当前页面）与 workFocusSource（当前选择，并把 selection 的 asset/world_entity ref 展开为 group=current 的媒体/实体选项）
+ * [OUTPUT]: 对外提供 current 组的两个来源：workSurfaceSource（当前页面）与 workFocusSource（当前选择，并把 selection 的 asset/world_entity ref 展开为 group=current 的媒体/实体选项），以及只依赖 runtime 快照的 surfaceOption/focusOption（@ 面板搜索与芯片 hover 预览共用）
  * [POS]: web/lib/context-catalog/sources 的「当前」来源；宿主签发，inlineInsertable=false，只允许 attach/toggle
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { createElement } from "react";
 import { Crosshair, FileText } from "lucide-react";
 import { hasWorkFocusSelection, creationEntityContextPayload, mediaContextPayload, type ContextRef } from "@/components/agent-panel-types";
-import type { ContextOption, ContextPreview, ContextSearchContext, ContextSource } from "../types";
+import type { ContextOption, ContextPreview, ContextRuntime, ContextSearchContext, ContextSource } from "../types";
 
-function surfaceOption(ctx: ContextSearchContext): ContextOption | null {
-  const surface = ctx.runtime.workSurface;
+// surfaceOption/focusOption 只依赖 runtime 快照：@ 面板搜索与芯片 hover 预览共用同一份 option 构造。
+export function surfaceOption(runtime: ContextRuntime): ContextOption | null {
+  const surface = runtime.workSurface;
   if (!surface) return null;
   return {
     key: `work_surface:${surface.surface}:${surface.target?.kind ?? "none"}`,
@@ -25,8 +26,8 @@ function surfaceOption(ctx: ContextSearchContext): ContextOption | null {
   };
 }
 
-function focusOption(ctx: ContextSearchContext): ContextOption | null {
-  const focus = ctx.runtime.workFocus;
+export function focusOption(runtime: ContextRuntime): ContextOption | null {
+  const focus = runtime.workFocus;
   if (!focus || !hasWorkFocusSelection(focus)) return null;
   return {
     key: `work_focus:${focus.view ?? "focus"}`,
@@ -117,7 +118,7 @@ export const workSurfaceSource: ContextSource = {
   icon: () => createElement(FileText, { className: "size-3.5" }),
   label: (attrs) => String(attrs.title ?? attrs.surface ?? "当前页面"),
   search: async (ctx) => {
-    const option = surfaceOption(ctx);
+    const option = surfaceOption(ctx.runtime);
     return option ? [option] : [];
   },
   preview: (option, ctx): ContextPreview => {
@@ -148,7 +149,7 @@ export const workFocusSource: ContextSource = {
   label: (attrs) => String(attrs.view ?? "当前选择"),
   search: async (ctx) => {
     const options: ContextOption[] = [];
-    const focus = focusOption(ctx);
+    const focus = focusOption(ctx.runtime);
     if (focus) options.push(focus);
     options.push(...selectionOptions(ctx));
     return options;

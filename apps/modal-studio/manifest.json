@@ -597,6 +597,36 @@
       }
     },
     {
+      "name": "modal.profiles.update",
+      "surfaces": [
+        "api"
+      ],
+      "description": "更新一个 Modal token profile：{ id, name?, tokenId?, tokenSecret?, makeDefault? }；name 缺省表示不改，tokenId/tokenSecret 需成对提供（整体替换 token），都不传则只改名或设为默认。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tokenId": {
+            "type": "string"
+          },
+          "tokenSecret": {
+            "type": "string"
+          },
+          "makeDefault": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
       "name": "modal.settings.set",
       "surfaces": [
         "api"
@@ -809,7 +839,7 @@
         "api",
         "mcp"
       ],
-      "description": "部署/更新预设包的 Image 与函数（modal deploy）；异步单槽；{ modalapp }。",
+      "description": "部署/更新预设包的 Image 与函数（modal deploy）；按预设包排队（同包内与运行互斥、跨包并行）；{ modalapp }。",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -862,7 +892,7 @@
         "mcp"
       ],
       "capability": true,
-      "description": "调用云端函数：{ modalapp, function, ...formFields, referenceAssetIds?, gpuTier?, confirmCost? }；单槽 FIFO；返回 { job, taskId, generation:{id} }。",
+      "description": "调用云端函数：{ modalapp, function, ...formFields, referenceAssetIds?, gpuTier?, confirmCost? }；按预设包排队（同包单槽、跨包并行，占槽时返回 job=null）；返回 { job, taskId, generation:{id} }。",
       "inputSchema": {
         "type": "object",
         "required": [

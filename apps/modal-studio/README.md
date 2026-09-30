@@ -58,6 +58,8 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 
 > **已接入平台生图/生视频能力**：manifest `contributes.media` 声明 provider `modal-cloud`，每个声明 `expose` 的预设包注册为一个平台模型（`modal-cloud/<model>`，图片与视频都注册）。平台「生图/生视频默认路由」可指向它，生成经通用执行桥调用 `modal.generate`；**预设包未部署/权重未就绪时该模型 `ready=false`**（`modal.catalog.models[]` 动态上报，只有 `deployed && volumeReady` 才算就绪）。**纯文本请求（不带任何参考素材）会自动路由到该预设包的文生函数（`text-to-*`）；只有带参考时才走参考函数（参考生视频 / 图像编辑）**——参考是可选项（平台 budget 只设上限），因此「无参考走文生、有参考走参考」在平台默认路由下自动成立。其余能力仍经本 App 的 api/mcp operation 直接暴露。
 
+> **任务并发（按预设包隔离）**：运行（`modal.generate`）与部署（`modal.deploy`）**按预设包独立排队**——A 预设包的任务不会等 B 预设包。同一预设包内默认**单槽 FIFO**（`deploy` 与 `generate` 互斥、`deploy` 优先），可在该包 manifest 的 `engine.concurrency` 里调大上限（如 `{ "generate": 2 }`，缺省 1）。准备（`modal.prepare`）全局单槽（所有预设包共用一个本机 venv）、权重（`modal.install`）按预设包串行、停止（`modal.teardown`）并行。**提交永不拒绝**：未拿到槽位的任务留在账本里（UI 显示「排队中」），就绪后由队列自动派发。
+
 ## 进入工作台时的加载顺序
 
 就绪度探测要拉 `modal` CLI（每个部署过的预设包一次 `modal volume ls`），是秒级操作，因此**不挡首屏**：
@@ -116,7 +118,7 @@ modal.modalapp.remove { id }              # 删除用户预设包（内置不可
 
 ```text
 modalapps/my-app/
-├── manifest.json   # app meta + engine(image/gpuTiers/volumes/secrets) + weights + functions(formSchema/output)
+├── manifest.json   # app meta + engine(image/gpuTiers/volumes/secrets/concurrency) + weights + functions(formSchema/output)
 ├── modal_app.py    # 云端 Modal App：Image + Volume + @app.function(...)
 └── bootstrap.py    # modal run 入口：把权重下载进 Volume
 ```

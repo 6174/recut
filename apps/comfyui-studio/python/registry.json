@@ -78,7 +78,8 @@
           "label": {
             "zh": "分辨率",
             "en": "Resolution"
-          }
+          },
+          "placeholder": "504"
         }
       ],
       "defaultParams": {
@@ -125,6 +126,10 @@
           "label": {
             "zh": "提示词",
             "en": "Prompt"
+          },
+          "placeholder": {
+            "zh": "例如：一只蓝色的可爱的玩具小飞机，柔和的阳光，干净背景",
+            "en": "e.g. a cute blue toy plane, soft sunlight, clean background"
           }
         },
         {
@@ -133,6 +138,10 @@
           "label": {
             "zh": "负向词",
             "en": "Negative prompt"
+          },
+          "placeholder": {
+            "zh": "例如：模糊、多余的手指、水印",
+            "en": "e.g. blurry, extra fingers, watermark"
           }
         },
         {
@@ -170,7 +179,8 @@
           "label": {
             "zh": "步数",
             "en": "Steps"
-          }
+          },
+          "placeholder": "10"
         },
         {
           "key": "cfg",
@@ -181,7 +191,8 @@
           "label": {
             "zh": "CFG",
             "en": "CFG"
-          }
+          },
+          "placeholder": "1.0"
         },
         {
           "key": "seed",
@@ -190,7 +201,8 @@
           "label": {
             "zh": "随机种子（-1 随机）",
             "en": "Seed (-1 random)"
-          }
+          },
+          "placeholder": "-1"
         }
       ],
       "defaultParams": {
