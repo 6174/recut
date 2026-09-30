@@ -8,7 +8,6 @@
 
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import { X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { ContextPreviewPane } from "@/components/context-panel/context-preview";
 import { contextSourceForType } from "@/lib/context-catalog/registry";
@@ -18,7 +17,7 @@ import { REFERENCE_TYPE_ATTR } from "@/lib/rich-composer/protocol/serialize";
 import { useContextCatalogValue } from "./catalog-context";
 import { useReferenceRegistry } from "./registry-context";
 
-export function ReferenceChip({ node, deleteNode, editor }: Pick<NodeViewProps, "node" | "deleteNode" | "editor">) {
+export function ReferenceChip({ node }: Pick<NodeViewProps, "node">) {
   const registry = useReferenceRegistry();
   const { runtime, apiBase } = useContextCatalogValue();
   const [hovered, setHovered] = useState(false);
@@ -72,17 +71,6 @@ export function ReferenceChip({ node, deleteNode, editor }: Pick<NodeViewProps, 
             >
               {label}
             </button>
-            {editor.isEditable && hovered && (
-              <button
-                aria-label="移除引用"
-                className="ml-0.5 grid size-3.5 shrink-0 place-items-center rounded-full hover:bg-background"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={deleteNode}
-                type="button"
-              >
-                <X className="size-3" />
-              </button>
-            )}
           </span>
         </PopoverPrimitive.Anchor>
         <PopoverPrimitive.Portal>
