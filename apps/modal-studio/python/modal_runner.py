@@ -4,14 +4,18 @@
           --task-log 任务日志文件
 [OUTPUT]: status（token profile/连通性、内置+用户预设包的部署状态、volume 就绪度与 stale（预设包目录 hash ——
           排除忽略名单（通用 modalapps/deploy-ignore.json + 预设包 manifest 的 deployIgnore）里的文件 ——
-          与上次成功 deploy 记录不一致 → 代码已变更、需重新部署））、deploy（modal deploy 构建 Image 与函数，成功后把目录 hash 记进 appstate/modal/deploy-state.json）、bootstrap（modal run 把权重写进 Volume）、invoke
-          （Function.from_name(...).with_options(gpu=...).spawn(...) 调用并把产物拉回本机；后台 `modal app logs
-          --follow` 把云端容器日志 tee 进任务日志，避免启动崩溃只剩心跳）、invoke --mock（加载预设包 mock.py，
-          对本地 mock 服务跑通同一套产物链路，不部署/不访问 Modal/GPU）、teardown（modal app stop）、secret
-          （modal secret create --force）
+          与上次成功 deploy 记录不一致 → 代码已变更、需重新部署）；各预设包的探测（volume ls + 目录 hash）
+          并行执行，耗时不再随预设包数量线性增长）、deploy（modal deploy 构建 Image 与函数，成功后把目录 hash 记进 appstate/modal/deploy-state.json）、bootstrap（modal run 把权重写进 Volume）、invoke
+          （Function.from_name(...).with_options(gpu=...).spawn(...) 调用并把产物拉回本机；轮询用 call.get(timeout)
+          报心跳，长轮询偶发断连（ConnectionError 等）时按调用 ID 重连继续等待——spawn 已提交、云端仍在算，
+          判负只会留下无人认领的 GPU 任务；后台 `modal app logs --follow` 把云端容器日志 tee 进任务日志）、
+          invoke --mock（加载预设包 mock.py，对本地 mock 服务跑通同一套产物链路，不部署/不访问 Modal/GPU）、
+          teardown（modal app stop）、secret（modal secret create --force）；任何命令的失败原因都写进任务日志
+          （App 只读任务日志，stderr 里的 traceback 到不了界面）。
 [POS]: modal-studio 的本机薄客户端；GPU 计算与权重全在 modal.com，本机只做编排、上传参考、接收产物。预设包来源
-         分内置（App 包）与用户（appstate），二者共用同一 manifest/modal_app.py/bootstrap.py 契约。modal CLI
-         子进程输出逐行实时转发（bootstrap 长下载全程可见）。
+          分内置（App 包）与用户（appstate），二者共用同一 manifest/modal_app.py/bootstrap.py 契约。modal CLI
+          子进程输出逐行实时转发（bootstrap 长下载全程可见）；仅 status/catalog 的机器解析类短命令（app list、
+          volume ls）静默执行，既不产生无用噪声，也避免输出管道被塞住而影响完成标记的捕获。
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 """
 
@@ -32,12 +36,17 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 _ORIG_PRINT = builtins.print
 _TASK_LOG = None
 _TASK_LOG_LOCK = threading.Lock()
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+# invoke 长轮询断连后的重连上限。spawn 已把输入提交到云端、云端不会因本机断开而停止计算，
+# 所以一次网络抖动不该把仍在烧 GPU 的任务判负：先按调用 ID 重连若干次，超出上限才放弃并取消云端调用。
+INVOKE_RECONNECT_LIMIT = 20
 
 
 def _write_task_log(text: str) -> None:
@@ -344,10 +353,14 @@ def modal_cli() -> str:
     raise SystemExit("未找到 modal CLI：请先准备运行环境（安装 modal 包）。")
 
 
-def run_cli(args: list[str], timeout: int | None = None, cwd: str | None = None) -> subprocess.CompletedProcess:
+def run_cli(args: list[str], timeout: int | None = None, cwd: str | None = None, echo: bool = True) -> subprocess.CompletedProcess:
     """执行 modal CLI 并**逐行实时**转发输出（长任务如 bootstrap 下载全程可见）。
 
     仍返回 CompletedProcess（.returncode/.stdout）：stdout 为累计文本，供 JSON 解析等调用方使用。
+
+    `echo=False` 用于机器解析的短命令（status/catalog 的 app list 与 volume ls）：它们的输出没有人看，
+    逐行转发只会把 stdout 这个管道塞满（转发线程被下游读得慢卡住时，捕获到的 stdout 会不完整，
+    而 volume 完成标记正是从这份捕获里读的）。静默执行既去掉噪声，也让捕获不再受下游影响。
     """
     process = subprocess.Popen(
         [modal_cli(), *args],
@@ -363,7 +376,7 @@ def run_cli(args: list[str], timeout: int | None = None, cwd: str | None = None)
         try:
             for line in stream:
                 lines.append(line)
-                if line.strip():
+                if echo and line.strip():
                     print(f"[modal] {line.rstrip()}", flush=True)
         except (OSError, ValueError):
             return
@@ -438,9 +451,9 @@ def stop_app_log_follower(follower: dict | None) -> None:
 
 
 def app_names() -> tuple[bool, list[str], str]:
-    """返回 (connected, deployed app names, error)。"""
+    """返回 (connected, deployed app names, error)。输出只用于解析，故静默执行（见 run_cli 的 echo）。"""
     try:
-        process = run_cli(["app", "list", "--json"], timeout=60)
+        process = run_cli(["app", "list", "--json"], timeout=60, echo=False)
     except FileNotFoundError as error:
         return False, [], str(error)
     if process.returncode != 0:
@@ -493,27 +506,50 @@ def existing_secrets() -> list:
     return names
 
 
-def volume_exists(name: str) -> bool:
-    try:
-        process = run_cli(["volume", "ls", name], timeout=60)
-    except FileNotFoundError:
-        return False
-    return process.returncode == 0
-
-
 def volume_ready(modalapp: dict) -> bool:
+    """权重卷是否就绪：一次 `modal volume ls` 同时回答「卷存在」与「下载完成标记」。
+
+    卷不存在时 returncode != 0，所以不必先探存在性再列一次内容——那会把每个预设包的
+    status 探测翻倍成两次网络往返（5 个预设包 ≈ 多花 8-10s）。
+
+    完成标记按前缀匹配（bootstrap 写在卷根：`.recut-download-complete`、部分预设包升级为
+    `-v2`），因此这里用包含判断兼容不同版本。
+
+    **一次探测失败不等于「权重没下载」**：网络抖动、CLI 异常、输出捕获不完整都会让返回码非 0，
+    直接据此下结论会在界面弹出假的「下载权重」告警（权重明明在）。所以失败时重试一次才判定，
+    并且探测全程静默（见 run_cli 的 echo），避免逐行转发把 stdout 管道塞住而读不到标记。
+    """
     volumes = modalapp.get("volumes") or []
     if not volumes:
         return True
     models_volume = volumes[0]["name"]
-    if not volume_exists(models_volume):
-        return False
-    try:
-        process = run_cli(["volume", "ls", models_volume], timeout=60)
-    except FileNotFoundError:
-        return False
-    # bootstrap 在权重目录根部写 .recut-download-complete 作为完成标记。
-    return process.returncode == 0 and ".recut-download-complete" in (process.stdout or "")
+    for attempt in range(2):
+        try:
+            process = run_cli(["volume", "ls", models_volume], timeout=60, echo=False)
+        except FileNotFoundError:
+            return False
+        except subprocess.TimeoutExpired:
+            process = None
+        if process is not None and process.returncode == 0:
+            return ".recut-download-complete" in (process.stdout or "")
+        if attempt == 0:
+            print(f"[modal] 卷 {models_volume} 就绪度探测失败，重试一次…", flush=True)
+    print(f"[modal] 卷 {models_volume} 就绪度探测失败（已重试），本次按未就绪处理。", flush=True)
+    return False
+
+
+def modalapp_state(modalapp: dict, user_root: Path, names: list, deploy_state: dict) -> tuple:
+    """单个预设包的部署/权重/变更状态（一次 `modal app list` 的结果由调用方共享）。"""
+    app_name = modalapp.get("appName") or modalapp["id"]
+    deployed = app_name in names
+    current_hash = folder_hash(source_path(modalapp, user_root), source_ignore(modalapp, user_root))
+    recorded_hash = (deploy_state.get(modalapp["id"]) or {}).get("deployHash") or ""
+    return modalapp["id"], {
+        "deployed": deployed,
+        "volumeReady": volume_ready(modalapp) if deployed else False,
+        # 已部署但目录 hash 与上次成功部署记录不一致（含首次接入无记录）→ 代码已变更，需重新部署。
+        "stale": deployed and current_hash != "" and recorded_hash != current_hash,
+    }
 
 
 def cmd_status(args: argparse.Namespace) -> dict:
@@ -526,20 +562,16 @@ def cmd_status(args: argparse.Namespace) -> dict:
         return {"ready": True, "connected": False, "account": "", "error": str(exc), "modalapps": {}}
     if not connected:
         return {"ready": True, "connected": False, "account": "", "error": error, "modalapps": {}}
-    states = {}
     user_root = user_root_of(args)
     deploy_state = load_deploy_state()
-    for modalapp in all_modalapps(user_root):
-        app_name = modalapp.get("appName") or modalapp["id"]
-        deployed = app_name in names
-        current_hash = folder_hash(source_path(modalapp, user_root), source_ignore(modalapp, user_root))
-        recorded_hash = (deploy_state.get(modalapp["id"]) or {}).get("deployHash") or ""
-        states[modalapp["id"]] = {
-            "deployed": deployed,
-            "volumeReady": volume_ready(modalapp) if deployed else False,
-            # 已部署但目录 hash 与上次成功部署记录不一致（含首次接入无记录）→ 代码已变更，需重新部署。
-            "stale": deployed and current_hash != "" and recorded_hash != current_hash,
-        }
+    modalapps = all_modalapps(user_root)
+    # 每个预设包的 volume ls 是独立网络往返（各约 1.5-2.3s），串行累加就是进入工作台的主要等待；
+    # 并行探测后总耗时约为最慢的一个包（± 单次 CLI 冷启动），预设包数量不再线性放大延迟。
+    if modalapps:
+        with ThreadPoolExecutor(max_workers=min(8, len(modalapps))) as pool:
+            states = dict(pool.map(lambda modalapp: modalapp_state(modalapp, user_root, names, deploy_state), modalapps))
+    else:
+        states = {}
     return {"ready": True, "connected": True, "account": profile.get("name") or "", "error": "", "modalapps": states}
 
 
@@ -739,6 +771,14 @@ def cmd_invoke(args: argparse.Namespace) -> dict:
 
     import modal  # type: ignore
 
+    # 长轮询期间偶发、且可恢复的连接类错误：spawn 已提交、云端仍在计算，按调用 ID 重连后
+    # 继续等待即可，不应把任务判负（否则云端继续烧 GPU，而本机记录已是失败）。
+    transient_errors = (
+        modal.exception.ConnectionError,
+        modal.exception.InternalError,
+        modal.exception.ClientClosed,
+    )
+
     app_name = engine.get("appName") or manifest["id"]
     invoke = fn.get("invoke") or {}
     gpu = args.gpu or (engine.get("gpuTiers") or {}).get("default") or "T4"
@@ -761,6 +801,7 @@ def cmd_invoke(args: argparse.Namespace) -> dict:
     print(f"[modal] 已跟随云端日志（{app_name}）。", flush=True)
     started = time.time()
     call = handle.spawn(**params, refs=references)
+    call_id = call.object_id
 
     cancelled = {"flag": False}
 
@@ -775,6 +816,7 @@ def cmd_invoke(args: argparse.Namespace) -> dict:
     previous = signal.signal(signal.SIGTERM, _handler)
     try:
         last_report = 0.0
+        reconnects = 0
         while True:
             try:
                 result = call.get(timeout=15)
@@ -788,6 +830,29 @@ def cmd_invoke(args: argparse.Namespace) -> dict:
                 # 兼容不支持 timeout 参数的 SDK：退化为阻塞等待（取消仍经 SIGTERM 处理）。
                 result = call.get()
                 break
+            except modal.exception.OutputExpiredError:
+                # 云端已丢弃该调用结果：重连也取不回来，只能重跑。
+                raise SystemExit("云端调用结果已过期（Modal 已丢弃该调用），请重新运行。")
+            except transient_errors as error:
+                reconnects += 1
+                if reconnects > INVOKE_RECONNECT_LIMIT:
+                    # 彻底失联：取消云端调用，避免继续占 GPU 却无人取回结果。
+                    try:
+                        call.cancel()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    raise SystemExit(f"与 Modal 的连接连续 {reconnects} 次中断，已放弃：{error}")
+                delay = min(2 ** reconnects, 30)
+                print(f"[modal] 连接中断（{error}），{delay}s 后按调用 ID 重连（第 {reconnects} 次）…", flush=True)
+                time.sleep(delay)
+                last_report = 0.0
+                try:
+                    call = modal.FunctionCall.from_id(call_id)
+                except Exception as reconnect_error:  # noqa: BLE001
+                    print(f"[modal] 重连失败，将再次重试：{reconnect_error}", flush=True)
+            except modal.exception.Error as error:
+                # 云端函数的确定性失败（远端异常/超时等）：直接给出原因，别只剩一个 exit status。
+                raise SystemExit(f"云端调用失败：{error}")
     finally:
         signal.signal(signal.SIGTERM, previous)
         stop_app_log_follower(follower)
@@ -880,26 +945,37 @@ def main() -> None:
     args = parser.parse_args()
     resolve_task_log(args.task_log)
 
-    if args.command == "status":
-        payload = cmd_status(args)
-    elif args.command == "catalog":
-        payload = cmd_catalog(args)
-    elif args.command == "secrets":
-        payload = cmd_secrets(args)
-    elif args.command == "deploy":
-        payload = cmd_deploy(args)
-    elif args.command == "bootstrap":
-        payload = cmd_bootstrap(args)
-    elif args.command == "teardown":
-        payload = cmd_teardown(args)
-    elif args.command == "invoke":
-        payload = cmd_invoke(args)
-    elif args.command == "secret":
-        payload = cmd_secret(args)
-    else:  # pragma: no cover
-        raise SystemExit(f"unknown command: {args.command}")
+    try:
+        if args.command == "status":
+            payload = cmd_status(args)
+        elif args.command == "catalog":
+            payload = cmd_catalog(args)
+        elif args.command == "secrets":
+            payload = cmd_secrets(args)
+        elif args.command == "deploy":
+            payload = cmd_deploy(args)
+        elif args.command == "bootstrap":
+            payload = cmd_bootstrap(args)
+        elif args.command == "teardown":
+            payload = cmd_teardown(args)
+        elif args.command == "invoke":
+            payload = cmd_invoke(args)
+        elif args.command == "secret":
+            payload = cmd_secret(args)
+        else:  # pragma: no cover
+            raise SystemExit(f"unknown command: {args.command}")
 
-    print(json.dumps(payload, ensure_ascii=False), flush=True)
+        print(json.dumps(payload, ensure_ascii=False), flush=True)
+    except SystemExit as error:
+        # 失败原因写进任务日志：App 只读任务日志，stderr 里的 traceback 到不了界面，
+        # 否则用户只能看到底层 shell job 的「exit status 1」。
+        if error.code not in (None, 0):
+            message = "已取消。" if error.code == 130 else f"失败：{error}"
+            print(f"[modal] {args.command} {message}", flush=True)
+        raise
+    except Exception as error:  # noqa: BLE001
+        print(f"[modal] {args.command} 异常：{type(error).__name__}: {error}", flush=True)
+        raise
 
 
 if __name__ == "__main__":

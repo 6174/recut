@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 modal.catalog 的预设包/函数清单/formSchema/output/gpuTiers/就绪度、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调与 useRunStore
- * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 常驻环境块（未就绪时部署/下载权重；就绪时「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择 + **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交；提交按字段分组 references={field:[assetId]}；表单状态由 useRunStore 持有并持久化
+ * [INPUT]: 依赖 modal.catalog/overview 的预设包/函数清单/formSchema/output/gpuTiers/就绪度（就绪度可缺省＝尚未探测）、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调与 useRunStore
+ * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交按字段分组 references={field:[assetId]}；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）
  * [POS]: Left「功能」Tab；部署、权重与运行都在此收敛，记录 Tab 只负责历史
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
 import { mediaContentPath, mediaContentURL } from "../lib/media";
-import { useRunStore } from "../state/run";
+import { EMPTY_FORM, useRunStore } from "../state/run";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { FormField, InjectedReference, LocalLabel, MediaAsset, ModalApp, ModalFunction } from "../types";
+import type { FormField, GpuTier, InjectedReference, LocalLabel, MediaAsset, ModalApp, ModalFunction } from "../types";
 
 interface Props {
   modalapps: ModalApp[];
@@ -25,6 +25,8 @@ interface Props {
   defaultGpuTier: string;
   injectedReference: InjectedReference | null;
   onRun: (input: Record<string, unknown>) => Promise<void>;
+  /** 提交前的就绪度动态校验：返回该预设包的最新部署/权重状态（未知字段缺省）。 */
+  onEnsureReady: (modalapp: string) => Promise<{ deployed?: boolean; volumeReady?: boolean }>;
   onDeploy: (modalapp: string) => Promise<void>;
   onInstall: (modalapp: string, source: string) => Promise<void>;
 }
@@ -49,6 +51,28 @@ function formDefaults(fn: ModalFunction | undefined): Record<string, string> {
     for (const [key, value] of Object.entries(fn.defaultParams ?? {})) if (key in next) next[key] = String(value);
   }
   return next;
+}
+
+function sameValues(left: Record<string, string>, right: Record<string, string>): boolean {
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key]);
+}
+
+// select 的显示值：用户的值必须落在该字段的 options 内，否则回落字段默认值——持久化的历史值
+// 在清单改过（选项增删）之后不该渲染成空白。
+function selectValue(field: FormField, raw: string | undefined): string {
+  if (raw && (field.options ?? []).includes(raw)) return raw;
+  return defaultValue(field);
+}
+
+// 档位优先级：用户为该预设包选过的 > 全局默认 > 预设包默认；候选必须落在当前 options 内，否则忽略
+// （跨预设包残留的档位与全局默认都可能不属于当前预设包，直接渲染就会让 Select 变空白）。
+function resolveGpuTier(options: GpuTier[], selected: string, globalDefault: string, appDefault: string): string {
+  const available = new Set(options.map((option) => option.gpu));
+  for (const candidate of [selected, globalDefault, appDefault]) {
+    if (candidate && available.has(candidate)) return candidate;
+  }
+  return options[0]?.gpu ?? "";
 }
 
 function mediaFields(fn: ModalFunction | undefined): FormField[] {
@@ -82,17 +106,12 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, onRun, onDeploy, onInstall }: Props) {
-  const modalappId = useRunStore((state) => state.modalappId);
-  const functionId = useRunStore((state) => state.functionId);
-  const values = useRunStore((state) => state.values);
-  const references = useRunStore((state) => state.references);
-  const gpuTier = useRunStore((state) => state.gpuTier);
+export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, onRun, onEnsureReady, onDeploy, onInstall }: Props) {
+  const activeId = useRunStore((state) => state.activeId);
+  const forms = useRunStore((state) => state.forms);
   const selectModalapp = useRunStore((state) => state.selectModalapp);
   const selectFunction = useRunStore((state) => state.selectFunction);
   const setValue = useRunStore((state) => state.setValue);
-  const mergeValues = useRunStore((state) => state.mergeValues);
-  const setValues = useRunStore((state) => state.setValues);
   const setReferences = useRunStore((state) => state.setReferences);
   const setFieldReferences = useRunStore((state) => state.setFieldReferences);
   const setGpuTier = useRunStore((state) => state.setGpuTier);
@@ -102,29 +121,35 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   const [working, setWorking] = useState(false);
   const injectedNonceRef = useRef(0);
 
-  const modalapp = useMemo(() => modalapps.find((candidate) => candidate.id === modalappId) ?? modalapps[0], [modalapps, modalappId]);
-  const fn = useMemo(() => modalapp?.functions.find((candidate) => candidate.id === functionId) ?? modalapp?.functions[0], [modalapp, functionId]);
+  const modalapp = useMemo(() => modalapps.find((candidate) => candidate.id === activeId) ?? modalapps[0], [modalapps, activeId]);
   const appKey = modalapp?.id ?? "";
+  const form = forms[appKey] ?? EMPTY_FORM;
+  const fn = useMemo(() => modalapp?.functions.find((candidate) => candidate.id === form.functionId) ?? modalapp?.functions[0], [modalapp, form.functionId]);
   const fnKey = `${appKey}:${fn?.id ?? ""}`;
+  const values = form.values;
+  const references = form.references;
   const acceptsMedia = mediaFields(fn).length > 0;
 
-  useEffect(() => {
-    if (!modalappId && modalapps[0]) selectModalapp(modalapps[0].id, modalapps[0].functions[0]?.id ?? "", formDefaults(modalapps[0].functions[0]));
-  }, [modalapps, modalappId, selectModalapp]);
-
-  // 预设包/函数切换时对齐字段：同一函数只补默认键，切换则重置字段与参考图。
+  // 每个预设包一份持久分片（useRunStore.forms[预设包 id]），这里只做「对齐」：没有分片/还没切过去 →
+  // 按默认值建一份；函数换过（或已不存在）→ 重置该函数的字段与参考图；同一函数 → 只补新增字段的
+  // 默认值（例如后来加的「分辨率」）。用户填过的值一律保留，所以切预设包 / 切 Tab / 刷新后再回来
+  // 都是上次的样子。依赖只用这两个 key，避免分片写入反过来再触发本 effect。
   useEffect(() => {
     if (!modalapp || !fn) return;
-    const defaults = formDefaults(fn);
-    const stored = useRunStore.getState();
-    if (stored.modalappId === modalapp.id && stored.functionId === fn.id) {
-      const merged = { ...defaults };
-      for (const [key, value] of Object.entries(stored.values)) if (key in merged) merged[key] = value;
-      setValues(merged);
+    const store = useRunStore.getState();
+    const current = store.forms[modalapp.id];
+    if (!current || store.activeId !== modalapp.id) {
+      store.selectModalapp(modalapp.id, fn.id, formDefaults(fn));
       return;
     }
-    selectModalapp(modalapp.id, fn.id, defaults);
-  }, [fnKey]);
+    if (current.functionId !== fn.id) {
+      store.selectFunction(fn.id, formDefaults(fn));
+      return;
+    }
+    const merged: Record<string, string> = { ...formDefaults(fn) };
+    for (const [key, value] of Object.entries(current.values)) if (key in merged) merged[key] = value;
+    if (!sameValues(merged, current.values)) store.setValues(merged);
+  }, [appKey, fnKey]);
 
   useEffect(() => {
     if (!injectedReference || injectedReference.nonce === injectedNonceRef.current) return;
@@ -141,9 +166,9 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         const next: Record<string, string> = formDefaults(targetFn);
         for (const [key, value] of Object.entries(draft.values ?? {})) if (key in next) next[key] = String(value);
         next.prompt = draft.prompt ?? next.prompt ?? "";
-        if (targetApp.id !== modalappId || targetFn.id !== functionId) selectModalapp(targetApp.id, targetFn.id, next);
-        else mergeValues(next);
-        if (draft.gpuTier) setGpuTier(draft.gpuTier);
+        // 回填是一份现成的表单：直接覆盖该预设包的分片并把 activeId 切过去（而不是「恢复上次」）。
+        useRunStore.getState().applyForm(targetApp.id, targetFn.id, next);
+        if (draft.gpuTier) useRunStore.getState().setGpuTier(draft.gpuTier);
         const targetMediaFields = mediaFields(targetFn);
         if (targetMediaFields.length) {
           const assets = (draft.referenceAssetIds ?? []).filter((item) => item.available !== false)
@@ -162,22 +187,26 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
     }
     const fields = mediaFields(fn);
     const asset: MediaAsset = { id: injectedReference.id, name: injectedReference.name, kind: "image" };
-    const current = useRunStore.getState().references;
+    const state = useRunStore.getState();
+    const current = state.forms[state.activeId]?.references ?? {};
     const target = fields.find((field) => fieldAccepts(field, asset) && (field.multiple !== false || !(current[field.key]?.length)))
       ?? fields.find((field) => field.multiple !== false);
     if (target) setFieldReferences(target.key, (prev) => (prev.some((item) => item.id === asset.id) ? prev : [...prev, asset]));
     setHint("");
-  }, [injectedReference, acceptsMedia, locale, modalapps, modalappId, functionId]);
+  }, [injectedReference, acceptsMedia, locale, modalapps, fn]);
 
   if (!modalapp || !fn) {
     return <div className="grid min-h-40 place-items-center rounded-lg border border-dashed text-xs text-muted-foreground">{t(locale, "run.empty")}</div>;
   }
 
-  const deployed = modalapp.deployed;
-  const volumeReady = modalapp.volumeReady;
+  // 就绪度是三态：未知（本机还没探测过）／已知未就绪／就绪。未知不当作「尚未部署」，否则首屏
+  // （modal.status 还没回来）会把已部署的预设包误报成需要部署。
+  const known = modalapp.deployed !== undefined;
+  const deployed = modalapp.deployed === true;
+  const volumeReady = modalapp.volumeReady === true;
   const ready = deployed && volumeReady;
   const gpuOptions = modalapp.gpuTiers?.options ?? [];
-  const gpuValue = gpuTier || defaultGpuTier || modalapp.gpuTiers?.default || "";
+  const gpuValue = resolveGpuTier(gpuOptions, form.gpuTier, defaultGpuTier, modalapp.gpuTiers?.default ?? "");
 
   const pickFieldReferences = async (field: FormField) => {
     try {
@@ -195,6 +224,13 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
     setSubmitting(true);
     setHint("");
     try {
+      // 点击运行时动态校验就绪度：只有「已确定未就绪」才拦下并引导去准备/重新部署；
+      // 未知（探测失败/还没探过）不拦——后台的提交契约是永不拒绝，真实失败原因由任务日志给出。
+      const state = await onEnsureReady(modalapp.id);
+      if (state.deployed === false || state.volumeReady === false) {
+        setHint(t(locale, "run.not-ready-hint"));
+        return;
+      }
       const params: Record<string, unknown> = {};
       for (const [key, raw] of Object.entries(values)) {
         if (raw === "") continue;
@@ -241,7 +277,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
               {modalapps.map((candidate) => (
                 <SelectItem key={candidate.id} value={candidate.id}>
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className={`size-1.5 shrink-0 rounded-full ${candidate.deployed && candidate.volumeReady && !candidate.stale ? "bg-success" : "bg-warning"}`} />
+                    <span className={`size-1.5 shrink-0 rounded-full ${candidate.deployed === undefined ? "bg-muted-foreground/40" : candidate.deployed && candidate.volumeReady && !candidate.stale ? "bg-success" : "bg-warning"}`} />
                     <span className="min-w-0 truncate">{labelText(candidate.label, locale, candidate.id)}</span>
                   </span>
                 </SelectItem>
@@ -277,7 +313,19 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         </Field>
       ) : null}
 
-      {!ready ? (
+      {!known ? (
+        // 就绪度未知：低存在感提示（不抢眼），预设包状态由后台探测回填；运行按钮保持可用，
+        // 点了会先动态校验一次。
+        <Card size="sm" className="p-3.5">
+          <div className="flex items-start gap-2.5">
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-foreground">{t(locale, "run.checking.title")}</p>
+              <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{t(locale, "run.checking.hint")}</p>
+            </div>
+          </div>
+        </Card>
+      ) : !ready ? (
         <Card size="sm" className="border-warning/40 bg-warning/[0.06] p-3.5">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
@@ -327,11 +375,19 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
 
       <div className="grid gap-3">
         {fn.formSchema.filter((field) => field.type !== "media").map((field) => (
-          <Field key={field.key} label={labelText(field.label, locale, field.key)}>
+          <Field
+            key={field.key}
+            label={labelText(field.label, locale, field.key)}
+            hint={field.hint ? labelText(field.hint, locale, "") : undefined}
+          >
             {field.type === "textarea" ? (
-              <Textarea value={values[field.key] ?? ""} onChange={(event) => setValue(field.key, event.target.value)} />
+              <Textarea
+                value={values[field.key] ?? ""}
+                placeholder={field.placeholder ? labelText(field.placeholder, locale, "") : undefined}
+                onChange={(event) => setValue(field.key, event.target.value)}
+              />
             ) : field.type === "select" ? (
-              <Select value={values[field.key] ?? ""} onValueChange={(value) => setValue(field.key, value)}>
+              <Select value={selectValue(field, values[field.key])} onValueChange={(value) => setValue(field.key, value)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -420,10 +476,14 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
       </div>
 
       <div className="flex items-center gap-2 pt-1">
-        <Button disabled={!ready || submitting} onClick={() => void submit()}>
+        {/* 运行按钮不再以就绪度为门槛：状态未知时它必须可点（点击即做一次动态校验），
+            已确定未就绪时点击则给出「先准备/重新部署」的引导。 */}
+        <Button disabled={submitting} onClick={() => void submit()}>
           <Wand2 className="size-3.5" />{t(locale, "run.submit")}
         </Button>
-        {ready ? (
+        {!known ? (
+          <Badge variant="outline" className="ml-auto text-muted-foreground">{t(locale, "run.status-unknown")}</Badge>
+        ) : ready ? (
           modalapp.stale
             ? <Badge variant="outline" className="ml-auto gap-1.5 border-warning/40 text-warning"><AlertTriangle className="size-3" />{t(locale, "run.stale.badge")}</Badge>
             : <Badge variant="outline" className="ml-auto gap-1.5 border-success/40 text-success"><Check className="size-3" />{t(locale, "run.ready")}</Badge>

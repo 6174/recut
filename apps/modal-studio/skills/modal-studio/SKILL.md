@@ -56,7 +56,8 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 - `weights`：`{ repoHuggingFace, repoModelScope, revision, sizeGb, files[] }`（供参考与文档；实际下载在 `bootstrap.py`）。
 - `functions[]`：每项 `{ id, name, entrypoint, output:{kind,mimeType,ext}, formSchema[], defaultParams }`。
   - `entrypoint` 必须等于 `modal_app.py` 里的函数名；参数名与 `formSchema[].key` 一致。
-  - `formSchema` 类型：`textarea|text|number|select|boolean|media`；`media` 字段经 `referenceAssetIds` 传入，函数收到 `refs=[{name,mimeType,data:bytes}]`。
+  - `formSchema` 类型：`textarea|text|number|select|boolean|media`（`label`/`placeholder`/`hint` 均为双语对象，用于把字段语义写在字段旁）；`media` 字段经 `referenceAssetIds` 传入，函数收到 `refs=[{name,mimeType,data:bytes}]`。
+  - **`resolution`（字段存在即该函数支持调分辨率）**：值是**输出短边像素**，长边按画幅推导，**只下调不超分**（不小于该画幅原生短边时保持原生尺寸：H3 原生 768p、Qwen-Image-2.1 原生 2K、SD-Turbo 原生 512）。文生图/文生视频有该字段；图像编辑 / 图生图的输出尺寸跟随参考图，故没有。合法取值从 `modal.catalog` 的 `formSchema[].options` 取。
   - `output.kind` ∈ `image|video|audio`，决定取回方式与预览。
 
 ### 3) 云端函数输出契约（`modal_app.py`）
@@ -86,7 +87,7 @@ modal.modalapp.remove { id }          # 删除用户预设包（内置不可删�
 ## 成本纪律（重要）
 
 - Modal 有免费额度但超了要花钱。**`modal.generate` 必须显式传 `confirmCost: true`**（默认开启成本确认门；`modal.settings.set { requireCostConfirm: false }` 可关闭）。
-- 调用前用 `modal.catalog` 确认 `gpuTiers`；GPU 档位越高越贵。
+- 调用前用 `modal.catalog` 确认 `gpuTiers`；GPU 档位越高越贵。`gpuTier` 不传时按「全局默认 > 预设包默认」取，且候选必须落在该预设包的 `options` 内（否则回落到首个选项），所以不需要自己兜底。
 
 ## 平台集成（已接入）
 

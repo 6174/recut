@@ -27,6 +27,12 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 └───────────────────────────────┴──────────────────────────────────────┘
 ```
 
+## 表单语义
+
+- **按预设包记忆**：每个预设包各自一份持久表单分片（字段值 + 参考素材 + GPU 档位），切预设包、切 Tab、刷新后再回来就是上次的样子；右侧预览聚焦的任务也会恢复（任务已失效则清空）。
+- **分辨率**：表单里的「分辨率」是**输出短边像素**，越小越快、越省额度。各预设包的原生尺寸不同（MiniMax-H3 = 768p、Qwen-Image-2.1 = 原生 2K、SD-Turbo = 512），且**只下调不超分**——取值不小于该画幅的原生短边时保持原生尺寸。图像编辑 / 图生图的输出尺寸跟随参考图，故没有该字段。
+- **GPU 档位**：用户选过就记住（按预设包分别记住），没选过才回落到预设包声明的默认档位。解析优先级为「本次请求 > 全局默认 > 预设包默认」，且三个候选都必须落在该预设包的 `gpuTiers.options` 内，否则回落到首个选项——所以切预设包不会出现档位空白。
+
 ## 快速开始
 
 1. 安装并启动 Recut（见主仓库 [README](../../README.md#安装-recut)）。
@@ -38,6 +44,7 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 
 | 能力 | 操作 |
 | --- | --- |
+| 首屏清单（本机读取，零等待） | `modal.overview` |
 | 连通性 / 预设包目录 | `modal.status` · `modal.catalog` |
 | token / 设置 / Secret | `modal.profiles.add/list/remove` · `modal.settings.set` · `modal.secret.set` |
 | 预设包管理 | `modal.modalapp.list` · `modal.modalapp.get` · `modal.modalapp.path` · `modal.modalapp.save` · `modal.modalapp.scaffold` · `modal.modalapp.remove` |
@@ -47,6 +54,18 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 | 任务中心 | `modal.tasks.list` · `modal.task.get` · `modal.task.logs` · `modal.task.cancel` · `modal.cancel` |
 
 > **已接入平台生图/生视频能力**：manifest `contributes.media` 声明 provider `modal-cloud`，每个声明 `expose` 的预设包注册为一个平台模型（`modal-cloud/<model>`，图片与视频都注册）。平台「生图/生视频默认路由」可指向它，生成经通用执行桥调用 `modal.generate`；**预设包未部署/权重未就绪时该模型 `ready=false`**（`modal.catalog.models[]` 动态上报，只有 `deployed && volumeReady` 才算就绪）。**纯文本请求（不带任何参考素材）会自动路由到该预设包的文生函数（`text-to-*`）；只有带参考时才走参考函数（参考生视频 / 图像编辑）**——参考是可选项（平台 budget 只设上限），因此「无参考走文生、有参考走参考」在平台默认路由下自动成立。其余能力仍经本 App 的 api/mcp operation 直接暴露。
+
+## 进入工作台时的加载顺序
+
+就绪度探测要拉 `modal` CLI（每个部署过的预设包一次 `modal volume ls`），是秒级操作，因此**不挡首屏**：
+
+1. **首屏（`modal.overview`）**：只读本机——`python/registry.json`（预设包/函数/表单）、token profiles、设置，外加**上次探测的就绪度快照**。毫秒级返回，预设包与表单立即可用；就绪度按快照回放，没有快照时该预设包显示「状态待检查」（**未知不等于未部署**）。
+2. **后台探测（`modal.status`）**：独立刷新，回填连通性、部署状态、volume 就绪度与 `stale`（代码变更待重新部署），并**把结果写成快照**供下次首屏直接回放。它只影响状态显示，不阻塞任何交互。
+3. **点击「运行」时动态校验**：直接用新鲜快照；快照过期（>60s）或还没有时先重探一次。**只有已确定未就绪（未部署 / 权重缺失）才拦下**并提示「准备（部署 + 权重）」或「重新部署」；状态未知不拦——后台的提交契约是永不拒绝，真实失败原因写进任务日志。
+
+因此进入工作台不再需要等待探测；只有「第一次运行某个还没探测过的预设包」会多花一次探测的时间（约数秒）。
+
+> **就绪度探测是「尽力而为」的**：权重是否就绪 = 卷根有没有完成标记（`.recut-download-complete`，部分预设包为 `-v2`，按前缀兼容）。单次 `modal volume ls` 失败（网络抖动、CLI 异常、卷正在被部署写入）**不会**被当成「权重没下载」——会先重试一次，两次都拿不到标记才判定未就绪；点「运行」时也会对「未就绪」结论复核一次，避免把一次抖动固化成假的告警。探测类短命令（`app list` / `volume ls`）静默执行，不往 stdout 灌无用噪声。
 
 ## 预设包：内置 + 用户
 
@@ -111,6 +130,7 @@ capability 按该函数 `output.kind` 推导（image/video/audio）；未声明 
 make app-link APP=apps/modal-studio            # 开发期软链接
 cd apps/modal-studio/ui && npm install && npm run build   # 构建 ui/dist
 python3 apps/modal-studio/python/publish_registry.py      # 重新生成注册表
+node apps/modal-studio/test/catalog_smoke.mjs             # 首屏加载路径冒烟（overview/status/快照/models）
 ```
 
 - UI 源码在 `ui/src`（React + TypeScript + Vite），运行时消费构建产物 `ui/dist/index.html`；`node_modules` 不入库。

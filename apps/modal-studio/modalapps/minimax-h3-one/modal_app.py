@@ -7,8 +7,8 @@
           在线 FP8 只量化 DiT（约 31GiB，常驻），文本编码器按组件流式 offload；类开启 GPU memory snapshot
           （enable_memory_snapshot + enable_gpu_snapshot），@modal.enter(snap=True) 拉起 sglang 子进程后冻结
           整棵进程树（子进程的 CUDA 状态也随快照恢复），冷启动从快照秒级恢复、不再重读权重。
-          generate_video 把表单参数 + 参考素材组装成 SGLang /v1/videos 请求（经 h3_contract），取回 mp4 写入 /out 卷
-          并返回 file 结果；bootstrap_weights 用 HF token 把 FL2VA + Ref2VA 权重下载进 /models 卷
+          generate_video 把表单参数（含分辨率 → `target.short_edge`，默认 768） + 参考素材组装成 SGLang /v1/videos
+          请求（经 h3_contract），取回 mp4 写入 /out 卷并返回 file 结果；bootstrap_weights 用 HF token 把 FL2VA + Ref2VA 权重下载进 /models 卷
 [POS]: minimax-h3 的单卡分支预设包（与多卡 minimax-h3 并列、二选一）：用 1 张 RTX PRO 6000 换 6× 单价下降 +
        GPU 快照免冷启动加载；代价是生成明显更慢。按 GPU 数量自动选同一套请求契约（h3_contract）保证与 minimax-h3
        完全同构
@@ -153,13 +153,17 @@ def _ensure_server(variant: str = MODEL_VARIANT) -> None:
 
 
 def _run_video(variant: str, prompt: str, aspect_ratio: str, duration_sec: float,
-               steps: int, seed: int, refs) -> dict:
-    """共享执行体：确保对应分区的服务在跑，组装请求、提交并落地 mp4。"""
+               steps: int, seed: int, refs, resolution: str = "") -> dict:
+    """共享执行体：确保对应分区的服务在跑，组装请求、提交并落地 mp4。
+
+    `resolution` 是表单「分辨率」（输出短边，px）；空值/越界由契约层归一为 768（H3 原生 768p）。
+    """
     _ensure_server(variant)
     conditions = write_reference_conditions(refs or [], REF_DIR)
     body = build_video_body(prompt, aspect_ratio=aspect_ratio, duration_sec=duration_sec,
-                            steps=steps, seed=seed, conditions=conditions)
+                            steps=steps, seed=seed, conditions=conditions, short_edge=resolution)
     print(f"[modal] 提交 H3 {body['task']}（{body['seconds']}s，{body['target']['aspect_ratio']}，"
+          f"短边 {body['target']['short_edge']}，"
           f"{body['num_inference_steps']} steps，seed {body['seed']}，{len(conditions)} 条件）…", flush=True)
     started = time.time()
     data = submit_video(f"http://127.0.0.1:{PORT}", body, log=print)
@@ -194,8 +198,8 @@ class H3One:
 
     @modal.method()
     def generate_video(self, prompt: str, aspectRatio: str = "auto", durationSec: float = 5,
-                       steps: int = 50, seed: int = -1, refs=None):
-        return _run_video(MODEL_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs)
+                       steps: int = 50, seed: int = -1, resolution: str = "", refs=None):
+        return _run_video(MODEL_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs, resolution)
 
 
 @app.cls(image=image, gpu="RTX-PRO-6000", volumes={MODELS_DIR: models, OUT_DIR: outputs},
@@ -216,10 +220,10 @@ class H3OneRef:
 
     @modal.method()
     def generate_video(self, prompt: str, aspectRatio: str = "auto", durationSec: float = 5,
-                       steps: int = 50, seed: int = -1, refs=None):
+                       steps: int = 50, seed: int = -1, resolution: str = "", refs=None):
         if not (refs or []):
             raise ValueError("reference-to-video 需要至少一个参考素材（图像/视频/音频）")
-        return _run_video(REF_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs)
+        return _run_video(REF_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs, resolution)
 
 
 @app.function(image=bootstrap_image, volumes={MODELS_DIR: models}, timeout=7200,

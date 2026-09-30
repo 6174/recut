@@ -1,7 +1,8 @@
 """
 [INPUT]: Modal 运行时（modal.Image / modal.Volume / modal.Secret）；/models 卷里由 bootstrap.py 下载的 sd-turbo 权重
 [OUTPUT]: 云端 Modal App「recut-sd-turbo」：类 SDTurbo 在容器内常驻 sd-turbo pipeline，提供 generate_image（文生图，
-          返回 PNG bytes）与 generate_image_from_image（图生图，接收参考图 bytes，返回 PNG bytes）；bootstrap_weights
+          默认原生尺寸、可经「分辨率」下调短边，返回 PNG bytes）与 generate_image_from_image（图生图，接收参考图
+          bytes，返回 PNG bytes；输出尺寸跟随参考图）；bootstrap_weights
            把权重下载进 /models 卷。类开启 GPU memory snapshot（enable_memory_snapshot + enable_gpu_snapshot），
            把 import/加载/首帧预热挪进 @modal.enter(snap=True)，后续冷启动直接从快照恢复
 [POS]: sd-turbo 预设包的云端执行体；用 @app.cls 以支持 Modal 1.x 的 with_options(gpu=...) 逐档切换 GPU，
@@ -34,6 +35,7 @@ models = modal.Volume.from_name(MODELS_VOLUME, create_if_missing=True)
 # 下载权重只需轻量镜像（不必拉起 torch/diffusers 运行时）。
 bootstrap_image = modal.Image.debian_slim(python_version="3.11").pip_install("huggingface_hub")
 
+# sd-turbo 原生尺寸（宽, 高）：512 短边为基准，同画幅下总面积≈262k，故各画幅原生短边并不相等。
 ASPECT_RATIOS = {
     "1:1": (512, 512),
     "16:9": (640, 360),
@@ -41,10 +43,35 @@ ASPECT_RATIOS = {
     "4:3": (576, 432),
     "3:4": (432, 576),
 }
+DEFAULT_SIZE = (512, 512)
+# diffusers 侧要求边长对齐到 8 的倍数（VAE 下采样 8）；用 16 更稳。
+SIZE_ALIGN = 16
 
 
-def _size(aspect_ratio: str) -> tuple[int, int]:
-    return ASPECT_RATIOS.get(str(aspect_ratio or ""), (512, 512))
+def _align(value: float) -> int:
+    return max(SIZE_ALIGN, int(round(float(value) / SIZE_ALIGN)) * SIZE_ALIGN)
+
+
+def _size(aspect_ratio: str, resolution=None) -> tuple[int, int]:
+    """画幅 + 分辨率 → (宽, 高)。
+
+    `resolution` 是表单「分辨率」（目标短边，px）：非数字或非正数（空串/0/负数）都视为「没给」，
+    保持原生尺寸；不小于该画幅的原生短边时同样保持原生（不超分）；否则按画幅比例把短边缩到目标值。
+    """
+    native = ASPECT_RATIOS.get(str(aspect_ratio or ""), DEFAULT_SIZE)
+    try:
+        requested = float(resolution)
+    except (TypeError, ValueError):
+        return native
+    if requested <= 0:
+        return native
+    width, height = native
+    target = _align(requested)
+    if target >= min(width, height):
+        return native
+    if width >= height:
+        return _align(target * width / height), target
+    return target, _align(target * height / width)
 
 
 def _generator(seed: int):
@@ -88,8 +115,8 @@ class SDTurbo:
 
     @modal.method()
     def generate_image(self, prompt: str, negativePrompt: str = "", aspectRatio: str = "1:1",
-                       steps: int = 2, guidance: float = 0.0, seed: int = -1, refs=None):
-        width, height = _size(aspectRatio)
+                       resolution: str = "", steps: int = 2, guidance: float = 0.0, seed: int = -1, refs=None):
+        width, height = _size(aspectRatio, resolution)
         result = self.t2i(prompt=prompt, negative_prompt=negativePrompt or None, width=width, height=height,
                           num_inference_steps=int(steps), guidance_scale=float(guidance),
                           generator=_generator(seed)).images[0]

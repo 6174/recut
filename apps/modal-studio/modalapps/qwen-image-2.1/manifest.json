@@ -7,7 +7,10 @@
   "capability": "image.generate",
   "expose": {
     "model": "qwen-image",
-    "function": "image-edit"
+    "function": "image-edit",
+    "parameters": [
+      "resolution"
+    ]
   },
   "engine": {
     "appName": "recut-qwen-image-21",
@@ -134,6 +137,10 @@
           "key": "prompt",
           "type": "textarea",
           "required": true,
+          "placeholder": {
+            "zh": "例如：一只蓝色的可爱的玩具小飞机，柔和的阳光，干净背景",
+            "en": "e.g. a cute blue toy plane, soft sunlight, clean background"
+          },
           "label": {
             "zh": "提示词",
             "en": "Prompt"
@@ -143,6 +150,10 @@
           "key": "negativePrompt",
           "type": "textarea",
           "default": "",
+          "placeholder": {
+            "zh": "例如：模糊、多余的手指、水印",
+            "en": "e.g. blurry, extra fingers, watermark"
+          },
           "label": {
             "zh": "负向词（仅当引导强度 > 1 时生效）",
             "en": "Negative prompt (only when guidance > 1)"
@@ -162,8 +173,27 @@
           ],
           "default": "1:1",
           "label": {
-            "zh": "画幅（原生 2K）",
-            "en": "Aspect ratio (native 2K)"
+            "zh": "画幅",
+            "en": "Aspect ratio"
+          }
+        },
+        {
+          "key": "resolution",
+          "type": "select",
+          "options": [
+            "2048",
+            "1536",
+            "1024",
+            "768"
+          ],
+          "default": "1024",
+          "label": {
+            "zh": "分辨率（短边 px）",
+            "en": "Resolution (short edge px)"
+          },
+          "hint": {
+            "zh": "短边像素，默认 1024。1024 及以下为整图 VAE 解码（与本地一致）；1536 / 2048 在 48GB 档上必须走分块解码，块边界可能有拼缝/色斑，画质有折损。",
+            "en": "Short-edge pixels, default 1024. At or below 1024 the VAE decodes in one pass (same as local); 1536 / 2048 must tile on 48GB GPUs, which can leave seams and color blotches."
           }
         },
         {
@@ -200,6 +230,7 @@
       ],
       "defaultParams": {
         "aspectRatio": "1:1",
+        "resolution": "1024",
         "steps": 40,
         "guidance": 1.0
       }
@@ -227,6 +258,10 @@
           "key": "prompt",
           "type": "textarea",
           "required": true,
+          "placeholder": {
+            "zh": "例如：把背景换成黄昏的海边，保持主体不变",
+            "en": "e.g. replace the background with a seaside at dusk, keep the subject"
+          },
           "label": {
             "zh": "编辑指令",
             "en": "Edit instruction"
@@ -247,6 +282,10 @@
           "key": "negativePrompt",
           "type": "textarea",
           "default": "",
+          "placeholder": {
+            "zh": "例如：模糊、多余的手指、水印",
+            "en": "e.g. blurry, extra fingers, watermark"
+          },
           "label": {
             "zh": "负向词（仅当引导强度 > 1 时生效）",
             "en": "Negative prompt (only when guidance > 1)"

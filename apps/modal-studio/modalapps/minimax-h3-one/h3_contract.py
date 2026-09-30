@@ -1,7 +1,7 @@
 """
 [INPUT]: 仅标准库（base64/json/random/time/urllib/pathlib）；H3 表单参数与参考素材 bytes（带 field 角色标记）
 [OUTPUT]: H3 与 SGLang /v1/videos 之间的纯契约：build_video_body（按参考角色推断 task：t2va/fl2va/ref2va，组请求体，
-          含种子归一与类型归一）、write_reference_conditions（按 field/mimeType 把参考素材落盘为 file:// 条件：
+          含种子/短边归一与类型归一）、write_reference_conditions（按 field/mimeType 把参考素材落盘为 file:// 条件：
           首/尾帧 role=keyframe + frame_index，其余 role=reference，图像/视频/音频按类型声明）、
           submit_video（POST→轮询→下载 content 的异步视频协议，兼容直接返回字节/内联 b64/url 的旧实现）
 [POS]: minimax-h3 / minimax-h3-one 两个预设包共享的契约层（本副本与 minimax-h3/h3_contract.py 保持一致）；
@@ -23,6 +23,9 @@ MODEL_NAME = "MiniMaxAI/MiniMax-H3"
 VALID_TASKS = ("t2va", "fl2va", "ref2va")
 MIN_SECONDS = 4
 MAX_SECONDS = 15
+# 输出短边：768 是 H3 的原生分辨率（768p），故只下调、不超分；并向下对齐到 16 的倍数。
+MAX_SHORT_EDGE = 768
+MIN_SHORT_EDGE = 256
 
 # 参考素材角色：keyframe 用于 FL2VA 的首/尾帧（frame_index 0=首帧、-1=尾帧）；
 # 其余落入 reference（Ref2VA 的多模态参考：图像/视频/音频）。
@@ -33,6 +36,19 @@ _KIND_EXT = {"image": ".png", "video": ".mp4", "video_audio": ".mp4", "audio": "
 
 _COMPLETED = {"completed", "succeeded", "success", "done"}
 _FAILED = {"failed", "error", "canceled", "cancelled"}
+
+
+def normalize_short_edge(value, default: int = MAX_SHORT_EDGE) -> int:
+    """把表单的「分辨率」归一为合法短边：非数字或非正数（空串/0/负数）回落默认值，越界夹到
+    [MIN, MAX]，并对齐到 16 的倍数。"""
+    try:
+        edge = int(round(float(value)))
+    except (TypeError, ValueError):
+        return default
+    if edge <= 0:
+        return default
+    edge = max(MIN_SHORT_EDGE, min(MAX_SHORT_EDGE, edge))
+    return edge - (edge % 16)
 
 
 def normalize_seed(seed) -> int:
@@ -57,10 +73,12 @@ def task_for_conditions(conditions) -> str:
 
 
 def build_video_body(prompt: str, *, aspect_ratio: str = "auto", duration_sec=5, steps: int = 50,
-                     seed=-1, conditions=None, task: str | None = None) -> dict:
+                     seed=-1, conditions=None, task: str | None = None,
+                     short_edge: int = MAX_SHORT_EDGE) -> dict:
     """按 SGLang H3 契约组 /v1/videos 请求体（seconds 为整数秒、duration_seconds 为浮点秒）。
 
     `task` 缺省时按 conditions 的角色推断（t2va/fl2va/ref2va），与 SGLang 的 task 语义一致。
+    `short_edge` 是输出短边（表单「分辨率」），经 normalize_short_edge 夹到 ≤768 并对齐 16 的倍数。
     """
     conditions = list(conditions or [])
     resolved_task = task or task_for_conditions(conditions)
@@ -72,7 +90,7 @@ def build_video_body(prompt: str, *, aspect_ratio: str = "auto", duration_sec=5,
         "seconds": int(duration_sec),
         "task": resolved_task,
         "conditions": conditions,
-        "target": {"short_edge": 768, "aspect_ratio": aspect_ratio or "auto",
+        "target": {"short_edge": normalize_short_edge(short_edge), "aspect_ratio": aspect_ratio or "auto",
                    "duration_seconds": float(duration_sec)},
         "quality": "lossless",
         "num_outputs_per_prompt": 1,

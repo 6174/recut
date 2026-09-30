@@ -80,6 +80,16 @@
                   "type": "string"
                 },
                 {
+                  "name": "resolution",
+                  "type": "string",
+                  "enum": [
+                    "768",
+                    "576",
+                    "480"
+                  ],
+                  "default": "768"
+                },
+                {
                   "name": "durationSec",
                   "type": "number",
                   "default": 5,
@@ -153,6 +163,16 @@
                 {
                   "name": "prompt",
                   "type": "string"
+                },
+                {
+                  "name": "resolution",
+                  "type": "string",
+                  "enum": [
+                    "768",
+                    "576",
+                    "480"
+                  ],
+                  "default": "768"
                 },
                 {
                   "name": "durationSec",
@@ -230,6 +250,16 @@
                   "type": "string"
                 },
                 {
+                  "name": "resolution",
+                  "type": "string",
+                  "enum": [
+                    "768",
+                    "576",
+                    "480"
+                  ],
+                  "default": "768"
+                },
+                {
                   "name": "durationSec",
                   "type": "number",
                   "default": 5,
@@ -289,7 +319,7 @@
             },
             {
               "id": "qwen-image",
-              "name": "Qwen-Image-2.1 文生图/编辑",
+              "name": "Qwen-Image-2.1 文生图/参考生图",
               "capability": "image.generate",
               "runtime": "modal",
               "sizeGb": 33,
@@ -325,6 +355,17 @@
                   "name": "seed",
                   "type": "number",
                   "default": -1
+                },
+                {
+                  "name": "resolution",
+                  "type": "string",
+                  "enum": [
+                    "2048",
+                    "1536",
+                    "1024",
+                    "768"
+                  ],
+                  "default": "1024"
                 }
               ],
               "referenceFields": [
@@ -346,7 +387,7 @@
               ],
               "localized": {
                 "zh": {
-                  "name": "Qwen-Image-2.1 文生图/编辑"
+                  "name": "Qwen-Image-2.1 文生图/参考生图"
                 },
                 "en": {
                   "name": "Qwen-Image-2.1 t2i/edit"
@@ -383,6 +424,16 @@
                     "3:4"
                   ],
                   "default": "1:1"
+                },
+                {
+                  "name": "resolution",
+                  "type": "string",
+                  "enum": [
+                    "512",
+                    "384",
+                    "256"
+                  ],
+                  "default": "512"
                 },
                 {
                   "name": "steps",
@@ -433,6 +484,17 @@
       ],
       "capability": true,
       "description": "检查 Modal token profile/连通性、各预设包的部署状态（app/function 是否存在）、volume 就绪度、stale（代码变更待重新部署）与在途任务。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "modal.overview",
+      "surfaces": [
+        "api"
+      ],
+      "description": "工作台首屏轻量负载：只读本机 registry/profiles/设置与上次就绪度快照（不拉起 modal CLI、不访问网络），返回 { modalapps:[…无就绪度字段时表示尚未探测…], profiles, defaultProfileId, downloadSource, defaultGpuTier, snapshot:{ modalapps, checkedAt } }；就绪度由 modal.status 后台刷新。",
       "inputSchema": {
         "type": "object",
         "properties": {}

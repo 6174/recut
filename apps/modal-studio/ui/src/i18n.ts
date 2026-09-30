@@ -100,6 +100,10 @@ const zh: Record<string, string> = {
   "run.env-hint": "环境与权重已就绪；代码变更后需重新部署。",
   "run.stale.title": "预设包代码已变更，需重新部署",
   "run.stale.badge": "代码待更新",
+  "run.checking.title": "尚未检查环境状态",
+  "run.checking.hint": "云端环境与权重会在后台检查；也可以直接运行，提交前会自动校验一次。",
+  "run.status-unknown": "状态待检查",
+  "run.not-ready-hint": "该预设包尚未就绪：请先「准备（部署 + 权重）」，或「重新部署」后重试。",
 
   "records.prepare": "准备环境",
   "records.deploy": "部署环境",
@@ -243,6 +247,10 @@ const en: Record<string, string> = {
   "run.env-hint": "Environment and weights ready; redeploy after code changes.",
   "run.stale.title": "Preset pack code changed — redeploy required",
   "run.stale.badge": "Code update pending",
+  "run.checking.title": "Environment status not checked yet",
+  "run.checking.hint": "The cloud environment and weights are checked in the background; you can also just run — it is verified again before submitting.",
+  "run.status-unknown": "Status unchecked",
+  "run.not-ready-hint": "This preset pack is not ready yet: run Prepare (deploy + weights) or Redeploy first, then retry.",
 
   "records.prepare": "Prepare environment",
   "records.deploy": "Deploy environment",

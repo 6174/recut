@@ -3,7 +3,8 @@
  *          modalapps/*\/manifest.json 生成）与读写 token profile 镜像、ctx.media 复制参考素材与导入产物，
  *          ctx.python.run / ctx.shell.exec 执行可观察本地任务（modal_runner.py：status/catalog/deploy/bootstrap/
  *          invoke/teardown/secret）
- * [OUTPUT]: 注册连通性与就绪度（modal.status）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记与平台模型就绪投影 models[]）、token profiles（modal.profiles.*）、
+ * [OUTPUT]: 注册首屏轻量负载（modal.overview：只读本机 registry/profiles/设置 + 上次就绪度快照，不拉起 Python）、
+ *          连通性与就绪度（modal.status，结果同时写入快照供下次首屏回放）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记与平台模型就绪投影 models[]）、token profiles（modal.profiles.*）、
  *          设置（modal.settings.set）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
  *          调用函数（modal.generate，单槽 FIFO；兼容平台执行桥的 model 入参）、历史与入库（modal.generations / modal.generation.complete /
  *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel）与取消（modal.cancel）。
@@ -23,6 +24,9 @@ const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled", "inte
 const GENERATION_KINDS = new Set(["image", "video", "audio"]);
 const PROFILES_PATH = "modal/profiles.json";
 const SECRET_PATH = "modal/pending-secret.json";
+// 上次成功探测（modal.status/modal.catalog）的就绪度快照：进入工作台时 modal.overview 直接回放它，
+// 使首屏无需等待 modal CLI 就能显示正确的部署/权重状态，随后再由后台探测覆盖。
+const STATUS_SNAPSHOT_KEY = "status_snapshot";
 
 // registry.json 的内置兜底（静态预设包清单；正常从 ctx.app.readText("python/registry.json") 读取，
 // 由 python/publish_registry.py 生成保持一致）。
@@ -143,6 +147,18 @@ function outputMime(spec) { return (spec && spec.mimeType) || "image/png"; }
 function functionOutput(modalapp, fn) { return (fn && fn.output) || { kind: "image", mimeType: "image/png", ext: "png" }; }
 function defaultGpuTier(modalapp) { return (modalapp.gpuTiers && modalapp.gpuTiers.default) || "T4"; }
 
+// GPU 档位解析：请求显式指定 > 全局默认 > 预设包自带的默认；三个候选都必须落在该预设包的
+// options 内（跨预设包的残留档位、或没跟着预设包走的全局默认都会被忽略），否则回落到首个选项——
+// 保证落到 runner 的档位一定是这个预设包声明过的。
+function resolveGpuTier(modalapp, requested, ctx) {
+  const options = ((modalapp.gpuTiers && modalapp.gpuTiers.options) || []).map((option) => option && option.gpu).filter(Boolean);
+  const available = new Set(options);
+  for (const candidate of [requested, defaultGpuTierSetting(ctx), defaultGpuTier(modalapp)]) {
+    if (candidate && (!available.size || available.has(candidate))) return candidate;
+  }
+  return options[0] || defaultGpuTier(modalapp);
+}
+
 // 由 action + meta 渲染列表展示名（meta.label 可能是双语对象，需按当前语言取字符串）。
 function taskName(ctx, action, meta) {
   const m = meta || {};
@@ -250,17 +266,19 @@ function envStatus(ctx, registry) {
   catch (error) { return { ready: false, connected: false, error: error instanceof Error ? error.message : String(error), modalapps: {} }; }
 }
 
-function buildCatalog(ctx) {
-  const registry = readRegistry(ctx);
-  const status = envStatus(ctx, registry);
-  const statusApps = status.modalapps || {};
-  const profiles = readProfiles(ctx);
-  const modalapps = (registry.modalapps || []).map((a) => {
-    const st = statusApps[a.id] || {};
-    return {
+// registry（静态清单）+ 就绪度 states → 界面/平台消费的预设包形态。
+// states 为 null 表示「本机还没有任何探测结果」：此时不输出 deployed/volumeReady/stale，
+// 界面据此显示为「待检查」，而不是把「未知」误报成「尚未部署」。
+function projectModalapps(ctx, registry, states) {
+  // 只认「id → 就绪度」的映射：数组/其它形状（例如被 catalog 的投影数组写坏的历史快照）一律当作
+  // 「没有探测结果」，否则 states[a.id] 取不到，会把所有预设包误报成「尚未部署」。
+  const known = states && typeof states === "object" && !Array.isArray(states) ? states : null;
+  return (registry.modalapps || []).map((a) => {
+    const st = (known && known[a.id]) || {};
+    const projected = {
       id: a.id, label: a.label || a.id, capability: a.capability, appName: a.appName || a.id,
       origin: a.origin || "builtin", sourceDir: a.sourceDir || "", path: sourceAbs(ctx, a),
-      deployed: st.deployed === true, volumeReady: st.volumeReady !== false, stale: st.stale === true,
+      expose: a.expose || {},
       gpuTiers: a.gpuTiers || { default: "T4", options: [] },
       weights: a.weights || {}, profileId: a.profileId || "",
       functions: (a.functions || []).map((f) => ({
@@ -268,20 +286,83 @@ function buildCatalog(ctx) {
         formSchema: f.formSchema || [], defaultParams: f.defaultParams || {}, minReferences: f.minReferences || 0
       }))
     };
+    if (!known) return projected;
+    return { ...projected, deployed: st.deployed === true, volumeReady: st.volumeReady === true, stale: st.stale === true };
   });
-  // models 是 modalapps 的平台模型就绪投影（供 app_media_bridge 的动态就绪面按 expose.model 匹配）：
-  // 只有 deployed && volumeReady 时才 ready，平台据此把该模型标记为可用（"一旦 available 就注册"）。
-  const models = modalapps.filter((a) => a.expose && a.expose.model).map((a) => ({
+}
+
+// models 是 modalapps 的平台模型就绪投影（供 app_media_bridge 的动态就绪面按 expose.model 匹配）：
+// 只有 deployed && volumeReady 时才 ready，平台据此把该模型标记为可用（"一旦 available 就注册"）。
+function projectModels(modalapps) {
+  return modalapps.filter((a) => a.expose && a.expose.model).map((a) => ({
     model: a.expose.model, app: a.expose.model, capability: a.capability, runtime: "modal",
     label: a.label || a.id, ready: a.deployed === true && a.volumeReady === true,
     weight: { installed: a.volumeReady === true, sizeGb: (a.weights && a.weights.sizeGb) || 0, source: "", revision: (a.weights && a.weights.revision) || "" }
   }));
+}
+
+function buildCatalog(ctx) {
+  const registry = readRegistry(ctx);
+  const status = envStatus(ctx, registry);
+  const profiles = readProfiles(ctx);
+  const modalapps = projectModalapps(ctx, registry, status.modalapps || {});
   return {
     ready: status.ready === true, connected: status.connected === true, error: status.error || "",
-    account: status.account || "", modalapps, models,
+    account: status.account || "", modalapps, models: projectModels(modalapps),
     profiles: profiles.profiles.map(profileSummary),
     defaultProfileId: profiles.defaultProfileId || defaultProfileId(ctx),
     downloadSource: downloadSource(ctx), defaultGpuTier: defaultGpuTierSetting(ctx)
+  };
+}
+
+// ---------------------- 就绪度快照（首屏零等待） ----------------------
+
+function statusSnapshot(ctx) {
+  const raw = settingGet(ctx, STATUS_SNAPSHOT_KEY, "");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (_) { return null; }
+}
+
+// 快照里的 modalapps 一律存「id → 就绪度」的状态映射：status 给的就是映射，catalog 给的是投影数组。
+// 统一成同一形状，否则 overview 回放时 states[a.id] 取不到，会把所有预设包误报成「尚未部署」。
+function snapshotStates(modalapps) {
+  if (Array.isArray(modalapps)) {
+    return Object.fromEntries(modalapps.filter((a) => a && a.id).map((a) => [a.id, {
+      deployed: a.deployed === true, volumeReady: a.volumeReady === true, stale: a.stale === true,
+    }]));
+  }
+  return modalapps && typeof modalapps === "object" ? modalapps : {};
+}
+
+// 只快照「就绪度 + 连通性」：tasks/activeJob 是实时数据，缓存它们会在重连后显示过期状态。
+// 且只在探测可信时写：本机 python 未就绪或未配置 token 时 runner 返回的是空表，
+// 写进去会把「未知」误报成「尚未部署」，所以宁可不覆盖上次的好快照。
+function writeStatusSnapshot(ctx, payload) {
+  if (payload.ready !== true || payload.connected !== true) return;
+  try {
+    settingSet(ctx, STATUS_SNAPSHOT_KEY, JSON.stringify({
+      ready: payload.ready, connected: payload.connected, account: payload.account, error: payload.error,
+      modalapps: snapshotStates(payload.modalapps), checkedAt: payload.checkedAt,
+    }));
+  } catch (_) { /* 快照只是首屏加速，失败不影响探测本身 */ }
+}
+
+// modal.overview：首屏轻量负载——只读本机（registry.json + profiles + 设置）与上次快照，
+// 不拉起 Python/modal CLI。预设包与函数表单立即可渲染，就绪度先按上次探测结果展示。
+function overview(_, ctx) {
+  ensureSchema(ctx);
+  const registry = readRegistry(ctx);
+  const profiles = readProfiles(ctx);
+  const snapshot = statusSnapshot(ctx);
+  return {
+    modalapps: projectModalapps(ctx, registry, snapshot ? snapshot.modalapps : null),
+    profiles: profiles.profiles.map(profileSummary),
+    defaultProfileId: profiles.defaultProfileId || defaultProfileId(ctx),
+    downloadSource: downloadSource(ctx), defaultGpuTier: defaultGpuTierSetting(ctx),
+    snapshot,
   };
 }
 
@@ -663,16 +744,27 @@ function status(_, ctx) {
     try { storedLogs = JSON.parse(envError.logs || "[]"); } catch (_) { storedLogs = []; }
     envFailure = { setupError: envError.error, setupLogs: storedLogs };
   }
-  return {
+  const summary = {
     ready: env.ready === true, connected: env.connected === true, account: env.account || "",
-    pending: !pythonReady, error: env.error || "", modalapps: env.modalapps || {},
+    error: env.error || "", modalapps: env.modalapps || {},
+  };
+  // 记下这次探测的时间与结果：界面用 checkedAt 判断快照是否新鲜（过期才在点击运行时重探），
+  // 且下次进入工作台可直接回放，不必再等 modal CLI。
+  const checkedAt = new Date().toISOString();
+  writeStatusSnapshot(ctx, { ...summary, checkedAt });
+  return {
+    ...summary, checkedAt, pending: !pythonReady,
     profiles: readProfiles(ctx).profiles.map(profileSummary),
     defaultProfileId: defaultProfileId(ctx), downloadSource: downloadSource(ctx), defaultGpuTier: defaultGpuTierSetting(ctx),
     activeJob, activeTask: latest, tasks, ...(envFailure || {})
   };
 }
 
-function catalog(_, ctx) { return buildCatalog(ctx); }
+function catalog(_, ctx) {
+  const payload = buildCatalog(ctx);
+  writeStatusSnapshot(ctx, { ...payload, checkedAt: new Date().toISOString() });
+  return payload;
+}
 
 function profilesList(_, ctx) {
   const data = readProfiles(ctx);
@@ -1041,7 +1133,7 @@ function generate(input, ctx) {
     throw new Error(tr(ctx, `该函数至少需要 ${minReferences} 个参考素材（图像/视频/音频）。`,
       `This function needs at least ${minReferences} reference asset(s) (image/video/audio).`));
   }
-  const gpu = value(input, "gpuTier") || defaultGpuTierSetting(ctx) || defaultGpuTier(modalapp);
+  const gpu = resolveGpuTier(modalapp, value(input, "gpuTier"), ctx);
   const profileId = value(input, "profileId") || resolveProfileId(ctx, registry, modalapp);
   const refs = [];
   const referenceIds = [];
@@ -1160,6 +1252,7 @@ function taskCancel(input, ctx) {
 }
 
 recut.operation.register("modal.status", status);
+recut.operation.register("modal.overview", overview);
 recut.operation.register("modal.catalog", catalog);
 recut.operation.register("modal.profiles.add", profilesAdd);
 recut.operation.register("modal.profiles.list", profilesList);

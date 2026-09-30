@@ -149,6 +149,24 @@ def reference_fields(function: dict) -> list:
     return fields
 
 
+def extra_parameters(manifest: dict, declared, existing: list) -> list:
+    """按 expose.parameters 显式补充平台模型参数。
+
+    平台模型默认只取 expose.function 的表单（例如 qwen 暴露 image-edit，它没有 resolution），
+    但「分辨率」这类只存在于文生图函数的参数也需要在平台侧可选。运行时会按实际命中的函数
+    （background.js resolveTarget + coerceParams）裁剪，不适用的参数会被丢弃，因此多补是安全的。
+    """
+    names = {param.get("name") for param in existing}
+    wanted = [name for name in (declared or []) if name and name not in names]
+    if not wanted:
+        return existing
+    available = {}
+    for function in manifest.get("functions") or []:
+        for param in form_parameters(function.get("formSchema") or []):
+            available.setdefault(param["name"], param)
+    return existing + [available[name] for name in wanted if name in available]
+
+
 def contributed_model(manifest: dict) -> dict | None:
     expose = manifest.get("expose") or {}
     model_id = expose.get("model")
@@ -167,7 +185,7 @@ def contributed_model(manifest: dict) -> dict | None:
         "runtime": "modal",
         "sizeGb": weights.get("sizeGb", 0),
         "inputModes": input_modes(function),
-        "parameters": form_parameters(function.get("formSchema") or []),
+        "parameters": extra_parameters(manifest, expose.get("parameters"), form_parameters(function.get("formSchema") or [])),
         "referenceFields": reference_fields(function),
         "weights": {
             "huggingFace": weights.get("repoHuggingFace", ""),

@@ -131,6 +131,10 @@
           "key": "prompt",
           "type": "textarea",
           "required": true,
+          "placeholder": {
+            "zh": "描述画面与声音，例如：一只橘猫在阳光下的木桌上打哈欠，伴随轻柔的钢琴声",
+            "en": "Describe scene and sound, e.g. an orange cat yawning on a sunlit wooden table with soft piano"
+          },
           "label": {
             "zh": "提示词",
             "en": "Prompt"
@@ -151,6 +155,24 @@
           "label": {
             "zh": "画幅",
             "en": "Aspect ratio"
+          }
+        },
+        {
+          "key": "resolution",
+          "type": "select",
+          "options": [
+            "768",
+            "576",
+            "480"
+          ],
+          "default": "768",
+          "label": {
+            "zh": "分辨率（短边 px）",
+            "en": "Resolution (short edge px)"
+          },
+          "hint": {
+            "zh": "输出短边像素：越小越快、越省额度。H3 原生 768p，只下调不超分。",
+            "en": "Output short-edge pixels: smaller is faster and cheaper. H3 is natively 768p; only down-scaling."
           }
         },
         {
@@ -187,6 +209,7 @@
       ],
       "defaultParams": {
         "aspectRatio": "16:9",
+        "resolution": "768",
         "durationSec": 5,
         "steps": 50
       }
@@ -215,6 +238,10 @@
           "key": "prompt",
           "type": "textarea",
           "required": true,
+          "placeholder": {
+            "zh": "描述首尾帧之间如何运动，例如：镜头缓慢推近，人物从微笑转向大笑",
+            "en": "Describe the motion between frames, e.g. a slow push-in as the subject goes from smiling to laughing"
+          },
           "label": {
             "zh": "提示词",
             "en": "Prompt"
@@ -238,6 +265,24 @@
           "label": {
             "zh": "尾帧（可选）",
             "en": "Last frame (optional)"
+          }
+        },
+        {
+          "key": "resolution",
+          "type": "select",
+          "options": [
+            "768",
+            "576",
+            "480"
+          ],
+          "default": "768",
+          "label": {
+            "zh": "分辨率（短边 px）",
+            "en": "Resolution (short edge px)"
+          },
+          "hint": {
+            "zh": "输出短边像素：越小越快、越省额度。H3 原生 768p，只下调不超分。",
+            "en": "Output short-edge pixels: smaller is faster and cheaper. H3 is natively 768p; only down-scaling."
           }
         },
         {
@@ -273,6 +318,7 @@
         }
       ],
       "defaultParams": {
+        "resolution": "768",
         "durationSec": 5,
         "steps": 50
       },
@@ -309,6 +355,10 @@
           "key": "prompt",
           "type": "textarea",
           "required": true,
+          "placeholder": {
+            "zh": "用 <Picture 1>/<Video 1>/<Audio 1> 引用素材，例如：<Picture 1> 里的角色在雨中撑伞前行",
+            "en": "Reference materials as <Picture 1>/<Video 1>/<Audio 1>, e.g. the character in <Picture 1> walks in the rain"
+          },
           "label": {
             "zh": "提示词（用 <Picture 1>/<Video 1>/<Audio 1> 引用素材）",
             "en": "Prompt (reference materials as <Picture 1>/<Video 1>/<Audio 1>)"
@@ -345,6 +395,24 @@
           }
         },
         {
+          "key": "resolution",
+          "type": "select",
+          "options": [
+            "768",
+            "576",
+            "480"
+          ],
+          "default": "768",
+          "label": {
+            "zh": "分辨率（短边 px）",
+            "en": "Resolution (short edge px)"
+          },
+          "hint": {
+            "zh": "输出短边像素：越小越快、越省额度。H3 原生 768p，只下调不超分。",
+            "en": "Output short-edge pixels: smaller is faster and cheaper. H3 is natively 768p; only down-scaling."
+          }
+        },
+        {
           "key": "durationSec",
           "type": "number",
           "default": 5,
@@ -377,6 +445,7 @@
         }
       ],
       "defaultParams": {
+        "resolution": "768",
         "durationSec": 5,
         "steps": 50
       },

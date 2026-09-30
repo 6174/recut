@@ -5,6 +5,10 @@ export interface FormField {
   type: "textarea" | "select" | "number" | "text" | "boolean" | "media";
   required?: boolean;
   label?: LocalLabel;
+  /** 输入框占位提示（textarea/text 用）。 */
+  placeholder?: LocalLabel;
+  /** 字段级说明（渲染在控件下方），用于把档位语义写在字段旁而非文档里。 */
+  hint?: LocalLabel;
   default?: unknown;
   options?: string[];
   min?: number;
@@ -48,9 +52,11 @@ export interface ModalApp {
   origin?: "builtin" | "user";
   sourceDir?: string;
   path?: string;
-  deployed: boolean;
-  volumeReady: boolean;
+  /** 就绪度由后台探测填充；首次进入尚无任何探测结果时缺省（未知），不是「尚未部署」。 */
+  deployed?: boolean;
+  volumeReady?: boolean;
   stale?: boolean;
+  expose?: { model?: string; function?: string };
   gpuTiers: GpuTiers;
   weights: { sizeGb?: number; revision?: string };
   profileId?: string;
@@ -87,10 +93,31 @@ export interface Catalog {
 export interface EnvStatus {
   ready: boolean;
   connected?: boolean;
+  account?: string;
   pending?: boolean;
   error?: string;
   setupError?: string;
   setupLogs?: LogLine[];
+  /** 各预设包的部署/权重/变更状态（探测结果）。 */
+  modalapps?: Record<string, ModalAppReadiness>;
+  /** 本次探测时间；界面据此判断快照是否新鲜（过期才在点击运行时重探）。 */
+  checkedAt?: string;
+}
+
+export interface ModalAppReadiness {
+  deployed?: boolean;
+  volumeReady?: boolean;
+  stale?: boolean;
+}
+
+/** modal.overview：首屏轻量负载（本机 registry/profiles/设置 + 上次就绪度快照，不拉起 modal CLI）。 */
+export interface Overview {
+  modalapps: ModalApp[];
+  profiles: Profile[];
+  defaultProfileId: string;
+  downloadSource: string;
+  defaultGpuTier: string;
+  snapshot: EnvStatus | null;
 }
 
 export interface Task {

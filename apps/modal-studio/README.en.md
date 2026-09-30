@@ -14,6 +14,12 @@ Modal Functions is a Recut **standard app** (`standalone`): it decouples the *cl
 - **Call the cloud like a local function**: the local client uses the Modal SDK (`Function.from_name(...).with_options(gpu=...).remote()`), with **no HTTP endpoint**.
 - **Private by default**: outputs stay in the app's private area until `modal.save`.
 
+## Form semantics
+
+- **Remembered per preset pack**: every pack keeps its own persisted form slice (field values + references + GPU tier); switching packs, switching tabs or reloading brings back exactly what you left. The right pane's focused task is restored too (cleared if the task is gone).
+- **Resolution**: the form's `resolution` field is the **output short-edge in pixels** — smaller is faster and cheaper. Natives differ per pack (MiniMax-H3 = 768p, Qwen-Image-2.1 = native 2K, SD-Turbo = 512) and are **never upscaled**: a value at or above the frame's native short edge keeps the native size. Image-edit / image-to-image follow the reference image's size, so they have no such field.
+- **GPU tier**: an explicit choice is remembered (per pack); only when there is none does it fall back to the pack's declared default. Precedence is "this request > global default > pack default", and every candidate must exist in that pack's `gpuTiers.options` — otherwise the first option wins, so switching packs can never leave the selector blank.
+
 ## Quick start
 
 1. Install and start Recut (see the main [README](../../README.en.md)).
@@ -25,6 +31,7 @@ Modal Functions is a Recut **standard app** (`standalone`): it decouples the *cl
 
 | Capability | Operations |
 | --- | --- |
+| First-paint payload (local read, zero wait) | `modal.overview` |
 | Connectivity / catalog | `modal.status` · `modal.catalog` |
 | Token / settings / secret | `modal.profiles.add/list/remove` · `modal.settings.set` · `modal.secret.set` |
 | Preset pack management | `modal.modalapp.list` · `modal.modalapp.get` · `modal.modalapp.path` · `modal.modalapp.save` · `modal.modalapp.scaffold` · `modal.modalapp.remove` |
@@ -34,6 +41,18 @@ Modal Functions is a Recut **standard app** (`standalone`): it decouples the *cl
 | Task center | `modal.tasks.list` · `modal.task.get` · `modal.task.logs` · `modal.task.cancel` · `modal.cancel` |
 
 > **Integrated with the platform's image/video capabilities**: the manifest declares a `contributes.media` provider `modal-cloud`, and every preset pack that declares `expose` registers as one platform model (`modal-cloud/<model>`; both image and video). The platform's image/video default route can point at it, and generation dispatches to `modal.generate` through the generic execution bridge; a model is only `ready=true` once its pack is **deployed and its weights are ready** (`modal.catalog.models[]` reports readiness dynamically). **A text-only request (no references) auto-routes to the pack's text function (`text-to-*`); the reference function is used only when references are supplied** — references are optional (the platform budget only sets ceilings), so "no refs → text, refs → reference" holds under the platform default route. Other capabilities remain exposed directly through this app's api/mcp operations.
+
+## Load order when entering the workspace
+
+Readiness probing shells out to the `modal` CLI (one `modal volume ls` per deployed pack), which takes seconds — so it never blocks first paint:
+
+1. **First paint (`modal.overview`)**: reads only local state — `python/registry.json` (packs/functions/forms), token profiles, settings — plus the **readiness snapshot from the last probe**. It returns in milliseconds, so packs and forms are usable immediately; readiness replays from the snapshot, and a pack with no snapshot yet shows "status unchecked" (**unknown is not the same as not deployed**).
+2. **Background probe (`modal.status`)**: refreshes independently, filling in connectivity, deployment state, volume readiness and `stale` (code changed → redeploy), and **writes the result back as the snapshot** for the next first paint. It only affects status display and blocks nothing.
+3. **Dynamic check on Run**: a fresh snapshot is trusted as-is; if it is stale (>60s) or missing, one probe runs first. **Only a confirmed not-ready pack (not deployed / weights missing) is blocked**, with a prompt to Prepare (deploy + weights) or Redeploy; unknown is never blocked — the submit contract is never-reject, and the real failure reason lands in the task log.
+
+So entering the workspace no longer waits for probing; only the first Run of a pack that has never been probed costs one probe (a few seconds).
+
+> **Readiness probing is best-effort**: readiness means the volume root carries the completion marker (`.recut-download-complete`, or `-v2` for some packs — matched by prefix). A single failed `modal volume ls` (network blip, CLI hiccup, volume being written by a deploy) is **not** treated as "weights not downloaded": it retries once, and only a second miss counts as not-ready. The Run-time check also re-verifies a "not ready" verdict, so a one-off blip can never harden into a false alarm. Probe-only commands (`app list` / `volume ls`) run silently so they add no stdout noise.
 
 ## Preset packs: built-in + user
 
@@ -85,6 +104,7 @@ Add a directory under `modalapps/` (`manifest.json`, `modal_app.py`, `bootstrap.
 make app-link APP=apps/modal-studio
 cd apps/modal-studio/ui && npm install && npm run build
 python3 apps/modal-studio/python/publish_registry.py
+node apps/modal-studio/test/catalog_smoke.mjs   # first-paint path smoke (overview/status/snapshot/models)
 ```
 
 - The main venv (`~/.recut/python/envs/recut.modal-studio/`) only holds the lightweight `modal` client; heavy dependencies live in the cloud Image.

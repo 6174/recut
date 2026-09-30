@@ -113,6 +113,10 @@
           "key": "prompt",
           "type": "textarea",
           "required": true,
+          "placeholder": {
+            "zh": "例如：一只戴墨镜的柯基坐在冲浪板上，清新插画风",
+            "en": "e.g. a corgi in sunglasses on a surfboard, clean illustration style"
+          },
           "label": {
             "zh": "提示词",
             "en": "Prompt"
@@ -122,6 +126,10 @@
           "key": "negativePrompt",
           "type": "textarea",
           "default": "",
+          "placeholder": {
+            "zh": "例如：模糊、变形、低质量",
+            "en": "e.g. blurry, deformed, low quality"
+          },
           "label": {
             "zh": "负向词",
             "en": "Negative prompt"
@@ -141,6 +149,24 @@
           "label": {
             "zh": "画幅",
             "en": "Aspect ratio"
+          }
+        },
+        {
+          "key": "resolution",
+          "type": "select",
+          "options": [
+            "512",
+            "384",
+            "256"
+          ],
+          "default": "512",
+          "label": {
+            "zh": "分辨率（短边 px）",
+            "en": "Resolution (short edge px)"
+          },
+          "hint": {
+            "zh": "短边像素：越小越快、越省额度；不小于该画幅原生短边时保持原生尺寸。",
+            "en": "Short-edge pixels: smaller is faster and cheaper. At or above the frame's native short edge it keeps the native size."
           }
         },
         {
@@ -177,6 +203,7 @@
       ],
       "defaultParams": {
         "aspectRatio": "1:1",
+        "resolution": "512",
         "steps": 2,
         "guidance": 0.0
       }
@@ -204,6 +231,10 @@
           "key": "prompt",
           "type": "textarea",
           "required": true,
+          "placeholder": {
+            "zh": "例如：把这张照片改成水彩画风格",
+            "en": "e.g. turn this photo into a watercolor painting"
+          },
           "label": {
             "zh": "提示词",
             "en": "Prompt"
