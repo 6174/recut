@@ -141,7 +141,7 @@
         "mcp"
       ],
       "capability": true,
-      "description": "检查本地 ComfyUI 工作台的本地 Python、FFmpeg、ComfyUI 专属 venv 与各工作流权重（就绪度）和下载源；activeJob 返回最新在途任务，tasks 返回全部在途任务清单。",
+      "description": "检查本地 ComfyUI 工作台的本地 Python、FFmpeg、ComfyUI 专属 venv 与各工作流权重（就绪度）和下载源；activeJob 返回最新在途任务，tasks 返回全部在途任务清单。就绪度是轻量核对（只看 venv 解释器、依赖指纹与源码是否在位），不拉起推理进程，因此进入工作台不会被阻塞；import torch 等重型自检只在 comfy.prepare 任务里执行，日志可见。",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -154,7 +154,7 @@
         "mcp"
       ],
       "capability": true,
-      "description": "枚举本机 ComfyUI 工作流（静态注册表 + 动态就绪度）：返回 runtimes 与 apps（含 capability、runtime、表单 schema、输出类型、就绪度与权重安装状态），供界面工作流切换与平台能力模型聚合。",
+      "description": "枚举本机 ComfyUI 工作流（静态注册表 + 轻量就绪度）：返回 runtimes 与 apps（含 capability、runtime、表单 schema、输出类型、就绪度与权重安装状态），供界面工作流切换与平台能力模型聚合。就绪度不做重型探测（不 import torch、不启动引擎），故可安全用于界面首屏。",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -249,7 +249,7 @@
       "surfaces": [
         "api"
       ],
-      "description": "持久化 ComfyUI 工作台的下载源设置（automatic/huggingface/modelscope）。",
+      "description": "持久化 ComfyUI 工作台设置：下载源（automatic/huggingface/modelscope）与某个工作流的「AI 默认参数」（agentDefaults）。AI 默认参数用于 Agent/平台默认路由调用 comfy.generate 时补全未显式传入的字段。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -259,6 +259,21 @@
               "automatic",
               "huggingface",
               "modelscope"
+            ]
+          },
+          "agentDefaults": {
+            "type": "object",
+            "description": "某个工作流的 AI 默认参数：{ app, params }。params 为按 formSchema 的表单值对象，传空对象即清除。",
+            "properties": {
+              "app": {
+                "type": "string"
+              },
+              "params": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "app"
             ]
           }
         }

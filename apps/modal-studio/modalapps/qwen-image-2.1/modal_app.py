@@ -2,7 +2,8 @@
 [INPUT]: Modal 运行时（modal.Image / modal.Volume）；/models 卷里由 bootstrap.py 下载的 Qwen-Image-2.1 权重（diffusers 布局）
 [OUTPUT]: 云端 Modal App「recut-qwen-image-21」：类 QwenImage21 在容器内常驻 QwenImage21Pipeline，提供
           generate_image（文生图，默认原生 2K、可经「分辨率」下调短边，返回 PNG bytes）与 edit_image（图像编辑，
-          接收 1–10 张参考图 bytes，返回 PNG bytes）；bootstrap_weights / bootstrap_from_modelscope 把权重下载进
+          接收 1–10 张参考图 bytes，默认输出尺寸跟随参考图、可用「画幅 + 分辨率」覆盖，返回 PNG bytes）；
+          bootstrap_weights / bootstrap_from_modelscope 把权重下载进
           /models 卷。类开启
           GPU memory snapshot（enable_memory_snapshot + enable_gpu_snapshot），把 import/加载/预热挪进
           @modal.enter(snap=True)，后续冷启动直接从快照恢复。镜像设 PYTORCH_CUDA_ALLOC_CONF=expandable_segments，
@@ -210,8 +211,8 @@ class QwenImage21:
         return self._generate(prompt, negativePrompt, width, height, steps, guidance, seed)
 
     @modal.method()
-    def edit_image(self, prompt: str, negativePrompt: str = "", steps: int = 40,
-                   guidance: float = 1.0, seed: int = -1, refs=None):
+    def edit_image(self, prompt: str, negativePrompt: str = "", aspectRatio: str = "",
+                   resolution: str = "", steps: int = 40, guidance: float = 1.0, seed: int = -1, refs=None):
         from PIL import Image
 
         if not refs:
@@ -221,8 +222,9 @@ class QwenImage21:
             picture = Image.open(io.BytesIO(entry["data"]))
             picture.load()
             images.append(picture)
-        # 输出尺寸跟随参考图，故不传 width/height。
-        return self._generate(prompt, negativePrompt, None, None, steps, guidance, seed,
+        # 画幅留空 → 输出尺寸跟随参考图（不传 width/height）；显式给定画幅 → 按画幅 + 分辨率出图。
+        width, height = _size(aspectRatio, resolution) if str(aspectRatio or "").strip() else (None, None)
+        return self._generate(prompt, negativePrompt, width, height, steps, guidance, seed,
                               image=images[0] if len(images) == 1 else images)
 
 

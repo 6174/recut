@@ -4,7 +4,9 @@
  *          提交的 shell job）、MediaService（注册本地 provider/模型/声音、读取/挂载产物 Asset）与 media 包的
  *          本地执行契约。
  * [OUTPUT]: 把每个已安装 App 声明的本地 media provider（contributes.media）接到平台，完全由 manifest 驱动、
- *           无 per-app 代码：① 静态 provider/模型目录合并进全局 media 目录（media.RegisterAppProviders）；
+ *           无 per-app 代码：① 静态 provider/模型目录合并进全局 media 目录（media.RegisterAppProviders），
+ *           并把每个模型声明的 parameters 带进平台目录（标记 PassthroughParams：平台借声明折叠一等字段、
+ *           展示能力面，校验仍归 App）；
  *           ② 通用执行桥（按 App 的 executor 声明组装输入 → generate/synthesize → 等终态 → save 授权落库 →
  *           返回平台 Asset），图片/视频/语音共用同一条路径；终态观察有两种形态：声明 operations.task 的
  *           provider 由平台轮询其 task op（App 自持队列与并发策略，占槽时 job=null 不再是错误，且排队时长不
@@ -71,6 +73,10 @@ func mediaProviderFromContribution(contribution ContributedMediaProvider) media.
 			OutputModes:  append([]string(nil), model.OutputModes...),
 			Available:    true,
 			Configurable: false,
+			// 参数声明进入平台目录，使 platform 能识别模型可调项（例如把一等字段
+			// aspectRatio 折进 Output）；但校验仍归 App，故标记为 passthrough。
+			Parameters:        mediaParametersFromContribution(model.Parameters),
+			PassthroughParams: true,
 			// 参考约束随 manifest 声明进入平台目录：平台据此识别「可锚定参考」的本地模型
 			// 并在提交前校验其参考数量（与云端 provider 的 referenceBudgets 同一套校验）。
 			ReferenceBudgets: append([]media.ReferenceBudget(nil), model.ReferenceBudgets...),
@@ -83,6 +89,46 @@ func mediaProviderFromContribution(contribution ContributedMediaProvider) media.
 		Models:   models,
 		Source:   "app",
 	}
+}
+
+// mediaParametersFromContribution maps an App model's declared parameters
+// (manifest shape: {name, type, enum?, default?, min?, max?}) onto the platform
+// parameter contract. The names stay verbatim: an App-contributed model's App
+// receives the declared names, so no provider-key translation is involved.
+// "prompt" is dropped: for the platform it is a first-class input (the tool's
+// text field), not an Output parameter — cloud catalogs never list it either,
+// so keeping it would surface a duplicate control in the generation UI.
+func mediaParametersFromContribution(declared []map[string]any) []media.MediaParameter {
+	if len(declared) == 0 {
+		return nil
+	}
+	parameters := make([]media.MediaParameter, 0, len(declared))
+	for _, item := range declared {
+		name := mapString(item, "name")
+		if name == "" || name == "prompt" {
+			continue
+		}
+		parameter := media.MediaParameter{Name: name, Type: mapString(item, "type")}
+		if parameter.Type == "" {
+			parameter.Type = "string"
+		}
+		for _, value := range sliceField(item, "enum") {
+			if text, ok := value.(string); ok {
+				parameter.Enum = append(parameter.Enum, text)
+			}
+		}
+		if value, ok := item["default"]; ok {
+			parameter.Default = value
+		}
+		if value, ok := item["min"].(float64); ok {
+			parameter.Minimum = &value
+		}
+		if value, ok := item["max"].(float64); ok {
+			parameter.Maximum = &value
+		}
+		parameters = append(parameters, parameter)
+	}
+	return parameters
 }
 
 // registerAppProviderExecutor wires one contributed provider to a generic bridge

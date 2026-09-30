@@ -5,8 +5,8 @@
  *          invoke/teardown/secret）
  * [OUTPUT]: 注册首屏轻量负载（modal.overview：只读本机 registry/profiles/设置 + 上次就绪度快照，不拉起 Python）、
  *          连通性与就绪度（modal.status，结果同时写入快照供下次首屏回放）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记与平台模型就绪投影 models[]）、token profiles（modal.profiles.*）、
- *          设置（modal.settings.set）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
- *          调用函数（modal.generate，单槽 FIFO；兼容平台执行桥的 model 入参）、历史与入库（modal.generations / modal.generation.complete /
+ *          设置（modal.settings.set：默认 profile / 权重源 / GPU 档位 / 每「预设包+函数」的 AI 默认参数 agent_defaults:<id>:<fn>）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
+ *          调用函数（modal.generate，单槽 FIFO；兼容平台执行桥的 model 入参；非 origin="manual" 的调用用 agentDefaults 补全缺省字段）、历史与入库（modal.generations / modal.generation.complete /
  *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel）与取消（modal.cancel）。
  * [POS]: modal-studio 的唯一业务后端；经 manifest contributes.media 向平台注册 modal-cloud provider（每个声明
  *        expose 的 modalapp → 一个平台模型，平台默认生图/生视频路由可指向它，经通用执行桥调用 modal.generate），
@@ -205,6 +205,22 @@ function defaultProfileId(ctx) { return settingGet(ctx, "default_profile_id", ""
 function defaultGpuTierSetting(ctx) { return settingGet(ctx, "default_gpu_tier", ""); }
 function requireCostConfirm(ctx) { return settingGet(ctx, "require_cost_confirm", "true") !== "false"; }
 
+// 每个「预设包 + 函数」的「AI 调用默认参数」：Agent/平台默认路由未显式传入的字段用它补全（手动 UI 提交带 origin="manual"）。
+function agentDefaults(ctx, modalappID, fnID) {
+  ensureSchema(ctx);
+  const rows = ctx.sqlite.query("select value from modal_settings where key = ?", [`agent_defaults:${modalappID}:${fnID}`]);
+  if (!rows.length) return {};
+  try {
+    const parsed = JSON.parse(rows[0].value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) { return {}; }
+}
+function setAgentDefaults(ctx, modalappID, fnID, params) {
+  ensureSchema(ctx);
+  ctx.sqlite.execute("insert into modal_settings (key, value) values (?, ?) on conflict(key) do update set value = excluded.value", [`agent_defaults:${modalappID}:${fnID}`, JSON.stringify(params || {})]);
+  return params || {};
+}
+
 // ---------------------- token profiles（镜像文件供 runner 读取；secret 永不回传 UI） ----------------------
 
 function readProfiles(ctx) {
@@ -283,7 +299,8 @@ function projectModalapps(ctx, registry, states) {
       weights: a.weights || {}, profileId: a.profileId || "",
       functions: (a.functions || []).map((f) => ({
         id: f.id, label: f.label || f.id, entrypoint: f.entrypoint, output: f.output || { kind: "image", mimeType: "image/png", ext: "png" },
-        formSchema: f.formSchema || [], defaultParams: f.defaultParams || {}, minReferences: f.minReferences || 0
+        formSchema: f.formSchema || [], defaultParams: f.defaultParams || {}, minReferences: f.minReferences || 0,
+        agentDefaults: agentDefaults(ctx, a.id, f.id)
       }))
     };
     if (!known) return projected;
@@ -815,6 +832,15 @@ function settingsSet(input, ctx) {
   const gpu = value(input, "defaultGpuTier");
   if (input.defaultGpuTier !== undefined) settingSet(ctx, "default_gpu_tier", gpu);
   if (input.requireCostConfirm !== undefined) settingSet(ctx, "require_cost_confirm", input.requireCostConfirm === false ? "false" : "true");
+  const defaults = input.agentDefaults;
+  if (defaults && typeof defaults === "object") {
+    const modalapp = appDef(readRegistry(ctx), value(defaults, "modalapp"));
+    if (!modalapp) throw new Error("unknown modalapp: " + value(defaults, "modalapp"));
+    const fn = functionDef(modalapp, value(defaults, "function")) || (modalapp.functions || [])[0];
+    if (!fn) throw new Error("unknown function: " + value(defaults, "function") + " in " + modalapp.id);
+    const params = (defaults.params && typeof defaults.params === "object") ? defaults.params : {};
+    setAgentDefaults(ctx, modalapp.id, fn.id, coerceParams(fn, params));
+  }
   return { defaultProfileId: data.defaultProfileId, downloadSource: downloadSource(ctx), defaultGpuTier: defaultGpuTierSetting(ctx), requireCostConfirm: requireCostConfirm(ctx) };
 }
 
@@ -1115,7 +1141,10 @@ function generate(input, ctx) {
   const baseParams = (input.params && typeof input.params === "object") ? input.params : input;
   // 平台执行桥把提示词与表单参数分开传（prompt + params）；App 内调用则直接用 params/表单字段。
   const rawParams = (value(input, "prompt") && baseParams.prompt === undefined) ? { ...baseParams, prompt: value(input, "prompt") } : baseParams;
-  const params = coerceParams(fn, rawParams);
+  // 仅 AI/Agent 与平台默认路由调用补配置的默认参数；App 内手动提交（origin="manual"）完全按表单值。
+  const fromUI = value(input, "origin") === "manual";
+  const merged = fromUI ? rawParams : { ...agentDefaults(ctx, modalapp.id, fn.id), ...rawParams };
+  const params = coerceParams(fn, merged);
   const collected = collectReferences(fn, input);
   const refsByField = {};
   for (const item of collected) refsByField[item.field] = (refsByField[item.field] || 0) + 1;

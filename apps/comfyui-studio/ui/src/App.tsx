@@ -1,13 +1,14 @@
 /**
  * [INPUT]: 依赖 recut-sdk（background.call + events.subscribe 实时事件）、Left 两 Tab 组件、Right 预览组件与 i18n
- * [OUTPUT]: ComfyUI 工作台主工作区：工作流目录/任务列表按事件增量刷新（首屏与用户动作走 REST）、选中任务详情与产物、预览图「以此为参考图编辑」回填左侧表单、引擎管理面板（EngineDialog）、动作编排与语言同步；外壳由 shadcn Tabs/Card 承载
+ * [OUTPUT]: ComfyUI 工作台主工作区：外壳立即渲染，目录/就绪度以可感知的非阻塞探测补齐（BootNotice 显示在等什么、等多久、第几次与失败原因）；工作流目录/任务列表按事件增量刷新（首屏与用户动作走 REST）、选中任务详情与产物、预览图「以此为参考图编辑」回填左侧表单、引擎管理面板（EngineDialog）、动作编排与语言同步；仅当探测确认环境未就绪才进入带日志的 Setup 门；外壳由 shadcn Tabs/Card 承载
  * [POS]: ui 的状态编排层；只经 App operation 契约访问后台，不直接读写本机文件
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, RefreshCw, Workflow } from "lucide-react";
+import { RefreshCw, Workflow } from "lucide-react";
 import { isRecutConnected, recut, useRecutLocale } from "./recut-sdk";
 import { t } from "./i18n";
+import { BootNotice } from "./components/BootNotice";
 import { WorkflowTab } from "./components/WorkflowTab";
 import { RecordsTab } from "./components/RecordsTab";
 import { PreviewPane } from "./components/PreviewPane";
@@ -26,7 +27,9 @@ const APP_ID = "recut.comfyui-studio";
 export default function App() {
   const locale = useRecutLocale();
   const [connected, setConnected] = useState(() => isRecutConnected());
-  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [catalogPhase, setCatalogPhase] = useState<"loading" | "error" | "ready">("loading");
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogAttempts, setCatalogAttempts] = useState(0);
   const [tab, setTab] = useState<"generate" | "records">("generate");
   const [catalog, setCatalog] = useState<Catalog>(EMPTY_CATALOG);
   const [env, setEnv] = useState<EnvStatus | null>(null);
@@ -42,6 +45,7 @@ export default function App() {
   const [clock, setClock] = useState(() => Date.now());
 
   const catalogLoadedRef = useRef(false);
+  const bootStartedAt = useRef(Date.now());
   const selectedIdRef = useRef<string | null>(null);
   const trackedJobIdsRef = useRef<Set<string>>(new Set());
   const refreshTimer = useRef<number | null>(null);
@@ -55,12 +59,19 @@ export default function App() {
     [],
   );
 
-  const refreshCatalog = useCallback(async () => {
+  // 首屏探测：成功/失败都必须落到可见状态，绝不静默吞掉失败原因。
+  // demote=false 用于工作台内的「重新同步」：失败只提示，不把已经可用的工作台降级成错误页。
+  const refreshCatalog = useCallback(async (demote = true) => {
+    setCatalogAttempts((count) => count + 1);
     try {
       setCatalog(await op<Catalog>("comfy.catalog"));
-      setCatalogLoaded(true);
-    } catch {
-      /* keep last snapshot */
+      setCatalogError("");
+      setCatalogPhase("ready");
+      return true;
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : String(error));
+      if (demote) setCatalogPhase("error");
+      return false;
     }
   }, [op]);
 
@@ -131,8 +142,8 @@ export default function App() {
   }, [connected]);
 
   useEffect(() => {
-    catalogLoadedRef.current = catalogLoaded;
-  }, [catalogLoaded]);
+    catalogLoadedRef.current = catalogPhase === "ready";
+  }, [catalogPhase]);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -143,30 +154,33 @@ export default function App() {
     trackedJobIdsRef.current = new Set(tasks.map((task) => task.jobId).filter((id): id is string => Boolean(id)));
   }, [tasks]);
 
-  // 本地秒针：仅在存在在途任务时驱动计时显示，不发任何请求。
+  // 本地秒针：在途任务或首屏探测期间驱动计时显示，不发任何请求。
   useEffect(() => {
-    if (!hasActiveTask) return;
+    if (!hasActiveTask && catalogPhase === "ready") return;
     setClock(Date.now());
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [hasActiveTask]);
+  }, [hasActiveTask, catalogPhase]);
 
-  // 首屏数据走 REST；catalog 未就绪前有限重试，就绪后停止。
+  // 首屏目录与就绪度走可感知的非阻塞探测：失败会显示原因，未就绪前每 3s 重试一次并展示次数。
   useEffect(() => {
-    if (!connected || catalogLoaded) return;
+    if (!connected) return;
     let cancelled = false;
+    let timer = 0;
     const load = async () => {
-      await refreshCatalog();
+      if (catalogLoadedRef.current) return;
+      const ok = await refreshCatalog();
       await refreshTasks();
       await refreshEnv();
       await refreshEngine();
-      if (!cancelled && !catalogLoadedRef.current) window.setTimeout(load, 2000);
+      if (!cancelled && !ok) timer = window.setTimeout(() => void load(), 3000);
     };
     void load();
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [connected, catalogLoaded, refreshCatalog, refreshTasks, refreshEnv, refreshEngine]);
+  }, [connected, refreshCatalog, refreshTasks, refreshEnv, refreshEngine]);
 
   // 事件驱动的增量刷新：后台 shell job 生命周期（started/completed）触发一次合并刷新。
   const refreshFromEvent = useCallback(async (includeStatus: boolean) => {
@@ -342,19 +356,23 @@ export default function App() {
     [],
   );
 
-  if (!catalogLoaded) {
-    return (
-      <main className="grid min-h-screen place-items-center p-6">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Loader2 className="size-5 animate-spin text-primary" />
-          <p className="text-xs">{t(locale, "app.loading")}</p>
-        </div>
-      </main>
-    );
-  }
+  // 手动重试：立刻回到 loading 让用户看到反馈，再走同一条探测；失败原因由 refreshCatalog 落到可见状态。
+  const retryProbe = useCallback(async () => {
+    setCatalogPhase("loading");
+    await refreshCatalog();
+    await refreshTasks();
+    await refreshEnv();
+    await refreshEngine();
+  }, [refreshCatalog, refreshTasks, refreshEnv, refreshEngine]);
+
+  // 工作台内的「重新同步」：只刷新数据，失败保留当前工作台并就地提示。
+  const resync = useCallback(async () => {
+    await refreshCatalog(false);
+    await refreshTasks();
+  }, [refreshCatalog, refreshTasks]);
 
   const envReady = env?.ready ?? catalog.ready;
-  if (!envReady) {
+  if (catalogPhase === "ready" && !envReady) {
     const prepareTask = tasks.find((task) => task.action === "prepare" && (task.state === "queued" || task.state === "running"));
     const elapsedSeconds = prepareTask ? (clock - Date.parse(prepareTask.createdAt)) / 1000 : 0;
     return (
@@ -384,47 +402,65 @@ export default function App() {
             <p className="max-w-2xl truncate text-xs text-muted-foreground">{t(locale, "app.subtitle")}</p>
           </div>
         </div>
-        <EngineControl locale={locale} status={engine} starting={engineStarting} onOpen={() => setEngineOpen(true)} />
+        <EngineControl locale={locale} status={engine} starting={engineStarting} pending={catalogPhase !== "ready"} onOpen={() => setEngineOpen(true)} />
       </header>
 
       <div className="mt-4 grid min-h-0 flex-1 gap-4 xl:grid-cols-[26rem_minmax(0,1fr)]">
         <Card className="flex min-h-[36rem] flex-col gap-0 overflow-hidden py-0 [--card-spacing:0px] xl:min-h-0">
-          <Tabs value={tab} onValueChange={(value) => setTab(value as "generate" | "records")} className="flex min-h-0 flex-1 flex-col gap-0">
-            <div className="flex shrink-0 items-center border-b border-border/70 px-4">
-              <TabsList variant="line" className="h-10 gap-5">
-                <TabsTrigger value="generate" className="flex-none px-0.5">{t(locale, "tab.generate")}</TabsTrigger>
-                <TabsTrigger value="records" className="flex-none px-0.5">{t(locale, "tab.records")}</TabsTrigger>
-              </TabsList>
-            </div>
+          {catalogPhase === "ready" ? (
+            <Tabs value={tab} onValueChange={(value) => setTab(value as "generate" | "records")} className="flex min-h-0 flex-1 flex-col gap-0">
+              <div className="flex shrink-0 items-center border-b border-border/70 px-4">
+                <TabsList variant="line" className="h-10 gap-5">
+                  <TabsTrigger value="generate" className="flex-none px-0.5">{t(locale, "tab.generate")}</TabsTrigger>
+                  <TabsTrigger value="records" className="flex-none px-0.5">{t(locale, "tab.records")}</TabsTrigger>
+                </TabsList>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                <TabsContent value="generate">
+                  <WorkflowTab
+                    apps={catalog.apps}
+                    runtimes={catalog.runtimes}
+                    locale={locale}
+                    downloadSource={catalog.downloadSource}
+                    injectedReference={injectedReference}
+                    onGenerate={handleGenerate}
+                    onSaveDefault={handleSaveDefault}
+                    onPrepare={handlePrepare}
+                    onInstall={handleInstall}
+                    onSetSource={handleSetSource}
+                    onSavedDefaults={() => { void refreshCatalog(false); }}
+                  />
+                </TabsContent>
+                <TabsContent value="records">
+                  <RecordsTab tasks={tasks} locale={locale} selectedId={selectedId} onSelect={selectTask} />
+                </TabsContent>
+              </div>
+            </Tabs>
+          ) : (
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <TabsContent value="generate">
-                <WorkflowTab
-                  apps={catalog.apps}
-                  runtimes={catalog.runtimes}
-                  locale={locale}
-                  downloadSource={catalog.downloadSource}
-                  injectedReference={injectedReference}
-                  onGenerate={handleGenerate}
-                  onSaveDefault={handleSaveDefault}
-                  onPrepare={handlePrepare}
-                  onInstall={handleInstall}
-                  onSetSource={handleSetSource}
-                />
-              </TabsContent>
-              <TabsContent value="records">
-                <RecordsTab tasks={tasks} locale={locale} selectedId={selectedId} onSelect={selectTask} />
-              </TabsContent>
+              <BootNotice
+                locale={locale}
+                connected={connected}
+                phase={catalogPhase}
+                elapsedSeconds={(clock - bootStartedAt.current) / 1000}
+                attempts={catalogAttempts}
+                error={catalogError}
+                onRetry={() => void retryProbe()}
+              />
             </div>
-          </Tabs>
+          )}
         </Card>
 
         <Card className="flex min-h-[36rem] flex-col gap-0 overflow-hidden py-0 [--card-spacing:0px] xl:min-h-0">
           <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-4">
             <span className="text-xs font-semibold text-foreground">{t(locale, "preview.title")}</span>
             <span className="flex-1" />
-            <Button variant="ghost" size="sm" onClick={() => { void refreshCatalog(); void refreshTasks(); }}>
+            <Button variant="ghost" size="sm" disabled={catalogPhase !== "ready"} onClick={() => void resync()}>
               <RefreshCw className="size-3.5" />{t(locale, "app.resync")}
             </Button>
+            {catalogPhase === "ready" && catalogError
+              ? <span className="max-w-[14rem] truncate text-[10px] text-destructive" title={catalogError}>{catalogError}</span>
+              : null}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <PreviewPane task={detail} generation={generation} params={params} logs={logs} locale={locale} onCancel={handleCancel} onSave={handleSave} onEdit={handleEdit} onRemix={handleRemix} />

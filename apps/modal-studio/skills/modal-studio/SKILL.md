@@ -23,7 +23,7 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 1. `modal.status` / `modal.catalog` / `modal.modalapp.list` 看预设包/函数、部署与 Volume 就绪度、连通性、来源与路径。
 2. 首次使用：右上角「Modal 账号」面板设置 Modal token（profiles）与 HF token / 其他 Secret（`modal.profiles.add` / `modal.secret.set`，可用 `modal.secrets.list` 看哪些已声明/已设置）；`modal.prepare` 准备本机 venv。
 3. `modal.deploy { modalapp }` **部署与权重合并**：先 `modal deploy` 构建 Image，成功后自动接着跑 bootstrap 下载权重（幂等/断点续传）；只补权重用 `modal.install { modalapp, source:"huggingface" }`（按预设包串行）。来源默认 Hugging Face。
-4. `modal.generate { modalapp, function, params, referenceAssetIds?, gpuTier?, confirmCost: true }` 调用云端函数（单槽 FIFO）；占槽时返回 `taskId`（`job=null`）→ 用 `modal.tasks.list` / `recut.job.wait` 观察。
+4. `modal.generate { modalapp, function, params, referenceAssetIds?, gpuTier?, confirmCost: true }` 调用云端函数（单槽 FIFO）。**params 只需传 `prompt`（与参考素材）**：其余字段会走用户在 App 内配置的「AI 默认参数」、再回落到函数默认，无需自己填。占槽时返回 `taskId`（`job=null`）→ 用 `modal.tasks.list` / `recut.job.wait` 观察。
 5. `modal.generation.complete { id }` 读取产物；`modal.save { id, kind }` 入库（不自动入库）。
 
 ## 创建一个新 modalapp（用户预设包）
@@ -57,7 +57,7 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 - `functions[]`：每项 `{ id, name, entrypoint, output:{kind,mimeType,ext}, formSchema[], defaultParams }`。
   - `entrypoint` 必须等于 `modal_app.py` 里的函数名；参数名与 `formSchema[].key` 一致。
   - `formSchema` 类型：`textarea|text|number|select|boolean|media`（`label`/`placeholder`/`hint` 均为双语对象，用于把字段语义写在字段旁）；`media` 字段经 `referenceAssetIds` 传入，函数收到 `refs=[{name,mimeType,data:bytes}]`。
-  - **`resolution`（字段存在即该函数支持调分辨率）**：值是**输出短边像素**，长边按画幅推导，**只下调不超分**（不小于该画幅原生短边时保持原生尺寸：H3 原生 768p、Qwen-Image-2.1 原生 2K、SD-Turbo 原生 512）。文生图/文生视频有该字段；图像编辑 / 图生图的输出尺寸跟随参考图，故没有。合法取值从 `modal.catalog` 的 `formSchema[].options` 取。
+  - **`aspectRatio` / `resolution`**：`aspectRatio` 是输出画幅，`resolution` 是**输出短边像素**（长边按画幅推导，**只下调不超分**，不小于该画幅原生短边时保持原生尺寸：H3 原生 768p、Qwen-Image-2.1 原生 2K、SD-Turbo 原生 512）。文生图/文生视频有这两个字段；**图像编辑 / 图生图默认跟随参考图尺寸**——`aspectRatio` 留空即跟随，显式给定后按「画幅 + 分辨率」出图（Qwen-Image-2.1 的 `edit_image` 已支持）。合法取值从 `modal.catalog` 的 `formSchema[].options` 取。
   - `output.kind` ∈ `image|video|audio`，决定取回方式与预览。
 
 ### 3) 云端函数输出契约（`modal_app.py`）
@@ -91,9 +91,9 @@ modal.modalapp.remove { id }          # 删除用户预设包（内置不可删�
 
 ## 平台集成（已接入）
 
-- 本 App 在 manifest `contributes.media` 声明 provider `modal-cloud`（`protocol:"local"`）；**每个声明 `expose: { model, function }` 的 modalapp 注册为一个平台模型 `modal-cloud/<model>`**（图片与视频都注册）。内置的 MiniMax-H3 与 Qwen-Image 都把 **`expose.function` 指向「可锚定参考」的函数**（参考生视频 / 图像编辑），并在函数上声明 `referenceFields`/`referenceBudgets`——平台据此把模型识别为参考型并校验参考数量上限；`inputModes` 由 media 字段类型汇总（image/video/audio）。
+- 本 App 在 manifest `contributes.media` 声明 provider `modal-cloud`（`protocol:"local"`）；**每个声明 `expose: { model, function }` 的 modalapp 注册为一个平台模型 `modal-cloud/<model>`**（图片与视频都注册）。内置的 MiniMax-H3 与 Qwen-Image 都把 **`expose.function` 指向「可锚定参考」的函数**（参考生视频 / 图像编辑），并在函数上声明 `referenceFields`/`referenceBudgets`——平台据此把模型识别为参考型并校验参考数量上限；`inputModes` 由 media 字段类型汇总（image/video/audio）。函数的 `formSchema` 非 media 字段同时进入平台模型 `parameters`（`prompt` 除外——它是平台一等输入），平台据此折叠一等字段（把顶层 `aspectRatio` 折进 `output`）并渲染参数控件，但**输出参数仍由 App 校验**（平台标记 `PassthroughParams`，不复核、不注入默认）。
 - 平台「生图/生视频默认路由」可指向 `modal-cloud/<model>`；生成经通用执行桥组装 `{ model, prompt, params, referenceAssetIds }` 调 `modal.generate`（`resolveTarget` 按 `expose.model` 解析 modalapp + `expose.function`），终态经 `modal.task.get` 观察，产物 `modal.save` 入库。
-- **参考可选，无参考自动回退文生**：平台路由不带 `referenceAssetIds` 时，`resolveTarget` 会把 `expose.function`（参考型）自动换成同输出类型的纯文生函数（`text-to-*`）；带参考才走参考函数。因此模型的 `referenceBudgets` 只声明上限、**不能声明 `images>=1` 这类下限**（否则平台会在提交前拒绝纯文本请求，回退永远走不到）。
+- **参考可选，无参考自动回退文生**：平台路由不带 `referenceAssetIds` 时，`resolveTarget` 会把 `expose.function`（参考型）自动换成同输出类型的纯文生函数（`text-to-*`）；带参考才走参考函数。回退的**触发条件是参考函数声明了 `minReferences >= 1`**（与 MiniMax 的 `reference-to-video`/`first-last-frame`、Qwen-Image-2.1 的 `image-edit` 一致，缺省 0 则永不回退）。注意区分两层「下限」：函数级 `minReferences: 1` 是**参考函数的正常声明**（回退依据）；而平台模型的 `referenceBudgets` 只声明**上限**，不能声明 `images>=1` 这类下限（否则平台在提交前就拒绝纯文本请求，回退走不到）。
 - **就绪是动态的**：`modal.catalog.models[]` 上报 `ready`，**只有 `deployed && volumeReady` 才为真**；未就绪时平台路由提交给出引导错误（先部署/下权重）。
 - 因此 `recut.media.list_capability_models` 会列出本 App 与其模型就绪度；平台路由与显式 `modal.*` 调用两条路径都可用。
 - **成本门**：经平台路由（`model` 入参）跳过 App 的 `confirmCost` 门（视频由平台 proposal 门兜底）；直接 `modal.generate` 仍须 `confirmCost: true`。

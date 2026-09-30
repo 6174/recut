@@ -1,15 +1,16 @@
 /**
- * [INPUT]: 依赖 modal.catalog/overview 的预设包/函数清单/formSchema/output/gpuTiers/就绪度（就绪度可缺省＝尚未探测）、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调与 useRunStore
- * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交按字段分组 references={field:[assetId]}；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）
+ * [INPUT]: 依赖 modal.catalog/overview 的预设包/函数清单/formSchema/output/gpuTiers/就绪度（就绪度可缺省＝尚未探测）、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调、AgentDefaultsDialog 与 useRunStore
+ * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
  * [POS]: Left「功能」Tab；部署、权重与运行都在此收敛，记录 Tab 只负责历史
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { AlertTriangle, Check, Download, ImagePlus, Rocket, Wand2, X } from "lucide-react";
+import { AlertTriangle, Check, Download, ImagePlus, Rocket, SlidersHorizontal, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
 import { mediaContentPath, mediaContentURL } from "../lib/media";
 import { EMPTY_FORM, useRunStore } from "../state/run";
+import { AgentDefaultsDialog } from "./AgentDefaultsDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -29,6 +30,7 @@ interface Props {
   onEnsureReady: (modalapp: string) => Promise<{ deployed?: boolean; volumeReady?: boolean }>;
   onDeploy: (modalapp: string) => Promise<void>;
   onInstall: (modalapp: string, source: string) => Promise<void>;
+  onSavedDefaults: () => Promise<void> | void;
 }
 
 const DEFAULT_SOURCE = "huggingface";
@@ -106,7 +108,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, onRun, onEnsureReady, onDeploy, onInstall }: Props) {
+export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, onRun, onEnsureReady, onDeploy, onInstall, onSavedDefaults }: Props) {
   const activeId = useRunStore((state) => state.activeId);
   const forms = useRunStore((state) => state.forms);
   const selectModalapp = useRunStore((state) => state.selectModalapp);
@@ -119,6 +121,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   const [hint, setHint] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [working, setWorking] = useState(false);
+  const [defaultsOpen, setDefaultsOpen] = useState(false);
   const injectedNonceRef = useRef(0);
 
   const modalapp = useMemo(() => modalapps.find((candidate) => candidate.id === activeId) ?? modalapps[0], [modalapps, activeId]);
@@ -238,7 +241,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         if (field?.type === "media") continue;
         params[key] = field?.type === "number" ? Number(raw) : raw;
       }
-      const input: Record<string, unknown> = { modalapp: modalapp.id, function: fn.id, params, gpuTier: gpuValue, confirmCost: true };
+      const input: Record<string, unknown> = { modalapp: modalapp.id, function: fn.id, params, gpuTier: gpuValue, confirmCost: true, origin: "manual" };
       const grouped: Record<string, string[]> = {};
       for (const field of mediaFields(fn)) {
         const ids = (references[field.key] ?? []).map((asset) => asset.id);
@@ -389,7 +392,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
             ) : field.type === "select" ? (
               <Select value={selectValue(field, values[field.key])} onValueChange={(value) => setValue(field.key, value)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue placeholder={field.placeholder ? labelText(field.placeholder, locale, "") : undefined} />
                 </SelectTrigger>
                 <SelectContent>
                   {(field.options ?? []).map((option) => (
@@ -481,6 +484,9 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         <Button disabled={submitting} onClick={() => void submit()}>
           <Wand2 className="size-3.5" />{t(locale, "run.submit")}
         </Button>
+        <Button variant="ghost" onClick={() => setDefaultsOpen(true)}>
+          <SlidersHorizontal className="size-3.5" />{t(locale, "run.defaults")}
+        </Button>
         {!known ? (
           <Badge variant="outline" className="ml-auto text-muted-foreground">{t(locale, "run.status-unknown")}</Badge>
         ) : ready ? (
@@ -492,6 +498,10 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         )}
       </div>
       {hint ? <p className="text-[11px] leading-4 text-muted-foreground">{hint}</p> : null}
+
+      {defaultsOpen ? (
+        <AgentDefaultsDialog modalapp={modalapp} fn={fn} locale={locale} onClose={() => setDefaultsOpen(false)} onSaved={onSavedDefaults} />
+      ) : null}
     </div>
   );
 }

@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 LoadCatalog、modal-studio 的 contributes.media 声明（provider modal-cloud + 由 modalapps
  *          expose 生成的模型）与 media 包的 RegisterAppProviders/CapabilityModelGroups
  * [OUTPUT]: 验证 modal-studio 作为标准 App 安装后，其 contributes.media 被映射为平台模型
- *          modal-cloud/<expose.model>（图片与视频都注册）并注册通用执行桥
+ *          modal-cloud/<expose.model>（图片与视频都注册）并注册通用执行桥；
+ *          App 模型参数声明（含 aspectRatio）进入平台目录且标记 PassthroughParams
  * [POS]: service 的「App 贡献本地 media provider」回归测试（modal-studio 版）；不访问真实用户目录或网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -118,6 +119,25 @@ func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
 				t.Fatalf("model %s reference budget %q must not require references (text-only must fall back)", id, budget.Requirements)
 			}
 		}
+	}
+
+	// App 模型把 manifest 的参数声明带进平台目录，并标记为 passthrough：平台据此折叠一等字段
+	// （如把顶层 aspectRatio 折进 Output），但输出参数仍由 App 校验（App 表单是唯一真相）。
+	qwen := byID["modal-cloud/qwen-image"]
+	if !qwen.PassthroughParams {
+		t.Fatal("app-contributed models must be marked PassthroughParams")
+	}
+	aspectRatioDeclared := false
+	for _, parameter := range qwen.Parameters {
+		if parameter.Name == "prompt" {
+			t.Fatalf("prompt is a first-class platform input, not an Output parameter: %#v", qwen.Parameters)
+		}
+		if parameter.Name == "aspectRatio" {
+			aspectRatioDeclared = stringIn(parameter.Enum, "9:16")
+		}
+	}
+	if !aspectRatioDeclared {
+		t.Fatalf("modal-cloud/qwen-image must declare aspectRatio (enum 9:16) so the platform folds the first-class field: %#v", qwen.Parameters)
 	}
 
 	// 能力聚合：image/video 两个能力下都应出现 modal-cloud 分组及其平台模型。

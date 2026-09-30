@@ -29,6 +29,7 @@ export interface CatalogApp {
   inputModes: string[];
   formSchema: FormField[];
   defaultParams: Record<string, unknown>;
+  agentDefaults: Record<string, unknown>;
   ready: boolean;
   weight: { installed: boolean; sizeGb?: number; source?: string; revision?: string };
 }

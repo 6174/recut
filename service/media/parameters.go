@@ -35,13 +35,16 @@ func modelParameter(model MediaModel, name string) (MediaParameter, bool) {
 }
 
 // normalizeModelOutput applies catalog defaults and validates every key against
-// the model's parameter schema. A model without Parameters keeps the legacy
-// pass-through contract (speech and pre-schema routes).
+// the model's parameter schema. Two models skip enforcement: one without
+// Parameters keeps the legacy pass-through contract (speech and pre-schema
+// routes), and an App-contributed model (PassthroughParams) passes Output
+// through because the App's own form contract owns validation.
 func normalizeModelOutput(model MediaModel, output map[string]any) (map[string]any, error) {
 	normalized := make(map[string]any, len(output)+len(model.Parameters))
-	// nil = 无 schema 的 legacy 模型（Output 透传）；非 nil 空切片 = 显式声明「无可调项」，
-	// 必须拒绝任何参数。二者不能混为一谈。
-	if model.Parameters == nil {
+	// nil = 无 schema 的 legacy 模型（Output 透传）；PassthroughParams = App 贡献的模型
+	// （参数语义归 App，平台只借声明暴露能力面、折叠一等字段，不复核/不注入默认）。
+	// 二者都直接透传；非 nil 且非 passthrough 的空切片才是「显式声明无可调项、必须拒绝」。
+	if model.Parameters == nil || model.PassthroughParams {
 		for key, value := range output {
 			normalized[key] = value
 		}
@@ -194,10 +197,11 @@ func splitMetadataParams(params map[string]any) (top, metadata map[string]any) {
 
 // providerOutput maps validated user-facing Output keys onto the exact upstream
 // wire fields. Reserved/internal keys pass through unchanged; a model without
-// Parameters keeps Output as-is.
+// Parameters (or an App-contributed passthrough model, whose App consumes the
+// declared names verbatim) keeps Output as-is.
 func providerOutput(model MediaModel, output map[string]any) map[string]any {
 	params := make(map[string]any, len(output))
-	if model.Parameters == nil {
+	if model.Parameters == nil || model.PassthroughParams {
 		for key, value := range output {
 			params[key] = value
 		}

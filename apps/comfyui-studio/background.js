@@ -4,11 +4,13 @@
  *          生成私有预览 URL / 写 params 文件，ctx.python 与 ctx.shell 执行可观察本地任务（prepare 全量走
  *          ctx.python.prepare；定向走 bootstrap.py --target，但主 venv 未就绪时先回退平台全量准备；
  *          generate/install 走 ctx.python.run(studio_runner.py ...)）
- * [OUTPUT]: 注册环境检查（comfy.status，含在途任务）、工作流目录（comfy.catalog：静态注册表 + 动态就绪度）、
- *          环境准备（comfy.prepare target: all|comfyui|<appId>，收尾起 ComfyUI 引擎）、下载源设置
- *          （comfy.settings.set）、权重下载（comfy.install，huggingface/modelscope/automatic）、引擎控制
+ * [OUTPUT]: 注册环境检查（comfy.status，含在途任务）、工作流目录（comfy.catalog：静态注册表 + 轻量就绪度）、
+ *          （status/catalog 只做轻量核对：venv/依赖指纹/源码是否在位，绝不 import torch——重型自检只在
+ *          prepare 任务里执行，与 ComfyUI 启动日志一起进入有日志可见的 bootstrap 流程）
+ *          环境准备（comfy.prepare target: all|comfyui|<appId>，收尾起 ComfyUI 引擎）、设置
+ *          （comfy.settings.set：下载源 + 每工作流的「AI 默认参数」agent_defaults:<appId>）、权重下载（comfy.install，huggingface/modelscope/automatic）、引擎控制
  *          （comfy.engine.status/start/ensure/stop/logs；ensure 幂等，供 AI/background 操作；logs 返回引擎 server.log 尾部）、本机生成
- *          （comfy.generate {app, params}，单槽 FIFO）、历史与入库（comfy.generations / comfy.generation.complete /
+ *          （comfy.generate {app, params}，单槽 FIFO；非 origin="manual" 的调用用 agentDefaults 补全缺省字段）、历史与入库（comfy.generations / comfy.generation.complete /
  *          comfy.save）、任务中心（comfy.tasks.list/get/params/logs/cancel）与取消（comfy.cancel）。
  * [POS]: comfyui-studio 的唯一业务后端；manifest contributes.media 声明 local-gen provider，平台经
  *        comfy.generate/comfy.save 能力桥调用本 App 完成本机 ComfyUI 工作流生成。切换单位是「工作流(app)」
@@ -117,6 +119,22 @@ function setDownloadSource(ctx, source) {
   ctx.sqlite.execute("insert into comfy_settings (key, value) values ('download_source', ?) on conflict(key) do update set value = excluded.value", [source]);
 }
 
+// 每个工作流的「AI 调用默认参数」：Agent/平台默认路由未显式传入的字段用它补全（手动 UI 提交不带 origin="manual"）。
+function agentDefaults(ctx, appID) {
+  ensureSchema(ctx);
+  const rows = ctx.sqlite.query("select value from comfy_settings where key = ?", [`agent_defaults:${appID}`]);
+  if (!rows.length) return {};
+  try {
+    const parsed = JSON.parse(rows[0].value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) { return {}; }
+}
+function setAgentDefaults(ctx, appID, params) {
+  ensureSchema(ctx);
+  ctx.sqlite.execute("insert into comfy_settings (key, value) values (?, ?) on conflict(key) do update set value = excluded.value", [`agent_defaults:${appID}`, JSON.stringify(params || {})]);
+  return params || {};
+}
+
 // 同步调用主 venv 的 studio_runner.py（环境/目录/引擎查询）。
 function run(ctx, args, timeoutSeconds) {
   const shell = '"$RECUT_PYTHON" python/studio_runner.py "$@"';
@@ -158,6 +176,7 @@ function buildCatalog(ctx) {
       label: a.label || a.id, output: a.output || { kind: "image", mimeType: "image/png", ext: "png" },
       inputModes: Array.isArray(a.inputModes) && a.inputModes.length ? a.inputModes : ["text"],
       formSchema: a.formSchema || [], defaultParams: a.defaultParams || {},
+      agentDefaults: agentDefaults(ctx, a.id),
       ready: runtimeReady && installed,
       weight: { installed, sizeGb: st.sizeGb || (a.weights && a.weights.sizeGb) || 0, source: st.source || "", revision: (a.weights && a.weights.revision) || "" }
     };
@@ -564,6 +583,13 @@ function settingsSet(input, ctx) {
   ensureSchema(ctx);
   const source = value(input, "downloadSource");
   if (source) setDownloadSource(ctx, source);
+  const defaults = input.agentDefaults;
+  if (defaults && typeof defaults === "object") {
+    const app = appDef(readRegistry(ctx), value(defaults, "app"));
+    if (!app) throw new Error("unknown local workflow: " + value(defaults, "app"));
+    const params = (defaults.params && typeof defaults.params === "object") ? defaults.params : {};
+    setAgentDefaults(ctx, app.id, coerceParams(app, params));
+  }
   return { downloadSource: downloadSource(ctx) };
 }
 
@@ -621,7 +647,10 @@ function generate(input, ctx) {
   const app = resolveApp(registry, input);
   if (!app) throw new Error("unknown local workflow: " + (value(input, "app") || value(input, "model")));
   const rawParams = (input.params && typeof input.params === "object") ? input.params : input;
-  const params = coerceParams(app, rawParams);
+  // 仅 AI/Agent 与平台默认路由调用补配置的默认参数；App 内手动提交（origin="manual"）完全按表单值。
+  const fromUI = value(input, "origin") === "manual";
+  const merged = fromUI ? rawParams : { ...agentDefaults(ctx, app.id), ...rawParams };
+  const params = coerceParams(app, merged);
   if (!params.prompt && (app.formSchema || []).some((f) => f.key === "prompt" && f.required)) throw new Error("prompt is required");
   const referenceIds = Array.isArray(input.referenceAssetIds) ? input.referenceAssetIds : [];
   const referencePaths = [];

@@ -292,6 +292,50 @@
           }
         },
         {
+          "key": "aspectRatio",
+          "type": "select",
+          "options": [
+            "1:1",
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4",
+            "3:2",
+            "2:3"
+          ],
+          "placeholder": {
+            "zh": "跟随参考图",
+            "en": "Follow reference"
+          },
+          "label": {
+            "zh": "画幅",
+            "en": "Aspect ratio"
+          },
+          "hint": {
+            "zh": "留空则输出尺寸跟随参考图；指定画幅后按「画幅 + 分辨率」出图。",
+            "en": "Leave empty to follow the reference size; once set, the output uses this ratio plus the resolution."
+          }
+        },
+        {
+          "key": "resolution",
+          "type": "select",
+          "options": [
+            "2048",
+            "1536",
+            "1024",
+            "768"
+          ],
+          "default": "1024",
+          "label": {
+            "zh": "分辨率（短边 px）",
+            "en": "Resolution (short edge px)"
+          },
+          "hint": {
+            "zh": "短边像素，仅在指定画幅时生效；留空画幅时忽略。1024 及以下为整图 VAE 解码（与本地一致）；1536 / 2048 在 48GB 档上需分块解码，块边界可能有拼缝。",
+            "en": "Short-edge pixels, only used when an aspect ratio is set. At or below 1024 the VAE decodes in one pass (same as local); 1536 / 2048 must tile on 48GB GPUs and may leave seams."
+          }
+        },
+        {
           "key": "steps",
           "type": "number",
           "default": 40,
@@ -331,7 +375,8 @@
         {
           "maxImages": 10
         }
-      ]
+      ],
+      "minReferences": 1
     }
   ]
 }

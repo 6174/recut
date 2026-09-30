@@ -338,6 +338,30 @@
                   "default": ""
                 },
                 {
+                  "name": "aspectRatio",
+                  "type": "string",
+                  "enum": [
+                    "1:1",
+                    "16:9",
+                    "9:16",
+                    "4:3",
+                    "3:4",
+                    "3:2",
+                    "2:3"
+                  ]
+                },
+                {
+                  "name": "resolution",
+                  "type": "string",
+                  "enum": [
+                    "2048",
+                    "1536",
+                    "1024",
+                    "768"
+                  ],
+                  "default": "1024"
+                },
+                {
                   "name": "steps",
                   "type": "number",
                   "default": 40,
@@ -355,17 +379,6 @@
                   "name": "seed",
                   "type": "number",
                   "default": -1
-                },
-                {
-                  "name": "resolution",
-                  "type": "string",
-                  "enum": [
-                    "2048",
-                    "1536",
-                    "1024",
-                    "768"
-                  ],
-                  "default": "1024"
                 }
               ],
               "referenceFields": [
@@ -576,7 +589,7 @@
       "surfaces": [
         "api"
       ],
-      "description": "持久化默认 profile、权重源（automatic/huggingface/modelscope）与默认 GPU 档位。",
+      "description": "持久化默认 profile、权重源（automatic/huggingface/modelscope）、默认 GPU 档位，以及某个「预设包 + 函数」的 AI 默认参数（agentDefaults）。AI 默认参数用于 Agent/平台默认路由调用 modal.generate 时补全未显式传入的字段。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -593,6 +606,24 @@
           },
           "defaultGpuTier": {
             "type": "string"
+          },
+          "agentDefaults": {
+            "type": "object",
+            "description": "某函数的 AI 默认参数：{ modalapp, function, params }。params 为按 formSchema 的表单值对象，传空对象即清除。",
+            "properties": {
+              "modalapp": {
+                "type": "string"
+              },
+              "function": {
+                "type": "string"
+              },
+              "params": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "modalapp"
+            ]
           }
         }
       }

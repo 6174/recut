@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 ComfyUI 引擎状态（comfy.engine.status）、shadcn Badge/Button、lucide 图标与 i18n
- * [OUTPUT]: 顶栏右侧的 ComfyUI 引擎状态灯；点击打开「ComfyUI 引擎」管理面板（启动/关闭与实时日志都在面板内）
+ * [OUTPUT]: 顶栏右侧的 ComfyUI 引擎状态灯；点击打开「ComfyUI 引擎」管理面板（启动/关闭与实时日志都在面板内）；首屏探测完成前显示「探测中」而不是谎报已停止
  * [POS]: App 头部的引擎入口；只负责展示与触发，状态由 App 轮询
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,13 +14,14 @@ interface Props {
   locale: Locale;
   status: EngineStatus | null;
   starting: boolean;
+  pending?: boolean;
   onOpen: () => void;
 }
 
-export function EngineControl({ locale, status, starting, onOpen }: Props) {
+export function EngineControl({ locale, status, starting, pending = false, onOpen }: Props) {
   const running = status?.running === true;
-  const dot = starting ? "bg-warning animate-pulse" : running ? "bg-success" : "bg-muted-foreground";
-  const stateText = starting ? t(locale, "engine.starting") : running ? t(locale, "engine.running") : t(locale, "engine.stopped");
+  const dot = pending ? "bg-muted-foreground/50 animate-pulse" : starting ? "bg-warning animate-pulse" : running ? "bg-success" : "bg-muted-foreground";
+  const stateText = pending ? t(locale, "engine.probing") : starting ? t(locale, "engine.starting") : running ? t(locale, "engine.running") : t(locale, "engine.stopped");
 
   return (
     <Button

@@ -1,15 +1,16 @@
 /**
- * [INPUT]: 依赖 comfy.catalog 的工作流清单/formSchema/output 类型/就绪度、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、环境/下载动作回调与 useGenerateStore
- * [OUTPUT]: 顶部工作流切换器（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境/下载模型/来源）+ media 字段的多选参考图（缩略图点击经 recut.media.preview 全屏预览；预览图经 injectedReference 一键回填）+ 表单提交；工作流/参数/参考图/下载源由 useGenerateStore 持有并持久化
+ * [INPUT]: 依赖 comfy.catalog 的工作流清单/formSchema/output 类型/就绪度、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、环境/下载动作回调、AgentDefaultsDialog 与 useGenerateStore
+ * [OUTPUT]: 顶部工作流切换器（shadcn Select）+ 未就绪时置于表单上方的核心依赖块（准备环境/下载模型/来源）+ media 字段的多选参考图（缩略图点击经 recut.media.preview 全屏预览；预览图经 injectedReference 一键回填）+ 表单提交（带 origin:"manual"）+ 提交行的「AI 默认参数」入口；工作流/参数/参考图/下载源由 useGenerateStore 持有并持久化
  * [POS]: Left「生成」Tab；依赖准备与生成提交都在此收敛，记录 Tab 只负责历史；表单状态在 store，切 Tab 不丢
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { AlertTriangle, Check, Download, ImagePlus, Play, Sparkles, Wand2, X } from "lucide-react";
+import { AlertTriangle, Check, Download, ImagePlus, Play, SlidersHorizontal, Sparkles, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
 import { mediaContentPath, mediaContentURL } from "../lib/media";
 import { useGenerateStore } from "../state/generate";
+import { AgentDefaultsDialog } from "./AgentDefaultsDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -30,6 +31,7 @@ interface Props {
   onPrepare: (target: string) => Promise<void>;
   onInstall: (app: string, source: string) => Promise<void>;
   onSetSource: (source: string) => Promise<void>;
+  onSavedDefaults: () => Promise<void> | void;
 }
 
 const SOURCES = ["automatic", "huggingface", "modelscope"] as const;
@@ -65,7 +67,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedReference, onGenerate, onSaveDefault, onPrepare, onInstall, onSetSource }: Props) {
+export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedReference, onGenerate, onSaveDefault, onPrepare, onInstall, onSetSource, onSavedDefaults }: Props) {
   const appId = useGenerateStore((state) => state.appId);
   const values = useGenerateStore((state) => state.values);
   const references = useGenerateStore((state) => state.references);
@@ -81,6 +83,7 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
   const [hint, setHint] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [working, setWorking] = useState(false);
+  const [defaultsOpen, setDefaultsOpen] = useState(false);
   const injectedNonceRef = useRef(0);
 
   const app = useMemo(() => apps.find((candidate) => candidate.app === appId) ?? apps[0], [apps, appId]);
@@ -173,7 +176,7 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
         if (field?.type === "media") continue;
         params[key] = field?.type === "number" ? Number(raw) : raw;
       }
-      const input: Record<string, unknown> = { app: app.app, params };
+      const input: Record<string, unknown> = { app: app.app, params, origin: "manual" };
       if (supportsImage && references.length) input.referenceAssetIds = references.map((asset) => asset.id);
       await onGenerate(input);
     } catch (error) {
@@ -327,9 +330,16 @@ export function WorkflowTab({ apps, runtimes, locale, downloadSource, injectedRe
         <Button variant="ghost" onClick={async () => setHint(await onSaveDefault(app.model))}>
           <Sparkles className="size-3.5" />{t(locale, "generate.set-default")}
         </Button>
+        <Button variant="ghost" onClick={() => setDefaultsOpen(true)}>
+          <SlidersHorizontal className="size-3.5" />{t(locale, "generate.defaults")}
+        </Button>
         {ready ? <Badge variant="outline" className="ml-auto gap-1.5 border-success/40 text-success"><Check className="size-3" />{t(locale, "generate.ready")}</Badge> : null}
       </div>
       {hint ? <p className="text-[11px] leading-4 text-muted-foreground">{hint}</p> : null}
+
+      {defaultsOpen ? (
+        <AgentDefaultsDialog app={app} locale={locale} onClose={() => setDefaultsOpen(false)} onSaved={onSavedDefaults} />
+      ) : null}
     </div>
   );
 }

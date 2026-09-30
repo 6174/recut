@@ -30,8 +30,9 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 ## 表单语义
 
 - **按预设包记忆**：每个预设包各自一份持久表单分片（字段值 + 参考素材 + GPU 档位），切预设包、切 Tab、刷新后再回来就是上次的样子；右侧预览聚焦的任务也会恢复（任务已失效则清空）。
-- **分辨率**：表单里的「分辨率」是**输出短边像素**，越小越快、越省额度。各预设包的原生尺寸不同（MiniMax-H3 = 768p、Qwen-Image-2.1 = 原生 2K、SD-Turbo = 512），且**只下调不超分**——取值不小于该画幅的原生短边时保持原生尺寸。图像编辑 / 图生图的输出尺寸跟随参考图，故没有该字段。
+- **画幅 / 分辨率**：「画幅」是输出比例，「分辨率」是**输出短边像素**，越小越快、越省额度。各预设包的原生尺寸不同（MiniMax-H3 = 768p、Qwen-Image-2.1 = 原生 2K、SD-Turbo = 512），且**只下调不超分**——取值不小于该画幅的原生短边时保持原生尺寸。**图像编辑 / 图生图默认跟随参考图尺寸**：Qwen-Image-2.1 的「画幅」留空即跟随参考图，显式选一个画幅后按「画幅 + 分辨率」出图。
 - **GPU 档位**：用户选过就记住（按预设包分别记住），没选过才回落到预设包声明的默认档位。解析优先级为「本次请求 > 全局默认 > 预设包默认」，且三个候选都必须落在该预设包的 `gpuTiers.options` 内，否则回落到首个选项——所以切预设包不会出现档位空白。
+- **AI 默认参数**：每个「预设包 + 函数」可在表单下方的「AI 默认参数」里配置 Agent/平台默认路由调用时的默认值。Agent 未显式传入的字段用它补全、Agent 传入的字段优先，配置后 Agent 基本只需传提示词。仅 AI/Agent 调用生效，App 内手动点「运行」不受影响。
 
 ## 快速开始
 
@@ -46,7 +47,7 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 | --- | --- |
 | 首屏清单（本机读取，零等待） | `modal.overview` |
 | 连通性 / 预设包目录 | `modal.status` · `modal.catalog` |
-| token / 设置 / Secret | `modal.profiles.add/list/remove` · `modal.settings.set` · `modal.secret.set` |
+| token / 设置 / Secret | `modal.profiles.add/list/remove` · `modal.settings.set`（含每函数 AI 默认参数） · `modal.secret.set` |
 | 预设包管理 | `modal.modalapp.list` · `modal.modalapp.get` · `modal.modalapp.path` · `modal.modalapp.save` · `modal.modalapp.scaffold` · `modal.modalapp.remove` |
 | 本机环境 | `modal.prepare` |
 | 部署 / 权重 / 停止 | `modal.deploy` · `modal.install` · `modal.teardown` |

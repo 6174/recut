@@ -41,6 +41,7 @@ export interface ModalFunction {
   output: OutputSpec;
   formSchema: FormField[];
   defaultParams: Record<string, unknown>;
+  agentDefaults: Record<string, unknown>;
   minReferences?: number;
 }
 

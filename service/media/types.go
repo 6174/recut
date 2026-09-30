@@ -99,6 +99,11 @@ type MediaModel struct {
 	// Empty means the model has no schema-driven surface and Output passes
 	// through unchanged for backward compatibility with speech/legacy routes.
 	Parameters []MediaParameter `json:"parameters,omitempty"`
+	// PassthroughParams marks an App-contributed model: the platform still reads
+	// its declared Parameters (to fold first-class fields such as aspectRatio and
+	// to expose the option surface), but the App owns validation, so Output keys
+	// pass through untouched instead of being rejected or default-injected.
+	PassthroughParams bool `json:"passthroughParams,omitempty"`
 	// ReferenceFields maps a platform reference kind (image/video/audio) to the
 	// upstream request field carrying it (e.g. Seedance reference_images, Gemini
 	// images). Missing kinds fall back to images/videos/audios.

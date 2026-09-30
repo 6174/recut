@@ -510,6 +510,7 @@ export default function App() {
                       onEnsureReady={ensureReady}
                       onDeploy={handleDeploy}
                       onInstall={handleInstall}
+                      onSavedDefaults={() => { void refreshOverview(); }}
                     />
                   </TabsContent>
                   <TabsContent value="records">

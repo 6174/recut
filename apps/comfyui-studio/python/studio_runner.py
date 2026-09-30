@@ -1,7 +1,8 @@
 """
 [INPUT]: 平台注入的 RECUT_APP_FILES_DIR / RECUT_MODELS_DIR / RECUT_VENV / RECUT_PYTHON；python/registry.json
           （由 publish_registry.py 从 comfyuiapps/*/manifest.json 生成）；--task-log 任务日志文件
-[OUTPUT]: status（runtime venv 与各工作流权重就绪度）、catalog（同 status 的工作流面）、install（从 huggingface/
+[OUTPUT]: status（轻量就绪度：只看 venv 解释器/依赖指纹/源码是否在位，绝不拉起执行器 import torch；
+          重型自检归 prepare 任务）、catalog（同 status 的工作流面）、install（从 huggingface/
           modelscope/automatic 下载权重，不动 venv；逐文件断点续传 + 大小校验 + 完成标记，可安全重试）、
           generate（把请求派发到工作流所属 runtime 的专属 venv worker）、engine（ComfyUI 常驻服务 status/start/stop/logs）
 [POS]: comfyui-studio 的主 venv 调度器；主 venv 保持轻量（下载/调度），真正推理在 comfyui runtime 专属 venv
@@ -137,6 +138,10 @@ def requirements_fingerprint(runtime: dict) -> str:
 
 
 def runtime_status(runtime: dict) -> dict:
+    """轻量就绪度：只核对 venv 解释器、依赖指纹与固定 commit 源码是否在位。
+
+    刻意不拉起 runtime 执行器（那会 import torch，冷启动可达数十秒）：一个无声的同步探测
+    会阻塞工作台首屏。重型自检属于 prepare 任务，那里才有可见的 bootstrap 日志。"""
     runtime_id = runtime["id"]
     python = runtime_python(runtime_id)
     if not python.is_file():
@@ -150,19 +155,9 @@ def runtime_status(runtime: dict) -> dict:
             actual = ""
         if actual != expected:
             return {"ready": False, "error": f"{runtime_id} 运行环境依赖已更新，需要重新准备。"}
-    runner = app_root() / runtime.get("runner", f"python/{runtime_id}_runner.py")
-    try:
-        result = subprocess.run([str(python), str(runner), "status"], capture_output=True, text=True, timeout=120)
-    except Exception as error:  # noqa: BLE001
-        return {"ready": False, "error": str(error)}
-    if result.returncode != 0:
-        return {"ready": False, "error": (result.stdout or result.stderr or "").strip()[-400:]}
-    lines = [line for line in (result.stdout or "").strip().split("\n") if line.strip()]
-    try:
-        payload = json.loads(lines[-1]) if lines else {}
-    except ValueError:
-        payload = {}
-    return {"ready": bool(payload.get("ready")), "error": payload.get("error")}
+    if runtime.get("repository") and not (runtime_repository(runtime) / "main.py").is_file():
+        return {"ready": False, "error": f"{runtime_id} 源码未就绪，需要重新准备。"}
+    return {"ready": True, "error": None}
 
 
 def cmd_status(_: argparse.Namespace) -> dict:
