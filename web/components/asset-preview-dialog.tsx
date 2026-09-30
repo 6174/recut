@@ -1129,9 +1129,9 @@ function PendingAssetContent({ apiBase, asset, status }: { apiBase: string; asse
   const proposed = status === "proposed";
   const plan = proposed && !hasProposalRecipe(asset);
   if (plan) {
-    return <div className="grid max-w-sm gap-3 text-center text-muted-foreground"><div><p className="text-sm font-medium text-sky-600">计划中</p><p className="mt-1 text-xs leading-5">这是一条生成计划（只有说明与属性，还没有配方）；复制素材上下文交给 AI 去生成。</p></div></div>;
+    return <div className="grid max-w-sm gap-3 text-center text-muted-foreground"><div><p className="text-sm font-medium text-muted-foreground">计划中</p><p className="mt-1 text-xs leading-5">这是一条生成计划（只有说明与属性，还没有配方）；复制素材上下文交给 AI 去生成。</p></div></div>;
   }
-  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground">{!proposed && <LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} />}<div><p className={`text-sm font-medium ${proposed ? "text-amber-600" : "text-foreground"}`}>{status === "failed" ? "生成失败" : proposed ? "待确认生成" : "生成中"}</p>{!proposed && <GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} />}<p className="mt-1 text-xs leading-5">{proposed ? "这是一条生成提案；确认后才提交生成并消耗额度。" : "素材引用已经建立；完成后会在这里原位可预览。"}</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryGenerationButton apiBase={apiBase} asset={asset} />}</div></div>;
+  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground">{!proposed && <LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} />}<div><p className={`text-sm font-medium ${proposed ? "text-muted-foreground" : "text-foreground"}`}>{status === "failed" ? "生成失败" : proposed ? "待确认生成" : "生成中"}</p>{!proposed && <GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} />}<p className="mt-1 text-xs leading-5">{proposed ? "这是一条生成提案；确认后才提交生成并消耗额度。" : "素材引用已经建立；完成后会在这里原位可预览。"}</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryGenerationButton apiBase={apiBase} asset={asset} />}</div></div>;
 }
 
 // 失败重试：重新执行同一任务的生成（原位复用 assetId），而不是只重新下载远端产物。

@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖各 context-catalog source 与 context-catalog/types
- * [OUTPUT]: 对外提供唯一注册表 contextSources（协议组 + 目录组）与按 type/group 的 lookup，以及纯协议子集 contextProtocolRegistry
+ * [OUTPUT]: 对外提供唯一注册表 contextSources（进 @ 面板的目录组）、协议表 protocolSources（目录组 + 仅协议来源
+ *   referenceSource）+ 按 type/group 的 lookup，以及纯协议子集 contextProtocolRegistry
  * [POS]: web/lib/context-catalog 的唯一注册表（协议 RFC §5.1 / 选择面 RFC §4）；输入内核与面板都从这里 import，新增来源只加一条 descriptor
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,6 +12,7 @@ import { mcpToolSource, skillSource } from "./sources/capability";
 import { workFocusSource, workSurfaceSource } from "./sources/current";
 import { entitiesSource } from "./sources/entities";
 import { mediaSource } from "./sources/media";
+import { referenceSource } from "./sources/reference";
 import { appSource, projectSource } from "./sources/workspace";
 import { worldsSource } from "./sources/worlds";
 import type { ContextGroupID, ContextSource } from "./types";
@@ -32,6 +34,11 @@ export const contextSources: ContextSource[] = [
 
 export { CONTEXT_GROUP_ORDER };
 
+// 协议-only 来源：参与解析/序列化/chip 渲染，但不进 @ 面板目录（search 恒空）。
+// <reference> 由 AI 写进生成提示词，不能被用户从面板插入，因此不进 contextSources 的目录扫描。
+const protocolOnlySources: ContextSource[] = [referenceSource];
+const protocolSources: ContextSource[] = [...contextSources, ...protocolOnlySources];
+
 export const contextGroupTitleKeys: Record<ContextGroupID, string> = {
   current: "agent.context.group.current",
   world: "agent.context.group.world",
@@ -42,7 +49,7 @@ export const contextGroupTitleKeys: Record<ContextGroupID, string> = {
   tool: "agent.context.group.tool",
 };
 
-const byType = new Map(contextSources.map((source) => [source.type, source]));
+const byType = new Map(protocolSources.map((source) => [source.type, source]));
 
 export function contextSourceForType(type: string): ContextSource | undefined {
   return byType.get(type);
@@ -50,7 +57,7 @@ export function contextSourceForType(type: string): ContextSource | undefined {
 
 // 纯协议子集：只暴露 type/attrs/identity/label，供 L0 序列化/解析/提取/只读展示使用（不触发 React 依赖）。
 export function contextProtocolRegistry(): RefProtocolRegistry {
-  return contextSources.map((source) => ({ type: source.type, attrs: source.attrs, identity: source.identity, label: source.label }));
+  return protocolSources.map((source) => ({ type: source.type, attrs: source.attrs, identity: source.identity, label: source.label }));
 }
 
 export function contextSourcesForGroup(group: ContextGroupID): ContextSource[] {

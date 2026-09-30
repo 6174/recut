@@ -1,10 +1,10 @@
 /**
  * [INPUT]: 依赖 modal.catalog/overview 的预设包/函数清单/formSchema/output/gpuTiers/就绪度（就绪度可缺省＝尚未探测）、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调、AgentDefaultsDialog 与 useRunStore
- * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
+ * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint；标记 `randomizable` 的数字字段如随机种子带「随机」按钮，一键填入区间内随机整数）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
  * [POS]: Left「功能」Tab；部署、权重与运行都在此收敛，记录 Tab 只负责历史
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { AlertTriangle, Check, Download, ImagePlus, Rocket, SlidersHorizontal, Wand2, X } from "lucide-react";
+import { AlertTriangle, Check, Dices, Download, ImagePlus, Rocket, SlidersHorizontal, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
@@ -44,6 +44,15 @@ function labelText(value: LocalLabel | undefined, locale: Locale, fallback: stri
 function defaultValue(field: FormField): string {
   if (field.default === undefined || field.default === null) return "";
   return String(field.default);
+}
+
+// 「随机」按钮：在字段声明的 [min, max] 内取一个整数。种子无 min/max 时用 0..2^31-1，
+// 与 h3_contract.normalize_seed 的取值区间一致（SGLang 只接受非负整数种子）。
+function randomValue(field: FormField): number {
+  const low = Math.ceil(field.min ?? 0);
+  const high = Math.floor(field.max ?? 2147483647);
+  if (high <= low) return low;
+  return low + Math.floor(Math.random() * (high - low + 1));
 }
 
 function formDefaults(fn: ModalFunction | undefined): Record<string, string> {
@@ -416,6 +425,25 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
                   <SelectItem value="false">{t(locale, "run.bool-off")}</SelectItem>
                 </SelectContent>
               </Select>
+            ) : field.randomizable ? (
+              <div className="flex items-center gap-2">
+                <Input
+                  type={field.type === "number" ? "number" : "text"}
+                  min={field.min}
+                  max={field.max}
+                  className="flex-1"
+                  value={values[field.key] ?? ""}
+                  onChange={(event) => setValue(field.key, event.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setValue(field.key, String(randomValue(field)))}
+                >
+                  <Dices className="size-3.5" />{t(locale, "run.random")}
+                </Button>
+              </div>
             ) : (
               <Input
                 type={field.type === "number" ? "number" : "text"}

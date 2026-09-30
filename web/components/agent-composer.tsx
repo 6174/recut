@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖共享 Agent 会话配置类型、素材引用选择器、上下文目录运行时/选项构造、芯片 hover 预览、Agent runtime 安装状态与 UI 原子组件
- * [OUTPUT]: 对外提供 Composer 与 RuntimePicker（两者都只提供浮层内容、由宿主用 @/components/ui/popover 定位，点外部/Esc 自动收起）；上下文默认不附带，芯片行常驻「添加上下文」入口并以多行换行的紧凑芯片展示已添加项，hover 弹出完整预览，文本区随内容增长至固定上限
+ * [OUTPUT]: 对外提供 Composer 与 RuntimePicker（两者都只提供浮层内容、由宿主用 @/components/ui/popover 定位，点外部/Esc 自动收起）；上下文默认不附带，芯片行把「当前工作面 / 当前 Focus」作为虚线候选芯片直接摆出来供一键添加、随后以多行换行的紧凑芯片展示已添加项并保留「添加上下文」全量入口，所有芯片 hover 弹出完整预览，文本区随内容增长至固定上限
  * [POS]: components Agent 对话模块的交互输入层；让用户发送前明确看见 Agent 的目标与局部选区
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -119,6 +119,24 @@ export function Composer({
   const contextRuntime = useContextRuntime({ apiBase, projectID, workSurface, workFocus });
   const workSurfacePreview = useMemo(() => surfaceOption(contextRuntime), [contextRuntime]);
   const workFocusPreview = useMemo(() => focusOption(contextRuntime), [contextRuntime]);
+  // 已附带的目录键：既是 @ 面板的选中态，也用于把已添加项从候选里剔除。
+  const attachedKeys = useMemo(
+    () =>
+      new Set([
+        ...attachments.map((attachment) => `media:${attachment.assetId}`),
+        ...worldReferences.map((world) => `creation_world:${world.worldId}`),
+        ...pickedContexts.map((picked) => picked.key),
+        ...(workSurface && workSurfaceIncluded && workSurfacePreview ? [workSurfacePreview.key] : []),
+        ...(workFocusIncluded && workFocusPreview ? [workFocusPreview.key] : []),
+      ]),
+    [attachments, pickedContexts, workFocusIncluded, workFocusPreview, workSurface, workSurfaceIncluded, workSurfacePreview, worldReferences],
+  );
+  // 候选 = 当前工作面 / 当前 Focus：直接摆在芯片行里，点一下就添加，不必先开面板再挑。
+  // Focus 依附于工作面，且自身已概括整段选区（refs + 完整选择态），所以不再把每个 ref 拆成独立候选。
+  const candidates = useMemo(() => {
+    const raw = [surfaceOption(contextRuntime), workSurface ? focusOption(contextRuntime) : null];
+    return raw.filter((option): option is ContextOption => option !== null && !attachedKeys.has(option.key));
+  }, [attachedKeys, contextRuntime, workSurface]);
   const composerValue = useMemo(
     () => ({ text: content, refs: [], isEmpty: content.trim().length === 0 }),
     [content],
@@ -229,6 +247,20 @@ export function Composer({
                 <AtSign className="size-3 text-primary" />
                 <span className="truncate">{picked.title}</span>
                 <X className="size-3 text-muted-foreground" />
+              </button>
+            </ChipPreviewPopover>
+          ))}
+          {candidates.map((option) => (
+            <ChipPreviewPopover apiBase={apiBase} key={option.key} option={option} runtime={contextRuntime}>
+              <button
+                aria-label={interpolate(t("agent.composer.addContextItem"), { name: candidateLabel(option, t) })}
+                className="group inline-flex h-7 max-w-40 shrink-0 items-center gap-1 rounded-sm border border-dashed py-0.5 pl-1.5 pr-1.5 text-[10px] text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={disabled || uploading}
+                onClick={() => handlePickContext(option)}
+                type="button"
+              >
+                <span className="min-w-0 truncate">{candidateLabel(option, t)}</span>
+                <Plus className="size-3 shrink-0" />
               </button>
             </ChipPreviewPopover>
           ))}
@@ -374,7 +406,7 @@ export function Composer({
           }}
           open={contextPanelOpen}
           projectID={projectID}
-          selectedKeys={new Set([...attachments.map((attachment) => `media:${attachment.assetId}`), ...worldReferences.map((world) => `creation_world:${world.worldId}`), ...pickedContexts.map((picked) => picked.key)])}
+          selectedKeys={attachedKeys}
           workFocus={workFocus}
           workSurface={workSurface}
         />
@@ -611,6 +643,13 @@ export function WorkSurfaceChip({
       )}
     </span>
   );
+}
+
+// 候选芯片的文案与已附带芯片保持一致：当前工作面/Focus 用同一组前缀，其余直接用目录标题。
+function candidateLabel(option: ContextOption, t: (key: string) => string): string {
+  if (option.sourceType === "work_surface") return interpolate(t("agent.composer.workSurface"), { title: option.title });
+  if (option.sourceType === "work_focus") return interpolate(t("agent.composer.workFocus"), { summary: option.title });
+  return option.title;
 }
 
 function workSurfaceGuidance(surface: WorkSurfaceContext, t: (key: string) => string) {

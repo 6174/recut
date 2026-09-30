@@ -1190,3 +1190,126 @@ func TestRelationBilateralRoles(t *testing.T) {
 		t.Fatalf("marked relation should serialize toRole: %s", canonical)
 	}
 }
+
+// TestCanvasEdgeLinkedAttrSyncsToEntity covers the interactive/AI attr model:
+// an "attr node + edgeType=attr edge" written straight to the canvas (the node
+// carries no refId/field/value; the entity is resolved from the edge's
+// fromElementId) must still land in entity.attrs at the storage layer, so the
+// right-hand attribute panel and the canvas share one data source. Text maps by
+// label to the type-schema field key (appearance) or a reserved first-class
+// field (简介 → intro); media writes {assetId,kind}; an empty text is ignored.
+func TestCanvasEdgeLinkedAttrSyncsToEntity(t *testing.T) {
+	worlds, _, media := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+	entity, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "阿蛋"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assetID := newTestAsset(t, media, "persona.png")
+	entityElementID := "shape:" + entity.ID
+	attr := func(id, label, mediaKind string, props map[string]any) []CanvasDocOp {
+		value := map[string]any{"label": label, "media": mediaKind}
+		for key, item := range props {
+			value[key] = item
+		}
+		return []CanvasDocOp{
+			{Op: "insert", Element: &UpsertCanvasElementInput{WorldID: worldID, ElementID: id, Kind: "attr", Name: "属性 · " + label, Props: value}},
+			{Op: "insert", Element: &UpsertCanvasElementInput{WorldID: worldID, ElementID: "shape:arrow-" + id, Kind: "arrow",
+				Props: map[string]any{"edgeType": "attr", "fromElementId": entityElementID, "toElementId": id}}},
+		}
+	}
+	ops := []CanvasDocOp{{Op: "insert", Element: &UpsertCanvasElementInput{WorldID: worldID, ElementID: entityElementID, Kind: "entity", RefKind: "entity", RefID: entity.ID}}}
+	ops = append(ops, attr("shape:attr-appearance", "appearance", "text", map[string]any{"text": "近代建筑之父"})...)
+	ops = append(ops, attr("shape:attr-intro", "简介", "text", map[string]any{"text": "深夜客厅里的孤独者"})...)
+	ops = append(ops, attr("shape:attr-portrait", "人像", "image", map[string]any{"assetId": assetID})...)
+	doc, err := worlds.UpdateCanvasDocumentOps(worldID, "", ops)
+	if err != nil {
+		t.Fatalf("canvas doc ops: %v", err)
+	}
+	// The attr node keeps the interactive linkage (no refId): the sync resolves
+	// the entity from the edge, not from an element-level binding.
+	for _, element := range doc.Elements {
+		if element.ID == "shape:attr-portrait" && element.RefID != "" {
+			t.Fatalf("attr element should not carry refId, got %q", element.RefID)
+		}
+	}
+	updated, err := worlds.GetEntity(worldID, entity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entityAttrValue(updated, "appearance"); got != "近代建筑之父" {
+		t.Fatalf("label should map to the schema field key, got %#v", got)
+	}
+	if updated.Intro != "深夜客厅里的孤独者" {
+		t.Fatalf("reserved label 简介 should write entity.intro, got %q", updated.Intro)
+	}
+	portrait, ok := entityAttrValue(updated, "人像").(map[string]any)
+	if !ok || portrait["assetId"] != assetID || portrait["kind"] != "image" {
+		t.Fatalf("media attr should sync as {assetId,kind}, got %#v", entityAttrValue(updated, "人像"))
+	}
+	// An empty text is ignored: the panel value survives.
+	if _, err := worlds.UpdateCanvasDocumentOps(worldID, "", []CanvasDocOp{
+		{Op: "update", Element: &UpsertCanvasElementInput{WorldID: worldID, ElementID: "shape:attr-appearance", Kind: "attr",
+			Name: "属性 · appearance", Props: map[string]any{"label": "appearance", "media": "text", "text": ""}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err = worlds.GetEntity(worldID, entity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entityAttrValue(updated, "appearance"); got != "近代建筑之父" {
+		t.Fatalf("empty text must not overwrite panel data, got %#v", got)
+	}
+	// The attr node may be authored before its edge: an edgeless node is not
+	// synced, and writing the edge afterwards still syncs it.
+	if _, err := worlds.UpdateCanvasDocumentOps(worldID, "", []CanvasDocOp{
+		{Op: "insert", Element: &UpsertCanvasElementInput{WorldID: worldID, ElementID: "shape:attr-voice", Kind: "attr",
+			Name: "属性 · 声音", Props: map[string]any{"label": "声音", "media": "text", "text": "低沉的嗓音"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err = worlds.GetEntity(worldID, entity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entityAttrValue(updated, "声音"); got != nil {
+		t.Fatalf("edgeless attr node must not sync, got %#v", got)
+	}
+	if _, err := worlds.UpdateCanvasDocumentOps(worldID, "", []CanvasDocOp{
+		{Op: "insert", Element: &UpsertCanvasElementInput{WorldID: worldID, ElementID: "shape:arrow-voice", Kind: "arrow",
+			Props: map[string]any{"edgeType": "attr", "fromElementId": entityElementID, "toElementId": "shape:attr-voice"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err = worlds.GetEntity(worldID, entity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entityAttrValue(updated, "声音"); got != "低沉的嗓音" {
+		t.Fatalf("writing the edge later should sync the node, got %#v", got)
+	}
+	// A failed attr sync (here: an unknown media asset) is best-effort: the
+	// canvas element is already committed, so it must persist without error.
+	if _, err := worlds.UpdateCanvasDocumentOps(worldID, "", []CanvasDocOp{
+		{Op: "insert", Element: &UpsertCanvasElementInput{WorldID: worldID, ElementID: "shape:attr-bad", Kind: "attr",
+			Name: "属性 · 坏素材", Props: map[string]any{"label": "坏素材", "media": "image", "assetId": "does-not-exist"}}},
+		{Op: "insert", Element: &UpsertCanvasElementInput{WorldID: worldID, ElementID: "shape:arrow-bad", Kind: "arrow",
+			Props: map[string]any{"edgeType": "attr", "fromElementId": entityElementID, "toElementId": "shape:attr-bad"}}},
+	}); err != nil {
+		t.Fatalf("a bad media asset must not fail the canvas write: %v", err)
+	}
+	elements, err := worlds.ListCanvasElements(worldID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var badWritten bool
+	for _, element := range elements {
+		if element.ID == "shape:attr-bad" {
+			badWritten = true
+		}
+	}
+	if !badWritten {
+		t.Fatal("canvas element should persist even when its attr sync fails")
+	}
+}

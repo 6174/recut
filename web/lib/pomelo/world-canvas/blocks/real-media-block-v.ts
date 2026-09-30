@@ -3,8 +3,8 @@
  *          world-canvas/blocks/vello-shared（cover/徽标/低细节）、world-canvas/blocks/audio-block-ops（音频播放器外观）
  * [OUTPUT]: 对外提供 RealMediaBlockV（type: media）：图 center-cover / 音频播放器外观（圆形播放钮 + 真实波形 +
  * 时间 + 音量/下载，波形懒加载）/ 视频占位 + 元素徽标；
- * 生成提案「待确认」态（proposalStatus=pending）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要 + 参考/模型信息；
- * 计划态（planStatus，proposed 但无配方）渲染为冷蓝描边 + 「计划中」+ 说明摘要；
+ * 生成提案「待确认」态（proposalStatus=pending）渲染为弱灰描边 + 「提案」徽标 + 提示词摘要 + 参考/模型信息；
+ * 计划态（planStatus，proposed 但无配方）渲染为弱灰描边 + 「计划中」+ 说明摘要；
  * 生成中/失败态（proposalStatus=generating/failed，或 AI 先落 assetId 的 assetStatus）渲染为蓝/红描边 + 等待/失败提示；
  * 视口 <= LOW_DETAIL_SCALE 时只画卡面/图，隐藏全部文字。
  * [POS]: lib/pomelo/world-canvas/blocks 的媒体元素 vello block。
@@ -84,7 +84,7 @@ export class RealMediaBlockV extends VelloBlock {
     if (!lowDetail) ops.push(...captionOpsV(this.adapter, x, y, w, label).ops);
 
     if (!lowDetail && isProposal) {
-      // 生成提案（待确认）：琥珀徽标 + 提示词摘要 + 参考/模型信息，提示用户确认后才生成
+      // 生成提案（待确认）：弱灰徽标 + 提示词摘要 + 参考/模型信息，提示用户确认后才生成
       const refs = Number(attrs.proposalRefs ?? 0);
       const model = String(attrs.proposalModel ?? "");
       const prompt = String(attrs.proposalPrompt ?? "").replace(/\s+/g, " ").trim();
@@ -97,7 +97,7 @@ export class RealMediaBlockV extends VelloBlock {
       return { ops, bounds: this.blockBounds() };
     }
     if (!lowDetail && isPlan) {
-      // 计划（content-first）：冷蓝徽标 + 计划摘要，提示交给 AI 补生成配方（详情面板可复制计划）
+      // 计划（content-first）：弱灰徽标 + 计划摘要，提示交给 AI 补生成配方（详情面板可复制计划）
       const prompt = String(attrs.planPrompt ?? "").replace(/\s+/g, " ").trim();
       const snippet = prompt.length > 46 ? `${prompt.slice(0, 46)}…` : prompt || "（仅说明，暂无生成配方）";
       ops.push({ kind: "roundRect", x: x + 10, y: y + 10, width: 56, height: 18, radius: 9, fill: PLAN_FILL, stroke: PLAN_ACCENT, strokeWidth: 1 });

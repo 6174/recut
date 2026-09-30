@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { PROPOSAL_ROLES, proposalIssues, proposalReferenceIds, proposalRequiredFor, proposalRoleOptions, type GenerationProposal } from "../../app/worlds/[worldID]/canvas/canvas-proposal";
+import { mergeProposalReferences, PROPOSAL_ROLES, proposalIssues, proposalReferenceIds, proposalRequiredFor, proposalRoleOptions, type GenerationProposal } from "../../app/worlds/[worldID]/canvas/canvas-proposal";
 
 function proposal(overrides: Partial<GenerationProposal> = {}): GenerationProposal {
   return { status: "pending", prompt: "p", references: [], modelId: "m", ...overrides };
@@ -40,6 +40,35 @@ test("referenceIds dedupe and preserve appearance order", () => {
     { id: "a1", role: "character" }, { id: "a2", role: "style-ref" }, { id: "a1", role: "character" },
   ] }));
   assert.deepEqual(ids, ["a1", "a2"]);
+});
+
+// 与真实注册表同构的最小协议表：proposal.ts 不做运行时依赖，测试须显式注入。
+const referenceRegistry = [
+  { type: "reference", attrs: ["id", "kind", "role", "label"], identity: (attrs: Record<string, string>) => attrs.id ?? null },
+  { type: "media", attrs: ["type", "assetid", "name"], identity: (attrs: Record<string, string>) => attrs.assetid ?? null },
+];
+
+test("issues fail closed when a prompt token has no bound reference", () => {
+  const prompt = '参考锚定表\n<reference id="a1" kind="image" role="storyboard" label="镜1关键帧" />';
+  const unbound = proposalIssues(proposal({ prompt }), referenceRegistry);
+  assert.equal(unbound.some((issue) => issue.level === "error"), true);
+
+  const bound = proposalIssues(proposal({ prompt, references: [{ id: "a1", kind: "image", role: "storyboard", label: "镜1关键帧" }] }), referenceRegistry);
+  assert.equal(bound.some((issue) => issue.level === "error"), false);
+
+  // 未注入注册表时跳过该检查（纯逻辑调用方保持无依赖）。
+  assert.equal(proposalIssues(proposal({ prompt })).some((issue) => issue.level === "error"), false);
+});
+
+test("mergeProposalReferences dedupes by id and backfills missing fields", () => {
+  const merged = mergeProposalReferences(
+    [{ id: "a1", kind: "image", label: "镜1关键帧" }],
+    [{ id: "a1", role: "storyboard", label: "不该覆盖" }, { id: "a2", kind: "audio", role: "voice" }],
+  );
+  assert.deepEqual(merged, [
+    { id: "a1", kind: "image", label: "镜1关键帧", role: "storyboard" },
+    { id: "a2", kind: "audio", role: "voice" },
+  ]);
 });
 
 test("video requires a proposal, image does not", () => {

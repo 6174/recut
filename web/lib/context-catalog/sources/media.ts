@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 context-catalog/types、mediaContextPayload、MediaEventAsset 与 lucide 图标
- * [OUTPUT]: 对外提供 media 来源：按 kind 在素材库（workspace 级）搜索素材、预览真实大图/元数据、toContext 生成 media 旁路
+ * [OUTPUT]: 对外提供 media 来源与 kindIcon（按媒体类型出图标，reference 协议复用）：按 kind 在素材库（workspace 级）搜索素材、预览真实大图/元数据、toContext 生成 media 旁路
  * [POS]: web/lib/context-catalog/sources 的素材域来源；素材库与 project 无关，@ 面板不按 projectID 过滤；复用 Asset SSE 缓存，不新增轮询
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -12,7 +12,7 @@ import type { ContextOption, ContextPreview, ContextSearchContext, ContextSource
 import { matchScore } from "../search";
 import { toMediaAttrOption } from "./attribute";
 
-function kindIcon(kind: MediaEventAsset["kind"], className: string) {
+export function kindIcon(kind: MediaEventAsset["kind"], className: string) {
   if (kind === "video") return createElement(Film, { className });
   if (kind === "audio") return createElement(Music2, { className });
   if (kind === "transcript") return createElement(Captions, { className });

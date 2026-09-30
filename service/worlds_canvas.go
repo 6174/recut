@@ -2,10 +2,14 @@
  * [INPUT]: 依赖 WorldStore 的 worlds/world_entities/world_relations 表、world_canvases 文档表（存储真相在
  * worlds_canvas_doc.go，本文件的元素级 API 是文档存储上的适配层）、既有受控词表与 commitRevision 协议
  * [OUTPUT]: 对外提供 Recursive World Canvas 的能力面：受控关系词表、可扩展 entity type 目录（预设 seed + 自定义
- * 自动创建）、world_canvas 元素读写（entity 骨干 + 自由元素，均不产 revision；arrow/link 是语义边，出发点必须是
- * entity 元素）、递归容器（create_child/promote）与局部子图关系（scope_entity_id）。箭头提升按终点分派：
+ * 自动创建）、world_canvas 元素读写（entity 骨干 + 自由元素，元素本身不产 revision；attr/media 元素绑定实体时
+ * 会同步写回 entity.attrs，产出一次实体 revision；arrow/link 是语义边，出发点必须是 entity 元素）、递归容器
+ * （create_child/promote）与局部子图关系（scope_entity_id）。箭头提升按终点分派：
  * entity→entity 成关系绑定（world_relations），entity→自由元素成属性绑定（attr 锚点 + 引用投影，值与右侧属性
  * 面板共享 entity.content 单一数据源（面板为准：面板编辑经 UpsertEntity 回刷 attr 投影，画布可创建/更新但无法删除））。
+ * attr/media 元素写画布时同步写回 entity.attrs，两种关联模型都认：refId+field+value 锚点，或 edgeType=attr 属性边
+ * 按 fromElementId 解析实体 + label 映射 schema 字段/保留字段（简介→intro、正文→detail）——AI 只画布不碰实体也能
+ * 在右侧属性面板看到属性（见 syncCanvasAttrElement）。
  * 关系支持原位更新（UpdateRelation：类型/方向 patch，保留 id 与画布锚点）。语义真相只落在 world_entities +
  * world_relations；画布/类型是表达层，不进 Canon
  * [POS]: service 的 Recursive World Canvas 领域层；与 worlds_http.go（REST）、worlds_mcp.go（MCP）共同构成
@@ -545,6 +549,289 @@ func (w *WorldStore) syncAttrElementValue(worldID, entityID string, props map[st
 		CreatedBy: "canvas",
 	})
 	return err
+}
+
+// canvasAttrSyncTargets returns the doc element ids whose bound entity attrs
+// must be re-synced after writing element: the element itself when it is an
+// attr/media value holder, plus the attr/media node an attribute edge points
+// to (so building the edge after the node still syncs it).
+func canvasAttrSyncTargets(element WorldCanvasElement) []string {
+	if element.Kind == "attr" || element.Kind == "media" {
+		return []string{element.ID}
+	}
+	if element.Kind != "arrow" {
+		return nil
+	}
+	if edgeType := strings.TrimSpace(stringProp(element.Props, "edgeType")); edgeType != "" && edgeType != "attr" {
+		return nil
+	}
+	if toID := strings.TrimSpace(stringProp(element.Props, "toElementId")); toID != "" {
+		return []string{toID}
+	}
+	return nil
+}
+
+// syncCanvasAttrTargets resolves each target id inside a document payload and
+// syncs its bound entity attrs. It is best-effort: a missing target is skipped
+// and a failed sync is logged, never returned — the canvas document is already
+// committed by the time this runs, so a projection side effect must not turn a
+// successful canvas write into a reported failure.
+func (w *WorldStore) syncCanvasAttrTargets(worldID string, targets []string, elements []WorldCanvasElement) {
+	seen := map[string]bool{}
+	for _, elementID := range targets {
+		if elementID == "" || seen[elementID] {
+			continue
+		}
+		seen[elementID] = true
+		element, ok := canvasElementByID(elements, elementID)
+		if !ok {
+			continue
+		}
+		if err := w.syncCanvasAttrElement(worldID, element, elements); err != nil {
+			logWorldEvent("world.canvas.attr.sync.failed", map[string]string{
+				"worldId": worldID, "elementId": element.ID, "code": asWorldsError(err).Code,
+			})
+		}
+	}
+}
+
+// syncCanvasAttrElement writes one canvas attr/media element back into its bound
+// entity's attrs at the storage layer, so a producer that only authors the
+// canvas still lands the property in the right-hand attribute panel. Two
+// linkage models are accepted, mirroring the front-end:
+//
+//   - backend/promote model: the element itself carries refId + props.field +
+//     props.value (delegates to syncAttrElementValue).
+//   - interactive/AI model: the element is the end of an attr edge
+//     (kind=arrow, props.edgeType absent or "attr", props.fromElementId
+//     = "shape:<entityId>" or an entity element id, props.toElementId
+//     = this element). The label maps to a first-class entity field
+//     (简介/正文 → intro/detail) or a type-schema attr key, and the value comes
+//     from props.text (text) or props.assetId (media).
+//
+// Empty text values are ignored on purpose (deletion stays panel-only), and an
+// element with no resolvable entity is a no-op so a stray canvas draft never
+// fails the write.
+func (w *WorldStore) syncCanvasAttrElement(worldID string, element WorldCanvasElement, elements []WorldCanvasElement) error {
+	if element.Kind != "attr" && element.Kind != "media" {
+		return nil
+	}
+	if refID := strings.TrimSpace(element.RefID); refID != "" {
+		if field := strings.TrimSpace(stringProp(element.Props, "field")); field != "" {
+			return w.syncAttrElementValue(worldID, refID, element.Props)
+		}
+	}
+	entityID := attrEdgeEntityID(element, elements)
+	if entityID == "" {
+		return nil
+	}
+	return w.syncAttrElementByLabel(worldID, entityID, element)
+}
+
+// attrEdgeEntityID resolves the entity an attr/media element is bound to
+// through its attr edge: the arrow that ends at this element and starts at an
+// entity element ("shape:<entityId>" mirror id or an element id).
+func attrEdgeEntityID(element WorldCanvasElement, elements []WorldCanvasElement) string {
+	for _, edge := range elements {
+		if edge.Kind != "arrow" {
+			continue
+		}
+		if stringProp(edge.Props, "toElementId") != element.ID {
+			continue
+		}
+		if edgeType := strings.TrimSpace(stringProp(edge.Props, "edgeType")); edgeType != "" && edgeType != "attr" {
+			continue
+		}
+		if entityID := resolveEntityIDRef(stringProp(edge.Props, "fromElementId"), elements); entityID != "" {
+			return entityID
+		}
+	}
+	return ""
+}
+
+// resolveEntityIDRef resolves an edge start reference to an entity id: a
+// "shape:<entityId>" mirror id, an entity element's own id, or a bare id.
+func resolveEntityIDRef(ref string, elements []WorldCanvasElement) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ""
+	}
+	if strings.HasPrefix(ref, "shape:") {
+		return strings.TrimPrefix(ref, "shape:")
+	}
+	for _, item := range elements {
+		if item.ID == ref {
+			if item.Kind == "entity" || item.RefKind == "entity" {
+				return strings.TrimSpace(item.RefID)
+			}
+			return ""
+		}
+	}
+	return ref
+}
+
+// syncAttrElementByLabel writes a canvas attr/media element value into its
+// entity using the same label→field/key mapping the canvas store applies:
+// reserved labels (简介/正文) hit first-class intro/detail, otherwise the label
+// resolves to a type-schema field key, else the label itself is the attr key.
+func (w *WorldStore) syncAttrElementByLabel(worldID, entityID string, element WorldCanvasElement) error {
+	label := strings.TrimSpace(stringProp(element.Props, "label"))
+	if label == "" {
+		label = strings.TrimPrefix(strings.TrimSpace(element.Name), "属性 · ")
+	}
+	if label == "" {
+		return nil
+	}
+	db, err := w.database()
+	if err != nil {
+		return err
+	}
+	entity, err := w.getEntity(db, worldID, entityID)
+	if err != nil {
+		return nil // unlinked/stale draft: nothing to sync
+	}
+	mediaProp := strings.TrimSpace(stringProp(element.Props, "media"))
+	if element.Kind == "media" || (mediaProp != "" && mediaProp != "text") {
+		return w.syncAttrElementMedia(db, worldID, entity, label, mediaProp, element)
+	}
+	// Text: reserved labels write the first-class field, others the attr list.
+	text := stringProp(element.Props, "text")
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	switch entityFieldKeyOfLabel(label) {
+	case "intro":
+		if entity.Intro == text {
+			return nil
+		}
+		_, err = w.UpsertEntity(UpsertEntityInput{
+			WorldID: worldID, EntityID: entity.ID, Name: entity.Name,
+			Intro: text, Detail: entity.Detail, CreatedBy: "canvas",
+		})
+		return err
+	case "detail":
+		if entity.Detail == text {
+			return nil
+		}
+		_, err = w.UpsertEntity(UpsertEntityInput{
+			WorldID: worldID, EntityID: entity.ID, Name: entity.Name,
+			Intro: entity.Intro, Detail: text, CreatedBy: "canvas",
+		})
+		return err
+	}
+	key := w.attrKeyForLabel(db, worldID, entity.TypeID, label)
+	return w.upsertCanvasEntityAttr(worldID, entity, EntityAttr{Key: key, Label: label, Type: "text", Value: text})
+}
+
+// syncAttrElementMedia writes a canvas media element value into the entity's
+// media attr. A url-only value cannot be expressed as an entity media attr
+// (assetId is required server-side), so it is skipped rather than failing.
+func (w *WorldStore) syncAttrElementMedia(db *sql.DB, worldID string, entity WorldEntity, label, mediaProp string, element WorldCanvasElement) error {
+	assetID := strings.TrimSpace(stringProp(element.Props, "assetId"))
+	if assetID == "" {
+		return nil
+	}
+	kind := mediaProp
+	if element.Kind == "media" {
+		if modality := strings.TrimSpace(stringProp(element.Props, "modality")); modality != "" {
+			kind = modality
+		}
+	}
+	if kind == "" || kind == "text" {
+		kind = "image"
+	}
+	value := map[string]any{"assetId": assetID, "kind": kind}
+	name := strings.TrimSpace(stringProp(element.Props, "assetName"))
+	if name == "" {
+		if raw := strings.TrimSpace(element.Name); !strings.HasPrefix(raw, "属性 · ") {
+			name = raw
+		}
+	}
+	if name != "" {
+		value["name"] = name
+	}
+	key := w.attrKeyForLabel(db, worldID, entity.TypeID, label)
+	return w.upsertCanvasEntityAttr(worldID, entity, EntityAttr{Key: key, Label: label, Type: "media", Value: value})
+}
+
+// upsertCanvasEntityAttr patches one attr onto the entity and commits it
+// through the canonical path (name/intro/detail ride along so the update never
+// blanks them; the revision is de-duplicated by canonical hash).
+func (w *WorldStore) upsertCanvasEntityAttr(worldID string, entity WorldEntity, attr EntityAttr) error {
+	_, err := w.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: entity.ID, Name: entity.Name,
+		Intro: entity.Intro, Detail: entity.Detail,
+		Attrs: patchEntityAttrEntry(entity.Attrs, attr), CreatedBy: "canvas",
+	})
+	return err
+}
+
+// patchEntityAttrEntry returns a copy of attrs with one typed attr's value set,
+// creating it when the key is new. A locked schema field keeps its pinned
+// label/type; only the value moves.
+func patchEntityAttrEntry(attrs []EntityAttr, incoming EntityAttr) []EntityAttr {
+	result := make([]EntityAttr, 0, len(attrs)+1)
+	found := false
+	for _, attr := range attrs {
+		if attr.Key == incoming.Key {
+			attr.Value = incoming.Value
+			if !attr.Locked {
+				if incoming.Type != "" {
+					attr.Type = incoming.Type
+				}
+				if strings.TrimSpace(attr.Label) == "" {
+					attr.Label = incoming.Label
+				}
+			}
+			found = true
+		}
+		result = append(result, attr)
+	}
+	if !found {
+		if incoming.Label == "" {
+			incoming.Label = incoming.Key
+		}
+		if incoming.Type == "" {
+			incoming.Type = "text"
+		}
+		result = append(result, incoming)
+	}
+	return result
+}
+
+// attrKeyForLabel maps a canvas attr label to the entity type's field key
+// (schema labels and keys both match), falling back to the label itself.
+func (w *WorldStore) attrKeyForLabel(db *sql.DB, worldID, typeID, label string) string {
+	var fieldsJSON string
+	if err := db.QueryRow("select fields_json from world_entity_types where world_id = ? and id = ? and archived_at is null", worldID, typeID).Scan(&fieldsJSON); err != nil {
+		return label
+	}
+	var fields []EntityTypeField
+	if err := json.Unmarshal([]byte(fieldsJSON), &fields); err != nil {
+		return label
+	}
+	for _, field := range fields {
+		fieldLabel := strings.TrimSpace(field.Label)
+		if fieldLabel == "" {
+			fieldLabel = field.Key
+		}
+		if fieldLabel == label || field.Key == label {
+			return field.Key
+		}
+	}
+	return label
+}
+
+// entityFieldKeyOfLabel maps a reserved canvas attr label to a first-class
+// entity field (简介/正文 ↔ intro/detail); other labels return "".
+func entityFieldKeyOfLabel(label string) string {
+	switch strings.TrimSpace(label) {
+	case "简介", "介绍", "intro":
+		return "intro"
+	case "正文", "内容", "正文内容", "detail":
+		return "detail"
+	}
+	return ""
 }
 
 // syncAttrProjections is the panel → canvas half of the property-binding sync.

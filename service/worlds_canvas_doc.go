@@ -5,7 +5,8 @@
  * SaveCanvasDocument（整包保存 + version 乐观锁）、ListCanvasDocuments（文档索引）、UpdateCanvasDocumentOps
  * （元素级 ops 操作面，AI/MCP 用：实体卡只给 refId 即补 shape:<entityId>/名称/默认几何，非实体元素补默认几何，
  * 并提供 canvasLayoutSummary 只读回执）；并承载语义侧的画布联动（promote 投影写回、实体删除投影清理、
- * attr 投影同步、fork 文档复制）
+ * attr 投影同步、fork 文档复制）；元素级 ops 写入 attr/media 元素时同步写回 entity.attrs（refId+field+value 锚点
+ * 或 edgeType=attr 属性边关联模型，见 syncCanvasAttrElement），使 AI 只写画布也能落进右侧属性面板
  * [POS]: service 的 World Canvas 文档存储层；world_canvas element 级表保留只读作迁移源，30 天后清理
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -254,6 +255,16 @@ func normalizeCanvasElements(elements []WorldCanvasElement) []WorldCanvasElement
 	return normalized
 }
 
+// canvasElementByID finds one element by id inside a document payload.
+func canvasElementByID(elements []WorldCanvasElement, elementID string) (WorldCanvasElement, bool) {
+	for _, element := range elements {
+		if element.ID == elementID {
+			return element, true
+		}
+	}
+	return WorldCanvasElement{}, false
+}
+
 // fillCanvasElementGeometry fills the frontend-mirrored defaults an AI-placed
 // element needs to render like an interactively-created one: entity cards get
 // 264x328 (RFC 统一 Entity 模型 card size) and a grid slot when x/y are absent.
@@ -404,7 +415,7 @@ func (w *WorldStore) UpdateCanvasDocumentOps(worldID, contextID string, ops []Ca
 		return WorldCanvasDocument{}, err
 	}
 	elements := append([]WorldCanvasElement{}, row.payload.Elements...)
-	attrWrites := [][2]any{}
+	attrElementIDs := []string{}
 	for _, op := range ops {
 		switch op.Op {
 		case "insert", "update":
@@ -480,9 +491,12 @@ func (w *WorldStore) UpdateCanvasDocumentOps(worldID, contextID string, ops []Ca
 				element.CreatedAt = iso(time.Now().UTC())
 				elements = append(elements, element)
 			}
-			if element.Kind == "attr" && element.RefID != "" {
-				attrWrites = append(attrWrites, [2]any{element.RefID, element.Props})
-			}
+			// Property-binding sync (canvas → entity): collect the elements whose
+			// entity attrs must be re-synced after commit. The entity linkage is
+			// resolved post-commit — an attr element reaches its entity either by
+			// refId+field+value or through its attr edge; writing the edge after
+			// the node also re-syncs the node (see canvasAttrSyncTargets).
+			attrElementIDs = append(attrElementIDs, canvasAttrSyncTargets(element)...)
 		case "remove":
 			if op.Element == nil || strings.TrimSpace(op.Element.ElementID) == "" {
 				return WorldCanvasDocument{}, worldsError(WorldsErrContextInvalid, "canvas remove op needs an element id")
@@ -505,13 +519,9 @@ func (w *WorldStore) UpdateCanvasDocumentOps(worldID, contextID string, ops []Ca
 	if err := tx.Commit(); err != nil {
 		return WorldCanvasDocument{}, err
 	}
-	for _, write := range attrWrites {
-		entityID, _ := write[0].(string)
-		props, _ := write[1].(map[string]any)
-		if err := w.syncAttrElementValue(worldID, entityID, props); err != nil {
-			return WorldCanvasDocument{}, err
-		}
-	}
+	// Attr sync is a projection side effect of a committed canvas write: it is
+	// best-effort and never fails the write (see syncCanvasAttrTargets).
+	w.syncCanvasAttrTargets(worldID, attrElementIDs, elements)
 	return WorldCanvasDocument{
 		WorldID: worldID, ContextID: contextID, Version: row.version,
 		Elements: row.payload.Elements, CreatedAt: row.createdAt, UpdatedAt: row.updatedAt,
@@ -607,11 +617,15 @@ func (w *WorldStore) UpsertCanvasElement(input UpsertCanvasElementInput) (WorldC
 	if err := w.writeCanvasDocElement(input.WorldID, contextID, element); err != nil {
 		return WorldCanvasElement{}, err
 	}
-	// Property binding sync (canvas-side create/update only).
-	if input.Kind == "attr" && input.RefID != "" {
-		if err := w.syncAttrElementValue(input.WorldID, input.RefID, input.Props); err != nil {
-			return WorldCanvasElement{}, err
+	// Property binding sync (canvas-side create/update only): both the
+	// refId+field+value anchor model and the arrow-linked attr/media model
+	// resolve to the entity and write through to its attrs.
+	if targets := canvasAttrSyncTargets(element); len(targets) > 0 {
+		doc, docErr := w.GetCanvasDocument(input.WorldID, contextID)
+		if docErr != nil {
+			return WorldCanvasElement{}, docErr
 		}
+		w.syncCanvasAttrTargets(input.WorldID, targets, doc.Elements)
 	}
 	return w.getCanvasDocElement(input.WorldID, contextID, element.ID)
 }

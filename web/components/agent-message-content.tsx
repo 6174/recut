@@ -109,6 +109,6 @@ function componentMeta(metadata: Record<string, unknown> | undefined): { compone
 function MediaPreviewState({ state }: { state: MediaPreviewStateData }) {
   const { t } = useI18n();
   if (state.status === "failed") return <div className="grid aspect-video place-items-center bg-muted px-3 text-center"><div><p className="text-[11px] font-medium text-destructive">{t("agent.message.generationFailed")}</p><GenerationDuration className="mt-1 block font-mono text-[10px] text-muted-foreground" item={state} />{state.error && <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-muted-foreground">{state.error}</p>}</div></div>;
-  if (state.status === "proposed") return <div className="grid aspect-video place-items-center bg-muted px-3 text-center text-muted-foreground"><p className="text-[11px] font-medium text-amber-600">{t("agent.message.planned")}</p></div>;
+  if (state.status === "proposed") return <div className="grid aspect-video place-items-center bg-muted px-3 text-center text-muted-foreground"><p className="text-[11px] font-medium text-muted-foreground">{t("agent.message.planned")}</p></div>;
   return <div className="grid aspect-video place-items-center bg-muted text-center text-muted-foreground"><div><LoaderCircle className="mx-auto size-5 animate-spin text-primary" /><p className="mt-2 text-[11px]">{state.status === "checking" ? t("agent.message.checking") : t("agent.message.generating")}</p><GenerationDuration className="mt-1 block font-mono text-[10px] text-muted-foreground" item={state} /></div></div>;
 }

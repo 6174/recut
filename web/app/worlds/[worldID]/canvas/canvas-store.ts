@@ -7,6 +7,7 @@
  * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框，含属性面板显隐与 dock 内大纲 panel 高度 outlineHeight（按浏览器持久化）；
  * 多选 selectedIds 为 pomelo block id 集合，select 单选/selectMany 框选保持同步）
  * 与全部写动作（关系原位改 updateRelation：类型/方向 patch，保留 id/scope 与画布锚点）；画布元素写 world_canvas 不产 revision，
+ * 多选对齐/分布间距/网格排布（arrangeSelection，几何单一实现在 lib/pomelo/world-canvas/arrange.ts）只改元素 x/y，整批合并为一条撤销，
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
  * 语义撤销/重做为闭包双栈（changeLog/redoLog）：每次语义写登记 undo+redo，撤销把条目移入 redoLog、重做移回
  * changeLog，新语义写清空 redoLog；回放期用 historyReplayDepth 抑制递归记账；历史操作经 historyQueue 串行
@@ -42,6 +43,8 @@ import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { ENTITY_CARD_PAD, entityCardContentHeight, entityCardImageHeight } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import { MEDIA_VISUAL_SIZE, isMediaVisualModality, measureMediaVisualRatio, mediaVisualSizeForRatio } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
 import { textAttrHeight, textElementHeight } from "@/lib/pomelo/world-canvas/blocks/text-block-metrics";
+import { blockRect } from "@/lib/pomelo/world-canvas/arrow-geometry";
+import { ARRANGE_LABELS, computeArrange, type ArrangeMode, type ArrangeRect } from "@/lib/pomelo/world-canvas/arrange";
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import {
   createRecutWorldsClient,
@@ -56,6 +59,7 @@ import {
 import { applyCanvasError } from "./canvas-errors";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrValueOf, entityFieldKeyOfLabel } from "./entity-attrs";
+import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import { confirmProposalAsset, createProposal as createProposalAsset, generationCapabilityOf, isProposalGate, proposalFromAsset, proposalIssues, proposalReferenceIds, readProposal, rejectProposalAsset, updateProposalAsset, type GenerationProposal } from "./canvas-proposal";
 import { canvasAssetOf, refreshCanvasAsset, useCanvasAssetStatusStore } from "./canvas-asset-status";
 import { buildGenerationRequest } from "@/lib/media/generation-request";
@@ -149,6 +153,13 @@ export function canvasSelectionBlockId(selection: CanvasSelection): string | nul
   if (selection.type === "world") return WORLD_ELEMENT_ID;
   if (selection.type === "relation") return `arrow:${selection.relation.id}`;
   return selection.element.id;
+}
+
+// canvasSelectionBlockId 的逆向：pomelo block id → world_canvas 元素 id。
+// 实体卡 block `entity:<entityId>` 对应元素 `shape:<entityId>`；World 节点与自由元素的 block id 即元素 id。
+// 与 CanvasBindsPlugin 的提交路径共用同一映射（插件内不再各写一份）。
+export function canvasElementIdOfBlock(blockId: string): string {
+  return blockId.startsWith("entity:") ? `shape:${blockId.slice("entity:".length)}` : blockId;
 }
 
 // block id → CanvasSelection（框选/Shift 点选落回单选的解析出口）；对象已不在当前层时返回 null。
@@ -766,6 +777,9 @@ type WorldCanvasState = {
   // 关系锚点持久化：写固有 anchor 元素（shape:rel-<relationId>），语义由 relationId 关联
   persistRelationGeometry: (relationId: string, geometry: { fromAnchor?: { x: number; y: number }; toAnchor?: { x: number; y: number }; bend?: { dx: number; dy: number } }) => Promise<void>;
   moveElement: (id: string, x: number, y: number) => void;
+  // 多选对齐 / 分布间距 / 网格排布（顶部工具栏「对齐」菜单）：按选中 block 的有效矩形计算目标左上角，
+  // 写回元素几何并推进 dataVersion 重建投影；整批只记一条撤销。
+  arrangeSelection: (mode: ArrangeMode) => void;
   upsertElement: (input: CanvasElementInput) => Promise<WorldCanvasElement>;
   persistGeometry: (id: string, geometryOverride?: Record<string, unknown>, propsOverride?: Record<string, unknown>) => Promise<void>;
   // 历史回放专用（内部）：确定性地写回元素几何/属性并推进 dataVersion——persistGeometry 不推进
@@ -1459,6 +1473,41 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         ),
       };
     });
+  },
+
+  // 多选对齐 / 分布间距 / 网格排布（顶部工具栏「对齐」菜单）：矩形取 blockRect（渲染真源，与命中/连线/吸附同源），
+  // 只改 x/y、不改尺寸；关系边（arrow:）与无几何的 block 不参与；选中数不足直接不动（computeArrange 返回 null）。
+  // 整批只记一条撤销（logGeometryChange），与拖拽提交同一撤销口径。
+  arrangeSelection: (mode) => {
+    const state = get();
+    const editor = state.editor;
+    if (!editor || state.readOnly) return;
+    const entries: Array<{ canvasId: string; rect: ArrangeRect }> = [];
+    for (const blockId of state.selectedIds) {
+      if (blockId.startsWith("arrow:")) continue;
+      const record = editor.state.getBlockById(blockId);
+      if (!record || record.isRoot || record.type === "relation-arrow") continue;
+      const rect = blockRect(record);
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      const canvasId = canvasElementIdOfBlock(blockId);
+      // 无对应元素（已从画布移除的隐藏投影等）无处落库，跳过
+      if (!state.elements.some((element) => element.id === canvasId)) continue;
+      entries.push({ canvasId, rect });
+    }
+    const targets = computeArrange(entries.map((entry) => entry.rect), mode);
+    if (!targets) return;
+    const history: Array<{ id: string; before: Record<string, unknown>; after: Record<string, unknown> }> = [];
+    entries.forEach((entry, index) => {
+      const before = { x: Math.round(entry.rect.x), y: Math.round(entry.rect.y) };
+      const after = targets[index];
+      if (before.x === after.x && before.y === after.y) return;
+      void get().persistGeometry(entry.canvasId, after);
+      history.push({ id: entry.canvasId, before, after });
+    });
+    if (history.length === 0) return;
+    // persistGeometry 不推进 dataVersion（画布投影不重建），落位后显式推进一次
+    set((prev) => ({ dataVersion: prev.dataVersion + 1 }));
+    get().logGeometryChange(ARRANGE_LABELS[mode], history);
   },
 
   upsertElement: (input) => {
@@ -2658,7 +2707,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     if (assetId) {
       const proposal = proposalFromAssetOfElement(elementId);
       if (proposal) {
-        const errors = proposalIssues(proposal).filter((issue) => issue.level === "error");
+        const errors = proposalIssues(proposal, contextProtocolRegistry()).filter((issue) => issue.level === "error");
         if (errors.length) {
           get().toast(errors[0].message, "error");
           return;
@@ -2676,7 +2725,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
     const proposal = readProposal(element.props);
     if (!proposal || proposal.status === "generating") return;
-    const errors = proposalIssues(proposal).filter((issue) => issue.level === "error");
+    const errors = proposalIssues(proposal, contextProtocolRegistry()).filter((issue) => issue.level === "error");
     if (errors.length) {
       get().toast(errors[0].message, "error");
       return;

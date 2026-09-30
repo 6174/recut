@@ -1,9 +1,9 @@
 /*
- * [INPUT]: 依赖 media-types（Asset/normalizeAsset/Capability/ModelParameter）、lib/media/proposal（GenerationProposal/ProposalReference/proposalIssues/proposalRoleLabel）、
+ * [INPUT]: 依赖 media-types（Asset/normalizeAsset/Capability/ModelParameter）、lib/media/proposal（GenerationProposal/ProposalReference/proposalIssues/mergeProposalReferences/proposalRoleLabel）、
  *   media-configuration-store（isLocalProvider 按 protocol=local 判定免凭据）、model-picker、rich-composer、asset-reference-picker、recipe-parameters、lucide-react。
- * [OUTPUT]: 对外提供 ProposalEditor——生成提案审批台的唯一实现：状态区 + 富文本提示词（@ 引用素材，并入 references）+
+ * [OUTPUT]: 对外提供 ProposalEditor——生成提案审批台的唯一实现：状态区 + 富文本提示词（@ 引用素材与 AI 的 <reference> 锚点一并渲染为 chip，并入 references）+
  *   参考素材（缩略图/锚定 role/增删，支持宿主经 extraReferenceAction 注入额外入口如「从当前 World 选择」）+
- *   生成模型与参数 + 提交前自检 + 确认生成（提案状态不可取消）。
+ *   生成模型与参数 + 提交前自检（role↔kind、正文 token 绑定）+ 确认生成（提案状态不可取消）。
  * [POS]: web/components 的提案编辑同构层；World 画布媒体节点与素材详情弹框共用同一实现，差异只在宿主：宿主注入
  *   onChange/onConfirm（画布写元素 store，弹框写全局 asset 提案 HTTP）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -22,7 +22,7 @@ import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import type { ContextOption } from "@/lib/context-catalog/types";
 import { isLocalProvider, useMediaConfigurationStore } from "@/lib/media-configuration-store";
 import { normalizeValue, type RichComposerValue } from "@/lib/rich-composer/value";
-import { proposalIssues, proposalRoleLabel, type GenerationProposal, type ProposalReference } from "@/lib/media/proposal";
+import { mergeProposalReferences, proposalIssues, proposalRoleLabel, type GenerationProposal, type ProposalReference } from "@/lib/media/proposal";
 import { normalizeAsset, type Asset, type Capability } from "@/app/media/media-types";
 
 export type ProposalModality = "image" | "video" | "audio";
@@ -83,15 +83,32 @@ export function ProposalEditor({
     void configuration.load(apiBase);
   }, [apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 提示词补丁：写回富文本正文，并把正文里 @ 引用的媒体并入 references（否则该图不会随请求发送）。
+  // 提示词补丁：写回富文本正文，并把正文里的参考标签并入 references（否则该素材不会随请求发送）。
+  // 两类标签同构处理：AI 写入的 <reference id kind role label />（带锚定 role）与 @ 面板写入的 <media type assetid name />。
   const promptPatch = (): Partial<GenerationProposal> => {
     const value = promptValueRef.current;
     const current = proposalRef.current;
-    const known = new Set(current.references.map((reference) => reference.id));
-    const mentioned = value.refs
-      .filter((ref) => ref.type === "media" && ref.attrs.assetid && !known.has(ref.attrs.assetid))
-      .map((ref) => ({ id: ref.attrs.assetid, ...(ref.attrs.type ? { kind: ref.attrs.type } : {}), ...(ref.attrs.name ? { name: ref.attrs.name, label: ref.attrs.name } : {}) }));
-    return { prompt: value.text, ...(mentioned.length ? { references: [...current.references, ...mentioned] } : {}) };
+    const mentioned: ProposalReference[] = [];
+    for (const ref of value.refs) {
+      if (ref.type === "reference" && ref.attrs.id) {
+        mentioned.push({
+          id: ref.attrs.id,
+          ...(ref.attrs.kind ? { kind: ref.attrs.kind } : {}),
+          ...(ref.attrs.role ? { role: ref.attrs.role } : {}),
+          ...(ref.attrs.label ? { label: ref.attrs.label } : {}),
+        });
+        continue;
+      }
+      if (ref.type === "media" && ref.attrs.assetid) {
+        mentioned.push({
+          id: ref.attrs.assetid,
+          ...(ref.attrs.type ? { kind: ref.attrs.type } : {}),
+          ...(ref.attrs.name ? { name: ref.attrs.name, label: ref.attrs.name } : {}),
+        });
+      }
+    }
+    if (!mentioned.length) return { prompt: value.text };
+    return { prompt: value.text, references: mergeProposalReferences(current.references, mentioned) };
   };
   const commitPrompt = async () => {
     if (!promptDirtyRef.current) return;
@@ -118,7 +135,7 @@ export function ProposalEditor({
   const credential = configuration.credentials.find((item) => item.provider === selectedModel?.provider);
   const keyless = isLocalProvider(selectedModel?.provider, configuration.providers);
   const draft: GenerationProposal = { ...proposal, prompt: promptValue.text };
-  const issues = proposalIssues(draft);
+  const issues = proposalIssues(draft, registry);
   const canConfirm = !readOnly && Boolean(selectedModel) && (keyless || Boolean(credential)) && !issues.some((issue) => issue.level === "error") && proposal.status !== "generating";
 
   // 模型缺省对齐：提案未带 modelId/credentialId 时按可用模型补全（不改用户已选项）。
@@ -185,9 +202,9 @@ export function ProposalEditor({
   return (
     <div className="space-y-4">
       {/* A. 状态区 */}
-      <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5">
+      <div className="rounded-md border border-border bg-muted/30 p-2.5">
         <div className="flex items-center justify-between">
-          <p className="text-[11px] font-medium text-amber-500">生成提案 · {proposal.status === "generating" ? "生成中" : proposal.status === "failed" ? "生成失败" : "待确认"}</p>
+          <p className={`text-[11px] font-medium ${proposal.status === "generating" ? "text-primary" : proposal.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>生成提案 · {proposal.status === "generating" ? "生成中" : proposal.status === "failed" ? "生成失败" : "待确认"}</p>
           {proposal.proposedBy === "agent" && <span className="text-[10px] text-muted-foreground">来自 AI</span>}
         </div>
         {proposal.note && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{proposal.note}</p>}

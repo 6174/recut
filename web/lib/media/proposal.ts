@@ -1,7 +1,8 @@
 /*
- * [INPUT]: 依赖 media-types（Asset/AssetStatus）与 fetch；无其它运行时依赖
+ * [INPUT]: 依赖 media-types（Asset/AssetStatus）、rich-composer 协议解析（parseInlineRefs/RefProtocolRegistry）与 fetch
  * [OUTPUT]: 对外提供生成提案的共享纯函数与资产映射：GenerationProposal/ProposalReference/ProposalStatus、
- *           PROPOSAL_ROLES/role 选项/自检（fail closed）/proposalReferenceIds、proposalRequiredFor、
+ *           PROPOSAL_ROLES/role 选项/自检（fail closed：role↔kind 与正文 token 绑定）/proposalReferenceIds、
+ *           mergeProposalReferences（正文标签并入 references，按 id 去重回填）、proposalRequiredFor、
  *           generationCapabilityOf、readProposal（props 防御式解析）、hasProposalRecipe / proposalFromAsset（proposed 资产 → 提案视图）、
  *           isConfirmableProposal / isPlanAsset（提案 vs 计划），
  *           以及 HTTP 客户端 createProposal/listProposals/updateProposalAsset/confirmProposalAsset/rejectProposalAsset
@@ -9,6 +10,8 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { Asset } from "@/app/media/media-types";
+import { parseInlineRefs } from "@/lib/rich-composer/protocol/parse";
+import type { RefProtocolRegistry } from "@/lib/rich-composer/protocol/types";
 
 // 提案引用：id 为稳定 assetId；kind/role/label 语义见 generation-reference-protocol RFC。
 export type ProposalReference = { id: string; kind?: string; role?: string; label?: string; name?: string };
@@ -166,7 +169,8 @@ export function isPlanAsset(asset: Pick<Asset, "status" | "jobId" | "metadata">)
 }
 
 // 提交前自检（映射 recut-director（references/generation-prompt） 的产出自检）：error 阻断确认，warn 仅提示。
-export function proposalIssues(proposal: GenerationProposal): Array<{ level: "error" | "warn"; message: string }> {
+// registry 缺省时跳过正文 token 绑定检查（纯逻辑调用方不必拖入协议注册表）。
+export function proposalIssues(proposal: GenerationProposal, registry?: RefProtocolRegistry): Array<{ level: "error" | "warn"; message: string }> {
   const issues: Array<{ level: "error" | "warn"; message: string }> = [];
   if (!proposal.prompt.trim()) issues.push({ level: "error", message: "提示词为空" });
   if (!proposal.modelId) issues.push({ level: "error", message: "未选择生成模型" });
@@ -178,8 +182,49 @@ export function proposalIssues(proposal: GenerationProposal): Array<{ level: "er
       issues.push({ level: "error", message: `参考「${reference.label || reference.id}」的 role（${spec.label}）与类型 ${reference.kind} 不匹配` });
     }
   }
+  // 正文出现的每个参考 token 必须有绑定：未绑定的 id 会以裸 assetId 漏给模型（服务端 fail closed），此处提前拦截。
+  if (registry) {
+    const bound = new Set(proposal.references.map((reference) => reference.id));
+    for (const id of promptReferenceIDs(proposal.prompt, registry)) {
+      if (!bound.has(id)) issues.push({ level: "error", message: `提示词里的参考「${id}」没有绑定素材` });
+    }
+  }
   if (!proposal.references.length) issues.push({ level: "warn", message: "没有参考素材" });
   return issues;
+}
+
+// 正文里的生成参考 token → 绑定的素材 id：<reference id …>（AI 写入）与 <media assetid …>（@ 面板写入），按出现顺序去重。
+function promptReferenceIDs(prompt: string, registry: RefProtocolRegistry): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const ref of parseInlineRefs(prompt, registry)) {
+    const id = ref.type === "reference" ? ref.attrs.id : ref.type === "media" ? ref.attrs.assetid : null;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+// 正文标签并入 references：按 id 去重，已存在则只回填缺失的 kind/role/label/name（顺序以已有为准）。
+export function mergeProposalReferences(existing: ProposalReference[], incoming: ProposalReference[]): ProposalReference[] {
+  const merged = existing.map((reference) => ({ ...reference }));
+  const positions = new Map(merged.map((reference, position) => [reference.id, position]));
+  for (const reference of incoming) {
+    if (!reference.id) continue;
+    const position = positions.get(reference.id);
+    if (position === undefined) {
+      positions.set(reference.id, merged.length);
+      merged.push({ ...reference });
+      continue;
+    }
+    const target = merged[position];
+    if (!target.kind && reference.kind) target.kind = reference.kind;
+    if (!target.role && reference.role) target.role = reference.role;
+    if (!target.label && reference.label) target.label = reference.label;
+    if (!target.name && reference.name) target.name = reference.name;
+  }
+  return merged;
 }
 
 // 按引用出现顺序导出 referenceIds（提交串顺序的绑定证据）。

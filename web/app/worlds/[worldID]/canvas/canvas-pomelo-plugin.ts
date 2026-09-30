@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 pomelo-core（PomeloPlugin / PomeloEditor）、pomelo-vello/overlay-dom（DomOverlay/cssColor）、
- * canvas-store、world-canvas/blocks/entity-card-metrics（entityCardRect）、arrow-geometry（共享几何/blockRect）
+ * canvas-store（含 canvasElementIdOfBlock：block → world_canvas 元素 id 的共用映射，
+ * 与 store.arrangeSelection 同源）、world-canvas/blocks/entity-card-metrics（entityCardRect）、arrow-geometry（共享几何/blockRect）
  * 与 world-canvas/plugins/alignment-guide-plugin（拖拽对齐吸附与提示线）
  * [OUTPUT]: 对外提供 CanvasBindsPlugin：pomelo 画布与 canvas-store 的交互绑定层——
  * 点击命中选择（实体卡/便签/文本/形状/属性节点/独立媒体卡/World 节点/语义关系线/自由箭头）解析为
@@ -27,7 +28,7 @@
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { PomeloPlugin } from "@/lib/pomelo/pomelo-core/pomelo-plugin";
 import { DomOverlay, cssColor } from "@/lib/pomelo/pomelo-vello/overlay-dom";
-import { WORLD_ELEMENT_ID, useWorldCanvasStore } from "./canvas-store";
+import { WORLD_ELEMENT_ID, canvasElementIdOfBlock, useWorldCanvasStore } from "./canvas-store";
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import { audioBlockRect, isAudioBlockRecord } from "@/lib/pomelo/world-canvas/blocks/audio-block-metrics";
@@ -200,11 +201,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     };
 
     // ---- 「+」手柄与引导层：实体卡左右缘中点各挂一个 + 手柄 ----
-    const blockIdToCanvasId = (blockId: string) => {
-      if (blockId === "shape:world") return WORLD_ELEMENT_ID;
-      if (blockId.startsWith("entity:")) return `shape:${blockId.slice("entity:".length)}`;
-      return blockId; // note/text/shape/attr/free-arrow：id 即 world_canvas 元素 id
-    };
+    // block id → world_canvas 元素 id 走 canvas-store.canvasElementIdOfBlock（与 store.arrangeSelection 同源，不再各写一份）
     type PlusHandle = { blockId: string; canvasId: string; anchorWorld: Point; screen: Point };
     const plusHandles = (): PlusHandle[] => {
       // 边必须有语义：受控关系只允许实体 ⇄ 实体（与后端 CreateRelation 的实体端点校验对齐）；
@@ -222,7 +219,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         ]) {
           handles.push({
             blockId: record.id,
-            canvasId: blockIdToCanvasId(record.id),
+            canvasId: canvasElementIdOfBlock(record.id),
             anchorWorld,
             screen: toScreen(anchorWorld),
           });
@@ -232,7 +229,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     };
     const nodeTitleOf = (blockId: string): { title: string; canvasId: string } => {
       const store = useWorldCanvasStore.getState();
-      const canvasId = blockIdToCanvasId(blockId);
+      const canvasId = canvasElementIdOfBlock(blockId);
       if (blockId === WORLD_ELEMENT_ID) return { title: store.worldName, canvasId };
       if (blockId.startsWith("entity:")) {
         const entity = store.entities.find((item) => item.id === blockId.slice("entity:".length));
@@ -808,7 +805,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         editor.state.transact((hook) => {
           hook.updateBlock(drag.blockId, { x, y, width, height });
         });
-        this.liveGeometry.set(blockIdToCanvasId(drag.blockId), { x, y, width, height });
+        this.liveGeometry.set(canvasElementIdOfBlock(drag.blockId), { x, y, width, height });
         this.drawOverlay(editor);
         return;
       }
@@ -833,7 +830,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
           const x = Math.round(origin.x + appliedDx);
           const y = Math.round(origin.y + appliedDy);
           hook.updateBlock(blockId, { x, y });
-          this.liveGeometry.set(blockIdToCanvasId(blockId), { x, y });
+          this.liveGeometry.set(canvasElementIdOfBlock(blockId), { x, y });
         }
       });
       this.drawOverlay(editor);
@@ -1001,7 +998,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         if (isResize(dragging)) {
           const record = editor.state.getBlockById(dragging.blockId);
           if (record) {
-            const canvasId = blockIdToCanvasId(dragging.blockId);
+            const canvasId = canvasElementIdOfBlock(dragging.blockId);
             const geometry = {
               x: Math.round(Number(record.attrs.x) || 0),
               y: Math.round(Number(record.attrs.y) || 0),
@@ -1017,7 +1014,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
           for (const blockId of dragging.moved.keys()) {
             const record = editor.state.getBlockById(blockId);
             if (!record) continue;
-            const canvasId = blockIdToCanvasId(blockId);
+            const canvasId = canvasElementIdOfBlock(blockId);
             const x = Math.round(Number(record.attrs.x) || 0);
             const y = Math.round(Number(record.attrs.y) || 0);
             const origin = dragging.moved.get(blockId);
@@ -1036,13 +1033,13 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         }
         // 提交完成：立即清除实时几何——store 已持有最终几何，留着会在随后（含撤销触发的）重建里
         // 用拖拽值覆盖 store，表现为撤销位移后又被拉回。
-        for (const blockId of liveIds) this.liveGeometry.delete(blockIdToCanvasId(blockId));
+        for (const blockId of liveIds) this.liveGeometry.delete(canvasElementIdOfBlock(blockId));
         // 拖媒体元素到实体卡 = 挂接/换挂（B.12 拖放矩阵，T8）
         const movedIds = isResize(dragging) ? [dragging.blockId] : [...dragging.moved.keys()];
         if (!isResize(dragging) && movedIds.length === 1) {
           const world = toWorld(event);
           const blockId = movedIds[0];
-          const element = store.elements.find((item) => item.id === blockIdToCanvasId(blockId));
+          const element = store.elements.find((item) => item.id === canvasElementIdOfBlock(blockId));
           const targetEntityId = this.hitEntityAt(world);
           if (element && element.kind === "media" && targetEntityId) {
             const currentEntityId = String(element.props?.entityId ?? "");

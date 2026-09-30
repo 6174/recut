@@ -187,8 +187,8 @@ function AssetCard({ apiBase, asset, onDelete, onPreview, onRename }: { apiBase:
 function PlannedAsset({ asset }: { asset: Asset }) {
   const content = typeof asset.metadata.content === "string" ? asset.metadata.content : "";
   return (
-    <div className="grid h-full w-full content-center gap-1.5 bg-sky-500/10 p-4 text-center">
-      <span className="text-[11px] font-semibold text-sky-600">计划中</span>
+    <div className="grid h-full w-full content-center gap-1.5 bg-muted/40 p-4 text-center">
+      <span className="text-[11px] font-semibold text-muted-foreground">计划中</span>
       {content && <p className="line-clamp-4 text-[10px] leading-4 text-muted-foreground">{content}</p>}
     </div>
   );
@@ -198,8 +198,8 @@ function PlannedAsset({ asset }: { asset: Asset }) {
 function ProposedAsset({ asset }: { asset: Asset }) {
   const prompt = typeof asset.metadata.prompt === "string" ? asset.metadata.prompt : "";
   return (
-    <div className="grid h-full w-full content-center gap-1.5 bg-amber-500/10 p-4 text-center">
-      <span className="text-[11px] font-semibold text-amber-600">待确认生成</span>
+    <div className="grid h-full w-full content-center gap-1.5 bg-muted/40 p-4 text-center">
+      <span className="text-[11px] font-semibold text-muted-foreground">待确认生成</span>
       {prompt && <p className="line-clamp-4 text-[10px] leading-4 text-muted-foreground">{prompt}</p>}
     </div>
   );

@@ -195,6 +195,7 @@
           "key": "seed",
           "type": "number",
           "default": -1,
+          "randomizable": true,
           "label": {
             "zh": "随机种子（-1 随机）",
             "en": "Seed (-1 random)"
@@ -277,6 +278,7 @@
           "key": "seed",
           "type": "number",
           "default": -1,
+          "randomizable": true,
           "label": {
             "zh": "随机种子（-1 随机）",
             "en": "Seed (-1 random)"

@@ -18,6 +18,8 @@ const registry: RefProtocolRegistry = [
     attrs: ["worldid", "entityid", "kind", "name"],
     identity: (attrs) => (attrs.worldid && attrs.entityid ? `${attrs.worldid}:${attrs.entityid}` : null),
   },
+  // 生成参考的统一标签（generation-reference-protocol RFC §3）：AI 写入提示词正文，必须能解析成 chip。
+  { type: "reference", attrs: ["id", "kind", "role", "label"], identity: (attrs) => attrs.id ?? null, label: (attrs) => attrs.label ?? attrs.id ?? "" },
 ];
 
 describe("stringToDoc / docToMarkdown", () => {
@@ -68,6 +70,18 @@ describe("stringToDoc / docToMarkdown", () => {
   it("treats pure plain text as paragraphs with no refs", () => {
     const doc = stringToDoc("只有纯文本", registry);
     assert.deepEqual(extractRefsFromDoc(doc, registry), []);
+  });
+
+  it("restores AI-authored <reference> tags into chips and roundtrips", () => {
+    const text =
+      '参考锚定表\n<reference id="asset_1" kind="image" role="storyboard" label="镜1关键帧" /> 作为分镜锚定';
+    const doc = stringToDoc(text, registry);
+    assert.deepEqual(doc.content?.[0]?.content?.[2], {
+      type: "reference",
+      attrs: { refType: "reference", id: "asset_1", kind: "image", role: "storyboard", label: "镜1关键帧" },
+    });
+    // 不再是原文：标签被解析成原子 chip，序列化后仍是规范标签。
+    assert.equal(docToMarkdown(doc, registry), text);
   });
 });
 

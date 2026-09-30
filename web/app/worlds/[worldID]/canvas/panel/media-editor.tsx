@@ -94,8 +94,8 @@ function PlanElementPanel({ asset, guided, identity }: { asset: Asset; guided?: 
   return (
     <div>
       <PanelSection first title="状态">
-        <div className="space-y-2 rounded-md border border-sky-500/40 bg-sky-500/5 p-2.5">
-          <p className="text-[11px] font-medium text-sky-600">生成计划 · 计划中</p>
+        <div className="space-y-2 rounded-md border border-border bg-muted/30 p-2.5">
+          <p className="text-[11px] font-medium text-muted-foreground">生成计划 · 计划中</p>
           <p className="text-[11px] leading-4 text-muted-foreground">这是一条生成计划（只有说明与属性，还没有生成配方）；复制计划交给 AI 生成。</p>
           {content && <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] leading-4 text-foreground">{content}</p>}
           <button className="h-8 w-full rounded-md border text-xs hover:bg-muted" onClick={() => void copyPlan()} type="button">

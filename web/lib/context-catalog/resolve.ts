@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 context-catalog/types 的 ContextRuntime/ContextOption 与各目录快照
- * [OUTPUT]: 对外提供 resolveContextOption(sourceType, attrs, runtime)：从 XML 属性（小写）反查运行时记录，重建可供 descriptor.preview 使用的 ContextOption
+ * [OUTPUT]: 对外提供 resolveContextOption(sourceType, attrs, runtime)：从 XML 属性（小写）反查运行时记录，重建可供 descriptor.preview 使用的 ContextOption；reference 标签按 id 反查素材
  * [POS]: web/lib/context-catalog 的反查层；供内联 chip 的 hover 预览与只读卡片复用，不新增请求
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -16,6 +16,12 @@ export function resolveContextOption(
       const asset = runtime.mediaAssets.find((item) => item.id === attrs.assetid);
       if (!asset) return null;
       return { key: `media:${asset.id}`, sourceType, group: "media", subKind: asset.kind, title: asset.name, subtitle: `${asset.kind} · ${asset.origin}`, data: asset, score: 0 };
+    }
+    case "reference": {
+      // 生成提示词里的 <reference id …>：id 即素材 assetId，反查出素材才能复用媒体预览。
+      const asset = runtime.mediaAssets.find((item) => item.id === attrs.id);
+      if (!asset) return null;
+      return { key: `reference:${asset.id}`, sourceType, group: "media", subKind: asset.kind, title: attrs.label ?? asset.name, subtitle: `${asset.kind} · ${asset.origin}`, data: asset, score: 0 };
     }
     case "creation_world": {
       const world = runtime.worlds.find((item) => item.id === attrs.worldid);

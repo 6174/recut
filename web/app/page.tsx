@@ -49,6 +49,7 @@ import { CreateWorldDialog } from "@/components/create-world-dialog";
 import { Input } from "@/components/ui/input";
 import { HeaderActions } from "@/components/header-actions";
 import { FilterTabs, WorkspacePageHeader } from "@/components/workspace-page";
+import { WorkspaceNavHover } from "@/components/workspace-back-menu";
 import { WorkspaceHeader } from "@/components/workspace-header";
 import {
   useAgentPanelContext,
@@ -420,7 +421,15 @@ function WorkspaceFrame({
           <WorldCanvasTopBar />
         ) : (
           <>
-            <RecutMark className="h-5 w-auto shrink-0" title="Recut" />
+            <WorkspaceNavHover>
+              <Link
+                aria-label={t("nav.home")}
+                className="grid size-7 shrink-0 place-items-center rounded-md text-foreground transition hover:bg-muted"
+                href="/"
+              >
+                <RecutMark className="h-5 w-auto" title="Recut" />
+              </Link>
+            </WorkspaceNavHover>
             <span aria-hidden="true" className="hidden h-5 w-px bg-border sm:block" />
             <nav
               aria-label={t("nav.aria.workspace")}

@@ -15,6 +15,8 @@ export interface FormField {
   max?: number;
   kind?: string;
   multiple?: boolean;
+  /** number 字段：额外渲染「随机」按钮，点击填入一个区间内的随机整数（如随机种子）。 */
+  randomizable?: boolean;
 }
 
 export interface OutputSpec {

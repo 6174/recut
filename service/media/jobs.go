@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖配置、资产、Provider 策略与 Provider 适配器
- * [OUTPUT]: 生成任务创建、同步执行、终态等待、结果持久化、无 prompt/凭据的状态审计与按策略分派的通用 Provider 调度；图片 job 带参考图时自动切换模型编辑变体；拒绝将 Codex 原生图片路由误送入 Provider；输出参数按 catalog schema 规范化/校验（parameters.go），本地 provider 允许只给 modelId 无凭据直连
+ * [OUTPUT]: 生成任务创建、同步执行、终态等待、结果持久化、无 prompt/凭据的状态审计与按策略分派的通用 Provider 调度；图片 job 带参考图时自动切换模型编辑变体；拒绝将 Codex 原生图片路由误送入 Provider；输出参数按 catalog schema 规范化/校验（parameters.go），本地 provider 允许只给 modelId 无凭据直连；创建期把提示词里的参考标签改写为编号别名（prompt_reference.go），模型串不含裸 assetId
  * [POS]: media 的任务编排层；图片按 Provider ID 从 model_providers 注册表取策略执行，未注册的 OpenAI 协议 Provider 回退 OpenAI 兼容端点；scheduler 位于 jobs_scheduler，由其接管持久化异步任务，Codex 图片由 Agent 自行执行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -274,6 +274,14 @@ func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCrede
 	if !input.References.Empty() {
 		job.ReferenceIDs = input.References.Flat()
 	}
+	// The model must never see a bare assetId: rewrite the authored prompt's reference tags
+	// into numbered aliases bound to the same order the provider receives the media in.
+	// The asset-side metadata.prompt keeps the original tags (the editor renders them as chips).
+	prompt, err := ResolvePromptReferences(job.Prompt, job.References.List(), m.referenceName)
+	if err != nil {
+		return MediaJob{}, MediaCredential{}, false, err
+	}
+	job.Prompt = prompt
 	refs, _ := json.Marshal(job.ReferencesForStorage())
 	output, _ := json.Marshal(job.Output)
 	assets, _ := json.Marshal(job.AssetIDs)

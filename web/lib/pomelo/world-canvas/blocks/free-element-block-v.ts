@@ -6,8 +6,8 @@
  * 文本框（elementKind=text，或 attr 且 attrMedia=text）无背景、无徽标——就是画布上的文本（文本服从 box，
  * 溢出截断），与实体卡区分开；只有媒体属性卡（image/audio/video）才画卡面与徽标；音频属性卡（attrMedia=audio 且有源）
  * 画播放器外观（圆形播放钮 + 真实波形 + 时间 + 音量/下载，波形懒加载，与媒体元素同源）；
- * 媒体属性卡的生成提案「待确认」态（proposalStatus=pending）渲染为琥珀描边 + 「提案」徽标 + 提示词摘要；
- * 计划态（planStatus，proposed 但无配方）渲染为冷蓝描边 + 「计划中」+ 说明摘要；
+ * 媒体属性卡的生成提案「待确认」态（proposalStatus=pending）渲染为弱灰描边 + 「提案」徽标 + 提示词摘要；
+ * 计划态（planStatus，proposed 但无配方）渲染为弱灰描边 + 「计划中」+ 说明摘要；
  * 生成中/失败态（proposalStatus=generating/failed，或 AI 先落 assetId 的 assetStatus）渲染为蓝/红描边 + 等待/失败提示；
  * 视口 <= LOW_DETAIL_SCALE 时隐藏文字（文本框不再退化出占位块）。
  * [POS]: lib/pomelo/world-canvas/blocks 的自由元素 vello block。
@@ -109,7 +109,7 @@ export class FreeElementBlockV extends VelloBlock {
       ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: 12, fill: CARD_FILL, stroke: accent, strokeWidth: isProposal || isPlan || isGenerating || isFailed ? 2 : 1 });
       if (!lowDetail) ops.push(...captionOpsV(this.adapter, x, y, w, label).ops);
       if (!lowDetail && isPlan) {
-        // 计划（content-first）：冷蓝徽标 + 计划摘要，待 AI 补生成配方
+        // 计划（content-first）：弱灰徽标 + 计划摘要，待 AI 补生成配方
         const prompt = String(attrs.planPrompt ?? "").replace(/\s+/g, " ").trim();
         const snippet = prompt.length > 34 ? `${prompt.slice(0, 34)}…` : prompt || "（仅说明，暂无生成配方）";
         ops.push({ kind: "roundRect", x: x + 8, y: y + 8, width: 48, height: 16, radius: 8, fill: PLAN_FILL, stroke: PLAN_ACCENT, strokeWidth: 1 });

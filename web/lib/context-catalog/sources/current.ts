@@ -1,13 +1,13 @@
 /*
  * [INPUT]: 依赖 context-catalog/types、Agent 面板的 Work Surface/Focus 类型、lucide 图标
- * [OUTPUT]: 对外提供 current 组的两个来源：workSurfaceSource（当前页面）与 workFocusSource（当前选择，并把 selection 的 asset/world_entity ref 展开为 group=current 的媒体/实体选项），以及只依赖 runtime 快照的 surfaceOption/focusOption（@ 面板搜索与芯片 hover 预览共用）
+ * [OUTPUT]: 对外提供 current 组的两个来源：workSurfaceSource（当前页面）与 workFocusSource（当前选择，并把 selection 的 asset/world_entity ref 展开为 group=current 的媒体/实体选项），以及只依赖 runtime 快照的 surfaceOption/focusOption/selectionOptions（@ 面板搜索与 composer 的候选芯片共用同一份构造）
  * [POS]: web/lib/context-catalog/sources 的「当前」来源；宿主签发，inlineInsertable=false，只允许 attach/toggle
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { createElement } from "react";
 import { Crosshair, FileText } from "lucide-react";
 import { hasWorkFocusSelection, creationEntityContextPayload, mediaContextPayload, type ContextRef } from "@/components/agent-panel-types";
-import type { ContextOption, ContextPreview, ContextRuntime, ContextSearchContext, ContextSource } from "../types";
+import type { ContextOption, ContextPreview, ContextRuntime, ContextSource } from "../types";
 
 // surfaceOption/focusOption 只依赖 runtime 快照：@ 面板搜索与芯片 hover 预览共用同一份 option 构造。
 export function surfaceOption(runtime: ContextRuntime): ContextOption | null {
@@ -44,19 +44,19 @@ export function focusOption(runtime: ContextRuntime): ContextOption | null {
 
 const SELECTION_REF_SUPPORTED = new Set<ContextRef["kind"]>(["asset", "world_entity"]);
 
-function worldSurfaceWorldId(runtime: ContextSearchContext["runtime"]): string | null {
+function worldSurfaceWorldId(runtime: ContextRuntime): string | null {
   const surface = runtime.workSurface;
   return surface?.target?.kind === "world" ? surface.target.worldId : null;
 }
 
 // selection 展开：asset → media；world_entity → creation_entity（需已知 worldId）；其余标注「即将支持」。
-export function selectionOptions(ctx: ContextSearchContext): ContextOption[] {
-  const refs = ctx.runtime.workFocus?.selection?.refs ?? [];
-  const worldId = worldSurfaceWorldId(ctx.runtime);
+export function selectionOptions(runtime: ContextRuntime): ContextOption[] {
+  const refs = runtime.workFocus?.selection?.refs ?? [];
+  const worldId = worldSurfaceWorldId(runtime);
   const options: ContextOption[] = [];
   for (const ref of refs) {
     if (ref.kind === "asset") {
-      const asset = ctx.runtime.mediaAssets.find((item) => item.id === ref.id);
+      const asset = runtime.mediaAssets.find((item) => item.id === ref.id);
       options.push({
         key: `media:${ref.id}`,
         sourceType: "media",
@@ -73,7 +73,7 @@ export function selectionOptions(ctx: ContextSearchContext): ContextOption[] {
       continue;
     }
     if (ref.kind === "world_entity" && worldId) {
-      const entity = ctx.runtime.entityFor(worldId, ref.id);
+      const entity = runtime.entityFor(worldId, ref.id);
       options.push({
         key: `creation_entity:${worldId}:${ref.id}`,
         sourceType: "creation_entity",
@@ -151,7 +151,7 @@ export const workFocusSource: ContextSource = {
     const options: ContextOption[] = [];
     const focus = focusOption(ctx.runtime);
     if (focus) options.push(focus);
-    options.push(...selectionOptions(ctx));
+    options.push(...selectionOptions(ctx.runtime));
     return options;
   },
   preview: (option, ctx): ContextPreview => {

@@ -47,7 +47,7 @@ const REGISTRY_FALLBACK = {
       formSchema: [
         { key: "prompt", type: "textarea", required: true, label: { zh: "提示词", en: "Prompt" } },
         { key: "steps", type: "number", default: 2, min: 1, max: 8, label: { zh: "步数", en: "Steps" } },
-        { key: "seed", type: "number", default: -1, label: { zh: "随机种子（-1 随机）", en: "Seed (-1 random)" } }
+        { key: "seed", type: "number", default: -1, randomizable: true, label: { zh: "随机种子（-1 随机）", en: "Seed (-1 random)" } }
       ],
       defaultParams: { steps: 2 }
     }]
@@ -1040,7 +1040,7 @@ function scaffoldManifest(id, name, capability) {
       output: { kind: "image", mimeType: "image/png", ext: "png" },
       formSchema: [
         { key: "prompt", type: "textarea", required: true, label: { zh: "提示词", en: "Prompt" } },
-        { key: "seed", type: "number", default: -1, label: { zh: "随机种子（-1 随机）", en: "Seed (-1 random)" } },
+        { key: "seed", type: "number", default: -1, randomizable: true, label: { zh: "随机种子（-1 随机）", en: "Seed (-1 random)" } },
       ],
       defaultParams: {},
     }],

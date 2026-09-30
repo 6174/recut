@@ -6,6 +6,8 @@
 badge.tsx: 紧凑状态与版本标签。
 button.tsx: 支持 default、outline、ghost 变体的操作按钮；品牌绿只用于明确命令，次级操作保持白底描边。
 card.tsx: 带 Header、Content、Footer 插槽的低圆角内容容器；仅用于独立条目、对话框和工具面板，页面分区不得套卡片。
+dropdown-menu.tsx: 基于 Radix DropdownMenu 的下拉菜单原子；一枚入口展开一组选项（Portal 渲染、键盘导航、外点/Esc 关闭、边界碰撞由原语承担），条目统一「图标在左、文案在右」。
+hover-card.tsx: 基于 Radix HoverCard 的悬停浮层原子；悬停或聚焦锚点即展开、经 Portal 脱离父级堆叠上下文渲染，供 Header 返回入口等「悬停即预览」场景复用；浮层内容必须自带内边距（原子只给容器）。
 input.tsx: 统一焦点环和无障碍状态的单行输入框。
 popover.tsx: 基于 Radix Portal 的可访问浮层原子；负责锚点定位、边界碰撞处理和脱离父级堆叠上下文渲染。
 select-field.tsx: 固定枚举的自定义选择原子；经 Popover 呈现可达选项列表，禁止页面直接使用原生 `<select>`。

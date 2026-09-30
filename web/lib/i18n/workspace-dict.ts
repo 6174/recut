@@ -16,6 +16,7 @@ const zh = {
 
   // 导航 / Tab 与常用操作
   "nav.aria.workspace": "工作台",
+  "nav.home": "工作台首页",
   "nav.studio": "创作台",
   "nav.worlds": "Worlds",
   "nav.projects": "项目",
@@ -155,6 +156,16 @@ const zh = {
   "apps.menu.title": "快捷入口",
   "apps.menu.empty": "还没有已安装的应用",
   "apps.menu.add": "添加应用",
+
+  // 返回入口的悬停快捷导航
+  "back.menu.recent": "最近项目",
+  "back.menu.all": "查看全部项目",
+  "back.menu.empty": "还没有项目",
+  "back.menu.loading": "正在加载…",
+  "back.menu.time.justNow": "刚刚",
+  "back.menu.time.minutesAgo": "{value} 分钟前",
+  "back.menu.time.hoursAgo": "{value} 小时前",
+  "back.menu.time.daysAgo": "{value} 天前",
 
   // 新建应用弹框
   "createapp.button": "新建应用",
@@ -471,6 +482,7 @@ const en: Record<keyof typeof zh, string> = {
 
   // Navigation / tabs & common actions
   "nav.aria.workspace": "Workspace",
+  "nav.home": "Workspace home",
   "nav.studio": "Studio",
   "nav.worlds": "Worlds",
   "nav.projects": "Projects",
@@ -610,6 +622,16 @@ const en: Record<keyof typeof zh, string> = {
   "apps.menu.title": "Quick access",
   "apps.menu.empty": "No apps installed yet",
   "apps.menu.add": "Add app",
+
+  // Quick navigation from the back entry
+  "back.menu.recent": "Recent projects",
+  "back.menu.all": "View all projects",
+  "back.menu.empty": "No projects yet",
+  "back.menu.loading": "Loading…",
+  "back.menu.time.justNow": "Just now",
+  "back.menu.time.minutesAgo": "{value} minutes ago",
+  "back.menu.time.hoursAgo": "{value} hours ago",
+  "back.menu.time.daysAgo": "{value} days ago",
 
   // Create app dialog
   "createapp.button": "New App",

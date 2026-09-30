@@ -50,11 +50,11 @@ export const GRAPH_COLORS = {
   linkLabelText: "#a1a1aa",
   /* 主题强调（world 光环） */
   worldAccent: "#5d9d75",
-  /* 状态态：生成提案 / 生成中 / 失败 / 计划中 */
-  proposal: "#f59e0b",
+  /* 状态态：进行中（生成中）保留蓝、失败保留红；未生成态（提案待确认 / 计划中）统一弱灰，不用琥珀/冷蓝 */
+  proposal: "#8b9099",
   pending: "#60a5fa",
   failed: "#ef4444",
-  plan: "#0ea5e9",
+  plan: "#8b9099",
   /* 音频 block（画布播放器外观）：与 components/audio-waveform-player 同色系（violet-600 强调 + violet-300 波形） */
   audio: "#7c3aed",
   audioWave: "#c4b5fd",

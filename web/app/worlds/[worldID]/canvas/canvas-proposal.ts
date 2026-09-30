@@ -12,6 +12,7 @@ export {
   isConfirmableProposal,
   isPlanAsset,
   isProposalGate,
+  mergeProposalReferences,
   proposalFromAsset,
   proposalReferenceIds,
   proposalRequiredFor,
