@@ -379,9 +379,16 @@ func (m *MediaService) executeQueuedTask(jobID string) {
 		}
 		return
 	}
-	gate := m.oneRequestGate(credential.ID)
-	gate <- struct{}{}
-	defer func() { <-gate }()
+	// 一次请求闸门只约束持有凭据的云端 provider：它防的是「一轮 reconcile 把一批排队请求同时打到
+	// 同一个上游」。App 贡献的本地 provider 不持有凭据（credential.ID 为空），并发策略由 App 自己的
+	// task 账本决定——占槽时 generate 返回 {job:null, taskId} 入队，平台只观察不排队（见
+	// waitForAppTask）。若这里仍按 credential.ID 取闸门，所有本地 App 会共用 "" 这一个槽位，
+	// 退化成「全局单任务」：一张本地任务会把另一个 App 的云端任务挡在槽外直到它跑完。
+	if credential.ID != "" {
+		gate := m.oneRequestGate(credential.ID)
+		gate <- struct{}{}
+		defer func() { <-gate }()
+	}
 	job, credential, active, err = m.activateQueuedTask(jobID)
 	if err != nil || !active {
 		if err != nil {

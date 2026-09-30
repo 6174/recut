@@ -119,6 +119,9 @@
                 "modelScope": "Comfy-Org/Qwen-Image-2.1",
                 "revision": "main"
               },
+              "referenceImage": {
+                "maxEdge": 1024
+              },
               "localized": {
                 "zh": {
                   "name": "Qwen-Image-2.1 文生图/编辑"
@@ -454,6 +457,24 @@
       ],
       "capability": true,
       "description": "读取单条任务的完整信息（来源、状态、结构化 meta、日志路径与关联产物）。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "comfy.task.params",
+      "surfaces": [
+        "api"
+      ],
+      "description": "读取生成任务提交时的全部参数与参考图，供右侧预览回显与「重新调整」。",
       "inputSchema": {
         "type": "object",
         "required": [

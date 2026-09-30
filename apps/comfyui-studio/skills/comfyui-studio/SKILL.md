@@ -28,10 +28,11 @@ ComfyUI 工作台是 Recut 的**本地 ComfyUI 工作流 App**：一个共享运
 - `manifest.contributes.media` 声明 `local-gen` provider 与静态工作流清单（由 `publish_registry.py` 从 `comfyuiapps/*/manifest.json` 生成）；平台据此把 `local-gen/<exposeModel>` 合入生图目录。
 - 把生图默认路由指向本地：`image.generate.default` → `local-gen/qwen-image`（或单次 `recut.image.generate { modelId: "local-gen/qwen-image" }`）。
 - 发现本机工作流：`recut.media.list_capability_models { capability: "image.generate" }`。
+- 参考图在提交前由平台归一：App 用 `ctx.media.materialize(id, { reference: true, model })` 复制时，按模型声明的 `referenceImage.maxEdge`（缺省 1024）等比缩小、去 alpha 压成 JPEG——参考图只做参考，不喂原图；工作流拿到的是归一后的文件。
 
 ## 扩展新工作流
 
-新增 `comfyuiapps/<id>/{manifest.json,workflow.py,bootstrap.py}` + 重跑 `python/publish_registry.py`；核心代码无需改动。作者契约见 `python/comfyui_sdk.py`（`BuildContext` / `BootstrapContext`）。
+新增 `comfyuiapps/<id>/{manifest.json,workflow.py,bootstrap.py}` + 重跑 `python/publish_registry.py`；核心代码无需改动。作者契约见 `python/comfyui_sdk.py`（`BuildContext` / `BootstrapContext`）。参考图归一：可选在 manifest 顶层加 `referenceImage: { maxEdge: 1024 }`，`publish_registry.py` 会透传进平台模型（缺省平台按 1024 处理）；别手改生成出来的 `contributes.media`。
 
 ## 纪律
 

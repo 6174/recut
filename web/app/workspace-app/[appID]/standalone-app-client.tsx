@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 workspace-store 的独立 App scope/manifest、统一 WorkspaceHeader、media-configuration-store 的 Provider/凭据、App API、媒体生成、Assets bridge、平台素材选择器、全局图片预览、按 scope 缓存的 Agent Session 列表与全局 Agent 面板上下文
- * [OUTPUT]: 对外提供独立 App iframe 容器、按 iframe 实际 origin 的宿主通信、受 scope 限制的 recut.assets 能力、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择、全局图片全屏预览（image.preview）和工作区级 Agent 对话侧栏，并经 WorkspaceHeader 以单行展示 App 名称、版本号与可升级状态提示（AppVersionControl，不再显示 App 图标与标题区图标）；App 只能经全局面板上下文回填输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见
+ * [OUTPUT]: 对外提供独立 App iframe 容器、按 iframe 实际 origin 的宿主通信、受 scope 限制的 recut.assets 能力、所有已连接 Provider 可用模型的受 scope 约束直生、AI 设置定位、全局素材选择、全局图片全屏预览（image.preview）和工作区级 Agent 对话侧栏，并经 WorkspaceHeader 以单行展示 App 名称、版本号与可升级状态提示（AppVersionControl，不再显示 App 图标与标题区图标）；App 只能经全局面板上下文回填输入草稿（不再提供 agent.send 直发），对话与结果始终在全局 chat 中可见；并把宿主 URL 的 ?task= 透传进 iframe URL（taskId），供 App 首屏深链选中任务记录
  * [POS]: workspace-app/[appID] 的客户端工作台；从统一缓存复用项目级安全 scope，但不显示或创建用户项目；iframe URL 是消息目标 origin 的唯一真相源；Agent 面板由根布局全局挂载为单一会话，本页只声明素材上下文与草稿
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -45,6 +45,7 @@ function postToFrame(frame: HTMLIFrameElement | null, message: unknown, transfer
 export default function StandaloneAppClient() {
   const { appID: routeID } = useParams<{ appID: string }>();
   const [appID, setAppID] = useState("");
+  const [taskID, setTaskID] = useState("");
   const [mediaPicker, setMediaPicker] = useState<PlatformMediaPickerRequest | null>(null);
   const [imagePreview, setImagePreview] = useState<PlatformImagePreviewRequest | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -64,7 +65,11 @@ export default function StandaloneAppClient() {
   const app = appID ? apps.find((item) => item.manifest.id === appID) ?? null : null;
   const installation = appID ? installations.find((item) => item.manifest.id === appID) ?? null : null;
 
-  useEffect(() => { setAppID(appIDFromLocation(routeID)); }, [routeID]);
+  useEffect(() => {
+    setAppID(appIDFromLocation(routeID));
+    // 深链：宿主 URL 的 ?task= 透传给 App iframe，App 首屏据此选中该任务记录（素材库「生成任务」入口）。
+    setTaskID(new URLSearchParams(window.location.search).get("task") ?? "");
+  }, [routeID]);
   useLayoutEffect(() => {
     useAgentPanelContext.getState().setProjectID(null);
   }, []);
@@ -168,7 +173,8 @@ export default function StandaloneAppClient() {
   };
 
   const view = app?.manifest.ui?.standaloneView;
-  const uiURL = scope && app && view ? `${apiBase}/v1/apps/${encodeURIComponent(app.manifest.id)}/ui/${view}?projectId=${encodeURIComponent(scope.id)}&appVersion=${encodeURIComponent(app.manifest.version)}&locale=${encodeURIComponent(locale)}` : null;
+  const taskQuery = taskID ? `&taskId=${encodeURIComponent(taskID)}` : "";
+  const uiURL = scope && app && view ? `${apiBase}/v1/apps/${encodeURIComponent(app.manifest.id)}/ui/${view}?projectId=${encodeURIComponent(scope.id)}&appVersion=${encodeURIComponent(app.manifest.version)}&locale=${encodeURIComponent(locale)}${taskQuery}` : null;
   const resolveMediaPicker = (selection: PlatformMediaPickerResult | null) => { mediaPickerReply.current?.(selection); mediaPickerReply.current = null; setMediaPicker(null); };
   const changeSettingsOpen = (open: boolean) => { setSettingsOpen(open); if (!open) setSettingsSection(undefined); };
   return <main className="flex min-h-0 min-w-[1024px] flex-1 flex-col overflow-hidden bg-background">

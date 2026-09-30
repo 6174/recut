@@ -10,7 +10,7 @@
           @modal.enter(snap=True) 拉起 sglang 子进程后冻结整棵进程树（含子进程 CUDA 状态），冷启动从快照秒级恢复、
           不再重读权重。H3TurboRef（--model-variant ref2va，服务多模态参考 ref2va）：**不用 FL2VA Turbo LoRA / 合并
           transformer**（该 LoRA 只训练于 FL2VA 分区），跑官方 Ref2VA 分区 base 步数。generate_video 把表单参数 +
-          参考素材组装成 SGLang /v1/videos 请求（经 h3_contract，Turbo 默认 9 步，分辨率 → `target.short_edge` 默认 768）；
+          参考素材组装成 SGLang /v1/videos 请求（经 h3_contract，Turbo 默认 9 步，分辨率＝最长边 → 按画幅换算 `target.short_edge`）；
           bootstrap_weights 复用/补下
           FL2VA+Ref2VA 权重，bootstrap_adapters 下 Turbo LoRA
 [POS]: minimax-h3 / minimax-h3-one 的「极速版」并列预设包（三选一）：复用同一权重卷，用少步 LoRA + 合成式 fp8 驻留 +
@@ -270,16 +270,17 @@ def _run_video(variant: str, prompt: str, aspect_ratio: str, duration_sec: float
                steps: int, seed: int, refs, resolution: str = "") -> dict:
     """共享执行体：确保对应分区的服务在跑，组装请求、提交并落地 mp4。
 
-    `resolution` 是表单「分辨率」（输出短边，px）；空值/越界由契约层归一为 768（H3 原生 768p）。
-    注意：单卡快照只按 1344×768（WARMUP_RESOLUTION）做了形状预热，换更小的短边时首个请求要多付一次
+    `resolution` 是表单「分辨率」（目标**最长边**，px）；空值/越界由契约层按画幅换算成短边并归一
+    （不超分，H3 原生 768p）。
+    注意：单卡快照只按 1344×768（WARMUP_RESOLUTION）做了形状预热，换到更小的画幅时首个请求要多付一次
     分配器增长成本（结果不变）。
     """
     _ensure_server(variant)
     conditions = write_reference_conditions(refs or [], REF_DIR)
     body = build_video_body(prompt, aspect_ratio=aspect_ratio, duration_sec=duration_sec,
-                            steps=steps, seed=seed, conditions=conditions, short_edge=resolution)
+                            steps=steps, seed=seed, conditions=conditions, resolution=resolution)
     print(f"[modal] 提交 H3 {body['task']}（{body['seconds']}s，{body['target']['aspect_ratio']}，"
-          f"短边 {body['target']['short_edge']}，"
+          f"最长边 {resolution or '原生'} → 短边 {body['target']['short_edge']}，"
           f"{body['num_inference_steps']} steps，seed {body['seed']}，{len(conditions)} 条件）…", flush=True)
     started = time.time()
     data = submit_video(f"http://127.0.0.1:{PORT}", body, log=print)

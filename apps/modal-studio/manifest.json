@@ -83,11 +83,11 @@
                   "name": "resolution",
                   "type": "string",
                   "enum": [
-                    "768",
-                    "576",
-                    "480"
+                    "1536",
+                    "1024",
+                    "768"
                   ],
-                  "default": "768"
+                  "default": "1536"
                 },
                 {
                   "name": "durationSec",
@@ -138,6 +138,9 @@
                   "maxAudios": 3
                 }
               ],
+              "referenceImage": {
+                "maxEdge": 1024
+              },
               "localized": {
                 "zh": {
                   "name": "MiniMax-H3 视频+音频（文/首尾帧/参考）"
@@ -168,11 +171,11 @@
                   "name": "resolution",
                   "type": "string",
                   "enum": [
-                    "768",
-                    "576",
-                    "480"
+                    "1536",
+                    "1024",
+                    "768"
                   ],
-                  "default": "768"
+                  "default": "1536"
                 },
                 {
                   "name": "durationSec",
@@ -223,6 +226,9 @@
                   "maxAudios": 3
                 }
               ],
+              "referenceImage": {
+                "maxEdge": 1024
+              },
               "localized": {
                 "zh": {
                   "name": "MiniMax-H3 单卡（文/首尾帧/参考，GPU 快照）"
@@ -253,11 +259,11 @@
                   "name": "resolution",
                   "type": "string",
                   "enum": [
-                    "768",
-                    "576",
-                    "480"
+                    "1536",
+                    "1024",
+                    "768"
                   ],
-                  "default": "768"
+                  "default": "1536"
                 },
                 {
                   "name": "durationSec",
@@ -308,6 +314,9 @@
                   "maxAudios": 3
                 }
               ],
+              "referenceImage": {
+                "maxEdge": 1024
+              },
               "localized": {
                 "zh": {
                   "name": "MiniMax-H3 极速版（Turbo 文/首尾帧 + 参考）"
@@ -398,6 +407,9 @@
                   "maxImages": 10
                 }
               ],
+              "referenceImage": {
+                "maxEdge": 1024
+              },
               "localized": {
                 "zh": {
                   "name": "Qwen-Image-2.1 文生图/参考生图"

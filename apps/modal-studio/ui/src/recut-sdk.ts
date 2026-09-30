@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖宿主注入的 MessageChannel 与独立 App workspace scope
- * [OUTPUT]: 对外提供 App operation 调用（background.call）、状态查询、右侧 Agent 输入回填、全局素材选择/图片全屏预览（media.pick / media.preview）与 UI 语言读取的 iframe SDK
+ * [OUTPUT]: 对外提供 App operation 调用（background.call）、状态查询、右侧 Agent 输入回填、全局素材选择/图片全屏预览（media.pick / media.preview）、UI 语言读取与深链 taskId 读取的 iframe SDK
  * [POS]: ui/src 的宿主通信边界；组件不直接读写 App SQLite 或执行本机命令
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -19,6 +19,12 @@ export function getRecutLocale(): Locale {
 export function useRecutLocale(): Locale {
   const [locale] = useState<Locale>(getRecutLocale);
   return locale;
+}
+
+// 深链：宿主在 iframe URL 上带 ?taskId= 时（素材库「生成任务」入口），
+// App 首屏应直接选中该任务记录；无则返回空串，保持既有恢复/空态行为。
+export function getRecutTaskId(): string {
+  return new URLSearchParams(location.search).get("taskId") ?? "";
 }
 
 export function isRecutConnected(): boolean {

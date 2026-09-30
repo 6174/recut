@@ -161,12 +161,12 @@
           ],
           "default": "512",
           "label": {
-            "zh": "分辨率（短边 px）",
-            "en": "Resolution (short edge px)"
+            "zh": "分辨率（最长边 px）",
+            "en": "Resolution (longest edge px)"
           },
           "hint": {
-            "zh": "短边像素：越小越快、越省额度；不小于该画幅原生短边时保持原生尺寸。",
-            "en": "Short-edge pixels: smaller is faster and cheaper. At or above the frame's native short edge it keeps the native size."
+            "zh": "最长边像素，短边按画幅推导：越小越快、越省额度；不小于该画幅原生最长边时保持原生尺寸。",
+            "en": "Longest-edge pixels; the short edge follows the ratio. Smaller is faster and cheaper; at or above the frame's native longest edge it keeps the native size."
           }
         },
         {

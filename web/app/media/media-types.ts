@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 无运行时依赖；定义素材库 API 的 JSON 契约
- * [OUTPUT]: 对外提供素材、任务、含输入/输出参数能力与 per-model parameters/referenceFields schema 的 Provider 模型、能力级声音分组（CapabilityVoiceGroup）、Credential、筛选类型（含 ASR 转写 bundle），按 durable jobId 保留异步生成状态的历史 Asset 展示归一化，以及生成态超时（GENERATION_TIMEOUT_MS/isGenerationTimedOut）判定
+ * [OUTPUT]: 对外提供素材、任务、含输入/输出参数能力与 per-model parameters/referenceFields schema 的 Provider 模型、能力级声音分组（CapabilityVoiceGroup）、Credential、筛选类型（含 ASR 转写 bundle），按 durable jobId 保留异步生成状态的历史 Asset 展示归一化，App 生成素材的出处锚点（appId/appTaskId，供素材库回跳 App 任务记录），以及生成态超时（GENERATION_TIMEOUT_MS/isGenerationTimedOut）判定
  * [POS]: web/app/media 的共享类型边界；由页面、详情和创建流程共同使用，Provider 专属 remoteId 不是生命周期依据
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -38,6 +38,10 @@ export type Asset = {
     modelId?: unknown;
     output?: Record<string, unknown>;
     referenceIds?: unknown;
+    // App 生成素材的出处锚点：由平台桥在提交时记回（App 私有账本不对外），
+    // 素材详情据此新标签页回跳该 App 的任务记录。
+    appId?: unknown;
+    appTaskId?: unknown;
     generation?: {
       references?: Array<{ id: string; kind?: string; role?: string; label?: string }>;
       aspectRatio?: string;

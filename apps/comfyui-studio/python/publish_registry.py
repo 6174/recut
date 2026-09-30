@@ -1,7 +1,8 @@
 """
 [INPUT]: comfyuiapps/*/manifest.json（每个工作流的单一信息源）与 python/runtimes.json（runtime 目录）
 [OUTPUT]: 生成 python/registry.json（runtimes + apps）、comfyuiapps/index.json（app id 列表），并同步根
-          manifest.json 的 contributes.media.providers[].models（parameters/referenceFields/exposeModel）
+          manifest.json 的 contributes.media.providers[].models（parameters/referenceFields/exposeModel/
+          referenceImage）
 [POS]: comfyui-studio 的注册表生成器；运行期只读生成物，人工不再手改 registry.json；构建内置归档前先跑
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 """
@@ -112,6 +113,9 @@ def contributed_model(manifest: dict) -> dict | None:
             "revision": weights.get("revision", ""),
         },
     }
+    # 参考图归一策略由工作流声明（单一信息源），生成器透传给平台模型；缺省时平台按内置上限处理。
+    if manifest.get("referenceImage"):
+        model["referenceImage"] = manifest["referenceImage"]
     if isinstance(manifest.get("name"), dict):
         model["name"] = (manifest["name"].get("zh") or manifest["name"].get("en") or manifest["id"])
         model["localized"] = {loc: {"name": val} for loc, val in manifest["name"].items() if val}

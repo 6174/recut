@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖 recut-sdk（background.call + events.subscribe 实时事件）、Left 两 Tab 组件、Right 预览组件与 i18n
- * [OUTPUT]: Modal 云函数主工作区：首屏走 modal.overview（本机 registry + 上次就绪度快照，零等待）即时渲染出预设包与表单，就绪度/连通性由 modal.status 独立后台探测回填、不阻塞任何 UI；「运行」时动态校验该预设包的就绪度，未就绪则提示先准备或重新部署；任务列表按事件增量刷新、选中任务详情与产物、预览图「以此为参考图运行」回填左侧表单、动作编排与语言同步；**当前 Tab 与 Right 面板聚焦的任务 id 经 useViewStore 持久化**（下次打开直接回到上次的 Tab 与预览目标，任务已失效则清掉）；外壳由 shadcn Tabs/Card/Button 承载
+ * [OUTPUT]: Modal 云函数主工作区：首屏走 modal.overview（本机 registry + 上次就绪度快照，零等待）即时渲染出预设包与表单，就绪度/连通性由 modal.status 独立后台探测回填、不阻塞任何 UI；「运行」时动态校验该预设包的就绪度，未就绪则提示先准备或重新部署；任务列表按事件增量刷新、选中任务详情与产物、预览图「以此为参考图运行」回填左侧表单、**成功任务同样回读完整日志**（产物与参数/日志并存）、动作编排与语言同步；**当前 Tab 与 Right 面板聚焦的任务 id 经 useViewStore 持久化**（下次打开直接回到上次的 Tab 与预览目标，任务已失效则清掉）；宿主深链 ?taskId= 优先于本地恢复（素材库「生成任务」新标签页跳入时直接切到记录页并选中该任务）；外壳由 shadcn Tabs/Card/Button 承载
  * [POS]: ui 的状态编排层；只经 App operation 契约访问后台，不直接读写本机文件
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Cloud, Loader2, RefreshCw } from "lucide-react";
-import { isRecutConnected, recut, useRecutLocale } from "./recut-sdk";
+import { getRecutTaskId, isRecutConnected, recut, useRecutLocale } from "./recut-sdk";
 import { t } from "./i18n";
 import { useViewStore } from "./state/view";
 import { RunTab } from "./components/RunTab";
@@ -186,12 +186,12 @@ export default function App() {
       }
       if (current.action === "generate" && current.state === "completed" && current.recordId) {
         setGeneration(await op<Generation>("modal.generation.complete", { id: current.recordId }));
-        setLogs([]);
       } else {
         setGeneration(null);
-        const result = await op<{ logs: LogLine[] }>("modal.task.logs", { id, limit: 300 });
-        setLogs(result.logs ?? []);
       }
+      // 成功与否都回读日志：产物预览与完整参数/日志并存，不因成功就丢掉这次运行的执行记录。
+      const result = await op<{ logs: LogLine[] }>("modal.task.logs", { id, limit: 300 });
+      setLogs(result.logs ?? []);
     },
     [op],
   );
@@ -204,21 +204,24 @@ export default function App() {
     [renderRight, setSelectedId],
   );
 
-  // 首屏恢复上次的聚焦目标：本地记住的任务若还在账本里就直接渲染右侧预览（下次打开即所见），
-  // 已失效（被清理/换机）则清掉，避免右侧停在空白。只在任务账本回来之后判定一次。
+  // 首屏聚焦：宿主深链（?taskId=，素材库「生成任务」入口）优先，其次恢复本地记住的任务。
+  // 命中账本就直接切到记录页并渲染右侧预览（下次打开即所见）；已失效（被清理/换机）则清掉，
+  // 避免右侧停在空白。只在任务账本回来之后判定一次。
   const restoredRef = useRef(false);
   useEffect(() => {
     if (restoredRef.current || !connected || !loaded) return;
-    const id = useViewStore.getState().selectedTaskId;
+    const deepLink = getRecutTaskId();
+    const id = deepLink || useViewStore.getState().selectedTaskId;
     if (!id) {
       restoredRef.current = true;
       return;
     }
     if (!tasks.length) return;
     restoredRef.current = true;
-    if (tasks.some((task) => task.id === id)) void renderRight(id).catch(() => {});
+    if (deepLink) setTab("records");
+    if (tasks.some((task) => task.id === id)) selectTask(id);
     else setSelectedId(null);
-  }, [connected, loaded, tasks, renderRight, setSelectedId]);
+  }, [connected, loaded, tasks, selectTask, setSelectedId, setTab]);
 
   useEffect(() => {
     if (connected) return;

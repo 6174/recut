@@ -144,6 +144,7 @@ const zh: Record<string, string> = {
   "preview.params-refs-none": "（无）",
   "preview.params-refs-missing": "{count} 张参考图已不在素材库",
   "preview.no-logs": "（暂无日志）",
+  "preview.logs": "运行日志",
   "preview.meta": "{model} · {width}×{height} · seed {seed} · {steps} 步 · {duration}s",
 };
 
@@ -285,6 +286,7 @@ const en: Record<string, string> = {
   "preview.params-refs-none": "(none)",
   "preview.params-refs-missing": "{count} reference image(s) no longer in the library",
   "preview.no-logs": "(no logs yet)",
+  "preview.logs": "Run logs",
   "preview.meta": "{model} · {width}×{height} · seed {seed} · {steps} steps · {duration}s",
 };
 

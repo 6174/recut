@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 MediaService、共享 SQLite Store 与可控 Atlas/MiniMax HTTP 测试服务
- * [OUTPUT]: 验证提交 checkpoint 不重放、one-request 任务原子激活及按凭据限流、Atlas 单边远端关联自愈、多 Daemon lease 独占提交与本地 provider 无凭据直连
+ * [OUTPUT]: 验证提交 checkpoint 不重放、one-request 任务原子激活及按凭据限流、Atlas 单边远端关联自愈、多 Daemon lease 独占提交、本地 provider 无凭据直连，以及无凭据本地 provider 不共用全局一次请求槽位（跨 App 不互相阻塞）
  * [POS]: service 的 durable scheduler 回归测试；补足媒体生命周期测试的跨进程安全边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,8 +11,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	media "recut-service/media"
 )
 
 func TestExpiredAtlasSubmissionCheckpointFailsWithoutRepeatPost(t *testing.T) {
@@ -456,6 +459,62 @@ func TestCompletePendingAssetFromBytesKeepsIdentity(t *testing.T) {
 	if _, err := daemon.CompletePendingAssetFromBytes(pendingID, []byte("again"), "audio/wav"); err == nil {
 		t.Fatal("completing a finished asset must be rejected")
 	}
+}
+
+// 回归：一次请求闸门只串行化「同一凭据」的云端调用，不能把无凭据的本地 provider 也折叠进同一个
+// 空 credential_id 槽位——否则一张本机任务会把另一个 App 的任务挡在槽外直到它跑完（曾表现为
+// Modal 侧毫无记录：平台任务根本没被派发到 App）。两个不同本地 provider 的任务必须能同时推进。
+func TestLocalProvidersDoNotShareOneRequestSlot(t *testing.T) {
+	defer media.RegisterAppProviders(nil)
+	media.RegisterAppProviders([]MediaProvider{
+		{ID: "local-one", Protocol: "local", Name: "Local One", Models: []MediaModel{{ID: "local-one/model", Provider: "local-one", APIModelID: "model", Capability: SpeechGenerate, Available: true}}},
+		{ID: "local-two", Protocol: "local", Name: "Local Two", Models: []MediaModel{{ID: "local-two/model", Provider: "local-two", APIModelID: "model", Capability: SpeechGenerate, Available: true}}},
+	})
+
+	store := NewStore(t.TempDir(), nil)
+	service := NewMediaService(store)
+	// 两个执行器必须「同时」在跑到才算通过：用 barrier 把两者都卡住，只有都进入闸门后才放行。
+	// 这样断言不依赖 goroutine 调度顺序——若二者共用同一个槽位，任何时刻只有一个能进入，barrier
+	// 永远合不上，测试在超时处失败。
+	bothRunning := make(chan struct{})
+	var entered atomic.Int32
+	barrier := func() {
+		if entered.Add(1) == 2 {
+			close(bothRunning)
+		}
+		<-bothRunning
+	}
+	service.SetLocalAppExecutor("local-one", func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error) {
+		barrier()
+		return service.SaveGeneratedAudio(job, []byte("RIFF....one"), "audio/wav", nil)
+	})
+	service.SetLocalAppExecutor("local-two", func(job MediaJob, model MediaModel, output map[string]any) (MediaAsset, error) {
+		barrier()
+		return service.SaveGeneratedAudio(job, []byte("RIFF....two"), "audio/wav", nil)
+	})
+
+	first, err := service.Generate(GenerateMediaInput{Capability: SpeechGenerate, Prompt: "一", ModelID: "local-one/model", IdempotencyKey: "local-slot-one"})
+	if err != nil || len(first.AssetIDs) != 1 {
+		t.Fatalf("queued local-one job = %#v, %v", first, err)
+	}
+	second, err := service.Generate(GenerateMediaInput{Capability: SpeechGenerate, Prompt: "二", ModelID: "local-two/model", IdempotencyKey: "local-slot-two"})
+	if err != nil || len(second.AssetIDs) != 1 {
+		t.Fatalf("queued local-two job = %#v, %v", second, err)
+	}
+
+	daemon := NewMediaService(store)
+	daemon.SetLocalAppExecutor("local-one", service.LocalAppExecutor("local-one"))
+	daemon.SetLocalAppExecutor("local-two", service.LocalAppExecutor("local-two"))
+	if _, err := daemon.ReconcilePendingJobs(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-bothRunning:
+	case <-time.After(3 * time.Second):
+		t.Fatal("两个本地 provider 无法同时执行，说明它们共用了同一个全局一次请求槽位")
+	}
+	waitForMediaJobStatus(t, daemon, first.ID, "completed")
+	waitForMediaJobStatus(t, daemon, second.ID, "completed")
 }
 
 func waitForMediaTaskLeaseRelease(t *testing.T, media *MediaService, jobID string) {

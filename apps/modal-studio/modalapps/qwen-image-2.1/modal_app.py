@@ -1,7 +1,7 @@
 """
 [INPUT]: Modal 运行时（modal.Image / modal.Volume）；/models 卷里由 bootstrap.py 下载的 Qwen-Image-2.1 权重（diffusers 布局）
 [OUTPUT]: 云端 Modal App「recut-qwen-image-21」：类 QwenImage21 在容器内常驻 QwenImage21Pipeline，提供
-          generate_image（文生图，默认原生 2K、可经「分辨率」下调短边，返回 PNG bytes）与 edit_image（图像编辑，
+          generate_image（文生图，默认原生 2K、可经「分辨率」下调最长边，返回 PNG bytes）与 edit_image（图像编辑，
           接收 1–10 张参考图 bytes，默认输出尺寸跟随参考图、可用「画幅 + 分辨率」覆盖，返回 PNG bytes）；
           bootstrap_weights / bootstrap_from_modelscope 把权重下载进
           /models 卷。类开启
@@ -32,7 +32,7 @@ MARKER = ".recut-download-complete"
 HUGGINGFACE_REPO = "Qwen/Qwen-Image-2.1"
 MODELSCOPE_REPO = "Qwen/Qwen-Image-2.1"
 MAX_REFERENCES = 10
-# VAE 分块解码的启用阈值（输出短边）：≥ 该值才分块（原生 2K 在 L40S(48GB) 上不分块会 OOM）；
+# VAE 分块解码的启用阈值（输出最长边）：≥ 该值才分块（原生 2K 在 L40S(48GB) 上不分块会 OOM）；
 # 常用尺寸整图解码，避免块边界的拼缝/色斑——不为 2K 让基础画质一直打折。
 TILING_MIN_SIDE = 1536
 
@@ -85,9 +85,10 @@ def _align(value: float) -> int:
 def _size(aspect_ratio: str, resolution=None) -> tuple[int, int]:
     """画幅 + 分辨率 → (宽, 高)。
 
-    `resolution` 是表单「分辨率」（目标短边，px）：非数字或非正数（空串/0/负数）都视为「没给」，
-    保持原生 2K；不小于该画幅的原生短边时同样保持原生（不超分）；否则按画幅比例把短边缩到目标值
-    ——总像素随之下降，抽卡更快也更省额度。
+    `resolution` 是表单「分辨率」（目标**最长边**，px）：非数字或非正数（空串/0/负数）都视为「没给」，
+    保持原生 2K；不小于该画幅的原生最长边时同样保持原生（不超分）；否则按画幅比例把最长边缩到目标值
+    ——短边随之下降，抽卡更快也更省额度。基准取「最长边」而不是短边：宽画幅（如 21:9）按短边放大时
+    长边会被撑到远超目标，那正是爆显存的来源。
     """
     native = ASPECT_RATIOS.get(str(aspect_ratio or ""), DEFAULT_SIZE)
     try:
@@ -98,11 +99,11 @@ def _size(aspect_ratio: str, resolution=None) -> tuple[int, int]:
         return native
     width, height = native
     target = _align(requested)
-    if target >= min(width, height):
+    if target >= max(width, height):
         return native
     if width >= height:
-        return _align(target * width / height), target
-    return target, _align(target * height / width)
+        return target, _align(target * height / width)
+    return _align(target * width / height), target
 
 
 def _generator(seed):

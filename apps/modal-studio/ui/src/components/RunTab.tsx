@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
 import { mediaContentPath, mediaContentURL } from "../lib/media";
-import { EMPTY_FORM, useRunStore } from "../state/run";
+import { EMPTY_FN, EMPTY_FORM, useRunStore } from "../state/run";
 import { AgentDefaultsDialog } from "./AgentDefaultsDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -129,14 +129,15 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   const form = forms[appKey] ?? EMPTY_FORM;
   const fn = useMemo(() => modalapp?.functions.find((candidate) => candidate.id === form.functionId) ?? modalapp?.functions[0], [modalapp, form.functionId]);
   const fnKey = `${appKey}:${fn?.id ?? ""}`;
-  const values = form.values;
-  const references = form.references;
+  const shard = form.functions[fn?.id ?? ""];
+  const values = shard?.values ?? EMPTY_FN.values;
+  const references = shard?.references ?? EMPTY_FN.references;
   const acceptsMedia = mediaFields(fn).length > 0;
 
-  // 每个预设包一份持久分片（useRunStore.forms[预设包 id]），这里只做「对齐」：没有分片/还没切过去 →
-  // 按默认值建一份；函数换过（或已不存在）→ 重置该函数的字段与参考图；同一函数 → 只补新增字段的
-  // 默认值（例如后来加的「分辨率」）。用户填过的值一律保留，所以切预设包 / 切 Tab / 刷新后再回来
-  // 都是上次的样子。依赖只用这两个 key，避免分片写入反过来再触发本 effect。
+  // 每个预设包一份持久分片（useRunStore.forms[预设包 id]），分片内再按函数分片（functions[函数 id]）。
+  // 这里只做「对齐」：没有预设包分片/还没切过去 → 建一份；当前函数没有自己的分片 → 按默认值建一个；
+  // 已有函数分片 → 只补新增字段的默认值（例如后来加的「分辨率」）。用户填过的值一律保留，所以切函数、
+  // 切预设包、切 Tab、刷新后再回来都是上次的样子。依赖只用这两个 key，避免分片写入反过来再触发本 effect。
   useEffect(() => {
     if (!modalapp || !fn) return;
     const store = useRunStore.getState();
@@ -149,9 +150,14 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
       store.selectFunction(fn.id, formDefaults(fn));
       return;
     }
+    const shard = current.functions[fn.id];
+    if (!shard) {
+      store.selectFunction(fn.id, formDefaults(fn));
+      return;
+    }
     const merged: Record<string, string> = { ...formDefaults(fn) };
-    for (const [key, value] of Object.entries(current.values)) if (key in merged) merged[key] = value;
-    if (!sameValues(merged, current.values)) store.setValues(merged);
+    for (const [key, value] of Object.entries(shard.values)) if (key in merged) merged[key] = value;
+    if (!sameValues(merged, shard.values)) store.setValues(merged);
   }, [appKey, fnKey]);
 
   useEffect(() => {
@@ -191,7 +197,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
     const fields = mediaFields(fn);
     const asset: MediaAsset = { id: injectedReference.id, name: injectedReference.name, kind: "image" };
     const state = useRunStore.getState();
-    const current = state.forms[state.activeId]?.references ?? {};
+    const current = state.forms[state.activeId]?.functions[fn.id]?.references ?? {};
     const target = fields.find((field) => fieldAccepts(field, asset) && (field.multiple !== false || !(current[field.key]?.length)))
       ?? fields.find((field) => field.multiple !== false);
     if (target) setFieldReferences(target.key, (prev) => (prev.some((item) => item.id === asset.id) ? prev : [...prev, asset]));

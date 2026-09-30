@@ -22,7 +22,7 @@ H3-Base 是一个 **33B 的 omni transformer**（DiT 约 61.7GB）+ Qwen3-VL-32B
    | `H100:4` | `--num-gpus 4 --tp-size 2 --ulysses-degree 2` | 官方 h100-resident-4 |
    | `B200:4` | `--num-gpus 4 --ulysses-degree 4 --use-fsdp-inference true` | 官方 b200-fsdp-4 |
    | `B200:8` | `--num-gpus 8 --ulysses-degree 8` | 官方 b200-resident-8 |
-3. **调用**：容器内的 `generate_video` 把表单参数组装成 SGLang `POST /v1/videos` 请求（`task=t2va|fl2va|ref2va`、`target.short_edge=768`（表单「分辨率」，只下调不超分）、`quality=lossless`、`num_inference_steps`、`flow_shift=12.0`、`audio_flow_shift=3.0`），取回 mp4 写入 `/out` 卷并返回 `{kind:"file"}`。对本机 runner 仍是 `Function.from_name(...).with_options(gpu=...).remote(...)`——**无需 HTTP endpoint**。
+3. **调用**：容器内的 `generate_video` 把表单参数组装成 SGLang `POST /v1/videos` 请求（`task=t2va|fl2va|ref2va`、`target.short_edge`（表单「分辨率」＝最长边，按画幅换算成短边；只下调不超分，默认原生 768p）、`quality=lossless`、`num_inference_steps`、`flow_shift=12.0`、`audio_flow_shift=3.0`），取回 mp4 写入 `/out` 卷并返回 `{kind:"file"}`。对本机 runner 仍是 `Function.from_name(...).with_options(gpu=...).remote(...)`——**无需 HTTP endpoint**。
 4. **权重（只在 bootstrap 下进 Volume）**：两个分区的检查点（`model_index.json` + `FL2VA/**` + `Ref2VA/**`，共约 270GB）**只由 `bootstrap.py` 下载进 `/models` 卷**；`modal.deploy` 只构建镜像、`generate` 只读卷，都不联网拉权重。因为太大，下载用**逐文件 HTTP Range 断点续传**（`.part` 留在卷里），并**每 10 分钟 `volume.commit()`**，容器超时/中断后重跑 `modal.install` 即从断点继续；全部文件校验通过才写完成标记。**标记存在时 `bootstrap_weights` 直接短路返回（不联网、不需要 token）**——已下载过就不会重复准备。
 
 ## 前置条件（重要）
@@ -64,6 +64,6 @@ python python/modal_runner.py invoke \
 
 ## 已知边界
 
-- **不含 H3-Context-IR / H3-Regenerate-2K**：官方未开源这两个模块（提示词增强与 2K 重生成）。本预设包默认输出 768p（表单「分辨率」可下调短边，但不支持超过 768p 的超分）；提示词建议直接给出结构化的 `integrated_multimodal_description / overall_soundscape / non_diegetic_music`（见上游 Prompting Guidance），否则质量会低于官方 API。
+- **不含 H3-Context-IR / H3-Regenerate-2K**：官方未开源这两个模块（提示词增强与 2K 重生成）。本预设包默认输出 768p（表单「分辨率」＝最长边，可下调画幅，但不支持超过 768p 的超分）；提示词建议直接给出结构化的 `integrated_multimodal_description / overall_soundscape / non_diegetic_music`（见上游 Prompting Guidance），否则质量会低于官方 API。
 - **参考（Ref2VA）走独立分区**：`reference-to-video` 用官方 Ref2VA 权重与 `--model-variant ref2va` 单独服务，要求至少 1 个参考素材；参数上限：图 ≤9、视频 ≤3、音频 ≤3（视频/音频每段 2–15s）。
 - **冷启动较慢**：每次冷启动需从卷加载对应分区约 134GB 权重（两分区共约 270GB，bootstrap 只下一次并共用卷）；`max_containers=1` 避免重复加载。

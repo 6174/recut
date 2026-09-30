@@ -3,7 +3,7 @@
           h3_contract（请求构造与 SGLang 异步视频协议）；/models 卷里由 bootstrap.py 下载的 MiniMax-H3 权重（FL2VA + Ref2VA 分区）
 [OUTPUT]: 云端 Modal App「recut-minimax-h3」：两个并列 Modal 类各自托管一个 SGLang 常驻服务——H3（--model-variant fl2va，
           服务 t2va/fl2va）与 H3Ref（--model-variant ref2va，服务多模态参考 ref2va），按探测到的 GPU 选已验证 recipe。
-          generate_video 把表单参数（含分辨率 → `target.short_edge`，默认 768） + 参考素材组装成 SGLang /v1/videos
+          generate_video 把表单参数（含分辨率＝最长边 → 按画幅换算 `target.short_edge`） + 参考素材组装成 SGLang /v1/videos
           请求（经 h3_contract），取回 mp4 写入 /out 卷并返回 file 结果；bootstrap_weights 用 HF token 把
           FL2VA + Ref2VA 权重下载进 /models 卷
 [POS]: minimax-h3 预设包的云端执行体；把「多卡 SGLang 服务」封进一个 Modal Function，对本机 runner 仍是
@@ -157,14 +157,15 @@ def _run_video(variant: str, prompt: str, aspect_ratio: str, duration_sec: float
                steps: int, seed: int, refs, resolution: str = "") -> dict:
     """共享执行体：确保对应分区的服务在跑，组装请求、提交并落地 mp4。
 
-    `resolution` 是表单「分辨率」（输出短边，px）；空值/越界由契约层归一为 768（H3 原生 768p）。
+    `resolution` 是表单「分辨率」（目标**最长边**，px）；空值/越界由契约层按画幅换算成短边并归一
+    （不超分，H3 原生 768p）。
     """
     _ensure_server(variant)
     conditions = write_reference_conditions(refs or [], REF_DIR)
     body = build_video_body(prompt, aspect_ratio=aspect_ratio, duration_sec=duration_sec,
-                            steps=steps, seed=seed, conditions=conditions, short_edge=resolution)
+                            steps=steps, seed=seed, conditions=conditions, resolution=resolution)
     print(f"[modal] 提交 H3 {body['task']}（{body['seconds']}s，{body['target']['aspect_ratio']}，"
-          f"短边 {body['target']['short_edge']}，"
+          f"最长边 {resolution or '原生'} → 短边 {body['target']['short_edge']}，"
           f"{body['num_inference_steps']} steps，seed {body['seed']}，{len(conditions)} 条件）…", flush=True)
     started = time.time()
     data = submit_video(f"http://127.0.0.1:{PORT}", body, log=print)

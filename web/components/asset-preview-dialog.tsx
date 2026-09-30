@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, ChevronUp, Copy, Download, FileText, Link2, LoaderCircle, Maximize2, Minimize2, Music2, Pencil, Plus, RotateCcw, Trash2, Video, X, ZoomIn } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Copy, Download, ExternalLink, FileText, Link2, LoaderCircle, Maximize2, Minimize2, Music2, Pencil, Plus, RotateCcw, Trash2, Video, X, ZoomIn } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
@@ -19,6 +19,7 @@ import { isLocalProvider, useMediaConfigurationStore } from "@/lib/media-configu
 import { createProposal, updateProposalAsset, confirmProposalAsset, type GenerationProposal, type ProposalPatch, type ProposalReference } from "@/lib/media/proposal";
 import { ProposalEditor, type ProposalModality } from "@/components/proposal-editor";
 import { referenceDisplayText } from "@/lib/rich-composer/protocol/parse";
+import { useWorkspaceStore } from "@/lib/workspace-store";
 import type { RichComposerValue } from "@/lib/rich-composer/value";
 
 export type ReferenceMetadata = {
@@ -69,7 +70,7 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; generation?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; document?: ReferenceMetadata; component?: ComponentPreviewMeta };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; appId?: unknown; appTaskId?: unknown; generation?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; document?: ReferenceMetadata; component?: ComponentPreviewMeta };
 };
 
 // Motion Graphic 组件素材的预览元数据：聊天卡片把组件的精确版本信息挂在这里，
@@ -240,6 +241,15 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
   liveAssets.forEach((item) => knownAssets.set(item.id, item as unknown as PreviewAsset));
   const references = referenceIDs.map((id) => knownAssets.get(id)).filter((item): item is PreviewAsset => Boolean(item));
   const modelName = modelDisplayName(metadata.modelId, configuration.providers);
+  // 生成素材 → App 任务记录的出处锚点：appId/appTaskId 由平台桥在提交时记回（App 私有账本不对外）。
+  // 二者齐备才给出关联入口，新标签页打开该 App 并以 taskId 选中对应记录。
+  const sourceAppID = typeof metadata.appId === "string" ? metadata.appId : "";
+  const sourceTaskID = typeof metadata.appTaskId === "string" ? metadata.appTaskId : "";
+  const installations = useWorkspaceStore((state) => state.installations);
+  const sourceApp = sourceAppID ? installations.find((item) => item.manifest.id === sourceAppID) ?? null : null;
+  const sourceTaskHref = sourceAppID && sourceTaskID
+    ? `/workspace-app/app?id=${encodeURIComponent(sourceAppID)}&task=${encodeURIComponent(sourceTaskID)}`
+    : "";
   const statusText = status === "failed" ? "生成失败" : plan ? "计划中" : status === "proposed" ? "待确认生成" : ready ? "已完成" : "生成中";
   const statusLabel = <><span>{statusText}</span><GenerationDuration className="font-mono text-[10px] text-muted-foreground" item={asset} /></>;
   // Remix：把已完成素材的可复用配方复制成一个新的提案资产，并让弹框切到它的编辑态。
@@ -363,6 +373,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
                 ) : (
                   <>
                     {modelName && <div><dt className="text-muted-foreground">模型</dt><dd className="mt-1 break-words">{modelName}</dd></div>}
+                    {sourceTaskHref && <div><dt className="text-muted-foreground">生成任务</dt><dd className="mt-1 break-words"><a className="inline-flex items-center gap-1 text-primary hover:underline" href={sourceTaskHref} rel="noopener noreferrer" target="_blank">{sourceApp?.manifest.name ?? "在应用中打开任务"}<ExternalLink className="size-3" /></a><span className="mt-1 block break-all font-mono text-[10px] text-muted-foreground">{sourceTaskID}</span></dd></div>}
                     {metadata.prompt !== undefined && <PromptSection prompt={String(metadata.prompt ?? "")} />}
                     {references.length > 0 && <div><dt className="text-muted-foreground">参考素材</dt><dd className="mt-2 grid grid-cols-3 gap-2">{references.map((ref) => <ReferencePreview key={ref.id} apiBase={apiBase} reference={ref} />)}</dd></div>}
                   </>

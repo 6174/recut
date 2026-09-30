@@ -3,7 +3,8 @@
 [OUTPUT]: 生成 python/registry.json（modalapps：engine/函数/表单/权重/expose/就绪兜底）与 modalapps/index.json
           （id 列表），并同步根 manifest.json 的 contributes.media.providers[0].models（每个声明 expose 的
           modalapp → 一个平台模型，读取其 expose.function 的表单/权重；inputModes 按 media 字段类型汇总，
-          另产出 referenceFields 让平台识别「可锚定参考」的模型）
+          另产出 referenceFields 让平台识别「可锚定参考」的模型，并把预设包声明的 referenceImage 参考图
+          归一策略透传给平台模型）
 [POS]: modal-studio 的注册表生成器；运行期只读生成物，人工不再手改 registry.json；构建内置归档前先跑
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
 """
@@ -196,6 +197,10 @@ def contributed_model(manifest: dict) -> dict | None:
     budgets = function.get("referenceBudgets") or []
     if budgets:
         model["referenceBudgets"] = budgets
+    # 参考图归一策略由预设包声明（单一信息源），生成器透传给平台模型；缺省时平台按内置上限处理。
+    reference_image = manifest.get("referenceImage")
+    if reference_image:
+        model["referenceImage"] = reference_image
     if isinstance(name, dict):
         model["localized"] = {loc: {"name": val} for loc, val in name.items() if val}
     return model

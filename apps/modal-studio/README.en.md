@@ -17,7 +17,7 @@ Modal Functions is a Recut **standard app** (`standalone`): it decouples the *cl
 ## Form semantics
 
 - **Remembered per preset pack**: every pack keeps its own persisted form slice (field values + references + GPU tier); switching packs, switching tabs or reloading brings back exactly what you left. The right pane's focused task is restored too (cleared if the task is gone).
-- **Resolution**: the form's `resolution` field is the **output short-edge in pixels** — smaller is faster and cheaper. Natives differ per pack (MiniMax-H3 = 768p, Qwen-Image-2.1 = native 2K, SD-Turbo = 512) and are **never upscaled**: a value at or above the frame's native short edge keeps the native size. Image-edit / image-to-image follow the reference image's size, so they have no such field.
+- **Resolution**: the form's `resolution` field is the **output longest edge (max side) in pixels**; the short edge follows the aspect ratio. Smaller is faster and cheaper. Natives differ per pack (MiniMax-H3 = 768p — 1366×768 at 16:9, the form's 1536 default; Qwen-Image-2.1 = native 2K; SD-Turbo = 512) and are **never upscaled**: a value at or above the frame's native longest edge keeps the native size. Keying off the longest edge rather than the short edge means a wide frame (e.g. 21:9) can no longer blow the other side up. Image-edit / image-to-image follow the reference image's size, so they have no such field.
 - **GPU tier**: an explicit choice is remembered (per pack); only when there is none does it fall back to the pack's declared default. Precedence is "this request > global default > pack default", and every candidate must exist in that pack's `gpuTiers.options` — otherwise the first option wins, so switching packs can never leave the selector blank.
 
 ## Quick start

@@ -49,6 +49,7 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 
 - `id`：`[a-z0-9][a-z0-9._-]*`，且**不可与内置 id 撞名**。
 - `expose`（可选）：`{ model, function }` 把该预设包注册为一个平台模型 `modal-cloud/<model>`；`model` 只能含 `a-z0-9-_`（不能含 `.`），`function` 缺省取 `functions[0]`。不加则不上平台。
+- `referenceImage`（可选）：`{ maxEdge }` 声明该预设包参考图的**单边像素上限**——平台在 `ctx.media.materialize` 参考图时按它等比缩小、去 alpha 压成 JPEG（缺省 1024）。**源在预设包 manifest**：`python/publish_registry.py` 会把它透传进平台模型的 `contributes.media`，所以别手改生成出来的那一段。
 - `engine.appName`：云端 Modal App 名（如 `recut-my-app`），与 `modal_app.py` 里 `modal.App(...)` 一致。
 - `engine.gpuTiers`：`{ default, options:[{id,gpu,label}] }`；`gpu` 直接传给 `with_options(gpu=...)`。
 - `engine.volumes`：`[{name, mount, label}]`；第一个 volume 是权重卷，bootstrap 需在其根部写 `.recut-download-complete`。
@@ -57,7 +58,7 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 - `functions[]`：每项 `{ id, name, entrypoint, output:{kind,mimeType,ext}, formSchema[], defaultParams }`。
   - `entrypoint` 必须等于 `modal_app.py` 里的函数名；参数名与 `formSchema[].key` 一致。
   - `formSchema` 类型：`textarea|text|number|select|boolean|media`（`label`/`placeholder`/`hint` 均为双语对象，用于把字段语义写在字段旁）；`media` 字段经 `referenceAssetIds` 传入，函数收到 `refs=[{name,mimeType,data:bytes}]`。
-  - **`aspectRatio` / `resolution`**：`aspectRatio` 是输出画幅，`resolution` 是**输出短边像素**（长边按画幅推导，**只下调不超分**，不小于该画幅原生短边时保持原生尺寸：H3 原生 768p、Qwen-Image-2.1 原生 2K、SD-Turbo 原生 512）。文生图/文生视频有这两个字段；**图像编辑 / 图生图默认跟随参考图尺寸**——`aspectRatio` 留空即跟随，显式给定后按「画幅 + 分辨率」出图（Qwen-Image-2.1 的 `edit_image` 已支持）。合法取值从 `modal.catalog` 的 `formSchema[].options` 取。
+  - **`aspectRatio` / `resolution`**：`aspectRatio` 是输出画幅，`resolution` 是**输出最长边（最大边）像素**（短边按画幅推导，**只下调不超分**，不小于该画幅原生最长边时保持原生尺寸：H3 原生 768p，16:9 即 1366×768、表单默认 1536；Qwen-Image-2.1 原生 2K；SD-Turbo 原生 512）。以最长边为准而不是短边，宽画幅（如 21:9）不会把另一边撑大到爆显存。文生图/文生视频有这两个字段；**图像编辑 / 图生图默认跟随参考图尺寸**——`aspectRatio` 留空即跟随，显式给定后按「画幅 + 分辨率」出图（Qwen-Image-2.1 的 `edit_image` 已支持）。合法取值从 `modal.catalog` 的 `formSchema[].options` 取。
   - `output.kind` ∈ `image|video|audio`，决定取回方式与预览。
 
 ### 3) 云端函数输出契约（`modal_app.py`）
@@ -91,7 +92,7 @@ modal.modalapp.remove { id }          # 删除用户预设包（内置不可删�
 
 ## 平台集成（已接入）
 
-- 本 App 在 manifest `contributes.media` 声明 provider `modal-cloud`（`protocol:"local"`）；**每个声明 `expose: { model, function }` 的 modalapp 注册为一个平台模型 `modal-cloud/<model>`**（图片与视频都注册）。内置的 MiniMax-H3 与 Qwen-Image 都把 **`expose.function` 指向「可锚定参考」的函数**（参考生视频 / 图像编辑），并在函数上声明 `referenceFields`/`referenceBudgets`——平台据此把模型识别为参考型并校验参考数量上限；`inputModes` 由 media 字段类型汇总（image/video/audio）。函数的 `formSchema` 非 media 字段同时进入平台模型 `parameters`（`prompt` 除外——它是平台一等输入），平台据此折叠一等字段（把顶层 `aspectRatio` 折进 `output`）并渲染参数控件，但**输出参数仍由 App 校验**（平台标记 `PassthroughParams`，不复核、不注入默认）。
+- 本 App 在 manifest `contributes.media` 声明 provider `modal-cloud`（`protocol:"local"`）；**每个声明 `expose: { model, function }` 的 modalapp 注册为一个平台模型 `modal-cloud/<model>`**（图片与视频都注册）。内置的 MiniMax-H3 与 Qwen-Image 都把 **`expose.function` 指向「可锚定参考」的函数**（参考生视频 / 图像编辑），并在函数上声明 `referenceFields`/`referenceBudgets`——平台据此把模型识别为参考型并校验参考数量上限；`inputModes` 由 media 字段类型汇总（image/video/audio）。函数的 `formSchema` 非 media 字段同时进入平台模型 `parameters`（`prompt` 除外——它是平台一等输入），平台据此折叠一等字段（把顶层 `aspectRatio` 折进 `output`）并渲染参数控件，但**输出参数仍由 App 校验**（平台标记 `PassthroughParams`，不复核、不注入默认）。参考图在提交前由平台归一：`ctx.media.materialize(id, { reference: true, model })` 按模型声明的 `referenceImage.maxEdge`（缺省 1024）等比缩小、去 alpha 压成 JPEG——参考图只做参考，不喂原图。
 - 平台「生图/生视频默认路由」可指向 `modal-cloud/<model>`；生成经通用执行桥组装 `{ model, prompt, params, referenceAssetIds }` 调 `modal.generate`（`resolveTarget` 按 `expose.model` 解析 modalapp + `expose.function`），终态经 `modal.task.get` 观察，产物 `modal.save` 入库。
 - **参考可选，无参考自动回退文生**：平台路由不带 `referenceAssetIds` 时，`resolveTarget` 会把 `expose.function`（参考型）自动换成同输出类型的纯文生函数（`text-to-*`）；带参考才走参考函数。回退的**触发条件是参考函数声明了 `minReferences >= 1`**（与 MiniMax 的 `reference-to-video`/`first-last-frame`、Qwen-Image-2.1 的 `image-edit` 一致，缺省 0 则永不回退）。注意区分两层「下限」：函数级 `minReferences: 1` 是**参考函数的正常声明**（回退依据）；而平台模型的 `referenceBudgets` 只声明**上限**，不能声明 `images>=1` 这类下限（否则平台在提交前就拒绝纯文本请求，回退走不到）。
 - **就绪是动态的**：`modal.catalog.models[]` 上报 `ready`，**只有 `deployed && volumeReady` 才为真**；未就绪时平台路由提交给出引导错误（先部署/下权重）。

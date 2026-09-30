@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 service 状态与 endpoint 配置、ServiceStatusSettings 与共享的 service 状态读取/连接轮询、Recut Skill 状态、media-configuration-store 的 Provider/Credential/Route 快照、工作台 UI 原子组件（含 CustomSelect 全局下拉）、i18n 字典与 /v1/preferences 语言偏好持久化
- * [OUTPUT]: 对外提供全局设置面板，以及通用设置（界面语言）、Service 状态与本机/LAN 连接（默认分类；入口图标以状态点与高亮承载 service 在线/检查/离线与更新提示）、Recut Skill 软链接、Recut MCP 工具清单、Provider 连接/删除和用途模型配置体验；视觉契约：无描边设置页——内容块与列表行默认带浅填充底（悬停加深）以区分块，命令用深色内嵌容器，组标题 15px 加粗、页面标题 20px，块间与标题间不用边框/分割线，导航当前分类用绿色标记指示，目录行悬停高亮、计数用等宽填充芯片（无描边）；连接 Provider 走二级弹框，只列出需要密钥的服务商，Audio Studio 本机 TTS 作为语音生成的免密钥特殊选项直接出现在用途模型里；只展示已可用的设置项，加载完成前保留明确等待态，表单字段均有可见标签；用途模型选择走双栏 ModelPicker（候选仅限已连接凭据的 Provider + 本机免 key 项；左：搜索 + Provider 分组列表，右：模型详情卡，含凭据状态/计费/输入/输出参数/参考上限），服务商下拉复用 CustomSelect（Radix Popover Portal，避免重叠/裁剪）
+ * [OUTPUT]: 对外提供全局设置面板，以及通用设置（界面语言）、Service 状态与本机/LAN 连接（默认分类；入口图标以状态点与高亮承载 service 在线/检查/离线与更新提示）、Recut Skill 软链接、Recut MCP 工具清单、Provider 连接/删除和用途模型配置体验；视觉契约：无描边设置页——弹层根节点显式复位字体与前景色（入口常挂在 HeaderActions 的 font-mono/text-muted-foreground 容器内，不复位则整页继承等宽字体与灰字），导航文字与页面/组标题统一用前景色白字；内容块与列表行默认带浅填充底（悬停加深）以区分块，命令用深色内嵌容器，组标题 15px 加粗、页面标题 20px，块间与标题间不用边框/分割线，导航当前分类用绿色标记指示，目录行悬停高亮、计数用等宽填充芯片（无描边）；连接 Provider 走二级弹框，只列出需要密钥的服务商，Audio Studio 本机 TTS 作为语音生成的免密钥特殊选项直接出现在用途模型里；只展示已可用的设置项，加载完成前保留明确等待态，表单字段均有可见标签；用途模型选择走双栏 ModelPicker（候选仅限已连接凭据的 Provider + 本机免 key 项；左：搜索 + Provider 分组列表，右：模型详情卡，含凭据状态/计费/输入/输出参数/参考上限），服务商下拉复用 CustomSelect（Radix Popover Portal，避免重叠/裁剪）；用途模型切换成功不弹状态行（卡片本身即结果），就地黄色提示只承载失败
  * [POS]: web/components 的工作台级设置入口；通用偏好（语言）、service 状态与地址、Recut Skill、Provider 与用途模型的唯一用户配置界面，不暴露尚未实现的应用管理入口，API Key 草稿不外泄到全局缓存；打开时默认停在 Service 分类并同步外部指定的分类，从 /v1/preferences 载入语言偏好
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -229,18 +229,18 @@ export function SettingsPanel({
           onMouseDown={() => setOpen(false)}
           role="dialog"
         >
+          {/* 面板常挂在 HeaderActions 的 font-mono text-[10px] text-muted-foreground 容器内，
+              这里显式复位字体与前景色，否则整页继承等宽字体与灰字（层级与对比度全丢）。 */}
           <section
-            className="grid h-[min(760px,calc(100vh-3rem))] w-full max-w-6xl overflow-hidden rounded-sm bg-card shadow-2xl [grid-template-columns:224px_minmax(0,1fr)]"
+            className="grid h-[min(760px,calc(100vh-3rem))] w-full max-w-6xl overflow-hidden rounded-sm bg-card font-sans text-foreground shadow-2xl [grid-template-columns:224px_minmax(0,1fr)]"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <nav
               aria-label={t("settings.nav.aria")}
-              className="bg-muted/40 p-4"
+              className="bg-muted/40 p-4 text-foreground"
             >
               <div className="mb-5 px-2 pt-1">
-                <p className="font-mono text-[10px] tracking-wide text-muted-foreground">
-                  RECUT
-                </p>
+                <p className="font-mono text-[10px] tracking-wide">RECUT</p>
                 <p className="mt-1.5 text-sm font-semibold">
                   {t("settings.title")}
                 </p>
@@ -252,7 +252,7 @@ export function SettingsPanel({
                   return (
                     <button
                       aria-current={active ? "page" : undefined}
-                      className={`relative flex h-9 w-full items-center gap-2.5 rounded-xs px-3 text-left text-xs transition-colors ${active ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                      className={`relative flex h-9 w-full items-center gap-2.5 rounded-xs px-3 text-left text-xs transition-colors ${active ? "bg-card font-medium shadow-sm" : "hover:bg-muted"}`}
                       key={item.id}
                       onClick={() => setSelectedSection(item.id)}
                       type="button"
@@ -275,7 +275,7 @@ export function SettingsPanel({
             <div className="min-w-0 overflow-y-auto p-8">
               <div className="flex items-start justify-between pb-6">
                 <div>
-                  <h2 className="text-xl font-semibold">
+                  <h2 className="text-xl font-semibold text-foreground">
                     {t(
                       sections.find((item) => item.id === activeSection)
                         ?.labelKey ?? "settings.title",
@@ -335,7 +335,7 @@ function LanguageSettings() {
   }
   return (
     <section className="max-w-2xl pt-1">
-      <p className="text-[15px] font-semibold">
+      <p className="text-[15px] font-semibold text-foreground">
         {t("settings.language.title")}
       </p>
       <p className="mt-1 text-xs leading-5 text-foreground/85">
@@ -393,7 +393,7 @@ function GenerationSettings() {
   ];
   return (
     <section className="max-w-2xl pt-6">
-      <p className="text-[15px] font-semibold">
+      <p className="text-[15px] font-semibold text-foreground">
         {t("settings.generation.title")}
       </p>
       <p className="mt-1 text-xs leading-5 text-foreground/85">
@@ -484,7 +484,7 @@ function ServiceEndpointSettings() {
   return (
     <div className="space-y-8">
       <section className="max-w-2xl">
-        <p className="text-[15px] font-semibold">
+        <p className="text-[15px] font-semibold text-foreground">
           {t("settings.endpoint.title")}
         </p>
         <p className="mt-1 text-xs leading-5 text-foreground/85">
@@ -530,7 +530,7 @@ function ServiceEndpointSettings() {
       </section>
       {offline && !remoteConfigured && (
         <section className="max-w-2xl">
-          <p className="text-[15px] font-semibold">
+          <p className="text-[15px] font-semibold text-foreground">
             {t("settings.endpoint.install.title")}
           </p>
           <p className="mt-1 text-xs leading-5 text-foreground/85">
@@ -690,19 +690,15 @@ function ProviderSettings() {
       setMessage(t("settings.route.save.failed"));
       return;
     }
-    setMessage(
-      interpolate(t("settings.route.switched"), {
-        capability: capabilityLabel(t, capability),
-        model: keyless ? t("settings.route.local.title") : model.name,
-      }),
-    );
+    // 成功不弹提示：路由卡片与凭据列表本身就是结果（且 modal-cloud 等 protocol=local 的云端
+    // provider 会被误标成「本机」）。这里只保留失败提示。
     await loadConfiguration(apiBase, true);
   }
   if (loading)
     return (
       <div className="grid min-h-80 place-items-center px-4 text-center">
         <div>
-          <p className="text-[15px] font-semibold">
+          <p className="text-[15px] font-semibold text-foreground">
             {t("settings.provider.loading.title")}
           </p>
           <p className="mt-1 text-xs text-foreground/85">
@@ -716,7 +712,7 @@ function ProviderSettings() {
       <section>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[15px] font-semibold">
+            <p className="text-[15px] font-semibold text-foreground">
               {t("settings.provider.title")}
             </p>
             <p className="mt-1 text-xs text-foreground/85">
@@ -799,7 +795,7 @@ function ProviderSettings() {
       </section>
       <section>
         <div>
-          <p className="text-[15px] font-semibold">
+          <p className="text-[15px] font-semibold text-foreground">
             {t("settings.route.title")}
           </p>
           <p className="mt-1 text-xs text-foreground/85">
@@ -880,7 +876,7 @@ function ProviderConnectDialog({
       >
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[15px] font-semibold">
+            <p className="text-[15px] font-semibold text-foreground">
               {t("settings.provider.connect")}
             </p>
             <p className="mt-1 text-xs text-foreground/85">

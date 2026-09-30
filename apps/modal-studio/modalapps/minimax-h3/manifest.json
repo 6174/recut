@@ -5,6 +5,7 @@
     "en": "MiniMax-H3 video+audio (text/frames/reference)"
   },
   "capability": "video.generate",
+  "referenceImage": { "maxEdge": 1024 },
   "expose": {
     "model": "minimax-h3",
     "function": "reference-to-video"
@@ -161,18 +162,18 @@
           "key": "resolution",
           "type": "select",
           "options": [
-            "768",
-            "576",
-            "480"
+            "1536",
+            "1024",
+            "768"
           ],
-          "default": "768",
+          "default": "1536",
           "label": {
-            "zh": "分辨率（短边 px）",
-            "en": "Resolution (short edge px)"
+            "zh": "分辨率（最长边 px）",
+            "en": "Resolution (longest edge px)"
           },
           "hint": {
-            "zh": "输出短边像素：越小越快、越省额度。H3 原生 768p，只下调不超分。",
-            "en": "Output short-edge pixels: smaller is faster and cheaper. H3 is natively 768p; only down-scaling."
+            "zh": "最长边像素，短边按画幅推导：只下调不超分。1536 在 16:9 下即 H3 原生 768p（1366×768）。",
+            "en": "Longest-edge pixels; the short edge follows the ratio (only down-scaling). 1536 at 16:9 equals H3's native 768p (1366×768)."
           }
         },
         {
@@ -209,7 +210,7 @@
       ],
       "defaultParams": {
         "aspectRatio": "16:9",
-        "resolution": "768",
+        "resolution": "1536",
         "durationSec": 5,
         "steps": 50
       }
@@ -271,18 +272,18 @@
           "key": "resolution",
           "type": "select",
           "options": [
-            "768",
-            "576",
-            "480"
+            "1536",
+            "1024",
+            "768"
           ],
-          "default": "768",
+          "default": "1536",
           "label": {
-            "zh": "分辨率（短边 px）",
-            "en": "Resolution (short edge px)"
+            "zh": "分辨率（最长边 px）",
+            "en": "Resolution (longest edge px)"
           },
           "hint": {
-            "zh": "输出短边像素：越小越快、越省额度。H3 原生 768p，只下调不超分。",
-            "en": "Output short-edge pixels: smaller is faster and cheaper. H3 is natively 768p; only down-scaling."
+            "zh": "最长边像素，短边按画幅推导：只下调不超分。1536 在 16:9 下即 H3 原生 768p（1366×768）。",
+            "en": "Longest-edge pixels; the short edge follows the ratio (only down-scaling). 1536 at 16:9 equals H3's native 768p (1366×768)."
           }
         },
         {
@@ -318,7 +319,7 @@
         }
       ],
       "defaultParams": {
-        "resolution": "768",
+        "resolution": "1536",
         "durationSec": 5,
         "steps": 50
       },
@@ -398,18 +399,18 @@
           "key": "resolution",
           "type": "select",
           "options": [
-            "768",
-            "576",
-            "480"
+            "1536",
+            "1024",
+            "768"
           ],
-          "default": "768",
+          "default": "1536",
           "label": {
-            "zh": "分辨率（短边 px）",
-            "en": "Resolution (short edge px)"
+            "zh": "分辨率（最长边 px）",
+            "en": "Resolution (longest edge px)"
           },
           "hint": {
-            "zh": "输出短边像素：越小越快、越省额度。H3 原生 768p，只下调不超分。",
-            "en": "Output short-edge pixels: smaller is faster and cheaper. H3 is natively 768p; only down-scaling."
+            "zh": "最长边像素，短边按画幅推导：只下调不超分。1536 在 16:9 下即 H3 原生 768p（1366×768）。",
+            "en": "Longest-edge pixels; the short edge follows the ratio (only down-scaling). 1536 at 16:9 equals H3's native 768p (1366×768)."
           }
         },
         {
@@ -445,7 +446,7 @@
         }
       ],
       "defaultParams": {
-        "resolution": "768",
+        "resolution": "1536",
         "durationSec": 5,
         "steps": 50
       },

@@ -5,6 +5,7 @@
     "en": "Qwen-Image-2.1 t2i/edit"
   },
   "capability": "image.generate",
+  "referenceImage": { "maxEdge": 1024 },
   "expose": {
     "model": "qwen-image",
     "function": "image-edit",
@@ -188,12 +189,12 @@
           ],
           "default": "1024",
           "label": {
-            "zh": "分辨率（短边 px）",
-            "en": "Resolution (short edge px)"
+            "zh": "分辨率（最长边 px）",
+            "en": "Resolution (longest edge px)"
           },
           "hint": {
-            "zh": "短边像素，默认 1024。1024 及以下为整图 VAE 解码（与本地一致）；1536 / 2048 在 48GB 档上必须走分块解码，块边界可能有拼缝/色斑，画质有折损。",
-            "en": "Short-edge pixels, default 1024. At or below 1024 the VAE decodes in one pass (same as local); 1536 / 2048 must tile on 48GB GPUs, which can leave seams and color blotches."
+            "zh": "最长边像素，默认 1024，短边按画幅推导：只下调不超分。最长边 ≤1024 为整图 VAE 解码（与本地一致）；1536 / 2048 在 48GB 档上必须走分块解码，块边界可能有拼缝/色斑，画质有折损。",
+            "en": "Longest-edge pixels, default 1024; the short edge follows the aspect ratio. Only down-scaling. At or below 1024 the VAE decodes in one pass (same as local); 1536 / 2048 must tile on 48GB GPUs, which can leave seams and color blotches."
           }
         },
         {
@@ -327,12 +328,12 @@
           ],
           "default": "1024",
           "label": {
-            "zh": "分辨率（短边 px）",
-            "en": "Resolution (short edge px)"
+            "zh": "分辨率（最长边 px）",
+            "en": "Resolution (longest edge px)"
           },
           "hint": {
-            "zh": "短边像素，仅在指定画幅时生效；留空画幅时忽略。1024 及以下为整图 VAE 解码（与本地一致）；1536 / 2048 在 48GB 档上需分块解码，块边界可能有拼缝。",
-            "en": "Short-edge pixels, only used when an aspect ratio is set. At or below 1024 the VAE decodes in one pass (same as local); 1536 / 2048 must tile on 48GB GPUs and may leave seams."
+            "zh": "最长边像素，仅在指定画幅时生效；留空画幅时忽略。短边按画幅推导，只下调不超分。最长边 ≤1024 为整图 VAE 解码（与本地一致）；1536 / 2048 在 48GB 档上需分块解码，块边界可能有拼缝。",
+            "en": "Longest-edge pixels, only used when an aspect ratio is set (the short edge follows the ratio). Only down-scaling. At or below 1024 the VAE decodes in one pass (same as local); 1536 / 2048 must tile on 48GB GPUs and may leave seams."
           }
         },
         {

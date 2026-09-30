@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖选中任务详情（comfy.task.get）、生成产物（comfy.generation.complete）、生成参数（comfy.task.params）、持久日志（comfy.task.logs）、shadcn Badge/Button/Progress 与 recut.media.preview 全屏预览
- * [OUTPUT]: Right 面板：任务头（状态/取消）+ 生成预览（按 output.kind 渲染图片/视频/音频；图片可全屏预览并含「以此为参考图编辑」「重新调整参数」入口）与生成参数回显（参考图可全屏预览）+ 入库 / 环境下载实时日志
- * [POS]: Right 的统一生产预览与进度日志面
+ * [OUTPUT]: Right 面板：任务头（状态/取消）+ 生成预览（按 output.kind 渲染图片/视频/音频；图片可全屏预览并含「以此为参考图编辑」「重新调整参数」入口）+ **常驻「生成参数」section（始终回显全部参数，参考图带尺寸标注、点击经 asset modal 全屏预览）** + **常驻「运行日志」section（成功任务同样展示完整日志，不再因成功而隐藏）**
+ * [POS]: Right 的统一生产预览 / 参数 / 日志面；参数与日志各自独立成节、恒定可见
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { useEffect, useState } from "react";
-import { Download, ImageIcon, SlidersHorizontal, Wand2, X } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Download, SlidersHorizontal, Wand2, X } from "lucide-react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +55,15 @@ function useNow(active: boolean): number {
   return now;
 }
 
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="grid gap-2">
+      <p className="text-[11px] font-semibold text-foreground">{title}</p>
+      {children}
+    </section>
+  );
+}
+
 function TimingCell({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="min-w-0">
@@ -73,13 +82,37 @@ function ParamRow({ label, value, mono = true }: { label: string; value: string;
   );
 }
 
+// 参考图缩略：点击经宿主 asset modal 全屏预览（mediaContentURL 指向素材内容），
+// 图下标注真实像素尺寸——排查「输入图过小」一类失败时一眼能看到输入到底是什么。
+function RefThumb({ id, name, locale }: { id: string; name?: string; locale: Locale }) {
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const label = size ? `${size.w}×${size.h}` : name || id;
+  return (
+    <div className="grid w-14 gap-1">
+      <button
+        type="button"
+        className="size-14 cursor-zoom-in overflow-hidden rounded-md border bg-muted"
+        onClick={() => void recut.media.preview(mediaContentURL(id), { name: name || id })}
+        title={t(locale, "preview.preview-image")}
+      >
+        <img
+          className="size-full object-cover"
+          src={mediaContentPath(id)}
+          alt={name || id}
+          onLoad={(event) => setSize({ w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight })}
+        />
+      </button>
+      <span className="truncate text-center font-mono text-[9px] text-muted-foreground" title={label}>{label}</span>
+    </div>
+  );
+}
+
 function ParamsPanel({ params, locale }: { params: GenerationParams | null; locale: Locale }) {
   if (!params) return null;
   const missing = params.referenceAssetIds.filter((item) => item.available === false).length;
   const entries = Object.entries(params.values ?? {});
   return (
     <div className="grid gap-2 rounded-lg border border-border/70 bg-secondary/30 p-3">
-      <p className="text-[11px] font-semibold text-foreground">{t(locale, "preview.params")}</p>
       <ParamRow label={t(locale, "preview.params-model")} value={params.app || params.model} />
       {entries.length === 0 ? (
         <span className="text-[11px] text-muted-foreground">{t(locale, "preview.params-refs-none")}</span>
@@ -91,23 +124,39 @@ function ParamsPanel({ params, locale }: { params: GenerationParams | null; loca
         {params.referenceAssetIds.length === 0 ? (
           <span className="text-[11px] text-muted-foreground">{t(locale, "preview.params-refs-none")}</span>
         ) : (
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-start gap-2">
             {params.referenceAssetIds.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`relative size-12 overflow-hidden rounded-md border bg-muted ${item.available === false ? "opacity-40" : "cursor-zoom-in"}`}
-                disabled={item.available === false}
-                onClick={() => void recut.media.preview(mediaContentURL(item.id), { name: item.name || item.id })}
-                title={t(locale, "preview.preview-image")}
-              >
-                <img className="size-full object-cover" src={mediaContentPath(item.id)} alt={item.name || item.id} />
-              </button>
+              item.available === false ? (
+                <div key={item.id} className="grid w-14 gap-1 opacity-40">
+                  <div className="grid size-14 place-items-center rounded-md border bg-muted px-1 text-center text-[9px] text-muted-foreground">{t(locale, "preview.params-refs-none")}</div>
+                  <span className="truncate text-center font-mono text-[9px] text-muted-foreground" title={item.id}>{item.id}</span>
+                </div>
+              ) : (
+                <RefThumb key={item.id} id={item.id} name={item.name} locale={locale} />
+              )
             ))}
           </div>
         )}
       </div>
       {missing > 0 ? <p className="text-[10px] text-warning">{interpolate(t(locale, "preview.params-refs-missing"), { count: missing })}</p> : null}
+    </div>
+  );
+}
+
+function LogsPanel({ logs, locale }: { logs: LogLine[]; locale: Locale }) {
+  return (
+    <div className="rounded-lg border bg-terminal p-3 font-mono text-[11px] leading-5 text-terminal-fg">
+      {logs.length === 0 ? (
+        <span className="text-muted-foreground">{t(locale, "preview.no-logs")}</span>
+      ) : (
+        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap">
+          {logs.map((line, index) => (
+            <div key={index} className={line.level === "error" ? "text-destructive" : line.level === "ok" ? "text-success" : line.level === "warn" ? "text-warning" : ""}>
+              <span className="mr-2 text-muted-foreground">[{line.level}]</span>{line.message}
+            </div>
+          ))}
+        </pre>
+      )}
     </div>
   );
 }
@@ -198,38 +247,28 @@ export function PreviewPane({ task, generation, params, logs, locale, onCancel, 
             {generation.savedAssetId ? t(locale, "preview.saved") : t(locale, "preview.save")}
           </Button>
         </div>
-      ) : (
-        <div className="rounded-lg border bg-terminal p-3 font-mono text-[11px] leading-5 text-terminal-fg">
-          {logs.length === 0 ? (
-            <span className="text-muted-foreground">{t(locale, "preview.no-logs")}</span>
-          ) : (
-            <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap">
-              {logs.map((line, index) => (
-                <div key={index} className={line.level === "error" ? "text-destructive" : line.level === "ok" ? "text-success" : line.level === "warn" ? "text-warning" : ""}>
-                  <span className="mr-2 text-muted-foreground">[{line.level}]</span>{line.message}
-                </div>
-              ))}
-            </pre>
-          )}
-        </div>
-      )}
+      ) : null}
 
+      {/* 参数节恒定存在（生成任务）：完整回显提交时的全部参数与参考图，不再被日志挤到视野之外。 */}
       {showParams ? (
-        <>
-          <ParamsPanel params={params} locale={locale} />
+        <Section title={t(locale, "preview.params")}>
+          {params ? (
+            <ParamsPanel params={params} locale={locale} />
+          ) : (
+            <p className="text-[11px] text-muted-foreground">{t(locale, "preview.params-empty")}</p>
+          )}
           {params ? (
             <Button variant="outline" onClick={() => onRemix(params)}>
               <SlidersHorizontal className="size-3.5" />{t(locale, "preview.remix")}
             </Button>
-          ) : terminal ? (
-            <p className="text-[11px] text-muted-foreground">{t(locale, "preview.params-empty")}</p>
           ) : null}
-        </>
+        </Section>
       ) : null}
 
-      {!showOutput && task.action === "generate" && task.state !== "completed" ? (
-        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><ImageIcon className="size-3.5" />{t(locale, "preview.title")}</p>
-      ) : null}
+      {/* 日志节恒定存在：成功任务同样给出完整日志，与产物/参数并存。 */}
+      <Section title={t(locale, "preview.logs")}>
+        <LogsPanel logs={logs} locale={locale} />
+      </Section>
     </div>
   );
 }

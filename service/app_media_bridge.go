@@ -12,7 +12,9 @@
  *           provider 由平台轮询其 task op（App 自持队列与并发策略，占槽时 job=null 不再是错误，且排队时长不
  *           计入执行预算），其余 provider 沿用等待 shell job；
  *           ③ 声音面（App 的 voices 声明，preset:/character: 前缀编码）；④ 动态模型就绪面（调用 App 的
- *           catalog/status op）供 capability model 聚合展示。App 未安装时无 provider 注册，本地路由提交得到引导错误。
+ *           catalog/status op）供 capability model 聚合展示；⑤ 提交时把 App id 与 taskId 记回生成素材
+ *           （RecordGenerationProvenance），使素材库详情可新标签页回跳该 App 的任务记录。
+ *           App 未安装时无 provider 注册，本地路由提交得到引导错误。
  * [POS]: service 的通用「App 贡献本地 provider」桥；不含任何具体 App 常量（Audio Studio / ComfyUI Studio 都只是
  *        注册了 contributes.media 的普通 App）；只经 App 公开 operation 契约，不触碰其私有 SQLite。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -200,6 +202,9 @@ func runAppProvider(host *AppHost, platformMedia *media.MediaService, appID stri
 	if recordID == "" {
 		return media.MediaAsset{}, fmt.Errorf("local generation did not return a record id")
 	}
+	// App 的私有任务账本不对外，只有这里能同时看到 App id 与 taskId：先记回生成素材，
+	// 平台素材库详情才能新标签页回跳该 App 的记录页（关联锚点）。
+	platformMedia.RecordGenerationProvenance(job, appID, providerTaskID(raw))
 	if err := waitForAppGeneration(host, appID, contribution, raw); err != nil {
 		return media.MediaAsset{}, err
 	}

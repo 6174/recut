@@ -25,7 +25,7 @@ def invoke(function_id: str, params: dict, refs: list, mock_url: str) -> dict:
     body = build_video_body(params.get("prompt", ""), aspect_ratio=aspect_ratio,
                             duration_sec=duration_sec, steps=steps,
                             seed=params.get("seed", -1), conditions=conditions,
-                            short_edge=params.get("resolution", ""))
+                            resolution=params.get("resolution", ""))
     data = submit_video(mock_url, body, log=print)
     return {"kind": "bytes", "data": data, "mimeType": "video/mp4",
             "meta": {"durationSec": float(duration_sec), "fps": 24, "seed": body["seed"],

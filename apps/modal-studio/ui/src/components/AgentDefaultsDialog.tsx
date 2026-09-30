@@ -69,7 +69,7 @@ export function AgentDefaultsDialog({ modalapp, fn, locale, onClose, onSaved }: 
   const setValue = (key: string, value: string) => setDraft((prev) => ({ ...prev, [key]: value }));
 
   const useCurrent = () => {
-    const values = useRunStore.getState().forms[modalapp.id]?.values ?? {};
+    const values = useRunStore.getState().forms[modalapp.id]?.functions[fn.id]?.values ?? {};
     const next: Record<string, string> = {};
     for (const field of editableFields(fn)) next[field.key] = values[field.key] ?? "";
     setDraft(next);

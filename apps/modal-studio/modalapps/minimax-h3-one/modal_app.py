@@ -7,7 +7,7 @@
           在线 FP8 只量化 DiT（约 31GiB，常驻），文本编码器按组件流式 offload；类开启 GPU memory snapshot
           （enable_memory_snapshot + enable_gpu_snapshot），@modal.enter(snap=True) 拉起 sglang 子进程后冻结
           整棵进程树（子进程的 CUDA 状态也随快照恢复），冷启动从快照秒级恢复、不再重读权重。
-          generate_video 把表单参数（含分辨率 → `target.short_edge`，默认 768） + 参考素材组装成 SGLang /v1/videos
+          generate_video 把表单参数（含分辨率＝最长边 → 按画幅换算 `target.short_edge`） + 参考素材组装成 SGLang /v1/videos
           请求（经 h3_contract），取回 mp4 写入 /out 卷并返回 file 结果；bootstrap_weights 用 HF token 把 FL2VA + Ref2VA 权重下载进 /models 卷
 [POS]: minimax-h3 的单卡分支预设包（与多卡 minimax-h3 并列、二选一）：用 1 张 RTX PRO 6000 换 6× 单价下降 +
        GPU 快照免冷启动加载；代价是生成明显更慢。按 GPU 数量自动选同一套请求契约（h3_contract）保证与 minimax-h3
@@ -156,14 +156,15 @@ def _run_video(variant: str, prompt: str, aspect_ratio: str, duration_sec: float
                steps: int, seed: int, refs, resolution: str = "") -> dict:
     """共享执行体：确保对应分区的服务在跑，组装请求、提交并落地 mp4。
 
-    `resolution` 是表单「分辨率」（输出短边，px）；空值/越界由契约层归一为 768（H3 原生 768p）。
+    `resolution` 是表单「分辨率」（目标**最长边**，px）；空值/越界由契约层按画幅换算成短边并归一
+    （不超分，H3 原生 768p）。
     """
     _ensure_server(variant)
     conditions = write_reference_conditions(refs or [], REF_DIR)
     body = build_video_body(prompt, aspect_ratio=aspect_ratio, duration_sec=duration_sec,
-                            steps=steps, seed=seed, conditions=conditions, short_edge=resolution)
+                            steps=steps, seed=seed, conditions=conditions, resolution=resolution)
     print(f"[modal] 提交 H3 {body['task']}（{body['seconds']}s，{body['target']['aspect_ratio']}，"
-          f"短边 {body['target']['short_edge']}，"
+          f"最长边 {resolution or '原生'} → 短边 {body['target']['short_edge']}，"
           f"{body['num_inference_steps']} steps，seed {body['seed']}，{len(conditions)} 条件）…", flush=True)
     started = time.time()
     data = submit_video(f"http://127.0.0.1:{PORT}", body, log=print)

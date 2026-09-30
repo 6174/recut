@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 ctx.sqlite 保存生成记录/任务账本/设置，ctx.files 读取 python/registry.json（由
- *          modalapps/*\/manifest.json 生成）与读写 token profile 镜像、ctx.media 复制参考素材与导入产物，
+ *          modalapps/*\/manifest.json 生成）与读写 token profile 镜像、ctx.media 复制参考素材（提交前按模型的
+ *          referenceImage 预算缩到单边上限，见平台 reference_image 层）与导入产物，
  *          ctx.python.run / ctx.shell.exec 执行可观察本地任务（modal_runner.py：status/catalog/deploy/bootstrap/
  *          invoke/teardown/secret）
  * [OUTPUT]: 注册首屏轻量负载（modal.overview：只读本机 registry/profiles/设置 + 上次就绪度快照，不拉起 Python）、
@@ -635,7 +636,7 @@ function getTask(ctx, input) {
 }
 
 // 读取生成任务提交时的完整参数与参考图，供右侧预览回显与「重新调整」。
-function taskParams(ctx, input) {
+function getTaskParams(ctx, input) {
   ensureSchema(ctx);
   const id = value(input, "id");
   const rows = ctx.sqlite.query("select action, record_id from modal_tasks where id = ?", [id]);
@@ -1168,7 +1169,7 @@ function generate(input, ctx) {
   const referenceIds = [];
   for (const item of collected) {
     try {
-      const materialized = ctx.media.materialize(item.assetId);
+      const materialized = ctx.media.materialize(item.assetId, { reference: true, model: (modalapp.expose && modalapp.expose.model) || modalapp.id });
       const ref = { path: materialized.path, name: materialized.name || item.assetId, mimeType: materialized.mimeType || "" };
       if (item.field) ref.field = item.field;
       refs.push(ref);
@@ -1269,6 +1270,7 @@ function cancel(_, ctx) {
 
 function tasksList(input, ctx) { return listTasks(ctx, input || {}); }
 function taskGet(input, ctx) { return getTask(ctx, input); }
+function taskParams(input, ctx) { return getTaskParams(ctx, input); }
 function taskLogs(input, ctx) { return readTaskLogs(ctx, input); }
 function taskCancel(input, ctx) {
   ensureSchema(ctx);

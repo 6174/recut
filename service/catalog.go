@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖标准库 JSON 与文件系统能力
- * [OUTPUT]: 对外提供 manifest 驱动的 App Catalog、可有序加载的 backgroundModules、operation 公开契约与 agentSurface（领域、默认意图、required skill、源码策略）元数据
+ * [OUTPUT]: 对外提供 manifest 驱动的 App Catalog、可有序加载的 backgroundModules、operation 公开契约、agentSurface（领域、默认意图、required skill、源码策略）元数据与 model.referenceImage 参考图归一策略声明
  * [POS]: service 的扩展注册表；为工作面路由提供 App 身份和策略，不理解业务数据布局
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -152,6 +152,20 @@ type ContributedMediaModel struct {
 	// per-App code.
 	ReferenceFields  []ContributedMediaReferenceField `json:"referenceFields,omitempty"`
 	ReferenceBudgets []media.ReferenceBudget          `json:"referenceBudgets,omitempty"`
+	// ReferenceImage declares how the platform normalizes this model's image
+	// references at materialize time (downscale to a single-edge cap, drop alpha,
+	// re-encode). Absent means the platform default cap still applies when the App
+	// materializes a reference; see reference_image.go.
+	ReferenceImage *ReferenceImageSpec `json:"referenceImage,omitempty"`
+}
+
+// ReferenceImageSpec is a model's declared reference-image normalization policy.
+// It is normalize-only (not a rejection rule): materialize never fails on it, it
+// only bounds how large a reference image may be handed to the model.
+type ReferenceImageSpec struct {
+	// MaxEdge caps the longer pixel edge of a reference image; 0 means no cap
+	// (keep the original). Images are only ever downscaled, never enlarged.
+	MaxEdge int `json:"maxEdge,omitempty"`
 }
 
 // ContributedMediaReferenceField is one declared reference input of a

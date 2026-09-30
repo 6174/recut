@@ -4,6 +4,7 @@
   "capability": "image.generate",
   "runtime": "comfyui",
   "exposeModel": "qwen-image",
+  "referenceImage": { "maxEdge": 1024 },
   "output": { "kind": "image", "mimeType": "image/png", "ext": "png" },
   "inputModes": ["text", "image"],
   "weights": {

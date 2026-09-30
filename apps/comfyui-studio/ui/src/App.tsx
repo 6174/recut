@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖 recut-sdk（background.call + events.subscribe 实时事件）、Left 两 Tab 组件、Right 预览组件与 i18n
- * [OUTPUT]: ComfyUI 工作台主工作区：外壳立即渲染，目录/就绪度以可感知的非阻塞探测补齐（BootNotice 显示在等什么、等多久、第几次与失败原因）；工作流目录/任务列表按事件增量刷新（首屏与用户动作走 REST）、选中任务详情与产物、预览图「以此为参考图编辑」回填左侧表单、引擎管理面板（EngineDialog）、动作编排与语言同步；仅当探测确认环境未就绪才进入带日志的 Setup 门；外壳由 shadcn Tabs/Card 承载
+ * [OUTPUT]: ComfyUI 工作台主工作区：外壳立即渲染，目录/就绪度以可感知的非阻塞探测补齐（BootNotice 显示在等什么、等多久、第几次与失败原因）；工作流目录/任务列表按事件增量刷新（首屏与用户动作走 REST）、选中任务详情与产物、预览图「以此为参考图编辑」回填左侧表单、**成功任务同样回读完整日志**（产物与参数/日志并存）、引擎管理面板（EngineDialog）、动作编排与语言同步；宿主深链 ?taskId= 时首屏切到记录页并选中该任务（素材库「生成任务」新标签页跳入）；仅当探测确认环境未就绪才进入带日志的 Setup 门；外壳由 shadcn Tabs/Card 承载
  * [POS]: ui 的状态编排层；只经 App operation 契约访问后台，不直接读写本机文件
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, Workflow } from "lucide-react";
-import { isRecutConnected, recut, useRecutLocale } from "./recut-sdk";
+import { getRecutTaskId, isRecutConnected, recut, useRecutLocale } from "./recut-sdk";
 import { t } from "./i18n";
 import { BootNotice } from "./components/BootNotice";
 import { WorkflowTab } from "./components/WorkflowTab";
@@ -116,12 +116,12 @@ export default function App() {
       }
       if (current.action === "generate" && current.state === "completed" && current.recordId) {
         setGeneration(await op<Generation>("comfy.generation.complete", { id: current.recordId }));
-        setLogs([]);
       } else {
         setGeneration(null);
-        const result = await op<{ logs: LogLine[] }>("comfy.task.logs", { id, limit: 300 });
-        setLogs(result.logs ?? []);
       }
+      // 成功与否都回读日志：产物预览与完整参数/日志并存，不因成功就丢掉这次运行的执行记录。
+      const result = await op<{ logs: LogLine[] }>("comfy.task.logs", { id, limit: 300 });
+      setLogs(result.logs ?? []);
     },
     [op],
   );
@@ -133,6 +133,18 @@ export default function App() {
     },
     [renderRight],
   );
+
+  // 深链：宿主在 iframe URL 上带 ?taskId= 时（素材库「生成任务」新标签页跳入），首屏切到记录页并选中该任务。
+  // 只在任务账本回来之后判定一次；任务不在账本里（已被清理）则不强选，保留空态。
+  const deepLinkAppliedRef = useRef(false);
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || !connected || !tasks.length) return;
+    const taskID = getRecutTaskId();
+    deepLinkAppliedRef.current = true;
+    if (!taskID || !tasks.some((task) => task.id === taskID)) return;
+    setTab("records");
+    selectTask(taskID);
+  }, [connected, tasks, selectTask]);
 
   useEffect(() => {
     if (connected) return;

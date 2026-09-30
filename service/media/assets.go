@@ -1094,6 +1094,52 @@ func (m *MediaService) CompleteGenerationFromImport(job MediaJob, importedAssetI
 	return completed, nil
 }
 
+// RecordGenerationProvenance 把产出这张素材的 App 与 App 侧任务 id 记进 metadata，
+// 让平台侧（素材库详情）能回跳该 App 的记录页。App 的私有任务账本（comfy_tasks /
+// modal_tasks）不对外暴露，平台只在提交时经桥看到 taskId，因此这里必须随手上报，
+// 否则素材与任务之间就没有任何可关联的锚点。尽力而为：失败不影响生成本身。
+func (m *MediaService) RecordGenerationProvenance(job MediaJob, appID, taskID string) {
+	appID = strings.TrimSpace(appID)
+	if appID == "" || len(job.AssetIDs) != 1 {
+		return
+	}
+	assetID := job.AssetIDs[0]
+	db, err := m.database()
+	if err != nil {
+		return
+	}
+	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where id = ?", assetID))
+	if err != nil || asset.JobID != job.ID || asset.Status != "running" {
+		return
+	}
+	metadata := asset.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["appId"] = appID
+	if taskID = strings.TrimSpace(taskID); taskID != "" {
+		metadata["appTaskId"] = taskID
+	}
+	serialized, _ := json.Marshal(metadata)
+	now := time.Now().UTC()
+	tx, err := db.Begin()
+	if err != nil {
+		return
+	}
+	if _, err := tx.Exec("update media_assets set metadata_json = ?, updated_at = ? where id = ? and job_id = ? and status = ?", string(serialized), now.Format(time.RFC3339Nano), assetID, job.ID, "running"); err != nil {
+		_ = tx.Rollback()
+		return
+	}
+	if err := recordAssetEvent(tx, assetID, now); err != nil {
+		_ = tx.Rollback()
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		return
+	}
+	m.publishAssetChange()
+}
+
 // CompletePendingAssetFromBytes 用一段字节原位补全某个尚未完成的 pending Asset
 // （由其 job_id 反查），稳定 assetId 不变。仅允许 running 的待完成资产，已完成/导入等
 // 终态资产一律拒绝，避免 App 借 ctx.media.importFile({assetId}) 覆盖既有成品。
