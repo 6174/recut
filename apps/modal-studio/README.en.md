@@ -45,6 +45,8 @@ Modal Functions is a Recut **standard app** (`standalone`): it decouples the *cl
 
 > **Task concurrency (isolated per preset pack)**: `modal.generate` and `modal.deploy` **queue independently per preset pack** — pack A's task never waits behind pack B's. Within one pack the default is a **single slot, FIFO** (`deploy` and `generate` are mutually exclusive, `deploy` wins), and a pack can raise its own limit via `engine.concurrency` in its manifest (e.g. `{ "generate": 2 }`, default 1). `modal.prepare` is a global single slot (all packs share one local venv), `modal.install` is serial per pack, and `modal.teardown` runs in parallel. **Submissions are never rejected**: a task that has not got a slot stays in the ledger (shown as "Queued") and is dispatched automatically once the slot frees up.
 
+> **Cancel propagates to the cloud**: a running task's cloud compute is held by a Modal `FunctionCall`; after spawning, the local runner drops the call id into its private `generations/<id>.call_id`. On Cancel the app **cancels directly on Modal by that id first**, then terminates the local shell job — killing the local process alone is not enough (the platform cancel SIGKILLs the process tree, so the runner never receives SIGTERM and the cancel never reaches the cloud, leaving the cloud GPU burning). Queued tasks go straight to cancelled.
+
 ## Load order when entering the workspace
 
 Readiness probing shells out to the `modal` CLI (one `modal volume ls` per deployed pack), which takes seconds — so it never blocks first paint:

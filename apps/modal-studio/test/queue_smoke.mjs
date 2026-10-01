@@ -7,6 +7,7 @@
 //   4) 同预设包：deploy 优先于更早排队的 generate
 //   5) engine.concurrency.generate=2 的预设包：同一应用内两条 generate 都 running
 //   6) prepare 全局单槽：会阻塞其它预设包的 generate（本机共用一个 venv）
+//   7) 运行中 generate 取消：按 generations/<recordId>.call_id 直接取消云端 Modal 调用，并终止本地 shell job
 // 运行：node test/queue_smoke.mjs
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -33,7 +34,7 @@ const ops = {};
 const recutMock = { operation: { register: (name, fn) => { ops[name] = fn; } } };
 
 // 每次一个全新的内存数据库；python.run 返回一个持续 running 的 shell job，因此派发出去的任务不会自行结算。
-function makeWorld({ withFastApp = false } = {}) {
+function makeWorld({ withFastApp = false, filesText = {}, execArgs = [], cancelled = [] } = {}) {
   const db = new DatabaseSync(":memory:");
   const sqlite = {
     execute: (sql, params = []) => { try { db.prepare(sql).run(...params); } catch (e) { if (!String(e.message).includes("duplicate column")) throw e; } },
@@ -48,12 +49,12 @@ function makeWorld({ withFastApp = false } = {}) {
     appFiles: withFastApp
       ? { list: () => ["fast-app"], readText: (name) => (name === "modalapps/fast-app/manifest.json" ? FAST_MANIFEST : "") }
       : { list: () => [], readText: () => "" },
-    files: { readText: () => "", writeText: () => {}, url: () => "http://preview" },
+    files: { readText: (name) => filesText[name] ?? "", writeText: () => {}, url: () => "http://preview" },
     shell: {
-      exec: () => ({ stdout: "\n", exitCode: 0 }),
+      exec: (spec) => { execArgs.push(spec); return { stdout: "\n", exitCode: 0 }; },
       status: (id) => ({ id, status: "running" }),
       logs: () => [],
-      cancel: () => {},
+      cancel: (id) => { cancelled.push(id); },
     },
     python: { status: () => ({ ready: true }), prepare: () => ({ id: `sj-${++seq}`, status: "running" }), run: () => ({ id: `sj-${++seq}`, status: "running" }) },
     media: { materialize: () => ({ path: "/sandbox/x", name: "x" }), importFile: () => ({ id: "asset-1" }) },
@@ -68,7 +69,7 @@ function makeWorld({ withFastApp = false } = {}) {
   };
   const states = () => Object.fromEntries(sqlite.query("select id, state from modal_tasks").map((r) => [r.id, r.state]));
   const pump = () => ops["modal.tasks.list"]({ limit: 50 }, ctx);
-  return { ctx, seed, states, pump };
+  return { ctx, db, seed, states, pump };
 }
 
 vm.runInNewContext(code, {
@@ -169,6 +170,32 @@ const check = (name, cond) => { if (cond) console.log(`  ok  ${name}`); else { f
   w.pump();
   const s = w.states();
   check("S7b running prepare 期间不重复派发", s.p0 === "running" && s.p1 === "queued");
+}
+
+// S8：运行中 generate 取消 → 先按落盘的调用 ID 直接取消云端，再终止本地 shell job
+{
+  const execArgs = [];
+  const cancelled = [];
+  const w = makeWorld({ filesText: { "generations/gen-1.call_id": "fc-123" }, execArgs, cancelled });
+  w.pump(); // ensureSchema
+  w.db.prepare("insert into modal_tasks (id, shell_job_id, action, modalapp, function, record_id, source, submitted_by, state, progress, meta_json, payload_json, log_path, error, created_at, started_at, resolved_at) values (?, ?, ?, ?, ?, ?, 'manual', '', 'running', 0, '{}', '{}', ?, '', ?, '', '')")
+    .run("g1", "sj-9", "generate", "sd-turbo", "text-to-image", "gen-1", "tasks/g1.log", "2026-01-01T00:00:00.000Z");
+  const result = ops["modal.task.cancel"]({ id: "g1" }, w.ctx);
+  const remote = execArgs.map((spec) => (spec.args || []).join(" ")).find((line) => line.includes("cancel") && line.includes("--call-id") && line.includes("fc-123"));
+  check("S8 运行中取消：按调用 ID 直接取消云端调用", Boolean(remote));
+  check("S8 运行中取消：返回 cancelled 且终止本地 shell job", result.cancelled === true && cancelled.includes("sj-9"));
+}
+
+// S8b：没有调用 ID 文件时跳过远程取消，但仍终止本地 shell job（远程取消是尽力而为）
+{
+  const execArgs = [];
+  const cancelled = [];
+  const w = makeWorld({ execArgs, cancelled });
+  w.pump();
+  w.db.prepare("insert into modal_tasks (id, shell_job_id, action, modalapp, function, record_id, source, submitted_by, state, progress, meta_json, payload_json, log_path, error, created_at, started_at, resolved_at) values (?, ?, ?, ?, ?, ?, 'manual', '', 'running', 0, '{}', '{}', ?, '', ?, '', '')")
+    .run("g2", "sj-10", "generate", "sd-turbo", "text-to-image", "gen-2", "tasks/g2.log", "2026-01-01T00:00:00.000Z");
+  ops["modal.task.cancel"]({ id: "g2" }, w.ctx);
+  check("S8b 无调用 ID：不发起远程取消，仍终止本地 shell job", execArgs.length === 0 && cancelled.includes("sj-10"));
 }
 
 console.log(failures ? `\n${failures} failing` : "\nall checks passed");

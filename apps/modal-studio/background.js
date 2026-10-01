@@ -3,12 +3,13 @@
  *          modalapps/*\/manifest.json 生成）与读写 token profile 镜像、ctx.media 复制参考素材（提交前按模型的
  *          referenceImage 预算缩到单边上限，见平台 reference_image 层）与导入产物，
  *          ctx.python.run / ctx.shell.exec 执行可观察本地任务（modal_runner.py：status/catalog/deploy/bootstrap/
- *          invoke/teardown/secret）
+ *          invoke/cancel/teardown/secret）
  * [OUTPUT]: 注册首屏轻量负载（modal.overview：只读本机 registry/profiles/设置 + 上次就绪度快照，不拉起 Python）、
  *          连通性与就绪度（modal.status，结果同时写入快照供下次首屏回放）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记与平台模型就绪投影 models[]）、token profiles（modal.profiles.*）、
  *          设置（modal.settings.set：默认 profile / 权重源 / GPU 档位 / 每「预设包+函数」的 AI 默认参数（含默认 GPU 档位）agent_defaults:<id>:<fn>）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
  *          调用函数（modal.generate，按预设包单槽、跨预设包并行；兼容平台执行桥的 model 入参；非 origin="manual" 的调用用 agentDefaults 补全缺省字段）、历史与入库（modal.generations / modal.generation.complete /
- *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel）与取消（modal.cancel）。
+ *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel）与取消（modal.cancel：运行中的 generate
+ *          先按 runner 落盘的调用 ID 直接取消云端 Modal 调用，再终止本地 shell job，避免云端 GPU 继续烧）。
  * [POS]: modal-studio 的唯一业务后端；经 manifest contributes.media 向平台注册 modal-cloud provider（每个声明
  *        expose 的 modalapp → 一个平台模型，平台默认生图/生视频路由可指向它，经通用执行桥调用 modal.generate），
  *        其余能力经本 App 的 api/mcp operation（modal.generate/modal.save 等 capability:true）暴露。任务并发：运行（generate）与部署（deploy）
@@ -611,6 +612,21 @@ function submitJob(ctx, { action, modalapp = "", fn = "", recordID = "", payload
   return id;
 }
 
+// 运行中的生成任务：仅靠 ctx.shell.cancel 到不了云端——平台取消会把本机进程树 SIGKILL（不可捕获），
+// runner 的 SIGTERM handler 与其中的 FunctionCall.cancel() 根本不会执行，云端 GPU 会继续烧。
+// runner 在 spawn 后把 Modal 调用 ID 落在 generations/<recordId>.call_id，这里按 ID 直接发起取消；
+// 失败也只是尽力而为——随后仍会终止本机 shell job，二者互补。
+function cancelRemoteCall(ctx, row) {
+  if (row.action !== "generate" || !row.record_id) return;
+  let callId = "";
+  try { callId = String(ctx.files.readText(`generations/${row.record_id}.call_id`) || "").trim(); } catch (_) { return; }
+  if (!callId) return;
+  try {
+    const registry = readRegistry(ctx);
+    runProfile(ctx, registry, appDef(registry, row.modalapp), ["cancel", "--call-id", callId], 60);
+  } catch (_) { /* 尽力而为：本地 shell cancel 仍会兜底 */ }
+}
+
 function cancelTaskRow(ctx, row) {
   if (row.state === "queued") {
     const error = tr(ctx, "已取消（尚未开始）。", "Cancelled before it started.");
@@ -620,6 +636,7 @@ function cancelTaskRow(ctx, row) {
     return { cancelled: true, id: row.id };
   }
   if (row.state === "running" && row.shell_job_id) {
+    cancelRemoteCall(ctx, row);
     try { ctx.shell.cancel(row.shell_job_id); } catch (_) { /* 平台已结算时忽略 */ }
     return { cancelled: true, id: row.id };
   }
@@ -1325,7 +1342,7 @@ function resolveJob(input, ctx) {
 
 function cancel(_, ctx) {
   pumpQueue(ctx);
-  const rows = ctx.sqlite.query("select id, shell_job_id, action, record_id, state from modal_tasks where state in ('queued','running') order by created_at desc limit 1");
+  const rows = ctx.sqlite.query("select id, shell_job_id, action, record_id, modalapp, state from modal_tasks where state in ('queued','running') order by created_at desc limit 1");
   if (!rows.length) return { cancelled: false };
   return cancelTaskRow(ctx, rows[0]);
 }
@@ -1338,7 +1355,7 @@ function taskCancel(input, ctx) {
   ensureSchema(ctx);
   pumpQueue(ctx);
   const id = value(input, "id");
-  const rows = ctx.sqlite.query("select id, shell_job_id, action, record_id, state from modal_tasks where id = ?", [id]);
+  const rows = ctx.sqlite.query("select id, shell_job_id, action, record_id, modalapp, state from modal_tasks where id = ?", [id]);
   if (!rows.length) return { cancelled: false };
   if (!isActiveJob(rows[0].state)) return { cancelled: false };
   return cancelTaskRow(ctx, rows[0]);

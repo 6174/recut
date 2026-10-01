@@ -6,11 +6,12 @@
           排除忽略名单（通用 modalapps/deploy-ignore.json + 预设包 manifest 的 deployIgnore）里的文件 ——
           与上次成功 deploy 记录不一致 → 代码已变更、需重新部署）；各预设包的探测（volume ls + 目录 hash）
           并行执行，耗时不再随预设包数量线性增长）、deploy（modal deploy 构建 Image 与函数，成功后把目录 hash 记进 appstate/modal/deploy-state.json）、bootstrap（modal run 把权重写进 Volume）、invoke
-          （Function.from_name(...).with_options(gpu=...).spawn(...) 调用并把产物拉回本机；轮询用 call.get(timeout)
+          （Function.from_name(...).with_options(gpu=...).spawn(...) 调用并把产物拉回本机；调用 ID 落盘到 `<output>.call_id`，供 cancel 直接按 ID 取消；轮询用 call.get(timeout)
           报心跳，长轮询偶发断连（ConnectionError 等）时按调用 ID 重连继续等待——spawn 已提交、云端仍在算，
           判负只会留下无人认领的 GPU 任务；后台 `modal app logs --follow` 把云端容器日志 tee 进任务日志）、
           invoke --mock（加载预设包 mock.py，对本地 mock 服务跑通同一套产物链路，不部署/不访问 Modal/GPU）、
-          teardown（modal app stop）、secret（modal secret create --force）；任何命令的失败原因都写进任务日志
+          cancel（FunctionCall.from_id(...).cancel()：按调用 ID 直接取消云端调用——本机 runner 可能已被 SIGKILL、
+          收不到 SIGTERM，只有直接 cancel 才能停住云端计算并释放 GPU）、teardown（modal app stop）、secret（modal secret create --force）；任何命令的失败原因都写进任务日志
           （App 只读任务日志，stderr 里的 traceback 到不了界面）。
 [POS]: modal-studio 的本机薄客户端；GPU 计算与权重全在 modal.com，本机只做编排、上传参考、接收产物。预设包来源
           分内置（App 包）与用户（appstate），二者共用同一 manifest/modal_app.py/bootstrap.py 契约。modal CLI
@@ -802,6 +803,13 @@ def cmd_invoke(args: argparse.Namespace) -> dict:
     started = time.time()
     call = handle.spawn(**params, refs=references)
     call_id = call.object_id
+    # 调用 ID 落盘：取消时本机进程可能已被 SIGKILL（收不到 SIGTERM），App 只有按 ID 才能直接取消云端调用（见 cmd_cancel）。
+    call_id_path = resolve_file(args.output + ".call_id")
+    try:
+        call_id_path.parent.mkdir(parents=True, exist_ok=True)
+        call_id_path.write_text(call_id, encoding="utf-8")
+    except OSError:
+        call_id_path = None
 
     cancelled = {"flag": False}
 
@@ -854,6 +862,12 @@ def cmd_invoke(args: argparse.Namespace) -> dict:
                 # 云端函数的确定性失败（远端异常/超时等）：直接给出原因，别只剩一个 exit status。
                 raise SystemExit(f"云端调用失败：{error}")
     finally:
+        # 正常收敛后撤掉调用 ID；进程被 SIGKILL 时文件会残留，正好留给 App 之后按 ID 取消。
+        if call_id_path is not None:
+            try:
+                call_id_path.unlink()
+            except OSError:
+                pass
         signal.signal(signal.SIGTERM, previous)
         stop_app_log_follower(follower)
     if cancelled["flag"]:
@@ -870,6 +884,29 @@ def cmd_invoke(args: argparse.Namespace) -> dict:
     Path(str(output_path) + ".meta.json").write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
     print(f"[modal] 已生成 {output_path.name}（{elapsed}s）。", flush=True)
     return {"ready": True, "output": str(output_path), **merged}
+
+
+def cmd_cancel(args: argparse.Namespace) -> dict:
+    """按调用 ID 直接取消云端 Modal 调用。
+
+    与「杀掉本机 runner 进程」互补：本地进程可能已被 SIGKILL（收不到 SIGTERM）、已崩溃，或 daemon 重启
+    丢了句柄，此时只有按调用 ID 直接 cancel 才能停住云端计算、释放 GPU。取消一个终态调用不算失败。
+    """
+    apply_credentials(args.profile, required=True)
+    call_id = str(getattr(args, "call_id", "") or "").strip()
+    if not call_id:
+        raise SystemExit("--call-id is required")
+
+    import modal  # type: ignore
+
+    print(f"[modal] 取消云端调用 {call_id}…", flush=True)
+    try:
+        modal.FunctionCall.from_id(call_id).cancel()
+    except Exception as error:  # noqa: BLE001
+        print(f"[modal] 取消未生效（调用可能已结束）：{error}", flush=True)
+        return {"ready": True, "cancelled": False, "callId": call_id}
+    print("[modal] 已请求取消云端调用。", flush=True)
+    return {"ready": True, "cancelled": True, "callId": call_id}
 
 
 def cmd_secret(args: argparse.Namespace) -> dict:
@@ -937,6 +974,10 @@ def main() -> None:
     invoke_parser.add_argument("--mock-url", default="")
     common(invoke_parser)
 
+    cancel_parser = sub.add_parser("cancel")
+    cancel_parser.add_argument("--call-id", required=True)
+    common(cancel_parser)
+
     secret_parser = sub.add_parser("secret")
     secret_parser.add_argument("--name", required=True)
     secret_parser.add_argument("--secret-file", required=True)
@@ -960,6 +1001,8 @@ def main() -> None:
             payload = cmd_teardown(args)
         elif args.command == "invoke":
             payload = cmd_invoke(args)
+        elif args.command == "cancel":
+            payload = cmd_cancel(args)
         elif args.command == "secret":
             payload = cmd_secret(args)
         else:  # pragma: no cover

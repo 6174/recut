@@ -1168,7 +1168,7 @@
         "mcp"
       ],
       "capability": true,
-      "description": "按任务中心 id 取消任务：运行中经底层 shell job 取消，排队中直接落 cancelled。",
+      "description": "按任务中心 id 取消任务：运行中的 generate 先按调用 ID 直接取消云端 Modal 调用，再终止本地 shell job；排队中直接落 cancelled。",
       "inputSchema": {
         "type": "object",
         "required": [

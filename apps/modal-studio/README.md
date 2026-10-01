@@ -61,6 +61,8 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 
 > **任务并发（按预设包隔离）**：运行（`modal.generate`）与部署（`modal.deploy`）**按预设包独立排队**——A 预设包的任务不会等 B 预设包。同一预设包内默认**单槽 FIFO**（`deploy` 与 `generate` 互斥、`deploy` 优先），可在该包 manifest 的 `engine.concurrency` 里调大上限（如 `{ "generate": 2 }`，缺省 1）。准备（`modal.prepare`）全局单槽（所有预设包共用一个本机 venv）、权重（`modal.install`）按预设包串行、停止（`modal.teardown`）并行。**提交永不拒绝**：未拿到槽位的任务留在账本里（UI 显示「排队中」），就绪后由队列自动派发。
 
+> **取消会传播到云端**：运行中任务的云端计算由 Modal `FunctionCall` 承载；本机 runner 在提交后把调用 ID 落在私有 `generations/<id>.call_id`。点「取消」时 App 会**先按该 ID 直接向 Modal 发起取消**，再终止本机 shell job——只杀本机进程是不够的（平台取消会把进程树 SIGKILL，runner 收不到 SIGTERM，取消也就传不到云端，云端 GPU 会继续烧）。排队中的任务直接落 cancelled。
+
 ## 进入工作台时的加载顺序
 
 就绪度探测要拉 `modal` CLI（每个部署过的预设包一次 `modal volume ls`），是秒级操作，因此**不挡首屏**：
