@@ -198,5 +198,16 @@ const check = (name, cond) => { if (cond) console.log(`  ok  ${name}`); else { f
   check("S8b 无调用 ID：不发起远程取消，仍终止本地 shell job", execArgs.length === 0 && cancelled.includes("sj-10"));
 }
 
+// S8c：拿不到调用 ID 时返回告警（云端容器可能仍在跑，甚至与下一次调用并存）
+{
+  const cancelled = [];
+  const w = makeWorld({ cancelled });
+  w.pump();
+  w.db.prepare("insert into modal_tasks (id, shell_job_id, action, modalapp, function, record_id, source, submitted_by, state, progress, meta_json, payload_json, log_path, error, created_at, started_at, resolved_at) values (?, ?, ?, ?, ?, ?, 'manual', '', 'running', 0, '{}', '{}', ?, '', ?, '', '')")
+    .run("g3", "sj-11", "generate", "sd-turbo", "text-to-image", "gen-3", "tasks/g3.log", "2026-01-01T00:00:00.000Z");
+  const result = ops["modal.task.cancel"]({ id: "g3" }, w.ctx);
+  check("S8c 无调用 ID：返回「云端可能仍在运行」告警", result.cancelled === true && typeof result.warning === "string" && result.warning.length > 0 && cancelled.includes("sj-11"));
+}
+
 console.log(failures ? `\n${failures} failing` : "\nall checks passed");
 process.exit(failures ? 1 : 0);

@@ -57,11 +57,11 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 | 运行 / 历史 / 入库 | `modal.generate` · `modal.generations` · `modal.generation.complete` · `modal.save` |
 | 任务中心 | `modal.tasks.list` · `modal.task.get` · `modal.task.logs` · `modal.task.cancel` · `modal.cancel` |
 
-> **已接入平台生图/生视频能力**：manifest `contributes.media` 声明 provider `modal-cloud`，每个声明 `expose` 的预设包注册为一个平台模型（`modal-cloud/<model>`，图片与视频都注册）。平台「生图/生视频默认路由」可指向它，生成经通用执行桥调用 `modal.generate`；**预设包未部署/权重未就绪时该模型 `ready=false`**（`modal.catalog.models[]` 动态上报，只有 `deployed && volumeReady` 才算就绪）。**纯文本请求（不带任何参考素材）会自动路由到该预设包的文生函数（`text-to-*`）；只有带参考时才走参考函数（参考生视频 / 图像编辑）**——参考是可选项（平台 budget 只设上限），因此「无参考走文生、有参考走参考」在平台默认路由下自动成立。其余能力仍经本 App 的 api/mcp operation 直接暴露。
+> **已接入平台生图/生视频能力**：manifest `contributes.media` 声明 provider `modal-cloud`，每个声明 `expose` 的预设包注册为一个平台模型（`modal-cloud/<model>`，图片与视频都注册）。平台「生图/生视频默认路由」可指向它，生成经通用执行桥调用 `modal.generate`；**预设包未部署、或 `expose.function` 所需产物（基础权重 / LoRA / 离线合并）缺失时该模型 `ready=false`**（`modal.catalog.models[]` 动态上报，需 `deployed` 且所需产物齐备——离线合并产物缺失时基础权重卷仍是就绪的，只看 `volumeReady` 会把它误报为可用）。**纯文本请求（不带任何参考素材）会自动路由到该预设包的文生函数（`text-to-*`）；只有带参考时才走参考函数（参考生视频 / 图像编辑）**——参考是可选项（平台 budget 只设上限），因此「无参考走文生、有参考走参考」在平台默认路由下自动成立。其余能力仍经本 App 的 api/mcp operation 直接暴露。
 
 > **任务并发（按预设包隔离）**：运行（`modal.generate`）与部署（`modal.deploy`）**按预设包独立排队**——A 预设包的任务不会等 B 预设包。同一预设包内默认**单槽 FIFO**（`deploy` 与 `generate` 互斥、`deploy` 优先），可在该包 manifest 的 `engine.concurrency` 里调大上限（如 `{ "generate": 2 }`，缺省 1）。准备（`modal.prepare`）全局单槽（所有预设包共用一个本机 venv）、权重（`modal.install`）按预设包串行、停止（`modal.teardown`）并行。**提交永不拒绝**：未拿到槽位的任务留在账本里（UI 显示「排队中」），就绪后由队列自动派发。
 
-> **取消会传播到云端**：运行中任务的云端计算由 Modal `FunctionCall` 承载；本机 runner 在提交后把调用 ID 落在私有 `generations/<id>.call_id`。点「取消」时 App 会**先按该 ID 直接向 Modal 发起取消**，再终止本机 shell job——只杀本机进程是不够的（平台取消会把进程树 SIGKILL，runner 收不到 SIGTERM，取消也就传不到云端，云端 GPU 会继续烧）。排队中的任务直接落 cancelled。
+> **取消会传播到云端**：运行中任务的云端计算由 Modal `FunctionCall` 承载；本机 runner 在提交后把调用 ID 落在私有 `generations/<id>.call_id`（**只有成功取回结果后才撤掉**——取消/失败时保留，正是为了让 App 能按 ID 取消）。点「取消」时 App 会**先按该 ID 直接向 Modal 发起取消**，再终止本机 shell job——只杀本机进程是不够的（平台取消会把进程树 SIGKILL，runner 收不到 SIGTERM，取消也就传不到云端，云端 GPU 会继续烧）。排队中的任务直接落 cancelled。**拿不到调用 ID 时取消会返回一句告警**（提示云端容器可能仍在运行、可「停止环境」收敛），而不是静默放过——否则被取消的云端调用会继续跑，与下一次调用并存（同一 App 两个容器同时冷启动、互相拖慢）。
 
 ## 进入工作台时的加载顺序
 
@@ -69,11 +69,13 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 
 1. **首屏（`modal.overview`）**：只读本机——`python/registry.json`（预设包/函数/表单）、token profiles、设置，外加**上次探测的就绪度快照**。毫秒级返回，预设包与表单立即可用；就绪度按快照回放，没有快照时该预设包显示「状态待检查」（**未知不等于未部署**）。
 2. **后台探测（`modal.status`）**：独立刷新，回填连通性、部署状态、volume 就绪度与 `stale`（代码变更待重新部署），并**把结果写成快照**供下次首屏直接回放。它只影响状态显示，不阻塞任何交互。
-3. **点击「运行」时动态校验**：直接用新鲜快照；快照过期（>60s）或还没有时先重探一次。**只有已确定未就绪（未部署 / 权重缺失）才拦下**并提示「准备（部署 + 权重）」或「重新部署」；状态未知不拦——后台的提交契约是永不拒绝，真实失败原因写进任务日志。
+3. **点击「运行」时动态校验**：直接用新鲜快照；快照过期（>60s）或还没有时先重探一次。**只有已确定未就绪（未部署 / 权重缺失 / 离线合并产物缺失）才拦下**并提示「准备（部署 + 权重）」或「重新部署」；状态未知不拦。后台 `modal.generate` 在派发前还会对目标函数的所需产物做一次预检（`status --modalapp <id>`），缺产物直接拒绝、**不创建云端容器**——否则容器会在 `@modal.enter` 里反复起不来（Modal 判定 crash-looping 并不断重建，空烧 GPU，且错误只留在容器日志里）。
 
 因此进入工作台不再需要等待探测；只有「第一次运行某个还没探测过的预设包」会多花一次探测的时间（约数秒）。
 
-> **就绪度探测是「尽力而为」的**：权重是否就绪 = 卷根有没有完成标记（`.recut-download-complete`，部分预设包为 `-v2`，按前缀兼容）。单次 `modal volume ls` 失败（网络抖动、CLI 异常、卷正在被部署写入）**不会**被当成「权重没下载」——会先重试一次，两次都拿不到标记才判定未就绪；点「运行」时也会对「未就绪」结论复核一次，避免把一次抖动固化成假的告警。探测类短命令（`app list` / `volume ls`）静默执行，不往 stdout 灌无用噪声。
+> **就绪度按「逐产物」判定**：预设包在 manifest 的 `engine.artifacts` 里声明自己的产物（基础权重 / LoRA / 离线合并…，各含卷名与完成标记），`engine.requires` 声明每个函数需要哪些产物；`modal.status` 逐个探测并在 `modalapps[id].assets` 上报（`volumeReady` 只代表基础权重）。缺离线合并产物（如 `minimax-h3-turbo` 的 `/merged/ref2va-transformer`）时基础权重卷照样「就绪」，正是它让「界面显示就绪 → 提交 → 云端 SGLang 起不来」的坑成立。未声明 `artifacts` 的预设包退回旧语义（只看第一个卷的下载标记）。
+
+> **就绪度探测是「尽力而为」的**：权重是否就绪 = 卷根有没有完成标记（`.recut-download-complete`，部分预设包为 `-v2`，按前缀兼容）。单次 `modal volume ls` 失败（网络抖动、CLI 异常、卷正在被部署写入）**不会**被当成「权重没下载」——会先重试一次，两次都拿不到标记才判定未就绪；点「运行」时也会对「未就绪」结论复核一次，避免把一次抖动固化成假的告警。探测类短命令（`app list` / `volume ls`）静默执行，不往 stdout 灌无用噪声。同一轮探测里同一卷只探一次（`recut-minimax-h3-models` 被三个预设包共用）。
 
 ## 预设包：内置 + 用户
 
@@ -121,7 +123,7 @@ modal.modalapp.remove { id }              # 删除用户预设包（内置不可
 
 ```text
 modalapps/my-app/
-├── manifest.json   # app meta + engine(image/gpuTiers/volumes/secrets/concurrency) + weights + functions(formSchema/output)
+├── manifest.json   # app meta + engine(image/gpuTiers/volumes/secrets/concurrency/artifacts/requires) + weights + functions(formSchema/output)
 ├── modal_app.py    # 云端 Modal App：Image + Volume + @app.function(...)
 └── bootstrap.py    # modal run 入口：把权重下载进 Volume
 ```
@@ -132,14 +134,21 @@ modalapps/my-app/
 `modal-cloud/<model>`（`model` 只能含 `a-z0-9-_`，如 `qwen-image-2.1` 暴露为 `qwen-image`）。缺省 `function` 取 `functions[0]`，
 capability 按该函数 `output.kind` 推导（image/video/audio）；未声明 `expose` 的预设包不上平台（用户 scaffold 默认不带）。
 
+**产物就绪（可选，推荐给「需要离线合并/额外适配器」的预设包）**：在 `engine.artifacts` 里声明产物
+（`{ key, volume, marker }`，`marker` 是 bootstrap 写在卷根的完成标记），在 `engine.requires` 里按函数声明所需产物键。
+声明后 `modal.status` 会逐项探测（`assets`）并在界面按所选函数判定就绪，`modal.generate` 也会在派发前预检；未声明则退回旧语义（只看第一个卷的下载标记）。
+
 ## 面向开发者
 
 ```sh
 make app-link APP=apps/modal-studio            # 开发期软链接
 cd apps/modal-studio/ui && npm install && npm run build   # 构建 ui/dist
 python3 apps/modal-studio/python/publish_registry.py      # 重新生成注册表
-node apps/modal-studio/test/catalog_smoke.mjs             # 首屏加载路径冒烟（overview/status/快照/models）
+node apps/modal-studio/test/catalog_smoke.mjs             # 首屏加载 + 逐产物就绪/预检冒烟（overview/status/快照/models）
+node apps/modal-studio/test/queue_smoke.mjs               # 队列并发/取消冒烟
 ```
+
+- 云端容器日志（含启动与崩溃栈）经后台 `modal app logs --follow` tee 进任务日志：`invoke` 与 `deploy`/`bootstrap` 都会跟随；跟随按启动时间**在本地过滤掉 App 历史日志**（`--follow` 不能与 `--since` 组合，否则每次新任务都会把上一次的崩溃栈整段回放进当前任务），并让子进程行缓冲，日志逐行到达。
 
 - UI 源码在 `ui/src`（React + TypeScript + Vite），运行时消费构建产物 `ui/dist/index.html`；`node_modules` 不入库。
 - 本机主 venv 在 `~/.recut/python/envs/recut.modal-studio/`（轻量：`modal` 客户端）；**重依赖在云端 Image 里**，不落到本机。

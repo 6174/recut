@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 modal.catalog/overview 的预设包/函数清单/formSchema/output/gpuTiers/就绪度（就绪度可缺省＝尚未探测）、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调、AgentDefaultsDialog 与 useRunStore
- * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint；标记 `randomizable` 的数字字段如随机种子带「随机」按钮，一键填入区间内随机整数）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
+ * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint；标记 `randomizable` 的数字字段如随机种子带「随机」按钮，一键填入区间内随机整数）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪（未部署 / 权重缺失 / **离线合并等产物缺失**）则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**就绪度按「逐产物」判定**（requires 声明每个函数所需产物、assets 是探测结果）——缺离线合并产物时基础权重卷仍是就绪的，只看 volumeReady 会误报「就绪」并放行一个注定在云端 crash-loop 的提交；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
  * [POS]: Left「功能」Tab；部署、权重与运行都在此收敛，记录 Tab 只负责历史
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -27,7 +27,7 @@ interface Props {
   injectedReference: InjectedReference | null;
   onRun: (input: Record<string, unknown>) => Promise<void>;
   /** 提交前的就绪度动态校验：返回该预设包的最新部署/权重状态（未知字段缺省）。 */
-  onEnsureReady: (modalapp: string) => Promise<{ deployed?: boolean; volumeReady?: boolean }>;
+  onEnsureReady: (modalapp: string) => Promise<{ deployed?: boolean; volumeReady?: boolean; assets?: Record<string, boolean> | null }>;
   onDeploy: (modalapp: string) => Promise<void>;
   onInstall: (modalapp: string, source: string) => Promise<void>;
   onSavedDefaults: () => Promise<void> | void;
@@ -88,6 +88,15 @@ function resolveGpuTier(options: GpuTier[], selected: string, globalDefault: str
 
 function mediaFields(fn: ModalFunction | undefined): FormField[] {
   return (fn?.formSchema ?? []).filter((field) => field.type === "media");
+}
+
+// 就绪产物：预设包在 requires 里逐函数声明所需产物键（权重 / LoRA / 离线合并）；缺省按基础权重。
+// assets 缺省＝尚未探测 → 不拦（与「未知不误报」一致）；已探明 false 才算缺失。
+function missingAssetsFor(assets: Record<string, boolean> | null | undefined, modalapp: ModalApp, fnId: string): string[] {
+  if (!assets || typeof assets !== "object") return [];
+  const declared = modalapp.requires?.[fnId];
+  const required = declared && declared.length ? declared : ["weights"];
+  return required.filter((key) => assets[key] === false);
 }
 
 function fieldAccepts(field: FormField, asset: MediaAsset): boolean {
@@ -222,7 +231,10 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   const known = modalapp.deployed !== undefined;
   const deployed = modalapp.deployed === true;
   const volumeReady = modalapp.volumeReady === true;
-  const ready = deployed && volumeReady;
+  // 离线合并等产物缺失时基础权重卷仍是就绪的——必须逐项判定，否则界面会误报「就绪」并放行一个注定
+  // 在云端 crash-loop 的提交。
+  const missing = missingAssetsFor(modalapp.assets, modalapp, fn.id);
+  const ready = deployed && volumeReady && missing.length === 0;
   const gpuOptions = modalapp.gpuTiers?.options ?? [];
   const gpuValue = resolveGpuTier(gpuOptions, form.gpuTier, defaultGpuTier, modalapp.gpuTiers?.default ?? "");
 
@@ -245,7 +257,8 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
       // 点击运行时动态校验就绪度：只有「已确定未就绪」才拦下并引导去准备/重新部署；
       // 未知（探测失败/还没探过）不拦——后台的提交契约是永不拒绝，真实失败原因由任务日志给出。
       const state = await onEnsureReady(modalapp.id);
-      if (state.deployed === false || state.volumeReady === false) {
+      const freshMissing = missingAssetsFor(state.assets, modalapp, fn.id);
+      if (state.deployed === false || state.volumeReady === false || freshMissing.length > 0) {
         setHint(t(locale, "run.not-ready-hint"));
         return;
       }
@@ -358,6 +371,12 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
                   {volumeReady ? <Check className="size-3 text-success" /> : <span className="size-1.5 rounded-full bg-warning" />}
                   {t(locale, "run.dep.weights")}{modalapp.weights?.sizeGb ? ` · ~${modalapp.weights.sizeGb}GB` : ""}
                 </li>
+                {modalapp.artifacts && modalapp.artifacts.length > 0 ? (
+                  <li className="flex items-center gap-1.5">
+                    {missing.length === 0 ? <Check className="size-3 text-success" /> : <span className="size-1.5 rounded-full bg-warning" />}
+                    {t(locale, "run.dep.artifacts")}
+                  </li>
+                ) : null}
               </ul>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {/* 部署与权重合并：未部署→一次「准备（部署 + 权重）」；已部署仅缺权重→「下载权重（续传）」。来源固定 Hugging Face。 */}

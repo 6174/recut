@@ -257,7 +257,7 @@ def bootstrap_weights(source: str = "automatic", repo: str = MODEL_NAME, revisio
     for index, (path, size, url) in enumerate(files, start=1):
         changed = _download_resumable(url, target / path, size, token, models)
         print(f"[modal] [{index}/{len(files)}] {path} · {_human(size)} · {'下载完成' if changed else '已存在'}", flush=True)
-    # 完成标记写在卷根部，供 modal.status / volume_ready 探测；只有「全量下载」全部文件就绪才写。
+    # 完成标记写在卷根部，供 modal.status 的卷探测识别（基础权重就绪）；只有「全量下载」全部文件就绪才写。
     if not (patterns or "").strip():
         (Path(MODELS_DIR) / MARKER).write_text("ok", encoding="utf-8")
     models.commit()

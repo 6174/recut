@@ -4,11 +4,14 @@
           --task-log 任务日志文件
 [OUTPUT]: status（token profile/连通性、内置+用户预设包的部署状态、volume 就绪度与 stale（预设包目录 hash ——
           排除忽略名单（通用 modalapps/deploy-ignore.json + 预设包 manifest 的 deployIgnore）里的文件 ——
-          与上次成功 deploy 记录不一致 → 代码已变更、需重新部署）；各预设包的探测（volume ls + 目录 hash）
-          并行执行，耗时不再随预设包数量线性增长）、deploy（modal deploy 构建 Image 与函数，成功后把目录 hash 记进 appstate/modal/deploy-state.json）、bootstrap（modal run 把权重写进 Volume）、invoke
-          （Function.from_name(...).with_options(gpu=...).spawn(...) 调用并把产物拉回本机；调用 ID 落盘到 `<output>.call_id`，供 cancel 直接按 ID 取消；轮询用 call.get(timeout)
+          与上次成功 deploy 记录不一致 → 代码已变更、需重新部署）；就绪度**逐产物**判定：预设包在
+          engine.artifacts 声明产物（权重 / LoRA / 离线合并…），逐个探测完成标记并在 states[a].assets 上报，
+          volumeReady 只代表基础权重（离线合并产物缺失不再被误报为就绪）；--modalapp 可只探一个包（提交前预检用）；
+          各预设包的探测（volume ls + 目录 hash）并行执行，耗时不再随预设包数量线性增长）、deploy（modal deploy 构建 Image 与函数，成功后把目录 hash 记进 appstate/modal/deploy-state.json）、bootstrap（modal run 把权重写进 Volume）、invoke
+          （Function.from_name(...).with_options(gpu=...).spawn(...) 调用并把产物拉回本机；调用 ID 落盘到 `<output>.call_id`，供 cancel 直接按 ID 取消；**成功取回结果后**才撤掉该文件，取消/失败时保留；轮询用 call.get(timeout)
           报心跳，长轮询偶发断连（ConnectionError 等）时按调用 ID 重连继续等待——spawn 已提交、云端仍在算，
-          判负只会留下无人认领的 GPU 任务；后台 `modal app logs --follow` 把云端容器日志 tee 进任务日志）、
+          判负只会留下无人认领的 GPU 任务；后台 `modal app logs --follow` 把云端容器日志 tee 进任务日志，
+          按 since 过滤掉 App 历史回放、并让子进程行缓冲，deploy/bootstrap 期间同样跟随）、
           invoke --mock（加载预设包 mock.py，对本地 mock 服务跑通同一套产物链路，不部署/不访问 Modal/GPU）、
           cancel（FunctionCall.from_id(...).cancel()：按调用 ID 直接取消云端调用——本机 runner 可能已被 SIGKILL、
           收不到 SIGTERM，只有直接 cancel 才能停住云端计算并释放 GPU）、teardown（modal app stop）、secret（modal secret create --force）；任何命令的失败原因都写进任务日志
@@ -122,6 +125,9 @@ def normalize_manifest(manifest: dict, origin: str, source_rel: str) -> dict:
         "volumes": engine.get("volumes") or [],
         "secrets": engine.get("secrets") or [],
         "profileId": engine.get("profileId") or "",
+        # 预设包声明的就绪产物（key/volume/marker）与每个函数所需产物；缺省时退回「只看基础权重卷」。
+        "artifacts": engine.get("artifacts") or [],
+        "requires": engine.get("requires") or {},
         "weights": {
             "bootstrapFunction": weights.get("bootstrapFunction", "bootstrap_weights"),
             "repoHuggingFace": weights.get("repoHuggingFace", ""),
@@ -395,23 +401,57 @@ def run_cli(args: list[str], timeout: int | None = None, cwd: str | None = None,
     return subprocess.CompletedProcess(process.args, returncode, "".join(lines), None)
 
 
-def start_app_log_follower(app_name: str) -> dict | None:
+_CLOUD_TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:[+-]\d{2}:?\d{2})?)")
+
+
+def _cloud_line_time(line: str) -> "datetime.datetime | None":
+    """从 `modal app logs --timestamps` 的行首解析时间戳（带时区偏移时返回 aware datetime）。"""
+    match = _CLOUD_TS_RE.match(line)
+    if not match:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(match.group(1))
+    except ValueError:
+        return None
+
+
+def start_app_log_follower(app_name: str, since: "datetime.datetime | None" = None) -> dict | None:
     """后台跟随已部署 App 的云端容器日志（含 SGLang 启动与崩溃堆栈），逐行 tee 进任务日志。
 
     裸 SDK 的 spawn()/get() 不会流式接收容器日志——Modal 只在 `app.run()` /
     `modal app logs` 路径打印它们；这里用一条 `modal app logs --follow` 子进程补齐，
     否则云端启动失败只会表现为「云端运行中」心跳，问题无法暴露。
+
+    `modal app logs --follow` 不能和 `--since` 组合（CLI 明确拒绝），所以时间过滤在本地做：
+    `since` 之前的行直接丢弃。否则每次新任务都会把 App 的历史日志（上一次的崩溃栈）整段回放进
+    当前任务日志，用户看到的是「与本次无关的旧错误」。子进程 stdout 走管道时 Python 会块缓冲，
+    这里给子进程 `PYTHONUNBUFFERED=1`，让云端日志**逐行**到达而不是攒成一大坨。
     """
     try:
         process = subprocess.Popen(
             [modal_cli(), "app", "logs", app_name, "--follow", "--show-container-id", "--timestamps"],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
-            env={**os.environ, "NO_COLOR": "1", "TERM": "dumb"},
+            env={**os.environ, "NO_COLOR": "1", "TERM": "dumb", "PYTHONUNBUFFERED": "1"},
         )
     except OSError as error:
         print(f"[modal] 无法连接云端日志：{error}", flush=True)
         return None
     stopped = threading.Event()
+    # 允许一点时钟偏差，避免刚好在跟随开始时创建的容器日志被误丢。
+    cutoff = (since - datetime.timedelta(seconds=120)) if since else None
+    if cutoff is not None and cutoff.tzinfo is not None:
+        cutoff = cutoff.astimezone(datetime.timezone.utc)
+
+    def _keep(line: str) -> bool:
+        if cutoff is None:
+            return True
+        stamp = _cloud_line_time(line)
+        if stamp is None:
+            # 续行（无时间戳前缀，例如 traceback 的代码行）跟随上一行，不单独判定。
+            return True
+        if stamp.tzinfo is None:
+            return True
+        return stamp.astimezone(datetime.timezone.utc) >= cutoff
 
     def _pump() -> None:
         stream = process.stdout
@@ -422,7 +462,7 @@ def start_app_log_follower(app_name: str) -> dict | None:
                 if stopped.is_set():
                     break
                 line = raw.rstrip()
-                if line:
+                if line and _keep(line):
                     print(f"[cloud] {line}", flush=True)
         except (OSError, ValueError):
             return
@@ -507,50 +547,97 @@ def existing_secrets() -> list:
     return names
 
 
-def volume_ready(modalapp: dict) -> bool:
-    """权重卷是否就绪：一次 `modal volume ls` 同时回答「卷存在」与「下载完成标记」。
+_VOLUME_LOCKS: dict[str, "threading.Lock"] = {}
+_VOLUME_LOCKS_GUARD = threading.Lock()
 
-    卷不存在时 returncode != 0，所以不必先探存在性再列一次内容——那会把每个预设包的
-    status 探测翻倍成两次网络往返（5 个预设包 ≈ 多花 8-10s）。
 
-    完成标记按前缀匹配（bootstrap 写在卷根：`.recut-download-complete`、部分预设包升级为
-    `-v2`），因此这里用包含判断兼容不同版本。
+def _volume_lock(volume_name: str) -> "threading.Lock":
+    with _VOLUME_LOCKS_GUARD:
+        return _VOLUME_LOCKS.setdefault(volume_name, threading.Lock())
 
-    **一次探测失败不等于「权重没下载」**：网络抖动、CLI 异常、输出捕获不完整都会让返回码非 0，
-    直接据此下结论会在界面弹出假的「下载权重」告警（权重明明在）。所以失败时重试一次才判定，
-    并且探测全程静默（见 run_cli 的 echo），避免逐行转发把 stdout 管道塞住而读不到标记。
-    """
-    volumes = modalapp.get("volumes") or []
-    if not volumes:
-        return True
-    models_volume = volumes[0]["name"]
+
+def _probe_volume(volume_name: str) -> str | None:
+    text: str | None = None
+    warned = False
     for attempt in range(2):
         try:
-            process = run_cli(["volume", "ls", models_volume], timeout=60, echo=False)
+            process = run_cli(["volume", "ls", volume_name], timeout=60, echo=False)
         except FileNotFoundError:
-            return False
+            return None
         except subprocess.TimeoutExpired:
             process = None
         if process is not None and process.returncode == 0:
-            return ".recut-download-complete" in (process.stdout or "")
+            return process.stdout or ""
         if attempt == 0:
-            print(f"[modal] 卷 {models_volume} 就绪度探测失败，重试一次…", flush=True)
-    print(f"[modal] 卷 {models_volume} 就绪度探测失败（已重试），本次按未就绪处理。", flush=True)
-    return False
+            print(f"[modal] 卷 {volume_name} 就绪度探测失败，重试一次…", flush=True)
+            warned = True
+    if warned:
+        print(f"[modal] 卷 {volume_name} 就绪度探测失败（已重试），本次按未就绪处理。", flush=True)
+    return text
 
 
-def modalapp_state(modalapp: dict, user_root: Path, names: list, deploy_state: dict) -> tuple:
-    """单个预设包的部署/权重/变更状态（一次 `modal app list` 的结果由调用方共享）。"""
+def volume_listing(volume_name: str, cache: dict | None = None) -> str | None:
+    """`modal volume ls <name>` 的输出（用于判断完成标记）；失败重试一次后返回 None。
+
+    一次探测失败不等于「卷没就绪」：网络抖动、CLI 异常、输出捕获不完整都会让返回码非 0，
+    直接据此下结论会在界面弹出假的告警。所以失败时重试一次才判定，且探测全程静默
+    （见 run_cli 的 echo）——逐行转发会把 stdout 管道塞住而读不到标记。
+
+    cache 以卷名为键：同一轮 status 里 models 卷被多个预设包共用，只探一次（失败结果也缓存，
+    避免共享卷被反复重试、反复刷失败日志）。按卷名加锁，既保证同一卷只探一次，也保留
+    不同卷之间的并行探测。
+    """
+    if cache is None:
+        return _probe_volume(volume_name)
+    with _volume_lock(volume_name):
+        if volume_name in cache:
+            return cache[volume_name]
+        text = _probe_volume(volume_name)
+        cache[volume_name] = text
+        return text
+
+
+def volume_has_marker(volume_name: str, marker: str, cache: dict | None = None) -> bool:
+    """卷根是否含完成标记（按前缀包含判断）：标记名带版本后缀（`.recut-*-complete-v2`）也能命中。"""
+    if not volume_name or not marker:
+        return False
+    text = volume_listing(volume_name, cache)
+    return bool(text) and marker in text
+
+
+def modalapp_state(modalapp: dict, user_root: Path, names: list, deploy_state: dict, cache: dict | None = None) -> tuple:
+    """单个预设包的部署/权重/变更状态（一次 `modal app list` 与卷探测结果由调用方共享）。
+
+    就绪度按**逐产物**判定：预设包在 `engine.artifacts` 声明自身产物（权重 / LoRA / 离线合并…），
+    这里逐个探测其完成标记。`volumeReady` 只代表「基础权重」——离线合并产物缺失时权重卷照样就绪，
+    正是它让「界面显示就绪 → 提交 → 云端 SGLang 起不来」的坑成立（见 modal.envError / crash-loop）。
+    未声明 `artifacts` 的预设包退回旧语义（只看第一个卷的下载标记）。
+    """
     app_name = modalapp.get("appName") or modalapp["id"]
     deployed = app_name in names
     current_hash = folder_hash(source_path(modalapp, user_root), source_ignore(modalapp, user_root))
     recorded_hash = (deploy_state.get(modalapp["id"]) or {}).get("deployHash") or ""
-    return modalapp["id"], {
+    artifacts = modalapp.get("artifacts") or []
+    assets: dict = {}
+    if artifacts:
+        for artifact in artifacts:
+            key = str(artifact.get("key") or "").strip()
+            if not key:
+                continue
+            assets[key] = volume_has_marker(str(artifact.get("volume") or ""), str(artifact.get("marker") or ""), cache)
+        volume_ready = assets.get("weights", True)
+    else:
+        volumes = modalapp.get("volumes") or []
+        volume_ready = True if not volumes else volume_has_marker(volumes[0]["name"], ".recut-download-complete", cache)
+    state = {
         "deployed": deployed,
-        "volumeReady": volume_ready(modalapp) if deployed else False,
+        "volumeReady": volume_ready if deployed else False,
         # 已部署但目录 hash 与上次成功部署记录不一致（含首次接入无记录）→ 代码已变更，需重新部署。
         "stale": deployed and current_hash != "" and recorded_hash != current_hash,
     }
+    if artifacts:
+        state["assets"] = assets
+    return modalapp["id"], state
 
 
 def cmd_status(args: argparse.Namespace) -> dict:
@@ -566,11 +653,16 @@ def cmd_status(args: argparse.Namespace) -> dict:
     user_root = user_root_of(args)
     deploy_state = load_deploy_state()
     modalapps = all_modalapps(user_root)
+    # `--modalapp` 只探一个预设包（提交前的就绪度预检走这条，避免为一次提交探全部 5 个包）。
+    only = (getattr(args, "modalapp", "") or "").strip()
+    if only:
+        modalapps = [m for m in modalapps if m["id"] == only]
     # 每个预设包的 volume ls 是独立网络往返（各约 1.5-2.3s），串行累加就是进入工作台的主要等待；
     # 并行探测后总耗时约为最慢的一个包（± 单次 CLI 冷启动），预设包数量不再线性放大延迟。
+    cache: dict = {}
     if modalapps:
         with ThreadPoolExecutor(max_workers=min(8, len(modalapps))) as pool:
-            states = dict(pool.map(lambda modalapp: modalapp_state(modalapp, user_root, names, deploy_state), modalapps))
+            states = dict(pool.map(lambda modalapp: modalapp_state(modalapp, user_root, names, deploy_state, cache), modalapps))
     else:
         states = {}
     return {"ready": True, "connected": True, "account": profile.get("name") or "", "error": "", "modalapps": states}
@@ -590,20 +682,26 @@ def cmd_deploy(args: argparse.Namespace) -> dict:
     engine = manifest.get("engine") or {}
     app_name = engine.get("appName") or manifest["id"]
     print(f"[modal] 正在部署 {manifest['id']}（{app_name}，首次构建镜像较慢）…", flush=True)
-    process = run_cli(["deploy", "modal_app.py"], cwd=str(source))
-    if process.returncode != 0:
-        raise SystemExit("modal deploy failed")
-    record_deploy(manifest["id"], source, deploy_ignore(manifest))
-    print(f"[modal] {manifest['id']} 已部署。", flush=True)
-    # 部署与权重合并：镜像部署成功后，若声明了权重卷，直接接着跑 bootstrap（幂等/断点续传）。
-    weights = manifest.get("weights") or {}
-    if weights and (engine.get("volumes") or []) and (source / "bootstrap.py").is_file():
-        weight_source = args.weight_source or "huggingface"
-        print(f"[modal] 继续准备 {manifest['id']} 权重（source={weight_source}）…", flush=True)
-        boot = run_cli(["run", "bootstrap.py", "--source", weight_source], cwd=str(source))
-        if boot.returncode != 0:
-            raise SystemExit("modal bootstrap failed")
-        print(f"[modal] {manifest['id']} 权重已就绪。", flush=True)
+    # 部署期间也跟随已部署 App 的容器日志：`modal run bootstrap.py` 只打印它自己这次调用的输出，
+    # 而**正在崩溃循环的已部署函数**（例如待运行任务把容器反复拉起来）属于另一个 App，只有这里能带出来。
+    follower = start_app_log_follower(app_name, since=datetime.datetime.now(datetime.timezone.utc))
+    try:
+        process = run_cli(["deploy", "modal_app.py"], cwd=str(source))
+        if process.returncode != 0:
+            raise SystemExit("modal deploy failed")
+        record_deploy(manifest["id"], source, deploy_ignore(manifest))
+        print(f"[modal] {manifest['id']} 已部署。", flush=True)
+        # 部署与权重合并：镜像部署成功后，若声明了权重卷，直接接着跑 bootstrap（幂等/断点续传）。
+        weights = manifest.get("weights") or {}
+        if weights and (engine.get("volumes") or []) and (source / "bootstrap.py").is_file():
+            weight_source = args.weight_source or "huggingface"
+            print(f"[modal] 继续准备 {manifest['id']} 权重（source={weight_source}）…", flush=True)
+            boot = run_cli(["run", "bootstrap.py", "--source", weight_source], cwd=str(source))
+            if boot.returncode != 0:
+                raise SystemExit("modal bootstrap failed")
+            print(f"[modal] {manifest['id']} 权重已就绪。", flush=True)
+    finally:
+        stop_app_log_follower(follower)
     return {"ready": True, "modalapp": manifest["id"], "deployed": True}
 
 
@@ -619,11 +717,17 @@ def cmd_bootstrap(args: argparse.Namespace) -> dict:
     script = source / "bootstrap.py"
     if not script.is_file():
         raise SystemExit(f"missing bootstrap.py for {manifest['id']}")
+    engine = manifest.get("engine") or {}
+    app_name = engine.get("appName") or manifest["id"]
     weight_source = args.weight_source or "automatic"
     print(f"[modal] 正在准备 {manifest['id']} 权重（source={weight_source}）…", flush=True)
-    process = run_cli(["run", "bootstrap.py", "--source", weight_source], cwd=str(source))
-    if process.returncode != 0:
-        raise SystemExit("modal bootstrap failed")
+    follower = start_app_log_follower(app_name, since=datetime.datetime.now(datetime.timezone.utc))
+    try:
+        process = run_cli(["run", "bootstrap.py", "--source", weight_source], cwd=str(source))
+        if process.returncode != 0:
+            raise SystemExit("modal bootstrap failed")
+    finally:
+        stop_app_log_follower(follower)
     print(f"[modal] {manifest['id']} 权重已就绪。", flush=True)
     return {"ready": True, "modalapp": manifest["id"], "installed": True}
 
@@ -798,7 +902,7 @@ def cmd_invoke(args: argparse.Namespace) -> dict:
         handle = modal.Function.from_name(app_name, entrypoint)
         print(f"[modal] 调用 {app_name}.{entrypoint}…", flush=True)
 
-    follower = start_app_log_follower(app_name)
+    follower = start_app_log_follower(app_name, since=datetime.datetime.now(datetime.timezone.utc))
     print(f"[modal] 已跟随云端日志（{app_name}）。", flush=True)
     started = time.time()
     call = handle.spawn(**params, refs=references)
@@ -862,16 +966,19 @@ def cmd_invoke(args: argparse.Namespace) -> dict:
                 # 云端函数的确定性失败（远端异常/超时等）：直接给出原因，别只剩一个 exit status。
                 raise SystemExit(f"云端调用失败：{error}")
     finally:
-        # 正常收敛后撤掉调用 ID；进程被 SIGKILL 时文件会残留，正好留给 App 之后按 ID 取消。
-        if call_id_path is not None:
-            try:
-                call_id_path.unlink()
-            except OSError:
-                pass
+        # 调用 ID 只在**成功取回结果**后才撤掉（见下方）：取消/失败时保留，App 才能按 ID 直接取消云端调用。
+        # 之前放在 finally 里，SIGTERM 取消路径也会把它删掉，导致 cancelRemoteCall 拿不到 ID、
+        # 被取消的云端调用继续跑（与下一次调用并存 → 同一 App 两个容器同时冷启动）。
         signal.signal(signal.SIGTERM, previous)
         stop_app_log_follower(follower)
     if cancelled["flag"]:
         raise SystemExit(130)
+
+    if call_id_path is not None:
+        try:
+            call_id_path.unlink()
+        except OSError:
+            pass
 
     elapsed = round(time.time() - started, 2)
     meta = harvest_result(result, output_path)
@@ -940,6 +1047,7 @@ def main() -> None:
     for name in ("status", "catalog"):
         status_parser = sub.add_parser(name)
         status_parser.add_argument("--user-root", default="")
+        status_parser.add_argument("--modalapp", default="")
         common(status_parser)
 
     secrets_parser = sub.add_parser("secrets")

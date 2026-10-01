@@ -8,7 +8,10 @@
           --lora-merge-mode auto 合并进常驻权重，DiT 在线 fp8（SM100+/SM120 映射 mxfp8）常驻、bf16 文本编码器按组件
           流式 offload；类开启 GPU memory snapshot（enable_memory_snapshot + enable_gpu_snapshot），
           @modal.enter(snap=True) 拉起 sglang 子进程后冻结整棵进程树（含子进程 CUDA 状态），冷启动从快照秒级恢复、
-          不再重读权重。H3TurboRef（--model-variant ref2va，服务多模态参考 ref2va）：走 **Ref2VA 专用的
+          不再重读权重。前置产物（离线合并等）缺失属**确定性错误**（PrereqError）：_assert_ready 在**方法体**断言
+          （错误归属调用、可直接返回本机），start() 捕获 PrereqError 后正常放行，类设 retries=0——三者共同避免
+          容器反复重建（Modal 会把 @modal.enter 的异常当容器启动失败反复重试 = crash-loop，空烧 GPU 且错误不落地）。
+          H3TurboRef（--model-variant ref2va，服务多模态参考 ref2va）：走 **Ref2VA 专用的
           lightx2v ref2v turbo 8 步 LoRA**（离线合并进 Ref2VA transformer；diffusers 命名 + q/k/v 交织，
           与 FL2VA 那份 larryvrh LoRA 不同源、不可互换）。generate_video 把表单参数 +
           参考素材组装成 SGLang /v1/videos 请求（经 h3_contract，Turbo 默认 9 步，分辨率＝最长边 → 按画幅换算 `target.short_edge`）；
@@ -258,11 +261,46 @@ def _healthy() -> bool:
     return False
 
 
+class PrereqError(RuntimeError):
+    """前置产物缺失/不完整（确定性错误）。
+
+    它与「基础设施抖动」不同：重试一百次结果也一样。若在 @modal.enter(snap=True) 里直接抛，
+    Modal 会把它当作**容器启动失败**并反复重建容器（crash-loop，每个新容器都重新尝试建快照，
+    空烧 GPU，而错误只在容器日志里、任务日志看不到）。因此这类错误单独成类：
+    - 容器启动路径（start）捕获它并放行——容器正常起来，让调用拿到清晰的一次性错误；
+    - 调用路径（generate_video）先断言它——错误归属于这一次调用，能直接返回给本机。
+    """
+
+
+def _assert_ready(variant: str) -> None:
+    """校验该分区所需的**离线产物**是否就绪（缺失时报可执行错误，而非晦涩的 SGLang traceback）。"""
+    if variant == MODEL_VARIANT and USE_TURBO and not (Path(MERGED_DIR) / MERGED_SUBDIR / "model.safetensors.index.json").is_file():
+        raise PrereqError(
+            f"Turbo 合并权重未就绪：请先 modal.install（缺 {MERGED_DIR}/{MERGED_SUBDIR}）——"
+            "bootstrap 会先下 LoRA，再离线合并进 transformer。")
+    if variant == REF_VARIANT:
+        # 旧共享卷只下过 FL2VA，Ref2VA 分区可能残缺；SGLang 会在启动时报晦涩的
+        # "missing required component directories"，这里提前给出可执行的修复指引。
+        ref_dir = Path(MODELS_DIR) / MODEL_SUBDIR / "Ref2VA"
+        missing = [name for name in ("tokenizer", "video_vae", "transformer") if not (ref_dir / name).is_dir()]
+        if missing:
+            raise PrereqError(
+                f"Ref2VA 权重不完整（缺 {ref_dir} 下的 {', '.join(missing)}）：请先 modal.install —— "
+                "bootstrap_weights 会补下 Ref2VA 分区（旧卷只含 FL2VA 时会缺这些目录）。")
+        if USE_REF_TURBO and not (Path(MERGED_DIR) / REF_MERGED_SUBDIR / "model.safetensors.index.json").is_file():
+            raise PrereqError(
+                f"Ref2VA 合并权重未就绪：请先 modal.install（缺 {MERGED_DIR}/{REF_MERGED_SUBDIR}）——"
+                "bootstrap 会下 lightx2v Ref2VA turbo LoRA 并离线合并进 Ref2VA transformer。")
+
+
 def _ensure_server(variant: str = MODEL_VARIANT) -> None:
     """幂等：复用本容器内已在监听且**分区一致**的 SGLang 服务；否则启动并等待就绪。
 
     分区不同（fl2va ↔ ref2va）时不能复用，因为一个 SGLang 进程只加载一个 checkpoint 分区。
+    前置产物缺失是确定性错误（PrereqError）——调用方（方法体）应先断言；这里也校验一次，
+    以便容器在快照恢复后仍能在调用时给出清晰原因。
     """
+    _assert_ready(variant)
     proc = _SERVER.get("proc")
     if proc is not None and proc.poll() is None and _SERVER.get("variant") == variant and _healthy():
         return
@@ -276,23 +314,6 @@ def _ensure_server(variant: str = MODEL_VARIANT) -> None:
                 proc.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 proc.kill()
-        if variant == MODEL_VARIANT and USE_TURBO and not (Path(MERGED_DIR) / MERGED_SUBDIR / "model.safetensors.index.json").is_file():
-            raise RuntimeError(
-                f"Turbo 合并权重未就绪：请先 modal.install（缺 {MERGED_DIR}/{MERGED_SUBDIR}）——"
-                "bootstrap 会先下 LoRA，再离线合并进 transformer。")
-        if variant == REF_VARIANT:
-            # 旧共享卷只下过 FL2VA，Ref2VA 分区可能残缺；SGLang 会在启动时报晦涩的
-            # "missing required component directories"，这里提前给出可执行的修复指引。
-            ref_dir = Path(MODELS_DIR) / MODEL_SUBDIR / "Ref2VA"
-            missing = [name for name in ("tokenizer", "video_vae", "transformer") if not (ref_dir / name).is_dir()]
-            if missing:
-                raise RuntimeError(
-                    f"Ref2VA 权重不完整（缺 {ref_dir} 下的 {', '.join(missing)}）：请先 modal.install —— "
-                    "bootstrap_weights 会补下 Ref2VA 分区（旧卷只含 FL2VA 时会缺这些目录）。")
-            if USE_REF_TURBO and not (Path(MERGED_DIR) / REF_MERGED_SUBDIR / "model.safetensors.index.json").is_file():
-                raise RuntimeError(
-                    f"Ref2VA 合并权重未就绪：请先 modal.install（缺 {MERGED_DIR}/{REF_MERGED_SUBDIR}）——"
-                    "bootstrap 会下 lightx2v Ref2VA turbo LoRA 并离线合并进 Ref2VA transformer。")
         command = ["sglang", "serve", *_server_flags(variant)]
         label = ("Turbo 少步配方（离线合并）" if USE_TURBO else "base 配方") if variant == MODEL_VARIANT else "Ref2VA 参考配方"
         print(f"[modal] 启动 SGLang 服务（{label}，variant={variant}）：" + " ".join(command), flush=True)
@@ -396,6 +417,7 @@ def _sample_vram(stop: threading.Event, samples: list) -> None:
 @app.cls(image=image, gpu="RTX-PRO-6000",
          volumes={MODELS_DIR: models, ADAPTERS_DIR: adapters, MERGED_DIR: merged, OUT_DIR: outputs},
          timeout=3600, max_containers=1, memory=262144,  # 单卡流式/驻留需较大 host RAM
+         retries=0,  # 确定性失败只报一次：容器起不来时不要反复重建（crash-loop 会空烧 GPU）
          enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})
 class H3Turbo:
     """FL2VA 分区 + Turbo 少步 LoRA（离线合并）：服务 t2va（文生视频+音频）与 fl2va（首/尾帧生视频+音频）。"""
@@ -403,8 +425,16 @@ class H3Turbo:
     @modal.enter(snap=True)
     def start(self):
         """拉起 SGLang 常驻服务（用离线合并后的 Turbo transformer），并把整棵进程树（含 sglang 子进程的
-        CUDA 状态）冻进 GPU memory snapshot；快照创建时执行一次，之后冷启动直接从快照恢复、不再重读权重。"""
-        _ensure_server(MODEL_VARIANT)
+        CUDA 状态）冻进 GPU memory snapshot；快照创建时执行一次，之后冷启动直接从快照恢复、不再重读权重。
+
+        前置产物缺失（PrereqError）**不放行到容器启动失败**：容器要能正常起来，错误在调用时一次性报出；
+        否则 Modal 会把确定性错误当作容器启动失败反复重建（crash-loop）。
+        """
+        try:
+            _ensure_server(MODEL_VARIANT)
+        except PrereqError as error:
+            print(f"[modal] 启动前置未满足（调用时会再次校验并报错）：{error}", flush=True)
+            return
         if WARMUP:
             _warmup(MODEL_VARIANT)
 
@@ -417,6 +447,8 @@ class H3Turbo:
     @modal.method()
     def generate_video(self, prompt: str, aspectRatio: str = "auto", durationSec: float = 5,
                        steps: int = DEFAULT_STEPS, seed: int = -1, resolution: str = "", refs=None):
+        # 调用级断言：前置缺失时错误归属于这一次调用（可直接返回本机），而不是容器启动失败。
+        _assert_ready(MODEL_VARIANT)
         return _run_video(MODEL_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs, resolution)
 
     @modal.method()
@@ -456,6 +488,7 @@ class H3Turbo:
 @app.cls(image=image, gpu="RTX-PRO-6000",
          volumes={MODELS_DIR: models, MERGED_DIR: merged, OUT_DIR: outputs},
          timeout=3600, max_containers=1, memory=262144,
+         retries=0,  # 确定性失败只报一次：容器起不来时不要反复重建（crash-loop 会空烧 GPU）
          enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})
 class H3TurboRef:
     """Ref2VA 分区：服务 ref2va（多模态参考生视频+音频），并要求至少一个参考素材。
@@ -467,7 +500,12 @@ class H3TurboRef:
 
     @modal.enter(snap=True)
     def start(self):
-        _ensure_server(REF_VARIANT)
+        """前置产物缺失（PrereqError）不放行到容器启动失败——否则 Modal 会反复重建容器（crash-loop）。"""
+        try:
+            _ensure_server(REF_VARIANT)
+        except PrereqError as error:
+            print(f"[modal] 启动前置未满足（调用时会再次校验并报错）：{error}", flush=True)
+            return
         if WARMUP:
             # best-effort：占位参考若被分区拒绝，也不该拖垮整个 ref2va 服务。
             try:
@@ -486,6 +524,8 @@ class H3TurboRef:
                        steps: int = DEFAULT_REF_STEPS, seed: int = -1, resolution: str = "", refs=None):
         if not (refs or []):
             raise ValueError("reference-to-video 需要至少一个参考素材（图像/视频/音频）")
+        # 调用级断言：前置缺失时错误归属于这一次调用（可直接返回本机），而不是容器启动失败。
+        _assert_ready(REF_VARIANT)
         return _run_video(REF_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs, resolution)
 
 

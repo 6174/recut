@@ -68,6 +68,10 @@ def registry_modalapp(manifest: dict) -> dict:
         "volumes": engine.get("volumes") or [],
         "secrets": engine.get("secrets") or [],
         "profileId": engine.get("profileId") or "",
+        # 逐产物就绪声明：artifacts（key/volume/marker）与每个函数所需产物（requires）。
+        # 无此声明时运行期退回「只看第一个卷的下载标记」。
+        "artifacts": engine.get("artifacts") or [],
+        "requires": engine.get("requires") or {},
         "weights": {
             "bootstrapFunction": weights.get("bootstrapFunction", "bootstrap_weights"),
             "repoHuggingFace": weights.get("repoHuggingFace", ""),

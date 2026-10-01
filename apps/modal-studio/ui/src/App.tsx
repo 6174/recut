@@ -5,7 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Cloud, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Cloud, Loader2, RefreshCw, X } from "lucide-react";
 import { getRecutTaskId, isRecutConnected, recut, useRecutLocale } from "./recut-sdk";
 import { t } from "./i18n";
 import { useViewStore } from "./state/view";
@@ -72,6 +72,7 @@ export default function App() {
   const [injectedReference, setInjectedReference] = useState<InjectedReference | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [notice, setNotice] = useState("");
   const [clock, setClock] = useState(() => Date.now());
 
   const loadedRef = useRef(false);
@@ -132,7 +133,7 @@ export default function App() {
       const catalog = await op<Catalog>("modal.catalog");
       const states: Record<string, ModalAppReadiness> = {};
       for (const modalapp of catalog.modalapps) {
-        states[modalapp.id] = { deployed: modalapp.deployed, volumeReady: modalapp.volumeReady, stale: modalapp.stale };
+        states[modalapp.id] = { deployed: modalapp.deployed, volumeReady: modalapp.volumeReady, stale: modalapp.stale, assets: modalapp.assets };
       }
       return {
         overview: {
@@ -156,7 +157,7 @@ export default function App() {
       const fresh = Boolean(current?.checkedAt) && Date.now() - Date.parse(String(current?.checkedAt)) < READINESS_TTL_MS;
       const result = fresh && state?.deployed === true && state?.volumeReady === true ? current : await refreshStatus();
       const next = result?.modalapps?.[modalappId];
-      return { deployed: next?.deployed, volumeReady: next?.volumeReady };
+      return { deployed: next?.deployed, volumeReady: next?.volumeReady, assets: next?.assets ?? null };
     },
     [refreshStatus],
   );
@@ -412,7 +413,9 @@ export default function App() {
 
   const handleCancel = useCallback(async () => {
     if (!selectedId) return;
-    await op("modal.task.cancel", { id: selectedId });
+    // 取消失败于云端时后台会带一句告警（拿不到调用 ID）：云端容器可能仍在跑，必须让用户看到。
+    const result = await op<{ cancelled?: boolean; warning?: string }>("modal.task.cancel", { id: selectedId });
+    setNotice(result?.warning || "");
     await refreshTasks();
     await renderRight(selectedId);
   }, [op, selectedId, refreshTasks, renderRight]);
@@ -542,6 +545,15 @@ export default function App() {
             </Button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            {notice ? (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/[0.06] p-2.5 text-[11px] leading-4">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+                <span className="min-w-0 flex-1 text-muted-foreground">{notice}</span>
+                <button type="button" className="shrink-0 text-muted-foreground hover:text-foreground" onClick={() => setNotice("")} aria-label="dismiss">
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            ) : null}
             <PreviewPane task={detail} generation={generation} params={params} logs={logs} locale={locale} onCancel={handleCancel} onSave={handleSave} onEdit={handleEdit} onRemix={handleRemix} />
           </div>
         </Card>

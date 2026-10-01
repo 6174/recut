@@ -107,6 +107,7 @@ const zh: Record<string, string> = {
   "run.dep.title": "该预设包尚未就绪，先完成部署与权重准备",
   "run.dep.deploy": "云端环境（Image + 函数）",
   "run.dep.weights": "模型权重（Volume）",
+  "run.dep.artifacts": "就绪产物（LoRA / 离线合并）",
   "run.teardown": "停止环境",
   "run.origin-builtin": "内置",
   "run.origin-user": "用户",
@@ -117,7 +118,7 @@ const zh: Record<string, string> = {
   "run.checking.title": "尚未检查环境状态",
   "run.checking.hint": "云端环境与权重会在后台检查；也可以直接运行，提交前会自动校验一次。",
   "run.status-unknown": "状态待检查",
-  "run.not-ready-hint": "该预设包尚未就绪：请先「准备（部署 + 权重）」，或「重新部署」后重试。",
+  "run.not-ready-hint": "该预设包尚未就绪（缺部署 / 权重 / 离线合并产物）：请先「准备（部署 + 权重）」，或「重新部署」后重试。",
 
   "defaults.title": "AI 调用默认参数 · {app}",
   "defaults.hint": "Agent 或平台默认路由调用该函数时，未显式传入的字段会用这里的值补全；Agent 传入的字段优先。这样可以只传提示词。",
@@ -283,6 +284,7 @@ const en: Record<string, string> = {
   "run.dep.title": "This preset pack is not ready — deploy and prepare weights first",
   "run.dep.deploy": "Cloud environment (Image + functions)",
   "run.dep.weights": "Model weights (Volume)",
+  "run.dep.artifacts": "Prepared artifacts (LoRA / offline merge)",
   "run.teardown": "Stop environment",
   "run.origin-builtin": "Built-in",
   "run.origin-user": "User",
@@ -293,7 +295,7 @@ const en: Record<string, string> = {
   "run.checking.title": "Environment status not checked yet",
   "run.checking.hint": "The cloud environment and weights are checked in the background; you can also just run — it is verified again before submitting.",
   "run.status-unknown": "Status unchecked",
-  "run.not-ready-hint": "This preset pack is not ready yet: run Prepare (deploy + weights) or Redeploy first, then retry.",
+  "run.not-ready-hint": "This preset pack is not ready yet (missing deploy / weights / offline-merged artifacts): run Prepare (deploy + weights) or Redeploy first, then retry.",
 
   "defaults.title": "AI call defaults · {app}",
   "defaults.hint": "When an Agent or the platform default route calls this function, fields it does not pass are filled from here; Agent-passed fields win. This lets the Agent send only the prompt.",

@@ -63,7 +63,18 @@ export interface ModalApp {
   gpuTiers: GpuTiers;
   weights: { sizeGb?: number; revision?: string };
   profileId?: string;
+  /** 就绪产物声明与每个函数所需产物；声明了才逐项判定（否则只看 volumeReady）。 */
+  artifacts?: ArtifactDef[];
+  requires?: Record<string, string[]>;
+  /** 逐产物就绪探测结果（缺省＝未探测）；key 为 artifact.key。 */
+  assets?: Record<string, boolean> | null;
   functions: ModalFunction[];
+}
+
+export interface ArtifactDef {
+  key: string;
+  volume: string;
+  marker: string;
 }
 
 export interface Profile {
@@ -111,6 +122,8 @@ export interface ModalAppReadiness {
   deployed?: boolean;
   volumeReady?: boolean;
   stale?: boolean;
+  /** 逐产物就绪探测结果（key 为 artifact.key）；缺省＝未探测。 */
+  assets?: Record<string, boolean> | null;
 }
 
 /** modal.overview：首屏轻量负载（本机 registry/profiles/设置 + 上次就绪度快照，不拉起 modal CLI）。 */

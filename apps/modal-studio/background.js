@@ -5,11 +5,13 @@
  *          ctx.python.run / ctx.shell.exec 执行可观察本地任务（modal_runner.py：status/catalog/deploy/bootstrap/
  *          invoke/cancel/teardown/secret）
  * [OUTPUT]: 注册首屏轻量负载（modal.overview：只读本机 registry/profiles/设置 + 上次就绪度快照，不拉起 Python）、
- *          连通性与就绪度（modal.status，结果同时写入快照供下次首屏回放）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记与平台模型就绪投影 models[]）、token profiles（modal.profiles.*）、
+ *          连通性与就绪度（modal.status，结果同时写入快照供下次首屏回放）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记与平台模型就绪投影 models[]——
+ *          models[].ready 要求 deployed 且该包 expose.function 所需产物齐备，逐产物就绪由引擎 engine.artifacts/requires 声明并探测，assets 上报）、token profiles（modal.profiles.*）、
  *          设置（modal.settings.set：默认 profile / 权重源 / GPU 档位 / 每「预设包+函数」的 AI 默认参数（含默认 GPU 档位）agent_defaults:<id>:<fn>）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
- *          调用函数（modal.generate，按预设包单槽、跨预设包并行；兼容平台执行桥的 model 入参；非 origin="manual" 的调用用 agentDefaults 补全缺省字段）、历史与入库（modal.generations / modal.generation.complete /
+ *          调用函数（modal.generate，按预设包单槽、跨预设包并行；兼容平台执行桥的 model 入参；非 origin="manual" 的调用用 agentDefaults 补全缺省字段；
+ *          **派发前先预检目标函数所需产物**，缺失直接拒绝、不创建云端容器——否则容器会在 @modal.enter 里反复起不来 = crash-loop）、历史与入库（modal.generations / modal.generation.complete /
  *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel）与取消（modal.cancel：运行中的 generate
- *          先按 runner 落盘的调用 ID 直接取消云端 Modal 调用，再终止本地 shell job，避免云端 GPU 继续烧）。
+ *          先按 runner 落盘的调用 ID 直接取消云端 Modal 调用，再终止本地 shell job，避免云端 GPU 继续烧；拿不到调用 ID 时返回告警而非静默放过）。
  * [POS]: modal-studio 的唯一业务后端；经 manifest contributes.media 向平台注册 modal-cloud provider（每个声明
  *        expose 的 modalapp → 一个平台模型，平台默认生图/生视频路由可指向它，经通用执行桥调用 modal.generate），
  *        其余能力经本 App 的 api/mcp operation（modal.generate/modal.save 等 capability:true）暴露。任务并发：运行（generate）与部署（deploy）
@@ -301,6 +303,8 @@ function projectModalapps(ctx, registry, states) {
       gpuTiers: a.gpuTiers || { default: "T4", options: [] },
       concurrency: a.concurrency || {},
       weights: a.weights || {}, profileId: a.profileId || "",
+      // 逐产物就绪声明（key/volume/marker）与每个函数所需产物：就绪度据此逐项判定。
+      artifacts: a.artifacts || [], requires: a.requires || {},
       functions: (a.functions || []).map((f) => ({
         id: f.id, label: f.label || f.id, entrypoint: f.entrypoint, output: f.output || { kind: "image", mimeType: "image/png", ext: "png" },
         formSchema: f.formSchema || [], defaultParams: f.defaultParams || {}, minReferences: f.minReferences || 0,
@@ -308,18 +312,64 @@ function projectModalapps(ctx, registry, states) {
       }))
     };
     if (!known) return projected;
-    return { ...projected, deployed: st.deployed === true, volumeReady: st.volumeReady === true, stale: st.stale === true };
+    return { ...projected, deployed: st.deployed === true, volumeReady: st.volumeReady === true, stale: st.stale === true, assets: st.assets || null };
   });
 }
 
+// 某函数所需产物键：预设包在 engine.requires 里逐函数声明；缺省按基础权重。
+function requiredAssets(modalapp, fnId) {
+  const requires = modalapp.requires || {};
+  const keys = requires[fnId];
+  return Array.isArray(keys) && keys.length ? keys : ["weights"];
+}
+
+// 缺失的产物键：assets 未探测（null）时不拦——与界面「未知不误报」一致；已探明为 false 才算缺失。
+function missingAssets(modalapp, fnId) {
+  const assets = modalapp.assets;
+  if (!assets || typeof assets !== "object") return [];
+  return requiredAssets(modalapp, fnId).filter((key) => assets[key] === false);
+}
+
 // models 是 modalapps 的平台模型就绪投影（供 app_media_bridge 的动态就绪面按 expose.model 匹配）：
-// 只有 deployed && volumeReady 时才 ready，平台据此把该模型标记为可用（"一旦 available 就注册"）。
+// 只有 deployed && 就绪产物齐备时才 ready，平台据此把该模型标记为可用（"一旦 available 就注册"）。
+// 就绪产物按 expose.function 判定——离线合并产物缺失时基础权重卷仍是就绪的，只看 volumeReady 会把
+// 「缺合并产物」的模型误报为可用，提交后云端容器起不来（crash-loop）。
 function projectModels(modalapps) {
-  return modalapps.filter((a) => a.expose && a.expose.model).map((a) => ({
-    model: a.expose.model, app: a.expose.model, capability: a.capability, runtime: "modal",
-    label: a.label || a.id, ready: a.deployed === true && a.volumeReady === true,
-    weight: { installed: a.volumeReady === true, sizeGb: (a.weights && a.weights.sizeGb) || 0, source: "", revision: (a.weights && a.weights.revision) || "" }
-  }));
+  return modalapps.filter((a) => a.expose && a.expose.model).map((a) => {
+    const fnId = (a.expose && a.expose.function) || (a.functions && a.functions[0] && a.functions[0].id) || "";
+    const ready = a.deployed === true && a.volumeReady === true && missingAssets(a, fnId).length === 0;
+    return {
+      model: a.expose.model, app: a.expose.model, capability: a.capability, runtime: "modal",
+      label: a.label || a.id, ready,
+      weight: { installed: a.volumeReady === true, sizeGb: (a.weights && a.weights.sizeGb) || 0, source: "", revision: (a.weights && a.weights.revision) || "" }
+    };
+  });
+}
+
+// 提交前就绪度预检：目标函数所需产物（基础权重 / LoRA / 离线合并）缺失时直接拒绝，**不创建云端容器**。
+// 云端函数在 @modal.enter(snap=True) 里检查这些前置，缺产物时容器会反复起不来（Modal 判定
+// crash-looping 并重建容器，烧 GPU 且错误不落地）。只在预设包声明了逐产物就绪（artifacts）时才探测，
+// 未声明的预设包不额外增加提交延迟。探测失败（拿不到状态）不拦——与界面「未知不误报」一致。
+function assertAssetsReady(ctx, modalapp, fn) {
+  const declares = Array.isArray(modalapp.artifacts) && modalapp.artifacts.length > 0;
+  if (!declares || !fn) return;
+  const userRoot = (ctx.paths && ctx.paths.appFilesRoot) || "";
+  const args = ["status", "--profile", defaultProfileId(ctx), "--modalapp", modalapp.id];
+  if (userRoot) args.push("--user-root", userRoot);
+  let state = null;
+  try { state = (run(ctx, args, 60).modalapps || {})[modalapp.id] || null; } catch (_) { state = null; }
+  if (!state) return;
+  if (state.deployed === false) {
+    throw new Error(tr(ctx, `预设包 ${modalapp.id} 尚未部署：请先「准备（部署 + 权重）」后再运行。`, `${modalapp.id} is not deployed yet; run "Prepare (deploy + weights)" first.`));
+  }
+  const missing = missingAssets({ ...modalapp, assets: state.assets || null }, fn.id);
+  if (missing.length) {
+    throw new Error(tr(
+      ctx,
+      `预设包 ${modalapp.id} 的就绪产物缺失（${missing.join("、")}）：请先「准备（部署 + 权重）」完成合并后再运行。`,
+      `${modalapp.id} is missing prepared artifacts (${missing.join(", ")}); run "Prepare (deploy + weights)" first.`
+    ));
+  }
 }
 
 function buildCatalog(ctx) {
@@ -352,7 +402,7 @@ function statusSnapshot(ctx) {
 function snapshotStates(modalapps) {
   if (Array.isArray(modalapps)) {
     return Object.fromEntries(modalapps.filter((a) => a && a.id).map((a) => [a.id, {
-      deployed: a.deployed === true, volumeReady: a.volumeReady === true, stale: a.stale === true,
+      deployed: a.deployed === true, volumeReady: a.volumeReady === true, stale: a.stale === true, assets: a.assets || null,
     }]));
   }
   return modalapps && typeof modalapps === "object" ? modalapps : {};
@@ -456,13 +506,31 @@ function closeTaskById(ctx, taskID, state, error) {
   ctx.sqlite.execute("update modal_tasks set state = ?, error = ?, resolved_at = ? where id = ?", [state, error || "", new Date().toISOString(), taskID]);
 }
 
+// 从任务日志尾部提炼一条可读的失败原因：优先最近的错误行（crash-loop / RuntimeError / Traceback…），
+// 否则退回最后一行。终态 failed 的任务用它替代「exit status 1」这种无信息量的 shell 报错。
+function errorFromLogs(ctx, shellJobID, fallback) {
+  let logs = [];
+  try { logs = ctx.shell.logs(shellJobID) || []; } catch (_) { logs = []; }
+  const lines = logs.map((entry) => String(entry.text || "")).map((line) => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (/crash-looping|RuntimeError|Traceback|Error|错误|失败|异常/.test(lines[index])) return lines[index];
+  }
+  return lines[lines.length - 1] || fallback || "unknown error";
+}
+
 function settleTaskRow(ctx, row) {
   const closeWith = (state, error) => {
-    settleOutput(ctx, row.action, row.record_id, { status: state === "completed" ? "completed" : "failed", error: error || "" });
+    // 失败/中断时用日志里最后一条有信息量的错误替代空泛 shell 报错；完成/取消不做
+    //（那时的末行只是心跳或收尾，替换反而误导）。这样云端 crash-loop 的错误能落到任务与记录上。
+    let detail = error || "";
+    if ((state === "failed" || state === "interrupted") && row.shell_job_id) {
+      detail = errorFromLogs(ctx, row.shell_job_id, detail);
+    }
+    settleOutput(ctx, row.action, row.record_id, { status: state === "completed" ? "completed" : "failed", error: detail });
     if (state === "completed" && row.action === "generate") applyGenerationMeta(ctx, row.record_id);
-    if (row.action === "deploy" || row.action === "install") noteEnvOutcome(ctx, row, { status: state, error: error || "" });
+    if (row.action === "deploy" || row.action === "install") noteEnvOutcome(ctx, row, { status: state, error: detail });
     const finalState = state === "completed" ? "completed" : state === "cancelled" ? "cancelled" : state === "interrupted" ? "interrupted" : "failed";
-    closeTaskById(ctx, row.id, finalState, error || "");
+    closeTaskById(ctx, row.id, finalState, detail);
   };
   let job;
   try { job = ctx.shell.status(row.shell_job_id); }
@@ -616,15 +684,22 @@ function submitJob(ctx, { action, modalapp = "", fn = "", recordID = "", payload
 // runner 的 SIGTERM handler 与其中的 FunctionCall.cancel() 根本不会执行，云端 GPU 会继续烧。
 // runner 在 spawn 后把 Modal 调用 ID 落在 generations/<recordId>.call_id，这里按 ID 直接发起取消；
 // 失败也只是尽力而为——随后仍会终止本机 shell job，二者互补。
+// 返回一句告警（拿不到调用 ID / 取消请求失败）：此时云端容器可能仍在跑，甚至与下一次调用并存
+// （同一 App 两个容器同时冷启动），必须让用户看得到，而不是静默放过。
 function cancelRemoteCall(ctx, row) {
-  if (row.action !== "generate" || !row.record_id) return;
+  if (row.action !== "generate" || !row.record_id) return "";
   let callId = "";
-  try { callId = String(ctx.files.readText(`generations/${row.record_id}.call_id`) || "").trim(); } catch (_) { return; }
-  if (!callId) return;
+  try { callId = String(ctx.files.readText(`generations/${row.record_id}.call_id`) || "").trim(); } catch (_) { callId = ""; }
+  if (!callId) {
+    return tr(ctx, "未找到云端调用 ID，云端容器可能仍在运行（可用「停止环境」手动收敛）。", "Cloud call id not found; the cloud container may still be running (use \"Stop environment\" to converge).");
+  }
   try {
     const registry = readRegistry(ctx);
     runProfile(ctx, registry, appDef(registry, row.modalapp), ["cancel", "--call-id", callId], 60);
-  } catch (_) { /* 尽力而为：本地 shell cancel 仍会兜底 */ }
+  } catch (_) {
+    return tr(ctx, "云端取消请求未成功，容器可能仍在运行。", "Remote cancel request failed; the container may still be running.");
+  }
+  return "";
 }
 
 function cancelTaskRow(ctx, row) {
@@ -636,9 +711,9 @@ function cancelTaskRow(ctx, row) {
     return { cancelled: true, id: row.id };
   }
   if (row.state === "running" && row.shell_job_id) {
-    cancelRemoteCall(ctx, row);
+    const warning = cancelRemoteCall(ctx, row);
     try { ctx.shell.cancel(row.shell_job_id); } catch (_) { /* 平台已结算时忽略 */ }
-    return { cancelled: true, id: row.id };
+    return warning ? { cancelled: true, id: row.id, warning } : { cancelled: true, id: row.id };
   }
   return { cancelled: false };
 }
@@ -1216,6 +1291,8 @@ function generate(input, ctx) {
   if (!target.platform && requireCostConfirm(ctx) && input.confirmCost !== true) {
     throw new Error(tr(ctx, "云端 GPU 调用会消耗 Modal 额度，请显式传入 confirmCost: true 确认后重试。", "Cloud GPU calls consume Modal credits; pass confirmCost: true to confirm."));
   }
+  // 提交前预检就绪产物（缺离线合并产物时云端容器会 crash-loop，且错误不落地）——不满足就直接拒绝，不派发。
+  assertAssetsReady(ctx, modalapp, fn);
   const baseParams = (input.params && typeof input.params === "object") ? input.params : input;
   // 平台执行桥把提示词与表单参数分开传（prompt + params）；App 内调用则直接用 params/表单字段。
   const rawParams = (value(input, "prompt") && baseParams.prompt === undefined) ? { ...baseParams, prompt: value(input, "prompt") } : baseParams;

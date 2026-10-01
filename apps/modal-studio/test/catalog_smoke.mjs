@@ -118,5 +118,51 @@ const READY_STATES = {
   check("S4 未部署 → volumeReady=false（快照携带明确状态）", st.modalapps["minimax-h3"].deployed === false && st.modalapps["minimax-h3"].volumeReady === false);
 }
 
+// S5：逐产物就绪 —— 缺离线合并产物时模型 ready=false（只看 volumeReady 会把它误报为可用）
+{
+  const w = makeWorld({
+    "minimax-h3-turbo": {
+      deployed: true, volumeReady: true, stale: false,
+      assets: { weights: true, adapters: true, mergedFl2va: true, mergedRef2va: false },
+    },
+  });
+  const cat = ops["modal.catalog"]({}, w.ctx);
+  const turbo = cat.models.find((m) => m.model === "minimax-h3-turbo");
+  check("S5 缺离线合并产物 → 模型 ready=false", turbo.ready === false);
+  check("S5 基础权重仍上报 installed=true", turbo.weight.installed === true);
+  check("S5 就绪产物随快照回放（regions 保留 assets）", ops["modal.overview"]({}, w.ctx).snapshot?.modalapps?.["minimax-h3-turbo"]?.assets?.mergedRef2va === false);
+}
+
+// S6：提交前预检 —— 目标函数所需产物缺失时直接拒绝，不派发任务（不创建云端容器）
+{
+  const w = makeWorld({
+    "minimax-h3-turbo": {
+      deployed: true, volumeReady: true, stale: false,
+      assets: { weights: true, adapters: true, mergedFl2va: true, mergedRef2va: false },
+    },
+  });
+  let error = "";
+  try {
+    ops["modal.generate"]({ modalapp: "minimax-h3-turbo", function: "reference-to-video", params: { prompt: "x" }, confirmCost: true, origin: "manual" }, w.ctx);
+  } catch (e) { error = String((e && e.message) || e); }
+  check("S6 缺产物 → modal.generate 直接拒绝（提示缺 mergedRef2va）", error.includes("mergedRef2va"));
+  check("S6 拒绝发生在派发前（不拉起 Python 任务）", w.calls.python === 0);
+}
+
+// S7：产物齐备时预检放行（继续走原有提交路径）
+{
+  const w = makeWorld({
+    "minimax-h3-turbo": {
+      deployed: true, volumeReady: true, stale: false,
+      assets: { weights: true, adapters: true, mergedFl2va: true, mergedRef2va: true },
+    },
+  });
+  let error = "";
+  try {
+    ops["modal.generate"]({ modalapp: "minimax-h3-turbo", function: "reference-to-video", params: { prompt: "x" }, confirmCost: true, origin: "manual" }, w.ctx);
+  } catch (e) { error = String((e && e.message) || e); }
+  check("S7 产物齐备 → 预检放行（不再报缺产物）", !error.includes("mergedRef2va"));
+}
+
 console.log(failures ? `\n${failures} failing` : "\nall checks passed");
 process.exit(failures ? 1 : 0);

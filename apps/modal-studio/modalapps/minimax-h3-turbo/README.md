@@ -50,7 +50,7 @@ sglang 会把 GPU 上**所有线性层**换成 `*WithLoRA` 包裹层（`Converte
 | **8 步合并路径（lightx2v，本包现用）** | RTX PRO 6000 / fp8：5s / 1344×768 / **8 次去噪 = 124.9s/片**（含解码，峰值 48.8 GiB）。相对 base 50 步（≈8–12min）**约 4–6×**；首次调用 wall-clock ≈16min（一次性建快照） |
 
 > **Ref2VA 权重是硬前置**：共享卷若只下过 FL2VA，会缺 `Ref2VA/{tokenizer,video_vae,transformer}`，SGLang 启动即失败（`ValueError: Model directory .../Ref2VA is missing required component directories`）。先 `modal.install` 让 `bootstrap_weights` 补下 Ref2VA（写 v2 标记）。`_ensure_server` 现已对该情况**提前报可执行错误**，不再抛出晦涩的 sglang traceback。
-> **容量排队**：RTX PRO 6000（SM120）档在 Modal 上可能长时间排队（`waiting to be scheduled on a GPU_RTX_PRO_6000 worker`），表现为**调用挂起**而非报错；需要立刻验证时可临时用 H200/B200 档。
+> **前置产物缺失不该变成 crash-loop**：`/merged/ref2va-transformer`、`/merged/transformer`（以及 Ref2VA 权重分区）都是**确定性**前置。若只把它们直接抛在 `@modal.enter(snap=True)` 里，Modal 会把异常当作容器启动失败并**反复重建容器**（`Function ... is crash-looping: containers are repeatedly failing to start.`），每个新容器都重新尝试建 GPU 快照——空烧 GPU，而错误只留在容器日志里。因此本包：`_assert_ready()` 在**方法体**（`generate_video`）先断言（错误归属这一次调用，直接返回本机）；`start()` 捕获 `PrereqError` 后放行（容器正常起来）；类设 `retries=0`。App 侧另有预检（`engine.artifacts` / `engine.requires`）：产物缺失时界面显示未就绪、提交被拦、**不创建云端容器**。
 
 ## 与另外两个预设包的关系
 
@@ -104,7 +104,7 @@ sglang serve --model-path /models/MiniMax-H3 --model-variant fl2va \
 
 ## GPU 快照
 
-`H3Turbo` 与 `H3TurboRef` 都开启 `enable_memory_snapshot=True` + `experimental_options={"enable_gpu_snapshot": True}`，`@modal.enter(snap=True)` 内 `_ensure_server()` + 形状预热。首次运行会创建快照（较慢，一次性），之后冷启动从快照秒级恢复。改了代码 / 镜像 / serve flags 会自动重建快照。
+`H3Turbo` 与 `H3TurboRef` 都开启 `enable_memory_snapshot=True` + `experimental_options={"enable_gpu_snapshot": True}`，`@modal.enter(snap=True)` 内 `_ensure_server()` + 形状预热。首次运行会创建快照（较慢，一次性），之后冷启动从快照秒级恢复。改了代码 / 镜像 / serve flags 会自动重建快照。两个类都设 `retries=0`：容器/调用失败只报一次，不因确定性错误反复重建（见上方「前置产物缺失不该变成 crash-loop」）。
 
 > Modal 限制：GPU memory snapshot **不支持多 GPU Function**，所以本包只做单卡；多卡走 `minimax-h3`。
 

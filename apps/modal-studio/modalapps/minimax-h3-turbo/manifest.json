@@ -114,7 +114,46 @@
           "HF_TOKEN"
         ]
       }
-    ]
+    ],
+    "artifacts": [
+      {
+        "key": "weights",
+        "volume": "recut-minimax-h3-models",
+        "marker": ".recut-download-complete"
+      },
+      {
+        "key": "adapters",
+        "volume": "recut-minimax-h3-turbo-adapters",
+        "marker": ".recut-adapters-complete"
+      },
+      {
+        "key": "mergedFl2va",
+        "volume": "recut-minimax-h3-turbo-merged",
+        "marker": ".recut-merge-complete"
+      },
+      {
+        "key": "mergedRef2va",
+        "volume": "recut-minimax-h3-turbo-merged",
+        "marker": ".recut-merge-ref2va-complete"
+      }
+    ],
+    "requires": {
+      "text-to-video": [
+        "weights",
+        "adapters",
+        "mergedFl2va"
+      ],
+      "first-last-frame": [
+        "weights",
+        "adapters",
+        "mergedFl2va"
+      ],
+      "reference-to-video": [
+        "weights",
+        "adapters",
+        "mergedRef2va"
+      ]
+    }
   },
   "weights": {
     "bootstrapFunction": "bootstrap_weights",
