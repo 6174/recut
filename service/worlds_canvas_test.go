@@ -1313,3 +1313,96 @@ func TestCanvasEdgeLinkedAttrSyncsToEntity(t *testing.T) {
 		t.Fatal("canvas element should persist even when its attr sync fails")
 	}
 }
+
+// AI-placed cards without explicit geometry must anchor to the content already
+// on the canvas instead of the world origin: otherwise a card lands at (40,40)
+// while the content it links to sits far away, producing edges that span the
+// whole canvas.
+func TestCanvasPlacementAnchorsToExistingContent(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+	far, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "远景"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worlds.UpdateCanvasDocumentOps(worldID, "", []CanvasDocOp{{Op: "insert", Element: &UpsertCanvasElementInput{
+		WorldID: worldID, Kind: "entity", RefKind: "entity", RefID: far.ID,
+		Geometry: map[string]any{"x": 2000, "y": 1500},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	next, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "新卡"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := worlds.UpdateCanvasDocumentOps(worldID, "", []CanvasDocOp{{Op: "insert", Element: &UpsertCanvasElementInput{
+		WorldID: worldID, Kind: "entity", RefKind: "entity", RefID: next.ID,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card WorldCanvasElement
+	for _, element := range doc.Elements {
+		if element.RefID == next.ID {
+			card = element
+		}
+	}
+	x, _ := numericGeometry(card.Geometry["x"])
+	y, _ := numericGeometry(card.Geometry["y"])
+	if x <= 2000 || y < 1500 {
+		t.Fatalf("new card must land beside existing content, got (%v,%v)", x, y)
+	}
+	if width, _ := numericGeometry(card.Geometry["width"]); width != 264 {
+		t.Fatalf("entity card should still get the default size, got %#v", card.Geometry)
+	}
+	// Explicit geometry always wins.
+	placed, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "手放"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err = worlds.UpdateCanvasDocumentOps(worldID, "", []CanvasDocOp{{Op: "insert", Element: &UpsertCanvasElementInput{
+		WorldID: worldID, Kind: "entity", RefKind: "entity", RefID: placed.ID,
+		Geometry: map[string]any{"x": 10, "y": 20},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, element := range doc.Elements {
+		if element.RefID != placed.ID {
+			continue
+		}
+		x, _ := numericGeometry(element.Geometry["x"])
+		y, _ := numericGeometry(element.Geometry["y"])
+		if x != 10 || y != 20 {
+			t.Fatalf("explicit geometry must win, got (%v,%v)", x, y)
+		}
+	}
+}
+
+// A node pointing at a neighbor anchors to that neighbor, not to the union of
+// all content (which could be far across the canvas).
+func TestPlaceCanvasElementPrefersNeighborAnchor(t *testing.T) {
+	existing := []WorldCanvasElement{
+		{ID: "shape:a", Kind: "entity", Geometry: map[string]any{"x": 1000, "y": 1000, "width": float64(264), "height": float64(328)}},
+		{ID: "shape:b", Kind: "entity", Geometry: map[string]any{"x": 3000, "y": 3000, "width": float64(264), "height": float64(328)}},
+	}
+	next := WorldCanvasElement{ID: "shape:c", Kind: "entity", Props: map[string]any{"fromElementId": "shape:a"}}
+	placeCanvasElement(&next, existing, nil)
+	x, _ := numericGeometry(next.Geometry["x"])
+	y, _ := numericGeometry(next.Geometry["y"])
+	if x != 1000+264+40 || y != 1000 {
+		t.Fatalf("want neighbor anchor (1304,1000), got (%v,%v)", x, y)
+	}
+}
+
+// Edges derive their geometry from their endpoints; placement must not invent a
+// box for them.
+func TestPlaceCanvasElementSkipsEdges(t *testing.T) {
+	next := WorldCanvasElement{ID: "shape:arrow", Kind: "arrow", Props: map[string]any{"fromElementId": "shape:a", "toElementId": "shape:b"}}
+	placeCanvasElement(&next, []WorldCanvasElement{
+		{ID: "shape:a", Kind: "entity", Geometry: map[string]any{"x": 0, "y": 0, "width": float64(264), "height": float64(328)}},
+	}, nil)
+	if _, ok := next.Geometry["x"]; ok {
+		t.Fatalf("edges should not get a default position, got %#v", next.Geometry)
+	}
+}

@@ -192,18 +192,69 @@ function resolveBlockSelection(
 // 实体类型 → 卡片描边色；色值真源在 graph-theme（与画布 block / 面板同源），此处转出。
 export { ENTITY_TYPE_COLORS as typeColors } from "@/lib/pomelo/world-canvas/graph-theme";
 
-export function gridPosition(index: number): Point {
-  return { x: 40 + (Math.max(0, index) % 4) * 300, y: 40 + Math.floor(Math.max(0, index) / 4) * 260 };
+// 元素默认落位：贴到已有内容（或指定锚点元素）右侧的网格带里，而不是世界原点网格——
+// 与 service 的 placeCanvasElement 同构，避免兜底落点与内容相距很远、连线被拉长。
+type PlacementRect = { x: number; y: number; width: number; height: number };
+
+function placementRectOf(element: WorldCanvasElement): PlacementRect | null {
+  const x = Number(element.geometry?.x);
+  const y = Number(element.geometry?.y);
+  const width = Number(element.geometry?.width);
+  const height = Number(element.geometry?.height);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  return { x, y, width, height };
 }
 
-// 画布元素位置：已持久化几何优先，否则按 gridPosition 兜底。
+function placementOverlaps(candidate: PlacementRect, rect: PlacementRect): boolean {
+  return (
+    candidate.x < rect.x + rect.width &&
+    candidate.x + candidate.width > rect.x &&
+    candidate.y < rect.y + rect.height &&
+    candidate.y + candidate.height > rect.y
+  );
+}
+
+export function placementPosition(elements: WorldCanvasElement[], size: { width: number; height: number }, anchorId?: string): Point {
+  const placed = elements
+    .map((element) => ({ id: element.id, rect: placementRectOf(element) }))
+    .filter((entry): entry is { id: string; rect: PlacementRect } => entry.rect !== null);
+  if (placed.length === 0) return { x: 40, y: 40 };
+  const anchor =
+    placed.find((entry) => entry.id === anchorId)?.rect ??
+    placed.reduce<PlacementRect>((bounds, entry) => {
+      const minX = Math.min(bounds.x, entry.rect.x);
+      const minY = Math.min(bounds.y, entry.rect.y);
+      const maxX = Math.max(bounds.x + bounds.width, entry.rect.x + entry.rect.width);
+      const maxY = Math.max(bounds.y + bounds.height, entry.rect.y + entry.rect.height);
+      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }, placed[0].rect);
+  const gap = 40;
+  const startX = anchor.x + anchor.width + gap;
+  const startY = anchor.y;
+  for (let row = 0; row < 256; row += 1) {
+    for (let column = 0; column < 4; column += 1) {
+      const candidate = { x: startX + column * (size.width + gap), y: startY + row * (size.height + gap), ...size };
+      if (!placed.some((entry) => placementOverlaps(candidate, entry.rect))) {
+        return { x: Math.round(candidate.x), y: Math.round(candidate.y) };
+      }
+    }
+  }
+  return { x: Math.round(startX), y: Math.round(startY) };
+}
+
+// 画布元素位置：已持久化几何优先，否则按 placementPosition 贴到已有内容旁兜底。
 // （文档粒度存储后，位置就是元素在本文档 geometry 里的字段，无需分层读写）
-export function elementPosition(elements: WorldCanvasElement[], id: string, fallbackIndex = 0): Point {
+export function elementPosition(elements: WorldCanvasElement[], id: string): Point {
   const element = elements.find((item) => item.id === id);
   const x = Number(element?.geometry?.x);
   const y = Number(element?.geometry?.y);
   if (element && Number.isFinite(x) && Number.isFinite(y)) return { x, y };
-  return gridPosition(fallbackIndex);
+  const width = Number(element?.geometry?.width);
+  const height = Number(element?.geometry?.height);
+  return placementPosition(elements, {
+    width: Number.isFinite(width) && width > 0 ? width : DEFAULT_ENTITY_SIZE.width,
+    height: Number.isFinite(height) && height > 0 ? height : DEFAULT_ENTITY_SIZE.height,
+  });
 }
 
 // 导入 bundle 的画布元素：实体元素沿用源世界 id（`shape:<sourceId>`，refId 才做世界命名空间），
@@ -1615,7 +1666,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         await get().refreshRevision();
         return run(get().revisionId);
       });
-      const pos = opts.pos ?? gridPosition(get().elements.length);
+      const pos = opts.pos ?? placementPosition(get().elements, DEFAULT_ENTITY_SIZE);
       await get().upsertElement({
         id: `shape:${entity.id}`,
         contextId: get().elementsContextId,
@@ -2546,7 +2597,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           refId: entityId,
           name: entity.name,
           props: { collapsed: false },
-          geometry: { ...gridPosition(state.elements.length), ...DEFAULT_ENTITY_SIZE, zIndex: 1 },
+          geometry: { ...placementPosition(state.elements, DEFAULT_ENTITY_SIZE), ...DEFAULT_ENTITY_SIZE, zIndex: 1 },
           style: {},
           layer: "0",
         });

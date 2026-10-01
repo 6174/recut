@@ -3,8 +3,9 @@
  * 与 checkWritable/summary 协议
  * [OUTPUT]: 对外提供文档粒度画布能力面（RFC 2026-09-09）：GetCanvasDocument（读 + 惰性迁移 + 懒创建）、
  * SaveCanvasDocument（整包保存 + version 乐观锁）、ListCanvasDocuments（文档索引）、UpdateCanvasDocumentOps
- * （元素级 ops 操作面，AI/MCP 用：实体卡只给 refId 即补 shape:<entityId>/名称/默认几何，非实体元素补默认几何，
- * 并提供 canvasLayoutSummary 只读回执）；并承载语义侧的画布联动（promote 投影写回、实体删除投影清理、
+ * （元素级 ops 操作面，AI/MCP 用：实体卡只给 refId 即补 shape:<entityId>/名称/默认几何；无 x/y 的元素按
+ * canvasPlacementAnchor 贴到已有内容/被指向的邻居旁，而非原点网格；并提供 canvasLayoutSummary 只读回执）；
+ * 并承载语义侧的画布联动（promote 投影写回、实体删除投影清理、
  * attr 投影同步、fork 文档复制）；元素级 ops 写入 attr/media 元素时同步写回 entity.attrs（refId+field+value 锚点
  * 或 edgeType=attr 属性边关联模型，见 syncCanvasAttrElement），使 AI 只写画布也能落进右侧属性面板
  * [POS]: service 的 World Canvas 文档存储层；world_canvas element 级表保留只读作迁移源，30 天后清理
@@ -16,6 +17,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -265,31 +267,198 @@ func canvasElementByID(elements []WorldCanvasElement, elementID string) (WorldCa
 	return WorldCanvasElement{}, false
 }
 
-// fillCanvasElementGeometry fills the frontend-mirrored defaults an AI-placed
-// element needs to render like an interactively-created one: entity cards get
-// 264x328 (RFC 统一 Entity 模型 card size) and a grid slot when x/y are absent.
-// Explicit geometry always wins, so partial updates (e.g. only x/y) are safe.
-func fillCanvasElementGeometry(element *WorldCanvasElement, index int) {
+// Canvas placement defaults. AI-placed elements without explicit geometry are
+// anchored to the content already on the canvas (and, when they point at a
+// neighbor, to that neighbor) instead of a fixed origin grid: otherwise a card
+// lands at the world origin while the content it links to sits far away,
+// producing edges that fly across the whole canvas.
+const (
+	canvasEntityCardWidth  = 264
+	canvasEntityCardHeight = 328
+	canvasPlacementGap     = 40
+	canvasPlacementColumns = 4
+)
+
+// canvasRect is a placed element's world-space box (anchoring / overlap math).
+type canvasRect struct {
+	x      float64
+	y      float64
+	width  float64
+	height float64
+}
+
+// canvasElementRect returns the element's box only when it carries full, usable
+// geometry. Elements without a size (arrow/link edges derive theirs from their
+// endpoints) are skipped, so they never count as content to anchor against.
+func canvasElementRect(element WorldCanvasElement) (canvasRect, bool) {
+	x, okX := numericGeometry(element.Geometry["x"])
+	y, okY := numericGeometry(element.Geometry["y"])
+	width, okW := numericGeometry(element.Geometry["width"])
+	height, okH := numericGeometry(element.Geometry["height"])
+	if !okX || !okY || !okW || !okH || width <= 0 || height <= 0 {
+		return canvasRect{}, false
+	}
+	return canvasRect{x: x, y: y, width: width, height: height}, true
+}
+
+// canvasContentBounds is the union box of every placed element; ok=false when
+// the document has no placeable content yet.
+func canvasContentBounds(elements []WorldCanvasElement) (canvasRect, bool) {
+	var bounds canvasRect
+	found := false
+	for _, element := range elements {
+		rect, ok := canvasElementRect(element)
+		if !ok {
+			continue
+		}
+		if !found {
+			bounds = rect
+			found = true
+			continue
+		}
+		minX := math.Min(bounds.x, rect.x)
+		minY := math.Min(bounds.y, rect.y)
+		maxX := math.Max(bounds.x+bounds.width, rect.x+rect.width)
+		maxY := math.Max(bounds.y+bounds.height, rect.y+rect.height)
+		bounds = canvasRect{x: minX, y: minY, width: maxX - minX, height: maxY - minY}
+	}
+	return bounds, found
+}
+
+// canvasElementSize is the box used for placement math: the element's own size
+// when present, else the unified entity-card default.
+func canvasElementSize(element *WorldCanvasElement) (float64, float64) {
+	width, okW := numericGeometry(element.Geometry["width"])
+	if !okW || width <= 0 {
+		width = canvasEntityCardWidth
+	}
+	height, okH := numericGeometry(element.Geometry["height"])
+	if !okH || height <= 0 {
+		height = canvasEntityCardHeight
+	}
+	return width, height
+}
+
+// canvasPlacementAnchor prefers the element a new node points at (arrow
+// endpoints, property source) over the fallback bounds, so a linked node lands
+// next to its neighbor instead of at the far edge of the canvas.
+func canvasPlacementAnchor(element *WorldCanvasElement, elements []WorldCanvasElement, fallback canvasRect) canvasRect {
+	for _, key := range []string{"fromElementId", "toElementId", "sourceElementId"} {
+		ref := strings.TrimSpace(stringProp(element.Props, key))
+		if ref == "" {
+			continue
+		}
+		for _, existing := range elements {
+			if existing.ID != ref {
+				continue
+			}
+			if rect, ok := canvasElementRect(existing); ok {
+				return rect
+			}
+		}
+	}
+	return fallback
+}
+
+// firstFreeCanvasSlot scans a grid band starting to the right of the anchor,
+// wrapping every canvasPlacementColumns columns, and returns the first slot that
+// does not overlap a placed element.
+func firstFreeCanvasSlot(anchor canvasRect, width, height float64, occupied []canvasRect) (float64, float64) {
+	startX := anchor.x + anchor.width + canvasPlacementGap
+	startY := anchor.y
+	for row := 0; row < 256; row++ {
+		for column := 0; column < canvasPlacementColumns; column++ {
+			x := startX + float64(column)*(width+canvasPlacementGap)
+			y := startY + float64(row)*(height+canvasPlacementGap)
+			if !canvasRectOverlapsAny(canvasRect{x: x, y: y, width: width, height: height}, occupied) {
+				return math.Round(x), math.Round(y)
+			}
+		}
+	}
+	return math.Round(startX), math.Round(startY)
+}
+
+func canvasRectOverlapsAny(candidate canvasRect, occupied []canvasRect) bool {
+	for _, rect := range occupied {
+		if candidate.x < rect.x+rect.width && candidate.x+candidate.width > rect.x &&
+			candidate.y < rect.y+rect.height && candidate.y+candidate.height > rect.y {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeCanvasGeometry overlays an update's geometry onto the existing element's,
+// so a partial update (e.g. only props) never drops the card's position or size.
+func mergeCanvasGeometry(base, override map[string]any) map[string]any {
+	merged := map[string]any{}
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range override {
+		merged[key] = value
+	}
+	return merged
+}
+
+// placeCanvasElement fills the placement an AI-placed element needs to render
+// like an interactively-created one. Explicit geometry always wins; entity cards
+// default to the unified card size. Every non-edge element without x/y is
+// anchored to the canvas content (see canvasPlacementAnchor) instead of the
+// world origin. batchBounds is the content bounds captured before the current
+// write, so one batch keeps a stable anchor and fills a tidy band.
+func placeCanvasElement(element *WorldCanvasElement, elements []WorldCanvasElement, batchBounds *canvasRect) {
 	if element.Geometry == nil {
 		element.Geometry = map[string]any{}
 	}
-	if element.Kind != "entity" {
+	if element.Kind == "entity" {
+		if _, ok := element.Geometry["width"]; !ok {
+			element.Geometry["width"] = float64(canvasEntityCardWidth)
+		}
+		if _, ok := element.Geometry["height"]; !ok {
+			element.Geometry["height"] = float64(canvasEntityCardHeight)
+		}
+		if _, ok := element.Geometry["zIndex"]; !ok {
+			element.Geometry["zIndex"] = float64(1)
+		}
+	}
+	// Edges derive their geometry from their endpoints; they need no box.
+	if element.Kind == "arrow" || element.Kind == "link" {
 		return
 	}
-	if _, ok := element.Geometry["width"]; !ok {
-		element.Geometry["width"] = float64(264)
+	_, hasX := element.Geometry["x"]
+	_, hasY := element.Geometry["y"]
+	if hasX && hasY {
+		return
 	}
-	if _, ok := element.Geometry["height"]; !ok {
-		element.Geometry["height"] = float64(328)
+	occupied := make([]canvasRect, 0, len(elements))
+	for _, existing := range elements {
+		if rect, ok := canvasElementRect(existing); ok {
+			occupied = append(occupied, rect)
+		}
 	}
-	if _, ok := element.Geometry["x"]; !ok {
-		element.Geometry["x"] = float64(40 + (index%4)*260)
+	fallback, hasAnchor := canvasContentBounds(elements)
+	if batchBounds != nil {
+		fallback, hasAnchor = *batchBounds, true
 	}
-	if _, ok := element.Geometry["y"]; !ok {
-		element.Geometry["y"] = float64(40 + (index/4)*180)
+	if !hasAnchor {
+		// Nothing on the canvas yet: the origin is the only sensible anchor.
+		if !hasX {
+			element.Geometry["x"] = float64(canvasPlacementGap)
+		}
+		if !hasY {
+			element.Geometry["y"] = float64(canvasPlacementGap)
+		}
+		return
 	}
-	if _, ok := element.Geometry["zIndex"]; !ok {
-		element.Geometry["zIndex"] = float64(1)
+	anchor := canvasPlacementAnchor(element, elements, fallback)
+	width, height := canvasElementSize(element)
+	x, y := firstFreeCanvasSlot(anchor, width, height, occupied)
+	if !hasX {
+		element.Geometry["x"] = x
+	}
+	if !hasY {
+		element.Geometry["y"] = y
 	}
 }
 
@@ -415,6 +584,12 @@ func (w *WorldStore) UpdateCanvasDocumentOps(worldID, contextID string, ops []Ca
 		return WorldCanvasDocument{}, err
 	}
 	elements := append([]WorldCanvasElement{}, row.payload.Elements...)
+	// Anchor the whole batch to the content that existed before it, so a run of
+	// inserts lands beside the canvas instead of chasing its own growing bounds.
+	var batchBounds *canvasRect
+	if bounds, ok := canvasContentBounds(elements); ok {
+		batchBounds = &bounds
+	}
 	attrElementIDs := []string{}
 	for _, op := range ops {
 		switch op.Op {
@@ -471,7 +646,14 @@ func (w *WorldStore) UpdateCanvasDocumentOps(worldID, contextID string, ops []Ca
 					return WorldCanvasDocument{}, worldsError(WorldsErrEntityNotFound, "referenced entity does not belong to the world")
 				}
 			}
-			fillCanvasElementGeometry(&element, len(elements))
+			// A partial update keeps the existing box: only props/name changes must
+			// not teleport the card or drop its size.
+			if op.Op == "update" {
+				if existing, ok := canvasElementByID(elements, element.ID); ok {
+					element.Geometry = mergeCanvasGeometry(existing.Geometry, element.Geometry)
+				}
+			}
+			placeCanvasElement(&element, elements, batchBounds)
 			replaced := false
 			for i, existing := range elements {
 				if existing.ID == element.ID {

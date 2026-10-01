@@ -74,12 +74,12 @@ function livePosOf(live: Map<string, { x: number; y: number }> | undefined, canv
 // 实体位置：优先按 `shape:<entityId>` 元素（本文档自己的记录，跨层互不影响）；
 // promote 后元素 id 保留原名但已改绑该实体（refKind=entity + refId），按 refId 兜底找回，
 // 保证提升卡片「原位成卡」而非跳到网格位
-function entityElementPosition(state: ReturnType<typeof useWorldCanvasStore.getState>, entity: WorldEntity, canvasId: string, fallbackIndex: number): Point {
+function entityElementPosition(state: ReturnType<typeof useWorldCanvasStore.getState>, entity: WorldEntity, canvasId: string): Point {
   const element = state.elements.find((item) => item.refKind === "entity" && item.refId === entity.id);
   const x = Number(element?.geometry?.x);
   const y = Number(element?.geometry?.y);
   if (element && Number.isFinite(x) && Number.isFinite(y)) return { x, y };
-  return elementPosition(state.elements, canvasId, fallbackIndex);
+  return elementPosition(state.elements, canvasId);
 }
 
 function buildPomeloRecords(
@@ -98,11 +98,11 @@ function buildPomeloRecords(
   const hiddenEntityIds = new Set(
     state.elements.filter((element) => element.refKind === "entity" && element.props?.hidden).map((element) => String(element.refId)),
   );
-  state.entities.forEach((entity: WorldEntity, index: number) => {
+  state.entities.forEach((entity: WorldEntity) => {
     // 画面删除（T16）：props.hidden 的实体投影不渲染（设定保留，大纲面板可放回）
     if (hiddenEntityIds.has(entity.id)) return;
     const canvasId = `shape:${entity.id}`;
-    const pos = livePosOf(liveGeometry, canvasId) ?? entityElementPosition(state, entity, canvasId, index);
+    const pos = livePosOf(liveGeometry, canvasId) ?? entityElementPosition(state, entity, canvasId);
     const element = state.elements.find((item) => item.id === canvasId);
     const liveSize = liveSizes.get(canvasId);
     const cover = entityCoverMedia(state.apiBase, entity);
@@ -148,9 +148,9 @@ function buildPomeloRecords(
 
   // 世界根节点不再画在画布上（T17 重构）：全局上下文入口收进 Header icon + 右侧属性面板
 
-  state.elements.forEach((element: WorldCanvasElement, index: number) => {
+  state.elements.forEach((element: WorldCanvasElement) => {
     if (element.kind === "entity" || element.id === WORLD_ELEMENT_ID) return;
-    const pos = livePosOf(liveGeometry, element.id) ?? elementPosition(state.elements, element.id, index);
+    const pos = livePosOf(liveGeometry, element.id) ?? elementPosition(state.elements, element.id);
     const liveSize = liveSizes.get(element.id);
     const width = liveSize?.width ?? (Number(element.geometry?.width) || NOTE_SIZE.width);
     const height = liveSize?.height ?? (Number(element.geometry?.height) || NOTE_SIZE.height);
